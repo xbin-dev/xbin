@@ -2799,7 +2799,14 @@ Deviations and refinements made while implementing; all deliberate:
   - **Relay state is bounded**: a snapshot plus an fsynced journal written
     outside the store lock, caps (2M handles, 200k workspaces), retention,
     per-/64 and per-/48 limits, and device tokens verified with a silent
-    push before a handle is stored.
+    push before a handle is stored. Retention includes keys unused for 180
+    days — a key probed once was kept forever, so an anonymous flood could
+    fill the cap for good — and xbind checks its key at start and daily
+    (keeping it; and an environment key, never probed before, reports a
+    forgotten key at once, with a hint for where it comes from). Every
+    limit is a flag, and `-registration-tokens` closes registration to the
+    operator's keys when anonymous opt-ins are abused (not chosen yet for
+    the public relay: proof of work).
   - **Open:** who operates the public relay and at which domain (plan
     decision 13); nothing is deployed, the relay URL is configuration.
 

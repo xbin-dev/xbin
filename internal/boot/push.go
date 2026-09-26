@@ -55,6 +55,9 @@ func (st *State) setupPush(srv *server.Server) error {
 		return err
 	}
 	st.Push = ps
+	// the relay deletes keys nobody uses: a daily check keeps ours (the
+	// environment's included) and says at once when it is gone
+	ps.StartKeyCheck()
 	if st.Broker != nil {
 		// signed out everywhere, disabled or deleted: the devices lose their
 		// pushes with their sessions (a deleted account's preferences go too)

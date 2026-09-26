@@ -2,6 +2,7 @@ package push
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"log/slog"
@@ -96,7 +97,10 @@ type Options struct {
 	Grace     time.Duration
 	QueueSize int // pending notifications before new ones are dropped (0 = 256)
 	Workers   int // concurrent relay posts (0 = 2)
-	Log       *slog.Logger
+	// KeyCheck is how often StartKeyCheck asks the relay whether it still
+	// knows the key in force (0 = daily; negative = never).
+	KeyCheck time.Duration
+	Log      *slog.Logger
 }
 
 // Service is the push plane of one workspace.
@@ -113,6 +117,12 @@ type Service struct {
 
 	mu   sync.Mutex
 	held map[string]*time.Timer // agent requests inside their grace period
+
+	// the last key check (StartKeyCheck): when, and what went wrong ("" ok)
+	keyAt  int64
+	keyErr string
+	done   chan struct{}
+	closed sync.Once
 }
 
 // New opens the store and starts the sender.
@@ -142,15 +152,17 @@ func New(o Options) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Service{o: o, st: st, held: map[string]*time.Timer{},
+	s := &Service{o: o, st: st, held: map[string]*time.Timer{}, done: make(chan struct{}),
 		tile: newLimiter(o.Limits.Tile, o.Now), user: newLimiter(o.Limits.User, o.Now), agent: newLimiter(o.Limits.Agent, o.Now),
 		sess: newLimiter(o.Limits.Session, o.Now), self: newLimiter(o.Limits.Test, o.Now), reg: newLimiter(o.Limits.Register, o.Now)}
 	s.snd = newSender(s)
 	return s, nil
 }
 
-// Close stops the sender; queued notifications are dropped.
+// Close stops the sender and the key check; queued notifications are
+// dropped.
 func (s *Service) Close() {
+	s.closed.Do(func() { close(s.done) })
 	s.mu.Lock()
 	for k, t := range s.held {
 		t.Stop()
@@ -206,6 +218,64 @@ func (s *Service) currentEpoch() string {
 		return ""
 	}
 	return epoch(c.Key)
+}
+
+// StartKeyCheck asks the relay, now and then every Options.KeyCheck
+// (daily), whether it still knows the key in force (GET /v1/workspace).
+// The relay deletes keys nobody uses (relay/README.md §Capacity), and a
+// workspace may wait weeks for its first device: each check counts as a
+// use, and a key the relay forgot shows in GET /push/config (keyError) and
+// the log at once instead of at the first push.
+func (s *Service) StartKeyCheck() {
+	every := s.o.KeyCheck
+	if every == 0 {
+		every = 24 * time.Hour
+	}
+	if every < 0 {
+		return
+	}
+	go func() {
+		for {
+			s.checkKey()
+			select {
+			case <-s.done:
+				return
+			case <-time.After(every):
+			}
+		}
+	}()
+}
+
+func (s *Service) checkKey() {
+	c, _ := s.relayConfig()
+	if c == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	_, code, err := s.probeKey(ctx, c.URL, c.Key)
+	msg := ""
+	switch {
+	case code == http.StatusUnauthorized:
+		msg = "the relay does not know this workspace's key — " + s.badKeyHint()
+		s.snd.noteErr(msg)
+		s.o.Log.Warn("push: the relay does not know this workspace's key; no notification can be delivered", "relay", c.URL, "fix", s.badKeyHint())
+	case err != nil:
+		msg = "checking the key with the relay: " + err.Error()
+		s.o.Log.Info("push: could not check the relay key", "relay", c.URL, "err", err)
+	}
+	s.mu.Lock()
+	s.keyAt, s.keyErr = s.o.Now().Unix(), msg
+	s.mu.Unlock()
+}
+
+// badKeyHint says how to recover from a relay that forgot the key, by
+// where the key comes from.
+func (s *Service) badKeyHint() string {
+	if _, src := s.storedRelay(); src == "env" {
+		return "mint a new key (POST <relay>/v1/workspaces) and set XBIN_PUSH_RELAY_KEY to it (docs/config.md)"
+	}
+	return "PUT /api/xbin/push/config {rotate:true} registers anew (every app then renews its handle on its own)"
 }
 
 // ForgetDevice drops a device's registration (device login calls it when a

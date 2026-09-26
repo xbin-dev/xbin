@@ -25,6 +25,7 @@ package relay
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -70,10 +71,17 @@ type Config struct {
 	// Capacity and retention (zero = the Default* values): at most
 	// MaxHandles handles and MaxWorkspaces workspaces (then 503 "full");
 	// handles no workspace pushed to within UnboundHandleTTL, handles idle
-	// for IdleHandleTTL and workspace keys never used within
-	// UnusedWorkspaceTTL are deleted.
-	MaxHandles, MaxWorkspaces                           int
-	UnboundHandleTTL, IdleHandleTTL, UnusedWorkspaceTTL time.Duration
+	// for IdleHandleTTL, workspace keys never used within
+	// UnusedWorkspaceTTL and keys unused (no push, no GET /v1/workspace)
+	// for IdleWorkspaceTTL are deleted.
+	MaxHandles, MaxWorkspaces                                             int
+	UnboundHandleTTL, IdleHandleTTL, UnusedWorkspaceTTL, IdleWorkspaceTTL time.Duration
+	// RegistrationTokens, when set, close POST /v1/workspaces to anyone
+	// without one of them (Authorization: Bearer) — an operator's lever
+	// when anonymous registrations are abused; workspace keys are then
+	// minted by the operator and given to xbind (PUT /api/xbin/push/config
+	// {key}, or XBIN_PUSH_RELAY_KEY).
+	RegistrationTokens []string
 	// Expiry is how long APNs keeps an undelivered notification (default 24h).
 	Expiry time.Duration
 	Now    func() time.Time
@@ -96,6 +104,7 @@ var (
 const (
 	ErrBadRequest      = "bad_request"      // 400: malformed; retrying cannot help
 	ErrBadKey          = "bad_key"          // 401: unknown workspace key
+	ErrRegistration    = "registration"     // 401: this relay registers workspaces only with an operator's token
 	ErrHandleBound     = "handle_bound"     // 403: the handle belongs to another workspace
 	ErrHandleUnknown   = "handle_unknown"   // 404: no such handle (deleted, expired, or never here)
 	ErrHandleGone      = "handle_gone"      // 410: APNs says the device token is dead
@@ -162,7 +171,7 @@ func New(cfg Config) (*Server, error) {
 	st, err := openStore(cfg.StatePath, storeLimits{
 		maxHandles: orInt(cfg.MaxHandles, DefaultMaxHandles), maxWorkspaces: orInt(cfg.MaxWorkspaces, DefaultMaxWorkspaces),
 		unboundTTL: orDur(cfg.UnboundHandleTTL, DefaultUnboundHandleTTL), idleTTL: orDur(cfg.IdleHandleTTL, DefaultIdleHandleTTL),
-		unusedWorkspace: orDur(cfg.UnusedWorkspaceTTL, DefaultUnusedWorkspaceTTL)})
+		unusedWorkspace: orDur(cfg.UnusedWorkspaceTTL, DefaultUnusedWorkspaceTTL), idleWorkspace: orDur(cfg.IdleWorkspaceTTL, DefaultIdleWorkspaceTTL)})
 	if err != nil {
 		return nil, err
 	}
@@ -370,6 +379,15 @@ func (s *Server) handleNewWorkspace(w http.ResponseWriter, r *http.Request) {
 	if ok, wait := s.nwLim.allow(s.clientKey(r, 48)); !ok {
 		tooMany(w, wait, "workspace registration")
 		return
+	}
+	if len(s.cfg.RegistrationTokens) > 0 {
+		tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !slices.ContainsFunc(s.cfg.RegistrationTokens, func(t string) bool {
+			return t != "" && subtle.ConstantTimeCompare([]byte(t), []byte(strings.TrimSpace(tok))) == 1
+		}) {
+			writeErr(w, http.StatusUnauthorized, ErrRegistration, "this relay registers workspaces for its operator only — ask them for a workspace key")
+			return
+		}
 	}
 	if ok, wait := s.awLim.allow(""); !ok {
 		s.cfg.Log.Warn("relay: the global workspace registration limit is reached")

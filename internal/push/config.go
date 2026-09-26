@@ -40,6 +40,8 @@ type configView struct {
 	Devices        int    `json:"devices"`
 	Stale          int    `json:"staleDevices,omitempty"` // registrations waiting for their app to renew the handle
 	Stats          Stats  `json:"stats"`
+	KeyChecked     int64  `json:"keyChecked,omitempty"` // the last daily key check (unix)
+	KeyError       string `json:"keyError,omitempty"`   // what it found wrong ("" = the relay knows the key)
 }
 
 func (s *Service) configView() configView {
@@ -55,6 +57,9 @@ func (s *Service) configView() configView {
 			v.Stale++
 		}
 	}
+	s.mu.Lock()
+	v.KeyChecked, v.KeyError = s.keyAt, s.keyErr
+	s.mu.Unlock()
 	return v
 }
 

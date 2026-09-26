@@ -53,11 +53,12 @@ const (
 	DefaultUnboundHandleTTL   = 30 * 24 * time.Hour  // a handle no workspace ever pushed to
 	DefaultIdleHandleTTL      = 180 * 24 * time.Hour // a handle nothing pushed to for this long
 	DefaultUnusedWorkspaceTTL = 30 * 24 * time.Hour  // a workspace key never used
+	DefaultIdleWorkspaceTTL   = 180 * 24 * time.Hour // a workspace key not used (no push, no key check) for this long
 )
 
 type storeLimits struct {
-	maxHandles, maxWorkspaces            int
-	unboundTTL, idleTTL, unusedWorkspace time.Duration
+	maxHandles, maxWorkspaces                           int
+	unboundTTL, idleTTL, unusedWorkspace, idleWorkspace time.Duration
 }
 
 // store is the relay's whole state in memory, made durable by an
@@ -225,8 +226,10 @@ func hashKey(key string) string {
 
 // sweepLocked drops what the retention rules call abandoned: handles no
 // workspace ever pushed to, handles idle for long, workspace keys never
-// used. full: the store is at capacity (sweep now, but at most once a
-// minute under a flood).
+// used, and workspace keys unused for long (a key used once is not kept
+// forever: xbind checks its key daily, so a live workspace never idles).
+// full: the store is at capacity (sweep now, but at most once a minute
+// under a flood).
 func (s *store) sweepLocked(now time.Time, full bool) []record {
 	since := now.Sub(s.lastSweep)
 	if since < time.Minute || (!full && since < sweepEvery) {
@@ -241,9 +244,9 @@ func (s *store) sweepLocked(now time.Time, full bool) []record {
 			recs = append(recs, s.delH(id))
 		}
 	}
-	unused := int64(s.lim.unusedWorkspace / time.Second)
+	unused, idleWS := int64(s.lim.unusedWorkspace/time.Second), int64(s.lim.idleWorkspace/time.Second)
 	for id, w := range s.st.Workspaces {
-		if w.Used == 0 && t-w.Created > unused {
+		if (w.Used == 0 && t-w.Created > unused) || (w.Used != 0 && t-w.Used > idleWS) {
 			recs = append(recs, s.delW(id))
 		}
 	}

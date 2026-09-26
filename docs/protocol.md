@@ -1760,9 +1760,16 @@ GET    /push/config                      admin. {enabled, source?: env|admin,
                                          defaultRelay?, set?, by?, workspace,
                                          devices, staleDevices?, stats: {queued,
                                          sent, retried, failed, dropped, limited,
-                                         lastError?, lastErrorAt?}} — the key is
-                                         never shown; the relay stays listed
-                                         while push is off
+                                         lastError?, lastErrorAt?}, keyChecked?,
+                                         keyError?} — the key is never shown; the
+                                         relay stays listed while push is off.
+                                         xbind checks the key in force with the
+                                         relay at start and daily (the relay
+                                         deletes keys nobody uses): keyChecked
+                                         is when, keyError what it found (the
+                                         relay forgot the key: for an admin key
+                                         PUT {rotate:true}; for
+                                         XBIN_PUSH_RELAY_KEY a new key)
 PUT    /push/config                      admin. body {relay?, key?, rotate?}:
                                          turn push on. relay: https:// (http only
                                          on localhost; default: the stored relay,

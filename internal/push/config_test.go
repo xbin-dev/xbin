@@ -257,3 +257,50 @@ func TestConfigKeyProbe(t *testing.T) {
 		t.Fatalf("unreachable: %d", code)
 	}
 }
+
+// The key in force is checked with the relay at start and daily (review):
+// a key set through the environment was never checked, the relay deletes
+// keys nobody used within 30 days, and the first push weeks later failed
+// with a hint (PUT {rotate:true}) that answers 409 for an environment key.
+// Now each check counts as a use, a forgotten key shows at once in GET
+// /push/config (keyError), and the hint follows where the key comes from.
+func TestKeyCheck(t *testing.T) {
+	r := newRig(t, func(o *Options) { o.KeyCheck = 10 * time.Millisecond })
+	r.relay.set(func() { r.relay.keys["k1"] = "wsid-env" })
+	r.s.StartKeyCheck()
+	probes := func() int { r.relay.mu.Lock(); defer r.relay.mu.Unlock(); return r.relay.probes }
+	eventually(t, "two key checks", func() bool { return probes() >= 2 })
+	if code, out, _ := r.call(owner, "GET", "/push/config", nil); code != 200 || out["keyChecked"] == nil || out["keyError"] != nil {
+		t.Fatalf("a known key: %d %v", code, out)
+	}
+	r.relay.set(func() { r.relay.revoked["k1"] = true })
+	eventually(t, "the key error", func() bool {
+		_, out, _ := r.call(owner, "GET", "/push/config", nil)
+		e, _ := out["keyError"].(string)
+		return strings.Contains(e, "XBIN_PUSH_RELAY_KEY")
+	})
+	// a push with the forgotten key: the hint names the environment, not PUT
+	r.register(alice, "phone", "handle-alice")
+	r.call(cal, "POST", "/notify", map[string]any{"user": "alice", "title": "x"})
+	eventually(t, "the refusal", func() bool { return r.s.snd.stats().Failed > 0 })
+	if e := r.s.snd.stats().LastError; !strings.Contains(e, "XBIN_PUSH_RELAY_KEY") || strings.Contains(e, "rotate") {
+		t.Fatalf("env key hint: %q", e)
+	}
+	r.s.Close()
+	n := probes()
+	time.Sleep(40 * time.Millisecond)
+	if probes() > n+1 {
+		t.Fatal("the key check outlived Close")
+	}
+
+	// an admin's key: the hint is PUT {rotate:true}
+	a := adminRig(t)
+	if code, _, _ := a.call(owner, "PUT", "/push/config", map[string]any{"relay": a.relay.srv.URL}); code != 200 {
+		t.Fatal(code)
+	}
+	a.relay.set(func() { a.relay.revoked["xbr_fresh"] = true })
+	a.s.checkKey()
+	if _, out, _ := a.call(owner, "GET", "/push/config", nil); !strings.Contains(out["keyError"].(string), "rotate:true") {
+		t.Fatalf("admin key hint: %v", out)
+	}
+}

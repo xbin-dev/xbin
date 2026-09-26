@@ -302,3 +302,40 @@ func TestJournalReplayAndCompaction(t *testing.T) {
 		t.Fatalf("snapshot mode %v", fi.Mode().Perm())
 	}
 }
+
+// A workspace key used once is not kept forever (review: a flood of keys
+// each probed once filled MaxWorkspaces for good). A key unused — no push,
+// no GET /v1/workspace — for IdleWorkspaceTTL goes; one used within it
+// (xbind checks its key daily) stays. The operator can also close
+// registration to their own token.
+func TestIdleWorkspacesAndRegistrationTokens(t *testing.T) {
+	r := newRig(t, func(c *Config) { c.IdleWorkspaceTTL = 100 * time.Hour })
+	idle, live := r.workspace(), r.workspace()
+	for _, k := range []string{idle, live} {
+		if code, _, _ := r.call("GET", "/v1/workspace", k, nil); code != 200 {
+			t.Fatal(code)
+		}
+	}
+	r.advance(60 * time.Hour)
+	if code, _, _ := r.call("GET", "/v1/workspace", live, nil); code != 200 { // the daily key check
+		t.Fatal(code)
+	}
+	r.advance(60 * time.Hour)
+	r.handle(tokenOK) // a registration runs the sweep
+	if code, out, _ := r.call("GET", "/v1/workspace", idle, nil); code != 401 || out["code"] != ErrBadKey {
+		t.Fatalf("a key idle past its TTL: %d %v", code, out)
+	}
+	if code, _, _ := r.call("GET", "/v1/workspace", live, nil); code != 200 {
+		t.Fatalf("a key checked within its TTL: %d", code)
+	}
+
+	r2 := newRig(t, func(c *Config) { c.RegistrationTokens = []string{"op-token"} })
+	for _, tok := range []string{"", "wrong"} {
+		if code, out, _ := r2.call("POST", "/v1/workspaces", tok, nil); code != 401 || out["code"] != ErrRegistration {
+			t.Fatalf("registration with %q: %d %v", tok, code, out)
+		}
+	}
+	if code, out, _ := r2.call("POST", "/v1/workspaces", "op-token", nil); code != 200 || out["key"] == nil {
+		t.Fatalf("registration with the operator's token: %d %v", code, out)
+	}
+}

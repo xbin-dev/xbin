@@ -39,6 +39,10 @@ go build -o xbin-relay ./relay/cmd/xbin-relay
 | `-trust-proxy` | `XBIN_RELAY_TRUST_PROXY` | off | client IP = the last `X-Forwarded-For` hop (registration rate limits) |
 | `-verify-tokens` | `XBIN_RELAY_NO_VERIFY_TOKENS` (set = off) | on | check each device token with APNs before storing a handle (needs `-apns-key`) |
 | `-tls-cert`, `-tls-key` | `XBIN_RELAY_TLS_CERT`, `XBIN_RELAY_TLS_KEY` | — | serve TLS directly; otherwise run behind a TLS proxy |
+| `-registration-tokens` | `XBIN_RELAY_REGISTRATION_TOKENS` | open | comma-separated tokens `POST /v1/workspaces` then requires (see *Capacity and retention*) |
+| `-max-workspaces`, `-max-handles` | `XBIN_RELAY_MAX_WORKSPACES`, `XBIN_RELAY_MAX_HANDLES` | 200 000, 2 000 000 | capacity |
+| `-unused-workspace-ttl`, `-idle-workspace-ttl`, `-unbound-handle-ttl`, `-idle-handle-ttl` | `XBIN_RELAY_UNUSED_WORKSPACE_TTL`, … (Go durations) | 720h, 4320h, 720h, 4320h | retention |
+| `-workspace-rate`, `-handle-rate`, `-refused-push-rate`, `-new-workspace-rate`, `-all-new-workspaces-rate`, `-new-handle-rate` | `XBIN_RELAY_WORKSPACE_RATE`, … | see *Limits* | `PER_HOUR/BURST`, e.g. `10/3` |
 
 APNs authentication is token-based: an ES256 JWT (`kid`, `iss`, `iat`) signed
 with the `.p8` key, reused for 40 minutes (APNs rejects tokens older than an
@@ -108,7 +112,8 @@ with `apns-push-type: alert`, `apns-priority` 10 (or 5 when `priority` is 5),
 |---|---|---|---|
 | 200 | — | delivered to APNs | — |
 | 400 | `bad_request`, `apns_refused` | malformed request, or APNs refused the payload | drop the notification |
-| 401 | `bad_key` | unknown workspace key | drop; the admin re-registers (rotate) |
+| 401 | `bad_key` | unknown workspace key | drop; the admin re-registers (rotate), or sets a new `XBIN_PUSH_RELAY_KEY` |
+| 401 | `registration` | `POST /v1/workspaces` on a relay closed to its operator's tokens | the admin gets a key from the operator |
 | 403 | `handle_bound` | the handle belongs to another workspace | mark the registration `needsNewHandle` |
 | 404 | `handle_unknown` | unknown handle (deleted, expired, never here) | mark the registration `needsNewHandle` |
 | 410 | `handle_gone` | APNs says the device token is dead; every handle of it is deleted | drop the registration |
@@ -159,6 +164,19 @@ is bounded rather than trusted to stay small:
 | a handle no workspace ever pushed to is deleted after | 30 days | `UnboundHandleTTL` |
 | a handle nothing pushed to is deleted after | 180 days | `IdleHandleTTL` |
 | a workspace key never used (no push, no `GET /v1/workspace`) is deleted after | 30 days | `UnusedWorkspaceTTL` |
+| a workspace key unused for (no push, no `GET /v1/workspace`) is deleted after | 180 days | `IdleWorkspaceTTL` |
+
+xbind checks its key (`GET /v1/workspace`) at start and daily, so a
+workspace in use never idles; one that stops running for half a year loses
+its key and registers again. Every limit, cap and TTL is a flag of
+`xbin-relay` too (`-max-workspaces`, `-idle-workspace-ttl`,
+`-new-workspace-rate 10/3`, …; `-h` lists them), so an operator under a
+registration flood can tighten them without a rebuild — or close
+registration: `-registration-tokens a,b` makes `POST /v1/workspaces` require
+`Authorization: Bearer` one of them (`401 {code:"registration"}` otherwise);
+the operator then mints workspace keys and hands them to admins
+(`PUT /api/xbin/push/config {key}` or `XBIN_PUSH_RELAY_KEY`). While a flood
+lasts, anonymous opt-ins get 429; keys already issued keep working.
 
 The sweep runs with registrations, at most every 10 minutes (every minute
 while full). A deleted handle answers 404 `handle_unknown`, and the app makes a

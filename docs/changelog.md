@@ -160,10 +160,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     from all tiles together, counted per device (dropped over it, never
     refused); agent pushes have their own budget; at most 10 registrations
     per person, 30 registrations an hour. Muteable per tile per person.
+  - xbind checks the relay key at start and daily (the relay deletes keys
+    nobody uses): `GET /api/xbin/push/config` adds `keyChecked` and
+    `keyError`, whose hint follows where the key comes from (`PUT
+    {rotate:true}`, or a new `XBIN_PUSH_RELAY_KEY`).
   - `relay/` is the push relay (`xbin-relay`, its own stdlib-only module):
     handles to APNs tokens, sealed envelopes over HTTP/2, machine-readable
-    error codes, per-prefix limits, caps, retention and a journal. Nothing
-    is deployed yet (the repository's relay/README.md).
+    error codes, per-prefix limits, caps, retention (keys unused for 180
+    days go) and a journal; every limit is a flag, and
+    `-registration-tokens` closes registration to the operator. Nothing is
+    deployed yet (the repository's relay/README.md).
 - **Strict tile asset gating: `--tile-assets=legacy|tokens|origins`,
   `--tiles-domain`** (D95, [auth.md](auth.md) §Tile asset gating).
   `tokens` credentials relative URLs with a path-scoped asset token under an

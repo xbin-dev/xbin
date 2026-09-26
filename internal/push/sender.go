@@ -276,7 +276,7 @@ func (d *sender) post(cfg *RelayConfig, j job) (out outcome, code string, wait t
 		resp.StatusCode == http.StatusNotFound && e.Code == relayHandleUnknown:
 		return staleHandle, e.Code, 0, why
 	case resp.StatusCode == http.StatusUnauthorized && e.Code == relayBadKey:
-		return refused, e.Code, 0, why + " — the relay does not know this workspace's key (PUT /api/xbin/push/config {rotate:true} registers anew)"
+		return refused, e.Code, 0, why + " — the relay does not know this workspace's key: " + d.s.badKeyHint()
 	case resp.StatusCode == http.StatusTooManyRequests, resp.StatusCode >= 500:
 		return retryLater, e.Code, wait, why
 	default: // anything else — including a 403/404 that is not the relay's word: retrying cannot help
