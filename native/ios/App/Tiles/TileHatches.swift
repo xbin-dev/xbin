@@ -17,6 +17,12 @@ final class TileHatches {
     let attach: TileAttachFlow
     private var terminals: [String: TileTerminalController] = [:]
     private var islands: [String: (url: URL, controller: WebTileController)] = [:]
+    /// The navigation of the window the tile is shown in (NativeTileScreen
+    /// sets it): an island's `xbin.window` pushes there, never onto another
+    /// window's. Nil answers `xbin.window` with null.
+    weak var nav: WorkspaceNav? {
+        didSet { islands.values.forEach { $0.controller.nav = nav } }
+    }
 
     init(workspace: WorkspaceModel, tile: TileInfo) {
         self.workspace = workspace
@@ -54,6 +60,7 @@ final class TileHatches {
         } else {
             islands[r.key]?.controller.close()
             c = WebTileController(workspace: workspace, tile: tile.path, canOpenLinks: tile.canOpenLinks, url: url, island: true)
+            c.nav = nav
             islands[r.key] = (url, c)
         }
         return AnyView(CanvasIsland(controller: c, tile: tile.path))

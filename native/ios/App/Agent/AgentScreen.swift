@@ -92,6 +92,7 @@ final class AgentScreenModel {
         feed = f
         tasks.append(Task { await f.run() })
         tasks.append(workspace.events.deliver(to: f)) // /ws/events session frames, catch-up after a gap
+        tasks.append(LiveActivities.shared.follow(f, in: workspace)) // the turn's Live Activity (push.md §7)
         tasks.append(Task { [weak self] in
             for await t in await f.updates() {
                 guard let self else { return }
@@ -120,6 +121,7 @@ final class AgentScreenModel {
             } else {
                 _ = try await feed.send(text, attachments: files.map(\.prompt))
             }
+            Haptics.send()
         } catch {
             draft = text
             attachments = files + attachments
@@ -177,8 +179,12 @@ final class AgentScreenModel {
                 try await feed.keepPlanning(card, choice: choice, feedback: feedback)
             } else {
                 try await feed.answer(card, choice: choice)
+                if !choice.isReject { Haptics.approve() }
             }
-        } catch { self.error = describe(error) }
+        } catch {
+            self.error = describe(error)
+            Haptics.failed()
+        }
     }
 
     func answer(_ card: QuestionCard, content: CoreJSON?) async {

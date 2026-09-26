@@ -295,6 +295,7 @@ struct NativeTileScreen: View {
     let tile: TileInfo
     let fallBack: (String) -> Void
 
+    @Environment(WorkspaceNav.self) private var nav
     @State private var runtime: NativeTileRuntime?
 
     var body: some View {
@@ -329,6 +330,7 @@ struct NativeTileScreen: View {
             if runtime == nil {
                 let rt = NativeTileRuntime(workspace: workspace, tile: tile)
                 rt.onFallback = fallBack
+                rt.hatches.nav = nav // canvas islands push onto this window (Navigation.swift)
                 runtime = rt
                 rt.start()
             }

@@ -61,7 +61,8 @@ struct InboxView: View {
 
 /// Settings: this window's workspace (account, devices and adding one,
 /// push, native views, sign out, remove) and the app (lock, native views,
-/// haptics, Handoff, predictive echo, the push relay).
+/// haptics, Handoff, Live Activities, predictive echo, the terminal
+/// keyboard, the push relay).
 struct SettingsView: View {
     @Environment(AppModel.self) private var app
     @Environment(SceneModel.self) private var scene
@@ -76,6 +77,7 @@ struct SettingsView: View {
     @State private var nativeViews = !AppSettings.nativeViewsOff
     @State private var haptics = AppSettings.haptics
     @State private var handoff = AppSettings.handoff
+    @State private var liveActivities = LiveActivities.enabled
 
     var body: some View {
         NavigationStack {
@@ -153,10 +155,17 @@ struct SettingsView: View {
                         .onChange(of: haptics) { _, v in AppSettings.haptics = v }
                     Toggle("Handoff", isOn: $handoff)
                         .onChange(of: handoff) { _, v in AppSettings.handoff = v }
+                    Toggle("Live Activities", isOn: $liveActivities)
+                        .onChange(of: liveActivities) { _, v in LiveActivities.enabled = v }
                     Picker("Predictive echo", selection: $predict) {
                         Text("Auto").tag("auto"); Text("On").tag("on"); Text("Off").tag("off")
                     }
                     .onChange(of: predict) { _, v in AppSettings.predictMode = v }
+                    NavigationLink {
+                        TerminalKeyboardSettingsView()
+                    } label: {
+                        Label("Terminal keyboard", systemImage: "keyboard")
+                    }
                     TextField("Push relay URL", text: $relay)
                         .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                         .onSubmit {
