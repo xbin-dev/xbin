@@ -484,6 +484,7 @@ func cmdLint(args []string) error {
 		}
 	}
 
+	sort.SliceStable(reports, func(i, j int) bool { return reports[i].Tile < reports[j].Tile })
 	cov := coverage(reports, workspace)
 	if a.json {
 		b, _ := json.MarshalIndent(map[string]any{"tiles": reports, "coverage": cov, "runtime": runtime}, "", "  ")
@@ -509,7 +510,7 @@ type nativeCoverage struct {
 }
 
 func coverage(reports []tileLint, workspace bool) nativeCoverage {
-	cov := nativeCoverage{Tiles: len(reports)}
+	cov := nativeCoverage{Tiles: len(reports), Native: []string{}, Clean: []string{}, Warn: []string{}, Errors: []string{}, WebOnly: []string{}}
 	for _, r := range reports {
 		if r.Entry == "" {
 			cov.WebOnly = append(cov.WebOnly, r.Tile)
@@ -537,7 +538,6 @@ func formatFinding(f lintFinding) string {
 }
 
 func printLint(reports []tileLint, cov nativeCoverage, runtime string, workspace bool) {
-	sort.SliceStable(reports, func(i, j int) bool { return reports[i].Tile < reports[j].Tile })
 	for _, r := range reports {
 		if workspace && r.Entry == "" {
 			continue // listed in the coverage line
@@ -551,12 +551,17 @@ func printLint(reports []tileLint, cov nativeCoverage, runtime string, workspace
 			fmt.Println(formatFinding(f))
 		}
 	}
-	if !strings.HasPrefix(runtime, "chromium") {
+	rendered := runtime == "chromium"
+	if !rendered {
 		fmt.Println("note: " + runtime)
 	}
 	if workspace || len(reports) > 1 {
-		fmt.Printf("native coverage: %d of %d tiles have a native UI — %d clean, %d with warnings, %d with errors\n",
-			len(cov.Native), cov.Tiles, len(cov.Clean), len(cov.Warn), len(cov.Errors))
+		how := ""
+		if !rendered {
+			how = " (static checks only, not rendered)"
+		}
+		fmt.Printf("native coverage: %d of %d tiles have a native UI — %d clean, %d with warnings, %d with errors%s\n",
+			len(cov.Native), cov.Tiles, len(cov.Clean), len(cov.Warn), len(cov.Errors), how)
 		if workspace && len(cov.WebOnly) > 0 {
 			fmt.Printf("web only: %s\n", strings.Join(cov.WebOnly, ", "))
 		}

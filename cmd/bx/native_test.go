@@ -2,6 +2,8 @@ package main
 
 import (
 	"errors"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -387,6 +389,41 @@ func TestCoverage(t *testing.T) {
 		!reflect.DeepEqual(c.Warn, []string{"apps/b"}) || !reflect.DeepEqual(c.Errors, []string{"apps/c"}) ||
 		!reflect.DeepEqual(c.WebOnly, []string{"apps/d"}) {
 		t.Fatalf("%+v", c)
+	}
+	if e := coverage(nil, true); e.Native == nil || e.WebOnly == nil || e.Warn == nil { // JSON [] not null
+		t.Fatalf("empty coverage has nil lists: %+v", e)
+	}
+}
+
+// Inside a component sandbox bx reaches xbind over the XBIN_GATEWAY unix
+// socket; Chromium can't, so the proxy carries it.
+func TestNativeProxyGateway(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "gw.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Skipf("no unix sockets: %v", err)
+	}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(r.Host + " " + r.URL.Path + " " + r.Header.Get("Authorization")))
+	})}
+	go func() { _ = srv.Serve(ln) }()
+	defer srv.Close()
+	t.Setenv("XBIN_URL", "")
+	t.Setenv("XBIN_GATEWAY", sock)
+	t.Setenv("XBIN_TOKEN", "inst")
+	base, stop, err := startNativeProxy([]string{"apps/x"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	resp, err := http.Get(base + "/c/apps/x/native.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if string(b) != "xbin /c/apps/x/native.js Bearer inst" {
+		t.Fatalf("through the gateway: %q", b)
 	}
 }
 
