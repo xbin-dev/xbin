@@ -74,7 +74,9 @@ IP**: the fingerprint is spoofable by any non-browser client, so xbind also
 requires a successful auth from that IP within the last hour (browsers are
 unaffected — a tile's subresource loads always follow its authenticated
 document load from the same IP; drive-by scanners with no login get 401).
-Source is still no place for secrets.
+Source is still no place for secrets. That credential-less rule is the
+**legacy** mode; the strict modes that replace it are below (*Tile asset
+gating*).
 
 **Chrome is the exception.** Components that must act as the signed-in human
 — the shell itself, and host-trusted components with `"chrome": true` in
@@ -83,6 +85,74 @@ xbin.json (e.g. tiles/organisations, which raw-fetches as the user by design)
 decision: it can only be set by editing the manifest directly (the create
 APIs never write it), never via grants. Don't set it on anything you wouldn't
 trust with your own session.
+
+### Tile asset gating (`--tile-assets`)
+
+The rule the strict modes enforce: **a user loads a tile's files — HTML,
+JS, CSS, images, fonts, data, anything under `/c/<tile>/` — only if that
+user can read that tile.** Every request carries a credential proving
+(user, tile), is checked against **live** access (the user exists and is
+enabled, their access to that tile stands, the credential's generation is
+current), and is refused otherwise — no IP or Fetch-Metadata heuristic. The
+daemon flag `--tile-assets` (env `XBIN_TILE_ASSETS`,
+[config.md](/docs/config.md)) picks how browsers carry that credential:
+
+| Mode | How a tile's files are credentialed | Needs |
+|---|---|---|
+| `legacy` (default **this release**) | the credential-less rule above: a sandboxed frame's subresource loads pass on the Fetch-Metadata fingerprint + a recently signed-in source IP | nothing |
+| `tokens` | the injection adds `<base href="/c/~<asset-token>/<tile>/<dir>/">` and remaps `/c/<tile>/` in the import map: **relative** URLs (and everything they load in turn) carry a path-scoped *asset token* | relative asset URLs ([elements.md §Asset URLs](/docs/elements.md)) |
+| `origins` | each tile's frontend runs on **its own origin** `t-<id>.<tiles-domain>`; a cookie set there (in exchange for the frame token, on the first navigation) carries every load — relative *and* absolute | `--tiles-domain` (same-site with `--external-url`), wildcard DNS + a wildcard TLS certificate |
+
+**The asset token** (tokens mode) is an HMAC distinct from frame tokens,
+bound to (user, the tile whose document minted it, credential generation,
+7-day expiry). It authorizes **only non-document static files** of tiles its
+user can read — checked live for the minting tile *and* the tile loaded, so
+a tile tag-loading another tile's asset works exactly when the user can read
+that tile. It never serves HTML, directories, workspace chrome or anything
+navigated to as a document, never authenticates `/api`, and never yields a
+frame token. It is visible to the tile's own JS (in `document.baseURI`) —
+which already holds its frame token, a strictly stronger credential; a
+copied token reads at most static files the user may read, until the
+user's access, account or credential generation changes.
+
+**Tile origins** (origins mode): `<id>` is a keyed hash of the tile path —
+stable per workspace, non-reversible, so tile names never reach DNS, SNI or
+certificate logs; `/components` reports each tile's `origin`. The shell
+frames `https://t-<id>…/c/<tile>/?frame=<token>`; xbind verifies the token
+(its tile must be that origin's, its user must still read the tile), sets an
+`HttpOnly; Secure; SameSite=Strict` host-only cookie and redirects to the
+same URL without the token. On that origin `/c/` is authorized per request
+for the cookie's user (another tile's files load when the user can read that
+tile — as sandboxed non-documents, never as a page running on this origin),
+and `/api` and `/ws/events` act as the tile's frame principal. Sibling tile
+origins are *same-site*, so the cookie alone is honoured only for requests
+from the origin itself (a sibling may frame or open the tile's pages, never
+fetch, post to or open a socket on its API). The frame stays sandboxed but
+gains `allow-same-origin` — the separate origin is now the isolation
+boundary — so each tile gets **its own** `localStorage`/IndexedDB (none of
+it shared with other tiles or the shell), and browsers can give each tile
+origin its own process. Opening a tile's page on the workspace origin (a
+direct tab, an old link) redirects to its origin through the same exchange.
+Chrome stays on the workspace origin with the session cookie. Dev: run the
+shell at `http://xbin.localhost:PORT` with `--external-url
+http://xbin.localhost:PORT --tiles-domain xbin.localhost` (browsers resolve
+`*.localhost` to loopback and treat it as secure) — plain `localhost` has no
+parent domain, so its subdomains are other sites and the cookie would be
+third-party.
+
+**Both strict modes** also re-check a tile's own frame token against its
+user's live access, open files beneath their tile (a symlink leaving the
+tile answers 404), and serve a sandboxed tile's non-HTML files with
+`Content-Security-Policy: sandbox` (an SVG opened directly can't run script
+beside the session cookie; PDFs excepted).
+
+**Rollout.** This release ships both mechanisms, the detection (`GET
+/api/xbin/tile-assets`, `bx doctor`), the codemod (`bx fix assets <tile>`)
+and xbin-client's diagnostics, with `legacy` still the default. The **next
+release removes the credential-less rule** (the default becomes strict; an
+absolute `/c/` URL in markup or CSS, and `inject: false`, stop working under
+tokens mode) — see [compat.md](/docs/compat.md). The native app never used
+the credential-less path (it attaches the frame token to every request).
 
 ## Roles and grants
 
@@ -349,7 +419,8 @@ Fetch-Metadata gate drops it even where the browser would still send it.
 That's enforced isolation for tile JS, in every engine since ~2023 (Safari
 16.4+ for Fetch Metadata). The residual hole is narrower: same-origin frames
 share a renderer *process*, so a browser exploit — not tile JS — could still
-cross. Closing that means separate origins (subdomain-per-scope, roadmap);
+cross. Closing that means separate origins — `--tile-assets=origins` gives
+every tile its own (*Tile asset gating* above);
 the VM/host stays the real outer boundary.
 
 ## Audit log

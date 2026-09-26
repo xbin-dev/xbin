@@ -65,6 +65,27 @@ migrations is checked against it.
     `docs/changes/`; CI verifies what it can. When a silent path has to
     become an error, it warns for one release first.
 
+## Tile asset URLs (strict tile asset gating)
+
+Tile frontends' files are moving from a credential-less rule to strict,
+per-user gating ([auth.md §Tile asset gating](/docs/auth.md)). The daemon
+flag `--tile-assets` selects the mode:
+
+- **this release** ships `legacy` as the default (today's behaviour, byte
+  for byte) plus the strict `tokens` and `origins` modes, the detection
+  (`bx doctor`, `GET /api/xbin/tile-assets`), the codemod (`bx fix assets
+  <tile>`) and xbin-client's console diagnostics;
+- **the next release enforces**: the credential-less rule is deleted, not
+  kept behind a flag.
+
+What a tile can rely on across that change: **relative URLs to its own and
+other readable tiles' files keep working in every mode**, as do absolute
+module imports of its own files and workspace import-map entries. What stops
+working under `tokens`: absolute `/c/` URLs in HTML attributes, CSS and a
+document's own import map, and `inject: false` documents. The breaking
+change is announced in the changelog with a migration note under
+`/docs/changes/`; run `bx doctor` to find affected tiles now.
+
 ## What this does *not* promise
 
 - Undocumented internals: `.xbin/` contents, the on-disk shape of
