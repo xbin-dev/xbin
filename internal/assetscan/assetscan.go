@@ -97,8 +97,9 @@ type Options struct {
 	Owner func(rel string) string
 	// Root is the workspace root (for the default Owner); may be "".
 	Root string
-	// Limits (0 = defaults: 4000 files, 2 MiB per file, 500 findings).
-	MaxFiles, MaxFileBytes, MaxFindings int
+	// Limits (0 = defaults: 4000 files, 2 MiB per file, 64 MiB in all,
+	// 500 findings).
+	MaxFiles, MaxFileBytes, MaxTotalBytes, MaxFindings int
 }
 
 func (o *Options) defaults() {
@@ -107,6 +108,9 @@ func (o *Options) defaults() {
 	}
 	if o.MaxFileBytes == 0 {
 		o.MaxFileBytes = 2 << 20
+	}
+	if o.MaxTotalBytes == 0 {
+		o.MaxTotalBytes = 64 << 20
 	}
 	if o.MaxFindings == 0 {
 		o.MaxFindings = 500
@@ -143,6 +147,7 @@ var skipDirs = map[string]bool{".git": true, ".xbin": true, "node_modules": true
 func Scan(dir, tile string, opt Options) (Report, error) {
 	opt.defaults()
 	rep := Report{Component: tile, Findings: []Finding{}}
+	total := 0
 	if b, err := readBeneath(dir, "xbin.json", 1<<20); err == nil {
 		var m struct {
 			Inject *bool `json:"inject"`
@@ -154,7 +159,7 @@ func Scan(dir, tile string, opt Options) (Report, error) {
 		}
 	}
 	err := walk(dir, func(rel string, d fs.DirEntry) error {
-		if rep.Files >= opt.MaxFiles || len(rep.Findings) >= opt.MaxFindings {
+		if rep.Files >= opt.MaxFiles || len(rep.Findings) >= opt.MaxFindings || total >= opt.MaxTotalBytes {
 			rep.Truncated = true
 			return fs.SkipAll
 		}
@@ -182,6 +187,7 @@ func Scan(dir, tile string, opt Options) (Report, error) {
 			return nil // unreadable or too large: not ours to judge
 		}
 		rep.Files++
+		total += len(b)
 		fs := scanFile(b, kind, tile, rel, opt.Owner)
 		rep.Findings = append(rep.Findings, fs...)
 		return nil

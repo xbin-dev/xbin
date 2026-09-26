@@ -263,3 +263,14 @@ func (c *Config) validateTileAssets(external string) error {
 
 // tilesDomain is --tiles-domain normalized (lowercase, trimmed).
 func (c *Config) tilesDomain() string { return strings.ToLower(strings.TrimSpace(c.TilesDomain)) }
+
+// secureOrigin: an https external URL, or a *.localhost one (a secure
+// context in browsers).
+func secureOrigin(external string) bool {
+	u, err := url.Parse(external)
+	if err != nil {
+		return false
+	}
+	h := u.Hostname()
+	return u.Scheme == "https" || h == "localhost" || strings.HasSuffix(h, ".localhost")
+}

@@ -323,12 +323,17 @@ func (s *Server) serveAssetToken(w http.ResponseWriter, r *http.Request) {
 //     in modules keep working. A document with its own <base> keeps its
 //     choice: ours then points at the token form of that base when it is a
 //     /c/ URL, and is left out when it points elsewhere.
-//   - origins: the mode meta (only documents on their tile origin are
-//     injected there; the cookie does the rest).
-//   - legacy: "".
-func (s *Server) assetHead(r *http.Request, body []byte, compPath, userID string, imports map[string]string) string {
+//   - origins: the mode meta, on the tile origin (the cookie does the rest).
+//   - legacy, and chrome in every mode: "".
+func (s *Server) assetHead(r *http.Request, body []byte, compPath string, comp *registry.Component, userID string, imports map[string]string) string {
+	if !sandboxedFrame(compPath, comp) {
+		return "" // chrome runs on the workspace origin with the cookie: never gated
+	}
 	switch s.assetMode() {
 	case TileAssetsOrigins:
+		if tileOriginOf(r) == "" {
+			return "" // served on the workspace origin (not a browser navigation): no mode to report
+		}
 		return "<meta name=\"xbin-tile-assets\" content=\"origins\">\n"
 	case TileAssetsTokens:
 	default:

@@ -273,6 +273,10 @@ func TestTokensModeInjectionAndPlane(t *testing.T) {
 	if body := w.do("/c/apps/a/offsite.html", w.session("ana")).Body.String(); strings.Contains(body, "data-xbin-assets") {
 		t.Error("an off-site <base> must not be overridden")
 	}
+	// Chrome is never gated: the shell's document gets no asset <base>.
+	if body := w.do("/c/shell/", w.session("ana")).Body.String(); strings.Contains(body, "<base") || strings.Contains(body, "xbin-tile-assets") {
+		t.Errorf("chrome document got the asset injection:\n%s", body)
+	}
 	// A sub-directory document's base is its own directory.
 	if _, b := assetTokenFrom(t, w.do("/c/apps/a/sub/page.html", w.session("ana")).Body.String()); b != "apps/a/sub/" {
 		t.Errorf("sub/page.html base %q", b)

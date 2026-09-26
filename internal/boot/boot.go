@@ -666,6 +666,9 @@ func (st *State) stepServer() error {
 	}
 	if m := st.Cfg.TileAssets; m != "" && m != "legacy" {
 		slog.Info("strict tile asset gating", "mode", m, "tilesDomain", srv.TilesDomain)
+		if m == "origins" && !secureOrigin(st.externalURL) {
+			slog.Warn("--tile-assets=origins over plain http: the tile cookies can't be Secure — serve the workspace and *.<tiles-domain> over TLS (dev: *.localhost is exempt)")
+		}
 	}
 	// One client-IP resolver for everything: login throttle, session IP
 	// attribution, and the /c/ warm-IP gate (all trusted-proxy aware).

@@ -322,7 +322,7 @@ func (s *Server) injectHTML(w http.ResponseWriter, r *http.Request, body []byte,
 		// Strict asset gating: tokens mode's <base> + import-map remap
 		// (which rewrites imports in place), origins mode's mode meta;
 		// "" in legacy, so the injection below is byte-for-byte unchanged.
-		assetHead = s.assetHead(r, body, compPath, p.UserID, imports)
+		assetHead = s.assetHead(r, body, compPath, comp, p.UserID, imports)
 	}
 	im, _ := json.Marshal(map[string]any{"imports": imports})
 
