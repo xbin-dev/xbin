@@ -220,17 +220,17 @@ struct XbinTextArea: UIViewRepresentable {
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: XbinTextView, context: Context) -> CGSize? {
-        // The proposed width, 0 included: a stack's minimum-size probe that
-        // got 240 back took the view for a rigid one. 240 when unproposed.
-        let proposed = proposal.width.flatMap { $0.isFinite ? max(0, $0) : nil }
-        let width = proposed ?? 240
         let line = (uiView.font ?? UIFont.preferredFont(forTextStyle: .body)).lineHeight
-        let content = uiView.sizeThatFits(CGSize(width: max(width, 1), height: .greatestFiniteMagnitude)).height
         let low = line * CGFloat(max(1, lines.lowerBound))
         let high = line * CGFloat(max(lines.lowerBound, lines.upperBound))
+        // A stack's minimum-size probe (width 0) gets its minimum: answering
+        // it at 240 made the view look rigid, and the composer shrank to it.
+        if let w = proposal.width, w <= 0 { return CGSize(width: 0, height: ceil(low)) }
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 240
+        let content = max(uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height,
+                          uiView.placeholderHeight(fitting: width))
         let overflow = content > high + 0.5
-        // Only a real width decides scrolling, not a probe.
-        if (proposed ?? 0) > 0, uiView.isScrollEnabled != overflow { uiView.isScrollEnabled = overflow }
+        if uiView.isScrollEnabled != overflow { uiView.isScrollEnabled = overflow }
         return CGSize(width: width, height: ceil(min(max(content, low), high)))
     }
 
@@ -330,6 +330,20 @@ final class XbinTextView: UITextView {
         let width = max(0, bounds.width - inset.left - inset.right - pad * 2)
         let height = placeholderLabel.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
         placeholderLabel.frame = CGRect(x: inset.left + pad, y: inset.top, width: width, height: height)
+    }
+
+    /// The height the shown placeholder needs at `width` (0 when it is
+    /// hidden): a placeholder that wraps grows the view as text would,
+    /// instead of spilling out under a one-line field ("Answer the
+    /// approval above / to continue" at the large text sizes).
+    func placeholderHeight(fitting width: CGFloat) -> CGFloat {
+        guard !placeholder.isEmpty, text.isEmpty else { return 0 }
+        placeholderLabel.font = font
+        let inset = textContainerInset
+        let pad = textContainer.lineFragmentPadding
+        let inner = max(1, width - inset.left - inset.right - pad * 2)
+        return placeholderLabel.sizeThatFits(CGSize(width: inner, height: .greatestFiniteMagnitude)).height
+            + inset.top + inset.bottom
     }
 }
 #endif
