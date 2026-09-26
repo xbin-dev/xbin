@@ -278,11 +278,88 @@ public struct AcceptFilter: Sendable, Equatable {
     }
 }
 
+/// A file the user picked at an attach button (a native tile's composer,
+/// the agent's): its bytes — or, when it was over the pick's limit
+/// (``PickLimits``), only its size: `data` stays empty (a big file is never
+/// read into memory whole) and whoever asked is still told
+/// (``TileUpload/plan(_:ref:tile:known:)`` answers the tile `413`).
+public struct PickedFile: Sendable, Equatable {
+    public var name: String
+    /// Its media type ("" when unknown).
+    public var mime: String
+    public var data: Data
+    /// Set when the file was left unread for its size: that size.
+    public var oversize: Int?
+
+    public init(name: String, mime: String, data: Data) {
+        self.name = name
+        self.mime = mime
+        self.data = data
+        oversize = nil
+    }
+
+    /// A file too big to read: its name, type and size only.
+    public static func unread(name: String, mime: String, bytes: Int) -> PickedFile {
+        var f = PickedFile(name: name, mime: mime, data: Data())
+        f.oversize = bytes
+        return f
+    }
+
+    /// Its size: the bytes read, or the size it was left unread at.
+    public var bytes: Int { oversize ?? data.count }
+}
+
+/// How big a picked file may be to be read at all; a bigger one becomes a
+/// ``PickedFile/unread(name:mime:bytes:)`` placeholder. `image` applies to
+/// photos, camera shots and image files, `file` to the rest: the agent
+/// reads a big photo to redraw it smaller, but not a big PDF it can't send.
+public struct PickLimits: Sendable, Equatable {
+    public var file: Int
+    public var image: Int
+
+    public init(file: Int, image: Int) {
+        self.file = file
+        self.image = image
+    }
+
+    public func limit(image isImage: Bool) -> Int { isImage ? image : file }
+
+    /// Whether a file of `bytes` is read (else: a placeholder).
+    public func reads(_ bytes: Int, image isImage: Bool) -> Bool { bytes <= limit(image: isImage) }
+
+    /// A native tile's uploads: anything up to ``TileUpload/maxBytes``.
+    public static let tileUpload = PickLimits(file: TileUpload.maxBytes, image: TileUpload.maxBytes)
+}
+
 /// Upload limits and the answer handed to the tile.
 public enum TileUpload {
     /// Largest file the app uploads for a tile (the scheme handler's body
     /// cap): a bigger one is not sent and the tile gets a 413-shaped answer.
     public static let maxBytes = 64 << 20
+
+    /// One picked file's fate (``plan(_:ref:tile:known:)``).
+    public enum Step: Sendable, Equatable {
+        /// Upload its bytes to `path` (resolved: the tile's own API).
+        case send(name: String, path: String)
+        /// Send nothing; the tile gets `uploaded {name, response}` at once.
+        case answer(name: String, response: JSONValue)
+    }
+
+    /// What happens to each picked file, in order — every one of them ends
+    /// in an `uploaded` event (docs/native.md): over ``maxBytes`` (read, or
+    /// left unread for its size) → ``tooLarge(_:)`` without a request;
+    /// otherwise `ref` (the composer's `upload.path`) with its name, resolved
+    /// under the tile's own API — or, when that can't be, a failure answer.
+    public static func plan(_ files: [PickedFile], ref: String, tile: String, known: [String] = []) -> [Step] {
+        files.map { f in
+            let name = TileResource.fileName(f.name, fallback: "file")
+            if f.oversize != nil || f.bytes > maxBytes { return .answer(name: name, response: tooLarge(f.bytes)) }
+            guard let path = TileResource.apiPath(ref, tile: tile, known: known, name: name) else {
+                return .answer(name: name, response: failure("upload failed: not one of the tile's own paths"))
+            }
+            return .send(name: name, path: path)
+        }
+    }
 
     /// The `response` of `uploaded {name, response}`: the backend's body,
     /// parsed when it is JSON, else its text (the preview host's rule).

@@ -136,4 +136,29 @@ import Testing
         huge.append(Data(count: PromptAttachment.maxInlineImageBytes))
         #expect(!PromptAttachment(name: "a.jpg", data: huge).fitsInline)
     }
+
+    /// A photo over the 10 MiB file limit is read — it is redrawn smaller
+    /// before it rides — and only then held to the limit; anything else
+    /// must fit as it is (AgentScreenModel.pickAttachments).
+    @Test func bigPhotosAreReadThenShrunk() {
+        let fifteen = 15 << 20
+        // a 48 MP JPEG from Photos, a 12-15 MB PNG from Files: read, not dropped
+        #expect(PromptAttachment.readLimit(image: true) >= 48 << 20 && fifteen <= PromptAttachment.readLimit(image: true))
+        // … and planned down to the model's edge
+        #expect(PromptAttachment.imagePlan(width: 8064, height: 6048, bytes: fifteen, type: "image/jpeg")
+            == .reencode(width: PromptAttachment.maxImageEdge, height: 1932, png: false))
+        #expect(PromptAttachment.imagePlan(width: 12000, height: 2000, bytes: 20 << 20, type: "image/png")
+            == .reencode(width: PromptAttachment.maxImageEdge, height: 429, png: true))
+        // once redrawn (≤ 3.75 MiB) it may wait for the prompt
+        #expect(PromptAttachment.refusal(name: "IMG.jpg", bytes: PromptAttachment.maxInlineImageBytes) == nil)
+        // a GIF is kept as it is (it may move): past 10 MiB it can't go
+        #expect(PromptAttachment.imagePlan(width: 800, height: 600, bytes: 12 << 20, type: "image/gif") == .keep)
+        #expect(PromptAttachment.refusal(name: "a.gif", bytes: 12 << 20) == .fileTooLarge(name: "a.gif", bytes: 12 << 20))
+        // anything else is not read past the file limit
+        #expect(PromptAttachment.readLimit(image: false) == PromptAttachment.maxFileBytes && fifteen > PromptAttachment.readLimit(image: false))
+        let unread = PromptAttachment.refusal(name: "log.pdf", bytes: fifteen, read: false)
+        #expect(unread == .tooLargeToRead(name: "log.pdf", bytes: fifteen) && unread?.status == 413)
+        #expect(unread?.description == "log.pdf is 15 MiB — too large to attach (a photo up to 64 MiB, another file up to 10 MiB)")
+        #expect(PromptAttachment.refusal(name: "ok.txt", bytes: PromptAttachment.maxFileBytes) == nil)
+    }
 }

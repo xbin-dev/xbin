@@ -159,6 +159,43 @@ import Testing
         #expect(big.jsonString.contains("too large"))
     }
 
+    /// docs/native.md: a file over 64 MiB is not sent and the tile gets
+    /// `uploaded {name, response: {error, status: 413}}` for it — the
+    /// pickers keep it as a placeholder (never read), and the plan answers
+    /// it instead of dropping it.
+    @Test func oversizedPicksAreAnsweredNotDropped() throws {
+        let limits = PickLimits.tileUpload
+        #expect(limits.reads(TileUpload.maxBytes, image: false) && !limits.reads(TileUpload.maxBytes + 1, image: true))
+        let files = [
+            PickedFile(name: "a b.png", mime: "image/png", data: Data([1, 2, 3])),
+            PickedFile.unread(name: "movie.mov", mime: "video/quicktime", bytes: 70 << 20),
+            PickedFile(name: "../../etc/passwd", mime: "", data: Data("x".utf8)),
+        ]
+        #expect(files[1].data.isEmpty && files[1].bytes == 70 << 20 && files[0].bytes == 3)
+        let steps = TileUpload.plan(files, ref: "upload?name={name}", tile: "apps/x")
+        #expect(steps.count == files.count, "every pick ends in an uploaded event")
+        #expect(steps[0] == .send(name: "a b.png", path: "/api/apps/x/upload?name=a%20b.png"))
+        guard case .answer(let name, let response) = steps[1] else { Issue.record("\(steps[1])"); return }
+        #expect(name == "movie.mov" && response["status"] == 413 && response["error"]?.stringValue?.contains("too large") == true)
+        #expect(steps[2] == .send(name: "passwd", path: "/api/apps/x/upload?name=passwd"))
+        // bytes read past the limit (a camera shot, say) are answered the same way
+        var big = PickedFile(name: "shot.jpg", mime: "image/jpeg", data: Data())
+        big.data = Data(count: TileUpload.maxBytes + 1)
+        #expect(TileUpload.plan([big], ref: "u", tile: "t") == [.answer(name: "shot.jpg", response: TileUpload.tooLarge(TileUpload.maxBytes + 1))])
+        // a name that can't be placed in the target: answered, not dropped
+        let nested = TileUpload.plan([files[0]], ref: "/api/apps/x/{name}", tile: "apps/x", known: ["apps/x/a b.png"])
+        guard case .answer(_, let r)? = nested.first else { Issue.record("\(nested)"); return }
+        #expect(r["error"] != nil && r["status"] == nil)
+    }
+
+    /// The agent reads a big photo (to redraw it smaller) but not a big file
+    /// it could never send.
+    @Test func pickLimits() {
+        let agent = PickLimits(file: 10 << 20, image: 64 << 20)
+        #expect(agent.reads(15 << 20, image: true) && !agent.reads(15 << 20, image: false))
+        #expect(agent.limit(image: true) == 64 << 20 && agent.limit(image: false) == 10 << 20)
+    }
+
     @Test func canvasDocument() {
         let d = CanvasDocument.wrap("<p>hi</p><script>alert(1)</script>")
         #expect(d.hasPrefix("<!doctype html>"))

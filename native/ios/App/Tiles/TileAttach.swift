@@ -13,17 +13,11 @@ import XbinRenderer
 // `upload.path` with the tile's frame token (TileAttachFlow); for the ACP
 // agent they ride the prompt (AgentScreen). No device API reaches tile code.
 
-/// A file the user picked.
-struct PickedFile: Sendable, Equatable {
-    var name: String
-    /// Its media type ("" when unknown).
-    var mime: String
-    var data: Data
-}
-
 /// The pickers behind an attach button: a source dialog, then Photos, the
-/// camera or Files; `pick` returns what the user chose ([] when cancelled).
-/// Present them with ``AttachPickers``.
+/// camera or Files; `pick` returns what the user chose ([] when cancelled),
+/// a file over its ``PickLimits`` as an unread placeholder (XbinCore's
+/// ``PickedFile``: name and size, no bytes) so the caller can say so — a
+/// tile gets `uploaded {…, 413}` for it. Present them with ``AttachPickers``.
 @MainActor
 @Observable
 final class AttachPicker {
@@ -38,21 +32,22 @@ final class AttachPicker {
     var loading = false
     private(set) var filter = AcceptFilter(nil)
     private(set) var maxCount = 10
-    /// A file that was left out (too big to read, not accepted), said once.
+    /// A file that was left out (unreadable, not accepted), said once.
     var notice: String?
 
     @ObservationIgnored private var continuation: CheckedContinuation<[PickedFile], Never>?
     @ObservationIgnored private var presenting: Source?
-    @ObservationIgnored private var maxBytes = TileUpload.maxBytes
+    @ObservationIgnored private var limits = PickLimits.tileUpload
 
-    /// Shows the pickers `accept` allows and returns the chosen files.
-    /// `maxBytes`: a bigger file is left out with a notice (never read into
-    /// memory whole).
-    func pick(accept: String?, maxCount: Int = 10, maxBytes: Int = TileUpload.maxBytes) async -> [PickedFile] {
+    /// Shows the pickers `accept` allows and returns the chosen files. A
+    /// file over `limits` (by its kind: images may have a larger one) comes
+    /// back as ``PickedFile/unread(name:mime:bytes:)`` — a file from Files
+    /// is never read then; Photos hands its bytes over whole.
+    func pick(accept: String?, maxCount: Int = 10, limits: PickLimits = .tileUpload) async -> [PickedFile] {
         guard continuation == nil else { return [] }
         filter = AcceptFilter(accept)
         self.maxCount = max(1, maxCount)
-        self.maxBytes = maxBytes
+        self.limits = limits
         notice = nil
         return await withCheckedContinuation { (c: CheckedContinuation<[PickedFile], Never>) in
             continuation = c
@@ -137,10 +132,10 @@ final class AttachPicker {
             self.loading = true
             var out: [PickedFile] = []
             for (i, item) in items.prefix(self.maxCount).enumerated() {
-                if let f = await Self.load(item, index: i, maxBytes: self.maxBytes) {
+                if let f = await Self.load(item, index: i, limits: self.limits) {
                     out.append(f)
                 } else {
-                    self.notice = "A photo or video couldn't be read, or is over \(self.maxBytes >> 20) MiB."
+                    self.notice = "A photo or video couldn't be read — left out."
                 }
             }
             self.loading = false
@@ -148,30 +143,47 @@ final class AttachPicker {
         }
     }
 
-    /// A Photos item's bytes: JPEG for photos (HEIC converted), the movie
-    /// as it is.
-    private static func load(_ item: PhotosPickerItem, index: Int, maxBytes: Int) async -> PickedFile? {
-        guard let data = try? await item.loadTransferable(type: Data.self), data.count <= maxBytes else { return nil }
+    /// A Photos item's bytes: a JPEG, PNG or GIF photo as it is, any other
+    /// (HEIC, …) as JPEG, a movie as it is; over `limits`, a placeholder.
+    /// nil: unreadable.
+    private static func load(_ item: PhotosPickerItem, index: Int, limits: PickLimits) async -> PickedFile? {
         let type = item.supportedContentTypes.first ?? .data
+        let image = type.conforms(to: .image)
+        guard let data = try? await item.loadTransferable(type: Data.self) else { return nil }
         let stamp = Self.stamp()
-        if type.conforms(to: .image) {
+        let limit = limits.limit(image: image)
+        if image {
             if type.conforms(to: .jpeg) || type.conforms(to: .png) || type.conforms(to: .gif) {
                 let ext = type.preferredFilenameExtension ?? "jpg"
-                return PickedFile(name: "Photo-\(stamp)-\(index + 1).\(ext)", mime: type.preferredMIMEType ?? "image/jpeg", data: data)
+                let name = "Photo-\(stamp)-\(index + 1).\(ext)"
+                let mime = type.preferredMIMEType ?? "image/jpeg"
+                guard data.count <= limit else { return .unread(name: name, mime: mime, bytes: data.count) }
+                return PickedFile(name: name, mime: mime, data: data)
             }
             // HEIC and friends: JPEG, which every backend and model reads.
+            let name = "Photo-\(stamp)-\(index + 1).jpg"
+            guard data.count <= limit else { return .unread(name: name, mime: "image/jpeg", bytes: data.count) }
             guard let img = UIImage(data: data), let jpeg = img.jpegData(compressionQuality: 0.85) else { return nil }
-            return PickedFile(name: "Photo-\(stamp)-\(index + 1).jpg", mime: "image/jpeg", data: jpeg)
+            guard jpeg.count <= limit else { return .unread(name: name, mime: "image/jpeg", bytes: jpeg.count) }
+            return PickedFile(name: name, mime: "image/jpeg", data: jpeg)
         }
         let ext = type.preferredFilenameExtension ?? "bin"
-        return PickedFile(name: "Video-\(stamp)-\(index + 1).\(ext)", mime: type.preferredMIMEType ?? "", data: data)
+        let name = "Video-\(stamp)-\(index + 1).\(ext)"
+        let mime = type.preferredMIMEType ?? ""
+        guard data.count <= limit else { return .unread(name: name, mime: mime, bytes: data.count) }
+        return PickedFile(name: name, mime: mime, data: data)
     }
 
     /// The camera's photo (nil: cancelled).
     func shot(_ image: UIImage?) {
         showCamera = false
         guard let image, let jpeg = image.jpegData(compressionQuality: 0.85) else { finish([]); return }
-        finish([PickedFile(name: "Photo-\(Self.stamp()).jpg", mime: "image/jpeg", data: jpeg)])
+        let name = "Photo-\(Self.stamp()).jpg"
+        guard limits.reads(jpeg.count, image: true) else {
+            finish([.unread(name: name, mime: "image/jpeg", bytes: jpeg.count)])
+            return
+        }
+        finish([PickedFile(name: name, mime: "image/jpeg", data: jpeg)])
     }
 
     /// Files chose these (security-scoped URLs).
@@ -181,15 +193,26 @@ final class AttachPicker {
         for url in urls.prefix(maxCount) {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
             let name = TileResource.fileName(url.lastPathComponent, fallback: "file")
-            let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? ""
-            guard size <= maxBytes, let data = try? Data(contentsOf: url), data.count <= maxBytes else {
-                notice = "\(name) is over \(maxBytes >> 20) MiB — left out."
-                continue
-            }
+            let type = UTType(filenameExtension: url.pathExtension)
+            let mime = type?.preferredMIMEType ?? ""
             guard filter.accepts(name: name, mime: mime) else {
                 notice = "\(name) isn't a kind of file this accepts — left out."
+                continue
+            }
+            let limit = limits.limit(image: type?.conforms(to: .image) ?? false)
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            // Too big: not read at all; the caller says so (a tile gets a 413).
+            if size > limit {
+                out.append(.unread(name: name, mime: mime, bytes: size))
+                continue
+            }
+            guard let data = try? Data(contentsOf: url) else {
+                notice = "\(name) couldn't be read — left out."
+                continue
+            }
+            guard data.count <= limit else {
+                out.append(.unread(name: name, mime: mime, bytes: data.count))
                 continue
             }
             out.append(PickedFile(name: name, mime: mime, data: data))
@@ -395,22 +418,30 @@ final class TileAttachFlow {
             say("This tile's upload target is outside its own API — nothing was sent.")
             return []
         }
-        let files = await picker.pick(accept: request.accept)
-        if let n = picker.notice { say(n) }
+        let files = await picker.pick(accept: request.accept, limits: .tileUpload)
+        // Every pick ends in an `uploaded` event (TileUpload.plan): one over
+        // the limit is answered 413 without a request, and the user is told.
+        let steps = TileUpload.plan(files, ref: request.path, tile: tile, known: known)
+        let tooBig = files.filter { $0.oversize != nil || $0.bytes > TileUpload.maxBytes }.map(\.name)
+        if let n = tooBig.first {
+            say(tooBig.count == 1 ? "\(n) is over \(TileUpload.maxBytes >> 20) MiB — not sent."
+                : "\(tooBig.count) files are over \(TileUpload.maxBytes >> 20) MiB — not sent.")
+        } else if let n = picker.notice {
+            say(n)
+        }
         let uploader = TileUploader(origin: workspace.origin, tile: tile, frameTokens: workspace.frameTokens)
         var out: [XbinUpload] = []
-        for (i, f) in files.enumerated() {
-            let name = TileResource.fileName(f.name, fallback: "file")
-            if f.data.count > TileUpload.maxBytes {
-                out.append(XbinUpload(name: name, response: TileUpload.tooLarge(f.data.count)))
-                continue
+        for (i, step) in steps.enumerated() {
+            switch step {
+            case .answer(let name, let response):
+                out.append(XbinUpload(name: name, response: response))
+            case .send(let name, let path):
+                status = Status(name: name, index: i, count: files.count, progress: 0)
+                let response = await uploader.upload(files[i], to: path, method: method) { [weak self] p in
+                    self?.status?.progress = p
+                }
+                out.append(XbinUpload(name: name, response: response))
             }
-            guard let path = TileResource.apiPath(request.path, tile: tile, known: known, name: name) else { continue }
-            status = Status(name: name, index: i, count: files.count, progress: 0)
-            let response = await uploader.upload(f, to: path, method: method) { [weak self] p in
-                self?.status?.progress = p
-            }
-            out.append(XbinUpload(name: name, response: response))
         }
         return out
     }

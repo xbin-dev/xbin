@@ -305,6 +305,26 @@ public struct PromptAttachment: Sendable, Hashable {
     public static let maxInlineTextBytes = 128 << 10
     /// All a model reads of a photo's long edge.
     public static let maxImageEdge = 2576
+    /// The largest image the app reads to make it model-ready: a 48 MP
+    /// photo, a panorama or a big PNG is redrawn to ``maxImageEdge`` and
+    /// ≤ ``maxInlineImageBytes`` before it rides, so it may start well over
+    /// ``maxFileBytes``.
+    public static let maxPickedImageBytes = 64 << 20
+
+    /// The most of a picked file the app reads for a prompt: an image up to
+    /// ``maxPickedImageBytes`` (it is redrawn smaller first), anything else
+    /// up to ``maxFileBytes`` — it goes as it is. A bigger file is left
+    /// unread (``refusal(name:bytes:read:)``).
+    public static func readLimit(image: Bool) -> Int { image ? maxPickedImageBytes : maxFileBytes }
+
+    /// Why a picked file can't wait for the next prompt, or nil: `bytes` is
+    /// its size once the app prepared it (a photo redrawn) — held to
+    /// ``maxFileBytes`` only then — or, with `read` false, the size it was
+    /// left unread at (over ``readLimit(image:)``).
+    public static func refusal(name: String, bytes: Int, read: Bool = true) -> AttachmentProblem? {
+        if !read { return .tooLargeToRead(name: name, bytes: bytes) }
+        return bytes > maxFileBytes ? .fileTooLarge(name: name, bytes: bytes) : nil
+    }
 
     /// The image type the bytes are, when it is one the model takes inline
     /// (png, jpeg, gif, webp — xbind sniffs the same way; the declared type
@@ -392,6 +412,8 @@ public enum AttachmentProblem: Error, Sendable, Hashable, CustomStringConvertibl
     case tooMany(Int)
     case fileTooLarge(name: String, bytes: Int)
     case tooLargeTogether(bytes: Int)
+    /// Picked, but too big to read at all (``PromptAttachment/readLimit(image:)``).
+    case tooLargeToRead(name: String, bytes: Int)
 
     /// What xbind answers: 400 for too many, 413 past a size limit.
     public var status: Int {
@@ -407,6 +429,9 @@ public enum AttachmentProblem: Error, Sendable, Hashable, CustomStringConvertibl
             return "\(name) is \(mib(bytes)) — the limit for a file is \(mib(PromptAttachment.maxFileBytes))"
         case .tooLargeTogether:
             return "the attachments are over \(mib(PromptAttachment.maxTotalBytes)) together"
+        case .tooLargeToRead(let name, let bytes):
+            return "\(name) is \(mib(bytes)) — too large to attach (a photo up to \(mib(PromptAttachment.maxPickedImageBytes)), "
+                + "another file up to \(mib(PromptAttachment.maxFileBytes)))"
         }
     }
 

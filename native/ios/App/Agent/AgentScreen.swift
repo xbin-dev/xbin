@@ -125,18 +125,35 @@ final class AgentScreenModel {
     }
 
     /// The attach button: the app's pickers; photos made model-ready
-    /// (PromptAttachment.imagePlan). Past xbind's limits the files stay
-    /// (to remove some) and the limit is said.
+    /// (PromptAttachment.imagePlan). A photo is read up to 64 MiB and held
+    /// to the 10 MiB file limit only once redrawn; anything else must fit
+    /// as it is (PromptAttachment.readLimit/refusal). A file that can't go
+    /// is left out and said; past the prompt's total the files stay (to
+    /// remove some) and the limit is said.
     func pickAttachments() async {
         let room = PromptAttachment.maxCount - attachments.count
         guard room > 0 else {
             error = "\(PromptAttachment.maxCount) files at most in one message"
             return
         }
-        let picked = await picker.pick(accept: nil, maxCount: room, maxBytes: PromptAttachment.maxFileBytes)
-        if let n = picker.notice { error = n }
-        attachments += picked.map { PendingAttachment(file: AgentImages.prepare($0)) }
-        if let problem = PromptAttachment.check(attachments.map(\.prompt)) { error = problem.description }
+        let limits = PickLimits(file: PromptAttachment.readLimit(image: false), image: PromptAttachment.readLimit(image: true))
+        let picked = await picker.pick(accept: nil, maxCount: room, limits: limits)
+        var notes: [String] = []
+        if let n = picker.notice { notes.append(n) }
+        for f in picked {
+            if let size = f.oversize {
+                notes.append(AttachmentProblem.tooLargeToRead(name: f.name, bytes: size).description)
+                continue
+            }
+            let ready = AgentImages.prepare(f)
+            if let problem = PromptAttachment.refusal(name: ready.name, bytes: ready.data.count) {
+                notes.append(problem.description)
+                continue
+            }
+            attachments.append(PendingAttachment(file: ready))
+        }
+        if let problem = PromptAttachment.check(attachments.map(\.prompt)) { notes.append(problem.description) }
+        if !notes.isEmpty { error = notes.joined(separator: "\n") }
     }
 
     func removeAttachment(_ id: String) {

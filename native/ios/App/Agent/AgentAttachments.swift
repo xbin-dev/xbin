@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import XbinAgent
+import XbinCore
 
 /// A file waiting in the agent composer for the next prompt (§13).
 struct PendingAttachment: Identifiable, Equatable {
@@ -14,7 +15,9 @@ struct PendingAttachment: Identifiable, Equatable {
 /// inline only when it is png/jpeg/gif/webp and ≤ 3.75 MiB, and a model
 /// reads no more than 2576 px of its long edge — so HEIC becomes JPEG and a
 /// big photo is redrawn smaller (the decision is XbinAgent's
-/// PromptAttachment.imagePlan, tested on Linux).
+/// PromptAttachment.imagePlan, tested on Linux). The pickers read an image
+/// up to 64 MiB for this (PromptAttachment.readLimit); the 10 MiB file
+/// limit applies to what comes out.
 enum AgentImages {
     static func prepare(_ f: PickedFile) -> PickedFile {
         let type = PromptAttachment.sniffImage(f.data)

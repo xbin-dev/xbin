@@ -437,8 +437,11 @@ The app draws these with the same components as its own agent screen.
   with `/api/` must be your own `/api/<self>/…` — the app refuses any other
   target (another tile, xbind's API, a `..`) and uploads nothing. `{name}`
   in it becomes the file's name (encoded); `method` is `PUT` (the default),
-  `POST` or `PATCH`. Photos arrive as JPEG (HEIC converted); a file over
-  64 MiB is not sent and you get `response` `{error, status: 413}` for it.
+  `POST` or `PATCH`. A JPEG, PNG or GIF photo arrives as it is; other
+  photos (HEIC, …) and camera shots arrive as JPEG, videos as the movie
+  file (`.mov`, `.mp4`). A file over 64 MiB is not sent (nor read): you
+  still get `@uploaded` for it, with `response` `{error, status: 413}`,
+  and the app tells the user.
   Show the files as `attachments` `[{id, name, mime, progress}]`;
   `@remove {id}` when the user drops one.
 
