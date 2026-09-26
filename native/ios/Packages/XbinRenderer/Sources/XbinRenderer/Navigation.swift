@@ -325,6 +325,7 @@ private struct InlineSheet: View {
         }
     }
 }
+
 /// `sheet edge="leading"`: a drawer that slides in from the leading edge
 /// over the view it is laid on (the reference renderer's
 /// `.sheet.edge-leading`: 86 % of the width, at most 400 points), over a

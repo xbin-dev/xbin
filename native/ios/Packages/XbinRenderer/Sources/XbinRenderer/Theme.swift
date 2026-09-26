@@ -68,7 +68,7 @@ public enum XbinColor {
     }
 
     /// ``tint`` for UIKit (a text view's caret and selection).
-    static let uiTint = uiDynamic(light: XbinPalette.amberTextLight, dark: XbinPalette.amberTextDark)
+    @MainActor static let uiTint = uiDynamic(light: XbinPalette.amberTextLight, dark: XbinPalette.amberTextDark)
 }
 
 extension UIColor {
