@@ -356,6 +356,24 @@ apt. So each layer is **stamped and pinned** to its base
 A terminal whose layer's base is older than the current rootfs reports
 `baseOutdated` on attach, so the UI can offer a reset-to-upgrade.
 
+## VM terminals (D89)
+
+The title bar's **⧉ VM** toggle (`?vm=1`) restarts a session inside a
+Firecracker microVM: the shell is root in its own kernel, so docker, kernel
+knobs and ordinary `apt` work. The mount picture above holds unchanged —
+the same paths, served over 9P from outside the VM, with the same masks,
+read-only binds and per-user visibility — and so does the network scope
+(the guest sits behind the same relay; `host` isn't offered). The tile's
+**VM disk** (`.xbin/term/<key>/vm/disk.img`, sparse) keeps root filesystem
+changes across VM sessions the way the dev layer does for namespace
+sessions: the same lock (one holder at a time), the same base pin, wiped by
+the same Reset, but a separate filesystem, and not in backups. Closing a VM
+terminal syncs its disk before the VM is stopped. The toggle is disabled,
+with the reason in its tooltip, when the host has no usable KVM or the
+admin hasn't enabled VM terminals (`GET /ws/term/env` → `vm`). Agent
+sessions take the same `vm` flag. [isolation.md](/docs/isolation.md) §VM
+sandboxes has the rest.
+
 ## Resource limits and GPUs
 
 Where xbind's cgroup is delegated, each **restricted** session joins its own

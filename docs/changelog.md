@@ -41,6 +41,35 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   - **Tighter:** receiving a tile into `user:<self>` by transfer is now
     refused under org-only (it used to slip past).
 
+- **VM sandboxes (D89): terminals, agent sessions and backends can run in
+  a Firecracker microVM.** The workload is root in its own kernel (docker,
+  kernel knobs, apt as usual), still inside the namespace sandbox, which
+  acts as the jail. Details: [isolation.md](isolation.md) §VM sandboxes.
+  - **Off by default.** An admin turns VM terminals and/or VM backends on
+    and sizes them: `PUT /api/xbin/vm/policy` (memory, vCPUs, max VMs, a
+    memory budget, the VM disk size). `GET /api/xbin/vm` says whether this
+    host can run them and why not (KVM, the kvm group, the shipped
+    pieces).
+  - **Terminals:** the **⧉ VM** toggle in the terminal title bar
+    (`?vm=1` on `/ws/term`, `vm` on agent sessions) restarts the session in
+    a VM. The same files are at the same paths (over 9P), and the same
+    network scope applies. Root filesystem changes (`apt install`) are
+    kept on a per-tile VM disk, separate from the namespace layer; Reset
+    wipes both.
+  - **Backends:** `"vm": true` or `{"memory": "1G", "vcpus": 2}` in
+    `xbin.json` ([elements.md](elements.md)). The gateway, the proxy, logs
+    and grants are unchanged. The backend fails with the reason, never
+    falls back, when VMs can't run. `setup`, host networking, provider
+    links and GPUs can't combine with `vm` yet. An older xbind ignores the
+    key and runs the tile in namespaces.
+  - **Needs:** Linux with KVM (`/dev/kvm` usable by the xbind user; cloud
+    VMs need nested virtualization), `--isolate`, and the release bundle's
+    `firecracker`, `vmlinux`, `xbin-vmagent` and `mkfs.erofs` next to
+    xbind (`XBIN_FIRECRACKER`, `XBIN_VM_KERNEL`, `XBIN_VM_AGENT`,
+    `XBIN_MKFS_EROFS`). The installer adds the xbin user to `kvm`.
+- **Fix: isolated node backends started again.** The runner exec'd
+  `/usr/bin/node`, which the rootfs doesn't have (Node lives under
+  `/usr/local/node`).
 - **Security: sandboxed backends no longer inherit xbind's environment.**
   - Until now every backend got the daemon's whole environment. That
     included `XBIN_VAULT_PASSPHRASE` (from `/etc/xbin/xbin.env`) and any

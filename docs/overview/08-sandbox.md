@@ -213,6 +213,24 @@ surface as workspace alerts (`GET /api/xbin/alerts`) so an operator sees a
 degrading tile before it breaks. Disk is capped per *scope*
 ([10-resources.md](10-resources.md)), not per backend.
 
+## VM mode (D89)
+
+With `"vm"` in the manifest (and the workspace's VM policy on), the
+namespace sandbox above becomes the **jail around a Firecracker microVM**
+rather than the backend's own home:
+- its root is a bare tmpfs (no rootfs, no shell for a VMM escapee);
+- `/dev/kvm` and a TAP are its only additions;
+- its capabilities shrink to the five file caps the 9P file server needs;
+- the netns routes the egress TUN to the guest's NIC (the relay and its
+  policy are unchanged; the guest owns 10.0.2.15).
+
+The backend runs as root in the guest's own kernel. Its binds appear at the
+same paths over 9P, and its run dir is guest-local, with `XBIN_SOCKET` and
+`XBIN_GATEWAY` bridged over vsock. A kernel exploit now has to get through
+the guest kernel, Firecracker and then this sandbox. What it could reach
+after that is still only the bind set. [isolation.md](/docs/isolation.md)
+§VM sandboxes.
+
 ## Threat model: what a compromised backend can and cannot do
 
 Assume a backend is fully hostile — arbitrary code execution as its own

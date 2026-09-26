@@ -2480,3 +2480,46 @@ Deviations and refinements made while implementing; all deliberate:
     shell.
   - Group-sync rules setting the switches: seeding covers new SSO users;
     left for later.
+
+- **D89 — VM sandboxes: a Firecracker microVM inside the namespace sandbox,
+  the binds over 9P, per terminal and per backend (2026-09-26).** The
+  namespace sandbox shares the host kernel. Its residual risk is a userns
+  kernel escape (plans/containers.md), and some work needs a real root
+  anyway (docker, kernel knobs). Design: plans/vm-sandbox.md.
+
+  **Chosen:**
+  - **Firecracker, not Cloud Hypervisor.** Minimal devices, static binary,
+    and `MAP_PRIVATE` snapshot restore for copy-on-write templates later.
+    Cold boot is already ~150 ms, so templates can wait.
+  - **The namespace sandbox is the jailer.** Firecracker's own jailer
+    needs root; ours is rootless. It keeps its binds, masks, netns and
+    relay. Its root becomes a bare tmpfs; its lockdown becomes the five
+    file caps, the block-list and the mount guard.
+  - **9P2000.L over vsock for files.** Firecracker has no virtio-fs.
+    - The server runs in the jail, so the host kernel enforces read-only
+      binds and masks.
+    - The guest can only walk to the exports, one beneath-only `openat2`
+      per step.
+    - FUSE-over-vsock with host-pushed invalidations is the upgrade path
+      if 9P is too slow.
+  - **A routed netns.** The TUN stays, the TAP is the guest's, and there is
+    no NAT or proxy ARP. The relay and its policy are untouched; the guest
+    owns 10.0.2.15.
+  - **A separate VM disk per tile** for root filesystem changes, in the
+    tile's layer: its lock, base pin and Reset.
+  - **A workspace admin switch, then open use** (terminals and backends
+    separately). A VM is stronger isolation, so the gate is its memory,
+    capped by count and budget.
+  - **`"vm"` in a manifest fails closed** when VMs can't run: no silent
+    namespace fallback (D78).
+
+  **Refused in a VM:** host networking, provider splices, lan-ingress legs,
+  GPUs, `setup`.
+
+  **Not chosen:**
+  - virtio-blk images of the tile dir. xbind reads, serves and watches
+    those files live.
+  - Sharing the namespace upper with the VM through fuse-overlayfs over 9P.
+    Slow, with fragile ownership.
+  - Serving the file server from xbind itself. It would resolve
+    guest-supplied paths as xbind (D78).

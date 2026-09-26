@@ -341,6 +341,65 @@ contracts and the `@archive` slot used by backups) lives in
 [auth.md](/docs/auth.md) (grants, principals, the vault),
 [protocol.md](/docs/protocol.md) (interfaces, bindings, the full API).
 
+## VM sandboxes — a kernel of your own (D89)
+
+A terminal, an agent session or a backend can run in a **Firecracker
+microVM** instead of sharing the host kernel. Inside, the workload is `root`
+in its own Linux: docker/podman, kernel knobs and `apt` all work as on any
+VM. Everything around it stays the same:
+
+- **The same files.** Every mount a namespace sandbox would get appears at
+  the same path in the guest, served over 9P. Read-only mounts are
+  read-only; masked paths (`.xbin/`, `data/`, other homes) are empty; tiles
+  you may not read aren't there. The file server runs outside the VM, under
+  the host's enforcement, and a guest can't walk out of what it was given.
+- **The same network.** The guest sits behind the same egress relay, under
+  the same scope and grants. Root in the guest can reconfigure its own
+  interfaces but can't widen what leaves. `$XBIN_URL` works as usual.
+- **The same identity and API.** The terminal token or the backend's
+  instance token, the gateway, grants, logs.
+
+The namespace sandbox is still there, as the VM's jail (Firecracker runs
+inside it with a bare root and five file capabilities). A VM escape lands
+in a rootless sandbox that holds only the binds. VMs are **off by default**:
+an admin turns them on for terminals and/or backends with `PUT
+/api/xbin/vm/policy`, which also sets the size per VM (default 2 GiB, 2
+vCPUs), the number of VMs and a memory budget. `GET /api/xbin/vm` says
+whether this host can run them and why not.
+
+**Terminals.** The **⧉ VM** toggle in the terminal title bar restarts the
+session in a VM (`?vm=1` on `/ws/term`). The prompt is up in about 0.2 s;
+the very first VM on a workspace also builds the guest's image from the
+base rootfs, which takes seconds. Root filesystem changes (`apt install`,
+`/etc`) are kept on the tile's **VM disk**, a sparse image in the tile's
+dev layer. It is shared by that tile's VM terminals, is separate from the
+namespace terminals' layer (packages installed in one mode aren't in the
+other), is wiped by Reset, and is not in backups. Host networking and GPUs
+aren't available in a VM.
+
+**Backends.** `"vm": true` (or `{"memory": "1G", "vcpus": 2}`, capped by
+the policy) in `xbin.json` runs the backend in a VM
+([elements.md](/docs/elements.md)). Its sockets live inside the guest and
+are bridged, so the proxy, `XBIN_GATEWAY` and the SDK behave as usual.
+Differences to design around:
+- A first start takes about 0.4 s more (boot).
+- A tile with `sqlite`/`filesystem` resources stops its old generation
+  before the new one starts, so there is a short gap on reload.
+- `setup` can't be combined with `vm` yet: install at start, you're root.
+- Host networking, provider links and GPUs are refused.
+- Without KVM, or without the admin's switch, the backend fails with the
+  reason — it never falls back to the namespace sandbox.
+
+**Files over 9P** are coherent but slower than a local disk on
+metadata-heavy work (`git status` on a huge tree, `npm install` into the
+tile). A file watcher *inside* the guest doesn't see edits made from
+outside it (the browser editor, another terminal); use polling there.
+
+**Host requirements:** KVM (`/dev/kvm` usable by the xbind user — the
+installer adds it to the `kvm` group; a cloud VM needs nested
+virtualization) and the release bundle's `firecracker`, `vmlinux`,
+`xbin-vmagent` and `mkfs.erofs`. Design: `plans/vm-sandbox.md`.
+
 ## Resource limits (blast-radius containment)
 
 The workspace is shared, so one clumsy or runaway tile must not be able to take

@@ -187,15 +187,19 @@ GET    /gpus                       admin. host NVIDIA GPUs for gpu:* grants and
 GET    /vm                         authenticated. VM sandboxes (plans/vm-sandbox.md)
                                    → {status:{available,reason}, policy:
                                    {terminals,backends,memMiB,vcpus,maxVMs,
-                                   budgetMiB}, used?:{vms,memMiB}} (used: admins).
+                                   budgetMiB,diskGiB}, used?:{vms,memMiB}}
+                                   (used: admins).
                                    available=false names why: no /dev/kvm, the
                                    xbind user not in the kvm group, a missing
                                    asset (firecracker, vmlinux, xbin-vmagent,
                                    mkfs.erofs, a static bx), no --isolate
 PUT    /vm/policy                  admin. body {terminals,backends,memMiB,vcpus,
-                                   maxVMs,budgetMiB} → {status, policy}. Off by
-                                   default; zero sizes = defaults (2048 MiB,
-                                   2 vCPUs, 8 VMs, budget maxVMs×memMiB). 400
+                                   maxVMs,budgetMiB,diskGiB} → {status, policy}.
+                                   Off by default; zero sizes = defaults (2048
+                                   MiB, 2 vCPUs, 8 VMs, budget maxVMs×memMiB,
+                                   a 20 GiB VM terminal disk — grown, never
+                                   shrunk). Turning backends off stops new VM
+                                   generations; running ones keep going. 400
                                    on out-of-range sizes, 409 without --isolate
 GET    /tile-status?component=<p>  self or admin. one tile's runtime metrics —
                                    backend {state,gen,cpuSec,cgroup:{mem,pids},
@@ -1387,7 +1391,8 @@ It needs `--isolate`, KVM, and an admin who turned VM terminals on (`PUT
 /vm/policy`); otherwise the upgrade fails with 400 and the reason (`GET
 /ws/term/env` reports `vm.available` and `vm.reason` beforehand). `net=host`
 and `gpu` can't combine with `vm=1` (400). A VM terminal's root filesystem
-changes are not kept yet (a fresh guest per session).
+changes are kept on the tile's VM disk (in its terminal layer — the same
+lock and Reset as the namespace layer, a separate filesystem).
 
 The scope is fixed at spawn; switching net, GPU or VM restarts the session (the
 UI ends the old one and opens a new WS).

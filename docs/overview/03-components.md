@@ -196,6 +196,14 @@ rescan), never reaps it, and restarts it after an exit with a one-shot backoff
 (1 s doubling to 5 min, reset after 10 healthy minutes). The crash-loop
 breaker still wins, and disabling the tile stops it.
 
+A manifest with `"vm": true` (or `{"memory": "1G", "vcpus": 2}`) runs the
+backend in a **VM sandbox**: a Firecracker microVM with its own kernel, where
+it is root, still behind the same files, network policy and gateway
+([isolation.md](/docs/isolation.md) §VM sandboxes). The workspace admin's VM
+policy must allow VM backends and the host needs KVM, or the backend fails
+with the reason. A first start costs about 0.4 s of boot; a tile with
+file-backed resources stops its old generation before the new one starts.
+
 ## The change pipeline: save → live
 
 ```

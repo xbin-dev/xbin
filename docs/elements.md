@@ -53,6 +53,13 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   // to stop it.
   "alwaysOn": false,
 
+  // Run the backend in a VM sandbox — a Firecracker microVM, root in its own
+  // kernel (optional, default false; docs/isolation.md §VM sandboxes): true,
+  // or {"memory": "1G", "vcpus": 2}, capped by the workspace's VM policy.
+  // Needs --isolate, KVM and an admin who enabled VM backends; otherwise the
+  // backend fails with the reason (never a silent fallback). Not with "setup".
+  "vm": false,
+
   // Runtime call rights this component wants (docs/auth.md). Targets are
   // component paths, resources ("res:<scope>/<name>"), reserved capabilities
   // ("cap:open-links" — links in new tabs from the frontend; "cap:net-admin",

@@ -415,6 +415,10 @@ Lifecycle facts you must design around:
   Periodic work ⇒ `cron` resource, never a sleeping loop. A backend that
   must hold an outbound connection (a chat bot's socket) sets `"alwaysOn":
   true` in xbin.json: started at boot, never reaped, restarted after exits.
+- `"vm": true` in xbin.json runs the backend in a VM sandbox (root in its own
+  kernel — docker, kernel modules' userland, anything a VM allows) if the
+  workspace admin enabled VM backends; same files, network and gateway.
+  Not with `setup` (install at start instead). Docs: /docs/isolation.md.
 - Blue/green swap: in-flight requests finish; long-lived WS/SSE die at the
   30 s drain — clients must reconnect.
 - 3 fast crashes ⇒ marked failed until you save a change. `bx logs` first.

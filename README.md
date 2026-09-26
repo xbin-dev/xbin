@@ -128,6 +128,7 @@ Rootless — no root needed — but the host must provide:
 | **`newuidmap` / `newgidmap`** (the `uidmap` package) | apply that range rootlessly (setuid, or file caps `cap_setuid,cap_setgid`) |
 | **`/dev/fuse`** | mount each sandbox root with fuse-overlayfs so unprivileged directory renames work (`apt install`). xbind ships its own static one (`make` builds it from source); absent it, falls back to kernel overlay |
 | **`/dev/net/tun`** | the per-netns egress relay TUN — needed for any `net:*` grant or the terminal internet scope |
+| **KVM** (optional) | VM sandboxes — terminals and backends in a Firecracker microVM, root in their own kernel (`/dev/kvm` usable by xbind's user: the `kvm` group; a cloud VM needs nested virtualization). `docs/isolation.md` §VM sandboxes |
 | **cgroup v2** (optional) | per-component memory/pids/CPU **limits** + accounting; under systemd, `Delegate=yes` |
 | **NVIDIA driver** (optional) | enables `gpu:*` grants — components/terminals get GPUs by binding the world-readable `/dev/nvidia*` + host driver libs (rootless, no container toolkit). `plans/gpu.md` |
 
