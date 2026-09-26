@@ -14,10 +14,12 @@ import (
 	"time"
 )
 
-// job is either a note to fan out to a user's devices, or one sealed
-// delivery to one device (a retry carries the same envelope).
+// job is either a note to fan out to a user's devices, one sealed
+// delivery to one device (a retry carries the same envelope), or a Live
+// Activity push (live, activity.go).
 type job struct {
 	note *note
+	live *liveJob
 
 	user, deviceID, handle string
 	env                    Envelope
@@ -123,9 +125,12 @@ func (d *sender) run() {
 		case <-d.done:
 			return
 		case j := <-d.q:
-			if j.note != nil {
+			switch {
+			case j.note != nil:
 				d.fanOut(*j.note)
-			} else {
+			case j.live != nil:
+				d.deliverLive(j)
+			default:
 				d.deliver(j)
 			}
 		}
@@ -189,7 +194,7 @@ func (d *sender) deliver(j job) {
 	if cfg == nil {
 		return
 	}
-	out, code, wait, msg := d.post(cfg, j)
+	out, code, wait, msg := d.post(cfg, map[string]any{"handle": j.handle, "envelope": j.env, "collapseId": j.collapse, "priority": j.priority})
 	j.attempt++
 	switch out {
 	case delivered:
@@ -241,10 +246,48 @@ const (
 	relayBadKey        = "bad_key"
 )
 
-// post sends one envelope to the relay (relay/README.md: POST /v1/push).
-// code is the relay's error code, when it gave one.
-func (d *sender) post(cfg *RelayConfig, j job) (out outcome, code string, wait time.Duration, why string) {
-	body, _ := json.Marshal(map[string]any{"handle": j.handle, "envelope": j.env, "collapseId": j.collapse, "priority": j.priority})
+// deliverLive posts one Live Activity push. The relay's word on the handle
+// ends that activity's registration (or the push-to-start handle): an
+// ActivityKit token dies with its activity, and the app registers the next
+// one itself — no needsNewHandle round for these.
+func (d *sender) deliverLive(j job) {
+	s, l := d.s, j.live
+	cfg, _ := s.relayConfig()
+	if cfg == nil {
+		return
+	}
+	out, code, wait, msg := d.post(cfg, map[string]any{"handle": l.handle, "type": "liveactivity", "activity": l.act, "priority": l.priority})
+	j.attempt++
+	switch out {
+	case delivered:
+		d.sent.Add(1)
+	case deadHandle, staleHandle:
+		d.failed.Add(1)
+		if l.start {
+			s.st.clearStartHandle(l.user, l.deviceID, l.handle)
+		} else {
+			s.st.removeActivity(l.user, l.deviceID, l.session, l.handle)
+		}
+		s.o.Log.Debug("push: a Live Activity handle is gone", "user", l.user, "device", l.deviceID, "code", code)
+	case refused:
+		d.failed.Add(1)
+		d.noteErr(msg)
+		s.o.Log.Warn("push: relay refused a Live Activity push", "why", msg)
+	case retryLater:
+		d.noteErr(msg)
+		if j.attempt >= maxAttempts {
+			d.failed.Add(1)
+			return
+		}
+		d.retried.Add(1)
+		time.AfterFunc(max(wait, d.backoff(j.attempt)), func() { d.enqueue(j) })
+	}
+}
+
+// post sends one push to the relay (relay/README.md: POST /v1/push). code
+// is the relay's error code, when it gave one.
+func (d *sender) post(cfg *RelayConfig, push map[string]any) (out outcome, code string, wait time.Duration, why string) {
+	body, _ := json.Marshal(push)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(cfg.URL, "/")+"/v1/push", bytes.NewReader(body))

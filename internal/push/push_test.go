@@ -5,6 +5,7 @@ import (
 	"crypto/ecdh"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -35,6 +36,11 @@ type fakeRelay struct {
 	revoked map[string]bool   // keys the relay forgot (401 bad_key)
 	bound   map[string]string // handle → workspace id
 	unknown map[string]bool   // handles the relay does not know (404 handle_unknown)
+	// proof of work (pow_test.go): bits asked (0 = none); noChallenge hides
+	// the challenge endpoint (the refusal carries one); spent challenges
+	pow         int
+	noChallenge bool
+	powSpent    map[string]bool
 }
 
 type fakeAnswer struct {
@@ -57,6 +63,10 @@ type relayPush struct {
 	Envelope   Envelope `json:"envelope"`
 	CollapseID string   `json:"collapseId"`
 	Priority   int      `json:"priority"`
+	// Live Activity pushes (activity_test.go)
+	Type     string         `json:"type"`
+	Activity *activityPush  `json:"activity"`
+	Raw      map[string]any `json:"-"` // the body as sent
 }
 
 func relayErr(w http.ResponseWriter, status int, code string) {
@@ -65,10 +75,43 @@ func relayErr(w http.ResponseWriter, status int, code string) {
 }
 
 func newFakeRelay(t *testing.T) *fakeRelay {
-	f := &fakeRelay{t: t, keys: map[string]string{}, revoked: map[string]bool{}, bound: map[string]string{}, unknown: map[string]bool{}}
+	f := &fakeRelay{t: t, keys: map[string]string{}, revoked: map[string]bool{}, bound: map[string]string{}, unknown: map[string]bool{},
+		powSpent: map[string]bool{}}
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/workspaces", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /v1/workspaces/challenge", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
+		defer f.mu.Unlock()
+		if f.noChallenge {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(f.challengeLocked())
+	})
+	mux.HandleFunc("POST /v1/workspaces", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			PoW *struct{ Challenge, Nonce string } `json:"pow"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.mu.Lock()
+		if f.pow > 0 {
+			code := ""
+			switch {
+			case body.PoW == nil:
+				code = "pow_required"
+			case !strings.HasPrefix(body.PoW.Challenge, "fake-ch-") || f.powSpent[body.PoW.Challenge] ||
+				!powSolves(body.PoW.Challenge, body.PoW.Nonce, f.pow):
+				code = "pow_invalid"
+			}
+			if code != "" {
+				ch := f.challengeLocked()
+				ch["error"], ch["code"] = code, code
+				f.mu.Unlock()
+				w.WriteHeader(401)
+				_ = json.NewEncoder(w).Encode(ch)
+				return
+			}
+			f.powSpent[body.PoW.Challenge] = true
+		}
 		f.regs++
 		key, id := "xbr_fresh", "wsid"
 		if f.regs > 1 {
@@ -96,7 +139,8 @@ func newFakeRelay(t *testing.T) *fakeRelay {
 			<-f.block
 		}
 		var p relayPush
-		if json.NewDecoder(r.Body).Decode(&p) != nil {
+		raw, _ := io.ReadAll(r.Body)
+		if json.Unmarshal(raw, &p) != nil || json.Unmarshal(raw, &p.Raw) != nil {
 			w.WriteHeader(400)
 			return
 		}
@@ -130,6 +174,14 @@ func newFakeRelay(t *testing.T) *fakeRelay {
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
 	return f
+}
+
+// challengeLocked mints a fake challenge (mu held).
+func (f *fakeRelay) challengeLocked() map[string]any {
+	if f.pow <= 0 {
+		return map[string]any{"bits": 0}
+	}
+	return map[string]any{"challenge": fmt.Sprintf("fake-ch-%d-%d", f.regs, len(f.powSpent)), "bits": f.pow, "expires": 0}
 }
 
 // set changes the model under its lock.

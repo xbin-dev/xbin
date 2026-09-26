@@ -65,6 +65,10 @@ type deviceView struct {
 	// fresh handle at the relay and registers again.
 	NeedsNewHandle bool   `json:"needsNewHandle,omitempty"`
 	RelayError     string `json:"relayError,omitempty"` // handle_bound | handle_unknown
+	// Live Activities (activity.go): a push-to-start handle is registered;
+	// the agent sessions an activity is registered for
+	PushToStart bool     `json:"pushToStart,omitempty"`
+	Activities  []string `json:"activities,omitempty"`
 }
 
 func view(d Device, epoch string) deviceView {
@@ -72,7 +76,11 @@ func view(d Device, epoch string) deviceView {
 	if k == nil {
 		k = []string{}
 	}
-	v := deviceView{DeviceID: d.DeviceID, Kinds: k, Created: d.Created, Updated: d.Updated, LastSent: d.LastSent}
+	v := deviceView{DeviceID: d.DeviceID, Kinds: k, Created: d.Created, Updated: d.Updated, LastSent: d.LastSent,
+		PushToStart: d.StartHandle != ""}
+	for _, a := range d.Activities {
+		v.Activities = append(v.Activities, a.Session)
+	}
 	if d.stale(epoch) {
 		v.NeedsNewHandle, v.RelayError = true, d.RelayErr
 		if v.RelayError == "" || d.ErrEpoch != epoch {
@@ -82,8 +90,10 @@ func view(d Device, epoch string) deviceView {
 	return v
 }
 
-// APIRegister is POST /devices/push {deviceId, handle, publicKey, kinds?}:
-// the app registers (or refreshes) where this user's pushes go. The
+// APIRegister is POST /devices/push {deviceId, handle, publicKey, kinds?,
+// startHandle?}: the app registers (or refreshes) where this user's pushes
+// go (startHandle: the relay's Live Activity handle of its push-to-start
+// token, "" to remove it, absent to keep it — activity.go). The
 // registration is bound to the login making it (Device): a device session
 // registers under its own device id only (403 otherwise); any other login's
 // registration ends with that login, and can't take over an enrolled
@@ -95,10 +105,11 @@ func (s *Service) APIRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	p := auth.PrincipalOf(r)
 	var body struct {
-		DeviceID  string   `json:"deviceId"`
-		Handle    string   `json:"handle"`
-		PublicKey string   `json:"publicKey"`
-		Kinds     []string `json:"kinds"`
+		DeviceID    string   `json:"deviceId"`
+		Handle      string   `json:"handle"`
+		PublicKey   string   `json:"publicKey"`
+		Kinds       []string `json:"kinds"`
+		StartHandle *string  `json:"startHandle"`
 	}
 	if decode(r, &body) != nil {
 		fail(w, http.StatusBadRequest, "need {deviceId, handle, publicKey, kinds?}")
@@ -113,6 +124,9 @@ func (s *Service) APIRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	case len(body.Kinds) > 32:
 		fail(w, http.StatusBadRequest, "kinds: at most 32")
+		return
+	case body.StartHandle != nil && *body.StartHandle != "" && (!handleRe.MatchString(*body.StartHandle) || *body.StartHandle == body.Handle):
+		fail(w, http.StatusBadRequest, "startHandle: the relay's Live Activity handle for the push-to-start token")
 		return
 	}
 	pub, err := ParsePublicKey(body.PublicKey)
@@ -148,7 +162,7 @@ func (s *Service) APIRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d, err := s.st.upsert(Device{User: user, DeviceID: body.DeviceID, Session: session, Handle: body.Handle,
-		PublicKey: b64.EncodeToString(pub), Kinds: kinds}, s.o.Now().Unix())
+		PublicKey: b64.EncodeToString(pub), Kinds: kinds}, s.o.Now().Unix(), body.StartHandle)
 	if errors.Is(err, errDeviceBound) {
 		fail(w, http.StatusConflict, err.Error())
 		return
