@@ -1,0 +1,16 @@
+{
+  "about": "text typed with an input method (Japanese): fields report committed text only; a full-width postal code comes back normalized and fills the address from a lookup",
+  "self": "apps/shop",
+  "tz": "Asia/Tokyo",
+  "locale": "ja-JP",
+  "routes": {
+    "GET /api/apps/shop/delivery/slot": {"json": {"label": "9月28日（月）午前"}},
+    "GET /api/apps/shop/postal/1500001": {"json": {"prefecture": "東京都", "city": "渋谷区", "town": "神宮前"}}
+  },
+  "interactions": [
+    {"select": "field[label=氏名]", "type": "input", "payload": {"value": "山田 花子"}, "note": "committed after choosing the kanji"},
+    {"select": "field[label=郵便番号]", "type": "input", "payload": {"value": "１５０－０００１"}, "note": "full-width, as the IME commits it; the tile normalizes and looks the code up"},
+    {"select": "field[label=住所]", "type": "input", "payload": {"value": "東京都渋谷区神宮前１丁目２－３ ハイツ神宮前２０１"}, "note": "the lookup's prefix, then the rest typed"},
+    {"select": "section[title=配達メモ] field", "type": "input", "payload": {"value": "不在時は玄関前に置いてください"}}
+  ]
+}

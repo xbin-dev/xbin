@@ -1,0 +1,14 @@
+{"v":1,"root":{"k":"r","t":"screen","p":{"title":"お届け先","style":"form"},"c":[
+  {"k":"r.0","t":"section","p":{"title":"宛先"},"c":[
+    {"k":"r.0.0","t":"field","p":{"label":"氏名","placeholder":"山田 太郎","value":"山田 花子"},"e":["input"]},
+    {"k":"r.0.1","t":"field","p":{"label":"郵便番号","placeholder":"123-4567","value":"150-0001","hint":"全角で入力しても半角に直ります"},"e":["input"]},
+    {"k":"r.0.2","t":"field","p":{"label":"住所","kind":"multiline","placeholder":"都道府県から番地・建物名まで","value":"東京都渋谷区神宮前１丁目２－３ ハイツ神宮前２０１"},"e":["input"]}
+  ]},
+  {"k":"r.1","t":"section","p":{"title":"配達メモ","footer":"置き配を選ぶと、受け取りのサインは不要です。"},"c":[
+    {"k":"r.1.0","t":"field","p":{"kind":"multiline","placeholder":"置き配の場所など","value":"不在時は玄関前に置いてください"},"e":["input"]}
+  ]},
+  {"k":"r.2","t":"section","c":[
+    {"k":"r.2.0","t":"row","p":{"title":"お届け予定","detail":"9月28日（月）午前","icon":"calendar"}},
+    {"k":"r.2.1","t":"button","p":{"role":"primary","disabled":false,"label":"この住所に届ける"},"e":["tap"]}
+  ]}
+]}}

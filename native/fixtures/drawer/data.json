@@ -1,0 +1,25 @@
+{
+  "about": "a `sheet edge=\"leading\"` drawer open over a chat: search, a new-chat row, conversations by day with badges, the selected one, and row actions folded behind ⋯",
+  "self": "apps/agent",
+  "routes": {
+    "GET /api/apps/agent/conversations": {"json": {"items": [
+      {"id": "c-31", "title": "Why is checkout slow?", "day": "Today"},
+      {"id": "c-30", "title": "Rotate the staging DB password", "day": "Today", "state": "ask"},
+      {"id": "c-29", "title": "Nightly backup report", "day": "Today", "unread": true, "shared": "Ops team"},
+      {"id": "c-27", "title": "Draft the incident review for INC-2291", "day": "Yesterday", "state": "error"},
+      {"id": "c-26", "title": "Compare the p95 of eu-west and us-east", "day": "Yesterday"},
+      {"id": "c-22", "title": "Summarize this week's merged PRs", "day": "Last week"}
+    ]}},
+    "GET /api/apps/agent/conversations/c-31": {"json": {
+      "id": "c-31", "title": "Why is checkout slow?", "agent": "Ops agent",
+      "messages": [
+        {"id": "m1", "role": "user", "text": "Why is checkout slow since this afternoon?"},
+        {"id": "m2", "role": "assistant", "text": "The p95 jumped at **17:58**, right after `checkout-api` v2.14.0 went out. That release set `idle_timeout: 0`, so every request opens a new TLS connection."},
+        {"id": "m3", "role": "user", "text": "Roll it back and tell Ben."}
+      ]
+    }}
+  },
+  "interactions": [
+    {"select": "toolbar button[label=Conversations]", "type": "tap", "note": "open the drawer"}
+  ]
+}

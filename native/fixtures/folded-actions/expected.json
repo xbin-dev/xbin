@@ -1,0 +1,73 @@
+{"v":1,"root":{"k":"r","t":"split","p":{"prefer":"auto"},"c":[
+  {"k":"r.0","t":"screen","p":{"title":"#412","subtitle":"checkout: reuse TLS connections","style":"list"},"c":[
+    {"k":"r.0.0","t":"section","p":{"title":"Open","badge":"2"},"c":[
+      {"k":"r.0.0.0:t1","t":"row","p":{"title":"api/client.go:88","subtitle":"Should the idle timeout come from config?","detail":"3","icon":"chat","mono":"title","selected":true},"e":["tap"],"c":[
+        {"k":"r.0.0.0:t1.0","t":"actions","c":[
+          {"k":"r.0.0.0:t1.0.0","t":"button","p":{"icon":"check","label":"Resolve"},"e":["tap"]},
+          {"k":"r.0.0.0:t1.0.1","t":"button","p":{"icon":"bell","label":"Mute"},"e":["tap"]},
+          {"k":"r.0.0.0:t1.0.2","t":"button","p":{"icon":"link","copy":"https://git.acme.dev/checkout/pull/412#t1","label":"Copy link"}},
+          {"k":"r.0.0.0:t1.0.3","t":"button","p":{"icon":"trash","role":"destructive","confirm":{"title":"Delete the thread on api/client.go:88?","label":"Delete","destructive":true},"label":"Delete"},"e":["tap"]}
+        ]}
+      ]},
+      {"k":"r.0.0.0:t3","t":"row","p":{"title":"deploy/values.yaml:12","subtitle":"idle_timeout: 0 disables reuse entirely","detail":"2","icon":"chat","mono":"title","selected":false},"e":["tap"],"c":[
+        {"k":"r.0.0.0:t3.0","t":"actions","c":[
+          {"k":"r.0.0.0:t3.0.0","t":"button","p":{"icon":"check","label":"Resolve"},"e":["tap"]},
+          {"k":"r.0.0.0:t3.0.1","t":"button","p":{"icon":"bell","label":"Mute"},"e":["tap"]},
+          {"k":"r.0.0.0:t3.0.2","t":"button","p":{"icon":"link","copy":"https://git.acme.dev/checkout/pull/412#t3","label":"Copy link"}},
+          {"k":"r.0.0.0:t3.0.3","t":"button","p":{"icon":"trash","role":"destructive","confirm":{"title":"Delete the thread on deploy/values.yaml:12?","label":"Delete","destructive":true},"label":"Delete"},"e":["tap"]}
+        ]}
+      ]}
+    ]},
+    {"k":"r.0.1","t":"section","p":{"title":"Resolved"},"c":[
+      {"k":"r.0.1.0:t2","t":"row","p":{"title":"api/client_test.go:141","subtitle":"This test sleeps for 2 s; use the fake clock.","detail":"1","icon":"check","mono":"title","tone":"ok","selected":false},"e":["tap"],"c":[
+        {"k":"r.0.1.0:t2.0","t":"actions","c":[
+          {"k":"r.0.1.0:t2.0.0","t":"button","p":{"icon":"refresh","label":"Reopen"},"e":["tap"]},
+          {"k":"r.0.1.0:t2.0.1","t":"button","p":{"icon":"bell","label":"Mute"},"e":["tap"]},
+          {"k":"r.0.1.0:t2.0.2","t":"button","p":{"icon":"link","copy":"https://git.acme.dev/checkout/pull/412#t2","label":"Copy link"}},
+          {"k":"r.0.1.0:t2.0.3","t":"button","p":{"icon":"trash","role":"destructive","confirm":{"title":"Delete the thread on api/client_test.go:141?","label":"Delete","destructive":true},"label":"Delete"},"e":["tap"]}
+        ]}
+      ]},
+      {"k":"r.0.1.0:t4","t":"row","p":{"title":"README.md:30","subtitle":"Typo: \"conection\"","icon":"check","mono":"title","tone":"ok","selected":false},"e":["tap"],"c":[
+        {"k":"r.0.1.0:t4.0","t":"actions","c":[
+          {"k":"r.0.1.0:t4.0.0","t":"button","p":{"icon":"refresh","label":"Reopen"},"e":["tap"]},
+          {"k":"r.0.1.0:t4.0.1","t":"button","p":{"icon":"bell","label":"Mute"},"e":["tap"]},
+          {"k":"r.0.1.0:t4.0.2","t":"button","p":{"icon":"link","copy":"https://git.acme.dev/checkout/pull/412#t4","label":"Copy link"}},
+          {"k":"r.0.1.0:t4.0.3","t":"button","p":{"icon":"trash","role":"destructive","confirm":{"title":"Delete the thread on README.md:30?","label":"Delete","destructive":true},"label":"Delete"},"e":["tap"]}
+        ]}
+      ]}
+    ]}
+  ]},
+  {"k":"r.1","t":"screen","p":{"title":"api/client.go:88","style":"scroll"},"c":[
+    {"k":"r.1.0","t":"transcript","p":{"follow":true},"c":[
+      {"k":"r.1.0.0:c1","t":"message","p":{"role":"assistant","sender":"Ben","time":"10:02","markdown":true,"text":"Should the idle timeout come from config? Hard-coding `90s` here means a redeploy to tune it.","tokens":[
+          {"t":"paragraph","c":[{"t":"text","text":"Should the idle timeout come from config? Hard-coding "},{"t":"codespan","text":"90s"},{"t":"text","text":" here means a redeploy to tune it."}]}
+        ]},"c":[
+        {"k":"r.1.0.0:c1.0","t":"actions","c":[
+          {"k":"r.1.0.0:c1.0.0","t":"button","p":{"icon":"chat","label":"Quote reply"},"e":["tap"]},
+          {"k":"r.1.0.0:c1.0.1","t":"button","p":{"icon":"copy","copy":"Should the idle timeout come from config? Hard-coding `90s` here means a redeploy to tune it.","label":"Copy"}},
+          {"k":"r.1.0.0:c1.0.2","t":"button","p":{"icon":"star","label":"React"},"e":["tap"]}
+        ]}
+      ]},
+      {"k":"r.1.0.0:c2","t":"message","p":{"role":"user","sender":"Ana","time":"10:15","markdown":true,"text":"Good point — it now reads `CHECKOUT_IDLE_TIMEOUT`, defaulting to **90s**.","tokens":[
+          {"t":"paragraph","c":[{"t":"text","text":"Good point — it now reads "},{"t":"codespan","text":"CHECKOUT_IDLE_TIMEOUT"},{"t":"text","text":", defaulting to "},{"t":"strong","c":[{"t":"text","text":"90s"}]},{"t":"text","text":"."}]}
+        ]},"c":[
+        {"k":"r.1.0.0:c2.0","t":"actions","c":[
+          {"k":"r.1.0.0:c2.0.0","t":"button","p":{"icon":"chat","label":"Quote reply"},"e":["tap"]},
+          {"k":"r.1.0.0:c2.0.1","t":"button","p":{"icon":"copy","copy":"Good point — it now reads `CHECKOUT_IDLE_TIMEOUT`, defaulting to **90s**.","label":"Copy"}},
+          {"k":"r.1.0.0:c2.0.2.0","t":"button","p":{"icon":"pencil","label":"Edit"},"e":["tap"]},
+          {"k":"r.1.0.0:c2.0.2.1","t":"button","p":{"icon":"trash","role":"destructive","confirm":{"title":"Delete this comment?","label":"Delete","destructive":true},"label":"Delete"},"e":["tap"]}
+        ]}
+      ]},
+      {"k":"r.1.0.0:c3","t":"message","p":{"role":"assistant","sender":"Ben","time":"10:21","markdown":true,"text":"Thanks! Can you add it to the chart's `values.yaml` too?","tokens":[
+          {"t":"paragraph","c":[{"t":"text","text":"Thanks! Can you add it to the chart's "},{"t":"codespan","text":"values.yaml"},{"t":"text","text":" too?"}]}
+        ]},"c":[
+        {"k":"r.1.0.0:c3.0","t":"actions","c":[
+          {"k":"r.1.0.0:c3.0.0","t":"button","p":{"icon":"chat","label":"Quote reply"},"e":["tap"]},
+          {"k":"r.1.0.0:c3.0.1","t":"button","p":{"icon":"copy","copy":"Thanks! Can you add it to the chart's `values.yaml` too?","label":"Copy"}},
+          {"k":"r.1.0.0:c3.0.2","t":"button","p":{"icon":"star","label":"React"},"e":["tap"]}
+        ]}
+      ]}
+    ]},
+    {"k":"r.1.1","t":"composer","p":{"value":"","placeholder":"Reply"},"e":["input","send"]}
+  ]}
+]}}

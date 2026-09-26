@@ -1,0 +1,72 @@
+{"v":1,"root":{"k":"r","t":"fragment","c":[
+  {"k":"r.0","t":"screen","p":{"title":"Why is checkout slow?","subtitle":"Ops agent","style":"scroll"},"c":[
+    {"k":"r.0.0","t":"toolbar","c":[
+      {"k":"r.0.0.0","t":"button","p":{"icon":"list","label":"Conversations"},"e":["tap"]},
+      {"k":"r.0.0.1","t":"button","p":{"icon":"plus","label":"New chat"},"e":["tap"]}
+    ]},
+    {"k":"r.0.1","t":"transcript","p":{"follow":true},"c":[
+      {"k":"r.0.1.0:m1","t":"message","p":{"role":"user","text":"Why is checkout slow since this afternoon?","markdown":false}},
+      {"k":"r.0.1.0:m2","t":"message","p":{"role":"assistant","text":"The p95 jumped at **17:58**, right after `checkout-api` v2.14.0 went out. That release set `idle_timeout: 0`, so every request opens a new TLS connection.","markdown":true,"tokens":[
+          {"t":"paragraph","c":[{"t":"text","text":"The p95 jumped at "},{"t":"strong","c":[{"t":"text","text":"17:58"}]},{"t":"text","text":", right after "},{"t":"codespan","text":"checkout-api"},{"t":"text","text":" v2.14.0 went out. That release set "},{"t":"codespan","text":"idle_timeout: 0"},{"t":"text","text":", so every request opens a new TLS connection."}]}
+        ]}},
+      {"k":"r.0.1.0:m3","t":"message","p":{"role":"user","text":"Roll it back and tell Ben.","markdown":false}}
+    ]},
+    {"k":"r.0.2","t":"composer","p":{"value":"","placeholder":"Ask the agent"},"e":["input","send"]}
+  ]},
+  {"k":"r.1","t":"sheet","p":{"open":true,"edge":"leading","title":"Conversations"},"e":["dismiss"],"c":[
+    {"k":"r.1.0","t":"screen","p":{"title":"Conversations","style":"list","search":""},"e":["search"],"c":[
+      {"k":"r.1.0.0","t":"section","c":[
+        {"k":"r.1.0.0.0","t":"row","p":{"title":"New chat","icon":"plus"},"e":["tap"]},
+        {"k":"r.1.0.0.1","t":"row","p":{"title":"Automations","icon":"clock","badge":"2","tone":"accent","nav":true},"e":["tap"]}
+      ]},
+      {"k":"r.1.0.1:Today","t":"section","p":{"title":"Today"},"c":[
+        {"k":"r.1.0.1:Today.0:c-31","t":"row","p":{"title":"Why is checkout slow?","selected":true},"e":["tap"],"c":[
+          {"k":"r.1.0.1:Today.0:c-31.0","t":"actions","c":[
+            {"k":"r.1.0.1:Today.0:c-31.0.0","t":"button","p":{"icon":"pin","label":"Pin"},"e":["tap"]},
+            {"k":"r.1.0.1:Today.0:c-31.0.1","t":"button","p":{"icon":"pencil","label":"Rename"},"e":["tap"]},
+            {"k":"r.1.0.1:Today.0:c-31.0.2","t":"button","p":{"icon":"trash","role":"destructive","confirm":{"title":"Delete \"Why is checkout slow?\" and its history?","label":"Delete","destructive":true},"label":"Delete"},"e":["tap"]}
+          ]}
+        ]},
+        {"k":"r.1.0.1:Today.0:c-30","t":"row","p":{"title":"Rotate the staging DB password","badge":"waiting for you","tone":"accent","selected":false},"e":["tap"],"c":[
+          {"k":"r.1.0.1:Today.0:c-30.0","t":"actions","c":[
+            {"k":"r.1.0.1:Today.0:c-30.0.0","t":"button","p":{"icon":"pin","label":"Pin"},"e":["tap"]},
+            {"k":"r.1.0.1:Today.0:c-30.0.1","t":"button","p":{"icon":"pencil","label":"Rename"},"e":["tap"]},
+            {"k":"r.1.0.1:Today.0:c-30.0.2","t":"button","p":{"icon":"trash","role":"destructive","confirm":{"title":"Delete \"Rotate the staging DB password\" and its history?","label":"Delete","destructive":true},"label":"Delete"},"e":["tap"]}
+          ]}
+        ]},
+        {"k":"r.1.0.1:Today.0:c-29","t":"row","p":{"title":"Nightly backup report","subtitle":"⇆ Ops team","tone":"accent","selected":false},"e":["tap"],"c":[
+          {"k":"r.1.0.1:Today.0:c-29.0","t":"actions","c":[
+            {"k":"r.1.0.1:Today.0:c-29.0.0","t":"button","p":{"icon":"pin","label":"Pin"},"e":["tap"]},
+            {"k":"r.1.0.1:Today.0:c-29.0.1","t":"button","p":{"icon":"pencil","label":"Rename"},"e":["tap"]},
+            {"k":"r.1.0.1:Today.0:c-29.0.2","t":"button","p":{"icon":"trash","role":"destructive","confirm":{"title":"Delete \"Nightly backup report\" and its history?","label":"Delete","destructive":true},"label":"Delete"},"e":["tap"]}
+          ]}
+        ]}
+      ]},
+      {"k":"r.1.0.1:Yesterday","t":"section","p":{"title":"Yesterday"},"c":[
+        {"k":"r.1.0.1:Yesterday.0:c-27","t":"row","p":{"title":"Draft the incident review for INC-2291","badge":"failed","tone":"danger","selected":false},"e":["tap"],"c":[
+          {"k":"r.1.0.1:Yesterday.0:c-27.0","t":"actions","c":[
+            {"k":"r.1.0.1:Yesterday.0:c-27.0.0","t":"button","p":{"icon":"pin","label":"Pin"},"e":["tap"]},
+            {"k":"r.1.0.1:Yesterday.0:c-27.0.1","t":"button","p":{"icon":"pencil","label":"Rename"},"e":["tap"]},
+            {"k":"r.1.0.1:Yesterday.0:c-27.0.2","t":"button","p":{"icon":"trash","role":"destructive","confirm":{"title":"Delete \"Draft the incident review for INC-2291\" and its history?","label":"Delete","destructive":true},"label":"Delete"},"e":["tap"]}
+          ]}
+        ]},
+        {"k":"r.1.0.1:Yesterday.0:c-26","t":"row","p":{"title":"Compare the p95 of eu-west and us-east","selected":false},"e":["tap"],"c":[
+          {"k":"r.1.0.1:Yesterday.0:c-26.0","t":"actions","c":[
+            {"k":"r.1.0.1:Yesterday.0:c-26.0.0","t":"button","p":{"icon":"pin","label":"Pin"},"e":["tap"]},
+            {"k":"r.1.0.1:Yesterday.0:c-26.0.1","t":"button","p":{"icon":"pencil","label":"Rename"},"e":["tap"]},
+            {"k":"r.1.0.1:Yesterday.0:c-26.0.2","t":"button","p":{"icon":"trash","role":"destructive","confirm":{"title":"Delete \"Compare the p95 of eu-west and us-east\" and its history?","label":"Delete","destructive":true},"label":"Delete"},"e":["tap"]}
+          ]}
+        ]}
+      ]},
+      {"k":"r.1.0.1:Last week","t":"section","p":{"title":"Last week"},"c":[
+        {"k":"r.1.0.1:Last week.0:c-22","t":"row","p":{"title":"Summarize this week's merged PRs","selected":false},"e":["tap"],"c":[
+          {"k":"r.1.0.1:Last week.0:c-22.0","t":"actions","c":[
+            {"k":"r.1.0.1:Last week.0:c-22.0.0","t":"button","p":{"icon":"pin","label":"Pin"},"e":["tap"]},
+            {"k":"r.1.0.1:Last week.0:c-22.0.1","t":"button","p":{"icon":"pencil","label":"Rename"},"e":["tap"]},
+            {"k":"r.1.0.1:Last week.0:c-22.0.2","t":"button","p":{"icon":"trash","role":"destructive","confirm":{"title":"Delete \"Summarize this week's merged PRs\" and its history?","label":"Delete","destructive":true},"label":"Delete"},"e":["tap"]}
+          ]}
+        ]}
+      ]}
+    ]}
+  ]}
+]}}
