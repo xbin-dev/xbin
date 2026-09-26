@@ -107,7 +107,7 @@ llm-gw's logs. Give team members `read` on the tile.
 | `POST /runs` | `{goal, title?, system?, toolset?}` | create a run and start driving it |
 | `POST /ask` | `{text, toolset?, hold?}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately (`hold`: see Attachments) |
 | `GET /runs/{id}` | — | run detail: `{run, messages, steps, memory, config, files, draft, messageFiles, slots, queued}` (`draft` = live streaming text; `files` is session-file METADATA only; `messageFiles` = `{msgId: [path…]}`, the files each user message carried; `slots` = `{active, limit}` model calls in flight; `queued` = messages not yet delivered) |
-| `GET /runs/{id}/view` | — | the run as the chat draws it, plus a stream cursor — see **The live view** |
+| `GET /runs/{id}/view` | — | the run as the chat draws it, plus a stream cursor — see **The live view**. `?limit=&before=` pages it, newest first — see **Paging the view** |
 | `GET /stream?run=&since=` · `GET /runs/{id}/stream?since=` | — | SSE: run-list changes plus the whole tree of `run` — see **The live view**. `&deltas=1`: draft text as appended pieces |
 | `DELETE /runs/{id}` | — | delete a run, its history, and every subagent run below it |
 | `POST /runs/{id}/message` | `{text, files?, clientId?}` | send a user message → `{inboxId, queued}`. An idle, finished or failed run starts a new turn; a working run gets it at its next step (`queued:true`). A retried post with the same `clientId` is stored once. `files` names session files (normally just uploaded) the message carries — each must exist, or **400** and nothing is written. `text` may be empty when `files` is not |
@@ -200,6 +200,38 @@ reconnects the stream. `tool` events are unchanged. `hello` carries
 `deltas: true` when the backend honours the flag — an older one ignores it
 and sends full text, which such a client handles anyway. Without the flag
 nothing changes.
+
+### Paging the view
+
+`GET /runs/{id}/view?limit=<n>&before=<seq>` returns the newest `n` messages
+with `seq < before` (no `before`: the newest; `n` defaults to 50, at most
+500; bad values are **400**), for long conversations. Without either
+parameter the view is the whole run, as always. A page:
+
+- holds only what the chat shows: messages compacted out of the context and
+  the stored system prompt are left out; `compacted` counts the former (the
+  "earlier turns were compacted" line);
+- never starts with a tool result: it reaches back to the call that made it
+  (so it may hold a few more than `n`);
+- carries `hasOlder`, and when true `nextBefore` — the `before` of the next
+  older page (its first message's `seq`);
+- carries the `steps` of its time span (a step shows after the messages of
+  its second): from its first message's time when older pages exist, to the
+  first message of the next newer page; the oldest page takes every earlier
+  step — so pages partition the steps;
+- carries the `links` of the subagents its calls and spawn steps started
+  (all links of each such child), and `linkCount`, the run's total;
+- carries `messageFiles` for its messages.
+
+Everything else — `run`, `drafts`, `queued`, `files`, `memory`, `chain`,
+`config`, `access`, `acl`, `cursor` — is the run's current state in every
+page. Open the stream from the newest page's cursor and merge older pages
+into what you hold (upserts by id): the union folds as the whole view does,
+with `compacted` standing in for the compacted messages it leaves out.
+On `reset` or `resync`, drop the older pages and re-read the newest. When
+older pages exist, the first message you hold is not the run's first: a
+subagent's first user message (its task) and a run's opening message are
+only in the oldest page.
 
 ### Attachments
 
