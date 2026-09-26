@@ -2,22 +2,34 @@ import SwiftUI
 import UIKit
 import XbinCore
 
-/// The app's root: the selected workspace full screen, the switcher over it
-/// (a two-finger swipe down, a tap on the title, ⌘1…⌘9 — never a docked
-/// rail, §4), the add-workspace sheet, the lock.
+/// One window's root: its workspace full screen, the switcher over it (a
+/// two-finger swipe down, a tap on the title, ⌘1…⌘9 — never a docked rail,
+/// §4), the add-workspace sheet, the lock. Every window (iPad, Stage
+/// Manager, the Mac) has its own selection and navigation — windows are
+/// tabs — kept across launches in `@SceneStorage`; a window opened with
+/// `openWindow(value:)` (a dragged tile, "Open in New Window") starts on
+/// that value.
 struct RootView: View {
+    /// The window's `WindowGroup(for:)` value (nil for the first window).
+    @Binding var target: WindowTarget?
+
     @Environment(AppModel.self) private var app
+    @Environment(\.scenePhase) private var phase
+    @State private var scene = SceneModel()
+    @State private var restored = false
+    @SceneStorage("xbin.workspace") private var storedWorkspace = ""
+    @SceneStorage("xbin.surface") private var storedTarget = ""
 
     var body: some View {
-        @Bindable var app = app
+        @Bindable var scene = scene
         ZStack {
-            if let w = app.selected {
-                WorkspaceView(workspace: w)
+            if let w = scene.selected {
+                WorkspaceView(workspace: w, nav: scene.nav(for: w))
                     .id(w.id)
             } else {
                 Welcome()
             }
-            if app.showSwitcher {
+            if scene.showSwitcher {
                 SwitcherOverlay()
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .zIndex(1)
@@ -26,39 +38,76 @@ struct RootView: View {
                 LockView().zIndex(2)
             }
         }
-        .animation(.snappy, value: app.showSwitcher)
-        .background(TwoFingerSwipeDown { withAnimation { app.showSwitcher = true } })
+        .environment(scene)
+        .animation(.snappy, value: scene.showSwitcher)
+        .background(TwoFingerSwipeDown { withAnimation { scene.showSwitcher = true } })
         .background { WorkspaceShortcuts() }
-        .sheet(item: Binding(get: { app.addRequest.map(AddRequestBox.init) }, set: { app.addRequest = $0?.request })) { box in
-            AddWorkspaceView(request: box.request)
+        .background(KeyWindowReporter { app.focus(scene) })
+        .sheet(item: $scene.addRequest) { request in
+            AddWorkspaceView(request: request).environment(scene)
         }
-        .sheet(isPresented: $app.showInbox) { InboxView() }
-        .sheet(isPresented: $app.showSettings) { SettingsView() }
+        .sheet(isPresented: $scene.showInbox) { InboxView().environment(scene) }
+        .sheet(isPresented: $scene.showSettings) { SettingsView().environment(scene) }
+        // Links and Handoff go to a window already open (the one in front)
+        // rather than making a new one; a dragged tile still makes its own.
+        .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
+        .onOpenURL { scene.open(url: $0) }
+        .onContinueUserActivity(HandoffActivity.type) { activity in
+            restored = true
+            if let link = HandoffActivity.link(activity) { scene.open(link: link) }
+        }
+        .userActivity(HandoffActivity.type, isActive: AppSettings.handoff && scene.selected != nil) { activity in
+            if let w = scene.selected { HandoffActivity.fill(activity, w, scene.existingNav(w.id)?.surface) }
+        }
+        .onAppear(perform: appeared)
+        .onChange(of: phase) { _, p in phaseChanged(p) }
+        .onChange(of: scene.current) { _, t in remember(t) }
     }
-}
 
-/// `.sheet(item:)` needs Identifiable.
-struct AddRequestBox: Identifiable {
-    let request: AddRequest
-    var id: String {
-        switch request {
-        case .blank: return "blank"
-        case .enroll(let s, let c): return "\(s.origin)|\(c)"
+    private func appeared() {
+        app.register(scene)
+        phaseChanged(phase)
+        guard !restored else { return }
+        restored = true
+        // This window's own last place, else the value it was opened with,
+        // else where the user was last.
+        if let t = WindowTarget(encoded: storedTarget), app.workspace(t.workspace) != nil {
+            scene.show(t)
+        } else if !storedWorkspace.isEmpty, app.workspace(storedWorkspace) != nil {
+            scene.select(storedWorkspace)
+        } else if let t = target, app.workspace(t.workspace) != nil {
+            scene.show(t)
+        } else if let id = app.lastSelectedID ?? app.workspaces.first?.id {
+            scene.select(id)
         }
+    }
+
+    private func phaseChanged(_ p: ScenePhase) {
+        scene.isForeground = p != .background
+        if p == .active { app.focus(scene) }
+        app.updateSockets()
+    }
+
+    private func remember(_ t: WindowTarget?) {
+        storedWorkspace = t?.workspace ?? ""
+        storedTarget = t?.encoded ?? ""
+        // The window's value follows what it shows, so "open in a new
+        // window" for a place already open brings that window forward.
+        if target != t { target = t }
     }
 }
 
 /// ⌘1…⌘9 jump straight to a workspace (hardware keyboards).
 private struct WorkspaceShortcuts: View {
-    @Environment(AppModel.self) private var app
+    @Environment(SceneModel.self) private var scene
 
     var body: some View {
         ZStack {
             ForEach(0..<9, id: \.self) { i in
-                Button("") { app.select(index: i) }
+                Button("") { scene.select(index: i) }
                     .keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .command)
             }
-            Button("") { withAnimation { app.showSwitcher.toggle() } }
+            Button("") { withAnimation { scene.showSwitcher.toggle() } }
                 .keyboardShortcut("k", modifiers: [.command, .shift])
         }
         .opacity(0)
@@ -68,7 +117,7 @@ private struct WorkspaceShortcuts: View {
 
 /// No workspace yet.
 private struct Welcome: View {
-    @Environment(AppModel.self) private var app
+    @Environment(SceneModel.self) private var scene
 
     var body: some View {
         ContentUnavailableView {
@@ -76,20 +125,24 @@ private struct Welcome: View {
         } description: {
             Text("Add a workspace: scan the QR code from your workspace's account menu (Devices → Add a device), or sign in with its address.")
         } actions: {
-            Button("Add a workspace") { app.addRequest = .blank }.buttonStyle(.borderedProminent)
+            Button("Add a workspace") { scene.addRequest = .blank }.buttonStyle(.borderedProminent)
         }
     }
 }
 
-/// One workspace: its current surface full screen, or the navigator as home.
+/// One workspace in one window: its current surface full screen, or the
+/// navigator as home. The window's navigation is in the environment for
+/// the screens under it (`@Environment(WorkspaceNav.self)`).
 struct WorkspaceView: View {
-    @Bindable var workspace: WorkspaceModel
+    let workspace: WorkspaceModel
+    @Bindable var nav: WorkspaceNav
     @Environment(AppModel.self) private var app
+    @Environment(SceneModel.self) private var scene
 
     var body: some View {
-        NavigationStack(path: $workspace.windows) {
+        NavigationStack(path: $nav.windows) {
             Group {
-                if let s = workspace.surface {
+                if let s = nav.surface {
                     surface(s)
                 } else {
                     NavigatorView(workspace: workspace)
@@ -97,7 +150,7 @@ struct WorkspaceView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { withAnimation { app.showSwitcher = true } } label: {
+                    Button { withAnimation { scene.showSwitcher = true } } label: {
                         HStack(spacing: 6) {
                             BrandIcon(workspace: workspace, size: 22)
                             Text(verbatim: workspace.title).font(.headline).lineLimit(1)
@@ -110,18 +163,21 @@ struct WorkspaceView: View {
                     }
                     .accessibilityLabel("Workspaces")
                 }
-                if workspace.surface != nil {
+                if nav.surface != nil {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button { workspace.showNavigator = true } label: { Image(systemName: "square.grid.2x2") }
+                        Button { nav.showNavigator = true } label: { Image(systemName: "square.grid.2x2") }
                             .accessibilityLabel("Tiles")
                     }
                 }
             }
             .navigationDestination(for: PushedWindow.self) { w in WindowScreen(workspace: workspace, window: w) }
         }
-        .sheet(isPresented: $workspace.showNavigator) {
+        .environment(nav)
+        .sheet(isPresented: $nav.showNavigator) {
             NavigationStack { NavigatorView(workspace: workspace, overlay: true) }
                 .presentationDetents([.medium, .large])
+                .environment(nav)
+                .environment(scene)
         }
         .overlay(alignment: .bottom) {
             if let p = workspace.signInProblem {
@@ -129,7 +185,7 @@ struct WorkspaceView: View {
             }
         }
         .task { if workspace.whoami == nil { await workspace.refresh() } }
-        .onChange(of: workspace.surface) { _, s in
+        .onChange(of: nav.surface) { _, s in
             if let s { app.visited(workspace, s, title: s.title) }
         }
     }
@@ -153,14 +209,14 @@ struct WorkspaceView: View {
 private struct SignInProblemBar: View {
     let workspace: WorkspaceModel
     let problem: SignInError
-    @Environment(AppModel.self) private var app
+    @Environment(SceneModel.self) private var scene
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(verbatim: problem.description).font(.footnote)
             HStack {
                 if problem.needsEnrollment || problem == .ssoRequired {
-                    Button("Sign in again") { app.addRequest = .blank }.buttonStyle(.borderedProminent)
+                    Button("Sign in again") { scene.addRequest = .blank }.buttonStyle(.borderedProminent)
                 } else {
                     Button("Try again") { Task { await workspace.signIn() } }.buttonStyle(.borderedProminent)
                 }
@@ -247,5 +303,38 @@ struct TwoFingerSwipeDown: UIViewRepresentable {
         func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
             true
         }
+    }
+}
+
+/// Tells its window's model when the window becomes key (the user is in
+/// it): code outside a window then acts on this one (AppModel.focus).
+struct KeyWindowReporter: UIViewRepresentable {
+    let becameKey: () -> Void
+
+    func makeUIView(context: Context) -> Reporter { Reporter(becameKey: becameKey) }
+    func updateUIView(_ uiView: Reporter, context: Context) { uiView.becameKey = becameKey }
+
+    final class Reporter: UIView {
+        var becameKey: () -> Void
+
+        init(becameKey: @escaping () -> Void) {
+            self.becameKey = becameKey
+            super.init(frame: .zero)
+            isUserInteractionEnabled = false
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        // A selector observer: NotificationCenter drops it with the view.
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            NotificationCenter.default.removeObserver(self, name: UIWindow.didBecomeKeyNotification, object: nil)
+            guard let window else { return }
+            NotificationCenter.default.addObserver(self, selector: #selector(keyChanged(_:)),
+                                                   name: UIWindow.didBecomeKeyNotification, object: window)
+            if window.isKeyWindow { becameKey() }
+        }
+
+        @objc private func keyChanged(_ note: Notification) { becameKey() }
     }
 }

@@ -13,6 +13,7 @@ struct AddWorkspaceView: View {
     let request: AddRequest
 
     @Environment(AppModel.self) private var app
+    @Environment(SceneModel.self) private var scene
     @Environment(\.dismiss) private var dismiss
     @Environment(\.webAuthenticationSession) private var webAuth
 
@@ -76,7 +77,7 @@ struct AddWorkspaceView: View {
             }
             .navigationTitle("Add a workspace")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { app.addRequest = nil } } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { scene.addRequest = nil } } }
             .overlay { if let busy { ProgressView(busy).padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) } }
             .sheet(isPresented: $scanning) {
                 QRScanner { text in
@@ -115,7 +116,7 @@ struct AddWorkspaceView: View {
         defer { busy = nil }
         do {
             let (rec, session) = try await enrollment.enroll(server: server, code: code, deviceName: AppInfo.deviceName)
-            await app.add(rec, session: session)
+            await app.add(rec, session: session, in: scene)
         } catch { self.error = describe(error) }
     }
 
@@ -135,7 +136,7 @@ struct AddWorkspaceView: View {
             let (rec, dev) = try await enrollment.enrollSignedIn(server: o, session: s, deviceName: AppInfo.deviceName,
                                                                   password: password)
             password = ""
-            await app.add(rec, session: dev)
+            await app.add(rec, session: dev, in: scene)
         } catch { self.error = describe(error) }
     }
 
@@ -155,7 +156,7 @@ struct AddWorkspaceView: View {
             case .sso(let ticket):
                 let s = try await enrollment.redeemTicket(server: o, ticket: ticket, verifier: verifier)
                 let (rec, dev) = try await enrollment.enrollSignedIn(server: o, session: s, deviceName: AppInfo.deviceName)
-                await app.add(rec, session: dev)
+                await app.add(rec, session: dev, in: scene)
             case .ssoError(let code):
                 error = "SSO sign-in failed (\(code))."
             default:
@@ -173,7 +174,7 @@ struct AddWorkspaceView: View {
         do {
             let (rec, s) = try await enrollment.tokenLogin(server: o, token: token.trimmingCharacters(in: .whitespacesAndNewlines))
             token = ""
-            await app.add(rec, session: s)
+            await app.add(rec, session: s, in: scene)
         } catch { self.error = describe(error) }
     }
 
