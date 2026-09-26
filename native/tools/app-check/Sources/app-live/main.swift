@@ -8,12 +8,19 @@
 //   cd native/tools/app-check && swift run app-live 127.0.0.1:9461 admin admin
 //
 // (--dev seeds admin/admin.) Exit 0 and "LIVE OK" when every check passes.
+// APPLIVE_RESTART=<command that restarts xbind> adds the restart checks (the
+// app re-signs once; frame tokens outlive the restart). On an xbind that
+// serves native runtime documents (whoami native.runtime), a tile with a
+// native entry is also loaded as the app's hidden runtime document would be.
 // Not run by CI — it needs a running xbind.
 import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
 import XbinCore
+#if canImport(Glibc)
+import Glibc
+#endif
 
 func say(_ s: String) { FileHandle.standardError.write(Data((s + "\n").utf8)) }
 var failures = 0
@@ -26,6 +33,48 @@ let args = CommandLine.arguments
 
 // `app-live bridge-js`: the tile bridge's user script and a reply script
 // (id "__ID__"), for native/tools/bridge-check.mjs to run in a real engine.
+// `app-live runtime-js <vocab.json>`: the document-start script the app
+// injects into a native tile's runtime (caps for the whole vocabulary).
+// `app-live event-js <key> <type> <n>`: the callAsyncJavaScript body of a tap.
+// `app-live tree-check <messages.json>`: runtime → app messages (JSON
+// strings, as WebKit delivers them) through TreeStore; prints the tree.
+// All three for native/tools/runtime-check.mjs.
+if args.count > 2, args[1] == "runtime-js" {
+    let vocab = try JSONValue(parsing: Data(contentsOf: URL(fileURLWithPath: args[2])))
+    var prims: [String: Int] = [:]
+    for (k, v) in vocab["prims"]?.objectValue ?? [:] { prims[k] = Int(v["rev"]?.intValue ?? 1) }
+    let features = (vocab["features"]?.arrayValue ?? []).compactMap(\.stringValue)
+    let caps = NativeCaps(v: 1, renderer: "ios", app: "app-live", prims: prims, features: features)
+    print(RuntimeScript.documentStart(caps: caps, state: ["scroll": 3]))
+    exit(0)
+}
+if args.count > 4, args[1] == "event-js" {
+    print(RuntimeCall.event(key: args[2], type: args[3], payload: [:], n: Int(args[4])).functionBody)
+    exit(0)
+}
+if args.count > 2, args[1] == "tree-check" {
+    let msgs = try JSONValue(parsing: Data(contentsOf: URL(fileURLWithPath: args[2]))).arrayValue ?? []
+    let store = TreeStore(savedState: nil)
+    var out: [JSONValue] = []
+    do {
+        for m in msgs {
+            guard let s = m.stringValue else { continue }
+            let ev = store.receive(body: s)
+            let what: String
+            switch ev {
+            case .tree(let rev, let delta)?: what = "tree rev \(rev) remounted=\(delta.remounted) updated=\(delta.updated.count)"
+            case .failed(let f)?: what = "FAILED \(f)"
+            case .some(let e): what = "\(e)".components(separatedBy: "(").first ?? "event"
+            case nil: what = "-"
+            }
+            out.append(.string(what))
+        }
+        let root = store.isMounted ? store.tree.root?.json ?? .null : .null
+        print(JSONValue.object(["events": .array(out), "failure": store.failure.map { .string("\($0)") } ?? .null,
+                                "n": .int(Int64(store.treeSequence ?? 0)), "root": root]).jsonString)
+    }
+    exit(0)
+}
 if args.count > 1, args[1] == "bridge-js" {
     let reply = TileBridge.replyScript(id: "__ID__", result: DialogSpec.result(button: "ok", values: ["name": "Ada"]))
     let out: JSONValue = ["userScript": .string(TileBridge.userScript), "reply": .string(reply),
@@ -133,6 +182,7 @@ let nav = NavigatorModel(catalog: catalog, layout: PersonalLayout(json: layoutRe
 check(nav.sections.last?.id == "all", "navigator sections: \(nav.sections.map(\.title))")
 
 // 3. A tile page as the scheme handler loads it: the frame token only.
+var tileToken: (String, String)?
 if let tile = catalog.listed.first(where: { !$0.chrome }) {
     let url = TileScheme.pageURL(workspace: record.id, tile: tile.path)!
     let path = TileScheme.serverPath(for: url, workspace: record.id)!
@@ -149,12 +199,43 @@ if let tile = catalog.listed.first(where: { !$0.chrome }) {
     let api = try await transport.send(APIRequest("GET", FrameTokenRoute.path(component: tile.path),
                                                   headers: [TileScheme.frameTokenHeader: ft]), to: origin)
     check(api.status == 200, "the tile renews its own frame token with it (\(api.status))")
+    // Its subresources and API calls, as WebKit asks for them through the
+    // scheme handler (no cookies, no Sec-Fetch headers, the frame token).
+    let vendor = try await transport.send(APIRequest("GET", "/vendor/xbin-client.js",
+                                                     headers: TileScheme.forwardHeaders([:], frameToken: ft, client: client)), to: origin)
+    check(vendor.status == 200 && vendor.header("content-type")?.contains("javascript") == true, "/vendor/xbin-client.js through the handler")
+    if let script = html.range(of: #"src="\./([^"]+\.js)""#, options: .regularExpression) {
+        let rel = String(html[script]).dropFirst(7).dropLast(1)
+        let asset = try await transport.send(APIRequest("GET", "/c/\(tile.path)/\(rel)",
+                                                        headers: TileScheme.forwardHeaders([:], frameToken: ft, client: client)), to: origin)
+        check(asset.status == 200, "the page's own script /c/\(tile.path)/\(rel) (\(asset.status))")
+    }
+    let whoTile = try await transport.send(APIRequest("GET", "/api/xbin/whoami",
+                                                      headers: TileScheme.forwardHeaders(["Accept": "application/json"], frameToken: ft, client: client)), to: origin)
+    let wt = (try? whoTile.json()) ?? .null
+    check(whoTile.status == 200 && wt["kind"]?.stringValue != "user", "the tile's fetch('/api/xbin/whoami') runs as the tile, not the user (kind \(wt["kind"]?.stringValue ?? "-"))")
+    tileToken = (tile.path, ft)
     let other = catalog.listed.first { $0.path != tile.path && !$0.chrome }
     if let other {
         let cross = try await transport.send(APIRequest("GET", FrameTokenRoute.path(component: other.path),
                                                         headers: [TileScheme.frameTokenHeader: ft]), to: origin)
         check(cross.status == 403 || cross.status == 401, "…but not another tile's (\(cross.status))")
     }
+}
+
+// 3b. Native tiles (an xbind with runtime documents, plans/native.md §7).
+if who.nativeRuntime != nil, let nt = catalog.listed.first(where: { $0.opensNatively }) {
+    let ft = try await tokens.token(for: nt.path)
+    let url = TileScheme.runtimeURL(workspace: record.id, tile: nt.path)!
+    let doc = try await transport.send(APIRequest("GET", TileScheme.serverPath(for: url, workspace: record.id)!,
+                                                  headers: TileScheme.forwardHeaders([:], frameToken: ft, client: client)), to: origin)
+    let html = String(decoding: doc.body, as: UTF8.self)
+    check(doc.status == 200 && html.contains("xbin-native"), "\(nt.path)'s runtime document (?native=1) by frame token")
+    check(html.contains("xbin-ws-origin"), "…with the xbin-ws-origin meta the app's requests get")
+    check(html.contains(nt.nativeEntry ?? "native.js"), "…importing its native entry \(nt.nativeEntry ?? "")")
+    check(TileSurface.pick(nt, serverRuntime: who.nativeRuntime) == .native, "the navigator opens it natively")
+} else {
+    say("  note no native runtime on this xbind (or no native tile): runtime document not checked")
 }
 
 // 4. The session dies (sign-out here; an xbind restart does the same): the
@@ -170,6 +251,43 @@ let statuses = try await [r1.status, r2.status, r3.status]
 check(statuses == [200, 200, 200], "three requests on the dead session all succeed after one re-sign \(statuses)")
 check(await keys.prompts == before + 1, "exactly one signature (Face ID prompt) for them")
 check(await auth.credential?.token != deviceSession.token, "a new session was stored")
+
+// 4b. An xbind restart (APPLIVE_RESTART: a command that restarts it): every
+// session dies, the app re-signs once; frame tokens minted before it keep
+// working (they outlive a restart until their login would have expired).
+if let cmd = ProcessInfo.processInfo.environment["APPLIVE_RESTART"], !cmd.isEmpty {
+    // A token minted by the live session (the one from step 3 died with the
+    // logout above — sign-out ends the frame tokens a session minted).
+    var beforeRestart: (String, String)?
+    if let (t, _) = tileToken { beforeRestart = (t, try await tokens.renew(t)) }
+    #if canImport(Glibc)
+    _ = system(cmd)
+    #else
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/bin/sh")
+    p.arguments = ["-c", cmd]
+    try p.run()
+    p.waitUntilExit()
+    #endif
+    say("  …  xbind restarted")
+    var up = false
+    for _ in 0..<80 {
+        if let r = try? await transport.send(APIRequest("GET", "/login"), to: origin), r.status == 200 { up = true; break }
+        try await Task.sleep(nanoseconds: 250_000_000)
+    }
+    check(up, "xbind is back after the restart")
+    let prompts = await keys.prompts
+    let stale = await auth.credential?.token ?? ""
+    let r = try await auth.send(APIRequest("GET", "/api/xbin/whoami"))
+    let fresh = await auth.credential?.token ?? ""
+    check(r.status == 200 && fresh != stale, "after the restart the next request re-signs and succeeds (\(r.status))")
+    let after = await keys.prompts
+    check(after == prompts + 1, "…with one signature")
+    if let (t, ft) = beforeRestart {
+        let page = try await transport.send(APIRequest("GET", "/c/\(t)/", headers: TileScheme.forwardHeaders([:], frameToken: ft, client: client)), to: origin)
+        check(page.status == 200, "a frame token from before the restart still loads its tile (\(page.status))")
+    }
+}
 
 // 5. Devices and push registration.
 let devices = DeviceInfo.list(json: try await auth.json(APIRequest("GET", AppAuthRoute.devices)))
