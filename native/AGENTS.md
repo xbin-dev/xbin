@@ -175,6 +175,11 @@ PLAYWRIGHT_DIR=~/lcad-wasm node native/tools/bridge-check.mjs http://127.0.0.1:9
                                                  # the tile bridge + xbin-client in headless Chromium
 ```
 
+The rest of the app's Model and Shell (SwiftUI, windows, the events socket's
+owners) type-checks against stubs of the SDK — `native/tools/app-stubcheck/run.sh`
+(and `--sendable-bindings`), the app's counterpart of swiftui-stubcheck: run it
+after touching `App/Model` or `App/Shell`.
+
 `app-live` covers password sign-in, in-app enrollment, device login, one
 re-sign for concurrent requests on a dead session, the app's `/ws/events`
 socket (the device session as its bearer, via `native/tools/events-live.mjs`
