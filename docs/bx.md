@@ -143,6 +143,17 @@ bx restore <component> [--version V] [--file PATH]
 bx backup-schedule [<component> --every 24h|--cron "…" [--keep N]|--rm]
                                        owner-scheduled backups
 bx doctor                              workspace health checks
+bx native tree <tile> [--data d.json] [--steps s.json]
+                                       the tile's rendered native UI as tree
+                                       JSON (cheapest, diffable)
+bx lint --native [tile…] [--static] [--json]
+                                       check native UIs: static checks + a
+                                       headless run; no tile = the whole
+                                       workspace, with its native coverage
+bx preview --native <tile> [--dark] [--size 390x844] [--large-text]
+           [--data d.json] [--steps s.json] [--full] [--out shot.png]
+                                       a picture of the native UI, drawn by
+                                       the reference renderer
 ```
 
 ## Notes per command
@@ -258,6 +269,69 @@ its own session, else `read-only` — and `bx agent resume <past-id>
 ["<prompt>"]` continues it on the same tile (provider, mode and name carry
 over; the agent replays the earlier turns first). The Agent tab shows the same
 list under **Recent sessions**.
+
+**Native UIs** (`bx native tree`, `bx lint --native`, `bx preview
+--native`) — how an agent sees the `native.js` it writes
+([elements.md §Native app UI](/docs/elements.md)). Each loads the tile's
+runtime document, `/c/<tile>/?native=1&preview=1`, in headless Chromium —
+the tile's own code, identity and frame token, against its **live backend**
+— and reads what it rendered. `tree` prints the tree JSON the app would
+draw; `preview` screenshots the reference renderer at 390×844 points @2x
+(`--dark`, `--large-text`, `--size WxH`; `--full` grows the picture to the
+content; without `--out` it writes a PNG in `$TMPDIR` and prints the path —
+look at it); `lint` adds static checks and reports:
+
+- the entry exists (a broken `native` declaration in `xbin.json` is an
+  error);
+- every import resolves the way the runtime document resolves it (relative
+  modules in the tile, `/vendor/…`, bare names through the import map), and
+  something imports `/vendor/xb-native.js`;
+- raw colours (`tone="#f00"`, `rgb(…)`, a `'#ff3b30'` literal in the entry)
+  where the vocabulary takes tokens;
+- the runtime's errors and diagnostics (unknown primitives or props, bad
+  tokens, uncaught exceptions, a module that fails to load), page errors;
+- how long the first tree took (the app falls back to the web page after
+  5 s without one), the tree's size, and which app revision each primitive
+  and feature flag needs.
+
+With no tile, `lint` checks every native tile and ends with the
+workspace's **native coverage** (which tiles have a native UI, which render
+cleanly, which are web only). It exits 1 on any error; `--json` prints the
+report as JSON. The headless run needs `node` and Playwright's Chromium —
+the terminal rootfs has both; elsewhere `npm i -g playwright && npx
+playwright install chromium`, or `PLAYWRIGHT_DIR` naming a directory whose
+`node_modules` has playwright. Without them `tree` and `preview` fail with
+that message and `lint` keeps its static checks (`--static` asks for just
+those).
+
+`--data` replays a fixture instead of the live backend — a `data.json` (or
+a fixture directory holding one, plus an optional `steps.json`), the format
+the xbin repository's native fixtures use: `routes` maps `"METHOD
+/path?query"`, `"METHOD /path"` or `"/path"` to a response `{status?, json |
+text | sse: [{event?, id?, data}], headers?, delay?, error?}` (an array
+answers successive calls in turn), and those routes answer the tile's
+`/api/` calls — written for the fixture's `self` (default `apps/tile`), they
+also match `/api/<tile>/…`; an unanswered call gets a 404 and is reported.
+`now` (ms since the epoch) pins the clock, `tz`/`locale` set the browser's.
+`--steps` (or the data's own `steps`) then drives it, naming nodes by the
+keys `bx native tree` prints: `{"tap": key}`, `{"input": [key, value]}`,
+`{"event": [key, type, payload]}`, `{"wait": ms}`, `{"visibility": …}`,
+`{"resolve": [id, value]}` (a `bus` step is skipped with a warning). Steps
+work without `--data` too, and against the live backend they are real
+actions — a tap on "+1" increments the counter. Credentials: bx lends its own (the terminal's `XBIN_TOKEN`, or the
+owner token on the host) only to the tile's document and files; the tile's
+code talks to xbind with the frame token that document was minted, exactly
+as in the app, and never holds bx's token. So a tile's terminal previews
+that tile with its live data; another tile opened from there loads without
+a frame token (one is minted only for the tile itself or a human), so its
+API calls fail — give it `--data`, or run bx on the host.
+
+```sh
+bx lint --native                          # the workspace: problems + coverage
+bx native tree apps/counter               # what the app would draw
+bx preview --native apps/counter --dark --out /tmp/counter.png
+bx preview --native apps/counter --data fixtures/busy.json --out /tmp/busy.png
+```
 
 **`bx logs`** — reads `.xbin/log/<compkey>.log` directly; each backend
 generation is delimited by a `--- gen N start …` line.
