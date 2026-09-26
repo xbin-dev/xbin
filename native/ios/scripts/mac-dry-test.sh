@@ -428,13 +428,21 @@ if have git; then
   has "release-build --dry-run: the archive it would run" "$out" "xcodebuild archive -project Xbin.xcodeproj -scheme Xbin -configuration Release"
   has "release-build --dry-run: …authenticated by the key" "$out" "-allowProvisioningUpdates -authenticationKeyPath $k -authenticationKeyID $kid -authenticationKeyIssuerID $iss"
   hasnt "release-build --dry-run: builds nothing" "$(cat "$FAKE_LOG")" "xcodebuild archive"
-  FAKE_KEYCHAIN_LOCKED=1 run "$R" "$@" --build 7
-  eq "release-build: a locked keychain, no terminal → stops" "$rc:$(printf '%s' "$out" | grep -c 'login keychain is locked' || true)" "2:1"
+  hasnt "release-build --dry-run: …nor a keychain" "$(cat "$FAKE_LOG")" "create-keychain"
 
   : >"$FAKE_LOG"
   run "$R" "$@" --build 42 --version 1.2.3 --out "$tmp/rel-out"
   eq "release-build: archives and exports" "$rc" 0
   log=$(cat "$FAKE_LOG")
+  skc=$HOME/Library/Keychains/xbin-signing.keychain-db
+  has "release-build: makes its signing keychain" "$log" "security create-keychain -p *** $skc"
+  eq "release-build: …its password file is private" "$(stat -c %a "$HOME/.appstoreconnect/signing-keychain.pass" 2>/dev/null || stat -f %Lp "$HOME/.appstoreconnect/signing-keychain.pass")" 600
+  has "release-build: signs with only that keychain in the search list" "$log" "security list-keychains -d user -s $skc"
+  has "release-build: …as the default (a new identity lands there)" "$log" "security default-keychain -d user -s $skc"
+  has "release-build: …codesign may use its keys" "$log" "security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k *** $skc"
+  has "release-build: puts the user's keychains back" "$log" "security list-keychains -d user -s $HOME/Library/Keychains/login.keychain-db"
+  has "release-build: …and the default" "$log" "security default-keychain -d user -s $HOME/Library/Keychains/login.keychain-db"
+  hasnt "release-build: never logs the keychain password" "$log" "$(cat "$HOME/.appstoreconnect/signing-keychain.pass")"
   has "release-build: generates the project" "$log" "xcodegen generate --spec project.yml (in ios)"
   has "release-build: the archive, automatic signing with the API key" "$log" \
     "xcodebuild archive -project Xbin.xcodeproj -scheme Xbin -configuration Release -destination generic/platform=iOS -archivePath $tmp/rel-out/Xbin.xcarchive -derivedDataPath $tmp/rel-out/derived -skipPackagePluginValidation -skipMacroValidation -allowProvisioningUpdates -authenticationKeyPath $k -authenticationKeyID $kid -authenticationKeyIssuerID $iss DEVELOPMENT_TEAM=$team CODE_SIGN_STYLE=Automatic CURRENT_PROJECT_VERSION=42 MARKETING_VERSION=1.2.3"

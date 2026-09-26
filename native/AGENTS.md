@@ -659,7 +659,7 @@ On the Mac the jobs keep DerivedData and SwiftPM clones on disk
 from a clean checkout (`actions/checkout` cleans the workspace;
 `$RUNNER_TEMP` is emptied per job).
 
-### Signing and releases (scaffolding — nothing is signed yet)
+### Signing and releases
 
 The release user signs and uploads with an **App Store Connect API key**
 and Xcode's automatic signing, which uses Apple's **cloud-managed
@@ -688,10 +688,17 @@ ssh release@mini 'mkdir -p ~/.appstoreconnect/private_keys && chmod 700 ~/.appst
   mv ~/AuthKey_*.p8 ~/.appstoreconnect/private_keys/ && chmod 600 ~/.appstoreconnect/private_keys/AuthKey_*.p8'
 ```
 
-**A build**, as release, over ssh, from its own clean checkout (a tag):
+**Once per team: a registered device.** The archive is signed with a
+development profile, and Apple issues one only to a team with at least one
+device ("Your team has no devices from which to generate a provisioning
+profile"): register an iPhone under Certificates, Identifiers & Profiles →
+Devices (its UDID; neither Developer Mode nor leaving Lockdown Mode is
+needed). The export's App Store profiles need none.
+
+**A build**, as release, over ssh, from its own clean checkout (a tag).
+Nothing to unlock:
 
 ```sh
-security unlock-keychain ~/Library/Keychains/login.keychain-db   # ssh sessions start locked
 native/ios/scripts/release-build.sh --team <TEAMID> --key-id <KEYID> --issuer <ISSUERID> --dry-run
 native/ios/scripts/release-build.sh --team <TEAMID> --key-id <KEYID> --issuer <ISSUERID> [--version 1.0.0] [--upload]
 ```
@@ -709,6 +716,24 @@ at mode 600 outside any checkout, or from a dirty tree; and it warns when an
 Apple Distribution identity is in the keychain (it would be used instead of
 the cloud certificate, and is a distribution key on disk). The team id is
 on developer.apple.com → Membership details.
+
+**The signing keychain.** Over ssh, with no desktop session, codesign can't
+use a key in the login keychain: it fails with `errSecInternalComponent`
+(and "unable to build chain to self-signed root") whether the keychain is
+unlocked in that session or not, and with codesign in the key's partition
+list. It can in a keychain made with `security create-keychain` — what CI
+setups do. So release-build.sh keeps its own,
+`~/Library/Keychains/xbin-signing.keychain-db`, made on its first run with a
+random password in `~/.appstoreconnect/signing-keychain.pass` (mode 600,
+next to the API key, which is worth more). For the build it unlocks it,
+copies Apple's public WWDR intermediates in, makes it the user's only and
+default keychain — xcodebuild then makes the development identity there —
+lets codesign use its keys (`set-key-partition-list`, retried once after the
+first run makes the identity mid-build), and puts the user's keychain list
+and default back on exit. It holds only that development identity. Apple
+keeps **one development certificate per Mac**: one made before (whose key is
+in the login keychain) must be revoked in Certificates, Identifiers &
+Profiles first — the script says so when xcodebuild asks.
 
 ### App Store: the icon, privacy, export compliance
 

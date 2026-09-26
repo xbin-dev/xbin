@@ -30,10 +30,14 @@
 #   --allow-dirty   build a tree with uncommitted changes (never for a real release)
 #   --dry-run       the checks, then the commands it would run (nothing built)
 #
-# XBIN_XCODE picks the Xcode (else the selected one). The login keychain
-# must be unlocked (over ssh: security unlock-keychain): the archive is
-# signed with the user's development identity before the export re-signs it
-# for distribution.
+# XBIN_XCODE picks the Xcode (else the selected one). The archive is signed
+# with a development identity before the export re-signs it for
+# distribution. That identity lives in a keychain of this script's own,
+# ~/Library/Keychains/xbin-signing.keychain-db (XBIN_SIGNING_KEYCHAIN), made
+# on the first run with a random password kept in ~/.appstoreconnect
+# (mode 600): over ssh, with no desktop session, codesign can't use a key
+# in the login keychain (errSecInternalComponent — unlocked or not), but can
+# in a keychain like this one. Nothing to unlock by hand.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=SCRIPTDIR/ci-lib.sh
@@ -146,28 +150,73 @@ echo "               as $me with $(xcodebuild -version 2>/dev/null | head -n 1),
 
 # A distribution identity in this keychain would be used instead of the
 # cloud-managed certificate — and is a distribution private key on disk.
-if security find-identity -v -p codesigning 2>/dev/null | grep -q 'Apple Distribution'; then
+if security find-identity -v -p codesigning "$HOME/Library/Keychains/login.keychain-db" \
+  "${XBIN_SIGNING_KEYCHAIN:-$HOME/Library/Keychains/xbin-signing.keychain-db}" 2>/dev/null | grep -q 'Apple Distribution'; then
   ci_warn "an Apple Distribution identity is in $me's keychain: delete it (Keychain Access) so the export uses the cloud-managed certificate and no distribution key stays on this Mac"
 fi
 
 if [ "$dry" = 1 ]; then
-  echo "dry run — would run, in $XBIN_REPO/native/ios:"
+  echo "dry run — would sign with the keychain ${XBIN_SIGNING_KEYCHAIN:-$HOME/Library/Keychains/xbin-signing.keychain-db} and run, in $XBIN_REPO/native/ios:"
   echo "  xcodegen generate --spec project.yml"
   echo "  xcodebuild archive -project Xbin.xcodeproj -scheme Xbin -configuration Release -destination generic/platform=iOS -archivePath $out/Xbin.xcarchive -derivedDataPath $out/derived ${trust[*]} ${auth[*]} ${settings[*]}"
   echo "  xcodebuild -exportArchive -archivePath $out/Xbin.xcarchive -exportPath $out/export -exportOptionsPlist $out/ExportOptions.plist ${auth[*]}"
   exit 0
 fi
 
-if ! security show-keychain-info "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1; then
-  if [ -t 0 ]; then
-    echo "the login keychain is locked (an ssh session): unlocking it for the signing"
-    security unlock-keychain "$HOME/Library/Keychains/login.keychain-db"
-  else
-    refuse "the login keychain is locked: security unlock-keychain ~/Library/Keychains/login.keychain-db, then run this again"
-  fi
-fi
-
 umask 077
+
+# ---- the signing keychain ------------------------------------------------
+# Only the development identity xcodebuild makes for the archive (it can't
+# publish anything; distribution is Apple's cloud-managed certificate) and
+# Apple's public WWDR intermediates live here. Its password sits next to
+# the API key, which is worth more. For the build it is the user's only
+# keychain and the default one — so xcodebuild uses, or makes, the identity
+# here and not in the login keychain — and both come back on exit.
+kc=${XBIN_SIGNING_KEYCHAIN:-$HOME/Library/Keychains/xbin-signing.keychain-db}
+kcpass_file=$HOME/.appstoreconnect/signing-keychain.pass
+if [ ! -f "$kc" ]; then
+  [ ! -f "$kcpass_file" ] || refuse "$kcpass_file exists but $kc doesn't: remove the stale password file to start over"
+  head -c 24 /dev/urandom | base64 >"$kcpass_file"
+  chmod 600 "$kcpass_file"
+  security create-keychain -p "$(cat "$kcpass_file")" "$kc"
+  echo "release-build: made the signing keychain $kc"
+fi
+[ -f "$kcpass_file" ] || refuse "$kc exists but its password file $kcpass_file doesn't: security delete-keychain $kc to start over"
+case $(file_mode "$kcpass_file") in
+600 | 400) ;;
+*) refuse "$kcpass_file is mode $(file_mode "$kcpass_file"): chmod 600" ;;
+esac
+kcpass=$(cat "$kcpass_file")
+security unlock-keychain -p "$kcpass" "$kc"
+security set-keychain-settings -l -u -t 7200 "$kc"
+# The intermediates, from the keychains Xcode keeps them in (public certs;
+# an "already exists" is fine).
+wwdr=$(mktemp "${TMPDIR:-/tmp}/wwdr.XXXXXX")
+security find-certificate -a -c "Apple Worldwide Developer Relations" -p \
+  "$HOME/Library/Keychains/login.keychain-db" /Library/Keychains/System.keychain >"$wwdr" 2>/dev/null || true
+if [ -s "$wwdr" ]; then security import "$wwdr" -k "$kc" -t cert -f pemseq >/dev/null 2>&1 || true; fi
+rm -f "$wwdr"
+kc_list=()
+while IFS= read -r l; do
+  l=${l#"${l%%[![:space:]]*}"}
+  l=${l#\"}
+  l=${l%\"}
+  [ -n "$l" ] && kc_list+=("$l")
+done < <(security list-keychains -d user)
+kc_default=$(security default-keychain -d user | sed 's/^[[:space:]]*"//; s/"$//')
+kc_restore() {
+  security list-keychains -d user -s ${kc_list[@]+"${kc_list[@]}"} || true
+  [ -z "$kc_default" ] || security default-keychain -d user -s "$kc_default" || true
+  security lock-keychain "$kc" || true
+}
+trap kc_restore EXIT
+security list-keychains -d user -s "$kc"
+security default-keychain -d user -s "$kc"
+# codesign may use the key without a prompt (a no-op before the first
+# identity exists; the archive below retries once after making one).
+kc_partition() { security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$kcpass" "$kc" >/dev/null 2>&1 || true; }
+kc_partition
+
 mkdir -p "$out"
 chmod 700 "$out"
 cat >"$out/ExportOptions.plist" <<EOF
@@ -195,15 +244,31 @@ cd native/ios
 proj=""
 ci_project
 ci_metal
-ci_xcodebuild "$out/archive.log" archive -project "$proj" -scheme Xbin -configuration Release \
-  -destination generic/platform=iOS -archivePath "$out/Xbin.xcarchive" -derivedDataPath "$out/derived" \
-  "${trust[@]}" "${auth[@]}" "${settings[@]}"
+archive() {
+  ci_xcodebuild "$out/archive.log" archive -project "$proj" -scheme Xbin -configuration Release \
+    -destination generic/platform=iOS -archivePath "$out/Xbin.xcarchive" -derivedDataPath "$out/derived" \
+    "${trust[@]}" "${auth[@]}" "${settings[@]}"
+}
+if ! archive; then
+  # Apple keeps one development certificate per Mac: one whose key sits
+  # elsewhere (the login keychain, from before this keychain existed) must
+  # go before xcodebuild makes the one here.
+  if grep -q 'Revoke certificate' "$out/archive.log" 2>/dev/null; then
+    refuse "this Mac already has an Apple Development certificate whose key isn't in $kc (made outside this script): revoke it — developer.apple.com → Certificates, Identifiers & Profiles → Certificates — and run this again; the next run makes the new one in $kc"
+  fi
+  # The first run makes the development identity mid-build, before its key
+  # may be used without a prompt: allow codesign, then once more.
+  grep -q errSecInternalComponent "$out/archive.log" 2>/dev/null || refuse "the archive failed (see $out/archive.log)"
+  echo "release-build: a new signing identity — letting codesign use its key, then archiving again"
+  kc_partition
+  archive || refuse "the archive failed (see $out/archive.log)"
+fi
 [ -d "$out/Xbin.xcarchive" ] || refuse "no archive at $out/Xbin.xcarchive (see $out/archive.log)"
 ci_xcodebuild "$out/export.log" -exportArchive -archivePath "$out/Xbin.xcarchive" -exportPath "$out/export" \
   -exportOptionsPlist "$out/ExportOptions.plist" "${auth[@]}"
 rm -rf "$out/derived"
 
-if security find-identity -v -p codesigning 2>/dev/null | grep -q 'Apple Distribution'; then
+if security find-identity -v -p codesigning "$kc" 2>/dev/null | grep -q 'Apple Distribution'; then
   ci_warn "the export left an Apple Distribution identity in $me's keychain (the key had no cloud-signing access?): delete it, and check the key's role (native/AGENTS.md → Mac mini)"
 fi
 if [ "$upload" = 1 ]; then
