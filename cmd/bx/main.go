@@ -137,7 +137,7 @@ func usage() {
   bx org ls|add|set|rm <id> [flags]     organizations (docs/auth.md, D24-D28)
   bx org member <org> [<user> --level L [--create] [--admin] [--detach] | rm <user>]
   bx org sso-groups <org> [--add g[:level[:create]] | --rm g]   IdP-group rules (D53)
-  bx user signout <id>                  end every session + terminal token
+  bx user signout <id> [--devices]      end every session + token (--devices: app devices too)
   bx org set <id> [--sets +s|-s] [--net +n|-n] [--allow +t|-t]   delegation + network (ws-admin)
   bx netset ls|set <name> [--rules a,b|--add r|--rm r]|rm <name>   org network sets (D54)
   bx org policy [<org>] [--set '<json>'] policy-ceiling rows (workspace/org)

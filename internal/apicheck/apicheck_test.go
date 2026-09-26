@@ -296,6 +296,9 @@ func TestRouteInventory(t *testing.T) {
 		}
 	}
 	for _, d := range protocolRows(t) {
+		// A row may cover an API route AND a core one: POST /login is both
+		// the form login (core) and the app's JSON sign-in (/api/xbin/login),
+		// each documented in its own section.
 		hit := false
 		for i, r := range api {
 			if r.matches(d) {
@@ -303,12 +306,10 @@ func TestRouteInventory(t *testing.T) {
 				hit = true
 			}
 		}
-		if !hit {
-			for i, r := range core {
-				if r.matches(d) {
-					coreProto[i]++
-					hit = true
-				}
+		for i, r := range core {
+			if r.matches(d) {
+				coreProto[i]++
+				hit = true
 			}
 		}
 		if !hit {

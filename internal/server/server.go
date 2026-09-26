@@ -83,6 +83,10 @@ type Server struct {
 	apiPatterns   []string       // every RegisterAPI pattern, in order (the route inventory)
 	corePatterns  []string       // the top-level mux patterns Handler mounted
 	loginThrottle *loginThrottle
+
+	// publicAPI: RegisterPublicAPI patterns, reached without a principal
+	// (devicelogin.go).
+	publicAPI map[string]bool
 }
 
 // RegisterAPI mounts a handler under /api/xbin/. Pattern is a ServeMux
@@ -124,6 +128,7 @@ func (s *Server) Handler() http.Handler {
 	handleFunc("GET /login/sso", s.handleSSOStart)             // SSO: to the IdP (sso.go)
 	handleFunc("GET /login/sso/callback", s.handleSSOCallback) // SSO: back from it
 	handleFunc("POST /logout", s.handleLogout)
+	s.registerDeviceLogin(handleFunc) // device + app sign-in (devicelogin.go)
 
 	handle("GET /{$}", s.authed(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/c/root/", http.StatusFound)
@@ -137,7 +142,7 @@ func (s *Server) Handler() http.Handler {
 	handle("GET /vendor/", http.HandlerFunc(s.handleVendor))
 	handle("GET /docs/", s.authed(http.HandlerFunc(s.handleDocs)))
 
-	handle("/api/", s.authed(http.HandlerFunc(s.handleAPI)))
+	handle("/api/", s.authedAPI(http.HandlerFunc(s.handleAPI)))
 
 	handle("GET /ws/term", s.authedTerminal(http.HandlerFunc(s.Term.ServeWS)))
 	handle("DELETE /ws/term", s.authedTerminal(http.HandlerFunc(s.handleTermKill)))
@@ -504,6 +509,9 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if s.bearerLogout(w, r) { // the app signing out (devicelogin.go)
+		return
+	}
 	if c, err := r.Cookie(auth.CookieName); err == nil {
 		// Signing out of a view-as session returns the admin to themselves
 		// rather than to the login page (impersonate.go).

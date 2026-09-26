@@ -221,7 +221,9 @@ func (s *Server) apiComponent(w http.ResponseWriter, r *http.Request) {
 // the tile (admin/owner any; a user only tiles on their allow-list; a tile
 // frontend only its own component — including a COOKIE-LESS one, since a
 // sandboxed frame holds nothing but its token). The token is re-bound to the
-// caller's user.
+// caller's user and to the caller's credential generation: a human's login
+// session, or — a tile renewing — the generation its own token carries, so
+// logout / revocation / sign-out-everywhere end the renewals too.
 func (s *Server) apiFrameToken(w http.ResponseWriter, r *http.Request) {
 	comp := r.URL.Query().Get("component")
 	p := auth.PrincipalOf(r)
@@ -231,6 +233,6 @@ func (s *Server) apiFrameToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	WriteJSON(w, http.StatusOK, map[string]string{
-		"token": s.Auth.MintFrameToken(comp, p.UserID, frameTokenTTL),
+		"token": s.Auth.MintFrameTokenFor(p, comp, frameTokenTTL),
 	})
 }

@@ -20,16 +20,12 @@ package auth
 
 import (
 	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/base64"
-	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -65,7 +61,18 @@ type Principal struct {
 	// (tests, older call sites) behaving as before.
 	Access    *users.Access
 	Component string // element path when the caller is an element
-	Via       string // "cookie" | "bearer" | "instance" | "frame" | "cron" | "session"
+	// Via: "cookie" | "bearer" | "instance" | "frame" | "cron" | "terminal" |
+	// "session" (browser login) | "device" (the app's device-key session) |
+	// "app" (the app's password/SSO session, before a device is enrolled).
+	// session, device and app are the same human principal (sessions.go).
+	Via string
+	// DeviceID names the enrolled device behind a "device" session.
+	DeviceID string
+	// Gen is the credential generation this principal authenticated under —
+	// what a frame token it mints is bound to (frametoken.go): a login
+	// session's handle, the bootstrap token's, or (a frame principal) the
+	// generation copied from its token.
+	Gen string
 	// Role is set only for synthetic principals whose role is bound at
 	// creation (cron ticks carry the role chosen at job registration).
 	Role string
@@ -211,10 +218,13 @@ type Auth struct {
 	mu        sync.RWMutex
 	instances map[string]string     // instance token → component path
 	terminals map[string]termID     // terminal token → (component, user)
-	sessions  map[string]*session   // session id → session
+	sessions  map[string]*session   // session id → session (sessions.go)
 	tickets   map[string]*impTicket // one-shot impersonation tickets (impersonate.go)
 	warm      map[string]time.Time  // client IP → last successful auth (the /c/ gate)
+	gens      genState              // credential generations for frame tokens (frametoken.go)
+	dev       deviceState           // enrollment codes, challenges, app tickets (devices.go)
 	noAuth    bool
+	saveMu    sync.Mutex // serializes framegens.go writes
 
 	// clientIP resolves a request's client IP (trusted-proxy aware);
 	// installed by the server via SetClientIP. Nil → RemoteAddr.
@@ -226,21 +236,6 @@ type Auth struct {
 type termID struct {
 	component string
 	userID    string // "" for the bootstrap-token principal
-}
-
-// session is a live browser login (server-side; the cookie holds only the id).
-type session struct {
-	userID     string
-	created    time.Time // login time — the absolute-TTL anchor
-	lastActive time.Time // last authenticated request — the idle-TTL anchor
-	ip         string    // client IP at login
-	lastIP     string    // client IP of the most recent authenticated request
-	// Impersonation (impersonate.go): who is looking, and how to hand the
-	// browser back to them when they stop — their own session id, or the
-	// owner token when they came in on the bootstrap cookie.
-	impersonator   string
-	restoreSession string
-	restoreOwner   bool
 }
 
 // Session lifetime defaults (override with XBIN_SESSION_IDLE_TTL /
@@ -266,7 +261,7 @@ func Load(workspaceRoot string, noAuth bool) (*Auth, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Auth{
+	a := &Auth{
 		ownerToken:     tok,
 		tokenPath:      filepath.Join(dir, "token"),
 		secret:         []byte(sec),
@@ -277,8 +272,12 @@ func Load(workspaceRoot string, noAuth bool) (*Auth, error) {
 		sessions:       map[string]*session{},
 		tickets:        map[string]*impTicket{},
 		warm:           map[string]time.Time{},
+		gens:           newGenState(),
+		dev:            newDeviceState(),
 		noAuth:         noAuth,
-	}, nil
+	}
+	a.loadGens(filepath.Join(dir, gensFileName)) // tiles open across a restart keep their binding
+	return a, nil
 }
 
 // envDuration reads a Go duration from env, falling back to def (and warning on
@@ -501,76 +500,6 @@ func (a *Auth) terminalPrincipal(id termID) (Principal, bool) {
 	return p, true
 }
 
-// --- frame tokens ---
-
-// MintFrameToken creates a token binding requests to (component, user) for
-// ttl. userID is "" for the root principal. Format:
-// base64(component)|base64(user)|exp|hmac.
-func (a *Auth) MintFrameToken(component, userID string, ttl time.Duration) string {
-	exp := time.Now().Add(ttl).Unix()
-	payload := fmt.Sprintf("%s|%s|%d",
-		base64.RawURLEncoding.EncodeToString([]byte(component)),
-		base64.RawURLEncoding.EncodeToString([]byte(userID)), exp)
-	return payload + "|" + a.sign(payload)
-}
-
-func (a *Auth) sign(payload string) string {
-	m := hmac.New(sha256.New, a.secret)
-	m.Write([]byte(payload))
-	return base64.RawURLEncoding.EncodeToString(m.Sum(nil))
-}
-
-// VerifyFrameToken returns the (component, user) a valid, unexpired token
-// attributes to.
-func (a *Auth) VerifyFrameToken(tok string) (component, userID string, ok bool) {
-	parts := strings.Split(tok, "|")
-	if len(parts) != 4 {
-		return "", "", false
-	}
-	payload := parts[0] + "|" + parts[1] + "|" + parts[2]
-	if !hmac.Equal([]byte(a.sign(payload)), []byte(parts[3])) {
-		return "", "", false
-	}
-	exp, err := strconv.ParseInt(parts[2], 10, 64)
-	if err != nil || time.Now().Unix() > exp {
-		return "", "", false
-	}
-	comp, err := base64.RawURLEncoding.DecodeString(parts[0])
-	if err != nil {
-		return "", "", false
-	}
-	uid, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return "", "", false
-	}
-	return string(comp), string(uid), true
-}
-
-// framePrincipal builds an element-frontend principal from a verified frame
-// token. It is an *element* identity: the tile acts as itself, and its admin
-// capability comes from the tile's own grants — it does NOT inherit the
-// driving user's privilege (a tile an admin merely opens can't call admin
-// APIs unless the tile is itself granted). The user id rides along only for
-// attribution and to bind the token to its session. A frame token naming a
-// user who no longer exists is rejected.
-func (a *Auth) framePrincipal(tok string) (Principal, bool) {
-	comp, uid, ok := a.VerifyFrameToken(tok)
-	if !ok {
-		return Principal{}, false
-	}
-	p := Principal{Component: comp, UserID: uid, Via: "frame"}
-	if uid != "" {
-		if _, found := a.userSnapshot(uid); !found {
-			return Principal{}, false
-		}
-		// The driving user's Access rides along: per-tile gates for anything
-		// beyond the frame's own tile follow the human, so one tile's frame
-		// token can't read another tile's static files past the user's RBAC.
-		p.Access = a.accessSnapshot(uid)
-	}
-	return p, true
-}
-
 // userSnapshot resolves a user for principal building. A DISABLED account
 // resolves like a deleted one (D34): sessions, frame tokens and live
 // terminals naming the user all stop authenticating the moment the flag is
@@ -643,13 +572,13 @@ func (a *Auth) fromRequest(r *http.Request) (Principal, bool) {
 		if p, ok, present := frame(); present {
 			return p, ok
 		}
-		return Principal{Owner: true, Via: "dev"}, true
+		return Principal{Owner: true, Via: "dev", Gen: a.ownerGen()}, true
 	}
 
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 		tok := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
 		if a.IsOwnerToken(tok) {
-			return Principal{Owner: true, Via: "bearer"}, true
+			return Principal{Owner: true, Via: "bearer", Gen: a.ownerGen()}, true
 		}
 		if comp, ok := a.lookupInstance(tok); ok {
 			return Principal{Component: comp, Via: "instance"}, true
@@ -657,7 +586,8 @@ func (a *Auth) fromRequest(r *http.Request) (Principal, bool) {
 		if id, ok := a.lookupTerminal(tok); ok {
 			return a.terminalPrincipal(id)
 		}
-		return Principal{}, false
+		// The app's human sessions (device / password / SSO) ride as bearers.
+		return a.bearerSessionPrincipal(tok, a.ipOf(r))
 	}
 
 	// Cookie: either the root token (bootstrap/admin) or a session id. Without
@@ -681,17 +611,18 @@ func (a *Auth) fromRequest(r *http.Request) (Principal, bool) {
 		if a.TokenLoginDisabled() {
 			return Principal{}, false
 		}
-		base = Principal{Owner: true, Via: "cookie"}
+		base = Principal{Owner: true, Via: "cookie", Gen: a.ownerGen()}
 	default:
-		uid, imp, ok := a.sessionUser(cookie.Value, a.ipOf(r))
+		sv, ok := a.sessionUser(cookie.Value, a.ipOf(r), false)
 		if !ok {
 			return Principal{}, false
 		}
-		u, found := a.userSnapshot(uid)
+		u, found := a.userSnapshot(sv.userID)
 		if !found { // user deleted → session invalid
 			return Principal{}, false
 		}
-		base = Principal{UserID: uid, User: u, Access: a.accessSnapshot(uid), Via: "session", Impersonator: imp}
+		base = Principal{UserID: sv.userID, User: u, Access: a.accessSnapshot(sv.userID), Via: "session",
+			Impersonator: sv.impersonator, Gen: sv.gen}
 	}
 
 	// A frame token on top narrows to that tile frontend (carrying the same

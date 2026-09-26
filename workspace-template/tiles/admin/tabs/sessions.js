@@ -41,7 +41,8 @@ export class BxAdminSessions extends WithRouter(LitElement) {
           : !ss.length ? html`<tr><td class="muted" colspan="6">no sessions match</td></tr>`
           : repeat(ss, (s) => `${s.user}:${s.created}:${s.ip}`, (s) => html`<tr>
           <td class="mono">${s.user}${s.name && s.name !== s.user ? html` <span class="muted">${s.name}</span>` : nothing}${s.impersonatedBy
-            ? html` <span class="pill" title="an admin's read-only view of this user (D64) — ends when they exit the banner">👁 viewed by ${s.impersonatedBy}</span>` : nothing}</td>
+            ? html` <span class="pill" title="an admin's read-only view of this user (D64) — ends when they exit the banner">👁 viewed by ${s.impersonatedBy}</span>` : nothing}${s.via === 'device' || s.via === 'app'
+            ? html` <span class="pill" title=${s.via === 'device' ? `the xbin app, signed in with device ${s.device}` : 'the xbin app, signed in with a password or SSO'}>📱 app</span>` : nothing}</td>
           <td title=${new Date(s.created * 1000).toLocaleString()}>${this._ago(s.created)}</td>
           <td title=${new Date(s.lastActive * 1000).toLocaleString()}>${this._ago(s.lastActive)}</td>
           <td class="mono">${s.ip || '—'}</td>

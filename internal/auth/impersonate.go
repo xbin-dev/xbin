@@ -126,16 +126,15 @@ func (a *Auth) RedeemImpersonation(ticket string, by Principal, prevCookie, ip s
 	if _, ok := a.userSnapshot(t.target); !ok {
 		return "", errImpNoUser
 	}
-	id := util.RandomToken(32)
 	a.mu.Lock()
 	a.sweepSessionsLocked(now)
 	s := &session{userID: t.target, created: now, lastActive: now, ip: ip, lastIP: ip, impersonator: t.issuer}
 	if by.Owner {
 		s.restoreOwner = true
-	} else if _, live := a.sessions[prevCookie]; live {
+	} else if prev, live := a.sessions[prevCookie]; live && !prev.bearer {
 		s.restoreSession = prevCookie
 	}
-	a.sessions[id] = s
+	id := a.addSessionLocked(s)
 	a.warmLocked(ip, now)
 	a.mu.Unlock()
 	return id, nil
@@ -160,14 +159,16 @@ func (a *Auth) Impersonation(id string) (impersonator string, ok bool) {
 // when id is not an impersonation session (a plain logout handles those).
 func (a *Auth) StopImpersonation(id string) (restoreSession string, restoreOwner, ok bool) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	s, found := a.sessions[id]
 	if !found || s.impersonator == "" {
+		a.mu.Unlock()
 		return "", false, false
 	}
-	delete(a.sessions, id)
+	a.dropSessionLocked(id)
 	if _, live := a.sessions[s.restoreSession]; live {
 		restoreSession = s.restoreSession
 	}
+	a.mu.Unlock()
+	a.saveGens() // the view's tiles end with it, restart or not
 	return restoreSession, s.restoreOwner, true
 }

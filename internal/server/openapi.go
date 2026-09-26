@@ -51,8 +51,9 @@ Every route needs a **principal**, established by one of:
 - **Owner cookie** ` + "`xbin_session`" + ` (browser login) → the *owner*.
 - **Bearer token** ` + "`Authorization: Bearer <token>`" + ` → the owner, the
   element an *instance token* belongs to (backends, over the gateway unix
-  socket), or the tile a *terminal token* belongs to (shells — per-session,
-  tile-scoped).
+  socket), the tile a *terminal token* belongs to (shells — per-session,
+  tile-scoped), or — the native app's own code — the signed-in *user* of a
+  device / app session (POST /login/device, POST /api/xbin/login).
 - **Frame token** ` + "`X-XBin-Frame-Token`" + ` → an element *frontend*.
   Standalone: no cookie required (sandboxed tile frames hold nothing else),
   and a cookie-bearing request showing the tile fingerprint
@@ -98,9 +99,9 @@ func endpoints() []ep {
 		{"POST", "/auth-rotate-token", "Identity", "Rotate the owner token", "admin",
 			"Rewrites .xbin/token; the old token dies immediately (bearer and cookie). The new token is returned once.", nil, nil, "{token}"},
 		{"POST", "/account/password", "Identity", "Change your own password", "signed-in user",
-			"Self-service rotation: the current password is verified first (D38).", nil, jsonBody("passwords", oapi{"current": str(""), "new": str("")}, "current", "new"), "ok"},
+			"Self-service rotation: the current password is verified first (D38). removeDevices:true also removes the caller's enrolled app devices — all but the one making the call — and ends their sessions (a new password alone doesn't sign a device out).", nil, jsonBody("passwords", oapi{"current": str(""), "new": str(""), "removeDevices": boolean()}, "current", "new"), "{ok, devicesRemoved?}"},
 		{"GET", "/frame-token", "Identity", "Mint a frame token", "authenticated",
-			"Issues a short-lived per-(user×component) frame token so an element frontend can attribute its calls (xbin-client.js uses this). Humans: any tile they may read; a tile frontend: its OWN component only — cookie-less renewal included (sandboxed frames hold no other credential).", []oapi{queryParam("component", "the component the token is for", true)}, nil, "{token}"},
+			"Issues a short-lived per-(user×component) frame token so an element frontend can attribute its calls (xbin-client.js uses this). Humans: any tile they may read; a tile frontend: its OWN component only — cookie-less renewal included (sandboxed frames hold no other credential). The token is bound to the caller's credential generation — the login session that minted it (renewals copy it) — so logout, device revocation, sign-out-everywhere and disabling the user end it (docs/auth.md).", []oapi{queryParam("component", "the component the token is for", true)}, nil, "{token}"},
 		{"GET", "/status", "Runtime", "Terminals + component counts + host/traffic gauges", "admin", "host = cpu jiffies, memory, workspace disk; traffic = cumulative request/byte counters (clients delta two polls for rates). Powers the shell's status footer.", nil, nil, "{components, terminals, host, traffic}"},
 		{"GET", "/gpus", "Runtime", "Host NVIDIA GPUs (for gpu:* grants / terminal picker)", "admin", "", nil, nil, "{gpus:[{index,uuid,name,node}]}"},
 		{"GET", "/backends", "Runtime", "Per-component backend state", "admin",
@@ -193,7 +194,7 @@ func endpoints() []ep {
 
 		// --- users ---
 		{"GET", "/users", "Users", "List users", "xbin:users",
-			"Human users and their per-tile permissions, plus sign-in facts (lastLogin, lastLoginVia, ssoGroups seen at the last SSO sign-in, ssoSyncError) and roleVia (\"sso\" when the admin role came from a group rule). canCreate is deprecated and ignored (D82) — creation follows ownership. The personal plane (D88): noPersonalTiles, noTerminal, sets, netSets as set on the account, and personal = the resolved plane (workspace personal defaults ∪ own) for non-admins. Admin or the xbin:users grant.", nil, nil, "{users:[{id,name,email,role,roleVia,tiles,canCreate,termApi,termNet,noPersonalTiles,noTerminal,sets,netSets,personal,disabled,invitePending,lastLogin,lastLoginVia,ssoGroups,ssoSyncError}]}"},
+			"Human users and their per-tile permissions, plus sign-in facts (lastLogin, lastLoginVia, lastSSO = the last SSO sign-in, ssoGroups seen at the last SSO sign-in, ssoSyncError) and roleVia (\"sso\" when the admin role came from a group rule). canCreate is deprecated and ignored (D82) — creation follows ownership. The personal plane (D88): noPersonalTiles, noTerminal, sets, netSets as set on the account, and personal = the resolved plane (workspace personal defaults ∪ own) for non-admins. Admin or the xbin:users grant.", nil, nil, "{users:[{id,name,email,role,roleVia,tiles,canCreate,termApi,termNet,noPersonalTiles,noTerminal,sets,netSets,personal,disabled,invitePending,deviceCount,lastLogin,lastLoginVia,lastSSO,ssoGroups,ssoSyncError}]}"},
 		{"POST", "/users", "Users", "Create a user", "xbin:users",
 			"With password → ready to sign in; without → credential-less + a single-use invite link (D22); sso:true (needs email) → credential-less with NO invite: the bound email signs in through the IdP (pre-provisioning, D52). Every new account is seeded with the workspace's new-account defaults (GET /defaults newUsers) on top of the given fields; orgs joins the account to orgs at creation (validated first — no half-created account). Under SSO-only mode a non-admin needs sso:true or a password.", nil,
 			jsonBody("new user", oapi{"id": str(""), "name": str(""), "role": str("admin|user"), "email": str("SSO binding"), "tiles": oapi{"type": "object", "description": "path/pattern → read|write|terminal"}, "canCreate": deprecatedArr("deprecated, ignored (D82) — accepted for compatibility"), "termApi": boolean(), "termNet": boolean(), "password": str(""), "sso": boolean(), "orgs": arr(),
@@ -203,10 +204,34 @@ func endpoints() []ep {
 		{"POST", "/users/{id}/invite", "Users", "(Re)mint an invite link", "xbin:users, or an org admin for a non-admin member of their org",
 			"Credential delivery or reset-by-link (D38): re-minting invalidates the previous link; the current password keeps working until redemption. 409 for a non-admin under SSO-only mode (D53).", []oapi{pathParam("id", "user id")}, nil, "{invite, inviteUrl, inviteLink, inviteExpires}"},
 		{"DELETE", "/users/{id}/sessions", "Users", "Sign a user out everywhere", "xbin:users",
-			"Ends every browser session and terminal token of the user (D53); they can sign in again — disable the account to stop that.", []oapi{pathParam("id", "user id")}, nil, "{ok, dropped}"},
+			"Ends every browser and app session, terminal token and frame token of the user and voids their pending device-enrollment codes (D53); they can sign in again — disable the account to stop that. Their enrolled app devices STAY (devicesLeft counts them; each signs in again without a password) unless devices=1 removes them too.", []oapi{pathParam("id", "user id"), queryParam("devices", "1: also remove every enrolled app device of the user", false)}, nil, "{ok, dropped, devicesLeft, devicesRemoved?}"},
 		{"GET", "/sessions", "Users", "Live browser sessions", "xbin:users",
-			"Live login sessions with client IPs (login IP + last-seen IP) and activity times, newest activity first. current:true marks the caller's own session for cookie-authenticated calls (tile-driven calls carry a frame token, no cookie, so no row is current there). Session ids are credentials and are never returned. Bootstrap owner-token logins are stateless and do not appear. This is the attribution view for the /c/ warm-IP gate: tile subresource loads without credentials are served only from an IP that authenticated within the last hour.",
-			nil, nil, "{sessions:[{user,name,created,lastActive,ip,lastIP,current,impersonatedBy?}]}"},
+			"Live login sessions with client IPs (login IP + last-seen IP) and activity times, newest activity first. via: session (a browser), device (the native app, device key — device names it) or app (the native app's password/SSO sign-in). current:true marks the caller's own session for cookie-authenticated calls (tile-driven calls carry a frame token, no cookie, so no row is current there). Session ids are credentials and are never returned. Bootstrap owner-token logins are stateless and do not appear. This is the attribution view for the /c/ warm-IP gate: tile subresource loads without credentials are served only from an IP that authenticated within the last hour.",
+			nil, nil, "{sessions:[{user,name,created,lastActive,ip,lastIP,current,impersonatedBy?,via,device?}]}"},
+
+		// --- devices & the app's sign-in (docs/auth.md §Device login, native/spec/device-login.md) ---
+		{"POST", "/login", "Devices", "The app's password sign-in", "none (the password is the credential; throttled)",
+			"The native app's JSON variant of the form login at POST /login: same rules (the login throttle, disabled accounts refused, SSO-only mode refuses non-admins with 403). Returns a human session carried as Authorization: Bearer — same principal and lifetimes as a browser session (12 h idle / 30 d max by default). The app uses it to enroll a device (POST /devices/enroll-code, then /devices/enroll).",
+			nil, jsonBody("credentials", oapi{"username": str(""), "password": str("")}, "username", "password"), "{token, tokenType:\"Bearer\", user:{id,name,role}, expiresIdle, expiresMax} (unix seconds)"},
+		{"POST", "/devices/enroll-code", "Devices", "Mint a device enrollment code", "a signed-in user (browser or app session)",
+			"A one-time code (5 min) that enrolls ONE device for the calling user. url is the xbin://enroll link the shell shows as a QR code; origin is what the device will sign into its logins — the --external-url origin, else the request's scheme://host. Not for tiles, view-as sessions or the bootstrap token (no user account of their own). Step-up: a device outlives the session that adds it, so the caller's sign-in must be under 10 minutes old, or the body carries their password; otherwise 403 {error, stepUp: \"password\" (resend with it) | \"signin\" (sign in again — an SSO account, or SSO-only mode)}. Wrong passwords count against the login throttle.",
+			nil, func() oapi {
+				b := jsonBody("step-up (optional): the account password", oapi{"password": str("")})
+				b["required"] = false
+				return b
+			}(), "{code, url:\"xbin://enroll?u=<origin>&c=<code>\", origin, expires}"},
+		{"POST", "/devices/enroll", "Devices", "Enroll a device (the app)", "none (the enrollment code is the credential; throttled)",
+			"Registers the app's device key for the user the code was minted by. publicKey: SPKI DER of an EC P-256 key, base64url without padding (validated before the code is spent). The code is single-use; a wrong one counts against the login throttle. 409 past 32 devices per user.",
+			nil, jsonBody("enrollment", oapi{"code": str("from the xbin://enroll link"), "name": str("shown in device lists (≤ 64 chars)"), "platform": str("ios | ipados | android | …"), "publicKey": str("SPKI DER, base64url")}, "code", "publicKey"), "{deviceId, user, origin, name}"},
+		{"GET", "/devices", "Devices", "Your enrolled devices", "a signed-in user",
+			"The caller's app devices, oldest first. current marks the device behind the calling app session. The public key is never returned.",
+			nil, nil, "{devices:[{id,name,platform,origin,created,lastUsed,lastIP,current}]}"},
+		{"DELETE", "/devices/{id}", "Devices", "Revoke a device", "the device's own user, or xbin:users",
+			"Removes the device key and ends every session it opened; frame tokens those sessions minted die with them. 404 for a device that isn't the caller's (unless admin).",
+			[]oapi{pathParam("id", "device id")}, nil, "{ok, user, dropped}"},
+		{"GET", "/users/{id}/devices", "Users", "A user's enrolled devices", "xbin:users",
+			"The admin view of one user's app devices (same shape as GET /devices, without current).",
+			[]oapi{pathParam("id", "user id")}, nil, "{devices:[{id,name,platform,origin,created,lastUsed,lastIP}]}"},
 		{"GET", "/auth-settings", "Users", "Get auth settings", "xbin:users",
 			"Sign-in policy: owner-token browser-login state (canDisable reports whether THIS caller may disable it), SSO-only mode (passwordLoginDisabled; canDisablePassword = SSO ready), and the SSO configuration (docs/auth.md §SSO) — client secret reduced to clientSecretSet; ready = configured AND --external-url set; groupSync reports whether group rules are active, every group the IdP has been seen sending (knownGroups), and the newest recorded fetch failure.", nil, nil,
 			"{tokenLoginDisabled,hasAdminUser,canDisable,passwordLoginDisabled,canDisablePassword,sso:{enabled,ready,kind,preset,issuer,clientId,clientSecretSet,allowedDomains,buttonLabel,externalUrl,groupsClaim,groupsScope,adminGroups,groupSync:{rulesActive,knownGroups,lastError}}}"},
@@ -440,7 +465,7 @@ func OpenAPI() oapi {
 		"paths":   paths,
 		"components": oapi{
 			"securitySchemes": oapi{
-				"bearerAuth": oapi{"type": "http", "scheme": "bearer", "description": "Owner or element instance token."},
+				"bearerAuth": oapi{"type": "http", "scheme": "bearer", "description": "Owner, element instance or terminal token — or the native app's human session (device / app sign-in)."},
 				"cookieAuth": oapi{"type": "apiKey", "in": "cookie", "name": "xbin_session", "description": "Browser owner session."},
 				"frameToken": oapi{"type": "apiKey", "in": "header", "name": "X-XBin-Frame-Token", "description": "Element frontend (standalone — no cookie required)."},
 			},

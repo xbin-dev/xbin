@@ -149,7 +149,7 @@ func TestSessionExpiry(t *testing.T) {
 	a.sessionAbsTTL = 2 * time.Hour
 
 	id := a.NewSession("alice", "10.0.0.1")
-	if uid, _, ok := a.sessionUser(id, ""); !ok || uid != "alice" {
+	if sv, ok := a.sessionUser(id, "", false); !ok || sv.userID != "alice" {
 		t.Fatal("fresh session must resolve")
 	}
 
@@ -157,7 +157,7 @@ func TestSessionExpiry(t *testing.T) {
 	a.mu.Lock()
 	a.sessions[id].lastActive = time.Now().Add(-31 * time.Minute)
 	a.mu.Unlock()
-	if _, _, ok := a.sessionUser(id, ""); ok {
+	if _, ok := a.sessionUser(id, "", false); ok {
 		t.Fatal("idle-expired session must not resolve")
 	}
 	if _, ok := a.sessions[id]; ok {
@@ -170,7 +170,7 @@ func TestSessionExpiry(t *testing.T) {
 	a.sessions[id2].created = time.Now().Add(-3 * time.Hour)
 	a.sessions[id2].lastActive = time.Now()
 	a.mu.Unlock()
-	if _, _, ok := a.sessionUser(id2, ""); ok {
+	if _, ok := a.sessionUser(id2, "", false); ok {
 		t.Fatal("absolute-expired session must not resolve")
 	}
 
@@ -180,7 +180,7 @@ func TestSessionExpiry(t *testing.T) {
 	a.mu.Lock()
 	a.sessions[id3].lastActive = time.Now().Add(-20 * time.Minute) // still inside 30m
 	a.mu.Unlock()
-	if _, _, ok := a.sessionUser(id3, ""); !ok {
+	if _, ok := a.sessionUser(id3, "", false); !ok {
 		t.Fatal("session inside idle window must survive")
 	}
 	a.mu.Lock()

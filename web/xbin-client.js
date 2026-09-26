@@ -72,12 +72,19 @@ if (sandboxTokens && !sandboxTokens.split(' ').includes('allow-popups')) {
 }
 
 // --- token refresh (tokens are short-lived; see docs/auth.md) ---
+// A token is bound to the sign-in that opened the page: a 401 here means
+// that sign-in ended (signed out, device removed, expired) — say so once.
+let loginEnded = false;
 async function refreshToken() {
   try {
     const r = await fetch(`/api/xbin/frame-token?component=${encodeURIComponent(self)}`, {
       headers: frameToken ? { 'X-XBin-Frame-Token': frameToken } : {},
     });
     if (r.ok) frameToken = (await r.json()).token;
+    else if (r.status === 401 && !loginEnded) {
+      loginEnded = true;
+      console.warn(`[xbin] ${self}: the sign-in this page was opened under has ended — reload to continue (docs/auth.md).`);
+    }
   } catch { /* transient; next interval retries */ }
 }
 if (frameToken) setInterval(refreshToken, 10 * 60 * 1000);

@@ -13,6 +13,7 @@ XTERM_FIT=0.10.0
 XTERM_WEBLINKS=0.11.0
 MARKED=15.0.12
 HLJS=11.11.1
+QRCODE=2.0.4
 
 curl -fsSL "https://cdn.jsdelivr.net/gh/lit/dist@${LIT}/all/lit-all.min.js" -o "$V/lit-all.min.js"
 curl -fsSL "https://cdn.jsdelivr.net/gh/lit/dist@${LIT}/all/lit-all.min.js.map" -o "$V/lit-all.min.js.map" || true
@@ -24,10 +25,14 @@ curl -fsSL "https://cdn.jsdelivr.net/npm/marked@${MARKED}/lib/marked.esm.js" -o 
 # highlight.js: single-file ESM with the ~36 common languages bundled
 # (syntax highlighting in the Admin code/diff viewer).
 curl -fsSL "https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@${HLJS}/es/highlight.min.js" -o "$V/highlight.min.js"
+# qrcode-generator (Kazuhiko Arase, MIT — the license header is in the
+# file): a single-file ESM QR encoder; the shell's devices panel draws the
+# xbin://enroll link with it (docs/auth.md §Device login). Loaded on demand.
+curl -fsSL "https://cdn.jsdelivr.net/npm/qrcode-generator@${QRCODE}/dist/qrcode.mjs" -o "$V/qrcode.mjs"
 
 # Pin what was fetched: hack/check-pins.sh verifies the tree against this
 # list (a hand-edited vendored file, or a CDN serving different bytes for
 # the same version, fails the release preflight).
 (cd "$V" && sha256sum ./*) | sed 's| \./| |' > hack/vendor.sha256
 
-echo "vendored: lit@$LIT xterm@$XTERM addon-fit@$XTERM_FIT addon-web-links@$XTERM_WEBLINKS marked@$MARKED highlight.js@$HLJS"
+echo "vendored: lit@$LIT xterm@$XTERM addon-fit@$XTERM_FIT addon-web-links@$XTERM_WEBLINKS marked@$MARKED highlight.js@$HLJS qrcode-generator@$QRCODE"

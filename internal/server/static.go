@@ -349,7 +349,7 @@ func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPa
 
 	frameTok := ""
 	if p := auth.PrincipalOf(r); s.mayMintFrameToken(p, compPath) {
-		frameTok = s.Auth.MintFrameToken(compPath, p.UserID, frameTokenTTL)
+		frameTok = s.Auth.MintFrameTokenFor(p, compPath, frameTokenTTL) // bound to p's login (frametoken.go)
 	}
 
 	ifaceMeta := ""

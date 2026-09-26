@@ -1,10 +1,11 @@
 # The frontend kit — what a tile may import from `/vendor/`
 
 Every shipped frontend module lives under `/vendor/` beside the vendored
-libraries (lit, xterm, marked, highlight.js), served unauthenticated so a
-sandboxed tile frame can load it. This page says which of those modules
-are **for tiles**, which are **shell chrome**, and the rules that keep the
-URLs stable across xbind upgrades ([compat.md](/docs/compat.md) rule 3).
+libraries (lit, xterm, marked, highlight.js, qrcode-generator — the last at
+`/vendor/qrcode.mjs`), served unauthenticated so a sandboxed tile frame can
+load it. This page says which of those modules are **for tiles**, which are
+**shell chrome**, and the rules that keep the URLs stable across xbind
+upgrades ([compat.md](/docs/compat.md) rule 3).
 
 Import by **absolute URL** — never a bare specifier. The import map lives
 in each workspace's `xbin.json` and no upgrade rewrites it, so a bare name

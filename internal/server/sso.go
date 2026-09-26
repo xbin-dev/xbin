@@ -166,6 +166,10 @@ type ssoState struct {
 	Nonce    string `json:"n"`
 	Verifier string `json:"v"`
 	Exp      int64  `json:"e"`
+	// An app-started sign-in (devicelogin.go): ends in a PKCE-bound ticket
+	// redirected to xbin://sso instead of a cookie.
+	App       bool   `json:"a,omitempty"`
+	Challenge string `json:"c,omitempty"`
 }
 
 func (s *Server) ssoKey() []byte {
@@ -235,6 +239,9 @@ func (s *Server) handleSSOStart(w http.ResponseWriter, r *http.Request) {
 		Verifier: oauth2.GenerateVerifier(),
 		Exp:      time.Now().Add(ssoStateTTL).Unix(),
 	}
+	if !ssoAppStart(w, r, &st) {
+		return
+	}
 	payload, _ := json.Marshal(st)
 	http.SetCookie(w, &http.Cookie{
 		Name: ssoStateCookie, Value: s.ssoSign(payload), Path: "/login",
@@ -258,10 +265,11 @@ func (s *Server) handleSSOCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "too many attempts, slow down", http.StatusTooManyRequests)
 		return
 	}
+	appFlow := false // known once the state verifies: failures then return to the app
 	fail := func(code string, why string, err error) {
 		s.loginThrottle.fail(ip)
 		slog.Warn("sso: sign-in refused", "why", why, "err", err, "ip", ip)
-		http.Redirect(w, r, "/login?sso_err="+code, http.StatusFound)
+		http.Redirect(w, r, ssoFailURL(appFlow, code), http.StatusFound)
 	}
 	c := s.ssoConfig()
 	if c == nil || s.ExternalURL == "" {
@@ -284,6 +292,7 @@ func (s *Server) handleSSOCallback(w http.ResponseWriter, r *http.Request) {
 		fail("failed", "state mismatch", nil)
 		return
 	}
+	appFlow = st.App
 	wantGroups := s.wantGroups()
 	oc, prov, err := s.oauthConfig(r.Context(), c, wantGroups)
 	if err != nil {
@@ -343,6 +352,10 @@ func (s *Server) handleSSOCallback(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("sso: last-login stamp failed", "user", u.ID, "err", err)
 	}
 	s.loginThrottle.ok(ip)
+	if st.App {
+		s.ssoAppFinish(w, r, u.ID, st.Challenge)
+		return
+	}
 	setSessionCookie(w, r, s.Auth.NewSession(u.ID, ip))
 	slog.Info("audit", "who", "user:"+u.ID, "method", "SSO", "path", "/login/sso/callback", "status", 200)
 	http.Redirect(w, r, "/", http.StatusFound)
