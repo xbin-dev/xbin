@@ -14,6 +14,9 @@
 export const legacyKey = (cwd) => `bx-term:${cwd}`;
 // the pref key is one path segment of /api/xbin/prefs/<key>: no slashes
 export const prefKey = (cwd) => `term:${cwd.replaceAll('/', ':')}`;
+// the tile's VM choice for new sessions: its own key, because the window
+// pref is deleted whenever the window closes with no tabs
+export const vmPrefKey = (cwd) => `termvm:${cwd.replaceAll('/', ':')}`;
 export const uid = () => Math.random().toString(36).slice(2, 9);
 
 const JSON_HDR = { 'Content-Type': 'application/json' };
@@ -33,6 +36,10 @@ export function makeStore({ fetch: f = globalThis.fetch, storage = globalThis.lo
     // the window: {open, active, pop} per user (null = never saved)
     loadWindow: (cwd) => json(`/api/xbin/prefs/${encodeURIComponent(prefKey(cwd))}`).then((w) => (w && typeof w === 'object' ? w : null)).catch(() => null),
     saveWindow: (cwd, w) => f(`/api/xbin/prefs/${encodeURIComponent(prefKey(cwd))}`, w ? { method: 'PUT', headers: JSON_HDR, body: JSON.stringify(w) } : { method: 'DELETE' }).catch(() => {}),
+    // whether new sessions on this tile start in a VM sandbox (per user;
+    // off = no pref at all)
+    loadVM: (cwd) => json(`/api/xbin/prefs/${encodeURIComponent(vmPrefKey(cwd))}`).then((v) => v === true).catch(() => false),
+    saveVM: (cwd, on) => f(`/api/xbin/prefs/${encodeURIComponent(vmPrefKey(cwd))}`, on ? { method: 'PUT', headers: JSON_HDR, body: 'true' } : { method: 'DELETE' }).catch(() => {}),
     // the legacy browser record, read once and removed: its window state and
     // the tab names it held by session id (the caller adopts the names of
     // the ids the server still lists as the caller's)

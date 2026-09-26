@@ -379,6 +379,14 @@ slower. Agent
 sessions take the same `vm` flag. [isolation.md](/docs/isolation.md) §VM
 sandboxes has the rest.
 
+The **start-a-session launcher** carries the same choice *before* anything
+starts: where VMs can run, its **⧉ VM sandbox** switch decides whether the
+tile's new sessions — shells and agents alike, from the launcher cards, the
+`+` menu, ↺ last, or a Resume — open in a VM. The choice is per user and per
+tile (the `termvm:<tile>` pref, so every browser sees it), and a ⧉ VM toggle
+in the title bar that went through updates it too; a tile nobody chose for
+starts outside a VM.
+
 ## Resource limits and GPUs
 
 Where xbind's cgroup is delegated, each **restricted** session joins its own

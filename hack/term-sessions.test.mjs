@@ -4,7 +4,7 @@
 // tab list, and how the legacy browser record is adopted once.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeStore, tabsFrom, clampActive, activeIndex, legacyKey, prefKey } from '../web/term-sessions.js';
+import { makeStore, tabsFrom, clampActive, activeIndex, legacyKey, prefKey, vmPrefKey } from '../web/term-sessions.js';
 
 // a fetch that records calls and answers from a table
 function fakeFetch(answers = {}) {
@@ -26,6 +26,22 @@ test('keys', () => {
   assert.equal(legacyKey('apps/x'), 'bx-term:apps/x');
   assert.equal(prefKey('apps/x'), 'term:apps:x');
   assert.equal(prefKey('apps/deep/one'), 'term:apps:deep:one', 'no slash: the key is one URL segment');
+  assert.equal(vmPrefKey('apps/deep/one'), 'termvm:apps:deep:one', 'the VM choice: its own key, one segment');
+});
+
+test('the tile\'s VM choice: its own pref, true or absent', async () => {
+  const { f, calls } = fakeFetch({ '/api/xbin/prefs/termvm%3Aapps%3Ax': true });
+  const st = makeStore({ fetch: f });
+  assert.equal(await st.loadVM('apps/x'), true);
+  await st.saveVM('apps/x', true);
+  assert.equal(calls[1].method, 'PUT');
+  assert.equal(calls[1].url, '/api/xbin/prefs/termvm%3Aapps%3Ax');
+  assert.equal(calls[1].body, 'true');
+  await st.saveVM('apps/x', false);
+  assert.equal(calls[2].method, 'DELETE', 'off → no pref at all');
+  assert.equal(await makeStore({ fetch: fakeFetch({}).f }).loadVM('apps/x'), false, 'never chosen → off');
+  assert.equal(await makeStore({ fetch: fakeFetch({ '/api/xbin/prefs/termvm%3Aapps%3Ax': { vm: 1 } }).f }).loadVM('apps/x'), false, 'anything but true → off');
+  assert.equal(await makeStore({ fetch: async () => { throw new Error('offline'); } }).loadVM('apps/x'), false, 'offline → off, never a throw');
 });
 
 test('list asks the directory for this tile and tolerates failure', async () => {

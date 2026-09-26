@@ -36,6 +36,7 @@ export class BxAgent extends LitElement {
     resume: { type: String }, // a past session id to reopen when creating (POST /term/sessions {resume})
     ended: { type: Boolean }, // the session is gone (the frame keeps the tab): no polling, the transcript stays
     restarting: { type: Boolean }, // the frame is restarting this tab's agent with other sandbox pickers (frame-launcher.js restartAgent)
+    vm: { type: Boolean }, // set by the launcher: create the session in a VM sandbox (the tile's choice, frame-launcher.js wantVM)
     _historyMeta: { state: true },
     _events: { state: true },
     _providers: { state: true },
@@ -51,8 +52,10 @@ export class BxAgent extends LitElement {
   };
 
   static styles = [cardsCss, css`
+    /* the terminal pane's surface, not a tile's: a floating agent window
+       must stand apart from the tiles under it, as a shell's does */
     :host { display: flex; flex-direction: column; height: 100%; min-height: 0;
-      background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0);
+      background: var(--bx-term-bg, #262c36); color: var(--bx-text, #d4d9e0);
       font: 13px/1.5 var(--bx-sans, system-ui, sans-serif); }
     .scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px; }
     .row { margin: 0 0 10px; }
@@ -65,8 +68,8 @@ export class BxAgent extends LitElement {
     .agent .bubble > :first-child { margin-top: 0; }
     .agent .bubble > :last-child { margin-bottom: 0; }
     .bubble :is(pre, code) { font-family: var(--bx-mono, ui-monospace, monospace); }
-    .bubble pre { background: var(--bx-term-bg, #262c36); padding: 8px 10px; border-radius: 6px; overflow-x: auto; }
-    .bubble :not(pre) > code { background: var(--bx-term-bg, #262c36); padding: .1em .3em; border-radius: 3px; }
+    .bubble pre { background: var(--bx-bg, #1b1e24); padding: 8px 10px; border-radius: 6px; overflow-x: auto; }
+    .bubble :not(pre) > code { background: var(--bx-bg, #1b1e24); padding: .1em .3em; border-radius: 3px; }
     .bubble a { color: var(--bx-accent, #f5a623); }
     .md-img { color: var(--bx-muted, #868f9a); font-style: italic; }
     .thought { color: var(--bx-muted, #868f9a); border-left: 2px solid var(--bx-border, #363c45); padding-left: 8px; }
@@ -104,7 +107,7 @@ export class BxAgent extends LitElement {
     .slash .sc .d { color: var(--bx-muted, #868f9a); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
     .slash .sc .h { color: var(--bx-muted, #868f9a); font: 10.5px var(--bx-mono, ui-monospace, monospace); white-space: nowrap; }
     .slash-hint { font: 11px var(--bx-mono, ui-monospace, monospace); color: var(--bx-muted, #868f9a); margin-bottom: 4px; }
-    .compose textarea { flex: 1; resize: none; background: var(--bx-term-bg, #262c36); color: var(--bx-text, #d4d9e0);
+    .compose textarea { flex: 1; resize: none; background: var(--bx-bg, #1b1e24); color: var(--bx-text, #d4d9e0);
       border: 1px solid var(--bx-border, #363c45); border-radius: 6px; padding: 6px 8px;
       font: 13px var(--bx-sans, system-ui); max-height: 40vh; }
     .compose button { border: 1px solid var(--bx-border, #363c45); background: var(--bx-panel-2, #2b3038); color: var(--bx-text, #d4d9e0);
@@ -112,7 +115,7 @@ export class BxAgent extends LitElement {
     .compose button.cancel { border-color: var(--bx-red, #ef5350); }
     .chooser { display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
     .chooser label { display: inline-flex; align-items: center; gap: 4px; font: 10.5px var(--bx-mono, ui-monospace, monospace); color: var(--bx-muted, #868f9a); }
-    .chooser select { background: var(--bx-term-bg, #262c36); color: var(--bx-text, #d4d9e0);
+    .chooser select { background: var(--bx-bg, #1b1e24); color: var(--bx-text, #d4d9e0);
       border: 1px solid var(--bx-border, #363c45); border-radius: 5px; padding: 3px 6px; font: 12px var(--bx-mono, ui-monospace, monospace); }
     .hint { color: var(--bx-muted, #868f9a); font-size: 12px; }
     .signin { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding: 6px 8px;
@@ -298,7 +301,7 @@ export class BxAgent extends LitElement {
     try {
       const r = await fetch('/api/xbin/term/sessions', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ cwd: this.component, kind: 'agent', provider: this._provider, mode: this._mode, resume: this.resume || undefined }),
+        body: JSON.stringify({ cwd: this.component, kind: 'agent', provider: this._provider, mode: this._mode, resume: this.resume || undefined, vm: this.vm || undefined }),
       });
       const info = await r.json().catch(() => ({}));
       if (!r.ok) { this._error = info.error || `could not start (${r.status})`; this._authErr = this._looksAuth(this._error); return false; }

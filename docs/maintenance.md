@@ -459,7 +459,8 @@ Rules that keep it cheap to maintain:
   `.titlebar select.scope`. A pass that opens a window leaves nothing
   behind: it ends its sessions and deletes the `term:<tile>` window pref,
   or the window restores over the tile in the next pass (a right-click
-  on the canvas then lands on it).
+  on the canvas then lands on it) — and the `termvm:<tile>` VM choice if
+  it set one, or the next pass's sessions start in a VM.
 - **Wait for a condition, never for time**: `waitFor(page, (t) => …)`
   polls the shell's test surface, `waitSel` a selector, `settle` two
   animation frames after a state change. A fixed `sleep` is only right

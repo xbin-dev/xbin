@@ -44,7 +44,7 @@ import '/vendor/bx-prs.js';
 import { deepActive, clampBox, dragWindow, dragPointer, anchorBox, anchorOffsets, followBox } from '/vendor/bx-kit.js';
 import { makeStore, tabsFrom, activeIndex, uid } from '/vendor/term-sessions.js';
 import { titlebar, toolsRow, titlebarCss, fitBar, barKey } from '/vendor/frame-titlebar.js';
-import { agentProviders, rememberKind, launcherItems, launcher, launcherCss, loadTileState, openHistory, resumeHistory, restartAgent } from '/vendor/frame-launcher.js';
+import { agentProviders, rememberKind, launcherItems, launcher, launcherCss, loadTileState, openHistory, resumeHistory, restartAgent, wantVM } from '/vendor/frame-launcher.js';
 import '/vendor/bx-agent.js';
 import '/vendor/bx-dialog.js';
 import '/vendor/bx-menu.js';
@@ -637,14 +637,14 @@ export class BxFrame extends LitElement {
   _newTerm() { this._startKind('shell'); }
   _newAgent() { this._startKind('agent'); }
 
-  // Start a session of a kind from the launcher (a card or the + menu). A
-  // shell opens a <bx-terminal> (optionally running `run` on first connect —
-  // a sign-in command); an agent opens a <bx-agent> which creates the
-  // session eagerly on the chosen provider so its model/mode pickers load
-  // before the first prompt. Remembered as the "last choice".
+  // Start a session of a kind from the launcher (a card or the + menu): a
+  // shell opens a <bx-terminal> (maybe running `run` first — a sign-in); an
+  // agent a <bx-agent> that creates the session eagerly so its model/mode
+  // pickers load before the first prompt. Remembered as the "last choice";
+  // either starts in a VM sandbox when the tile's choice says so (wantVM).
   _startKind(kind, provider, opts = {}) {
     rememberKind(provider ? { kind, provider } : { kind });
-    const tab = { key: uid(), id: null, kind, name: '' };
+    const tab = { key: uid(), id: null, kind, name: '', vm: opts.vm ?? wantVM(this) };
     if (kind === 'shell') { tab.net = null; tab.gpu = 'none'; if (opts.run) tab.run = opts.run; }
     else { tab.provider = provider; this._layout = 'term'; }
     this._sessions = [...this._sessions, tab];
@@ -846,7 +846,7 @@ export class BxFrame extends LitElement {
             ${this._sessions.length === 0 ? launcher(this) : nothing}
             ${repeat(this._sessions, (s) => s.key, (s, i) => s.kind === 'agent'
               ? html`<bx-agent style="height:100%; display:${i === this._active ? 'flex' : 'none'}"
-                  component=${this.src} session=${s.id ?? nothing} provider=${s.history || s.restarting ? nothing : (s.provider || nothing)} ?ended=${!!s.ended} ?restarting=${!!s.restarting}
+                  component=${this.src} session=${s.id ?? nothing} provider=${s.history || s.restarting ? nothing : (s.provider || nothing)} ?ended=${!!s.ended} ?restarting=${!!s.restarting} ?vm=${!!s.vm}
                   history=${s.history || nothing} resume=${s.resume || nothing}
                   @bx-session=${(ev) => this._gotSession(s.key, ev)}
                   @bx-resume=${(ev) => resumeHistory(this, ev.detail, s.key)} @bx-new-agent=${(ev) => this._startKind('agent', ev.detail.provider)}

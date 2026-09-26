@@ -264,8 +264,8 @@ export const cardsCss = css`
   .muted { color: var(--bx-muted, #868f9a); font-size: 11.5px; }
   .mono { font-family: var(--bx-mono, ui-monospace, monospace); }
   .md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }
-  .md pre { background: var(--bx-term-bg, #262c36); padding: 6px 8px; border-radius: 5px; overflow-x: auto; font: 11px var(--bx-mono, ui-monospace, monospace); }
-  .md :not(pre) > code { background: var(--bx-term-bg, #262c36); padding: .1em .3em; border-radius: 3px; font-family: var(--bx-mono, ui-monospace, monospace); }
+  .md pre { background: var(--bx-bg, #1b1e24); padding: 6px 8px; border-radius: 5px; overflow-x: auto; font: 11px var(--bx-mono, ui-monospace, monospace); }
+  .md :not(pre) > code { background: var(--bx-bg, #1b1e24); padding: .1em .3em; border-radius: 3px; font-family: var(--bx-mono, ui-monospace, monospace); }
   .tool { border: 1px solid var(--bx-border, #363c45); border-radius: 6px; margin: 0 0 8px; overflow: hidden; }
   .tool > summary { list-style: none; cursor: pointer; padding: 5px 9px; display: flex; align-items: center; gap: 6px;
     font: 11px var(--bx-mono, ui-monospace, monospace); }
@@ -280,7 +280,7 @@ export const cardsCss = css`
   .tool .body:empty { display: none; }
   .tool pre, .perm pre { margin: 0; font: 11px var(--bx-mono, ui-monospace, monospace); white-space: pre-wrap; overflow-x: auto; }
   .cmdwrap { position: relative; }
-  pre.cmd { background: var(--bx-term-bg, #262c36); border-radius: 5px; padding: 6px 8px; max-height: 320px; overflow: auto; }
+  pre.cmd { background: var(--bx-bg, #1b1e24); border-radius: 5px; padding: 6px 8px; max-height: 320px; overflow: auto; }
   .copy { position: absolute; top: 3px; right: 3px; font: 10px var(--bx-mono, ui-monospace, monospace); border: 1px solid var(--bx-border, #363c45);
     background: var(--bx-panel, #23272e); color: var(--bx-muted, #868f9a); border-radius: 4px; padding: 0 5px; cursor: pointer; opacity: .6; }
   .copy:hover { opacity: 1; }
@@ -330,13 +330,13 @@ export const cardsCss = css`
   .ask .opts { display: flex; flex-direction: column; gap: 2px; }
   .ask .opt { display: flex; gap: 6px; align-items: baseline; font-size: 12.5px; cursor: pointer; }
   .ask .opt .od { color: var(--bx-muted, #868f9a); }
-  .ask .txt { background: var(--bx-term-bg, #262c36); color: var(--bx-text, #d4d9e0); border: 1px solid var(--bx-border, #363c45);
+  .ask .txt { background: var(--bx-bg, #1b1e24); color: var(--bx-text, #d4d9e0); border: 1px solid var(--bx-border, #363c45);
     border-radius: 5px; padding: 4px 7px; font: 12px var(--bx-sans, system-ui); }
   .ask .answers { margin: 0; padding-left: 16px; font-size: 12.5px; }
   .plan-card { border-color: var(--bx-accent, #f5a623); background: color-mix(in srgb, var(--bx-accent, #f5a623) 6%, var(--bx-panel, #23272e)); }
   .plan-md { max-height: 50vh; overflow: auto; background: var(--bx-panel, #23272e); border: 1px solid var(--bx-border, #363c45);
     border-radius: 5px; padding: 8px 12px; font-size: 13px; }
   .reject-row { display: flex; gap: 6px; align-items: flex-end; }
-  .reject-row textarea { flex: 1; resize: vertical; background: var(--bx-term-bg, #262c36); color: var(--bx-text, #d4d9e0);
+  .reject-row textarea { flex: 1; resize: vertical; background: var(--bx-bg, #1b1e24); color: var(--bx-text, #d4d9e0);
     border: 1px solid var(--bx-border, #363c45); border-radius: 5px; padding: 5px 7px; font: 12px var(--bx-sans, system-ui); }
 `;

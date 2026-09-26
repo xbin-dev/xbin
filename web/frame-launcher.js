@@ -8,10 +8,14 @@
  * agent can reopen its own session (`loadable`). `f` is the BxFrame; this
  * reads its state and calls its handlers. Picking a provider eager-creates
  * the agent session so its model/mode pickers load before the first prompt
- * (bx-agent).
+ * (bx-agent). Where VM sandboxes can run, the chooser also sets whether new
+ * sessions on the tile start in one — a per-user, per-tile choice
+ * (wantVM) that the title bar's ⧉ VM toggle updates too.
  */
 import { html, css, nothing } from 'lit';
-import { uid } from '/vendor/term-sessions.js';
+import { uid, makeStore } from '/vendor/term-sessions.js';
+
+const prefs = makeStore();
 
 // The agent providers offered in the launcher (id,name,login,modes,…),
 // fetched once and shared across all frames (like the GPU inventory).
@@ -32,6 +36,17 @@ export function loadTileState(f) {
   loadHistory(f);
   // vm: whether a VM terminal can open here, and why not (the title bar's toggle)
   envStatus(f.src).then((s) => { if (f.isConnected) { f._vmStatus = s.vm || null; f._envOld = !!s.baseOutdated; f.requestUpdate(); } });
+  prefs.loadVM(f.src).then((on) => { if (f.isConnected) { f._vmPref = on; f.requestUpdate(); } });
+}
+
+// wantVM: whether a new session on this tile starts in a VM sandbox — the
+// user's remembered choice for the tile, while VMs can run here at all.
+export const wantVM = (f) => !!(f._vmPref && f._vmStatus?.available);
+// rememberVM records that choice (the launcher's switch, the title bar's toggle).
+export function rememberVM(f, on) {
+  f._vmPref = on;
+  prefs.saveVM(f.src, on);
+  f.requestUpdate();
 }
 
 // LAST_KIND: the launcher's remembered choice (per browser).
@@ -62,7 +77,7 @@ export function openHistory(f, row) {
 // the agent replays the earlier turns, then continues). replaceKey swaps the
 // read-only tab it was being viewed in for the live one, in place.
 export function resumeHistory(f, row, replaceKey) {
-  const tab = { key: uid(), id: null, kind: 'agent', provider: row.provider, resume: row.id, name: row.name || '' };
+  const tab = { key: uid(), id: null, kind: 'agent', provider: row.provider, resume: row.id, name: row.name || '', vm: wantVM(f) };
   f._layout = 'term';
   const i = replaceKey ? f._sessions.findIndex((t) => t.key === replaceKey) : -1;
   f._sessions = i >= 0 ? f._sessions.map((t, j) => (j === i ? tab : t)) : [...f._sessions, tab];
@@ -132,9 +147,11 @@ export function launcherItems(f) {
 }
 
 // The empty-window launcher: a card per session kind (Bash + each agent
-// provider) — the same set as the + menu — and the tile's recent sessions.
+// provider) — the same set as the + menu — and the tile's recent sessions;
+// where VMs can run, the switch for starting them in a VM sandbox.
 export function launcher(f) {
   const provs = f._providers || [];
+  const vm = wantVM(f);
   const card = (label, sub, onClick) => html`<button class="lcard" @click=${onClick}>
     <span class="lname">${label}</span>${sub ? html`<span class="lsub">${sub}</span>` : nothing}</button>`;
   const recent = (f._history || []).slice(0, 8);
@@ -145,10 +162,11 @@ export function launcher(f) {
       <button class="lupdate" title="rebuild this tile's terminal layer on the newer base (installed packages are wiped; your files & $HOME are kept)"
               @click=${() => f._resetEnv(true)}>⬆ base update</button>
     </div>` : nothing}
+    ${vmSwitch(f, vm)}
     <div class="lcards">
-      ${card('Bash', 'a shell in the sandbox', () => f._startKind('shell'))}
+      ${card('Bash', vm ? 'a shell in a VM sandbox' : 'a shell in the sandbox', () => f._startKind('shell'))}
       ${provs.length
-        ? provs.map((p) => card(p.name, 'coding agent', () => f._startKind('agent', p.id)))
+        ? provs.map((p) => card(p.name, vm ? 'coding agent, in a VM' : 'coding agent', () => f._startKind('agent', p.id)))
         : html`<span class="lsub">loading agents…</span>`}
     </div>
     ${recent.length ? html`<div class="lrecent">
@@ -163,6 +181,19 @@ export function launcher(f) {
       </div>`)}
     </div>` : nothing}
   </div>`;
+}
+
+// vmSwitch: the launcher's VM sandbox choice for the tile — offered only
+// where VMs can run (the title bar's toggle says why not elsewhere).
+function vmSwitch(f, on) {
+  const st = f._vmStatus;
+  if (!st?.available) return nothing;
+  const size = st.memMiB ? ` · ${st.memMiB} MiB, ${st.vcpus} vCPU` : '';
+  return html`<button class=${'lvm' + (on ? ' on' : '')} role="switch" aria-checked=${on ? 'true' : 'false'}
+      title="start this tile's new sessions — shells and agents — in a VM sandbox; remembered for this tile"
+      @click=${() => rememberVM(f, !on)}>
+    <span class="lname">⧉ VM sandbox: ${on ? 'on' : 'off'}</span>
+    <span class="lsub">root in its own kernel${size}${st.emulated ? ' · emulated — several times slower' : ''}</span></button>`;
 }
 
 export const launcherCss = css`
@@ -191,4 +222,10 @@ export const launcherCss = css`
   .launcher .lupdate { border: 1px solid var(--bx-amber, #f2a71b); background: var(--bx-amber, #f2a71b); color: #23272e;
     border-radius: 5px; padding: 4px 10px; cursor: pointer; font: 12px var(--bx-sans, system-ui); font-weight: 700; white-space: nowrap; }
   .launcher .lupdate:hover { filter: brightness(1.06); }
+  .launcher .lvm { display: flex; flex-direction: column; gap: 2px; align-items: center; padding: 6px 14px;
+    border: 1px dashed var(--bx-border, #363c45); border-radius: 8px; background: transparent;
+    color: var(--bx-text, #d4d9e0); cursor: pointer; }
+  .launcher .lvm:hover { border-color: var(--bx-accent, #f5a623); }
+  .launcher .lvm.on { border-style: solid; border-color: var(--bx-accent, #f5a623); }
+  .launcher .lvm.on .lname { color: var(--bx-accent, #f5a623); }
 `;

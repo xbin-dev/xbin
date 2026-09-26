@@ -12,6 +12,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-26
 
+- **Terminal window: pick the VM sandbox before a session starts, and the
+  agent tab looks like a terminal.** Where VMs can run, the start-a-session
+  launcher has a **⧉ VM sandbox** switch; the tile's new sessions — shells
+  and agents, from the launcher, the `+` menu, ↺ last or a Resume — start in
+  a VM while it's on. The choice is per user and per tile (pref
+  `termvm:<tile>`), and the title bar's ⧉ VM toggle updates it when a
+  switch goes through. Agents started from the launcher now honour it (the
+  create call sends `vm`); before, only a restart could put one in a VM.
+  The Agent tab now sits on the terminal background instead of a tile's, so
+  a floating agent window stands apart from the tiles under it
+  ([09-terminals](/docs/overview/09-terminals.md) §VM terminals).
+
 - **Installer: VM sandboxes on by default, and encrypted resources mount on
   Ubuntu's AppArmor** (D110, [operations](/docs/overview/15-operations.md),
   [isolation.md](isolation.md) §VM sandboxes, [resources.md](resources.md)

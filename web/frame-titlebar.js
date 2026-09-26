@@ -21,6 +21,7 @@
  */
 import { html, css, nothing, live } from 'lit';
 import { scopeIcon } from '/vendor/bx-netrules.js';
+import { rememberVM } from '/vendor/frame-launcher.js';
 
 export function titlebar(f) {
   return html`
@@ -180,7 +181,8 @@ function pickers(f) {
 // microVM — root in its own kernel, the same files and network scope. Shown
 // disabled with the reason when this host or the workspace policy can't run
 // one (GET /ws/term/env's vm block, loaded with the tile state); a host
-// without KVM emulates the VM, and the tooltip says it is slower.
+// without KVM emulates the VM, and the tooltip says it is slower. A switch
+// that went through is also the tile's choice for new sessions (rememberVM).
 function vmToggle(f, restarts) {
   const cur = f._sessions[f._active];
   const st = f._vmStatus;
@@ -195,7 +197,7 @@ function vmToggle(f, restarts) {
   const patch = { vm: !on };
   if (!on && cur.net === 'host') patch.net = null; // back to the tile's default scope
   return html`<button class=${'vm' + (on ? ' on' : '')} ?disabled=${!on && !st.available} title=${tip}
-      @click=${() => f._respawn(f._active, patch, on ? 'outside the VM' : 'in a VM sandbox')}>⧉ VM</button>`;
+      @click=${async () => { if (await f._respawn(f._active, patch, on ? 'outside the VM' : 'in a VM sandbox')) rememberVM(f, !on); }}>⧉ VM</button>`;
 }
 
 // The tile's persistent terminal layer — shared by its shells and agents:
