@@ -41,6 +41,13 @@ if (start < 0 || end < 0 || end <= start) {
   process.exit(1);
 }
 const frameDocSrc = agentSrc.slice(start, end);
+// The native view's render preview (native/render-doc.js) must hold the same
+// line: the same CSP, and the same results in the same browser — through
+// DOMParser as the runtime document has it, and through the textual
+// fallback (no DOMParser).
+const nativeSrc = readFileSync(join(here, '..', 'native', 'render-doc.js'), 'utf8').replace(/^export /gm, '')
+  .replace(/const FRAME_CSP/, 'const NATIVE_CSP').replace(/const FRAME_CSS/, 'const NATIVE_CSS')
+  .replace(/\bFRAME_CSP\b(?!\s*=)/g, 'NATIVE_CSP').replace(/\bFRAME_CSS\b(?!\s*=)/g, 'NATIVE_CSS');
 
 let failures = 0;
 const ok = (name, cond, extra = '') => {
@@ -65,6 +72,7 @@ await ctx.route('**/*', (route) => {
 const page = await ctx.newPage();
 await page.goto('about:blank');
 await page.addScriptTag({ content: frameDocSrc });
+await page.addScriptTag({ content: nativeSrc });
 
 // Every exfiltration channel that survives sandbox="" on its own, plus the
 // ordinary content a real report would contain.
@@ -84,6 +92,13 @@ const HOSTILE = `<!doctype html><html><head>
 </body></html>`;
 
 const res = await page.evaluate((h) => frameDoc(h), HOSTILE);
+ok('the native preview has the same CSP', await page.evaluate(() => FRAME_CSP === NATIVE_CSP));
+const nat = await page.evaluate((h) => renderDoc(h), HOSTILE);
+ok('native (DOMParser): the same document as the web', nat.html === res.html && nat.blocked === res.blocked, nat.html.slice(0, 200));
+const txt = await page.evaluate((h) => textual(h), HOSTILE);
+ok('native (textual): our CSP is first', txt.html.startsWith('<!doctype html><html><head><meta http-equiv="Content-Security-Policy"'), txt.html.slice(0, 200));
+ok('native (textual): meta refresh neutralised', !/http-equiv="refresh"/i.test(txt.html));
+ok('native (textual): blocked resources counted', txt.blocked >= 3, `blocked=${txt.blocked}`);
 
 // --- the produced document ----------------------------------------------
 ok('meta refresh stripped', !/http-equiv="refresh"/i.test(res.html));
@@ -100,22 +115,24 @@ ok('blocked resources counted for the human', res.blocked >= 3, `blocked=${res.b
 
 // --- live behaviour in a frame configured exactly like index.html --------
 const beforeTitle = await page.title();
-await page.evaluate((html) => {
-  const f = document.createElement('iframe');
-  f.setAttribute('sandbox', '');
-  f.setAttribute('referrerpolicy', 'no-referrer');
-  f.style.cssText = 'width:600px;height:400px';
-  f.srcdoc = html;              // PROPERTY assignment, as paintPreview does
-  document.body.appendChild(f);
-}, res.html);
+for (const doc of [res.html, txt.html]) { // the web's, and the native fallback's
+  await page.evaluate((html) => {
+    const f = document.createElement('iframe');
+    f.setAttribute('sandbox', '');
+    f.setAttribute('referrerpolicy', 'no-referrer');
+    f.style.cssText = 'width:600px;height:400px';
+    f.srcdoc = html;              // PROPERTY assignment, as paintPreview does
+    document.body.appendChild(f);
+  }, doc);
+}
 await page.waitForTimeout(1500);
 
 ok('no request escaped the frame', escaped.length === 0, JSON.stringify(escaped));
 ok('parent DOM untouched by frame script', (await page.title()) === beforeTitle);
 
-const frame = page.frames().find((f) => f !== page.mainFrame());
-ok('frame rendered', !!frame);
-if (frame) {
+const frames = page.frames().filter((f) => f.parentFrame() === page.mainFrame());
+ok('frames rendered', frames.length === 2);
+for (const frame of frames) {
   const seen = await frame.evaluate(() => ({
     h1: document.querySelector('h1')?.textContent || '',
     origin: String(location.origin),

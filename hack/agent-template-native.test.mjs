@@ -16,7 +16,7 @@ const NOW = Date.UTC(2026, 8, 21, 12);
 const now = Math.floor(NOW / 1000);
 
 async function run(seed, steps = [], { state = null, data = {} } = {}) {
-  const r = await runNative({ entry: TPL + 'native.js', data: { now: NOW, setup: TPL + 'test/native-stub.mjs', seed, ...data }, steps, state });
+  const r = await runNative({ entry: TPL + 'native.js', data: { now: NOW, self: 'apps/agent', setup: TPL + 'test/native-stub.mjs', seed, ...data }, steps, state });
   assert.equal(r.fatal, null);
   assert.deepEqual(r.errors, [], 'no runtime errors');
   assert.deepEqual(r.diagnostics.filter((d) => d.level !== 'info'), [], 'no diagnostics');
@@ -285,4 +285,257 @@ test('paging: a long conversation loads older pages as you scroll up', async () 
   assert.ok(tr.e.includes('more'));
   assert.ok(find(tr, { t: 'notice', p: { text: 'earlier turns were compacted into the summary' } }));
   assert.equal(called(r, 'GET', /\/runs\/9\/view\?limit=50&before=40$/).length, 1);
+});
+
+test('a subagent\'s approval is given from its parent\'s card', async () => {
+  const seed = chatSeed();
+  seed.views[2].run = { ...seed.views[2].run, status: 'waiting_input', pendingState: { kind: 'approval', toolCalls: [{ function: { name: 'web_fetch' } }] } };
+  const r = await run(seed, [
+    { snapshot: 'card' },
+    { event: [{ t: 'approval', in: { t: 'toolcard', p: { family: 'agent' } } }, 'choose', { id: 'deny', feedback: '' }] },
+  ], { state: { hash: 'c=1' } });
+  const a = find(r.snapshots.card, { t: 'approval', in: { t: 'toolcard', p: { family: 'agent' } } });
+  assert.equal(a.p.title, 'The subagent wants to run');
+  assert.deepEqual(JSON.parse(called(r, 'POST', /\/runs\/2\/approve$/)[0].body), { approve: false });
+});
+
+test('the drawer: groups, row actions, search with snippets, scope, a pasted invite link', async () => {
+  const day = 86400000;
+  const seed = { me: ME, runs: [
+    { id: 1, title: 'today one', status: 'running', activityMs: NOW - 1000, readMs: 0 },
+    { id: 2, title: 'pinned one', status: 'idle', activityMs: NOW - 3 * day, pinnedAt: NOW - 10, readMs: NOW },
+    { id: 3, title: 'old one', status: 'error', activityMs: NOW - 40 * day, readMs: NOW },
+    { id: 4, title: 'their one', status: 'waiting_input', activityMs: NOW - day, access: 'viewer', mine: true, owner: 'bob', visibility: 'team', readMs: NOW },
+  ], routes: [['POST', '/join$', { runId: 4 }]] };
+  const r = await run(seed, [
+    { tap: { t: 'button', p: { label: 'Conversations' } } },
+    { snapshot: 'open' },
+    { tap: { t: 'button', p: { label: 'Pin' }, in: { t: 'row', p: { title: 'today one' } } } },
+    { snapshot: 'pinned' },
+    { event: [{ t: 'screen', p: { title: 'Conversations' } }, 'search', { value: 'old' }] },
+    { wait: 250 },
+    { snapshot: 'searched' },
+    { event: [{ t: 'screen', p: { title: 'Conversations' } }, 'search', { value: '' }] },
+    { wait: 250 },
+    { event: [{ t: 'picker', in: { t: 'sheet' } }, 'change', { value: 'archived' }] },
+    { snapshot: 'archived' },
+    { event: [{ t: 'screen', p: { title: 'Conversations' } }, 'search', { value: 'https://x/c/apps/agent/#join=TOK_1' }] },
+  ]);
+  const t = r.snapshots.open;
+  const sheet = find(t, { t: 'sheet' });
+  assert.equal(sheet.p.edge, 'leading', 'a drawer from the leading edge');
+  const sections = all(sheet, { t: 'section' }).map((s) => (s.p || {}).title || '');
+  assert.deepEqual(sections, ['', '', 'Pinned', 'Today', 'Yesterday', 'Previous 30 days', 'Older'].filter((x) => x !== 'Previous 30 days'));
+  const row = (title) => find(sheet, { t: 'row', p: { title } });
+  assert.equal(row('today one').p.badge, 'working');
+  assert.equal(row('old one').p.badge, 'failed');
+  assert.equal(row('old one').p.tone, 'danger');
+  assert.equal(row('their one').p.badge, 'waiting for you');
+  assert.match(row('their one').p.subtitle, /^⇆ shared/);
+  assert.deepEqual(all(row('today one'), { t: 'button' }).map((b) => b.p.label), ['Rename', 'Pin', 'Share…', 'Archive', 'Delete']);
+  assert.deepEqual(all(row('their one'), { t: 'button' }).map((b) => b.p.label), ['Pin', 'Archive', 'Leave']);
+  assert.equal(find(row('their one'), { t: 'button', p: { label: 'Leave' } }).p.confirm.title, 'Leave "their one"?');
+  assert.deepEqual(JSON.parse(called(r, 'PATCH', /\/runs\/1$/)[0].body), { pinned: true });
+  assert.deepEqual(all(find(r.snapshots.pinned, { t: 'section', p: { title: 'Pinned' } }), { t: 'row' }).map((x) => x.p.title), ['today one', 'pinned one']);
+  const results = find(r.snapshots.searched, { t: 'section', p: { title: 'Results' } });
+  assert.deepEqual(all(results, { t: 'row' }).map((x) => x.p.title), ['old one']);
+  assert.ok(called(r, 'GET', /\/conversations\?q=old$/).length);
+  assert.ok(called(r, 'GET', /\/conversations\?scope=mine&archived=1$/).length, 'the archive scope');
+  assert.ok(find(r.snapshots.archived, { t: 'empty', p: { title: 'nothing archived' } }));
+  assert.deepEqual(JSON.parse(called(r, 'POST', /\/join$/)[0].body), { token: 'TOK_1' });
+  assert.equal(topScreen(r.tree).p.title, 'their one', 'a pasted invite link joins and opens the conversation');
+  assert.equal(find(r.tree, { t: 'sheet' }), null, 'and closes the drawer');
+});
+
+test('new chat with options, rename and share sheets', async () => {
+  const seed = { me: ME, runs: [{ id: 1, title: 'plan', status: 'idle' }], routes: [
+    ['POST', '/ask$', { id: 5, title: 'new one', status: 'running', rootId: 5 }],
+    ['GET', '/runs/1/members$', { owner: 'admin', visibility: 'private', teamRole: '', members: [{ user: 'bob', role: 'viewer' }], links: [{ id: 3, role: 'viewer', uses: 1 }] }],
+    ['POST', '/runs/1/links$', { id: 4, token: 'TOKEN_9' }],
+  ] };
+  const r = await run(seed, [
+    { tap: { t: 'button', p: { label: 'Conversations' } } },
+    { tap: { t: 'row', p: { title: 'New chat with options…' } } },
+    { input: [{ t: 'field', in: { t: 'section', p: { title: 'First message' } } }, 'summarise the week'] },
+    { event: [{ t: 'picker', in: { t: 'sheet', p: { title: 'New chat' } } }, 'change', { value: 'web' }] },
+    { input: [{ t: 'field', p: { label: 'Title' } }, 'weekly'] },
+    { snapshot: 'form' },
+    { tap: { t: 'button', p: { label: 'Start' } } },
+    { snapshot: 'started' },
+    { tap: { t: 'button', p: { label: 'Conversations' } } },
+    { tap: { t: 'button', p: { label: 'Share…' }, in: { t: 'row', p: { title: 'plan' } } } },
+    { snapshot: 'share' },
+    { tap: { t: 'button', p: { label: 'Create link' } } },
+    { snapshot: 'linked' },
+  ]);
+  assert.equal(find(r.snapshots.form, { t: 'sheet' }).p.title, 'New chat');
+  assert.deepEqual(JSON.parse(called(r, 'POST', /\/ask$/)[0].body), { text: 'summarise the week', title: 'weekly', system: '', toolset: 'web' });
+  assert.equal(find(r.snapshots.started, { t: 'sheet' }), null);
+  const share = find(r.snapshots.share, { t: 'sheet' });
+  assert.equal(share.p.title, 'Share “plan”');
+  assert.equal(find(share, { t: 'picker', p: { style: 'inline' } }).p.value, 'private');
+  assert.deepEqual(find(share, { t: 'row', p: { title: 'bob' } }).p.detail, 'can read');
+  assert.ok(find(share, { t: 'button', p: { label: 'Revoke' } }));
+  const link = find(r.snapshots.linked, { t: 'row', p: { title: 'https://xbin.test/c/apps/agent/#join=TOKEN_9' } });
+  assert.ok(link, 'a new link is shown once, without the page\'s query');
+  assert.equal(find(link, { t: 'button', p: { label: 'Copy' } }).p.copy, 'https://xbin.test/c/apps/agent/#join=TOKEN_9');
+});
+
+test('automations: the page, one schedule with its runs, the forms (all four kinds)', async () => {
+  const seed = { me: ME, runs: [{ id: 20, title: 'a digest', status: 'idle' }],
+    automations: [
+      { kind: 'schedule', id: 3, name: 'digest', access: 'owner', enabled: true, mode: 'isolated', config: { cron: '0 9 * * *', goal: 'sum up' }, unread: 2, runs: 4 },
+      { kind: 'watcher', id: 4, name: 'prices', access: 'oversee', owner: 'bob', enabled: false, config: { cron: '@every 1h', goal: 'watch' } },
+      { kind: 'channel', id: 5, name: 'slack', access: 'claim', summary: 'Slack · acme', config: { adapter: 'apps/slack', platform: 'slack' } },
+      { kind: 'trigger', id: 6, name: 'deploys', access: 'owner', enabled: true, summary: 'apps/webhooks pushes deploy', lastStatus: 'error: boom',
+        config: { source: 'push', sourceRef: 'apps/webhooks', toolset: 'private', dataClass: 'public', goal: 'check it', mode: 'isolated' } },
+    ],
+    autoRuns: { 3: [{ id: 20, title: 'a digest', activityMs: NOW - 5000, status: 'idle', unread: true }] },
+    routes: [['GET', '/triggers/unmatched$', { items: [{ from: 'apps/webhooks', name: 'release', count: 2 }] }],
+      ['GET', '/triggers/6/events$', { events: [{ eventId: 'e1', topic: 'deploy.prod', at: now - 60, accepted: true, runId: 20 }, { eventId: 'e2', topic: 'deploy.dev', at: now - 30, accepted: false, reason: 'rate' }] }]],
+  };
+  const r = await run(seed, [
+    { snapshot: 'detail' },
+    { tap: { t: 'button', p: { label: 'Run now' }, in: { t: 'screen', p: { title: 'digest' } } } },
+    { event: [{ t: 'nav' }, 'pop', { depth: 2 }] },
+    { snapshot: 'list' },
+    { tap: { t: 'button', p: { label: 'New schedule' } } },
+    { input: [{ t: 'field', p: { label: 'Name' } }, 'standup'] },
+    { input: [{ t: 'field', p: { label: 'What to do' } }, 'post the standup'] },
+    { snapshot: 'form' },
+    { tap: { t: 'button', p: { label: 'Create' } } },
+    { snapshot: 'created' },
+  ], { state: { hash: 'auto=schedule:3' } });
+  const d = r.snapshots.detail;
+  const nav = find(d, { t: 'nav' });
+  assert.deepEqual(nav.c.map((s) => s.p.title), ['Agent', 'Automations', 'digest'], 'a deep link to one automation');
+  const detail = topScreen(d);
+  assert.ok(find(detail, { t: 'row', p: { title: 'every day at 9:00' } }));
+  assert.deepEqual(all(find(detail, { t: 'section', p: { title: 'Runs' } }), { t: 'row' }).map((x) => x.p.title), ['a digest']);
+  assert.equal(find(detail, { t: 'button', p: { label: 'Delete' } }).p.confirm.title, 'Delete "digest"?');
+  assert.ok(called(r, 'POST', /\/automations\/schedule\/3\/read$/).length, 'opening it marks its runs read');
+  assert.equal(called(r, 'POST', /\/schedules\/3\/trigger$/).length, 1);
+  const list = topScreen(r.snapshots.list);
+  assert.equal(list.p.title, 'Automations');
+  assert.deepEqual(all(list, { t: 'section' }).map((s) => (s.p || {}).title), ['Channels', 'Schedules', 'Watchers', 'Triggers', 'Pushes nothing took']);
+  const row = (title) => find(list, { t: 'row', p: { title } });
+  assert.equal(row('digest').p.badge, '2 new');
+  assert.equal(row('prices').p.badge, 'off');
+  assert.match(row('prices').p.subtitle, /^bob's/);
+  assert.equal(row('slack').p.badge, 'new — claim it');
+  assert.equal(row('deploys').p.badge, 'error');
+  assert.ok(find(list, { t: 'button', p: { label: 'Create a trigger' } }));
+  assert.equal(topScreen(r.snapshots.form).p.title, 'New schedule');
+  assert.deepEqual(JSON.parse(called(r, 'POST', /\/schedules$/)[0].body), { name: 'standup', cron: '0 9 * * *', goal: 'post the standup', mode: 'isolated',
+    visibility: 'private', watcher: false, toolset: 'private', targetRun: 0 });
+  assert.equal(topScreen(r.snapshots.created).p.title, 'standup', 'a new schedule opens');
+
+  // a trigger: its events and actions; the form refuses a lane/data-class clash
+  const t = await run(seed, [
+    { snapshot: 'trigger' },
+    { tap: { t: 'button', p: { label: 'Edit' } } },
+    { event: [{ t: 'picker', p: { label: 'Tool mode' } }, 'change', { value: 'web' }] },
+    { event: [{ t: 'picker', p: { label: 'The data it takes' } }, 'change', { value: 'private' }] },
+    { snapshot: 'clash' },
+  ], { state: { hash: 'auto=trigger:6' } });
+  const tr = topScreen(t.snapshots.trigger);
+  assert.equal(tr.p.title, 'deploys');
+  assert.deepEqual(all(find(tr, { t: 'section', p: { title: 'Recent events' } }), { t: 'row' }).map((x) => [x.p.title, x.p.detail]),
+    [['deploy.prod', 'ran #20'], ['deploy.dev', 'over its hourly cap']]);
+  assert.ok(find(tr, { t: 'notice', p: { tone: 'info' } }).p.text.startsWith('Pushes come from apps/webhooks'));
+  assert.ok(find(tr, { t: 'button', p: { label: 'Fire a test event' } }));
+  const form = topScreen(t.snapshots.clash);
+  assert.equal(form.p.title, 'Edit trigger');
+  assert.equal(find(form, { t: 'button', p: { label: 'Save' } }).p.disabled, true, 'the firewall holds Save');
+  assert.ok(find(form, { t: 'notice', p: { tone: 'danger' } }));
+
+  // a channel to claim: its rules and Claim
+  const c = await run(seed, [{ snapshot: 'channel' }], { state: { hash: 'auto=channel:5' } });
+  const ch = topScreen(c.snapshots.channel);
+  assert.ok(find(ch, { t: 'picker', p: { label: 'Direct messages' } }));
+  assert.ok(find(ch, { t: 'button', p: { label: 'Claim' } }));
+});
+
+test('run tools: memory, files and the editor, skills, the workflow tree, settings', async () => {
+  const seed = chatSeed();
+  seed.views[1].memory = { goal: 'q3 plan' };
+  seed.views[1].files = [{ path: 'report.html' }];
+  seed.routes.push(
+    ['GET', '/runs/1$', { memory: { goal: 'q3 plan' } }],
+    ['GET', '/runs/1/files$', [{ path: 'report.html', mime: 'text/html', bytes: 2048, version: 2 }, { path: 'shot.png', mime: 'image/png', bytes: 99, version: 1, binary: true }]],
+    ['GET', '/runs/1/file\\?path=report.html$', { path: 'report.html', content: '<h1>Q3</h1><img src="https://evil.example/x.png">', version: 2 }],
+    ['PUT', '/runs/1/file$', { version: 3 }],
+    ['GET', '/runs/1/tree$', { root: 1, nodes: [{ id: 1, title: 'plan the quarter', status: 'running', created: 1, promptTokens: 1000, completionTokens: 500, lastStep: 'thinking' },
+      { id: 2, parentId: 1, depth: 1, title: 'research', status: 'blocked', created: 2, blockReason: 'dep', blockedOn: [3], promptTokens: 200 }],
+    totals: { nodes: 2, byStatus: { running: 1, blocked: 1 }, promptTokens: 1200, completionTokens: 500, llmCalls: 7, active: 1, limit: 4 } }],
+    ['GET', '/config$', { models: { general: 'm1' }, system: 'be brief', tokenBudget: 1000, maxIters: 5, toolTimeout: 30, subagents: true, approve: false, features: {} }],
+    ['GET', '/models$', { data: [{ id: 'm1' }, { id: 'm2' }] }],
+    ['GET', '/skills$', [{ name: 'weekly', description: 'the weekly digest', owner: 'bob' }]],
+  );
+  const r = await run(seed, [
+    { tap: { t: 'button', p: { label: 'Memory (1)' } } },
+    { snapshot: 'memory' },
+    { event: [{ t: 'nav' }, 'pop', { depth: 1 }] },
+    { tap: { t: 'button', p: { label: 'Files (1)' } } },
+    { snapshot: 'files' },
+    { tap: { t: 'row', p: { title: 'report.html' } } },
+    { input: [{ t: 'field', p: { label: 'Content' } }, '<h1>Q3!</h1>'] },
+    { tap: { t: 'button', p: { label: 'Save' } } },
+    { snapshot: 'saved' },
+    { tap: { t: 'button', p: { label: 'Render' } } },
+    { snapshot: 'render' },
+    { event: [{ t: 'nav' }, 'pop', { depth: 1 }] },
+    { tap: { t: 'button', p: { label: 'Workflow tree' } } },
+    { snapshot: 'tree' },
+    { event: [{ t: 'nav' }, 'pop', { depth: 1 }] },
+    { tap: { t: 'button', p: { label: 'Conversations' } } },
+    { tap: { t: 'row', p: { title: 'New chat' } } },
+    { tap: { t: 'button', p: { label: 'Settings' } } },
+    { snapshot: 'settings' },
+    { tap: { t: 'row', p: { title: 'Config' } } },
+    { snapshot: 'config' },
+    { event: [{ t: 'nav' }, 'pop', { depth: 2 }] },
+    { tap: { t: 'row', p: { title: 'Skills' } } },
+    { snapshot: 'skills' },
+  ], { state: { hash: 'c=1' } });
+  const mem = topScreen(r.snapshots.memory);
+  assert.equal(mem.p.title, 'Memory');
+  assert.equal(find(mem, { t: 'section', p: { title: 'goal' } }).c[0].p.value, 'q3 plan');
+  const files = topScreen(r.snapshots.files);
+  assert.deepEqual(all(files, { t: 'row' }).map((x) => x.p.title), ['report.html', 'shot.png']);
+  assert.ok(find(files, { t: 'button', p: { label: 'Render' } }), 'an HTML file renders');
+  const put = JSON.parse(called(r, 'PUT', /\/runs\/1\/file$/)[0].body);
+  assert.deepEqual(put, { path: 'report.html', content: '<h1>Q3!</h1>', version: 2 }, 'the version you loaded goes back (a conflict is a visible 409)');
+  assert.equal(topScreen(r.snapshots.saved).p.subtitle, 'v3 · saved');
+  const prev = topScreen(r.snapshots.render);
+  const canvas = find(prev, { t: 'canvas' });
+  assert.ok(canvas.p.html.startsWith('<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src \'none\';'),
+    'the render preview loads nothing external');
+  assert.equal(find(prev, { t: 'notice', p: { tone: 'warn' } }).p.text, '1 external resource blocked');
+  const tree = topScreen(r.snapshots.tree);
+  assert.equal(tree.p.title, 'plan the quarter');
+  assert.equal(tree.p.subtitle, '2 nodes · 1 running · 1 blocked');
+  assert.deepEqual(all(tree, { t: 'row' }).map((x) => x.p.title), ['Σ 1 200↑ 500↓', 'plan the quarter', '· research']);
+  assert.equal(find(tree, { t: 'row', p: { title: '· research' } }).p.subtitle, '⛔ waiting on #3');
+  assert.equal(find(tree, { t: 'button', p: { label: 'Stop' } }).p.confirm.title, 'Cancel this workflow and every run below it?');
+  const set = topScreen(r.snapshots.settings);
+  assert.deepEqual(all(set, { t: 'row' }).map((x) => x.p.title), ['Config', 'Features', 'Skills', 'MCP servers']);
+  const cfg = topScreen(r.snapshots.config);
+  assert.equal(find(cfg, { t: 'picker', p: { label: 'General' } }).p.value, 'm1');
+  assert.equal(find(cfg, { t: 'toggle', p: { label: 'Subagents (expose spawn_subagent)' } }).p.value, true);
+  assert.deepEqual(all(topScreen(r.snapshots.skills), { t: 'row' }).map((x) => [x.p.title, x.p.badge]), [['weekly', "bob's"]]);
+});
+
+test('a render that arrives while you look opens the preview; one you closed stays closed', async () => {
+  const seed = oneSeed({ run: { title: 'report', status: 'running' }, steps: [{ id: 5, seq: 5, kind: 'render', detail: JSON.stringify({ path: 'r.html', version: 1 }), created: now - 2 }] },
+    { routes: [['GET', '/runs/9/file\\?path=r.html$', { path: 'r.html', content: '<p>hi</p>', version: 1 }]] });
+  const r = await run(seed, [
+    { snapshot: 'opened' },
+    { event: [{ t: 'nav' }, 'pop', { depth: 1 }] },
+    { call: ['push', { type: 'step', run: 9, root: 9, data: { id: 6, seq: 6, kind: 'note', detail: '{"text":"n"}', created: now } }] },
+    { snapshot: 'closed' },
+  ], { state: { hash: 'c=9' } });
+  assert.equal(topScreen(r.snapshots.opened).p.title, 'r.html');
+  assert.ok(find(r.snapshots.opened, { t: 'canvas' }).p.html.includes('<p>hi</p>'));
+  assert.equal(topScreen(r.snapshots.closed).p.title, 'report');
 });
