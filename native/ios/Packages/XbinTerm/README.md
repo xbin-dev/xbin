@@ -69,7 +69,12 @@ terminal, in its default colours: each `PredictedRun` at its cell (underlined
 when `underline`), and the predicted cursor as a block. Hide it while the user
 has scrolled back. Show the RTT badge while `lagging`.
 
-Keys: keep one `TermKeyboard` per terminal. The accessory row calls
+Keys: SwiftTerm's `TerminalView` already turns key presses into bytes and
+hands them to `send(source:data:)`. Either subclass it and take input over
+(`insertText`, `deleteBackward`, `pressesBegan` → `TermKeyboard`: one tested
+mapping, sticky modifiers everywhere), or keep SwiftTerm's input and use
+`TermKeyboard` only for the accessory row and the ⌘ shortcuts. Keep one
+`TermKeyboard` per terminal. The accessory row calls
 `accessory(_:applicationCursor:)` (nil = a modifier toggled: re-render the
 caps from `sticky`); the text input path calls `text(_:)` and
 `deleteBackward()`; `pressesBegan` calls `hardware(_:applicationCursor:)` and
@@ -83,3 +88,7 @@ the emulator's DECCKM mode. Send the bytes with `session.send`.
   thousands of steps recorded from the JS engine by `hack/term-predict-trace.mjs`;
   `make js-test` fails when `web/term-predict.js` changes without the trace
   (and so this port) following.
+- `native/tools/term-live` drives `TermSession` against a running xbind's
+  `/ws/term` (session frame, acks, pongs, drop → reattach → replay, resize,
+  DELETE → exit, 404/403 refusals); instructions at the top of its
+  `main.swift`. Not in CI — it needs a live xbind.
