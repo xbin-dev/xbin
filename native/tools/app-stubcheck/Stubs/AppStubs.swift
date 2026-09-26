@@ -59,6 +59,7 @@ final class WebTileController: NSObject {
     var loadError: String?
     var jsDialog: JSDialog?
     var tileDialog: TileDialog?
+    var shareItems: [Any]?
     init(workspace: WorkspaceModel, tile: String, canOpenLinks: Bool, url: URL?, island: Bool = false) {
         webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
     }
@@ -70,6 +71,17 @@ final class WebTileController: NSObject {
 
 struct WebViewHost: View {
     let webView: WKWebView
+    var body: some View { EmptyView() }
+}
+
+struct JSDialogButtons: View {
+    let dialog: JSDialog?
+    let done: (Bool, String?) -> Void
+    var body: some View { EmptyView() }
+}
+
+struct ShareSheet: View {
+    let items: [Any]
     var body: some View { EmptyView() }
 }
 

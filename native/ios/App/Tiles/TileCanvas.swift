@@ -41,12 +41,18 @@ struct CanvasIsland: View {
             TileDialogSheet(from: tile, dialog: d) { button, values in c.resolveDialog(d.id, button: button, values: values) }
                 .presentationDetents([.medium, .large])
         }
+        // The page's alert/confirm/prompt as on a web tile: confirm() can be
+        // declined, prompt() returns what was typed.
         .alert(c.jsDialog?.message ?? "", isPresented: Binding(get: { c.jsDialog != nil }, set: { _ in })) {
-            Button("OK") {
+            JSDialogButtons(dialog: c.jsDialog) { ok, text in
                 let d = c.jsDialog
                 c.jsDialog = nil
-                d?.answer(true, nil)
+                d?.answer(ok, text)
             }
+        }
+        // A download from the page: the share sheet, as on a web tile.
+        .sheet(isPresented: Binding(get: { c.shareItems != nil }, set: { if !$0 { c.shareItems = nil } })) {
+            ShareSheet(items: c.shareItems ?? [])
         }
     }
 }

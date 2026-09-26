@@ -131,8 +131,9 @@ struct WebTileScreen: View {
     }
 }
 
-/// alert/confirm/prompt buttons.
-private struct JSDialogButtons: View {
+/// alert/confirm/prompt buttons (a web tile's page and a native tile's
+/// canvas island): confirm has Cancel, prompt a text field.
+struct JSDialogButtons: View {
     let dialog: JSDialog?
     let done: (Bool, String?) -> Void
     @State private var text = ""

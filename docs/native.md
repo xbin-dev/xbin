@@ -480,7 +480,8 @@ The app draws these with the same components as its own agent screen.
   Previews draw a placeholder.
 - **`canvas`**: a web view inside the native screen — `src` a page of your
   own tile (relative, or your own `/c/<self>/…`; loaded like your web page:
-  your frame token, your sandbox, `xbin.dialog`) or `html`, static markup
+  your frame token, your sandbox, `xbin.dialog`, `alert`/`confirm`/`prompt`
+  and downloads as on your web page) or `html`, static markup
   that runs no scripts and loads nothing — the app shows it under a CSP
   that allows only inline styles and `data:` images and fonts, and follows
   no link; `height` sizes it. It is the one drawing escape:
