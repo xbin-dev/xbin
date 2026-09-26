@@ -31,7 +31,7 @@ import { LitElement, html, css, nothing, repeat } from '/vendor/lit-all.min.js';
 import { applyOps, cloneJSON } from '/vendor/xb/rt-diff.js';
 import { VOCAB } from '/vendor/xb/vocab.js';
 import { TOKENS, TYPE_CLASSES } from '/vendor/xb/render-theme.js';
-import { own, P, cls, icon, str } from '/vendor/xb/render-base.js';
+import { own, cls, icon, str } from '/vendor/xb/render-base.js';
 import { STRUCTURE, STRUCTURE_CSS } from '/vendor/xb/render-structure.js';
 import { CONTENT, CONTENT_CSS } from '/vendor/xb/render-content.js';
 import { CONTROLS, CONTROLS_CSS, overlays, OVERLAY_CSS } from '/vendor/xb/render-controls.js';

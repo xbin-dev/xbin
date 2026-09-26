@@ -114,13 +114,16 @@ function terminal(n, cx) {
 }
 
 // canvas: a WebView island. `html` is static (sandbox="" — no scripts, no
-// same-origin); `src` is a tile page, sandboxed like one.
+// same-origin); `src` is a page of the tile's own (a relative URL — anything
+// with a scheme or a host is not drawn), sandboxed like one.
+const RELATIVE = (s) => s !== '' && !/^[a-z][a-z0-9+.-]*:/i.test(s) && !s.startsWith('//') && !s.startsWith('\\');
 function canvas(n, cx) {
   const p = P(n);
   const h = HEIGHTS.has(p.height) ? `var(--xb-h-${p.height})` : 'var(--xb-h-m)';
+  const src = str(p.src);
   return html`<xb-canvas data-k=${n.k} class=${cls('canvas', cell(cx))} style=${`height:${h}`}>${p.html != null
     ? html`<iframe sandbox="" srcdoc=${str(p.html)} title="canvas"></iframe>`
-    : p.src ? html`<iframe sandbox="allow-scripts allow-forms" src=${str(p.src)} title="canvas"></iframe>` : nothing}</xb-canvas>`;
+    : RELATIVE(src) ? html`<iframe sandbox="allow-scripts allow-forms" src=${src} title="canvas"></iframe>` : nothing}</xb-canvas>`;
 }
 
 export const CONTENT = { text, markdown, image, icon: iconPrim, badge, notice, progress, chart, code, empty, terminal, canvas };

@@ -91,7 +91,7 @@ function start() {
       else if (m.what === 'open') {
         const url = String(m.args?.url ?? '');
         if (!/^https:\/\//i.test(url)) err = 'https only';
-        else v = !!G.open(url, '_blank', 'noopener');
+        else { G.open(url, '_blank', 'noopener'); v = true; } // noopener: open() returns null
       } else err = `unknown call ${m.what}`;
     } catch (e) { err = String(e?.message ?? e); }
     G.xbn?.resolve(m.id, v, err);
