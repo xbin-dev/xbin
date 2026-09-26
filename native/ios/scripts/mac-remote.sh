@@ -45,7 +45,8 @@
 #   XBIN_MAC_SSH_OPTS  extra ssh options, e.g. "-p 2222 -i ~/.ssh/mini"
 #   XBIN_SIM, XBIN_SIGNING, XBIN_XCODE, XBIN_SWIFT_CONDITIONS, XBIN_SIM_GUI=1
 #                      passed through (pick-sim.sh, ci-*.sh; GUI: show the
-#                      Simulator window on the Mac's screen)
+#                      simulator on the Mac's screen: Simulator.app, or
+#                      DeviceHub.app from Xcode 27 on)
 #
 # The same file runs on the Mac as `mac-remote.sh --on-mac <command>` (what
 # the commands above invoke over ssh; usable at the Mac too). Bash 3.2.
@@ -121,7 +122,16 @@ on_mac() {
     [ -d "$app" ] || { ci_error "no $app after the build"; return 1; }
     xcrun simctl boot "$udid" >/dev/null 2>&1 || true # already booted is fine
     ci_timeout 300 xcrun simctl bootstatus "$udid" -b || ci_warn "simulator $udid did not finish booting"
-    if [ "${XBIN_SIM_GUI:-0}" = 1 ]; then open -a Simulator --args -CurrentDeviceUDID "$udid" || true; fi
+    if [ "${XBIN_SIM_GUI:-0}" = 1 ]; then
+      # Xcode ≤ 26: Simulator.app; Xcode 27 replaced it with DeviceHub.app.
+      dev=$(xcode-select -p)
+      for gui in "$dev/Applications/Simulator.app" "${dev%/Developer}/Applications/DeviceHub.app"; do
+        if [ -d "$gui" ]; then
+          open -a "$gui" --args -CurrentDeviceUDID "$udid" || true
+          break
+        fi
+      done
+    fi
     xcrun simctl install "$udid" "$app"
     xcrun simctl launch --terminate-running-process --stdout="$XBIN_CI_OUT/app.stdout.log" \
       --stderr="$XBIN_CI_OUT/app.stderr.log" "$udid" dev.xbin.app
