@@ -219,6 +219,10 @@ type Auth struct {
 	// clientIP resolves a request's client IP (trusted-proxy aware);
 	// installed by the server via SetClientIP. Nil → RemoteAddr.
 	clientIP func(*http.Request) string
+
+	// credGen is the per-user credential generation asset-plane credentials
+	// bind to (assettoken.go, SetCredentialGeneration). Nil → "".
+	credGen func(userID string) string
 }
 
 // termID scopes a terminal-session token (plans/terminal-tokens.md): the tile
