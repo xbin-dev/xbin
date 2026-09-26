@@ -510,6 +510,9 @@ func TestStatePersistsKeyHashesOnly(t *testing.T) {
 		t.Fatalf("state mode %v", fi.Mode().Perm())
 	}
 	cfg := r.relay.cfg
+	if err := r.relay.Close(); err != nil {
+		t.Fatal(err)
+	}
 	s2, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -534,7 +537,7 @@ func TestNoAPNsKey(t *testing.T) {
 }
 
 func TestHandlesPerTokenCapped(t *testing.T) {
-	st, _ := openStore("")
+	st, _ := openStore("", testLimits)
 	now := time.Unix(1000, 0)
 	first, _ := st.newHandle(tokenOK, topic, "production", now)
 	for i := 0; i < maxHandlesPerToken; i++ {

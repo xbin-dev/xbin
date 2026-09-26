@@ -35,16 +35,17 @@ func main() {
 		trustProxy = flag.Bool("trust-proxy", os.Getenv("XBIN_RELAY_TRUST_PROXY") != "", "take client IPs from the last X-Forwarded-For hop")
 		tlsCert    = flag.String("tls-cert", env("XBIN_RELAY_TLS_CERT", ""), "TLS certificate (PEM); empty = plain HTTP behind a TLS proxy")
 		tlsKey     = flag.String("tls-key", env("XBIN_RELAY_TLS_KEY", ""), "TLS key (PEM)")
+		verify     = flag.Bool("verify-tokens", os.Getenv("XBIN_RELAY_NO_VERIFY_TOKENS") == "", "check each device token with APNs before storing a handle (needs -apns-key)")
 	)
 	flag.Parse()
-	if err := run(*listen, *state, *keyPath, *keyID, *teamID, *topics, *trustProxy, *tlsCert, *tlsKey); err != nil {
+	if err := run(*listen, *state, *keyPath, *keyID, *teamID, *topics, *trustProxy, *tlsCert, *tlsKey, *verify); err != nil {
 		fmt.Fprintln(os.Stderr, "xbin-relay:", err)
 		os.Exit(1)
 	}
 }
 
-func run(listen, state, keyPath, keyID, teamID, topics string, trustProxy bool, tlsCert, tlsKey string) error {
-	cfg := relay.Config{StatePath: state, TrustProxy: trustProxy}
+func run(listen, state, keyPath, keyID, teamID, topics string, trustProxy bool, tlsCert, tlsKey string, verify bool) error {
+	cfg := relay.Config{StatePath: state, TrustProxy: trustProxy, VerifyTokens: verify}
 	for _, t := range strings.Split(topics, ",") {
 		if t = strings.TrimSpace(t); t != "" {
 			cfg.Topics = append(cfg.Topics, t)
@@ -88,11 +89,12 @@ func run(listen, state, keyPath, keyID, teamID, topics string, trustProxy bool, 
 		}
 	}()
 	select {
-	case err := <-errc:
-		return err
+	case err = <-errc:
 	case <-ctx.Done():
 		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		return srv.Shutdown(sctx)
+		err = srv.Shutdown(sctx)
 	}
+	// fold the journal into the snapshot (usage timestamps included)
+	return errors.Join(err, s.Close())
 }

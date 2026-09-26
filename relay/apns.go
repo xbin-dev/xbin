@@ -117,6 +117,7 @@ type Notification struct {
 	CollapseID string
 	Priority   int // 10 (immediate) or 5
 	Expiration time.Time
+	Background bool // apns-push-type background (a content-available check), not alert
 }
 
 // APNsError is a non-200 answer from APNs.
@@ -170,7 +171,11 @@ func (a *APNs) send(ctx context.Context, n Notification, fresh bool) (string, er
 	}
 	req.Header.Set("authorization", "bearer "+tok)
 	req.Header.Set("apns-topic", n.Topic)
-	req.Header.Set("apns-push-type", "alert")
+	pushType := "alert"
+	if n.Background {
+		pushType = "background"
+	}
+	req.Header.Set("apns-push-type", pushType)
 	prio := n.Priority
 	if prio != 5 {
 		prio = 10
