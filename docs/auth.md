@@ -65,7 +65,15 @@ frontend code: **use `xbin.fetch()` for anything beyond your own API.** A raw
 Per-tile READ gates (the `/c/` static plane) follow the DRIVING USER's access
 on element principals — an element reaches its own tile's files always, but
 one tile's frame token cannot read another tile's source past its user's
-RBAC, and an unattributed backend token is self-only. Tile subresource loads
+RBAC, and an unattributed backend token is self-only. A tile document's
+injection mints the frame token only for a human or for that tile itself
+(its own frame token, including an `xbin.window` sub-path's) — never for
+another tile's principal fetching the document, which could otherwise lift
+the other tile's token (and its grants) out of the HTML. The one exception
+is a **navigation** within one tile tree — a multi-page tile moving its
+frame between its own pages when a sub-page directory holding `index.html`
+is registered as a nested component: the initiator can't read the document
+it navigates to. Tile subresource loads
 (JS/CSS/images — `Sec-Fetch-Dest` script/style/image/font/media/worker,
 never documents or fetch) are authorized credential-less by the opaque-origin
 Fetch-Metadata fingerprint — sandboxed frames strip cookies *and* the
@@ -92,16 +100,16 @@ The rule the strict modes enforce: **a user loads a tile's files — HTML,
 JS, CSS, images, fonts, data, anything under `/c/<tile>/` — only if that
 user can read that tile.** Every request carries a credential proving
 (user, tile), is checked against **live** access (the user exists and is
-enabled, their access to that tile stands, the credential's generation is
-current), and is refused otherwise — no IP or Fetch-Metadata heuristic. The
-daemon flag `--tile-assets` (env `XBIN_TILE_ASSETS`,
-[config.md](/docs/config.md)) picks how browsers carry that credential:
+enabled, their access to that tile stands) on every request, and is refused
+otherwise — no IP or Fetch-Metadata heuristic. The daemon flag
+`--tile-assets` (env `XBIN_TILE_ASSETS`, [config.md](/docs/config.md))
+picks how browsers carry that credential:
 
 | Mode | How a tile's files are credentialed | Needs |
 |---|---|---|
 | `legacy` (default **this release**) | the credential-less rule above: a sandboxed frame's subresource loads pass on the Fetch-Metadata fingerprint + a recently signed-in source IP | nothing |
 | `tokens` | the injection adds `<base href="/c/~<asset-token>/<tile>/<dir>/">` and remaps `/c/<tile>/` in the import map: **relative** URLs (and everything they load in turn) carry a path-scoped *asset token* | relative asset URLs ([elements.md §Asset URLs](/docs/elements.md)) |
-| `origins` | each tile's frontend runs on **its own origin** `t-<id>.<tiles-domain>`; a cookie set there (in exchange for the frame token, on the first navigation) carries every load — relative *and* absolute | `--tiles-domain` (same-site with `--external-url`), wildcard DNS + a wildcard TLS certificate |
+| `origins` | each tile's frontend runs on **its own origin** `t-<id>.<tiles-domain>`; a cookie set there (in exchange for a one-time ticket, on the first navigation) carries every load — relative *and* absolute | `--tiles-domain` (same-site with `--external-url`), wildcard DNS + a wildcard TLS certificate, HTTPS |
 
 **The asset token** (tokens mode) is an HMAC distinct from frame tokens,
 bound to (user, the tile whose document minted it, credential generation,
@@ -112,44 +120,89 @@ that tile. It never serves HTML, directories, workspace chrome or anything
 navigated to as a document, never authenticates `/api`, and never yields a
 frame token. It is visible to the tile's own JS (in `document.baseURI`) —
 which already holds its frame token, a strictly stronger credential; a
-copied token reads at most static files the user may read, until the
-user's access, account or credential generation changes.
+copied token reads at most static files the user may read. **Signing out
+does not revoke asset tokens yet**: they end when the user is disabled or
+deleted, loses read on the tile, or after 7 days (per-session credential
+generations — sign-out, *sign out everywhere*, a password change — come
+with device sign-in; a document is often loaded with nothing but a frame
+token, so the asset token can't be tied to the browser session the way the
+tile-origin cookie is).
 
 **Tile origins** (origins mode): `<id>` is a keyed hash of the tile path —
 stable per workspace, non-reversible, so tile names never reach DNS, SNI or
 certificate logs; `/components` reports each tile's `origin`. The shell
-frames `https://t-<id>…/c/<tile>/?frame=<token>`; xbind verifies the token
-(its tile must be that origin's, its user must still read the tile), sets an
-`HttpOnly; Secure; SameSite=Strict` host-only cookie and redirects to the
-same URL without the token. On that origin `/c/` is authorized per request
-for the cookie's user (another tile's files load when the user can read that
-tile — as sandboxed non-documents, never as a page running on this origin),
-and `/api` and `/ws/events` act as the tile's frame principal. Sibling tile
-origins are *same-site*, so the cookie alone is honoured only for requests
-from the origin itself (a sibling may frame or open the tile's pages, never
-fetch, post to or open a socket on its API). The frame stays sandboxed but
-gains `allow-same-origin` — the separate origin is now the isolation
-boundary — so each tile gets **its own** `localStorage`/IndexedDB (none of
-it shared with other tiles or the shell), and browsers can give each tile
-origin its own process. Opening a tile's page on the workspace origin (a
-direct tab, an old link) redirects to its origin through the same exchange;
-a navigation on a tile origin to anything that isn't that tile's — `/login`,
-`/docs/`, another tile's page — goes to the workspace origin (so links a
-tile builds from `location.origin`, which is now its own origin, still
-land), and a tile page whose cookie expired refreshes it once through the
-workspace.
-Chrome stays on the workspace origin with the session cookie. Dev: run the
-shell at `http://xbin.localhost:PORT` with `--external-url
-http://xbin.localhost:PORT --tiles-domain xbin.localhost` (browsers resolve
-`*.localhost` to loopback and treat it as secure) — plain `localhost` has no
-parent domain, so its subdomains are other sites and the cookie would be
-third-party.
+frames the tile's workspace URL; the workspace answers the navigation with a
+redirect to `https://t-<id>…/<same path>?xbin_ticket=<ticket>` — a one-time,
+two-minute ticket **bound to the browser session** — and the tile origin
+redeems it (its tile must be that origin's, the session still live, the user
+still able to read the tile), sets the tile cookie `__Host-xbin_tile`
+(`HttpOnly; Secure; SameSite=Strict`, host-only, `Path=/`) and redirects to
+the same URL without the ticket. The cookie lives exactly as long as that
+browser session: sign-out, *sign out everywhere*, a password change or the
+session expiring end it on the next request, and it never outlasts the
+session's own lifetime (it slides 12 h while in use). A view-as session's
+tile stays read-only on its origin. On that origin `/c/` is authorized per
+request for the cookie's user (another tile's files load when the user can
+read that tile — as sandboxed non-documents, never as a page running on
+this origin), and `/api` and `/ws/events` act as the tile's frame principal;
+the tile cookie is stripped before a request reaches a backend, and nothing
+on the origin's `/api` may set cookies. Sibling tile origins are
+*same-site*, so the cookie alone is honoured only for requests from the
+origin itself (a sibling may navigate to the tile's pages, never fetch, post
+to or open a socket on its API), and the tile's pages carry `frame-ancestors
+'self' <workspace>`: only the shell (and the tile itself) may frame them.
+
+Who starts a navigation to a tile page on the workspace decides how it
+continues: the shell, a chrome page or the user (typed, a bookmark) get the
+redirect; a link from another site (chat, mail) or a top-level open from
+another tile gets a one-line same-origin page that continues there (it
+can't be framed) — and no tile document is ever served on the workspace
+origin to a browser. Because tile origins are same-site with the workspace,
+the workspace **ignores its session cookie on requests a tile origin
+starts** — any same-site request except a top-level navigation, a request
+whose `Origin` is on the tiles domain, one whose `Referer` is and isn't a
+navigation — just as `SameSite=Lax` kept it from legacy's cross-site tile
+frames; so one tile can't frame another tile, the shell or `/logout`
+authenticated. (One exception: a tile moving its own frame to one of its
+nested components' pages — which live on their own origins — is recognised
+by its `Referer`.) Chrome documents are framed only by the workspace itself
+(`frame-ancestors 'self'`). The session cookie becomes `__Host-xbin_session`
+in origins mode (browsers refuse that name from a tile origin's
+`Domain=`-scoped `Set-Cookie`), so **switching to origins mode signs every
+browser out once**; serve the workspace and the tiles domain over HTTPS —
+on plain HTTP (other than `*.localhost`) neither prefix is available.
+
+The frame stays sandboxed but gains `allow-same-origin` — the separate
+origin is now the isolation boundary — so each tile gets **its own**
+`localStorage`/IndexedDB (none of it shared with other tiles or the shell),
+and browsers can give each tile origin its own process. A navigation on a
+tile origin to anything that isn't that tile's — `/login`, `/docs/`,
+another tile's page — goes to the workspace origin (so links a tile builds
+from `location.origin`, which is now its own origin, still land); a
+top-level tile page whose cookie expired refreshes it once through the
+workspace, a framed one asks for a reload from the workspace. Chrome stays
+on the workspace origin with the session cookie. Dev: run the shell at
+`http://xbin.localhost:PORT` with `--external-url http://xbin.localhost:PORT
+--tiles-domain xbin.localhost` (browsers resolve `*.localhost` to loopback
+and treat it as secure) — plain `localhost` has no parent domain, so its
+subdomains are other sites and the cookie would be third-party.
+
+**Every mode** serves a sandboxed tile's non-document files (anything but
+`.html`/`.htm`, in any letter case) with `Content-Security-Policy: sandbox`
+— inert as a subresource, scriptless if opened directly, so an SVG, an
+`.xhtml` page or an extensionless HTML file can't run tile-written script as
+the workspace origin (PDFs excepted: browsers won't render them sandboxed).
+And no mode follows a tile's symlink to xbind's own files: in `legacy` a
+symlink may still point at another tile, but one resolving outside the
+workspace or into `.xbin/`, `data/` or `homes/` answers 404 (checked on the
+very file served, so a symlink swapped in mid-request can't win); a FIFO or
+device answers 404 without blocking.
 
 **Both strict modes** also re-check a tile's own frame token against its
-user's live access, open files beneath their tile (a symlink leaving the
-tile answers 404), and serve a sandboxed tile's non-HTML files with
-`Content-Security-Policy: sandbox` (an SVG opened directly can't run script
-beside the session cookie; PDFs excepted).
+user's live access, and open files beneath their tile only — a symlink
+leaving the tile answers 404, and the tile's directory is itself reached
+without any symlink (a nested component swapped for a link answers 404
+before a rescan notices).
 
 **Rollout.** This release ships both mechanisms, the detection (`GET
 /api/xbin/tile-assets`, `bx doctor`), the codemod (`bx fix assets <tile>`)

@@ -245,6 +245,13 @@ signals and the exit code; everything else is `boot.Run(ctx, cfg)`.
   grant their way past. `expose` (roles other tiles may be granted) and
   `exposes` (ports published through ingress) are different keys on
   purpose; both stay.
+- `internal/assetscan` `TestShippedTilesPassStrictGating`: every tile xbin
+  ships — the scaffold's, builtin tiles and templates, the examples — loads
+  under strict tile asset gating (docs/auth.md §Tile asset gating): no
+  absolute `/c/` reference a strict mode refuses, no `inject: false`, no
+  symlink leaving the tile. Reference a tile's own files relatively; `bx fix
+  assets <tile> --write` rewrites what the guard names. Chrome (root, shell,
+  `chrome: true`) is not gated and not scanned.
 - A tile's `tile.json` `version` bumps whenever its files change, with a
   changelog line — that is how `bx builtin updates` offers the update.
   `internal/builtins` `TestTileVersions` enforces it: `hack/tile-versions.txt`

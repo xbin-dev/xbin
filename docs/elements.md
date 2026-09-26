@@ -268,7 +268,16 @@ and one habit works in all of them — **relative URLs**:
   the tile's origin, not the workspace's: a link built from it to a
   workspace page (`/login?invite=…`) or another tile is redirected to the
   workspace, but a link you hand to someone else is best built from a
-  workspace-relative path.
+  workspace-relative path. Your pages can be framed only by the workspace
+  and by your own tile (`frame-ancestors`); your backend never sees the tile
+  cookie and can't set cookies there (`Set-Cookie` is dropped). A
+  sub-directory holding its own `index.html` is a component of its own and
+  so gets its own origin: navigating your frame to it (a relative link)
+  still works.
+- **In every mode**, a file that isn't `.html`/`.htm` (any case) is served
+  with `Content-Security-Policy: sandbox`: as a subresource nothing changes,
+  but opened directly an SVG's or an `.xhtml` file's scripts don't run. Ship
+  an interactive page as `.html`.
 
 `legacy` (today's default) still loads absolute self-references
 credential-less; the next release removes that path
