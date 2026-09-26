@@ -72,11 +72,16 @@ export function createRuntime(opts = {}) {
   const send = (m) => {
     try { post(m); } catch (e) { if (typeof console !== 'undefined') console.error('[xb-native] post failed', e); }
   };
-  const once = (key) => { if (seen.has(key)) return false; seen.add(key); return true; };
+  const once = (key) => {
+    if (seen.has(key)) return false;
+    if (seen.size >= 10000) seen.clear(); // a tile that invents new invalid values forever
+    seen.add(key);
+    return true;
+  };
   function diag(level, code, message, where = '') {
     if (!once(`d\0${code}\0${message}\0${where}`)) return;
     const d = { op: 'diag', level, code, message, where };
-    diagnostics.push(d);
+    if (diagnostics.length < 1000) diagnostics.push(d);
     if (log) {
       const line = `[xb-native] ${message}${where ? ` (${where})` : ''}`;
       if (level === 'error') console.error(line); else if (level === 'warn') console.warn(line); else console.info(line);
@@ -138,6 +143,7 @@ export function createRuntime(opts = {}) {
     nodes = new Map();
     const walk = (x) => { nodes.set(x.k, x); for (const c of x.c || []) walk(c); };
     walk(root);
+    for (const key of sentAt.keys()) if (!nodes.has(key.slice(0, key.indexOf('\0')))) sentAt.delete(key);
   }
 
   // xbn.event(k, type, payload, n?) — the app reports a user action. A payload
