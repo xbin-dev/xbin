@@ -1,0 +1,79 @@
+{
+  "format": "xbin-push-v1",
+  "description": "X25519 + HKDF-SHA256(salt = epk || recipientPublic, info = \"xbin-push-v1\") + AES-256-GCM, no AAD. All binary values base64url without padding; plaintext is the exact UTF-8 JSON that was sealed. See native/spec/push.md.",
+  "vectors": [
+    {
+      "name": "agent permission",
+      "recipientPrivate": "stdOaXhho_8u05jqrep560YSymHEO0-Oy6lH7chDU_8",
+      "recipientPublic": "RNM2Tt9XSgc_A4v9A7qfHiyNGRBI3iWC_xBH1JhdQhw",
+      "ephemeralPrivate": "w7j_iw4iCJnTjAi8vLW60zI0gSyz8O94Zlqm9VjJnBo",
+      "ephemeralPublic": "1T4EYrpZNzpCh7VJPaqMwQfkz8YUjfrzO7O8sy8diWM",
+      "nonce": "xL6rzP00xfaIlR-j",
+      "sharedSecret": "ocVmGjxWj88G00RQp_fcnDBtrfJWM00K-8eCgw-ZMHM",
+      "key": "4JMWEYmqyIiixTpW94-4wLZmIZZ-TlcyWMnlIYhGxrk",
+      "plaintext": "{\"v\":1,\"ws\":\"Zm9vYmFyYmF6cXV4\",\"kind\":\"agent.permission\",\"title\":\"Permission needed — calendar\",\"body\":\"Bash: go test ./...\",\"link\":\"agent/s-1a2b\",\"collapseId\":\"agent:s-1a2b:perm:p3\"}",
+      "envelope": {
+        "v": 1,
+        "epk": "1T4EYrpZNzpCh7VJPaqMwQfkz8YUjfrzO7O8sy8diWM",
+        "n": "xL6rzP00xfaIlR-j",
+        "ct": "P6kjUehyZrdUHRtuXCw6JdkxGaatjIOL4s3wObxSHMTVH7w212_9vpnV8dWpVqZjuo-OvM_kg-YbgSmBIDeQVx-nmXnCIfzevdxn2rjwBHFgo5RPXfXXQ_AbvB1a20XOZMGf3bOj6kPiTzx3T48pJBp50jLnBhUnZwZtigNlwWVeAajpnXwr1DIbGmI3CiLHFBnVb2P2uf1mR4ZK218_m6AvxVb0mJMatNdCIxTRks6m3ZAbf_2PCXiDlS16ZxX4TOCCaUkXQqwY"
+      }
+    },
+    {
+      "name": "tile notification, unicode",
+      "recipientPrivate": "jmWVd4FczvioXxXW7z9XmtKT2NomGtiG3XHB7B87ens",
+      "recipientPublic": "a0m8BjZ2I5-eCz8Ctemg-7wksGhDvMqUKDEjFYvhNAE",
+      "ephemeralPrivate": "CIhEGKDR6fBtpCdlVxGccMigVoY7CYfzfSfCVTBKqUY",
+      "ephemeralPublic": "K460Cl1JkFmKkKJN44xCQ2HLOC2bLbItm8OVdixGZi4",
+      "nonce": "gG82zL6zX21MCQTN",
+      "sharedSecret": "6mlk5Df-CMyjFrwOF--ZrSpO381-H3lH6YYgXKEB_jE",
+      "key": "tsqpx1rzyTN-NbJA4y0lQGodyKa-WGqysfVXQ5YBZKs",
+      "plaintext": "{\"v\":1,\"ws\":\"Zm9vYmFyYmF6cXV4\",\"kind\":\"tile.alert\",\"title\":\"Zürich 🚆 delay\",\"body\":\"Your train is 5 min late — 次の電車 \u003cb\u003e\u0026\u003c/b\u003e\\nplatform 7\",\"link\":\"c/apps/trains/#t=42\",\"collapseId\":\"\"}",
+      "envelope": {
+        "v": 1,
+        "epk": "K460Cl1JkFmKkKJN44xCQ2HLOC2bLbItm8OVdixGZi4",
+        "n": "gG82zL6zX21MCQTN",
+        "ct": "rWMAcD6sULk6HB9ALogZ1OlHIMFoM56Y5DadnB43VdkXDl2uWmg_CtFzjhWSj1fZlHiFZxD2b3FB4WpQto25DfotqvgjpowuuxGRYsWt74L1YuqGlsq-TwCCN9EIIr2wyPnqJMaCh-ksa6KQgpczNas7QLs7l2m1Cy1sZISb6PBLcsZegQMEcFAv5bPyHyBb9mbXrI0Mt8fs4TPsNlqC-YLzpPBLVurLFh22UCCD9zh4wkIjRQovhlU2BCJo7VJfAVGFJmdaaEz9bx_Y1g1d3ac0hVnJ"
+      }
+    },
+    {
+      "name": "test, empty link",
+      "recipientPrivate": "DcxpVIn6k0X4o7Iu08o0oM23z5YkcUjgK2QYYnSmRUE",
+      "recipientPublic": "RxrOmhKQRm30EfNZ3D8JSKw885lHvlnixQZZwyrSpRk",
+      "ephemeralPrivate": "wCGa3ulaVVA77PTl45C6MmM9QJ6dAL59KeViWOYmTIo",
+      "ephemeralPublic": "e7AcmADaPOfZ-13BO5Vjil0huwDUMpbyMDWZdNPojHQ",
+      "nonce": "6n3G3OoW1McDqWJ1",
+      "sharedSecret": "gTxvhnqGvSYTu7lMosYUciqF7i6o20QMvbnO_U1WkWY",
+      "key": "-69hqNxgFTqRC_w5baoQCXmyvoAMssILsQy0tQzGTDM",
+      "plaintext": "{\"v\":1,\"ws\":\"d3M\",\"kind\":\"test\",\"title\":\"xbin\",\"body\":\"Test notification\",\"link\":\"\",\"collapseId\":\"\"}",
+      "envelope": {
+        "v": 1,
+        "epk": "e7AcmADaPOfZ-13BO5Vjil0huwDUMpbyMDWZdNPojHQ",
+        "n": "6n3G3OoW1McDqWJ1",
+        "ct": "vTcl350D9DE-_VdNrqEa1AJ5zYuv_m-XsG7HgAGpvGhkgSU80g-IFlMu0WYyzh7p6BGcNrzaXn0qs7GK2hgrSOELIX_KUdhjSrnUmCqU5S42i9NAKJQWqPTwdmqFSaC2ihSeMfJVCzw-bzhMhhQuB1WSABk"
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "tampered ciphertext",
+      "recipientPrivate": "stdOaXhho_8u05jqrep560YSymHEO0-Oy6lH7chDU_8",
+      "envelope": {
+        "v": 1,
+        "epk": "1T4EYrpZNzpCh7VJPaqMwQfkz8YUjfrzO7O8sy8diWM",
+        "n": "xL6rzP00xfaIlR-j",
+        "ct": "PqkjUehyZrdUHRtuXCw6JdkxGaatjIOL4s3wObxSHMTVH7w212_9vpnV8dWpVqZjuo-OvM_kg-YbgSmBIDeQVx-nmXnCIfzevdxn2rjwBHFgo5RPXfXXQ_AbvB1a20XOZMGf3bOj6kPiTzx3T48pJBp50jLnBhUnZwZtigNlwWVeAajpnXwr1DIbGmI3CiLHFBnVb2P2uf1mR4ZK218_m6AvxVb0mJMatNdCIxTRks6m3ZAbf_2PCXiDlS16ZxX4TOCCaUkXQqwY"
+      }
+    },
+    {
+      "name": "sealed to another key",
+      "recipientPrivate": "qCktfPOv10McVXsLcTdVcecKAvveyCvd-bN1OXGUc6Y",
+      "envelope": {
+        "v": 1,
+        "epk": "1T4EYrpZNzpCh7VJPaqMwQfkz8YUjfrzO7O8sy8diWM",
+        "n": "xL6rzP00xfaIlR-j",
+        "ct": "P6kjUehyZrdUHRtuXCw6JdkxGaatjIOL4s3wObxSHMTVH7w212_9vpnV8dWpVqZjuo-OvM_kg-YbgSmBIDeQVx-nmXnCIfzevdxn2rjwBHFgo5RPXfXXQ_AbvB1a20XOZMGf3bOj6kPiTzx3T48pJBp50jLnBhUnZwZtigNlwWVeAajpnXwr1DIbGmI3CiLHFBnVb2P2uf1mR4ZK218_m6AvxVb0mJMatNdCIxTRks6m3ZAbf_2PCXiDlS16ZxX4TOCCaUkXQqwY"
+      }
+    }
+  ]
+}
