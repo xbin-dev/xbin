@@ -63,7 +63,9 @@ export function makeStore({ fetch: f = globalThis.fetch, storage = globalThis.lo
 // first spawning tab, if any: an "open" event can reach this browser before
 // the socket that spawned it gets its session frame, and a fresh tab beside
 // a spawning one would double it (_gotSession dedupes the rare
-// mis-absorption when two browsers spawn at once).
+// mis-absorption when two browsers spawn at once). A spawning tab's one-shot
+// `run` command (a sign-in) rides along: the listing can land before the
+// terminal's session frame, which is when bx-terminal types it.
 export function tabsFrom(server, local) {
   const byId = new Map(local.filter((t) => t.id).map((t) => [t.id, t]));
   // A PAST-session tab (history: a persisted transcript, read-only) has no
@@ -89,6 +91,7 @@ export function tabsFrom(server, local) {
       vm: s.vm ?? !!was?.vm,
       name: s.name || '', scopes: s.scopes ?? was?.scopes ?? null, label: s.label || '',
       baseOutdated: !!was?.baseOutdated,
+      ...(was?.run ? { run: was.run } : {}),
     });
   }
   // An AGENT tab whose session the server no longer lists is kept, marked

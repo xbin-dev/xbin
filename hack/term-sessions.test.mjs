@@ -121,6 +121,16 @@ test('tabsFrom: an ended agent tab is kept (marked), a vanished shell tab is dro
   assert.deepEqual(again.map((t) => [t.key, !!t.ended]), [['ag2', false], ['ag', true]]);
 });
 
+test('tabsFrom: a spawning tab keeps its one-shot run command when a listing absorbs it', () => {
+  // the "open" event's listing can land before the terminal's session frame
+  // — when bx-terminal types the command (the agent tab's one-click sign-in)
+  const local = [{ key: 'k', id: null, kind: 'shell', gpu: 'none', run: 'claude /login' }];
+  const tabs = tabsFrom([{ id: 's1', kind: 'shell' }], local);
+  assert.deepEqual(tabs.map((t) => [t.key, t.id, t.run]), [['k', 's1', 'claude /login']]);
+  assert.equal(tabsFrom([{ id: 's1', kind: 'shell' }], tabs)[0].run, 'claude /login', 'and on the next listing');
+  assert.equal('run' in tabsFrom([{ id: 's2', kind: 'shell' }], [])[0], false, 'a tab first seen in a listing has none');
+});
+
 test('activeIndex: by identity, falling back to a clamped index', () => {
   const tabs = [{ key: 'a' }, { key: 'b' }, { key: 'c' }];
   assert.equal(activeIndex(tabs, 'c', 0), 2, 'found by key');
