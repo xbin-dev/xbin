@@ -122,7 +122,7 @@ function pickers(f) {
     ${layerButtons(f)}`;
 }
 
-// The VM toggle (plans/vm-sandbox.md): the session restarts as a Firecracker
+// The VM toggle (D89): the session restarts as a Firecracker
 // microVM — root in its own kernel, the same files and network scope. Shown
 // disabled with the reason when this host or the workspace policy can't run
 // one (GET /ws/term/env's vm block, loaded with the tile state).

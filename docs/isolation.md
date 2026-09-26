@@ -404,7 +404,7 @@ doesn't hear about them; use polling there.
 **Host requirements:** KVM (`/dev/kvm` usable by the xbind user — the
 installer adds it to the `kvm` group; a cloud VM needs nested
 virtualization) and the release bundle's `firecracker`, `vmlinux`,
-`xbin-vmagent` and `mkfs.erofs`. Design: `plans/vm-sandbox.md`.
+`xbin-vmagent` and `mkfs.erofs`. Decision: D89.
 
 ## Resource limits (blast-radius containment)
 

@@ -10,7 +10,7 @@
  *   session  — existing session id to reattach (set automatically after
  *              connect; survives element re-creation if you persist it)
  *   vm       — "1": open the session in a VM sandbox (a Firecracker microVM,
- *              root in its own kernel; plans/vm-sandbox.md). Changing it
+ *              root in its own kernel; D89). Changing it
  *              restarts the session, like net/gpu/api.
  *
  * Events: 'bx-session' (detail: {id, net, scopes:[{id,label,desc}], label,

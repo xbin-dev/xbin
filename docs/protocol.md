@@ -184,7 +184,7 @@ GET    /runtime                    admin. full runtime visibility →
 GET    /gpus                       admin. host NVIDIA GPUs for gpu:* grants and
                                    the terminal picker → {gpus:[{index,uuid,
                                    name,node}]}
-GET    /vm                         authenticated. VM sandboxes (plans/vm-sandbox.md)
+GET    /vm                         authenticated. VM sandboxes (D89)
                                    → {status:{available,reason}, policy:
                                    {terminals,backends,memMiB,vcpus,maxVMs,
                                    budgetMiB,diskGiB}, used?:{vms,memMiB}}
@@ -1382,9 +1382,10 @@ A new session also takes `?gpu=<none|all|index|uuid>` (default `none`) to bind
 host NVIDIA GPU(s) into the terminal's dev sandbox (owner plane; no grant
 needed). Enumerate host GPUs at `GET /api/xbin/gpus` (admin).
 
-`?vm=1` opens the session in a **VM sandbox** (plans/vm-sandbox.md): a
-Firecracker microVM with its own kernel, where the shell is root, running
-inside the same namespace sandbox as the jail. The same mounts appear at the
+`?vm=1` opens the session in a **VM sandbox** (D89,
+[isolation.md](isolation.md) §VM sandboxes): a Firecracker microVM with its
+own kernel, where the shell is root, running inside the same namespace
+sandbox as the jail. The same mounts appear at the
 same paths (served from outside the VM), the same network scope applies (the relay
 enforces it outside the VM), and `$XBIN_URL`/`XBIN_TOKEN` work unchanged.
 It needs `--isolate`, KVM, and an admin who turned VM terminals on (`PUT
