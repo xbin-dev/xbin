@@ -4,7 +4,7 @@
 // polled. No lit, no DOM: shown() is what a view draws (chat-view.js adds the
 // web's template(); a native view draws the same blocks).
 import { selfApi as api, jbody } from '/vendor/bx-kit.js';
-import { fold, activity, busy } from './fold.js';
+import { fold, activity, busy, FoldCache } from './fold.js';
 import { Live } from './stream.js';
 
 const cid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -33,6 +33,7 @@ export class Session {
     this.drafts = new Map(); // run id → the model call in flight
     this.runs = new Map();   // run id → summary (the run list, plus what events told us)
     this.open = new Map();   // ui id → explicitly opened/closed
+    this.folds = new Map();  // run id → its FoldCache (fold.js): blocks rebuilt only when they change
     this.loading = new Set();
     this.conn = 'live';
     this.live = new Live(base, {
@@ -232,13 +233,27 @@ export class Session {
 
   current() { return this.sel == null ? null : this.merged(this.sel); }
 
+  // blocks is a held run's transcript as blocks (fold.js), cached per block:
+  // what did not change since the last paint is the same objects. The few
+  // runs folded lately (the open one, a subagent's parents) keep a cache each.
+  blocks(id, v = this.merged(id)) {
+    if (!v) return null;
+    let c = this.folds.get(id);
+    if (!c) {
+      c = new FoldCache();
+      this.folds.set(id, c);
+      if (this.folds.size > 8) this.folds.delete(this.folds.keys().next().value);
+    }
+    return fold(v, (x) => this.merged(x), 0, c);
+  }
+
   // shown is what the chat of the selected run shows: its run, the breadcrumb
   // chain (a subagent's parents), the blocks (fold.js), the activity line, the
   // connection state, and whether compaction hid earlier turns.
   shown() {
     const v = this.current();
     if (!v) return { blocks: [], run: {} };
-    const blocks = fold(v, (id) => this.merged(id));
+    const blocks = this.blocks(this.sel, v);
     return {
       run: v.run, chain: v.chain, blocks, activity: activity(v, blocks), conn: this.conn,
       // a page leaves compacted messages out and counts them instead

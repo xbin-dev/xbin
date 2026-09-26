@@ -9,7 +9,6 @@
 import { html, repeat, nothing } from '/vendor/xb-native.js';
 import { ui, ctx, fail, guard, push, secs, clip, base, cardState, FAMILY_ICON, thumb, raw, IMAGE } from './ui.js';
 import { argsShown } from '../model/tool-heads.js';
-import { fold } from '../model/fold.js';
 import { MAX_ATTACH, fmtBytes } from '../model/actions.js';
 
 const CUT = 1200; // a long result is cut here; the card's ↗ opens all of it
@@ -186,8 +185,7 @@ const loadingScreen = () => html`<screen title="loading…" style="scroll"><prog
 // A parent under a subagent: its transcript as last seen (back re-reads it).
 function parentScreen(c) {
   const s = ctx.app.session;
-  const pv = s.merged(c.id);
-  const blocks = pv ? fold(pv, (id) => s.merged(id)) : null;
+  const blocks = s.blocks(c.id);
   return html`<screen title=${c.title || '#' + c.id} style="scroll">
     <transcript>${blocks ? repeat(blocks, (b) => b.id, (b) => blockTpl(b)) : html`<progress/>`}</transcript>
   </screen>`;

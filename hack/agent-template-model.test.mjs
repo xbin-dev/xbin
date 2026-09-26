@@ -257,6 +257,11 @@ test('the native view\'s options: drafts as deltas, the open conversation in pag
   await app.session.loadOlder(); // nothing older: no request
   assert.equal(called('GET', '/runs/5/view').length, 3);
 
+  // the open conversation folds through a per-block cache: nothing changed, nothing new
+  const held = app.session.shown().blocks;
+  assert.equal(app.session.shown().blocks, held, 'the same blocks, the same list');
+  assert.ok(app.session.folds.get(5).stats.reused > 0);
+
   // deltas append; one that does not fit what is held reconnects the stream
   await until(() => streams.size === before + 1);
   push({ type: 'thinking', run: 5, root: 5, ts: 1000, data: { text: 'hm' } });
@@ -265,6 +270,7 @@ test('the native view\'s options: drafts as deltas, the open conversation in pag
   push({ type: 'text.delta', run: 5, root: 5, ts: 1003, data: { delta: 'llo', at: 2 } });
   await until(() => app.session.shown().blocks.some((b) => b.k === 'draft' && b.text === 'Hello'));
   const think = app.session.shown().blocks.find((b) => b.k === 'think');
+  assert.ok(held.every((b) => app.session.shown().blocks.includes(b)), 'a streamed draft leaves every other block the same object');
   assert.equal(think.text, 'hmm…');
   assert.equal(think.live, false, 'text after thinking ends it');
   const streamsAsked = calls.filter((c) => c.url.includes('/stream?')).length;
