@@ -62,6 +62,10 @@ the same change, additive APIs, D78 confinement).
   The wire contract is `native/spec/tree.md`; the vocabulary
   `native/spec/vocab.json` (from `web/xb/vocab.js`). `make js-test` runs
   `hack/xb-native*.test.mjs`, including the plans/native.md §18 trees.
+  For a real tile's tests, `data.setup` swaps in the tile's own fake backend
+  (a module), steps may name nodes by what they are (`{tap: {t: 'button',
+  p: {label: 'Retry'}, in: {t: 'composer'}}}`) and `{snapshot: name}` keeps
+  the tree mid-run — see `hack/agent-template-native.test.mjs`.
 - Screenshots of the reference renderer (`web/xb/render.js`, `<xb-view>`):
   `PLAYWRIGHT_DIR=~/lcad-wasm node native/tools/shots.mjs --out <dir>` draws
   every `native/fixtures/*/expected.json` (or, with none, the design's §18
