@@ -15,10 +15,12 @@ struct ScreenView: View {
         if nav.inNavigation {
             ScreenContent(node: node)
         } else {
+            // Its drawers go over the whole stack, bar included.
             NavigationStack {
                 ScreenContent(node: node)
             }
-            .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: false, inSheet: nav.inSheet))
+            .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: false, inSheet: nav.inSheet, drawersHosted: true))
+            .modifier(DrawersModifier(drawers: ScreenLayout(node).drawers))
         }
     }
 }
@@ -45,17 +47,27 @@ private struct ScreenContent: View {
                         .environment(\.xbinPlacement, .dock)
                 }
             }
-            .modifier(SheetsModifier(sheets: layout.sheets))
+            // Drawers the container doesn't draw (a split's column) go over
+            // the content.
+            .modifier(SheetsModifier(sheets: layout.sheets, drawers: nav.drawersHosted ? [] : layout.drawers))
             .onAppear { if node.listens(to: "appear") { cx?.emit(node, "appear") } }
     }
 }
 
-/// The screen's body by style.
+/// The screen's body by style. In a bar tab its scrolling content keeps
+/// clear of the floating tab bar: a little more room at its end, so the
+/// last row scrolls fully out from under the bar's glass.
 private struct ScreenBody: View {
     let node: XbinNode
     let layout: ScreenLayout
+    @Environment(\.xbinInTabBar) private var inTabBar
 
     var body: some View {
+        styled.safeAreaPadding(.bottom, inTabBar ? 16 : 0)
+    }
+
+    @ViewBuilder
+    private var styled: some View {
         switch layout.style {
         case .list:
             List { ForEach(layout.body) { NodeView(node: $0) } }
@@ -86,15 +98,29 @@ private struct ScreenBody: View {
     }
 }
 
-/// A screen's `toolbar` items at the trailing end of the bar.
+/// A screen's `toolbar` items at the trailing end of the bar, in two
+/// groups (``ToolbarGroups``): what it shows — a picker's current choice,
+/// badges, compact — then, apart, what it does (buttons, menus). One long
+/// group of all of them crowded the title out (a chat's model picker,
+/// tool count and new-chat button).
 struct ScreenToolbar: ToolbarContent {
     let toolbar: XbinNode?
 
     var body: some ToolbarContent {
+        let groups = ToolbarGroups(toolbar)
+        if !groups.status.isEmpty {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                ForEach(groups.status) { NodeView(node: $0).fixedSize() }
+                    .environment(\.xbinPlacement, .toolbar)
+            }
+            if !groups.actions.isEmpty {
+                ToolbarSpacer(.fixed, placement: .topBarTrailing)
+            }
+        }
         ToolbarItemGroup(placement: .topBarTrailing) {
             // At their ideal size: a bar item is otherwise measured short
             // and its label truncated ("d…" for a `draft` badge).
-            ForEach(toolbar?.children ?? []) { NodeView(node: $0).fixedSize() }
+            ForEach(groups.actions) { NodeView(node: $0).fixedSize() }
                 .environment(\.xbinPlacement, .toolbar)
         }
     }

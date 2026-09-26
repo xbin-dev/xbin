@@ -37,6 +37,7 @@ public struct XbinTreeView: View {
     public var body: some View {
         RootView(model: context.model)
             .environment(\.xbin, context)
+            .environment(\.xbinImages, context.images)
             .modifier(ConfirmHostModifier())
             .tint(XbinColor.tint)
     }
@@ -140,6 +141,7 @@ private struct StructureNode: View {
 
 private struct ContentNode: View {
     let node: XbinNode
+    @Environment(\.xbinPlacement) private var placement
 
     var body: some View {
         switch node.type {
@@ -147,7 +149,8 @@ private struct ContentNode: View {
         case "markdown": MarkdownNodeView(node: node)
         case "image": ImageNodeView(node: node)
         case "icon": IconNodeView(node: node)
-        case "badge": Pill(text: node.props.string("text") ?? "", tone: node.props.tone(), pulse: node.props.bool("pulse"))
+        case "badge": Pill(text: node.props.string("text") ?? "", tone: node.props.tone(), pulse: node.props.bool("pulse"),
+                           small: placement == .toolbar)
         case "notice": NoticeView(node: node)
         case "progress": ProgressNodeView(node: node)
         case "chart": XbinChart(model: ChartModel(props: node.props))

@@ -1,0 +1,10 @@
+{"v":1,"root":{"k":"r","t":"screen","p":{"title":"Order #10432","subtitle":"Support · Chloé","style":"scroll"},"c":[
+  {"k":"r.0","t":"transcript","p":{"follow":true},"c":[
+    {"k":"r.0.0:m1","t":"message","p":{"role":"user","sender":"Ana","time":"11:12","text":"The parcel arrived crushed and the mug inside is broken. Photos attached.","files":[{"name":"box-front.jpg","mime":"image/jpeg","src":"api/apps/support/files/f-81/thumb"},{"name":"mug.jpg","mime":"image/jpeg","src":"api/apps/support/files/f-82/thumb"}]}},
+    {"k":"r.0.0:m2","t":"message","p":{"role":"assistant","sender":"Chloé","time":"11:20","text":"I'm sorry about that! Could you also send a photo of the shipping label?"}},
+    {"k":"r.0.0:m3","t":"message","p":{"role":"user","sender":"Ana","time":"11:24","text":"","files":[{"name":"label.png","mime":"image/png","src":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAJAAAABgCAIAAAB9tmz2AAABHklEQVR42u3aQQrCMBBA0R7Ctesc0UN4Ig/iVYSuFAVpJyEbJTjxDR8x0ErtWzSIy/VyVqIWtwCYgAkYMAETsMnBjmb4AANmgBlgwAwwAwyYAWaAAQMGzAADtq+Usq43Detxw4EBEzABA6a8YKfpBhgwYMA8w2w6BAwYMGCyS0y+3wMGDJhnmIABAwZMwID5tT7DXhQYMGAZwQRMwIAJmKbeJQIDBgyYZ5hnGDBgAgYMGDABAwYMmHKBHZ6zff9avl/DMpxYHxyODKfUb+oDwiWFI/tXUi87H9i8gOay/y2AAQMGDBgwYMCAAQMGDBgwYMCAAQMGDBgwYMCAAQMG7D/B5D8dAgZMwPRtMDN4PgLTrwUMmIAJGDABE7D03QGwYZpspyGUqQAAAABJRU5ErkJggg=="}]}},
+    {"k":"r.0.0:m4","t":"message","p":{"role":"assistant","sender":"Chloé","time":"11:31","text":"Thanks. Here is your return label and the refund summary — the refund goes out once the carrier scans the parcel.","files":[{"name":"return-label-10432.pdf","mime":"application/pdf","src":"api/apps/support/files/f-90"},{"name":"refund-10432.csv","mime":"text/csv","src":"api/apps/support/files/f-91"}]}},
+    {"k":"r.0.0:m5","t":"message","p":{"role":"user","sender":"Ana","time":"11:40","text":"Printed and dropped off. Receipt from the post office:","files":[{"name":"receipt.heic","mime":"image/heic"}]}}
+  ]},
+  {"k":"r.1","t":"composer","p":{"value":"Thank you, ","placeholder":"Reply to support"},"e":["input","send"]}
+]}}

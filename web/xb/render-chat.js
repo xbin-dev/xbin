@@ -11,7 +11,7 @@
  * tile only hears the events it listens to.
  */
 import { css, live } from '/vendor/lit-all.min.js';
-import { html, nothing, own, P, cls, tone, icon, spinner, str } from '/vendor/xb/render-base.js';
+import { html, nothing, own, P, cls, tone, icon, spinner, str, composing } from '/vendor/xb/render-base.js';
 import { mdBlocks, tokensOf } from '/vendor/xb/render-markdown.js';
 import { folded } from '/vendor/xb/render-structure.js';
 
@@ -37,6 +37,8 @@ function transcript(n, cx) {
   </xb-transcript>`;
 }
 
+const thumbFailed = (e) => e.currentTarget.setAttribute('data-failed', '');
+
 function message(n, cx) {
   const p = P(n);
   const role = ['user', 'assistant', 'system'].includes(p.role) ? p.role : 'assistant';
@@ -45,21 +47,31 @@ function message(n, cx) {
   const body = p.markdown
     ? html`<div class=${cls('md', p.streaming && 'streaming')}>${mdBlocks(tokensOf(p, 'text'), link(n, cx))}</div>`
     : html`<div class=${cls('m-text', p.streaming && 'streaming')}>${str(p.text)}</div>`;
-  // an image with a src is drawn as a thumbnail (loaded by the view, like image)
-  const thumb = (f) => (/^image\//.test(str(f?.mime)) && f?.src ? cx.v.image(f.src) : '');
+  // an image with a src is drawn as a thumbnail (loaded by the view, like
+  // image; a placeholder until it is) and opens full screen on tap
+  const isThumb = (f) => /^image\//.test(str(f?.mime)) && !!str(f?.src);
   const files = Array.isArray(p.files) && p.files.length ? html`<div class="m-files">${p.files.map((f) => {
-    const url = thumb(f);
-    return url ? html`<span class="m-thumb"><img src=${url} alt=${str(f?.name)}></span>` : html`<span class="m-file">${
-      icon(/^image\//.test(str(f?.mime)) ? 'photo' : 'paperclip')}<span>${str(f?.name)}</span></span>`;
+    if (!isThumb(f)) {
+      return html`<span class="m-file">${icon(/^image\//.test(str(f?.mime)) ? 'photo' : 'paperclip')}<span>${str(f?.name)}</span></span>`;
+    }
+    const url = cx.v.image(f.src);
+    const open = (e) => { e.stopPropagation(); if (url) cx.v.showImage(url, str(f?.name)); };
+    // one that fails to load keeps the placeholder (as the app's does)
+    return html`<button class="m-thumb" aria-label=${str(f?.name)} @click=${open}>${url
+      ? html`<img src=${url} alt=${str(f?.name)} @error=${thumbFailed}>` : nothing}<span class="m-ph">${icon('photo')}</span></button>`;
   })}</div>` : nothing;
   const meta = p.sender || p.time != null ? html`<div class="m-meta">${p.sender ? html`<span class="m-sender">${p.sender}</span>` : nothing}${
     p.time != null ? html`<span>${fmtTime(p.time)}</span>` : nothing}</div>` : nothing;
-  // its actions are its context menu: a right-click or a long press on the bubble
+  // its actions fold behind a ⋯ under the bubble (as the app's do), and are
+  // its context menu too: a right-click or a long press on the bubble
   const menu = acts.length ? (e) => { e.preventDefault(); cx.v.openMenu(acts[0], e.currentTarget); } : null;
+  const more = acts.length && (acts[0].c || []).length ? html`<button class="m-more" aria-label="Message actions" aria-haspopup="menu"
+    @click=${(e) => { e.stopPropagation(); cx.v.openMenu(acts[0], e.currentTarget); }}>${icon('ellipsis')}</button>` : nothing;
   return html`<xb-message data-k=${n.k} class=${cls('msg', `m-${role}`, p.queued && 'queued', tap && 'tap')}>
     ${meta}
     <div class="m-bubble" @click=${tap} @contextmenu=${menu}>${str(p.text) || !files ? body : nothing}${files}</div>
     ${p.queued ? html`<div class="m-q">${icon('clock')}queued</div>` : nothing}
+    ${more}
     ${acts.map((a) => folded(a))}
   </xb-message>`;
 }
@@ -240,6 +252,7 @@ function composer(n, cx) {
     if (!bound) { u.value = ''; cx.update(); }
   };
   const key = (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } };
+  const ime = composing(n, cx);
   const slash = Array.isArray(p.slash) && /^\/\S*$/.test(v)
     ? p.slash.filter((s) => s && str(s.name).startsWith(v.slice(1))).slice(0, 6) : [];
   const atts = (Array.isArray(p.attachments) ? p.attachments : []).filter((a) => a && typeof a === 'object');
@@ -258,8 +271,8 @@ function composer(n, cx) {
       ${cx.on(n, 'remove') ? html`<button class="cm-ax" aria-label="Remove" @click=${() => cx.emit(n, 'remove', { id: str(a.id) })}>${icon('xmark')}</button>` : nothing}</span>`)}</div>` : nothing}
     <div class="cm-row">
       ${p.upload ? html`<label class="cm-attach" aria-label="Attach">${icon('plus')}<input type="file" accept=${str(p.accept) || nothing} ?disabled=${dis} @change=${pick}></label>` : nothing}
-      <div class="cm-box"><textarea rows="1" placeholder=${str(p.placeholder) || 'Message'} ?disabled=${dis} .value=${live(v)}
-        @input=${(e) => cx.emit(n, 'input', { value: e.target.value })} @keydown=${key}></textarea></div>
+      <div class="cm-box"><textarea rows="1" placeholder=${str(p.placeholder) || 'Message'} ?disabled=${dis} .value=${ime.value(v)}
+        @input=${ime.input} @compositionstart=${ime.start} @compositionend=${ime.end} @keydown=${key}></textarea></div>
       ${p.busy ? html`<button class="cm-send stop" aria-label="Stop" @click=${() => cx.emit(n, 'stop', {})}>${icon('ui-square')}</button>`
         : html`<button class="cm-send" aria-label="Send" ?disabled=${dis || !v.trim()} @click=${send}>${icon('ui-arrow-up')}</button>`}
     </div>
@@ -292,8 +305,14 @@ export const CHAT_CSS = css`
   .m-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
   .m-file { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 10px; background: var(--xb-surface2); font: var(--xb-font-footnote); max-width: 100%; }
   .m-file .ic { width: 16px; height: 16px; color: var(--xb-muted); }
-  .m-thumb { display: block; border-radius: 12px; overflow: hidden; background: var(--xb-surface2); }
-  .m-thumb img { display: block; max-width: 100%; max-height: var(--xb-h-l); object-fit: cover; }
+  .m-thumb { display: block; border-radius: 12px; overflow: hidden; background: var(--xb-surface2); max-width: 100%; }
+  .m-thumb img { display: block; max-width: min(100%, 220px); max-height: 150px; object-fit: cover; }
+  .m-ph { display: flex; align-items: center; justify-content: center; width: 200px; height: 112px; color: var(--xb-muted); }
+  .m-thumb img + .m-ph, .m-thumb img[data-failed] { display: none; }
+  .m-thumb img[data-failed] + .m-ph { display: flex; }
+  .m-more { align-self: flex-start; display: flex; align-items: center; justify-content: center; width: 30px; height: 24px; margin: -2px -4px 0; border-radius: 12px; color: var(--xb-muted); }
+  .m-user > .m-more { align-self: flex-end; }
+  .m-more .ic { width: calc(var(--xb-icon) - 4px); height: calc(var(--xb-icon) - 4px); }
   .m-text.streaming::after { content: ''; display: inline-block; width: 8px; height: 1em; margin-left: 2px; vertical-align: -2px; border-radius: 2px; background: var(--xb-accent); animation: xb-blink 1s steps(2) infinite; }
   xb-message > xb-actions { padding: 2px 0 0; }
   .m-user > xb-actions { justify-content: flex-end; }

@@ -14,8 +14,9 @@
 // windows are offscreen and drawn with layer.render, which skips Liquid
 // Glass, materials and vibrancy: bar items come out white), and compiled
 // into native/ios/project.yml's XbinSnapshotTests (XBIN_SNAPSHOT_HOST), hosted
-// by an empty app, where the windows sit on its UIWindowScene and are drawn
-// with drawHierarchy as the screen shows them (ci-hosted-snapshots.sh).
+// by an empty app, where the windows are made with UIWindow(windowScene:)
+// on its scene and drawn with drawHierarchy as the screen shows them
+// (ci-hosted-snapshots.sh).
 //
 // UIKit only (the Apple CI runs this on a simulator); elsewhere the file is
 // empty.
@@ -142,34 +143,42 @@ enum Snapshot {
     static var loggedMode = false
 
     /// The window to draw in, and whether it is on a window scene: the
-    /// snapshot host app's scene when the tests run there, else offscreen.
+    /// snapshot host app's scene (`UIWindow(windowScene:)`) when the tests
+    /// run there, or any app's scene they run in; else offscreen.
     static func makeWindow(size: CGSize) -> (UIWindow, Bool) {
         let frame = CGRect(origin: .zero, size: size)
-        #if XBIN_SNAPSHOT_HOST
-        if let scene = hostScene() {
+        if let scene = windowScene() {
             let window = UIWindow(windowScene: scene)
             window.frame = frame
             return (window, true)
         }
-        #endif
-        return (UIWindow(frame: frame), false)
+        // The package's own run has no app, so no scene to make a window
+        // on: only the scene-less initializer iOS 26 deprecated is left.
+        let maker: OffscreenWindowMaking.Type = OffscreenWindow.self
+        return (maker.window(frame), false)
     }
 
-    #if XBIN_SNAPSHOT_HOST
-    /// The host app's window scene, once it has connected (the tests may
-    /// start first).
-    static func hostScene() -> UIWindowScene? {
+    /// A connected window scene: the host app's, once it has connected
+    /// (the tests may start first); none without an app.
+    static func windowScene() -> UIWindowScene? {
+        #if XBIN_SNAPSHOT_HOST
         let deadline = Date().addingTimeInterval(15)
         repeat {
-            if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first {
-                return scene
-            }
+            if let scene = connectedScene() { return scene }
             RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         } while Date() < deadline
         print("snapshot: the host app has no window scene; drawing offscreen")
         return nil
+        #else
+        // A hostless test bundle has no UIApplication to ask.
+        guard Bundle.main.bundleURL.pathExtension == "app" else { return nil }
+        return connectedScene()
+        #endif
     }
-    #endif
+
+    static func connectedScene() -> UIWindowScene? {
+        UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+    }
 
     static func rendered<V: View>(_ view: V, size: CGSize, scale: CGFloat) -> Data? {
         let renderer = ImageRenderer(content: view.frame(width: size.width, height: size.height))
@@ -177,5 +186,18 @@ enum Snapshot {
         renderer.proposedSize = ProposedViewSize(size)
         return renderer.uiImage?.pngData()
     }
+}
+/// A window without a scene, for the hostless package run only. Reached
+/// through a protocol so the deprecated initializer is named in one
+/// deprecated place (every scene that exists gets init(windowScene:)).
+@MainActor
+private protocol OffscreenWindowMaking {
+    static func window(_ frame: CGRect) -> UIWindow
+}
+
+@MainActor
+private enum OffscreenWindow: OffscreenWindowMaking {
+    @available(iOS, deprecated: 26.0, message: "only where no window scene exists (tests without an app)")
+    static func window(_ frame: CGRect) -> UIWindow { UIWindow(frame: frame) }
 }
 #endif

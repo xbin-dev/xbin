@@ -1,0 +1,27 @@
+{
+  "about": "row and message actions folded out of the way: a review's threads (rows, each with resolve, mute, copy link, delete + confirm) beside the open thread (messages with quote, copy, edit, delete) in a `split`",
+  "self": "apps/review",
+  "routes": {
+    "GET /api/apps/review/reviews/412": {"json": {
+      "id": 412, "title": "checkout: reuse TLS connections", "me": "Ana",
+      "threads": [
+        {"id": "t1", "where": "api/client.go:88", "first": "Should the idle timeout come from config?", "replies": 3, "unread": true},
+        {"id": "t2", "where": "api/client_test.go:141", "first": "This test sleeps for 2 s; use the fake clock.", "replies": 1},
+        {"id": "t3", "where": "deploy/values.yaml:12", "first": "idle_timeout: 0 disables reuse entirely", "replies": 2},
+        {"id": "t4", "where": "README.md:30", "first": "Typo: \"conection\"", "resolved": true}
+      ]
+    }},
+    "GET /api/apps/review/reviews/412/threads/t1": {"json": {
+      "id": "t1", "where": "api/client.go:88",
+      "comments": [
+        {"id": "c1", "author": "Ben", "time": "10:02", "text": "Should the idle timeout come from config? Hard-coding `90s` here means a redeploy to tune it."},
+        {"id": "c2", "author": "Ana", "time": "10:15", "text": "Good point — it now reads `CHECKOUT_IDLE_TIMEOUT`, defaulting to **90s**."},
+        {"id": "c3", "author": "Ben", "time": "10:21", "text": "Thanks! Can you add it to the chart's `values.yaml` too?"}
+      ]
+    }}
+  },
+  "interactions": [
+    {"select": "row[title=\"api/client.go:88\"]", "type": "tap", "note": "open the first thread"},
+    {"select": "row[title=\"api/client_test.go:141\"] button[label=Resolve]", "type": "tap", "note": "resolve the second from its actions"}
+  ]
+}

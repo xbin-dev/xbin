@@ -1,0 +1,31 @@
+{
+  "about": "message files: image thumbnails from tile-relative sources and a data: image, tap to preview; documents and a source-less image as named chips",
+  "self": "apps/support",
+  "tz": "Europe/Paris",
+  "locale": "en-GB",
+  "routes": {
+    "GET /api/apps/support/tickets/10432": {"json": {
+      "order": 10432, "agent": "Chloé", "me": "Ana",
+      "messages": [
+        {"id": "m1", "from": "Ana", "at": "2026-09-21T09:12:00Z", "text": "The parcel arrived crushed and the mug inside is broken. Photos attached.",
+         "files": [
+           {"name": "box-front.jpg", "mime": "image/jpeg", "src": "api/apps/support/files/f-81/thumb"},
+           {"name": "mug.jpg", "mime": "image/jpeg", "src": "api/apps/support/files/f-82/thumb"}
+         ]},
+        {"id": "m2", "from": "Chloé", "at": "2026-09-21T09:20:00Z", "text": "I'm sorry about that! Could you also send a photo of the shipping label?"},
+        {"id": "m3", "from": "Ana", "at": "2026-09-21T09:24:00Z", "text": "",
+         "files": [{"name": "label.png", "mime": "image/png", "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAJAAAABgCAIAAAB9tmz2AAABHklEQVR42u3aQQrCMBBA0R7Ctesc0UN4Ig/iVYSuFAVpJyEbJTjxDR8x0ErtWzSIy/VyVqIWtwCYgAkYMAETsMnBjmb4AANmgBlgwAwwAwyYAWaAAQMGzAADtq+Usq43Detxw4EBEzABA6a8YKfpBhgwYMA8w2w6BAwYMGCyS0y+3wMGDJhnmIABAwZMwID5tT7DXhQYMGAZwQRMwIAJmKbeJQIDBgyYZ5hnGDBgAgYMGDABAwYMmHKBHZ6zff9avl/DMpxYHxyODKfUb+oDwiWFI/tXUi87H9i8gOay/y2AAQMGDBgwYMCAAQMGDBgwYMCAAQMGDBgwYMCAAQMG7D/B5D8dAgZMwPRtMDN4PgLTrwUMmIAJGDABE7D03QGwYZpspyGUqQAAAABJRU5ErkJggg=="}]},
+        {"id": "m4", "from": "Chloé", "at": "2026-09-21T09:31:00Z", "text": "Thanks. Here is your return label and the refund summary — the refund goes out once the carrier scans the parcel.",
+         "files": [
+           {"name": "return-label-10432.pdf", "mime": "application/pdf", "src": "api/apps/support/files/f-90"},
+           {"name": "refund-10432.csv", "mime": "text/csv", "src": "api/apps/support/files/f-91"}
+         ]},
+        {"id": "m5", "from": "Ana", "at": "2026-09-21T09:40:00Z", "text": "Printed and dropped off. Receipt from the post office:",
+         "files": [{"name": "receipt.heic", "mime": "image/heic"}]}
+      ]
+    }}
+  },
+  "interactions": [
+    {"select": "composer", "type": "input", "payload": {"value": "Thank you, "}}
+  ]
+}

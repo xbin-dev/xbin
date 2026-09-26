@@ -25,6 +25,13 @@ public struct ChatFile: Sendable, Hashable {
     }
 
     public var isImage: Bool { mime.hasPrefix("image/") }
+
+    /// The source to draw a thumbnail from: an image with a `src` (the
+    /// reference renderer's rule); nil draws the file as a chip.
+    public var thumbnailSource: String? {
+        guard isImage, let src, !src.isEmpty else { return nil }
+        return src
+    }
 }
 
 public struct ChatMessage: Sendable, Equatable, Identifiable {

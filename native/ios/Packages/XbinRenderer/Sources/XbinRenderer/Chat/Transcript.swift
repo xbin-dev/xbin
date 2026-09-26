@@ -61,7 +61,10 @@ public struct TranscriptView<Content: View>: View {
 
 /// One chat message: the user's turns as trailing bubbles, the assistant's
 /// full width (markdown when it has blocks), system notes centred; sender,
-/// time, files, a queued marker and optional action buttons.
+/// time, files (image thumbnails load through the environment's
+/// ``XbinImages`` — `data:` ones without it — and open in Quick Look;
+/// other files are chips), a queued marker and an optional actions view
+/// under the bubble (a native tile's message: its ⋯ menu).
 public struct MessageView<Actions: View>: View {
     public let message: ChatMessage
     public var onLink: (@MainActor (URL) -> Void)?
@@ -139,14 +142,15 @@ public struct MessageView<Actions: View>: View {
                     .textSelection(.enabled)
             }
             if !message.files.isEmpty {
+                // Images with a source as thumbnails (tap: Quick Look),
+                // anything else as a chip, in their order.
                 FlowLayout(spacing: 6) {
                     ForEach(Array(message.files.enumerated()), id: \.offset) { _, f in
-                        Label(f.name, systemImage: f.isImage ? XbinIcons.UI.image : XbinIcons.UI.attachment)
-                            .font(.caption)
-                            .lineLimit(1)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(XbinColor.fill, in: Capsule())
+                        if f.thumbnailSource != nil {
+                            FileThumbnail(file: f)
+                        } else {
+                            FileChip(file: f)
+                        }
                     }
                 }
             }

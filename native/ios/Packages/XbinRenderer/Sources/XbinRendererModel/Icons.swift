@@ -61,5 +61,9 @@ public enum XbinIcons {
         public static let terminal = "apple.terminal"
         public static let canvas = "rectangle.dashed"
         public static let unknown = "questionmark.square.dashed"
+        /// A row's or message's folded actions.
+        public static let more = "ellipsis"
+        /// The compact picker's disclosure (a bar picker).
+        public static let pickerChevrons = "chevron.up.chevron.down"
     }
 }

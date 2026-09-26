@@ -161,6 +161,10 @@ the fixtures, `expected.json` and the renderers in one change
 | `chat-tools` | `plan`, `toolcard` in every state with chips and each body (code, text, streaming markdown, notice, image, diff, a subagent's nested `transcript`), `diff` with a patch, a settled and a pending `approval`, a settled `question` and a pending one inside a subagent, a progress line, the composer disabled |
 | `escape-hatches` | `terminal` on the tile's pty and `canvas` (a tile page, and static no-script html) inside a native screen |
 | `sheet-open` | a `fragment` root: a `nav` plus two `sheet`s and a drawer — one open (`edge` bottom, medium and large detents, its own toolbar, a validating field), one closed, and a closed `edge="leading"` drawer |
+| `drawer` | a `sheet edge="leading"` drawer open over a chat (a `fragment` of the chat screen and the drawer): a searchable conversation list by day, badges, the selected row, row `actions` folded behind ⋯ |
+| `folded-actions` | a review's threads beside the open thread (`split`): every row and message carries several actions (a confirmed delete, a native copy), folded behind a ⋯ instead of a line of buttons |
+| `message-files` | `message` `files`: image thumbnails from tile-relative sources and a `data:` image (tap for Quick Look), documents and a source-less image as chips |
+| `ime-field` | a Japanese address form typed with an input method: committed text only, a full-width postal code normalized by the tile (a set back), an address filled from a lookup |
 | `tabs` | segmented `tabs` with icons and badges; only the selected tab is materialized |
 | `tabs-bar` | a tab bar (`tabs style="bar"`) at the root, a `nav` per tab, the last tab restored from `xbin.native.state` |
 | `split` | `split prefer="auto"`: a plain lazy `list` (selected row, load more, a bus-delivered mail) beside the message detail |
