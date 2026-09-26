@@ -34,3 +34,31 @@ func TestWhoamiNativeRuntime(t *testing.T) {
 		}
 	}
 }
+
+// An admin turned native tile UIs off for the workspace: every caller reads
+// native {runtime: 0, disabled: true}, and the app opens tiles as web pages.
+func TestWhoamiNativeRuntimeOff(t *testing.T) {
+	b := testBroker(t)
+	if b.Users == nil {
+		t.Fatal("testBroker has no user store")
+	}
+	if err := b.Users.SetNativeRuntimeDisabled(true); err != nil {
+		t.Fatal(err)
+	}
+	for name, p := range map[string]auth.Principal{
+		"owner":   {Owner: true},
+		"user":    {UserID: "ann", User: &users.User{ID: "ann", Role: "user"}},
+		"element": {Component: "apps/x", Via: "frame"},
+	} {
+		r := httptest.NewRequest("GET", "/whoami", nil)
+		r = r.WithContext(auth.WithPrincipal(r.Context(), p))
+		w := httptest.NewRecorder()
+		b.apiWhoami(w, r)
+		var who struct {
+			Native map[string]any `json:"native"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &who); err != nil || who.Native["runtime"] != float64(0) || who.Native["disabled"] != true {
+			t.Fatalf("%s: whoami native = %v (%v)", name, who.Native, err)
+		}
+	}
+}

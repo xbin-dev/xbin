@@ -27,6 +27,7 @@ func (s *Server) registerCoreAPI() {
 	s.RegisterAPI("POST /impersonate", s.apiImpersonate)          // view as user (impersonate.go)
 	s.RegisterAPI("POST /impersonate/stop", s.apiImpersonateStop) // …and back
 	s.registerTermAPI()                                           // the session directory (termsessions.go, D73)
+	s.registerNativeAPI()                                         // the workspace's native-runtime switch (native.go)
 }
 
 // apiGPUs lists the host GPUs available for gpu:* grants / the terminal picker.

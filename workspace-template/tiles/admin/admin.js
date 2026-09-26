@@ -36,6 +36,7 @@ import './tabs/signin.js';
 import './tabs/sessions.js';
 import './tabs/runtime.js';
 import './tabs/branding.js';
+import './tabs/nativeapp.js';
 import { targetOptions, serviceOptions, WithDrafts } from './shared.js';
 
 export class BxAdmin extends WithDrafts(LitElement) {
@@ -119,7 +120,7 @@ export class BxAdmin extends WithDrafts(LitElement) {
       { id: 'endpoints', label: 'endpoints' },
       { id: 'expose', label: 'services / expose' },
     ] },
-    { id: 'workspace', label: 'workspace', tabs: [{ id: 'branding', label: 'branding' }] },
+    { id: 'workspace', label: 'workspace', tabs: [{ id: 'branding', label: 'branding' }, { id: 'nativeapp', label: 'xbin app' }] },
   ];
   static tabsFlat() { return BxAdmin.GROUPS.flatMap((g) => g.tabs); }
   _grpOf(tab) { return BxAdmin.GROUPS.find((g) => g.tabs.some((t) => t.id === tab)) || BxAdmin.GROUPS[0]; }
@@ -260,6 +261,7 @@ export class BxAdmin extends WithDrafts(LitElement) {
           : ['roles', 'grants', 'providers', 'wiring'].includes(tab) ? html`<bx-admin-binding view=${tab} .ov=${this._ov} .orgs=${this._orgs}></bx-admin-binding>`
           : tab === 'endpoints' || tab === 'expose' ? html`<bx-admin-ingress view=${tab}></bx-admin-ingress>`
           : tab === 'branding' ? html`<bx-admin-branding></bx-admin-branding>`
+          : tab === 'nativeapp' ? html`<bx-admin-nativeapp></bx-admin-nativeapp>`
           : tab === 'backup' ? html`<bx-admin-backup .components=${this._ov?.components ?? []}></bx-admin-backup>`
           : html`<bx-admin-cron .cron=${this._cron}></bx-admin-cron>`}
       </div>`;

@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/registry"
 )
 
@@ -64,6 +66,13 @@ func (s *Server) serveNativeRoute(w http.ResponseWriter, r *http.Request, cleane
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if !isRoot {
 		http.Error(w, "no such tile", http.StatusNotFound)
+		return true
+	}
+	// The workspace switch: the app shows web pages. Previews (bx native
+	// tree / preview / lint, in a browser) keep working, so a builder can
+	// fix what the switch is covering for.
+	if s.NativeRuntimeOff() && r.URL.Query().Get("preview") != "1" {
+		http.Error(w, nativeOffMsg, http.StatusGone)
 		return true
 	}
 	ni := s.nativeOf(comp)
@@ -136,4 +145,68 @@ func appWSOriginMeta(r *http.Request) string {
 		scheme = "wss"
 	}
 	return fmt.Sprintf("<meta name=\"xbin-ws-origin\" content=\"%s://%s\">\n", scheme, htmlEscape(r.Host))
+}
+
+// --- the workspace's native-runtime switch ---
+
+// nativeOffMsg is the runtime document's answer while the switch is off.
+const nativeOffMsg = "native tile UIs are turned off for this workspace (admin console → workspace → xbin app) — the app opens the tile's web page"
+
+// NativeRuntimeOff reports whether an admin turned the xbin app's native
+// tile UIs off for this workspace (users.Store; no store: never).
+func (s *Server) NativeRuntimeOff() bool {
+	return s.Auth != nil && s.Auth.Users != nil && s.Auth.Users.NativeRuntimeDisabled()
+}
+
+// NativeRuntime is whoami's native.runtime: the runtime-document generation
+// this xbind serves, 0 while the workspace switch is off.
+func (s *Server) NativeRuntime() int {
+	if s.NativeRuntimeOff() {
+		return 0
+	}
+	return NativeRuntimeVersion
+}
+
+func (s *Server) registerNativeAPI() {
+	s.RegisterAPI("GET /native-runtime", s.apiNativeRuntimeGet)
+	s.RegisterAPI("PUT /native-runtime", s.apiNativeRuntimePut)
+}
+
+func (s *Server) nativeRuntimeView() map[string]any {
+	return map[string]any{"enabled": !s.NativeRuntimeOff(), "runtime": s.NativeRuntime(), "version": NativeRuntimeVersion}
+}
+
+// apiNativeRuntimeGet — GET /native-runtime: any signed-in principal (the
+// same fact whoami reports) → {enabled, runtime, version}.
+func (s *Server) apiNativeRuntimeGet(w http.ResponseWriter, r *http.Request) {
+	WriteJSON(w, http.StatusOK, s.nativeRuntimeView())
+}
+
+// apiNativeRuntimePut — PUT /native-runtime {enabled}: admin (the admin
+// tile through its xbin:admin grant). Publishes `native`, so open apps
+// re-read whoami; audited like every admin write.
+func (s *Server) apiNativeRuntimePut(w http.ResponseWriter, r *http.Request) {
+	if !(s.admin(r) || auth.PrincipalOf(r).IsAdmin()) {
+		apiErr(w, http.StatusForbidden, "admin only — needs the xbin:admin capability (docs/auth.md)")
+		return
+	}
+	if s.Auth.Users == nil {
+		apiErr(w, http.StatusNotImplemented, "this workspace has no user store to keep the setting in")
+		return
+	}
+	var body struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := DecodeJSON(r, &body); err != nil || body.Enabled == nil {
+		apiErr(w, http.StatusBadRequest, "need {enabled: bool}")
+		return
+	}
+	if err := s.Auth.Users.SetNativeRuntimeDisabled(!*body.Enabled); err != nil {
+		apiErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if s.Hub != nil {
+		s.Hub.Publish(events.Event{Type: "native"})
+	}
+	WriteJSON(w, http.StatusOK, s.nativeRuntimeView())
 }

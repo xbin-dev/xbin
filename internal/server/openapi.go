@@ -84,7 +84,7 @@ func endpoints() []ep {
 	return []ep{
 		// --- info / introspection ---
 		{"GET", "/whoami", "Identity", "Caller identity + permissions", "authenticated",
-			"Returns the resolved principal and what it may do — how a tile discovers whether it's the owner, an element, its granted roles, etc. An admin's view-as session (D64) adds impersonatedBy and readOnly:true. personalTiles says whether the caller (the human behind a tile call) may own tiles personally — the org-only policy and their account's switch folded in; a signed-in non-admin also gets personal {sets, netSets, netRules, allow}: their resolved personal plane (D88). Every caller gets native {runtime: 1}: this xbind serves native runtime documents (/c/<tile>/?native=1, docs/elements.md §Native app UI).", nil, nil, "identity object"},
+			"Returns the resolved principal and what it may do — how a tile discovers whether it's the owner, an element, its granted roles, etc. An admin's view-as session (D64) adds impersonatedBy and readOnly:true. personalTiles says whether the caller (the human behind a tile call) may own tiles personally — the org-only policy and their account's switch folded in; a signed-in non-admin also gets personal {sets, netSets, netRules, allow}: their resolved personal plane (D88). Every caller gets native {runtime: 1}: this xbind serves native runtime documents (/c/<tile>/?native=1, docs/elements.md §Native app UI) — {runtime: 0, disabled: true} while an admin has turned native tile UIs off for the workspace (PUT /native-runtime).", nil, nil, "identity object"},
 		{"GET", "/openapi.json", "Identity", "This API description", "authenticated",
 			"The OpenAPI 3.1 document for the built-in API (this document).", nil, nil, "OpenAPI document"},
 		{"POST", "/impersonate", "Identity", "View the workspace as a user", "admin",
@@ -284,6 +284,11 @@ func endpoints() []ep {
 		{"PUT", "/branding", "Workspace", "Set the workspace's title and/or icon", "admin",
 			"{title?, icon?} — each present key is a whole-value replace, \"\" clears it, an absent key leaves it alone. title ≤ 64 characters, no control characters; icon a base64 data: URI of an allowed image type whose bytes match it (≤ 256 KiB decoded; body ≤ 512 KiB). Persisted in data/branding.json (readable while the vault is sealed, so the sign-in page can show it). Publishes a `branding` event; audited.",
 			nil, freeBody("{title?:string, icon?:string}"), "{title, icon, hasIcon}"},
+		{"GET", "/native-runtime", "Workspace", "Whether the xbin app may open native tile UIs", "authenticated",
+			"{enabled, runtime, version} — the workspace's native-runtime switch (docs/elements.md §Native app UI). runtime is what whoami's native.runtime says: version (the runtime-document generation this xbind serves) while enabled, 0 while an admin has turned native tile UIs off.", nil, nil, "{enabled, runtime, version}"},
+		{"PUT", "/native-runtime", "Workspace", "Turn the xbin app's native tile UIs on or off", "admin",
+			"{enabled: bool}. Off: whoami reports native {runtime: 0, disabled: true} — the app opens every tile as its web page — and the app's runtime documents (/c/<tile>/?native=1) answer 410 with the reason; previews (&preview=1: bx native tree / preview / lint) keep working. Kept in users.json with the workspace policy; publishes a `native` event (open apps re-read whoami); audited.",
+			nil, jsonBody("the switch", oapi{"enabled": boolean()}, "enabled"), "{enabled, runtime, version}"},
 
 		// --- orgs & teams (docs/auth.md) ---
 		{"GET", "/orgs", "Orgs", "List orgs (management view)", "xbin:users",

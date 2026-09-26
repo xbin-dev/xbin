@@ -18,8 +18,9 @@ func (b *Broker) apiWhoami(w http.ResponseWriter, r *http.Request) {
 		"admin":    b.IsAdmin(p),
 		"terminal": p.CanTerminal(),
 		// This xbind serves native runtime documents (docs/elements.md
-		// §Native app UI) — the xbin app's discovery switch.
-		"native": map[string]int{"runtime": server.NativeRuntimeVersion},
+		// §Native app UI) — the xbin app's discovery switch; 0 (and
+		// disabled) while an admin has turned native tile UIs off.
+		"native": nativeView(b.Users),
 	}
 	if b.Users != nil { // workspace tile-creation policy (D52) — owner pickers adapt to it
 		out["tileCreation"] = b.Users.TileCreation()
@@ -143,4 +144,13 @@ func (b *Broker) userOrgsView(u *users.User) []users.OrgMembership {
 		})
 	}
 	return out
+}
+
+// nativeView is whoami's native object: {runtime: 1}, or {runtime: 0,
+// disabled: true} while the workspace switch is off (users.Store).
+func nativeView(st *users.Store) map[string]any {
+	if st != nil && st.NativeRuntimeDisabled() {
+		return map[string]any{"runtime": 0, "disabled": true}
+	}
+	return map[string]any{"runtime": server.NativeRuntimeVersion}
 }

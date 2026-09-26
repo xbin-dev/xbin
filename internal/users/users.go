@@ -259,6 +259,9 @@ type Store struct {
 	// password sign-in as the break-glass path. Requires SSO to be
 	// configured; cleared when SSO is removed.
 	passwordLoginDisabled bool
+	// nativeRuntimeOff turns the xbin app's native tile UIs off for the
+	// workspace (native.go).
+	nativeRuntimeOff bool
 }
 
 // Open loads (or starts empty) the user store under dataDir.
@@ -297,6 +300,7 @@ func Open(dataDir string) (*Store, error) {
 		TileCreation       string                    `json:"tileCreation"`
 		PersonalDefaults   PersonalDefaults          `json:"personalDefaults"`
 		PasswordLoginOff   bool                      `json:"passwordLoginDisabled"`
+		NativeRuntimeOff   bool                      `json:"nativeRuntimeDisabled"`
 	}
 	if err := json.Unmarshal(b, &doc); err != nil {
 		return nil, fmt.Errorf("users.json: %w", err)
@@ -322,6 +326,7 @@ func Open(dataDir string) (*Store, error) {
 		s.tileCreation = doc.TileCreation
 	}
 	s.passwordLoginDisabled = doc.PasswordLoginOff && s.sso.Enabled()
+	s.nativeRuntimeOff = doc.NativeRuntimeOff
 	if s.owners == nil {
 		s.owners = map[string]string{}
 	}
@@ -667,6 +672,9 @@ func (s *Store) persistLocked() error {
 	}
 	if s.passwordLoginDisabled {
 		doc["passwordLoginDisabled"] = true
+	}
+	if s.nativeRuntimeOff {
+		doc["nativeRuntimeDisabled"] = true
 	}
 	if len(s.orgs) > 0 {
 		orgs := make([]*Org, 0, len(s.orgs))
