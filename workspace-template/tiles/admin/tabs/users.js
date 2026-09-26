@@ -2,6 +2,7 @@
  * <bx-admin-users> — the admin console's users tab: the accounts table
  * (filter + chips, org pills, per-tile access, last sign-in, the per-row
  * "more ▾" menu), the click-through editors for a user's orgs / tiles,
+ * the devices… expansion (the xbin app's enrolled devices, with revoke),
  * pending access requests (D36), the add-user form with
  * its three sign-in modes (D22/D52) and the one-time invite box. Data
  * arrives as properties from the router's shared lists; writes go through
@@ -35,6 +36,7 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
     _bulkBusy: { state: true },   // bulk disable in flight
     _drafts: { state: true },     // click-through editor drafts (user:<id>:{orgs|tiles|personal})
     _err: { state: true },        // the last API refusal (also reported to the router's slot)
+    _devices: { state: true },    // user id → their app devices (the devices… expansion)
   };
   static styles = [base, usersCss];
 
@@ -119,6 +121,52 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
     if (!confirm(`Delete user ${id}? Their sessions are revoked immediately.`)) return;
     await api(`/users/${encodeURIComponent(id)}`, { method: 'DELETE' });
     this._emit('bx-admin-refresh');
+  }
+
+  // devices… (docs/auth.md §Device login): the xbin app's enrolled devices
+  // for one user, loaded on open; revoking ends that device's app sessions.
+  async _toggleDevices(id) {
+    if (this._devices?.[id]) {
+      const { [id]: _, ...rest } = this._devices;
+      this._devices = rest;
+      return;
+    }
+    this._devices = { ...this._devices, [id]: 'loading' };
+    await this._loadDevices(id);
+  }
+  async _loadDevices(id) {
+    try {
+      const d = await api(`/users/${encodeURIComponent(id)}/devices`);
+      this._devices = { ...this._devices, [id]: d?.devices ?? [] };
+    } catch (e) { this._fail(e); this._devices = { ...this._devices, [id]: [] }; }
+  }
+  async _revokeDevice(uid, d) {
+    if (!confirm(`Remove "${d.name}" from ${uid}? The xbin app on it is signed out now and has to be enrolled again.`)) return;
+    try {
+      await api(`/devices/${encodeURIComponent(d.id)}`, { method: 'DELETE' });
+      this._ok(); this._emit('bx-admin-notice', `${d.name} removed from ${uid}`);
+    } catch (e) { this._fail(e); }
+    await this._loadDevices(uid);
+    this._emit('bx-admin-refresh');
+  }
+  _devicesRow(u) {
+    const list = this._devices?.[u.id];
+    if (!list) return nothing;
+    return html`<tr><td colspan="6"><div class="editor" data-devices=${u.id}>
+      ${list === 'loading' ? html`<span class="muted">loading…</span>`
+        : !list.length ? html`<span class="muted">no devices — they add one from their account menu (devices…) or by signing in to the xbin app.</span>`
+        : list.map((d) => html`<div class="orow" data-device=${d.id}>
+          <span style="min-width:18ch"><b>${d.name}</b> <span class="muted">${d.platform || ''}</span></span>
+          <span class="muted" title=${new Date(d.created * 1000).toLocaleString()}>added ${agoCoarse(d.created)}</span>
+          <span class=${d.lastUsed ? '' : 'muted'} title=${d.lastUsed ? new Date(d.lastUsed * 1000).toLocaleString() : ''}>${d.lastUsed
+            ? `last sign-in ${agoCoarse(d.lastUsed)}${d.lastIP ? ` from ${d.lastIP}` : ''}` : 'not signed in yet'}</span>
+          <span class="muted mono" title="the origin this device signs in to">${d.origin}</span>
+          <span style="flex:1"></span>
+          <button class="act rm" @click=${() => this._revokeDevice(u.id, d)}>revoke</button>
+        </div>`)}
+      <div class="orow" style="margin-top:4px"><span style="flex:1"></span>
+        <button class="act" @click=${() => this._toggleDevices(u.id)}>close</button></div>
+    </div></td></tr>`;
   }
 
   _presetLabel(m) {
@@ -419,6 +467,8 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
             () => Object.entries(u.tiles ?? {}).map(([target, level]) => ({ target, level })))}>tiles…</button>
           <button class="act" title="the tiles they own: switches, permission and network sets (D88)"
             @click=${() => this._toggleDraft(personalKey, () => true)}>personal…</button>`}
+        ${u.deviceCount ? html`<button class="act" title="the xbin app devices enrolled for this account"
+          @click=${() => this._toggleDevices(u.id)}>devices (${u.deviceCount})…</button>` : nothing}
         ${this._pwEdit === u.id ? html`
           <form style="display:inline-flex; gap:4px" @submit=${(e) => { e.preventDefault();
               const pw = e.target.pw.value; this._pwEdit = null; this._resetPw(u.id, pw); }}>
@@ -433,7 +483,8 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
     ${this._draft(tilesKey) ? html`<tr><td colspan="6">
       ${this._tilesEditor(tilesKey, (tiles) => this._orgAPI('PATCH', `/users/${encodeURIComponent(u.id)}`, { tiles }))}
     </td></tr>` : nothing}
-    ${this._draft(personalKey) ? html`<tr><td colspan="6">${this._personalEditor(u)}</td></tr>` : nothing}`;
+    ${this._draft(personalKey) ? html`<tr><td colspan="6">${this._personalEditor(u)}</td></tr>` : nothing}
+    ${this._devicesRow(u)}`;
   }
 
   // personal… expansion (D88): the two switches and the user's own sets,

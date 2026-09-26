@@ -30,8 +30,8 @@ unauthenticated route here counts failures against the login throttle
 A signed-in human mints a one-time code, the app redeems it with its public
 key.
 
-**From a browser.** Shell → my account → devices → *add a device* shows a QR
-code of
+**From a browser.** The shell's 🔧 menu → my account → devices… → *add a
+device* shows a QR code of
 
 ```
 xbin://enroll?u=<origin>&c=<code>

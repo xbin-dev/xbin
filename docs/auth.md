@@ -703,8 +703,8 @@ with Face ID / Touch ID, one per workspace. It never leaves the device; the
 server keeps only its public key, on your user row. Device login needs a user
 account — the bootstrap owner token has none.
 
-- **Adding a device.** Shell → your account (the ⚙ menu's *my account*
-  section) → **devices** → **add a device** shows a QR code and the raw
+- **Adding a device.** The shell's 🔧 menu → *my account* → **devices…**
+  → **add a device** shows a QR code and the raw
   `xbin://enroll?u=<origin>&c=<code>` link: a one-time code, valid 5 minutes,
   that enrolls one device *for you*. Scan it with the app (or open the link
   on the phone). Alternatively sign in inside the app with your password or
