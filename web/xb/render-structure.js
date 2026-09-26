@@ -78,7 +78,7 @@ function screen(n, cx) {
       </div>
     </div>` : nothing}
     <div class=${cls('body', grouped ? 'grouped' : 'free', chat && 'chat')} @scroll=${onScroll}>
-      ${large ? html`<div class="large"><h1 class="lt">${title}</h1>${p.subtitle ? html`<div class="ls">${p.subtitle}</div>` : nothing}</div>` : nothing}
+      ${large ? html`<div class="lt-block"><h1 class="lt">${title}</h1>${p.subtitle ? html`<div class="ls">${p.subtitle}</div>` : nothing}</div>` : nothing}
       ${own(p, 'search') ? searchField(n, cx) : nothing}
       ${repeat(body, (c) => c.k, (c) => inner.node(c))}
     </div>
@@ -150,7 +150,7 @@ function row(n, cx) {
   const key = tap ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); act(); } } : null;
   return html`<xb-row data-k=${n.k} style=${`--sep:${inset}`}
     class=${cls('row', cx.place === 'group' ? 'cell' : 'lone', tap && 'tap', p.disabled && 'disabled')}>
-    <div class="row-main" role=${tap ? 'button' : nothing} tabindex=${tap ? '0' : nothing} @click=${act} @keydown=${key}>
+    <div class=${cls('row-main', p.subtitle && 'has-sub')} role=${tap ? 'button' : nothing} tabindex=${tap ? '0' : nothing} @click=${act} @keydown=${key}>
       ${lead}
       <div class="row-text">
         <div class=${cls('row-title', m('title') && 'mono')}>${str(p.title)}</div>
@@ -195,8 +195,8 @@ function tabs(n, cx) {
     ${bar ? icon(q.icon || 'ui-circle') : nothing}<span>${str(q.title || q.key)}</span>${q.badge ? html`<span class="tab-badge">${q.badge}</span>` : nothing}
   </button>`; });
   const panes = repeat(list, (t) => t.k, (t) => html`<xb-tab data-k=${t.k} class="tab" ?hidden=${t !== cur}>${cx.kids(t)}</xb-tab>`);
-  if (bar) return html`<xb-tabs data-k=${n.k} class="tabs bar"><div class="tabs-body">${panes}</div><div class="tabbar" role="tablist">${items}</div></xb-tabs>`;
-  return html`<xb-tabs data-k=${n.k} class=${cls('tabs', 'segmented', cx.place === 'group' && 'cell')}>
+  if (bar) return html`<xb-tabs data-k=${n.k} class="tabs tabs-bar"><div class="tabs-body">${panes}</div><div class="tabbar" role="tablist">${items}</div></xb-tabs>`;
+  return html`<xb-tabs data-k=${n.k} class=${cls('tabs', 'tabs-seg', cx.place === 'group' && 'cell')}>
     <div class="seg" role="tablist">${items}</div>${panes}</xb-tabs>`;
 }
 
@@ -215,7 +215,7 @@ function sheet(n, cx) {
   const esc = (e) => { if (e.key === 'Escape') dismiss(); };
   return html`<xb-sheet data-k=${n.k} class="sheet-layer" @keydown=${esc}>
     <div class="scrim" @click=${dismiss}></div>
-    <div class=${cls('sheet', det[0] === 'medium' ? 'medium' : 'large')} role="dialog" aria-modal="true" aria-label=${str(p.title) || nothing}>
+    <div class=${cls('sheet', det[0] === 'medium' ? 'd-medium' : 'd-large')} role="dialog" aria-modal="true" aria-label=${str(p.title) || nothing}>
       <div class="grabber"></div>
       ${whole ? nothing : html`<div class="sheet-bar">
         <div class="bar-lead"><button class="sheet-x" aria-label="Close" @click=${dismiss}>${icon('xmark')}</button></div>
@@ -249,7 +249,7 @@ export const STRUCTURE_CSS = css`
   }
   .bar-lead, .bar-trail { flex: 1 1 0; }
   .bar.solid { background: color-mix(in srgb, var(--xb-bg) 82%, transparent); backdrop-filter: saturate(1.6) blur(18px); -webkit-backdrop-filter: saturate(1.6) blur(18px); }
-  .scrolled .bar { box-shadow: 0 0.5px 0 var(--xb-separator); }
+  .scrolled > .bar { box-shadow: 0 0.5px 0 var(--xb-separator); }
   .bar-lead { display: flex; align-items: center; min-width: 0; }
   .bar-trail { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
   .bar-title { flex: 0 1 auto; text-align: center; min-width: 0; padding: 4px 0; transition: opacity 0.15s; }
@@ -267,10 +267,10 @@ export const STRUCTURE_CSS = css`
   .body > *, .sheet-body > *, .disc-body > *, xb-list > * { flex-shrink: 0; }
   .body.grouped { gap: 22px; padding: 62px var(--xb-margin) 40px; }
   .body.free { gap: 12px; padding: 56px var(--xb-margin) 32px; }
-  .has-large .body.grouped, .has-large .body.free { padding-top: 44px; }
+  .has-large > .body.grouped, .has-large > .body.free { padding-top: 44px; }
   .body.chat { overflow: hidden; padding: 44px 0 0; gap: 0; }
   .body.chat > xb-transcript { flex: 1 1 auto; min-height: 0; }
-  .large { padding: 2px 4px 0; margin-bottom: -6px; }
+  .lt-block { padding: 2px 4px 0; margin-bottom: -6px; }
   .lt { margin: 0; font: var(--xb-font-large-title); font-weight: 700; letter-spacing: 0.3px; overflow-wrap: anywhere; }
   .ls { font: var(--xb-font-subheadline); color: var(--xb-muted); margin-top: 2px; }
   .search { display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 10px; border-radius: 10px; background: var(--xb-fill); color: var(--xb-muted); flex: none; }
@@ -308,11 +308,13 @@ export const STRUCTURE_CSS = css`
   xb-row { display: block; }
   xb-row.cell { padding: 0; }
   xb-row.lone { background: var(--xb-surface); border-radius: var(--xb-radius-group); }
-  /* a row: lead | title+subtitle | detail | badge | check | chevron. With
-     large text the detail and badge stack under the title (as iOS does at
-     accessibility sizes) instead of squeezing it. */
-  .row-main { display: grid; grid-template-columns: auto minmax(0, 1fr) fit-content(45%) auto auto auto;
-    grid-template-areas: "lead text detail badge check chev"; align-items: center;
+  /* a row: lead | title+subtitle | (space) | detail | badge | check | chevron.
+     Title and detail share the width equally until one fits (a short title
+     leaves the detail room, a long detail wraps instead of the title). With
+     large text a row with a subtitle stacks its detail and badge under the
+     title, as iOS does, instead of squeezing three columns. */
+  .row-main { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto auto auto;
+    grid-template-areas: "lead text . detail badge check chev"; align-items: center;
     min-height: 44px; padding: 10px 16px; outline-offset: -2px; }
   .row-main > .row-ic, .row-main > .row-dot { grid-area: lead; margin-right: 12px; }
   .row-main > .row-text { grid-area: text; }
@@ -320,12 +322,12 @@ export const STRUCTURE_CSS = css`
   .row-main > .pill { grid-area: badge; margin-left: 10px; justify-self: end; }
   .row-main > .row-check { grid-area: check; margin-left: 10px; }
   .row-main > .row-chev { grid-area: chev; margin-left: 8px; }
-  :host([text="large"]) .row-main { grid-template-columns: auto minmax(0, 1fr) auto auto;
+  :host([text="large"]) .row-main.has-sub { grid-template-columns: auto minmax(0, 1fr) auto auto;
     grid-template-areas: "lead text check chev" "lead detail check chev" "lead badge check chev"; }
-  :host([text="large"]) .row-main > .row-dot { align-self: start; margin-top: calc((var(--xb-line-body) - 8px) / 2); }
-  :host([text="large"]) .row-main > .row-ic { align-self: start; margin-top: calc((var(--xb-line-body) - var(--xb-icon)) / 2); }
-  :host([text="large"]) .row-main > .row-detail { margin: 2px 0 0; text-align: left; max-width: none; }
-  :host([text="large"]) .row-main > .pill { margin: 6px 0 0; justify-self: start; }
+  :host([text="large"]) .has-sub > .row-dot { align-self: start; margin-top: calc((var(--xb-line-body) - 8px) / 2); }
+  :host([text="large"]) .has-sub > .row-ic { align-self: start; margin-top: calc((var(--xb-line-body) - var(--xb-icon)) / 2); }
+  :host([text="large"]) .has-sub > .row-detail { margin: 2px 0 0; text-align: left; }
+  :host([text="large"]) .has-sub > .pill { margin: 6px 0 0; justify-self: start; }
   .tap > .row-main { cursor: pointer; }
   .tap > .row-main:active { background: var(--xb-fill); }
   .disabled { opacity: 0.45; }
@@ -362,20 +364,21 @@ export const STRUCTURE_CSS = css`
   xb-disclosure.free > .disc-head { padding: 6px 0; font: var(--xb-font-headline); }
   xb-disclosure.free > .disc-body { display: flex; flex-direction: column; gap: 12px; padding-top: 4px; }
 
-  xb-tabs.segmented { display: contents; }
-  xb-tabs.segmented.cell { display: block; }
+  xb-tabs.tabs-seg { display: contents; }
+  xb-tabs.tabs-seg.cell { display: block; }
   xb-tab { display: contents; }
   .seg { display: flex; padding: 2px; border-radius: 9px; background: var(--xb-fill); flex: none; }
   .seg-item { flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 5px 8px; border-radius: 7px; font: var(--xb-font-subheadline); font-weight: 500; color: var(--xb-text); white-space: nowrap; }
   .seg-item.on { background: var(--xb-control-on); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.04); font-weight: 600; }
   .seg-item span { overflow: hidden; text-overflow: ellipsis; }
   .tab-badge { font: var(--xb-font-caption2); font-weight: 700; background: var(--xb-danger); color: #fff; border-radius: 999px; padding: 1px 6px; }
-  xb-tabs.bar { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-  xb-tabs.bar > .tabs-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-  xb-tabs.bar > .tabs-body > xb-tab:not([hidden]) { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+  xb-tabs.tabs-bar { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+  xb-tabs.tabs-bar > .tabs-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  xb-tabs.tabs-bar > .tabs-body > xb-tab:not([hidden]) { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
   .tabbar { display: flex; flex: none; padding: 6px 8px 22px; border-top: 0.5px solid var(--xb-separator);
     background: color-mix(in srgb, var(--xb-surface) 88%, transparent); backdrop-filter: blur(18px); }
-  .tb-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; font: var(--xb-font-caption2); font-weight: 500; color: var(--xb-muted); position: relative; }
+  /* tab bar labels keep their size at every text size, as on iOS */
+  .tb-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; font: 500 10px/12px var(--xb-family); color: var(--xb-muted); position: relative; }
   .tb-item.on { color: var(--xb-accent-text); }
   .tb-item .ic { width: 24px; height: 24px; }
   .tb-item .tab-badge { position: absolute; top: -4px; left: calc(50% + 6px); }
@@ -384,8 +387,8 @@ export const STRUCTURE_CSS = css`
   .scrim { position: absolute; inset: 0; background: var(--xb-scrim); animation: xb-fade 0.2s ease-out; }
   .sheet { position: relative; display: flex; flex-direction: column; background: var(--xb-bg); border-radius: 14px 14px 0 0;
     box-shadow: var(--xb-shadow); animation: xb-rise 0.25s cubic-bezier(0.2, 0.9, 0.3, 1); min-height: 0; }
-  .sheet.large { height: calc(100% - 12px); }
-  .sheet.medium { height: 52%; }
+  .sheet.d-large { height: calc(100% - 12px); }
+  .sheet.d-medium { height: 52%; }
   .grabber { width: 36px; height: 5px; border-radius: 3px; background: var(--xb-border); margin: 6px auto 0; flex: none; }
   .sheet-bar { display: flex; align-items: center; gap: 4px; padding: 4px 12px 6px; flex: none; min-height: 48px; }
   .sheet-x { width: 32px; height: 32px; border-radius: 16px; background: var(--xb-fill); color: var(--xb-muted); display: flex; align-items: center; justify-content: center; }
