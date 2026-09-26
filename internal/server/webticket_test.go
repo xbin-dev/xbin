@@ -679,3 +679,43 @@ func TestEnrollStepUpDeviceLogin(t *testing.T) {
 		t.Fatalf("a new device login: %d", code)
 	}
 }
+
+// Behind TLS the confirm cookie is __Host- (Secure, Path=/, no Domain): a
+// sibling tile origin can't toss one in. The plain name isn't read then.
+func TestWebTicketConfirmCookieSecure(t *testing.T) {
+	h, s := impServer(t)
+	_, dev := webDevice(t, s, "bob")
+	_, out := mintWeb(h, dev, "", `{}`)
+	page := redeemWeb(h, out["url"].(string), "", "10.7.0.1", map[string]string{"X-Forwarded-Proto": "https"})
+	var c *http.Cookie
+	for _, k := range page.Result().Cookies() {
+		if k.Name == "__Host-xbin_webconfirm" {
+			c = k
+		}
+	}
+	if c == nil || !c.Secure || c.Path != "/" || c.Domain != "" || !c.HttpOnly || c.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("confirm cookie behind TLS: %+v", page.Result().Cookies())
+	}
+	m := reConfirmNonce.FindStringSubmatch(page.Body.String())
+	if m == nil || m[1] != c.Value {
+		t.Fatalf("the form's nonce is not the cookie's")
+	}
+	post := func(name string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "/login/web-ticket", strings.NewReader(url.Values{"confirm": {m[1]}}.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Set("Sec-Fetch-Site", "same-origin")
+		r.Header.Set("Sec-Fetch-Mode", "navigate")
+		r.Header.Set("X-Forwarded-Proto", "https")
+		r.AddCookie(&http.Cookie{Name: name, Value: m[1]})
+		r.RemoteAddr = "10.7.0.1:4321"
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	if w := post("xbin_webconfirm"); w.Code != http.StatusForbidden || !noSession(w) {
+		t.Fatalf("the plain-named cookie behind TLS: %d", w.Code)
+	}
+	if w := post("__Host-xbin_webconfirm"); w.Code != http.StatusSeeOther || noSession(w) {
+		t.Fatalf("continue behind TLS: %d %s", w.Code, w.Body.String())
+	}
+}
