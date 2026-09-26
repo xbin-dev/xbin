@@ -238,12 +238,10 @@ export class Session {
   // runs folded lately (the open one, a subagent's parents) keep a cache each.
   blocks(id, v = this.merged(id)) {
     if (!v) return null;
-    let c = this.folds.get(id);
-    if (!c) {
-      c = new FoldCache();
-      this.folds.set(id, c);
-      if (this.folds.size > 8) this.folds.delete(this.folds.keys().next().value);
-    }
+    const c = this.folds.get(id) || new FoldCache();
+    this.folds.delete(id); // most recently used last
+    this.folds.set(id, c);
+    if (this.folds.size > 8) this.folds.delete(this.folds.keys().next().value);
     return fold(v, (x) => this.merged(x), 0, c);
   }
 
