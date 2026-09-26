@@ -31,6 +31,7 @@ func (b *Broker) registerUsers(srv *server.Server) {
 	srv.RegisterAPI("POST /auth-settings/sso/test", func(w http.ResponseWriter, r *http.Request) { b.apiSSOTest(srv, w, r) })
 	b.registerOrgs(srv)
 	b.registerRequests(srv)
+	b.registerDevices(srv) // the app's enrolled devices (devicesapi.go)
 }
 
 // canManageUsers: root/admin, or an element granted xbin:users (or xbin:admin).
@@ -77,6 +78,9 @@ func (b *Broker) apiUsersList(w http.ResponseWriter, r *http.Request) {
 	for _, u := range list {
 		full, _ := st.Get(u.ID)
 		row := userListRow{User: u, InvitePending: full != nil && full.InvitePending()}
+		if full != nil {
+			row.DeviceCount = len(full.Devices)
+		}
 		if !u.IsAdmin() {
 			pl := st.Personal(u.ID)
 			row.Personal = &pl
@@ -738,6 +742,10 @@ func (b *Broker) apiSessions(srv *server.Server, w http.ResponseWriter, r *http.
 		}
 		if si.Impersonator != "" { // an admin's read-only view of the user (D64)
 			row["impersonatedBy"] = si.Impersonator
+		}
+		row["via"] = si.Via // session (browser) | device | app (the native app)
+		if si.DeviceID != "" {
+			row["device"] = si.DeviceID
 		}
 		out = append(out, row)
 	}

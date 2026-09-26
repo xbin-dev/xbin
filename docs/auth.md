@@ -16,6 +16,7 @@ xbin has two planes with different rules:
 | Principal | How it authenticates | Typical `X-XBin-From` |
 |---|---|---|
 | Owner (you) | login cookie, or `Authorization: Bearer` with the owner token | `owner` |
+| A user, in the native app | an app session as `Authorization: Bearer` — device-key login, or the app's password / SSO sign-in (§Device login) | the same as their browser session |
 | Element backend | per-generation instance token over the gateway socket (`XBIN_GATEWAY` + `XBIN_TOKEN` env — the SDK's `xbin.Client()` handles it) | `apps/email` |
 | Element frontend | **frame token alone** (`xbin.fetch`/`xbin.ws` attach it; tile frames are sandboxed — no cookie reaches them) | `apps/email` |
 | Terminal shell | per-session terminal token (`$XBIN_TOKEN` in the shell) | `apps/email` — the tile the terminal is opened on, **not** the human driving it |
@@ -55,7 +56,14 @@ localStorage/IDB/cookies, no ambient session cookie on requests — and where
 the browser supports it the frame is additionally `credentialless`. The
 injected short-lived token therefore both attributes and authenticates the
 request, cookie not required (renewal at `/api/xbin/frame-token` works
-cookie-less for the tile's own component). Server-side, a **Fetch-Metadata
+cookie-less for the tile's own component). **A frame token is bound to the
+login that opened the tile**: it names that session's credential generation,
+renewals keep it, and it stops working the moment that login ends — sign-out,
+expiry, revoking the device, "sign out everywhere", disabling the user, or
+(for frames the bootstrap token opened) rotating the owner token. A tile
+open in an admin's view-as session stays read-only with it. Tokens minted by
+an older xbind verify until they expire and renew into bound ones, so pages
+left open across the upgrade keep working. Frontends never parse the token. Server-side, a **Fetch-Metadata
 gate** drops the session cookie from any request showing the opaque-origin
 fingerprint (`Sec-Fetch-Site: cross-site` on a non-navigation, or a non-GET
 navigation to `/api/*`/`/ws/*`), so a tile that omits its token and
@@ -374,7 +382,8 @@ a banner across the top of the shell naming who you are viewing and an
 - **Read-only.** The view is a real session as the user — the same shell,
   the same tiles, no special mode — but the server refuses every write
   (403 with a "read-only" message): tile saves, prefs, layout changes,
-  grants, terminals. You see what they can do; you do it as yourself.
+  grants, terminals — and the tiles' own writes, since their frame tokens
+  are bound to the view. You see what they can do; you do it as yourself.
 - **Bound to you.** The link (`/login?impersonate=…`) is a one-shot ticket
   that only works in the browser that is signed in as the admin who minted
   it, for two minutes. Pasting it elsewhere does nothing.
@@ -686,6 +695,55 @@ API. SSO discovery/token calls are the daemon's only outbound HTTP
 sessions, TTLs, throttling, and the sessions tab treat SSO logins exactly
 like password ones.
 
+## Device login (the native app)
+
+The xbin app (iOS first) signs in to a workspace with a
+**device key**: a P-256 key generated in the phone's Secure Enclave, unlocked
+with Face ID / Touch ID, one per workspace. It never leaves the device; the
+server keeps only its public key, on your user row. Device login needs a user
+account — the bootstrap owner token has none.
+
+- **Adding a device.** Shell → your account (the ⚙ menu's *my account*
+  section) → **devices** → **add a device** shows a QR code and the raw
+  `xbin://enroll?u=<origin>&c=<code>` link: a one-time code, valid 5 minutes,
+  that enrolls one device *for you*. Scan it with the app (or open the link
+  on the phone). Alternatively sign in inside the app with your password or
+  SSO — it then enrolls itself the same way.
+- **Signing in.** The app asks for a challenge, signs it with the key (one
+  Face ID prompt) and gets a **session** — the same human session a browser
+  login gets (12 h idle / 30 days max, `XBIN_SESSION_*_TTL`), carried as
+  `Authorization: Bearer`, reaching exactly what your browser session
+  reaches. Sessions live in memory: after an xbind restart the app simply
+  signs in again. The admin sessions tab lists them (`via: device` / `app`).
+- **Only the app holds it.** The session is used by the app's own code — the
+  tile list, terminals, agent sessions, minting frame tokens. Tiles in the app
+  run exactly as in a browser: sandboxed, with their own frame token, never
+  your credential.
+- **Managing devices.** The same *devices* panel lists your devices (name,
+  platform, last sign-in and its IP) with **remove**; admins see and remove
+  any user's devices in the admin console's Users tab. Removing a device ends
+  every session it opened at once — and the frame tokens those sessions
+  minted.
+- **Rules kept.** Enrollment codes, challenges and sign-ins count against
+  the login throttle; a disabled account can't sign in (and its app
+  sessions die); "sign out everywhere" ends app sessions too. **SSO-only
+  mode** (D53) refuses the app's *password* sign-in for non-admins, like the
+  sign-in form — but device login stays: a device can only be enrolled from
+  a session that already passed the workspace's sign-in policy. Removing
+  someone at the IdP does not revoke their devices — disable the account in
+  xbin (as for their live browser sessions).
+- **Which address.** A device signs the server origin it enrolled with: the
+  `--external-url` origin when set, otherwise the address your browser used
+  when you minted the code. If you reach xbind under several names, set
+  `--external-url` before enrolling devices.
+
+Routes: `POST /api/xbin/devices/enroll-code`, `POST /api/xbin/devices/enroll`,
+`POST /login/device/challenge`, `POST /login/device`, `POST /api/xbin/login`,
+`GET /login/sso?app=1`, `POST /login/ticket`, `GET|DELETE /api/xbin/devices`,
+`GET /api/xbin/users/<id>/devices` ([protocol.md](/docs/protocol.md)). The
+exact signed message and a test vector for client implementers:
+`native/spec/device-login.md` in the source tree.
+
 ## Disable, suspend, and asking for access (D34/D36)
 
 Two pause switches, scoped to who holds them: a **workspace admin disables
@@ -699,8 +757,9 @@ org shares, create, adminship, set-conferred term flags — and reinstating
 is unchecking the box. Org-level moderation without touching the account.
 A third, lighter switch: **sign out everywhere** (`DELETE
 /users/<id>/sessions`, `bx user signout`, the users table's row menu) ends
-every browser session and terminal token of one user without changing the
-account — they can sign in again.
+every browser and app session, terminal token and frame token of one user
+without changing the account — they can sign in again (their enrolled
+devices stay; revoke those in their devices list).
 
 **Self-service credentials (D38).** Signed-in users rotate their own
 password (`POST /account/password`, the shell's my-account section) after
@@ -1080,8 +1139,10 @@ behave exactly as before.
   forever. The server is authoritative; override the windows with
   `XBIN_SESSION_IDLE_TTL` / `XBIN_SESSION_MAX_TTL` (Go durations, e.g. `8h`).
   Deleting a user, logout, and an xbind restart all end their sessions
-  immediately. (Bearer tokens have no session — the owner token is valid until
-  rotated; element/terminal tokens die with their generation/shell.)
+  immediately — and the frame tokens of the tiles those sessions opened. The
+  native app's sessions (§Device login) are the same sessions, carried as a
+  bearer. (Other bearer tokens have no session — the owner token is valid
+  until rotated; element/terminal tokens die with their generation/shell.)
 - Behind an https proxy the cookie turns `Secure` automatically
   (`X-Forwarded-Proto`). xbind itself never does TLS; put Tailscale or
   Caddy in front.

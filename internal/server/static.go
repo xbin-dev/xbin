@@ -301,7 +301,7 @@ func (s *Server) serveInjectedHTML(w http.ResponseWriter, r *http.Request, file 
 
 	frameTok := ""
 	if p := auth.PrincipalOf(r); p.CanReadTile(compPath) {
-		frameTok = s.Auth.MintFrameToken(compPath, p.UserID, frameTokenTTL)
+		frameTok = s.Auth.MintFrameTokenFor(p, compPath, frameTokenTTL) // bound to p's login (frametoken.go)
 	}
 
 	ifaceMeta := ""
