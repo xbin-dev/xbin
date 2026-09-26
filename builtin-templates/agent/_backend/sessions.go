@@ -33,6 +33,9 @@ type inbound struct {
 	Watch  bool   // a watcher round (inboxWatch) instead of a message
 	Addr   string // session: where replies go (a channel's route)
 	Client string // idempotency key
+	// Adopt, when set, moves files into the run once it is known (a chat
+	// message's attachments, staged by the adapter); their paths join Files.
+	Adopt func(t *DB, runID int64) ([]string, error)
 }
 
 // deliverInbound delivers in; it returns the run it went to and whether that
@@ -87,6 +90,13 @@ func (ag *Agent) deliverInboundTx(t *DB, in inbound) (runID int64, created bool,
 		if in.Mode == "session" {
 			_, _ = t.q.Exec(`UPDATE sessions SET last_in=?, address=CASE WHEN ?<>'' THEN ? ELSE address END WHERE key=?`,
 				now(), in.Addr, in.Addr, in.Key)
+		}
+		if in.Adopt != nil {
+			paths, err := in.Adopt(t, runID)
+			if err != nil {
+				return err
+			}
+			body.Files = append(body.Files, paths...)
 		}
 		var err error
 		if inboxID, _, err = t.enqueue(runID, kind, body, in.Client); err != nil {

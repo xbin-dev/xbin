@@ -1,4 +1,4 @@
-// channels.go — chat channels (D86). An adapter tile (apps/slack, …) bound to
+// channels.go — chat channels (D86). An adapter tile (a messaging bridge) bound to
 // this agent's `inbox` provide (service agent-inbox, role channel) reports
 // the messages it receives; the agent owns everything that matters about
 // them: which conversation a message joins (channel_keys.go), who may talk at
@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS channel_peers (
   code TEXT NOT NULL DEFAULT '', code_expires INTEGER NOT NULL DEFAULT 0,
   code_sent INTEGER NOT NULL DEFAULT 0,
   created INTEGER NOT NULL, approved_by TEXT NOT NULL DEFAULT '',
+  xbin_user TEXT NOT NULL DEFAULT '', linked_at INTEGER NOT NULL DEFAULT 0,
+  dm_addr TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (channel_id, peer_id));
 CREATE TABLE IF NOT EXISTS outbox (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,8 +66,17 @@ CREATE INDEX IF NOT EXISTS idx_outbox_created ON outbox(state, created);
 `
 
 func (d *DB) addChannelSchema() error {
-	_, err := d.q.Exec(channelSchemaSQL)
-	return err
+	if _, err := d.q.Exec(channelSchemaSQL); err != nil {
+		return err
+	}
+	for _, q := range []string{ // channel_peers from before identity links
+		`ALTER TABLE channel_peers ADD COLUMN xbin_user TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE channel_peers ADD COLUMN linked_at INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE channel_peers ADD COLUMN dm_addr TEXT NOT NULL DEFAULT ''`,
+	} {
+		_, _ = d.q.Exec(q)
+	}
+	return d.addChannelFilesSchema()
 }
 
 // Channel states.
@@ -181,12 +192,17 @@ func convLabel(m *adapterMsg) string {
 // deliveries for triggers (xbin/bus, D85) are mounted here too.
 func adapterRoutes(mux *http.ServeMux) {
 	for pattern, h := range map[string]http.HandlerFunc{
-		"POST /adapter/hello":   handleAdapterHello,
-		"POST /adapter/message": handleAdapterMessage,
-		"GET /adapter/outbox":   handleAdapterOutbox,
-		"POST /adapter/ack":     handleAdapterAck,
-		"POST /adapter/event":   handleAdapterEvent,
-		"GET /adapter/triggers": handleAdapterTriggers,
+		"POST /adapter/hello":                handleAdapterHello,
+		"POST /adapter/message":              handleAdapterMessage,
+		"GET /adapter/outbox":                handleAdapterOutbox,
+		"POST /adapter/ack":                  handleAdapterAck,
+		"POST /adapter/event":                handleAdapterEvent,
+		"GET /adapter/triggers":              handleAdapterTriggers,
+		"POST /adapter/files":                handleAdapterUpload,
+		"GET /adapter/files/{oid}/{i}":       handleAdapterFile,
+		"POST /adapter/link":                 handleAdapterLink,
+		"GET /adapter/links":                 handleAdapterLinks,
+		"DELETE /adapter/links/{cid}/{peer}": handleAdapterUnlink,
 	} {
 		mux.Handle(pattern, adapterGuard(h))
 	}
@@ -376,22 +392,34 @@ func (ag *Agent) channelMessage(adapter string, m *adapterMsg) (v msgVerdict, er
 // to hand to the channel's owner.
 func (ag *Agent) channelAdmit(t *DB, ch *Channel, m *adapterMsg, key, addr string, peer *chanPeer) string {
 	p := ch.Policy
+	linked := peer != nil && peer.XbinUser != ""
+	if peer != nil && peer.State == "blocked" {
+		return "not-allowed"
+	}
 	if m.dm() {
 		switch p.dmPolicy() {
 		case "disabled":
 			return "not-allowed"
 		case "open":
+		case "linked": // only people who linked their xbin account
+			if !linked {
+				t.peerCode(ch, m, addr, peer, codeLinkOnly)
+				return "link-required"
+			}
 		default: // pairing | allowlist
 			switch {
 			case peer != nil && peer.State == "allowed":
-			case peer != nil && peer.State == "blocked", p.dmPolicy() == "allowlist":
+			case p.dmPolicy() == "allowlist":
 				return "not-allowed"
 			default:
-				t.pairingCode(ch, m, addr, peer)
+				t.peerCode(ch, m, addr, peer, codePairing)
 				return "pairing"
 			}
 		}
 	} else {
+		if p.Groups.LinkedOnly && !linked {
+			return "link-required" // silently: no code in public
+		}
 		switch p.groupPolicy() {
 		case "disabled":
 			return "not-allowed"
@@ -429,7 +457,7 @@ func laneFor(p channelPolicy, m *adapterMsg, peer *chanPeer) string {
 	if !p.PrivateLane {
 		return "web"
 	}
-	if m.dm() && peer != nil && peer.State == "allowed" && peer.Trusted {
+	if m.dm() && peer.trusted(p) {
 		return "private"
 	}
 	if !m.dm() && hasStr(p.TrustedGroups, m.Conversation.ID) {
@@ -442,28 +470,44 @@ func laneFor(p channelPolicy, m *adapterMsg, peer *chanPeer) string {
 // none, or when the session's lane no longer matches — trust was revoked).
 func (ag *Agent) channelDeliver(t *DB, ch *Channel, m *adapterMsg, key, addr string, peer *chanPeer, text string, v *msgVerdict, after *[]func()) error {
 	lane := laneFor(ch.Policy, m, peer)
+	// A person who linked their xbin account speaks as themselves: their
+	// DM conversation is theirs (listed with their chats, private), and in a
+	// group their messages carry their id. Everyone else's run is the
+	// channel's.
+	stamp, sender, who := ch.stamp(), "", orStr(m.Sender.Name, m.Sender.ID)
+	if peer != nil && peer.XbinUser != "" {
+		sender, who = peer.XbinUser, who+" (@"+peer.XbinUser+")"
+		if m.dm() {
+			stamp.Owner, stamp.Visibility, stamp.TeamRole = peer.XbinUser, visPrivate, roleViewer
+		}
+	}
 	if cur, ok := t.sessionRun(key); ok {
-		if cfg, err := t.runConfig(cur); err == nil && cfg.toolset() != lane {
+		// the conversation changes hands or lanes (a link, a revoked trust):
+		// a new one — the old stays with whoever it belonged to
+		cfg, err := t.runConfig(cur)
+		run, err2 := t.getRun(cur)
+		if err == nil && err2 == nil && (cfg.toolset() != lane || run.Owner != stamp.Owner) {
 			t.resetSession(key)
 		}
 	}
 	_, _ = t.q.Exec(`UPDATE sessions SET reset_policy=? WHERE key=?`, ch.Policy.Reset, key)
-	label, title := orStr(m.Sender.Name, m.Sender.ID), ch.platformName()+" · "+orStr(m.Sender.Name, m.Sender.ID)
+	label, title := who, ch.platformName()+" · "+orStr(m.Sender.Name, m.Sender.ID)
 	if !m.dm() {
 		label += " in " + convLabel(m)
 		title = ch.platformName() + " · " + convLabel(m)
-		text = fmt.Sprintf("[%s %s] %s: %s", ch.platformName(), convLabel(m), orStr(m.Sender.Name, m.Sender.ID), text)
+		text = fmt.Sprintf("[%s %s] %s: %s", ch.platformName(), convLabel(m), who, text)
 	}
 	cfg := parseConfig(t.getSetting("config"))
-	cfg.Toolset = lane
+	cfg.Toolset, cfg.Channel = lane, true
 	cfg.Deny = append([]string(nil), ch.Policy.deny()...)
 	cfg.System += channelAddendum(ch, m) + orStr("\n\n"+ch.Policy.System, "")
 	client := ""
 	if m.EventID != "" {
 		client = "ch" + strconv.FormatInt(ch.ID, 10) + ":" + m.EventID
 	}
-	runID, _, inboxID, err := ag.deliverInboundTx(t, inbound{Mode: "session", Key: key, Stamp: ch.stamp(), Title: title,
-		Cfg: cfg, Reset: ch.Policy.Reset, Source: "channel", Label: label, Text: text, Addr: addr, Client: client})
+	runID, _, inboxID, err := ag.deliverInboundTx(t, inbound{Mode: "session", Key: key, Stamp: stamp, Title: title,
+		Cfg: cfg, Reset: ch.Policy.Reset, Source: "channel", Sender: sender, Label: label, Text: text, Addr: addr, Client: client,
+		Adopt: func(t *DB, runID int64) ([]string, error) { return t.adoptChannelFiles(ch.ID, runID, m.Files) }})
 	if err != nil {
 		return err
 	}
@@ -523,13 +567,13 @@ func commandOf(m *adapterMsg) (cmd, arg string) {
 	}
 	cmd, arg, _ = strings.Cut(strings.TrimPrefix(s, "/"), " ")
 	switch cmd = strings.ToLower(cmd); cmd {
-	case "new", "reset", "status", "stop", "help", "approve", "deny":
+	case "new", "reset", "status", "stop", "help", "approve", "deny", "link":
 		return cmd, strings.TrimSpace(arg)
 	}
 	return "", ""
 }
 
-const channelHelp = "Commands: /new [message] — start a new conversation · /reset — forget this one · /status — where we are · /stop — stop what I'm doing · /help"
+const channelHelp = "Commands: /new [message] — start a new conversation · /reset — forget this one · /status — where we are · /stop — stop what I'm doing · /link — link this chat account to your xbin account · /help"
 
 // channelCommand runs a command; deliver says the rest goes on as a message
 // ("/new <text>").
@@ -547,6 +591,12 @@ func (ag *Agent) channelCommand(t *DB, ch *Channel, m *adapterMsg, key, addr str
 		say("Started a new conversation.")
 	case "help":
 		say(channelHelp)
+	case "link":
+		if !m.dm() {
+			say("Send /link to me in a direct message: the code is personal.")
+			break
+		}
+		t.peerCode(ch, m, addr, peer, codeLink)
 	case "status":
 		if !has {
 			say("No conversation yet — say something to start one. Session " + key + ".")
@@ -581,7 +631,7 @@ func (ag *Agent) channelCommand(t *DB, ch *Channel, m *adapterMsg, key, addr str
 		})
 		say("Stopped.")
 	case "approve", "deny":
-		trusted := peer != nil && peer.State == "allowed" && peer.Trusted
+		trusted := peer.trusted(ch.Policy)
 		run, err := t.getRun(cur)
 		switch {
 		case !trusted:
@@ -616,16 +666,31 @@ type chanPeer struct {
 	CodeSent    int64  `json:"-"`
 	Created     int64  `json:"created"`
 	ApprovedBy  string `json:"approvedBy,omitempty"`
+	// XbinUser is the workspace account this person linked (D86): they
+	// pasted the code the bot gave them on the bridge's page, signed in.
+	XbinUser string `json:"xbinUser,omitempty"`
+	LinkedAt int64  `json:"linkedAt,omitempty"`
+	DMAddr   string `json:"-"` // where their DM is (for "you're linked")
 }
 
-const peerCols = `channel_id, peer_id, name, state, trusted, code, code_expires, code_sent, created, approved_by`
+const peerCols = `channel_id, peer_id, name, state, trusted, code, code_expires, code_sent, created, approved_by, xbin_user, linked_at, dm_addr`
 
 func scanPeer(scan func(dest ...any) error) (*chanPeer, error) {
 	p := &chanPeer{}
 	var trusted int
-	err := scan(&p.ChannelID, &p.PeerID, &p.Name, &p.State, &trusted, &p.Code, &p.CodeExpires, &p.CodeSent, &p.Created, &p.ApprovedBy)
+	err := scan(&p.ChannelID, &p.PeerID, &p.Name, &p.State, &trusted, &p.Code, &p.CodeExpires, &p.CodeSent, &p.Created, &p.ApprovedBy,
+		&p.XbinUser, &p.LinkedAt, &p.DMAddr)
 	p.Trusted = trusted != 0
 	return p, err
+}
+
+// trusted: allowed, and trusted by the owner — or linked, when the channel
+// counts linked people as trusted.
+func (p *chanPeer) trusted(pol channelPolicy) bool {
+	if p == nil || p.State == "blocked" {
+		return false
+	}
+	return (p.State == "allowed" && p.Trusted) || (pol.TrustLinked && p.XbinUser != "")
 }
 
 func (d *DB) getPeer(chID int64, peerID string) *chanPeer {
@@ -651,7 +716,7 @@ func (d *DB) listPeers(chID int64) []*chanPeer {
 	return out
 }
 
-// Pairing limits: a code lives an hour, at most three strangers wait at once,
+// Code limits: a code lives an hour, at most three strangers wait at once,
 // and a waiting stranger is reminded of their code at most every 10 minutes.
 const (
 	pairTTL     = 3600
@@ -659,20 +724,33 @@ const (
 	pairResend  = 600
 )
 
-// pairingCode gives an unknown DM sender a code for the owner to approve, or
-// reminds them of it. Past the cap of waiting strangers they get nothing.
-func (d *DB) pairingCode(ch *Channel, m *adapterMsg, addr string, peer *chanPeer) {
+// Why a person gets a code.
+const (
+	codePairing  = iota // an unknown DM sender: link it, or have the owner approve it
+	codeLinkOnly        // dm.policy linked: only linking lets them in
+	codeLink            // they asked (/link)
+)
+
+// peerCode gives a person a one-hour code, or reminds them of theirs. With
+// it they link their chat account to their xbin account (they paste it on
+// the bridge's page, signed in — POST /adapter/link), or, when pairing, the
+// channel's owner approves it. Unsolicited codes are capped (three strangers
+// waiting, a reminder at most every ten minutes); /link always answers.
+func (d *DB) peerCode(ch *Channel, m *adapterMsg, addr string, peer *chanPeer, why int) {
 	t := now()
-	if peer != nil && peer.CodeExpires > t {
-		if t-peer.CodeSent < pairResend {
+	switch {
+	case peer != nil && peer.CodeExpires > t:
+		if why != codeLink && t-peer.CodeSent < pairResend {
 			return
 		}
-	} else {
-		var waiting int
-		_ = d.q.QueryRow(`SELECT count(*) FROM channel_peers WHERE channel_id=? AND state='pending' AND code_expires>? AND peer_id<>?`,
-			ch.ID, t, m.Sender.ID).Scan(&waiting)
-		if waiting >= pairPending {
-			return
+	default:
+		if why != codeLink {
+			var waiting int
+			_ = d.q.QueryRow(`SELECT count(*) FROM channel_peers WHERE channel_id=? AND state='pending' AND code_expires>? AND peer_id<>?`,
+				ch.ID, t, m.Sender.ID).Scan(&waiting)
+			if waiting >= pairPending {
+				return
+			}
 		}
 		code := pairCode()
 		if _, err := d.q.Exec(`INSERT INTO channel_peers (channel_id, peer_id, name, state, code, code_expires, created)
@@ -684,9 +762,17 @@ func (d *DB) pairingCode(ch *Channel, m *adapterMsg, addr string, peer *chanPeer
 		peer = &chanPeer{Code: code}
 		d.AfterCommit(func() { emitAutomation("channel", ch.ID) })
 	}
+	if m.dm() {
+		_, _ = d.q.Exec(`UPDATE channel_peers SET dm_addr=? WHERE channel_id=? AND peer_id=?`, addr, ch.ID, m.Sender.ID)
+	}
 	_, _ = d.q.Exec(`UPDATE channel_peers SET code_sent=? WHERE channel_id=? AND peer_id=?`, t, ch.ID, m.Sender.ID)
-	d.outboxAdd(ch.ID, "", 0, "notice", addr, fmt.Sprintf(
-		"Hi! I don't know you yet. To talk with me, ask my operator to approve this pairing code: %s (valid for an hour).", peer.Code))
+	where := "open " + ch.Adapter + " in your xbin workspace, signed in, and paste this code"
+	text := map[int]string{
+		codePairing:  "Hi! I don't know you yet. If you have an xbin account here, " + where + " to link it; otherwise ask my operator to approve it. Code: %s (valid for an hour).",
+		codeLinkOnly: "Hi! I only talk with people who linked their xbin account. To link yours, " + where + ": %s (valid for an hour).",
+		codeLink:     "To link this chat account to your xbin account, " + where + ": %s (valid for an hour).",
+	}[why]
+	d.outboxAdd(ch.ID, "", 0, "notice", addr, fmt.Sprintf(text, peer.Code))
 }
 
 // pairCode is 8 characters nobody misreads.

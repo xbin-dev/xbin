@@ -142,6 +142,7 @@ func handleChannelClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	emitAutomation("channel", ch.ID)
+	outChannel(ch, ch.State)
 	xbin.WriteJSON(w, 200, ch)
 }
 
@@ -198,7 +199,7 @@ func handleChannelUpdate(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 403, "only the channel's owner can change its settings")
 		return
 	}
-	prevVis := ch.Visibility
+	prevVis, prevState := ch.Visibility, ch.State
 	if msg := applyChannelPatch(ch, p); msg != "" {
 		xbin.WriteError(w, 400, msg)
 		return
@@ -216,6 +217,9 @@ func handleChannelUpdate(w http.ResponseWriter, r *http.Request) {
 		agent.acl.flush(0)
 	}
 	emitAutomation("channel", ch.ID)
+	if ch.State != prevState {
+		outChannel(ch, ch.State)
+	}
 	xbin.WriteJSON(w, 200, ch)
 }
 
@@ -246,6 +250,7 @@ func handleChannelDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	emitAutomation("channel", ch.ID)
+	outChannel(ch, "removed")
 	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
 }
 
@@ -292,7 +297,7 @@ func handleChannelPair(w http.ResponseWriter, r *http.Request) {
 // handleChannelPeerPut sets a person's standing: allowed or blocked, and
 // trusted (the private lane, when the channel opens it; /approve).
 //
-//	PUT /channels/{id}/peers/{peer} {state?, trusted?, name?}
+//	PUT /channels/{id}/peers/{peer} {state?, trusted?, name?, unlink?}
 func handleChannelPeerPut(w http.ResponseWriter, r *http.Request) {
 	ch, c, ok := channelFor(w, r, lvOwner)
 	if !ok {
@@ -302,6 +307,7 @@ func handleChannelPeerPut(w http.ResponseWriter, r *http.Request) {
 		State   *string `json:"state"`
 		Trusted *bool   `json:"trusted"`
 		Name    *string `json:"name"`
+		Unlink  bool    `json:"unlink"` // forget its xbin account (only the person can link one)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 		xbin.WriteError(w, 400, "bad json")
@@ -330,6 +336,9 @@ func handleChannelPeerPut(w http.ResponseWriter, r *http.Request) {
 		}
 		if b.Name != nil {
 			_, _ = t.q.Exec(`UPDATE channel_peers SET name=? WHERE channel_id=? AND peer_id=?`, clip(*b.Name, 80), ch.ID, peerID)
+		}
+		if b.Unlink {
+			_, _ = t.q.Exec(`UPDATE channel_peers SET xbin_user='', linked_at=0 WHERE channel_id=? AND peer_id=?`, ch.ID, peerID)
 		}
 		return nil
 	})

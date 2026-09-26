@@ -89,6 +89,9 @@ type Config struct {
 	// (a channel session's profile, D86) and inherited by its subagents.
 	Deny []string    `json:"deny,omitempty"`
 	MCP  []MCPServer `json:"mcp"` // legacy static MCP servers (now bound via the mcp interface)
+	// Channel marks a run whose answers are posted to a chat (a channel
+	// session, a trigger announcing): it gets attach_to_reply.
+	Channel bool `json:"channel,omitempty"`
 	// Features toggles optional capabilities — a "Features" menu in the tile.
 	// Absent or true = on; set a key false to turn it off. Known keys are in
 	// featureKeys; unlisted keys default on so older configs get everything.

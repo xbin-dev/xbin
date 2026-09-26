@@ -155,7 +155,7 @@ func TestChannelLifecycle(t *testing.T) {
 	}
 	chPost(t, mux, chMsg(ch, "dm", "D1", "uma", "hi again"))
 	notes := outOfKind(ag, ch, "notice")
-	if len(notes) != 1 || !strings.Contains(notes[0].Body.Text, "pairing code") {
+	if len(notes) != 1 || !strings.Contains(notes[0].Body.Text, "approve it") || !strings.Contains(notes[0].Body.Text, "apps/slack") {
 		t.Fatalf("pairing notices: %+v", notes)
 	}
 	var sum map[string]int
@@ -420,6 +420,24 @@ func TestOutboxStream(t *testing.T) {
 	outStatus("apps/slack", outStatusEv{ChannelID: ch, SessionKey: "k", Address: json.RawMessage(`{}`), State: "working"})
 	if e := next(); e[0] != "status" || !strings.Contains(e[1], "working") {
 		t.Fatalf("status: %v", e)
+	}
+	// claiming, switching off and removing tell the adapter (its page shows it)
+	claim(t, mux, ch, nil)
+	if e := next(); e[0] != "channel" || !strings.Contains(e[1], `"state":"active"`) || !strings.Contains(e[1], `"accountId":"T1"`) {
+		t.Fatalf("claimed: %v", e)
+	}
+	claim(t, mux, other, nil) // not this adapter's
+	if w := callAs(t, mux, asMgr, "PUT", fmt.Sprintf("/channels/%d", ch), map[string]any{"enabled": false}); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	if e := next(); e[0] != "channel" || !strings.Contains(e[1], `"state":"disabled"`) {
+		t.Fatalf("switched off: %v", e)
+	}
+	if w := callAs(t, mux, asMgr, "DELETE", fmt.Sprintf("/channels/%d", ch), nil); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	if e := next(); e[0] != "channel" || !strings.Contains(e[1], `"state":"removed"`) {
+		t.Fatalf("removed: %v", e)
 	}
 }
 

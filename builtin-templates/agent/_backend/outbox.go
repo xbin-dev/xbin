@@ -37,8 +37,9 @@ type OutRow struct {
 }
 
 type outBody struct {
-	Text   string `json:"text"`
-	Format string `json:"format"` // markdown
+	Text   string    `json:"text"`
+	Format string    `json:"format"`          // markdown
+	Files  []outFile `json:"files,omitempty"` // download: GET /adapter/files/{row id}/{index}
 }
 
 const outCols = `id, channel_id, session_key, run_id, kind, address, body, created, state, error, ref`
@@ -71,8 +72,8 @@ func (d *DB) outRows(where string, args ...any) []*OutRow {
 
 // outboxAdd writes a row (in the caller's transaction) and wakes the
 // streams once it commits. Old delivered and failed rows are pruned here.
-func (d *DB) outboxAdd(chID int64, key string, runID int64, kind, addr, text string) {
-	body, _ := json.Marshal(outBody{Text: text, Format: "markdown"})
+func (d *DB) outboxAdd(chID int64, key string, runID int64, kind, addr, text string, files ...outFile) {
+	body, _ := json.Marshal(outBody{Text: text, Format: "markdown", Files: files})
 	if _, err := d.q.Exec(`INSERT INTO outbox (channel_id, session_key, run_id, kind, address, body, created) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		chID, key, runID, kind, addr, string(body), now()); err != nil {
 		logf("outbox: %v", err)
@@ -137,8 +138,12 @@ func (e *Engine) channelTurnEnd(t *DB, run *Run, why, result string) {
 	case endCap:
 		kind, text = "notice", "I stopped after the step limit for one turn. Send a message to let me continue."
 	}
-	if !noReply(text) {
-		t.outboxAdd(chID, key, run.ID, kind, addr, text)
+	files := t.takeReplyFiles(run.ID)
+	if noReply(text) {
+		text = ""
+	}
+	if text != "" || len(files) > 0 {
+		t.outboxAdd(chID, key, run.ID, kind, addr, text, files...)
 	}
 	if ch, err := t.getChannel(chID); err == nil && run.Origin == "channel" {
 		t.AfterCommit(func() {
@@ -170,10 +175,24 @@ type outStatusEv struct {
 	State      string          `json:"state"` // working | idle
 }
 
+// outChannelEv tells an adapter a channel of its changed state: claimed
+// (active), switched off (disabled) or on, or removed — for its page. A
+// removed channel's account says hello again to be offered anew.
+type outChannelEv struct {
+	ChannelID int64  `json:"channelId"`
+	AccountID string `json:"accountId"`
+	State     string `json:"state"` // unclaimed | active | disabled | removed
+}
+
 type outSub struct {
 	adapter string
 	wake    chan struct{}
-	status  chan outStatusEv
+	events  chan sseEv // status and channel signals
+}
+
+type sseEv struct {
+	name string
+	data any
 }
 
 var outHub = struct {
@@ -196,13 +215,20 @@ func outboxKick() {
 
 // outStatus sends a status signal to the adapter's streams; dropped when a
 // stream is behind (it is only a hint).
-func outStatus(adapter string, ev outStatusEv) {
+func outStatus(adapter string, ev outStatusEv) { outSignal(adapter, sseEv{"status", ev}) }
+
+// outChannel tells the channel's adapter its state changed.
+func outChannel(ch *Channel, state string) {
+	outSignal(ch.Adapter, sseEv{"channel", outChannelEv{ChannelID: ch.ID, AccountID: ch.AccountID, State: state}})
+}
+
+func outSignal(adapter string, ev sseEv) {
 	outHub.mu.Lock()
 	defer outHub.mu.Unlock()
 	for s := range outHub.subs {
 		if s.adapter == adapter {
 			select {
-			case s.status <- ev:
+			case s.events <- ev:
 			default:
 			}
 		}
@@ -214,6 +240,7 @@ func outStatus(adapter string, ev outStatusEv) {
 //	event: hello   {cursor, channels}
 //	event: out     OutRow      (pending rows with id > since, then new ones)
 //	event: status  {channelId, sessionKey, address, state}
+//	event: channel {channelId, accountId, state}  (claimed, switched off/on, removed)
 //	event: bye     {}          (this process is handing over: reconnect)
 //
 // since is the last id this connection's predecessor received; a fresh
@@ -226,7 +253,7 @@ func handleAdapterOutbox(w http.ResponseWriter, r *http.Request) {
 	}
 	adapter := adapterOf(r)
 	since, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
-	sub := &outSub{adapter: adapter, wake: make(chan struct{}, 1), status: make(chan outStatusEv, 32)}
+	sub := &outSub{adapter: adapter, wake: make(chan struct{}, 1), events: make(chan sseEv, 32)}
 	outHub.mu.Lock()
 	outHub.subs[sub] = true
 	outHub.mu.Unlock()
@@ -268,8 +295,8 @@ func handleAdapterOutbox(w http.ResponseWriter, r *http.Request) {
 		}
 		select {
 		case <-sub.wake:
-		case ev := <-sub.status:
-			send("status", ev)
+		case ev := <-sub.events:
+			send(ev.name, ev.data)
 		case <-closing:
 			send("bye", map[string]any{})
 			fl.Flush()

@@ -381,9 +381,9 @@ visibility changes its runs' too.
 
 ### Channels (D86)
 
-A chat platform reaches the agent through an **adapter tile** (the `slack`
-builtin, or your own) bound to this agent's `inbox` provide (service
-`agent-inbox`): the binding grants the adapter the `channel` role, which
+A chat platform reaches the agent through an **adapter tile** (a copy of the
+`agent-messaging-bridge` template, customised for your platform by a coding
+agent) bound to this agent's `inbox` provide (service `agent-inbox`): the binding grants the adapter the `channel` role, which
 reaches only `/adapter/*`. The adapter reports messages and pulls replies;
 the agent decides everything else — which conversation a message joins (a
 session per DM, per thread), who may talk (pairing codes, allowlists,
@@ -405,12 +405,24 @@ restart its sessions, retry undelivered replies, edit the rules. The owner's rou
 | `DELETE /channels/{id}` | — | forget it (owner or manager): its conversations stay; a still-bound adapter announces it again, unclaimed |
 | `GET /channels/{id}/peers` | — | the people it knows: `pending` (a pairing code out), `allowed`, `blocked`; `trusted` |
 | `POST /channels/{id}/pair` | `{code}` | approve the stranger holding that pairing code |
-| `PUT /channels/{id}/peers/{peer}` | `{state?: allowed\|blocked, trusted?, name?}` | set someone's standing (trusted: the private lane when `privateLane` is on; `/approve`) |
+| `PUT /channels/{id}/peers/{peer}` | `{state?: allowed\|blocked, trusted?, name?, unlink?}` | set someone's standing (trusted: the private lane when `privateLane` is on; `/approve`); `unlink` forgets their xbin account |
 | `DELETE /channels/{id}/peers/{peer}` | — | forget them (a DM starts pairing again) |
 | `GET /channels/{id}/sessions` | — | `{sessions:[{key, runId, resets, reset, created, lastIn, address}]}` |
 | `POST /channels/{id}/sessions/reset` | `{key}` | start a session afresh, like `/new` |
 | `GET /channels/{id}/outbox?state=failed\|pending` | — | replies not delivered |
 | `POST /channels/{id}/outbox/{oid}/retry` | — | queue a failed reply again |
+
+**People linked to xbin accounts.** A person who messages the bot gets a code
+(`/link` asks for one) and pastes it, signed in, on the adapter's page; from
+then on the agent knows that chat account is them. Their DM is their own
+conversation (theirs, private, in their sidebar next to their chats), their
+group messages carry their id, and the channel can hear only linked people
+(`dm.policy: linked`, `groups.linkedOnly`) or trust them (`trustLinked`). The
+peers list shows who is linked to whom.
+
+**Files.** Attachments people send arrive as session files attached to their
+message (the model sees images); the model sends files back with
+`attach_to_reply` (offered only to conversations that answer into a chat).
 
 Replies are written in the transaction that ends (or parks) the turn — an
 answer, an `ask_user` question, "waiting for approval" — and the adapter

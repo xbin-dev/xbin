@@ -13,7 +13,7 @@ import (
 // channels.policy). Zero values are the defaults; use the accessors.
 type channelPolicy struct {
 	DM struct {
-		Policy  string `json:"policy,omitempty"`  // pairing (default) | allowlist | open | disabled
+		Policy  string `json:"policy,omitempty"`  // pairing (default) | linked | allowlist | open | disabled
 		Scope   string `json:"scope,omitempty"`   // per-peer (default) | main
 		Threads string `json:"threads,omitempty"` // parent (default) | thread
 	} `json:"dm"`
@@ -24,14 +24,20 @@ type channelPolicy struct {
 		FollowThreads  *bool    `json:"followThreads,omitempty"`
 		Scope          string   `json:"scope,omitempty"`   // per-group (default) | per-user
 		Threads        string   `json:"threads,omitempty"` // thread (default) | parent
+		// LinkedOnly: in groups, only people who linked their xbin account
+		// are heard (the others are ignored, silently — no code in public).
+		LinkedOnly bool `json:"linkedOnly,omitempty"`
 	} `json:"groups"`
 	// PrivateLane lets trusted peers (DMs) and TrustedGroups reach the private
 	// lane — internal data. Everything else runs in the web lane: a reply to a
 	// chat is an egress, and a run never holds both (the lane firewall).
 	PrivateLane   bool     `json:"privateLane,omitempty"`
 	TrustedGroups []string `json:"trustedGroups,omitempty"`
-	Reset         string   `json:"reset,omitempty"`      // "" never | idle:<seconds> | daily:<hour>
-	RatePerMin    int      `json:"ratePerMin,omitempty"` // per peer; 0 = 20
+	// TrustLinked counts people linked to an xbin account as trusted (the
+	// private lane when it is open, /approve) — for a team's own workspace.
+	TrustLinked bool   `json:"trustLinked,omitempty"`
+	Reset       string `json:"reset,omitempty"`      // "" never | idle:<seconds> | daily:<hour>
+	RatePerMin  int    `json:"ratePerMin,omitempty"` // per peer; 0 = 20
 	// Deny is the tools a channel session never gets; nil = the default
 	// (no schedules, no skill writes — a stranger's message must not leave
 	// anything behind that outlives the conversation).
@@ -71,9 +77,9 @@ func (p channelPolicy) deny() []string {
 // validate refuses combinations that open the private lane to strangers.
 func (p channelPolicy) validate() string {
 	switch p.dmPolicy() {
-	case "pairing", "allowlist", "open", "disabled":
+	case "pairing", "linked", "allowlist", "open", "disabled":
 	default:
-		return "dm.policy is pairing, allowlist, open or disabled"
+		return "dm.policy is pairing, linked, allowlist, open or disabled"
 	}
 	switch p.groupPolicy() {
 	case "allowlist", "open", "disabled":
@@ -116,9 +122,10 @@ type adapterMsg struct {
 		Name  string `json:"name,omitempty"`
 		IsBot bool   `json:"isBot,omitempty"`
 	} `json:"sender"`
-	Mentioned bool   `json:"mentioned,omitempty"`
-	Text      string `json:"text"`
-	Command   string `json:"command,omitempty"` // the adapter parsed a slash command: "new hello"
+	Mentioned bool     `json:"mentioned,omitempty"`
+	Text      string   `json:"text"`
+	Command   string   `json:"command,omitempty"` // the adapter parsed a slash command: "new hello"
+	Files     []string `json:"files,omitempty"`   // attachments, uploaded first (POST /adapter/files)
 }
 
 func (m *adapterMsg) dm() bool { return m.Conversation.Type == "dm" }

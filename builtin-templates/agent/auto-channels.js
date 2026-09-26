@@ -1,5 +1,5 @@
 // auto-channels.js — chat channels on the Automations page (D86). A channel
-// appears when an adapter tile bound to this agent (the slack tile, …) says
+// appears when an adapter tile bound to this agent (a messaging bridge) says
 // hello. A manager claims it; its owner decides who may talk (pairing codes,
 // allowlists), which lane its conversations run in, and sees its sessions and
 // the replies that could not be delivered. The adapter side is
@@ -34,6 +34,7 @@ function draftOf(it) {
     dmPolicy: dm.policy || 'pairing', dmScope: dm.scope || '',
     groupPolicy: g.policy || 'allowlist', allow: (g.allow || []).join(', '),
     requireMention: g.requireMention !== false, followThreads: g.followThreads !== false, groupThreads: g.threads || '',
+    linkedOnly: !!g.linkedOnly, trustLinked: !!pol.trustLinked,
     privateLane: !!pol.privateLane, trustedGroups: (pol.trustedGroups || []).join(', '),
     reset: pol.reset || '', system: pol.system || '', ratePerMin: pol.ratePerMin || '',
     deny: pol.deny ? pol.deny.join(', ') : null, // null: the default list
@@ -48,6 +49,8 @@ function policyOf(d) {
   };
   if (d.dmScope) p.dm.scope = d.dmScope;
   if (d.groupThreads) p.groups.threads = d.groupThreads;
+  if (d.linkedOnly) p.groups.linkedOnly = true;
+  if (d.trustLinked) p.trustLinked = true;
   if (d.privateLane) { p.privateLane = true; p.trustedGroups = list(d.trustedGroups); }
   if (d.reset) p.reset = d.reset;
   if (d.system.trim()) p.system = d.system.trim();
@@ -152,7 +155,8 @@ function pairingTpl(it, p) {
   const pending = st.peers.filter((x) => x.state === 'pending' && x.codeExpires * 1000 > Date.now());
   if (st.draft.dmPolicy !== 'pairing' && !pending.length) return nothing;
   return html`<h5>Pairing</h5>
-    <div class="muted small">Someone new who messages the bot gets a code. When they tell it to you, enter it here.</div>
+    <div class="muted small">Someone new who messages the bot gets a code. If they have an account here they link it themselves
+      (on <code>${(it.config || {}).adapter}</code>'s page); otherwise they tell you the code and you enter it here.</div>
     <div class="chadd"><input class="mono" placeholder="code" .value=${st.code} @input=${(e) => { st.code = e.target.value; }}
         @keydown=${(e) => { if (e.key === 'Enter') pair(it, p); }}>
       <button class="btn btnsm" @click=${() => pair(it, p)}>Approve</button></div>
@@ -168,7 +172,10 @@ function peopleTpl(it, p) {
   return html`<h5>People</h5>
     ${known.length ? known.map((x) => html`<div class="chrow" data-peer=${x.peerId}><span>${x.name || x.peerId}</span>
       <span class="muted small mono">${x.peerId}</span>
-      <span class="badge ${x.state === 'blocked' ? 'error' : ''}">${x.state}</span><span style="flex:1"></span>
+      <span class="badge ${x.state === 'blocked' ? 'error' : ''}">${x.state}</span>
+      ${x.xbinUser ? html`<span class="badge unread" title="linked ${ago(x.linkedAt)}">@${x.xbinUser}</span>
+        <button class="btn ghost btnsm" title="they speak as themselves until unlinked" @click=${() => peer(it, p, x.peerId, { unlink: true })}>Unlink</button>` : nothing}
+      <span style="flex:1"></span>
       ${st.draft.privateLane ? html`<label class="chk small" title="may reach internal systems (the private lane) and /approve tool calls">
         <input type="checkbox" .checked=${x.trusted} @change=${() => peer(it, p, x.peerId, { trusted: !x.trusted })}> trusted</label>` : nothing}
       <button class="btn ghost btnsm" @click=${() => peer(it, p, x.peerId, { state: x.state === 'blocked' ? 'allowed' : 'blocked' })}>
@@ -210,7 +217,8 @@ function rulesTpl(it, p, claiming) {
     </div>
     <div class="row2">
       <div class="field"><label>Direct messages</label><select @change=${set('dmPolicy')}>
-        ${opt('dmPolicy', 'pairing', 'new people pair with a code you approve')}${opt('dmPolicy', 'allowlist', 'only people you allow')}
+        ${opt('dmPolicy', 'pairing', 'new people link their account, or pair with a code you approve')}
+        ${opt('dmPolicy', 'linked', 'only people who linked their xbin account')}${opt('dmPolicy', 'allowlist', 'only people you allow')}
         ${opt('dmPolicy', 'open', 'anyone')}${opt('dmPolicy', 'disabled', 'off')}</select></div>
       <div class="field"><label>A conversation per</label><select @change=${set('dmScope')}>
         ${opt('dmScope', '', 'person')}${opt('dmScope', 'main', 'nobody — everyone shares one')}</select></div>
@@ -227,12 +235,14 @@ function rulesTpl(it, p, claiming) {
       <label class="chk small"><input type="checkbox" .checked=${d.followThreads} @change=${set('followThreads')}> …and keep following a thread it answered in</label>
       <label class="chk small"><input type="checkbox" .checked=${d.groupThreads === 'parent'}
         @change=${(e) => { d.groupThreads = e.target.checked ? 'parent' : ''; p.changed(); }}> one conversation per group, not per thread</label>
+      <label class="chk small"><input type="checkbox" .checked=${d.linkedOnly} @change=${set('linkedOnly')}> in groups, only people who linked their xbin account</label>
     </div>
     <div class="field"><label class="chk small"><input type="checkbox" .checked=${d.privateLane} @change=${set('privateLane')}>
       trusted people and groups may reach internal systems (the private lane)</label>
       <div class="muted small">Otherwise every conversation here runs in the web lane: a reply leaves the workspace, so it never
         holds internal data. Trust people under People.</div>
-      ${d.privateLane ? html`<input class="mono" .value=${d.trustedGroups} @input=${set('trustedGroups')} placeholder="trusted group ids">` : nothing}
+      ${d.privateLane ? html`<input class="mono" .value=${d.trustedGroups} @input=${set('trustedGroups')} placeholder="trusted group ids">
+        <label class="chk small"><input type="checkbox" .checked=${d.trustLinked} @change=${set('trustLinked')}> people who linked their xbin account count as trusted</label>` : nothing}
     </div>
     <div class="row2">
       <div class="field"><label>Start a conversation afresh</label><select @change=${set('reset')}>
@@ -248,5 +258,5 @@ function rulesTpl(it, p, claiming) {
 
 registerKind('channel', {
   label: 'Channels', order: 0, card, head, detail, open, runsLabel: 'Conversations',
-  empty: 'none — bind a chat adapter (the slack tile) to this agent and it shows up here to claim',
+  empty: 'none — bind a messaging bridge (the agent-messaging-bridge template) to this agent and it shows up here to claim',
 });

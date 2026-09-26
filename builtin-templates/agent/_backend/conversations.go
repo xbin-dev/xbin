@@ -123,7 +123,13 @@ func handleConversations(w http.ResponseWriter, r *http.Request) {
 		limit = 30
 	}
 	where, args := aclWhere(c)
-	cond := []string{"r.parent_id=0", chatOrigins, where}
+	origins := chatOrigins
+	if c.kind == whoUser {
+		// a chat channel's conversation of a linked person is theirs (D86)
+		origins = "(" + chatOrigins + " OR (r.origin='channel' AND r.owner=?))"
+		args = append([]any{c.user}, args...)
+	}
+	cond := []string{"r.parent_id=0", origins, where}
 	// my own list: what I own or joined, and the legacy runs everyone always
 	// had — team conversations of others are the "shared with team" view
 	stJoin := ""

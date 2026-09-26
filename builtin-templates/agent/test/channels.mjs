@@ -27,6 +27,7 @@ await ctx.addInitScript((t) => {
   const peers = [
     { peerId: 'U9', name: 'Uma', state: 'pending', trusted: false, codeExpires: t / 1000 + 1800 },
     { peerId: 'U2', name: 'Bo', state: 'allowed', trusted: false },
+    { peerId: 'U3', name: 'Cy', state: 'allowed', trusted: false, xbinUser: 'cy', linkedAt: t / 1000 - 600 },
   ];
   window.__route('GET', /\/channels\/8\/peers$/, () => window.__json({ peers }));
   window.__route('POST', /\/channels\/8\/pair$/, (m, o) => (JSON.parse(o.body).code === 'ABCD2345'
@@ -81,6 +82,10 @@ await page.click('.chadd button:has-text("Approve")');
 await page.waitForSelector('.autos-page .note');
 ok('the right code pairs', (await page.textContent('.autos-page .note')).includes('Paired with Uma'));
 ok('its sessions are listed', (await page.textContent('.autos-page')).includes('chan:8:dm:U2'));
+ok('a linked person shows whose account they are', (await page.textContent('.chrow[data-peer="U3"]')).includes('@cy'));
+await page.click('.chrow[data-peer="U3"] button:has-text("Unlink")');
+await page.waitForFunction(() => window.__calls.some((c) => c.method === 'PUT' && c.url.endsWith('/peers/U3')));
+ok('the owner can unlink them', JSON.parse((await called('PUT', '/peers/U3'))[0]).unlink === true);
 await page.click('.chrow:has-text("the deploy is done") button:has-text("Retry")');
 await page.waitForFunction(() => window.__calls.some((c) => c.method === 'POST' && c.url.endsWith('/outbox/55/retry')));
 ok('a failed reply can be retried', true);

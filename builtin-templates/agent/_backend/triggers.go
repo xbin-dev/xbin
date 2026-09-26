@@ -276,7 +276,7 @@ func (ag *Agent) fireTrigger(tr *Trigger, ev trigEvent) (v trigVerdict, err erro
 			return refuse("rate")
 		}
 		cfg := parseConfig(t.getSetting("config"))
-		cfg.Toolset = tr.Toolset
+		cfg.Toolset, cfg.Channel = tr.Toolset, tr.Deliver != ""
 		if tr.System != "" {
 			cfg.System = tr.System
 		}

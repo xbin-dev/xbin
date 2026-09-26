@@ -59,7 +59,8 @@
       "channel": "A chat adapter bound to this agent's inbox: /adapter/* only (docs/agent-inbox.md)"
     }
   },
-  // Chat channels (D86): an adapter tile (Slack, …) requests an http
+  // Chat channels (D86): an adapter tile (a copy of the agent-messaging-bridge
+  // template, made to speak Slack, Discord, …) requests an http
   // interface with service "agent-inbox" and the owner binds it to this
   // agent; the binding grants it the channel role. A new channel then shows
   // on the Automations page for a manager to claim.

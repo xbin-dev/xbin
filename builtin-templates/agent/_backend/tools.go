@@ -141,6 +141,9 @@ func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
 	if cfg.feature("repl") {
 		specs = append(specs, replToolSpecs()...)
 	}
+	if cfg.Channel && depth == 0 { // its answers are posted to a chat (channel_files.go)
+		specs = append(specs, attachReplySpec())
+	}
 	// Toolset firewall (Config.Toolset): a run gets EITHER internal reach OR
 	// web egress, never both — otherwise injected/private content in context
 	// could be exfiltrated via crafted URLs/queries. Enforced again at
@@ -334,6 +337,12 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 
 	case "skills_list", "skill_view", "skill_manage":
 		return ag.runSkillTool(run, cfg, name, args)
+
+	case "attach_to_reply":
+		if !cfg.Channel || run.Depth > 0 {
+			return "", fmt.Errorf("attach_to_reply is for conversations that answer into a chat")
+		}
+		return ag.toolAttachReply(run, args)
 	}
 
 	if fileToolNames[name] {
