@@ -150,7 +150,7 @@ function row(n, cx) {
   const key = tap ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); act(); } } : null;
   return html`<xb-row data-k=${n.k} style=${`--sep:${inset}`}
     class=${cls('row', cx.place === 'group' ? 'cell' : 'lone', tap && 'tap', p.disabled && 'disabled')}>
-    <div class=${cls('row-main', p.subtitle && 'has-sub')} role=${tap ? 'button' : nothing} tabindex=${tap ? '0' : nothing} @click=${act} @keydown=${key}>
+    <div class=${cls('row-main', (p.subtitle || p.badge) && 'has-sub')} role=${tap ? 'button' : nothing} tabindex=${tap ? '0' : nothing} @click=${act} @keydown=${key}>
       ${lead}
       <div class="row-text">
         <div class=${cls('row-title', m('title') && 'mono')}>${str(p.title)}</div>
@@ -322,7 +322,8 @@ export const STRUCTURE_CSS = css`
      Title and detail share the width equally until one fits (a short title
      leaves the detail room, a long detail wraps instead of the title). With
      large text a row with a subtitle stacks its detail and badge under the
-     title, as iOS does, instead of squeezing three columns. */
+     title, as iOS does, instead of squeezing three columns (so does one with
+     a badge, whose title would otherwise break inside its words). */
   .row-main { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto auto auto auto;
     grid-template-areas: "lead text . detail badge check chev more"; align-items: center;
     min-height: 44px; padding: 10px 16px; outline-offset: -2px; }
