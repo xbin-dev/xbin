@@ -32,7 +32,11 @@
 #   pull [command]             fetch the results again
 #   cleanup [--dry-run]        mac-cleanup.sh there
 #
-#   XBIN_MAC           ssh destination (required), e.g. me@mini.local
+#   XBIN_MAC           ssh destination (required), e.g. dev@mini.local — the
+#                      dev loop's own user, never the runner's (XBIN_CI_USER,
+#                      default ci): CI jobs from any pushed branch run as
+#                      that one, and e2e and tunnel refuse it (native/
+#                      AGENTS.md → The users)
 #   XBIN_MAC_DIR       the base on the Mac, relative to its home unless
 #                      absolute (default xbin-remote): tree/ (the mirror),
 #                      derived/ (DerivedData, kept between runs), out/<command>/
@@ -141,6 +145,12 @@ on_mac() {
       esac
     done
     [ -n "$url" ] || { say "e2e: --url is required"; return 2; }
+    # Never as the runner's user: its jobs (code from any pushed branch)
+    # could reach the tunnel's port and this run's token.
+    if [ "$(id -un)" = "${XBIN_CI_USER:-ci}" ] || [ -f "${XBIN_RUNNER_DIR:-$HOME/actions-runner}/.runner" ]; then
+      say "e2e: not as $(id -un), the Actions runner's user — run the dev loop as its own user (native/AGENTS.md → The users)"
+      return 2
+    fi
     # The token arrives on stdin (never on a command line).
     IFS= read -r token || true
     [ -n "$token" ] || { say "e2e: no token on stdin"; return 2; }
@@ -176,6 +186,20 @@ case $cmd in
 "" | -h | --help | help) usage; exit 0 ;;
 esac
 [ -n "${XBIN_MAC:-}" ] || { say "set XBIN_MAC=user@host (the Mac's ssh destination)"; exit 2; }
+# The runner's user runs code from any pushed branch: the dev loop has its
+# own (native/AGENTS.md → The users). A tunnel or the e2e token must never
+# reach it; the rest only shares its simulators, which every job shuts down.
+mac_user=""
+case $XBIN_MAC in *@*) mac_user=${XBIN_MAC%%@*} ;; esac
+if [ -n "$mac_user" ] && [ "$mac_user" = "${XBIN_CI_USER:-ci}" ]; then
+  case $cmd in
+  e2e | tunnel)
+    say "$cmd: not as $mac_user, the Actions runner's user — its jobs could reach the tunnel and the token; XBIN_MAC=${XBIN_DEV_USER:-dev}@… (native/AGENTS.md → The users)"
+    exit 2
+    ;;
+  build | snapshots | uitests | run) say "warning: $mac_user is the Actions runner's user — every job shuts its simulators down; the dev loop has its own user (XBIN_MAC=${XBIN_DEV_USER:-dev}@…)" ;;
+  esac
+fi
 rbase=${XBIN_MAC_DIR:-xbin-remote}
 rtree=$rbase/tree
 pull_dir=${XBIN_MAC_PULL:-${TMPDIR:-/tmp}/xbin-mac}
@@ -270,6 +294,10 @@ e2e)
   url=${XBIN_E2E_URL:-} token=${XBIN_E2E_TOKEN:-} started=0
   if [ -z "$url" ]; then
     e2e_dir=${XBIN_E2E_DIR:-${TMPDIR:-/tmp}/xbin-e2e}
+    case " ${XBIN_E2E_XBIND_ARGS:-} " in
+    *" --isolate "*) ;;
+    *) say "e2e: the xbind runs unsandboxed (no --isolate in XBIN_E2E_XBIND_ARGS): its terminals are shells as you on this box, open to whoever holds the owner token — only this run's ssh session to $XBIN_MAC does" ;;
+    esac
     XBIN_E2E_DIR=$e2e_dir "$here/e2e-xbind.sh" start --port "$port"
     started=1
     url=$(sed -n 's/^XBIN_E2E_URL=//p' "$e2e_dir/env")

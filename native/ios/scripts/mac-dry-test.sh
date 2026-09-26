@@ -33,11 +33,27 @@ cmd=$(printf '%s' "$*" | sed 's#/bin/bash #bash #g')
 if [ "$nostdin" = 1 ]; then exec sh -c "$cmd" </dev/null; fi
 exec sh -c "$cmd"
 SH
+# pgrep: FAKE_PGREP=0 — every pattern matches; FAKE_PGREP_MATCH — the
+# patterns containing that text do.
 cat >"$bin/pgrep" <<'SH'
 #!/bin/sh
-[ "${FAKE_PGREP:-1}" = 0 ]
+[ "${FAKE_PGREP:-1}" = 0 ] && exit 0
+if [ -n "${FAKE_PGREP_MATCH:-}" ]; then
+  case "$*" in *"$FAKE_PGREP_MATCH"*) exit 0 ;; esac
+fi
+exit 1
 SH
-chmod +x "$bin/ssh" "$bin/pgrep"
+# gh: the fork pull request approval setting (FAKE_GH_APPROVAL; unset: gh
+# is not signed in) — never the network.
+cat >"$bin/gh" <<'SH'
+#!/bin/sh
+echo "gh $*" >>"$FAKE_LOG"
+case "$*" in
+*fork-pr-contributor-approval*) [ -n "${FAKE_GH_APPROVAL:-}" ] || exit 4; echo "$FAKE_GH_APPROVAL" ;;
+*) exit 1 ;;
+esac
+SH
+chmod +x "$bin/ssh" "$bin/pgrep" "$bin/gh"
 
 have() { command -v "$1" >/dev/null 2>&1; }
 local_env() { # a dev box, not Actions
@@ -123,6 +139,17 @@ eq "mac-setup: the job hooks in the runner's .env" "$(grep '^ACTIONS_RUNNER_HOOK
   "ACTIONS_RUNNER_HOOK_JOB_STARTED=$HOME/xbin-ci/bin/job-hook.sh
 ACTIONS_RUNNER_HOOK_JOB_COMPLETED=$HOME/xbin-ci/bin/job-hook.sh"
 has "mac-setup: the hook runs mac-cleanup.sh --job-hook" "$(cat "$HOME/xbin-ci/bin/job-hook.sh")" "mac-cleanup.sh --job-hook"
+has "mac-setup: …for this repository only" "$(cat "$HOME/xbin-ci/bin/job-hook.sh")" "XBIN_CI_REPO=xbin-dev/xbin exec /bin/bash"
+# the installed hook, as the runner starts it: this repository's ios.yml on
+# a push runs; a pull request's job, a fork's, another workflow don't
+setup_out=$out
+# (/bin/bash → bash: a box without one, as the fake ssh does)
+hook() { env GITHUB_REPOSITORY=xbin-dev/xbin "$@" bash -c "$(sed 's#/bin/bash #bash #' "$HOME/xbin-ci/bin/job-hook.sh")"; }
+run hook GITHUB_EVENT_NAME=push GITHUB_WORKFLOW_REF=xbin-dev/xbin/.github/workflows/ios.yml@refs/heads/feature
+eq "mac-setup's hook: ios.yml on a push runs" "$rc" 0
+run hook GITHUB_EVENT_NAME=pull_request GITHUB_WORKFLOW_REF=xbin-dev/xbin/.github/workflows/x.yml@refs/pull/7/merge GITHUB_HEAD_REF=f
+eq "mac-setup's hook: a pull request's workflow is refused" "$rc" 1
+out=$setup_out
 if [ -x "$HOME/xbin-ci/bin/job-hook.sh" ]; then ok "mac-setup: the hook is executable"; else bad "mac-setup: hook not executable"; fi
 if cmp -s "$S/mac-cleanup.sh" "$HOME/xbin-ci/bin/mac-cleanup.sh"; then ok "mac-setup: installs mac-cleanup.sh"; else bad "mac-setup: mac-cleanup.sh not installed"; fi
 plist=$(python3 - "$HOME/Library/LaunchAgents/dev.xbin.ci-cleanup.plist" <<'PY'
@@ -187,10 +214,10 @@ setup_env
 FAKE_SLEEP=0 FAKE_FILEVAULT=On run "$S/mac-setup.sh" --check
 for want in "ok      system sleep off" "ok      restarts after a power loss (pmset autorestart 1)" \
   "ok      wakes for network access (pmset womp 1)" "ok      restarts after a system freeze" "ok      FileVault on" \
-  "ok      no automatic login (FileVault on: unlocking the disk as ci" "info    users: admin: owner; standard: ci release; this is $me" \
-  "ok      user ci, standard" "ok      user release, standard" "ok      Remote Login on" \
+  "ok      no automatic login (FileVault on: unlocking the disk as ci" "info    users: admin: owner; standard: ci release dev; this is $me" \
+  "ok      user ci, standard" "ok      user dev, standard (the ssh dev loop" "ok      user release, standard" "ok      Remote Login on" \
   "ok      sshd: keys only (PasswordAuthentication no, KbdInteractiveAuthentication no)" "ok      sshd: no root login" \
-  "ok      sshd: AllowUsers owner ci release" "ok      firewall on" "ok      firewall stealth mode on" \
+  "ok      sshd: AllowUsers owner ci dev release" "ok      firewall on" "ok      firewall stealth mode on" \
   "ok      Screen Sharing off" "ok      no Apple ID signed in ($me)" "ok      a display is attached" "ok      disk: 200 GB free" \
   "info    Xcode 27.0 (27A5000a) $apps/Xcode_27.0.app" "info    SDKs: iphoneos27.0 iphonesimulator27.0" "info    simulator runtimes: iOS"; do
   has "mac-setup --check, the box: $want" "$out" "$want"
@@ -210,9 +237,10 @@ for want in "warn    the Mac may sleep: sudo pmset -a sleep 0" "warn    stays of
   "warn    no wake for network access: sudo pmset -a womp 1" "warn    no restart after a system freeze: sudo systemsetup -setrestartfreeze on" \
   "warn    FileVault off: this Mac holds the release user's App Store Connect key — sudo fdesetup enable" \
   "warn    ci is an admin (the Actions runner" "warn    no user release (the App Store Connect key" \
+  "warn    no user dev (the ssh dev loop" \
   "warn    Remote Login off: sudo systemsetup -setremotelogin on" \
   "warn    sshd accepts passwords (PasswordAuthentication yes, KbdInteractiveAuthentication yes" \
-  "warn    sshd: PermitRootLogin prohibit-password" "warn    sshd: no AllowUsers — every account may log in: AllowUsers <admin> ci release" \
+  "warn    sshd: PermitRootLogin prohibit-password" "warn    sshd: no AllowUsers — every account may log in: AllowUsers <admin> ci dev release" \
   "warn    firewall off: sudo $XBIN_SOCKETFILTERFW --setglobalstate on" "warn    stealth mode off" \
   "warn    Screen Sharing lets owner ci in" "warn    an Apple ID is signed in for $me" "warn    no display attached" \
   "warn    disk: 10 GB free (under 50 GB"; do
@@ -230,11 +258,31 @@ touch "$FAKE_STATE/launchd-com.apple.screensharing"
 FAKE_SCREENSHARING_USERS=owner run "$S/mac-setup.sh" --check
 has "mac-setup: Screen Sharing for the admin only is fine" "$out" "ok      Screen Sharing on, only for: owner"
 
-# Who holds the runner: never the release user; an admin is warned about.
+# Who holds the runner: never the release user, nor the dev loop's; an
+# admin is warned about.
 setup_env
 XBIN_RELEASE_USER=$me run "$S/mac-setup.sh" --runner-token tok
 has "mac-setup: not as the release user" "$out" "warn    the Actions runner: not as $me"
 hasnt "mac-setup: …nothing registered" "$(cat "$FAKE_LOG")" "config.sh"
+setup_env
+XBIN_DEV_USER=$me run "$S/mac-setup.sh" --runner-token tok
+has "mac-setup: not as the dev loop's user" "$out" "warn    the Actions runner: not as $me — the ssh dev loop's user never runs CI jobs"
+hasnt "mac-setup: …nothing registered for it" "$(cat "$FAKE_LOG")" "config.sh"
+
+# Fork pull requests' approval (GitHub's setting, read with gh when it is
+# signed in as an admin): only "all external contributors" is quiet.
+setup_env
+run "$S/mac-setup.sh" --check
+has "mac-setup --check: no gh sign-in → the fork approval is only named" "$out" "info    fork pull request approval: not checked"
+setup_env
+FAKE_GH_APPROVAL=first_time_contributors run "$S/mac-setup.sh" --check
+has "mac-setup --check: a lax fork approval is warned about" "$out" \
+  "warn    fork pull requests' workflows run without approval for some contributors (first_time_contributors)"
+has "mac-setup --check: …asking the repository's own setting" "$(cat "$FAKE_LOG")" \
+  "gh api repos/xbin-dev/xbin/actions/permissions/fork-pr-contributor-approval"
+setup_env
+FAKE_GH_APPROVAL=all_external_contributors run "$S/mac-setup.sh" --check
+has "mac-setup --check: approval for all external contributors is fine" "$out" "ok      fork pull requests' workflows wait for approval"
 setup_env
 FAKE_ADMINS="owner $me" run "$S/mac-setup.sh" --runner-token tok
 has "mac-setup: an admin's runner is warned about" "$out" "warn    the runner runs as $me, an admin: register it as the standard user ci"
@@ -274,9 +322,34 @@ FAKE_PGREP=0 run "$S/mac-cleanup.sh"
 eq "mac-cleanup: skipped while a runner job runs" "$rc:$(find "$HOME" -name Old-ghi | wc -l | tr -d ' ')" "0:1"
 has "mac-cleanup: …says so" "$out" "a runner job is running — skipped"
 : >"$FAKE_LOG"
-FAKE_SIMCTL_STATUS=1 run "$S/mac-cleanup.sh" --job-hook
-eq "mac-cleanup --job-hook: never fails the job" "$rc" 0
+# the job hook: only this repository's ios.yml on a push or a dispatch
+jobenv() { env XBIN_CI_REPO=xbin-dev/xbin GITHUB_REPOSITORY=xbin-dev/xbin GITHUB_EVENT_NAME=push \
+  GITHUB_WORKFLOW_REF=xbin-dev/xbin/.github/workflows/ios.yml@refs/heads/feature "$@"; }
+FAKE_SIMCTL_STATUS=1 run jobenv "$S/mac-cleanup.sh" --job-hook
+eq "mac-cleanup --job-hook: a simulator that won't shut down never fails the job" "$rc" 0
 has "mac-cleanup --job-hook: shuts the simulators down" "$(cat "$FAKE_LOG")" "xcrun simctl shutdown all"
+run jobenv GITHUB_EVENT_NAME=workflow_dispatch "$S/mac-cleanup.sh" --job-hook
+eq "mac-cleanup --job-hook: a manual dispatch of ios.yml runs" "$rc" 0
+printf '{"repository": {"fork": false}, "ref": "refs/heads/feature"}' >"$tmp/push-event.json"
+run jobenv GITHUB_EVENT_PATH="$tmp/push-event.json" "$S/mac-cleanup.sh" --job-hook
+eq "mac-cleanup --job-hook: …with its event" "$rc" 0
+printf '{"repository": {"fork": true}}' >"$tmp/fork-event.json"
+for c in "a pull request:GITHUB_EVENT_NAME=pull_request" "pull_request_target:GITHUB_EVENT_NAME=pull_request_target" \
+  "a pull request's head:GITHUB_HEAD_REF=feature" "a workflow a branch added:GITHUB_WORKFLOW_REF=xbin-dev/xbin/.github/workflows/x.yml@refs/heads/feature" \
+  "ios.yml at a tag:GITHUB_WORKFLOW_REF=xbin-dev/xbin/.github/workflows/ios.yml@refs/tags/v1" \
+  "another repository's:GITHUB_REPOSITORY=someone/xbin" "a fork's event:GITHUB_EVENT_PATH=$tmp/fork-event.json" \
+  "no event:GITHUB_EVENT_NAME=" "no workflow ref:GITHUB_WORKFLOW_REF=" "no repository baked in:XBIN_CI_REPO="; do
+  : >"$FAKE_LOG"
+  run jobenv "${c#*:}" "$S/mac-cleanup.sh" --job-hook
+  eq "mac-cleanup --job-hook: refuses $(printf '%s' "${c%%:*}")" "$rc:$(printf '%s' "$out" | grep -c 'refusing this job' || true)" "1:1"
+  hasnt "mac-cleanup --job-hook: …before touching anything" "$(cat "$FAKE_LOG")" "simctl"
+done
+: >"$FAKE_LOG"
+mk "$HOME/Library/Developer/Xcode/DerivedData/Old-jkl"
+FAKE_PGREP_MATCH='mac-remote\.sh --on-mac (toolchain' run "$S/mac-cleanup.sh"
+eq "mac-cleanup: skipped while a mac-remote.sh run is going" "$rc:$(find "$HOME" -name Old-jkl | wc -l | tr -d ' ')" "0:1"
+has "mac-cleanup: …says so" "$out" "a mac-remote.sh run is going — skipped"
+hasnt "mac-cleanup: …and leaves its simulators alone" "$(cat "$FAKE_LOG")" "simctl"
 run "$S/mac-cleanup.sh" --bogus
 eq "mac-cleanup: an unknown argument fails" "$rc" 2
 export HOME=$realhome
@@ -504,6 +577,23 @@ has "mac-remote e2e: --only filters" "$log" "-only-testing:XbinUITests/XbinE2ETe
 eq "mac-remote e2e: pulls the screenshots" "$(find "$tmp/pull/e2e" -name '*.png' | wc -l | tr -d ' ')" 3
 XBIN_E2E_URL=http://127.0.0.1:9871 run "$S/mac-remote.sh" e2e
 eq "mac-remote e2e: a URL without a token fails" "$rc" 2
+# never as the runner's user: its jobs could reach the tunnel and the token
+: >"$FAKE_LOG"
+XBIN_MAC=ci@mini XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_TOKEN=tok-owner-secret run "$S/mac-remote.sh" e2e
+eq "mac-remote e2e: refused as the runner's user" "$rc:$(printf '%s' "$out" | grep -c "not as ci, the Actions runner's user" || true)" "2:1"
+hasnt "mac-remote e2e: …before any ssh" "$(cat "$FAKE_LOG")" "ssh "
+XBIN_MAC=ci@mini run "$S/mac-remote.sh" tunnel
+eq "mac-remote tunnel: refused as the runner's user" "$rc" 2
+XBIN_MAC=ci@mini XBIN_CI_USER=runner run "$S/mac-remote.sh" tunnel --port 9874
+eq "mac-remote tunnel: XBIN_CI_USER names the runner's user" "$rc" 0
+XBIN_MAC=ci@mini run "$S/mac-remote.sh" build
+has "mac-remote: the runner's user shares its simulators — warned" "$out" "warning: ci is the Actions runner's user"
+# …and on the Mac: a user with a registered runner doesn't run the tests
+mkdir -p "$tmp/rr" && echo '{}' >"$tmp/rr/.runner"
+: >"$FAKE_LOG"
+XBIN_RUNNER_DIR=$tmp/rr XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_TOKEN=tok-owner-secret run "$S/mac-remote.sh" e2e
+eq "mac-remote e2e: refused on the Mac where the runner is registered" "$rc:$(printf '%s' "$out" | grep -c "e2e: not as" || true)" "2:1"
+hasnt "mac-remote e2e: …no tests" "$(cat "$FAKE_LOG")" "xcodebuild"
 : >"$FAKE_LOG"
 XBIN_E2E_URL=http://10.0.0.5:8642 XBIN_E2E_TOKEN=t run "$S/mac-remote.sh" e2e
 hasnt "mac-remote e2e: an xbind the Mac reaches itself → no tunnel" "$(cat "$FAKE_LOG")" " -R "
@@ -523,6 +613,9 @@ XBIN_E2E_DIR=$tmp/e2edir run "$S/mac-remote.sh" e2e --port 9872
 eq "mac-remote e2e: starts an xbind here" "$rc:$(grep '^e2e-xbind' "$FAKE_LOG" | tr '\n' '|')" "0:e2e-xbind start --port 9872|e2e-xbind stop|"
 has "mac-remote e2e: …tunnels its port" "$(cat "$FAKE_LOG")" "-R 127.0.0.1:9872:127.0.0.1:9872"
 has "mac-remote e2e: …hands its token over" "$(cat "$FAKE_LOG")" "TOKEN=tok-started"
+has "mac-remote e2e: an unsandboxed xbind is said to be one" "$out" "the xbind runs unsandboxed"
+XBIN_E2E_XBIND_ARGS="--isolate --rootfs /r" XBIN_E2E_DIR=$tmp/e2edir run "$S/mac-remote.sh" e2e --port 9872
+hasnt "mac-remote e2e: …an isolated one is not" "$out" "unsandboxed"
 : >"$FAKE_LOG"
 XBIN_E2E_DIR=$tmp/e2edir run "$S/mac-remote.sh" e2e --port 9872 --keep
 eq "mac-remote e2e --keep: leaves it running" "$(grep '^e2e-xbind' "$FAKE_LOG" | tr '\n' '|')" "e2e-xbind start --port 9872|"

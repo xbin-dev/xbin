@@ -3244,9 +3244,16 @@ Deviations and refinements made while implementing; all deliberate:
     swiftly, actionlint); a Linux `native` job in ci.yml (Swift 6.4 via
     swiftly: `swift-test`, `swift-stubcheck`, `native-check`,
     `ci-local-check.sh`). The runner is repository-scoped with a job hook
-    that shuts simulators down. ci-local-check.sh *enforces* the security
-    rules: ios.yml triggers only on push and dispatch, no ci.yml job can
-    reach a self-hosted runner, no secrets.
+    that shuts simulators down. **The Mac enforces the security rule, not
+    the repository**: a pull request's workflows run from its own merge
+    commit, so it can add a job naming the runner and edit away any check
+    in the tree; the job hook — the Mac's own copy, run before any step —
+    fails every job but this repository's ios.yml on a push to a branch or
+    a manual dispatch (a pull request's, a fork's, another workflow file's),
+    with GitHub's fork approval on "all external contributors" as the gate
+    before it. ci-local-check.sh's checks (ios.yml triggers only on push
+    and dispatch, no ci.yml job on a self-hosted runner, no secrets) catch
+    our own mistakes only.
   - **UI tests by visible labels against a real xbind** (XbinUITests),
     skipping without one; run through `mac-remote.sh e2e` over an ssh
     reverse tunnel to an xbind on the Linux box.
@@ -3258,8 +3265,12 @@ Deviations and refinements made while implementing; all deliberate:
     release key, so a power loss waits for an unlock at the KVM, planned
     reboots use `fdesetup authrestart`, and ci is the FileVault user whose
     unlock starts the runner's session.
-  - **Three users**: an admin (setup), a standard `ci` (the runner,
-    simulators, the dev loop) and a standard `release` that alone holds
+  - **Four users**: an admin (setup), a standard `ci` (the runner and its
+    simulators), a standard `dev` (the ssh dev loop — never ci: a job is
+    code from any pushed branch and could plant a shell startup file that
+    reads the e2e token, reach the e2e tunnel's loopback port, or shut the
+    loop's simulators down; mac-remote.sh refuses e2e and tunnel as ci, and
+    the e2e xbind keeps no password login) and a standard `release` that alone holds
     the App Store Connect API key (`~/.appstoreconnect/private_keys`, mode
     600) and runs `release-build.sh` by hand: automatic signing with
     `-allowProvisioningUpdates` and the key, so the distribution

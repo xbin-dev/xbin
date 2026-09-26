@@ -32,6 +32,27 @@ eq "pick-sim: unknown XBIN_SIM falls back to the rule" "$rc:$(printf '%s\n' "$ou
 has "pick-sim: unknown XBIN_SIM is reported" "$out" "is not an available iOS simulator"
 
 : >"$FAKE_LOG"
+# the UI tests' own simulator (mac-setup.sh makes it from the top-ranked
+# type, so it ties with the stock model and would win on its shorter name)
+# is never picked by the rule, nor by XBIN_SIM
+python3 - "$td/simctl-typical.json" "$tmp/sim-with-e2e.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+rt = "com.apple.CoreSimulator.SimRuntime.iOS-27-1"
+d["devices"][rt].append({"name": "xbin-e2e", "udid": "99999999-0000-4000-8000-00000000E2E0", "isAvailable": True,
+                         "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17", "state": "Shutdown"})
+d["devices"][rt].append({"name": "xbin-e2e-2", "udid": "99999999-0000-4000-8000-00000000E2E2", "isAvailable": True,
+                         "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17", "state": "Shutdown"})
+json.dump(d, open(sys.argv[2], "w"))
+PY
+FAKE_SIMCTL_JSON=$tmp/sim-with-e2e.json run "$S/pick-sim.sh"
+eq "pick-sim: the rule never picks the UI tests' simulator" "$rc:$(printf '%s\n' "$out" | tail -n 1)" \
+  "0:platform=iOS Simulator,id=BBBBBBBB-0000-4000-8000-000000002714"
+FAKE_SIMCTL_JSON=$tmp/sim-with-e2e.json XBIN_SIM=xbin-e2e run "$S/pick-sim.sh"
+eq "pick-sim: …nor XBIN_SIM" "$(printf '%s\n' "$out" | tail -n 1)" "platform=iOS Simulator,id=BBBBBBBB-0000-4000-8000-000000002714"
+has "pick-sim: …and says why" "$out" "is the UI tests' own simulator"
+FAKE_SIMCTL_JSON=$tmp/sim-with-e2e.json XBIN_SIM_ENSURE=xbin-e2e run "$S/pick-sim.sh"
+eq "pick-sim: XBIN_SIM_ENSURE still gets it" "$(printf '%s\n' "$out" | tail -n 1)" "platform=iOS Simulator,id=99999999-0000-4000-8000-00000000E2E0"
 XBIN_SIM_ENSURE=xbin-e2e run "$S/pick-sim.sh"
 eq "pick-sim: XBIN_SIM_ENSURE creates a missing device" "$rc:$(printf '%s\n' "$out" | tail -n 1)" \
   "0:platform=iOS Simulator,id=99999999-0000-4000-8000-00000000C0DE"

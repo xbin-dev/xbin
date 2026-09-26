@@ -332,7 +332,7 @@ SH
 cat >"$bin/dscl" <<'SH'
 #!/bin/sh
 echo "dscl $*" >>"$FAKE_LOG"
-users=${FAKE_USERS-owner:501 ci:502 release:503}
+users=${FAKE_USERS-owner:501 ci:502 release:503 dev:504}
 case "$2 $3" in
 "-list /Users")
   echo "_www 70"
@@ -448,12 +448,13 @@ reset_env() {
     FAKE_SCREENSHARING_USERS FAKE_FW FAKE_STEALTH FAKE_NC FAKE_DISPLAY FAKE_DF_AVAIL_KB FAKE_WOMP FAKE_AUTORESTART \
     FAKE_APPLE_ID FAKE_XCODE_VERSION FAKE_XCODE_BUILD FAKE_KEYCHAIN_LOCKED FAKE_DIST_IDENTITY FAKE_NO_IPA \
     XBIN_TEAM_ID XBIN_ASC_KEY_ID XBIN_ASC_ISSUER_ID XBIN_ASC_KEY XBIN_RELEASE_FROM_ACTIONS GITHUB_EVENT_NAME GITHUB_HEAD_REF \
-    GITHUB_EVENT_PATH RUNNER_NAME XBIN_CI_USER XBIN_RELEASE_USER
+    GITHUB_EVENT_PATH RUNNER_NAME XBIN_CI_USER XBIN_RELEASE_USER XBIN_DEV_USER XBIN_CI_REPO GITHUB_REPOSITORY \
+    GITHUB_WORKFLOW_REF FAKE_GH_APPROVAL FAKE_PGREP FAKE_PGREP_MATCH XBIN_RUNNER_DIR
   export XCBEAUTIFY=0 # off unless a case turns it on
   export XBIN_SOCKETFILTERFW=$bin/socketfilterfw XBIN_SSHD_CONFIG=$tmp/sshd/sshd_config
   mkdir -p "$tmp/sshd/sshd_config.d"
   printf 'Include /etc/ssh/sshd_config.d/*\nUsePAM yes\n' >"$tmp/sshd/sshd_config"
-  printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin no\nAllowUsers owner ci release\n' \
+  printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin no\nAllowUsers owner ci dev release\n' \
     >"$tmp/sshd/sshd_config.d/100-xbin.conf"
 }
 

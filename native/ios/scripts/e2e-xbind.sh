@@ -7,27 +7,34 @@
 # hands the URL and the owner token to the tests.
 #
 #   e2e-xbind.sh start [--port P]   build bin/{xbind,bx,fakeacp}, init a fresh
-#                                   workspace, start xbind on 127.0.0.1:P and
+#                                   workspace, start xbind on 127.0.0.1:P,
+#                                   delete the login --dev seeds (admin/admin:
+#                                   only the random owner token opens it) and
 #                                   wait until the counter's backend answers
 #   e2e-xbind.sh stop               stop it (and drop any mount it left)
 #   e2e-xbind.sh env                XBIN_E2E_URL=… and XBIN_E2E_TOKEN=… lines
 #   e2e-xbind.sh smoke              what the UI tests need of the server,
 #                                   checked over HTTP: the token, the counter
-#                                   (read, +1), the fake agent answering
+#                                   (read, +1), the fake agent answering —
+#                                   and that no password opens it
 #
 #   XBIN_E2E_PORT       default 9871 (the tunnel keeps the same port on the
 #                       Mac, so the workspace's origin is the same on both
 #                       sides: http://127.0.0.1:P)
 #   XBIN_E2E_DIR        default ${TMPDIR:-/tmp}/xbin-e2e: ws/ (the workspace),
 #                       xbind.log, xbind.pid, env
-#   XBIN_E2E_XBIND_ARGS extra xbind flags, e.g. "--isolate --rootfs …"
+#   XBIN_E2E_XBIND_ARGS extra xbind flags, e.g. "--isolate --rootfs …" —
+#                       without --isolate its terminals are shells as you on
+#                       this box, for whoever holds the owner token (the
+#                       tunnel makes the port reachable on the Mac: never
+#                       tunnel it to the runner's user, native/AGENTS.md)
 #
 # The flags, for doing it by hand: `xbind init <ws>`; cp -r
 # examples/counter-go <ws>/apps/counter; XBIN_AGENT_FAKE=bin/fakeacp
 # XBIN_BIN=bin XBIN_SDK_PATH=sdk bin/xbind --dev --dev-overlay
 # workspace-template --workspace <ws> --listen 127.0.0.1:P --external-url
 # http://127.0.0.1:P; the owner token is <ws>/.xbin/token (--dev also
-# seeds admin/admin).
+# seeds admin/admin, which start deletes: DELETE /api/xbin/users/admin).
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -150,6 +157,10 @@ start)
     >"$dir/xbind.log" 2>&1 </dev/null &
   echo $! >"$dir/xbind.pid"
   wait_for 30 "xbind" curl -fsS -o /dev/null "$url/healthz"
+  # --dev seeds admin/admin into a workspace with no users: anything that
+  # reaches the port (the tunnel's end on the Mac is every local user's)
+  # could sign in with it. Only the random owner token opens this one.
+  api DELETE /api/xbin/users/admin >/dev/null || { say "could not delete the dev login admin/admin — stopping"; stop; exit 1; }
   # The counter's Go backend builds on first use (a cold build can take a
   # minute or two); the UI tests should not wait for it.
   wait_for 240 "the counter's backend" api GET /api/apps/counter/count
@@ -174,6 +185,12 @@ smoke)
   check() { if "$@" >/dev/null 2>&1; then echo "ok   $what"; else echo "FAIL $what"; fail=1; fi; }
   what="the token reads whoami"
   check api GET /api/xbin/whoami
+  refused() { # the dev login --dev seeds does not open it
+    [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
+      -d '{"username":"admin","password":"admin"}' "$url/api/xbin/login")" = 401 ]
+  }
+  what="no password opens it (admin/admin, --dev's seed, is gone)"
+  check refused
   what="apps/counter's runtime document (/c/apps/counter/?native=1)"
   check curl -fsS -o /dev/null -H "Authorization: Bearer $(token)" "$url/c/apps/counter/?native=1"
   what="apps/welcome, the web tile, is served"

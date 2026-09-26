@@ -14,7 +14,10 @@
 #      mode), current action majors, the artifact names and paths the
 #      scripts write to, no secrets, every script it runs exists and is
 #      executable; ci.yml keeps its test job, has the native job, and no
-#      job of it can land on a self-hosted runner
+#      job of it can land on a self-hosted runner. These catch OUR mistakes
+#      only: a fork's pull request runs its own copy of the workflows (and of
+#      this script), so it could add a job for the Mac — the Mac's runner job
+#      hook (mac-cleanup.sh --job-hook) is what refuses that
 #   2. actionlint on both workflows, when installed (or ACTIONLINT=…; with
 #      CI_LOCAL_FETCH_ACTIONLINT=1 the pinned release is fetched, checked
 #      against its SHA-256)
@@ -86,7 +89,7 @@ text = open(wf_path).read()
 wf = yaml.safe_load(text)
 # PyYAML reads the bare key `on` as the boolean True (YAML 1.1).
 on = wf.get("on", wf.get(True)) or {}
-check(set(on) <= {"push", "workflow_dispatch"}, "on: only push and workflow_dispatch (never pull_request*: a self-hosted runner must not run a fork's code) — has %s" % sorted(on))
+check(set(on) <= {"push", "workflow_dispatch"}, "on: only push and workflow_dispatch (never pull_request*: the Mac's job hook refuses any other event, so such a run fails there) — has %s" % sorted(on))
 push = on.get("push") or {}
 check("master" in (push.get("branches-ignore") or []), "on.push.branches-ignore must list master (feature branches only)")
 check("branches" not in push, "on.push must not also set branches")
@@ -213,7 +216,7 @@ ci = yaml.safe_load(ctext)
 cjobs = ci.get("jobs") or {}
 check("test" in cjobs, "ci.yml: the test job stays")
 check("XBIN_IOS_RUNNER" not in ctext and "self-hosted" not in json.dumps([j.get("runs-on") for j in cjobs.values()]),
-      "ci.yml runs for pull requests: none of its jobs may run on a self-hosted runner")
+      "ci.yml runs for pull requests: none of its jobs may name a self-hosted runner (the Mac's job hook refuses them anyway)")
 nat = cjobs.get("native") or {}
 check(str(nat.get("runs-on", "")).startswith("ubuntu-"), "ci.yml: the native job runs on a GitHub-hosted Ubuntu runner")
 nruns = "\n".join(runs(s) for s in nat.get("steps", []))

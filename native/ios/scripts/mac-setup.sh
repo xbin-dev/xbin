@@ -27,22 +27,28 @@
 # (a LaunchAgent running mac-cleanup.sh: DerivedData, caches and simulators
 # nobody used for a week); the Actions runner (pinned release, SHA-256
 # checked, labels self-hosted, macOS, xbin-mini, as a launchd service, with
-# a job hook that shuts the simulators down).
+# a job hook that refuses any job but this repository's ios.yml on a push
+# or a manual dispatch — a fork's pull request included — and shuts the
+# simulators down).
 #
 # Then the box — reported, never changed, as it sits headless in a
 # datacenter (native/AGENTS.md → "Mac mini"): pmset (sleep 0, autorestart
 # 1, womp 1), restart after a freeze, FileVault, automatic login, the users
-# (an admin; XBIN_CI_USER, default ci, and XBIN_RELEASE_USER, default
-# release, both standard), Remote Login and sshd's key-only hardening
-# (AllowUsers), the firewall and stealth mode, Screen Sharing restricted, no
-# Apple ID, a display (the HDMI dummy plug), free disk (XBIN_MIN_FREE_GB,
-# default 50), the Xcodes, SDKs and simulator runtimes, and whether the
-# runner runs. Warnings don't fail --check; each says how to fix it.
+# (an admin; XBIN_CI_USER, default ci, XBIN_DEV_USER, default dev, and
+# XBIN_RELEASE_USER, default release, all standard), Remote Login and
+# sshd's key-only hardening (AllowUsers), the firewall and stealth mode,
+# Screen Sharing restricted, no Apple ID, a display (the HDMI dummy plug),
+# free disk (XBIN_MIN_FREE_GB, default 50), the Xcodes, SDKs and simulator
+# runtimes, whether the runner runs, and (with gh signed in as a repository
+# admin) whether fork pull requests' workflows wait for approval. Warnings
+# don't fail --check; each says how to fix it.
 #
 # Users: the admin runs this first (`--no-runner`: sudo for Xcode and
 # Homebrew), then the standard user ci runs it with the token (its own
-# simulators, cleanup agent and runner). It refuses to put the runner under
-# the release user, and warns when an admin would hold it.
+# simulators, cleanup agent and runner), and the standard user dev — the
+# ssh dev loop's, mac-remote.sh — with `--no-runner` (its own simulators
+# and cleanup agent). It refuses to put the runner under the release or the
+# dev user, and warns when an admin would hold it.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=SCRIPTDIR/ci-lib.sh
@@ -76,7 +82,12 @@ agent_label=dev.xbin.ci-cleanup
 agent_plist=$HOME/Library/LaunchAgents/$agent_label.plist
 uid=$(id -u)
 ci_user=${XBIN_CI_USER:-ci}
+dev_user=${XBIN_DEV_USER:-dev}
 release_user=${XBIN_RELEASE_USER:-release}
+# owner/name, what the job hook lets run (https://github.com/<owner>/<name>)
+repo_slug=${repo_url#https://github.com/}
+repo_slug=${repo_slug%.git}
+repo_slug=${repo_slug%/}
 missing="" warned=""
 
 ok() { echo "ok      $*"; }
@@ -246,6 +257,12 @@ item "daily cleanup ($agent_label → $home_ci/bin/mac-cleanup.sh, 04:30)" clean
 hook_line() {
   printf 'ACTIONS_RUNNER_HOOK_JOB_STARTED=%s\nACTIONS_RUNNER_HOOK_JOB_COMPLETED=%s\n' "$home_ci/bin/job-hook.sh" "$home_ci/bin/job-hook.sh"
 }
+# The hook: mac-cleanup.sh --job-hook for this repository — it refuses any
+# other job before a step runs, then shuts the simulators down.
+hook_body() {
+  printf '#!/bin/bash\n# The runner'"'"'s job hook (mac-setup.sh): only %s'"'"'s ios.yml, on a push or by hand, runs here;\n# every job starts and ends with no simulator running.\nXBIN_CI_REPO=%q exec /bin/bash %q --job-hook\n' \
+    "$repo_slug" "$repo_slug" "$home_ci/bin/mac-cleanup.sh"
+}
 registered() { [ -f "$runner_dir/.runner" ]; }
 service() {
   local p
@@ -253,7 +270,8 @@ service() {
   return 1
 }
 hooked() {
-  [ -x "$home_ci/bin/job-hook.sh" ] && [ -f "$runner_dir/.env" ] &&
+  [ -x "$home_ci/bin/job-hook.sh" ] && [ "$(cat "$home_ci/bin/job-hook.sh")" = "$(hook_body)" ] &&
+    cmp -s "$here/mac-cleanup.sh" "$home_ci/bin/mac-cleanup.sh" && [ -f "$runner_dir/.env" ] &&
     grep -qxF "ACTIONS_RUNNER_HOOK_JOB_COMPLETED=$home_ci/bin/job-hook.sh" "$runner_dir/.env" &&
     grep -qxF "ACTIONS_RUNNER_HOOK_JOB_STARTED=$home_ci/bin/job-hook.sh" "$runner_dir/.env"
 }
@@ -298,8 +316,7 @@ setup_runner() {
   fi
   mkdir -p "$home_ci/bin" || return 1
   cp "$here/mac-cleanup.sh" "$home_ci/bin/mac-cleanup.sh" || return 1
-  printf '#!/bin/bash\n# The runner'"'"'s job hook (mac-setup.sh): every job starts and ends with no simulator running.\nexec /bin/bash %s --job-hook\n' \
-    "$home_ci/bin/mac-cleanup.sh" >"$home_ci/bin/job-hook.sh" || return 1
+  hook_body >"$home_ci/bin/job-hook.sh" || return 1
   chmod 755 "$home_ci/bin/mac-cleanup.sh" "$home_ci/bin/job-hook.sh"
   touch "$runner_dir/.env"
   { grep -Ev '^ACTIONS_RUNNER_HOOK_JOB_(STARTED|COMPLETED)=' "$runner_dir/.env" || true; hook_line; } >"$runner_dir/.env.new" &&
@@ -314,6 +331,8 @@ if [ "$no_runner" = 1 ]; then
   echo "skip    the Actions runner (--no-runner)"
 elif [ "$(id -un)" = "$release_user" ]; then
   warn "the Actions runner: not as $release_user — the user holding the release key never runs CI (run this as $ci_user)"
+elif [ "$(id -un)" = "$dev_user" ]; then
+  warn "the Actions runner: not as $dev_user — the ssh dev loop's user never runs CI jobs, which could reach its e2e tunnel and simulators (run this as $ci_user; here --no-runner)"
 else
   if [ "$(id -un)" != "$ci_user" ] && dsmemberutil checkmembership -U "$(id -un)" -G admin 2>/dev/null | grep -q 'is a member'; then
     warn "the runner runs as $(id -un), an admin: register it as the standard user $ci_user (native/AGENTS.md → Mac mini)"
@@ -371,7 +390,8 @@ for u in $(dscl . -list /Users UniqueID 2>/dev/null | awk '$2 >= 501 && $1 !~ /^
 done
 info "users: admin:${admins:- none}; standard:${others:- none}; this is $me"
 [ -n "$admins" ] || warn "no admin user found (dscl/dsmemberutil): the owner's account does setup and maintenance"
-for pair in "$ci_user:the Actions runner, the simulators, the ssh dev loop" "$release_user:the App Store Connect key and release-build.sh"; do
+for pair in "$ci_user:the Actions runner and its simulators" "$dev_user:the ssh dev loop, mac-remote.sh, and the UI tests' e2e" \
+  "$release_user:the App Store Connect key and release-build.sh"; do
   u=${pair%%:*}
   role=${pair#*:}
   if ! user_exists "$u"; then
@@ -415,7 +435,7 @@ if [ "$prl" = no ]; then ok "sshd: no root login"; else warn "sshd: PermitRootLo
 if [ "$(sshd_opt PubkeyAuthentication || echo yes)" = no ]; then warn "sshd: PubkeyAuthentication no — keys are the only way in: yes"; fi
 allow=$(sshd_opt AllowUsers || true)
 if [ -z "$allow" ]; then
-  warn "sshd: no AllowUsers — every account may log in: AllowUsers <admin> $ci_user $release_user in $dropin"
+  warn "sshd: no AllowUsers — every account may log in: AllowUsers <admin> $ci_user $dev_user $release_user in $dropin"
 else
   ok "sshd: AllowUsers $allow"
 fi
@@ -435,7 +455,7 @@ if launchctl print system/com.apple.screensharing >/dev/null 2>&1; then
   ss=$(dscl . -read /Groups/com.apple.access_screensharing GroupMembership 2>/dev/null | sed 's/^GroupMembership:[ ]*//')
   case " $ss " in
   "  ") warn "Screen Sharing on for every user: System Settings → General → Sharing → Screen Sharing → Allow access for: Only these users (the admin)" ;;
-  *" $ci_user "* | *" $release_user "*) warn "Screen Sharing lets $ss in: only the admin (not $ci_user or $release_user)" ;;
+  *" $ci_user "* | *" $dev_user "* | *" $release_user "*) warn "Screen Sharing lets $ss in: only the admin (not $ci_user, $dev_user or $release_user)" ;;
   *) ok "Screen Sharing on, only for:$([ -n "$ss" ] && echo " $ss")" ;;
   esac
 else
@@ -470,6 +490,18 @@ try:
 except ValueError:
     rts = []
 print(", ".join(r.get("name", "?") + ("" if r.get("isAvailable", True) else " (unavailable)") for r in rts) or "none")' 2>/dev/null)"
+# Fork pull requests: their workflows run from the pull request's own tree,
+# so a fork could add one that names this runner; the job hook refuses it,
+# and GitHub's approval gate should hold it before it gets that far.
+fork_policy=""
+if command -v gh >/dev/null 2>&1; then
+  fork_policy=$(gh api "repos/$repo_slug/actions/permissions/fork-pr-contributor-approval" --jq .approval_policy 2>/dev/null || true)
+fi
+case $fork_policy in
+all_external_contributors) ok "fork pull requests' workflows wait for approval (all external contributors)" ;;
+"") info "fork pull request approval: not checked (needs gh signed in as an admin of $repo_slug) — GitHub → Settings → Actions → General → require approval for all external contributors" ;;
+*) warn "fork pull requests' workflows run without approval for some contributors ($fork_policy): GitHub → $repo_slug → Settings → Actions → General → require approval for all external contributors (the job hook refuses their jobs here regardless)" ;;
+esac
 if registered; then
   for p in "$HOME"/Library/LaunchAgents/actions.runner.*.plist; do
     [ -f "$p" ] || continue

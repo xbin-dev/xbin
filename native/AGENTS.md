@@ -462,7 +462,7 @@ the Mac or on the VLAN's router) — never a public ssh port. Around it:
   PasswordAuthentication no
   KbdInteractiveAuthentication no      # PAM would still ask for a password through it
   PermitRootLogin no
-  AllowUsers owner ci release          # the three accounts below, nobody else
+  AllowUsers owner ci dev release      # the four accounts below, nobody else
   # ListenAddress <the VPN address>    # optional: only the VPN interface
   ```
 
@@ -492,16 +492,24 @@ the price; the PDU's power cycle can't bring it back on its own.
 
 ### The users
 
-Three accounts, each doing one thing:
+Four accounts, each doing one thing:
 
 | user | kind | does | never |
 |---|---|---|---|
 | the owner's (e.g. `owner`) | admin | setup, updates, Xcode, Homebrew, `sudo` | runs the runner or holds the release key |
-| `ci` (`XBIN_CI_USER`) | standard | the GitHub Actions runner, the simulators, the ssh dev loop (`XBIN_MAC=ci@…`) | reads the release key (different uid, `~release` mode 700) |
+| `ci` (`XBIN_CI_USER`) | standard | the GitHub Actions runner and its simulators | reads the release key (different uid, `~release` mode 700); the ssh dev loop |
+| `dev` (`XBIN_DEV_USER`) | standard | the ssh dev loop (`XBIN_MAC=dev@…`): builds, runs, snapshots, the UI tests' e2e and its tunnel | runs CI jobs |
 | `release` (`XBIN_RELEASE_USER`) | standard | owns the App Store Connect key, runs `release-build.sh` by hand | runs CI jobs or anything from a pull request |
 
+The dev loop is not ci's because a CI job is code from any pushed branch
+running as ci: it could leave a `~/.zshenv` behind that reads the e2e
+token off the next ssh session, or reach the e2e tunnel's port, and every
+job shuts ci's simulators down — the dev loop's included, were they the
+same user's. Each user has its own simulators (CoreSimulator is per user).
+`mac-remote.sh` refuses `e2e` and `tunnel` as the runner's user.
+
 `sudo sysadminctl -addUser ci -fullName 'xbin CI' -password -` (and the same
-for `release`) makes a standard user; `chmod 700 /Users/release`.
+for `dev` and `release`) makes a standard user; `chmod 700 /Users/release`.
 
 ### Setting it up (once, then after each Xcode update)
 
@@ -517,7 +525,8 @@ native/ios/scripts/mac-setup.sh --no-runner      # the system half
 then as **ci**, with a runner registration token from GitHub → the
 repository → Settings → Actions → Runners → New self-hosted runner (valid
 an hour) — the system items are already ok, and ci gets its own simulator,
-cleanup agent and runner:
+cleanup agent and runner — and as **dev** with `--no-runner` (its own
+simulator and cleanup agent: `XBIN_MAC=dev@mini native/ios/scripts/mac-remote.sh setup --no-runner`):
 
 ```sh
 native/ios/scripts/mac-setup.sh --runner-token <token>
@@ -539,9 +548,10 @@ unavailable simulators; skipped while a job runs; log in
 `~/actions-runner` — the pinned release, SHA-256 checked, registered to the
 **repository** with the labels `self-hosted`, `macOS`, `xbin-mini`,
 installed as a launchd service, with a job hook (`~/xbin-ci/bin/job-hook.sh`)
-that shuts the simulators down before and after every job. It refuses to
-put the runner under the release user and warns when an admin would hold
-it.
+that fails every job but this repository's `ios.yml` on a push or a manual
+dispatch before any of its steps run (Security, below), and shuts the
+simulators down before and after every job. It refuses to put the runner
+under the release or the dev user and warns when an admin would hold it.
 
 Then it reports **the box** — never changing it: pmset (sleep 0,
 autorestart 1, womp 1), restart after a freeze, FileVault, automatic login,
@@ -549,8 +559,9 @@ the users (an admin, ci and release standard), Remote Login and sshd
 (passwords off, root off, `AllowUsers`), the firewall and stealth mode,
 Screen Sharing restricted, no Apple ID (for the user running it — run
 `--check` as each), a display, free disk (`XBIN_MIN_FREE_GB`, default 50),
-the installed Xcodes, SDKs and simulator runtimes, and whether the runner
-runs. Every warning names the command or setting that fixes it; warnings
+the installed Xcodes, SDKs and simulator runtimes, whether the runner
+runs, and — with `gh` signed in as a repository admin — whether fork pull
+requests' workflows wait for approval from all external contributors. Every warning names the command or setting that fixes it; warnings
 don't fail `--check` (only missing build items do). `systemsetup` needs an
 admin, so run `--check` as the admin for the whole picture. Then point the
 CI at it:
@@ -626,7 +637,7 @@ generated `.xcodeproj` stay), runs the same scripts CI runs there, and pulls
 the results into `$XBIN_MAC_PULL` (default `${TMPDIR:-/tmp}/xbin-mac/<command>/`):
 
 ```sh
-export XBIN_MAC=me@mini.local
+export XBIN_MAC=dev@mini.local                    # the dev user, never ci
 native/ios/scripts/mac-remote.sh build            # xcodegen + build Xbin: app-build.log, .xcresult
 native/ios/scripts/mac-remote.sh packages         # swift test, on macOS
 native/ios/scripts/mac-remote.sh snapshots        # renderer snapshots, package + hosted: the PNGs
@@ -657,7 +668,11 @@ scripted fake ACP agent, xbind started as the UI harness starts it: `xbind
 from `<ws>/.xbin/token` — and waits until the counter's backend answers.
 The run's ssh connection carries a reverse tunnel (`-R
 127.0.0.1:9871:127.0.0.1:9871`), so the simulator reaches the same origin,
-`http://127.0.0.1:9871`; the token travels on ssh's stdin. On the Mac,
+`http://127.0.0.1:9871`; the token travels on ssh's stdin. `e2e-xbind.sh`
+deletes the `admin`/`admin` login `--dev` seeds, so the owner token is the
+only way in; without `--isolate` (`XBIN_E2E_XBIND_ARGS="--isolate --rootfs
+…"`) its terminals are shells as you on this box, and `mac-remote.sh` says
+so. On the Mac,
 `XbinUITests` runs on `xbin-e2e`, erased first: add a workspace by URL +
 token, open the web tile `apps/welcome`, open the native counter and tap
 +1 (checked on the server and in the row), type into a terminal on
@@ -677,18 +692,31 @@ in the environment of `xcodebuild test -scheme XbinUITests`).
 - **The runner is repository-scoped** (registered with the repository's
   URL), never an organization's, and runs as an ordinary user on a machine
   that does nothing else.
-- **Never a `pull_request` trigger for a self-hosted runner.** `ios.yml`
-  runs on pushes to this repository's branches and by hand only; anyone who
-  can open a pull request from a fork must not get code onto the Mac.
-  `ci-local-check.sh` fails on a `pull_request*` trigger in `ios.yml` and on
-  any `ci.yml` job (which does run for pull requests) that could reach a
-  self-hosted runner. Keep the repository's "Require approval for all
-  outside collaborators" for fork workflows on.
+- **A fork's pull request never runs on the Mac — the Mac enforces it.**
+  `ios.yml` runs on pushes to this repository's branches and by hand only,
+  but that alone keeps nothing out: the runner serves every workflow of the
+  repository, and a pull request's workflows run from its own merge commit
+  — it can add a file naming the runner, or edit away the checks in this
+  repository that would object. So the runner's job hook
+  (`mac-cleanup.sh --job-hook`, the Mac's own copy, installed by
+  `mac-setup.sh`) runs before any step and fails every job that isn't this
+  repository's `.github/workflows/ios.yml` on a push to a branch or a
+  manual dispatch: a `pull_request*` event, a pull request's head, a fork's
+  event, another workflow file. Keep GitHub's approval for fork workflows
+  on *all external contributors* too (`mac-setup.sh --check` reads it with
+  `gh`): the approval is the gate, the hook the lock. `ci-local-check.sh`'s
+  checks (no `pull_request*` in `ios.yml`, no `ci.yml` job on a
+  self-hosted runner) catch our own mistakes only.
 - **No secrets on the runner.** The workflows use none (`permissions:
   contents: read`, no signing, no provisioning, no TestFlight); the runner's
-  own credentials are its registration, nothing else. The e2e owner token
-  belongs to a throwaway workspace on the Linux box, reachable only through
-  the tunnel while a run lasts.
+  own credentials are its registration, nothing else.
+- **The e2e xbind is the dev user's.** A throwaway workspace on the Linux
+  box whose only credential is its random owner token (the seeded dev
+  login is deleted); the tunnel binds the Mac's loopback, which every local
+  user can reach, and an xbind without `--isolate` hands whoever holds the
+  token a shell as you on the Linux box. So the token and the tunnel go
+  only to the dev user's ssh session — never ci's, whose jobs are code from
+  any pushed branch (`mac-remote.sh` refuses `e2e` and `tunnel` as ci).
 - **The release key is another user's.** It lives in the release user's
   home (mode 700, the `.p8` 600), which the runner's user ci — standard,
   no sudo — can't read; `release-build.sh` refuses to run as ci, as an

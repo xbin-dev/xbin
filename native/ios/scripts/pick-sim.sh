@@ -19,6 +19,11 @@
 #                              when there is none — a simulator of its own
 #                              that a run may erase (mac-setup.sh, e2e)
 #
+# The UI tests' own simulators — every name starting with xbin-e2e, and the
+# XBIN_SIM_ENSURE name — are theirs alone: neither the rule nor XBIN_SIM
+# picks one (it would tie with the stock model it was made from and win on
+# its shorter name, and an e2e run erases it under whoever else uses it).
+#
 # Runs under macOS's bash 3.2 (no mapfile, no associative arrays). Needs
 # python3 (Xcode's command line tools ship it) to read `simctl list -j`.
 set -euo pipefail
@@ -98,6 +103,15 @@ if ensure:
         n, tid, rt, udid = max(named, key=lambda d: rank(d[0], d[1], d[2]["version"]))
         emit("device", udid, "%s (%s)" % (n, rt["name"]))
     devices = []  # none of that name: create it below
+
+# the UI tests' own simulators (a run erases them): nobody else's pick
+def reserved(name):
+    return name.startswith("xbin-e2e") or (ensure != "" and name == ensure)
+
+if want and reserved(want):
+    print("XBIN_SIM=%r is the UI tests' own simulator (an e2e run erases it); picking by the rule" % want, file=sys.stderr)
+    want = ""
+devices = [d for d in devices if not reserved(d[0])]
 
 if want:
     named = [d for d in devices if d[0] == want]
