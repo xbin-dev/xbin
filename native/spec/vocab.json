@@ -561,6 +561,14 @@
        "large"
       ]
      }
+    },
+    "edge": {
+     "type": "string",
+     "enum": [
+      "bottom",
+      "leading"
+     ],
+     "doc": "where it comes from: bottom (a sheet, the default) or leading (a drawer over the screen — a conversation list)"
     }
    },
    "events": {

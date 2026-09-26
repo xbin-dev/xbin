@@ -213,10 +213,12 @@ function sheet(n, cx) {
   const body = all.filter((c) => c !== tb);
   const whole = body.length === 1 && (body[0].t === 'screen' || body[0].t === 'nav');
   const esc = (e) => { if (e.key === 'Escape') dismiss(); };
-  return html`<xb-sheet data-k=${n.k} class="sheet-layer" @keydown=${esc}>
+  // edge=leading: a drawer over the screen from the leading edge (no detents)
+  const drawer = p.edge === 'leading';
+  return html`<xb-sheet data-k=${n.k} class=${cls('sheet-layer', drawer && 'drawer')} @keydown=${esc}>
     <div class="scrim" @click=${dismiss}></div>
-    <div class=${cls('sheet', det[0] === 'medium' ? 'd-medium' : 'd-large')} role="dialog" aria-modal="true" aria-label=${str(p.title) || nothing}>
-      <div class="grabber"></div>
+    <div class=${cls('sheet', drawer ? 'edge-leading' : det[0] === 'medium' ? 'd-medium' : 'd-large')} role="dialog" aria-modal="true" aria-label=${str(p.title) || nothing}>
+      ${drawer ? nothing : html`<div class="grabber"></div>`}
       ${whole ? nothing : html`<div class="sheet-bar">
         <div class="bar-lead"><button class="sheet-x" aria-label="Close" @click=${dismiss}>${icon('xmark')}</button></div>
         <div class="bar-title"><div class="bt">${str(p.title)}</div></div>
@@ -389,6 +391,9 @@ export const STRUCTURE_CSS = css`
     box-shadow: var(--xb-shadow); animation: xb-rise 0.25s cubic-bezier(0.2, 0.9, 0.3, 1); min-height: 0; }
   .sheet.d-large { height: calc(100% - 12px); }
   .sheet.d-medium { height: 52%; }
+  .sheet-layer.drawer { flex-direction: row; justify-content: flex-start; }
+  .sheet.edge-leading { height: 100%; width: min(86%, 400px); border-radius: 0 14px 14px 0; animation: xb-slide 0.25s cubic-bezier(0.2, 0.9, 0.3, 1); padding-top: 6px; }
+  @keyframes xb-slide { from { transform: translateX(-40%); opacity: 0.4; } }
   .grabber { width: 36px; height: 5px; border-radius: 3px; background: var(--xb-border); margin: 6px auto 0; flex: none; }
   .sheet-bar { display: flex; align-items: center; gap: 4px; padding: 4px 12px 6px; flex: none; min-height: 48px; }
   .sheet-x { width: 32px; height: 32px; border-radius: 16px; background: var(--xb-fill); color: var(--xb-muted); display: flex; align-items: center; justify-content: center; }
