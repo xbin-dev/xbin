@@ -111,7 +111,7 @@ function picker(n, cx) {
     const rows = opts.map((o, i) => html`<button class="cell pk-opt" role="radio" aria-checked=${i === idx ? 'true' : 'false'} @click=${() => choose(i)}>
       ${o.icon ? icon(o.icon, 'pk-oic') : nothing}<span class="pk-ot">${lbl(o)}</span>${i === idx ? icon('check', 'pk-check') : nothing}</button>`);
     return html`<xb-picker data-k=${n.k} class=${cls('picker', 'pk-inline', group ? 'in-group' : 'free')}>
-      ${p.label && !group ? html`<div class="pk-label">${p.label}</div>` : nothing}
+      ${p.label ? html`<div class=${cls('pk-label', group && 'cell pk-head')}>${p.label}</div>` : nothing}
       ${group ? rows : html`<div class="group">${rows}</div>`}</xb-picker>`;
   }
   const cur = idx >= 0 ? opts[idx] : null;
@@ -253,7 +253,9 @@ export const CONTROLS_CSS = css`
   .pk-menu.in-toolbar { padding: 0 8px; height: 36px; }
   .pk-menu.in-toolbar .pk-val { color: var(--xb-accent-text); font-weight: 600; max-width: 170px; }
   .pk-label { font: inherit; }
-  .pk-seg .pk-label, .pk-inline.free .pk-label { font: var(--xb-font-footnote); color: var(--xb-muted); padding: 0 4px 6px; }
+  .pk-seg .pk-label, .pk-inline .pk-label { font: var(--xb-font-footnote); color: var(--xb-muted); padding: 0 4px 6px; }
+  .pk-seg.cell .pk-label { padding: 0 0 6px; }
+  .pk-inline .pk-label.pk-head { min-height: 0; padding: 10px 16px 6px; }
   .pk-seg.cell { padding-top: 8px; padding-bottom: 8px; }
   .pk-seg .seg-item .ic { width: 16px; height: 16px; }
   .pk-inline.in-group { display: contents; }

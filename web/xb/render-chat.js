@@ -290,7 +290,7 @@ export const CHAT_CSS = css`
 
   xb-thinking { display: block; }
   .th-head { display: inline-flex; align-items: center; gap: 4px; font: var(--xb-font-subheadline); color: var(--xb-muted); padding: 2px 0; }
-  .th-chev { width: 14px; height: 14px; stroke-width: 2.6; transition: transform 0.15s; }
+  .th-chev { width: 0.85em; height: 0.85em; stroke-width: 2.6; transition: transform 0.15s; }
   .think.open .th-chev { transform: rotate(90deg); }
   .think.live .th-label { background: linear-gradient(90deg, var(--xb-muted) 30%, var(--xb-text) 50%, var(--xb-muted) 70%) 0 0 / 200% 100%;
     -webkit-background-clip: text; background-clip: text; color: transparent; animation: xb-shimmer 1.6s linear infinite; }
@@ -301,17 +301,18 @@ export const CHAT_CSS = css`
   .tc-head { display: flex; align-items: stretch; }
   .tc-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 10px 12px; text-align: left; }
   .tc-ic { display: flex; color: var(--xb-muted); }
-  .tc-ic .ic { width: 18px; height: 18px; }
+  .tc-ic .ic { width: 1.15em; height: 1.15em; }
+  .tc-main { font: var(--xb-font-subheadline); }
   .tc-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
   .tc-title { font: var(--xb-font-subheadline); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tc-chips { display: flex; flex-wrap: wrap; gap: 4px; }
   .chip { font: var(--xb-font-caption); font-weight: 600; padding: 1px 7px; border-radius: 999px; }
   .chip:not([class*="pill-"]) { background: var(--xb-fill); color: var(--xb-muted); }
   .st { display: flex; }
-  .st .ic { width: 16px; height: 16px; stroke-width: 2.6; }
+  .st .ic { width: 1.05em; height: 1.05em; stroke-width: 2.6; }
   .st-ok { color: var(--xb-ok); } .st-err { color: var(--xb-danger); } .st-can { color: var(--xb-muted); }
-  .spin.st { width: 16px; height: 16px; }
-  .tc-chev { width: 14px; height: 14px; color: var(--xb-muted); stroke-width: 2.6; transition: transform 0.15s; }
+  .spin.st { width: 1.05em; height: 1.05em; }
+  .tc-chev { width: 0.9em; height: 0.9em; color: var(--xb-muted); stroke-width: 2.6; transition: transform 0.15s; }
   .tool.open .tc-chev { transform: rotate(90deg); }
   .tc-open { padding: 0 12px; color: var(--xb-accent-text); display: flex; align-items: center; }
   .tc-open .ic { width: 16px; height: 16px; }
@@ -349,7 +350,7 @@ export const CHAT_CSS = css`
   .pl-count { font-weight: 400; color: var(--xb-muted); }
   .pl-row { display: flex; align-items: flex-start; gap: 10px; padding: 4px 0; font: var(--xb-font-subheadline); }
   .pl-ic { display: flex; padding-top: 1px; }
-  .pl-ic .ic { width: 18px; height: 18px; }
+  .pl-ic .ic { width: 1.15em; height: 1.15em; }
   .pl-completed .pl-text { color: var(--xb-muted); }
   .pl-in_progress .pl-text { font-weight: 600; }
   .pl-text { overflow-wrap: anywhere; min-width: 0; }
@@ -360,7 +361,7 @@ export const CHAT_CSS = css`
   .df-row + .df-row { border-top: 0.5px solid var(--xb-separator); }
   .df-row:disabled { opacity: 1; cursor: default; }
   .df-row.tap:active { background: var(--xb-fill); }
-  .df-st { flex: none; width: 18px; height: 18px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font: var(--xb-font-caption2); font-weight: 700; background: var(--xb-fill); color: var(--xb-muted); }
+  .df-st { flex: none; width: 1.6em; height: 1.6em; border-radius: 0.45em; display: flex; align-items: center; justify-content: center; font: var(--xb-font-caption2); font-weight: 700; background: var(--xb-fill); color: var(--xb-muted); }
   .st-A { color: var(--xb-ok); background: color-mix(in srgb, var(--xb-ok) 16%, transparent); }
   .st-D { color: var(--xb-danger); background: color-mix(in srgb, var(--xb-danger) 16%, transparent); }
   .st-M { color: var(--xb-accent-text); background: color-mix(in srgb, var(--xb-accent) 18%, transparent); }
