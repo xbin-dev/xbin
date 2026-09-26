@@ -20,9 +20,14 @@
 // restarts the agent in a new sandbox and resumes its conversation; (m) a
 // prompt with attachments (POST …/prompt {attachments}) names its files in
 // the user's message and reaches the agent inline and as dropped files.
-const { URL, login, settle, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, shotEl, checker } = require('../lib');
+const { URL, login, closeCtx, settle, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, shotEl, checker, showPickers, PICKERS } = require('../lib');
 
 const TILE = 'apps/crawler';
+// Tall: the seeded pending-access and interfaces-to-bind bars push the canvas
+// ~500 px down, and at 900 px the window (anchored to its tile, D66) runs
+// past the bottom of the viewport — its composer can't be clicked, and a
+// fixed window is never scrolled into view.
+const VIEW = { viewport: { width: 1400, height: 1300 } };
 
 async function agentTab(browser) {
   const { check, done } = checker('agent-tab');
@@ -32,11 +37,12 @@ async function agentTab(browser) {
     await usePersonalScreen(page);
     await openTile(page, TILE);
     await fr(page, TILE, (f) => f.open('term'));
+    await showPickers(page, TILE); // the bar's pickers, wherever this host's bar puts them (lib.js)
   };
   const blocks = (page) => fr(page, TILE, (f) => f.agent()?.blocks ?? []);
 
   // ---- A opens an agent tab and starts the "fake" agent with a "perm" turn ----
-  const A = await login(browser, 'admin', 'admin');
+  const A = await login(browser, 'admin', 'admin', VIEW);
   // clear any agent sessions a prior run left on the tile
   for (const s of await (await A.ctx.request.get(`${URL}/api/xbin/term/sessions?cwd=apps%2Fcrawler`)).json()) {
     await A.ctx.request.delete(`${URL}/ws/term?session=${encodeURIComponent(s.id)}`);
@@ -58,7 +64,7 @@ async function agentTab(browser) {
   await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-a-permission');
 
   // ---- B: the same user in a second browser sees the same session + pending ----
-  const B = await login(browser, 'admin', 'admin');
+  const B = await login(browser, 'admin', 'admin', VIEW);
   await openWindow(B.page);
   await waitFor(B.page, (t) => t.frameFor('apps/crawler')?.testApi().tabs.some((x) => x.kind === 'agent' && x.id), null, { timeout: 15000, label: "B lists A's agent session" });
   // make the agent tab active in B and let it replay
@@ -227,7 +233,7 @@ async function agentTab(browser) {
   await waitFor(A.page, (t) => t.frameFor('apps/crawler')?.testApi().agent()?.status === 'idle', null, { timeout: 15000, label: 'idle after the question' });
 
   // ---- an agent tab has the layout switcher (code / logs / PRs beside it) ----
-  const bar = A.page.locator(`bx-frame[src="${TILE}"] .titlebar`);
+  const bar = A.page.locator(`bx-frame[src="${TILE}"] ${PICKERS}`);
   const host = A.page.locator(`bx-frame[src="${TILE}"] .term-host`);
   check(await bar.locator('.lyt button').count() === 5 && await bar.locator('select.scope').count() >= 2,
     "the agent tab has the shell's bar: the layout switcher and the net/API pickers");
@@ -314,7 +320,7 @@ async function agentTab(browser) {
 
   // ---- (l) a picker change restarts the agent and resumes the conversation ----
   await fr(A.page, TILE, (f, t, i) => f.setActiveTab(i), resumedIdx);
-  const netSel = A.page.locator(`bx-frame[src="${TILE}"] .titlebar select.scope`).first();
+  const netSel = A.page.locator(`bx-frame[src="${TILE}"] ${PICKERS} select.scope`).first();
   check((await netSel.locator('option').allTextContents()).some((o) => /offline/.test(o)), 'the agent tab offers the network scopes');
   await netSel.selectOption('none');
   await A.page.locator('bx-dialog button', { hasText: 'Restart' }).click();
@@ -327,6 +333,17 @@ async function agentTab(browser) {
   await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-restarted');
 
   await settle(A.page);
+  // tidy: close both browsers, then end the sessions opened here and drop the
+  // window pref — it would restore this window over the tile in the next
+  // passes (menuOpen right-clicks the canvas right where it would sit)
+  await closeCtx(A.ctx, A.page);
+  await closeCtx(B.ctx, B.page);
+  const T = await login(browser, 'admin', 'admin');
+  for (const s of await (await T.ctx.request.get(`${URL}/api/xbin/term/sessions?cwd=apps%2Fcrawler`)).json()) {
+    await T.ctx.request.delete(`${URL}/ws/term?session=${encodeURIComponent(s.id)}`);
+  }
+  await T.ctx.request.delete(`${URL}/api/xbin/prefs/term%3Aapps%3Acrawler`);
+  await T.ctx.close();
   done();
 }
 

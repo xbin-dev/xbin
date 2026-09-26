@@ -5,7 +5,7 @@
 // tile under the pointer; next to other tiles it takes the nearest free
 // spot and overlaps nothing; from a sidebar row it lands at the canvas's
 // left edge. The admin's layout is restored at the end.
-const { login, closeCtx, settle, sh, waitFor, waitSel, openShell, usePersonalScreen, shot, checker } = require('../lib');
+const { URL, login, closeCtx, settle, sh, waitFor, waitSel, openShell, usePersonalScreen, shot, checker } = require('../lib');
 
 const W = 576, H = 384, CELL = 48;
 const overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
@@ -14,6 +14,10 @@ async function menuOpen(browser) {
   const { check, done } = checker('menu-open');
   // tall: the seeded grants/bindings bar pushes the canvas ~450 px down
   const { ctx, page } = await login(browser, 'admin', 'admin', { viewport: { width: 1400, height: 1300 } });
+  // a terminal window an earlier pass left open on apps/crawler restores over
+  // the tile — right where the first right-click lands; this pass is about
+  // the canvas menu, so start with that window closed
+  await ctx.request.delete(`${URL}/api/xbin/prefs/term%3Aapps%3Acrawler`);
   await openShell(page);
   await usePersonalScreen(page);
   const saved = await sh(page, (t) => t.openTiles.map((o) => ({ ...o })));
