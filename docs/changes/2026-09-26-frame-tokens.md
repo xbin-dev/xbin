@@ -29,11 +29,14 @@ tile's token renewed itself forever, even after sign-out.
 injection of `/c/<tile>/` — and of the tile's native runtime document,
 `/c/<tile>/?native=1` — carries a frame token only when the request comes
 from a human (browser or app session, the owner token) or from the tile
-itself (its own frame, terminal or instance token, or an `xbin.window`
-sub-path of it), or is a navigation within the tile's own tree of nested
-pages. Another tile's frontend or backend that fetches the document through
-its user's access now gets the HTML with `content=""`. Code-grant reads
-already got none.
+itself (its own frame or terminal token, or an `xbin.window` sub-path of
+it), or is a navigation within the tile's own tree of nested pages. Another
+tile's frontend or backend that fetches the document through its user's
+access now gets the HTML with `content=""`. Code-grant reads already got
+none. A tile's **own backend** gets none either, from its page or from
+`GET /api/xbin/frame-token` (403): its instance token names no person, so a
+frame token minted for it read as the owner's frame — owner reach on every
+tile, where the instance token itself reaches only its own tile.
 
 ## Who's affected
 
@@ -44,6 +47,9 @@ already got none.
 - A tile that fetched **another** tile's HTML to reuse the frame token in
   it (to act with that tile's grants). That was a privilege escalation,
   not an API.
+- A backend that fetched its own tile's page, or `/api/xbin/frame-token`,
+  with its instance token to get a frame token. Also an escalation (see
+  above); a backend calls xbind with its instance token.
 
 ## How to migrate
 

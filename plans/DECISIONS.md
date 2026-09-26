@@ -2813,9 +2813,11 @@ Deviations and refinements made while implementing; all deliberate:
     the very file it checked (no symlink to xbind's files, reserved trees
     or outside the workspace; FIFOs refused), a sandboxed tile's
     non-document files carry CSP `sandbox`, and **a frame token is minted
-    only for a human or the tile itself** (its frame, terminal or instance
-    token, or an `xbin.window` sub-path of it) — plus navigations within
-    one tile tree, whose writers can write every page of it. Another tile
+    only for a human or the tile itself** (its frame or terminal token, or
+    an `xbin.window` sub-path of it; never its backend, whose instance
+    token names no person — a token minted for it read as the owner's
+    frame, owner reach on every tile) — plus navigations within one tile
+    tree, whose writers can write every page of it. Another tile
     that fetches `/c/<tile>/` or its runtime document (D91) through its
     user's access gets the HTML without a token; before, any tile could
     lift e.g. the admin tile's token out of the HTML.

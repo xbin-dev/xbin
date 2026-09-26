@@ -108,11 +108,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     across the upgrade keep working. A renewal answering 401 makes
     `xbin-client.js` log a hint.
   - The `<head>` injection mints the token only for a human or the tile
-    itself (its frame, terminal or instance token, an `xbin.window`
-    sub-path, or a navigation within its own tree of nested pages). Another
-    tile that fetches `/c/<tile>/` or `?native=1` through its user's access
-    gets `content=""` — before, any tile could lift e.g. the admin tile's
-    token out of the HTML (security fix).
+    itself (its frame or terminal token, an `xbin.window` sub-path, or a
+    navigation within its own tree of nested pages). Another tile that
+    fetches `/c/<tile>/` or `?native=1` through its user's access gets
+    `content=""` — before, any tile could lift e.g. the admin tile's token
+    out of the HTML (security fix). A tile's backend gets none from its own
+    page or `GET /api/xbin/frame-token` (403): its instance token names no
+    person, so the token read as the owner's frame, with owner reach on
+    every tile (security fix; pre-existing).
 - **push: notifications to the xbin app** (D94, [protocol.md](protocol.md)
   §Push notifications, [sdk.md](sdk.md)). Off until an admin opts in.
   - `POST /api/xbin/devices/push` registers an app install's relay handle

@@ -168,10 +168,12 @@ GET  /c/<component-path>/[file]  component static files; HTML gets the
                                  grant reads its source here too). The
                                  injected frame token is minted only for a
                                  human or the tile itself (its own frame/
-                                 terminal/instance token, or an xbin.window
-                                 sub-path of it); any OTHER tile's element
-                                 principal — code grant or its user's access
-                                 — gets the HTML with content="";
+                                 terminal token, or an xbin.window sub-path
+                                 of it) — never a backend's instance token,
+                                 which names no person; any OTHER tile's
+                                 element principal — code grant or its
+                                 user's access — gets the HTML with
+                                 content="";
                                  a tile's SUBRESOURCE loads
                                  (Sec-Fetch-Dest: script/style/image/font/
                                  media/worker, never documents or fetch;
@@ -482,7 +484,10 @@ GET    /frame-token?component=<p>  a principal that may use the tile: humans
                                    (cookie) any tile they can read; a tile
                                    frontend its OWN component — including
                                    cookie-less (sandboxed frames renew with
-                                   their token alone). {token} — bound to
+                                   their token alone); never a backend's
+                                   instance token (403: a token with no
+                                   person behind it would read as the
+                                   owner's frame). {token} — bound to
                                    the caller's login (a renewal keeps its
                                    token's binding; see Authentication)
 

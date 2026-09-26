@@ -325,6 +325,62 @@ func TestNativeRuntimeNeverMintsAnotherTilesToken(t *testing.T) {
 	}
 }
 
+// A tile's backend never gets a frame token (review): its instance token
+// names no user, so a token minted for it would verify as an owner-driven
+// frame — owner reach on every tile — while the instance itself is
+// self-only. Neither the <head> injection (a tile page, the runtime
+// document, a tile with no index.html) nor /api/xbin/frame-token mints one
+// for it, through the real middleware.
+func TestBackendNeverGetsAFrameToken(t *testing.T) {
+	s, a := nativeWorkspace(t)
+	a.RegisterInstance("conv-instance", "apps/conv")
+	a.RegisterInstance("decl-instance", "apps/decl")
+	tokRe := regexp.MustCompile(`name="xbin-frame-token" content="([^"]*)"`)
+	static := s.authedStatic(http.HandlerFunc(s.handleComponentStatic))
+	api := s.authed(http.HandlerFunc(s.apiFrameToken))
+	do := func(h http.Handler, url, bearer string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", url, nil)
+		r.Header.Set("Authorization", "Bearer "+bearer)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	if w := do(static, "/c/apps/web/", "conv-instance"); w.Code != http.StatusForbidden {
+		t.Fatalf("an instance token read another tile's page: %d", w.Code)
+	}
+	for _, c := range []struct{ url, tok string }{
+		{"/c/apps/conv/", "conv-instance"},
+		{"/c/apps/conv/?native=1", "conv-instance"},
+		{"/c/apps/decl/?native=1", "decl-instance"}, // no index.html
+	} {
+		w := do(static, c.url, c.tok)
+		m := tokRe.FindStringSubmatch(w.Body.String())
+		if w.Code != http.StatusOK || m == nil {
+			t.Fatalf("%s: %d, no frame-token meta", c.url, w.Code)
+		}
+		if m[1] != "" {
+			comp, uid, _ := a.VerifyFrameToken(m[1])
+			t.Errorf("%s: the backend got a frame token (%s, uid %q)", c.url, comp, uid)
+		}
+	}
+	for _, c := range []string{"apps/conv", "apps/decl"} {
+		tok := strings.SplitN(c, "/", 2)[1] + "-instance"
+		if w := do(api, "/api/xbin/frame-token?component="+c, tok); w.Code != http.StatusForbidden {
+			t.Errorf("GET /frame-token?component=%s as its backend: %d %s", c, w.Code, w.Body.String())
+		}
+	}
+	// The tile's own frame and a human keep theirs.
+	if w := serveAs(s, "GET", "/c/apps/conv/", auth.Principal{Component: "apps/conv", Via: "frame"}, nil); tokRe.FindStringSubmatch(w.Body.String())[1] == "" {
+		t.Error("the tile's own frame lost its token")
+	}
+	if w := serveAs(s, "GET", "/c/apps/conv/", auth.Principal{Component: "apps/conv", Via: "terminal"}, nil); tokRe.FindStringSubmatch(w.Body.String())[1] == "" {
+		t.Error("the tile's own terminal lost its token")
+	}
+	if w := do(api, "/api/xbin/frame-token?component=apps/conv", a.OwnerTokenValue()); w.Code != http.StatusOK {
+		t.Errorf("the owner's renewal: %d", w.Code)
+	}
+}
+
 // Documents requested by the xbin app (X-XBin-Client: app/<v>) carry the
 // WebSocket origin of the host the app reached; browsers' documents are
 // unchanged. Both tile pages and runtime documents get it.

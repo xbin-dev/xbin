@@ -231,14 +231,16 @@ func (s *Server) apiComponent(w http.ResponseWriter, r *http.Request) {
 // apiFrameToken refreshes a frame token. Allowed for a principal that may use
 // the tile (admin/owner any; a user only tiles on their allow-list; a tile
 // frontend only its own component — including a COOKIE-LESS one, since a
-// sandboxed frame holds nothing but its token). The token is re-bound to the
-// caller's user and to the caller's credential generation: a human's login
-// session, or — a tile renewing — the generation its own token carries, so
-// logout / revocation / sign-out-everywhere end the renewals too.
+// sandboxed frame holds nothing but its token; never a backend, whose
+// user-less token would read as the owner's frame: backendPrincipal). The
+// token is re-bound to the caller's user and to the caller's credential
+// generation: a human's login session, or — a tile renewing — the
+// generation its own token carries, so logout / revocation /
+// sign-out-everywhere end the renewals too.
 func (s *Server) apiFrameToken(w http.ResponseWriter, r *http.Request) {
 	comp := r.URL.Query().Get("component")
 	p := auth.PrincipalOf(r)
-	ok := comp != "" && (p.Component == comp || (p.Component == "" && p.CanReadTile(comp)))
+	ok := comp != "" && !backendPrincipal(p) && (p.Component == comp || (p.Component == "" && p.CanReadTile(comp)))
 	if !ok {
 		apiErr(w, http.StatusForbidden, "cannot mint frame token for this tile")
 		return

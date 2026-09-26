@@ -466,9 +466,10 @@ func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPa
 
 // mayMintFrameToken: the injection mints compPath's frame token only for a
 // principal that may read the tile AND is not another tile — a human
-// (cookie, bearer) or the tile itself (its own frame/terminal/instance
-// principal, including an xbin.window sub-path token like apps/x/editor,
-// whose owning component is apps/x). Without the second half, any tile's
+// (cookie, bearer) or the tile itself (its own frame or terminal principal,
+// including an xbin.window sub-path token like apps/x/editor, whose owning
+// component is apps/x) — and never for a backend (backendPrincipal).
+// Without the second half, any tile's
 // frontend could xbin.fetch('/c/<other>/') — or '/c/<other>/?native=1', a
 // native runtime document, which exists even for inject:false tiles and
 // tiles with no index.html — and lift the other tile's token out of the
@@ -484,7 +485,7 @@ func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPa
 // navigates to (an opaque or foreign origin), so there is no token to lift;
 // across trees it stays refused.
 func (s *Server) mayMintFrameToken(r *http.Request, p auth.Principal, compPath string) bool {
-	if !p.CanReadTile(compPath) {
+	if backendPrincipal(p) || !p.CanReadTile(compPath) {
 		return false
 	}
 	if p.Component == "" || p.Component == compPath {
@@ -492,6 +493,16 @@ func (s *Server) mayMintFrameToken(r *http.Request, p auth.Principal, compPath s
 	}
 	own := s.owningComponent(p.Component)
 	return own == compPath || (isNavigation(r) && s.sameTileTree(own, compPath))
+}
+
+// backendPrincipal: a tile's backend — its instance token, or a cron or bus
+// delivery acting for it: an element principal with no person behind it.
+// Its own reach is self-only (tileLevel), but a frame or asset token minted
+// for it would name no user and so read as an owner-driven frame — owner
+// reach on every tile. A backend has no document to put a token in: it
+// never gets one (the <head> injection, /api/xbin/frame-token).
+func backendPrincipal(p auth.Principal) bool {
+	return p.Component != "" && p.Via != "frame" && p.Via != "terminal"
 }
 
 // topTile is the outermost registered component on p's path (p's own first
