@@ -44,9 +44,11 @@ struct RowView: View {
 
 /// A row's text and accessories. The title column is laid out first, so a
 /// short detail or badge never squeezes it into early wraps; a long detail
-/// wraps beside it. At accessibility text sizes the detail and badge go
-/// under the title (as `LabeledContent` does, and the reference renderer's
-/// large-text row), instead of breaking every word into syllables.
+/// wraps beside it (never truncated). At large text sizes the detail and
+/// badge go under the title — from xxxLarge in a row with a subtitle or
+/// badge, as the reference renderer's large-text row does, and in every row
+/// at the accessibility sizes (as `LabeledContent` does) — instead of
+/// breaking every word into syllables beside it.
 struct RowLabel: View {
     let props: Props
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -56,7 +58,9 @@ struct RowLabel: View {
         let tone = props.tone()
         let badge = props.nonEmpty("badge")
         let detail = props.nonEmpty("detail")
-        if typeSize.isAccessibilitySize {
+        let stacked = typeSize.isAccessibilitySize
+            || (typeSize >= .xxxLarge && (props.nonEmpty("subtitle") != nil || badge != nil))
+        if stacked {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 lead(tone: tone, badge: badge, gap: 0)
                 VStack(alignment: .leading, spacing: 4) {
@@ -78,7 +82,6 @@ struct RowLabel: View {
                         detailText(detail, mono: mono).fixedSize()
                     } else {
                         detailText(detail, mono: mono)
-                            .lineLimit(2)
                             .multilineTextAlignment(.trailing)
                             .layoutPriority(1)
                     }
