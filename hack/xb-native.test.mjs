@@ -310,6 +310,50 @@ test('diff: the fewest moves (LIS), removes before inserts, type changes re-inse
     [['set', 'r', { c: 3 }], ['unset', 'r', ['b']], ['events', 'r', []]]);
 });
 
+test('end to end: an app copy kept from mount/patch messages always equals the shadow (random renders and reports)', () => {
+  const R = rng(99);
+  for (let run = 0; run < 50; run++) {
+    let app = null;
+    const rt = createRuntime({ log: false, schedule: () => {}, post(m) {
+      if (m.op === 'mount') app = cloneJSON(m.root);
+      else if (m.op === 'patch') applyOps(app, m.ops);
+    } });
+    let items = [...Array(6).keys()].map((i) => ({ id: `i${i}`, v: i, on: false }));
+    let draft = '';
+    const view = () => html`
+      <screen title=${`n=${items.length}`}>
+        ${R() < 0.2 ? html`<notice tone="warn" text="!"/>` : nothing}
+        <section>
+          ${repeat(items, (x) => x.id, (x) => html`
+            <row title=${x.id} detail=${x.v}>${x.on ? html`<actions><button>x</button></actions>` : nothing}</row>
+            ${x.v % 3 === 0 ? html`<toggle value=${x.on} @change=${(e) => { x.on = e.value; }}/>` : nothing}`)}
+        </section>
+        <field value=${draft} @input=${(e) => { draft = e.value; }}/>
+      </screen>`;
+    for (let step = 0; step < 40; step++) {
+      const r = R();
+      if (r < 0.3) items = items.sort(() => R() - 0.5);
+      else if (r < 0.45) items.push({ id: `n${step}`, v: Math.floor(R() * 9), on: false });
+      else if (r < 0.6 && items.length) items.splice(Math.floor(R() * items.length), 1);
+      else if (r < 0.75 && items.length) items[Math.floor(R() * items.length)].v = Math.floor(R() * 9);
+      else if (r < 0.85 && app) { // the user types: the app shows it and reports it
+        const v = `t${step}`;
+        const f = app.c.find((c) => c.t === 'field');
+        f.p = { ...(f.p || {}), value: v };
+        rt.xbn.event(f.k, 'input', { value: v });
+      } else if (app) { // the user flips a toggle the tile may keep
+        const sec = app.c.find((c) => c.t === 'section');
+        const tg = (sec.c || []).find((c) => c.t === 'toggle');
+        if (tg) { tg.p = { ...(tg.p || {}), value: !tg.p?.value }; rt.xbn.event(tg.k, 'change', { value: tg.p.value }); }
+      }
+      if (R() < 0.1) draft = '';
+      rt.render(view());
+      rt.flush();
+      assert.deepEqual(normalize(app), normalize(rt.tree.root), `run ${run} step ${step}`);
+    }
+  }
+});
+
 test('deepEqual and cloneJSON follow JSON', () => {
   assert.ok(deepEqual({ a: [1, { b: 2 }] }, { a: [1, { b: 2 }] }));
   assert.ok(!deepEqual([1], { 0: 1 }));
