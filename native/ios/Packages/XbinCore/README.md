@@ -25,6 +25,13 @@ reference `applyOps` in web/xb/rt-diff.js) and native/spec/device-login.md.
 | `WorkspaceRecord.swift` | `WorkspaceRecord`, `WorkspaceList` — the persisted workspace list (no secrets; the enrollment's `deviceOrigin` is what logins sign) |
 | `DeviceLogin.swift`, `Base64URL.swift` | the signed device-login message, SPKI/DER helpers, enrollment codes, PKCE, the sign-in routes (`AppAuthRoute`) and their wire types (`DeviceEnrollRequest`, `DeviceEnrollment`, `DeviceChallenge`, `DeviceLoginRequest`, `AppSession`, …) |
 | `Fixtures.swift` | `FixtureTree`, `FixtureSet` — `native/fixtures/<name>/expected.json` |
+| `Client/API.swift` | `APIRequest`/`APIResponse`/`APITransport` (the app injects URLSession), `APIError` (`stepUp`, `reauth`) |
+| `Client/Auth.swift` | `WorkspaceAuth` — the session a workspace's Swift code uses; a 401 re-signs with the device key once, shared by every waiting request (one Face ID prompt); `Enrollment` — QR/typed code, password, SSO ticket, dev token; `SessionCredential`, `SessionStore`, `DeviceKeyStore`, `SignInError` |
+| `Client/Catalog.swift` | `Whoami`, `TileInfo`/`Catalog` (`/components`, search), `PersonalLayout` (the shell's `layout` pref), `SharedScreens` (`/screens`), `NavigatorModel` |
+| `Client/TileLoading.swift` | `TileSurface` (web / native / Safari), `TileScheme` (the `xbin-ws` scheme handler's URL, header and redirect rules), `FrameTokenCache` |
+| `Client/TileBridge.swift` | `TileBridge` (the relay user script, `xbin:*` requests, `xbin:reply`), `DialogSpec` (bx-dialog's data), `WindowSpec`, `SpawnLimits` |
+| `Client/NativeTile.swift` | `NativeTileLifecycle` (5 s to mount, fallback reasons and banners), `NativeCallAction` (copy/share/open policy), `NativeStateBlob` |
+| `Client/Push.swift` | `PushEnvelope`, `PushPayload`, `PushOpener` (the extension's key choice), `PushStatus`/`PushState`/`PushMaintenance` (push.md §1.4), `PushAPI`, `PushRelayAPI` |
 
 Rules the code keeps:
 

@@ -1,0 +1,39 @@
+{
+    "screens": [
+      {
+        "id": "s1",
+        "name": "Home",
+        "tiles": [
+          {
+            "path": "apps/welcome",
+            "x": 0,
+            "y": 0,
+            "w": 6,
+            "h": 4
+          },
+          {
+            "path": "tiles/manager",
+            "x": 6,
+            "y": 0,
+            "w": 6,
+            "h": 4
+          }
+        ]
+      },
+      {
+        "id": "s2",
+        "name": "Ops",
+        "tiles": [
+          {
+            "path": "tiles/admin",
+            "x": 0,
+            "y": 0,
+            "w": 12,
+            "h": 6
+          }
+        ]
+      }
+    ],
+    "active": "s1",
+    "side": {}
+  }

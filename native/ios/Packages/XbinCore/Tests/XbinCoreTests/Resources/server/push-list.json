@@ -1,0 +1,15 @@
+{
+ "devices": [
+  {
+   "deviceId": "dev-test",
+   "kinds": [
+    "agent",
+    "tile"
+   ],
+   "created": 1790409072,
+   "updated": 1790409072
+  }
+ ],
+ "enabled": false,
+ "workspace": "coyxxRBwDvBo4-0d"
+}
