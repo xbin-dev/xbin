@@ -794,6 +794,29 @@ system, which the exemption covers. No own cipher code is compiled for iOS
 It is the account holder's declaration: revisit it if the app ever ships its
 own cryptography.
 
+### The help screenshots
+
+The app's "where do I find the QR code?" help shows two pictures of the web
+shell: `App/Resources/Help/help-1-settings.png` (the top bar's **settings**
+chip and its menu, **add a device** ringed) and `help-2-add-device.png`
+(the add-device panel with its QR code and *address your phone uses*).
+They are made by the UI harness, not by hand — the `appHelp` pass
+(`hack/ui-harness/passes/apphelp.js`) on a fresh seeded workspace, dev1's
+view, dark theme, 2×, cropped to about 1000–1100 px wide, with the
+enrollment answer stubbed to a fixed code at `https://xbin.example.com` so
+nothing of a real workspace shows and the files change only when the shell
+does. Rerun whenever the top bar, the settings menu or the device panel
+changes, then look at both before committing:
+
+```sh
+PLAYWRIGHT_DIR=~/lcad-wasm PORT=8931 hack/ui-harness/app-help-shots.sh   # a private port, never the default
+```
+
+It runs `run.sh --keep appHelp`, stops the harness xbind and copies the two
+PNGs from `$HARNESS_DIR/out/app-help-*.png` into `App/Resources/Help/`. The
+pass also asserts what it shows (the chip, "add a device" first, the QR code
+decoding to the example link — `zbarimg` when installed).
+
 ### The ssh dev loop
 
 `native/ios/scripts/mac-remote.sh`, from this box, with `XBIN_MAC=user@host`

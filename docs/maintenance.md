@@ -434,6 +434,7 @@ hack/ui-harness/run.sh                    # build, fresh workspace, seed, every 
 hack/ui-harness/run.sh --keep             # …and leave xbind up on $PORT
 hack/ui-harness/run.sh --shots windows    # one pass against the running instance
 hack/ui-harness/run.sh --restart          # rebuild xbind, same workspace, every pass
+hack/ui-harness/app-help-shots.sh         # the iOS app's help screenshots (native/AGENTS.md)
 (cd hack/ui-harness && node shots.js --list)
 ```
 

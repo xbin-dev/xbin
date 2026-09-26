@@ -27,7 +27,7 @@ const { agentConvs } = require('./passes/agentconvs');
 const { channels } = require('./passes/channels');
 const { newTile } = require('./passes/newtile');
 const { personalPlane } = require('./passes/personalplane');
-const { devices } = require('./passes/devices');
+const { devices } = require('./passes/devices'), { appHelp } = require('./passes/apphelp');
 const { tileAssets } = require('./passes/tileassets');
 const { tilePages } = require('./passes/tilepages');
 const { termRun } = require('./passes/termrun');
@@ -845,7 +845,7 @@ async function adminTabs(browser) {
 const PASSES = {
   admin, adminTabs, adminMap, menus, mobile, screens,
   orgAdmin: async (b) => { await orgAdmin(b, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']); await orgAdmin(b, 'sales1', 'salespass123', ['apps/leads']); },
-  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle, devices, tileAssets, tilePages, termRun, tabStrip,
+  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle, devices, appHelp, tileAssets, tilePages, termRun, tabStrip,
 };
 
 (async () => {
