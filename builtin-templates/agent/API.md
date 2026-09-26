@@ -648,22 +648,65 @@ shows that file in a `sandbox=""` iframe with a prepended meta CSP
 never run and nothing external loads** — so charts must be inline SVG. Verify
 with `node test/frame-policy.mjs`.
 
-The chat is `chat-view.js` (state, fed by `stream.js`), `chat-fold.js` (pure:
-messages, links and drafts → blocks), `chat-cards.js` (lit templates),
-`tool-heads.js` (a tool call's headline and icon) and `chat-md.js` (markdown);
-`agent.js` is the page around it. The tile's other browser tests
-(`test/layout.mjs`, `chat`, `home`, `sidebar`, `attach`) drive the real page
-against `test/backend.mjs`, a stubbed transport with a scriptable event
-stream; `test/kit.mjs` serves the frontend kit and vendored lit from the xbin
-checkout the template lives in (in an instance: `BX_KIT=/path/to/bx-kit.js`,
-`BX_VENDOR=/path/to/vendor`). Each needs Playwright with a Chromium build and
-skips without it. The backend: `go vet ./_backend && go test ./_backend` with
-a `go.mod` copied from `go.mod.tile`.
+The tile's frontend is **one model, thin views** — see **The frontend** below.
+The chat's state is `model/session.js` (fed by `model/stream.js`),
+`model/fold.js` (pure: messages, links and drafts → blocks), `chat-cards.js`
+(lit templates), `model/tool-heads.js` (a tool call's headline and icon) and
+`chat-md.js` (markdown); `agent.js` is the page around it. The tile's other
+browser tests (`test/layout.mjs`, `chat`, `home`, `sidebar`, `attach`) drive
+the real page against `test/backend.mjs`, a stubbed transport with a
+scriptable event stream; `test/kit.mjs` serves the frontend kit and vendored
+lit from the xbin checkout the template lives in (in an instance:
+`BX_KIT=/path/to/bx-kit.js`, `BX_VENDOR=/path/to/vendor`). Each needs
+Playwright with a Chromium build and skips without it. The backend: `go vet
+./_backend && go test ./_backend` with a `go.mod` copied from `go.mod.tile`.
 
 File versions are monotonic but **not snapshotted**: clicking an older render
 chip shows the file's current content, with the header noting the difference.
 The tile's Files tab edits them too, sending back the version it loaded so a
 write the agent made in between comes back as a 409 instead of being lost.
+
+## The frontend: one model, thin views
+
+The tile's state and behaviour live in **`model/`** — plain ES modules with no
+lit and no DOM — and each way of showing the tile is a thin view over it. The
+web view is the files you know (`agent.js`, `chat-cards.js`, `sidebar.js`,
+`home.js`, `share.js`, `automations.js`, `auto-*.js`, `index.html`), and the
+model is written so a second view — the xbin app's native mode — can draw the
+same state with native controls.
+
+| `model/` | What it holds |
+|---|---|
+| `app.js` | `createApp()`: the model in one object — where you are (`sel`, `page`), who you are (`me`), the tool mode for new asks, what needs you, the halt switch, the composer's attachments and sending — wired to the one live stream; views subscribe with `app.on(event, fn)` |
+| `session.js` | the open conversation: its views, the model calls in flight, `shown()` (what the chat draws) |
+| `fold.js`, `tool-heads.js` | a run's view → chat blocks; a tool call's headline, family and state |
+| `conv-list.js`, `conv-groups.js` | the conversation list: paging, search, pins, read state, live updates; date groups |
+| `stream.js` | the live connection (`GET /stream`, resumable) |
+| `actions.js` | the calls a view makes: ask, send, attachments, control, halt, the tool mode, row actions, sharing, joining |
+| `rules.js` | who may do what and what the controls say: the top bar, the composer's state, the halt switch, a row's menu, the share dialog |
+| `router.js` | addresses: `#c=<id>`, `#auto[=kind:id]`, `#join=<token>` |
+| `auto.js`, `auto-channels.js`, `auto-triggers.js` | the Automations page's state, its kinds (`registerKind`), and each kind's actions |
+| `home.js` | `HOME` — the home view's words — and what "Needs you" says |
+| `features.js` | `FEATURES`: every feature of the UI by key, and the intended differences between views |
+
+**Customising an instance.** A persona or domain changes `HOME` in
+`model/home.js`. The web files keep their names, and the modules that moved
+into `model/` (`chat-fold.js`, `tool-heads.js`, `conv-groups.js`,
+`stream.js`, `conv-list.js`) are one-line re-exports at their old paths, so
+imports and patches written against the old layout keep working.
+`chat-view.js` is now the model's `Session` plus the web's `template()`;
+`automations.js` still exports `registerKind` and `AutoPage` (a view adds its
+drawing to a kind the model registered with `extendKind`).
+
+**The rule: a UX change lands in the model and in every view in the same
+change.** `model/features.js` lists each feature by key; each view declares
+what it implements (`web-features.js` for the web), and
+`hack/agent-template-features.test.mjs` in the xbin repo fails when a view
+misses a key that is not listed as an intended difference with its reason. A
+change that is only for one view says why it is view-specific there. Model
+logic never touches the DOM or opens a dialog (the web asks "are you sure?"
+before calling a model action); `hack/agent-template-model.test.mjs` runs the
+model in node against a scripted backend to keep it that way.
 
 ## JavaScript sandbox (REPL)
 
