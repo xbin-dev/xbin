@@ -19,7 +19,8 @@
 // native/fixtures/README.md.
 //
 // A full --check (no names) also fails when the fixtures together leave any
-// part of the vocabulary unexercised (native/tools/coverage.mjs).
+// part of the vocabulary unexercised (native/tools/coverage.mjs), or when
+// native/fixtures/README.md does not list a fixture.
 import { writeFileSync, readFileSync } from 'node:fs';
 import { join, relative, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -87,7 +88,8 @@ function printLines(lines, indent = '    ', max = MAX_DIFF_LINES) {
 async function main() {
   const o = parseArgs(process.argv.slice(2));
   if (o.mode === 'help') {
-    console.log(readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 22).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'));
+    const lines = readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1);
+    console.log(lines.slice(0, lines.findIndex((l) => !l.startsWith('//'))).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'));
     return 0;
   }
   const all = listFixtures();
@@ -156,6 +158,13 @@ async function main() {
     if (o.coverage) {
       const items = Object.keys(cov.by).sort();
       for (const it of items) console.log(`${it.padEnd(48)} ${cov.by[it].join(' ')}`);
+    }
+    if (full && o.mode === 'check') {
+      // the README's index names every fixture (docs stay true)
+      let readme = '';
+      try { readme = readFileSync(join(FIXTURES, 'README.md'), 'utf8'); } catch { /* reported below */ }
+      const unlisted = names.filter((n) => !readme.includes(`\`${n}\``));
+      if (unlisted.length) { console.log(`FAIL native/fixtures/README.md does not list ${unlisted.map((n) => `\`${n}\``).join(', ')}`); failed++; }
     }
     const line = `coverage: ${cov.covered}/${cov.total} of the vocabulary exercised${full ? '' : ` by ${names.join(', ')}`}`;
     if (cov.missing.length && !full && !o.coverage) console.log(`${line} (--coverage lists what is missing)`);

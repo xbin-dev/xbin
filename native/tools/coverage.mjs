@@ -13,7 +13,8 @@
 //   child <parent>><child>    every child a restricted parent allows (list>notice)
 //   md    <what>              every markdown token shape (native/spec/tree.md §11)
 //
-// Props the runtime sets (`tokens`) are not required; their markdown is.
+// Props the runtime sets (`tokens`) or replaces (markdown `source`) are not
+// required; their markdown is.
 
 // Token sets whose every value must appear on every prop that takes them;
 // the others (icon, height) are covered once anywhere.
@@ -26,6 +27,10 @@ const MD_REQUIRED = [
   'table align=left', 'table align=center', 'table align=right', 'table align=none', 'block hr',
   'inline text', 'inline strong', 'inline em', 'inline del', 'inline codespan', 'inline link', 'inline br',
 ];
+
+// Props a tile sets that never reach the wire: the runtime replaces them
+// (markdown `source` → `tokens`, covered by the md items).
+const NOT_ON_WIRE = new Set(['markdown.source']);
 
 const types = (sch) => [].concat(sch?.type ?? []);
 
@@ -48,7 +53,9 @@ export function required(vocab) {
   for (const [name, P] of Object.entries(vocab.prims)) {
     req.add(`prim ${name}`);
     for (const ev of Object.keys(P.events || {})) req.add(`event ${name}@${ev}`);
-    for (const [prop, sch] of Object.entries(P.props || {})) if (!sch.runtime) requireProp(req, vocab, name, prop, sch);
+    for (const [prop, sch] of Object.entries(P.props || {})) {
+      if (!sch.runtime && !NOT_ON_WIRE.has(`${name}.${prop}`)) requireProp(req, vocab, name, prop, sch);
+    }
     for (const c of P.children?.only || []) req.add(`child ${name}>${c}`);
   }
   for (const m of MD_REQUIRED) req.add(`md ${m}`);

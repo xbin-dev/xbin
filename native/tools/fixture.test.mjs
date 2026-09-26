@@ -66,6 +66,18 @@ test('format: one node per line, valid JSON, wire key order', () => {
   assert.deepEqual(JSON.parse(text), TREE);
   const leaf = { v: 1, root: { e: ['x'], t: 'text', k: 'r', p: { text: 'hi' } } };
   assert.equal(format(leaf), '{"v":1,"root":{"k":"r","t":"text","p":{"text":"hi"},"e":["x"]}}\n');
+  // markdown tokens: a line per block
+  const md = { v: 1, root: { k: 'r', t: 'screen', c: [{ k: 'r.0', t: 'markdown', p: { tokens: [{ t: 'hr' }, { t: 'paragraph', c: [] }], streaming: false }, e: ['link'] }] } };
+  assert.equal(format(md), [
+    '{"v":1,"root":{"k":"r","t":"screen","c":[',
+    '  {"k":"r.0","t":"markdown","p":{"tokens":[',
+    '      {"t":"hr"},',
+    '      {"t":"paragraph","c":[]}',
+    '    ],"streaming":false},"e":["link"]}',
+    ']}}',
+    '',
+  ].join('\n'));
+  assert.deepEqual(JSON.parse(format(md)), md);
 });
 
 test('treeDiff names nodes by key and says what changed', () => {

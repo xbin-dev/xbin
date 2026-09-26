@@ -103,14 +103,18 @@ export function format(tree) {
   const v = JSON.stringify(tree.v);
   if (!tree.root) return `{"v":${v},"root":null}\n`;
   const lines = [];
-  const head = (n) => {
-    const h = { k: n.k, t: n.t };
-    if (n.p !== undefined) h.p = n.p;
-    if (n.e !== undefined) h.e = n.e;
-    return JSON.stringify(h).slice(0, -1);
+  // markdown tokens (the runtime's, often kilobytes) get a line per block
+  const props = (p, ind) => `{${Object.entries(p).map(([k, x]) => (k === 'tokens' && Array.isArray(x) && x.length
+    ? `"tokens":[\n${x.map((b) => `${ind}    ${JSON.stringify(b)}`).join(',\n')}\n${ind}  ]`
+    : `${JSON.stringify(k)}:${JSON.stringify(x)}`)).join(',')}}`;
+  const head = (n, ind) => {
+    let h = `{"k":${JSON.stringify(n.k)},"t":${JSON.stringify(n.t)}`;
+    if (n.p !== undefined) h += `,"p":${props(n.p, ind)}`;
+    if (n.e !== undefined) h += `,"e":${JSON.stringify(n.e)}`;
+    return h;
   };
   const node = (n, ind, tail, prefix = '') => {
-    const h = `${ind}${prefix}${head(n)}`;
+    const h = `${ind}${prefix}${head(n, ind)}`;
     if (n.c === undefined) lines.push(`${h}}${tail}`);
     else if (!n.c.length) lines.push(`${h},"c":[]}${tail}`);
     else {
