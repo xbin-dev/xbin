@@ -10,7 +10,7 @@
  * ones; a nav shows its last screen with a back button; a sheet slides over
  * everything with a grabber. Helpers and the `cx` contract: xb/render-base.js.
  */
-import { css, repeat } from '/vendor/lit-all.min.js';
+import { css, repeat, live } from '/vendor/lit-all.min.js';
 import { html, nothing, own, P, cls, tone, icon, str } from '/vendor/xb/render-base.js';
 
 const backTitle = (s) => { const t = str(P(s).title); return t && t.length <= 14 ? t : 'Back'; };
@@ -42,7 +42,7 @@ function nav(n, cx) {
 function searchField(n, cx) {
   const v = str(cx.val(n, 'search', ''));
   return html`<div class="search">${icon('search')}<input type="search" placeholder="Search"
-    .value=${v} @input=${(e) => cx.emit(n, 'search', { value: e.target.value })}></div>`;
+    .value=${live(v)} @input=${(e) => cx.emit(n, 'search', { value: e.target.value })}></div>`;
 }
 
 function screen(n, cx) {

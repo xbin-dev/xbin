@@ -47,7 +47,7 @@ function button(n, cx) {
   return html`<xb-button data-k=${n.k} class=${cls('button', `in-${place}`, place === 'group' && 'cell')}>
     <button class=${cls('btn', `b-${place}`, `r-${role}`, p.busy && 'busy')} ?disabled=${!!p.disabled || !!p.busy}
       aria-label=${iconOnly ? label : nothing} aria-busy=${p.busy ? 'true' : nothing}
-      @click=${() => { press(n, cx.v); if (place === 'menu') cx.v.closeOverlay(); }}>${inner}</button>
+      @click=${() => { if (place === 'menu') cx.v.closeOverlay(); press(n, cx.v); }}>${inner}</button>
   </xb-button>`;
 }
 
@@ -98,7 +98,7 @@ function picker(n, cx) {
   const lbl = (o) => str(o.label ?? o.value);
   const choose = (i) => { const o = opts[i]; if (o && !same(o.value, val)) cx.emit(n, 'change', { value: o.value }); };
   const style = ['menu', 'segmented', 'inline'].includes(p.style) ? p.style : 'menu';
-  const place = cx.place;
+  const place = cx.place === 'group' || cx.place === 'toolbar' ? cx.place : 'free';
   const group = place === 'group';
   if (style === 'segmented') {
     return html`<xb-picker data-k=${n.k} class=${cls('picker', 'pk-seg', group ? 'cell' : 'free')}>
@@ -249,7 +249,7 @@ export const CONTROLS_CSS = css`
   .pk-val > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pk-ud { width: 15px; height: 15px; flex: none; }
   .pk-native { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 16px; }
-  .pk-menu.free { background: var(--xb-surface); border-radius: 10px; padding: 11px 12px; }
+  .pk-menu.in-free { background: var(--xb-surface); border-radius: 10px; padding: 11px 12px; }
   .pk-menu.in-toolbar { padding: 0 8px; height: 36px; }
   .pk-menu.in-toolbar .pk-val { color: var(--xb-accent-text); font-weight: 600; max-width: 170px; }
   .pk-label { font: inherit; }
