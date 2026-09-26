@@ -1,10 +1,10 @@
-// chat-cards.js — how the chat draws its blocks (chat-fold.js): lit
+// chat-cards.js — how the chat draws its blocks (model/fold.js): lit
 // templates rendered into the timeline, keyed by block id so a streamed token
 // or a settled result patches one card and leaves the rest — the selection,
 // an open card, the scroll position — alone.
 import { html, nothing, repeat, unsafeHTML, classMap } from '/vendor/lit-all.min.js';
 import { md } from './chat-md.js';
-import { ICON, argsShown } from './tool-heads.js';
+import { ICON, argsShown } from './model/tool-heads.js';
 
 const STATE_LABEL = {
   running: 'running', writing: 'writing', waiting: 'waiting', approval: 'needs approval',

@@ -1,13 +1,14 @@
 // backend.mjs — the tile, served for a test, against an in-page fake backend.
 //
-// serveTile(ctx) answers the tile's own files (index.html and every module
-// next to it), the kit, lit and marked. STUB is the fake backend a test
-// installs with ctx.addInitScript(STUB, seed): a window.xbin whose fetch
-// answers the routes the tile uses — the run list, run views, messages, the
-// queue, interrupts, approvals — and a live stream the test drives with
-// window.__push(event) (the same SSE the real backend writes). Tests add or
-// override routes with window.__route(method, regexp, fn) from their own init
-// script, and read what the tile sent from window.__calls.
+// serveTile(ctx) answers the tile's own files (index.html, every module next
+// to it and the shared model under model/), the kit, lit and marked. STUB is
+// the fake backend a test installs with ctx.addInitScript(STUB, seed): a
+// window.xbin whose fetch answers the routes the tile uses — the run list,
+// run views, messages, the queue, interrupts, approvals — and a live stream
+// the test drives with window.__push(event) (the same SSE the real backend
+// writes). Tests add or override routes with window.__route(method, regexp,
+// fn) from their own init script, and read what the tile sent from
+// window.__calls.
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -23,7 +24,8 @@ export const THEME = '<style>:root{--bx-border:#ccc;--bx-panel:#fff;--bx-panel-2
   '--bx-muted:#777;--bx-accent:#b57e10;--bx-mono:monospace;--bx-red:#c33;--bx-green:#3a3}</style>';
 
 export async function serveTile(ctx, { realMarked = false } = {}) {
-  const modules = new Set(readdirSync(tileDir).filter((f) => f.endsWith('.js')));
+  const modules = new Set([...readdirSync(tileDir).filter((f) => f.endsWith('.js')),
+    ...readdirSync(join(tileDir, 'model')).filter((f) => f.endsWith('.js')).map((f) => 'model/' + f)]);
   await ctx.route(`${ORIGIN}/**`, (route) => {
     let path = new URL(route.request().url()).pathname.replace(/^\//, '') || 'index.html';
     if (path !== 'index.html' && !modules.has(path)) return route.fulfill({ status: 404, body: '' });

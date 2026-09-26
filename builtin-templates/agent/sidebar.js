@@ -1,11 +1,13 @@
 // sidebar.js — how the conversation list draws (lit, keyed by id): Pinned,
-// then date groups (conv-groups.js), newest activity first; search results
-// with the matching line; a row menu (right-click or ⋯) to rename, pin,
-// share, archive, delete or leave; "more" at the bottom as you scroll.
+// then date groups (model/conv-groups.js), newest activity first; search
+// results with the matching line; a row menu (right-click or ⋯) to rename,
+// pin, share, archive, delete or leave; "more" at the bottom as you scroll.
+// The list's state is model/conv-list.js; which glyphs and menu items a row
+// gets is model/rules.js; the row actions are model/actions.js.
 import { html, nothing, repeat } from '/vendor/lit-all.min.js';
-import { groupRows } from './conv-groups.js';
-
-const ACTIVE = new Set(['running', 'awaiting', 'sleeping', 'queued', 'blocked']);
+import { groupRows } from './model/conv-groups.js';
+import { rowGlyph, rowShared, rowMenu } from './model/rules.js';
+import * as actions from './model/actions.js';
 
 /**
  * @param list  ConvList (conv-list.js)
@@ -31,10 +33,11 @@ function rowsTpl(rows, ui, withMatch = false) {
 }
 
 function rowTpl(r, ui, withMatch) {
-  const glyph = r.status === 'waiting_input' ? html`<span class="gl ask" title="waiting for you">?</span>`
-    : r.status === 'error' ? html`<span class="gl err" title="failed">!</span>`
-    : ACTIVE.has(r.status) ? html`<span class="spin"></span>` : nothing;
-  const shared = r.visibility === 'team' || (r.members || 0) > 0;
+  const g = rowGlyph(r);
+  const glyph = g === 'ask' ? html`<span class="gl ask" title="waiting for you">?</span>`
+    : g === 'error' ? html`<span class="gl err" title="failed">!</span>`
+    : g === 'spin' ? html`<span class="spin"></span>` : nothing;
+  const shared = rowShared(r);
   if (ui.renaming === r.id) {
     return html`<div class="run on" data-id=${r.id}>
       <input class="ren" .value=${r.title || ''} @keydown=${(e) => {
@@ -46,7 +49,7 @@ function rowTpl(r, ui, withMatch) {
   return html`<div class="run ${r.id === ui.sel ? 'on' : ''} ${r.unread ? 'unread' : ''}" data-id=${r.id}
       @click=${() => ui.select(r.id)} @contextmenu=${(e) => { e.preventDefault(); ui.openMenu(r.id, e); }}>
     <div class="t">${r.title || 'run ' + r.id}</div>
-    ${shared ? html`<span class="gl" title=${r.mine ? 'shared' : `shared by ${r.owner || 'the team'}`}>⇆</span>` : nothing}${glyph}
+    ${shared ? html`<span class="gl" title=${shared.title}>⇆</span>` : nothing}${glyph}
     <button class="rmenu" title="more" @click=${(e) => { e.stopPropagation(); ui.openMenu(r.id, e); }}>⋯</button>
     ${withMatch && r.match ? html`<div class="snip">${r.match.snippet}</div>` : nothing}
   </div>`;
@@ -57,15 +60,10 @@ function menuTpl(list, ui) {
   if (!m) return nothing;
   const r = list.find(m.id) || (list.results || []).find((x) => x.id === m.id);
   if (!r) return nothing;
-  const own = r.access === 'owner' || r.access === 'system';
   const item = (label, action, cls = '') => html`<div class="mi ${cls}" @click=${() => { ui.closeMenu(); ui.act(action, r); }}>${label}</div>`;
   return html`<div class="mback" @click=${() => ui.closeMenu()} @contextmenu=${(e) => { e.preventDefault(); ui.closeMenu(); }}></div>
     <div class="rowmenu" style="left:${m.x}px;top:${m.y}px">
-      ${own ? item('Rename', 'rename') : nothing}
-      ${item(r.pinnedAt ? 'Unpin' : 'Pin', 'pin')}
-      ${own ? item('Share…', 'share') : nothing}
-      ${item(r.archivedAt ? 'Unarchive' : 'Archive', 'archive')}
-      ${own ? item('Delete', 'delete', 'rm') : r.mine ? item('Leave', 'leave', 'rm') : nothing}
+      ${rowMenu(r).map((i) => item(i.label, i.action, i.cls))}
     </div>`;
 }
 
@@ -78,8 +76,9 @@ export function footTpl(list, ui) {
 }
 
 // makeSideUI is the list's behaviour: selection, the row menu, inline rename
-// and the row actions. d: {convs, api, selectRun, goHome, paint, current,
-// search() → the search input, share(row), me() → GET /me}.
+// and the row actions (confirmed here, done by model/actions.js). d: {convs,
+// api, selectRun, goHome, paint, current, search() → the search input,
+// share(row), me() → GET /me}.
 export function makeSideUI(d) {
   let menu = null, renaming = null;
   const ui = {
@@ -93,8 +92,7 @@ export function makeSideUI(d) {
     rename: async (id, title) => {
       if (renaming !== id) return;
       renaming = null;
-      const r = d.convs.find(id);
-      if (title.trim() && (!r || title.trim() !== r.title)) await d.convs.patch(id, { title: title.trim() }).catch((e) => alert(e.message));
+      await actions.rename(d.convs, id, title).catch((e) => alert(e.message));
       d.paint();
     },
     more: () => d.convs.more(),
@@ -102,16 +100,15 @@ export function makeSideUI(d) {
     act: async (action, r) => {
       try {
         if (action === 'rename') { renaming = r.id; d.paint(); document.querySelector('#runs .ren')?.focus(); return; }
-        if (action === 'pin') await d.convs.patch(r.id, { pinned: !r.pinnedAt });
-        if (action === 'archive') await d.convs.patch(r.id, { archived: !r.archivedAt });
+        if (action === 'pin') await actions.pin(d.convs, r);
+        if (action === 'archive') await actions.archive(d.convs, r);
         if (action === 'share') d.share(r);
         if (action === 'leave' && confirm(`Leave "${r.title}"?`)) {
-          await d.api(`/runs/${r.id}/members/${encodeURIComponent(d.me().user)}`, { method: 'DELETE' });
-          d.convs.remove(r.id);
+          await actions.leave(d.convs, r, d.me().user);
           if (ui.sel === r.id) d.goHome();
         }
         if (action === 'delete' && confirm(`Delete "${r.title}" and its history?`)) {
-          await d.api(`/runs/${r.id}`, { method: 'DELETE' });
+          await actions.deleteRun(r.id);
           if (ui.sel === r.id) d.goHome();
         }
       } catch (e) { alert(e.message); }

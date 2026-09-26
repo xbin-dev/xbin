@@ -1,13 +1,15 @@
-// agent.js — the control tile. Your conversations (conv-list.js / sidebar.js
-// — per person, D83; subagents live inside their parent's session), a home
+// agent.js — the control tile's web view. Your conversations (sidebar.js —
+// per person, D83; subagents live inside their parent's session), a home
 // view of what needs you, the chat of the selected conversation, the render
 // pane for render_html output (sandboxed, see frameDoc), the workflow tree,
 // the Automations page (automations.js: schedules, watchers), and a tabbed
 // settings area (config / features / memory / files / skills / MCP).
 //
-// Nothing polls. One live stream (stream.js) carries the run list and the
-// selected run's whole tree; chat-view.js keeps the views, chat-fold.js turns
-// them into blocks, chat-cards.js draws them. No framework beyond lit's
+// The state lives in model/ (shared with the native view): model/app.js wires
+// the Session (chat-view.js adds its lit template), the conversation list and
+// the Automations page to one live stream — nothing polls — and says where
+// you are; model/rules.js says which controls show, model/actions.js talks to
+// the backend. This file draws and wires the DOM. No framework beyond lit's
 // render(), no build step; xbin.fetch attributes calls to this element.
 import { html, render, nothing } from '/vendor/lit-all.min.js';
 
@@ -18,13 +20,16 @@ const $ = (id) => document.getElementById(id);
 import { selfApi as api, jbody, esc } from '/vendor/bx-kit.js';
 import { Session } from './chat-view.js';
 import { queueTpl } from './chat-cards.js';
-import { ConvList } from './conv-list.js';
 import { sidebarTpl, footTpl, makeSideUI } from './sidebar.js';
 import { homeTpl } from './home.js';
 import { AutoPage, autoPageTpl, sideEntryTpl } from './automations.js';
-import './auto-channels.js'; // registers the Channels kind on that page
+import './auto-channels.js'; // draws the Channels kind on that page
 import './auto-triggers.js'; // …and Triggers
-import { openShare, joinFrom } from './share.js';
+import { openShare } from './share.js';
+import { createApp } from './model/app.js';
+import { HOME } from './model/home.js';
+import * as rules from './model/rules.js';
+import * as actions from './model/actions.js';
 // Raw-bytes endpoints (a file's bytes, an upload body) go through xbin.fetch
 // directly — the kit's api() parses JSON — so they need this backend's prefix.
 const base = `/api/${xbin.self}`;
@@ -34,41 +39,30 @@ const clip = (s, n) => { s = String(s ?? ''); return s.length > n ? s.slice(0, n
 const fmtN = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 const errBox = (e) => `<div class="err">${esc(e && e.message ? e.message : e)}</div>`;
 
-let sel = null;          // selected run id (null = home)
+// The model (model/app.js): where you are (app.sel — the selected run id,
+// null = home; app.page), who you are (app.me), the tool mode for new asks
+// (app.toolset), what needs you, the halt switch, the composer's attachments.
+// The home view's words are HOME (model/home.js) — an instance that
+// specializes the agent (a persona, a domain) changes those and nothing else.
+const app = createApp({
+  Session, AutoPage,
+  route: (h) => setHash(h),
+  visible: () => document.visibilityState === 'visible',
+});
+const { session, convs, autos } = app;
 
-// Capability lane for NEW asks (immutable per run once started): 'private'
-// = internal systems only, 'web' = web only — the exfiltration firewall.
-// Persisted via the per-user prefs API, NOT localStorage: tile frames are
-// sandboxed opaque origins with no localStorage at all, and touching it throws
-// — at module scope that kills the whole tile. The default stands until the
-// async load lands.
-let toolset = 'private';
-async function loadToolsetPref() {
-  try {
-    const r = await xbin.fetch('/api/xbin/prefs/toolset');
-    if (r.ok && (await r.json()) === 'web') { toolset = 'web'; syncToolsetBtn(); }
-  } catch { /* keep default */ }
-}
+// Capability lane for NEW asks (app.toolset, immutable per run once started):
+// 'private' = internal systems only, 'web' = web only — the exfiltration
+// firewall. Persisted via the per-user prefs API, NOT localStorage: tile
+// frames are sandboxed opaque origins with no localStorage at all, and
+// touching it throws — at module scope that kills the whole tile. The default
+// stands until the async load lands.
 const TSET = { private: ['🔒', 'private data — internal systems, no web'], web: ['🌐', 'web — no internal systems'] };
 function syncToolsetBtn() {
   const b = $('tset');
-  b.textContent = TSET[toolset][0];
-  b.title = `Tool mode for new asks: ${TSET[toolset][1]} (click to switch)`;
+  b.textContent = TSET[app.toolset][0];
+  b.title = `Tool mode for new asks: ${TSET[app.toolset][1]} (click to switch)`;
 }
-// The home view's words. An instance that specializes the agent (a persona,
-// a domain) changes these and nothing else.
-const HOME = {
-  title: 'Agent',
-  tagline: 'conversations · cron-agents',
-  hi: 'What do you need?',
-  sub: 'Ask below — every question starts a conversation of its own (yours, until you share it); recurring work becomes a cron-agent.',
-  examples: [
-    'What can you do in this workspace?',
-    'Every morning at 8, check…',
-    'Call apps/… and summarize what it returns',
-  ],
-  placeholder: 'ask anything…',
-};
 let models = [];         // model ids from GET /models ({data:[{id}]})
 let cfgCache = null;     // last GET /config
 let settingsOpen = false;
@@ -80,25 +74,41 @@ let filesSel = null;     // path of the file being edited (null = new)
 const isHtmlPath = (p) => /\.html?$/i.test(p || '');
 
 // --- the session ----------------------------------------------------------
-
-const session = new Session(base, {
-  change: () => paint(),
-  runs: () => { paintSide(); if (sel == null) paint(); },
-  gone: () => goHome(),
-  event: (ev) => onEvent(ev),
-  reset: () => { convs.load().catch(() => {}); loadNeeds(); },
-});
-const convs = new ConvList({ change: () => paintSide(), epoch: () => me.epochMs || 0 });
-// The Automations page (automations.js); page is what the main pane shows
+//
+// What the model says, the page draws: the chat on change, the list and the
+// Automations entry when theirs change. app.page is what the main pane shows
 // when no conversation is open: null (home) or 'automations'.
-let page = null;
-const autos = new AutoPage({ change: () => { paintSide(); if (page) paint(); }, select: (id) => selectRun(id), me: () => me,
-  route: (kind, id) => { if (page === 'automations') setHash(kind ? `auto=${kind}:${id}` : 'auto'); } });
-session.ui.act.select = (id) => selectRun(id);
-session.ui.me = () => me.user;
-session.ui.act.openFile = (path) => { filesSel = path; openSettings('files'); };
 
-const ACTIVE = new Set(['running', 'awaiting', 'sleeping', 'waiting_input', 'queued', 'blocked']);
+app.on('change', () => paint());
+app.on('runs', () => { paintSide(); if (app.sel == null) paint(); });
+app.on('list', () => paintSide());
+app.on('autos', () => { paintSide(); if (app.page) paint(); });
+app.on('needs', () => { if (app.sel == null) paint(); });
+app.on('me', () => { $('gear').hidden = !app.me.manager; syncHalt(); });
+app.on('halt', () => syncHalt());
+app.on('toolset', () => syncToolsetBtn());
+app.on('attach', () => renderAttach());
+app.on('sending', () => { $('send').disabled = app.sending; if (!app.sending) renderAttach(); });
+app.on('error', (e) => alert(e.message));
+// Opening a conversation closes the workflow tree and a preview of another
+// run's file; once it is open the chat starts at its end.
+app.on('select', (id) => {
+  closeWorkflow();
+  if (preview && preview.runId !== id) closePreview();
+  prevSeen = null;
+});
+app.on('selected', () => {
+  paintSide(); paint();
+  const tl = $('timeline');
+  tl.scrollTop = tl.scrollHeight;
+});
+app.on('home', () => {
+  closePreview(); prevSeen = null; prevDismissed = 0;
+  closeWorkflow();
+  paintSide(); paint();
+});
+app.on('page', () => { paintSide(); paint(); });
+session.ui.act.openFile = (path) => { filesSel = path; openSettings('files'); };
 
 // --- the conversation list -------------------------------------------------
 //
@@ -107,70 +117,26 @@ const ACTIVE = new Set(['running', 'awaiting', 'sleeping', 'waiting_input', 'que
 // its parent's chat and the workflow tree.
 
 const sideUI = makeSideUI({
-  convs, api, selectRun: (id) => selectRun(id), goHome: () => goHome(), paint: () => paintSide(),
-  current: () => session.current(), search: () => $('csearch'), me: () => me,
-  share: (r) => openShare(r, me, () => convs.load()),
+  convs, api, selectRun: (id) => app.select(id), goHome: () => app.home(), paint: () => paintSide(),
+  current: () => session.current(), search: () => $('csearch'), me: () => app.me,
+  share: (r) => openShare(r, app.me, () => convs.load()),
 });
 
 function paintSide() {
-  render(sideEntryTpl(autos, page === 'automations', () => openAutomations()), $('autos'));
+  render(sideEntryTpl(autos, app.page === 'automations', () => app.openAutomations()), $('autos'));
   render(sidebarTpl(convs, sideUI), $('runs'));
   render(footTpl(convs, sideUI), $('sfoot'));
-  syncHalt($('halt').dataset.on === '1');
-}
-
-// onEvent sees every stream event: the list keeps itself current, and the
-// conversation you are looking at stays read.
-let needsDirty = null, autosDirty = null;
-function onEvent(ev) {
-  convs.apply(ev);
-  if (ev.type === 'revoked' && ev.run === sideUI.sel) {
-    goHome();
-    xbin.notify?.('info', 'That conversation is no longer shared with you.');
-  }
-  if (ev.type === 'run' && ev.run === ev.root) {
-    const r = convs.find(ev.run);
-    if (r && r.unread && ev.run === sideUI.sel && document.visibilityState === 'visible') convs.read(ev.run);
-    if (sel == null) { clearTimeout(needsDirty); needsDirty = setTimeout(loadNeeds, 300); }
-  }
-  if (ev.type === 'automation' || (ev.type === 'run' && ev.run === ev.root && ['schedule', 'watcher', 'channel', 'trigger'].includes((ev.data || {}).origin))) {
-    clearTimeout(autosDirty);
-    autosDirty = setTimeout(() => (page ? autos.load() : autos.loadSummary()), 300);
-  }
+  syncHalt();
 }
 
 // --- home (no conversation open) -------------------------------------------
 
-let needs = [];
-async function loadNeeds() {
-  try { needs = (await api('/needs')).items || []; } catch { needs = []; }
-  if (sel == null) paint();
-}
-
-// openAutomations shows the Automations page (one automation's, with kind/id).
-async function openAutomations(kind, id) {
-  goHome();
-  page = 'automations';
-  setHash(kind ? `auto=${kind}:${id}` : 'auto');
-  await autos.load();
-  if (kind) await autos.show(kind, +id); else autos.show(null);
-  paintSide(); paint();
-}
-
-function goHome() {
-  page = null;
-  sel = null;
-  closePreview(); prevSeen = null; prevDismissed = 0;
-  closeWorkflow();
-  session.select(null);
-  setHash('');
-  loadNeeds();
-  paintSide(); paint();
-}
+const goHome = () => app.home();
+const selectRun = (id) => app.select(id);
 
 function homeView() {
   const mcp = xbin.iface && xbin.iface('mcp');
-  return homeTpl(HOME, needs, {
+  return homeTpl(HOME, app.needs, {
     mcpBound: !!(mcp && (mcp.endpoints || []).length),
     pick: (e) => { $('msg').value = e; autosize(); $('msg').focus(); },
     select: (id) => selectRun(id),
@@ -183,49 +149,27 @@ function setHash(h) {
   try { history.replaceState(null, '', h ? '#' + h : location.pathname + location.search); } catch { /* sandboxed */ }
 }
 
-// --- selecting a run --------------------------------------------------------
-
-async function selectRun(id) {
-  if (id == null) return goHome();
-  sel = +id;
-  page = null;
-  closeWorkflow();
-  if (preview && preview.runId !== sel) closePreview();
-  prevSeen = null;
-  try { await session.select(sel); } catch (e) { alert(e.message); return goHome(); }
-  setHash('c=' + sel);
-  const root = sideUI.sel;
-  if (root != null) convs.read(root);
-  paintSide(); paint();
-  const tl = $('timeline');
-  tl.scrollTop = tl.scrollHeight;
-}
-
 // --- painting -------------------------------------------------------------------
 
 function topTpl(v) {
-  if (!v) return page === 'automations' ? html`<span class="title">Automations</span>`
+  if (!v) return app.page === 'automations' ? html`<span class="title">Automations</span>`
     : html`<span class="title">${HOME.title}</span><span class="muted" style="font-size:11.5px">${HOME.tagline}</span>`;
   const r = v.run;
-  const auto = ['schedule', 'watcher'].includes(r.origin) && r.originId;
-  // the tool mode — not who may see it (that is Share)
-  const lane = (v.config && v.config.toolset) === 'web' ? '🌐 web' : '🔒 internal';
-  const tree = r.parentId || (v.links || []).length;
-  const talk = v.access !== 'viewer', own = !v.access || v.access === 'owner' || v.access === 'system';
-  return html`${auto ? html`<a class="crumb" @click=${() => openAutomations(r.origin, r.originId)}>Automations ›</a>` : nothing}
-    <span class="title" title=${r.title || ''}>${r.title || 'run ' + r.id}</span>
-    <span class="badge" title="tool mode (immutable for this run)">${lane}</span>
+  const t = rules.topBar(v);
+  return html`${t.crumb ? html`<a class="crumb" @click=${() => app.openAutomations(t.crumb.kind, t.crumb.id)}>Automations ›</a>` : nothing}
+    <span class="title" title=${r.title || ''}>${t.title}</span>
+    <span class="badge" title="tool mode (immutable for this run)">${t.laneLabel}</span>
     <span class="badge ${r.status}">${r.status}</span>
-    ${talk ? nothing : html`<span class="badge" title="shared with you to read">view only</span>`}
-    ${talk && (r.status === 'error' || r.status === 'canceled') ? html`<button class="btn ghost btnsm" @click=${() => control('resume')} title="Drive the run again">Retry</button>` : nothing}
-    ${talk ? html`<button class="btn ghost btnsm" @click=${() => control('compact')}>Compact</button>
+    ${t.viewOnly ? html`<span class="badge" title="shared with you to read">view only</span>` : nothing}
+    ${t.retry ? html`<button class="btn ghost btnsm" @click=${() => control('resume')} title="Drive the run again">Retry</button>` : nothing}
+    ${t.compact ? html`<button class="btn ghost btnsm" @click=${() => control('compact')}>Compact</button>
     <button class="btn ghost btnsm" @click=${() => control('learn')} title="Distill this run into a reusable skill">Learn skill</button>` : nothing}
-    <button class="btn ghost btnsm" @click=${() => control('mem')}>Memory (${Object.keys(v.memory || {}).length})</button>
-    <button class="btn ghost btnsm" @click=${() => control('files')} title="This run's session files">Files (${(v.files || []).length})</button>
-    ${tree ? html`<span class="badge wfchip" @click=${() => control('wf')} title="open the workflow tree">⑂ tree</span>` : nothing}
-    <button class="btn ghost btnsm" @click=${() => openShare({ id: r.rootId || r.id, title: r.title }, me, () => convs.load())}
-      title=${own ? 'Who can see this conversation' : 'Who this is shared with'}>${own ? 'Share' : 'Shared'}</button>
-    ${own ? html`<button class="btn rm btnsm" @click=${() => control('delete')}>Delete</button>` : nothing}`;
+    <button class="btn ghost btnsm" @click=${() => control('mem')}>Memory (${t.memory})</button>
+    <button class="btn ghost btnsm" @click=${() => control('files')} title="This run's session files">Files (${t.files})</button>
+    ${t.tree ? html`<span class="badge wfchip" @click=${() => control('wf')} title="open the workflow tree">⑂ tree</span>` : nothing}
+    <button class="btn ghost btnsm" @click=${() => openShare(t.shareRun, app.me, () => convs.load())}
+      title=${t.shareTitle}>${t.share}</button>
+    ${t.del ? html`<button class="btn rm btnsm" @click=${() => control('delete')}>Delete</button>` : nothing}`;
 }
 
 // paint draws everything that depends on the session. lit patches only what
@@ -236,21 +180,17 @@ function paint() {
   render(topTpl(v), $('top'));
   const tl = $('timeline');
   const atBottom = tl.scrollHeight - tl.scrollTop - tl.clientHeight < 40;
-  render(v ? session.template() : page === 'automations' ? autoPageTpl(autos) : homeView(), tl);
+  render(v ? session.template() : app.page === 'automations' ? autoPageTpl(autos) : homeView(), tl);
   // a chat sticks to its end; a page opens at its top
-  const shown = v ? '' : `${page}:${autos.open ? autos.open.kind + autos.open.id : ''}:${!!(autos.form || autos.custom)}`;
+  const shown = v ? '' : `${app.page}:${autos.open ? autos.open.kind + autos.open.id : ''}:${!!(autos.form || autos.custom)}`;
   if (v ? atBottom : shown !== shownPage) tl.scrollTop = v ? tl.scrollHeight : 0;
   shownPage = shown;
   render(queueTpl(v ? session.queued() : [], (iid) => session.removeQueued(iid).catch((e) => alert(e.message))), $('queue'));
   $('queue').hidden = !(v && session.queued().length);
-  const busy = session.busy();
-  $('stop').hidden = !busy;
-  const viewOnly = !!(v && v.access === 'viewer');
-  $('msg').disabled = viewOnly;
-  $('msg').placeholder = !v ? HOME.placeholder
-    : viewOnly ? 'view only — shared with you to read'
-    : busy ? 'steer — delivered at the agent\'s next step…'
-    : v.run.status === 'waiting_input' && (v.run.pendingState || {}).kind !== 'approval' ? 'answer the question…' : 'follow up…';
+  const c = rules.composer(v, HOME);
+  $('stop').hidden = !c.stop;
+  $('msg').disabled = c.disabled;
+  $('msg').placeholder = c.placeholder;
   if (v) syncPreview(v);
   if (wfOpen) treeDirty();
 }
@@ -279,7 +219,7 @@ function closeWorkflow() {
 async function loadTree() {
   if (!wfOpen || wfRoot == null) return;
   let t;
-  try { t = await api(`/runs/${wfRoot}/tree`); } catch { return; }
+  try { t = await actions.tree(wfRoot); } catch { return; }
   if (!wfOpen) return;
   renderWorkflow(t);
 }
@@ -389,28 +329,16 @@ function patchWorkflow(t) {
   }
 }
 
-// me is who the tile is talking for (GET /me, D83): settings, the brake and
-// oversight are the managers' — people with write access to the tile.
-let me = { manager: true };
-async function loadMe() {
-  try { me = await api('/me'); } catch { /* an older backend: everything, as before */ }
-  $('gear').hidden = !me.manager;
-  syncHalt($('halt').dataset.on === '1');
-}
-
-async function loadHalt() {
-  try {
-    const h = await api('/halt');
-    syncHalt(!!h.on);
-  } catch { /* ignore */ }
-}
-
-function syncHalt(on) {
+// app.me is who the tile is talking for (GET /me, D83): settings, the brake
+// and oversight are the managers' — people with write access to the tile.
+// syncHalt draws the brake (model/rules.js says when it shows).
+function syncHalt() {
   const b = $('halt');
-  b.hidden = !me.manager || (!on && !convs.all().some((r) => ACTIVE.has(r.status) && r.status !== 'waiting_input'));
-  b.textContent = on ? '⏻ HALTED' : '⏻';
-  b.title = on ? 'Resume — the agent is halted' : 'Stop every running agent now';
-  b.dataset.on = on ? '1' : '';
+  const h = rules.halt(app.me, app.halted, convs.all());
+  b.hidden = !h.shown;
+  b.textContent = h.label;
+  b.title = h.title;
+  b.dataset.on = app.halted ? '1' : '';
 }
 
 // --- render pane --------------------------------------------------------
@@ -493,8 +421,8 @@ function closePreview() {
 }
 
 async function openPreview(path, ver, live) {
-  if (sel == null || !path) return;
-  preview = { runId: sel, path, ver: num(ver), live: !!live };
+  if (app.sel == null || !path) return;
+  preview = { runId: app.sel, path, ver: num(ver), live: !!live };
   $('preview').hidden = false;
   $('prev-path').textContent = path;
   $('prev-path').title = path;
@@ -544,7 +472,7 @@ async function paintPreview() {
 // syncPreview follows the run's newest render step. Called from paint on
 // every tick; it only acts when a NEW render lands.
 function syncPreview(d) {
-  if (preview && preview.runId !== sel) closePreview();
+  if (preview && preview.runId !== app.sel) closePreview();
   const rs = (d.steps || []).filter((s) => s.kind === 'render');
   const last = rs.length ? rs[rs.length - 1] : null;
   if (!last) { prevSeen = null; return; }
@@ -573,127 +501,46 @@ async function rawBlob(run, path) {
 // refreshView re-reads the selected run's view after an edit the stream does
 // not carry (memory blocks, session files).
 function refreshView() {
-  if (sel != null) session.fetchView(sel).then(paint).catch(() => {});
+  if (app.sel != null) session.fetchView(app.sel).then(paint).catch(() => {});
 }
 
 async function control(action) {
   if (action === 'mem') return openSettings('memory');
   if (action === 'files') return openSettings('files');
-  if (action === 'wf') { const v = session.current(); return openWorkflow(v ? (v.run.rootId || v.run.id) : sel); }
+  if (action === 'wf') { const v = session.current(); return openWorkflow(v ? (v.run.rootId || v.run.id) : app.sel); }
   if (action === 'delete') {
     if (!confirm('Delete this run and its history?')) return;
-    try { await api(`/runs/${sel}`, { method: 'DELETE' }); } catch (e) { return alert(e.message); }
+    try { await actions.deleteRun(app.sel); } catch (e) { return alert(e.message); }
     if (settingsOpen && activeTab === 'memory') renderTab();
-    session.runs.delete(sel);
+    session.runs.delete(app.sel);
     return goHome();
   }
   // resume | compact | learn → POST /runs/{id}/{action}
-  try { await api(`/runs/${sel}/${action}`, { method: 'POST' }); } catch (e) { alert(e.message); }
+  try { await actions.control(app.sel, action); } catch (e) { alert(e.message); }
 }
 
 // --- composer -----------------------------------------------------------
 
-// Attachments waiting to be sent. Each is uploaded into the run's session files
-// (PUT /runs/{id}/upload) and then named in the message, so the model finds
-// them with its file tools and sees images. `path` is set once an upload
-// lands, so a retry after a failed message re-sends rather than re-uploads.
-const MAX_ATTACH = 16 * 1024 * 1024; // the backend's per-file cap
-let attachments = [];   // [{key, file, name, size, type, path?, state?, err?}]
-let attachSeq = 0;
-let sending = false;
-
-const fmtBytes = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`;
-
-function addFiles(list) {
-  for (const f of list || []) {
-    const a = { key: ++attachSeq, file: f, name: f.name || 'pasted', size: f.size, type: f.type };
-    if (f.size > MAX_ATTACH) { a.state = 'bad'; a.err = `too large (max ${fmtBytes(MAX_ATTACH)})`; }
-    attachments.push(a);
-  }
-  renderAttach();
-}
+// Attachments waiting to be sent (app.attach, model/actions.js): uploaded into
+// the run's session files and then named in the message. These are their chips.
+const { fmtBytes } = actions;
+const addFiles = (list) => app.attach.add(list);
 
 function renderAttach() {
   const host = $('attach');
+  const attachments = app.attach.items;
   host.hidden = attachments.length === 0;
   host.innerHTML = attachments.map((a) => `<span class="chip ${a.state || ''}" title="${esc(a.err || a.type || '')}">
     <span class="nm">${esc(a.name)}</span><span class="sz">${a.state === 'up' ? 'uploading…' : a.err ? esc(a.err) : fmtBytes(a.size)}</span>
-    <button data-rm="${a.key}" title="remove" ${sending ? 'disabled' : ''}>✕</button></span>`).join('');
-  host.querySelectorAll('[data-rm]').forEach((b) => b.onclick = () => {
-    attachments = attachments.filter((a) => a.key !== +b.dataset.rm);
-    renderAttach();
-  });
+    <button data-rm="${a.key}" title="remove" ${app.sending ? 'disabled' : ''}>✕</button></span>`).join('');
+  host.querySelectorAll('[data-rm]').forEach((b) => b.onclick = () => app.attach.remove(+b.dataset.rm));
 }
 
-// uploadAttachments puts every not-yet-uploaded attachment into run `id`, in
-// order, and returns all their session-file paths. Throws on the first failure
-// with that chip marked; chips already uploaded keep their path.
-async function uploadAttachments(id) {
-  for (const a of attachments) {
-    if (a.path) continue;
-    a.state = 'up'; a.err = ''; renderAttach();
-    const r = await xbin.fetch(`${base}/runs/${id}/upload?name=${encodeURIComponent(a.name)}`, {
-      method: 'PUT', headers: { 'Content-Type': a.type || 'application/octet-stream' }, body: a.file,
-    });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      a.state = 'bad'; a.err = d.error || `upload failed (${r.status})`; renderAttach();
-      throw new Error(`${a.name}: ${a.err}`);
-    }
-    a.path = d.path; a.state = 'done'; renderAttach();
-  }
-  return attachments.map((a) => a.path);
-}
-
-async function send() {
-  if (sending) return;
-  const t = $('msg').value.trim();
-  if (!t && !attachments.length) return;
-  if (attachments.some((a) => a.size > MAX_ATTACH)) {
-    return alert('Remove the files that are too large first.');
-  }
-  sending = true; $('send').disabled = true;
-  try {
-    // On home: start a fresh quick ask and jump into it (streaming answer).
-    if (sel == null) {
-      if (!attachments.length) {
-        $('msg').value = ''; autosize();
-        const run = await api('/ask', jbody({ text: t, toolset }, 'POST'));
-        session.runs.set(run.id, run);
-        await selectRun(run.id);
-        return;
-      }
-      // With attachments there is no run to upload into yet: create it held
-      // (no message, no drive), upload, then send the message into it.
-      const title = t || attachments.map((a) => a.name).join(', ');
-      const run = await api('/ask', jbody({ text: title, toolset, hold: true }, 'POST'));
-      try {
-        const files = await uploadAttachments(run.id);
-        await api(`/runs/${run.id}/message`, jbody({ text: t, files }, 'POST'));
-      } catch (e) {
-        // Don't leave an empty run behind; its uploads go with it, so the
-        // chips must upload again next time.
-        await api(`/runs/${run.id}`, { method: 'DELETE' }).catch(() => {});
-        attachments.forEach((a) => { delete a.path; if (a.state === 'done') a.state = ''; });
-        throw e;
-      }
-      $('msg').value = ''; autosize(); attachments = [];
-      session.runs.set(run.id, run);
-      await selectRun(run.id);
-      return;
-    }
-    const files = attachments.length ? await uploadAttachments(sel) : undefined;
-    // While the run works this is queued and delivered at its next step (the
-    // strip above the composer shows it until then).
-    await session.send(t, files);
-    $('msg').value = ''; autosize(); attachments = [];
-  } catch (e) {
-    alert(e.message);
-  } finally {
-    sending = false; $('send').disabled = false;
-    renderAttach();
-  }
-}
+// send: at home a fresh ask that opens with its streaming answer; in a
+// conversation a message — while the run works it is queued and delivered at
+// its next step (the strip above the composer shows it until then). The text
+// box empties once the text is on its way (app.send, model/app.js).
+const send = () => app.send($('msg').value, () => { $('msg').value = ''; autosize(); });
 $('send').onclick = send;
 $('clip').onclick = () => $('clipin').click();
 $('clipin').onchange = () => { addFiles($('clipin').files); $('clipin').value = ''; };
@@ -736,8 +583,7 @@ $('msg').addEventListener('input', autosize);
 // rather than being sent to a run you just stopped.
 $('stop').onclick = async () => {
   try {
-    const back = await session.stop();
-    const text = back.map((q) => q.text).filter(Boolean).join('\n\n');
+    const text = await app.stop();
     if (text) { $('msg').value = [text, $('msg').value].filter(Boolean).join('\n\n'); autosize(); $('msg').focus(); }
   } catch (e) { alert(e.message); }
 };
@@ -747,16 +593,14 @@ $('stop').onclick = async () => {
 $('wf-close').onclick = () => closeWorkflow();
 $('wf-stop').onclick = async () => {
   if (wfRoot == null || !confirm('Cancel this workflow and every run below it?')) return;
-  try { await api(`/runs/${wfRoot}/cancel`, jbody({ scope: 'subtree', reason: 'stopped from the tile' }, 'POST')); }
+  try { await actions.cancelTree(wfRoot); }
   catch (e) { return alert(e.message); }
   loadTree();
 };
 // One click, no confirm — during a runaway every dialog is another second of
 // spend. The undo is the same button.
 $('halt').onclick = async () => {
-  const on = $('halt').dataset.on !== '1';
-  try { await api('/halt', jbody({ on }, 'PUT')); } catch (e) { return alert(e.message); }
-  syncHalt(on);
+  try { await app.setHalt(!app.halted); } catch (e) { return alert(e.message); }
   if (wfOpen) loadTree();
 };
 $('prev-close').onclick = () => { prevDismissed = prevSeen; closePreview(); };
@@ -776,13 +620,8 @@ document.addEventListener('keydown', (e) => {
   if (wfOpen) closeWorkflow();
 });
 $('home').onclick = goHome;
-$('tset').onclick = () => {
-  toolset = toolset === 'private' ? 'web' : 'private';
-  xbin.fetch('/api/xbin/prefs/toolset', { method: 'PUT', body: JSON.stringify(toolset) }).catch(() => {});
-  syncToolsetBtn();
-};
+$('tset').onclick = () => app.toggleToolset();
 syncToolsetBtn();
-loadToolsetPref();
 
 // --- new chat ------------------------------------------------------------
 
@@ -790,32 +629,23 @@ $('new').onclick = () => { goHome(); $('msg').focus(); };
 // "New chat with options": a title, a system prompt, a lane — the first
 // message is the dialog's text.
 $('newopts').onclick = () => {
-  $('n-goal').value = ''; $('n-title').value = ''; $('n-system').value = ''; $('n-toolset').value = toolset;
+  $('n-goal').value = ''; $('n-title').value = ''; $('n-system').value = ''; $('n-toolset').value = app.toolset;
   $('newdlg').showModal();
 };
 $('n-create').onclick = async (e) => {
   const text = $('n-goal').value.trim();
   if (!text) { e.preventDefault(); return; }
   try {
-    const run = await api('/ask', jbody({ text, title: $('n-title').value.trim(), system: $('n-system').value.trim(), toolset: $('n-toolset').value }, 'POST'));
-    session.runs.set(run.id, run);
-    await selectRun(run.id);
+    await app.ask({ text, title: $('n-title').value.trim(), system: $('n-system').value.trim(), toolset: $('n-toolset').value });
   } catch (err) { alert(err.message); }
 };
 let searchT = null;
 $('csearch').oninput = () => {
   clearTimeout(searchT);
   const v = $('csearch').value;
-  if (v.includes('#join=')) { $('csearch').value = ''; join(v); return; } // a pasted invite link
+  if (v.includes('#join=')) { $('csearch').value = ''; app.join(v); return; } // a pasted invite link
   searchT = setTimeout(() => convs.search(v).catch(() => {}), 200);
 };
-// join redeems an invite link (#join=… — on the tile's URL, or pasted).
-async function join(text) {
-  try {
-    const r = await joinFrom(text);
-    if (r) { await convs.load(); selectRun(r.runId); }
-  } catch (e) { alert(e.message); }
-}
 
 // --- settings panel + tabs ---------------------------------------------
 
@@ -927,11 +757,11 @@ async function tabFeatures(bd) {
 
 // Memory tab: the SELECTED run's memory blocks (key→value): edit/add/delete.
 async function tabMemory(bd) {
-  if (sel == null) { bd.innerHTML = '<div class="empty">select a run to edit its memory blocks</div>'; return; }
-  const d = await api(`/runs/${sel}`);
+  if (app.sel == null) { bd.innerHTML = '<div class="empty">select a run to edit its memory blocks</div>'; return; }
+  const d = await api(`/runs/${app.sel}`);
   const entries = Object.entries(d.memory || {});
   const keys = entries.map((e) => e[0]);
-  bd.innerHTML = `<div class="sec"><h4>Memory · run ${sel}</h4>
+  bd.innerHTML = `<div class="sec"><h4>Memory · run ${app.sel}</h4>
     ${entries.length ? entries.map(([k, v], i) => `
       <div class="kv"><span class="mono" title="${esc(k)}">${esc(k)}</span>
         <input value="${esc(v)}" data-v="${i}">
@@ -943,20 +773,20 @@ async function tabMemory(bd) {
   </div>`;
   bd.querySelectorAll('[data-set]').forEach((b) => b.onclick = async () => {
     const i = +b.dataset.set;
-    try { await api(`/runs/${sel}/memory`, jbody({ key: keys[i], value: bd.querySelector(`[data-v="${i}"]`).value }, 'PUT')); }
+    try { await api(`/runs/${app.sel}/memory`, jbody({ key: keys[i], value: bd.querySelector(`[data-v="${i}"]`).value }, 'PUT')); }
     catch (e) { return alert(e.message); }
     tabMemory(bd); refreshView();
   });
   bd.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
     const i = +b.dataset.del;
-    try { await api(`/runs/${sel}/memory?key=${encodeURIComponent(keys[i])}`, { method: 'DELETE' }); }
+    try { await api(`/runs/${app.sel}/memory?key=${encodeURIComponent(keys[i])}`, { method: 'DELETE' }); }
     catch (e) { return alert(e.message); }
     tabMemory(bd); refreshView();
   });
   $('madd').onclick = async () => {
     const k = $('mk').value.trim();
     if (!k) return;
-    try { await api(`/runs/${sel}/memory`, jbody({ key: k, value: $('mv').value }, 'PUT')); }
+    try { await api(`/runs/${app.sel}/memory`, jbody({ key: k, value: $('mv').value }, 'PUT')); }
     catch (e) { return alert(e.message); }
     tabMemory(bd); refreshView();
   };
@@ -968,12 +798,12 @@ async function tabMemory(bd) {
 // we send back the version we loaded, so a write the agent made in between
 // comes back as a visible 409 instead of silently losing one side.
 async function tabFiles(bd) {
-  if (sel == null) { bd.innerHTML = '<div class="empty">select a run to see its session files</div>'; return; }
-  filesCache = (await api(`/runs/${sel}/files`)) || [];
+  if (app.sel == null) { bd.innerHTML = '<div class="empty">select a run to see its session files</div>'; return; }
+  filesCache = (await api(`/runs/${app.sel}/files`)) || [];
   const cur = filesSel != null ? filesCache.find((f) => f.path === filesSel) : null;
   let body = '';
   if (cur && !cur.binary) {
-    const full = await api(`/runs/${sel}/file?path=${encodeURIComponent(cur.path)}`);
+    const full = await api(`/runs/${app.sel}/file?path=${encodeURIComponent(cur.path)}`);
     body = full.content || '';
     cur.version = full.version;
   }
@@ -998,7 +828,7 @@ async function tabFiles(bd) {
         <span class="err" id="fl-err"></span></div>
     </div>`;
   bd.innerHTML = `
-    <div class="sec"><h4>Session files · run ${sel}</h4>
+    <div class="sec"><h4>Session files · run ${app.sel}</h4>
       <div class="tblwrap"><table class="tbl"><tr><th>path</th><th>type</th><th>bytes</th><th>v</th><th></th></tr>
       ${filesCache.length ? filesCache.map((f, i) => `<tr>
         <td class="mono">${esc(f.path)}</td>
@@ -1015,7 +845,7 @@ async function tabFiles(bd) {
     </div>${editor}`;
 
   if (cur && cur.binary) {
-    const run = sel;
+    const run = app.sel;
     if ($('fl-img')) rawBlob(run, cur.path).then((b) => {
       const img = $('fl-img');
       if (!img) return;
@@ -1038,7 +868,7 @@ async function tabFiles(bd) {
   bd.querySelectorAll('[data-fd]').forEach((b) => b.onclick = async () => {
     const f = filesCache[+b.dataset.fd];
     if (!confirm(`Delete "${f.path}"?`)) return;
-    try { await api(`/runs/${sel}/file?path=${encodeURIComponent(f.path)}`, { method: 'DELETE' }); }
+    try { await api(`/runs/${app.sel}/file?path=${encodeURIComponent(f.path)}`, { method: 'DELETE' }); }
     catch (e) { return alert(e.message); }
     if (filesSel === f.path) filesSel = null;
     if (preview && preview.path === f.path) closePreview();
@@ -1052,7 +882,7 @@ async function tabFiles(bd) {
     $('fl-err').textContent = '';
     if (!path) { $('fl-err').textContent = 'need a path'; return; }
     try {
-      const r = await api(`/runs/${sel}/file`, jbody({
+      const r = await api(`/runs/${app.sel}/file`, jbody({
         path, content: $('fl-body').value, version: cur ? cur.version : 0,
       }, 'PUT'));
       filesSel = path;
@@ -1129,19 +959,10 @@ function tabMcp(bd) {
 // --- start ------------------------------------------------------------------
 
 paint();
-session.start().catch(() => {});
-loadMe().then(() => convs.load()).catch(() => {});
-loadHalt();
-loadNeeds();
-autos.loadSummary();
-// A link to a conversation (#c=<id>) opens it; an invite (#join=…) joins it —
-// on load, and when the address changes while the tile is open.
-const followHash = () => {
-  const m = /(?:^#|&)c=(\d+)/.exec(location.hash);
-  const a = /(?:^#|&)auto(?:=(\w+):(\d+))?/.exec(location.hash);
-  if (m && +m[1] !== sel) selectRun(+m[1]);
-  else if (location.hash.includes('join=')) join(location.hash);
-  else if (a && page !== 'automations') openAutomations(a[1], a[2]);
-};
+app.start();
+// A link to a conversation (#c=<id>) opens it; an invite (#join=…) joins it;
+// #auto[=kind:id] opens the Automations page — on load, and when the address
+// changes while the tile is open (model/router.js).
+const followHash = () => { app.follow(location.hash); };
 followHash();
 addEventListener('hashchange', followHash);

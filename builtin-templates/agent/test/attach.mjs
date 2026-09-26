@@ -8,7 +8,7 @@
 // the failure paths, the chip row, and how a sent message shows its files.
 //
 //   node test/attach.mjs        (needs playwright + a chromium build)
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { serveKit, tileHtml } from './kit.mjs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -34,6 +34,8 @@ const ok = (name, cond, extra = '') => {
 const ORIGIN = 'http://tile.test';
 const MODULES = ['agent.js', 'chat-view.js', 'chat-fold.js', 'chat-cards.js', 'chat-md.js', 'stream.js', 'tool-heads.js',
   'conv-groups.js', 'conv-list.js', 'sidebar.js', 'home.js', 'share.js', 'automations.js', 'auto-channels.js', 'auto-triggers.js'];
+// …and the shared model under model/ (every module there)
+MODULES.push(...readdirSync(join(here, '..', 'model')).filter((f) => f.endsWith('.js')).map((f) => 'model/' + f));
 const FILES = { '/': 'index.html', '/index.html': 'index.html', ...Object.fromEntries(MODULES.map((m) => ['/' + m, m])) };
 
 const browser = await chromium.launch();

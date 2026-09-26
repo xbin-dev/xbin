@@ -1,113 +1,27 @@
-// auto-channels.js — chat channels on the Automations page (D86). A channel
+// auto-channels.js — chat channels on the Automations page (D86), as the web
+// draws them (the state: model/auto-channels.js). A channel
 // appears when an adapter tile bound to this agent (a messaging bridge) says
 // hello. A manager claims it; its owner decides who may talk (pairing codes,
 // allowlists), which lane its conversations run in, and sees its sessions and
 // the replies that could not be delivered. The adapter side is
 // /docs/agent-inbox.md.
 import { html, nothing } from '/vendor/lit-all.min.js';
-import { selfApi as api, jbody } from '/vendor/bx-kit.js';
-import { registerKind, ago } from './automations.js';
+import { extendKind, ago } from './model/auto.js';
+import { st, draftOf, channelCan, pendingPeers, knownPeers, codeMinutes, claim, save, toggle, pair, peer, forget, resetSession, retry,
+  del as remove } from './model/auto-channels.js';
 
-// What the open channel's detail shows (open() loads it).
-const st = { id: 0, peers: [], sessions: [], failed: [], draft: null, code: '', add: '', note: '' };
-
-async function open(id, page) {
-  if (st.id !== id) Object.assign(st, { id, peers: [], sessions: [], failed: [], draft: null, code: '', add: '', note: '' });
-  const it = page.items.find((i) => i.kind === 'channel' && i.id === id);
-  if (!it) return;
-  const owner = it.access === 'owner';
-  const get = (path, key) => api(`/channels/${id}/${path}`).then((r) => r[key] || []).catch(() => []);
-  [st.sessions, st.peers, st.failed] = await Promise.all([
-    it.access === 'claim' ? [] : get('sessions', 'sessions'),
-    owner ? get('peers', 'peers') : [],
-    owner ? get('outbox?state=failed', 'items') : [],
-  ]);
-  if (!st.draft) st.draft = draftOf(it);
-}
-
-// The rules form edits a flat draft of the policy (docs/agent-inbox.md).
-function draftOf(it) {
-  const pol = (it.config || {}).policy || {};
-  const dm = pol.dm || {}, g = pol.groups || {};
-  return {
-    name: it.name, visibility: it.visibility || 'private',
-    dmPolicy: dm.policy || 'pairing', dmScope: dm.scope || '',
-    groupPolicy: g.policy || 'allowlist', allow: (g.allow || []).join(', '),
-    requireMention: g.requireMention !== false, followThreads: g.followThreads !== false, groupThreads: g.threads || '',
-    linkedOnly: !!g.linkedOnly, trustLinked: !!pol.trustLinked,
-    privateLane: !!pol.privateLane, trustedGroups: (pol.trustedGroups || []).join(', '),
-    reset: pol.reset || '', system: pol.system || '', ratePerMin: pol.ratePerMin || '',
-    deny: pol.deny ? pol.deny.join(', ') : null, // null: the default list
-  };
-}
-
-function policyOf(d) {
-  const list = (s) => s.split(/[\s,]+/).filter(Boolean);
-  const p = {
-    dm: { policy: d.dmPolicy },
-    groups: { policy: d.groupPolicy, allow: list(d.allow), requireMention: d.requireMention, followThreads: d.followThreads },
-  };
-  if (d.dmScope) p.dm.scope = d.dmScope;
-  if (d.groupThreads) p.groups.threads = d.groupThreads;
-  if (d.linkedOnly) p.groups.linkedOnly = true;
-  if (d.trustLinked) p.trustLinked = true;
-  if (d.privateLane) { p.privateLane = true; p.trustedGroups = list(d.trustedGroups); }
-  if (d.reset) p.reset = d.reset;
-  if (d.system.trim()) p.system = d.system.trim();
-  if (+d.ratePerMin > 0) p.ratePerMin = +d.ratePerMin;
-  if (d.deny != null) p.deny = list(d.deny);
-  return p;
-}
-
-// --- actions ---------------------------------------------------------------
-
-// act runs a change and reloads; the note is what it says afterwards (fn may
-// return its own).
-async function act(page, fn, note = '') {
-  page.err = '';
-  try {
-    const said = await fn();
-    st.note = typeof said === 'string' ? said : note;
-    await page.load();
-  } catch (e) { page.err = e.message; page.changed(); }
-}
-
-const path = (it, rest = '') => `/channels/${it.id}${rest}`;
-const body = () => ({ name: st.draft.name.trim(), visibility: st.draft.visibility, policy: policyOf(st.draft) });
-
-function claim(it, page) {
-  return act(page, async () => { await api(path(it, '/claim'), jbody(body(), 'POST')); st.draft = null; },
-    'Claimed — it is yours now. Messages to the bot are answered by the rules below.');
-}
-function save(it, page) {
-  return act(page, async () => { await api(path(it), jbody(body(), 'PUT')); st.draft = null; }, 'Saved.');
-}
-const toggle = (it, page) => act(page, () => api(path(it), jbody({ enabled: !it.enabled }, 'PUT')));
+// The channel's state and actions are model/auto-channels.js (shared with the
+// native view); what is drawn here, and the "are you sure?" before a removal.
 async function del(it, page) {
   if (!confirm(`Remove "${it.name}"? Its conversations stay; if its adapter is still bound it shows up again, unclaimed.`)) return;
-  await act(page, () => api(path(it), { method: 'DELETE' }));
-  page.show(null);
+  await remove(it, page);
 }
-function pair(it, page) {
-  const code = st.code.trim();
-  if (!code) return;
-  return act(page, async () => {
-    const r = await api(path(it, '/pair'), jbody({ code }, 'POST'));
-    st.code = '';
-    return `Paired with ${r.name || r.peerId}.`;
-  });
-}
-const peer = (it, page, id, patch) => act(page, () => api(path(it, `/peers/${encodeURIComponent(id)}`), jbody(patch, 'PUT')));
-const forget = (it, page, id) => act(page, () => api(path(it, `/peers/${encodeURIComponent(id)}`), { method: 'DELETE' }));
-const resetSession = (it, page, key) => act(page, () => api(path(it, '/sessions/reset'), jbody({ key }, 'POST')),
-  'That session starts afresh with its next message.');
-const retry = (it, page, oid) => act(page, () => api(path(it, `/outbox/${oid}/retry`), { method: 'POST' }), 'Queued again.');
 
 // --- the card and the detail -------------------------------------------------
 
 function card(p, it) {
   const c = it.config || {};
-  const live = it.enabled || it.access === 'claim';
+  const { live } = channelCan(it);
   return html`<div class="acard2 ${live ? '' : 'off'}" data-auto=${'channel:' + it.id} @click=${() => p.show('channel', it.id)}>
     <div class="ah"><span class="nm">${it.name}</span>
       ${it.access === 'claim' ? html`<span class="badge unread">new — claim it</span>` : nothing}
@@ -124,19 +38,19 @@ function card(p, it) {
 }
 
 function head(it, p) {
-  if (it.access !== 'owner' && it.access !== 'oversee') return nothing;
+  if (!channelCan(it).manage) return nothing;
   return html`<label class="chk small"><input type="checkbox" .checked=${it.enabled} @change=${() => toggle(it, p)}> on</label>
     <button class="btn rm btnsm" @click=${() => del(it, p)}>Remove</button>`;
 }
 
 function detail(it, p) {
   const c = it.config || {};
-  const owner = it.access === 'owner';
+  const { owner, claim: claiming } = channelCan(it);
   if (!st.draft || st.id !== it.id) st.draft = draftOf(it);
   const info = html`<div class="muted small">${it.summary}${c.botName ? ` · as ${c.botName}` : ''}
     ${c.lastSeen ? ` · last heard from ${ago(c.lastSeen)}` : ''}</div>
     ${st.note ? html`<div class="note small">${st.note}</div>` : nothing}`;
-  if (it.access === 'claim') {
+  if (claiming) {
     return html`${info}
       <p class="small">${c.adapter} connected this ${c.platform || 'chat'} account. Until someone claims it, the bot ignores every
         message. Claiming makes it yours: its conversations are yours (or your team's), under the rules below — you can change
@@ -152,7 +66,7 @@ function detail(it, p) {
 }
 
 function pairingTpl(it, p) {
-  const pending = st.peers.filter((x) => x.state === 'pending' && x.codeExpires * 1000 > Date.now());
+  const pending = pendingPeers();
   if (st.draft.dmPolicy !== 'pairing' && !pending.length) return nothing;
   return html`<h5>Pairing</h5>
     <div class="muted small">Someone new who messages the bot gets a code. If they have an account here they link it themselves
@@ -162,13 +76,13 @@ function pairingTpl(it, p) {
       <button class="btn btnsm" @click=${() => pair(it, p)}>Approve</button></div>
     ${pending.map((x) => html`<div class="chrow" data-peer=${x.peerId}><span>${x.name || x.peerId}</span>
       <span class="muted small mono">${x.peerId}</span><span style="flex:1"></span>
-      <span class="muted small">code valid for ${Math.max(1, Math.round((x.codeExpires * 1000 - Date.now()) / 60000))} min</span>
+      <span class="muted small">code valid for ${codeMinutes(x)} min</span>
       <button class="btn ghost btnsm" @click=${() => peer(it, p, x.peerId, { state: 'allowed' })}>Allow</button>
       <button class="btn ghost btnsm" @click=${() => peer(it, p, x.peerId, { state: 'blocked' })}>Block</button></div>`)}`;
 }
 
 function peopleTpl(it, p) {
-  const known = st.peers.filter((x) => x.state !== 'pending');
+  const known = knownPeers();
   return html`<h5>People</h5>
     ${known.length ? known.map((x) => html`<div class="chrow" data-peer=${x.peerId}><span>${x.name || x.peerId}</span>
       <span class="muted small mono">${x.peerId}</span>
@@ -256,7 +170,4 @@ function rulesTpl(it, p, claiming) {
     <div><button class="btn" @click=${() => (claiming ? claim(it, p) : save(it, p))}>${claiming ? 'Claim' : 'Save rules'}</button></div>`;
 }
 
-registerKind('channel', {
-  label: 'Channels', order: 0, card, head, detail, open, runsLabel: 'Conversations',
-  empty: 'none — bind a messaging bridge (the agent-messaging-bridge template) to this agent and it shows up here to claim',
-});
+extendKind('channel', { card, head, detail });
