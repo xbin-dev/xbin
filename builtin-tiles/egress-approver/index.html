@@ -58,6 +58,8 @@
   </details>
 
   <script type="module">
+    import { fmtBytes, ago, norm } from './fmt.js';   // shared with native.js
+
     const self = xbin.self;
     const api = (p, o) => xbin.fetch(`/api/${self}${p}`, o);
     const open = new Set();          // IPs whose whois detail is expanded
@@ -65,22 +67,7 @@
     let latest = { pending: [], approved: [], denied: [], clients: 0, egressReady: false };
     let lastSig = '';
 
-    const fmtBytes = (n) => {
-      if (!n) return '0';
-      const u = ['B', 'K', 'M', 'G', 'T']; let i = 0;
-      while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
-      return (i ? n.toFixed(1) : n) + u[i];
-    };
-    const ago = (ms) => {
-      if (!ms) return '—';
-      const s = Math.max(0, (Date.now() - ms) / 1000);
-      if (s < 60) return `${s | 0}s ago`;
-      if (s < 3600) return `${s / 60 | 0}m ago`;
-      if (s < 86400) return `${s / 3600 | 0}h ago`;
-      return `${s / 86400 | 0}d ago`;
-    };
     const esc = (s) => (s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-    const norm = (d) => { d.pending ??= []; d.approved ??= []; d.denied ??= []; return d; };
 
     // Move an IP between lists locally so the click lands *instantly*, then tell
     // the backend and reconcile from its response. No waiting on the round-trip.
