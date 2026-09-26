@@ -86,6 +86,13 @@ func TestWebTicketFlow(t *testing.T) {
 		link.Query().Get("next") != "/c/apps/x/?tab=2" || len(link.Query().Get("ticket")) < 32 {
 		t.Fatalf("url: %v (%v)", out["url"], err)
 	}
+	// A HEAD (a link checker, a preview fetch) doesn't spend it.
+	hr := httptest.NewRequest("HEAD", link.RequestURI(), nil)
+	hw := httptest.NewRecorder()
+	h.ServeHTTP(hw, hr)
+	if hw.Code != http.StatusMethodNotAllowed || len(hw.Result().Cookies()) != 0 {
+		t.Fatalf("HEAD: %d", hw.Code)
+	}
 	w := redeemWeb(h, link.String(), "", "10.1.0.1", nil)
 	if w.Code != http.StatusFound || w.Header().Get("Location") != "/c/apps/x/?tab=2" {
 		t.Fatalf("redeem: %d %q %s", w.Code, w.Header().Get("Location"), w.Body.String())

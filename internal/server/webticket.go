@@ -136,6 +136,11 @@ func (s *Server) apiWebTicket(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleWebTicketRedeem(w http.ResponseWriter, r *http.Request, ticket string) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
+	if r.Method != http.MethodGet { // a HEAD (a link checker, a preview) must not spend it
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "open this link in a browser", http.StatusMethodNotAllowed)
+		return
+	}
 	ip := s.ClientIP(r)
 	if !s.loginThrottle.allow(ip) {
 		http.Error(w, "too many attempts, slow down", http.StatusTooManyRequests)

@@ -124,6 +124,7 @@ GET  /login?ticket=<t>&next=<path>
                                  The session ends with the device and the
                                  app's sign-out and keeps the device
                                  login's time (docs/auth.md §Device login).
+                                 A HEAD answers 405 and leaves it unspent.
                                  Throttled; audit-logged
 POST /login/invite               {invite,password,password2} form → redeems the
                                  invite (sets the password, consumes the link),
