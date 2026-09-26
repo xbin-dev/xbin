@@ -10,6 +10,9 @@ import Testing
         // the agent template's own target, {name} filled in
         #expect(TileResource.apiPath("/api/agent/runs/5/upload?name={name}", tile: "agent", name: "IMG 1.jpg")
             == "/api/agent/runs/5/upload?name=IMG%201.jpg")
+        // …and its home composer's held draft (API.md: PUT /ask/upload?draft=&name=): the query kept
+        #expect(TileResource.apiPath("/api/agent/ask/upload?draft=k-1_x&name={name}", tile: "agent", name: "a b&c.png")
+            == "/api/agent/ask/upload?draft=k-1_x&name=a%20b%26c.png")
         // relative, root-relative (docs/native.md: under /api/<self>/ unless it starts with /api/), ./
         #expect(TileResource.apiPath("upload", tile: "apps/x") == "/api/apps/x/upload")
         #expect(TileResource.apiPath("/upload", tile: "apps/x") == "/api/apps/x/upload")
