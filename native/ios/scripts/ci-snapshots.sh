@@ -14,8 +14,9 @@
 #                  $XBIN_CI_OUT/snapshots; created before the run)
 #   FIXTURES_DIR   native/fixtures, absolute (TEST_RUNNER_FIXTURES_DIR)
 #
-#   XBIN_RENDERER_SCHEME   the scheme (default XbinRenderer, falling back to
-#                          XbinRenderer-Package when only that exists)
+#   XBIN_RENDERER_SCHEME   the scheme (default XbinRenderer; when xcodebuild
+#                          says the package has no such scheme,
+#                          XbinRenderer-Package if `xcodebuild -list` shows it)
 #
 # Results in $XBIN_CI_OUT: snapshots-test.xcresult and snapshots-test.log.
 # The PNG count goes to the job summary. When the tests wrote no PNG but
@@ -53,31 +54,41 @@ if udid=$(ci_udid "$dest"); then
 fi
 
 cd "$pkg"
-ci_group "schemes in XbinRenderer"
-# shellcheck disable=SC2119 # no -project: the package in this directory
-schemes=$(ci_schemes) || true
-echo "$schemes"
-ci_endgroup
-scheme=${XBIN_RENDERER_SCHEME:-XbinRenderer}
-if [ -z "${XBIN_RENDERER_SCHEME:-}" ] && ! printf '%s\n' "$schemes" | grep -qxF XbinRenderer &&
-  printf '%s\n' "$schemes" | grep -qxF XbinRenderer-Package; then
-  scheme=XbinRenderer-Package
-fi
-
 ci_conditions
-rm -rf "$XBIN_CI_OUT/snapshots-test.xcresult"
+run_tests() {
+  rm -rf "$XBIN_CI_OUT/snapshots-test.xcresult"
+  ci_xcodebuild "$XBIN_CI_OUT/snapshots-test.log" test \
+    -scheme "$1" \
+    -destination "$dest" \
+    -derivedDataPath "$XBIN_CI_DERIVED/renderer" \
+    -clonedSourcePackagesDirPath "$XBIN_CI_SPM" \
+    -resultBundlePath "$XBIN_CI_OUT/snapshots-test.xcresult" \
+    -skipMacroValidation \
+    -skipPackagePluginValidation \
+    COMPILER_INDEX_STORE_ENABLE=NO \
+    CODE_SIGNING_ALLOWED=NO \
+    ${CI_COND[@]+"${CI_COND[@]}"}
+}
+
+# The package's one library product makes the scheme XbinRenderer. Listing
+# the schemes first (`xcodebuild -list` in a package) cost three minutes on
+# the hosted runner, so it happens only when that scheme is missing.
+scheme=${XBIN_RENDERER_SCHEME:-XbinRenderer}
 status=0
-ci_xcodebuild "$XBIN_CI_OUT/snapshots-test.log" test \
-  -scheme "$scheme" \
-  -destination "$dest" \
-  -derivedDataPath "$XBIN_CI_DERIVED/renderer" \
-  -clonedSourcePackagesDirPath "$XBIN_CI_SPM" \
-  -resultBundlePath "$XBIN_CI_OUT/snapshots-test.xcresult" \
-  -skipMacroValidation \
-  -skipPackagePluginValidation \
-  COMPILER_INDEX_STORE_ENABLE=NO \
-  CODE_SIGNING_ALLOWED=NO \
-  ${CI_COND[@]+"${CI_COND[@]}"} || status=$?
+run_tests "$scheme" || status=$?
+if [ "$status" -ne 0 ] && [ -z "${XBIN_RENDERER_SCHEME:-}" ] &&
+  grep -q 'does not contain a scheme named' "$XBIN_CI_OUT/snapshots-test.log" 2>/dev/null; then
+  ci_group "schemes in XbinRenderer"
+  # shellcheck disable=SC2119 # no -project: the package in this directory
+  schemes=$(ci_schemes) || true
+  echo "$schemes"
+  ci_endgroup
+  if printf '%s\n' "$schemes" | grep -qxF XbinRenderer-Package; then
+    scheme=XbinRenderer-Package
+    status=0
+    run_tests "$scheme" || status=$?
+  fi
+fi
 
 count_pngs() { find "$snap" -type f -name '*.png' | wc -l | tr -d ' '; }
 

@@ -78,6 +78,16 @@ eq "ci-lib: XBIN_REPO is the tree root" "$(lib printenv XBIN_REPO)" "$repo"
 eq "ci-lib: SwiftPM clones sit in the DerivedData dir" "$(XBIN_CI_DERIVED=/d lib printenv XBIN_CI_SPM)" "/d/SourcePackages"
 eq "ci_xcode_slug" "$(lib ci_xcode_slug)" "27.0-27A5000a"
 eq "ci_sha256" "$(printf abc | lib ci_sha256)" "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+eq "ci_content_stamps: blob 00000000… → 2001-01-01 00:00:00" \
+  "$(printf '100644 0000000000000000000000000000000000000000 0\tnative/ios/a b.swift\n' | lib ci_content_stamps)" \
+  "200101010000.00 native/ios/a b.swift"
+eq "ci_content_stamps: blob ffffffff… → the far end, still in the past" \
+  "$(printf '100644 ffffffff00000000000000000000000000000000 0\tx\n' | lib ci_content_stamps)" \
+  "201604020348.14 x"
+eq "ci_content_stamps: every digit counts" \
+  "$(printf '100644 00000001aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 0\tx\n' | lib ci_content_stamps | cut -d' ' -f1)" \
+  "200201010000.00"
+eq "ci_content_mtimes: outside git does nothing" "$(lib ci_content_mtimes native/ios)" 0
 signing() { (. "$S/ci-lib.sh" && ci_signing && echo "${CI_SIGN[*]}"); }
 eq "ci_signing: unsigned by default" "$(signing)" "CODE_SIGNING_ALLOWED=NO"
 eq "ci_signing: adhoc signs to run locally, no team" "$(XBIN_SIGNING=adhoc signing)" \
@@ -205,6 +215,7 @@ export FAKE_SCHEMES="XbinRenderer" FAKE_PNGS=3
 run "$S/ci-snapshots.sh" "$dest"
 eq "ci-snapshots: passes" "$rc" 0
 log=$(cat "$FAKE_LOG")
+hasnt "ci-snapshots: no scheme listing when XbinRenderer exists (3 min on the runner)" "$log" "xcodebuild -list"
 has "ci-snapshots: boots the picked simulator first" "$log" "xcrun simctl bootstatus BBBBBBBB-0000-4000-8000-000000002714 -b"
 has "ci-snapshots: xcodebuild test -scheme XbinRenderer" "$log" \
   "xcodebuild test -scheme XbinRenderer -destination $dest -derivedDataPath $RUNNER_TEMP/xbin-derived/renderer -clonedSourcePackagesDirPath $RUNNER_TEMP/xbin-derived/SourcePackages -resultBundlePath $RUNNER_TEMP/xbin-ci/snapshots-test.xcresult -skipMacroValidation -skipPackagePluginValidation COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO"
@@ -217,8 +228,10 @@ has "ci-snapshots: summary counts PNGs" "$(cat "$GITHUB_STEP_SUMMARY")" "3 PNG i
 XBIN_SWIFT_CONDITIONS=XBIN_SDK_27_1 run "$S/ci-snapshots.sh" "$dest"
 has "ci-snapshots: XBIN_SWIFT_CONDITIONS reaches the renderer's tests" "$(cat "$FAKE_LOG")" \
   "CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS=\$(inherited) XBIN_SDK_27_1"
+: >"$FAKE_LOG"
 FAKE_XCODEBUILD_STATUS=65 run "$S/ci-snapshots.sh" "$dest"
 eq "ci-snapshots: a failing test fails the step" "$rc" 65
+hasnt "ci-snapshots: …without looking for another scheme" "$(cat "$FAKE_LOG")" "xcodebuild -list"
 eq "ci-snapshots: …and its PNGs are still there" "$(find "$RUNNER_TEMP/snapshots" -name '*.png' | wc -l | tr -d ' ')" 3
 reset_env
 export TEST_RUNNER_SNAPSHOT_DIR=$RUNNER_TEMP/snapshots
@@ -228,8 +241,10 @@ has "ci-snapshots: exports result-bundle attachments when no PNG was written" "$
   "xcrun xcresulttool export attachments --path $RUNNER_TEMP/xbin-ci/snapshots-test.xcresult --output-path $RUNNER_TEMP/snapshots/attachments"
 eq "ci-snapshots: exported PNGs are uploaded" "$(find "$RUNNER_TEMP/snapshots" -name '*.png' | wc -l | tr -d ' ')" 1
 reset_env
-FAKE_SCHEMES="XbinRenderer-Package" FAKE_PNGS=0 run "$S/ci-snapshots.sh" "$dest"
-has "ci-snapshots: falls back to the -Package scheme" "$(cat "$FAKE_LOG")" "xcodebuild test -scheme XbinRenderer-Package"
+FAKE_SCHEMES="XbinRenderer-Package" FAKE_STRICT_SCHEMES=1 FAKE_PNGS=0 run "$S/ci-snapshots.sh" "$dest"
+eq "ci-snapshots: a missing XbinRenderer scheme is not a failure…" "$rc" 0
+has "ci-snapshots: …it lists the schemes" "$(cat "$FAKE_LOG")" "xcodebuild -list"
+has "ci-snapshots: …and falls back to the -Package scheme" "$(cat "$FAKE_LOG")" "xcodebuild test -scheme XbinRenderer-Package"
 has "ci-snapshots: warns when no PNG at all" "$out" "::warning::the XbinRenderer tests wrote no PNG"
 eq "ci-snapshots: default SNAPSHOT_DIR is under XBIN_CI_OUT" "$(grep '^env ' "$FAKE_LOG" | head -n 1)" \
   "env SNAPSHOT_DIR=$RUNNER_TEMP/xbin-ci/snapshots FIXTURES_DIR=$repo/native/fixtures"
@@ -283,6 +298,8 @@ outputs() { sed -n "s/^$1=//p" "$GITHUB_OUTPUT"; }
 reset_env
 run "$S/ci-cache.sh" app app
 eq "ci-cache: hosted runner → actions/cache" "$rc:$(outputs mode)" "0:actions"
+has "ci-cache: tells Xcode to ignore a checkout's new inodes" "$(cat "$FAKE_LOG")" \
+  "defaults write com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges -bool YES"
 key1=$(outputs key)
 case $key1 in
 ios-app-27.0-27A5000a-????????????????) ok "ci-cache: key is ios-<job>-<xcode>-<16 hex> ($key1)" ;;
@@ -349,6 +366,46 @@ XBIN_CI_CACHE=sometimes run "$S/ci-cache.sh" app app
 eq "ci-cache: an unknown mode fails" "$rc" 2
 run "$S/ci-cache.sh" app
 eq "ci-cache: no subdir fails" "$rc" 2
+# In a git checkout: the committed tree is part of the key, and tracked
+# files under native/ios get mtimes from their content.
+mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"; }
+gitq() { git -C "$repo" -c user.name=dry -c user.email=dry@example.invalid -c commit.gpgsign=false "$@" >/dev/null; }
+src=$repo/native/ios/Packages/XbinCore/Sources/Core.swift
+mkdir -p "$(dirname "$src")"
+echo "let a = 1" >"$src"
+echo "let b = 2" >"$repo/native/ios/Packages/XbinCore/Sources/Other.swift"
+gitq init -q
+gitq add native/ios/project.yml native/ios/Packages/XbinCore/Package.swift native/ios/Packages/XbinRenderer/Package.swift \
+  native/ios/Packages/XbinCore/Sources
+gitq commit -q -m one
+reset_env
+run "$S/ci-cache.sh" app app
+keyg=$(outputs key)
+if [ "$keyg" != "$key1" ]; then ok "ci-cache: in git, the committed native/ios is part of the key"; else bad "ci-cache: git tree ignored"; fi
+has "ci-cache: stamps the tracked files" "$out" "5 files under native/ios stamped"
+m1=$(mtime "$src")
+if [ "$m1" -lt 1500000000 ]; then ok "ci-cache: a content mtime is in the past ($m1)"; else bad "ci-cache: mtime $m1 is not a content stamp"; fi
+if [ "$m1" != "$(mtime "$repo/native/ios/Packages/XbinCore/Sources/Other.swift")" ]; then
+  ok "ci-cache: different content, different mtime"
+else bad "ci-cache: two files share an mtime"; fi
+touch "$src"
+reset_env
+run "$S/ci-cache.sh" app app
+eq "ci-cache: a fresh checkout's file gets the same mtime back" "$(mtime "$src")" "$m1"
+eq "ci-cache: …and the same key" "$(outputs key)" "$keyg"
+echo "let a = 2" >"$src"
+gitq commit -q -am two
+reset_env
+run "$S/ci-cache.sh" app app
+if [ "$(mtime "$src")" != "$m1" ]; then ok "ci-cache: changed content, new mtime"; else bad "ci-cache: changed file kept its mtime"; fi
+if [ "$(outputs key)" != "$keyg" ]; then ok "ci-cache: a committed source change makes a new key (saved when green)"; else bad "ci-cache: source change kept the key"; fi
+touch "$src"
+m2=$(mtime "$src")
+reset_env
+XBIN_CI_CACHE=off run "$S/ci-cache.sh" app app
+eq "ci-cache: XBIN_CI_CACHE=off leaves mtimes alone" "$(mtime "$src")" "$m2"
+hasnt "ci-cache: …and the Xcode default" "$(cat "$FAKE_LOG")" "defaults write"
+rm -rf "$repo/.git" "$repo/native/ios/Packages/XbinCore/Sources"
 rm -rf "$repo/native/ios/Packages" "$repo/native/ios/project.yml"
 
 # ---- ci-xcodegen.sh ------------------------------------------------------

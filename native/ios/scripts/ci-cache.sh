@@ -20,13 +20,25 @@
 # Exports XBIN_CI_DERIVED and XBIN_CI_SPM to the job's later steps
 # ($GITHUB_ENV) and sets step outputs:
 #   mode     actions | disk | off — the cache step runs only for actions
-#   key      ios-<job>-<xcode>-<hash>: the hash covers native/ios/project.yml,
-#            every Package.swift and Package.resolved under native/ios and
-#            XBIN_CI_CACHE_VERSION (bump it to drop every entry)
+#   key      ios-<job>-<xcode>-<hash>: the hash covers native/ios as
+#            committed (its git tree: every source, project.yml, the
+#            manifests), project.yml and every Package.swift and
+#            Package.resolved under native/ios as they are on disk, and
+#            XBIN_CI_CACHE_VERSION (bump it to drop every entry). A green
+#            job whose sources changed saves a new entry.
 #   restore  ios-<job>-<xcode>- — without an exact hit, the newest entry for
 #            this Xcode (the build is incremental; a stale one beats none)
 #   paths    the SwiftPM clones and each DerivedData subdir, minus its Logs
 #            and Index.noindex (multi-line, as actions/cache's `path` takes)
+#
+# Unless the mode is off it also makes a restored tree count: every file
+# git tracks under native/ios gets an mtime that is a function of its
+# content (ci_content_mtimes — a checkout stamps them all "now", and Xcode
+# decides by mtime), and Xcode's build system is told to ignore the device
+# and inode numbers that differ in every checkout
+# (com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges, a default of the
+# user running the job). Without both, a cache hit still recompiles every
+# source of ours.
 set -euo pipefail
 # shellcheck source=SCRIPTDIR/ci-lib.sh
 . "$(dirname "$0")/ci-lib.sh"
@@ -76,6 +88,8 @@ inputs() {
   } | LC_ALL=C sort | while IFS= read -r f; do
     printf '%s %s\n' "${f#"$XBIN_REPO"/}" "$(ci_sha256 <"$f")"
   done
+  # the committed sources (a clean checkout in CI); nothing outside git
+  git -C "$XBIN_REPO" rev-parse -q --verify "HEAD:native/ios" 2>/dev/null | sed 's/^/tree native\/ios /' || true
   echo "cache-version ${XBIN_CI_CACHE_VERSION:-1}"
 }
 hash=$(inputs | ci_sha256 | cut -c1-16)
@@ -105,6 +119,15 @@ if [ -n "${GITHUB_OUTPUT:-}" ]; then
     printf '%s\n' "$paths"
     echo "XBIN_CI_PATHS"
   } >>"$GITHUB_OUTPUT"
+fi
+
+if [ "$mode" != off ]; then
+  n=$(ci_content_mtimes native/ios)
+  echo "cache: $n files under native/ios stamped with content-derived mtimes"
+  if command -v defaults >/dev/null 2>&1; then
+    defaults write com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges -bool YES ||
+      ci_warn "defaults write com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges failed; a restored build recompiles more"
+  fi
 fi
 
 echo "cache: $mode — DerivedData $derived, SwiftPM $spm"

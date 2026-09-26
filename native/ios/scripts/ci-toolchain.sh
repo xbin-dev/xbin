@@ -33,8 +33,20 @@ echo "developer dir: $(xcode-select -p 2>/dev/null || echo '?')${DEVELOPER_DIR:+
 xcodebuild -version
 swift --version 2>&1 || true
 sw_vers 2>/dev/null || true
-echo "installed Xcodes:"
-ls -d /Applications/Xcode*.app 2>/dev/null || echo "  (none under /Applications)"
+echo "installed Xcodes (XBIN_XCODE takes one; a → is a symlink):"
+found=0
+for x in /Applications/Xcode*.app; do
+  [ -d "$x" ] || continue
+  found=1
+  v=$(defaults read "$x/Contents/Info" CFBundleShortVersionString 2>/dev/null || echo '?')
+  b=$(defaults read "$x/Contents/version" ProductBuildVersion 2>/dev/null || echo '?')
+  if [ -L "$x" ]; then
+    echo "  $x → $(readlink "$x"): $v ($b)"
+  else
+    echo "  $x: $v ($b)"
+  fi
+done
+[ "$found" = 1 ] || echo "  (none under /Applications)"
 command -v xcodegen >/dev/null 2>&1 && echo "xcodegen $(xcodegen --version 2>/dev/null </dev/null)"
 command -v xcbeautify >/dev/null 2>&1 && echo "xcbeautify $(xcbeautify --version 2>/dev/null </dev/null)"
 ci_endgroup

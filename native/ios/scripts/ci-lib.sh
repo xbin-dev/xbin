@@ -98,6 +98,46 @@ ci_schemes_in() {
   awk 'f { sub(/^[ \t]+/, ""); if ($0 == "") exit; print } /^[ \t]*Schemes:[ \t]*$/ { f = 1 }'
 }
 
+# ci_content_mtimes <path>… — give every file git tracks under <path>
+# (relative to the repository) an mtime that is a function of its content
+# (its blob id): the same bytes get the same mtime in every checkout,
+# different bytes a different one (1 in ~4.6e8 collides). A fresh checkout
+# stamps every file "now", so a DerivedData restored from a cache
+# (ci-cache.sh) would recompile every source: Xcode's build system and the
+# Swift driver decide by mtime (and size), not content. Outside a git
+# checkout it does nothing. Prints how many files it stamped.
+ci_content_mtimes() {
+  local n=0 stamp path
+  if ! git -C "$XBIN_REPO" rev-parse --git-dir >/dev/null 2>&1; then
+    echo 0
+    return 0
+  fi
+  while read -r stamp path; do
+    [ -n "$path" ] && [ -f "$XBIN_REPO/$path" ] || continue
+    TZ=UTC touch -t "$stamp" "$XBIN_REPO/$path"
+    n=$((n + 1))
+  done <<EOF
+$(git -C "$XBIN_REPO" -c core.quotePath=false ls-files -s -- "$@" | ci_content_stamps)
+EOF
+  echo "$n"
+}
+# ci_content_stamps — `git ls-files -s` lines on stdin → "<touch -t stamp>
+# <path>": the blob id's first 8 hex digits spread over 2001–2016 × month
+# × day 1–28 × hour × minute × second (UTC) — past dates, so no tool sees
+# a file from the future. Tested on Linux (ci-dry-test.sh).
+ci_content_stamps() {
+  awk -F'\t' '{
+    split($1, m, " "); h = m[2]; v = 0
+    for (i = 1; i <= 8; i++) v = v * 16 + index("0123456789abcdef", substr(h, i, 1)) - 1
+    y = 2001 + v % 16; v = int(v / 16)
+    mo = 1 + v % 12; v = int(v / 12)
+    d = 1 + v % 28; v = int(v / 28)
+    hh = v % 24; v = int(v / 24)
+    mi = v % 60; v = int(v / 60)
+    printf "%04d%02d%02d%02d%02d.%02d %s\n", y, mo, d, hh, mi, v % 60, $2
+  }'
+}
+
 # ci_sha256 — the SHA-256 of stdin, hex (macOS: shasum; Linux: sha256sum).
 ci_sha256() {
   if command -v shasum >/dev/null 2>&1; then
