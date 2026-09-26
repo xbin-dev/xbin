@@ -795,8 +795,11 @@ model, `/vendor/xb-native.js` and the kit — never lit or the web's views.
 (`test/backend.mjs` STUB, through `test/native-stub.mjs`) and asserts what a
 person gets — an approval card with Approve and Deny, Retry on a failed run,
 a disabled composer in a view-only conversation, senders in a shared one.
-`node test/native-shots.mjs` draws the key screens with the reference
-renderer at 390×844, light and dark — look at them.
+`node test/native.mjs` runs it in a real browser the way the app does (the
+runtime, the tile's `native.js`, the reference renderer as the app) and
+walks home, the drawer, a streamed answer, sending, Files, the render
+preview and an approval. `node test/native-shots.mjs` draws the key screens
+with the reference renderer at 390×844, light and dark — look at them.
 
 ## JavaScript sandbox (REPL)
 
