@@ -108,6 +108,15 @@ hack/term-predict-trace.mjs` and ports the change in the same commit (`make
 js-test` fails until the trace matches). `native/tools/term-live` checks a
 session against a running xbind.
 
+The renderer follows the same split: `Packages/XbinRenderer` keeps
+everything that doesn't draw in its `XbinRendererModel` target (the tree as
+observable nodes, controlled props, the vocabulary tables, markdown/chart/
+question/chat view models — `swift test` there, held to `vocab.json`, the
+fixtures and the Lit renderer's output); its SwiftUI target is empty off
+Apple platforms. After changing a view, run
+`native/tools/swiftui-stubcheck/run.sh` (and `--sendable-bindings`): it
+type-checks the views against stubs of the SDK — our mistakes, not SDK drift.
+
 ### 4. Apple — only through GitHub Actions (minutes)
 
 The workflow is `.github/workflows/ios.yml` (`runs-on: xcode-27`). It runs on
