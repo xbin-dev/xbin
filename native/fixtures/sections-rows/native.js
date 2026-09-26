@@ -3,12 +3,7 @@
 // subtitle, detail, badge, each tone, each mono choice, navigation, selected,
 // disabled, swipe actions, and a row with content under it).
 import { html, render, repeat, nothing } from '/vendor/xb-native.js';
-
-const api = async (path, opt) => {
-  const r = await xbin.fetch(`/api/${xbin.self}${path}`, opt);
-  if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
-  return r.status === 204 ? null : r.json();
-};
+import { selfApi } from '/vendor/bx-kit.js';
 
 let s = null;
 let me = '';
@@ -20,12 +15,12 @@ const pct = (x) => `${Math.round(x * 100)}%`;
 const healthTone = { ok: 'ok', warn: 'warn', fail: 'danger', off: 'muted', info: 'accent' };
 
 async function load() {
-  s = await api('/status');
+  s = await selfApi('/status');
   me = s.me;
   paint();
 }
 async function remove(m) {
-  await api(`/members/${encodeURIComponent(m.email)}`, { method: 'DELETE' });
+  await selfApi(`/members/${encodeURIComponent(m.email)}`, { method: 'DELETE' });
   await load();
 }
 
@@ -35,7 +30,7 @@ const member = (m) => html`
        tone=${m.pending ? 'muted' : nothing} @tap=${() => { focus = m.email; paint(); }}>
     ${m.email === me ? nothing : html`
       <actions>
-        <button icon="key" @tap=${() => api(`/members/${encodeURIComponent(m.email)}/admin`, { method: 'POST' }).then(load)}>Make admin</button>
+        <button icon="key" @tap=${() => selfApi(`/members/${encodeURIComponent(m.email)}/admin`, { method: 'POST' }).then(load)}>Make admin</button>
         <button role="destructive" icon="trash" confirm=${{ title: `Remove ${m.name}?`, message: 'They lose access to every tile at once.', label: 'Remove', destructive: true }}
                 @tap=${() => remove(m)}>Remove</button>
       </actions>`}

@@ -1,9 +1,11 @@
 // charts — a node-metrics tile: a line chart over time (percent), a stacked
 // memory area chart (bytes), a bar chart by category (numbers), and
-// sparklines inside rows. The tile turns its backend's samples into series;
+// sparklines inside rows. The exporter comes from the tile's bound `metrics`
+// interface; the tile turns its samples into series;
 // time points are ms since the epoch, percent values are fractions (0.42 = 42%).
 import { html, render, repeat, nothing } from '/vendor/xb-native.js';
 
+const source = xbin.iface('metrics'); // the bound exporter: {url, provider}
 let m = null;
 let range = '1h';
 
@@ -12,13 +14,13 @@ const series = (name, values) => ({ name, points: values.map((v, i) => [at(i), v
 const gb = (b) => `${(b / 2 ** 30).toFixed(1)} GB`;
 
 async function load() {
-  const r = await xbin.fetch(`/api/${xbin.self}/metrics?range=${range}`);
+  const r = await xbin.fetch(`${source.url}/series?range=${range}`);
   m = await r.json();
   paint();
 }
 
 const paint = () => render(!m ? nothing : html`
-  <screen title="Metrics" subtitle=${`${m.node} · last ${range}`} style="list" refreshable @refresh=${load}>
+  <screen title="Metrics" subtitle=${`${m.node} via ${source.provider} · last ${range}`} style="list" refreshable @refresh=${load}>
     <toolbar>
       <picker style="segmented" value=${range} @change=${(e) => { range = e.value; load(); }}
               options=${[{ value: '1h', label: '1h' }, { value: '6h', label: '6h' }, { value: '24h', label: '24h' }]}/>

@@ -1,8 +1,9 @@
 {
   "about": "chart: line (time/percent, number/number), area (time/bytes), bar (category/number), spark in rows; every height",
   "self": "apps/metrics",
+  "iface": {"metrics": {"url": "https://xbin.acme.dev/api/apps/node-exporter", "provider": "apps/node-exporter"}},
   "routes": {
-    "GET /api/apps/metrics/metrics?range=1h": {"json": {
+    "GET https://xbin.acme.dev/api/apps/node-exporter/series?range=1h": {"json": {
       "node": "xbin-prod-1", "start": 1789996400000, "step": 300,
       "cpu": {
         "user":   [0.21, 0.24, 0.22, 0.31, 0.46, 0.52, 0.38, 0.29, 0.27, 0.33, 0.41, 0.36, 0.30],

@@ -1,0 +1,24 @@
+{"v":1,"root":{"k":"r","t":"split","p":{"prefer":"single"},"c":[
+  {"k":"r.0","t":"screen","p":{"title":"People","style":"list"},"c":[
+    {"k":"r.0.0:A","t":"section","p":{"title":"A"},"c":[
+      {"k":"r.0.0:A.0:ana@acme.dev","t":"row","p":{"title":"Ana Kowalska","subtitle":"Platform lead","icon":"person","nav":true,"selected":false},"e":["tap"]}
+    ]},
+    {"k":"r.0.0:B","t":"section","p":{"title":"B"},"c":[
+      {"k":"r.0.0:B.0:ben@acme.dev","t":"row","p":{"title":"Ben Ortiz","subtitle":"SRE","icon":"person","nav":true,"selected":true},"e":["tap"]}
+    ]},
+    {"k":"r.0.0:C","t":"section","p":{"title":"C"},"c":[
+      {"k":"r.0.0:C.0:chloe@acme.dev","t":"row","p":{"title":"Chloé Martin","subtitle":"Frontend","icon":"person","nav":true,"selected":false},"e":["tap"]},
+      {"k":"r.0.0:C.0:chen@acme.dev","t":"row","p":{"title":"Chen Wei","subtitle":"Payments","icon":"person","nav":true,"selected":false},"e":["tap"]}
+    ]}
+  ]},
+  {"k":"r.1","t":"screen","p":{"title":"Ben Ortiz","subtitle":"SRE","style":"form"},"c":[
+    {"k":"r.1.0","t":"section","c":[
+      {"k":"r.1.0.0","t":"row","p":{"title":"Email","detail":"ben@acme.dev","icon":"mail"},"e":["tap"]},
+      {"k":"r.1.0.1","t":"row","p":{"title":"Phone","detail":"+1 415 555 0134","icon":"chat","mono":"detail"}},
+      {"k":"r.1.0.2","t":"row","p":{"title":"Time zone","detail":"America/Los_Angeles","icon":"clock"}}
+    ]},
+    {"k":"r.1.1","t":"section","c":[
+      {"k":"r.1.1.0","t":"button","p":{"icon":"copy","copy":"ben@acme.dev","label":"Copy email"}}
+    ]}
+  ]}
+]}}

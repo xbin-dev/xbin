@@ -2,12 +2,7 @@
 // lists services (large title, pull to refresh, search, a toolbar with a
 // menu) and a pushed detail screen (a form with a disclosure and actions).
 import { html, render, repeat, nothing } from '/vendor/xb-native.js';
-
-const api = async (path, opt) => {
-  const r = await xbin.fetch(`/api/${xbin.self}${path}`, opt);
-  if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
-  return r.json();
-};
+import { selfApi } from '/vendor/bx-kit.js';
 
 let services = [];
 let query = '';
@@ -28,17 +23,17 @@ const ago = (iso) => {
 const tone = (st) => ({ healthy: 'ok', degraded: 'warn', failed: 'danger', paused: 'muted' })[st] ?? 'muted';
 
 async function load() {
-  try { services = (await api('/services')).services; error = ''; } catch (e) { error = e.message; }
+  try { services = (await selfApi('/services')).services; error = ''; } catch (e) { error = e.message; }
   paint();
 }
 async function show(name) {
   open = name; detail = null; envOpen = false; paint();
-  detail = await api(`/services/${encodeURIComponent(name)}`);
+  detail = await selfApi(`/services/${encodeURIComponent(name)}`);
   paint();
 }
 async function act(what) {
   busy = what; paint();
-  try { await api(`/services/${encodeURIComponent(open)}/${what}`, { method: 'POST' }); detail = await api(`/services/${encodeURIComponent(open)}`); }
+  try { await selfApi(`/services/${encodeURIComponent(open)}/${what}`, { method: 'POST' }); detail = await selfApi(`/services/${encodeURIComponent(open)}`); }
   finally { busy = ''; paint(); }
 }
 

@@ -3,12 +3,7 @@
 // return-key label. The script types into it, so the tree shows the values
 // the app reported back (controlled fields).
 import { html, render } from '/vendor/xb-native.js';
-
-const api = async (path, opt) => {
-  const r = await xbin.fetch(`/api/${xbin.self}${path}`, opt);
-  if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
-  return r.json();
-};
+import { selfApi } from '/vendor/bx-kit.js';
 
 const job = {
   name: '', endpoint: '', notify: '', secret: '', frequency: 'daily', at: '02:30', start: '',
@@ -24,13 +19,13 @@ const parallelError = () => (Number(job.parallel) > policy.maxParallel ? `At mos
 const valid = () => job.name.trim() && job.endpoint.startsWith('https://') && !parallelError();
 
 async function load() {
-  policy = await api('/policy');
+  policy = await selfApi('/policy');
   job.endpoint = policy.defaultEndpoint;
   job.start = policy.today;
   paint();
 }
 async function findBuckets(q) {
-  buckets = (await api(`/buckets?q=${encodeURIComponent(q)}`)).buckets;
+  buckets = (await selfApi(`/buckets?q=${encodeURIComponent(q)}`)).buckets;
   paint();
 }
 

@@ -1,0 +1,62 @@
+{"v":1,"root":{"k":"r","t":"screen","p":{"title":"On call","style":"scroll"},"c":[
+  {"k":"r.0","t":"stack","p":{"axis":"v","gap":"xxl"},"c":[
+    {"k":"r.0.0","t":"stack","p":{"axis":"h","gap":"m","align":"start"},"c":[
+      {"k":"r.0.0.0","t":"icon","p":{"name":"bell","tone":"accent"}},
+      {"k":"r.0.0.1","t":"stack","p":{"axis":"v","gap":"none"},"c":[
+        {"k":"r.0.0.1.0","t":"text","p":{"style":"headline","text":"Ben Ortiz"}},
+        {"k":"r.0.0.1.1","t":"text","p":{"style":"subheadline","tone":"muted","text":"on call until Mon 09:00"}}
+      ]},
+      {"k":"r.0.0.2","t":"spacer"},
+      {"k":"r.0.0.3","t":"badge","p":{"tone":"warn","text":"2 pages"}}
+    ]},
+    {"k":"r.0.1","t":"stack","p":{"axis":"h","gap":"xl","align":"center"},"c":[
+      {"k":"r.0.1.0.0","t":"stack","p":{"axis":"v","gap":"xs","align":"center"},"c":[
+        {"k":"r.0.1.0.0.0","t":"text","p":{"style":"title","tone":"ok","text":"99.95%"}},
+        {"k":"r.0.1.0.0.1","t":"text","p":{"style":"caption","tone":"muted","text":"uptime (30 d)"}}
+      ]},
+      {"k":"r.0.1.0.1","t":"stack","p":{"axis":"v","gap":"xs","align":"center"},"c":[
+        {"k":"r.0.1.0.1.0","t":"text","p":{"style":"title","tone":"warn","text":"2"}},
+        {"k":"r.0.1.0.1.1","t":"text","p":{"style":"caption","tone":"muted","text":"open incidents"}}
+      ]},
+      {"k":"r.0.1.0.2","t":"stack","p":{"axis":"v","gap":"xs","align":"center"},"c":[
+        {"k":"r.0.1.0.2.0","t":"text","p":{"style":"title","text":"14 min"}},
+        {"k":"r.0.1.0.2.1","t":"text","p":{"style":"caption","tone":"muted","text":"time to ack"}}
+      ]}
+    ]},
+    {"k":"r.0.2","t":"divider"},
+    {"k":"r.0.3","t":"stack","p":{"axis":"v","gap":"l"},"c":[
+      {"k":"r.0.3.0","t":"text","p":{"style":"title3","text":"Services"}},
+      {"k":"r.0.3.1:checkout-api","t":"stack","p":{"axis":"h","gap":"s","align":"center"},"c":[
+        {"k":"r.0.3.1:checkout-api.0","t":"icon","p":{"name":"check","tone":"ok"}},
+        {"k":"r.0.3.1:checkout-api.1","t":"text","p":{"text":"checkout-api"}},
+        {"k":"r.0.3.1:checkout-api.2","t":"spacer"},
+        {"k":"r.0.3.1:checkout-api.3","t":"text","p":{"style":"footnote","tone":"muted","text":"212 ms"}}
+      ]},
+      {"k":"r.0.3.1:billing-worker","t":"stack","p":{"axis":"h","gap":"s","align":"center"},"c":[
+        {"k":"r.0.3.1:billing-worker.0","t":"icon","p":{"name":"warning","tone":"danger"}},
+        {"k":"r.0.3.1:billing-worker.1","t":"text","p":{"text":"billing-worker"}},
+        {"k":"r.0.3.1:billing-worker.2","t":"spacer"},
+        {"k":"r.0.3.1:billing-worker.3","t":"text","p":{"style":"footnote","tone":"muted","text":"timeouts"}}
+      ]},
+      {"k":"r.0.3.1:web","t":"stack","p":{"axis":"h","gap":"s","align":"center"},"c":[
+        {"k":"r.0.3.1:web.0","t":"icon","p":{"name":"check","tone":"ok"}},
+        {"k":"r.0.3.1:web.1","t":"text","p":{"text":"web"}},
+        {"k":"r.0.3.1:web.2","t":"spacer"},
+        {"k":"r.0.3.1:web.3","t":"text","p":{"style":"footnote","tone":"muted","text":"88 ms"}}
+      ]}
+    ]},
+    {"k":"r.0.4","t":"divider"},
+    {"k":"r.0.5","t":"stack","p":{"axis":"v","gap":"s","align":"end"},"c":[
+      {"k":"r.0.5.0","t":"text","p":{"style":"footnote","tone":"muted","text":"Handover notes"}},
+      {"k":"r.0.5.1","t":"text","p":{"text":"billing-worker times out against the staging payment sandbox; prod is fine. Chloé owns the Safari pay-button bug."}}
+    ]},
+    {"k":"r.0.6","t":"stack","p":{"axis":"h","gap":"xs","wrap":true},"c":[
+      {"k":"r.0.6.0:payments","t":"badge","p":{"tone":"muted","text":"payments"}},
+      {"k":"r.0.6.0:eu-central","t":"badge","p":{"tone":"muted","text":"eu-central"}},
+      {"k":"r.0.6.0:sev-2 open","t":"badge","p":{"tone":"muted","text":"sev-2 open"}},
+      {"k":"r.0.6.0:deploy freeze Fri","t":"badge","p":{"tone":"muted","text":"deploy freeze Fri"}},
+      {"k":"r.0.6.0:postmortem Thu","t":"badge","p":{"tone":"muted","text":"postmortem Thu"}},
+      {"k":"r.0.6.0:pager: Ben","t":"badge","p":{"tone":"muted","text":"pager: Ben"}}
+    ]}
+  ]}
+]}}

@@ -3,12 +3,7 @@
 // menu and a button, and swipe actions on asset rows. The script taps
 // "Publish", whose request is still in flight when the tree is taken.
 import { html, render, repeat, nothing } from '/vendor/xb-native.js';
-
-const api = async (path, opt) => {
-  const r = await xbin.fetch(`/api/${xbin.self}${path}`, opt);
-  if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
-  return r.json();
-};
+import { selfApi, jbody } from '/vendor/bx-kit.js';
 
 let rel = null;
 let channel = 'stable';
@@ -16,10 +11,10 @@ let publishing = false;
 
 const size = (b) => (b >= 1 << 20 ? `${(b / (1 << 20)).toFixed(1)} MB` : b >= 1024 ? `${Math.round(b / 1024)} KB` : `${b} B`);
 
-async function load() { rel = await api('/releases/draft'); paint(); }
+async function load() { rel = await selfApi('/releases/draft'); paint(); }
 async function publish() {
   publishing = true; paint();
-  try { await api('/releases/draft/publish', { method: 'POST', body: JSON.stringify({ channel }) }); await load(); }
+  try { await selfApi('/releases/draft/publish', jbody({ channel }, 'POST')); await load(); }
   finally { publishing = false; paint(); }
 }
 

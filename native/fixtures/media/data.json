@@ -26,31 +26,11 @@
           }
         ],
         "findings": [
-          {
-            "id": "f1",
-            "level": "ok",
-            "text": "Electrical panel labelled and up to code"
-          },
-          {
-            "id": "f2",
-            "level": "minor",
-            "text": "Gutter on the south side needs cleaning"
-          },
-          {
-            "id": "f3",
-            "level": "major",
-            "text": "Two cracked ridge tiles on the north roof"
-          },
-          {
-            "id": "f4",
-            "level": "blocker",
-            "text": "No carbon-monoxide detector near the boiler"
-          },
-          {
-            "id": "f5",
-            "level": "na",
-            "text": "Pool: not present"
-          }
+          {"id": "f1", "level": "ok", "text": "Electrical panel labelled and up to code"},
+          {"id": "f2", "level": "minor", "text": "Gutter on the south side needs cleaning"},
+          {"id": "f3", "level": "major", "text": "Two cracked ridge tiles on the north roof"},
+          {"id": "f4", "level": "blocker", "text": "No carbon-monoxide detector near the boiler"},
+          {"id": "f5", "level": "na", "text": "Pool: not present"}
         ],
         "plan": "plans/218/ground-floor.png",
         "signature": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAICAYAAADjoT9jAAAAJElEQVR42mNgoBeQk9P4j0xTKk4Xy4iyhFJxFAXUxCMgDqgFAPEvQ/SGaFkBAAAAAElFTkSuQmCC"
@@ -58,10 +38,6 @@
     }
   },
   "interactions": [
-    {
-      "select": "image[src=\"photos/218/roof-north-thumb.jpg\"]",
-      "type": "tap",
-      "note": "show the roof photo"
-    }
+    {"select": "image[src=\"photos/218/roof-north-thumb.jpg\"]", "type": "tap", "note": "show the roof photo"}
   ]
 }

@@ -4,10 +4,7 @@
   "routes": {
     "GET /api/apps/runbooks/runbooks/rotate-db-password.md": {
       "text": "# Rotate the database password\n\nRotating is **safe during business hours**: the app holds *two* valid passwords while the change rolls out. Ask in `#ops` before you start; see [the credentials policy](https://wiki.acme.dev/security/credentials) for why we rotate every 90 days. ~~Restart the API by hand~~ — no longer needed since v2.12.\n\n## Before you start\n\n- You need the `db-admin` role on **acme-prod**\n- A terminal with `bx` logged in\n- About 15 minutes\n\n## Steps\n\n1. Create the new password in the vault:\n\n   ```sh\n   bx secret new db/app-password --length 32\n   ```\n\n2. Add it as the *secondary* password (the database accepts both).\n\nNow roll the API one replica at a time, and go on once every replica is healthy:\n\n3. Promote the new password to primary.\n4. Drop the old one:\n\n   ```\n   ALTER ROLE app PASSWORD NULL;\n   ```\n\n> **Heads up:**\n> the billing worker caches its connection for up to 10 minutes. Wait before dropping the old password.\n\n### Checklist\n\n- [x] Vault entry created\n- [x] Secondary password added\n- [ ] API rolled\n- [ ] Old password dropped\n\n### Who is affected\n\n| Service | Connections | Downtime | Owner |\n|:--------|:-----------:|---------:|-------|\n| api | 32 | none | Ben |\n| billing-worker | 4 | up to 10 min | Chloé |\n| reports | 2 | none | Ana |\n\n---\n\n#### Rolling back\n\nIf the API fails to connect, re-run step 2 with the *old* password.\n\n##### Where the passwords live\n\n`db/app-password` (current) and `db/app-password-prev` (previous).\n\n###### Last reviewed by Ana, September 2026\n",
-      "headers": {
-        "content-type": "text/markdown",
-        "last-modified": "Sep 18, 2026"
-      }
+      "headers": {"content-type": "text/markdown", "last-modified": "Sep 18, 2026"}
     }
   }
 }

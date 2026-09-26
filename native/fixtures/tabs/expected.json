@@ -1,0 +1,15 @@
+{"v":1,"root":{"k":"r","t":"screen","p":{"title":"Issues","subtitle":"acme/checkout","style":"list","search":""},"e":["search"],"c":[
+  {"k":"r.0","t":"tabs","p":{"style":"segmented","selected":"mine"},"e":["change"],"c":[
+    {"k":"r.0.0","t":"tab","p":{"key":"open","title":"Open","icon":"info","badge":"3"},"c":[]},
+    {"k":"r.0.1","t":"tab","p":{"key":"mine","title":"Mine","icon":"person","badge":"2"},"c":[
+      {"k":"r.0.1.0","t":"section","p":{"title":"Assigned to you"},"c":[
+        {"k":"r.0.1.0.0:311","t":"row","p":{"title":"Pay button spins forever on Safari","subtitle":"#311 · chloe","badge":"bug","tone":"danger","icon":"info","nav":true},"e":["tap"]},
+        {"k":"r.0.1.0.0:298","t":"row","p":{"title":"Retry card declines once","subtitle":"#298 · ben","badge":"feature","tone":"accent","icon":"info","nav":true},"e":["tap"]}
+      ]},
+      {"k":"r.0.1.1","t":"section","p":{"title":"Waiting for review"},"c":[
+        {"k":"r.0.1.1.0","t":"empty","p":{"icon":"check","title":"Nothing to review"}}
+      ]}
+    ]},
+    {"k":"r.0.2","t":"tab","p":{"key":"closed","title":"Closed","icon":"archive"},"c":[]}
+  ]}
+]}}

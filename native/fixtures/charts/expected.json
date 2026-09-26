@@ -1,4 +1,4 @@
-{"v":1,"root":{"k":"r","t":"screen","p":{"title":"Metrics","subtitle":"xbin-prod-1 · last 1h","style":"list","refreshable":true},"e":["refresh"],"c":[
+{"v":1,"root":{"k":"r","t":"screen","p":{"title":"Metrics","subtitle":"xbin-prod-1 via apps/node-exporter · last 1h","style":"list","refreshable":true},"e":["refresh"],"c":[
   {"k":"r.0","t":"toolbar","c":[
     {"k":"r.0.0","t":"picker","p":{"style":"segmented","value":"1h","options":[{"value":"1h","label":"1h"},{"value":"6h","label":"6h"},{"value":"24h","label":"24h"}]},"e":["change"]}
   ]},

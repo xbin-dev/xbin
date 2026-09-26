@@ -1,0 +1,213 @@
+{
+  "about": "the chat family's tools: plan, toolcards in every state with chips and each body kind, nested transcript, diff, approvals, question, progress, disabled composer",
+  "self": "apps/coder",
+  "routes": {
+    "GET /api/apps/coder/sessions/s-77": {
+      "json": {
+        "title": "Fix the pay client",
+        "cwd": "~/src/checkout",
+        "entries": [
+          {
+            "id": "e1",
+            "type": "user",
+            "text": "Fix the pay client's idle timeout and add a test. Deploy to staging when green."
+          },
+          {
+            "id": "e2",
+            "type": "thinking",
+            "text": "Default the timeout instead of trusting 0; the legacy pool is dead code now.",
+            "seconds": 6
+          },
+          {
+            "id": "e3",
+            "type": "plan",
+            "entries": [
+              {"text": "Default IdleConnTimeout when the config says 0", "status": "completed"},
+              {"text": "Add a regression test for connection reuse", "status": "completed"},
+              {"text": "Run the test suite", "status": "in_progress"},
+              {"text": "Deploy to staging", "status": "pending"}
+            ]
+          },
+          {
+            "id": "t1",
+            "type": "tool",
+            "title": "Read internal/pay/client.go",
+            "icon": "doc",
+            "family": "read",
+            "state": "ok",
+            "chips": [{"text": "118 lines", "tone": "muted"}],
+            "body": [
+              {
+                "kind": "code",
+                "text": "func NewClient(cfg Config) *Client {\n\ttr := &http.Transport{\n\t\tIdleConnTimeout: cfg.IdleTimeout,\n\t}"
+              }
+            ]
+          },
+          {
+            "id": "t2",
+            "type": "tool",
+            "title": "Edit internal/pay/client.go",
+            "icon": "pencil",
+            "family": "edit",
+            "state": "ok",
+            "chips": [{"text": "+2", "tone": "ok"}, {"text": "−1", "tone": "danger"}],
+            "body": [
+              {"kind": "diff", "files": [{"path": "internal/pay/client.go", "status": "modified", "add": 2, "del": 1}]}
+            ]
+          },
+          {
+            "id": "t3",
+            "type": "tool",
+            "title": "Explore: who else sets IdleTimeout?",
+            "icon": "agent",
+            "family": "agent",
+            "state": "ok",
+            "chips": [{"text": "subagent", "tone": "accent"}, {"text": "3 tools", "tone": "muted"}],
+            "body": [
+              {
+                "kind": "transcript",
+                "items": [
+                  {"id": "x1", "type": "user", "text": "Find every place that sets IdleTimeout for the pay client."},
+                  {
+                    "id": "x2",
+                    "type": "tool",
+                    "title": "grep -rn IdleTimeout",
+                    "icon": "search",
+                    "family": "shell",
+                    "state": "ok",
+                    "body": [
+                      {
+                        "kind": "code",
+                        "text": "config/staging.yaml:12:  idle_timeout: 0\ninternal/pay/client.go:43:\t\tIdleConnTimeout: cfg.IdleTimeout,"
+                      }
+                    ]
+                  },
+                  {"id": "x3", "type": "assistant", "text": "Only `config/staging.yaml` sets it, to **0**."}
+                ]
+              }
+            ]
+          },
+          {
+            "id": "t4",
+            "type": "tool",
+            "title": "go test ./internal/pay/...",
+            "icon": "terminal",
+            "family": "shell",
+            "state": "error",
+            "chips": [{"text": "exit 1", "tone": "danger"}, {"text": "2.4 s", "tone": "muted"}],
+            "body": [
+              {
+                "kind": "code",
+                "wrap": true,
+                "text": "--- FAIL: TestIdleReuse (0.21s)\n    client_test.go:31: dialed 12 times, want 1\nFAIL\tacme/internal/pay\t2.412s"
+              },
+              {"kind": "notice", "tone": "danger", "text": "1 test failed"}
+            ]
+          },
+          {
+            "id": "t5",
+            "type": "tool",
+            "title": "Screenshot staging checkout",
+            "icon": "photo",
+            "family": "browser",
+            "state": "canceled",
+            "chips": [{"text": "canceled by Ana", "tone": "warn"}],
+            "body": [
+              {
+                "kind": "image",
+                "src": "api/apps/coder/files/shot-3.png",
+                "alt": "Checkout page, spinner on the pay button"
+              },
+              {"kind": "text", "tone": "muted", "text": "Stopped before the page finished loading."}
+            ]
+          },
+          {
+            "id": "t6",
+            "type": "tool",
+            "title": "go test ./internal/pay/... (after the fix)",
+            "icon": "terminal",
+            "family": "shell",
+            "state": "running",
+            "chips": [{"text": "12 s", "tone": "muted"}],
+            "body": [
+              {
+                "kind": "markdown",
+                "streaming": true,
+                "text": "**Running** 14 packages…\n\n- `internal/pay` ok\n- `internal/pay/legacy` "
+              }
+            ]
+          },
+          {
+            "id": "t7",
+            "type": "tool",
+            "title": "Write internal/pay/client_test.go",
+            "icon": "pencil",
+            "family": "edit",
+            "state": "writing",
+            "body": [{"kind": "code", "text": "func TestIdleReuse(t *testing.T) {\n\tsrv := httptest.NewTLSServer("}]
+          },
+          {"id": "p1", "type": "progress", "value": 0.4, "label": "Indexing the repository (4 of 10 modules)"},
+          {
+            "id": "d1",
+            "type": "diff",
+            "files": [
+              {"path": "internal/pay/client.go", "status": "modified", "add": 2, "del": 1},
+              {"path": "internal/pay/client_test.go", "status": "added", "add": 38, "del": 0},
+              {"path": "internal/pay/legacy_pool.go", "status": "deleted", "add": 0, "del": 57},
+              {"path": "config/staging.yaml", "status": "modified", "add": 1, "del": 1}
+            ],
+            "patch": "--- a/internal/pay/client.go\n+++ b/internal/pay/client.go\n@@ -41,7 +41,9 @@ func NewClient(cfg Config) *Client {\n \ttr := &http.Transport{\n-\t\tIdleConnTimeout: cfg.IdleTimeout,\n+\t\tIdleConnTimeout:     orDefault(cfg.IdleTimeout, 90*time.Second),\n+\t\tMaxIdleConnsPerHost: 32,\n \t}\n"
+          },
+          {
+            "id": "a1",
+            "type": "approval",
+            "title": "Run a shell command",
+            "text": "rm internal/pay/legacy_pool.go",
+            "options": [
+              {"id": "once", "label": "Allow once", "kind": "allow_once"},
+              {"id": "always", "label": "Always allow rm in this repo", "kind": "allow_always"},
+              {"id": "no", "label": "Reject", "kind": "reject_once"}
+            ],
+            "note": "Deletes a tracked file.",
+            "feedback": true
+          },
+          {
+            "id": "q1",
+            "type": "question",
+            "title": "Which staging cluster?",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "cluster": {"type": "string", "title": "Cluster", "enum": ["staging-eu", "staging-us"]},
+                "notify": {"type": "boolean", "title": "Notify #deploys"}
+              },
+              "required": ["cluster"]
+            },
+            "settled": {"cluster": "staging-eu", "notify": true}
+          },
+          {
+            "id": "a2",
+            "type": "approval",
+            "title": "Deploy to staging-eu",
+            "text": "bx deploy checkout-api --env staging-eu --tag v2.15.0-rc.2",
+            "options": [
+              {"id": "yes", "label": "Deploy", "kind": "allow_once"},
+              {"id": "no", "label": "Not now", "kind": "reject_once"}
+            ],
+            "note": "Restarts 3 replicas."
+          }
+        ]
+      }
+    },
+    "POST /api/apps/coder/sessions/s-77/approvals/a1": {"json": {"settled": {"by": "Ana", "id": "once"}}}
+  },
+  "interactions": [
+    {"select": "toolcard[title=\"go test ./internal/pay/...\"]", "type": "toggle", "payload": {"open": true}},
+    {"select": "toolcard[title=\"Explore: who else sets IdleTimeout?\"]", "type": "toggle", "payload": {"open": true}},
+    {
+      "select": "approval[title=\"Run a shell command\"]",
+      "type": "choose",
+      "payload": {"id": "once", "feedback": "ok, it is unused"}
+    }
+  ]
+}

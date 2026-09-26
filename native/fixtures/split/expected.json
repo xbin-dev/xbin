@@ -1,0 +1,34 @@
+{"v":1,"root":{"k":"r","t":"split","p":{"prefer":"auto"},"c":[
+  {"k":"r.0","t":"screen","p":{"title":"Inbox","subtitle":"3 unread"},"c":[
+    {"k":"r.0.0","t":"toolbar","c":[
+      {"k":"r.0.0.0","t":"button","p":{"icon":"pencil","label":"Compose"},"e":["tap"]}
+    ]},
+    {"k":"r.0.1","t":"list","p":{"style":"plain"},"e":["more"],"c":[
+      {"k":"r.0.1.0:m-6","t":"row","p":{"title":"PagerDuty","subtitle":"[SEV-2] billing-worker timeouts","detail":"14:13","selected":false,"badge":"new","tone":"accent"},"e":["tap"]},
+      {"k":"r.0.1.0:m-1","t":"row","p":{"title":"Ben Ortiz","subtitle":"Staging deploy approved","detail":"14:02","selected":false,"badge":"new","tone":"accent"},"e":["tap"]},
+      {"k":"r.0.1.0:m-2","t":"row","p":{"title":"GitHub","subtitle":"[acme/checkout] PR #312 merged","detail":"13:40","selected":false,"badge":"new","tone":"accent"},"e":["tap"]},
+      {"k":"r.0.1.0:m-3","t":"row","p":{"title":"Chloé Martin","subtitle":"Re: Safari pay button","detail":"11:15","selected":true},"e":["tap"]},
+      {"k":"r.0.1.0:m-4","t":"row","p":{"title":"AWS","subtitle":"Your September invoice","detail":"09:02","selected":false},"e":["tap"]},
+      {"k":"r.0.1.0:m-5","t":"row","p":{"title":"Ana Kowalska","subtitle":"Offsite agenda","detail":"Fri","selected":false},"e":["tap"]}
+    ]}
+  ]},
+  {"k":"r.1","t":"screen","p":{"title":"Re: Safari pay button","style":"scroll"},"c":[
+    {"k":"r.1.0","t":"toolbar","c":[
+      {"k":"r.1.0.0","t":"button","p":{"icon":"back","label":"Reply"},"e":["tap"]},
+      {"k":"r.1.0.1","t":"button","p":{"icon":"archive","label":"Archive"},"e":["tap"]},
+      {"k":"r.1.0.2","t":"button","p":{"role":"destructive","icon":"trash","label":"Delete"},"e":["tap"]}
+    ]},
+    {"k":"r.1.1","t":"stack","p":{"gap":"m"},"c":[
+      {"k":"r.1.1.0","t":"stack","p":{"gap":"xs"},"c":[
+        {"k":"r.1.1.0.0","t":"text","p":{"style":"headline","text":"Chloé Martin"}},
+        {"k":"r.1.1.0.1","t":"text","p":{"style":"caption","tone":"muted","text":"to Ana Kowalska, Ben Ortiz · Sep 21, 11:15"}}
+      ]},
+      {"k":"r.1.1.1","t":"divider"},
+      {"k":"r.1.1.2","t":"markdown","p":{"tokens":[
+          {"t":"paragraph","c":[{"t":"text","text":"Reproduced on "},{"t":"strong","c":[{"t":"text","text":"Safari 19"}]},{"t":"text","text":" only: the pay button waits for a "},{"t":"codespan","text":"postMessage"},{"t":"text","text":" that never comes."}]},
+          {"t":"paragraph","c":[{"t":"text","text":"Workaround in "},{"t":"link","href":"https://git.acme.dev/checkout/pull/313","c":[{"t":"text","text":"PR #313"}]},{"t":"text","text":". Can one of you review today?"}]},
+          {"t":"paragraph","c":[{"t":"text","text":"— Chloé"}]}
+        ]},"e":["link"]}
+    ]}
+  ]}
+]}}
