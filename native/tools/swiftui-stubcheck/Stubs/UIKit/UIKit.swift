@@ -48,8 +48,19 @@ public struct UIEdgeInsets: Sendable, Equatable {
     public var overrideUserInterfaceStyle: UIUserInterfaceStyle = .unspecified
 }
 public final class CALayer { public func render(in ctx: CGContext) {} }
+@MainActor open class UIScene: UIResponder {}
+@MainActor open class UIWindowScene: UIScene {}
+@MainActor open class UIApplication: UIResponder {
+    public static let shared = UIApplication()
+    public var connectedScenes: Set<UIScene> { [] }
+}
+extension UIScene: Hashable {
+    nonisolated public static func == (a: UIScene, b: UIScene) -> Bool { a === b }
+    nonisolated public func hash(into h: inout Hasher) { h.combine(ObjectIdentifier(self)) }
+}
 @MainActor open class UIWindow: UIView {
     public init(frame: CGRect) { super.init(); self.frame = frame }
+    public init(windowScene: UIWindowScene) { super.init() }
     public var rootViewController: UIViewController?
     public var isHidden = true
 }

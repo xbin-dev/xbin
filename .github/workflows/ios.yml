@@ -6,7 +6,10 @@
 #   app        xcodegen generate → xcodebuild build -scheme Xbin (simulator,
 #              unsigned) → artifact xcresult-app
 #   snapshots  xcodebuild test the XbinRenderer package on a simulator →
-#              artifacts snapshots (PNGs) and xcresult-snapshots
+#              artifacts snapshots (PNGs) and xcresult-snapshots; then the
+#              same tests hosted by an app (scheme XbinSnapshots) → the
+#              PNGs under snapshots/hosted/, drawn with drawHierarchy (bar
+#              glass and materials included)
 #
 # The logic lives in native/ios/scripts/ (runnable on any Mac, shellchecked
 # and dry-tested on Linux by native/ios/scripts/ci-local-check.sh); this
@@ -112,6 +115,17 @@ jobs:
           # The tests see SNAPSHOT_DIR (xcodebuild strips TEST_RUNNER_).
           TEST_RUNNER_SNAPSHOT_DIR: ${{ runner.temp }}/snapshots
         run: native/ios/scripts/ci-snapshots.sh "$DEST"
+      - name: install xcodegen
+        if: always() && hashFiles('native/ios/project.yml') != '' && steps.sim.outputs.destination != ''
+        run: |
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcodegen --version
+      - name: xcodebuild test -scheme XbinSnapshots (hosted snapshots)
+        if: always() && hashFiles('native/ios/project.yml') != '' && steps.sim.outputs.destination != ''
+        env:
+          DEST: ${{ steps.sim.outputs.destination }}
+          TEST_RUNNER_SNAPSHOT_DIR: ${{ runner.temp }}/snapshots/hosted
+        run: native/ios/scripts/ci-hosted-snapshots.sh "$DEST"
       - name: upload snapshots
         if: always()
         uses: actions/upload-artifact@v4
@@ -128,5 +142,7 @@ jobs:
           path: |
             ${{ runner.temp }}/xbin-ci/snapshots-test.xcresult
             ${{ runner.temp }}/xbin-ci/snapshots-test.log
+            ${{ runner.temp }}/xbin-ci/hosted-snapshots.xcresult
+            ${{ runner.temp }}/xbin-ci/hosted-snapshots.log
           if-no-files-found: ignore
           retention-days: 14

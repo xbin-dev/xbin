@@ -184,7 +184,7 @@ still yields snapshots:
 |---|---|---|
 | `packages` | logs the toolchain (`xcodebuild -version`, `-showsdks`, simulator device types and runtimes); `swift test` in `Packages/XbinCore`, `XbinTerm`, `XbinAgent` — each if present, all run even when one fails (XbinRenderer's model tests run in `snapshots`) | — |
 | `app` | `brew install xcodegen` → `xcodegen generate` (if `project.yml` exists) → `xcodebuild build -scheme Xbin` for a simulator, `CODE_SIGNING_ALLOWED=NO` | `xcresult-app` (`app-build.xcresult` + the full `app-build.log`) |
-| `snapshots` | `xcodebuild test -scheme XbinRenderer` in `Packages/XbinRenderer` on a simulator: every fixture, light/dark × default and one large Dynamic Type size | `snapshots` (the PNGs), `xcresult-snapshots` (`.xcresult` + log) |
+| `snapshots` | `xcodebuild test -scheme XbinRenderer` in `Packages/XbinRenderer` on a simulator: every fixture, light/dark × default and one large Dynamic Type size; then the same tests hosted by an app (`ci-hosted-snapshots.sh`, below) | `snapshots` (the PNGs; the hosted ones under `hosted/`), `xcresult-snapshots` (`.xcresult` + log of both) |
 
 Artifacts upload even when a step fails; each job's summary page has a
 one-line result (toolchain, package table, PNG count).
@@ -197,7 +197,7 @@ a Mac over ssh later) and most of it is checked here:
   before Pro/Max; no iPhone → any iOS simulator; none at all → creates one.
   `XBIN_SIM="iPhone 17 Pro"` prefers a name.
 - `ci-toolchain.sh` (every job), `ci-swift-test.sh`, `ci-build-app.sh`,
-  `ci-snapshots.sh`, sharing `ci-lib.sh`. Bash 3.2 (macOS's), no GNU-only
+  `ci-snapshots.sh`, `ci-hosted-snapshots.sh`, sharing `ci-lib.sh`. Bash 3.2 (macOS's), no GNU-only
   flags. Results go to `$RUNNER_TEMP/xbin-ci/`, which is what the workflow
   uploads.
 - Pin an Xcode when the runner has several: set `XBIN_XCODE:
@@ -224,6 +224,17 @@ What the packages and tests must do for CI:
   is unset (Xcode locally) tests skip writing rather than fail. Images a test
   only *attaches* to the result are exported into `snapshots/attachments/` as
   a fallback.
+- **Two snapshot runs, one test file.** The package run has no app, so its
+  windows are offscreen and drawn with `layer.render`, which skips Liquid
+  Glass, materials and vibrancy: bar items, back buttons, tab bars and the
+  bottom search field come out white or blank, and a scrolled navigation bar
+  shows the content under it. `project.yml` therefore also declares
+  `XbinSnapshotHost` (an empty app) and `XbinSnapshotTests` (the same
+  `SnapshotTests.swift`, compiled with `XBIN_SNAPSHOT_HOST`), scheme
+  `XbinSnapshots`: there the windows sit on the host's window scene and are
+  drawn with `drawHierarchy`, as the screen shows them
+  (`ci-hosted-snapshots.sh`, PNGs in `snapshots/hosted/`, same names). Use the
+  hosted PNGs for comparisons when the run produced them.
 
 Before pushing anything under `.github/workflows/ios.yml` or
 `native/ios/scripts/`:
@@ -259,8 +270,9 @@ gh run download <run-id> -n snapshots -D "$SCRATCH/ios-<run-id>/snapshots"   # j
 
 ## Comparing iOS with the reference
 
-After a green run, download the snapshots, render the same fixtures with the
-reference renderer, and compare side by side. Differences that are intended
+After a green run, download the snapshots (the `hosted/` ones when present:
+they show bars and materials as a device does), render the same fixtures with
+the reference renderer (`shots.mjs`, same names), and compare side by side. Differences that are intended
 platform conventions (fonts, control chrome, list insets) stay; anything else
 (missing content, wrong tone, broken layout, clipped text at large Dynamic
 Type) gets fixed. Then make the contact sheet:

@@ -2,8 +2,9 @@
 
 There is no Apple toolchain here (native/AGENTS.md); SwiftUI code otherwise
 meets a compiler only on the Apple CI, minutes per round trip. This tool
-compiles `native/ios/Packages/XbinRenderer`'s views (and its snapshot tests)
-against **hand-written stubs** of the SwiftUI, UIKit and Charts API they use
+compiles `native/ios/Packages/XbinRenderer`'s views (and its snapshot tests,
+twice: as the package runs them and with `XBIN_SNAPSHOT_HOST`, as the hosted
+XbinSnapshotTests target does) against **hand-written stubs** of the SwiftUI, UIKit and Charts API they use
 (`Stubs/`), with the real XbinCore and XbinRendererModel, in Swift 6 mode:
 
 ```sh

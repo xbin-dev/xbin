@@ -7,6 +7,13 @@
 // the web-vs-iOS contact sheet. Without a snapshot directory every fixture
 // is still rendered once (a crash test) and nothing is written.
 //
+// Two ways to run: as the XbinRenderer package's tests (no host app — the
+// windows are offscreen and drawn with layer.render, which skips Liquid
+// Glass, materials and vibrancy: bar items come out white), and compiled
+// into native/ios/project.yml's XbinSnapshotTests (XBIN_SNAPSHOT_HOST), hosted
+// by an empty app, where the windows sit on its UIWindowScene and are drawn
+// with drawHierarchy as the screen shows them (ci-hosted-snapshots.sh).
+//
 // UIKit only (the Apple CI runs this on a simulator); elsewhere the file is
 // empty.
 #if canImport(UIKit)
@@ -58,26 +65,6 @@ import XbinRendererModel
             }
         }
         if let out { print("snapshots: \(written) PNG in \(out.path)") }
-        if let out { try hierarchyExperiment(set: set, out: out) }
-    }
-
-    /// An experiment: whether `drawHierarchy` (which composites glass,
-    /// materials and vibrancy, all of which `layer.render` skips — bar items
-    /// come out white) works in a test process without a host app. Writes
-    /// experiments/<name>-hierarchy.png next to the snapshots and logs the
-    /// result; nothing depends on it.
-    func hierarchyExperiment(set: FixtureSet, out: URL) throws {
-        let dir = out.appendingPathComponent("experiments")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        for name in ["buttons", "tabs-bar", "tile-chat"] {
-            let store = try XbinFixtures.store(name, in: set)
-            let view = XbinTreeView(store: store, send: { _ in }, options: XbinRenderOptions(inlineSheets: true))
-                .environment(\.colorScheme, .light)
-                .environment(\.dynamicTypeSize, .large)
-            let (drawn, png) = Snapshot.hierarchy(of: view, size: Self.size, scale: Self.scale)
-            print("snapshot experiment: drawHierarchy \(name) returned \(drawn), \(png?.count ?? 0) bytes")
-            if let png { try png.write(to: dir.appendingPathComponent("\(name)-hierarchy.png")) }
-        }
     }
 
     @Test func chatComponentsStandAlone() {
@@ -93,18 +80,15 @@ import XbinRendererModel
     }
 }
 
-/// Renders a view to PNG: hosted in a window and drawn by its layer tree (so
-/// UIKit-backed pieces — lists, fields, navigation bars — are captured,
-/// which `ImageRenderer` draws as placeholders), falling back to
-/// `ImageRenderer`.
+/// Renders a view to PNG: hosted in a window and drawn — with drawHierarchy
+/// on the host app's scene, else by its layer tree — so UIKit-backed pieces
+/// (lists, fields, navigation bars) are captured, which `ImageRenderer`
+/// draws as placeholders; `ImageRenderer` is the last resort.
 @MainActor
 enum Snapshot {
     static func png<V: View>(of view: V, size: CGSize, scale: CGFloat, scheme: ColorScheme, type: DynamicTypeSize) -> Data? {
         hosted(view, size: size, scale: scale, scheme: scheme, type: type) ?? rendered(view, size: size, scale: scale)
     }
-
-    /// Whether the safe-area insets were logged (once per run).
-    static var loggedInsets = false
 
     static func hosted<V: View>(_ view: V, size: CGSize, scale: CGFloat, scheme: ColorScheme, type: DynamicTypeSize) -> Data? {
         let controller = UIHostingController(rootView: view.frame(width: size.width, height: size.height))
@@ -117,7 +101,7 @@ enum Snapshot {
         let style: UIUserInterfaceStyle = scheme == .dark ? .dark : .light
         controller.overrideUserInterfaceStyle = style
         controller.traitOverrides.preferredContentSizeCategory = UIContentSizeCategory(type)
-        let window = UIWindow(frame: CGRect(origin: .zero, size: size))
+        let (window, onScene) = makeWindow(size: size)
         window.overrideUserInterfaceStyle = style
         window.rootViewController = controller
         window.isHidden = false
@@ -127,46 +111,61 @@ enum Snapshot {
         // Let SwiftUI settle: lists, navigation bars, scroll anchors, tasks.
         for _ in 0..<6 { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
         controller.view.layoutIfNeeded()
-        if !loggedInsets {
-            loggedInsets = true
-            print("snapshot: window safe area \(window.safeAreaInsets), view safe area \(controller.view.safeAreaInsets)")
-        }
         let format = UIGraphicsImageRendererFormat()
         format.scale = scale
         format.opaque = true
-        // layer.render works off screen (a test bundle has no window scene),
-        // as swift-snapshot-testing does; it skips blur materials.
+        var how = "layer.render"
         let image = UIGraphicsImageRenderer(size: size, format: format).image { ctx in
-            window.layer.render(in: ctx.cgContext)
+            // drawHierarchy draws what the screen shows (glass, materials,
+            // vibrancy) but needs a window on a scene; layer.render works
+            // off screen, as swift-snapshot-testing does, without those.
+            if onScene && window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) {
+                how = "drawHierarchy"
+            } else {
+                window.layer.render(in: ctx.cgContext)
+            }
+        }
+        if !loggedMode {
+            loggedMode = true
+            print("snapshot: drawn with \(how); window safe area \(window.safeAreaInsets)")
         }
         window.isHidden = true
         window.rootViewController = nil
         return image.pngData()
     }
 
-    /// The experiment's renderer: the window drawn with `drawHierarchy`.
-    static func hierarchy<V: View>(of view: V, size: CGSize, scale: CGFloat) -> (Bool, Data?) {
-        let controller = UIHostingController(rootView: view.frame(width: size.width, height: size.height))
-        controller.safeAreaRegions = []
-        controller.overrideUserInterfaceStyle = .light
-        let window = UIWindow(frame: CGRect(origin: .zero, size: size))
-        window.rootViewController = controller
-        window.isHidden = false
-        controller.view.frame = window.bounds
-        controller.view.layoutIfNeeded()
-        for _ in 0..<6 { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
-        controller.view.layoutIfNeeded()
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = scale
-        format.opaque = true
-        var drawn = false
-        let image = UIGraphicsImageRenderer(size: size, format: format).image { _ in
-            drawn = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+    /// Whether the drawing mode was logged (once per run).
+    static var loggedMode = false
+
+    /// The window to draw in, and whether it is on a window scene: the
+    /// snapshot host app's scene when the tests run there, else offscreen.
+    static func makeWindow(size: CGSize) -> (UIWindow, Bool) {
+        let frame = CGRect(origin: .zero, size: size)
+        #if XBIN_SNAPSHOT_HOST
+        if let scene = hostScene() {
+            let window = UIWindow(windowScene: scene)
+            window.frame = frame
+            return (window, true)
         }
-        window.isHidden = true
-        window.rootViewController = nil
-        return (drawn, image.pngData())
+        #endif
+        return (UIWindow(frame: frame), false)
     }
+
+    #if XBIN_SNAPSHOT_HOST
+    /// The host app's window scene, once it has connected (the tests may
+    /// start first).
+    static func hostScene() -> UIWindowScene? {
+        let deadline = Date().addingTimeInterval(15)
+        repeat {
+            if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first {
+                return scene
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+        print("snapshot: the host app has no window scene; drawing offscreen")
+        return nil
+    }
+    #endif
 
     static func rendered<V: View>(_ view: V, size: CGSize, scale: CGFloat) -> Data? {
         let renderer = ImageRenderer(content: view.frame(width: size.width, height: size.height))

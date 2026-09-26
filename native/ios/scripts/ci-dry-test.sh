@@ -358,6 +358,42 @@ FAKE_SCHEMES="XbinRenderer" FAKE_BOOT_STATUS=1 run "$S/ci-snapshots.sh" "$dest"
 eq "ci-snapshots: a failed pre-boot is only a warning" "$rc" 0
 has "ci-snapshots: …reported" "$out" "::warning::simctl bootstatus"
 
+# ---- ci-hosted-snapshots.sh ----------------------------------------------
+reset_env
+run "$S/ci-hosted-snapshots.sh" "$dest"
+eq "ci-hosted-snapshots: no project.yml → success" "$rc" 0
+has "ci-hosted-snapshots: notice" "$out" "::notice::no native/ios/project.yml yet"
+hasnt "ci-hosted-snapshots: no project.yml → no xcodebuild" "$(cat "$FAKE_LOG")" "xcodebuild test"
+echo "name: Xbin" >"$repo/native/ios/project.yml"
+export TEST_RUNNER_SNAPSHOT_DIR=$RUNNER_TEMP/snapshots/hosted # as ios.yml sets it
+export FAKE_PNGS=2
+run "$S/ci-hosted-snapshots.sh" "$dest"
+eq "ci-hosted-snapshots: passes" "$rc" 0
+log=$(cat "$FAKE_LOG")
+has "ci-hosted-snapshots: xcodegen generate in native/ios" "$log" "xcodegen generate --spec project.yml (in ios)"
+has "ci-hosted-snapshots: xcodebuild test -scheme XbinSnapshots, unsigned" "$log" \
+  "xcodebuild test -project Xbin.xcodeproj -scheme XbinSnapshots -destination $dest -derivedDataPath $RUNNER_TEMP/xbin-derived/hosted -resultBundlePath $RUNNER_TEMP/xbin-ci/hosted-snapshots.xcresult -skipMacroValidation -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO"
+has "ci-hosted-snapshots: the tests get SNAPSHOT_DIR and FIXTURES_DIR" "$log" \
+  "env SNAPSHOT_DIR=$RUNNER_TEMP/snapshots/hosted FIXTURES_DIR=$repo/native/fixtures"
+eq "ci-hosted-snapshots: PNGs under the uploaded snapshots dir" "$(find "$RUNNER_TEMP/snapshots/hosted" -name '*.png' | wc -l | tr -d ' ')" 2
+isdir "ci-hosted-snapshots: xcresult where ios.yml uploads it" "$RUNNER_TEMP/xbin-ci/hosted-snapshots.xcresult"
+has "ci-hosted-snapshots: full log where ios.yml uploads it" "$(cat "$RUNNER_TEMP/xbin-ci/hosted-snapshots.log" 2>/dev/null)" "** fake test **"
+has "ci-hosted-snapshots: summary counts PNGs" "$(cat "$GITHUB_STEP_SUMMARY")" "2 PNG under hosted/"
+FAKE_XCODEBUILD_STATUS=65 run "$S/ci-hosted-snapshots.sh" "$dest"
+eq "ci-hosted-snapshots: a failing test fails the step" "$rc" 65
+has "ci-hosted-snapshots: failure annotation" "$out" "::error::xcodebuild test -scheme XbinSnapshots failed (exit 65)"
+reset_env
+echo "name: Xbin" >"$repo/native/ios/project.yml"
+FAKE_PNGS=0 run "$S/ci-hosted-snapshots.sh" "$dest"
+eq "ci-hosted-snapshots: default SNAPSHOT_DIR is under XBIN_CI_OUT" "$(grep '^env ' "$FAKE_LOG" | head -n 1)" \
+  "env SNAPSHOT_DIR=$RUNNER_TEMP/xbin-ci/snapshots/hosted FIXTURES_DIR=$repo/native/fixtures"
+has "ci-hosted-snapshots: warns when no PNG" "$out" "::warning::the hosted snapshot tests wrote no PNG"
+PATH="$bin2:/usr/local/bin:/usr/bin:/bin" run "$S/ci-hosted-snapshots.sh" "$dest"
+eq "ci-hosted-snapshots: no xcodegen fails" "$rc" 1
+has "ci-hosted-snapshots: …and says how to get it" "$out" "brew install xcodegen"
+rm -f "$repo/native/ios/project.yml"
+rm -rf "$repo/native/ios/Xbin.xcodeproj"
+
 echo
 echo "ci-dry-test: $passes passed, $fails failed (bash $BASH_VERSION)"
 [ "$fails" -eq 0 ]
