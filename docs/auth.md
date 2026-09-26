@@ -900,8 +900,13 @@ account — the bootstrap owner token has none.
   failed attempts count against the login throttle, and each redeem is in
   the audit log.
 - **Managing devices.** The same *devices* panel lists your devices (name,
-  platform, last sign-in and its IP) with **remove**; admins see and remove
-  any user's devices in the admin console's Users tab. Removing a device ends
+  platform, last sign-in and its IP) with **remove**, and under each one its
+  **push registration** (what it is notified about, when it was last sent
+  one, and whether the relay wants a new handle) with its own **remove** —
+  turning notifications off for that device without signing it out;
+  registrations made before a device was enrolled are listed on their own.
+  Admins see and remove any user's devices in the admin console's Users
+  tab. Removing a device ends
   every session it opened at once — and the frame and asset tokens those
   sessions minted — and drops its push registration (so does the app
   signing out of the workspace; a device registers push only under its own
