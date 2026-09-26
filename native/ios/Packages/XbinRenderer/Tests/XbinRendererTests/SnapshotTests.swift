@@ -62,8 +62,13 @@ import XbinRendererModel
                 // an upload target shows its attach button, as the
                 // reference's does (the app's pickers never open here).
                 let services = XbinServices(attach: { _ in [] })
+                // UTC and en_US, as shots.mjs pins the reference's browser:
+                // a chart's time axis then reads the same hours on both
+                // sides (the hosted runner's Pacific time put it 7 h off).
                 let view = XbinTreeView(store: store, send: { _ in }, services: services,
                                         options: XbinRenderOptions(inlineSheets: true))
+                    .environment(\.timeZone, TimeZone(identifier: "UTC") ?? .gmt)
+                    .environment(\.locale, Locale(identifier: "en_US"))
                     .environment(\.colorScheme, scheme)
                     .environment(\.dynamicTypeSize, type)
                 let png = Snapshot.png(of: view, size: Self.size, scale: Self.scale, scheme: scheme, type: type)
