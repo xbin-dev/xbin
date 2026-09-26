@@ -74,7 +74,10 @@ relay/                      the push relay (Go, stdlib only, its own module)
 
 Routes, the runtime document, device auth, notify, the relay: ordinary repo
 work (`make test`, `make check`; AGENTS.md at the root has the rules — docs in
-the same change, additive APIs, D78 confinement).
+the same change, additive APIs, D78 confinement). With a read-only module
+cache, set only `GOMODCACHE` for `make check`. `GOFLAGS=-mod=mod` fails
+`make vet` under the repo's go.work ("-mod may only be set to readonly or
+vendor when in workspace mode"); it is for single-module builds only.
 
 ### 2. JavaScript — runtime and reference renderer (seconds)
 
@@ -369,6 +372,14 @@ gh run download <run-id> -n snapshots -D "$SCRATCH/ios-<run-id>/snapshots"   # j
   `#available(iOS 27.1, *)`; confirm the names against the SDK the runner
   actually has — the design cites them from secondary sources.
 - **Batch.** One push should carry every fix you can make from one failure log.
+- **A clean merge proves nothing about the scripts.** native and
+  native-ios2 both reserved the UI tests' simulator in `pick-sim.sh`, each
+  under the name `reserved`: a function on one side, a set on the other.
+  git merged them without a conflict, the set shadowed the function, and
+  every pick crashed. After merging branches that both touched
+  `native/ios/scripts/` or the Swift sources, run `ci-local-check.sh` (with
+  `CI_LOCAL_BASH32=1`), `make swift-test` and `make swift-stubcheck`
+  before pushing.
 
 What the hosted runner turned out to be (runs 36237646621–36243877514,
 2026-09-26):
@@ -461,10 +472,47 @@ comparison done.
 
 ## Mac mini
 
-The owner's Mac mini (24 GB, Apple silicon) becomes the CI machine and an
-Apple toolchain reachable over ssh. Everything below is ready but **has not
-run on a Mac yet**: `ci-local-check.sh` checks it against fake Mac tools
-here, the first real run is the owner's.
+The owner's Mac mini (24 GB, Apple silicon) is the CI machine and an Apple
+toolchain reachable over ssh. `XBIN_IOS_RUNNER` has pointed ios.yml at it
+since run 36261923449, and every run there has been green. **What has run
+on it:** the Actions runner and every ios.yml job. **What hasn't yet:**
+`mac-setup.sh` end to end (the box was set up by hand, see "What the box
+turned out to be"), the ssh dev loop (`mac-remote.sh`), the UI tests
+(`e2e`), and `release-build.sh`. Those are checked here only against fake
+Mac tools (`ci-local-check.sh`).
+
+### What the box turned out to be (2026-09-26)
+
+- **The runner is a system LaunchDaemon that enters ci's session, not
+  `svc.sh`'s LaunchAgent.** A user's LaunchAgent only loads with a GUI
+  login, and this box has none. `dev.xbin.actions-runner` in
+  `/Library/LaunchDaemons` runs `launchctl asuser <ci's uid> sudo -u ci -H
+  bash -c 'cd ~ci/actions-runner && exec ./runsvc.sh'` (RunAtLoad,
+  KeepAlive), which gives ci a session the way an ssh login does. The daily
+  cleanup, `dev.xbin.ci-cleanup` at 04:30, runs the same way. Simulators
+  boot and run in that session: an 18 s boot, and every job green. So
+  neither automatic login nor a ci FileVault login is needed.
+  `mac-setup.sh` still installs and checks the LaunchAgent, and its
+  `--check` warns about automatic login. Folding the daemon into it is
+  open work; the box used a one-off installer.
+- **FileVault is on. After a reboot the admin unlocks it over ssh**
+  (macOS 27's pre-boot ssh unlock works), and then the daemon starts the
+  runner. The KVM is only needed when ssh is down.
+- Xcode 27.0 is selected, with Xcode 27.1 (27A9269) beside it as
+  `Xcode-beta.app`. Homebrew belongs to the admin.
+- The users so far are the admin, ci and release. **dev does not exist
+  yet**, so the ssh dev loop has nowhere to run. The fork pull request
+  approval is set to *all external contributors*.
+- **The runner's job hook is older than the foreign-job refusal.**
+  `~ci/xbin-ci/bin/` holds the hook from the first setup: it shuts the
+  simulators down, but its `mac-cleanup.sh` has no `job_allowed`, and
+  `job-hook.sh` sets no `XBIN_CI_REPO`. Until both are replaced with what
+  `mac-setup.sh` writes today (`hook_body`), the fork approval is the only
+  gate. Rerunning `mac-setup.sh` as ci would also reinstall the
+  LaunchAgents that the daemons replaced, so copy the two files by hand,
+  or fold the daemons into the script first.
+- An ios.yml run takes about 4.5 minutes there (the jobs run one at a
+  time), against 10–15 minutes on `xcode-27`.
 
 ### The box
 
@@ -520,7 +568,9 @@ authrestart` (it asks for a FileVault user's name and password and boots
 once past the unlock). Make ci a FileVault user (`sudo fdesetup add
 -usertoadd ci`) and unlock as ci — FileVault then logs ci in, so the
 runner's LaunchAgent starts; check that once, with the KVM watching, after
-the first authrestart. A CI Mac that is down until someone unlocks it is
+the first authrestart. (The owner's box skips this: its runner is a
+LaunchDaemon and the admin unlocks over ssh, see "What the box turned out
+to be".) A CI Mac that is down until someone unlocks it is
 the price; the PDU's power cycle can't bring it back on its own.
 
 ### The users
@@ -755,7 +805,7 @@ in the environment of `xcodebuild test -scheme XbinUITests`).
   no sudo — can't read; `release-build.sh` refuses to run as ci, as an
   admin, or from a pull request's or fork's workflow. FileVault keeps it
   encrypted at rest.
-- **Reachable only over the VPN**, keys only, `AllowUsers` the three
+- **Reachable only over the VPN**, keys only, `AllowUsers` the four
   accounts; the KVM-over-IP and the PDU sit on the same isolated network.
 - **Clean workspaces.** Every job checks out clean, `$RUNNER_TEMP` is
   emptied per job, the job hook shuts the simulators down, the UI tests
