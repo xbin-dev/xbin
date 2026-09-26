@@ -14,8 +14,8 @@ only Apple toolchain.
 - **Fast local loops exist** for everything that isn't SwiftUI/UIKit: Go
   (xbind), JavaScript (the runtime, the Lit reference renderer), Swift 6 on
   Linux (Foundation only), headless chromium for screenshots.
-- **Each CI round trip takes minutes.** Batch changes; never push to "see if it
-  compiles" what could have been checked locally.
+- **Each CI round trip takes 10–15 minutes** (push to green). Batch changes;
+  never push to "see if it compiles" what could have been checked locally.
 
 ## Layout (as it lands)
 
@@ -44,6 +44,7 @@ native/
     Shared/                 compiled into the app AND the notification extension (push crypto, Keychain)
     NotificationService/    the Notification Service Extension (decrypts pushes)
     Support/                Info.plists and entitlements
+    SnapshotHost/           the empty app the hosted snapshot tests run in (CI only, see §4)
     scripts/                CI: pick-sim.sh, ci-*.sh (what ios.yml runs), ci-local-check.sh
   tools/                    fixture runner (fixture.mjs), shots.mjs + gallery/ (reference screenshots),
                             swiftui-stubcheck/, app-check/ (the app's UIKit-free sources on Linux),
@@ -119,6 +120,14 @@ bridge, native tile fallback, push, markdown). Rules for all of them:
 - JSON booleans stay distinct from numbers (don't round-trip through
   `NSNumber`); key order doesn't matter, key presence does.
 - Anything testable here is tested here — CI time is for what only Xcode can do.
+- **Stacks are small on Apple platforms.** Swift Testing runs tests on the
+  cooperative pool, whose threads get 512 KiB stacks there and 8 MiB on
+  Linux: a recursive JSON parser passed here and crashed CI's run with
+  SIGBUS (fixed in 3facd67). `make swift-test` therefore runs the tests
+  under `ulimit -s 512` (glibc sizes new threads from it; the old parser
+  fails that way here too). By hand: `swift build --build-tests && (ulimit
+  -s 512; swift test --skip-build)`. Code that recurses on tile-supplied
+  input keeps an explicit stack instead.
 
 **XbinTerm**, the terminal's half, is its own package under the same rules,
 `Packages/XbinTerm` (`swift test` there; its README says how the app glues
@@ -269,6 +278,29 @@ gh run download <run-id> -n snapshots -D "$SCRATCH/ios-<run-id>/snapshots"   # j
   *)` and confirm the names against the SDK the runner actually has — the
   design cites them from secondary sources.
 - **Batch.** One push should carry every fix you can make from one failure log.
+
+What the runner turned out to be (runs 36237646621–36242756338, 2026-09-26):
+
+- `xcode-27` is Xcode 27.0 (27A266a) with Swift 6.4 and **only the iOS 27.0
+  SDK and simulator runtime**. There is no 27.1 SDK yet, so no Duo API can be
+  compiled on CI. When the image gains one, pin it with `XBIN_XCODE`.
+- The image has no **Metal Toolchain**, and SwiftTerm's shader needs it.
+  `ci-build-app.sh` fetches it (`xcodebuild -downloadComponent
+  MetalToolchain`, about 840 MB, a few seconds). The build runs with
+  `-IDEBuildingContinueBuildingAfterErrors=YES`, so one log lists every
+  target's errors.
+- Job times: `packages` takes about 1.5 minutes, `app` about 2 and
+  `snapshots` about 11 (both snapshot runs). The `snapshots` artifact is
+  about 90 MB.
+- **Xcode's type checker gives up where the stub check doesn't.** One big
+  initializer call full of inline closures, one of them behind `?:`, failed
+  with "failed to produce diagnostic for expression" (`NativeTile.swift`'s
+  `services`, 1904702). Build such arguments as typed locals first. A
+  ternary between closures also loses `@Sendable` inference, which shows up
+  as a Swift 6 data-race warning.
+- `actions/checkout@v4` and `upload-artifact@v4` get a Node 20 deprecation
+  annotation (the runner forces Node 24). This is harmless for now; bump the
+  majors when newer ones are out.
 
 ## Comparing iOS with the reference
 

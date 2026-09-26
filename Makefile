@@ -151,11 +151,15 @@ native-check:
 # The native client's Swift packages (native/ios/Packages, Foundation only)
 # on this machine — Linux included (native/AGENTS.md §3). Skipped when no
 # swift toolchain is on PATH; not in `check` (CI's Linux job has none — the
-# Apple CI runs them on macOS). Every package runs; any failure fails.
+# Apple CI runs them on macOS). Every package runs; any failure fails. The
+# tests run with 512 KiB stacks, what Swift Testing's threads get on Apple
+# platforms (Linux: 8 MiB; glibc sizes threads by `ulimit -s`), so deep
+# recursion fails here rather than as a SIGBUS on CI; the build doesn't.
 SWIFT_PACKAGES := XbinCore XbinTerm XbinAgent XbinRenderer
 swift-test:
 	@command -v swift >/dev/null || { echo 'swift-test: no swift on PATH (native/AGENTS.md §3) — skipped'; exit 0; }; \
-	rc=0; for p in $(SWIFT_PACKAGES); do echo ">> swift test: $$p"; (cd native/ios/Packages/$$p && swift test) || rc=1; done; exit $$rc
+	rc=0; for p in $(SWIFT_PACKAGES); do echo ">> swift test: $$p"; \
+	  (cd native/ios/Packages/$$p && swift build --build-tests && ulimit -s 512 && swift test --skip-build) || rc=1; done; exit $$rc
 
 # Every var(--bx-*, <literal>) fallback in shipped frontends equals web/theme.css.
 theme-check:
