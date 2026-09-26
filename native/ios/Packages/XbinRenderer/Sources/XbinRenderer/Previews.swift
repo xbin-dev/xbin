@@ -49,6 +49,14 @@ public struct XbinFixturePreview: View {
 #Preview("tabs") { XbinFixturePreview("tabs") }
 #Preview("tabs-bar") { XbinFixturePreview("tabs-bar") }
 #Preview("text") { XbinFixturePreview("text") }
+#Preview("tile-calendar") { XbinFixturePreview("tile-calendar") }
+#Preview("tile-chat") { XbinFixturePreview("tile-chat") }
+#Preview("tile-counter-go") { XbinFixturePreview("tile-counter-go") }
+#Preview("tile-devbox") { XbinFixturePreview("tile-devbox") }
+#Preview("tile-egress-approver") { XbinFixturePreview("tile-egress-approver") }
+#Preview("tile-prometheus-viewer") { XbinFixturePreview("tile-prometheus-viewer") }
+#Preview("tile-s3-archiver") { XbinFixturePreview("tile-s3-archiver") }
+#Preview("tile-webhooks") { XbinFixturePreview("tile-webhooks") }
 
 #Preview("chat components") {
     ScrollView {
