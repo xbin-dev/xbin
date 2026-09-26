@@ -15,9 +15,9 @@
 // reported as fixable information; other JavaScript strings naming /c/ are
 // reported for a human, since only the author knows how they are used.
 //
-// The scanner reads through fsutil.OpenBeneath (no symlink leaves the tile)
-// and never follows a symlinked directory: it runs in xbind on files tile
-// sandboxes write.
+// The scanner reads through fsutil.OpenBeneath (no symlink leaves the tile,
+// a FIFO or device is never opened for reading) and never follows a
+// symlinked directory: it runs in xbind on files tile sandboxes write.
 package assetscan
 
 import (
@@ -166,7 +166,7 @@ func Scan(dir, tile string, opt Options) (Report, error) {
 		if d.Type()&fs.ModeSymlink != 0 {
 			f, err := fsutil.OpenBeneath(dir, rel)
 			if err != nil {
-				if !errors.Is(err, fs.ErrNotExist) {
+				if !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, fsutil.ErrNotRegular) {
 					rep.Findings = append(rep.Findings, Finding{File: rel, Kind: KindSymlinkEscape, Breaks: BreaksStrict,
 						Note: "a symlink leaving the tile — the strict modes answer 404 for it; copy the file into the tile"})
 				}
@@ -304,7 +304,9 @@ func (sc *scanner) html() {
 		case "importmap":
 			for _, v := range jsonValueRe.FindAllSubmatchIndex(sc.src[m[4]:m[5]], -1) {
 				s, e := m[4]+v[2], m[4]+v[3]
-				sc.ref(s, e, KindImportMap, fixable, false)
+				// Import-map addresses must be absolute or start with /, ./ or
+				// ../ — a bare "ui/" nulls the entry — so import semantics.
+				sc.ref(s, e, KindImportMap, fixable, true)
 			}
 		case "", "module", "text/javascript", "application/javascript":
 			if fixable {

@@ -83,7 +83,7 @@ func TestScan(t *testing.T) {
 	}{
 		{key{"index.html", KindHTMLAttr, "/c/apps/t/style.css"}, BreaksTokens, "style.css"},
 		{key{"index.html", KindHTMLAttr, "/c/apps/t/app.js"}, BreaksTokens, "app.js"},
-		{key{"index.html", KindImportMap, "/c/apps/t/ui/"}, BreaksTokens, "ui/"},
+		{key{"index.html", KindImportMap, "/c/apps/t/ui/"}, BreaksTokens, "./ui/"}, // a bare "ui/" is an invalid import-map address
 		{key{"index.html", KindCSSURL, "/c/apps/t/img/bg.png"}, BreaksTokens, "img/bg.png"},
 		{key{"index.html", KindHTMLAttr, "/c/apps/t/img/logo.png?v=2"}, BreaksTokens, "img/logo.png?v=2"},
 		{key{"index.html", KindHTMLAttr, "/c/apps/t/img/a.png"}, BreaksTokens, "img/a.png"},
@@ -167,7 +167,7 @@ func TestPlanApply(t *testing.T) {
 	}
 	idx := string(byFile["index.html"].After)
 	for _, want := range []string{
-		`href="style.css"`, `src="app.js"`, `"ui/":"ui/"`, `url('img/bg.png')`, `src="img/logo.png?v=2"`,
+		`href="style.css"`, `src="app.js"`, `"ui/":"./ui/"`, `url('img/bg.png')`, `src="img/logo.png?v=2"`,
 		`srcset="img/a.png 1x, img/b.png 2x"`, `href="help.html#top"`, `url(img/x.png)`,
 		`src="../../lib/ui/icon.svg"`, `src="/c/shell/logo.svg"`, `from './mod.js'`, `"/c/apps/t/data.json"`,
 	} {
@@ -214,5 +214,39 @@ func TestRelURL(t *testing.T) {
 	}
 	if got := relURL("/c/apps/t/", "/c/apps/t/m.js", true); got != "./m.js" {
 		t.Errorf("import: %q", got)
+	}
+}
+
+// Import-map addresses the codemod writes stay valid: absolute, or
+// starting with /, ./ or ../ (browsers null a bare "ui/" entry, so the
+// rewrite would break the tile in every mode — review finding).
+func TestImportMapRewriteStaysValid(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, map[string]string{
+		"apps/t/xbin.json":      `{}`,
+		"apps/t/index.html":     `<script type="importmap">{"imports":{"@ui/":"/c/apps/t/ui/","x":"/c/apps/t/x.js","up/":"/c/lib/ui/"}}</script>`,
+		"apps/t/sub/index.html": `<script type="importmap">{"imports":{"@ui/":"/c/apps/t/sub/ui/"}}</script>`,
+		"lib/ui/xbin.json":      `{}`,
+	})
+	changes, _, err := Plan(filepath.Join(root, "apps/t"), "apps/t", Options{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, c := range changes {
+		for _, e := range c.Edits {
+			if e.Kind != KindImportMap {
+				continue
+			}
+			got[e.Fix] = true
+			if !strings.HasPrefix(e.Fix, "./") && !strings.HasPrefix(e.Fix, "../") && !strings.HasPrefix(e.Fix, "/") {
+				t.Errorf("%s: invalid import-map address %q", c.File, e.Fix)
+			}
+		}
+	}
+	for _, want := range []string{"./ui/", "./x.js", "../../lib/ui/"} {
+		if !got[want] {
+			t.Errorf("missing rewrite to %q (got %v)", want, got)
+		}
 	}
 }
