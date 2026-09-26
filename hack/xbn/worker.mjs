@@ -176,9 +176,42 @@ async function advance(ms) {
   await settle();
 }
 
+// A step may name its node by key or by a matcher: {t?, p?: {prop: value}
+// (each equal as JSON), has?: text (a substring of the node's props as JSON),
+// in?: <matcher of an ancestor>, nth?: n (the n-th match, from 0)}. The
+// first match in tree order is taken; none is a fatal error naming it.
+function matches(n, m) {
+  if (m.t && n.t !== m.t) return false;
+  for (const [k, v] of Object.entries(m.p || {})) if (JSON.stringify(n.p?.[k]) !== JSON.stringify(v)) return false;
+  if (m.has != null && !JSON.stringify(n.p || {}).includes(String(m.has))) return false;
+  return true;
+}
+function findAll(root, m, out = [], inside = !m.in) {
+  if (!root) return out;
+  if (inside && matches(root, m)) out.push(root);
+  const deeper = inside || matches(root, m.in);
+  for (const c of root.c || []) findAll(c, m, out, deeper);
+  return out;
+}
+function keyOf(x) {
+  if (typeof x === 'string') return x;
+  const hits = findAll(rt.tree.root, x);
+  const hit = hits[x.nth ?? 0];
+  if (!hit) throw new Error(`no node matches ${JSON.stringify(x)}`);
+  return hit.k;
+}
+
 async function step(s) {
-  const ev = (k, type, payload, n) => { activity++; rt.xbn.event(k, type, payload ?? {}, n); };
+  const ev = (k, type, payload, n) => { activity++; rt.xbn.event(keyOf(k), type, payload ?? {}, n); };
   if (own(s, 'wait')) return advance(s.wait);
+  if (own(s, 'snapshot')) { snapshots[s.snapshot] = rt.tree; return undefined; }
+  if (own(s, 'call')) {
+    const [name, ...args] = s.call;
+    if (typeof setupMod?.[name] !== 'function') throw new Error(`the setup module has no export ${name}`);
+    activity++;
+    await setupMod[name](...args);
+    return settle();
+  }
   if (own(s, 'tap')) ev(s.tap, 'tap');
   else if (own(s, 'event')) { const e = s.event; Array.isArray(e) ? ev(...e) : ev(e.k, e.type, e.payload, e.n); }
   else if (own(s, 'input')) ev(s.input[0], 'input', { value: s.input[1] });
@@ -189,15 +222,31 @@ async function step(s) {
   return settle();
 }
 
+// data.setup: a module (a path) imported before the tile — its default export
+// is called with {data, touch} and may replace parts of `xbin` (a test's own
+// fake backend); `{call: [name, …args]}` steps call its other exports, and
+// its `result()` (if any) comes back as `extra`. `touch()` counts as activity
+// (settling waits for it to stop).
+const snapshots = {};
+let setupMod = null;
 let fatal = null;
 try {
+  if (data.setup) {
+    setupMod = await import(pathToFileURL(String(data.setup)).href);
+    await setupMod.default?.({ data, touch: () => { activity++; } });
+  }
   try { await import(pathToFileURL(entry).href); } catch (e) { rt.moduleError(e, entry); }
   await settle();
   for (const s of steps) await step(s);
 } catch (e) { fatal = String(e?.stack ?? e); }
 
+let extra = null;
+try { extra = (await setupMod?.result?.()) ?? null; } catch (e) { extra = { error: String(e) }; }
+
 parentPort.postMessage({
   tree: rt.tree,
+  snapshots,
+  extra,
   messages,
   diagnostics: rt.diagnostics,
   errors: messages.filter((m) => m.op === 'error'),
