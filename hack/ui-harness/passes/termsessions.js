@@ -39,6 +39,21 @@ async function termSessions(browser) {
   await openCrawlerTerm(A.page);
   const idA = await sessionId(A.page);
   check(!!idA, `A opened a session (${idA})`);
+  // the bar degrades, never clips (fitBar, web/frame-titlebar.js): whatever
+  // this host adds to it (a GPU picker, the VM toggle), the tab and the
+  // window's ✕ sit inside the window with nothing over them — a 680 px
+  // window on a GPU host used to squeeze the tab to nothing under the +
+  // and push the ✕ out
+  const reach = await sh(A.page, (t) => {
+    const f = t.frameFor('apps/crawler'), root = f.renderRoot, box = f.testApi().popElement().getBoundingClientRect();
+    const clear = (el) => {
+      const r = el?.getBoundingClientRect();
+      return !!r && r.width > 0 && r.left >= box.left && r.right <= box.right
+        && root.elementFromPoint(r.left + Math.min(8, r.width / 2), r.top + r.height / 2)?.closest('.tab, .winx') === el;
+    };
+    return { tab: clear(root.querySelector('.titlebar .tab')), close: clear(root.querySelector('.titlebar .winx')), narrow: f.testApi().narrow };
+  });
+  check(reach.tab && reach.close, `the tab and the window's ✕ are in the window, uncovered (${JSON.stringify(reach)})`);
   await renameTab(A.page);
   // the rename is a bx-dialog (no native prompt any more): answer it through the frame's test surface
   await waitFor(A.page, (t) => !!t.frameFor('apps/crawler')?.testApi().dialog, null, { timeout: 5000, label: 'the rename dialog' });

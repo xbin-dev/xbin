@@ -10,7 +10,7 @@
 // member access (dot underscore) in this directory fails `make js-check`.
 const {
   URL, fs, sleep, log, login, closeCtx, settle, sh, fr, waitFor, waitSel, openShell, usePersonalScreen,
-  openTile, closeTile, tileFrame, gotoTab, shot, dumpSelects, checker, pw,
+  openTile, closeTile, tileFrame, gotoTab, shot, dumpSelects, checker, pw, showPickers,
 } = require('./lib');
 // Passes past this file's size budget live in passes/*.js (one module per feature).
 const { users } = require('./passes/users');
@@ -109,6 +109,7 @@ async function admin(browser) {
   await sh(page, (t) => t.closeAdminWindow());
 
   await crawler.locator('button.term').click();
+  await showPickers(page, 'apps/crawler'); // on the bar, or in its tools row when this host's bar doesn't fit
   await waitSel(page, 'bx-frame[src="apps/crawler"] select.scope', { timeout: 20000 }); // spawn + session frame
   await shot(page, 'term-admin-crawler', { fullPage: false });
   await dumpSelects(page, 'term-admin-crawler-selects', 'bx-frame select.scope');
@@ -331,6 +332,7 @@ async function orgAdmin(browser, user, pass, tiles) {
     const card = page.locator(`.card[data-path="${t}"]`);
     if (!(await card.count())) { log(user, 'no card for', t); continue; }
     await card.locator('button.term').click();
+    await showPickers(page, t);
     await waitSel(page, `bx-frame[src="${t}"] select.scope`, { timeout: 20000 });
     const slug = t.replace(/\W+/g, '-');
     await shot(page, `term-${user}-${slug}`, { fullPage: false });

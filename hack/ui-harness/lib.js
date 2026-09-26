@@ -145,13 +145,31 @@ async function closeCtx(ctx, page) {
 }
 
 // checker(name): PASS/FAIL lines to out/<name>.txt; done() throws when any failed.
+// skip(msg): a part this environment can't exercise — a SKIP line (also in
+// shots.log) with the reason, never a timeout and never a silent pass.
 function checker(name) {
   const file = `${OUT}/${name}.txt`;
   fs.writeFileSync(file, '');
   const fails = [];
   const check = (cond, msg) => { fs.appendFileSync(file, `${cond ? 'PASS' : 'FAIL'} ${msg}\n`); if (!cond) fails.push(msg); };
+  const skip = (msg) => { fs.appendFileSync(file, `SKIP ${msg}\n`); log(`SKIP ${name}: ${msg}`); };
   const done = () => { if (fails.length) throw new Error(`${name}: ${fails.length} check(s) failed:\n  ${fails.join('\n  ')}`); };
-  return { check, done };
+  return { check, skip, done };
 }
 
-module.exports = { pw, URL, OUT, fs, sleep, log, login, closeCtx, settle, sh, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, closeTile, tileFrame, gotoTab, shot, shotEl, dumpSelects, checker };
+// The terminal window's pickers sit on its title bar, or — when this host's
+// full bar doesn't fit the window (a GPU picker, the VM toggle: fitBar in
+// web/frame-titlebar.js) — in the tools row behind ⋯. showPickers opens that
+// row (a no-op on a full bar), so `bx-frame[src=…] select.scope` finds them
+// either way; PICKERS scopes a selector to wherever they are.
+const showPickers = (page, src) => fr(page, src, (f) => f.setTools(true));
+const PICKERS = ':is(.titlebar, .toolsrow)';
+
+// The seeded agent tiles keep their data in encrypted resources (gocryptfs);
+// without the binary xbind HOLDS them and every call is a 502. run.sh looks
+// for it the way xbind does (XBIN_GOCRYPTFS, next to bin/xbind, PATH) and sets
+// HARNESS_NO_GOCRYPTFS to the reason when there is none; the passes that need
+// those tiles skip on it rather than time out.
+const noGocryptfs = () => process.env.HARNESS_NO_GOCRYPTFS || '';
+
+module.exports = { pw, URL, OUT, fs, sleep, log, login, closeCtx, settle, sh, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, closeTile, tileFrame, gotoTab, shot, shotEl, dumpSelects, checker, showPickers, PICKERS, noGocryptfs };
