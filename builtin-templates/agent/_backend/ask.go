@@ -51,8 +51,15 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 		// Files names the uploads the message carries.
 		Draft string
 		Files []string
+		// Model is the person's pick for this conversation (a model
+		// reference; "" = the agent's default).
+		Model string
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
+	if !validPick(body.Model) {
+		xbin.WriteError(w, 400, "model: a model id from GET /models (up to 200 characters)")
+		return
+	}
 	body.Text = strings.TrimSpace(body.Text)
 	if body.Draft != "" {
 		if body.Hold || !draftKeyRe.MatchString(body.Draft) {
@@ -60,7 +67,7 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if id := heldDraft(agent.db, callerOf(r), body.Draft); id != 0 || len(body.Files) > 0 {
-			releaseDraft(w, r, id, body.Draft, body.Text, body.Toolset, body.Title, body.System, body.Files)
+			releaseDraft(w, r, id, body.Draft, body.Text, body.Toolset, body.Title, body.System, body.Model, body.Files)
 			return
 		}
 		// nothing was uploaded for it: an ordinary ask
@@ -71,6 +78,7 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg := parseConfig(agent.db.getSetting("config"))
 	cfg.Toolset = normalizeToolset(body.Toolset)
+	cfg.Pick = body.Model
 	if body.System != "" {
 		cfg.System = body.System
 	}
@@ -165,7 +173,7 @@ var errDraftGone = errors.New("those attachments are gone (the draft was sent or
 // releaseDraft turns the held run into the new ask: titled from the text (or
 // the files' names), the caller's tool mode and instructions, the first
 // message queued with its files, and driven. id 0: the draft is gone.
-func releaseDraft(w http.ResponseWriter, r *http.Request, id int64, key, text, toolset, title, system string, files []string) {
+func releaseDraft(w http.ResponseWriter, r *http.Request, id int64, key, text, toolset, title, system, model string, files []string) {
 	if id == 0 {
 		xbin.WriteError(w, 409, errDraftGone.Error())
 		return
@@ -184,6 +192,7 @@ func releaseDraft(w http.ResponseWriter, r *http.Request, id int64, key, text, t
 	c := callerOf(r)
 	cfg := parseConfig(agent.db.getSetting("config"))
 	cfg.Toolset = normalizeToolset(toolset)
+	cfg.Pick = model
 	if system != "" {
 		cfg.System = system
 	}
@@ -239,4 +248,18 @@ func releaseDraft(w http.ResponseWriter, r *http.Request, id int64, key, text, t
 		return
 	}
 	xbin.WriteJSON(w, 200, run)
+}
+
+// validPick: a model reference a person may pick — "" (the default) or an id
+// of printable characters, bounded.
+func validPick(m string) bool {
+	if len(m) > 200 {
+		return false
+	}
+	for _, c := range m {
+		if c < 0x20 || c == 0x7f {
+			return false
+		}
+	}
+	return true
 }

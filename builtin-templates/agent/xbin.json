@@ -6,7 +6,7 @@
   // The "template" block is stripped from each instance.
   "template": {
     "title": "AI Agent",
-    "description": "A durable, debuggable agentic loop — sqlite-persisted, event-driven, LLM via llm-gw with streamed thinking, tools + subagents (shown inline) + MCP, steering mid-turn, compaction, self-scheduling. Clone it and build up.",
+    "description": "A durable, debuggable agentic loop — sqlite-persisted, event-driven, LLM via any bound provider (llm-gw) with streamed thinking, tools + subagents (shown inline) + MCP, steering mid-turn, compaction, self-scheduling. Clone it and build up.",
     "defaultName": "agent"
   },
 
@@ -18,20 +18,18 @@
   // and `all:`-embed still bundles it. Instances build fine.
   "entry": "./_backend",
 
-  // The LLM connection (same as the chat tile) + this agent's own resources.
-  // apps/llm-gw:writer is the one grant a human approves; the res:apps/agent/*
-  // resources are same-scope and auto-granted. As you teach the agent to call
-  // other components, add their grants here — the agent can never self-approve
-  // cross-scope access (docs/auth.md, AGENTS.md).
+  // This agent's own resources — same-scope and auto-granted. (The LLM is
+  // the `llm` interface below, not a grant by name.) As you teach the agent
+  // to call other components, add their grants here — the agent can never
+  // self-approve cross-scope access (docs/auth.md, AGENTS.md).
   "uses": [
-    { "target": "apps/llm-gw", "role": "writer" },
     { "target": "res:apps/agent/db", "role": "writer" },
     { "target": "res:apps/agent/beat", "role": "writer" },
     { "target": "res:apps/agent/events", "role": "writer" },
     { "target": "res:apps/agent/files", "role": "writer" },
     // The chat renders markdown links with target="_blank"; a sandboxed
     // frame may only open new tabs with cap:open-links (ND11). Lands
-    // pending like the llm-gw grant — approve it in the grants panel.
+    // pending — approve it in the grants panel.
     { "target": "cap:open-links", "role": "writer" }
   ],
 
@@ -42,6 +40,12 @@
   // exposes the Streamable-HTTP endpoint at "/mcp" under itself. (Legacy: a
   // static config.mcp list of external servers still works too.)
   "interfaces": {
+    // The models (D111): one or more OpenAI-compatible providers — llm-gw, or
+    // any tile that provides service "openai" — bound like the chat tile's.
+    // Their models are offered in the chat's picker, grouped by provider;
+    // the binding is the grant. Unbound, the agent falls back to apps/llm-gw
+    // by name (an older instance's grant).
+    "llm": { "kind": "http", "service": "openai", "multi": true },
     "mcp": { "kind": "http", "service": "mcp", "multi": true },
     // Egress for the web lane's web_search/web_fetch tools. Unbound = zero
     // egress and the tools report themselves unavailable; the owner may

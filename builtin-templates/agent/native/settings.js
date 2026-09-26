@@ -49,7 +49,7 @@ function configTpl(s) {
   });
   const f = s.f;
   if (!f) return html`<screen title="Config" style="form">${errTpl(s)}<section><progress label="loading…"/></section></screen>`;
-  const opts = [{ value: '', label: '— llm-gw default —' }, ...s.models.map((id) => ({ value: id, label: id }))];
+  const opts = [{ value: '', label: '— the provider\'s default —' }, ...s.models.map((id) => ({ value: id, label: id }))];
   const save = async () => {
     s.err = ''; s.msg = '';
     const next = { ...s.cfg, models: { ...f.models }, system: f.system, tokenBudget: Number(f.tokenBudget) || 0,
@@ -60,7 +60,7 @@ function configTpl(s) {
   return html`<screen title="Config" subtitle=${s.msg || nothing} style="form">
     <toolbar><button role="primary" @tap=${save}>Save</button></toolbar>
     ${errTpl(s)}
-    <section title="Model tiers" footer=${s.models.length ? 'Empty = the workspace\'s llm-gw default for that job.' : 'No models listed — set an llm-gw backend token.'}>
+    <section title="Model tiers" footer=${s.models.length ? 'Empty = the provider\'s preferred model for that job (llm-gw\'s per-use default).' : 'No models listed — bind the agent\'s llm interface to a provider that has a backend.'}>
       ${repeat(TIERS, ([k]) => k, ([k, label]) => html`<picker label=${label} style="menu" value=${f.models[k] || ''}
         options=${opts.some((o) => o.value === (f.models[k] || '')) ? opts : [...opts, { value: f.models[k], label: f.models[k] }]}
         @change=${(e) => { f.models[k] = e.value; ctx.paint(); }}/>`)}

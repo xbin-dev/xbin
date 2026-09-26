@@ -1,4 +1,5 @@
-// llm_gateway.go — gatewayLLM: the LLM interface over llm-gw. It picks a wire
+// llm_gateway.go — gatewayLLM: the LLM interface over the agent's bound LLM
+// providers (llm_providers.go — llm-gw, or any OpenAI-compatible tile). It picks a wire
 // (Chat Completions or OpenAI's Responses API), bounds every call with
 // deadlines, and retries transient failures only while nothing has streamed
 // yet — a retry after tokens flowed would show the human a restarted draft.
@@ -42,15 +43,19 @@ var (
 
 type gatewayLLM struct {
 	client *http.Client
-	base   string // e.g. http://xbin/api/apps/llm-gw (no trailing slash)
+	// base pins one endpoint (tests); empty ⇒ each request goes where its
+	// model reference resolves (resolveModel).
+	base string
 }
 
 func newGatewayLLM() *gatewayLLM {
-	return &gatewayLLM{client: xbin.Client(), base: "http://xbin/api/apps/" + gwPath()}
+	return &gatewayLLM{client: xbin.Client()}
 }
 
-// bareModel strips a llm-gw "backend/" prefix: "openai/gpt-5" → "gpt-5".
+// bareModel strips a provider ("apps/llm-gw|…") and a llm-gw "backend/"
+// prefix: "openai/gpt-5" → "gpt-5".
 func bareModel(model string) string {
+	_, model = splitModelRef(model)
 	if i := strings.LastIndex(model, "/"); i >= 0 {
 		return model[i+1:]
 	}
@@ -92,8 +97,18 @@ type wireCodec interface {
 }
 
 func (g *gatewayLLM) Chat(ctx context.Context, req LLMRequest, onEvent func(LLMEvent)) (LLMReply, error) {
+	// the provider a reference names; requests (and replies, and the
+	// transcript) carry the bare model id
+	base := g.base
+	if base == "" {
+		var p llmProvider
+		p, req.Model = resolveModel(ctx, req.Model)
+		base = p.URL
+	} else {
+		_, req.Model = splitModelRef(req.Model)
+	}
 	if pickWire(req.Wire, req.Model) == "responses" {
-		rep, err := g.call(ctx, req, onEvent, responsesCodec{})
+		rep, err := g.call(ctx, base, req, onEvent, responsesCodec{})
 		if !errors.Is(err, errWireUnsupported) {
 			return rep, err
 		}
@@ -105,12 +120,12 @@ func (g *gatewayLLM) Chat(ctx context.Context, req LLMRequest, onEvent func(LLME
 		responsesFallback[req.Model] = true
 		responsesFallbackMu.Unlock()
 	}
-	return g.call(ctx, req, onEvent, chatCodec{})
+	return g.call(ctx, base, req, onEvent, chatCodec{})
 }
 
 // call runs one request with retries. Retrying is allowed only while nothing
 // has been produced: once an event went out the partial is surfaced as-is.
-func (g *gatewayLLM) call(ctx context.Context, req LLMRequest, onEvent func(LLMEvent), w wireCodec) (LLMReply, error) {
+func (g *gatewayLLM) call(ctx context.Context, base string, req LLMRequest, onEvent func(LLMEvent), w wireCodec) (LLMReply, error) {
 	body, err := w.encode(req)
 	if err != nil {
 		return LLMReply{}, err
@@ -135,7 +150,7 @@ func (g *gatewayLLM) call(ctx context.Context, req LLMRequest, onEvent func(LLME
 		if attempt > 0 && !wireBackoff(ctx, attempt) {
 			break
 		}
-		rep, retry, err := g.attempt(ctx, req, w, body, emit)
+		rep, retry, err := g.attempt(ctx, base, req, w, body, emit)
 		if err == nil {
 			rep.Wire, rep.Model = w.name(), req.Model
 			if !thinkStart.IsZero() {
@@ -160,7 +175,7 @@ func (g *gatewayLLM) call(ctx context.Context, req LLMRequest, onEvent func(LLME
 
 // attempt is one HTTP round trip. retry reports whether the failure is worth
 // another attempt (transport trouble, 429/5xx, a stalled stream).
-func (g *gatewayLLM) attempt(ctx context.Context, req LLMRequest, w wireCodec, body []byte, emit func(LLMEvent)) (rep LLMReply, retry bool, err error) {
+func (g *gatewayLLM) attempt(ctx context.Context, base string, req LLMRequest, w wireCodec, body []byte, emit func(LLMEvent)) (rep LLMReply, retry bool, err error) {
 	var cctx context.Context
 	var cancel context.CancelCauseFunc
 	var idle *time.Timer
@@ -178,7 +193,7 @@ func (g *gatewayLLM) attempt(ctx context.Context, req LLMRequest, w wireCodec, b
 	}
 	defer cancel(nil)
 
-	hreq, err := http.NewRequestWithContext(cctx, http.MethodPost, g.base+w.path(), bytes.NewReader(body))
+	hreq, err := http.NewRequestWithContext(cctx, http.MethodPost, base+w.path(), bytes.NewReader(body))
 	if err != nil {
 		return LLMReply{}, false, err
 	}

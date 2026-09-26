@@ -390,3 +390,46 @@ test('router: addresses', async () => {
   assert.equal(router.autoHash(), 'auto');
   assert.equal(router.convHash(3), 'c=3');
 });
+
+// The model (D111): the bound providers' models, grouped; your last pick is
+// your default for new chats; in a conversation a pick switches it (PATCH)
+// from its next turn — and a viewer gets no picker.
+test('the model: the picker, a pick per conversation, your default for new chats', async () => {
+  routes.unshift(
+    ['GET', /\/models$/, () => json({ data: [{ id: 'm1', provider: 'apps/a', ref: 'apps/a|m1' }, { id: 'm2', provider: 'apps/b', ref: 'apps/b|m2' }],
+      providers: [{ path: 'apps/a', ok: true }, { path: 'apps/b', ok: true }] })],
+    ['GET', /\/api\/xbin\/prefs\/model$/, () => json('apps/b|m2')],
+    ['PUT', /\/api\/xbin\/prefs\/model$/, () => json({})],
+    ['PATCH', /\/runs\/1$/, () => json({ id: 1 })],
+  );
+  const app = createApp({ route: () => {} });
+  app.start();
+  await until(() => app.catalog && (app.catalog.data || []).length === 2 && app.model === 'apps/b|m2');
+  const home = rules.modelPicker(null, app.model, app.catalog);
+  assert.equal(home.value, 'apps/b|m2', 'at home: your last pick');
+  assert.deepEqual(home.groups.map((g) => g.label), ['a', 'b'], 'several providers: grouped');
+  assert.deepEqual(home.options.map((o) => o.value), ['', 'apps/a|m1', 'apps/b|m2'], 'the agent\'s default first');
+  assert.equal(rules.modelPicker(null, 'apps/gone|x', app.catalog).options.at(-1).label, 'x (not listed now)');
+  assert.equal(rules.modelPicker(null, '', { data: [] }).shown, false, 'no models, no pick: no picker');
+
+  // a new chat carries your pick
+  const asks = called('POST', '/ask').length;
+  await app.send('hello model', () => {});
+  const ask = JSON.parse(called('POST', '/ask')[asks].body);
+  assert.equal(ask.model, 'apps/b|m2', 'the new ask asks for it');
+
+  // in a conversation: its pick, switched with PATCH, and your default follows
+  await app.select(1);
+  let v = app.session.current();
+  assert.equal(rules.modelPicker(v, app.model, app.catalog).value, '', 'a conversation without a pick: the default');
+  await app.pickModel('apps/a|m1');
+  const patch = called('PATCH', '/runs/1').at(-1);
+  assert.deepEqual(JSON.parse(patch.body), { model: 'apps/a|m1' });
+  v = app.session.current();
+  assert.equal(rules.modelPicker(v, app.model, app.catalog).value, 'apps/a|m1', 'the picker shows the switch');
+  assert.equal(rules.topBar(v).model, 'm1', 'and the top bar names it');
+  assert.equal(app.model, 'apps/a|m1', 'your default for new chats follows your last pick');
+  assert.equal(JSON.parse(called('PUT', '/api/xbin/prefs/model').at(-1).body), 'apps/a|m1');
+  assert.equal(rules.modelPicker({ ...v, access: 'viewer' }, app.model, app.catalog).disabled, true, 'a viewer can\'t switch it');
+  app.home();
+});

@@ -1,7 +1,8 @@
 # agent — API
 
-A durable agentic loop. State lives in this component's sqlite (`db`); the LLM
-is reached through `apps/llm-gw`. Runs are driven by an in-process engine: one
+A durable agentic loop. State lives in this component's sqlite (`db`); the
+models are reached through the `llm` interface (below: one or more bound
+OpenAI-compatible providers, llm-gw usually). Runs are driven by an in-process engine: one
 actor per run with work, fed by a durable inbox, woken by events — never by a
 timer that polls (see **The engine**). Design records `agent`, `agent-v2` and
 D81 live in the xbin repo.
@@ -52,7 +53,7 @@ a subagent is exactly as visible as the conversation it works for.
 |---|---|---|
 | `GET /conversations?limit=&cursor=&archived=&scope=` | — | your conversations, newest activity first → `{pinned, items, next}`. `pinned` (your pins) comes on the first page only; `next` is the cursor for the page after. `scope=mine` (default: yours, ones you joined, and unowned ones), `shared` (sharing both ways: yours shared with the team or with people, and others' that reach you — team-visible or you were added; each row's `access` tells them apart) or `team` (older: only others' team-shared ones). `archived=1` lists what you archived |
 | `GET /conversations?q=` | — | search titles and everything said, in every conversation you may see (archived and automation runs included), up to 50; content hits carry `match {msgId, snippet}` |
-| `PATCH /runs/{id}` | `{title?, pinned?, archived?, visibility?, teamRole?}` | pin and archive are yours (any viewer); title and visibility are the owner's. Making an unowned run private claims it |
+| `PATCH /runs/{id}` | `{title?, pinned?, archived?, visibility?, teamRole?, model?}` | pin and archive are yours (any viewer); title and visibility are the owner's. Making an unowned run private claims it. `model` switches the conversation's model from its next turn (anyone who may talk in it; `""` = the agent's default) |
 | `POST /runs/{id}/read` | — | mark it read up to now |
 | `GET /needs` | — | what waits for you: conversations where the agent (or a subagent) asks a question or wants an approval, and automations you own whose last run failed and you haven't looked at → `{items:[{run, reason: question\|approval\|failed, subRun}]}` |
 
@@ -130,7 +131,7 @@ llm-gw's logs. Give team members `read` on the tile.
 |---|---|---|
 | `GET /runs` | — | list runs (id, title, kind, status, timestamps; a quick ask also carries `last`, its latest answer, for the home view's cards). `?roots=1` lists top-level runs only — what the sidebar shows; subagents are reached through their parent |
 | `POST /runs` | `{goal, title?, system?, toolset?}` | create a run and start driving it |
-| `POST /ask` | `{text, toolset?, hold?, draft?, files?}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately (`hold`, `draft`: see Attachments) |
+| `POST /ask` | `{text, toolset?, model?, hold?, draft?, files?}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately (`hold`, `draft`: see Attachments) |
 | `PUT /ask/upload?draft=&name=` | raw bytes, the file's own `Content-Type` | attach a file to a new ask before it exists (a native app's upload at home): into the run held for the draft key `{path, mime, bytes, binary, run}` — see Attachments |
 | `GET /runs/{id}` | — | run detail: `{run, messages, steps, memory, config, files, draft, messageFiles, slots, queued}` (`draft` = live streaming text; `files` is session-file METADATA only; `messageFiles` = `{msgId: [path…]}`, the files each user message carried; `slots` = `{active, limit}` model calls in flight; `queued` = messages not yet delivered) |
 | `GET /runs/{id}/view` | — | the run as the chat draws it, plus a stream cursor — see **The live view**. `?limit=&before=` pages it, newest first — see **Paging the view** |
@@ -361,8 +362,10 @@ interface bound (`bx bind <this component> net=internet`); unbound, they return
 
 ```jsonc
 {
-  "model": "",                 // legacy/general fallback (empty ⇒ llm-gw preferred)
-  "models": {                  // per-tier models; any empty tier ⇒ llm-gw preferred for
+  "model": "",                 // legacy/general fallback (empty ⇒ the provider's preferred)
+  "pick": "",                  // a conversation's own pick (composer, PATCH/ask {model}):
+                               //   wins over the tiers for its main loop; not a default
+  "models": {                  // per-tier models; any empty tier ⇒ the provider's preferred for
     "general": "", "code": "", //   the mapped use-type (general←agent, code←coding,
     "memory": "", "vlm": ""    //   memory←summarizing, vlm←vlm)
   },
@@ -391,14 +394,30 @@ interface bound (`bx bind <this component> net=internet`); unbound, they return
 - `GET /features` → `{keys, features}` — the toggleable capabilities and their
   current state (the tile's Features menu). Toggle by `PUT /config` with a
   `features` map.
-- `GET /models` — proxies llm-gw's aggregated model list (for the tier
-  dropdowns).
+- `GET /models` → `{data: [{id, provider, ref, owned_by?, alias_of?}],
+  providers: [{path, ok, legacy?, error?}], error?}` — every bound provider's
+  models (for the composer's picker and the tier dropdowns; anyone who can
+  use the tile). `ref` is what a tier, `pick` or `{model}` stores.
 
-The main loop uses the `general` tier (or `vlm` when a message carries image
-content and the general model isn't vision-capable); compaction and the
-summarizer use `memory`.
+**Where the models come from (D111).** The manifest's `llm` interface slot
+(`http`, service `openai`, multi): bind it to llm-gw, or to any tile that
+provides the OpenAI API — several at once. Rebinding restarts the backend.
+A model reference is a bare id while one provider is bound (every config
+from before the slot), or `<provider>|<id>` when there are several; a bare id
+goes to the first provider that lists it, else the first one, and a provider
+that is no longer bound falls back to the first with the same id. Requests
+carry the bare id. `GET /preferred` (llm-gw's per-use default) is asked of
+whichever bound provider answers it. **Unbound**, the agent reaches
+`apps/llm-gw` by name — an instance made before the slot keeps working on its
+old grant (`/models` then marks the provider `legacy`).
 
-**Wires and thinking.** Two model APIs, both through llm-gw: Chat Completions
+The main loop uses the conversation's `pick` when it has one, else the
+`general` tier (or `vlm` when a message carries image content and that model
+isn't vision-capable); compaction and the summarizer use `memory`. The chat's
+composer picks a conversation's model (grouped by provider when several are
+bound); the last pick is the person's default for new chats (`/api/xbin/prefs/model`).
+
+**Wires and thinking.** Two model APIs, both through the bound provider: Chat Completions
 (`/v1/chat/completions`) and the Responses API (`/v1/responses`), which OpenAI's
 gpt-5 and o-series models need to show their reasoning. `wire: "auto"` picks
 Responses for model ids `gpt-5*` and `o<digit>*` (after any `backend/` prefix),

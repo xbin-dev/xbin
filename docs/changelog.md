@@ -76,6 +76,22 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   signs the origin its enrollment answer names
   ([auth.md](auth.md) §Device login, [protocol.md](protocol.md)).
 
+- **Agent template: its models come from a bindable interface, and the chat
+  picks them.** The template's LLM is now the `llm` interface slot (http,
+  service `openai`, multi — like the chat tile's): bind it to llm-gw or to any
+  OpenAI-compatible provider tile, several at once; the binding is the grant
+  (the manifest no longer names `apps/llm-gw` in `uses`). The composer has a
+  model picker — the bound providers' models, grouped by provider: in a
+  conversation it switches that conversation's model from its next turn
+  (`PATCH /runs/{id} {model}`), at home it sets the next new chat's
+  (`POST /ask {model}`); your last pick is your default, and a picked model
+  shows in the top bar. `GET /models` lists every provider's models with a
+  `ref` to store and each provider's state, and is open to everyone who uses
+  the tile. Existing instances (copies) keep working unbound: the agent then
+  reaches `apps/llm-gw` by name on its old grant; after merging the template,
+  bind the `llm` slot (`bx bind <agent> llm+=apps/llm-gw` or the Interfaces
+  panel).
+
 - **Agent template: sharing you can see.** The conversation list's views
   are a switch above it — **Mine · Shared · Archived** — and **Shared** is
   sharing both ways: what you shared (with the team or with people) and

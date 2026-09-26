@@ -201,11 +201,12 @@ export function chatScreen(v) {
   const chain = (v.chain || []).map((c) => c.title || '#' + c.id);
   // a shared conversation says so in its header, as the web's top bar does
   const subtitle = [chain.length ? 'in ' + chain.join(' › ') : '', r.status, t.laneLabel, t.viewOnly ? 'view only' : '',
-    t.share.tone ? `${t.share.icon} ${t.share.label}` : ''].filter(Boolean).join(' · ');
+    t.share.tone ? `${t.share.icon} ${t.share.label}` : '', t.model ? `✦ ${t.model}` : ''].filter(Boolean).join(' · ');
   return html`<screen title=${t.title} subtitle=${subtitle} style="scroll">
     <toolbar>
       <button icon="list" @tap=${() => { ui.drawer = true; ctx.paint(); }}>Conversations</button>
       <button icon="pencil" @tap=${() => app.home()}>New chat</button>
+      ${modelPickerTpl(v)}
       <menu icon="ellipsis" label="More">${runMenu(v, t)}</menu>
     </toolbar>
     <transcript follow ?older=${s.hasOlder} @more=${() => app.session.loadOlder().catch(fail)}>
@@ -252,6 +253,17 @@ function runMenu(v, t) {
     ${t.del ? html`<divider/><button icon="trash" role="destructive"
       confirm=${{ title: 'Delete this run and its history?', label: 'Delete', destructive: true }}
       @tap=${guard(async () => { await app.actions.deleteRun(id); app.session.runs.delete(id); app.home(); })}>Delete</button>` : nothing}`;
+}
+
+// modelPickerTpl: the model (model/rules.js modelPicker) — the open
+// conversation's from its next turn, or at home the next new chat's. In the
+// toolbar: the app's composer holds buttons only.
+export function modelPickerTpl(v) {
+  const app = ctx.app;
+  const p = app.rules.modelPicker(v, app.model, app.catalog);
+  if (!p.shown || p.disabled) return nothing;
+  return html`<picker label="Model" style="menu" value=${p.value} options=${p.options.map(({ value, label }) => ({ value, label }))}
+    @change=${(e) => guard(() => app.pickModel(e.value))()}/>`;
 }
 
 // --- the composer ------------------------------------------------------------------------

@@ -291,7 +291,10 @@ func searchConversations(w http.ResponseWriter, c who, q string) {
 // handlePatchRun changes a conversation: your own pin and archive (any
 // viewer), or its title and who may see it (its owner).
 //
-//	PATCH /runs/{id} {title?, pinned?, archived?, visibility?, teamRole?}
+//	PATCH /runs/{id} {title?, pinned?, archived?, visibility?, teamRole?, model?}
+//
+// model is the conversation's pick (Config.Pick, "" = the agent's default):
+// anyone who may talk in it may switch it; its next turn uses it.
 func handlePatchRun(w http.ResponseWriter, r *http.Request) {
 	c, lv := callerOf(r), levelOf(r)
 	run, err := agent.db.getRun(pathID(r))
@@ -306,6 +309,7 @@ func handlePatchRun(w http.ResponseWriter, r *http.Request) {
 		Archived   *bool   `json:"archived"`
 		Visibility *string `json:"visibility"`
 		TeamRole   *string `json:"teamRole"`
+		Model      *string `json:"model"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		xbin.WriteError(w, 400, "bad body")
@@ -313,6 +317,14 @@ func handlePatchRun(w http.ResponseWriter, r *http.Request) {
 	}
 	if (body.Title != nil || body.Visibility != nil || body.TeamRole != nil) && lv < lvOwner {
 		xbin.WriteError(w, 403, "only the conversation's owner can rename or share it")
+		return
+	}
+	if body.Model != nil && (lv < lvParticipant || !validPick(*body.Model)) {
+		if lv < lvParticipant {
+			xbin.WriteError(w, 403, "only someone who may talk in it can pick its model")
+		} else {
+			xbin.WriteError(w, 400, "model: a model id from GET /models (up to 200 characters)")
+		}
 		return
 	}
 	if body.Pinned != nil || body.Archived != nil {
@@ -362,6 +374,17 @@ func handlePatchRun(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 			changedACL = true
+		}
+		if body.Model != nil {
+			cfg, err := t.runConfig(root)
+			if err != nil {
+				return err
+			}
+			cfg.Pick = *body.Model
+			raw, _ := json.Marshal(cfg)
+			if _, err := t.q.Exec(`UPDATE runs SET config=? WHERE id=?`, string(raw), root); err != nil {
+				return err
+			}
 		}
 		if agent.eng != nil {
 			agent.eng.emitRun(t, root)

@@ -12,8 +12,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
 // asString renders a wireMsg content value (string, raw JSON parts, or nil) as
@@ -46,12 +44,17 @@ type ModelTiers struct {
 // Config is an agent's knobs — a default lives in settings, and each run
 // snapshots one at creation (so changing the default doesn't disturb live runs).
 type Config struct {
-	Model       string     `json:"model"`       // legacy/general fallback (empty ⇒ llm-gw preferred)
-	Models      ModelTiers `json:"models"`      // per-tier models
-	System      string     `json:"system"`      // base system prompt
-	TokenBudget int        `json:"tokenBudget"` // context assembly budget
-	MaxIters    int        `json:"maxIters"`    // legacy: sizes the default turn step cap (8×)
-	ToolTimeout int        `json:"toolTimeout"` // seconds per tool call (0 ⇒ default)
+	Model  string     `json:"model"`  // legacy/general fallback (empty ⇒ llm-gw preferred)
+	Models ModelTiers `json:"models"` // per-tier models
+	// Pick is the model a person picked for this conversation (the composer's
+	// picker, POST /ask {model}, PATCH /runs/{id} {model}): it wins over the
+	// tiers for the main loop; compaction and titles keep theirs. A model
+	// reference (llm_providers.go): a bare id, or "<provider>|<id>".
+	Pick        string `json:"pick,omitempty"`
+	System      string `json:"system"`      // base system prompt
+	TokenBudget int    `json:"tokenBudget"` // context assembly budget
+	MaxIters    int    `json:"maxIters"`    // legacy: sizes the default turn step cap (8×)
+	ToolTimeout int    `json:"toolTimeout"` // seconds per tool call (0 ⇒ default)
 	// REPL sandbox limits (0 ⇒ defaults). The time budget is per statement and
 	// far below ToolTimeout on purpose: a runaway loop should come back as a
 	// normal tool error the model can react to, not eat the whole tool slot.
@@ -342,9 +345,11 @@ type prefEntry struct {
 	at    time.Time
 }
 
-// preferredModel asks llm-gw for the workspace's preferred model for a use-type
-// (agent/coding/summarizing/vlm/…). Cached briefly so it's not a round-trip per
-// step; a down gateway returns "" and the caller falls back.
+// preferredModel asks the bound providers for the workspace's preferred model
+// for a use-type (agent/coding/summarizing/vlm/…) — llm-gw answers
+// GET /preferred; a provider without it just has no preference. Cached briefly
+// so it's not a round-trip per step; with several providers the answer names
+// the one that gave it.
 func preferredModel(ctx context.Context, use string) string {
 	prefMu.Lock()
 	if e, ok := prefCache[use]; ok && time.Since(e.at) < 60*time.Second {
@@ -359,23 +364,38 @@ func preferredModel(ctx context.Context, use string) string {
 	// ever made — which is indistinguishable from a hung agent.
 	ctx, cancel := context.WithTimeout(ctx, modelLookupTimeout)
 	defer cancel()
-	u := "http://xbin/api/apps/" + gwPath() + "/preferred?use=" + url.QueryEscape(use)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	provs := llmProviders()
+	model := ""
+	for _, p := range provs {
+		if m := askPreferred(ctx, p, use); m != "" {
+			model = modelRef(p.Path, m, len(provs) > 1)
+			break
+		}
+	}
+	prefMu.Lock()
+	prefCache[use] = prefEntry{model: model, at: time.Now()}
+	prefMu.Unlock()
+	return model
+}
+
+// askPreferred is one provider's GET /preferred?use= ("" when it has none).
+func askPreferred(ctx context.Context, p llmProvider, use string) string {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.URL+"/preferred?use="+url.QueryEscape(use), nil)
 	if err != nil {
 		return ""
 	}
-	resp, err := xbin.Client().Do(req)
+	resp, err := llmClient().Do(req)
 	if err != nil {
 		return ""
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
 	var out struct {
 		Model string `json:"model"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&out)
-	prefMu.Lock()
-	prefCache[use] = prefEntry{model: out.Model, at: time.Now()}
-	prefMu.Unlock()
 	return out.Model
 }
 
@@ -401,7 +421,7 @@ func modelFor(ctx context.Context, cfg Config, tier string) string {
 	case "vlm":
 		explicit, use = cfg.Models.VLM, "vlm"
 	default: // general
-		explicit, use = firstNonEmpty(cfg.Models.General, cfg.Model), "agent"
+		explicit, use = firstNonEmpty(cfg.Pick, cfg.Models.General, cfg.Model), "agent"
 	}
 	if explicit != "" {
 		return explicit
@@ -514,11 +534,6 @@ func llmBackoff(ctx context.Context, attempt int) bool {
 		return true
 	}
 }
-
-// gwPath is the llm-gw component path relative to apps/. The agent is authored
-// against "apps/llm-gw"; template instantiation rewrites the agent's OWN path
-// but leaves cross-component references intact, so this stays "llm-gw".
-func gwPath() string { return "llm-gw" }
 
 // estimateTokens is a tokenizer-free rough estimate (~4 chars/token). Good
 // enough for a context budget; swap in a real tokenizer per instance if needed.

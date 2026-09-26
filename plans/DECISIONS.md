@@ -3351,6 +3351,38 @@ Deviations and refinements made while implementing; all deliberate:
   - Flipping xbind's own default: that would change every non-installer
     deployment's security surface without an admin in the loop.
 
+- **D111 — The agent template's models come from a bindable, multi-provider
+  `llm` interface, and a conversation picks its own (2026-09-27).**
+  builtin-templates/agent/API.md §Config, models, features.
+  - **The slot, not a name.** The manifest declares `"llm": {"kind":
+    "http", "service": "openai", "multi": true}` (the chat tile's shape) and
+    drops `apps/llm-gw` from `uses`: the owner binds llm-gw — or any tile
+    that provides the OpenAI API, several at once — and the binding is the
+    grant. **Unbound, the agent reaches `apps/llm-gw` by name**, so an
+    instance made before the slot keeps working on its old grant (never
+    break users; `/models` marks it `legacy`).
+  - **Model references.** A bare id while one provider is bound — every
+    config written before, unchanged — or `<provider>|<id>` among several.
+    A bare id goes to the first provider that lists it (the merged catalog,
+    cached 60 s), else the first; a provider no longer bound falls back to
+    the first with the same id. Requests, replies and the transcript carry
+    the bare id, so reasoning replay (matched on the model string) is
+    unaffected. llm-gw's `/preferred` is asked of whichever bound provider
+    answers it.
+  - **A conversation's pick.** `Config.Pick` (from the composer:
+    `POST /ask {model}`, `PATCH /runs/{id} {model}` by anyone who may talk
+    in it) wins over the tiers for the main loop; compaction and titles
+    keep their tiers. `runs.config` is read every turn, so a switch applies
+    from the next one. The person's last pick is their default for new
+    chats (`/api/xbin/prefs/model`, like the tool mode). `GET /models`
+    opened from managers to everyone who uses the tile — the picker needs
+    it; model names aren't secrets.
+  - **Not chosen:** storing the chat tile's endpoint index (binding order
+    changes); a per-message model (a conversation is the unit people think
+    in, and replay wants one model per stretch); keeping `uses apps/llm-gw`
+    beside the slot (two ways to the same place, and the name is exactly
+    what an owner could not change).
+
 - **D112 — A sandbox registry: one live list of every sandbox xbind runs,
   VM reservations charged to a tile, and a bounded ring of what the sandbox
   layer refused or failed at (2026-09-27).** `internal/sbx`;

@@ -64,7 +64,7 @@ function syncToolsetBtn() {
   b.textContent = TSET[app.toolset][0];
   b.title = `Tool mode for new asks: ${TSET[app.toolset][1]} (click to switch)`;
 }
-let models = [];         // model ids from GET /models ({data:[{id}]})
+let models = [];         // model references from GET /models ({data:[{ref, id, provider}]})
 let cfgCache = null;     // last GET /config
 let settingsOpen = false;
 let activeTab = 'config';
@@ -88,6 +88,7 @@ app.on('needs', () => { if (app.sel == null) paint(); });
 app.on('me', () => { $('gear').hidden = !app.me.manager; syncHalt(); });
 app.on('halt', () => syncHalt());
 app.on('toolset', () => syncToolsetBtn());
+app.on('model', () => paint());
 app.on('attach', () => renderAttach());
 app.on('sending', () => { $('send').disabled = app.sending; if (!app.sending) renderAttach(); });
 app.on('error', (e) => alert(e.message));
@@ -160,6 +161,7 @@ function topTpl(v) {
   return html`${t.crumb ? html`<a class="crumb" @click=${() => app.openAutomations(t.crumb.kind, t.crumb.id)}>Automations ›</a>` : nothing}
     <span class="title" title=${r.title || ''}>${t.title}</span>
     <span class="badge" title="tool mode (immutable for this run)">${t.laneLabel}</span>
+    ${t.model ? html`<span class="badge" title="the model this conversation was switched to (the composer's picker)">✦ ${t.model}</span>` : nothing}
     <span class="badge ${r.status}">${r.status}</span>
     ${t.viewOnly ? html`<span class="badge" title="shared with you to read">view only</span>` : nothing}
     ${t.retry ? html`<button class="btn ghost btnsm" @click=${() => control('resume')} title="Drive the run again">Retry</button>` : nothing}
@@ -189,12 +191,33 @@ function paint() {
   render(queueTpl(v ? session.queued() : [], (iid) => session.removeQueued(iid).catch((e) => alert(e.message))), $('queue'));
   $('queue').hidden = !(v && session.queued().length);
   const c = rules.composer(v, HOME);
+  syncModelPicker(v);
   $('stop').hidden = !c.stop;
   $('msg').disabled = c.disabled;
   $('msg').placeholder = c.placeholder;
   if (v) syncPreview(v);
   if (wfOpen) treeDirty();
 }
+
+// The composer's model (model/rules.js modelPicker): the open conversation's,
+// from its next turn — or, at home, the next new chat's; your last pick is
+// your default. Grouped by provider when several are bound (D111).
+function modelOptsTpl(p) {
+  const opt = (o) => html`<option value=${o.value} ?selected=${o.value === p.value}>${o.label}</option>`;
+  if (!p.groups.length) return html`${p.options.map(opt)}`;
+  return html`${p.options.filter((o) => !o.group).map(opt)}${p.groups.map((g) => html`<optgroup label=${g.label}>
+    ${p.options.filter((o) => o.group === g.path).map(opt)}</optgroup>`)}`;
+}
+function syncModelPicker(v) {
+  const p = rules.modelPicker(v, app.model, app.catalog);
+  const el = $('msel');
+  el.hidden = !p.shown;
+  el.disabled = p.disabled;
+  el.title = p.title;
+  render(modelOptsTpl(p), el);
+  if (el.value !== p.value) el.value = p.value;
+}
+$('msel').onchange = () => app.pickModel($('msel').value).catch((e) => { alert(e.message); paint(); });
 
 // --- workflow view ------------------------------------------------------
 
@@ -674,8 +697,8 @@ document.querySelectorAll('#tabs .tab[data-tab]').forEach((b) => b.onclick = () 
 
 async function ensureModels(force) {
   if (models.length && !force) return;
-  try { models = await actions.models(); }
-  catch { if (!models.length) models = []; }
+  await app.loadModels();
+  models = ((app.catalog && app.catalog.data) || []).map((x) => x.ref || x.id).filter(Boolean);
 }
 
 // Config tab: model tiers + system prompt + limits + behavior. Saves the FULL
@@ -685,8 +708,10 @@ async function tabConfig(bd) {
   cfgCache = c;
   await ensureModels(true);
   const m = c.models || {};
-  const opt = (v) => `<option value="">— llm-gw default —</option>` +
+  const opt = (v) => `<option value="">— the provider's default —</option>` +
     models.map((id) => `<option ${id === v ? 'selected' : ''}>${esc(id)}</option>`).join('');
+  const provs = ((app.catalog && app.catalog.providers) || []).map((p) =>
+    `<span class="mono">${esc(p.path)}</span> ${p.ok ? '✓' : `✗ <span class="err">${esc(p.error || 'unreachable')}</span>`}${p.legacy ? ' (by name — bind the llm interface)' : ''}`).join(' · ');
   bd.innerHTML = `
     <div class="sec"><h4>Model tiers</h4>
       <div class="grid4">
@@ -695,7 +720,8 @@ async function tabConfig(bd) {
         <div class="field"><label>Memory</label><select id="cf-memory">${opt(m.memory)}</select></div>
         <div class="field"><label>Vision (VLM)</label><select id="cf-vlm">${opt(m.vlm)}</select></div>
       </div>
-      <div class="hint">Empty tier = the workspace's llm-gw default for that job.${models.length ? '' : ' (no models listed — set an llm-gw backend token)'}</div>
+      <div class="hint">Empty tier = the provider's preferred model for that job (llm-gw's per-use default).${models.length ? '' : ' (no models listed — bind the agent\'s llm interface to a provider that has a backend)'}</div>
+      ${provs ? `<div class="hint">Models from: ${provs}</div>` : ''}
     </div>
     <div class="sec"><h4>Base system prompt</h4><textarea id="cf-system" rows="5">${esc(c.system || '')}</textarea></div>
     <div class="sec"><h4>Limits</h4><div class="grid4">

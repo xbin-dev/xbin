@@ -7,7 +7,6 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -447,18 +446,20 @@ func handleFeatures(w http.ResponseWriter, r *http.Request) {
 	xbin.WriteJSON(w, http.StatusOK, map[string]any{"keys": featureKeys, "features": state})
 }
 
-// handleModels proxies llm-gw's aggregated model list (for the tier pickers).
+// handleModels lists the models of every bound LLM provider (the composer's
+// picker, the tier pickers): {data: [{id, provider, ref, …}], providers:
+// [{path, ok, error?}]}. ref is what a config or a pick stores.
 func handleModels(w http.ResponseWriter, r *http.Request) {
-	req, _ := http.NewRequestWithContext(r.Context(), http.MethodGet, "http://xbin/api/apps/"+gwPath()+"/v1/models", nil)
-	resp, err := xbin.Client().Do(req)
-	if err != nil {
-		xbin.WriteError(w, http.StatusBadGateway, err.Error())
-		return
+	c := modelCatalog(r.Context())
+	models := c.Models
+	if models == nil {
+		models = []catalogModel{}
 	}
-	defer resp.Body.Close()
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(resp.StatusCode)
-	_, _ = io.Copy(w, resp.Body)
+	out := map[string]any{"object": "list", "data": models, "providers": c.Providers}
+	if len(models) == 0 {
+		out["error"] = "no models: bind the agent's llm interface to an LLM provider (e.g. apps/llm-gw) and give it a backend"
+	}
+	xbin.WriteJSON(w, http.StatusOK, out)
 }
 
 // handleTick is the idempotent recovery scan: the resume job left by a

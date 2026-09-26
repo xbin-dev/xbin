@@ -76,7 +76,7 @@ const tab = async (name, sel) => {
 // Config: the tiers list llm-gw's models; Save sends the whole config back
 await page.click('#gear');
 await page.waitForSelector('#cf-save');
-ok('config: the tiers offer the listed models', (await page.$$eval('#cf-general option', (os) => os.map((o) => o.textContent))).join('|') === '— llm-gw default —|m-big|m-small');
+ok('config: the tiers offer the listed models', (await page.$$eval('#cf-general option', (os) => os.map((o) => o.textContent))).join('|') === "— the provider's default —|m-big|m-small");
 ok('config: the current tier is chosen', (await page.$eval('#cf-general', (s) => s.value)) === 'm-big');
 await shot('config');
 await page.selectOption('#cf-code', 'm-small');

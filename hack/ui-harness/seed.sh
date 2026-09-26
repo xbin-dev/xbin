@@ -111,7 +111,9 @@ api POST /builtins/import '{"name":"llm-gw"}' | head -c 300; echo
 api POST /bindings '{"component":"apps/llm-gw","slot":"net","provider":"host"}'
 api PUT /vault/apps/llm-gw/api-token-fake '{"value":"sk-fake"}'
 api POST /templates/new '{"source":"agent","path":"apps/agent"}' | head -c 300; echo
-api POST /grants '{"from":"apps/agent","target":"apps/llm-gw","role":"writer"}'
+# the agent's models come through its `llm` interface (D111): bound to
+# llm-gw — the binding is the grant
+api POST /bindings '{"component":"apps/agent","slot":"llm","providers":["apps/llm-gw"]}'
 api POST /grants '{"from":"apps/agent","target":"cap:open-links","role":"writer"}'
 # dev1 may open (and chat with) the agent — the agentConvs pass: per-user
 # conversations and sharing (D83)

@@ -35,6 +35,8 @@ export function topBar(v, row) {
     memory: Object.keys(v.memory || {}).length,
     files: (v.files || []).length,
     tree: !!(r.parentId || (v.links || []).length || v.linkCount), // linkCount: a paged view's total
+    // the model it was switched to (a pick); '' = the agent's default
+    model: modelName((v.config && v.config.pick) || ''),
     // sharing is per conversation: a subagent shares its root
     shareRun: { id: r.rootId || r.id, title: r.title },
     share: shareStatus(v, row),
@@ -132,5 +134,31 @@ export function share(d, me) {
     own,
     vis: !d ? '' : d.visibility === 'team' ? 'team-' + d.teamRole : 'private',
     leave: !!(d && !own && me.user && d.members.some((m) => m.user === me.user)),
+  };
+}
+
+// --- the model -----------------------------------------------------------------------
+
+// modelName: a model reference without its provider ("apps/b|m" → "m").
+export const modelName = (ref) => { const i = (ref || '').indexOf('|'); return i >= 0 ? ref.slice(i + 1) : ref || ''; };
+const providerName = (path) => String(path || '').replace(/^apps\//, '');
+
+// modelPicker: the composer's model — the open conversation's pick (its
+// view's config; from its next turn) or, at home, the person's pick for new
+// chats — out of the bound providers' models (GET /models), grouped by
+// provider when there are several. '' is the agent's default.
+export function modelPicker(v, homePick, catalog) {
+  const data = (catalog && catalog.data) || [];
+  const provs = [...new Set(data.map((m) => m.provider))];
+  const value = v ? ((v.config && v.config.pick) || '') : (homePick || '');
+  const options = [{ value: '', label: 'auto — the agent\'s default', group: '' },
+    ...data.map((m) => ({ value: m.ref || m.id, label: provs.length > 1 ? `${m.id} · ${providerName(m.provider)}` : m.id, group: m.provider || '' }))];
+  if (value && !options.some((o) => o.value === value)) options.push({ value, label: `${modelName(value)} (not listed now)`, group: '' });
+  return {
+    value, options,
+    groups: provs.length > 1 ? provs.map((p) => ({ path: p, label: providerName(p) })) : [],
+    shown: data.length > 0 || !!value,
+    disabled: !!v && !access(v).talk,
+    title: v ? 'the model this conversation uses from its next turn' : 'the model for your next new chat',
   };
 }

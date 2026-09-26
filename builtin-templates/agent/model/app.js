@@ -17,6 +17,7 @@
 //   autos     the Automations page changed  needs   GET /needs landed
 //   me        GET /me landed                halt    the halt switch changed
 //   toolset   the tool mode changed         attach  an attachment chip changed
+//   model     the model pick or the model list changed
 //   sending   a send started or settled (app.sending)
 //   select(id)   a conversation is being opened (before it loads)
 //   selected(id) …and is open
@@ -60,6 +61,8 @@ export function createApp(opts = {}) {
     base, actions, rules, router, HOME,
     me: { manager: true }, // an older backend has no /me: everything, as before
     toolset: 'private',    // for NEW asks; a run keeps its own
+    model: '',             // the model for NEW asks ('' = the agent's default): your last pick
+    catalog: null,         // GET /models: the bound providers' models (the pickers)
     needs: [],
     halted: false,
     draft: actions.draftKey(), // where the app uploads what is picked at home (API.md "Attachments")
@@ -92,6 +95,8 @@ export function createApp(opts = {}) {
     // start loads what the tile shows first and opens the stream.
     start() {
       app.loadToolset();
+      app.loadModelPref();
+      app.loadModels();
       app.session.start().catch(() => {});
       app.loadMe().then(() => app.convs.load()).catch(() => {});
       app.loadHalt();
@@ -124,6 +129,27 @@ export function createApp(opts = {}) {
       app.toolset = app.toolset === 'private' ? 'web' : 'private';
       actions.saveToolset(app.toolset).catch(() => {});
       emit('toolset');
+    },
+    async loadModelPref() {
+      try { app.model = await actions.loadModelPref(); emit('model'); } catch { /* keep the default */ }
+    },
+    async loadModels() {
+      try { app.catalog = await actions.modelCatalog(); } catch { app.catalog = { data: [], providers: [] }; }
+      emit('model');
+    },
+    // pickModel: in an open conversation you may talk in, its model from the
+    // next turn; at home, the next new chat's. Either way it becomes your
+    // default for new chats. Throws when the conversation refuses it.
+    async pickModel(ref) {
+      const v = app.session.current();
+      if (v && rules.access(v).talk) {
+        await actions.setRunModel(v.run.rootId || v.run.id, ref);
+        const stored = app.session.views.get(v.run.id); // current() is a merged copy
+        if (stored) stored.config = { ...(stored.config || {}), pick: ref };
+      }
+      app.model = ref;
+      actions.saveModelPref(ref).catch(() => {});
+      emit('model');
     },
 
     // --- where you are -------------------------------------------------------------
@@ -181,7 +207,7 @@ export function createApp(opts = {}) {
     // ask starts a conversation from the "new chat with options" form
     // ({text, title, system, toolset}) and opens it. Throws on failure.
     async ask(body) {
-      const run = await actions.ask(body);
+      const run = await actions.ask({ ...picked(), ...body });
       app.session.runs.set(run.id, run);
       await app.select(run.id);
       return run;
@@ -208,7 +234,7 @@ export function createApp(opts = {}) {
           // the app uploaded them into the draft already: send it
           let run;
           try {
-            run = await actions.ask({ text: t, toolset: app.toolset, draft: app.draft, files: items.map((a) => a.path) });
+            run = await actions.ask({ text: t, toolset: app.toolset, ...picked(), draft: app.draft, files: items.map((a) => a.path) });
           } catch (e) {
             // the draft is gone (sent from elsewhere, or expired): those chips can't go
             if (/attach them again/.test(e.message)) { att.clear('home'); app.draft = actions.draftKey(); emit('attach'); }
@@ -223,7 +249,7 @@ export function createApp(opts = {}) {
         if (app.sel == null) {
           if (!items.length) {
             clear();
-            const run = await actions.ask({ text: t, toolset: app.toolset });
+            const run = await actions.ask({ text: t, toolset: app.toolset, ...picked() });
             app.session.runs.set(run.id, run);
             await app.select(run.id);
             return;
@@ -231,7 +257,7 @@ export function createApp(opts = {}) {
           // With attachments there is no run to upload into yet: create it held
           // (no message, no drive), upload, then send the message into it.
           const title = t || items.map((a) => a.name).join(', ');
-          const run = await actions.ask({ text: title, toolset: app.toolset, hold: true });
+          const run = await actions.ask({ text: title, toolset: app.toolset, ...picked(), hold: true });
           try {
             const files = await att.upload(base, run.id, place);
             await actions.message(run.id, { text: t, files });
@@ -294,6 +320,8 @@ export function createApp(opts = {}) {
     reset: () => { app.convs.load().catch(() => {}); app.loadNeeds(); },
     frame: opts.frame,
   }, { deltas: opts.deltas, page: opts.page });
+  // picked: a new ask's model field — only when you picked one (none = the agent's default)
+  const picked = () => (app.model ? { model: app.model } : {});
   app.convs = new ConvList({ change: () => emit('list'), epoch: () => app.me.epochMs || 0 });
   // The Automations page; its route() keeps the address of what is open there.
   app.autos = new A({

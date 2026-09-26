@@ -59,6 +59,15 @@ export async function loadToolset() {
 }
 export const saveToolset = (toolset) => xbin.fetch('/api/xbin/prefs/toolset', { method: 'PUT', body: JSON.stringify(toolset) });
 
+// The model a person picks for NEW asks ('' = the agent's default) — the
+// last one they picked anywhere — kept per person like the tool mode.
+export async function loadModelPref() {
+  const r = await xbin.fetch('/api/xbin/prefs/model');
+  const v = r.ok ? await r.json() : '';
+  return typeof v === 'string' ? v : '';
+}
+export const saveModelPref = (model) => xbin.fetch('/api/xbin/prefs/model', { method: 'PUT', body: JSON.stringify(model) });
+
 // --- the conversation list ----------------------------------------------------
 
 export const pin = (convs, r) => convs.patch(r.id, { pinned: !r.pinnedAt });
@@ -103,9 +112,15 @@ export async function joinFrom(text) {
 export const getConfig = () => api('/config');
 export const saveConfig = (c) => api('/config', jbody(c, 'PUT'));
 
-// models: the model ids llm-gw lists (for the tier pickers); throws when it
-// cannot say (no llm-gw backend token).
-export const models = async () => ((await api('/models')).data || []).map((x) => x.id).filter(Boolean);
+// models: the model references the bound LLM providers list (GET /models) —
+// what a tier or a pick stores; throws when it cannot say.
+export const models = async () => ((await api('/models')).data || []).map((x) => x.ref || x.id).filter(Boolean);
+// modelCatalog: the whole answer, for the pickers — {data: [{id, provider,
+// ref}], providers: [{path, ok, error?}], error?} (D111).
+export const modelCatalog = () => api('/models');
+// setRunModel switches a conversation's model from its next turn
+// ('' = back to the agent's default).
+export const setRunModel = (id, model) => api(`/runs/${id}`, jbody({ model }, 'PATCH'));
 
 // features: {keys, features} — the switches there are and which are on.
 // setFeature merges one switch into the current config and saves it; it

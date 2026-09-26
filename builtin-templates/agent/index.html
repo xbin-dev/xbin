@@ -98,6 +98,9 @@
     .chip { font-size: 10px; line-height: 1.5; padding: 0 6px; border-radius: 999px; border: 1px solid var(--bx-border); color: var(--bx-muted); white-space: nowrap; }
     .chip.team, .chip.people { color: var(--bx-accent); border-color: color-mix(in srgb, var(--bx-accent) 50%, var(--bx-border)); }
     .chip.from { color: var(--bx-text); }
+    /* the composer's model picker (model/rules.js modelPicker) */
+    .msel { max-width: 180px; font-size: 12px; padding: 4px 6px; background: var(--bx-panel); color: var(--bx-text);
+            border: 1px solid var(--bx-border); border-radius: 6px; align-self: flex-end; }
     /* the top bar's sharing status (model/rules.js shareStatus) */
     .sharepill.on { color: var(--bx-accent); border-color: color-mix(in srgb, var(--bx-accent) 50%, var(--bx-border)); }
     .sharepill.in { color: var(--bx-text); }
@@ -477,6 +480,7 @@
       <div class="attach" id="attach" hidden></div>
       <div class="composer">
         <button class="btn ghost" id="tset" title="Tool mode for new asks: 🔒 private data (internal systems, no web) / 🌐 web (no internal systems). A run keeps its mode.">🔒</button>
+        <select class="msel" id="msel" title="the model" hidden></select>
         <button class="btn ghost" id="clip" title="Attach files (or drop / paste them) — they land in the run's session files">📎</button>
         <input type="file" id="clipin" multiple hidden>
         <textarea id="msg" rows="1" placeholder="ask anything…" autocomplete="off"></textarea>
