@@ -60,7 +60,7 @@ struct ButtonNodeView: View {
         switch placement {
         case .free, .dock:
             switch role ?? "" {
-            case "primary": button.buttonStyle(.borderedProminent).controlSize(.large)
+            case "primary": button.buttonStyle(.borderedProminent).controlSize(.large).foregroundStyle(XbinColor.onTint)
             case "plain": button.buttonStyle(.borderless)
             default: button.buttonStyle(.bordered).controlSize(.large)
             }

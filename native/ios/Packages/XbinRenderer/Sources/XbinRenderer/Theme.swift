@@ -13,6 +13,15 @@ public enum XbinColor {
     public static let accentText = dynamic(light: XbinPalette.amberTextLight, dark: XbinPalette.amberTextDark)
     /// `onAccent`: text on an amber fill.
     public static let onAccent = Color(uiColor: UIColor(xbinHex: XbinPalette.onAccent))
+    /// The renderer's tint: amber in dark mode, the darkened `accentText`
+    /// amber in light mode — the tint colours text (list buttons, bar items,
+    /// back buttons) as well as fills, and plain amber on white is ≈1.9:1.
+    public static let tint = accentText
+    /// Text on a ``tint`` fill (a prominent button): white on the dark
+    /// amber (4.7:1), `onAccent` on amber (8.3:1).
+    public static let onTint = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark ? UIColor(xbinHex: XbinPalette.onAccent) : UIColor(red: 1, green: 1, blue: 1, alpha: 1)
+    })
     /// The user's chat bubble.
     public static let bubble = dynamic(light: XbinPalette.bubbleLight, dark: XbinPalette.bubbleDark)
 

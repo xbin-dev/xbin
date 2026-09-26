@@ -50,7 +50,10 @@ public struct QuestionView: View {
                         Button("Skip") { onSkip() }.buttonStyle(.bordered)
                     }
                     Spacer()
-                    Button("Submit") { submit() }.buttonStyle(.borderedProminent)
+                    Button("Submit") { submit() }
+                        .buttonStyle(.borderedProminent)
+                        .tint(XbinColor.tint)
+                        .foregroundStyle(XbinColor.onTint)
                 }
                 .controlSize(.large)
             }

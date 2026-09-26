@@ -38,7 +38,7 @@ public struct XbinTreeView: View {
         RootView(model: context.model)
             .environment(\.xbin, context)
             .modifier(ConfirmHostModifier())
-            .tint(XbinColor.amber)
+            .tint(XbinColor.tint)
     }
 }
 

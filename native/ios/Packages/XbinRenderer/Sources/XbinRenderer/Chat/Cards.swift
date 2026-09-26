@@ -179,7 +179,7 @@ public struct ApprovalView: View {
         }
         .controlSize(.large)
         if emphasis == .prominent {
-            button.buttonStyle(.borderedProminent)
+            button.buttonStyle(.borderedProminent).tint(XbinColor.tint).foregroundStyle(XbinColor.onTint)
         } else {
             button.buttonStyle(.bordered)
         }

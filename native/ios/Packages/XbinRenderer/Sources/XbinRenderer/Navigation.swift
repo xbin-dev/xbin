@@ -171,7 +171,7 @@ struct SheetView: View {
                         .presentationDetents(Set(props.detents.map { $0 == .medium ? PresentationDetent.medium : .large }))
                         .environment(\.xbin, context)
                         .modifier(ConfirmHostModifier())
-                        .tint(XbinColor.amber)
+                        .tint(XbinColor.tint)
                 }
         }
     }
