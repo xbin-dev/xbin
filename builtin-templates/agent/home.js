@@ -1,12 +1,11 @@
 // home.js — the home view (no conversation open): the greeting and example
-// asks an instance customises (HOME in agent.js), and what is waiting for you
-// (GET /needs): a question, an approval, an automation that failed.
+// asks an instance customises (HOME, model/home.js), and what is waiting for
+// you (GET /needs): a question, an approval, an automation that failed.
 import { html, nothing } from '/vendor/lit-all.min.js';
-
-const REASON = { question: 'has a question for you', approval: 'wants your approval', failed: 'failed' };
+import { REASON } from './model/home.js';
 
 /**
- * @param HOME   the words (agent.js)
+ * @param HOME   the words (model/home.js)
  * @param needs  GET /needs items
  * @param ui     {pick(example), select(id), mcpBound}
  */

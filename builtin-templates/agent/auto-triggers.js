@@ -1,97 +1,30 @@
-// auto-triggers.js — event triggers on the Automations page (D87): an
+// auto-triggers.js — event triggers on the Automations page (D87), as the web
+// draws them (the state: model/auto-triggers.js): an
 // automation that starts work when something happens — an event on a bus
 // this agent may read, or a push from a tile bound to it (the webhooks tile).
 // Its card and detail (what it takes, where each event goes, whether it is
 // wired up — the grant or binding it still needs — and its recent events),
 // the form, test fire, and pushes no trigger took yet ("create one").
 import { html, nothing } from '/vendor/lit-all.min.js';
-import { selfApi as api, jbody } from '/vendor/bx-kit.js';
-import { registerKind, ago } from './automations.js';
+import { extendKind, KINDS, ago } from './model/auto.js';
+import { st, self, startForm as openForm, closeForm, firewall, save, toggle, test, reset, del as remove, triggerCan, status,
+  wiring as needs, REASONS, MODES } from './model/auto-triggers.js';
 
-const self = () => window.xbin?.self || 'apps/agent';
-const st = { id: 0, events: [], unmatched: [], sessions: [], note: '' };
-let form = null; // the trigger being made or edited
-
-async function open(id) {
-  if (st.id !== id) Object.assign(st, { id, events: [], note: '' });
-  st.events = await api(`/triggers/${id}/events`).then((r) => r.events || []).catch(() => []);
-}
-
-// load: pushes nobody took (managers only — the route says no to others).
-async function load(page) {
-  st.unmatched = await api('/triggers/unmatched').then((r) => r.items || []).catch(() => []);
-  if (form) await loadSessions(page);
-}
-
-// the channel sessions you own — where a trigger may announce its answers
-async function loadSessions(page) {
-  const mine = page.items.filter((i) => i.kind === 'channel' && i.access === 'owner');
-  const lists = await Promise.all(mine.map((c) => api(`/channels/${c.id}/sessions`).then((r) => (r.sessions || [])
-    .map((s) => ({ key: s.key, label: `${c.name} · ${s.key.split(':').slice(2).join(':')}` }))).catch(() => [])));
-  st.sessions = lists.flat();
-}
-
-function startForm(page, it, preset = {}) {
-  const c = (it && it.config) || {};
-  form = {
-    id: it ? it.id : 0, name: c.name || preset.name || '', source: c.source || preset.source || 'push',
-    sourceRef: c.sourceRef || preset.sourceRef || '', match: c.match ?? preset.match ?? '', goal: c.goal || '',
-    mode: c.mode || 'isolated', targetRun: c.targetRun || 0, toolset: c.toolset || 'private', dataClass: c.dataClass || 'private',
-    deliver: c.deliver || '', maxPerHour: c.maxPerHour || 30, visibility: c.visibility || 'private', system: c.system || '',
-  };
-  page.custom = formTpl;
-  page.err = '';
-  page.changed();
-  loadSessions(page).then(() => page.changed());
-}
-
-async function act(page, fn, note = '') {
-  page.err = '';
-  try {
-    const said = await fn();
-    st.note = typeof said === 'string' ? said : note;
-    await page.load();
-  } catch (e) { page.err = e.message; page.changed(); }
-}
-
-async function save(page) {
-  const f = form;
-  const body = { ...f, maxPerHour: +f.maxPerHour || 30, targetRun: +f.targetRun || 0 };
-  delete body.id;
-  page.err = '';
-  try {
-    const tr = f.id ? await api(`/triggers/${f.id}`, jbody(body, 'PUT')) : await api('/triggers', jbody(body, 'POST'));
-    form = null;
-    page.custom = null;
-    await page.load();
-    await page.show('trigger', tr.id);
-  } catch (e) { page.err = e.message; page.changed(); }
-}
-
-const toggle = (it, page) => act(page, () => api(`/triggers/${it.id}`, jbody({ enabled: !it.enabled }, 'PUT')));
-const test = (it, page) => act(page, async () => {
-  const v = await api(`/triggers/${it.id}/test`, jbody({ text: 'a test event from the Automations page' }, 'POST'));
-  return v.accepted ? 'Fired a test event — its run is below.' : `The test event was refused: ${v.reason}.`;
-});
-const reset = (it, page) => act(page, () => api(`/automations/trigger/${it.id}/reset`, { method: 'POST' }), 'Its next event starts a new thread.');
+// The trigger's state and actions are model/auto-triggers.js (shared with the
+// native view); what is drawn here, and the "are you sure?" before a delete.
+const startForm = (page, it, preset = {}) => openForm(page, it, preset, formTpl);
 async function del(it, page) {
   if (!confirm(`Delete "${it.name}"? Its runs stay.`)) return;
-  await act(page, () => api(`/triggers/${it.id}`, { method: 'DELETE' }));
-  page.show(null);
+  await remove(it, page);
 }
 
 // --- views ------------------------------------------------------------------------
 
-const REASONS = {
-  'data-class': 'private data, but this trigger takes public data only', halted: 'the agent was paused',
-  rate: 'over its hourly cap', disabled: 'switched off', 'target-gone': 'its conversation is gone',
-};
-const MODES = { isolated: 'a new run for each event', persistent: 'one ongoing thread', conversation: 'into a conversation' };
-
 function statusBadge(it) {
   const s = it.lastStatus || '';
-  if (s.startsWith('needs-grant')) return html`<span class="badge error" title=${s}>needs a grant</span>`;
-  if (s.startsWith('error')) return html`<span class="badge error" title=${s}>error</span>`;
+  const k = status(it);
+  if (k === 'grant') return html`<span class="badge error" title=${s}>needs a grant</span>`;
+  if (k === 'error') return html`<span class="badge error" title=${s}>error</span>`;
   return nothing;
 }
 
@@ -108,23 +41,24 @@ function card(p, it) {
 }
 
 function head(it, p) {
-  const mine = it.access === 'owner';
-  return html`${mine ? html`<button class="btn ghost btnsm" @click=${() => test(it, p)}>Test</button>` : nothing}
-    ${mine || it.access === 'oversee' ? html`<label class="chk small"><input type="checkbox" .checked=${it.enabled} @change=${() => toggle(it, p)}> on</label>` : nothing}
-    ${mine ? html`<button class="btn ghost btnsm" @click=${() => startForm(p, it)}>Edit</button>` : nothing}
-    ${mine && it.mode === 'persistent' ? html`<button class="btn ghost btnsm" @click=${() => reset(it, p)}>Start afresh</button>` : nothing}
-    ${mine || it.access === 'oversee' ? html`<button class="btn rm btnsm" @click=${() => del(it, p)}>Delete</button>` : nothing}`;
+  const can = triggerCan(it);
+  return html`${can.test ? html`<button class="btn ghost btnsm" @click=${() => test(it, p)}>Test</button>` : nothing}
+    ${can.toggle ? html`<label class="chk small"><input type="checkbox" .checked=${it.enabled} @change=${() => toggle(it, p)}> on</label>` : nothing}
+    ${can.edit ? html`<button class="btn ghost btnsm" @click=${() => startForm(p, it)}>Edit</button>` : nothing}
+    ${can.reset ? html`<button class="btn ghost btnsm" @click=${() => reset(it, p)}>Start afresh</button>` : nothing}
+    ${can.del ? html`<button class="btn rm btnsm" @click=${() => del(it, p)}>Delete</button>` : nothing}`;
 }
 
 // wiring says what the trigger still needs from outside the agent.
 function wiring(it) {
   const c = it.config || {};
-  if (c.source === 'bus' && (it.lastStatus || '').startsWith('needs-grant')) {
+  const w = needs(it);
+  if (w === 'grant') {
     return html`<div class="note small">This agent may not read <code>${c.sourceRef}</code> yet. Add to its <code>xbin.json</code>
       <code>uses</code>: <code>{ "target": "${c.sourceRef}", "role": "reader" }</code>, and approve it (the grants panel, or
       <code>bx grant</code>). <span class="muted">${it.lastStatus}</span></div>`;
   }
-  if (c.source === 'push') {
+  if (w === 'push') {
     return html`<div class="muted small">Pushes come from <code>${c.sourceRef}</code> once it is bound to this agent:
       <code>bx bind ${c.sourceRef} agents=${self()}</code>.</div>`;
   }
@@ -133,7 +67,7 @@ function wiring(it) {
 
 function detail(it, p) {
   const c = it.config || {};
-  if (it.access === 'oversee') return html`<div class="muted small">${it.summary}</div>`;
+  if (triggerCan(it).oversee) return html`<div class="muted small">${it.summary}</div>`;
   return html`<div class="muted small">when ${it.summary} · ${c.toolset === 'web' ? 'web lane' : 'internal lane'} · takes ${c.dataClass} data
       ${c.deliver ? html` · announces to <code>${c.deliver}</code>` : nothing}
       ${c.mode === 'conversation' && c.targetRun ? html` · <a @click=${() => p.on.select(c.targetRun)}>its conversation</a>` : nothing}</div>
@@ -158,14 +92,12 @@ function listExtra(p) {
 }
 
 function formTpl(p) {
-  const f = form;
+  const f = st.form;
   const set = (k) => (e) => { f[k] = e.target.type === 'checkbox' ? e.target.checked : e.target.value; p.changed(); };
   const opt = (k, v, label, dis = false) => html`<option value=${v} ?selected=${f[k] === v} ?disabled=${dis}>${label}</option>`;
-  const outward = f.toolset === 'web' || !!f.deliver;
-  if (f.source === 'bus') f.dataClass = 'private';
-  const clash = outward && f.dataClass === 'private';
+  const { clash } = firewall(f);
   return html`<div class="autos-page">
-    <div class="ahd"><a class="crumb" @click=${() => { form = null; p.custom = null; p.changed(); }}>Automations</a> ›
+    <div class="ahd"><a class="crumb" @click=${() => closeForm(p)}>Automations</a> ›
       <b>${f.id ? 'Edit trigger' : 'New trigger'}</b></div>
     ${p.err ? html`<div class="err">${p.err}</div>` : nothing}
     <div class="row2">
@@ -207,8 +139,4 @@ function formTpl(p) {
   </div>`;
 }
 
-registerKind('trigger', {
-  label: 'Triggers', order: 3, card, head, detail, open, load, listExtra,
-  create: { label: 'New trigger', start: (p) => startForm(p, null) },
-  empty: 'none — a trigger starts work when a bus event or a push from a bound tile arrives',
-});
+extendKind('trigger', { card, head, detail, listExtra, create: { ...KINDS.get('trigger').create, start: (p) => startForm(p, null) } });

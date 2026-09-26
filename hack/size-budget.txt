@@ -21,8 +21,9 @@ internal/broker/orgsapi.go 820
 # JS / HTML (shipped + harness)
 workspace-template/tiles/admin/admin.js 318
 # the agent template's control tile entry: instances fork it and merge template updates by
-# git (D50), so the file keeps its name; the chat lives in sibling modules (chat-*.js)
-builtin-templates/agent/agent.js 1165
+# git (D50), so the file keeps its name; the chat lives in sibling modules (chat-*.js), the
+# state and behaviour in model/ (shared with the native view)
+builtin-templates/agent/agent.js 1016
 workspace-template/shell/bx-shell.js 1892
 workspace-template/apps/welcome/notes.js 1050
 # the harness passes: one function per feature; split into passes/*.js past this
