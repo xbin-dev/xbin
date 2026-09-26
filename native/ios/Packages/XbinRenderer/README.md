@@ -15,19 +15,25 @@ Sources/XbinRendererModel/   Foundation + Observation + XbinCore — builds and 
   Chart.swift                chart data + the reference renderer's axis labels
   QuestionForm.swift         a flat JSON Schema → form fields → the answer
   ChatModels.swift, Diff.swift  the chat family's plain view models
-  ScreenLayout.swift, Layout.swift  screen/list/sheet/tabs splitting, flow layout, nav path, date values
+  ScreenLayout.swift, Layout.swift  screen/list/sheet/drawer/tabs/split/toolbar splitting, drawer
+                             metrics, flow layout, nav path, date values
+  TextInput.swift            TextInputGate: controlled text under IME composition (tree.md §6)
+  TextBreaks.swift           long identifiers wrap at characters, not hyphenated
+  Preview.swift              Quick Look file names from an image's bytes
   Fixtures.swift             native/fixtures → TreeStore (previews, snapshots, tests)
 Sources/XbinRenderer/        SwiftUI + UIKit (iOS 26), every file under #if canImport(UIKit)
   XbinTreeView.swift         the entry point and the per-primitive dispatch
   Environment.swift          XbinServices (what the app provides), options, context, confirm host
-  Screen.swift, Navigation.swift, Structure.swift, Rows.swift
+  Screen.swift, Navigation.swift, Structure.swift, Rows.swift   (drawers: Navigation.swift DrawerLayer)
   Content.swift, MarkdownView.swift, ChartView.swift, Controls.swift, Field.swift
+  TextInput.swift            the IME-aware UITextField/UITextView wrappers (field, composer)
+  Images.swift               XbinImages (per-tree loading + cache), Quick Look, message thumbnails
   Chat/                      TranscriptView, MessageView, ThinkingView, ToolCardView, ApprovalView,
                              QuestionView, PlanView, DiffView, ActivityView, StepView, ComposerView
                              (public) and their tree adapters (ChatNodes.swift)
   Previews.swift             XbinFixturePreview + a #Preview per fixture
 Tests/XbinRendererModelTests/  Linux: the model against vocab.json, the fixtures and the reference renderer
-Tests/XbinRendererTests/       Apple CI: SnapshotTests (PNG per fixture × light/dark × default/AX2)
+Tests/XbinRendererTests/       Apple CI: SnapshotTests (PNG per fixture × light/dark × default/large/ax2)
 ```
 
 ## Using it
@@ -69,4 +75,11 @@ drift. The views are
 compiled, and the snapshots written, only by the Apple CI
 (`native/ios/scripts/ci-snapshots.sh`: `xcodebuild test` on a simulator with
 `TEST_RUNNER_SNAPSHOT_DIR`, seen by the tests as `SNAPSHOT_DIR`). PNGs are
-`<fixture>-<light|dark>-<default|large>.png`; nothing is compared.
+`<fixture>-<light|dark>-<default|large|ax2>.png`; nothing is compared.
+
+Images: `XbinTreeView` puts an `XbinImages` in the environment
+(`\.xbinImages`) built from `services.imageData`; `image` elements and
+message thumbnails load through it (`data:` sources are decoded without
+it). The app's own screens can set one to get thumbnails in
+`MessageView`. The iPhone Duo's `ArrangementView` (split) compiles only
+with `-DXBIN_SDK_27_1`, off until the 27.1 SDK confirms its names.

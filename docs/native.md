@@ -231,6 +231,13 @@ the value and re-render:
   typing costs one event per keystroke and nothing back.
 - **Resets work.** A render with a *different* value is applied, focused
   field included (`draft = ''` after sending; a tile refusing a toggle).
+- **Input methods are respected.** While the user composes text with an
+  input method (a Japanese reading before its kanji are chosen, a Korean
+  syllable being built), a `field` or `composer` reports nothing; the
+  committed text arrives as one `@input`. A value you set meanwhile is
+  applied when the composition ends, replacing what was being composed —
+  so normalizing what you receive (full-width digits to ASCII, say) is
+  safe.
 - **A bound prop with no listener is read-only**: the user's change is
   undone by your next render.
 
@@ -296,8 +303,9 @@ diagnostic (§Checking it) — the render goes on.
   `@appear` fires each time the screen comes on screen.
 - **`row`**: `detail` is the trailing value, `nav` shows a disclosure
   chevron (push your detail screen on `@tap`), `mono` picks the monospaced
-  text. An `actions` child becomes the row's swipe actions and context menu;
-  other children draw under the row (a spark chart, a progress bar).
+  text. An `actions` child becomes the row's swipe actions, its context
+  menu and a trailing ⋯ menu; other children draw under the row (a spark
+  chart, a progress bar).
 - **`tabs`** builds only the selected `tab`'s content; a `tab`'s `key` is its
   prop, matched against `selected`.
 - **`sheet`** is modal over everything. Bind `open` and clear your state in
@@ -305,7 +313,10 @@ diagnostic (§Checking it) — the render goes on.
   a two-root template. In the sheet's own `toolbar`, the first `plain`
   button is its cancel: it takes the close button's place at the leading
   end (close the sheet in its `@tap`), and the other items sit at the
-  trailing end.
+  trailing end. `edge="leading"` makes it a **drawer** instead (a
+  conversation list): it slides in from the leading edge over the screen,
+  bar included, above a dimmed backdrop, and `@dismiss` fires when the
+  user taps or swipes the backdrop away; `detents` don't apply.
 - **`split`** is list/detail — exactly two children, side by side on wide
   screens and stacked when compact. Never for transcripts or terminals.
 
@@ -404,8 +415,11 @@ The app draws these with the same components as its own agent screen.
 - **`message`**: `role` is `user` (a bubble), `assistant` or `system`;
   `markdown` makes `text` markdown (§Markdown); set `streaming` while it
   grows; `time` is ms since the epoch or a string; `files` are
-  `[{name, mime, src}]`; `queued` marks a message not yet sent. An `actions`
-  child adds its buttons to the message.
+  `[{name, mime, src}]` — an image with a `src` shows as a thumbnail the
+  app loads like an `image` (tap: a full-screen preview), anything else
+  as a chip with its name; `queued` marks a message not yet sent. An
+  `actions` child folds behind a ⋯ under the message (and its context
+  menu on the web preview), however many buttons it holds.
 - **`thinking`** shimmers while `live` and folds to "Thought for Ns"
   (`seconds`). **`toolcard`**: `state` is `writing`·`running`·`ok`·`error`·`canceled`;
   its children (the call's code, output, a diff, a nested `transcript` for a
@@ -576,7 +590,8 @@ renders natively — web and iOS agree on what a document is:
   backend: an external URL is not a tile resource.
 - Image bytes never cross the bridge between your code and the app.
 - `aspect` `fit`·`fill`, `height` a token; `preview` opens a full-screen
-  view on tap, and `@tap` fires as well when you listen.
+  view on tap (Quick Look on iOS: zoom, share, save), and `@tap` fires as
+  well when you listen.
 
 ## Security rules
 
