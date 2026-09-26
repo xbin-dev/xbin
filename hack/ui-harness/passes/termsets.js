@@ -33,7 +33,10 @@ async function termSets(browser) {
     await openShell(page);
     await usePersonalScreen(page);
     await openTile(page, 'apps/crawler');
-    await page.locator('.card[data-path="apps/crawler"] button.term').click();
+    // open() rather than the ⌨ toggle: a reused workspace may restore the
+    // pane already open, and a click would close it. First open shows the
+    // launcher, not a shell (D75) — start one.
+    await fr(page, 'apps/crawler', (f) => { f.open(); if (!f.tabs.length) f.newTerm(); });
     // the picker renders the classic three until the session frame lands (org appears then)
     await page.locator('bx-frame[src="apps/crawler"] select.scope option[value="org"]').first().waitFor({ state: 'attached', timeout: 20000 });
     let s = await pickerState(page);
@@ -52,7 +55,8 @@ async function termSets(browser) {
     await dumpSelects(page, 'term-admin-crawler-set-selects', 'bx-frame select.scope');
     await pick(page, 'org');
     await waitSel(page, 'bx-frame[src="apps/crawler"] bx-terminal[net="org"]', { state: 'attached', timeout: 20000 });
-    await fr(page, 'apps/crawler', (f) => f?.closeTerminal());
+    // end the session (not just hide the pane) so a rerun starts from no terminal
+    await fr(page, 'apps/crawler', (f) => { while (f?.tabs.length) f.closeTab(0); });
     await settle(page);
 
     // Binding half (the API): covered ok, uncovered 400, provider-only 400,
