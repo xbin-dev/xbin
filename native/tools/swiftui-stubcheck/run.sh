@@ -18,8 +18,8 @@ out=${1:-${TMPDIR:-/tmp}/xbin-swiftui-stubcheck}
 pkg=$repo/native/ios/Packages/XbinRenderer
 
 mkdir -p "$out/Sources"
-rm -rf "$out/Sources/SwiftUI" "$out/Sources/UIKit" "$out/Sources/Charts" "$out/Sources/XbinRendererModel" "$out/Sources/XbinRendererCheck"
-cp -R "$here/Stubs/SwiftUI" "$here/Stubs/UIKit" "$here/Stubs/Charts" "$out/Sources/"
+rm -rf "$out/Sources/SwiftUI" "$out/Sources/UIKit" "$out/Sources/Charts" "$out/Sources/QuickLook" "$out/Sources/XbinRendererModel" "$out/Sources/XbinRendererCheck"
+cp -R "$here/Stubs/SwiftUI" "$here/Stubs/UIKit" "$here/Stubs/Charts" "$here/Stubs/QuickLook" "$out/Sources/"
 cp -R "$pkg/Sources/XbinRendererModel" "$out/Sources/"
 mkdir -p "$out/Sources/XbinRendererCheck"
 if [ "$strict" = 1 ]; then
@@ -28,17 +28,22 @@ if [ "$strict" = 1 ]; then
   rm -f "$out/Sources/SwiftUI/State.swift.orig"
 fi
 
+# unguard FILE: the file without its `#if canImport(UIKit)` guard (the
+# first such line and the file's last `#endif`; other #if blocks stay).
+unguard() {
+  awk '{ l[NR] = $0; if ($0 == "#endif") last = NR; if (!first && $0 == "#if canImport(UIKit)") first = NR }
+       END { for (i = 1; i <= NR; i++) if (i != first && i != last) print l[i] }' "$1"
+}
 # The views: guards and #Preview macros dropped (no macros here).
 (cd "$pkg/Sources/XbinRenderer" && find . -name '*.swift' ! -name Exports.swift) | while read -r f; do
   name=$(printf '%s' "$f" | sed 's|^\./||; s|/|_|g')
-  sed -e '/^#if canImport(UIKit)$/d' -e '/^#endif$/d' -e '/^#Preview/,/^}$/d' \
-    "$pkg/Sources/XbinRenderer/$f" >"$out/Sources/XbinRendererCheck/$name"
+  unguard "$pkg/Sources/XbinRenderer/$f" | sed -e '/^#Preview/,/^}$/d' >"$out/Sources/XbinRendererCheck/$name"
 done
 # The snapshot tests, as plain functions (no Testing module here).
-sed -e '/^#if canImport(UIKit)$/d' -e '/^#endif$/d' -e 's/^import Testing$//' -e 's/^import XbinRenderer$//' \
+unguard "$pkg/Tests/XbinRendererTests/SnapshotTests.swift" | sed -e 's/^import Testing$//' -e 's/^import XbinRenderer$//' \
   -e 's/^@Suite struct/struct/' -e 's/^    @Test func/    func/' \
   -e 's/try #require(\(.*\), "native\/fixtures not found")/\1!/' -e 's/#expect(/check(/' \
-  "$pkg/Tests/XbinRendererTests/SnapshotTests.swift" >"$out/Sources/XbinRendererCheck/SnapshotTests.swift"
+  >"$out/Sources/XbinRendererCheck/SnapshotTests.swift"
 printf 'func check(_ c: Bool, _ m: @autoclosure () -> String = "") {}\n' >>"$out/Sources/XbinRendererCheck/SnapshotTests.swift"
 
 cat >"$out/Package.swift" <<EOF
@@ -53,9 +58,10 @@ let package = Package(
         .target(name: "UIKit"),
         .target(name: "SwiftUI", dependencies: ["UIKit"]),
         .target(name: "Charts", dependencies: ["SwiftUI"]),
+        .target(name: "QuickLook", dependencies: ["SwiftUI"]),
         .target(name: "XbinRendererModel", dependencies: [.product(name: "XbinCore", package: "XbinCore")]),
         .target(name: "XbinRendererCheck", dependencies: [
-            "SwiftUI", "UIKit", "Charts", "XbinRendererModel", .product(name: "XbinCore", package: "XbinCore"),
+            "SwiftUI", "UIKit", "Charts", "QuickLook", "XbinRendererModel", .product(name: "XbinCore", package: "XbinCore"),
         ]),
     ]
 )
@@ -63,3 +69,7 @@ EOF
 cd "$out" && swift build
 # …and the snapshot tests as the hosted XbinSnapshotTests compile them.
 swift build -Xswiftc -DXBIN_SNAPSHOT_HOST
+# …and the views as an iOS 27.1 SDK build would (XBIN_SDK_27_1: the iPhone
+# Duo's ArrangementView, stubbed from the design — its real names are
+# unconfirmed).
+swift build -Xswiftc -DXBIN_SDK_27_1
