@@ -272,6 +272,23 @@ test('the native view\'s options: drafts as deltas, the open conversation in pag
   const again = calls.filter((c) => c.url.includes('/stream?')).pop().url;
   assert.match(again, /run=5&since=g\.\d+&deltas=1/, 'it reconnects from its cursor');
   assert.equal(app.session.shown().blocks.find((b) => b.k === 'draft').text, 'Hello', 'the misfit is not appended');
+
+  // a tool call's arguments stream as tool.delta, per call index
+  await until(() => streams.size === before + 1);
+  push({ type: 'tool', run: 5, root: 5, ts: 1004, data: { index: 0, id: 'c1', name: 'file_write', args: '{"path":' } });
+  push({ type: 'tool.delta', run: 5, root: 5, ts: 1005, data: { index: 0, delta: '"a.txt"', at: 8 } });
+  push({ type: 'tool', run: 5, root: 5, ts: 1006, data: { index: 1, id: 'c2', name: 'shell', args: '' } });
+  push({ type: 'tool.delta', run: 5, root: 5, ts: 1007, data: { index: 1, delta: '{"cmd":"ls"}', at: 0 } });
+  push({ type: 'tool.delta', run: 5, root: 5, ts: 1008, data: { index: 0, delta: '}', at: 15 } });
+  await until(() => app.session.shown().blocks.filter((b) => b.k === 'tool' && b.state === 'writing').map((b) => b.args).join(' ') === '{"path":"a.txt"} {"cmd":"ls"}');
+  const tools = app.session.shown().blocks.filter((b) => b.k === 'tool');
+  assert.deepEqual(tools.map((b) => [b.name, b.callId]), [['file_write', 'c1'], ['shell', 'c2']], 'the calls keep their id and name');
+  const asked = calls.filter((c) => c.url.includes('/stream?')).length;
+  push({ type: 'tool.delta', run: 5, root: 5, data: { index: 0, delta: 'x', at: 3 } }); // does not fit
+  push({ type: 'tool.delta', run: 5, root: 5, data: { index: 7, delta: 'x', at: 0 } }); // a call it never saw
+  await until(() => calls.filter((c) => c.url.includes('/stream?')).length >= asked + 1);
+  assert.equal(app.session.shown().blocks.find((b) => b.callId === 'c1').args, '{"path":"a.txt"}', 'the misfit is not appended');
+  assert.ok(!app.session.shown().blocks.some((b) => b.id === 'draft-tool-7'), 'nor is a delta for a call it never saw');
   app.session.live.close();
 });
 

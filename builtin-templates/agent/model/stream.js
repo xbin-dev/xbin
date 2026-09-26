@@ -19,8 +19,9 @@ export class Live {
   /**
    * @param {string} base      this backend's prefix (/api/<self>)
    * @param {object} on        {event(ev), reset(), state(s)} — s: live | reconnecting
-   * @param {object} opts      {deltas}: ask for text.delta / thinking.delta (API.md
-   *                           "Deltas") instead of the whole draft text every time
+   * @param {object} opts      {deltas}: ask for text.delta / thinking.delta / tool.delta
+   *                           (API.md "Deltas") instead of the whole draft text (a tool
+   *                           call's whole arguments) every time
    */
   constructor(base, on, opts = {}) {
     this.base = base;

@@ -108,7 +108,7 @@ llm-gw's logs. Give team members `read` on the tile.
 | `POST /ask` | `{text, toolset?, hold?}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately (`hold`: see Attachments) |
 | `GET /runs/{id}` | — | run detail: `{run, messages, steps, memory, config, files, draft, messageFiles, slots, queued}` (`draft` = live streaming text; `files` is session-file METADATA only; `messageFiles` = `{msgId: [path…]}`, the files each user message carried; `slots` = `{active, limit}` model calls in flight; `queued` = messages not yet delivered) |
 | `GET /runs/{id}/view` | — | the run as the chat draws it, plus a stream cursor — see **The live view**. `?limit=&before=` pages it, newest first — see **Paging the view** |
-| `GET /stream?run=&since=` · `GET /runs/{id}/stream?since=` | — | SSE: run-list changes plus the whole tree of `run` — see **The live view**. `&deltas=1`: draft text as appended pieces |
+| `GET /stream?run=&since=` · `GET /runs/{id}/stream?since=` | — | SSE: run-list changes plus the whole tree of `run` — see **The live view**. `&deltas=1`: draft text and tool-call arguments as appended pieces |
 | `DELETE /runs/{id}` | — | delete a run, its history, and every subagent run below it |
 | `POST /runs/{id}/message` | `{text, files?, clientId?}` | send a user message → `{inboxId, queued}`. An idle, finished or failed run starts a new turn; a working run gets it at its next step (`queued:true`). A retried post with the same `clientId` is stored once. `files` names session files (normally just uploaded) the message carries — each must exist, or **400** and nothing is written. `text` may be empty when `files` is not |
 | `DELETE /runs/{id}/inbox/{iid}` | — | take back a queued message; **409** once the agent has it |
@@ -176,7 +176,7 @@ The stream is Server-Sent Events, `data:` a JSON `{type, run, root, seq, data}`:
 | `inbox` | `{queued}` — the run's undelivered messages |
 | `link` | a subagent link changed (spawned, phase, settled, delivered) |
 | `thinking` · `text` · `tool` | a model call in flight: the ACCUMULATED reasoning, answer text, or `{index, id, name, args}` of a tool call being written |
-| `thinking.delta` · `text.delta` | only with `deltas=1`: `{delta, at}` — text appended to that draft (see **Deltas** below) |
+| `thinking.delta` · `text.delta` · `tool.delta` | only with `deltas=1`: `{delta, at}` — text appended to that draft; `tool.delta` is `{index, delta, at}`, appended to that tool call's `args` (see **Deltas** below) |
 | `draft.end` | that call finished (its message follows as `message`) |
 | `reset` | the cursor is from another process or too old: re-read `/view` |
 | `bye` | this process is handing over: reconnect at once, the successor answers |
@@ -190,17 +190,21 @@ latest text, not every token.
 **Deltas.** With `&deltas=1` the stream sends what a draft APPENDED instead of
 the whole text so far: `text.delta` / `thinking.delta` with
 `{delta, at}` — `delta` goes on the end of the text you hold, and `at` is that
-text's length in UTF-16 code units (a JS string's `.length`) before it. The
-first draft event of a run on a connection, and any that does not simply
-extend what the connection wrote (a new model call, a rewritten text), still
-comes as the full `text` / `thinking` event, which always replaces;
-`draft.end` and `reset` start that over, and a new connection sends every
-live draft in full. So a client handles both forms, and when its text's
-length is not `at` (it replaced the draft from a `/view` meanwhile, say) it
-reconnects the stream. `tool` events are unchanged. `hello` carries
-`deltas: true` when the backend honours the flag — an older one ignores it
-and sends full text, which such a client handles anyway. Without the flag
-nothing changes.
+text's length in UTF-16 code units (a JS string's `.length`) before it. A tool
+call being written streams the same way, per call: `tool.delta` with
+`{index, delta, at}` appends to the `args` of the call at `index` (its `id`
+and `name` are what the last full `tool` event said). The first draft event of
+a run (or of a tool call) on a connection, and any that does not simply
+extend what the connection wrote (a new model call, a rewritten text, a new
+`id` or `name` at that index), still comes as the full `text` / `thinking` /
+`tool` event, which always replaces; `draft.end` and `reset` start that over,
+and a new connection sends every live draft in full. So a client handles both
+forms, and when what it holds is not `at` long (it replaced the draft from a
+`/view` meanwhile, or holds no call at that index) it reconnects the stream.
+`hello` carries `deltas: true` when the backend honours the flag — an older
+one ignores it and sends full text, which such a client handles anyway (a
+backend from before `tool.delta` sends `tool` events whole, which a client
+also handles). Without the flag nothing changes.
 
 ### Paging the view
 

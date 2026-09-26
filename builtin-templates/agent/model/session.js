@@ -163,7 +163,7 @@ export class Session {
       case 'text': case 'thinking': case 'tool':
         this.draft(ev);
         break;
-      case 'text.delta': case 'thinking.delta':
+      case 'text.delta': case 'thinking.delta': case 'tool.delta':
         this.delta(ev);
         break;
       case 'draft.end':
@@ -191,11 +191,20 @@ export class Session {
   }
 
   // delta appends what a draft added (API.md "Deltas"): `at` is the length
-  // the text had before it. A delta that does not fit what is held (a view
-  // replaced the draft meanwhile, an event was coalesced away) reconnects the
-  // stream, which then sends every live draft in full.
+  // the text (a tool call's arguments) had before it. A delta that does not
+  // fit what is held (a view replaced the draft meanwhile, an event was
+  // coalesced away) reconnects the stream, which then sends every live draft
+  // in full.
   delta(ev) {
     const x = ev.data || {};
+    if (ev.type === 'tool.delta') {
+      const d = this.drafts.get(ev.run);
+      const t = d && d.tools[x.index];
+      if (!t || (t.args || '').length !== x.at) { this.live.resync(); return; }
+      d.tools[x.index] = { ...t, args: (t.args || '') + (x.delta || '') };
+      if (d.thinkStart && !d.thinkEnd) d.thinkEnd = ev.ts;
+      return;
+    }
     const field = ev.type === 'text.delta' ? 'text' : 'thinking';
     let d = this.drafts.get(ev.run);
     if (!d && x.at === 0) d = { text: '', thinking: '', tools: {}, thinkStart: 0, thinkEnd: 0 };

@@ -251,3 +251,152 @@ func TestStreamDeltasFromTheEngine(t *testing.T) {
 		t.Fatalf("rebuilt drafts: %v", cur)
 	}
 }
+
+func toolEv(run int64, index int, id, name, args string) *Event {
+	return &Event{Type: evToolArgs, Run: run, Root: run, key: "tool:" + itoa(run) + ":" + itoa(int64(index)),
+		Data: map[string]any{"index": index, "id": id, "name": name, "args": args}}
+}
+
+// applyTool is what a deltas client does with a tool-call draft event: a full
+// `tool` event replaces the call's arguments, a `tool.delta` appends at `at`.
+func applyTool(t *testing.T, cur map[string]string, ev *Event) {
+	t.Helper()
+	b, _ := json.Marshal(ev)
+	var wire struct {
+		Type string `json:"type"`
+		Run  int64  `json:"run"`
+		Data struct {
+			Index int     `json:"index"`
+			Args  *string `json:"args"`
+			Delta string  `json:"delta"`
+			At    int     `json:"at"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(b, &wire); err != nil {
+		t.Fatal(err)
+	}
+	key := fmt.Sprintf("%d:%d", wire.Run, wire.Data.Index)
+	switch wire.Type {
+	case evToolArgs:
+		cur[key] = *wire.Data.Args
+	case evToolArgs + ".delta":
+		have := cur[key]
+		if n := len(utf16.Encode([]rune(have))); n != wire.Data.At {
+			t.Fatalf("tool %s: delta at %d but the client holds %d units (%q)", key, wire.Data.At, n, have)
+		}
+		cur[key] = have + wire.Data.Delta
+	default:
+		t.Fatalf("not a tool event: %s", wire.Type)
+	}
+}
+
+// A tool call's arguments stream as deltas per call index; a new id or name
+// (another call at that index), rewritten arguments, draft.end and reset all
+// send the call whole again.
+func TestToolDeltaRewrite(t *testing.T) {
+	s := deltaState{}
+	cur := map[string]string{}
+	step := func(ev *Event, wantType string) map[string]any {
+		t.Helper()
+		out := s.rewrite(ev)
+		if out.Type != wantType {
+			t.Fatalf("event %v → %s, want %s", ev.Data, out.Type, wantType)
+		}
+		applyTool(t, cur, out)
+		d := ev.Data.(map[string]any)
+		if key := fmt.Sprintf("%d:%v", ev.Run, d["index"]); cur[key] != d["args"] {
+			t.Fatalf("client holds %q, the call's arguments are %q", cur[key], d["args"])
+		}
+		return out.Data.(map[string]any)
+	}
+	step(toolEv(7, 0, "c1", "file_write", ""), "tool") // the call starts: whole, carries id and name
+	if d := step(toolEv(7, 0, "c1", "file_write", `{"path":`), "tool.delta"); d["delta"] != `{"path":` || d["at"] != 0 || d["index"] != 0 {
+		t.Fatalf("first piece: %v", d)
+	}
+	if d := step(toolEv(7, 0, "c1", "file_write", `{"path":"é😀`), "tool.delta"); d["at"] != 8 {
+		t.Fatalf("second piece: %v", d)
+	}
+	if d := step(toolEv(7, 0, "c1", "file_write", `{"path":"é😀.txt"`), "tool.delta"); d["at"] != 12 {
+		t.Fatalf("offsets are UTF-16 units: %v", d)
+	}
+	if _, ok := step(toolEv(7, 0, "c1", "file_write", `{"path":"é😀.txt","content":"x"`), "tool.delta")["id"]; ok {
+		t.Fatal("a delta carries no id or name: they did not change")
+	}
+	step(toolEv(7, 1, "c2", "shell", `{"cmd"`), "tool") // another index: its own
+	step(toolEv(7, 1, "c2", "shell", `{"cmd":"ls"}`), "tool.delta")
+	step(toolEv(7, 0, "c1", "file_write", `{"path":"b"}`), "tool")  // rewritten, not extended
+	step(toolEv(7, 0, "c3", "file_write", `{"path":"b"}!`), "tool") // a new id at that index
+	step(toolEv(7, 0, "c3", "file_read", `{"path":"b"}!!`), "tool") // a new name
+	step(toolEv(8, 0, "c9", "shell", `{`), "tool")                  // runs are independent
+	if out := s.rewrite(textEv(7, "hi", 1)); out.Type != evText {   // …and kinds
+		t.Fatalf("text: %s", out.Type)
+	}
+	step(toolEv(7, 0, "c3", "file_read", `{"path":"b"}!!!`), "tool.delta")
+
+	// draft.end forgets that run's calls (and only that run's)
+	s.rewrite(&Event{Type: evDraftEnd, Run: 7, Root: 7})
+	step(toolEv(7, 0, "c3", "file_read", `{"path":"b"}!!!!`), "tool")
+	step(toolEv(7, 1, "c2", "shell", `{"cmd":"ls"}+`), "tool")
+	step(toolEv(8, 0, "c9", "shell", `{"x`), "tool.delta")
+	s.rewrite(&Event{Type: evReset})
+	step(toolEv(8, 0, "c9", "shell", `{"x"`), "tool")
+}
+
+// Through the handler, with the engine's draft: a call in flight at connect
+// arrives whole, what the model appends arrives as tool.delta, and a client
+// without the flag gets the whole arguments every time.
+func TestStreamToolDeltasOverSSE(t *testing.T) {
+	db := newTestDB(t)
+	ag := newTestAgent(t, db)
+	useGlobalAgent(t, ag)
+	id, _ := db.createRun("t", "", 0)
+	h := ag.eng.hub
+	reset := func() {
+		ag.eng.mu.Lock()
+		ag.eng.drafts[id] = &draft{Run: id, Model: "m", Started: 1, Tools: map[int]*draftTool{
+			0: {Index: 0, ID: "c1", Name: "file_write", Args: `{"path"`}}, root: id}
+		ag.eng.mu.Unlock()
+	}
+	reset()
+	t.Cleanup(func() {
+		ag.eng.mu.Lock()
+		delete(ag.eng.drafts, id)
+		ag.eng.mu.Unlock()
+	})
+	script := []string{`{"path":"a.txt"`, `{"path":"a.txt","content":"`, `{"path":"a.txt","content":"😀 done"}`}
+	run := func(target string) ([]string, map[string]string) {
+		cur := map[string]string{}
+		next := 0
+		var types []string
+		readSSEAt(t, target, func(evs []Event) bool {
+			ev := evs[len(evs)-1]
+			if ev.Type != evToolArgs && ev.Type != evToolArgs+".delta" {
+				return false
+			}
+			types = append(types, ev.Type)
+			applyTool(t, cur, &ev)
+			if next == len(script) {
+				return true
+			}
+			h.publish(toolEv(id, 0, "c1", "file_write", script[next]))
+			next++
+			return false
+		})
+		return types, cur
+	}
+	types, cur := run(fmt.Sprintf("/stream?run=%d&deltas=1", id))
+	if got := strings.Join(types, " "); got != "tool tool.delta tool.delta tool.delta" {
+		t.Fatalf("deltas stream: %s", got)
+	}
+	if cur[itoa(id)+":0"] != script[len(script)-1] {
+		t.Fatalf("rebuilt %q", cur[itoa(id)+":0"])
+	}
+	reset()
+	types, cur = run(fmt.Sprintf("/stream?run=%d", id))
+	if got := strings.Join(types, " "); got != "tool tool tool tool" {
+		t.Fatalf("a client without the flag: %s", got)
+	}
+	if cur[itoa(id)+":0"] != script[len(script)-1] {
+		t.Fatalf("full client holds %q", cur[itoa(id)+":0"])
+	}
+}
