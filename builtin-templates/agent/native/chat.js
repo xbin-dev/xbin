@@ -209,14 +209,14 @@ export function chatScreen(v) {
       <menu icon="ellipsis" label="More">${runMenu(v, t)}</menu>
     </toolbar>
     <transcript follow ?older=${s.hasOlder} @more=${() => app.session.loadOlder().catch(fail)}>
-      ${ui.err ? html`<notice tone="danger" text=${ui.err}/>` : nothing}
-      ${app.halted ? html`<notice tone="warn" title="Halted" text="Every run of this agent is stopped until a manager resumes it."/>` : nothing}
       ${s.olderHidden ? html`<notice tone="muted" text="earlier turns were compacted into the summary"/>` : nothing}
       ${repeat(s.blocks, (b) => b.id, (b) => blockTpl(b))}
       ${r.status === 'waiting_input' && ps.kind === 'approval' ? approvalTpl(ps.toolCalls, r.id) : nothing}
       ${r.status === 'waiting_input' && ps.kind !== 'approval' && r.result ? questionTpl(r) : nothing}
       ${s.activity ? html`<activity live text=${s.activity}/>` : nothing}
       ${s.conn === 'reconnecting' ? html`<notice tone="warn" text="live updates lost — reconnecting…"/>` : nothing}
+      ${app.halted ? html`<notice tone="warn" title="Halted" text="Every run of this agent is stopped until a manager resumes it."/>` : nothing}
+      ${ui.err ? html`<notice tone="danger" text=${ui.err}/>` : nothing}
     </transcript>
     ${composerTpl(v, t)}
   </screen>`;

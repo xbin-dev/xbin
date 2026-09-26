@@ -570,3 +570,16 @@ test('live updates lost: the chat says it is reconnecting', async () => {
   const r = await run(seed, [{ wait: 100 }, { snapshot: 'lost' }], { state: { hash: 'c=9' } });
   assert.ok(find(r.snapshots.lost, { t: 'notice', p: { text: 'live updates lost — reconnecting…' } }));
 });
+
+test('a failed action says why, where you look', async () => {
+  const seed = oneSeed({ run: { title: 'halted one', status: 'idle' } }, { me: { ...ME, manager: false },
+    routes: [['POST', '/runs/9/message$', { error: 'the agent is halted — a manager must resume it' }, 423]] });
+  const r = await run(seed, [
+    { input: [{ t: 'composer' }, 'hello?'] },
+    { event: [{ t: 'composer' }, 'send', { value: 'hello?' }] },
+    { snapshot: 'said' },
+  ], { state: { hash: 'c=9' } });
+  const tr = find(r.snapshots.said, { t: 'transcript', p: { follow: true } });
+  assert.equal(tr.c[tr.c.length - 1].p.text, 'the agent is halted — a manager must resume it', 'the error is the last thing in the chat');
+  assert.equal(find(r.snapshots.said, { t: 'composer' }).p.value, 'hello?', 'the text stays in the composer');
+});
