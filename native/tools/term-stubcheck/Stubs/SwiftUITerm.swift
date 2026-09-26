@@ -1,4 +1,6 @@
-// Extra SwiftUI declarations the terminal uses (real SDK signatures as far as known).
+// Extra SwiftUI declarations the terminal uses (real SDK signatures as far as
+// known), on top of ../../swiftui-stubcheck/Stubs/SwiftUI (GeometryReader,
+// UIViewRepresentable and accessibilityHint live there).
 
 @propertyWrapper @dynamicMemberLookup
 public struct Bindable<Value> {
@@ -40,7 +42,6 @@ extension View {
     public func statusBarHidden(_ hidden: Bool = true) -> some View { _V(self) }
     public func persistentSystemOverlays(_ visibility: Visibility) -> some View { _V(self) }
     public func toolbar(_ visibility: Visibility, for bars: ToolbarPlacement...) -> some View { _V(self) }
-    public func accessibilityHint(_ hint: LocalizedStringKey) -> some View { _V(self) }
     public func alert<A: View, M: View>(_ titleKey: LocalizedStringKey, isPresented: Binding<Bool>, @ViewBuilder actions: () -> A, @ViewBuilder message: () -> M) -> some View { _V(self) }
     public func alert<A: View>(_ titleKey: LocalizedStringKey, isPresented: Binding<Bool>, @ViewBuilder actions: () -> A) -> some View { _V(self) }
     public func confirmationDialog<A: View, M: View>(_ titleKey: LocalizedStringKey, isPresented: Binding<Bool>, titleVisibility: Visibility = .automatic, @ViewBuilder actions: () -> A, @ViewBuilder message: () -> M) -> some View { _V(self) }
@@ -60,26 +61,6 @@ public struct GridItem: Sendable {
 public struct LazyVGrid<Content: View>: _Leaf {
     public init(columns: [GridItem], alignment: HorizontalAlignment = .center, spacing: CGFloat? = nil, @ViewBuilder content: () -> Content) {}
 }
-
-public enum CoordinateSpace: Sendable { case global, local }
-@MainActor public struct GeometryProxy {
-    public var size: CGSize { .zero }
-    public var safeAreaInsets: EdgeInsets { EdgeInsets() }
-    public func frame(in coordinateSpace: CoordinateSpace) -> CGRect { .zero }
-}
-public struct GeometryReader<Content: View>: _Leaf {
-    public init(@ViewBuilder content: @escaping (GeometryProxy) -> Content) {}
-}
-
-public struct UIViewRepresentableContext<R> {}
-@MainActor @preconcurrency
-public protocol UIViewRepresentable: View where Body == Never {
-    associatedtype UIViewType: UIView
-    typealias Context = UIViewRepresentableContext<Self>
-    func makeUIView(context: Context) -> UIViewType
-    func updateUIView(_ uiView: UIViewType, context: Context)
-}
-extension UIViewRepresentable { public var body: Never { fatalError() } }
 
 extension Toggle where Label == Text {
     public init(_ titleKey: LocalizedStringKey, isOn: Binding<Bool>) {}

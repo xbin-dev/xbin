@@ -32,22 +32,6 @@ rm -rf "$out/Sources/SwiftUI" "$out/Sources/UIKit" "$out/Sources/SwiftTerm" "$ou
 cp -R "$shared/SwiftUI" "$shared/UIKit" "$out/Sources/"
 cp "$here/Stubs/UIKitTerm.swift" "$out/Sources/UIKit/"
 cp "$here/Stubs/SwiftUITerm.swift" "$out/Sources/SwiftUI/"
-# The renderer's UIView/UIResponder are too thin for UIKit code: Stubs/UIKitTerm.swift
-# replaces them (NSObject-based, init(frame:)).
-python3 - "$out/Sources/UIKit/UIKit.swift" <<'PY'
-import re, sys
-p = sys.argv[1]
-s = open(p).read()
-s = s.replace('@MainActor open class UIResponder {}\n', '')
-s = re.sub(r'public struct UIEdgeInsets: Sendable, Equatable \{.*?\n\}\n', '', s, flags=re.S)
-s = re.sub(r'@MainActor open class UIView: UIResponder \{.*?\n\}\n', '', s, flags=re.S)
-s = re.sub(r'extension UIScene: Hashable \{.*?\n\}\n', '', s, flags=re.S)
-s = s.replace('public init(frame: CGRect) { super.init(); self.frame = frame }',
-              'public override init(frame: CGRect) { super.init(frame: frame) }\n    public required init?(coder: NSCoder) { super.init(coder: coder) }')
-s = s.replace('public init(windowScene: UIWindowScene) { super.init() }', 'public init(windowScene: UIWindowScene) { super.init(frame: .zero) }')
-s = s.replace('    public var isHidden = true\n', '')
-open(p, 'w').write(s)
-PY
 if [ "$strict" = 1 ]; then
   sed -i.orig 's/public init(get: @escaping () -> Value, set: @escaping (Value) -> Void)/public init(get: @escaping @Sendable () -> Value, set: @escaping @Sendable (Value) -> Void)/' \
     "$out/Sources/SwiftUI/State.swift"

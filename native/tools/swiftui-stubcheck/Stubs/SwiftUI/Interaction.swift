@@ -5,8 +5,11 @@
 
 // MARK: Geometry
 
+public enum CoordinateSpace: Sendable { case global, local }
 public struct GeometryProxy {
     public var size: CGSize { .zero }
+    public var safeAreaInsets: EdgeInsets { EdgeInsets() }
+    public func frame(in coordinateSpace: CoordinateSpace) -> CGRect { .zero }
 }
 public struct GeometryReader<Content: View>: _Leaf {
     public init(@ViewBuilder content: @escaping (GeometryProxy) -> Content) {}
