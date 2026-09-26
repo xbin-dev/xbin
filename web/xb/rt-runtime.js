@@ -13,6 +13,8 @@
  *                  with a 50 ms timer as a backstop; setTimeout 0 without rAF);
  *                  xbn.frame() flushes a pending render at once
  *   document       the document whose visibilityState xbn.visibility drives
+ *   log            false: no console lines for diagnostics and errors (they
+ *                  are messages either way)
  */
 import { VOCAB, fullCaps } from '/vendor/xb/vocab.js';
 import { buildTree } from '/vendor/xb/rt-build.js';
@@ -49,6 +51,7 @@ export function createRuntime(opts = {}) {
   const caps = normalizeCaps(opts.caps);
   const schedule = typeof opts.schedule === 'function' ? opts.schedule : defaultSchedule;
   const doc = opts.document || null;
+  const log = opts.log !== false && typeof console !== 'undefined';
   let state = opts.state === undefined ? null : cloneJSON(opts.state);
 
   const md = new MarkdownCache();
@@ -74,7 +77,7 @@ export function createRuntime(opts = {}) {
     if (!once(`d\0${code}\0${message}\0${where}`)) return;
     const d = { op: 'diag', level, code, message, where };
     diagnostics.push(d);
-    if (typeof console !== 'undefined') {
+    if (log) {
       const line = `[xb-native] ${message}${where ? ` (${where})` : ''}`;
       if (level === 'error') console.error(line); else if (level === 'warn') console.warn(line); else console.info(line);
     }
@@ -86,7 +89,7 @@ export function createRuntime(opts = {}) {
   }
   function fail(kind, e, where = '') {
     const message = String(e?.message ?? e);
-    if (typeof console !== 'undefined') console.error(`[xb-native] ${kind}: ${message}${where ? ` (${where})` : ''}`, e);
+    if (log) console.error(`[xb-native] ${kind}: ${message}${where ? ` (${where})` : ''}`, e);
     const m = { op: 'error', kind, message, where };
     if (e?.stack) m.stack = String(e.stack);
     send(m);

@@ -18,7 +18,7 @@ const { VOCAB, fullCaps } = await import('/vendor/xb/vocab.js');
 // mk(): a runtime flushed by hand; r(value) renders and returns the message.
 function mk(opts = {}) {
   const msgs = [];
-  const rt = createRuntime({ post: (m) => msgs.push(m), schedule: () => {}, ...opts });
+  const rt = createRuntime({ post: (m) => msgs.push(m), schedule: () => {}, log: false, ...opts });
   const r = (v) => { rt.render(v); return rt.flush(); };
   const diags = () => msgs.filter((m) => m.op === 'diag').map((m) => m.code);
   const errors = () => msgs.filter((m) => m.op === 'error');
@@ -346,7 +346,7 @@ test('xbn.remount() sends the whole tree again, reported values included', () =>
 
 test('scheduling: the default is one timer per frame in node; xbn.frame() flushes at once', async () => {
   const msgs = [];
-  const rt = createRuntime({ post: (m) => msgs.push(m) });
+  const rt = createRuntime({ post: (m) => msgs.push(m), log: false });
   rt.render(html`<text>a</text>`); rt.render(html`<text>b</text>`);
   assert.equal(msgs.length, 0);
   await new Promise((r) => setTimeout(r, 5));
@@ -612,7 +612,9 @@ test('boot() reports a module that fails to load as {op:"error",kind:"module"}',
   const xb = await import(`${XB}?fresh=boot`);
   const got = [];
   xb.attach((m) => got.push(m));
-  await xb.boot(new URL('./xbn/testdata/does-not-exist.js', import.meta.url).href);
+  const err = console.error;
+  console.error = () => {}; // the default runtime logs to the console (the app's Xcode console)
+  try { await xb.boot(new URL('./xbn/testdata/does-not-exist.js', import.meta.url).href); } finally { console.error = err; }
   assert.equal(got[0].op, 'error');
   assert.equal(got[0].kind, 'module');
 });

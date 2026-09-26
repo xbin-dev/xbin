@@ -134,6 +134,7 @@ const messages = [];
 const xb = await import(new URL('../../web/xb-native.js', import.meta.url).href);
 const rt = xb.createRuntime({
   global: true,
+  log: false, // diagnostics and errors come back as messages
   caps,
   state,
   document: globalThis.document,
