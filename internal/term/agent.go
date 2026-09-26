@@ -159,7 +159,7 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 		return SessionInfo{}, 400, err
 	}
 	if m.BxPath == "" {
-		return SessionInfo{}, 503, errors.New("agent sessions need the bx binary the daemon could not find at startup (build it: go build -o bin/bx ./cmd/bx, or set XBIN_BIN)")
+		return SessionInfo{}, 503, errors.New("agent sessions need the bx binary the daemon could not find at startup (build it: CGO_ENABLED=0 go build -o bin/bx ./cmd/bx, or set XBIN_BIN)")
 	}
 	o := m.openOptsFor(p, rel, cwd, normalizeNet(netMode), a.GPU, !a.NoAPI)
 	o.kind = KindAgent

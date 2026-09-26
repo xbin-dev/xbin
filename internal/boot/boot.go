@@ -251,7 +251,7 @@ func (st *State) stepTerminals() error {
 	// prepend the directory holding the bx binary.
 	st.bxDir = locateBx(st.Cfg.Bin, st.Cfg.Dev)
 	if st.bxDir == "" {
-		slog.Warn("bx CLI not found; terminals won't have it on PATH (build it: go build -o bin/bx ./cmd/bx, or set XBIN_BIN)")
+		slog.Warn("bx CLI not found; terminals won't have it on PATH (build it: CGO_ENABLED=0 go build -o bin/bx ./cmd/bx, or set XBIN_BIN)")
 	}
 	bxDir, baseURL := st.bxDir, st.baseURL
 	tm := term.NewManager(ws, func() []string {

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/user"
+	"strconv"
 	"syscall"
 )
 
@@ -34,7 +36,7 @@ func (OSPrivileges) DropToOwner(ws string) error {
 		return nil
 	}
 	slog.Info("dropping privileges to workspace owner", "uid", st.Uid, "gid", st.Gid)
-	if err := syscall.Setgroups([]int{int(st.Gid)}); err != nil {
+	if err := syscall.Setgroups(ownerGroups(st.Uid, st.Gid)); err != nil {
 		return fmt.Errorf("setgroups: %w", err)
 	}
 	if err := syscall.Setgid(int(st.Gid)); err != nil {
@@ -44,6 +46,28 @@ func (OSPrivileges) DropToOwner(ws string) error {
 		return fmt.Errorf("setuid: %w", err)
 	}
 	return nil
+}
+
+// ownerGroups is the owner's primary group plus its /etc/group memberships,
+// so a dropped xbind keeps e.g. `kvm` (VM sandboxes need /dev/kvm) the way a
+// login or a systemd User= unit would. An owner without a passwd entry (a
+// bind-mounted workspace owned by a foreign uid) gets its primary group only.
+func ownerGroups(uid, gid uint32) []int {
+	groups := []int{int(gid)}
+	u, err := user.LookupId(strconv.Itoa(int(uid)))
+	if err != nil {
+		return groups
+	}
+	ids, err := u.GroupIds()
+	if err != nil {
+		return groups
+	}
+	for _, id := range ids {
+		if g, err := strconv.Atoi(id); err == nil && g != int(gid) {
+			groups = append(groups, g)
+		}
+	}
+	return groups
 }
 
 // NoPrivileges never drops and reports a non-root uid: the test boot.
