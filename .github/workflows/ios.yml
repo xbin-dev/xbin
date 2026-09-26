@@ -4,17 +4,28 @@
 #
 #   packages   swift test — XbinCore, XbinTerm, XbinAgent (each if present)
 #   app        xcodegen generate → xcodebuild build -scheme Xbin (simulator,
-#              unsigned) → artifact xcresult-app
+#              unsigned) → the UI tests built for testing (XbinUITests; they
+#              run against an xbind only through mac-remote.sh e2e) →
+#              artifact xcresult-app
 #   snapshots  xcodebuild test the XbinRenderer package on a simulator →
 #              artifacts snapshots (PNGs) and xcresult-snapshots; then the
 #              same tests hosted by an app (scheme XbinSnapshots) → the
 #              PNGs under snapshots/hosted/, drawn with drawHierarchy (bar
 #              glass and materials included)
 #
+# The runner is the repository variable XBIN_IOS_RUNNER, as JSON: unset →
+# "xcode-27" (the GitHub-hosted larger runner); the Mac mini →
+# ["self-hosted","macOS","xbin-mini"] (native/ios/scripts/mac-setup.sh
+# registers it). DerivedData and SwiftPM clones persist between runs:
+# through actions/cache on a hosted runner, on the machine's own disk on a
+# self-hosted one (ci-cache.sh; the repository variable XBIN_CI_CACHE=off
+# turns both off).
+#
 # The logic lives in native/ios/scripts/ (runnable on any Mac, shellchecked
 # and dry-tested on Linux by native/ios/scripts/ci-local-check.sh); this
 # file only wires it up. Feature branches only — never master — and no
-# signing, secrets or provisioning.
+# signing, secrets or provisioning. Never a pull_request trigger: a
+# self-hosted runner must not run code from a fork.
 name: ios
 
 on:
@@ -43,6 +54,14 @@ env:
   # /Applications/Xcode_27.1.app (the iPhone Duo APIs need the iOS 27.1
   # SDK); empty → the runner's default. ci-toolchain.sh applies it.
   XBIN_XCODE: ""
+  # Swift compilation conditions for every build, space-separated:
+  # XBIN_SDK_27_1 compiles the iPhone Duo code once XBIN_XCODE pins an Xcode
+  # with the iOS 27.1 SDK (ci-lib.sh ci_conditions). Empty on Xcode 27.0.
+  XBIN_SWIFT_CONDITIONS: ""
+  # auto | actions | disk | off (ci-cache.sh). Bump the version to drop
+  # every cache entry at once.
+  XBIN_CI_CACHE: ${{ vars.XBIN_CI_CACHE || 'auto' }}
+  XBIN_CI_CACHE_VERSION: "1"
   HOMEBREW_NO_AUTO_UPDATE: "1"
   HOMEBREW_NO_INSTALL_CLEANUP: "1"
   HOMEBREW_NO_ENV_HINTS: "1"
@@ -50,10 +69,10 @@ env:
 jobs:
   packages:
     name: packages (swift test)
-    runs-on: xcode-27
+    runs-on: ${{ fromJSON(vars.XBIN_IOS_RUNNER || '"xcode-27"') }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: toolchain (xcodebuild -version, -showsdks, simctl device types + runtimes)
         run: native/ios/scripts/ci-toolchain.sh
       - name: swift test XbinCore, XbinTerm, XbinAgent
@@ -61,17 +80,25 @@ jobs:
 
   app:
     name: app (build Xbin)
-    runs-on: xcode-27
+    runs-on: ${{ fromJSON(vars.XBIN_IOS_RUNNER || '"xcode-27"') }}
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: toolchain
         run: native/ios/scripts/ci-toolchain.sh
-      - name: install xcodegen
+      - name: cache directories
+        id: cache
+        run: native/ios/scripts/ci-cache.sh app app
+      - name: restore DerivedData + SwiftPM clones
+        if: steps.cache.outputs.mode == 'actions'
+        uses: actions/cache@v6
+        with:
+          path: ${{ steps.cache.outputs.paths }}
+          key: ${{ steps.cache.outputs.key }}
+          restore-keys: ${{ steps.cache.outputs.restore }}
+      - name: xcodegen (on PATH, else the pinned release)
         if: hashFiles('native/ios/project.yml') != ''
-        run: |
-          command -v xcodegen >/dev/null || brew install xcodegen
-          xcodegen --version
+        run: native/ios/scripts/ci-xcodegen.sh
       - name: pick a simulator
         id: sim
         if: hashFiles('native/ios/project.yml') != ''
@@ -83,25 +110,42 @@ jobs:
         env:
           DEST: ${{ steps.sim.outputs.destination }}
         run: native/ios/scripts/ci-build-app.sh "$DEST"
+      - name: xcodebuild build-for-testing -scheme XbinUITests (compile only)
+        if: always() && hashFiles('native/ios/project.yml') != '' && steps.sim.outputs.destination != ''
+        env:
+          DEST: ${{ steps.sim.outputs.destination }}
+        run: native/ios/scripts/ci-uitests.sh "$DEST"
       - name: upload xcresult-app
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: xcresult-app
           path: |
             ${{ runner.temp }}/xbin-ci/app-build.xcresult
             ${{ runner.temp }}/xbin-ci/app-build.log
+            ${{ runner.temp }}/xbin-ci/uitests-build.xcresult
+            ${{ runner.temp }}/xbin-ci/uitests-build.log
           if-no-files-found: ignore
           retention-days: 14
 
   snapshots:
     name: snapshots (XbinRenderer)
-    runs-on: xcode-27
+    runs-on: ${{ fromJSON(vars.XBIN_IOS_RUNNER || '"xcode-27"') }}
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: toolchain
         run: native/ios/scripts/ci-toolchain.sh
+      - name: cache directories
+        id: cache
+        run: native/ios/scripts/ci-cache.sh snapshots renderer hosted
+      - name: restore DerivedData + SwiftPM clones
+        if: steps.cache.outputs.mode == 'actions'
+        uses: actions/cache@v6
+        with:
+          path: ${{ steps.cache.outputs.paths }}
+          key: ${{ steps.cache.outputs.key }}
+          restore-keys: ${{ steps.cache.outputs.restore }}
       - name: pick a simulator
         id: sim
         if: hashFiles('native/ios/Packages/XbinRenderer/Package.swift') != ''
@@ -115,11 +159,9 @@ jobs:
           # The tests see SNAPSHOT_DIR (xcodebuild strips TEST_RUNNER_).
           TEST_RUNNER_SNAPSHOT_DIR: ${{ runner.temp }}/snapshots
         run: native/ios/scripts/ci-snapshots.sh "$DEST"
-      - name: install xcodegen
+      - name: xcodegen (on PATH, else the pinned release)
         if: always() && hashFiles('native/ios/project.yml') != '' && steps.sim.outputs.destination != ''
-        run: |
-          command -v xcodegen >/dev/null || brew install xcodegen
-          xcodegen --version
+        run: native/ios/scripts/ci-xcodegen.sh
       - name: xcodebuild test -scheme XbinSnapshots (hosted snapshots)
         if: always() && hashFiles('native/ios/project.yml') != '' && steps.sim.outputs.destination != ''
         env:
@@ -128,7 +170,7 @@ jobs:
         run: native/ios/scripts/ci-hosted-snapshots.sh "$DEST"
       - name: upload snapshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: snapshots
           path: ${{ runner.temp }}/snapshots/**/*.png
@@ -136,7 +178,7 @@ jobs:
           retention-days: 14
       - name: upload xcresult-snapshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: xcresult-snapshots
           path: |

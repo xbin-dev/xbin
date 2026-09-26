@@ -74,3 +74,35 @@ jobs:
           CGO_ENABLED=0 go build -o bin/xbin-vmagent ./cmd/xbin-vmagent
           XBIN_ROOTFS="$RUNNER_TEMP/vmrootfs" go test -tags=integration -count=1 -v ./internal/vm/
           XBIN_VM_ACCEL=emulate XBIN_ROOTFS="$RUNNER_TEMP/vmrootfs" go test -tags=integration -count=1 -v ./internal/vm/
+
+  # The native client on Linux (native/AGENTS.md): its Swift packages under the
+  # Swift the Apple CI's Xcode carries, with 512 KiB test stacks (make
+  # swift-test; swiftly, the toolchain cached on the install script's pins),
+  # the fixture contract (make native-check), and the iOS CI's own guard —
+  # ios.yml's shape, actionlint, shellcheck and the dry runs of
+  # native/ios/scripts against fake Apple tools, under bash 5 and macOS's
+  # bash 3.2 (ci-local-check.sh). A job of its own: `test` stays as it is.
+  # GitHub-hosted only — this workflow runs for pull requests.
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: cache the Swift toolchain
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/share/swiftly
+          key: swiftly-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/ios/scripts/ci-linux-swift.sh') }}
+      - name: Swift (swiftly)
+        run: native/ios/scripts/ci-linux-swift.sh
+      - run: make swift-test
+      - run: make native-check
+      - run: sudo apt-get update && sudo apt-get install -y shellcheck python3-yaml
+      - name: ci-local-check.sh (the iOS CI scripts, also under bash 3.2)
+        env:
+          CI_LOCAL_BASH32: "1"
+          CI_LOCAL_FETCH_ACTIONLINT: "1"
+        run: native/ios/scripts/ci-local-check.sh
