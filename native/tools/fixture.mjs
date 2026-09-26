@@ -52,9 +52,12 @@ export async function runFixture(fx) {
   try {
     r = await runNative({ ...fx.run, timeout: 60000 });
   } catch (e) {
-    const msg = String(e?.message ?? e).split('\n').slice(0, 6).join('\n    ');
-    problems.push(`the run failed: ${msg}`);
-    return { tree: e?.result?.tree ?? null, problems, notes, result: e?.result ?? null };
+    // the first line says what failed; what the run saw before explains why
+    problems.push(`the run failed: ${String(e?.message ?? e).split('\n')[0].replace(/^Error: /, '')}`);
+    const r = e?.result;
+    for (const m of r?.errors ?? []) problems.push(`runtime error (${m.kind}): ${m.message}${m.where ? ` (${m.where})` : ''}`);
+    for (const u of r?.unmatched ?? []) problems.push(`no route answers ${u} (add it to data.json "routes")`);
+    return { tree: r?.tree ?? null, problems, notes, result: r ?? null };
   }
   const allow = new Set(fx.data.allowDiagnostics || []);
   for (const m of r.errors) problems.push(`runtime error (${m.kind}): ${m.message}${m.where ? ` (${m.where})` : ''}`);
