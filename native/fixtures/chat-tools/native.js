@@ -1,10 +1,11 @@
 // chat-tools — a coding agent's turn with tools: a plan, tool cards in every
 // state (writing, running, ok, error, canceled) with chips in every tone and
-// each kind of body (code, text, markdown streaming, notice, image, a diff, a
-// subagent's nested transcript), a diff with its files, a settled and a
-// pending approval, a question with a form schema, a progress line, and the
-// composer disabled while the agent waits for an answer. The script opens a
-// tool card and answers the first approval.
+// each kind of body (code, text, streaming markdown, notice, image, a diff,
+// subagents' nested transcripts), a diff with its files, approvals and
+// questions (form schemas) both settled and pending, a progress line, and
+// the composer disabled while the agent waits. The script opens three tool
+// cards (one a subagent waiting on its own question) and answers the first
+// approval, leaving the deploy approval pending.
 import { html, render, repeat, nothing } from '/vendor/xb-native.js';
 
 const base = `/api/${xbin.self}/sessions/s-77`;

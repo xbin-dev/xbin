@@ -1,5 +1,5 @@
 {
-  "about": "the chat family's tools: plan, toolcards in every state with chips and each body kind, nested transcript, diff, approvals, question, progress, disabled composer",
+  "about": "the chat family's tools: plan, toolcards in every state with chips and each body kind, nested transcripts (one waiting on a question), diff, approvals and questions settled and pending, progress, disabled composer",
   "self": "apps/coder",
   "routes": {
     "GET /api/apps/coder/sessions/s-77": {
@@ -186,6 +186,36 @@
             "settled": {"cluster": "staging-eu", "notify": true}
           },
           {
+            "id": "t8",
+            "type": "tool",
+            "title": "Subagent: draft the release notes",
+            "icon": "agent",
+            "family": "agent",
+            "state": "running",
+            "chips": [{"text": "subagent", "tone": "accent"}, {"text": "waiting for you", "tone": "warn"}],
+            "body": [
+              {
+                "kind": "transcript",
+                "items": [
+                  {"id": "y1", "type": "user", "text": "Draft the release notes for v2.15.0-rc.2."},
+                  {
+                    "id": "y2",
+                    "type": "question",
+                    "title": "Who are the notes for?",
+                    "schema": {
+                      "type": "object",
+                      "properties": {
+                        "audience": {"type": "string", "title": "Audience", "enum": ["customers", "internal"]},
+                        "highlights": {"type": "string", "title": "Anything to highlight?"}
+                      },
+                      "required": ["audience"]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
             "id": "a2",
             "type": "approval",
             "title": "Deploy to staging-eu",
@@ -204,6 +234,7 @@
   "interactions": [
     {"select": "toolcard[title=\"go test ./internal/pay/...\"]", "type": "toggle", "payload": {"open": true}},
     {"select": "toolcard[title=\"Explore: who else sets IdleTimeout?\"]", "type": "toggle", "payload": {"open": true}},
+    {"select": "toolcard[title=\"Subagent: draft the release notes\"]", "type": "toggle", "payload": {"open": true}},
     {
       "select": "approval[title=\"Run a shell command\"]",
       "type": "choose",
