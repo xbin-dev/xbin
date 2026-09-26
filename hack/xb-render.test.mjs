@@ -48,10 +48,19 @@ await import('/vendor/xb/preview-host.js');
 await import('/t/tile.js');
 </script></head><body></body></html>`;
 
+// the preview host with a stand-in xbin whose fetch records what it was asked
+const IMG_PAGE = `<!doctype html><html><head><meta charset="utf-8">
+<meta name="xbin-native-preview" content="1">
+<script>window.fetched = []; window.xbin = { self: 'apps/t', fetch: (u, o) => { window.fetched.push(String(u)); return fetch(u, o); } };</script>
+<script type="module">
+import '/vendor/xb-native.js';
+await import('/vendor/xb/preview-host.js');
+</script></head><body></body></html>`;
+
 let srv; let base; let browser;
 before(async () => {
   if (skip) return;
-  srv = await serve({ '/t/tile.js': TILE, '/t/rt.html': RT_PAGE });
+  srv = await serve({ '/t/tile.js': TILE, '/t/rt.html': RT_PAGE, '/t/img.html': IMG_PAGE });
   base = `http://127.0.0.1:${srv.address().port}`;
   browser = await pw.chromium.launch();
 });
@@ -176,5 +185,22 @@ test('a row\'s and a message\'s actions open as a popover and fire', { skip }, a
   const taps = await p.evaluate(() => window.xbnFixture.events.map((e) => e[0] + ':' + e[1]));
   assert.deepEqual(taps, ['r.0.0.0.0:tap', 'r.0.0.0.1:tap', 'r.1.0.0.0:tap']);
   assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+// xbin.fetch attaches the tile's frame token to whatever URL it is given: the
+// preview host loads images (and uploads) through it only for this
+// workspace's own paths — an image elsewhere is not a tile resource.
+test('the preview host lends the tile\'s credentials to its own workspace only', { skip }, async () => {
+  const { p, ctx } = await page();
+  await p.goto(`${base}/t/img.html`);
+  await p.waitForFunction(() => window.xbnPreview);
+  const got = await p.evaluate(async () => {
+    const v = window.xbnPreview.view;
+    const off = await v.loadImage('https://elsewhere.example/a.png').then(() => 'loaded', (e) => String(e.message));
+    const own = await v.loadImage('/t/tile.js').then((u) => (u.startsWith('blob:') ? 'blob' : u), (e) => String(e.message));
+    return { off, own, fetched: window.fetched };
+  });
+  assert.deepEqual(got, { off: 'not a tile resource', own: 'blob', fetched: ['/t/tile.js'] });
   await ctx.close();
 });

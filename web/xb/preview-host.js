@@ -15,7 +15,7 @@
  *     open → a new tab for https; meta → the document title;
  *   - keeps errors and diagnostics, shown in a strip at the bottom;
  *   - images and composer uploads go through xbin.fetch (the tile's own
- *     credentials), like the app's loader.
+ *     credentials), like the app's loader — this workspace's paths only.
  * Query: &theme=light|dark, &text=large.
  *
  * window.xbnPreview = {view, messages, errors, diagnostics, ready, tree()}:
@@ -61,7 +61,13 @@ function start() {
   view.addEventListener('xb-remount', () => G.xbn?.remount());
   view.oncopy = async (text) => { try { await navigator.clipboard.writeText(text); return true; } catch { return false; } };
   if (typeof G.xbin?.fetch === 'function') {
+    // xbin.fetch attaches the tile's frame token to any URL: only this
+    // workspace's own paths get it. An image elsewhere is not a tile resource
+    // (docs/native.md §Images) and is not drawn — the app must not send the
+    // token off-site either.
+    const own = (u) => { try { return new URL(u, document.baseURI).origin === location.origin; } catch { return false; } };
     view.loadImage = async (src) => {
+      if (!own(src)) throw new Error('not a tile resource');
       const r = await G.xbin.fetch(src);
       if (!r.ok) throw new Error(`${r.status}`);
       return URL.createObjectURL(await r.blob());
@@ -73,6 +79,7 @@ function start() {
       // {name} is the file's name
       let path = String(up.path).split('{name}').join(encodeURIComponent(file.name));
       if (!path.startsWith('/api/')) path = `/api/${G.xbin.self}${path.startsWith('/') ? '' : '/'}${path}`;
+      if (!own(path)) { note(`upload refused: ${path} is not on this workspace`); return; }
       try {
         const r = await G.xbin.fetch(path, { method: up.method || 'PUT', body: file, headers: { 'Content-Type': file.type || 'application/octet-stream' } });
         const text = await r.text();
