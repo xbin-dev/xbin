@@ -55,11 +55,14 @@ extension PushAPI {
         return s
     }
 
-    /// Whether xbind holds a push-to-start handle for this device
-    /// (`GET /api/xbin/devices/push` → `devices[].pushToStart`); nil when
-    /// the device is not listed.
+    /// Whether xbind holds a push-to-start handle for this device, from
+    /// `GET /api/xbin/devices/push` (`devices[].pushToStart`) or a
+    /// registration's answer (`device.pushToStart`); nil when the device is
+    /// not in it.
     public static func hasPushToStart(_ json: JSONValue, deviceId: String) -> Bool? {
-        for d in json["devices"]?.arrayValue ?? [] where d["deviceId"]?.stringValue == deviceId {
+        var list = json["devices"]?.arrayValue ?? []
+        if let one = json["device"] { list.append(one) }
+        for d in list where d["deviceId"]?.stringValue == deviceId {
             return d["pushToStart"]?.boolValue ?? false
         }
         return nil

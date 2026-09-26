@@ -48,6 +48,8 @@
 	<string>Face ID unlocks this device's key for your workspaces.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Reach workspaces on your local network.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -33,6 +33,9 @@ import Testing
         #expect(PushAPI.hasPushToStart(listed, deviceId: "d1") == true)
         #expect(PushAPI.hasPushToStart(listed, deviceId: "d2") == false)
         #expect(PushAPI.hasPushToStart(listed, deviceId: "d3") == nil)
+        let registered: JSONValue = ["device": ["deviceId": "d1", "pushToStart": true], "workspace": "w", "enabled": true]
+        #expect(PushAPI.hasPushToStart(registered, deviceId: "d1") == true)
+        #expect(PushAPI.hasPushToStart(["device": ["deviceId": "d1"]], deviceId: "d1") == false)
     }
 
     @Test func startPlan() {

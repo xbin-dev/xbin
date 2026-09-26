@@ -16,7 +16,11 @@ final class PushManager {
     static let kinds = ["agent", "tile", "test"]
 
     private(set) var apnsToken: String?
+    /// ActivityKit's push-to-start token (hex), once it gives one
+    /// (LiveActivities); registered per workspace as `startHandle`.
+    private(set) var pushToStartToken: String?
     private var running = false
+    private var rerun = false
 
     var relay: ServerOrigin? {
         let s = AppSettings.effectivePushRelay
@@ -30,6 +34,7 @@ final class PushManager {
     /// Asks for permission (once) and registers with APNs. Called when a
     /// workspace is added and on launch when push is configured.
     func start() async {
+        LiveActivities.shared.start() // local cards work without push
         guard relay != nil else { return }
         let center = UNUserNotificationCenter.current()
         center.setNotificationCategories(Self.categories)
@@ -106,10 +111,29 @@ final class PushManager {
     }
 
     func maintainAll() async {
-        guard !running else { return }
+        guard !running else {
+            rerun = true // a token arrived meanwhile: once more after this round
+            return
+        }
         running = true
         defer { running = false }
-        for w in AppModel.shared.workspaces { await maintain(w) }
+        repeat {
+            rerun = false
+            for w in AppModel.shared.workspaces { await maintain(w) }
+        } while rerun
+    }
+
+    /// ActivityKit gave a (new) push-to-start token.
+    func pushToStartTokenChanged(_ hex: String) async {
+        guard hex != pushToStartToken else { return }
+        pushToStartToken = hex
+        await maintainAll()
+    }
+
+    /// Push is set up for the workspace (a relay, a token, a handle):
+    /// Live Activities there get push tokens.
+    func canPush(_ w: WorkspaceModel) -> Bool {
+        relay != nil && apnsToken != nil && state(w.id).handle != nil
     }
 
     /// push.md §1.4 for one workspace.
@@ -126,6 +150,7 @@ final class PushManager {
             switch plan {
             case .none:
                 if let s = server, !s.workspace.isEmpty { rememberPushWorkspace(w, s.workspace) }
+                await maintainStart(w, publicKey: key, deviceId: dev, serverHasIt: listed.flatMap { PushAPI.hasPushToStart($0, deviceId: dev) })
                 return
             case .newHandle:
                 st.handle = try await newHandle(relay, token)
@@ -151,9 +176,51 @@ final class PushManager {
             st.pushWorkspace = status.workspace
             setState(st, w.id)
             if !status.workspace.isEmpty { rememberPushWorkspace(w, status.workspace) }
+            await maintainStart(w, publicKey: key, deviceId: dev, serverHasIt: PushAPI.hasPushToStart(reg, deviceId: dev))
         } catch {
             // Offline or refused: try again next foreground.
         }
+    }
+
+    /// Push-to-start for one workspace (LiveStartPlan): a relay handle for
+    /// ActivityKit's push-to-start token under the device handle, given to
+    /// xbind as the registration's `startHandle` — or taken back when the
+    /// user turned it off.
+    private func maintainStart(_ w: WorkspaceModel, publicKey key: String, deviceId dev: String, serverHasIt: Bool?) async {
+        guard let relay, let handle = state(w.id).handle else { return }
+        var ls = liveStart(w.id)
+        let plan = LiveStartPlan.plan(enabled: LiveActivities.enabled && LiveActivities.pushToStart, token: pushToStartToken,
+                                      state: ls, deviceHandle: handle, serverHasIt: serverHasIt)
+        let start: String
+        switch plan {
+        case .none:
+            return
+        case .create(let token):
+            let req = PushRelayAPI.newActivityHandle(apnsToken: token, parent: handle, topic: AppInfo.bundleID,
+                                                     production: AppInfo.apnsProduction)
+            guard let r = try? await AppTransport.shared.send(req, to: relay), r.isSuccess,
+                  let json = try? r.json(), let h = PushRelayAPI.handle(from: json) else { return }
+            ls = LiveStartState(token: token, handle: h, parent: handle)
+            start = h
+        case .register(let h):
+            start = h
+        case .clear:
+            ls = LiveStartState()
+            start = ""
+        }
+        let reg = PushAPI.register(deviceId: dev, handle: handle, publicKey: key, kinds: Self.kinds, startHandle: start)
+        guard (try? await w.auth.json(reg)) != nil else { return }
+        setLiveStart(ls, w.id)
+    }
+
+    private func liveStart(_ ws: String) -> LiveStartState {
+        guard let d = Keychain.read(service: "dev.xbin.livestart", account: ws),
+              let s = try? JSONDecoder().decode(LiveStartState.self, from: d) else { return LiveStartState() }
+        return s
+    }
+
+    private func setLiveStart(_ s: LiveStartState, _ ws: String) {
+        if let d = try? JSONEncoder().encode(s) { Keychain.write(d, service: "dev.xbin.livestart", account: ws) }
     }
 
     private func newHandle(_ relay: ServerOrigin, _ token: String) async throws -> String {
@@ -169,6 +236,8 @@ final class PushManager {
         if let relay, let h = st.handle { _ = try? await AppTransport.shared.send(PushRelayAPI.deleteHandle(h), to: relay) }
         _ = try? await w.auth.send(PushAPI.unregister(deviceId: deviceID(w)))
         Keychain.delete(service: "dev.xbin.pushstate", account: w.id)
+        Keychain.delete(service: "dev.xbin.livestart", account: w.id)
+        LiveActivities.shared.workspaceRemoved(w.id)
         var ring = PushKeyring.load(group: keyGroup)
         ring.remove(w.id)
         ring.save(group: keyGroup)
