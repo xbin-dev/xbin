@@ -47,7 +47,8 @@ native/
     SnapshotHost/           the empty app the hosted snapshot tests run in (CI only, see §4)
     scripts/                CI: pick-sim.sh, ci-*.sh (what ios.yml runs), ci-local-check.sh
   tools/                    fixture runner (fixture.mjs), shots.mjs + gallery/ (reference screenshots),
-                            swiftui-stubcheck/, app-check/ (the app's UIKit-free sources on Linux),
+                            swiftui-stubcheck/, term-stubcheck/ (App/Terminal against stubs),
+                            app-check/ (the app's UIKit-free sources on Linux),
                             term-live/, agent-parity.mjs, bridge-check.mjs, runtime-check.mjs,
                             markdown-parity.mjs
 web/xb-native.js            the runtime's template layer, served at /vendor/ (frozen once shipped)
@@ -169,7 +170,8 @@ the very files (symlinks) against swift-crypto and SwiftTerm's headless
 `Terminal`:
 
 ```sh
-cd native/tools/app-check && swift test          # push vectors, device-login vector, SwiftTermScreen + predictor
+cd native/tools/app-check && swift test          # push vectors, device-login vector, SwiftTermScreen + predictor,
+                                                 # the terminal's selection vs SwiftTerm's own copy, TerminalPrefs
 swift run app-live 127.0.0.1:9461 admin admin    # the workspace client against a running xbind (--dev: admin/admin)
 PLAYWRIGHT_DIR=~/lcad-wasm node native/tools/bridge-check.mjs http://127.0.0.1:9461
                                                  # the tile bridge + xbin-client in headless Chromium
@@ -178,7 +180,10 @@ PLAYWRIGHT_DIR=~/lcad-wasm node native/tools/bridge-check.mjs http://127.0.0.1:9
 `app-live` covers password sign-in, in-app enrollment, device login, one
 re-sign for concurrent requests on a dead session, a tile page by frame
 token, push registration and device removal. Before touching an app file,
-`swiftc -frontend -parse <file>` at least catches syntax errors here.
+`swiftc -frontend -parse <file>` at least catches syntax errors here; for
+`App/Terminal`, `native/tools/term-stubcheck/run.sh` (and `--sdk-27-1`)
+type-checks the whole directory against stubs, as the renderer's stubcheck
+does for XbinRenderer.
 
 ### 4. Apple — only through GitHub Actions (minutes)
 

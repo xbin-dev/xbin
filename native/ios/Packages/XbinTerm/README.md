@@ -18,6 +18,11 @@ this package never imports it.
 | `TermSession.swift` | `TermSession` (main actor): connect → session frame → replay → live, reattach with backoff, pings/RTT, predictions and acks; the injected `TermEmulator`, `TermTransport`/`TermConnect`, `TermClock` |
 | `Predictor.swift` | `Predictor`: a port of `web/term-predict.js` (D70/D71) over `TermFramebuffer` |
 | `Keyboard.swift` | `TermKeyboard` (accessory row with sticky ctrl/alt, soft-keyboard text, hardware keys → bytes or ⌘ shortcuts), `TermKeyEncoder` (xterm sequences, DECCKM) |
+| `AccessorySlot.swift` | The accessory row's customizable slot: the choices, the stored form (`termCustomKey`: an `AccessoryKey`'s JSON, `null` = none, missing = F1), snippets, key caps |
+| `TermFind.swift` | Scrollback search's state: query, options, the "3 of 14" counter, the find field's keys (the search itself is SwiftTerm's) |
+| `TermSelection.swift` | The precise selection mode: drags by character/word/line over a `TermLineSource`, handles grabbed again, nudges, the copied text (soft wraps, wide glyphs, the last column) |
+| `TermTabletop.swift` | The iPhone Duo tabletop layout: terminal above the fold, key panel below, from the fold's rect and the keyboard's height |
+| `TermDirectory.swift` | The session directory (D73) and the new-session pickers' choices |
 
 ## Gluing SwiftTerm to it
 
@@ -80,6 +85,22 @@ caps from `sticky`); the text input path calls `text(_:)` and
 `deleteBackward()`; `pressesBegan` calls `hardware(_:applicationCursor:)` and
 consumes the press unless it returns `.passthrough`. `applicationCursor` is
 the emulator's DECCKM mode. Send the bytes with `session.send`.
+
+## The terminal's controls (plans/native.md §12)
+
+The app's `App/Terminal` draws these; the decisions are here and tested here:
+
+- **Scrollback search** (⌘F, ⌘G/⌘⇧G): SwiftTerm ≥ 1.20's `TerminalView.findPrevious`/
+  `findNext`/`searchMatchSummary` search the whole buffer and show the match as the
+  selection; `TermFind` holds the bar's state. A search starts at the newest
+  output and goes up (`older`); `newer` goes down.
+- **Precise selection**: `TermSelection` over a `TermLineSource` (the app's
+  `SwiftTermLines` reads SwiftTerm's scroll-invariant lines); `native/tools/app-check`
+  checks that its copied text equals SwiftTerm's own Copy for the same range.
+- **Accessory slot**: `AccessorySlot` (the settings screen's choices and storage).
+- **Duo tabletop**: `TermTabletopLayout.compute(width:height:fold:keyboardHeight:)`
+  with the active `.division` reserved region as the fold (iOS 27.1 SDK, app code
+  behind `XBIN_SDK_27_1`).
 
 ## Conformance
 
