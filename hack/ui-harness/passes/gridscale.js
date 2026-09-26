@@ -13,8 +13,10 @@ async function gridScale(browser) {
   await openTile(page, 'apps/crawler');
   await openTile(page, 'apps/offline');
   const layout0 = await sh(page, (t) => t.openTiles);
+  // the two cards alone in the first column: whatever an earlier pass left
+  // open on this screen moves right, out of the push's way
   await sh(page, (t) => t.setGeom((tiles) => tiles.map((o) => o.path === 'apps/crawler' ? { path: o.path, x: 0, y: 0, w: 576, h: 384 }
-    : o.path === 'apps/offline' ? { path: o.path, x: 0, y: 384, w: 576, h: 384 } : o)));
+    : o.path === 'apps/offline' ? { path: o.path, x: 0, y: 384, w: 576, h: 384 } : o.float ? o : { ...o, x: Math.max(o.x, 672) })));
   await settle(page);
   // a card's rendered box, relative to the canvas
   const box = async (p) => {
