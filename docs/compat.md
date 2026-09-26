@@ -72,6 +72,39 @@ migrations is checked against it.
     `docs/changes/`; CI verifies what it can. When a silent path has to
     become an error, it warns for one release first.
 
+## Tile asset URLs (strict tile asset gating)
+
+Tile frontends' files are moving from a credential-less rule to strict,
+per-user gating ([auth.md §Tile asset gating](/docs/auth.md)). The daemon
+flag `--tile-assets` selects the mode:
+
+- **this release** ships `legacy` as the default — today's credential-less
+  rule and injection, unchanged, **except three security fixes** that apply
+  in every mode (a security hole closes now, see *The rules* above): a
+  symlink in a tile resolving outside the workspace or into `.xbin/`,
+  `data/` or `homes/` answers 404 (a tile that served backend output
+  through a `data/` symlink must serve it from its API instead); a tile's
+  non-document files carry `Content-Security-Policy: sandbox` (inert as
+  subresources; an SVG opened directly or framed no longer runs script
+  as the workspace); and a tile document fetched by *another* tile's frontend gets
+  no frame token (navigations within a tile's own nested pages still do).
+  Plus the strict `tokens` and `origins` modes, the detection (`bx doctor`,
+  `GET /api/xbin/tile-assets`), the codemod (`bx fix assets <tile>`) and
+  xbin-client's console diagnostics;
+- **the next release enforces**: the credential-less rule is deleted, not
+  kept behind a flag.
+
+What a tile can rely on across that change: **relative URLs to its own and
+other readable tiles' files keep working in every mode**, as do absolute
+module imports of its own files and workspace import-map entries. What stops
+working under `tokens`: absolute `/c/` URLs in HTML attributes, CSS and a
+document's own import map, and `inject: false` documents. The breaking
+change is announced in the changelog with a migration note
+([changes/2026-09-26-tile-asset-gating.md](/docs/changes/2026-09-26-tile-asset-gating.md));
+run `bx doctor` to find affected tiles now. Switching a workspace to
+`origins` signs every browser out once (the session cookie is renamed
+`__Host-xbin_session`).
+
 ## What this does *not* promise
 
 - Undocumented internals: `.xbin/` contents, the on-disk shape of

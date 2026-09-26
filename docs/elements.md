@@ -151,7 +151,10 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   // standard <head> injection. You lose the import map, xbin-client.js, and
   // the frame token — so the frontend has NO identity at all (element APIs
   // 401/403 to it; the document is still sandbox-confined unless chrome).
-  // Escape hatch for machine-targeted HTML; leave it alone normally.
+  // Escape hatch for machine-targeted HTML; leave it alone normally. Under
+  // strict tile asset gating's tokens mode (docs/auth.md) such a document
+  // gets no asset <base> either, so none of its files load — see
+  // §Asset URLs below.
   "inject": true,
 
   // The tile's native app UI (optional): the module the xbin app runs to
@@ -207,8 +210,9 @@ into `<head>`:
   to derive, so `xbin.ws` and the event stream connect there instead.
   Browsers never get it; their documents are unchanged.
 
-Write your view as a plain HTML document. Relative URLs work (you're a real
-document in an iframe). Vendored libraries: `lit` via the import map,
+Write your view as a plain HTML document. **Reference your own files with
+relative URLs** (`src="app.js"`, `href="style.css"`, CSS `url(img/x.png)`) —
+see §Asset URLs below. Vendored libraries: `lit` via the import map,
 anything else you drop into your own component dir.
 
 **Isolation (ND8).** Unless your component is trusted chrome, its document
@@ -217,8 +221,8 @@ on direct-tab opens): no parent/sibling DOM access, no `localStorage`/
 IndexedDB/cookies, and no ambient session cookie on requests — the frame
 token is your only credential, and `xbin.fetch`/`xbin.ws` carry it (that's
 why raw `fetch` to other elements 403s *and* can't impersonate the user).
-Your own static assets load credential-less (authorized by the opaque-origin
-Fetch-Metadata fingerprint your page produces). Keep per-session state in JS
+Your own static assets load with a credential the workspace attaches for
+you when you use relative URLs (§Asset URLs). Keep per-session state in JS
 memory; put durable state in your backend (prefs/kv); route any genuinely
 cross-origin API calls through your backend (tile fetches go out as
 `Origin: null`, cookie-free). The postMessage bridge (dialogs, windows,
@@ -234,6 +238,65 @@ an admin approves it, and your frame's sandbox gains
 `allow-popups allow-popups-to-escape-sandbox`; without it such links are
 silently dropped (the console says which grant). Use `rel="noopener"`.
 Top navigation is never allowed.
+
+### Asset URLs
+
+Every load of a tile's files is authorized for the **user** the browser acts
+for: they may load a tile's HTML, JS, CSS, images, fonts and data only if
+they can read that tile ([auth.md §Tile asset gating](/docs/auth.md)). How
+the credential rides along depends on the workspace's `--tile-assets` mode,
+and one habit works in all of them — **relative URLs**:
+
+- **Relative URLs always work** — `<script type="module" src="app.js">`,
+  `<link href="style.css">`, `<img src="img/logo.png">`, `srcset`, CSS
+  `url()`/`@import`, `import './lib.js'`, `import('./lazy.js')`,
+  `new URL('data.json', import.meta.url)`, `fetch('data.json')`. Under the
+  `tokens` mode the injection adds `<base href="/c/~<asset-token>/<tile>/<dir>/">`
+  so they carry a path-scoped asset token, and whatever they load resolves
+  under the same prefix. Another tile's files load relatively too
+  (`../../lib/ui/button.js`) when the user can read that tile.
+- **Absolute `/c/<tile>/…` URLs in markup and CSS don't** under `tokens`
+  (`<img src="/c/apps/me/x.png">` carries no credential and fails; xbin-client
+  logs why in the console). Absolute **module imports of your own tile** keep
+  working (the import map remaps `/c/<tile>/`), as do workspace import-map
+  entries. Under `origins` absolute URLs work too, but relative is the
+  portable form.
+- **`bx fix assets <tile>`** rewrites the absolute `/c/` URLs in your HTML,
+  CSS, import maps and module imports to relative ones (dry run first,
+  `--write` applies); `bx doctor` and `GET /api/xbin/tile-assets` list what
+  remains. Relative URLs resolve to the same file in every mode, so the
+  rewrite changes nothing today.
+- **With the asset `<base>`** (tokens mode) xbin-client keeps the page
+  behaving as if there were none: `href="#section"` scrolls, a relative link
+  to another page of yours (`href="page2.html"`) navigates to it, and
+  `history.pushState`/`replaceState` resolve relative URLs against the
+  document URL. Setting `location.href = 'page2.html'` yourself would ask
+  the asset plane for a document — navigate with an absolute path via
+  `location.assign(xbin.url('/c/' + xbin.self + '/page2.html'))` instead. A
+  document that sets its own `<base>` keeps it (ours then points at the
+  same place, token-bearing).
+- **`inject: false`** documents get no injection and so no asset `<base>`:
+  under `tokens` none of their files load (use `origins`, or drop the flag).
+- **`origins` mode** gives your tile its own origin: `fetch('/api/<you>/x')`
+  works without `xbin.fetch` there (the tile cookie is your credential), and
+  your tile gets its own `localStorage`/IndexedDB. `location.origin` is then
+  the tile's origin, not the workspace's: a link built from it to a
+  workspace page (`/login?invite=…`) or another tile is redirected to the
+  workspace, but a link you hand to someone else is best built from a
+  workspace-relative path. Your pages can be framed only by the workspace
+  and by your own tile (`frame-ancestors`); your backend never sees the tile
+  cookie and can't set cookies there (`Set-Cookie` is dropped). A
+  sub-directory holding its own `index.html` is a component of its own and
+  so gets its own origin: navigating your frame to it (a relative link)
+  still works.
+- **In every mode**, a file that isn't `.html`/`.htm` (any case) is served
+  with `Content-Security-Policy: sandbox`: as a subresource nothing changes,
+  but opened directly or framed (`<iframe>`, `<object>`) an SVG's or an
+  `.xhtml` file's scripts don't run. Ship an interactive page as `.html`.
+
+`legacy` (today's default) still loads absolute self-references
+credential-less; the next release removes that path
+([compat.md](/docs/compat.md)).
 
 **Sizing.** A view is framed inside a fixed-size card on the shell's snappable
 grid (the user drags to size it, down to ~192px; content scrolls inside — it

@@ -20,7 +20,9 @@
  * Chrome components (root, shell, manifest chrome:true) run unsandboxed and
  * act as the signed-in human. Where the browser supports it, sandboxed frames
  * are also credentialless (no cookies even on the navigation, so the document
- * load authenticates with a bootstrap frame token in the URL).
+ * load authenticates with a bootstrap frame token in the URL). Under strict
+ * tile asset gating's origins mode each tile loads on its own origin instead
+ * (docs/auth.md §Tile asset gating) — frame-info.js decides.
  *
  * The edit button opens a floating terminal window: anchored at the frame's
  * top-right corner when opened, draggable by its title bar, resizable by the
@@ -46,6 +48,7 @@ import { agentProviders, rememberKind, launcherItems, launcher, launcherCss, loa
 import '/vendor/bx-agent.js';
 import '/vendor/bx-dialog.js';
 import '/vendor/bx-menu.js';
+import { infoFor, refreshFrameInfo, sandboxAttr, frameSource } from '/vendor/frame-info.js';
 
 // Shared z-order for all terminal windows on the page.
 let zTop = 2000;
@@ -69,54 +72,6 @@ window.addEventListener('resize', () => {
   for (const f of mountedFrames) f.fitToViewport?.();
 });
 
-// Base sandbox tokens for tile frames: scripts + forms + modals + downloads,
-// never allow-same-origin (that plus allow-scripts would void the sandbox).
-// Downloads are safe to allow (ND10): they cross no workspace/session/tile
-// boundary and the browser's own download UI mediates. Popups need a grant:
-// cap:open-links (ND11) adds allow-popups + allow-popups-to-escape-sandbox
-// for THAT tile — the server decides and reports the extra tokens on
-// /components, and this file appends exactly what it was sent, so the
-// attribute and the CSP sandbox header (internal/server/static.go) never
-// drift (browsers intersect the two). Top navigation stays blocked always.
-const SANDBOX = 'allow-scripts allow-forms allow-modals allow-downloads';
-
-// <iframe credentialless> (Chromium 110+): loads the frame in an ephemeral
-// credential context — no ambient cookie even on the document navigation.
-const CREDENTIALLESS = 'credentialless' in HTMLIFrameElement.prototype;
-
-// Per-component frame facts from /api/xbin/components: chrome (runs
-// UNsandboxed — the shell itself and manifest-flagged trusted chrome like
-// tiles/organisations act as the signed-in human) and the extra sandbox
-// tokens the tile's grants unlock. Fetched once; frames await it before
-// creating their iframe so the sandbox attribute is right for the FIRST load
-// — a changed attribute only applies to the NEXT navigation.
-let _info;
-function frameInfo() {
-  _info ??= fetch('/api/xbin/components')
-    .then((r) => (r.ok ? r.json() : []))
-    .then((list) => new Map(list.map((c) => [c.path, { chrome: !!c.chrome, sandbox: c.sandbox || [] }])))
-    .catch(() => new Map());
-  return _info;
-}
-// Longest-prefix lookup so an xbin.window() sub-path frame (apps/x/compose)
-// inherits its component's facts, as the server's CSP already does.
-async function infoFor(src) {
-  const m = await frameInfo();
-  let best = null;
-  for (const [p, i] of m) {
-    if ((src === p || src.startsWith(p + '/')) && (!best || p.length > best.p.length)) best = { p, i };
-  }
-  return best?.i ?? null;
-}
-// A grant changed for one component: refresh ITS entry in the shared map
-// (write-through, so a frame mounted later sees the new tokens too).
-async function refreshFrameInfo(path) {
-  const c = await fetch(`/api/xbin/components/${path}`)
-    .then((r) => (r.ok ? r.json() : null)).then((d) => d?.component ?? null).catch(() => null);
-  if (c) (await frameInfo()).set(path, { chrome: !!c.chrome, sandbox: c.sandbox || [] });
-}
-const sandboxAttr = (info) => (info?.chrome ? '' : [SANDBOX, ...(info?.sandbox ?? [])].join(' '));
-
 // Host GPU inventory (shared, fetched once) — populates the terminal GPU picker.
 let _gpuInv;
 function gpuInventory() {
@@ -139,7 +94,7 @@ export class BxFrame extends LitElement {
     _autoHeight: { state: true },
     _layout: { state: true },  // 'term' | 'code' | 'split' | 'logs' | 'prs'
     _codeW: { state: true },   // code panel width % in split
-    _frame: { state: true },   // {url, sandboxed, credentialless} | null
+    _frame: { state: true },   // {url, sandboxed, sandbox, credentialless, origin} | null
     _prCount: { state: true }, // open change proposals targeting this tile
     _z: { state: true },       // this window's place in the shared z-order (in the style binding: a render never drops it)
     _narrow: { state: true },  // the pop is too narrow for the full bar: the pickers live in the tools row
@@ -221,7 +176,7 @@ export class BxFrame extends LitElement {
     this._pop = null; // {dx, dy, w, h} — offsets from this frame's box; owned imperatively after open
     this._stopFollow = null; // the follow loop's stop while the pop-up is open
     this._offEvents = null;
-    this._frame = null; // {url, sandboxed, credentialless} — null until resolved
+    this._frame = null; // {url, sandboxed, sandbox, credentialless, origin} — null until resolved (frame-info.js)
     this._onMsg = (e) => this._message(e);
     this._winTimer = null; // the debounced per-user window-state save
     this._onVisible = () => { if (document.visibilityState === 'visible') this._relist(); };
@@ -242,31 +197,16 @@ export class BxFrame extends LitElement {
     this._prepareFrame();
   }
 
-  // Resolve how this frame must load (sandboxed? credentialless?) before the
-  // iframe exists. Credentialless navigations carry no cookie, so they
-  // authenticate with a bootstrap frame token in the URL (?frame= is consumed
-  // by xbind, never forwarded) — minted here, in chrome context, where the
-  // cookie principal may mint for any tile the human can read.
+  // Resolve how this frame must load (sandboxed? credentialless? its own
+  // tile origin?) before the iframe exists — frame-info.js.
   async _prepareFrame() {
     const info = await infoFor(this.src);
-    const sandboxed = !info?.chrome;
-    const sandbox = sandboxAttr(info);
+    const next = await frameSource(this.src, info);
     // A changed token set (a cap:open-links grant approved or revoked) must
     // reach a FRESH element: the attribute applies only to the next
     // navigation, so re-keying the iframe keeps the flags unambiguous.
-    if (this._frame && this._frame.sandbox !== sandbox) this._frameKey = (this._frameKey ?? 0) + 1;
-    let url = this._url(), credentialless = false;
-    if (sandboxed && CREDENTIALLESS) {
-      const tok = await fetch(`/api/xbin/frame-token?component=${encodeURIComponent(this.src)}`)
-        .then((r) => (r.ok ? r.json() : null)).then((d) => d?.token || '').catch(() => '');
-      if (tok) {
-        url += `?frame=${encodeURIComponent(tok)}`;
-        credentialless = true;
-      }
-      // No token (e.g. nested inside another tile): load WITHOUT
-      // credentialless so the navigation can still authenticate by cookie.
-    }
-    this._frame = { url, sandboxed, sandbox, credentialless };
+    if (this._frame && this._frame.sandbox !== next.sandbox) this._frameKey = (this._frameKey ?? 0) + 1;
+    this._frame = next;
   }
 
   // A grant for this component changed. If it moved the sandbox token set
@@ -446,9 +386,11 @@ export class BxFrame extends LitElement {
   _reload() {
     this._buildError = null;
     this._beginReload();
-    // Sandboxed frames are opaque origins — we can't reach contentWindow —
-    // so reload by re-navigation (re-minting the bootstrap token when
-    // credentialless, since the old one may have expired).
+    // Sandboxed frames are opaque origins (or, in origins mode, another
+    // origin) — we can't reach contentWindow — so reload by re-navigation:
+    // re-minting the bootstrap token when credentialless (the old one may
+    // have expired); in origins mode the workspace URL again (the server
+    // sends it on to the tile origin with a fresh ticket).
     if (this._frame?.credentialless) { this._prepareFrame(); return; }
     if (this._frame?.sandboxed) { const f = this._iframe; if (f) f.src = this._url(); return; }
     try { this._iframe?.contentWindow?.location.reload(); }
@@ -501,8 +443,12 @@ export class BxFrame extends LitElement {
 
   _message(e) {
     // Only trust messages from OUR iframe — the sender window IS the identity,
-    // so a tile can't spoof another component's requests.
+    // so a tile can't spoof another component's requests. On its own origin
+    // (origins mode) the document must also BE that origin: whatever else the
+    // frame navigated to (another tile's refusal page, the workspace) is
+    // not this tile.
     if (e.source !== this._iframe?.contentWindow) return;
+    if (this._frame?.origin && e.origin !== this._frame.origin) return;
     const d = e.data;
     if (typeof d?.type !== 'string' || !d.type.startsWith('xbin:')) return;
 
@@ -543,8 +489,10 @@ export class BxFrame extends LitElement {
           reply: (result) => this._iframe?.contentWindow?.postMessage(
             // targetOrigin '*' : a sandboxed tile is an opaque origin, so no
             // origin string ever matches it. Delivery is confined to THIS
-            // iframe's window regardless; xbin-client verifies e.source.
-            { type: 'xbin:reply', id: d.id, result }, '*'),
+            // iframe's window regardless; xbin-client verifies e.source. On
+            // its own origin (origins mode) the reply goes to that origin
+            // only.
+            { type: 'xbin:reply', id: d.id, result }, this._frame?.origin || '*'),
         },
       }));
     } else if (d.type === 'xbin:window-close') {

@@ -48,6 +48,7 @@ func (px *Proxy) ForwardIngress(w http.ResponseWriter, r *http.Request, rt ingre
 		}
 	}
 	stripCookie(r, auth.CookieName)
+	stripCookie(r, auth.SessionCookieHostName)
 	r.Header.Set(HeaderFrom, auth.IngressFrom)
 	r.Header.Set(HeaderIngressHost, rt.Host)
 

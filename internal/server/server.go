@@ -72,6 +72,14 @@ type Server struct {
 	// on tunnel-only deployments (SSO then refuses to start).
 	ExternalURL string
 
+	// TileAssets is the tile asset gating mode (--tile-assets, tileassets.go):
+	// "" or "legacy" (today's credential-less subresource rule), "tokens"
+	// (path-scoped asset tokens) or "origins" (a per-tile origin under
+	// TilesDomain, tileorigin.go). TilesDomain is the parent domain of the
+	// tile origins (--tiles-domain, optionally with a :port).
+	TileAssets  string
+	TilesDomain string
+
 	// SSO runtime state (sso.go): per-issuer cached OIDC provider and the
 	// boot-random HMAC key signing the one-shot login-state cookie.
 	ssoMu         sync.Mutex
@@ -134,7 +142,7 @@ func (s *Server) Handler() http.Handler {
 		http.Redirect(w, r, "/c/root/", http.StatusFound)
 	})))
 
-	handle("/c/", s.authedStatic(http.HandlerFunc(s.handleComponentStatic)))
+	handle("/c/", s.withAssetTokens(s.authedStatic(http.HandlerFunc(s.handleComponentStatic))))
 	// /vendor/ is UNAUTHENTICATED on purpose: it's xbind's own shipped code
 	// (core elements, vendored libs — public by nature), and sandboxed/
 	// credential-less tile frames must load xbin-client.js, lit, and
@@ -152,7 +160,7 @@ func (s *Server) Handler() http.Handler {
 
 	s.registerCoreAPI()
 	s.registerBrandingAPI()
-	return logRequests(nullOriginCORS(mux))
+	return logRequests(s.tileOrigins(nullOriginCORS(mux)))
 }
 
 // nullOriginCORS lets sandboxed tile frames talk to their APIs at all. A
@@ -237,6 +245,9 @@ func (s *Server) authedStatic(next http.Handler) http.Handler {
 			if err == nil {
 				if owner := s.owningComponent(cleaned); !isChrome(owner) && s.tileSubresourceAuthed(r) {
 					next.ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), auth.Principal{})))
+					return
+				} else if !isChrome(owner) && s.strictAssets() && !isNavigation(r) {
+					http.Error(w, strictAssetRefusal, http.StatusUnauthorized)
 					return
 				}
 			}
@@ -330,13 +341,17 @@ func termEnvGate(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return cwd, true
 }
 
-func setSessionCookie(w http.ResponseWriter, r *http.Request, value string) {
-	secure := r.Header.Get("X-Forwarded-Proto") == "https" || r.TLS != nil
+func (s *Server) setSessionCookie(w http.ResponseWriter, r *http.Request, value string) {
 	http.SetCookie(w, &http.Cookie{
-		Name: auth.CookieName, Value: value, Path: "/",
-		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: secure,
+		Name: s.Auth.SessionCookieName(r), Value: value, Path: "/", // __Host- in origins mode (auth/tilebinding.go)
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: s.Auth.SessionCookieSecure(r),
 		MaxAge: int((30 * 24 * time.Hour).Seconds()),
 	})
+}
+
+// clearSessionCookie expires the session cookie on r.
+func (s *Server) clearSessionCookie(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{Name: s.Auth.SessionCookieName(r), Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: s.Auth.SessionCookieSecure(r)})
 }
 
 // handleLogin: GET serves the login page (username/password), and the
@@ -359,7 +374,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "bad token", http.StatusForbidden)
 			return
 		}
-		setSessionCookie(w, r, tok) // root token as the admin cookie
+		s.setSessionCookie(w, r, tok) // root token as the admin cookie
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
@@ -462,7 +477,7 @@ func (s *Server) handleInviteRedeem(w http.ResponseWriter, r *http.Request) {
 	}
 	s.loginThrottle.ok(s.ClientIP(r))
 	s.touchLogin(u.ID, "invite")
-	setSessionCookie(w, r, s.Auth.NewSession(u.ID, s.ClientIP(r)))
+	s.setSessionCookie(w, r, s.Auth.NewSession(u.ID, s.ClientIP(r)))
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
@@ -504,7 +519,7 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	}
 	s.loginThrottle.ok(s.ClientIP(r))
 	s.touchLogin(u.ID, "password")
-	setSessionCookie(w, r, s.Auth.NewSession(u.ID, s.ClientIP(r)))
+	s.setSessionCookie(w, r, s.Auth.NewSession(u.ID, s.ClientIP(r)))
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
@@ -512,7 +527,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if s.bearerLogout(w, r) { // the app signing out (devicelogin.go)
 		return
 	}
-	if c, err := r.Cookie(auth.CookieName); err == nil {
+	if c, err := s.Auth.SessionCookie(r); err == nil {
 		// Signing out of a view-as session returns the admin to themselves
 		// rather than to the login page (impersonate.go).
 		if restore, owner, ok := s.Auth.StopImpersonation(c.Value); ok {
@@ -525,7 +540,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		}
 		s.Auth.DropSession(c.Value)
 	}
-	http.SetCookie(w, &http.Cookie{Name: auth.CookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
+	s.clearSessionCookie(w, r)
 	http.Redirect(w, r, "/login", http.StatusFound)
 }
 
@@ -657,6 +672,6 @@ func logRequests(next http.Handler) http.Handler {
 		if strings.HasPrefix(r.URL.Path, "/ws/") {
 			return // long-lived; logged at close by their handlers
 		}
-		slog.Debug("http", "m", r.Method, "path", r.URL.Path, "dur", time.Since(start).Round(time.Millisecond))
+		slog.Debug("http", "m", r.Method, "path", redactAssetToken(r.URL.Path), "dur", time.Since(start).Round(time.Millisecond))
 	})
 }

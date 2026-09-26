@@ -36,13 +36,16 @@
  * frame token below is the tile's ONLY credential; xbin.fetch/xbin.ws attach
  * it, and the token alone authenticates (no cookie required). location.origin
  * here is "null", so all postMessage targets are '*': identity on both sides
- * is verified by comparing event.source windows, never origins.
+ * is verified by comparing event.source windows, never origins. On a tile's
+ * own origin (strict tile asset gating's origins mode) the server names the
+ * workspace origin: messages go to it only, and replies must come from it.
  */
 
 const meta = (name) => document.querySelector(`meta[name="${name}"]`)?.content ?? '';
 
 // postMessage targetOrigin for talking to our embedder (see header comment).
-const PARENT = '*';
+const WORKSPACE = meta('xbin-workspace-origin');
+const PARENT = WORKSPACE || '*';
 
 const self = meta('xbin-component');
 let frameToken = meta('xbin-frame-token');
@@ -221,6 +224,7 @@ let reqSeq = 0;
 if (embedded) {
   addEventListener('message', (e) => {
     if (e.source !== window.parent) return;               // only our own frame
+    if (WORKSPACE && e.origin !== WORKSPACE) return;      // …and, on a tile origin, the workspace
     const d = e.data;
     if (d?.type === 'xbin:reply' && pending.has(d.id)) {
       const resolve = pending.get(d.id);
@@ -308,6 +312,88 @@ if (embedded) {
   document.addEventListener('pointermove', (e) => { if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 8) cancel(); }, true);
   document.addEventListener('pointerup', cancel, true);
   document.addEventListener('pointercancel', cancel, true);
+}
+
+// --- strict tile asset gating, tokens mode (docs/elements.md §Asset URLs) ---
+// The injection added <base href="/c/~<asset-token>/<tile>/<dir>/"> so this
+// document's RELATIVE URLs carry a credential. Three side effects of a
+// <base> are undone here, and failed loads are explained:
+//   - a fragment-only link (href="#x") would resolve against the base and
+//     navigate away — it scrolls, as it would without a <base>;
+//   - a link resolving into the asset path (href="page2.html", "?q=1") would
+//     ask the asset plane for a document, which it never serves — it
+//     navigates to the same /c/ URL with this tile's frame token instead;
+//   - history.pushState/replaceState resolve a relative URL against the
+//     <base> — they resolve against the document URL, so the token never
+//     enters location;
+//   - a subresource that fails to load under /c/ gets a console line saying
+//     why and how to fix it (relative URLs; `bx fix assets <tile>`).
+const assetBase = meta('xbin-tile-assets') === 'tokens' ? document.querySelector('base[data-xbin-assets]') : null;
+if (assetBase) {
+  const tokPrefix = new URL(assetBase.href).pathname.match(/^\/c\/~[^/]+\//)?.[0] ?? '';
+  const underToken = (u) => u.origin === location.origin && !!tokPrefix && u.pathname.startsWith(tokPrefix);
+  const clean = (u) => `/c/${u.pathname.slice(tokPrefix.length)}${u.search}${u.hash}`;
+  for (const m of ['pushState', 'replaceState']) {
+    const orig = History.prototype[m];
+    history[m] = function (state, title, url) {
+      if (url !== undefined && url !== null) url = new URL(String(url), location.href).href;
+      return orig.call(this, state, title, url);
+    };
+  }
+  // Decided LAST: our window listener is added while the click is still at
+  // the document, so it runs after every handler the tile registered — a
+  // client-side router that handles the link (preventDefault) keeps it.
+  const onLink = (e) => {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const a = e.composedPath?.().find((n) => n instanceof Element && n.matches('a[href], area[href]'));
+    if (!a || a.hasAttribute('download')) return;
+    const raw = a.getAttribute('href').trim();
+    const target = (a.getAttribute('target') || '').toLowerCase();
+    if (raw.startsWith('#')) {
+      if (target && target !== '_self') return;
+      e.preventDefault();
+      if (location.hash === raw && raw.length > 1) document.getElementById(decodeURIComponent(raw.slice(1)))?.scrollIntoView();
+      else location.hash = raw;
+      return;
+    }
+    let u; try { u = new URL(a.href); } catch { return; }
+    if (!underToken(u)) return;
+    e.preventDefault();
+    const dest = new URL(clean(u), location.href);
+    if (frameToken) dest.searchParams.set('frame', frameToken);
+    if (target && target !== '_self') window.open(dest.href, target, /\bnoopener\b/.test(a.rel) ? 'noopener' : '');
+    else location.assign(dest.href);
+  };
+  document.addEventListener('click', (e) => {
+    const late = (ev) => { window.removeEventListener('click', late); if (ev === e) onLink(ev); };
+    window.addEventListener('click', late);
+    setTimeout(() => window.removeEventListener('click', late)); // propagation stopped: never reached window
+  });
+  const warned = new Set();
+  const explain = (url, what) => {
+    let u; try { u = new URL(url, location.href); } catch { return; }
+    if (u.origin !== location.origin || !u.pathname.startsWith('/c/') || warned.has(u.href)) return;
+    warned.add(u.href);
+    const why = underToken(u)
+      ? 'the asset plane refused it (missing, a document, or a tile this user cannot read)'
+      : 'an absolute /c/ URL carries no credential under strict tile asset gating — only relative URLs do';
+    console.warn(`[xbin] ${self}: ${what} ${underToken(u) ? clean(u) : u.pathname} failed to load — ${why}. `
+      + `Use a relative URL (\`bx fix assets ${self}\` rewrites them; /docs/elements.md#asset-urls).`);
+  };
+  addEventListener('error', (e) => {
+    const el = e.target;
+    if (el instanceof Element) explain(el.currentSrc || el.src || el.href?.baseVal || el.href || el.data || '', `<${el.localName}>`);
+  }, true);
+  // CSS url()s and @imports fire no error event: flag the ones that went out
+  // absolute (they had no credential), from resource timing.
+  try {
+    new PerformanceObserver((list) => {
+      for (const r of list.getEntries()) {
+        let u; try { u = new URL(r.name); } catch { continue; }
+        if (['css', 'link', 'img', 'script', 'other'].includes(r.initiatorType) && !underToken(u)) explain(r.name, r.initiatorType);
+      }
+    }).observe({ type: 'resource', buffered: true });
+  } catch { /* no resource timing */ }
 }
 
 // xbin.native — the xbin app's small API for a tile's native UI, present only

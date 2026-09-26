@@ -78,8 +78,8 @@ func (s *Server) serveNativeRoute(w http.ResponseWriter, r *http.Request, cleane
 		http.Error(w, why, http.StatusNotFound)
 		return true
 	}
-	doc := nativeRuntimeDoc(comp.Path, s.headInjection(r, comp, comp.Path), ni.Entry, r.URL.Query().Get("preview") == "1")
-	s.documentHeaders(w, comp.Path, comp)
+	doc := nativeRuntimeDoc(comp.Path, s.headInjection(r, comp, comp.Path, nil), ni.Entry, r.URL.Query().Get("preview") == "1")
+	s.documentHeaders(w, r, comp.Path, comp)
 	w.WriteHeader(http.StatusOK)
 	if r.Method != http.MethodHead {
 		_, _ = w.Write([]byte(doc))

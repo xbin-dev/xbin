@@ -814,7 +814,10 @@ need an admin in the browser, or bx on the host.
   handed via env. Broker state layout is not API.
 - **Don't store state in process memory** across requests you care about —
   swaps and reaps will eat it.
-- Keep components self-contained: relative asset URLs inside your dir,
+- Keep components self-contained: **relative asset URLs** inside your dir
+  (`src="app.js"`, `url(img/x.png)` — never `/c/<you>/…` in HTML or CSS:
+  under strict tile asset gating only relative URLs carry a credential;
+  `bx fix assets <you>` rewrites them, docs/elements.md §Asset URLs),
   shared code via `deps` + (for Go) workspace go.work packages.
 - Editor droppings (`*.swp`, `*~`) and `node_modules` are ignored by the
   watcher; a save is visible within ~300–500 ms, Go swaps in ~1 s.

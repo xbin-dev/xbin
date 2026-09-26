@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"mime"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -51,11 +53,11 @@ func (s *Server) sandboxExtras(comp string) []string { return s.policy().Sandbox
 // the HTML spec, which would break every direct-tab open of /c/<tile>/.
 // Opener severing lives on the popup targets instead (chrome pages and
 // /docs/ send COOP; tile authors use rel="noopener").
-func (s *Server) sandboxDocument(w http.ResponseWriter, compPath string, comp *registry.Component) bool {
+func (s *Server) sandboxDocument(w http.ResponseWriter, r *http.Request, compPath string, comp *registry.Component) bool {
 	if !sandboxedFrame(compPath, comp) {
 		return false
 	}
-	w.Header().Set("Content-Security-Policy", sandboxHeader(s.sandboxExtras(compPath)))
+	s.setDocCSP(w, r, sandboxHeader(s.docSandboxExtras(r, compPath)))
 	return true
 }
 
@@ -66,7 +68,7 @@ func (s *Server) sandboxDocument(w http.ResponseWriter, compPath string, comp *r
 // byte-exact. Cache-Control is no-store throughout: this is a live system.
 func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 	rel := strings.TrimPrefix(r.URL.Path, "/c/")
-	full, cleaned, err := util.SafeJoin(s.Reg.Root, rel)
+	_, cleaned, err := util.SafeJoin(s.Reg.Root, rel)
 	if err != nil || !pathAllowed(cleaned) {
 		http.Error(w, "bad path", http.StatusBadRequest)
 		return
@@ -91,10 +93,17 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 	// source here too (the grant's whole point — tooling backends fetching
 	// files); the 2026-08-02 element read clamp governs everything else.
 	// Note the D4 injection mints a frame token only for a human or the tile
-	// itself (mayMintFrameToken), so element reads — grant-based or through
-	// the attributed user's access — never leak the OTHER tile's credential.
-	if owner := s.owningComponent(cleaned); !isChrome(owner) {
-		if p := auth.PrincipalOf(r); !p.CanReadTile(owner) && !s.codeGranted(p, owner) && !s.tileSubresourceAuthed(r) {
+	// itself (mayMintFrameToken), so element reads — code grants, a user's
+	// RBAC through another tile's frame token — never leak the OTHER tile's
+	// credential.
+	//
+	// Strict asset gating (--tile-assets=tokens|origins, tileassets.go) has
+	// no credential-less path at all, re-checks the DRIVING USER's live
+	// access for a tile's own frame principal too, and serves through
+	// serveStrictStatic (no symlink leaves the tile).
+	owner := s.owningComponent(cleaned)
+	if !isChrome(owner) {
+		if p := auth.PrincipalOf(r); (!p.CanReadTile(owner) && !s.codeGranted(p, owner) && !s.tileSubresourceAuthed(r)) || !s.strictLiveRead(p, owner) {
 			if p.User != nil && p.Component == "" && strings.Contains(r.Header.Get("Accept"), "text/html") {
 				s.serveRequestAccessPage(w, owner)
 				return
@@ -103,21 +112,25 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-
 	// A native runtime document (?native=1 on a tile's directory URL) is
-	// generated, not a file — authorized above exactly like index.html.
+	// generated, not a file — authorized above exactly like index.html, in
+	// every asset mode.
 	if nativeRuntimeRequest(r) && s.serveNativeRoute(w, r, cleaned) {
 		return
 	}
+	if s.strictAssets() {
+		s.serveStrictStatic(w, r, cleaned, owner)
+		return
+	}
 
-	full = s.overlayFile(cleaned, full) // dev overlay: a file it carries wins
-	fi, err := os.Stat(full)
+	f, fi, err := s.openLegacy(cleaned)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
-	dirIndex := false
+	name, dirIndex := cleaned, false
 	if fi.IsDir() {
+		f.Close()
 		if !strings.HasSuffix(r.URL.Path, "/") {
 			http.Redirect(w, r, r.URL.Path+"/", http.StatusMovedPermanently)
 			return
@@ -125,49 +138,111 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 		dirIndex = true
 		// `cleaned` stays the directory: it is the component path the
 		// injection attributes a not-yet-scanned component to.
-		full = s.overlayFile(path.Join(cleaned, "index.html"), filepath.Join(full, "index.html"))
-		if _, err := os.Stat(full); err != nil {
+		name = path.Join(cleaned, "index.html")
+		if f, fi, err = s.openLegacy(name); err != nil || !fi.Mode().IsRegular() {
+			if err == nil {
+				f.Close()
+			}
 			http.NotFound(w, r)
 			return
 		}
 	}
+	defer f.Close()
 
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 
-	if strings.HasSuffix(full, ".html") || strings.HasSuffix(full, ".htm") {
-		comp, _, _ := s.Reg.Resolve(cleaned)
+	comp, _, _ := s.Reg.Resolve(cleaned)
+	if isHTMLName(name) {
 		if comp == nil || comp.Manifest.Inject == nil || *comp.Manifest.Inject {
-			s.serveInjectedHTML(w, r, full, comp, cleaned, dirIndex)
+			body, err := io.ReadAll(f)
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			s.injectHTML(w, r, body, comp, cleaned, dirIndex)
 			return
 		}
 		// inject:false serves byte-exact, but non-chrome HTML is confined
 		// regardless (ND8) — bx-frame sandboxes it when framed; this header
 		// covers direct-tab opens. Without injection it holds no frame token
 		// either, so its frontend has no identity at all.
-		s.sandboxDocument(w, s.owningComponent(cleaned), comp)
+		s.sandboxDocument(w, r, s.owningComponent(cleaned), comp)
+		if strings.HasSuffix(r.URL.Path, "/index.html") { // as http.ServeFile always did
+			localRedirect(w, r, "./")
+			return
+		}
+	} else {
+		s.inertNonDocument(w, r, owner, comp)
 	}
-	http.ServeFile(w, r, full)
+	http.ServeContent(w, r, path.Base(name), fi.ModTime(), f)
 }
 
-// overlayFile returns the --dev-overlay copy of a workspace file when one
-// exists (whether or not the workspace has the file — a scaffold file added
-// in the source tree shows up without re-initialising the dev workspace),
-// else the workspace path. Files only, never manifests: the registry walks
-// the real tree, so xbin.json / scope.json must be what it read.
-func (s *Server) overlayFile(cleaned, full string) string {
-	if s.Overlay == "" {
-		return full
+// openLegacy opens a file for the legacy /c/ plane — the dev overlay's copy
+// first (a trusted source tree: a scaffold file added there shows up without
+// re-initialising the dev workspace; never manifests, the registry reads the
+// real tree) — through fsutil.OpenResolved: symlinks between tiles keep
+// working, but the resolved target must stay inside the workspace and
+// outside its reserved trees (.xbin holds the HMAC secret and owner token;
+// data/ and homes/ every tile's state), and what is served is the very file
+// that was checked. Tile directories are written by sandboxes: a symlink
+// there (../../.xbin/secret), even one swapped in while a request is in
+// flight, never points xbind at its own credentials; a FIFO never blocks it.
+// The strict modes go further (openStrict: nothing leaves the tile).
+func (s *Server) openLegacy(cleaned string) (*os.File, os.FileInfo, error) {
+	open := func(root string, allow func(string) bool) (*os.File, os.FileInfo, error) {
+		f, _, err := fsutil.OpenResolved(root, cleaned, allow)
+		if err != nil {
+			return nil, nil, err
+		}
+		fi, err := f.Stat()
+		if err != nil {
+			f.Close()
+			return nil, nil, err
+		}
+		return f, fi, nil
 	}
-	switch path.Base(cleaned) {
-	case "xbin.json", "scope.json":
-		return full
+	if s.Overlay != "" {
+		switch path.Base(cleaned) {
+		case "xbin.json", "scope.json":
+		default:
+			if f, fi, err := open(s.Overlay, nil); err == nil {
+				if fi.Mode().IsRegular() {
+					return f, fi, nil
+				}
+				f.Close()
+			}
+		}
 	}
-	alt := filepath.Join(s.Overlay, filepath.FromSlash(cleaned))
-	if fi, err := os.Stat(alt); err == nil && fi.Mode().IsRegular() {
-		return alt
+	return open(s.Reg.Root, pathAllowed)
+}
+
+// localRedirect is net/http's (unexported) relative redirect, which
+// http.ServeFile answers …/index.html with.
+func localRedirect(w http.ResponseWriter, r *http.Request, newPath string) {
+	if q := r.URL.RawQuery; q != "" {
+		newPath += "?" + q
 	}
-	return full
+	w.Header().Set("Location", newPath)
+	w.WriteHeader(http.StatusMovedPermanently)
+}
+
+// inertNonDocument: a sandboxed tile's non-document file served on the
+// workspace origin carries CSP sandbox, in every mode. As a subresource
+// (script, style, image, font, fetch) the header is ignored; navigated to —
+// an SVG or XML file, an .xhtml/.shtml page, an extensionless file sniffed
+// as HTML — it renders scriptless in an opaque origin instead of running
+// tile-written script as the workspace origin, beside the session cookie.
+// PDFs are left alone: browsers refuse to render them sandboxed and they
+// cannot script. Chrome is trusted and never gated.
+func (s *Server) inertNonDocument(w http.ResponseWriter, r *http.Request, owner string, comp *registry.Component) {
+	if tileOriginOf(r) != "" || !sandboxedFrame(owner, comp) {
+		return
+	}
+	if strings.HasPrefix(mime.TypeByExtension(path.Ext(r.URL.Path)), "application/pdf") {
+		return
+	}
+	w.Header().Set("Content-Security-Policy", "sandbox")
 }
 
 // codeGranted reports whether an element principal holds a code[:<target>]
@@ -204,8 +279,11 @@ func (s *Server) codeGranted(p auth.Principal, target string) bool {
 // source IP (auth.RecentlyAuthed). Used identically by authedStatic
 // (admission) and handleComponentStatic (authorization) so the two never
 // disagree.
+//
+// Strict asset gating (--tile-assets=tokens|origins) has no such
+// exception: every /c/ request carries a credential.
 func (s *Server) tileSubresourceAuthed(r *http.Request) bool {
-	return tileSubresource(r) && s.Auth.RecentlyAuthed(s.ClientIP(r))
+	return !s.strictAssets() && tileSubresource(r) && s.Auth.RecentlyAuthed(s.ClientIP(r))
 }
 
 var tileSubresourceDests = map[string]bool{
@@ -220,7 +298,7 @@ func tileSubresource(r *http.Request) bool {
 	}
 	// HTML documents are never subresources — they navigate (Dest:
 	// document/iframe, excluded below) with the cookie or bootstrap token.
-	if strings.HasSuffix(r.URL.Path, ".html") || strings.HasSuffix(r.URL.Path, ".htm") {
+	if isHTMLName(r.URL.Path) {
 		return false
 	}
 	switch r.Header.Get("Sec-Fetch-Site") {
@@ -283,13 +361,9 @@ func pathAllowed(cleaned string) bool {
 
 var headRe = regexp.MustCompile(`(?i)<head[^>]*>`)
 
-func (s *Server) serveInjectedHTML(w http.ResponseWriter, r *http.Request, file string, comp *registry.Component, cleaned string, dirIndex bool) {
-	body, err := os.ReadFile(file)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-
+// injectHTML writes body — a document read through the plane's own opener
+// (openLegacy, openStrict) — with the D4 injection.
+func (s *Server) injectHTML(w http.ResponseWriter, r *http.Request, body []byte, comp *registry.Component, cleaned string, dirIndex bool) {
 	compPath := ""
 	switch {
 	case comp != nil:
@@ -303,7 +377,7 @@ func (s *Server) serveInjectedHTML(w http.ResponseWriter, r *http.Request, file 
 		compPath = strings.TrimSuffix(cleaned, "/"+filepath.Base(cleaned))
 	}
 
-	inject := s.headInjection(r, comp, compPath)
+	inject := s.headInjection(r, comp, compPath, body)
 
 	var out []byte
 	if loc := headRe.FindIndex(body); loc != nil {
@@ -314,15 +388,16 @@ func (s *Server) serveInjectedHTML(w http.ResponseWriter, r *http.Request, file 
 		out = append([]byte(inject), body...)
 	}
 
-	s.documentHeaders(w, compPath, comp)
+	s.documentHeaders(w, r, compPath, comp)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(out)
 }
 
 // documentHeaders sets the headers of an injected document of compPath (a
 // tile page or its native runtime document): the content type, and the
-// sandbox — or, for trusted chrome, COOP.
-func (s *Server) documentHeaders(w http.ResponseWriter, compPath string, comp *registry.Component) {
+// sandbox — or, for trusted chrome, COOP (and, in origins mode,
+// frame-ancestors).
+func (s *Server) documentHeaders(w http.ResponseWriter, r *http.Request, compPath string, comp *registry.Component) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// Browser-plane isolation (plans/auth.md §6): a non-chrome document runs
 	// in an opaque origin — no parent/sibling DOM access, no storage, no
@@ -330,27 +405,40 @@ func (s *Server) documentHeaders(w http.ResponseWriter, compPath string, comp *r
 	// frame token. Delivered as a header (not just the iframe attribute) so
 	// direct-tab opens of /c/<tile>/ are confined identically, with the same
 	// grant-unlocked extras (ND11).
-	if !s.sandboxDocument(w, compPath, comp) {
+	if !s.sandboxDocument(w, r, compPath, comp) {
 		// Trusted chrome: keep popups it opens (full-page tile views, docs)
 		// in its own browsing-context group.
 		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+		// Origins mode: tile origins are same-site, so their frames of the
+		// shell would carry the session cookie in browsers without Fetch
+		// Metadata (tilenav.go drops it where they send it) — chrome is
+		// framed only by the workspace itself.
+		if s.assetMode() == TileAssetsOrigins {
+			w.Header().Set("Content-Security-Policy", "frame-ancestors 'self'")
+		}
 	}
 }
 
-// headInjection is the D4 <head> block of one of compPath's documents: the
+// headInjection is the D4 <head> block of one of compPath's documents
+// (body: the document it goes into — a tile page, or nil for the generated
+// native runtime document): strict asset gating's head (assetHead), the
 // merged import map, the component and frame-token metas (a token only for
-// a human or the tile itself that may read it — mayMintFrameToken), bound
-// interfaces, the sandbox token
-// list, the WebSocket origin for app WebViews (appWSOriginMeta), and the
+// a human or the tile itself that may read it — mayMintFrameToken — bound
+// to the login that opened it), bound interfaces, the sandbox token list,
+// the WebSocket origin for app WebViews (appWSOriginMeta), and the
 // xbin-client module.
-func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPath string) string {
+func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPath string, body []byte) string {
 	imports := s.Reg.ImportMapFor(comp)
-	im, _ := json.Marshal(map[string]any{"imports": imports})
 
-	frameTok := ""
-	if p := auth.PrincipalOf(r); s.mayMintFrameToken(p, compPath) {
+	frameTok, assetHead := "", ""
+	if p := auth.PrincipalOf(r); s.mayMintFrameToken(r, p, compPath) {
 		frameTok = s.Auth.MintFrameTokenFor(p, compPath, frameTokenTTL) // bound to p's login (frametoken.go)
+		// Strict asset gating: tokens mode's <base> + import-map remap
+		// (which rewrites imports in place), origins mode's mode meta;
+		// "" in legacy, so the injection below is byte-for-byte unchanged.
+		assetHead = s.assetHead(r, body, compPath, comp, p.UserID, imports)
 	}
+	im, _ := json.Marshal(map[string]any{"imports": imports})
 
 	ifaceMeta := ""
 	if ifaces := s.policy().Interfaces(compPath); len(ifaces) > 0 {
@@ -363,17 +451,17 @@ func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPa
 	// without popups" and say which grant a blocked target=_blank needs.
 	sandboxMeta := ""
 	if sandboxedFrame(compPath, comp) {
-		tokens := strings.TrimPrefix(sandboxHeader(s.sandboxExtras(compPath)), "sandbox ")
+		tokens := strings.TrimPrefix(sandboxHeader(s.docSandboxExtras(r, compPath)), "sandbox ")
 		sandboxMeta = fmt.Sprintf("<meta name=\"xbin-sandbox\" content=\"%s\">\n", htmlEscape(tokens))
 	}
 
 	return fmt.Sprintf(
-		"\n<script type=\"importmap\">%s</script>\n"+
+		"\n%s<script type=\"importmap\">%s</script>\n"+
 			"<meta name=\"xbin-component\" content=\"%s\">\n"+
 			"<meta name=\"xbin-frame-token\" content=\"%s\">\n"+
 			"%s%s%s"+
 			"<script type=\"module\" src=\"/vendor/xbin-client.js\"></script>\n",
-		im, htmlEscape(compPath), frameTok, ifaceMeta, sandboxMeta, appWSOriginMeta(r))
+		assetHead, im, htmlEscape(compPath), frameTok, ifaceMeta, sandboxMeta, appWSOriginMeta(r))
 }
 
 // mayMintFrameToken: the injection mints compPath's frame token only for a
@@ -381,17 +469,47 @@ func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPa
 // (cookie, bearer) or the tile itself (its own frame/terminal/instance
 // principal, including an xbin.window sub-path token like apps/x/editor,
 // whose owning component is apps/x). Without the second half, any tile's
-// frontend could xbin.fetch('/c/<other>/') — or, since native runtime
-// documents, '/c/<other>/?native=1', which exists even for inject:false
-// tiles and tiles with no index.html — and lift the other tile's token out
-// of the HTML whenever its user can read that tile. Element principals
-// reading other tiles' documents (code grants, the user's RBAC) get the
-// HTML without a token, as code-grant reads always did.
-func (s *Server) mayMintFrameToken(p auth.Principal, compPath string) bool {
+// frontend could xbin.fetch('/c/<other>/') — or '/c/<other>/?native=1', a
+// native runtime document, which exists even for inject:false tiles and
+// tiles with no index.html — and lift the other tile's token out of the
+// HTML whenever its user can read that tile — e.g. the admin tile's
+// (xbin:admin grant) from any tile an admin opens. Element
+// principals reading other tiles' documents (code grants, the user's RBAC)
+// get the HTML without a token, as code-grant reads always did.
+//
+// One exception: a NAVIGATION within one tile tree (sameTileTree) — a
+// multi-page tile moving its frame between its own pages when a sub-page
+// directory holding index.html is registered as a nested component of its
+// own (settings/ → apps/a/settings). The initiator cannot read a document it
+// navigates to (an opaque or foreign origin), so there is no token to lift;
+// across trees it stays refused.
+func (s *Server) mayMintFrameToken(r *http.Request, p auth.Principal, compPath string) bool {
 	if !p.CanReadTile(compPath) {
 		return false
 	}
-	return p.Component == "" || p.Component == compPath || s.owningComponent(p.Component) == compPath
+	if p.Component == "" || p.Component == compPath {
+		return true
+	}
+	own := s.owningComponent(p.Component)
+	return own == compPath || (isNavigation(r) && s.sameTileTree(own, compPath))
+}
+
+// topTile is the outermost registered component on p's path (p's own first
+// segment when none is registered): the root of the directory tree whose
+// writers can write everything under it, nested components included.
+func (s *Server) topTile(p string) string {
+	segs := strings.Split(strings.Trim(p, "/"), "/")
+	for i := 1; i <= len(segs); i++ {
+		if _, ok := s.Reg.Component(strings.Join(segs[:i], "/")); ok {
+			return strings.Join(segs[:i], "/")
+		}
+	}
+	return segs[0]
+}
+
+// sameTileTree: a and b are components of one tile tree (never chrome).
+func (s *Server) sameTileTree(a, b string) bool {
+	return !isChrome(a) && !isChrome(b) && s.topTile(a) == s.topTile(b)
 }
 
 func htmlEscape(s string) string {

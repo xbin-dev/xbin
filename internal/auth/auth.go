@@ -229,6 +229,16 @@ type Auth struct {
 	// clientIP resolves a request's client IP (trusted-proxy aware);
 	// installed by the server via SetClientIP. Nil → RemoteAddr.
 	clientIP func(*http.Request) string
+
+	// credGen is the per-user credential generation asset-plane credentials
+	// bind to (assettoken.go, SetCredentialGeneration). Nil → "".
+	credGen func(userID string) string
+
+	// Tile origins (tilebinding.go): the __Host- session cookie switch, the
+	// session-reference index tile credentials bind to, spent exchange tickets.
+	hostCookies bool
+	sessionRefs map[string]string    // session ref → session id (guarded by mu)
+	usedTickets map[string]time.Time // spent tile-origin ticket MAC → its expiry (guarded by mu)
 }
 
 // termID scopes a terminal-session token (plans/terminal-tokens.md): the tile
@@ -595,7 +605,7 @@ func (a *Auth) fromRequest(r *http.Request) (Principal, bool) {
 	// tile frames (opaque origin, no storage/cookie access) hold nothing else.
 	// The token proves attribution by its HMAC; its embedded user id rides
 	// along for attribution and per-tile static-file clamping only.
-	cookie, err := r.Cookie(CookieName)
+	cookie, err := a.SessionCookie(r)
 	if err != nil {
 		if p, ok, present := frame(); present {
 			return p, ok

@@ -356,7 +356,7 @@ func (s *Server) handleSSOCallback(w http.ResponseWriter, r *http.Request) {
 		s.ssoAppFinish(w, r, u.ID, st.Challenge)
 		return
 	}
-	setSessionCookie(w, r, s.Auth.NewSession(u.ID, ip))
+	s.setSessionCookie(w, r, s.Auth.NewSession(u.ID, ip))
 	slog.Info("audit", "who", "user:"+u.ID, "method", "SSO", "path", "/login/sso/callback", "status", 200)
 	http.Redirect(w, r, "/", http.StatusFound)
 }

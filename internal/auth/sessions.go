@@ -64,6 +64,7 @@ func (a *Auth) addSessionLocked(s *session) string {
 	s.gen = util.RandomToken(12)
 	a.sessions[id] = s
 	a.gens.sessions[s.gen] = id
+	a.indexSessionLocked(id) // tile-origin credentials bind to it (tilebinding.go)
 	return id
 }
 
@@ -297,6 +298,7 @@ func (a *Auth) sweepSessionsLocked(now time.Time) {
 			delete(a.gens.orphans, h)
 		}
 	}
+	a.sweepSessionRefsLocked(now)
 	a.sweepWarmLocked(now)
 	a.dev.sweepLocked(now)
 }

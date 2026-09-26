@@ -336,3 +336,42 @@ func changed(a, b map[string]string) []string {
 }
 
 var _ = exec.Command // git is optional for the fixture (InitWorkspace tolerates its absence)
+
+// --tile-assets / --tiles-domain (plans/tile-asset-auth.md): origins needs a
+// same-site tiles domain and the external URL; the other modes refuse a
+// stray tiles domain; unknown modes are refused.
+func TestTileAssetsConfig(t *testing.T) {
+	ok := []Config{
+		{},
+		{TileAssets: "legacy"},
+		{TileAssets: "tokens"},
+		{TileAssets: "origins", TilesDomain: "tiles.xbin.example.com", ExternalURL: "https://xbin.example.com"},
+		{TileAssets: "origins", TilesDomain: "xbin-tiles.example.com", ExternalURL: "https://xbin.example.com"},
+		{TileAssets: "origins", TilesDomain: "xbin.localhost", ExternalURL: "http://xbin.localhost:9260"},
+		{TileAssets: "origins", TilesDomain: "Tiles.XBin.Example.com:8443", ExternalURL: "https://xbin.example.com"},
+	}
+	for _, c := range ok {
+		c.Workspace = "."
+		if _, err := c.Validate(); err != nil {
+			t.Errorf("%+v: %v", c, err)
+		}
+	}
+	bad := []Config{
+		{TileAssets: "strict"},
+		{TileAssets: "tokens", TilesDomain: "tiles.example.com"},
+		{TileAssets: "origins", TilesDomain: "tiles.example.com"},                                         // no external URL
+		{TileAssets: "origins", ExternalURL: "https://xbin.example.com"},                                  // no tiles domain
+		{TileAssets: "origins", TilesDomain: "*.tiles.example.com", ExternalURL: "https://x.example.com"}, // wildcard
+		{TileAssets: "origins", TilesDomain: "https://tiles.example.com", ExternalURL: "https://x.example.com"},
+		{TileAssets: "origins", TilesDomain: "tiles.other.org", ExternalURL: "https://xbin.example.com"}, // cross-site
+		{TileAssets: "origins", TilesDomain: "localhost", ExternalURL: "http://xbin.localhost:9260"},     // t-x.localhost is its own site
+		{TileAssets: "origins", TilesDomain: "tiles.localhost", ExternalURL: "http://localhost:9260"},    // localhost has no parent
+		{TileAssets: "origins", TilesDomain: "tiles.example.com", ExternalURL: "http://10.0.0.5:8642"},   // an IP
+	}
+	for _, c := range bad {
+		c.Workspace = "."
+		if _, err := c.Validate(); err == nil {
+			t.Errorf("%+v: accepted", c)
+		}
+	}
+}

@@ -170,7 +170,7 @@ func usage() {
   bx agent run|send|permit|attach|ls|stop
                                         drive a coding agent in a tile's sandbox
   bx cron ls                            scheduled jobs
-  bx doctor                             check the workspace for problems
+  bx doctor | bx fix assets <tile> [--write]   workspace problems | absolute /c/ URLs → relative
 `)
 	os.Exit(2)
 }

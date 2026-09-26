@@ -47,6 +47,8 @@ type Config struct {
 	IngressKey    string `flag:"ingress-key" env:"XBIN_INGRESS_KEY" doc:"TLS key (PEM) for the ingress listener"`
 	TrustedProxy  string `flag:"trusted-proxies" env:"XBIN_TRUSTED_PROXIES" doc:"comma-separated IPs/CIDRs of trusted reverse proxies whose X-Forwarded-For is honored (login throttle, session IP attribution, /c/ warm-IP gate). Default: trust nobody. REQUIRED when xbind sits behind a proxy, else all clients key on the proxy's IP"`
 	ExternalURL   string `flag:"external-url" env:"XBIN_EXTERNAL_URL" doc:"the console's public base URL, e.g. https://xbin.corp.example — the stable address SSO redirect URIs are registered under (required for SSO login); also used for printed login/invite links. Empty on tunnel-only setups"`
+	TileAssets    string `flag:"tile-assets" env:"XBIN_TILE_ASSETS" def:"legacy" doc:"how tile frontends' files are authorized (docs/auth.md §Tile asset gating): legacy = today's credential-less subresource rule (Fetch-Metadata + a recently signed-in IP; removed in the next release); tokens = strict, relative URLs carry a path-scoped asset token; origins = strict, each tile on its own origin under --tiles-domain (needs --external-url, wildcard DNS + TLS)"`
+	TilesDomain   string `flag:"tiles-domain" env:"XBIN_TILES_DOMAIN" doc:"parent domain of the per-tile origins for --tile-assets=origins, e.g. tiles.xbin.corp.example (tiles at t-<id>.tiles.xbin.corp.example); must be same-site with --external-url; optional :port. Dev: shell at http://xbin.localhost:PORT, --tiles-domain xbin.localhost"`
 
 	// env-only, consumed by boot
 	VaultPassphrase string `env:"XBIN_VAULT_PASSPHRASE" secret:"true" doc:"vault passphrase: auto-init/unseal the encryption barrier at boot (docs/auth.md §vault). Unset in production means the daemon starts SEALED (or LOCKED before first setup) until an admin unseals"`
@@ -167,6 +169,9 @@ func (c *Config) Validate() (derived, error) {
 			return d, fmt.Errorf("bad --external-url %q: want http(s)://host[:port] with no path", c.ExternalURL)
 		}
 	}
+	if err := c.validateTileAssets(d.externalURL); err != nil {
+		return d, err
+	}
 	if d.ws, err = filepath.Abs(c.Workspace); err != nil {
 		return d, err
 	}
@@ -214,4 +219,60 @@ func envOr(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// validateTileAssets checks --tile-assets / --tiles-domain: origins needs
+// both a tiles domain and the external URL (scheme and port of the tile
+// origins, and the site they must share), and the tiles domain must plausibly
+// be same-site with it — a tile cookie on another site is third-party in the
+// embedding shell and browsers drop it. (A real same-site check needs the
+// public-suffix list; this refuses the shapes that are certainly wrong.)
+func (c *Config) validateTileAssets(external string) error {
+	switch c.TileAssets {
+	case "", "legacy", "tokens", "origins":
+	default:
+		return fmt.Errorf("bad --tile-assets %q: want legacy, tokens or origins", c.TileAssets)
+	}
+	td := c.tilesDomain()
+	if c.TileAssets != "origins" {
+		if td != "" {
+			return fmt.Errorf("--tiles-domain is only used with --tile-assets=origins")
+		}
+		return nil
+	}
+	if td == "" || external == "" {
+		return fmt.Errorf("--tile-assets=origins needs --tiles-domain and --external-url (the tile origins share the console's site, scheme and port)")
+	}
+	host := td
+	if h, _, err := net.SplitHostPort(td); err == nil {
+		host = h
+	}
+	if strings.ContainsAny(host, "/:*@ ") || strings.HasPrefix(host, ".") || strings.HasSuffix(host, ".") || !strings.Contains(host, ".") && host != "localhost" {
+		return fmt.Errorf("bad --tiles-domain %q: want a hostname like tiles.xbin.example.com (optionally :port), no scheme or wildcard", c.TilesDomain)
+	}
+	u, _ := url.Parse(external)
+	ext := strings.ToLower(u.Hostname())
+	if net.ParseIP(ext) != nil || !strings.Contains(ext, ".") {
+		return fmt.Errorf("--tile-assets=origins needs --external-url on a hostname with a parent domain (not %q): tile origins must be same-site subdomains — dev: http://xbin.localhost:PORT", ext)
+	}
+	parent := ext[strings.IndexByte(ext, '.')+1:]
+	if host != ext && !strings.HasSuffix(host, "."+ext) &&
+		!(strings.HasSuffix(host, "."+parent) && strings.Count(host, ".") >= strings.Count(ext, ".")) {
+		return fmt.Errorf("--tiles-domain %q is not same-site with --external-url %q: use a subdomain of %s (e.g. tiles.%s)", host, external, parent, ext)
+	}
+	return nil
+}
+
+// tilesDomain is --tiles-domain normalized (lowercase, trimmed).
+func (c *Config) tilesDomain() string { return strings.ToLower(strings.TrimSpace(c.TilesDomain)) }
+
+// secureOrigin: an https external URL, or a *.localhost one (a secure
+// context in browsers).
+func secureOrigin(external string) bool {
+	u, err := url.Parse(external)
+	if err != nil {
+		return false
+	}
+	h := u.Hostname()
+	return u.Scheme == "https" || h == "localhost" || strings.HasSuffix(h, ".localhost")
 }

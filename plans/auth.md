@@ -229,7 +229,18 @@ with sandboxed tile frames `[ND8]`:
   always follow its authenticated document load (cookie or `?frame=`
   bootstrap) from the same IP, and open tiles renew frame tokens every few
   minutes. The rule confines tile JS; it is no substitute for the vault.
-  Humans keep cookie+RBAC reads for direct navigation. Attribution is
+  Humans keep cookie+RBAC reads for direct navigation. **Superseded by
+  strict tile asset gating** (plans/tile-asset-auth.md; its entry in
+  plans/DECISIONS.md): this credential-less rule is `--tile-assets=legacy`,
+  the default for one more release; `tokens` (path-scoped asset tokens under
+  an injected `<base>`) and `origins` (a per-tile origin
+  `t-<id>.<tiles-domain>` with a session-bound `__Host-xbin_tile` cookie)
+  carry a credential on every `/c/` load, checked against the user's live
+  access; the next release deletes this rule. In every mode the `/c/` plane
+  now serves the very file it checked (no symlink out of the workspace or
+  into `.xbin`/`data`/`homes`, no FIFO), non-document files carry CSP
+  `sandbox`, and a tile document's frame token is injected only for a human
+  or the tile itself (plus navigations within one tile tree). Attribution is
   visible in the admin console's user-management → sessions tab (per-session
   login/last-seen IPs); behind a reverse proxy it is correct only with
   `--trusted-proxies` set (`X-Forwarded-For` is honored exclusively from
@@ -244,9 +255,14 @@ with sandboxed tile frames `[ND8]`:
   bootstrap `?frame=` token minted by the embedding chrome.
 - Cookie is `HttpOnly` + `SameSite=Lax` (CSRF), `Secure` behind https proxy.
 - Residual, documented: same-origin tiles share a renderer process, so a
-  *browser exploit* crosses all of this — per-origin process isolation still
-  means subdomain-per-scope (phase 5), and the `/c/` URL scheme maps onto
-  that cleanly. Until then the VM/host remains the real outer boundary.
+  *browser exploit* crosses all of this — per-origin process isolation
+  means separate origins: `--tile-assets=origins` (per TILE rather than per
+  scope) gives every tile its own, same-site with the workspace, so the
+  workspace then drops its session cookie from every request a tile origin
+  starts (bar top-level navigations — what Lax gave the cross-site opaque
+  frames), tile documents allow only the workspace and themselves as
+  frame ancestors, chrome only itself, and the session cookie becomes
+  `__Host-xbin_session`. The VM/host remains the real outer boundary.
 
 ## 7. Documentation standard (elements teach their own auth)
 
