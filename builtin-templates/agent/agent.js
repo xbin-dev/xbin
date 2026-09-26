@@ -31,7 +31,8 @@ import { HOME } from './model/home.js';
 import * as rules from './model/rules.js';
 import * as actions from './model/actions.js';
 // Raw-bytes endpoints (a file's bytes, an upload body) go through xbin.fetch
-// directly — the kit's api() parses JSON — so they need this backend's prefix.
+// directly — the kit's api() parses JSON — so they need this backend's prefix
+// (model/actions.js rawFile, Attachments.upload).
 const base = `/api/${xbin.self}`;
 const num = (v) => Number(v) || 0;
 const clip = (s, n) => { s = String(s ?? ''); return s.length > n ? s.slice(0, n) + '…' : s; };
@@ -445,7 +446,7 @@ async function paintPreview() {
   if (sig === prevSig) return;
   let f;
   try {
-    f = await api(`/runs/${p.runId}/file?path=${encodeURIComponent(p.path)}`);
+    f = await actions.file(p.runId, p.path);
   } catch (e) {
     $('prev-warn').hidden = false;
     $('prev-warn').textContent = '⚠ ' + (e.message || e);
@@ -492,11 +493,7 @@ function syncPreview(d) {
   openPreview(det.path, num(det.version), true);
 }
 
-async function rawBlob(run, path) {
-  const r = await xbin.fetch(`${base}/runs/${run}/raw?path=${encodeURIComponent(path)}`);
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  return r.blob();
-}
+const rawBlob = (run, path) => actions.rawFile(base, run, path);
 
 // refreshView re-reads the selected run's view after an edit the stream does
 // not carry (memory blocks, session files).
@@ -677,14 +674,14 @@ document.querySelectorAll('#tabs .tab[data-tab]').forEach((b) => b.onclick = () 
 
 async function ensureModels(force) {
   if (models.length && !force) return;
-  try { const d = await api('/models'); models = (d.data || []).map((x) => x.id).filter(Boolean); }
+  try { models = await actions.models(); }
   catch { if (!models.length) models = []; }
 }
 
 // Config tab: model tiers + system prompt + limits + behavior. Saves the FULL
 // merged config (preserving features/mcp/legacy model) via PUT /config.
 async function tabConfig(bd) {
-  const c = await api('/config');
+  const c = await actions.getConfig();
   cfgCache = c;
   await ensureModels(true);
   const m = c.models || {};
@@ -720,7 +717,7 @@ async function tabConfig(bd) {
       subagents: $('cf-sub').checked, approve: $('cf-appr').checked,
     };
     try {
-      await api('/config', jbody(next, 'PUT')); cfgCache = next;
+      await actions.saveConfig(next); cfgCache = next;
       $('cf-msg').textContent = 'saved ✓';
       setTimeout(() => { const e = $('cf-msg'); if (e) e.textContent = ''; }, 1500);
     } catch (e) { $('cf-msg').textContent = e.message; }
@@ -730,7 +727,7 @@ async function tabConfig(bd) {
 // Features tab: a checkbox per capability. Toggling fetches the current config,
 // merges {features:{...}}, and PUTs it back.
 async function tabFeatures(bd) {
-  const f = await api('/features');
+  const f = await actions.features();
   const keys = f.keys || [];
   const st = f.features || {};
   const desc = {
@@ -746,11 +743,7 @@ async function tabFeatures(bd) {
       <b>${esc(k)}</b> <span class="muted" style="font-weight:400">${esc(desc[k] || '')}</span></label>`).join('')}
     <div class="hint">Each toggle merges into the agent's default config.</div></div>`;
   bd.querySelectorAll('[data-f]').forEach((b) => b.onchange = async () => {
-    try {
-      const c = await api('/config');
-      c.features = { ...(c.features || {}), [b.dataset.f]: b.checked };
-      await api('/config', jbody(c, 'PUT')); cfgCache = c;
-    } catch (e) { alert(e.message); }
+    try { cfgCache = await actions.setFeature(b.dataset.f, b.checked); } catch (e) { alert(e.message); }
     tabFeatures(bd);
   });
 }
@@ -758,8 +751,7 @@ async function tabFeatures(bd) {
 // Memory tab: the SELECTED run's memory blocks (key→value): edit/add/delete.
 async function tabMemory(bd) {
   if (app.sel == null) { bd.innerHTML = '<div class="empty">select a run to edit its memory blocks</div>'; return; }
-  const d = await api(`/runs/${app.sel}`);
-  const entries = Object.entries(d.memory || {});
+  const entries = Object.entries(await actions.memory(app.sel));
   const keys = entries.map((e) => e[0]);
   bd.innerHTML = `<div class="sec"><h4>Memory · run ${app.sel}</h4>
     ${entries.length ? entries.map(([k, v], i) => `
@@ -773,20 +765,20 @@ async function tabMemory(bd) {
   </div>`;
   bd.querySelectorAll('[data-set]').forEach((b) => b.onclick = async () => {
     const i = +b.dataset.set;
-    try { await api(`/runs/${app.sel}/memory`, jbody({ key: keys[i], value: bd.querySelector(`[data-v="${i}"]`).value }, 'PUT')); }
+    try { await actions.setMemory(app.sel, keys[i], bd.querySelector(`[data-v="${i}"]`).value); }
     catch (e) { return alert(e.message); }
     tabMemory(bd); refreshView();
   });
   bd.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
     const i = +b.dataset.del;
-    try { await api(`/runs/${app.sel}/memory?key=${encodeURIComponent(keys[i])}`, { method: 'DELETE' }); }
+    try { await actions.deleteMemory(app.sel, keys[i]); }
     catch (e) { return alert(e.message); }
     tabMemory(bd); refreshView();
   });
   $('madd').onclick = async () => {
     const k = $('mk').value.trim();
     if (!k) return;
-    try { await api(`/runs/${app.sel}/memory`, jbody({ key: k, value: $('mv').value }, 'PUT')); }
+    try { await actions.setMemory(app.sel, k, $('mv').value); }
     catch (e) { return alert(e.message); }
     tabMemory(bd); refreshView();
   };
@@ -799,11 +791,11 @@ async function tabMemory(bd) {
 // comes back as a visible 409 instead of silently losing one side.
 async function tabFiles(bd) {
   if (app.sel == null) { bd.innerHTML = '<div class="empty">select a run to see its session files</div>'; return; }
-  filesCache = (await api(`/runs/${app.sel}/files`)) || [];
+  filesCache = await actions.files(app.sel);
   const cur = filesSel != null ? filesCache.find((f) => f.path === filesSel) : null;
   let body = '';
   if (cur && !cur.binary) {
-    const full = await api(`/runs/${app.sel}/file?path=${encodeURIComponent(cur.path)}`);
+    const full = await actions.file(app.sel, cur.path);
     body = full.content || '';
     cur.version = full.version;
   }
@@ -868,7 +860,7 @@ async function tabFiles(bd) {
   bd.querySelectorAll('[data-fd]').forEach((b) => b.onclick = async () => {
     const f = filesCache[+b.dataset.fd];
     if (!confirm(`Delete "${f.path}"?`)) return;
-    try { await api(`/runs/${app.sel}/file?path=${encodeURIComponent(f.path)}`, { method: 'DELETE' }); }
+    try { await actions.deleteFile(app.sel, f.path); }
     catch (e) { return alert(e.message); }
     if (filesSel === f.path) filesSel = null;
     if (preview && preview.path === f.path) closePreview();
@@ -882,9 +874,7 @@ async function tabFiles(bd) {
     $('fl-err').textContent = '';
     if (!path) { $('fl-err').textContent = 'need a path'; return; }
     try {
-      const r = await api(`/runs/${app.sel}/file`, jbody({
-        path, content: $('fl-body').value, version: cur ? cur.version : 0,
-      }, 'PUT'));
+      const r = await actions.saveFile(app.sel, { path, content: $('fl-body').value, version: cur ? cur.version : 0 });
       filesSel = path;
       // An open pane showing this file must repaint: bump it to the new version.
       if (preview && preview.path === path) openPreview(path, r.version, preview.live);
@@ -897,8 +887,7 @@ async function tabFiles(bd) {
 // create form. A bad cron expression comes back as a 400 error we surface.
 // Skills tab: the self-authored skill library — list, view/edit, save, delete.
 async function tabSkills(bd) {
-  const list = await api('/skills');
-  skillsCache = list || [];
+  skillsCache = await actions.skills();
   const cur = skillSel != null ? skillsCache.find((s) => s.name === skillSel) : null;
   bd.innerHTML = `
     <div class="sec"><h4>Skills</h4>
@@ -924,7 +913,7 @@ async function tabSkills(bd) {
   bd.querySelectorAll('[data-skdel]').forEach((b) => b.onclick = async () => {
     const s = skillsCache[+b.dataset.skdel];
     if (!confirm(`Delete skill "${s.name}"?`)) return;
-    try { await api(`/skills/${encodeURIComponent(s.name)}`, { method: 'DELETE' }); } catch (e) { return alert(e.message); }
+    try { await actions.deleteSkill(s.name); } catch (e) { return alert(e.message); }
     if (skillSel === s.name) skillSel = null;
     tabSkills(bd);
   });
@@ -934,7 +923,7 @@ async function tabSkills(bd) {
     $('sk-err').textContent = '';
     if (!name || !$('sk-content').value.trim()) { $('sk-err').textContent = 'need a name and content'; return; }
     try {
-      await api('/skills', jbody({ name, description: $('sk-desc').value.trim(), content: $('sk-content').value }, 'PUT'));
+      await actions.saveSkill({ name, description: $('sk-desc').value.trim(), content: $('sk-content').value });
       skillSel = name; tabSkills(bd);
     } catch (e) { $('sk-err').textContent = e.message; }
   };

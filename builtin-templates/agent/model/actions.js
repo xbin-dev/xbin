@@ -1,7 +1,9 @@
 // model/actions.js — what the views DO to this tile's backend: ask, send
 // (with attachments), steer the run (retry/compact/learn, delete, stop the
 // workflow), the halt switch, the tool mode for new asks, the conversation
-// list's row actions, sharing and joining. Plain calls over the kit's api()
+// list's row actions, sharing and joining, and the managers' settings, a
+// run's memory and session files and the skill library (the web's ⚙ tabs,
+// the native view's pushed screens). Plain calls over the kit's api()
 // (xbin.fetch in a tile frame); no lit, no DOM, no dialogs — a view asks
 // "are you sure?" itself, then calls these. The Session (session.js) keeps
 // the calls that act on the open conversation's own state (send, stop,
@@ -92,6 +94,62 @@ export async function joinFrom(text) {
   if (!m) return null;
   return api('/join', jbody({ token: m[1] }, 'POST'));
 }
+
+// --- settings (managers) ------------------------------------------------------------
+
+// The tile-wide config: {models, system, tokenBudget, maxIters, toolTimeout,
+// subagents, approve, features, mcp, …}. saveConfig sends the WHOLE config
+// back — what a form did not touch rides along as it was.
+export const getConfig = () => api('/config');
+export const saveConfig = (c) => api('/config', jbody(c, 'PUT'));
+
+// models: the model ids llm-gw lists (for the tier pickers); throws when it
+// cannot say (no llm-gw backend token).
+export const models = async () => ((await api('/models')).data || []).map((x) => x.id).filter(Boolean);
+
+// features: {keys, features} — the switches there are and which are on.
+// setFeature merges one switch into the current config and saves it; it
+// answers the config it saved.
+export const features = () => api('/features');
+export async function setFeature(key, on) {
+  const c = await api('/config');
+  c.features = { ...(c.features || {}), [key]: on };
+  await api('/config', jbody(c, 'PUT'));
+  return c;
+}
+
+// --- a run's memory blocks and session files ----------------------------------------------
+
+// memory: a run's memory blocks, {key: value}.
+export const memory = async (runId) => (await api(`/runs/${runId}`)).memory || {};
+export const setMemory = (runId, key, value) => api(`/runs/${runId}/memory`, jbody({ key, value }, 'PUT'));
+export const deleteMemory = (runId, key) => api(`/runs/${runId}/memory?key=${encodeURIComponent(key)}`, { method: 'DELETE' });
+
+// files: a run's session files, metadata only ([{path, bytes, version, mime?,
+// binary?}]); file: one text file with its content ({content, version}).
+export const files = async (runId) => (await api(`/runs/${runId}/files`)) || [];
+export const file = (runId, path) => api(`/runs/${runId}/file?path=${encodeURIComponent(path)}`);
+// saveFile writes {path, content, version}: the version you loaded (0: a new
+// file) — a write the agent made in between comes back as a 409, not lost.
+export const saveFile = (runId, body) => api(`/runs/${runId}/file`, jbody(body, 'PUT'));
+export const deleteFile = (runId, path) => api(`/runs/${runId}/file?path=${encodeURIComponent(path)}`, { method: 'DELETE' });
+
+// rawFile is a file's bytes as a Blob (an attachment's preview, a download).
+// Raw bytes go through xbin.fetch — the kit's api() parses JSON — so it
+// takes this backend's prefix.
+export async function rawFile(base, runId, path) {
+  const r = await xbin.fetch(`${base}/runs/${runId}/raw?path=${encodeURIComponent(path)}`);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.blob();
+}
+
+// --- the skill library ---------------------------------------------------------------------
+
+// skills: [{name, description, content, owner?, lane?, updated}].
+export const skills = async () => (await api('/skills')) || [];
+// saveSkill: {name, description, content} — adds or replaces by name.
+export const saveSkill = (s) => api('/skills', jbody(s, 'PUT'));
+export const deleteSkill = (name) => api(`/skills/${encodeURIComponent(name)}`, { method: 'DELETE' });
 
 // --- attachments ------------------------------------------------------------------
 

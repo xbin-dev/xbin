@@ -2,10 +2,10 @@
 // blocks, its session files (a viewer/editor, share/export, the render
 // preview), the skill library, the workflow tree (cost, stop), and one tool
 // call in full. The web shows these as agent.js's settings tabs, workflow
-// pane and render pane; the calls are the same routes. Each screen is an
-// entry of ui.stack ({kind, …}); what it loaded lives on the entry.
+// pane and render pane; both make the same calls (model/actions.js). Each
+// screen is an entry of ui.stack ({kind, …}); what it loaded lives on the entry.
 import { html, repeat, nothing, native } from '/vendor/xb-native.js';
-import { selfApi as api, jbody } from '/vendor/bx-kit.js';
+import * as actions from '../model/actions.js';
 import { ui, ctx, push, fmtN, clip, base, when, thumb, raw, IMAGE } from './ui.js';
 import { renderDoc } from './render-doc.js';
 import { settingsScreens } from './settings.js';
@@ -52,10 +52,10 @@ export function toolScreens() {
 // --- memory ------------------------------------------------------------------------------
 
 function memoryTpl(s) {
-  load(s, async () => { s.memory = (await api(`/runs/${s.run}`)).memory || {}; s.edit = {}; s.key = ''; s.value = ''; });
+  load(s, async () => { s.memory = await actions.memory(s.run); s.edit = {}; s.key = ''; s.value = ''; });
   const entries = Object.entries(s.memory || {});
   const put = (key, value) => act(s, async () => {
-    await api(`/runs/${s.run}/memory`, jbody({ key, value }, 'PUT'));
+    await actions.setMemory(s.run, key, value);
     s.loaded = false; refreshView();
   });
   return html`<screen title="Memory" subtitle=${`run ${s.run}`} style="form" refreshable @refresh=${reload(s)}>
@@ -65,7 +65,7 @@ function memoryTpl(s) {
         <field kind="multiline" value=${s.edit[k] ?? String(v)} @input=${(e) => { s.edit[k] = e.value; }}/>
         <button @tap=${() => put(k, s.edit[k] ?? String(v))()}>Set</button>
         <button role="destructive" confirm=${{ title: `Delete the block "${k}"?`, label: 'Delete', destructive: true }}
-          @tap=${act(s, async () => { await api(`/runs/${s.run}/memory?key=${encodeURIComponent(k)}`, { method: 'DELETE' }); s.loaded = false; refreshView(); })}>Delete</button>
+          @tap=${act(s, async () => { await actions.deleteMemory(s.run, k); s.loaded = false; refreshView(); })}>Delete</button>
       </section>`) : html`<section><empty title="no memory blocks yet"/></section>`}
     <section title="Add a block">
       <field label="Key" placeholder="new key" value=${s.key || ''} @input=${(e) => { s.key = e.value; }}/>
@@ -78,7 +78,7 @@ function memoryTpl(s) {
 // --- files ---------------------------------------------------------------------------------
 
 function filesTpl(s) {
-  load(s, async () => { s.files = (await api(`/runs/${s.run}/files`)) || []; });
+  load(s, async () => { s.files = await actions.files(s.run); });
   const files = s.files || [];
   return html`<screen title="Files" subtitle=${`run ${s.run}`} style="list" refreshable @refresh=${reload(s)}>
     <toolbar><button icon="plus" @tap=${() => push({ kind: 'file', run: s.run, path: null })}>New file</button></toolbar>
@@ -92,7 +92,7 @@ function filesTpl(s) {
             ${isHtml(f.path) ? html`<button icon="eye" @tap=${() => openRender(s.run, f.path, f.version, false)}>Render</button>` : nothing}
             <button icon="trash" role="destructive" confirm=${{ title: `Delete "${f.path}"?`, label: 'Delete', destructive: true }}
               @tap=${act(s, async () => {
-                await api(`/runs/${s.run}/file?path=${encodeURIComponent(f.path)}`, { method: 'DELETE' });
+                await actions.deleteFile(s.run, f.path);
                 s.loaded = false; refreshView();
               })}>Delete</button>
           </actions>
@@ -103,9 +103,9 @@ function filesTpl(s) {
 
 function fileTpl(s) {
   load(s, async () => {
-    s.meta = s.path ? ((await api(`/runs/${s.run}/files`)) || []).find((f) => f.path === s.path) || { path: s.path } : null;
+    s.meta = s.path ? (await actions.files(s.run)).find((f) => f.path === s.path) || { path: s.path } : null;
     if (s.meta && !s.meta.binary) {
-      const f = await api(`/runs/${s.run}/file?path=${encodeURIComponent(s.path)}`);
+      const f = await actions.file(s.run, s.path);
       s.text = f.content || '';
       s.version = f.version;
     } else if (!s.meta) { s.text = s.text ?? ''; s.version = 0; s.newPath = s.newPath ?? ''; }
@@ -123,7 +123,7 @@ function fileTpl(s) {
   const save = act(s, async () => {
     const path = s.path || (s.newPath || '').trim();
     if (!path) throw new Error('need a path');
-    const r = await api(`/runs/${s.run}/file`, jbody({ path, content: s.text || '', version: s.path ? s.version : 0 }, 'PUT'));
+    const r = await actions.saveFile(s.run, { path, content: s.text || '', version: s.path ? s.version : 0 });
     s.path = path; s.version = r.version; s.meta = { path }; s.saved = true;
     stale('files', s.run);
     for (const x of ui.stack) if (x.kind === 'render' && x.run === s.run && x.path === path) { x.ver = r.version; x.loaded = false; }
@@ -148,7 +148,7 @@ function fileTpl(s) {
 // --- skills --------------------------------------------------------------------------------
 
 function skillsTpl(s) {
-  load(s, async () => { s.skills = (await api('/skills')) || []; });
+  load(s, async () => { s.skills = await actions.skills(); });
   const list = s.skills || [];
   return html`<screen title="Skills" style="list" refreshable @refresh=${reload(s)}>
     <toolbar><button icon="plus" @tap=${() => push({ kind: 'skill', name: null })}>New skill</button></toolbar>
@@ -159,7 +159,7 @@ function skillsTpl(s) {
           badge=${k.owner ? `${k.owner}'s` : k.lane ? (k.lane === 'web' ? 'web' : 'internal') : nothing}
           detail=${k.updated ? when(k.updated * 1000) : nothing} nav @tap=${() => push({ kind: 'skill', name: k.name, skill: k })}>
           <actions><button icon="trash" role="destructive" confirm=${{ title: `Delete skill "${k.name}"?`, label: 'Delete', destructive: true }}
-            @tap=${act(s, async () => { await api(`/skills/${encodeURIComponent(k.name)}`, { method: 'DELETE' }); s.loaded = false; })}>Delete</button></actions>
+            @tap=${act(s, async () => { await actions.deleteSkill(k.name); s.loaded = false; })}>Delete</button></actions>
         </row>`) : html`<empty title="no skills yet" text="the agent authors these (Learn skill on a conversation), or add one"/>`}
     </section>
   </screen>`;
@@ -171,7 +171,7 @@ function skillTpl(s) {
   const save = act(s, async () => {
     const name = f.name.trim();
     if (!name || !f.content.trim()) throw new Error('need a name and content');
-    await api('/skills', jbody({ name, description: f.description.trim(), content: f.content }, 'PUT'));
+    await actions.saveSkill({ name, description: f.description.trim(), content: f.content });
     s.name = name;
     for (const x of ui.stack) if (x.kind === 'skills') x.loaded = false;
     ui.stack.pop();
@@ -282,7 +282,7 @@ export function openRender(run, path, ver, live) {
 
 function renderTpl(s) {
   load(s, async () => {
-    const f = await api(`/runs/${s.run}/file?path=${encodeURIComponent(s.path)}`);
+    const f = await actions.file(s.run, s.path);
     const d = renderDoc(f.content);
     s.doc = d.html; s.blocked = d.blocked; s.version = f.version;
   });
