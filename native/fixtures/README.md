@@ -120,11 +120,11 @@ when the tree is not what a user should see.
 1. Pick a tile a user would plausibly have (a list/detail, a form, a
    dashboard, a chat) and the part of the vocabulary it shows off.
 2. `native/fixtures/<name>/native.js`: plain tile code — `html`/`render`/
-   `repeat`/`nothing` from `/vendor/xb-native.js`, data from
-   `xbin.fetch(\`/api/${xbin.self}/…\`)`, state in module variables, a
-   `paint()` after every change. Keep logic realistic (formatting with
-   `Intl`, derived counts, optimistic updates) — the fixture also tests the
-   runtime.
+   `repeat`/`nothing` from `/vendor/xb-native.js`, the backend through the
+   kit's `selfApi('/path')` (`/vendor/bx-kit.js`; js-check refuses a local
+   `api()` helper) or `xbin.fetch`, state in module variables, a `paint()`
+   after every change. Keep logic realistic (formatting with `Intl`, derived
+   counts, optimistic updates) — the fixture also tests the runtime.
 3. `data.json`: the responses the tile asks for, then the interactions that
    bring it to the state worth drawing. Renderers draw only the final tree:
    the top screen of a `nav`, the selected tab, an open sheet — make that
