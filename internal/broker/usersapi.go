@@ -716,7 +716,7 @@ func (b *Broker) apiSessions(srv *server.Server, w http.ResponseWriter, r *http.
 	// The admin TILE drives this endpoint via a frame token with no cookie
 	// (ND8), so no row reads current there — cosmetic, documented as such.
 	current := ""
-	if c, err := r.Cookie(auth.CookieName); err == nil {
+	if c, err := srv.Auth.SessionCookie(r); err == nil {
 		current = c.Value
 	}
 	out := []map[string]any{}

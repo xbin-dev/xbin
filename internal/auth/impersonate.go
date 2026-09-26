@@ -136,6 +136,7 @@ func (a *Auth) RedeemImpersonation(ticket string, by Principal, prevCookie, ip s
 		s.restoreSession = prevCookie
 	}
 	a.sessions[id] = s
+	a.indexSessionLocked(id)
 	a.warmLocked(ip, now)
 	a.mu.Unlock()
 	return id, nil

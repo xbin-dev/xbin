@@ -11,7 +11,9 @@ Every route except `/healthz` and `/login` requires a principal
 
 | Mechanism | Sent as | Principal |
 |---|---|---|
-| Owner cookie | `xbin_session` (HttpOnly, Lax; set by `/login?token=…`) | owner |
+| Owner cookie | `xbin_session` (HttpOnly, Lax; set by `/login?token=…`; `__Host-xbin_session` under `--tile-assets=origins`) | owner |
+| Tile-origin cookie | `__Host-xbin_tile` on a tile's own origin (`--tile-assets=origins` only; set by the ticket exchange, bound to the browser session) | that tile's frontend (element principal) |
+| Asset token | the `/c/~<token>/…` path prefix (`--tile-assets=tokens` only; minted into a tile document's `<base>`) | none — admits non-document static files of tiles its user can read, nothing else |
 | Owner/instance bearer | `Authorization: Bearer <token>` | owner, or the element the instance token belongs to |
 | Terminal bearer | `Authorization: Bearer <token>` (`$XBIN_TOKEN` in a terminal) | the tile the terminal is opened on (element principal; per-session, revoked at session end) |
 | Frame token | `X-XBin-Frame-Token` header, or `?frame=` on any URL (WS, document loads, tag-driven requests like `<a download>` — anything that can't set headers; xbind consumes it and never forwards it to backends) | element frontend — **standalone** (no cookie needed; sandboxed tile frames hold nothing else) |
@@ -121,6 +123,15 @@ GET  /c/<component-path>/[file]  component static files; HTML gets the
                                  source is still not where secrets live).
                                  Non-chrome HTML responses carry CSP sandbox;
                                  all responses X-Content-Type-Options: nosniff.
+                                 A sandboxed tile's non-document files
+                                 (anything but .html/.htm, any case) carry
+                                 `Content-Security-Policy: sandbox` in every
+                                 mode (PDF excepted); a symlink resolving
+                                 outside the workspace or into .xbin/, data/
+                                 or homes/, a FIFO or a device → 404.
+                                 The frame token is injected only for a human
+                                 or the tile itself (or a navigation within
+                                 the tile's own tree of nested components).
                                  That credential-less rule is the LEGACY mode
                                  (--tile-assets=legacy, the default this
                                  release; removed in the next). Under the
@@ -129,11 +140,10 @@ GET  /c/<component-path>/[file]  component static files; HTML gets the
                                  one of the credentials above (401 otherwise,
                                  body naming the fix), a tile's own frame
                                  token is re-checked against its USER's live
-                                 access, files are opened beneath their tile
-                                 (a symlink leaving the tile → 404), and a
-                                 sandboxed tile's non-HTML files carry
-                                 `Content-Security-Policy: sandbox` (PDF
-                                 excepted). docs/auth.md §Tile asset gating.
+                                 access, and files are opened beneath their
+                                 tile, reached without any symlink (a symlink
+                                 leaving the tile → 404). docs/auth.md §Tile
+                                 asset gating.
 GET  /c/~<asset-token>/<component-path>/<file>
                                  tokens mode only: the asset-token plane the
                                  injected <base> points at (docs/elements.md
@@ -154,25 +164,38 @@ GET  /c/~<asset-token>/<component-path>/<file>
                                  t-<id>.<tiles-domain> is tile <id>'s own
                                  origin (id = keyed hash of the tile path; the
                                  URL is /components' `origin`). It serves
-                                 ONLY: GET /c/… (?frame=<frame token> on a
-                                 navigation is exchanged for the HttpOnly,
-                                 Secure, SameSite=Strict, host-only cookie
-                                 xbin_tile and 302'd to the same URL without
-                                 it; the token's tile must be this origin's,
-                                 its user must read it; a cross-site initiator
-                                 is not exchanged; a failed exchange never
-                                 redirects), /api/… and /ws/events (as the
-                                 tile's frame principal), /vendor/, /healthz.
+                                 ONLY: GET /c/… (?xbin_ticket=<ticket> on a
+                                 navigation — the one-time, session-bound
+                                 ticket the workspace redirect carries — is
+                                 redeemed for the cookie __Host-xbin_tile
+                                 (xbin_tile on plain http): HttpOnly, Secure,
+                                 SameSite=Strict, host-only, Path=/, living as
+                                 long as the browser session it is bound to —
+                                 and 302'd to the same URL without it; the
+                                 ticket's tile must be this origin's, its
+                                 session live, its user able to read the tile;
+                                 a cross-site initiator is not exchanged; a
+                                 failed exchange never redirects), /api/… and
+                                 /ws/events (as the tile's frame principal;
+                                 read-only in a view-as session; the tile
+                                 cookie is stripped before a backend sees the
+                                 request, and Set-Cookie is dropped from every
+                                 /api answer), /vendor/, /healthz. A document
+                                 is served only on the cookie (a navigation
+                                 with ?frame= and a valid cookie is 302'd
+                                 without it). Every /c/ answer carries CSP
+                                 frame-ancestors 'self' <--external-url>.
                                  A browser navigating to anything else —
                                  a workspace page (/login, /docs/, /), chrome,
                                  another tile's page — is 302'd to the same
                                  path on --external-url (links built from
-                                 location.origin keep working); a navigation
-                                 to the tile's own page without a valid
-                                 cookie goes once through the workspace for a
-                                 fresh token (marked ?xbin_retry=1 so it
-                                 can't loop; not for cross-site initiators).
-                                 /c/ is authorized live for the
+                                 location.origin keep working); a top-level
+                                 navigation to the tile's own page without a
+                                 valid cookie goes once through the workspace
+                                 for a fresh ticket (marked ?xbin_retry=1 so
+                                 it can't loop; not for cross-site
+                                 initiators); a framed one gets a page asking
+                                 for a reload. /c/ is authorized live for the
                                  cookie's user on the tile loaded; another
                                  tile's files are served only as non-documents
                                  with CSP sandbox; chrome is not served. The
@@ -180,11 +203,31 @@ GET  /c/~<asset-token>/<component-path>/<file>
                                  itself (Sec-Fetch-Site same-origin/none; a
                                  same-site navigation to /c/ — the shell
                                  framing the tile; never a foreign Origin on a
-                                 write or WebSocket). An explicit frame token
-                                 must be this tile's. On the workspace origin,
-                                 a browser navigating to a sandboxed tile's
-                                 document is 302'd to its tile origin with a
-                                 fresh ?frame= (humans and the tile itself).
+                                 write or WebSocket); two tile cookies = none.
+                                 An explicit frame token must be this tile's.
+(workspace, origins mode)        A browser navigating to a sandboxed tile's
+                                 document on --external-url (a human, or the
+                                 tile itself, with a live session) is sent to
+                                 its tile origin with ?xbin_ticket=: a 302
+                                 when the initiator is the workspace or the
+                                 user (Sec-Fetch-Site same-origin/none, or no
+                                 Fetch Metadata and no tile-origin Referer, or
+                                 the tile's own tree moving its frame); else
+                                 (cross-site, same-site) a 200 page with a
+                                 meta refresh there (frame-ancestors 'none',
+                                 X-Frame-Options DENY). Otherwise 403: no tile
+                                 document is served to a browser on the
+                                 workspace origin. Header-credentialed clients
+                                 (X-XBin-Frame-Token, Authorization) get the
+                                 document. Every workspace request a tile
+                                 origin starts has its cookies dropped:
+                                 Sec-Fetch-Site same-site unless a top-level
+                                 navigation, an Origin on the tiles domain, a
+                                 Referer on it unless a navigation. Chrome
+                                 documents carry frame-ancestors 'self'. The
+                                 session cookie is __Host-xbin_session on
+                                 https and *.localhost (xbin_session is then
+                                 not read).
 GET  /vendor/<file>              core elements + vendored libs (lit, xterm…);
                                  UNAUTHENTICATED — shipped xbind code, and
                                  sandboxed tile frames load it credential-less
@@ -317,8 +360,10 @@ GET    /components                 any. [{path, scope, runtime, hasIndex,
                                    origin? (--tile-assets=origins only: the
                                    tile's own origin, e.g.
                                    https://t-<id>.tiles.example.com — bx-frame
-                                   loads it there with allow-same-origin and
-                                   no credentialless)}]
+                                   frames the tile's workspace URL, which the
+                                   server sends there, with allow-same-origin
+                                   and no credentialless, and talks to it with
+                                   that postMessage origin)}]
 GET    /components/<path>          any. {component, apiDoc: <API.md text>}
 GET    /tile-assets                any (read-filtered); ?component=<p> for one.
                                    The tile asset report:

@@ -343,7 +343,7 @@ func (s *Server) handleSSOCallback(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("sso: last-login stamp failed", "user", u.ID, "err", err)
 	}
 	s.loginThrottle.ok(ip)
-	setSessionCookie(w, r, s.Auth.NewSession(u.ID, ip))
+	s.setSessionCookie(w, r, s.Auth.NewSession(u.ID, ip))
 	slog.Info("audit", "who", "user:"+u.ID, "method", "SSO", "path", "/login/sso/callback", "status", 200)
 	http.Redirect(w, r, "/", http.StatusFound)
 }

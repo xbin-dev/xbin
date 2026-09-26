@@ -109,7 +109,7 @@ async function tileAssets(browser) {
   check(p0.relJs === true && await loaded(f, '#rel'), `${MODE}: relative images load (markup and JS)`);
   if (MODE === 'origins') {
     check(frameURL.hostname.startsWith('t-') && frameURL.hostname.endsWith('.xbin.localhost'), `origins: the tile runs on its own origin (${frameURL.hostname})`);
-    check(!frameURL.search.includes('frame='), `origins: the exchange left no token in the URL (${frameURL.search})`);
+    check(!/frame=|xbin_ticket=/.test(frameURL.search), `origins: the exchange left no credential in the URL (${frameURL.search})`);
     check(p0.storage === TILE, `origins: the tile has its own localStorage (${p0.storage})`);
   } else {
     check(p0.storage === 'none', `${MODE}: an opaque-origin tile has no localStorage (${p0.storage})`);
@@ -187,12 +187,53 @@ async function tileAssets(browser) {
   await tab.waitForFunction(() => window.probe && 'relJs' in window.probe, null, { timeout: 15000 }).catch(() => {});
   const tp = await tab.evaluate(() => ({ probe: window.probe ?? null, host: location.hostname, search: location.search }));
   check(tp.probe?.dep === 'ok' && tp.probe?.relJs === true, `${MODE}: a direct-tab open loads the relative graph (${tp.host})`);
-  if (MODE === 'origins') check(tp.host.startsWith('t-') && !tp.search.includes('frame='), `origins: a direct open lands on the tile origin, token exchanged (${tp.host}${tp.search})`);
+  if (MODE === 'origins') check(tp.host.startsWith('t-') && !/frame=|xbin_ticket=/.test(tp.search), `origins: a direct open lands on the tile origin, ticket exchanged (${tp.host}${tp.search})`);
   await tab.close();
+
+  if (MODE === 'origins') await originsAdversarial(ctx, page, check);
 
   fs.writeFileSync(path.join(WS, TILE, 'index.html'), INDEX); // re-runnable (--shots)
   await closeCtx(ctx, page);
   done();
+}
+
+// Origins mode against a real browser's Fetch Metadata:
+//   - a link to a tile from ANOTHER SITE (chat, mail) goes through the
+//     workspace's interstitial and lands on the tile origin with its
+//     subresources loading (the chain was cross-site: no exchange, every
+//     subresource 401);
+//   - one tile framing another tile's workspace URL never gets it
+//     authenticated (the frame carries no session; the tile's documents
+//     allow only the workspace and themselves as ancestors).
+async function originsAdversarial(ctx, page, check) {
+  const tab = await ctx.newPage();
+  await tab.route('http://elsewhere.test/**', (r) => r.fulfill({
+    contentType: 'text/html',
+    body: `<!doctype html><a id="go" href="${URL}/c/${TILE}/">open the tile</a>`,
+  }));
+  await tab.goto('http://elsewhere.test/chat');
+  await tab.click('#go');
+  await tab.waitForFunction(() => window.probe && 'relJs' in window.probe, null, { timeout: 15000 }).catch(() => {});
+  const xs = await tab.evaluate(() => ({ probe: window.probe ?? null, host: location.hostname, search: location.search })).catch(() => ({}));
+  check(xs.host?.startsWith('t-') && xs.probe?.dep === 'ok' && xs.probe?.relJs === true && !/xbin_ticket=/.test(xs.search),
+    `origins: a tile link opened from another site lands on the tile origin with its subresources (${xs.host}${xs.search} ${JSON.stringify(xs.probe)})`);
+  await tab.close();
+
+  await openTile(page, TILE);
+  const f = await ready(page);
+  await f.evaluate((u) => {
+    const i = document.createElement('iframe');
+    i.id = 'evil'; i.src = u; document.body.prepend(i);
+  }, `${URL}/c/${TILE2}/`);
+  await sleep(2500);
+  const nested = [];
+  for (const fr of page.frames()) {
+    if (fr.parentFrame() !== f) continue;
+    nested.push({ url: fr.url(), probe2: await fr.evaluate(() => !!window.probe2).catch(() => false) });
+  }
+  check(nested.length > 0 && nested.every((n) => !n.probe2 && !new globalThis.URL(n.url, URL).hostname.startsWith('t-')),
+    `origins: a tile framing another tile's workspace URL doesn't get it authenticated (${JSON.stringify(nested)})`);
+  await closeTile(page, TILE);
 }
 
 module.exports = { tileAssets };

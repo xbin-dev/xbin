@@ -216,6 +216,15 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				pr.Out.Header.Set("Upgrade", u)
 			}
 		},
+		// A tile origin's /api (--tile-assets=origins) sets no cookies: a
+		// Domain=<parent> Set-Cookie would reach the workspace and sibling
+		// tiles (auth.WithNoSetCookie). Runs before a 101's hijack too.
+		ModifyResponse: func(res *http.Response) error {
+			if auth.NoSetCookie(res.Request.Context()) {
+				res.Header.Del("Set-Cookie")
+			}
+			return nil
+		},
 		Transport:     px.transportFor(sock),
 		FlushInterval: -1, // stream (SSE etc.)
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {

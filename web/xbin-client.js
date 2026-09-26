@@ -33,13 +33,16 @@
  * frame token below is the tile's ONLY credential; xbin.fetch/xbin.ws attach
  * it, and the token alone authenticates (no cookie required). location.origin
  * here is "null", so all postMessage targets are '*': identity on both sides
- * is verified by comparing event.source windows, never origins.
+ * is verified by comparing event.source windows, never origins. On a tile's
+ * own origin (strict tile asset gating's origins mode) the server names the
+ * workspace origin: messages go to it only, and replies must come from it.
  */
 
 const meta = (name) => document.querySelector(`meta[name="${name}"]`)?.content ?? '';
 
 // postMessage targetOrigin for talking to our embedder (see header comment).
-const PARENT = '*';
+const WORKSPACE = meta('xbin-workspace-origin');
+const PARENT = WORKSPACE || '*';
 
 const self = meta('xbin-component');
 let frameToken = meta('xbin-frame-token');
@@ -207,6 +210,7 @@ let reqSeq = 0;
 if (embedded) {
   addEventListener('message', (e) => {
     if (e.source !== window.parent) return;               // only our own frame
+    if (WORKSPACE && e.origin !== WORKSPACE) return;      // …and, on a tile origin, the workspace
     const d = e.data;
     if (d?.type === 'xbin:reply' && pending.has(d.id)) {
       const resolve = pending.get(d.id);

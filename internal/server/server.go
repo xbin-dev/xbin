@@ -336,13 +336,17 @@ func termEnvGate(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return cwd, true
 }
 
-func setSessionCookie(w http.ResponseWriter, r *http.Request, value string) {
-	secure := r.Header.Get("X-Forwarded-Proto") == "https" || r.TLS != nil
+func (s *Server) setSessionCookie(w http.ResponseWriter, r *http.Request, value string) {
 	http.SetCookie(w, &http.Cookie{
-		Name: auth.CookieName, Value: value, Path: "/",
-		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: secure,
+		Name: s.Auth.SessionCookieName(r), Value: value, Path: "/", // __Host- in origins mode (auth/tilebinding.go)
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: s.Auth.SessionCookieSecure(r),
 		MaxAge: int((30 * 24 * time.Hour).Seconds()),
 	})
+}
+
+// clearSessionCookie expires the session cookie on r.
+func (s *Server) clearSessionCookie(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{Name: s.Auth.SessionCookieName(r), Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: s.Auth.SessionCookieSecure(r)})
 }
 
 // handleLogin: GET serves the login page (username/password), and the
@@ -365,7 +369,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "bad token", http.StatusForbidden)
 			return
 		}
-		setSessionCookie(w, r, tok) // root token as the admin cookie
+		s.setSessionCookie(w, r, tok) // root token as the admin cookie
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
@@ -468,7 +472,7 @@ func (s *Server) handleInviteRedeem(w http.ResponseWriter, r *http.Request) {
 	}
 	s.loginThrottle.ok(s.ClientIP(r))
 	s.touchLogin(u.ID, "invite")
-	setSessionCookie(w, r, s.Auth.NewSession(u.ID, s.ClientIP(r)))
+	s.setSessionCookie(w, r, s.Auth.NewSession(u.ID, s.ClientIP(r)))
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
@@ -510,12 +514,12 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	}
 	s.loginThrottle.ok(s.ClientIP(r))
 	s.touchLogin(u.ID, "password")
-	setSessionCookie(w, r, s.Auth.NewSession(u.ID, s.ClientIP(r)))
+	s.setSessionCookie(w, r, s.Auth.NewSession(u.ID, s.ClientIP(r)))
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	if c, err := r.Cookie(auth.CookieName); err == nil {
+	if c, err := s.Auth.SessionCookie(r); err == nil {
 		// Signing out of a view-as session returns the admin to themselves
 		// rather than to the login page (impersonate.go).
 		if restore, owner, ok := s.Auth.StopImpersonation(c.Value); ok {
@@ -528,7 +532,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		}
 		s.Auth.DropSession(c.Value)
 	}
-	http.SetCookie(w, &http.Cookie{Name: auth.CookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
+	s.clearSessionCookie(w, r)
 	http.Redirect(w, r, "/login", http.StatusFound)
 }
 

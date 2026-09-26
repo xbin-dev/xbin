@@ -74,7 +74,7 @@ func (s *Server) handleImpersonateRedeem(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	prev := ""
-	if c, err := r.Cookie(auth.CookieName); err == nil {
+	if c, err := s.Auth.SessionCookie(r); err == nil {
 		prev = c.Value
 	}
 	sid, err := s.Auth.RedeemImpersonation(ticket, by, prev, s.ClientIP(r))
@@ -82,7 +82,7 @@ func (s *Server) handleImpersonateRedeem(w http.ResponseWriter, r *http.Request,
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
-	setSessionCookie(w, r, sid)
+	s.setSessionCookie(w, r, sid)
 	slog.Info("audit", "who", by.From(), "method", "GET", "path", "/login?impersonate=", "status", http.StatusFound)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
@@ -91,7 +91,7 @@ func (s *Server) handleImpersonateRedeem(w http.ResponseWriter, r *http.Request,
 // {ok, restored} — restored:false means their own session had expired
 // meanwhile (the cookie is cleared; sign in again).
 func (s *Server) apiImpersonateStop(w http.ResponseWriter, r *http.Request) {
-	c, err := r.Cookie(auth.CookieName)
+	c, err := s.Auth.SessionCookie(r)
 	if err != nil {
 		WriteError(w, http.StatusBadRequest, "not viewing as a user (no session cookie)")
 		return
@@ -112,12 +112,12 @@ func (s *Server) apiImpersonateStop(w http.ResponseWriter, r *http.Request) {
 func (s *Server) restoreAdminCookie(w http.ResponseWriter, r *http.Request, restore string, owner bool) bool {
 	switch {
 	case restore != "":
-		setSessionCookie(w, r, restore)
+		s.setSessionCookie(w, r, restore)
 		return true
 	case owner && !s.Auth.TokenLoginDisabled():
-		setSessionCookie(w, r, s.Auth.OwnerTokenValue())
+		s.setSessionCookie(w, r, s.Auth.OwnerTokenValue())
 		return true
 	}
-	http.SetCookie(w, &http.Cookie{Name: auth.CookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
+	s.clearSessionCookie(w, r)
 	return false
 }

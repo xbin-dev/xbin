@@ -93,6 +93,7 @@ func newAssetWS(t *testing.T, mode string) *assetWS {
 	s := &Server{Reg: reg, Auth: a, TileAssets: mode, ExternalURL: "http://xbin.localhost:9260"}
 	if mode == TileAssetsOrigins {
 		s.TilesDomain = "xbin.localhost"
+		a.SetHostCookies(true)
 	}
 	a.SetClientIP(s.ClientIP)
 	return &assetWS{t: t, s: s, a: a, st: st, root: root} // h: built on first use
@@ -125,7 +126,11 @@ func (w *assetWS) do(url string, opts ...reqOpt) *httptest.ResponseRecorder {
 }
 
 func (w *assetWS) session(uid string) reqOpt {
-	return cookie(auth.CookieName, w.a.NewSession(uid, "192.0.2.1"))
+	name := auth.CookieName
+	if w.s.assetMode() == TileAssetsOrigins {
+		name = auth.SessionCookieHostName // origins mode on a (*.localhost) secure origin
+	}
+	return cookie(name, w.a.NewSession(uid, "192.0.2.1"))
 }
 
 func (w *assetWS) frame(comp, uid string) reqOpt {
@@ -173,8 +178,9 @@ func TestStrictNoCredentialLessPath(t *testing.T) {
 	}
 }
 
-// Legacy is byte-for-byte today's injection: no <base>, no mode meta, the
-// import map first, the self entry absent.
+// Legacy keeps today's injection byte for byte: no <base>, no mode meta,
+// the import map first, the self entry absent. (What legacy does change —
+// security fixes — is pinned in tilesecurity_test.go.)
 func TestLegacyInjectionUnchanged(t *testing.T) {
 	w := newAssetWS(t, TileAssetsLegacy)
 	rec := w.do("/c/apps/a/", w.session("ana"))
@@ -186,9 +192,6 @@ func TestLegacyInjectionUnchanged(t *testing.T) {
 		if strings.Contains(body, bad) {
 			t.Errorf("legacy document carries %q", bad)
 		}
-	}
-	if rec := w.do("/c/apps/a/img.svg", w.session("ana")); rec.Header().Get("Content-Security-Policy") != "" {
-		t.Error("legacy non-document responses gained a CSP")
 	}
 	if s := (&Server{}); s.tileOriginURL("apps/a") != "" || s.strictAssets() {
 		t.Error("the zero Server is legacy")
@@ -444,23 +447,5 @@ func TestTileAssetsReport(t *testing.T) {
 	}
 	if code, out := get("/api/xbin/tile-assets?component=apps/b", ana); code != 200 || len(out["tiles"].([]any)) != 1 {
 		t.Fatalf("a clean tile by name is listed: %d %v", code, out)
-	}
-}
-
-// The legacy plane too refuses a symlink that resolves to xbind's own
-// credentials or outside the workspace (tile directories are written by
-// sandboxes); a symlink to another tile's file keeps working there.
-func TestLegacySymlinkTargets(t *testing.T) {
-	w := newAssetWS(t, TileAssetsLegacy)
-	if err := os.Symlink("../b/lib.js", filepath.Join(w.root, "apps/a/shared.js")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink("/etc/hostname", filepath.Join(w.root, "apps/a/host.txt")); err != nil {
-		t.Fatal(err)
-	}
-	for p, want := range map[string]int{"/c/apps/a/leak.txt": 404, "/c/apps/a/host.txt": 404, "/c/apps/a/shared.js": 200, "/c/apps/a/app.js": 200} {
-		if rec := w.do(p, w.session("ana")); rec.Code != want {
-			t.Errorf("%s: %d, want %d", p, rec.Code, want)
-		}
 	}
 }

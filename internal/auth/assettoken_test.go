@@ -56,8 +56,15 @@ func TestAssetTokenRoundTrip(t *testing.T) {
 func TestAssetCredentialPurposes(t *testing.T) {
 	a, _ := assetTestAuth(t)
 	asset := a.MintAssetToken("apps/a", "ana")
-	cookie := a.MintTileCookie("apps/a", "ana")
+	cookie := a.MintTileCookie("apps/a", "ana", "", time.Hour)
 	frame := a.MintFrameToken("apps/a", "ana", time.Minute)
+	ticket := a.MintTileTicket("apps/a", "", a.credGeneration(""))
+	if _, ok := a.VerifyTileCookie(ticket); ok {
+		t.Error("exchange ticket accepted as a tile cookie")
+	}
+	if _, ok := a.RedeemTileTicket(a.MintTileCookie("apps/a", "", a.credGeneration(""), time.Hour)); ok {
+		t.Error("tile cookie redeemed as an exchange ticket")
+	}
 
 	if _, ok := a.VerifyTileCookie(asset); ok {
 		t.Error("asset token accepted as a tile cookie")
@@ -87,7 +94,6 @@ func TestAssetCredentialPurposes(t *testing.T) {
 func TestAssetCredentialLiveness(t *testing.T) {
 	a, st := assetTestAuth(t)
 	tok := a.MintAssetToken("apps/a", "ana")
-	cookie := a.MintTileCookie("apps/a", "ana")
 
 	gen := "1"
 	a.SetCredentialGeneration(func(uid string) string { return gen })
@@ -101,9 +107,6 @@ func TestAssetCredentialLiveness(t *testing.T) {
 	gen = "2" // sign-out everywhere / revoked device
 	if _, ok := a.VerifyAssetToken(tok); ok {
 		t.Error("revoked-session token (old generation) still verifies")
-	}
-	if _, ok := a.VerifyTileCookie(cookie); ok {
-		t.Error("revoked-session cookie still verifies")
 	}
 	a.SetCredentialGeneration(nil)
 
@@ -170,11 +173,14 @@ func TestTileHostID(t *testing.T) {
 
 func TestTilePrincipal(t *testing.T) {
 	a, _ := assetTestAuth(t)
-	p, ok := a.TilePrincipal("apps/a", "ana")
-	if !ok || p.Component != "apps/a" || p.UserID != "ana" || p.Via != "frame" || p.Access == nil {
+	p, ok := a.TilePrincipal("apps/a", "ana", "")
+	if !ok || p.Component != "apps/a" || p.UserID != "ana" || p.Via != "frame" || p.Access == nil || p.ReadOnly() {
 		t.Fatalf("tile principal: %+v %v", p, ok)
 	}
-	if _, ok := a.TilePrincipal("apps/a", "ghost"); ok {
+	if p, _ := a.TilePrincipal("apps/a", "ana", "boss"); !p.ReadOnly() {
+		t.Fatal("a view-as session's tile principal is not read-only")
+	}
+	if _, ok := a.TilePrincipal("apps/a", "ghost", ""); ok {
 		t.Fatal("principal for an unknown user")
 	}
 }

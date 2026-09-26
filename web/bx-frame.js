@@ -94,7 +94,7 @@ export class BxFrame extends LitElement {
     _autoHeight: { state: true },
     _layout: { state: true },  // 'term' | 'code' | 'split' | 'logs' | 'prs'
     _codeW: { state: true },   // code panel width % in split
-    _frame: { state: true },   // {url, sandboxed, credentialless} | null
+    _frame: { state: true },   // {url, sandboxed, sandbox, credentialless, origin} | null
     _prCount: { state: true }, // open change proposals targeting this tile
     _z: { state: true },       // this window's place in the shared z-order (in the style binding: a render never drops it)
     _narrow: { state: true },  // the pop is too narrow for the full bar: the pickers live in the tools row
@@ -387,9 +387,11 @@ export class BxFrame extends LitElement {
     this._buildError = null;
     this._beginReload();
     // Sandboxed frames are opaque origins (or, in origins mode, another
-    // origin) — we can't reach contentWindow — so reload by re-navigation
-    // (re-minting the bootstrap token, since the old one may have expired).
-    if (this._frame?.credentialless || this._frame?.origin) { this._prepareFrame(); return; }
+    // origin) — we can't reach contentWindow — so reload by re-navigation:
+    // re-minting the bootstrap token when credentialless (the old one may
+    // have expired); in origins mode the workspace URL again (the server
+    // sends it on to the tile origin with a fresh ticket).
+    if (this._frame?.credentialless) { this._prepareFrame(); return; }
     if (this._frame?.sandboxed) { const f = this._iframe; if (f) f.src = this._url(); return; }
     try { this._iframe?.contentWindow?.location.reload(); }
     catch { if (this._iframe) this._iframe.src = this._url(); }
@@ -441,8 +443,12 @@ export class BxFrame extends LitElement {
 
   _message(e) {
     // Only trust messages from OUR iframe — the sender window IS the identity,
-    // so a tile can't spoof another component's requests.
+    // so a tile can't spoof another component's requests. On its own origin
+    // (origins mode) the document must also BE that origin: whatever else the
+    // frame navigated to (another tile's refusal page, the workspace) is
+    // not this tile.
     if (e.source !== this._iframe?.contentWindow) return;
+    if (this._frame?.origin && e.origin !== this._frame.origin) return;
     const d = e.data;
     if (typeof d?.type !== 'string' || !d.type.startsWith('xbin:')) return;
 
@@ -483,8 +489,10 @@ export class BxFrame extends LitElement {
           reply: (result) => this._iframe?.contentWindow?.postMessage(
             // targetOrigin '*' : a sandboxed tile is an opaque origin, so no
             // origin string ever matches it. Delivery is confined to THIS
-            // iframe's window regardless; xbin-client verifies e.source.
-            { type: 'xbin:reply', id: d.id, result }, '*'),
+            // iframe's window regardless; xbin-client verifies e.source. On
+            // its own origin (origins mode) the reply goes to that origin
+            // only.
+            { type: 'xbin:reply', id: d.id, result }, this._frame?.origin || '*'),
         },
       }));
     } else if (d.type === 'xbin:window-close') {

@@ -5,12 +5,10 @@ import (
 	"html"
 	"io"
 	"log/slog"
-	"mime"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
-	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -97,9 +95,17 @@ func isNavigation(r *http.Request) bool {
 	return strings.Contains(r.Header.Get("Accept"), "text/html")
 }
 
-// isHTMLName: the documents the injection serves (by extension, as legacy).
+// isHTMLName: the documents the injection serves, by extension — any case
+// (x.HTML is served as text/html too, so it is a document: injected and
+// sandboxed, never a raw file on the workspace origin). Other document-like
+// types (.xhtml, .shtml, .svg, sniffed extensionless HTML) are served raw
+// but inert (inertNonDocument): the injection would break XHTML's XML.
 func isHTMLName(name string) bool {
-	return strings.HasSuffix(name, ".html") || strings.HasSuffix(name, ".htm")
+	switch strings.ToLower(path.Ext(name)) {
+	case ".html", ".htm":
+		return true
+	}
+	return false
 }
 
 // documentDest: Fetch Metadata says the browser will render this as a
@@ -118,11 +124,16 @@ func documentDest(r *http.Request) bool {
 // openStrict opens a /c/ file beneath its owning tile's directory (the dev
 // overlay's copy first): no symlink met on the way may leave the tile — a
 // tile's writers must not be able to point xbind at .xbin/secret, another
-// tile, or the host (fsutil.OpenBeneath).
+// tile, or the host — and the tile directory itself is reached from the
+// workspace root without any symlink (fsutil.OpenIn): owner comes from the
+// registry, which can be stale, and a registered nested component's
+// directory sits in its parent tile's writable tree (swapped for a symlink
+// to ../../.xbin before the rescan, it must not become the "tile"). FIFOs
+// and devices are refused without blocking.
 func (s *Server) openStrict(owner, cleaned string) (*os.File, os.FileInfo, error) {
 	rel := strings.TrimPrefix(strings.TrimPrefix(cleaned, owner), "/")
 	open := func(base string) (*os.File, os.FileInfo, error) {
-		f, err := fsutil.OpenBeneath(filepath.Join(base, filepath.FromSlash(owner)), rel)
+		f, err := fsutil.OpenIn(base, owner, rel)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -197,6 +208,10 @@ func (s *Server) serveStrictStatic(w http.ResponseWriter, r *http.Request, clean
 			return
 		}
 		s.sandboxDocument(w, r, owner, comp)
+		if strings.HasSuffix(r.URL.Path, "/index.html") { // as the legacy plane (http.ServeFile) does
+			localRedirect(w, r, "./")
+			return
+		}
 	}
 	http.ServeContent(w, r, name, fi.ModTime(), f)
 }
@@ -208,14 +223,10 @@ func (s *Server) serveStrictStatic(w http.ResponseWriter, r *http.Request, clean
 //     as sandboxed non-documents — a tile origin runs only its own tile's
 //     documents, and cross-tile content must never execute as it;
 //   - on the workspace origin (origins mode), a browser navigating to a
-//     sandboxed tile's document is sent to the tile's origin with a fresh
-//     frame token to exchange (direct-tab opens, old links, bx-frame's
-//     fallback);
-//   - on the workspace origin, a sandboxed tile's non-document files carry
-//     CSP sandbox (inert if ignored as a subresource; scriptless if an SVG
-//     or XML file is navigated to — it would otherwise run as the
-//     workspace origin, beside the session cookie). PDFs are left alone:
-//     browsers refuse to render them sandboxed and they cannot script.
+//     sandboxed tile's document is sent on to the tile's origin
+//     (tileDocOnWorkspace) — no tile document runs on the workspace origin;
+//   - on the workspace origin, a sandboxed tile's non-document files are
+//     inert if navigated to (inertNonDocument, as in legacy).
 func (s *Server) assetGate(w http.ResponseWriter, r *http.Request, owner string, comp *registry.Component, isDoc bool) bool {
 	if t := tileOriginOf(r); t != "" {
 		if owner != t {
@@ -223,7 +234,7 @@ func (s *Server) assetGate(w http.ResponseWriter, r *http.Request, owner string,
 				http.Error(w, "a tile origin serves only its own tile's documents", http.StatusForbidden)
 				return true
 			}
-			w.Header().Set("Content-Security-Policy", "sandbox")
+			s.setDocCSP(w, r, "sandbox")
 		}
 		return false
 	}
@@ -231,11 +242,9 @@ func (s *Server) assetGate(w http.ResponseWriter, r *http.Request, owner string,
 		return false
 	}
 	if isDoc {
-		return s.assetMode() == TileAssetsOrigins && s.redirectToTileOrigin(w, r, owner)
+		return s.assetMode() == TileAssetsOrigins && s.tileDocOnWorkspace(w, r, owner)
 	}
-	if !strings.HasPrefix(mime.TypeByExtension(path.Ext(r.URL.Path)), "application/pdf") {
-		w.Header().Set("Content-Security-Policy", "sandbox")
-	}
+	s.inertNonDocument(w, r, owner, comp)
 	return false
 }
 
@@ -323,7 +332,8 @@ func (s *Server) serveAssetToken(w http.ResponseWriter, r *http.Request) {
 //     in modules keep working. A document with its own <base> keeps its
 //     choice: ours then points at the token form of that base when it is a
 //     /c/ URL, and is left out when it points elsewhere.
-//   - origins: the mode meta, on the tile origin (the cookie does the rest).
+//   - origins: the mode meta and the workspace origin (xbin-client's
+//     postMessage peer), on the tile origin (the cookie does the rest).
 //   - legacy, and chrome in every mode: "".
 func (s *Server) assetHead(r *http.Request, body []byte, compPath string, comp *registry.Component, userID string, imports map[string]string) string {
 	if !sandboxedFrame(compPath, comp) {
@@ -334,7 +344,10 @@ func (s *Server) assetHead(r *http.Request, body []byte, compPath string, comp *
 		if tileOriginOf(r) == "" {
 			return "" // served on the workspace origin (not a browser navigation): no mode to report
 		}
-		return "<meta name=\"xbin-tile-assets\" content=\"origins\">\n"
+		// The workspace origin: xbin-client talks to its embedder (the shell)
+		// with it as postMessage target and checks replies come from it.
+		return "<meta name=\"xbin-tile-assets\" content=\"origins\">\n" +
+			"<meta name=\"xbin-workspace-origin\" content=\"" + htmlEscape(s.workspaceOrigin()) + "\">\n"
 	case TileAssetsTokens:
 	default:
 		return ""

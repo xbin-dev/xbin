@@ -8,9 +8,12 @@
  * credentialless, its document authenticated by a bootstrap frame token in
  * the URL. Under strict tile asset gating's origins mode (docs/auth.md §Tile
  * asset gating) the server reports each tile's own origin instead: the frame
- * loads there, sandboxed WITH allow-same-origin (the tile origin is the
- * isolation boundary, and its cookie credential needs a real origin) and
- * never credentialless.
+ * loads the tile's WORKSPACE URL, which the server redirects to the tile's
+ * origin with a one-time ticket bound to this browser session (no token
+ * passes through here), sandboxed WITH allow-same-origin (the tile origin is
+ * the isolation boundary, and its cookie credential needs a real origin) and
+ * never credentialless. bx-frame then talks to the frame with that origin as
+ * postMessage target, and only accepts messages from it.
  */
 
 // Base sandbox tokens for tile frames: scripts + forms + modals + downloads,
@@ -73,20 +76,17 @@ const mint = (component) => fetch(`/api/xbin/frame-token?component=${encodeURICo
   .then((r) => (r.ok ? r.json() : null)).then((d) => d?.token || '').catch(() => '');
 
 // frameSource resolves how component `src` loads, given infoFor(src):
-// {url, sandboxed, sandbox, credentialless, origin}. ?frame= is consumed by
-// xbind (and, on a tile origin, exchanged for the tile cookie and dropped
-// from the URL), never forwarded.
+// {url, sandboxed, sandbox, credentialless, origin} — origin is the tile's
+// own origin in origins mode ('' otherwise). ?frame= is consumed by xbind,
+// never forwarded.
 export async function frameSource(src, info) {
   const sandboxed = !info?.chrome;
   const sandbox = sandboxAttr(info);
-  let url = `/c/${src}/`, credentialless = false, origin = false;
+  let url = `/c/${src}/`, credentialless = false, origin = '';
   if (sandboxed && info?.origin) {
-    // The token is the OWNING component's: the tile origin exchanges only
-    // its own tile's tokens. Without one, the workspace origin redirects the
-    // navigation there with a token it mints itself.
-    const tok = await mint(info.path);
-    if (tok) url = `${info.origin}/c/${src}/?frame=${encodeURIComponent(tok)}`;
-    origin = true;
+    // The workspace URL: the server sends this (same-origin) navigation on
+    // to the tile origin with a ticket bound to the session.
+    origin = info.origin;
   } else if (sandboxed && CREDENTIALLESS) {
     const tok = await mint(src);
     if (tok) {

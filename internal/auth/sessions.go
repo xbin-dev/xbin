@@ -18,6 +18,7 @@ func (a *Auth) NewSession(userID, ip string) string {
 	a.mu.Lock()
 	a.sweepSessionsLocked(now) // login is rare — opportunistic reap, no goroutine
 	a.sessions[id] = &session{userID: userID, created: now, lastActive: now, ip: ip, lastIP: ip}
+	a.indexSessionLocked(id)
 	a.warmLocked(ip, now)
 	a.mu.Unlock()
 	return id
@@ -86,6 +87,7 @@ func (a *Auth) sweepSessionsLocked(now time.Time) {
 			delete(a.sessions, id)
 		}
 	}
+	a.sweepSessionRefsLocked(now)
 	a.sweepWarmLocked(now)
 }
 
