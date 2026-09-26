@@ -230,10 +230,6 @@ type Auth struct {
 	// installed by the server via SetClientIP. Nil → RemoteAddr.
 	clientIP func(*http.Request) string
 
-	// credGen is the per-user credential generation asset-plane credentials
-	// bind to (assettoken.go, SetCredentialGeneration). Nil → "".
-	credGen func(userID string) string
-
 	// Tile origins (tilebinding.go): the __Host- session cookie switch, the
 	// session-reference index tile credentials bind to, spent exchange tickets.
 	hostCookies bool

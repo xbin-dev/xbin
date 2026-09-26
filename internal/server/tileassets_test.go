@@ -321,16 +321,25 @@ func TestTokensModeRBAC(t *testing.T) {
 	if rec := w.do(at + "apps/a/app.js"); rec.Code != 403 {
 		t.Fatalf("token of a tile the user lost still served: %d", rec.Code)
 	}
-	// Revoked session generation.
-	gen := "g1"
-	w.a.SetCredentialGeneration(func(string) string { return gen })
-	btok, _ := assetTokenFrom(t, w.do("/c/apps/b/", w.session("bob")).Body.String())
+	// The asset token dies with the login that loaded its document (the
+	// generation its frame token is bound to): logout, then a
+	// sign-out-everywhere for a sibling login's.
+	sess := w.a.NewSession("bob", "192.0.2.1")
+	btok, _ := assetTokenFrom(t, w.do("/c/apps/b/", cookie(auth.CookieName, sess)).Body.String())
+	other, _ := assetTokenFrom(t, w.do("/c/apps/b/", w.session("bob")).Body.String())
 	if rec := w.do("/c/~" + btok + "/apps/b/lib.js"); rec.Code != 200 {
 		t.Fatalf("fresh token: %d", rec.Code)
 	}
-	gen = "g2"
+	w.a.DropSession(sess)
 	if rec := w.do("/c/~" + btok + "/apps/b/lib.js"); rec.Code != 401 {
-		t.Fatalf("token of a revoked session: %d", rec.Code)
+		t.Fatalf("token of a signed-out session: %d", rec.Code)
+	}
+	if rec := w.do("/c/~" + other + "/apps/b/lib.js"); rec.Code != 200 {
+		t.Fatalf("logout killed another session's token: %d", rec.Code)
+	}
+	w.a.DropUserSessions("bob")
+	if rec := w.do("/c/~" + other + "/apps/b/lib.js"); rec.Code != 401 {
+		t.Fatalf("token survived sign-out-everywhere: %d", rec.Code)
 	}
 }
 

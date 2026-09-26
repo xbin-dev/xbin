@@ -436,7 +436,7 @@ func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPa
 		// Strict asset gating: tokens mode's <base> + import-map remap
 		// (which rewrites imports in place), origins mode's mode meta;
 		// "" in legacy, so the injection below is byte-for-byte unchanged.
-		assetHead = s.assetHead(r, body, compPath, comp, p.UserID, imports)
+		assetHead = s.assetHead(r, body, compPath, comp, p, imports)
 	}
 	im, _ := json.Marshal(map[string]any{"imports": imports})
 

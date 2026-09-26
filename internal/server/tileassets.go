@@ -335,7 +335,7 @@ func (s *Server) serveAssetToken(w http.ResponseWriter, r *http.Request) {
 //   - origins: the mode meta and the workspace origin (xbin-client's
 //     postMessage peer), on the tile origin (the cookie does the rest).
 //   - legacy, and chrome in every mode: "".
-func (s *Server) assetHead(r *http.Request, body []byte, compPath string, comp *registry.Component, userID string, imports map[string]string) string {
+func (s *Server) assetHead(r *http.Request, body []byte, compPath string, comp *registry.Component, p auth.Principal, imports map[string]string) string {
 	if !sandboxedFrame(compPath, comp) {
 		return "" // chrome runs on the workspace origin with the cookie: never gated
 	}
@@ -352,7 +352,7 @@ func (s *Server) assetHead(r *http.Request, body []byte, compPath string, comp *
 	default:
 		return ""
 	}
-	tok := s.Auth.MintAssetToken(compPath, userID)
+	tok := s.Auth.MintAssetTokenFor(p, compPath) // dies with the login that loaded the document
 	under := func(p string) string { return "/c/~" + tok + "/" + strings.TrimPrefix(p, "/c/") }
 	for k, v := range imports {
 		if strings.HasPrefix(v, "/c/") && !strings.HasPrefix(v, "/c/~") && !isChrome(firstSeg(v[3:])) {

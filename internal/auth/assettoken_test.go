@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -88,27 +89,52 @@ func TestAssetCredentialPurposes(t *testing.T) {
 	}
 }
 
-// Liveness: a deleted or disabled user, a bumped credential generation, and
-// (for owner-minted credentials) a rotated owner token all kill the
-// credential on its next use.
+// Liveness: a deleted or disabled user, the end of the login that loaded
+// the document, a sign-out-everywhere, and (for owner-minted credentials) a
+// rotated owner token all kill the credential on its next use — the same
+// generations frame tokens are bound to (frametoken.go).
 func TestAssetCredentialLiveness(t *testing.T) {
 	a, st := assetTestAuth(t)
-	tok := a.MintAssetToken("apps/a", "ana")
 
-	gen := "1"
-	a.SetCredentialGeneration(func(uid string) string { return gen })
+	// Bound to the login session that loaded the document: logout kills it,
+	// a sibling session's token lives on.
+	sid, other := a.NewSession("ana", ""), a.NewSession("ana", "")
+	tok := a.MintAssetTokenFor(principalOf(t, a, sid, ""), "apps/a")
+	sibling := a.MintAssetTokenFor(principalOf(t, a, other, ""), "apps/a")
+	if g, ok := a.VerifyAssetToken(tok); !ok || !strings.HasPrefix(g.Gen, "s.") {
+		t.Fatalf("session-bound token: %+v %v", g, ok)
+	}
+	a.DropSession(sid)
 	if _, ok := a.VerifyAssetToken(tok); ok {
-		t.Error("token minted under generation \"\" survived the hook reporting 1")
+		t.Error("asset token outlived the session that loaded its document")
 	}
-	tok = a.MintAssetToken("apps/a", "ana")
-	if _, ok := a.VerifyAssetToken(tok); !ok {
-		t.Fatal("fresh token under the current generation refused")
+	if _, ok := a.VerifyAssetToken(sibling); !ok {
+		t.Error("logout killed another session's asset token")
 	}
-	gen = "2" // sign-out everywhere / revoked device
-	if _, ok := a.VerifyAssetToken(tok); ok {
-		t.Error("revoked-session token (old generation) still verifies")
+
+	// A tile's own frame principal (a navigation within its tree) passes its
+	// token's binding on.
+	fp := a.MintFrameTokenFor(principalOf(t, a, other, ""), "apps/a", time.Minute)
+	r := httptest.NewRequest("GET", "/x", nil)
+	r.Header.Set(FrameTokenHeader, fp)
+	framed, ok := a.FromRequest(r)
+	if !ok {
+		t.Fatal("frame token refused")
 	}
-	a.SetCredentialGeneration(nil)
+	viaFrame := a.MintAssetTokenFor(framed, "apps/a")
+
+	// Bound to the user's generation (no session behind the principal) —
+	// and sign-out-everywhere ends the session-bound ones too.
+	userGen := a.MintAssetToken("apps/a", "ana")
+	if _, ok := a.VerifyAssetToken(userGen); !ok {
+		t.Fatal("fresh user-generation token refused")
+	}
+	a.DropUserSessions("ana")
+	for name, tk := range map[string]string{"user generation": userGen, "sibling session": sibling, "frame-minted": viaFrame} {
+		if _, ok := a.VerifyAssetToken(tk); ok {
+			t.Errorf("%s token survived sign-out-everywhere", name)
+		}
+	}
 
 	tok = a.MintAssetToken("apps/a", "ana")
 	u, _ := st.Get("ana")

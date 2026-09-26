@@ -135,13 +135,12 @@ that tile. It never serves HTML, directories, workspace chrome or anything
 navigated to as a document, never authenticates `/api`, and never yields a
 frame token. It is visible to the tile's own JS (in `document.baseURI`) —
 which already holds its frame token, a strictly stronger credential; a
-copied token reads at most static files the user may read. **Signing out
-does not revoke asset tokens yet**: they end when the user is disabled or
-deleted, loses read on the tile, or after 7 days (per-session credential
-generations — sign-out, *sign out everywhere*, a password change — come
-with device sign-in; a document is often loaded with nothing but a frame
-token, so the asset token can't be tied to the browser session the way the
-tile-origin cookie is).
+copied token reads at most static files the user may read. **An asset
+token is bound to the same login as the document's frame token** (its
+credential generation): it ends with that login — sign-out, expiry,
+revoking the device, *sign out everywhere*, disabling the user, rotating
+the owner token for documents the bootstrap token opened — and also when
+the user loses read on the tile, or after 7 days.
 
 **Tile origins** (origins mode): `<id>` is a keyed hash of the tile path —
 stable per workspace, non-reversible, so tile names never reach DNS, SNI or
@@ -867,8 +866,9 @@ account — the bootstrap owner token has none.
 - **Managing devices.** The same *devices* panel lists your devices (name,
   platform, last sign-in and its IP) with **remove**; admins see and remove
   any user's devices in the admin console's Users tab. Removing a device ends
-  every session it opened at once — and the frame tokens those sessions
-  minted. Changing your password can remove your other devices in the same
+  every session it opened at once — and the frame and asset tokens those
+  sessions minted — and drops its push registration (so does the app
+  signing out of the workspace). Changing your password can remove your other devices in the same
   step (*and remove my app devices* in the password form; the phone making
   the change keeps its own).
 - **Rules kept.** Enrollment codes, challenges and sign-ins count against

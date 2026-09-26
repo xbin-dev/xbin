@@ -68,35 +68,21 @@ type AssetGrant struct {
 	SessionEnd   time.Time
 }
 
-// SetCredentialGeneration installs the per-user credential generation that
-// asset tokens are bound to: a value that changes when the user's sessions
-// are revoked (sign-out everywhere, a password change, a device revoked),
-// killing every credential minted under the old value on its next use.
-// (Tile-origin credentials don't need it: they are bound to the browser
-// session itself, tilebinding.go.)
-//
-// TODO(device-auth, plans/native.md §20 item 2): the device-auth work
-// package adds per-user/session generations for frame tokens; wire the same
-// counter in here (boot: st.Auth.SetCredentialGeneration(...)). Until then
-// the hook is unset, asset tokens carry generation "" and SIGN-OUT DOES NOT
-// REVOKE THEM: they die with the user (deleted/disabled), their read access
-// (RBAC, checked per request) or their TTL. An asset token is minted into a
-// document whose own request may carry only a frame token (credentialless
-// frames), so it cannot be bound to a session the way tile cookies are.
-func (a *Auth) SetCredentialGeneration(f func(userID string) string) { a.credGen = f }
+// Credential binding: an asset token carries the CREDENTIAL GENERATION of
+// the principal that loaded its document — exactly what that document's
+// frame token is bound to (frametoken.go): the login session (s.<handle>),
+// the user's generation (u.<epoch>.<n>) for a principal with no session, or
+// the owner token's (o.<hash>). It verifies only while that generation
+// lives, so logout, session expiry, device revocation, sign-out-everywhere,
+// a password change that ends sessions and owner-token rotation kill the
+// asset tokens of the documents they opened on their next use — the same
+// moment their frame tokens die. (Tile-origin credentials are bound to the
+// browser session itself, tilebinding.go.)
 
-// credGeneration is the current generation for uid ("" = the owner, whose
-// generation is derived from the owner token so a rotation kills every
-// owner-minted asset credential).
-func (a *Auth) credGeneration(uid string) string {
-	if uid == "" {
-		return a.mac(ownerGenPurpose, a.OwnerTokenValue())[:8]
-	}
-	if a.credGen == nil {
-		return ""
-	}
-	return a.credGen(uid)
-}
+// credGeneration is the generation a credential minted for uid without a
+// principal binds to: the user's current generation, or — uid "" — the
+// owner token's (a rotation kills every owner-minted asset credential).
+func (a *Auth) credGeneration(uid string) string { return a.defaultGen(uid) }
 
 // mac is the purpose-tagged HMAC used by the asset-plane credentials:
 // base64url of the first 16 bytes of HMAC-SHA256(secret, purpose ‖ 0 ‖ msg).
@@ -143,7 +129,8 @@ func (a *Auth) verifyGrant(prefix, purpose, tok string) (AssetGrant, bool) {
 }
 
 // grantLive: the credential's user still authenticates (exists, enabled) and
-// its generation is current. The owner's generation tracks the owner token.
+// the generation it was minted under lives (genLive: the session, the
+// user's generation or the owner token's).
 func (a *Auth) grantLive(g AssetGrant) bool {
 	if a.noAuth {
 		return true
@@ -153,12 +140,26 @@ func (a *Auth) grantLive(g AssetGrant) bool {
 			return false
 		}
 	}
-	return subtleEqual(g.Gen, a.credGeneration(g.UserID))
+	_, live := a.genLive(g.Gen, g.UserID)
+	return live
 }
 
-// MintAssetToken mints the asset token a tile document's <base> carries.
+// MintAssetToken mints an asset token for (tile, user) bound to the user's
+// current generation (the owner token's for userID ""). Documents use
+// MintAssetTokenFor, which binds to the loading principal's own login.
 func (a *Auth) MintAssetToken(tile, userID string) string {
 	return a.mintGrant(assetTokenPrefix, assetTokenPurpose, tile, userID, a.credGeneration(userID), AssetTokenTTL)
+}
+
+// MintAssetTokenFor mints the asset token a tile document's <base> carries,
+// for the principal loading it: its user, and the generation its frame token
+// is bound to (MintFrameTokenFor).
+func (a *Auth) MintAssetTokenFor(p Principal, tile string) string {
+	gen := p.Gen
+	if !validGen(gen) {
+		gen = a.defaultGen(p.UserID)
+	}
+	return a.mintGrant(assetTokenPrefix, assetTokenPurpose, tile, p.UserID, gen, AssetTokenTTL)
 }
 
 // VerifyAssetToken returns the grant of a valid, unexpired, live asset

@@ -62,9 +62,10 @@ In every mode: a tile that served files through a symlink into `data/`,
 non-HTML file) running script when opened directly or framed; a tile
 frontend that fetched ANOTHER tile's document to use the frame token in it.
 
-Not yet: signing out does not revoke `tokens`-mode asset tokens (they end
-with the user's account, their read access, or after 7 days); tile-origin
-cookies do end with the browser session.
+Credentials end with the login that opened the tile: `tokens`-mode asset
+tokens are bound to the same credential generation as the document's frame
+token (sign-out, *sign out everywhere*, device revocation end them), and
+tile-origin cookies end with the browser session.
 
 ## How to migrate
 
