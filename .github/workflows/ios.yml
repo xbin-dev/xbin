@@ -1,0 +1,132 @@
+# The Apple CI of the native client (plans/native.md §21, native/AGENTS.md):
+# the project's only Apple toolchain. Three independent jobs, so a broken
+# app build still yields the renderer snapshots:
+#
+#   packages   swift test — XbinCore, XbinTerm, XbinAgent (each if present)
+#   app        xcodegen generate → xcodebuild build -scheme Xbin (simulator,
+#              unsigned) → artifact xcresult-app
+#   snapshots  xcodebuild test the XbinRenderer package on a simulator →
+#              artifacts snapshots (PNGs) and xcresult-snapshots
+#
+# The logic lives in native/ios/scripts/ (runnable on any Mac, shellchecked
+# and dry-tested on Linux by native/ios/scripts/ci-local-check.sh); this
+# file only wires it up. Feature branches only — never master — and no
+# signing, secrets or provisioning.
+name: ios
+
+on:
+  push:
+    branches-ignore: [master]
+    paths:
+      - "native/ios/**"
+      - "native/fixtures/**"
+      - "native/spec/**"
+      - ".github/workflows/ios.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash # bash -eo pipefail, not the default bash -e
+
+env:
+  # Pin an Xcode when the runner carries several, e.g.
+  # /Applications/Xcode_27.1.app (the iPhone Duo APIs need the iOS 27.1
+  # SDK); empty → the runner's default. ci-toolchain.sh applies it.
+  XBIN_XCODE: ""
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+  HOMEBREW_NO_INSTALL_CLEANUP: "1"
+  HOMEBREW_NO_ENV_HINTS: "1"
+
+jobs:
+  packages:
+    name: packages (swift test)
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: toolchain (xcodebuild -version, -showsdks, simctl device types + runtimes)
+        run: native/ios/scripts/ci-toolchain.sh
+      - name: swift test XbinCore, XbinTerm, XbinAgent
+        run: native/ios/scripts/ci-swift-test.sh XbinCore XbinTerm XbinAgent
+
+  app:
+    name: app (build Xbin)
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: toolchain
+        run: native/ios/scripts/ci-toolchain.sh
+      - name: install xcodegen
+        if: hashFiles('native/ios/project.yml') != ''
+        run: |
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcodegen --version
+      - name: pick a simulator
+        id: sim
+        if: hashFiles('native/ios/project.yml') != ''
+        run: |
+          dest=$(native/ios/scripts/pick-sim.sh)
+          echo "destination=$dest" >>"$GITHUB_OUTPUT"
+      - name: xcodegen generate + xcodebuild build -scheme Xbin
+        if: hashFiles('native/ios/project.yml') != ''
+        env:
+          DEST: ${{ steps.sim.outputs.destination }}
+        run: native/ios/scripts/ci-build-app.sh "$DEST"
+      - name: upload xcresult-app
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcresult-app
+          path: |
+            ${{ runner.temp }}/xbin-ci/app-build.xcresult
+            ${{ runner.temp }}/xbin-ci/app-build.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  snapshots:
+    name: snapshots (XbinRenderer)
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: toolchain
+        run: native/ios/scripts/ci-toolchain.sh
+      - name: pick a simulator
+        id: sim
+        if: hashFiles('native/ios/Packages/XbinRenderer/Package.swift') != ''
+        run: |
+          dest=$(native/ios/scripts/pick-sim.sh)
+          echo "destination=$dest" >>"$GITHUB_OUTPUT"
+      - name: xcodebuild test XbinRenderer (fixture snapshots)
+        if: hashFiles('native/ios/Packages/XbinRenderer/Package.swift') != ''
+        env:
+          DEST: ${{ steps.sim.outputs.destination }}
+          # The tests see SNAPSHOT_DIR (xcodebuild strips TEST_RUNNER_).
+          TEST_RUNNER_SNAPSHOT_DIR: ${{ runner.temp }}/snapshots
+        run: native/ios/scripts/ci-snapshots.sh "$DEST"
+      - name: upload snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshots
+          path: ${{ runner.temp }}/snapshots/**/*.png
+          if-no-files-found: warn
+          retention-days: 14
+      - name: upload xcresult-snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcresult-snapshots
+          path: |
+            ${{ runner.temp }}/xbin-ci/snapshots-test.xcresult
+            ${{ runner.temp }}/xbin-ci/snapshots-test.log
+          if-no-files-found: ignore
+          retention-days: 14

@@ -1,0 +1,220 @@
+{
+  "devicetypes": [
+    {
+      "productFamily": "iPhone",
+      "bundlePath": "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPhone 16 Pro.simdevicetype",
+      "maxRuntimeVersion": 4294967295,
+      "maxRuntimeVersionString": "65535.255.255",
+      "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro",
+      "modelIdentifier": "iPhone17,1",
+      "minRuntimeVersionString": "26.0.0",
+      "minRuntimeVersion": 1703936,
+      "name": "iPhone 16 Pro"
+    },
+    {
+      "productFamily": "iPhone",
+      "bundlePath": "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPhone 16e.simdevicetype",
+      "maxRuntimeVersion": 4294967295,
+      "maxRuntimeVersionString": "65535.255.255",
+      "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-16e",
+      "modelIdentifier": "iPhone17,5",
+      "minRuntimeVersionString": "26.0.0",
+      "minRuntimeVersion": 1703936,
+      "name": "iPhone 16e"
+    },
+    {
+      "productFamily": "iPhone",
+      "bundlePath": "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPhone 17 Pro.simdevicetype",
+      "maxRuntimeVersion": 4294967295,
+      "maxRuntimeVersionString": "65535.255.255",
+      "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+      "modelIdentifier": "iPhone18,1",
+      "minRuntimeVersionString": "26.0.0",
+      "minRuntimeVersion": 1703936,
+      "name": "iPhone 17 Pro"
+    },
+    {
+      "productFamily": "iPhone",
+      "bundlePath": "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPhone 17 Pro Max.simdevicetype",
+      "maxRuntimeVersion": 4294967295,
+      "maxRuntimeVersionString": "65535.255.255",
+      "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro-Max",
+      "modelIdentifier": "iPhone18,2",
+      "minRuntimeVersionString": "26.0.0",
+      "minRuntimeVersion": 1703936,
+      "name": "iPhone 17 Pro Max"
+    },
+    {
+      "productFamily": "iPhone",
+      "bundlePath": "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPhone 17.simdevicetype",
+      "maxRuntimeVersion": 4294967295,
+      "maxRuntimeVersionString": "65535.255.255",
+      "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+      "modelIdentifier": "iPhone18,3",
+      "minRuntimeVersionString": "26.0.0",
+      "minRuntimeVersion": 1703936,
+      "name": "iPhone 17"
+    },
+    {
+      "productFamily": "iPhone",
+      "bundlePath": "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPhone Air.simdevicetype",
+      "maxRuntimeVersion": 4294967295,
+      "maxRuntimeVersionString": "65535.255.255",
+      "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-Air",
+      "modelIdentifier": "iPhone18,4",
+      "minRuntimeVersionString": "26.0.0",
+      "minRuntimeVersion": 1703936,
+      "name": "iPhone Air"
+    },
+    {
+      "productFamily": "iPad",
+      "bundlePath": "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPad Pro 13-inch (M5).simdevicetype",
+      "maxRuntimeVersion": 4294967295,
+      "maxRuntimeVersionString": "65535.255.255",
+      "identifier": "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M5-12GB",
+      "modelIdentifier": "iPad17,3",
+      "minRuntimeVersionString": "26.0.0",
+      "minRuntimeVersion": 1703936,
+      "name": "iPad Pro 13-inch (M5)"
+    },
+    {
+      "productFamily": "iPad",
+      "bundlePath": "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPad Air 11-inch (M3).simdevicetype",
+      "maxRuntimeVersion": 4294967295,
+      "maxRuntimeVersionString": "65535.255.255",
+      "identifier": "com.apple.CoreSimulator.SimDeviceType.iPad-Air-11-inch-M3",
+      "modelIdentifier": "iPad15,3",
+      "minRuntimeVersionString": "26.0.0",
+      "minRuntimeVersion": 1703936,
+      "name": "iPad Air 11-inch (M3)"
+    },
+    {
+      "productFamily": "Apple Watch",
+      "bundlePath": "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/Apple Watch Series 11 (46mm).simdevicetype",
+      "maxRuntimeVersion": 4294967295,
+      "maxRuntimeVersionString": "65535.255.255",
+      "identifier": "com.apple.CoreSimulator.SimDeviceType.Apple-Watch-Series-11-46mm",
+      "modelIdentifier": "Watch7,12",
+      "minRuntimeVersionString": "26.0.0",
+      "minRuntimeVersion": 1703936,
+      "name": "Apple Watch Series 11 (46mm)"
+    }
+  ],
+  "runtimes": [
+    {
+      "bundlePath": "/Library/Developer/CoreSimulator/Volumes/iOS_23C54/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.2.simruntime",
+      "buildversion": "23C54",
+      "platform": "iOS",
+      "runtimeRoot": "/x/RuntimeRoot",
+      "identifier": "com.apple.CoreSimulator.SimRuntime.iOS-26-2",
+      "version": "26.2",
+      "isInternal": false,
+      "isAvailable": true,
+      "name": "iOS 26.2",
+      "supportedDeviceTypes": [
+        {
+          "bundlePath": "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPhone 16 Pro.simdevicetype",
+          "name": "iPhone 16 Pro",
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro",
+          "productFamily": "iPhone"
+        },
+        {
+          "bundlePath": "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPhone 16e.simdevicetype",
+          "name": "iPhone 16e",
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-16e",
+          "productFamily": "iPhone"
+        },
+        {
+          "bundlePath": "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPhone 17 Pro.simdevicetype",
+          "name": "iPhone 17 Pro",
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+          "productFamily": "iPhone"
+        },
+        {
+          "bundlePath": "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPhone 17 Pro Max.simdevicetype",
+          "name": "iPhone 17 Pro Max",
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro-Max",
+          "productFamily": "iPhone"
+        },
+        {
+          "bundlePath": "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPhone 17.simdevicetype",
+          "name": "iPhone 17",
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+          "productFamily": "iPhone"
+        },
+        {
+          "bundlePath": "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPhone Air.simdevicetype",
+          "name": "iPhone Air",
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-Air",
+          "productFamily": "iPhone"
+        }
+      ]
+    },
+    {
+      "bundlePath": "/Library/Developer/CoreSimulator/Volumes/iOS_24B5070a/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 27.1.simruntime",
+      "buildversion": "24B5070a",
+      "platform": "iOS",
+      "runtimeRoot": "/x/RuntimeRoot",
+      "identifier": "com.apple.CoreSimulator.SimRuntime.iOS-27-1",
+      "version": "27.1",
+      "isInternal": false,
+      "isAvailable": true,
+      "name": "iOS 27.1",
+      "supportedDeviceTypes": [
+        {
+          "bundlePath": "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPhone 16 Pro.simdevicetype",
+          "name": "iPhone 16 Pro",
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro",
+          "productFamily": "iPhone"
+        },
+        {
+          "bundlePath": "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPhone 16e.simdevicetype",
+          "name": "iPhone 16e",
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-16e",
+          "productFamily": "iPhone"
+        },
+        {
+          "bundlePath": "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPhone 17 Pro.simdevicetype",
+          "name": "iPhone 17 Pro",
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+          "productFamily": "iPhone"
+        },
+        {
+          "bundlePath": "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPhone 17 Pro Max.simdevicetype",
+          "name": "iPhone 17 Pro Max",
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro-Max",
+          "productFamily": "iPhone"
+        },
+        {
+          "bundlePath": "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPhone 17.simdevicetype",
+          "name": "iPhone 17",
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+          "productFamily": "iPhone"
+        },
+        {
+          "bundlePath": "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPhone Air.simdevicetype",
+          "name": "iPhone Air",
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-Air",
+          "productFamily": "iPhone"
+        },
+        {
+          "bundlePath": "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPad Pro 13-inch (M5).simdevicetype",
+          "name": "iPad Pro 13-inch (M5)",
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M5-12GB",
+          "productFamily": "iPad"
+        },
+        {
+          "bundlePath": "/Library/Developer/CoreSimulator/Profiles/DeviceTypes/iPad Air 11-inch (M3).simdevicetype",
+          "name": "iPad Air 11-inch (M3)",
+          "identifier": "com.apple.CoreSimulator.SimDeviceType.iPad-Air-11-inch-M3",
+          "productFamily": "iPad"
+        }
+      ]
+    }
+  ],
+  "devices": {
+    "com.apple.CoreSimulator.SimRuntime.iOS-26-2": [],
+    "com.apple.CoreSimulator.SimRuntime.iOS-27-1": []
+  },
+  "pairs": {}
+}
