@@ -184,7 +184,7 @@ still yields snapshots:
 |---|---|---|
 | `packages` | logs the toolchain (`xcodebuild -version`, `-showsdks`, simulator device types and runtimes); `swift test` in `Packages/XbinCore`, `XbinTerm`, `XbinAgent` — each if present, all run even when one fails (XbinRenderer's model tests run in `snapshots`) | — |
 | `app` | `brew install xcodegen` → `xcodegen generate` (if `project.yml` exists) → `xcodebuild build -scheme Xbin` for a simulator, `CODE_SIGNING_ALLOWED=NO` | `xcresult-app` (`app-build.xcresult` + the full `app-build.log`) |
-| `snapshots` | `xcodebuild test -scheme XbinRenderer` in `Packages/XbinRenderer` on a simulator: every fixture, light/dark × default and one large Dynamic Type size; then the same tests hosted by an app (`ci-hosted-snapshots.sh`, below) | `snapshots` (the PNGs; the hosted ones under `hosted/`), `xcresult-snapshots` (`.xcresult` + log of both) |
+| `snapshots` | `xcodebuild test -scheme XbinRenderer` in `Packages/XbinRenderer` on a simulator: every fixture, light/dark × the default, xxxLarge (`large`, the reference's large text) and accessibility2 (`ax2`) Dynamic Type sizes; then the same tests hosted by an app (`ci-hosted-snapshots.sh`, below) | `snapshots` (the PNGs; the hosted ones under `hosted/`), `xcresult-snapshots` (`.xcresult` + log of both) |
 
 Artifacts upload even when a step fails; each job's summary page has a
 one-line result (toolchain, package table, PNG count).
@@ -218,8 +218,10 @@ What the packages and tests must do for CI:
   `XbinRenderer` (`XbinRenderer-Package` is used if that's the only one).
 - **Snapshot tests write PNGs to `SNAPSHOT_DIR`** (the environment of the
   test process; the workflow sets `TEST_RUNNER_SNAPSHOT_DIR` and xcodebuild
-  strips the prefix), named `<fixture>-<light|dark>[-<size>].png` — the
-  contact sheet below expects `<fixture>-light.png`/`<fixture>-dark.png`.
+  strips the prefix), named `<fixture>-<light|dark>-<size>.png` with sizes
+  `default`, `large` (xxxLarge — what `shots.mjs` draws as large, so the two
+  compare like for like) and `ax2` (accessibility2, iOS only: the overflow
+  test); the contact sheet below uses `default` (and `large` for a second).
   `FIXTURES_DIR` is the absolute path of `native/fixtures`. When `SNAPSHOT_DIR`
   is unset (Xcode locally) tests skip writing rather than fail. Images a test
   only *attaches* to the result are exported into `snapshots/attachments/` as
@@ -272,18 +274,27 @@ gh run download <run-id> -n snapshots -D "$SCRATCH/ios-<run-id>/snapshots"   # j
 
 After a green run, download the snapshots (the `hosted/` ones when present:
 they show bars and materials as a device does), render the same fixtures with
-the reference renderer (`shots.mjs`, same names), and compare side by side. Differences that are intended
-platform conventions (fonts, control chrome, list insets) stay; anything else
-(missing content, wrong tone, broken layout, clipped text at large Dynamic
-Type) gets fixed. Then make the contact sheet:
+the reference renderer (`shots.mjs`, same names), and compare side by side,
+fixture by fixture. Differences that are intended platform conventions stay:
+fonts and their metrics, control chrome (glass bar items, segmented controls
+without badges, switches, menus), list insets and grouped section headers,
+swipe actions for the reference's `⋯` menus, pull to refresh for its refresh
+button, a floating tab bar or bottom search field over the content, a chat
+anchored at the bottom. Anything else (missing content, wrong tone, broken
+layout, clipped text at large Dynamic Type) gets fixed. Not bugs, the
+harness: a secure field's text never shows in a capture (iOS keeps it out),
+and without the app's services a `canvas` or `terminal` is a placeholder and
+tile images are grey boxes (the reference's previews show the same boxes).
+Then make the contact sheets (`size` = `default`, then `large`):
 
 ```sh
 # one row per fixture: iOS light | web light | iOS dark | web dark
-for f in $(ls native/fixtures); do
-  montage -label '%t' ios/$f-light.png web/$f-light.png ios/$f-dark.png web/$f-dark.png \
-    -tile 4x1 -geometry 390x844+8+8 -background '#111' -fill '#ccc' "$SCRATCH/row-$f.png"
+for f in $(ls native/fixtures | grep -v README); do
+  montage -label "$f · iOS light" ios/$f-light-$size.png -label "$f · web light" web/$f-light-$size.png \
+    -label "$f · iOS dark" ios/$f-dark-$size.png -label "$f · web dark" web/$f-dark-$size.png \
+    -tile 4x1 -geometry 390x844+8+8 -background '#111' -fill '#ccc' -pointsize 18 "$SCRATCH/row-$f.png"
 done
-montage "$SCRATCH"/row-*.png -tile 1x -geometry +0+12 -background '#111' contact-sheet.png
+montage "$SCRATCH"/row-*.png -tile 1x -geometry +0+12 -background '#111' -depth 8 contact-sheet.png
 ```
 
 ## Rules

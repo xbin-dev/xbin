@@ -1,7 +1,10 @@
 // Snapshots of every fixture (plans/native.md §17, native/AGENTS.md): each
 // native/fixtures/<name>/expected.json drawn by XbinTreeView at 390×844
-// points, scale 2, light and dark, default and accessibility-2 Dynamic Type,
-// written as <name>-<light|dark>-<default|large>.png to SNAPSHOT_DIR (the
+// points, scale 2, light and dark, at three Dynamic Type sizes — default
+// (Large), large (xxxLarge, the size the reference renderer's "large"
+// screenshots use, so the two compare like for like) and ax2
+// (accessibility2, the overflow test) — written as
+// <name>-<light|dark>-<default|large|ax2>.png to SNAPSHOT_DIR (the
 // Apple CI passes TEST_RUNNER_SNAPSHOT_DIR, which xcodebuild hands the test
 // process as SNAPSHOT_DIR). Nothing is compared: the PNGs are for eyes and
 // the web-vs-iOS contact sheet. Without a snapshot directory every fixture
@@ -48,7 +51,8 @@ import XbinRendererModel
         let variants: [(ColorScheme, String, DynamicTypeSize, String)] = out == nil
             ? [(.light, "light", .large, "default")]
             : [(.light, "light", .large, "default"), (.dark, "dark", .large, "default"),
-               (.light, "light", .accessibility2, "large"), (.dark, "dark", .accessibility2, "large")]
+               (.light, "light", .xxxLarge, "large"), (.dark, "dark", .xxxLarge, "large"),
+               (.light, "light", .accessibility2, "ax2"), (.dark, "dark", .accessibility2, "ax2")]
         var written = 0
         for name in names {
             for (scheme, schemeTag, type, typeTag) in variants {
