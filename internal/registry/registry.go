@@ -81,6 +81,10 @@ type Manifest struct {
 	// admin who enabled VM backends; otherwise the backend fails to start
 	// with the reason (never a silent namespace fallback). vm.go.
 	VM *VMOpt `json:"vm,omitempty"`
+	// Native names the tile's native-app UI entry (docs/elements.md §Native
+	// app UI): a tile-relative module path, or false to opt out of the
+	// native.js convention. Never a manifest error (native.go).
+	Native *NativeOpt `json:"native,omitempty"`
 
 	// Interfaces are typed capability slots this component REQUESTS; the owner
 	// binds each to a provider (plans/interfaces.md). Provides are slots it offers
@@ -373,6 +377,11 @@ type Component struct {
 	HasIndex    bool   // has index.html (renderable in bx-frame)
 	ManifestErr string // parse error text, surfaced by bx doctor / status API
 	Scope       string // nearest ancestor scope path; "" = workspace scope
+	// Native is the tile-relative native-app UI entry ("native.js", or the
+	// manifest's "native"), "" when the tile has none; NativeErr says why a
+	// declared entry was not usable (native.go). Resolved at scan time.
+	Native    string
+	NativeErr string
 }
 
 // IsTemplate reports whether the component is a template blueprint (not
@@ -460,6 +469,7 @@ func (r *Registry) Rescan() error {
 			c.HasIndex = true
 		}
 		if hasManifest || c.HasIndex {
+			c.Native, c.NativeErr = c.resolveNative()
 			comps[rel] = c
 		}
 		return nil
