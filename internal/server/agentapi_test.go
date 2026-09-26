@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,7 +50,7 @@ func TestAgentRoutesGates(t *testing.T) {
 	for _, r := range [][3]string{{"GET", "/term/sessions/nope", ""}, {"GET", "/term/sessions/nope/events", ""}, {"GET", "/term/sessions/nope/log", ""},
 		{"POST", "/term/sessions/nope/prompt", `{"text":"hi"}`}, {"POST", "/term/sessions/nope/cancel", ""},
 		{"POST", "/term/sessions/nope/permissions/p1", `{"decision":"allow_once"}`}, {"POST", "/term/sessions/nope/options", `{"id":"model","value":"x"}`},
-		{"POST", "/term/sessions/nope/elicitations/e1", `{"action":"accept","content":{}}`},
+		{"POST", "/term/sessions/nope/elicitations/e1", `{"action":"accept","content":{}}`}, {"GET", "/term/sessions/nope/diff?turn=1", ""},
 		{"DELETE", "/term/sessions/nope", ""}} {
 		if c, b := do(alice, r[0], r[1], r[2]); c != 404 {
 			t.Fatalf("%s %s: %d %s", r[0], r[1], c, b)
@@ -140,5 +141,19 @@ func TestAgentHistoryRoutes(t *testing.T) {
 	}
 	if c, _ := do(alice, "GET", "/agent/history/h1/events", ""); c != 404 {
 		t.Fatalf("deleted: %d", c)
+	}
+}
+
+func TestDiffQuery(t *testing.T) {
+	for q, want := range map[string]string{"toolCallId=t1": "t1/0", "turn=3": "/3", "": "err", "toolCallId=t1&turn=2": "err", "turn=0": "err", "turn=x": "err", "turn=-1": "err"} {
+		v, _ := url.ParseQuery(q)
+		tool, turn, err := diffQuery(v)
+		got := fmt.Sprintf("%s/%d", tool, turn)
+		if err != nil {
+			got = "err"
+		}
+		if got != want {
+			t.Errorf("%q: %s, want %s", q, got, want)
+		}
 	}
 }

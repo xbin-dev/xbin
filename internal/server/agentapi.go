@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -32,6 +33,7 @@ func (s *Server) registerAgentAPI() {
 	s.RegisterAPI("POST /term/sessions/{id}/options", s.apiAgentSetOption)
 	s.RegisterAPI("GET /term/sessions/{id}/events", s.apiAgentEvents)
 	s.RegisterAPI("GET /term/sessions/{id}/log", s.apiAgentLog)
+	s.RegisterAPI("GET /term/sessions/{id}/diff", s.apiAgentDiff) // the full patch behind a files.changed
 	// past sessions (term/history.go): the persisted transcripts
 	s.RegisterAPI("GET /agent/history", s.apiAgentHistory)
 	s.RegisterAPI("GET /agent/history/{id}/events", s.apiAgentHistoryEvents)
@@ -140,7 +142,7 @@ func (s *Server) drive(w http.ResponseWriter, r *http.Request) (string, bool) {
 // agentStatus maps the term package's errors to HTTP statuses.
 func agentStatus(err error) int {
 	switch {
-	case errors.Is(err, term.ErrNoSession), errors.Is(err, term.ErrNoPermission), errors.Is(err, term.ErrNoQuestion):
+	case errors.Is(err, term.ErrNoSession), errors.Is(err, term.ErrNoPermission), errors.Is(err, term.ErrNoQuestion), errors.Is(err, term.ErrNoDiff):
 		return http.StatusNotFound
 	case errors.Is(err, term.ErrForbidden):
 		return http.StatusForbidden
@@ -424,4 +426,46 @@ func (s *Server) apiAgentLog(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write([]byte(text))
+}
+
+// apiAgentDiff is the complete patch behind a files.changed event (whose
+// own patch is capped): ?toolCallId=<id> | ?turn=<n>, ?path=<file> narrows
+// it to one file → text/x-diff (a git patch; X-Truncated: true when cut at
+// 16 MiB). 404 when the session kept no snapshot for it.
+func (s *Server) apiAgentDiff(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.drive(w, r)
+	if !ok {
+		return
+	}
+	tool, turn, err := diffQuery(r.URL.Query())
+	if err != nil {
+		apiErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	patch, truncated, err := s.Term.AgentDiff(r.Context(), id, tool, turn, r.URL.Query().Get("path"))
+	if err != nil {
+		apiErr(w, agentStatus(err), err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "text/x-diff; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	if truncated {
+		w.Header().Set("X-Truncated", "true")
+	}
+	_, _ = w.Write(patch)
+}
+
+// diffQuery reads the diff route's selector: exactly one of toolCallId and
+// turn (a positive turn number).
+func diffQuery(q url.Values) (tool string, turn int64, err error) {
+	tool, turnArg := q.Get("toolCallId"), q.Get("turn")
+	if (tool == "") == (turnArg == "") {
+		return "", 0, errors.New("need ?toolCallId= or ?turn= (from a files.changed event), not both")
+	}
+	if turnArg != "" {
+		if turn, err = strconv.ParseInt(turnArg, 10, 64); err != nil || turn < 1 {
+			return "", 0, errors.New("turn must be a turn number (turn.end's turn)")
+		}
+	}
+	return tool, turn, nil
 }

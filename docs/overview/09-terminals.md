@@ -483,7 +483,11 @@ diffs; a tool's raw JSON input is one click away, never the headline. **What
 changed on disk** is shown from snapshots, not from what the agent says: when
 a shell call finishes, its card lists the files it changed with the real
 patch (a `sed -i` or a python script editing `main.go` shows as that diff),
-and each turn ends with *This turn changed N files*. The snapshots live in a
+and each turn ends with *This turn changed N files*. The patch in an event
+is capped (64 KiB per call, 192 KiB per turn); a client wanting all of it —
+a full-screen diff viewer — asks `GET /api/xbin/term/sessions/<id>/diff`
+with the call or turn (and optionally one file) while the session lives.
+The snapshots live in a
 private git directory next to the tile (on tiles that are git repos) — your
 repo, index and history are never touched. A **subagent** (Claude's Task)
 is one card with everything it did nested beneath — its thinking, its tool
