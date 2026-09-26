@@ -69,4 +69,29 @@ import XbinCore
         #expect(WindowTarget(encoded: "") == nil && WindowTarget(encoded: "junk") == nil)
         #expect(Surface.agent(cwd: "apps/my-tile", session: nil).title.hasPrefix("Agent · "))
     }
+
+    /// A tile (or a canvas island in a native one) pushes `xbin.window`:
+    /// the tile's screen disappears but is only covered — it must keep its
+    /// page/runtime and come back on the pop. A window with another pushed
+    /// over it is covered too, not closed; a popped one, and a root the
+    /// window replaced, are gone.
+    @Test func aCoveredScreenIsNotAClosedOne() {
+        let nav = WorkspaceNav(workspaceID: "w1")
+        nav.open(.tile("apps/x"))
+        #expect(!nav.stillStacked(window: nil)) // nothing over it: disappearing means gone
+        let w1 = PushedWindow(fromTile: "apps/x", target: "apps/x/a", title: "A", replyID: "r1")
+        let w2 = PushedWindow(fromTile: "apps/x", target: "apps/x/b", title: "B", replyID: "r2")
+        nav.push(w1)
+        #expect(nav.stillStacked(window: nil))   // the tile: covered by r1
+        nav.push(w2)
+        #expect(nav.stillStacked(window: "r1"))  // r1: covered by r2, not closed
+        nav.windows.removeLast()                 // the back button pops r2
+        #expect(!nav.stillStacked(window: "r2")) // gone: its opener hears `closed`
+        #expect(nav.stillStacked(window: nil) && nav.stillStacked(window: "r1"))
+        nav.close(replyID: "r1")                 // the tile closes its window
+        #expect(!nav.stillStacked(window: "r1") && !nav.stillStacked(window: nil))
+        nav.push(w1)
+        nav.open(.tile("apps/y"))                // another surface: everything goes
+        #expect(!nav.stillStacked(window: nil) && !nav.stillStacked(window: "r1"))
+    }
 }

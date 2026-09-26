@@ -29,6 +29,9 @@ final class NativeTileRuntime: NSObject {
     let hatches: TileHatches
 
     @ObservationIgnored var onFallback: ((String) -> Void)?
+    /// Stopped (its page unregistered, its handlers gone): `resume` undoes it.
+    @ObservationIgnored private(set) var stopped = false
+    private let caps: NativeCaps
     @ObservationIgnored private var storeObservation: TreeStoreObservation?
     @ObservationIgnored private var timeout: Task<Void, Never>?
     @ObservationIgnored private var limits = SpawnLimits()
@@ -41,13 +44,8 @@ final class NativeTileRuntime: NSObject {
         hatches = TileHatches(workspace: workspace, tile: tile)
         let config = WebTileController.configuration(for: workspace, bridge: false)
         let caps = XbinVocabulary.caps(app: AppInfo.version, renderer: "ios")
-        // Caps and state before any page script (tree.md §1), then the
-        // tile ↔ app bridge for xbin.dialog in the runtime too.
-        config.userContentController.addUserScript(WKUserScript(
-            source: RuntimeScript.documentStart(caps: caps, state: saved), injectionTime: .atDocumentStart,
-            forMainFrameOnly: true, in: .page))
-        config.userContentController.addUserScript(WKUserScript(
-            source: TileBridge.userScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
+        self.caps = caps
+        Self.install(RuntimeScript.startScripts(caps: caps, state: saved), in: config.userContentController)
         config.preferences.inactiveSchedulingPolicy = .none
         webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 1, height: 1), configuration: config)
         super.init()
@@ -81,7 +79,18 @@ final class NativeTileRuntime: NSObject {
         }
     }
 
+    /// Caps and state before any page script (tree.md §1), then the tile ↔
+    /// app bridge for xbin.dialog in the runtime too — for the next load.
+    private static func install(_ scripts: [String], in ucc: WKUserContentController) {
+        ucc.removeAllUserScripts()
+        for s in scripts {
+            ucc.addUserScript(WKUserScript(source: s, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
+        }
+    }
+
     func stop() {
+        guard !stopped else { return }
+        stopped = true
         timeout?.cancel()
         hatches.stopAll()
         workspace.schemeHandler.unregister(webView)
@@ -91,11 +100,27 @@ final class NativeTileRuntime: NSObject {
         webView.stopLoading()
     }
 
-    /// Reloads the runtime (pull to refresh, the `reload` event).
+    /// The screen is back after a `stop` that wasn't its end: the runtime
+    /// document is registered and wired again and starts afresh.
+    func resume() {
+        guard stopped else { return }
+        stopped = false
+        workspace.schemeHandler.register(webView, tile: tile.path)
+        let ucc = webView.configuration.userContentController
+        ucc.add(WeakScriptHandler(self), contentWorld: .page, name: "xbn")
+        ucc.add(WeakScriptHandler(self), contentWorld: .page, name: TileBridge.handlerName)
+        reload()
+    }
+
+    /// Reloads the runtime (the Reload menu, live reload, a grant change),
+    /// with the state the tile saved last — not the one this screen opened
+    /// with, or the tile's next save would overwrite the newer one.
     func reload() {
+        guard !stopped else { return }
         store.reset()
         lifecycle = NativeTileLifecycle()
         hatches.reloadPages()
+        Self.install(RuntimeScript.startScripts(caps: caps, state: store.savedState), in: webView.configuration.userContentController)
         start()
     }
 
@@ -333,12 +358,17 @@ struct NativeTileScreen: View {
                 rt.hatches.nav = nav // canvas islands push onto this window (Navigation.swift)
                 runtime = rt
                 rt.start()
+            } else {
+                runtime?.resume() // (after a stop that wasn't the end: start afresh)
             }
             runtime?.setVisible(true)
         }
         .onDisappear {
             runtime?.setVisible(false)
-            runtime?.stop()
+            // Covered by a window this tile pushed (an island's
+            // xbin.window): it shows again on the pop, islands and all —
+            // keep it. Gone: end it.
+            if !nav.stillStacked(window: nil) { runtime?.stop() }
         }
         // Live reload (§7.7): the tile's source changed — remount.
         .task(id: tile.path) { await workspace.events.onReload(of: tile.path) { runtime?.reload() } }

@@ -150,6 +150,19 @@ import Testing
         }
     }
 
+    /// A restarted runtime starts with the state the tile saved last: the
+    /// store's, which outlives the runtime — not the one it opened with.
+    @Test func aRestartInjectsTheStateSavedLast() throws {
+        let caps = NativeCaps(renderer: "swiftui", app: "1.0", prims: ["screen": 1])
+        let store = TreeStore(savedState: ["hash": "#conv=old"])
+        #expect(RuntimeScript.startScripts(caps: caps, state: store.savedState).first?.contains("#conv=old") == true)
+        store.receive(body: ##"{"op":"state","state":{"hash":"#conv=new"}}"##)
+        store.reset() // the reload
+        let scripts = RuntimeScript.startScripts(caps: caps, state: store.savedState)
+        #expect(scripts.count == 2 && scripts[1] == TileBridge.userScript)
+        #expect(scripts[0].contains("#conv=new") && !scripts[0].contains("#conv=old"))
+    }
+
     @Test func documentStartScript() throws {
         let caps = NativeCaps(renderer: "swiftui", app: "1.0", prims: ["screen": 1])
         let js = RuntimeScript.documentStart(caps: caps, state: ["note": "</script>"])

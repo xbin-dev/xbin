@@ -100,6 +100,19 @@ final class WorkspaceNav {
     /// The pushed window a tile opened as `replyID` closes (it asked to).
     func close(replyID: String) { windows.removeAll { $0.replyID == replyID } }
 
+    /// Whether a screen of this window that just disappeared is only
+    /// covered — a window pushed over it, so it shows again on the pop —
+    /// rather than gone. SwiftUI calls onDisappear for both; a covered
+    /// screen keeps its page or runtime (tearing it down left the tile dead
+    /// after the pop, and told an opener its window closed while it was
+    /// only covered), a gone one ends it. `window`: the replyID of the
+    /// pushed window the screen shows; nil for the window's surface (the
+    /// stack's root).
+    func stillStacked(window replyID: String?) -> Bool {
+        guard let replyID else { return !windows.isEmpty }
+        return windows.contains { $0.replyID == replyID }
+    }
+
     /// An agent launcher on `cwd` created session `session`: this window
     /// now shows that session — if it still shows the launcher (the user
     /// may have moved on while it started). True when it did.

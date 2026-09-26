@@ -123,10 +123,25 @@ final class WebTileController: NSObject {
         sender.endRefreshing()
     }
 
+    /// Closed (the page unregistered, its bridge gone): `reopen` undoes it.
+    @ObservationIgnored private(set) var closed = false
+
     func close() {
+        guard !closed else { return }
+        closed = true
         workspace.schemeHandler.unregister(webView)
         webView.configuration.userContentController.removeScriptMessageHandler(forName: TileBridge.handlerName, contentWorld: .page)
         webView.stopLoading()
+    }
+
+    /// The screen is back after a `close` that wasn't its end: the page is
+    /// registered and bridged again, and loads afresh.
+    func reopen() {
+        guard closed else { return }
+        closed = false
+        workspace.schemeHandler.register(webView, tile: tile)
+        webView.configuration.userContentController.add(WeakScriptHandler(self), contentWorld: .page, name: TileBridge.handlerName)
+        load()
     }
 
     /// Scene phase: a page suspended longer than its frame token (15 min)

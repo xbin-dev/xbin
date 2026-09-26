@@ -358,6 +358,18 @@ public enum RuntimeScript {
         let xbin: JSONValue = ["native": ["caps": caps.json, "state": state ?? .null]]
         return "window.xbin = \(xbin.jsLiteral(htmlSafe: true));"
     }
+
+    /// A runtime document's document-start scripts, in order: the caps and
+    /// the state (``documentStart(caps:state:)``), then the tile ↔ app
+    /// bridge (``TileBridge/userScript``). The app installs them afresh for
+    /// every (re)start of the runtime — the Reload menu, live reload, a
+    /// grant change — with the store's ``TreeStore/savedState``: the blob
+    /// the tile saved LAST, not the one the screen opened with (tree.md
+    /// §state), or a reload would bring the old state back and the tile's
+    /// next save would overwrite the newer one.
+    public static func startScripts(caps: NativeCaps, state: JSONValue?) -> [String] {
+        [documentStart(caps: caps, state: state), TileBridge.userScript]
+    }
 }
 
 /// `xbin.native.caps` (plans/native.md §7.4, §11): what this app renders,

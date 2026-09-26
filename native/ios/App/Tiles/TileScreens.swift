@@ -42,6 +42,9 @@ struct WebTileScreen: View {
     var fragment: String?
     /// Why a native view fell back here (a quiet banner, §7.6).
     var banner: String?
+    /// The pushed window this page is (its replyID); nil: the window's
+    /// surface.
+    var window: String?
 
     @State private var controller: WebTileController?
     /// This window's navigation (the tile's menu and its `xbin.window`).
@@ -108,9 +111,13 @@ struct WebTileScreen: View {
                 c.nav = nav
                 controller = c
                 c.load()
+            } else {
+                controller?.reopen() // (after a close that wasn't the end: load afresh)
             }
         }
-        .onDisappear { controller?.close() }
+        // Covered by a window pushed over it (its own xbin.window) it shows
+        // again on the pop — keep the page; gone: close it.
+        .onDisappear { if !nav.stillStacked(window: window) { controller?.close() } }
         // Live reload (§7.7): the tile's source changed — reload the page.
         .task(id: tile.path) { await workspace.events.onReload(of: tile.path) { controller?.reload() } }
         .onChange(of: phase) { _, p in
@@ -238,16 +245,18 @@ struct TileDialogSheet: View {
 struct WindowScreen: View {
     let workspace: WorkspaceModel
     let window: PushedWindow
+    @Environment(WorkspaceNav.self) private var nav
 
     var body: some View {
         let known = workspace.catalog.tiles.map(\.path)
         let owner = TileScheme.tile(forPath: "/c/\(window.target)", known: known) ?? window.fromTile
         let sub = window.target.hasPrefix(owner + "/") ? String(window.target.dropFirst(owner.count + 1)) : ""
         let info = workspace.tile(owner) ?? TileInfo(path: owner)
-        WebTileScreen(workspace: workspace, tile: info, subpath: sub.isEmpty ? "" : sub + "/")
+        WebTileScreen(workspace: workspace, tile: info, subpath: sub.isEmpty ? "" : sub + "/", window: window.replyID)
             .navigationTitle(Text(verbatim: window.title))
             .navigationBarTitleDisplayMode(.inline)
-            .onDisappear { WindowReplies.shared.closed(window.replyID) }
+            // closed once popped — not while another window covers it
+            .onDisappear { if !nav.stillStacked(window: window.replyID) { WindowReplies.shared.closed(window.replyID) } }
     }
 }
 
