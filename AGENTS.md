@@ -19,7 +19,8 @@ decision + rationale — **check it before re-litigating a choice**).
 | `builtin-tiles/`, `builtin-templates/` | optional importable tiles / blueprints |
 | `docs/` | builder docs, **embedded into xbind**, served at `/docs/` |
 | `examples/` | doubles as integration fixtures and docs — keep them working |
-| `native/` | the mobile app (iOS first) — design in `plans/native.md`, dev loop (Linux + CI, no Mac) in `native/AGENTS.md` |
+| `native/` | the mobile app (iOS first) — design in `plans/native.md`, dev loop (Linux + CI, no Mac) in `native/AGENTS.md`; `web/xb-native.js` + `web/xb/` are its tile runtime and reference renderer |
+| `relay/` | the push relay (`xbin-relay`) — **own module, stdlib only** (go.work); holds the APNs key, sees no content (D94, `relay/README.md`) |
 
 ## Dev flow
 

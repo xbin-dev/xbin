@@ -1,9 +1,19 @@
 # Native client — the xbin app (iOS first)
 
-> Status: **live** — a proposal under review (Phase 0). Nothing here is built;
-> the decisions at the end are open. Companion plans: plans/tile-asset-auth.md
-> (strict frontend gating) and plans/agent-template-native.md (the agent tile's
-> native mode). Dev loop: native/AGENTS.md.
+> Status: **implemented** (2026-09-26; decisions D91–D98). Built and tested:
+> the xbind side (runtime document, discovery, device login, frame-token
+> binding, push and `POST /notify`, the agent-session additions — §20 rows
+> 1–10), the runtime `/vendor/xb-native.js` and its vocabulary, the Lit
+> reference renderer, the fixtures, the `bx` native commands, the eight tile
+> rewrites and the agent template's native view. The iOS app, its Swift
+> packages and the SwiftUI renderer are written; the packages and the
+> renderer's model pass `swift test` on Linux, but nothing has been compiled
+> by Xcode or run on a device yet (the first Apple CI run is pending).
+> Open: who operates the push relay (decision 13) and App Review (16). §26
+> lists where the build departs from this text. Companion plans:
+> plans/tile-asset-auth.md (strict frontend gating) and
+> plans/agent-template-native.md (the agent tile's native mode). Dev loop:
+> native/AGENTS.md.
 
 ## 1. What and why
 
@@ -1472,6 +1482,8 @@ the runtime — docs describe what exists. Outline:
 | 10 | Agent template: `/stream?deltas=1`, paged `/view`, thumbnails (plans/agent-template-native.md) | B |
 | 11 | Optional: a terminal replay offset (resume without a full replay) | A |
 
+Built 2026-09-26: rows 1–10 (D93, D95, D91, D94, D97, D96). Row 11 is not.
+
 ## 21. Phases
 
 Phase 0 is this document. Then three tracks, in parallel:
@@ -1488,7 +1500,9 @@ Phase 0 is this document. Then three tracks, in parallel:
 **CI.** `.github/workflows/ios.yml` on `runs-on: xcode-27`: `brew install
 xcodegen` → generate → build → test (XbinCore, renderer snapshots of every
 fixture: light/dark × default/large Dynamic Type) → upload PNGs and the
-`.xcresult`; triggered only by `native/ios/**` and `native/fixtures/**`. Then
+`.xcresult`; triggered by a push to a feature branch (never master) that
+touches `native/ios/**`, `native/fixtures/**`, `native/spec/**` or the
+workflow, and by hand. Then
 download the snapshots, compare with the Lit reference screenshots, fix what
 isn't an intended platform difference, and publish a montage contact sheet
 (iOS vs web per fixture). Details: native/AGENTS.md.
@@ -1537,8 +1551,12 @@ isn't an intended platform difference, and publish a montage contact sheet
 
 ## 25. Decisions for review
 
-Each with a recommendation. Decision IDs are assigned (the next free ones in
-plans/DECISIONS.md) once decided. The companion plans carry their own lists:
+Each with a recommendation. **Recorded 2026-09-26** as the recommendations
+were built: D91 (1, 2, 9, 10), D92 (3, 5, 6, 8, 11, 12), D93 (4, 7), D94
+(15, and 13 except its open question — the relay's operator and domain),
+D97 (14), D98 (§16); 17 was followed (parallel tracks). 16 is open: the
+remote kill switch exists in the app but nothing sets it yet, and App
+Review has not been asked. The companion plans carry their own lists:
 plans/tile-asset-auth.md (target mechanism, host ids, enforcement timing,
 per-tile storage) and plans/agent-template-native.md (the model/view split,
 its server additions, the drawer).
@@ -1584,3 +1602,99 @@ its server additions, the drawer).
 17. **Tracks** — S, A, B in parallel as in §21 (the owner chose parallel
     tracks); Track A starts with workspaces + device login, Track B with
     `xb-native.js` + fixtures (recommended).
+
+## 26. Implementation notes (2026-09-26)
+
+Where the build departs from, or adds to, the text above. The exact
+contracts are native/spec/tree.md (the runtime bridge), native/spec/vocab.json
+(the vocabulary), native/spec/device-login.md and native/spec/push.md.
+
+**The runtime and the tree (§7–§9, D91).**
+- Tree ops are `set / unset / events / insert / remove / move` (§9 had no
+  `events` or `unset`); `move` stays within the node's parent; ops apply in
+  order with final-position indexes. `mount` and `patch` carry a sequence
+  number `n`, which the app returns as `xbn.event`'s fourth argument (§7.3's
+  ordering for controlled props); `xbn.remount()` asks for a fresh mount. The
+  §9 illustrative patch lists ops in an order the runtime never emits.
+- Messages beyond §9: `{op:"state"}` (`saveState`), `{op:"diag"}`
+  (diagnostics); `error` kinds are `unsupported`, `exception`, `module`
+  (fatal: the app shows the web page) and `uncaught` (reported only).
+  Runtime → app messages are JSON **strings**, so booleans stay distinct from
+  numbers.
+- The app injects caps and state as `window.xbin = {native: {caps, state}}`
+  before `xbin-client.js` freezes `window.xbin`; the runtime document loads
+  the entry with `boot()` so a module failure is reported at once.
+- `p`, `e` and `c` may be absent (= empty); keys are opaque (they may hold
+  `.`, `:` and `/`). `tabs` without `selected` materializes every tab.
+- Vocabulary additions to §8: `toolbar` takes `badge`; `message` has a `link`
+  event; `list` may hold `empty`/`progress`/`notice`; `transcript` also takes
+  `notice`/`text`/`markdown`/`image`/`progress`; `toolcard` takes
+  `markdown`/`notice`; `menu` takes `divider`; `sheet` has `edge`
+  (bottom | leading — the agent template's drawer); a `height` token set
+  (xs…xl); 72 icon names; `fragment` is a runtime primitive. Chart
+  `y: "percent"` values are fractions (0…1).
+- §18: the eight rewrites are real files (examples/, builtin-tiles/) and
+  `native/fixtures/tile-*` import them. They render a loading tree before
+  their first fetch (§7.6's 5 s timeout), use the kit's `selfApi` rather than
+  local `api()` helpers, and follow their pages where the design differed
+  (chat's model separator is U+FFFD; its turn keys count tool-only rounds).
+  `hack/xb-native-examples.test.mjs` still runs the design's own code.
+
+**Device login and binding (§5, D93).** The request fields are `deviceId`,
+`signature` and `platform`; the signed message is
+`"xbin-device-login-v1\n" + origin + "\n" + deviceId + "\n" + nonce`, and
+the origin is the one fixed at enrollment. Enrolling is a step-up (a sign-in
+under 10 minutes old or the password). SSO-only mode lets a non-admin's
+device sign in only within the session max TTL of their last SSO sign-in.
+Sign-out-everywhere keeps enrolled devices unless asked (`?devices=1`).
+Frame-token generations persist across restarts (`.xbin/frame-gens.json`)
+and frame use slides the login's idle window. Deep links also accept the
+server's `host[:port]` for `<ws>`, plus `xbin://<ws>` and
+`xbin://sso?error=<code>`.
+
+**Web tiles in the app (§6).** A top-level page with WebKit's `xbin`
+handler counts as embedded for `xbin-client.js`, so `xbin.dialog` and
+`xbin.window` reach the app (§6.2 assumed the page's own posts would). The
+scheme handler follows redirects only on the workspace origin. "Open in
+Safari" opens the plain URL (no one-shot signed-in ticket route exists).
+
+**Push (§14, D94).** Sealing is ephemeral X25519 + HKDF-SHA256 + AES-256-GCM
+(envelope `{v, epk, n, ct}`), not RFC 9180 HPKE. The SDK helper is
+`xbin.NotifyUser` (`xbin.Notify` is the existing toast). A frontend may
+notify only its own user; over a person's shared tile budget a notification
+is dropped with 202, not refused. Push kinds are `agent.permission`,
+`agent.question`, `agent.turn`, `tile`, `tile.<kind>` and `test`. The relay
+adds `PUT/DELETE /v1/handles/{handle}`, `GET /v1/workspace`, error codes and
+token verification; its state is a snapshot plus a journal. Registrations
+follow users (sign-out-everywhere, disable, delete) and devices (removal,
+their session signing out, owner-token rotation).
+
+**The terminal and the agent (§12–§13, D97).** The `/ws/term` codec, the
+session machine and the predictor are `XbinTerm`; the agent model is
+`XbinAgent` (native/AGENTS.md). A session that fails uses the upgrade's HTTP
+status (bx-terminal can't see it) and resets the emulator before every
+replay. Images past the inline limits (3.75 MiB each, 4 MiB per prompt)
+become files the agent opens (`inline:false`) instead of a 400. Status
+changes ride `term` op `status`; `term`/`session` events reach humans only,
+and a session's own sandbox token may not drive it. The app has no
+`/ws/events` socket yet: Needs-you comes from the session directory and
+pushes, and native runtimes don't reload live on file changes.
+
+**Asset gating (§6.1, D95).** The origins exchange is a one-time,
+session-bound `?xbin_ticket=`, not `?frame=`; origins mode renames the
+session cookie `__Host-xbin_session`. `legacy` carries three security fixes
+(race-free file serving, CSP sandbox on non-documents, frame tokens only for
+a human or the tile itself — plus navigations within one tile tree).
+
+**Tools (§16–§17, D92, D98).** `bx preview --native` writes to `$TMPDIR`
+without `--out`; `bx lint` and `bx preview` require `--native`. bx's
+credential reaches only the tile's own document and files. The fixtures
+split the suggested groups into 19 one-screen tiles plus the 8 `tile-*`
+ones, and must exercise the whole vocabulary.
+
+**Rendering (§10, §15).** The SwiftUI tint is `accentText` (darkened amber in
+light mode) for text contrast. `split` stacks both panes when compact, like
+the reference renderer; iPhone Duo APIs are not used yet. Snapshots render
+a hosted offscreen window (ImageRenderer draws UIKit-backed views as
+placeholders). The reference renderer draws pull-to-refresh as a bar button
+and folds swipe actions into a ⋯ popover.

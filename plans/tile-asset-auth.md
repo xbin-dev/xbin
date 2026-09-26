@@ -1,9 +1,20 @@
 # Tile asset auth — strict per-user, per-tile gating of tile frontends
 
-> Status: **live** — a proposal under review (Phase 0 of the native client,
-> plans/native.md). Nothing here is built. It replaces a draft that kept an IP
-> heuristic and a fallback window; the owner asked for strict gating, so no
-> heuristic survives.
+> Status: **implemented** (2026-09-26, D95) — mechanisms A (`origins`) and B
+> (`tokens`) behind `--tile-assets`, with detection (`bx doctor`, `GET
+> /api/xbin/tile-assets`), the codemod (`bx fix assets`) and xbin-client's
+> diagnostics; `legacy` is the default this release, and the next release
+> enforces and deletes the credential-less rule (migration note
+> docs/changes/2026-09-26-tile-asset-gating.md). Departures from the text
+> below: the origins exchange is a one-time, session-bound `?xbin_ticket=`
+> minted by the workspace (not `?frame=`); origins mode renames the session
+> cookie `__Host-xbin_session` and adds frame-ancestors, a cross-site
+> interstitial and cookie hygiene on tile-initiated requests; `legacy` is not
+> byte-for-byte — race-free file serving, CSP sandbox on non-documents and
+> "no cross-tile frame tokens" apply in every mode; asset tokens are bound to
+> the loading login's credential generation (D93). It replaced a draft that
+> kept an IP heuristic and a fallback window; the owner asked for strict
+> gating, so no heuristic survives.
 
 ## The rule
 

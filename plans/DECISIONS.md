@@ -2577,3 +2577,347 @@ Deviations and refinements made while implementing; all deliberate:
   - virtio-serial with our own multiplexer: rewrites the guest protocol for
     one VMM.
 
+- **D91 — Native tile UIs: a tile's `native.js` runs in an xbind-generated
+  runtime document in a hidden WebView, renders a small vocabulary through
+  `/vendor/xb-native.js`, and the app draws the tree natively
+  (2026-09-26).** Design: plans/native.md §7–§11 (its decisions 1, 2, 9 and
+  10), the wire contract native/spec/tree.md, the builder reference
+  docs/native.md. Web frontends are untouched; a native UI is opt-in per
+  tile, and every tile still opens in the app as its web page.
+  - **The engine is a hidden WKWebView per open native tile** loading
+    `/c/<tile>/?native=1`: the whole web platform with JIT, the same
+    `xbin-client`, sandbox, import map and module loading as the tile's
+    page, so the same modules serve both views.
+  - **xbind generates the runtime document**, not the tile: it carries the
+    page's D4 `<head>` injection from the one `headInjection` (identity,
+    sandbox, interfaces, the frame-token rule of D95), even under
+    `inject: false`, is authorized exactly like `index.html` (no new access
+    surface), and loads the entry with the runtime's `boot()` so a module
+    that fails to load reports `{op:"error", kind:"module"}` at once.
+    Trusted chrome has none (it acts as the human).
+  - **Opting in** is a `native.js` next to `xbin.json`, or `"native":
+    "./path.js"`; `false` opts out. The key is never a manifest error — any
+    other value is ignored, and old xbinds ignore it. Saving the entry
+    reloads the tile without restarting its backend, except where a backend
+    could read the file (an undeclared `native.js` under `node`, a `go`
+    backend built from the tile root).
+  - **One schema:** `web/xb/vocab.js` defines the vocabulary; the runtime
+    validates against it, `native/spec/vocab.json` is its checked-in export
+    for Swift (a test keeps them equal), docs/native.md's tables are
+    generated from it.
+  - **The wire format:** nodes `{k, t, p, e, c}` (absent `p/e/c` = empty),
+    keys slot-based and opaque; `mount`/`patch` carry a sequence `n`; ops
+    `set / unset / events / insert / remove / move`, applied strictly in
+    order, moves within the parent, fewest moves by a longest increasing
+    subsequence; `xbn.remount()` recovers a lost tree. Runtime → app
+    messages are **JSON strings** (a WKScriptMessage body goes through
+    NSNumber, which merges booleans and numbers), and the app parses them
+    with its own strict JSON (never JSONSerialization/JSONDecoder).
+    `error` kinds `unsupported` / `exception` / `module` fail over to the
+    web page; `uncaught` and `diag` are only reported.
+  - **Controlled props** use a shadow tree and the sequence number: a
+    keystroke made before a reset arrived can't mask the reset, a bound
+    prop without a handler is read-only, and the renderer shows its own
+    copy until the tile restates a value (XbinCore `TreeDelta.restated`).
+  - **Validation degrades per prop**; only what the app cannot draw (an
+    unknown primitive, a prop newer than the app's revision, a missing
+    feature) sends `unsupported` before the tree, so the app falls back
+    before drawing. Markdown is lexed in the runtime into a sanitized token
+    subset (the web kit's policy) and drawn natively.
+  - **`xbin.native`** (`caps`, `supports`, `meta`, `copy`, `share`, `open`,
+    `state`, `saveState`) is the app's whole API for tile code: the app
+    injects `window.xbin = {native: {caps, state}}` before `xbin-client.js`
+    freezes `window.xbin`. No device APIs, ever (App Review 4.7.2).
+  - **The contract is additive-only** (docs/compat.md rule 10 and "The
+    native app contract"): the vocabulary, the tree format, `xb-native.js`,
+    `xbin.native` and the bridge only grow; a new prop raises its
+    primitive's revision, a new value an app must support names a feature.
+  - `X-XBin-Client: app/<version>` documents carry `xbin-ws-origin` (a
+    custom-scheme page has no WebSocket origin to derive); browsers get
+    byte-identical documents.
+  - **Not chosen:** a JavaScriptCore `JSContext` (no JIT for embedded JSC,
+    polyfills and a module loader to maintain); an app-bundled runtime page
+    (the tile's identity and sandbox would have to be recreated in the
+    app); a native markdown parser as the tiles' renderer (two parsers
+    drift); failing the whole view on any unknown prop.
+
+- **D92 — The native client is built and verified without a Mac: fixtures
+  are the renderers' contract, a Lit reference renderer, Foundation-only
+  Swift packages tested on Linux, and script-driven Apple CI
+  (2026-09-26).** Dev loop: native/AGENTS.md; plans/native.md §3, §6,
+  §12–§17, §21 (its decisions 3, 5, 6, 8, 11 and 12).
+  - **Fixtures are the contract** (`native/fixtures/<name>/`: `native.js`,
+    a scripted `xbin` in `data.json`, the tree in `expected.json`). `make
+    native-check`, part of `make check`, renders each in node on a virtual
+    clock and fails unless the fixtures together exercise **every** item of
+    the vocabulary — a vocabulary change comes with its fixture.
+    Interactions name nodes by selector and must match exactly one; a
+    pinned time zone or locale runs in a child process (ICU fixes them per
+    process); `expected.json` has one canonical, reviewable layout. The
+    `tile-*` fixtures import the shipped tiles' `native.js`, so they can't
+    test a stale copy.
+  - **The Lit reference renderer** (`/vendor/xb/render.js`,
+    `preview-host.js`, `fixture.html`) is served for previews and `bx
+    preview` only, never imported by tiles (plan decision 11): one
+    LitElement with a single shadow root, an `xb-<prim>` element with
+    `data-k` per node, a vendored Lucide icon subset. It plays the app in a
+    browser — and lends `xbin.fetch` (the tile's token) only to the
+    workspace's own paths.
+  - **Everything that doesn't draw is Swift that tests on Linux:**
+    `XbinCore` (JSON, the tree and strict patching — a divergence means the
+    web page, never a guessed tree — the bridge, deep links, device login,
+    and `Client/`, the app's workspace logic), `XbinTerm` (the `/ws/term`
+    codec and session; the predictive echo engine ported and held to
+    `web/term-predict.js` by a differential trace that `make js-test`
+    guards), `XbinAgent` (the ACP session model, held to the web Agent
+    tab's own output by `native/tools/agent-parity.mjs` over captured
+    sessions), and `XbinRenderer`'s model target. The SwiftUI views sit
+    behind `#if canImport(UIKit)` and are type-checked on Linux against SDK
+    stubs (`native/tools/swiftui-stubcheck`). `make swift-test` runs the
+    four packages.
+  - **The app** (iOS 26, XcodeGen, never a committed `.xcodeproj`): one
+    `WKWebsiteDataStore` per workspace; web tiles through the `xbin-ws`
+    scheme handler, which always sends the tile's own frame token, never
+    cookies, and follows redirects only on the workspace origin; a
+    top-level page with WebKit's `xbin` handler counts as embedded for
+    `xbin-client.js`, so `xbin.dialog` / `xbin.window` reach the app;
+    SwiftTerm behind XbinTerm; one Face ID prompt per new session,
+    single-flight re-sign on a 401 (plan decisions 5, 6); iOS semantic
+    colours with the amber tint darkened for text contrast (decision 12).
+  - **The only Apple toolchain is GitHub Actions** (`ios.yml`, `runs-on:
+    xcode-27`, feature branches only): three independent jobs (packages,
+    app, snapshots). The logic lives in `native/ios/scripts/` (bash 3.2),
+    shellchecked and dry-run on Linux against fake Apple tools
+    (`ci-local-check.sh`), so a CI round trip is never spent on a typo.
+    Snapshots are written to `SNAPSHOT_DIR` from a hosted offscreen window
+    (ImageRenderer draws UIKit-backed views as placeholders).
+  - **Not chosen:** a Mac in the loop (none exists; one may come later
+    over ssh); pixel comparison in CI (contact sheets are reviewed by
+    eye); per-primitive shadow roots in the reference renderer; logic in
+    workflow YAML.
+
+- **D93 — Device login, and credentials bound to the login that minted
+  them (2026-09-26).** plans/native.md §5 and §20 rows 1–2 (its decisions 4
+  and 7); docs/auth.md §Device login; native/spec/device-login.md.
+  - **The app's credential is a P-256 key in the Secure Enclave** (Face ID;
+    the passcode when no biometrics are enrolled), one per workspace; the
+    server stores its SPKI. It signs `"xbin-device-login-v1\n" + origin +
+    "\n" + deviceId + "\n" + nonce` for a single-use 60 s nonce. The origin
+    is **fixed at enrollment** (`--external-url`, else the enrolling
+    browser's origin): the app signs what it was told, a request's Host is
+    client-controlled, and a signature for one server can't be replayed at
+    another. Passkeys were rejected: they need an associated domain per
+    relying party, which a generic client of self-hosted servers can't
+    ship.
+  - **A device login opens the same human session** a browser login does
+    (same TTLs, same reach; `via` device|app), carried as a
+    transport-bound `Authorization: Bearer`.
+  - **Enrolling is a step-up**: a code needs a sign-in under 10 minutes old
+    or the password again — a device outlives the session that adds it, so
+    a stolen cookie must not become a permanent credential.
+  - **SSO-only mode keeps the IdP in charge** (D53): a non-admin's device
+    signs in only while their last SSO sign-in is within the session max
+    TTL, and the session ends when that window does (`403
+    {reauth:"sso"}`), so removing someone at the IdP still ends their
+    access within the session TTL.
+  - **Sign-out-everywhere keeps enrolled devices unless asked**
+    (`?devices=1`, `bx user signout --devices`; the console asks) — the
+    route has always meant "they can sign in again"; a password change can
+    remove the caller's other devices.
+  - **Frame tokens are bound to their login**: a fifth field names a
+    credential generation — `s.<handle>` (a login session; a random,
+    non-secret name), `u.<epoch>.<n>` (no session behind the mint;
+    sign-out-everywhere bumps `n`), `o.<keyed hash of the owner token>` —
+    renewals copy it, and the token verifies only while it lives. A tile
+    in use slides its login's idle window (at most once a minute; the
+    30-day cap stands). Generation handles (never credentials) persist in
+    `.xbin/frame-gens.json`, so a restart still signs everyone out while
+    open tiles keep working until their login would have expired;
+    anything that ends a login saves synchronously. Pre-binding tokens
+    verify for one hour after boot and renew into bound ones. Rejected:
+    persisting sessions (credentials on disk, a changed restart
+    semantics); letting every open tile die on each upgrade.
+  - **Asset tokens take the same generation** as the frame token minted
+    into the same document (D95), so both die together.
+  - **Per-device state follows the device:** removing a device (on its own,
+    `?devices=1`, a password change with `removeDevices`), its device
+    session signing out, and rotating the owner token drop the matching
+    push registrations (D94).
+
+- **D94 — Push: a relay that sees no content, registrations that follow the
+  user and the device, and `POST /api/xbin/notify` (2026-09-26).**
+  plans/native.md §14 (its decisions 13 and 15), native/spec/push.md,
+  relay/README.md, docs/protocol.md §Push notifications.
+  - **Sealed end to end**: ephemeral X25519, HKDF-SHA256 salted with both
+    public keys (info `xbin-push-v1`), AES-256-GCM, envelope `{v, epk, n,
+    ct}`, published vectors checked by an independent implementation.
+    Simpler than RFC 9180 HPKE and direct in CryptoKit; a new format
+    changes `v` and the info. The relay (`relay/`, stdlib only, its own
+    module) maps opaque handles to APNs tokens and never sees a title;
+    collapse ids reach it only hashed.
+  - **The relay key is permanent per workspace**; turning push off keeps it
+    and every registration, and only an explicit rotate (or another relay,
+    or a new key) mints a relay workspace — the relay binds each handle to
+    the first workspace that pushes to it, which is what lets an app cut a
+    workspace off. Registrations delivered under an old key show
+    `needsNewHandle` and are skipped, never deleted.
+  - **Only the relay's own error codes change a registration** (410 removes
+    it; `handle_bound` / `handle_unknown` mark it stale): a 403/404 can come
+    from a proxy.
+  - **Registrations follow the user and the device**: sign-out-everywhere,
+    disable and delete drop the user's; removing a device, its session
+    signing out and owner-token rotation drop that device's (D93); nothing
+    reaches a disabled user, and a reused user id gets nothing.
+  - **`/notify`**: backends (instance principals) notify any reader of the
+    tile; frontends only the person using them — a frame token sits in
+    every reader's browser. Budgets are separate so tiles can't starve
+    agent permission prompts; over a person's shared tile budget a
+    notification is dropped with 202 (a 429 would tell one tile what others
+    send). Links stay inside the tile, checked percent-decoded. The SDK
+    helper is `xbin.NotifyUser` (`xbin.Notify` is the existing toast).
+  - **Agent pushes** wait a 3 s grace period (a request answered at the
+    desk raises nothing); a finished turn pushes unless the user cancelled
+    it.
+  - **Relay state is bounded**: a snapshot plus an fsynced journal written
+    outside the store lock, caps (2M handles, 200k workspaces), retention,
+    per-/64 and per-/48 limits, and device tokens verified with a silent
+    push before a handle is stored.
+  - **Open:** who operates the public relay and at which domain (plan
+    decision 13); nothing is deployed, the relay URL is configuration.
+
+- **D95 — Strict tile asset gating: `--tile-assets=legacy|tokens|origins`,
+  `legacy` the default for one release, three security fixes in every mode
+  (2026-09-26).** plans/tile-asset-auth.md (its decisions 1–4, approved by
+  the owner); docs/auth.md §Tile asset gating; migration note
+  docs/changes/2026-09-26-tile-asset-gating.md.
+  - **Two mechanisms**: `origins` (A) runs each tile on its own origin
+    `t-<id>.<tiles-domain>` (id = a keyed hash of the path, so tile names
+    never reach DNS, SNI or certificate logs; tiles gain their own storage);
+    `tokens` (B) credentials relative URLs with a path-scoped asset token
+    under an injected `<base>`. This release ships both plus detection
+    (`bx doctor`, `GET /tile-assets`), the codemod (`bx fix assets`) and
+    xbin-client diagnostics; the next deletes the credential-less rule.
+  - **The origins exchange is a one-time, session-bound ticket** minted by
+    the workspace (`?xbin_ticket=`), not the frame token — a cookie traded
+    for a frame token would survive sign-out on a shared computer. The
+    tile cookie `__Host-xbin_tile` lives as long as that browser session.
+  - **The workspace treats tile origins like the cross-site frames they
+    replace**: it ignores its session cookie on requests a tile origin
+    starts (all same-site ones but top-level navigations), tile pages may
+    be framed only by the workspace and themselves, chrome only by the
+    workspace, a cross-site open goes through a same-origin interstitial,
+    and the session cookie becomes `__Host-xbin_session` in origins mode
+    (switching signs every browser out once). On a tile origin backends
+    never see the tile cookie and can't set cookies.
+  - **Legacy is not byte-for-byte**: in every mode the `/c/` plane serves
+    the very file it checked (no symlink to xbind's files, reserved trees
+    or outside the workspace; FIFOs refused), a sandboxed tile's
+    non-document files carry CSP `sandbox`, and **a frame token is minted
+    only for a human or the tile itself** (its frame, terminal or instance
+    token, or an `xbin.window` sub-path of it) — plus navigations within
+    one tile tree, whose writers can write every page of it. Another tile
+    that fetches `/c/<tile>/` or its runtime document (D91) through its
+    user's access gets the HTML without a token; before, any tile could
+    lift e.g. the admin tile's token out of the HTML.
+  - **Asset tokens are bound to the loading login's credential
+    generation** (D93) and die with it; RBAC is checked live on every load
+    for the minting tile and the tile loaded.
+  - **Not chosen:** keeping the IP heuristic behind a flag; enforcing in
+    this release; renaming the session cookie in every mode (a workspace
+    that never uses origins would sign everyone out for nothing); an
+    ancestor-only exception for multi-page tiles (back-links and siblings
+    are the common case).
+
+- **D96 — The agent template: one model, thin views, and a native view
+  (2026-09-26).** plans/agent-template-native.md (its decisions 1, 2 and 4);
+  builtin-templates/agent/API.md.
+  - **`model/` owns state and behaviour** (plain ES modules: no lit, no
+    DOM, no dialogs, no `location`; a node test enforces it and runs the
+    model against a scripted backend). `createApp()` is the one wiring and
+    the web drives it too — a facade only the native view used would leave
+    two copies of every flow, and the web's tests would not exercise it.
+    View-flavoured classes are injected (`createApp({Session, AutoPage})`);
+    views keep confirmations and report failures. The old module paths stay
+    as one-line re-exports; instance patch series (D72) retarget moved
+    hunks to `model/<name>`.
+  - **Parity is enforced**: `model/features.js` lists every UI feature by
+    key; each view declares what it implements (`web-features.js`,
+    `native-features.js`), and a test fails on a missing key unless
+    `DIFFERENCES.<view>` lists it with a reason.
+  - **The native view** (`native.js` + `native/`) draws the same model one
+    surface at a time: home, a conversations drawer (`sheet
+    edge="leading"` — an additive prop; a renderer that ignores it shows
+    an ordinary sheet), the full-screen chat, the composer with app
+    uploads, pushed screens for tools, settings and automations. The
+    navigation is derived from model state on every paint, so deep links
+    and stream events land where the web's would.
+  - **Backend additions for a phone, all opt-in**: `GET /stream?deltas=1`
+    (draft text as appended pieces, computed per connection at write time
+    so the hub's coalescing, replay and resync are unchanged; `at` counts
+    UTF-16 units, a mismatch reconnects), paged `GET /runs/{id}/view`
+    (`limit` counts messages, steps follow by time, compacted messages are
+    left out and counted), and `GET /runs/{id}/thumb` (standard library
+    only; header-first size caps; EXIF orientation). The web passes none of
+    the options and is byte-identical.
+  - **Not yet:** the plan's per-block fold cache and device performance
+    targets; "Needs you" reaching the phone as a push (now possible with
+    `POST /notify`, D94).
+
+- **D97 — Agent sessions for the app, and agent events for humans only
+  (2026-09-26).** plans/native.md §13 and §20 rows 7–8 (its decision 14);
+  docs/protocol.md; migration note
+  docs/changes/2026-09-26-agent-events-humans-only.md.
+  - **`term` and `session` events reach humans only**: the session's owner
+    (their browser and app sessions), admins, and a shell's terminal token
+    for sessions on its own tile — never a frame, instance, cron or bus
+    principal, and never an empty user id. Matching on the home key alone
+    let every tile a user opened follow their transcripts, tool output and
+    patches, and every backend (whose instance token has no user, read as
+    "owner") follow the owner's — a pre-existing D73/D74 leak that the new
+    status op widened (plans/auth.md default-deny for element principals).
+  - **An agent does not drive itself**: prompt, permissions, elicitations,
+    options, restart and diff answer 403 to the session's own sandbox
+    token, so it can't approve its own permission requests; a shell's
+    token on the same tile still drives it (`bx agent`).
+  - **Prompts carry files**, written inside the agent's sandbox (or a
+    directory xbind owns and removes when isolation is off) and named by
+    path; images go inline up to 3.75 MiB each and 4 MiB per prompt and
+    degrade to files past that instead of a 413 — providers count the
+    base64, and the agent keeps inline images in every later turn. The
+    prompt slot is taken before the body is decoded, so concurrent prompts
+    fail fast holding nothing.
+  - **Full diffs** re-diff remembered tree pairs from the private snapshot
+    dir, confined (D78); one per session and two per daemon, waiting
+    rather than failing.
+  - **Status changes ride `term` op `status`** `{id, user, status, pending,
+    questions, turn}`, coalesced and never repeated, so an inbox follows
+    sessions without reading logs; clients that re-list on every `term`
+    event keep working.
+  - **The login rides every status while signed out**, partial ones
+    included, as docs/protocol.md always said — before, the next commands
+    or usage update dropped the sign-in prompt.
+
+- **D98 — `bx native tree`, `bx lint --native`, `bx preview --native`: the
+  tile in headless Chromium through an embedded probe, bx's credential
+  lent only to the tile's own document (2026-09-26).** plans/native.md §16;
+  docs/bx.md §Native UIs.
+  - **The tile runs in its real runtime document**
+    (`/c/<tile>/?native=1&preview=1`) — the import map, `xbin-client`,
+    frame token, sandbox and module graph the app loads — with the
+    reference renderer's preview host playing the app. bx embeds
+    `cmd/bx/native-probe.mjs` and runs it with node and Playwright's
+    Chromium (both in the terminal rootfs); without them `tree` and
+    `preview` fail with an install hint and `lint` keeps its static checks.
+    A node-only runner (hack/xbn) can't load the tile's modules from xbind
+    or answer "what does it render against its live backend".
+  - **A loopback proxy lends bx's credential only to GET/HEAD of the probed
+    tile's own document and files**; the page never holds bx's token, and
+    the tile's API calls use its frame token as in the app. From a tile's
+    terminal only that tile previews with live data (another tile's
+    document yields no frame token, D95) — `--data` replays a fixture
+    instead.
+  - **Static lint reads through xbind** (overlays and the served import map
+    are what gets checked) and leaves the vocabulary to the runtime's own
+    diagnostics, so bx carries no copy of `vocab.json` that could drift.
+  - A run settles on quiet (no new messages for 400 ms, no non-streaming
+    request in flight); the first tree gets twice the app's 5 s fallback.
