@@ -220,6 +220,11 @@ function sheet(n, cx) {
   const tb = all.find((c) => c.t === 'toolbar');
   const body = all.filter((c) => c !== tb);
   const whole = body.length === 1 && (body[0].t === 'screen' || body[0].t === 'nav');
+  // a plain button in the toolbar is the sheet's cancel: it takes the close
+  // button's place at the leading end (as the native sheet's cancellation
+  // action does) rather than sitting beside the confirm action with an ×
+  const cancel = tb && (tb.c || []).find((c) => c.t === 'button' && P(c).role === 'plain');
+  const tcx = cx.in('toolbar');
   const esc = (e) => { if (e.key === 'Escape') dismiss(); };
   // edge=leading: a drawer over the screen from the leading edge (no detents)
   const drawer = p.edge === 'leading';
@@ -228,9 +233,9 @@ function sheet(n, cx) {
     <div class=${cls('sheet', drawer ? 'edge-leading' : det[0] === 'medium' ? 'd-medium' : 'd-large')} role="dialog" aria-modal="true" aria-label=${str(p.title) || nothing}>
       ${drawer ? nothing : html`<div class="grabber"></div>`}
       ${whole ? nothing : html`<div class="sheet-bar">
-        <div class="bar-lead"><button class="sheet-x" aria-label="Close" @click=${dismiss}>${icon('xmark')}</button></div>
+        <div class="bar-lead">${cancel ? tcx.node(cancel) : html`<button class="sheet-x" aria-label="Close" @click=${dismiss}>${icon('xmark')}</button>`}</div>
         <div class="bar-title"><div class="bt">${str(p.title)}</div></div>
-        <div class="bar-trail">${tb ? cx.in('toolbar').node(tb) : nothing}</div>
+        <div class="bar-trail">${tb ? html`<xb-toolbar data-k=${tb.k} class="toolbar">${repeat((tb.c || []).filter((c) => c !== cancel), (c) => c.k, (c) => tcx.node(c))}</xb-toolbar>` : nothing}</div>
       </div>`}
       <div class=${cls('sheet-body', whole && 'whole')}>${repeat(body, (c) => c.k, (c) => cx.in('free', { sheet: true }).node(c))}</div>
     </div>
