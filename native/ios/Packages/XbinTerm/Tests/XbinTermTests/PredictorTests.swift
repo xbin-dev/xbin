@@ -342,3 +342,48 @@ struct PredictorTests {
         #expect(p.pending() == 0)
     }
 }
+
+/// Cases beyond hack/term-predict.test.mjs (each checked against web/term-predict.js
+/// under node when written), pinning rules of the JS engine the
+/// differential trace reaches only rarely.
+@Suite("term-predict port extras")
+struct PredictorExtraTests {
+    @Test("a restored original is dropped without curing a glitch; a real confirmation cures one step")
+    func restoredOriginalNoCure() {
+        let fb = FakeScreen(1, 20); fb.put(0, 0, "a"); fb.cursor.col = 0
+        let t = Rig(fb, .auto); let p = t.p
+        p.setSrtt(10)
+        let n = t.type("x", 0)
+        p.cull(fb, now: PredictConst.glitchThreshold) // x pending 250 ms: a glitch
+        #expect(p.glitchTrigger == PredictConst.glitchRepairCount)
+        fb.put(0, 0, "x"); fb.cursor.col = 1; t.ack(n, 260) // late: no cure
+        #expect(p.glitchTrigger == PredictConst.glitchRepairCount)
+        fb.put(0, 1, "a") // the next cell already shows the glyph about to be typed
+        let m = t.type("a", 1000)
+        fb.cursor.col = 2; t.ack(m, 1010) // quick, but it only restored what was there
+        #expect(p.pending() == 0)
+        #expect(p.glitchTrigger == PredictConst.glitchRepairCount, "no credit, no cure")
+        let k = t.type("b", 1200)
+        fb.put(0, 2, "b"); fb.cursor.col = 3; t.ack(k, 1210)
+        #expect(p.glitchTrigger == PredictConst.glitchRepairCount - 1, "a quick real confirmation cures one step")
+    }
+
+    @Test("unknown cells stay unknown through later shifts, and are never drawn")
+    func unknownPropagates() {
+        let fb = FakeScreen(1, 8); fb.put(0, 0, "abcdefgh"); fb.cursor.col = 5
+        let t = Rig(fb)
+        t.type("\u{7f}"); t.type("\u{7f}") // 3 = f, 4 = g, and 5, 6, 7 unknown
+        t.type("X") // the insert at 3 shifts f g right and the unknown 5 into 6
+        #expect(texts(t.p, fb) == ["0:3:Xfg"], "6 and 7 are unknown: not drawn (a known blank would draw a space over the g)")
+    }
+
+    @Test("byte input decodes as UTF-8; invalid UTF-8 predicts nothing")
+    func byteInput() {
+        let fb = FakeScreen(); let p = Predictor(); p.setMode(.on)
+        p.newUserData(bytes: Array("ł".utf8), fb, now: 0)
+        #expect(texts(p, fb) == ["0:0:ł"])
+        p.reset()
+        p.newUserData(bytes: [0xc5], fb, now: 0)
+        #expect(p.active() == false)
+    }
+}

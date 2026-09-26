@@ -13,7 +13,12 @@ let package = Package(
     ],
     targets: [
         .target(name: "XbinTerm"),
-        .testTarget(name: "XbinTermTests", dependencies: ["XbinTerm"]),
+        .testTarget(
+            name: "XbinTermTests",
+            dependencies: ["XbinTerm"],
+            // the differential trace of web/term-predict.js (hack/term-predict-trace.mjs)
+            resources: [.copy("Resources/term-predict-trace.json")]
+        ),
     ],
     swiftLanguageModes: [.v6]
 )
