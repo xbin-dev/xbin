@@ -35,6 +35,8 @@ type fakeAgent struct {
 	blocks     json.RawMessage     // the last session/prompt's content
 	attached   []string            // _xbin/attach calls seen ("name:len")
 	attachErr  bool                // answer _xbin/attach with an error (no host)
+	attachGate chan struct{}       // answer _xbin/attach only once this is closed (a slow host)
+	nprompts   int                 // session/prompt calls seen
 }
 
 // opts is the fake's config options: one select, "model".
@@ -84,6 +86,13 @@ func (f *fakeAgent) onRequest(m *Message) (any, *Error) {
 			return nil, &Error{Code: ErrNotFound, Message: "method not found: " + m.Method}
 		}
 		f.attached = append(f.attached, fmt.Sprintf("%s:%d", p.Name, len(p.Data)))
+		if gate := f.attachGate; gate != nil {
+			go func() {
+				<-gate
+				_ = f.conn.Reply(m.ID, AttachResult{Path: "/tmp/xbin-attachments-1/" + p.Name}, nil)
+			}()
+			return nil, nil // answered when the gate opens
+		}
 		return AttachResult{Path: "/tmp/xbin-attachments-1/" + p.Name}, nil
 	case MAuthenticate:
 		f.mu.Lock()
@@ -142,6 +151,7 @@ func (f *fakeAgent) onRequest(m *Message) (any, *Error) {
 		f.mu.Lock()
 		f.prompt = m.ID
 		f.blocks = raw.Prompt
+		f.nprompts++
 		f.mu.Unlock()
 		go f.script(f, p.Prompt[0].Text)
 		return nil, nil // answered by the script

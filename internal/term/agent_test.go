@@ -51,6 +51,7 @@ func TestMain(m *testing.M) {
 type agentRig struct {
 	m      *Manager
 	root   string
+	tmp    string // TMPDIR for the daemon and its children: what a session leaves behind shows here
 	events chan SessionEvent
 	change chan string
 	status chan StatusChange // OnStatus (agentstatus.go)
@@ -65,7 +66,9 @@ func newAgentRig(t *testing.T) *agentRig {
 	if err := os.MkdirAll(filepath.Join(root, "apps", "x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	r := &agentRig{m: NewManager(root, nil), root: root, events: make(chan SessionEvent, 4096), change: make(chan string, 64), status: make(chan StatusChange, 256)}
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	r := &agentRig{m: NewManager(root, nil), root: root, tmp: tmp, events: make(chan SessionEvent, 4096), change: make(chan string, 64), status: make(chan StatusChange, 256)}
 	r.m.BxPath = bxBin
 	r.m.OnEvent = func(cwd string, ev SessionEvent) { r.events <- ev }
 	r.m.OnChange = func(op, homeKey, id, cwd string) { r.change <- op + ":" + id }

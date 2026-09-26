@@ -59,3 +59,27 @@ func TestAttachDrops(t *testing.T) {
 		t.Fatalf("the attachment dir outlived the host: %v", err)
 	}
 }
+
+// With isolation off the daemon owns the directory (_xbin/spawn attachDir):
+// the host writes there, and on a clean exit removes its files but leaves
+// the directory to the daemon.
+func TestAttachGivenDir(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	h := newHost(t, t.TempDir())
+	dir := t.TempDir()
+	h.att.setDir(dir)
+	res, rerr := h.attach(acp.AttachParams{Name: "log.txt", Data: []byte("x")})
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if p := res.(acp.AttachResult).Path; p != filepath.Join(dir, "log.txt") {
+		t.Fatalf("path %s, want it in %s", p, dir)
+	}
+	if left, _ := filepath.Glob(filepath.Join(os.Getenv("TMPDIR"), "*")); len(left) != 0 {
+		t.Fatalf("the host made its own dir too: %v", left)
+	}
+	h.dropAttachments()
+	if names, err := os.ReadDir(dir); err != nil || len(names) != 0 {
+		t.Fatalf("after exit: %v %v", names, err)
+	}
+}

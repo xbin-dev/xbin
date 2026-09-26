@@ -3,7 +3,8 @@ package server
 // The terminal session directory's HTTP face (D73, docs/protocol.md
 // §/api/xbin): a user lists their own live sessions per tile and names a
 // tab; the change stream rides /ws/events as `term` events, delivered to
-// the owner (and admins). Attach/kill stay on /ws/term.
+// the owner (and admins) — never to a tile (termEventFor). Attach/kill
+// stay on /ws/term.
 
 import (
 	"encoding/json"
@@ -62,10 +63,26 @@ func (s *Server) TermChanged(op, homeKey, id, cwd string) {
 }
 
 // termEventFor reports whether a per-user event (`term`, `session`) is p's
-// to see: the owner's, and admins'.
+// to see: a human's own (a browser session, the owner's cookie or token)
+// and admins' — and a shell's terminal token's, for sessions on its own
+// tile (bx agent inside a terminal; the same reach MayDrive gives it).
+// Never an element's: a tile's frame token carries the driving user's id
+// and a tile backend's instance token none (which would read as the
+// owner's home), and neither may follow a user's agent sessions — the
+// transcripts, tool output and patches of tiles it cannot read
+// (plans/auth.md: default-deny for element principals).
 func termEventFor(p auth.Principal, e events.Event) bool {
-	if p.IsAdmin() {
-		return true
+	switch {
+	case p.Component == "": // a human principal
+		if p.IsAdmin() {
+			return true
+		}
+		if p.UserID == "" { // no one in particular (never the owner's home by default)
+			return false
+		}
+	case p.Via == "terminal" && e.Component == p.Component: // a shell's token, on its own tile
+	default:
+		return false
 	}
 	o, ok := e.Data.(owned)
 	return ok && o.Owner() == term.HomeKey(p)

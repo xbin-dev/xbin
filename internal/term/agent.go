@@ -17,13 +17,16 @@ package term
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/agent"
@@ -86,11 +89,12 @@ type agentState struct {
 	status    string
 	turn      uint64
 	text      []byte
-	acpID     string    // the agent's own session id (after the handshake)
-	loadable  bool      // the agent can reopen acpID later (session/load) — resume
-	resumed   string    // the history entry this session reopened (superseded when this one is saved)
-	snap      *snapper  // files.changed snapshots of the tile (agentdiff.go); nil = off
-	published statusKey // the last summary handed to OnStatus (agentstatus.go)
+	acpID     string      // the agent's own session id (after the handshake)
+	loadable  bool        // the agent can reopen acpID later (session/load) — resume
+	resumed   string      // the history entry this session reopened (superseded when this one is saved)
+	snap      *snapper    // files.changed snapshots of the tile (agentdiff.go); nil = off
+	published statusKey   // the last summary handed to OnStatus (agentstatus.go)
+	prompting atomic.Bool // a prompt is being taken (ReservePrompt)
 }
 
 func (st *agentState) logf(line string) {
@@ -211,6 +215,16 @@ func (m *Manager) MayDrive(id string, p auth.Principal) error {
 	return nil
 }
 
+// SelfToken reports whether tok is session id's own terminal token — the
+// XBIN_TOKEN its sandbox holds (the server keeps an agent from driving its
+// own session with it).
+func (m *Manager) SelfToken(id, tok string) bool {
+	m.mu.Lock()
+	s := m.sessions[id]
+	m.mu.Unlock()
+	return s != nil && s.token != "" && subtle.ConstantTimeCompare([]byte(s.token), []byte(tok)) == 1
+}
+
 // createAgent is create() for the agent kind: pipes instead of a PTY, the
 // driver started in the background (the session reports `starting` until
 // the handshake is done — a prompt waits for it).
@@ -223,6 +237,20 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	if err != nil {
 		revokeTok()
 		return nil, err
+	}
+	// A prompt's files (agent/host/attach.go): in a sandbox they go to its
+	// own /tmp, a tmpfs that dies with it. With isolation off the host is a
+	// plain child sharing xbind's /tmp and is SIGKILLed at the end, so the
+	// daemon owns the directory and removes it with the session.
+	attachDir := ""
+	if !m.Isolate {
+		if d, err := os.MkdirTemp("", "xbin-attachments-"); err == nil {
+			attachDir = d
+			sandboxCleanup := cleanup
+			cleanup = func() { sandboxCleanup(); _ = os.RemoveAll(d) }
+		} else {
+			slog.Warn("agent session: no attachments dir; the host makes its own", "err", err)
+		}
 	}
 	fail := func(err error) (*Session, error) {
 		cleanup()
@@ -287,7 +315,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		agentEnv = append(agentEnv, k+"="+prov.Env[k])
 	}
 	spawn := func(ctx context.Context, cfg agent.Config) (*agent.Process, error) {
-		params, _ := json.Marshal(acp.SpawnParams{Argv: cfg.Argv, Env: cfg.Env, Cwd: dir})
+		params, _ := json.Marshal(acp.SpawnParams{Argv: cfg.Argv, Env: cfg.Env, Cwd: dir, AttachDir: attachDir})
 		if err := acp.Encode(stdin, &acp.Message{Method: acp.MXbinSpawn, Params: params}); err != nil {
 			return nil, err
 		}
@@ -488,6 +516,26 @@ func (m *Manager) agentOf(id string) (*Session, *agentState, error) {
 // agent.ErrBusy while a turn runs.
 func (m *Manager) AgentPrompt(ctx context.Context, id, text string) (uint64, error) {
 	return m.AgentPromptWith(ctx, id, agent.Prompt{Text: text})
+}
+
+// ReservePrompt takes the session's one prompt slot before a prompt's
+// body is read — its attachments are tens of MiB decoded — so a second
+// prompt while one is being taken, or while a turn runs, is refused at
+// once (agent.ErrBusy) instead of buffering its files first. The caller
+// calls AgentPromptWith, then release. (The driver serializes prompts on
+// its own; this bounds what concurrent requests hold in memory.)
+func (m *Manager) ReservePrompt(id string) (release func(), err error) {
+	_, st, err := m.agentOf(id)
+	if err != nil {
+		return nil, err
+	}
+	st.mu.Lock()
+	running := st.status == agent.StatusRunning || st.status == agent.StatusWaiting || st.status == agent.StatusCancelling
+	st.mu.Unlock()
+	if running || !st.prompting.CompareAndSwap(false, true) {
+		return nil, agent.ErrBusy
+	}
+	return func() { st.prompting.Store(false) }, nil
 }
 
 // AgentPromptWith is AgentPrompt with attachments (agent.PrepareAttachments

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/agent"
 )
@@ -63,13 +64,13 @@ func TestPromptAttachments(t *testing.T) {
 	names := []string{}
 	for _, a := range echo["attachments"].([]any) {
 		m := a.(map[string]any)
-		names = append(names, m["name"].(string)+":"+m["mime"].(string))
+		names = append(names, m["name"].(string)+":"+m["mime"].(string)+":"+strconv.FormatBool(m["inline"] == true))
 		if m["size"] == nil || m["data"] != nil {
 			t.Fatalf("the transcript keeps sizes, never bytes: %v", m)
 		}
 	}
-	if echo["text"] != "look" || strings.Join(names, " ") != "shot.png:image/png notes.txt:text/plain data.bin:application/octet-stream big.log:text/plain" {
-		t.Fatalf("the user's message: %v", echo)
+	if echo["text"] != "look" || strings.Join(names, " ") != "shot.png:image/png:true notes.txt:text/plain:true data.bin:application/octet-stream:false big.log:text/plain:false" {
+		t.Fatalf("the user's message: %v", names)
 	}
 	f.mu.Lock()
 	attached := strings.Join(f.attached, " ")
@@ -156,5 +157,121 @@ func TestPromptAttachmentsDegrade(t *testing.T) {
 	}
 	if err := c.Send(context.Background(), "still usable"); err != nil {
 		t.Fatalf("a failed hand-off left the session busy: %v", err)
+	}
+}
+
+// Inline images stay within the model APIs' limits: one over MaxImageBytes
+// (5 MiB once base64) and those past MaxInlineImagesBytes in one prompt are
+// files only — dropped in the sandbox, a link in the prompt, inline:false in
+// the transcript — never an image block the model API would refuse (and
+// the agent would carry into every later turn).
+func TestPromptInlineImageLimits(t *testing.T) {
+	c, f, _, _ := rigWith(t, echoEnd, "", func(f *fakeAgent) {
+		f.promptCaps = &PromptCapabilities{Image: true}
+	})
+	defer c.Close()
+	collect(t, c, idle)
+	img := func(n int) []byte { return append(append([]byte(nil), png...), bytes.Repeat([]byte{0}, n-len(png))...) }
+	atts, err := agent.PrepareAttachments([]agent.Attachment{
+		{Name: "huge.png", Data: img(agent.MaxImageBytes + 1)},                           // over the per-image limit
+		{Name: "a.png", Data: img(agent.MaxImageBytes)},                                  // at it: inline
+		{Name: "b.png", Data: img(agent.MaxInlineImagesBytes - agent.MaxImageBytes + 1)}, // past the prompt's budget
+		{Name: "c.png", Data: img(agent.MaxInlineImagesBytes - agent.MaxImageBytes)},     // fits what is left
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Prompt(context.Background(), agent.Prompt{Text: "see", Attachments: atts}); err != nil {
+		t.Fatal(err)
+	}
+	es := collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvTurnEnd })
+	var inline []string
+	for _, e := range es {
+		if e.Type == agent.EvMessageDelta && data(e)["role"] == "user" {
+			for _, a := range data(e)["attachments"].([]any) {
+				m := a.(map[string]any)
+				inline = append(inline, m["name"].(string)+"="+strconv.FormatBool(m["inline"] == true))
+			}
+		}
+	}
+	if strings.Join(inline, " ") != "huge.png=false a.png=true b.png=false c.png=true" {
+		t.Fatalf("inline: %v", inline)
+	}
+	var kinds []string
+	for _, blk := range f.promptBlocks() {
+		k := blk["type"].(string)
+		if k == "image" && len(blk["data"].(string)) > 5<<20 {
+			t.Fatalf("an image block of %d base64 bytes", len(blk["data"].(string)))
+		}
+		if k == "resource_link" {
+			k += ":" + blk["name"].(string)
+		}
+		kinds = append(kinds, k)
+	}
+	if got := strings.Join(kinds, " "); got != "text resource_link:huge.png image resource_link:a.png resource_link:b.png image resource_link:c.png" {
+		t.Fatalf("blocks: %s", got)
+	}
+	f.mu.Lock()
+	n := len(f.attached)
+	f.mu.Unlock()
+	if n != 4 {
+		t.Fatalf("every image is still a file in the sandbox: %d dropped", n)
+	}
+}
+
+// One prompt at a time from the moment it is taken: while a prompt's files
+// are on their way to the host, a second prompt is busy at once (it moves
+// no file of its own), and Cancel aborts the hand-off — no turn starts, a
+// late answer from the host changes nothing, the session takes the next
+// prompt.
+func TestPromptSlotDuringHandOff(t *testing.T) {
+	gate := make(chan struct{})
+	c, f, _, _ := rigWith(t, echoEnd, "", func(f *fakeAgent) { f.attachGate = gate })
+	defer c.Close()
+	collect(t, c, idle)
+	ctx := context.Background()
+	atts, _ := agent.PrepareAttachments([]agent.Attachment{{Name: "a.log", Mime: "text/plain", Data: []byte("x")}})
+	first := make(chan error, 1)
+	go func() { first <- c.Prompt(ctx, agent.Prompt{Text: "one", Attachments: atts}) }()
+	attached := func() int {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return len(f.attached)
+	}
+	for deadline := time.Now().Add(5 * time.Second); attached() == 0; time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the hand-off never started")
+		}
+	}
+	if err := c.Prompt(ctx, agent.Prompt{Text: "two", Attachments: atts}); !errors.Is(err, agent.ErrBusy) {
+		t.Fatalf("a second prompt during the hand-off: %v", err)
+	}
+	if err := c.Send(ctx, "three"); !errors.Is(err, agent.ErrBusy) {
+		t.Fatalf("a text prompt during the hand-off: %v", err)
+	}
+	if n := attached(); n != 1 {
+		t.Fatalf("the refused prompts moved files: %d", n)
+	}
+	if err := c.Cancel(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-first:
+		if !errors.Is(err, agent.ErrCancelled) {
+			t.Fatalf("the cancelled prompt: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Cancel did not abort the hand-off")
+	}
+	close(gate) // the host answers late
+	if err := c.Send(ctx, "after"); err != nil {
+		t.Fatalf("the next prompt: %v", err)
+	}
+	collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvTurnEnd })
+	f.mu.Lock()
+	n, blocks := f.nprompts, string(f.blocks)
+	f.mu.Unlock()
+	if n != 1 || blocks != `[{"type":"text","text":"after"}]` {
+		t.Fatalf("turns started: %d, the last %s", n, blocks)
 	}
 }

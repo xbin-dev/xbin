@@ -41,6 +41,8 @@ type Client struct {
 	promptCaps PromptCapabilities
 	turn       uint64
 	busy       bool
+	preparing  bool                    // a prompt's files are on their way to the host (prompt.go): the next prompt is busy
+	prepCancel context.CancelCauseFunc // aborts that hand-off (Cancel)
 	status     string
 	usage      *UsageUpdate
 	tools      map[string]string // tool call id → last status, this turn
@@ -322,9 +324,16 @@ func tileOf(cfg agent.Config) string {
 // Cancel interrupts the running turn: the agent gets session/cancel, every
 // pending permission is answered cancelled, and the turn's unfinished tool
 // calls are marked cancelled for the clients (the agent's own updates keep
-// flowing; the prompt ends with stopReason cancelled).
+// flowing; the prompt ends with stopReason cancelled). A prompt still
+// handing its files to the host is aborted instead: it returns
+// agent.ErrCancelled and no turn starts.
 func (c *Client) Cancel() error {
 	c.mu.Lock()
+	if c.prepCancel != nil { // a prompt still handing its files over: it never becomes a turn
+		c.prepCancel(agent.ErrCancelled)
+		c.mu.Unlock()
+		return nil
+	}
 	sid, busy := c.sessionID, c.busy
 	var unfinished []string
 	for id, st := range c.tools {

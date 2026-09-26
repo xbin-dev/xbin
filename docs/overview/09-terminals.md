@@ -463,11 +463,14 @@ What the agent gets:
 - **your files, in its sandbox.** A prompt can carry attachments — a
   screenshot, a photo, a log, a PDF (`POST
   /api/xbin/term/sessions/<id>/prompt {text, attachments}`, up to 10 files,
-  20 MiB together). Each is written inside the agent's sandbox (a private
-  directory under its own `/tmp`, never the tile) and handed to the agent by
-  path, so it can read, grep or copy it with its own tools; an image (PNG,
-  JPEG, GIF, WebP) also goes to the model inline, and a small text file
-  inline with the prompt. The transcript shows the file names.
+  10 MiB each, 20 MiB together). Each is written inside the agent's sandbox
+  (a private directory under its own `/tmp`, never the tile; with isolation
+  off, a directory xbind makes for the session and removes when it ends)
+  and handed to the agent by path, so it can read, grep or copy it with its
+  own tools; an image (PNG, JPEG, GIF, WebP) up to 3.75 MiB also goes to the
+  model inline (4 MiB of images per prompt — a bigger one is a file the agent
+  opens itself; downscale photos), and a small text file inline with the
+  prompt. The transcript shows the file names.
 - **files and terminals inside the sandbox.** The agent's file reads and
   writes and the terminals it opens are served by the host *inside* the
   sandbox, so the kernel's mount view — the allow-list, the masks, the

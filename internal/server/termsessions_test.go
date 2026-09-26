@@ -109,6 +109,64 @@ func TestTermEventFilter(t *testing.T) {
 	}
 }
 
+// Element principals never follow a user's sessions (plans/auth.md
+// default-deny): a tile's frame token carries the user's id, a tile
+// backend's instance token none (the owner's home key) — neither sees a
+// `term` event of any op nor a `session` event, on its own tile or another.
+// A shell's terminal token sees its user's sessions on its own tile only.
+func TestTermEventFilterElements(t *testing.T) {
+	aliceU := &users.User{ID: "alice", Role: "user"}
+	adminU := &users.User{ID: "root", Role: "admin"}
+	evs := func(comp, user string) []events.Event {
+		return []events.Event{
+			{Type: "term", Component: comp, Data: termChange{Op: "open", ID: "s1", User: user}},
+			{Type: "term", Component: comp, Data: termStatus{Op: "status", StatusChange: term.StatusChange{User: user, ID: "s1", Status: "running"}}},
+			{Type: "session", Topic: "session.s1", Component: comp, Data: term.SessionEvent{User: user, ID: "s1"}},
+		}
+	}
+	never := []auth.Principal{
+		{Component: "apps/thirdparty", UserID: "alice", Via: "frame", Access: nil}, // a tile alice opened
+		{Component: "apps/x", UserID: "alice", Via: "frame"},                       // even the session's own tile
+		{Component: "apps/thirdparty", Via: "frame"},                               // an owner-driven frame
+		{Component: "apps/thirdparty", Via: "instance"},                            // a tile backend: "" → the owner's home key
+		{Component: "apps/x", Via: "instance"},                                     //
+		{Component: "_cron", Via: "cron", Role: "admin"},                           // synthetic element principals
+		{Component: "_bus", Via: "bus"},                                            //
+		{Component: "apps/y", UserID: "alice", Via: "terminal", User: aliceU},      // alice's shell on another tile
+		{Component: "apps/y", UserID: "root", Via: "terminal", User: adminU},       // an admin's shell token is not the admin
+		{}, // nobody
+		{Via: "session", UserID: "bob", User: &users.User{ID: "bob", Role: "user"}},         // another user
+		{Component: "apps/x", UserID: "bob", Via: "terminal", User: &users.User{ID: "bob"}}, // another user's shell on the tile
+	}
+	for _, owner := range []string{"alice", "owner"} {
+		for _, e := range evs("apps/x", owner) {
+			for _, p := range never {
+				if termEventFor(p, e) {
+					t.Errorf("%+v saw %s %+v", p, e.Type, e.Data)
+				}
+			}
+		}
+	}
+	// the humans, and a shell's own token on its own tile
+	for _, e := range evs("apps/x", "alice") {
+		for _, p := range []auth.Principal{
+			{UserID: "alice", Via: "session", User: aliceU},
+			{Owner: true, Via: "cookie"},
+			{Via: "session", UserID: "root", User: adminU},
+			{Component: "apps/x", UserID: "alice", Via: "terminal", User: aliceU},
+		} {
+			if !termEventFor(p, e) {
+				t.Errorf("%+v missed %s %+v", p, e.Type, e.Data)
+			}
+		}
+	}
+	for _, e := range evs("apps/x", "owner") { // the owner's own (bootstrap-token) shell on its tile
+		if !termEventFor(auth.Principal{Component: "apps/x", Via: "terminal"}, e) {
+			t.Errorf("the owner's shell token missed %s", e.Type)
+		}
+	}
+}
+
 // GET /ws/term/env reports a tile's terminal layer — whether it exists and
 // whether its base image is older than the current rootfs — under the same
 // gate as the reset: terminal level on the tile, the root layer admin-only.

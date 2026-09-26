@@ -35,11 +35,14 @@ type Prompt struct {
 }
 
 // AttachmentInfo is what the transcript keeps of an attachment (the user's
-// message.delta `attachments`): never the bytes.
+// message.delta `attachments`): never the bytes. Inline: the model got it
+// with the prompt (an image block, an embedded text) — else it is a file
+// the agent was pointed at.
 type AttachmentInfo struct {
-	Name string `json:"name"`
-	Mime string `json:"mime"`
-	Size int    `json:"size"`
+	Name   string `json:"name"`
+	Mime   string `json:"mime"`
+	Size   int    `json:"size"`
+	Inline bool   `json:"inline,omitempty"`
 }
 
 // Info is the attachment's transcript entry.
@@ -47,13 +50,21 @@ func (a Attachment) Info() AttachmentInfo {
 	return AttachmentInfo{Name: a.Name, Mime: a.Mime, Size: len(a.Data)}
 }
 
-// Limits (decoded bytes). Images are sent inline to the model, whose APIs
-// cap an image at about 5 MB; other files are handed to the agent as files.
+// Limits (decoded bytes). Every attachment is a file for the agent (≤
+// MaxFileBytes). An image also goes to the model inline, within the model
+// APIs' limits: an image block counts its base64 (4/3 of the bytes), and
+// Anthropic's cap on Bedrock and Vertex is 5 MB of base64 (10 MB on its own
+// API) — MaxImageBytes is that 5 MB decoded. The images of a prompt stay in
+// the agent's conversation and ride every later request (32 MB on the
+// Anthropic API), so a prompt sends at most MaxInlineImagesBytes of them
+// inline; a bigger image, or one past that, is a file only (the agent opens
+// it with its own tools). Clients should downscale photos.
 const (
-	MaxAttachments      = 10
-	MaxImageBytes       = 5 << 20
-	MaxFileBytes        = 10 << 20
-	MaxAttachmentsBytes = 20 << 20 // one prompt's attachments together
+	MaxAttachments       = 10
+	MaxImageBytes        = 15 << 18 // 3.75 MiB: 5 MiB as base64
+	MaxInlineImagesBytes = 4 << 20  // inline image bytes per prompt
+	MaxFileBytes         = 10 << 20
+	MaxAttachmentsBytes  = 20 << 20 // one prompt's attachments together
 	// MaxInlineText is the largest text file sent inline (as an embedded
 	// resource the model reads with the prompt); a bigger one is a file the
 	// agent reads with its tools.
@@ -100,8 +111,6 @@ func PrepareAttachments(in []Attachment) ([]Attachment, error) {
 		a.Name = uniqueName(safeName(a.Name, i, a.Mime), used)
 		total += len(a.Data)
 		switch {
-		case InlineImage(a.Mime) && len(a.Data) > MaxImageBytes:
-			return nil, fmt.Errorf("%w: image %s is %s — the limit for an image is %s (downscale it)", ErrAttachmentTooLarge, a.Name, size(len(a.Data)), size(MaxImageBytes))
 		case len(a.Data) > MaxFileBytes:
 			return nil, fmt.Errorf("%w: %s is %s — the limit for a file is %s", ErrAttachmentTooLarge, a.Name, size(len(a.Data)), size(MaxFileBytes))
 		case total > MaxAttachmentsBytes:

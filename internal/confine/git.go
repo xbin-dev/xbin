@@ -48,6 +48,13 @@ func GitRead(ctx context.Context, dir string, args ...string) (string, error) {
 
 // GitCmd runs git with c's binds, network, timeout (Argv is set from args).
 func GitCmd(ctx context.Context, c Cmd, args ...string) (string, error) {
+	out, err := GitBytes(ctx, c, args...)
+	return string(out), err
+}
+
+// GitBytes is GitCmd with stdout as the bytes git wrote — no copy into a
+// string, for big outputs (a full patch).
+func GitBytes(ctx context.Context, c Cmd, args ...string) ([]byte, error) {
 	c.Argv = append(append([]string{"git"}, gitFlags...), args...)
 	c.Env = append(append([]string(nil), gitEnv...), c.Env...)
 	res, err := Run(ctx, c)
@@ -55,7 +62,7 @@ func GitCmd(ctx context.Context, c Cmd, args ...string) (string, error) {
 		if ee, ok := err.(*ExitError); ok && ee.Stderr == "" {
 			ee.Stderr = strings.TrimSpace(string(res.Stdout))
 		}
-		return string(res.Stdout), err
+		return res.Stdout, err
 	}
-	return string(res.Stdout), nil
+	return res.Stdout, nil
 }

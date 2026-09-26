@@ -77,6 +77,29 @@ func TestSnapperFullDiff(t *testing.T) {
 	if _, _, err := s.fullDiff(ctx, "tool:nope", ""); !errors.Is(err, ErrNoDiff) {
 		t.Fatalf("unknown: %v", err)
 	}
+	// bounded: one full diff at a time per session, fullDiffSlots across the
+	// daemon — a caller past either waits (here until its deadline)
+	blocked := func(what string) {
+		t.Helper()
+		short, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+		defer cancel()
+		if _, _, err := s.fullDiff(short, "turn:1", ""); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("%s: %v", what, err)
+		}
+	}
+	s.full <- struct{}{} // a diff of this session running
+	blocked("a second diff of the session")
+	<-s.full
+	for range cap(fullDiffSlots) { // the daemon's slots taken by other sessions
+		fullDiffSlots <- struct{}{}
+	}
+	blocked("past the daemon's slots")
+	for range cap(fullDiffSlots) {
+		<-fullDiffSlots
+	}
+	if _, _, err := s.fullDiff(ctx, "turn:1", ""); err != nil {
+		t.Fatalf("after the others: %v", err)
+	}
 	s.close()
 	if _, _, err := s.fullDiff(ctx, "tool:t1", ""); !errors.Is(err, ErrNoDiff) {
 		t.Fatalf("after close: %v", err)

@@ -13,6 +13,7 @@ var (
 	ErrEnded             = errors.New("the agent session has ended")
 	ErrResumeUnsupported = errors.New("this agent cannot reopen an earlier session (no loadSession capability) — start a new one")
 	ErrNoElicitation     = errors.New("no such pending question")
+	ErrCancelled         = errors.New("the prompt was cancelled before its turn started")
 )
 
 // Driver speaks one agent protocol on behalf of a session. Start spawns

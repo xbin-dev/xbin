@@ -56,7 +56,8 @@ func TestPrepareAttachmentsLimits(t *testing.T) {
 		want error
 	}{
 		{"too many", make([]Attachment, MaxAttachments+1), ErrBadAttachment},
-		{"a big image", []Attachment{{Name: "a.png", Data: big(MaxImageBytes+1, pngHeader)}}, ErrAttachmentTooLarge},
+		{"an image too big to go inline is a file", []Attachment{{Name: "a.png", Data: big(MaxImageBytes+1, pngHeader)}}, nil},
+		{"an image over the file limit", []Attachment{{Name: "a.png", Data: big(MaxFileBytes+1, pngHeader)}}, ErrAttachmentTooLarge},
 		{"a big file", []Attachment{{Name: "a.log", Data: big(MaxFileBytes+1, nil)}}, ErrAttachmentTooLarge},
 		{"too much together", []Attachment{{Name: "a", Data: big(MaxFileBytes, nil)}, {Name: "b", Data: big(MaxFileBytes, nil)}, {Name: "c", Data: []byte("x")}}, ErrAttachmentTooLarge},
 		{"an image at the limit", []Attachment{{Name: "a.png", Data: big(MaxImageBytes, pngHeader)}}, nil},
@@ -73,5 +74,16 @@ func TestPrepareAttachmentsLimits(t *testing.T) {
 func TestIsText(t *testing.T) {
 	if !IsText([]byte("héllo\n")) || IsText([]byte("a\x00b")) || IsText([]byte{0xff, 0xfe}) || !IsText(nil) {
 		t.Fatal("IsText")
+	}
+}
+
+// MaxImageBytes is what the strictest model API takes inline: 5 MiB of
+// base64 (Anthropic on Bedrock and Vertex).
+func TestInlineImageLimit(t *testing.T) {
+	if b64 := (MaxImageBytes + 2) / 3 * 4; b64 > 5<<20 {
+		t.Fatalf("an image at the limit is %d bytes of base64", b64)
+	}
+	if MaxInlineImagesBytes < MaxImageBytes || MaxInlineImagesBytes > 8<<20 {
+		t.Fatal("the per-prompt inline budget must take one image at the limit and stay far below the 32 MB request")
 	}
 }

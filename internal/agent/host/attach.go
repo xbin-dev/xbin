@@ -6,9 +6,12 @@ package host
 // link) so the agent can read it with its own tools — a PDF, a log, the
 // screenshot it should put in the docs. The files go to a private
 // directory under the sandbox's own /tmp (a tmpfs that dies with the
-// sandbox; removed when the host exits in any case), never into the tile.
-// The directory holds at most attachBudget bytes: past it the oldest files
-// are removed (the agent has read them by then, or can ask for them again).
+// sandbox), never into the tile. With isolation off there is no sandbox:
+// the daemon makes the directory and names it in _xbin/spawn (attachDir),
+// and removes it when the session ends — the host is SIGKILLed then, so
+// nothing of its own would run. The directory holds at most attachBudget
+// bytes: past it the oldest files are removed (the agent has read them by
+// then, or can ask for them again).
 
 import (
 	"errors"
@@ -26,8 +29,20 @@ const attachBudget = 64 << 20
 type attachments struct {
 	mu    sync.Mutex
 	dir   string
+	given bool      // dir is the daemon's (isolation off): it removes it
 	files []dropped // oldest first
 	total int64
+}
+
+// setDir adopts the daemon's directory for the session's files (_xbin/spawn
+// attachDir; "" = make one on first use).
+func (a *attachments) setDir(dir string) {
+	if dir == "" {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.dir, a.given = dir, true
 }
 
 type dropped struct {
@@ -109,12 +124,22 @@ func plainName(name string) string {
 	return name
 }
 
-// dropAttachments removes the session's attachment directory (host exit).
+// dropAttachments removes the session's attachment files on a clean host
+// exit: its own directory, or the files it wrote into the daemon's (which
+// the daemon removes as well — a SIGKILLed host runs nothing).
 func (h *Host) dropAttachments() {
 	h.att.mu.Lock()
 	defer h.att.mu.Unlock()
-	if h.att.dir != "" {
-		_ = os.RemoveAll(h.att.dir)
-		h.att.dir, h.att.files, h.att.total = "", nil, 0
+	if h.att.dir == "" {
+		return
 	}
+	if h.att.given {
+		for _, f := range h.att.files {
+			_ = os.Remove(f.path)
+		}
+	} else {
+		_ = os.RemoveAll(h.att.dir)
+		h.att.dir = ""
+	}
+	h.att.files, h.att.total = nil, 0
 }

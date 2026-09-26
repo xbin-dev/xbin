@@ -177,6 +177,7 @@ func (h *Host) spawn(p acp.SpawnParams) error {
 		return err
 	}
 	h.cmd, h.cwd = cmd, p.Cwd
+	h.att.setDir(p.AttachDir)
 	h.agentR, h.agentW = outR, inW
 	h.agent = acp.NewConn(nil, inW)
 	h.exit = h.reaper.Claim(cmd.Process.Pid)

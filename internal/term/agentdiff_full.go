@@ -28,6 +28,23 @@ const (
 	maxDiffRanges = 1024 // tool calls + turns remembered per session, oldest dropped first
 )
 
+// fullDiffSlots bounds the full diffs running at once across the daemon —
+// and each session runs one at a time (snapper.full): a diff holds up to
+// about twice fullPatchCap while git writes it, and a client looping on the
+// route (the agent's own sandbox holds a token that may call it) waits its
+// turn instead of growing xbind's heap.
+var fullDiffSlots = make(chan struct{}, 2)
+
+// acquire takes a slot of sem, or gives up with ctx.
+func acquire(ctx context.Context, sem chan struct{}) error {
+	select {
+	case sem <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // fullPatchCap is a full patch's bytes; beyond it the response is cut at a
 // line (X-Truncated). A var for the tests.
 var fullPatchCap = 16 << 20
@@ -69,18 +86,31 @@ func (s *snapper) fullDiff(ctx context.Context, key, file string) (patch []byte,
 	if !ok || gone {
 		return nil, false, ErrNoDiff
 	}
+	if err := acquire(ctx, s.full); err != nil {
+		return nil, false, err
+	}
+	defer func() { <-s.full }()
+	if err := acquire(ctx, fullDiffSlots); err != nil {
+		return nil, false, err
+	}
+	defer func() { <-fullDiffSlots }()
 	args := []string{"--git-dir=" + s.gitDir, "-c", "core.quotePath=false",
 		"diff-tree", "-r", "-M", "-p", "--no-color", "--no-ext-diff", "--no-textconv", r.from, r.to}
 	if file != "" {
 		// literal: no pathspec magic (":(exclude)…", globs) from a query string
 		args = append(args, "--", ":(literal)"+file)
 	}
-	out, err := confine.GitCmd(ctx, confine.Cmd{Dir: s.gitDir, ReadOnlyDir: true, Timeout: fullDiffTime, MaxOutput: fullPatchCap + 1}, args...)
+	b, err := confine.GitBytes(ctx, confine.Cmd{Dir: s.gitDir, ReadOnlyDir: true, Timeout: fullDiffTime, MaxOutput: fullPatchCap + 1}, args...)
 	if err != nil {
+		s.mu.Lock()
+		gone := s.closed // the session ended under us: its private dir is going
+		s.mu.Unlock()
+		if gone {
+			return nil, false, ErrNoDiff
+		}
 		return nil, false, err
 	}
-	b := []byte(out)
-	if len(b) > fullPatchCap {
+	if len(b) > fullPatchCap { // cut in place: no copy
 		b, truncated = b[:fullPatchCap], true
 		if i := bytes.LastIndexByte(b, '\n'); i > 0 {
 			b = b[:i+1]

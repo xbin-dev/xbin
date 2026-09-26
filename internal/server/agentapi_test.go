@@ -180,7 +180,12 @@ func TestDecodePrompt(t *testing.T) {
 		t.Fatalf("files only: %+v %v", p, err)
 	}
 	many := `{"text":"x","attachments":[` + strings.TrimSuffix(strings.Repeat(`{"name":"a","data":""},`, agent.MaxAttachments+1), ",") + `]}`
-	bigImg := append(append([]byte(nil), png...), make([]byte, agent.MaxImageBytes)...)
+	bigImg := append(append([]byte(nil), png...), make([]byte, agent.MaxFileBytes)...)
+	// an image too big to go inline is still taken: a file for the agent
+	overInline := append(append([]byte(nil), png...), make([]byte, agent.MaxImageBytes)...)
+	if p, _, err := decodePrompt(strings.NewReader(fmt.Sprintf(`{"attachments":[{"name":"a.png","data":%q}]}`, b64(overInline)))); err != nil || len(p.Attachments) != 1 || p.Attachments[0].Mime != "image/png" {
+		t.Fatalf("an image over the inline limit: %v", err)
+	}
 	for _, c := range []struct {
 		body string
 		code int
@@ -199,5 +204,38 @@ func TestDecodePrompt(t *testing.T) {
 	r := httptest.NewRequest("POST", "/", strings.NewReader(`{"text":"`+strings.Repeat("x", maxPromptBody)+`"}`))
 	if _, code, err := decodePrompt(http.MaxBytesReader(w, r.Body, maxPromptBody)); err == nil || code != 413 {
 		t.Fatalf("over the body cap: %d %v", code, err)
+	}
+}
+
+// The routes an agent may not call on its own session refuse the session's
+// own terminal token (its sandbox's XBIN_TOKEN) — only that: another
+// shell's token of the same user and tile, a browser, the owner pass.
+func TestSelfDriven(t *testing.T) {
+	self := func(id, tok string) bool { return id == "a1" && tok == "own" }
+	req := func(auth string) *http.Request {
+		r := httptest.NewRequest("POST", "/", nil)
+		if auth != "" {
+			r.Header.Set("Authorization", auth)
+		}
+		return r
+	}
+	shell := auth.Principal{Component: "apps/x", UserID: "alice", Via: "terminal"}
+	if !selfDriven(shell, req("Bearer own"), "a1", self) {
+		t.Fatal("the session's own token")
+	}
+	for _, c := range []struct {
+		p    auth.Principal
+		auth string
+		id   string
+	}{
+		{shell, "Bearer other", "a1"}, // a shell's token (bx agent in a terminal)
+		{shell, "Bearer own", "a2"},   // its token, another session
+		{shell, "", "a1"},             // no bearer
+		{auth.Principal{Owner: true, Via: "bearer"}, "Bearer own", "a1"}, // not a terminal principal
+		{auth.Principal{UserID: "alice", Via: "session"}, "", "a1"},
+	} {
+		if selfDriven(c.p, req(c.auth), c.id, self) {
+			t.Errorf("%+v %q %s refused", c.p, c.auth, c.id)
+		}
 	}
 }

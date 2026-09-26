@@ -366,6 +366,11 @@ type SpawnParams struct {
 	Argv []string `json:"argv"`
 	Env  []string `json:"env"`
 	Cwd  string   `json:"cwd"`
+	// AttachDir is where the host drops a prompt's files when the daemon
+	// owns that directory (isolation off: the host shares xbind's /tmp and
+	// is SIGKILLed at the end, so the daemon removes it). "" = the host
+	// makes one under the sandbox's own /tmp.
+	AttachDir string `json:"attachDir,omitempty"`
 }
 
 type HelloParams struct {

@@ -107,7 +107,7 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 // session. Creator only (the new session is the caller's). → {session,
 // resumed}.
 func (s *Server) apiAgentRestart(w http.ResponseWriter, r *http.Request) {
-	id, ok := s.drive(w, r)
+	id, ok := s.driveOther(w, r)
 	if !ok {
 		return
 	}
@@ -142,6 +142,32 @@ func (s *Server) drive(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return id, true
 }
 
+// driveOther is drive for the routes an agent may not call on its own
+// session from inside its sandbox. The sandbox's XBIN_TOKEN is a terminal
+// token of the same user and tile, which drive accepts (a shell's `bx
+// agent` drives a session so); with the session's own token the agent
+// would answer its own permission requests and questions, change its own
+// settings or pickers, prompt itself after its turn, or loop on the full
+// diff. 403.
+func (s *Server) driveOther(w http.ResponseWriter, r *http.Request) (string, bool) {
+	id, ok := s.drive(w, r)
+	if ok && selfDriven(auth.PrincipalOf(r), r, id, s.Term.SelfToken) {
+		apiErr(w, http.StatusForbidden, "an agent session cannot drive itself from its own sandbox")
+		return "", false
+	}
+	return id, ok
+}
+
+// selfDriven reports whether a request carries session id's own terminal
+// token (the Bearer credential a terminal principal came from).
+func selfDriven(p auth.Principal, r *http.Request, id string, self func(id, tok string) bool) bool {
+	if p.Via != "terminal" {
+		return false
+	}
+	tok, found := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	return found && self(id, strings.TrimSpace(tok))
+}
+
 // agentStatus maps the term package's errors to HTTP statuses.
 func agentStatus(err error) int {
 	switch {
@@ -149,7 +175,8 @@ func agentStatus(err error) int {
 		return http.StatusNotFound
 	case errors.Is(err, term.ErrForbidden):
 		return http.StatusForbidden
-	case errors.Is(err, term.ErrNotAgent), errors.Is(err, agent.ErrBusy), errors.Is(err, agent.ErrEnded), errors.Is(err, agent.ErrResumeUnsupported):
+	case errors.Is(err, term.ErrNotAgent), errors.Is(err, agent.ErrBusy), errors.Is(err, agent.ErrEnded), errors.Is(err, agent.ErrResumeUnsupported),
+		errors.Is(err, agent.ErrCancelled):
 		return http.StatusConflict
 	}
 	return http.StatusBadRequest
@@ -252,12 +279,20 @@ func (s *Server) apiAgentDelete(w http.ResponseWriter, r *http.Request) {
 const maxPromptBody = 32 << 20
 
 // apiAgentPrompt starts a turn: {text, attachments?:[{name, mime, data}]}
-// → {turn}. 409 while one runs; 413 past the attachment limits.
+// → {turn}. 409 while one runs or is being taken (before the body is read:
+// one prompt's files in memory per session); 413 past the attachment
+// limits.
 func (s *Server) apiAgentPrompt(w http.ResponseWriter, r *http.Request) {
-	id, ok := s.drive(w, r)
+	id, ok := s.driveOther(w, r)
 	if !ok {
 		return
 	}
+	release, err := s.Term.ReservePrompt(id)
+	if err != nil {
+		apiErr(w, agentStatus(err), err.Error())
+		return
+	}
+	defer release()
 	p, code, err := decodePrompt(http.MaxBytesReader(w, r.Body, maxPromptBody))
 	if err != nil {
 		apiErr(w, code, err.Error())
@@ -334,7 +369,7 @@ func (s *Server) apiAgentCancel(w http.ResponseWriter, r *http.Request) {
 // apiAgentPermit answers a permission request: {optionId} or {decision:
 // allow_once|allow_always|reject_once|reject_always}. First answer wins.
 func (s *Server) apiAgentPermit(w http.ResponseWriter, r *http.Request) {
-	id, ok := s.drive(w, r)
+	id, ok := s.driveOther(w, r)
 	if !ok {
 		return
 	}
@@ -359,7 +394,7 @@ func (s *Server) apiAgentPermit(w http.ResponseWriter, r *http.Request) {
 // {action: accept | decline | cancel, content?} — content the form's values
 // on accept. First answer wins (404 after).
 func (s *Server) apiAgentElicit(w http.ResponseWriter, r *http.Request) {
-	id, ok := s.drive(w, r)
+	id, ok := s.driveOther(w, r)
 	if !ok {
 		return
 	}
@@ -391,7 +426,7 @@ func (s *Server) apiAgentElicit(w http.ResponseWriter, r *http.Request) {
 // (model, effort, …): {id, value}. The refreshed options ride the next
 // status event.
 func (s *Server) apiAgentSetOption(w http.ResponseWriter, r *http.Request) {
-	id, ok := s.drive(w, r)
+	id, ok := s.driveOther(w, r)
 	if !ok {
 		return
 	}
@@ -489,7 +524,7 @@ func (s *Server) apiAgentLog(w http.ResponseWriter, r *http.Request) {
 // it to one file → text/x-diff (a git patch; X-Truncated: true when cut at
 // 16 MiB). 404 when the session kept no snapshot for it.
 func (s *Server) apiAgentDiff(w http.ResponseWriter, r *http.Request) {
-	id, ok := s.drive(w, r)
+	id, ok := s.driveOther(w, r)
 	if !ok {
 		return
 	}
