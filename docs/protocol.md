@@ -106,6 +106,25 @@ GET  /login?impersonate=<tok>    redeems a view-as ticket (POST /api/xbin/
                                  impersonate): the signed-in minting admin's
                                  cookie becomes a read-only session as the
                                  user → 302 / (D64)
+GET  /login?ticket=<t>&next=<path>
+                                 signed-in Safari: redeems a one-shot
+                                 ticket the app's device session minted
+                                 (POST /api/xbin/web-ticket) into an
+                                 ordinary cookie session of the same user
+                                 → 302 <path> (the ticket's own next).
+                                 Single use, 60 s. 403 when another page
+                                 started the navigation (Fetch Metadata
+                                 Sec-Fetch-Site other than none — login
+                                 CSRF), when the browser is signed in as
+                                 someone else (the same user is let
+                                 through without a new session), when next
+                                 was altered, or once the device session,
+                                 the device or the account is gone (or an
+                                 SSO-bound account's window closed, D93).
+                                 The session ends with the device and the
+                                 app's sign-out and keeps the device
+                                 login's time (docs/auth.md §Device login).
+                                 Throttled; audit-logged
 POST /login/invite               {invite,password,password2} form → redeems the
                                  invite (sets the password, consumes the link),
                                  signs the user in (throttled)
@@ -848,6 +867,27 @@ GET    /devices                   a signed-in user. {devices: [{id, name,
 DELETE /devices/<id>              the device's user, or admin/xbin:users
                                    → {ok, user, dropped}: removes the key
                                    and ends every session it opened (and
+POST   /web-ticket                the app's device-key session (via
+                                   device) only — not a browser, the
+                                   app's password/SSO session, a tile, a
+                                   terminal or the owner token (403).
+                                   [{next}] → {url: "<device origin>/
+                                   login?ticket=<t>&next=<path>", expires,
+                                   expiresIn: 60}: signed-in Safari — the
+                                   app opens url top-level and GET /login?
+                                   ticket= (Core) signs that browser in as
+                                   the same user, landing on next. next: a
+                                   path on this workspace (one leading
+                                   slash, printable ASCII, no backslash,
+                                   ≤ 2048, not /login… or /logout;
+                                   default /), else 400. The
+                                   ticket is one-shot (60 s) and bound to
+                                   the device session: the app signing
+                                   out, removing the device, sign-out-
+                                   everywhere and disabling void it. 403
+                                   {reauth:"sso"} for an SSO-bound account
+                                   past its window (D93); 10 per minute
+                                   per device (429 + Retry-After); audited
                                    the frame and asset tokens they minted)
                                    and its push registration
 GET    /users/<id>/devices        admin/xbin:users. {devices: […]} as
@@ -926,7 +966,10 @@ GET    /sessions                  admin/xbin:users. {sessions: [{user, name,
                                    session = a browser, device = the
                                    native app signed in with a device key
                                    — device names it — app = the app's
-                                   password/SSO sign-in; impersonatedBy: an
+                                   password/SSO sign-in; a browser the app
+                                   signed in (POST /web-ticket) is session
+                                   with device set, created = the device
+                                   login's; impersonatedBy: an
                                    admin's read-only view of the user, D64) with
                                    client IPs (login IP + last-seen IP),
                                    newest activity first; the caller's own

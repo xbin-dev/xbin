@@ -61,6 +61,15 @@ POST /api/xbin/devices/enroll-code          Authorization: Bearer <token>
 The browser path is held to the same rule (the shell asks for the password
 when the sign-in is older).
 
+**Adding another device from an enrolled one.** A device login (§3) is a
+fresh signature with the enclave key, behind Face ID, so it counts as the
+step-up: within **10 minutes** of `POST /login/device` the app mints a code
+with its device session and no password — show it as a QR code for the
+second device (it redeems it exactly like the browser's). The 10 minutes
+count from the device login, not from the app's launch: past them, sign in
+with the key again (a new challenge, one Face ID prompt) rather than
+asking for the password, unless the user prefers to type it.
+
 **Redeem** (no credential — the code is one):
 
 ```
@@ -190,6 +199,30 @@ POST /login/ticket
 - The device list: `GET /api/xbin/devices` → `{"devices": [{"id", "name",
   "platform", "origin", "created", "lastUsed", "lastIP", "current"}]}`
   (`current`: the device this session signed in with).
+
+**Opening the workspace in Safari, signed in.** Only a device-key session
+(§3) may do this — not the §5 password/SSO session:
+
+```
+POST /api/xbin/web-ticket                    Authorization: Bearer <device session>
+{"next": "/c/apps/calendar/"}                optional; default "/"
+→ 200 {"url": "<origin>/login?ticket=<t>&next=<path>", "expires": <unix>, "expiresIn": 60}
+  400  next is not a path on this workspace (one leading "/", printable ASCII —
+       percent-encode the rest — no "\", ≤ 2048 characters, not /login… or /logout)
+  403  not a device session, or the device was removed
+  403  {"error", "reauth": "sso"}   an SSO-bound account past its window (§3)
+  429  more than 10 per minute from this device (Retry-After)
+```
+
+Open `url` **at once, as is** in `SFSafariViewController` (not a web view
+of the app, not by redirecting through another page): it is single use, lives
+60 seconds, and the redeem refuses a navigation another page started (Fetch
+Metadata `Sec-Fetch-Site` other than `none`) and a browser already signed in
+as someone else — it then shows a short text page saying why. The browser
+session it opens belongs to this device: signing the app out of the
+workspace (`POST /logout` with the bearer) or removing the device ends it,
+and it keeps the device login's time and cap (it is not a fresh sign-in).
+`origin` is the device's enrollment origin (§4).
 
 ## 7. Test vector
 

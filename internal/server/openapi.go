@@ -254,6 +254,13 @@ func endpoints() []ep {
 		{"POST", "/devices/enroll", "Devices", "Enroll a device (the app)", "none (the enrollment code is the credential; throttled)",
 			"Registers the app's device key for the user the code was minted by. publicKey: SPKI DER of an EC P-256 key, base64url without padding (validated before the code is spent). The code is single-use; a wrong one counts against the login throttle. 409 past 32 devices per user.",
 			nil, jsonBody("enrollment", oapi{"code": str("from the xbin://enroll link"), "name": str("shown in device lists (≤ 64 chars)"), "platform": str("ios | ipados | android | …"), "publicKey": str("SPKI DER, base64url")}, "code", "publicKey"), "{deviceId, user, origin, name}"},
+		{"POST", "/web-ticket", "Devices", "Open the workspace in a browser, signed in (the app)", "the app's device-key session (via device) only",
+			"Signed-in Safari: a one-shot ticket (60 s) the app opens top-level — url is <device origin>/login?ticket=<t>&next=<path>, and GET /login?ticket= turns it into an ordinary browser session of the same user, landing on next. Only a device-key session mints (not a browser, the app's password/SSO session, a tile, a terminal or the owner token → 403). The ticket is bound to that device session: the app signing out, removing the device, sign-out-everywhere and disabling the account void it, and the browser session it opens ends with the device and the app's sign-out, keeps the device login's time (the enrollment step-up counts from the Face ID sign-in) and its SSO window (D93; 403 {reauth:\"sso\"} past it). next: a path on this workspace — one leading slash, printable ASCII, no backslash, ≤ 2048, not /login… or /logout (400 otherwise); default /. The redeem refuses a navigation another page started (Sec-Fetch-Site other than none), a browser signed in as someone else, and an altered next. 10 per minute per device (429 + Retry-After); failed redeems count against the login throttle.",
+			nil, func() oapi {
+				b := jsonBody("where to land (optional)", oapi{"next": str("a path on this workspace, e.g. /c/apps/x/ (default /)")})
+				b["required"] = false
+				return b
+			}(), "{url: \"<origin>/login?ticket=…&next=…\", expires, expiresIn}"},
 		{"GET", "/devices", "Devices", "Your enrolled devices", "a signed-in user",
 			"The caller's app devices, oldest first. current marks the device behind the calling app session. The public key is never returned.",
 			nil, nil, "{devices:[{id,name,platform,origin,created,lastUsed,lastIP,current}]}"},

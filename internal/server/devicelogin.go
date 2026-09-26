@@ -26,6 +26,7 @@ import (
 //	POST /api/xbin/login                 the app's password sign-in → a bearer session
 //	GET  /login/sso?app=1&challenge=…    the app's SSO sign-in → xbin://sso?ticket=…
 //	POST /login/ticket                   ticket + PKCE verifier → a bearer session
+//	POST /api/xbin/web-ticket            the app's device session → a one-shot browser sign-in URL (webticket.go)
 //
 // Every session minted here is the same human session a browser login gets
 // (same TTLs, same principal), carried as Authorization: Bearer; it is used
@@ -44,6 +45,7 @@ func (s *Server) registerDeviceLogin(handleFunc func(string, http.HandlerFunc)) 
 	s.RegisterPublicAPI("POST /login", s.apiAppLogin)
 	s.RegisterPublicAPI("POST /devices/enroll", s.apiDeviceEnroll)
 	s.RegisterAPI("POST /devices/enroll-code", s.apiEnrollCode)
+	s.RegisterAPI("POST /web-ticket", s.apiWebTicket) // signed-in Safari (webticket.go)
 }
 
 // RegisterPublicAPI mounts an /api/xbin route that needs NO principal: its
