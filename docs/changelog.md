@@ -226,7 +226,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   admins — never a tile's frame token or a backend's instance token, which
   before received the driving user's, respectively the owner's,
   transcripts. Prompt, permissions, elicitations, options, restart and
-  diff answer 403 to the session's own sandbox token.
+  diff answer 403 to an agent sandbox's token on any agent session — its
+  own or a sibling's — and `POST /term/sessions` refuses it, so agents
+  can't approve each other's requests either.
 - **agent template: one model, thin views, and a native view** (D96,
   builtin-templates/agent/API.md). Running instances are copies and are
   unaffected.

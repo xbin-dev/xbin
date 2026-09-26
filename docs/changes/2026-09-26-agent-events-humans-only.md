@@ -20,18 +20,21 @@ token names no user, which read as "owner" — received the owner's.
 
 Also: an agent session's own sandbox token (the `XBIN_TOKEN` inside the
 agent's sandbox) gets **403** on `prompt`, `permissions`, `elicitations`,
-`options`, `restart` and `diff` of that same session, so an agent can't
-approve its own permission requests or change its own settings. Another
-terminal of the same user on the same tile still drives the session.
+`options`, `restart` and `diff` of **any** agent session — its own and
+every other — and on `POST /term/sessions`, so an agent can't approve its
+own permission requests or change its own settings, and can't do it
+through a sibling either (opening one in a bypass mode, or using one
+already open on the tile, and having the two answer each other). A shell
+terminal of the same user on the same tile still drives the sessions.
 
 ## Who's affected
 
 - A tile (frontend or backend) that subscribed to `/ws/events` and read
   `term` or `session` events. No tile or template in this repository does;
   the shell and the app subscribe as the user.
-- A script run *inside an agent session's own sandbox* that drove that
-  session through the API (for example an agent calling `bx agent permit`
-  on itself).
+- A script run *inside an agent session's sandbox* that opened or drove
+  agent sessions through the API (for example an agent calling `bx agent
+  permit` on itself, or `bx agent run` to start a helper agent).
 
 ## How to migrate
 
@@ -39,8 +42,8 @@ terminal of the same user on the same tile still drives the session.
   open the Agent tab or use `bx agent` from a terminal on the tile. There is
   no supported way for a tile to follow a user's sessions — that was the
   leak.
-- Drive a session from a shell terminal on the tile (its token is not the
-  session's own), not from inside the agent.
+- Drive and open agent sessions from a shell terminal on the tile (its
+  token is not an agent's), not from inside an agent.
 
 ## Why
 

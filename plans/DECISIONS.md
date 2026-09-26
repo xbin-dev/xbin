@@ -2889,9 +2889,15 @@ Deviations and refinements made while implementing; all deliberate:
     "owner") follow the owner's — a pre-existing D73/D74 leak that the new
     status op widened (plans/auth.md default-deny for element principals).
   - **An agent does not drive itself**: prompt, permissions, elicitations,
-    options, restart and diff answer 403 to the session's own sandbox
-    token, so it can't approve its own permission requests; a shell's
-    token on the same tile still drives it (`bx agent`).
+    options, restart and diff answer 403 to any agent session's own
+    sandbox token — on every session, not just its own — and `POST
+    /term/sessions` refuses it, so it can't approve its own permission
+    requests or change its own settings, directly or through a sibling
+    (one it opens in a bypass mode with wider pickers, or one already open
+    on the tile, the two answering each other). A shell's token on the
+    same tile still drives it (`bx agent`). Rejected: clamping a sibling
+    to its creator's mode and pickers (two agents opened by the person
+    would still approve each other's requests).
   - **Prompts carry files**, written inside the agent's sandbox (or a
     directory xbind owns and removes when isolation is off) and named by
     path; images go inline up to 3.75 MiB each and 4 MiB per prompt and

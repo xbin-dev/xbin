@@ -141,30 +141,37 @@ func (t *stubTokens) MintTerminal(component, userID string) string {
 }
 func (t *stubTokens) RevokeTerminal(string) {}
 
-// SelfToken recognises the session's own terminal token (its sandbox's
-// XBIN_TOKEN) and nothing else: another session's, an empty one.
-func TestAgentSelfToken(t *testing.T) {
+// AgentToken recognises a live agent session's own terminal token (its
+// sandbox's XBIN_TOKEN) — any agent session's — and nothing else: a token
+// no session holds, an empty one, and none once the session is gone.
+func TestAgentToken(t *testing.T) {
 	r := newAgentRig(t)
 	r.m.Tokens = &stubTokens{}
-	info, code, err := r.m.OpenAgent(auth.Principal{Owner: true}, "apps/x", "", "fake", "", "", "", nil)
+	a, code, err := r.m.OpenAgent(auth.Principal{Owner: true}, "apps/x", "", "fake", "", "", "", nil)
 	if err != nil || code != 200 {
 		t.Fatalf("open: %d %v", code, err)
 	}
-	defer func() {
-		r.m.Kill(info.ID)
-		waitClose(t, r.change, "close:"+info.ID)
-	}()
-	if !r.m.SelfToken(info.ID, "tok-apps/x-1") {
-		t.Fatal("the session's own token")
+	b, code, err := r.m.OpenAgent(auth.Principal{Owner: true}, "apps/x", "", "fake", "", "", "", nil)
+	if err != nil || code != 200 {
+		t.Fatalf("open: %d %v", code, err)
 	}
-	for _, tok := range []string{"", "tok-apps/x-2", "tok-apps/x-1 "} {
-		if r.m.SelfToken(info.ID, tok) {
-			t.Fatalf("%q taken for the session's own", tok)
+	for _, tok := range []string{"tok-apps/x-1", "tok-apps/x-2"} {
+		if !r.m.AgentToken(tok) {
+			t.Fatalf("%q: an agent session's own token", tok)
 		}
 	}
-	if r.m.SelfToken("nope", "tok-apps/x-1") {
-		t.Fatal("an unknown session")
+	for _, tok := range []string{"", "tok-apps/x-3", "tok-apps/x-1 "} {
+		if r.m.AgentToken(tok) {
+			t.Fatalf("%q taken for an agent's", tok)
+		}
 	}
+	r.m.Kill(a.ID)
+	waitClose(t, r.change, "close:"+a.ID)
+	if r.m.AgentToken("tok-apps/x-1") {
+		t.Fatal("an ended session's token")
+	}
+	r.m.Kill(b.ID)
+	waitClose(t, r.change, "close:"+b.ID)
 }
 
 // xbind stopping (FlushAgents) leaves nothing of a live session in its

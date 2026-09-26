@@ -262,7 +262,9 @@ target.
 
 **`bx agent`** — drives an **agent session** (docs/overview/09-terminals.md
 §Agent sessions): `run` opens one on a tile (inside a tile's terminal the
-tile is implied and the terminal's own token is accepted for it), sends the
+tile is implied and the terminal's own token is accepted for it — not
+inside an agent session's sandbox: an agent's token opens and drives no
+agent session, D97), sends the
 prompt and follows the stream until the turn ends — exit 0 on `end_turn`,
 3 on a refusal or error, 130 when cancelled. Kill the client any time: the
 session keeps running, `bx agent attach <id>` replays it from the start

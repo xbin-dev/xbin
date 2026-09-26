@@ -91,6 +91,10 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 	if len(body.Name) > 64 {
 		body.Name = body.Name[:64]
 	}
+	if agentDriven(auth.PrincipalOf(r), r, s.Term.AgentToken) {
+		apiErr(w, http.StatusForbidden, "an agent session cannot open agent sessions from its sandbox")
+		return
+	}
 	info, code, err := s.Term.OpenAgentWith(auth.PrincipalOf(r), term.AgentOpen{Cwd: body.Cwd, Net: body.Net, GPU: body.GPU,
 		NoAPI: body.API != nil && !*body.API, VM: body.VM, Provider: body.Provider, Mode: body.Mode, Name: body.Name, Resume: body.Resume, Options: body.Options})
 	if err != nil {
@@ -142,30 +146,33 @@ func (s *Server) drive(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return id, true
 }
 
-// driveOther is drive for the routes an agent may not call on its own
-// session from inside its sandbox. The sandbox's XBIN_TOKEN is a terminal
-// token of the same user and tile, which drive accepts (a shell's `bx
-// agent` drives a session so); with the session's own token the agent
-// would answer its own permission requests and questions, change its own
-// settings or pickers, prompt itself after its turn, or loop on the full
-// diff. 403.
+// driveOther is drive for the routes an agent may not call from inside an
+// agent sandbox. The sandbox's XBIN_TOKEN is a terminal token of the same
+// user and tile, which drive accepts (a shell's `bx agent` drives a session
+// so); with it an agent would answer its own permission requests and
+// questions, change its own settings or pickers, prompt itself after its
+// turn, or loop on the full diff — and, refused only on its own session,
+// do all that through a sibling: open one (POST /term/sessions refuses
+// agent tokens too) or use one already open on the tile, and have the two
+// approve each other's requests and restart each other. So every agent
+// session's own token is refused, on every session. 403.
 func (s *Server) driveOther(w http.ResponseWriter, r *http.Request) (string, bool) {
 	id, ok := s.drive(w, r)
-	if ok && selfDriven(auth.PrincipalOf(r), r, id, s.Term.SelfToken) {
-		apiErr(w, http.StatusForbidden, "an agent session cannot drive itself from its own sandbox")
+	if ok && agentDriven(auth.PrincipalOf(r), r, s.Term.AgentToken) {
+		apiErr(w, http.StatusForbidden, "an agent session cannot drive agent sessions from its sandbox")
 		return "", false
 	}
 	return id, ok
 }
 
-// selfDriven reports whether a request carries session id's own terminal
-// token (the Bearer credential a terminal principal came from).
-func selfDriven(p auth.Principal, r *http.Request, id string, self func(id, tok string) bool) bool {
+// agentDriven reports whether a request carries an agent session's own
+// terminal token (the Bearer credential a terminal principal came from).
+func agentDriven(p auth.Principal, r *http.Request, isAgent func(tok string) bool) bool {
 	if p.Via != "terminal" {
 		return false
 	}
 	tok, found := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	return found && self(id, strings.TrimSpace(tok))
+	return found && isAgent(strings.TrimSpace(tok))
 }
 
 // agentStatus maps the term package's errors to HTTP statuses.

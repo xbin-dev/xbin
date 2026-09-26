@@ -207,11 +207,14 @@ func TestDecodePrompt(t *testing.T) {
 	}
 }
 
-// The routes an agent may not call on its own session refuse the session's
-// own terminal token (its sandbox's XBIN_TOKEN) — only that: another
-// shell's token of the same user and tile, a browser, the owner pass.
-func TestSelfDriven(t *testing.T) {
-	self := func(id, tok string) bool { return id == "a1" && tok == "own" }
+// The routes an agent may not call from its sandbox refuse any agent
+// session's own terminal token (its sandbox's XBIN_TOKEN) — on every
+// session, not only its own (review: an agent opened a sibling, or used
+// one already open, and the two answered each other's permission requests).
+// Another shell's token of the same user and tile, a browser, the owner
+// pass.
+func TestAgentDriven(t *testing.T) {
+	isAgent := func(tok string) bool { return tok == "agent-a" || tok == "agent-b" }
 	req := func(auth string) *http.Request {
 		r := httptest.NewRequest("POST", "/", nil)
 		if auth != "" {
@@ -220,22 +223,22 @@ func TestSelfDriven(t *testing.T) {
 		return r
 	}
 	shell := auth.Principal{Component: "apps/x", UserID: "alice", Via: "terminal"}
-	if !selfDriven(shell, req("Bearer own"), "a1", self) {
-		t.Fatal("the session's own token")
+	for _, tok := range []string{"agent-a", "agent-b"} {
+		if !agentDriven(shell, req("Bearer "+tok), isAgent) {
+			t.Fatalf("an agent's own token (%s)", tok)
+		}
 	}
 	for _, c := range []struct {
 		p    auth.Principal
 		auth string
-		id   string
 	}{
-		{shell, "Bearer other", "a1"}, // a shell's token (bx agent in a terminal)
-		{shell, "Bearer own", "a2"},   // its token, another session
-		{shell, "", "a1"},             // no bearer
-		{auth.Principal{Owner: true, Via: "bearer"}, "Bearer own", "a1"}, // not a terminal principal
-		{auth.Principal{UserID: "alice", Via: "session"}, "", "a1"},
+		{shell, "Bearer shell"}, // a shell's token (bx agent in a terminal)
+		{shell, ""},             // no bearer
+		{auth.Principal{Owner: true, Via: "bearer"}, "Bearer agent-a"}, // not a terminal principal
+		{auth.Principal{UserID: "alice", Via: "session"}, ""},
 	} {
-		if selfDriven(c.p, req(c.auth), c.id, self) {
-			t.Errorf("%+v %q %s refused", c.p, c.auth, c.id)
+		if agentDriven(c.p, req(c.auth), isAgent) {
+			t.Errorf("%+v %q refused", c.p, c.auth)
 		}
 	}
 }

@@ -216,14 +216,24 @@ func (m *Manager) MayDrive(id string, p auth.Principal) error {
 	return nil
 }
 
-// SelfToken reports whether tok is session id's own terminal token — the
-// XBIN_TOKEN its sandbox holds (the server keeps an agent from driving its
-// own session with it).
-func (m *Manager) SelfToken(id, tok string) bool {
+// AgentToken reports whether tok is a live agent session's own terminal
+// token — the XBIN_TOKEN its sandbox holds. The server keeps such a token
+// from opening or driving any agent session: per session only, an agent
+// would open a sibling (in a bypass mode, with wider pickers) and have the
+// two answer each other's permission requests and restart each other. A
+// shell's token is not an agent's.
+func (m *Manager) AgentToken(tok string) bool {
+	if tok == "" {
+		return false
+	}
 	m.mu.Lock()
-	s := m.sessions[id]
-	m.mu.Unlock()
-	return s != nil && s.token != "" && subtle.ConstantTimeCompare([]byte(s.token), []byte(tok)) == 1
+	defer m.mu.Unlock()
+	for _, s := range m.sessions {
+		if s.kind == KindAgent && s.token != "" && subtle.ConstantTimeCompare([]byte(s.token), []byte(tok)) == 1 {
+			return true
+		}
+	}
+	return false
 }
 
 // createAgent is create() for the agent kind: pipes instead of a PTY, the

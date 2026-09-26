@@ -1676,7 +1676,8 @@ status (bx-terminal can't see it) and resets the emulator before every
 replay. Images past the inline limits (3.75 MiB each, 4 MiB per prompt)
 become files the agent opens (`inline:false`) instead of a 400. Status
 changes ride `term` op `status`; `term`/`session` events reach humans only,
-and a session's own sandbox token may not drive it. The app has no
+and no agent sandbox's token may open or drive an agent session (its own
+or a sibling's). The app has no
 `/ws/events` socket yet: Needs-you comes from the session directory and
 pushes, and native runtimes don't reload live on file changes.
 

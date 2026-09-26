@@ -601,7 +601,8 @@ GET    /agent/providers           authenticated. the coding agents this daemon
                                    that signs the CLI in — the agent uses the
                                    session's $HOME, no vault key)
 POST   /term/sessions             terminal-level on the tile (a shell's own
-                                   terminal token counts). {cwd, kind:"agent",
+                                   terminal token counts; an agent
+                                   sandbox's never — 403). {cwd, kind:"agent",
                                    provider, mode?, model?, options?, net?,
                                    api?, gpu?, name?, resume?} → SessionInfo
                                    (kind agent, status starting): an AGENT
@@ -722,11 +723,13 @@ GET    /term/sessions/<id>/diff   creator or admin. ?toolCallId=<id> |
                                    across xbind: a request past that waits
                                   (prompt, permissions, elicitations,
                                    options, restart and diff answer 403 to
-                                   the session's own terminal token — its
-                                   sandbox's XBIN_TOKEN: an agent never
-                                   answers its own requests or drives
-                                   itself; a shell's token on the tile
-                                   still does, as `bx agent` there)
+                                   any agent session's own terminal token —
+                                   an agent sandbox's XBIN_TOKEN, on every
+                                   session, its own or another's: an agent
+                                   never answers its own requests or drives
+                                   itself, not through a sibling either; a
+                                   shell's token on the tile still does,
+                                   as `bx agent` there)
 GET    /agent/history             terminal-level. Your past agent sessions,
                                    newest first: [{id, cwd, provider, mode,
                                    name, created, ended, turns, preview,
