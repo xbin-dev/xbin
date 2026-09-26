@@ -38,6 +38,9 @@ type session struct {
 	// login in SSO-only mode lives no longer than the IdP's last word
 	// (the user's last SSO sign-in + sessionAbsTTL; devicelogin.go).
 	notAfter time.Time
+	// opener is the device session a browser session was handed over from
+	// (a web ticket, webticket.go): signing the app out ends it too.
+	opener string
 	// Impersonation (impersonate.go): who is looking, and how to hand the
 	// browser back to them when they stop — their own session id, or the
 	// owner token when they came in on the bootstrap cookie.
@@ -165,12 +168,18 @@ func (a *Auth) DropSession(id string) {
 
 // DropBearerSession ends an app session by its token (the app's sign-out),
 // reporting whose it was — the user and, for a device-key login, the
-// enrolled device. ok=false when tok is not a live bearer session.
+// enrolled device. The browser sessions it handed over to (web tickets)
+// end with it. ok=false when tok is not a live bearer session.
 func (a *Auth) DropBearerSession(tok string) (userID, deviceID string, ok bool) {
 	a.mu.Lock()
 	s, ok := a.sessions[tok]
 	if ok && s.bearer {
 		a.dropSessionLocked(tok)
+		for id, c := range a.sessions {
+			if c.opener == tok {
+				a.dropSessionLocked(id)
+			}
+		}
 	}
 	a.mu.Unlock()
 	if !ok || !s.bearer {
