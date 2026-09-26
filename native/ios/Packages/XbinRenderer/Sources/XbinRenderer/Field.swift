@@ -38,7 +38,7 @@ struct FieldNodeView: View {
                                 in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
             if let error = p.nonEmpty("error") {
-                Text(verbatim: error).font(.footnote).foregroundStyle(XbinColor.tone(.danger))
+                Text(verbatim: error).font(.footnote).foregroundStyle(XbinColor.toneText(.danger))
             } else if let hint = p.nonEmpty("hint") {
                 Text(verbatim: hint).font(.footnote).foregroundStyle(XbinColor.muted)
             }

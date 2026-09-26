@@ -61,4 +61,18 @@ import XbinCore
         let (r, g, b) = XbinPalette.components(XbinPalette.amber)
         #expect(abs(r - 245.0 / 255) < 1e-9 && abs(g - 166.0 / 255) < 1e-9 && abs(b - 35.0 / 255) < 1e-9)
     }
+
+    /// Text in a colour role is legible on the light backgrounds (white, the
+    /// grouped background): AA's 4.5:1 for body text on white.
+    @Test func lightTextContrast() {
+        let text = [XbinPalette.amberTextLight, XbinPalette.okTextLight, XbinPalette.warnTextLight,
+                    XbinPalette.dangerTextLight]
+        for c in text {
+            #expect(XbinPalette.contrast(c, 0xFFFFFF) >= 4.5, "\(String(c, radix: 16)) on white")
+            #expect(XbinPalette.contrast(c, 0xF2F2F7) >= 4.1, "\(String(c, radix: 16)) on the grouped background")
+        }
+        // What they replace: systemOrange on white.
+        #expect(XbinPalette.contrast(0xFF9500, 0xFFFFFF) < 2.5)
+        #expect(abs(XbinPalette.contrast(0x000000, 0xFFFFFF) - 21) < 1e-9)
+    }
 }

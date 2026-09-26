@@ -519,12 +519,16 @@ dark-only today; native tokens define both schemes.
 | `accent` (fills) | `#f5a623` | `#f5a623` | tint = xbin amber |
 | `accentText` (text/icons in accent) | `#f5a623` | `#a86400` (4.7:1 on white) | amber, darkened in light |
 | `onAccent` (text on an accent fill) | `#1b1e24` | `#1b1e24` (8.3:1 on amber) | dark label |
-| `ok` | `#4caf50` | `#2e7d32` | `systemGreen` |
-| `warn` | `#f2a71b` | `#9a6700` | `systemOrange` |
-| `danger` | `#ef5350` | `#c62828` | `systemRed` |
+| `ok` | `#4caf50` | `#2e7d32` | `systemGreen`; text in light mode `#2e7d32` |
+| `warn` | `#f2a71b` | `#9a6700` | `systemOrange`; text in light mode `#9a6700` |
+| `danger` | `#ef5350` | `#c62828` | `systemRed`; text in light mode `#c62828` |
 
 (`#f5a623` on white is ≈1.9:1 — never use `accent` for text on light
-backgrounds; that is what `accentText` is for.)
+backgrounds; that is what `accentText` is for. The same holds for the iOS
+system colours: systemGreen and systemOrange are ≈2.2:1 on white, systemRed
+3.6:1, so they colour icons, dots and fills, and text in `ok`/`warn`/`danger`
+— badges, toned `text`, field errors, diff counts — takes the reference's
+light colour in light mode, the system colour in dark mode.)
 
 `tone` props take `muted`, `accent`, `ok`, `warn`, `danger` (the renderer picks
 `accentText`/`onAccent` as the context needs); `notice` also takes `info`, a

@@ -253,7 +253,7 @@ public struct StepView: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(verbatim: step.glyph)
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(step.tone.map(XbinColor.tone) ?? XbinColor.muted)
+                .foregroundStyle(step.tone.map(XbinColor.toneText) ?? XbinColor.muted)
                 .frame(minWidth: 14)
             Text(verbatim: step.text)
                 .font(.footnote)

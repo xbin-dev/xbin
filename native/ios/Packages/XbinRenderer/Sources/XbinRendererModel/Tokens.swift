@@ -118,6 +118,14 @@ public enum XbinPalette {
     public static let amberTextDark: UInt32 = 0xF5A623
     /// `onAccent`: text on an amber fill (8.3:1).
     public static let onAccent: UInt32 = 0x1B1E24
+    /// `ok`, `warn`, `danger` text on light backgrounds: the reference's
+    /// light colours. systemGreen, systemOrange and systemRed stay for
+    /// icons and fills, but as text on white they are ≈2.2:1, 2.2:1 and
+    /// 3.6:1 (a `warn` badge read as a pale smudge); these are ≥ 4.8:1.
+    /// Dark mode keeps the system colours (≥ 6:1 on black).
+    public static let okTextLight: UInt32 = 0x2E7D32
+    public static let warnTextLight: UInt32 = 0x9A6700
+    public static let dangerTextLight: UInt32 = 0xC62828
     /// The user's chat bubble (the reference renderer's `--xb-bubble`).
     public static let bubbleLight: UInt32 = 0xFDE8C2
     public static let bubbleDark: UInt32 = 0x343A44
@@ -128,5 +136,16 @@ public enum XbinPalette {
     /// (red, green, blue) in 0…1.
     public static func components(_ hex: UInt32) -> (Double, Double, Double) {
         (Double((hex >> 16) & 0xFF) / 255, Double((hex >> 8) & 0xFF) / 255, Double(hex & 0xFF) / 255)
+    }
+
+    /// The WCAG contrast ratio of two colours (1…21).
+    public static func contrast(_ a: UInt32, _ b: UInt32) -> Double {
+        func luminance(_ hex: UInt32) -> Double {
+            let (r, g, b) = components(hex)
+            func linear(_ c: Double) -> Double { c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+            return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+        }
+        let (x, y) = (luminance(a), luminance(b))
+        return (max(x, y) + 0.05) / (min(x, y) + 0.05)
     }
 }
