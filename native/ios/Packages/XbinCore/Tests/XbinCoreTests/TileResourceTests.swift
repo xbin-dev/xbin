@@ -98,6 +98,11 @@ import Testing
         #expect(TileResource.pagePath("/api/apps/x/page", tile: "apps/x") == nil)
         #expect(TileResource.pagePath("/c/apps/y/", tile: "apps/x") == nil)
         #expect(TileResource.pagePath("//evil/", tile: "apps/x") == nil)
+        let page = TileResource.pagePath("reports/5/coverage.html#top", tile: "apps/ci")!
+        let u = TileResource.schemeURL(workspace: "W1", path: page)
+        #expect(u?.absoluteString == "xbin-ws://w1/c/apps/ci/reports/5/coverage.html#top")
+        #expect(u.flatMap { TileScheme.serverPath(for: $0, workspace: "w1") } == "/c/apps/ci/reports/5/coverage.html")
+        #expect(TileResource.schemeURL(workspace: "w1", path: "c/x") == nil)
     }
 
     @Test func socketURL() throws {

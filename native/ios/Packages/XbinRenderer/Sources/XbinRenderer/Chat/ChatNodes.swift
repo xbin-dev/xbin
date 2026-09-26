@@ -161,7 +161,7 @@ struct ComposerNodeView: View {
               let attach = cx?.services.attach else { return nil }
         let context = cx
         let n = node
-        let request = XbinAttachRequest(key: node.key, method: Props.text(upload["method"]) ?? "POST", path: path,
+        let request = XbinAttachRequest(key: node.key, method: Props.text(upload["method"]) ?? "PUT", path: path,
                                         accept: p.nonEmpty("accept"))
         return {
             Task { @MainActor in

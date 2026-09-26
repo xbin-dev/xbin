@@ -82,6 +82,14 @@ public enum TileResource {
         return URL(string: origin.webSocketOrigin + path + sep + "frame=" + URLComponent.encode(frameToken))
     }
 
+    /// A resolved page path on the workspace's scheme
+    /// (`xbin-ws://<workspace>/c/<self>/…`): what a canvas island loads
+    /// through the scheme handler.
+    public static func schemeURL(workspace: String, path: String) -> URL? {
+        guard path.hasPrefix("/") else { return nil }
+        return URL(string: "\(TileScheme.scheme)://\(workspace.lowercased())\(path)")
+    }
+
     // MARK: - resolution
 
     struct Resolved: Equatable {
