@@ -64,6 +64,8 @@ if [ "$1" = install ]; then
   mkdir -p "$HOME/Library/LaunchAgents"
   touch "$HOME/Library/LaunchAgents/actions.runner.xbin-dev-xbin.xbin-mini.plist"
 fi
+[ "$1" = start ] && touch "$FAKE_STATE/launchd-actions.runner.xbin-dev-xbin.xbin-mini"
+exit 0
 SH
 chmod +x "$tmp/rt/config.sh" "$tmp/rt/svc.sh"
 tar -czf "$tmp/runner.tar.gz" -C "$tmp/rt" config.sh svc.sh
@@ -177,6 +179,66 @@ setup_env
 FAKE_SLEEP=0 FAKE_AUTOLOGIN=ci run "$S/mac-setup.sh" --check
 has "mac-setup: sleep off is fine" "$out" "ok      system sleep off"
 has "mac-setup: automatic login is fine" "$out" "ok      automatic login (ci)"
+
+# The box, as native/AGENTS.md → "Mac mini" wants it (the fakes' defaults,
+# FileVault on): every line ok, and the inventory.
+me=$(id -un)
+setup_env
+FAKE_SLEEP=0 FAKE_FILEVAULT=On run "$S/mac-setup.sh" --check
+for want in "ok      system sleep off" "ok      restarts after a power loss (pmset autorestart 1)" \
+  "ok      wakes for network access (pmset womp 1)" "ok      restarts after a system freeze" "ok      FileVault on" \
+  "ok      no automatic login (FileVault on: unlocking the disk as ci" "info    users: admin: owner; standard: ci release; this is $me" \
+  "ok      user ci, standard" "ok      user release, standard" "ok      Remote Login on" \
+  "ok      sshd: keys only (PasswordAuthentication no, KbdInteractiveAuthentication no)" "ok      sshd: no root login" \
+  "ok      sshd: AllowUsers owner ci release" "ok      firewall on" "ok      firewall stealth mode on" \
+  "ok      Screen Sharing off" "ok      no Apple ID signed in ($me)" "ok      a display is attached" "ok      disk: 200 GB free" \
+  "info    Xcode 27.0 (27A5000a) $apps/Xcode_27.0.app" "info    SDKs: iphoneos27.0 iphonesimulator27.0" "info    simulator runtimes: iOS"; do
+  has "mac-setup --check, the box: $want" "$out" "$want"
+done
+hasnt "mac-setup --check, the box: no warning about the box" "$(printf '%s\n' "$out" | sed -n '/^--      the box/,$p' | grep '^warn' || true)" "warn"
+hasnt "mac-setup --check, the box: still no sudo" "$(cat "$FAKE_LOG")" "sudo "
+
+# …and one that is none of it: each line says what to do.
+setup_env
+touch "$FAKE_STATE/launchd-com.apple.screensharing"
+printf 'UsePAM yes\n' >"$XBIN_SSHD_CONFIG"
+rm -f "$XBIN_SSHD_CONFIG.d"/*.conf
+FAKE_AUTORESTART=0 FAKE_WOMP=0 FAKE_RESTARTFREEZE=Off FAKE_REMOTELOGIN=Off FAKE_USERS="owner:501 ci:502" FAKE_ADMINS="owner ci" \
+  FAKE_FW=disabled FAKE_STEALTH=off FAKE_SCREENSHARING_USERS="owner ci" FAKE_APPLE_ID=someone@example.com FAKE_DISPLAY=0 \
+  FAKE_DF_AVAIL_KB=10485760 run "$S/mac-setup.sh" --check
+for want in "warn    the Mac may sleep: sudo pmset -a sleep 0" "warn    stays off after a power loss: sudo pmset -a autorestart 1" \
+  "warn    no wake for network access: sudo pmset -a womp 1" "warn    no restart after a system freeze: sudo systemsetup -setrestartfreeze on" \
+  "warn    FileVault off: this Mac holds the release user's App Store Connect key — sudo fdesetup enable" \
+  "warn    ci is an admin (the Actions runner" "warn    no user release (the App Store Connect key" \
+  "warn    Remote Login off: sudo systemsetup -setremotelogin on" \
+  "warn    sshd accepts passwords (PasswordAuthentication yes, KbdInteractiveAuthentication yes" \
+  "warn    sshd: PermitRootLogin prohibit-password" "warn    sshd: no AllowUsers — every account may log in: AllowUsers <admin> ci release" \
+  "warn    firewall off: sudo $XBIN_SOCKETFILTERFW --setglobalstate on" "warn    stealth mode off" \
+  "warn    Screen Sharing lets owner ci in" "warn    an Apple ID is signed in for $me" "warn    no display attached" \
+  "warn    disk: 10 GB free (under 50 GB"; do
+  has "mac-setup --check, a bare box: $want" "$out" "$want"
+done
+setup_env
+FAKE_SYSTEMSETUP_DENIED=1 FAKE_NC=1 run "$S/mac-setup.sh" --check
+has "mac-setup --check as a standard user: restartfreeze unknown" "$out" "info    restart after a freeze: unknown (systemsetup needs an admin"
+has "mac-setup --check as a standard user: Remote Login from the port" "$out" "warn    Remote Login seems off (nothing answers on port 22)"
+setup_env
+FAKE_SYSTEMSETUP_DENIED=1 run "$S/mac-setup.sh" --check
+has "mac-setup --check as a standard user: sshd's port answers" "$out" "ok      Remote Login on (sshd answers on port 22)"
+setup_env
+touch "$FAKE_STATE/launchd-com.apple.screensharing"
+FAKE_SCREENSHARING_USERS=owner run "$S/mac-setup.sh" --check
+has "mac-setup: Screen Sharing for the admin only is fine" "$out" "ok      Screen Sharing on, only for: owner"
+
+# Who holds the runner: never the release user; an admin is warned about.
+setup_env
+XBIN_RELEASE_USER=$me run "$S/mac-setup.sh" --runner-token tok
+has "mac-setup: not as the release user" "$out" "warn    the Actions runner: not as $me"
+hasnt "mac-setup: …nothing registered" "$(cat "$FAKE_LOG")" "config.sh"
+setup_env
+FAKE_ADMINS="owner $me" run "$S/mac-setup.sh" --runner-token tok
+has "mac-setup: an admin's runner is warned about" "$out" "warn    the runner runs as $me, an admin: register it as the standard user ci"
+has "mac-setup: …and the runner reported running" "$out" "ok      runner actions.runner.xbin-dev-xbin.xbin-mini running"
 export HOME=$realhome
 unset FAKE_STATEFUL XBIN_APPLICATIONS FAKE_SDK FAKE_XCODE_SELECT FAKE_LICENSE_STATUS FAKE_FIRSTLAUNCH_STATUS FAKE_SLEEP FAKE_AUTOLOGIN XBIN_RUNNER_SHA256
 
@@ -218,6 +280,118 @@ has "mac-cleanup --job-hook: shuts the simulators down" "$(cat "$FAKE_LOG")" "xc
 run "$S/mac-cleanup.sh" --bogus
 eq "mac-cleanup: an unknown argument fails" "$rc" 2
 export HOME=$realhome
+
+# ---- release-build.sh ----------------------------------------------------
+# In a scratch checkout of its own (a clean git tree), as the release user
+# ($me here: XBIN_RELEASE_USER) with a key in ~/.appstoreconnect.
+if have git; then
+  local_env
+  export HOME=$tmp/rel
+  me=$(id -un)
+  rel=$tmp/relrepo
+  mkdir -p "$rel/native/ios/scripts" "$HOME/.appstoreconnect/private_keys"
+  cp "$S"/*.sh "$rel/native/ios/scripts/"
+  echo "name: Xbin" >"$rel/native/ios/project.yml"
+  printf 'native/ios/*.xcodeproj/\n' >"$rel/.gitignore"
+  git -C "$rel" init -q
+  git -C "$rel" add -A
+  git -C "$rel" -c user.email=dry@test -c user.name=dry commit -qm tree
+  R=$rel/native/ios/scripts/release-build.sh
+  kid=ABCDE12345 iss=0c9d8e7f-1a2b-4c3d-8e9f-0123456789ab team=TEAM123456
+  kdir=$HOME/.appstoreconnect/private_keys
+  k=$kdir/AuthKey_$kid.p8
+  chmod 700 "$kdir"
+  printf -- '-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n' >"$k"
+  chmod 600 "$k"
+  export XBIN_RELEASE_USER=$me XBIN_CI_USER=ci-nobody FAKE_SIMCTL_JSON=$td/simctl-typical.json
+  set -- --team "$team" --key-id "$kid" --issuer "$iss"
+
+  XBIN_CI_USER=$me run "$R" "$@"
+  eq "release-build: never as the CI user" "$rc" 2
+  has "release-build: …says why" "$out" "never as the CI user $me"
+  XBIN_RELEASE_USER=release run "$R" "$@"
+  eq "release-build: only as the release user" "$rc:$(printf '%s' "$out" | grep -c 'run this as release' || true)" "2:1"
+  FAKE_ADMINS="owner $me" run "$R" "$@"
+  eq "release-build: never an admin" "$rc:$(printf '%s' "$out" | grep -c 'is an admin' || true)" "2:1"
+  GITHUB_ACTIONS=true GITHUB_EVENT_NAME=pull_request XBIN_RELEASE_FROM_ACTIONS=1 run "$R" "$@"
+  eq "release-build: never from a pull_request workflow, opt-in or not" "$rc:$(printf '%s' "$out" | grep -c 'never from a pull_request workflow' || true)" "2:1"
+  GITHUB_ACTIONS=true GITHUB_EVENT_NAME=pull_request_target XBIN_RELEASE_FROM_ACTIONS=1 run "$R" "$@"
+  eq "release-build: …nor pull_request_target" "$rc" 2
+  GITHUB_ACTIONS=true GITHUB_EVENT_NAME=push GITHUB_HEAD_REF=feature XBIN_RELEASE_FROM_ACTIONS=1 run "$R" "$@"
+  eq "release-build: …nor anything with a pull request's head" "$rc" 2
+  printf '{"repository": {"fork": true}}' >"$tmp/event.json"
+  GITHUB_ACTIONS=true GITHUB_EVENT_NAME=workflow_dispatch GITHUB_EVENT_PATH=$tmp/event.json XBIN_RELEASE_FROM_ACTIONS=1 run "$R" "$@"
+  eq "release-build: never from a fork's workflow" "$rc:$(printf '%s' "$out" | grep -c "never from a fork" || true)" "2:1"
+  GITHUB_ACTIONS=true GITHUB_EVENT_NAME=workflow_dispatch run "$R" "$@"
+  eq "release-build: not in a workflow without the opt-in" "$rc:$(printf '%s' "$out" | grep -c 'not in a workflow' || true)" "2:1"
+  RUNNER_NAME=xbin-mini run "$R" "$@"
+  eq "release-build: …a runner's environment counts as a workflow" "$rc" 2
+  run "$R" --team bad --key-id "$kid" --issuer "$iss"
+  eq "release-build: a malformed team id" "$rc:$(printf '%s' "$out" | grep -c -- '--team' || true)" "2:1"
+  run "$R" --team "$team" --key-id "$kid" --issuer not-a-uuid
+  eq "release-build: a malformed issuer id" "$rc" 2
+  run "$R" --team "$team" --key-id ZZZZZ99999 --issuer "$iss"
+  eq "release-build: no key file" "$rc:$(printf '%s' "$out" | grep -c 'no key file at' || true)" "2:1"
+  chmod 644 "$k"
+  run "$R" "$@"
+  eq "release-build: a key others may read is refused" "$rc:$(printf '%s' "$out" | grep -c 'chmod 600' || true)" "2:1"
+  chmod 600 "$k"
+  cp "$k" "$rel/AuthKey_$kid.p8"
+  run "$R" "$@" --key "$rel/AuthKey_$kid.p8"
+  eq "release-build: a key inside a checkout is refused" "$rc:$(printf '%s' "$out" | grep -c 'inside a git checkout' || true)" "2:1"
+  rm -f "$rel/AuthKey_$kid.p8"
+  echo change >"$rel/dirty.txt"
+  run "$R" "$@"
+  eq "release-build: a dirty tree is refused" "$rc:$(printf '%s' "$out" | grep -c 'uncommitted changes' || true)" "2:1"
+  run "$R" "$@" --allow-dirty --dry-run
+  eq "release-build: …unless --allow-dirty" "$rc" 0
+  rm -f "$rel/dirty.txt"
+  run "$R" "$@" --version 1.x
+  eq "release-build: a malformed version" "$rc" 2
+
+  : >"$FAKE_LOG"
+  run "$R" "$@" --dry-run --build 7
+  eq "release-build --dry-run: runs" "$rc" 0
+  has "release-build --dry-run: the archive it would run" "$out" "xcodebuild archive -project Xbin.xcodeproj -scheme Xbin -configuration Release"
+  has "release-build --dry-run: …authenticated by the key" "$out" "-allowProvisioningUpdates -authenticationKeyPath $k -authenticationKeyID $kid -authenticationKeyIssuerID $iss"
+  hasnt "release-build --dry-run: builds nothing" "$(cat "$FAKE_LOG")" "xcodebuild archive"
+  FAKE_KEYCHAIN_LOCKED=1 run "$R" "$@" --build 7
+  eq "release-build: a locked keychain, no terminal → stops" "$rc:$(printf '%s' "$out" | grep -c 'login keychain is locked' || true)" "2:1"
+
+  : >"$FAKE_LOG"
+  run "$R" "$@" --build 42 --version 1.2.3 --out "$tmp/rel-out"
+  eq "release-build: archives and exports" "$rc" 0
+  log=$(cat "$FAKE_LOG")
+  has "release-build: generates the project" "$log" "xcodegen generate --spec project.yml (in ios)"
+  has "release-build: the archive, automatic signing with the API key" "$log" \
+    "xcodebuild archive -project Xbin.xcodeproj -scheme Xbin -configuration Release -destination generic/platform=iOS -archivePath $tmp/rel-out/Xbin.xcarchive -derivedDataPath $tmp/rel-out/derived -allowProvisioningUpdates -authenticationKeyPath $k -authenticationKeyID $kid -authenticationKeyIssuerID $iss DEVELOPMENT_TEAM=$team CODE_SIGN_STYLE=Automatic CURRENT_PROJECT_VERSION=42 MARKETING_VERSION=1.2.3"
+  has "release-build: the export, the same key" "$log" \
+    "xcodebuild -exportArchive -archivePath $tmp/rel-out/Xbin.xcarchive -exportPath $tmp/rel-out/export -exportOptionsPlist $tmp/rel-out/ExportOptions.plist -allowProvisioningUpdates -authenticationKeyPath $k"
+  eq "release-build: ExportOptions.plist (App Store Connect, automatic, export)" "$(python3 - "$tmp/rel-out/ExportOptions.plist" <<'PY2'
+import plistlib, sys
+with open(sys.argv[1], "rb") as f:
+    p = plistlib.load(f)
+print(p["method"], p["destination"], p["teamID"], p["signingStyle"], p["uploadSymbols"], p["manageAppVersionAndBuildNumber"])
+PY2
+)" "app-store-connect export $team automatic True False"
+  eq "release-build: the output directory is private" "$(stat -c %a "$tmp/rel-out" 2>/dev/null || stat -f %Lp "$tmp/rel-out")" 700
+  has "release-build: names the .ipa and its SHA-256" "$out" "$tmp/rel-out/export/Xbin.ipa ($(printf 'IPA' | lib ci_sha256))"
+  hasnt "release-build: never prints the key" "$out" "BEGIN PRIVATE KEY"
+  if [ -e "$tmp/rel-out/derived" ]; then bad "release-build: DerivedData left behind"; else ok "release-build: drops its DerivedData"; fi
+  run "$R" "$@" --build 43 --upload --out "$tmp/rel-up"
+  eq "release-build --upload: runs" "$rc" 0
+  has "release-build --upload: exports with destination upload" "$(cat "$tmp/rel-up/ExportOptions.plist")" "<string>upload</string>"
+  has "release-build --upload: says so" "$out" "uploaded build 43 to App Store Connect"
+  FAKE_DIST_IDENTITY=1 run "$R" "$@" --build 44 --out "$tmp/rel-dist"
+  has "release-build: warns about a distribution identity in the keychain" "$out" "an Apple Distribution identity is in $me's keychain"
+  FAKE_NO_IPA=1 run "$R" "$@" --build 45 --out "$tmp/rel-noipa"
+  eq "release-build: no .ipa → fails" "$rc" 2
+  set --
+  unset XBIN_RELEASE_USER XBIN_CI_USER
+  export HOME=$realhome
+else
+  echo "skip release-build.sh: needs git here"
+fi
 
 # ---- mac-remote.sh -------------------------------------------------------
 if ! have git || ! have rsync; then

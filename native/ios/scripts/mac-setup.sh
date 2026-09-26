@@ -27,9 +27,22 @@
 # (a LaunchAgent running mac-cleanup.sh: DerivedData, caches and simulators
 # nobody used for a week); the Actions runner (pinned release, SHA-256
 # checked, labels self-hosted, macOS, xbin-mini, as a launchd service, with
-# a job hook that shuts the simulators down). Checked but only warned
-# about: sleep (a CI machine must not sleep) and automatic login (the
-# runner's LaunchAgent starts with the login session).
+# a job hook that shuts the simulators down).
+#
+# Then the box — reported, never changed, as it sits headless in a
+# datacenter (native/AGENTS.md → "Mac mini"): pmset (sleep 0, autorestart
+# 1, womp 1), restart after a freeze, FileVault, automatic login, the users
+# (an admin; XBIN_CI_USER, default ci, and XBIN_RELEASE_USER, default
+# release, both standard), Remote Login and sshd's key-only hardening
+# (AllowUsers), the firewall and stealth mode, Screen Sharing restricted, no
+# Apple ID, a display (the HDMI dummy plug), free disk (XBIN_MIN_FREE_GB,
+# default 50), the Xcodes, SDKs and simulator runtimes, and whether the
+# runner runs. Warnings don't fail --check; each says how to fix it.
+#
+# Users: the admin runs this first (`--no-runner`: sudo for Xcode and
+# Homebrew), then the standard user ci runs it with the token (its own
+# simulators, cleanup agent and runner). It refuses to put the runner under
+# the release user, and warns when an admin would hold it.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=SCRIPTDIR/ci-lib.sh
@@ -62,6 +75,8 @@ runner_dir=${XBIN_RUNNER_DIR:-$HOME/actions-runner}
 agent_label=dev.xbin.ci-cleanup
 agent_plist=$HOME/Library/LaunchAgents/$agent_label.plist
 uid=$(id -u)
+ci_user=${XBIN_CI_USER:-ci}
+release_user=${XBIN_RELEASE_USER:-release}
 missing="" warned=""
 
 ok() { echo "ok      $*"; }
@@ -297,20 +312,171 @@ setup_runner() {
 }
 if [ "$no_runner" = 1 ]; then
   echo "skip    the Actions runner (--no-runner)"
+elif [ "$(id -un)" = "$release_user" ]; then
+  warn "the Actions runner: not as $release_user — the user holding the release key never runs CI (run this as $ci_user)"
 else
+  if [ "$(id -un)" != "$ci_user" ] && dsmemberutil checkmembership -U "$(id -un)" -G admin 2>/dev/null | grep -q 'is a member'; then
+    warn "the runner runs as $(id -un), an admin: register it as the standard user $ci_user (native/AGENTS.md → Mac mini)"
+  fi
   item "Actions runner $name for $repo_url ($runner_dir, labels self-hosted,macOS,xbin-mini, launchd, job hook)" runner_ready setup_runner
 fi
 
-# ---- warnings only -------------------------------------------------------
-if [ "$(pmset -g 2>/dev/null | awk '$1 == "sleep" { print $2; exit }')" = 0 ]; then
-  ok "system sleep off"
+# ---- the box: headless in a datacenter (reported, never changed) ---------
+# native/AGENTS.md → "Mac mini": a Mac on an isolated VLAN, ssh in over a
+# VPN, a KVM-over-IP on its HDMI/USB, a switchable PDU for its power. These
+# are the owner's settings: this only says what is set and how to set it.
+echo "--      the box"
+info() { echo "info    $*"; }
+me=$(id -un)
+is_admin() { dsmemberutil checkmembership -U "$1" -G admin 2>/dev/null | grep -q 'is a member'; }
+user_exists() { dscl . -read "/Users/$1" UniqueID >/dev/null 2>&1; }
+
+pm=$(pmset -g 2>/dev/null || true)
+pmval() { printf '%s\n' "$pm" | awk -v k="$1" '$1 == k { print $2; exit }'; }
+if [ "$(pmval sleep)" = 0 ]; then ok "system sleep off"; else warn "the Mac may sleep: sudo pmset -a sleep 0 (a sleeping runner takes no jobs)"; fi
+if [ "$(pmval autorestart)" = 1 ]; then ok "restarts after a power loss (pmset autorestart 1)"
+else warn "stays off after a power loss: sudo pmset -a autorestart 1 (the PDU's power cycle then brings it back)"; fi
+if [ "$(pmval womp)" = 1 ]; then ok "wakes for network access (pmset womp 1)"; else warn "no wake for network access: sudo pmset -a womp 1"; fi
+rf=$(systemsetup -getrestartfreeze 2>/dev/null || true)
+case $rf in
+*": On"*) ok "restarts after a system freeze (systemsetup restartfreeze on)" ;;
+*": Off"*) warn "no restart after a system freeze: sudo systemsetup -setrestartfreeze on" ;;
+*) info "restart after a freeze: unknown (systemsetup needs an admin — run --check as one)" ;;
+esac
+
+fv=$(fdesetup status 2>/dev/null || true)
+fv_on=""
+case $fv in
+*"FileVault is On"*)
+  fv_on=1
+  ok "FileVault on (after a power loss the disk waits for a password at the KVM-over-IP; planned reboots: sudo fdesetup authrestart)" ;;
+*"FileVault is Off"*)
+  fv_on=0
+  warn "FileVault off: this Mac holds the release user's App Store Connect key — sudo fdesetup enable (then unlock through the KVM-over-IP after a power loss; native/AGENTS.md → Mac mini)" ;;
+*) info "FileVault: ${fv:-unknown}" ;;
+esac
+autologin=$(defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null || true)
+if [ -n "$autologin" ]; then
+  ok "automatic login ($autologin)"
+  [ "$autologin" = "$ci_user" ] || warn "automatic login is $autologin's, but the runner is $ci_user's: its LaunchAgent starts with $ci_user's session"
+elif [ "$fv_on" = 1 ]; then
+  ok "no automatic login (FileVault on: unlocking the disk as $ci_user — KVM-over-IP, or authrestart with $ci_user's password — logs $ci_user in, and the runner starts)"
 else
-  warn "the Mac may sleep: sudo pmset -a sleep 0 (a sleeping runner takes no jobs)"
+  warn "no automatic login: after a reboot the runner (a LaunchAgent) waits for someone to log in (System Settings → Users & Groups; with FileVault on, unlocking as $ci_user does it)"
 fi
-if defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser >/dev/null 2>&1; then
-  ok "automatic login ($(defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null))"
+
+admins="" others=""
+for u in $(dscl . -list /Users UniqueID 2>/dev/null | awk '$2 >= 501 && $1 !~ /^_/ { print $1 }'); do
+  if is_admin "$u"; then admins="$admins $u"; else others="$others $u"; fi
+done
+info "users: admin:${admins:- none}; standard:${others:- none}; this is $me"
+[ -n "$admins" ] || warn "no admin user found (dscl/dsmemberutil): the owner's account does setup and maintenance"
+for pair in "$ci_user:the Actions runner, the simulators, the ssh dev loop" "$release_user:the App Store Connect key and release-build.sh"; do
+  u=${pair%%:*}
+  role=${pair#*:}
+  if ! user_exists "$u"; then
+    warn "no user $u ($role): sudo sysadminctl -addUser $u -fullName '$u' -password - (a standard user, not an admin)"
+  elif is_admin "$u"; then
+    warn "$u is an admin ($role): make it a standard user (System Settings → Users & Groups)"
+  else
+    ok "user $u, standard ($role)"
+  fi
+done
+
+rl=$(systemsetup -getremotelogin 2>/dev/null || true)
+case $rl in
+*": On"*) ok "Remote Login on" ;;
+*": Off"*) warn "Remote Login off: sudo systemsetup -setremotelogin on (key-only, below)" ;;
+*)
+  if nc -z -G 2 127.0.0.1 22 >/dev/null 2>&1; then ok "Remote Login on (sshd answers on port 22)"
+  else warn "Remote Login seems off (nothing answers on port 22): System Settings → General → Sharing → Remote Login"; fi ;;
+esac
+sshd_conf=${XBIN_SSHD_CONFIG:-/etc/ssh/sshd_config}
+# sshd_opt <keyword>: its value as sshd reads it — the first one wins, and
+# macOS's sshd_config includes sshd_config.d/*.conf at its top; Match
+# blocks are not followed.
+sshd_opt() {
+  local k f v
+  k=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  for f in "$sshd_conf.d"/*.conf "$sshd_conf"; do
+    [ -r "$f" ] || continue
+    v=$(awk -v k="$k" 'tolower($1) == "match" { exit } tolower($1) == k { $1 = ""; sub(/^[ \t]+/, ""); print; exit }' "$f")
+    if [ -n "$v" ]; then printf '%s\n' "$v"; return 0; fi
+  done
+  return 1
+}
+dropin="$sshd_conf.d/100-xbin.conf"
+pa=$(sshd_opt PasswordAuthentication || echo yes)
+kbd=$(sshd_opt KbdInteractiveAuthentication || sshd_opt ChallengeResponseAuthentication || echo yes)
+if [ "$pa" = no ] && [ "$kbd" = no ]; then ok "sshd: keys only (PasswordAuthentication no, KbdInteractiveAuthentication no)"
+else warn "sshd accepts passwords (PasswordAuthentication $pa, KbdInteractiveAuthentication $kbd — PAM asks for one through the latter): set both to no in $dropin"; fi
+prl=$(sshd_opt PermitRootLogin || echo prohibit-password)
+if [ "$prl" = no ]; then ok "sshd: no root login"; else warn "sshd: PermitRootLogin $prl — set it to no in $dropin"; fi
+if [ "$(sshd_opt PubkeyAuthentication || echo yes)" = no ]; then warn "sshd: PubkeyAuthentication no — keys are the only way in: yes"; fi
+allow=$(sshd_opt AllowUsers || true)
+if [ -z "$allow" ]; then
+  warn "sshd: no AllowUsers — every account may log in: AllowUsers <admin> $ci_user $release_user in $dropin"
 else
-  warn "no automatic login: after a reboot the runner (a LaunchAgent) waits for someone to log in (System Settings → Users & Groups)"
+  ok "sshd: AllowUsers $allow"
+fi
+la=$(sshd_opt ListenAddress || true)
+[ -z "$la" ] || info "sshd listens on $la"
+
+fw=${XBIN_SOCKETFILTERFW:-/usr/libexec/ApplicationFirewall/socketfilterfw}
+case $("$fw" --getglobalstate 2>/dev/null || true) in
+*"is enabled"*) ok "firewall on" ;;
+*) warn "firewall off: sudo $fw --setglobalstate on" ;;
+esac
+case $("$fw" --getstealthmode 2>/dev/null || true) in
+*"stealth mode is on"* | *"Stealth mode enabled"* | *"stealth mode enabled"*) ok "firewall stealth mode on" ;;
+*) warn "stealth mode off (the Mac answers probes): sudo $fw --setstealthmode on" ;;
+esac
+if launchctl print system/com.apple.screensharing >/dev/null 2>&1; then
+  ss=$(dscl . -read /Groups/com.apple.access_screensharing GroupMembership 2>/dev/null | sed 's/^GroupMembership:[ ]*//')
+  case " $ss " in
+  "  ") warn "Screen Sharing on for every user: System Settings → General → Sharing → Screen Sharing → Allow access for: Only these users (the admin)" ;;
+  *" $ci_user "* | *" $release_user "*) warn "Screen Sharing lets $ss in: only the admin (not $ci_user or $release_user)" ;;
+  *) ok "Screen Sharing on, only for:$([ -n "$ss" ] && echo " $ss")" ;;
+  esac
+else
+  ok "Screen Sharing off (the KVM-over-IP is the console)"
+fi
+if defaults read MobileMeAccounts Accounts 2>/dev/null | grep -q AccountID; then
+  warn "an Apple ID is signed in for $me: sign it out (System Settings → the account) — nothing on this box syncs or buys anything"
+else
+  ok "no Apple ID signed in ($me)"
+fi
+if system_profiler SPDisplaysDataType 2>/dev/null | grep -q 'Resolution:'; then
+  ok "a display is attached (the HDMI dummy plug)"
+else
+  warn "no display attached: an HDMI dummy plug gives the login session a real screen (the KVM-over-IP, Screen Sharing, the simulators)"
+fi
+free_gb=$(df -Pk / 2>/dev/null | awk 'NR == 2 { print int($4 / 1048576) }')
+min_gb=${XBIN_MIN_FREE_GB:-50}
+if [ -n "$free_gb" ] && [ "$free_gb" -ge "$min_gb" ]; then ok "disk: $free_gb GB free"
+else warn "disk: ${free_gb:-?} GB free (under $min_gb GB — old Xcodes and simulator runtimes go first: xcrun simctl runtime delete, mac-cleanup.sh)"; fi
+
+for a in "$apps"/Xcode*.app; do
+  [ -d "$a" ] || continue
+  v=$(defaults read "$a/Contents/Info" CFBundleShortVersionString 2>/dev/null || echo '?')
+  bv=$(defaults read "$a/Contents/version" ProductBuildVersion 2>/dev/null || echo '?')
+  info "Xcode $v ($bv) $a$([ "$a" = "$xcode" ] && echo ' — selected')"
+done
+info "SDKs: $(xcodebuild -showsdks 2>/dev/null | sed -n 's/.*-sdk \([a-z]*[0-9.]*\).*/\1/p' | paste -sd ' ' -)"
+info "simulator runtimes: $(xcrun simctl list runtimes -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    rts = json.load(sys.stdin).get("runtimes", [])
+except ValueError:
+    rts = []
+print(", ".join(r.get("name", "?") + ("" if r.get("isAvailable", True) else " (unavailable)") for r in rts) or "none")' 2>/dev/null)"
+if registered; then
+  for p in "$HOME"/Library/LaunchAgents/actions.runner.*.plist; do
+    [ -f "$p" ] || continue
+    l=$(basename "$p" .plist)
+    if launchctl print "gui/$uid/$l" 2>/dev/null | grep -q 'state = running'; then ok "runner $l running"
+    else warn "runner $l not running (cd $runner_dir && ./svc.sh start — it runs in $me's login session)"; fi
+  done
 fi
 
 echo

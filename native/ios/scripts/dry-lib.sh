@@ -8,7 +8,9 @@
 #
 # The fakes stand in for xcrun (simctl, metal, xcresulttool), xcodebuild,
 # xcodegen, swift, xcbeautify, xcode-select, curl, brew, sudo, launchctl,
-# sw_vers, uname (Darwin), pmset, defaults. They record decisions; they
+# sw_vers, uname (Darwin), pmset, defaults, fdesetup, systemsetup, dscl,
+# dsmemberutil, socketfilterfw (XBIN_SOCKETFILTERFW), nc, system_profiler,
+# df and security. They record decisions; they
 # cannot tell whether Apple's tools accept the flags — only a Mac can. With
 # FAKE_STATEFUL=1 a fix sticks (xcode-select -s, -license accept,
 # -runFirstLaunch, -downloadPlatform, the Metal download, brew install,
@@ -146,11 +148,19 @@ esac
 bundle=""
 action=""
 prev=""
+archive="" export=""
 for a in "$@"; do
   [ "$prev" = -resultBundlePath ] && bundle=$a
-  case "$a" in build | test | build-for-testing | test-without-building) action=$a ;; esac
+  [ "$prev" = -archivePath ] && archive=$a
+  [ "$prev" = -exportPath ] && export=$a
+  case "$a" in build | test | build-for-testing | test-without-building | archive | -exportArchive) action=$a ;; esac
   prev=$a
 done
+# archive leaves the .xcarchive, -exportArchive an .ipa (unless FAKE_NO_IPA=1)
+if [ "${FAKE_XCODEBUILD_STATUS:-0}" = 0 ]; then
+  [ "$action" = archive ] && [ -n "$archive" ] && mkdir -p "$archive/Products/Applications/Xbin.app"
+  [ "$action" = -exportArchive ] && [ -n "$export" ] && [ "${FAKE_NO_IPA:-0}" = 0 ] && mkdir -p "$export" && printf 'IPA' >"$export/Xbin.ipa"
+fi
 echo "env SNAPSHOT_DIR=${TEST_RUNNER_SNAPSHOT_DIR:-} FIXTURES_DIR=${TEST_RUNNER_FIXTURES_DIR:-}" >>"$FAKE_LOG"
 echo "e2e-env URL=${TEST_RUNNER_XBIN_E2E_URL:-} TOKEN=${TEST_RUNNER_XBIN_E2E_TOKEN:-} DIR=${TEST_RUNNER_E2E_DIR:-}" >>"$FAKE_LOG"
 [ -n "$bundle" ] && mkdir -p "$bundle"
@@ -279,7 +289,7 @@ cat >"$bin/launchctl" <<'SH'
 #!/bin/sh
 echo "launchctl $*" >>"$FAKE_LOG"
 case "$1" in
-print) [ -f "$FAKE_STATE/launchd-${2##*/}" ] && exit 0; exit "${FAKE_LAUNCHCTL_PRINT:-1}" ;;
+print) [ -f "$FAKE_STATE/launchd-${2##*/}" ] && { echo "state = running"; exit 0; }; exit "${FAKE_LAUNCHCTL_PRINT:-1}" ;;
 bootstrap) n=${3##*/}; touch "$FAKE_STATE/launchd-${n%.plist}" ;;
 bootout) rm -f "$FAKE_STATE/launchd-${2##*/}" ;;
 esac
@@ -289,8 +299,94 @@ SH
 cat >"$bin/defaults" <<'SH'
 #!/bin/sh
 echo "defaults $*" >>"$FAKE_LOG"
-[ -n "${FAKE_AUTOLOGIN:-}" ] || exit 1
-echo "$FAKE_AUTOLOGIN"
+case "$*" in
+*autoLoginUser*) [ -n "${FAKE_AUTOLOGIN:-}" ] || exit 1; echo "$FAKE_AUTOLOGIN" ;;
+*CFBundleShortVersionString*) echo "${FAKE_XCODE_VERSION:-27.0}" ;;
+*ProductBuildVersion*) echo "${FAKE_XCODE_BUILD:-27A5000a}" ;;
+*MobileMeAccounts*)
+  [ -n "${FAKE_APPLE_ID:-}" ] || exit 1
+  printf '(\n    {\n        AccountID = "%s";\n    }\n)\n' "$FAKE_APPLE_ID" ;;
+*) exit 1 ;;
+esac
+SH
+
+# The box's state (mac-setup.sh's report): FileVault, systemsetup, users and
+# groups, the firewall, sshd's port, the display, free disk. Defaults: a Mac
+# as mac-setup.sh wants it but FileVault off (FAKE_FILEVAULT=On to turn it on).
+cat >"$bin/fdesetup" <<'SH'
+#!/bin/sh
+echo "fdesetup $*" >>"$FAKE_LOG"
+[ "${1:-}" = status ] && echo "FileVault is ${FAKE_FILEVAULT:-Off}."
+SH
+cat >"$bin/systemsetup" <<'SH'
+#!/bin/sh
+echo "systemsetup $*" >>"$FAKE_LOG"
+if [ "${FAKE_SYSTEMSETUP_DENIED:-0}" = 1 ]; then echo "You need administrator access to run this tool... exiting!"; exit 1; fi
+case "${1:-}" in
+-getrestartfreeze) echo "Restart After Freeze: ${FAKE_RESTARTFREEZE:-On}" ;;
+-getremotelogin) echo "Remote Login: ${FAKE_REMOTELOGIN:-On}" ;;
+*) exit 1 ;;
+esac
+SH
+# dscl . -list /Users UniqueID | -read /Users/<u> UniqueID | -read /Groups/<g> GroupMembership
+cat >"$bin/dscl" <<'SH'
+#!/bin/sh
+echo "dscl $*" >>"$FAKE_LOG"
+users=${FAKE_USERS-owner:501 ci:502 release:503}
+case "$2 $3" in
+"-list /Users")
+  echo "_www 70"
+  for u in $users; do echo "${u%%:*} ${u#*:}"; done ;;
+"-read /Groups/com.apple.access_screensharing")
+  [ -n "${FAKE_SCREENSHARING_USERS:-}" ] || exit 56
+  echo "GroupMembership: $FAKE_SCREENSHARING_USERS" ;;
+"-read /Users/"*)
+  n=${3#/Users/}
+  for u in $users; do [ "${u%%:*}" = "$n" ] && { echo "UniqueID: ${u#*:}"; exit 0; }; done
+  exit 56 ;;
+*) exit 1 ;;
+esac
+SH
+cat >"$bin/dsmemberutil" <<'SH'
+#!/bin/sh
+# dsmemberutil checkmembership -U <user> -G <group>
+for a in ${FAKE_ADMINS-owner}; do [ "$a" = "$3" ] && { echo "user is a member of the group"; exit 0; }; done
+echo "user is not a member of the group"
+SH
+cat >"$bin/socketfilterfw" <<'SH'
+#!/bin/sh
+case "${1:-}" in
+--getglobalstate) echo "Firewall is ${FAKE_FW:-enabled}. (State = 1)" ;;
+--getstealthmode) echo "Firewall stealth mode is ${FAKE_STEALTH:-on}" ;;
+esac
+SH
+# security: the login keychain (FAKE_KEYCHAIN_LOCKED=1) and its signing
+# identities (FAKE_DIST_IDENTITY=1: an Apple Distribution one).
+cat >"$bin/security" <<'SH'
+#!/bin/sh
+echo "security $*" >>"$FAKE_LOG"
+case "${1:-}" in
+show-keychain-info) [ "${FAKE_KEYCHAIN_LOCKED:-0}" = 0 ] ;;
+unlock-keychain) exit 0 ;;
+find-identity)
+  echo '  1) 0123456789ABCDEF0123456789ABCDEF01234567 "Apple Development: Release (ABCDE12345)"'
+  [ "${FAKE_DIST_IDENTITY:-0}" = 1 ] && echo '  2) 89ABCDEF0123456789ABCDEF0123456789ABCDEF "Apple Distribution: Team (ABCDE12345)"'
+  exit 0 ;;
+*) exit 1 ;;
+esac
+SH
+cat >"$bin/nc" <<'SH'
+#!/bin/sh
+exit "${FAKE_NC:-0}"
+SH
+cat >"$bin/system_profiler" <<'SH'
+#!/bin/sh
+[ "${FAKE_DISPLAY:-1}" = 1 ] && printf 'Graphics/Displays:\n    Displays:\n        Dummy:\n          Resolution: 1920 x 1080\n'
+exit 0
+SH
+cat >"$bin/df" <<'SH'
+#!/bin/sh
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/disk3s1s1 971350180 400000000 %s 40%% /\n' "${FAKE_DF_AVAIL_KB:-209715200}"
 SH
 
 cat >"$bin/sw_vers" <<'SH'
@@ -312,7 +408,8 @@ SH
 cat >"$bin/pmset" <<'SH'
 #!/bin/sh
 echo "pmset $*" >>"$FAKE_LOG"
-printf ' sleep                %s\n' "${FAKE_SLEEP:-0}"
+printf 'System-wide power settings:\nCurrently in use:\n Sleep On Power Button 1\n'
+printf ' womp                 %s\n autorestart          %s\n sleep                %s\n' "${FAKE_WOMP:-1}" "${FAKE_AUTORESTART:-1}" "${FAKE_SLEEP:-0}"
 SH
 
 chmod +x "$bin"/*
@@ -346,8 +443,18 @@ reset_env() {
     RUNNER_ENVIRONMENT RUNNER_NAME XBIN_SIGNING XBIN_SWIFT_CONDITIONS XBIN_E2E_URL XBIN_E2E_TOKEN XBIN_E2E_ERASE XBIN_E2E_ONLY \
     TEST_RUNNER_E2E_DIR FAKE_SCHEMES FAKE_PNGS FAKE_E2E_PNGS FAKE_ATTACH FAKE_XCODEBUILD_STATUS FAKE_BOOT_STATUS \
     FAKE_PROJECT FAKE_XCB_OLD XCBEAUTIFY FAKE_METAL_STATUS FAKE_DOWNLOAD_STATUS FAKE_CURL_FAIL FAKE_CURL_FILE \
-    FAKE_BREW_BIN XCODEGEN_SHA256 XCODEGEN_VERSION FAKE_APP_PRODUCTS
+    FAKE_BREW_BIN XCODEGEN_SHA256 XCODEGEN_VERSION FAKE_APP_PRODUCTS \
+    FAKE_FILEVAULT FAKE_SYSTEMSETUP_DENIED FAKE_RESTARTFREEZE FAKE_REMOTELOGIN FAKE_USERS FAKE_ADMINS \
+    FAKE_SCREENSHARING_USERS FAKE_FW FAKE_STEALTH FAKE_NC FAKE_DISPLAY FAKE_DF_AVAIL_KB FAKE_WOMP FAKE_AUTORESTART \
+    FAKE_APPLE_ID FAKE_XCODE_VERSION FAKE_XCODE_BUILD FAKE_KEYCHAIN_LOCKED FAKE_DIST_IDENTITY FAKE_NO_IPA \
+    XBIN_TEAM_ID XBIN_ASC_KEY_ID XBIN_ASC_ISSUER_ID XBIN_ASC_KEY XBIN_RELEASE_FROM_ACTIONS GITHUB_EVENT_NAME GITHUB_HEAD_REF \
+    GITHUB_EVENT_PATH RUNNER_NAME XBIN_CI_USER XBIN_RELEASE_USER
   export XCBEAUTIFY=0 # off unless a case turns it on
+  export XBIN_SOCKETFILTERFW=$bin/socketfilterfw XBIN_SSHD_CONFIG=$tmp/sshd/sshd_config
+  mkdir -p "$tmp/sshd/sshd_config.d"
+  printf 'Include /etc/ssh/sshd_config.d/*\nUsePAM yes\n' >"$tmp/sshd/sshd_config"
+  printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin no\nAllowUsers owner ci release\n' \
+    >"$tmp/sshd/sshd_config.d/100-xbin.conf"
 }
 
 # run <cmd…> — sets $out (stdout+stderr) and $rc.

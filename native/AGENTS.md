@@ -51,6 +51,7 @@ native/
     UITests/                XbinUITests: the app end to end on a simulator against a real xbind
     scripts/                CI: pick-sim.sh, ci-*.sh (what ios.yml runs), ci-local-check.sh and the
                             dry tests; the Mac: mac-setup.sh, mac-remote.sh, mac-cleanup.sh,
+                            release-build.sh (the release user's signed build; unused yet),
                             e2e-xbind.sh (the UI tests' xbind, on this box)
   tools/                    fixture runner (fixture.mjs), shots.mjs + gallery/ (reference screenshots),
                             swiftui-stubcheck/, term-stubcheck/ (App/Terminal against stubs),
@@ -432,20 +433,97 @@ Apple toolchain reachable over ssh. Everything below is ready but **has not
 run on a Mac yet**: `ci-local-check.sh` checks it against fake Mac tools
 here, the first real run is the owner's.
 
+### The box
+
+It lives headless in a datacenter, on an isolated VLAN: nothing reaches it
+from the internet, and ssh comes in over a VPN (WireGuard or Tailscale on
+the Mac or on the VLAN's router) — never a public ssh port. Around it:
+
+- **A KVM-over-IP** on its HDMI and USB: the console for the FileVault
+  unlock after a power loss, the login window, and anything ssh can't do
+  (System Settings, a stuck boot). It is the way in when ssh is down, so it
+  sits on the same VPN-only network.
+- **An HDMI dummy plug** when the KVM isn't attached: without a display the
+  login session has no real screen — a tiny default resolution for Screen
+  Sharing, and simulators and UI tests that don't render as on a desk.
+- **A switchable PDU** outlet: a power cycle is the last resort for a hung
+  Mac, and with `autorestart` (below) the Mac boots when power returns.
+- **No Apple ID signed in** — for any user. Nothing on this box syncs,
+  buys or backs up to iCloud; Xcode needs no Apple ID to build (signing
+  uses an App Store Connect API key, below). Install Xcode with `xcodes`
+  or a downloaded `.xip` rather than the App Store for the same reason.
+- **Power:** `sudo pmset -a sleep 0 autorestart 1 womp 1` (never sleep,
+  boot after a power loss, wake for network access) and `sudo systemsetup
+  -setrestartfreeze on` (reboot after a kernel freeze).
+- **sshd, keys only**, in `/etc/ssh/sshd_config.d/100-xbin.conf` (macOS's
+  `sshd_config` includes that directory first, and the first value wins):
+
+  ```
+  PasswordAuthentication no
+  KbdInteractiveAuthentication no      # PAM would still ask for a password through it
+  PermitRootLogin no
+  AllowUsers owner ci release          # the three accounts below, nobody else
+  # ListenAddress <the VPN address>    # optional: only the VPN interface
+  ```
+
+  with each user's `~/.ssh/authorized_keys`; test a second login before
+  closing the first. Remote Login on in System Settings → General →
+  Sharing ("Allow full disk access for remote users" off).
+- **Firewall on, stealth mode on** (`sudo /usr/libexec/ApplicationFirewall/socketfilterfw
+  --setglobalstate on --setstealthmode on`); Screen Sharing off, or on and
+  allowed for the admin only (System Settings → General → Sharing → Screen
+  Sharing → Only these users) — the KVM-over-IP covers the rest.
+
+**FileVault or an unattended reboot — pick FileVault.** With FileVault on,
+the disk is encrypted at rest (a stolen or decommissioned Mac leaks
+nothing), but after any unplanned restart — a power loss, a panic — the Mac
+stops at the unlock screen until someone types a password, and macOS turns
+automatic login off. With it off, the Mac comes back by itself (automatic
+login as ci starts the runner), but the disk holds the release user's App
+Store Connect key and the runner's registration in the clear. This box
+holds signing material, so: **FileVault on**, the unlock through the
+KVM-over-IP after a power loss, and planned reboots with `sudo fdesetup
+authrestart` (it asks for a FileVault user's name and password and boots
+once past the unlock). Make ci a FileVault user (`sudo fdesetup add
+-usertoadd ci`) and unlock as ci — FileVault then logs ci in, so the
+runner's LaunchAgent starts; check that once, with the KVM watching, after
+the first authrestart. A CI Mac that is down until someone unlocks it is
+the price; the PDU's power cycle can't bring it back on its own.
+
+### The users
+
+Three accounts, each doing one thing:
+
+| user | kind | does | never |
+|---|---|---|---|
+| the owner's (e.g. `owner`) | admin | setup, updates, Xcode, Homebrew, `sudo` | runs the runner or holds the release key |
+| `ci` (`XBIN_CI_USER`) | standard | the GitHub Actions runner, the simulators, the ssh dev loop (`XBIN_MAC=ci@…`) | reads the release key (different uid, `~release` mode 700) |
+| `release` (`XBIN_RELEASE_USER`) | standard | owns the App Store Connect key, runs `release-build.sh` by hand | runs CI jobs or anything from a pull request |
+
+`sudo sysadminctl -addUser ci -fullName 'xbin CI' -password -` (and the same
+for `release`) makes a standard user; `chmod 700 /Users/release`.
+
 ### Setting it up (once, then after each Xcode update)
 
-On the Mac, logged in as the user the runner will run as (an admin: sudo is
-needed for Xcode's licence and first launch), with Xcode 27 installed (App
-Store, or `brew install xcodes && xcodes install 27.0`) and opened once. Get
-a runner registration token from GitHub → the repository → Settings →
-Actions → Runners → New self-hosted runner (valid an hour), then:
+With Xcode 27 installed (`brew install xcodes && xcodes install 27.0`, or
+a downloaded `.xip`) and opened once, first as the **admin** (sudo: Xcode's
+licence and first launch, the simulator platform, Homebrew):
 
 ```sh
 native/ios/scripts/mac-setup.sh --check          # what is missing; changes nothing
+native/ios/scripts/mac-setup.sh --no-runner      # the system half
+```
+
+then as **ci**, with a runner registration token from GitHub → the
+repository → Settings → Actions → Runners → New self-hosted runner (valid
+an hour) — the system items are already ok, and ci gets its own simulator,
+cleanup agent and runner:
+
+```sh
 native/ios/scripts/mac-setup.sh --runner-token <token>
-# or from this box, over ssh (interactive: sudo, the token prompt; it ships
-# only the scripts, by tar — the full mirror needs the Homebrew rsync this installs):
-XBIN_MAC=me@mini.local native/ios/scripts/mac-remote.sh setup
+# or from this box, over ssh (interactive: the token prompt; it ships only
+# the scripts, by tar — the full mirror needs the Homebrew rsync this installs):
+XBIN_MAC=ci@mini native/ios/scripts/mac-remote.sh setup
 ```
 
 It is idempotent — each item is checked and only fixed when missing — and
@@ -461,10 +539,21 @@ unavailable simulators; skipped while a job runs; log in
 `~/actions-runner` — the pinned release, SHA-256 checked, registered to the
 **repository** with the labels `self-hosted`, `macOS`, `xbin-mini`,
 installed as a launchd service, with a job hook (`~/xbin-ci/bin/job-hook.sh`)
-that shuts the simulators down before and after every job. It warns when
-the Mac may sleep (`sudo pmset -a sleep 0`) or has no automatic login (the
-runner's LaunchAgent starts with the login session: turn it on in System
-Settings → Users & Groups). Then point the CI at it:
+that shuts the simulators down before and after every job. It refuses to
+put the runner under the release user and warns when an admin would hold
+it.
+
+Then it reports **the box** — never changing it: pmset (sleep 0,
+autorestart 1, womp 1), restart after a freeze, FileVault, automatic login,
+the users (an admin, ci and release standard), Remote Login and sshd
+(passwords off, root off, `AllowUsers`), the firewall and stealth mode,
+Screen Sharing restricted, no Apple ID (for the user running it — run
+`--check` as each), a display, free disk (`XBIN_MIN_FREE_GB`, default 50),
+the installed Xcodes, SDKs and simulator runtimes, and whether the runner
+runs. Every warning names the command or setting that fixes it; warnings
+don't fail `--check` (only missing build items do). `systemsetup` needs an
+admin, so run `--check` as the admin for the whole picture. Then point the
+CI at it:
 
 ```sh
 gh variable set XBIN_IOS_RUNNER --body '["self-hosted","macOS","xbin-mini"]'
@@ -475,6 +564,57 @@ On the Mac the jobs keep DerivedData and SwiftPM clones on disk
 (`~/Library/Caches/xbin-ci/`), run one at a time (one runner), and start
 from a clean checkout (`actions/checkout` cleans the workspace;
 `$RUNNER_TEMP` is emptied per job).
+
+### Signing and releases (scaffolding — nothing is signed yet)
+
+The release user signs and uploads with an **App Store Connect API key**
+and Xcode's automatic signing, which uses Apple's **cloud-managed
+distribution certificate**: no distribution private key is created on the
+Mac, and none is ever exported or copied to it. (The archive step is signed
+with the release user's development identity, which Xcode makes the first
+time — a development key can't publish anything.)
+
+**The key** — the owner (Account Holder or an Admin) makes it once:
+App Store Connect → **Users and Access → Integrations** → App Store Connect
+API → Team Keys (the Account Holder requests access the first time) → **+**,
+a name like "xbin-mini release", role **Admin** → Generate. Download the
+`.p8` (it can be downloaded only once) and note the **Key ID** and the
+**Issuer ID** (above the list). Admin, because automatic signing with
+`-allowProvisioningUpdates` registers the bundle ids and profiles and uses
+the cloud-managed distribution certificate, which Apple lets team keys do
+only with the Admin role as of this writing — if the key page offers App
+Manager with certificate and cloud-signing access, take that instead
+(least privilege). A team key reaches every app of the team: only the
+release user reads it, and it is revoked in App Store Connect the moment
+the Mac is suspect (lost, reinstalled, a user it shouldn't have).
+
+```sh
+scp AuthKey_<KEYID>.p8 release@mini:        # then delete the downloaded copy
+ssh release@mini 'mkdir -p ~/.appstoreconnect/private_keys && chmod 700 ~/.appstoreconnect ~/.appstoreconnect/private_keys &&
+  mv ~/AuthKey_*.p8 ~/.appstoreconnect/private_keys/ && chmod 600 ~/.appstoreconnect/private_keys/AuthKey_*.p8'
+```
+
+**A build**, as release, over ssh, from its own clean checkout (a tag):
+
+```sh
+security unlock-keychain ~/Library/Keychains/login.keychain-db   # ssh sessions start locked
+native/ios/scripts/release-build.sh --team <TEAMID> --key-id <KEYID> --issuer <ISSUERID> --dry-run
+native/ios/scripts/release-build.sh --team <TEAMID> --key-id <KEYID> --issuer <ISSUERID> [--version 1.0.0] [--upload]
+```
+
+It archives (`xcodebuild archive … -allowProvisioningUpdates
+-authenticationKeyPath/-KeyID/-IssuerID`, `DEVELOPMENT_TEAM`, the build
+number from the UTC time or `--build`) and exports with
+`method app-store-connect` — an `.ipa` in `~/xbin-release/<build>-<commit>/`
+(mode 700), or with `--upload` straight to App Store Connect for TestFlight.
+It refuses to run as ci or an admin, as anyone but the release user, from
+a pull_request- or fork-triggered workflow — or from any workflow without
+`XBIN_RELEASE_FROM_ACTIONS=1`, reserved for a protected, manually
+dispatched one that does not exist —, with a key that isn't the user's own
+at mode 600 outside any checkout, or from a dirty tree; and it warns when an
+Apple Distribution identity is in the keychain (it would be used instead of
+the cloud certificate, and is a distribution key on disk). The team id is
+on developer.apple.com → Membership details.
 
 ### The ssh dev loop
 
@@ -549,6 +689,13 @@ in the environment of `xcodebuild test -scheme XbinUITests`).
   own credentials are its registration, nothing else. The e2e owner token
   belongs to a throwaway workspace on the Linux box, reachable only through
   the tunnel while a run lasts.
+- **The release key is another user's.** It lives in the release user's
+  home (mode 700, the `.p8` 600), which the runner's user ci — standard,
+  no sudo — can't read; `release-build.sh` refuses to run as ci, as an
+  admin, or from a pull request's or fork's workflow. FileVault keeps it
+  encrypted at rest.
+- **Reachable only over the VPN**, keys only, `AllowUsers` the three
+  accounts; the KVM-over-IP and the PDU sit on the same isolated network.
 - **Clean workspaces.** Every job checks out clean, `$RUNNER_TEMP` is
   emptied per job, the job hook shuts the simulators down, the UI tests
   erase their simulator first; caches (`~/Library/Caches/xbin-ci`) hold only
@@ -558,7 +705,9 @@ in the environment of `xcodebuild test -scheme XbinUITests`).
 ## Rules
 
 - **Push only to feature branches.** No signing, no secrets, no TestFlight,
-  no provisioning — not even "just to try".
+  no provisioning — not even "just to try". `release-build.sh` is the
+  owner's, run as the Mac's release user; an agent never runs it or
+  touches its key.
 - **Never commit the `.xcodeproj`**; `project.yml` is the source.
 - **The fixtures are the contract.** A vocabulary change updates, in one
   change: the fixture(s), `expected.json`, the runtime, the reference renderer,
