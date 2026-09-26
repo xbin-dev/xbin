@@ -137,6 +137,11 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if !s.servableTarget(full) {
+		http.NotFound(w, r)
+		return
+	}
+
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 
@@ -153,6 +158,33 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 		s.sandboxDocument(w, r, s.owningComponent(cleaned), comp)
 	}
 	http.ServeFile(w, r, full)
+}
+
+// servableTarget: a workspace file the legacy /c/ plane may serve once its
+// symlinks are resolved — still inside the workspace and outside its
+// reserved trees (.xbin holds the HMAC secret and owner token; data/ and
+// homes/ hold every tile's state). Tile directories are written by
+// sandboxes, so a symlink there (../../.xbin/secret) must not point xbind
+// at its own credentials. Symlinks between tiles keep working here; the
+// strict modes go further (openStrict: nothing leaves the tile). Files of
+// the dev overlay (a trusted source tree) are not checked.
+func (s *Server) servableTarget(full string) bool {
+	root, err := filepath.EvalSymlinks(s.Reg.Root)
+	if err != nil {
+		return false
+	}
+	if s.Overlay != "" && !strings.HasPrefix(full, s.Reg.Root+string(filepath.Separator)) {
+		return true // the overlay's own copy
+	}
+	real, err := filepath.EvalSymlinks(full)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(root, real)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	return pathAllowed(filepath.ToSlash(rel))
 }
 
 // overlayFile returns the --dev-overlay copy of a workspace file when one

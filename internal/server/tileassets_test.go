@@ -446,3 +446,21 @@ func TestTileAssetsReport(t *testing.T) {
 		t.Fatalf("a clean tile by name is listed: %d %v", code, out)
 	}
 }
+
+// The legacy plane too refuses a symlink that resolves to xbind's own
+// credentials or outside the workspace (tile directories are written by
+// sandboxes); a symlink to another tile's file keeps working there.
+func TestLegacySymlinkTargets(t *testing.T) {
+	w := newAssetWS(t, TileAssetsLegacy)
+	if err := os.Symlink("../b/lib.js", filepath.Join(w.root, "apps/a/shared.js")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/etc/hostname", filepath.Join(w.root, "apps/a/host.txt")); err != nil {
+		t.Fatal(err)
+	}
+	for p, want := range map[string]int{"/c/apps/a/leak.txt": 404, "/c/apps/a/host.txt": 404, "/c/apps/a/shared.js": 200, "/c/apps/a/app.js": 200} {
+		if rec := w.do(p, w.session("ana")); rec.Code != want {
+			t.Errorf("%s: %d, want %d", p, rec.Code, want)
+		}
+	}
+}
