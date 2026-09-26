@@ -131,3 +131,73 @@ func TestSingleTenantSupport(t *testing.T) {
 		t.Fatal("Ensure(singleTenant) with an unsupported binary must error")
 	}
 }
+
+// fusermount3's refusal under Ubuntu's AppArmor profile (D110) — the error
+// gocryptfs relays when the mount point is outside the dirs the profile
+// allows — gets an actionable hint, and only then: other failures, and hosts
+// without the profile, keep their error as it was.
+func TestMountDeniedHint(t *testing.T) {
+	root := t.TempDir()
+	profile := filepath.Join(t.TempDir(), "fusermount3")
+	if err := os.WriteFile(profile, []byte("profile fusermount3 {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := apparmorProfile
+	t.Cleanup(func() { apparmorProfile = old })
+	apparmorProfile = profile
+
+	m := New(root, "", nil)
+	denied := "exit status 19: /usr/bin/fusermount3: mount failed: Permission denied\nfs.Mount failed: fusermount exited with code 256"
+	hint := m.mountDeniedHint(denied)
+	for _, want := range []string{
+		"AppArmor", "re-run the installer", "/etc/apparmor.d/local/fusermount3",
+		`-> "` + filepath.Join(root, ".xbin", "resenc") + `/**/",`,
+		"apparmor_parser -r " + profile, "/docs/resources.md",
+	} {
+		if !strings.Contains(hint, want) {
+			t.Errorf("hint lacks %q:\n%s", want, hint)
+		}
+	}
+	for _, other := range []string{
+		"exit status 1: fusermount3: failed to access mountpoint: Permission denied",
+		"exit status 12: password incorrect",
+		"",
+	} {
+		if h := m.mountDeniedHint(other); h != "" {
+			t.Errorf("hint for %q: %s", other, h)
+		}
+	}
+	apparmorProfile = filepath.Join(t.TempDir(), "missing")
+	if h := m.mountDeniedHint(denied); h != "" {
+		t.Errorf("hint without an AppArmor profile: %s", h)
+	}
+}
+
+// Ensure carries the hint into the error the broker logs: a stand-in
+// gocryptfs that fails the mount the way fusermount3 does under AppArmor.
+func TestEnsureMountDeniedHint(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "gocryptfs")
+	script := "#!/bin/sh\ncase \" $* \" in *\" -init \"*) exit 0 ;; esac\n" +
+		"echo '/usr/bin/fusermount3: mount failed: Permission denied' >&2\n" +
+		"echo 'fs.Mount failed: fusermount exited with code 256' >&2\nexit 19\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	profile := filepath.Join(dir, "fusermount3")
+	if err := os.WriteFile(profile, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := apparmorProfile
+	t.Cleanup(func() { apparmorProfile = old })
+	apparmorProfile = profile
+
+	m := New(t.TempDir(), bin, func(string) ([]byte, error) { return make([]byte, 32), nil })
+	_, err := m.Ensure("apps~x/files", "apps~x", "files", false)
+	if err == nil {
+		t.Fatal("Ensure succeeded with a failing gocryptfs")
+	}
+	if !strings.Contains(err.Error(), "mount failed: Permission denied") || !strings.Contains(err.Error(), "re-run the installer") {
+		t.Fatalf("Ensure's error lacks the AppArmor hint: %v", err)
+	}
+}

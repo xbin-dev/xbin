@@ -361,11 +361,16 @@ VM. Everything around it stays the same:
 
 The namespace sandbox is still there, as the VM's jail (Firecracker runs
 inside it with a bare root and five file capabilities). A VM escape lands
-in a rootless sandbox that holds only the binds. VMs are **off by default**:
-an admin turns them on for terminals and/or backends with `PUT
-/api/xbin/vm/policy`, which also sets the size per VM (default 2 GiB, 2
-vCPUs), the number of VMs and a memory budget. `GET /api/xbin/vm` says
-whether this host can run them and why not.
+in a rootless sandbox that holds only the binds. xbind keeps VMs **off**
+until the workspace has a VM policy: an admin turns them on for terminals
+and/or backends with `PUT /api/xbin/vm/policy` (or the admin console), which
+also sets the size per VM (default 2 GiB, 2 vCPUs), the number of VMs and a
+memory budget. **The installer** (`deploy/install.sh`, fresh installs and
+upgrades) **writes an "on" policy for a workspace that has none** — terminals,
+plus backends where KVM is usable; where VMs would run emulated (below) only
+terminals, since a backend's `"vm"` shouldn't silently get a several-times
+slower VM — and never changes a policy an admin set, "off" included (D110).
+`GET /api/xbin/vm` says whether this host can run them and why not.
 
 **Terminals.** The **⧉ VM** toggle in the terminal title bar restarts the
 session in a VM (`?vm=1` on `/ws/term`). The prompt is up in about 0.2 s;

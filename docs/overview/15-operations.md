@@ -38,6 +38,45 @@ the one-time login URL. Everything is overridable via `XBIN_*` env
 (`XBIN_PREFIX`, `XBIN_LISTEN`, `XBIN_PREBUILT_BIN`/`XBIN_ROOTFS_DIR` to skip
 building, …); `--check-only` runs just the preflight.
 
+Two more steps run on fresh installs **and** upgrades, each shown in the
+plan (D110):
+
+- **AppArmor lets fusermount3 mount encrypted resources.** Ubuntu's AppArmor
+  profile for `fusermount3` (seen on 26.04) allows FUSE mount points only
+  under home dirs, `/mnt`, `/media`, `/tmp` and `/run/user/<uid>`, so every
+  gocryptfs mount under `/opt/xbin/workspace/.xbin/resenc/` fails
+  `fusermount3: mount failed: Permission denied` and the tiles using
+  file-backed resources stay held. Where AppArmor is on and the profile has
+  its `include if exists <local/fusermount3>` hook, the system installer
+  owns one marked block in `/etc/apparmor.d/local/fusermount3`:
+
+  ```
+  # BEGIN xbin (install.sh) — encrypted resources (gocryptfs) under the workspace
+  mount fstype=@{fuse_types} options=(nosuid,nodev) options in (ro,rw,noatime,dirsync,nodiratime,noexec,sync) -> "/opt/xbin/workspace/.xbin/resenc/**/",
+  umount "/opt/xbin/workspace/.xbin/resenc/**/",
+  # END xbin
+  ```
+
+  for the actual workspace path, then reloads the profile (`apparmor_parser
+  -r -W /etc/apparmor.d/fusermount3`). A re-run replaces the block in place
+  (never a second copy) and keeps every other line; a workspace the stock
+  rules already cover (under `/home/<user>/`, `/mnt`, `/media`, `/tmp`)
+  needs no block. A profile without the hook, a hand-broken block, and a
+  user install whose workspace is outside those dirs get a warning with the
+  exact root commands instead. The kernel still logs `capable
+  dac_override` / `setuid` denials for fusermount3; they are harmless (the
+  stock profile leaves them out on purpose) — mounts and unmounts work.
+- **VM sandboxes on by default.** When `<workspace>/.xbin/vm/policy.json`
+  doesn't exist (nobody ever configured VM sandboxes), the installer writes
+  one turning them on: terminals always (each terminal still opts in with
+  its **⧉ VM** toggle), backends only when KVM is usable — where VMs would
+  run emulated (several times slower) a backend's `"vm"` stays refused
+  until an admin turns backends on. Sizes are left at xbind's defaults. An
+  existing policy is an admin's choice — "off" included — and is never
+  touched; change it in the admin console or with `PUT
+  /api/xbin/vm/policy` ([isolation.md](/docs/isolation.md) §VM sandboxes).
+  A bundle without the VM pieces (arm64) writes nothing.
+
 ### Prebuilt bundles (the default)
 
 When the pinned release publishes a bundle for the host arch, the installer
@@ -148,7 +187,8 @@ terminal.
 | `/dev/fuse` | fuse-overlayfs sandbox roots | kernel-overlay fallback; `apt install` in terminals fails on cross-dir renames |
 | `/dev/net/tun` | the egress relay / terminal internet scope | no component egress, no terminal internet |
 | cgroup v2 | per-component limits/accounting | non-fatal; limits unavailable |
-| `/dev/kvm` usable by the xbind user (the `kvm` group) + the bundle's `firecracker`, `vmlinux`, `xbin-vmagent`, `mkfs.erofs` | VM sandboxes (D89; off until an admin enables them) | VMs run emulated instead (D90: the bundle's `qemu-system-x86_64` + blobs and `vhost-device-vsock`; much slower), or report "unavailable" with the reason when those are missing too; everything else unchanged |
+| `/dev/kvm` usable by the xbind user (the `kvm` group) + the bundle's `firecracker`, `vmlinux`, `xbin-vmagent`, `mkfs.erofs` | VM sandboxes (D89; the installer turns them on where no policy exists, D110) | VMs run emulated instead (D90: the bundle's `qemu-system-x86_64` + blobs and `vhost-device-vsock`; much slower), or report "unavailable" with the reason when those are missing too; everything else unchanged |
+| AppArmor's `fusermount3` profile (Ubuntu) allowing `<workspace>/.xbin/resenc/**/` | encrypted resources (gocryptfs mounts) | `fusermount3: mount failed: Permission denied` — tiles using `filesystem`/`sqlite`/`blob` resources stay held; the system installer writes the rule (above), xbind's error names it |
 | `fs.inotify.max_user_watches=524288` | watching every workspace dir | rescans silently miss changes; the #1 support issue — `bx doctor` checks it |
 
 ## Network posture
@@ -324,8 +364,10 @@ toolchains for runtimes in use.
 
 Re-run the installer: it detects an existing install and switches to
 **upgrade mode** — rebuild, stop, swap binaries/rootfs/sdk, re-render the
-unit (a locally-edited unit is preserved as `.bak`), restart. User, subids,
-vault choice, and the workspace are untouched. When the base-image version
+unit (a locally-edited unit is preserved as `.bak`), refresh the AppArmor
+block, restart. User, subids, vault choice, and the workspace are
+untouched — but for a VM policy nobody ever set, which it writes (above).
+When the base-image version
 changes, the old `rootfs` is preserved as `rootfs-<ver>` so pinned terminal
 layers keep working until they upgrade (then GC'd by xbind).
 

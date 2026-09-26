@@ -53,6 +53,28 @@ a passphrase / manual unseal in production, or a built-in dev key under a bare
   component that uses a `filesystem`/`sqlite`/`blob`/`kv` resource is **held**
   (won't spawn) while the vault is sealed or gocryptfs is missing, and
   `kv`/`blob` API calls return `503`. Everything resumes on unseal.
+- **On Ubuntu, AppArmor must let `fusermount3` mount under the workspace.**
+  gocryptfs mounts through `fusermount3`, whose AppArmor profile allows FUSE
+  mount points only under home dirs, `/mnt`, `/media` and `/tmp`. With the
+  workspace elsewhere (the installer's `/opt/xbin/workspace`) every mount
+  fails, those components stay held, and xbind logs `resource encryption:
+  mount failed … fusermount3: mount failed: Permission denied` followed by
+  the fix. The system installer adds the rule for you (D110,
+  [operations](/docs/overview/15-operations.md)); by hand, as root, for a
+  workspace at `/srv/ws`:
+
+  ```sh
+  sudo tee -a /etc/apparmor.d/local/fusermount3 >/dev/null <<'EOF'
+  # BEGIN xbin (install.sh) — encrypted resources (gocryptfs) under the workspace
+  mount fstype=@{fuse_types} options=(nosuid,nodev) options in (ro,rw,noatime,dirsync,nodiratime,noexec,sync) -> "/srv/ws/.xbin/resenc/**/",
+  umount "/srv/ws/.xbin/resenc/**/",
+  # END xbin
+  EOF
+  sudo apparmor_parser -r /etc/apparmor.d/fusermount3
+  ```
+
+  then restart xbind (`sudo systemctl restart xbin`) so it mounts them now
+  rather than at its next reprovision.
 - **Backups are plaintext.** `bx backup` and the archive interface stream
   *decrypted* data — encrypting the archive is the archiver tile's job
   (see *Encryption at rest* above).

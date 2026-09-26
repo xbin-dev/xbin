@@ -186,11 +186,43 @@ func (m *Manager) Ensure(resID, scopeKey, name string, singleTenant bool) (strin
 			// enables it, user installs need it enabled once by root.
 			err = fmt.Errorf("%w — container-store mounts need the line `user_allow_other` in /etc/fuse.conf (root: `echo user_allow_other >> /etc/fuse.conf`)", err)
 		}
+		if hint := m.mountDeniedHint(err.Error()); hint != "" {
+			err = fmt.Errorf("%w — %s", err, hint)
+		}
 		return "", fmt.Errorf("gocryptfs mount %s: %w", resID, err)
 	}
 	m.mounts[k] = mount
 	m.modes[k] = singleTenant
 	return mount, nil
+}
+
+// apparmorProfile is where Ubuntu keeps AppArmor's profile for fusermount3
+// (a var so tests can point it elsewhere).
+var apparmorProfile = "/etc/apparmor.d/fusermount3"
+
+// mountDeniedHint explains fusermount3's "mount failed: Permission denied"
+// on a host whose AppArmor confines fusermount3 (D110): Ubuntu's profile
+// allows FUSE mount points only under home dirs, /mnt, /media, /tmp and
+// /run/user, so a workspace elsewhere (the installer's /opt/xbin/workspace)
+// can't mount encrypted resources — and the tiles using them stay held —
+// until a local rule allows its resenc dir. "" when the output isn't that
+// denial or the host has no such profile.
+func (m *Manager) mountDeniedHint(out string) string {
+	if !strings.Contains(out, "fusermount") || !strings.Contains(out, "mount failed: Permission denied") {
+		return ""
+	}
+	if _, err := os.Stat(apparmorProfile); err != nil {
+		return ""
+	}
+	dir := filepath.Join(m.root, ".xbin", "resenc")
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	return fmt.Sprintf("AppArmor's fusermount3 profile (%s) most likely refused the mount point: it allows FUSE mounts only under home dirs, /mnt, /media and /tmp. "+
+		"Fix: re-run the installer (deploy/install.sh allows this workspace), or as root add "+
+		"`mount fstype=@{fuse_types} options=(nosuid,nodev) options in (ro,rw,noatime,dirsync,nodiratime,noexec,sync) -> \"%s/**/\",` and `umount \"%s/**/\",` "+
+		"to /etc/apparmor.d/local/fusermount3, run `apparmor_parser -r %s` and restart xbind (/docs/resources.md, Encryption at rest)",
+		apparmorProfile, dir, dir, apparmorProfile)
 }
 
 // SupportsSingleTenant reports whether the gocryptfs binary carries the xbin

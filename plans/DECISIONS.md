@@ -2516,7 +2516,8 @@ Deviations and refinements made while implementing; all deliberate:
     tile's layer: its lock, base pin and Reset.
   - **A workspace admin switch, then open use** (terminals and backends
     separately). A VM is stronger isolation, so the gate is its memory,
-    capped by count and budget.
+    capped by count and budget. (The installer now turns it on where it
+    was never set: D110.)
   - **`"vm"` in a manifest fails closed** when VMs can't run: no silent
     namespace fallback (D78).
 
@@ -3295,3 +3296,57 @@ Deviations and refinements made while implementing; all deliberate:
     their own sides and each tool broke the other's build. `make
     swift-stubcheck` runs them all and ci.yml's native job runs it. A pass
     still means "consistent with the stubs", not "compiles for iOS".
+
+- **D110 — The installer turns VM sandboxes on where nobody has configured
+  them, and lets AppArmor's fusermount3 mount the workspace's encrypted
+  resources (2026-09-26).** deploy/install.sh; docs/overview/15-operations.md,
+  docs/isolation.md §VM sandboxes, docs/resources.md §Encryption at rest.
+  Supersedes D89's "off by default" for installed workspaces.
+  - **VM sandboxes on by default through the installer.** Fresh installs
+    and upgrades, system and user mode: when `<workspace>/.xbin/vm/policy.json`
+    does not exist it writes `{"terminals": true, "backends": <kvm>}` (sizes
+    unset = xbind's defaults), owned by xbind's user, mode 0644, while xbind
+    is stopped (xbind reads it on first use). **Backends only with a usable
+    KVM** (`/dev/kvm` opens read-write as xbind's user — an open, since
+    Ubuntu 26.04's uutils `test -r/-w` ignores supplementary groups — and
+    Firecracker shipped):
+    an emulated VM is several times slower, and a manifest's `"vm"` should
+    not silently get that; a terminal opts in per session with its toggle,
+    so emulation there is a visible choice. No VM pieces in the bundle (an
+    arm64 host) → no file, so a later upgrade that ships them writes it.
+    **An existing file is never touched** — an admin's choice, "off"
+    included; the KVM decision is taken once, when the file is written.
+    xbind itself keeps "off" as its default: a bare `xbind` (dev, tests,
+    a hand-rolled deployment) changes nothing.
+  - **AppArmor's fusermount3 profile** (Ubuntu; seen on 26.04) allows FUSE
+    mount points only under home dirs, `/mnt`, `/media`, `/tmp` and
+    `/run/user/<uid>`, so every gocryptfs mount under `/opt/xbin/workspace`
+    failed "Permission denied" and the tiles with file-backed resources were
+    held forever. The system installer owns one marked block (`# BEGIN xbin
+    (install.sh)` … `# END xbin`) in `/etc/apparmor.d/local/fusermount3` —
+    the profile's `include if exists` hook, which package upgrades keep —
+    with a `mount` and an `umount` rule for `<workspace>/.xbin/resenc/**/`
+    (the stock rules' flags, the path quoted and escaped), and reloads the
+    profile (`apparmor_parser -r -W`). It replaces the block in place
+    (never duplicates), leaves every other line, drops the block when the
+    stock rules already cover the workspace, restores the old file if the
+    parser refuses, and leaves a hand-broken block alone with the manual
+    fix; a profile without the include, a user install and a host without
+    AppArmor get the exact root commands, or nothing. No capability rules:
+    the kernel still logs `dac_override` and `setuid` denials for
+    fusermount3 (the stock profile leaves them out on purpose, LP: #2122161),
+    but mounting, unmounting on stop and remounting at start all work.
+    Resource mounts are xbind's only host-side fusermount3 use:
+    fuse-overlayfs sandbox roots mount inside the sandbox's user namespace
+    and a VM's files go over vsock. xbind's mount error names the fix
+    when it sees fusermount3's denial and the profile exists.
+
+  **Not chosen:**
+  - Editing `/etc/apparmor.d/fusermount3` itself: a package upgrade
+    replaces it.
+  - Moving resource mounts under `/run/user/<uid>` or `/tmp`, which the
+    profile already allows: `/run/user` needs a logind session a system
+    user doesn't have, `/tmp` is shared, and the mount dir is part of the
+    layout sandboxes bind from.
+  - Flipping xbind's own default: that would change every non-installer
+    deployment's security surface without an admin in the loop.

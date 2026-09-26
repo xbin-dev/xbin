@@ -337,8 +337,21 @@ preflight() {
   # /dev/kvm — VM sandboxes (D89, plans/vm-sandbox.md). Optional: without it
   # they run emulated (QEMU, several times slower), and nothing else needs it.
   if [ ! -e /dev/kvm ] && [ "$MODE" = system ]; then kvm_modprobe; fi
-  if [ -e /dev/kvm ]; then ok "/dev/kvm present (VM sandboxes can run once an admin enables them)"
-  else warn "/dev/kvm missing (no hardware virtualization, or nested virtualization is off on this VM) — VM sandboxes will run emulated, several times slower; nothing else needs it"; fi
+  if [ -e /dev/kvm ]; then ok "/dev/kvm present (VM sandboxes on KVM, for terminals and backends)"
+  else warn "/dev/kvm missing (no hardware virtualization, or nested virtualization is off on this VM) — VM sandboxes will run emulated, several times slower, so a new VM policy turns them on for terminals only; nothing else needs it"; fi
+
+  # AppArmor confining fusermount3 (Ubuntu): encrypted resources mount
+  # through it, under the workspace (D110).
+  aa_fuse_plan
+  case "$AA_STATE" in
+    skip) ;;
+    current) ok "AppArmor: fusermount3 may mount encrypted resources under $AA_DIR" ;;
+    write)
+      if [ "$AA_COVERED" = 1 ]; then ok "AppArmor: the stock fusermount3 profile allows $AA_DIR$([ "$MODE" = system ] && printf ' %s' "(the stale xbin block in $AA_LOCAL will be dropped)")"
+      elif [ "$MODE" = system ]; then ok "AppArmor confines fusermount3 — the installer will allow encrypted-resource mounts under $AA_DIR ($AA_LOCAL)"
+      else aa_fuse_warn; fi ;;
+    *) aa_fuse_warn ;;
+  esac
 
   if [ "$MODE" = user ]; then
     preflight_user
@@ -794,6 +807,177 @@ setup_kvm() { # system mode, fresh installs and upgrades alike
     warn "no kvm group on this host — VM sandboxes need /dev/kvm readable+writable by $XBIN_USER"
   fi
 }
+
+# ---- AppArmor: encrypted-resource mounts under the workspace (D110) ---------
+# Encrypted resources are gocryptfs mounts at <workspace>/.xbin/resenc/<scope>/
+# <name>/ (internal/resenc), and gocryptfs mounts through the setuid
+# fusermount3. Ubuntu's AppArmor profile for fusermount3 (seen on 26.04)
+# allows FUSE mount points only under home dirs, /mnt, /media, /tmp and
+# /run/user/<uid>: under /opt/xbin every such mount fails "Permission denied"
+# and the tiles using those resources are held forever. The profile includes
+# local/fusermount3, and the installer owns one marked block there. That is
+# the only host-side FUSE mount xbind makes: sandbox roots (fuse-overlayfs)
+# mount inside the sandbox's own user namespace, and a VM's files are served
+# over vsock — neither goes through fusermount3.
+AA_PROFILE=/etc/apparmor.d/fusermount3
+AA_LOCAL=/etc/apparmor.d/local/fusermount3
+AA_BEGIN='# BEGIN xbin (install.sh)'
+AA_END='# END xbin'
+AA_STATE='' AA_DIR='' AA_COVERED=0
+
+aa_enabled() { [ "$(cat /sys/module/apparmor/parameters/enabled 2>/dev/null)" = Y ]; }
+
+# aa_path_escape PATH — PATH spelled for an AppArmor quoted path: its glob,
+# variable and quote characters backslash-escaped. Fails on control
+# characters, which have no safe spelling.
+aa_path_escape() {
+  case "$1" in *[[:cntrl:]]*) return 1 ;; esac
+  printf '%s' "$1" | sed 's/[][\\"*?{}^@]/\\&/g'
+}
+
+# aa_fuse_block DIR — the marked block letting fusermount3 mount (and
+# unmount) FUSE filesystems anywhere under DIR. The rules mirror the stock
+# profile's own, flags included (gocryptfs mounts rw,nosuid,nodev).
+aa_fuse_block() {
+  local e; e=$(aa_path_escape "$1") || return 1
+  printf '%s\n' \
+    "$AA_BEGIN — encrypted resources (gocryptfs) under the workspace" \
+    "mount fstype=@{fuse_types} options=(nosuid,nodev) options in (ro,rw,noatime,dirsync,nodiratime,noexec,sync) -> \"$e/**/\"," \
+    "umount \"$e/**/\"," \
+    "$AA_END"
+}
+
+# aa_block_of FILE — the xbin block(s) now in FILE, markers included.
+aa_block_of() {
+  [ -f "$1" ] || return 0
+  awk -v b="$AA_BEGIN" -v e="$AA_END" '
+    index($0, b) == 1 { on = 1 }
+    on { print }
+    on && index($0, e) == 1 { on = 0 }' "$1"
+}
+
+# aa_markers_ok FILE — every BEGIN has its END, nothing nested. A hand-edited
+# file that breaks this is left alone: replacing would eat the admin's lines.
+aa_markers_ok() {
+  [ -f "$1" ] || return 0
+  awk -v b="$AA_BEGIN" -v e="$AA_END" '
+    index($0, b) == 1 { if (on) bad = 1; on = 1; next }
+    index($0, e) == 1 { if (!on) bad = 1; on = 0 }
+    END { exit (bad || on) ? 1 : 0 }' "$1"
+}
+
+# aa_replace_block FILE BLOCKFILE — FILE's text (FILE may be missing) with
+# every xbin block dropped and BLOCKFILE's lines where the first one was, or
+# appended; an empty BLOCKFILE only removes. Every other line is kept.
+aa_replace_block() {
+  local src="$1"; [ -f "$src" ] || src=/dev/null
+  awk -v b="$AA_BEGIN" -v e="$AA_END" -v blk="$2" '
+    function emit(  l) { while ((getline l < blk) > 0) print l; close(blk); done = 1 }
+    index($0, b) == 1 { if (!done) emit(); skip = 1; next }
+    skip { if (index($0, e) == 1) skip = 0; next }
+    { print }
+    END { if (!done) emit() }' "$src"
+}
+
+# aa_fuse_covered DIR — the stock profile already allows FUSE mounts under
+# DIR (a workspace under a home dir, /mnt, /media or /tmp) — checked against
+# the profile's own rules, not assumed.
+aa_fuse_covered() {
+  local g
+  case "$1" in
+    /home/*/*|/root/*) g='@{HOME}/' ;;
+    /mnt/*) g='/mnt/' ;;
+    /media/*) g='/media/' ;;
+    /tmp/*) g='/tmp/' ;;
+    *) return 1 ;;
+  esac
+  grep -qF -- "-> $g" "$AA_PROFILE" && grep -qF -- "umount $g" "$AA_PROFILE"
+}
+
+# aa_fuse_plan — read-only: what this host needs for $WORKSPACE. Sets AA_DIR
+# (the resenc dir), AA_COVERED and AA_STATE:
+#   skip       AppArmor off, or no fusermount3 profile: nothing to do
+#   noinclude  the profile has no local/fusermount3 include
+#   badpath    the workspace path can't be spelled as an AppArmor rule
+#   badmarks   the local file's xbin markers are unbalanced (hand-edited)
+#   current    the local file already says exactly what it should
+#   write      the block must be written — or removed, when the stock profile
+#              covers the workspace already (AA_COVERED=1)
+aa_fuse_plan() {
+  AA_STATE=skip AA_COVERED=0 AA_DIR=''
+  aa_enabled && [ -f "$AA_PROFILE" ] || return 0
+  AA_DIR="$(realpath -m -- "$WORKSPACE" 2>/dev/null || printf '%s' "$WORKSPACE")/.xbin/resenc"
+  if ! grep -Eq '^[[:space:]]*#?include([[:space:]]+if[[:space:]]+exists)?[[:space:]]*<local/fusermount3>' "$AA_PROFILE"; then
+    AA_STATE=noinclude; return 0
+  fi
+  local want=''
+  if aa_fuse_covered "$AA_DIR"; then AA_COVERED=1
+  elif ! want=$(aa_fuse_block "$AA_DIR"); then AA_STATE=badpath; return 0; fi
+  if ! aa_markers_ok "$AA_LOCAL"; then AA_STATE=badmarks; return 0; fi
+  if [ "$(aa_block_of "$AA_LOCAL")" = "$want" ]; then AA_STATE='current'; else AA_STATE='write'; fi
+}
+
+# aa_fuse_manual — the fix by hand, for whatever the installer won't write
+# itself (a user install, a profile without the include, a hand-edited file).
+# Printed flush-left, so a pasted heredoc still ends at its EOF.
+aa_fuse_manual() {
+  local blk; blk=$(aa_fuse_block "$AA_DIR") || return 0
+  case "$AA_STATE" in
+    noinclude) warn "  add the two rules below inside the profile in $AA_PROFILE (before its closing brace), then: sudo apparmor_parser -r $AA_PROFILE" ;;
+    badmarks)  warn "  make the xbin block in $AA_LOCAL read as below (one BEGIN, one END), then: sudo apparmor_parser -r $AA_PROFILE" ;;
+    *)
+      warn "  run once as root (drop an older '$AA_BEGIN' block from $AA_LOCAL first, if there is one):"
+      printf '\n%s\n%s\n%s\n%s\n\n' "sudo tee -a $AA_LOCAL >/dev/null <<'EOF'" "$blk" "EOF" "sudo apparmor_parser -r $AA_PROFILE"
+      return 0 ;;
+  esac
+  printf '\n%s\n\n' "$blk"
+}
+
+# aa_fuse_warn — the preflight warning (and, as a plan step, the run-time
+# one) for a host where encrypted resources would not mount.
+aa_fuse_warn() {
+  case "$AA_STATE" in
+    write)     warn "AppArmor's fusermount3 profile allows FUSE mounts only under home dirs, /mnt, /media and /tmp — encrypted resources (gocryptfs) under $AA_DIR won't mount until root allows it:" ;;
+    noinclude) warn "AppArmor confines fusermount3, and $AA_PROFILE has no 'include if exists <local/fusermount3>' — encrypted resources (gocryptfs) under $AA_DIR won't mount until you allow it:" ;;
+    badmarks)  warn "AppArmor: encrypted resources (gocryptfs) under $AA_DIR need the xbin block in $AA_LOCAL, whose markers look hand-edited:" ;;
+    badpath)   warn "AppArmor confines fusermount3, and the workspace path has characters an AppArmor rule can't spell — encrypted resources under $AA_DIR won't mount; move the workspace to a plain path"; return 0 ;;
+    *) return 0 ;;
+  esac
+  aa_fuse_manual
+}
+
+setup_apparmor_fuse() { # system mode, fresh installs and upgrades alike
+  aa_fuse_plan # again: the plan may have been built without root
+  case "$AA_STATE" in
+    current) ok "AppArmor: fusermount3 may mount encrypted resources under $AA_DIR"; return 0 ;;
+    write) ;;
+    *) aa_fuse_warn; return 0 ;;
+  esac
+  if ! have apparmor_parser; then
+    warn "apparmor_parser not found — can't reload AppArmor's fusermount3 profile"; aa_fuse_warn; return 0
+  fi
+  local blk new err old=''
+  blk=$(mktemp); new=$(mktemp); err=$(mktemp)
+  [ "$AA_COVERED" = 1 ] || aa_fuse_block "$AA_DIR" >"$blk"
+  aa_replace_block "$AA_LOCAL" "$blk" >"$new"
+  if [ -f "$AA_LOCAL" ]; then old=$(mktemp); cp -p "$AA_LOCAL" "$old"; fi
+  install -d -m 0755 "$(dirname "$AA_LOCAL")"
+  install -m 0644 "$new" "$AA_LOCAL"
+  # -W refreshes the boot cache too (it would be rebuilt anyway: the local
+  # file is newer than it).
+  if apparmor_parser -r -W "$AA_PROFILE" 2>"$err"; then
+    if [ "$AA_COVERED" = 1 ]; then ok "AppArmor: dropped the xbin block from $AA_LOCAL — the stock fusermount3 profile already allows $AA_DIR"
+    else ok "AppArmor: fusermount3 may mount encrypted resources under $AA_DIR ($AA_LOCAL; profile reloaded)"; fi
+  else
+    # Never leave a local file that breaks the profile at the next boot.
+    if [ -n "$old" ]; then cp -p "$old" "$AA_LOCAL"; else rm -f "$AA_LOCAL"; fi
+    apparmor_parser -r "$AA_PROFILE" >/dev/null 2>&1 || true
+    warn "apparmor_parser refused the new rule ($(tr '\n' ' ' <"$err")) — $AA_LOCAL restored; encrypted resources under $AA_DIR won't mount"
+    aa_fuse_manual
+  fi
+  rm -f "$blk" "$new" "$err" ${old:+"$old"}
+}
+
 test_userns() {
   local ok_ns=0
   if [ "$MODE" = system ]; then
@@ -865,6 +1049,56 @@ install_files() {
   fi
   ok "binaries in $PREFIX/bin, rootfs in $PREFIX/rootfs, sdk in $PREFIX/sdk, workspace $WORKSPACE"
 }
+
+# ---- VM sandboxes on by default (D110) ---------------------------------------
+# xbind keeps VM sandboxes off until an admin writes the workspace's policy
+# (internal/vm/policy.go). An installed workspace whose policy was never
+# written gets one here, on fresh installs and upgrades alike: terminals on
+# (each terminal still opts in with its VM toggle), backends on only when KVM
+# is usable — an emulated VM is several times slower, too slow to be what a
+# manifest's "vm" silently gets. An existing file is an admin's choice
+# ("off" included) and is never touched. Sizes stay unset (= xbind's
+# defaults). xbind reads the file on first use, and every run that writes
+# it has stopped xbind (install_files) and starts it again (start_service).
+vm_policy_file() { printf '%s/.xbin/vm/policy.json' "$WORKSPACE"; }
+vm_have() { local f; for f in "$@"; do [ -f "$PREFIX/bin/$f" ] || return 1; done; }
+# vm_kvm_ok: Firecracker would run here — /dev/kvm opens read-write for
+# xbind's user, as internal/vm opens it (the kvm group setup_kvm just added
+# counts: runuser re-reads it). An open, not `test -r/-w`: Ubuntu 26.04's
+# test binary (uutils) ignores supplementary groups.
+vm_kvm_ok() {
+  vm_have firecracker && [ -e /dev/kvm ] || return 1
+  if [ "$MODE" = system ]; then runuser -u "$XBIN_USER" -- sh -c ': <>/dev/kvm' 2>/dev/null
+  else { : <>/dev/kvm; } 2>/dev/null; fi
+}
+vm_emulation_ok() { vm_have qemu-system-x86_64 qemu-bios-microvm.bin qemu-pvh.bin vhost-device-vsock; }
+# vm_policy_json BACKENDS — the policy the installer writes.
+vm_policy_json() { printf '{\n  "terminals": true,\n  "backends": %s\n}\n' "$1"; }
+
+setup_vm_policy() { # fresh installs and upgrades alike
+  local f; f=$(vm_policy_file)
+  if [ -e "$f" ]; then ok "VM sandbox policy already set ($f) — never rewritten"; return 0; fi
+  if ! vm_have xbin-vmagent vmlinux mkfs.erofs || ! { vm_kvm_ok || vm_emulation_ok; }; then
+    warn "this install has no VM sandbox pieces — VM sandboxes stay off (no policy written; a later upgrade that ships them turns them on)"
+    return 0
+  fi
+  local backends=false d
+  vm_kvm_ok && backends=true
+  for d in "$WORKSPACE/.xbin" "$WORKSPACE/.xbin/vm"; do
+    [ -d "$d" ] && continue
+    if [ "$MODE" = system ]; then install -d -m 0755 -o "$XBIN_USER" -g "$XBIN_USER" "$d"; else install -d -m 0755 "$d"; fi
+  done
+  vm_policy_json "$backends" >"$f.tmp"
+  chmod 0644 "$f.tmp"
+  if [ "$MODE" = system ]; then chown "$XBIN_USER:$XBIN_USER" "$f.tmp"; fi
+  mv "$f.tmp" "$f"
+  if [ "$backends" = true ]; then
+    ok "VM sandboxes on for terminals and backends (KVM) — $f; an admin changes it in the admin console or PUT /api/xbin/vm/policy"
+  else
+    ok "VM sandboxes on for terminals only: no usable KVM, so they'd run emulated (several times slower); backends stay off until an admin turns them on — $f"
+  fi
+}
+
 configure_vault() {
   install -d -m 0700 "$(dirname "$ENV_FILE")"
   local mode="${XBIN_VAULT_MODE:-}"
@@ -1106,6 +1340,17 @@ build_plan() {
       plan setup_kvm "load + persist the KVM module and add $XBIN_USER to the kvm group (VM sandboxes)"
     fi
     plan setup_kernel "persist fuse+tun autoload + raise inotify watches$([ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ] && echo ' + lift the AppArmor userns restriction') (/etc/modules-load.d, /etc/sysctl.d)"
+    aa_fuse_plan
+    case "$AA_STATE" in
+      write)
+        if [ "$AA_COVERED" = 1 ]; then plan setup_apparmor_fuse "drop the stale xbin block from $AA_LOCAL (the stock fusermount3 profile already allows $AA_DIR) + reload the profile"
+        else plan setup_apparmor_fuse "let AppArmor's fusermount3 profile mount encrypted resources (gocryptfs) under $AA_DIR: the marked xbin block in $AA_LOCAL + reload the profile"; fi ;;
+      current)
+        if [ "$AA_COVERED" = 1 ]; then inplace "AppArmor: the stock fusermount3 profile allows encrypted-resource mounts under $AA_DIR"
+        else inplace "AppArmor: fusermount3 may mount encrypted resources under $AA_DIR ($AA_LOCAL)"; fi ;;
+      noinclude|badmarks|badpath)
+        plan setup_apparmor_fuse "print the manual AppArmor fix for encrypted resources under $AA_DIR (the installer can't write it here: see the preflight warning)" ;;
+    esac
   else
     inplace "runs as $RUN_USER — no system user, no /etc changes"
   fi
@@ -1113,6 +1358,11 @@ build_plan() {
 
   # Files + service.
   plan install_files "install binaries → $PREFIX/bin, base rootfs → $PREFIX/rootfs (copies a few GB), SDK → $PREFIX/sdk; workspace dir $WORKSPACE$([ -x "$PREFIX/bin/xbind" ] && echo ' (upgrade in place: stop service, swap, old base preserved if version changes)'); link bx → $BX_LINK"
+  if [ -e "$(vm_policy_file)" ]; then
+    inplace "VM sandbox policy already set ($(vm_policy_file)) — never rewritten; admins change it in the admin console"
+  else
+    plan setup_vm_policy "turn VM sandboxes on in $(vm_policy_file) (never configured): terminals + backends with a usable KVM, terminals only where they'd run emulated; nothing without the VM pieces"
+  fi
   if [ "$UPGRADE" = 0 ]; then
     plan configure_vault "choose vault unseal mode (auto → passphrase stored in $ENV_FILE mode 600, or manual unseal each boot)"
   else
@@ -1194,7 +1444,7 @@ describe_artifacts() {
 banner() {
   echo "${B}xbin installer${R}  →  mode=$MODE prefix=$PREFIX user=$XBIN_USER listen=$LISTEN"
   describe_artifacts
-  [ "$UPGRADE" = 1 ] && echo "  existing install detected → ${B}upgrade${R} (rebuild + swap binaries/rootfs/sdk/unit, restart; user, subids, vault, and workspace untouched — XBIN_FULL_INSTALL=1 forces the full path)"
+  [ "$UPGRADE" = 1 ] && echo "  existing install detected → ${B}upgrade${R} (rebuild + swap binaries/rootfs/sdk/unit, restart; user, subids, vault, and workspace untouched but for a VM policy nobody ever set — XBIN_FULL_INSTALL=1 forces the full path)"
   if [ "$MODE" = system ] && [ "$EUID_NOW" = 0 ] && [ -n "${SUDO_USER:-}" ]; then
     local sh_home; sh_home="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6 || true)"
     [ -n "$sh_home" ] && [ -f "$sh_home/.config/systemd/user/xbin.service" ] && \

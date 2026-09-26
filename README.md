@@ -208,6 +208,13 @@ It's interactive, idempotent (re-run to upgrade), and does the whole job:
 - **Creates** the `xbin` system user with home `/opt/xbin` and delegates it a
   `/etc/subuid`+`/etc/subgid` range (so `apt`/`sudo` work inside sandboxes),
   then verifies a user namespace actually comes up for that user.
+- **Lets AppArmor's `fusermount3` mount encrypted resources** under the
+  workspace (Ubuntu's profile allows FUSE mounts only under home dirs,
+  `/mnt`, `/media`, `/tmp`): one marked block in
+  `/etc/apparmor.d/local/fusermount3`, replaced in place on every run.
+- **Turns VM sandboxes on** for a workspace that has no VM policy yet —
+  terminals, plus backends where KVM is usable — and never touches a policy
+  an admin set (`docs/overview/15-operations.md`, D110).
 - **Installs and starts** the service, waits for `/healthz`, and prints your
   one-time login URL.
 
@@ -230,7 +237,8 @@ binds **loopback only** by design; see **Operating → Exposure** to reach it ov
 Tailscale or a TLS proxy, and **Vault** for the auto- vs manual-unseal choice the
 installer offers. Upgrade by re-running the script — it detects an existing
 install and takes a fast path (rebuild + swap binaries/rootfs/sdk + restart;
-user, vault, and workspace untouched). Uninstall with
+user, vault, and workspace untouched — but for a VM policy nobody ever set).
+Uninstall with
 `systemctl disable --now xbin && rm /etc/systemd/system/xbin.service && userdel -r xbin`.
 
 ### First login → an account → lock the door

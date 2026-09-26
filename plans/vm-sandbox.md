@@ -125,7 +125,9 @@ workload; the kernel attack surface is what shrinks.
     two guests' caches aren't coherent (a sqlite WAL).
   - `setup` + `vm` is refused.
 - **Policy** (`internal/vm/policy.go`, `.xbin/vm/policy.json`):
-  - Off by default.
+  - Off by default in xbind. The installer writes an "on" policy where
+    none exists (D110): terminals, and backends only with a usable KVM;
+    an existing file is never touched.
   - `terminals` and `backends` switches.
   - Per-VM `memMiB` (default 2048) and `vcpus` (default 2).
   - `maxVMs` and a memory budget, which admission (`Reserve`) enforces.

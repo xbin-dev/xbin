@@ -476,8 +476,11 @@ GET    /vm                         authenticated. VM sandboxes (D89)
                                    note says why
 PUT    /vm/policy                  admin. body {terminals,backends,memMiB,vcpus,
                                    maxVMs,budgetMiB,diskGiB} → {status, policy}.
-                                   Off by default; zero sizes = defaults (2048
-                                   MiB, 2 vCPUs, 8 VMs, budget maxVMs×memMiB,
+                                   Off by default (the installer writes
+                                   terminals on, backends on with KVM, for a
+                                   workspace with no policy: D110); zero
+                                   sizes = defaults (2048 MiB, 2 vCPUs, 8
+                                   VMs, budget maxVMs×memMiB,
                                    a 20 GiB VM terminal disk — grown, never
                                    shrunk). Turning backends off stops new VM
                                    generations; running ones keep going. 400

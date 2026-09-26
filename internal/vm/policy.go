@@ -10,10 +10,11 @@ import (
 
 // Policy is the workspace admin's switch and sizing for VM sandboxes
 // (plans/vm-sandbox.md). Off by default: nothing changes for a workspace
-// until an admin turns VMs on. Once on, anyone who may open a terminal on a
-// tile may make it a VM, and a backend opts in with its manifest — a VM is
-// stronger isolation than the namespace sandbox, so the gate is its cost
-// (memory), which the budget caps.
+// until an admin turns VMs on — or deploy/install.sh does, writing an "on"
+// policy for an installed workspace that has none (D110). Once on, anyone
+// who may open a terminal on a tile may make it a VM, and a backend opts in
+// with its manifest — a VM is stronger isolation than the namespace
+// sandbox, so the gate is its cost (memory), which the budget caps.
 type Policy struct {
 	Terminals bool `json:"terminals"` // VM terminals may be opened
 	Backends  bool `json:"backends"`  // backends with "vm" in the manifest run in VMs

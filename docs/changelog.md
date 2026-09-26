@@ -12,6 +12,21 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-26
 
+- **Installer: VM sandboxes on by default, and encrypted resources mount on
+  Ubuntu's AppArmor** (D110, [operations](/docs/overview/15-operations.md),
+  [isolation.md](isolation.md) §VM sandboxes, [resources.md](resources.md)
+  §Encryption at rest). `deploy/install.sh`, on fresh installs and upgrades,
+  writes `<workspace>/.xbin/vm/policy.json` when the workspace has none:
+  VM terminals on (still per terminal, via the ⧉ VM toggle), VM backends on
+  where KVM is usable — where VMs would run emulated, terminals only. An
+  existing policy, "off" included, is never changed, and a bare xbind still
+  starts with VMs off. On hosts whose AppArmor confines `fusermount3`
+  (Ubuntu 26.04), every gocryptfs mount under `/opt/xbin/workspace` failed
+  `mount failed: Permission denied`, so tiles using `filesystem`/`sqlite`/
+  `blob` resources were held for good; the system installer now keeps a
+  marked rule for the workspace in `/etc/apparmor.d/local/fusermount3` and
+  reloads the profile, user installs outside `$HOME` get the root commands,
+  and xbind's mount error names the fix.
 - **xbin app: live reload, windows as tabs, Needs-you that keeps up**
   (D99, [native.md](native.md), [protocol.md](protocol.md)). While the app
   shows a workspace it follows `/ws/events` with its own device session
