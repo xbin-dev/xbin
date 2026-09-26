@@ -322,7 +322,10 @@ if (assetBase) {
       return orig.call(this, state, title, url);
     };
   }
-  document.addEventListener('click', (e) => {
+  // Decided LAST: our window listener is added while the click is still at
+  // the document, so it runs after every handler the tile registered — a
+  // client-side router that handles the link (preventDefault) keeps it.
+  const onLink = (e) => {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     const a = e.composedPath?.().find((n) => n instanceof Element && n.matches('a[href], area[href]'));
     if (!a || a.hasAttribute('download')) return;
@@ -342,6 +345,11 @@ if (assetBase) {
     if (frameToken) dest.searchParams.set('frame', frameToken);
     if (target && target !== '_self') window.open(dest.href, target, /\bnoopener\b/.test(a.rel) ? 'noopener' : '');
     else location.assign(dest.href);
+  };
+  document.addEventListener('click', (e) => {
+    const late = (ev) => { window.removeEventListener('click', late); if (ev === e) onLink(ev); };
+    window.addEventListener('click', late);
+    setTimeout(() => window.removeEventListener('click', late)); // propagation stopped: never reached window
   });
   const warned = new Set();
   const explain = (url, what) => {

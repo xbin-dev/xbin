@@ -27,7 +27,7 @@ const INDEX = `<!doctype html><html><head><meta charset="utf-8">
 <div id="bg" class="bg">asset probe (${MODE})</div>
 <img id="rel" src="img/dot.svg" width="8" height="8">
 <img id="abs" src="/c/${TILE}/img/dot.svg" width="8" height="8">
-<p><a id="frag" href="#target">to target</a> · <a id="page" href="page2.html?from=probe">page 2</a></p>
+<p><a id="frag" href="#target">to target</a> · <a id="page" href="page2.html?from=probe">page 2</a> · <a id="route" href="settings">route</a></p>
 <div style="height:3000px"></div>
 <div id="target">target</div>
 </body></html>
@@ -43,6 +43,14 @@ im.onload = () => { window.probe.relJs = true; };
 im.onerror = () => { window.probe.relJs = false; };
 im.src = 'img/dot.svg';
 try { localStorage.setItem('probe', xbin.self); window.probe.storage = localStorage.getItem('probe'); } catch { window.probe.storage = 'none'; }
+// a client-side router: handles its own relative links (document-level, like most)
+document.addEventListener('click', (e) => {
+  const a = e.target.closest?.('a#route');
+  if (!a) return;
+  e.preventDefault();
+  history.pushState(null, '', a.getAttribute('href'));
+  window.probe.routed = location.pathname;
+});
 `,
   [`${TILE}/lib/dep.js`]: "export const dep = 'ok';\n",
   [`${TILE}/img/dot.svg`]: DOT,
@@ -60,6 +68,17 @@ function seed() {
 }
 
 const probe = (f) => f.evaluate(() => window.probe ?? null);
+// ready: the probe tile's CURRENT document has run (a live reload — the files
+// were just written — can replace the first one, so re-find the frame).
+async function ready(page) {
+  const deadline = Date.now() + 20000;
+  for (;;) {
+    const f = await tileFrame(page, TILE);
+    if (await f.evaluate(() => !!window.probe && 'relJs' in window.probe).catch(() => false)) return f;
+    if (Date.now() > deadline) throw new Error('the probe tile never loaded');
+    await sleep(200);
+  }
+}
 const loaded = (f, sel) => f.evaluate((s) => { const i = document.querySelector(s); return !!i && i.complete && i.naturalWidth > 0; }, sel);
 
 async function tileAssets(browser) {
@@ -74,6 +93,7 @@ async function tileAssets(browser) {
     if (r.ok() && (await r.json()).some((c) => c.path === TILE2)) break;
     await sleep(250);
   }
+  await sleep(1000); // let the watcher's reload of the new files pass
   const report = async () => (await (await ctx.request.get(`${URL}/api/xbin/tile-assets?component=${TILE}`)).json()).tiles?.[0];
   const before = await report();
   check(before?.breaking?.tokens === 1 && before.findings.some((f) => f.fix === 'img/dot.svg'), `the tile report lists the absolute self-reference (${JSON.stringify(before?.breaking)})`);
@@ -81,8 +101,7 @@ async function tileAssets(browser) {
   await openShell(page);
   await usePersonalScreen(page);
   await openTile(page, TILE);
-  let f = await tileFrame(page, TILE);
-  await f.waitForFunction(() => window.probe && 'relJs' in window.probe, null, { timeout: 15000 });
+  let f = await ready(page);
   const p0 = await probe(f);
   const frameURL = new globalThis.URL(f.url());
   log(`tile-assets[${MODE}]: frame at ${frameURL.origin}${frameURL.pathname}`);
@@ -121,6 +140,12 @@ async function tileAssets(browser) {
   });
   check(hist.a === `${hist.start}#x` && !hist.a.includes('/c/~'), `${MODE}: replaceState('#x') keeps location clean (${hist.a})`);
   check(hist.b === `/c/${TILE}/deep/path?q=1`, `${MODE}: a relative pushState resolves against the document URL (${hist.b})`);
+  // A client-side router keeps its relative links (xbin-client decides last).
+  await f.click('#route');
+  await settle(page);
+  const routed = await f.evaluate(() => ({ routed: window.probe?.routed, at: window.probe?.loadedAt, path: location.pathname }));
+  check(routed.at === p0.loadedAt && routed.routed === `/c/${TILE}/settings`, `${MODE}: a tile's own router handles its relative links (${JSON.stringify(routed)})`);
+  await f.evaluate((u) => history.replaceState(null, '', u), hist.start);
   await shot(page, `tile-assets-${MODE}`, { fullPage: false });
 
   // A link to a sibling page navigates (tokens: re-credentialed by xbin-client).
@@ -152,8 +177,7 @@ async function tileAssets(browser) {
   check((await report())?.breaking?.tokens === 0, 'the tile report is clean after the codemod');
   await closeTile(page, TILE);
   await openTile(page, TILE);
-  f = await tileFrame(page, TILE);
-  await f.waitForFunction(() => window.probe && 'relJs' in window.probe, null, { timeout: 15000 });
+  f = await ready(page);
   check(await loaded(f, '#abs'), `${MODE}: after the codemod the reference loads`);
   await closeTile(page, TILE);
 
