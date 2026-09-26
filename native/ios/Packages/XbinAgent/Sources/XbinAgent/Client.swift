@@ -324,6 +324,32 @@ public struct PromptAttachment: Sendable, Hashable {
         return nil
     }
 
+    /// What to do with a picked image before it rides a prompt.
+    public enum ImagePlan: Sendable, Hashable {
+        /// Send the bytes as they are.
+        case keep
+        /// Redraw at this size (never larger) and encode: PNG when `png`
+        /// (a screenshot stays sharp; the app falls back to JPEG when the PNG
+        /// is still over ``maxInlineImageBytes``), else JPEG.
+        case reencode(width: Int, height: Int, png: Bool)
+    }
+
+    /// The plan for an image of `width`×`height` pixels, `bytes` long,
+    /// whose bytes sniff as `type` (``sniffImage(_:)``; nil for HEIC,
+    /// TIFF, …): a model-ready image (png/jpeg/webp, the long edge ≤
+    /// ``maxImageEdge``, ≤ ``maxInlineImageBytes``) and any GIF (it may
+    /// move) are kept; anything else is redrawn to fit.
+    public static func imagePlan(width: Int, height: Int, bytes: Int, type: String?) -> ImagePlan {
+        if type == "image/gif" { return .keep }
+        let edge = max(width, height)
+        if type != nil, edge <= maxImageEdge, bytes <= maxInlineImageBytes { return .keep }
+        guard edge > 0 else { return .keep }
+        let scale = min(1, Double(maxImageEdge) / Double(edge))
+        let w = max(1, Int((Double(width) * scale).rounded()))
+        let h = max(1, Int((Double(height) * scale).rounded()))
+        return .reencode(width: w, height: h, png: type == "image/png")
+    }
+
     /// Why xbind would refuse these, or nil: at most ``maxCount``, each ≤
     /// ``maxFileBytes``, together ≤ ``maxTotalBytes``.
     public static func check(_ list: [PromptAttachment]) -> AttachmentProblem? {

@@ -78,6 +78,26 @@ import Testing
         }
     }
 
+    @Test func imagePlans() {
+        let edge = PromptAttachment.maxImageEdge
+        // model-ready: kept
+        #expect(PromptAttachment.imagePlan(width: 1170, height: 2532, bytes: 900_000, type: "image/png") == .keep)
+        #expect(PromptAttachment.imagePlan(width: edge, height: 10, bytes: 1, type: "image/jpeg") == .keep)
+        // a 12 MP photo: down to the model's long edge, JPEG
+        #expect(PromptAttachment.imagePlan(width: 4032, height: 3024, bytes: 3_000_000, type: "image/jpeg")
+            == .reencode(width: edge, height: 1932, png: false))
+        // HEIC (no inline type): redrawn even when small
+        #expect(PromptAttachment.imagePlan(width: 800, height: 600, bytes: 200_000, type: nil) == .reencode(width: 800, height: 600, png: false))
+        // a big screenshot stays PNG
+        #expect(PromptAttachment.imagePlan(width: 2880, height: 1800, bytes: 5_000_000, type: "image/png")
+            == .reencode(width: edge, height: 1610, png: true))
+        // small in pixels but over the inline size: redrawn at its size
+        #expect(PromptAttachment.imagePlan(width: 2000, height: 2000, bytes: 6_000_000, type: "image/webp")
+            == .reencode(width: 2000, height: 2000, png: false))
+        #expect(PromptAttachment.imagePlan(width: 5000, height: 5000, bytes: 9_000_000, type: "image/gif") == .keep)
+        #expect(PromptAttachment.imagePlan(width: 0, height: 0, bytes: 10, type: nil) == .keep)
+    }
+
     @Test func imageSniffing() {
         #expect(PromptAttachment.sniffImage(Self.png) == "image/png")
         #expect(PromptAttachment.sniffImage(Self.jpeg) == "image/jpeg")
