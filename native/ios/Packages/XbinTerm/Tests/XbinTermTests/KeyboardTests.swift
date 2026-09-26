@@ -172,7 +172,7 @@ struct KeyboardTests {
         #expect(k.sticky.active == [])
     }
 
-    @Test("⌘ shortcuts: ⌘K clear, ⌘T new, ⌘⇧[ ⌘⇧] switch, copy/paste, font, find; the rest is the system's")
+    @Test("⌘ shortcuts: ⌘K clear, ⌘T new, ⌘⇧[ ⌘⇧] switch, copy/paste, font, find (⌘F ⌘G ⌘⇧G); the rest is the system's")
     func shortcuts() {
         var k = TermKeyboard()
         func cmd(_ u: UInt16, _ m: HardwareKeyEvent.Modifiers = []) -> HardwareKeyResult {
@@ -187,6 +187,7 @@ struct KeyboardTests {
         #expect(cmd(HIDUsage.equalSign) == .shortcut(.fontBigger)); #expect(cmd(HIDUsage.equalSign, [.shift]) == .shortcut(.fontBigger))
         #expect(cmd(HIDUsage.hyphen) == .shortcut(.fontSmaller)); #expect(cmd(HIDUsage.digit0) == .shortcut(.fontReset))
         #expect(cmd(HIDUsage.f) == .shortcut(.find))
+        #expect(cmd(HIDUsage.g) == .shortcut(.findNext)); #expect(cmd(HIDUsage.g, [.shift]) == .shortcut(.findPrevious))
         #expect(cmd(0x14) == .passthrough, "⌘Q is the system's")
         #expect(cmd(HIDUsage.k, [.control]) == .passthrough)
         #expect(cmd(HIDUsage.leftArrow) == .passthrough)
