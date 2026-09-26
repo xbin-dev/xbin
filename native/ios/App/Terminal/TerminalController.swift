@@ -341,7 +341,7 @@ final class XbinTerminalView: TerminalView {
 /// The predicted text drawn over the terminal (XbinTerm's PredictionRender):
 /// each run at its cell, underlined when uncertain, and the predicted cursor.
 final class PredictionOverlayView: UIView {
-    private var render = PredictionRender.empty
+    private var current = PredictionRender.empty
     private var cell = CGSize(width: 8, height: 16)
     private var font = UIFont.monospacedSystemFont(ofSize: 13, weight: .regular)
     private var scrolledBack = false
@@ -357,11 +357,11 @@ final class PredictionOverlayView: UIView {
 
     func hidden(whenScrolledBack back: Bool) {
         scrolledBack = back
-        isHidden = back || render.cells.isEmpty && render.cursor == nil
+        isHidden = back || current.cells.isEmpty && current.cursor == nil
     }
 
     func render(_ r: PredictionRender, in view: TerminalView, hidden: Bool) {
-        render = r
+        current = r
         let t = view.getTerminal()
         let frame = view.getOptimalFrameSize()
         if t.cols > 0, t.rows > 0 {
@@ -377,7 +377,7 @@ final class PredictionOverlayView: UIView {
         guard !scrolledBack, let ctx = UIGraphicsGetCurrentContext() else { return }
         let fg = UIColor.label
         let bg = UIColor.black
-        for run in render.cells {
+        for run in current.cells {
             for (i, ch) in run.cells.enumerated() {
                 let r = CGRect(x: CGFloat(run.col + i) * cell.width, y: CGFloat(run.row) * cell.height,
                                width: cell.width, height: cell.height)
@@ -388,7 +388,7 @@ final class PredictionOverlayView: UIView {
                 (ch as NSString).draw(at: r.origin, withAttributes: attrs)
             }
         }
-        if let c = render.cursor {
+        if let c = current.cursor {
             let r = CGRect(x: CGFloat(c.col) * cell.width, y: CGFloat(c.row) * cell.height, width: cell.width, height: cell.height)
             ctx.setFillColor(UIColor.systemOrange.withAlphaComponent(0.55).cgColor)
             ctx.fill(r)

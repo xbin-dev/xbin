@@ -101,8 +101,13 @@ final class AppModel {
         saveRecents()
     }
 
+    /// Reorders the switcher (List's onMove offsets).
     func move(from: IndexSet, to: Int) {
-        workspaces.move(fromOffsets: from, toOffset: to)
+        let moving = from.map { workspaces[$0] }
+        var rest = workspaces.enumerated().filter { !from.contains($0.offset) }.map(\.element)
+        let at = to - from.filter { $0 < to }.count
+        rest.insert(contentsOf: moving, at: max(0, min(at, rest.count)))
+        workspaces = rest
         save()
     }
 
