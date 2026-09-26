@@ -40,7 +40,7 @@ func (s *Server) withoutTileInitiatedCookies(r *http.Request) *http.Request {
 	drop := false
 	switch {
 	case r.Header.Get("Sec-Fetch-Site") == "same-site":
-		drop = !(isNavigation(r) && (topLevel(r) || s.navWithinTree(r)))
+		drop = !(isNavigation(r) && (topLevel(r) || s.navWithinTree(r) || s.exchangeReturn(r)))
 	case s.onTilesDomain(r.Header.Get("Origin")):
 		drop = true
 	case s.onTilesDomain(r.Header.Get("Referer")):
@@ -50,6 +50,23 @@ func (s *Server) withoutTileInitiatedCookies(r *http.Request) *http.Request {
 		return r
 	}
 	return auth.WithoutCookie(r)
+}
+
+// exchangeReturn: the second workspace leg of a tile-origin exchange — a
+// navigation to a sandboxed tile's document carrying the tile origin's
+// exchange state, which the tile origin just sent here (the chain passed
+// through it, so the browser calls it same-site). It needs the session to
+// mint the ticket; all it can answer is a redirect to that tile's origin
+// with a ticket for this browser's own session, bound to a state only this
+// browser's tile origin cookie holds — nothing another page can read or
+// plant.
+func (s *Server) exchangeReturn(r *http.Request) bool {
+	if !strings.HasPrefix(r.URL.Path, "/c/") || !hasQueryKey(r.URL.RawQuery, stateParam) {
+		return false
+	}
+	owner := s.owningComponent(path.Clean("/" + strings.TrimPrefix(r.URL.Path, "/c/"))[1:])
+	c, ok := s.Reg.Component(owner)
+	return ok && sandboxedFrame(owner, c)
 }
 
 // onTilesDomain: an Origin or Referer value naming a host under the tiles
@@ -101,16 +118,20 @@ func (s *Server) setDocCSP(w http.ResponseWriter, r *http.Request, policy string
 //
 // The principal must be a human or the tile itself (the credential is the
 // tile's; another tile never obtains it this way) with a live browser
-// session to bind the ticket to. How the navigation continues depends on
-// who initiated it:
+// session to bind the ticket to. The exchange takes two legs here
+// (tileorigin.go): the first sends the browser to the tile origin with
+// ?xbin_begin=<the session's binding hint>; the tile origin comes back with
+// ?xbin_state=<its exchange state> (exchangeReturn), answered with a 302
+// to the tile origin and a ticket bound to the session and that state. How
+// the first leg continues depends on who initiated it:
 //
 //   - the workspace itself (the shell framing the tile, a chrome page),
 //     the user (typed, a bookmark), or a browser without Fetch Metadata
-//     that shows no tile Referer: 302 to the tile origin with the ticket;
+//     that shows no tile Referer: 302 to the tile origin;
 //   - anyone else — another tile's origin (same-site), a link in chat or
 //     mail (cross-site): a same-origin interstitial that continues there,
-//     so the tile origin's exchange sees the workspace as the initiator,
-//     and which refuses to render in a frame.
+//     so the chain the tile origin sees starts at the workspace, and which
+//     refuses to render in a frame.
 //
 // Anything else is refused: no tile document runs on the workspace origin
 // in origins mode.
@@ -127,14 +148,21 @@ func (s *Server) tileDocOnWorkspace(w http.ResponseWriter, r *http.Request, owne
 		http.Error(w, "this tile runs on its own origin — open it from the workspace (docs/auth.md §Tile asset gating)", http.StatusForbidden)
 		return true
 	}
-	q := dropQueryKey(dropQueryKey(r.URL.RawQuery, "frame"), ticketParam)
+	q := dropQueryKeys(r.URL.RawQuery, exchangeParams...)
 	if q != "" {
 		q += "&"
 	}
-	target := origin + r.URL.EscapedPath() + "?" + q + ticketParam + "=" + url.QueryEscape(s.Auth.MintTileTicket(owner, p.UserID, binding))
 	h := w.Header()
 	h.Set("Cache-Control", "no-store")
 	h.Set("Referrer-Policy", "no-referrer")
+	if st := r.URL.Query().Get(stateParam); auth.ValidTileState(st) && r.Header.Get("Sec-Fetch-Site") != "cross-site" {
+		// the return leg: a ticket for this session and the tile origin's
+		// state (a state from anywhere else only yields a ticket its tile
+		// origin refuses)
+		http.Redirect(w, r, origin+r.URL.EscapedPath()+"?"+q+ticketParam+"="+url.QueryEscape(s.Auth.MintTileTicket(owner, p.UserID, binding, st)), http.StatusFound)
+		return true
+	}
+	target := origin + r.URL.EscapedPath() + "?" + q + beginParam + "=" + url.QueryEscape(s.Auth.TileBindingHint(binding))
 	if s.trustedInitiator(r) {
 		http.Redirect(w, r, target, http.StatusFound)
 		return true

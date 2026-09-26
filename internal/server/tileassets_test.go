@@ -26,6 +26,9 @@ type assetWS struct {
 	a    *auth.Auth
 	st   *users.Store
 	root string
+	// states: each tile origin's exchange state cookie, as the browser
+	// keeps it (origins mode; tileorigin_test.go)
+	states map[string]string
 }
 
 const assetPage = `<!doctype html><html><head><title>a</title></head><body>a</body></html>`

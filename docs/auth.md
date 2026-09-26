@@ -151,12 +151,18 @@ the user loses read on the tile, or after 7 days.
 stable per workspace, non-reversible, so tile names never reach DNS, SNI or
 certificate logs; `/components` reports each tile's `origin`. The shell
 frames the tile's workspace URL; the workspace answers the navigation with a
-redirect to `https://t-<id>…/<same path>?xbin_ticket=<ticket>` — a one-time,
-two-minute ticket **bound to the browser session** — and the tile origin
-redeems it (its tile must be that origin's, the session still live, the user
-still able to read the tile), sets the tile cookie `__Host-xbin_tile`
-(`HttpOnly; Secure; SameSite=Strict`, host-only, `Path=/`) and redirects to
-the same URL without the ticket. The cookie lives exactly as long as that
+redirect to the same path on `https://t-<id>…`, the tile origin keeps an
+exchange state in a cookie of its own (`__Host-xbin_tstate`) and sends the
+browser back to the workspace with it, and the workspace redirects to the
+tile origin with `?xbin_ticket=<ticket>` — a one-time, two-minute ticket
+**bound to the browser session and to that state**. The tile origin redeems
+it (the state must be this browser's — a ticket minted from someone else's
+session, planted by a sibling tile's page, is refused; its tile must be
+that origin's, the session still live, the user still able to read the
+tile), sets the tile cookie `__Host-xbin_tile` (`HttpOnly; Secure;
+SameSite=Strict`, host-only, `Path=/`) and redirects to the same URL
+without the ticket. When the tile origin's cookie is already bound to the
+browser's session, the round trip ends at the first hop. The cookie lives exactly as long as that
 browser session: sign-out, *sign out everywhere* or the session expiring
 end it on the next request, and it never outlasts the session's own
 lifetime (it slides 12 h while in use). (Changing a password ends no

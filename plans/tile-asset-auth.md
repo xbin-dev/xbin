@@ -7,7 +7,10 @@
 > enforces and deletes the credential-less rule (migration note
 > docs/changes/2026-09-26-tile-asset-gating.md). Departures from the text
 > below: the origins exchange is a one-time, session-bound `?xbin_ticket=`
-> minted by the workspace (not `?frame=`); origins mode renames the session
+> minted by the workspace (not `?frame=`), also bound to an exchange state
+> the tile origin keeps in the redeeming browser (a `?xbin_begin` /
+> `?xbin_state` round trip, skipped when the tile cookie is already the
+> session's — against login CSRF from sibling tile origins); origins mode renames the session
 > cookie `__Host-xbin_session` and adds frame-ancestors, a cross-site
 > interstitial and cookie hygiene on tile-initiated requests; `legacy` is not
 > byte-for-byte — race-free file serving, CSP sandbox on non-documents and

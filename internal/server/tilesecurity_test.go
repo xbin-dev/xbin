@@ -392,10 +392,10 @@ func TestOriginsNavigationWithinTree(t *testing.T) {
 		return w.do("/c/apps/a/settings/", append(hopNav, w.session("ana"), hdr("Referer", "http://"+w.originHost(tile)+"/"))...).Result()
 	}
 	rec := from("apps/a")
-	if loc := rec.Header.Get("Location"); rec.StatusCode != http.StatusFound || !strings.HasPrefix(loc, "http://"+w.originHost("apps/a/settings")+"/c/apps/a/settings/?"+ticketParam+"=") {
+	if loc := rec.Header.Get("Location"); rec.StatusCode != http.StatusFound || !strings.HasPrefix(loc, "http://"+w.originHost("apps/a/settings")+"/c/apps/a/settings/?"+beginParam+"=") {
 		t.Fatalf("in-tree navigation: %d %q", rec.StatusCode, loc)
 	}
-	if rec := from("apps/b"); strings.Contains(rec.Header.Get("Location"), ticketParam) {
+	if rec := from("apps/b"); strings.Contains(rec.Header.Get("Location"), beginParam) || strings.Contains(rec.Header.Get("Location"), ticketParam) {
 		t.Fatalf("another tree's origin got a ticket: %q", rec.Header.Get("Location"))
 	}
 	_ = auth.CookieName

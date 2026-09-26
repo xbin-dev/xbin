@@ -22,8 +22,12 @@ import (
 //   - binding: a tile-origin credential lives exactly as long as the
 //     browser session that obtained it. The workspace mints a one-time
 //     exchange TICKET bound to that session ("s:" + a keyed reference; the
-//     session id itself never leaves this package), the tile origin trades
-//     it for its cookie, and every later request re-checks the session:
+//     session id itself never leaves this package) AND to the redeeming
+//     browser — an exchange STATE the tile origin keeps in a cookie of its
+//     own (the state-parameter defence: a ticket minted from someone else's
+//     session can't be planted in this browser, login CSRF) — the tile
+//     origin trades it for its cookie, and every later request re-checks
+//     the session:
 //     signing out (or out everywhere), session expiry, or the user
 //     disabled — the next tile request fails. Frame tokens minted on the
 //     tile origin are bound to the same login (liveTileGrant's FrameGen).
@@ -34,8 +38,16 @@ const (
 
 	sessionRefPurpose = "xbin-session-ref-v1"
 	tileTicketPurpose = "xbin-tile-ticket-v1"
+	tileStatePurpose  = "xbin-tile-state-v1"
+	tileHintPurpose   = "xbin-tile-hint-v1"
 	tileTicketPrefix  = "x1"
 	sessionGenPrefix  = "s:"
+
+	// TileStateCookieName holds a tile origin's exchange state on an
+	// insecure origin (HostTileStateCookieName on a secure one): host-only,
+	// HttpOnly, TileTicketTTL.
+	TileStateCookieName     = "xbin_tstate"
+	HostTileStateCookieName = "__Host-" + TileStateCookieName
 
 	// TileTicketTTL bounds the one-time exchange ticket.
 	TileTicketTTL = 2 * time.Minute
@@ -190,24 +202,56 @@ func (a *Auth) TileBinding(r *http.Request, uid string) (string, bool) {
 
 // --- tickets and the tile cookie ---
 
-// MintTileTicket mints the one-time exchange ticket a workspace redirect
-// carries to tile's origin, under binding (TileBinding). A nonce rides in
-// the binding field: two tickets for the same (tile, user, session) within
-// one second must not be the same string, or the second would count as
-// spent (the shell framing a tile and a direct open of it, side by side).
-func (a *Auth) MintTileTicket(tile, uid, binding string) string {
-	return a.mintGrant(tileTicketPrefix, tileTicketPurpose, tile, uid, binding+ticketNonceSep+util.RandomToken(8), TileTicketTTL)
+// NewTileState is a fresh exchange state (tile origin, per browser).
+func NewTileState() string { return util.RandomToken(16) }
+
+// ValidTileState: the shape NewTileState makes (it travels in a URL).
+func ValidTileState(s string) bool {
+	if len(s) != 32 {
+		return false
+	}
+	for _, c := range s {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
-// ticketNonceSep separates a ticket's binding from its nonce ('#' is in no
-// binding: they are "s:" + base64url, a base64url owner generation, or "").
+// TileBindingHint names a binding (TileBinding, or a tile cookie grant's
+// Gen) without being it: the workspace passes it to the tile origin, which
+// skips the exchange when its cookie is already bound to that very login.
+func (a *Auth) TileBindingHint(binding string) string { return a.mac(tileHintPurpose, binding) }
+
+// MintTileTicket mints the one-time exchange ticket a workspace redirect
+// carries to tile's origin, under binding (TileBinding), for the browser
+// holding exchange state (NewTileState; only its keyed hash is in the
+// ticket). A nonce rides in the binding field too: two tickets for the same
+// (tile, user, session, state) within one second must not be the same
+// string, or the second would count as spent (the shell framing a tile and
+// a direct open of it, side by side).
+func (a *Auth) MintTileTicket(tile, uid, binding, state string) string {
+	return a.mintGrant(tileTicketPrefix, tileTicketPurpose, tile, uid,
+		binding+ticketNonceSep+util.RandomToken(8)+ticketNonceSep+a.mac(tileStatePurpose, state), TileTicketTTL)
+}
+
+// ticketNonceSep separates a ticket's binding, nonce and state hash ('#' is
+// in none of them: bindings are "s:" + base64url, a base64url owner
+// generation, or "").
 const ticketNonceSep = "#"
 
-// RedeemTileTicket verifies a ticket and spends it — a second redemption
-// fails — and checks that what it is bound to is still live.
-func (a *Auth) RedeemTileTicket(tok string) (AssetGrant, bool) {
+// RedeemTileTicket verifies a ticket for the redeeming browser's exchange
+// state (its tile origin's state cookie) and spends it — a second
+// redemption fails — and checks that what it is bound to is still live. A
+// ticket minted for another browser's state — someone else's session sent
+// here to sign this browser in as them — is refused.
+func (a *Auth) RedeemTileTicket(tok, state string) (AssetGrant, bool) {
 	g, ok := a.verifyGrant(tileTicketPrefix, tileTicketPurpose, tok)
 	if !ok {
+		return AssetGrant{}, false
+	}
+	parts := strings.Split(g.Gen, ticketNonceSep)
+	if len(parts) != 3 || !ValidTileState(state) || !subtleEqual(parts[2], a.mac(tileStatePurpose, state)) {
 		return AssetGrant{}, false
 	}
 	key := tok[strings.LastIndexByte(tok, '.')+1:]
@@ -226,7 +270,7 @@ func (a *Auth) RedeemTileTicket(tok string) (AssetGrant, bool) {
 	if spent {
 		return AssetGrant{}, false
 	}
-	g.Gen, _, _ = strings.Cut(g.Gen, ticketNonceSep)
+	g.Gen = parts[0]
 	return a.liveTileGrant(g)
 }
 

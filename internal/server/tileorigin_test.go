@@ -23,26 +23,75 @@ var (
 	sameOrig = hdr("Sec-Fetch-Site", "same-origin")
 )
 
-// ticketURL is where the workspace sends the shell's frame for a tile
-// document path, for the session sess (a session cookie option).
+// ticketURL is where the exchange sends the shell's frame for a tile
+// document path, for the session sess (a session cookie option): the
+// workspace's first leg (→ ?xbin_begin on the tile origin), the tile
+// origin's (→ back with ?xbin_state, its state cookie kept in w.states),
+// the workspace's second (→ ?xbin_ticket on the tile origin). The recorder
+// is the last leg's, or the first one that did not redirect as expected.
 func (w *assetWS) ticketURL(p string, sess reqOpt) (*url.URL, *httptest.ResponseRecorder) {
 	w.t.Helper()
 	rec := w.do(p, append(shellNav, sess)...)
 	if rec.Code != http.StatusFound {
 		return nil, rec
 	}
+	u := w.location(rec)
+	if u.Query().Get(beginParam) == "" {
+		return u, rec
+	}
+	return w.followBegin(u, sess)
+}
+
+// followBegin runs an exchange from its ?xbin_begin URL on the tile origin
+// (a hop of the same frame) to the ticket URL.
+func (w *assetWS) followBegin(u *url.URL, sess reqOpt, opts ...reqOpt) (*url.URL, *httptest.ResponseRecorder) {
+	w.t.Helper()
+	rec := w.do(u.RequestURI(), append(append([]reqOpt{host(u.Host), w.stateCookie(u.Host)}, hopNav...), opts...)...)
+	if rec.Code != http.StatusFound {
+		return nil, rec
+	}
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == auth.HostTileStateCookieName {
+			if w.states == nil {
+				w.states = map[string]string{}
+			}
+			w.states[u.Host] = c.Value
+		}
+	}
+	back := w.location(rec)
+	if back.Query().Get(stateParam) == "" {
+		return back, rec // the tile origin needed no exchange
+	}
+	rec = w.do(back.RequestURI(), append(append([]reqOpt{sess}, hopNav...), opts...)...)
+	if rec.Code != http.StatusFound {
+		return nil, rec
+	}
+	return w.location(rec), rec
+}
+
+func (w *assetWS) location(rec *httptest.ResponseRecorder) *url.URL {
+	w.t.Helper()
 	u, err := url.Parse(rec.Header().Get("Location"))
 	if err != nil {
 		w.t.Fatal(err)
 	}
-	return u, rec
+	return u
 }
 
-// exchangeURL follows a ticket URL on the tile origin and returns the tile
-// cookie it set.
+// stateCookie is the tile origin's exchange state cookie as this browser
+// holds it (none yet: a no-op).
+func (w *assetWS) stateCookie(h string) reqOpt {
+	if v := w.states[h]; v != "" {
+		return cookie(auth.HostTileStateCookieName, v)
+	}
+	return func(*http.Request) {}
+}
+
+// exchangeURL follows a ticket URL on the tile origin, in this browser
+// (its state cookie), and returns the tile cookie it set.
 func (w *assetWS) exchangeURL(u *url.URL, opts ...reqOpt) (*http.Cookie, *httptest.ResponseRecorder) {
 	w.t.Helper()
-	rec := w.do(u.RequestURI(), append(append([]reqOpt{host(u.Host)}, hopNav...), opts...)...)
+	rec := w.do(u.RequestURI(), append(append([]reqOpt{host(u.Host), w.stateCookie(u.Host)}, hopNav...), opts...)...)
 	for _, c := range rec.Result().Cookies() {
 		if c.Name == auth.HostTileCookieName {
 			return c, rec
@@ -119,11 +168,11 @@ func TestOriginsExchange(t *testing.T) {
 	for name, q := range map[string]string{
 		"another tile's ticket": ticketParam + "=" + url.QueryEscape(ub.Query().Get(ticketParam)),
 		"garbage":               ticketParam + "=x1.a.b.c.d.e",
-		"user without read":     ticketParam + "=" + url.QueryEscape(w.a.MintTileTicket("apps/a", "bob", bobBind)),
-		"unbound ticket":        ticketParam + "=" + url.QueryEscape(w.a.MintTileTicket("apps/a", "ana", "")),
+		"user without read":     ticketParam + "=" + url.QueryEscape(w.a.MintTileTicket("apps/a", "bob", bobBind, w.states[w.originHost("apps/a")])),
+		"unbound ticket":        ticketParam + "=" + url.QueryEscape(w.a.MintTileTicket("apps/a", "ana", "", w.states[w.originHost("apps/a")])),
 		"frame token":           "frame=" + url.QueryEscape(w.a.MintFrameToken("apps/a", "ana", 60e9)),
 	} {
-		rec := w.do("/c/apps/a/?"+q, append([]reqOpt{oa}, hopNav...)...)
+		rec := w.do("/c/apps/a/?"+q, append([]reqOpt{oa, w.stateCookie(w.originHost("apps/a"))}, hopNav...)...)
 		if rec.Code != http.StatusUnauthorized || rec.Header().Get("Location") != "" || len(rec.Result().Cookies()) != 0 {
 			t.Errorf("%s: %d loc=%q cookies=%d", name, rec.Code, rec.Header().Get("Location"), len(rec.Result().Cookies()))
 		}
@@ -132,6 +181,85 @@ func TestOriginsExchange(t *testing.T) {
 	u, _ = w.ticketURL("/c/apps/a/", w.session("ana"))
 	if c, _ := w.exchangeURL(u, hdr("Sec-Fetch-Site", "cross-site")); c != nil {
 		t.Error("cross-site navigation exchanged a ticket")
+	}
+}
+
+// A (review, login CSRF): a ticket is bound to the browser that redeems it,
+// not only to the session that minted it. Mallory (bob) reads apps/b; so
+// does ana. Mallory mints a ticket from his own session and has a sibling
+// tile origin (same-site, so the exchange's cross-site check passes) send
+// ana's browser to apps/b's origin with it: without ana's exchange state
+// in the ticket it is refused — with no state cookie, or with ana's own —
+// and ana's own flow still works. A tile origin whose cookie is already
+// bound to the session skips the exchange; another session (view-as)
+// exchanges anew.
+func TestOriginsExchangeBoundToBrowser(t *testing.T) {
+	w := newAssetWS(t, TileAssetsOrigins)
+	ob := w.originHost("apps/b")
+	siblingNav := []reqOpt{hdr("Referer", "http://"+w.originHost("apps/a")+"/c/apps/a/")}
+
+	// Mallory's browser: a ticket for his session and his browser's state.
+	mallory, _ := w.ticketURL("/c/apps/b/", w.session("bob"))
+	if mallory == nil || mallory.Query().Get(ticketParam) == "" {
+		t.Fatalf("mallory's ticket: %v", mallory)
+	}
+	malloryState := w.states[ob]
+
+	// Ana's browser: no state for apps/b's origin yet, then her own.
+	w.states = nil
+	if c, rec := w.exchangeURL(mallory, siblingNav...); c != nil || rec.Code != http.StatusUnauthorized {
+		t.Fatalf("a ticket planted in a browser with no exchange state: %d, cookie %v", rec.Code, c != nil)
+	}
+	anaSess := w.session("ana")
+	if u, _ := w.ticketURL("/c/apps/b/", anaSess); u == nil {
+		t.Fatal("ana's flow")
+	}
+	if w.states[ob] == "" || w.states[ob] == malloryState {
+		t.Fatalf("ana's browser state %q (mallory's %q)", w.states[ob], malloryState)
+	}
+	if c, rec := w.exchangeURL(mallory, siblingNav...); c != nil || rec.Code != http.StatusUnauthorized {
+		t.Fatalf("mallory's ticket in ana's browser: %d, cookie %v", rec.Code, c != nil)
+	}
+	// A sibling page sending ana's browser to the workspace's second leg
+	// with a state of its choosing keeps her session there — and gets her
+	// a ticket of her own, bound to that state, which her tile origin
+	// refuses too (nothing is planted either way).
+	rec := w.do("/c/apps/b/?"+stateParam+"="+malloryState, append(append([]reqOpt{anaSess}, hopNav...), siblingNav...)...)
+	u := w.location(rec)
+	if rec.Code != http.StatusFound || u.Host != ob || u.Query().Get(ticketParam) == "" {
+		t.Fatalf("second leg: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	if c, _ := w.exchangeURL(u); c != nil {
+		t.Fatal("a ticket bound to another browser's state exchanged")
+	}
+	// Mallory's ticket is still his, in his browser.
+	w.states = map[string]string{ob: malloryState}
+	c, _ := w.exchangeURL(mallory)
+	if c == nil {
+		t.Fatal("mallory's own exchange")
+	}
+	if g, ok := w.a.VerifyTileCookie(c.Value); !ok || g.UserID != "bob" {
+		t.Fatalf("mallory's own exchange: %+v", g)
+	}
+
+	// Skip: ana's browser already holding a tile cookie bound to her
+	// session goes straight to the clean URL; view-as (another session)
+	// exchanges anew.
+	w.states = nil
+	sid := w.a.NewSession("ana", "192.0.2.1")
+	sess := cookie(auth.SessionCookieHostName, sid)
+	u, _ = w.ticketURL("/c/apps/b/?x=1", sess)
+	ca, _ := w.exchangeURL(u)
+	rec = w.do("/c/apps/b/?x=1", append(shellNav, sess)...)
+	begin := w.location(rec)
+	rec = w.do(begin.RequestURI(), append([]reqOpt{host(ob), cookie(ca.Name, ca.Value)}, hopNav...)...)
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/c/apps/b/?x=1" || len(rec.Result().Cookies()) != 0 {
+		t.Fatalf("begin with a cookie of this session: %d %q %v", rec.Code, rec.Header().Get("Location"), rec.Result().Cookies())
+	}
+	other := w.do("/c/apps/b/", append(shellNav, w.session("ana"))...)
+	rec = w.do(w.location(other).RequestURI(), append([]reqOpt{host(ob), cookie(ca.Name, ca.Value)}, hopNav...)...)
+	if back := w.location(rec); rec.Code != http.StatusFound || back.Query().Get(stateParam) == "" {
+		t.Fatalf("begin for another session: %d %q", rec.Code, rec.Header().Get("Location"))
 	}
 }
 
@@ -421,7 +549,7 @@ func TestOriginsWorkspaceNavigation(t *testing.T) {
 	old := url.QueryEscape(w.a.MintFrameToken("apps/a", "ana", 60e9)) // a pre-origins bx-frame URL
 	rec := w.do("/c/apps/a/sub/page.html?q=1&frame="+old, append(shellNav, w.session("ana"))...)
 	loc := rec.Header().Get("Location")
-	if rec.Code != http.StatusFound || !strings.HasPrefix(loc, "http://"+w.originHost("apps/a")+"/c/apps/a/sub/page.html?q=1&"+ticketParam+"=") || strings.Contains(loc, "frame=") {
+	if rec.Code != http.StatusFound || !strings.HasPrefix(loc, "http://"+w.originHost("apps/a")+"/c/apps/a/sub/page.html?q=1&"+beginParam+"=") || strings.Contains(loc, "frame=") {
 		t.Fatalf("redirect: %d %q", rec.Code, loc)
 	}
 	for _, site := range []string{"none", ""} { // typed/bookmark; no Fetch Metadata
@@ -441,8 +569,12 @@ func TestOriginsWorkspaceNavigation(t *testing.T) {
 		if rec.Code != 200 || m == nil || rec.Header().Get("X-Frame-Options") != "DENY" || !strings.Contains(rec.Header().Get("Content-Security-Policy"), "frame-ancestors 'none'") {
 			t.Fatalf("%s open: %d %v %s", site, rec.Code, rec.Header(), rec.Body.String())
 		}
-		u, _ := url.Parse(strings.ReplaceAll(m[1], "&amp;", "&"))
-		c, rec := w.exchangeURL(u, hdr("Sec-Fetch-Dest", "document")) // the refresh's initiator is the workspace: same-site
+		begin, _ := url.Parse(strings.ReplaceAll(m[1], "&amp;", "&"))
+		u, _ := w.followBegin(begin, w.session("ana"), hdr("Sec-Fetch-Dest", "document")) // the refresh's initiator is the workspace: same-site
+		if u == nil {
+			t.Fatalf("%s: the interstitial's hop didn't reach a ticket", site)
+		}
+		c, rec := w.exchangeURL(u, hdr("Sec-Fetch-Dest", "document"))
 		if c == nil {
 			t.Fatalf("%s: the interstitial's hop didn't exchange: %d", site, rec.Code)
 		}
@@ -501,7 +633,7 @@ func TestOriginsWorkspaceNavigation(t *testing.T) {
 func TestOriginsTileCannotFrameAnotherTile(t *testing.T) {
 	w := newAssetWS(t, TileAssetsOrigins)
 	rec := w.do("/c/apps/b/", append(hopNav, w.session("ana"), hdr("Accept", "text/html"))...)
-	if loc := rec.Header().Get("Location"); strings.Contains(loc, ticketParam) || rec.Code == 200 {
+	if loc := rec.Header().Get("Location"); strings.Contains(loc, ticketParam) || strings.Contains(loc, beginParam) || rec.Code == 200 {
 		t.Fatalf("a same-site frame got apps/b: %d %q", rec.Code, loc)
 	}
 	// No Fetch Metadata, Referer on apps/a's origin: the interstitial, never
@@ -617,7 +749,7 @@ func TestOriginsHostRouting(t *testing.T) {
 	}
 	// …and the workspace sends it back with a ticket, marker kept (no loop).
 	rec = w.do("/c/apps/a/sub/page.html?q=1&xbin_retry=1", hdr("Sec-Fetch-Mode", "navigate"), hdr("Sec-Fetch-Site", "none"), w.session("ana"))
-	if loc := rec.Header().Get("Location"); !strings.HasPrefix(loc, "http://"+w.originHost("apps/a")+"/c/apps/a/sub/page.html?q=1&xbin_retry=1&"+ticketParam+"=") {
+	if loc := rec.Header().Get("Location"); !strings.HasPrefix(loc, "http://"+w.originHost("apps/a")+"/c/apps/a/sub/page.html?q=1&xbin_retry=1&"+beginParam+"=") {
 		t.Errorf("workspace leg: %d %q", rec.Code, loc)
 	}
 

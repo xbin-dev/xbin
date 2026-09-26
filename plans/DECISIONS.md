@@ -2801,6 +2801,14 @@ Deviations and refinements made while implementing; all deliberate:
     the workspace (`?xbin_ticket=`), not the frame token — a cookie traded
     for a frame token would survive sign-out on a shared computer. The
     tile cookie `__Host-xbin_tile` lives as long as that browser session.
+    The ticket is also bound to the **redeeming browser** (the
+    state-parameter defence): the tile origin first keeps an exchange state
+    in its own cookie and bounces to the workspace with it (`?xbin_begin`,
+    `?xbin_state`), which mints the ticket for that state — without it, a
+    sibling tile origin (same-site, so Fetch Metadata can't tell it from the
+    shell) could plant a ticket minted from its writer's session and sign a
+    reader into their account on the tile (login CSRF). The bounce is
+    skipped when the tile cookie is already bound to the session.
   - **The workspace treats tile origins like the cross-site frames they
     replace**: it ignores its session cookie on requests a tile origin
     starts (all same-site ones but top-level navigations), tile pages may

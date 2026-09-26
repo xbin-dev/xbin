@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"net"
 	"net/http"
@@ -21,14 +22,22 @@ import (
 //
 //  1. a browser navigates to a sandboxed tile's document on the WORKSPACE
 //     origin — bx-frame's iframe, a direct open, a link — and the workspace
-//     sends it to https://t-<id>.<tiles-domain>/<same path>?xbin_ticket=…,
-//     a one-time exchange ticket bound to the browser session
-//     (tilenav.go decides how, by who initiated the navigation);
-//  2. the tile origin redeems the ticket — its tile must be the origin's,
-//     its session still live, its user still able to read the tile — sets
-//     the tile cookie (__Host-xbin_tile: HttpOnly, Secure, SameSite=Strict,
-//     host-only, Path=/) and redirects to the clean URL;
-//  3. every later request on that origin carries the cookie: /c/ is
+//     sends it to https://t-<id>.<tiles-domain>/<same path>?xbin_begin=…
+//     (tilenav.go decides how, by who initiated the navigation), naming
+//     the browser session's binding (a keyed hint, not a credential);
+//  2. the tile origin — unless its cookie is already bound to that session
+//     (then it just drops the parameter) — keeps an exchange STATE in a
+//     cookie of its own (__Host-xbin_tstate) and sends the browser back to
+//     the workspace with ?xbin_state=<it>; the workspace answers with the
+//     same path on the tile origin and ?xbin_ticket=…, a one-time ticket
+//     bound to the browser session and to that state;
+//  3. the tile origin redeems the ticket — its state must be this browser's
+//     (a ticket minted from another session can't be planted here: login
+//     CSRF from a sibling tile origin, which is same-site), its tile the
+//     origin's, its session still live, its user still able to read the
+//     tile — sets the tile cookie (__Host-xbin_tile: HttpOnly, Secure,
+//     SameSite=Strict, host-only, Path=/) and redirects to the clean URL;
+//  4. every later request on that origin carries the cookie: /c/ is
 //     authorized live against the user's access to the tile being loaded,
 //     /api and /ws act as the tile's frame principal (read-only in a view-as
 //     session). The tile's documents can be framed only by the workspace and
@@ -55,12 +64,21 @@ func tileOriginOf(r *http.Request) string {
 const strictAssetRefusal = "unauthorized — strict tile asset gating: tile files load only with a credential; " +
 	"use relative URLs (bx fix assets <tile>) — docs/elements.md#asset-urls"
 
-// ticketParam carries the exchange ticket; retryMarker marks a tile-origin →
-// workspace → tile-origin credential refresh, so it happens once.
+// ticketParam carries the exchange ticket; beginParam starts an exchange on
+// the tile origin (the workspace session's binding hint); stateParam brings
+// the tile origin's exchange state to the workspace; retryMarker marks a
+// tile-origin → workspace → tile-origin credential refresh, so it happens
+// once.
 const (
 	ticketParam = "xbin_ticket"
+	beginParam  = "xbin_begin"
+	stateParam  = "xbin_state"
 	retryMarker = "xbin_retry"
 )
+
+// exchangeParams are the query parameters of the exchange (and a frame
+// token): never left in a URL a page ends up at.
+var exchangeParams = []string{"frame", ticketParam, beginParam, stateParam}
 
 // tileOrigins routes requests addressed to a tile origin (origins mode) and
 // guards the workspace origin against tile-initiated requests riding its
@@ -159,10 +177,15 @@ func (s *Server) serveTileOrigin(w http.ResponseWriter, r *http.Request, id stri
 		}
 		return
 	}
-	if strings.HasPrefix(p, "/c/") && hasQueryKey(r.URL.RawQuery, ticketParam) && isNavigation(r) &&
-		r.Header.Get("Sec-Fetch-Site") != "cross-site" {
-		s.tileOriginExchange(w, r, id)
-		return
+	if strings.HasPrefix(p, "/c/") && isNavigation(r) {
+		switch {
+		case hasQueryKey(r.URL.RawQuery, ticketParam) && r.Header.Get("Sec-Fetch-Site") != "cross-site":
+			s.tileOriginExchange(w, r, id)
+			return
+		case hasQueryKey(r.URL.RawQuery, beginParam):
+			s.tileOriginBegin(w, r, id)
+			return
+		}
 	}
 	s.serveTileOriginAuthed(w, r, id)
 }
@@ -184,7 +207,7 @@ func (s *Server) serveTileOriginAuthed(w http.ResponseWriter, r *http.Request, i
 	if code != 0 {
 		if code == http.StatusUnauthorized && doc && topLevel(r) &&
 			r.Header.Get("Sec-Fetch-Site") != "cross-site" && !hasQueryKey(r.URL.RawQuery, retryMarker) {
-			q := dropQueryKey(dropQueryKey(dropQueryKey(r.URL.RawQuery, "frame"), ticketParam), retryMarker)
+			q := dropQueryKeys(r.URL.RawQuery, append(exchangeParams, retryMarker)...)
 			if q != "" {
 				q += "&"
 			}
@@ -229,7 +252,7 @@ func (s *Server) toWorkspace(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	loc := strings.TrimRight(s.ExternalURL, "/") + r.URL.EscapedPath()
-	if q := dropQueryKey(dropQueryKey(r.URL.RawQuery, "frame"), ticketParam); q != "" {
+	if q := dropQueryKeys(r.URL.RawQuery, exchangeParams...); q != "" {
 		loc += "?" + q
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -240,7 +263,7 @@ func (s *Server) toWorkspace(w http.ResponseWriter, r *http.Request) bool {
 // cleanRedirect redirects to r's own URL without its credentials.
 func (s *Server) cleanRedirect(w http.ResponseWriter, r *http.Request) {
 	loc := r.URL.EscapedPath()
-	if q := dropQueryKey(dropQueryKey(r.URL.RawQuery, "frame"), ticketParam); q != "" {
+	if q := dropQueryKeys(r.URL.RawQuery, exchangeParams...); q != "" {
 		loc += "?" + q
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -340,17 +363,65 @@ func cookieRequestAllowed(r *http.Request) bool {
 	return false
 }
 
+// tileOriginBegin starts an exchange (?xbin_begin=<hint>, from the
+// workspace). A tile cookie already bound to the login the hint names
+// needs none: the parameter is dropped. Otherwise the browser gets this
+// origin's exchange state — kept, when it has one, so two loads of the
+// tile racing each other share it — and goes back to the workspace, which
+// mints a ticket for its session and that state (tilenav.go).
+func (s *Server) tileOriginBegin(w http.ResponseWriter, r *http.Request, id string) {
+	if hint := r.URL.Query().Get(beginParam); hint != "" {
+		if c, err := auth.OnlyCookie(r, tileCookieName(r)); err == nil {
+			if g, ok := s.Auth.VerifyTileCookie(c.Value); ok && s.Auth.TileHostID(g.Tile) == id &&
+				subtle.ConstantTimeCompare([]byte(s.Auth.TileBindingHint(g.Gen)), []byte(hint)) == 1 {
+				s.cleanRedirect(w, r)
+				return
+			}
+		}
+	}
+	state := ""
+	if c, err := auth.OnlyCookie(r, tileStateCookieName(r)); err == nil && auth.ValidTileState(c.Value) {
+		state = c.Value
+	} else {
+		state = auth.NewTileState()
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: tileStateCookieName(r), Value: state, Path: "/", HttpOnly: true, Secure: auth.SecureRequest(r),
+		SameSite: http.SameSiteLaxMode, MaxAge: int(auth.TileTicketTTL.Seconds()),
+	})
+	q := dropQueryKeys(r.URL.RawQuery, exchangeParams...)
+	if q != "" {
+		q += "&"
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	http.Redirect(w, r, strings.TrimRight(s.ExternalURL, "/")+r.URL.EscapedPath()+"?"+q+stateParam+"="+state, http.StatusFound)
+}
+
 // tileOriginExchange trades a navigation's one-time ticket for the tile
 // cookie and redirects to the same URL without it (so it never stays in
-// location or history). A failed exchange never redirects — no loops.
+// location or history). The ticket must be for this browser's exchange
+// state. A failed exchange never redirects — no loops.
 func (s *Server) tileOriginExchange(w http.ResponseWriter, r *http.Request, id string) {
-	g, ok := s.Auth.RedeemTileTicket(r.URL.Query().Get(ticketParam))
+	state := ""
+	if c, err := auth.OnlyCookie(r, tileStateCookieName(r)); err == nil {
+		state = c.Value
+	}
+	g, ok := s.Auth.RedeemTileTicket(r.URL.Query().Get(ticketParam), state)
 	if !ok || isChrome(g.Tile) || s.Auth.TileHostID(g.Tile) != id || !s.Auth.UserCanReadTile(g.UserID, g.Tile) {
 		s.tileOriginDenied(w, r, http.StatusUnauthorized)
 		return
 	}
 	s.setTileCookie(w, r, g)
 	s.cleanRedirect(w, r)
+}
+
+// tileStateCookieName: the exchange state's cookie (secure: __Host-).
+func tileStateCookieName(r *http.Request) string {
+	if auth.SecureRequest(r) {
+		return auth.HostTileStateCookieName
+	}
+	return auth.TileStateCookieName
 }
 
 // tileCookieName: __Host-xbin_tile on a secure origin — browsers then
@@ -418,6 +489,14 @@ func hasQueryKey(raw, key string) bool {
 		}
 	}
 	return false
+}
+
+// dropQueryKeys drops every one of keys.
+func dropQueryKeys(raw string, keys ...string) string {
+	for _, k := range keys {
+		raw = dropQueryKey(raw, k)
+	}
+	return raw
 }
 
 func dropQueryKey(raw, key string) string {

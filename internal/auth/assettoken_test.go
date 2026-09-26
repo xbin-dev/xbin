@@ -59,11 +59,11 @@ func TestAssetCredentialPurposes(t *testing.T) {
 	asset := a.MintAssetToken("apps/a", "ana")
 	cookie := a.MintTileCookie("apps/a", "ana", "", time.Hour)
 	frame := a.MintFrameToken("apps/a", "ana", time.Minute)
-	ticket := a.MintTileTicket("apps/a", "", a.credGeneration(""))
+	ticket := a.MintTileTicket("apps/a", "", a.credGeneration(""), NewTileState())
 	if _, ok := a.VerifyTileCookie(ticket); ok {
 		t.Error("exchange ticket accepted as a tile cookie")
 	}
-	if _, ok := a.RedeemTileTicket(a.MintTileCookie("apps/a", "", a.credGeneration(""), time.Hour)); ok {
+	if _, ok := a.RedeemTileTicket(a.MintTileCookie("apps/a", "", a.credGeneration(""), time.Hour), NewTileState()); ok {
 		t.Error("tile cookie redeemed as an exchange ticket")
 	}
 

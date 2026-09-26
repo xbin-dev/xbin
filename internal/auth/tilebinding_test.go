@@ -41,24 +41,32 @@ func TestTileCredentialsBoundToSession(t *testing.T) {
 	if !ok {
 		t.Fatal("no binding for a live session")
 	}
-	tk := a.MintTileTicket("apps/a", "ana", bind)
-	g, ok := a.RedeemTileTicket(tk)
-	if !ok || g.Tile != "apps/a" || g.UserID != "ana" || g.SessionEnd.Before(time.Now().Add(29*24*time.Hour)) {
+	state := NewTileState()
+	tk := a.MintTileTicket("apps/a", "ana", bind, state)
+	// Another browser's state (login CSRF: a ticket minted from someone
+	// else's session, planted here) or none: refused, and not spent.
+	for _, other := range []string{NewTileState(), "", "x"} {
+		if _, ok := a.RedeemTileTicket(tk, other); ok {
+			t.Fatalf("redeemed for state %q", other)
+		}
+	}
+	g, ok := a.RedeemTileTicket(tk, state)
+	if !ok || g.Tile != "apps/a" || g.UserID != "ana" || g.SessionEnd.Before(time.Now().Add(29*24*time.Hour)) || g.Gen != bind {
 		t.Fatalf("redeem: %+v %v", g, ok)
 	}
-	if _, ok := a.RedeemTileTicket(tk); ok {
+	if _, ok := a.RedeemTileTicket(tk, state); ok {
 		t.Fatal("a ticket redeemed twice")
 	}
 	// Two tickets for the same (tile, user, session) in the same second are
 	// distinct: both redeem (the shell's frame and a direct open side by side).
-	t1, t2 := a.MintTileTicket("apps/a", "ana", bind), a.MintTileTicket("apps/a", "ana", bind)
+	t1, t2 := a.MintTileTicket("apps/a", "ana", bind, state), a.MintTileTicket("apps/a", "ana", bind, state)
 	if t1 == t2 {
 		t.Fatal("two tickets minted alike")
 	}
-	if _, ok := a.RedeemTileTicket(t1); !ok {
+	if _, ok := a.RedeemTileTicket(t1, state); !ok {
 		t.Fatal("first of two tickets refused")
 	}
-	if _, ok := a.RedeemTileTicket(t2); !ok {
+	if _, ok := a.RedeemTileTicket(t2, state); !ok {
 		t.Fatal("second of two tickets refused")
 	}
 	c := a.MintTileCookie(g.Tile, g.UserID, g.Gen, time.Hour)
@@ -72,7 +80,7 @@ func TestTileCredentialsBoundToSession(t *testing.T) {
 	if _, ok := a.VerifyTileCookie(c); ok {
 		t.Fatal("cookie survived sign-out")
 	}
-	if _, ok := a.RedeemTileTicket(a.MintTileTicket("apps/a", "ana", bind)); ok {
+	if _, ok := a.RedeemTileTicket(a.MintTileTicket("apps/a", "ana", bind, state), state); ok {
 		t.Fatal("ticket survived sign-out")
 	}
 

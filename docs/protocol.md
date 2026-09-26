@@ -264,17 +264,29 @@ GET  /c/~<asset-token>/<component-path>/<file>
                                  t-<id>.<tiles-domain> is tile <id>'s own
                                  origin (id = keyed hash of the tile path; the
                                  URL is /components' `origin`). It serves
-                                 ONLY: GET /c/… (?xbin_ticket=<ticket> on a
-                                 navigation — the one-time, session-bound
-                                 ticket the workspace redirect carries — is
-                                 redeemed for the cookie __Host-xbin_tile
-                                 (xbin_tile on plain http): HttpOnly, Secure,
-                                 SameSite=Strict, host-only, Path=/, living as
-                                 long as the browser session it is bound to —
-                                 and 302'd to the same URL without it; the
-                                 ticket's tile must be this origin's, its
-                                 session live, its user able to read the tile;
-                                 a cross-site initiator is not exchanged; a
+                                 ONLY: GET /c/… (?xbin_begin=<hint> on a
+                                 navigation starts the exchange: a tile cookie
+                                 already bound to the login the hint names →
+                                 302 to the same URL without it; else the
+                                 exchange state cookie __Host-xbin_tstate
+                                 (xbin_tstate on plain http; HttpOnly,
+                                 SameSite=Lax, host-only, 2 min, kept while
+                                 present) and a 302 to the same path on
+                                 --external-url with ?xbin_state=<state>.
+                                 ?xbin_ticket=<ticket> on a navigation — the
+                                 one-time ticket the workspace's second leg
+                                 carries, bound to the browser session AND
+                                 that state — is redeemed for the cookie
+                                 __Host-xbin_tile (xbin_tile on plain http):
+                                 HttpOnly, Secure, SameSite=Strict,
+                                 host-only, Path=/, living as long as the
+                                 browser session it is bound to — and 302'd to
+                                 the same URL without it; the ticket's state
+                                 must be this browser's (a ticket from
+                                 another session can't sign it in: login
+                                 CSRF), its tile this origin's, its session
+                                 live, its user able to read the tile; a
+                                 cross-site initiator is not exchanged; a
                                  failed exchange never redirects), /api/… and
                                  /ws/events (as the tile's frame principal;
                                  read-only in a view-as session; the tile
@@ -308,7 +320,8 @@ GET  /c/~<asset-token>/<component-path>/<file>
 (workspace, origins mode)        A browser navigating to a sandboxed tile's
                                  document on --external-url (a human, or the
                                  tile itself, with a live session) is sent to
-                                 its tile origin with ?xbin_ticket=: a 302
+                                 its tile origin with ?xbin_begin=<hint of the
+                                 session's binding>: a 302
                                  when the initiator is the workspace or the
                                  user (Sec-Fetch-Site same-origin/none, or no
                                  Fetch Metadata and no tile-origin Referer, or
@@ -317,13 +330,21 @@ GET  /c/~<asset-token>/<component-path>/<file>
                                  meta refresh there (frame-ancestors 'none',
                                  X-Frame-Options DENY). Otherwise 403: no tile
                                  document is served to a browser on the
-                                 workspace origin. Header-credentialed clients
+                                 workspace origin. The exchange's second leg —
+                                 the same navigation back from the tile
+                                 origin with ?xbin_state=<state> (not
+                                 cross-site) — is a 302 to the tile origin
+                                 with ?xbin_ticket=, bound to the session and
+                                 that state. Header-credentialed clients
                                  (X-XBin-Frame-Token, Authorization) get the
                                  document. Every workspace request a tile
                                  origin starts has its cookies dropped:
                                  Sec-Fetch-Site same-site unless a top-level
-                                 navigation, an Origin on the tiles domain, a
-                                 Referer on it unless a navigation. Chrome
+                                 navigation or that second leg (a navigation
+                                 to a sandboxed tile's /c/ document with
+                                 ?xbin_state=), an Origin on the tiles
+                                 domain, a Referer on it unless a
+                                 navigation. Chrome
                                  documents carry frame-ancestors 'self'. The
                                  session cookie is __Host-xbin_session on
                                  https and *.localhost (xbin_session is then
