@@ -32,7 +32,11 @@ final class LiveActivities {
     /// Live Activities at all (Settings may bind it; default on).
     static var enabled: Bool {
         get { UserDefaults.standard.object(forKey: "xbin.liveActivities") as? Bool ?? true }
-        set { UserDefaults.standard.set(newValue, forKey: "xbin.liveActivities") }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "xbin.liveActivities")
+            if !newValue { shared.endAll() }
+            Task { await PushManager.shared.maintainAll() } // and the push-to-start handle
+        }
     }
 
     /// Cards xbind starts by push for long turns (default on).
@@ -124,6 +128,17 @@ final class LiveActivities {
         c.latest = t.activityState
         cards[k] = c
         evaluate(k, leaving: false)
+    }
+
+    /// Live Activities turned off: every card goes now.
+    func endAll() {
+        for (k, c) in cards {
+            c.recheck?.cancel()
+            if let a = c.activityID, let s = c.shown {
+                Task { await Self.end(a, s.finished, dismissAt: Date()) }
+            }
+            cards[k] = nil
+        }
     }
 
     /// The workspace is gone from the app: its cards go now.
