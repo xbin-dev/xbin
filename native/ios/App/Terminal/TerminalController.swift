@@ -7,8 +7,8 @@ import XbinTerm
 /// The terminal (plans/native.md §12): SwiftTerm draws, XbinTerm runs the
 /// `/ws/term` session — framing, reattach with replay, pings/RTT, predictive
 /// echo (D70/D71) — and this controller glues them: the emulator adapter,
-/// the socket, the accessory row and hardware shortcuts, font size, and the
-/// prediction overlay.
+/// the socket, the accessory row and hardware shortcuts, font size, the
+/// prediction overlay, scrollback search (⌘F) and the precise selection mode.
 @MainActor
 @Observable
 final class TerminalController: NSObject {
@@ -16,6 +16,7 @@ final class TerminalController: NSObject {
     private(set) var cwd: String
     @ObservationIgnored let terminalView: XbinTerminalView
     @ObservationIgnored let overlay = PredictionOverlayView()
+    @ObservationIgnored let selectionOverlay = SelectionOverlayView()
     @ObservationIgnored let container = UIView()
     @ObservationIgnored private(set) var session: TermSession?
     @ObservationIgnored var keyboard = TermKeyboard()
@@ -35,6 +36,13 @@ final class TerminalController: NSObject {
     var fontSize = AppSettings.terminalFontSize
     /// Bumped when the sticky modifiers change (the accessory row redraws).
     var stickyRevision = 0
+    /// Scrollback search: the find bar's state (the search is SwiftTerm's).
+    var find = TermFind()
+    /// Bumped to move the focus to the find field (⌘F while it is open).
+    var findFocusRequests = 0
+    /// The precise selection mode: every drag selects, by `selection.unit`.
+    var selecting = false
+    var selection = TermSelection()
 
     init(workspace: WorkspaceModel, cwd: String, initialInput: String? = nil) {
         self.workspace = workspace
@@ -48,11 +56,13 @@ final class TerminalController: NSObject {
         super.init()
         terminalView.controller = self
         terminalView.terminalDelegate = self
+        keyboard.settings = TerminalPrefs.keyboard
         terminalView.optionAsMetaKey = keyboard.settings.optionAsMeta
         terminalView.inputAccessoryView = AccessoryBar(controller: self)
         overlay.isUserInteractionEnabled = false
+        selectionOverlay.controller = self
         container.backgroundColor = .black
-        for v in [terminalView, overlay] as [UIView] {
+        for v in [terminalView, overlay, selectionOverlay] as [UIView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(v)
             NSLayoutConstraint.activate([
@@ -63,6 +73,14 @@ final class TerminalController: NSObject {
             ])
         }
         terminalView.addGestureRecognizer(UIPinchGestureRecognizer(target: self, action: #selector(pinched(_:))))
+        NotificationCenter.default.addObserver(self, selector: #selector(keysChanged), name: .xbinTerminalKeysChanged, object: nil)
+    }
+
+    /// The keyboard settings changed (TerminalKeyboardSettingsView); the
+    /// accessory row redraws itself.
+    @objc private func keysChanged() {
+        keyboard.settings = TerminalPrefs.keyboard
+        terminalView.optionAsMetaKey = keyboard.settings.optionAsMeta
     }
 
     // MARK: Sessions
@@ -187,9 +205,13 @@ final class TerminalController: NSObject {
         case .fontBigger: setFont(fontSize + 1)
         case .fontSmaller: setFont(fontSize - 1)
         case .fontReset: setFont(13)
-        case .find: break // scrollback search: not yet (see the WP notes)
+        case .find: openFind()
+        case .findNext, .findPrevious:
+            if find.canSearch, let a = TermFind.action(for: s) { findStep(a) } else { openFind() }
         }
     }
+
+    func showKeyboard() { _ = terminalView.becomeFirstResponder() }
 
     func setFont(_ size: Double) {
         fontSize = min(max(size, 7), 32)
@@ -209,7 +231,11 @@ final class TerminalController: NSObject {
     // MARK: Emulator events (from XbinTerminalView)
 
     func cursorVisibility(hidden: Bool) { session?.cursorVisibilityChanged(hidden: hidden) }
-    func bufferChanged() { session?.bufferChanged() }
+    func bufferChanged() {
+        // The alternate screen came or went: the selection's rows are the other buffer's.
+        if selecting { exitSelectionMode(showKeyboard: false) }
+        session?.bufferChanged()
+    }
     func screenMoved() {
         overlay.hidden(whenScrolledBack: isScrolledBack)
         session?.redraw()
@@ -227,7 +253,10 @@ extension TerminalController: TermEmulator {
     func write(_ bytes: [UInt8]) { terminalView.feed(byteArray: bytes[...]) }
     /// SwiftTerm parses synchronously in `feed`.
     func afterParsed(_ body: @escaping @MainActor () -> Void) { body() }
-    func reset() { terminalView.getTerminal().resetToInitialState() }
+    func reset() {
+        if selecting { exitSelectionMode(showKeyboard: false) }
+        terminalView.getTerminal().resetToInitialState()
+    }
     var framebuffer: (any TermFramebuffer)? { isScrolledBack ? nil : SwiftTermScreen(terminal: terminalView.getTerminal()) }
     var size: TermSize {
         let t = terminalView.getTerminal()

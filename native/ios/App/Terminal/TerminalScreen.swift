@@ -11,8 +11,10 @@ struct TerminalHost: UIViewRepresentable {
 }
 
 /// One full-screen terminal (plans/native.md §12, §15): more screen means
-/// more columns and rows, never a second pane. Sessions, the network scope
-/// and the VM toggle live in a sheet over it.
+/// more columns and rows, never a second pane (on a Duo in tabletop, the
+/// terminal above the fold and keys below: TerminalArea). Sessions, the
+/// network scope and the VM toggle live in a sheet over it; scrollback search
+/// (⌘F) and the precise selection mode in a bar under it.
 struct TerminalScreen: View {
     let workspace: WorkspaceModel
     let cwd: String
@@ -23,6 +25,7 @@ struct TerminalScreen: View {
 
     @State private var controller: TerminalController?
     @State private var showSessions = false
+    @State private var showKeyboardSettings = false
     @State private var fullScreen = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
@@ -31,9 +34,18 @@ struct TerminalScreen: View {
         ZStack(alignment: .top) {
             Color.black.ignoresSafeArea()
             if let c = controller {
-                TerminalHost(controller: c)
+                TerminalArea(controller: c)
                     .ignoresSafeArea(.container, edges: fullScreen ? .all : [])
                 status(c)
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if let c = controller {
+                if c.selecting {
+                    TerminalSelectionBar(controller: c)
+                } else if c.find.visible {
+                    TerminalFindBar(controller: c)
+                }
             }
         }
         .navigationTitle(Text(verbatim: controller?.title.isEmpty == false ? controller!.title : "Terminal · \(TileInfo.humanize(cwd))"))
@@ -48,6 +60,14 @@ struct TerminalScreen: View {
                 }
                 Button { showSessions = true } label: { Image(systemName: "rectangle.stack") }
                     .accessibilityLabel("Sessions")
+                Menu {
+                    Button("Find", systemImage: "magnifyingglass") { controller?.openFind() }
+                    Button("Select Text", systemImage: "selection.pin.in.out") { controller?.enterSelectionMode() }
+                    Button("Keyboard", systemImage: "keyboard") { showKeyboardSettings = true }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .accessibilityLabel("More")
                 Button { withAnimation { fullScreen.toggle() } } label: {
                     Image(systemName: fullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
                 }
@@ -69,12 +89,21 @@ struct TerminalScreen: View {
                 Task { await c.start(session: sessionID) }
             }
             controller?.setVisible(true)
-            _ = controller?.terminalView.becomeFirstResponder()
+            if controller?.selecting != true, controller?.find.visible != true {
+                _ = controller?.terminalView.becomeFirstResponder()
+            }
         }
         .onDisappear { controller?.setVisible(false) }
         .onChange(of: scenePhase) { _, p in controller?.setVisible(p == .active) }
         .sheet(isPresented: $showSessions) {
             if let c = controller { TermSessionsSheet(controller: c) }
+        }
+        .sheet(isPresented: $showKeyboardSettings) {
+            NavigationStack {
+                TerminalKeyboardSettingsView()
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showKeyboardSettings = false } } }
+            }
+            .presentationDetents([.medium, .large])
         }
         .alert("Open this link?", isPresented: Binding(get: { controller?.pendingLink != nil }, set: { if !$0 { controller?.pendingLink = nil } })) {
             Button("Cancel", role: .cancel) { controller?.pendingLink = nil }
@@ -85,7 +114,7 @@ struct TerminalScreen: View {
         } message: {
             Text(verbatim: controller?.pendingLink?.absoluteString ?? "")
         }
-        // ⌘K/⌘T/⌘⇧[ ]: handled by the terminal view itself (hardware keys).
+        // ⌘K/⌘T/⌘⇧[ ]/⌘F/⌘G: handled by the terminal view itself (hardware keys).
     }
 
     @ViewBuilder private func status(_ c: TerminalController) -> some View {
@@ -183,6 +212,13 @@ struct TermSessionsSheet: View {
                     Button("New session", systemImage: "plus") {
                         Task { await controller.newSession() }
                         dismiss()
+                    }
+                }
+                Section {
+                    NavigationLink {
+                        TerminalKeyboardSettingsView()
+                    } label: {
+                        Label("Keyboard", systemImage: "keyboard")
                     }
                 }
                 if let info = controller.info {

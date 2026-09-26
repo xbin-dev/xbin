@@ -83,3 +83,31 @@ import XbinTerm
         #expect(swiftTermText(last.range(in: lines)!, t, lines) == "e 4")
     }
 }
+
+/// The terminal's keyboard preferences (App/Terminal/TerminalPrefs.swift) on
+/// real UserDefaults: the slot the first build stored still reads, "none"
+/// sticks, and every change is announced to open terminals.
+@Suite(.serialized) struct TerminalPrefsTests {
+    @Test func slotAndKeyboard() throws {
+        let d = UserDefaults.standard
+        defer { d.removeObject(forKey: AccessorySlot.defaultsKey); d.removeObject(forKey: TerminalPrefs.keyboardKey) }
+        d.removeObject(forKey: AccessorySlot.defaultsKey)
+        #expect(TerminalPrefs.accessorySlot == .key(.function(1)), "never set: F1")
+        d.set(try JSONEncoder().encode(AccessoryKey.key(.pageUp)), forKey: AccessorySlot.defaultsKey)
+        #expect(TerminalPrefs.accessorySlot == .key(.pageUp), "what the first build wrote")
+        final class Count: @unchecked Sendable { var n = 0 }
+        let posts = Count()
+        let token = NotificationCenter.default.addObserver(forName: .xbinTerminalKeysChanged, object: nil, queue: nil) { _ in posts.n += 1 }
+        defer { NotificationCenter.default.removeObserver(token) }
+        TerminalPrefs.accessorySlot = nil
+        #expect(TerminalPrefs.accessorySlot == nil, "none sticks")
+        TerminalPrefs.accessorySlot = .text("sudo ")
+        #expect(TerminalPrefs.accessorySlot == .text("sudo "))
+        #expect(TerminalPrefs.keyboard == TermKeyboardSettings())
+        var k = TerminalPrefs.keyboard
+        k.optionAsMeta = true
+        TerminalPrefs.keyboard = k
+        #expect(TerminalPrefs.keyboard.optionAsMeta && TerminalPrefs.keyboard.optionArrowsMoveByWord)
+        #expect(posts.n == 3, "posted synchronously, once per change")
+    }
+}
