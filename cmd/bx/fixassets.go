@@ -45,6 +45,10 @@ func cmdFix(args []string) error {
 	if tile == "" {
 		return errors.New("which tile? bx fix assets <tile> (in a tile terminal it defaults to that tile)")
 	}
+	if tile == "root" || tile == "shell" {
+		fmt.Printf("%s is workspace chrome: it runs on the workspace origin with the session cookie, and strict tile asset gating does not apply to it\n", tile)
+		return nil
+	}
 	root := workspaceRoot()
 	if dir == "" {
 		dir = tileDir(root, tile)
