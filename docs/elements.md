@@ -390,6 +390,15 @@ page. How to write one — the template API, every primitive, the rules — is
   name="xbin-native-preview" content="1">` and loads the preview host
   (`/vendor/xb/preview-host.js`) before the entry, for drawing in a
   browser.
+- **The workspace switch.** An admin can turn native UIs off for the whole
+  workspace — the admin console's *workspace → xbin app* tab, or `PUT
+  /api/xbin/native-runtime {"enabled": false}`. `whoami` then says `native:
+  {runtime: 0, disabled: true}`, the app opens every tile as its web page,
+  and `?native=1` answers `410` with the reason; `&preview=1` (and so `bx
+  native tree` / `bx preview --native` / `bx lint --native`) keeps working,
+  so you can fix what the switch is covering for. Tiles already open in the
+  app stay as they are until reopened; open apps are told by the `native`
+  event.
 - **Entry paths** are `.js`/`.mjs` modules inside the tile; each segment uses
   letters, digits and `. _ ~ + @ -`, with no `..` or hidden (`.name`)
   segments. A declared entry that is invalid or missing means no native UI.

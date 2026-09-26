@@ -611,7 +611,10 @@ reason in the tile's report, when:
 - the tree needs something this app lacks — a primitive, a prop newer than
   the app's revision of it, a feature flag (an older app: "update the app for
   the native view");
-- the runtime crashes, or native views are switched off in the app.
+- the runtime crashes, or native views are switched off in the app — or
+  for the whole workspace, by an admin (admin console → workspace → xbin
+  app; `whoami` then says `native: {runtime: 0}`, see
+  [elements.md](/docs/elements.md) §Native app UI).
 
 Shipped apps lag behind xbind by months. The vocabulary only grows
 ([compat.md](/docs/compat.md)): a new prop raises its primitive's revision,

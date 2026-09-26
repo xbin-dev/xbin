@@ -84,7 +84,7 @@ func endpoints() []ep {
 	return []ep{
 		// --- info / introspection ---
 		{"GET", "/whoami", "Identity", "Caller identity + permissions", "authenticated",
-			"Returns the resolved principal and what it may do — how a tile discovers whether it's the owner, an element, its granted roles, etc. An admin's view-as session (D64) adds impersonatedBy and readOnly:true. personalTiles says whether the caller (the human behind a tile call) may own tiles personally — the org-only policy and their account's switch folded in; a signed-in non-admin also gets personal {sets, netSets, netRules, allow}: their resolved personal plane (D88). Every caller gets native {runtime: 1}: this xbind serves native runtime documents (/c/<tile>/?native=1, docs/elements.md §Native app UI).", nil, nil, "identity object"},
+			"Returns the resolved principal and what it may do — how a tile discovers whether it's the owner, an element, its granted roles, etc. An admin's view-as session (D64) adds impersonatedBy and readOnly:true. personalTiles says whether the caller (the human behind a tile call) may own tiles personally — the org-only policy and their account's switch folded in; a signed-in non-admin also gets personal {sets, netSets, netRules, allow}: their resolved personal plane (D88). Every caller gets native {runtime: 1}: this xbind serves native runtime documents (/c/<tile>/?native=1, docs/elements.md §Native app UI) — {runtime: 0, disabled: true} while an admin has turned native tile UIs off for the workspace (PUT /native-runtime).", nil, nil, "identity object"},
 		{"GET", "/openapi.json", "Identity", "This API description", "authenticated",
 			"The OpenAPI 3.1 document for the built-in API (this document).", nil, nil, "OpenAPI document"},
 		{"POST", "/impersonate", "Identity", "View the workspace as a user", "admin",
@@ -254,6 +254,13 @@ func endpoints() []ep {
 		{"POST", "/devices/enroll", "Devices", "Enroll a device (the app)", "none (the enrollment code is the credential; throttled)",
 			"Registers the app's device key for the user the code was minted by. publicKey: SPKI DER of an EC P-256 key, base64url without padding (validated before the code is spent). The code is single-use; a wrong one counts against the login throttle. 409 past 32 devices per user.",
 			nil, jsonBody("enrollment", oapi{"code": str("from the xbin://enroll link"), "name": str("shown in device lists (≤ 64 chars)"), "platform": str("ios | ipados | android | …"), "publicKey": str("SPKI DER, base64url")}, "code", "publicKey"), "{deviceId, user, origin, name}"},
+		{"POST", "/web-ticket", "Devices", "Open the workspace in a browser, signed in (the app)", "the app's device-key session (via device) only",
+			"Signed-in Safari: a one-shot ticket (60 s) the app opens top-level — url is <device origin>/login?ticket=<t>&next=<path>. GET /login?ticket= never signs a browser in by itself: a browser signed in as the same user lands on next; a signed-out one gets a \"Continue as <name>\" page naming the account, and its button (POST /login/web-ticket, a same-origin form post from that browser only) opens an ordinary browser session of the same user, landing on next — anyone can mint a link for their own account and hand it over, and a link another app opens looks like the app's own open, so the page is the login-CSRF defence. Only a device-key session mints (not a browser, the app's password/SSO session, a tile, a terminal or the owner token → 403). The ticket is bound to that device session: the app signing out, removing the device, sign-out-everywhere and disabling the account void it, and the browser session it opens ends with the device and the app's sign-out, keeps the device login's time (the enrollment step-up counts from the Face ID sign-in) and its SSO window (D93; 403 {reauth:\"sso\"} past it). next: a path on this workspace — one leading slash, printable ASCII, no backslash, ≤ 2048, not /login… or /logout (400 otherwise); default /. The redeem also refuses a navigation a page started (Sec-Fetch-Site other than none), a browser signed in as someone else, and an altered next. 10 per minute per device (429 + Retry-After); failed redeems count against the login throttle.",
+			nil, func() oapi {
+				b := jsonBody("where to land (optional)", oapi{"next": str("a path on this workspace, e.g. /c/apps/x/ (default /)")})
+				b["required"] = false
+				return b
+			}(), "{url: \"<origin>/login?ticket=…&next=…\", expires, expiresIn}"},
 		{"GET", "/devices", "Devices", "Your enrolled devices", "a signed-in user",
 			"The caller's app devices, oldest first. current marks the device behind the calling app session. The public key is never returned.",
 			nil, nil, "{devices:[{id,name,platform,origin,created,lastUsed,lastIP,current}]}"},
@@ -277,6 +284,11 @@ func endpoints() []ep {
 		{"PUT", "/branding", "Workspace", "Set the workspace's title and/or icon", "admin",
 			"{title?, icon?} — each present key is a whole-value replace, \"\" clears it, an absent key leaves it alone. title ≤ 64 characters, no control characters; icon a base64 data: URI of an allowed image type whose bytes match it (≤ 256 KiB decoded; body ≤ 512 KiB). Persisted in data/branding.json (readable while the vault is sealed, so the sign-in page can show it). Publishes a `branding` event; audited.",
 			nil, freeBody("{title?:string, icon?:string}"), "{title, icon, hasIcon}"},
+		{"GET", "/native-runtime", "Workspace", "Whether the xbin app may open native tile UIs", "authenticated",
+			"{enabled, runtime, version} — the workspace's native-runtime switch (docs/elements.md §Native app UI). runtime is what whoami's native.runtime says: version (the runtime-document generation this xbind serves) while enabled, 0 while an admin has turned native tile UIs off.", nil, nil, "{enabled, runtime, version}"},
+		{"PUT", "/native-runtime", "Workspace", "Turn the xbin app's native tile UIs on or off", "admin",
+			"{enabled: bool}. Off: whoami reports native {runtime: 0, disabled: true} — the app opens every tile as its web page — and the app's runtime documents (/c/<tile>/?native=1) answer 410 with the reason; previews (&preview=1: bx native tree / preview / lint) keep working. Kept in users.json with the workspace policy; publishes a `native` event (open apps re-read whoami); audited.",
+			nil, jsonBody("the switch", oapi{"enabled": boolean()}, "enabled"), "{enabled, runtime, version}"},
 
 		// --- orgs & teams (docs/auth.md) ---
 		{"GET", "/orgs", "Orgs", "List orgs (management view)", "xbin:users",

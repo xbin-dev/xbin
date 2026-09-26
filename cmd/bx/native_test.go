@@ -235,14 +235,14 @@ func TestStaticLint(t *testing.T) {
 		}{e}
 	}
 	good := fakeXbind{
-		"/c/apps/x/?native=1":   {200, fakeDoc},
-		"/c/apps/x/native.js":   {200, "import { html, render } from '/vendor/xb-native.js';\nimport { f } from './lib/fmt.js';\nimport 'lit';\n"},
-		"/c/apps/x/lib/fmt.js":  {200, "export { g } from '../model.js';\nexport const f = 1;"},
-		"/c/apps/x/model.js":    {200, "export const g = 2;"},
-		"/vendor/xb-native.js":  {200, "export const html = 1"},
-		"/vendor/lit.js":        {200, "export const x = 1"},
-		"/c/apps/y/?native=1":   {404, "this tile has no native app UI (no native.js, and no \"native\" in its xbin.json)"},
-		"/c/apps/bad/?native=1": {404, "native entry \"./mobile.js\": no such file"},
+		"/c/apps/x/?native=1&preview=1":   {200, fakeDoc},
+		"/c/apps/x/native.js":             {200, "import { html, render } from '/vendor/xb-native.js';\nimport { f } from './lib/fmt.js';\nimport 'lit';\n"},
+		"/c/apps/x/lib/fmt.js":            {200, "export { g } from '../model.js';\nexport const f = 1;"},
+		"/c/apps/x/model.js":              {200, "export const g = 2;"},
+		"/vendor/xb-native.js":            {200, "export const html = 1"},
+		"/vendor/lit.js":                  {200, "export const x = 1"},
+		"/c/apps/y/?native=1&preview=1":   {404, "this tile has no native app UI (no native.js, and no \"native\" in its xbin.json)"},
+		"/c/apps/bad/?native=1&preview=1": {404, "native entry \"./mobile.js\": no such file"},
 	}
 	fs := staticLint(good.get, nativeComp{Path: "apps/x", Native: native("native.js")})
 	if len(fs) != 1 || !has(fs, "ok", "3 module(s), 4 import(s) resolve") {
@@ -256,9 +256,9 @@ func TestStaticLint(t *testing.T) {
 	}
 
 	broken := fakeXbind{
-		"/c/apps/x/?native=1": {200, fakeDoc},
-		"/c/apps/x/native.js": {200, "import { m } from './missing.js';\nimport 'left-pad';\nimport '/vendor/nope.js';\nimport '../other/x.js';\nimport 'https://cdn.example/x.js';\nrender(html`<row tone=\"#abcdef\"/>`);\n"},
-		"/c/apps/other/x.js":  {200, ""},
+		"/c/apps/x/?native=1&preview=1": {200, fakeDoc},
+		"/c/apps/x/native.js":           {200, "import { m } from './missing.js';\nimport 'left-pad';\nimport '/vendor/nope.js';\nimport '../other/x.js';\nimport 'https://cdn.example/x.js';\nrender(html`<row tone=\"#abcdef\"/>`);\n"},
+		"/c/apps/other/x.js":            {200, ""},
 	}
 	fs = staticLint(broken.get, nativeComp{Path: "apps/x", Native: native("native.js")})
 	for _, w := range []struct{ level, substr string }{
@@ -277,17 +277,34 @@ func TestStaticLint(t *testing.T) {
 	if has(fs, "ok", "") {
 		t.Errorf("a tile with errors has no ok line:\n%s", levels(fs))
 	}
-	syntax := fakeXbind{"/c/apps/x/?native=1": {200, fakeDoc}, "/c/apps/x/native.js": {200, "import './m.js';"}, "/c/apps/x/m.js": {200, "a\nb\nSYNTAX here"}}
+	syntax := fakeXbind{"/c/apps/x/?native=1&preview=1": {200, fakeDoc}, "/c/apps/x/native.js": {200, "import './m.js';"}, "/c/apps/x/m.js": {200, "a\nb\nSYNTAX here"}}
 	if fs := staticLint(syntax.get, nativeComp{Path: "apps/x", Native: native("native.js")}); !has(fs, "error", "syntax: Unexpected identifier") || fs[0].Where != "m.js:3" {
 		t.Fatalf("syntax error:\n%s", levels(fs))
 	}
-	missing := fakeXbind{"/c/apps/x/?native=1": {200, fakeDoc}}
+	missing := fakeXbind{"/c/apps/x/?native=1&preview=1": {200, fakeDoc}}
 	if fs := staticLint(missing.get, nativeComp{Path: "apps/x", Native: native("native.js")}); !has(fs, "error", "native entry native.js: HTTP 404") {
 		t.Fatalf("missing entry:\n%s", levels(fs))
 	}
-	forbidden := fakeXbind{"/c/apps/x/?native=1": {403, "not permitted to use this tile"}}
+	forbidden := fakeXbind{"/c/apps/x/?native=1&preview=1": {403, "not permitted to use this tile"}}
 	if fs := staticLint(forbidden.get, nativeComp{Path: "apps/x", Native: native("native.js")}); !has(fs, "error", "HTTP 403 not permitted") {
 		t.Fatalf("forbidden:\n%s", levels(fs))
+	}
+	// An admin turned native UIs off for the workspace: the app's document
+	// answers 410, the preview is still served — lint works as before.
+	off := fakeXbind{}
+	for k, v := range good {
+		off[k] = v
+	}
+	gone := struct {
+		st   int
+		body string
+	}{410, "native tile UIs are turned off for this workspace (admin console → workspace → xbin app) — the app opens the tile's web page"}
+	off["/c/apps/x/?native=1"], off["/c/apps/y/?native=1"] = gone, gone
+	if fs := staticLint(off.get, nativeComp{Path: "apps/x", Native: native("native.js")}); len(fs) != 1 || !has(fs, "ok", "3 module(s), 4 import(s) resolve") {
+		t.Fatalf("switch off, a native tile:\n%s", levels(fs))
+	}
+	if fs := staticLint(off.get, nativeComp{Path: "apps/y"}); len(fs) != 1 || !has(fs, "info", "no native UI") {
+		t.Fatalf("switch off, a web-only tile:\n%s", levels(fs))
 	}
 }
 

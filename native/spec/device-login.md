@@ -61,6 +61,15 @@ POST /api/xbin/devices/enroll-code          Authorization: Bearer <token>
 The browser path is held to the same rule (the shell asks for the password
 when the sign-in is older).
 
+**Adding another device from an enrolled one.** A device login (§3) is a
+fresh signature with the enclave key, behind Face ID, so it counts as the
+step-up: within **10 minutes** of `POST /login/device` the app mints a code
+with its device session and no password — show it as a QR code for the
+second device (it redeems it exactly like the browser's). The 10 minutes
+count from the device login, not from the app's launch: past them, sign in
+with the key again (a new challenge, one Face ID prompt) rather than
+asking for the password, unless the user prefers to type it.
+
 **Redeem** (no credential — the code is one):
 
 ```
@@ -190,6 +199,47 @@ POST /login/ticket
 - The device list: `GET /api/xbin/devices` → `{"devices": [{"id", "name",
   "platform", "origin", "created", "lastUsed", "lastIP", "current"}]}`
   (`current`: the device this session signed in with).
+
+**Opening the workspace in Safari, signed in.** Only a device-key session
+(§3) may do this — not the §5 password/SSO session:
+
+```
+POST /api/xbin/web-ticket                    Authorization: Bearer <device session>
+{"next": "/c/apps/calendar/"}                optional; default "/"
+→ 200 {"url": "<origin>/login?ticket=<t>&next=<path>", "expires": <unix>, "expiresIn": 60}
+  400  next is not a path on this workspace (one leading "/", printable ASCII —
+       percent-encode the rest — no "\", ≤ 2048 characters, not /login… or /logout)
+  403  not a device session, or the device was removed
+  403  {"error", "reauth": "sso"}   an SSO-bound account past its window (§3)
+  429  more than 10 per minute from this device (Retry-After)
+```
+
+Open `url` **at once, as is** in `SFSafariViewController` (not a web view
+of the app, not by redirecting through another page): it is single use and
+lives 60 seconds. What the browser then shows:
+
+- **Signed out** (the usual case — Safari's cookie jar is not the app's): a
+  page **"Continue as <name>"** naming the account, the login (and email)
+  and the page it opens, with one button. Pressing it posts a one-shot
+  nonce (2 minutes) back to `POST /login/web-ticket` from that page — the
+  server takes it only as a same-origin form post (`Sec-Fetch-Site:
+  same-origin`, or a matching `Origin`), only from the browser the page was
+  served to (the nonce must equal a cookie that page's response set) — and
+  only then opens the session and redirects to `next`. The extra tap is the
+  login-CSRF defence: anyone can mint a link for *their* account and hand
+  it to someone (a message, a QR code), and a link another app opens is a
+  navigation "nobody started" (`Sec-Fetch-Site: none`) exactly like this
+  app's, so no header can tell the two apart — the person has to see whose
+  account it is. Don't try to skip or auto-submit the page.
+- **Signed in as the same user:** straight to `next`, no new session.
+- **Signed in as someone else, or opened from a page** (`Sec-Fetch-Site`
+  other than `none`), an altered `next`, an expired/used link: a short text
+  page (403) saying why.
+
+The browser session it opens belongs to this device: signing the app out
+of the workspace (`POST /logout` with the bearer) or removing the device
+ends it, and it keeps the device login's time and cap (it is not a fresh
+sign-in). `origin` is the device's enrollment origin (§4).
 
 ## 7. Test vector
 

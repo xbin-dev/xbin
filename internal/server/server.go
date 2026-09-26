@@ -396,6 +396,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.handleImpersonateRedeem(w, r, tk)
 		return
 	}
+	if tk := r.URL.Query().Get("ticket"); tk != "" { // the app's signed-in browser handoff (webticket.go)
+		s.handleWebTicketRedeem(w, r, tk)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	page := s.brandPage(loginPageHTML, " — sign in") // the workspace's title/icon, or xbin's (D76)
 	// SSO button — rendered only when configured AND startable (external-url

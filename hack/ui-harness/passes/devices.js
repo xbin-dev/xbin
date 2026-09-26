@@ -4,6 +4,11 @@
 // for the Secure Enclave) enrolls with it and signs in; the panel notices
 // the new device; the admin console's Users tab lists the user's devices
 // and revokes one; removing the other from the panel ends its session.
+// Each device row shows its push registration (GET /devices/push) with its
+// own remove; registrations no enrolled device owns are listed apart.
+// Signed-in Safari: the phone's device session mints a web ticket; a
+// signed-out browser opening it sees "Continue as <name>" and is signed in
+// only by that button (login CSRF — webticket.go).
 // Step-up: a stale sign-in is asked for the password (or to sign in again)
 // before a code is minted — the harness's logins are always fresh, so the
 // server's answer is stubbed for those checks (the gate itself is
@@ -30,6 +35,17 @@ async function deviceLogin(dev, key) {
   const msg = `xbin-device-login-v1\n${dev.origin}\n${dev.deviceId}\n${ch.body.nonce}`;
   const sig = crypto.sign('sha256', Buffer.from(msg), { key: key.privateKey, dsaEncoding: 'der' }).toString('base64url');
   return post('/login/device', { deviceId: dev.deviceId, nonce: ch.body.nonce, signature: sig });
+}
+// A push registration as the app makes one: the relay handle and the
+// device's X25519 key (raw, base64url).
+async function registerPush(deviceId, kinds, { bearer, request } = {}) {
+  const { publicKey } = crypto.generateKeyPairSync('x25519');
+  const body = { deviceId, handle: crypto.randomBytes(18).toString('base64url'), publicKey: publicKey.export({ format: 'jwk' }).x, kinds };
+  if (request) {
+    const r = await request.post(`${URL}/api/xbin/devices/push`, { data: body });
+    return { status: r.status(), body: await r.json().catch(() => ({})) };
+  }
+  return post('/api/xbin/devices/push', body, bearer);
 }
 async function whoamiStatus(bearer) {
   return (await fetch(`${URL}/api/xbin/whoami`, { headers: { Authorization: `Bearer ${bearer}` } })).status;
@@ -114,11 +130,44 @@ async function devices(browser) {
   const tokA = loginA.body.token;
   check(await whoamiStatus(tokA) === 200, 'the device session works as a bearer');
 
+  // ---- signed-in Safari: the phone opens the workspace in a browser ----
+  // A fresh (signed-out) phone-sized context stands in for
+  // SFSafariViewController: opening the link shows "Continue as <name>"
+  // and signs nothing in; the button does.
+  const wt = await post('/api/xbin/web-ticket', { next: '/c/root/' }, tokA);
+  check(wt.status === 200 && /\/login\?ticket=.+&next=%2Fc%2Froot%2F$/.test(wt.body.url ?? ''), `the phone mints a web ticket (${wt.status} ${wt.body.url})`);
+  const safari = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+  const sp = await safari.newPage();
+  await sp.goto(wt.body.url);
+  await waitSel(sp, 'form[action="/login/web-ticket"] button');
+  const heading = (await sp.locator('h1').textContent()).trim();
+  check(/^Continue as /.test(heading), `the link opens a "Continue as" page (${heading})`);
+  const noSession = (await safari.request.get(`${URL}/api/xbin/whoami`)).status();
+  check(noSession === 401, `opening the link signed nothing in (${noSession})`);
+  await shot(sp, 'devices-web-ticket', { fullPage: false });
+  await sp.locator('form[action="/login/web-ticket"] button').click();
+  await sp.waitForURL(/\/c\/root\/$/, { timeout: 15000 });
+  const me = await (await safari.request.get(`${URL}/api/xbin/whoami`)).json().catch(() => ({}));
+  check(me.kind === 'user' && me.id === 'admin', `Continue signs the browser in as the phone's user, landing on next (${me.kind}:${me.id})`);
+  const replay = await (await safari.newPage()).goto(wt.body.url);
+  check(replay.status() === 403, `the link works once (${replay.status()})`);
+  await safari.close();
+
   // a second device, enrolled straight through the API (for the admin tab)
   const minted = await (await ctx.request.post(`${URL}/api/xbin/devices/enroll-code`)).json();
   const keyB = appKey();
   const devB = await enroll(minted.code, 'Admin iPad', keyB);
   const tokB = (await deviceLogin(devB.body, keyB)).body.token;
+
+  // Push: the phone registers (as the app does after its device login);
+  // the browser registers one too — a sign-in without a device key.
+  const regA = await registerPush(devA.body.deviceId, ['agent', 'tile'], { bearer: tokA });
+  check(regA.status === 200 && regA.body.device?.deviceId === devA.body.deviceId, `the phone registers push (${regA.status} ${JSON.stringify(regA.body)})`);
+  for (const r of (await (await ctx.request.get(`${URL}/api/xbin/devices/push`)).json()).devices ?? []) {
+    if (r.deviceId === 'harness-browser') await ctx.request.delete(`${URL}/api/xbin/devices/push/${r.deviceId}`);
+  }
+  const regW = await registerPush('harness-browser', [], { request: ctx.request });
+  check(regW.status === 200, `a browser session registers push (${regW.status} ${JSON.stringify(regW.body)})`);
 
   // Reopen the panel: both devices, last sign-in stamped.
   await page.locator('bx-devices button', { hasText: 'close' }).last().click();
@@ -128,8 +177,29 @@ async function devices(browser) {
   await page.waitForFunction(() => document.querySelector('bx-devices')?.shadowRoot?.querySelectorAll('li[data-device]').length === 2, null, { timeout: 10000 });
   const subs = await page.locator('bx-devices li[data-device] .sub').allTextContents();
   check(subs.length === 2 && subs.every((s) => /last sign-in just now/.test(s)), `both devices listed with a fresh sign-in (${JSON.stringify(subs)})`);
+  // …each with its push registration, or none
+  await waitSel(page, `bx-devices li[data-device="${devA.body.deviceId}"] [data-push]`);
+  const pushA = await page.locator(`bx-devices li[data-device="${devA.body.deviceId}"] .push`).textContent();
+  const pushB = await page.locator(`bx-devices li[data-device="${devB.body.deviceId}"] .push`).textContent();
+  check(/notifications: agent, tile/.test(pushA) && /none sent yet/.test(pushA), `the phone's row shows its push registration (${pushA.trim()})`);
+  check(/no push notifications/.test(pushB), `the iPad's row shows none (${pushB.trim()})`);
+  check(await page.locator('bx-devices li[data-push-other="harness-browser"] [data-push]').count() === 1,
+    'the browser\'s registration is listed apart');
+  check(await page.locator('bx-devices [data-push-off]').count() === 1, 'the panel says push is off on this workspace (no relay)');
   await settle(page);
   await shotEl(page, 'bx-devices .box', 'devices-list');
+  // remove the phone's registration from its row — the device stays
+  await page.locator(`bx-devices li[data-device="${devA.body.deviceId}"] [data-push] button`, { hasText: 'remove' }).click();
+  await page.waitForFunction((id) => /no push notifications/.test(document.querySelector('bx-devices')?.shadowRoot
+    ?.querySelector(`li[data-device="${id}"] .push`)?.textContent ?? ''), devA.body.deviceId, { timeout: 10000 });
+  const left = (await (await ctx.request.get(`${URL}/api/xbin/devices/push`)).json()).devices ?? [];
+  check(!left.some((r) => r.deviceId === devA.body.deviceId) && left.some((r) => r.deviceId === 'harness-browser'),
+    `removing the phone's push registration leaves the rest (${JSON.stringify(left.map((r) => r.deviceId))})`);
+  check(await whoamiStatus(tokA) === 200, 'removing a push registration keeps the device signed in');
+  await page.locator('bx-devices li[data-push-other="harness-browser"] [data-push] button', { hasText: 'remove' }).click();
+  await page.locator('bx-devices li[data-push-other]').waitFor({ state: 'detached', timeout: 10000 });
+  await settle(page);
+  await shotEl(page, 'bx-devices .box', 'devices-push-removed');
 
   // ---- the admin console: Users → admin → devices (2)… → revoke the iPad ----
   const admin = await login(browser, 'admin', 'admin');

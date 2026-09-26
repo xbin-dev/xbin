@@ -73,14 +73,18 @@ type appTicket struct {
 }
 
 type deviceState struct {
-	codes      map[string]*enrollCode      // sha256(code) → pending enrollment
-	challenges map[string]*deviceChallenge // nonce → outstanding challenge
-	tickets    map[string]*appTicket       // sha256(ticket) → pending app sign-in
+	codes       map[string]*enrollCode      // sha256(code) → pending enrollment
+	challenges  map[string]*deviceChallenge // nonce → outstanding challenge
+	tickets     map[string]*appTicket       // sha256(ticket) → pending app sign-in
+	webTickets  map[string]*webTicket       // sha256(ticket) → pending browser sign-in (webticket.go)
+	webConfirms map[string]*webTicket       // sha256(nonce) → a redeemed ticket awaiting its Continue
+	webMints    map[string][]time.Time      // device id → recent web-ticket mints (the rate)
 }
 
 func newDeviceState() deviceState {
 	return deviceState{codes: map[string]*enrollCode{}, challenges: map[string]*deviceChallenge{},
-		tickets: map[string]*appTicket{}}
+		tickets: map[string]*appTicket{}, webTickets: map[string]*webTicket{}, webConfirms: map[string]*webTicket{},
+		webMints: map[string][]time.Time{}}
 }
 
 // sweepLocked drops expired entries (caller holds Auth.mu).
@@ -100,11 +104,31 @@ func (d *deviceState) sweepLocked(now time.Time) {
 			delete(d.tickets, k)
 		}
 	}
+	for _, m := range []map[string]*webTicket{d.webTickets, d.webConfirms} {
+		for k, t := range m {
+			if now.After(t.expires) {
+				delete(m, k)
+			}
+		}
+	}
+	for dev, ts := range d.webMints {
+		if len(ts) == 0 || now.Sub(ts[len(ts)-1]) >= webTicketWindow {
+			delete(d.webMints, dev)
+		}
+	}
 }
 
-// dropUserLocked voids a user's pending enrollment codes and app sign-in
-// tickets (sign out everywhere, disable, delete — DropUserSessions).
+// dropUserLocked voids a user's pending enrollment codes, app sign-in
+// tickets and browser sign-in tickets (sign out everywhere, disable, delete
+// — DropUserSessions).
 func (d *deviceState) dropUserLocked(userID string) {
+	for _, m := range []map[string]*webTicket{d.webTickets, d.webConfirms} {
+		for k, t := range m {
+			if t.userID == userID {
+				delete(m, k)
+			}
+		}
+	}
 	for k, c := range d.codes {
 		if c.userID == userID {
 			delete(d.codes, k)

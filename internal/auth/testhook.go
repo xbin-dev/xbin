@@ -26,3 +26,16 @@ func (a *Auth) TestAgeSession(id string, loginAge, idleAge time.Duration) {
 		}
 	}
 }
+
+// TestExpireWebTickets ages every pending browser sign-in ticket and
+// confirmation past its TTL (webticket.go), so tests reach expiry without
+// sleeping. Test-only.
+func (a *Auth) TestExpireWebTickets() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, m := range []map[string]*webTicket{a.dev.webTickets, a.dev.webConfirms} {
+		for _, t := range m {
+			t.expires = time.Now().Add(-time.Second)
+		}
+	}
+}

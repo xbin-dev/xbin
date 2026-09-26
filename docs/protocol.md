@@ -106,6 +106,38 @@ GET  /login?impersonate=<tok>    redeems a view-as ticket (POST /api/xbin/
                                  impersonate): the signed-in minting admin's
                                  cookie becomes a read-only session as the
                                  user → 302 / (D64)
+GET  /login?ticket=<t>&next=<path>
+                                 signed-in Safari: spends a one-shot
+                                 ticket the app's device session minted
+                                 (POST /api/xbin/web-ticket; single use,
+                                 60 s). A GET never signs a browser in: one
+                                 already signed in as the same user → 302
+                                 <path> (the ticket's own next); a signed-
+                                 out one gets a "Continue as <name>" page
+                                 naming the account (CSP frame-ancestors
+                                 'none'), whose button posts to POST
+                                 /login/web-ticket — login CSRF: a link to
+                                 someone else's ticket, opened from a chat
+                                 or a QR code, can't sign you in unseen.
+                                 403 when a page started the navigation
+                                 (Sec-Fetch-Site other than none), when
+                                 the browser is signed in as someone else,
+                                 when next was altered, or once the device
+                                 session, the device or the account is
+                                 gone (or an SSO-bound account's window
+                                 closed, D93). A HEAD answers 405 and
+                                 leaves it unspent. Throttled
+POST /login/web-ticket           {confirm} form, from that page only:
+                                 Sec-Fetch-Site same-origin (or, without
+                                 Fetch Metadata, an Origin of this host;
+                                 neither → 403), the confirm nonce equal to
+                                 the cookie the page's response set (this
+                                 browser), single use, 2 min → the cookie
+                                 session, 303 <path>. The session ends
+                                 with the device and the app's sign-out
+                                 and keeps the device login's time
+                                 (docs/auth.md §Device login). Throttled;
+                                 audit-logged
 POST /login/invite               {invite,password,password2} form → redeems the
                                  invite (sets the password, consumes the link),
                                  signs the user in (throttled)
@@ -249,7 +281,11 @@ GET  /c/<component-path>/?native=1
                                  (another tile fetching it gets no token);
                                  404 with the reason
                                  when the tile has no native entry (trusted
-                                 chrome never has one); the slashless URL
+                                 chrome never has one); 410 with the reason
+                                 while an admin has turned native tile UIs
+                                 off for the workspace (PUT /api/xbin/
+                                 native-runtime) — &preview=1 is still
+                                 served; the slashless URL
                                  301s keeping the query; any other
                                  directory URL 404s. ?native=1 on a file
                                  URL is an ordinary request
@@ -557,6 +593,10 @@ GET    /whoami                    any. caller identity + permissions; for
                                    Every caller also gets native:
                                    {runtime: 1} — this xbind serves native
                                    runtime documents (/c/<tile>/?native=1)
+                                   — or {runtime: 0, disabled: true} while
+                                   an admin has turned native tile UIs off
+                                   (PUT /native-runtime): the app opens
+                                   every tile as its web page
 GET    /openapi.json              any. OpenAPI 3.1 spec of this built-in API,
                                    incl. the RBAC capability per endpoint
                                    (x-xbin-capability). Rendered by the API-docs
@@ -840,6 +880,30 @@ POST   /devices/enroll            none — the code is the credential.
                                    {deviceId, user, origin, name}. 401
                                    bad/spent/expired code (throttled), 400
                                    bad key, 409 past 32 devices per user
+POST   /web-ticket                the app's device-key session (via
+                                   device) only — not a browser, the
+                                   app's password/SSO session, a tile, a
+                                   terminal or the owner token (403).
+                                   [{next}] → {url: "<device origin>/
+                                   login?ticket=<t>&next=<path>", expires,
+                                   expiresIn: 60}: signed-in Safari — the
+                                   app opens url top-level; GET /login?
+                                   ticket= (Core) shows a signed-out
+                                   browser "Continue as <name>", and its
+                                   button (POST /login/web-ticket) signs
+                                   that browser in as the same user,
+                                   landing on next. next: a
+                                   path on this workspace (one leading
+                                   slash, printable ASCII, no backslash,
+                                   ≤ 2048, not /login… or /logout;
+                                   default /), else 400. The
+                                   ticket is one-shot (60 s) and bound to
+                                   the device session: the app signing
+                                   out, removing the device, sign-out-
+                                   everywhere and disabling void it. 403
+                                   {reauth:"sso"} for an SSO-bound account
+                                   past its window (D93); 10 per minute
+                                   per device (429 + Retry-After); audited
 GET    /devices                   a signed-in user. {devices: [{id, name,
                                    platform, origin, created, lastUsed,
                                    lastIP, current}]} — own app devices;
@@ -926,7 +990,10 @@ GET    /sessions                  admin/xbin:users. {sessions: [{user, name,
                                    session = a browser, device = the
                                    native app signed in with a device key
                                    — device names it — app = the app's
-                                   password/SSO sign-in; impersonatedBy: an
+                                   password/SSO sign-in; a browser the app
+                                   signed in (POST /web-ticket) is session
+                                   with device set, created = the device
+                                   login's; impersonatedBy: an
                                    admin's read-only view of the user, D64) with
                                    client IPs (login IP + last-seen IP),
                                    newest activity first; the caller's own
@@ -1175,6 +1242,17 @@ PUT    /branding                  admin. {title?, icon?}: each present key
                                    Kept in data/branding.json — readable while
                                    the vault is sealed, so the sign-in page
                                    shows it
+GET    /native-runtime            authenticated. {enabled, runtime,
+                                   version} — the workspace's native-runtime
+                                   switch: runtime is whoami's native.runtime
+                                   (version while enabled, 0 while off)
+PUT    /native-runtime            admin. {enabled: bool} → the same view.
+                                   Off: whoami says native {runtime: 0,
+                                   disabled: true} (the app opens tiles as
+                                   web pages) and /c/<tile>/?native=1
+                                   answers 410 with the reason (&preview=1
+                                   still served). Kept in users.json;
+                                   publishes `native`; audited
 GET    /defaults                  admin/xbin:users. {defaultTiles:
                                    {pattern: level}, newUsers: {tiles,
                                    termApi, termNet, orgs: [{org, level,
@@ -2024,6 +2102,7 @@ cookie required). JSON text frames:
 {"type":"build-ok","component":"apps/thing"}
 {"type":"grants"}                                    // grant table changed
 {"type":"branding"}                                  // the workspace title/icon changed (D76): re-read GET /branding
+{"type":"native"}                                    // the native-runtime switch changed: re-read whoami (native.runtime)
 {"type":"bus","topic":"res:<scope>/<name>/<topic>","data":…}
 {"type":"status","component":"apps/thing",           // a tile reported its condition
  "data":{"level":"error","message":"…","ts":1785…,"transient":false}}

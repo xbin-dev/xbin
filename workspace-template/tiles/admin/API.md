@@ -16,7 +16,8 @@ Endpoints used (all gated by owner-or-`xbin:admin`, see /docs/protocol.md):
 `GET /api/xbin/auth-overview`, `GET /api/xbin/vaults`,
 `GET|PUT|DELETE /api/xbin/vault/<c>/<k>`, `GET|POST|DELETE /api/xbin/grants`,
 `GET /api/xbin/cron/jobs`, `DELETE /api/xbin/cron/jobs/<name>`,
-`GET /api/xbin/resources`, `GET /api/xbin/backends`.
+`GET /api/xbin/resources`, `GET /api/xbin/backends`,
+`GET|PUT /api/xbin/native-runtime`.
 
 ## Panels
 
@@ -24,5 +25,7 @@ Endpoints used (all gated by owner-or-`xbin:admin`, see /docs/protocol.md):
 - **Vault** — password-manager view of every vault; reveal/copy/edit/delete.
 - **Roles & grants** — exposed roles, full grant table, approve/revoke/add.
 - **Cron** — all scheduled jobs; delete.
+- **Workspace → xbin app** — the native-runtime switch: whether the xbin app
+  may draw tiles with their native UI (off: every tile opens as its web page).
 
 Revoke the grant to disarm it. Nothing here works for an unprivileged tile.

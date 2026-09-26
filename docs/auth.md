@@ -867,7 +867,12 @@ account — the bootstrap owner token has none.
   from the **last 10 minutes** — otherwise the panel asks for your password
   again (or, for an account without password sign-in, to sign in again). A
   stolen browser session alone can't enroll a device. Wrong passwords count
-  against the login throttle.
+  against the login throttle. **A device login counts as a sign-in here**:
+  it is a fresh signature with the device key, behind Face ID — so the app
+  can add another device (show a code for a second phone or tablet) within
+  10 minutes of signing in with its key, without a password; past that, a
+  device session needs the password like any other. The app's password or
+  SSO sign-in counts the same way.
 - **Signing in.** The app asks for a challenge, signs it with the key (one
   Face ID prompt) and gets a **session** — the same human session a browser
   login gets (12 h idle / 30 days max, `XBIN_SESSION_*_TTL`), carried as
@@ -878,9 +883,36 @@ account — the bootstrap owner token has none.
   tile list, terminals, agent sessions, minting frame tokens. Tiles in the app
   run exactly as in a browser: sandboxed, with their own frame token, never
   your credential.
+- **Opening the workspace in a browser, signed in.** The app can open the
+  workspace (or one tile) in Safari already signed in: it asks for a
+  one-shot link (`POST /api/xbin/web-ticket`, only from a device-key
+  session), valid **60 seconds**, and opens it; the browser gets an
+  ordinary session of the same account and lands on the page asked for —
+  a path on this workspace, never another site. That browser session is
+  tied to the device: it ends when the device is removed or the app signs
+  out of the workspace, it lives no longer than the device sign-in it came
+  from (and, for an SSO-bound account, the IdP's window below), and it
+  keeps that sign-in's time — so it is only as "recent" for the step-up
+  above as the device login was. The link works once. Opening it never
+  signs a browser in by itself: a browser already signed in as you just
+  lands on the page, one signed in as someone else is refused, and a
+  signed-out one shows **"Continue as <your name>"** — the account the link
+  belongs to — and signs in only when that button is pressed on that page.
+  Anyone can make such a link for *their own* account and send it to you
+  (a chat message, an email, a QR code); opened from another app it looks
+  exactly like the xbin app's own open, so the page is what protects you:
+  **only press Continue if you just opened the link from your own app**,
+  and check the name. (A link followed from a web page — this workspace's
+  included — is refused outright.) Failed attempts count against the login
+  throttle, and each browser sign-in is in the audit log.
 - **Managing devices.** The same *devices* panel lists your devices (name,
-  platform, last sign-in and its IP) with **remove**; admins see and remove
-  any user's devices in the admin console's Users tab. Removing a device ends
+  platform, last sign-in and its IP) with **remove**, and under each one its
+  **push registration** (what it is notified about, when it was last sent
+  one, and whether the relay wants a new handle) with its own **remove** —
+  turning notifications off for that device without signing it out;
+  registrations made before a device was enrolled are listed on their own.
+  Admins see and remove any user's devices in the admin console's Users
+  tab. Removing a device ends
   every session it opened at once — and the frame and asset tokens those
   sessions minted — and drops its push registration (so does the app
   signing out of the workspace; a device registers push only under its own
@@ -915,7 +947,8 @@ account — the bootstrap owner token has none.
 
 Routes: `POST /api/xbin/devices/enroll-code`, `POST /api/xbin/devices/enroll`,
 `POST /login/device/challenge`, `POST /login/device`, `POST /api/xbin/login`,
-`GET /login/sso?app=1`, `POST /login/ticket`, `GET|DELETE /api/xbin/devices`,
+`GET /login/sso?app=1`, `POST /login/ticket`, `POST /api/xbin/web-ticket`,
+`GET /login?ticket=`, `POST /login/web-ticket`, `GET|DELETE /api/xbin/devices`,
 `GET /api/xbin/users/<id>/devices` ([protocol.md](/docs/protocol.md)). The
 exact signed message and a test vector for client implementers:
 `native/spec/device-login.md` in the source tree.

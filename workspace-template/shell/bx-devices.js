@@ -1,7 +1,10 @@
 /**
  * <bx-devices> — "my devices" (docs/auth.md §Device login): the xbin app's
  * devices enrolled for the signed-in user. Lists them (name, platform, last
- * sign-in), removes one (its app sessions end at once), and adds one: a
+ * sign-in) with each one's push registration (GET /devices/push: what it is
+ * notified about, when it was last sent one, whether the relay wants a new
+ * handle — removable on its own), removes one (its app sessions and push
+ * registration end at once), and adds one: a
  * one-time enrollment code shown as a QR code of the xbin://enroll link plus
  * the raw link, valid five minutes — the panel watches the list and says so
  * when the phone has enrolled. Minting a code is a step-up: a sign-in older
@@ -48,6 +51,7 @@ async function qrPath(text) {
 export class BxDevices extends LitElement {
   static properties = {
     _devices: { state: true }, // null = loading
+    _push: { state: true },    // GET /devices/push {enabled, devices:[{deviceId, kinds, lastSent, needsNewHandle}]}; null = unavailable
     _enroll: { state: true },  // {code, url, origin, expires, qr, known:Set, added}
     _stepUp: { state: true },  // {mode: 'password'|'signin', msg, retry} — the server asked to re-prove it's you
     _confirm: { state: true }, // device id awaiting "remove?" confirmation
@@ -98,6 +102,11 @@ export class BxDevices extends LitElement {
       border: 1px solid var(--bx-border, #363c45); background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0); }
     .timer { font-size: 11px; color: var(--bx-muted, #868f9a); margin-top: 6px; }
     .ok { color: var(--bx-green, #4caf50); font-weight: 600; }
+    .push { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 3px; font-size: 11px; color: var(--bx-muted, #868f9a); }
+    .push .warn { color: var(--bx-amber, #f2a71b); }
+    .push button { font-size: 11px; padding: 0 7px; line-height: 18px; }
+    h4 { margin: 12px 0 2px; font-size: 12px; }
+    .note { margin-top: 8px; font-size: 11px; color: var(--bx-muted, #868f9a); }
   `;
 
   #onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); this.close(); } };
@@ -116,9 +125,35 @@ export class BxDevices extends LitElement {
   close() { this.remove(); }
 
   async _load() {
+    const push = this._loadPush();
     try {
       this._devices = (await call('/devices'))?.devices ?? [];
     } catch (e) { this._err = e.message; this._devices ??= []; }
+    await push;
+  }
+  // Push registrations: optional — an xbind without the push plane (or a
+  // sign-in that can't hold one) just shows none.
+  async _loadPush() {
+    try { this._push = await call('/devices/push'); } catch { this._push = null; }
+  }
+  async _removePush(id) {
+    try {
+      await call(`/devices/push/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      this._err = null;
+    } catch (e) { this._err = e.message; }
+    this._loadPush();
+  }
+
+  // One registration's line: what it gets, when it last got one, whether
+  // the relay wants a new handle, and remove.
+  _pushLine(reg) {
+    if (!reg) return html`<div class="push">🔕 no push notifications</div>`;
+    const kinds = reg.kinds?.length ? reg.kinds.join(', ') : 'all';
+    return html`<div class="push" data-push=${reg.deviceId}>🔔 notifications: ${kinds}
+      · ${reg.lastSent ? `last sent ${ago(reg.lastSent)}` : 'none sent yet'}
+      ${reg.needsNewHandle ? html`· <span class="warn" title=${reg.relayError ?? ''}>needs a new handle — the app renews it at its next sign-in</span>` : nothing}
+      <button title="stop notifications to this device (the app registers again at its next sign-in)"
+        @click=${() => this._removePush(reg.deviceId)}>remove</button></div>`;
   }
 
   // Mint a code, draw it, and watch the list (every 2 s while the code is
@@ -179,6 +214,7 @@ export class BxDevices extends LitElement {
         <div class="name" title=${d.name}>${d.name}</div>
         <div class="sub">${d.platform || 'device'} · added ${ago(d.created)} ·
           ${d.lastUsed ? html`last sign-in ${ago(d.lastUsed)}${d.lastIP ? ` from ${d.lastIP}` : ''}` : 'not signed in yet'}</div>
+        ${this._push ? this._pushLine(this._push.devices?.find((r) => r.deviceId === d.id)) : nothing}
       </span>
       ${this._confirm === d.id ? html`
         <button class="rm" @click=${() => this._remove(d)}>remove</button>
@@ -238,6 +274,22 @@ export class BxDevices extends LitElement {
     </div>`;
   }
 
+  // Registrations under no enrolled device (the app before it enrolled, a
+  // browser, the owner token) — they end with the sign-in that made them.
+  _otherPush(list) {
+    const p = this._push;
+    if (!p || list == null) return nothing;
+    const known = new Set(list.map((d) => d.id));
+    const other = (p.devices ?? []).filter((r) => !known.has(r.deviceId));
+    return html`${other.length ? html`<h4>Other notification registrations</h4>
+      <ul class="devs">${other.map((r) => html`<li data-push-other=${r.deviceId}>
+        <span class="ico" aria-hidden="true">🔔</span>
+        <span class="who"><div class="name" title=${r.deviceId}>${r.deviceId}</div>
+          <div class="sub">registered ${ago(r.created)} by a sign-in without a device key — it ends with that sign-in</div>
+          ${this._pushLine(r)}</span></li>`)}</ul>` : nothing}
+      ${p.enabled === false && (p.devices ?? []).length ? html`<div class="note" data-push-off>Push notifications are off on this workspace — an admin turns them on; registrations wait until then.</div>` : nothing}`;
+  }
+
   render() {
     const list = this._devices;
     return html`
@@ -248,6 +300,7 @@ export class BxDevices extends LitElement {
         ${list == null ? html`<div class="empty">loading…</div>`
           : list.length ? html`<ul class="devs">${list.map((d) => this._row(d))}</ul>`
           : html`<div class="empty">No devices yet.</div>`}
+        ${this._otherPush(list)}
         ${this._stepUpBox()}
         ${this._enrollBox()}
         ${this._err ? html`<div class="err" role="alert">${this._err}</div>` : nothing}
