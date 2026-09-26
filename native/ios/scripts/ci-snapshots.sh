@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # native/ios/scripts/ci-snapshots.sh — run the XbinRenderer package's tests
 # on an iOS simulator with xcodebuild; they render every fixture (light and
-# dark, default and a large Dynamic Type size) and write PNGs (the ios.yml
-# "snapshots" job).
+# dark × the default, large and ax2 Dynamic Type sizes) and write PNGs named
+# <fixture>-<light|dark>-<default|large|ax2>.png (the ios.yml "snapshots"
+# job).
 #
 #   ci-snapshots.sh "<destination>"     e.g. "$(pick-sim.sh)"
 #
@@ -69,9 +70,11 @@ ci_xcodebuild "$XBIN_CI_OUT/snapshots-test.log" test \
   -scheme "$scheme" \
   -destination "$dest" \
   -derivedDataPath "$XBIN_CI_DERIVED/renderer" \
+  -clonedSourcePackagesDirPath "$XBIN_CI_SPM" \
   -resultBundlePath "$XBIN_CI_OUT/snapshots-test.xcresult" \
   -skipMacroValidation \
   -skipPackagePluginValidation \
+  COMPILER_INDEX_STORE_ENABLE=NO \
   CODE_SIGNING_ALLOWED=NO || status=$?
 
 count_pngs() { find "$snap" -type f -name '*.png' | wc -l | tr -d ' '; }

@@ -14,6 +14,10 @@
 # runtime, UDID) goes to stderr.
 #
 #   XBIN_SIM="iPhone 17 Pro"   prefer this device name when it exists
+#   XBIN_SIM_ENSURE=xbin-e2e   use the device of exactly this name, creating
+#                              it (newest runtime, newest iPhone, as above)
+#                              when there is none — a simulator of its own
+#                              that a run may erase (mac-setup.sh, e2e)
 #
 # Runs under macOS's bash 3.2 (no mapfile, no associative arrays). Needs
 # python3 (Xcode's command line tools ship it) to read `simctl list -j`.
@@ -37,6 +41,7 @@ import json, os, re, sys
 with open(sys.argv[1]) as f:
     data = json.load(f)
 want = os.environ.get("XBIN_SIM", "")
+ensure = os.environ.get("XBIN_SIM_ENSURE", "")
 
 def vkey(s):
     return tuple(int(x) for x in re.findall(r"\d+", s or ""))
@@ -87,6 +92,13 @@ def emit(*fields):
     print("\t".join(fields))
     sys.exit(0)
 
+if ensure:
+    named = [d for d in devices if d[0] == ensure]
+    if named:
+        n, tid, rt, udid = max(named, key=lambda d: rank(d[0], d[1], d[2]["version"]))
+        emit("device", udid, "%s (%s)" % (n, rt["name"]))
+    devices = []  # none of that name: create it below
+
 if want:
     named = [d for d in devices if d[0] == want]
     if named:
@@ -116,7 +128,7 @@ n, tid = max(types, key=lambda t: rank(t[0], t[1], rt["version"]))
 emit("create", n, tid, rid, "%s (%s)" % (n, rt["name"]))
 PY
 
-choice=$(XBIN_SIM="${XBIN_SIM:-}" python3 "$tmp/pick.py" "$tmp/list.json")
+choice=$(XBIN_SIM="${XBIN_SIM:-}" XBIN_SIM_ENSURE="${XBIN_SIM_ENSURE:-}" python3 "$tmp/pick.py" "$tmp/list.json")
 IFS=$'\t' read -r kind f1 f2 f3 f4 <<<"$choice"
 case $kind in
 device)
@@ -124,8 +136,14 @@ device)
   ;;
 create)
   name=$f1 type_id=$f2 runtime_id=$f3 desc=$f4
-  say "no iOS simulator exists; creating $desc"
-  udid=$(xcrun simctl create "xbin-ci $name" "$type_id" "$runtime_id")
+  if [ -n "${XBIN_SIM_ENSURE:-}" ]; then
+    say "no simulator named $XBIN_SIM_ENSURE; creating it: $desc"
+    udid=$(xcrun simctl create "$XBIN_SIM_ENSURE" "$type_id" "$runtime_id")
+    desc="$XBIN_SIM_ENSURE — $desc"
+  else
+    say "no iOS simulator exists; creating $desc"
+    udid=$(xcrun simctl create "xbin-ci $name" "$type_id" "$runtime_id")
+  fi
   ;;
 *)
   say "unexpected picker output: $choice"

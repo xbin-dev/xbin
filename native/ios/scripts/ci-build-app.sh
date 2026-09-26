@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
 # native/ios/scripts/ci-build-app.sh — generate the Xcode project from
 # native/ios/project.yml (XcodeGen; the .xcodeproj is never committed) and
-# build the app scheme for a simulator, unsigned (the ios.yml "app" job).
+# build the app scheme for a simulator (the ios.yml "app" job; also
+# mac-remote.sh's build and run).
 #
 #   ci-build-app.sh "<destination>"     e.g. "$(pick-sim.sh)"
 #
 #   XBIN_APP_SCHEME   the scheme to build (default Xbin)
+#   XBIN_SIGNING      none (default: unsigned, CODE_SIGNING_ALLOWED=NO) or
+#                     adhoc (signed to run locally — a simulator run that
+#                     needs the app's Keychain entitlements)
 #
 # Results in $XBIN_CI_OUT (default $RUNNER_TEMP/xbin-ci): app-build.xcresult
-# and the full xcodebuild log app-build.log. No project.yml yet → a notice,
-# success. Needs xcodegen on PATH (brew install xcodegen). The build keeps
-# going after an error, so one run reports every target's compile errors.
+# and the full xcodebuild log app-build.log; the build in
+# $XBIN_CI_DERIVED/app, SwiftPM clones in $XBIN_CI_SPM (ci-cache.sh decides
+# both). No project.yml yet → a notice, success. Needs xcodegen on PATH
+# (ci-xcodegen.sh). The build keeps going after an error, so one run reports
+# every target's compile errors.
 set -euo pipefail
 # shellcheck source=SCRIPTDIR/ci-lib.sh
 . "$(dirname "$0")/ci-lib.sh"
@@ -23,26 +29,10 @@ if [ ! -f "$ios/project.yml" ]; then
   ci_notice "no native/ios/project.yml yet — app build skipped"
   exit 0
 fi
-command -v xcodegen >/dev/null 2>&1 || { ci_error "xcodegen not found (brew install xcodegen)"; exit 1; }
+ci_signing
 
 cd "$ios"
-ci_group "xcodegen generate"
-xcodegen generate --spec project.yml
-ci_endgroup
-
-# XcodeGen names the project after project.yml's `name:`; a fresh checkout
-# holds exactly the one it just generated.
-proj=""
-for p in *.xcodeproj; do
-  if [ -d "$p" ]; then
-    if [ -n "$proj" ]; then
-      ci_error "several .xcodeproj in native/ios ($proj, $p) — is one committed? (native/AGENTS.md: never commit it)"
-      exit 1
-    fi
-    proj=$p
-  fi
-done
-[ -n "$proj" ] || { ci_error "xcodegen generated no .xcodeproj in native/ios"; exit 1; }
+ci_project
 
 ci_group "schemes in $proj"
 schemes=$(ci_schemes -project "$proj") || true
@@ -53,19 +43,7 @@ if ! printf '%s\n' "$schemes" | grep -qxF "$scheme"; then
   ci_warn "$proj lists no scheme \"$scheme\" — project.yml should declare it (targets.$scheme.scheme or schemes.$scheme)"
 fi
 
-# SwiftTerm compiles a Metal shader; since Xcode 26 the Metal toolchain is
-# a separate component that runner images may lack ("cannot execute tool
-# 'metal' due to missing Metal Toolchain"). Fetch it when missing; if that
-# fails, the build below says what broke.
-ci_group "Metal toolchain"
-if xcrun metal --version >/dev/null 2>&1; then
-  xcrun metal --version 2>&1 | head -n 1
-else
-  echo "missing — xcodebuild -downloadComponent MetalToolchain"
-  ci_timeout 900 xcodebuild -downloadComponent MetalToolchain ||
-    ci_warn "xcodebuild -downloadComponent MetalToolchain failed; SwiftTerm's shader will not compile"
-fi
-ci_endgroup
+ci_metal
 
 mkdir -p "$XBIN_CI_OUT"
 rm -rf "$XBIN_CI_OUT/app-build.xcresult"
@@ -76,11 +54,13 @@ ci_xcodebuild "$XBIN_CI_OUT/app-build.log" build \
   -configuration Debug \
   -destination "$dest" \
   -derivedDataPath "$XBIN_CI_DERIVED/app" \
+  -clonedSourcePackagesDirPath "$XBIN_CI_SPM" \
   -resultBundlePath "$XBIN_CI_OUT/app-build.xcresult" \
   -skipMacroValidation \
   -skipPackagePluginValidation \
   -IDEBuildingContinueBuildingAfterErrors=YES \
-  CODE_SIGNING_ALLOWED=NO || status=$?
+  COMPILER_INDEX_STORE_ENABLE=NO \
+  "${CI_SIGN[@]}" || status=$?
 
 if [ "$status" -eq 0 ]; then
   ci_summary "**App:** \`$scheme\` built for \`$dest\`."

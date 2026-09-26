@@ -15,7 +15,10 @@ export XBIN_REPO
 # $RUNNER_TEMP/xbin-ci. DerivedData lives beside it, never inside it.
 XBIN_CI_OUT=${XBIN_CI_OUT:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/xbin-ci}
 XBIN_CI_DERIVED=${XBIN_CI_DERIVED:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/xbin-derived}
-export XBIN_CI_OUT XBIN_CI_DERIVED
+# SwiftPM's clones (SourcePackages) for every xcodebuild of a job: one
+# directory, next to the DerivedData, so a cache (ci-cache.sh) holds both.
+XBIN_CI_SPM=${XBIN_CI_SPM:-$XBIN_CI_DERIVED/SourcePackages}
+export XBIN_CI_OUT XBIN_CI_DERIVED XBIN_CI_SPM
 
 in_actions() { [ "${GITHUB_ACTIONS:-}" = true ]; }
 
@@ -93,4 +96,84 @@ ci_xcodebuild() {
 ci_schemes() { xcodebuild -list "$@" 2>/dev/null | ci_schemes_in; }
 ci_schemes_in() {
   awk 'f { sub(/^[ \t]+/, ""); if ($0 == "") exit; print } /^[ \t]*Schemes:[ \t]*$/ { f = 1 }'
+}
+
+# ci_sha256 — the SHA-256 of stdin, hex (macOS: shasum; Linux: sha256sum).
+ci_sha256() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 | cut -d' ' -f1
+  else
+    sha256sum | cut -d' ' -f1
+  fi
+}
+
+# ci_xcode_slug — "27.0-27A266a" from `xcodebuild -version` (cache keys, the
+# self-hosted cache directory); "unknown" when xcodebuild says nothing.
+ci_xcode_slug() {
+  local v
+  v=$(xcodebuild -version 2>/dev/null | awk '/^Xcode /{x=$2} /^Build version /{b=$3} END{if (x != "") print x (b != "" ? "-" b : "")}')
+  printf '%s\n' "${v:-unknown}"
+}
+
+# ci_signing — sets CI_SIGN, the code-signing settings an app build gets,
+# from XBIN_SIGNING:
+#   none   (default) CODE_SIGNING_ALLOWED=NO: nothing is signed (what CI
+#          needs to compile; no team, no identity)
+#   adhoc  "Sign to Run Locally" (identity -, no team, no profile): what a
+#          simulator run needs so the app's entitlements (the Keychain)
+#          apply — mac-remote.sh's run and e2e
+# shellcheck disable=SC2034 # CI_SIGN is for the caller
+ci_signing() {
+  case ${XBIN_SIGNING:-none} in
+  none) CI_SIGN=(CODE_SIGNING_ALLOWED=NO) ;;
+  adhoc) CI_SIGN=(CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER=) ;;
+  *)
+    ci_error "XBIN_SIGNING=${XBIN_SIGNING}: expected none or adhoc"
+    return 1
+    ;;
+  esac
+}
+
+# ci_project — in native/ios: `xcodegen generate` (project.yml → the
+# .xcodeproj, never committed), then set proj to the one .xcodeproj there.
+# A second one (a committed or stale project) is an error.
+ci_project() {
+  command -v xcodegen >/dev/null 2>&1 || {
+    ci_error "xcodegen not found (native/ios/scripts/ci-xcodegen.sh, or brew install xcodegen)"
+    return 1
+  }
+  ci_group "xcodegen generate"
+  xcodegen generate --spec project.yml || { ci_endgroup; return 1; }
+  ci_endgroup
+  # XcodeGen names the project after project.yml's `name:`; a fresh
+  # checkout holds exactly the one it just generated.
+  proj=""
+  local p
+  for p in *.xcodeproj; do
+    if [ -d "$p" ]; then
+      if [ -n "$proj" ]; then
+        ci_error "several .xcodeproj in native/ios ($proj, $p) — is one committed? (native/AGENTS.md: never commit it)"
+        return 1
+      fi
+      proj=$p
+    fi
+  done
+  [ -n "$proj" ] || { ci_error "xcodegen generated no .xcodeproj in native/ios"; return 1; }
+}
+
+# ci_metal — SwiftTerm compiles a Metal shader; since Xcode 26 the Metal
+# toolchain is a separate component that runner images may lack ("cannot
+# execute tool 'metal' due to missing Metal Toolchain"). Nothing to do when
+# `xcrun metal` works; else fetch it. A failed fetch is only a warning: the
+# build that needs it says what broke.
+ci_metal() {
+  ci_group "Metal toolchain"
+  if xcrun metal --version >/dev/null 2>&1; then
+    xcrun metal --version 2>&1 | head -n 1
+  else
+    echo "missing — xcodebuild -downloadComponent MetalToolchain"
+    ci_timeout 900 xcodebuild -downloadComponent MetalToolchain ||
+      ci_warn "xcodebuild -downloadComponent MetalToolchain failed; SwiftTerm's shader will not compile"
+  fi
+  ci_endgroup
 }
