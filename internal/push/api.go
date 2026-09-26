@@ -257,12 +257,14 @@ func (s *Service) APINotify(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "collapseId: 1–64 of A–Z a–z 0–9 . _ : -")
 		return
 	}
-	if !s.o.CanRead(user, tile) {
-		fail(w, http.StatusForbidden, "that user cannot read this tile")
-		return
-	}
+	// the tile's budget first: refused calls spend it too, so a tile cannot
+	// probe who reads it without bound
 	if ok, wait := s.tile.allow(tile); !ok {
 		tooMany(w, wait, "this tile is sending too many notifications; try later")
+		return
+	}
+	if !s.o.CanRead(user, tile) {
+		fail(w, http.StatusForbidden, "that user cannot read this tile")
 		return
 	}
 	if ok, wait := s.user.allow(user); !ok {

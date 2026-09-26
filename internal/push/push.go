@@ -235,8 +235,10 @@ func fit(p Payload) ([]byte, error) {
 			p.Body = cut(p.Body, n*3/4)
 		case p.Body != "":
 			p.Body = ""
+		case utf8.RuneCountInString(p.Title) > 1:
+			p.Title = cut(p.Title, utf8.RuneCountInString(p.Title)*3/4)
 		default:
-			p.Title = cut(p.Title, max(utf8.RuneCountInString(p.Title)*3/4, 1))
+			return b, nil // nothing left to cut (cannot happen with our own fields)
 		}
 	}
 }
@@ -267,6 +269,16 @@ func tileBase(tile string) string {
 // to the session owner's devices. Requests wait out the grace period and
 // are dropped when answered within it. Never blocks.
 func (s *Service) AgentEvent(user, session, tile string, ev agent.Event) {
+	switch ev.Type {
+	case agent.EvPermissionResolved, agent.EvElicitResolved:
+		// may release a held request (below)
+	case agent.EvPermissionRequest, agent.EvElicitRequest, agent.EvTurnEnd:
+		if !s.Enabled() || !s.st.hasDevices(user) {
+			return
+		}
+	default:
+		return // the pump calls this for every event: stay cheap
+	}
 	if user == "" || session == "" {
 		return
 	}

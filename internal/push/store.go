@@ -194,6 +194,17 @@ func (s *store) devices(user string) []Device {
 	return out
 }
 
+func (s *store) hasDevices(user string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, x := range s.st.Devices {
+		if x.User == user {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *store) count() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
