@@ -220,11 +220,22 @@ export function createRuntime(opts = {}) {
     },
   };
 
+  // remount(): the app lost its copy (a recreated view, a patch it could not
+  // apply) — send the whole tree again as a mount.
+  function remount() {
+    flush();
+    if (!tree) return false;
+    const out = cloneJSON({ op: 'mount', v: TREE_V, n: ++n, root: tree });
+    send(out);
+    return true;
+  }
+
   const xbn = {
     event,
     visibility: setVisibility,
     resolve,
     frame: () => flush() !== null,
+    remount,
   };
 
   return {

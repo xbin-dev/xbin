@@ -191,7 +191,7 @@ const P = {
     props: { role: en('user', 'assistant', 'system'), sender: S, text: S, markdown: B, streaming: B,
       time: { type: ['string', 'number'] }, files: arr(obj({ name: S, mime: S, src: S })), queued: B,
       tokens: { type: 'array', runtime: true, doc: 'added by the runtime when markdown is set' } },
-    events: { tap: {} }, children: only('actions') },
+    events: { tap: {}, link: { payload: { href: 'string' } } }, children: only('actions') },
   thinking: { rev: 1, group: 'chat', props: { text: S, live: B, seconds: N, open: B },
     events: { toggle: { payload: { open: 'bool' }, ...reports('open') } }, children: NONE },
   toolcard: { rev: 1, group: 'chat',

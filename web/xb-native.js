@@ -26,7 +26,7 @@
  * JSON strings); otherwise a preview host that called attach(post) or set
  * globalThis.xbnHost = {post}; otherwise messages queue until attach().
  * The app talks back through globalThis.xbn = {event, visibility, resolve,
- * frame}. createRuntime({post}) makes an independent runtime (node, tests);
+ * frame, remount}. createRuntime({post}) makes an independent runtime (node, tests);
  * with {global: true} it becomes the one render() and globalThis.xbn use.
  *
  * FROZEN once shipped: the exports, the vocabulary and the wire format change
@@ -110,11 +110,13 @@ export const native = {
 //   xbn.visibility('visible'|'hidden')
 //   xbn.resolve(id, value, error?)   answers a {op:"call"}
 //   xbn.frame()                      the renderer's frame clock: flush a pending render
+//   xbn.remount()                    send the whole tree again (a fresh mount)
 G.xbn = {
   event: (k, type, payload, n) => current$().xbn.event(k, type, payload, n),
   visibility: (s) => current$().xbn.visibility(s),
   resolve: (id, v, err) => current$().xbn.resolve(id, v, err),
   frame: () => current$().xbn.frame(),
+  remount: () => current$().xbn.remount(),
 };
 
 let listening = false;
