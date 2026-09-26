@@ -1,7 +1,7 @@
 {
   "name": "s3-archiver",
-  "version": 1,
-  "changelog": "v1: archive interface provider backed by S3 (SigV4, path-style)",
+  "version": 2,
+  "changelog": "v2: a native view for the xbin app (native.js): the settings form (the secret in a secure field) with Save & test and Test connection\nv1: archive interface provider backed by S3 (SigV4, path-style)",
   "title": "S3 Archiver",
   "description": "Stores component backups in an S3 bucket. Bind a component's @archive to it (or make it the workspace default) and backups, scheduled backups, and offload all stream here. Works with AWS S3, MinIO, Cloudflare R2, Backblaze B2 — any S3-compatible endpoint. Credentials live in the tile's vault.",
   "defaultPath": "apps/s3-archiver",
