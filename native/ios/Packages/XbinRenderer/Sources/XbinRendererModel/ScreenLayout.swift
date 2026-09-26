@@ -4,7 +4,8 @@ import XbinCore
 /// How a `screen` splits its children (the reference renderer's rules,
 /// web/xb/render-structure.js): its `toolbar` goes to the navigation bar; a
 /// `composer` and a bar-style `tabs` dock at the bottom; `sheet`s present
-/// over it; the rest is the body.
+/// over it — bottom sheets modally, drawers (`edge="leading"`) as an
+/// overlay; the rest is the body.
 @MainActor
 public struct ScreenLayout {
     public enum Style: String, Sendable { case list, form, scroll }
@@ -12,7 +13,10 @@ public struct ScreenLayout {
     public let style: Style
     public let toolbar: XbinNode?
     public let docked: [XbinNode]
+    /// Bottom sheets (presented modally).
     public let sheets: [XbinNode]
+    /// Drawers: sheets from the leading edge (an overlay over the screen).
+    public let drawers: [XbinNode]
     public let body: [XbinNode]
 
     public init(_ screen: XbinNode) {
@@ -22,7 +26,8 @@ public struct ScreenLayout {
         toolbar = tb
         let dock = all.filter { $0.type == "composer" || ($0.type == "tabs" && $0.props.string("style") == "bar") }
         docked = dock
-        sheets = all.filter { $0.type == "sheet" }
+        sheets = all.filter { $0.type == "sheet" && !SheetProps.isDrawer($0) }
+        drawers = all.filter(SheetProps.isDrawer)
         body = all.filter { n in n !== tb && n.type != "sheet" && !dock.contains { $0 === n } }
     }
 
@@ -74,25 +79,41 @@ public enum ListRuns {
     }
 }
 
-/// A `fragment`'s (or the root's) children: sheets present over the rest.
+/// A `fragment`'s (or the root's) children: sheets present over the rest
+/// (bottom sheets modally, drawers as an overlay).
 @MainActor
 public struct FragmentLayout {
     public let content: [XbinNode]
+    /// Bottom sheets.
     public let sheets: [XbinNode]
+    /// Sheets from the leading edge.
+    public let drawers: [XbinNode]
 
     public init(_ children: [XbinNode]) {
         content = children.filter { $0.type != "sheet" }
-        sheets = children.filter { $0.type == "sheet" }
+        sheets = children.filter { $0.type == "sheet" && !SheetProps.isDrawer($0) }
+        drawers = children.filter(SheetProps.isDrawer)
+    }
+
+    /// The drawers of a `nav`'s screens: the navigation container draws
+    /// them over itself (bar included), so a screen's drawer covers the
+    /// whole stack like the reference renderer's.
+    public static func drawers(ofScreens screens: [XbinNode]) -> [XbinNode] {
+        screens.flatMap { $0.children.filter(SheetProps.isDrawer) }
     }
 }
 
 /// `sheet` props with the reference renderer's defaults: open unless
-/// `open` is false; detents from a string or a list, `large` by default.
+/// `open` is false; detents from a string or a list, `large` by default;
+/// from the bottom edge unless `edge` is `leading` (a drawer: no detents).
 @MainActor
 public struct SheetProps {
     public enum Detent: String, Sendable, CaseIterable { case medium, large }
+    public enum Edge: String, Sendable, CaseIterable { case bottom, leading }
 
     public let isOpen: Bool
+    /// Where it comes from; an unknown value reads as `bottom`.
+    public let edge: Edge
     public let title: String?
     public let detents: [Detent]
     /// The body is one `screen` or `nav`: it brings its own bar.
@@ -102,6 +123,7 @@ public struct SheetProps {
 
     public init(_ sheet: XbinNode) {
         isOpen = sheet.value("open")?.boolValue ?? true
+        edge = Edge(rawValue: sheet.props.string("edge") ?? "") ?? .bottom
         title = sheet.props.nonEmpty("title")
         var ds: [Detent] = []
         switch sheet.props["detents"] {
@@ -114,6 +136,76 @@ public struct SheetProps {
         toolbar = tb
         body = sheet.children.filter { $0 !== tb }
         isWhole = body.count == 1 && (body[0].type == "screen" || body[0].type == "nav")
+    }
+
+    /// A drawer: slides in from the leading edge over the view.
+    public var isDrawer: Bool { edge == .leading }
+
+    /// Whether `node` is a `sheet` with `edge="leading"`.
+    public static func isDrawer(_ node: XbinNode) -> Bool {
+        node.type == "sheet" && node.props.string("edge") == Edge.leading.rawValue
+    }
+}
+
+/// A drawer's geometry and gestures (the reference renderer's
+/// `.sheet.edge-leading`: 86 % of the width, at most 400 points).
+public enum DrawerMetrics {
+    /// The drawer's width in a container `width` points wide.
+    public static func width(container width: Double) -> Double {
+        max(0, min(width * 0.86, 400))
+    }
+
+    /// The backdrop's opacity while the drawer is dragged `offset` points
+    /// towards the leading edge (0: fully open).
+    public static func scrim(offset: Double, width: Double) -> Double {
+        guard width > 0 else { return 0 }
+        return 0.28 * max(0, min(1, 1 - offset / width))
+    }
+
+    /// How far a drag has moved the drawer towards the leading edge: the
+    /// horizontal translation, flipped for right-to-left layouts, never
+    /// past fully open.
+    public static func offset(translation: Double, rightToLeft: Bool) -> Double {
+        max(0, rightToLeft ? translation : -translation)
+    }
+
+    /// Whether letting go closes the drawer: dragged past a third of its
+    /// width, or flung towards the leading edge (the predicted end is past
+    /// half of it).
+    public static func dismisses(offset: Double, predicted: Double, width: Double) -> Bool {
+        offset > width / 3 || predicted > width / 2
+    }
+}
+
+/// How a `split` lays out its two children (plans/native.md §15).
+public enum SplitLayout: Sendable, Equatable {
+    /// Side by side: `NavigationSplitView` (or `ArrangementView` on an
+    /// iPhone Duo SDK, iOS 27.1).
+    case columns
+    /// One above the other (compact width, `prefer="single"`, or not two
+    /// children).
+    case stacked
+
+    public init(children: Int, regularWidth: Bool, prefer: String?) {
+        self = children >= 2 && regularWidth && prefer != "single" ? .columns : .stacked
+    }
+}
+
+/// A screen's `toolbar` items for the navigation bar: what it shows (a
+/// picker's current choice, badges) grouped apart from what it does
+/// (buttons, menus), so the bar reads as two small groups instead of one
+/// dense one.
+@MainActor
+public struct ToolbarGroups {
+    /// Pickers and badges, in order.
+    public let status: [XbinNode]
+    /// Buttons and menus, in order.
+    public let actions: [XbinNode]
+
+    public init(_ toolbar: XbinNode?) {
+        let items = toolbar?.children ?? []
+        status = items.filter { $0.type == "picker" || $0.type == "badge" }
+        actions = items.filter { $0.type != "picker" && $0.type != "badge" }
     }
 }
 

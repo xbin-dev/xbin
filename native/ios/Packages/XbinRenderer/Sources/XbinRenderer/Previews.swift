@@ -35,10 +35,14 @@ public struct XbinFixturePreview: View {
 #Preview("chat-tools") { XbinFixturePreview("chat-tools") }
 #Preview("chat-transcript") { XbinFixturePreview("chat-transcript") }
 #Preview("controls") { XbinFixturePreview("controls") }
+#Preview("drawer") { XbinFixturePreview("drawer") }
 #Preview("escape-hatches") { XbinFixturePreview("escape-hatches") }
+#Preview("folded-actions") { XbinFixturePreview("folded-actions") }
 #Preview("icons") { XbinFixturePreview("icons") }
+#Preview("ime-field") { XbinFixturePreview("ime-field") }
 #Preview("markdown") { XbinFixturePreview("markdown") }
 #Preview("media") { XbinFixturePreview("media") }
+#Preview("message-files") { XbinFixturePreview("message-files") }
 #Preview("notices-empty-progress") { XbinFixturePreview("notices-empty-progress") }
 #Preview("sections-rows") { XbinFixturePreview("sections-rows") }
 #Preview("sheet-open") { XbinFixturePreview("sheet-open") }
