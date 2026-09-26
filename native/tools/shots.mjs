@@ -81,9 +81,16 @@ function collect(o) {
 }
 
 const TYPES = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.html': 'text/html', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png' };
-function serve() {
+// serve(extra): a static server on 127.0.0.1 — /vendor/ from web/ (as
+// xbind serves it) plus `extra` {'/path': body} pages (tests).
+export function serve(extra = {}) {
   const srv = createServer((req, res) => {
     const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    if (Object.hasOwn(extra, path)) {
+      res.writeHead(200, { 'Content-Type': TYPES[extname(path)] || 'text/plain', 'Cache-Control': 'no-cache' });
+      res.end(extra[path]);
+      return;
+    }
     if (path.startsWith('/vendor/') && !path.includes('..')) {
       const name = path.slice('/vendor/'.length);
       for (const f of [join(WEB, name), join(WEB, 'vendor', name)]) {
@@ -99,7 +106,7 @@ function serve() {
   return new Promise((r) => srv.listen(0, '127.0.0.1', () => r(srv)));
 }
 
-function playwright() {
+export function playwright() {
   const dir = process.env.PLAYWRIGHT_DIR || join(homedir(), 'lcad-wasm');
   try { return createRequire(join(dir, 'package.json'))('playwright'); } catch (e) {
     throw new Error(`playwright not found under ${dir} (set PLAYWRIGHT_DIR): ${e.message}`);
