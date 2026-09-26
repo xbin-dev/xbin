@@ -32,6 +32,7 @@ native/
     Packages/XbinRenderer/  SwiftUI, one view per primitive + #Preview per fixture (CI only)
     App/                    the thin app target (shell screens)
     Tests/                  snapshot tests (ImageRenderer → PNG)
+    scripts/                CI: pick-sim.sh, ci-*.sh (what ios.yml runs), ci-local-check.sh
   tools/                    fixture runner, screenshot + contact-sheet scripts
 web/xb-native.js            the runtime's template layer, served at /vendor/ (frozen once shipped)
 web/xb/                     the Lit reference renderer (previews and tests only)
@@ -101,26 +102,88 @@ session against a running xbind.
 
 ### 4. Apple — only through GitHub Actions (minutes)
 
-The workflow (`.github/workflows/ios.yml`, `runs-on: xcode-27`): `brew install
-xcodegen` → `xcodegen generate` → build → test (XbinCore, XbinRenderer
-snapshots of every fixture — light/dark × default and one large Dynamic Type
-size) → upload the snapshot PNGs and the `.xcresult` as artifacts. It triggers
-only on `native/ios/**` and `native/fixtures/**`.
+The workflow is `.github/workflows/ios.yml` (`runs-on: xcode-27`). It runs on
+a push to **any branch but master** that touches `native/ios/**`,
+`native/fixtures/**`, `native/spec/**` or the workflow itself, and by hand
+(`gh workflow run ios.yml --ref <branch>`); a newer push to the same branch
+cancels the run in progress. Three independent jobs — a broken app build
+still yields snapshots:
+
+| job | does | artifacts |
+|---|---|---|
+| `packages` | logs the toolchain (`xcodebuild -version`, `-showsdks`, simulator device types and runtimes); `swift test` in `Packages/XbinCore`, `XbinTerm`, `XbinAgent` — each if present, all run even when one fails | — |
+| `app` | `brew install xcodegen` → `xcodegen generate` (if `project.yml` exists) → `xcodebuild build -scheme Xbin` for a simulator, `CODE_SIGNING_ALLOWED=NO` | `xcresult-app` (`app-build.xcresult` + the full `app-build.log`) |
+| `snapshots` | `xcodebuild test -scheme XbinRenderer` in `Packages/XbinRenderer` on a simulator: every fixture, light/dark × default and one large Dynamic Type size | `snapshots` (the PNGs), `xcresult-snapshots` (`.xcresult` + log) |
+
+Artifacts upload even when a step fails; each job's summary page has a
+one-line result (toolchain, package table, PNG count).
+
+The logic is in `native/ios/scripts/`, so it runs the same on any Mac (and
+a Mac over ssh later) and most of it is checked here:
+
+- `pick-sim.sh` — prints the destination (`platform=iOS Simulator,id=…`):
+  an iPhone on the newest iOS runtime, newest model generation, base model
+  before Pro/Max; no iPhone → any iOS simulator; none at all → creates one.
+  `XBIN_SIM="iPhone 17 Pro"` prefers a name.
+- `ci-toolchain.sh` (every job), `ci-swift-test.sh`, `ci-build-app.sh`,
+  `ci-snapshots.sh`, sharing `ci-lib.sh`. Bash 3.2 (macOS's), no GNU-only
+  flags. Results go to `$RUNNER_TEMP/xbin-ci/`, which is what the workflow
+  uploads.
+- Pin an Xcode when the runner has several: set `XBIN_XCODE:
+  /Applications/Xcode_27.1.app` in the workflow's `env` (empty = the
+  runner's default).
+
+What the packages and tests must do for CI:
+
+- **`swift test` runs on the macOS host**, not a simulator: in XbinCore,
+  XbinTerm and XbinAgent, UIKit-only code sits behind `#if canImport(UIKit)`;
+  anything needing a simulator is tested through xcodebuild (XbinRenderer).
+  Declare a macOS platform next to iOS in `Package.swift` (`platforms:
+  [.iOS(.v18), .macOS(.v15)]`, say) — otherwise SwiftPM builds for its old
+  default macOS target and newer Foundation APIs fail availability checks
+  on CI though they pass on Linux, where `platforms` is ignored.
+- **The app scheme is `Xbin`**, shared, declared in `project.yml`
+  (`targets.Xbin.scheme` or `schemes.Xbin`); the package scheme is
+  `XbinRenderer` (`XbinRenderer-Package` is used if that's the only one).
+- **Snapshot tests write PNGs to `SNAPSHOT_DIR`** (the environment of the
+  test process; the workflow sets `TEST_RUNNER_SNAPSHOT_DIR` and xcodebuild
+  strips the prefix), named `<fixture>-<light|dark>[-<size>].png` — the
+  contact sheet below expects `<fixture>-light.png`/`<fixture>-dark.png`.
+  `FIXTURES_DIR` is the absolute path of `native/fixtures`. When `SNAPSHOT_DIR`
+  is unset (Xcode locally) tests skip writing rather than fail. Images a test
+  only *attaches* to the result are exported into `snapshots/attachments/` as
+  a fallback.
+
+Before pushing anything under `.github/workflows/ios.yml` or
+`native/ios/scripts/`:
+
+```sh
+native/ios/scripts/ci-local-check.sh   # YAML shape (python3+PyYAML or ruby), actionlint if
+                                       # installed, bash -n + shellcheck, and ci-dry-test.sh:
+                                       # the scripts against fake xcrun/xcodebuild/xcodegen/swift
+CI_LOCAL_BASH32=1 native/ios/scripts/ci-local-check.sh   # + the dry test under bash 3.2
+                                       # (macOS's) in a container — after editing a script
+```
+
+`make shellcheck` (part of `make check`) covers `native/ios/scripts/` too.
+
+Then:
 
 ```sh
 git push -u origin <feature-branch>                     # never master
 gh run list --workflow ios.yml --branch <feature-branch> -L 1
 gh run watch <run-id> --exit-status
 gh run view <run-id> --log-failed                       # on failure: read, fix, batch, push once
-gh run download <run-id> -D "$SCRATCH/ios-<run-id>"     # snapshots + .xcresult
+gh run download <run-id> -D "$SCRATCH/ios-<run-id>"     # snapshots/, xcresult-app/, xcresult-snapshots/
+gh run download <run-id> -n snapshots -D "$SCRATCH/ios-<run-id>/snapshots"   # just the PNGs
 ```
 
-- **Check the SDK before using new APIs.** Log `xcodebuild -showsdks` and
-  `xcrun simctl list devicetypes` in the workflow. The iPhone Duo APIs
-  (`ArrangementView`, reserved regions, hinge) come with the **iOS 27.1** SDK;
-  gate their use with `#available(iOS 27.1, *)` and confirm the names against
-  the SDK the runner actually has — the design cites them from secondary
-  sources.
+- **Check the SDK before using new APIs.** Every job logs `xcodebuild
+  -showsdks` and `xcrun simctl list devicetypes` / `runtimes` (its
+  "toolchain" step). The iPhone Duo APIs (`ArrangementView`, reserved regions, hinge)
+  come with the **iOS 27.1** SDK; gate their use with `#available(iOS 27.1,
+  *)` and confirm the names against the SDK the runner actually has — the
+  design cites them from secondary sources.
 - **Batch.** One push should carry every fix you can make from one failure log.
 
 ## Comparing iOS with the reference

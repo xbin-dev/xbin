@@ -17,7 +17,7 @@ SC_IMAGE="docker.io/koalaman/shellcheck:$SC_VERSION"
 if [ $# -gt 0 ]; then
   files=("$@")
 else
-  files=(deploy/*.sh hack/*.sh hack/ui-harness/*.sh .githooks/* website/install.sh)
+  files=(deploy/*.sh hack/*.sh hack/ui-harness/*.sh .githooks/* website/install.sh native/ios/scripts/*.sh)
 fi
 
 if command -v shellcheck >/dev/null; then
