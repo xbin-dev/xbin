@@ -80,16 +80,18 @@ final class AppModel {
 
     // MARK: Windows
 
-    /// A window appeared (its root view).
-    func register(_ scene: SceneModel) {
+    /// A window appeared (its root view). True when it took a link that was
+    /// waiting for a window (it shows that, not its restored place).
+    @discardableResult
+    func register(_ scene: SceneModel) -> Bool {
         scenes.removeAll { $0.scene == nil || $0.scene === scene }
         scenes.append(WeakScene(scene: scene))
         if focused == nil { focused = scene }
-        if let link = pendingLink, let w = resolve(link) {
-            pendingLink = nil
-            scene.select(w.id)
-            w.open(link: link, in: scene.nav(for: w))
-        }
+        guard let link = pendingLink, let w = resolve(link) else { return false }
+        pendingLink = nil
+        scene.select(w.id)
+        w.open(link: link, in: scene.nav(for: w))
+        return true
     }
 
     /// The user is in this window now (it became key or active).

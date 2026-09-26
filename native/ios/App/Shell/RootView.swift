@@ -65,7 +65,7 @@ struct RootView: View {
     }
 
     private func appeared() {
-        app.register(scene)
+        if app.register(scene) { restored = true }
         phaseChanged(phase)
         guard !restored else { return }
         restored = true

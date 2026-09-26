@@ -214,7 +214,7 @@ struct NoKeys: DeviceKeyStore {
         for e in logged.prefix(4) {
             let frame: XbinAgent.JSONValue = ["type": "session", "topic": .string("session." + id), "component": "apps/x",
                                               "data": Self.withID(e, id)]
-            events.receive(frame.compactString)
+            events.receive(frame.compactString + "\n") // as xbind writes them
         }
         // Another session's frame is not this feed's.
         events.receive(#"{"type":"session","topic":"session.zzz","data":{"seq":99,"ts":1,"type":"status","data":{"status":"idle"},"id":"zzz"}}"#)
