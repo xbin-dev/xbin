@@ -1,0 +1,11 @@
+{
+ "token": "0123456789abcdef-session-token",
+ "tokenType": "Bearer",
+ "user": {
+  "id": "admin",
+  "name": "Dev Admin",
+  "role": "admin"
+ },
+ "expiresIdle": 1790451918,
+ "expiresMax": 1793000718
+}

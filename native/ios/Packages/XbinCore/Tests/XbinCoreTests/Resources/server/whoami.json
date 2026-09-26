@@ -1,0 +1,14 @@
+{
+ "admin": true,
+ "canCreate": null,
+ "id": "admin",
+ "kind": "user",
+ "name": "Dev Admin",
+ "personalTiles": true,
+ "role": "admin",
+ "termApi": true,
+ "termNet": true,
+ "terminal": true,
+ "tileCreation": "any",
+ "tiles": {}
+}

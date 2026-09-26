@@ -30,10 +30,16 @@ native/
     project.yml             XcodeGen spec — the .xcodeproj is generated, never committed
     Packages/XbinCore/      SwiftPM, Foundation only — builds and tests on Linux
     Packages/XbinRenderer/  SwiftUI, one view per primitive + #Preview per fixture (CI only)
-    App/                    the thin app target (shell screens)
+    App/                    the app target: Model/ (workspaces, sessions, transport, device keys),
+                            Shell/ (root, switcher, navigator, add-workspace, inbox, settings),
+                            Tiles/ (scheme handler, web tiles, native tiles), Terminal/, Agent/, Push/
+    Shared/                 compiled into the app AND the notification extension (push crypto, Keychain)
+    NotificationService/    the Notification Service Extension (decrypts pushes)
+    Support/                Info.plists and entitlements
     Tests/                  snapshot tests (ImageRenderer → PNG)
     scripts/                CI: pick-sim.sh, ci-*.sh (what ios.yml runs), ci-local-check.sh
-  tools/                    fixture runner, screenshot + contact-sheet scripts
+  tools/                    fixture runner, screenshot + contact-sheet scripts; app-check/ (the app's
+                            UIKit-free sources on Linux), bridge-check.mjs, markdown-parity.mjs
 web/xb-native.js            the runtime's template layer, served at /vendor/ (frozen once shipped)
 web/xb/                     the Lit reference renderer (previews and tests only)
 relay/                      the push relay (Go, stdlib only)
@@ -120,6 +126,28 @@ fixtures and the Lit renderer's output); its SwiftUI target is empty off
 Apple platforms. After changing a view, run
 `native/tools/swiftui-stubcheck/run.sh` (and `--sendable-bindings`): it
 type-checks the views against stubs of the SDK — our mistakes, not SDK drift.
+
+### 3b. The app's own code on Linux (a minute)
+
+The app target is SwiftUI/UIKit/WebKit and only compiles on CI, so its
+decisions live in the packages (XbinCore `Client/`: sessions and re-sign,
+enrollment, the catalog, the scheme handler's rules, the tile bridge, native
+tile fallback, push, markdown) and are tested there. What remains in the
+app but needs no UIKit is checked by `native/tools/app-check`, which compiles
+the very files (symlinks) against swift-crypto and SwiftTerm's headless
+`Terminal`:
+
+```sh
+cd native/tools/app-check && swift test          # push vectors, device-login vector, SwiftTermScreen + predictor
+swift run app-live 127.0.0.1:9461 admin admin    # the workspace client against a running xbind (--dev: admin/admin)
+PLAYWRIGHT_DIR=~/lcad-wasm node native/tools/bridge-check.mjs http://127.0.0.1:9461
+                                                 # the tile bridge + xbin-client in headless Chromium
+```
+
+`app-live` covers password sign-in, in-app enrollment, device login, one
+re-sign for concurrent requests on a dead session, a tile page by frame
+token, push registration and device removal. Before touching an app file,
+`swiftc -frontend -parse <file>` at least catches syntax errors here.
 
 ### 4. Apple — only through GitHub Actions (minutes)
 

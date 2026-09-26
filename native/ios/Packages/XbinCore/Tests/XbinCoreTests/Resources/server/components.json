@@ -1,0 +1,73 @@
+[
+ {
+  "path": "apps/welcome",
+  "hasIndex": true,
+  "uses": [
+   {
+    "target": "cap:open-links",
+    "role": "writer"
+   }
+  ],
+  "sandbox": [
+   "allow-popups",
+   "allow-popups-to-escape-sandbox"
+  ]
+ },
+ {
+  "path": "root",
+  "hasIndex": true,
+  "chrome": true
+ },
+ {
+  "path": "shell",
+  "hasIndex": true,
+  "chrome": true
+ },
+ {
+  "path": "tiles/admin",
+  "hasIndex": true,
+  "uses": [
+   {
+    "target": "xbin",
+    "role": "admin"
+   },
+   {
+    "target": "cap:open-links",
+    "role": "writer"
+   }
+  ],
+  "sandbox": [
+   "allow-popups",
+   "allow-popups-to-escape-sandbox"
+  ]
+ },
+ {
+  "path": "tiles/apidocs",
+  "hasIndex": true,
+  "uses": [
+   {
+    "target": "cap:open-links",
+    "role": "writer"
+   }
+  ],
+  "sandbox": [
+   "allow-popups",
+   "allow-popups-to-escape-sandbox"
+  ]
+ },
+ {
+  "path": "tiles/manager",
+  "hasIndex": true,
+  "uses": [
+   {
+    "target": "xbin",
+    "role": "writer"
+   }
+  ]
+ },
+ {
+  "path": "tiles/organisations",
+  "hasIndex": true,
+  "chrome": true
+ }
+]
