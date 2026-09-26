@@ -24,8 +24,9 @@ import (
 //     exchange TICKET bound to that session ("s:" + a keyed reference; the
 //     session id itself never leaves this package), the tile origin trades
 //     it for its cookie, and every later request re-checks the session:
-//     signing out (or out everywhere), a password change, session expiry,
-//     or the user disabled — the next tile request fails.
+//     signing out (or out everywhere), session expiry, or the user
+//     disabled — the next tile request fails. Frame tokens minted on the
+//     tile origin are bound to the same login (liveTileGrant's FrameGen).
 const (
 	hostSessionCookie = "__Host-" + CookieName
 	// HostTileCookieName is the tile cookie's name on secure origins.
@@ -143,24 +144,25 @@ func (a *Auth) sweepSessionRefsLocked(now time.Time) {
 
 // sessionByRef resolves a live session of uid by reference WITHOUT sliding
 // it (a tile's own traffic does not keep a browser session alive). end is
-// the session's absolute deadline.
-func (a *Auth) sessionByRef(ref, uid string) (impersonator string, end time.Time, ok bool) {
+// the session's absolute deadline; gen the frame-token generation of that
+// login (s.<handle>, frametoken.go).
+func (a *Auth) sessionByRef(ref, uid string) (impersonator string, end time.Time, gen string, ok bool) {
 	now := time.Now()
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	sid, found := a.sessionRefs[ref]
 	if !found {
-		return "", time.Time{}, false
+		return "", time.Time{}, "", false
 	}
 	s, found := a.sessions[sid]
 	if !found || s.userID != uid || a.expiredLocked(s, now) {
-		return "", time.Time{}, false
+		return "", time.Time{}, "", false
 	}
 	end = s.created.Add(a.sessionAbsTTL)
 	if !s.notAfter.IsZero() && s.notAfter.Before(end) {
 		end = s.notAfter // an SSO-capped login (devicelogin.go)
 	}
-	return s.impersonator, end, true
+	return s.impersonator, end, "s." + s.gen, true
 }
 
 // TileBinding is the binding a tile-origin credential minted for uid on r
@@ -180,7 +182,7 @@ func (a *Auth) TileBinding(r *http.Request, uid string) (string, bool) {
 		return "", false
 	}
 	ref := a.sessionRef(c.Value)
-	if _, _, live := a.sessionByRef(ref, uid); !live {
+	if _, _, _, live := a.sessionByRef(ref, uid); !live {
 		return "", false
 	}
 	return sessionGenPrefix + ref, true
@@ -248,13 +250,16 @@ func (a *Auth) VerifyTileCookie(v string) (AssetGrant, bool) {
 // liveTileGrant: a user's tile credential must be bound to a live browser
 // session of that user (and the user must exist and be enabled); the
 // owner's to the current owner token. It reports the session's
-// impersonator (the tile then acts read-only, as the session does) and
-// absolute end.
+// impersonator (the tile then acts read-only, as the session does),
+// absolute end and frame-token generation — so a frame token minted on the
+// tile origin dies with that login too, and a view-as one stays read-only
+// without the cookie (FrameGen, TilePrincipal).
 func (a *Auth) liveTileGrant(g AssetGrant) (AssetGrant, bool) {
 	if a.noAuth {
 		return g, true
 	}
 	if g.UserID == "" {
+		g.FrameGen = g.Gen // the owner token's generation (credGeneration)
 		return g, subtleEqual(g.Gen, a.credGeneration(""))
 	}
 	if _, ok := a.userSnapshot(g.UserID); !ok {
@@ -264,11 +269,11 @@ func (a *Auth) liveTileGrant(g AssetGrant) (AssetGrant, bool) {
 	if !ok {
 		return AssetGrant{}, false
 	}
-	imp, end, live := a.sessionByRef(ref, g.UserID)
+	imp, end, gen, live := a.sessionByRef(ref, g.UserID)
 	if !live {
 		return AssetGrant{}, false
 	}
-	g.Impersonator, g.SessionEnd = imp, end
+	g.Impersonator, g.SessionEnd, g.FrameGen = imp, end, gen
 	return g, true
 }
 

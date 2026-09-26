@@ -152,7 +152,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   injected `<base>` (the token dies with the login that loaded the page);
   `origins` runs each tile on its own origin `t-<id>.<tiles-domain>`,
   entered through a one-time `?xbin_ticket=` bound to the browser session,
-  its `__Host-xbin_tile` cookie ending with that session. Detection: `GET
+  its `__Host-xbin_tile` cookie — and the frame tokens minted on the tile
+  origin — ending with that session. Detection: `GET
   /api/xbin/tile-assets`, `bx doctor`, `bx fix assets <tile> [--write]` and
   xbin-client console diagnostics; `/components` reports each tile's
   `origin`. `legacy` stays the default this release.

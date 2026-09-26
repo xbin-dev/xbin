@@ -23,7 +23,8 @@ the native app's two credential-in-body routes (`POST /api/xbin/login`,
 
 **Frame tokens are bound to the login that minted them.** A token carries
 its credential generation — the browser or app session behind the
-`/c/` document load or `/api/xbin/frame-token` call, and renewals copy it —
+`/c/` document load or `/api/xbin/frame-token` call (on a tile origin, the
+browser login its tile cookie is bound to), and renewals copy it —
 so logout, revoking the device, "sign out everywhere", disabling the user,
 and (for the bootstrap token's frames) rotating the owner token end it at
 once instead of at expiry. Frame use counts as that session's activity (its

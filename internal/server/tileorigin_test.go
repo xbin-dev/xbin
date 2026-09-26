@@ -178,6 +178,92 @@ func TestOriginsCookieFollowsSession(t *testing.T) {
 	}
 }
 
+// A (review): the frame token a tile-origin document carries — and every
+// renewal of it there — is bound to the browser login behind the tile
+// cookie, not to the user's generation: it stops at that login's sign-out
+// on both origins, and a view-as session's stays read-only without the
+// cookie. A dead cookie next to a live token is refused, not ignored.
+func TestOriginsFrameTokenFollowsLogin(t *testing.T) {
+	w := newAssetWS(t, TileAssetsOrigins)
+	w.s.RegisterAPI("GET /who-test", func(rw http.ResponseWriter, r *http.Request) { WriteOK(rw) })
+	w.s.RegisterAPI("POST /who-test", func(rw http.ResponseWriter, r *http.Request) { WriteOK(rw) })
+	oa := host(w.originHost("apps/a"))
+	docToken := func(sid string) (string, reqOpt) {
+		t.Helper()
+		u, _ := w.ticketURL("/c/apps/a/", cookie(auth.SessionCookieHostName, sid))
+		c, _ := w.exchangeURL(u)
+		if c == nil {
+			t.Fatal("no tile cookie")
+		}
+		ck := cookie(c.Name, c.Value)
+		rec := w.do("/c/apps/a/", oa, ck, hdr("Sec-Fetch-Site", "same-site"), hdr("Sec-Fetch-Mode", "navigate"))
+		m := injectedFrameToken.FindStringSubmatch(rec.Body.String())
+		if rec.Code != 200 || m == nil || m[1] == "" {
+			t.Fatalf("tile-origin document: %d", rec.Code)
+		}
+		return m[1], ck
+	}
+	gen := func(tok string) string { return strings.Split(tok, "|")[3] }
+
+	sid := w.a.NewSession("ana", "192.0.2.1")
+	tok, ck := docToken(sid)
+	if !strings.HasPrefix(gen(tok), "s.") {
+		t.Fatalf("the document's token is bound to %q, not the login", gen(tok))
+	}
+	rec := w.do("/api/xbin/frame-token?component=apps/a", oa, ck, sameOrig, hdr(auth.FrameTokenHeader, tok))
+	var renewed struct{ Token string }
+	_ = json.Unmarshal(rec.Body.Bytes(), &renewed)
+	if rec.Code != 200 || gen(renewed.Token) != gen(tok) {
+		t.Fatalf("renewal on the tile origin: %d, bound to %q", rec.Code, gen(renewed.Token))
+	}
+	if rec := w.do("/api/xbin/who-test", oa, sameOrig, hdr(auth.FrameTokenHeader, tok)); rec.Code != 200 {
+		t.Fatalf("token before sign-out: %d", rec.Code)
+	}
+	w.do("/logout", cookie(auth.SessionCookieHostName, sid), sameOrig, method("POST"))
+	for name, opts := range map[string][]reqOpt{
+		"tile origin, token":             {oa, sameOrig, hdr(auth.FrameTokenHeader, tok)},
+		"tile origin, token+dead cookie": {oa, sameOrig, ck, hdr(auth.FrameTokenHeader, tok)},
+		"tile origin, renewed token":     {oa, sameOrig, hdr(auth.FrameTokenHeader, renewed.Token)},
+		"workspace, token":               {hdr(auth.FrameTokenHeader, tok)},
+	} {
+		if rec := w.do("/api/xbin/who-test", opts...); rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s after sign-out: %d", name, rec.Code)
+		}
+	}
+	if rec := w.do("/api/xbin/frame-token?component=apps/a", oa, sameOrig, hdr(auth.FrameTokenHeader, tok)); rec.Code != http.StatusUnauthorized {
+		t.Errorf("renewal after sign-out: %d", rec.Code)
+	}
+	// A dead cookie is not skipped in favour of a token of another login.
+	tok2, _ := docToken(w.a.NewSession("ana", "192.0.2.1"))
+	if rec := w.do("/api/xbin/who-test", oa, sameOrig, ck, hdr(auth.FrameTokenHeader, tok2)); rec.Code != http.StatusUnauthorized {
+		t.Errorf("a live token next to a dead tile cookie: %d", rec.Code)
+	}
+
+	// View-as: the document's token carries the read-only view, cookie or not.
+	owner := auth.Principal{Owner: true}
+	tk, err := w.a.NewImpersonationTicket(owner, "ana")
+	if err != nil {
+		t.Fatal(err)
+	}
+	imp, err := w.a.RedeemImpersonation(tk, owner, "", "192.0.2.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	vtok, _ := docToken(imp)
+	for name, opts := range map[string][]reqOpt{
+		"tile origin": {oa, sameOrig, hdr(auth.FrameTokenHeader, vtok), method("POST")},
+		"workspace":   {hdr(auth.FrameTokenHeader, vtok), method("POST")},
+	} {
+		if rec := w.do("/api/xbin/who-test", opts...); rec.Code != http.StatusForbidden {
+			t.Errorf("view-as token alone wrote on the %s: %d", name, rec.Code)
+		}
+	}
+	w.do("/logout", cookie(auth.SessionCookieHostName, imp), sameOrig, method("POST"))
+	if rec := w.do("/api/xbin/who-test", hdr(auth.FrameTokenHeader, vtok)); rec.Code != http.StatusUnauthorized {
+		t.Errorf("view-as token after the view ended: %d", rec.Code)
+	}
+}
+
 // A: authorization on the tile origin. Uncredentialed → 401; another
 // tile's cookie, another user's cookie → refused; cross-tile loads exactly
 // when the user can read the other tile, and never as a document; RBAC is

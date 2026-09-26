@@ -37,7 +37,9 @@ import (
 //     the workspace origin.
 //
 // The cookie dies with the browser session it is bound to (sign-out, sign-
-// out everywhere, a password change, expiry) and never outlives it.
+// out everywhere, expiry) and never outlives it; so do the frame tokens
+// minted on the tile origin (TilePrincipal carries that login's
+// generation), and a view-as session's stay read-only without the cookie.
 // Chrome (root, shell, chrome:true tiles) stays on the workspace origin.
 
 type tileOriginKey struct{}
@@ -282,9 +284,9 @@ func (s *Server) tileOriginPrincipal(w http.ResponseWriter, r *http.Request, id 
 		g, ok := s.Auth.VerifyTileCookie(c.Value)
 		switch {
 		case !ok || s.Auth.TileHostID(g.Tile) != id:
-			if !have {
-				return p, "", false, http.StatusUnauthorized
-			}
+			// a dead cookie next to a token: the login behind this browser's
+			// tile session ended — the token must not outlive it
+			return p, "", false, http.StatusUnauthorized
 		case have:
 			if g.UserID != p.UserID { // cross-user replay
 				return p, "", false, http.StatusUnauthorized
@@ -295,7 +297,7 @@ func (s *Server) tileOriginPrincipal(w http.ResponseWriter, r *http.Request, id 
 			if !cookieRequestAllowed(r) {
 				return p, "", false, http.StatusForbidden
 			}
-			tp, ok := s.Auth.TilePrincipal(g.Tile, g.UserID, g.Impersonator)
+			tp, ok := s.Auth.TilePrincipal(g)
 			if !ok {
 				return p, "", false, http.StatusUnauthorized
 			}

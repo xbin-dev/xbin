@@ -199,14 +199,14 @@ func TestTileHostID(t *testing.T) {
 
 func TestTilePrincipal(t *testing.T) {
 	a, _ := assetTestAuth(t)
-	p, ok := a.TilePrincipal("apps/a", "ana", "")
-	if !ok || p.Component != "apps/a" || p.UserID != "ana" || p.Via != "frame" || p.Access == nil || p.ReadOnly() {
+	p, ok := a.TilePrincipal(AssetGrant{Tile: "apps/a", UserID: "ana", FrameGen: "s.abc"})
+	if !ok || p.Component != "apps/a" || p.UserID != "ana" || p.Via != "frame" || p.Access == nil || p.ReadOnly() || p.Gen != "s.abc" {
 		t.Fatalf("tile principal: %+v %v", p, ok)
 	}
-	if p, _ := a.TilePrincipal("apps/a", "ana", "boss"); !p.ReadOnly() {
+	if p, _ := a.TilePrincipal(AssetGrant{Tile: "apps/a", UserID: "ana", Impersonator: "boss"}); !p.ReadOnly() {
 		t.Fatal("a view-as session's tile principal is not read-only")
 	}
-	if _, ok := a.TilePrincipal("apps/a", "ghost", ""); ok {
+	if _, ok := a.TilePrincipal(AssetGrant{Tile: "apps/a", UserID: "ghost"}); ok {
 		t.Fatal("principal for an unknown user")
 	}
 }

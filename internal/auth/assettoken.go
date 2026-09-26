@@ -63,9 +63,12 @@ type AssetGrant struct {
 	Exp    time.Time
 
 	// Tile-origin credentials only (liveTileGrant): the bound session's
-	// impersonator (the tile acts read-only) and absolute end.
+	// impersonator (the tile acts read-only), absolute end, and the frame-
+	// token generation of that login (s.<handle>; the owner token's for the
+	// owner) — what a frame token minted on the tile origin binds to.
 	Impersonator string
 	SessionEnd   time.Time
+	FrameGen     string
 }
 
 // Credential binding: an asset token carries the CREDENTIAL GENERATION of
@@ -73,10 +76,9 @@ type AssetGrant struct {
 // frame token is bound to (frametoken.go): the login session (s.<handle>),
 // the user's generation (u.<epoch>.<n>) for a principal with no session, or
 // the owner token's (o.<hash>). It verifies only while that generation
-// lives, so logout, session expiry, device revocation, sign-out-everywhere,
-// a password change that ends sessions and owner-token rotation kill the
-// asset tokens of the documents they opened on their next use — the same
-// moment their frame tokens die. (Tile-origin credentials are bound to the
+// lives, so logout, session expiry, device revocation, sign-out-everywhere
+// and owner-token rotation kill the asset tokens of the documents they
+// opened on their next use — the same moment their frame tokens die. (Tile-origin credentials are bound to the
 // browser session itself, tilebinding.go.)
 
 // credGeneration is the generation a credential minted for uid without a
@@ -204,12 +206,15 @@ func (a *Auth) UserCanReadTile(uid, tile string) bool {
 	return u.CanReadTile(tile)
 }
 
-// TilePrincipal is the frame principal of (tile, user) — exactly what a
-// frame token for that pair resolves to — for the tile-origin cookie, which
-// makes /api and /ws on a tile's origin act as the tile. impersonator: the
-// bound session is an admin's view of the user, so the tile acts read-only.
-func (a *Auth) TilePrincipal(tile, uid, impersonator string) (Principal, bool) {
-	p := Principal{Component: tile, UserID: uid, Via: "frame", Impersonator: impersonator}
+// TilePrincipal is the frame principal of a live tile-origin cookie grant
+// (VerifyTileCookie) — exactly what a frame token of that tile, user and
+// login resolves to — which makes /api and /ws on a tile's origin act as
+// the tile. It carries the bound login's generation, so the frame tokens
+// minted for it (the document's, renewals) die with that login, and its
+// impersonator: an admin's view of the user acts read-only, token or not.
+func (a *Auth) TilePrincipal(g AssetGrant) (Principal, bool) {
+	uid := g.UserID
+	p := Principal{Component: g.Tile, UserID: uid, Via: "frame", Impersonator: g.Impersonator, Gen: g.FrameGen}
 	if uid != "" {
 		if _, found := a.userSnapshot(uid); !found {
 			return Principal{}, false

@@ -152,10 +152,14 @@ redeems it (its tile must be that origin's, the session still live, the user
 still able to read the tile), sets the tile cookie `__Host-xbin_tile`
 (`HttpOnly; Secure; SameSite=Strict`, host-only, `Path=/`) and redirects to
 the same URL without the ticket. The cookie lives exactly as long as that
-browser session: sign-out, *sign out everywhere*, a password change or the
-session expiring end it on the next request, and it never outlasts the
-session's own lifetime (it slides 12 h while in use). A view-as session's
-tile stays read-only on its origin. On that origin `/c/` is authorized per
+browser session: sign-out, *sign out everywhere* or the session expiring
+end it on the next request, and it never outlasts the session's own
+lifetime (it slides 12 h while in use). (Changing a password ends no
+session — use *sign out everywhere* for that.) The frame token the tile's
+document gets on its origin, and every renewal of it there, is bound to the
+same browser login, so it stops with the cookie; a request that carries a
+live token next to a dead tile cookie is refused. A view-as session's tile
+stays read-only on its origin, cookie or token. On that origin `/c/` is authorized per
 request for the cookie's user (another tile's files load when the user can
 read that tile — as sandboxed non-documents, never as a page running on
 this origin), and `/api` and `/ws/events` act as the tile's frame principal;
