@@ -92,7 +92,8 @@ const convs = new ConvList({ change: () => paintSide(), epoch: () => me.epochMs 
 // The Automations page (automations.js); page is what the main pane shows
 // when no conversation is open: null (home) or 'automations'.
 let page = null;
-const autos = new AutoPage({ change: () => { paintSide(); if (page) paint(); }, select: (id) => selectRun(id), me: () => me });
+const autos = new AutoPage({ change: () => { paintSide(); if (page) paint(); }, select: (id) => selectRun(id), me: () => me,
+  route: (kind, id) => { if (page === 'automations') setHash(kind ? `auto=${kind}:${id}` : 'auto'); } });
 session.ui.act.select = (id) => selectRun(id);
 session.ui.me = () => me.user;
 session.ui.act.openFile = (path) => { filesSel = path; openSettings('files'); };

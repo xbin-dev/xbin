@@ -120,14 +120,30 @@ api PUT /access '{"tile":"apps/agent","kind":"user","id":"dev1","level":"read"}'
 # the canvas down for every pass) one row shorter — only its mcp slot shows
 api POST /bindings '{"component":"apps/agent","slot":"net","provider":"none"}'
 gw() { curl -s -X "$1" -H "$A" -H "$J" ${3:+-d "$3"} "$URL/api/apps/$2"; echo; }
-for _ in $(seq 1 120); do gw GET llm-gw/config | grep -q backends && break; sleep 1; done
+# (the polls below read every byte: `grep -q` stops early, curl then dies of
+# SIGPIPE on a long answer, and under pipefail the poll never succeeds)
+for _ in $(seq 1 120); do gw GET llm-gw/config | grep backends >/dev/null && break; sleep 1; done
 gw PUT llm-gw/config/backend "{\"name\":\"fake\",\"baseURL\":\"http://${FAKEOPENAI_ADDR:-127.0.0.1:18977}\"}"
-for _ in $(seq 1 180); do gw GET agent/config | grep -q '"system"' && break; sleep 1; done
+for _ in $(seq 1 180); do gw GET agent/config | grep '"system"' >/dev/null && break; sleep 1; done
 gw GET agent/config | python3 -c 'import json,sys
 c=json.load(sys.stdin); c.update(model="fake/fake-chat", subagents=True, maxActiveRuns=4)
 print(json.dumps(c))' > "$WS/.agent-config.json"
 gw PUT agent/config "$(cat "$WS/.agent-config.json")" | head -c 200; echo
 rm -f "$WS/.agent-config.json"
+
+say "slack + webhooks → the agent (the channels pass)"
+# slack (alwaysOn) talks to hack/fakeslack on loopback (host egress) with fake
+# tokens; webhooks publishes /hook/* on the ingress listener as hooks.test.
+# Both are bound to the agent's inbox.
+api POST /builtins/import '{"name":"slack"}' | head -c 300; echo
+api POST /builtins/import '{"name":"webhooks"}' | head -c 300; echo
+api POST /bindings '{"component":"apps/slack","slot":"net","provider":"host"}'
+api POST /bindings '{"component":"apps/slack","slot":"agent","provider":"apps/agent"}'
+api POST /bindings '{"component":"apps/webhooks","slot":"agents","provider":"apps/agent"}'
+api POST /bindings '{"component":"apps/webhooks","slot":"hooks","provider":"runtime","host":"hooks.test"}'
+for _ in $(seq 1 120); do gw GET slack/status | grep phase >/dev/null && break; sleep 1; done
+gw PUT slack/config "{\"apiBase\":\"http://${FAKESLACK_ADDR:-127.0.0.1:18978}/api/\"}"
+gw PUT slack/config/tokens '{"botToken":"xoxb-fake","appToken":"xapp-fake"}'
 
 say "state"
 api GET /orgs | python3 -c 'import json,sys

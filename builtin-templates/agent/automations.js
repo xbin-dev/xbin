@@ -31,7 +31,7 @@ const CADENCES = [
 const MODES = { isolated: 'a new run each time', persistent: 'one ongoing thread', conversation: 'into a conversation' };
 
 export class AutoPage {
-  /** @param on {change(), select(runId), me() → GET /me} */
+  /** @param on {change(), select(runId), me() → GET /me, route(kind, id) — what is open, for the address} */
   constructor(on) {
     this.on = on;
     this.items = [];
@@ -64,6 +64,7 @@ export class AutoPage {
     this.open = kind ? { kind, id } : null;
     this.form = null;
     this.custom = null;
+    this.on.route?.(kind, id); // a reload (or a copied link) comes back here
     this.runs = [];
     this.next = '';
     if (this.open) {

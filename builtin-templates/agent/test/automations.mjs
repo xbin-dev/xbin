@@ -47,6 +47,7 @@ ok('#auto is in the address', await page.evaluate(() => location.hash === '#auto
 await page.click('.acard2[data-auto="schedule:3"]');
 await page.waitForSelector('.autos-page .agoal');
 ok('an automation shows what it does', (await page.textContent('.autos-page .agoal')).includes('digest the inbox'));
+ok('…and the address says which, so a reload comes back to it', await page.evaluate(() => location.hash === '#auto=schedule:3'));
 await page.waitForFunction(() => window.__calls.some((c) => c.method === 'POST' && c.url.endsWith('/automations/schedule/3/read')));
 ok('opening it marks its runs read', true);
 await page.click('.autos-page .run[data-id="20"]');

@@ -105,7 +105,9 @@ It appears in the shell sidebar immediately (click to open as a card). To
 runtimes: `node`, `python`, `cgi`. Never overwrites existing files.
 
 **Install a bundled optional tile:** `bx tile ls` lists builtin tiles
-(e.g. `llm-gw` an OpenAI-compatible gateway, `chat` a streaming chat UI);
+(e.g. `llm-gw` an OpenAI-compatible gateway, `chat` a streaming chat UI,
+`slack` and `webhooks` feeding agents made from the agent template —
+docs/agent-inbox.md);
 `bx tile import <name> [as <path>]` copies one in (or use the Tile Manager's
 Import tab). Imported tiles bring their own `uses` — cross-scope grants land
 pending for the owner. Sharing model + roadmap: `docs/overview/14-lifecycle.md` §Getting code in.
