@@ -14,7 +14,7 @@ only Apple toolchain.
 - **Fast local loops exist** for everything that isn't SwiftUI/UIKit: Go
   (xbind), JavaScript (the runtime, the Lit reference renderer), Swift 6 on
   Linux (Foundation only), headless chromium for screenshots.
-- **Each CI round trip takes 10–15 minutes** (push to green). Batch changes;
+- **Each CI round trip takes 10–20 minutes** (push to green). Batch changes;
   never push to "see if it compiles" what could have been checked locally.
 
 ## Layout (as it lands)
@@ -279,7 +279,7 @@ gh run download <run-id> -n snapshots -D "$SCRATCH/ios-<run-id>/snapshots"   # j
   design cites them from secondary sources.
 - **Batch.** One push should carry every fix you can make from one failure log.
 
-What the runner turned out to be (runs 36237646621–36242756338, 2026-09-26):
+What the runner turned out to be (runs 36237646621–36243877514, 2026-09-26):
 
 - `xcode-27` is Xcode 27.0 (27A266a) with Swift 6.4 and **only the iOS 27.0
   SDK and simulator runtime**. There is no 27.1 SDK yet, so no Duo API can be
@@ -289,8 +289,8 @@ What the runner turned out to be (runs 36237646621–36242756338, 2026-09-26):
   MetalToolchain`, about 840 MB, a few seconds). The build runs with
   `-IDEBuildingContinueBuildingAfterErrors=YES`, so one log lists every
   target's errors.
-- Job times: `packages` takes about 1.5 minutes, `app` about 2 and
-  `snapshots` about 11 (both snapshot runs). The `snapshots` artifact is
+- Job times: `packages` takes about 1.5 minutes, `app` 2–3 and `snapshots`
+  11–17 (both snapshot runs, 162 PNGs each). The `snapshots` artifact is
   about 90 MB.
 - **Xcode's type checker gives up where the stub check doesn't.** One big
   initializer call full of inline closures, one of them behind `?:`, failed
