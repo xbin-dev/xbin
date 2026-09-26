@@ -401,14 +401,14 @@ public extension TermSessionDelegate {
         emulator.reset()
         predictor.reset(); predictor.setCursorHidden(false)
         awaitingReplay = true
+        echoAck = info.echoAck
+        phase = .live
         if !info.netNote.isEmpty && info.id != notedSession {
             notedSession = info.id
             delegate?.termSession(self, netNote: info.netNote)
         }
         delegate?.termSession(self, attached: info)
         guard g == gen else { return } // the delegate restarted or closed us
-        echoAck = info.echoAck
-        phase = .live
         if echoAck {
             ping()
             schedulePing(gen: g)
