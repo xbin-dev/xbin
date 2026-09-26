@@ -143,6 +143,7 @@ type Service struct {
 
 	lmu   sync.Mutex
 	turns map[string]*liveSession // agent sessions followed for Live Activities (activity.go)
+	ended map[string]endedRef     // push-started activities whose turn ended before their token came (activity.go)
 
 	// the last key check (StartKeyCheck): when, and what went wrong ("" ok)
 	keyAt  int64
@@ -179,7 +180,7 @@ func New(o Options) (*Service, error) {
 		return nil, err
 	}
 	s := &Service{o: o, st: st, held: map[string]*time.Timer{}, turns: map[string]*liveSession{}, done: make(chan struct{}),
-		actReg: newLimiter(o.Limits.Activities, o.Now), actPush: newLimiter(o.Limits.ActivityPush, o.Now),
+		actReg: newLimiter(o.Limits.Activities, o.Now), actPush: newLimiter(o.Limits.ActivityPush, o.Now), ended: map[string]endedRef{},
 		tile: newLimiter(o.Limits.Tile, o.Now), user: newLimiter(o.Limits.User, o.Now), agent: newLimiter(o.Limits.Agent, o.Now),
 		sess: newLimiter(o.Limits.Session, o.Now), self: newLimiter(o.Limits.Test, o.Now), reg: newLimiter(o.Limits.Register, o.Now)}
 	s.snd = newSender(s)

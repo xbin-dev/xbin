@@ -391,6 +391,16 @@ func TestLiveActivityHandlesFollowTheRelay(t *testing.T) {
 	if d, _ := r.s.st.device("alice", "phone"); d.StartHandle != "" {
 		t.Fatalf("startHandle \"\" kept it: %+v", d)
 	}
+	// a push-to-start handle the relay takes no start on (registered as a
+	// card's): dropped, so the app registers it again
+	ev(agent.EvTurnEnd, 40, map[string]any{"turn": 2, "stopReason": "end_turn"})
+	r.call(alice, "POST", "/devices/push", regBody("handle-phone-2", "start-handle-4"))
+	r.relay.answer(fakeAnswer{400, `{"code":"bad_request"}`})
+	ev(agent.EvStatus, 50, map[string]any{"status": "running"})
+	eventually(t, "the card-kind push-to-start handle dropped", func() bool {
+		d, _ := r.s.st.device("alice", "phone")
+		return d.StartHandle == ""
+	})
 }
 
 // An activity registered after its turn ended gets its end at once; a
@@ -406,8 +416,9 @@ func TestLiveActivityEnds(t *testing.T) {
 	ev("s1", agent.EvStatus, 0, map[string]any{"status": "running"})
 	ev("s1", agent.EvTurnEnd, 10, map[string]any{"turn": 1, "stopReason": "end_turn"})
 	ss.set("s1", SessionInfo{Owner: "alice", Status: agent.StatusIdle})
-	if code, _ := r.activity(alice, map[string]any{"deviceId": "phone", "session": "s1", "handle": "la-handle-late"}); code != 200 {
-		t.Fatal(code)
+	if code, out := r.activity(alice, map[string]any{"deviceId": "phone", "session": "s1", "handle": "la-handle-late"}); code != 200 ||
+		out["activity"].(map[string]any)["ended"] != true {
+		t.Fatalf("a registration after the turn: %d %v", code, out)
 	}
 	got := waitLive(t, r, 1)
 	if got[0].Handle != "la-handle-late" || got[0].Activity.Event != "end" {
@@ -416,8 +427,9 @@ func TestLiveActivityEnds(t *testing.T) {
 	// s3: a turn xbind did not follow (no device when it began) is taken
 	// from the directory
 	ss.set("s3", SessionInfo{Owner: "alice", Status: agent.StatusRunning})
-	if code, _ := r.activity(alice, map[string]any{"deviceId": "phone", "session": "s3", "handle": "la-handle-03", "since": 1_790_000_000}); code != 200 {
-		t.Fatal(code)
+	if code, out := r.activity(alice, map[string]any{"deviceId": "phone", "session": "s3", "handle": "la-handle-03", "since": 1_790_000_000}); code != 200 ||
+		out["activity"].(map[string]any)["ended"] != nil {
+		t.Fatalf("a registration mid-turn: %d %v", code, out)
 	}
 	if st, busy := r.s.liveState("s3"); !busy || st != (ActivityState{Phase: PhaseRunning, Since: 1_790_000_000}) {
 		t.Fatalf("unfollowed turn: %+v %v", st, busy)
@@ -507,5 +519,87 @@ func TestLiveActivityTurnStartMatchesTheApp(t *testing.T) {
 		if turns < 2 {
 			t.Fatalf("%s: %d turns seen", name, turns)
 		}
+	}
+}
+
+// testClock is a settable Options.Now.
+type testClock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func (c *testClock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.t
+}
+
+func (c *testClock) advance(d time.Duration) {
+	c.mu.Lock()
+	c.t = c.t.Add(d)
+	c.mu.Unlock()
+}
+
+// A push-started card whose turn ends before the app registers its token
+// still gets its end: the registration by its ref answers the session and
+// ended, and xbind pushes the end (idle, the turn's start, after the
+// start's timestamp) — for endedRefTTL, to that device of that person
+// only; after that its ref is unknown (404) and the app ends the card
+// itself.
+func TestLiveActivityPushStartedEndsBeforeItsToken(t *testing.T) {
+	clock := &testClock{t: time.Now()}
+	r, _ := liveRig(t, 40*time.Millisecond, func(o *Options) { o.Now = clock.now })
+	reg := func(p auth.Principal, dev, handle, start string) {
+		t.Helper()
+		body := map[string]any{"deviceId": dev, "handle": handle, "publicKey": pubKey(t), "startHandle": start}
+		if code, out, _ := r.call(p, "POST", "/devices/push", body); code != 200 {
+			t.Fatalf("register %s: %d %v", dev, code, out)
+		}
+	}
+	reg(alice, "phone", "handle-phone", "start-handle-phone")
+	reg(alice, "mac", "handle-mac", "")
+	reg(bob, "phone", "handle-bob-phone", "")
+	ev := func(typ string, ms int64, d map[string]any) {
+		r.s.AgentEvent("alice", "s1", "apps/cal", agentEv(typ, t0+ms, d))
+	}
+	ev(agent.EvStatus, 1000, map[string]any{"status": "running"})
+	start := waitLive(t, r, 1)[0]
+	if start.Handle != "start-handle-phone" || start.Activity.Event != "start" {
+		t.Fatalf("start: %+v", start)
+	}
+	ref := start.Activity.Ref
+	ev(agent.EvTurnEnd, 5000, map[string]any{"turn": 1, "stopReason": "end_turn"})
+	time.Sleep(30 * time.Millisecond)
+	if n := len(livePushes(r)); n != 1 {
+		t.Fatalf("%d pushes for a card with no token yet", n)
+	}
+	// the token comes after the turn
+	code, out := r.activity(alice, map[string]any{"deviceId": "phone", "ref": ref, "handle": "la-handle-phone", "since": 1_790_000_000})
+	if act, _ := out["activity"].(map[string]any); code != 200 || act["session"] != "s1" || act["ended"] != true {
+		t.Fatalf("the late registration by ref: %d %v", code, out)
+	}
+	end := waitLive(t, r, 2)[1]
+	checkGeneric(t, end)
+	if end.Handle != "la-handle-phone" || end.Activity.Event != "end" || end.Activity.Timestamp <= start.Activity.Timestamp ||
+		end.Activity.State != (ActivityState{Phase: PhaseIdle, Since: (t0 + 1000) / 1000}) || end.Activity.DismissalDate == 0 {
+		t.Fatalf("the end: %+v %+v", end, end.Activity)
+	}
+	if got := deviceActivities(r, alice, "phone"); got != nil {
+		t.Fatalf("an ended card stays registered: %v", got)
+	}
+	// the ref is that device's, of that person
+	if code, _ := r.activity(alice, map[string]any{"deviceId": "mac", "ref": ref, "handle": "la-handle-mac"}); code != 404 {
+		t.Fatalf("another device's ref: %d", code)
+	}
+	if code, _ := r.activity(bob, map[string]any{"deviceId": "phone", "ref": ref, "handle": "la-handle-bob"}); code != 404 {
+		t.Fatalf("another person's ref: %d", code)
+	}
+	// and it is remembered for a while only
+	clock.advance(endedRefTTL + time.Second)
+	if code, out := r.activity(alice, map[string]any{"deviceId": "phone", "ref": ref, "handle": "la-handle-phone"}); code != 404 {
+		t.Fatalf("after the TTL: %d %v", code, out)
+	}
+	if n := len(livePushes(r)); n != 2 {
+		t.Fatalf("%d pushes, want the start and one end", n)
 	}
 }

@@ -244,12 +244,14 @@ const (
 	relayHandleBound   = "handle_bound"
 	relayHandleUnknown = "handle_unknown"
 	relayBadKey        = "bad_key"
+	relayBadRequest    = "bad_request"
 )
 
 // deliverLive posts one Live Activity push. The relay's word on the handle
-// ends that activity's registration (or the push-to-start handle): an
-// ActivityKit token dies with its activity, and the app registers the next
-// one itself — no needsNewHandle round for these.
+// ends that activity's registration (or the push-to-start handle; also a
+// start the relay calls a bad request — the handle is not a push-to-start
+// one): an ActivityKit token dies with its activity, and the app registers
+// the next one itself — no needsNewHandle round for these.
 func (d *sender) deliverLive(j job) {
 	s, l := d.s, j.live
 	cfg, _ := s.relayConfig()
@@ -272,6 +274,11 @@ func (d *sender) deliverLive(j job) {
 	case refused:
 		d.failed.Add(1)
 		d.noteErr(msg)
+		if l.start && code == relayBadRequest {
+			// a push-to-start handle the relay takes no start on (one the
+			// app registered as a card's): the app registers it again
+			s.st.clearStartHandle(l.user, l.deviceID, l.handle)
+		}
 		s.o.Log.Warn("push: relay refused a Live Activity push", "why", msg)
 	case retryLater:
 		d.noteErr(msg)

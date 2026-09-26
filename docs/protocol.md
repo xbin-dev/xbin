@@ -1758,21 +1758,27 @@ POST   /devices/push/activities          a signed-in person, for a registration
                                          of theirs (a device session: its own
                                          deviceId, else 403). body {deviceId,
                                          session | ref, handle, since?} →
-                                         {activity: {session, created}}. A Live
-                                         Activity the device shows for one of
-                                         your agent sessions: handle = the
-                                         relay's Live Activity handle of its
-                                         update token; ref = the one a
-                                         push-started activity carries (the
-                                         answer names its session); since = the
-                                         turn's start the card shows (unix s;
-                                         taken only for a turn xbind did not
-                                         see begin). 404 for a session that is
+                                         {activity: {session, created,
+                                         ended?}}. A Live Activity the device
+                                         shows for one of your agent sessions:
+                                         handle = the relay's Live Activity
+                                         handle of its update token; ref = the
+                                         one a push-started activity carries
+                                         (the answer names its session); since
+                                         = the turn's start the card shows
+                                         (unix s; taken only for a turn xbind
+                                         did not see begin). ended: the turn is
+                                         over already — xbind sends the card
+                                         its end and keeps no registration (a
+                                         push-started card whose turn ended
+                                         before its token came is answered so
+                                         for 4 h). 404 for a session that is
                                          not yours or not there, an unknown
-                                         ref, or a device with no registration;
-                                         429 over 240/hour (burst 30). xbind
-                                         then pushes the turn's state changes
-                                         and its end to it (below)
+                                         ref, or a device with no registration
+                                         (the app ends such a card); 429 over
+                                         240/hour (burst 30). xbind then pushes
+                                         the turn's state changes and its end
+                                         to it (below)
 DELETE /devices/push/<deviceId>/activities/<session>
                                          a signed-in person: the device stopped
                                          showing it → 204 | 404
@@ -1928,11 +1934,14 @@ does the session closing. A turn still running after 30 s starts an
 activity by push (ActivityKit push-to-start) on each device whose
 registration has a `startHandle`, takes `agent` kinds, and shows none for
 the session: the start carries only the workspace's push id and a random
-`ref`, by which the app registers the new activity's token. At start xbind
+`ref`, by which the app registers the new activity's token (if the turn
+ended first, that registration answers `ended` and the card gets its end;
+an unknown ref is 404 and the app ends the card itself). At start xbind
 ends every activity still registered (agent sessions do not outlive it).
 The relay's 410, `handle_bound` or `handle_unknown` on an activity's handle
-drops that activity (or the push-to-start handle); the app registers the
-next one. Updates are limited to 240/hour per activity (burst 30). Wire
+drops that activity (or the push-to-start handle — and so does a start the
+relay calls `bad_request`: a handle it does not hold as push-to-start); the
+app registers the next one. Updates are limited to 240/hour per activity (burst 30). Wire
 formats: native/spec/push.md §7.
 
 **Relay proof of work.** A relay may ask an anonymous workspace

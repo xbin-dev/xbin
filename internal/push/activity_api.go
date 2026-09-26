@@ -45,6 +45,11 @@ func (s *Service) ownDevice(w http.ResponseWriter, r *http.Request, user, device
 // ref); the answer says which session it is. since (unix seconds) is when
 // the card says the turn started: xbind takes it only for a turn it did not
 // see begin. xbind then pushes the turn's state changes and its end to it.
+// The answer's ended: the turn is over already — xbind sends the card its
+// end now (and keeps no registration); the app may end the card itself.
+// A push-started card whose turn ended before its token came is answered
+// so too, for endedRefTTL; after that (or after an xbind restart) its ref
+// is unknown: 404.
 func (s *Service) APIActivity(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.human(w, r)
 	if !ok {
@@ -98,7 +103,17 @@ func (s *Service) APIActivity(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if session == "" {
-			fail(w, http.StatusNotFound, "no activity with that ref (it ended)")
+			e, ok := s.endedActivity(user, body.DeviceID, body.Ref, s.o.Now())
+			if !ok {
+				fail(w, http.StatusNotFound, "no activity with that ref (it ended)")
+				return
+			}
+			// its turn ended before the token came: the card gets its end
+			if s.Enabled() {
+				s.endLate(user, body.DeviceID, body.Handle, e, body.Since)
+			}
+			server.WriteJSON(w, http.StatusOK, map[string]any{"activity": map[string]any{"session": e.session,
+				"created": s.o.Now().Unix(), "ended": true}})
 			return
 		}
 	}
@@ -116,10 +131,15 @@ func (s *Service) APIActivity(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "no push registration for that device: POST /devices/push first")
 		return
 	}
+	ended := false
 	if s.Enabled() {
-		s.activityRegistered(user, body.DeviceID, session, body.Handle, pushStarted, body.Since)
+		ended = s.activityRegistered(user, body.DeviceID, session, body.Handle, pushStarted, body.Since)
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]any{"activity": map[string]any{"session": session, "created": a.Created}})
+	out := map[string]any{"session": session, "created": a.Created}
+	if ended {
+		out["ended"] = true
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]any{"activity": out})
 }
 
 // APIActivityDelete is DELETE /devices/push/{deviceId}/activities/{session}:

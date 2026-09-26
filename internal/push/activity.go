@@ -28,6 +28,11 @@ import (
 // ends them (and the registrations go — an activity is one turn); a turn
 // still busy after Options.StartAfter starts one by push on each device
 // with a push-to-start handle that shows none for the session yet.
+//
+// A push-started activity whose turn ends before the app registers its
+// token is remembered for endedRefTTL (in memory: an xbind restart ends
+// every activity anyway): a registration by its ref then gets the session,
+// `ended`, and the end — so the card never shows a turn that is over.
 
 // Activity is one Live Activity a device shows for an agent session: the
 // relay handle of its update token. Handle "" = xbind started it by push
@@ -67,7 +72,69 @@ const (
 	activityStale = 4 * time.Hour
 	// activityDismiss is how long an ended activity stays on the lock screen.
 	activityDismiss = 10 * time.Minute
+	// endedRefTTL is how long a push-started activity whose turn ended
+	// before its token came is remembered (its card goes stale by then),
+	// maxEndedRefs how many at once.
+	endedRefTTL  = activityStale
+	maxEndedRefs = 4096
 )
+
+// endedRef is a push-started activity whose turn ended before the app
+// registered its token.
+type endedRef struct {
+	session string
+	since   int64 // the turn's start
+	lastTS  int64 // the session's last activity timestamp (the start's or later)
+	expires int64
+}
+
+func endedKey(user, deviceID, ref string) string { return user + "\n" + deviceID + "\n" + ref }
+
+// rememberEnded records a push-started activity that ended tokenless (lmu
+// held).
+func (s *Service) rememberEnded(user, deviceID, ref string, e endedRef, now time.Time) {
+	t := now.Unix()
+	if len(s.ended) >= maxEndedRefs {
+		oldest, at := "", int64(0)
+		for k, x := range s.ended {
+			if x.expires < t {
+				delete(s.ended, k)
+			} else if oldest == "" || x.expires < at {
+				oldest, at = k, x.expires
+			}
+		}
+		if len(s.ended) >= maxEndedRefs {
+			delete(s.ended, oldest)
+		}
+	}
+	s.ended[endedKey(user, deviceID, ref)] = e
+}
+
+// endedActivity looks a ref up among those (and forgets expired ones).
+func (s *Service) endedActivity(user, deviceID, ref string, now time.Time) (endedRef, bool) {
+	s.lmu.Lock()
+	defer s.lmu.Unlock()
+	k := endedKey(user, deviceID, ref)
+	e, ok := s.ended[k]
+	if ok && e.expires < now.Unix() {
+		delete(s.ended, k)
+		return endedRef{}, false
+	}
+	return e, ok
+}
+
+// endLate ends a push-started activity registered after its turn ended:
+// idle, with the turn's start (since when the card says so and xbind did
+// not know).
+func (s *Service) endLate(user, deviceID, handle string, e endedRef, since int64) {
+	now := s.o.Now()
+	if e.since == 0 && since > 0 && since <= now.Unix()+60 {
+		e.since = since
+	}
+	s.enqueueLive([]liveJob{{user: user, deviceID: deviceID, session: e.session, handle: handle, priority: 10,
+		act: activityPush{Event: "end", Timestamp: max(now.Unix(), e.lastTS+1), State: ActivityState{Phase: PhaseIdle, Since: e.since},
+			DismissalDate: now.Add(activityDismiss).Unix()}}})
+}
 
 // activityPush is the relay's "activity" (relay.ActivityPush).
 type activityPush struct {
@@ -321,7 +388,13 @@ func (s *Service) endLocked(session string, ls *liveSession, now time.Time) []li
 			}
 			s.st.removeActivity(ls.user, d.DeviceID, session, a.Handle)
 			if a.Handle == "" {
-				continue // started by push, its token never came: nothing to reach
+				// started by push, its token not here yet: nothing to reach
+				// now — a registration by its ref still gets the end
+				if a.Ref != "" {
+					s.rememberEnded(ls.user, d.DeviceID, a.Ref, endedRef{session: session, since: ls.since, lastTS: ls.lastTS,
+						expires: now.Add(endedRefTTL).Unix()}, now)
+				}
+				continue
 			}
 			if ts == 0 {
 				ts = ls.ts(now)
@@ -370,9 +443,9 @@ func (s *Service) EndActivities() {
 
 // activityRegistered brings a newly registered activity up to date: a
 // push-started one gets what changed since its start, one whose turn
-// already ended gets its end (lmu not held). since is the card's turn
-// start, taken only when xbind did not see the turn begin.
-func (s *Service) activityRegistered(user, deviceID, session, handle string, pushStarted bool, since int64) {
+// already ended gets its end — ended reports that (lmu not held). since is
+// the card's turn start, taken only when xbind did not see the turn begin.
+func (s *Service) activityRegistered(user, deviceID, session, handle string, pushStarted bool, since int64) (ended bool) {
 	now := s.o.Now()
 	var jobs []liveJob
 	s.lmu.Lock()
@@ -394,6 +467,7 @@ func (s *Service) activityRegistered(user, deviceID, session, handle string, pus
 	}
 	switch {
 	case ls == nil || !ls.busy: // the turn is over already
+		ended = true
 		final, ts := ActivityState{Phase: PhaseIdle, Since: since}, now.Unix()
 		if ls != nil {
 			final.Since, ts = ls.since, ls.ts(now)
@@ -410,6 +484,7 @@ func (s *Service) activityRegistered(user, deviceID, session, handle string, pus
 	}
 	s.lmu.Unlock()
 	s.enqueueLive(jobs)
+	return ended
 }
 
 func (s *Service) enqueueLive(jobs []liveJob) {

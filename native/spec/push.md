@@ -257,7 +257,8 @@ under the workspace's device handle** (§1.2):
 
 ```
 POST <relay>/v1/handles {"apnsToken": "<hex>", "topic": "<bundle id>", "env": …,
-                         "pushType": "liveactivity", "parent": "<the workspace's device handle>"}
+                         "pushType": "liveactivity", "parent": "<the workspace's device handle>",
+                         "start": true}                     (the push-to-start token only)
 → {"handle"}
 ```
 
@@ -265,7 +266,14 @@ It lives, binds and goes with its parent: deleting the parent (removing the
 workspace from the app), a rotation that orphans it (`needsNewHandle`), or
 APNs killing the device token takes the Live Activity handles along — the
 app makes new ones under its new device handle. The same token under the
-same parent answers the same handle.
+same parent answers the same handle. The first push to the device handle or
+any handle under it binds them all to the pushing workspace. A parent holds
+one push-to-start handle (it takes `start` events only; a new token
+replaces it) and at most 16 activity handles (they take `update` and `end`
+only; the least recently used go first, never the push-to-start handle). An
+`end` APNs took retires the activity's handle at the relay; the app also
+deletes (`DELETE /v1/handles/<handle>`) the handles of a card it ends or
+loses, and one xbind answered 404 for.
 
 ### 7.3 Registration with xbind
 
@@ -280,11 +288,18 @@ same parent answers the same handle.
   ```
   POST /api/xbin/devices/push/activities {"deviceId", "session": "<agent session id>", "handle", "since"?}   (one the app started)
   POST /api/xbin/devices/push/activities {"deviceId", "ref": "<attributes.ref>", "handle"}                   (one xbind started)
-  → {"activity": {"session", "created"}}
+  → {"activity": {"session", "created", "ended"?: true}}
   ```
   `since` is the turn's start the card shows (unix seconds); xbind takes it
   only for a turn it did not see begin (the user had no device then), so
-  its updates keep the card's clock.
+  its updates keep the card's clock. `ended`: the turn is over already —
+  xbind sends the card its `end` and keeps no registration; the app ends
+  the card too. A push-started card whose turn ended before its token came
+  is answered so for 4 hours (xbind remembers its ref, in memory); after
+  that, after an xbind restart, and for a ref xbind never gave (a start
+  another workspace sent under this one's `ws`) the answer is 404, and the
+  app ends the card: a card it can't place — no workspace with that `ws`,
+  or xbind's 404 — never stays up.
   The session must be the caller's (404 otherwise); the registration is the
   caller's own (the device session: its own `deviceId`, 403 otherwise).
   `DELETE /api/xbin/devices/push/<deviceId>/activities/<session>` when the
@@ -306,14 +321,16 @@ their events and posts to the relay (`POST /v1/push {handle, type:
 `timestamp` is unix seconds, strictly increasing per session (the device
 drops an update older than what it shows). The relay's 410, `handle_bound`
 or `handle_unknown` for an activity's handle drops that registration (for
-the `startHandle`: the start handle); the app registers the next one — no
-`needsNewHandle` round for these. Limits: 240 updates/hour per activity
+the `startHandle`: the start handle — and so does a `start` the relay
+answers `bad_request`, a handle it does not hold as push-to-start); the app
+registers the next one — no `needsNewHandle` round for these. Limits: 240 updates/hour per activity
 (burst 30), 240 activity registrations/hour per person (burst 30).
 
 A push-started card's token reaches the app in the background
 (ActivityKit's `activityUpdates` / `pushTokenUpdates`); the app registers it
 by `ref`, and xbind answers with the session and sends what changed since
-the start.
+the start (or `ended` and the end, §7.3). A registration that failed for
+want of a network is retried when the app next becomes active.
 
 ## 8. Relay registration and proof of work
 
