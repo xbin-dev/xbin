@@ -2384,3 +2384,10 @@ Deviations and refinements made while implementing; all deliberate:
     agent.
   - Letting the adapter name the target run.
   - Class inference from content.
+
+  **Webhooks** are a builtin tile, `webhooks`, not a route on the agent.
+  The agent never faces the internet; the tile publishes only `/hook/*`
+  (ingress `paths`) and checks each delivery against its own vault
+  secret. One tile then serves several agents (a multi `agents` slot),
+  and the agent's inbox stays the one contract for everything that comes
+  from outside.

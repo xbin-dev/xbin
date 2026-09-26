@@ -1,0 +1,141 @@
+<!doctype html>
+<!-- webhooks: public webhook URLs that run agents' triggers (API.md). This
+     page makes and manages hooks, shows each secret once, and lists recent
+     deliveries. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>webhooks</title>
+  <link rel="stylesheet" href="/vendor/theme.css">
+  <style>
+    body { margin: 0; font: 13px/1.45 system-ui, sans-serif; color: var(--bx-text); background: var(--bx-bg, var(--bx-panel)); }
+    main { max-width: 760px; margin: 0 auto; padding: 14px 16px 28px; }
+    h3 { margin: 0; font-size: 15px; }
+    h4 { margin: 18px 0 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--bx-muted); }
+    .muted { color: var(--bx-muted); }
+    .small { font-size: 12px; }
+    .err { color: var(--bx-red); margin: 6px 0; }
+    .card { border: 1px solid var(--bx-border); border-radius: 7px; padding: 8px 10px; background: var(--bx-panel); margin: 6px 0; }
+    .card.off { opacity: .6; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 4px 0; }
+    code, .mono { font-family: var(--bx-mono, monospace); font-size: 12px; }
+    .url { flex: 1; padding: 3px 8px; border: 1px solid var(--bx-border); border-radius: 5px; background: var(--bx-panel-2); overflow-x: auto; white-space: nowrap; }
+    .secret { padding: 8px 10px; border: 1px solid var(--bx-accent); border-radius: 6px; margin: 8px 0; }
+    input, select { font: inherit; font-size: 12px; padding: 4px 8px; border: 1px solid var(--bx-border); border-radius: 5px; background: var(--bx-panel); color: var(--bx-text); }
+    label { display: flex; flex-direction: column; gap: 2px; font-size: 10.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--bx-muted); flex: 1 1 180px; }
+    button { font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 5px; border: 1px solid var(--bx-border); background: var(--bx-panel); color: var(--bx-text); cursor: pointer; }
+    button.go { background: var(--bx-accent); border-color: transparent; color: #fff; }
+    button.rm { color: var(--bx-red); }
+    table { border-collapse: collapse; width: 100%; font-size: 12px; }
+    td { padding: 3px 8px 3px 0; border-top: 1px solid var(--bx-border); vertical-align: top; }
+    .s2 { color: var(--bx-green); } .s4, .s5 { color: var(--bx-red); }
+  </style>
+</head>
+<body class="bx">
+<main id="app"></main>
+<script type="module">
+import { html, render, nothing } from 'lit';
+import { selfApi as api, jbody } from '/vendor/bx-kit.js';
+
+const self = window.xbin?.self || 'apps/webhooks';
+let st = null, err = '', shown = null; // shown: {id, secret} — a secret, this once
+const draft = { name: '', auth: 'token', preset: '', agent: '' };
+
+const PRESETS = {
+  '': { eventIdFrom: '', topicFrom: '' },
+  github: { auth: 'hmac', eventIdFrom: 'header:X-GitHub-Delivery', topicFrom: 'header:X-GitHub-Event' },
+  gitlab: { auth: 'token', eventIdFrom: 'header:X-Gitlab-Event-UUID', topicFrom: 'json:object_kind' },
+};
+
+async function load() {
+  try { st = await api('/hooks'); err = ''; } catch (e) { err = e.message; }
+  paint();
+}
+async function act(fn) {
+  err = '';
+  try { await fn(); } catch (e) { err = e.message; }
+  await load();
+}
+function create() {
+  const p = PRESETS[draft.preset] || {};
+  const body = { name: draft.name.trim(), auth: p.auth || draft.auth, agent: draft.agent, eventIdFrom: p.eventIdFrom, topicFrom: p.topicFrom };
+  return act(async () => {
+    const r = await api('/hooks', jbody(body, 'POST'));
+    shown = { id: r.hook.id, secret: r.secret, auth: r.hook.auth };
+    draft.name = '';
+  });
+}
+const toggle = (h) => act(() => api(`/hooks/${h.id}`, jbody({ enabled: !h.enabled }, 'PUT')));
+const rotate = (h) => confirm('Make a new secret? The old one stops working at once.')
+  && act(async () => { const r = await api(`/hooks/${h.id}/rotate`, { method: 'POST' }); shown = { id: h.id, secret: r.secret, auth: h.auth }; });
+const del = (h) => confirm(`Remove the hook "${h.name}"? Its URL stops working.`) && act(() => api(`/hooks/${h.id}`, { method: 'DELETE' }));
+
+const base = () => (st.host ? `https://${st.host}` : 'https://<your hooks host>');
+const hookURL = (h) => `${base()}/hook/${h.id}`;
+const ago = (s) => { const d = Math.max(0, Date.now() / 1000 - s); return d < 90 ? 'just now' : d < 5400 ? `${Math.round(d / 60)} min ago` : `${Math.round(d / 3600)} h ago`; };
+
+function secretTpl() {
+  if (!shown) return nothing;
+  const h = (st.hooks || []).find((x) => x.id === shown.id);
+  return html`<div class="secret small"><b>Copy this secret now</b> — it is not shown again.
+    <div class="row"><code class="url">${shown.secret}</code><button @click=${() => navigator.clipboard?.writeText(shown.secret)}>Copy</button></div>
+    ${shown.auth === 'token' ? html`<div class="muted">Send it as <code>?token=…</code> or <code>Authorization: Bearer …</code>:
+        <code>${h ? hookURL(h) : ''}?token=${shown.secret}</code></div>`
+      : html`<div class="muted">Use it as the webhook's secret: the sender signs each body with it (GitHub: <i>Secret</i>).</div>`}
+    <div class="row"><button @click=${() => { shown = null; paint(); }}>Done</button></div></div>`;
+}
+
+function hooksTpl() {
+  const hooks = st.hooks || [];
+  return html`<h4>Hooks</h4>${hooks.length ? hooks.map((h) => html`<div class="card ${h.enabled ? '' : 'off'}" data-hook=${h.id}>
+      <div class="row"><b>${h.name}</b><span class="muted small">${h.auth === 'hmac' ? 'signed (HMAC)' : 'token'}${h.agent ? ` · to ${h.agent}` : ''}
+        ${h.topicFrom ? ` · topic ${h.name}/‹${h.topicFrom}›` : ''}</span><span style="flex:1"></span>
+        <label style="flex:0 0 auto;flex-direction:row;align-items:center;text-transform:none;font-weight:normal;letter-spacing:normal">
+          <input type="checkbox" .checked=${h.enabled} @change=${() => toggle(h)}> on</label>
+        <button @click=${() => rotate(h)}>New secret</button><button class="rm" @click=${() => del(h)}>Remove</button></div>
+      <div class="row"><code class="url">${hookURL(h)}</code><button @click=${() => navigator.clipboard?.writeText(hookURL(h))}>Copy</button></div>
+    </div>`) : html`<div class="muted small">none yet</div>`}`;
+}
+
+function newTpl() {
+  const agents = st.agents || [];
+  const set = (k) => (e) => { draft[k] = e.target.value; paint(); };
+  return html`<h4>New hook</h4><div class="row">
+    <label>Name (its events' topic)<input .value=${draft.name} @input=${set('name')} placeholder="deploy"></label>
+    <label>Sent by<select @change=${set('preset')}>
+      <option value="">anything (a token)</option><option value="github">GitHub (signed)</option><option value="gitlab">GitLab (a token)</option></select></label>
+    ${draft.preset === '' ? html`<label>Checked by<select @change=${set('auth')}>
+      <option value="token">a token</option><option value="hmac">an HMAC signature (X-Hub-Signature-256)</option></select></label>` : nothing}
+    ${agents.length > 1 ? html`<label>To<select @change=${set('agent')}><option value="">every bound agent</option>
+      ${agents.map((a) => html`<option value=${a.provider}>${a.provider}</option>`)}</select></label>` : nothing}
+    <button class="go" ?disabled=${!draft.name.trim()} @click=${create}>Create</button></div>`;
+}
+
+function setupTpl() {
+  const agents = st.agents || [];
+  return html`<h4>Wiring</h4><div class="small">
+    ${agents.length ? html`<div>Pushes to ${agents.map((a) => html`<code>${a.provider}</code> `)} — make triggers there for these hooks
+        (source: <i>a tile bound to this agent</i>, <code>${self}</code>, data class <i>public</i>).</div>`
+      : html`<div class="err">Not bound to an agent yet: <code>bx bind ${self} agents=apps/agent</code></div>`}
+    ${st.host ? html`<div class="muted">Public at <code>${st.host}</code>.</div>`
+      : html`<div class="muted">Publish the hooks (only /hook/* is public): <code>bx expose ${self} hooks=apps/traefik --host hooks.example.com</code></div>`}
+  </div>`;
+}
+
+function deliveriesTpl() {
+  const d = (st.deliveries || []).slice().reverse();
+  return html`<h4>Recent deliveries</h4>${d.length ? html`<table>${d.map((x) => html`<tr>
+      <td class="muted">${ago(x.at)}</td><td class="s${String(x.status)[0]}">${x.status}</td><td><code>${x.topic || x.hook}</code></td><td>${x.result}</td></tr>`)}</table>`
+    : html`<div class="muted small">nothing yet</div>`}`;
+}
+
+function paint() {
+  render(st ? html`<div class="row"><h3>Webhooks</h3></div>${err ? html`<div class="err">${err}</div>` : nothing}
+      ${secretTpl()}${setupTpl()}${hooksTpl()}${newTpl()}${deliveriesTpl()}`
+    : html`${err ? html`<div class="err">${err}</div>` : html`<div class="muted">loading…</div>`}`, document.getElementById('app'));
+}
+
+load();
+</script>
+</body>
+</html>

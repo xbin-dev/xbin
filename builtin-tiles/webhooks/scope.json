@@ -1,0 +1,7 @@
+{
+  // apps/webhooks is a scope: its kv keeps the hooks (their secrets live in
+  // the vault, one per hook).
+  "resources": {
+    "state": { "type": "kv" }
+  }
+}

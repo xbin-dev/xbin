@@ -12,6 +12,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-26
 
+- **New builtin tile `webhooks` (v1): public webhook URLs for agents.**
+  - Each hook (`/hook/<id>`, published with `bx expose`, only `/hook/*`
+    public) is checked by a token or a GitHub-style HMAC signature.
+  - Each delivery is pushed to the agents the tile is bound to as a
+    *public* event that runs their matching triggers.
+  - The event id and topic come from a header or a JSON key; presets for
+    GitHub and GitLab.
+  - The sender gets 202 when an agent took it, 404 when no trigger did,
+    and 503 when an agent is halted.
+  - Secrets live in the vault and are shown once.
 - **Agent template: event triggers.** A trigger starts work when an event
   appears on a bus the agent may read (xbind pushes it: bus push
   subscriptions) or when a bound tile pushes one (`POST /adapter/event`,

@@ -1,0 +1,19 @@
+{
+  // Webhooks for agents (D87): each hook is a public URL, /hook/<id>, checked
+  // by a token or an HMAC signature; each delivery is pushed to the agents
+  // this tile is bound to (their `inbox`, service agent-inbox) as public data
+  // and runs their matching triggers.
+  "runtime": "go",
+  "uses": [
+    { "target": "res:apps/webhooks/state", "role": "writer" }
+  ],
+  // Publish the hooks (only /hook/*; the page and its API stay private):
+  //   bx expose apps/webhooks hooks=apps/traefik --host hooks.example.com
+  "exposes": {
+    "hooks": { "kind": "http", "paths": ["/hook/*"] }
+  },
+  "interfaces": {
+    // The agents to push to: bx bind apps/webhooks agents=apps/agent (more: --add).
+    "agents": { "kind": "http", "service": "agent-inbox", "multi": true }
+  }
+}
