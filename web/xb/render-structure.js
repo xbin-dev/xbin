@@ -352,7 +352,7 @@ export const STRUCTURE_CSS = css`
   .row-text { min-width: 0; }
   .row-title { overflow-wrap: anywhere; }
   .row-sub { font: var(--xb-font-subheadline); color: var(--xb-muted); margin-top: 1px; overflow-wrap: anywhere; }
-  .row-sub.mono { font-size: calc(var(--xb-size-subheadline) * 0.94); }
+  .row-sub.mono { font-family: var(--xb-mono); font-size: calc(var(--xb-size-subheadline) * 0.94); }
   .row-detail { color: var(--xb-muted); text-align: right; min-width: 0; overflow-wrap: anywhere; }
   .row-check { color: var(--xb-accent-text); display: flex; }
   .row-chev { color: var(--xb-muted); opacity: 0.6; display: flex; margin-right: -6px; }

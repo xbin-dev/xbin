@@ -32,6 +32,11 @@ function markdown(n, cx) {
   return html`<xb-markdown data-k=${n.k} class=${cls('md', p.streaming && 'streaming', cell(cx))}>${mdBlocks(tokensOf(p, 'source'), link(n, cx))}</xb-markdown>`;
 }
 
+// An image that fails to load shows the placeholder (as the native renderer
+// does), not the browser's broken-image glyph with its alt text spilling out.
+const failed = (e) => e.currentTarget.setAttribute('data-failed', '');
+const loaded = (e) => e.currentTarget.removeAttribute('data-failed');
+
 function image(n, cx) {
   const p = P(n);
   const url = cx.v.image(p.src);
@@ -42,7 +47,8 @@ function image(n, cx) {
   };
   const h = HEIGHTS.has(p.height) ? `height:var(--xb-h-${p.height})` : '';
   return html`<xb-image data-k=${n.k} class=${cls('image', p.height && 'fixed', tappable && 'tap', cell(cx))} style=${h}>
-    ${url ? html`<img src=${url} alt=${str(p.alt)} style=${`object-fit:${p.aspect === 'fill' ? 'cover' : 'contain'}`} @click=${tap}>`
+    ${url ? html`<img src=${url} alt=${str(p.alt)} style=${`object-fit:${p.aspect === 'fill' ? 'cover' : 'contain'}`} @click=${tap}
+        @error=${failed} @load=${loaded}><div class="img-ph" aria-hidden="true">${icon('photo')}</div>`
       : html`<div class="img-ph" role="img" aria-label=${str(p.alt) || 'image'}>${icon('photo')}</div>`}
   </xb-image>`;
 }
@@ -174,6 +180,11 @@ export const CONTENT_CSS = css`
   xb-image.fixed img { height: 100%; max-height: none; }
   xb-image.tap img { cursor: zoom-in; }
   .img-ph { display: flex; align-items: center; justify-content: center; min-height: var(--xb-h-s); height: 100%; color: var(--xb-muted); }
+  /* images side by side share the row (thumbnails), as the native renderer's do */
+  xb-stack.h > xb-image { flex: 1 1 0; min-width: 0; }
+  xb-image img + .img-ph, xb-image img[data-failed] { display: none; }
+  xb-image img[data-failed] + .img-ph { display: flex; }
+  xb-image.fixed .img-ph { min-height: 0; }
   .img-ph .ic { width: 32px; height: 32px; opacity: 0.6; }
 
   xb-icon { display: inline-flex; color: inherit; }
