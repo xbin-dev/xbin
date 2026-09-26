@@ -49,7 +49,7 @@ import Testing
         #expect(plan(st: LiveStartState()) == .create(token: "t1"))          // first time
         #expect(plan(tok: "t2") == .create(token: "t2"))                     // a new token
         #expect(plan(dh: "dh2") == .create(token: "t1"))                     // a new device handle orphaned it
-        #expect(plan(has: false) == .register(handle: "sh"))                 // xbind lost it (a new registration)
+        #expect(plan(has: false) == .create(token: "t1"))                    // xbind dropped it (the relay may have too)
         #expect(plan(has: nil) == .none)
         #expect(plan(false) == .clear)                                       // the user turned it off
         #expect(plan(false, st: LiveStartState(), has: false) == .none)

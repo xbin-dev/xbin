@@ -202,8 +202,6 @@ final class PushManager {
                   let json = try? r.json(), let h = PushRelayAPI.handle(from: json) else { return }
             ls = LiveStartState(token: token, handle: h, parent: handle)
             start = h
-        case .register(let h):
-            start = h
         case .clear:
             ls = LiveStartState()
             start = ""

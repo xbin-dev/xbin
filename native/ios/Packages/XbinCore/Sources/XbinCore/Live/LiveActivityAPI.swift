@@ -91,11 +91,12 @@ public struct LiveStartState: Sendable, Equatable, Codable {
 /// a new token (the counterpart of ``PushMaintenance``).
 public enum LiveStartPlan: Sendable, Equatable {
     case none
-    /// Make a relay handle for `token` under the device handle, then
-    /// register it with xbind (`startHandle`).
+    /// Get the relay handle for `token` under the device handle, then
+    /// register it with xbind (`startHandle`). Also when xbind dropped the
+    /// one it had: the relay may have dropped it first (a handle nothing
+    /// pushed to expires), and asking again answers the same handle while
+    /// it lives.
     case create(token: String)
-    /// The relay handle is current; xbind does not hold it: register it.
-    case register(handle: String)
     /// Push-to-start is off (the setting, or no token): tell xbind
     /// (`startHandle: ""`) and forget the handle.
     case clear
@@ -110,7 +111,9 @@ public enum LiveStartPlan: Sendable, Equatable {
         guard enabled, let token, !token.isEmpty else {
             return (state.handle != nil || serverHasIt == true) ? .clear : .none
         }
-        guard let h = state.handle, state.token == token, state.parent == deviceHandle else { return .create(token: token) }
-        return serverHasIt == false ? .register(handle: h) : .none
+        guard state.handle != nil, state.token == token, state.parent == deviceHandle, serverHasIt != false else {
+            return .create(token: token)
+        }
+        return .none
     }
 }
