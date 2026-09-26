@@ -43,6 +43,11 @@ final class WebTileController: NSObject {
     @ObservationIgnored private var backgroundedAt: Date?
     @ObservationIgnored private var downloads: [ObjectIdentifier: URL] = [:]
     @ObservationIgnored private let initialURL: URL?
+    /// The navigation of the window this page is in — where its
+    /// `xbin.window` pushes. The creator sets it from
+    /// `@Environment(WorkspaceNav.self)`; nil (a page outside a window's
+    /// navigation) answers `xbin.window` with null.
+    @ObservationIgnored weak var nav: WorkspaceNav?
 
     init(workspace: WorkspaceModel, tile: String, canOpenLinks: Bool, subpath: String = "", query: String? = nil,
          fragment: String? = nil) {
@@ -152,12 +157,13 @@ final class WebTileController: NSObject {
             }
             tileDialog = TileDialog(id: id, spec: spec)
         case .window(let id, let spec):
-            guard limits.admitWindow(id) else { reply(id, nil); return }
+            // Its own window's navigation, never the focused window's.
+            guard let nav, limits.admitWindow(id) else { reply(id, nil); return }
             let target = spec.target(from: tile)
-            workspace.windows.append(PushedWindow(fromTile: tile, target: target, title: spec.displayTitle(from: tile), replyID: id))
+            nav.push(PushedWindow(fromTile: tile, target: target, title: spec.displayTitle(from: tile), replyID: id))
             WindowReplies.shared.register(id) { [weak self] in self?.windowClosed(id) }
         case .windowClose(let id):
-            workspace.windows.removeAll { $0.replyID == id }
+            nav?.close(replyID: id)
             windowClosed(id)
         case .contextMenu:
             break // iOS long-press already shows WebKit's own menu

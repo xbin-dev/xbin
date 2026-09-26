@@ -1,0 +1,1 @@
+../../../../ios/App/Model/Navigation.swift

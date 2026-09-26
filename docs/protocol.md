@@ -2161,8 +2161,10 @@ GET    /ws/events?frame=<token>    WebSocket upgrade → the event stream (below
                                    ?frame= only for elements — humans use the cookie)
 ```
 
-Auth: cookie (owner) or `?frame=<frame-token>` (element; standalone — no
-cookie required). JSON text frames:
+Auth: cookie (owner), a bearer session (`Authorization: Bearer` — the xbin
+app's own socket, with its device session: the human's events, never handed
+to a tile) or `?frame=<frame-token>` (element; standalone — no cookie
+required). JSON text frames:
 
 ```jsonc
 {"type":"reload","component":"apps/thing"}          // source changed

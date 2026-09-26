@@ -16,6 +16,11 @@ enum AppInfo {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
     }
 
+    /// `CFBundleVersion` — what the remote kill switch's `disabledBuilds` lists.
+    static var build: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
+    }
+
     /// `X-XBin-Client` on every request the app makes (xbind injects the
     /// `xbin-ws-origin` meta into tile HTML when it sees it).
     static var clientHeader: String { TileScheme.clientValue(version: shortVersion) }
@@ -106,10 +111,29 @@ enum AppSettings {
         d.set(Array(s), forKey: "forceWeb")
     }
 
-    /// The remote kill switch's last answer (plans/native.md §23): native
-    /// tile runtimes off without an app update. Nothing sets it remotely yet.
-    static var nativeRuntimeOff: Bool {
+    /// "Native views" off in Settings: every tile opens as its web page.
+    /// (The key predates the remote switch, which now lives in RemoteConfig.)
+    static var nativeViewsOff: Bool {
         get { d.bool(forKey: "nativeRuntimeOff") }
         set { d.set(newValue, forKey: "nativeRuntimeOff") }
+    }
+
+    /// Native tile runtimes are off app-wide: the user's switch or the
+    /// remote kill switch (plans/native.md §23; RemoteConfig). The
+    /// workspace's own switch is `whoami.native.runtime`.
+    static var nativeRuntimeOff: Bool { RemoteConfig.gate() != nil }
+
+    /// Haptic taps when a turn settles, a permission is approved, a prompt
+    /// is sent (on by default; the system's own switch still applies).
+    static var haptics: Bool {
+        get { d.object(forKey: "haptics") as? Bool ?? true }
+        set { d.set(newValue, forKey: "haptics") }
+    }
+
+    /// Advertise the current tile or session for Handoff ("open on
+    /// desktop"): on by default.
+    static var handoff: Bool {
+        get { d.object(forKey: "handoff") as? Bool ?? true }
+        set { d.set(newValue, forKey: "handoff") }
     }
 }

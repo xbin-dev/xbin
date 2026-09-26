@@ -120,6 +120,7 @@ final class NativeTileRuntime: NSObject {
             lifecycle.mounted()
         case .meta:
             title = store.meta.title
+            workspace.tileMeta.set(tile.path, store.meta)
         case .failed(let f):
             fail(.store(f))
         case .state(let v):
@@ -315,6 +316,8 @@ struct NativeTileScreen: View {
             runtime?.setVisible(false)
             runtime?.stop()
         }
+        // Live reload (§7.7): the tile's source changed — remount.
+        .task(id: tile.path) { await workspace.events.onReload(of: tile.path) { runtime?.reload() } }
         .sheet(item: Binding(get: { runtime?.tileDialog }, set: { if $0 == nil, let d = runtime?.tileDialog { runtime?.resolveDialog(d.id, button: nil, values: [:]) } })) { d in
             TileDialogSheet(from: tile.path, dialog: d) { b, v in runtime?.resolveDialog(d.id, button: b, values: v) }
                 .presentationDetents([.medium, .large])

@@ -188,9 +188,19 @@ PLAYWRIGHT_DIR=~/lcad-wasm node native/tools/bridge-check.mjs http://127.0.0.1:9
                                                  # the tile bridge + xbin-client in headless Chromium
 ```
 
+The rest of the app's Model and Shell (SwiftUI, windows, the events socket's
+owners) type-checks against stubs of the SDK — `native/tools/app-stubcheck/run.sh`
+(and `--sendable-bindings`), the app's counterpart of swiftui-stubcheck: run it
+after touching `App/Model` or `App/Shell`.
+
 `app-live` covers password sign-in, in-app enrollment, device login, one
-re-sign for concurrent requests on a dead session, a tile page by frame
-token, push registration and device removal. Before touching an app file,
+re-sign for concurrent requests on a dead session, the app's `/ws/events`
+socket (the device session as its bearer, via `native/tools/events-live.mjs`
+since libcurl here has no WebSockets; `APPLIVE_WORKSPACE=<dir>` adds a file
+change → the open tile's reload), the web ticket through its "Continue as"
+page to a cookie session (or its fallback), minting a code that enrolls a
+second device, a tile page by frame token, push
+registration and device removal. Before touching an app file,
 `swiftc -frontend -parse <file>` at least catches syntax errors here; for
 `App/Terminal`, `native/tools/term-stubcheck/run.sh` (and `--sdk-27-1`)
 type-checks the whole directory against stubs, as the renderer's stubcheck

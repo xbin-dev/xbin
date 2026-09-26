@@ -44,6 +44,8 @@ struct WebTileScreen: View {
     var banner: String?
 
     @State private var controller: WebTileController?
+    /// This window's navigation (the tile's menu and its `xbin.window`).
+    @Environment(WorkspaceNav.self) private var nav
     @Environment(\.scenePhase) private var phase
     @Environment(\.openURL) private var openURL
 
@@ -79,20 +81,20 @@ struct WebTileScreen: View {
             ToolbarItemGroup(placement: .primaryAction) {
                 Menu {
                     Button("Reload", systemImage: "arrow.clockwise") { controller?.reload() }
-                    if let u = controller?.safariURL {
-                        Button("Open in Safari", systemImage: "safari") { openURL(u) }
+                    Button("Open in Safari", systemImage: "safari") {
+                        Task { await workspace.openInSafari(path: "/c/\(URLComponent.encodePath(tile.path))/") }
                     }
                     if tile.opensNatively {
                         Button("Show native view", systemImage: "rectangle.stack") {
                             AppSettings.setForcesWeb(workspace.id, tile.path, false)
-                            workspace.open(.tile(tile.path))
+                            workspace.open(.tile(tile.path), in: nav)
                         }
                     }
                     Button("Terminal here", systemImage: "apple.terminal") {
-                        workspace.open(.terminal(cwd: tile.path, session: nil))
+                        workspace.open(.terminal(cwd: tile.path, session: nil), in: nav)
                     }
                     Button("Agent here", systemImage: "sparkles") {
-                        workspace.open(.agent(cwd: tile.path, session: nil))
+                        workspace.open(.agent(cwd: tile.path, session: nil), in: nav)
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -103,11 +105,14 @@ struct WebTileScreen: View {
             if controller == nil {
                 let c = WebTileController(workspace: workspace, tile: tile.path, canOpenLinks: tile.canOpenLinks,
                                           subpath: subpath, fragment: fragment)
+                c.nav = nav
                 controller = c
                 c.load()
             }
         }
         .onDisappear { controller?.close() }
+        // Live reload (§7.7): the tile's source changed — reload the page.
+        .task(id: tile.path) { await workspace.events.onReload(of: tile.path) { controller?.reload() } }
         .onChange(of: phase) { _, p in
             if p == .background { controller?.didEnterBackground() }
             if p == .active { controller?.willEnterForeground() }
@@ -258,9 +263,10 @@ struct SafariHandoff: View {
         } description: {
             Text("This tile is part of the workspace's own chrome — it acts as you, so it opens in Safari.")
         } actions: {
-            if let u = workspace.safariURL(path: "/c/\(URLComponent.encodePath(tile.path))/") {
-                Button("Open in Safari") { openURL(u) }.buttonStyle(.borderedProminent)
+            Button("Open in Safari") {
+                Task { await workspace.openInSafari(path: "/c/\(URLComponent.encodePath(tile.path))/") }
             }
+            .buttonStyle(.borderedProminent)
         }
     }
 }
