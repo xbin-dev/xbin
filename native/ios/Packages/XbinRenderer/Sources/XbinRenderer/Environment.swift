@@ -115,11 +115,14 @@ final class XbinRenderContext {
     let model: XbinTreeModel
     let services: XbinServices
     let options: XbinRenderOptions
+    /// The tile's images, loaded with its frame token and cached per tree.
+    let images: XbinImages
 
     init(model: XbinTreeModel, services: XbinServices, options: XbinRenderOptions) {
         self.model = model
         self.services = services
         self.options = options
+        images = XbinImages(load: services.imageData)
     }
 
     /// The user acted on `node` (see ``XbinTreeModel/emit(_:_:_:)``).
@@ -183,11 +186,14 @@ enum XbinPlacement: Sendable, Equatable {
 }
 
 /// Navigation context: whether a screen is already inside a navigation
-/// container, pushed, or in a sheet (title display rules).
+/// container, pushed, or in a sheet (title display rules), and whether the
+/// container draws the screen's drawers over itself (a `nav`, or the
+/// screen's own stack) so they cover its bar too.
 struct XbinNavFlags: Sendable, Equatable {
     var inNavigation = false
     var pushed = false
     var inSheet = false
+    var drawersHosted = false
 }
 
 private struct ContextKey: EnvironmentKey {
@@ -204,6 +210,14 @@ private struct NavFlagsKey: EnvironmentKey {
 
 private struct ConfirmKey: EnvironmentKey {
     static let defaultValue: ConfirmHost? = nil
+}
+
+private struct ImagesKey: EnvironmentKey {
+    static let defaultValue: XbinImages? = nil
+}
+
+private struct TabBarKey: EnvironmentKey {
+    static let defaultValue = false
 }
 
 extension EnvironmentValues {
@@ -225,6 +239,22 @@ extension EnvironmentValues {
     var xbinConfirm: ConfirmHost? {
         get { self[ConfirmKey.self] }
         set { self[ConfirmKey.self] = newValue }
+    }
+
+    /// The images of the tree (``XbinImages``): message thumbnails and
+    /// `image` elements load through it. ``XbinTreeView`` sets it from
+    /// ``XbinServices/imageData``; the app's own screens (the agent
+    /// transcript) may set one to get thumbnails in ``MessageView``.
+    public var xbinImages: XbinImages? {
+        get { self[ImagesKey.self] }
+        set { self[ImagesKey.self] = newValue }
+    }
+
+    /// Inside a bar-style `tabs` pane: the floating tab bar covers the
+    /// bottom of the content.
+    var xbinInTabBar: Bool {
+        get { self[TabBarKey.self] }
+        set { self[TabBarKey.self] = newValue }
     }
 }
 

@@ -8,7 +8,8 @@ import XbinRendererModel
 // Markdown and charts have files of their own.
 
 /// `text`: always verbatim (`Text(verbatim:)` — never markup, §8.2), in a
-/// type role and tone.
+/// type role and tone. Unless selectable, a long identifier in it wraps at
+/// characters instead of being hyphenated (``WrappingText``).
 struct TextNodeView: View {
     let node: XbinNode
 
@@ -16,14 +17,20 @@ struct TextNodeView: View {
         let p = node.props
         let role = XbinTypeRole(p.string("style")) ?? .body
         let lines = p.number("lines").map { Int(max(0, $0)) } ?? 0
-        let text = Text(verbatim: p.string("text") ?? "")
-            .font(XbinFont.font(role))
-            .monospaced(p.bool("mono"))
-            .foregroundStyle(XbinColor.text(p.tone()))
+        let mono = p.bool("mono") || role == .mono
         if p.bool("selectable") {
-            text.lineLimit(lines > 0 ? lines : nil).textSelection(.enabled)
+            Text(verbatim: p.string("text") ?? "")
+                .font(XbinFont.font(role))
+                .monospaced(p.bool("mono"))
+                .foregroundStyle(XbinColor.text(p.tone()))
+                .lineLimit(lines > 0 ? lines : nil)
+                .textSelection(.enabled)
         } else {
-            text.lineLimit(lines > 0 ? lines : nil)
+            WrappingText(text: p.string("text") ?? "", mono: mono)
+                .font(XbinFont.font(role))
+                .monospaced(p.bool("mono"))
+                .foregroundStyle(XbinColor.text(p.tone()))
+                .lineLimit(lines > 0 ? lines : nil)
         }
     }
 }
@@ -221,12 +228,13 @@ struct EmptyNodeView: View {
 }
 
 /// `image`: loaded by the app with the frame token (``XbinServices/imageData``)
-/// or decoded from a `data:` source; `preview` opens it full screen.
+/// or decoded from a `data:` source; `preview` opens it in Quick Look.
 struct ImageNodeView: View {
     let node: XbinNode
     @Environment(\.xbin) private var cx
-    @State private var image: UIImage?
-    @State private var previewing = false
+    @Environment(\.xbinImages) private var images
+    @State private var loaded: XbinImages.Loaded?
+    @State private var preview: URL?
 
     var body: some View {
         let p = node.props
@@ -234,34 +242,20 @@ struct ImageNodeView: View {
         let fill = p.string("aspect") == "fill"
         let height = XbinHeight(p.string("height")).map { CGFloat($0.points) }
         let alt = p.string("alt") ?? ""
-        let tappable = (p.bool("preview") && image != nil) || node.listens(to: "tap")
-        ImageBox(image: image, fill: fill, height: height)
+        let previews = p.bool("preview") && loaded != nil
+        let tappable = previews || node.listens(to: "tap")
+        ImageBox(image: loaded?.image, fill: fill, height: height)
             .contentShape(Rectangle())
             .onTapGesture {
                 guard tappable else { return }
-                if p.bool("preview") && image != nil { previewing = true }
+                if previews, let loaded { preview = QuickLookFile.write(loaded.data, name: alt) }
                 if node.listens(to: "tap") { cx?.emit(node, "tap") }
             }
             .accessibilityElement()
             .accessibilityLabel(Text(verbatim: alt))
             .accessibilityAddTraits(tappable ? [.isImage, .isButton] : .isImage)
-            .task(id: src) { await load(src) }
-            .fullScreenCover(isPresented: $previewing) {
-                if let image { ImagePreview(image: image, alt: alt) }
-            }
-    }
-
-    private func load(_ src: String) async {
-        if let data = DataURL.decode(src) {
-            image = UIImage(data: data)
-            return
-        }
-        guard !src.isEmpty, !src.hasPrefix("data:"), let fetch = cx?.services.imageData else {
-            image = nil
-            return
-        }
-        let data = try? await fetch(src)
-        image = data.flatMap { UIImage(data: $0) }
+            .task(id: src) { loaded = await XbinImages.load(src, with: images) }
+            .modifier(QuickLookModifier(url: $preview))
     }
 }
 
@@ -294,28 +288,6 @@ private struct ImageBox: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: height ?? 160)
                 .overlay { Image(systemName: XbinIcons.UI.image).foregroundStyle(XbinColor.muted) }
-        }
-    }
-}
-
-/// A full-screen image (`preview`).
-private struct ImagePreview: View {
-    let image: UIImage
-    let alt: String
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFit()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.black)
-                .navigationTitle(alt)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-                }
         }
     }
 }

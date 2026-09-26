@@ -60,11 +60,10 @@ import XbinCore
         #expect(DrawerMetrics.scrim(offset: 335, width: 335) == 0)
         #expect(DrawerMetrics.scrim(offset: 500, width: 335) == 0)
         #expect(DrawerMetrics.scrim(offset: 10, width: 0) == 0)
-        // Dragging towards the leading edge: left in LTR, right in RTL;
-        // the other way never opens it further.
-        #expect(DrawerMetrics.offset(translation: -60, rightToLeft: false) == 60)
-        #expect(DrawerMetrics.offset(translation: 60, rightToLeft: false) == 0)
-        #expect(DrawerMetrics.offset(translation: 60, rightToLeft: true) == 60)
+        // Dragging towards the leading edge moves it; the other way never
+        // opens it further.
+        #expect(DrawerMetrics.offset(translation: -60) == 60)
+        #expect(DrawerMetrics.offset(translation: 60) == 0)
         #expect(!DrawerMetrics.dismisses(offset: 100, predicted: 120, width: 335))
         #expect(DrawerMetrics.dismisses(offset: 120, predicted: 120, width: 335))
         #expect(DrawerMetrics.dismisses(offset: 40, predicted: 200, width: 335))

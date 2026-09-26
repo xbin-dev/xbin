@@ -5,8 +5,9 @@ import XbinRendererModel
 
 /// `row`: a list row — leading icon (or a tone dot), title and subtitle,
 /// trailing detail, badge, check and chevron; content children below; an
-/// `actions` child becomes swipe actions and a context menu. A row the tile
-/// listens to taps on is a button.
+/// `actions` child folds behind a trailing ⋯ menu and also becomes swipe
+/// actions (in a list) and a context menu. A row the tile listens to taps
+/// on is a button.
 struct RowView: View {
     let node: XbinNode
     @Environment(\.xbin) private var cx
@@ -16,20 +17,29 @@ struct RowView: View {
     var body: some View {
         let p = node.props
         let actions = node.children.first { $0.type == "actions" }
+        let buttons = actions?.children.filter { $0.type == "button" } ?? []
         let content = node.children.filter { $0.type != "actions" }
         let disabled = p.bool("disabled")
         let tappable = node.listens(to: "tap") && !disabled
         VStack(alignment: .leading, spacing: 8) {
-            if tappable {
-                if placement == .list {
-                    Button { cx?.emit(node, "tap") } label: { RowLabel(props: p).contentShape(Rectangle()) }
-                        .foregroundStyle(XbinColor.text)
+            HStack(alignment: .center, spacing: 4) {
+                if tappable {
+                    if placement == .list {
+                        Button { cx?.emit(node, "tap") } label: { RowLabel(props: p).contentShape(Rectangle()) }
+                            .foregroundStyle(XbinColor.text)
+                    } else {
+                        Button { cx?.emit(node, "tap") } label: { RowLabel(props: p).contentShape(Rectangle()) }
+                            .buttonStyle(.plain)
+                    }
                 } else {
-                    Button { cx?.emit(node, "tap") } label: { RowLabel(props: p).contentShape(Rectangle()) }
-                        .buttonStyle(.plain)
+                    RowLabel(props: p)
                 }
-            } else {
-                RowLabel(props: p)
+                if !buttons.isEmpty {
+                    // Its own hit target beside the row's tap (borderless,
+                    // so a List doesn't fold it into the row's button).
+                    ActionsMenu(buttons: buttons, cx: cx, confirm: confirm, label: "Actions")
+                        .padding(.trailing, -6)
+                }
             }
             if !content.isEmpty {
                 VStack(alignment: .leading, spacing: 8) { ForEach(content) { NodeView(node: $0) } }
@@ -37,8 +47,7 @@ struct RowView: View {
             }
         }
         .opacity(disabled ? 0.5 : 1)
-        .modifier(RowActionsModifier(buttons: actions?.children.filter { $0.type == "button" } ?? [],
-                                     swipe: placement == .list, cx: cx, confirm: confirm))
+        .modifier(RowActionsModifier(buttons: buttons, swipe: placement == .list, cx: cx, confirm: confirm))
     }
 }
 
@@ -113,23 +122,20 @@ struct RowLabel: View {
 
     private func titles(mono: String?) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(verbatim: props.string("title") ?? "")
+            WrappingText(text: props.string("title") ?? "", mono: mono == "title" || mono == "all")
                 .font(.body)
-                .monospaced(mono == "title" || mono == "all")
                 .foregroundStyle(XbinColor.text)
             if let s = props.nonEmpty("subtitle") {
-                Text(verbatim: s)
+                WrappingText(text: s, mono: mono == "subtitle" || mono == "all")
                     .font(.subheadline)
-                    .monospaced(mono == "subtitle" || mono == "all")
                     .foregroundStyle(XbinColor.muted)
             }
         }
     }
 
     private func detailText(_ d: String, mono: String?) -> some View {
-        Text(verbatim: d)
+        WrappingText(text: d, mono: mono == "detail" || mono == "all")
             .font(.body)
-            .monospaced(mono == "detail" || mono == "all")
             .foregroundStyle(XbinColor.muted)
     }
 
@@ -158,8 +164,57 @@ struct RowLabel: View {
     }
 }
 
+/// An `actions` child folded behind a ⋯: a pull-down of its buttons, in
+/// their order (a row's trailing ⋯, a message's under its bubble). The
+/// context and confirm host are passed in: a menu is rendered outside the
+/// environment of the view that holds it.
+struct ActionsMenu: View {
+    let buttons: [XbinNode]
+    let cx: XbinRenderContext?
+    let confirm: ConfirmHost?
+    let label: String
+    var compact = false
+    @ScaledMetric(relativeTo: .body) private var side: CGFloat = 30
+
+    var body: some View {
+        Menu {
+            ForEach(buttons) { ActionButton(node: $0, cx: cx, confirm: confirm) }
+        } label: {
+            Image(systemName: XbinIcons.UI.more)
+                .font(compact ? .footnote.weight(.semibold) : .body.weight(.medium))
+                .foregroundStyle(XbinColor.muted)
+                .frame(minWidth: side, minHeight: compact ? side * 0.8 : side)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.borderless)
+        .menuOrder(.fixed)
+        .fixedSize()
+        .accessibilityLabel(Text(verbatim: label))
+    }
+}
+
+/// Text that wraps a long identifier at characters rather than
+/// hyphenating it (``TextBreaks``): hostnames, hashes, metric names. Not
+/// for selectable text — the break opportunities would be copied along.
+struct WrappingText: View {
+    let text: String
+    var mono = false
+
+    var body: some View {
+        if TextBreaks.applies(to: text, mono: mono) {
+            Text(verbatim: TextBreaks.anywhere(text, mono: mono))
+                .monospaced(mono)
+                .accessibilityLabel(Text(verbatim: text))
+        } else {
+            Text(verbatim: text).monospaced(mono)
+        }
+    }
+}
+
 /// A row's `actions`: trailing swipe actions (in a `List`) and a context
-/// menu (everywhere). Destructive buttons sit outermost.
+/// menu (everywhere), besides the ⋯ menu. Destructive buttons sit
+/// outermost.
 private struct RowActionsModifier: ViewModifier {
     let buttons: [XbinNode]
     let swipe: Bool

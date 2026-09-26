@@ -221,11 +221,50 @@ struct PickerNodeView: View {
             InlineChoices(options: options, selection: selection, label: label)
         default:
             if placement == .toolbar {
-                picker.pickerStyle(.menu).labelsHidden()
+                BarPicker(options: options, selection: selection, label: label)
+                    .disabled(p.bool("disabled"))
             } else {
                 picker.pickerStyle(.menu)
             }
         }
+    }
+}
+
+/// A menu picker in a bar: its current choice, small and on one line
+/// (truncated in the middle past 150 points), with the up-down chevrons;
+/// the options open as a menu with a check on the current one. A full-size
+/// menu picker crowded a chat's title out of the bar.
+private struct BarPicker: View {
+    let options: [PickerOption]
+    let selection: Binding<JSONValue>
+    let label: String
+    @ScaledMetric(relativeTo: .subheadline) private var maxWidth: CGFloat = 150
+
+    var body: some View {
+        let current = options.first { $0.value == selection.wrappedValue }
+        let shown = current?.label ?? label
+        Menu {
+            Picker(selection: selection) {
+                ForEach(options) { o in
+                    PickerOptionLabel(option: o).tag(o.value)
+                }
+            } label: {
+                Text(verbatim: label)
+            }
+            .pickerStyle(.inline)
+        } label: {
+            HStack(spacing: 4) {
+                Text(verbatim: shown)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: maxWidth)
+                Image(systemName: XbinIcons.UI.pickerChevrons)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(XbinColor.muted)
+            }
+            .font(.subheadline.weight(.medium))
+        }
+        .accessibilityLabel(Text(verbatim: label.isEmpty ? shown : "\(label): \(shown)"))
     }
 }
 

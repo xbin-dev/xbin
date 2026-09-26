@@ -162,11 +162,12 @@ public enum DrawerMetrics {
         return 0.28 * max(0, min(1, 1 - offset / width))
     }
 
-    /// How far a drag has moved the drawer towards the leading edge: the
-    /// horizontal translation, flipped for right-to-left layouts, never
-    /// past fully open.
-    public static func offset(translation: Double, rightToLeft: Bool) -> Double {
-        max(0, rightToLeft ? translation : -translation)
+    /// How far a drag has moved the drawer towards the leading edge, from
+    /// the drag's horizontal translation in the view's own (layout
+    /// direction–relative) coordinates: negative is towards the leading
+    /// edge. Never past fully open.
+    public static func offset(translation: Double) -> Double {
+        max(0, -translation)
     }
 
     /// Whether letting go closes the drawer: dragged past a third of its

@@ -25,20 +25,22 @@ struct TranscriptNodeView: View {
     }
 }
 
-/// `message`: `tap`, `link {href}`, and its `actions` as small buttons.
+/// `message`: `tap`, `link {href}`, and its `actions` folded behind a ⋯
+/// under the bubble (however many there are: a line of buttons overflows
+/// a narrow bubble).
 struct MessageNodeView: View {
     let node: XbinNode
     @Environment(\.xbin) private var cx
+    @Environment(\.xbinConfirm) private var confirm
 
     var body: some View {
         let context = cx
         let n = node
-        let actions = node.children.first { $0.type == "actions" }
+        let buttons = node.children.first { $0.type == "actions" }?.children.filter { $0.type == "button" } ?? []
         MessageView(message: ChatMessage(id: node.key, props: node.props),
                     onLink: { url in context?.link(url, in: n) }, onTap: cx?.action(node, "tap")) {
-            if let actions, !actions.children.isEmpty {
-                HStack(spacing: 14) { ForEach(actions.children) { NodeView(node: $0) } }
-                    .environment(\.xbinPlacement, .inlineActions)
+            if !buttons.isEmpty {
+                ActionsMenu(buttons: buttons, cx: context, confirm: confirm, label: "Message actions", compact: true)
             }
         }
     }

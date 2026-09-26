@@ -7,41 +7,63 @@ import XbinRendererModel
 // fragment, section, stack, list, disclosure, and a toolbar outside a screen.
 
 /// `fragment`: no visual of its own — its children in place, sheets
-/// presented over them.
+/// presented over them and drawers laid over them.
 struct FragmentView: View {
     let node: XbinNode
     @Environment(\.xbinPlacement) private var placement
 
     var body: some View {
         let layout = FragmentLayout(node.children)
+        let sheets = SheetsModifier(sheets: layout.sheets, drawers: layout.drawers)
         if placement == .list || placement == .chat || placement == .toolcard {
             // Inside a list or transcript every child is its own row.
             ForEach(node.children) { NodeView(node: $0) }
         } else if layout.content.count == 1 {
-            NodeView(node: layout.content[0]).modifier(SheetsModifier(sheets: layout.sheets))
+            NodeView(node: layout.content[0]).modifier(sheets)
         } else {
             VStack(spacing: 0) { ForEach(layout.content) { NodeView(node: $0) } }
-                .modifier(SheetsModifier(sheets: layout.sheets))
+                .modifier(sheets)
         }
     }
 }
 
-/// Presents `sheets` over the content (or draws them inline for
-/// snapshots, ``XbinRenderOptions/inlineSheets``).
+/// Presents bottom `sheets` over the content (or draws them inline for
+/// snapshots, ``XbinRenderOptions/inlineSheets``) and lays `drawers` over
+/// it (``DrawerLayer``, the same in both).
 struct SheetsModifier: ViewModifier {
     let sheets: [XbinNode]
+    var drawers: [XbinNode] = []
     @Environment(\.xbin) private var cx
 
     func body(content: Content) -> some View {
         if sheets.isEmpty {
-            content
+            content.modifier(DrawersModifier(drawers: drawers))
         } else if cx?.options.inlineSheets == true {
-            content.overlay(alignment: .bottom) {
-                ForEach(sheets) { SheetView(node: $0) }
-            }
+            content
+                .overlay(alignment: .bottom) {
+                    ForEach(sheets) { SheetView(node: $0) }
+                }
+                .modifier(DrawersModifier(drawers: drawers))
         } else {
-            content.background {
-                ForEach(sheets) { SheetView(node: $0) }
+            content
+                .background {
+                    ForEach(sheets) { SheetView(node: $0) }
+                }
+                .modifier(DrawersModifier(drawers: drawers))
+        }
+    }
+}
+
+/// Lays `drawers` over the content (each covers it while open).
+struct DrawersModifier: ViewModifier {
+    let drawers: [XbinNode]
+
+    func body(content: Content) -> some View {
+        if drawers.isEmpty {
+            content
+        } else {
+            content.overlay {
+                ForEach(drawers) { DrawerLayer(node: $0) }
             }
         }
     }
@@ -283,7 +305,7 @@ struct DisclosureNodeView: View {
         DisclosureGroup(isExpanded: open) {
             ForEach(node.children) { NodeView(node: $0) }
         } label: {
-            Text(verbatim: node.props.string("title") ?? "")
+            WrappingText(text: node.props.string("title") ?? "")
         }
     }
 }
