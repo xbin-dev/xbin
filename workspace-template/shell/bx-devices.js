@@ -155,7 +155,7 @@ export class BxDevices extends LitElement {
     const live = [reg.pushToStart ? 'xbind may start one' : '', n ? `${n} following` : ''].filter(Boolean).join(', ');
     return html`<div class="push" data-push=${reg.deviceId}>🔔 notifications: ${kinds}
       · ${reg.lastSent ? `last sent ${ago(reg.lastSent)}` : 'none sent yet'}
-      ${live ? html`· <span data-live title="agent turns on the lock screen and in the Dynamic Island (removing the registration ends them)">Live Activities: ${live}</span>` : nothing}
+      ${live ? html`<span data-live title="agent turns on the lock screen and in the Dynamic Island (removing the registration ends them)">· Live Activities: ${live}</span>` : nothing}
       ${reg.needsNewHandle ? html`· <span class="warn" title=${reg.relayError ?? ''}>needs a new handle — the app renews it at its next sign-in</span>` : nothing}
       <button title="stop notifications to this device (the app registers again at its next sign-in)"
         @click=${() => this._removePush(reg.deviceId)}>remove</button></div>`;
