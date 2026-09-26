@@ -67,7 +67,11 @@ export const barKey = (f) => JSON.stringify([f._active, f._gpus.length, !!f._vmS
 // the width it needed (f._barNeed), and comes back once the pop is that
 // wide. The frame calls it after every render and on every resize, and
 // resets f._barNeed when barKey changes; the tab strip then scrolls its
-// active tab into view.
+// active tab into view — only when that could have moved it out (another
+// active tab, the bar's content or mode, the width, a new strip): a render
+// for anything else (a press in the window fronts it, a status or PR count
+// arriving) must not undo the user's own scrolling, or a press on a tab
+// scrolled into view lands elsewhere by the time it is released.
 export function fitBar(f, pop, sheet) {
   const w = pop.offsetWidth, bar = pop.querySelector('.titlebar'), tabs = bar?.querySelector('.tabs');
   let narrow = sheet || w < 640;
@@ -79,7 +83,10 @@ export function fitBar(f, pop, sheet) {
     }
   }
   const on = tabs?.querySelector('.tab.on');
-  if (on) {
+  const why = JSON.stringify([f._sessions[f._active]?.key, !!f._narrow, w, f._barKey]);
+  if (on && (tabs !== f._scrollStrip || why !== f._scrollWhy)) {
+    f._scrollStrip = tabs;
+    f._scrollWhy = why;
     const s = tabs.getBoundingClientRect(), t = on.getBoundingClientRect();
     if (t.left < s.left) tabs.scrollLeft -= s.left - t.left;
     else if (t.right > s.right) tabs.scrollLeft += t.right - s.right;
