@@ -38,7 +38,6 @@ struct RootView: View {
                 LockView().zIndex(2)
             }
         }
-        .environment(scene)
         .animation(.snappy, value: scene.showSwitcher)
         .background(TwoFingerSwipeDown { withAnimation { scene.showSwitcher = true } })
         .background { WorkspaceShortcuts() }
@@ -62,6 +61,9 @@ struct RootView: View {
         .onAppear(perform: appeared)
         .onChange(of: phase) { _, p in phaseChanged(p) }
         .onChange(of: scene.current) { _, t in remember(t) }
+        // Outermost, so the backgrounds (the ⌘ shortcuts) and the sheets
+        // above see this window's model too.
+        .environment(scene)
     }
 
     private func appeared() {
