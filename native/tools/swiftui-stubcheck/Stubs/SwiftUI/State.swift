@@ -53,6 +53,7 @@ public struct EnvironmentValues {
     public var scenePhase: ScenePhase { get { .active } set {} }
     public var timeZone: TimeZone { get { .current } set {} }
     public var calendar: Calendar { get { .current } set {} }
+    public var locale: Locale { get { .current } set {} }
     public var openURL: OpenURLAction { get { fatalError() } set {} }
     public var dismiss: DismissAction { fatalError() }
 }

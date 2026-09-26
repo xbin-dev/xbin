@@ -35,7 +35,8 @@ public enum XbinColor {
     /// A neutral fill behind code, fields and the `info` notice.
     public static let fill = Color(uiColor: .tertiarySystemFill)
 
-    /// A `tone`'s colour for text and icons (`accent` → ``accentText``).
+    /// A `tone`'s colour for icons, dots and fills (`accent` →
+    /// ``accentText``). Text in a tone takes ``toneText(_:)``.
     public static func tone(_ t: XbinTone) -> Color {
         switch t {
         case .muted: return muted
@@ -46,8 +47,28 @@ public enum XbinColor {
         }
     }
 
+    /// A `tone`'s colour for text: the system colour in dark mode, the
+    /// reference's darker one in light mode (``XbinPalette/okTextLight``
+    /// …), where systemGreen and systemOrange are ≈2.2:1 on white — as
+    /// ``accentText`` darkens the amber.
+    public static func toneText(_ t: XbinTone) -> Color {
+        switch t {
+        case .muted, .accent: return tone(t)
+        case .ok, .warn, .danger:
+            return Color(uiColor: UIColor { traits in
+                if traits.userInterfaceStyle == .dark {
+                    let system: UIColor = t == .ok ? .systemGreen : t == .warn ? .systemOrange : .systemRed
+                    return system.resolvedColor(with: traits)
+                }
+                let light = t == .ok ? XbinPalette.okTextLight
+                    : t == .warn ? XbinPalette.warnTextLight : XbinPalette.dangerTextLight
+                return UIColor(xbinHex: light)
+            })
+        }
+    }
+
     /// Text in `tone`, or the label colour.
-    public static func text(_ t: XbinTone?) -> Color { t.map(tone) ?? text }
+    public static func text(_ t: XbinTone?) -> Color { t.map(toneText) ?? text }
 
     /// Chart series colour `i` (the reference renderer's six, per scheme).
     public static func chart(_ i: Int) -> Color {
@@ -111,20 +132,23 @@ struct Pill: View {
     var small = false
 
     var body: some View {
+        // The tint and the pulse in the tone's colour, the text in its
+        // text colour (legible on the tint in light mode).
         let color = tone.map(XbinColor.tone) ?? XbinColor.muted
         HStack(spacing: 4) {
             if pulse {
                 Image(systemName: "circle.fill")
                     .font(.system(size: 6))
                     .symbolEffect(.pulse)
+                    .foregroundStyle(color)
             }
             Text(verbatim: text)
                 .font(small ? .caption2.weight(.semibold) : .caption.weight(.semibold))
                 .lineLimit(1)
+                .foregroundStyle(tone.map(XbinColor.toneText) ?? XbinColor.muted)
         }
         .padding(.horizontal, small ? 6 : 8)
         .padding(.vertical, small ? 2 : 3)
-        .foregroundStyle(color)
         .background(color.opacity(0.15), in: Capsule())
     }
 }
@@ -138,7 +162,7 @@ struct XbinIconImage: View {
     var body: some View {
         let symbol = XbinIcons.symbol(name) ?? XbinIcons.placeholder
         Image(systemName: symbol)
-            .foregroundStyle(symbol == XbinIcons.placeholder ? XbinColor.muted : XbinColor.text(tone))
+            .foregroundStyle(symbol == XbinIcons.placeholder ? XbinColor.muted : tone.map(XbinColor.tone) ?? XbinColor.text)
             .accessibilityHidden(true)
     }
 }

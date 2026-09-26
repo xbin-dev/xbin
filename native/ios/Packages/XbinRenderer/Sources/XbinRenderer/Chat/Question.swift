@@ -38,7 +38,7 @@ public struct QuestionView: View {
             }
             .disabled(question.settled)
             if let error {
-                Text(verbatim: error).font(.footnote).foregroundStyle(XbinColor.tone(.danger))
+                Text(verbatim: error).font(.footnote).foregroundStyle(XbinColor.toneText(.danger))
             }
             if question.settled {
                 Label("Answered", systemImage: XbinIcons.UI.checkmark)
@@ -138,7 +138,7 @@ private struct QuestionFieldRow: View {
     private var title: some View {
         HStack(spacing: 2) {
             Text(verbatim: field.title)
-            if field.required { Text(verbatim: "*").foregroundStyle(XbinColor.tone(.danger)) }
+            if field.required { Text(verbatim: "*").foregroundStyle(XbinColor.toneText(.danger)) }
         }
         .font(.subheadline.weight(.medium))
     }

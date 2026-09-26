@@ -246,11 +246,18 @@ gh variable delete XBIN_IOS_RUNNER                                             #
 shared by every xcodebuild of the job through
 `-clonedSourcePackagesDirPath`) outlive it (`ci-cache.sh`): on a hosted
 runner through `actions/cache`, keyed `ios-<job>-<Xcode version>-<hash of
-project.yml and every Package.swift/Package.resolved>`, with the newest entry
-for that Xcode as the fallback (the build is incremental; a stale tree beats
-none), saved after a green job; on a self-hosted runner in
+native/ios's committed tree, project.yml and every
+Package.swift/Package.resolved>`, with the newest entry for that Xcode as
+the fallback (the build is incremental; a stale tree beats none), saved
+after a green job whose sources changed; on a self-hosted runner in
 `~/Library/Caches/xbin-ci/<runner>/<Xcode>/` on its own disk (nothing
-uploaded; `mac-cleanup.sh` drops trees unused for a week). Builds skip the
+uploaded; `mac-cleanup.sh` drops trees unused for a week). A restored tree
+only helps because `ci-cache.sh` also gives every tracked file under
+`native/ios` an mtime derived from its content (a checkout stamps them all
+"now", and Xcode and the Swift driver decide by mtime) and sets XCBuild's
+`IgnoreFileSystemDeviceInodeChanges` default (inodes differ per checkout):
+before that a hit still recompiled all our sources; after it, an unchanged
+app builds in 14 s with nothing compiled (run 36260203523). Builds skip the
 index store (`COMPILER_INDEX_STORE_ENABLE=NO`). A suspected stale cache:
 `gh variable set XBIN_CI_CACHE --body off` (a clean build; delete the
 variable after), or bump `XBIN_CI_CACHE_VERSION` in the workflow to drop
@@ -264,6 +271,7 @@ Mac mini over ssh included) and most of it is checked here:
 - `pick-sim.sh` — prints the destination (`platform=iOS Simulator,id=…`):
   an iPhone on the newest iOS runtime, newest model generation, base model
   before Pro/Max; no iPhone → any iOS simulator; none at all → creates one.
+  Never the UI tests' `xbin-e2e` (an e2e run erases it) unless named.
   `XBIN_SIM="iPhone 17 Pro"` prefers a name; `XBIN_SIM_ENSURE=xbin-e2e` uses
   (or creates) the device of exactly that name.
 - `ci-toolchain.sh` (every job), `ci-cache.sh`, `ci-xcodegen.sh`,
@@ -364,17 +372,41 @@ gh run download <run-id> -n snapshots -D "$SCRATCH/ios-<run-id>/snapshots"   # j
 What the hosted runner turned out to be (runs 36237646621–36243877514,
 2026-09-26):
 
-- `xcode-27` is Xcode 27.0 (27A266a) with Swift 6.4 and **only the iOS 27.0
-  SDK and simulator runtime**. There is no 27.1 SDK yet, so no Duo API can be
-  compiled on CI. When the image gains one, pin it with `XBIN_XCODE`.
+- `xcode-27` defaults to Xcode 27.0 (27A266a) with Swift 6.4, the iOS 27.0
+  SDK and only the 27.0 simulator runtimes. Since 2026-09-26 the image also
+  carries **Xcode 27.1 (27A9269)** at `/Applications/Xcode_27.1_beta.app`
+  (`Xcode_27.1.app` links to it) and Xcode 27.2 beta (27B5019j) —
+  `ci-toolchain.sh` prints every Xcode's version and build. The Duo code
+  needs the iOS 27.1 SDK: `XBIN_XCODE: /Applications/Xcode_27.1.app` with
+  `XBIN_SWIFT_CONDITIONS: XBIN_SDK_27_1` should compile it, not yet tried
+  (check that job's `-showsdks` first). The Mac mini has Xcode 27.1
+  (27A9269) as `Xcode-beta.app`.
 - The image has no **Metal Toolchain**, and SwiftTerm's shader needs it.
   `ci-build-app.sh` fetches it (`xcodebuild -downloadComponent
   MetalToolchain`, about 840 MB, a few seconds). The build runs with
   `-IDEBuildingContinueBuildingAfterErrors=YES`, so one log lists every
   target's errors.
-- Job times (before caching): `packages` takes about 1.5 minutes, `app` 2–3
-  and `snapshots` 11–17 (both snapshot runs, 162 PNGs each). The
-  `snapshots` artifact is about 90 MB.
+- Job times on `xcode-27` (runs 36256774609–36261195423, 186 PNGs per
+  snapshot run): `packages` 1.5 minutes, `app` 1.5–2.5 (a cache hit with
+  unchanged sources: under 1.5), `snapshots` 10–15. The `snapshots`
+  artifact is about 115 MB.
+- **A fresh hosted VM's first package-mode xcodebuild waits 3–7 minutes**
+  before doing anything (`xcodebuild -list` or `test` in
+  `Packages/XbinRenderer`: 184–406 s), in
+  `waitForRemoteSourcePackagesToFinishLoading` while SwiftPM reads a child
+  process, though every dependency is local; later ones start at once and
+  project-mode ones never wait. `ci-snapshots.sh` starts the listing next
+  to the simulator's boot and, while it outlives the boot, prints the
+  process tree under it every 10 s — the next hosted run names the child.
+  On the Mac mini the listing takes 2 s.
+- The Mac mini (run 36261923449, its first on this branch): `packages`
+  31 s, `app` 28 s, `snapshots` 3.5 minutes, one job at a time. Its PNGs are
+  not byte-identical to the hosted runner's (90 of 372 differ: antialiasing
+  in charts, and `folded-actions`' thread sheet scrolled differently, the
+  same way in every hosted run) — compare snapshots from the same runner.
+  Even there a few differ from run to run (31 of 372 between two hosted
+  runs: `tile-prometheus-viewer`, `notices-empty-progress`,
+  `chat-transcript`, `escape-hatches`, `chat-tools`).
 - **Xcode's type checker gives up where the stub check doesn't.** One big
   initializer call full of inline closures, one of them behind `?:`, failed
   with "failed to produce diagnostic for expression" (`NativeTile.swift`'s

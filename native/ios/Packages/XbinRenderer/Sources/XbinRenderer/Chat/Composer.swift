@@ -85,8 +85,12 @@ public struct ComposerView<Chips: View>: View {
                     .disabled(composer.disabled)
                     .accessibilityLabel("Attach")
                 }
+                // The row's width, as the TextField it replaced took: the
+                // text view alone measured at its draft's width, and the
+                // composer shrank to it ("Thank / you," beside send).
                 XbinTextArea(text: text, style: Self.style(composer), lines: 1...6, handle: input,
                              onInput: { text = $0 }, onComposing: { composing = $0 })
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 9)
                     .background(XbinColor.fill, in: RoundedRectangle(cornerRadius: 20, style: .continuous))

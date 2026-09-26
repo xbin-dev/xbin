@@ -21,6 +21,7 @@ public final class UIColor: NSObject, @unchecked Sendable {
     public static let systemBlue = systemGroupedBackground
     public static let clear = systemGroupedBackground
     public static let placeholderText = systemGroupedBackground
+    public func resolvedColor(with traitCollection: UITraitCollection) -> UIColor { self }
 }
 public final class UIImage: Sendable {
     public init?(data: Data) {}

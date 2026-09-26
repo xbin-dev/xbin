@@ -148,14 +148,24 @@ esac
 bundle=""
 action=""
 prev=""
-archive="" export=""
+archive="" export="" scheme=""
 for a in "$@"; do
   [ "$prev" = -resultBundlePath ] && bundle=$a
+  [ "$prev" = -scheme ] && scheme=$a
   [ "$prev" = -archivePath ] && archive=$a
   [ "$prev" = -exportPath ] && export=$a
   case "$a" in build | test | build-for-testing | test-without-building | archive | -exportArchive) action=$a ;; esac
   prev=$a
 done
+# FAKE_STRICT_SCHEMES=1: a -scheme not in FAKE_SCHEMES fails as xcodebuild does
+if [ "${FAKE_STRICT_SCHEMES:-0}" = 1 ] && [ -n "$scheme" ]; then
+  case " ${FAKE_SCHEMES:-} " in
+  *" $scheme "*) ;;
+  *)
+    echo "xcodebuild: error: The workspace named \"Fake\" does not contain a scheme named \"$scheme\". The \"-list\" option can be used to find the names of the schemes in the workspace."
+    exit 65 ;;
+  esac
+fi
 # archive leaves the .xcarchive, -exportArchive an .ipa (unless FAKE_NO_IPA=1)
 if [ "${FAKE_XCODEBUILD_STATUS:-0}" = 0 ]; then
   [ "$action" = archive ] && [ -n "$archive" ] && mkdir -p "$archive/Products/Applications/Xbin.app"
@@ -303,6 +313,7 @@ case "$*" in
 *autoLoginUser*) [ -n "${FAKE_AUTOLOGIN:-}" ] || exit 1; echo "$FAKE_AUTOLOGIN" ;;
 *CFBundleShortVersionString*) echo "${FAKE_XCODE_VERSION:-27.0}" ;;
 *ProductBuildVersion*) echo "${FAKE_XCODE_BUILD:-27A5000a}" ;;
+write\ *) exit 0 ;;
 *MobileMeAccounts*)
   [ -n "${FAKE_APPLE_ID:-}" ] || exit 1
   printf '(\n    {\n        AccountID = "%s";\n    }\n)\n' "$FAKE_APPLE_ID" ;;
@@ -441,7 +452,7 @@ reset_env() {
   unset XBIN_SIM XBIN_SIM_ENSURE XBIN_XCODE DEVELOPER_DIR TEST_RUNNER_SNAPSHOT_DIR TEST_RUNNER_FIXTURES_DIR \
     XBIN_CI_OUT XBIN_CI_DERIVED XBIN_CI_SPM XBIN_CI_CACHE XBIN_CI_CACHE_ROOT XBIN_CI_CACHE_VERSION XBIN_CI_TOOLS \
     RUNNER_ENVIRONMENT RUNNER_NAME XBIN_SIGNING XBIN_SWIFT_CONDITIONS XBIN_E2E_URL XBIN_E2E_TOKEN XBIN_E2E_ERASE XBIN_E2E_ONLY \
-    TEST_RUNNER_E2E_DIR FAKE_SCHEMES FAKE_PNGS FAKE_E2E_PNGS FAKE_ATTACH FAKE_XCODEBUILD_STATUS FAKE_BOOT_STATUS \
+    TEST_RUNNER_E2E_DIR FAKE_SCHEMES FAKE_STRICT_SCHEMES FAKE_PNGS FAKE_E2E_PNGS FAKE_ATTACH FAKE_XCODEBUILD_STATUS FAKE_BOOT_STATUS \
     FAKE_PROJECT FAKE_XCB_OLD XCBEAUTIFY FAKE_METAL_STATUS FAKE_DOWNLOAD_STATUS FAKE_CURL_FAIL FAKE_CURL_FILE \
     FAKE_BREW_BIN XCODEGEN_SHA256 XCODEGEN_VERSION FAKE_APP_PRODUCTS \
     FAKE_FILEVAULT FAKE_SYSTEMSETUP_DENIED FAKE_RESTARTFREEZE FAKE_REMOTELOGIN FAKE_USERS FAKE_ADMINS \

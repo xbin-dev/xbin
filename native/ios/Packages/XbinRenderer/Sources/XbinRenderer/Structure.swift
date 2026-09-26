@@ -208,9 +208,12 @@ struct StackView: View {
 }
 
 /// A wrapping horizontal layout (`stack wrap`); the line breaking is
-/// ``FlowLayoutMath`` (tested on Linux).
+/// ``FlowLayoutMath`` (tested on Linux). It takes the width offered, or
+/// with `hug` only its widest line's: a message's files, whose bubble
+/// hugs them as it hugs its text (an image alone in a full-width bubble).
 struct FlowLayout: Layout {
     var spacing: CGFloat
+    var hug = false
 
     private func place(_ proposalWidth: CGFloat?, _ subviews: Subviews) -> ([CGSize], FlowLayoutMath.Placement) {
         let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
@@ -222,7 +225,8 @@ struct FlowLayout: Layout {
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let (_, p) = place(proposal.width, subviews)
-        let w = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? CGFloat(p.width)
+        let offered = proposal.width.flatMap { $0.isFinite ? $0 : nil }
+        let w = offered.map { hug ? min($0, CGFloat(p.width)) : $0 } ?? CGFloat(p.width)
         return CGSize(width: w, height: CGFloat(p.height))
     }
 

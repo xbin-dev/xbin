@@ -42,6 +42,22 @@ mkdir -p "$snap" "$XBIN_CI_OUT"
 echo "SNAPSHOT_DIR=$snap"
 echo "FIXTURES_DIR=$TEST_RUNNER_FIXTURES_DIR"
 
+cd "$pkg"
+# Loading the package is the slow part of a package-mode xcodebuild on a
+# fresh runner: the job's first one sat 3–5 min before printing anything
+# on the hosted xcode-27 (runs 36256774609, 36259062265), whether it was
+# `-list` or `test`; later ones start at once. So the scheme listing (which
+# picks the scheme) starts now, in the background, while the simulator
+# boots, and both are timed.
+schemes_file=$XBIN_CI_OUT/renderer-schemes.txt
+t0=$(date +%s)
+(
+  # shellcheck disable=SC2119 # no -project: the package in this directory
+  ci_schemes >"$schemes_file" 2>/dev/null || true
+  echo $(($(date +%s) - t0)) >"$schemes_file.secs"
+) &
+list_pid=$!
+
 # Boot first and wait for it: a cold simulator is the usual cause of
 # "test runner failed to launch" timeouts. xcodebuild boots it anyway, so
 # a failure here is only a warning.
@@ -49,13 +65,38 @@ if udid=$(ci_udid "$dest"); then
   ci_group "boot simulator $udid"
   ci_timeout 300 xcrun simctl bootstatus "$udid" -b ||
     ci_warn "simctl bootstatus $udid failed or took over 5 min; leaving the boot to xcodebuild"
+  echo "booted after $(($(date +%s) - t0)) s"
   ci_endgroup
 fi
 
-cd "$pkg"
-ci_group "schemes in XbinRenderer"
-# shellcheck disable=SC2119 # no -project: the package in this directory
-schemes=$(ci_schemes) || true
+# While the listing is still loading the package, show what it waits on:
+# every 10 s, the processes under xcodebuild -list (a stack sample of run
+# 36261195423 had it in waitForRemoteSourcePackagesToFinishLoading, with
+# SwiftPM reading a child process's output). The load took 3–7 min on the
+# hosted runner for a package of local sources only.
+if kill -0 "$list_pid" 2>/dev/null; then
+  ci_group "while xcodebuild loads the package"
+  tick=0
+  while kill -0 "$list_pid" 2>/dev/null; do
+    if [ $((tick % 10)) -eq 0 ]; then
+      echo "--- $(($(date +%s) - t0)) s"
+      ps -axo pid=,ppid=,etime=,pcpu=,command= 2>/dev/null | awk -v root="$list_pid" '
+        { pid[NR] = $1; ppid[NR] = $2; line[NR] = $0 }
+        END {
+          keep[root] = 1
+          do { more = 0; for (i = 1; i <= NR; i++) if (keep[ppid[i]] && !keep[pid[i]]) { keep[pid[i]] = 1; more = 1 } } while (more)
+          for (i = 1; i <= NR; i++) if (keep[pid[i]]) print substr(line[i], 1, 400)
+        }' || true
+    fi
+    sleep 1
+    tick=$((tick + 1))
+  done
+  ci_endgroup
+fi
+
+wait "$list_pid" || true
+schemes=$(cat "$schemes_file" 2>/dev/null || true)
+ci_group "schemes in XbinRenderer (xcodebuild -list: $(cat "$schemes_file.secs" 2>/dev/null || echo '?') s)"
 echo "$schemes"
 ci_endgroup
 scheme=${XBIN_RENDERER_SCHEME:-XbinRenderer}
@@ -78,6 +119,7 @@ ci_xcodebuild "$XBIN_CI_OUT/snapshots-test.log" test \
   COMPILER_INDEX_STORE_ENABLE=NO \
   CODE_SIGNING_ALLOWED=NO \
   ${CI_COND[@]+"${CI_COND[@]}"} || status=$?
+echo "xcodebuild test done $(($(date +%s) - t0)) s after the listing started"
 
 count_pngs() { find "$snap" -type f -name '*.png' | wc -l | tr -d ' '; }
 

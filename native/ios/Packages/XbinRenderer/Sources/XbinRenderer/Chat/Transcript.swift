@@ -144,7 +144,7 @@ public struct MessageView<Actions: View>: View {
             if !message.files.isEmpty {
                 // Images with a source as thumbnails (tap: Quick Look),
                 // anything else as a chip, in their order.
-                FlowLayout(spacing: 6) {
+                FlowLayout(spacing: 6, hug: true) {
                     ForEach(Array(message.files.enumerated()), id: \.offset) { _, f in
                         if f.thumbnailSource != nil {
                             FileThumbnail(file: f)
@@ -253,7 +253,7 @@ public struct StepView: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(verbatim: step.glyph)
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(step.tone.map(XbinColor.tone) ?? XbinColor.muted)
+                .foregroundStyle(step.tone.map(XbinColor.toneText) ?? XbinColor.muted)
                 .frame(minWidth: 14)
             Text(verbatim: step.text)
                 .font(.footnote)

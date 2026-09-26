@@ -510,7 +510,10 @@ The app draws these with the same components as its own agent screen.
   and downloads as on your web page) or `html`, static markup
   that runs no scripts and loads nothing — the app shows it under a CSP
   that allows only inline styles and `data:` images and fonts, and follows
-  no link; `height` sizes it. It is the one drawing escape:
+  no link; its page is transparent over the screen, in the light or dark
+  default colours (`color-scheme: light dark`), so give anything that
+  needs a background its own (`bx preview --native` draws it the same
+  way); `height` sizes it. It is the one drawing escape:
   use it for the one chart the vocabulary cannot express, not for the whole
   UI.
 

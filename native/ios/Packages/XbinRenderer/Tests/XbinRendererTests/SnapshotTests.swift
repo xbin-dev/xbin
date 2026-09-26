@@ -49,6 +49,16 @@ import XbinRendererModel
         #expect(!names.isEmpty)
         let out = Self.outputDirectory
         if let out { try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true) }
+        // UTC, as shots.mjs pins the reference's browser, so a chart's time
+        // axis reads the same hours on both sides (the hosted runner's
+        // Pacific time put the charts fixture 7 h off). Swift Charts formats
+        // dates in the system zone: neither the environment's zone and
+        // calendar nor NSTimeZone.default moved it, so TZ is set and the
+        // system zone re-read.
+        setenv("TZ", "UTC", 1)
+        tzset()
+        NSTimeZone.resetSystemTimeZone()
+        NSTimeZone.default = TimeZone(identifier: "UTC") ?? .gmt
         let variants: [(ColorScheme, String, DynamicTypeSize, String)] = out == nil
             ? [(.light, "light", .large, "default")]
             : [(.light, "light", .large, "default"), (.dark, "dark", .large, "default"),
@@ -58,7 +68,15 @@ import XbinRendererModel
         for name in names {
             for (scheme, schemeTag, type, typeTag) in variants {
                 let store = try XbinFixtures.store(name, in: set)
-                let view = XbinTreeView(store: store, send: { _ in }, options: XbinRenderOptions(inlineSheets: true))
+                // An attach service that uploads nothing, so a composer with
+                // an upload target shows its attach button, as the
+                // reference's does (the app's pickers never open here).
+                let services = XbinServices(attach: { _ in [] })
+                // en_US, as shots.mjs pins the reference's browser (the
+                // time zone is the process's, above).
+                let view = XbinTreeView(store: store, send: { _ in }, services: services,
+                                        options: XbinRenderOptions(inlineSheets: true))
+                    .environment(\.locale, Locale(identifier: "en_US"))
                     .environment(\.colorScheme, scheme)
                     .environment(\.dynamicTypeSize, type)
                 let png = Snapshot.png(of: view, size: Self.size, scale: Self.scale, scheme: scheme, type: type)

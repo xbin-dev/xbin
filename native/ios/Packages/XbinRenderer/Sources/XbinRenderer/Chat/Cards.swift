@@ -290,8 +290,8 @@ public struct DiffView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 4)
-            if f.added > 0 { Text(verbatim: "+\(f.added)").foregroundStyle(XbinColor.tone(.ok)) }
-            if f.removed > 0 { Text(verbatim: "−\(f.removed)").foregroundStyle(XbinColor.tone(.danger)) }
+            if f.added > 0 { Text(verbatim: "+\(f.added)").foregroundStyle(XbinColor.toneText(.ok)) }
+            if f.removed > 0 { Text(verbatim: "−\(f.removed)").foregroundStyle(XbinColor.toneText(.danger)) }
         }
         .font(.caption.monospacedDigit())
         .padding(.vertical, 5)
@@ -300,10 +300,10 @@ public struct DiffView: View {
 
     static func letterColor(_ l: String) -> Color {
         switch l {
-        case "A": return XbinColor.tone(.ok)
-        case "D": return XbinColor.tone(.danger)
+        case "A": return XbinColor.toneText(.ok)
+        case "D": return XbinColor.toneText(.danger)
         case "R": return Color(uiColor: .systemBlue)
-        default: return XbinColor.tone(.warn)
+        default: return XbinColor.toneText(.warn)
         }
     }
 
@@ -311,8 +311,8 @@ public struct DiffView: View {
         switch k {
         case .file: return XbinColor.muted
         case .hunk: return Color(uiColor: .systemBlue)
-        case .added: return XbinColor.tone(.ok)
-        case .removed: return XbinColor.tone(.danger)
+        case .added: return XbinColor.toneText(.ok)
+        case .removed: return XbinColor.toneText(.danger)
         case .context: return XbinColor.text
         }
     }
