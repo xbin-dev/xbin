@@ -195,11 +195,13 @@ export function chatScreen(v) {
   const app = ctx.app;
   const { rules } = app;
   const s = app.session.shown();
-  const t = rules.topBar(v);
   const r = v.run;
+  const t = rules.topBar(v, app.convs.find(r.rootId || r.id));
   const ps = r.pendingState || {};
   const chain = (v.chain || []).map((c) => c.title || '#' + c.id);
-  const subtitle = [chain.length ? 'in ' + chain.join(' › ') : '', r.status, t.laneLabel, t.viewOnly ? 'view only' : ''].filter(Boolean).join(' · ');
+  // a shared conversation says so in its header, as the web's top bar does
+  const subtitle = [chain.length ? 'in ' + chain.join(' › ') : '', r.status, t.laneLabel, t.viewOnly ? 'view only' : '',
+    t.share.tone ? `${t.share.icon} ${t.share.label}` : ''].filter(Boolean).join(' · ');
   return html`<screen title=${t.title} subtitle=${subtitle} style="scroll">
     <toolbar>
       <button icon="list" @tap=${() => { ui.drawer = true; ctx.paint(); }}>Conversations</button>
@@ -245,7 +247,7 @@ function runMenu(v, t) {
     <button icon="database" @tap=${() => push({ kind: 'memory', run: id })}>${`Memory (${t.memory})`}</button>
     <button icon="folder" @tap=${() => push({ kind: 'files', run: id })}>${`Files (${t.files})`}</button>
     ${t.tree ? html`<button icon="branch" @tap=${() => push({ kind: 'tree', root: v.run.rootId || id })}>Workflow tree</button>` : nothing}
-    <button icon="people" @tap=${() => { ui.share = { run: t.shareRun }; ctx.paint(); }}>${t.share}</button>
+    <button icon="people" @tap=${() => { ui.share = { run: t.shareRun }; ctx.paint(); }}>${t.own ? 'Share' : 'Shared'}</button>
     ${t.crumb ? html`<button icon="clock" @tap=${() => app.openAutomations(t.crumb.kind, t.crumb.id)}>Its automation</button>` : nothing}
     ${t.del ? html`<divider/><button icon="trash" role="destructive"
       confirm=${{ title: 'Delete this run and its history?', label: 'Delete', destructive: true }}

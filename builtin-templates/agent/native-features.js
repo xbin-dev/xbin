@@ -20,7 +20,7 @@ export const IMPLEMENTS = {
   'conv.groups': 'native/convs.js — a section per groupRows group',
   'conv.pinned': 'native/convs.js — the Pinned section',
   'conv.unread': 'native/convs.js — the accent dot; model/app.js reads the one you look at',
-  'conv.shared': 'native/convs.js — ⇆ in the subtitle (rowShared)',
+  'conv.shared': 'native/convs.js — the chips in the subtitle (rowShared)',
   'conv.status': 'native/convs.js — the row badge (rowGlyph)',
   'conv.more': 'native/convs.js — the list\'s more',
   'conv.live': 'model/conv-list.js — apply(ev)',
@@ -31,7 +31,7 @@ export const IMPLEMENTS = {
   'conv.delete': 'native/convs.js — row actions, confirmed',
   'conv.leave': 'native/convs.js — row actions, confirmed',
   'conv.scope.mine': 'native/convs.js — the scope picker',
-  'conv.scope.team': 'native/convs.js — the scope picker',
+  'conv.scope.shared': 'native/convs.js — the scope picker; its two sections',
   'conv.scope.archived': 'native/convs.js — the scope picker',
 
   // Transcript
@@ -90,7 +90,7 @@ export const IMPLEMENTS = {
   'top.memory': 'native/chat.js — runMenu → native/tools.js',
   'top.files': 'native/chat.js — runMenu → native/tools.js',
   'top.tree': 'native/chat.js — runMenu → native/tools.js',
-  'top.share': 'native/chat.js — runMenu → native/share.js',
+  'top.share': 'native/chat.js — in the header subtitle; runMenu → native/share.js',
   'top.delete': 'native/chat.js — runMenu, confirmed',
 
   // Run tools

@@ -50,7 +50,7 @@ a subagent is exactly as visible as the conversation it works for.
 
 | Method & path | Body | Purpose |
 |---|---|---|
-| `GET /conversations?limit=&cursor=&archived=&scope=` | — | your conversations, newest activity first → `{pinned, items, next}`. `pinned` (your pins) comes on the first page only; `next` is the cursor for the page after. `scope=mine` (default: yours, ones you joined, and unowned ones) or `team` (others' team-shared ones). `archived=1` lists what you archived |
+| `GET /conversations?limit=&cursor=&archived=&scope=` | — | your conversations, newest activity first → `{pinned, items, next}`. `pinned` (your pins) comes on the first page only; `next` is the cursor for the page after. `scope=mine` (default: yours, ones you joined, and unowned ones), `shared` (sharing both ways: yours shared with the team or with people, and others' that reach you — team-visible or you were added; each row's `access` tells them apart) or `team` (older: only others' team-shared ones). `archived=1` lists what you archived |
 | `GET /conversations?q=` | — | search titles and everything said, in every conversation you may see (archived and automation runs included), up to 50; content hits carry `match {msgId, snippet}` |
 | `PATCH /runs/{id}` | `{title?, pinned?, archived?, visibility?, teamRole?}` | pin and archive are yours (any viewer); title and visibility are the owner's. Making an unowned run private claims it |
 | `POST /runs/{id}/read` | — | mark it read up to now |
@@ -179,8 +179,12 @@ remembered per user through `/api/xbin/prefs` — tile frames have no
 The sidebar is your conversation list (`GET /conversations`): Pinned, then
 Today / Yesterday / Previous 7 days / Previous 30 days / Older by last
 activity, unread in bold, a search box, and a row menu (right-click or ⋯) to
-rename, pin, share with the team, archive or delete; the footer switches to
-conversations shared with the team and to your archive. **New chat** goes
+rename, pin, share, archive or delete. A switch above the list picks the
+view — **Mine**, **Shared** (what you shared, then what was shared with
+you) or **Archived** — and a shared row says how in chips (the team, to
+read or write; how many people; from whom). The open conversation's top bar
+says who can see it (private · team can read/write · shared with N · from
+its owner) and opens the share dialog. **New chat** goes
 home; **⋯** opens "New chat with options" (a title, instructions that
 replace the system prompt, the tool mode). A link to a conversation is the
 tile's URL with `#c=<id>`. Automation runs (schedules, watchers) are not in

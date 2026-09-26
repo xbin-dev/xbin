@@ -1,5 +1,7 @@
-// sidebar.js — how the conversation list draws (lit, keyed by id): Pinned,
-// then date groups (model/conv-groups.js), newest activity first; search
+// sidebar.js — how the conversation list draws (lit, keyed by id): the views
+// switch (Mine · Shared · Archived), Pinned, then date groups
+// (model/conv-groups.js), newest activity first — or, in Shared, what you
+// shared and what was shared with you; a shared row says how (chips); search
 // results with the matching line; a row menu (right-click or ⋯) to rename,
 // pin, share, archive, delete or leave; "more" at the bottom as you scroll.
 // The list's state is model/conv-list.js; which glyphs and menu items a row
@@ -17,16 +19,23 @@ import * as actions from './model/actions.js';
  */
 export function sidebarTpl(list, ui) {
   const results = list.results;
+  const shared = list.scope === 'shared' && !list.archived;
+  const byMe = (r) => (rowShared(r) || {}).byMe;
   const body = results
     ? (results.length ? rowsTpl(results, ui, true) : html`<div class="empty">nothing found</div>`)
     : html`
       ${list.pinned.length ? html`<div class="grp">Pinned</div>${rowsTpl(list.pinned, ui)}` : nothing}
-      ${groupRows(list.items).map((g) => html`<div class="grp">${g.label}</div>${rowsTpl(g.rows, ui)}`)}
+      ${shared
+        ? [['Shared by you', list.items.filter(byMe)], ['Shared with you', list.items.filter((r) => !byMe(r))]]
+          .filter(([, rows]) => rows.length).map(([label, rows]) => html`<div class="grp">${label}</div>${rowsTpl(rows, ui)}`)
+        : groupRows(list.items).map((g) => html`<div class="grp">${g.label}</div>${rowsTpl(g.rows, ui)}`)}
       ${!list.pinned.length && !list.items.length && !list.loading
-        ? html`<div class="empty">${list.archived ? 'nothing archived' : list.scope === 'team' ? 'nothing shared with the team yet' : 'no conversations yet — ask below'}</div>` : nothing}
+        ? html`<div class="empty">${list.archived ? 'nothing archived' : shared ? emptyShared : 'no conversations yet — ask below'}</div>` : nothing}
       ${list.next ? html`<button class="more btn ghost btnsm" @click=${() => ui.more()}>${list.loading ? 'loading…' : 'more'}</button>` : nothing}`;
   return html`${body}${menuTpl(list, ui)}`;
 }
+
+const emptyShared = 'nothing shared yet — share a conversation from its ⋯ menu or its top bar, and whatever others share with you shows here too';
 
 function rowsTpl(rows, ui, withMatch = false) {
   return repeat(rows, (r) => r.id, (r) => rowTpl(r, ui, withMatch));
@@ -49,8 +58,9 @@ function rowTpl(r, ui, withMatch) {
   return html`<div class="run ${r.id === ui.sel ? 'on' : ''} ${r.unread ? 'unread' : ''}" data-id=${r.id}
       @click=${() => ui.select(r.id)} @contextmenu=${(e) => { e.preventDefault(); ui.openMenu(r.id, e); }}>
     <div class="t">${r.title || 'run ' + r.id}</div>
-    ${shared ? html`<span class="gl" title=${shared.title}>⇆</span>` : nothing}${glyph}
+    ${glyph}
     <button class="rmenu" title="more" @click=${(e) => { e.stopPropagation(); ui.openMenu(r.id, e); }}>⋯</button>
+    ${shared ? html`<div class="chips" title=${shared.title}>${shared.chips.map((c) => html`<span class="chip ${c.kind}">${c.label}</span>`)}</div>` : nothing}
     ${withMatch && r.match ? html`<div class="snip">${r.match.snippet}</div>` : nothing}
   </div>`;
 }
@@ -67,12 +77,13 @@ function menuTpl(list, ui) {
     </div>`;
 }
 
-// footTpl is the list's footer: switch between your conversations, the ones
-// shared with the team, and your archive.
-export function footTpl(list, ui) {
+// viewsTpl is the list's views switch, above it: your conversations, the
+// shared ones (both ways), your archive — the one you're in stays marked.
+export function viewsTpl(list, ui) {
   const at = (scope, archived) => list.scope === scope && list.archived === archived && !list.results;
-  const link = (label, scope, archived) => html`<a class=${at(scope, archived) ? 'on' : ''} @click=${() => ui.view(scope, archived)}>${label}</a>`;
-  return html`${link('Mine', 'mine', false)} · ${link('Shared with team', 'team', false)} · ${link('Archived', 'mine', true)}`;
+  const seg = (label, scope, archived, title) => html`<button class=${'seg' + (at(scope, archived) ? ' on' : '')} title=${title}
+      aria-pressed=${at(scope, archived) ? 'true' : 'false'} @click=${() => ui.view(scope, archived)}>${label}</button>`;
+  return html`${seg('Mine', 'mine', false, 'your conversations')}${seg('Shared', 'shared', false, 'what you shared, and what others shared with you')}${seg('Archived', 'mine', true, 'your archive')}`;
 }
 
 // makeSideUI is the list's behaviour: selection, the row menu, inline rename

@@ -32,6 +32,7 @@ await ctx.addInitScript(() => {
   window.__route('PATCH', /\/runs\/1$/, (m, o) => {
     const b = JSON.parse(o.body);
     Object.assign(members, b);
+    Object.assign(window.__runs.find((r) => r.id === 1), b); // the list row, as the real backend's stream would
     return window.__json({ id: 1, title: 'plan the quarter', access: 'owner', mine: true, ...b });
   });
 });
@@ -43,7 +44,8 @@ await page.waitForFunction(() => document.querySelector('#top .title')?.textCont
 ok('#c=<id> opens the conversation', true);
 ok('a non-manager sees no settings gear', await page.$eval('#gear', (e) => e.hidden));
 
-await page.click('#top button:has-text("Share")');
+ok('the top bar says it is private', (await page.textContent('#top .sharepill')).includes('private'));
+await page.click('#top .sharepill');
 await page.waitForSelector('#sharedlg .prow');
 ok('the people it is shared with are listed', (await page.textContent('#sharedlg')).includes('bob'));
 await page.fill('#sh-user', 'Carol');
@@ -59,6 +61,9 @@ const link = await page.$eval('#sharedlg .linkout', (e) => e.value);
 ok('the invite link carries the token', link.endsWith('#join=TOKEN123'), link);
 ok('…and never the frame token in the query string', !link.includes('SECRET') && !link.includes('?'), link);
 await page.click('#sharedlg button:has-text("Done")');
+await page.waitForFunction(() => document.querySelector('#top .sharepill')?.textContent.includes('team can read'));
+ok('…and the top bar says so at once', true);
+ok('…as does its row', (await page.$$eval('#runs .run[data-id="1"] .chip', (els) => els.map((e) => e.textContent))).includes('team · can read'));
 
 // Opening an invite joins and opens the conversation.
 await page.evaluate(() => window.__route('POST', /\/join$/, () => window.__json({ runId: 1, role: 'participant', title: 'plan the quarter' })));

@@ -87,6 +87,7 @@ export function STUB(seed) {
       }
       rows = rows.filter((r) => !!r.archivedAt === (q.get('archived') === '1'));
       if (q.get('scope') === 'team') rows = rows.filter((r) => !r.mine && r.visibility === 'team');
+      if (q.get('scope') === 'shared') rows = rows.filter((r) => r.visibility === 'team' || (r.members || 0) > 0);
       rows.sort((a, b) => b.activityMs - a.activityMs || b.id - a.id);
       return json({ pinned: rows.filter((r) => r.pinnedAt), items: rows.filter((r) => !r.pinnedAt), next: '' });
     }],

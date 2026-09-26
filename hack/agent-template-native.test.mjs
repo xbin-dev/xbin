@@ -373,7 +373,7 @@ test('the drawer: groups, row actions, search with snippets, scope, a pasted inv
   assert.equal(row('old one').p.badge, 'failed');
   assert.equal(row('old one').p.tone, 'danger');
   assert.equal(row('their one').p.badge, 'waiting for you');
-  assert.match(row('their one').p.subtitle, /^⇆ shared/);
+  assert.equal(row('their one').p.subtitle, '👥 from bob · team · can read', 'a shared row says how, and whose');
   assert.deepEqual(all(row('today one'), { t: 'button' }).map((b) => b.p.label), ['Rename', 'Pin', 'Share…', 'Archive', 'Delete']);
   assert.deepEqual(all(row('their one'), { t: 'button' }).map((b) => b.p.label), ['Pin', 'Archive', 'Leave']);
   assert.equal(find(row('their one'), { t: 'button', p: { label: 'Leave' } }).p.confirm.title, 'Leave "their one"?');

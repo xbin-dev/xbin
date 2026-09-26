@@ -19,7 +19,7 @@ export const IMPLEMENTS = {
   'conv.groups': 'sidebar.js — groupRows',
   'conv.pinned': 'sidebar.js',
   'conv.unread': 'sidebar.js — .unread; model/app.js reads the one you look at',
-  'conv.shared': 'sidebar.js — rowShared',
+  'conv.shared': 'sidebar.js — .chips (rowShared)',
   'conv.status': 'sidebar.js — rowGlyph',
   'conv.more': 'sidebar.js — .more',
   'conv.live': 'model/conv-list.js — apply(ev)',
@@ -29,9 +29,9 @@ export const IMPLEMENTS = {
   'conv.archive': 'sidebar.js — row menu',
   'conv.delete': 'sidebar.js — row menu',
   'conv.leave': 'sidebar.js — row menu',
-  'conv.scope.mine': 'sidebar.js — footTpl',
-  'conv.scope.team': 'sidebar.js — footTpl',
-  'conv.scope.archived': 'sidebar.js — footTpl',
+  'conv.scope.mine': 'sidebar.js — viewsTpl',
+  'conv.scope.shared': 'sidebar.js — viewsTpl; sidebarTpl\'s two sections',
+  'conv.scope.archived': 'sidebar.js — viewsTpl',
 
   // Transcript
   'chat.user': 'chat-cards.js — userTpl',
@@ -90,7 +90,7 @@ export const IMPLEMENTS = {
   'top.memory': 'agent.js — topTpl',
   'top.files': 'agent.js — topTpl',
   'top.tree': 'agent.js — topTpl',
-  'top.share': 'agent.js — topTpl → share.js',
+  'top.share': 'agent.js — topTpl .sharepill → share.js',
   'top.delete': 'agent.js — topTpl',
 
   // Run tools

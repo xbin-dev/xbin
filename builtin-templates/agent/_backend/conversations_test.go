@@ -148,3 +148,39 @@ func TestUnreadAndRename(t *testing.T) {
 		t.Fatalf("a team viewer writes: %d", got)
 	}
 }
+
+// The shared view is sharing both ways: what you shared — with the team or
+// with people — and what others shared with you; never a private one, and
+// never someone else's shared only with a third person.
+func TestSharedScope(t *testing.T) {
+	ag, mux := accessFixture(t)
+	team := chatAt(t, ag, "alice", "team plan", 3000)
+	people := chatAt(t, ag, "alice", "for carol", 2000)
+	chatAt(t, ag, "alice", "diary", 1000)
+	if got := callAs(t, mux, asAlice, "PATCH", fmt.Sprintf("/runs/%d", team), map[string]string{"visibility": "team", "teamRole": "viewer"}).Code; got != 200 {
+		t.Fatalf("share with the team: %d", got)
+	}
+	if got := callAs(t, mux, asAlice, "POST", fmt.Sprintf("/runs/%d/members", people), map[string]string{"user": "carol", "role": "viewer"}).Code; got != 200 {
+		t.Fatalf("share with carol: %d", got)
+	}
+	shared := func(c caller) []int64 {
+		var p convPage
+		_ = json.Unmarshal(callAs(t, mux, c, "GET", "/conversations?scope=shared", nil).Body.Bytes(), &p)
+		return convIDs(append(p.Pinned, p.Items...))
+	}
+	if got, want := fmt.Sprint(shared(asAlice)), fmt.Sprint([]int64{team, people}); got != want {
+		t.Fatalf("alice's shared view (what she shared): %s, want %s", got, want)
+	}
+	if got, want := fmt.Sprint(shared(asCarol)), fmt.Sprint([]int64{team, people}); got != want {
+		t.Fatalf("carol's shared view (team + added): %s, want %s", got, want)
+	}
+	if got, want := fmt.Sprint(shared(asBob)), fmt.Sprint([]int64{team}); got != want {
+		t.Fatalf("bob's shared view (the team one only): %s, want %s", got, want)
+	}
+	// the older scope=team stays what it was: others' team conversations
+	var p convPage
+	_ = json.Unmarshal(callAs(t, mux, asAlice, "GET", "/conversations?scope=team", nil).Body.Bytes(), &p)
+	if len(p.Items) != 0 {
+		t.Fatalf("alice's scope=team lists her own: %v", convIDs(p.Items))
+	}
+}

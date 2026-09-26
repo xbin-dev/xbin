@@ -1,7 +1,7 @@
 // hack/ui-harness/passes/agentconvs.js — per-user conversations in the agent
 // template (D83), with two real users against the seeded apps/agent:
 //   - admin's new chat is private: dev1 neither lists it nor can open it;
-//   - shared with the team to read, dev1 finds it under "Shared with team"
+//   - shared with the team to read, dev1 finds it under "Shared"
 //     with a read-only composer;
 //   - an invite link makes dev1 a participant: dev1 writes, admin sees who,
 //     and the model is told who spoke ([dev1] …);
@@ -55,15 +55,16 @@ async function agentConvs(browser) {
   check(!(found.body.items || []).some((r) => r.id === id), 'dev1 search finds nothing of it');
 
   // shared with the team, to read
-  await admin.page.click('#top button:has-text("Share")');
+  await admin.page.click('#top .sharepill');
   await admin.page.waitForSelector('#sharedlg .prow');
   await admin.page.click('#sharedlg input[type=radio] >> nth=1');
   await until(admin.page, () => document.querySelector('#sharedlg input[type=radio]:nth-of-type(1)') !== null);
   await sleep(300);
   await admin.page.click('#sharedlg button:has-text("Done")');
-  await dev.page.click('#sfoot a:has-text("Shared with team")');
+  check((await admin.page.textContent('#top .sharepill')).includes('team can read'), 'admin\'s top bar says the team can read it');
+  await dev.page.click('#views .seg:has-text("Shared")');
   await until(dev.page, (t) => document.getElementById('runs').textContent.includes(t), title);
-  check(true, 'dev1 finds it under "Shared with team"');
+  check(true, 'dev1 finds it under "Shared"');
   await dev.page.click(`#runs .run:has-text("${title}")`);
   await until(dev.page, (t) => document.querySelector('#top .title')?.textContent === t, title);
   check(await dev.page.$eval('#msg', (e) => e.disabled), 'shared to read: dev1\'s composer is read-only');

@@ -79,10 +79,29 @@ await page.click('#runs .run[data-id="6"]', { button: 'right' });
 await page.click('.rowmenu .mi:has-text("Archive")');
 await page.waitForFunction(() => !document.getElementById('runs').textContent.includes('a quick question'));
 ok('archive removes it from the list', true);
-await page.click('#sfoot a:has-text("Archived")');
+await page.click('#views .seg:has-text("Archived")');
 await page.waitForFunction(() => document.getElementById('runs').textContent.includes('a quick question'));
 ok('…and it is in Archived', true);
-await page.click('#sfoot a:has-text("Mine")');
+ok('the views switch marks where you are', (await page.$eval('#views .seg.on', (e) => e.textContent)) === 'Archived');
+await page.click('#views .seg:has-text("Mine")');
+await page.waitForFunction(() => document.getElementById('runs').textContent.includes('Q3 plan'));
+
+// Shared: both ways, in two sections, each row saying how.
+await page.evaluate(() => {
+  window.__runs.push({ id: 21, title: 'roadmap for the team', status: 'idle', parentId: 0, rootId: 21, visibility: 'team', teamRole: 'participant', activityMs: Date.now() - 5000 });
+  window.__runs.push({ id: 22, title: 'contract with carol', status: 'idle', parentId: 0, rootId: 22, members: 2, activityMs: Date.now() - 6000 });
+  window.__runs.push({ id: 23, title: 'bob\'s findings', status: 'idle', parentId: 0, rootId: 23, visibility: 'team', teamRole: 'viewer', owner: 'bob', mine: false, access: 'viewer', activityMs: Date.now() - 7000 });
+});
+await page.click('#views .seg:has-text("Shared")');
+await page.waitForFunction(() => document.getElementById('runs').textContent.includes('roadmap for the team'));
+ok('Shared lists what you shared and what was shared with you, in two sections',
+  JSON.stringify(await groups()) === JSON.stringify(['Shared by you', 'Shared with you']), (await groups()).join(' | '));
+const chips = (id) => page.$$eval(`#runs .run[data-id="${id}"] .chip`, (els) => els.map((e) => e.textContent));
+ok('a team-shared row says so', JSON.stringify(await chips(21)) === JSON.stringify(['team · can write']), (await chips(21)).join(','));
+ok('a people-shared row says how many', JSON.stringify(await chips(22)) === JSON.stringify(['2 people']), (await chips(22)).join(','));
+ok('someone else\'s says whose', (await chips(23)).includes('from bob'), (await chips(23)).join(','));
+ok('private conversations stay out of Shared', !(await rows()).includes('unrelated task'));
+await page.click('#views .seg:has-text("Mine")');
 await page.waitForFunction(() => document.getElementById('runs').textContent.includes('Q3 plan'));
 
 // Search.

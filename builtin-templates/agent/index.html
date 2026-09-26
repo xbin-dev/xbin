@@ -86,10 +86,21 @@
     .autos-page .field .chk { display: block; margin: 2px 0; text-transform: none; letter-spacing: normal; font-size: 12px;
                               font-weight: normal; color: var(--bx-text); }
     .autos-page .field .chk input { width: auto; }
-    .sfoot { border-top: 1px solid var(--bx-border); padding: 6px 10px; font-size: 11px; color: var(--bx-muted); }
-    .sfoot a { cursor: pointer; }
-    .sfoot a.on { color: var(--bx-text); }
-    .sfoot a:hover { color: var(--bx-accent); }
+    /* the list's views switch (sidebar.js viewsTpl): the one you're in is unmistakable */
+    .views { display: flex; margin: 6px 8px 2px; border: 1px solid var(--bx-border); border-radius: 6px; overflow: hidden; }
+    .views .seg { flex: 1; border: 0; border-right: 1px solid var(--bx-border); background: transparent; color: var(--bx-muted);
+                  font: inherit; font-size: 11.5px; padding: 4px 0; cursor: pointer; }
+    .views .seg:last-child { border-right: 0; }
+    .views .seg:hover { color: var(--bx-text); }
+    .views .seg.on { background: var(--bx-panel); color: var(--bx-text); font-weight: 600; box-shadow: inset 0 -2px 0 var(--bx-accent); }
+    /* how a shared row is shared (model/rules.js rowShared) */
+    .run .chips { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 3px; margin-top: 2px; }
+    .chip { font-size: 10px; line-height: 1.5; padding: 0 6px; border-radius: 999px; border: 1px solid var(--bx-border); color: var(--bx-muted); white-space: nowrap; }
+    .chip.team, .chip.people { color: var(--bx-accent); border-color: color-mix(in srgb, var(--bx-accent) 50%, var(--bx-border)); }
+    .chip.from { color: var(--bx-text); }
+    /* the top bar's sharing status (model/rules.js shareStatus) */
+    .sharepill.on { color: var(--bx-accent); border-color: color-mix(in srgb, var(--bx-accent) 50%, var(--bx-border)); }
+    .sharepill.in { color: var(--bx-text); }
     .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
     /* Top bar and composer never shrink: when .main runs out of height the
        squeeze has to land on the timeline, never on the controls. The
@@ -409,8 +420,8 @@
         <button class="btn ghost btnsm" id="newopts" title="New chat with options: a title, instructions, the tool mode">⋯</button></div>
         <input id="csearch" type="search" placeholder="Search conversations…" autocomplete="off"></div>
       <div id="autos"></div>
+      <div class="views" id="views"></div>
       <div class="runs" id="runs"></div>
-      <div class="sfoot" id="sfoot"></div>
     </div>
     <div class="main" id="main">
       <div class="top" id="top"></div>

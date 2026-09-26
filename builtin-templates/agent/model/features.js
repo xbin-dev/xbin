@@ -39,7 +39,7 @@ export const FEATURES = {
   'conv.groups': 'date groups: Today, Yesterday, Previous 7 days, Previous 30 days, Older (model/conv-groups.js)',
   'conv.pinned': 'your pins first, as their own group',
   'conv.unread': 'unread conversations stand out; looking at one marks it read',
-  'conv.shared': '⇆ on shared conversations, with who shared it',
+  'conv.shared': 'a shared row says how, as chips: from whom (someone else\'s), the team (to read or to write), how many people',
   'conv.status': 'status glyphs: ? waiting for you, ! failed, a spinner while it works',
   'conv.more': 'paging: "more" at the end of the list',
   'conv.live': 'the list stays current from the stream: new rows, status, pins, revocations, deletions',
@@ -50,7 +50,7 @@ export const FEATURES = {
   'conv.delete': 'delete, confirmed (owner)',
   'conv.leave': 'leave a conversation shared with you, confirmed',
   'conv.scope.mine': 'scope: your conversations',
-  'conv.scope.team': 'scope: shared with the team',
+  'conv.scope.shared': 'scope: shared — what you shared and what others shared with you, in two sections',
   'conv.scope.archived': 'scope: your archive',
 
   // Transcript
@@ -112,7 +112,7 @@ export const FEATURES = {
   'top.memory': 'Memory (n) — opens its memory blocks',
   'top.files': 'Files (n) — opens its session files',
   'top.tree': '⑂ tree — opens the workflow tree',
-  'top.share': 'Share / Shared',
+  'top.share': 'who can see it, said plainly (private · team can read/write · shared with N people · from its owner), opening the share dialog',
   'top.delete': 'Delete, confirmed (owner)',
 
   // Run tools

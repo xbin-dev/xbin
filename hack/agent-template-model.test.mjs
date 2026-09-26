@@ -157,7 +157,7 @@ test('the app: start, a conversation, the stream, send, stop, home, addresses', 
   assert.equal(app.root, 1);
   assert.deepEqual(app.session.queued().map((q) => q.text), ['queued one']);
   assert.equal(rules.composer(v, HOME).placeholder, 'follow up…');
-  assert.equal(rules.topBar(v).share, 'Share');
+  assert.equal(rules.topBar(v).share.label, 'private');
 
   // the stream: a draft streams into the blocks, a status change reaches the list
   await until(() => streams.size === 1);
@@ -341,7 +341,18 @@ test('rules: who may do what', () => {
   const viewer = rules.topBar(v('viewer', { status: 'error' }));
   assert.equal(viewer.viewOnly, true);
   assert.equal(viewer.retry, false);
-  assert.equal(viewer.share, 'Shared');
+  assert.equal(viewer.share.label, 'from the team', 'someone else\'s says whose');
+  // who can see it, said plainly: private, the team (read/write), people — the list row counts them
+  const mine = (run, row) => rules.topBar(v('owner', run), row).share.label;
+  assert.equal(mine({ visibility: 'private' }), 'private');
+  assert.equal(mine({ visibility: 'team', teamRole: 'viewer' }), 'team can read');
+  assert.equal(mine({ visibility: 'team', teamRole: 'participant' }, { members: 2 }), 'team can write · 2 people');
+  assert.equal(mine({ visibility: 'private' }, { members: 1 }), 'shared with 1 person');
+  assert.equal(rules.topBar(v('viewer', { owner: 'bob' })).share.label, 'from bob');
+  // a shared row's chips
+  assert.equal(rules.rowShared({ visibility: 'private', members: 0 }), null);
+  assert.deepEqual(rules.rowShared({ access: 'owner', visibility: 'team', teamRole: 'viewer', members: 3 }).chips.map((c) => c.label), ['team · can read', '3 people']);
+  assert.deepEqual(rules.rowShared({ access: 'viewer', owner: 'bob', visibility: 'private', members: 2 }).chips.map((c) => c.label), ['from bob', '2 people']);
   assert.equal(viewer.del, false);
   const owner = rules.topBar(v('owner', { status: 'error', origin: 'schedule', originId: 3, parentId: 1, rootId: 1 }));
   assert.deepEqual(owner.crumb, { kind: 'schedule', id: 3 });
@@ -357,7 +368,7 @@ test('rules: who may do what', () => {
   assert.deepEqual(rules.rowMenu({ access: 'participant', mine: false }).map((i) => i.label), ['Pin', 'Archive']);
   assert.equal(rules.rowGlyph({ status: 'waiting_input' }), 'ask');
   assert.equal(rules.rowGlyph({ status: 'sleeping' }), 'spin');
-  assert.equal(rules.rowShared({ visibility: 'team', owner: 'bob' }).title, 'shared by bob');
+  assert.equal(rules.rowShared({ visibility: 'team', owner: 'bob' }).title, 'shared with you by bob');
 
   assert.equal(rules.halt({ manager: false }, true, []).shown, false);
   assert.equal(rules.halt({ manager: true }, false, [{ status: 'waiting_input' }]).shown, false, 'waiting for a person is not running');

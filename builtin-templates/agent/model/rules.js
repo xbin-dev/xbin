@@ -13,8 +13,9 @@ export function access(v) {
   return { talk, own, viewOnly: !!v && !talk };
 }
 
-// topBar describes the open conversation's header.
-export function topBar(v) {
+// topBar describes the open conversation's header. row is its list row when
+// the list has it (how many people it is shared with lives there).
+export function topBar(v, row) {
   const r = v.run;
   const { talk, own } = access(v);
   const web = (v.config && v.config.toolset) === 'web';
@@ -36,8 +37,7 @@ export function topBar(v) {
     tree: !!(r.parentId || (v.links || []).length || v.linkCount), // linkCount: a paged view's total
     // sharing is per conversation: a subagent shares its root
     shareRun: { id: r.rootId || r.id, title: r.title },
-    share: own ? 'Share' : 'Shared',
-    shareTitle: own ? 'Who can see this conversation' : 'Who this is shared with',
+    share: shareStatus(v, row),
     del: own,
   };
 }
@@ -74,9 +74,39 @@ export function halt(me, on, rows) {
 const SPINNING = new Set(['running', 'awaiting', 'sleeping', 'queued', 'blocked']);
 // rowGlyph: '?' waiting for you, '!' failed, a spinner while it works.
 export const rowGlyph = (r) => r.status === 'waiting_input' ? 'ask' : r.status === 'error' ? 'error' : SPINNING.has(r.status) ? 'spin' : '';
-// rowShared: shared with the team or with people (⇆), and what to say about it.
-export const rowShared = (r) => (r.visibility === 'team' || (r.members || 0) > 0
-  ? { title: r.mine ? 'shared' : `shared by ${r.owner || 'the team'}` } : null);
+// rowShared: how a shared row is shared, as chips — from whom (someone else's),
+// with the team (to read or to write), with how many people — and whether it
+// is one you shared; null for a private one.
+export function rowShared(r) {
+  const team = r.visibility === 'team';
+  const n = r.members || 0;
+  if (!team && !n) return null;
+  const byMe = r.access === 'owner' || r.access === 'system';
+  const chips = [];
+  if (!byMe) chips.push({ kind: 'from', label: `from ${r.owner || 'the team'}` });
+  if (team) chips.push({ kind: 'team', label: r.teamRole === 'participant' ? 'team · can write' : 'team · can read' });
+  if (n) chips.push({ kind: 'people', label: n === 1 ? '1 person' : `${n} people` });
+  return { byMe, chips, title: byMe ? `you shared it: ${chips.map((c) => c.label).join(', ')}` : `shared with you by ${r.owner || 'the team'}` };
+}
+
+// shareStatus: who can see the open conversation, said plainly for the top
+// bar — Private, the team (to read or write), how many people, or whose it is
+// when it was shared with you. Its owner changes it from there.
+export function shareStatus(v, row) {
+  const r = v.run;
+  const { own } = access(v);
+  const vis = (row && row.visibility) || r.visibility;
+  const role = (row && row.teamRole) || r.teamRole;
+  const n = (row && row.members) || 0;
+  const people = n === 1 ? '1 person' : `${n} people`;
+  if (!own) return { icon: '👥', label: `from ${r.owner || 'the team'}`, tone: 'in', title: 'Shared with you — see who else can see it' };
+  if (vis === 'team') {
+    return { icon: '👥', label: `team can ${role === 'participant' ? 'write' : 'read'}${n ? ` · ${people}` : ''}`, tone: 'on',
+      title: 'Everyone who can open this agent can see it — change who can see it' };
+  }
+  if (n) return { icon: '👥', label: `shared with ${people}`, tone: 'on', title: 'Shared with people — change who can see it' };
+  return { icon: '🔒', label: 'private', tone: '', title: 'Only you can see it — share it' };
+}
 
 // rowMenu: a row's actions — its owner renames, shares and deletes; anyone
 // pins and archives for themselves; someone it was shared with may leave.

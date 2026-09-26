@@ -110,7 +110,11 @@ func (ag *Agent) convItem(r *Run, w who, st userState) map[string]any {
 // first, paged by a (activity, id) cursor so rows inserted meanwhile never
 // shift a page. The first page also returns the pinned ones separately.
 //
-//	GET /conversations?limit=30&cursor=&q=&archived=0|1&scope=mine|team
+//	GET /conversations?limit=30&cursor=&q=&archived=0|1&scope=mine|shared|team
+//
+// scope=shared is sharing both ways: what the caller shared (with the team or
+// with people) and what reaches them from others (team-visible, or they were
+// added). scope=team, the older view, is only others' team conversations.
 func handleConversations(w http.ResponseWriter, r *http.Request) {
 	c := callerOf(r)
 	qs := r.URL.Query()
@@ -131,7 +135,7 @@ func handleConversations(w http.ResponseWriter, r *http.Request) {
 	}
 	cond := []string{"r.parent_id=0", origins, where}
 	// my own list: what I own or joined, and the legacy runs everyone always
-	// had — team conversations of others are the "shared with team" view
+	// had — others' team conversations and everything shared are the shared view
 	stJoin := ""
 	if c.kind == whoUser {
 		stJoin = ` LEFT JOIN run_user_state us ON us.run_id=r.id AND us.user=?`
@@ -140,6 +144,10 @@ func handleConversations(w http.ResponseWriter, r *http.Request) {
 		case "team":
 			cond = append(cond, "r.owner<>'' AND r.owner<>? AND r.visibility='team'")
 			args = append(args, c.user)
+		case "shared":
+			cond = append(cond, `((r.owner=? AND (r.visibility='team' OR EXISTS (SELECT 1 FROM run_members m WHERE m.run_id=r.id)))
+				OR (r.owner<>'' AND r.owner<>? AND (r.visibility='team' OR EXISTS (SELECT 1 FROM run_members m WHERE m.run_id=r.id AND m.user=?))))`)
+			args = append(args, c.user, c.user, c.user)
 		default:
 			cond = append(cond, "(r.owner=? OR r.owner='' OR EXISTS (SELECT 1 FROM run_members m WHERE m.run_id=r.id AND m.user=?) OR us.run_id IS NOT NULL)")
 			args = append(args, c.user, c.user)

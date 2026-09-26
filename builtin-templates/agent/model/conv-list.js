@@ -17,7 +17,7 @@ export class ConvList {
     this.items = [];
     this.next = '';
     this.loading = false;
-    this.scope = 'mine';     // mine | team
+    this.scope = 'mine';     // mine | shared (both ways: yours and others') | team (older: others' team ones)
     this.archived = false;
     this.q = '';
     this.results = null;     // search hits, while searching
@@ -91,9 +91,13 @@ export class ConvList {
   }
 
   // belongs: would a conversation first seen on the stream be in this view?
+  // (Shared with people only arrives by a reload: the stream's row has no
+  // member count.)
   belongs(d) {
     if (this.archived || !CHAT.has(d.origin ?? '')) return false;
-    return this.scope === 'team' ? !d.mine && d.visibility === 'team' && d.owner !== '' : d.mine || d.owner === '' || d.access === 'system';
+    if (this.scope === 'shared') return d.visibility === 'team' && d.owner !== '';
+    if (this.scope === 'team') return !d.mine && d.visibility === 'team' && d.owner !== '';
+    return d.mine || d.owner === '' || d.access === 'system';
   }
 
   // apply takes a stream event (the app hands every one over, model/app.js).

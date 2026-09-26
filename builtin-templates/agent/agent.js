@@ -20,7 +20,7 @@ const $ = (id) => document.getElementById(id);
 import { selfApi as api, jbody, esc } from '/vendor/bx-kit.js';
 import { Session } from './chat-view.js';
 import { queueTpl } from './chat-cards.js';
-import { sidebarTpl, footTpl, makeSideUI } from './sidebar.js';
+import { sidebarTpl, viewsTpl, makeSideUI } from './sidebar.js';
 import { homeTpl } from './home.js';
 import { AutoPage, autoPageTpl, sideEntryTpl } from './automations.js';
 import './auto-channels.js'; // draws the Channels kind on that page
@@ -82,7 +82,7 @@ const isHtmlPath = (p) => /\.html?$/i.test(p || '');
 
 app.on('change', () => paint());
 app.on('runs', () => { paintSide(); if (app.sel == null) paint(); });
-app.on('list', () => paintSide());
+app.on('list', () => { paintSide(); paint(); }); // the top bar's sharing reads the list row
 app.on('autos', () => { paintSide(); if (app.page) paint(); });
 app.on('needs', () => { if (app.sel == null) paint(); });
 app.on('me', () => { $('gear').hidden = !app.me.manager; syncHalt(); });
@@ -126,7 +126,7 @@ const sideUI = makeSideUI({
 function paintSide() {
   render(sideEntryTpl(autos, app.page === 'automations', () => app.openAutomations()), $('autos'));
   render(sidebarTpl(convs, sideUI), $('runs'));
-  render(footTpl(convs, sideUI), $('sfoot'));
+  render(viewsTpl(convs, sideUI), $('views'));
   syncHalt();
 }
 
@@ -156,7 +156,7 @@ function topTpl(v) {
   if (!v) return app.page === 'automations' ? html`<span class="title">Automations</span>`
     : html`<span class="title">${HOME.title}</span><span class="muted" style="font-size:11.5px">${HOME.tagline}</span>`;
   const r = v.run;
-  const t = rules.topBar(v);
+  const t = rules.topBar(v, convs.find(r.rootId || r.id));
   return html`${t.crumb ? html`<a class="crumb" @click=${() => app.openAutomations(t.crumb.kind, t.crumb.id)}>Automations ›</a>` : nothing}
     <span class="title" title=${r.title || ''}>${t.title}</span>
     <span class="badge" title="tool mode (immutable for this run)">${t.laneLabel}</span>
@@ -168,8 +168,8 @@ function topTpl(v) {
     <button class="btn ghost btnsm" @click=${() => control('mem')}>Memory (${t.memory})</button>
     <button class="btn ghost btnsm" @click=${() => control('files')} title="This run's session files">Files (${t.files})</button>
     ${t.tree ? html`<span class="badge wfchip" @click=${() => control('wf')} title="open the workflow tree">⑂ tree</span>` : nothing}
-    <button class="btn ghost btnsm" @click=${() => openShare(t.shareRun, app.me, () => convs.load())}
-      title=${t.shareTitle}>${t.share}</button>
+    <button class="btn ghost btnsm sharepill ${t.share.tone}" @click=${() => openShare(t.shareRun, app.me, () => convs.load())}
+      title=${t.share.title}>${t.share.icon} ${t.share.label}</button>
     ${t.del ? html`<button class="btn rm btnsm" @click=${() => control('delete')}>Delete</button>` : nothing}`;
 }
 

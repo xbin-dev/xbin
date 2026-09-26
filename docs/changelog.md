@@ -76,6 +76,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   signs the origin its enrollment answer names
   ([auth.md](auth.md) §Device login, [protocol.md](protocol.md)).
 
+- **Agent template: sharing you can see.** The conversation list's views
+  are a switch above it — **Mine · Shared · Archived** — and **Shared** is
+  sharing both ways: what you shared (with the team or with people) and
+  what others shared with you, in two sections (`GET /conversations`
+  `scope=shared`; `scope=team` stays). A shared row says how in chips (the
+  team, to read or write; how many people; from whom), and the top bar says
+  who can see the open conversation — private, the team, N people, or whose
+  it is — opening the share dialog. Before, your own shared conversation
+  never showed under "Shared with team" and nothing changed where you
+  looked. Existing agent instances pick it up by merging the template
+  (they are copies).
+
 ## 2026-09-26
 
 - **Terminal window: pick the VM sandbox before a session starts, and the

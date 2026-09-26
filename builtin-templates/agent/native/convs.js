@@ -12,7 +12,8 @@ import { summaryCount } from '../model/auto.js';
 import { mainMenu } from './home.js';
 
 const GLYPH = { ask: ['waiting for you', 'accent'], error: ['failed', 'danger'], spin: ['working', 'muted'] };
-const SCOPES = [{ value: 'mine', label: 'Mine' }, { value: 'team', label: 'Shared with team' }, { value: 'archived', label: 'Archived' }];
+const SCOPES = [{ value: 'mine', label: 'Mine' }, { value: 'shared', label: 'Shared' }, { value: 'archived', label: 'Archived' }];
+const EMPTY_SHARED = 'nothing shared yet — share a conversation from its menu, and whatever others share with you shows here too';
 
 const close = () => { ui.drawer = false; ctx.paint(); };
 
@@ -22,6 +23,8 @@ export function drawerSheet() {
   const list = app.convs;
   const results = list.results;
   const scope = list.archived ? 'archived' : list.scope;
+  const shared = scope === 'shared';
+  const byMe = (r) => (rowShared(r) || {}).byMe;
   const s = app.autos.summary || {};
   const n = summaryCount(s);
   return html`<sheet open edge="leading" title="Conversations" @dismiss=${close}>
@@ -35,14 +38,17 @@ export function drawerSheet() {
             nav @tap=${() => { app.openAutomations(); close(); }}/>
         </section>
         ${results ? nothing : html`<section><picker style="segmented" value=${scope} options=${SCOPES}
-          @change=${(e) => { ui.q = ''; list.view(e.value === 'team' ? 'team' : 'mine', e.value === 'archived'); }}/></section>`}
+          @change=${(e) => { ui.q = ''; list.view(e.value === 'shared' ? 'shared' : 'mine', e.value === 'archived'); }}/></section>`}
         ${results
           ? (results.length ? html`<section title="Results">${rowsTpl(results, true)}</section>` : html`<empty icon="search" title="nothing found"/>`)
           : html`
             ${list.pinned.length ? html`<section title="Pinned">${rowsTpl(list.pinned)}</section>` : nothing}
-            ${repeat(groupRows(list.items), (g) => g.label, (g) => html`<section title=${g.label}>${rowsTpl(g.rows)}</section>`)}
+            ${shared
+              ? [['Shared by you', list.items.filter(byMe)], ['Shared with you', list.items.filter((r) => !byMe(r))]]
+                .filter(([, rows]) => rows.length).map(([label, rows]) => html`<section title=${label}>${rowsTpl(rows)}</section>`)
+              : repeat(groupRows(list.items), (g) => g.label, (g) => html`<section title=${g.label}>${rowsTpl(g.rows)}</section>`)}
             ${!list.pinned.length && !list.items.length && !list.loading ? html`<empty icon="chat"
-              title=${list.archived ? 'nothing archived' : list.scope === 'team' ? 'nothing shared with the team yet' : 'no conversations yet — ask below'}/>` : nothing}
+              title=${list.archived ? 'nothing archived' : shared ? EMPTY_SHARED : 'no conversations yet — ask below'}/>` : nothing}
             ${list.next && list.loading ? html`<progress label="loading…"/>` : nothing}`}
       </list>
     </screen>
@@ -70,13 +76,13 @@ function rowsTpl(rows, withMatch = false) {
 }
 
 // A row: its glyph (? waiting, ! failed, working) as the badge, unread as the
-// accent dot, shared (⇆) and a search hit's line under the title; its menu as
-// swipe actions and a context menu.
+// accent dot, how it is shared (the chips of rowShared) and a search hit's
+// line under the title; its menu as swipe actions and a context menu.
 function rowTpl(r, withMatch) {
   const app = ctx.app;
   const g = GLYPH[rowGlyph(r)];
   const shared = rowShared(r);
-  const sub = withMatch && r.match ? r.match.snippet : shared ? `⇆ ${shared.title}` : '';
+  const sub = withMatch && r.match ? r.match.snippet : shared ? `👥 ${shared.chips.map((c) => c.label).join(' · ')}` : '';
   const sel = app.root === r.id;
   return html`<row title=${r.title || 'run ' + r.id} subtitle=${sub || nothing}
       badge=${g ? g[0] : nothing} tone=${g ? g[1] : r.unread ? 'accent' : nothing} ?selected=${sel}
