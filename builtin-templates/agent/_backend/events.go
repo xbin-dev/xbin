@@ -317,9 +317,13 @@ func (e *Engine) publishRun(runID int64) {
 	if err != nil {
 		return
 	}
-	ev := &Event{Type: evRun, Run: r.ID, Root: rootOf(r), Data: runSummary(r)}
-	if r.ParentID == 0 && e.ag != nil {
-		ev.acl, _ = e.ag.aclOf(r.ID)
+	data := runSummary(r)
+	ev := &Event{Type: evRun, Run: r.ID, Root: rootOf(r), Data: data}
+	if r.ParentID == 0 {
+		data["grants"] = e.db.liveGrants(r.ID)
+		if e.ag != nil {
+			ev.acl, _ = e.ag.aclOf(r.ID)
+		}
 	}
 	e.hub.publish(ev)
 }

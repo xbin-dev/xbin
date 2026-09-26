@@ -61,6 +61,7 @@ export const IMPLEMENTS = {
 
   // Asking
   'ask.approval': 'native/chat.js — approvalTpl',
+  'ask.grant': 'native/chat.js — approvalTpl with rules.grantAsk (allow_once · allow_always = 1 hour · reject_once)',
   'ask.question': 'native/chat.js — questionTpl (or the composer)',
 
   // Composer
@@ -92,6 +93,7 @@ export const IMPLEMENTS = {
   'top.memory': 'native/chat.js — runMenu → native/tools.js',
   'top.files': 'native/chat.js — runMenu → native/tools.js',
   'top.tree': 'native/chat.js — runMenu → native/tools.js',
+  'top.grant': 'native/chat.js — in the header subtitle; runMenu Revoke',
   'top.share': 'native/chat.js — in the header subtitle; runMenu → native/share.js',
   'top.delete': 'native/chat.js — runMenu, confirmed',
 

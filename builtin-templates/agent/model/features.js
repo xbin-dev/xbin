@@ -80,6 +80,7 @@ export const FEATURES = {
 
   // Asking
   'ask.approval': 'an approval card: the calls it wants to run, approve or deny',
+  'ask.grant': 'a grant card (D111): the agent asks to read your other conversations — its owner allows it once or here for an hour; others may only deny',
   'ask.question': 'the agent\'s question, answered by your next message',
 
   // Composer
@@ -114,6 +115,7 @@ export const FEATURES = {
   'top.memory': 'Memory (n) — opens its memory blocks',
   'top.files': 'Files (n) — opens its session files',
   'top.tree': '⑂ tree — opens the workflow tree',
+  'top.grant': 'what the owner let the agent read here and until when, with a revoke (the owner)',
   'top.share': 'who can see it, said plainly (private · team can read/write · shared with N people · from its owner), opening the share dialog',
   'top.delete': 'Delete, confirmed (owner)',
 

@@ -123,6 +123,9 @@ func (e *Engine) runViewPage(id int64, pg *viewPage) (map[string]any, error) {
 	sum := runSummary(run)
 	sum["pendingState"] = parsePending(run.Pending)
 	sum["summary"] = run.Summary
+	if run.ParentID == 0 {
+		sum["grants"] = e.db.liveGrants(run.ID)
+	}
 	v := map[string]any{
 		"cursor": cursor, "run": sum, "messages": tp.messages, "steps": tp.steps, "links": tp.links,
 		"queued": e.db.queuedView(id), "drafts": e.draftsOf(rootOf(run)), "chain": chain,

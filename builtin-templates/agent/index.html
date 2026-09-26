@@ -104,6 +104,9 @@
     /* the top bar's sharing status (model/rules.js shareStatus) */
     .sharepill.on { color: var(--bx-accent); border-color: color-mix(in srgb, var(--bx-accent) 50%, var(--bx-border)); }
     .sharepill.in { color: var(--bx-text); }
+    /* a grant the owner gave this conversation (model/rules.js grantChips) */
+    .grantchip { color: var(--bx-yellow, #d9a441); border-color: color-mix(in srgb, var(--bx-yellow, #d9a441) 50%, var(--bx-border)); }
+    .grantchip .linkbtn { background: none; border: 0; padding: 0 0 0 4px; color: inherit; text-decoration: underline; cursor: pointer; font: inherit; }
     .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
     /* Top bar and composer never shrink: when .main runs out of height the
        squeeze has to land on the timeline, never on the controls. The

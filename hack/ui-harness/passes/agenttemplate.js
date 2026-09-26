@@ -10,7 +10,9 @@
 //   - a new chat answers at once while background subagents hold the model;
 //   - a backend swap mid-call hands over at once — the successor re-issues
 //     the call within ~1 s of the old process letting go (not the 30–90 s of
-//     orphaned leases).
+//     orphaned leases);
+//   - the composer's model picker and the owner's grant for the thread tools
+//     (D111).
 // The tile is driven as its own document (/c/apps/agent/), like the admin
 // tile's passes. fakeopenai's GET /debug/requests is the model-side record.
 const path = require('path');
@@ -148,7 +150,49 @@ async function agentTemplate(browser) {
   check(resp.length > 0 && resp.every((r) => r.model === 'gpt-5-fake'), `gpt-5* models go over /v1/responses (${resp.length} request(s))`);
   await setModel(page, 'fake/fake-chat');
 
-  // 7. a save mid-call: the successor re-issues the call at once
+  // 7. the composer's model picker (D111): a pick is the conversation's,
+  // from its next turn, and says so in the top bar
+  await ask(page, 'hello picker');
+  await answered(page, 'Hello from the fake model.', 30000);
+  await until(page, () => [...document.querySelectorAll('#msel option')].some((o) => o.value === 'fake/gpt-5-fake'), null, 15000);
+  await page.selectOption('#msel', 'fake/gpt-5-fake');
+  await until(page, () => window.__has('#top .badge', 'gpt-5-fake'), null, 10000);
+  const pickAt = Date.now();
+  await say(page, 'hello again');
+  await until(page, () => document.querySelectorAll('#timeline .msg.assistant:not(.live)').length >= 2, null, 30000);
+  const picked = (await requests()).filter((r) => r.start >= pickAt && r.last === 'hello again');
+  check(picked.length > 0 && picked.every((r) => r.model === 'gpt-5-fake'), `a pick in the composer switches the conversation's next turn (${JSON.stringify(picked.map((r) => r.model))})`);
+  await page.selectOption('#msel', '');
+
+  // 8. the thread tools (D111): this conversation's own need no one's OK;
+  // the owner's other conversations need theirs — once, or here for an hour
+  await ask(page, 'show my schedules');
+  await answered(page, 'Found:', 30000);
+  check(!(await page.$('.ask.approve')), 'listing this conversation\'s schedules asks no one');
+  await say(page, 'list all my threads');
+  await until(page, () => document.querySelector('.ask.approve.grant'), null, 30000);
+  const grantCard = await page.textContent('.ask.approve.grant');
+  check(grantCard.includes('read your other conversations'), `reading the owner's other conversations asks them (${grantCard.slice(0, 100)})`);
+  await shot(page, 'agent-template-grant', { fullPage: false });
+  await page.click('.ask.approve.grant .btn:has-text("Allow here for 1 hour")');
+  await until(page, () => [...document.querySelectorAll('#timeline .msg.assistant:not(.live)')].filter((e) => e.textContent.includes('Found:')).length >= 2, null, 30000);
+  const found = (await text(page, '#timeline .msg.assistant:not(.live)')).filter((t) => t.includes('Found:')).pop();
+  check(/Found: #\d+ \[/.test(found || ''), `allowed, the agent lists the owner's threads (${found})`);
+  await until(page, () => document.querySelector('#top .grantchip'), null, 10000);
+  check((await page.textContent('#top .grantchip')).includes('reads your threads'), 'the top bar shows the grant in force');
+  await say(page, 'all my threads once more');
+  await until(page, () => [...document.querySelectorAll('#timeline .msg.assistant:not(.live)')].filter((e) => e.textContent.includes('Found:')).length >= 3, null, 30000);
+  check(!(await page.$('.ask.approve.grant')), 'within the hour it is not asked again');
+  await page.click('#top .grantchip .linkbtn');
+  await until(page, () => !document.querySelector('#top .grantchip'), null, 10000);
+  check(true, 'revoke takes the grant back (the chip goes)');
+  await say(page, 'all my threads after revoking');
+  await until(page, () => document.querySelector('.ask.approve.grant'), null, 30000);
+  check(true, 'after a revoke it is asked again');
+  await page.click('.ask.approve.grant .btn:has-text("Deny")');
+  await until(page, () => !document.querySelector('.ask.approve.grant'), null, 10000);
+
+  // 9. a save mid-call: the successor re-issues the call at once
   if (WS) {
     // unique text: fakeopenai hangs only the FIRST request it sees for it
     const goal = `restart me please (${Date.now()})`;

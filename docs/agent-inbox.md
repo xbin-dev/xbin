@@ -322,6 +322,10 @@ agent's **web lane**, which has no internal reach.
 - `deny` lists tools a channel session never gets. The default is
   `schedule`, `unschedule` and `skill_manage`: a stranger's message
   leaves nothing behind that outlives the conversation.
+- The thread tools (`threads_list`, `thread_inspect`, …) see only the
+  channel conversation's own automations there: reading the owner's other
+  conversations needs the owner's grant, and no one in a chat can give it
+  (D111).
 - `system` adds to the prompt. The agent already tells the model where
   it is talking, that group members' text is untrusted, and that
   `NO_REPLY` means silence.

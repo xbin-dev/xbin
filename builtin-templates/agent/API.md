@@ -72,6 +72,7 @@ sealed to their devices, and only when the workspace has push set up):
 |---|---|---|
 | a run (or a subagent) starts waiting on an `ask_user` question | its owner and participant members | kind `question` (the app sees `tile.question`), the question as the body |
 | a run (or a subagent) parks a tool call for approval | its owner and participant members | kind `approval`, the tools it wants to run |
+| a run asks its owner for a grant (D111) | its owner alone | kind `approval`, what it asks to read |
 | an automation's run (schedule, watcher, channel, trigger) fails | its owner | kind `failed`, the error |
 
 The title is the conversation's; tapping it opens `#c=<run>` (the subagent's
@@ -140,7 +141,8 @@ llm-gw's logs. Give team members `read` on the tile.
 | `POST /runs/{id}/message` | `{text, files?, clientId?}` | send a user message → `{inboxId, queued}`. An idle, finished or failed run starts a new turn; a working run gets it at its next step (`queued:true`). A retried post with the same `clientId` is stored once. `files` names session files (normally just uploaded) the message carries — each must exist, or **400** and nothing is written. `text` may be empty when `files` is not |
 | `DELETE /runs/{id}/inbox/{iid}` | — | take back a queued message; **409** once the agent has it |
 | `POST /runs/{id}/answer` | `{text}` | answer an `ask_user` (alias of message) |
-| `POST /runs/{id}/approve` | `{approve}` | approve/deny a parked tool turn (approval mode) |
+| `POST /runs/{id}/approve` | `{approve, grant?}` | approve/deny a parked tool turn (approval mode). A turn parked on a **grant** (`pendingState.grant`, see **Threads, schedules and grants**) is allowed only by the conversation's owner — **403** for anyone else, who may still deny — with `grant: "once"` (the default) or `"hour"`; **400** for anything else |
+| `DELETE /runs/{id}/grants/{cap}` | — | the owner takes a grant back before it expires → `{revoked}` (false when none was in force); **404** for an unknown `cap` |
 | `POST /runs/{id}/interrupt` | — | stop the turn in flight (never an error); the run goes idle, its subagents are cancelled, and messages still queued come back as `{returned:[{text, files}]}` |
 | `POST /runs/{id}/resume` | — | drive the run again |
 | `POST /runs/{id}/compact` | — | force a compaction now (answers when it is done) |
@@ -380,7 +382,8 @@ interface bound (`bx bind <this component> net=internet`); unbound, they return
   "approve": false,            // gate side-effecting tools on human approval
   "features": { "recall": true, "skills": true, "streaming": true,
                 "vision": true, "parallelTools": true, "watcher": true,
-                "files": true, "repl": true, "workflow": true, "titles": true },
+                "files": true, "repl": true, "workflow": true, "titles": true,
+                "threads": true },
   "replTimeoutMs": 5000,       // REPL budget per statement (max 60000)
   "replMemMB": 256,            // REPL heap watchdog
   // workflow limits (0 = default): delegation depth, lifetime runs per tree,
@@ -761,7 +764,8 @@ parallel, each under `toolTimeout`) → repeat, up to `maxTurnSteps` per turn.
 Built-in tools: `memory_set`/`memory_get`, `note`, `recall` (FTS5 over full
 history), `xbin_call` (reach other granted components; private lane),
 `web_search`/`web_fetch` (web lane), `schedule`/`unschedule`, `state_changed`
-(watcher), `skills_list`/`skill_view`/`skill_manage`, `finish`, `ask_user`,
+(watcher), `schedules_list`/`schedule_inspect`/`threads_list`/`thread_inspect`
+(below), `skills_list`/`skill_view`/`skill_manage`, `finish`, `ask_user`,
 `yield`, the `subagent_*` tools above, the session-file and sandbox tools below,
 plus any bound MCP tool.
 MCP servers are bound via the `mcp` interface (multi:true, like the chat tile).
@@ -772,6 +776,46 @@ minutes is used as is, an older one is used at once and refreshed in the
 background, and only a server never listed before is waited for —
 concurrently, 5 s at most each. A run is marked `running` before any of this,
 and the web lane skips discovery entirely.
+
+### Threads, schedules and grants (D111)
+
+Four tools let a conversation's agent look at its automations and what they
+did — top-level runs only, feature `threads`:
+
+| Tool | Arguments | Returns |
+|---|---|---|
+| `schedules_list` | `{scope?, enabled?, q?, cursor?, limit?}` (limit ≤ 50, default 20) | one line per schedule, newest first: id, name, cron, where firings go, enabled, the last run — then its goal |
+| `schedule_inspect` | `{id, cursor?, limit?}` (≤ 30, default 10) | the schedule's settings and goal, then the runs it fired (newest activity first), each with its latest answer |
+| `threads_list` | `{scope?, origin?, status?, q?, archived?, cursor?, limit?}` (≤ 50, default 20) | one line per thread, newest activity first: `#id [origin] "title" — status · when`, plus its owner when it is someone else's. `origin` is `chat`, `schedule`, `watcher`, `channel`, `trigger` or `api`; `status` a run status (`waiting` for `waiting_input`); `q` matches the title or anything said in it (FTS); `archived` filters by the owner's archive (both when absent) |
+| `thread_inspect` | `{id, before?, limit?}` (≤ 100, default 30) | who and what it is, the summary of its compacted turns, then its messages by `seq` — the latest page, and `before=<seq>` for older ones |
+
+A list that has more ends with `more: cursor "<c>"`; pass it back as `cursor`.
+Results are capped like every tool result.
+
+**Scopes.** `scope: "mine"` (the default) is free: the schedules this
+conversation created or that deliver into it, the threads those schedules
+ran, and this conversation's own tree. `scope: "all"` is what the
+conversation's **owner** has: every thread they own or were added to (not
+other people's team conversations, not held drafts) and every schedule they
+own; inspecting an id outside mine counts as all. An id in neither reads as
+missing. A schedule removed since keeps its past runs, but they are only
+found through all.
+
+**Grants.** Reading "all" needs the owner's grant. The step parks like an
+approval — `status: "waiting_input"`, `pendingState: {kind: "approval",
+grant: "threads", toolCalls}` — and only the owner may allow it (`POST
+/runs/{id}/approve {approve: true, grant}`): `"once"` runs the parked calls
+and keeps nothing; `"hour"` also lets later calls in this conversation read
+all for an hour. Anyone who may steer the conversation may deny it; Needs you
+and push notifications reach the owner alone. A grant in force is on the
+conversation's `run` (view and stream): `grants: [{cap, grantedBy,
+expiresMs}]`; expiry is read where a grant is used (nothing ticks), and the
+owner can revoke it (`DELETE /runs/{id}/grants/threads`).
+
+"all" is refused outright — the call says why — in a web-toolset run (a web
+lane carries public data only; its "mine" also lists only web-toolset
+automations), in a chat channel's run (no one there can allow it), and in a
+conversation no person owns.
 
 ## Session files + render
 

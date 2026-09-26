@@ -76,6 +76,22 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   signs the origin its enrollment answer names
   ([auth.md](auth.md) §Device login, [protocol.md](protocol.md)).
 
+- **Agent template: the agent can see its automations and — with your OK —
+  your other conversations.** Four new tools: `schedules_list` and
+  `schedule_inspect` (a schedule's settings, goal and the runs it fired),
+  `threads_list` (filters: origin, status, words in the title or anything
+  said, archived; paged) and `thread_inspect` (a thread's messages by seq,
+  paged back). Without asking anyone, a conversation's agent sees its own
+  schedules and the threads they ran. Reading everything the conversation's
+  owner has — their own conversations and the ones shared with them, not the
+  team pool — asks the owner first, on an approval card: **Allow once ·
+  Allow here for 1 hour · Deny** (`POST /runs/{id}/approve {approve,
+  grant:"once"|"hour"}` — owner only; others may deny). A grant in force
+  shows in the top bar with a revoke (`DELETE /runs/{id}/grants/threads`;
+  the run carries `grants`). Never from a web-toolset run, a chat channel,
+  or a conversation no person owns. Feature `threads` switches the tools
+  off. Existing instances pick it up by merging the template.
+
 - **Agent template: its models come from a bindable interface, and the chat
   picks them.** The template's LLM is now the `llm` interface slot (http,
   service `openai`, multi — like the chat tile's): bind it to llm-gw or to any

@@ -3352,8 +3352,10 @@ Deviations and refinements made while implementing; all deliberate:
     deployment's security surface without an admin in the loop.
 
 - **D111 — The agent template's models come from a bindable, multi-provider
-  `llm` interface, and a conversation picks its own (2026-09-27).**
-  builtin-templates/agent/API.md §Config, models, features.
+  `llm` interface, and a conversation picks its own; its thread tools read
+  the owner's conversations only on their grant (2026-09-27).**
+  builtin-templates/agent/API.md §Config, models, features · §Threads,
+  schedules and grants.
   - **The slot, not a name.** The manifest declares `"llm": {"kind":
     "http", "service": "openai", "multi": true}` (the chat tile's shape) and
     drops `apps/llm-gw` from `uses`: the owner binds llm-gw — or any tile
@@ -3382,6 +3384,29 @@ Deviations and refinements made while implementing; all deliberate:
     in, and replay wants one model per stretch); keeping `uses apps/llm-gw`
     beside the slot (two ways to the same place, and the name is exactly
     what an owner could not change).
+  - **Thread and schedule tools, scoped, with an owner's grant.**
+    `schedules_list`/`schedule_inspect`/`threads_list`/`thread_inspect`
+    (top-level only, feature `threads`). *mine* — the schedules this
+    conversation created or that deliver into it, their threads, its own
+    tree — is free: the agent made them. *all* is the conversation OWNER's
+    reach — owned or joined threads, owned schedules — and deliberately not
+    the team pool (other people's team conversations are the owner's to
+    open, not their agent's to trawl) nor held drafts. It needs the
+    owner's **grant**, a new kind of approval: the step parks
+    (`pendingState.grant`), only the owner — the person whose data it is,
+    not a manager, not the owner token, not a view-as admin — may allow it,
+    once or for an hour in this conversation (`run_grants`, expiry read at
+    use: no tickers); anyone who may steer may deny, and Needs you/push go
+    to the owner alone. Refused outright, never parked: the web lane (the
+    toolset firewall — and its *mine* sees only web automations, since a
+    private schedule's goal and threads are private data), chat channels
+    (no one there can answer), and conversations no person owns. An id
+    outside both scopes reads as missing — no existence oracle.
+  - **Not chosen for grants:** per-tool or per-thread grants (one question
+    per capability is what a person can answer); a grant for the whole
+    agent (it would outlive the conversation that asked); a rememberable
+    "always" (the user asked for a timeout); letting participants allow it
+    (it is the owner's threads being read).
 
 - **D112 — A sandbox registry: one live list of every sandbox xbind runs,
   VM reservations charged to a tile, and a bounded ring of what the sandbox

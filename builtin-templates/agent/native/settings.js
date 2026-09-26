@@ -85,6 +85,7 @@ const FEATURE_DESC = {
   vision: 'send images to the VLM tier',
   parallelTools: "run a turn's tool calls in parallel",
   watcher: 'watcher cron-agents (one persistent run, discard no-change rounds)',
+  threads: "thread & schedule tools: list and read this conversation's automations and threads — and, with the owner's OK, their other conversations",
 };
 
 // features: each switch merges {features: {k: on}} into the current config.

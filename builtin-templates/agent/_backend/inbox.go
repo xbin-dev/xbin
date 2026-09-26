@@ -44,7 +44,9 @@ type inboxBody struct {
 	// adapter's channelAddr, JSON; D86).
 	Addr    string `json:"addr,omitempty"`
 	Approve bool   `json:"approve,omitempty"`
-	Reason  string `json:"reason,omitempty"`
+	// Grant is how a grant was allowed (grants.go): "once" | "hour".
+	Grant  string `json:"grant,omitempty"`
+	Reason string `json:"reason,omitempty"`
 	// Watcher rounds: the transcript mark before the round, whether it is the
 	// open round, and whether state_changed was called in it.
 	Mark    int  `json:"mark,omitempty"`
@@ -247,20 +249,55 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 	xbin.WriteJSON(w, 200, map[string]any{"ok": "true", "inboxId": iid, "queued": active(run.Status)})
 }
 
+// handleApprove is a verdict on a parked approval.
+//
+//	POST /runs/{id}/approve {approve, grant?: "once"|"hour"}
+//
+// A parked call that needs a grant (pendingState.grant, grants.go) is the
+// conversation owner's to allow — anyone who may steer it may still deny it;
+// grant says for how long ("once" when absent).
 func handleApprove(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
-	var body struct{ Approve bool }
+	var body struct {
+		Approve bool
+		Grant   string
+	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	run, err := agent.db.getRun(id)
 	if err != nil {
 		xbin.WriteError(w, 404, "no such run")
 		return
 	}
-	if parsePending(run.Pending).Kind != "approval" {
+	p := parsePending(run.Pending)
+	if p.Kind != "approval" {
 		xbin.WriteError(w, 400, "no pending approval")
 		return
 	}
-	if _, _, err := agent.queue(id, inboxApprove, inboxBody{Approve: body.Approve}, ""); err != nil {
+	c := callerOf(r)
+	verdict := inboxBody{Approve: body.Approve, Sender: c.tag()}
+	if p.Grant != "" && body.Approve {
+		root := run
+		if run.ParentID != 0 {
+			if root, err = agent.db.getRun(rootOf(run)); err != nil {
+				xbin.WriteError(w, 404, "no such run")
+				return
+			}
+		}
+		if !grantOwner(c, root) {
+			xbin.WriteError(w, 403, "only "+orStr(root.Owner, "the conversation's owner")+" can allow reading their conversations")
+			return
+		}
+		switch body.Grant {
+		case "", "once":
+			verdict.Grant = "once"
+		case "hour":
+			verdict.Grant = "hour"
+		default:
+			xbin.WriteError(w, 400, `grant is "once" or "hour"`)
+			return
+		}
+	}
+	if _, _, err := agent.queue(id, inboxApprove, verdict, ""); err != nil {
 		xbin.WriteError(w, 500, err.Error())
 		return
 	}

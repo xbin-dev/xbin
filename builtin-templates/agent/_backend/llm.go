@@ -102,7 +102,7 @@ type Config struct {
 }
 
 // featureKeys are the toggleable capabilities shown in the tile's Features menu.
-var featureKeys = []string{"recall", "skills", "streaming", "vision", "parallelTools", "watcher", "files", "repl", "workflow", "titles"}
+var featureKeys = []string{"recall", "skills", "streaming", "vision", "parallelTools", "watcher", "files", "repl", "workflow", "titles", "threads"}
 
 // toolset normalizes the capability lane: anything but "web" is "private".
 func (c Config) toolset() string {

@@ -102,10 +102,18 @@ func isControlTool(name string) bool {
 func (e *Engine) execTools(ctx context.Context, ts *turnState, calls []toolCall, approved bool) bool {
 	run, cfg := ts.run, ts.cfg
 	ts.waits, ts.spawnedThisStep = nil, 0
+	if !approved {
+		// A call that needs the owner's grant parks the whole step for them
+		// (grants.go); allowing it also approves the step's other calls.
+		if g := e.ag.grantNeeded(run, cfg, calls, ts.own); g != "" {
+			e.parkApproval(ts, calls, g)
+			return true
+		}
+	}
 	if cfg.Approve && !approved {
 		for _, tc := range calls {
 			if sideEffect(tc.Function.Name) {
-				e.parkApproval(ts, calls)
+				e.parkApproval(ts, calls, "")
 				return true
 			}
 		}
@@ -139,10 +147,11 @@ func (e *Engine) execTools(ctx context.Context, ts *turnState, calls []toolCall,
 }
 
 // parkApproval parks the whole step for the owner's verdict. Placeholders say
-// so, which keeps the transcript valid for as long as the run waits.
-func (e *Engine) parkApproval(ts *turnState, calls []toolCall) {
+// so, which keeps the transcript valid for as long as the run waits. grant,
+// when set, is the capability only the conversation's owner may allow.
+func (e *Engine) parkApproval(ts *turnState, calls []toolCall, grant string) {
 	run := ts.run
-	pend, _ := json.Marshal(pendingState{Kind: "approval", ToolCalls: calls})
+	pend, _ := json.Marshal(pendingState{Kind: "approval", ToolCalls: calls, Grant: grant})
 	_ = e.fenced(func(t *DB) error {
 		for _, tc := range calls {
 			if ok, _ := t.setToolPlaceholder(run.ID, tc.ID, toolAwaitingApproval); ok {
@@ -151,7 +160,7 @@ func (e *Engine) parkApproval(ts *turnState, calls []toolCall) {
 				}
 			}
 		}
-		e.emitStep(t, ts.root, t.journal(run.ID, "ask", map[string]any{"kind": "approval", "tools": toolNames(calls)}))
+		e.emitStep(t, ts.root, t.journal(run.ID, "ask", map[string]any{"kind": "approval", "tools": toolNames(calls), "grant": grant}))
 		e.channelAsk(t, run, "approval", "This needs an operator's approval before I go on ("+strings.Join(toolNames(calls), ", ")+
 			"). A trusted person can reply /approve or /deny.")
 		t.bumpActivity(run.ID)

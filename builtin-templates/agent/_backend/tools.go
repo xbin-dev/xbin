@@ -101,6 +101,11 @@ func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
 				Parameters: obj([]string{"id"}, map[string]any{"id": map[string]any{"type": "integer", "description": "schedule id"}}),
 			}})
 	}
+	// Looking at its automations and threads (threads_tools.go) — top-level
+	// only, like scheduling: a subagent reports to its parent instead.
+	if depth == 0 && cfg.feature("threads") {
+		specs = append(specs, threadToolSpecs()...)
+	}
 	if cfg.feature("watcher") {
 		specs = append(specs, toolSpec{Type: "function", Function: funcDef{
 			Name: "state_changed", Description: "In a watcher run, report that the watched state changed since the last check, with a short summary. Calling this keeps the round in history; not calling it discards the round.",
@@ -345,6 +350,9 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 		return ag.toolAttachReply(run, args)
 	}
 
+	if threadToolNames[name] {
+		return ag.runThreadTool(ctx, run, cfg, name, args)
+	}
 	if fileToolNames[name] {
 		return ag.runFileTool(ctx, run, cfg, name, args)
 	}

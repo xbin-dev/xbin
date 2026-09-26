@@ -265,6 +265,15 @@ CREATE TABLE IF NOT EXISTS link_deps (
   PRIMARY KEY (child_id, dep_link)
 );
 CREATE INDEX IF NOT EXISTS idx_link_deps_dep ON link_deps(dep_link);
+-- What a conversation's owner let its agent do for a while (grants.go, D111).
+CREATE TABLE IF NOT EXISTS run_grants (
+  root_id INTEGER NOT NULL,
+  cap TEXT NOT NULL,
+  granted_by TEXT NOT NULL DEFAULT '',
+  expires_ms INTEGER NOT NULL,
+  created_ms INTEGER NOT NULL,
+  PRIMARY KEY (root_id, cap)
+);
 `
 
 // backfillGraph places rows created before root_id/depth existed. Idempotent

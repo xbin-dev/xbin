@@ -638,6 +638,8 @@ func (ag *Agent) channelCommand(t *DB, ch *Channel, m *adapterMsg, key, addr str
 			say("Only a trusted person can approve here; the operator can decide in the agent's page.")
 		case !has || err != nil || parsePending(run.Pending).Kind != "approval":
 			say("Nothing is waiting for approval.")
+		case parsePending(run.Pending).Grant != "" && cmd == "approve":
+			say("Only the conversation's owner can allow this, in the agent's page.")
 		default:
 			if _, _, err := t.enqueue(cur, inboxApprove, inboxBody{Approve: cmd == "approve", Sender: "channel:" + m.Sender.ID}, ""); err != nil {
 				return false, nil, err

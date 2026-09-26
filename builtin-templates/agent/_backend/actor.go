@@ -25,9 +25,12 @@ import (
 
 // pendingState is runs.pending: what a parked run is parked on.
 type pendingState struct {
-	Kind      string      `json:"kind"`                // approval | await | deps
-	ToolCalls []toolCall  `json:"toolCalls,omitempty"` // approval: the parked calls
-	Waits     []waitEntry `json:"waits,omitempty"`     // await: subagent_wait calls
+	Kind      string     `json:"kind"`                // approval | await | deps
+	ToolCalls []toolCall `json:"toolCalls,omitempty"` // approval: the parked calls
+	// Grant, on an approval, is the capability the calls need from the
+	// conversation's owner (grants.go): only they may allow it.
+	Grant string      `json:"grant,omitempty"`
+	Waits []waitEntry `json:"waits,omitempty"` // await: subagent_wait calls
 }
 
 // waitEntry is one subagent_wait call the run is parked on.
@@ -324,11 +327,16 @@ func (e *Engine) turn(a *actor, run *Run, approval *InboxRow) {
 	e.repairTranscript(run.ID)
 
 	var approved []toolCall
+	grantCtx := ctx // the approved calls' context: carries a grant allowed once
 	if approval != nil {
 		p := parsePending(run.Pending)
 		if !approval.Body.Approve {
 			_ = e.fenced(func(t *DB) error { t.consume(approval.ID, 0); return nil })
-			if !e.denyParked(run, p, "(denied by user)") {
+			denied := "(denied by user)"
+			if p.Grant == capThreads {
+				denied = "(denied: the owner did not allow reading their other conversations — scope mine still works)"
+			}
+			if !e.denyParked(run, p, denied) {
 				return
 			}
 		} else {
@@ -339,7 +347,20 @@ func (e *Engine) turn(a *actor, run *Run, approval *InboxRow) {
 				for _, tc := range p.ToolCalls {
 					_, _ = t.setToolPlaceholder(run.ID, tc.ID, toolRunning)
 				}
-				e.emitStep(t, ts.root, t.journal(run.ID, "note", map[string]string{"text": "tool call(s) approved"}))
+				note := "tool call(s) approved"
+				if p.Grant != "" && approval.Body.Grant == "hour" {
+					// kept for this conversation until it expires (grants.go)
+					if err := t.setGrant(ts.root, p.Grant, approval.Body.Sender, nowMs()+grantFor.Milliseconds()); err != nil {
+						return err
+					}
+					note = "allowed for an hour in this conversation"
+					if ts.root != run.ID {
+						e.emitRun(t, ts.root)
+					}
+				} else if p.Grant != "" {
+					note = "allowed once"
+				}
+				e.emitStep(t, ts.root, t.journal(run.ID, "note", map[string]string{"text": note}))
 				if err := t.setStatus(run.ID, statusRunning, 0, "", ""); err != nil {
 					return err
 				}
@@ -350,6 +371,9 @@ func (e *Engine) turn(a *actor, run *Run, approval *InboxRow) {
 				return
 			}
 			approved = p.ToolCalls
+			if p.Grant != "" {
+				grantCtx = withGrantOnce(ctx, p.Grant)
+			}
 		}
 	}
 
@@ -358,7 +382,7 @@ func (e *Engine) turn(a *actor, run *Run, approval *InboxRow) {
 		return
 	}
 	if len(approved) > 0 {
-		if e.execTools(ctx, ts, approved, true) {
+		if e.execTools(grantCtx, ts, approved, true) {
 			return
 		}
 	}

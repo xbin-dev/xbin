@@ -333,5 +333,6 @@ export function createApp(opts = {}) {
   app.attach = new actions.Attachments({ change: () => emit('attach') });
   app.session.ui.act.select = (id) => app.select(id);
   app.session.ui.me = () => app.me.user;
+  app.session.ui.who = () => app.me;
   return app;
 }

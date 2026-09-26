@@ -272,6 +272,42 @@ test('asking: the approval card has Approve and Deny; the question is answered b
   assert.equal(JSON.parse(called(q, 'POST', /\/runs\/9\/message$/)[0].body).text, 'Acme');
 });
 
+// D111: reading the owner's other conversations is theirs to allow — once or
+// here for an hour; someone else may only deny. A grant in force shows in
+// the header and the owner can revoke it from the menu.
+test('a grant: the owner allows it once or for an hour, others may deny; it shows until revoked', async () => {
+  const ask = { title: 'catch me up', status: 'waiting_input', owner: 'admin',
+    pendingState: { kind: 'approval', grant: 'threads', toolCalls: [{ function: { name: 'threads_list' } }] } };
+  const r = await run(oneSeed({ run: ask }), [
+    { snapshot: 'asked' },
+    { event: [{ t: 'approval' }, 'choose', { id: 'hour', feedback: '' }] },
+  ], { state: { hash: 'c=9' } });
+  const a = find(r.snapshots.asked, { t: 'approval' });
+  assert.equal(a.p.title, 'The agent asks to read your other conversations and automations');
+  assert.deepEqual(a.p.options.map((o) => [o.label, o.kind]), [['Allow once', 'allow_once'], ['Allow here for 1 hour', 'allow_always'], ['Deny', 'reject_once']]);
+  assert.match(a.p.text, /threads_list/);
+  assert.deepEqual(JSON.parse(called(r, 'POST', /\/runs\/9\/approve$/)[0].body), { approve: true, grant: 'hour' });
+
+  const other = await run(oneSeed({ access: 'participant', run: { ...ask, owner: 'bob' } }), [
+    { snapshot: 'asked' },
+    { event: [{ t: 'approval' }, 'choose', { id: 'deny', feedback: '' }] },
+  ], { state: { hash: 'c=9' } });
+  const o = find(other.snapshots.asked, { t: 'approval' });
+  assert.deepEqual(o.p.options.map((x) => x.label), ['Deny'], 'only its owner may allow');
+  assert.match(o.p.text, /Only bob can allow this/);
+  assert.deepEqual(JSON.parse(called(other, 'POST', /\/runs\/9\/approve$/)[0].body), { approve: false });
+
+  const live = { title: 'catch me up', status: 'idle', owner: 'admin',
+    grants: [{ cap: 'threads', grantedBy: 'admin', expiresMs: NOW + 30 * 60e3 }, { cap: 'threads', grantedBy: 'admin', expiresMs: NOW - 1 }] };
+  const g = await run(oneSeed({ run: live }), [
+    { snapshot: 'granted' },
+    { tap: { t: 'button', has: 'Revoke: reads your threads', in: { t: 'menu' } } },
+  ], { state: { hash: 'c=9' } });
+  const screen = find(g.snapshots.granted, { t: 'screen', p: { title: 'catch me up' } });
+  assert.equal((screen.p.subtitle.match(/🔓 reads your threads · until \d\d:\d\d/g) || []).length, 1, 'the live one, not the expired one');
+  assert.equal(called(g, 'DELETE', /\/runs\/9\/grants\/threads$/).length, 1);
+});
+
 test('a failed run offers Retry, inline and in the menu', async () => {
   const r = await run(oneSeed({ run: { title: 'broke', status: 'error' },
     steps: [{ id: 1, kind: 'error', detail: JSON.stringify({ error: 'model unreachable' }), created: now - 5 }] }), [

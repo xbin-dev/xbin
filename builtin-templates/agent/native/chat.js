@@ -154,11 +154,16 @@ function stepTpl(b) {
 
 // approvalTpl: the calls a run wants to run, approve or deny (a subagent's
 // from its parent's card too).
-export function approvalTpl(calls, runId, lead = 'The agent wants to run') {
+// grant (rules grantAsk) is a capability only the conversation's owner may
+// allow (D111): once, or here for an hour; others may only deny.
+export function approvalTpl(calls, runId, lead = 'The agent wants to run', grant = null) {
   const names = (calls || []).map((c) => (c.function ? c.function.name : String(c)));
-  return html`<approval title=${lead} text=${names.join('\n')}
-    options=${[{ id: 'approve', label: 'Approve', kind: 'allow_once' }, { id: 'deny', label: 'Deny', kind: 'reject_once' }]}
-    @choose=${guard((e) => ctx.app.session.approve(runId, e.id === 'approve'))}/>`;
+  const options = !grant ? [{ id: 'approve', label: 'Approve', kind: 'allow_once' }, { id: 'deny', label: 'Deny', kind: 'reject_once' }]
+    : [...(grant.canAllow ? [{ id: 'once', label: 'Allow once', kind: 'allow_once' }, { id: 'hour', label: 'Allow here for 1 hour', kind: 'allow_always' }] : []),
+      { id: 'deny', label: 'Deny', kind: 'reject_once' }];
+  const text = grant ? [grant.note, ...names].join('\n') : names.join('\n');
+  return html`<approval title=${grant ? grant.lead : lead} text=${text} options=${options}
+    @choose=${guard((e) => ctx.app.session.approve(runId, e.id !== 'deny', grant && e.id !== 'deny' ? e.id : undefined))}/>`;
 }
 
 // --- the conversation screen ------------------------------------------------------------
@@ -196,12 +201,12 @@ export function chatScreen(v) {
   const { rules } = app;
   const s = app.session.shown();
   const r = v.run;
-  const t = rules.topBar(v, app.convs.find(r.rootId || r.id));
+  const t = rules.topBar(v, app.convs.find(r.rootId || r.id), app.me);
   const ps = r.pendingState || {};
   const chain = (v.chain || []).map((c) => c.title || '#' + c.id);
   // a shared conversation says so in its header, as the web's top bar does
   const subtitle = [chain.length ? 'in ' + chain.join(' › ') : '', r.status, t.laneLabel, t.viewOnly ? 'view only' : '',
-    t.share.tone ? `${t.share.icon} ${t.share.label}` : '', t.model ? `✦ ${t.model}` : ''].filter(Boolean).join(' · ');
+    t.share.tone ? `${t.share.icon} ${t.share.label}` : '', t.model ? `✦ ${t.model}` : '', ...t.grants.map((g) => g.label)].filter(Boolean).join(' · ');
   return html`<screen title=${t.title} subtitle=${subtitle} style="scroll">
     <toolbar>
       <button icon="list" @tap=${() => { ui.drawer = true; ctx.paint(); }}>Conversations</button>
@@ -212,7 +217,7 @@ export function chatScreen(v) {
     <transcript follow ?older=${s.hasOlder} @more=${() => app.session.loadOlder().catch(fail)}>
       ${s.olderHidden ? html`<notice tone="muted" text="earlier turns were compacted into the summary"/>` : nothing}
       ${repeat(s.blocks, (b) => b.id, (b) => blockTpl(b))}
-      ${r.status === 'waiting_input' && ps.kind === 'approval' ? approvalTpl(ps.toolCalls, r.id) : nothing}
+      ${r.status === 'waiting_input' && ps.kind === 'approval' ? approvalTpl(ps.toolCalls, r.id, undefined, rules.grantAsk(r, app.me)) : nothing}
       ${r.status === 'waiting_input' && ps.kind !== 'approval' && r.result ? questionTpl(r) : nothing}
       ${s.activity ? html`<activity live text=${s.activity}/>` : nothing}
       ${s.conn === 'reconnecting' ? html`<notice tone="warn" text="live updates lost — reconnecting…"/>` : nothing}
@@ -249,6 +254,7 @@ function runMenu(v, t) {
     <button icon="folder" @tap=${() => push({ kind: 'files', run: id })}>${`Files (${t.files})`}</button>
     ${t.tree ? html`<button icon="branch" @tap=${() => push({ kind: 'tree', root: v.run.rootId || id })}>Workflow tree</button>` : nothing}
     <button icon="people" @tap=${() => { ui.share = { run: t.shareRun }; ctx.paint(); }}>${t.own ? 'Share' : 'Shared'}</button>
+    ${t.grants.filter((g) => g.revoke).map((g) => html`<button icon="lock" @tap=${guard(() => app.session.revokeGrant(g.run, g.cap))}>${`Revoke: ${g.label.replace(/^🔓 /, '')}`}</button>`)}
     ${t.crumb ? html`<button icon="clock" @tap=${() => app.openAutomations(t.crumb.kind, t.crumb.id)}>Its automation</button>` : nothing}
     ${t.del ? html`<divider/><button icon="trash" role="destructive"
       confirm=${{ title: 'Delete this run and its history?', label: 'Delete', destructive: true }}

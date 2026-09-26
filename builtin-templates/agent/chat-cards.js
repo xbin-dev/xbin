@@ -5,6 +5,7 @@
 import { html, nothing, repeat, unsafeHTML, classMap } from '/vendor/lit-all.min.js';
 import { md } from './chat-md.js';
 import { ICON, argsShown } from './model/tool-heads.js';
+import { grantAsk } from './model/rules.js';
 
 const STATE_LABEL = {
   running: 'running', writing: 'writing', waiting: 'waiting', approval: 'needs approval',
@@ -160,11 +161,17 @@ function stepTpl(b) {
   return html`<div class="step ${b.kind}"><span class="g">${g}</span> ${txt}</div>`;
 }
 
-export function approvalTpl(calls, decide, lead = 'The agent wants to run') {
-  return html`<div class="ask approve">
-    <b>${lead}:</b>
+// approvalTpl: the calls a run wants to run, approve or deny. grant (rules
+// grantAsk) is a capability only the conversation's owner may allow (D111):
+// once, or here for an hour.
+export function approvalTpl(calls, decide, lead = 'The agent wants to run', grant = null) {
+  return html`<div class="ask approve ${grant ? 'grant' : ''}">
+    <b>${grant ? grant.lead : lead}:</b>
     <ul>${(calls || []).map((c) => html`<li class="mono">${c.function ? c.function.name : c}</li>`)}</ul>
-    <button class="btn btnsm" @click=${() => decide(true)}>Approve</button>
+    ${grant ? html`<div class="muted small">${grant.note}</div>` : nothing}
+    ${!grant ? html`<button class="btn btnsm" @click=${() => decide(true)}>Approve</button>`
+      : grant.canAllow ? html`<button class="btn btnsm" @click=${() => decide(true, 'once')}>Allow once</button>
+        <button class="btn btnsm" @click=${() => decide(true, 'hour')}>Allow here for 1 hour</button>` : nothing}
     <button class="btn ghost btnsm" @click=${() => decide(false)}>Deny</button>
   </div>`;
 }
@@ -179,7 +186,7 @@ export function sessionTpl(s, ui) {
     ${s.olderHidden ? html`<div class="muted small center">— earlier turns were compacted into the summary —</div>` : nothing}
     ${blocksTpl(s.blocks, ui)}
     ${r.status === 'waiting_input' && ps.kind === 'approval'
-      ? approvalTpl(ps.toolCalls, (yes) => ui.act.approve(r.id, yes)) : nothing}
+      ? approvalTpl(ps.toolCalls, (yes, how) => ui.act.approve(r.id, yes, how), undefined, grantAsk(r, ui.who ? ui.who() : null)) : nothing}
     ${r.status === 'waiting_input' && ps.kind !== 'approval' && r.result
       ? html`<div class="ask"><b>The agent is asking:</b><div class="md">${unsafeHTML(md(r.result))}</div>
           <div class="muted small">answer below to continue</div></div>` : nothing}

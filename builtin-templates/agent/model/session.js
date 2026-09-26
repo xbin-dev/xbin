@@ -48,7 +48,8 @@ export class Session {
     };
     this.ui.act.loadChild = (id) => this.loadChild(id);
     this.ui.file = (msgId, f) => this.fileState(msgId, f);
-    this.ui.act.approve = (id, yes) => this.approve(id, yes);
+    this.ui.act.approve = (id, yes, grant) => this.approve(id, yes, grant);
+    this.ui.who = () => null; // the page's GET /me (the app sets it): who may allow a grant
     this.pending = false;
   }
 
@@ -311,8 +312,16 @@ export class Session {
     this.changed();
   }
 
-  async approve(runId, yes) {
-    await api(`/runs/${runId}/approve`, jbody({ approve: yes }, 'POST'));
+  // approve answers a parked approval; grant ('once' | 'hour') is how long
+  // the owner allows a grant it asks for (D111).
+  async approve(runId, yes, grant) {
+    await api(`/runs/${runId}/approve`, jbody(grant ? { approve: yes, grant } : { approve: yes }, 'POST'));
+  }
+
+  // revokeGrant takes a grant back before it expires; the run event that
+  // follows clears it from the view.
+  async revokeGrant(runId, cap) {
+    await api(`/runs/${runId}/grants/${encodeURIComponent(cap)}`, { method: 'DELETE' });
   }
 }
 

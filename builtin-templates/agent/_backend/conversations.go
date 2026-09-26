@@ -454,10 +454,13 @@ func handleNeeds(w http.ResponseWriter, r *http.Request) {
 		var pend string
 		waiting := agent.db.q.QueryRow(`SELECT id, pending FROM runs WHERE root_id=? AND status='waiting_input' ORDER BY id LIMIT 1`, x.ID).
 			Scan(&subID, &pend) == nil
+		ps := parsePending(pend)
 		switch {
+		case waiting && ps.Grant != "" && !grantOwner(c, x):
+			// a grant is the owner's to answer (grants.go)
 		case waiting && lv >= lvParticipant: // only those who may answer are needed
 			reason := "question"
-			if parsePending(pend).Kind == "approval" {
+			if ps.Kind == "approval" {
 				reason = "approval"
 			}
 			items = append(items, map[string]any{"run": it, "reason": reason, "subRun": subID})

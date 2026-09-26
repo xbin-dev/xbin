@@ -12,7 +12,8 @@ const FAMILY = {
   js_eval: 'code', js_run: 'code', js_reset: 'code',
   memory_set: 'mem', memory_get: 'mem', recall: 'mem', note: 'note',
   skills_list: 'skill', skill_view: 'skill', skill_manage: 'skill',
-  schedule: 'time', unschedule: 'time', yield: 'time',
+  schedule: 'time', unschedule: 'time', yield: 'time', schedules_list: 'time', schedule_inspect: 'time',
+  threads_list: 'thread', thread_inspect: 'thread',
   subagent_spawn: 'agent', spawn_subagent: 'agent', workflow_spawn: 'agent', subagent_wait: 'agent',
   subagent_status: 'agent', workflow_status: 'agent', subagent_result: 'agent', workflow_result: 'agent',
   subagent_message: 'agent', subagent_cancel: 'agent', workflow_cancel: 'agent',
@@ -21,7 +22,7 @@ const FAMILY = {
 
 export const ICON = {
   net: '⇄', web: '🌐', file: '📄', code: '{ }', mem: '🧠', note: '✎', skill: '✦', time: '⏱',
-  agent: '⑂', done: '✓', ask: '?', mcp: '⚙', other: '•',
+  agent: '⑂', done: '✓', ask: '?', mcp: '⚙', thread: '☰', other: '•',
 };
 
 export function family(name) {
@@ -80,6 +81,10 @@ function reading(name, a) {
     case 'skill_manage': return `${a.action === 'remove' ? 'Remove' : 'Save'} skill ${a.name || ''}`.trim();
     case 'schedule': return `Schedule: ${one(a.goal, 60)} (${a.cron || '?'})`;
     case 'unschedule': return `Remove schedule #${a.id ?? '?'}`;
+    case 'schedules_list': return a.scope === 'all' ? 'List all your schedules' : 'List this conversation\'s schedules';
+    case 'schedule_inspect': return `Look at schedule #${a.id ?? '?'}`;
+    case 'threads_list': return (a.scope === 'all' ? 'List your conversations' : 'List this conversation\'s threads') + (a.q ? `: ${one(a.q, 50)}` : '');
+    case 'thread_inspect': return `Read thread #${a.id ?? '?'}`;
     case 'yield': return `Sleep ${a.seconds ?? '?'}s`;
     case 'finish': return 'Finish';
     case 'ask_user': return `Ask: ${one(a.question, 80)}`;

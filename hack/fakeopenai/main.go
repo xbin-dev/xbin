@@ -17,6 +17,10 @@
 //	steer…       "Got your steer: <text>"
 //	fan out      three background subagent_spawn (slow jobs, 6 s each) → "Started three helpers."
 //	quick        "Quick answer."
+//	my schedules schedules_list (this conversation's, D111) → "Found: <its first line>"
+//	all my threads
+//	             threads_list scope all — the owner is asked to allow it
+//	             (D111) → "Found: <its first line>"
 //	restart me   the FIRST request of that turn hangs 30 s (the harness restarts
 //	             the agent's backend under it), a re-issue answers at once:
 //	             a note "Survive a restart" → "Noted it."
@@ -174,6 +178,9 @@ func script(conv []turn, system string) plan {
 			return plan{Calls: []call{{"attach_to_reply", map[string]any{"paths": []string{"note.txt"}, "summary": "Attach the file"}}}}
 		case "attach_to_reply":
 			return plan{Text: "Here is the file."}
+		case "threads_list", "schedules_list":
+			first, _, _ := strings.Cut(strings.TrimSpace(last.Text), "\n")
+			return plan{Text: "Found: " + first}
 		case "subagent_spawn", "spawn_subagent":
 			if strings.Contains(last.Text, "background") {
 				return plan{Text: "Started three helpers."}
@@ -203,6 +210,10 @@ func script(conv []turn, system string) plan {
 		return plan{Calls: cs}
 	case strings.Contains(lastUser, "quick"):
 		return plan{Text: "Quick answer."}
+	case strings.Contains(lastUser, "my schedules"):
+		return plan{Calls: []call{{"schedules_list", map[string]any{"summary": "List my schedules"}}}}
+	case strings.Contains(lastUser, "all my threads"):
+		return plan{Calls: []call{{"threads_list", map[string]any{"scope": "all", "summary": "List your conversations"}}}}
 	case strings.Contains(lastUser, "restart me"):
 		key := fmt.Sprintf("%d:%s", len(conv), lastUser)
 		recMu.Lock()

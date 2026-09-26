@@ -60,6 +60,7 @@ export const IMPLEMENTS = {
 
   // Asking
   'ask.approval': 'chat-cards.js — approvalTpl',
+  'ask.grant': 'chat-cards.js — approvalTpl with rules.grantAsk (Allow once · Allow here for 1 hour · Deny)',
   'ask.question': 'chat-cards.js — .ask',
 
   // Composer
@@ -92,6 +93,7 @@ export const IMPLEMENTS = {
   'top.memory': 'agent.js — topTpl',
   'top.files': 'agent.js — topTpl',
   'top.tree': 'agent.js — topTpl',
+  'top.grant': 'agent.js — topTpl .grantchip (rules.grantChips) with revoke',
   'top.share': 'agent.js — topTpl .sharepill → share.js',
   'top.delete': 'agent.js — topTpl',
 

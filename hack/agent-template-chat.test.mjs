@@ -15,6 +15,12 @@ test('a headline is the model\'s summary, else a reading of the arguments', () =
   assert.equal(headline('web_search', '{"query":"pangolins"}'), 'Search the web: pangolins');
   assert.equal(headline('js_eval', JSON.stringify({ code: 'a\nb\nc' })), 'Run JavaScript (3 lines)');
   assert.equal(headline('mcp:apps/crm:get_thread', '{}'), 'get_thread · apps/crm');
+  // the thread and schedule tools (D111) say which scope they read
+  assert.equal(headline('threads_list', '{}'), "List this conversation's threads");
+  assert.equal(headline('threads_list', '{"scope":"all","q":"budget"}'), 'List your conversations: budget');
+  assert.equal(headline('thread_inspect', '{"id":12}'), 'Read thread #12');
+  assert.equal(headline('schedules_list', '{"scope":"all"}'), 'List all your schedules');
+  assert.equal(headline('schedule_inspect', '{"id":3}'), 'Look at schedule #3');
   assert.equal(headline('subagent_wait', '{"ids":[4,5],"mode":"any"}'), 'Wait for #4, #5 (first)');
   // state_changed's own `summary` is its payload, not a headline override.
   assert.equal(headline('state_changed', '{"summary":"it moved"}'), 'Changed: it moved');

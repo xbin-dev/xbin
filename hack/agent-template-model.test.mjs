@@ -336,6 +336,33 @@ test('a native app\'s uploads: chips stay where they were picked; at home Send s
   app.session.live.close();
 });
 
+// D111: a grant is its owner's to allow; the chips show what is in force
+// until it expires (read at render time — nothing ticks).
+test('rules: a grant asked for, and the grants in force', () => {
+  const run = (extra) => ({ id: 4, rootId: 4, owner: 'alice', status: 'waiting_input',
+    pendingState: { kind: 'approval', grant: 'threads', toolCalls: [] }, ...extra });
+  const alice = { kind: 'user', user: 'alice' };
+  assert.equal(rules.grantAsk(run({ pendingState: { kind: 'approval', toolCalls: [] } }), alice), null, 'a plain approval asks no grant');
+  const mine = rules.grantAsk(run(), alice);
+  assert.equal(mine.lead, 'The agent asks to read your other conversations and automations');
+  assert.equal(mine.canAllow, true);
+  assert.equal(rules.grantAsk(run(), { kind: 'user', user: 'bob' }).canAllow, false, 'not your threads');
+  assert.equal(rules.grantAsk(run(), { kind: 'user', user: 'alice', viewedBy: 'mgr' }).canAllow, false, 'an admin viewing as alice');
+  assert.equal(rules.grantAsk(run(), { kind: 'system' }).canAllow, false);
+  assert.match(rules.grantAsk(run(), { kind: 'user', user: 'bob' }).note, /Only alice can allow/);
+
+  const now = Date.UTC(2026, 8, 27, 10);
+  const v = (access, grants) => ({ access, run: { id: 4, rootId: 4, owner: 'alice', grants }, config: {} });
+  const g = [{ cap: 'threads', grantedBy: 'alice', expiresMs: now + 60e3 }, { cap: 'threads', grantedBy: 'alice', expiresMs: now - 1 }];
+  const chips = rules.grantChips(v('owner', g), alice, now);
+  assert.equal(chips.length, 1, 'expired ones are gone');
+  assert.match(chips[0].label, /^🔓 reads your threads · until \d\d:\d\d$/);
+  assert.deepEqual([chips[0].revoke, chips[0].run, chips[0].cap], [true, 4, 'threads']);
+  assert.equal(rules.grantChips(v('participant', g), alice, now)[0].revoke, false, 'only the owner revokes');
+  assert.deepEqual(rules.grantChips(v('owner', undefined), alice, now), []);
+  assert.equal(rules.topBar(v('owner', g), null, alice).grants.length, rules.grantChips(v('owner', g), alice).length);
+});
+
 test('rules: who may do what', () => {
   const v = (access, run = {}) => ({ access, run: { id: 4, title: 't', status: 'idle', ...run }, config: {}, memory: { a: 1 }, files: [], links: [] });
   const viewer = rules.topBar(v('viewer', { status: 'error' }));

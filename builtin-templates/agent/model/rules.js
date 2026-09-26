@@ -15,7 +15,7 @@ export function access(v) {
 
 // topBar describes the open conversation's header. row is its list row when
 // the list has it (how many people it is shared with lives there).
-export function topBar(v, row) {
+export function topBar(v, row, me) {
   const r = v.run;
   const { talk, own } = access(v);
   const web = (v.config && v.config.toolset) === 'web';
@@ -40,8 +40,56 @@ export function topBar(v, row) {
     // sharing is per conversation: a subagent shares its root
     shareRun: { id: r.rootId || r.id, title: r.title },
     share: shareStatus(v, row),
+    // what the owner let the agent read here, for now (D111)
+    grants: grantChips(v, me),
     del: own,
   };
+}
+
+// --- grants (D111) ----------------------------------------------------------------
+
+// What a grant lets the agent do, in words: the ask and the chip.
+export const GRANTS = {
+  threads: { ask: 'read your other conversations and automations', chip: 'reads your threads' },
+};
+const grantWords = (cap) => GRANTS[cap] || { ask: `use “${cap}”`, chip: cap };
+
+// grantAsk: a parked call that needs the owner's grant — what it asks, and
+// whether you may allow it (only the conversation's owner, whose threads
+// they are; anyone who may steer it may deny). null when none is asked.
+export function grantAsk(run, me) {
+  const ps = (run && run.pendingState) || {};
+  if (ps.kind !== 'approval' || !ps.grant) return null;
+  const owner = run.owner || '';
+  const canAllow = !!(me && me.kind === 'user' && !me.viewedBy && owner && me.user === owner);
+  return {
+    cap: ps.grant,
+    lead: `The agent asks to ${grantWords(ps.grant).ask}`,
+    canAllow,
+    note: canAllow ? 'Allow it once, or in this conversation for an hour.' : `Only ${owner || 'its owner'} can allow this — you may deny it.`,
+  };
+}
+
+const clock = (ms) => {
+  const d = new Date(ms);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
+// grantChips: the grants in force on the open conversation (a conversation's
+// own; a subagent's view has none). Expiry is read here — nothing ticks.
+export function grantChips(v, me, now = Date.now()) {
+  const r = v.run;
+  const { own } = access(v);
+  return (r.grants || []).filter((g) => g.expiresMs > now).map((g) => {
+    const w = grantWords(g.cap);
+    return {
+      cap: g.cap,
+      label: `🔓 ${w.chip} · until ${clock(g.expiresMs)}`,
+      title: `${g.grantedBy || 'The owner'} let the agent ${w.ask} in this conversation until ${clock(g.expiresMs)}`,
+      revoke: own,
+      run: r.rootId || r.id,
+    };
+  });
 }
 
 // composer: the message box's state — no conversation (home: a new ask), view

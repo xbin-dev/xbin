@@ -157,7 +157,7 @@ function topTpl(v) {
   if (!v) return app.page === 'automations' ? html`<span class="title">Automations</span>`
     : html`<span class="title">${HOME.title}</span><span class="muted" style="font-size:11.5px">${HOME.tagline}</span>`;
   const r = v.run;
-  const t = rules.topBar(v, convs.find(r.rootId || r.id));
+  const t = rules.topBar(v, convs.find(r.rootId || r.id), app.me);
   return html`${t.crumb ? html`<a class="crumb" @click=${() => app.openAutomations(t.crumb.kind, t.crumb.id)}>Automations ›</a>` : nothing}
     <span class="title" title=${r.title || ''}>${t.title}</span>
     <span class="badge" title="tool mode (immutable for this run)">${t.laneLabel}</span>
@@ -172,6 +172,8 @@ function topTpl(v) {
     ${t.tree ? html`<span class="badge wfchip" @click=${() => control('wf')} title="open the workflow tree">⑂ tree</span>` : nothing}
     <button class="btn ghost btnsm sharepill ${t.share.tone}" @click=${() => openShare(t.shareRun, app.me, () => convs.load())}
       title=${t.share.title}>${t.share.icon} ${t.share.label}</button>
+    ${t.grants.map((g) => html`<span class="badge grantchip" title=${g.title}>${g.label}${g.revoke
+      ? html`<button class="linkbtn" title="stop it now" @click=${() => session.revokeGrant(g.run, g.cap).catch((e) => alert(e.message))}>revoke</button>` : nothing}</span>`)}
     ${t.del ? html`<button class="btn rm btnsm" @click=${() => control('delete')}>Delete</button>` : nothing}`;
 }
 
@@ -763,6 +765,7 @@ async function tabFeatures(bd) {
     vision: 'send images to the VLM tier',
     parallelTools: "run a turn's tool calls in parallel",
     watcher: 'watcher cron-agents (one persistent run, discard no-change rounds)',
+    threads: "thread & schedule tools: list and read this conversation's automations and threads — and, with the owner's OK, their other conversations",
   };
   bd.innerHTML = `<div class="sec"><h4>Features</h4>
     ${keys.map((k) => `<label class="chk"><input type="checkbox" data-f="${esc(k)}" ${st[k] ? 'checked' : ''}>

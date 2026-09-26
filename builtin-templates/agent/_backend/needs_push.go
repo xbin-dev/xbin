@@ -12,7 +12,8 @@
 //
 //   - a question or an approval: the people who may answer it — the owner
 //     and participant members (a team-wide participant role is not a list of
-//     people: they see it under Needs you when they look);
+//     people: they see it under Needs you when they look); a grant (D111)
+//     only the owner;
 //   - a failed automation run (schedule, watcher, channel, trigger): its owner.
 //
 // It is best-effort and quiet: the engine hands the moment over after its
@@ -121,6 +122,7 @@ func (ag *Agent) needsPushes(runID int64) []needsPush {
 		}
 	}
 	var state, body, fp string
+	ownerOnly := false // a grant is the owner's alone to answer (grants.go)
 	switch {
 	case run.Status == statusWaiting:
 		pend := parsePending(run.Pending)
@@ -132,6 +134,10 @@ func (ag *Agent) needsPushes(runID int64) []needsPush {
 				fp += c.ID + "\x00"
 			}
 			body = "Wants to run " + clip(strings.Join(names, ", "), 120) + " — approve or deny."
+			if pend.Grant == capThreads {
+				body = "Asks to read your other conversations and automations — allow or deny."
+			}
+			ownerOnly = pend.Grant != ""
 		} else {
 			state = needQuestion
 			body = clip(plainText(run.Result), 240)
@@ -159,7 +165,7 @@ func (ag *Agent) needsPushes(runID int64) []needsPush {
 	if person(acl.owner) {
 		users = append(users, acl.owner)
 	}
-	if state != needFailed {
+	if state != needFailed && !ownerOnly {
 		for u, role := range acl.members {
 			if role == roleParticipant && person(u) && u != acl.owner {
 				users = append(users, u)

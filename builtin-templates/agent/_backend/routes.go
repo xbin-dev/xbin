@@ -64,6 +64,7 @@ func routeTable() []routeDef {
 		{"POST /runs/{id}/answer", needParticipant, handleMessage},
 		{"DELETE /runs/{id}/inbox/{iid}", needParticipant, handleRemoveQueued},
 		{"POST /runs/{id}/approve", needParticipant, handleApprove},
+		{"DELETE /runs/{id}/grants/{cap}", needOwner, handleRevokeGrant},
 		{"POST /runs/{id}/interrupt", needParticipant, handleInterrupt},
 		{"POST /runs/{id}/cancel", needParticipant, handleCancel},
 		{"GET /runs/{id}/tree", needViewer, handleRunTree},
