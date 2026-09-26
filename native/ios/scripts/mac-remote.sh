@@ -220,9 +220,14 @@ sync_tree() {
     }' >"$list"
   echo "- *" >>"$list"
   ssh -n ${ssh_opts[@]+"${ssh_opts[@]}"} "$XBIN_MAC" "mkdir -p $(printf '%q' "$rtree")"
-  rsync -a --delete --delete-excluded -e "ssh ${XBIN_MAC_SSH_OPTS:-}" --rsync-path="$rsync_path" \
+  # shellcheck disable=SC2086 # XBIN_MAC_RSYNC_OPTS: extra options, split on purpose
+  if ! rsync -a --delete --delete-excluded -e "ssh ${XBIN_MAC_SSH_OPTS:-}" --rsync-path="$rsync_path" \
     --filter='P .build/' --filter='P .swiftpm/' --filter='P *.xcodeproj/' \
-    --filter=". $list" ${XBIN_MAC_RSYNC_OPTS:-} "$repo/" "$XBIN_MAC:$rtree/"
+    --filter=". $list" ${XBIN_MAC_RSYNC_OPTS:-} "$repo/" "$XBIN_MAC:$rtree/"; then
+    rm -f "$list"
+    say "rsync to $XBIN_MAC failed — on a fresh Mac run \`mac-remote.sh setup\` first (it installs Homebrew's rsync)"
+    return 1
+  fi
   rm -f "$list"
   say "synced $(cd "$repo" && git ls-files -co --exclude-standard | wc -l | tr -d ' ') files to $XBIN_MAC:$rtree"
 }
@@ -239,7 +244,10 @@ status=0
 case $cmd in
 sync) sync_tree ;;
 setup)
-  sync_tree
+  # Only the scripts, by tar: a fresh Mac has no Homebrew rsync yet (its own
+  # is openrsync), and mac-setup.sh is what installs it.
+  tar -C "$repo" -cf - native/ios/scripts |
+    ssh ${ssh_opts[@]+"${ssh_opts[@]}"} "$XBIN_MAC" "mkdir -p $(printf '%q' "$rtree") && tar -C $(printf '%q' "$rtree") -xf -"
   ssh -t ${ssh_opts[@]+"${ssh_opts[@]}"} "$XBIN_MAC" \
     "cd $(printf '%q' "$rtree") && /bin/bash native/ios/scripts/mac-setup.sh $(q "$@")"
   ;;

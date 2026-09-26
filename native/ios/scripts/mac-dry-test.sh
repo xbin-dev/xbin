@@ -359,9 +359,17 @@ run "$S/mac-remote.sh" tunnel --port 9873
 has "mac-remote tunnel: ssh -N with the reverse forward" "$(cat "$FAKE_LOG")" \
   "ssh -N -o ExitOnForwardFailure=yes -R 127.0.0.1:9873:127.0.0.1:9873 me@mini"
 : >"$FAKE_LOG"
-XBIN_MAC_SSH_OPTS="-p 2222" run "$S/mac-remote.sh" setup --check
+rm -rf "$FAKE_REMOTE_HOME/fresh"
+XBIN_MAC_DIR=fresh XBIN_MAC_SSH_OPTS="-p 2222" run "$S/mac-remote.sh" setup --check
 has "mac-remote setup: mac-setup.sh on a terminal there, with the ssh options" "$(cat "$FAKE_LOG")" \
-  "ssh -t -p 2222 me@mini cd xbin-remote/tree && /bin/bash native/ios/scripts/mac-setup.sh --check"
+  "ssh -t -p 2222 me@mini cd fresh/tree && /bin/bash native/ios/scripts/mac-setup.sh --check"
+hasnt "mac-remote setup: no rsync before the Mac has Homebrew's" "$(cat "$FAKE_LOG")" "rsync"
+isfile "mac-remote setup: the scripts reach the Mac by tar" "$FAKE_REMOTE_HOME/fresh/tree/native/ios/scripts/mac-setup.sh"
+if [ -e "$FAKE_REMOTE_HOME/fresh/tree/untracked.txt" ] || [ -e "$FAKE_REMOTE_HOME/fresh/tree/native/ios/project.yml" ]; then
+  bad "mac-remote setup: sent more than the scripts"
+else
+  ok "mac-remote setup: only the scripts"
+fi
 : >"$FAKE_LOG"
 run "$S/mac-remote.sh" cleanup --dry-run
 has "mac-remote cleanup: mac-cleanup.sh there" "$out" "mac-cleanup: sweep"

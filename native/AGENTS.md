@@ -415,7 +415,8 @@ Actions → Runners → New self-hosted runner (valid an hour), then:
 ```sh
 native/ios/scripts/mac-setup.sh --check          # what is missing; changes nothing
 native/ios/scripts/mac-setup.sh --runner-token <token>
-# or from this box, over ssh (interactive: sudo, the token prompt):
+# or from this box, over ssh (interactive: sudo, the token prompt; it ships
+# only the scripts, by tar — the full mirror needs the Homebrew rsync this installs):
 XBIN_MAC=me@mini.local native/ios/scripts/mac-remote.sh setup
 ```
 
