@@ -28,13 +28,14 @@ public struct MarkdownView: View {
     }
 }
 
-/// The styled text of inline tokens at a base font.
+/// The styled text of inline tokens at a base font; code spans in `code`
+/// (the base font monospaced when nil).
 enum MarkdownText {
-    static func attributed(_ inlines: [MarkdownInline], font: Font) -> AttributedString {
+    static func attributed(_ inlines: [MarkdownInline], font: Font, code: Font? = nil) -> AttributedString {
         var out = AttributedString()
         for run in Markdown.runs(inlines) {
             var a = AttributedString(run.text)
-            var f = run.code ? font.monospaced() : font
+            var f = run.code ? (code ?? font.monospaced()) : font
             if run.strong { f = f.bold() }
             if run.emphasis { f = f.italic() }
             a[AttributeScopes.SwiftUIAttributes.FontAttribute.self] = f
@@ -92,7 +93,11 @@ struct MarkdownBlockView: View {
                 .padding(.top, level <= 2 ? 6 : 2)
                 .accessibilityAddTraits(.isHeader)
         case .paragraph(let inlines):
-            Text(MarkdownText.attributed(inlines, font: .body))
+            // Code spans a size down, as the reference draws them (0.86em):
+            // SF Mono at the body size reads large beside the text, and at
+            // the large sizes a span that no longer fit a line was
+            // hyphenated ("CHECKOUT_IDLE_-TIMEOUT").
+            Text(MarkdownText.attributed(inlines, font: .body, code: .system(.subheadline, design: .monospaced)))
                 .fixedSize(horizontal: false, vertical: true)
         case .list(let list):
             MarkdownListView(list: list)
@@ -163,7 +168,8 @@ private struct MarkdownTableView: View {
     }
 
     private func cell(_ inlines: [MarkdownInline], bold: Bool) -> Text {
-        Text(MarkdownText.attributed(inlines, font: bold ? Font.subheadline.bold() : .subheadline))
+        Text(MarkdownText.attributed(inlines, font: bold ? Font.subheadline.bold() : .subheadline,
+                                     code: .system(.footnote, design: .monospaced)))
     }
 
     static func alignment(_ a: MarkdownAlignment?) -> HorizontalAlignment {
