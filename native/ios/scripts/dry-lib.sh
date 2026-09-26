@@ -371,14 +371,25 @@ case "${1:-}" in
 --getstealthmode) echo "Firewall stealth mode is ${FAKE_STEALTH:-on}" ;;
 esac
 SH
-# security: the login keychain (FAKE_KEYCHAIN_LOCKED=1) and its signing
-# identities (FAKE_DIST_IDENTITY=1: an Apple Distribution one).
+# security: keychains (create-keychain makes the file; the user search list
+# and default are the login keychain) and signing identities
+# (FAKE_DIST_IDENTITY=1: an Apple Distribution one). Passwords (-p, -k) are
+# logged as "***".
 cat >"$bin/security" <<'SH'
 #!/bin/sh
-echo "security $*" >>"$FAKE_LOG"
+args="" prev=""
+for a in "$@"; do
+  case $prev in -p | -k) a="***" ;; esac
+  args="$args $a" prev=$a
+done
+echo "security${args}" >>"$FAKE_LOG"
 case "${1:-}" in
-show-keychain-info) [ "${FAKE_KEYCHAIN_LOCKED:-0}" = 0 ] ;;
-unlock-keychain) exit 0 ;;
+show-keychain-info | unlock-keychain | lock-keychain | set-keychain-settings | set-key-partition-list | import) exit 0 ;;
+create-keychain) for a in "$@"; do last=$a; done; mkdir -p "$(dirname "$last")" && : >"$last" ;;
+list-keychains | default-keychain)
+  case " $* " in *" -s "*) exit 0 ;; esac
+  echo "    \"$HOME/Library/Keychains/login.keychain-db\"" ;;
+find-certificate) exit 0 ;;
 find-identity)
   echo '  1) 0123456789ABCDEF0123456789ABCDEF01234567 "Apple Development: Release (ABCDE12345)"'
   [ "${FAKE_DIST_IDENTITY:-0}" = 1 ] && echo '  2) 89ABCDEF0123456789ABCDEF0123456789ABCDEF "Apple Distribution: Team (ABCDE12345)"'
