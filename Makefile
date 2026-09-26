@@ -2,7 +2,7 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets build test integration vet fmt-check fmt vendor dev-reset website check js-check theme-check tile-check shellcheck pins pins-offline hooks release
+.PHONY: dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets build test integration vet fmt-check fmt vendor dev-reset website check js-check native-check theme-check tile-check shellcheck pins pins-offline hooks release
 
 # Dev runs ISOLATED (per-component namespaces + overlay rootfs + egress relay):
 # the sandbox network/fs model is different enough from unsandboxed that dev must
@@ -133,13 +133,20 @@ fmt:
 
 # The definition of done (docs/maintenance.md). CI runs this, then
 # `make integration`. Each guard is its own target so a failure names itself.
-check: fmt-check vet js-check js-test theme-check shellcheck pins-offline test
+check: fmt-check vet js-check js-test native-check theme-check shellcheck pins-offline test
 	@echo ">> make check: green"
 
 # Unit tests for pure frontend modules (node's built-in runner, no deps):
 # hack/*.test.mjs — the shell's menu builders today.
 js-test:
 	@node --test hack/*.test.mjs
+
+# The native client's contract (native/): the xb-native runtime's tests, then
+# every native/fixtures/<name> rendered in node and compared with its
+# expected.json, plus the vocabulary coverage (native/fixtures/README.md).
+native-check:
+	@node --test hack/xb-native*.test.mjs hack/xbn-runner.test.mjs native/tools/*.test.mjs
+	@node native/tools/fixture.mjs --check
 
 # Every var(--bx-*, <literal>) fallback in shipped frontends equals web/theme.css.
 theme-check:

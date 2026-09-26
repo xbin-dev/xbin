@@ -1,0 +1,25 @@
+{
+  "about": "segmented tabs with icons and badges; switching tabs materializes only the selected one",
+  "self": "apps/issues",
+  "routes": {
+    "GET /api/apps/issues/issues": {"json": {
+      "repo": "acme/checkout",
+      "open": [
+        {"id": 311, "title": "Pay button spins forever on Safari", "author": "chloe", "label": "bug", "state": "open"},
+        {"id": 309, "title": "Apple Pay in the EU", "author": "ana", "label": "feature", "state": "open"},
+        {"id": 305, "title": "Flaky TestIdleReuse", "author": "ci-bot", "label": "chore", "state": "open"}
+      ],
+      "mine": [
+        {"id": 311, "title": "Pay button spins forever on Safari", "author": "chloe", "label": "bug", "state": "open"},
+        {"id": 298, "title": "Retry card declines once", "author": "ben", "label": "feature", "state": "open"}
+      ],
+      "review": [],
+      "closed": [
+        {"id": 301, "title": "Idle timeout of 0 opens a connection per request", "author": "ana", "label": "bug", "state": "closed"}
+      ]
+    }}
+  },
+  "interactions": [
+    {"select": "tabs", "type": "change", "payload": {"key": "mine"}}
+  ]
+}

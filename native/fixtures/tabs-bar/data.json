@@ -1,0 +1,39 @@
+{
+  "about": "a tab bar at the root (tabs style bar), each tab its own nav; the Activity tab is selected",
+  "self": "apps/hub",
+  "state": {"tab": "settings"},
+  "routes": {
+    "GET /api/apps/hub/feed": {
+      "json": {
+        "pinned": [{"id": "p1", "title": "On-call handbook"}, {"id": "p2", "title": "Release calendar"}],
+        "activity": [
+          {
+            "id": "a1",
+            "title": "Ben approved your deploy",
+            "who": "checkout-api v2.15.0-rc.2",
+            "ago": "2 min",
+            "icon": "check",
+            "unread": true
+          },
+          {
+            "id": "a2",
+            "title": "Chloé mentioned you",
+            "who": "#311 Pay button spins forever",
+            "ago": "18 min",
+            "icon": "chat",
+            "unread": true
+          },
+          {
+            "id": "a3",
+            "title": "Nightly backup finished",
+            "who": "backups",
+            "ago": "6 h",
+            "icon": "archive",
+            "unread": false
+          }
+        ]
+      }
+    }
+  },
+  "interactions": [{"select": "tabs", "type": "change", "payload": {"key": "activity"}}]
+}

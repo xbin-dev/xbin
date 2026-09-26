@@ -1,0 +1,25 @@
+{
+  "about": "text: all twelve type roles, all five tones, mono, selectable, lines; Intl times in a pinned zone",
+  "self": "apps/incidents",
+  "now": "2026-09-21T14:13:20Z",
+  "tz": "Europe/Warsaw",
+  "locale": "en-GB",
+  "routes": {
+    "GET /api/apps/incidents/incidents/INC-2041": {"json": {
+      "id": "INC-2041", "title": "Checkout latency above 4 s", "sev": 2, "state": "monitoring",
+      "started": "2026-09-21T12:02:00Z", "updated": "2026-09-21T13:47:00Z",
+      "summary": "Checkout requests in eu-central slowed to a p95 of 4.2 s after the payment provider's TLS endpoint started rate-limiting our connection pool. A pool-size fix is deployed; latency is back under 600 ms and we are watching the evening peak before closing this.",
+      "impact": "About 18% of checkouts between 14:02 and 15:10 CEST took longer than 4 s; 312 were abandoned.",
+      "recovery": "Recovered: p95 is 580 ms since 15:10 CEST.",
+      "reporter": "synthetic-checks", "owner": "Ben Ortiz",
+      "timeline": [
+        {"at": "2026-09-21T12:02:00Z", "state": "investigating", "text": "Latency alert on checkout-api (p95 4.2 s)."},
+        {"at": "2026-09-21T12:40:00Z", "state": "identified", "text": "Payment provider rate-limits new TLS handshakes; our pool reconnects on every request."},
+        {"at": "2026-09-21T13:10:00Z", "state": "monitoring", "text": "Deployed checkout-api v2.14.1 with a persistent pool of 32 connections."}
+      ],
+      "cause": "A config change in v2.14.0 set the HTTP client's idle timeout to 0, so every request opened a new TLS connection to the provider.",
+      "logLine": "2026-09-21T12:02:14Z WARN pay.client dial tcp 18.194.3.7:443: rate limited (429)",
+      "traceId": "trace 4bf92f3577b34da6a3ce929d0e0e4736"
+    }}
+  }
+}

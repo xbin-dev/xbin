@@ -1,0 +1,43 @@
+{
+  "about": "image (tile-relative and data:, fill/fit, every height, preview, tap) and icon in every tone; tapping a thumbnail switches the hero",
+  "self": "apps/inspections",
+  "routes": {
+    "GET /api/apps/inspections/inspections/218": {
+      "json": {
+        "id": 218,
+        "address": "12 Harbour Road",
+        "date": "Sep 19, 2026",
+        "inspector": "Marta Nowak",
+        "photos": [
+          {
+            "src": "photos/218/front.jpg",
+            "thumb": "photos/218/front-thumb.jpg",
+            "caption": "Front elevation, east facing"
+          },
+          {
+            "src": "photos/218/roof-north.jpg",
+            "thumb": "photos/218/roof-north-thumb.jpg",
+            "caption": "Roof, north side: two cracked ridge tiles"
+          },
+          {
+            "src": "photos/218/boiler.jpg",
+            "thumb": "photos/218/boiler-thumb.jpg",
+            "caption": "Boiler room, serviced 2025"
+          }
+        ],
+        "findings": [
+          {"id": "f1", "level": "ok", "text": "Electrical panel labelled and up to code"},
+          {"id": "f2", "level": "minor", "text": "Gutter on the south side needs cleaning"},
+          {"id": "f3", "level": "major", "text": "Two cracked ridge tiles on the north roof"},
+          {"id": "f4", "level": "blocker", "text": "No carbon-monoxide detector near the boiler"},
+          {"id": "f5", "level": "na", "text": "Pool: not present"}
+        ],
+        "plan": "plans/218/ground-floor.png",
+        "signature": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAICAYAAADjoT9jAAAAJElEQVR42mNgoBeQk9P4j0xTKk4Xy4iyhFJxFAXUxCMgDqgFAPEvQ/SGaFkBAAAAAElFTkSuQmCC"
+      }
+    }
+  },
+  "interactions": [
+    {"select": "image[src=\"photos/218/roof-north-thumb.jpg\"]", "type": "tap", "note": "show the roof photo"}
+  ]
+}

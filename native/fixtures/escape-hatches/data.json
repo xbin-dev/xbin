@@ -1,0 +1,10 @@
+{
+  "about": "terminal (the tile's own pty) and canvas (a tile page, and static html) inside a native screen",
+  "self": "apps/ci",
+  "routes": {
+    "GET /api/apps/ci/builds/latest": {"json": {
+      "number": 418, "branch": "main", "commit": "9b1f0c4", "state": "running", "lastResult": "passing",
+      "target": "release", "step": 3, "steps": 5, "stepName": "go test ./..."
+    }}
+  }
+}

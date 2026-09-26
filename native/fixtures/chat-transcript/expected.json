@@ -1,0 +1,39 @@
+{"v":1,"root":{"k":"r","t":"screen","p":{"title":"Checkout latency","subtitle":"Ops agent · qwen3-32b","style":"scroll"},"c":[
+  {"k":"r.0","t":"transcript","p":{"follow":true,"older":true},"e":["more","scrolled"],"c":[
+    {"k":"r.0.0","t":"notice","p":{"tone":"info","text":"Shared with Ben, Chloé"}},
+    {"k":"r.0.1:d1","t":"text","p":{"style":"caption","tone":"muted","text":"Yesterday"}},
+    {"k":"r.0.1:s1","t":"message","p":{"role":"system","text":"Ops agent joined with access to deployments, logs and metrics."}},
+    {"k":"r.0.1:m1","t":"message","p":{"role":"user","sender":"Ana","text":"Why is checkout slow? Here's the dashboard.","time":"18:02","files":[{"name":"latency.png","mime":"image/png","src":"api/apps/agent/files/f-31"}]},"e":["tap"]},
+    {"k":"r.0.1:m2.0","t":"thinking","p":{"text":"The p95 jump lines up with the 17:58 deploy. Check the client's idle timeout.","seconds":4,"open":false}},
+    {"k":"r.0.1:m2.1","t":"message","p":{"role":"assistant","sender":"Ops agent","markdown":true,"text":"The p95 jumped at **17:58**, right after `checkout-api` v2.14.0 went out. That release set `idle_timeout: 0`, so every request opens a new TLS connection. See [the diff](https://git.acme.dev/checkout/compare/v2.13.2...v2.14.0).","time":"18:03","tokens":[
+        {"t":"paragraph","c":[{"t":"text","text":"The p95 jumped at "},{"t":"strong","c":[{"t":"text","text":"17:58"}]},{"t":"text","text":", right after "},{"t":"codespan","text":"checkout-api"},{"t":"text","text":" v2.14.0 went out. That release set "},{"t":"codespan","text":"idle_timeout: 0"},{"t":"text","text":", so every request opens a new TLS connection. See "},{"t":"link","href":"https://git.acme.dev/checkout/compare/v2.13.2...v2.14.0","c":[{"t":"text","text":"the diff"}]},{"t":"text","text":"."}]}
+      ]},"e":["link"],"c":[
+      {"k":"r.0.1:m2.1.0","t":"actions","c":[
+        {"k":"r.0.1:m2.1.0.0","t":"button","p":{"icon":"copy","copy":"The p95 jumped at **17:58**, right after `checkout-api` v2.14.0 went out. That release set `idle_timeout: 0`, so every request opens a new TLS connection. See [the diff](https://git.acme.dev/checkout/compare/v2.13.2...v2.14.0).","label":"Copy"}},
+        {"k":"r.0.1:m2.1.0.1","t":"button","p":{"icon":"refresh","label":"Retry"},"e":["tap"]}
+      ]}
+    ]},
+    {"k":"r.0.1:st1","t":"step","p":{"glyph":"✓","tone":"ok","text":"Rolled back checkout-api to v2.13.2"}},
+    {"k":"r.0.1:st2","t":"step","p":{"glyph":"!","tone":"warn","text":"Rate limited by the payment provider; retried in 30 s"}},
+    {"k":"r.0.1:st3","t":"step","p":{"glyph":"✗","tone":"danger","text":"Smoke test failed on staging (timeout)"}},
+    {"k":"r.0.1:d2","t":"text","p":{"style":"caption","tone":"muted","text":"Today"}},
+    {"k":"r.0.1:st4","t":"step","p":{"glyph":"↻","tone":"muted","text":"Context compacted: 48k → 9k tokens"}},
+    {"k":"r.0.1:sum","t":"markdown","p":{"tokens":[
+        {"t":"paragraph","c":[{"t":"strong","c":[{"t":"text","text":"Summary so far:"}]},{"t":"text","text":" rollback to v2.13.2 fixed prod; staging still times out. Owner: "},{"t":"em","c":[{"t":"text","text":"Ben"}]},{"t":"text","text":"."}]}
+      ]}},
+    {"k":"r.0.1:st5","t":"step","p":{"glyph":"★","tone":"accent","text":"Skill loaded: incident-review"}},
+    {"k":"r.0.1:img","t":"image","p":{"src":"api/apps/agent/files/f-40","alt":"p95 latency back under 600 ms after the rollback","aspect":"fit","height":"m","preview":true}},
+    {"k":"r.0.1:m13","t":"message","p":{"role":"user","sender":"Ana","text":"Can you check staging too?","time":"16:13"},"e":["tap"]},
+    {"k":"r.0.2.0","t":"thinking","p":{"text":"Staging runs v2.15.0-rc.1. The smoke test timed out at the payment step; same pool issue?","live":true,"seconds":3}},
+    {"k":"r.0.2.1","t":"message","p":{"role":"assistant","sender":"Ops agent","markdown":true,"streaming":true,"text":"Staging is on **v2.15.0-rc.1**, which still has `idle_timeout: 0`.\n\n- the smoke test hangs at the payment step\n- ","tokens":[
+        {"t":"paragraph","c":[{"t":"text","text":"Staging is on "},{"t":"strong","c":[{"t":"text","text":"v2.15.0-rc.1"}]},{"t":"text","text":", which still has "},{"t":"codespan","text":"idle_timeout: 0"},{"t":"text","text":"."}]},
+        {"t":"list","ordered":false,"loose":false,"items":[{"c":[{"t":"paragraph","c":[{"t":"text","text":"the smoke test hangs at the payment step"}]}]},{"c":[]}]}
+      ]}},
+    {"k":"r.0.2.2","t":"activity","p":{"live":true,"text":"Comparing configs…"}},
+    {"k":"r.0.3:q1","t":"message","p":{"role":"user","sender":"Ana","text":"And tell Ben when it's fixed","queued":true}}
+  ]},
+  {"k":"r.1","t":"composer","p":{"value":"Here is the full log","placeholder":"Message Ops agent","busy":true,"accept":"image/*,.pdf,.txt,.csv","upload":{"method":"POST","path":"api/apps/agent/uploads"},"attachments":[{"id":"f-52","name":"staging.log","mime":"text/plain","progress":1}],"slash":[{"name":"/deploy","hint":"<service> <tag>","description":"Deploy a service to production"},{"name":"/logs","hint":"<service>","description":"Tail a service's logs"},{"name":"/compact","description":"Summarize and shorten the context"}]},"e":["input","send","stop","uploaded","remove"],"c":[
+    {"k":"r.1.0","t":"button","p":{"icon":"sparkles","label":"Summarize"},"e":["tap"]},
+    {"k":"r.1.1","t":"button","p":{"icon":"list","label":"Next steps"},"e":["tap"]}
+  ]}
+]}}

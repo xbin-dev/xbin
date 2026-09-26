@@ -1,0 +1,16 @@
+{
+  "about": "every icon name of the vocabulary, grouped and captioned, plus a preview row",
+  "self": "apps/labels",
+  "routes": {
+    "GET /api/apps/labels/labels/deploy": {"json": {"name": "deploy", "description": "Releases and rollouts", "icon": "bolt", "count": 14}},
+    "GET /api/apps/labels/icons": {"json": {"groups": [
+      {"title": "Actions", "icons": ["plus", "minus", "check", "xmark", "copy", "share", "refresh", "trash", "pencil", "search", "filter", "send", "stop", "play", "pause", "download", "upload", "external", "power"]},
+      {"title": "Navigation", "icons": ["back", "forward", "expand", "collapse", "home", "list", "ellipsis", "link"]},
+      {"title": "Things", "icons": ["gear", "wrench", "terminal", "box", "key", "lock", "unlock", "shield", "bolt", "clock", "calendar", "chart", "paperclip", "folder", "file", "doc", "photo", "archive", "tag", "pin", "bell", "mail", "chat", "star", "heart", "sparkles"]},
+      {"title": "People", "icons": ["person", "people", "agent"]},
+      {"title": "Status", "icons": ["info", "question", "warning", "error", "eye", "eye-slash"]},
+      {"title": "Infrastructure", "icons": ["globe", "cloud", "server", "database", "cpu", "network", "code", "branch"]},
+      {"title": "Appearance", "icons": ["sun", "moon"]}
+    ]}}
+  }
+}

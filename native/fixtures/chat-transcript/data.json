@@ -1,0 +1,116 @@
+{
+  "about": "the chat family mid-turn: messages (roles, sender, time, files, actions, queued, streaming markdown), thinking, steps, activity, transcript extras, composer",
+  "self": "apps/agent",
+  "now": "2026-09-21T14:13:20Z",
+  "tz": "Europe/Warsaw",
+  "locale": "en-GB",
+  "routes": {
+    "GET /api/apps/agent/conversations/c-812": {
+      "json": {
+        "title": "Checkout latency",
+        "agent": "Ops agent",
+        "model": "qwen3-32b",
+        "me": "Ana",
+        "sharedWith": ["Ben", "Chloé"],
+        "commands": [
+          {"name": "/deploy", "hint": "<service> <tag>", "description": "Deploy a service to production"},
+          {"name": "/logs", "hint": "<service>", "description": "Tail a service's logs"},
+          {"name": "/compact", "description": "Summarize and shorten the context"}
+        ],
+        "messages": [
+          {"id": "d1", "role": "day", "text": "Yesterday"},
+          {"id": "s1", "role": "system", "text": "Ops agent joined with access to deployments, logs and metrics."},
+          {
+            "id": "m1",
+            "role": "user",
+            "sender": "Ana",
+            "at": "2026-09-20T16:02:00Z",
+            "text": "Why is checkout slow? Here's the dashboard.",
+            "files": [{"name": "latency.png", "mime": "image/png", "src": "api/apps/agent/files/f-31"}]
+          },
+          {
+            "id": "m2",
+            "role": "assistant",
+            "at": "2026-09-20T16:03:10Z",
+            "thinking": {
+              "text": "The p95 jump lines up with the 17:58 deploy. Check the client's idle timeout.",
+              "seconds": 4
+            },
+            "text": "The p95 jumped at **17:58**, right after `checkout-api` v2.14.0 went out. That release set `idle_timeout: 0`, so every request opens a new TLS connection. See [the diff](https://git.acme.dev/checkout/compare/v2.13.2...v2.14.0)."
+          },
+          {"id": "st1", "role": "step", "glyph": "✓", "tone": "ok", "text": "Rolled back checkout-api to v2.13.2"},
+          {
+            "id": "st2",
+            "role": "step",
+            "glyph": "!",
+            "tone": "warn",
+            "text": "Rate limited by the payment provider; retried in 30 s"
+          },
+          {
+            "id": "st3",
+            "role": "step",
+            "glyph": "✗",
+            "tone": "danger",
+            "text": "Smoke test failed on staging (timeout)"
+          },
+          {"id": "d2", "role": "day", "text": "Today"},
+          {"id": "st4", "role": "step", "glyph": "↻", "tone": "muted", "text": "Context compacted: 48k → 9k tokens"},
+          {
+            "id": "sum",
+            "role": "summary",
+            "text": "**Summary so far:** rollback to v2.13.2 fixed prod; staging still times out. Owner: *Ben*."
+          },
+          {"id": "st5", "role": "step", "glyph": "★", "tone": "accent", "text": "Skill loaded: incident-review"},
+          {
+            "id": "img",
+            "role": "image",
+            "src": "api/apps/agent/files/f-40",
+            "alt": "p95 latency back under 600 ms after the rollback"
+          }
+        ]
+      }
+    },
+    "POST /api/apps/agent/conversations/c-812/turns": {
+      "open": true,
+      "sse": [
+        {"event": "activity", "data": {"text": "Reading the staging logs…"}},
+        {"event": "thinking", "data": {"delta": "Staging runs v2.15.0-rc.1. "}, "after": 400},
+        {
+          "event": "thinking",
+          "data": {"delta": "The smoke test timed out at the payment step; same pool issue?"},
+          "after": 600
+        },
+        {"event": "delta", "data": {"delta": "Staging is on **v2.15.0-rc.1**, which still has"}, "after": 1200},
+        {
+          "event": "delta",
+          "data": {"delta": " `idle_timeout: 0`.\n\n- the smoke test hangs at the payment step\n- "},
+          "after": 300
+        },
+        {"event": "activity", "data": {"text": "Comparing configs…"}, "after": 200}
+      ]
+    }
+  },
+  "interactions": [
+    {"select": "composer", "type": "input", "payload": {"value": "Can you check staging too?"}},
+    {"select": "composer", "type": "send", "payload": {"value": "Can you check staging too?"}},
+    {"after": 2000, "note": "the reply streams in"},
+    {"select": "composer", "type": "input", "payload": {"value": "And tell Ben when it's fixed"}},
+    {
+      "select": "composer",
+      "type": "send",
+      "payload": {"value": "And tell Ben when it's fixed"},
+      "note": "busy: it waits as queued"
+    },
+    {
+      "select": "composer",
+      "type": "uploaded",
+      "payload": {
+        "name": "staging.log",
+        "response": {"id": "f-52", "mime": "text/plain", "src": "api/apps/agent/files/f-52"}
+      },
+      "note": "the app uploaded a file"
+    },
+    {"select": "composer", "type": "input", "payload": {"value": "Here is the full log"}},
+    {"after": 1000}
+  ]
+}
