@@ -628,8 +628,18 @@ func TestAgentSessionQuestion(t *testing.T) {
 	r.until(t, func(e SessionEvent) bool {
 		return e.Type == agent.EvStatus && edata(e.Event)["status"] == agent.StatusWaiting
 	})
+	// the session snapshot lists the question (GET /term/sessions/<id>)
+	if qs, err := r.m.AgentQuestions(info.ID); err != nil || len(qs) != 1 || qs[0].EID != eid || qs[0].ToolCallID != "ask1" {
+		t.Fatalf("pending questions: %+v %v", qs, err)
+	}
+	if row, _ := r.m.Info(info.ID); row.Questions != 1 || row.Pending != 0 {
+		t.Fatalf("directory row: questions %d pending %d", row.Questions, row.Pending)
+	}
 	if err := r.m.AgentElicit(info.ID, eid, "accept", json.RawMessage(`{"question_0":"SQLite","question_1":["Metrics"]}`), "owner"); err != nil {
 		t.Fatal(err)
+	}
+	if qs, _ := r.m.AgentQuestions(info.ID); len(qs) != 0 {
+		t.Fatalf("an answered question is still pending: %+v", qs)
 	}
 	if err := r.m.AgentElicit(info.ID, eid, "decline", nil, "owner"); !errors.Is(err, ErrNoQuestion) {
 		t.Fatalf("second answer: %v", err)

@@ -222,6 +222,9 @@ func (s *Server) apiAgentGet(w http.ResponseWriter, r *http.Request) {
 	if pend, err := s.Term.AgentPending(id); err == nil {
 		out["permissions"] = pend
 	}
+	if qs, err := s.Term.AgentQuestions(id); err == nil {
+		out["elicitations"] = qs
+	}
 	WriteJSON(w, http.StatusOK, out)
 }
 

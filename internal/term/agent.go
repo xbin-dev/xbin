@@ -266,6 +266,8 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		born: time.Now(), clients: map[*client]struct{}{}, lastActive: time.Now(),
 	}
 	st.snap = newSnapper(dir, func(e agent.Event) { s.logEvent(m, e) })
+	drv := acp.New()
+	st.drv = drv // before the session is visible: info() and the API read it
 	m.mu.Lock()
 	m.sessions[s.ID] = s
 	m.mu.Unlock()
@@ -290,8 +292,6 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		}
 		return &agent.Process{Stdin: stdin, Stdout: stdout, Stderr: stderr, Kill: s.kill}, nil
 	}
-	drv := acp.New()
-	st.drv = drv
 	cfg := agent.Config{Provider: prov, Mode: mode, Options: options, ResumeID: resumeID, Cwd: dir, Env: agentEnv, Argv: prov.Argv, Spawn: spawn,
 		Perms: st.perms, Version: Version, Log: st.logf, Meta: map[string]string{"tile": rel}}
 	go s.agentPump(m, func() {
@@ -605,6 +605,16 @@ func (m *Manager) AgentPending(id string) ([]agent.Pending, error) {
 		return nil, err
 	}
 	return st.perms.List(), nil
+}
+
+// AgentQuestions lists the unanswered questions (elicitation.request
+// payloads), oldest first.
+func (m *Manager) AgentQuestions(id string) ([]agent.Elicitation, error) {
+	_, st, err := m.agentOf(id)
+	if err != nil {
+		return nil, err
+	}
+	return st.drv.PendingElicitations(), nil
 }
 
 // AgentLog is the session's text log (the host's stderr, the driver's

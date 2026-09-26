@@ -312,7 +312,11 @@ GET    /term/sessions             authenticated. the caller's live terminal
                                    sessions — the session directory (D73):
                                    [{id,cwd,net,label,scopes,gpu,api,name,
                                    created,lastActive,clients,envHeld,vm}], oldest
-                                   first; ?cwd=<p> one tile only. [] without
+                                   first (agent rows add kind:"agent",
+                                   provider, mode, model?, status, pending
+                                   — unanswered permission requests — and
+                                   questions — unanswered elicitations);
+                                   ?cwd=<p> one tile only. [] without
                                    terminal rights; a tile the caller may no
                                    longer open a terminal on is omitted.
                                    ?user=<id> admin: another user's. Every
@@ -347,7 +351,11 @@ POST   /term/sessions             terminal-level on the tile (a shell's own
                                    terminal token). Shells still open on
                                    /ws/term
 GET    /term/sessions/<id>        creator or admin → {session, permissions:
-                                   [{pid,toolCall,options}]} (either kind)
+                                   [{pid,toolCall,options}], elicitations:
+                                   [{eid,toolCallId?,message,schema}]}
+                                   (either kind; the unanswered permission
+                                   requests and questions, oldest first —
+                                   the elicitation.request payloads)
 DELETE /term/sessions/<id>        creator or admin → 204 (either kind; the
                                    API twin of DELETE /ws/term?session=)
 POST   /term/sessions/<id>/prompt creator or admin. {text} → {ok, turn};
@@ -1501,7 +1509,7 @@ hub drops a slow subscriber rather than queue for it).
 | `elicitation.resolved` | `{eid, action, by, content?}` — action: accept \| decline \| cancel; `content` the submitted values (with accept) |
 | `permission.resolved` | `{pid, optionId, by}` — by: `user:<id>`, `owner`, `auto` (a session rule), `cancel` |
 | `turn.end` | `{turn, stopReason, usage?:{used, size, cost?}, error?}` — stopReason: end_turn \| max_tokens \| max_turn_requests \| refusal \| cancelled \| error |
-| `status` | `{status, detail?, modes?, currentMode?, options?, commands?, agent?, login?, usage?}` — status: starting \| idle \| running \| waiting_permission \| cancelling \| error \| exited; `modes` (the agent's available modes), `options` (its settings: `[{id, name, category, type, currentValue, options:[{value, name}]}]` — model, effort, …, in the agent's priority order) and `agent` (`{name, version}`) ride every `idle`; `options` also rides a status whenever a setting changes; `commands` (the agent's slash commands, `[{name, description?, hint?}]` — `hint` says what to type after the name; a command is sent as ordinary prompt text, `/name args`) rides a status when the agent advertises them and every `idle` after; `login` (`{needed:true, provider, command}`) rides every status while the agent reports it is signed out (an `_auth/status_update{kind:none}`) or a turn hit auth-required — the frontend shows a one-click sign-in that runs `command` in a shell terminal sharing the agent's home; an `error` names what to do (no login → the command to sign the CLI in from a terminal) |
+| `status` | `{status, detail?, modes?, currentMode?, options?, commands?, agent?, login?, usage?, title?}` — status: starting \| idle \| running \| waiting_permission \| cancelling \| error \| exited; `title` is the agent's own name for the session (ACP `session_info_update` — most adapters generate one after the first turn); it names a session that has no name yet (SessionInfo `name`, announced by a `term` `rename` event) — a name the user gave is kept; `modes` (the agent's available modes), `options` (its settings: `[{id, name, category, type, currentValue, options:[{value, name}]}]` — model, effort, …, in the agent's priority order) and `agent` (`{name, version}`) ride every `idle`; `options` also rides a status whenever a setting changes; `commands` (the agent's slash commands, `[{name, description?, hint?}]` — `hint` says what to type after the name; a command is sent as ordinary prompt text, `/name args`) rides a status when the agent advertises them and every `idle` after; `login` (`{needed:true, provider, command}`) rides every status while the agent reports it is signed out (an `_auth/status_update{kind:none}`) or a turn hit auth-required — the frontend shows a one-click sign-in that runs `command` in a shell terminal sharing the agent's home; an `error` names what to do (no login → the command to sign the CLI in from a terminal) |
 | `gap` | `{before}` — only on a `?follow=1` stream: the cursor predated the log's ring; earlier events were dropped |
 
 The live log is in memory; an `exited` or `error` status is final and the

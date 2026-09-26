@@ -693,6 +693,10 @@ func TestElicitation(t *testing.T) {
 	if eid == "" {
 		t.Fatalf("no elicitation.request: %s", types(es))
 	}
+	// the snapshot lists it until it is answered (GET /term/sessions/<id>)
+	if qs := c.PendingElicitations(); len(qs) != 1 || qs[0].EID != eid || qs[0].ToolCallID != "ask1" || qs[0].Message != "Pick one" || !strings.Contains(string(qs[0].Schema), "question_0") {
+		t.Fatalf("pending questions: %+v", qs)
+	}
 	if err := c.RespondElicitation(eid, "maybe", nil, "u"); err == nil {
 		t.Fatal("an unknown action must fail")
 	}
@@ -701,6 +705,9 @@ func TestElicitation(t *testing.T) {
 	}
 	if got := <-answers; got != `accept {"question_0":"A"}` {
 		t.Fatalf("the agent got %q", got)
+	}
+	if qs := c.PendingElicitations(); len(qs) != 0 {
+		t.Fatalf("an answered question is still pending: %+v", qs)
 	}
 	if err := c.RespondElicitation(eid, "decline", nil, "user:b"); !errors.Is(err, agent.ErrNoElicitation) {
 		t.Fatalf("second answer: %v", err)

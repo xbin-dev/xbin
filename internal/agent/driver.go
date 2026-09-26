@@ -31,6 +31,10 @@ type Driver interface {
 	// elicitation.request (action accept | decline | cancel; content the
 	// form's values on accept). ErrNoElicitation once it is answered.
 	RespondElicitation(eid, action string, content json.RawMessage, by string) error
+	// PendingElicitations lists the questions still waiting for an answer,
+	// oldest first (the elicitation.request payloads) — the session
+	// snapshot's twin of the permissions list.
+	PendingElicitations() []Elicitation
 	Cancel() error
 	Close() error
 	// SetOption changes one of the agent's session settings (a config option
@@ -41,6 +45,15 @@ type Driver interface {
 	// agent could reopen it later (session/load) — persisted with the
 	// transcript so a past session can be resumed (term/history.go).
 	Session() (id string, loadable bool)
+}
+
+// Elicitation is a question the agent is waiting on: an
+// elicitation.request's payload, until it is answered.
+type Elicitation struct {
+	EID        string          `json:"eid"`
+	ToolCallID string          `json:"toolCallId,omitempty"`
+	Message    string          `json:"message"`
+	Schema     json.RawMessage `json:"schema"`
 }
 
 // Config is what a session hands its driver.
