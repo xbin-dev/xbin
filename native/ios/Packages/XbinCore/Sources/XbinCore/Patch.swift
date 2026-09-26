@@ -180,6 +180,12 @@ extension PatchOp {
 ///   events actually changed (a `set` to the same value is not a change).
 /// - ``childrenChanged``: surviving keys (not in ``inserted``) whose child
 ///   list changed (insert, remove, move in or out, reorder).
+/// - ``restated``: per surviving key (not in ``inserted``), the props a
+///   `set` or `unset` op named — **whether or not the value changed**. A
+///   renderer that shows its own value for a controlled prop (native/spec/
+///   tree.md §6: a typed text, a flipped toggle) takes the tile's value again
+///   for these: a `set` equal to what the tree already held is how the tile
+///   refuses a change or resets a field it never saw typed into.
 public struct TreeDelta: Sendable, Equatable {
     /// The whole tree was replaced (a mount): re-read everything.
     public var remounted = false
@@ -187,6 +193,9 @@ public struct TreeDelta: Sendable, Equatable {
     public var removed: Set<String> = []
     public var updated: Set<String> = []
     public var childrenChanged: Set<String> = []
+    /// Key → prop names a `set`/`unset` named (see the type's doc). Not a
+    /// change by itself: ``isEmpty`` ignores it.
+    public var restated: [String: Set<String>] = [:]
 
     public init() {}
 
@@ -212,12 +221,13 @@ public struct TreeDelta: Sendable, Equatable {
     mutating func finish(in tree: Tree) {
         updated = updated.filter { tree.contains($0) && !inserted.contains($0) }
         childrenChanged = childrenChanged.filter { tree.contains($0) && !inserted.contains($0) }
+        restated = restated.filter { tree.contains($0.key) && !inserted.contains($0.key) }
         born = []
     }
 
     public static func == (a: TreeDelta, b: TreeDelta) -> Bool {
         a.remounted == b.remounted && a.inserted == b.inserted && a.removed == b.removed
-            && a.updated == b.updated && a.childrenChanged == b.childrenChanged
+            && a.updated == b.updated && a.childrenChanged == b.childrenChanged && a.restated == b.restated
     }
 }
 
@@ -265,6 +275,7 @@ extension Tree {
         switch op {
         case .set(let k, let props):
             guard entries[k] != nil else { throw PatchError.unknownKey(k) }
+            d.restated[k, default: []].formUnion(props.keys)
             var changed = false
             withEntry(k) { e in
                 for (name, v) in props where e.props[name] != v {
@@ -276,6 +287,7 @@ extension Tree {
 
         case .unset(let k, let names):
             guard entries[k] != nil else { throw PatchError.unknownKey(k) }
+            d.restated[k, default: []].formUnion(names)
             var changed = false
             withEntry(k) { e in
                 for name in names where e.props.removeValue(forKey: name) != nil { changed = true }

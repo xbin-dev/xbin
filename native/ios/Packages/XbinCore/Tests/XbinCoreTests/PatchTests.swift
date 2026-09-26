@@ -36,6 +36,26 @@ import Testing
         #expect(try t.apply(.unset(key: "r.0.0", props: ["nope"])).isEmpty)
     }
 
+    @Test func restatedNamesEverySetProp() throws {
+        var t = try sample()
+        // A set equal to the tree's value changes nothing but is restated:
+        // the tile re-asserting a controlled value (native/spec/tree.md §6).
+        let d = try t.apply([.set(key: "r.0.0", props: ["title": "Count"]), .unset(key: "r.0.1", props: ["nope"])])
+        #expect(d.isEmpty && d.updated.isEmpty)
+        #expect(d.restated == ["r.0.0": ["title"], "r.0.1": ["nope"]])
+        // A changed prop is both updated and restated; props accumulate per key.
+        let d2 = try t.apply([.set(key: "r.0.0", props: ["detail": "1"]), .set(key: "r.0.0", props: ["title": "Count"])])
+        #expect(d2.updated == ["r.0.0"] && d2.restated == ["r.0.0": ["detail", "title"]])
+        // Keys inserted or removed by the same patch are not restated.
+        let d3 = try t.apply([
+            .insert(parent: "r.0", index: 0, node: Node(key: "r.0.9", type: "text")),
+            .set(key: "r.0.9", props: ["text": "x"]),
+            .set(key: "r.0.0", props: ["detail": "2"]),
+            .remove(key: "r.0.0"),
+        ])
+        #expect(d3.restated.isEmpty && d3 != d2)
+    }
+
     @Test func insertAtIndex() throws {
         var t = try sample()
         let n = Node(key: "r.0.2", type: "notice", props: ["tone": "ok", "text": "saved"],
