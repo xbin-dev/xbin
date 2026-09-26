@@ -192,7 +192,7 @@ export const titlebarCss = css`
   }
   .titlebar button:hover, .toolsrow button:hover { color: var(--bx-text, #d4d9e0); }
   .titlebar button:disabled, .toolsrow button:disabled { opacity: .45; cursor: default; }
-  .titlebar button.vm.on, .toolsrow button.vm.on { color: var(--bx-accent, #7fb4ff); }
+  .titlebar button.vm.on, .toolsrow button.vm.on { color: var(--bx-accent, #f5a623); }
   .titlebar button.upgrade, .toolsrow button.upgrade {
     color: #23272e; background: var(--bx-amber, #f2a71b); font-weight: 600;
     border-radius: 5px; padding: 1px 8px; white-space: nowrap;
