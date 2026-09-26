@@ -37,8 +37,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   button is pressed (`POST /login/web-ticket`, a same-origin form post from
   that browser only) — anyone can make such a link for their own account
   and send it to you, so check the name. The session it opens ends with
-  the device and the app's sign-out and keeps the device login's time and
-  SSO window (D93). Only a device-key session mints (403 otherwise); 10 per
+  the device and the app's sign-out — `POST /logout` with a device-key
+  bearer now signs the device out: every session opened with its key ends,
+  earlier ones the app replaced without a logout included — and keeps the
+  device login's time and SSO window (D93). Only a device-key session mints (403 otherwise); 10 per
   minute per device; every mint and sign-in is audit-logged.
 - **xbin app: add another device** — Settings → Devices shows a QR code the
   new device scans. A device login (a fresh Face ID signature) counts as

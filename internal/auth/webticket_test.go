@@ -190,6 +190,52 @@ func TestWebSessionBinding(t *testing.T) {
 	}
 }
 
+// The app replaces its device session without a logout (a 401 or expiry
+// heal, the enrollment step-up's sign-in): its sign-out from the NEWER
+// session still ends the browser session the older one handed over to —
+// and the older session itself. Another device's sessions stay.
+func TestWebSessionEndsWithReplacedDeviceSession(t *testing.T) {
+	a, s1, dev := webTicketAuth(t)
+	tk, _, err := a.MintWebTicket(dev, "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wt, ok := a.ConsumeWebTicket(tk)
+	if !ok {
+		t.Fatal("consume")
+	}
+	b1, err := a.OpenWebSession(wt, "10.0.0.2", time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := a.NewBearerSession("ann", "dev-2", "")
+	pw := a.NewBearerSession("ann", "", "") // a password login, no device
+	s2 := a.NewBearerSession("ann", "dev-1", "")
+	if uid, did, ok := a.DropBearerSession(s2.Token); !ok || uid != "ann" || did != "dev-1" {
+		t.Fatalf("drop: %q %q %v", uid, did, ok)
+	}
+	if _, ok := a.sessionUser(b1, "", false); ok {
+		t.Fatal("the browser session outlived the app's sign-out (opened by a replaced session)")
+	}
+	if _, ok := a.sessionUser(s1.Token, "", true); ok {
+		t.Fatal("the replaced device session outlived the app's sign-out")
+	}
+	if _, ok := a.sessionUser(other.Token, "", true); !ok {
+		t.Fatal("another device's session ended")
+	}
+	if _, ok := a.sessionUser(pw.Token, "", true); !ok {
+		t.Fatal("a device-less app session ended")
+	}
+	// Signing out a device-less session touches no device.
+	s3 := a.NewBearerSession("ann", "dev-1", "")
+	if _, _, ok := a.DropBearerSession(pw.Token); !ok {
+		t.Fatal("drop the password session")
+	}
+	if _, ok := a.sessionUser(s3.Token, "", true); !ok {
+		t.Fatal("a device-less sign-out ended a device session")
+	}
+}
+
 // The confirmation step (a signed-out browser's "Continue as" page): a
 // consumed ticket becomes a one-shot nonce naming the same thing, only
 // while the device session lives, voided by sign-out-everywhere.

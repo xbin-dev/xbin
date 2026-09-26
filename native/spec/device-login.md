@@ -194,8 +194,11 @@ POST /login/ticket
   re-signing. An **xbind restart** is the exception: the session dies, but
   the frame tokens it minted keep working (and renewing) until the session
   would have expired, so open tiles needn't reload after a restart re-sign.
-- Sign out: `POST /logout` with the bearer → `204` (the device stays
-  enrolled; removing it is `DELETE /api/xbin/devices/<deviceId>`).
+- Sign out: `POST /logout` with the bearer → `204`. It signs the device
+  out, not just that token: every session opened with the device's key
+  ends — earlier ones the app replaced without a logout (a 401 heal, a
+  re-sign-in) and the Safari sessions any of them opened. The device stays
+  enrolled; removing it is `DELETE /api/xbin/devices/<deviceId>`.
 - The device list: `GET /api/xbin/devices` → `{"devices": [{"id", "name",
   "platform", "origin", "created", "lastUsed", "lastIP", "current"}]}`
   (`current`: the device this session signed in with).

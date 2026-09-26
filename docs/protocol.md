@@ -197,8 +197,12 @@ POST /login/device               {deviceId, nonce, signature} → {token,
                                  Throttled; audit-logged
 POST /logout                     revoke the session (cookie → 302 /login;
                                  an app session's Authorization: Bearer →
-                                 204; a device-key session's device loses
-                                 its push registration)
+                                 204; a device-key session signs the device
+                                 out: every session opened with its key
+                                 ends — earlier ones the app replaced, and
+                                 the Safari sessions any of them opened —
+                                 and the device loses its push
+                                 registration; it stays enrolled)
 GET  /                           redirect /c/root/
 GET  /c/<component-path>/[file]  component static files; HTML gets the
                                  <head> injection (import map, component

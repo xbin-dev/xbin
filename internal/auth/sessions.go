@@ -169,15 +169,28 @@ func (a *Auth) DropSession(id string) {
 // DropBearerSession ends an app session by its token (the app's sign-out),
 // reporting whose it was — the user and, for a device-key login, the
 // enrolled device. The browser sessions it handed over to (web tickets)
-// end with it. ok=false when tok is not a live bearer session.
+// end with it. A device-key login signing out signs the DEVICE out: every
+// session opened with that device's key ends — the earlier ones the app
+// replaced without a logout (a 401 or expiry heal, a step-up sign-in) and
+// the browser sessions any of them handed over to — and so do the
+// device's orphans (framegens.go), so nothing the app opened outlives its
+// sign-out. The device stays enrolled. ok=false when tok is not a live
+// bearer session.
 func (a *Auth) DropBearerSession(tok string) (userID, deviceID string, ok bool) {
 	a.mu.Lock()
 	s, ok := a.sessions[tok]
 	if ok && s.bearer {
 		a.dropSessionLocked(tok)
 		for id, c := range a.sessions {
-			if c.opener == tok {
+			if c.opener == tok || s.deviceID != "" && c.deviceID == s.deviceID {
 				a.dropSessionLocked(id)
+			}
+		}
+		if s.deviceID != "" {
+			for h, c := range a.gens.orphans {
+				if c.deviceID == s.deviceID {
+					delete(a.gens.orphans, h)
+				}
 			}
 		}
 	}

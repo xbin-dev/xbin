@@ -23,7 +23,8 @@ import (
 //   - it carries the device's id, so removing the device ends it with the
 //     device's own sessions (DropDeviceSessions);
 //   - signing the app out (POST /logout with the device bearer) ends it
-//     with the session that opened it (DropBearerSession);
+//     with the device's sessions (DropBearerSession) — even when the app
+//     has since replaced the session that opened it with a newer one;
 //   - its login time is the DEVICE LOGIN's, not the redeem's: the enrollment
 //     step-up (EnrollFreshLogin) and the absolute TTL both count from the
 //     Face ID sign-in, so a handoff can't launder an old device session

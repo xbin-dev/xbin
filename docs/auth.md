@@ -914,9 +914,12 @@ account — the bootstrap owner token has none.
   Admins see and remove any user's devices in the admin console's Users
   tab. Removing a device ends
   every session it opened at once — and the frame and asset tokens those
-  sessions minted — and drops its push registration (so does the app
-  signing out of the workspace; a device registers push only under its own
-  id, and a registration any other sign-in made ends with that sign-in).
+  sessions minted — and drops its push registration. The app signing out
+  of the workspace does the same short of removing it: every session
+  opened with that device's key ends (earlier ones the app replaced, and
+  the Safari sessions any of them opened) and its push registration goes
+  (a device registers push only under its own id, and a registration any
+  other sign-in made ends with that sign-in).
   Changing your password can remove your other devices in the same
   step (*and remove my app devices* in the password form; the phone making
   the change keeps its own).
