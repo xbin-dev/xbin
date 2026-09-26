@@ -90,8 +90,10 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 	// An element principal holding a code[:<owner>] grant reads sibling
 	// source here too (the grant's whole point — tooling backends fetching
 	// files); the 2026-08-02 element read clamp governs everything else.
-	// Note the D4 injection mints a frame token only when CanReadTile passes,
-	// so grant-based reads never leak the OTHER tile's credential.
+	// Note the D4 injection mints a frame token only for a human or the tile
+	// itself (mayMintFrameToken), so element reads — code grants, a user's
+	// RBAC through another tile's frame token — never leak the OTHER tile's
+	// credential.
 	//
 	// Strict asset gating (--tile-assets=tokens|origins, tileassets.go) has
 	// no credential-less path at all, re-checks the DRIVING USER's live
