@@ -1,0 +1,21 @@
+{
+  // Slack adapter for agents (docs/agent-inbox.md, D86). It holds a Socket
+  // Mode connection to Slack, reports each message to the agent its `agent`
+  // interface is bound to, and posts the agent's replies.
+  "runtime": "go",
+  // Nothing ever sends this tile the request that starts an ordinary tile —
+  // its work arrives over the socket it opens — so xbind starts it at boot
+  // and restarts it after an exit (docs/elements.md, D84).
+  "alwaysOn": true,
+  "uses": [
+    { "target": "res:apps/slack/state", "role": "writer" }
+  ],
+  "interfaces": {
+    // The agent to talk for: bind it to an agent tile (its `inbox` provide):
+    // bx bind apps/slack agent=apps/agent. A manager then claims the channel
+    // on that agent's Automations page.
+    "agent": { "kind": "http", "service": "agent-inbox" },
+    // Egress to Slack only: bx bind apps/slack net=internet:*.slack.com:443
+    "net": { "kind": "net" }
+  }
+}

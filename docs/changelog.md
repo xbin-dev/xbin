@@ -12,6 +12,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-26
 
+- **New builtin tile `slack` (v1): a Slack adapter for agents.** It holds a
+  Socket Mode connection (no public URL; `alwaysOn`) and feeds the agent its
+  `agent` interface is bound to over [agent-inbox](agent-inbox.md).
+  - What reaches the agent: DMs, mentions (answered in a thread under
+    them), replies in the threads the agent follows, Slack's assistant
+    pane, and `/agent`.
+  - Events are spooled before they are acked; replies are posted as mrkdwn
+    and acked with their ts.
+  - The tile's page generates the Slack app manifest and takes the two
+    tokens.
+  - Egress: `bx bind apps/slack net=internet:*.slack.com:443`.
 - **Agent template: chat channels.** An agent now `provides` an `inbox`
   (service `agent-inbox`, role `channel`). A chat adapter tile bound to it
   reports messages and pulls replies over the contract in

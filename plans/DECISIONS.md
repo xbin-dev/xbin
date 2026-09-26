@@ -2341,3 +2341,11 @@ Deviations and refinements made while implementing; all deliberate:
     semantics and the access rules.
   - A channel running in the private lane by default: any reply could
     carry internal data out.
+
+  **The first adapter is Slack over Socket Mode** (`builtin-tiles/slack`,
+  alwaysOn per D84). Socket Mode needs no public URL; the HTTP Events API
+  would need ingress and request signing, so it comes later.
+  - Every event is written to the tile's kv before it is acked (Slack
+    never resends an acked event), then delivered in order.
+  - A reply's Slack `ts` is recorded before its ack, so a crash between
+    posting and acking doesn't post it twice.

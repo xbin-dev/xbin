@@ -1,0 +1,145 @@
+<!doctype html>
+<!-- slack: connects a Slack app to an agent (docs/agent-inbox.md). This page
+     shows the connection, walks through the setup (the app manifest, the two
+     tokens, egress, the agent binding) and lists recent activity. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>slack</title>
+  <link rel="stylesheet" href="/vendor/theme.css">
+  <style>
+    body { margin: 0; font: 13px/1.45 system-ui, sans-serif; color: var(--bx-text); background: var(--bx-bg, var(--bx-panel)); }
+    main { max-width: 760px; margin: 0 auto; padding: 14px 16px 28px; }
+    h3 { margin: 0; font-size: 15px; }
+    h4 { margin: 18px 0 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--bx-muted); }
+    .hd { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+    .pill { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--bx-border); }
+    .pill.ok { color: var(--bx-green); border-color: var(--bx-green); }
+    .pill.warn { color: var(--bx-amber, #c80); border-color: var(--bx-amber, #c80); }
+    .pill.err { color: var(--bx-red); border-color: var(--bx-red); }
+    .muted { color: var(--bx-muted); }
+    .small { font-size: 12px; }
+    .card { border: 1px solid var(--bx-border); border-radius: 7px; padding: 10px 12px; background: var(--bx-panel); margin: 8px 0; }
+    .err { color: var(--bx-red); margin: 6px 0; }
+    ol.steps { padding-left: 20px; margin: 6px 0; }
+    ol.steps li { margin: 8px 0; }
+    code, .mono { font-family: var(--bx-mono, monospace); font-size: 12px; }
+    .cmd { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+    .cmd code { flex: 1; padding: 4px 8px; border: 1px solid var(--bx-border); border-radius: 5px; background: var(--bx-panel-2); overflow-x: auto; white-space: nowrap; }
+    textarea.manifest { width: 100%; box-sizing: border-box; height: 150px; font-family: var(--bx-mono, monospace); font-size: 11px; margin-top: 4px; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 4px 0; }
+    input { font: inherit; font-size: 12px; padding: 4px 8px; border: 1px solid var(--bx-border); border-radius: 5px; background: var(--bx-panel); color: var(--bx-text); }
+    input.tok { flex: 1; min-width: 220px; font-family: var(--bx-mono, monospace); }
+    button { font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 5px; border: 1px solid var(--bx-border); background: var(--bx-panel); color: var(--bx-text); cursor: pointer; }
+    button.go { background: var(--bx-accent); border-color: transparent; color: #fff; }
+    button.rm { color: var(--bx-red); }
+    table { border-collapse: collapse; width: 100%; font-size: 12px; }
+    td { padding: 3px 8px 3px 0; border-top: 1px solid var(--bx-border); vertical-align: top; }
+    td.t { white-space: nowrap; color: var(--bx-muted); }
+    .k-error { color: var(--bx-red); }
+    details > summary { cursor: pointer; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--bx-muted); margin: 18px 0 6px; }
+  </style>
+</head>
+<body class="bx">
+<main id="app"></main>
+<script type="module">
+import { html, render, nothing } from 'lit';
+import { selfApi as api, jbody } from '/vendor/bx-kit.js';
+
+const self = window.xbin?.self || 'apps/slack';
+let st = null, err = '', note = '', appName = 'Agent', manifest = '', bot = '', app = '';
+
+const PHASE = {
+  connected: ['ok', 'connected'], connecting: ['warn', 'connecting…'], 'needs-tokens': ['warn', 'needs its tokens'],
+  'needs-agent': ['warn', 'not bound to an agent'], error: ['err', 'not connected'],
+};
+
+async function load() {
+  try { st = await api('/status'); err = ''; } catch (e) { err = e.message; }
+  paint();
+}
+async function loadManifest() {
+  try { manifest = JSON.stringify(await api('/manifest?name=' + encodeURIComponent(appName)), null, 2); } catch (e) { err = e.message; }
+  paint();
+}
+async function act(fn, said = '') {
+  err = '';
+  try { await fn(); note = said; } catch (e) { err = e.message; note = ''; }
+  await load();
+}
+const saveTokens = () => act(async () => {
+  await api('/config/tokens', jbody({ botToken: bot.trim(), appToken: app.trim() }, 'PUT'));
+  bot = app = '';
+}, 'Saved — connecting…');
+const dropTokens = () => confirm('Remove both tokens? The bot goes offline.') && act(() => api('/config/tokens', { method: 'DELETE' }), 'Tokens removed.');
+const reconnect = () => act(() => api('/reconnect', { method: 'POST' }), 'Reconnecting…');
+
+function copy(text, ev) {
+  const done = () => { ev.target.textContent = 'Copied'; setTimeout(() => { ev.target.textContent = 'Copy'; }, 1500); };
+  navigator.clipboard?.writeText(text).then(done, () => {});
+}
+const cmd = (text) => html`<div class="cmd"><code>${text}</code><button @click=${(e) => copy(text, e)}>Copy</button></div>`;
+const ago = (s) => { const d = Math.max(0, Date.now() / 1000 - s); return d < 90 ? 'just now' : d < 5400 ? `${Math.round(d / 60)} min ago` : `${Math.round(d / 3600)} h ago`; };
+
+function statusTpl() {
+  const s = st.state || {};
+  const [cls, label] = PHASE[s.phase] || ['warn', s.phase || '…'];
+  return html`<div class="hd"><h3>Slack</h3><span class="pill ${cls}" data-phase=${s.phase}>${label}</span>
+      <span style="flex:1"></span>
+      <button @click=${reconnect}>Reconnect</button>
+      ${st.hasBotToken || st.hasAppToken ? html`<button class="rm" @click=${dropTokens}>Remove tokens</button>` : nothing}</div>
+    ${s.phase === 'error' ? html`<div class="err">${s.detail}</div>` : nothing}
+    ${s.team ? html`<div class="card small">
+        Connected to <b>${s.team}</b> as <b>@${s.botName}</b>${s.since && s.phase === 'connected' ? html` <span class="muted">since ${ago(s.since)}</span>` : nothing}.
+        ${s.claimed === 'unclaimed' ? html`<div>The agent sees this Slack account but nobody has claimed it yet: open the agent's
+          <b>Automations</b> page and claim it — until then the bot ignores every message.</div>`
+          : s.claimed === 'disabled' ? html`<div>Its channel is switched off on the agent.</div>`
+          : s.claimed ? html`<div class="muted">The agent answers it (channel #${s.channelId}).</div>` : nothing}
+      </div>` : nothing}`;
+}
+
+function setupTpl() {
+  const s = st.state || {};
+  const open = s.phase !== 'connected';
+  return html`<details ?open=${open}><summary>Setup</summary><ol class="steps">
+    <li><b>Create the Slack app</b> from this manifest: api.slack.com/apps → <i>Create New App</i> → <i>From an app manifest</i>.
+      <div class="row">name <input .value=${appName} @input=${(e) => { appName = e.target.value; }} @change=${loadManifest} style="width:160px">
+        <button @click=${(e) => copy(manifest, e)}>Copy</button></div>
+      <textarea class="manifest" readonly .value=${manifest}></textarea></li>
+    <li><b>Install it</b> to your Slack workspace, then copy the <i>Bot User OAuth Token</i> (<code>xoxb-…</code>) from <i>OAuth &amp; Permissions</i>.</li>
+    <li><b>Make an app-level token:</b> <i>Basic Information</i> → <i>App-Level Tokens</i> → generate one with the scope
+      <code>connections:write</code> (<code>xapp-…</code>).</li>
+    <li><b>Paste both</b> — they go to this tile's vault.
+      <div class="row"><input class="tok" type="password" placeholder=${st.hasBotToken ? 'bot token: set (paste to replace)' : 'xoxb-…'}
+          .value=${bot} @input=${(e) => { bot = e.target.value; }}></div>
+      <div class="row"><input class="tok" type="password" placeholder=${st.hasAppToken ? 'app-level token: set (paste to replace)' : 'xapp-…'}
+          .value=${app} @input=${(e) => { app = e.target.value; }}>
+        <button class="go" @click=${saveTokens}>Save</button></div></li>
+    <li><b>Let it reach Slack</b> (and nothing else):${cmd(`bx bind ${self} net=internet:*.slack.com:443`)}</li>
+    <li><b>Bind it to an agent</b>, then claim it on that agent's Automations page:${cmd(`bx bind ${self} agent=apps/agent`)}
+      ${st.agent ? html`<div class="muted small">Bound.</div>` : nothing}</li>
+  </ol></details>`;
+}
+
+function eventsTpl() {
+  const ev = (st.events || []).slice().reverse();
+  return html`<h4>Recent activity</h4>${ev.length ? html`<table>${ev.map((e) => html`<tr>
+      <td class="t">${ago(e.at)}</td><td class="k-${e.kind}">${e.kind === 'in' ? '→ agent' : e.kind === 'out' ? '← agent' : 'error'}</td>
+      <td>${e.where || ''}${e.who ? html` <span class="muted">${e.who}</span>` : nothing}</td>
+      <td>${e.text || ''}</td><td class="muted">${e.verdict || ''}</td></tr>`)}</table>`
+    : html`<div class="muted small">nothing yet</div>`}`;
+}
+
+function paint() {
+  render(st ? html`${statusTpl()}${err ? html`<div class="err">${err}</div>` : nothing}
+      ${note ? html`<div class="muted small">${note}</div>` : nothing}${setupTpl()}${eventsTpl()}`
+    : html`${err ? html`<div class="err">${err}</div>` : html`<div class="muted">loading…</div>`}`, document.getElementById('app'));
+}
+
+load();
+loadManifest();
+// the backend reconnects by itself; the page follows its state while open
+setInterval(() => { if (document.visibilityState === 'visible') load(); }, 3000);
+</script>
+</body>
+</html>
