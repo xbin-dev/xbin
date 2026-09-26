@@ -220,13 +220,17 @@ struct XbinTextArea: UIViewRepresentable {
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: XbinTextView, context: Context) -> CGSize? {
-        let width = proposal.width.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? 240
+        // The proposed width, 0 included: a stack's minimum-size probe that
+        // got 240 back took the view for a rigid one. 240 when unproposed.
+        let proposed = proposal.width.flatMap { $0.isFinite ? max(0, $0) : nil }
+        let width = proposed ?? 240
         let line = (uiView.font ?? UIFont.preferredFont(forTextStyle: .body)).lineHeight
-        let content = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
+        let content = uiView.sizeThatFits(CGSize(width: max(width, 1), height: .greatestFiniteMagnitude)).height
         let low = line * CGFloat(max(1, lines.lowerBound))
         let high = line * CGFloat(max(lines.lowerBound, lines.upperBound))
         let overflow = content > high + 0.5
-        if uiView.isScrollEnabled != overflow { uiView.isScrollEnabled = overflow }
+        // Only a real width decides scrolling, not a probe.
+        if (proposed ?? 0) > 0, uiView.isScrollEnabled != overflow { uiView.isScrollEnabled = overflow }
         return CGSize(width: width, height: ceil(min(max(content, low), high)))
     }
 
