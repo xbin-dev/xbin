@@ -1,0 +1,75 @@
+{
+  "about": "builtin-tiles/s3-archiver/native.js (§18.4): the settings form — a prefix and a new secret key typed, then Save & test: config, the vault write, a reload and the bucket check",
+  "self": "apps/s3-archiver",
+  "routes": {
+    "GET /api/apps/s3-archiver/config": [
+      {
+        "json": {
+          "config": {
+            "endpoint": "https://s3.eu-central-1.amazonaws.com",
+            "region": "eu-central-1",
+            "bucket": "acme-backups",
+            "prefix": ""
+          },
+          "hasCreds": true
+        }
+      },
+      {
+        "json": {
+          "config": {
+            "endpoint": "https://s3.eu-central-1.amazonaws.com",
+            "region": "eu-central-1",
+            "bucket": "acme-backups",
+            "prefix": "xbin/"
+          },
+          "hasCreds": true
+        }
+      }
+    ],
+    "PUT /api/apps/s3-archiver/config": {
+      "json": {
+        "ok": true
+      },
+      "delay": 120
+    },
+    "PUT /api/xbin/vault/apps/s3-archiver/secretKey": {
+      "json": {
+        "ok": true
+      },
+      "delay": 80
+    },
+    "POST /api/apps/s3-archiver/check": {
+      "json": {
+        "ok": true,
+        "bucket": "acme-backups"
+      },
+      "delay": 450
+    }
+  },
+  "interactions": [
+    {
+      "select": "field[label=\"Prefix (optional)\"]",
+      "type": "input",
+      "payload": {
+        "value": "xbin/"
+      }
+    },
+    {
+      "after": 900,
+      "select": "field[label=\"Secret access key\"]",
+      "type": "input",
+      "payload": {
+        "value": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+      },
+      "note": "the AWS documentation's example key"
+    },
+    {
+      "after": 700,
+      "select": "button[label=\"Save & test\"]",
+      "type": "tap"
+    },
+    {
+      "after": 800
+    }
+  ]
+}

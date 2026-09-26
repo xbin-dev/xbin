@@ -1,0 +1,376 @@
+{
+  "about": "builtin-tiles/chat/native.js (§18.8): one question answered with a tool — the model calls an MCP server's search, reads the result, thinks for two seconds and streams its answer",
+  "self": "apps/chat",
+  "iface": {
+    "llm": {
+      "service": "llm",
+      "multi": true,
+      "endpoints": [
+        {
+          "provider": "apps/llm-gw",
+          "url": "/api/apps/llm-gw",
+          "service": "llm"
+        }
+      ]
+    },
+    "mcp": {
+      "service": "mcp",
+      "multi": true,
+      "endpoints": [
+        {
+          "provider": "apps/github-mcp",
+          "url": "/api/apps/github-mcp",
+          "service": "mcp"
+        }
+      ]
+    }
+  },
+  "routes": {
+    "GET /api/apps/llm-gw/v1/models": {
+      "json": {
+        "object": "list",
+        "data": [
+          {
+            "id": "openai/gpt-4.1-mini",
+            "object": "model",
+            "owned_by": "openai"
+          },
+          {
+            "id": "local/qwen3-32b",
+            "object": "model",
+            "owned_by": "local"
+          }
+        ]
+      }
+    },
+    "POST /api/apps/github-mcp/mcp": [
+      {
+        "json": {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "result": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {
+              "tools": {}
+            },
+            "serverInfo": {
+              "name": "github-mcp-server",
+              "version": "0.9.0"
+            }
+          }
+        },
+        "headers": {
+          "Mcp-Session-Id": "a41c0f7e"
+        }
+      },
+      {
+        "status": 202,
+        "text": ""
+      },
+      {
+        "json": {
+          "jsonrpc": "2.0",
+          "id": 2,
+          "result": {
+            "tools": [
+              {
+                "name": "search_issues",
+                "description": "Search issues and pull requests with GitHub's search syntax.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "query"
+                  ]
+                }
+              },
+              {
+                "name": "get_issue",
+                "description": "Get one issue by number.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "owner": {
+                      "type": "string"
+                    },
+                    "repo": {
+                      "type": "string"
+                    },
+                    "issue_number": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "owner",
+                    "repo",
+                    "issue_number"
+                  ]
+                }
+              },
+              {
+                "name": "list_labels",
+                "description": "List a repository's labels.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "owner": {
+                      "type": "string"
+                    },
+                    "repo": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "owner",
+                    "repo"
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "json": {
+          "jsonrpc": "2.0",
+          "id": 3,
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"total_count\":7,\"incomplete_results\":false}"
+              }
+            ],
+            "isError": false
+          }
+        },
+        "delay": 400
+      }
+    ],
+    "POST /api/apps/llm-gw/v1/chat/completions": [
+      {
+        "sse": [
+          {
+            "data": {
+              "id": "chatcmpl-1790000000",
+              "object": "chat.completion.chunk",
+              "created": 1790000000,
+              "model": "local/qwen3-32b",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "role": "assistant",
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "id": "call_8Qe2Lx",
+                        "type": "function",
+                        "function": {
+                          "name": "m0_search_issues",
+                          "arguments": ""
+                        }
+                      }
+                    ]
+                  },
+                  "finish_reason": null
+                }
+              ]
+            },
+            "after": 600
+          },
+          {
+            "data": {
+              "id": "chatcmpl-1790000000",
+              "object": "chat.completion.chunk",
+              "created": 1790000000,
+              "model": "local/qwen3-32b",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "function": {
+                          "arguments": "{\"query\":\"repo:acme/shop is:issue "
+                        }
+                      }
+                    ]
+                  },
+                  "finish_reason": null
+                }
+              ]
+            },
+            "after": 80
+          },
+          {
+            "data": {
+              "id": "chatcmpl-1790000000",
+              "object": "chat.completion.chunk",
+              "created": 1790000000,
+              "model": "local/qwen3-32b",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "function": {
+                          "arguments": "is:open label:bug\"}"
+                        }
+                      }
+                    ]
+                  },
+                  "finish_reason": null
+                }
+              ]
+            },
+            "after": 80
+          },
+          {
+            "data": {
+              "id": "chatcmpl-1790000000",
+              "object": "chat.completion.chunk",
+              "created": 1790000000,
+              "model": "local/qwen3-32b",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {},
+                  "finish_reason": "tool_calls"
+                }
+              ]
+            },
+            "after": 20
+          },
+          {
+            "data": "[DONE]"
+          }
+        ]
+      },
+      {
+        "sse": [
+          {
+            "data": {
+              "id": "chatcmpl-1790000000",
+              "object": "chat.completion.chunk",
+              "created": 1790000000,
+              "model": "local/qwen3-32b",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "role": "assistant",
+                    "reasoning_content": "The search found 7 open issues "
+                  },
+                  "finish_reason": null
+                }
+              ]
+            },
+            "after": 500
+          },
+          {
+            "data": {
+              "id": "chatcmpl-1790000000",
+              "object": "chat.completion.chunk",
+              "created": 1790000000,
+              "model": "local/qwen3-32b",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "reasoning_content": "with the bug label."
+                  },
+                  "finish_reason": null
+                }
+              ]
+            },
+            "after": 700
+          },
+          {
+            "data": {
+              "id": "chatcmpl-1790000000",
+              "object": "chat.completion.chunk",
+              "created": 1790000000,
+              "model": "local/qwen3-32b",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": "There are **7** open issues"
+                  },
+                  "finish_reason": null
+                }
+              ]
+            },
+            "after": 800
+          },
+          {
+            "data": {
+              "id": "chatcmpl-1790000000",
+              "object": "chat.completion.chunk",
+              "created": 1790000000,
+              "model": "local/qwen3-32b",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": " labelled `bug`."
+                  },
+                  "finish_reason": null
+                }
+              ]
+            },
+            "after": 120
+          },
+          {
+            "data": {
+              "id": "chatcmpl-1790000000",
+              "object": "chat.completion.chunk",
+              "created": 1790000000,
+              "model": "local/qwen3-32b",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {},
+                  "finish_reason": "stop"
+                }
+              ]
+            },
+            "after": 20
+          },
+          {
+            "data": "[DONE]"
+          }
+        ]
+      }
+    ]
+  },
+  "interactions": [
+    {
+      "select": "composer",
+      "type": "input",
+      "payload": {
+        "value": "How many open issues are labelled bug?"
+      }
+    },
+    {
+      "after": 800,
+      "select": "composer",
+      "type": "send",
+      "payload": {
+        "value": "How many open issues are labelled bug?"
+      }
+    },
+    {
+      "after": 6000,
+      "note": "the tool round, the call, then the answer round"
+    }
+  ]
+}

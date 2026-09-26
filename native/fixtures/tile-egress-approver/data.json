@@ -1,0 +1,133 @@
+{
+  "about": "builtin-tiles/egress-approver/native.js (§18.3): the approval queue — whois pushed and popped, then an optimistic approve reconciled by the single-flight poll",
+  "self": "apps/egress-approver",
+  "routes": {
+    "GET /api/apps/egress-approver/state": [
+      {
+        "json": {
+          "pending": [
+            {
+              "ip": "203.0.113.7",
+              "rdns": "cdn.example.net",
+              "firstSeen": 1789999905000,
+              "lastSeen": 1789999963600,
+              "bytesIn": 0,
+              "bytesOut": 1536
+            },
+            {
+              "ip": "198.51.100.20",
+              "rdns": "api.github.com",
+              "firstSeen": 1789996400000,
+              "lastSeen": 1789999881000,
+              "bytesIn": 1048576,
+              "bytesOut": 48230
+            }
+          ],
+          "approved": [],
+          "denied": [],
+          "clients": 2,
+          "egressReady": true
+        }
+      },
+      {
+        "json": {
+          "pending": [
+            {
+              "ip": "203.0.113.7",
+              "rdns": "cdn.example.net",
+              "firstSeen": 1789999905000,
+              "lastSeen": 1789999963600,
+              "bytesIn": 0,
+              "bytesOut": 1536
+            },
+            {
+              "ip": "198.51.100.20",
+              "rdns": "api.github.com",
+              "firstSeen": 1789996400000,
+              "lastSeen": 1789999881000,
+              "bytesIn": 1048576,
+              "bytesOut": 48230
+            }
+          ],
+          "approved": [],
+          "denied": [],
+          "clients": 2,
+          "egressReady": true
+        }
+      },
+      {
+        "json": {
+          "pending": [
+            {
+              "ip": "203.0.113.7",
+              "rdns": "cdn.example.net",
+              "firstSeen": 1789999905000,
+              "lastSeen": 1789999963600,
+              "bytesIn": 0,
+              "bytesOut": 1536
+            }
+          ],
+          "approved": [
+            {
+              "ip": "198.51.100.20",
+              "rdns": "api.github.com",
+              "firstSeen": 1789996400000,
+              "lastSeen": 1789999881000,
+              "bytesIn": 1048576,
+              "bytesOut": 48230
+            }
+          ],
+          "denied": [],
+          "clients": 2,
+          "egressReady": true
+        }
+      }
+    ],
+    "GET /api/apps/egress-approver/detail?ip=203.0.113.7": {
+      "json": {
+        "ip": "203.0.113.7",
+        "rdns": "cdn.example.net",
+        "rdap": {
+          "name": "EXAMPLE-CDN-NET",
+          "cidr": "203.0.113.0/24",
+          "org": "Example CDN B.V.",
+          "country": "NL",
+          "handle": "NET-203-0-113-0-1"
+        }
+      },
+      "delay": 300
+    },
+    "POST /api/apps/egress-approver/approve": {
+      "json": {
+        "ok": true
+      },
+      "delay": 100
+    }
+  },
+  "interactions": [
+    {
+      "after": 600,
+      "select": "row[title=\"203.0.113.7\"]",
+      "type": "tap",
+      "note": "whois: a pushed screen, filled when /detail answers"
+    },
+    {
+      "after": 400,
+      "select": "nav",
+      "type": "pop",
+      "payload": {
+        "depth": 0
+      },
+      "note": "back to the queue"
+    },
+    {
+      "after": 500,
+      "select": "row[title=\"198.51.100.20\"] button[label=approve]",
+      "type": "tap",
+      "note": "moves at once; the POST and the next /state reconcile"
+    },
+    {
+      "after": 500
+    }
+  ]
+}

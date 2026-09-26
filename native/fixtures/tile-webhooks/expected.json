@@ -1,0 +1,28 @@
+{"v":1,"root":{"k":"r","t":"fragment","c":[
+  {"k":"r.0","t":"nav","e":["pop"],"c":[
+    {"k":"r.0.0","t":"screen","p":{"title":"Webhooks","style":"list"},"c":[
+      {"k":"r.0.0.1","t":"section","p":{"title":"Wiring"},"c":[
+        {"k":"r.0.0.1.0","t":"row","p":{"title":"Pushes to","detail":"apps/agent"}},
+        {"k":"r.0.0.1.1","t":"row","p":{"title":"Public at","detail":"hooks.example.com","mono":"detail"}}
+      ]},
+      {"k":"r.0.0.2","t":"section","p":{"title":"Hooks"},"c":[
+        {"k":"r.0.0.2.0:3f9c2a71be04","t":"row","p":{"title":"deploy","nav":true,"icon":"link","badge":"","subtitle":"signed (HMAC) · topic deploy/‹header:X-GitHub-Event›"},"e":["tap"]}
+      ]},
+      {"k":"r.0.0.3","t":"section","p":{"title":"New hook"},"c":[
+        {"k":"r.0.0.3.0","t":"field","p":{"label":"Name (its events' topic)","placeholder":"deploy","value":""},"e":["input"]},
+        {"k":"r.0.0.3.1","t":"picker","p":{"label":"Sent by","value":"","options":[{"value":"","label":"anything (a token)"},{"value":"github","label":"GitHub (signed)"},{"value":"gitlab","label":"GitLab (a token)"}]},"e":["change"]},
+        {"k":"r.0.0.3.2","t":"picker","p":{"label":"Checked by","value":"token","options":[{"value":"token","label":"a token"},{"value":"hmac","label":"an HMAC signature (X-Hub-Signature-256)"}]},"e":["change"]},
+        {"k":"r.0.0.3.4","t":"button","p":{"role":"primary","disabled":true,"label":"Create"},"e":["tap"]}
+      ]},
+      {"k":"r.0.0.4","t":"section","p":{"title":"Recent deliveries"},"c":[
+        {"k":"r.0.0.4.0:1789999700:3f9c2a71be04","t":"row","p":{"title":"deploy/push","mono":"title","subtitle":"delivered to apps/agent","detail":"5 min ago","badge":"202","tone":"ok"}}
+      ]}
+    ]}
+  ]},
+  {"k":"r.1","t":"sheet","p":{"open":false,"title":"Copy this secret now"},"e":["dismiss"],"c":[
+    {"k":"r.1.0","t":"text","p":{"text":"It is not shown again."}},
+    {"k":"r.1.1","t":"code","p":{"copy":true,"text":""}},
+    {"k":"r.1.2","t":"text","p":{"tone":"muted","text":"Use it as the webhook secret: the sender signs each body with it (GitHub: Secret)."}},
+    {"k":"r.1.3","t":"button","p":{"role":"primary","label":"Done"},"e":["tap"]}
+  ]}
+]}}
