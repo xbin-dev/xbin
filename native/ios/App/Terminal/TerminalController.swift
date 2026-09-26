@@ -44,6 +44,9 @@ final class TerminalController: NSObject {
     var selecting = false
     var selection = TermSelection()
 
+    /// The launch argument (Debug builds) that hides the software keyboard.
+    static let noSoftKeyboardKey = "XbinNoSoftKeyboard"
+
     init(workspace: WorkspaceModel, cwd: String, initialInput: String? = nil) {
         self.workspace = workspace
         self.cwd = cwd
@@ -58,7 +61,15 @@ final class TerminalController: NSObject {
         terminalView.terminalDelegate = self
         keyboard.settings = TerminalPrefs.keyboard
         terminalView.optionAsMetaKey = keyboard.settings.optionAsMeta
+        // The black terminal takes the dark keyboard, under its dark key row (KeyRow).
+        terminalView.keyboardAppearance = .dark
         terminalView.inputAccessoryView = AccessoryBar(controller: self)
+        #if DEBUG
+        // The UI tests' stand-in for a hardware keyboard, which a headless
+        // simulator can't attach: no software keyboard, so the key row sits
+        // alone at the bottom of the screen as it does with one (test07).
+        if UserDefaults.standard.bool(forKey: Self.noSoftKeyboardKey) { terminalView.inputView = UIView(frame: .zero) }
+        #endif
         overlay.isUserInteractionEnabled = false
         selectionOverlay.controller = self
         container.backgroundColor = .black

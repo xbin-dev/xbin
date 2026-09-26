@@ -7,8 +7,8 @@
 #     socket, the kill switch, Handoff, haptics, settings) but the three
 #     that need Apple-only frameworks (AppTransport, DeviceKeys,
 #     AddWorkspaceView);
-#   - FILES below: a native tile's hatches (terminal, canvas, attach) and
-#     the Agent tab.
+#   - FILES below: a native tile's hatches (terminal, canvas, attach; the
+#     key row's bar they share with the shell's terminal) and the Agent tab.
 #
 # The stubs are layered: swiftui-stubcheck's (the renderer's SwiftUI and
 # UIKit), term-stubcheck's (the terminal's UIKit and SwiftUI, SwiftTerm's
@@ -32,7 +32,7 @@ out=${1:-${TMPDIR:-/tmp}/xbin-app-stubcheck}
 app=$repo/native/ios/App
 term=$repo/native/tools/term-stubcheck/Stubs
 FILES="Tiles/TileAttach.swift Tiles/TileTerminal.swift Tiles/TileCanvas.swift Tiles/TileHatches.swift
-Agent/AgentAttachments.swift Agent/AgentChat.swift Agent/AgentScreen.swift"
+Terminal/KeyRow.swift Agent/AgentAttachments.swift Agent/AgentChat.swift Agent/AgentScreen.swift"
 
 # The renderer's stubs and checkable sources.
 "$repo/native/tools/swiftui-stubcheck/run.sh" --sources-only "$out/renderer"

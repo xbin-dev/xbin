@@ -1767,7 +1767,7 @@ The remaining roadmap, built as nine work packages and integrated on
 ### First simulator runs (2026-09-26)
 
 The UI tests on the Mac mini's simulator (iPhone 18 Pro, iOS 27.0) showed
-what the text above leaves open:
+two things the text above leaves open:
 
 - **The viewport (§6.3).** Tiles are made for a card in the shell's frame,
   where `<meta name="viewport">` means nothing, so almost none sets one;
@@ -1778,3 +1778,14 @@ what the text above leaves open:
   device's width, growing to the content's width up to 1280 px, fitted to
   the screen, pinch zoom kept. A page with its own viewport is never
   touched. Builders: docs/native.md §Fallback.
+- **The key row (§12).** iOS 26's floating keyboard draws no backdrop
+  behind an input accessory, so the row's translucent keys vanished over
+  the black terminal and it read as a row behind the keyboard. The row
+  draws its own opaque dark bar (the terminal asks for the dark keyboard to
+  match). With a hardware keyboard UIKit docks the same 46 pt bar at the
+  very bottom, its keys over the home indicator's strip — as the row always
+  was there; they work. Open: UIKit measures this self-sizing accessory once
+  and ignored a later height (a constraint's constant, an intrinsic size)
+  though the bar's safe area reported the 34 pt strip. The UI tests stand in
+  for a hardware keyboard with `-XbinNoSoftKeyboard` (Debug builds: an empty
+  input view); a headless simulator can't attach one.

@@ -42,6 +42,7 @@ public enum NSTextAlignment: Int, Sendable { case left, center, right, justified
 
 @MainActor open class UIResponder: NSObject {
     open var inputAccessoryView: UIView? { nil }
+    open var inputView: UIView? { nil }
     @discardableResult open func becomeFirstResponder() -> Bool { true }
     @discardableResult open func resignFirstResponder() -> Bool { true }
     open func reloadInputViews() {}

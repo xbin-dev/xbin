@@ -91,6 +91,23 @@ final class XbinE2ETests: XCTestCase {
         let title = e.element("xbin-e2e-42")
         XCTAssertTrue(title.waitForExistence(timeout: 30), "the shell's output (its title) on screen")
         e.shot("04-terminal")
+
+        // The key row sits on top of the software keyboard, visible and
+        // working: another title, then ↑ ↑ from the row recalls the first
+        // printf, and Return runs it again.
+        let up = e.app.buttons["Up arrow"]
+        XCTAssertTrue(e.app.keyboards.firstMatch.waitForExistence(timeout: 10), "the software keyboard")
+        XCTAssertTrue(up.waitForExistence(timeout: 10), "the key row's ↑")
+        e.keyRowAboveKeyboard()
+        e.shot("04-terminal-keyboard")
+        e.app.typeText("printf '\\033]0;xbin-e2e-other\\007'\n")
+        XCTAssertTrue(e.element("xbin-e2e-other").waitForExistence(timeout: 30), "the second title")
+        XCTAssertTrue(e.until(10) { !title.exists }, "the first title gone")
+        up.tap()
+        up.tap()
+        e.app.typeText("\n")
+        XCTAssertTrue(title.waitForExistence(timeout: 30), "↑ ↑ from the key row recalled the first printf")
+        e.shot("04-terminal-keys")
         for s in try await e.server.sessions(cwd: "apps/welcome") where s.kind != "agent" {
             await e.server.end(s.id)
         }
@@ -166,5 +183,52 @@ final class XbinE2ETests: XCTestCase {
         let kept = e.until(10) { own.label == expected }
         e.shot("06-phone")
         XCTAssertTrue(kept, "its own viewport, alone and as written: \(own.label), want \(expected)")
+    }
+
+    /// With a hardware keyboard the key row stays: docked at the bottom of
+    /// the screen, tappable, and typing and its keys work. A headless
+    /// simulator can't attach one (XCUITest brings up the software
+    /// keyboard), so the app's -XbinNoSoftKeyboard (Debug builds) stands in:
+    /// the terminal gets an empty input view and UIKit docks the row where a
+    /// hardware keyboard docks it. Its keys overlap the home indicator's
+    /// strip there, as the row always has (KeyRowBar): not asserted yet.
+    @MainActor
+    func test07TerminalHardwareKeyboard() async throws {
+        let e = try E2E(self)
+        e.app.launchArguments += ["-XbinNoSoftKeyboard", "YES"]
+        e.launch()
+        e.ensureWorkspace()
+        e.tileAction("apps/welcome", "Terminal here")
+        await e.eventually("a shell session on apps/welcome", timeout: 30) {
+            try await e.server.sessions(cwd: "apps/welcome").contains { $0.kind != "agent" }
+        }
+        e.app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let up = e.app.buttons["Up arrow"]
+        XCTAssertTrue(up.waitForExistence(timeout: 10), "the key row")
+        let window = e.app.windows.firstMatch.frame
+        let atBottom = { (f: CGRect) in f.maxY <= window.maxY && f.minY >= window.maxY - 100 }
+        let docked = e.until(10) { atBottom(up.frame) }
+        e.shot("07-terminal-hardware-keyboard")
+        XCTAssertTrue(e.softKeyboard() == nil, "no software keyboard")
+        XCTAssertTrue(docked, "the row docked at the bottom: \(up.frame) in \(window)")
+        for label in E2E.rowKeys {
+            let key = e.app.buttons[label]
+            print("xbin-e2e: key \(label) \(key.frame), window \(window)")
+            XCTAssertTrue(key.exists && key.isHittable, "the key row's \(label)")
+            XCTAssertTrue(atBottom(key.frame), "\(label) at the bottom: \(key.frame) in \(window)")
+        }
+        e.app.typeText("printf '\\033]0;xbin-e2e-hw-%d\\007' $((40+2))\n")
+        XCTAssertTrue(e.element("xbin-e2e-hw-42").waitForExistence(timeout: 30), "typed keys reach the shell")
+        e.app.typeText("printf '\\033]0;xbin-e2e-other\\007'\n")
+        XCTAssertTrue(e.element("xbin-e2e-other").waitForExistence(timeout: 30), "the second title")
+        XCTAssertTrue(e.until(10) { !e.element("xbin-e2e-hw-42").exists }, "the first title gone")
+        up.tap()
+        up.tap()
+        e.app.typeText("\n")
+        XCTAssertTrue(e.element("xbin-e2e-hw-42").waitForExistence(timeout: 30), "↑ ↑ from the key row recalled the first printf")
+        e.shot("07-terminal-hardware-keyboard-keys")
+        for s in try await e.server.sessions(cwd: "apps/welcome") where s.kind != "agent" {
+            await e.server.end(s.id)
+        }
     }
 }

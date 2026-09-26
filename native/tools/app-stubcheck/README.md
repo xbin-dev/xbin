@@ -13,7 +13,8 @@ covers, in Swift 6 mode:
   `Shell/AddWorkspaceView.swift` (URLSession delegates, the Secure Enclave,
   VisionKit/AuthenticationServices);
 - `FILES` in `run.sh`: a native tile's escape hatches (`Tiles/TileAttach`,
-  `TileTerminal`, `TileCanvas`, `TileHatches`) and the Agent tab
+  `TileTerminal`, `TileCanvas`, `TileHatches`; `Terminal/KeyRow`, the key
+  row's bar, shared with the shell's terminal) and the Agent tab
   (`Agent/*`).
 
 They are compiled together, so the seams between them (a window's

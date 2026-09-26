@@ -147,6 +147,57 @@ final class E2E {
         return condition()
     }
 
+    // MARK: The terminal
+
+    /// The key row's keys, by their accessibility labels (AccessorySlot).
+    static let rowKeys = ["Escape", "Control, sticky", "Tab", "Left arrow", "Down arrow", "Up arrow", "Right arrow"]
+
+    /// The software keyboard's frame while one is on screen — nil while it
+    /// is hidden or still sliding in (its element exists then, off screen).
+    /// Its element is the key plane (226 pt on an iPhone 18 Pro).
+    func softKeyboard() -> CGRect? {
+        let kb = app.keyboards.firstMatch
+        guard kb.exists else { return nil }
+        let f = kb.frame, window = app.windows.firstMatch.frame
+        return f.height > 120 && f.minY < window.maxY - 120 && f.maxY <= window.maxY + 1 ? f : nil
+    }
+
+    /// A key at `f` sits on the keyboard at `kb`: not overlapping it, and no
+    /// further above it than the row's own height. The keyboard's element
+    /// is its key plane, a little under the glass's top edge — a 46 pt row
+    /// on the glass starts about 60 pt above it (iPhone 18 Pro, iOS 27.0).
+    static func onTop(_ f: CGRect, of kb: CGRect) -> Bool { f.maxY <= kb.minY + 1 && f.minY >= kb.minY - 80 }
+
+    /// The terminal's key row is on top of the software keyboard: every key
+    /// of it on screen, hittable, just above the keyboard's top edge (not
+    /// behind it, not floating away from it). It waits for the keyboard to
+    /// come to rest first: it slides in, and XCUITest's typing can hide it
+    /// for a moment. The frames go to the log.
+    func keyRowAboveKeyboard(file: StaticString = #filePath, line: UInt = #line) {
+        var seen = ""
+        let ends = [Self.rowKeys[0], Self.rowKeys[Self.rowKeys.count - 1]]
+        let above = until(20) {
+            guard let kb = softKeyboard() else { seen = "no keyboard on screen"; return false }
+            seen = "keyboard \(kb)"
+            for label in ends {
+                let f = app.buttons[label].frame
+                seen += ", \(label) \(f)"
+                if !Self.onTop(f, of: kb) { return false }
+            }
+            return true
+        }
+        print("xbin-e2e: key row: \(seen)")
+        XCTAssertTrue(above, "the key row sits right above the keyboard: \(seen)", file: file, line: line)
+        guard above, let kb = softKeyboard() else { return }
+        for label in Self.rowKeys {
+            let key = app.buttons[label]
+            XCTAssertTrue(key.exists && key.isHittable, "the key row's \(label)", file: file, line: line)
+            let f = key.frame
+            print("xbin-e2e: key \(label) \(f), keyboard \(kb)")
+            XCTAssertTrue(Self.onTop(f, of: kb), "\(label) sits right above the keyboard: \(f), keyboard \(kb)", file: file, line: line)
+        }
+    }
+
     /// Taps through a system alert (Save Password?, a permission) if one is up.
     func dismissSystemAlerts() {
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")

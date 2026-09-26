@@ -3,12 +3,13 @@ import XbinTerm
 
 /// The keyboard accessory row (plans/native.md §12): esc, sticky ctrl, tab,
 /// arrows, `| ~ / -` and a customizable slot. Arrows repeat while held;
-/// a horizontal or vertical swipe along the row sends arrow repeats.
+/// a horizontal or vertical swipe along the row sends arrow repeats. It sits
+/// on top of the software keyboard, or alone at the bottom with a hardware
+/// one, on a dark bar of its own (KeyRowBar: iOS 26's keyboard draws none
+/// behind it).
 @MainActor
-final class AccessoryBar: UIInputView {
+final class AccessoryBar: KeyRowBar {
     private weak var controller: TerminalController?
-    private let stack = UIStackView()
-    private var buttons: [(AccessoryKey, UIButton)] = []
     private var repeatTimer: Timer?
     private var swipeOrigin: CGPoint = .zero
 
@@ -17,20 +18,7 @@ final class AccessoryBar: UIInputView {
 
     init(controller: TerminalController) {
         self.controller = controller
-        super.init(frame: CGRect(x: 0, y: 0, width: 320, height: 46), inputViewStyle: .keyboard)
-        allowsSelfSizing = true
-        stack.axis = .horizontal
-        stack.distribution = .fill // widths by constraint (buildRow)
-        stack.spacing = 5
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: 5),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -5),
-            heightAnchor.constraint(equalToConstant: 46),
-        ])
+        super.init(distribution: .fill) // widths by constraint (buildRow)
         buildRow()
         let pan = UIPanGestureRecognizer(target: self, action: #selector(swiped(_:)))
         pan.cancelsTouchesInView = false
@@ -38,53 +26,42 @@ final class AccessoryBar: UIInputView {
         NotificationCenter.default.addObserver(self, selector: #selector(keysChanged), name: .xbinTerminalKeysChanged, object: nil)
     }
 
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
     /// The designed row and the user's slot.
     private func buildRow() {
         repeatTimer?.invalidate()
         repeatTimer = nil
-        for (_, b) in buttons { b.removeFromSuperview() }
-        buttons = []
+        removeKeys()
         let slot = Self.customKey
         var row = AccessoryKey.defaultRow
         if let slot { row.append(slot) }
         for key in row { add(key) }
         // Equal widths, but a slot whose cap is a word ("sudo") gets two.
-        if let first = buttons.first?.1 {
-            for (i, (key, b)) in buttons.enumerated() where i > 0 {
-                let wide = slot != nil && i == row.count - 1 && AccessorySlot.capLabel(key).count > 3
-                b.widthAnchor.constraint(equalTo: first.widthAnchor, multiplier: wide ? 2 : 1).isActive = true
+        if let first = keys.first?.button {
+            for (i, k) in keys.enumerated() where i > 0 {
+                let wide = slot != nil && i == row.count - 1 && k.title.count > 3
+                k.button.widthAnchor.constraint(equalTo: first.widthAnchor, multiplier: wide ? 2 : 1).isActive = true
             }
         }
         refresh()
+        setNeedsLayout()
     }
 
     /// The slot was changed in the settings: redraw the row.
     @objc private func keysChanged() { buildRow() }
 
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
     private func add(_ key: AccessoryKey) {
-        var cfg = UIButton.Configuration.gray()
-        cfg.title = AccessorySlot.capLabel(key)
-        cfg.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 2, bottom: 4, trailing: 2)
-        cfg.titleLineBreakMode = .byClipping
-        let size: CGFloat = AccessorySlot.capLabel(key).count > 3 ? 12 : 14
-        cfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
-            var a = a
-            a.font = UIFont.monospacedSystemFont(ofSize: size, weight: .medium)
-            return a
-        }
-        let b = UIButton(configuration: cfg)
+        let tag = keys.count
+        let b = addKey(key, title: AccessorySlot.capLabel(key))
         b.accessibilityLabel = AccessorySlot.describe(key)
         b.addAction(UIAction { [weak self] _ in self?.tap(key) }, for: .touchUpInside)
         if key.repeats {
             let hold = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
             hold.minimumPressDuration = 0.35
             b.addGestureRecognizer(hold)
-            b.tag = buttons.count
+            b.tag = tag
         }
-        buttons.append((key, b))
-        stack.addArrangedSubview(b)
     }
 
     private func tap(_ key: AccessoryKey) {
@@ -93,24 +70,11 @@ final class AccessoryBar: UIInputView {
         refresh()
     }
 
-    /// Sticky ctrl/alt show their state: off, once (tinted), locked (filled).
-    func refresh() {
-        guard let kb = controller?.keyboard else { return }
-        for (key, b) in buttons {
-            guard case .modifier(let m) = key else { continue }
-            var cfg = b.configuration ?? .gray()
-            switch kb.sticky.state(m) {
-            case .off: cfg.baseBackgroundColor = nil; cfg.baseForegroundColor = nil
-            case .once: cfg.baseBackgroundColor = .systemOrange.withAlphaComponent(0.35); cfg.baseForegroundColor = .label
-            case .locked: cfg.baseBackgroundColor = .systemOrange; cfg.baseForegroundColor = .black
-            }
-            b.configuration = cfg
-        }
-    }
+    override func stickyState(_ m: StickyModifier) -> StickyModifiers.State? { controller?.keyboard.sticky.state(m) }
 
     @objc private func held(_ g: UILongPressGestureRecognizer) {
-        guard let b = g.view as? UIButton, buttons.indices.contains(b.tag) else { return }
-        let key = buttons[b.tag].0
+        guard let b = g.view as? UIButton, keys.indices.contains(b.tag) else { return }
+        let key = keys[b.tag].key
         switch g.state {
         case .began:
             repeatTimer?.invalidate()

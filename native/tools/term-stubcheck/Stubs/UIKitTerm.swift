@@ -14,6 +14,7 @@ public enum NSLineBreakMode: Int, Sendable { case byWordWrapping, byCharWrapping
 @MainActor open class UIButton: UIControl {
     public struct Configuration {
         public static func gray() -> Configuration { Configuration() }
+        public static func filled() -> Configuration { Configuration() }
         public var title: String?
         public var contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0)
         public var titleTextAttributesTransformer: UIConfigurationTextAttributesTransformer?
@@ -62,7 +63,9 @@ extension UIGestureRecognizerDelegate {
 }
 
 extension UIColor {
+    public convenience init(white: CGFloat, alpha: CGFloat) { self.init(red: white, green: white, blue: white, alpha: alpha) }
     public static let black = UIColor(red: 0, green: 0, blue: 0, alpha: 1)
+    public static let white = UIColor(red: 1, green: 1, blue: 1, alpha: 1)
     public func withAlphaComponent(_ a: CGFloat) -> UIColor { self }
     public var cgColor: CGColor { CGColor() }
 }
@@ -78,7 +81,11 @@ extension NSAttributedString.Key {
     public static let foregroundColor = NSAttributedString.Key("NSColor")
     public static let underlineStyle = NSAttributedString.Key("NSUnderline")
 }
-extension NSString { public func draw(at point: CGPoint, withAttributes attrs: [NSAttributedString.Key: Any]? = nil) {} }
+extension NSString {
+    public func draw(at point: CGPoint, withAttributes attrs: [NSAttributedString.Key: Any]? = nil) {}
+    public func size(withAttributes attrs: [NSAttributedString.Key: Any]? = nil) -> CGSize { .zero }
+}
+public enum UIKeyboardAppearance: Int, Sendable { case `default`, dark, light }
 
 extension NotificationCenter {
     // Objective-C-only on Linux Foundation.

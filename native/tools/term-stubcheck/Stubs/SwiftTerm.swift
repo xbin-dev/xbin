@@ -63,6 +63,8 @@ public protocol TerminalViewDelegate: AnyObject {
     public var font: UIFont = UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
     public var selection: SelectionService!
     public override var inputAccessoryView: UIView? { get { nil } set {} }
+    public override var inputView: UIView? { get { nil } set {} }
+    public var keyboardAppearance: UIKeyboardAppearance = .default
     public func getTerminal() -> Terminal { Terminal() }
     public func feed(byteArray: ArraySlice<UInt8>) {}
     open func getOptimalFrameSize() -> CGRect { .zero }

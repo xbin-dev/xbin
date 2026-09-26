@@ -200,6 +200,7 @@ final class TileTerminalController: NSObject {
         super.init()
         terminalView.controller = self
         terminalView.terminalDelegate = self
+        terminalView.keyboardAppearance = .dark // as the shell's terminal (KeyRow)
         terminalView.inputAccessoryView = TileTermAccessory(controller: self)
         container.backgroundColor = .black
         terminalView.translatesAutoresizingMaskIntoConstraints = false
@@ -367,38 +368,18 @@ final class TileTerminalView: TerminalView {
 
 /// The keyboard accessory for a tile's terminal: the designed row (esc,
 /// sticky ctrl, tab, arrows, | ~ / -), without the shell terminal's
-/// customizable slot.
+/// customizable slot, on the same bar (KeyRowBar).
 @MainActor
-final class TileTermAccessory: UIInputView {
+final class TileTermAccessory: KeyRowBar {
     private weak var controller: TileTerminalController?
-    private var buttons: [(AccessoryKey, UIButton)] = []
 
     init(controller: TileTerminalController) {
         self.controller = controller
-        super.init(frame: CGRect(x: 0, y: 0, width: 320, height: 46), inputViewStyle: .keyboard)
-        allowsSelfSizing = true
-        let stack = UIStackView()
-        stack.axis = .horizontal
-        stack.distribution = .fillEqually
-        stack.spacing = 5
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: 5),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -5),
-            heightAnchor.constraint(equalToConstant: 46),
-        ])
+        super.init(distribution: .fillEqually)
         for key in AccessoryKey.defaultRow {
-            var cfg = UIButton.Configuration.gray()
-            cfg.title = key.label
-            cfg.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 2, bottom: 4, trailing: 2)
-            let b = UIButton(configuration: cfg)
+            let b = addKey(key, title: key.label)
             b.accessibilityLabel = key.label
             b.addAction(UIAction { [weak self] _ in self?.tap(key) }, for: .touchUpInside)
-            buttons.append((key, b))
-            stack.addArrangedSubview(b)
         }
         refresh()
     }
@@ -410,20 +391,7 @@ final class TileTermAccessory: UIInputView {
         controller?.accessory(key)
     }
 
-    /// Sticky ctrl shows its state: off, once (tinted), locked (filled).
-    func refresh() {
-        guard let kb = controller?.keyboard else { return }
-        for (key, b) in buttons {
-            guard case .modifier(let m) = key else { continue }
-            var cfg = b.configuration ?? .gray()
-            switch kb.sticky.state(m) {
-            case .off: cfg.baseBackgroundColor = nil; cfg.baseForegroundColor = nil
-            case .once: cfg.baseBackgroundColor = .systemOrange.withAlphaComponent(0.35); cfg.baseForegroundColor = .label
-            case .locked: cfg.baseBackgroundColor = .systemOrange; cfg.baseForegroundColor = .black
-            }
-            b.configuration = cfg
-        }
-    }
+    override func stickyState(_ m: StickyModifier) -> StickyModifiers.State? { controller?.keyboard.sticky.state(m) }
 }
 
 extension TileTermAccessory: UIInputViewAudioFeedback {
