@@ -42,6 +42,8 @@ import { HOME } from './home.js';
  *   route(h)   keep the address: h is 'c=<id>', 'auto…' or '' (home) — the web writes the hash
  *   visible()  is the tile on screen (an unread conversation you look at is read)
  *   frame(fn)  the repaint batcher (default: requestAnimationFrame)
+ *   deltas     stream drafts as deltas (the native view; API.md "Deltas")
+ *   page       read the open conversation in pages of this many messages (Session.loadOlder)
  */
 export function createApp(opts = {}) {
   const base = opts.base || `/api/${globalThis.xbin?.self ?? ''}`;
@@ -261,7 +263,7 @@ export function createApp(opts = {}) {
     event: (ev) => app.event(ev),
     reset: () => { app.convs.load().catch(() => {}); app.loadNeeds(); },
     frame: opts.frame,
-  });
+  }, { deltas: opts.deltas, page: opts.page });
   app.convs = new ConvList({ change: () => emit('list'), epoch: () => app.me.epochMs || 0 });
   // The Automations page; its route() keeps the address of what is open there.
   app.autos = new A({

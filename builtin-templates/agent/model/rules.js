@@ -33,7 +33,7 @@ export function topBar(v) {
     learn: talk,
     memory: Object.keys(v.memory || {}).length,
     files: (v.files || []).length,
-    tree: !!(r.parentId || (v.links || []).length),
+    tree: !!(r.parentId || (v.links || []).length || v.linkCount), // linkCount: a paged view's total
     // sharing is per conversation: a subagent shares its root
     shareRun: { id: r.rootId || r.id, title: r.title },
     share: own ? 'Share' : 'Shared',

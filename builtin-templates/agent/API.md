@@ -735,9 +735,10 @@ write the agent made in between comes back as a 409 instead of being lost.
 The tile's state and behaviour live in **`model/`** — plain ES modules with no
 lit and no DOM — and each way of showing the tile is a thin view over it. The
 web view is the files you know (`agent.js`, `chat-cards.js`, `sidebar.js`,
-`home.js`, `share.js`, `automations.js`, `auto-*.js`, `index.html`), and the
-model is written so a second view — the xbin app's native mode — can draw the
-same state with native controls.
+`home.js`, `share.js`, `automations.js`, `auto-*.js`, `index.html`); the
+**native view** is `native.js` and `native/` — what the xbin app draws with
+platform controls (`/vendor/xb-native.js`, docs/frontend-kit.md). Both draw
+the same model.
 
 | `model/` | What it holds |
 |---|---|
@@ -753,6 +754,20 @@ same state with native controls.
 | `home.js` | `HOME` — the home view's words — and what "Needs you" says |
 | `features.js` | `FEATURES`: every feature of the UI by key, and the intended differences between views |
 
+`createApp({deltas, page})` are the native view's options: drafts arrive as
+deltas (`/stream?deltas=1`, "Deltas" above) and the open conversation is read
+in pages (`?limit=`, `Session.loadOlder()`, "Paging the view"); the web
+passes neither and reads whole views.
+
+| The native view | What it draws |
+|---|---|
+| `native.js` | the entry: one surface at a time — home or the open conversation (a subagent's parents under it; back goes up), the Automations screens, pushed tools — plus the conversations drawer and the sheets; deep links (`#c=`, `#auto`, `#join=`) and a restarted runtime (`xbin.native.state`) go through `model/router.js` |
+| `native/chat.js` | the conversation: `fold()` blocks as the chat family (`message`, `thinking`, `toolcard` with a subagent's transcript inside, `step`, `activity`, `approval`, `question`), the composer (attachments the app uploads to `PUT /runs/{id}/upload`), the top bar as the toolbar's menu |
+| `native/home.js`, `native/convs.js`, `native/share.js` | home and Needs you; the conversations drawer (a `sheet edge="leading"`), new chat with options, rename; the share sheet |
+| `native/tools.js`, `native/settings.js` | memory, files (+ editor, share/export), skills, the workflow tree, one call in full, the render preview (a `canvas html=` island, `native/render-doc.js` — the web's CSP); settings for managers |
+| `native/auto.js`, `native/auto-channels.js`, `native/auto-triggers.js` | the Automations screens for all four kinds |
+| `native-features.js` | `IMPLEMENTS`: what the native view implements, by feature key (as `web-features.js` for the web) |
+
 **Customising an instance.** A persona or domain changes `HOME` in
 `model/home.js`. The web files keep their names, and the modules that moved
 into `model/` (`chat-fold.js`, `tool-heads.js`, `conv-groups.js`,
@@ -762,15 +777,29 @@ imports and patches written against the old layout keep working.
 `automations.js` still exports `registerKind` and `AutoPage` (a view adds its
 drawing to a kind the model registered with `extendKind`).
 
-**The rule: a UX change lands in the model and in every view in the same
+**The rule: a UX change lands in the model and in both views in the same
 change.** `model/features.js` lists each feature by key; each view declares
-what it implements (`web-features.js` for the web), and
-`hack/agent-template-features.test.mjs` in the xbin repo fails when a view
-misses a key that is not listed as an intended difference with its reason. A
-change that is only for one view says why it is view-specific there. Model
-logic never touches the DOM or opens a dialog (the web asks "are you sure?"
-before calling a model action); `hack/agent-template-model.test.mjs` runs the
-model in node against a scripted backend to keep it that way.
+what it implements (`web-features.js` for the web, `native-features.js` for
+the native view), and `hack/agent-template-features.test.mjs` in the xbin
+repo fails when a view misses a key that is not listed as an intended
+difference (`DIFFERENCES.web` / `.native`) with its reason. A change that is
+only for one view says why it is view-specific there. Model logic never
+touches the DOM or opens a dialog (the web asks "are you sure?", the native
+view puts a `confirm` on the button, before calling a model action);
+`hack/agent-template-model.test.mjs` runs the model in node against a
+scripted backend to keep it that way. The native view imports only the
+model, `/vendor/xb-native.js` and the kit — never lit or the web's views.
+
+**Testing the native view.** `hack/agent-template-native.test.mjs` renders
+`native.js` in node (`hack/xbn/node.mjs`) against the web tests' fake backend
+(`test/backend.mjs` STUB, through `test/native-stub.mjs`) and asserts what a
+person gets — an approval card with Approve and Deny, Retry on a failed run,
+a disabled composer in a view-only conversation, senders in a shared one.
+`node test/native.mjs` runs it in a real browser the way the app does (the
+runtime, the tile's `native.js`, the reference renderer as the app) and
+walks home, the drawer, a streamed answer, sending, Files, the render
+preview and an approval. `node test/native-shots.mjs` draws the key screens
+with the reference renderer at 390×844, light and dark — look at them.
 
 ## JavaScript sandbox (REPL)
 

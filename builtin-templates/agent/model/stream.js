@@ -19,10 +19,13 @@ export class Live {
   /**
    * @param {string} base      this backend's prefix (/api/<self>)
    * @param {object} on        {event(ev), reset(), state(s)} — s: live | reconnecting
+   * @param {object} opts      {deltas}: ask for text.delta / thinking.delta (API.md
+   *                           "Deltas") instead of the whole draft text every time
    */
-  constructor(base, on) {
+  constructor(base, on, opts = {}) {
     this.base = base;
     this.on = on;
+    this.deltas = !!opts.deltas;
     this.run = null;
     this.cursor = '';
     this.gen = 0;
@@ -39,6 +42,10 @@ export class Live {
     this.loop(this.gen);
   }
 
+  // resync reconnects from where the stream is: the backend sends every live
+  // draft in full again (a delta that did not fit what the client holds).
+  resync() { this.follow(this.run, this.cursor); }
+
   close() {
     this.gen++;
     if (this.ctrl) this.ctrl.abort();
@@ -48,6 +55,7 @@ export class Live {
     const q = new URLSearchParams();
     if (this.run != null) q.set('run', String(this.run));
     if (this.cursor) q.set('since', this.cursor);
+    if (this.deltas) q.set('deltas', '1');
     return `${this.base}/stream?${q}`;
   }
 

@@ -13,6 +13,7 @@
 import { css, live } from '/vendor/lit-all.min.js';
 import { html, nothing, own, P, cls, tone, icon, spinner, str } from '/vendor/xb/render-base.js';
 import { mdBlocks, tokensOf } from '/vendor/xb/render-markdown.js';
+import { folded } from '/vendor/xb/render-structure.js';
 
 const fmtTime = (t) => {
   if (typeof t === 'number' && Number.isFinite(t)) return new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -44,15 +45,22 @@ function message(n, cx) {
   const body = p.markdown
     ? html`<div class=${cls('md', p.streaming && 'streaming')}>${mdBlocks(tokensOf(p, 'text'), link(n, cx))}</div>`
     : html`<div class=${cls('m-text', p.streaming && 'streaming')}>${str(p.text)}</div>`;
-  const files = Array.isArray(p.files) && p.files.length ? html`<div class="m-files">${p.files.map((f) => html`<span class="m-file">${
-    icon(/^image\//.test(str(f?.mime)) ? 'photo' : 'paperclip')}<span>${str(f?.name)}</span></span>`)}</div>` : nothing;
+  // an image with a src is drawn as a thumbnail (loaded by the view, like image)
+  const thumb = (f) => (/^image\//.test(str(f?.mime)) && f?.src ? cx.v.image(f.src) : '');
+  const files = Array.isArray(p.files) && p.files.length ? html`<div class="m-files">${p.files.map((f) => {
+    const url = thumb(f);
+    return url ? html`<span class="m-thumb"><img src=${url} alt=${str(f?.name)}></span>` : html`<span class="m-file">${
+      icon(/^image\//.test(str(f?.mime)) ? 'photo' : 'paperclip')}<span>${str(f?.name)}</span></span>`;
+  })}</div>` : nothing;
   const meta = p.sender || p.time != null ? html`<div class="m-meta">${p.sender ? html`<span class="m-sender">${p.sender}</span>` : nothing}${
     p.time != null ? html`<span>${fmtTime(p.time)}</span>` : nothing}</div>` : nothing;
+  // its actions are its context menu: a right-click or a long press on the bubble
+  const menu = acts.length ? (e) => { e.preventDefault(); cx.v.openMenu(acts[0], e.currentTarget); } : null;
   return html`<xb-message data-k=${n.k} class=${cls('msg', `m-${role}`, p.queued && 'queued', tap && 'tap')}>
     ${meta}
-    <div class="m-bubble" @click=${tap}>${str(p.text) || !files ? body : nothing}${files}</div>
+    <div class="m-bubble" @click=${tap} @contextmenu=${menu}>${str(p.text) || !files ? body : nothing}${files}</div>
     ${p.queued ? html`<div class="m-q">${icon('clock')}queued</div>` : nothing}
-    ${acts.map((a) => cx.in('actions').node(a))}
+    ${acts.map((a) => folded(a))}
   </xb-message>`;
 }
 
@@ -284,6 +292,8 @@ export const CHAT_CSS = css`
   .m-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
   .m-file { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 10px; background: var(--xb-surface2); font: var(--xb-font-footnote); max-width: 100%; }
   .m-file .ic { width: 16px; height: 16px; color: var(--xb-muted); }
+  .m-thumb { display: block; border-radius: 12px; overflow: hidden; background: var(--xb-surface2); }
+  .m-thumb img { display: block; max-width: 100%; max-height: var(--xb-h-l); object-fit: cover; }
   .m-text.streaming::after { content: ''; display: inline-block; width: 8px; height: 1em; margin-left: 2px; vertical-align: -2px; border-radius: 2px; background: var(--xb-accent); animation: xb-blink 1s steps(2) infinite; }
   xb-message > xb-actions { padding: 2px 0 0; }
   .m-user > xb-actions { justify-content: flex-end; }

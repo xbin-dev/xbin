@@ -92,8 +92,10 @@ export function fold(v, childView = () => null, depth = 0) {
   };
   steps.sort((a, b) => a.created - b.created || a.id - b.id);
 
-  let skippedTask = depth === 0; // a subagent's first user message is its task (shown on its card)
-  let first = true;
+  // A subagent's first user message is its task (shown on its card). A paged
+  // view with older pages holds neither the task nor the run's opening message.
+  let skippedTask = depth === 0 || !!v.hasOlder;
+  let first = !v.hasOlder;
   for (const m of msgs) {
     const opening = first && m.role === 'user' && !m.compacted;
     if (opening) first = false;

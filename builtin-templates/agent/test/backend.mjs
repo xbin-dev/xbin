@@ -1,7 +1,8 @@
 // backend.mjs — the tile, served for a test, against an in-page fake backend.
 //
 // serveTile(ctx) answers the tile's own files (index.html, every module next
-// to it and the shared model under model/), the kit, lit and marked. STUB is
+// to it, the shared model under model/ and the native view under native/),
+// the kit, lit and marked. STUB is
 // the fake backend a test installs with ctx.addInitScript(STUB, seed): a
 // window.xbin whose fetch answers the routes the tile uses — the run list,
 // run views, messages, the queue, interrupts, approvals — and a live stream
@@ -25,7 +26,7 @@ export const THEME = '<style>:root{--bx-border:#ccc;--bx-panel:#fff;--bx-panel-2
 
 export async function serveTile(ctx, { realMarked = false } = {}) {
   const modules = new Set([...readdirSync(tileDir).filter((f) => f.endsWith('.js')),
-    ...readdirSync(join(tileDir, 'model')).filter((f) => f.endsWith('.js')).map((f) => 'model/' + f)]);
+    ...['model', 'native'].flatMap((d) => readdirSync(join(tileDir, d)).filter((f) => f.endsWith('.js')).map((f) => `${d}/${f}`))]);
   await ctx.route(`${ORIGIN}/**`, (route) => {
     let path = new URL(route.request().url()).pathname.replace(/^\//, '') || 'index.html';
     if (path !== 'index.html' && !modules.has(path)) return route.fulfill({ status: 404, body: '' });
@@ -116,7 +117,7 @@ export function STUB(seed) {
     }],
     ['PUT', /\/schedules\/(\d+)$/, (m) => json({ id: +m[1] })],
     ['POST', /\/schedules\/(\d+)\/trigger$/, () => json({ ok: 'true' })],
-    ['GET', /\/runs\/(\d+)\/view$/, (m) => json(view(+m[1]))],
+    ['GET', /\/runs\/(\d+)\/view(?:\?.*)?$/, (m) => json(view(+m[1]))], // a paged read (the native view) gets it all
     ['GET', /\/stream\b/, (m, o) => new Response(new ReadableStream({
       start(c) {
         streams.add(c);

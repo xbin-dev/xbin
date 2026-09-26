@@ -10,6 +10,7 @@
 //   r.diagnostics // the {op:"diag"} ones; r.errors the {op:"error"} ones
 //   r.requests    // [{method, url, body, at}] the tile's xbin.fetch calls
 //   r.unmatched   // requests no route answered (they got a 404)
+//   r.snapshots   // {name: tree} taken by {snapshot} steps; r.extra: data.setup's result()
 //
 // CLI: node hack/xbn/node.mjs <native.js> [data.json] [steps.json] → the tree JSON on stdout.
 //
@@ -29,11 +30,19 @@
 //            an array answers successive calls in turn (the last one repeats)
 //   calls    {copy|share|open: value} how xbin.native calls resolve (default null)
 //   dialog   what xbin.dialog() resolves to
+//   setup    a module path imported before the tile: its default export gets
+//            {data, touch} and may replace parts of xbin (a test's own fake
+//            backend); `call` steps call its other exports; its result() comes
+//            back as r.extra
 // steps (run in order after the first render settles):
 //   {wait: ms} · {tap: key} · {input: [key, value]} · {event: [key, type, payload, n?]}
 //   {event: {k | select, type, payload?, n?}} — checked: the node must exist and take the
 //            event; `select` is a CSS-like selector (hack/xbn/select.mjs) matching one node
 //   {bus: [topic, data]} · {visibility: "hidden"|"visible"} · {resolve: [id, value]}
+//   {snapshot: name} (r.snapshots[name] = the tree now) · {call: [export, …args]} (data.setup's)
+//   A key in tap/input/event may be a matcher instead: {t?, p?: {prop: value},
+//   has?: substring of the props' JSON, in?: an ancestor's matcher, nth?} — the
+//   first (nth) node in tree order that matches.
 // caps / state: what the app would inject (default: the full vocabulary, null).
 import { Worker } from 'node:worker_threads';
 import { spawn } from 'node:child_process';

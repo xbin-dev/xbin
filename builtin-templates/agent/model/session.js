@@ -17,10 +17,16 @@ export class Session {
    * @param {string} base  this backend's prefix (/api/<self>)
    * @param {object} on    {change(), runs(), gone(id), event(ev), reset(), frame?(fn)} — the
    *                       page repaints on change; the conversation list takes every event
+   * @param {object} opts  {deltas, page}: stream drafts as deltas (API.md "Deltas"), and
+   *                       read the open conversation's view in pages of `page` messages
+   *                       (API.md "Paging the view"; loadOlder() reads the next older one).
+   *                       Off by default: the web reads whole views and full drafts.
    */
-  constructor(base, on) {
+  constructor(base, on, opts = {}) {
     this.on = on;
     this.base = base;
+    this.deltas = !!opts.deltas;
+    this.pageSize = Math.max(0, Math.floor(Number(opts.page) || 0));
     this.thumbs = new Map(); // "run:path" → object URL ('' while loading)
     this.sel = null;
     this.views = new Map();  // run id → view (GET /runs/{id}/view, kept current)
@@ -33,7 +39,7 @@ export class Session {
       event: (ev) => this.apply(ev),
       reset: () => this.reload(),
       state: (s) => { if (s !== this.conn) { this.conn = s; this.changed(); } },
-    });
+    }, { deltas: this.deltas });
     this.ui = {
       isOpen: (id, dflt) => (this.open.has(id) ? this.open.get(id) : dflt),
       toggle: (id, dflt) => { this.open.set(id, !this.ui.isOpen(id, dflt)); this.changed(); },
@@ -66,22 +72,50 @@ export class Session {
     this.changed();
   }
 
-  async fetchView(id) {
-    const v = await api(`/runs/${id}/view`);
+  // fetchView reads a run's view (paged: its newest page — the open
+  // conversation's, when the session pages). A new read replaces what was
+  // held, older pages included (a reset or resync starts over from the newest).
+  async fetchView(id, { paged = !!this.pageSize && id === this.sel } = {}) {
+    const v = await api(`/runs/${id}/view${paged ? `?limit=${this.pageSize}` : ''}`);
     v.messages = v.messages || [];
     v.steps = v.steps || [];
     v.links = v.links || [];
     v.queued = v.queued || [];
+    v.paged = paged;
     this.views.set(id, v);
     this.runs.set(id, { ...(this.runs.get(id) || {}), ...v.run });
-    for (const d of v.drafts || []) this.drafts.set(d.run, draftOf(d));
+    // With deltas the stream drives a live draft: a view read meanwhile must
+    // not rewind it (a delta that no longer fits would force a reconnect).
+    for (const d of v.drafts || []) if (!(this.deltas && this.drafts.has(d.run))) this.drafts.set(d.run, draftOf(d));
     return v;
+  }
+
+  // loadOlder reads the page before the oldest one held (the transcript's
+  // "more") and merges it in: messages, steps and links upsert by id.
+  async loadOlder(id = this.sel) {
+    const v = this.views.get(id);
+    const key = 'older:' + id;
+    if (!v || !v.hasOlder || !this.pageSize || this.loading.has(key)) return;
+    this.loading.add(key);
+    try {
+      const p = await api(`/runs/${id}/view?limit=${this.pageSize}&before=${v.nextBefore}`);
+      if (this.views.get(id) !== v) return; // re-read meanwhile: that page starts over
+      for (const m of p.messages || []) upsert(v.messages, m);
+      for (const s of p.steps || []) upsert(v.steps, s);
+      for (const l of p.links || []) upsert(v.links, l);
+      v.messageFiles = { ...(p.messageFiles || {}), ...(v.messageFiles || {}) };
+      v.hasOlder = !!p.hasOlder;
+      v.nextBefore = p.nextBefore;
+    } finally {
+      this.loading.delete(key);
+      this.changed();
+    }
   }
 
   loadChild(id) {
     if (!id || this.views.has(id) || this.loading.has(id)) return;
     this.loading.add(id);
-    this.fetchView(id).catch(() => {}).finally(() => { this.loading.delete(id); this.changed(); });
+    this.fetchView(id, { paged: false }).catch(() => {}).finally(() => { this.loading.delete(id); this.changed(); });
   }
 
   // reload re-reads every view shown (the stream said it cannot replay).
@@ -129,6 +163,9 @@ export class Session {
       case 'text': case 'thinking': case 'tool':
         this.draft(ev);
         break;
+      case 'text.delta': case 'thinking.delta':
+        this.delta(ev);
+        break;
       case 'draft.end':
         this.drafts.delete(ev.run);
         break;
@@ -150,6 +187,22 @@ export class Session {
       if (ev.type === 'text') d.text = x.text || '';
       else d.tools[x.index] = { index: x.index, id: x.id, name: x.name, args: x.args };
     }
+    this.drafts.set(ev.run, d);
+  }
+
+  // delta appends what a draft added (API.md "Deltas"): `at` is the length
+  // the text had before it. A delta that does not fit what is held (a view
+  // replaced the draft meanwhile, an event was coalesced away) reconnects the
+  // stream, which then sends every live draft in full.
+  delta(ev) {
+    const x = ev.data || {};
+    const field = ev.type === 'text.delta' ? 'text' : 'thinking';
+    let d = this.drafts.get(ev.run);
+    if (!d && x.at === 0) d = { text: '', thinking: '', tools: {}, thinkStart: 0, thinkEnd: 0 };
+    if (!d || d[field].length !== x.at) { this.live.resync(); return; }
+    d[field] += x.delta || '';
+    if (field === 'thinking') { if (!d.thinkStart) d.thinkStart = ev.ts; }
+    else if (d.thinkStart && !d.thinkEnd && x.delta) d.thinkEnd = ev.ts;
     this.drafts.set(ev.run, d);
   }
 
@@ -179,7 +232,9 @@ export class Session {
     const blocks = fold(v, (id) => this.merged(id));
     return {
       run: v.run, chain: v.chain, blocks, activity: activity(v, blocks), conn: this.conn,
-      olderHidden: v.messages.some((m) => m.compacted && m.role !== 'system'),
+      // a page leaves compacted messages out and counts them instead
+      olderHidden: v.paged ? (v.compacted || 0) > 0 : v.messages.some((m) => m.compacted && m.role !== 'system'),
+      hasOlder: !!v.hasOlder,
     };
   }
 

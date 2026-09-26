@@ -244,8 +244,9 @@ export const CONTROLS_CSS = css`
 
   xb-picker { display: block; min-width: 0; }
   .pk-menu { position: relative; display: flex; align-items: center; gap: 12px; }
-  .pk-menu .pk-label { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
-  .pk-val { display: flex; align-items: center; gap: 4px; min-width: 0; margin-left: auto; color: var(--xb-muted); text-align: right; }
+  /* the label wraps between words, never inside one; the value gives way first (ellipsis), as iOS does */
+  .pk-menu .pk-label { flex: 0 1 auto; min-width: min-content; max-width: 62%; overflow-wrap: break-word; }
+  .pk-val { display: flex; flex: 1 1 0; justify-content: flex-end; align-items: center; gap: 4px; min-width: 0; margin-left: auto; color: var(--xb-muted); text-align: right; }
   .pk-val > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pk-ud { width: 15px; height: 15px; flex: none; }
   .pk-native { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 16px; }

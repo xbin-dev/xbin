@@ -150,7 +150,7 @@ function row(n, cx) {
   const key = tap ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); act(); } } : null;
   return html`<xb-row data-k=${n.k} style=${`--sep:${inset}`}
     class=${cls('row', cx.place === 'group' ? 'cell' : 'lone', tap && 'tap', p.disabled && 'disabled')}>
-    <div class=${cls('row-main', p.subtitle && 'has-sub')} role=${tap ? 'button' : nothing} tabindex=${tap ? '0' : nothing} @click=${act} @keydown=${key}>
+    <div class=${cls('row-main', (p.subtitle || p.badge) && 'has-sub')} role=${tap ? 'button' : nothing} tabindex=${tap ? '0' : nothing} @click=${act} @keydown=${key}>
       ${lead}
       <div class="row-text">
         <div class=${cls('row-title', m('title') && 'mono')}>${str(p.title)}</div>
@@ -160,15 +160,23 @@ function row(n, cx) {
       ${p.badge ? html`<span class=${cls('pill', t && `pill-${t}`)}>${p.badge}</span>` : nothing}
       ${p.selected ? html`<span class="row-check">${icon('check')}</span>` : nothing}
       ${p.nav ? html`<span class="row-chev">${icon('forward')}</span>` : nothing}
+      ${acts.length ? html`<button class="row-more" aria-label="Actions" aria-haspopup="menu"
+        @click=${(e) => { e.stopPropagation(); cx.v.openMenu(acts[0], e.currentTarget); }}>${icon('ellipsis')}</button>` : nothing}
     </div>
     ${content.length ? html`<div class="row-content">${repeat(content, (c) => c.k, (c) => cx.in('free').node(c))}</div>` : nothing}
-    ${repeat(acts, (c) => c.k, (c) => cx.in('actions').node(c))}
+    ${repeat(acts, (c) => c.k, (c) => folded(c))}
   </xb-row>`;
 }
 
 function actions(n, cx) {
   return html`<xb-actions data-k=${n.k} class="actions">${cx.kids(n, 'actions')}</xb-actions>`;
 }
+
+// A row's or a message's actions are its swipe actions and context menu on
+// iOS — out of sight until asked for. Here they fold behind the row's
+// trailing ⋯ (a message's: a right-click or long press on its bubble) and
+// open as a popover; the element stays, empty, for its key.
+export const folded = (n) => html`<xb-actions data-k=${n.k} class="actions folded"></xb-actions>`;
 
 function disclosure(n, cx) {
   const open = !!cx.val(n, 'open', false);
@@ -213,10 +221,12 @@ function sheet(n, cx) {
   const body = all.filter((c) => c !== tb);
   const whole = body.length === 1 && (body[0].t === 'screen' || body[0].t === 'nav');
   const esc = (e) => { if (e.key === 'Escape') dismiss(); };
-  return html`<xb-sheet data-k=${n.k} class="sheet-layer" @keydown=${esc}>
+  // edge=leading: a drawer over the screen from the leading edge (no detents)
+  const drawer = p.edge === 'leading';
+  return html`<xb-sheet data-k=${n.k} class=${cls('sheet-layer', drawer && 'drawer')} @keydown=${esc}>
     <div class="scrim" @click=${dismiss}></div>
-    <div class=${cls('sheet', det[0] === 'medium' ? 'd-medium' : 'd-large')} role="dialog" aria-modal="true" aria-label=${str(p.title) || nothing}>
-      <div class="grabber"></div>
+    <div class=${cls('sheet', drawer ? 'edge-leading' : det[0] === 'medium' ? 'd-medium' : 'd-large')} role="dialog" aria-modal="true" aria-label=${str(p.title) || nothing}>
+      ${drawer ? nothing : html`<div class="grabber"></div>`}
       ${whole ? nothing : html`<div class="sheet-bar">
         <div class="bar-lead"><button class="sheet-x" aria-label="Close" @click=${dismiss}>${icon('xmark')}</button></div>
         <div class="bar-title"><div class="bt">${str(p.title)}</div></div>
@@ -312,9 +322,10 @@ export const STRUCTURE_CSS = css`
      Title and detail share the width equally until one fits (a short title
      leaves the detail room, a long detail wraps instead of the title). With
      large text a row with a subtitle stacks its detail and badge under the
-     title, as iOS does, instead of squeezing three columns. */
-  .row-main { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto auto auto;
-    grid-template-areas: "lead text . detail badge check chev"; align-items: center;
+     title, as iOS does, instead of squeezing three columns (so does one with
+     a badge, whose title would otherwise break inside its words). */
+  .row-main { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto auto auto auto;
+    grid-template-areas: "lead text . detail badge check chev more"; align-items: center;
     min-height: 44px; padding: 10px 16px; outline-offset: -2px; }
   .row-main > .row-ic, .row-main > .row-dot { grid-area: lead; margin-right: 12px; }
   .row-main > .row-text { grid-area: text; }
@@ -322,8 +333,11 @@ export const STRUCTURE_CSS = css`
   .row-main > .pill { grid-area: badge; margin-left: 10px; justify-self: end; }
   .row-main > .row-check { grid-area: check; margin-left: 10px; }
   .row-main > .row-chev { grid-area: chev; margin-left: 8px; }
-  :host([text="large"]) .row-main.has-sub { grid-template-columns: auto minmax(0, 1fr) auto auto;
-    grid-template-areas: "lead text check chev" "lead detail check chev" "lead badge check chev"; }
+  .row-main > .row-more { grid-area: more; margin: -8px -10px -8px 4px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; color: var(--xb-muted); border-radius: 18px; }
+  .row-more .ic { width: calc(var(--xb-icon) - 2px); height: calc(var(--xb-icon) - 2px); }
+  xb-actions.folded { display: none; }
+  :host([text="large"]) .row-main.has-sub { grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+    grid-template-areas: "lead text check chev more" "lead detail check chev more" "lead badge check chev more"; }
   :host([text="large"]) .has-sub > .row-dot { align-self: start; margin-top: calc((var(--xb-line-body) - 8px) / 2); }
   :host([text="large"]) .has-sub > .row-ic { align-self: start; margin-top: calc((var(--xb-line-body) - var(--xb-icon)) / 2); }
   :host([text="large"]) .has-sub > .row-detail { margin: 2px 0 0; text-align: left; }
@@ -389,6 +403,9 @@ export const STRUCTURE_CSS = css`
     box-shadow: var(--xb-shadow); animation: xb-rise 0.25s cubic-bezier(0.2, 0.9, 0.3, 1); min-height: 0; }
   .sheet.d-large { height: calc(100% - 12px); }
   .sheet.d-medium { height: 52%; }
+  .sheet-layer.drawer { flex-direction: row; justify-content: flex-start; }
+  .sheet.edge-leading { height: 100%; width: min(86%, 400px); border-radius: 0 14px 14px 0; animation: xb-slide 0.25s cubic-bezier(0.2, 0.9, 0.3, 1); padding-top: 6px; }
+  @keyframes xb-slide { from { transform: translateX(-40%); opacity: 0.4; } }
   .grabber { width: 36px; height: 5px; border-radius: 3px; background: var(--xb-border); margin: 6px auto 0; flex: none; }
   .sheet-bar { display: flex; align-items: center; gap: 4px; padding: 4px 12px 6px; flex: none; min-height: 48px; }
   .sheet-x { width: 32px; height: 32px; border-radius: 16px; background: var(--xb-fill); color: var(--xb-muted); display: flex; align-items: center; justify-content: center; }
