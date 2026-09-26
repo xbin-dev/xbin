@@ -278,10 +278,13 @@ same parent answers the same handle.
   `activities: [session]` per device.
 - **An activity**: once ActivityKit hands its update token,
   ```
-  POST /api/xbin/devices/push/activities {"deviceId", "session": "<agent session id>", "handle"}   (one the app started)
-  POST /api/xbin/devices/push/activities {"deviceId", "ref": "<attributes.ref>", "handle"}         (one xbind started)
+  POST /api/xbin/devices/push/activities {"deviceId", "session": "<agent session id>", "handle", "since"?}   (one the app started)
+  POST /api/xbin/devices/push/activities {"deviceId", "ref": "<attributes.ref>", "handle"}                   (one xbind started)
   → {"activity": {"session", "created"}}
   ```
+  `since` is the turn's start the card shows (unix seconds); xbind takes it
+  only for a turn it did not see begin (the user had no device then), so
+  its updates keep the card's clock.
   The session must be the caller's (404 otherwise); the registration is the
   caller's own (the device session: its own `deviceId`, 403 otherwise).
   `DELETE /api/xbin/devices/push/<deviceId>/activities/<session>` when the

@@ -1757,14 +1757,18 @@ DELETE /devices/push/<deviceId>          a signed-in person: your own → 204 | 
 POST   /devices/push/activities          a signed-in person, for a registration
                                          of theirs (a device session: its own
                                          deviceId, else 403). body {deviceId,
-                                         session | ref, handle} → {activity:
+                                         session | ref, handle, since?} →
+                                         {activity:
                                          {session, created}}. A Live Activity
                                          the device shows for one of your agent
                                          sessions: handle = the relay's Live
                                          Activity handle of its update token;
                                          ref = the one a push-started activity
                                          carries (the answer names its
-                                         session). 404 for a session that is
+                                         session); since = the turn's start the
+                                         card shows (unix s; taken only for a
+                                         turn xbind did not see begin). 404
+                                         for a session that is
                                          not yours or not there, an unknown
                                          ref, or a device with no registration;
                                          429 over 240/hour (burst 30). xbind
