@@ -103,6 +103,9 @@ type store struct {
 	mu   sync.Mutex
 	path string
 	st   fileState
+	// gone, when set, hears of the registrations a removal took (called
+	// after the lock is released): the Service ends their Live Activities.
+	gone func([]Device)
 }
 
 func openStore(dir string) (*store, error) {
@@ -206,6 +209,34 @@ func (s *store) upsert(d Device, now int64, start *string) (Device, error) {
 	return cur.clone(), s.saveLocked()
 }
 
+// drop removes the registrations pick names — also, when set, runs under
+// the same lock and reports whether it changed anything else — saves, and
+// hands the removed ones to gone. Every removal goes through here.
+func (s *store) drop(pick func(*Device) bool, also func() bool) []Device {
+	s.mu.Lock()
+	var out []Device
+	s.st.Devices = slices.DeleteFunc(s.st.Devices, func(x *Device) bool {
+		if pick(x) {
+			out = append(out, x.clone())
+			return true
+		}
+		return false
+	})
+	changed := len(out) > 0
+	if also != nil && also() {
+		changed = true
+	}
+	if changed {
+		_ = s.saveLocked()
+	}
+	gone := s.gone
+	s.mu.Unlock()
+	if gone != nil && len(out) > 0 {
+		gone(out)
+	}
+	return out
+}
+
 // removeIf drops the registrations drop picks (dead logins' — the caller's
 // check must not take s.mu); returns how many went.
 func (s *store) removeIf(drop func(Device) bool) int {
@@ -224,78 +255,42 @@ func (s *store) removeIf(drop func(Device) bool) int {
 	if len(gone) == 0 {
 		return 0
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	n := len(s.st.Devices)
-	s.st.Devices = slices.DeleteFunc(s.st.Devices, func(x *Device) bool {
+	return len(s.drop(func(x *Device) bool {
 		return slices.ContainsFunc(gone, func(g Device) bool {
 			return g.User == x.User && g.DeviceID == x.DeviceID && g.Session == x.Session && g.Handle == x.Handle
 		})
-	})
-	n -= len(s.st.Devices)
-	if n > 0 {
-		_ = s.saveLocked()
-	}
-	return n
+	}, nil))
 }
 
 // remove drops one registration; false when there was none.
 func (s *store) remove(user, deviceID string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	n := len(s.st.Devices)
-	s.st.Devices = slices.DeleteFunc(s.st.Devices, func(x *Device) bool { return x.User == user && x.DeviceID == deviceID })
-	if len(s.st.Devices) == n {
-		return false
-	}
-	_ = s.saveLocked()
-	return true
+	return len(s.drop(func(x *Device) bool { return x.User == user && x.DeviceID == deviceID }, nil)) > 0
 }
 
 // removeHandle drops the registration holding a handle the relay called
 // dead, unless it was re-registered with another handle meanwhile.
 func (s *store) removeHandle(user, deviceID, handle string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	n := len(s.st.Devices)
-	s.st.Devices = slices.DeleteFunc(s.st.Devices, func(x *Device) bool {
+	return len(s.drop(func(x *Device) bool {
 		return x.User == user && x.DeviceID == deviceID && x.Handle == handle
-	})
-	if len(s.st.Devices) == n {
-		return false
-	}
-	_ = s.saveLocked()
-	return true
+	}, nil)) > 0
 }
 
 // removeUser drops every registration of a user, and their preferences
 // too when prefs is set. Returns how many registrations went.
 func (s *store) removeUser(user string, prefs bool) int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	n := len(s.st.Devices)
-	s.st.Devices = slices.DeleteFunc(s.st.Devices, func(x *Device) bool { return x.User == user })
-	n -= len(s.st.Devices)
-	_, hadPrefs := s.st.Prefs[user]
-	if prefs {
-		delete(s.st.Prefs, user)
-	}
-	if n > 0 || (prefs && hadPrefs) {
-		_ = s.saveLocked()
-	}
-	return n
+	return len(s.drop(func(x *Device) bool { return x.User == user }, func() bool {
+		if _, had := s.st.Prefs[user]; prefs && had {
+			delete(s.st.Prefs, user)
+			return true
+		}
+		return false
+	}))
 }
 
 // removeOlder drops a user's registrations made before since (a unix
 // time): they belong to an earlier account that had the same id.
 func (s *store) removeOlder(user string, since int64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	n := len(s.st.Devices)
-	s.st.Devices = slices.DeleteFunc(s.st.Devices, func(x *Device) bool { return x.User == user && x.Created < since })
-	if len(s.st.Devices) != n {
-		_ = s.saveLocked()
-	}
+	s.drop(func(x *Device) bool { return x.User == user && x.Created < since }, nil)
 }
 
 // all returns copies of every registration (the admin listing).

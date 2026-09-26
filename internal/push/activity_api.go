@@ -144,7 +144,10 @@ func (s *Service) APIActivity(w http.ResponseWriter, r *http.Request) {
 
 // APIActivityDelete is DELETE /devices/push/{deviceId}/activities/{session}:
 // the device stopped showing it (the user dismissed it); xbind stops
-// pushing to it.
+// pushing to it, and starts no card for the session there by push for the
+// rest of the turn (a card swiped away stays away) — noted even when no
+// registration was left (the app's own card never registered). 404: neither
+// a registration nor a running turn of the caller's by that id.
 func (s *Service) APIActivityDelete(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.human(w, r)
 	if !ok {
@@ -154,7 +157,8 @@ func (s *Service) APIActivityDelete(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.ownDevice(w, r, user, dev); !ok {
 		return
 	}
-	if !s.st.removeActivity(user, dev, session, "") {
+	noted := s.dismissCard(user, dev, session)
+	if !s.st.removeActivity(user, dev, session, "") && !noted {
 		fail(w, http.StatusNotFound, "no Live Activity registered for that session")
 		return
 	}

@@ -318,8 +318,13 @@ func TestLiveActivityAuthorization(t *testing.T) {
 	if code, _, _ := r.call(alice, "DELETE", "/devices/push/phone/activities/s1", nil); code != 204 {
 		t.Fatalf("delete: %d", code)
 	}
-	if code, _, _ := r.call(alice, "DELETE", "/devices/push/phone/activities/s1", nil); code != 404 {
+	// again: nothing registered, but the dismissal of the running turn is
+	// noted all the same; a session with neither is 404
+	if code, _, _ := r.call(alice, "DELETE", "/devices/push/phone/activities/s1", nil); code != 204 {
 		t.Fatalf("delete again: %d", code)
+	}
+	if code, _, _ := r.call(alice, "DELETE", "/devices/push/phone/activities/s9", nil); code != 404 {
+		t.Fatalf("delete an unknown session's: %d", code)
 	}
 	// registrations are rate-limited per person
 	for i := 0; ; i++ {
@@ -601,5 +606,193 @@ func TestLiveActivityPushStartedEndsBeforeItsToken(t *testing.T) {
 	}
 	if n := len(livePushes(r)); n != 2 {
 		t.Fatalf("%d pushes, want the start and one end", n)
+	}
+}
+
+// An update the per-handle limit refuses is not lost: once the limit
+// allows again, the card gets the turn's state as it is then — a wait for
+// the user that came while the bucket was empty still reaches the lock
+// screen.
+func TestLiveActivityLimitedUpdateGoesLater(t *testing.T) {
+	r, _ := liveRig(t, -1, func(o *Options) {
+		o.Limits = DefaultLimits
+		o.Limits.ActivityPush = Rate{PerHour: 20 * 3600, Burst: 2} // a token every 50 ms
+	})
+	r.register(alice, "phone", "handle-phone")
+	ev := func(typ string, ms int64, d map[string]any) {
+		r.s.AgentEvent("alice", "s1", "apps/cal", agentEv(typ, t0+ms, d))
+	}
+	ev(agent.EvMessageDelta, 0, map[string]any{"role": "user", "text": "go"})
+	ev(agent.EvStatus, 1, map[string]any{"status": "running"})
+	if code, out := r.activity(alice, map[string]any{"deviceId": "phone", "session": "s1", "handle": "la-handle-1"}); code != 200 {
+		t.Fatalf("register: %d %v", code, out)
+	}
+	// approved at once, then asked again: the third update finds the
+	// bucket empty
+	ev(agent.EvPermissionRequest, 10, map[string]any{"pid": "p1"})
+	ev(agent.EvPermissionResolved, 20, map[string]any{"pid": "p1"})
+	ev(agent.EvPermissionRequest, 30, map[string]any{"pid": "p2"})
+	if r.s.snd.limited.Load() == 0 {
+		t.Fatal("the limit held nothing back (the test would prove nothing)")
+	}
+	got := waitLive(t, r, 3)
+	slices.SortFunc(got, func(a, b relayPush) int { return int(a.Activity.Timestamp - b.Activity.Timestamp) })
+	since := t0 / 1000
+	for i, want := range []ActivityState{{PhaseWaiting, since, 1}, {PhaseRunning, since, 0}, {PhaseWaiting, since, 1}} {
+		if got[i].Activity.Event != "update" || got[i].Activity.State != want {
+			t.Fatalf("push %d: %+v, want %+v", i, got[i].Activity, want)
+		}
+	}
+	if got[2].Priority != 10 {
+		t.Fatalf("the late wait's priority: %d", got[2].Priority)
+	}
+	// a held-back change that is undone before the limit allows sends
+	// nothing (the card shows the state already)
+	ev(agent.EvPermissionResolved, 40, map[string]any{"pid": "p2"}) // running/0: sent at once or held
+	ev(agent.EvPermissionRequest, 50, map[string]any{"pid": "p3"})
+	ev(agent.EvPermissionResolved, 60, map[string]any{"pid": "p3"})
+	eventually(t, "the card catches up", func() bool {
+		ps := livePushes(r)
+		slices.SortFunc(ps, func(a, b relayPush) int { return int(a.Activity.Timestamp - b.Activity.Timestamp) })
+		return ps[len(ps)-1].Activity.State == ActivityState{PhaseRunning, since, 0}
+	})
+	time.Sleep(150 * time.Millisecond)
+	ps := livePushes(r)
+	slices.SortFunc(ps, func(a, b relayPush) int { return int(a.Activity.Timestamp - b.Activity.Timestamp) })
+	if last := ps[len(ps)-1].Activity.State; last != (ActivityState{PhaseRunning, since, 0}) {
+		t.Fatalf("the card ends on %+v", last)
+	}
+}
+
+// A card the user swiped away stays away for that turn (native/spec/push.md
+// §7.1): the app's DELETE keeps xbind's push-to-start off that device for
+// the turn — also when the app's own card never got registered — and the
+// next turn starts one as usual.
+func TestLiveActivityDismissedCardStaysAway(t *testing.T) {
+	r, _ := liveRig(t, 60*time.Millisecond, nil)
+	for _, d := range []string{"phone", "ipad", "mac"} {
+		body := map[string]any{"deviceId": d, "handle": "handle-" + d, "publicKey": pubKey(t), "startHandle": "start-handle-" + d}
+		if code, out, _ := r.call(alice, "POST", "/devices/push", body); code != 200 {
+			t.Fatalf("register %s: %d %v", d, code, out)
+		}
+	}
+	ev := func(typ string, ms int64, d map[string]any) {
+		r.s.AgentEvent("alice", "s1", "apps/cal", agentEv(typ, t0+ms, d))
+	}
+	ev(agent.EvMessageDelta, 0, map[string]any{"role": "user", "text": "go"})
+	ev(agent.EvStatus, 1, map[string]any{"status": "running"})
+	// the phone's card registered, then swiped away; the iPad's never got
+	// registered (its registration failed) and was swiped away too
+	if code, out := r.activity(alice, map[string]any{"deviceId": "phone", "session": "s1", "handle": "la-handle-phone"}); code != 200 {
+		t.Fatalf("register: %d %v", code, out)
+	}
+	for _, d := range []string{"phone", "ipad"} {
+		if code, _, _ := r.call(alice, "DELETE", "/devices/push/"+d+"/activities/s1", nil); code != 204 {
+			t.Fatalf("dismiss on %s: %d", d, code)
+		}
+	}
+	got := waitLive(t, r, 1)
+	time.Sleep(100 * time.Millisecond)
+	if n := len(livePushes(r)); n != 1 || got[0].Handle != "start-handle-mac" || got[0].Activity.Event != "start" {
+		t.Fatalf("push-to-start after a dismissal: %d pushes, first %+v", n, got[0])
+	}
+	// the next turn is a new card everywhere
+	ev(agent.EvTurnEnd, 1000, map[string]any{"turn": 1, "stopReason": "end_turn"})
+	ev(agent.EvStatus, 1001, map[string]any{"status": "idle"})
+	ev(agent.EvMessageDelta, 2000, map[string]any{"role": "user", "text": "more"})
+	ev(agent.EvStatus, 2001, map[string]any{"status": "running"})
+	got = waitLive(t, r, 4)
+	var starts []string
+	for _, p := range got[1:] {
+		if p.Activity.Event == "start" {
+			starts = append(starts, p.Handle)
+		}
+	}
+	slices.Sort(starts)
+	if !slices.Equal(starts, []string{"start-handle-ipad", "start-handle-mac", "start-handle-phone"}) {
+		t.Fatalf("turn 2 starts: %v", starts)
+	}
+}
+
+// A turn that ends while its user has no registration (signed out
+// everywhere, the app's registration removed) is not carried into the next
+// one: when the device registers again, the next turn starts afresh — its
+// own start, no requests of the old turn pending, and a push-to-start.
+func TestLiveActivityTurnAfterRegistrationsWent(t *testing.T) {
+	r, _ := liveRig(t, 60*time.Millisecond, nil)
+	reg := func() {
+		t.Helper()
+		body := map[string]any{"deviceId": "phone", "handle": "handle-phone", "publicKey": pubKey(t), "startHandle": "start-handle-phone"}
+		if code, out, _ := r.call(alice, "POST", "/devices/push", body); code != 200 {
+			t.Fatalf("register: %d %v", code, out)
+		}
+	}
+	ev := func(typ string, ms int64, d map[string]any) {
+		r.s.AgentEvent("alice", "s1", "apps/cal", agentEv(typ, t0+ms, d))
+	}
+	for _, gone := range []struct {
+		name string
+		drop func()
+	}{
+		{"sign-out everywhere", func() { r.s.SignedOut("alice") }},
+		{"unregistered", func() { r.call(alice, "DELETE", "/devices/push/phone", nil) }},
+	} {
+		base := int64(len(livePushes(r)))
+		off := base * 1_000_000 // each round later than the last
+		reg()
+		ev(agent.EvMessageDelta, off, map[string]any{"role": "user", "text": "go"})
+		ev(agent.EvStatus, off+1, map[string]any{"status": "running"})
+		ev(agent.EvPermissionRequest, off+2, map[string]any{"pid": "p1"})
+		gone.drop()
+		ev(agent.EvTurnEnd, off+1000, map[string]any{"turn": 1, "stopReason": "end_turn"})
+		ev(agent.EvStatus, off+1001, map[string]any{"status": "idle"})
+		time.Sleep(120 * time.Millisecond) // turn 1's push-to-start would have gone
+		if n := int64(len(livePushes(r))); n != base {
+			t.Fatalf("%s: %d pushes for a turn with no device", gone.name, n-base)
+		}
+		reg()
+		ev(agent.EvMessageDelta, off+600_000, map[string]any{"role": "user", "text": "again"})
+		ev(agent.EvStatus, off+600_001, map[string]any{"status": "running"})
+		want := ActivityState{Phase: PhaseRunning, Since: (t0 + off + 600_000) / 1000}
+		if st, busy := r.s.liveState("s1"); !busy || st != want {
+			t.Fatalf("%s: turn 2 reads %+v %v, want %+v", gone.name, st, busy, want)
+		}
+		got := waitLive(t, r, int(base)+1)
+		if p := got[base]; p.Handle != "start-handle-phone" || p.Activity.Event != "start" || p.Activity.State != want {
+			t.Fatalf("%s: turn 2's push-to-start: %+v", gone.name, p.Activity)
+		}
+		ev(agent.EvTurnEnd, off+700_000, map[string]any{"turn": 2, "stopReason": "end_turn"})
+		ev(agent.EvStatus, off+700_001, map[string]any{"status": "idle"})
+	}
+}
+
+// A registration that goes takes its cards along: nothing would reach
+// them any more, so xbind ends them now (idle, dismissed at once) instead
+// of leaving them frozen until they go stale — the panel's remove, the
+// device signing out, sign-out-everywhere.
+func TestLiveActivityEndsWithItsRegistration(t *testing.T) {
+	r, _ := liveRig(t, -1, nil)
+	r.register(alice, "phone", "handle-phone")
+	r.register(alice, "ipad", "handle-ipad")
+	r.s.AgentEvent("alice", "s1", "apps/cal", agentEv(agent.EvMessageDelta, t0, map[string]any{"role": "user", "text": "go"}))
+	r.s.AgentEvent("alice", "s1", "apps/cal", agentEv(agent.EvStatus, t0+1, map[string]any{"status": "running"}))
+	for _, d := range []string{"phone", "ipad"} {
+		if code, out := r.activity(alice, map[string]any{"deviceId": d, "session": "s1", "handle": "la-handle-" + d}); code != 200 {
+			t.Fatalf("register %s: %d %v", d, code, out)
+		}
+	}
+	if code, _, _ := r.call(alice, "DELETE", "/devices/push/phone", nil); code != 204 {
+		t.Fatalf("unregister: %d", code)
+	}
+	got := waitLive(t, r, 1)
+	checkGeneric(t, got[0])
+	if a := got[0].Activity; got[0].Handle != "la-handle-phone" || a.Event != "end" ||
+		a.State != (ActivityState{Phase: PhaseIdle, Since: t0 / 1000}) || a.DismissalDate == 0 {
+		t.Fatalf("the removed registration's card: %s %+v", got[0].Handle, a)
+	}
+	r.s.SignedOut("alice")
+	got = waitLive(t, r, 2)
+	if got[1].Handle != "la-handle-ipad" || got[1].Activity.Event != "end" || got[1].Activity.Timestamp <= got[0].Activity.Timestamp {
+		t.Fatalf("sign-out-everywhere's: %s %+v", got[1].Handle, got[1].Activity)
 	}
 }

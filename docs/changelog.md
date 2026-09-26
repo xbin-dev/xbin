@@ -115,8 +115,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   push-to-start handle; `POST /api/xbin/devices/push/activities {deviceId,
   session | ref, handle, since?}` → `{activity: {session, created,
   ended?}}` and `DELETE /api/xbin/devices/push/<deviceId>/activities/<session>`
-  register and unregister a card. xbind sends only phase, since and pending
-  (`apns-push-type: liveactivity`), never a title or text.
+  register and unregister a card; a card the user dismissed (that DELETE)
+  gets no push-to-start on that device for the rest of the turn. A
+  registration that goes ends its cards at once, and an update over the
+  per-card limit goes out once the limit allows. xbind sends only phase,
+  since and pending (`apns-push-type: liveactivity`), never a title or
+  text.
 - **relay: Live Activity handles, and optional proof of work** (D102).
   `POST /v1/handles {pushType: "liveactivity", parent, start?}` and `POST
   /v1/push {type: "liveactivity", activity}`: one push-to-start handle and up
@@ -128,8 +132,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 - **Devices panel** — each device shows its push registration (what it is
   notified about, when it was last sent one, whether the relay wants a new
   handle, its Live Activities) with a **remove** that stops notifications
-  without signing the device out; registrations no enrolled device owns
-  are listed apart.
+  and ends its Live Activities without signing the device out — until the
+  app is next opened, when it registers again; registrations no enrolled
+  device owns are listed apart.
 - **agent template: Needs you reaches your phone** (D106, the template's
   API.md "Needs you on your phone"). When the agent or a subagent asks a
   question or wants an approval, or an automation's run fails, the backend

@@ -184,6 +184,7 @@ func New(o Options) (*Service, error) {
 		tile: newLimiter(o.Limits.Tile, o.Now), user: newLimiter(o.Limits.User, o.Now), agent: newLimiter(o.Limits.Agent, o.Now),
 		sess: newLimiter(o.Limits.Session, o.Now), self: newLimiter(o.Limits.Test, o.Now), reg: newLimiter(o.Limits.Register, o.Now)}
 	s.snd = newSender(s)
+	st.gone = func(d []Device) { go s.registrationsGone(d) }
 	return s, nil
 }
 
@@ -199,9 +200,7 @@ func (s *Service) Close() {
 	s.mu.Unlock()
 	s.lmu.Lock()
 	for _, ls := range s.turns {
-		if ls.timer != nil {
-			ls.timer.Stop()
-		}
+		ls.stopTimers()
 	}
 	s.lmu.Unlock()
 	s.snd.close()

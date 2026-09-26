@@ -304,19 +304,25 @@ loses, and one xbind answered 404 for.
   The session must be the caller's (404 otherwise); the registration is the
   caller's own (the device session: its own `deviceId`, 403 otherwise).
   `DELETE /api/xbin/devices/push/<deviceId>/activities/<session>` when the
-  user dismissed the card.
+  user dismissed the card (→ 204): xbind stops pushing to it and starts no
+  card for the session on that device by push for the rest of the turn —
+  also when the card was never registered (its registration failed), so
+  the app sends it for every dismissed card. 404: neither a registration
+  nor a running turn of the caller's by that id.
 
 ### 7.4 What xbind sends
 
 xbind follows the agent sessions of users with a registered device from
-their events and posts to the relay (`POST /v1/push {handle, type:
+their events (a session whose user has none left, or while push is off, is
+no longer followed: its next turn starts afresh) and posts to the relay (`POST /v1/push {handle, type:
 "liveactivity", activity, priority}`, relay/README.md):
 
 | When | `event` | To | Priority |
 |---|---|---|---|
 | the phase or the pending count changes | `update` (+ `staleDate` now + 4 h) | each registered activity of the session | 10 for `waiting`, else 5 |
 | `turn.end`, the session going busy → idle, error, exited, or closing | `end` (idle, + `dismissalDate` now + 10 min); the registrations go | the same | 10 |
-| a turn still busy after 30 s, on a device with a `startHandle`, `agent` kinds, and no card for the session | `start` (`ws`, a fresh random `ref`, the state) | the device's `startHandle` | 10 |
+| a turn still busy after 30 s, on a device with a `startHandle`, `agent` kinds, no card for the session, and none the user dismissed this turn | `start` (`ws`, a fresh random `ref`, the state) | the device's `startHandle` | 10 |
+| the device's registration goes (`DELETE /devices/push/<id>`, the device removed or signed out, sign-out-everywhere, an admin's revoke) | `end` (idle, dismissed at once) | each of its activities | 5 |
 | xbind starts (agent sessions do not outlive it) | `end` | every registered activity | 5 |
 
 `timestamp` is unix seconds, strictly increasing per session (the device
@@ -325,7 +331,10 @@ or `handle_unknown` for an activity's handle drops that registration (for
 the `startHandle`: the start handle — and so does a `start` the relay
 answers `bad_request`, a handle it does not hold as push-to-start); the app
 registers the next one — no `needsNewHandle` round for these. Limits: 240 updates/hour per activity
-(burst 30), 240 activity registrations/hour per person (burst 30).
+(burst 30), 240 activity registrations/hour per person (burst 30). An
+update over its limit is not dropped: once the limit allows again, the
+activity gets the turn's state as it is then (nothing, if it is back to
+what the card shows).
 
 A push-started card's token reaches the app in the background
 (ActivityKit's `activityUpdates` / `pushTokenUpdates`); the app registers it

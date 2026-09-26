@@ -1835,7 +1835,9 @@ GET    /devices/push                     a signed-in person. {workspace, enabled
                                          workspace (relayError handle_bound |
                                          handle_unknown) — the app creates a
                                          fresh handle and registers again
-DELETE /devices/push/<deviceId>          a signed-in person: your own → 204 | 404
+DELETE /devices/push/<deviceId>          a signed-in person: your own → 204 | 404.
+                                         Its Live Activities end; the app
+                                         registers again when next opened
 POST   /devices/push/activities          a signed-in person, for a registration
                                          of theirs (a device session: its own
                                          deviceId, else 403). body {deviceId,
@@ -1863,7 +1865,12 @@ POST   /devices/push/activities          a signed-in person, for a registration
                                          to it (below)
 DELETE /devices/push/<deviceId>/activities/<session>
                                          a signed-in person: the device stopped
-                                         showing it → 204 | 404
+                                         showing it (the user dismissed it) →
+                                         204; xbind starts none there by push
+                                         for the rest of the turn (noted even
+                                         with no card registered). 404: no
+                                         registration and no running turn of
+                                         yours by that id
 GET    /push/prefs                       a signed-in person. {mutedTiles:[path]}
 PUT    /push/prefs                       a signed-in person. body {mutedTiles}
                                          (replaces; ≤1000) → the stored prefs.
@@ -1987,8 +1994,12 @@ device session can register only under its own device-login id — and
 rotating the owner token (`POST /auth-rotate-token`) drops the owner's. A
 registration made by any other login (the app's password or SSO session
 before enrolling, a browser session, the owner token) lasts as long as that
-login: its logout, expiry or sign-out-everywhere drop it too. The app
-registers again at the next sign-in. Delivery is asynchronous and best-effort: a bounded
+login: its logout, expiry or sign-out-everywhere drop it too. A
+registration that goes ends its Live Activities (below). The app checks its
+registration each time it comes to the foreground and registers again then
+when it is signed in — so `DELETE /devices/push/<deviceId>` (the devices
+panel's *remove*) stops notifications only until the app is next opened.
+Delivery is asynchronous and best-effort: a bounded
 queue (a full one drops), up to 5 attempts with backoff on relay 429/5xx or
 network errors. Only the relay's own error codes touch a registration: 410
 (the device is gone) removes it; 403 `handle_bound` or 404 `handle_unknown`
@@ -2015,7 +2026,8 @@ minutes) and drops their registrations — an activity is one turn — and so
 does the session closing. A turn still running after 30 s starts an
 activity by push (ActivityKit push-to-start) on each device whose
 registration has a `startHandle`, takes `agent` kinds, and shows none for
-the session: the start carries only the workspace's push id and a random
+the session (nor one the user dismissed this turn: `DELETE
+…/activities/<session>`): the start carries only the workspace's push id and a random
 `ref`, by which the app registers the new activity's token (if the turn
 ended first, that registration answers `ended` and the card gets its end;
 an unknown ref is 404 and the app ends the card itself). At start xbind
@@ -2023,8 +2035,11 @@ ends every activity still registered (agent sessions do not outlive it).
 The relay's 410, `handle_bound` or `handle_unknown` on an activity's handle
 drops that activity (or the push-to-start handle — and so does a start the
 relay calls `bad_request`: a handle it does not hold as push-to-start); the
-app registers the next one. Updates are limited to 240/hour per activity (burst 30). Wire
-formats: native/spec/push.md §7.
+app registers the next one. A registration that goes (unregistered, the
+device removed or signed out, sign-out-everywhere, an admin's revoke) ends
+its activities at once. Updates are limited to 240/hour per activity (burst
+30); one over the limit goes out, with the state then current, once the
+limit allows. Wire formats: native/spec/push.md §7.
 
 **Relay proof of work.** A relay may ask an anonymous workspace
 registration for a proof of work (`xbin-relay -registration-pow <bits>`,

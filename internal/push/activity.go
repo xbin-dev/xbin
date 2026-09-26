@@ -171,6 +171,26 @@ type liveSession struct {
 	lastTS   int64                    // the last activity timestamp (strictly increasing)
 	sent     map[string]ActivityState // deviceID → what xbind last sent (or started) there
 	timer    *time.Timer              // push-to-start
+	// flush sends what the per-handle limit held back once it allows
+	// again: an update it refused is otherwise never sent (updates go out
+	// only on the next change), and a card could say "running" while the
+	// agent waits for the user.
+	flush *time.Timer
+	// dismissed: deviceID → the turn the user dismissed that device's card
+	// in (DELETE …/activities/<session>) — no push-to-start there this turn.
+	dismissed map[string]int
+}
+
+// stopTimers stops what a followed turn has pending (lmu held).
+func (ls *liveSession) stopTimers() {
+	if ls.timer != nil {
+		ls.timer.Stop()
+		ls.timer = nil
+	}
+	if ls.flush != nil {
+		ls.flush.Stop()
+		ls.flush = nil
+	}
 }
 
 func busyStatus(s string) bool {
@@ -210,7 +230,15 @@ func (s *Service) activityEvent(user, session string, ev agent.Event) {
 	default:
 		return
 	}
-	if user == "" || session == "" || !s.Enabled() || !s.st.hasDevices(user) {
+	if user == "" || session == "" {
+		return
+	}
+	if !s.Enabled() || !s.st.hasDevices(user) {
+		// nobody to show it: stop following the session, or its turn goes
+		// stale here — this event may be the turn's end, and the next turn
+		// (a device registered again, push back on) would read as the same
+		// one: no push-to-start, the old since and pending counts
+		s.forgetTurn(session)
 		return
 	}
 	var d struct {
@@ -269,6 +297,7 @@ func (s *Service) activityEvent(user, session string, ev agent.Event) {
 		}
 		ls.since = start / 1000
 		ls.state = ls.compute()
+		ls.dismissed = nil
 		s.armStart(session, ls)
 	case !ls.busy && was: // the turn ended
 		jobs = s.endLocked(session, ls, now)
@@ -286,6 +315,17 @@ func (s *Service) activityEvent(user, session string, ev agent.Event) {
 	s.enqueueLive(jobs)
 }
 
+// forgetTurn stops following a session (its user has no device left, or
+// push is off): a later turn starts afresh.
+func (s *Service) forgetTurn(session string) {
+	s.lmu.Lock()
+	if ls := s.turns[session]; ls != nil {
+		ls.stopTimers()
+		delete(s.turns, session)
+	}
+	s.lmu.Unlock()
+}
+
 // armStart schedules the push-to-start of this turn (lmu held).
 func (s *Service) armStart(session string, ls *liveSession) {
 	if ls.timer != nil {
@@ -300,17 +340,17 @@ func (s *Service) armStart(session string, ls *liveSession) {
 		after = 30 * time.Second
 	}
 	turn := ls.turn
-	ls.timer = time.AfterFunc(after, func() { s.pushToStart(session, turn) })
+	ls.timer = time.AfterFunc(after, func() { s.pushToStart(session, ls, turn) })
 }
 
-// pushToStart starts the turn's activity by push on each device that can
-// and shows none for the session yet.
-func (s *Service) pushToStart(session string, turn int) {
+// pushToStart starts the turn's activity by push on each device that can,
+// shows none for the session yet, and did not dismiss this turn's card.
+func (s *Service) pushToStart(session string, of *liveSession, turn int) {
 	now := s.o.Now()
 	var jobs []liveJob
 	s.lmu.Lock()
 	ls := s.turns[session]
-	if ls == nil || !ls.busy || ls.turn != turn {
+	if ls == nil || ls != of || !ls.busy || ls.turn != turn {
 		s.lmu.Unlock()
 		return
 	}
@@ -325,6 +365,9 @@ func (s *Service) pushToStart(session string, turn int) {
 		if d.StartHandle == "" || d.stale(e) || !kindAllowed(d.Kinds, KindAgentActivity) ||
 			slices.ContainsFunc(d.Activities, func(a Activity) bool { return a.Session == session }) {
 			continue
+		}
+		if t, ok := ls.dismissed[d.DeviceID]; ok && t == turn {
+			continue // the user took this turn's card away there
 		}
 		ref := randomRef()
 		if !s.st.setActivity(ls.user, d.DeviceID, Activity{Session: session, Ref: ref, Created: now.Unix()}) {
@@ -343,7 +386,9 @@ func (s *Service) pushToStart(session string, turn int) {
 }
 
 // updateLocked pushes ls.state to the session's registered activities
-// (lmu held). Waiting asks for the user: priority 10; the rest 5.
+// (lmu held). Waiting asks for the user: priority 10; the rest 5. A handle
+// over its limit gets the then-current state once the limit allows again
+// (flushLive).
 func (s *Service) updateLocked(session string, ls *liveSession, now time.Time) []liveJob {
 	prio := 5
 	if ls.state.Phase == PhaseWaiting {
@@ -351,13 +396,17 @@ func (s *Service) updateLocked(session string, ls *liveSession, now time.Time) [
 	}
 	var jobs []liveJob
 	var ts int64
+	held := time.Duration(-1)
 	for _, d := range s.devices(ls.user) {
 		for _, a := range d.Activities {
 			if a.Session != session || a.Handle == "" || ls.sent[d.DeviceID] == ls.state {
 				continue
 			}
-			if ok, _ := s.actPush.allow(a.Handle); !ok {
+			if ok, wait := s.actPush.allow(a.Handle); !ok {
 				s.snd.limited.Add(1)
+				if held < 0 || wait < held {
+					held = wait
+				}
 				continue
 			}
 			if ts == 0 {
@@ -368,16 +417,32 @@ func (s *Service) updateLocked(session string, ls *liveSession, now time.Time) [
 				act: activityPush{Event: "update", Timestamp: ts, State: ls.state, StaleDate: now.Add(activityStale).Unix()}})
 		}
 	}
+	if held >= 0 && ls.flush == nil {
+		ls.flush = time.AfterFunc(max(held, 10*time.Millisecond), func() { s.flushLive(session, ls) })
+	}
 	return jobs
+}
+
+// flushLive sends a turn's current state to the activities the limit held
+// an update back from (and waits again for those it still holds).
+func (s *Service) flushLive(session string, of *liveSession) {
+	now := s.o.Now()
+	s.lmu.Lock()
+	ls := s.turns[session]
+	if ls != of || !ls.busy {
+		s.lmu.Unlock()
+		return
+	}
+	ls.flush = nil
+	jobs := s.updateLocked(session, ls, now)
+	s.lmu.Unlock()
+	s.enqueueLive(jobs)
 }
 
 // endLocked ends the session's activities — idle, with the turn's start —
 // and drops their registrations: an activity is one turn (lmu held).
 func (s *Service) endLocked(session string, ls *liveSession, now time.Time) []liveJob {
-	if ls.timer != nil {
-		ls.timer.Stop()
-		ls.timer = nil
-	}
+	ls.stopTimers()
 	ls.state = ActivityState{Phase: PhaseIdle, Since: ls.since}
 	var jobs []liveJob
 	var ts int64
@@ -485,6 +550,59 @@ func (s *Service) activityRegistered(user, deviceID, session, handle string, pus
 	s.lmu.Unlock()
 	s.enqueueLive(jobs)
 	return ended
+}
+
+// dismissCard notes that the user took a session's card away on a device
+// (DELETE …/activities/<session>): xbind starts none there by push for the
+// rest of the turn (native/spec/push.md §7.1). False when xbind follows no
+// running turn of the user's by that id.
+func (s *Service) dismissCard(user, deviceID, session string) bool {
+	s.lmu.Lock()
+	defer s.lmu.Unlock()
+	ls := s.turns[session]
+	if ls == nil || ls.user != user || !ls.busy {
+		return false
+	}
+	if ls.dismissed == nil {
+		ls.dismissed = map[string]int{}
+	}
+	ls.dismissed[deviceID] = ls.turn
+	delete(ls.sent, deviceID)
+	return true
+}
+
+// registrationsGone ends the Live Activities of registrations that went
+// (unregistered, the device removed or signed out, sign-out-everywhere, an
+// admin's revoke, a login that ended): nothing reaches those cards any
+// more, so they go now — idle, with the turn's start — instead of showing
+// their last state until they go stale. Runs on its own (a removal may
+// happen with lmu held: devices()).
+func (s *Service) registrationsGone(devs []Device) {
+	if !s.Enabled() {
+		return
+	}
+	now := s.o.Now()
+	var jobs []liveJob
+	s.lmu.Lock()
+	for _, d := range devs {
+		for _, a := range d.Activities {
+			ls := s.turns[a.Session]
+			if ls != nil {
+				delete(ls.sent, d.DeviceID)
+			}
+			if a.Handle == "" {
+				continue // started by push, no token yet: nothing to reach
+			}
+			final, ts := ActivityState{Phase: PhaseIdle}, now.Unix()
+			if ls != nil && ls.user == d.User {
+				final.Since, ts = ls.since, ls.ts(now)
+			}
+			jobs = append(jobs, liveJob{user: d.User, deviceID: d.DeviceID, session: a.Session, handle: a.Handle, priority: 5,
+				act: activityPush{Event: "end", Timestamp: ts, State: final, DismissalDate: now.Unix()}})
+		}
+	}
+	s.lmu.Unlock()
+	s.enqueueLive(jobs)
 }
 
 func (s *Service) enqueueLive(jobs []liveJob) {

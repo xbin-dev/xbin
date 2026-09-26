@@ -909,7 +909,10 @@ account — the bootstrap owner token has none.
   platform, last sign-in and its IP) with **remove**, and under each one its
   **push registration** (what it is notified about, when it was last sent
   one, and whether the relay wants a new handle) with its own **remove** —
-  turning notifications off for that device without signing it out;
+  it stops notifications to that device and ends its Live Activities
+  without signing it out, but only until the app is next opened: the app
+  registers again then (to stop them for good, turn the app's
+  notifications off in the device's Settings, or remove the device);
   registrations made before a device was enrolled are listed on their own.
   Admins see and remove any user's devices in the admin console's Users
   tab. Removing a device ends
