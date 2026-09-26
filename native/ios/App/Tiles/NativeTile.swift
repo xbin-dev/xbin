@@ -177,18 +177,23 @@ final class NativeTileRuntime: NSObject {
     /// What the renderer asks of the app: the clipboard, links (only with
     /// cap:open-links, ND11), tile images by frame token.
     var services: XbinServices {
-        let canOpen = tile.canOpenLinks
-        return XbinServices(
-            copy: { UIPasteboard.general.string = $0 },
-            openLink: canOpen ? { url in
-                if ["https", "http", "mailto"].contains(url.scheme?.lowercased() ?? "") { UIApplication.shared.open(url) }
-            } : nil,
-            imageData: { [weak self] src in
-                guard let self else { throw URLError(.cancelled) }
-                let r = try await self.tileFile(src)
-                guard r.isSuccess else { throw APIError(r) }
-                return r.body
-            })
+        // Typed locals: the closures inline in one call (one of them behind
+        // a ternary) crashed the type checker's diagnostics on Xcode 27.
+        var openLink: (@MainActor (URL) -> Void)?
+        if tile.canOpenLinks { openLink = { url in Self.openExternally(url) } }
+        let imageData: @MainActor (String) async throws -> Data = { [weak self] src in
+            guard let self else { throw URLError(.cancelled) }
+            let r = try await self.tileFile(src)
+            guard r.isSuccess else { throw APIError(r) }
+            return r.body
+        }
+        return XbinServices(copy: { UIPasteboard.general.string = $0 }, openLink: openLink, imageData: imageData)
+    }
+
+    /// A link the tile may open (cap:open-links): http(s) and mailto only.
+    private static func openExternally(_ url: URL) {
+        guard ["https", "http", "mailto"].contains(url.scheme?.lowercased() ?? "") else { return }
+        UIApplication.shared.open(url, options: [:], completionHandler: nil)
     }
 
     private func fail(_ why: NativeTileLifecycle.Fallback) {

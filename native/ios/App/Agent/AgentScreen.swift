@@ -256,9 +256,11 @@ struct AgentScreen: View {
         }
         let c = ChatComposer(placeholder: m.ended ? "The session ended" : "Message the agent", busy: busy,
                              disabled: m.ended, slash: slash)
+        var onStop: (@MainActor () -> Void)?
+        if busy { onStop = { Task { await m.cancel() } } }
         return ComposerView(composer: c, text: Binding(get: { m.draft }, set: { m.draft = $0 }),
                             onSend: { text in m.draft = text; Task { await m.send() } },
-                            onStop: busy ? { Task { await m.cancel() } } : nil)
+                            onStop: onStop)
     }
 }
 

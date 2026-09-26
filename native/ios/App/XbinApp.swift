@@ -61,7 +61,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         let link = info["link"] as? String ?? ""
         let showing = await MainActor.run { AppDelegate.isShowing(app: app, link: link) }
         if showing { return [] }
-        await MainActor.run { Task { await AppModel.shared.workspace(app ?? "")?.refreshSessions() } }
+        Task { @MainActor in await AppModel.shared.workspace(app ?? "")?.refreshSessions() }
         return [.banner, .list, .sound]
     }
 
