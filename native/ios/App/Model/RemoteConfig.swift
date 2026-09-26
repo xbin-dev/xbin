@@ -3,17 +3,21 @@ import XbinCore
 
 /// The app's remote configuration (plans/native.md §23): the kill switch
 /// for native tile runtimes, `https://xbin.dev/app/ios.json` (Info.plist
-/// `XbinAppConfigURL` overrides it). Read on becoming active at most every
-/// 6 hours, cached in UserDefaults, and **fail open** — XbinCore's
-/// KillSwitch.swift has the rules and their tests.
+/// `XbinAppConfigURL` overrides it; `off` = a build that never asks). Read
+/// on becoming active at most every 6 hours — no credential, no cookie —
+/// cached in UserDefaults, and **fail open**: XbinCore's KillSwitch.swift
+/// has the rules and their tests.
 enum RemoteConfig {
     private static let cacheKey = "remoteAppConfig"
 
-    /// The configuration file's URL.
+    /// The configuration file's URL (nil: this build doesn't ask).
     static var url: URL? {
         let s = (Bundle.main.object(forInfoDictionaryKey: "XbinAppConfigURL") as? String ?? "")
             .trimmingCharacters(in: .whitespaces)
-        return URL(string: s.isEmpty ? RemoteAppConfig.defaultURL : s)
+        if s.lowercased() == "off" { return nil }
+        guard let u = URL(string: s.isEmpty || s.hasPrefix("$(") ? RemoteAppConfig.defaultURL : s),
+              u.scheme?.lowercased() == "https" else { return nil }
+        return u
     }
 
     static var cache: RemoteAppConfigCache? {
