@@ -29,9 +29,13 @@ final class AgentScreenModel {
     @ObservationIgnored private var feed: AgentSessionFeed?
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     @ObservationIgnored let memo = MarkdownMemo()
+    /// The navigation of the window this screen is in (never the focused
+    /// window's: the user may be in another window when a session starts).
+    @ObservationIgnored private weak var nav: WorkspaceNav?
 
-    init(workspace: WorkspaceModel, cwd: String?, sessionID: String?) {
+    init(workspace: WorkspaceModel, nav: WorkspaceNav, cwd: String?, sessionID: String?) {
         self.workspace = workspace
+        self.nav = nav
         self.cwd = cwd
         self.sessionID = sessionID
     }
@@ -69,7 +73,8 @@ final class AgentScreenModel {
             providerID = provider
             sessionID = info.id
             attach(info.id)
-            workspace.surface = .agent(cwd: cwd, session: info.id)
+            // This window shows the new session, if it still shows the launcher.
+            nav?.started(session: info.id, cwd: cwd)
         } catch let e as AgentAPIError {
             error = e.description
             if e.looksLikeAuth { signInCommand = transcript?.state.signIn(provider: providers.first { $0.id == provider }, lastError: e.message) }
@@ -161,6 +166,8 @@ struct AgentScreen: View {
     var sessionID: String?
 
     @State private var model: AgentScreenModel?
+    /// This window's navigation.
+    @Environment(WorkspaceNav.self) private var nav
     @State private var fullScreen = false
     @State private var signingIn = false
     @Environment(\.scenePhase) private var scenePhase
@@ -179,7 +186,7 @@ struct AgentScreen: View {
         .toolbar(fullScreen ? .hidden : .visible, for: .navigationBar)
         .task {
             if model == nil {
-                let m = AgentScreenModel(workspace: workspace, cwd: cwd, sessionID: sessionID)
+                let m = AgentScreenModel(workspace: workspace, nav: nav, cwd: cwd, sessionID: sessionID)
                 model = m
                 await m.load()
             }
@@ -225,7 +232,7 @@ struct AgentScreen: View {
                 Menu {
                     Button("Full screen", systemImage: "arrow.up.left.and.arrow.down.right") { fullScreen.toggle() }
                     Button("Terminal on this tile", systemImage: "apple.terminal") {
-                        if let c = m.cwd { workspace.open(.terminal(cwd: c, session: nil)) }
+                        if let c = m.cwd { workspace.open(.terminal(cwd: c, session: nil), in: nav) }
                     }
                     Button("End session", systemImage: "stop.circle", role: .destructive) { Task { await m.end() } }
                 } label: { Image(systemName: "ellipsis.circle") }

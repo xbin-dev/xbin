@@ -9,8 +9,10 @@
 //
 // It checks that the upgrade is refused without a bearer and with a bad one,
 // opens it with the bearer, then causes events: a branding change (PUT
-// /api/xbin/branding, admin — the title is put back) and, given the
-// workspace directory, a file written into <tile> and removed (a `reload`).
+// /api/xbin/branding, admin — the title is put back), on an xbind with the
+// workspace's native-runtime switch a PUT of its current value (a `native`,
+// state unchanged) and, given the workspace directory, a file written into
+// <tile> and removed (a `reload`).
 // stdout: one JSON object per line — {"check": name, "ok": bool} and
 // {"frame": "<text as received>"}. Exit 0 once the expected frames arrived,
 // 1 on a failed check or after 10 s.
@@ -68,6 +70,7 @@ ws.onmessage = (m) => {
   let e = null;
   try { e = JSON.parse(text); } catch { return; }
   if (e.type === 'branding') seen.add('branding');
+  if (e.type === 'native') seen.add('native');
   if (e.type === 'reload') seen.add(`reload:${e.component}`);
   if ([...want].every((w) => seen.has(w))) {
     clearTimeout(timer);
@@ -76,12 +79,22 @@ ws.onmessage = (m) => {
 };
 ws.onopen = async () => {
   check('opened with the bearer', true);
+  // The admin's native-runtime switch (absent on an older xbind: skipped).
+  const nr = await fetch(`${origin}/api/xbin/native-runtime`, { headers: auth });
+  const nrState = nr.ok ? await nr.json() : null;
+  if (nrState) want.add('native');
   const b = await (await fetch(`${origin}/api/xbin/branding`, { headers: auth })).json();
   restoreTitle = b.title ?? '';
   const put = await fetch(`${origin}/api/xbin/branding`, {
     method: 'PUT', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ title: `events-live ${Date.now()}` }),
   });
   check(`PUT /api/xbin/branding (${put.status})`, put.ok);
+  if (nrState) {
+    const p = await fetch(`${origin}/api/xbin/native-runtime`, {
+      method: 'PUT', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ enabled: nrState.enabled !== false }),
+    });
+    check(`PUT /api/xbin/native-runtime (${p.status})`, p.ok);
+  }
   if (workspace && tile) {
     written = path.join(workspace, tile, `events-live-${process.pid}.txt`);
     fs.writeFileSync(written, String(Date.now()));

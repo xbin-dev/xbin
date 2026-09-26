@@ -3,9 +3,11 @@ import SwiftUI
 import UIKit
 
 /// An in-app Safari view (SFSafariViewController): the workspace's own web
-/// pages — chrome tiles, "Open in Safari" — signed in by a one-shot ticket
-/// when the workspace can issue one (WorkspaceModel.openInSafari). It keeps
-/// its own cookies, apart from the tiles' web views and from Safari.
+/// pages — chrome tiles, "Open in Safari" — opened by a one-shot ticket
+/// when the workspace can issue one (WorkspaceModel.openInSafari): the
+/// workspace shows "Continue as <name>" (or goes straight to the page when
+/// this Safari view is already signed in as the user), one tap signs it in.
+/// It keeps its own cookies, apart from the tiles' web views and from Safari.
 struct SafariView: UIViewControllerRepresentable {
     let url: URL
 

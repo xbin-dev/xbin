@@ -197,6 +197,21 @@ struct NoKeys: DeviceKeyStore {
         follower.cancel()
     }
 
+    /// An admin's workspace switch (`native`, plat's PUT
+    /// /api/xbin/native-runtime) reaches the workspace's hook, which
+    /// re-reads whoami; nothing else fires for it.
+    @Test func nativeSwitchReachesItsHook() async {
+        let (events, _, _, _) = await makeEvents()
+        var switches = 0
+        var others = 0
+        events.onNativeSwitch = { switches += 1 }
+        events.onBranding = { others += 1 }
+        events.onTerm = { _ in others += 1 }
+        events.receive("{\"type\":\"native\"}\n") // as xbind writes it
+        events.receive(#"{"type":"native","component":""}"#)
+        #expect(switches == 2 && others == 0)
+    }
+
     /// `session` frames reach the open screen's feed; a reconnect makes it
     /// catch up. Frames are XbinAgent's captured `ask` session wrapped as
     /// the hub sends them.

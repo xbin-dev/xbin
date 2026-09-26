@@ -65,6 +65,9 @@ final class WorkspaceEvents {
     var onTerm: ((TermEvent) -> Void)?
     /// The workspace's title or icon changed.
     var onBranding: (() -> Void)?
+    /// The workspace's native-runtime switch changed (`native`): re-read
+    /// whoami, so tiles fall back to (or return from) their web pages now.
+    var onNativeSwitch: (() -> Void)?
     /// A socket reopened after a gap: re-list what may have changed.
     var onResync: (() -> Void)?
     /// Every parsed event (diagnostics and tests).
@@ -248,6 +251,8 @@ final class WorkspaceEvents {
             }
         case .branding:
             onBranding?()
+        case .nativeSwitch:
+            onNativeSwitch?()
         case .term(let t):
             guard t.isFor(userID: userID()) else { return }
             onTerm?(t)

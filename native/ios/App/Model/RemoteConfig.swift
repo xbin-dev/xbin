@@ -33,11 +33,12 @@ enum RemoteConfig {
         NativeRuntimeGate.app(userOff: AppSettings.nativeViewsOff, remote: cache, build: AppInfo.build, now: now)
     }
 
-    /// Fetches the file when due. True when the cache changed.
+    /// Fetches the file when due — always after a run that ended in the
+    /// foreground (`afterUncleanExit`). True when the cache changed.
     @discardableResult
-    static func refreshIfDue(now: Date = Date()) async -> Bool {
+    static func refreshIfDue(now: Date = Date(), afterUncleanExit: Bool = false) async -> Bool {
         let before = cache
-        guard RemoteAppConfigCache.due(before, at: now), let url else { return false }
+        guard RemoteAppConfigCache.due(before, at: now, afterUncleanExit: afterUncleanExit), let url else { return false }
         var status: Int?
         var body = Data()
         do {

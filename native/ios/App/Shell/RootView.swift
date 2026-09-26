@@ -72,13 +72,15 @@ struct RootView: View {
         guard !restored else { return }
         restored = true
         // This window's own last place, else the value it was opened with,
-        // else where the user was last.
+        // else where the user was last. After a run that ended in the
+        // foreground (a crash), just the workspace until the remote switch
+        // has been read (AppModel.cautiousRestore).
         if let t = WindowTarget(encoded: storedTarget), app.workspace(t.workspace) != nil {
-            scene.show(t)
+            scene.show(t.restoring(afterUncleanExit: app.cautiousRestore))
         } else if !storedWorkspace.isEmpty, app.workspace(storedWorkspace) != nil {
             scene.select(storedWorkspace)
         } else if let t = target, app.workspace(t.workspace) != nil {
-            scene.show(t)
+            scene.show(t.restoring(afterUncleanExit: app.cautiousRestore))
         } else if let id = app.lastSelectedID ?? app.workspaces.first?.id {
             scene.select(id)
         }

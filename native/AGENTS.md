@@ -184,8 +184,9 @@ after touching `App/Model` or `App/Shell`.
 re-sign for concurrent requests on a dead session, the app's `/ws/events`
 socket (the device session as its bearer, via `native/tools/events-live.mjs`
 since libcurl here has no WebSockets; `APPLIVE_WORKSPACE=<dir>` adds a file
-change → the open tile's reload), the web ticket or its fallback, minting a
-code that enrolls a second device, a tile page by frame token, push
+change → the open tile's reload), the web ticket through its "Continue as"
+page to a cookie session (or its fallback), minting a code that enrolls a
+second device, a tile page by frame token, push
 registration and device removal. Before touching an app file,
 `swiftc -frontend -parse <file>` at least catches syntax errors here.
 

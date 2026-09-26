@@ -615,9 +615,10 @@ reason in the tile's report, when:
   the app's revision of it, a feature flag (an older app: "update the app for
   the native view");
 - the runtime crashes, or native views are switched off: by the user (the
-  app's Settings), by the workspace (`whoami.native.runtime` 0), or for an
-  app build with a known problem (the app's remote switch — so a bad app
-  release falls back to web pages without an update).
+  app's Settings), by the workspace (`whoami.native.runtime` 0 — an app
+  showing the workspace follows the switch at once), or for an app build
+  with a known problem (the app's remote switch — so a bad app release falls
+  back to web pages without an update).
 
 Shipped apps lag behind xbind by months. The vocabulary only grows
 ([compat.md](/docs/compat.md)): a new prop raises its primitive's revision,

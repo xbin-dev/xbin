@@ -3,7 +3,8 @@
 //
 // The files under Tests/AppCheckTests and Sources/app-live that are symlinks
 // ARE the app's own sources (native/ios/Shared, native/ios/App/Terminal,
-// native/ios/App/Model/WorkspaceEvents.swift — the events socket's driver):
+// native/ios/App/Model/WorkspaceEvents.swift — the events socket's driver —
+// and App/Model/Navigation.swift, a window's navigation):
 // swift-crypto gives Linux CryptoKit's API and SwiftTerm's headless Terminal
 // builds here, so the code the app and its Notification Service Extension
 // ship is run against the spec's vectors and a real emulator — not only

@@ -30,9 +30,10 @@ enum AddRequest: Equatable, Identifiable {
 ///
 /// Each window has its own selection and navigation (SceneModel); what the
 /// workspaces share — sessions, catalogs, the events sockets — lives here
-/// and in WorkspaceModel. Code that isn't inside a window (a notification,
-/// a tile's `xbin.window`) acts on the focused window: the one the user
-/// last touched (``focusedScene``).
+/// and in WorkspaceModel. A screen navigates its own window only
+/// (`@Environment(WorkspaceNav.self)`); what arrives from outside every
+/// window — a notification tap, an `xbin://` link — goes to the focused
+/// one: the one the user last touched (``focusedScene``).
 @MainActor
 @Observable
 final class AppModel {
@@ -50,6 +51,10 @@ final class AppModel {
     /// The workspace a new window starts on (the last one picked anywhere;
     /// kept in workspaces.json).
     private(set) var lastSelectedID: String?
+    /// The last run ended in the foreground (a crash, a watchdog kill) and
+    /// the remote switch hasn't been read since: windows restore to their
+    /// workspace, not straight into a tile (WindowTarget.restoring, §23).
+    private(set) var cautiousRestore = ForegroundMark(UserDefaults.standard).lastRunEndedInForeground
 
     /// A link that arrived before its workspace was ready.
     @ObservationIgnored private var pendingLink: DeepLink?
@@ -57,6 +62,9 @@ final class AppModel {
     @ObservationIgnored private var unreadable: [JSONValue] = []
     @ObservationIgnored private var scenes: [WeakScene] = []
     @ObservationIgnored private weak var focused: SceneModel?
+    /// The remote switch's fetch in flight (one at a time).
+    @ObservationIgnored private var remoteFetch: Task<Void, Never>?
+    @ObservationIgnored private let foregroundMark = ForegroundMark(UserDefaults.standard)
 
     private struct WeakScene { weak var scene: SceneModel? }
 
@@ -84,6 +92,9 @@ final class AppModel {
     /// waiting for a window (it shows that, not its restored place).
     @discardableResult
     func register(_ scene: SceneModel) -> Bool {
+        // Its UI is about to mount (at launch, before the scene is active):
+        // a crash from here on is a crash in the foreground.
+        foregroundMark.enteredForeground()
         scenes.removeAll { $0.scene == nil || $0.scene === scene }
         scenes.append(WeakScene(scene: scene))
         if focused == nil { focused = scene }
@@ -117,29 +128,12 @@ final class AppModel {
         updateSockets()
     }
 
-    /// Where code outside a window navigates `w`: the focused window when it
-    /// shows `w`, else a window that shows it, else the focused one.
-    func nav(for w: WorkspaceModel) -> WorkspaceNav? {
-        let live = liveScenes
-        if let s = live.first(where: { $0.selectedID == w.id }) { return s.nav(for: w) }
-        return live.first?.nav(for: w)
-    }
-
     /// Scene phase or selection changed: exactly the workspaces a foreground
     /// window shows keep an events socket (plans/native.md §7.7).
     func updateSockets() {
         let shown = Set(liveScenes.filter(\.isForeground).compactMap(\.selectedID))
         for w in workspaces { w.events.setWanted(isActive && shown.contains(w.id)) }
     }
-
-    // MARK: Compatibility (code written for one window)
-
-    /// The focused window's workspace.
-    var selectedID: String? { focusedScene?.selectedID ?? lastSelectedID }
-    var selected: WorkspaceModel? { selectedID.flatMap(workspace) ?? workspaces.first }
-
-    /// Selects `id` in the focused window.
-    func select(_ id: String) { focusedScene?.select(id) }
 
     // MARK: Adding and removing
 
@@ -250,8 +244,18 @@ final class AppModel {
 
     // MARK: Lifecycle
 
-    /// Foreground: refresh what's visible, keep push registrations right,
-    /// reopen the events sockets, re-read the remote switch when due.
+    /// The app came to the foreground (scene phase active — called before
+    /// the app lock or anything else awaits): the remote switch is re-read
+    /// when due, first and beside everything else, so a workspace's slow
+    /// network or a native tile that crashes as it mounts can't keep it from
+    /// landing (§23); and the crash mark is set.
+    func enteredForeground() {
+        refreshRemoteSwitch()
+        foregroundMark.enteredForeground()
+    }
+
+    /// Foreground, past the lock: refresh what's visible, keep push
+    /// registrations right, reopen the events sockets.
     func becameActive() async {
         isActive = true
         updateSockets()
@@ -259,12 +263,28 @@ final class AppModel {
         for w in workspaces where shown.contains(w.id) { await w.refresh() }
         for w in workspaces where !shown.contains(w.id) { await w.refreshSessions() }
         await PushManager.shared.maintainAll()
-        if await RemoteConfig.refreshIfDue() { runtimeGate = RemoteConfig.gate() }
+    }
+
+    /// Fetches the remote switch when it is due — at once after a run that
+    /// ended in the foreground — off the activation's path; the gate follows
+    /// the moment it lands. At launch too (the app delegate), before any
+    /// window restores.
+    func refreshRemoteSwitch() {
+        guard remoteFetch == nil else { return }
+        let unclean = cautiousRestore
+        remoteFetch = Task { [weak self] in
+            let changed = await RemoteConfig.refreshIfDue(afterUncleanExit: unclean)
+            guard let self else { return }
+            self.remoteFetch = nil
+            if changed { self.runtimeGate = RemoteConfig.gate() }
+            self.cautiousRestore = false
+        }
     }
 
     /// Background: the sockets close (reopened, and caught up, on return).
     func enteredBackground() {
         isActive = false
+        foregroundMark.enteredBackground()
         updateSockets()
     }
 

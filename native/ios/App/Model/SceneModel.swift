@@ -2,55 +2,6 @@ import Foundation
 import Observation
 import XbinCore
 
-/// What a window shows: a workspace and, optionally, a surface in it. The
-/// value `openWindow(value:)` opens a window with (WindowGroup(for:)), what
-/// a dragged tile or a Handoff carries, and what `@SceneStorage` keeps.
-struct WindowTarget: Codable, Hashable {
-    var workspace: String
-    var surface: Surface?
-
-    /// For `@SceneStorage` (strings survive every restore).
-    var encoded: String {
-        guard let d = try? JSONEncoder().encode(self) else { return "" }
-        return String(decoding: d, as: UTF8.self)
-    }
-
-    init(workspace: String, surface: Surface? = nil) {
-        self.workspace = workspace
-        self.surface = surface
-    }
-
-    init?(encoded s: String) {
-        guard !s.isEmpty, let t = try? JSONDecoder().decode(WindowTarget.self, from: Data(s.utf8)) else { return nil }
-        self = t
-    }
-}
-
-/// One window's navigation in one workspace (plans/native.md §15: one
-/// surface full screen; lists are overlays). Windows are tabs: each has its
-/// own, over the workspace's shared state (session, catalog, sockets).
-@MainActor
-@Observable
-final class WorkspaceNav {
-    let workspaceID: String
-    /// The full-screen surface (nil: the navigator is the home).
-    var surface: Surface?
-    /// Windows pushed over the current tile (`xbin.window`).
-    var windows: [PushedWindow] = []
-    /// The navigator overlay is up.
-    var showNavigator = false
-
-    init(workspaceID: String) {
-        self.workspaceID = workspaceID
-    }
-
-    func open(_ s: Surface) {
-        windows = []
-        surface = s
-        showNavigator = false
-    }
-}
-
 /// One window (scene): which workspace it shows, its navigation there, and
 /// its sheets. The app's shared state — workspaces, sessions, sockets — is
 /// in AppModel and WorkspaceModel.

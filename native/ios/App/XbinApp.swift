@@ -21,6 +21,7 @@ struct XbinApp: App {
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:
+                model.enteredForeground()
                 Task {
                     await model.unlock()
                     await model.becameActive()
@@ -39,6 +40,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        // The remote kill switch before anything else (§23): a build whose
+        // native views crash learns it's off even if a window restores
+        // straight into one.
+        AppModel.shared.refreshRemoteSwitch()
         if !AppModel.shared.workspaces.isEmpty { Task { await PushManager.shared.start() } }
         return true
     }

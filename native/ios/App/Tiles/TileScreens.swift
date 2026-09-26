@@ -44,6 +44,8 @@ struct WebTileScreen: View {
     var banner: String?
 
     @State private var controller: WebTileController?
+    /// This window's navigation (the tile's menu and its `xbin.window`).
+    @Environment(WorkspaceNav.self) private var nav
     @Environment(\.scenePhase) private var phase
     @Environment(\.openURL) private var openURL
 
@@ -85,14 +87,14 @@ struct WebTileScreen: View {
                     if tile.opensNatively {
                         Button("Show native view", systemImage: "rectangle.stack") {
                             AppSettings.setForcesWeb(workspace.id, tile.path, false)
-                            workspace.open(.tile(tile.path))
+                            workspace.open(.tile(tile.path), in: nav)
                         }
                     }
                     Button("Terminal here", systemImage: "apple.terminal") {
-                        workspace.open(.terminal(cwd: tile.path, session: nil))
+                        workspace.open(.terminal(cwd: tile.path, session: nil), in: nav)
                     }
                     Button("Agent here", systemImage: "sparkles") {
-                        workspace.open(.agent(cwd: tile.path, session: nil))
+                        workspace.open(.agent(cwd: tile.path, session: nil), in: nav)
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -103,6 +105,7 @@ struct WebTileScreen: View {
             if controller == nil {
                 let c = WebTileController(workspace: workspace, tile: tile.path, canOpenLinks: tile.canOpenLinks,
                                           subpath: subpath, fragment: fragment)
+                c.nav = nav
                 controller = c
                 c.load()
             }

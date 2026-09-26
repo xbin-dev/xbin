@@ -5,32 +5,9 @@ import XbinAgent
 import XbinCore
 import XbinTerm
 
-/// What a workspace shows full screen (plans/native.md §15: one surface;
-/// lists are overlays).
-enum Surface: Hashable, Codable {
-    case tile(String, sub: String = "", fragment: String? = nil)
-    case terminal(cwd: String, session: String?)
-    case agent(cwd: String?, session: String?)
-
-    var title: String {
-        switch self {
-        case .tile(let t, _, _): return TileInfo.humanize(t)
-        case .terminal(let cwd, _): return "Terminal · \(TileInfo.humanize(cwd))"
-        case .agent(let cwd, _): return "Agent" + (cwd.map { " · \(TileInfo.humanize($0))" } ?? "")
-        }
-    }
-}
-
-/// A screen pushed over a tile: an `xbin.window` (another sub-path of the
-/// tile, or another tile), opened by the tile's request `replyID`.
-struct PushedWindow: Hashable {
-    var fromTile: String
-    var target: String
-    var title: String
-    var replyID: String
-}
-
-/// One workspace: its session, catalog, navigation and web storage.
+/// One workspace: its session, catalog, events socket and web storage —
+/// what its windows share (each window navigates it on its own:
+/// WorkspaceNav, Navigation.swift).
 @MainActor
 @Observable
 final class WorkspaceModel: Identifiable {
@@ -64,8 +41,6 @@ final class WorkspaceModel: Identifiable {
     /// window shows the workspace.
     @ObservationIgnored private(set) lazy var events: WorkspaceEvents = makeEvents()
     @ObservationIgnored private var relist: Task<Void, Never>?
-    /// Navigation when no window exists yet (never shown).
-    @ObservationIgnored private lazy var detachedNav = WorkspaceNav(workspaceID: id)
 
     init(record: WorkspaceRecord, transport: AppTransport = .shared, keys: any DeviceKeyStore = EnclaveKeyStore(),
          sessions: any SessionStore = KeychainSessionStore()) {
@@ -177,8 +152,25 @@ final class WorkspaceModel: Identifiable {
         e.userID = { [weak self] in self?.whoami?.userID ?? self?.record.user.id ?? "" }
         e.onTerm = { [weak self] t in self?.apply(t) }
         e.onBranding = { [weak self] in Task { await self?.refreshBranding() } }
-        e.onResync = { [weak self] in self?.scheduleRelist() }
+        e.onNativeSwitch = { [weak self] in Task { await self?.refreshWhoami() } }
+        // A gap may have hidden a `native` too: re-read whoami with the list.
+        e.onResync = { [weak self] in
+            self?.scheduleRelist()
+            Task { await self?.refreshWhoami() }
+        }
         return e
+    }
+
+    /// Re-reads whoami alone — the workspace's native-runtime switch changed
+    /// (`native` on the events socket, plans/native.md §23). Tile screens
+    /// pick their surface from it (surfaceKind), so an open native view
+    /// falls back to its web page at once, and new tiles open as pages.
+    /// A failed read keeps what was known.
+    func refreshWhoami() async {
+        guard let j = try? await auth.json(APIRequest("GET", "/api/xbin/whoami")) else { return }
+        let who = Whoami(json: j)
+        guard !who.userID.isEmpty else { return }
+        whoami = who
     }
 
     /// A `term` event: a status summary updates its row in place (the
@@ -227,6 +219,11 @@ final class WorkspaceModel: Identifiable {
     }
 
     // MARK: Navigation
+    //
+    // Navigation is per window (WorkspaceNav, Navigation.swift): a screen
+    // acts on its own window's — `@Environment(WorkspaceNav.self)` — never
+    // on "the focused window", so a page in a background window can't push
+    // onto, or navigate, the window in front.
 
     /// Opens `s` in a window's navigation.
     func open(_ s: Surface, in nav: WorkspaceNav) {
@@ -243,34 +240,6 @@ final class WorkspaceModel: Identifiable {
         default: nav.showNavigator = nav.surface != nil
         }
     }
-
-    /// The navigation code outside a window acts on: the focused window's
-    /// when it shows this workspace, else a window's that shows it (see
-    /// AppModel.nav(for:)). Inside a workspace's view hierarchy prefer the
-    /// window's own: `@Environment(WorkspaceNav.self)`.
-    var nav: WorkspaceNav { AppModel.shared.nav(for: self) ?? detachedNav }
-
-    /// The focused window's surface here (code written for one window).
-    var surface: Surface? {
-        get { nav.surface }
-        set { nav.surface = newValue }
-    }
-
-    /// Windows pushed over the focused window's tile (`xbin.window`).
-    var windows: [PushedWindow] {
-        get { nav.windows }
-        set { nav.windows = newValue }
-    }
-
-    var showNavigator: Bool {
-        get { nav.showNavigator }
-        set { nav.showNavigator = newValue }
-    }
-
-    /// Opens `s` in the focused window (code written for one window).
-    func open(_ s: Surface) { open(s, in: nav) }
-
-    func open(link: DeepLink) { open(link: link, in: nav) }
 
     func tile(_ path: String) -> TileInfo? { catalog[path] }
 
@@ -293,10 +262,11 @@ final class WorkspaceModel: Identifiable {
     /// A path of this workspace as a plain URL (Safari signs in itself).
     func safariURL(path: String) -> URL? { origin.url(path: path) }
 
-    /// Where Safari should go for `path`, signed in: a one-shot ticket for
-    /// this device's session (`POST /api/xbin/web-ticket`, the D64 pattern),
-    /// or the plain URL on an xbind without the route or for a session that
-    /// can't have one (WebHandoff.swift).
+    /// Where Safari should go for `path`: a one-shot ticket for this
+    /// device's session (`POST /api/xbin/web-ticket`, the D64 pattern — the
+    /// browser gets "Continue as <name>", one tap signs it in), or the plain
+    /// URL on an xbind without the route or for a session that can't have
+    /// one (WebHandoff.swift).
     func signedInURL(path: String) async -> URL? {
         let r = try? await auth.send(WebTicket.request(next: path))
         return WebTicket.destination(r, origin: origin, next: path)?.url
