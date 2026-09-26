@@ -5,19 +5,21 @@ import XCTest
 /// on the Linux box — a fresh workspace with the native counter
 /// (examples/counter-go) and the scripted fake agent — tunnels it to the Mac
 /// and runs these on an erased simulator. Each test launches the app and
-/// adds the workspace itself when the app has none, so any one runs alone
-/// (-only-testing); the names keep them in order. Screenshots: E2E_DIR and
-/// the result bundle.
+/// signs in to the workspace itself (Log in → address → password) when the
+/// app has none, so any one runs alone (-only-testing); the names keep them
+/// in order. Screenshots: E2E_DIR and the result bundle. The onboarding's
+/// own tests are XbinOnboardingTests.
 ///
 /// Without XBIN_E2E_URL they skip (the hosted CI only builds them).
 final class XbinE2ETests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         try XCTSkipIf(E2EServer.fromEnvironment() == nil,
-                      "XBIN_E2E_URL / XBIN_E2E_TOKEN unset: no xbind to test against (native/AGENTS.md → Mac mini)")
+                      "XBIN_E2E_URL / _USER / _PASSWORD unset: no xbind to test against (native/AGENTS.md → Mac mini)")
     }
 
-    /// Add a workspace by URL + token; the navigator lists its tiles.
+    /// Sign in by address and password (enrolling this device); the
+    /// navigator lists the workspace's tiles.
     @MainActor
     func test01AddWorkspace() throws {
         let e = try E2E(self)

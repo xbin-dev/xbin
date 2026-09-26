@@ -7,11 +7,12 @@
 #
 #   ci-uitests.sh "<destination>"     e.g. "$(pick-sim.sh)"
 #
-#   XBIN_E2E_URL, XBIN_E2E_TOKEN  the xbind and a bearer token for it (the
-#                         workspace's owner token), as the simulator reaches
-#                         it; handed to the tests as TEST_RUNNER_XBIN_E2E_*
-#                         (unset → the run is skipped; the tests themselves
-#                         skip without them)
+#   XBIN_E2E_URL, XBIN_E2E_USER, XBIN_E2E_PASSWORD  the xbind, as the
+#                         simulator reaches it, and an admin account on it
+#                         (the tests sign in through the app's Log in, as a
+#                         person does); handed to the tests as
+#                         TEST_RUNNER_XBIN_E2E_* (unset → the run is
+#                         skipped; the tests themselves skip without them)
 #   TEST_RUNNER_E2E_DIR   where the tests write their screenshots (default
 #                         $XBIN_CI_OUT/e2e); each is also an attachment in
 #                         the result bundle
@@ -43,7 +44,8 @@ if [ ! -f "$ios/project.yml" ]; then
 fi
 if [ "$run" = 1 ]; then
   XBIN_SIGNING=${XBIN_SIGNING:-adhoc}
-  [ -n "${XBIN_E2E_TOKEN:-}" ] || { ci_error "XBIN_E2E_URL is set but XBIN_E2E_TOKEN is not"; exit 2; }
+  [ -n "${XBIN_E2E_USER:-}" ] && [ -n "${XBIN_E2E_PASSWORD:-}" ] ||
+    { ci_error "XBIN_E2E_URL is set but XBIN_E2E_USER or XBIN_E2E_PASSWORD is not"; exit 2; }
 fi
 ci_signing
 ci_conditions
@@ -87,8 +89,9 @@ fi
 
 TEST_RUNNER_E2E_DIR=${TEST_RUNNER_E2E_DIR:-$XBIN_CI_OUT/e2e}
 TEST_RUNNER_XBIN_E2E_URL=$XBIN_E2E_URL
-TEST_RUNNER_XBIN_E2E_TOKEN=$XBIN_E2E_TOKEN
-export TEST_RUNNER_E2E_DIR TEST_RUNNER_XBIN_E2E_URL TEST_RUNNER_XBIN_E2E_TOKEN
+TEST_RUNNER_XBIN_E2E_USER=$XBIN_E2E_USER
+TEST_RUNNER_XBIN_E2E_PASSWORD=$XBIN_E2E_PASSWORD
+export TEST_RUNNER_E2E_DIR TEST_RUNNER_XBIN_E2E_URL TEST_RUNNER_XBIN_E2E_USER TEST_RUNNER_XBIN_E2E_PASSWORD
 shots=$TEST_RUNNER_E2E_DIR
 rm -rf "$shots"
 mkdir -p "$shots"

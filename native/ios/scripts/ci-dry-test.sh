@@ -513,10 +513,10 @@ has "ci-uitests: warns when project.yml declares no XbinUITests scheme" "$out" "
 FAKE_XCODEBUILD_STATUS=65 run "$S/ci-uitests.sh" "$dest"
 eq "ci-uitests: a failed build fails the step" "$rc" 65
 XBIN_E2E_URL=http://127.0.0.1:9871 run "$S/ci-uitests.sh" "$dest"
-eq "ci-uitests: a URL without a token fails" "$rc" 2
+eq "ci-uitests: a URL without an account fails" "$rc" 2
 reset_env
 export FAKE_SCHEMES="Xbin XbinUITests"
-XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_TOKEN=tok123 XBIN_E2E_ERASE=1 FAKE_E2E_PNGS=4 \
+XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_USER=e2e XBIN_E2E_PASSWORD=pw-secret-123 XBIN_E2E_ERASE=1 FAKE_E2E_PNGS=4 \
   XBIN_E2E_ONLY="XbinUITests/XbinE2ETests/test01AddWorkspace XbinUITests/XbinE2ETests/test03NativeCounter" \
   run "$S/ci-uitests.sh" "$dest"
 eq "ci-uitests: runs against an xbind" "$rc" 0
@@ -526,21 +526,21 @@ has "ci-uitests: erases the simulator when asked" "$log" "xcrun simctl erase BBB
 has "ci-uitests: …then boots it" "$log" "xcrun simctl bootstatus BBBBBBBB-0000-4000-8000-000000002714 -b"
 has "ci-uitests: test-without-building, only the named tests" "$log" \
   "xcodebuild test-without-building -project Xbin.xcodeproj -scheme XbinUITests -destination $dest -derivedDataPath $RUNNER_TEMP/xbin-derived/app -clonedSourcePackagesDirPath $RUNNER_TEMP/xbin-derived/SourcePackages -skipMacroValidation -skipPackagePluginValidation -resultBundlePath $RUNNER_TEMP/xbin-ci/uitests.xcresult -only-testing:XbinUITests/XbinE2ETests/test01AddWorkspace -only-testing:XbinUITests/XbinE2ETests/test03NativeCounter"
-has "ci-uitests: the tests get the URL, the token and E2E_DIR" "$log" \
-  "e2e-env URL=http://127.0.0.1:9871 TOKEN=tok123 DIR=$RUNNER_TEMP/xbin-ci/e2e"
+has "ci-uitests: the tests get the URL, the account and E2E_DIR" "$log" \
+  "e2e-env URL=http://127.0.0.1:9871 USER=e2e PASSWORD=pw-secret-123 DIR=$RUNNER_TEMP/xbin-ci/e2e"
 eq "ci-uitests: screenshots in E2E_DIR" "$(find "$RUNNER_TEMP/xbin-ci/e2e" -name '*.png' | wc -l | tr -d ' ')" 4
 isdir "ci-uitests: the result bundle" "$RUNNER_TEMP/xbin-ci/uitests.xcresult"
 has "ci-uitests: summary counts screenshots" "$(cat "$GITHUB_STEP_SUMMARY")" "passed against http://127.0.0.1:9871 — 4 screenshots"
-hasnt "ci-uitests: the token never reaches the log" "$out" "tok123"
+hasnt "ci-uitests: the password never reaches the log" "$out" "pw-secret-123"
 : >"$FAKE_LOG"
-XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_TOKEN=tok123 FAKE_ATTACH=1 run "$S/ci-uitests.sh" "$dest"
+XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_USER=e2e XBIN_E2E_PASSWORD=pw-secret-123 FAKE_ATTACH=1 run "$S/ci-uitests.sh" "$dest"
 hasnt "ci-uitests: no erase unless asked" "$(cat "$FAKE_LOG")" "simctl erase"
 has "ci-uitests: no PNG written → exports the attachments" "$(cat "$FAKE_LOG")" \
   "xcrun xcresulttool export attachments --path $RUNNER_TEMP/xbin-ci/uitests.xcresult --output-path $RUNNER_TEMP/xbin-ci/e2e/attachments"
 : >"$FAKE_LOG"
-XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_TOKEN=tok123 XBIN_SIGNING=none run "$S/ci-uitests.sh" "$dest"
+XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_USER=e2e XBIN_E2E_PASSWORD=pw-secret-123 XBIN_SIGNING=none run "$S/ci-uitests.sh" "$dest"
 has "ci-uitests: XBIN_SIGNING=none still wins when set" "$(cat "$FAKE_LOG")" "COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO"
-FAKE_XCODEBUILD_STATUS=0 FAKE_E2E_PNGS=1 XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_TOKEN=tok123 run "$S/ci-uitests.sh" "$dest"
+FAKE_XCODEBUILD_STATUS=0 FAKE_E2E_PNGS=1 XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_USER=e2e XBIN_E2E_PASSWORD=pw-secret-123 run "$S/ci-uitests.sh" "$dest"
 eq "ci-uitests: a rerun starts with an empty E2E_DIR" "$(find "$RUNNER_TEMP/xbin-ci/e2e" -name '*.png' | wc -l | tr -d ' ')" 1
 rm -f "$repo/native/ios/project.yml"
 rm -rf "$repo/native/ios/Xbin.xcodeproj"

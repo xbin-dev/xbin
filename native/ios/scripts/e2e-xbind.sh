@@ -4,20 +4,27 @@
 # native counter (examples/counter-go, native.js included) and the scripted
 # "fake" agent, started the way the UI harness starts it (hack/ui-harness/
 # run.sh). mac-remote.sh e2e starts it, tunnels its port to the Mac and
-# hands the URL and the owner token to the tests.
+# hands the URL and an account's name and password to the tests, which sign
+# in through the app's Log in screens as a person does (the app has no
+# token login).
 #
 #   e2e-xbind.sh start [--port P]   build bin/{xbind,bx,fakeacp}, init a fresh
 #                                   workspace (+ testdata/e2e-tiles/* as
 #                                   apps/*), start xbind on 127.0.0.1:P,
-#                                   delete the login --dev seeds (admin/admin:
-#                                   only the random owner token opens it) and
-#                                   wait until the counter's backend answers
+#                                   create the admin account e2e with a random
+#                                   password, delete the login --dev seeds
+#                                   (admin/admin) and wait until the counter's
+#                                   backend answers
 #   e2e-xbind.sh stop               stop it (and drop any mount it left)
-#   e2e-xbind.sh env                XBIN_E2E_URL=… and XBIN_E2E_TOKEN=… lines
+#   e2e-xbind.sh env                XBIN_E2E_URL=…, XBIN_E2E_USER=… and
+#                                   XBIN_E2E_PASSWORD=… lines
+#   e2e-xbind.sh invite             create an account with an invite and print
+#                                   its link (the tests make their own)
 #   e2e-xbind.sh smoke              what the UI tests need of the server,
-#                                   checked over HTTP: the token, the counter
-#                                   (read, +1), the fake agent answering —
-#                                   and that no password opens it
+#                                   checked over HTTP: the account signs in,
+#                                   the sign-in methods, the counter (read,
+#                                   +1), the fake agent answering, an invite
+#                                   checked — and that admin/admin is gone
 #
 #   XBIN_E2E_PORT       default 9871 (the tunnel keeps the same port on the
 #                       Mac, so the workspace's origin is the same on both
@@ -26,16 +33,18 @@
 #                       xbind.log, xbind.pid, env
 #   XBIN_E2E_XBIND_ARGS extra xbind flags, e.g. "--isolate --rootfs …" —
 #                       without --isolate its terminals are shells as you on
-#                       this box, for whoever holds the owner token (the
-#                       tunnel makes the port reachable on the Mac: never
-#                       tunnel it to the runner's user, native/AGENTS.md)
+#                       this box, for whoever signs in (the e2e account's
+#                       password; the tunnel makes the port reachable on
+#                       the Mac: never tunnel it to the runner's user,
+#                       native/AGENTS.md)
 #
 # The flags, for doing it by hand: `xbind init <ws>`; cp -r
 # examples/counter-go <ws>/apps/counter; XBIN_AGENT_FAKE=bin/fakeacp
 # XBIN_BIN=bin XBIN_SDK_PATH=sdk bin/xbind --dev --dev-overlay
 # workspace-template --workspace <ws> --listen 127.0.0.1:P --external-url
-# http://127.0.0.1:P; the owner token is <ws>/.xbin/token (--dev also
-# seeds admin/admin, which start deletes: DELETE /api/xbin/users/admin).
+# http://127.0.0.1:P; the owner token is <ws>/.xbin/token (it stays on this
+# box: start uses it to create the e2e account, POST /api/xbin/users, and
+# to delete the admin/admin --dev seeds, DELETE /api/xbin/users/admin).
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -161,16 +170,24 @@ start)
     >"$dir/xbind.log" 2>&1 </dev/null &
   echo $! >"$dir/xbind.pid"
   wait_for 30 "xbind" curl -fsS -o /dev/null "$url/healthz"
+  # The tests' account: an admin (the tests read the counter and end their
+  # sessions with it, and make invites), with a random password that
+  # travels to the Mac on ssh's stdin as the owner token used to.
+  password=$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 24)
+  api POST /api/xbin/users "{\"id\":\"e2e\",\"name\":\"E2E Tester\",\"role\":\"admin\",\"password\":\"$password\"}" >/dev/null ||
+    { say "could not create the e2e account — stopping"; stop; exit 1; }
   # --dev seeds admin/admin into a workspace with no users: anything that
   # reaches the port (the tunnel's end on the Mac is every local user's)
-  # could sign in with it. Only the random owner token opens this one.
+  # could sign in with it. Only the e2e account's random password opens
+  # this one (and the owner token, which stays here).
   api DELETE /api/xbin/users/admin >/dev/null || { say "could not delete the dev login admin/admin — stopping"; stop; exit 1; }
   # The counter's Go backend builds on first use (a cold build can take a
   # minute or two); the UI tests should not wait for it.
   wait_for 240 "the counter's backend" api GET /api/apps/counter/count
   {
     echo "XBIN_E2E_URL=$url"
-    echo "XBIN_E2E_TOKEN=$(token)"
+    echo "XBIN_E2E_USER=e2e"
+    echo "XBIN_E2E_PASSWORD=$password"
   } >"$dir/env"
   chmod 600 "$dir/env"
   say "up: $url (workspace $ws, log $dir/xbind.log); env in $dir/env"
@@ -183,18 +200,41 @@ env)
   running || { say "not running ($dir)"; exit 1; }
   cat "$dir/env"
   ;;
+invite)
+  running || { say "not running ($dir)"; exit 1; }
+  id="invitee-$(date +%s)"
+  api POST /api/xbin/users "{\"id\":\"$id\",\"name\":\"Invited Tester\"}" |
+    python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("inviteLink") or sys.argv[1] + d["inviteUrl"])' "$url"
+  ;;
 smoke)
   running || { say "not running ($dir)"; exit 1; }
   fail=0
   check() { if "$@" >/dev/null 2>&1; then echo "ok   $what"; else echo "FAIL $what"; fail=1; fi; }
-  what="the token reads whoami"
-  check api GET /api/xbin/whoami
+  e2e_user=$(sed -n 's/^XBIN_E2E_USER=//p' "$dir/env")
+  e2e_password=$(sed -n 's/^XBIN_E2E_PASSWORD=//p' "$dir/env")
+  signs_in() { # the e2e account's password (as the app's Log in sends it)
+    curl -fsS -X POST -H 'Content-Type: application/json' \
+      -d "{\"username\":\"$e2e_user\",\"password\":\"$e2e_password\"}" "$url/api/xbin/login" | grep -q '"token"'
+  }
+  what="the e2e account signs in with its password (POST /api/xbin/login)"
+  check signs_in
   refused() { # the dev login --dev seeds does not open it
     [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
       -d '{"username":"admin","password":"admin"}' "$url/api/xbin/login")" = 401 ]
   }
-  what="no password opens it (admin/admin, --dev's seed, is gone)"
+  what="admin/admin, --dev's seed, is gone"
   check refused
+  methods() { curl -fsS "$url/api/xbin/login/methods" | grep -Eq '"enabled": ?true'; }
+  what="the sign-in methods answer, password on (GET /api/xbin/login/methods)"
+  check methods
+  invite_checked() { # a fresh invite reads back, unspent (POST /api/xbin/invite/check)
+    local link tok
+    link=$("$0" invite --port "$port") && tok=${link##*invite=} &&
+      curl -fsS -X POST -H 'Content-Type: application/json' -d "{\"invite\":\"$tok\"}" "$url/api/xbin/invite/check" |
+      grep -q '"Invited Tester"'
+  }
+  what="an invite made here reads back (POST /api/xbin/invite/check)"
+  check invite_checked
   what="apps/counter's runtime document (/c/apps/counter/?native=1)"
   check curl -fsS -o /dev/null -H "Authorization: Bearer $(token)" "$url/c/apps/counter/?native=1"
   what="apps/welcome, the web tile, is served"

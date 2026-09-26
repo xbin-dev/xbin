@@ -2,25 +2,30 @@ import Foundation
 import XCTest
 
 // The UI tests' two halves: E2EServer talks to the xbind over HTTP (the
-// owner token) to check what the app did; E2E drives the app. native/AGENTS.md
-// → "Mac mini" has the recipe (mac-remote.sh e2e); the tests skip when
-// XBIN_E2E_URL is unset, which is how the hosted CI builds them without an
-// xbind to talk to.
+// e2e account's own session) to check what the app did; E2E drives the app.
+// native/AGENTS.md → "Mac mini" has the recipe (mac-remote.sh e2e); the
+// tests skip when XBIN_E2E_URL is unset, which is how the hosted CI builds
+// them without an xbind to talk to.
 
 /// The xbind under test, from the test runner's environment (xcodebuild
-/// passes TEST_RUNNER_XBIN_E2E_URL / _TOKEN as XBIN_E2E_URL / _TOKEN).
+/// passes TEST_RUNNER_XBIN_E2E_URL / _USER / _PASSWORD as XBIN_E2E_*): its
+/// address and an admin account, which the app signs in with through Log
+/// in (there is no token login) and the checks use too.
 struct E2EServer: Sendable {
     let url: URL
-    let token: String
+    let user: String
+    let password: String
+    private let sessionBox = SessionBox()
 
-    /// The workspace address as the app's add-workspace form takes it.
+    /// The workspace address as the app's address field takes it.
     var address: String { url.absoluteString.hasSuffix("/") ? String(url.absoluteString.dropLast()) : url.absoluteString }
 
     static func fromEnvironment() -> E2EServer? {
         let env = ProcessInfo.processInfo.environment
         guard let raw = env["XBIN_E2E_URL"], !raw.isEmpty, let url = URL(string: raw),
-              let token = env["XBIN_E2E_TOKEN"], !token.isEmpty else { return nil }
-        return E2EServer(url: url, token: token)
+              let user = env["XBIN_E2E_USER"], !user.isEmpty,
+              let password = env["XBIN_E2E_PASSWORD"], !password.isEmpty else { return nil }
+        return E2EServer(url: url, user: user, password: password)
     }
 
     struct Failure: Error, CustomStringConvertible {
@@ -39,16 +44,44 @@ struct E2EServer: Sendable {
         let provider: String?
     }
 
-    private func request(_ method: String, _ path: String) -> URLRequest {
-        var r = URLRequest(url: URL(string: address + path)!)
-        r.httpMethod = method
-        r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        r.timeoutInterval = 15
-        return r
+    /// The checks' session: one POST /api/xbin/login per test process.
+    final class SessionBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var token: String?
+        var value: String? {
+            get { lock.lock(); defer { lock.unlock() }; return token }
+            set { lock.lock(); token = newValue; lock.unlock() }
+        }
     }
 
-    private func send(_ method: String, _ path: String) async throws -> Data {
-        let (data, response) = try await URLSession.shared.data(for: request(method, path))
+    struct Login: Decodable, Sendable { let token: String }
+
+    private func session() async throws -> String {
+        if let t = sessionBox.value { return t }
+        var r = URLRequest(url: URL(string: address + "/api/xbin/login")!)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = try JSONSerialization.data(withJSONObject: ["username": user, "password": password])
+        r.timeoutInterval = 15
+        let (data, response) = try await URLSession.shared.data(for: r)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            throw Failure(description: "POST /api/xbin/login as \(user) → \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+        }
+        let t = try JSONDecoder().decode(Login.self, from: data).token
+        sessionBox.value = t
+        return t
+    }
+
+    func send(_ method: String, _ path: String, json: [String: Any]? = nil) async throws -> Data {
+        var r = URLRequest(url: URL(string: address + path)!)
+        r.httpMethod = method
+        r.setValue("Bearer \(try await session())", forHTTPHeaderField: "Authorization")
+        if let json {
+            r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            r.httpBody = try JSONSerialization.data(withJSONObject: json)
+        }
+        r.timeoutInterval = 15
+        let (data, response) = try await URLSession.shared.data(for: r)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
             throw Failure(description: "\(method) \(path) → \(status): \(String(decoding: data.prefix(200), as: UTF8.self))")
@@ -71,6 +104,35 @@ struct E2EServer: Sendable {
     func end(_ id: String) async {
         _ = try? await send("DELETE", "/api/xbin/term/sessions/\(id)")
     }
+
+    struct Invited: Decodable, Sendable {
+        let inviteUrl: String?
+        let inviteLink: String?
+    }
+
+    /// A new account with an invite and no password (POST /api/xbin/users):
+    /// its id and the invite link as the admin console shows it.
+    func invite(name: String) async throws -> (id: String, link: String) {
+        let id = "invitee-\(Int(Date().timeIntervalSince1970))-\(Int.random(in: 100...999))"
+        let d = try JSONDecoder().decode(Invited.self, from: await send("POST", "/api/xbin/users", json: ["id": id, "name": name]))
+        guard let link = d.inviteLink ?? d.inviteUrl.map({ address + $0 }) else {
+            throw Failure(description: "POST /api/xbin/users: no invite link")
+        }
+        return (id, link)
+    }
+
+    struct User: Decodable, Sendable {
+        let id: String
+        let invitePending: Bool?
+        let deviceCount: Int?
+    }
+
+    struct Users: Decodable, Sendable { let users: [User] }
+
+    /// An account as the admin console sees it (GET /api/xbin/users).
+    func account(_ id: String) async throws -> User? {
+        try JSONDecoder().decode(Users.self, from: await send("GET", "/api/xbin/users")).users.first { $0.id == id }
+    }
 }
 
 /// Drives the app. Every query is by what a person sees (labels, the
@@ -83,7 +145,7 @@ final class E2E {
 
     init(_ test: XCTestCase) throws {
         guard let server = E2EServer.fromEnvironment() else {
-            throw XCTSkip("XBIN_E2E_URL / XBIN_E2E_TOKEN unset: no xbind to test against (native/AGENTS.md → Mac mini)")
+            throw XCTSkip("XBIN_E2E_URL / _USER / _PASSWORD unset: no xbind to test against (native/AGENTS.md → Mac mini)")
         }
         self.server = server
         self.test = test
@@ -93,6 +155,15 @@ final class E2E {
     func launch() {
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
+    }
+
+    /// Launches as a fresh install would start (Debug builds'
+    /// -XbinFreshStart: no workspace, the saved list untouched), in `appearance`
+    /// (light or dark; nil = the simulator's).
+    func launchFresh(appearance: String? = nil) {
+        app.launchArguments += ["-XbinFreshStart", "YES"]
+        if let appearance { app.launchArguments += ["-XbinAppearance", appearance] }
+        launch()
     }
 
     // MARK: Screenshots
@@ -244,40 +315,54 @@ final class E2E {
 
     // MARK: The workspace
 
-    /// The app shows a workspace: when it has none (a fresh simulator), adds
-    /// the xbind under test by address + token (Add a workspace → Advanced).
+    /// The app shows a workspace: when it has none (a fresh simulator), signs
+    /// in to the xbind under test as a person does — Log in → Enter workspace
+    /// address → the password — which enrolls this device too.
     func ensureWorkspace(file: StaticString = #filePath, line: UInt = #line) {
         let workspaces = app.buttons["Workspaces"]
-        let add = app.buttons["Add a workspace"]
-        guard let seen = first(of: [workspaces, add], timeout: 30) else {
+        let login = app.buttons["Log in"]
+        guard let seen = first(of: [workspaces, login], timeout: 30) else {
             shot("00-no-start-screen")
-            XCTFail("neither a workspace nor the welcome screen after launch", file: file, line: line)
+            XCTFail("neither a workspace nor the Welcome after launch", file: file, line: line)
             return
         }
         if seen == 0 { return }
-        addWorkspace(file: file, line: line)
+        signIn(file: file, line: line)
     }
 
-    func addWorkspace(file: StaticString = #filePath, line: UInt = #line) {
-        app.buttons["Add a workspace"].tap()
-        let address = element("Workspace address (https://…)", in: app.textFields)
-        XCTAssertTrue(address.waitForExistence(timeout: 10), "the add-workspace form", file: file, line: line)
-        address.tap()
-        address.typeText(server.address)
-        let advanced = element("Advanced: server URL and token", in: app.buttons)
-        if !advanced.isHittable { app.swipeUp() }
-        advanced.tap()
-        let token = element("Token", in: app.secureTextFields)
-        XCTAssertTrue(token.waitForExistence(timeout: 5), "the token field", file: file, line: line)
-        token.tap()
-        token.typeText(server.token)
-        shot("01-add-workspace-form")
-        tapAfterTyping(app.buttons["Connect"])
-        dismissSystemAlerts()
-        if !app.buttons["Workspaces"].waitForExistence(timeout: 30) {
-            shot("01-add-workspace-failed")
-            XCTFail("the workspace did not open after Connect (the form's error is in the screenshot)", file: file, line: line)
+    /// From the Welcome: Log in → Enter workspace address → Continue →
+    /// the account's name and password → the workspace opens.
+    func signIn(shots prefix: String? = nil, file: StaticString = #filePath, line: UInt = #line) {
+        app.buttons["Log in"].tap()
+        enterAddress(server.address, file: file, line: line)
+        let user = element("Username", in: app.textFields)
+        guard user.waitForExistence(timeout: 30) else {
+            shot("01-sign-in-no-form")
+            XCTFail("the password form after the address (the page's error is in the screenshot)", file: file, line: line)
+            return
         }
+        if let prefix { shot(prefix + "-methods") }
+        user.tap()
+        user.typeText(server.user)
+        let password = element("Password", in: app.secureTextFields)
+        password.tap()
+        password.typeText(server.password + "\n")
+        dismissSystemAlerts()
+        if !app.buttons["Workspaces"].waitForExistence(timeout: 60) {
+            shot("01-sign-in-failed")
+            XCTFail("the workspace did not open after signing in (the page's error is in the screenshot)", file: file, line: line)
+        }
+    }
+
+    /// On Log in: Enter workspace address → `address` → Continue.
+    func enterAddress(_ address: String, file: StaticString = #filePath, line: UInt = #line) {
+        let enter = app.buttons["Enter workspace address"]
+        XCTAssertTrue(enter.waitForExistence(timeout: 10), "Log in's Enter workspace address", file: file, line: line)
+        enter.tap()
+        let field = element("Workspace address", in: app.textFields)
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "the address field", file: file, line: line)
+        field.tap()
+        field.typeText(address + "\n")
     }
 
     // MARK: Tiles

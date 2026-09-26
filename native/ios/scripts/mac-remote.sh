@@ -21,10 +21,11 @@
 #   e2e [--port P] [--keep] [--only T]…
 #                              the UI tests against an xbind on THIS box:
 #                              e2e-xbind.sh starts one on 127.0.0.1:P (9871;
-#                              or give XBIN_E2E_URL + XBIN_E2E_TOKEN), an ssh
-#                              reverse tunnel makes it 127.0.0.1:P on the Mac
-#                              too, and XbinUITests runs on the simulator
-#                              xbin-e2e, erased first; the token travels on
+#                              or give XBIN_E2E_URL + XBIN_E2E_USER +
+#                              XBIN_E2E_PASSWORD), an ssh reverse tunnel makes
+#                              it 127.0.0.1:P on the Mac too, and XbinUITests
+#                              runs on the simulator xbin-e2e, erased first;
+#                              the account's name and password travel on
 #                              ssh's stdin, never on a command line. --keep
 #                              leaves the xbind running.
 #   tunnel [--port P]          only the reverse tunnel, in the foreground
@@ -149,7 +150,7 @@ on_mac() {
     echo "screenshot: $XBIN_CI_OUT/screen.png"
     ;;
   e2e)
-    local url="" token="" only="" i
+    local url="" user="" password="" only="" i
     while [ $# -gt 0 ]; do
       case $1 in
       --url) url=$2; shift 2 ;;
@@ -159,14 +160,15 @@ on_mac() {
     done
     [ -n "$url" ] || { say "e2e: --url is required"; return 2; }
     # Never as the runner's user: its jobs (code from any pushed branch)
-    # could reach the tunnel's port and this run's token.
+    # could reach the tunnel's port and this run's password.
     if [ "$(id -un)" = "${XBIN_CI_USER:-ci}" ] || [ -f "${XBIN_RUNNER_DIR:-$HOME/actions-runner}/.runner" ]; then
       say "e2e: not as $(id -un), the Actions runner's user — run the dev loop as its own user (native/AGENTS.md → The users)"
       return 2
     fi
-    # The token arrives on stdin (never on a command line).
-    IFS= read -r token || true
-    [ -n "$token" ] || { say "e2e: no token on stdin"; return 2; }
+    # The account arrives on stdin, a line each (never on a command line).
+    IFS= read -r user || true
+    IFS= read -r password || true
+    [ -n "$user" ] && [ -n "$password" ] || { say "e2e: no account (user, password) on stdin"; return 2; }
     # The tunnel is up once the xbind answers through it.
     i=0
     until curl -fsS -o /dev/null --max-time 5 "$url/healthz"; do
@@ -176,8 +178,8 @@ on_mac() {
     done
     xcodegen_on_path
     dest=$(XBIN_SIM_ENSURE=${XBIN_SIM_ENSURE:-xbin-e2e} "$S/pick-sim.sh")
-    XBIN_E2E_URL=$url XBIN_E2E_TOKEN=$token XBIN_E2E_ERASE=${XBIN_E2E_ERASE:-1} XBIN_E2E_ONLY=${only# } \
-      "$S/ci-uitests.sh" "$dest"
+    XBIN_E2E_URL=$url XBIN_E2E_USER=$user XBIN_E2E_PASSWORD=$password XBIN_E2E_ERASE=${XBIN_E2E_ERASE:-1} \
+      XBIN_E2E_ONLY=${only# } "$S/ci-uitests.sh" "$dest"
     ;;
   cleanup) "$S/mac-cleanup.sh" "$@" ;;
   *) say "--on-mac: unknown command ${cmd:-(none)}"; return 2 ;;
@@ -200,14 +202,14 @@ case $cmd in
 esac
 [ -n "${XBIN_MAC:-}" ] || { say "set XBIN_MAC=user@host (the Mac's ssh destination)"; exit 2; }
 # The runner's user runs code from any pushed branch: the dev loop has its
-# own (native/AGENTS.md → The users). A tunnel or the e2e token must never
+# own (native/AGENTS.md → The users). A tunnel or the e2e password must never
 # reach it; the rest only shares its simulators, which every job shuts down.
 mac_user=""
 case $XBIN_MAC in *@*) mac_user=${XBIN_MAC%%@*} ;; esac
 if [ -n "$mac_user" ] && [ "$mac_user" = "${XBIN_CI_USER:-ci}" ]; then
   case $cmd in
   e2e | tunnel)
-    say "$cmd: not as $mac_user, the Actions runner's user — its jobs could reach the tunnel and the token; XBIN_MAC=${XBIN_DEV_USER:-dev}@… (native/AGENTS.md → The users)"
+    say "$cmd: not as $mac_user, the Actions runner's user — its jobs could reach the tunnel and the password; XBIN_MAC=${XBIN_DEV_USER:-dev}@… (native/AGENTS.md → The users)"
     exit 2
     ;;
   build | snapshots | uitests | run) say "warning: $mac_user is the Actions runner's user — every job shuts its simulators down; the dev loop has its own user (XBIN_MAC=${XBIN_DEV_USER:-dev}@…)" ;;
@@ -304,20 +306,21 @@ e2e)
     *) say "e2e: unknown argument $1"; exit 2 ;;
     esac
   done
-  url=${XBIN_E2E_URL:-} token=${XBIN_E2E_TOKEN:-} started=0
+  url=${XBIN_E2E_URL:-} user=${XBIN_E2E_USER:-} password=${XBIN_E2E_PASSWORD:-} started=0
   if [ -z "$url" ]; then
     e2e_dir=${XBIN_E2E_DIR:-${TMPDIR:-/tmp}/xbin-e2e}
     case " ${XBIN_E2E_XBIND_ARGS:-} " in
     *" --isolate "*) ;;
-    *) say "e2e: the xbind runs unsandboxed (no --isolate in XBIN_E2E_XBIND_ARGS): its terminals are shells as you on this box, open to whoever holds the owner token — only this run's ssh session to $XBIN_MAC does" ;;
+    *) say "e2e: the xbind runs unsandboxed (no --isolate in XBIN_E2E_XBIND_ARGS): its terminals are shells as you on this box, open to whoever signs in as the e2e account — only this run's ssh session to $XBIN_MAC gets its password" ;;
     esac
     XBIN_E2E_DIR=$e2e_dir "$here/e2e-xbind.sh" start --port "$port"
     started=1
     url=$(sed -n 's/^XBIN_E2E_URL=//p' "$e2e_dir/env")
-    token=$(sed -n 's/^XBIN_E2E_TOKEN=//p' "$e2e_dir/env")
+    user=$(sed -n 's/^XBIN_E2E_USER=//p' "$e2e_dir/env")
+    password=$(sed -n 's/^XBIN_E2E_PASSWORD=//p' "$e2e_dir/env")
     if [ "$keep" = 0 ]; then trap 'XBIN_E2E_DIR=$e2e_dir "$here/e2e-xbind.sh" stop' EXIT; fi
   fi
-  [ -n "$token" ] || { say "e2e: XBIN_E2E_URL without XBIN_E2E_TOKEN"; exit 2; }
+  [ -n "$user" ] && [ -n "$password" ] || { say "e2e: XBIN_E2E_URL without XBIN_E2E_USER and XBIN_E2E_PASSWORD"; exit 2; }
   # A loopback xbind reaches the Mac through a reverse tunnel on the same
   # port (the workspace's origin stays http://127.0.0.1:P on both sides).
   tunnel=()
@@ -329,7 +332,7 @@ e2e)
     ;;
   esac
   sync_tree
-  printf '%s\n' "$token" | remote ${tunnel[@]+"${tunnel[@]}"} -- e2e --url "$url" ${only[@]+"${only[@]}"} || status=$?
+  printf '%s\n%s\n' "$user" "$password" | remote ${tunnel[@]+"${tunnel[@]}"} -- e2e --url "$url" ${only[@]+"${only[@]}"} || status=$?
   pull e2e
   if [ "$started" = 1 ] && [ "$keep" = 1 ]; then say "the xbind stays up: $url (e2e-xbind.sh stop)"; fi
   exit "$status"

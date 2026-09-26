@@ -107,6 +107,7 @@ open class XCUIElement: XCUIElementTypeQueryProvider {
     }
     open var exists: Bool { false }
     open var isHittable: Bool { false }
+    open var isEnabled: Bool { false }
     open var label: String { "" }
     open var identifier: String { "" }
     open var value: Any? { nil }
@@ -114,6 +115,7 @@ open class XCUIElement: XCUIElementTypeQueryProvider {
     open var elementType: ElementType { .any }
     open var frame: CGRect { .zero }
     open func waitForExistence(timeout: TimeInterval) -> Bool { false }
+    open func waitForNonExistence(timeout: TimeInterval) -> Bool { false }
     open func tap() {}
     open func doubleTap() {}
     open func press(forDuration duration: TimeInterval) {}
@@ -177,4 +179,11 @@ open class XCUIApplication: XCUIElement {
     open func activate() {}
     open func terminate() {}
     open func open(_ url: URL) {}
+}
+
+@MainActor
+open class XCUIDevice {
+    public static var shared: XCUIDevice { XCUIDevice() }
+    public enum Button: Int, Sendable { case home = 1 }
+    open func press(_ button: Button) {}
 }

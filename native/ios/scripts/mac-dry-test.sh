@@ -566,21 +566,21 @@ run "$S/mac-remote.sh" packages XbinCore
 eq "mac-remote packages: runs ci-swift-test.sh there" "$rc" 0
 has "mac-remote packages: …for the named packages" "$out" "XbinCore: not present"
 
-# e2e against an xbind given by URL + token (the start/stop path below).
+# e2e against an xbind given by URL + account (the start/stop path below).
 local_env
 cp "$td/simctl-typical.json" "$tmp/sim-e2e.json"
 export FAKE_SIMCTL_JSON=$tmp/sim-e2e.json FAKE_SCHEMES="Xbin XbinUITests" FAKE_E2E_PNGS=3
-XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_TOKEN=tok-owner-secret \
+XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_USER=e2e XBIN_E2E_PASSWORD=pw-owner-secret \
   run "$S/mac-remote.sh" e2e --only XbinUITests/XbinE2ETests/test03NativeCounter
 eq "mac-remote e2e: runs" "$rc" 0
 log=$(cat "$FAKE_LOG")
 has "mac-remote e2e: a reverse tunnel on the same port, failing if it cannot bind" "$log" \
   "ssh -o ExitOnForwardFailure=yes -R 127.0.0.1:9871:127.0.0.1:9871 me@mini"
-hasnt "mac-remote e2e: the token is on no command line" "$(grep '^ssh ' "$FAKE_LOG")" "tok-owner-secret"
+hasnt "mac-remote e2e: the password is on no command line" "$(grep '^ssh ' "$FAKE_LOG")" "pw-owner-secret"
 has "mac-remote e2e: waits for the xbind through the tunnel" "$log" "curl http://127.0.0.1:9871/healthz"
 has "mac-remote e2e: the simulator xbin-e2e (created when missing)" "$log" "xcrun simctl create xbin-e2e"
 has "mac-remote e2e: …erased first" "$log" "xcrun simctl erase 99999999-0000-4000-8000-00000000C0DE"
-has "mac-remote e2e: the tests get the URL and the token" "$log" "e2e-env URL=http://127.0.0.1:9871 TOKEN=tok-owner-secret"
+has "mac-remote e2e: the tests get the URL and the account" "$log" "e2e-env URL=http://127.0.0.1:9871 USER=e2e PASSWORD=pw-owner-secret"
 has "mac-remote e2e: --only filters" "$log" "-only-testing:XbinUITests/XbinE2ETests/test03NativeCounter"
 eq "mac-remote e2e: pulls the screenshots" "$(find "$tmp/pull/e2e" -name '*.png' | wc -l | tr -d ' ')" 3
 : >"$FAKE_LOG"
@@ -588,10 +588,10 @@ XBIN_SIM_ENSURE=xbin-e2e-mine XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_TOKEN=
 has "mac-remote e2e: XBIN_SIM_ENSURE passes through" "$(cat "$FAKE_LOG")" " XBIN_SIM_ENSURE=xbin-e2e-mine /bin/bash"
 has "mac-remote e2e: …and names the run's own simulator" "$(cat "$FAKE_LOG")" "xcrun simctl create xbin-e2e-mine"
 XBIN_E2E_URL=http://127.0.0.1:9871 run "$S/mac-remote.sh" e2e
-eq "mac-remote e2e: a URL without a token fails" "$rc" 2
-# never as the runner's user: its jobs could reach the tunnel and the token
+eq "mac-remote e2e: a URL without an account fails" "$rc" 2
+# never as the runner's user: its jobs could reach the tunnel and the password
 : >"$FAKE_LOG"
-XBIN_MAC=ci@mini XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_TOKEN=tok-owner-secret run "$S/mac-remote.sh" e2e
+XBIN_MAC=ci@mini XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_USER=e2e XBIN_E2E_PASSWORD=pw-owner-secret run "$S/mac-remote.sh" e2e
 eq "mac-remote e2e: refused as the runner's user" "$rc:$(printf '%s' "$out" | grep -c "not as ci, the Actions runner's user" || true)" "2:1"
 hasnt "mac-remote e2e: …before any ssh" "$(cat "$FAKE_LOG")" "ssh "
 XBIN_MAC=ci@mini run "$S/mac-remote.sh" tunnel
@@ -603,11 +603,11 @@ has "mac-remote: the runner's user shares its simulators — warned" "$out" "war
 # …and on the Mac: a user with a registered runner doesn't run the tests
 mkdir -p "$tmp/rr" && echo '{}' >"$tmp/rr/.runner"
 : >"$FAKE_LOG"
-XBIN_RUNNER_DIR=$tmp/rr XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_TOKEN=tok-owner-secret run "$S/mac-remote.sh" e2e
+XBIN_RUNNER_DIR=$tmp/rr XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_USER=e2e XBIN_E2E_PASSWORD=pw-owner-secret run "$S/mac-remote.sh" e2e
 eq "mac-remote e2e: refused on the Mac where the runner is registered" "$rc:$(printf '%s' "$out" | grep -c "e2e: not as" || true)" "2:1"
 hasnt "mac-remote e2e: …no tests" "$(cat "$FAKE_LOG")" "xcodebuild"
 : >"$FAKE_LOG"
-XBIN_E2E_URL=http://10.0.0.5:8642 XBIN_E2E_TOKEN=t run "$S/mac-remote.sh" e2e
+XBIN_E2E_URL=http://10.0.0.5:8642 XBIN_E2E_USER=u XBIN_E2E_PASSWORD=p run "$S/mac-remote.sh" e2e
 hasnt "mac-remote e2e: an xbind the Mac reaches itself → no tunnel" "$(cat "$FAKE_LOG")" " -R "
 
 # e2e starting (and stopping) its own xbind: e2e-xbind.sh stood in for.
@@ -616,7 +616,7 @@ cat >"$S/e2e-xbind.sh" <<'SH'
 echo "e2e-xbind $*" >>"$FAKE_LOG"
 if [ "$1" = start ]; then
   mkdir -p "$XBIN_E2E_DIR"
-  printf 'XBIN_E2E_URL=http://127.0.0.1:%s\nXBIN_E2E_TOKEN=tok-started\n' "$3" >"$XBIN_E2E_DIR/env"
+  printf 'XBIN_E2E_URL=http://127.0.0.1:%s\nXBIN_E2E_USER=e2e\nXBIN_E2E_PASSWORD=pw-started\n' "$3" >"$XBIN_E2E_DIR/env"
 fi
 SH
 chmod +x "$S/e2e-xbind.sh"
@@ -624,7 +624,7 @@ chmod +x "$S/e2e-xbind.sh"
 XBIN_E2E_DIR=$tmp/e2edir run "$S/mac-remote.sh" e2e --port 9872
 eq "mac-remote e2e: starts an xbind here" "$rc:$(grep '^e2e-xbind' "$FAKE_LOG" | tr '\n' '|')" "0:e2e-xbind start --port 9872|e2e-xbind stop|"
 has "mac-remote e2e: …tunnels its port" "$(cat "$FAKE_LOG")" "-R 127.0.0.1:9872:127.0.0.1:9872"
-has "mac-remote e2e: …hands its token over" "$(cat "$FAKE_LOG")" "TOKEN=tok-started"
+has "mac-remote e2e: …hands its account over" "$(cat "$FAKE_LOG")" "USER=e2e PASSWORD=pw-started"
 has "mac-remote e2e: an unsandboxed xbind is said to be one" "$out" "the xbind runs unsandboxed"
 XBIN_E2E_XBIND_ARGS="--isolate --rootfs /r" XBIN_E2E_DIR=$tmp/e2edir run "$S/mac-remote.sh" e2e --port 9872
 hasnt "mac-remote e2e: …an isolated one is not" "$out" "unsandboxed"
