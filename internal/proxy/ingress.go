@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httputil"
+	"slices"
 	"strings"
 	"time"
 
@@ -95,6 +96,19 @@ func (px *Proxy) ForwardIngress(w http.ResponseWriter, r *http.Request, rt ingre
 
 // stripCookie removes one cookie by name, keeping the tile's own cookies —
 // public visitors may well carry app-level sessions for the tile itself.
+// stripCookies drops the named cookies, leaving the Cookie header untouched
+// when none is there.
+func stripCookies(r *http.Request, names ...string) {
+	for _, c := range r.Cookies() {
+		if slices.Contains(names, c.Name) {
+			for _, n := range names {
+				stripCookie(r, n)
+			}
+			return
+		}
+	}
+}
+
 func stripCookie(r *http.Request, name string) {
 	cookies := r.Cookies()
 	r.Header.Del("Cookie")

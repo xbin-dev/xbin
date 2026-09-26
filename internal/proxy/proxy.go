@@ -265,12 +265,22 @@ func (px *Proxy) serveCGI(w http.ResponseWriter, r *http.Request, comp *registry
 // X-XBin-Ingress-Host, which only the ingress path (ForwardIngress)
 // legitimately injects; on this authenticated /api path a backend must never
 // receive a caller-supplied one (a tile could otherwise fake a public
-// hostname).
+// hostname). And it strips xbind's own credentials: the caller's session
+// cookie (either name — a link followed to /api/<tile>/…, a chrome page's
+// call), the tile-origin cookie and an Authorization bearer (the owner
+// token, a terminal's or instance's token, an app session). A backend is
+// written by the tile's writers; replaying one of those it would act as the
+// caller — an admin included — beyond any grant. Everything else (the
+// tile's own cookies, a non-bearer Authorization) passes.
 func (px *Proxy) identify(r *http.Request, p auth.Principal, role, tile string) {
 	for k := range r.Header {
 		if strings.HasPrefix(http.CanonicalHeaderKey(k), "X-Xbin-") {
 			r.Header.Del(k)
 		}
+	}
+	stripCookies(r, auth.CookieName, auth.SessionCookieHostName, auth.TileCookieName, auth.HostTileCookieName)
+	if h := r.Header.Get("Authorization"); len(h) >= 7 && strings.EqualFold(h[:7], "Bearer ") {
+		r.Header.Del("Authorization")
 	}
 	r.Header.Set(HeaderFrom, p.From())
 	r.Header.Set(HeaderRole, role)

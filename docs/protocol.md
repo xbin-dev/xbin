@@ -79,6 +79,13 @@ X-XBin-Viewed-By: owner | <admin id>     (set with X-XBin-User when an admin
 X-XBin-Ingress-Host: <public hostname>   (ingress traffic only)
 ```
 
+xbind's own credentials never reach a backend: the session cookie
+(`xbin_session` / `__Host-xbin_session`), the tile-origin cookie, an
+`Authorization: Bearer` (owner, instance, terminal or app-session token)
+and `?frame=` are removed before a request is proxied. The tile's own
+cookies and a non-bearer `Authorization` pass. Who called is what the
+headers above say.
+
 `From: ingress` is anonymous PUBLIC traffic through a published endpoint
 (docs/ingress.md): no role, confined to the manifest's declared public
 paths, and structurally unable to reach `/api/xbin/*` or any other tile. It

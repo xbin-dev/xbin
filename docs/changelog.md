@@ -12,6 +12,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-26
 
+- **security: tile backends no longer receive xbind's credentials.** A
+  request proxied to `/api/<tile>/…` arrived with the caller's session
+  cookie (a link followed to the tile's API, a chrome page's call) or
+  `Authorization: Bearer` token (bx, a terminal, the app) — a backend, which
+  the tile's writers control, could replay it as the caller, an admin
+  included. Both are now stripped (the tile-origin cookie too), as ingress
+  already did; the tile's own cookies and non-bearer `Authorization` pass.
+  A backend reads who called from `X-XBin-User` / `X-XBin-From`
+  ([protocol.md](protocol.md) §identity headers). Pre-existing.
 - **Native app UI for tiles** (D91, [native.md](native.md),
   [elements.md](elements.md) §Native app UI). The xbin app (iOS first, in
   development) opens every tile as its web page; a tile may also ship a
