@@ -81,6 +81,7 @@ func routeTable() []routeDef {
 		// a sandboxed opaque origin; no custom headers pass the gateway's CORS).
 		{"PUT /runs/{id}/upload", needParticipant, handleUpload},
 		{"GET /runs/{id}/raw", needViewer, handleRaw},
+		{"GET /runs/{id}/thumb", needViewer, handleThumb},
 		{"GET /config", needManager, handleGetConfig},
 		{"PUT /config", needManager, handlePutConfig},
 		{"GET /features", needAny, handleFeatures},

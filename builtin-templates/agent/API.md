@@ -129,6 +129,7 @@ llm-gw's logs. Give team members `read` on the tile.
 | `DELETE /runs/{id}/file?path=` | — | delete a file (and its blob, for an attachment) |
 | `PUT /runs/{id}/upload?name=` | raw bytes, the file's own `Content-Type` | attach a file: `{path, mime, bytes, binary}`. Never overwrites — a taken name gets `-2`, `-3`…. **413** over 16 MiB, **502** when the blob store fails |
 | `GET /runs/{id}/raw?path=` | — | a file's bytes with its type and `nosniff` (the tile's preview and download) |
+| `GET /runs/{id}/thumb?path=&w=&h=&fmt=` | — | a sized copy of an image file (PNG, JPEG, GIF's first frame) — see **Thumbnails** |
 
 Content and metadata are separate routes on purpose: a run's detail and view
 must never carry file bodies.
@@ -232,6 +233,21 @@ On `reset` or `resync`, drop the older pages and re-read the newest. When
 older pages exist, the first message you hold is not the run's first: a
 subagent's first user message (its task) and a run's opening message are
 only in the oldest page.
+
+### Thumbnails
+
+`GET /runs/{id}/thumb?path=<file>&w=<px>` scales an image session file to fit
+inside `w` × `h` (never enlarged; aspect kept): `w` defaults to 320, `h` to
+4·`w`, both clamped to 16–2048. A JPEG's EXIF orientation is applied, so the
+thumbnail is upright as the photo is shown. It is written in the source's
+format (PNG for PNG and GIF, JPEG for JPEG) or as `fmt=png|jpeg` asks (JPEG
+flattens transparency on white); an image that already fits in the wanted
+format comes back as it is. The answer carries an `ETag` and `Cache-Control:
+private, no-cache` — revalidate with `If-None-Match` for a **304**. **415**
+for what it cannot scale (a text file, WebP, SVG, anything not PNG/JPEG/GIF —
+fall back to `/raw` or a file chip), **422** for an image too large to decode
+here (over 50 megapixels or ~100 MiB decoded) or a broken one. Access is
+`/raw`'s: a viewer of the run.
 
 ### Attachments
 
