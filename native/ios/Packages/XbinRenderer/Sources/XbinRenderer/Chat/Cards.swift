@@ -181,7 +181,8 @@ public struct ApprovalView: View {
         if emphasis == .prominent {
             button.buttonStyle(.borderedProminent).tint(XbinColor.tint).foregroundStyle(XbinColor.onTint)
         } else {
-            button.buttonStyle(.bordered)
+            // A reject is red (the reference's r-destructive), not the tint.
+            button.buttonStyle(.bordered).modifier(DangerTint(on: emphasis == .destructive))
         }
     }
 }

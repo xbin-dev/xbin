@@ -33,8 +33,14 @@ public struct UITextContentType: Sendable { public static let password = UITextC
 public struct UIContentSizeCategory: Sendable { public init() {} }
 
 @MainActor open class UIResponder {}
+public struct UIEdgeInsets: Sendable, Equatable {
+    public var top: CGFloat = 0, left: CGFloat = 0, bottom: CGFloat = 0, right: CGFloat = 0
+    public init() {}
+}
 @MainActor open class UIView: UIResponder {
     public var frame: CGRect = CGRect(x: 0, y: 0, width: 0, height: 0)
+    public var safeAreaInsets: UIEdgeInsets { UIEdgeInsets() }
+    public func drawHierarchy(in rect: CGRect, afterScreenUpdates afterUpdates: Bool) -> Bool { false }
     public var bounds: CGRect { frame }
     public var layer: CALayer { CALayer() }
     public func setNeedsLayout() {}
@@ -42,8 +48,19 @@ public struct UIContentSizeCategory: Sendable { public init() {} }
     public var overrideUserInterfaceStyle: UIUserInterfaceStyle = .unspecified
 }
 public final class CALayer { public func render(in ctx: CGContext) {} }
+@MainActor open class UIScene: UIResponder {}
+@MainActor open class UIWindowScene: UIScene {}
+@MainActor open class UIApplication: UIResponder {
+    public static let shared = UIApplication()
+    public var connectedScenes: Set<UIScene> { [] }
+}
+extension UIScene: Hashable {
+    nonisolated public static func == (a: UIScene, b: UIScene) -> Bool { a === b }
+    nonisolated public func hash(into h: inout Hasher) { h.combine(ObjectIdentifier(self)) }
+}
 @MainActor open class UIWindow: UIView {
     public init(frame: CGRect) { super.init(); self.frame = frame }
+    public init(windowScene: UIWindowScene) { super.init() }
     public var rootViewController: UIViewController?
     public var isHidden = true
 }

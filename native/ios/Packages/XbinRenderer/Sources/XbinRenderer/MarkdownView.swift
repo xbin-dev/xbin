@@ -96,8 +96,8 @@ struct MarkdownBlockView: View {
                 .fixedSize(horizontal: false, vertical: true)
         case .list(let list):
             MarkdownListView(list: list)
-        case .code(let text, _):
-            CodeBlock(text: text)
+        case .code(let text, let language):
+            CodeBlock(text: text, language: language)
         case .quote(let blocks):
             HStack(alignment: .top, spacing: 10) {
                 RoundedRectangle(cornerRadius: 1.5).fill(XbinColor.border).frame(width: 3)

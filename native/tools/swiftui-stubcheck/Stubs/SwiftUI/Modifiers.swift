@@ -81,6 +81,9 @@ extension View {
     public func fixedSize(horizontal: Bool, vertical: Bool) -> some View { _V(self) }
     public func fixedSize() -> some View { _V(self) }
     public func opacity(_ opacity: Double) -> some View { _V(self) }
+    public func layoutPriority(_ value: Double) -> some View { _V(self) }
+    public func dynamicTypeSize(_ size: DynamicTypeSize) -> some View { _V(self) }
+    public func dynamicTypeSize<T: RangeExpression>(_ range: T) -> some View where T.Bound == DynamicTypeSize { _V(self) }
     public func disabled(_ disabled: Bool) -> some View { _V(self) }
     public func lineLimit(_ number: Int?) -> some View { _V(self) }
     public func lineLimit(_ limit: ClosedRange<Int>) -> some View { _V(self) }
@@ -152,7 +155,7 @@ extension View {
 public enum TextAlignment: Sendable { case leading, center, trailing }
 public struct FillStyle: Sendable { public init() {} }
 public struct SymbolEffectOptions: Sendable { public static let `default` = SymbolEffectOptions() }
-public struct SafeAreaRegions: OptionSet, Sendable { public let rawValue: Int; public init(rawValue: Int) { self.rawValue = rawValue }; public static let all = SafeAreaRegions(rawValue: 1) }
+public struct SafeAreaRegions: OptionSet, Sendable { public let rawValue: Int; public init(rawValue: Int) { self.rawValue = rawValue }; public static let all = SafeAreaRegions(rawValue: 7), container = SafeAreaRegions(rawValue: 1), keyboard = SafeAreaRegions(rawValue: 2) }
 public enum VerticalEdge: Sendable { case top, bottom
     public struct Set: OptionSet, Sendable { public let rawValue: Int; public init(rawValue: Int) { self.rawValue = rawValue }; public static let all = Set(rawValue: 3) }
 }
@@ -220,6 +223,7 @@ public struct LayoutSubviews: RandomAccessCollection {
 }
 @MainActor open class UIHostingController<Content: View>: UIViewController {
     public init(rootView: Content) { super.init() }
+    public var safeAreaRegions: SafeAreaRegions = .all
 }
 extension UIContentSizeCategory { public init(_ size: DynamicTypeSize) { self.init() } }
 

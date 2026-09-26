@@ -94,7 +94,9 @@ export class XbChart extends LitElement {
   constructor() { super(); this.node = null; this._w = 0; }
   connectedCallback() {
     super.connectedCallback();
-    this._ro = new ResizeObserver(() => { const w = Math.floor(this.clientWidth); if (w && w !== this._w) this._w = w; });
+    // the content box: in an inset-group cell the element has padding, and
+    // an SVG as wide as clientWidth overflowed it (the last x label clipped)
+    this._ro = new ResizeObserver(([e]) => { const w = Math.floor(e.contentRect.width); if (w && w !== this._w) this._w = w; });
     this._ro.observe(this);
   }
   disconnectedCallback() { this._ro?.disconnect(); super.disconnectedCallback(); }

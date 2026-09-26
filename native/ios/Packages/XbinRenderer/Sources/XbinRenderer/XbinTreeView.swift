@@ -146,7 +146,7 @@ private struct ContentNode: View {
         case "text": TextNodeView(node: node)
         case "markdown": MarkdownNodeView(node: node)
         case "image": ImageNodeView(node: node)
-        case "icon": XbinIconImage(name: node.props.string("name"), tone: node.props.tone()).font(.body)
+        case "icon": IconNodeView(node: node)
         case "badge": Pill(text: node.props.string("text") ?? "", tone: node.props.tone(), pulse: node.props.bool("pulse"))
         case "notice": NoticeView(node: node)
         case "progress": ProgressNodeView(node: node)

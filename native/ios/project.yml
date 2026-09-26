@@ -3,6 +3,9 @@
 #
 #   Xbin                     the app (scheme Xbin, shared): App/ + Shared/
 #   XbinNotificationService  decrypts pushes (native/spec/push.md §4)
+#   XbinSnapshotHost         an empty app hosting XbinSnapshotTests: the
+#   XbinSnapshotTests        renderer's snapshot tests drawn on a real window
+#                            scene (scheme XbinSnapshots, ci-hosted-snapshots.sh)
 #
 # Local packages: XbinCore, XbinTerm, XbinAgent (Foundation only, tested on
 # Linux) and XbinRenderer (the SwiftUI renderer). SwiftTerm draws the
@@ -80,3 +83,41 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Support/NotificationService.entitlements
         APPLICATION_EXTENSION_API_ONLY: YES
         TARGETED_DEVICE_FAMILY: "1,2"
+  XbinSnapshotHost:
+    type: application
+    platform: iOS
+    sources:
+      - path: SnapshotHost
+    settings:
+      base:
+        PRODUCT_NAME: XbinSnapshotHost
+        PRODUCT_BUNDLE_IDENTIFIER: dev.xbin.snapshothost
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        TARGETED_DEVICE_FAMILY: "1"
+  XbinSnapshotTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Packages/XbinRenderer/Tests/XbinRendererTests
+    dependencies:
+      - target: XbinSnapshotHost
+      - package: XbinRenderer
+      - package: XbinCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.xbin.snapshottests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/XbinSnapshotHost.app/XbinSnapshotHost"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) XBIN_SNAPSHOT_HOST"
+schemes:
+  XbinSnapshots:
+    build:
+      targets:
+        XbinSnapshotHost: all
+        XbinSnapshotTests: [test]
+    test:
+      targets:
+        - XbinSnapshotTests

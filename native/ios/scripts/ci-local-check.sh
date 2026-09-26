@@ -101,8 +101,12 @@ if "xcresult-snapshots" in names:
     check("${{ runner.temp }}/xbin-ci/snapshots-test.xcresult" in p, "xcresult-snapshots must upload $RUNNER_TEMP/xbin-ci/snapshots-test.xcresult")
 snapdir = None
 for st in (jobs.get("snapshots") or {}).get("steps", []):
-    if "ci-snapshots.sh" in (st.get("run") or ""):
+    run = st.get("run") or ""
+    if "scripts/ci-snapshots.sh" in run:
         snapdir = (st.get("env") or {}).get("TEST_RUNNER_SNAPSHOT_DIR")
+    if "scripts/ci-hosted-snapshots.sh" in run:
+        hosted = (st.get("env") or {}).get("TEST_RUNNER_SNAPSHOT_DIR")
+        check(hosted == "${{ runner.temp }}/snapshots/hosted", "the hosted snapshots step sets TEST_RUNNER_SNAPSHOT_DIR=${{ runner.temp }}/snapshots/hosted (inside the uploaded snapshots dir)")
 check(snapdir == "${{ runner.temp }}/snapshots", "the snapshots step sets TEST_RUNNER_SNAPSHOT_DIR=${{ runner.temp }}/snapshots")
 if "snapshots" in names and snapdir:
     check(names["snapshots"][2].startswith(snapdir + "/"), "the snapshots artifact uploads from TEST_RUNNER_SNAPSHOT_DIR")

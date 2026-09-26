@@ -38,7 +38,7 @@ extension JSONValue {
     static func parse(_ buf: UnsafeBufferPointer<UInt8>) throws -> JSONValue {
         var p = JSONParser(buf: buf)
         p.skipWhitespace()
-        let v = try p.value(depth: 0)
+        let v = try p.value()
         p.skipWhitespace()
         if p.i != buf.count { throw p.fail("unexpected content after the value") }
         return v
@@ -64,18 +64,91 @@ private struct JSONParser {
         }
     }
 
-    mutating func value(depth: Int) throws -> JSONValue {
-        guard i < buf.count else { throw fail("unexpected end of input") }
-        switch buf[i] {
-        case UInt8(ascii: "{"): return try object(depth: depth + 1)
-        case UInt8(ascii: "["): return try array(depth: depth + 1)
-        case UInt8(ascii: "\""): return .string(try string())
-        case UInt8(ascii: "t"): try literal("true"); return .bool(true)
-        case UInt8(ascii: "f"): try literal("false"); return .bool(false)
-        case UInt8(ascii: "n"): try literal("null"); return .null
-        case UInt8(ascii: "-"), UInt8(ascii: "0")...UInt8(ascii: "9"): return try number()
-        default: throw fail("unexpected character")
+    private enum Open { case array, object }
+
+    /// One value, iteratively: the open containers live on the heap, not the
+    /// call stack, so the nesting limit is the only bound — a thread's stack
+    /// (512 KiB off the main thread on Apple platforms) never is.
+    mutating func value() throws -> JSONValue {
+        var open: [Open] = []               // innermost last
+        var arrays: [[JSONValue]] = []      // one per open array
+        var objects: [[String: JSONValue]] = [] // one per open object
+        var keys: [String] = []             // the pending key of each open object
+        while true {
+            // A value starts at i (whitespace already skipped).
+            guard i < buf.count else { throw fail("unexpected end of input") }
+            var v: JSONValue
+            switch buf[i] {
+            case UInt8(ascii: "{"):
+                if open.count + 1 > JSONValue.maxParseDepth { throw fail("nesting deeper than \(JSONValue.maxParseDepth)") }
+                i += 1
+                skipWhitespace()
+                if i < buf.count, buf[i] == UInt8(ascii: "}") {
+                    i += 1
+                    v = .object([:])
+                } else {
+                    open.append(.object)
+                    objects.append([:])
+                    keys.append(try key())
+                    skipWhitespace()
+                    continue
+                }
+            case UInt8(ascii: "["):
+                if open.count + 1 > JSONValue.maxParseDepth { throw fail("nesting deeper than \(JSONValue.maxParseDepth)") }
+                i += 1
+                skipWhitespace()
+                if i < buf.count, buf[i] == UInt8(ascii: "]") {
+                    i += 1
+                    v = .array([])
+                } else {
+                    open.append(.array)
+                    arrays.append([])
+                    continue
+                }
+            case UInt8(ascii: "\""): v = .string(try string())
+            case UInt8(ascii: "t"): try literal("true"); v = .bool(true)
+            case UInt8(ascii: "f"): try literal("false"); v = .bool(false)
+            case UInt8(ascii: "n"): try literal("null"); v = .null
+            case UInt8(ascii: "-"), UInt8(ascii: "0")...UInt8(ascii: "9"): v = try number()
+            default: throw fail("unexpected character")
+            }
+            // v is complete: store it in the innermost container, closing
+            // containers for as long as they end here.
+            ascend: while true {
+                guard let top = open.last else { return v }
+                skipWhitespace()
+                switch top {
+                case .array:
+                    arrays[arrays.count - 1].append(v)
+                    guard i < buf.count else { throw fail("unexpected end of input") }
+                    if buf[i] == UInt8(ascii: ",") { i += 1; skipWhitespace(); break ascend }
+                    if buf[i] == UInt8(ascii: "]") { i += 1; open.removeLast(); v = .array(arrays.removeLast()); continue }
+                    throw fail("expected ',' or ']'")
+                case .object:
+                    objects[objects.count - 1][keys.removeLast()] = v
+                    guard i < buf.count else { throw fail("unexpected end of input") }
+                    if buf[i] == UInt8(ascii: ",") {
+                        i += 1
+                        keys.append(try key())
+                        skipWhitespace()
+                        break ascend
+                    }
+                    if buf[i] == UInt8(ascii: "}") { i += 1; open.removeLast(); v = .object(objects.removeLast()); continue }
+                    throw fail("expected ',' or '}'")
+                }
+            }
         }
+    }
+
+    /// An object member's key and its ':' (leading whitespace skipped).
+    mutating func key() throws -> String {
+        skipWhitespace()
+        guard i < buf.count, buf[i] == UInt8(ascii: "\"") else { throw fail("expected a string key") }
+        let k = try string()
+        skipWhitespace()
+        guard i < buf.count, buf[i] == UInt8(ascii: ":") else { throw fail("expected ':'") }
+        i += 1
+        return k
     }
 
     mutating func literal(_ word: StaticString) throws {
@@ -84,46 +157,6 @@ private struct JSONParser {
         let w = UnsafeBufferPointer(start: word.utf8Start, count: n)
         for j in 0..<n where buf[i + j] != w[j] { throw fail("invalid literal") }
         i += n
-    }
-
-    mutating func object(depth: Int) throws -> JSONValue {
-        if depth > JSONValue.maxParseDepth { throw fail("nesting deeper than \(JSONValue.maxParseDepth)") }
-        i += 1 // {
-        var out: [String: JSONValue] = [:]
-        skipWhitespace()
-        if i < buf.count, buf[i] == UInt8(ascii: "}") { i += 1; return .object(out) }
-        while true {
-            skipWhitespace()
-            guard i < buf.count, buf[i] == UInt8(ascii: "\"") else { throw fail("expected a string key") }
-            let key = try string()
-            skipWhitespace()
-            guard i < buf.count, buf[i] == UInt8(ascii: ":") else { throw fail("expected ':'") }
-            i += 1
-            skipWhitespace()
-            out[key] = try value(depth: depth)
-            skipWhitespace()
-            guard i < buf.count else { throw fail("unexpected end of input") }
-            if buf[i] == UInt8(ascii: ",") { i += 1; continue }
-            if buf[i] == UInt8(ascii: "}") { i += 1; return .object(out) }
-            throw fail("expected ',' or '}'")
-        }
-    }
-
-    mutating func array(depth: Int) throws -> JSONValue {
-        if depth > JSONValue.maxParseDepth { throw fail("nesting deeper than \(JSONValue.maxParseDepth)") }
-        i += 1 // [
-        var out: [JSONValue] = []
-        skipWhitespace()
-        if i < buf.count, buf[i] == UInt8(ascii: "]") { i += 1; return .array(out) }
-        while true {
-            skipWhitespace()
-            out.append(try value(depth: depth))
-            skipWhitespace()
-            guard i < buf.count else { throw fail("unexpected end of input") }
-            if buf[i] == UInt8(ascii: ",") { i += 1; continue }
-            if buf[i] == UInt8(ascii: "]") { i += 1; return .array(out) }
-            throw fail("expected ',' or ']'")
-        }
     }
 
     mutating func number() throws -> JSONValue {

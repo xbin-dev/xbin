@@ -32,21 +32,33 @@ public struct XbinChart: View {
             }
             .chartForegroundStyleScale(domain: names, range: names.indices.map { XbinColor.chart($0) })
             .chartLegend(model.showsLegend ? .visible : .hidden)
+            let ticks = model.yTicks
             Group {
-                if spark {
+                if spark || ticks.count < 2 {
                     chart.chartXAxis(.hidden).chartYAxis(.hidden)
                 } else {
-                    chart.chartYAxis {
-                        AxisMarks { value in
-                            AxisGridLine()
-                            AxisValueLabel {
-                                if let v = value.as(Double.self) { Text(verbatim: ChartFormat.y(yKind, v)) }
+                    // The reference's y ticks (round values in the data's
+                    // unit) and domain; a few x labels, since a time or
+                    // number axis is labelled only at its ends and middle
+                    // there.
+                    chart
+                        .chartYScale(domain: ticks[0]...ticks[ticks.count - 1])
+                        .chartYAxis {
+                            AxisMarks(values: ticks) { value in
+                                AxisGridLine()
+                                AxisValueLabel {
+                                    if let v = value.as(Double.self) { Text(verbatim: ChartFormat.y(yKind, v)) }
+                                }
                             }
                         }
-                    }
+                        .modifier(XAxisMarks(categories: model.x == .category))
                 }
             }
             .frame(height: CGFloat(model.height))
+            // Axis labels grow with the text size only so far: at the
+            // accessibility sizes they would squeeze the plot to nothing
+            // and truncate every label.
+            .dynamicTypeSize(...DynamicTypeSize.xxLarge)
             .accessibilityLabel(Text(verbatim: "\(model.kind.rawValue) chart: " + names.joined(separator: ", ")))
         }
     }
@@ -59,6 +71,22 @@ public struct XbinChart: View {
             if seen.contains(n) { n += " (\(i + 1))" }
             seen.insert(n)
             return n
+        }
+    }
+}
+
+/// A time or number x axis with about three labels; categories keep the
+/// automatic marks.
+private struct XAxisMarks: ViewModifier {
+    let categories: Bool
+
+    func body(content: Content) -> some View {
+        if categories {
+            content
+        } else {
+            content.chartXAxis {
+                AxisMarks(values: .automatic(desiredCount: 3))
+            }
         }
     }
 }

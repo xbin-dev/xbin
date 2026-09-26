@@ -220,6 +220,11 @@ function sheet(n, cx) {
   const tb = all.find((c) => c.t === 'toolbar');
   const body = all.filter((c) => c !== tb);
   const whole = body.length === 1 && (body[0].t === 'screen' || body[0].t === 'nav');
+  // a plain button in the toolbar is the sheet's cancel: it takes the close
+  // button's place at the leading end (as the native sheet's cancellation
+  // action does) rather than sitting beside the confirm action with an ×
+  const cancel = tb && (tb.c || []).find((c) => c.t === 'button' && P(c).role === 'plain');
+  const tcx = cx.in('toolbar');
   const esc = (e) => { if (e.key === 'Escape') dismiss(); };
   // edge=leading: a drawer over the screen from the leading edge (no detents)
   const drawer = p.edge === 'leading';
@@ -228,9 +233,9 @@ function sheet(n, cx) {
     <div class=${cls('sheet', drawer ? 'edge-leading' : det[0] === 'medium' ? 'd-medium' : 'd-large')} role="dialog" aria-modal="true" aria-label=${str(p.title) || nothing}>
       ${drawer ? nothing : html`<div class="grabber"></div>`}
       ${whole ? nothing : html`<div class="sheet-bar">
-        <div class="bar-lead"><button class="sheet-x" aria-label="Close" @click=${dismiss}>${icon('xmark')}</button></div>
+        <div class="bar-lead">${cancel ? tcx.node(cancel) : html`<button class="sheet-x" aria-label="Close" @click=${dismiss}>${icon('xmark')}</button>`}</div>
         <div class="bar-title"><div class="bt">${str(p.title)}</div></div>
-        <div class="bar-trail">${tb ? cx.in('toolbar').node(tb) : nothing}</div>
+        <div class="bar-trail">${tb ? html`<xb-toolbar data-k=${tb.k} class="toolbar">${repeat((tb.c || []).filter((c) => c !== cancel), (c) => c.k, (c) => tcx.node(c))}</xb-toolbar>` : nothing}</div>
       </div>`}
       <div class=${cls('sheet-body', whole && 'whole')}>${repeat(body, (c) => c.k, (c) => cx.in('free', { sheet: true }).node(c))}</div>
     </div>
@@ -352,7 +357,7 @@ export const STRUCTURE_CSS = css`
   .row-text { min-width: 0; }
   .row-title { overflow-wrap: anywhere; }
   .row-sub { font: var(--xb-font-subheadline); color: var(--xb-muted); margin-top: 1px; overflow-wrap: anywhere; }
-  .row-sub.mono { font-size: calc(var(--xb-size-subheadline) * 0.94); }
+  .row-sub.mono { font-family: var(--xb-mono); font-size: calc(var(--xb-size-subheadline) * 0.94); }
   .row-detail { color: var(--xb-muted); text-align: right; min-width: 0; overflow-wrap: anywhere; }
   .row-check { color: var(--xb-accent-text); display: flex; }
   .row-chev { color: var(--xb-muted); opacity: 0.6; display: flex; margin-right: -6px; }
@@ -385,6 +390,10 @@ export const STRUCTURE_CSS = css`
   .seg-item { flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 5px 8px; border-radius: 7px; font: var(--xb-font-subheadline); font-weight: 500; color: var(--xb-text); white-space: nowrap; }
   .seg-item.on { background: var(--xb-control-on); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.04); font-weight: 600; }
   .seg-item span { overflow: hidden; text-overflow: ellipsis; }
+  /* in a bar the segments keep their labels whole: the bar gives the toolbar
+     its full width before the title (1h 6h 2… otherwise) */
+  xb-toolbar .seg-item { flex: none; }
+  xb-toolbar .seg-item span { overflow: visible; }
   .tab-badge { font: var(--xb-font-caption2); font-weight: 700; background: var(--xb-danger); color: #fff; border-radius: 999px; padding: 1px 6px; }
   xb-tabs.tabs-bar { display: flex; flex-direction: column; height: 100%; min-height: 0; }
   xb-tabs.tabs-bar > .tabs-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }

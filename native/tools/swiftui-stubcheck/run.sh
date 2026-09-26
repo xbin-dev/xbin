@@ -61,3 +61,5 @@ let package = Package(
 )
 EOF
 cd "$out" && swift build
+# …and the snapshot tests as the hosted XbinSnapshotTests compile them.
+swift build -Xswiftc -DXBIN_SNAPSHOT_HOST

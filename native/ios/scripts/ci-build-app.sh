@@ -9,7 +9,8 @@
 #
 # Results in $XBIN_CI_OUT (default $RUNNER_TEMP/xbin-ci): app-build.xcresult
 # and the full xcodebuild log app-build.log. No project.yml yet → a notice,
-# success. Needs xcodegen on PATH (brew install xcodegen).
+# success. Needs xcodegen on PATH (brew install xcodegen). The build keeps
+# going after an error, so one run reports every target's compile errors.
 set -euo pipefail
 # shellcheck source=SCRIPTDIR/ci-lib.sh
 . "$(dirname "$0")/ci-lib.sh"
@@ -52,6 +53,20 @@ if ! printf '%s\n' "$schemes" | grep -qxF "$scheme"; then
   ci_warn "$proj lists no scheme \"$scheme\" — project.yml should declare it (targets.$scheme.scheme or schemes.$scheme)"
 fi
 
+# SwiftTerm compiles a Metal shader; since Xcode 26 the Metal toolchain is
+# a separate component that runner images may lack ("cannot execute tool
+# 'metal' due to missing Metal Toolchain"). Fetch it when missing; if that
+# fails, the build below says what broke.
+ci_group "Metal toolchain"
+if xcrun metal --version >/dev/null 2>&1; then
+  xcrun metal --version 2>&1 | head -n 1
+else
+  echo "missing — xcodebuild -downloadComponent MetalToolchain"
+  ci_timeout 900 xcodebuild -downloadComponent MetalToolchain ||
+    ci_warn "xcodebuild -downloadComponent MetalToolchain failed; SwiftTerm's shader will not compile"
+fi
+ci_endgroup
+
 mkdir -p "$XBIN_CI_OUT"
 rm -rf "$XBIN_CI_OUT/app-build.xcresult"
 status=0
@@ -64,6 +79,7 @@ ci_xcodebuild "$XBIN_CI_OUT/app-build.log" build \
   -resultBundlePath "$XBIN_CI_OUT/app-build.xcresult" \
   -skipMacroValidation \
   -skipPackagePluginValidation \
+  -IDEBuildingContinueBuildingAfterErrors=YES \
   CODE_SIGNING_ALLOWED=NO || status=$?
 
 if [ "$status" -eq 0 ]; then

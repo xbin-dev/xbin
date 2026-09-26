@@ -120,7 +120,9 @@ public struct EdgeInsets: Sendable { public init() {}; public init(top: CGFloat,
 public struct Angle: Sendable { public static func degrees(_ d: Double) -> Angle { Angle() } }
 public enum Visibility: Sendable { case automatic, visible, hidden }
 public enum ColorScheme: Sendable, Hashable { case light, dark }
-public enum DynamicTypeSize: Sendable, Hashable { case xSmall, small, medium, large, xLarge, xxLarge, xxxLarge, accessibility1, accessibility2, accessibility3, accessibility4, accessibility5 }
+public enum DynamicTypeSize: Sendable, Hashable, Comparable, CaseIterable { case xSmall, small, medium, large, xLarge, xxLarge, xxxLarge, accessibility1, accessibility2, accessibility3, accessibility4, accessibility5
+    public var isAccessibilitySize: Bool { self >= .accessibility1 }
+}
 public enum UserInterfaceSizeClass: Sendable { case compact, regular }
 public enum ScenePhase: Sendable { case background, inactive, active }
 public struct ProposedViewSize: Sendable, Equatable {

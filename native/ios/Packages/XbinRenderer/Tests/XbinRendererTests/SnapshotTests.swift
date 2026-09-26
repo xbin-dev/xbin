@@ -1,11 +1,21 @@
 // Snapshots of every fixture (plans/native.md §17, native/AGENTS.md): each
 // native/fixtures/<name>/expected.json drawn by XbinTreeView at 390×844
-// points, scale 2, light and dark, default and accessibility-2 Dynamic Type,
-// written as <name>-<light|dark>-<default|large>.png to SNAPSHOT_DIR (the
+// points, scale 2, light and dark, at three Dynamic Type sizes — default
+// (Large), large (xxxLarge, the size the reference renderer's "large"
+// screenshots use, so the two compare like for like) and ax2
+// (accessibility2, the overflow test) — written as
+// <name>-<light|dark>-<default|large|ax2>.png to SNAPSHOT_DIR (the
 // Apple CI passes TEST_RUNNER_SNAPSHOT_DIR, which xcodebuild hands the test
 // process as SNAPSHOT_DIR). Nothing is compared: the PNGs are for eyes and
 // the web-vs-iOS contact sheet. Without a snapshot directory every fixture
 // is still rendered once (a crash test) and nothing is written.
+//
+// Two ways to run: as the XbinRenderer package's tests (no host app — the
+// windows are offscreen and drawn with layer.render, which skips Liquid
+// Glass, materials and vibrancy: bar items come out white), and compiled
+// into native/ios/project.yml's XbinSnapshotTests (XBIN_SNAPSHOT_HOST), hosted
+// by an empty app, where the windows sit on its UIWindowScene and are drawn
+// with drawHierarchy as the screen shows them (ci-hosted-snapshots.sh).
 //
 // UIKit only (the Apple CI runs this on a simulator); elsewhere the file is
 // empty.
@@ -41,7 +51,8 @@ import XbinRendererModel
         let variants: [(ColorScheme, String, DynamicTypeSize, String)] = out == nil
             ? [(.light, "light", .large, "default")]
             : [(.light, "light", .large, "default"), (.dark, "dark", .large, "default"),
-               (.light, "light", .accessibility2, "large"), (.dark, "dark", .accessibility2, "large")]
+               (.light, "light", .xxxLarge, "large"), (.dark, "dark", .xxxLarge, "large"),
+               (.light, "light", .accessibility2, "ax2"), (.dark, "dark", .accessibility2, "ax2")]
         var written = 0
         for name in names {
             for (scheme, schemeTag, type, typeTag) in variants {
@@ -73,10 +84,10 @@ import XbinRendererModel
     }
 }
 
-/// Renders a view to PNG: hosted in a window and drawn by its layer tree (so
-/// UIKit-backed pieces — lists, fields, navigation bars — are captured,
-/// which `ImageRenderer` draws as placeholders), falling back to
-/// `ImageRenderer`.
+/// Renders a view to PNG: hosted in a window and drawn — with drawHierarchy
+/// on the host app's scene, else by its layer tree — so UIKit-backed pieces
+/// (lists, fields, navigation bars) are captured, which `ImageRenderer`
+/// draws as placeholders; `ImageRenderer` is the last resort.
 @MainActor
 enum Snapshot {
     static func png<V: View>(of view: V, size: CGSize, scale: CGFloat, scheme: ColorScheme, type: DynamicTypeSize) -> Data? {
@@ -85,10 +96,16 @@ enum Snapshot {
 
     static func hosted<V: View>(_ view: V, size: CGSize, scale: CGFloat, scheme: ColorScheme, type: DynamicTypeSize) -> Data? {
         let controller = UIHostingController(rootView: view.frame(width: size.width, height: size.height))
+        // Lay the tree out in exactly size.width × size.height, like the
+        // reference renderer's viewport: an offscreen window's safe area is
+        // whatever the simulator makes of a window without a scene, and a
+        // 844-point frame inside a smaller safe area overflowed it (the
+        // docked composer was cut off at the bottom).
+        controller.safeAreaRegions = []
         let style: UIUserInterfaceStyle = scheme == .dark ? .dark : .light
         controller.overrideUserInterfaceStyle = style
         controller.traitOverrides.preferredContentSizeCategory = UIContentSizeCategory(type)
-        let window = UIWindow(frame: CGRect(origin: .zero, size: size))
+        let (window, onScene) = makeWindow(size: size)
         window.overrideUserInterfaceStyle = style
         window.rootViewController = controller
         window.isHidden = false
@@ -101,15 +118,58 @@ enum Snapshot {
         let format = UIGraphicsImageRendererFormat()
         format.scale = scale
         format.opaque = true
-        // layer.render works off screen (a test bundle has no window scene),
-        // as swift-snapshot-testing does; it skips blur materials.
+        var how = "layer.render"
         let image = UIGraphicsImageRenderer(size: size, format: format).image { ctx in
-            window.layer.render(in: ctx.cgContext)
+            // drawHierarchy draws what the screen shows (glass, materials,
+            // vibrancy) but needs a window on a scene; layer.render works
+            // off screen, as swift-snapshot-testing does, without those.
+            if onScene && window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) {
+                how = "drawHierarchy"
+            } else {
+                window.layer.render(in: ctx.cgContext)
+            }
+        }
+        if !loggedMode {
+            loggedMode = true
+            print("snapshot: drawn with \(how); window safe area \(window.safeAreaInsets)")
         }
         window.isHidden = true
         window.rootViewController = nil
         return image.pngData()
     }
+
+    /// Whether the drawing mode was logged (once per run).
+    static var loggedMode = false
+
+    /// The window to draw in, and whether it is on a window scene: the
+    /// snapshot host app's scene when the tests run there, else offscreen.
+    static func makeWindow(size: CGSize) -> (UIWindow, Bool) {
+        let frame = CGRect(origin: .zero, size: size)
+        #if XBIN_SNAPSHOT_HOST
+        if let scene = hostScene() {
+            let window = UIWindow(windowScene: scene)
+            window.frame = frame
+            return (window, true)
+        }
+        #endif
+        return (UIWindow(frame: frame), false)
+    }
+
+    #if XBIN_SNAPSHOT_HOST
+    /// The host app's window scene, once it has connected (the tests may
+    /// start first).
+    static func hostScene() -> UIWindowScene? {
+        let deadline = Date().addingTimeInterval(15)
+        repeat {
+            if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first {
+                return scene
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+        print("snapshot: the host app has no window scene; drawing offscreen")
+        return nil
+    }
+    #endif
 
     static func rendered<V: View>(_ view: V, size: CGSize, scale: CGFloat) -> Data? {
         let renderer = ImageRenderer(content: view.frame(width: size.width, height: size.height))
