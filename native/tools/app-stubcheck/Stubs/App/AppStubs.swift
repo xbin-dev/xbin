@@ -1,7 +1,7 @@
 // Stand-ins for the app types the checked files use from files this tool
 // does not compile (run.sh says which): the rest of Tiles/, Terminal/,
 // Push/, Shared/, and the three Model/Shell files that need Apple-only
-// frameworks (AppTransport, DeviceKeys, AddWorkspaceView). Signatures as
+// frameworks (AppTransport, DeviceKeys, ScannerAndSSO). Signatures as
 // the real declarations have them; bodies are placeholders.
 import Observation
 import SwiftUI
@@ -155,8 +155,14 @@ struct TileDialogSheet: View {
     var body: some View { EmptyView() }
 }
 
-// Shell/AddWorkspaceView.swift (VisionKit, AuthenticationServices)
-struct AddWorkspaceView: View {
-    let request: AddRequest
+// Shell/ScannerAndSSO.swift (VisionKit, AuthenticationServices)
+struct QRScanButton: View {
+    let found: (String) -> Void
+    var body: some View { EmptyView() }
+}
+struct SSOButton: View {
+    let server: ServerOrigin
+    let label: String
+    let flow: OnboardingFlow
     var body: some View { EmptyView() }
 }

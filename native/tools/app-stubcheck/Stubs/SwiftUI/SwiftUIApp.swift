@@ -131,3 +131,20 @@ extension SearchFieldPlacement {
     public enum NavigationBarDrawerDisplayMode: Sendable { case automatic, always }
     public static func navigationBarDrawer(displayMode: NavigationBarDrawerDisplayMode) -> SearchFieldPlacement { .automatic }
 }
+
+// The onboarding (Shell/Onboarding.swift): the busy overlay's words, the
+// xbin mark drawn as shapes.
+extension ProgressView where Label == Text, CurrentValueLabel == EmptyView {
+    @_disfavoredOverload public init<S: StringProtocol>(_ title: S) {}
+}
+extension Color {
+    public init(red: Double, green: Double, blue: Double, opacity: Double = 1) { self.init(white: 0) }
+}
+public struct Path: Shape {
+    public init() {}
+    public mutating func move(to point: CGPoint) {}
+    public mutating func addLine(to point: CGPoint) {}
+    public mutating func addArc(center: CGPoint, radius: CGFloat, startAngle: Angle, endAngle: Angle, clockwise: Bool) {}
+    public mutating func addEllipse(in rect: CGRect) {}
+    public mutating func closeSubpath() {}
+}

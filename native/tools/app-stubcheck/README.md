@@ -8,10 +8,10 @@ covers, in Swift 6 mode:
 
 - the app's **Model** (`App/Model`: workspaces, windows, the events socket,
   the kill switch, Handoff, haptics) and **Shell** (`App/Shell`: the root
-  view, switcher, navigator, inbox, settings, add-a-device, Safari) — every
-  file but `Model/AppTransport.swift`, `Model/DeviceKeys.swift` and
-  `Shell/AddWorkspaceView.swift` (URLSession delegates, the Secure Enclave,
-  VisionKit/AuthenticationServices);
+  view, switcher, navigator, inbox, settings, add-a-device, Safari, the
+  onboarding stack) — every file but `Model/AppTransport.swift`,
+  `Model/DeviceKeys.swift` and `Shell/ScannerAndSSO.swift` (URLSession
+  delegates, the Secure Enclave, VisionKit/AuthenticationServices);
 - `FILES` in `run.sh`: a native tile's escape hatches (`Tiles/TileAttach`,
   `TileTerminal`, `TileCanvas`, `TileHatches`; `Terminal/KeyRow`, the key
   row's bar, shared with the shell's terminal) and the Agent tab

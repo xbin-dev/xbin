@@ -17,6 +17,7 @@ struct XbinApp: App {
             RootView(target: $target)
                 .environment(model)
                 .tint(Color.xbinAmber)
+                .preferredColorScheme(Self.debugColorScheme)
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -32,6 +33,22 @@ struct XbinApp: App {
             default: break
             }
         }
+    }
+}
+
+extension XbinApp {
+    /// Debug builds' `-XbinAppearance light|dark`: the UI tests take their
+    /// screenshots in both (a simulator's own appearance is set from outside).
+    static var debugColorScheme: ColorScheme? {
+        #if DEBUG
+        switch UserDefaults.standard.string(forKey: "XbinAppearance") {
+        case "dark": return .dark
+        case "light": return .light
+        default: return nil
+        }
+        #else
+        return nil
+        #endif
     }
 }
 

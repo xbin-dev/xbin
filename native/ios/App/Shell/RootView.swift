@@ -2,9 +2,10 @@ import SwiftUI
 import UIKit
 import XbinCore
 
-/// One window's root: its workspace full screen, the switcher over it (a
-/// two-finger swipe down, a tap on the title, ⌘1…⌘9 — never a docked rail,
-/// §4), the add-workspace sheet, the lock. Every window (iPad, Stage
+/// One window's root: its workspace full screen (the Welcome when there is
+/// none, Onboarding.swift), the switcher over it (a two-finger swipe down,
+/// a tap on the title, ⌘1…⌘9 — never a docked rail, §4), the add-workspace
+/// sheet, the lock. Every window (iPad, Stage
 /// Manager, the Mac) has its own selection and navigation — windows are
 /// tabs — kept across launches in `@SceneStorage`; a window opened with
 /// `openWindow(value:)` (a dragged tile, "Open in New Window") starts on
@@ -27,7 +28,7 @@ struct RootView: View {
                 WorkspaceView(workspace: w, nav: scene.nav(for: w))
                     .id(w.id)
             } else {
-                Welcome()
+                WelcomeView()
             }
             if scene.showSwitcher {
                 SwitcherOverlay()
@@ -43,7 +44,7 @@ struct RootView: View {
         .background { WorkspaceShortcuts() }
         .background(KeyWindowReporter { app.focus(scene) })
         .sheet(item: $scene.addRequest) { request in
-            AddWorkspaceView(request: request).environment(scene)
+            AddWorkspaceSheet(request: request).environment(scene)
         }
         .sheet(isPresented: $scene.showInbox) { InboxView().environment(scene) }
         .sheet(isPresented: $scene.showSettings) { SettingsView().environment(scene) }
@@ -116,21 +117,6 @@ private struct WorkspaceShortcuts: View {
         }
         .opacity(0)
         .accessibilityHidden(true)
-    }
-}
-
-/// No workspace yet.
-private struct Welcome: View {
-    @Environment(SceneModel.self) private var scene
-
-    var body: some View {
-        ContentUnavailableView {
-            Label("An office for your agents", systemImage: "square.grid.2x2")
-        } description: {
-            Text("Add a workspace: scan the QR code from your workspace's account menu (Devices → Add a device), or sign in with its address.")
-        } actions: {
-            Button("Add a workspace") { scene.addRequest = .blank }.buttonStyle(.borderedProminent)
-        }
     }
 }
 
@@ -220,7 +206,10 @@ private struct SignInProblemBar: View {
             Text(verbatim: problem.description).font(.footnote)
             HStack {
                 if problem.needsEnrollment || problem == .ssoRequired {
-                    Button("Sign in again") { scene.addRequest = .blank }.buttonStyle(.borderedProminent)
+                    Button("Sign in again") {
+                        scene.addRequest = .signInAgain(workspace: workspace.id, server: workspace.origin)
+                    }
+                    .buttonStyle(.borderedProminent)
                 } else {
                     Button("Try again") { Task { await workspace.signIn() } }.buttonStyle(.borderedProminent)
                 }

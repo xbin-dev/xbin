@@ -269,7 +269,7 @@ final class WorkspaceModel: Identifiable {
     /// one (WebHandoff.swift).
     func signedInURL(path: String) async -> URL? {
         let r = try? await auth.send(WebTicket.request(next: path))
-        return WebTicket.destination(r, origin: origin, next: path)?.url
+        return WebTicket.destination(r, origin: origin, signedOrigin: record.signedOrigin, next: path)?.url
     }
 
     /// Opens `path` in an in-app Safari view, signed in when it can be

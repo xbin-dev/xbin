@@ -4,9 +4,9 @@
 # Linux, against stubs of the SDK, in Swift 6 mode (README.md):
 #
 #   - every App/Model and App/Shell file (the shell: windows, the events
-#     socket, the kill switch, Handoff, haptics, settings) but the three
-#     that need Apple-only frameworks (AppTransport, DeviceKeys,
-#     AddWorkspaceView);
+#     socket, the kill switch, Handoff, haptics, settings, onboarding) but
+#     the three that need Apple-only frameworks (AppTransport, DeviceKeys,
+#     ScannerAndSSO);
 #   - FILES below: a native tile's hatches (terminal, canvas, attach; the
 #     key row's bar they share with the shell's terminal) and the Agent tab.
 #
@@ -71,7 +71,7 @@ import XbinRendererModel/' "$1"
   } >"$out/Sources/AppCheck/$(basename "$1")"
 }
 for f in "$app"/Model/*.swift "$app"/Shell/*.swift; do
-  case "$(basename "$f")" in AppTransport.swift|DeviceKeys.swift|AddWorkspaceView.swift) continue ;; esac
+  case "$(basename "$f")" in AppTransport.swift|DeviceKeys.swift|ScannerAndSSO.swift) continue ;; esac
   copy "$f"
 done
 for f in $FILES; do copy "$app/$f"; done

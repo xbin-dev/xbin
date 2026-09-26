@@ -111,3 +111,12 @@ open class NSItemProvider: NSObject, @unchecked Sendable {
     open func registerObject(_ object: any NSItemProviderWriting, visibility: NSItemProviderRepresentationVisibility) {}
     open var suggestedName: String?
 }
+
+// The onboarding's sign-in and invite fields (Shell/SignInPages.swift).
+extension UITextContentType {
+    public static let username = UITextContentType(), newPassword = UITextContentType()
+}
+extension UIImage {
+    // The help screenshots (App/Resources/Help).
+    public convenience init?(named name: String) { self.init(data: Data()) }
+}

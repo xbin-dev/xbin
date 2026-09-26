@@ -11,16 +11,21 @@ struct Recent: Codable, Hashable, Identifiable {
     var id: String { "\(workspace)|\(surface.title)|\(title)" }
 }
 
-/// What's waiting for the user in the add-workspace sheet.
+/// What the add-workspace sheet opens on (Onboarding.swift).
 enum AddRequest: Equatable, Identifiable {
+    /// The Log in level (the switcher's "Add a workspace").
     case blank
     /// An `xbin://enroll` link (scanned or opened from outside).
     case enroll(server: ServerOrigin, code: String)
+    /// "Sign in again" on a workspace whose device can't sign in any more:
+    /// Log in, on its address; the new sign-in replaces that record.
+    case signInAgain(workspace: String, server: ServerOrigin)
 
     var id: String {
         switch self {
         case .blank: return "blank"
         case .enroll(let s, let c): return "\(s.origin)|\(c)"
+        case .signInAgain(let w, _): return "again|\(w)"
         }
     }
 }
@@ -73,7 +78,7 @@ final class AppModel {
         unreadable = list.unreadable
         workspaces = list.workspaces.map { WorkspaceModel(record: $0) }
         lastSelectedID = list.selected ?? workspaces.first?.id
-        if let d = UserDefaults.standard.data(forKey: "recents"),
+        if !WorkspaceListFile.isFreshStart, let d = UserDefaults.standard.data(forKey: "recents"),
            let r = try? JSONDecoder().decode([Recent].self, from: d) { recents = r }
         runtimeGate = RemoteConfig.gate()
     }
@@ -137,11 +142,32 @@ final class AppModel {
 
     // MARK: Adding and removing
 
-    /// Adopts a freshly signed-in workspace and shows it in `scene`.
-    func add(_ record: WorkspaceRecord, session: SessionCredential, in scene: SceneModel?) async {
+    /// Adopts a freshly signed-in workspace and shows it in `scene`. With
+    /// `replacing` (a workspace's "Sign in again"), the new record takes
+    /// that workspace's place — in the list, in every window, in recents —
+    /// instead of joining as a second one; the old record's key, session
+    /// and web storage go, and so does its device on the server when the
+    /// same account signed in again.
+    func add(_ record: WorkspaceRecord, session: SessionCredential, in scene: SceneModel?, replacing: String? = nil) async {
         let w = WorkspaceModel(record: record)
         await w.auth.adopt(session)
-        workspaces.append(w)
+        if let oldID = replacing, let old = workspace(oldID), let at = workspaces.firstIndex(where: { $0.id == oldID }) {
+            old.events.setWanted(false)
+            workspaces[at] = w
+            for i in recents.indices where recents[i].workspace == oldID { recents[i].workspace = w.id }
+            for s in liveScenes where s.selectedID == oldID { s.forget(oldID); s.select(w.id) }
+            saveRecents()
+            let staleDevice = old.record.user.id == record.user.id ? old.record.deviceId : nil
+            Task {
+                await PushManager.shared.workspaceRemoved(old)
+                await old.forget(removeDevice: false)
+                if let dev = staleDevice, dev != record.deviceId {
+                    _ = try? await w.auth.send(APIRequest("DELETE", "\(AppAuthRoute.devices)/\(URLComponent.encode(dev))"))
+                }
+            }
+        } else {
+            workspaces.append(w)
+        }
         lastSelectedID = w.id
         scene?.addRequest = nil
         scene?.select(w.id)
@@ -239,6 +265,7 @@ final class AppModel {
     }
 
     private func saveRecents() {
+        guard !WorkspaceListFile.isFreshStart else { return }
         if let d = try? JSONEncoder().encode(recents) { UserDefaults.standard.set(d, forKey: "recents") }
     }
 

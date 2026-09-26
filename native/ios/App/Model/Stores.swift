@@ -22,12 +22,27 @@ struct KeychainSessionStore: SessionStore {
 
 /// The persisted workspace list (no secrets): Application Support/workspaces.json.
 enum WorkspaceListFile {
+    /// Debug builds' `-XbinFreshStart YES` (the UI tests' onboarding): the
+    /// launch starts with no workspace, in a list of its own that the next
+    /// such launch empties again; the real list stays as it was.
+    static var isFreshStart: Bool {
+        #if DEBUG
+        return UserDefaults.standard.bool(forKey: "XbinFreshStart")
+        #else
+        return false
+        #endif
+    }
+
     static var url: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return dir.appendingPathComponent("workspaces.json")
+        return dir.appendingPathComponent(isFreshStart ? "workspaces-fresh.json" : "workspaces.json")
     }
 
     static func load() -> WorkspaceList {
+        if isFreshStart {
+            try? FileManager.default.removeItem(at: url)
+            return WorkspaceList()
+        }
         guard let d = try? Data(contentsOf: url) else { return WorkspaceList() }
         return (try? WorkspaceList.decode(d)) ?? WorkspaceList()
     }
