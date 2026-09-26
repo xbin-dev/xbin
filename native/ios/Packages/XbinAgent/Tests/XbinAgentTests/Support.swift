@@ -30,7 +30,12 @@ extension JSONValue {
 func summarize(_ it: TranscriptItem) -> JSONValue {
     switch it {
     case .message(let m):
-        return ["kind": "msg", "role": .string(m.role.rawValue), "text": .string(m.text), "mid": .string(m.messageId)]
+        var o: JSONValue = ["kind": "msg", "role": .string(m.role.rawValue), "text": .string(m.text), "mid": .string(m.messageId)]
+        if !m.files.isEmpty, case .object(var obj) = o {
+            obj["files"] = .array(m.files.map { .string($0.name) })
+            o = .object(obj)
+        }
+        return o
     case .thought(let t):
         return ["kind": "thought", "text": .string(t.text), "done": .bool(t.done), "ms": .number(Double(t.endedAt - t.startedAt))]
     case .tool(let t):

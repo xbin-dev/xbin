@@ -78,6 +78,28 @@ import Testing
         }
     }
 
+    /// The log's user delta lists a prompt's files; such a message never
+    /// merges with another delta (bx-agent.js _blocks()), so two prompts in
+    /// a row stay two bubbles when either carried files.
+    @Test func transcriptKeepsFiles() throws {
+        func user(_ seq: UInt64, _ text: String, _ files: [JSONValue] = []) -> AgentEvent {
+            var d: JSONValue = ["role": "user", "text": .string(text)]
+            if !files.isEmpty, case .object(var o) = d { o["attachments"] = .array(files); d = .object(o) }
+            return AgentEvent(json: ["seq": .number(Double(seq)), "ts": .number(Double(seq)), "type": "message.delta", "data": d])!
+        }
+        let shot: JSONValue = ["name": "shot.png", "mime": "image/png", "size": 72, "inline": true]
+        let doc: JSONValue = ["name": "a.pdf", "mime": "application/pdf", "size": 9000]
+        let t = AgentTranscript(events: [user(1, "look", [shot, doc]), user(2, " more"), user(3, "", [shot]), user(4, "a"), user(5, "b")])
+        let msgs = t.items.compactMap { if case .message(let m) = $0 { return m } else { return nil } }
+        #expect(msgs.map(\.text) == ["look", " more", "", "ab"])
+        #expect(msgs[0].files == [MessageAttachment(name: "shot.png", mime: "image/png", size: 72, inline: true),
+                                  MessageAttachment(name: "a.pdf", mime: "application/pdf", size: 9000, inline: false)])
+        #expect(msgs[1].files.isEmpty && msgs[2].files.map(\.name) == ["shot.png"] && msgs[3].files.isEmpty)
+        // a malformed entry is skipped, the rest kept
+        let odd = MessageDelta(json: ["role": "user", "text": "x", "attachments": [["mime": "x"], ["name": "ok.txt"]]])
+        #expect(odd.attachments == [MessageAttachment(name: "ok.txt")])
+    }
+
     @Test func imagePlans() {
         let edge = PromptAttachment.maxImageEdge
         // model-ready: kept

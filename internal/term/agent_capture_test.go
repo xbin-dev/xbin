@@ -250,6 +250,33 @@ func TestAgentCaptureFixtures(t *testing.T) {
 		c.finish(dir)
 	})
 
+	t.Run("attach", func(t *testing.T) {
+		c := startCapture(t, "attach", "prompts with files: an image and a text file with text (the image inline, the text as embedded context); files alone (empty text); then text alone", false)
+		png := append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 64)...)
+		send := func(p agent.Prompt) {
+			t.Helper()
+			atts, err := agent.PrepareAttachments(p.Attachments)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p.Attachments = atts
+			if _, err := c.r.m.AgentPromptWith(c.ctx, c.id, p); err != nil {
+				t.Fatalf("prompt %q: %v", p.Text, err)
+			}
+			c.waitFor(agent.EvTurnEnd)
+			c.idle()
+		}
+		send(agent.Prompt{Text: "what is in these?", Attachments: []agent.Attachment{
+			{Name: "shot.png", Mime: "image/png", Data: png},
+			{Name: "notes.txt", Data: []byte("hello notes\n")},
+		}})
+		send(agent.Prompt{Attachments: []agent.Attachment{{Name: "Photo-1.jpg", Mime: "image/jpeg", Data: append([]byte{0xFF, 0xD8, 0xFF, 0xE0}, make([]byte, 40)...)}}})
+		c.prompt("and now just text")
+		c.waitFor(agent.EvTurnEnd)
+		c.idle()
+		c.finish(dir)
+	})
+
 	t.Run("signedout", func(t *testing.T) {
 		c := startCapture(t, "signedout", "a signed-out agent: _auth/status_update{kind:none} then the prompt fails with auth required — turn.end error, status error with login", false)
 		c.prompt("fail")

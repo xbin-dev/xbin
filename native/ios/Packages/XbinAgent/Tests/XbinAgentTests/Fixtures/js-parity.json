@@ -2110,6 +2110,69 @@
     "error": null
    }
   ],
+  "attach": [
+   {
+    "kind": "msg",
+    "role": "user",
+    "text": "what is in these?",
+    "mid": "",
+    "files": [
+     "shot.png",
+     "notes.txt"
+    ]
+   },
+   {
+    "kind": "msg",
+    "role": "agent",
+    "text": "echo: what is in these? [image image/png 72B] [file shot.png 72B] [resource notes.txt 12B]",
+    "mid": "m"
+   },
+   {
+    "kind": "turn",
+    "turn": 1,
+    "stopReason": "end_turn",
+    "error": null
+   },
+   {
+    "kind": "msg",
+    "role": "user",
+    "text": "",
+    "mid": "",
+    "files": [
+     "Photo-1.jpg"
+    ]
+   },
+   {
+    "kind": "msg",
+    "role": "agent",
+    "text": "echo:  [image image/jpeg 44B] [file Photo-1.jpg 44B]",
+    "mid": "m"
+   },
+   {
+    "kind": "turn",
+    "turn": 2,
+    "stopReason": "end_turn",
+    "error": null
+   },
+   {
+    "kind": "msg",
+    "role": "user",
+    "text": "and now just text",
+    "mid": ""
+   },
+   {
+    "kind": "msg",
+    "role": "agent",
+    "text": "echo: and now just text",
+    "mid": "m"
+   },
+   {
+    "kind": "turn",
+    "turn": 3,
+    "stopReason": "end_turn",
+    "error": null
+   }
+  ],
   "basic": [
    {
     "kind": "msg",

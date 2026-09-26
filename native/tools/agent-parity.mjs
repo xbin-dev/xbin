@@ -27,7 +27,7 @@ function blocksOf(events) {
 function summarize(b) {
   const o = { kind: b.kind };
   switch (b.kind) {
-    case 'msg': Object.assign(o, { role: b.role, text: b.text, mid: b.mid }); break;
+    case 'msg': Object.assign(o, { role: b.role, text: b.text, mid: b.mid }); if (b.files) o.files = b.files.map((f) => f.name); break;
     case 'thought': Object.assign(o, { text: b.text, done: b.done, ms: (b.t1 || 0) - (b.t0 || 0) }); break;
     case 'tool': Object.assign(o, { id: b.id, title: b.title, tk: b.tk, status: b.status, name: b.name, label: b.label, parent: b.parent,
       subagent: b.subagent, output: b.output, exitCode: b.exitCode, headline: tools.headline(b), command: tools.commandOf(b),

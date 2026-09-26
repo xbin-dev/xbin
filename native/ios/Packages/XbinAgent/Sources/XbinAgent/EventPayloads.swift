@@ -9,12 +9,16 @@ public struct MessageDelta: Sendable, Hashable {
     public var messageId: String
     /// The subagent call (`tool.call` with `subagent`) the text came from.
     public var parent: String
+    /// A prompt's files (the user's delta of a prompt that carried them).
+    public var attachments: [MessageAttachment]
 
-    public init(role: MessageRole = .agent, text: String, messageId: String = "", parent: String = "") {
+    public init(role: MessageRole = .agent, text: String, messageId: String = "", parent: String = "",
+                attachments: [MessageAttachment] = []) {
         self.role = role
         self.text = text
         self.messageId = messageId
         self.parent = parent
+        self.attachments = attachments
     }
 
     init(json d: JSONValue) {
@@ -22,6 +26,30 @@ public struct MessageDelta: Sendable, Hashable {
         text = d["text"]?.text ?? ""
         messageId = d["messageId"]?.string ?? ""
         parent = d["parent"]?.string ?? ""
+        attachments = (d["attachments"]?.array ?? []).compactMap(MessageAttachment.init(json:))
+    }
+}
+
+/// A file a prompt carried, as the log keeps it (never the bytes):
+/// `{name, mime, size, inline?}` — `inline` when the model got it with the
+/// prompt (an image block, embedded text), else the agent was pointed at
+/// the file.
+public struct MessageAttachment: Sendable, Hashable {
+    public var name: String
+    public var mime: String
+    public var size: Int
+    public var inline: Bool
+
+    public init(name: String, mime: String = "", size: Int = 0, inline: Bool = false) {
+        self.name = name
+        self.mime = mime
+        self.size = size
+        self.inline = inline
+    }
+
+    init?(json a: JSONValue) {
+        guard let name = a["name"]?.string else { return nil }
+        self.init(name: name, mime: a["mime"]?.string ?? "", size: a["size"]?.int ?? 0, inline: a["inline"]?.bool ?? false)
     }
 }
 
