@@ -104,6 +104,8 @@ build: $(FUSE_OVERLAYFS) $(GOCRYPTFS)
 
 test:
 	go test ./...
+	# the sdk and the push relay are their own modules (go.work)
+	go test ./sdk/... ./relay/...
 
 integration:
 	go test -tags=integration -count=1 -v ./test/...
@@ -116,11 +118,12 @@ integration:
 
 vet:
 	go vet ./...
+	go vet ./sdk/... ./relay/...
 
 # Every tree that holds Go sources — listed explicitly so gofmt never walks
 # devws*/ or .rootfs/ (a whole distro of files; the old `gofmt -l .` spent
 # seconds filtering them out and silently depended on the grep).
-GOFMT_DIRS := $(wildcard *.go) ./cmd ./internal ./sdk ./test ./builtin-tiles ./builtin-templates ./examples
+GOFMT_DIRS := $(wildcard *.go) ./cmd ./internal ./sdk ./relay ./test ./builtin-tiles ./builtin-templates ./examples
 
 fmt-check:
 	@out="$$(gofmt -l $(GOFMT_DIRS))"; test -z "$$out" || (echo "$$out"; echo 'gofmt needed (make fmt)'; exit 1)
