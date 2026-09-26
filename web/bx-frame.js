@@ -231,9 +231,20 @@ export class BxFrame extends LitElement {
   updated(changed) {
     if (changed.has('_active') || changed.has('_termOpen') || changed.has('_layout') || changed.has('_codeW')) this._saveTerm();
     if (changed.has('_termOpen')) {
-      if (this._termOpen) { this._follow(); this._observePop(); } else { this._ro?.disconnect(); this._ro = null; }
+      if (this._termOpen) { this._follow(); this._observePop(); this._loadWindowState(); } else { this._ro?.disconnect(); this._ro = null; }
       this._popChanged();
     }
+  }
+
+  // What the window shows besides its tabs — the GPU picker, the launcher's
+  // providers, the tile state (VM toggle, base update, history), the PR
+  // badge — loaded whenever it opens: a click, open(), or a window restored
+  // open from the pref (which never went through _toggleTerm).
+  _loadWindowState() {
+    if (this._gpus.length === 0) gpuInventory().then((g) => { this._gpus = g; });
+    if (!this._providers) agentProviders().then((p) => { this._providers = p; });
+    loadTileState(this);
+    this._loadPRCount();
   }
 
   // A ResizeObserver on the pop: below ~640 px (or on the phone sheet) the
@@ -589,12 +600,8 @@ export class BxFrame extends LitElement {
       const visible = r.right > 0 && r.bottom > 0 && r.left < window.innerWidth && r.top < window.innerHeight;
       this._setPopBox(visible ? clampBox(box) : box);
     }
-    this._termOpen = true;
-    if (this._gpus.length === 0) gpuInventory().then((g) => { this._gpus = g; });
-    if (!this._providers) agentProviders().then((p) => { this._providers = p; });
-    loadTileState(this);
+    this._termOpen = true; // updated() loads what the window shows (_loadWindowState)
     // no auto-bash: an empty window shows the launcher chooser (render()).
-    this._loadPRCount();
     this.updateComplete.then(() => this._front());
   }
 
