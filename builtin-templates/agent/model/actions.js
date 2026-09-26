@@ -12,7 +12,17 @@ import { selfApi as api, jbody } from '/vendor/bx-kit.js';
 
 // ask starts a conversation: {text, toolset, title?, system?, hold?} — hold
 // creates it without a message or a drive (attachments upload into it first).
+// {draft, files} sends the draft the app uploaded into at home instead
+// (PUT /ask/upload?draft=<key>, API.md "Attachments").
 export const ask = (body) => api('/ask', jbody(body, 'POST'));
+
+// draftKey names a new ask's draft: where the app uploads what is picked at
+// home before there is a conversation (8–64 of A–Z a–z 0–9 _ -).
+export function draftKey() {
+  const c = globalThis.crypto;
+  if (c && typeof c.randomUUID === 'function') return 'd' + c.randomUUID().replace(/-/g, '');
+  return 'd' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
 
 // message sends into a run: {text, files?, clientId?}.
 export const message = (runId, body) => api(`/runs/${runId}/message`, jbody(body, 'POST'));
@@ -93,13 +103,19 @@ export const MAX_ATTACH = 16 * 1024 * 1024; // the backend's per-file cap
 
 export const fmtBytes = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`;
 
+// A chip a native app uploaded belongs where it was picked (`at`: a run id,
+// or 'home' for a new ask's draft) and shows and is sent only there; a
+// picked File (the web) has no `at` and goes wherever it is sent.
 export class Attachments {
   /** @param on {change()} — a chip changed (added, removed, uploading, failed, done) */
   constructor(on = {}) {
     this.on = on;
-    this.items = []; // [{key, file, name, size, type, path?, state?, err?}]; state: '' | up | done | bad
+    this.items = []; // [{key, file, name, size, type, path?, state?, err?, at?}]; state: '' | up | done | bad
     this.seq = 0;
   }
+
+  // here: the chips at a place (a run id | 'home'); undefined: all of them.
+  here(place) { return place === undefined ? this.items : this.items.filter((a) => a.at == null || a.at === place); }
 
   changed() { this.on.change?.(); }
 
@@ -114,9 +130,9 @@ export class Attachments {
   }
 
   // uploaded takes a file a view already put into the run itself (a native
-  // app uploads with its own frame token): {name, size, type, path}.
+  // app uploads with its own frame token): {name, size, type, path, at?}.
   uploaded(f) {
-    this.items.push({ key: ++this.seq, name: f.name, size: f.size, type: f.type, path: f.path, state: 'done' });
+    this.items.push({ key: ++this.seq, name: f.name, size: f.size, type: f.type, path: f.path, state: 'done', ...(f.at != null ? { at: f.at } : {}) });
     this.changed();
   }
 
@@ -125,18 +141,20 @@ export class Attachments {
     this.changed();
   }
 
-  tooBig() { return this.items.some((a) => a.size > MAX_ATTACH); }
+  tooBig(place) { return this.here(place).some((a) => a.size > MAX_ATTACH); }
 
   // clear and unupload are silent: the view repaints when the send settles.
-  clear() { this.items = []; }
+  // clear(place) empties one place (its own chips and the unplaced ones).
+  clear(place) { this.items = place === undefined ? [] : this.items.filter((a) => !(a.at == null || a.at === place)); }
   unupload() { this.items.forEach((a) => { delete a.path; if (a.state === 'done') a.state = ''; }); }
 
   // upload puts every not-yet-uploaded attachment into run `id` (base: this
   // backend's prefix), in order, and returns all their session-file paths.
   // Throws on the first failure with that chip marked; chips already
   // uploaded keep their path.
-  async upload(base, id) {
-    for (const a of this.items) {
+  async upload(base, id, place) {
+    const items = this.here(place);
+    for (const a of items) {
       if (a.path) continue;
       a.state = 'up'; a.err = ''; this.changed();
       const r = await xbin.fetch(`${base}/runs/${id}/upload?name=${encodeURIComponent(a.name)}`, {
@@ -149,6 +167,6 @@ export class Attachments {
       }
       a.path = d.path; a.state = 'done'; this.changed();
     }
-    return this.items.map((a) => a.path);
+    return items.map((a) => a.path);
   }
 }

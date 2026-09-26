@@ -129,7 +129,8 @@ llm-gw's logs. Give team members `read` on the tile.
 |---|---|---|
 | `GET /runs` | — | list runs (id, title, kind, status, timestamps; a quick ask also carries `last`, its latest answer, for the home view's cards). `?roots=1` lists top-level runs only — what the sidebar shows; subagents are reached through their parent |
 | `POST /runs` | `{goal, title?, system?, toolset?}` | create a run and start driving it |
-| `POST /ask` | `{text, toolset?, hold?}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately (`hold`: see Attachments) |
+| `POST /ask` | `{text, toolset?, hold?, draft?, files?}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately (`hold`, `draft`: see Attachments) |
+| `PUT /ask/upload?draft=&name=` | raw bytes, the file's own `Content-Type` | attach a file to a new ask before it exists (a native app's upload at home): into the run held for the draft key `{path, mime, bytes, binary, run}` — see Attachments |
 | `GET /runs/{id}` | — | run detail: `{run, messages, steps, memory, config, files, draft, messageFiles, slots, queued}` (`draft` = live streaming text; `files` is session-file METADATA only; `messageFiles` = `{msgId: [path…]}`, the files each user message carried; `slots` = `{active, limit}` model calls in flight; `queued` = messages not yet delivered) |
 | `GET /runs/{id}/view` | — | the run as the chat draws it, plus a stream cursor — see **The live view**. `?limit=&before=` pages it, newest first — see **Paging the view** |
 | `GET /stream?run=&since=` · `GET /runs/{id}/stream?since=` | — | SSE: run-list changes plus the whole tree of `run` — see **The live view**. `&deltas=1`: draft text and tool-call arguments as appended pieces |
@@ -299,6 +300,31 @@ A quick ask from the home view has no run to upload into yet, so the tile sends
 user message and no drive — uploads into it, then sends the message with
 `POST /runs/{id}/message {text, files}`. If an upload fails it deletes the
 empty run and keeps the files for another try.
+
+**A draft** is the same for a client that uploads a file the moment it is
+picked, before the text is written — the native view, whose app uploads to a
+path the tile names in advance (the composer's `upload`). The tile makes up a
+draft key (8–64 of `A–Z a–z 0–9 _ -`, e.g. `d` + a random UUID's hex) for the
+next ask and names `PUT /ask/upload?draft=<key>&name={name}`:
+
+- the first upload for a key creates the run **held** for it (as `hold:true`
+  does, owned by the caller) and every later one — parallel ones too — goes
+  into the same run; each answers the upload's `{path, mime, bytes, binary}`
+  plus `run`. A key is the caller's own: someone else's upload with it makes
+  their own draft;
+- until it is sent the run is listed nowhere (`origin: "held"`: not in
+  `/conversations`, `/runs`, search, `/needs` or the stream's conversation
+  list);
+- `POST /ask {text, toolset?, title?, system?, draft: <key>, files: [path…]}`
+  sends it: titled from `title`, the text or the files' names, the tool mode
+  and instructions of this call, the first message with the files still
+  chosen (a removed chip's upload stays in the run's files), driven — and
+  answers the run as `/ask` does. `text` may be empty when `files` is not.
+  A `draft` nothing was uploaded for is an ordinary ask; **409** when files
+  are named for a draft that is gone (already sent, or expired) — the chips
+  must be attached again;
+- a draft nobody sent is deleted, files and all, when its owner starts
+  another more than a day later.
 
 ## Capability lanes (the toolset firewall)
 

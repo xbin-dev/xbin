@@ -30,7 +30,7 @@ const push = (ev) => {
 };
 const view = (id, extra = {}) => ({ cursor: 'g.' + seq, run: { id, title: 'run ' + id, status: 'idle', rootId: id, pendingState: {} },
   messages: [], steps: [], links: [], queued: [], drafts: [], chain: [], files: [], memory: {}, config: {}, messageFiles: {}, ...extra });
-const state = { uploadFails: false };
+const state = { uploadFails: false, draftGone: false };
 const routes = [
   ['GET', /\/api\/xbin\/prefs\/toolset$/, () => json('web')],
   ['GET', /\/me$/, () => json({ kind: 'user', user: 'alice', manager: true, epochMs: 0 })],
@@ -62,7 +62,8 @@ const routes = [
   ['POST', /\/runs\/(\d+)\/interrupt$/, () => json({ ok: 'true', returned: [{ text: 'first' }, { text: '' }, { text: 'second' }] })],
   ['PUT', /\/runs\/(\d+)\/upload\?name=(.*)$/, (m) => (state.uploadFails ? json({ error: 'disk full' }, 507) : json({ path: decodeURIComponent(m[2]) }))],
   ['DELETE', /\/runs\/(\d+)$/, () => json({ ok: 'true' })],
-  ['POST', /\/ask$/, () => json({ id: 9, title: 'new one', status: 'running', rootId: 9 })],
+  ['POST', /\/ask$/, () => (state.draftGone ? json({ error: 'those attachments are gone (the draft was sent or expired) — remove them and attach them again' }, 409)
+    : json({ id: 9, title: 'new one', status: 'running', rootId: 9 }))],
   ['POST', /\/join$/, () => json({ runId: 2 })],
   ['GET', /\/stream\b/, (m, o) => new Response(new ReadableStream({
     start(c) {
@@ -289,6 +290,43 @@ test('the native view\'s options: drafts as deltas, the open conversation in pag
   await until(() => calls.filter((c) => c.url.includes('/stream?')).length >= asked + 1);
   assert.equal(app.session.shown().blocks.find((b) => b.callId === 'c1').args, '{"path":"a.txt"}', 'the misfit is not appended');
   assert.ok(!app.session.shown().blocks.some((b) => b.id === 'draft-tool-7'), 'nor is a delta for a call it never saw');
+  app.session.live.close();
+});
+
+test('a native app\'s uploads: chips stay where they were picked; at home Send sends the draft', async () => {
+  const app = createApp();
+  const seen = [];
+  app.on('*', (type, e) => seen.push(type === 'error' ? 'error:' + e.message : type));
+  const home = app.uploadTarget();
+  assert.equal(home.method, 'PUT');
+  assert.match(home.path, /^\/api\/apps\/agent\/ask\/upload\?draft=[\w-]{8,64}&name=\{name\}$/, 'at home: into the new ask\'s draft');
+  const key = app.draft;
+  app.attach.uploaded({ name: 'a.png', size: 3, type: 'image/png', path: 'a.png', at: 'home' });
+  await app.select(1);
+  assert.deepEqual(app.uploadTarget(), { method: 'PUT', path: '/api/apps/agent/runs/1/upload?name={name}' });
+  assert.deepEqual(app.attach.here(app.place), [], 'not in a conversation');
+  app.attach.uploaded({ name: 'b.txt', size: 1, type: 'text/plain', path: 'b.txt', at: 1 });
+  await app.send('with b');
+  const msg = called('POST', '/runs/1/message').pop();
+  assert.deepEqual(JSON.parse(msg.body).files, ['b.txt'], 'a conversation sends its own chips only');
+  app.home();
+  assert.deepEqual(app.attach.here(app.place).map((a) => a.name), ['a.png'], 'home kept its chip');
+
+  state.draftGone = true;
+  await app.send('look');
+  assert.ok(seen.includes('error:those attachments are gone (the draft was sent or expired) — remove them and attach them again'));
+  assert.deepEqual(app.attach.items, [], 'a draft that is gone takes its chips with it');
+  assert.notEqual(app.draft, key, 'and the next ask starts a draft of its own');
+  state.draftGone = false;
+
+  app.attach.uploaded({ name: 'c.png', size: 3, type: 'image/png', path: 'c.png', at: 'home' });
+  const draft = app.draft;
+  await app.send('what is this?');
+  const ask = called('POST', '/ask').pop();
+  assert.deepEqual(JSON.parse(ask.body), { text: 'what is this?', toolset: 'private', draft, files: ['c.png'] });
+  assert.equal(app.sel, 9, 'the new conversation opens');
+  assert.deepEqual(app.attach.items, []);
+  assert.notEqual(app.draft, draft);
   app.session.live.close();
 });
 

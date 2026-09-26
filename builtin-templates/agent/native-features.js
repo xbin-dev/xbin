@@ -69,6 +69,7 @@ export const IMPLEMENTS = {
   'composer.disabled': 'native/chat.js — composerTpl (model/rules.js composer)',
   'composer.toolMode': 'native/chat.js — the lock/globe chip (app.toolset)',
   'composer.attach': 'native/chat.js — composer upload (the app picks and uploads)',
+  'composer.heldAsk': 'native/chat.js — at home the composer uploads into the new ask\'s draft (app.uploadTarget: PUT /ask/upload?draft=); model/app.js — send sends the draft (POST /ask {draft, files})',
   'composer.attach.limit': 'native/chat.js — uploaded(): a refused file is a marked chip',
   'composer.attach.camera': 'native/chat.js — composer upload (the app offers the camera and Photos)',
   'composer.dictation': 'native/chat.js — composer (the system keyboard dictates)',
