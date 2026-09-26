@@ -68,6 +68,12 @@ import XbinCore
         #expect(Markdown.blocks(nil).isEmpty && Markdown.blocks("x").isEmpty)
     }
 
+    @Test func sourceWithoutTokensIsPlainText() {
+        #expect(Markdown.blocks(props: Props(["source": "a **b**\n\n\nc"])) == [.paragraph([.text("a **b**")]), .paragraph([.text("c")])])
+        #expect(Markdown.blocks(props: Props(["source": "x", "tokens": []])).isEmpty)
+        #expect(ChatMessage(id: "m", props: Props(["markdown": true, "text": "*hi*"])).markdown == nil)
+    }
+
     @Test func streamingListWithAnEmptyItem() throws {
         let blocks = Markdown.blocks(try fixtureTokens("chat-transcript", "r.0.2.1"))
         guard case .list(let l) = blocks.last else { Issue.record("list"); return }

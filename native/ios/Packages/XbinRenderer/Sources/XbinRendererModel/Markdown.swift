@@ -115,6 +115,18 @@ public enum Markdown {
         (tokens?.arrayValue ?? []).compactMap(block)
     }
 
+    /// A `markdown` node's blocks: its `tokens`; without them (a runtime
+    /// that didn't lex) its `source` as plain paragraphs — verbatim, never
+    /// parsed here.
+    public static func blocks(props: Props) -> [MarkdownBlock] {
+        if props.has("tokens") { return blocks(props["tokens"]) }
+        guard let source = props.string("source"), !source.isEmpty else { return [] }
+        return source.components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .newlines) }
+            .filter { !$0.isEmpty }
+            .map { .paragraph([.text($0)]) }
+    }
+
     static func block(_ t: JSONValue) -> MarkdownBlock? {
         guard let o = t.objectValue else { return nil }
         switch o["t"]?.stringValue {

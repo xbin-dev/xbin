@@ -54,11 +54,13 @@ public struct ChatMessage: Sendable, Equatable, Identifiable {
         self.queued = queued
     }
 
-    /// From a `message` node's props.
+    /// From a `message` node's props. A markdown message without tokens
+    /// (nothing lexed yet) shows its text verbatim.
     public init(id: String, props p: Props) {
+        let blocks = p.bool("markdown") ? Markdown.blocks(p["tokens"]) : []
         self.init(
             id: id, role: ChatRole(rawValue: p.string("role") ?? "") ?? .assistant, sender: p.nonEmpty("sender"),
-            text: p.string("text") ?? "", markdown: p.bool("markdown") ? Markdown.blocks(p["tokens"]) : nil,
+            text: p.string("text") ?? "", markdown: blocks.isEmpty ? nil : blocks,
             streaming: p.bool("streaming"), time: ChatFormat.time(p["time"]),
             files: p.objects("files").map { ChatFile(name: Props.text($0["name"]) ?? "", mime: Props.text($0["mime"]) ?? "", src: Props.text($0["src"])) },
             queued: p.bool("queued"))

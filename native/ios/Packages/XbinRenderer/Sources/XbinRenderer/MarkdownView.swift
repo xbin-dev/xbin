@@ -183,7 +183,7 @@ struct MarkdownNodeView: View {
     var body: some View {
         let context = cx
         let n = node
-        MarkdownView(blocks: Markdown.blocks(node.props["tokens"])) { url in context?.link(url, in: n) }
+        MarkdownView(blocks: Markdown.blocks(props: node.props)) { url in context?.link(url, in: n) }
     }
 }
 #endif
