@@ -97,7 +97,8 @@ To use another file than `native.js`, name it in the manifest:
 The app opens a native tile by loading its **runtime document**,
 `/c/<tile>/?native=1`, in a hidden WebKit view. xbind generates it: the same
 head injection as your `index.html` gets, plus one module script that
-imports `/vendor/xb-native.js` and then your entry. So:
+imports `/vendor/xb-native.js` and then loads your entry with its `boot()` —
+so a `native.js` that fails to load is reported to the app at once. So:
 
 - **Same identity and sandbox as your page.** `window.xbin` is the object
   your page gets — `xbin.fetch`, `ws`, `url`, `bus`, `events`, `iface`,

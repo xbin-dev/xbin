@@ -222,7 +222,10 @@ GET  /c/<component-path>/?native=1
                                  by xbind: the injection above (also under
                                  inject:false) + <meta name="xbin-native"
                                  content="1"> + a module script importing
-                                 /vendor/xb-native.js, then ./<native entry>.
+                                 /vendor/xb-native.js, then loading
+                                 ./<native entry> with its boot() (an entry
+                                 that fails to load reports {op:"error",
+                                 kind:"module"} to the app).
                                  &preview=1 adds <meta name=
                                  "xbin-native-preview" content="1"> and
                                  imports /vendor/xb/preview-host.js before

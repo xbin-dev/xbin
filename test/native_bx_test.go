@@ -193,6 +193,15 @@ func TestBxNative(t *testing.T) {
 	if err == nil || !strings.Contains(out, "unknown-tag: <blink>") {
 		t.Fatalf("broken lint: %v\n%s", err, out)
 	}
+
+	// an entry that throws while loading: the runtime document boots it, so
+	// the runtime reports kind "module" (the app's fast web fallback), not
+	// just an uncaught page error
+	must(t, os.WriteFile(filepath.Join(snoop, "native.js"), []byte("import '/vendor/xb-native.js';\nthrow new Error('no config yet');\n"), 0o644))
+	out, _, err = run("lint", "--native", "apps/snoop")
+	if err == nil || !strings.Contains(out, "module: ") || !strings.Contains(out, "no config yet") {
+		t.Fatalf("throwing entry: %v\n%s", err, out)
+	}
 }
 
 // treeRows maps each row's title to its detail in a printed tree.

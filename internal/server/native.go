@@ -91,7 +91,8 @@ func (s *Server) serveNativeRoute(w http.ResponseWriter, r *http.Request, cleane
 // (the xbin app loads it in a hidden WebView): the tile page's D4 injection
 // — same identity, sandbox and window.xbin — plus the xbin-native marker, a
 // viewport, and one module script that loads the template layer and then
-// the tile's entry, relative to the tile directory. With preview, the
+// boots the tile's entry (xb-native.js boot()), relative to the tile
+// directory. With preview, the
 // reference renderer's host (/vendor/xb/preview-host.js — optional: a
 // missing one is logged, not fatal) loads before the entry so a browser
 // can draw what the app would.
@@ -106,11 +107,14 @@ func nativeRuntimeDoc(compPath, inject, entry string, preview bool) string {
 		b.WriteString("<meta name=\"xbin-native-preview\" content=\"1\">\n")
 	}
 	spec, _ := json.Marshal("./" + entry) // HTML-safe: < > & are \u-escaped
-	b.WriteString("<script type=\"module\">\nimport '/vendor/xb-native.js';\n")
+	b.WriteString("<script type=\"module\">\nimport { boot } from '/vendor/xb-native.js';\n")
 	if preview {
 		b.WriteString("try { await import('/vendor/xb/preview-host.js'); } catch (e) { console.warn('[xbin] native preview host unavailable:', e); }\n")
 	}
-	fmt.Fprintf(&b, "await import(%s);\n</script>\n</head><body></body></html>\n", spec)
+	// boot, not a bare import: an entry that fails to parse or throws while
+	// loading reports {op:"error", kind:"module"} — the app falls back to the
+	// web page at once instead of waiting out its first-tree timeout.
+	fmt.Fprintf(&b, "await boot(%s);\n</script>\n</head><body></body></html>\n", spec)
 	return b.String()
 }
 

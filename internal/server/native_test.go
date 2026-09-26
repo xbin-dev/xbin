@@ -122,8 +122,8 @@ func TestNativeRuntimeDocument(t *testing.T) {
 		`<meta name="xbin-sandbox" content="allow-scripts allow-forms allow-modals allow-downloads">`,
 		`<script type="module" src="/vendor/xbin-client.js"></script>`,
 		`<meta name="xbin-native" content="1">`,
-		`import '/vendor/xb-native.js';`,
-		`await import("./native.js");`,
+		`import { boot } from '/vendor/xb-native.js';`,
+		`await boot("./native.js");`,
 		`<meta name="viewport"`,
 	} {
 		if !strings.Contains(body, want) {
@@ -136,8 +136,9 @@ func TestNativeRuntimeDocument(t *testing.T) {
 		}
 	}
 	// Order: the client (window.xbin) runs first, then the template layer,
-	// then the entry — module scripts execute in document order.
-	if i, j, k := strings.Index(body, "xbin-client.js"), strings.Index(body, "xb-native.js"), strings.Index(body, `import("./native.js")`); !(i < j && j < k) {
+	// then the entry, booted by it (a load failure reports kind "module") —
+	// module scripts execute in document order.
+	if i, j, k := strings.Index(body, "xbin-client.js"), strings.Index(body, "xb-native.js"), strings.Index(body, `boot("./native.js")`); !(i < j && j < k) {
 		t.Fatalf("script order client=%d xb-native=%d entry=%d", i, j, k)
 	}
 	// A real frame token for this tile.
@@ -156,13 +157,13 @@ func TestNativeRuntimeDocument(t *testing.T) {
 		t.Fatalf("preview meta missing:\n%s", body)
 	}
 	pi := strings.Index(body, "try { await import('/vendor/xb/preview-host.js'); } catch")
-	if pi < 0 || pi > strings.Index(body, `import("./native.js")`) || pi < strings.Index(body, "xb-native.js") {
+	if pi < 0 || pi > strings.Index(body, `boot("./native.js")`) || pi < strings.Index(body, "xb-native.js") {
 		t.Fatalf("preview host must load (tolerantly) between xb-native and the entry:\n%s", body)
 	}
 
 	// A declared entry, on a tile with no index.html at all.
 	w = get("/c/apps/decl/?native=1")
-	if w.Code != 200 || !strings.Contains(w.Body.String(), `await import("./mobile/main.js");`) {
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `await boot("./mobile/main.js");`) {
 		t.Fatalf("declared entry: %d\n%s", w.Code, w.Body.String())
 	}
 
