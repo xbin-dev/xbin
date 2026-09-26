@@ -23,6 +23,16 @@ var failures = 0
 }
 
 let args = CommandLine.arguments
+
+// `app-live bridge-js`: the tile bridge's user script and a reply script
+// (id "__ID__"), for native/tools/bridge-check.mjs to run in a real engine.
+if args.count > 1, args[1] == "bridge-js" {
+    let reply = TileBridge.replyScript(id: "__ID__", result: DialogSpec.result(button: "ok", values: ["name": "Ada"]))
+    let out: JSONValue = ["userScript": .string(TileBridge.userScript), "reply": .string(reply),
+                          "closeReply": .string(TileBridge.replyScript(id: "__ID__", result: nil))]
+    print(out.jsonString)
+    exit(0)
+}
 let hostPort = args.count > 1 ? args[1] : "127.0.0.1:9461"
 let user = args.count > 2 ? args[2] : "admin"
 let password = args.count > 3 ? args[3] : "admin"

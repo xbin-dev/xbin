@@ -330,6 +330,13 @@ What is deliberately *impossible*: `xbin.window({html})` (tile HTML in the top
 page = privilege escalation), spoofing another component's identity, and
 framing a component the user may not use.
 
+**In the xbin app** (iOS) a tile page is a top-level WebView rather than a
+frame, and the app stands in for the shell: `xbin.dialog` opens a native
+sheet from the same data spec (attributed to the tile, one at a time) and
+`xbin.window` pushes a screen framing the same sub-path or component, with the
+same traversal stripping and caps. Nothing changes in tile code; a tile page
+without the app keeps the in-frame fallbacks above.
+
 ## Status & notifications
 
 A tile tells the workspace how it's doing over a small self-scoped channel; the

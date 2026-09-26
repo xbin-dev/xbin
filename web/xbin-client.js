@@ -191,8 +191,15 @@ const clearStatus = () => report('ok', '', false);
 const notify = (level, message) => report(level, message, true);
 
 // --- height reporting to the embedding bx-frame ---
-const embedded = window.parent !== window;
-if (embedded) {
+const framed = window.parent !== window;
+// In the xbin app a tile page is a top-level WebView, not a frame: the app
+// registers an `xbin` WebKit message handler and relays this page's own
+// xbin:dialog / xbin:window requests, answering with xbin:reply on this
+// window (docs/protocol.md "Tile ↔ shell messaging") — so dialogs and
+// windows go to it as they go to <bx-frame>.
+const appBridge = !framed && !!window.webkit?.messageHandlers?.xbin;
+const embedded = framed || appBridge;
+if (framed) {
   let last = 0;
   const report = () => {
     const h = Math.ceil(document.documentElement.getBoundingClientRect().height);
@@ -273,7 +280,7 @@ function openWindow(spec = {}) {
 // sandboxed (opaque-origin) frame has no navigator.clipboard of its own, the
 // shell writes the clipboard on its behalf. On touch a live selection belongs
 // to the platform's selection toolbar, not to our sheet.
-if (embedded) {
+if (framed) {
   const SEL_MAX = 65536; // 64 KiB: any prose selection, negligible to clone
   const native = (t) => !!(t instanceof Element && t.closest('input, textarea, select, a[href], [contenteditable]:not([contenteditable="false"])'));
   const selected = () => { const t = document.getSelection()?.toString() ?? ''; return t.trim() ? t.slice(0, SEL_MAX) : ''; };

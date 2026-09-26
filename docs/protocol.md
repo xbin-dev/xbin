@@ -1797,6 +1797,18 @@ originating component shown, and each tile is capped to one dialog + a few
 windows. See docs/elements.md §Dialogs & windows and the `xbin.dialog` /
 `xbin.window` APIs in docs/sdk.md.
 
+**In the xbin app** a tile page is a top-level WebView, so `window.parent` is
+the page itself. The app registers a WebKit message handler named `xbin` and
+injects a document-start script that relays the page's own `xbin:dialog`,
+`xbin:window`, `xbin:window-close` and `xbin:contextmenu` posts (sender = the
+page's own window; never a frame inside it) to the app as JSON strings;
+`xbin-client.js` treats a top-level page with that handler as embedded. The
+app answers with the same `xbin:reply {id, result}` posted to the page's
+window, which passes xbin-client's sender check. The rules are the shell's:
+the tile is the one the WebView was opened for, one dialog and six windows at
+a time, sub-paths traversal-stripped. The native runtime document
+(`?native=1`) uses the same relay for `xbin.dialog`.
+
 ## Backend contract (what the runner promises your process)
 
 - Listen on `$XBIN_SOCKET` (unix, HTTP/1.1; WebSocket upgrades pass
