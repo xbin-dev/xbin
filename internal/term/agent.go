@@ -72,24 +72,25 @@ func (e SessionEvent) Owner() string { return e.User }
 
 // agentState is the agent half of a KindAgent session.
 type agentState struct {
-	drv      agent.Driver
-	log      *agent.Log
-	perms    *agent.Permissions
-	provider agent.Provider
-	ready    chan struct{} // closed once the driver's Start returned
-	done     chan struct{} // closed once the pump ended (the session is over)
-	gone     chan struct{} // closed after the teardown: history saved, layer released, row removed
-	mu       sync.Mutex
-	startErr error
-	mode     string
-	model    string // the agent's current model option, when it exposes one
-	status   string
-	turn     uint64
-	text     []byte
-	acpID    string   // the agent's own session id (after the handshake)
-	loadable bool     // the agent can reopen acpID later (session/load) — resume
-	resumed  string   // the history entry this session reopened (superseded when this one is saved)
-	snap     *snapper // files.changed snapshots of the tile (agentdiff.go); nil = off
+	drv       agent.Driver
+	log       *agent.Log
+	perms     *agent.Permissions
+	provider  agent.Provider
+	ready     chan struct{} // closed once the driver's Start returned
+	done      chan struct{} // closed once the pump ended (the session is over)
+	gone      chan struct{} // closed after the teardown: history saved, layer released, row removed
+	mu        sync.Mutex
+	startErr  error
+	mode      string
+	model     string // the agent's current model option, when it exposes one
+	status    string
+	turn      uint64
+	text      []byte
+	acpID     string    // the agent's own session id (after the handshake)
+	loadable  bool      // the agent can reopen acpID later (session/load) — resume
+	resumed   string    // the history entry this session reopened (superseded when this one is saved)
+	snap      *snapper  // files.changed snapshots of the tile (agentdiff.go); nil = off
+	published statusKey // the last summary handed to OnStatus (agentstatus.go)
 }
 
 func (st *agentState) logf(line string) {
@@ -345,7 +346,7 @@ func (s *Session) agentPump(m *Manager, onExit func()) {
 	st := s.agent
 	var pend *agent.Event
 	var pd delta
-	var timer <-chan time.Time
+	var timer, stTimer <-chan time.Time // delta coalescing; status-change coalescing (agentstatus.go)
 	flush := func() {
 		if pend != nil {
 			pend.Data, _ = json.Marshal(pd)
@@ -377,11 +378,18 @@ func (s *Session) agentPump(m *Manager, onExit func()) {
 			flush()
 			s.logEvent(m, e)
 			st.snap.observe(e)
+			if stTimer == nil && movesStatus(e.Type) {
+				stTimer = time.After(statusCoalesce)
+			}
 		case <-timer:
 			flush()
+		case <-stTimer:
+			stTimer = nil
+			s.publishStatus(m)
 		}
 	}
 ended:
+	s.publishStatus(m) // the last word before the directory's close
 	s.mu.Lock()
 	s.dead = true
 	s.mu.Unlock()

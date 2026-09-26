@@ -100,7 +100,10 @@ the only place that knows which live sessions a user has on a tile:
 `GET /api/xbin/term/sessions?cwd=` lists them (id, effective scope, the
 pickers it was opened with, the tab's name — set with `PATCH
 /term/sessions/<id>`), and a `term` event on `/ws/events` tells the owner's
-browsers (and admins) when one opens, ends or is renamed. `<bx-frame>` builds
+browsers (and admins) when one opens, ends or is renamed — and, for an
+agent session, when its status or the number of requests waiting for an
+answer changes (op `status`, the summary inline: an inbox needs nothing
+else). `<bx-frame>` builds
 its tab bar from that answer and keeps no session ids of its own, so a
 second browser signed in as the same user shows the same tabs and attaches
 to the same PTYs (several sockets may attach to one session; output fans

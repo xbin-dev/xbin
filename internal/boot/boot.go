@@ -658,6 +658,7 @@ func (st *State) stepServer() error {
 	if st.Term != nil {
 		st.Term.OnChange = srv.TermChanged // the session directory's change stream (D73)
 		st.Term.OnEvent = srv.SessionEvent // agent session events (D74)
+		st.Term.OnStatus = srv.TermStatus  // agent status changes, for inboxes (native §20)
 	}
 	if st.overlay != "" {
 		slog.Info("dev overlay: /c/ files shadowed from disk (manifests excluded)", "dir", st.overlay)

@@ -1472,6 +1472,9 @@ cookie required). JSON text frames:
  "data":{"level":"error","message":"…","ts":1785…,"transient":false}}
 {"type":"term","component":"apps/thing",             // a terminal session of yours was
  "data":{"op":"open|close|rename","id":"…","user":"…"}} // opened/ended/renamed (D73): re-list
+{"type":"term","component":"apps/thing",             // an agent session of yours changed state:
+ "data":{"op":"status","id":"…","user":"…","status":"waiting_permission",
+         "pending":1,"questions":0,"turn":3}}        // its summary, inline — no re-list needed
 {"type":"session","topic":"session.<id>","component":"apps/thing", // an agent session event (D74):
  "data":{"seq":7,"ts":1789…,"type":"message.delta","data":{…},"user":"…","id":"<id>"}}
 ```
@@ -1479,7 +1482,17 @@ cookie required). JSON text frames:
 Non-bus events go to every subscriber, except `term` and `session` events,
 which reach the session's owner (`data.user`) and admins — re-list `GET
 /term/sessions` on a `term` one; the id and op are enough to update a tab
-bar in place. `bus` events
+bar in place. An agent session also sends `term` op `status` whenever its
+summary changes — `status` (starting \| idle \| running \|
+waiting_permission \| cancelling \| error \| exited), `pending`
+(unanswered permission requests), `questions` (unanswered elicitations),
+`turn` (prompts taken, so a turn that ran and finished between two
+summaries still shows as a change) — coalesced over a few tens of
+milliseconds and never repeated; the last one precedes the `close`. It is
+what an inbox follows ("waiting for you", "done") without following each
+session's log; `GET /term/sessions/<id>` has the requests themselves. Older
+clients that re-list on every `term` event keep working (one more re-list
+per change). `bus` events
 are delivered only to
 the owner and to elements holding a reader grant on the resource. `status`
 events broadcast like the build events (the shell renders each only for tiles

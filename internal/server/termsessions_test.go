@@ -96,6 +96,17 @@ func TestTermEventFilter(t *testing.T) {
 	if got.Type != "term" || got.Component != "apps/x" || string(b) != `{"op":"close","id":"s1","user":"alice"}` {
 		t.Fatalf("published %+v (%s)", got, b)
 	}
+	// an agent session's status change: the same event kind, op "status",
+	// the summary inline — and the same owner filter
+	s.TermStatus("apps/x", term.StatusChange{User: "alice", ID: "s1", Status: "waiting_permission", Pending: 1, Turn: 2})
+	got = <-ch
+	b, _ = json.Marshal(got.Data)
+	if got.Type != "term" || got.Component != "apps/x" || string(b) != `{"op":"status","user":"alice","id":"s1","status":"waiting_permission","pending":1,"questions":0,"turn":2}` {
+		t.Fatalf("published %+v (%s)", got, b)
+	}
+	if !termEventFor(alice, got) || termEventFor(bob, got) || !termEventFor(admin, got) {
+		t.Fatal("status events go to their owner and admins only")
+	}
 }
 
 // GET /ws/term/env reports a tile's terminal layer — whether it exists and

@@ -29,6 +29,25 @@ type termChange struct {
 
 func (c termChange) Owner() string { return c.User }
 
+// termStatus is a `term` event's data for op "status": an agent session's
+// status and unanswered counts changed (term/agentstatus.go) — what an
+// inbox reacts to without following every session's log.
+type termStatus struct {
+	Op string `json:"op"`
+	term.StatusChange
+}
+
+func (c termStatus) Owner() string { return c.User }
+
+// TermStatus is the Manager.OnStatus hook: a `term` event, op "status",
+// filtered like the other `term` events to the owner and admins.
+func (s *Server) TermStatus(cwd string, st term.StatusChange) {
+	if s.Hub == nil {
+		return
+	}
+	s.Hub.Publish(events.Event{Type: "term", Component: cwd, Data: termStatus{Op: "status", StatusChange: st}})
+}
+
 // owned is what the per-user event kinds (`term`, `session`) carry: whose
 // they are, for the filter.
 type owned interface{ Owner() string }
