@@ -87,11 +87,16 @@ function bfetch(url, opts = {}) {
 }
 
 // --- attributed WebSocket (long-lived cross-element streams) ---
+// The WebSocket origin: this document's own — or, in the xbin app, the
+// injected xbin-ws-origin (a page the app loads from its custom scheme has
+// no ws origin to derive; docs/protocol.md). Browsers never get the meta.
+const wsOriginMeta = meta('xbin-ws-origin');
+const wsOrigin = /^wss?:\/\/[^/?#]+$/.test(wsOriginMeta) ? wsOriginMeta
+  : `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`;
+
 function bws(path) {
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const sep = path.includes('?') ? '&' : '?';
-  return new WebSocket(
-    `${proto}//${location.host}${path}${sep}frame=${encodeURIComponent(frameToken)}`);
+  return new WebSocket(`${wsOrigin}${path}${sep}frame=${encodeURIComponent(frameToken)}`);
 }
 
 // --- attributed URL (navigation downloads, <a href>, media src) ---
@@ -128,8 +133,7 @@ let wsBackoff = 500;
 
 function ensureEvents() {
   if (ws) return;
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(`${proto}//${location.host}/ws/events?frame=${encodeURIComponent(frameToken)}`);
+  ws = new WebSocket(`${wsOrigin}/ws/events?frame=${encodeURIComponent(frameToken)}`);
   ws.onmessage = (m) => {
     let e; try { e = JSON.parse(m.data); } catch { return; }
     for (const h of eventHandlers) { try { h(e); } catch (err) { console.error(err); } }
