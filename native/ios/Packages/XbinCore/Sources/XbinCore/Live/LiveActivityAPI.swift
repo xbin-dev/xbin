@@ -35,11 +35,15 @@ extension PushAPI {
 
     /// `POST /api/xbin/devices/push/activities`: an activity the device
     /// shows, by its session (one the app started) or by the `ref` a
-    /// push-started one carries — one of them.
-    public static func registerActivity(deviceId: String, session: String? = nil, ref: String? = nil, handle: String) -> APIRequest {
+    /// push-started one carries — one of them. `since`: when the card says
+    /// the turn started (unix seconds; xbind takes it for a turn it did not
+    /// see begin).
+    public static func registerActivity(deviceId: String, session: String? = nil, ref: String? = nil, handle: String,
+                                        since: Int64 = 0) -> APIRequest {
         var o: [String: JSONValue] = ["deviceId": .string(deviceId), "handle": .string(handle)]
         if let session, !session.isEmpty { o["session"] = .string(session) }
         if let ref, !ref.isEmpty { o["ref"] = .string(ref) }
+        if since > 0 { o["since"] = .int(since) }
         return .json("POST", activities, .object(o))
     }
 

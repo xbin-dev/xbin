@@ -281,7 +281,8 @@ final class LiveActivities {
 
     private func tokenArrived(_ hex: String, activity id: String, key k: String) async {
         guard let c = cards[k], c.activityID == id, !c.registered.contains(hex) else { return }
-        guard await register(token: hex, workspace: c.workspace, session: c.session, ref: nil) != nil else { return }
+        let since = c.shown?.since ?? 0
+        guard await register(token: hex, workspace: c.workspace, session: c.session, ref: nil, since: since) != nil else { return }
         cards[k]?.registered.insert(hex)
     }
 
@@ -319,7 +320,7 @@ final class LiveActivities {
 
     /// The relay handle for an ActivityKit token, registered with xbind
     /// (by session, or by a push start's ref); the session xbind names.
-    private func register(token hex: String, workspace ws: String, session: String?, ref: String?) async -> String? {
+    private func register(token hex: String, workspace ws: String, session: String?, ref: String?, since: Int64 = 0) async -> String? {
         guard let w = AppModel.shared.workspace(ws), let relay = PushManager.shared.relay,
               let parent = PushManager.shared.state(w.id).handle else { return nil }
         let newHandle = PushRelayAPI.newActivityHandle(apnsToken: hex, parent: parent, topic: AppInfo.bundleID,
@@ -327,7 +328,8 @@ final class LiveActivities {
         do {
             let r = try await AppTransport.shared.send(newHandle, to: relay)
             guard r.isSuccess, let h = PushRelayAPI.handle(from: try r.json()) else { return nil }
-            let req = PushAPI.registerActivity(deviceId: PushManager.shared.deviceID(w), session: session, ref: ref, handle: h)
+            let req = PushAPI.registerActivity(deviceId: PushManager.shared.deviceID(w), session: session, ref: ref, handle: h,
+                                               since: since)
             return PushAPI.activitySession(try await w.auth.json(req))
         } catch {
             return nil

@@ -24,6 +24,7 @@ import Testing
         #expect(bySession.path == "/api/xbin/devices/push/activities")
         #expect(try body(bySession) == ["deviceId": "d1", "session": "s1", "handle": "la"])
         #expect(try body(PushAPI.registerActivity(deviceId: "d1", ref: "r1", handle: "la")) == ["deviceId": "d1", "ref": "r1", "handle": "la"])
+        #expect(try body(PushAPI.registerActivity(deviceId: "d1", session: "s1", handle: "la", since: 1_790_000_000))["since"] == 1_790_000_000)
         let del = PushAPI.unregisterActivity(deviceId: "d/1", session: "s 1")
         #expect(del.method == "DELETE" && del.path == "/api/xbin/devices/push/d%2F1/activities/s%201")
 

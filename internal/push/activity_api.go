@@ -39,11 +39,12 @@ func (s *Service) ownDevice(w http.ResponseWriter, r *http.Request, user, device
 }
 
 // APIActivity is POST /devices/push/activities {deviceId, session | ref,
-// handle}: a Live Activity the device shows for one of the caller's agent
-// sessions — handle is the relay's Live Activity handle of its update
-// token. ref names one xbind started by push (the attributes' ref); the
-// answer says which session it is. xbind then pushes the turn's state
-// changes and its end to it.
+// handle, since?}: a Live Activity the device shows for one of the
+// caller's agent sessions — handle is the relay's Live Activity handle of
+// its update token. ref names one xbind started by push (the attributes'
+// ref); the answer says which session it is. since (unix seconds) is when
+// the card says the turn started: xbind takes it only for a turn it did not
+// see begin. xbind then pushes the turn's state changes and its end to it.
 func (s *Service) APIActivity(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.human(w, r)
 	if !ok {
@@ -54,6 +55,7 @@ func (s *Service) APIActivity(w http.ResponseWriter, r *http.Request) {
 		Session  string `json:"session"`
 		Ref      string `json:"ref"`
 		Handle   string `json:"handle"`
+		Since    int64  `json:"since"`
 	}
 	if decode(r, &body) != nil {
 		fail(w, http.StatusBadRequest, "need {deviceId, session | ref, handle}")
@@ -115,7 +117,7 @@ func (s *Service) APIActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.Enabled() {
-		s.activityRegistered(user, body.DeviceID, session, body.Handle, pushStarted)
+		s.activityRegistered(user, body.DeviceID, session, body.Handle, pushStarted, body.Since)
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{"activity": map[string]any{"session": session, "created": a.Created}})
 }

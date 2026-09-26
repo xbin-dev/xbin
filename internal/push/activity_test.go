@@ -153,7 +153,8 @@ func TestLiveActivityFollowsTheTurn(t *testing.T) {
 	if st, busy := r.s.liveState("s1"); !busy || st != (ActivityState{Phase: PhaseRunning, Since: t0 / 1000}) {
 		t.Fatalf("turn start: %+v %v", st, busy)
 	}
-	if code, out := r.activity(alice, map[string]any{"deviceId": "phone", "session": "s1", "handle": "la-handle-1"}); code != 200 ||
+	// the card's since does not move a turn xbind saw begin
+	if code, out := r.activity(alice, map[string]any{"deviceId": "phone", "session": "s1", "handle": "la-handle-1", "since": 5}); code != 200 ||
 		out["activity"].(map[string]any)["session"] != "s1" {
 		t.Fatalf("register: %d %v", code, out)
 	}
@@ -410,10 +411,10 @@ func TestLiveActivityEnds(t *testing.T) {
 	// s3: a turn xbind did not follow (no device when it began) is taken
 	// from the directory
 	ss.set("s3", SessionInfo{Owner: "alice", Status: agent.StatusRunning})
-	if code, _ := r.activity(alice, map[string]any{"deviceId": "phone", "session": "s3", "handle": "la-handle-03"}); code != 200 {
+	if code, _ := r.activity(alice, map[string]any{"deviceId": "phone", "session": "s3", "handle": "la-handle-03", "since": 1_790_000_000}); code != 200 {
 		t.Fatal(code)
 	}
-	if st, busy := r.s.liveState("s3"); !busy || st.Phase != PhaseRunning {
+	if st, busy := r.s.liveState("s3"); !busy || st != (ActivityState{Phase: PhaseRunning, Since: 1_790_000_000}) {
 		t.Fatalf("unfollowed turn: %+v %v", st, busy)
 	}
 	r.s.SessionClosed("s3")

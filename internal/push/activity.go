@@ -362,8 +362,9 @@ func (s *Service) EndActivities() {
 
 // activityRegistered brings a newly registered activity up to date: a
 // push-started one gets what changed since its start, one whose turn
-// already ended gets its end (lmu not held).
-func (s *Service) activityRegistered(user, deviceID, session, handle string, pushStarted bool) {
+// already ended gets its end (lmu not held). since is the card's turn
+// start, taken only when xbind did not see the turn begin.
+func (s *Service) activityRegistered(user, deviceID, session, handle string, pushStarted bool, since int64) {
 	now := s.o.Now()
 	var jobs []liveJob
 	s.lmu.Lock()
@@ -374,9 +375,14 @@ func (s *Service) activityRegistered(user, deviceID, session, handle string, pus
 		if info, ok := s.o.Session(session); ok && busyStatus(info.Status) {
 			ls = &liveSession{user: user, busy: true, status: info.Status, turn: 1, pids: map[string]bool{},
 				eids: map[string]bool{}, sent: map[string]ActivityState{}}
-			ls.state = ls.compute()
 			s.turns[session] = ls
 		}
+	}
+	if ls != nil && ls.busy && ls.since == 0 && since > 0 && since <= now.Unix()+60 {
+		ls.since = since // the card's clock, for a turn xbind did not see begin
+		ls.state = ls.compute()
+	} else if ls != nil && ls.busy && ls.state.Phase == "" {
+		ls.state = ls.compute()
 	}
 	switch {
 	case ls == nil || !ls.busy:
