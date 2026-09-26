@@ -284,8 +284,20 @@ async function agentTab(browser) {
   await waitFor(A.page, (t, n) => t.frameFor('apps/crawler')?.testApi().tabs.length === n + 1, nBefore, { timeout: 10000, label: 'sign-in opened a new shell tab' });
   const newTab = await fr(A.page, TILE, (f) => f.tabs[f.tabs.length - 1]);
   check(newTab.kind === 'shell', `sign-in opened a shell tab in the same window (${JSON.stringify(newTab)})`);
-  const ranLogin = await A.page.locator(`bx-frame[src="${TILE}"] bx-terminal[run]`).count();
-  check(ranLogin >= 1, `the shell tab is set to run the login command (${ranLogin} terminal(s) with a run cmd)`);
+  // the login command is typed into the new shell (once: the tab drops it
+  // after — termRun checks that — so look at the screen, not the attribute)
+  const typed = await A.page.locator(`bx-frame[src="${TILE}"] bx-terminal`).evaluateAll(async (els, cmd) => {
+    for (let i = 0; i < 250; i++) {
+      for (const el of els) {
+        const t = el.testApi?.();
+        if (!t) continue;
+        for (let row = 0; row < 40; row++) if ((t.screenLine(row) || '').includes(cmd)) return true;
+      }
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    return false;
+  }, lg.command);
+  check(typed, `the shell tab runs the login command (${lg.command})`);
 
   // ---- F: history + resume — an ended session's transcript is kept, listed
   // under Recent sessions, opens read-only, and resumes (the fake replays) ----
