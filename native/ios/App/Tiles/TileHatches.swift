@@ -8,8 +8,8 @@ import XbinRenderer
 /// attach button get from the app (``XbinServices``). Everything runs AS
 /// THE TILE — its frame token, its own paths only (TileResource) — never
 /// as the user. One per runtime: the terminals and canvas islands live per
-/// node key while the node is in the tree, so re-renders (and going full
-/// screen) keep their sockets and pages.
+/// node key while the node is in the tree, so re-renders (and expanding a
+/// terminal) keep their sockets and pages.
 @MainActor
 final class TileHatches {
     let workspace: WorkspaceModel
