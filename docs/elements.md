@@ -196,7 +196,9 @@ into `<head>`:
 
 - the merged **import map** (workspace `xbin.json` `importMap` + scope
   overrides) — so `import { LitElement } from 'lit'` works with no build step
-- `<meta name="xbin-component">` and a short-lived frame token
+- `<meta name="xbin-component">` and a short-lived frame token (minted only
+  when a human or the tile itself loads the document — another tile that
+  fetches your page gets it with an empty token)
 - `<script type="module" src="/vendor/xbin-client.js">` — the in-frame API
   (`xbin.self`, `xbin.fetch`, `xbin.bus`; see [sdk.md](/docs/sdk.md))
 - only when the xbin app requested the document (`X-XBin-Client:
@@ -310,10 +312,12 @@ page. What xbind does for it:
   `/vendor/xb-native.js` and then your entry, relative to the tile directory
   — so the entry imports the same `./model.js` your `index.html` does, and
   `window.xbin` is all there. It is authorized, sandboxed and headed exactly
-  like the tile's `index.html`; a tile with no usable entry gets a 404 that
-  says why. `&preview=1` adds `<meta name="xbin-native-preview"
-  content="1">` and loads the preview host (`/vendor/xb/preview-host.js`)
-  before the entry, for drawing in a browser.
+  like the tile's `index.html`, and carries a frame token under the same
+  rule (never for another tile fetching it); a tile with no usable entry
+  gets a 404 that says why. `&preview=1` adds `<meta
+  name="xbin-native-preview" content="1">` and loads the preview host
+  (`/vendor/xb/preview-host.js`) before the entry, for drawing in a
+  browser.
 - **Entry paths** are `.js`/`.mjs` modules inside the tile; each segment uses
   letters, digits and `. _ ~ + @ -`, with no `..` or hidden (`.name`)
   segments. A declared entry that is invalid or missing means no native UI.

@@ -3,12 +3,14 @@ package server
 import (
 	"crypto/tls"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/registry"
@@ -245,6 +247,80 @@ func TestNativeRuntimeAuthorization(t *testing.T) {
 	w = serveAs(s, "GET", "/c/apps/conv/?native=1", auth.Principal{Component: "apps/scanner", Via: "instance"}, nil)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `xbin-frame-token" content=""`) {
 		t.Fatalf("code-grant read must carry no frame token: %d\n%s", w.Code, w.Body.String())
+	}
+}
+
+// Another tile's frontend never gets a frame token out of a runtime document
+// (or a tile page): ?native=1 exists even for inject:false tiles and tiles
+// with no index.html, so without the rule a tile could xbin.fetch
+// '/c/<other>/?native=1' and lift a credential that tile never published.
+// Only a human or the tile itself (its own frame, or an xbin.window
+// sub-path of it) gets one.
+func TestNativeRuntimeNeverMintsAnotherTilesToken(t *testing.T) {
+	s, a := nativeWorkspace(t)
+	tokRe := regexp.MustCompile(`name="xbin-frame-token" content="([^"]*)"`)
+	tokenIn := func(w *httptest.ResponseRecorder) string {
+		t.Helper()
+		m := tokRe.FindStringSubmatch(w.Body.String())
+		if w.Code != 200 || m == nil {
+			t.Fatalf("%d, no frame-token meta:\n%s", w.Code, w.Body.String())
+		}
+		return m[1]
+	}
+	targets := []string{
+		"/c/apps/raw/?native=1",  // inject:false: its page carries no token
+		"/c/apps/decl/?native=1", // no index.html at all
+		"/c/apps/conv/?native=1",
+		"/c/apps/conv/",
+	}
+	boss := &users.User{ID: "boss", Role: users.RoleAdmin}
+	for _, p := range []auth.Principal{
+		{Component: "apps/web", Via: "frame"},                             // owner-driven frame: owner reach
+		{Component: "apps/web", Via: "frame", UserID: "boss", User: boss}, // an admin's frame
+		{Component: "apps/web/sub", Via: "frame"},                         // a window of another tile
+	} {
+		for _, url := range targets {
+			if tok := tokenIn(serveAs(s, "GET", url, p, nil)); tok != "" {
+				c, u, _ := a.VerifyFrameToken(tok)
+				t.Errorf("%s as %+v: minted %s's token (uid %q)", url, p, c, u)
+			}
+		}
+	}
+
+	// Through the real middleware, as the review's scenario: apps/web's
+	// owner-driven frame token fetching apps/raw's runtime document.
+	h := s.authedStatic(http.HandlerFunc(s.handleComponentStatic))
+	fetch := func(url, frameComp string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", url, nil)
+		r.Header.Set(auth.FrameTokenHeader, a.MintFrameToken(frameComp, "", time.Minute))
+		r.Header.Set("Sec-Fetch-Site", "cross-site") // xbin.fetch out of an opaque origin
+		r.Header.Set("Sec-Fetch-Mode", "cors")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	for _, url := range targets {
+		if tok := tokenIn(fetch(url, "apps/web")); tok != "" {
+			t.Errorf("%s via apps/web's frame token: got a token", url)
+		}
+	}
+
+	// The tile itself still gets its own (the app loads its runtime document
+	// with that tile's token), and so does a sub-path window of it.
+	for _, c := range []struct{ url, frame, want string }{
+		{"/c/apps/raw/?native=1", "apps/raw", "apps/raw"},
+		{"/c/apps/decl/?native=1", "apps/decl", "apps/decl"},
+		{"/c/apps/conv/?native=1", "apps/conv", "apps/conv"},
+		{"/c/apps/conv/?native=1", "apps/conv/editor", "apps/conv"},
+	} {
+		comp, uid, ok := a.VerifyFrameToken(tokenIn(fetch(c.url, c.frame)))
+		if !ok || comp != c.want || uid != "" {
+			t.Errorf("%s as %s: token for %q uid %q ok %v, want %s", c.url, c.frame, comp, uid, ok, c.want)
+		}
+	}
+	// A human (cookie/bearer principal) keeps getting one, as before.
+	if tokenIn(serveAs(s, "GET", "/c/apps/raw/?native=1", auth.Principal{Owner: true, Via: "bearer"}, nil)) == "" {
+		t.Fatal("the owner lost the runtime document's token")
 	}
 }
 

@@ -103,8 +103,13 @@ GET  /c/<component-path>/[file]  component static files; HTML gets the
                                  Auth: any principal that may read the tile
                                  (cookie RBAC; frame token for the tile
                                  itself; an element holding a code[:<tile>]
-                                 grant reads its source here too — HTML then
-                                 served WITHOUT the tile's frame token);
+                                 grant reads its source here too). The
+                                 injected frame token is minted only for a
+                                 human or the tile itself (its own frame/
+                                 terminal/instance token, or an xbin.window
+                                 sub-path of it); any OTHER tile's element
+                                 principal — code grant or its user's access
+                                 — gets the HTML with content="";
                                  a tile's SUBRESOURCE loads
                                  (Sec-Fetch-Dest: script/style/image/font/
                                  media/worker, never documents or fetch;
@@ -139,8 +144,10 @@ GET  /c/<component-path>/?native=1
                                  "xbin-native-preview" content="1"> and
                                  imports /vendor/xb/preview-host.js before
                                  the entry (a missing one is logged, not
-                                 fatal). Auth, CSP sandbox and headers as
-                                 the tile's index.html; 404 with the reason
+                                 fatal). Auth, CSP sandbox, headers and the
+                                 frame-token rule as the tile's index.html
+                                 (another tile fetching it gets no token);
+                                 404 with the reason
                                  when the tile has no native entry (trusted
                                  chrome never has one); the slashless URL
                                  301s keeping the query; any other

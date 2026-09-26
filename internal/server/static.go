@@ -90,8 +90,9 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 	// An element principal holding a code[:<owner>] grant reads sibling
 	// source here too (the grant's whole point — tooling backends fetching
 	// files); the 2026-08-02 element read clamp governs everything else.
-	// Note the D4 injection mints a frame token only when CanReadTile passes,
-	// so grant-based reads never leak the OTHER tile's credential.
+	// Note the D4 injection mints a frame token only for a human or the tile
+	// itself (mayMintFrameToken), so element reads — grant-based or through
+	// the attributed user's access — never leak the OTHER tile's credential.
 	if owner := s.owningComponent(cleaned); !isChrome(owner) {
 		if p := auth.PrincipalOf(r); !p.CanReadTile(owner) && !s.codeGranted(p, owner) && !s.tileSubresourceAuthed(r) {
 			if p.User != nil && p.Component == "" && strings.Contains(r.Header.Get("Accept"), "text/html") {
@@ -338,7 +339,8 @@ func (s *Server) documentHeaders(w http.ResponseWriter, compPath string, comp *r
 
 // headInjection is the D4 <head> block of one of compPath's documents: the
 // merged import map, the component and frame-token metas (a token only for
-// a principal that may read the tile), bound interfaces, the sandbox token
+// a human or the tile itself that may read it — mayMintFrameToken), bound
+// interfaces, the sandbox token
 // list, the WebSocket origin for app WebViews (appWSOriginMeta), and the
 // xbin-client module.
 func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPath string) string {
@@ -346,7 +348,7 @@ func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPa
 	im, _ := json.Marshal(map[string]any{"imports": imports})
 
 	frameTok := ""
-	if p := auth.PrincipalOf(r); p.CanReadTile(compPath) {
+	if p := auth.PrincipalOf(r); s.mayMintFrameToken(p, compPath) {
 		frameTok = s.Auth.MintFrameToken(compPath, p.UserID, frameTokenTTL)
 	}
 
@@ -372,6 +374,24 @@ func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPa
 			"%s%s%s"+
 			"<script type=\"module\" src=\"/vendor/xbin-client.js\"></script>\n",
 		im, htmlEscape(compPath), frameTok, ifaceMeta, sandboxMeta, appWSOriginMeta(r))
+}
+
+// mayMintFrameToken: the injection mints compPath's frame token only for a
+// principal that may read the tile AND is not another tile — a human
+// (cookie, bearer) or the tile itself (its own frame/terminal/instance
+// principal, including an xbin.window sub-path token like apps/x/editor,
+// whose owning component is apps/x). Without the second half, any tile's
+// frontend could xbin.fetch('/c/<other>/') — or, since native runtime
+// documents, '/c/<other>/?native=1', which exists even for inject:false
+// tiles and tiles with no index.html — and lift the other tile's token out
+// of the HTML whenever its user can read that tile. Element principals
+// reading other tiles' documents (code grants, the user's RBAC) get the
+// HTML without a token, as code-grant reads always did.
+func (s *Server) mayMintFrameToken(p auth.Principal, compPath string) bool {
+	if !p.CanReadTile(compPath) {
+		return false
+	}
+	return p.Component == "" || p.Component == compPath || s.owningComponent(p.Component) == compPath
 }
 
 func htmlEscape(s string) string {
