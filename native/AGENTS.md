@@ -26,23 +26,33 @@ native/
     native.js               tile code under test
     data.json               scripted xbin stub: responses, SSE frames, bus events, now/locale/tz
     expected.json           the rendered tree {"v":1,"root":…}
+  spec/                     the wire contracts: tree.md (the runtime bridge), vocab.json (exported
+                            from web/xb/vocab.js), device-login.md, push.md (+ push-vectors.json)
   ios/
     project.yml             XcodeGen spec — the .xcodeproj is generated, never committed
-    Packages/XbinCore/      SwiftPM, Foundation only — builds and tests on Linux
-    Packages/XbinRenderer/  SwiftUI, one view per primitive + #Preview per fixture (CI only)
+    Packages/XbinCore/      Foundation only, tests on Linux: JSON, tree + patches, the runtime bridge,
+                            deep links, device login, and Client/ (the app's workspace logic)
+    Packages/XbinTerm/      Foundation only, tests on Linux: /ws/term codec + session, the predictive
+                            echo port, the keyboard model
+    Packages/XbinAgent/     Foundation only, tests on Linux: ACP agent sessions (models, transcript
+                            reducer, feed, HTTP client), held to the web's output
+    Packages/XbinRenderer/  XbinRendererModel (tests on Linux) + the SwiftUI views, one per primitive,
+                            a #Preview per fixture; Tests/XbinRendererTests = the snapshot tests (CI)
     App/                    the app target: Model/ (workspaces, sessions, transport, device keys),
                             Shell/ (root, switcher, navigator, add-workspace, inbox, settings),
                             Tiles/ (scheme handler, web tiles, native tiles), Terminal/, Agent/, Push/
     Shared/                 compiled into the app AND the notification extension (push crypto, Keychain)
     NotificationService/    the Notification Service Extension (decrypts pushes)
     Support/                Info.plists and entitlements
-    Tests/                  snapshot tests (ImageRenderer → PNG)
     scripts/                CI: pick-sim.sh, ci-*.sh (what ios.yml runs), ci-local-check.sh
-  tools/                    fixture runner, screenshot + contact-sheet scripts; app-check/ (the app's
-                            UIKit-free sources on Linux), bridge-check.mjs, markdown-parity.mjs
+  tools/                    fixture runner (fixture.mjs), shots.mjs + gallery/ (reference screenshots),
+                            swiftui-stubcheck/, app-check/ (the app's UIKit-free sources on Linux),
+                            term-live/, agent-parity.mjs, bridge-check.mjs, runtime-check.mjs,
+                            markdown-parity.mjs
 web/xb-native.js            the runtime's template layer, served at /vendor/ (frozen once shipped)
-web/xb/                     the Lit reference renderer (previews and tests only)
-relay/                      the push relay (Go, stdlib only)
+web/xb/                     the runtime's modules (rt-*.js, vocab.js) and the Lit reference renderer
+                            (render*.js, preview-host.js — previews and tests only)
+relay/                      the push relay (Go, stdlib only, its own module)
 .github/workflows/ios.yml   the Apple CI
 ```
 
@@ -86,19 +96,21 @@ the same change, additive APIs, D78 confinement).
   before moving on. `node --test hack/xb-render.test.mjs` checks that every
   visible node is drawn and drives a runtime through the preview host.
 
-### 3. Swift 6 on Linux — XbinCore (tens of seconds)
+### 3. Swift 6 on Linux — the packages (tens of seconds)
 
 ```sh
 export PATH="$HOME/.local/share/swiftly/bin:$PATH"   # swiftly-installed Swift 6.4
-cd native/ios/Packages/XbinCore
-swift build && swift test
+make swift-test                                      # all four packages (skips without swift)
+cd native/ios/Packages/XbinCore && swift test        # or one of them
 ```
 
-XbinCore holds everything that doesn't draw: the JSON value type, tree
-decoding, patch application, the protocol state machines (the runtime bridge,
-`/ws/term` framing, ACP agent events, device-login messages), the predictive
-echo engine (ported from `web/term-predict.js`, checked against
-`hack/term-predict.test.mjs`'s cases), and the fixture codec. Rules:
+Everything that doesn't draw lives in four SwiftPM packages that build and
+test here. **XbinCore**: the JSON value type, tree decoding, patch
+application, the runtime bridge (native/spec/tree.md), deep links, the
+workspace records, device-login messages (native/spec/device-login.md), the
+fixture codec, and `Client/` — the app's workspace logic (sessions and
+re-sign, enrollment, the catalog, the scheme handler's rules, the tile
+bridge, native tile fallback, push, markdown). Rules for all of them:
 
 - **Foundation only.** No SwiftUI, UIKit, Combine, OSLog — and no
   `#if canImport(SwiftUI)` escape hatches. Transports are injected (a protocol
@@ -108,7 +120,7 @@ echo engine (ported from `web/term-predict.js`, checked against
   `NSNumber`); key order doesn't matter, key presence does.
 - Anything testable here is tested here — CI time is for what only Xcode can do.
 
-The terminal's half is its own package under the same rules,
+**XbinTerm**, the terminal's half, is its own package under the same rules,
 `Packages/XbinTerm` (`swift test` there; its README says how the app glues
 SwiftTerm to it): the `/ws/term` codec and session state machine, the
 predictive echo port and the keyboard model. The port's conformance is every
@@ -118,12 +130,22 @@ hack/term-predict-trace.mjs` and ports the change in the same commit (`make
 js-test` fails until the trace matches). `native/tools/term-live` checks a
 session against a running xbind.
 
-The renderer follows the same split: `Packages/XbinRenderer` keeps
-everything that doesn't draw in its `XbinRendererModel` target (the tree as
-observable nodes, controlled props, the vocabulary tables, markdown/chart/
-question/chat view models — `swift test` there, held to `vocab.json`, the
-fixtures and the Lit renderer's output); its SwiftUI target is empty off
-Apple platforms. After changing a view, run
+**XbinAgent** is the native model of ACP agent sessions (the Agent tab):
+Codable models of every agent route and event, the transcript reducer
+(bx-agent.js's `_blocks()` made incremental), the D77 permission and
+headline rules, diffs, and `AgentSessionFeed` (replay, follow, catch-up).
+It is held to the web's own output: `node native/tools/agent-parity.mjs`
+runs the web's modules over a corpus and the captured sessions
+(`Tests/XbinAgentTests/Fixtures`, written by the gated Go test
+`internal/term/agent_capture_test.go` driving `hack/fakeacp`) and
+`ParityTests` requires the Swift port to match exactly — regenerate both
+together (the package README says how).
+
+**XbinRenderer** follows the same split: it keeps everything that doesn't
+draw in its `XbinRendererModel` target (the tree as observable nodes,
+controlled props, the vocabulary tables, markdown/chart/question/chat view
+models — `swift test` there, held to `vocab.json`, the fixtures and the Lit
+renderer's output); its SwiftUI target is empty off Apple platforms. After changing a view, run
 `native/tools/swiftui-stubcheck/run.sh` (and `--sendable-bindings`): it
 type-checks the views against stubs of the SDK — our mistakes, not SDK drift.
 
@@ -160,7 +182,7 @@ still yields snapshots:
 
 | job | does | artifacts |
 |---|---|---|
-| `packages` | logs the toolchain (`xcodebuild -version`, `-showsdks`, simulator device types and runtimes); `swift test` in `Packages/XbinCore`, `XbinTerm`, `XbinAgent` — each if present, all run even when one fails | — |
+| `packages` | logs the toolchain (`xcodebuild -version`, `-showsdks`, simulator device types and runtimes); `swift test` in `Packages/XbinCore`, `XbinTerm`, `XbinAgent` — each if present, all run even when one fails (XbinRenderer's model tests run in `snapshots`) | — |
 | `app` | `brew install xcodegen` → `xcodegen generate` (if `project.yml` exists) → `xcodebuild build -scheme Xbin` for a simulator, `CODE_SIGNING_ALLOWED=NO` | `xcresult-app` (`app-build.xcresult` + the full `app-build.log`) |
 | `snapshots` | `xcodebuild test -scheme XbinRenderer` in `Packages/XbinRenderer` on a simulator: every fixture, light/dark × default and one large Dynamic Type size | `snapshots` (the PNGs), `xcresult-snapshots` (`.xcresult` + log) |
 

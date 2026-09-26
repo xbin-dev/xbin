@@ -12,7 +12,7 @@ test or a Makefile target next to the thing that needs remembering.
 ## Definition of done
 
 ```
-make check              # fmt-check vet js-check js-test theme-check shellcheck pins-offline test
+make check              # fmt-check vet js-check js-test native-check theme-check shellcheck pins-offline test
 make integration        # when the runner / sandbox / broker path changed
 make hooks              # once per clone: the sub-second subset runs pre-commit
 ```
@@ -31,9 +31,15 @@ target, so a red line names the guard that failed.
 | `go vet ./...` | `vet` | the usual |
 | `node --check` over every shipped script and inline module block — a `.js` written as an ES module is checked as one (node's detection on a plain `.js` is lenient); named imports resolved against the exports of the relative / `/vendor/` module they name | `js-check` | a syntax error in a tile's inline `<script type="module">` or an unbalanced template expression in a module, or an import of a renamed or mislocated export — none is parsed by anything else before a user's browser (the trees include `website/`, so the landing page's inline module and its `js/` are covered) |
 | `node --test hack/*.test.mjs` — unit tests for pure frontend modules | `js-test` | the shell's context-menu builders (`shell/menus.js`), revisioned-draft helpers (`shell/rev-draft.js`), grid math (`shell/grid-layout.js` — the push a drag performs) the terminal's prediction engine (`web/term-predict.js` — what a keystroke predicts, what an ack confirms) and the frame's view of the session directory (`web/term-sessions.js` — how a listing becomes the tab bar, how the legacy browser record is adopted): every branch a menu can show, how a stale save is classified, where a pushed tile lands, which predictions survive, which tabs a listing yields — without a browser |
+| the native client's contract: xb-native's own tests, the fixture runner's, and every `native/fixtures/<name>` rendered in node and compared with its `expected.json`, plus the vocabulary coverage gate | `native-check` | the tree a tile's `native.js` renders — what the app's renderer and the reference renderer draw — drifting unreviewed, and a vocabulary item no fixture exercises (native/fixtures/README.md) |
 | shellcheck at warning level over `deploy/`, `hack/`, `.githooks/`, the site's `website/install.sh` bootstrap and the iOS CI scripts in `native/ios/scripts/` | `shellcheck` | the installer and release scripts (1,300 lines of bash with no other tests); the iOS CI scripts, which only a macOS runner executes |
 | vendor checksums, Go-version agreement, alpine pins | `pins-offline` | pins drifting apart between the files that state one |
 | unit tests incl. the embed guard, route inventory, docs check, the exec guard | `test` | see the sections below |
+
+Not in `check`: `make swift-test` runs the native client's Swift packages
+(`native/ios/Packages/*`, Foundation only) on any machine with a swift
+toolchain, Linux included — the Apple CI (`.github/workflows/ios.yml`) runs
+them on macOS; `make tile-check` needs the network (CI runs it).
 
 ## Exec guard (nothing runs as xbind on tile data)
 

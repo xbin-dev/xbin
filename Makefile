@@ -2,7 +2,7 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets build test integration vet fmt-check fmt vendor dev-reset website check js-check native-check theme-check tile-check shellcheck pins pins-offline hooks release
+.PHONY: dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets build test integration vet fmt-check fmt vendor dev-reset website check js-check native-check swift-test theme-check tile-check shellcheck pins pins-offline hooks release
 
 # Dev runs ISOLATED (per-component namespaces + overlay rootfs + egress relay):
 # the sandbox network/fs model is different enough from unsandboxed that dev must
@@ -147,6 +147,15 @@ js-test:
 native-check:
 	@node --test hack/xb-native*.test.mjs hack/xbn-runner.test.mjs native/tools/*.test.mjs
 	@node native/tools/fixture.mjs --check
+
+# The native client's Swift packages (native/ios/Packages, Foundation only)
+# on this machine — Linux included (native/AGENTS.md §3). Skipped when no
+# swift toolchain is on PATH; not in `check` (CI's Linux job has none — the
+# Apple CI runs them on macOS). Every package runs; any failure fails.
+SWIFT_PACKAGES := XbinCore XbinTerm XbinAgent XbinRenderer
+swift-test:
+	@command -v swift >/dev/null || { echo 'swift-test: no swift on PATH (native/AGENTS.md §3) — skipped'; exit 0; }; \
+	rc=0; for p in $(SWIFT_PACKAGES); do echo ">> swift test: $$p"; (cd native/ios/Packages/$$p && swift test) || rc=1; done; exit $$rc
 
 # Every var(--bx-*, <literal>) fallback in shipped frontends equals web/theme.css.
 theme-check:
