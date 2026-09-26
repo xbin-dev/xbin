@@ -66,6 +66,7 @@ func main() {
 		tlsKey     = flag.String("tls-key", env("XBIN_RELAY_TLS_KEY", ""), "TLS key (PEM)")
 		verify     = flag.Bool("verify-tokens", os.Getenv("XBIN_RELAY_NO_VERIFY_TOKENS") == "", "check each device token with APNs before storing a handle (needs -apns-key)")
 		regTokens  = flag.String("registration-tokens", env("XBIN_RELAY_REGISTRATION_TOKENS", ""), "comma-separated tokens POST /v1/workspaces then requires (Authorization: Bearer); empty = open registration")
+		regPoW     = flag.Int("registration-pow", intEnv("XBIN_RELAY_REGISTRATION_POW"), "proof of work (bits, 0–32) an anonymous POST /v1/workspaces must carry; 0 = none")
 		maxWS      = flag.Int("max-workspaces", intEnv("XBIN_RELAY_MAX_WORKSPACES"), "workspaces at most (0 = 200000)")
 		maxH       = flag.Int("max-handles", intEnv("XBIN_RELAY_MAX_HANDLES"), "handles at most (0 = 2000000)")
 		unusedWS   = flag.Duration("unused-workspace-ttl", durEnv("XBIN_RELAY_UNUSED_WORKSPACE_TTL", 0), "delete a workspace key never used after this (0 = 720h)")
@@ -85,7 +86,11 @@ func main() {
 		rates[r.name] = flag.String(r.name, env(r.env, ""), "PER_HOUR/BURST: "+r.def+"; empty = the default")
 	}
 	flag.Parse()
-	cfg := relay.Config{StatePath: *state, TrustProxy: *trustProxy, VerifyTokens: *verify,
+	if *regPoW < 0 || *regPoW > relay.MaxRegistrationPoW {
+		fmt.Fprintln(os.Stderr, "xbin-relay: -registration-pow: 0–32 bits")
+		os.Exit(2)
+	}
+	cfg := relay.Config{StatePath: *state, TrustProxy: *trustProxy, VerifyTokens: *verify, RegistrationPoW: *regPoW,
 		MaxWorkspaces: *maxWS, MaxHandles: *maxH, UnusedWorkspaceTTL: *unusedWS, IdleWorkspaceTTL: *idleWS,
 		UnboundHandleTTL: *unboundH, IdleHandleTTL: *idleH}
 	var err error
@@ -138,7 +143,8 @@ func run(cfg relay.Config, listen, keyPath, keyID, teamID, topics, tlsCert, tlsK
 		return err
 	}
 	h, w := s.Counts()
-	slog.Info("xbin-relay listening", "addr", listen, "handles", h, "workspaces", w, "apns", cfg.APNs != nil)
+	slog.Info("xbin-relay listening", "addr", listen, "handles", h, "workspaces", w, "apns", cfg.APNs != nil,
+		"registrationPoW", cfg.RegistrationPoW)
 	srv := &http.Server{Addr: listen, Handler: s, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second,
 		WriteTimeout: 30 * time.Second, IdleTimeout: 120 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)

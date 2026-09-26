@@ -118,6 +118,9 @@ type Notification struct {
 	Priority   int // 10 (immediate) or 5
 	Expiration time.Time
 	Background bool // apns-push-type background (a content-available check), not alert
+	// PushType overrides apns-push-type ("liveactivity"; Topic is then
+	// "<bundle id>.push-type.liveactivity").
+	PushType string
 }
 
 // APNsError is a non-200 answer from APNs.
@@ -172,7 +175,10 @@ func (a *APNs) send(ctx context.Context, n Notification, fresh bool) (string, er
 	req.Header.Set("authorization", "bearer "+tok)
 	req.Header.Set("apns-topic", n.Topic)
 	pushType := "alert"
-	if n.Background {
+	switch {
+	case n.PushType != "":
+		pushType = n.PushType
+	case n.Background:
 		pushType = "background"
 	}
 	req.Header.Set("apns-push-type", pushType)

@@ -227,12 +227,12 @@ func TestJournalReplayAndCompaction(t *testing.T) {
 	}
 	h1, _ := st.newHandle(tokenOK, topic, "production", now)
 	h2, _ := st.newHandle(token2, topic, "production", now)
-	if _, err := st.target(h1, ws, now); err != nil {
+	if _, err := st.target(h1, ws, "", now); err != nil {
 		t.Fatal(err)
 	}
 	st.deleteHandle(h2)
 	later := now.Add(25 * time.Hour)
-	if _, err := st.target(h1, ws, later); err != nil { // a day on: the usage timestamp is written
+	if _, err := st.target(h1, ws, "", later); err != nil { // a day on: the usage timestamp is written
 		t.Fatal(err)
 	}
 	// a torn write at the end
@@ -271,7 +271,7 @@ func TestJournalReplayAndCompaction(t *testing.T) {
 					t.Error(err)
 					return
 				}
-				if _, err := re.target(id, ws, now); err != nil {
+				if _, err := re.target(id, ws, "", now); err != nil {
 					t.Error(err)
 				}
 			}
