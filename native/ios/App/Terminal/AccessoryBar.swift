@@ -20,7 +20,7 @@ final class AccessoryBar: UIInputView {
         super.init(frame: CGRect(x: 0, y: 0, width: 320, height: 46), inputViewStyle: .keyboard)
         allowsSelfSizing = true
         stack.axis = .horizontal
-        stack.distribution = .fill // equal widths by constraint; a long slot label gets two
+        stack.distribution = .fill // widths by constraint (buildRow)
         stack.spacing = 5
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
@@ -44,12 +44,14 @@ final class AccessoryBar: UIInputView {
         repeatTimer = nil
         for (_, b) in buttons { b.removeFromSuperview() }
         buttons = []
+        let slot = Self.customKey
         var row = AccessoryKey.defaultRow
-        if let c = Self.customKey { row.append(c) }
+        if let slot { row.append(slot) }
         for key in row { add(key) }
+        // Equal widths, but a slot whose cap is a word ("sudo") gets two.
         if let first = buttons.first?.1 {
             for (i, (key, b)) in buttons.enumerated() where i > 0 {
-                let wide = i == row.count - 1 && Self.customKey != nil && AccessorySlot.capLabel(key).count > 3
+                let wide = slot != nil && i == row.count - 1 && AccessorySlot.capLabel(key).count > 3
                 b.widthAnchor.constraint(equalTo: first.widthAnchor, multiplier: wide ? 2 : 1).isActive = true
             }
         }
