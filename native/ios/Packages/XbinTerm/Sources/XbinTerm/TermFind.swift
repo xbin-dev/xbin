@@ -1,10 +1,11 @@
 // TermFind.swift — scrollback search's state (plans/native.md §12
 // "scrollback search"): the find bar's query and options, what the last
-// search found ("3 of 14"), and its keys. The searching itself is
-// SwiftTerm's (TerminalView.findNext/findPrevious/searchMatchSummary, since
-// 1.20: xterm.js's search addon over the whole buffer, scrollback included;
-// the match is shown as the selection and scrolled into view); this is the
-// part the app would otherwise decide in a view.
+// search found ("3 of 14", counted from the top of the scrollback), and its
+// keys. The searching itself is SwiftTerm's (TerminalView.findNext,
+// findPrevious and searchMatchSummary, since 1.20: xterm.js's search addon
+// over the whole buffer, scrollback included; the match is shown as the
+// selection and scrolled into view); this is the part the app would
+// otherwise decide in a view.
 
 import Foundation
 
@@ -18,8 +19,11 @@ public struct TermFindOptions: Equatable, Sendable, Codable {
     }
 }
 
-/// What a key in the find bar does.
-public enum TermFindAction: Equatable, Sendable { case next, previous, close }
+/// What a key or button in the find bar does. A terminal's newest output is
+/// at the bottom, so a search starts there and goes up: `older` is the next
+/// match up the scrollback (SwiftTerm's findPrevious), `newer` the next one
+/// down (findNext).
+public enum TermFindAction: Equatable, Sendable { case older, newer, close }
 
 public struct TermFind: Equatable, Sendable {
     /// Counting stops here (SwiftTerm's `searchMatchSummary` limit): "1000+".
@@ -80,13 +84,22 @@ public struct TermFind: Equatable, Sendable {
         return "\(index) of \(count)"
     }
 
-    /// Keys in the find field: Return → next, ⇧Return → previous, Escape →
-    /// close, ⌘G / ⌘⇧G → next / previous. nil: the field's own.
+    /// Keys in the find field: Return and ⌘G → older, ⇧Return and ⌘⇧G →
+    /// newer, Escape → close. nil: the field's own.
     public static func action(key: TermFindKey, shift: Bool, command: Bool) -> TermFindAction? {
         switch key {
-        case .returnKey: return command ? nil : (shift ? .previous : .next)
+        case .returnKey: return command ? nil : (shift ? .newer : .older)
         case .escape: return .close
-        case .g: return command ? (shift ? .previous : .next) : nil
+        case .g: return command ? (shift ? .newer : .older) : nil
+        }
+    }
+
+    /// ⌘G / ⌘⇧G on the terminal itself (`TermShortcut.findNext`/`findPrevious`).
+    public static func action(for s: TermShortcut) -> TermFindAction? {
+        switch s {
+        case .findNext: return .older
+        case .findPrevious: return .newer
+        default: return nil
         }
     }
 }

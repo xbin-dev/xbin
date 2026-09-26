@@ -41,7 +41,8 @@ public enum TermPosture: String, Equatable, Sendable {
 /// Where things go on the terminal screen.
 public struct TermTabletopLayout: Equatable, Sendable {
     public var posture: TermPosture
-    /// The terminal's height from the top (the whole height unless tabletop).
+    /// The terminal's height from the top: down to the fold in tabletop,
+    /// down to the keyboard otherwise.
     public var terminalHeight: Double
     /// Tabletop: the key panel just below the fold (height 0: none fits).
     public var panel: TermRect
@@ -55,16 +56,28 @@ public struct TermTabletopLayout: Equatable, Sendable {
     public static func compute(width: Double, height: Double, fold: TermRect?, keyboardHeight: Double,
                                keyRowHeight: Double = 44, maxKeyRows: Int = 4) -> TermTabletopLayout {
         let posture = TermPosture.of(fold: fold)
-        guard posture == .tabletop, let f = fold, f.minY > 0, f.maxY < height else {
-            return TermTabletopLayout(posture: posture == .tabletop ? .flat : posture, terminalHeight: max(0, height),
-                                      panel: TermRect(x: 0, y: height, width: width, height: 0), keyRows: 0)
+        let visible = max(0, height - max(0, keyboardHeight))
+        // A fold off the screen, or a keyboard reaching above it: the
+        // terminal gives way to the keyboard as when flat.
+        guard posture == .tabletop, let f = fold, f.minY > 0, f.maxY < height, visible >= f.minY else {
+            return TermTabletopLayout(posture: posture == .tabletop ? .flat : posture, terminalHeight: visible,
+                                      panel: TermRect(x: 0, y: visible, width: width, height: 0), keyRows: 0)
         }
         let top = f.maxY
-        let bottom = max(top, height - max(0, keyboardHeight))
+        let bottom = max(top, visible)
         let rows = keyRowHeight > 0 ? min(maxKeyRows, Int(((bottom - top) / keyRowHeight).rounded(.down))) : 0
         return TermTabletopLayout(posture: .tabletop, terminalHeight: f.minY,
                                   panel: TermRect(x: 0, y: top, width: width, height: bottom - top),
                                   keyRows: max(0, rows))
+    }
+}
+
+extension TermTabletopLayout {
+    /// A stand-in fold for checking the layout without a Duo (the app's
+    /// `XbinForceTabletop` launch argument): mid-screen, 40 pt like the Duo's
+    /// division region with its margins.
+    public static func simulatedFold(width: Double, height: Double) -> TermRect {
+        TermRect(x: 0, y: (height / 2 - 20).rounded(.down), width: width, height: 40)
     }
 }
 

@@ -47,15 +47,17 @@ struct TermFindTests {
         #expect(f.problem == nil && f.canSearch)
     }
 
-    @Test("keys: Return next, ⇧Return previous, Escape closes, ⌘G ⌘⇧G")
+    @Test("keys: Return and ⌘G go up to older matches, ⇧Return and ⌘⇧G down, Escape closes")
     func keys() {
-        #expect(TermFind.action(key: .returnKey, shift: false, command: false) == .next)
-        #expect(TermFind.action(key: .returnKey, shift: true, command: false) == .previous)
+        #expect(TermFind.action(key: .returnKey, shift: false, command: false) == .older)
+        #expect(TermFind.action(key: .returnKey, shift: true, command: false) == .newer)
         #expect(TermFind.action(key: .returnKey, shift: false, command: true) == nil)
         #expect(TermFind.action(key: .escape, shift: false, command: false) == .close)
-        #expect(TermFind.action(key: .g, shift: false, command: true) == .next)
-        #expect(TermFind.action(key: .g, shift: true, command: true) == .previous)
+        #expect(TermFind.action(key: .g, shift: false, command: true) == .older)
+        #expect(TermFind.action(key: .g, shift: true, command: true) == .newer)
         #expect(TermFind.action(key: .g, shift: false, command: false) == nil, "a plain g is typed")
+        #expect(TermFind.action(for: .findNext) == .older && TermFind.action(for: .findPrevious) == .newer)
+        #expect(TermFind.action(for: .find) == nil)
     }
 }
 
@@ -138,18 +140,29 @@ struct TermTabletopTests {
         #expect(l.keyRows == 2)
         let hidden = TermTabletopLayout.compute(width: 1000, height: 760, fold: fold, keyboardHeight: 0)
         #expect(hidden.panel.height == 360 && hidden.keyRows == 4, "capped at maxKeyRows")
+        let over = TermTabletopLayout.compute(width: 1000, height: 760, fold: fold, keyboardHeight: 380)
+        #expect(over.posture == .tabletop && over.panel.height == 0 && over.keyRows == 0 && over.terminalHeight == 360,
+                "a keyboard over the fold's margin leaves no panel")
         let tall = TermTabletopLayout.compute(width: 1000, height: 760, fold: fold, keyboardHeight: 500)
-        #expect(tall.panel.height == 0 && tall.keyRows == 0 && tall.terminalHeight == 360, "a keyboard over the fold leaves no panel")
+        #expect(tall.posture == .flat && tall.terminalHeight == 260, "a keyboard above the fold: the terminal gives way")
     }
 
     @Test("book, flat, and a fold outside the screen: one full-height terminal")
     func others() {
         let book = TermTabletopLayout.compute(width: 1000, height: 760, fold: TermRect(x: 480, y: 0, width: 40, height: 760), keyboardHeight: 300)
-        #expect(book.posture == .book && book.terminalHeight == 760 && book.keyRows == 0)
+        #expect(book.posture == .book && book.terminalHeight == 460 && book.keyRows == 0)
         let flat = TermTabletopLayout.compute(width: 400, height: 800, fold: nil, keyboardHeight: 300)
-        #expect(flat.posture == .flat && flat.terminalHeight == 800 && flat.panel.height == 0)
+        #expect(flat.posture == .flat && flat.terminalHeight == 500 && flat.panel.height == 0)
+        #expect(TermTabletopLayout.compute(width: 400, height: 800, fold: nil, keyboardHeight: 0).terminalHeight == 800)
         let off = TermTabletopLayout.compute(width: 1000, height: 300, fold: fold, keyboardHeight: 0)
         #expect(off.posture == .flat && off.terminalHeight == 300)
+    }
+
+    @Test("the simulated fold sits mid-screen and makes a tabletop")
+    func simulated() {
+        let f = TermTabletopLayout.simulatedFold(width: 390, height: 801)
+        #expect(f == TermRect(x: 0, y: 380, width: 390, height: 40))
+        #expect(TermTabletopLayout.compute(width: 390, height: 801, fold: f, keyboardHeight: 0).posture == .tabletop)
     }
 
     @Test("the panel's rows: the accessory row first when the keyboard is hidden")
