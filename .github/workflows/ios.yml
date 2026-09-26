@@ -187,6 +187,5 @@ jobs:
             ${{ runner.temp }}/xbin-ci/snapshots-test.log
             ${{ runner.temp }}/xbin-ci/hosted-snapshots.xcresult
             ${{ runner.temp }}/xbin-ci/hosted-snapshots.log
-            ${{ runner.temp }}/xbin-ci/renderer-list.sample.txt
           if-no-files-found: ignore
           retention-days: 14
