@@ -142,8 +142,10 @@ struct ComposerNodeView: View {
             // An unbound composer clears itself; a bound one waits for the tile.
             context?.model.setRendererValue(n.key, "value", "")
         }, onStop: stop, onAttach: attachAction(p), onRemoveAttachment: remove) {
-            ForEach(node.children) { NodeView(node: $0) }
-                .environment(\.xbinPlacement, .chips)
+            if !node.children.isEmpty {
+                ForEach(node.children) { NodeView(node: $0) }
+                    .environment(\.xbinPlacement, .chips)
+            }
         }
     }
 

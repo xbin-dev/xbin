@@ -311,7 +311,7 @@ public struct ChatStep: Sendable, Equatable {
     public init(props p: Props) { self.init(glyph: p.nonEmpty("glyph") ?? "•", text: p.string("text") ?? "", tone: p.tone()) }
 }
 
-public struct Attachment: Sendable, Hashable, Identifiable {
+public struct ChatAttachment: Sendable, Hashable, Identifiable {
     public var id: String
     public var name: String
     public var mime: String
@@ -350,7 +350,7 @@ public struct ChatComposer: Sendable, Equatable {
     public var placeholder: String
     public var busy: Bool
     public var disabled: Bool
-    public var attachments: [Attachment]
+    public var attachments: [ChatAttachment]
     /// `accept` for the pickers (`image/*,.pdf`); nil: anything.
     public var accept: String?
     /// Attaching is offered (the tile gave an upload target, or the app
@@ -358,7 +358,7 @@ public struct ChatComposer: Sendable, Equatable {
     public var canAttach: Bool
     public var slash: [SlashCommand]
 
-    public init(placeholder: String = "Message", busy: Bool = false, disabled: Bool = false, attachments: [Attachment] = [],
+    public init(placeholder: String = "Message", busy: Bool = false, disabled: Bool = false, attachments: [ChatAttachment] = [],
                 accept: String? = nil, canAttach: Bool = false, slash: [SlashCommand] = []) {
         self.placeholder = placeholder
         self.busy = busy
@@ -373,7 +373,7 @@ public struct ChatComposer: Sendable, Equatable {
         self.init(
             placeholder: p.nonEmpty("placeholder") ?? "Message", busy: p.bool("busy"), disabled: p.bool("disabled"),
             attachments: p.objects("attachments").map {
-                Attachment(id: Props.text($0["id"]) ?? "", name: Props.text($0["name"]) ?? "", mime: Props.text($0["mime"]) ?? "",
+                ChatAttachment(id: Props.text($0["id"]) ?? "", name: Props.text($0["name"]) ?? "", mime: Props.text($0["mime"]) ?? "",
                            progress: $0["progress"]?.doubleValue)
             },
             accept: p.nonEmpty("accept"), canAttach: p.object("upload")?["path"]?.stringValue != nil,

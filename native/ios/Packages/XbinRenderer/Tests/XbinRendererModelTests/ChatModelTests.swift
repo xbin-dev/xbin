@@ -115,8 +115,8 @@ import XbinCore
     @Test func composer() throws {
         let c = ChatComposer(props: try props("chat-transcript", "r.1"))
         #expect(c.busy && c.canAttach && c.accept == "image/*,.pdf,.txt,.csv" && c.placeholder == "Message Ops agent")
-        #expect(c.attachments == [Attachment(id: "f-52", name: "staging.log", mime: "text/plain", progress: 1)])
-        #expect(!c.attachments[0].isUploading && Attachment(id: "a", name: "a", progress: 0.4).isUploading)
+        #expect(c.attachments == [ChatAttachment(id: "f-52", name: "staging.log", mime: "text/plain", progress: 1)])
+        #expect(!c.attachments[0].isUploading && ChatAttachment(id: "a", name: "a", progress: 0.4).isUploading)
         #expect(c.slashMatches("/").map(\.bare) == ["deploy", "logs", "compact"])
         #expect(c.slashMatches("/d").map(\.name) == ["/deploy"] && c.slashMatches("/deploy x").isEmpty && c.slashMatches("d").isEmpty)
         #expect(c.canSend(" hi ") && !c.canSend("  "))

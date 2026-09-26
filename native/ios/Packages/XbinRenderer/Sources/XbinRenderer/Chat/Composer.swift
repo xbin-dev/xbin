@@ -58,8 +58,10 @@ public struct ComposerView<Chips: View>: View {
                 }
                 .modifier(ChatCard())
             }
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) { chips }
+            if Chips.self != EmptyView.self {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) { chips }
+                }
             }
             if !composer.attachments.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -118,7 +120,7 @@ extension ComposerView where Chips == EmptyView {
 
 /// An attachment chip: kind icon, name, upload progress, remove.
 private struct AttachmentChip: View {
-    let attachment: Attachment
+    let attachment: ChatAttachment
     let onRemove: (@MainActor (String) -> Void)?
 
     var body: some View {
