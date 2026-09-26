@@ -21,18 +21,18 @@ import Testing
         var t = try sample()
         let d = try t.apply(.set(key: "r.0.0", props: ["detail": "43", "tone": "ok", "x": .null]))
         #expect(t["r.0.0"]?.props == ["title": "Count", "detail": "43", "tone": "ok", "x": .null])
-        #expect(d.propsChanged == ["r.0.0"] && d.childrenChanged.isEmpty && d.inserted.isEmpty && d.removed.isEmpty)
+        #expect(d.updated == ["r.0.0"] && d.childrenChanged.isEmpty && d.inserted.isEmpty && d.removed.isEmpty)
         // Setting the same values is not a change.
         #expect(try t.apply(.set(key: "r.0.0", props: ["detail": "43"])).isEmpty)
         // A bool is not a number: false → 0 is a change.
-        #expect(try t.apply(.set(key: "r.0.1", props: ["busy": 0])).propsChanged == ["r.0.1"])
+        #expect(try t.apply(.set(key: "r.0.1", props: ["busy": 0])).updated == ["r.0.1"])
     }
 
     @Test func unsetRemoves() throws {
         var t = try sample()
         let d = try t.apply(.unset(key: "r.0.0", props: ["detail", "nope"]))
         #expect(t["r.0.0"]?.props == ["title": "Count"])
-        #expect(d.propsChanged == ["r.0.0"])
+        #expect(d.updated == ["r.0.0"])
         #expect(try t.apply(.unset(key: "r.0.0", props: ["nope"])).isEmpty)
     }
 
@@ -43,7 +43,7 @@ import Testing
         let d = try t.apply(.insert(parent: "r.0", index: 1, node: n))
         #expect(t["r.0"]?.children == ["r.0.0", "r.0.2", "r.0.1"])
         #expect(t["r.0.2.0"]?.parent == "r.0.2")
-        #expect(d.inserted == ["r.0.2", "r.0.2.0"] && d.childrenChanged == ["r.0"] && d.propsChanged.isEmpty)
+        #expect(d.inserted == ["r.0.2", "r.0.2.0"] && d.childrenChanged == ["r.0"] && d.updated.isEmpty)
         #expect(t.validate() == nil)
         try t.apply(.insert(parent: "r.0", index: 3, node: Node(key: "end", type: "text")))
         #expect(t["r.0"]?.children.last == "end")
@@ -96,28 +96,46 @@ import Testing
         }
     }
 
-    @Test func moveAcrossParents() throws {
+    @Test func movesStayWithinTheirParent() throws {
         var t = try sample()
-        let d = try t.apply(.move(key: "r.1.0:b", parent: "r.0", index: 0))
-        #expect(t["r.0"]?.children == ["r.1.0:b", "r.0.0", "r.0.1"])
-        #expect(t["r.1"]?.children == ["r.1.0:a"])
-        #expect(t["r.1.0:b"]?.parent == "r.0")
-        #expect(d.childrenChanged == ["r.0", "r.1"])
-        #expect(t.validate() == nil)
-        try t.apply(.move(key: "r.1", parent: "r.0.0", index: 0)) // a subtree moves along
-        #expect(t.ancestors(of: "r.1.0:a") == ["r.1", "r.0.0", "r.0", "r"])
-        #expect(t.validate() == nil)
+        let before = t
+        #expect(throws: PatchError.notAChild(key: "r.1.0:b", parent: "r.0")) {
+            try t.apply(.move(key: "r.1.0:b", parent: "r.0", index: 0))
+        }
+        #expect(t == before)
+        // The design's §9 example moves a node to the front of its own parent.
+        var t2 = try Tree(root: Node(key: "r", type: "screen", children: [
+            Node(key: "r.0", type: "section"), Node(key: "r.1", type: "list", children: [
+                Node(key: "r.1:z", type: "row"), Node(key: "r.1:a", type: "row"),
+            ]),
+        ]))
+        try t2.apply(.move(key: "r.1:a", parent: "r.1", index: 0))
+        #expect(t2["r.1"]?.children == ["r.1:a", "r.1:z"])
+    }
+
+    @Test func eventsReplace() throws {
+        var t = try sample()
+        var d = try t.apply(.events(key: "r.0.1", events: ["tap", "longpress"]))
+        #expect(t["r.0.1"]?.events == ["tap", "longpress"] && d.updated == ["r.0.1"])
+        d = try t.apply(.events(key: "r.0.1", events: ["tap", "longpress"]))
+        #expect(d.isEmpty)
+        d = try t.apply(.events(key: "r.0.1", events: []))
+        #expect(t["r.0.1"]?.events == [] && t.node("r.0.1")?.json["e"] == nil && d.updated == ["r.0.1"])
+        #expect(throws: PatchError.unknownKey("x")) { try t.apply(.events(key: "x", events: [])) }
     }
 
     @Test func moveRefusals() throws {
         var t = try sample()
-        #expect(throws: PatchError.cycle(key: "r.0", parent: "r.0.0")) { try t.apply(.move(key: "r.0", parent: "r.0.0", index: 0)) }
-        #expect(throws: PatchError.cycle(key: "r.0", parent: "r.0")) { try t.apply(.move(key: "r.0", parent: "r.0", index: 0)) }
+        #expect(throws: PatchError.notAChild(key: "r.0", parent: "r.0.0")) { try t.apply(.move(key: "r.0", parent: "r.0.0", index: 0)) }
+        #expect(throws: PatchError.notAChild(key: "r.0", parent: "r.0")) { try t.apply(.move(key: "r.0", parent: "r.0", index: 0)) }
         #expect(throws: PatchError.rootOp("move")) { try t.apply(.move(key: "r", parent: "r.0", index: 0)) }
         #expect(throws: PatchError.unknownKey("x")) { try t.apply(.move(key: "x", parent: "r", index: 0)) }
-        #expect(throws: PatchError.unknownKey("x")) { try t.apply(.move(key: "r.0", parent: "x", index: 0)) }
-        #expect(throws: PatchError.indexOutOfRange(key: "r.1", index: 3, count: 2)) {
-            try t.apply(.move(key: "r.0", parent: "r.1", index: 3))
+        #expect(throws: PatchError.notAChild(key: "r.0", parent: "x")) { try t.apply(.move(key: "r.0", parent: "x", index: 0)) }
+        #expect(throws: PatchError.indexOutOfRange(key: "r", index: 2, count: 1)) {
+            try t.apply(.move(key: "r.0", parent: "r", index: 2))
+        }
+        #expect(throws: PatchError.indexOutOfRange(key: "r", index: -1, count: 1)) {
+            try t.apply(.move(key: "r.0", parent: "r", index: -1))
         }
     }
 
@@ -142,12 +160,6 @@ import Testing
         try t.apply(.insert(parent: "d\(Tree.maxDepth - 2)", index: 0, node: Node(key: "x", type: "text")))
         #expect(throws: PatchError.tooDeep("r")) { try Tree(root: Node(key: "r", type: "stack", children: [full])) }
 
-        var root = chain("d", 200)
-        root.children.append(chain("s", 60))
-        var t2 = try Tree(root: root)
-        #expect(throws: PatchError.tooDeep("s0")) { try t2.apply(.move(key: "s0", parent: "d199", index: 0)) }
-        try t2.apply(.move(key: "s0", parent: "d150", index: 0)) // depth 151 + 60
-        #expect(t2.validate() == nil)
     }
 
     @Test func deltaAcrossABatch() throws {
@@ -160,12 +172,16 @@ import Testing
             .remove(key: "r.0.0"),
             .insert(parent: "r.0", index: 0, node: Node(key: "r.0.0", type: "notice")), // replaced: in both sets
             .set(key: "r.0.1", props: ["busy": true]),
-            .move(key: "r.1.0:b", parent: "r.0", index: 2),
+            .move(key: "r.0.1", parent: "r.0", index: 0),
+            .events(key: "r.1", events: ["toggle"]),
+            .insert(parent: "r.1", index: 1, node: Node(key: "r.1.0:c", type: "row")),
         ])
         #expect(d.removed == ["r.1.0:a", "r.0.0"])
-        #expect(d.inserted == ["r.0.0"])
-        #expect(d.propsChanged == ["r.0.1"])
+        #expect(d.inserted == ["r.0.0", "r.1.0:c"])
+        #expect(d.updated == ["r.0.1", "r.1"])
         #expect(d.childrenChanged == ["r.0", "r.1"])
+        #expect(t["r.0"]?.children == ["r.0.1", "r.0.0"])
+        #expect(t["r.1"]?.children == ["r.1.0:b", "r.1.0:c"])
         #expect(!d.remounted)
         #expect(t["r.0.0"]?.type == "notice")
     }
@@ -183,7 +199,7 @@ import Testing
     @Test func designPatchExampleDecodes() throws {
         // plans/native.md §9, verbatim.
         let msg = try BridgeMessage(parsing: #"{"op":"patch","ops":[["set","r.0.0",{"detail":"43"}],["insert","r.0",2,{"k":"r.0.2","t":"notice","p":{"tone":"ok","text":"saved"}}],["remove","r.0.3"],["move","r.1:a",  "r.1",0]]}"#)
-        guard case .patch(let ops) = msg else { Issue.record("not a patch"); return }
+        guard case .patch(let ops, _) = msg else { Issue.record("not a patch"); return }
         #expect(ops == [
             .set(key: "r.0.0", props: ["detail": "43"]),
             .insert(parent: "r.0", index: 2, node: Node(key: "r.0.2", type: "notice", props: ["tone": "ok", "text": "saved"])),
@@ -196,6 +212,7 @@ import Testing
         let ops: [PatchOp] = [
             .set(key: "k", props: ["a": 1, "b": [true]]),
             .unset(key: "k", props: ["a", "b"]),
+            .events(key: "k", events: ["tap", "input"]),
             .insert(parent: "p", index: 3, node: Node(key: "n", type: "row", props: ["t": "x"], events: ["tap"])),
             .remove(key: "k"),
             .move(key: "k", parent: "p", index: 0),
@@ -205,8 +222,8 @@ import Testing
             #expect(try PatchOp(json: JSONValue(parsing: op.json.jsonString)) == op)
         }
         #expect(try PatchOp.list(json: .array(ops.map(\.json))) == ops)
-        #expect(ops.map(\.name) == ["set", "unset", "insert", "remove", "move"])
-        #expect(ops.map(\.target) == ["k", "k", "p", "k", "k"])
+        #expect(ops.map(\.name) == ["set", "unset", "events", "insert", "remove", "move"])
+        #expect(ops.map(\.target) == ["k", "k", "k", "p", "k", "k"])
         // Tolerated forms: one unset name as a string; an integral double index; trailing elements.
         #expect(try PatchOp(json: ["unset", "k", "a"]) == .unset(key: "k", props: ["a"]))
         #expect(try PatchOp(json: ["move", "k", "p", 2.0]) == .move(key: "k", parent: "p", index: 2))
@@ -218,6 +235,7 @@ import Testing
         #"["unset","k"]"#, #"["unset","k",[1]]"#, #"["unset","k",{}]"#, #"["insert","p",0]"#,
         #"["insert","p","0",{"k":"n","t":"x"}]"#, #"["insert","p",0.5,{"k":"n","t":"x"}]"#,
         #"["insert","p",0,{"k":"n"}]"#, #"["remove"]"#, #"["move","k","p"]"#, #"["move","k",1,0]"#,
+        #"["events","k"]"#, #"["events","k","tap"]"#, #"["events","k",[1]]"#,
     ])
     func malformedOps(_ text: String) throws {
         let v = try JSONValue(parsing: text)
@@ -239,8 +257,7 @@ import Testing
             var tree = try Tree(root: start)
             var ref = ReferenceTree(root: start)
             for step in 0..<40 {
-                let keys = tree.keysInOrder
-                let op = randomOp(keys: keys, &r)
+                let op = randomOp(tree: tree, &r)
                 let before = tree
                 var refAccepted = true
                 do { try ref.apply(op) } catch { refAccepted = false }
@@ -255,13 +272,15 @@ import Testing
         }
     }
 
-    func randomOp(keys: [String], _ r: inout SeededRNG) -> PatchOp {
+    func randomOp(tree: Tree, _ r: inout SeededRNG) -> PatchOp {
+        let keys = tree.keysInOrder
         func key() -> String { Int.random(in: 0..<20, using: &r) == 0 ? "missing" : keys.randomElement(using: &r)! }
         func index() -> Int { Int.random(in: -1...5, using: &r) }
-        switch Int.random(in: 0..<6, using: &r) {
+        switch Int.random(in: 0..<7, using: &r) {
         case 0: return .set(key: key(), props: Gen.props(&r))
         case 1: return .unset(key: key(), props: Gen.propNames.filter { _ in Bool.random(using: &r) })
-        case 2, 3:
+        case 2: return .events(key: key(), events: Gen.eventList(&r))
+        case 3, 4:
             var n = Gen.tree(&r, maxNodes: 4)
             // Fresh keys, except sometimes a clash on purpose.
             let prefix = Int.random(in: 0..<8, using: &r) == 0 ? "" : "i\(r.next() % 100_000)"
@@ -271,8 +290,12 @@ import Testing
             }
             rekey(&n)
             return .insert(parent: key(), index: index(), node: n)
-        case 4: return .remove(key: key())
-        default: return .move(key: key(), parent: key(), index: index())
+        case 5: return .remove(key: key())
+        default:
+            // Mostly a real move within the parent; sometimes a wrong parent.
+            let k = key()
+            let parent = Int.random(in: 0..<5, using: &r) == 0 ? key() : (tree[k]?.parent ?? key())
+            return .move(key: k, parent: parent, index: index())
         }
     }
 
@@ -309,10 +332,10 @@ func checkDelta(_ d: TreeDelta, before: Tree, after: Tree, sourceLocation: Sourc
     #expect(replaced == d.inserted.intersection(b), sourceLocation: sourceLocation)
     for k in b.intersection(a).subtracting(replaced) {
         let x = try #require(before[k]), y = try #require(after[k])
-        #expect(x.type == y.type && x.events == y.events, "\(k) changed shape without being replaced", sourceLocation: sourceLocation)
-        if x.props != y.props { #expect(d.propsChanged.contains(k), "props of \(k)", sourceLocation: sourceLocation) }
+        #expect(x.type == y.type, "\(k) changed type without being replaced", sourceLocation: sourceLocation)
+        if x.props != y.props || x.events != y.events { #expect(d.updated.contains(k), "props/events of \(k)", sourceLocation: sourceLocation) }
         if x.children != y.children { #expect(d.childrenChanged.contains(k), "children of \(k)", sourceLocation: sourceLocation) }
     }
-    #expect(d.propsChanged.isDisjoint(with: d.inserted) && d.childrenChanged.isDisjoint(with: d.inserted), sourceLocation: sourceLocation)
-    #expect(d.propsChanged.isSubset(of: a) && d.childrenChanged.isSubset(of: a), sourceLocation: sourceLocation)
+    #expect(d.updated.isDisjoint(with: d.inserted) && d.childrenChanged.isDisjoint(with: d.inserted), sourceLocation: sourceLocation)
+    #expect(d.updated.isSubset(of: a) && d.childrenChanged.isSubset(of: a), sourceLocation: sourceLocation)
 }

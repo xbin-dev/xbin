@@ -1,8 +1,11 @@
 import Foundation
 
-// The runtime bridge of plans/native.md §9. Runtime → app: messages posted to
-// the `xbn` WKScriptMessageHandler, decoded by ``BridgeMessage``. App →
-// runtime: JavaScript for `callAsyncJavaScript`, built by ``RuntimeCall``.
+// The runtime bridge of plans/native.md §9 (the runtime's contract:
+// native/spec/tree.md; its implementation: web/xb/rt-runtime.js). Runtime →
+// app: messages posted to the `xbn` WKScriptMessageHandler, decoded by
+// ``BridgeMessage``. App → runtime: JavaScript for `callAsyncJavaScript`,
+// built by ``RuntimeCall``; the document-start injection by
+// ``RuntimeScript``.
 
 /// A message from a native tile's runtime to the app.
 ///
@@ -12,18 +15,25 @@ import Foundation
 /// where WebKit's object bridging turns everything into `NSNumber`s.
 /// ``BridgeMessage/init(body:)`` accepts either.
 public enum BridgeMessage: Sendable, Equatable {
-    /// `{"op":"mount","v":1,"root":node}` — replace the tree.
-    case mount(version: Int, root: Node)
-    /// `{"op":"patch","ops":[op, …]}` — apply ops in order.
-    case patch([PatchOp])
+    /// `{"op":"mount","v":1,"n":1,"root":node}` — replace the tree. `n`
+    /// counts the runtime's tree messages (mounts and patches).
+    case mount(version: Int, root: Node, n: Int? = nil)
+    /// `{"op":"patch","n":2,"ops":[op, …]}` — apply ops in order.
+    case patch([PatchOp], n: Int? = nil)
     /// `{"op":"meta","title"?,"icon"?,"badge"?}` — `xbin.native.meta(…)`.
     case meta(NativeMeta)
-    /// `{"op":"error","kind","message","where"}` — the runtime reports a
-    /// problem (a module error, a diagnostic, a render timeout).
+    /// `{"op":"error","kind","message","where","stack"?}` — the runtime
+    /// reports a failure (`module`, `exception`, `uncaught`, `unsupported`).
     case error(RuntimeError)
+    /// `{"op":"diag","level","code","message","where"}` — a diagnostic for
+    /// the tile's author (unknown prop, raw value, …); the view keeps going.
+    case diag(RuntimeDiagnostic)
+    /// `{"op":"state","state":…}` — `xbin.native.saveState(…)`: the blob
+    /// the app keeps for the tile and injects on the next runtime start.
+    case state(JSONValue)
     /// `{"op":"call","id","what","args"}` — the tile asks the app for
     /// something (copy, share, open, …); answer with
-    /// ``RuntimeCall/resolve(id:value:)``.
+    /// ``RuntimeCall/resolve(id:value:error:)``.
     case call(BridgeCall)
     /// An op this version doesn't know — ignored (the bridge only grows).
     case unknown(op: String, body: JSONValue)
@@ -35,6 +45,8 @@ public enum BridgeMessage: Sendable, Equatable {
         case .patch: return "patch"
         case .meta: return "meta"
         case .error: return "error"
+        case .diag: return "diag"
+        case .state: return "state"
         case .call: return "call"
         case .unknown(let op, _): return op
         }
@@ -61,18 +73,24 @@ extension BridgeMessage {
                 v = i
             }
             guard let root = o["root"] else { throw BridgeDecodingError("mount: root missing") }
-            do { self = .mount(version: v, root: try Node(json: root)) } catch let e as NodeDecodingError {
+            let n = try Self.sequence(o, "mount")
+            do { self = .mount(version: v, root: try Node(json: root), n: n) } catch let e as NodeDecodingError {
                 throw BridgeDecodingError("mount: \(e)")
             }
         case "patch":
             guard let ops = o["ops"] else { throw BridgeDecodingError("patch: ops missing") }
-            do { self = .patch(try PatchOp.list(json: ops)) } catch let e as PatchError {
+            let n = try Self.sequence(o, "patch")
+            do { self = .patch(try PatchOp.list(json: ops), n: n) } catch let e as PatchError {
                 throw BridgeDecodingError("patch: \(e)")
             }
         case "meta":
             self = .meta(NativeMeta(fields: o))
         case "error":
             self = .error(RuntimeError(fields: o))
+        case "diag":
+            self = .diag(RuntimeDiagnostic(fields: o))
+        case "state":
+            self = .state(o["state"] ?? .null)
         case "call":
             guard let id = o["id"], !id.isNull else { throw BridgeDecodingError("call: id missing") }
             guard case .string(let what)? = o["what"] else { throw BridgeDecodingError("call: what must be a string") }
@@ -80,6 +98,12 @@ extension BridgeMessage {
         default:
             self = .unknown(op: op, body: json)
         }
+    }
+
+    static func sequence(_ o: [String: JSONValue], _ op: String) throws -> Int? {
+        guard let raw = o["n"], !raw.isNull else { return nil }
+        guard let n = raw.intValue, let i = Int(exactly: n) else { throw BridgeDecodingError("\(op): n must be an integer") }
+        return i
     }
 
     /// Parses and decodes a message from JSON text.
@@ -108,8 +132,14 @@ extension BridgeMessage {
     /// The wire JSON.
     public var json: JSONValue {
         switch self {
-        case .mount(let v, let root): return ["op": "mount", "v": .int(Int64(v)), "root": root.json]
-        case .patch(let ops): return ["op": "patch", "ops": .array(ops.map(\.json))]
+        case .mount(let v, let root, let n):
+            var o: [String: JSONValue] = ["op": "mount", "v": .int(Int64(v)), "root": root.json]
+            if let n { o["n"] = .int(Int64(n)) }
+            return .object(o)
+        case .patch(let ops, let n):
+            var o: [String: JSONValue] = ["op": "patch", "ops": .array(ops.map(\.json))]
+            if let n { o["n"] = .int(Int64(n)) }
+            return .object(o)
         case .meta(let m):
             var o = m.fields
             o["op"] = "meta"
@@ -118,6 +148,11 @@ extension BridgeMessage {
             var o = e.fields
             o["op"] = "error"
             return .object(o)
+        case .diag(let d):
+            var o = d.fields
+            o["op"] = "diag"
+            return .object(o)
+        case .state(let st): return ["op": "state", "state": st]
         case .call(let c): return ["op": "call", "id": c.id, "what": .string(c.what), "args": c.args]
         case .unknown(_, let body): return body
         }
@@ -178,26 +213,61 @@ public struct RuntimeError: Sendable, Equatable {
         fields = f
     }
 
-    /// The error class (e.g. `module`, `render`, `timeout`, `unsupported`).
+    /// The error class: `module` (native.js didn't load), `exception` (a
+    /// render threw), `unsupported` (a primitive or prop this app lacks),
+    /// `uncaught` (a handler or a promise failed), or a later addition.
     public var kind: String { fields["kind"]?.stringValue ?? "" }
+
+    /// The kinds after which the native view can't be trusted: the app
+    /// shows the web tile instead (plans/native.md §7.6, §11).
+    public static let fatalKinds: Set<String> = ["module", "exception", "unsupported"]
+
+    public var isFatal: Bool { Self.fatalKinds.contains(kind) }
     public var message: String { fields["message"]?.stringValue ?? "" }
     /// Where it happened (a template location, a module URL); objects are
     /// rendered as JSON.
     public var location: String? {
         switch fields["where"] {
         case nil, .null?: return nil
-        case .string(let s)?: return s
+        case .string(let s)?: return s.isEmpty ? nil : s
+        case let other?: return other.jsonString
+        }
+    }
+}
+
+/// A diagnostic from the runtime (`{"op":"diag","level","code","message","where"}`),
+/// for the tile's author — shown in a debug overlay or the tile's report,
+/// never to end users as an error.
+public struct RuntimeDiagnostic: Sendable, Equatable {
+    /// Every field except `op`, verbatim.
+    public var fields: [String: JSONValue]
+
+    public init(fields: [String: JSONValue]) {
+        var f = fields
+        f["op"] = nil
+        self.fields = f
+    }
+
+    /// `info`, `warn` or `error`.
+    public var level: String { fields["level"]?.stringValue ?? "" }
+    public var code: String { fields["code"]?.stringValue ?? "" }
+    public var message: String { fields["message"]?.stringValue ?? "" }
+    public var location: String? {
+        switch fields["where"] {
+        case nil, .null?: return nil
+        case .string(let s)?: return s.isEmpty ? nil : s
         case let other?: return other.jsonString
         }
     }
 }
 
 /// A request from tile code to the app (`xbin.native.copy/share/open/…`).
-/// Answer every call exactly once with ``RuntimeCall/resolve(id:value:)``.
+/// Answer every call exactly once with ``RuntimeCall/resolve(id:value:error:)``.
 public struct BridgeCall: Sendable, Equatable {
     /// The runtime's id for the call, echoed verbatim in the answer.
     public var id: JSONValue
-    /// What is asked (`copy`, `share`, `open`, `saveState`, …).
+    /// What is asked: `copy {text}`, `share {text?, url?, file?}`,
+    /// `open {url}` (https only), or a later addition.
     public var what: String
     /// The arguments as the runtime sent them.
     public var args: JSONValue
@@ -240,24 +310,32 @@ public enum RuntimeVisibility: String, Sendable, CaseIterable {
 /// literal (``JSONValue/jsLiteral(htmlSafe:)``), so no string the tile or the
 /// user controls can escape its argument.
 public enum RuntimeCall: Sendable, Equatable {
-    /// `xbn.event(k, type, payload)` — a user event on node `key`.
-    case event(key: String, type: String, payload: JSONValue)
+    /// `xbn.event(k, type, payload, n?)` — a user action on node `key`. `n`
+    /// is the last tree message (``TreeStore/treeSequence``) the renderer had
+    /// applied when the user acted, so the runtime can tell a stale report
+    /// of a controlled value from a fresh one (``TreeStore/event(_:_:payload:)``
+    /// fills it in).
+    case event(key: String, type: String, payload: JSONValue, n: Int? = nil)
     /// `xbn.visibility(state)` — the tile went on or off screen.
     case visibility(RuntimeVisibility)
-    /// `xbn.resolve(id, value)` — the answer to a ``BridgeCall``.
-    case resolve(id: JSONValue, value: JSONValue)
-    /// `xbn.frame()` — a tick of the renderer's frame clock (drives
-    /// `requestAnimationFrame`).
+    /// `xbn.resolve(id, value, error?)` — the answer to a ``BridgeCall``; a
+    /// non-nil `error` rejects the tile's promise with that message.
+    case resolve(id: JSONValue, value: JSONValue, error: String? = nil)
+    /// `xbn.frame()` — a tick of the renderer's frame clock (flushes a
+    /// pending render at once).
     case frame
 
     /// The call expression, e.g. `xbn.event("r.0.1","tap",{})`.
     public var javaScript: String {
         switch self {
-        case .event(let k, let t, let p):
-            return "xbn.event(\(JSONValue.string(k).jsLiteral()),\(JSONValue.string(t).jsLiteral()),\(p.jsLiteral()))"
+        case .event(let k, let t, let p, let n):
+            let args = [JSONValue.string(k).jsLiteral(), JSONValue.string(t).jsLiteral(), p.jsLiteral()]
+                + (n.map { [String($0)] } ?? [])
+            return "xbn.event(\(args.joined(separator: ",")))"
         case .visibility(let s):
             return "xbn.visibility(\(JSONValue.string(s.rawValue).jsLiteral()))"
-        case .resolve(let id, let v):
+        case .resolve(let id, let v, let err):
+            if let err { return "xbn.resolve(\(id.jsLiteral()),\(v.jsLiteral()),\(JSONValue.string(err).jsLiteral()))" }
             return "xbn.resolve(\(id.jsLiteral()),\(v.jsLiteral()))"
         case .frame:
             return "xbn.frame()"
@@ -267,6 +345,19 @@ public enum RuntimeCall: Sendable, Equatable {
     /// `return <call>;` — for callers that want the call's value (or its
     /// promise) back from `callAsyncJavaScript`.
     public var functionBody: String { "return \(javaScript);" }
+}
+
+/// Scripts the app injects into a runtime document.
+public enum RuntimeScript {
+    /// The document-start user script: `window.xbin = {native: {caps,
+    /// state}}` — what `xb-native.js` reads before `native.js` runs
+    /// (`xbin-client.js` carries `native` over into the frozen `xbin`
+    /// object). `state` is the blob the tile last saved (``TreeStore/savedState``),
+    /// or nil.
+    public static func documentStart(caps: NativeCaps, state: JSONValue?) -> String {
+        let xbin: JSONValue = ["native": ["caps": caps.json, "state": state ?? .null]]
+        return "window.xbin = \(xbin.jsLiteral(htmlSafe: true));"
+    }
 }
 
 /// `xbin.native.caps` (plans/native.md §7.4, §11): what this app renders,
@@ -314,8 +405,8 @@ public struct NativeCaps: Sendable, Equatable {
         features = (o["features"]?.arrayValue ?? []).compactMap(\.stringValue)
     }
 
-    /// `xbin.native.supports(name[, rev])`, app side.
-    public func supports(_ name: String, revision: Int = 0) -> Bool {
+    /// `xbin.native.supports(name[, rev])`, app side (revisions start at 1).
+    public func supports(_ name: String, revision: Int = 1) -> Bool {
         if let r = prims[name] { return r >= revision }
         return features.contains(name)
     }

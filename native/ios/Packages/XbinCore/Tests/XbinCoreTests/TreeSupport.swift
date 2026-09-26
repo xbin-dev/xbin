@@ -131,8 +131,10 @@ func normalizeWire(_ v: JSONValue) -> JSONValue {
 
 // MARK: - A reference model: the same op semantics on a nested Node
 
-/// An independent, deliberately naive implementation of §9 patch
-/// application on a nested `Node`, for differential tests against `Tree`.
+/// An independent, deliberately naive implementation of the patch ops on a
+/// nested `Node` (the semantics of the runtime's reference `applyOps`, plus
+/// the app's strictness: unknown keys, bad indexes, duplicate keys and
+/// cross-parent moves are refused), for differential tests against `Tree`.
 struct ReferenceTree {
     var root: Node
 
@@ -169,7 +171,10 @@ struct ReferenceTree {
             modify(at: p) { n in for (name, v) in props { n.props[name] = v } }
         case .unset(let k, let names):
             guard let p = path(to: k) else { throw Refused() }
-            modify(at: p) { n in for name in names { n.props[name] = nil } }
+            modify(at: p) { n in for name in names { n.props.removeValue(forKey: name) } }
+        case .events(let k, let types):
+            guard let p = path(to: k) else { throw Refused() }
+            modify(at: p) { $0.events = types }
         case .insert(let parent, let i, let node):
             guard let p = path(to: parent) else { throw Refused() }
             let count = self.node(at: p).children.count
@@ -182,18 +187,15 @@ struct ReferenceTree {
             guard let p = path(to: k), !p.isEmpty else { throw Refused() }
             modify(at: Array(p.dropLast())) { $0.children.remove(at: p.last!) }
         case .move(let k, let parent, let i):
-            guard let kp = path(to: k), !kp.isEmpty, let pp = path(to: parent) else { throw Refused() }
-            guard !pp.starts(with: kp) else { throw Refused() } // into its own subtree
-            let moving = node(at: kp)
-            let oldParent = Array(kp.dropLast())
-            var copy = self
-            copy.modify(at: oldParent) { $0.children.remove(at: kp.last!) }
-            guard let np = copy.path(to: parent) else { throw Refused() }
-            let count = copy.node(at: np).children.count
+            guard let kp = path(to: k), !kp.isEmpty else { throw Refused() }
+            let pp = Array(kp.dropLast())
+            guard node(at: pp).key == parent else { throw Refused() } // within its parent only
+            let count = node(at: pp).children.count - 1
             guard i >= 0, i <= count else { throw Refused() }
-            guard np.count + 1 + depth(moving) <= Tree.maxDepth else { throw Refused() }
-            copy.modify(at: np) { $0.children.insert(moving, at: i) }
-            self = copy
+            modify(at: pp) { n in
+                let moving = n.children.remove(at: kp.last!)
+                n.children.insert(moving, at: i)
+            }
         }
     }
 }
@@ -201,9 +203,10 @@ struct ReferenceTree {
 // MARK: - A keyed diff (test-only): the ops that turn a tree into a target
 
 /// The patch ops that turn `current` into `target` (same root key and
-/// shape), in the style the runtime emits: props via set/unset, existing
-/// keys moved into place, missing ones inserted, leftovers removed; a key
-/// whose type or events changed is removed and re-inserted.
+/// type), in the style the runtime emits: set/unset/events on kept nodes,
+/// kept children moved into place within their parent, missing ones
+/// inserted, leftovers removed; a key whose type changed, or that sits under
+/// another parent, is removed and inserted afresh.
 func diffOps(from current: Tree, to target: Node) throws -> [PatchOp] {
     var t = current
     var ops: [PatchOp] = []
@@ -211,24 +214,23 @@ func diffOps(from current: Tree, to target: Node) throws -> [PatchOp] {
         try t.apply(op)
         ops.append(op)
     }
-    func sameShape(_ e: Tree.Entry, _ n: Node) -> Bool { e.type == n.type && e.events == n.events && e.extra == n.extra }
-    func syncProps(_ n: Node) throws {
+    func syncNode(_ n: Node) throws {
         let e = t[n.key]!
         var set: [String: JSONValue] = [:]
         for (k, v) in n.props where e.props[k] != v { set[k] = v }
         let unset = e.props.keys.filter { n.props[$0] == nil }.sorted()
         if !set.isEmpty { try emit(.set(key: n.key, props: set)) }
         if !unset.isEmpty { try emit(.unset(key: n.key, props: unset)) }
+        if e.events != n.events { try emit(.events(key: n.key, events: n.events)) }
     }
     func sync(_ n: Node) throws {
-        try syncProps(n)
+        try syncNode(n)
         for (i, c) in n.children.enumerated() {
-            let cur = t[n.key]!.children
-            if let e = t[c.key], !sameShape(e, c) { try emit(.remove(key: c.key)) }
-            if i < cur.count, cur[i] == c.key, t[c.key] != nil {
-                // already in place
-            } else if t[c.key] != nil {
-                try emit(.move(key: c.key, parent: n.key, index: i))
+            if let e = t[c.key], e.type != c.type || e.extra != c.extra || e.parent != n.key {
+                try emit(.remove(key: c.key))
+            }
+            if t[c.key] != nil {
+                if t.index(of: c.key) != i { try emit(.move(key: c.key, parent: n.key, index: i)) }
             } else {
                 var shell = c
                 shell.children = []

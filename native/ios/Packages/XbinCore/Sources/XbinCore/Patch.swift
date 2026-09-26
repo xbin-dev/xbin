@@ -1,20 +1,26 @@
 import Foundation
 
-/// One patch op of plans/native.md §9. On the wire each op is an array:
+/// One patch op (plans/native.md §9; the runtime's contract is
+/// native/spec/tree.md, its reference `applyOps` is web/xb/rt-diff.js). On
+/// the wire each op is an array; ops apply in order, and an index refers to
+/// the parent's children at the time its op applies:
 ///
 /// | Op | Wire | Meaning |
 /// |---|---|---|
 /// | set | `["set", key, {props}]` | merge props into the node (a `null` value is a value, not a removal) |
 /// | unset | `["unset", key, [names]]` (or one name as a string) | remove props; unknown names are ignored |
+/// | events | `["events", key, [types]]` | replace the events the tile listens to on the node |
 /// | insert | `["insert", parent, index, node]` | insert a subtree as the parent's `index`th child (`0…count`) |
 /// | remove | `["remove", key]` | remove a subtree (never the root — mount replaces it) |
-/// | move | `["move", key, parent, index]` | detach a subtree and re-insert it at `index` of `parent` (the index counts after detaching; the parent may differ) |
+/// | move | `["move", key, parent, index]` | move a child **within** `parent` (which must be its parent) to `index`, counted after it left |
 ///
+/// A child whose type changes under the same key arrives as remove + insert.
 /// Elements after the ones listed are ignored, so an op can grow
 /// additively; an unknown op name is an error (the app falls back to web).
 public enum PatchOp: Sendable, Hashable {
     case set(key: String, props: [String: JSONValue])
     case unset(key: String, props: [String])
+    case events(key: String, events: [String])
     case insert(parent: String, index: Int, node: Node)
     case remove(key: String)
     case move(key: String, parent: String, index: Int)
@@ -24,6 +30,7 @@ public enum PatchOp: Sendable, Hashable {
         switch self {
         case .set: return "set"
         case .unset: return "unset"
+        case .events: return "events"
         case .insert: return "insert"
         case .remove: return "remove"
         case .move: return "move"
@@ -33,7 +40,7 @@ public enum PatchOp: Sendable, Hashable {
     /// The node key the op acts on (for `insert`, the parent).
     public var target: String {
         switch self {
-        case .set(let k, _), .unset(let k, _), .remove(let k), .move(let k, _, _): return k
+        case .set(let k, _), .unset(let k, _), .events(let k, _), .remove(let k), .move(let k, _, _): return k
         case .insert(let p, _, _): return p
         }
     }
@@ -55,8 +62,9 @@ public enum PatchError: Error, Equatable, Sendable, CustomStringConvertible {
     case indexOutOfRange(key: String, index: Int, count: Int)
     /// Removing or moving the root.
     case rootOp(String)
-    /// Moving a node into its own subtree.
-    case cycle(key: String, parent: String)
+    /// A move naming a parent that isn't the node's parent (moves stay
+    /// within a parent).
+    case notAChild(key: String, parent: String)
     /// The tree would nest deeper than ``Tree/maxDepth``.
     case tooDeep(String)
     /// A patch arrived before any mount.
@@ -70,7 +78,7 @@ public enum PatchError: Error, Equatable, Sendable, CustomStringConvertible {
         case .duplicateKey(let k): return "duplicate key \(k)"
         case .indexOutOfRange(let k, let i, let n): return "index \(i) out of range 0…\(n) in \(k)"
         case .rootOp(let s): return "\(s) of the root"
-        case .cycle(let k, let p): return "moving \(k) into its own subtree (\(p))"
+        case .notAChild(let k, let p): return "\(k) is not a child of \(p)"
         case .tooDeep(let k): return "tree deeper than \(Tree.maxDepth) at \(k)"
         case .notMounted: return "patch before mount"
         }
@@ -114,6 +122,15 @@ extension PatchOp {
                 self = .unset(key: k, props: out)
             default: throw PatchError.malformed("unset: names must be an array")
             }
+        case "events":
+            let k = try str(1, "key")
+            guard a.count > 2, case .array(let types) = a[2] else { throw PatchError.malformed("events: types must be an array") }
+            var out: [String] = []
+            for t in types {
+                guard case .string(let s) = t else { throw PatchError.malformed("events: types must be strings") }
+                out.append(s)
+            }
+            self = .events(key: k, events: out)
         case "insert":
             let p = try str(1, "parent")
             let i = try idx(2)
@@ -135,6 +152,7 @@ extension PatchOp {
         switch self {
         case .set(let k, let p): return ["set", .string(k), .object(p)]
         case .unset(let k, let names): return ["unset", .string(k), .array(names.map(JSONValue.string))]
+        case .events(let k, let types): return ["events", .string(k), .array(types.map(JSONValue.string))]
         case .insert(let p, let i, let n): return ["insert", .string(p), .int(Int64(i)), n.json]
         case .remove(let k): return ["remove", .string(k)]
         case .move(let k, let p, let i): return ["move", .string(k), .string(p), .int(Int64(i))]
@@ -152,14 +170,14 @@ extension PatchOp {
 
 /// What one mount or patch changed, so a renderer re-reads only those
 /// entries. Apply it in this order: drop views for ``removed``, build views
-/// for ``inserted``, refresh ``propsChanged``, re-list ``childrenChanged``.
+/// for ``inserted``, refresh ``updated``, re-list ``childrenChanged``.
 ///
 /// - ``inserted``: keys created by this change that are in the tree now.
 /// - ``removed``: keys that were in the tree before and were removed — a
 ///   key removed and re-inserted in one patch (possibly as another type) is
 ///   in both sets: rebuild it.
-/// - ``propsChanged``: surviving keys (not in ``inserted``) whose props
-///   actually changed (a `set` to the same value is not a change).
+/// - ``updated``: surviving keys (not in ``inserted``) whose props or
+///   events actually changed (a `set` to the same value is not a change).
 /// - ``childrenChanged``: surviving keys (not in ``inserted``) whose child
 ///   list changed (insert, remove, move in or out, reorder).
 public struct TreeDelta: Sendable, Equatable {
@@ -167,13 +185,13 @@ public struct TreeDelta: Sendable, Equatable {
     public var remounted = false
     public var inserted: Set<String> = []
     public var removed: Set<String> = []
-    public var propsChanged: Set<String> = []
+    public var updated: Set<String> = []
     public var childrenChanged: Set<String> = []
 
     public init() {}
 
     public var isEmpty: Bool {
-        !remounted && inserted.isEmpty && removed.isEmpty && propsChanged.isEmpty && childrenChanged.isEmpty
+        !remounted && inserted.isEmpty && removed.isEmpty && updated.isEmpty && childrenChanged.isEmpty
     }
 
     /// Keys born in this change (so a later removal of one is not a
@@ -192,14 +210,14 @@ public struct TreeDelta: Sendable, Equatable {
 
     /// Drops keys that don't need reporting once the change is complete.
     mutating func finish(in tree: Tree) {
-        propsChanged = propsChanged.filter { tree.contains($0) && !inserted.contains($0) }
+        updated = updated.filter { tree.contains($0) && !inserted.contains($0) }
         childrenChanged = childrenChanged.filter { tree.contains($0) && !inserted.contains($0) }
         born = []
     }
 
     public static func == (a: TreeDelta, b: TreeDelta) -> Bool {
         a.remounted == b.remounted && a.inserted == b.inserted && a.removed == b.removed
-            && a.propsChanged == b.propsChanged && a.childrenChanged == b.childrenChanged
+            && a.updated == b.updated && a.childrenChanged == b.childrenChanged
     }
 }
 
@@ -254,7 +272,7 @@ extension Tree {
                     changed = true
                 }
             }
-            if changed { d.propsChanged.insert(k) }
+            if changed { d.updated.insert(k) }
 
         case .unset(let k, let names):
             guard entries[k] != nil else { throw PatchError.unknownKey(k) }
@@ -262,7 +280,18 @@ extension Tree {
             withEntry(k) { e in
                 for name in names where e.props.removeValue(forKey: name) != nil { changed = true }
             }
-            if changed { d.propsChanged.insert(k) }
+            if changed { d.updated.insert(k) }
+
+        case .events(let k, let types):
+            guard entries[k] != nil else { throw PatchError.unknownKey(k) }
+            var changed = false
+            withEntry(k) { e in
+                if e.events != types {
+                    e.events = types
+                    changed = true
+                }
+            }
+            if changed { d.updated.insert(k) }
 
         case .insert(let p, let i, let node):
             // Read counts, never hold an Entry copy across a mutation: the
@@ -283,17 +312,13 @@ extension Tree {
 
         case .move(let k, let p, let i):
             guard entries[k] != nil else { throw PatchError.unknownKey(k) }
-            guard let old = entries[k]?.parent else { throw PatchError.rootOp("move") }
-            guard let siblings = entries[p]?.children.count else { throw PatchError.unknownKey(p) }
-            if isWithin(p, subtreeOf: k) { throw PatchError.cycle(key: k, parent: p) }
-            let count = siblings - (old == p ? 1 : 0)
+            guard let parent = entries[k]?.parent else { throw PatchError.rootOp("move") }
+            guard parent == p else { throw PatchError.notAChild(key: k, parent: p) }
+            let count = (entries[p]?.children.count ?? 1) - 1
             guard i >= 0, i <= count else { throw PatchError.indexOutOfRange(key: p, index: i, count: count) }
-            if old != p, depth(of: p) + depth(ofSubtree: k) > Self.maxDepth { throw PatchError.tooDeep(k) }
-            if old == p, index(of: k) == i { return } // already there
-            unlink(k, from: old)
+            if index(of: k) == i { return } // already there
+            unlink(k, from: p)
             withEntry(p) { $0.children.insert(k, at: i) }
-            withEntry(k) { $0.parent = p }
-            d.childrenChanged.insert(old)
             d.childrenChanged.insert(p)
         }
     }
@@ -306,18 +331,6 @@ extension Tree {
 
     /// 1 for the root, 2 for its children, …
     func depth(of key: String) -> Int { ancestors(of: key).count + 1 }
-
-    /// The height of the subtree at `key` (1 for a leaf).
-    func depth(ofSubtree key: String) -> Int {
-        guard let e = entries[key] else { return 0 }
-        var best = 0
-        var stack = [(e, 1)]
-        while let (cur, h) = stack.popLast() {
-            best = max(best, h)
-            for c in cur.children { if let ce = entries[c] { stack.append((ce, h + 1)) } }
-        }
-        return best
-    }
 
     static func height(_ n: Node) -> Int {
         var best = 0

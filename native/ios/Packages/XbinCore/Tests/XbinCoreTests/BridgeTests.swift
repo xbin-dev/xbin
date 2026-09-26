@@ -27,6 +27,24 @@ import Testing
         #expect(future == .unknown(op: "haptic", body: ["op": "haptic", "style": "light"]))
     }
 
+    @Test func runtimeMessageShapes() throws {
+        // What web/xb/rt-runtime.js posts.
+        #expect(try BridgeMessage(parsing: #"{"op":"mount","v":1,"n":1,"root":{"k":"r","t":"text"}}"#)
+            == .mount(version: 1, root: Node(key: "r", type: "text"), n: 1))
+        #expect(try BridgeMessage(parsing: #"{"op":"patch","n":7,"ops":[["events","r",["tap"]]]}"#)
+            == .patch([.events(key: "r", events: ["tap"])], n: 7))
+        #expect(try BridgeMessage(parsing: #"{"op":"diag","level":"warn","code":"unknown-prop","message":"row has no prop x","where":"native.js:3"}"#)
+            == .diag(RuntimeDiagnostic(fields: ["level": "warn", "code": "unknown-prop", "message": "row has no prop x", "where": "native.js:3"])))
+        #expect(try BridgeMessage(parsing: #"{"op":"state","state":{"tab":"keys"}}"#) == .state(["tab": "keys"]))
+        #expect(try BridgeMessage(parsing: #"{"op":"state"}"#) == .state(.null))
+        #expect(try BridgeMessage(parsing: #"{"op":"call","id":"c1","what":"copy","args":{"text":"hi"}}"#)
+            == .call(BridgeCall(id: "c1", what: "copy", args: ["text": "hi"])))
+        let err = try BridgeMessage(parsing: #"{"op":"error","kind":"module","message":"x","where":"","stack":"at y"}"#)
+        guard case .error(let e) = err else { Issue.record("not an error"); return }
+        #expect(e.isFatal && e.location == nil && e.fields["stack"] == "at y")
+        #expect(throws: BridgeDecodingError.self) { try BridgeMessage(parsing: #"{"op":"patch","n":"2","ops":[]}"#) }
+    }
+
     @Test func wireRoundTrip() throws {
         let messages: [BridgeMessage] = [
             .mount(version: 1, root: try Resources.tree("18.3-egress-approver").root),
@@ -34,6 +52,10 @@ import Testing
             .meta(NativeMeta(fields: ["title": "x", "icon": "bolt"])),
             .error(RuntimeError(kind: "render", message: "timeout", where: "native.js")),
             .call(BridgeCall(id: "c1", what: "share", args: [["text": "hi", "url": "https://x"]])),
+            .mount(version: 1, root: Node(key: "r", type: "text"), n: 3),
+            .patch([.events(key: "r", events: [])], n: 4),
+            .diag(RuntimeDiagnostic(fields: ["level": "info", "code": "c", "message": "m"])),
+            .state(["a": [1, 2.5]]),
             .unknown(op: "later", body: ["op": "later", "n": 1]),
         ]
         for m in messages {
@@ -100,6 +122,9 @@ import Testing
         #expect(RuntimeCall.resolve(id: 7, value: true).javaScript == "xbn.resolve(7,true)")
         #expect(RuntimeCall.resolve(id: "c1", value: .null).javaScript == #"xbn.resolve("c1",null)"#)
         #expect(RuntimeCall.frame.javaScript == "xbn.frame()")
+        #expect(RuntimeCall.event(key: "r.0", type: "input", payload: ["value": "a"], n: 12).javaScript
+            == #"xbn.event("r.0","input",{"value":"a"},12)"#)
+        #expect(RuntimeCall.resolve(id: "c2", value: .null, error: "no https").javaScript == #"xbn.resolve("c2",null,"no https")"#)
         #expect(RuntimeCall.frame.functionBody == "return xbn.frame();")
     }
 
@@ -123,6 +148,16 @@ import Testing
             let args = try JSONValue(parsing: "[" + js.dropFirst("xbn.event(".count).dropLast() + "]")
             #expect(args == [.string(key), .string(type), payload])
         }
+    }
+
+    @Test func documentStartScript() throws {
+        let caps = NativeCaps(renderer: "swiftui", app: "1.0", prims: ["screen": 1])
+        let js = RuntimeScript.documentStart(caps: caps, state: ["note": "</script>"])
+        #expect(js == #"window.xbin = {"native":{"caps":{"app":"1.0","features":[],"prims":{"screen":1},"renderer":"swiftui","v":1},"state":{"note":"\u003c/script\u003e"}}};"#)
+        #expect(RuntimeScript.documentStart(caps: caps, state: nil).contains(#""state":null"#))
+        // The injected value parses back.
+        let literal = js.dropFirst("window.xbin = ".count).dropLast()
+        #expect(try JSONValue(parsing: String(literal))["native"]?["state"] == ["note": "</script>"])
     }
 
     @Test func caps() throws {

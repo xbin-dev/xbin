@@ -23,7 +23,7 @@ import Testing
         let e = store.apply(.patch([.set(key: "r.0.0", props: ["detail": "43"]), .set(key: "r.0.1", props: ["busy": true])]))
         #expect(store.revision == 2)
         guard case .tree(2, let d2)? = e else { Issue.record("no patch event"); return }
-        #expect(d2.propsChanged == ["r.0.0", "r.0.1"] && !d2.remounted)
+        #expect(d2.updated == ["r.0.0", "r.0.1"] && !d2.remounted)
         #expect(store.tree["r.0.0"]?[prop: "detail"] == "43")
         #expect(rec.events.count == 2 && rec.events.last == e)
         obs.cancel()
@@ -101,7 +101,7 @@ import Testing
         store.apply(.meta(NativeMeta(fields: ["badge": .null])))
         #expect(store.meta.fields == ["title": "Today"])
 
-        let err = RuntimeError(kind: "module", message: "boom")
+        let err = RuntimeError(kind: "uncaught", message: "boom")
         #expect(store.apply(.error(err)) == .runtimeError(err))
         #expect(store.lastRuntimeError == err)
 
@@ -114,6 +114,63 @@ import Testing
         #expect(store.meta.title == "Today")   // meta survives a remount
         #expect(rec.events.count == 5)
         _ = obs
+    }
+
+    @Test func treeSequenceFeedsEvents() throws {
+        let store = TreeStore()
+        #expect(store.event("r.0.1", "tap") == .event(key: "r.0.1", type: "tap", payload: [:], n: nil))
+        store.receive(body: #"{"op":"mount","v":1,"n":1,"root":{"k":"r","t":"screen","c":[{"k":"r.0","t":"field","p":{"value":""},"e":["input"]}]}}"#)
+        #expect(store.treeSequence == 1)
+        store.receive(body: #"{"op":"patch","n":2,"ops":[["set","r.0",{"value":"reset"}]]}"#)
+        #expect(store.treeSequence == 2)
+        let call = store.event("r.0", "input", payload: ["value": "hel"])
+        #expect(call.javaScript == #"xbn.event("r.0","input",{"value":"hel"},2)"#)
+        store.apply(.patch([.set(key: "r.0", props: ["value": "x"])])) // an n-less patch keeps the last n
+        #expect(store.treeSequence == 2)
+        store.reset()
+        #expect(store.treeSequence == nil)
+    }
+
+    @Test func diagnosticsAndState() throws {
+        let store = TreeStore(savedState: ["scroll": 3])
+        let rec = Recorder()
+        let obs = store.observe { rec.events.append($0) }
+        #expect(store.savedState == ["scroll": 3])
+        store.receive(body: #"{"op":"diag","level":"warn","code":"raw-color","message":"use a tone","where":"native.js:4"}"#)
+        #expect(store.diagnostics.map(\.code) == ["raw-color"])
+        #expect(store.diagnostics.first?.location == "native.js:4" && store.diagnostics.first?.level == "warn")
+        store.receive(body: #"{"op":"state","state":{"tab":"keys"}}"#)
+        #expect(store.savedState == ["tab": "keys"])
+        #expect(rec.events.last == .state(["tab": "keys"]))
+        for i in 0..<(TreeStore.maxDiagnostics + 5) {
+            store.apply(.diag(RuntimeDiagnostic(fields: ["code": .string("c\(i)")])))
+        }
+        #expect(store.diagnostics.count == TreeStore.maxDiagnostics)
+        #expect(store.diagnostics.last?.code == "c\(TreeStore.maxDiagnostics + 4)")
+        store.reset()
+        #expect(store.savedState == ["tab": "keys"] && store.diagnostics.isEmpty) // the state outlives the runtime
+        _ = obs
+    }
+
+    @Test func fatalRuntimeErrorsFail() throws {
+        for kind in ["module", "exception", "unsupported"] {
+            let store = TreeStore()
+            let rec = Recorder()
+            let obs = store.observe { rec.events.append($0) }
+            store.apply(try counterMount())
+            let err = RuntimeError(kind: kind, message: "boom", where: "native.js")
+            let e = store.apply(.error(err))
+            #expect(e == .failed(.runtime(err)), "\(kind)")
+            #expect(rec.events.suffix(2) == [.runtimeError(err), .failed(.runtime(err))])
+            #expect(store.failure == .runtime(err))
+            #expect(store.failure?.description == "\(kind): boom (native.js)")
+            _ = obs
+        }
+        let store = TreeStore()
+        store.apply(try counterMount())
+        let uncaught = RuntimeError(kind: "uncaught", message: "handler threw")
+        #expect(store.apply(.error(uncaught)) == .runtimeError(uncaught))
+        #expect(store.failure == nil) // reported, the view keeps going
     }
 
     @Test func receiveBodies() throws {

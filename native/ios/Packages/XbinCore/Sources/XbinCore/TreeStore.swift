@@ -22,13 +22,26 @@ public final class TreeStore {
     public private(set) var revision = 0
     /// The `v` of the current mount.
     public private(set) var version: Int?
+    /// The `n` of the last tree message (mount or patch) applied — what
+    /// ``event(_:_:payload:)`` reports back so the runtime can order a
+    /// controlled value against its own patches.
+    public private(set) var treeSequence: Int?
+    /// The tile's `xbin.native.saveState(…)` blob. It outlives the runtime
+    /// (``reset()`` keeps it): persist it, and inject it into the next
+    /// runtime with ``RuntimeScript/documentStart(caps:state:)``.
+    public private(set) var savedState: JSONValue?
+    /// The runtime's diagnostics, oldest first (the last
+    /// ``maxDiagnostics``).
+    public private(set) var diagnostics: [RuntimeDiagnostic] = []
+    public static let maxDiagnostics = 200
     /// The merged `xbin.native.meta(…)` fields.
     public private(set) var meta = NativeMeta()
     /// The last error the runtime reported (cleared by a mount).
     public private(set) var lastRuntimeError: RuntimeError?
-    /// Set when the runtime and the app disagree (a bad message, an op that
-    /// doesn't apply, an unsupported version). While set, everything but a
-    /// mount is ignored.
+    /// Set when the native view can't continue: the runtime and the app
+    /// disagree (a bad message, an op that doesn't apply, an unsupported
+    /// version) or the runtime reported a fatal error. While set, everything
+    /// but a mount is ignored; the app shows the web tile.
     public private(set) var failure: TreeStoreFailure?
 
     public var isMounted: Bool { !tree.isEmpty }
@@ -36,7 +49,16 @@ public final class TreeStore {
     private var observers: [Int: (TreeStoreEvent) -> Void] = [:]
     private var nextObserver = 0
 
-    public init() {}
+    /// A store; `savedState` is the blob persisted from an earlier runtime.
+    public init(savedState: JSONValue? = nil) {
+        self.savedState = savedState
+    }
+
+    /// A user action on node `key`, as the call to send — with the tree
+    /// sequence the renderer has applied.
+    public func event(_ key: String, _ type: String, payload: JSONValue = [:]) -> RuntimeCall {
+        .event(key: key, type: type, payload: payload, n: treeSequence)
+    }
 
     /// Registers `observer`; it is called after every change until the
     /// returned token is cancelled or released.
@@ -69,11 +91,12 @@ public final class TreeStore {
     /// the observers); nil when the message changed nothing or was ignored.
     @discardableResult
     public func apply(_ message: BridgeMessage) -> TreeStoreEvent? {
-        if case .mount(let v, let root) = message {
+        if case .mount(let v, let root, let n) = message {
             guard v <= Self.supportedVersion, v >= 1 else { return fail(.unsupportedVersion(v)) }
             do {
                 let delta = try tree.mount(root)
                 version = v
+                treeSequence = n
                 failure = nil
                 lastRuntimeError = nil
                 revision += 1
@@ -88,10 +111,11 @@ public final class TreeStore {
         switch message {
         case .mount:
             return nil // handled above
-        case .patch(let ops):
+        case .patch(let ops, let n):
             guard isMounted else { return fail(.patch(.notMounted)) }
             do {
                 let delta = try tree.apply(ops)
+                if let n { treeSequence = n }
                 revision += 1
                 let e = TreeStoreEvent.tree(revision: revision, delta: delta)
                 emit(e)
@@ -109,6 +133,18 @@ public final class TreeStore {
         case .error(let err):
             lastRuntimeError = err
             let e = TreeStoreEvent.runtimeError(err)
+            emit(e)
+            if err.isFatal { return fail(.runtime(err)) }
+            return e
+        case .diag(let diag):
+            diagnostics.append(diag)
+            if diagnostics.count > Self.maxDiagnostics { diagnostics.removeFirst(diagnostics.count - Self.maxDiagnostics) }
+            let e = TreeStoreEvent.diagnostic(diag)
+            emit(e)
+            return e
+        case .state(let st):
+            savedState = st
+            let e = TreeStoreEvent.state(st)
             emit(e)
             return e
         case .call(let c):
@@ -129,11 +165,14 @@ public final class TreeStore {
         return e
     }
 
-    /// Forgets everything (the runtime was torn down or reloaded). The
-    /// revision keeps counting so a renderer never sees one twice.
+    /// Forgets the runtime's state (it was torn down or reloaded) — all but
+    /// ``savedState``, which is meant to outlive it. The revision keeps
+    /// counting so a renderer never sees one twice.
     public func reset() {
         tree = Tree()
         version = nil
+        treeSequence = nil
+        diagnostics = []
         meta = NativeMeta()
         lastRuntimeError = nil
         failure = nil
@@ -148,11 +187,16 @@ public enum TreeStoreEvent: Sendable, Equatable {
     case tree(revision: Int, delta: TreeDelta)
     /// The merged meta changed.
     case meta(NativeMeta)
-    /// The runtime reported an error (the view keeps going; show a
-    /// diagnostic).
+    /// The runtime reported an error. A fatal one
+    /// (``RuntimeError/isFatal``) is followed by ``failed(_:)``; others are
+    /// reported and the view keeps going.
     case runtimeError(RuntimeError)
+    /// A diagnostic for the tile's author.
+    case diagnostic(RuntimeDiagnostic)
+    /// The tile saved its state blob: persist it.
+    case state(JSONValue)
     /// The tile asked the app for something; answer with
-    /// ``RuntimeCall/resolve(id:value:)``.
+    /// ``RuntimeCall/resolve(id:value:error:)``.
     case call(BridgeCall)
     /// The native view can't continue: fall back to the web tile.
     case failed(TreeStoreFailure)
@@ -168,6 +212,8 @@ public enum TreeStoreFailure: Error, Sendable, Equatable, CustomStringConvertibl
     case patch(PatchError)
     /// A mount with a major version this app doesn't speak.
     case unsupportedVersion(Int)
+    /// The runtime reported a fatal error (``RuntimeError/isFatal``).
+    case runtime(RuntimeError)
     /// The app gave up on the runtime (render timeout, crash, kill switch).
     case app(String)
 
@@ -176,6 +222,7 @@ public enum TreeStoreFailure: Error, Sendable, Equatable, CustomStringConvertibl
         case .badMessage(let s): return s
         case .patch(let e): return e.description
         case .unsupportedVersion(let v): return "tree version \(v) is newer than this app (\(TreeStore.supportedVersion))"
+        case .runtime(let e): return "\(e.kind): \(e.message)" + (e.location.map { " (\($0))" } ?? "")
         case .app(let s): return s
         }
     }
