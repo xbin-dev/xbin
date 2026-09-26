@@ -178,7 +178,12 @@ PLAYWRIGHT_DIR=~/lcad-wasm node native/tools/bridge-check.mjs http://127.0.0.1:9
 `app-live` covers password sign-in, in-app enrollment, device login, one
 re-sign for concurrent requests on a dead session, a tile page by frame
 token, push registration and device removal. Before touching an app file,
-`swiftc -frontend -parse <file>` at least catches syntax errors here.
+`swiftc -frontend -parse <file>` at least catches syntax errors here;
+`native/tools/app-stubcheck/run.sh` type-checks the files it lists (a
+native tile's hatches, the Agent tab) against SDK stubs, in Swift 6 mode.
+`native/tools/hatches-live` (its header says how) runs the hatches'
+non-UI halves — the frame-token upload, the tile pty socket, prompt
+attachments — against a running xbind with its test tile.
 
 ### 4. Apple — only through GitHub Actions (minutes)
 
