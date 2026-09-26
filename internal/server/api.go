@@ -143,6 +143,10 @@ type componentInfo struct {
 	// header of the component's documents carries the same list. Absent for
 	// chrome and for tiles holding no such grant.
 	Sandbox []string `json:"sandbox,omitempty"`
+	// Native is the tile's native app UI ({entry}), absent when it has none
+	// (docs/elements.md §Native app UI): the xbin app opens such a tile from
+	// its runtime document, /c/<path>/?native=1.
+	Native *nativeInfo `json:"native,omitempty"`
 }
 
 func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
@@ -162,6 +166,7 @@ func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
 			HasIndex: c.HasIndex, Template: c.IsTemplate(),
 			Deps: c.Manifest.Deps, ManifestErr: c.ManifestErr,
 			Chrome: isChrome(c.Path) || c.Manifest.Chrome,
+			Native: s.nativeOf(c),
 		}
 		ci.Owner = s.policy().OwnerOf(c.Path)
 		if !ci.Chrome {
@@ -194,6 +199,7 @@ func (s *Server) apiComponent(w http.ResponseWriter, r *http.Request) {
 		Path: c.Path, Scope: c.Scope, Runtime: c.Manifest.Runtime,
 		HasIndex: c.HasIndex, Deps: c.Manifest.Deps, ManifestErr: c.ManifestErr,
 		Chrome: isChrome(c.Path) || c.Manifest.Chrome,
+		Native: s.nativeOf(c),
 	}
 	if !ci.Chrome {
 		ci.Sandbox = s.sandboxExtras(c.Path)

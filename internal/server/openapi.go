@@ -83,7 +83,7 @@ func endpoints() []ep {
 	return []ep{
 		// --- info / introspection ---
 		{"GET", "/whoami", "Identity", "Caller identity + permissions", "authenticated",
-			"Returns the resolved principal and what it may do — how a tile discovers whether it's the owner, an element, its granted roles, etc. An admin's view-as session (D64) adds impersonatedBy and readOnly:true. personalTiles says whether the caller (the human behind a tile call) may own tiles personally — the org-only policy and their account's switch folded in; a signed-in non-admin also gets personal {sets, netSets, netRules, allow}: their resolved personal plane (D88).", nil, nil, "identity object"},
+			"Returns the resolved principal and what it may do — how a tile discovers whether it's the owner, an element, its granted roles, etc. An admin's view-as session (D64) adds impersonatedBy and readOnly:true. personalTiles says whether the caller (the human behind a tile call) may own tiles personally — the org-only policy and their account's switch folded in; a signed-in non-admin also gets personal {sets, netSets, netRules, allow}: their resolved personal plane (D88). Every caller gets native {runtime: 1}: this xbind serves native runtime documents (/c/<tile>/?native=1, docs/elements.md §Native app UI).", nil, nil, "identity object"},
 		{"GET", "/openapi.json", "Identity", "This API description", "authenticated",
 			"The OpenAPI 3.1 document for the built-in API (this document).", nil, nil, "OpenAPI document"},
 		{"POST", "/impersonate", "Identity", "View the workspace as a user", "admin",
@@ -92,7 +92,7 @@ func endpoints() []ep {
 		{"POST", "/impersonate/stop", "Identity", "Stop viewing as a user", "authenticated (a view-as session)",
 			"Ends the read-only view and hands the browser back to the admin's own session (or the owner cookie for a bootstrap-token admin). restored:false means that session had expired meanwhile — sign in again. POST /logout from a view-as session does the same.", nil, nil, "{ok, restored}"},
 		{"GET", "/components", "Components", "List components", "authenticated",
-			"Every component the caller may see (a user sees only tiles they may use; admins see all), with runtime, exposed roles, declared uses, deps, manifest errors, the chrome flag (trusted chrome runs unsandboxed — bx-frame reads this) and `sandbox`: the extra iframe/CSP sandbox tokens the tile's grants unlock (cap:open-links → allow-popups allow-popups-to-escape-sandbox, ND11; absent when none).", nil, nil, "array of component summaries"},
+			"Every component the caller may see (a user sees only tiles they may use; admins see all), with runtime, exposed roles, declared uses, deps, manifest errors, the chrome flag (trusted chrome runs unsandboxed — bx-frame reads this) and `sandbox`: the extra iframe/CSP sandbox tokens the tile's grants unlock (cap:open-links → allow-popups allow-popups-to-escape-sandbox, ND11; absent when none), and `native` {entry}: the tile's native app UI module, tile-relative, whose runtime document is /c/<path>/?native=1 (absent when none and on chrome).", nil, nil, "array of component summaries"},
 		{"GET", "/components/{path}", "Components", "Component detail + API.md", "authenticated",
 			"One component's metadata plus its API.md (the docs standard).", []oapi{pathParam("path", "component path, e.g. apps/calendar")}, nil, "{component, apiDoc}"},
 		{"POST", "/auth-rotate-token", "Identity", "Rotate the owner token", "admin",

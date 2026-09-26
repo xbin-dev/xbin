@@ -17,6 +17,9 @@ func (b *Broker) apiWhoami(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{
 		"admin":    b.IsAdmin(p),
 		"terminal": p.CanTerminal(),
+		// This xbind serves native runtime documents (docs/elements.md
+		// §Native app UI) — the xbin app's discovery switch.
+		"native": map[string]int{"runtime": server.NativeRuntimeVersion},
 	}
 	if b.Users != nil { // workspace tile-creation policy (D52) — owner pickers adapt to it
 		out["tileCreation"] = b.Users.TileCreation()

@@ -121,6 +121,30 @@ GET  /c/<component-path>/[file]  component static files; HTML gets the
                                  source is still not where secrets live).
                                  Non-chrome HTML responses carry CSP sandbox;
                                  all responses X-Content-Type-Options: nosniff.
+                                 A request from the xbin app (X-XBin-Client:
+                                 app/<version>) also gets <meta name=
+                                 "xbin-ws-origin" content="wss://<host>">
+                                 (ws:// without TLS or a proxy's
+                                 X-Forwarded-Proto: https; the Host the
+                                 client used) in injected HTML: xbin-client
+                                 opens xbin.ws and /ws/events there
+GET  /c/<component-path>/?native=1
+                                 the tile's native runtime document
+                                 (docs/elements.md §Native app UI), generated
+                                 by xbind: the injection above (also under
+                                 inject:false) + <meta name="xbin-native"
+                                 content="1"> + a module script importing
+                                 /vendor/xb-native.js, then ./<native entry>.
+                                 &preview=1 adds <meta name=
+                                 "xbin-native-preview" content="1"> and
+                                 imports /vendor/xb/preview-host.js before
+                                 the entry (a missing one is logged, not
+                                 fatal). Auth, CSP sandbox and headers as
+                                 the tile's index.html; 404 with the reason
+                                 when the tile has no native entry (trusted
+                                 chrome never has one); the slashless URL
+                                 301s keeping the query. ?native=1 on any
+                                 other /c/ URL is an ordinary request
 GET  /vendor/<file>              core elements + vendored libs (lit, xterm…);
                                  UNAUTHENTICATED — shipped xbind code, and
                                  sandboxed tile frames load it credential-less
@@ -249,8 +273,13 @@ GET    /components                 any. [{path, scope, runtime, hasIndex,
                                    sandbox? (extra iframe/CSP sandbox tokens
                                    the tile's grants unlock — cap:open-links
                                    → allow-popups allow-popups-to-escape-
-                                   sandbox, ND11; bx-frame appends them)}]
+                                   sandbox, ND11; bx-frame appends them),
+                                   native? ({entry}: the tile's native app
+                                   UI module, tile-relative — its runtime
+                                   document is /c/<path>/?native=1; absent
+                                   when none, and on chrome)}]
 GET    /components/<path>          any. {component, apiDoc: <API.md text>}
+                                   (component as above, native included)
 GET    /frame-token?component=<p>  a principal that may use the tile: humans
                                    (cookie) any tile they can read; a tile
                                    frontend its OWN component — including
@@ -286,7 +315,10 @@ GET    /whoami                    any. caller identity + permissions; for
                                    membership slice; a workspace-management
                                    tile (xbin / xbin:users capability) gets
                                    {admin, orgs:[…]} in full — the element's
-                                   own privilege is unchanged either way
+                                   own privilege is unchanged either way.
+                                   Every caller also gets native:
+                                   {runtime: 1} — this xbind serves native
+                                   runtime documents (/c/<tile>/?native=1)
 GET    /openapi.json              any. OpenAPI 3.1 spec of this built-in API,
                                    incl. the RBAC capability per endpoint
                                    (x-xbin-capability). Rendered by the API-docs
@@ -1548,7 +1580,9 @@ windows. See docs/elements.md §Dialogs & windows and the `xbin.dialog` /
 - Listen on `$XBIN_SOCKET` (unix, HTTP/1.1; WebSocket upgrades pass
   through; streaming/SSE works).
 - You're started lazily, health-checked by socket-connect within 5 s,
-  swapped blue/green on change, SIGTERMed with a 30 s drain, idle-reaped
+  swapped blue/green on change (an edit to the tile's native UI entry
+  alone reloads its views without a swap — docs/elements.md §Native app
+  UI), SIGTERMed with a 30 s drain, idle-reaped
   after ~30 min, and crash-loop-broken after 3 fast exits.
 - stdout/stderr → `.xbin/log/<compkey>.log` (`bx logs`).
 - Env: `XBIN_SOCKET`, `XBIN_COMPONENT`, `XBIN_GATEWAY`, `XBIN_TOKEN`

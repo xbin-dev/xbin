@@ -103,6 +103,12 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// A native runtime document (?native=1 on a tile's directory URL) is
+	// generated, not a file — authorized above exactly like index.html.
+	if nativeRuntimeRequest(r) && s.serveNativeRoute(w, r, cleaned) {
+		return
+	}
+
 	full = s.overlayFile(cleaned, full) // dev overlay: a file it carries wins
 	fi, err := os.Stat(full)
 	if err != nil {
@@ -296,6 +302,46 @@ func (s *Server) serveInjectedHTML(w http.ResponseWriter, r *http.Request, file 
 		compPath = strings.TrimSuffix(cleaned, "/"+filepath.Base(cleaned))
 	}
 
+	inject := s.headInjection(r, comp, compPath)
+
+	var out []byte
+	if loc := headRe.FindIndex(body); loc != nil {
+		out = append(out, body[:loc[1]]...)
+		out = append(out, []byte(inject)...)
+		out = append(out, body[loc[1]:]...)
+	} else {
+		out = append([]byte(inject), body...)
+	}
+
+	s.documentHeaders(w, compPath, comp)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(out)
+}
+
+// documentHeaders sets the headers of an injected document of compPath (a
+// tile page or its native runtime document): the content type, and the
+// sandbox — or, for trusted chrome, COOP.
+func (s *Server) documentHeaders(w http.ResponseWriter, compPath string, comp *registry.Component) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Browser-plane isolation (plans/auth.md §6): a non-chrome document runs
+	// in an opaque origin — no parent/sibling DOM access, no storage, no
+	// ambient credentials on subresources; its only credential is the injected
+	// frame token. Delivered as a header (not just the iframe attribute) so
+	// direct-tab opens of /c/<tile>/ are confined identically, with the same
+	// grant-unlocked extras (ND11).
+	if !s.sandboxDocument(w, compPath, comp) {
+		// Trusted chrome: keep popups it opens (full-page tile views, docs)
+		// in its own browsing-context group.
+		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+	}
+}
+
+// headInjection is the D4 <head> block of one of compPath's documents: the
+// merged import map, the component and frame-token metas (a token only for
+// a principal that may read the tile), bound interfaces, the sandbox token
+// list, the WebSocket origin for app WebViews (appWSOriginMeta), and the
+// xbin-client module.
+func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPath string) string {
 	imports := s.Reg.ImportMapFor(comp)
 	im, _ := json.Marshal(map[string]any{"imports": imports})
 
@@ -319,37 +365,13 @@ func (s *Server) serveInjectedHTML(w http.ResponseWriter, r *http.Request, file 
 		sandboxMeta = fmt.Sprintf("<meta name=\"xbin-sandbox\" content=\"%s\">\n", htmlEscape(tokens))
 	}
 
-	inject := fmt.Sprintf(
+	return fmt.Sprintf(
 		"\n<script type=\"importmap\">%s</script>\n"+
 			"<meta name=\"xbin-component\" content=\"%s\">\n"+
 			"<meta name=\"xbin-frame-token\" content=\"%s\">\n"+
-			"%s%s"+
+			"%s%s%s"+
 			"<script type=\"module\" src=\"/vendor/xbin-client.js\"></script>\n",
-		im, htmlEscape(compPath), frameTok, ifaceMeta, sandboxMeta)
-
-	var out []byte
-	if loc := headRe.FindIndex(body); loc != nil {
-		out = append(out, body[:loc[1]]...)
-		out = append(out, []byte(inject)...)
-		out = append(out, body[loc[1]:]...)
-	} else {
-		out = append([]byte(inject), body...)
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	// Browser-plane isolation (plans/auth.md §6): a non-chrome document runs
-	// in an opaque origin — no parent/sibling DOM access, no storage, no
-	// ambient credentials on subresources; its only credential is the injected
-	// frame token. Delivered as a header (not just the iframe attribute) so
-	// direct-tab opens of /c/<tile>/ are confined identically, with the same
-	// grant-unlocked extras (ND11).
-	if !s.sandboxDocument(w, compPath, comp) {
-		// Trusted chrome: keep popups it opens (full-page tile views, docs)
-		// in its own browsing-context group.
-		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
-	}
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(out)
+		im, htmlEscape(compPath), frameTok, ifaceMeta, sandboxMeta, appWSOriginMeta(r))
 }
 
 func htmlEscape(s string) string {
