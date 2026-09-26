@@ -272,8 +272,9 @@ list under **Recent sessions**.
 
 **Native UIs** (`bx native tree`, `bx lint --native`, `bx preview
 --native`) — how an agent sees the `native.js` it writes
-([elements.md §Native app UI](/docs/elements.md)). Each loads the tile's
-runtime document, `/c/<tile>/?native=1&preview=1`, in headless Chromium —
+([native.md](/docs/native.md), [elements.md §Native app
+UI](/docs/elements.md)). Each loads the tile's runtime document,
+`/c/<tile>/?native=1&preview=1`, in headless Chromium —
 the tile's own code, identity and frame token, against its **live backend**
 — and reads what it rendered. `tree` prints the tree JSON the app would
 draw; `preview` screenshots the reference renderer at 390×844 points @2x

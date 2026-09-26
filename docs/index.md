@@ -36,6 +36,9 @@ overview is the map that puts them in context.
   upgrade; **BREAKING** entries link migration notes under `/docs/changes/`
 - [frontend-kit.md](/docs/frontend-kit.md) — the `/vendor/` modules a tile
   may import (`bx-kit`, `bx-dialog`, `bx-code`, …), the URL rules, lit pitfalls
+- [native.md](/docs/native.md) — a tile's native UI in the xbin mobile app:
+  `native.js`, the template API, every primitive of the vocabulary, the
+  rules, and checking it with `bx lint --native` / `bx preview --native`
 - [compat.md](/docs/compat.md) — what a workspace can rely on across xbind
   upgrades (API additive-only, frozen URLs, additive scaffold layouts, CLI
   superset)
