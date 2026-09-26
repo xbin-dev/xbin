@@ -15,6 +15,7 @@
 #   ./run.sh --shots [pass…]   only shoot against the running instance —
 #                       every pass, or just the named ones (node shots.js --list)
 #   ./run.sh --stop     stop xbind
+#   TILE_ASSETS=tokens|origins ./run.sh …   the same under strict tile asset gating
 set -euo pipefail
 H="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$H/../.." && pwd)"
@@ -23,7 +24,18 @@ export PORT=${PORT:-8697}
 # to move them); both are throwaway.
 export HARNESS_DIR=${HARNESS_DIR:-${TMPDIR:-/tmp}/xbin-ui-harness}
 export WS="$HARNESS_DIR/ws"
-export URL="http://127.0.0.1:$PORT"
+# TILE_ASSETS selects strict tile asset gating (docs/auth.md §Tile asset
+# gating): legacy (default), tokens, or origins — origins serves the shell at
+# xbin.localhost and each tile at t-<id>.xbin.localhost (browsers resolve
+# *.localhost to loopback; shots.js pins it for Chromium).
+export TILE_ASSETS=${TILE_ASSETS:-legacy}
+if [[ "$TILE_ASSETS" == origins ]]; then
+  export URL="http://xbin.localhost:$PORT"
+  asset_flags=(--tile-assets origins --tiles-domain xbin.localhost)
+else
+  export URL="http://127.0.0.1:$PORT"
+  asset_flags=(--tile-assets "$TILE_ASSETS")
+fi
 export OUT="$HARNESS_DIR/out"
 export REPO
 # the scripted OpenAI-compatible upstream the agentTemplate pass talks to
@@ -60,7 +72,7 @@ start() {
   # against this checkout's sdk/.
   (cd "$REPO" && nohup bin/fakeopenai -addr "$FAKEOPENAI_ADDR" > "$HARNESS_DIR/fakeopenai.log" 2>&1 < /dev/null &)
   (cd "$REPO" && XBIN_AGENT_FAKE="$REPO/bin/fakeacp" XBIN_BIN="$REPO/bin" XBIN_SDK_PATH="$REPO/sdk" nohup bin/xbind --dev --dev-overlay "$REPO/workspace-template" --workspace "$WS" --listen "127.0.0.1:$PORT" \
-      --ingress-listen "$INGRESS_ADDR" --external-url "$URL" > "$HARNESS_DIR/xbind.log" 2>&1 < /dev/null &)
+      --ingress-listen "$INGRESS_ADDR" --external-url "$URL" "${asset_flags[@]}" > "$HARNESS_DIR/xbind.log" 2>&1 < /dev/null &)
   for _ in $(seq 1 60); do curl -sf -o /dev/null "$URL/login" && return 0; sleep 0.25; done
   echo "xbind did not come up; see $H/xbind.log" >&2; exit 1
 }

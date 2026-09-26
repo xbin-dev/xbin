@@ -27,6 +27,7 @@ const { agentConvs } = require('./passes/agentconvs');
 const { channels } = require('./passes/channels');
 const { newTile } = require('./passes/newtile');
 const { personalPlane } = require('./passes/personalplane');
+const { tileAssets } = require('./passes/tileassets');
 
 // Screenshots of the admin console's D54 surfaces, the tile popover and a
 // terminal on an org tile.
@@ -838,7 +839,7 @@ async function adminTabs(browser) {
 const PASSES = {
   admin, adminTabs, adminMap, menus, mobile, screens,
   orgAdmin: async (b) => { await orgAdmin(b, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']); await orgAdmin(b, 'sales1', 'salespass123', ['apps/leads']); },
-  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle,
+  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle, tileAssets,
 };
 
 (async () => {
@@ -847,7 +848,7 @@ const PASSES = {
   const picked = args.flatMap((a) => a.startsWith('--pass=') ? a.slice(7).split(',') : a.startsWith('--pass') ? [] : a.startsWith('-') ? [] : a.split(','));
   const names = picked.length ? picked : Object.keys(PASSES);
   for (const n of names) if (!PASSES[n]) throw new Error(`unknown pass ${n} (node shots.js --list)`);
-  const browser = await pw.chromium.launch();
+  const browser = await pw.chromium.launch(process.env.TILE_ASSETS === 'origins' ? { args: ['--host-resolver-rules=MAP *.localhost 127.0.0.1'] } : {});
   const t0 = Date.now();
   try {
     for (const n of names) {
