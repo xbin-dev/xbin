@@ -215,8 +215,9 @@ export FAKE_SCHEMES="XbinRenderer" FAKE_PNGS=3
 run "$S/ci-snapshots.sh" "$dest"
 eq "ci-snapshots: passes" "$rc" 0
 log=$(cat "$FAKE_LOG")
-hasnt "ci-snapshots: no scheme listing when XbinRenderer exists (3 min on the runner)" "$log" "xcodebuild -list"
 has "ci-snapshots: boots the picked simulator first" "$log" "xcrun simctl bootstatus BBBBBBBB-0000-4000-8000-000000002714 -b"
+has "ci-snapshots: …while xcodebuild loads the package (-list)" "$log" "xcodebuild -list"
+has "ci-snapshots: the listing is timed" "$out" "schemes in XbinRenderer (xcodebuild -list: "
 has "ci-snapshots: xcodebuild test -scheme XbinRenderer" "$log" \
   "xcodebuild test -scheme XbinRenderer -destination $dest -derivedDataPath $RUNNER_TEMP/xbin-derived/renderer -clonedSourcePackagesDirPath $RUNNER_TEMP/xbin-derived/SourcePackages -resultBundlePath $RUNNER_TEMP/xbin-ci/snapshots-test.xcresult -skipMacroValidation -skipPackagePluginValidation COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO"
 has "ci-snapshots: the tests get SNAPSHOT_DIR and FIXTURES_DIR" "$log" \
@@ -231,7 +232,6 @@ has "ci-snapshots: XBIN_SWIFT_CONDITIONS reaches the renderer's tests" "$(cat "$
 : >"$FAKE_LOG"
 FAKE_XCODEBUILD_STATUS=65 run "$S/ci-snapshots.sh" "$dest"
 eq "ci-snapshots: a failing test fails the step" "$rc" 65
-hasnt "ci-snapshots: …without looking for another scheme" "$(cat "$FAKE_LOG")" "xcodebuild -list"
 eq "ci-snapshots: …and its PNGs are still there" "$(find "$RUNNER_TEMP/snapshots" -name '*.png' | wc -l | tr -d ' ')" 3
 reset_env
 export TEST_RUNNER_SNAPSHOT_DIR=$RUNNER_TEMP/snapshots
@@ -243,8 +243,8 @@ eq "ci-snapshots: exported PNGs are uploaded" "$(find "$RUNNER_TEMP/snapshots" -
 reset_env
 FAKE_SCHEMES="XbinRenderer-Package" FAKE_STRICT_SCHEMES=1 FAKE_PNGS=0 run "$S/ci-snapshots.sh" "$dest"
 eq "ci-snapshots: a missing XbinRenderer scheme is not a failure…" "$rc" 0
-has "ci-snapshots: …it lists the schemes" "$(cat "$FAKE_LOG")" "xcodebuild -list"
-has "ci-snapshots: …and falls back to the -Package scheme" "$(cat "$FAKE_LOG")" "xcodebuild test -scheme XbinRenderer-Package"
+has "ci-snapshots: …it falls back to the -Package scheme" "$(cat "$FAKE_LOG")" "xcodebuild test -scheme XbinRenderer-Package"
+hasnt "ci-snapshots: …without trying the missing one" "$(cat "$FAKE_LOG")" "xcodebuild test -scheme XbinRenderer "
 has "ci-snapshots: warns when no PNG at all" "$out" "::warning::the XbinRenderer tests wrote no PNG"
 eq "ci-snapshots: default SNAPSHOT_DIR is under XBIN_CI_OUT" "$(grep '^env ' "$FAKE_LOG" | head -n 1)" \
   "env SNAPSHOT_DIR=$RUNNER_TEMP/xbin-ci/snapshots FIXTURES_DIR=$repo/native/fixtures"
