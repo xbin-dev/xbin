@@ -123,6 +123,12 @@ out=${out:-$HOME/xbin-release/$build-$commit}
 
 if [ -n "${XBIN_XCODE:-}" ]; then export DEVELOPER_DIR=${XBIN_XCODE%/}/Contents/Developer; fi
 xcodebuild -version >/dev/null 2>&1 || refuse "no working xcodebuild (XBIN_XCODE, or xcode-select)"
+# Non-interactive ssh sessions skip the login profile: Homebrew's PATH
+# (mac-setup.sh installs xcodegen there), as mac-remote.sh does.
+path_prefix=${XBIN_MAC_PATH_PREFIX-/opt/homebrew/bin:/usr/local/bin}
+if [ -n "$path_prefix" ]; then PATH="$path_prefix:$PATH"; fi
+export PATH
+command -v xcodegen >/dev/null 2>&1 || refuse "xcodegen not found (brew install xcodegen, as mac-setup.sh does)"
 
 auth=(-allowProvisioningUpdates -authenticationKeyPath "$key" -authenticationKeyID "$kid" -authenticationKeyIssuerID "$issuer")
 settings=(DEVELOPMENT_TEAM="$team" CODE_SIGN_STYLE=Automatic CURRENT_PROJECT_VERSION="$build")
