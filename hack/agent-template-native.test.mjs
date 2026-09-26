@@ -539,3 +539,34 @@ test('a render that arrives while you look opens the preview; one you closed sta
   assert.ok(find(r.snapshots.opened, { t: 'canvas' }).p.html.includes('<p>hi</p>'));
   assert.equal(topScreen(r.snapshots.closed).p.title, 'report');
 });
+
+test('deep links: #join= joins, the list pages, the drawer holds settings and the brake', async () => {
+  const runs = Array.from({ length: 3 }, (_, i) => ({ id: i + 1, title: 'conv ' + (i + 1), status: i ? 'idle' : 'running', activityMs: NOW - i * 1000 }));
+  const conv = (r) => ({ access: 'owner', mine: true, origin: 'chat', ...r });
+  const r = await run({ me: ME, runs, routes: [['POST', '/join$', { runId: 2 }],
+    ['GET', '/conversations\\?scope=mine$', { pinned: [], items: runs.slice(0, 2).map(conv), next: 'c2' }],
+    ['GET', '/conversations\\?scope=mine&cursor=c2$', { pinned: [], items: runs.slice(2).map(conv), next: '' }]] }, [
+    { snapshot: 'joined' },
+    { tap: { t: 'button', p: { label: 'Conversations' } } },
+    { event: [{ t: 'list', in: { t: 'sheet' } }, 'more', {}] },
+    { snapshot: 'drawer' },
+    { tap: { t: 'button', p: { label: 'Halt every run' } } },
+    { snapshot: 'halted' },
+  ], { state: { hash: 'join=TOK_7' } });
+  assert.deepEqual(JSON.parse(called(r, 'POST', /\/join$/)[0].body), { token: 'TOK_7' });
+  assert.equal(topScreen(r.snapshots.joined).p.title, 'conv 2');
+  const drawer = find(r.snapshots.drawer, { t: 'sheet' });
+  assert.deepEqual(all(drawer, { t: 'row', has: 'conv ' }).map((x) => x.p.title), ['conv 1', 'conv 2', 'conv 3'], '"more" reads the next page');
+  const menu = all(drawer, { t: 'button', in: { t: 'menu' } }).map((b) => b.p.label);
+  assert.deepEqual(menu, ['Automations', 'Settings', 'Halt every run'], 'the brake shows while something runs');
+  assert.equal(find(drawer, { t: 'button', p: { label: 'Halt every run' } }).p.confirm.destructive, true);
+  assert.deepEqual(JSON.parse(called(r, 'PUT', /\/halt$/)[0].body), { on: true });
+  assert.ok(find(r.snapshots.halted, { t: 'notice', p: { title: 'Halted' } }), 'halted: the screen says so');
+  assert.equal(find(r.snapshots.halted, { t: 'sheet' }), null, 'the drawer closed first');
+});
+
+test('live updates lost: the chat says it is reconnecting', async () => {
+  const seed = oneSeed({ run: { title: 'quiet', status: 'idle' } }, { routes: [['GET', '/stream\\?', { error: 'down' }, 503]] });
+  const r = await run(seed, [{ wait: 100 }, { snapshot: 'lost' }], { state: { hash: 'c=9' } });
+  assert.ok(find(r.snapshots.lost, { t: 'notice', p: { text: 'live updates lost — reconnecting…' } }));
+});

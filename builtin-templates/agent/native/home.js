@@ -33,17 +33,19 @@ export function homeScreen() {
 }
 
 // mainMenu: what the web's side bar and top bar hold beyond conversations —
-// the Automations page, settings (managers) and the brake (model/rules.js halt).
-export function mainMenu() {
+// the Automations page, settings (managers) and the brake (model/rules.js
+// halt). before(): what to do first (the drawer closes itself).
+export function mainMenu(before = () => {}) {
   const app = ctx.app;
+  const go = (fn) => () => { before(); fn(); };
   const h = app.rules.halt(app.me, app.halted, app.convs.all());
   const n = app.autos.summary ? (app.autos.summary.unread || 0) + (app.autos.summary.attention || 0) : 0;
   return html`
-    <button icon="clock" @tap=${() => app.openAutomations()}>${n ? `Automations (${n} new)` : 'Automations'}</button>
-    ${app.me.manager ? html`<button icon="gear" @tap=${() => push({ kind: 'settings' })}>Settings</button>` : nothing}
+    <button icon="clock" @tap=${go(() => app.openAutomations())}>${n ? `Automations (${n} new)` : 'Automations'}</button>
+    ${app.me.manager ? html`<button icon="gear" @tap=${go(() => push({ kind: 'settings' }))}>Settings</button>` : nothing}
     ${h.shown ? html`<divider/>${app.halted
-      ? html`<button icon="play" @tap=${guard(() => app.setHalt(false))}>Resume the agent</button>`
+      ? html`<button icon="play" @tap=${go(guard(() => app.setHalt(false)))}>Resume the agent</button>`
       : html`<button icon="power" role="destructive" confirm=${{ title: 'Stop every running agent now?',
           message: 'Runs stop at once and nothing starts until you resume.', label: 'Halt', destructive: true }}
-          @tap=${guard(() => app.setHalt(true))}>Halt every run</button>`}` : nothing}`;
+          @tap=${go(guard(() => app.setHalt(true)))}>Halt every run</button>`}` : nothing}`;
 }

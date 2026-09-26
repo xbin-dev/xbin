@@ -205,6 +205,7 @@ export function chatScreen(v) {
   return html`<screen title=${t.title} subtitle=${subtitle} style="scroll">
     <toolbar>
       <button icon="list" @tap=${() => { ui.drawer = true; ctx.paint(); }}>Conversations</button>
+      <button icon="pencil" @tap=${() => app.home()}>New chat</button>
       <menu icon="ellipsis" label="More">${runMenu(v, t)}</menu>
     </toolbar>
     <transcript follow ?older=${s.hasOlder} @more=${() => app.session.loadOlder().catch(fail)}>

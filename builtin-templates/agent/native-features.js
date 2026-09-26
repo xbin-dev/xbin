@@ -147,7 +147,7 @@ export const IMPLEMENTS = {
   'manage.config': 'native/settings.js — configTpl',
   'manage.features': 'native/settings.js — featuresTpl',
   'manage.mcp': 'native/settings.js — mcpTpl',
-  'manage.halt': 'native/home.js — mainMenu; native/settings.js — the brake (confirmed)',
+  'manage.halt': 'native/home.js — mainMenu (home and the drawer); native/settings.js — the brake (confirmed)',
 
   // States
   'state.halted': 'native/home.js, native/chat.js — the Halted notice',

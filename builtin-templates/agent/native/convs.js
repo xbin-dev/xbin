@@ -9,6 +9,7 @@ import { ui, ctx, guard } from './ui.js';
 import { groupRows } from '../model/conv-groups.js';
 import { rowGlyph, rowShared, rowMenu } from '../model/rules.js';
 import { summaryCount } from '../model/auto.js';
+import { mainMenu } from './home.js';
 
 const GLYPH = { ask: ['waiting for you', 'accent'], error: ['failed', 'danger'], spin: ['working', 'muted'] };
 const SCOPES = [{ value: 'mine', label: 'Mine' }, { value: 'team', label: 'Shared with team' }, { value: 'archived', label: 'Archived' }];
@@ -25,6 +26,7 @@ export function drawerSheet() {
   const n = summaryCount(s);
   return html`<sheet open edge="leading" title="Conversations" @dismiss=${close}>
     <screen title="Conversations" style="scroll" search=${ui.q} @search=${search}>
+      <toolbar><menu icon="ellipsis" label="More">${mainMenu(close)}</menu></toolbar>
       <list style="inset" @more=${list.next && !results ? () => list.more().catch(() => {}) : nothing}>
         <section>
           <row title="New chat" icon="plus" @tap=${() => { app.home(); close(); }}/>
