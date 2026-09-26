@@ -75,11 +75,15 @@ function start() {
     view.onupload = async (n, file) => {
       const up = n.p?.upload;
       if (!up?.path) return;
-      // tile-relative: under the tile's own API unless already an /api/ path;
+      // tile-relative: under the tile's own API unless already an /api/ path,
+      // which must be the tile's own, as the app requires (docs/native.md);
       // {name} is the file's name
       let path = String(up.path).split('{name}').join(encodeURIComponent(file.name));
       if (!path.startsWith('/api/')) path = `/api/${G.xbin.self}${path.startsWith('/') ? '' : '/'}${path}`;
-      if (!own(path)) { note(`upload refused: ${path} is not on this workspace`); return; }
+      const mine = `/api/${G.xbin.self}`;
+      const pathOnly = path.split(/[?#]/)[0];
+      const outside = (pathOnly !== mine && !pathOnly.startsWith(`${mine}/`)) || /(^|\/)\.\.?(\/|$)|%2e|%2f|%5c/i.test(pathOnly);
+      if (outside || !own(path)) { note(`upload refused: ${path} is not this tile's own API (${mine}/…)`); return; }
       try {
         const r = await G.xbin.fetch(path, { method: up.method || 'PUT', body: file, headers: { 'Content-Type': file.type || 'application/octet-stream' } });
         const text = await r.text();
