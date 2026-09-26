@@ -28,7 +28,7 @@ export FAKE_LOG=$tmp/fake.log
 
 cat >"$bin/xcrun" <<'SH'
 #!/bin/sh
-# fake xcrun: simctl list -j | create | bootstatus | list <kind>; xcresulttool export attachments
+# fake xcrun: simctl list -j | create | bootstatus | list <kind>; metal; xcresulttool export attachments
 echo "xcrun $*" >>"$FAKE_LOG"
 case "$1" in
 simctl)
@@ -39,6 +39,7 @@ simctl)
   *) exit 64 ;;
   esac
   ;;
+metal) exit "${FAKE_METAL_STATUS:-0}" ;;
 xcresulttool)
   out=""
   while [ $# -gt 0 ]; do
@@ -56,10 +57,11 @@ SH
 
 cat >"$bin/xcodebuild" <<'SH'
 #!/bin/sh
-# fake xcodebuild: -version, -showsdks, -list, build/test (-resultBundlePath)
+# fake xcodebuild: -version, -showsdks, -downloadComponent, -list, build/test (-resultBundlePath)
 echo "xcodebuild $*" >>"$FAKE_LOG"
 case "$1" in
 -version) printf 'Xcode 27.0\nBuild version 27A5000a\n'; exit 0 ;;
+-downloadComponent) exit "${FAKE_DOWNLOAD_STATUS:-0}" ;;
 -showsdks)
   printf 'iOS SDKs:\n\tiOS 27.0                      \t-sdk iphoneos27.0\n\niOS Simulator SDKs:\n\tSimulator - iOS 27.0          \t-sdk iphonesimulator27.0\n'
   exit 0 ;;
@@ -152,7 +154,8 @@ reset_env() {
   : >"$GITHUB_OUTPUT"
   : >"$FAKE_LOG"
   unset XBIN_SIM XBIN_XCODE DEVELOPER_DIR TEST_RUNNER_SNAPSHOT_DIR TEST_RUNNER_FIXTURES_DIR XBIN_CI_OUT XBIN_CI_DERIVED \
-    FAKE_SCHEMES FAKE_PNGS FAKE_ATTACH FAKE_XCODEBUILD_STATUS FAKE_BOOT_STATUS FAKE_PROJECT FAKE_XCB_OLD XCBEAUTIFY
+    FAKE_SCHEMES FAKE_PNGS FAKE_ATTACH FAKE_XCODEBUILD_STATUS FAKE_BOOT_STATUS FAKE_PROJECT FAKE_XCB_OLD XCBEAUTIFY \
+    FAKE_METAL_STATUS FAKE_DOWNLOAD_STATUS
   export XCBEAUTIFY=0 # off unless a case turns it on
 }
 
@@ -267,11 +270,19 @@ eq "ci-build-app: builds" "$rc" 0
 log=$(cat "$FAKE_LOG")
 has "ci-build-app: xcodegen generate in native/ios" "$log" "xcodegen generate --spec project.yml (in ios)"
 has "ci-build-app: build -scheme Xbin on the picked simulator, unsigned" "$log" \
-  "xcodebuild build -project Xbin.xcodeproj -scheme Xbin -configuration Debug -destination $dest -derivedDataPath $RUNNER_TEMP/xbin-derived/app -resultBundlePath $RUNNER_TEMP/xbin-ci/app-build.xcresult -skipMacroValidation -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO"
+  "xcodebuild build -project Xbin.xcodeproj -scheme Xbin -configuration Debug -destination $dest -derivedDataPath $RUNNER_TEMP/xbin-derived/app -resultBundlePath $RUNNER_TEMP/xbin-ci/app-build.xcresult -skipMacroValidation -skipPackagePluginValidation -IDEBuildingContinueBuildingAfterErrors=YES CODE_SIGNING_ALLOWED=NO"
+hasnt "ci-build-app: Metal toolchain present → no download" "$log" "-downloadComponent"
 # The workflow uploads exactly these two paths (xcresult-app).
 isdir "ci-build-app: xcresult where ios.yml uploads it" "$RUNNER_TEMP/xbin-ci/app-build.xcresult"
 has "ci-build-app: full log where ios.yml uploads it" "$(cat "$RUNNER_TEMP/xbin-ci/app-build.log" 2>/dev/null)" "** fake build **"
 has "ci-build-app: summary" "$(cat "$GITHUB_STEP_SUMMARY")" "**App:** \`Xbin\` built"
+: >"$FAKE_LOG"
+FAKE_METAL_STATUS=1 run "$S/ci-build-app.sh" "$dest"
+eq "ci-build-app: Metal toolchain missing → still builds" "$rc" 0
+has "ci-build-app: …after downloading it" "$(cat "$FAKE_LOG")" "xcodebuild -downloadComponent MetalToolchain"
+FAKE_METAL_STATUS=1 FAKE_DOWNLOAD_STATUS=1 run "$S/ci-build-app.sh" "$dest"
+eq "ci-build-app: a failed Metal download leaves the verdict to the build" "$rc" 0
+has "ci-build-app: …and warns" "$out" "::warning::xcodebuild -downloadComponent MetalToolchain failed"
 FAKE_XCODEBUILD_STATUS=65 run "$S/ci-build-app.sh" "$dest"
 eq "ci-build-app: xcodebuild's failure is the step's" "$rc" 65
 has "ci-build-app: failure annotation" "$out" "::error::xcodebuild build -scheme Xbin failed (exit 65)"
