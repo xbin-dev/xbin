@@ -32,12 +32,11 @@ const (
 	AgentPort   = 1024 // guest: the agent's listener (control + streams)
 	P9Port      = 564  // host: the 9P2000.L file server
 	GatewayPort = 1025 // host: xbind's gateway socket (backends)
-	ListenPort  = 1026 // guest: the backend's listen socket, bridged by the agent
 )
 
 // Hello opens every connection to the agent.
 type Hello struct {
-	Kind    string `json:"kind"`              // "ctl" | "stream"
+	Kind    string `json:"kind"`              // "ctl" | "stream" | "listen" (a connection for Exec.Listen)
 	Session int    `json:"session,omitempty"` // stream: the session it belongs to
 	Stream  string `json:"stream,omitempty"`  // stream: "pty" | "stdin" | "stdout" | "stderr"
 }
@@ -50,6 +49,7 @@ type Config struct {
 	Net      *Net     `json:"net,omitempty"` // nil: no network interface (loopback only)
 	Root     Root     `json:"root"`
 	Mounts   []Mount  `json:"mounts,omitempty"` // 9P mounts, parents first
+	Local    []string `json:"local,omitempty"`  // guest-local tmpfs dirs at host paths (a backend's run dir: its sockets)
 	Env      []string `json:"env,omitempty"`    // extra environment for every session
 }
 
@@ -87,8 +87,8 @@ type Exec struct {
 	Rows    uint16   `json:"rows,omitempty"`
 	Cols    uint16   `json:"cols,omitempty"`
 	// Listen, if set, is a unix socket path the session's process will listen
-	// on; the agent reports "listening" once it accepts, and bridges vsock
-	// ListenPort connections to it (backends: XBIN_SOCKET).
+	// on; the agent reports "listening" once it accepts, and bridges each
+	// "listen" connection to it (backends: XBIN_SOCKET).
 	Listen string `json:"listen,omitempty"`
 	// Gateway, if set, is a unix socket path the agent serves inside the guest
 	// and bridges to the host's GatewayPort (backends: XBIN_GATEWAY).

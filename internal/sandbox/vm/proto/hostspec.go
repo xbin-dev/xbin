@@ -21,9 +21,16 @@ type HostSpec struct {
 	GuestMAC string `json:"guestMac,omitempty"`
 	Net      *Net   `json:"net,omitempty"`
 
-	Hostname string  `json:"hostname,omitempty"`
-	Mounts   []Mount `json:"mounts,omitempty"` // exported to the guest, parents first
-	Guest    Exec    `json:"guest"`            // session 1
+	Hostname string   `json:"hostname,omitempty"`
+	Mounts   []Mount  `json:"mounts,omitempty"` // exported to the guest, parents first
+	Local    []string `json:"local,omitempty"`  // guest-local dirs (Config.Local)
+
+	// Backends: Listen is the host path the shim serves once the guest
+	// process listens on Guest.Listen; Gateway the host socket the guest's
+	// Guest.Gateway reaches (vsock GatewayPort).
+	Listen  string `json:"listen,omitempty"`
+	Gateway string `json:"gateway,omitempty"`
+	Guest   Exec   `json:"guest"` // session 1
 
 	Debug bool `json:"debug,omitempty"`
 }

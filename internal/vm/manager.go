@@ -73,11 +73,17 @@ func (m *Manager) findAssets() (Assets, error) {
 
 // Options size and shape one VM.
 type Options struct {
-	TTY      bool   // the shim's stdio is a terminal (a shell session)
-	Disk     string // host path of the persistent upper disk image ("" = a tmpfs upper)
-	VCPUs    int
-	MemMiB   int
-	Hostname string
+	TTY  bool   // the shim's stdio is a terminal (a shell session)
+	Disk string // host path of the persistent upper disk image ("" = a tmpfs upper)
+	// Backends: Local dirs are guest-local tmpfs at their host paths instead
+	// of 9P (the run dir: sockets must be the guest's own); Listen is the
+	// backend's socket (bridged back to the same host path once the guest
+	// process listens); Gateway is xbind's socket, bridged into the guest.
+	Local           []string
+	Listen, Gateway string
+	VCPUs           int
+	MemMiB          int
+	Hostname        string
 }
 
 // Defaults for a VM nobody sized.
@@ -119,7 +125,7 @@ func (m *Manager) Apply(ctx context.Context, spec *sandbox.Spec, o Options) erro
 	case len(spec.Lower) != 1:
 		return fmt.Errorf("a VM sandbox can't stack an env layer (setup) yet")
 	}
-	mounts, err := exports(spec.Binds)
+	mounts, err := exports(spec.Binds, o.Local)
 	if err != nil {
 		return err
 	}
@@ -141,13 +147,18 @@ func (m *Manager) Apply(ctx context.Context, spec *sandbox.Spec, o Options) erro
 		MemMiB:      o.MemMiB,
 		Hostname:    o.Hostname,
 		Mounts:      mounts,
+		Local:       o.Local,
+		Listen:      o.Listen,
+		Gateway:     o.Gateway,
 		Debug:       spec.Debug || m.Debug,
 		Guest: proto.Exec{
-			Path: spec.Entry,
-			Argv: spec.Argv,
-			Env:  spec.Env,
-			Cwd:  spec.Cwd,
-			TTY:  o.TTY,
+			Path:    spec.Entry,
+			Argv:    spec.Argv,
+			Env:     spec.Env,
+			Cwd:     spec.Cwd,
+			TTY:     o.TTY,
+			Listen:  o.Listen,
+			Gateway: o.Gateway,
 		},
 	}
 	if hs.VCPUs <= 0 {
@@ -188,14 +199,21 @@ func (m *Manager) Apply(ctx context.Context, spec *sandbox.Spec, o Options) erro
 
 // exports lists the binds the guest mounts over 9P, parents first. Masks stay
 // in the shim's view (the walk finds them empty); sockets can't cross 9P;
-// device nodes can't enter a guest.
-func exports(binds []sandbox.Bind) ([]proto.Mount, error) {
+// device nodes can't enter a guest; binds at or under a local dir are the
+// guest's own.
+func exports(binds []sandbox.Bind, local []string) ([]proto.Mount, error) {
 	var out []proto.Mount
+next:
 	for _, b := range binds {
 		if b.Mask {
 			continue
 		}
 		dst := path.Clean("/" + b.Dst)
+		for _, l := range local {
+			if l = path.Clean("/" + l); dst == l || strings.HasPrefix(dst, l+"/") {
+				continue next
+			}
+		}
 		if dst == "/" || dst == sandbox.VMDir || strings.HasPrefix(dst, sandbox.VMDir+"/") {
 			return nil, fmt.Errorf("a VM sandbox can't export %s", dst)
 		}

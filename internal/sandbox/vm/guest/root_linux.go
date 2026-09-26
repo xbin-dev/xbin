@@ -68,6 +68,9 @@ func (a *agent) configure(c proto.Config) error {
 			return fmt.Errorf("mount %s: %w", m.Path, err)
 		}
 	}
+	if err := mountLocal(c.Local); err != nil {
+		return err
+	}
 	if err := writeEtc(c); err != nil {
 		return err
 	}

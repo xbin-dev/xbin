@@ -36,6 +36,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/sandbox/relay"
 	"github.com/xbin-dev/xbin/internal/util"
+	"github.com/xbin-dev/xbin/internal/vm"
 )
 
 const (
@@ -147,6 +148,8 @@ type Runner struct {
 	// Cgroup, when set, attaches each backend to a per-component cgroup v2 leaf
 	// for memory/CPU/pids accounting (best-effort; nil-safe).
 	Cgroup *cgroup.Manager
+	VM     *vm.Manager // "vm" backends (vm.go); nil = none
+	vms    vmState
 
 	mu     sync.Mutex
 	states map[string]*state
@@ -291,14 +294,22 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state) error {
 	s.gen++
 	gen := s.gen
 	old := s.cur
+	first := old != nil && r.stopFirst(c) // vm.go: no two guests on one sqlite
+	if first {
+		s.cur = nil
+	}
 	s.mu.Unlock()
+	if first {
+		r.stop(old, drainDeadline)
+		old = nil
+	}
 
 	inst, err := r.start(c, bin, gen)
 	if err != nil {
 		r.Hub.Publish(events.Event{Type: "build-error", Component: c.Path, Text: err.Error()})
 		return err
 	}
-	if err := waitHealthy(inst.sock, healthTimeout); err != nil {
+	if err := waitHealthy(inst.sock, r.healthFor(c)); err != nil {
 		r.stop(inst, 2*time.Second)
 		err = fmt.Errorf("backend did not become healthy: %w", err)
 		r.Hub.Publish(events.Event{Type: "build-error", Component: c.Path, Text: err.Error()})
@@ -428,6 +439,7 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 		}
 		cmd, sb, err = r.sandboxCmd(c, bin, dir, sock, env, pol, envLower)
 		if err != nil {
+			r.vmRelease(sock)
 			return nil, fmt.Errorf("sandbox: %w", err)
 		}
 		cleanup = sb.Cleanup
@@ -461,10 +473,13 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 	if err := cmd.Start(); err != nil {
 		logf.Close()
 		cleanup()
+		r.vmRelease(sock)
 		return nil, fmt.Errorf("start backend: %w", err)
 	}
 	r.Auth.RegisterInstance(token, c.Path)
-	if r.Cgroup != nil {
+	if b, ok := r.vmLeafBytes(sock); ok && r.Cgroup != nil {
+		r.Cgroup.AddMem(util.CompKey(c.Path), cmd.Process.Pid, b)
+	} else if r.Cgroup != nil {
 		r.Cgroup.Add(util.CompKey(c.Path), cmd.Process.Pid)
 	}
 	// Range-uid sandbox: map the child's uids and release its init (which is
@@ -588,6 +603,7 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 			r.Cgroup.Remove(util.CompKey(c.Path))
 		}
 		cleanup() // remove the sandbox spec temp file (init self-removes; this is a backstop)
+		r.vmRelease(sock)
 		logf.Close()
 		r.Auth.RevokeInstance(token)
 		close(inst.waitCh)
@@ -688,6 +704,11 @@ func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []
 		// can reach in — the relay runs with a deny-all outbound policy.
 		if (r.IngressNet != nil && r.IngressNet(c)) || len(spec.NetLinks) > 0 {
 			spec.Net = "relay"
+		}
+	}
+	if r.wantsVM(c) {
+		if err := r.vmApply(c, spec, dir, sock, gw); err != nil {
+			return nil, nil, err
 		}
 	}
 	return sandbox.Launch(spec)

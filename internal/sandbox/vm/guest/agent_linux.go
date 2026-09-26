@@ -76,6 +76,8 @@ func (a *agent) handle(c io.ReadWriteCloser) {
 		a.control(proto.NewConn(c, r))
 	case "stream":
 		a.attachStream(h, c, r)
+	case "listen":
+		a.bridgeListen(h, streamConn{c: c, r: r})
 	default:
 		c.Close()
 	}

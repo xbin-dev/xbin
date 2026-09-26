@@ -65,6 +65,9 @@ func (s *shim) run() int {
 		return fail(s, "file server: %v", err)
 	}
 	defer stopFiles()
+	if err := s.linkGateway(); err != nil {
+		return fail(s, "gateway link: %v", err)
+	}
 	started := time.Now()
 	if err := s.startFirecracker(); err != nil {
 		return fail(s, "start firecracker: %v", err)
@@ -85,6 +88,7 @@ func (s *shim) run() int {
 		Net:      s.hs.Net,
 		Root:     proto.Root{Image: "/dev/vda", ImageType: s.hs.ImageType},
 		Mounts:   s.hs.Mounts,
+		Local:    s.hs.Local,
 	}
 	if s.hs.Disk != "" {
 		cfg.Root.Upper = "/dev/vdb"
@@ -197,6 +201,12 @@ func (s *shim) session() int {
 			return fail(s, "guest: %v", err)
 		}
 		switch m.Op {
+		case "listening":
+			if s.hs.Listen != "" {
+				if err := s.serveListen(); err != nil {
+					return fail(s, "listen socket: %v", err)
+				}
+			}
 		case "synced":
 			s.restore()
 			return 129

@@ -75,6 +75,12 @@ type Manifest struct {
 	// stops it). For tiles that hold a connection open — a chat adapter —
 	// where no inbound request would ever start them. Disable the tile to stop it.
 	AlwaysOn bool `json:"alwaysOn,omitempty"`
+	// VM runs the backend in a VM sandbox — a Firecracker microVM, root in its
+	// own kernel (plans/vm-sandbox.md): true, or {"memory": "1G", "vcpus": 2}
+	// (clamped by the workspace's VM policy). Needs isolation, KVM and an
+	// admin who enabled VM backends; otherwise the backend fails to start
+	// with the reason (never a silent namespace fallback). vm.go.
+	VM *VMOpt `json:"vm,omitempty"`
 
 	// Interfaces are typed capability slots this component REQUESTS; the owner
 	// binds each to a provider (plans/interfaces.md). Provides are slots it offers

@@ -20,6 +20,7 @@ func (st *State) stepVM() error {
 	m := &vm.Manager{Root: st.WS, Rootfs: st.rootfs, Bx: st.Term.BxPath}
 	st.VM = m
 	st.Term.VM = m
+	st.Run.VM = m
 	status := m.Status()
 	m.GC()
 	p := m.Policy()

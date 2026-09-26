@@ -26,12 +26,13 @@ func TestExportsFromBinds(t *testing.T) {
 	defer ln.Close()
 
 	got, err := exports([]sandbox.Bind{
+		{Src: dir, Dst: "/run/local"},                 // under a local dir: the guest's own
 		{Src: tile, Dst: tile},                        // nested: sorted after its parent
 		{Src: ws, Dst: ws, RO: true},                  // parent
 		{Dst: filepath.Join(ws, ".xbin"), Mask: true}, // masks stay host-side
 		{Src: sock, Dst: sock},                        // sockets can't cross 9P
 		{Src: file, Dst: "/opt/xbin/bin/bx", RO: true},
-	})
+	}, []string{"/run/local"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,13 +56,13 @@ func TestExportsFromBinds(t *testing.T) {
 		}
 	}
 
-	if _, err := exports([]sandbox.Bind{{Src: "/dev/null", Dst: "/dev/null"}}); err == nil {
+	if _, err := exports([]sandbox.Bind{{Src: "/dev/null", Dst: "/dev/null"}}, nil); err == nil {
 		t.Errorf("a device node was exported")
 	}
-	if _, err := exports([]sandbox.Bind{{Src: ws, Dst: "/"}}); err == nil {
+	if _, err := exports([]sandbox.Bind{{Src: ws, Dst: "/"}}, nil); err == nil {
 		t.Errorf("/ was exported")
 	}
-	if _, err := exports([]sandbox.Bind{{Src: ws, Dst: sandbox.VMDir + "/run"}}); err == nil {
+	if _, err := exports([]sandbox.Bind{{Src: ws, Dst: sandbox.VMDir + "/run"}}, nil); err == nil {
 		t.Errorf("the VM plumbing dir was exported")
 	}
 }

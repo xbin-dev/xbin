@@ -164,6 +164,11 @@ func (s *session) run() error {
 		go func() { defer copies.Done(); _, _ = io.Copy(st["stdout"], outR); outR.Close() }()
 		go func() { defer copies.Done(); _, _ = io.Copy(st["stderr"], errR); errR.Close() }()
 	}
+	if ex.Gateway != "" { // up before the backend, which may call it at start
+		if err := serveGateway(ex.Gateway); err != nil {
+			return fmt.Errorf("gateway %s: %w", ex.Gateway, err)
+		}
+	}
 	proc, done, err := s.a.spawn(argv0, ex.Argv, attr)
 	for _, f := range closeAfterStart {
 		f.Close()
@@ -182,7 +187,12 @@ func (s *session) run() error {
 		go func() { defer copies.Done(); _, _ = io.Copy(c, s.ptmx) }()
 	}
 	s.a.send(proto.Msg{Op: "started", Session: ex.Session})
+	stop := make(chan struct{})
+	if ex.Listen != "" {
+		go s.a.awaitListen(ex.Session, ex.Listen, stop)
+	}
 	ws := <-done
+	close(stop)
 	code := ws.ExitStatus()
 	if ws.Signaled() {
 		code = 128 + int(ws.Signal())
