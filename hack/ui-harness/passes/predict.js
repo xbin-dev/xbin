@@ -88,8 +88,16 @@ async function predict(browser) {
   check(anchor?.row === 4 && anchor?.col === 5, `the anchor is where the echo landed plus one (${JSON.stringify(anchor)})`);
   await api((t) => t.holdAcks(true));
   await page.keyboard.type('b');
+  // The overlay draws a prediction only while it differs from the screen, and
+  // the TUI's own echo can land first on a local link (about a millisecond),
+  // so the proof is the one pending cell and the anchor moved past it; the
+  // overlay, when still drawn, must hold exactly that 'b'.
   const ov2 = await api((t) => t.overlay);
-  check(ov2.length === 1 && ov2[0].row === 4 && ov2[0].col === 5 && ov2[0].text === 'b', `the next keystroke is predicted at the anchor (${JSON.stringify(ov2)})`);
+  const pend2 = await api((t) => t.pending);
+  const anchor2 = await api((t) => t.anchor);
+  const drawn = ov2.length === 0 || (ov2.length === 1 && ov2[0].row === 4 && ov2[0].col === 5 && ov2[0].text === 'b');
+  check(pend2 === 1 && anchor2?.row === 4 && anchor2?.col === 6 && drawn,
+    `the next keystroke is predicted at the anchor (pending ${pend2}, anchor ${JSON.stringify(anchor2)}, overlay ${JSON.stringify(ov2)})`);
   await shot(page, 'term-predict-tui', { fullPage: false });
   await api((t) => t.holdAcks(false));
   await until((t) => t.pending === 0, 'the ack to confirm b');
