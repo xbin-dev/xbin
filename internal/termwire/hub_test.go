@@ -306,6 +306,49 @@ func TestHubExitOnlyWhenEnded(t *testing.T) {
 	})
 }
 
+// Attach returns at once on an ended terminal too: the replay to a client
+// that doesn't read must not hold the caller (an HTTP handler, a tile TTY
+// holding its exec) for the write timeouts.
+func TestHubAttachToEndedReturnsAtOnce(t *testing.T) {
+	h := NewHub(32 << 20) // more than a loopback socket buffers
+	h.Output(bytes.Repeat([]byte("z"), 32<<20))
+	h.End(ExitCode(0))
+	took := make(chan time.Duration, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		conn, err := Upgrade(w, req, nil, 0)
+		if err != nil {
+			return
+		}
+		start := time.Now()
+		h.Attach(conn, map[string]any{"id": "s1"}, Terminal{})
+		took <- time.Since(start)
+	}))
+	defer srv.Close()
+	c, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	select { // nobody reads c
+	case d := <-took:
+		if d > time.Second {
+			t.Fatalf("Attach took %v on an ended terminal", d)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Attach blocked on the replay to a client that doesn't read")
+	}
+	// and the replay still arrives whole, then the exit
+	if m := nextText(t, c); m["op"] != "session" {
+		t.Fatalf("first frame = %v", m)
+	}
+	if got := nextBinary(t, c); len(got) != 32<<20 {
+		t.Fatalf("replay = %d bytes", len(got))
+	}
+	if m := nextText(t, c); m["op"] != "exit" || m["code"] != float64(0) {
+		t.Fatalf("after the replay: %v", m)
+	}
+}
+
 func TestExitFrames(t *testing.T) {
 	for _, tc := range []struct {
 		e    Exit

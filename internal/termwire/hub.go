@@ -222,14 +222,16 @@ func (h *Hub) Attach(conn *websocket.Conn, hello map[string]any, t Terminal) {
 		// it, or the client shows a silently-dead pane.
 		exit := h.exit
 		h.mu.Unlock()
-		defer conn.Close()
-		if write(conn, frame{text: true, b: helloB}) != nil {
-			return
-		}
-		if len(tail) > 0 && write(conn, frame{b: tail}) != nil {
-			return
-		}
-		_ = write(conn, exit)
+		go func() { // off the caller, like the live writer: a slow client must not hold it
+			defer conn.Close()
+			if write(conn, frame{text: true, b: helloB}) != nil {
+				return
+			}
+			if len(tail) > 0 && write(conn, frame{b: tail}) != nil {
+				return
+			}
+			_ = write(conn, exit)
+		}()
 		return
 	}
 	h.clients[c] = struct{}{}
