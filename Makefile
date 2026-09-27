@@ -117,10 +117,11 @@ integration:
 	# tile sandboxes (D120) started, driven and ended through the runtime's
 	# routes: over a minimal lower (kernel overlay, then fuse-overlayfs when
 	# bin/ has it) and over .rootfs when present; skip without userns. VM
-	# mode (TestLiveVM) needs .rootfs, the vm-assets and KVM, then runs again
-	# under QEMU's emulation
+	# mode (TestLiveVM, and the exec and file suites' vm cases) needs
+	# .rootfs, the vm-assets and KVM, then runs again under QEMU's emulation
 	go test -tags=integration -count=1 -v ./internal/tilesbx/
-	XBIN_VM_ACCEL=emulate go test -tags=integration -count=1 -v -run '^TestLiveVM$$' ./internal/tilesbx/
+	XBIN_VM_ACCEL=emulate go test -tags=integration -count=1 -v -run '^TestLive(VM|Execs|Files)$$' \
+		-skip '^(TestLiveExecs|TestLiveFiles)$$/^(minimal|rootfs|namespace)$$' ./internal/tilesbx/
 	# a live terminal's layer — a sub-uid's files in it, in range mode — goes
 	# whole on a reset and an offload-full (WP-9b), and its mount points are
 	# never followed through it (WP-2b): only these tests of these

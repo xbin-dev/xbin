@@ -373,17 +373,19 @@ next:
 		if dst == "/" || dst == sandbox.VMDir || strings.HasPrefix(dst, sandbox.VMDir+"/") {
 			return nil, fmt.Errorf("a VM sandbox can't export %s", dst)
 		}
-		fi, err := os.Stat(b.Src)
+		// what the jail binds: Src, or Sub beneath it (a resource's file),
+		// resolved without following a symlink, as the init resolves it
+		mode, err := sandbox.SubMode(b)
 		if err != nil {
-			return nil, fmt.Errorf("bind %s: %w", b.Src, err)
+			return nil, fmt.Errorf("bind %s: %w", path.Join(b.Src, b.Sub), err)
 		}
 		switch {
-		case fi.Mode()&os.ModeSocket != 0:
+		case mode&os.ModeSocket != 0:
 			continue
-		case fi.Mode()&(os.ModeDevice|os.ModeCharDevice) != 0:
+		case mode&(os.ModeDevice|os.ModeCharDevice) != 0:
 			return nil, fmt.Errorf("a VM sandbox can't pass device %s (GPUs stay with namespace sandboxes)", b.Src)
 		}
-		out = append(out, proto.Mount{Path: dst, RO: b.RO, File: !fi.IsDir()})
+		out = append(out, proto.Mount{Path: dst, RO: b.RO, File: !mode.IsDir()})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		return strings.Count(out[i].Path, "/") < strings.Count(out[j].Path, "/")

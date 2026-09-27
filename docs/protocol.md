@@ -2406,7 +2406,9 @@ definitions, lifecycle, snapshots and the policy are.
   nothing ("declare it in uses"). A reader's mount is read-only. `path` is
   a clean relative sub-path of the resource. `source: true` mounts the
   tile's own code, read-only. `at` is absolute and clean, not `/`, and not
-  under `/proc`, `/sys`, `/dev`, `/run/xbin` or `/opt/xbin`. `sqlite` and
+  under `/proc`, `/sys`, `/dev`, `/run/xbin`, `/opt/xbin` or `/.xbin-vm`
+  (a VM's plumbing). `path` may name a file as well as a directory, in
+  both modes. `sqlite` and
   other kinds are `invalid`.
 - `defaults.env` keys `XBIN_*` are `invalid`: a sandbox never gets an xbin
   identity. `uid`/`gid` must be runnable (`users: root` — a namespace host

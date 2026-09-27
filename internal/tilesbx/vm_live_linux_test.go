@@ -78,7 +78,23 @@ func hostIPv4() string {
 	return ""
 }
 
-func TestLiveVM(t *testing.T) {
+// liveVMEnv is a live runtime whose VM mode runs: a real vm.Manager (the
+// VM policy on for tiles; tilesEmulated too where VMs are emulated) over
+// the rootfs, the guest agent built from this tree.
+type liveVMEnv struct {
+	*liveEnv
+	vmm    *vm.Manager
+	policy vm.Policy
+	accel  string        // kvm | emulate
+	slow   time.Duration // an emulated VM's waits are this much longer (1 on KVM)
+	hostIP string        // one of the host's own addresses ("" = none)
+}
+
+// newLiveVMEnv skips without user namespaces, a rootfs ($XBIN_TEST_ROOTFS
+// or the repo's .rootfs) or VM support (the assets of the repo's bin/, or
+// the XBIN_* variables; XBIN_VM_ACCEL=emulate forces QEMU).
+func newLiveVMEnv(t *testing.T) *liveVMEnv {
+	t.Helper()
 	if !sandbox.Available() {
 		t.Skip("unprivileged user namespaces unavailable")
 	}
@@ -105,30 +121,39 @@ func TestLiveVM(t *testing.T) {
 	if !st.Available {
 		t.Skipf("VM sandboxes unavailable here: %s", st.Reason)
 	}
-	accel, slow := accelKVM, time.Duration(1)
+	lv := &liveVMEnv{vmm: vmm, accel: accelKVM, slow: 1, hostIP: hostIPv4()}
 	if st.Emulated {
-		accel, slow = accelEmulate, emulateSlow
+		lv.accel, lv.slow = accelEmulate, emulateSlow
 		t.Logf("emulated VMs: %s", st.Note)
 	}
 	confine.Configure(rootfs) // the image build and the state removal run confined, as under --isolate
 	t.Cleanup(func() { confine.Configure("") })
-	policy := vm.Policy{Tiles: true, TilesEmulated: st.Emulated, BudgetMiB: 8192, TilesBudgetMiB: 4096}
-	if err := vmm.SetPolicy(policy); err != nil {
+	lv.policy = vm.Policy{Tiles: true, TilesEmulated: st.Emulated, BudgetMiB: 8192, TilesBudgetMiB: 4096}
+	if err := vmm.SetPolicy(lv.policy); err != nil {
 		t.Fatal(err)
 	}
-	hostIP := hostIPv4()
 	classes := []EgressClass{{Class: "class:internet", Slot: "internet", Ref: "internet", Reach: "internet", Rules: []string{"net:internet"}}}
-	if hostIP != "" {
-		classes = append(classes, EgressClass{Class: "class:lan", Slot: "lan", Ref: "lan:" + hostIP + "/32", Reach: "open", Rules: []string{"lan:" + hostIP + "/32"}})
+	if lv.hostIP != "" {
+		classes = append(classes, EgressClass{Class: "class:lan", Slot: "lan", Ref: "lan:" + lv.hostIP + "/32", Reach: "open", Rules: []string{"lan:" + lv.hostIP + "/32"}})
 	}
-	le := newLiveEnv(t, bin, rootfs, func(o *Options) {
+	lv.liveEnv = newLiveEnv(t, bin, rootfs, func(o *Options) {
 		o.Deps.VM, o.Deps.Modes = vmm, vmPolicyModes{vmm}
 		o.Deps.Net = fakeNet{"apps/mgr": classes}
 	})
+	return lv
+}
+
+func TestLiveVM(t *testing.T) {
+	lv := newLiveVMEnv(t)
+	le, vmm, policy, accel, slow, hostIP := lv.liveEnv, lv.vmm, lv.policy, lv.accel, lv.slow, lv.hostIP
 	vmUsed := func() vm.Usage { return vmm.UsedTiles() }
+	if err := os.WriteFile(filepath.Join(le.work, "one.conf"), []byte("a file of the resource"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	le.create(map[string]any{"name": "vm-1", "mode": "vm", "memMiB": 512, "vcpus": 1, "diskGiB": 1, "mounts": []any{probeMount,
 		map[string]any{"res": "res:apps/mgr/work", "at": "/mnt/work"},
-		map[string]any{"res": "res:apps/mgr/ro", "at": "/mnt/ro"}}})
+		map[string]any{"res": "res:apps/mgr/ro", "at": "/mnt/ro"},
+		map[string]any{"res": "res:apps/mgr/work", "path": "one.conf", "at": "/etc/one.conf"}}}) // a file's path
 	sh := func(name, script string) string {
 		t.Helper()
 		out, ex := execRun(le.t, le.runOf(name), []string{"sh", "-c", script})
@@ -166,6 +191,14 @@ func TestLiveVM(t *testing.T) {
 		}
 		if _, err := os.Stat(filepath.Join(le.ro, "x")); err == nil {
 			t.Fatal("the write reached the resource")
+		}
+		// a mount whose path names a file is that file, both ways
+		if out := le.probeOK("vm-1", "cat", "/etc/one.conf"); out != "a file of the resource" {
+			t.Fatalf("the file mount: %q", out)
+		}
+		le.probeOK("vm-1", "write", "/etc/one.conf", "written in the VM")
+		if b, _ := os.ReadFile(filepath.Join(le.work, "one.conf")); string(b) != "written in the VM" {
+			t.Fatalf("the file mount's write: %q", b)
 		}
 		le.stop("vm-1")
 		if u := vmUsed(); u.VMs != 0 {

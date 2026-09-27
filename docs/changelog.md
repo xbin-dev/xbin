@@ -292,12 +292,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `stopped` with "the VM exited: " and the last lines of its console in
   `stateDetail`. `PUT /vm/policy` turning `tiles` off stops the running VM
   sandboxes, and turning `tilesEmulated` off stops the emulated ones; their
-  state is kept. Nothing changes for a workspace without a manager tile.
+  state is kept. Commands, files, tar and copy work in a VM sandbox as in a
+  namespace one, a mount whose `path` names a file mounts that file, and
+  `diskBytes` is the VM's disks' allocated blocks. A mount `at` under
+  `/.xbin-vm` (a VM's plumbing) is `invalid` in either mode. Nothing
+  changes for a workspace without a manager tile.
 - **Tile sandboxes run commands: `run`, execs, their output, stdin,
   signals and terminals** (D120, [protocol.md](protocol.md) §Tile
   sandboxes). A manager tile's `POST /sandboxes/<name>/run` and `…/execs`
-  now run commands in its sandbox, starting a stopped one with `autoStart`,
-  with the sandbox-manager contract's bodies and answers, so the manager
+  now run commands in its sandbox, starting a stopped one with `autoStart`
+  (a starting one is waited for, a stopping one waited out and started
+  again, within `waitMaxSec`), with the sandbox-manager contract's bodies
+  and answers, so the manager
   forwards them unchanged: `run` answers `{exitCode, signal, timedOut, ms,
   stdout, stderr}` (head and tail past `maxOutput`; TERM then KILL at
   `timeoutMs`; a hang-up kills the group); an exec's output is one stream

@@ -4,8 +4,8 @@ package tilesbx
 
 // Live commands: the exec suite (WP-17) on real tile sandboxes, driven
 // through the routes as the manager, with the static probe for a program
-// (a minimal lower has no shell). testLiveExecs takes the mode, so VM
-// mode's tests (WP-16) run the same suite: testLiveExecs(t, le, ModeVM).
+// (a minimal lower has no shell). testLiveExecs takes the mode: the same
+// suite runs on a VM sandbox (newLiveVMEnv; KVM, or XBIN_VM_ACCEL=emulate).
 
 import (
 	"context"
@@ -51,6 +51,9 @@ func TestLiveExecs(t *testing.T) {
 		}
 		t.Setenv("XBIN_FUSE_OVERLAYFS", fuse)
 		testLiveExecs(t, newLiveEnv(t, bin, rootfs), ModeNamespace, true)
+	})
+	t.Run("vm", func(t *testing.T) { // KVM, or XBIN_VM_ACCEL=emulate
+		testLiveExecs(t, newLiveVMEnv(t).liveEnv, ModeVM, true)
 	})
 }
 

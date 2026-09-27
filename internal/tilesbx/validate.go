@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/xbin-dev/xbin/internal/sandbox"
 )
 
 // Modes a sandbox runs in.
@@ -86,8 +88,10 @@ const (
 	maxPath     = 4096
 )
 
-// masked are where a mount may never land: the kernel's views and xbin's own.
-var masked = []string{"/proc", "/sys", "/dev", "/run/xbin", "/opt/xbin"}
+// masked are where a mount may never land: the kernel's views and xbin's
+// own — a VM's plumbing (sandbox.VMDir) too, in either mode, so a
+// definition never names a mount no VM could export.
+var masked = []string{"/proc", "/sys", "/dev", "/run/xbin", "/opt/xbin", sandbox.VMDir}
 
 // resolveSize: 0 is the default; the result is clamped to [lo, cap] — a
 // request above a cap is clamped, never refused (the answer says what applied).

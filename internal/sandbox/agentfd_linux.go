@@ -105,6 +105,43 @@ func bindSource(b Bind) (src string, isDir bool, release func(), err error) {
 	return fdPath(fd), st.Mode&unix.S_IFMT == unix.S_IFDIR, func() { unix.Close(fd) }, nil
 }
 
+// SubMode is the type and permission bits of what b's source names —
+// Src, or Sub beneath it resolved as the init binds it (openSub: no
+// symlink followed anywhere in Sub) — so a VM exports a file bind as a
+// file and a directory bind as a directory.
+func SubMode(b Bind) (os.FileMode, error) {
+	if b.Sub == "" {
+		fi, err := os.Stat(b.Src)
+		if err != nil {
+			return 0, err
+		}
+		return fi.Mode(), nil
+	}
+	fd, err := openSub(b.Src, b.Sub)
+	if err != nil {
+		return 0, err
+	}
+	defer unix.Close(fd)
+	var st unix.Stat_t
+	if err := unix.Fstat(fd, &st); err != nil {
+		return 0, must(err, "bind src "+b.Src+" sub "+b.Sub)
+	}
+	mode := os.FileMode(st.Mode & 0o777)
+	switch st.Mode & unix.S_IFMT {
+	case unix.S_IFDIR:
+		mode |= os.ModeDir
+	case unix.S_IFSOCK:
+		mode |= os.ModeSocket
+	case unix.S_IFCHR:
+		mode |= os.ModeDevice | os.ModeCharDevice
+	case unix.S_IFBLK:
+		mode |= os.ModeDevice
+	case unix.S_IFIFO:
+		mode |= os.ModeNamedPipe
+	}
+	return mode, nil
+}
+
 // openSub opens sub beneath src without following a symlink anywhere in sub.
 func openSub(src, sub string) (int, error) {
 	if path.IsAbs(sub) || path.Clean(sub) != sub || slices.Contains(strings.Split(sub, "/"), "..") {

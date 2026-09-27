@@ -66,6 +66,7 @@ func TestMounts(t *testing.T) {
 		{"res": "res:apps/mgr/work", "at": "/dev/shm"},
 		{"res": "res:apps/mgr/work", "at": "/run/xbin/gateway.sock"},
 		{"res": "res:apps/mgr/work", "at": "/opt/xbin/bin"},
+		{"res": "res:apps/mgr/work", "at": "/.xbin-vm/run"},
 		{"source": true, "path": "x", "at": "/x"},
 		{"source": true, "res": "res:apps/mgr/work", "at": "/x"},
 		{"at": "/x"},

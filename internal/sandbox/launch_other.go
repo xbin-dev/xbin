@@ -11,6 +11,19 @@ import (
 // Launch is unsupported off Linux.
 func Launch(*Spec) (*exec.Cmd, *Handle, error) { return nil, &Handle{}, ErrUnsupported }
 
+// SubMode is Src's mode off Linux; a Sub is unsupported (no sandbox
+// binds here).
+func SubMode(b Bind) (os.FileMode, error) {
+	if b.Sub != "" {
+		return 0, ErrUnsupported
+	}
+	fi, err := os.Stat(b.Src)
+	if err != nil {
+		return 0, err
+	}
+	return fi.Mode(), nil
+}
+
 // FuseOverlayfs is "" off Linux: no sandbox root is mounted here.
 func FuseOverlayfs() string { return "" }
 

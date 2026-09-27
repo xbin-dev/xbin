@@ -98,9 +98,9 @@ func (m vmModes) VM() (string, string) {
 
 // newVMEnv is a fake runtime with VM mode on: a 4 GiB VM budget, 2 GiB of
 // it for tile sandboxes. Its shims exit 129 on SIGHUP, as the real one.
-func newVMEnv(t *testing.T) (*fakeEnv, *fakeVMs) {
+func newVMEnv(t *testing.T, mut ...func(*Options)) (*fakeEnv, *fakeVMs) {
 	fv := newFakeVMs(t, vm.Policy{Tiles: true, BudgetMiB: 4096, TilesBudgetMiB: 2048})
-	fe := newFakeEnv(t, func(o *Options) { o.Deps.VM, o.Deps.Modes = fv, vmModes{fv} })
+	fe := newFakeEnv(t, append([]func(*Options){func(o *Options) { o.Deps.VM, o.Deps.Modes = fv, vmModes{fv} }}, mut...)...)
 	fe.l.onSignal = func(p *fakeProc, s os.Signal) {
 		if s == syscall.SIGHUP {
 			go p.die(ExitStatus{Code: 129})
@@ -167,7 +167,13 @@ func TestVMStartStop(t *testing.T) {
 		t.Fatalf("exec: %q %+v", out, ex)
 	}
 
-	before := syncs.Load() // an exec's exit syncs too (no NoSync)
+	// a command through the routes skips the guest's flush at its exit
+	// (NoSync, execOf): only a stop flushes a VM, as it goes
+	before := syncs.Load()
+	fe.want(fe.do(mgr, "POST", "/sandboxes/vm-1/run", map[string]any{"argv": []string{"sh", "-c", "true"}}), http.StatusOK, "")
+	if syncs.Load() != before {
+		t.Fatalf("a run's exit flushed the guest: %d syncs, %d before", syncs.Load(), before)
+	}
 	start := time.Now()
 	w = fe.do(mgr, "POST", "/sandboxes/vm-1/stop", nil)
 	fe.want(w, http.StatusOK, "")
@@ -211,6 +217,31 @@ func TestVMStopKillsAShimThatStays(t *testing.T) {
 		t.Fatalf("the shim ended %+v", r.exit)
 	}
 	assertTornDown(t, fe, r)
+}
+
+// A VM stop whose kill didn't take (the shim ignored its hang-up, then a
+// SIGKILL that didn't land) answers 503 and leaves it stopping; a second
+// stop kills again — end kills on every ask, the VM's stop included.
+func TestVMSecondStopKillsAgain(t *testing.T) {
+	fe, _ := newVMEnv(t)
+	fe.l.onSignal = nil // SIGHUP ignored
+	defer func(d time.Duration) { vmHupWait = d }(vmHupWait)
+	vmHupWait = 50 * time.Millisecond
+	fe.m.endWait = 300 * time.Millisecond
+	fe.create(vmDef("vm-1", 512))
+	fe.want(fe.do(mgr, "POST", "/sandboxes/vm-1/start", nil), http.StatusOK, "")
+	p := fe.l.last()
+	p.ignoreKills.Store(1)
+	fe.want(fe.do(mgr, "POST", "/sandboxes/vm-1/stop", nil), http.StatusServiceUnavailable, RefUnavailable)
+	if in := fe.get("vm-1"); in.State != StateStopping {
+		t.Fatalf("after a kill that didn't take: %+v", in)
+	}
+	w := fe.do(mgr, "POST", "/sandboxes/vm-1/stop", nil)
+	fe.want(w, http.StatusOK, "")
+	if in := fe.info(w); in.State != StateStopped {
+		t.Fatalf("after the second stop: %+v", in)
+	}
+	fe.assertBookEmpty()
 }
 
 // A VM's leaf (§6.2): guest memory plus the VMM's overhead (more when
@@ -528,4 +559,41 @@ func TestVMDiedReasons(t *testing.T) {
 	if got := m.exitReason(r, 3); got != "out of memory: 3 processes were killed" {
 		t.Fatalf("oom: %q", got)
 	}
+}
+
+// A VM's diskBytes are its disks' allocated blocks — cur/vm/disk.img and
+// each snapshot's, lstat'ed, never opened — measured at its stop; and a
+// low workspace disk stops the namespace sandboxes of a tile above the
+// fair share while its VM sandboxes, whose disks are bounded, run on.
+func TestVMDiskBytesAndLowDisk(t *testing.T) {
+	disk := &fakeDisk{fair: 1 << 20}
+	fe, _ := newVMEnv(t, func(o *Options) { o.Deps.Disk = disk })
+	fe.create(vmDef("vm-1", 512))
+	fe.want(fe.do(mgr, "POST", "/sandboxes/vm-1/start", nil), http.StatusOK, "")
+	d, _ := fe.m.defs.get(fe.k, "vm-1")
+	cur, _ := fe.m.CurDir(fe.k, d)
+	img := filepath.Join(cur, "vm", "disk.img")
+	f, err := os.OpenFile(img, os.O_WRONLY, 0) // what the guest wrote
+	must(t, err)
+	_, err = f.WriteAt([]byte(strings.Repeat("x", 3<<20)), 1<<20)
+	must(t, err)
+	must(t, f.Close())
+	snap := filepath.Join(filepath.Dir(cur), "snapshots", "s-1", "vm")
+	must(t, os.MkdirAll(snap, 0o700))
+	must(t, os.WriteFile(filepath.Join(snap, "disk.img"), []byte(strings.Repeat("y", 1<<20)), 0o600))
+	fe.want(fe.do(mgr, "POST", "/sandboxes/vm-1/stop", nil), http.StatusOK, "")
+	fe.m.waitUsage()
+	var a, b syscall.Stat_t
+	must(t, syscall.Stat(img, &a))
+	must(t, syscall.Stat(filepath.Join(snap, "disk.img"), &b))
+	if in := fe.get("vm-1"); in.DiskBytes != (a.Blocks+b.Blocks)*512 || in.DiskBytes < 4<<20 || in.DiskBytes > 64<<20 {
+		t.Fatalf("diskBytes %d, want the disks' allocated %d (sparse: not their 2 GiB)", in.DiskBytes, (a.Blocks+b.Blocks)*512)
+	}
+
+	fe.want(fe.do(mgr, "POST", "/sandboxes/vm-1/start", nil), http.StatusOK, "")
+	fe.create(ns("ns-1"))
+	fe.want(fe.do(mgr, "POST", "/sandboxes/ns-1/start", nil), http.StatusOK, "")
+	fe.m.OnLowDisk() // the tile holds more than the fair share
+	fe.waitStopped(fe.k, "ns-1", "the workspace disk is low")
+	fe.running(fe.k, "vm-1")
 }
