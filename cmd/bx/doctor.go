@@ -42,7 +42,9 @@ func cmdDoctor() error {
 		byPath[c.Path] = true
 	}
 	for _, c := range comps {
-		if c.ManifestErr != "" {
+		if strings.HasPrefix(c.ManifestErr, "scope.json (") { // what xbind refused in the tile's scope (D118)
+			warn("%s: %s", c.Path, c.ManifestErr)
+		} else if c.ManifestErr != "" {
 			warn("%s: xbin.json: %s", c.Path, c.ManifestErr)
 		}
 		for _, d := range c.Deps {

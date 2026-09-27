@@ -1424,7 +1424,13 @@ POST   /create                     owner/admin, a user creating a tile
                                    Create org. Same scaffolder as `bx
                                    new`; never overwrites. Clone/imports
                                    take the same owner? and assign the
-                                   same default ownership.
+                                   same default ownership. Every creator
+                                   (admins too, every creation route) gets
+                                   409 for a path nested with an existing
+                                   component, or whose scope data key
+                                   ("/" → "~") another scope has — e.g.
+                                   apps~x beside apps/x, or workspace
+                                   (D118, docs/resources.md).
 POST   /clone                      same authority as /create (the
                                    ownership path rule; the deputy clamp applies)
                                    + the human must have READ on `from`

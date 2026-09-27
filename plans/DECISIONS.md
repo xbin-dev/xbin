@@ -3576,3 +3576,34 @@ Deviations and refinements made while implementing; all deliberate:
         are never workspace admins (the API refuses them).
       - Making `tiles/organisations` chrome by its path alone: it still
         needs its manifest flag, so it behaves exactly as before.
+  - **(b) One scope per data key.** `internal/registry/scopekeys.go`,
+    `internal/broker/policy.go` (`guardNewComponentTree`),
+    `internal/broker/backup.go`; docs/resources.md,
+    docs/changes/2026-09-27-scope-json-checks.md. `util.ScopeKey` turns
+    `/` into `~`, so `apps~x` and `apps/x` share
+    `data/resources*/<key>`, the resenc mount and the gocryptfs password
+    label `fs:<key>/<name>`. A scope at `workspace` shares the
+    workspace-level resources' key, and also their kv buckets, because
+    buckets are named `res:<scope path>/<name>` and the workspace's are
+    `res:workspace/<name>`. `apps~x` and `apps/x` don't share buckets. Each
+    key now has one holder:
+    - the workspace scope always holds `workspace`;
+    - otherwise the holder recorded in `data/scope-keys.json` the first time
+      the key is contested, kept while that holder's directory exists;
+    - otherwise the scope that held the key at the previous scan;
+    - with no history, no claimant holds it.
+    A refused scope stays in the scope table, so membership, same-scope
+    grants and uids don't shift. Its `Resources` are dropped, so nothing is
+    provisioned, chowned, mounted or backed up for it. Its tiles'
+    `ManifestErr` names the holder, and resource removal and restore check
+    `HoldsScopeKey`. Every creation path refuses a path whose key clashes
+    (`ScopeKeyClash`).
+    - **Not chosen:**
+      - Rekeying (a longer or hashed key): it moves every workspace's data,
+        for a collision that needs a literal `~` in a directory name.
+      - Refusing `~` in paths outright: existing tiles may have one, and it
+        still leaves `workspace`.
+      - Always refusing every claimant: it lets a newcomer disable an
+        existing scope's resources.
+      - Remembering holders only in memory: a restart would forget which
+        scope was first.

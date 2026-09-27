@@ -12,6 +12,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-27
 
+- **BREAKING (rare) — security: one scope per resource data key** (D118,
+  [migration](changes/2026-09-27-scope-json-checks.md)). A scope's resource
+  data lives under its path with `/` written as `~`. Before this change,
+  `apps/x` and a directory named `apps~x`, or a scope at a top-level
+  `workspace/` and the workspace-level resources, shared encrypted volumes.
+  Now the scope that held the key first keeps it, and the other is still a
+  scope but gets none of its resources. Its tiles show a `manifestError`
+  naming the holder. Creating a tile at a colliding path is refused. No data
+  moves, and workspaces without such pairs see no change.
+
 - **BREAKING — security: `chrome: true` needs a workspace admin's
   approval** (D118, [migration](changes/2026-09-27-chrome-needs-approval.md)).
   A tile's own xbin.json is writable from its terminals and coding agents,

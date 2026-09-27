@@ -191,6 +191,18 @@ type Resource struct {
 type ScopeManifest struct {
 	Resources map[string]Resource `json:"resources,omitempty"`
 	ImportMap map[string]string   `json:"importMap,omitempty"`
+	// Err says what xbind refused in this scope.json (D118): a data key
+	// another scope holds (scopekeys.go — every resource dropped). Surfaced
+	// on its tiles' ManifestErr.
+	Err string `json:"-"`
+}
+
+// addErr records one refusal for the scope at path.
+func (sm *ScopeManifest) addErr(path, why string) {
+	if sm.Err != "" {
+		sm.Err += "; "
+	}
+	sm.Err += "scope.json (" + path + "): " + why
 }
 
 // Grant is one row of the workspace grant table: caller may call target at
@@ -411,6 +423,7 @@ type Registry struct {
 	components map[string]*Component
 	scopes     map[string]*ScopeManifest // scope path → manifest
 	workspace  WorkspaceManifest
+	keys       scopeKeys // who holds each scope data key (scopekeys.go)
 }
 
 func Open(root string) (*Registry, error) {
@@ -494,6 +507,15 @@ func (r *Registry) Rescan() error {
 	}
 
 	r.mu.Lock()
+	r.keys.resolve(r.Root, scopes) // one holder per data key (D118)
+	for _, c := range comps {
+		if sm := scopes[c.Scope]; sm != nil && sm.Err != "" {
+			if c.ManifestErr != "" {
+				c.ManifestErr += "; "
+			}
+			c.ManifestErr += sm.Err
+		}
+	}
 	r.components, r.scopes, r.workspace = comps, scopes, ws
 	r.mu.Unlock()
 	return nil
