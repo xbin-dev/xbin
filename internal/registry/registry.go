@@ -114,20 +114,29 @@ var sandboxNetSlot = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 // ValidSandboxNetSlot reports whether slot may name a sandbox-net class.
 func ValidSandboxNetSlot(slot string) bool { return sandboxNetSlot.MatchString(slot) }
 
+// SandboxNetSlotErr says why a request-side sandbox-net slot is no class
+// (nil = it is one): a name outside the class grammar, or multi, service,
+// role or instances. Load-time validation, the broker's class list and
+// binding all judge a slot by it.
+func SandboxNetSlotErr(slot string, def Iface) error {
+	if !ValidSandboxNetSlot(slot) {
+		return fmt.Errorf("interfaces.%s: a sandbox-net slot is named [a-z0-9][a-z0-9_-]{0,31} (sandboxes select it as class:<slot>)", slot)
+	}
+	if def.Multi || def.Service != "" || def.Role != "" || def.Instances {
+		return fmt.Errorf("interfaces.%s: a sandbox-net slot takes no multi, service, role or instances", slot)
+	}
+	return nil
+}
+
 // ValidateInterfaces checks the interface kinds that carry rules of their
 // own — today only sandbox-net, which is request-side, single and plain.
 // Other kinds keep their bind-time checks. The error names the slot.
 func ValidateInterfaces(m Manifest) error {
 	for _, slot := range slices.Sorted(maps.Keys(m.Interfaces)) {
-		def := m.Interfaces[slot]
-		if def.Kind != KindSandboxNet {
-			continue
-		}
-		if !ValidSandboxNetSlot(slot) {
-			return fmt.Errorf("interfaces.%s: a sandbox-net slot is named [a-z0-9][a-z0-9_-]{0,31} (sandboxes select it as class:<slot>)", slot)
-		}
-		if def.Multi || def.Service != "" || def.Role != "" || def.Instances {
-			return fmt.Errorf("interfaces.%s: a sandbox-net slot takes no multi, service, role or instances", slot)
+		if def := m.Interfaces[slot]; def.Kind == KindSandboxNet {
+			if err := SandboxNetSlotErr(slot, def); err != nil {
+				return err
+			}
 		}
 	}
 	for _, slot := range slices.Sorted(maps.Keys(m.Provides)) {

@@ -528,3 +528,48 @@ func TestNetSlotDeterministic(t *testing.T) {
 }
 
 func mustAddr(s string) netip.Addr { return netip.MustParseAddr(s) }
+
+// A sandbox-net slot the manifest check refuses — a name outside the class
+// grammar, or multi/service/role/instances — is no class: not listed, not
+// selectable, and binding it is refused.
+func TestSandboxNetBadSlotIsNoClass(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "apps/bad"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for rel, content := range map[string]string{
+		"xbin.json":          `{"schema":1}`,
+		"apps/bad/xbin.json": `{"runtime":"go","interfaces":{"ok":{"kind":"sandbox-net"},"many":{"kind":"sandbox-net","multi":true},"Up":{"kind":"sandbox-net"}}}`,
+	} {
+		if err := os.WriteFile(filepath.Join(root, rel), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reg, err := registry.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := New(reg, events.NewHub(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(b.Close)
+	var got []string
+	for _, c := range b.SandboxNetClasses("apps/bad") {
+		got = append(got, c.Class)
+	}
+	if strings.Join(got, ",") != "none,class:ok" {
+		t.Fatalf("classes: %v", got)
+	}
+	for _, slot := range []string{"many", "Up"} {
+		if _, err := b.SandboxEgress("apps/bad", "class:"+slot); err == nil {
+			t.Errorf("class:%s must name no class", slot)
+		}
+		if err := b.validateBinding("apps/bad", slot, registry.BindTo("internet")); err == nil || !strings.Contains(err.Error(), "no sandbox network class") {
+			t.Errorf("binding %s: %v", slot, err)
+		}
+	}
+	if err := b.validateBinding("apps/bad", "ok", registry.BindTo("internet")); err != nil {
+		t.Errorf("control: %v", err)
+	}
+}

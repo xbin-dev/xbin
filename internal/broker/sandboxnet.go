@@ -56,11 +56,12 @@ type SandboxNet struct {
 func netKind(kind string) bool { return kind == "net" || kind == registry.KindSandboxNet }
 
 // sandboxNetSlots lists a component's sandbox-net classes, sorted. A slot
-// outside the name grammar is a manifest error and no class.
+// registry.SandboxNetSlotErr refuses (its name, or multi/service/role/
+// instances) is a manifest error and no class.
 func sandboxNetSlots(c *registry.Component) []string {
 	var out []string
 	for slot, def := range c.Manifest.Interfaces {
-		if def.Kind == registry.KindSandboxNet && registry.ValidSandboxNetSlot(slot) {
+		if def.Kind == registry.KindSandboxNet && registry.SandboxNetSlotErr(slot, def) == nil {
 			out = append(out, slot)
 		}
 	}
@@ -203,9 +204,12 @@ func (b *Broker) resolveSandboxNet(tile, slot string) SandboxNet {
 func (b *Broker) validateNetRef(comp, slot string, def registry.Iface, ref string) error {
 	prov, inst := splitRef(ref)
 	sbx := def.Kind == registry.KindSandboxNet
+	if sbx {
+		if err := registry.SandboxNetSlotErr(slot, def); err != nil {
+			return fmt.Errorf("%s is no sandbox network class — fix the manifest: %w", slot, err)
+		}
+	}
 	switch {
-	case sbx && !registry.ValidSandboxNetSlot(slot):
-		return fmt.Errorf("%q is not a valid sandbox-net slot name ([a-z0-9][a-z0-9_-]{0,31}) — fix the manifest", slot)
 	case inst != "":
 		return fmt.Errorf("%s bindings take no #instance", def.Kind)
 	case prov == NetRefNone, prov == "internet":
