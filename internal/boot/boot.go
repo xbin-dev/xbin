@@ -562,6 +562,10 @@ func (st *State) stepProxy() error {
 	run.ShouldRun = func(comp string) bool {
 		return reg.LifecycleState(comp) == registry.StateEnabled && !brk.EncryptionHold(comp)
 	}
+	// ...per deployment: the hold of the namespaces that deployment reaches.
+	run.ShouldRunDeployment = func(tile, dep string) bool {
+		return reg.LifecycleState(tile) == registry.StateEnabled && !brk.DeploymentEncryptionHold(tile, dep)
+	}
 	brk.Version = st.Cfg.Version
 	brk.ProxyHandler = px // internal archiver calls for backup/restore
 	st.Proxy = px

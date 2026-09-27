@@ -91,6 +91,10 @@ type DeploymentHooks struct {
 	// env-layer GC keeps. ok false: they can't be read, so every layer is
 	// kept. nil: none are retained.
 	Retained func(tile string) (trees []string, ok bool)
+	// ShouldRunDeployment gates a spawn of deployment dep of tile: the tile's
+	// lifecycle and the encryption hold of the namespaces dep reaches (08-data
+	// §3.6). nil: ShouldRun, per tile (the primary's hold).
+	ShouldRunDeployment func(tile, dep string) bool
 }
 
 // primary names tile's primary deployment.
@@ -182,8 +186,12 @@ func (r *Runner) envFor(c *registry.Component, dep string) ([]string, map[string
 }
 
 // shouldRun gates a spawn of deployment dep of tile: the tile's lifecycle
-// and its encryption hold (ShouldRun, per tile).
+// and dep's own encryption hold (ShouldRunDeployment), or the tile's
+// (ShouldRun) without that hook.
 func (r *Runner) shouldRun(tile, dep string) bool {
+	if f := r.ShouldRunDeployment; f != nil {
+		return f(tile, dep)
+	}
 	return r.ShouldRun == nil || r.ShouldRun(tile)
 }
 
