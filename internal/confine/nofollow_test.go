@@ -37,6 +37,7 @@ var followingCalls = map[string]map[string]bool{
 var nofollowScope = []string{
 	"internal/checkpoint/",
 	"internal/deployments/",
+	"internal/registry/deployview.go",
 	"internal/server/deployserve.go",
 	"internal/broker/deploydata.go",
 	"internal/runner/deploy.go",
@@ -53,9 +54,10 @@ var walkOK = regexp.MustCompile(`walk-ok:\s*\S`)
 // The static half refuses every followingCalls use — a call, or a reference
 // to the function, through any import name — in nofollowScope unless the
 // line or the two above say `// walk-ok: <why>`. The behavioural half's
-// tripwire is here and proven; the operations it drives (capture,
-// materialize, the drift count, diff, GC, purge, restore) join it as they
-// land.
+// tripwire is here and proven; it drives each operation in
+// NofollowOperations through a hostile tree aimed at the tripwire's FIFO
+// (capture today; materialize, the drift count, diff, GC, purge and restore
+// join it as they land).
 func TestNoFollowingHostWalks(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	if err != nil {
@@ -98,10 +100,34 @@ func TestNoFollowingHostWalks(t *testing.T) {
 
 	t.Run("behaviour/tripwire", func(t *testing.T) { checkFIFOTripwire(t) })
 	t.Run("behaviour/operations", func(t *testing.T) {
-		t.Skip("the operations the behavioural half drives through a hostile tree (capture, materialize, " +
-			"the drift count, diff, GC, purge, restore) don't exist yet; each is wired to newFIFOTripwire as it lands")
+		if len(NofollowOperations) == 0 {
+			t.Skip("no operation registered in NofollowOperations")
+		}
+		for _, op := range NofollowOperations {
+			t.Run(op.Name, func(t *testing.T) {
+				w := newFIFOTripwire(t)
+				op.Run(t, w.path)
+				if w.tripped.Load() {
+					t.Fatalf("%s opened the FIFO outside the trees it was given", op.Name)
+				}
+			})
+		}
 	})
 }
+
+// NofollowOperation is one operation the behavioural half drives: Run builds
+// its hostile trees (symlinks to fifo, FIFOs of their own) and runs the
+// operation over them, failing on the operation's error; the half fails if
+// the FIFO was opened. The packages that implement the operations import
+// confine, so they register from package confine_test
+// (nofollow_ops_test.go), which may import them.
+type NofollowOperation struct {
+	Name string
+	Run  func(t *testing.T, fifo string)
+}
+
+// NofollowOperations is filled by package confine_test's init.
+var NofollowOperations []NofollowOperation
 
 // nofollowScopeFiles lists the non-test Go files (repo-relative, slash-
 // separated) of one scope entry: a directory (recursively) or a file.
