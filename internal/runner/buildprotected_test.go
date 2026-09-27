@@ -421,3 +421,52 @@ func TestNonPrimaryBuildLimiter(t *testing.T) {
 		t.Errorf("%d turns held, want %d", n, cap(nonPrimaryBuilds))
 	}
 }
+
+// covers P9 P17 SC-ROLLBACK — the collection after a layer is built reads the
+// deployments plane's retained checkpoints (the Retained hook): a list it
+// can't read collects nothing; the layers of the listed checkpoints stay,
+// and so does every deployment's running generation's, not only main's.
+func TestEnvLayerGCReadsRetainedHook(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "apps/x")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "xbin.json"), []byte(`{"runtime":"go"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reg := &registry.Registry{Root: root}
+	if err := reg.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	r := &Runner{Root: root, Isolate: true, Rootfs: filepath.Join(root, "rootfs"), Reg: reg, states: map[string]*state{}}
+	r.View = func(c *registry.Component, code Code) (*registry.Component, error) {
+		return &registry.Component{Path: c.Path, Dir: c.Dir, Manifest: registry.Manifest{Runtime: "go", Setup: "apk add curl"}}, nil
+	}
+	c, _ := reg.Component("apps/x")
+	retained, built, devRun, stale := r.setupHash("apk add curl"), r.setupHash("apk add make"), r.setupHash("apk add git"), r.setupHash("apk add gcc")
+	base := r.envLayers("apps/x")
+	for _, h := range []string{retained, built, devRun, stale} {
+		if err := os.MkdirAll(filepath.Join(base, h, "upper"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r.states[stateKey("apps/x", "dev")] = &state{comp: "apps/x", dep: "dev", cur: &instance{dep: "dev", envHash: devRun}}
+	r.Retained = func(string) ([]string, bool) { return nil, false }
+	r.collectEnvLayers(c, built)
+	if ents, _ := os.ReadDir(base); len(ents) != 4 {
+		t.Fatalf("an unreadable retained list collected: %v", ents)
+	}
+	r.Retained = func(tile string) ([]string, bool) {
+		if tile != "apps/x" {
+			t.Errorf("Retained asked for %q", tile)
+		}
+		return []string{ckTree('a')}, true
+	}
+	r.collectEnvLayers(c, built)
+	for h, want := range map[string]bool{retained: true, built: true, devRun: true, stale: false} {
+		if _, err := os.Lstat(filepath.Join(base, h)); (err == nil) != want {
+			t.Errorf("layer %s kept=%v, want %v", h, err == nil, want)
+		}
+	}
+}
