@@ -268,6 +268,9 @@ async function stepAdd(X) {
   const main = rows.find((r) => r.name === 'main'), dv = rows.find((r) => r.name === DEV);
   check(!!main?.primary && /^📌 c:[0-9a-f]{7,}$/.test(main?.code || '') && dv?.code === '● work tree',
     `the rows: main pinned to a checkpoint, dev following the work tree (${JSON.stringify(rows.map((r) => [r.name, r.code]))})`);
+  // the window's own state follows the add's deployments event (debounced)
+  await waitFor(P, (t, a) => t.frameFor(a.tile)?.testApi().deploy.chip?.text === a.want, { tile: TILE, want: `● Live reload: ${DEV}` },
+    { timeout: 10000, label: 'the chip follows the add' }).catch(() => { });
   const chip = await fr(P, TILE, (f) => f.deploy.chip);
   check(chip?.text === `● Live reload: ${DEV}`, `the chip reads ● Live reload: dev (${chip?.text})`);
   // the launcher (the window without sessions) says what a new session calls
@@ -290,7 +293,8 @@ async function stepAdd(X) {
     await answer(P, 'ok');
     await waitFor(P, (t, a) => { const f = t.frameFor(a.tile)?.testApi(); return !!f && !!f.tabs[a.i]?.id && f.tabs[a.i].id !== a.before && f.deploy.target(a.i) === a.to; },
       { tile: TILE, i, before, to }, { timeout: 20000, label: `the session restarted onto ${to}` });
-    check(await envDeployment(P, i) === env, `switched to ${to}, the restarted shell says XBIN_DEPLOYMENT=${env}`);
+    const said = await envDeployment(P, i);
+    check(said === env, `switched to ${to}, the restarted shell says XBIN_DEPLOYMENT=${env} (${said === null ? 'no answer' : `[${said}]`})`);
   }
   X.followerTab = i; // follows the primary: step 7 watches it
   await shot(P, 'deployments-added', { fullPage: false });
@@ -585,6 +589,13 @@ async function run(X) {
   const st = await stateOf(M.ctx);
   if (st.status !== 200) { skip(`GET /api/xbin/deployments answers ${st.status} here (${st.error || 'no JSON state'}): this xbind has no tile deployments, so steps 1–8 can't run`); return; }
   check((await resetDeploys(M.ctx)).body.record === false, `${TILE} starts in the zero state`);
+  // session targets are a tile-API choice (P24): dev1 needs the terminal
+  // tile-API grant (D17) for its tab to call dev; the seed leaves it off
+  X.devTermApi = !!users.find((u) => u.id === 'dev1')?.termApi;
+  if (!X.devTermApi) {
+    const r = await M.ctx.request.patch(`${URL}/api/xbin/users/dev1`, { data: { termApi: true } });
+    check(r.ok(), `dev1 gets the terminal tile-API grant for this pass (${r.status()})`);
+  }
   X.seededText = /<p id="v">([^<]*)</.exec(fs.readFileSync(FILE, 'utf8'))?.[1] || 'deployy';
 
   // what this xbind and this build can do
@@ -636,6 +647,7 @@ async function deployments(browser) {
   } finally {
     // ---- 8, whatever happened: the fixture's bytes, sessions, zero state, prefs ----
     if (bytes) fs.writeFileSync(FILE, bytes);
+    if (X.devTermApi === false) await M.ctx.request.patch(`${URL}/api/xbin/users/dev1`, { data: { termApi: false } }).catch(() => { });
     for (const x of [A, S, R]) await endSessions(x.ctx).catch(() => { });
     const s = await resetDeploys(M.ctx).catch(() => null);
     if (s?.status === 200) c.check(s.body.record === false, `${TILE} is back in the zero state (${JSON.stringify(s.body).slice(0, 100)})`);
