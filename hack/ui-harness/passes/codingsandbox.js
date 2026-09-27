@@ -13,9 +13,12 @@
 //     opens a terminal (<bx-terminal src> on the tile's own tty route) whose
 //     shell answers;
 //   - the operators' table lists both consumers' sandboxes; a snapshot is
-//     taken; Images and Settings draw; the sandboxes are deleted and the
-//     agent's binding restored.
-// Screenshots: coding-sandbox-{xbin,ops,yours,images,settings}.png.
+//     taken; Images and Settings draw;
+//   - dev1 (read access to the tile) gets the read-only view: the page says
+//     why, New sandbox is disabled, and a create from the page is refused
+//     (403 not-allowed: it needs write access) — xbind's own D29 headers;
+//   - the sandboxes are deleted and the agent's binding restored.
+// Screenshots: coding-sandbox-{xbin,ops,yours,images,settings,reader}.png.
 const { URL, login, log, shot, checker } = require('../lib');
 
 const SELF = 'apps/coding-sandbox';
@@ -122,6 +125,24 @@ async function codingSandbox(browser) {
   await page.waitForSelector('#mode-now');
   check((await page.textContent('#mode-now')).includes('VMs'), 'automatic mode: VMs where the substrate offers them');
   await shot(page, 'coding-sandbox-settings');
+
+  // a person with read access looks, and changes nothing (D122 addendum)
+  {
+    const { ctx: rctx, page: rpage } = await login(browser, 'dev1', 'devpass123', { viewport: { width: 1300, height: 950 } });
+    await rpage.goto(`${URL}/c/${SELF}/`);
+    const shown = await rpage.waitForSelector('#readonly-note', { timeout: 30000 }).then(() => true, () => false);
+    check(shown, 'a reader gets the read-only view, saying why');
+    const me = (await tileApi(rpage, SELF, '/me')).body || {};
+    check(me.write === false && me.level === 'read' && me.operator === false, `/me for a reader (${JSON.stringify(me)})`);
+    check(await rpage.$eval('#new', (b) => b.disabled).catch(() => false), 'New sandbox is disabled for a reader');
+    const made = await tileApi(rpage, SELF, '/sbx/sandboxes', json('POST', { name: 'nope' }));
+    check(made.status === 403 && made.body?.refusal === 'not-allowed' && /write access/.test(made.body?.error || ''),
+      `a reader's create from the page is refused (${made.status} ${JSON.stringify(made.body)})`);
+    const list = await tileApi(rpage, SELF, '/sbx/sandboxes');
+    check(list.status === 200, `a reader lists (${list.status})`);
+    await shot(rpage, 'coding-sandbox-reader');
+    await rctx.close();
+  }
 
   // clean up: the sandboxes, then the agent's binding as the seed left it
   st = (await tileApi(page, SELF, '/ops/state')).body;

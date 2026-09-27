@@ -25,14 +25,14 @@ export const FEATURES = {
   'ops.delete': 'delete any sandbox, confirmed',
   'ops.snapshots': 'a sandbox\'s snapshots: list, take one, delete one (confirmed)',
   'ops.snapshots.restore': 'restore a snapshot, confirmed',
-  'ops.shares': 'share a sandbox with another consumer (everyone it serves, or named people), or stop sharing',
+  'ops.shares': 'who may use each sandbox (its visibility, members and the consumers it is shared with), shown and never changed: only its home consumer or its owner changes that',
   'ops.usage': 'usage by consumer and by person against the quota that binds each',
   'ops.orphans': 'the substrate\'s sandboxes this manager doesn\'t know, deleted (confirmed)',
   'ops.backend': 'the backend and the substrate: its errors, modes, capabilities and what hello leaves out (notes)',
 
   // Images
   'images.list': 'the images: title, tools, whether it has a setup script, whether consumers are offered it',
-  'images.build': 'build status (building, built, failed and why); build or rebuild now',
+  'images.build': 'build status (building, built, failed and why; the previous good build a failed or running rebuild keeps); build or rebuild now',
   'images.log': 'the last build\'s output',
   'images.edit': 'add or change an image: id, title, tools, setup script, the build\'s network, the default',
   'images.remove': 'remove an image, confirmed',
@@ -66,6 +66,7 @@ export const FEATURES = {
   // States
   'state.errors': 'a refused call or an unreachable backend says why',
   'state.reader': 'someone who isn\'t an operator sees only their own sandboxes',
+  'state.readonly': 'someone with read access to the tile looks and never changes: every change (create, lifecycle, sharing, a terminal, file changes) is hidden or disabled, saying it needs write access',
   'state.refresh': 'the page reads everything again (by hand, and while it is on screen)',
 };
 

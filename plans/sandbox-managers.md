@@ -272,9 +272,13 @@ In order:
    operators' snapshots, the page (web and native, one model, D96 parity;
    the native terminal attaches to a tty exec on the tile's own route),
    `AGENTS.md` on adding a cloud/ssh backend, and the UI harness's
-   `codingSandbox` pass on the fake. Open: the live end to end on an
-   `--isolate` xbind (the runtime's WP-21; the template's API.md §Testing
-   on xbind is its plan), archive/thaw (WP-22).
+   `codingSandbox` pass on the fake. Follow-ups (D122's addendum): a
+   change from the page needs the person's write access to the tile
+   (readers get a read-only view), operators run lifecycle but never
+   change who may use a sandbox, a failed rebuild keeps the previous good
+   build, and a clone's errors never name its source. Open: the live end
+   to end on an `--isolate` xbind (the runtime's WP-21; the template's
+   API.md §Testing on xbind is its plan), archive/thaw (WP-22).
 4. **`builtin-tiles/sandbox-terminal`**: browser terminals straight to the
    manager (the page's verified user), SSH ingress (a `stream` expose, keys
    registered per person, the user name is the sandbox) bridged to the

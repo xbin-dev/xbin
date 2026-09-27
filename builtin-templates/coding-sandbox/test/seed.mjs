@@ -51,7 +51,9 @@ export const OPS = {
   config: CONFIG,
   images: [
     { id: 'node', runtime: 'img-node-a1b2c3', snapshot: 's-1', setupHash: 'x', mode: 'vm', state: 'ready', log: 'added 1 package\nsetup done', built: NOW - 3600e3 },
-    { id: 'rust', runtime: 'img-rust-d4e5f6', setupHash: 'y', mode: 'vm', state: 'error', detail: 'the setup script exited 6: curl: (6) Could not resolve host: sh.rustup.rs', log: 'curl: (6) Could not resolve host: sh.rustup.rs' },
+    { id: 'rust', runtime: 'img-rust-d4e5f6', setupHash: 'y', mode: 'vm', state: 'error', detail: 'the setup script exited 6: curl: (6) Could not resolve host: sh.rustup.rs', log: 'curl: (6) Could not resolve host: sh.rustup.rs',
+      // the last good build, of the script before, kept until a build succeeds
+      previous: { id: 'rust', runtime: 'img-rust-a0a0a0', snapshot: 's-3', setupHash: 'y0', mode: 'vm', state: 'ready', built: NOW - 3 * 86400e3 } },
   ],
   sandboxes: [
     box('sb-api', { name: 'api-dev', egress: 'internet', size: size('medium', 4096, 4, 40), lastActive: NOW - 60e3, execsRunning: 2 }),
@@ -96,6 +98,7 @@ export const FILES = {
   '/work/src/main.go': { content: 'package main' },
 };
 
-export const SEED = { self: SELF, me: { user: 'admin', operator: true, self: SELF }, ops: OPS, hello: HELLO, mine: MINE, files: FILES };
-// a person who may open the page and isn't an operator
-export const READER = { ...SEED, me: { user: 'dora', operator: false, self: SELF }, ops: null };
+export const SEED = { self: SELF, me: { user: 'admin', level: 'write', write: true, operator: true, self: SELF }, ops: OPS, hello: HELLO, mine: MINE, files: FILES };
+// a person who may open the page and isn't an operator: read access to the
+// tile, so they look and never change (the stub refuses their changes)
+export const READER = { ...SEED, me: { user: 'dora', level: 'read', write: false, operator: false, self: SELF }, ops: null };

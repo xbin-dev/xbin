@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -395,8 +396,10 @@ func TestBackendDown(t *testing.T) {
 
 // --- the operators and the tile's own routes ---------------------------------------------
 
-// tileServer serves the whole tile as main does.
+// tileServer serves the whole tile as main does, as apps/cs (its own page's
+// calls come from there).
 func tileServer(t *testing.T, tm *testManager) *httptest.Server {
+	tm.m.self = "apps/cs"
 	mux := http.NewServeMux()
 	mux.Handle("/sbx/", consumerGuard(tm.m.contractHandler()))
 	tm.m.operatorRoutes(mux)
@@ -470,9 +473,25 @@ func TestOperators(t *testing.T) {
 		st.Usage.Consumers["apps/agent"].Sandboxes != 1 || st.Usage.Consumers["apps/agent"].Running != 1 || st.Offer == nil {
 		t.Fatalf("the operators' state: %+v", st)
 	}
-	// operators share a sandbox and set quotas
-	call(t, srv, owner, "PATCH", "/ops/sandboxes/"+sb.ID, map[string]any{"shares": []map[string]any{{"consumer": "apps/term", "users": "*"}}}, 200, nil)
+	// operators change a sandbox's definition, never who may use it: that is
+	// its home consumer's (or its owner's there), whoever the operator is
+	var pv opView
+	call(t, srv, owner, "PATCH", "/ops/sandboxes/"+sb.ID, map[string]any{"name": "renamed", "labels": map[string]string{"k": "v"}, "autoStopMin": 45}, 200, &pv)
+	if pv.Name != "renamed" || pv.Labels["k"] != "v" || pv.AutoStopMin != 45 {
+		t.Fatalf("an operator's PATCH: %+v", pv)
+	}
+	for _, body := range []map[string]any{{"shares": []map[string]any{{"consumer": "apps/term", "users": "*"}}}, {"visibility": "team"},
+		{"members": []string{"mallory"}}, {"name": "again", "shares": []map[string]any{}}} {
+		call(t, srv, owner, "PATCH", "/ops/sandboxes/"+sb.ID, body, 403, nil)
+		call(t, srv, writer, "PATCH", "/ops/sandboxes/"+sb.ID, body, 403, nil)
+	}
+	call(t, srv, as{from: "apps/term", role: "consumer"}, "GET", "/sbx/sandboxes/"+sb.ID, nil, 404, nil)
+	if v := tm.m.recCopy(sb.ID); v.Name != "renamed" || v.Visibility != "private" || len(v.Members) != 0 || len(v.Shares) != 0 {
+		t.Fatalf("a refused PATCH changed the sandbox: %+v", v)
+	}
+	call(t, srv, agentTile, "PATCH", "/sbx/sandboxes/"+sb.ID, map[string]any{"shares": []map[string]any{{"consumer": "apps/term", "users": "*"}}}, 200, nil)
 	call(t, srv, as{from: "apps/term", role: "consumer"}, "GET", "/sbx/sandboxes/"+sb.ID, nil, 200, nil)
+	// operators set quotas
 	call(t, srv, owner, "PUT", "/ops/config", map[string]any{"quotas": map[string]any{"consumer": map[string]any{"sandboxes": 1}}}, 200, nil)
 	call(t, srv, agentTile, "POST", "/sbx/sandboxes", map[string]any{"name": "over"}, 429, nil)
 	call(t, srv, owner, "PUT", "/ops/config", map[string]any{"images": []map[string]any{}}, 400, nil)
@@ -520,6 +539,189 @@ func TestOperators(t *testing.T) {
 		t.Fatalf("an unknown backend: %v", st.Backend)
 	}
 	call(t, srv, agentTile, "GET", "/sbx/hello", nil, 503, nil)
+}
+
+// A person on the tile's own page with read access to it looks and never
+// changes (D29's rule for mutating endpoints): every change is refused
+// before it is routed, and a read never starts a stopped sandbox. A person
+// with write access, and every other consumer's calls, are as before.
+func TestPageReaders(t *testing.T) {
+	t.Parallel()
+	tm := newTestManager(t, "")
+	srv := tileServer(t, tm)
+	olga := as{from: "apps/cs", role: "admin", user: "olga", level: "write"}
+	tess := as{from: "apps/cs", role: "admin", user: "tess", level: "terminal"}
+	rita := as{from: "apps/cs", role: "admin", user: "rita", level: "read"}
+	var me map[string]any
+	call(t, srv, rita, "GET", "/me", nil, 200, &me)
+	if me["write"] != false || me["level"] != "read" || me["operator"] != false || me["self"] != "apps/cs" {
+		t.Fatalf("/me for a reader: %v", me)
+	}
+	call(t, srv, olga, "GET", "/me", nil, 200, &me)
+	if me["write"] != true || me["level"] != "write" {
+		t.Fatalf("/me for a writer: %v", me)
+	}
+	// a writer makes sandboxes on the page, the team's to use
+	var team, off sandboxcontract.Sandbox
+	call(t, srv, olga, "POST", "/sbx/sandboxes", map[string]any{"name": "team", "visibility": "team"}, 201, &team)
+	call(t, srv, olga, "POST", "/sbx/sandboxes", map[string]any{"name": "off", "visibility": "team", "start": false}, 201, &off)
+	call(t, srv, tess, "PUT", "/sbx/sandboxes/"+team.ID+"/files/content?path="+team.Workdir+"/note.txt", nil, 200, nil) // terminal ⊇ write
+	// the reader sees them, reads a running one's files and output…
+	var l struct{ Sandboxes []sandboxcontract.Sandbox }
+	call(t, srv, rita, "GET", "/sbx/sandboxes", nil, 200, &l)
+	if len(l.Sandboxes) != 2 {
+		t.Fatalf("a reader lists %d sandboxes", len(l.Sandboxes))
+	}
+	call(t, srv, rita, "GET", "/sbx/hello", nil, 200, nil)
+	call(t, srv, rita, "GET", "/sbx/sandboxes/"+team.ID, nil, 200, nil)
+	call(t, srv, rita, "GET", "/sbx/sandboxes/"+team.ID+"/files/list?path="+team.Workdir, nil, 200, nil)
+	call(t, srv, rita, "GET", "/sbx/sandboxes/"+team.ID+"/files/stat?path="+team.Workdir+"/note.txt", nil, 200, nil)
+	call(t, srv, rita, "GET", "/sbx/sandboxes/"+team.ID+"/execs", nil, 200, nil)
+	call(t, srv, rita, "GET", "/sbx/sandboxes/"+team.ID+"/snapshots", nil, 200, nil)
+	// …and changes nothing: every change is refused, whatever it names
+	sb := "/sbx/sandboxes/" + team.ID
+	for _, c := range []struct{ method, path string }{
+		{"POST", "/sbx/sandboxes"}, {"PATCH", sb}, {"DELETE", sb}, {"POST", sb + "/start"}, {"POST", sb + "/stop"},
+		{"POST", sb + "/run"}, {"POST", sb + "/execs"}, {"DELETE", sb + "/execs/e1-1"}, {"POST", sb + "/execs/e1-1/stdin"},
+		{"POST", sb + "/execs/e1-1/signal"}, {"POST", sb + "/execs/e1-1/resize"}, {"GET", sb + "/execs/e1-1/tty"}, {"GET", sb + "/tty"},
+		{"PUT", sb + "/files/content?path=x"}, {"POST", sb + "/files/mkdir"}, {"POST", sb + "/files/remove"}, {"POST", sb + "/files/move"},
+		{"PUT", sb + "/tar?path=/"}, {"POST", sb + "/snapshots"}, {"POST", sb + "/snapshots/s-1/restore"}, {"DELETE", sb + "/snapshots/s-1"},
+		{"POST", "/sbx/sandboxes/sb-nope/start"},
+	} {
+		var r sandboxcontract.Refusal
+		call(t, srv, rita, c.method, c.path, map[string]any{"name": "x", "cmd": "true", "path": "x", "signal": "TERM", "rows": 1, "cols": 1}, 403, &r)
+		if r.Refusal != "not-allowed" || !strings.Contains(r.Error, "write access") {
+			t.Fatalf("%s %s as a reader: %+v", c.method, c.path, r)
+		}
+	}
+	if n := len(tm.m.recs); n != 2 {
+		t.Fatalf("a reader's create made one: %d sandboxes", n)
+	}
+	// a read of a stopped sandbox doesn't start it for a reader
+	call(t, srv, rita, "GET", "/sbx/sandboxes/"+off.ID+"/files/list?path="+off.Workdir, nil, 403, nil)
+	if in, err := tm.fb.Get(context.Background(), tm.m.recCopy(off.ID).Runtime); err != nil || in.State != "stopped" {
+		t.Fatalf("a reader's read started the sandbox: %+v %v", in, err)
+	}
+	call(t, srv, olga, "GET", "/sbx/sandboxes/"+off.ID+"/files/list?path="+off.Workdir, nil, 200, nil) // a writer's does
+	// every other consumer is trusted as the contract says, whatever the
+	// person's level on this tile
+	agentReader := as{from: "apps/agent", role: "consumer", user: "rita", level: "read"}
+	var mine sandboxcontract.Sandbox
+	call(t, srv, agentReader, "POST", "/sbx/sandboxes", map[string]any{"name": "via the agent", "start": false}, 201, &mine)
+	call(t, srv, agentReader, "POST", "/sbx/sandboxes/"+mine.ID+"/run", map[string]any{"cmd": "true"}, 200, nil)
+	call(t, srv, agentReader, "DELETE", "/sbx/sandboxes/"+mine.ID, nil, 204, nil)
+	// the owner's token (no person) is the workspace itself
+	call(t, srv, as{from: "apps/cs", role: "admin"}, "POST", "/sbx/sandboxes/"+team.ID+"/stop", nil, 200, nil)
+}
+
+// A failed rebuild keeps the previous good build: its template sandbox stays
+// until a build succeeds, and while it is current for the script (an
+// operator's rebuild that failed, a script changed back) sandboxes of the
+// image clone it.
+func TestImageRebuildKeepsGoodBuild(t *testing.T) {
+	t.Parallel()
+	tm := newTestManager(t, "")
+	srv := tileServer(t, tm)
+	good := `echo "v1" > marker`
+	tm.setConfig(t, func(c *Config) { c.Images = append(c.Images, Image{ID: "tools", Setup: good}) })
+	a := tm.tg.As(t, "apps/kg-a")
+	var one sandboxcontract.Sandbox
+	a.Call("POST", "/sandboxes?wait=30", map[string]any{"name": "one", "image": "tools"}, 201, &one)
+	img := func() builtImage {
+		tm.m.mu.Lock()
+		defer tm.m.mu.Unlock()
+		return *tm.m.imgs["tools"]
+	}
+	v1 := img()
+	exists := func(name string) bool { _, err := tm.fb.Get(context.Background(), name); return err == nil }
+	if v1.State != "ready" || !exists(v1.Runtime) {
+		t.Fatalf("the first build: %+v", v1)
+	}
+	// an operator's rebuild that fails (the substrate refuses its sandbox):
+	// the build says so, the good one is kept and serves
+	tm.fb.FailNext("create", &xbin.SandboxError{Status: 503, Refusal: "unavailable", Message: "no room"})
+	call(t, srv, as{from: "owner", role: "admin"}, "POST", "/ops/images/tools/build", nil, 202, nil)
+	eventually(t, 10*time.Second, "the rebuild fails", func() bool { return img().State == "error" })
+	failed := img()
+	if failed.Previous == nil || failed.Previous.Runtime != v1.Runtime || failed.Previous.Snapshot != v1.Snapshot || !exists(v1.Runtime) {
+		t.Fatalf("a failed rebuild dropped the good build: %+v (previous %+v)", failed, failed.Previous)
+	}
+	creates := tm.fb.Calls("create")
+	two := a.Create(map[string]any{"name": "two", "image": "tools"})
+	if tm.fb.Calls("create") != creates+1 || two.State != "running" || a.Read(two.ID, two.Workdir+"/marker") != "v1\n" {
+		t.Fatalf("a sandbox of an image whose rebuild failed: %+v (%d creates)", two, tm.fb.Calls("create")-creates)
+	}
+	// the kept build is the manager's, not an orphan
+	var st struct{ Orphans []orphan }
+	call(t, srv, as{from: "owner", role: "admin"}, "GET", "/ops/state", nil, 200, &st)
+	if len(st.Orphans) != 0 {
+		t.Fatalf("the kept build is an orphan: %+v", st.Orphans)
+	}
+	// a changed script that fails to build: that sandbox is in error, the
+	// good build stays (its script isn't current, so it serves no one)…
+	tm.setConfig(t, func(c *Config) { c.Images[1].Setup = "echo broken; exit 3" })
+	var bad sandboxcontract.Sandbox
+	a.Call("POST", "/sandboxes?wait=30", map[string]any{"name": "bad", "image": "tools"}, 201, &bad)
+	if bad.State != "error" || !strings.Contains(bad.StateDetail, "exited 3") {
+		t.Fatalf("a sandbox of a broken script: %+v", bad)
+	}
+	if b := img(); b.State != "error" || b.Previous == nil || b.Previous.Runtime != v1.Runtime || !exists(v1.Runtime) {
+		t.Fatalf("a failed build of a changed script dropped the good build: %+v", b)
+	}
+	// …and a script changed back clones it at once
+	tm.setConfig(t, func(c *Config) { c.Images[1].Setup = good })
+	creates = tm.fb.Calls("create")
+	back := a.Create(map[string]any{"name": "back", "image": "tools"})
+	if tm.fb.Calls("create") != creates+1 || a.Read(back.ID, back.Workdir+"/marker") != "v1\n" {
+		t.Fatalf("the script changed back: %+v (%d creates)", back, tm.fb.Calls("create")-creates)
+	}
+	// a build that succeeds replaces it: the old template goes only now
+	tm.setConfig(t, func(c *Config) { c.Images[1].Setup = `echo "v2" > marker` })
+	var three sandboxcontract.Sandbox
+	a.Call("POST", "/sandboxes?wait=30", map[string]any{"name": "three", "image": "tools"}, 201, &three)
+	if got := a.Read(three.ID, three.Workdir+"/marker"); got != "v2\n" {
+		t.Fatalf("after a good build: %q", got)
+	}
+	if b := img(); b.State != "ready" || b.Previous != nil {
+		t.Fatalf("a good build: %+v", b)
+	}
+	eventually(t, 5*time.Second, "the old template sandbox is deleted", func() bool { return !exists(v1.Runtime) })
+}
+
+// A clone's creation error never names its source's runtime sandbox: the
+// source's contract id, or image:<id> for an image's template, instead.
+func TestCloneNamesStayInside(t *testing.T) {
+	t.Parallel()
+	tm := newTestManager(t, "")
+	tm.setConfig(t, func(c *Config) { c.Images = append(c.Images, Image{ID: "tools", Setup: "true"}) })
+	a := tm.tg.As(t, "apps/cn-a")
+	src := a.Create(map[string]any{"name": "src"})
+	srcRT := tm.m.recCopy(src.ID).Runtime
+	clean := func(r sandboxcontract.Refusal, name, want string) {
+		t.Helper()
+		if strings.Contains(r.Error, name) || !strings.Contains(r.Error, want) {
+			t.Fatalf("a clone's error names %s: %+v (want %s)", name, r, want)
+		}
+	}
+	// the substrate refuses, naming the source
+	tm.fb.FailNext("create", &xbin.SandboxError{Status: 409, Refusal: "state", State: "stopping", Message: "sandbox " + srcRT + " is stopping"})
+	clean(a.Refused("POST", "/sandboxes", map[string]any{"name": "c1", "from": map[string]any{"sandbox": src.ID}}, 409, "state"), srcRT, src.ID)
+	// the source is gone at the substrate (the manager still has it)
+	if err := tm.fb.Delete(context.Background(), srcRT); err != nil {
+		t.Fatal(err)
+	}
+	clean(a.Refused("POST", "/sandboxes", map[string]any{"name": "c2", "from": map[string]any{"sandbox": src.ID}}, 404, "not-found"), srcRT, src.ID)
+	// an image's clone: its template sandbox is image:<id>
+	var one sandboxcontract.Sandbox
+	a.Call("POST", "/sandboxes?wait=30", map[string]any{"name": "one", "image": "tools"}, 201, &one)
+	tm.m.mu.Lock()
+	imgRT := tm.m.imgs["tools"].Runtime
+	tm.m.mu.Unlock()
+	tm.fb.FailNext("create", fmt.Errorf("clone of %s: disk full", imgRT))
+	clean(a.Refused("POST", "/sandboxes", map[string]any{"name": "c3", "image": "tools"}, 503, "unavailable"), imgRT, "image:tools")
+	if l := a.List(); len(l) != 2 {
+		t.Fatalf("failed clones stay: %d sandboxes", len(l))
+	}
 }
 
 func TestConfigMerge(t *testing.T) {

@@ -3,7 +3,9 @@
 // their lifecycle and, for the one you open, its files (browse, view,
 // download, upload, make a directory, remove), a terminal (<bx-terminal
 // src> on this tile's own tty route, dialled with the frame token so the
-// manager sees you verified — docs/elements.md) and who may use it.
+// manager sees you verified — docs/elements.md) and who may use it. With
+// read access to the tile you only look (app.readOnly): every change is
+// hidden or disabled, saying why.
 import { html, nothing, keyed } from '/vendor/lit-all.min.js';
 import * as F from './model/format.js';
 import * as M from './model/mine.js';
@@ -18,7 +20,8 @@ export function mineTab(app, ui) {
   return html`
     ${app.helloErr ? html`<div class="err" id="hello-err">${app.helloErr}</div>` : nothing}
     ${app.mineErr ? html`<div class="err" id="mine-err">${app.mineErr}</div>` : nothing}
-    ${!app.operator ? html`<div class="muted small" id="reader-note">Sandboxes you make here are yours (the page is a consumer of its own);
+    ${app.readOnly ? html`<div class="note small" id="readonly-note">${M.READ_ONLY}</div>`
+      : !app.operator ? html`<div class="muted small" id="reader-note">Sandboxes you make here are yours (the page is a consumer of its own);
       the tile's operators see every consumer's.</div>` : nothing}
     ${createTpl(app, ui)}
     <div id="mine">${rows.map((r) => rowTpl(app, ui, r))}</div>
@@ -77,13 +80,13 @@ function rowTpl(app, ui, r) {
 
 function detailTpl(app, ui, r) {
   const sub = ui.sub || 'files';
-  const tab = (id, label, ok = true) => html`<button class="tab ${sub === id ? 'on' : ''}" id=${'sub-' + id} ?disabled=${!ok}
-    @click=${() => { ui.sub = id; ui.paint(); }}>${label}</button>`;
+  const tab = (id, label, why = '') => html`<button class="tab ${sub === id ? 'on' : ''}" id=${'sub-' + id} ?disabled=${!!why}
+    title=${why} @click=${() => { ui.sub = id; ui.paint(); }}>${label}</button>`;
   return html`<div class="detail-pane" id="detail">
     <div class="hd"><b>${r.name}</b> <span class="mono muted small">${r.id}</span> <span class="grow"></span>
-      <nav class="tabs">${tab('files', 'Files', r.canFiles)}${tab('term', 'Terminal', r.canTerminal)}${tab('share', 'Sharing', r.canShare)}</nav>
+      <nav class="tabs">${tab('files', 'Files', r.filesWhy)}${tab('term', 'Terminal', r.termWhy)}${tab('share', 'Sharing', r.shareWhy)}</nav>
       <button class="ghost" id="detail-close" title="Close" @click=${() => { endTerm(app, ui); ui.sel = ''; app.closeFiles(); ui.paint(); }}>✕</button></div>
-    ${sub === 'files' ? filesTpl(app, ui, r) : sub === 'share' ? shareTpl(app, ui, r) : nothing}
+    ${sub === 'files' ? filesTpl(app, ui, r) : sub === 'share' && r.canShare ? shareTpl(app, ui, r) : nothing}
     ${sub === 'term' || (ui.term && ui.term.id === r.id) ? html`<div ?hidden=${sub !== 'term'}>${termTpl(app, ui, r)}</div>` : nothing}
   </div>`;
 }
@@ -91,7 +94,7 @@ function detailTpl(app, ui, r) {
 // --- files -----------------------------------------------------------------------
 
 function filesTpl(app, ui, r) {
-  if (!r.canFiles) return html`<div class="muted">No files: ${r.state !== 'running' && r.state !== 'stopped' ? `the sandbox is ${r.stateLabel}` : 'the substrate serves none yet'}.</div>`;
+  if (!r.canFiles) return html`<div class="muted" id="no-files">No files: ${r.filesWhy}.</div>`;
   const fs = app.files && app.files.id === r.id ? app.files : null;
   if (!fs) {
     if (ui.browsing !== r.id) { ui.browsing = r.id; queueMicrotask(() => app.browse(r.id, r.workdir)); } // not while painting
@@ -112,11 +115,11 @@ function filesTpl(app, ui, r) {
       <input id="path" class="mono" .value=${typed} @input=${(e) => { ui.forms.path = e.target.value; }}
         @keydown=${(e) => { if (e.key === 'Enter') { ui.forms.path = undefined; go(e.target.value); } }}>
       <button class="small" id="up" @click=${() => go(F.parentPath(fs.path))}>Up</button>
-      <label class="button small" id="upload-label">Upload<input type="file" id="upload" multiple hidden @change=${upload}></label>
+      ${r.canChange ? html`<label class="button small" id="upload-label">Upload<input type="file" id="upload" multiple hidden @change=${upload}></label>
       <button class="small" id="mkdir" @click=${() => {
         const name = prompt('A new directory in ' + fs.path);
         if (name) ui.run('mkdir', () => app.mkdir(r.id, F.joinPath(fs.path, name)));
-      }}>New folder</button></div>
+      }}>New folder</button>` : nothing}</div>
     ${fs.err ? html`<div class="err" id="files-err">${fs.err}</div>` : nothing}
     ${fs.busy && !fs.listing ? html`<div class="muted">reading…</div>` : nothing}
     ${fs.listing ? html`<table class="grid small" id="entries"><tbody>
@@ -124,8 +127,8 @@ function filesTpl(app, ui, r) {
         <td><span class="link ${e.dir ? 'dir' : ''}" @click=${() => (e.dir ? go(e.path) : app.readFile(r.id, e.path))}>${e.dir ? '📁' : e.type === 'symlink' ? '🔗' : '📄'} ${e.name}</span></td>
         <td class="num">${e.detail}</td><td class="muted">${e.when}</td>
         <td class="acts">${e.dir ? nothing : html`<button class="small" data-act="download" @click=${() => download(e.path)}>Download</button>`}
-          <button class="small rm" data-act="remove" @click=${() => ask(`Remove ${e.path}${e.dir ? ' and everything in it' : ''}?`) &&
-            ui.run('remove', () => app.remove(r.id, e.path, e.dir))}>Remove</button></td></tr>`)}
+          ${r.canChange ? html`<button class="small rm" data-act="remove" @click=${() => ask(`Remove ${e.path}${e.dir ? ' and everything in it' : ''}?`) &&
+            ui.run('remove', () => app.remove(r.id, e.path, e.dir))}>Remove</button>` : nothing}</td></tr>`)}
       </tbody></table>${fs.listing.truncated ? html`<div class="muted small">(the first entries only)</div>` : nothing}
       ${!fs.listing.entries || !fs.listing.entries.length ? html`<div class="muted">empty</div>` : nothing}` : nothing}
     ${fs.file ? fileTpl(app, ui, r, fs.file, download) : nothing}
@@ -148,7 +151,7 @@ function fileTpl(app, ui, r, f, download) {
 // the shell lives on; End, another sandbox or closing the pane ends it.
 
 function termTpl(app, ui, r) {
-  if (!r.canTerminal) return html`<div class="muted">No terminal: ${r.state === 'error' ? 'the sandbox is in error' : 'the substrate offers none (tty)'}.</div>`;
+  if (!r.canTerminal) return html`<div class="muted" id="no-term">No terminal: ${r.termWhy}.</div>`;
   if (!ui.term || ui.term.id !== r.id) {
     ui.term = { id: r.id, key: (ui.termKey = (ui.termKey || 0) + 1), src: app.terminalSrc(r.id, r.workdir), session: '', ended: false };
     import('/vendor/bx-terminal.js').then(() => ui.paint(), (e) => { ui.err = 'no terminal: ' + e.message; ui.paint(); });

@@ -2,10 +2,11 @@
 <!-- coding-sandbox: the manager's page. For its operators (write access to
      this tile): every consumer's sandboxes — their metadata, never their
      contents —, the images and their builds, the settings (mode, networks,
-     sizes, quotas). For anyone who may open it: their own sandboxes, the page
-     being a consumer of its own — create, lifecycle, files, a terminal,
-     sharing. web.js draws it from model/ (the native view, native.js, draws
-     the same model); API.md is the whole API. -->
+     sizes, quotas). For them too: their own sandboxes, the page being a
+     consumer of its own — create, lifecycle, files, a terminal, sharing.
+     With read access: the sandboxes they may use, read-only. web.js draws it
+     from model/ (the native view, native.js, draws the same model); API.md
+     is the whole API. -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -65,7 +66,7 @@
     tr.panel td { background: var(--bx-panel-2); padding: 8px 10px; }
     td.over { color: var(--bx-red); font-weight: 600; }
     td.fullc { color: var(--bx-amber, #f2a71b); }
-    .detail { max-width: 360px; }
+    .detail, .who { max-width: 360px; }
     .substrate { margin: 4px 0 2px; }
     ul.plain { list-style: none; padding: 0; margin: 4px 0; }
     ul.plain li { margin: 3px 0; }

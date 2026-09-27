@@ -9,13 +9,13 @@ export const IMPLEMENTS = {
   'ops.delete': 'web-ops.js — rowTpl delete, confirmed',
   'ops.snapshots': 'web-ops.js — snapshotsTpl (take, delete confirmed)',
   'ops.snapshots.restore': 'web-ops.js — snapshotsTpl Restore, confirmed',
-  'ops.shares': 'web-ops.js — sharesTpl (model/ops.js shareWith, unshare)',
+  'ops.shares': 'web-ops.js — rowTpl, the who line (model/format.js whoText); no control',
   'ops.usage': 'web-ops.js — usageTpl (model/ops.js usageRows)',
   'ops.orphans': 'web-ops.js — orphansTpl, confirmed',
   'ops.backend': 'web-ops.js — backendTpl (model/ops.js backendInfo)',
 
   'images.list': 'web-ops.js — imagesTab (model/ops.js imageRows)',
-  'images.build': 'web-ops.js — imagesTab Build now / Rebuild (app.build)',
+  'images.build': 'web-ops.js — imagesTab, the build pill and the kept build, Build now / Rebuild (app.build)',
   'images.log': 'web-ops.js — imagesTab, the last build\'s output',
   'images.edit': 'web-ops.js — imageFormTpl (model/ops.js imageForm, applyImage)',
   'images.remove': 'web-ops.js — imagesTab Remove, confirmed (model/ops.js removeImage)',
@@ -44,5 +44,6 @@ export const IMPLEMENTS = {
 
   'state.errors': 'web.js — ui.err (ui.run); web-ops.js, web-mine.js — the load errors',
   'state.reader': 'web.js — tabs (Your sandboxes only); web-mine.js — the reader note',
+  'state.readonly': 'web-mine.js — the read-only note, New sandbox disabled, no row actions, Terminal and Sharing disabled, files without Upload, New folder and Remove (model/mine.js myRows filesWhy, termWhy, shareWhy)',
   'state.refresh': 'web.js — ↻ and the 10 s reload while visible',
 };

@@ -112,6 +112,7 @@ func (u users) has(user string) bool {
 type createPlan struct {
 	Start       bool     `json:"start"`
 	FromRuntime string   `json:"fromRuntime,omitempty"` // a clone's source sandbox (runtime name)
+	FromID      string   `json:"fromId,omitempty"`      // …and its contract id (what an error says instead)
 	FromSnap    string   `json:"fromSnap,omitempty"`
 	Build       bool     `json:"build,omitempty"` // from an image that needs (re)building first
 	AutoStopMin int      `json:"autoStopMin,omitempty"`
@@ -137,6 +138,21 @@ type builtImage struct {
 	Log       string `json:"log,omitempty"` // the setup's last output
 	Started   int64  `json:"started,omitempty"`
 	Built     int64  `json:"built,omitempty"`
+	// Previous is the last good build while a newer one isn't ready (it is
+	// building, or it failed): its template sandbox stays until a build
+	// succeeds, and sandboxes of the image clone it while it is current for
+	// the script and the mode (images.go usableBuild).
+	Previous *builtImage `json:"previous,omitempty"`
+}
+
+// runtimes are the template sandboxes b names: its own, and its previous
+// build's.
+func (b *builtImage) runtimes() []string {
+	out := []string{b.Runtime}
+	if b.Previous != nil && b.Previous.Runtime != "" {
+		out = append(out, b.Previous.Runtime)
+	}
+	return out
 }
 
 // store is the sqlite file.

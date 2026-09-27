@@ -1,11 +1,13 @@
 // web.mjs — the coding-sandbox page in a browser against the fake backend
 // (stub.mjs, seeded from seed.mjs): the operators' Sandboxes tab (the
-// metadata, start/stop/delete, snapshots, sharing, usage, orphans), Images
-// (builds, the editor), Settings (mode, networks, sizes, quotas, mounts),
-// and Yours — create, lifecycle, the file browser (browse, view, download,
+// metadata, start/stop/delete, snapshots, who may use each — shown, never
+// changed —, usage, orphans), Images (builds, the build a failed rebuild
+// keeps, the editor), Settings (mode, networks, sizes, quotas, mounts), and
+// Yours — create, lifecycle, the file browser (browse, view, download,
 // upload, a folder, remove), the terminal (<bx-terminal src> on the tile's
-// own tty route; the element is stubbed) and sharing; a reader sees only
-// theirs. SHOTS=<dir> also writes screenshots of each tab.
+// own tty route; the element is stubbed) and sharing; a reader (read
+// access) sees only theirs, read-only, and the page says why. SHOTS=<dir>
+// also writes screenshots of each tab.
 //
 //   PLAYWRIGHT_DIR=~/lcad-wasm node test/web.mjs   (needs playwright + a chromium build; SKIPs without)
 import { readFileSync, readdirSync, mkdirSync } from 'node:fs';
@@ -122,19 +124,11 @@ const settle = (page) => page.waitForTimeout(120);
   ok('delete a snapshot, confirmed', (await calls(page, 'DELETE', /\/ops\/sandboxes\/sb-term\/snapshots\/s-\d+$/)).length === 1);
   await shot(page, 'ops-snapshots');
 
-  // sharing
-  await page.click('tr[data-id="sb-term"] button[data-act="shares"]');
-  await page.waitForSelector('#shares');
-  ok('its shares', (await text(page, '#shares')).includes('apps/agent — everyone it serves'));
-  await page.fill('#share-consumer', 'apps/review');
-  await page.fill('#share-users', 'alice, bob');
-  await page.click('#share-add');
-  await settle(page);
-  const shares = (await lastBody(page, 'PATCH', /\/ops\/sandboxes\/sb-term$/))?.shares;
-  ok('share with a consumer, named people', JSON.stringify(shares) === JSON.stringify([{ consumer: 'apps/agent', users: '*' }, { consumer: 'apps/review', users: ['alice', 'bob'] }]), JSON.stringify(shares));
-  await page.click('#shares li[data-consumer="apps/agent"] button');
-  await settle(page);
-  ok('stop sharing', JSON.stringify((await lastBody(page, 'PATCH', /\/ops\/sandboxes\/sb-term$/))?.shares) === JSON.stringify([{ consumer: 'apps/review', users: ['alice', 'bob'] }]));
+  // who may use it: shown, never changed by operators (its home consumer or its owner does)
+  ok('who may use it', (await text(page, 'tr[data-id="sb-term"] .who')) === 'everyone its consumer serves · apps/agent (everyone it serves)',
+    await text(page, 'tr[data-id="sb-term"] .who'));
+  ok('no sharing control for operators', (await page.$$('#ops-table button[data-act="shares"], #ops-table #shares')).length === 0);
+  ok('and no PATCH of who may use it', (await calls(page, 'PATCH', /\/ops\/sandboxes\//)).length === 0);
 
   // usage, orphans, delete
   ok('usage against the quota that binds each', (await text(page, '#usage tr[data-who="apps/agent"]')).includes('4 / 6'), await text(page, '#usage tr[data-who="apps/agent"]'));
@@ -157,6 +151,8 @@ const settle = (page) => page.waitForTimeout(120);
   ok('images and their builds', (await text(page, '[data-image="node"]')).includes('built') && (await text(page, '[data-image="rust"]')).includes('Could not resolve host'),
     await text(page, '[data-image="rust"]'));
   ok('the base has nothing to build', !(await page.$('[data-image="base"] button[data-act="build"]')));
+  ok('a failed rebuild keeps the previous build, and says so', (await text(page, '[data-image="rust"] .kept')).startsWith('The previous build (3 d ago)') &&
+    (await text(page, '[data-image="rust"] .pill.warn')) === 'the rebuild failed', await text(page, '[data-image="rust"]'));
   await shot(page, 'images');
   await page.click('[data-image="rust"] button[data-act="build"]');
   await settle(page);
@@ -308,20 +304,33 @@ const settle = (page) => page.waitForTimeout(120);
   await ctx.close();
 }
 
-// --- someone who isn't an operator ----------------------------------------------------------------
+// --- someone who isn't an operator: read access, so they look -------------------------------------
 {
   const { ctx, page, errors } = await open(READER);
   await page.waitForSelector('#mine .card');
   const tabs = await page.$$eval('.tabs .tab', (b) => b.map((x) => x.textContent.trim()));
-  ok('a reader sees only theirs', tabs.join('|') === 'Your sandboxes' && !!(await page.$('#reader-note')), tabs.join('|'));
+  ok('a reader sees only theirs', tabs.join('|') === 'Your sandboxes', tabs.join('|'));
   ok('and never asks for the operators\' state', (await calls(page, 'GET', /\/ops\//)).length === 0);
-  await page.evaluate(() => window.__route('POST', /\/sbx\/sandboxes$/, () => window.__json({ error: 'over your quota: 4 sandboxes', refusal: 'limit' }, 429)));
-  await page.click('#new');
-  await page.fill('#cf-name', 'one more');
-  await page.click('#cf-create');
-  await page.waitForSelector('#ui-err');
-  ok('a refusal says why', (await text(page, '#ui-err')).includes('over your quota'));
+  ok('the page says they may only look, and why', (await text(page, '#readonly-note')).includes('write access'), await text(page, '#readonly-note'));
+  ok('no New sandbox, saying why', await page.$eval('#new', (b) => b.disabled && b.title === 'making a sandbox needs write access to this tile') &&
+    (await text(page, '#new + .muted')).includes('write access'));
+  ok('no lifecycle, no delete', (await page.$$('#mine .card button[data-act]:not([data-act="open"])')).length === 0);
+  // a running one: its files to read and download, nothing to change
+  await page.click('[data-id="sb-own"] button[data-act="open"]');
+  await page.waitForSelector('#entries tr[data-name="README.md"]');
+  ok('its files, read-only', !(await page.$('#upload-label')) && !(await page.$('#mkdir')) && !(await page.$('#entries button[data-act="remove"]')) &&
+    !!(await page.$('#entries tr[data-name="README.md"] button[data-act="download"]')));
+  await page.click('#entries tr[data-name="README.md"] .link');
+  await page.waitForSelector('#content');
+  ok('a file to read', (await text(page, '#content')).includes('run `make` to build.'));
+  ok('no terminal, no sharing, saying why', await page.$eval('#sub-term', (b) => b.disabled && b.title === 'a terminal needs write access to this tile') &&
+    await page.$eval('#sub-share', (b) => b.disabled && /write access/.test(b.title)));
   await shot(page, 'reader');
+  // a stopped one: reading it would start it
+  await page.click('[data-id="sb-team"] button[data-act="open"]');
+  await page.waitForSelector('#no-files');
+  ok('a stopped one says why its files wait', (await text(page, '#no-files')) === 'No files: it is stopped, and starting it needs write access to this tile.', await text(page, '#no-files'));
+  ok('nothing was changed', (await page.evaluate(() => window.__calls.filter((c) => c.method !== 'GET').length)) === 0);
   ok('no page errors (reader)', errors.length === 0, errors.join(' | '));
   await ctx.close();
 }

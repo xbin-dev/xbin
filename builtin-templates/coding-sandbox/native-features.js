@@ -9,13 +9,13 @@ export const IMPLEMENTS = {
   'ops.delete': 'native/ops.js — row actions and opScreen, confirmed',
   'ops.snapshots': 'native/ops.js — opScreen Snapshots (take; delete confirmed)',
   'ops.snapshots.restore': 'native/ops.js — opScreen Snapshots Restore, confirmed',
-  'ops.shares': 'native/ops.js — sharesSection',
+  'ops.shares': 'native/ops.js — opScreen Who may use it (model/format.js whoText); no control',
   'ops.usage': 'native/ops.js — opsSections Usage (model/ops.js usageRows)',
   'ops.orphans': 'native/ops.js — opsSections Orphans, confirmed',
   'ops.backend': 'native/ops.js — opsSections Substrate (model/ops.js backendInfo)',
 
   'images.list': 'native/images.js — imagesSections (model/ops.js imageRows)',
-  'images.build': 'native/images.js — imageScreen Build now / Rebuild',
+  'images.build': 'native/images.js — imageScreen Build (and the kept build), Build now / Rebuild',
   'images.log': 'native/images.js — imageScreen, the last build\'s output',
   'images.edit': 'native/images.js — imageFormScreen (model/ops.js imageForm, applyImage)',
   'images.remove': 'native/images.js — imageScreen Remove, confirmed',
@@ -43,5 +43,6 @@ export const IMPLEMENTS = {
 
   'state.errors': 'native/ui.js — fail(), act(): a notice on the screen on top',
   'state.reader': 'native.js — rootScreen (no tabs: Yours only)',
+  'state.readonly': 'native/mine.js — the read-only notice, New sandbox disabled, no actions, Files and Terminal saying why, filesScreen without New folder and Remove (model/mine.js myRows)',
   'state.refresh': 'native.js — pull to refresh and the 15 s reload while visible',
 };

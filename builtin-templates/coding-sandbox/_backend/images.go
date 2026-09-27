@@ -4,8 +4,10 @@
 // sandbox stops and is snapshotted. Every later sandbox of the image clones
 // that snapshot (the substrate's clone capability). A changed script, mode
 // or an outdated base rebuilds it at the next use; the old template sandbox
-// goes once the new one is ready. Builds are one at a time per image, and a
-// creation waiting on one shows `creating`.
+// goes only once the new one is ready. A rebuild that fails keeps the
+// previous good build (builtImage.Previous), which serves while it is
+// current for the script and the mode. Builds are one at a time per image,
+// and a creation waiting on one shows `creating`.
 package main
 
 import (
@@ -30,16 +32,58 @@ type buildJob struct {
 
 func setupHash(im Image) string { return hashOf([]string{im.Setup}) }
 
-// imageReady: im's built snapshot is current for mode.
+// usableBuild is the build of b that a sandbox of the image clones for
+// setup hash h in mode: b itself when it is ready and current, else the
+// previous good build it keeps (a rebuild under way, or one that failed)
+// when that one is current. nil: none is.
+func usableBuild(b *builtImage, h, mode string) *builtImage {
+	if b == nil {
+		return nil
+	}
+	if b.State == "ready" && b.SetupHash == h && b.Mode == mode {
+		cp := *b
+		cp.Previous = nil
+		return &cp
+	}
+	if p := b.Previous; p != nil && p.State == "ready" && p.SetupHash == h && p.Mode == mode {
+		cp := *p
+		cp.ID, cp.Previous = b.ID, nil
+		return &cp
+	}
+	return nil
+}
+
+// lastGood is the good build a new build of the image keeps until it is
+// ready: the current one when it is ready, else the one it kept.
+func lastGood(b *builtImage) *builtImage {
+	switch {
+	case b == nil:
+		return nil
+	case b.State == "ready":
+		return &builtImage{ID: b.ID, Runtime: b.Runtime, Snapshot: b.Snapshot, SetupHash: b.SetupHash, Mode: b.Mode,
+			State: "ready", Started: b.Started, Built: b.Built}
+	}
+	return b.Previous
+}
+
+// failedRecently: b's last build failed less than a minute ago.
+func failedRecently(b *builtImage) bool {
+	return b != nil && b.State == "error" && time.Since(time.UnixMilli(b.Started)) < time.Minute
+}
+
+// imageReady: a build of im is current for mode, and none is under way (a
+// sandbox of it is a clone made now).
 func (m *Manager) imageReady(im Image, mode string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	b := m.imgs[im.ID]
-	return b != nil && b.State == "ready" && b.SetupHash == setupHash(im) && b.Mode == mode
+	return b != nil && b.State != "building" && m.builds[im.ID] == nil && usableBuild(b, setupHash(im), mode) != nil
 }
 
 // imageFor is im's built image for mode, building it first when it is
 // missing, stale or its base is outdated. It waits for a build under way.
+// When a rebuild fails, the previous good build serves while it is current
+// for the script and the mode (an outdated base, an operator's rebuild).
 func (m *Manager) imageFor(ctx context.Context, im Image, mode string) (*builtImage, error) {
 	h := setupHash(im)
 	m.mu.Lock()
@@ -48,21 +92,34 @@ func (m *Manager) imageFor(ctx context.Context, im Image, mode string) (*builtIm
 	if b != nil {
 		cur = *b
 	}
+	use := usableBuild(b, h, mode)
 	job := m.builds[im.ID]
 	m.mu.Unlock()
-	if job == nil && b != nil && cur.State == "ready" && cur.SetupHash == h && cur.Mode == mode {
-		in, err := m.backend().Get(ctx, cur.Runtime)
-		if err == nil && !in.Base.Outdated {
-			return &cur, nil
-		}
-		if err != nil && !isNotFound(err) {
+	if job == nil && use != nil {
+		in, err := m.backend().Get(ctx, use.Runtime)
+		switch {
+		case err == nil && (!in.Base.Outdated || failedRecently(&cur)):
+			return use, nil // current (or its rebuild for a newer base failed a moment ago)
+		case err != nil && !isNotFound(err):
 			return nil, err
 		}
 	}
-	if job == nil && b != nil && cur.State == "error" && cur.SetupHash == h && time.Since(time.UnixMilli(cur.Started)) < time.Minute {
+	if job == nil && b != nil && cur.SetupHash == h && failedRecently(&cur) {
 		return nil, fmt.Errorf("its last build failed a moment ago: %s", cur.Detail)
 	}
-	return m.startBuild(ctx, im, mode, false)
+	built, err := m.startBuild(ctx, im, mode, false)
+	if err != nil && ctx.Err() == nil {
+		m.mu.Lock()
+		prev := usableBuild(m.imgs[im.ID], h, mode)
+		m.mu.Unlock()
+		if prev != nil {
+			if _, gerr := m.backend().Get(ctx, prev.Runtime); gerr == nil {
+				m.logf("image %s: the rebuild failed; its previous build serves (%v)", im.ID, err)
+				return prev, nil
+			}
+		}
+	}
+	return built, err
 }
 
 func isNotFound(err error) bool { return errors.Is(err, xbin.ErrSandboxNotFound) }
@@ -116,6 +173,8 @@ func (m *Manager) build(ctx context.Context, im Image, mode string) (out *builtI
 	b := &builtImage{ID: im.ID, Runtime: imageRuntimeName(im.ID), SetupHash: setupHash(im), Mode: mode, State: "building", Started: now()}
 	m.mu.Lock()
 	old := m.imgs[im.ID]
+	prev := lastGood(old) // kept (and serving, while current) until this build is ready
+	b.Previous = prev
 	m.saveImage(b)
 	m.mu.Unlock()
 	m.logf("image %s: building in %s", im.ID, b.Runtime)
@@ -125,16 +184,19 @@ func (m *Manager) build(ctx context.Context, im Image, mode string) (out *builtI
 		}
 		m.mu.Lock()
 		defer m.mu.Unlock()
-		var gone []string // the previous build (stale, or it wouldn't be rebuilt; its clones are copies)
-		if old != nil && old.Runtime != "" && old.Runtime != b.Runtime {
-			gone = append(gone, old.Runtime)
+		var gone []string
+		if old != nil && old.State != "ready" && old.Runtime != "" && old.Runtime != b.Runtime && (prev == nil || old.Runtime != prev.Runtime) {
+			gone = append(gone, old.Runtime) // an attempt before this one that failed or was cut short: never a good build
+		}
+		if err == nil && prev != nil && prev.Runtime != b.Runtime {
+			gone = append(gone, prev.Runtime) // this one is ready: the previous build goes (its clones are copies)
 		}
 		if err != nil {
 			// what a failed build says reaches consumers (their sandbox's
 			// stateDetail): never with the build sandbox's runtime name
 			err = hideName(err, b.Runtime, "image:"+im.ID)
 			b.State, b.Detail = "error", errText(err)
-			m.saveImage(b)
+			m.saveImage(b) // b.Previous stays: the last good build is kept
 			m.logf("image %s: %v", im.ID, err)
 			gone = append(gone, b.Runtime) // and what was made of this one
 		}
@@ -210,7 +272,7 @@ func (m *Manager) build(ctx context.Context, im Image, mode string) (out *builtI
 		return nil, err
 	}
 	m.mu.Lock()
-	b.Snapshot, b.State, b.Detail, b.Built = snap.ID, "ready", "", now()
+	b.Snapshot, b.State, b.Detail, b.Built, b.Previous = snap.ID, "ready", "", now(), nil
 	m.saveImage(b)
 	cp := *b
 	m.mu.Unlock()

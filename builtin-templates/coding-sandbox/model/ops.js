@@ -11,7 +11,9 @@ export const QUOTA_LABELS = { sandboxes: 'sandboxes', running: 'running', memMiB
 // --- sandboxes ------------------------------------------------------------------------
 
 // sandboxRows: every sandbox as the operators' table shows it, newest
-// activity first; caps are the offer's (snapshots decide that action).
+// activity first; caps are the offer's (snapshots decide that action). Who
+// may use each is shown (who), never changed here: only its home consumer
+// or its owner there changes that (API.md "The operators' API").
 export function sandboxRows(st, now = Date.now()) {
   if (!st) return [];
   const caps = (st.offer && st.offer.caps) || [];
@@ -21,7 +23,6 @@ export function sandboxRows(st, now = Date.now()) {
     if (s.state === 'stopped') actions.push({ id: 'start', label: 'Start' });
     if (s.state === 'running' || s.state === 'starting') actions.push({ id: 'stop', label: 'Stop' });
     if (!busy && caps.includes('snapshots')) actions.push({ id: 'snapshots', label: 'Snapshots…' });
-    actions.push({ id: 'shares', label: 'Sharing…' });
     if (s.state !== 'deleting') {
       actions.push({ id: 'delete', label: 'Delete', danger: true,
         confirm: `Delete ${s.name} (${s.id}) of ${s.consumer}? Its files and snapshots go with it — for everyone who uses it.` });
@@ -33,7 +34,7 @@ export function sandboxRows(st, now = Date.now()) {
       size: (s.size && s.size.id) || '', sizeText: F.sizeText(s.size), egress: s.egress || 'none', egressText: F.egressText(s),
       isolation: F.ISOLATION[s.isolation] || s.isolation || '', disk: s.diskBytes ? F.bytes(s.diskBytes) : '',
       lastActive: s.lastActive || 0, lastText: F.ago(s.lastActive, now), shares: s.shares || [], visibility: s.visibility,
-      members: s.members || [], outdated: !!(s.base && s.base.outdated), runtime: s.runtime || '', actions,
+      members: s.members || [], who: F.whoText(s), outdated: !!(s.base && s.base.outdated), runtime: s.runtime || '', actions,
     };
   }).sort((a, b) => b.lastActive - a.lastActive || a.id.localeCompare(b.id));
 }
@@ -117,19 +118,29 @@ export function modeInfo(st) {
 // --- images -----------------------------------------------------------------------------
 
 // imageRows: the configured images, each with its build (a setup script's)
-// and whether consumers are offered it now.
-export function imageRows(st) {
+// and whether consumers are offered it now. A build that isn't ready keeps
+// the previous good one (kept): new sandboxes clone that one while its
+// script is the current one, and it goes once a build succeeds.
+export function imageRows(st, now = Date.now()) {
   if (!st || !st.config) return [];
   const built = new Map((st.images || []).map((b) => [b.id, b]));
   const offered = (st.offer && st.offer.images) || [];
   return (st.config.images || []).map((im) => {
     const b = built.get(im.id) || null;
+    const prev = (b && b.state !== 'ready' && b.previous) || null;
     let build = im.setup ? 'not built yet (the first sandbox of it builds it)' : 'the substrate\'s base: nothing to build';
-    if (b) build = b.state === 'ready' ? 'built' : b.state === 'building' ? 'building…' : 'the build failed';
+    if (b) build = b.state === 'ready' ? 'built' : b.state === 'building' ? (prev ? 'rebuilding…' : 'building…') : prev ? 'the rebuild failed' : 'the build failed';
+    let kept = '';
+    if (prev) {
+      const when = F.ago(prev.built, now);
+      kept = prev.setupHash === b.setupHash && prev.mode === b.mode
+        ? `The previous build${when ? ` (${when})` : ''} is kept: new sandboxes clone it until a build succeeds.`
+        : `The previous build${when ? ` (${when})` : ''}, of the script before, is kept until a build succeeds.`;
+    }
     return {
       id: im.id, title: im.title || im.id, tools: im.tools || [], setup: im.setup || '', default: !!im.default,
-      buildEgress: im.buildEgress || '', offered: offered.includes(im.id), built: b, buildText: build,
-      tone: b ? (b.state === 'ready' ? 'ok' : b.state === 'building' ? 'warn' : 'danger') : 'muted',
+      buildEgress: im.buildEgress || '', offered: offered.includes(im.id), built: b, buildText: build, kept,
+      tone: b ? (b.state === 'ready' ? 'ok' : b.state === 'building' || prev ? 'warn' : 'danger') : 'muted',
       canBuild: !!im.setup && (!b || b.state !== 'building'),
     };
   });

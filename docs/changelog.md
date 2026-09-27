@@ -18,23 +18,34 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   sandbox-manager contract, protocol 1, to the tiles bound to it
   (`bx bind apps/agent sandboxes+=apps/coding-sandbox`) and runs their
   sandboxes on xbind's own tile-sandbox runtime once a workspace admin
-  approves its `cap:sandboxes`: a VM where the workspace runs VMs for tiles,
-  else a namespace, or only the mode its operators choose (`auto | vm |
-  namespace`), never another; each sandbox's `isolation` says which. It
-  offers what the runtime serves and says in `hello.notes` what it lacks.
+  approves its `cap:sandboxes`: a VM where the workspace runs VMs for
+  tiles, else a namespace, or only the mode its operators choose
+  (`auto | vm | namespace`), never another; each sandbox's `isolation`
+  says which. It offers what the runtime serves and says in `hello.notes`
+  what it lacks.
   Each consumer sees its own sandboxes and those shared with it, and people
   are checked as the contract says. Images are the runtime's base plus a
   setup script, built once and cloned; sizes, per-consumer and per-person
   quotas, the idle stop and mounts of the tile's own filesystem resources
-  are the operators' to set, and hello's limits say the effective quotas.
-  Its sandboxes reach what its `internet` and `open` `sandbox-net` classes
-  are bound to, and `none` until then. Its page gives operators (the owner
-  and people with write access) every consumer's sandboxes — metadata,
-  lifecycle, snapshots, sharing, never contents —, usage, images and
-  settings, and anyone who may open it their own sandboxes with a file
-  browser and a terminal; the app draws the same natively. Another
-  substrate (a cloud's API and ssh) is one Go file in a copy, checked with
-  the conformance suite, `sdk/sandboxcontract`, which the template passes.
+  are the operators' to set, and hello's limits say the effective quotas. A
+  rebuild that fails keeps the previous good build (its template sandbox
+  goes only once a new build is ready), and while that build is current new
+  sandboxes clone it. No error a consumer sees names a runtime sandbox: not
+  its own, not a clone's source (said as its id), not an image's template
+  (`image:<id>`). Its sandboxes reach what its `internet` and `open`
+  `sandbox-net` classes are bound to, and `none` until then. Its page gives
+  operators (the owner and people with write access) every consumer's
+  sandboxes — metadata, lifecycle, snapshots, never contents —, usage,
+  images and settings, and their own sandboxes with a file browser and a
+  terminal; the app draws the same natively. Operators never change who may
+  use a sandbox (`visibility`, `members`, `shares`: only its home consumer
+  does, so `PATCH /ops/…` refuses them). A change made from the page needs
+  the person's write access to the tile: people with read access get a
+  read-only view of the sandboxes they may use, and every change they send
+  is `403 not-allowed`. Other consumers' calls are trusted as the contract
+  says. Another substrate (a cloud's API and ssh) is one Go file in a copy,
+  checked with the conformance suite, `sdk/sandboxcontract`, which the
+  template passes.
 - **A sandbox's `/etc/resolv.conf` is written in place, never through a
   symlink.** When a terminal or backend with egress starts, xbind writes the
   relay's resolver into the sandbox's `/etc/resolv.conf`; a host-network

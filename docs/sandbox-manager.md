@@ -392,17 +392,20 @@ manager of its own (its `API.md` has everything):
   `tty`, `snapshots`, `clone`; not `archive`), `hello.notes` say what it
   lacks.
 - **Images** are the runtime's base plus a setup script, built once as root
-  and cloned; **sizes**, per-consumer and per-person **quotas**
+  and cloned (a rebuild that fails keeps the previous good build); **sizes**, per-consumer and per-person **quotas**
   (`hello.limits` carry the effective ones), the layout (a `dev` user in
   `/work`), the idle stop and mounts of the tile's own filesystem
   resources are its operators'.
 - **Networks**: `none`, then `internet` and `open` while the copy's
   `sandbox-net` classes of those names are bound.
 - **Its page**: for its operators (write access to the tile) every
-  consumer's sandboxes — metadata, never contents — with their lifecycle,
-  snapshots and sharing, usage against the quotas, the images and the
-  settings; for anyone who may open it, their own sandboxes with a file
-  browser and a terminal. The app draws the same natively.
+  consumer's sandboxes — metadata, never contents — with their lifecycle and
+  snapshots, usage against the quotas, the images and the settings, and
+  their own sandboxes with a file browser and a terminal. Operators never
+  change who may use another consumer's sandbox; only its home consumer
+  does. People with read access get a read-only view of the sandboxes they
+  may use: a change from the page needs write access to the tile. The app
+  draws the same natively.
 - **Other substrates**: a copy adds a backend (a cloud's API and ssh) in one
   Go file; its `AGENTS.md` says how, and how to run the conformance suite
   against it.

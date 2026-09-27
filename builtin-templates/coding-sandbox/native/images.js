@@ -38,6 +38,7 @@ export function imageScreen(s) {
       <row title="Tools" detail=${im.tools.join(', ') || '—'}/>
       ${im.default ? html`<row title="The default image"/>` : nothing}
       ${im.built && im.built.detail ? html`<notice tone="danger" text=${im.built.detail}/>` : nothing}
+      ${im.kept ? html`<notice tone="info" text=${im.kept}/>` : nothing}
     </section>
     ${im.setup ? html`<section title=${`Setup script${im.buildEgress ? ` · network while it builds: ${im.buildEgress}` : ''}`}><code copy wrap text=${im.setup}/></section>` : nothing}
     ${im.built && im.built.log ? html`<section title="The last build's output"><code wrap text=${im.built.log}/></section>` : nothing}
