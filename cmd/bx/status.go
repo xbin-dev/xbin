@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -181,6 +183,11 @@ func cmdLogs(args []string) error {
 	if ws == "" {
 		return fmt.Errorf("not inside a xbin workspace")
 	}
+	if fi, err := os.Stat(filepath.Join(ws, ".xbin", "log")); err != nil || !fi.IsDir() {
+		// .xbin is masked in an isolated terminal (internal/term/binds.go),
+		// so the file can't answer: xbind serves the same log (16-open-questions Q23).
+		return logsFromAPI(comp, follow)
+	}
 	path := filepath.Join(ws, ".xbin", "log", util.CompKey(comp)+".log")
 	f, err := os.Open(path)
 	if err != nil {
@@ -200,4 +207,43 @@ func cmdLogs(args []string) error {
 		}
 	}
 	return nil
+}
+
+// logsFromAPI streams a backend's log from GET /logs, what `bx logs` does
+// where it can't read .xbin/log itself: the whole log up to the route's
+// 1 MiB tail, or with -f the last 64 KiB and then everything appended.
+func logsFromAPI(comp string, follow bool) error {
+	q := url.Values{"component": {comp}}
+	if follow {
+		q.Set("follow", "1")
+	} else {
+		q.Set("tail", strconv.Itoa(1<<20))
+	}
+	base, client := transport()
+	c := *client
+	if follow {
+		c.Timeout = 0 // a follow streams until it is interrupted
+	}
+	req, err := http.NewRequest("GET", base+"/api/xbin/logs?"+q.Encode(), nil)
+	if err != nil {
+		return err
+	}
+	if tok := ownerToken(); tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		var e struct{ Error string }
+		if json.Unmarshal(b, &e) == nil && e.Error != "" {
+			return fmt.Errorf("%s (%s)", e.Error, resp.Status)
+		}
+		return fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(b)))
+	}
+	_, err = io.Copy(os.Stdout, resp.Body)
+	return err
 }
