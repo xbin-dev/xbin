@@ -55,6 +55,9 @@ type Broker struct {
 
 	obs *obs.Plane // tile status, prefs, logs (internal/obs)
 
+	// edgeTallies: (tile, deployment, edge) → *edgeTally, refused and clamped calls (edgepolicy.go).
+	edgeTallies sync.Map
+
 	// prsMu serializes cross-tile PR store mutations (numbering + meta
 	// rewrites, prs.go).
 	prsMu sync.Mutex
@@ -466,7 +469,7 @@ func (b *Broker) IsAdmin(p auth.Principal) bool {
 	if p.Component == "" {
 		return false
 	}
-	role, ok := b.grantedRole(p.Component, "xbin")
+	role, ok := b.governanceRole(p, "xbin") // never a non-primary principal (P19)
 	return ok && roleSatisfies(role, "admin", nil)
 }
 
@@ -476,13 +479,14 @@ func (b *Broker) Policy(p auth.Principal, target *registry.Component) (string, b
 		return "admin", true
 	}
 	if p.Component == target.Path {
-		return "admin", true // element is admin of itself
+		return "admin", b.actsInPrimary(p) // element is admin of itself, in its own deployment (P12)
 	}
 	if p.Component == CronPrincipal || p.Component == BusPrincipal {
-		return p.Role, true // role bound at registration, always self-targeted (cron.go, bussubs.go)
+		// role bound at registration, always self-targeted (cron.go, bussubs.go);
+		// Policy reaches the primary, so another deployment's delivery is Route's
+		return p.Role, b.isPrimary(target.Path, p.Deployment)
 	}
-	role, ok := b.grantedRole(p.Component, target.Path)
-	return role, ok
+	return b.policyRole(p, target.Path) // a non-primary caller through the edge policy (P3)
 }
 
 // allowRes authorizes principal p on a resource target at want role.
@@ -501,7 +505,7 @@ func (b *Broker) allowRes(p auth.Principal, target string, want string) error {
 	if !ok || !roleSatisfies(role, want, nil) {
 		return fmt.Errorf("%s needs role %q on %s — declare it in \"uses\" and approve with bx grant", p.Component, want, rt)
 	}
-	return nil
+	return b.resEdge(p, rt.String(), want) // a non-primary principal: the read clamp (P3)
 }
 
 // PendingGrant is one unsatisfied `uses` declaration. Blocked, when set,
@@ -690,6 +694,10 @@ func (b *Broker) grantMutation(w http.ResponseWriter, r *http.Request, apply fun
 	if r.Method == http.MethodPost {
 		if msg := b.ceilingBlockMsg(g.From, g.Target); msg != "" {
 			server.WriteError(w, http.StatusBadRequest, msg)
+			return registry.Grant{}, false
+		}
+		if err := b.xbinGrantRefusal(g); err != nil { // P19
+			server.WriteError(w, http.StatusConflict, err.Error())
 			return registry.Grant{}, false
 		}
 	}
