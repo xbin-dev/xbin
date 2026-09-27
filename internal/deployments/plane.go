@@ -18,14 +18,32 @@
 // Boot fills (index.go); a record that can't be used holds its tile, which
 // then fails closed (06-security C7): no backend, no inbound surface, never
 // its work tree in place of a pinned checkpoint.
+//
+// The files: plane.go holds the Plane, its hooks and the checkpoint store it
+// builds for itself; record.go and index.go the record; authz.go and
+// dispatch.go authority and the operation registry; ops.go the operations
+// (their requests, answers and runs); queue.go the deploys (one in flight
+// per deployment, the journal that keeps attempts through a crash, the
+// deploy log's reads); events.go what clients see (the deployments event,
+// the State); worktree.go the drift count while live reload is paused.
 package deployments
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"log/slog"
 	"os"
+	"path/filepath"
+	"sort"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/checkpoint"
+	"github.com/xbin-dev/xbin/internal/confine"
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/runner"
@@ -85,6 +103,21 @@ type Plane struct {
 	// idx holds the records, from Boot on; nil (a literal that never booted)
 	// answers the zero state for every tile.
 	idx *index
+
+	// cps is the checkpoint store: built from Root on first use (store), a
+	// fake in tests. Building it creates nothing on disk (P5).
+	cps     checkpoints
+	cpsOnce sync.Once
+	// isolated answers whether tools and backends run sandboxed:
+	// confine.Isolated in xbind (P18); tests set it.
+	isolated func() bool
+	// now is the clock stamps read; nil is time.Now.
+	now func() time.Time
+
+	locks   tileLocks    // one operation per tile at a time (ops.go)
+	pausing overlay      // tiles whose live reload an operation is detaching
+	prep    preparations // pinned primaries' prepared code (PinnedPrimary)
+	q       queue        // deploys, the journal, finished attempts (queue.go)
 }
 
 // Boot runs once, from boot's registry step, after the registry hooks are
@@ -94,6 +127,14 @@ type Plane struct {
 // closed; an error — data/deployments can't be read, so no tile's record
 // can be judged — stops the daemon. Without data/deployments it reads
 // nothing more and writes nothing; a literal without a Root reads nothing.
+//
+// For each tile a record governs it then reconciles the deploy journal into
+// the deploy log (an attempt in flight at a crash is logged, never lost:
+// queue.go) and prepares the pinned primary's code — its checkpoint
+// materialized and read (registry.ReadCheckpoint) — so the registry's
+// rescan composes the tile from the code it runs before anything serves or
+// starts (P9). A checkpoint that can't be prepared fails its tile closed,
+// alone.
 func (p *Plane) Boot() error {
 	if p.Root == "" {
 		return nil
@@ -103,7 +144,38 @@ func (p *Plane) Boot() error {
 		return err
 	}
 	p.idx = idx
+	tiles := p.boundTiles()
+	if len(tiles) == 0 {
+		return nil // the zero state: nothing more is read or written
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	for _, tile := range tiles {
+		f := idx.get(tile)
+		if f.State != RecordActive {
+			continue
+		}
+		p.reconcileJournal(ctx, tile, f.Record)
+		if d := f.Record.Deployments[f.Record.Primary]; d.Checkpoint != nil {
+			_, _ = p.prepare(tile, *d.Checkpoint) // a failure is the tile's alone, answered by PinnedPrimary
+		}
+	}
+	if p.Reg != nil {
+		if err := p.Reg.Rescan(); err != nil {
+			slog.Warn("deployments: rescan after loading the records", "err", err)
+		}
+	}
 	return nil
+}
+
+// boundTiles lists the tiles a record file names at their own key, sorted.
+func (p *Plane) boundTiles() []string {
+	if p.idx == nil {
+		return nil
+	}
+	p.idx.mu.RLock()
+	defer p.idx.mu.RUnlock()
+	return sortedKeys(p.idx.tiles)
 }
 
 // Lookup answers what tile's record means for it (the synthesized zero state
@@ -129,6 +201,221 @@ func (p *Plane) record(tile string) (*Record, error) {
 		return nil, f.Err
 	}
 	return nil, nil
+}
+
+// ---- the checkpoint store ----
+
+// checkpoints is what the plane asks of the checkpoint store: xbind's
+// *checkpoint.Store through storeAdapter, a fake in tests.
+type checkpoints interface {
+	Exists(tile string) bool
+	Estimate(ctx context.Context, src checkpoint.Source) (checkpoint.Estimate, error)
+	Capture(ctx context.Context, req checkpoint.CaptureRequest) (checkpoint.Result, error)
+	Resolve(ctx context.Context, tile, id string) (checkpoint.Checkpoint, error)
+	Get(ctx context.Context, tile, tree string) (checkpoint.Checkpoint, error)
+	Caps() checkpoint.Caps
+	// Materialize returns the read-only host tree of tile's checkpoint tree,
+	// preparing it when missing.
+	Materialize(tile, tree string) (string, error)
+	// AppendLog appends one finished attempt to its deployment's deploy log.
+	AppendLog(ctx context.Context, tile string, a attempt) error
+	// ReadLog is tile's deploy log, every deployment's entries ("" dep) or
+	// one's, newest first.
+	ReadLog(ctx context.Context, tile, dep string) ([]attempt, error)
+	// SyncView makes the view repository hold exactly the git views of the
+	// pinned deployments (name → full tree id), with HEAD naming primary's.
+	SyncView(ctx context.Context, tile string, pinned map[string]string, primary string) error
+	// RemoveView removes tile's view repository, a crashed refresh's
+	// leftovers included, under the store's lock.
+	RemoveView(ctx context.Context, tile string) error
+	// Drift counts the files src's work tree differs in from checkpoint
+	// tree, changing nothing durable (worktree.go).
+	Drift(ctx context.Context, src checkpoint.Source, tree string) (int, error)
+}
+
+// store is the plane's checkpoint store, built from Root on first use.
+func (p *Plane) store() checkpoints {
+	p.cpsOnce.Do(func() {
+		if p.cps == nil {
+			p.cps = storeAdapter{checkpoint.New(p.Root)}
+		}
+	})
+	return p.cps
+}
+
+// isIsolated reports whether backends and tools run sandboxed (P18).
+func (p *Plane) isIsolated() bool {
+	if p.isolated != nil {
+		return p.isolated()
+	}
+	return confine.Isolated()
+}
+
+// clock is the time stamps read.
+func (p *Plane) clock() time.Time {
+	if p.now != nil {
+		return p.now()
+	}
+	return time.Now()
+}
+
+// stamp is the clock as the wire spells times: RFC 3339, UTC.
+func (p *Plane) stamp() string { return p.clock().UTC().Format(time.RFC3339) }
+
+// ---- one operation per tile ----
+
+// tileLocks serializes the operations on each tile: one reads the record,
+// captures and commits before the next reads it.
+type tileLocks struct {
+	mu sync.Mutex
+	m  map[string]*sync.Mutex
+}
+
+func (l *tileLocks) lock(tile string) func() {
+	l.mu.Lock()
+	if l.m == nil {
+		l.m = map[string]*sync.Mutex{}
+	}
+	m := l.m[tile]
+	if m == nil {
+		m = &sync.Mutex{}
+		l.m[tile] = m
+	}
+	l.mu.Unlock()
+	m.Lock()
+	return m.Unlock
+}
+
+// ---- pinned primaries' code ----
+
+// preparations is the primaries' code, prepared: materialized and read, per
+// tile and checkpoint — the one the record pins, and those a queued deploy
+// will swap to. PinnedPrimary answers from it with two map lookups.
+type preparations struct {
+	mu sync.RWMutex
+	m  map[string]map[string]preparation // tile → tree
+}
+
+// preparation is one checkpoint prepared for a tile's primary: its code, or
+// why it can't be prepared.
+type preparation struct {
+	tree string
+	pc   *registry.PinnedCode
+	err  string
+}
+
+func (ps *preparations) get(tile, tree string) (preparation, bool) {
+	ps.mu.RLock()
+	defer ps.mu.RUnlock()
+	pr, ok := ps.m[tile][tree]
+	return pr, ok
+}
+
+// has reports whether tree is prepared for tile's primary, readably.
+func (ps *preparations) has(tile, tree string) bool {
+	pr, ok := ps.get(tile, tree)
+	return ok && pr.pc != nil
+}
+
+func (ps *preparations) put(tile string, pr preparation) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	if ps.m == nil {
+		ps.m = map[string]map[string]preparation{}
+	}
+	if ps.m[tile] == nil {
+		ps.m[tile] = map[string]preparation{}
+	}
+	ps.m[tile][pr.tree] = pr
+}
+
+// keep drops every preparation of tile but tree's: the primary moved there
+// (a queued deploy re-prepares its own at its swap).
+func (ps *preparations) keep(tile, tree string) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	for t := range ps.m[tile] {
+		if t != tree {
+			delete(ps.m[tile], t)
+		}
+	}
+}
+
+func (ps *preparations) drop(tile string) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	delete(ps.m, tile)
+}
+
+// prepare materializes tile's checkpoint tree and reads what it declares,
+// for the primary, and keeps the answer for PinnedPrimary. A checkpoint that
+// can't be read is an error; one whose xbin.json doesn't parse answers its
+// code with ManifestErr set: it can't start, and no operation pins a primary
+// to it (ops.go).
+func (p *Plane) prepare(tile, tree string) (*registry.PinnedCode, error) {
+	pc, err := p.readCode(tile, tree)
+	if err != nil {
+		p.prep.put(tile, preparation{tree: tree, err: err.Error()})
+		slog.Warn("deployments: the primary's checkpoint can't be prepared; the tile fails closed", "tile", tile, "checkpoint", tree, "err", err)
+		return nil, err
+	}
+	p.prep.put(tile, preparation{tree: tree, pc: pc})
+	return pc, nil
+}
+
+// readCode materializes and reads a checkpoint without keeping the answer.
+func (p *Plane) readCode(tile, tree string) (*registry.PinnedCode, error) {
+	if !p.store().Exists(tile) {
+		return nil, fmt.Errorf("%s: its checkpoint store is missing", tile)
+	}
+	root, err := p.store().Materialize(tile, tree)
+	if err != nil {
+		return nil, err
+	}
+	return registry.ReadCheckpoint(root)
+}
+
+// ---- live reload being detached ----
+
+// overlay marks the tiles whose live reload an operation is detaching:
+// between the request and its commit, saves drive nothing (07-runtime §8.6),
+// so the checkpoint the operation takes is the code that ships. n makes the
+// per-save question one atomic load while no operation is detaching (P8).
+type overlay struct {
+	n     atomic.Int32
+	mu    sync.Mutex
+	tiles map[string]int
+}
+
+// on marks tile until the returned func runs.
+func (o *overlay) on(tile string) func() {
+	o.mu.Lock()
+	if o.tiles == nil {
+		o.tiles = map[string]int{}
+	}
+	o.tiles[tile]++
+	o.n.Add(1)
+	o.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			o.mu.Lock()
+			if o.tiles[tile]--; o.tiles[tile] <= 0 {
+				delete(o.tiles, tile)
+			}
+			o.n.Add(-1)
+			o.mu.Unlock()
+		})
+	}
+}
+
+func (o *overlay) has(tile string) bool {
+	if o.n.Load() == 0 {
+		return false
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.tiles[tile] > 0
 }
 
 // ---- the runner's hooks (runner.DeploymentHooks) ----
@@ -167,20 +454,42 @@ func (p *Plane) Primary(tile string) string {
 }
 
 // View is the component a generation running code spawns from: c itself for
-// the work tree, the registry's own pointer. No checkpoint has a view yet, so
-// nothing starts from one.
+// the work tree of a primary that follows it (the registry's own pointer),
+// the registry's view of the checkpoint's materialized tree otherwise. main
+// is every tile's only deployment, and its primary, until deployments beyond
+// main land, so the view is the primary's (registry.ViewCode's "").
 func (p *Plane) View(c *registry.Component, code runner.Code) (*registry.Component, error) {
-	if !code.WorkTree {
-		return nil, fmt.Errorf("%s: checkpoint %s has no view: this xbind can't run checkpoints yet", c.Path, code.Tree)
+	if code.WorkTree {
+		if p.Reg == nil {
+			return c, nil
+		}
+		return p.Reg.View(c, registry.ViewCode{})
 	}
-	return c, nil
+	root, err := p.Materialize(c.Path, code.Tree)
+	if err != nil {
+		return nil, err
+	}
+	if p.Reg == nil {
+		return nil, fmt.Errorf("%s: checkpoint %s has no view without the registry", c.Path, code.Tree)
+	}
+	return p.Reg.View(c, registry.ViewCode{Tree: code.Tree, Root: root})
 }
 
-// Materialize returns the read-only host tree of tile's checkpoint tree. No
-// checkpoint can be materialized yet, so nothing serves or runs one, and
-// nothing falls back to the work tree.
+// Materialize returns the read-only host tree of tile's checkpoint tree,
+// preparing it when missing. Only a tile a record governs runs or serves a
+// checkpoint: any other tile's answer is an error, and nothing falls back to
+// the work tree.
 func (p *Plane) Materialize(tile, tree string) (string, error) {
-	return "", fmt.Errorf("%s: checkpoint %s can't be materialized: this xbind can't run checkpoints yet", tile, tree)
+	rec, err := p.record(tile)
+	switch {
+	case err != nil:
+		return "", err
+	case rec == nil:
+		return "", fmt.Errorf("%s: checkpoint %s can't be materialized: the tile has no deployment record", tile, tree)
+	case !fullTreeID(tree):
+		return "", fmt.Errorf("%s: %q isn't a full checkpoint tree id", tile, tree)
+	}
+	return p.store().Materialize(tile, tree)
 }
 
 // EnvFor is deployment dep's spawn env and resource remap. The primary gets
@@ -203,9 +512,9 @@ func (p *Plane) EnvFor(c *registry.Component, dep string) ([]string, map[string]
 // what that checkpoint declares, which Rescan composes into the tile's
 // component. It answers the zero manifest with the reason — no backend, no
 // inbound surface (07-runtime §5.1) — for a tile its record holds, and for a
-// pinned primary whose code isn't prepared: never the work tree's surface in
-// its place (C7). No answer for a primary that follows the work tree, or a
-// tile without a record.
+// pinned primary whose code isn't prepared or can't be: never the work
+// tree's surface in its place (C7). No answer for a primary that follows the
+// work tree, or a tile without a record.
 func (p *Plane) PinnedPrimary(rel string) (*registry.PinnedCode, bool) {
 	rec, err := p.record(rel)
 	if err != nil {
@@ -217,6 +526,13 @@ func (p *Plane) PinnedPrimary(rel string) (*registry.PinnedCode, bool) {
 	d := rec.Deployments[rec.Primary]
 	if d.Checkpoint == nil {
 		return nil, false
+	}
+	if pr, ok := p.prep.get(rel, *d.Checkpoint); ok {
+		if pr.pc != nil {
+			return pr.pc, true
+		}
+		return &registry.PinnedCode{ManifestErr: fmt.Sprintf("%s: the primary (%s) is pinned to checkpoint %s, which can't be prepared: %s",
+			rel, rec.Primary, *d.Checkpoint, pr.err)}, true
 	}
 	return &registry.PinnedCode{ManifestErr: fmt.Sprintf("%s: the primary (%s) is pinned to checkpoint %s, which isn't prepared",
 		rel, rec.Primary, *d.Checkpoint)}, true
@@ -236,10 +552,10 @@ func (p *Plane) RewriteDeploymentOwner(tile, ownerRef string) error {
 	return p.idx.rewriteOwner(tile, ownerRef)
 }
 
-// ResetDeploymentState drops path's record, whatever it holds, and its view
-// repository before a creation path assigns the new tile's owner (P29), so
-// the new tile starts in the zero state. The checkpoint store stays, a
-// leftover. No record: nothing to reset.
+// ResetDeploymentState drops path's record, whatever it holds, its journal
+// and its view repository before a creation path assigns the new tile's
+// owner (P29), so the new tile starts in the zero state. The checkpoint
+// store stays, a leftover. No record: nothing to reset.
 func (p *Plane) ResetDeploymentState(path string) error {
 	if p.idx == nil {
 		return nil
@@ -247,8 +563,24 @@ func (p *Plane) ResetDeploymentState(path string) error {
 	if err := p.idx.remove(path, -1); err != nil {
 		return err
 	}
-	if err := os.RemoveAll(viewDir(p.Root, path)); err != nil {
-		return fmt.Errorf("%s: removing the view repository: %w", path, err)
+	return p.dropDerived(path)
+}
+
+// dropDerived removes what a record carries with it once the record is gone
+// — its journal, its view repository, its prepared code — and forgets the
+// tile's attempts. The checkpoint store and its deploy log stay.
+func (p *Plane) dropDerived(tile string) error {
+	p.prep.drop(tile)
+	p.forget(tile)
+	if err := os.Remove(filepath.Join(journalDir(p.Root, tile), journalFile)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("%s: removing the deploy journal: %w", tile, err)
+	}
+	_ = os.Remove(journalDir(p.Root, tile)) // only when empty
+	_ = os.Remove(recordDir(p.Root))        // only when empty
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if err := p.store().RemoveView(ctx, tile); err != nil {
+		return fmt.Errorf("%s: removing the view repository: %w", tile, err)
 	}
 	return nil
 }
@@ -333,10 +665,14 @@ func (p *Plane) HasRecord(tile string) bool {
 
 // LiveReload answers which deployment a save in tile's work tree drives:
 // (dep, true) while live reload is attached to dep, ("", false) while it is
-// paused, and while the tile's record holds it (nothing may follow its work
-// tree then). An in-memory lookup, called on every save (P8); without a
-// record: main, attached.
+// paused, while an operation is detaching it (the checkpoint that operation
+// takes is what ships), and while the tile's record holds it (nothing may
+// follow its work tree then). In-memory lookups, called on every save (P8);
+// without a record: main, attached.
 func (p *Plane) LiveReload(tile string) (dep string, attached bool) {
+	if p.pausing.has(tile) {
+		return "", false
+	}
 	rec, err := p.record(tile)
 	switch {
 	case err != nil:
@@ -345,4 +681,42 @@ func (p *Plane) LiveReload(tile string) (dep string, attached bool) {
 		return util.MainDeployment, true
 	}
 	return rec.LiveReload, rec.LiveReload != ""
+}
+
+// ---- small helpers ----
+
+// pinnedSet is rec's pinned deployments, name → full tree id: what the view
+// repository holds.
+func pinnedSet(rec *Record) map[string]string {
+	out := map[string]string{}
+	for _, name := range sortedKeys(rec.Deployments) {
+		if cp := rec.Deployments[name].Checkpoint; cp != nil {
+			out[name] = *cp
+		}
+	}
+	return out
+}
+
+// nested lists the registered components beneath tile, tile-relative: never
+// in its checkpoints.
+func (p *Plane) nested(tile string) []string {
+	if p.Reg == nil {
+		return nil
+	}
+	var out []string
+	for _, c := range p.Reg.Components() {
+		if rel, ok := cutPrefixDir(c.Path, tile); ok {
+			out = append(out, rel)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// cutPrefixDir is path relative to dir when it lies strictly beneath it.
+func cutPrefixDir(path, dir string) (string, bool) {
+	if len(path) <= len(dir)+1 || path[:len(dir)] != dir || path[len(dir)] != '/' {
+		return "", false
+	}
+	return path[len(dir)+1:], true
 }
