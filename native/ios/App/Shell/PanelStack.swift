@@ -265,3 +265,43 @@ struct EdgePans: UIViewRepresentable {
         }
     }
 }
+
+/// Takes a panel that isn't in front out of VoiceOver's (and UI tests')
+/// reach, UIKit parts included: SwiftUI's accessibilityHidden stops at
+/// hosted UIKit views (lists, the bar, web views). Placed in a panel's
+/// root content, it finds the panel's navigation controller above it and
+/// hides that controller's view.
+struct PanelAccessibility: UIViewRepresentable {
+    var hidden: Bool
+
+    func makeUIView(context: Context) -> Probe { Probe() }
+    func updateUIView(_ uiView: Probe, context: Context) { uiView.panelHidden = hidden }
+
+    final class Probe: UIView {
+        var panelHidden = false { didSet { apply() } }
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            isUserInteractionEnabled = false
+            isAccessibilityElement = false
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            apply()
+        }
+
+        private func apply() {
+            var v: UIView? = superview
+            while let cur = v {
+                if cur.next is UINavigationController {
+                    cur.accessibilityElementsHidden = panelHidden
+                    return
+                }
+                v = cur.superview
+            }
+        }
+    }
+}

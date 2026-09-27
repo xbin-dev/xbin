@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import XbinCore
 import XbinRendererModel
 import XbinTerm
@@ -77,7 +78,12 @@ struct HomeView: View {
 
     private var canAddScreens: Bool { !(workspace.whoami?.userID ?? "").isEmpty && workspace.whoami?.readOnly != true }
 
-    private func open(_ s: Surface) { workspace.open(s, in: nav) }
+    /// A tile found by search takes the keyboard's place: the search
+    /// field lets it go first (a terminal then takes it for itself).
+    private func open(_ s: Surface) {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        workspace.open(s, in: nav)
+    }
 
     @ViewBuilder private var newScreenButton: some View {
         if canAddScreens {
@@ -102,7 +108,7 @@ struct HomeView: View {
     private func screenRow(_ s: ScreenInfo) -> some View {
         Button { nav.openScreen(s.id) } label: {
             HStack {
-                Label { Text(verbatim: s.name).foregroundStyle(.primary) } icon: { Image(systemName: "square.grid.2x2") }
+                Label { Text(verbatim: s.name) } icon: { Image(systemName: "square.grid.2x2").foregroundStyle(Color.xbinAmber) }
                 Spacer()
                 let n = workspace.cards(for: s).count
                 Text(verbatim: "\(n)").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
@@ -110,6 +116,7 @@ struct HomeView: View {
                 Image(systemName: "chevron.forward").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
             }
         }
+        .tint(.primary) // a place to go, not an action: the title in the text color
         .accessibilityIdentifier("screen:\(s.id)")
     }
 

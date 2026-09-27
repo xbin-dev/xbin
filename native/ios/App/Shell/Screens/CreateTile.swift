@@ -24,7 +24,7 @@ struct CreateTileSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Tile name", text: $name, prompt: Text("My tile"))
+                    TextField("Tile name", text: $name)
                         .focused($focused)
                         .submitLabel(.done)
                         .onSubmit { Task { await create() } }
@@ -153,9 +153,10 @@ struct BuildChooser: View {
                         HStack {
                             Text(verbatim: p.name).foregroundStyle(.primary)
                             Spacer()
-                            if provider == p.id { Image(systemName: "checkmark").foregroundStyle(.tint) }
+                            if provider == p.id { Image(systemName: "checkmark").foregroundStyle(Color.xbinAmber) }
                         }
                     }
+                    .tint(.primary) // a choice, not an action
                     .accessibilityAddTraits(provider == p.id ? .isSelected : [])
                 }
             }

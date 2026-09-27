@@ -14,7 +14,7 @@
 # The stubs are layered: swiftui-stubcheck's (the renderer's SwiftUI and
 # UIKit), term-stubcheck's (the terminal's UIKit and SwiftUI, SwiftTerm's
 # API), then Stubs/ here (the SwiftUI and UIKit the app adds, WebKit,
-# SafariServices, CoreImage, PhotosUI, UniformTypeIdentifiers) and
+# CoreImage, PhotosUI, UniformTypeIdentifiers) and
 # Stubs/App/AppStubs.swift (stand-ins for the app types of the files not
 # compiled here). The real XbinCore, XbinTerm and XbinAgent and the
 # renderer's views (as swiftui-stubcheck prepares them) are linked, so the
@@ -48,7 +48,7 @@ cp "$term/SwiftTerm.swift" "$out/Sources/SwiftTerm/"
 # …and the app's.
 cp "$here/Stubs/UIKit/"*.swift "$out/Sources/UIKit/"
 cp "$here/Stubs/SwiftUI/"*.swift "$out/Sources/SwiftUI/"
-for m in WebKit SafariServices CoreImage PhotosUI UniformTypeIdentifiers; do cp -R "$here/Stubs/$m" "$out/Sources/"; done
+for m in WebKit CoreImage PhotosUI UniformTypeIdentifiers; do cp -R "$here/Stubs/$m" "$out/Sources/"; done
 # The SDK runs a view's refreshable action on the main actor.
 sed -i.orig 's/public func refreshable(action:/public func refreshable(@_inheritActorContext action:/' "$out/Sources/SwiftUI/Modifiers.swift"
 if [ "$strict" = 1 ]; then
@@ -96,7 +96,6 @@ let package = Package(
         .target(name: "Charts", dependencies: ["SwiftUI"]),
         .target(name: "QuickLook", dependencies: ["SwiftUI"]),
         .target(name: "WebKit", dependencies: ["UIKit"]),
-        .target(name: "SafariServices", dependencies: ["UIKit"]),
         .target(name: "CoreImage", dependencies: ["UIKit"]),
         .target(name: "PhotosUI", dependencies: ["SwiftUI", "UniformTypeIdentifiers"]),
         .target(name: "SwiftTerm", dependencies: ["UIKit"], swiftSettings: [.swiftLanguageMode(.v5)]),
@@ -105,7 +104,7 @@ let package = Package(
             "SwiftUI", "UIKit", "Charts", "QuickLook", "XbinRendererModel", .product(name: "XbinCore", package: "XbinCore"),
         ]),
         .target(name: "AppCheck", dependencies: [
-            "UIKit", "SwiftUI", "WebKit", "SafariServices", "CoreImage", "PhotosUI", "UniformTypeIdentifiers", "SwiftTerm",
+            "UIKit", "SwiftUI", "WebKit", "CoreImage", "PhotosUI", "UniformTypeIdentifiers", "SwiftTerm",
             "XbinRendererModel", "XbinRendererCheck",
             .product(name: "XbinCore", package: "XbinCore"),
             .product(name: "XbinTerm", package: "XbinTerm"),

@@ -31,7 +31,7 @@ checked against the real declarations, against layered stubs:
    `userActivity`, `onDrag`, view-controller representables, …) and UIKit
    (`NSUserActivity` and `NSItemProvider`, which Linux's Foundation lacks,
    haptics, the image picker) the app adds, and `WebKit`,
-   `SafariServices`, `CoreImage`, `PhotosUI`, `UniformTypeIdentifiers`;
+   `CoreImage`, `PhotosUI`, `UniformTypeIdentifiers`;
 4. `Stubs/App/AppStubs.swift` — stand-ins for the app types of the files
    not compiled here (the rest of `Tiles/`, `Terminal/`, `Push/`,
    `Shared/`, the three files above);

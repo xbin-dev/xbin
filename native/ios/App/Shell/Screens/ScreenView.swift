@@ -210,9 +210,11 @@ struct ScreenEditorView: View {
                 }
             }
             Section {
-                Button { adding = true } label: { Label("Add tile", systemImage: "plus.square.on.square") }
-                Button { creating = true } label: { Label("Create tile", systemImage: "plus") }
+                // (Rows in edit mode don't take taps: borderless buttons do.)
+                Button { adding = true } label: { wideLabel("Add tile", "plus.square.on.square") }
+                Button { creating = true } label: { wideLabel("Create tile", "plus") }
             }
+            .buttonStyle(.borderless)
         }
         .environment(\.editMode, .constant(.active))
         .sheet(isPresented: $adding) {
@@ -228,6 +230,10 @@ struct ScreenEditorView: View {
                 nav.open(.build(tile: path), on: screen.id)
             }
         }
+    }
+
+    private func wideLabel(_ title: LocalizedStringKey, _ symbol: String) -> some View {
+        Label(title, systemImage: symbol).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
     }
 
     private func row(_ c: MobileScreens.Card) -> some View {
@@ -249,5 +255,7 @@ struct ScreenEditorView: View {
             .pickerStyle(.segmented)
             .fixedSize()
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(verbatim: title))
     }
 }

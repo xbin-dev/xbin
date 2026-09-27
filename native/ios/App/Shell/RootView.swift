@@ -187,9 +187,11 @@ struct PanelBar: ViewModifier {
     @Environment(AppModel.self) private var app
     @Environment(SceneModel.self) private var scene
     @Environment(WorkspaceNav.self) private var nav
+    @Environment(\.panelActive) private var panelActive
 
     func body(content: Content) -> some View {
         content
+            .background(PanelAccessibility(hidden: !panelActive).accessibilityHidden(true))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
