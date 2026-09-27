@@ -10,6 +10,33 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-28
+
+- **The `sandbox-terminal` builtin tile: SSH into coding sandboxes, for
+  people** (`bx tile import sandbox-terminal`; [sandbox-manager.md](sandbox-manager.md)
+  §People's terminals, and the tile's `API.md`). It is a consumer of the
+  sandbox-manager contract that creates no sandboxes. Bind it to one or more
+  managers (`bx bind apps/sandbox-terminal sandboxes=apps/<manager>`); a
+  sandbox shows up once it is shared with it (a share naming
+  `apps/sandbox-terminal`, for `"*"` or a list of people), and a person may
+  open it when they own it, are a member, or it is team.
+  - **SSH.** An admin publishes the port (`bx expose apps/sandbox-terminal
+    ssh=runtime --listen :2222`). People register their public keys with
+    the tile (`POST /keys` from its page; the tile's managers list and
+    revoke anyone's, and a revoke ends the key's live connections). Then
+    `ssh <sandbox>@host -p 2222`: the user name is the sandbox's name in
+    lower case (`<name>.<n>` when several share it, or its id), and an
+    unknown or ambiguous one lists the choices.
+  - **How a session runs.** With a terminal it is the manager's `tty`
+    route, with resize and the exit status. Without one (`ssh host cmd`) it
+    is an exec with stdin, where stdout and stderr arrive together. A
+    stopped sandbox starts; a client that leaves ends its command (`HUP`,
+    then a kill).
+  - **Not in v1:** port or agent forwarding, X11, sftp.
+  - Failed keys are rate-limited. The host key is kept in the tile's vault,
+    and `GET /me` shows its fingerprint.
+  - `bx tile import devbox`'s 410 now points at this tile.
+
 ## 2026-09-27
 
 - **Go backends in a VM start again, and a VM backend that never listens

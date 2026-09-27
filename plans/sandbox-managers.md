@@ -265,12 +265,19 @@ In order:
 4. **`builtin-tiles/sandbox-terminal`**: browser terminals straight to the
    manager (the page's verified user), SSH ingress (a `stream` expose, keys
    registered per person, the user name is the sandbox) bridged to the
-   `tty` route; sandboxes reach it by being shared with it.
+   `tty` route; sandboxes reach it by being shared with it. *Landed, the
+   backend and SSH* (D121): keys, `GET /sandboxes` with each sandbox's
+   login, the SSH server (a pty → the `tty` route; no pty → an exec with
+   stdin), tested end to end against the reference manager. The page (web
+   and native), the harness pass and the agent's "share with a terminal
+   tile" follow.
 
 ## Open questions (asked at the phase 2 and 3 kickoffs)
 
-- sandbox-terminal's SSH path acts for a person the manager can't verify:
-  a `gateway` role for asserted users?
+- ~~sandbox-terminal's SSH path acts for a person the manager can't verify:
+  a `gateway` role for asserted users?~~ No: its backend asserts the person
+  (`Sbx-User`) as any consumer's may, and enforces the person rules itself
+  (D121).
 - Relay only, no xbind tickets — and admins never attach?
 - D88's `noTerminal` for sandbox terminals.
 - Namespace uppers in component backups by default?

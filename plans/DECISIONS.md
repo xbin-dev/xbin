@@ -3730,3 +3730,89 @@ Deviations and refinements made while implementing; all deliberate:
       egress or mode.
     - A deployment segment under `.xbin/sbx/<key>/`: it would collide with
       sandbox names.
+
+- **D121 — People's terminals onto sandboxes are the `sandbox-terminal`
+  builtin tile: a consumer of the sandbox-manager contract that creates
+  nothing, with browser terminals straight to the manager and SSH bridged by
+  its backend as an asserted person (2026-09-28).**
+  builtin-tiles/sandbox-terminal (API.md); docs/sandbox-manager.md §People's
+  terminals; plans/sandbox-managers.md phase 3 item 4.
+  - **Chosen.**
+    - **A consumer, not a manager.** `interfaces.sandboxes {kind: http,
+      service: sandbox-manager, multi: true}`. It creates no sandboxes: one
+      reaches it by being **shared** with it (a share naming its path, users
+      `"*"` or a list) or by being its own. The owner binds managers like
+      the agent's.
+    - **Browser terminals** are the page's own: `<bx-terminal src>` on the
+      manager's `tty` route with the frame token, so the manager sees the
+      **verified** person. The backend isn't in that path.
+    - **SSH** on a `stream` expose (`exposes.ssh {kind: stream, proto: tcp,
+      port: 2222}`; an admin binds a host port), served by
+      `golang.org/x/crypto/ssh` in the backend. **Keys are registered per
+      person** (routes the page calls with its frame token: the verified
+      `X-XBin-User` registers and removes their own; the tile's managers —
+      write or terminal access, or the owner — list and revoke anyone's). A
+      key belongs to one person. A revoke also closes that key's live
+      connections.
+    - **On login** the key names the person and the SSH user name names the
+      sandbox: its login (the name in lower case, runs of other characters
+      `-`), `<login>.<n>` when several of the person's sandboxes share one,
+      or its id. Unknown or ambiguous → a message listing the choices, exit
+      1. The session is authenticated first, so the message reaches the
+      person instead of a bare "Permission denied".
+    - **No new role for the SSH path** (the kickoff's open question: a
+      `gateway` role for asserted users). The backend lists and opens
+      sandboxes **as an asserted person** (`Sbx-User`), which the contract
+      already allows a consumer's backend, and **enforces the person rules
+      itself**: a shared sandbox only as far as its share names the person,
+      then its owner, a member, or team. These are the same rules the agent's
+      `sandbox_access.go` applies.
+    - **With a pty** the session is the manager's `tty` route, dialled with
+      `sdk/ws` (`Sbx-User` set): binary frames ↔ the channel, window-change
+      → `resize`, the `exit` frame → exit-status (or exit-signal).
+      **Without one** (`ssh host cmd`, `ssh -T`) it is a background exec
+      with `stdin`: output read by byte offset, input posted, exit from the
+      exec. A terminal there would echo input, turn `\n` into `\r\n` and wake
+      pagers, which breaks pipes; and `exec` is required of every manager
+      where `tty` isn't. stdout and stderr arrive together (the contract's
+      one stream). A pty request on a manager without `tty` runs this way,
+      and the tile says so.
+    - **A client that leaves** ends its command, as sshd would: HUP to the
+      group, then DELETE if it still runs 2 s later. A command that ended on
+      its own isn't DELETEd, so work it detached into its own group survives.
+    - **Rate limits.** Failed keys are a token bucket per source address
+      (20, then one every 2 s). Over the rate an attempt is answered 2 s
+      late: a tarpit, not a lockout, because xbind's relay shows one source
+      address for everyone and a good key must never be locked out by a
+      flood. There are also at most 32 handshakes in flight, a 30 s login
+      grace, 6 tries and 10 sessions per connection.
+    - **The host key** is ed25519, made on first start and kept in the
+      tile's **vault** (it is a secret). Only a vault that answers "no such
+      key" gets a new one; any other error retries, so clients never see a
+      changed host. Keys and settings are in the tile's kv (`state`).
+    - **Nothing a manager says is stored** beyond a minute's hello cache.
+      No xbin identity reaches a sandbox.
+    - `x/crypto` is pinned at v0.48.0, the newest release whose `go`
+      directive (1.24.0) the rootfs toolchain meets (check-pins). The
+      tile's own go line stays `go 1.24`: xbind's generated go.work says
+      `go 1.24`, and a module it uses with a later line (`1.24.0` counts as
+      later) fails the build — now a test (`TestBuiltinTilesImport`). The
+      root module's newer x/crypto compiles the same code for `make vet`.
+  - **Not chosen:**
+    - A `gateway` role for asserted users: the contract already covers a
+      backend acting for a person.
+    - Terminals relayed through the backend for the browser: the person
+      would become asserted.
+    - Resolving the sandbox during authentication: a wrong name would read
+      as a bad key.
+    - The `tty` route for commands without a pty: see above.
+    - Per-source lockouts: behind the relay they would lock everyone out.
+    - Port forwarding, agent forwarding, X11, sftp and client environment in
+      v1: each needs its own reach decision (a forward is egress from the
+      sandbox's network into the person's machine, or the reverse).
+  - **Known limits.**
+    - A person who loses access to the tile keeps their keys until they or
+      a manager remove them: xbind has no API for a tile to ask whether
+      someone still has access to it.
+    - A session already running when a share is withdrawn runs on until it
+      ends.

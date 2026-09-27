@@ -1,0 +1,30 @@
+{
+  // sandbox-terminal (D121): terminals onto coding sandboxes for people — in
+  // the browser and over SSH. A CONSUMER of the sandbox-manager contract
+  // (/docs/sandbox-manager.md): it creates no sandboxes. A sandbox reaches it
+  // by being shared with it (a share naming this tile, users "*" or a list —
+  // the agent's Share, or the manager's own UI), or by being its own.
+  "runtime": "go",
+
+  // keys (people's SSH public keys) and settings; the SSH host key is in
+  // this tile's vault
+  "uses": [
+    { "target": "res:apps/sandbox-terminal/state", "role": "writer" }
+  ],
+
+  "interfaces": {
+    // The managers whose sandboxes it opens terminals onto — as many as you
+    // like: bx bind apps/sandbox-terminal sandboxes=apps/coding-sandbox (more:
+    // --add). The binding grants this tile the managers' `consumer` role.
+    "sandboxes": { "kind": "http", "service": "sandbox-manager", "multi": true }
+  },
+
+  // SSH: the backend listens on 2222 in its sandbox. Nothing reaches it until
+  // an admin binds a host port:
+  //   bx expose apps/sandbox-terminal ssh=runtime --listen :2222
+  // then people log in as `ssh <sandbox>@<host> -p 2222` with a key they
+  // registered on this tile's page.
+  "exposes": {
+    "ssh": { "kind": "stream", "proto": "tcp", "port": 2222 }
+  }
+}

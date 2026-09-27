@@ -3,8 +3,9 @@
 A **sandbox manager** is a tile that creates and runs sandboxes — boxes with
 a shell, a filesystem and the tools of a job — for other tiles. A
 **consumer** is a tile that uses them: the agent template (an agent
-conversation works in a sandbox), a terminal tile (people open shells in
-them), anything else. The split (D115):
+conversation works in a sandbox), the `sandbox-terminal` tile (people open
+shells in them, in the browser and over SSH; see below), anything else.
+The split (D115):
 
 - **The manager knows the substrate:** VMs, containers, a cloud's API and
   ssh, disks, images, quotas, what a sandbox may reach.
@@ -343,6 +344,32 @@ it still does, and `thaw` brings it back (stopped, or running with
   `SANDBOX_ID` and `SANDBOX_NAME`.
 - **No xbin identity, ever**: no token, no gateway, no route to xbind or the
   workspace's tiles. What a sandbox reaches is its `egress`, nothing more.
+
+## People's terminals: the `sandbox-terminal` tile
+
+The builtin **`sandbox-terminal`** tile (`bx tile import sandbox-terminal`,
+D121) is a consumer that gives people terminals onto sandboxes and creates
+none. Bind it to managers (`bx bind apps/sandbox-terminal
+sandboxes=apps/<manager>`, `--add` for more); a sandbox shows up there once
+it is **shared** with it — `{"shares": [{"consumer": "apps/sandbox-terminal",
+"users": "*"}]}` by its home consumer (the agent's share), or the manager's
+operators. The person rules above decide who opens which:
+
+- **In the browser** its page dials your `tty` route with its frame token,
+  so you see the **verified** person.
+- **Over SSH** (`ssh <sandbox>@host -p 2222`, after an admin runs `bx expose
+  apps/sandbox-terminal ssh=runtime --listen :2222`) a key registered on its
+  page names the person, and its backend calls you as an **asserted** one
+  (`Sbx-User`): `GET /sbx/sandboxes` to find the sandbox, then your `tty`
+  route for a session with a terminal, or a background exec with `stdin` for
+  one without (`ssh host cmd`: stdout and stderr arrive together). A client
+  that leaves gets its command a `HUP`, then a `DELETE` if it still runs.
+  The SSH user name is the sandbox's name in lower case (runs of other
+  characters `-`), `<name>.<n>` when several share it, or its id.
+  No port or agent forwarding, no X11, no sftp in v1.
+
+What it offers people and its page, route by route, is its `API.md`
+(`apps/sandbox-terminal/API.md` once imported).
 
 ## Building a manager
 
