@@ -213,6 +213,28 @@ await page.evaluate((b) => window.__push({ type: 'run', run: 1, root: 1, data: {
   { ref: `${MGR}|web`, name: 'web', cwd: '/srv/web', egress: 'none', manager: 'Coding sandboxes' });
 await page.waitForSelector('#sbxbadge');
 ok('a run event with {sandbox} updates the badge', (await page.textContent('#sbxbadge')).includes('web · /srv/web'));
+// one the agent just made (sandbox_create): the list read before lacks it —
+// it is read again, not called gone (harness: a ⚠ on the new one)
+const fresh0 = (await calls('GET', /\/sandboxes\?fresh=1$/)).length;
+// (the page holds web active from the event above; the stub keeps it only attached)
+const cfg1 = { ...(await page.evaluate(() => JSON.parse(JSON.stringify(window.__views[1].config || {})))),
+  sandbox: { ref: `${MGR}|web`, name: 'web', cwd: '/srv/web', egress: 'none', manager: 'Coding sandboxes' } };
+await page.evaluate(([s, b]) => {
+  window.__sbx.sandboxes.push(s);
+  const c = window.__views[1].config;
+  c.sandbox = b;
+  c.attached = [...(c.attached || []), b];
+  window.__push({ type: 'run', run: 1, root: 1, data: { id: 1, status: 'idle', sandbox: b, attached: c.attached.length } });
+}, [sb('made-now'), bind('made-now')]);
+await page.waitForFunction(() => (document.getElementById('sbxbadge') || {}).textContent?.includes('made-now'));
+ok('a sandbox the list lacks is read again, not called gone', await page.waitForFunction(() => !document.getElementById('sbxbadge').classList.contains('broken'), null, { timeout: 3000 })
+  .then(() => true, () => false) && (await calls('GET', /\/sandboxes\?fresh=1$/)).length === fresh0 + 1, await page.textContent('#sbxbadge'));
+await page.evaluate((c) => {
+  window.__sbx.sandboxes = window.__sbx.sandboxes.filter((s) => s.id !== 'made-now');
+  window.__views[1].config = c;
+  window.__push({ type: 'run', run: 1, root: 1, data: { id: 1, status: 'idle', sandbox: c.sandbox, attached: (c.attached || []).length } });
+}, cfg1);
+await page.waitForFunction(() => (document.getElementById('sbxbadge') || {}).textContent?.includes('web · /srv/web'));
 
 // --- the tool cards -----------------------------------------------------------------------
 const cards = await page.$$eval('.tcard[data-fam="box"] .tch', (els) => els.map((e) => ({

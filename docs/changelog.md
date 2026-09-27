@@ -219,7 +219,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   conversation other people are in asks first (a sheet in the xbin app).
   The Sandboxes list keeps its order while open, and lays a row out as its
   name and badges with the actions one right-aligned group beside them
-  (under them on a phone) — they no longer wrap in under the name. After a
+  (under them on a phone) — they no longer wrap in under the name. A
+  sandbox bound since the list was read (one the agent just made) has the
+  list read again instead of showing ⚠ gone in the badge. After a
   class edit the open conversation's class badge, mixed warning and
   sandbox reasons follow at once.
 

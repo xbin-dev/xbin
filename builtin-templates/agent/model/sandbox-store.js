@@ -31,6 +31,18 @@ export function createSandboxStore(app) {
     sbx.list = { ...sbx.list, sandboxes: find(s.ref) ? l.map((x) => (x.ref === s.ref ? { ...x, ...s } : x)) : [s, ...l] };
   };
 
+  // recheck: a binding of v's that the list read before doesn't have — one
+  // the agent just made (sandbox_create), or bound elsewhere since — is read
+  // again (fresh, once per ref) rather than shown as gone.
+  const checked = new Set();
+  const recheck = (v) => {
+    if (!v || !loadedAt || inflight) return;
+    const missing = [S.bindingOf(v), ...S.attachedOf(v)].filter((b) => b && !find(b.ref) && !checked.has(b.ref));
+    if (!missing.length) return;
+    missing.forEach((b) => checked.add(b.ref));
+    sbx.load(true).catch(() => {});
+  };
+
   const sbx = {
     list: S.listOf(null), // GET /sandboxes (model/sandboxes.js listOf); loaded once read
     pick: null,           // the next new chat's sandbox: {ref, cwd, name} (sent while its class has the sandbox toolset)
@@ -54,7 +66,7 @@ export function createSandboxStore(app) {
     // What the views draw (model/sandboxes.js), for where you are. rows:
     // order — the refs as the view shows them (kept while its list is open).
     picker() { return S.sandboxPicker(sbx.list, conv(), app.me, { cls: classes.find(app.classes, app.classId), pick: sbx.pick }); },
-    badge(v = conv()) { return S.sandboxBadge(v, sbx.list); },
+    badge(v = conv()) { recheck(v); return S.sandboxBadge(v, sbx.list); },
     rows(order) { const v = conv(); return S.sandboxRows(sbx.list, app.me, { conv: v, cls: sbx.cls(), pick: sbx.pick, order }); },
     // createWhy: why New sandbox can't be offered here ('' = it can).
     createWhy() { return S.createWhy(sbx.list, conv()); },
