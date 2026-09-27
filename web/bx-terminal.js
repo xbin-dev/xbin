@@ -686,9 +686,9 @@ export class BxTerminal extends HTMLElement {
           // network") and the session's own target note ("this terminal
           // calls apps/crm+dev") are worth one gray line each, once per
           // session; the pickers show the rest.
-          if ((ctl.netNote || ctl.note) && ctl.id !== this.#notedSession) {
+          if ((ctl.netNote || ctl.targetNote) && ctl.id !== this.#notedSession) {
             this.#notedSession = ctl.id;
-            for (const n of [ctl.netNote, ctl.note]) if (n) this.#term.write(`\r\n\x1b[90m[${n}]\x1b[0m\r\n`);
+            for (const n of [ctl.netNote, ctl.targetNote]) if (n) this.#term.write(`\r\n\x1b[90m[${n}]\x1b[0m\r\n`);
           }
           this.dispatchEvent(new CustomEvent('bx-session', {
             detail: { id: ctl.id, net: ctl.net, scopes: ctl.scopes, label: ctl.label, netNote: ctl.netNote, baseOutdated: !!ctl.baseOutdated, vm: !!ctl.vm,
