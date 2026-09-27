@@ -54,10 +54,19 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 		// Model is the person's pick for this conversation (a model
 		// reference; "" = the agent's default).
 		Model string
+		// Class is the conversation's agent class (D116; GET /classes);
+		// without it the legacy Toolset names a built-in, else the
+		// caller's default.
+		Class string
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	if !validPick(body.Model) {
 		xbin.WriteError(w, 400, "model: a model id from GET /models (up to 200 characters)")
+		return
+	}
+	cls, err := requestedClass(callerOf(r), body.Class, body.Toolset)
+	if err != nil {
+		writeClassErr(w, err)
 		return
 	}
 	body.Text = strings.TrimSpace(body.Text)
@@ -67,7 +76,7 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if id := heldDraft(agent.db, callerOf(r), body.Draft); id != 0 || len(body.Files) > 0 {
-			releaseDraft(w, r, id, body.Draft, body.Text, body.Toolset, body.Title, body.System, body.Model, body.Files)
+			releaseDraft(w, r, id, body.Draft, body.Text, cls, body.Title, body.System, body.Model, body.Files)
 			return
 		}
 		// nothing was uploaded for it: an ordinary ask
@@ -77,7 +86,7 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg := parseConfig(agent.db.getSetting("config"))
-	cfg.Toolset = normalizeToolset(body.Toolset)
+	cfg.setClass(cls, body.System != "")
 	cfg.Pick = body.Model
 	if body.System != "" {
 		cfg.System = body.System
@@ -173,7 +182,7 @@ var errDraftGone = errors.New("those attachments are gone (the draft was sent or
 // releaseDraft turns the held run into the new ask: titled from the text (or
 // the files' names), the caller's tool mode and instructions, the first
 // message queued with its files, and driven. id 0: the draft is gone.
-func releaseDraft(w http.ResponseWriter, r *http.Request, id int64, key, text, toolset, title, system, model string, files []string) {
+func releaseDraft(w http.ResponseWriter, r *http.Request, id int64, key, text string, cls agentClass, title, system, model string, files []string) {
 	if id == 0 {
 		xbin.WriteError(w, 409, errDraftGone.Error())
 		return
@@ -191,7 +200,7 @@ func releaseDraft(w http.ResponseWriter, r *http.Request, id int64, key, text, t
 	}
 	c := callerOf(r)
 	cfg := parseConfig(agent.db.getSetting("config"))
-	cfg.Toolset = normalizeToolset(toolset)
+	cfg.setClass(cls, system != "")
 	cfg.Pick = model
 	if system != "" {
 		cfg.System = system

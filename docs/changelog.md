@@ -42,6 +42,37 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   for people's terminals and SSH, both on their way. A workspace that
   imported devbox keeps its copy as it is; xbind just stops offering it
   updates. `cap:containers` is unchanged.
+- **Agent template: agent classes** (D116, the template's API.md §Agent
+  classes). A conversation's 🔒/🌐 lane becomes a class: a named set of
+  toolsets (`files`, `repl`, `web`, `internal`, `sandbox`, `subagents`,
+  `schedule`, `threads`, `skills`), with the MCP servers, sandbox managers
+  and sandbox egress it may use, and optionally a model and a system
+  addendum. Built in: `internal` (the old private lane), `web` (the old web
+  lane) and `coding` (sandbox + web). The tile's managers edit them (`GET`/
+  `PUT /classes`); a class that holds internal reach together with egress
+  takes `confirmMixed` to save and its conversations say so. `class` is
+  accepted wherever `toolset` was (`POST /ask`, `POST /runs`, schedules,
+  triggers; channel policies gain `privateClass`/`webClass`); `toolset:
+  "private"|"web"` keeps working and names the built-ins, and
+  `config.toolset` still says the lane. A conversation's class is fixed; the
+  view carries it as `class` (with `mixed`). The owner's grants became a
+  registry: the pending ask carries `pendingState.grantAsk` and each live
+  grant `{ask, chip}`.
+
+- **Agent template: classes in the UI** (D116). The composer's 🔒/🌐 toggle
+  is a class picker — icon and name, each class's description in its menu,
+  only the classes you may use — at home, where a new chat starts; your
+  last pick is remembered (`/api/xbin/prefs/class`; with none yet, the lane
+  you picked before). The open conversation's top bar shows its class, and
+  a class that can move internal data out says so. Managers edit the
+  classes under ⚙ → **Classes** (toolsets, MCP servers, sandbox managers
+  and egress, model, system addendum, who may use it, the default for new
+  chats); a built-in resets to its default, and saving a mixed class asks
+  first. "New chat with options" picks a class. The native view has the
+  same (a Class picker in the home toolbar, the subtitle, Settings →
+  Classes). `GET /classes` marks each class `stored` and lists the
+  built-ins first. The channel rules form keeps a policy's
+  `privateClass`/`webClass`.
 
 - **Admin console: runtime → sandboxes, and the sandbox in the component
   list** (D112, [isolation.md](isolation.md) §VM sandboxes). A new tab lists

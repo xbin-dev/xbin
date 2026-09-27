@@ -110,6 +110,10 @@ func handleNewTrigger(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 400, msg)
 		return
 	}
+	if _, err := requestedClass(c, tr.Class, ""); err != nil {
+		writeClassErr(w, err)
+		return
+	}
 	if msg := deliverOK(c, tr.Deliver); msg != "" {
 		xbin.WriteError(w, 400, msg)
 		return
@@ -158,9 +162,18 @@ func handleUpdateTrigger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	next.ID, next.Owner, next.Status, next.Created = tr.ID, tr.Owner, tr.Status, tr.Created
+	if _, named := patch["class"]; !named && normalizeToolset(next.Toolset) != normalizeToolset(tr.Toolset) {
+		next.Class = "" // a legacy lane switch names its built-in; an echoed lane keeps the class
+	}
 	if msg := next.validate(); msg != "" {
 		xbin.WriteError(w, 400, msg)
 		return
+	}
+	if next.Class != tr.Class {
+		if _, err := requestedClass(c, next.Class, ""); err != nil {
+			writeClassErr(w, err)
+			return
+		}
 	}
 	if next.Deliver != tr.Deliver {
 		if msg := deliverOK(c, next.Deliver); msg != "" {

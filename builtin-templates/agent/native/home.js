@@ -6,6 +6,7 @@ import { html, repeat, nothing } from '/vendor/xb-native.js';
 import { ui, ctx, guard, push } from './ui.js';
 import { REASON } from '../model/home.js';
 import { composerTpl, modelPickerTpl } from './chat.js';
+import { classPickerTpl } from './classes.js';
 
 export function homeScreen() {
   const app = ctx.app;
@@ -15,6 +16,7 @@ export function homeScreen() {
   return html`<screen title=${H.title} subtitle=${H.tagline} style="scroll">
     <toolbar>
       <button icon="list" @tap=${() => { ui.drawer = true; ctx.paint(); }}>Conversations</button>
+      ${classPickerTpl()}
       ${modelPickerTpl(null)}
       <menu icon="ellipsis" label="More">${mainMenu()}</menu>
     </toolbar>

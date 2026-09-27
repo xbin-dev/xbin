@@ -3582,4 +3582,14 @@ Deviations and refinements made while implementing; all deliberate:
     channels keyed by it are unchanged.
   - **Not chosen:** a third lane for coding; switching class mid-conversation;
     per-person class grants beyond managers/everyone (not asked for yet).
+  - **The UI.** The composer's class picker shows at home only — a
+    conversation's class is fixed, so its top bar shows it instead (with a
+    ⚠ for a mixed class). The last pick is the person's default
+    (`prefs/class`; with none yet the old lane pref, then the tile's
+    default), like the model pick. The editor sends back only the stored
+    classes and the one edited (`GET /classes` says `stored`), so a
+    built-in nobody edited keeps following the template's default; the
+    built-ins list first, in their order, edited or not. Saving asks only
+    about the class being saved when it mixes; other stored mixed classes
+    ride along confirmed — they were confirmed when saved.
 

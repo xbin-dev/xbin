@@ -1,7 +1,8 @@
 // grants.go — what a conversation's owner let its agent do beyond its own
-// reach, for a while (D111). One capability so far: capThreads, reading the
-// owner's other conversations and automations with the thread tools
-// (threads_tools.go).
+// reach, for a while (D111). The capabilities are a registry (grantDefs): each
+// says when a step needs it and what the card, the push and the model are
+// told. capThreads is reading the owner's other conversations and automations
+// with the thread tools (threads_tools.go). Adding a capability is one entry.
 //
 // A grant is asked for by parking the step like an approval (pendingState
 // .Grant) and only the conversation's owner — the person whose threads they
@@ -25,15 +26,83 @@ const (
 	grantFor = time.Hour
 )
 
+// grantDef is one capability a conversation's owner can grant.
+type grantDef struct {
+	Cap string
+	// Ask completes "The agent asks to …" (the approval card, the push).
+	Ask string
+	// Chip is a live grant's short label ("reads your threads").
+	Chip string
+	// Denied is the parked calls' result when the grant is denied.
+	Denied string
+	// Forbid is the backstop error when a call runs without the grant
+	// (execTools parks for it first).
+	Forbid string
+	// Needed: do this step's calls need the grant, and don't have it yet?
+	// Refusals and misses are not parked — the call runs and reports them.
+	Needed func(ag *Agent, run *Run, cfg Config, calls []toolCall, own map[string]bool) bool
+}
+
+// grantDefs is every capability a grant can name, in the order a step's
+// calls are checked against them.
+var grantDefs = []grantDef{
+	{
+		Cap:    capThreads,
+		Ask:    "read your other conversations and automations",
+		Chip:   "reads your threads",
+		Denied: "(denied: the owner did not allow reading their other conversations — scope mine still works)",
+		Forbid: "reading the person's other conversations needs their permission — call it again to ask them",
+		Needed: threadsGrantNeeded,
+	},
+}
+
 // grantCaps are the capabilities a grant can name (the approve and revoke
 // routes refuse anything else).
-var grantCaps = map[string]bool{capThreads: true}
+var grantCaps = func() map[string]bool {
+	m := map[string]bool{}
+	for _, g := range grantDefs {
+		m[g.Cap] = true
+	}
+	return m
+}()
+
+// grantOf is capName's definition (the zero grantDef when unknown).
+func grantOf(capName string) grantDef {
+	for _, g := range grantDefs {
+		if g.Cap == capName {
+			return g
+		}
+	}
+	return grantDef{Cap: capName}
+}
+
+// grantNeeded is the capability a step's calls need from the conversation's
+// owner and don't have yet ("" = none).
+func (ag *Agent) grantNeeded(run *Run, cfg Config, calls []toolCall, own map[string]bool) string {
+	for _, g := range grantDefs {
+		if g.Needed != nil && g.Needed(ag, run, cfg, calls, own) {
+			return g.Cap
+		}
+	}
+	return ""
+}
+
+// askText is how a push and a channel name a grant being asked for.
+func (g grantDef) askText() string {
+	if g.Ask != "" {
+		return g.Ask
+	}
+	return "use “" + g.Cap + "”"
+}
 
 // grantView is a live grant as the conversation's view shows it.
 type grantView struct {
 	Cap       string `json:"cap"`
 	GrantedBy string `json:"grantedBy"`
 	ExpiresMs int64  `json:"expiresMs"`
+	// Ask and Chip are the registry's words for it (the tile's chip).
+	Ask  string `json:"ask,omitempty"`
+	Chip string `json:"chip,omitempty"`
 }
 
 func nowMs() int64 { return time.Now().UnixMilli() }
@@ -72,6 +141,8 @@ func (d *DB) liveGrants(root int64) []grantView {
 	for rows.Next() {
 		var g grantView
 		if rows.Scan(&g.Cap, &g.GrantedBy, &g.ExpiresMs) == nil {
+			d := grantOf(g.Cap)
+			g.Ask, g.Chip = d.Ask, d.Chip
 			out = append(out, g)
 		}
 	}

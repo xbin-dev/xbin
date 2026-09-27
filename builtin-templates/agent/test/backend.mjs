@@ -5,7 +5,9 @@
 // the kit, lit and marked. STUB is
 // the fake backend a test installs with ctx.addInitScript(STUB, seed): a
 // window.xbin whose fetch answers the routes the tile uses — the run list,
-// run views, messages, the queue, interrupts, approvals — and a live stream
+// run views, messages, the queue, interrupts, approvals, the classes (D116:
+// the three built-ins, or seed.classes; PUT refuses a mixed class it was not
+// told to confirm) — and a live stream
 // the test drives with window.__push(event) (the same SSE the real backend
 // writes). Tests add or override routes with window.__route(method, regexp,
 // fn) from their own init script, and read what the tile sent from
@@ -133,7 +135,45 @@ export function STUB(seed) {
     ['GET', /\/halt$/, () => json({ on: false })],
     ['GET', /\/me$/, () => json(seed.me || { kind: 'user', user: 'admin', level: 'terminal', manager: true, halted: false })],
     ['GET', /\/runs\/(\d+)\/tree$/, (m) => json({ root: +m[1], nodes: [], totals: {} })],
+    // agent classes (D116), as _backend/classes.go answers them
+    ['GET', /\/classes$/, () => json(classesView())],
+    ['PUT', /\/classes$/, (m, o) => {
+      const b = JSON.parse(o.body);
+      const mixed = (b.classes || []).filter((c) => reach(c).mixed).map((c) => c.id);
+      if (mixed.length && !b.confirmMixed) return json({ error: 'these classes can move internal data out: ' + mixed.join(', '), mixed }, 409);
+      window.__classes = { classes: b.classes || [], default: b.default || '' };
+      return json(classesView());
+    }],
   ];
+  // The stored classes (window.__classes: {classes, default}): the built-ins
+  // first (as stored, or their default), then the rest. GET filters by who
+  // for a non-manager.
+  const BUILTIN = [
+    { id: 'internal', name: 'Internal', icon: '🔒', description: 'Your workspace\'s systems and data (xbin_call, MCP servers) — no web.',
+      toolsets: ['files', 'repl', 'internal', 'subagents', 'schedule', 'threads', 'skills'], mcp: 'all', managers: [], sandboxEgress: [] },
+    { id: 'web', name: 'Web', icon: '🌐', description: 'Searches and reads the web — no internal systems.',
+      toolsets: ['files', 'repl', 'web', 'subagents', 'schedule', 'threads', 'skills'], mcp: [], managers: [], sandboxEgress: [] },
+    { id: 'coding', name: 'Coding', icon: '▣', description: 'Works in a coding sandbox, with the web — no internal systems.',
+      toolsets: ['sandbox', 'web', 'files', 'subagents', 'skills'], mcp: [], managers: 'all', sandboxEgress: ['none', 'internet'] },
+  ];
+  window.__classes = seed.classes || { classes: [], default: '' };
+  const reach = (c) => {
+    const ts = c.toolsets || [];
+    const egress = ts.includes('web') || (ts.includes('sandbox') && (c.sandboxEgress || []).some((e) => e !== 'none'));
+    return { mixed: ts.includes('internal') && egress, lane: egress && !ts.includes('internal') ? 'web' : 'private', egress };
+  };
+  const classesView = () => {
+    const st = window.__classes;
+    const saved = (id) => st.classes.find((c) => c.id === id);
+    const all = [...BUILTIN.map((b) => (saved(b.id) ? { ...saved(b.id), stored: true } : { ...b, stored: false })),
+      ...st.classes.filter((c) => !BUILTIN.some((b) => b.id === c.id)).map((c) => ({ ...c, stored: true }))]
+      .map((c) => ({ description: '', icon: '', model: '', system: '', who: 'everyone', mcp: [], managers: [], sandboxEgress: [], ...c,
+        builtin: ['internal', 'web', 'coding'].includes(c.id), ...reach(c) }));
+    const me = seed.me || { manager: true };
+    const mine = all.filter((c) => c.who !== 'managers' || me.manager);
+    const def = mine.some((c) => c.id === st.default) ? st.default : mine.some((c) => c.id === 'internal') ? 'internal' : (mine[0] || {}).id;
+    return { classes: mine, default: def };
+  };
   window.xbin = {
     self: 'apps/agent',
     fetch: async (url, opt = {}) => {

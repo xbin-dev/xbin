@@ -199,6 +199,14 @@ func handleChannelUpdate(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 403, "only the channel's owner can change its settings")
 		return
 	}
+	if p.Policy != nil { // a managers-only class is theirs to hand out (D116)
+		for _, id := range []string{p.Policy.PrivateClass, p.Policy.WebClass} {
+			if _, err := requestedClass(c, id, ""); id != "" && err != nil {
+				writeClassErr(w, err)
+				return
+			}
+		}
+	}
 	prevVis, prevState := ch.Visibility, ch.State
 	if msg := applyChannelPatch(ch, p); msg != "" {
 		xbin.WriteError(w, 400, msg)

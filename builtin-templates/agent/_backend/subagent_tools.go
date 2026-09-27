@@ -144,6 +144,8 @@ func (e *Engine) subagentTool(ctx context.Context, ts *turnState, tc toolCall) {
 	switch {
 	case !cfg.Subagents:
 		err = fmt.Errorf("subagents are turned off for this agent")
+	case !classOf(cfg).has(tsSubagents):
+		err = classAllows(classOf(cfg), name)
 	case ts.run.Depth >= cfg.maxDepth() && (name == "subagent_spawn" || name == "subagent_message"):
 		err = fmt.Errorf("you are at the delegation depth limit (%d) — do the work yourself", cfg.maxDepth())
 	default:
@@ -197,7 +199,7 @@ func (e *Engine) node(caller *Run, id int64, direct bool) (*Run, error) {
 		return nil, fmt.Errorf("#%d was started by one of your subagents, not by you — ask that one", id)
 	}
 	if nc, err := e.db.runConfig(n.ID); err == nil {
-		if cc, err2 := e.db.runConfig(caller.ID); err2 == nil && nc.toolset() != cc.toolset() {
+		if cc, err2 := e.db.runConfig(caller.ID); err2 == nil && (nc.toolset() != cc.toolset() || classOf(nc).ID != classOf(cc).ID) {
 			return nil, fmt.Errorf("#%d is in a different capability lane", id)
 		}
 	}

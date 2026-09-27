@@ -1,19 +1,20 @@
 // model/actions.js — what the views DO to this tile's backend: ask, send
 // (with attachments), steer the run (retry/compact/learn, delete, stop the
-// workflow), the halt switch, the tool mode for new asks, the conversation
-// list's row actions, sharing and joining, and the managers' settings, a
-// run's memory and session files and the skill library (the web's ⚙ tabs,
-// the native view's pushed screens). Plain calls over the kit's api()
-// (xbin.fetch in a tile frame); no lit, no DOM, no dialogs — a view asks
-// "are you sure?" itself, then calls these. The Session (session.js) keeps
-// the calls that act on the open conversation's own state (send, stop,
-// take back a queued message, approve).
+// workflow), the halt switch, the class for new asks, the conversation
+// list's row actions, sharing and joining, and the managers' settings (the
+// classes among them), a run's memory and session files and the skill
+// library (the web's ⚙ tabs, the native view's pushed screens). Plain calls
+// over the kit's api() (xbin.fetch in a tile frame); no lit, no DOM, no
+// dialogs — a view asks "are you sure?" itself, then calls these. The
+// Session (session.js) keeps the calls that act on the open conversation's
+// own state (send, stop, take back a queued message, approve).
 import { selfApi as api, jbody } from '/vendor/bx-kit.js';
 
 // --- asking --------------------------------------------------------------
 
-// ask starts a conversation: {text, toolset, title?, system?, hold?} — hold
-// creates it without a message or a drive (attachments upload into it first).
+// ask starts a conversation: {text, class, toolset, title?, system?, hold?} —
+// class wins over the legacy toolset (the lane); hold creates it without a
+// message or a drive (attachments upload into it first).
 // {draft, files} sends the draft the app uploaded into at home instead
 // (PUT /ask/upload?draft=<key>, API.md "Attachments").
 export const ask = (body) => api('/ask', jbody(body, 'POST'));
@@ -50,14 +51,41 @@ export const needs = async () => (await api('/needs')).items || [];
 export const getHalt = () => api('/halt');
 export const setHalt = (on) => api('/halt', jbody({ on }, 'PUT'));
 
-// The tool mode for NEW asks ('private' = internal systems only, 'web' = web
-// only — the exfiltration firewall), kept per person by the platform's prefs
-// API (a tile frame has no localStorage). loadToolset answers 'web' or ''.
+// The class for NEW asks (D116, model/classes.js), kept per person by the
+// platform's prefs API (a tile frame has no localStorage) like the model
+// pick: loadClassPref answers the id or ''. The lane picked before classes
+// ('private' = internal systems only, 'web' = web only) is the fallback:
+// loadToolset answers 'web', 'private', or '' when there is none.
+export async function loadClassPref() {
+  const r = await xbin.fetch('/api/xbin/prefs/class');
+  const v = r.ok ? await r.json() : '';
+  return typeof v === 'string' ? v : '';
+}
+export const saveClassPref = (id) => xbin.fetch('/api/xbin/prefs/class', { method: 'PUT', body: JSON.stringify(id) });
 export async function loadToolset() {
   const r = await xbin.fetch('/api/xbin/prefs/toolset');
-  return r.ok && (await r.json()) === 'web' ? 'web' : '';
+  if (!r.ok) return '';
+  const v = await r.json();
+  return v === 'web' ? 'web' : v === 'private' ? 'private' : '';
 }
 export const saveToolset = (toolset) => xbin.fetch('/api/xbin/prefs/toolset', { method: 'PUT', body: JSON.stringify(toolset) });
+
+// classes: GET /classes — {classes, default}: the ones you may start a
+// conversation in (a manager sees every one). saveClasses: PUT /classes
+// (managers) — the whole set; a refusal carries its status, and a 409 the
+// mixed classes it wants confirmed (e.mixed).
+export const classes = () => api('/classes');
+export async function saveClasses(body) {
+  const r = await xbin.fetch(`/api/${xbin.self}/classes`, jbody(body, 'PUT'));
+  const data = await r.json().catch(() => null);
+  if (!r.ok) {
+    const e = new Error((data && data.error) || `error ${r.status}`);
+    e.status = r.status;
+    e.mixed = (data && data.mixed) || [];
+    throw e;
+  }
+  return data;
+}
 
 // The model a person picks for NEW asks ('' = the agent's default) — the
 // last one they picked anywhere — kept per person like the tool mode.

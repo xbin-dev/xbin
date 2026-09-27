@@ -32,7 +32,7 @@ export const FEATURES = {
 
   // Conversations
   'conv.new': 'New chat (home, the composer focused)',
-  'conv.newOptions': 'new chat with options: first message, tool mode, title, instructions',
+  'conv.newOptions': 'new chat with options: first message, class, title, instructions',
   'conv.search': 'search conversations (?q=)',
   'conv.search.snippets': 'search results show the matching line',
   'conv.search.join': 'pasting a #join= link into search joins that conversation',
@@ -88,7 +88,7 @@ export const FEATURES = {
   'composer.keys': 'Enter sends, Shift+Enter is a new line, an IME\'s Enter is the IME\'s',
   'composer.placeholder': 'its prompt by state: a new ask, view only, steer, answer, follow up',
   'composer.disabled': 'disabled in a conversation you may only read',
-  'composer.toolMode': 'the tool mode for new asks (🔒 internal / 🌐 web), remembered per person',
+  'composer.class': 'the class for new chats (D116): icon and name, each one\'s description in its menu, only the classes you may use (GET /classes); your last pick is your default',
   'composer.model': 'the model: any bound provider\'s, grouped by provider — the open conversation\'s from its next turn, or the next new chat\'s; your last pick is your default',
   'composer.attach': 'attach files (a picker)',
   'composer.attach.paste': 'paste an image to attach it',
@@ -105,7 +105,7 @@ export const FEATURES = {
   // Top bar
   'top.crumb': 'an automation\'s run links back to it (Automations ›)',
   'top.title': 'the conversation\'s title',
-  'top.toolMode': 'its tool mode (immutable per run)',
+  'top.class': 'its class, fixed for its life (icon and name); a class that can move internal data out says so',
   'top.model': 'the model it was switched to, when one was picked',
   'top.status': 'its status',
   'top.viewOnly': 'view only, when shared with you to read',
@@ -174,6 +174,7 @@ export const FEATURES = {
   'manage.config': 'the config: model per tier, system prompt, limits, behaviour',
   'manage.features': 'feature switches',
   'manage.mcp': 'the MCP servers bound',
+  'manage.classes': 'the classes: list, add, edit (name, icon, description, toolsets, MCP servers, sandbox managers and egress, model, system addendum, who), delete — a built-in resets to its default; the default for new chats; saving one that can move internal data out is confirmed',
   'manage.halt': 'halt every run (while runs are active), and resume',
 
   // States

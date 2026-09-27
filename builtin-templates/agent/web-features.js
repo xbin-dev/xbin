@@ -12,7 +12,7 @@ export const IMPLEMENTS = {
 
   // Conversations
   'conv.new': 'agent.js — #new',
-  'conv.newOptions': 'agent.js — #newdlg',
+  'conv.newOptions': 'agent.js — #newdlg (the class: classes.js classOptionsTpl)',
   'conv.search': 'agent.js — #csearch → ConvList.search',
   'conv.search.snippets': 'sidebar.js — .snip',
   'conv.search.join': 'agent.js — #csearch → app.join',
@@ -68,7 +68,7 @@ export const IMPLEMENTS = {
   'composer.keys': 'agent.js — keydown',
   'composer.placeholder': 'agent.js — paint() (model/rules.js composer)',
   'composer.disabled': 'agent.js — paint() (model/rules.js composer)',
-  'composer.toolMode': 'agent.js — #tset (app.toolset)',
+  'composer.class': 'classes.js — makeClassPicker: #tset opens .clsmenu (model/classes.js classPicker → app.pickClass)',
   'composer.model': 'agent.js — #msel (rules.modelPicker → app.pickModel)',
   'composer.attach': 'agent.js — #clip',
   'composer.attach.paste': 'agent.js — paste',
@@ -83,7 +83,7 @@ export const IMPLEMENTS = {
   // Top bar
   'top.crumb': 'agent.js — topTpl',
   'top.title': 'agent.js — topTpl',
-  'top.toolMode': 'agent.js — topTpl',
+  'top.class': 'agent.js — topTpl .clsbadge, .clswarn (model/classes.js badge)',
   'top.model': 'agent.js — topTpl ✦ badge',
   'top.status': 'agent.js — topTpl',
   'top.viewOnly': 'agent.js — topTpl',
@@ -152,6 +152,7 @@ export const IMPLEMENTS = {
   'manage.config': 'agent.js — tabConfig',
   'manage.features': 'agent.js — tabFeatures',
   'manage.mcp': 'agent.js — tabMcp',
+  'manage.classes': 'classes.js — tabClasses (model/classes.js savePlan, removePlan, defaultPlan → app.saveClasses)',
   'manage.halt': 'agent.js — #halt (model/rules.js halt)',
 
   // States

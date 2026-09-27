@@ -131,10 +131,10 @@ llm-gw's logs. Give team members `read` on the tile.
 | Method & path | Body | Purpose |
 |---|---|---|
 | `GET /runs` | — | list runs (id, title, kind, status, timestamps; a quick ask also carries `last`, its latest answer, for the home view's cards). `?roots=1` lists top-level runs only — what the sidebar shows; subagents are reached through their parent |
-| `POST /runs` | `{goal, title?, system?, toolset?}` | create a run and start driving it |
-| `POST /ask` | `{text, toolset?, model?, hold?, draft?, files?}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately (`hold`, `draft`: see Attachments) |
+| `POST /runs` | `{goal, title?, system?, class?, toolset?}` | create a run and start driving it; `class` (or the legacy `toolset`): see **Agent classes** |
+| `POST /ask` | `{text, class?, toolset?, model?, hold?, draft?, files?}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately (`hold`, `draft`: see Attachments; `class`: see **Agent classes**) |
 | `PUT /ask/upload?draft=&name=` | raw bytes, the file's own `Content-Type` | attach a file to a new ask before it exists (a native app's upload at home): into the run held for the draft key `{path, mime, bytes, binary, run}` — see Attachments |
-| `GET /runs/{id}` | — | run detail: `{run, messages, steps, memory, config, files, draft, messageFiles, slots, queued}` (`draft` = live streaming text; `files` is session-file METADATA only; `messageFiles` = `{msgId: [path…]}`, the files each user message carried; `slots` = `{active, limit}` model calls in flight; `queued` = messages not yet delivered) |
+| `GET /runs/{id}` | — | run detail: `{run, messages, steps, memory, config, class, files, draft, messageFiles, slots, queued}` (`class`: the conversation's class, see **Agent classes**) (`draft` = live streaming text; `files` is session-file METADATA only; `messageFiles` = `{msgId: [path…]}`, the files each user message carried; `slots` = `{active, limit}` model calls in flight; `queued` = messages not yet delivered) |
 | `GET /runs/{id}/view` | — | the run as the chat draws it, plus a stream cursor — see **The live view**. `?limit=&before=` pages it, newest first — see **Paging the view** |
 | `GET /stream?run=&since=` · `GET /runs/{id}/stream?since=` | — | SSE: run-list changes plus the whole tree of `run` — see **The live view**. `&deltas=1`: draft text and tool-call arguments as appended pieces |
 | `DELETE /runs/{id}` | — | delete a run, its history, and every subagent run below it |
@@ -176,9 +176,10 @@ visibility, so nothing disappears.
 
 Runs carry a `kind`: `""` for a task, `"quick"` for a quick ask — kept for
 compatibility; both are conversations. The tile opens on a home view: the
-composer starts a new conversation (in the lane chosen with its 🔒/🌐 toggle,
-remembered per user through `/api/xbin/prefs` — tile frames have no
-`localStorage`), and **Needs you** lists what waits for you (`GET /needs`).
+composer starts a new conversation (in the class chosen with its picker —
+"Agent classes" below — remembered per user through `/api/xbin/prefs` —
+tile frames have no `localStorage`), and **Needs you** lists what waits for
+you (`GET /needs`).
 The sidebar is your conversation list (`GET /conversations`): Pinned, then
 Today / Yesterday / Previous 7 days / Previous 30 days / Older by last
 activity, unread in bold, a search box, and a row menu (right-click or ⋯) to
@@ -189,7 +190,7 @@ read or write; how many people; from whom). The open conversation's top bar
 says who can see it (private · team can read/write · shared with N · from
 its owner) and opens the share dialog. **New chat** goes
 home; **⋯** opens "New chat with options" (a title, instructions that
-replace the system prompt, the tool mode). A link to a conversation is the
+replace the system prompt, the class). A link to a conversation is the
 tile's URL with `#c=<id>`. Automation runs (schedules, watchers) are not in
 this list.
 
@@ -198,7 +199,8 @@ this list.
 The tile never polls. It reads `GET /runs/{id}/view` — messages (with their
 `reasoning`/`reasoningMs`), steps, `links` (subagents, each with its child's
 summary and phase), `queued`, the calls in flight as `drafts`, `chain` (the
-path from the root) and a `cursor` — then opens `GET /stream?run={id}&since=<cursor>`.
+path from the root), `config`, `class` (the conversation's class as `GET
+/classes` shows one, `mixed` included) and a `cursor` — then opens `GET /stream?run={id}&since=<cursor>`.
 The stream is Server-Sent Events, `data:` a JSON `{type, run, root, seq, data}`:
 
 | type | data |
@@ -334,25 +336,90 @@ next ask and names `PUT /ask/upload?draft=<key>&name={name}`:
 - a draft nobody sent is deleted, files and all, when its owner starts
   another more than a day later.
 
-## Capability lanes (the toolset firewall)
+## Agent classes (D116) and the toolset firewall
 
-Every run is in exactly one lane, chosen at creation and immutable
-(`config.toolset`):
+A run's **class** says which toolsets it gets. It is chosen when a
+conversation starts and fixed for its life (`config.class`); subagents get
+their parent's, and **a schedule the agent creates gets the creating run's**.
 
-- **`private`** (default) — internal reach: `xbin_call` and every bound
-  `mcp:*` tool. **No web tools.**
-- **`web`** — `web_search` (DuckDuckGo) and `web_fetch` (a URL as readable
-  text, capped). **No `xbin_call`, no `mcp:*` tools.**
+| Toolset | Tools |
+|---|---|
+| `files` | the session files and `render_html` (`file_view` with the `vision` feature) |
+| `repl` | the JavaScript sandbox (`js_eval`, `js_run`, `js_reset`) |
+| `web` | `web_search`, `web_fetch` |
+| `internal` | `xbin_call` and the bound MCP servers' tools — `mcp` narrows them |
+| `sandbox` | the coding-sandbox tools; `managers` and `sandboxEgress` narrow what may be bound |
+| `subagents` | the `subagent_*` tools |
+| `schedule` | `schedule`, `unschedule` |
+| `threads` | `schedules_list`, `schedule_inspect`, `threads_list`, `thread_inspect` |
+| `skills` | `skills_list`, `skill_view`, `skill_manage` |
+
+The core tools — `memory_set`/`memory_get`, `note`, `recall`, `finish`,
+`yield`, `ask_user`, `state_changed`, `attach_to_reply` — are in every class.
+The Features menu can still switch an optional toolset off, and a run's
+`deny` list still hides tools.
+
+A class is `{id, name, description?, icon?, toolsets, mcp, managers,
+sandboxEgress?, model?, system?, who?}`: `mcp` and `managers` are `"all"` or a
+list (MCP server names; sandbox-manager tile paths); `sandboxEgress` is the
+egress a bound sandbox may have (`none`, `internet`, `open`; `["none"]` when a
+sandbox class names none); `model` is the class's model when the person picked
+none; `system` is added to the agent's prompt when the conversation has no
+system prompt of its own; `who` is `everyone` (default) or `managers` (only
+the tile's managers may start conversations or automations in it). Built in:
+
+- **`internal`** 🔒 — files, repl, internal (every MCP server), subagents,
+  schedule, threads, skills. **No web.** The old private lane.
+- **`web`** 🌐 — files, repl, web, subagents, schedule, threads, skills.
+  **No `xbin_call`, no MCP tools.** The old web lane.
+- **`coding`** ▣ — sandbox (any manager; egress `none` or `internet`), web,
+  files, subagents, skills. No internal reach.
 
 A run must never hold private data AND an egress channel: content injected into
 its context could otherwise steer it into sending that data out in a URL or a
-query. The lane is enforced twice — in the tool list offered to the model, and
-again when a tool runs (`runTool`) — and it is inherited: subagents get their
-parent's lane, and **a schedule the agent creates gets the creating run's
-lane**, so a private run cannot smuggle data into a future web run's goal.
-Human-created runs and schedules may pick either (`toolset` on `POST /runs`,
-`POST /ask`, `POST /schedules`); the tile has a select in the new-run dialog
-and the schedule form, and a lane badge on each run.
+query. So the firewall is the class's property: a class that holds `internal`
+together with any egress — `web`, or `sandbox` with an egress other than
+`none` — **can move internal data out**. Saving one takes `confirmMixed`, and
+its conversations say so (`class.mixed`). The built-ins never mix them. The
+class is enforced twice — in the tool list offered to the model, and again
+when a tool runs (`runTool`).
+
+`config.toolset` stays, and still answers the lane: `"web"` for a class that
+reaches outside with no internal reach, else `"private"`. Skills, the channel
+policy and the thread tools keyed by it work as before, and `toolset:
+"private"|"web"` keeps working everywhere it was accepted (`POST /ask`, `POST
+/runs`, schedules, triggers), naming `internal`/`web`; `class` is accepted in
+the same places and wins. A request naming neither gets the caller's default
+(below). A stored config without `class` resolves from its `toolset`; a class
+that was deleted resolves the same way. The tile's managers can edit a class
+at any time: the edit applies from the next step of its conversations, but
+never carries one across the firewall — one that started reaching outside
+never gains internal reach, and one that started without egress gains it only
+if its class was saved as mixed. `PATCH /runs/{id} {class}` naming another
+class is refused (400).
+
+| Method & path | Body | Purpose |
+|---|---|---|
+| `GET /classes` | — | `{classes: [class…], default}` — the classes the caller may start conversations in (a manager sees every one): the built-ins first, then the others as saved, each with `builtin`, `stored` (it is in the saved set — a built-in that is not is its default), `lane` (`private`\|`web`), `egress` and `mixed`; `default` is the class a new conversation of theirs gets when it names none |
+| `PUT /classes` | `{classes: [class…], default?, confirmMixed?}` | managers: replace the classes. A built-in left out comes back as its default (old conversations and APIs name it). **409** `{error, mixed: [id…]}` when a class mixes internal reach with egress and `confirmMixed` isn't set; **400** for a bad id (`a–z 0–9 -`, a letter first, ≤ 32), an unknown toolset or egress, a repeated id, an unknown `default`, or a `who` other than `everyone`/`managers`. Answers as `GET /classes` does |
+
+**In the tile.** The composer's class picker (at home, where a new chat
+starts) shows the classes you may use — icon and name, each one's
+description in its menu, a ⚠ on one that can move internal data out; the
+open conversation's top bar shows its class, with the same warning (a
+conversation's class is fixed, so there is no picker there). Your last pick
+is your default for new chats, kept per person at `/api/xbin/prefs/class`;
+with no pick yet, the lane picked before classes (`/api/xbin/prefs/toolset`:
+`web` → `web`, else `internal`), then `GET /classes`' `default`. A new ask
+sends `class` and, beside it, its lane as `toolset`. Managers edit the
+classes under ⚙ → **Classes**: name, icon, description, toolsets, the MCP
+servers and sandbox managers (all, or a list), a sandbox's egress, model,
+system addendum and who may use them, and the default for new chats. A save
+sends the saved classes back with the one edited (a built-in nobody edited
+stays at its default); **Delete** on a built-in is **Reset to default**;
+saving a mixed class asks first, then sends `confirmMixed`. The native view
+has the same: a Class picker in the home toolbar, the class in the
+conversation's subtitle, Settings → Classes.
 
 The web tools go straight out, not through the gateway, so they need the `net`
 interface bound (`bx bind <this component> net=internet`); unbound, they return
@@ -414,8 +481,8 @@ whichever bound provider answers it. **Unbound**, the agent reaches
 `apps/llm-gw` by name — an instance made before the slot keeps working on its
 old grant (`/models` then marks the provider `legacy`).
 
-The main loop uses the conversation's `pick` when it has one, else the
-`general` tier (or `vlm` when a message carries image content and that model
+The main loop uses the conversation's `pick` when it has one, else its
+class's `model` (see **Agent classes**), else the `general` tier (or `vlm` when a message carries image content and that model
 isn't vision-capable); compaction and the summarizer use `memory`. The chat's
 composer picks a conversation's model (grouped by provider when several are
 bound); the last pick is the person's default for new chats (`/api/xbin/prefs/model`).
@@ -499,7 +566,7 @@ Schedules are individual cron jobs; nothing else polls (see **The engine**).
 | Method & path | Body | Purpose |
 |---|---|---|
 | `GET /schedules` | — | the schedules the caller may see (a manager also sees others' private ones, without their goal) |
-| `POST /schedules` | `{name?, cron, goal, watcher?, toolset?, visibility?, mode?, targetRun?}` | create + register a cron-agent; its owner is the caller |
+| `POST /schedules` | `{name?, cron, goal, watcher?, class?, toolset?, visibility?, mode?, targetRun?}` | create + register a cron-agent; its owner is the caller. `class` (or the legacy `toolset`) is its runs' class, fixed at creation; a schedule from before classes answers the built-in its `toolset` names |
 | `PUT /schedules/{id}` | `{enabled?, cron?, goal?, visibility?, mode?, targetRun?, …}` | edit (its owner) / enable or disable (also a manager) |
 | `DELETE /schedules/{id}` | — | remove (its owner or a manager) |
 | `POST /schedules/{id}/trigger` | — | run it now (its owner) |
@@ -532,8 +599,10 @@ agent) bound to this agent's `inbox` provide (service `agent-inbox`): the bindin
 reaches only `/adapter/*`. The adapter reports messages and pulls replies;
 the agent decides everything else — which conversation a message joins (a
 session per DM, per thread), who may talk (pairing codes, allowlists,
-mentions), the lane (web by default: a reply is an egress) and the tools
-(`deny`). The adapter contract, the session keys, the chat commands (`/new`,
+mentions), the lane (web by default: a reply is an egress) and its class
+(policy `webClass` for everyone, default `web` — a class that reaches outside
+and has no internal reach; `privateClass` for trusted people when
+`privateLane` is on, default `internal`) and the tools (`deny`). The adapter contract, the session keys, the chat commands (`/new`,
 `/status`, `/stop`, …) and the policy fields are in `/docs/agent-inbox.md`.
 
 A channel appears (kind `channel` in `GET /automations`, `access: "claim"`
@@ -603,14 +672,16 @@ Where each event goes (`mode`):
 - Event data is `private` unless its source says `public` (a webhook from
   outside). Bus data is always private.
 - A trigger that reaches outside takes public data only, checked on save
-  and for every event. Reaching outside means the `web` toolset, or
-  announcing its answers to a chat channel (`deliver`: a session key of a
-  channel you own).
+  and for every event. Reaching outside means a class in the web lane
+  (`web`, `coding`, …), or announcing its answers to a chat channel
+  (`deliver`: a session key of a channel you own).
+- Public data never steers a class that can move internal data out (a
+  mixed class, D116).
 - Runs on public data also can't schedule or save skills.
 
 | Method & path | Body | Purpose |
 |---|---|---|
-| `POST /triggers` | `{name, source: push\|bus, sourceRef, match?, goal, system?, mode?, targetRun?, toolset?, dataClass?, deliver?, maxPerHour?, visibility?}` | create; the caller owns it. A bus trigger subscribes at once; `status` says `ok`, or `needs-grant: …` naming the `uses` entry (`{"target": "<bus>", "role": "reader"}`) |
+| `POST /triggers` | `{name, source: push\|bus, sourceRef, match?, goal, system?, mode?, targetRun?, class?, toolset?, dataClass?, deliver?, maxPerHour?, visibility?}` | create; the caller owns it. `class` (or the legacy `toolset`) is its runs' class; an edit that changes only `toolset` to the other lane names that lane's built-in. A bus trigger subscribes at once; `status` says `ok`, or `needs-grant: …` naming the `uses` entry (`{"target": "<bus>", "role": "reader"}`) |
 | `PUT /triggers/{id}` | any of the above, `enabled` | its owner; a manager only switches it on or off |
 | `DELETE /triggers/{id}` | — | its owner or a manager |
 | `POST /triggers/{id}/test` | `{topic?, text?, data?}` | fire it with a sample event (its owner) |
@@ -762,20 +833,21 @@ transcript, compacting the oldest turns when over budget) → LLM call (streamed
 when the feature is on) → execute tool calls (a step's non-control tools run in
 parallel, each under `toolTimeout`) → repeat, up to `maxTurnSteps` per turn.
 Built-in tools: `memory_set`/`memory_get`, `note`, `recall` (FTS5 over full
-history), `xbin_call` (reach other granted components; private lane),
-`web_search`/`web_fetch` (web lane), `schedule`/`unschedule`, `state_changed`
+history), `xbin_call` (reach other granted components; `internal`),
+`web_search`/`web_fetch` (`web`), `schedule`/`unschedule`, `state_changed`
 (watcher), `schedules_list`/`schedule_inspect`/`threads_list`/`thread_inspect`
 (below), `skills_list`/`skill_view`/`skill_manage`, `finish`, `ask_user`,
 `yield`, the `subagent_*` tools above, the session-file and sandbox tools below,
-plus any bound MCP tool.
+plus any bound MCP tool — each as its class allows (**Agent classes**).
 MCP servers are bound via the `mcp` interface (multi:true, like the chat tile).
 Extend these in `_backend/tools.go`.
 
 MCP tool lists are cached per server and persisted: a list younger than 5
 minutes is used as is, an older one is used at once and refreshed in the
 background, and only a server never listed before is waited for —
-concurrently, 5 s at most each. A run is marked `running` before any of this,
-and the web lane skips discovery entirely.
+concurrently, 5 s at most each. A run is marked `running` before any of this;
+a class without `internal` skips discovery entirely, and one naming servers
+wakes only those.
 
 ### Threads, schedules and grants (D111)
 
@@ -809,7 +881,8 @@ and keeps nothing; `"hour"` also lets later calls in this conversation read
 all for an hour. Anyone who may steer the conversation may deny it; Needs you
 and push notifications reach the owner alone. A grant in force is on the
 conversation's `run` (view and stream): `grants: [{cap, grantedBy,
-expiresMs}]`; expiry is read where a grant is used (nothing ticks), and the
+expiresMs, ask, chip}]` (`ask`/`chip`: the capability in words, as the
+pending ask carries them in `pendingState.grantAsk`); expiry is read where a grant is used (nothing ticks), and the
 owner can revoke it (`DELETE /runs/{id}/grants/threads`).
 
 "all" is refused outright — the call says why — in a web-toolset run (a web
@@ -857,24 +930,26 @@ write the agent made in between comes back as a 409 instead of being lost.
 The tile's state and behaviour live in **`model/`** — plain ES modules with no
 lit and no DOM — and each way of showing the tile is a thin view over it. The
 web view is the files you know (`agent.js`, `chat-cards.js`, `sidebar.js`,
-`home.js`, `share.js`, `automations.js`, `auto-*.js`, `index.html`); the
+`home.js`, `share.js`, `classes.js`, `automations.js`, `auto-*.js`,
+`index.html`); the
 **native view** is `native.js` and `native/` — what the xbin app draws with
 platform controls (`/vendor/xb-native.js`, docs/frontend-kit.md). Both draw
 the same model.
 
 | `model/` | What it holds |
 |---|---|
-| `app.js` | `createApp()`: the model in one object — where you are (`sel`, `page`), who you are (`me`), the tool mode for new asks, what needs you, the halt switch, the composer's attachments and sending — wired to the one live stream; views subscribe with `app.on(event, fn)` |
+| `app.js` | `createApp()`: the model in one object — where you are (`sel`, `page`), who you are (`me`), the class for new asks (`classes`, `classId`, `pickClass`; `toolset` is its lane), what needs you, the halt switch, the composer's attachments and sending — wired to the one live stream; views subscribe with `app.on(event, fn)` |
 | `session.js` | the open conversation: its views, the model calls in flight, `shown()` (what the chat draws), `blocks(id)` (a held run folded through its cache) |
 | `fold.js`, `tool-heads.js` | a run's view → chat blocks (with a `FoldCache`, only the blocks whose message, result, step, link or subagent changed are rebuilt; the rest come back as the same objects); a tool call's headline, family and state |
 | `conv-list.js`, `conv-groups.js` | the conversation list: paging, search, pins, read state, live updates; date groups |
 | `stream.js` | the live connection (`GET /stream`, resumable) |
-| `actions.js` | the calls a view makes: ask, send, attachments, control, halt, the tool mode, row actions, sharing, joining, and the settings (config, models, features), a run's memory and files, the skill library |
+| `actions.js` | the calls a view makes: ask, send, attachments, control, halt, the class pick, row actions, sharing, joining, and the settings (config, models, features, classes), a run's memory and files, the skill library |
 | `rules.js` | who may do what and what the controls say: the top bar, the composer's state, the halt switch, a row's menu, the share dialog |
 | `router.js` | addresses: `#c=<id>`, `#auto[=kind:id]`, `#join=<token>` |
 | `auto.js`, `auto-channels.js`, `auto-triggers.js` | the Automations page's state, its kinds (`registerKind`), and each kind's actions |
 | `home.js` | `HOME` — the home view's words — and what "Needs you" says |
 | `features.js` | `FEATURES`: every feature of the UI by key, and the intended differences between views |
+| `classes.js` | agent classes (D116): the composer's picker and your pick, the conversation's badge, the managers' editor (a class as a form, its checks, what a save sends) |
 
 `createApp({deltas, page})` are the native view's options: drafts arrive as
 deltas (`/stream?deltas=1`, "Deltas" above) and the open conversation is read
@@ -891,6 +966,7 @@ home sends the draft (`POST /ask {draft, files}`).
 | `native/chat.js` | the conversation: `fold()` blocks as the chat family (`message`, `thinking`, `toolcard` with a subagent's transcript inside, `step`, `activity`, `approval`, `question`), the composer (attachments the app uploads to `PUT /runs/{id}/upload`, or at home into the new ask's draft, `PUT /ask/upload?draft=`), the top bar as the toolbar's menu |
 | `native/home.js`, `native/convs.js`, `native/share.js` | home and Needs you; the conversations drawer (a `sheet edge="leading"`), new chat with options, rename; the share sheet |
 | `native/tools.js`, `native/settings.js` | memory, files (+ editor, share/export), skills, the workflow tree, one call in full, the render preview (a `canvas html=` island, `native/render-doc.js` — the web's CSP); settings for managers |
+| `native/classes.js` | agent classes: the Class picker in the home toolbar, the new-chat sheet's class, Settings → Classes (the list, one class's form) |
 | `native/auto.js`, `native/auto-channels.js`, `native/auto-triggers.js` | the Automations screens for all four kinds |
 | `native-features.js` | `IMPLEMENTS`: what the native view implements, by feature key (as `web-features.js` for the web) |
 
