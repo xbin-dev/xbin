@@ -53,7 +53,15 @@ func nativeRuntimeRequest(r *http.Request) bool {
 // is served as usual).
 func (s *Server) serveNativeRoute(w http.ResponseWriter, r *http.Request, cleaned string) bool {
 	comp, rest, ok := s.Reg.Resolve(cleaned)
-	isRoot := ok && rest == ""
+	return s.serveNativeFor(w, r, comp, ok && rest == "")
+}
+
+// serveNativeFor is serveNativeRoute for comp, whose code the document is
+// generated from: the registry's component, the primary's (a bare URL), or a
+// deployment's view (/c/<tile>+<name>/?native=1, 11-contract §2.7, served
+// to the same principals as that deployment's documents). isRoot reports
+// that the request names comp's directory.
+func (s *Server) serveNativeFor(w http.ResponseWriter, r *http.Request, comp *registry.Component, isRoot bool) bool {
 	if !strings.HasSuffix(r.URL.Path, "/") {
 		if !isRoot {
 			return false
