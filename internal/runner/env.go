@@ -35,13 +35,17 @@ func (r *Runner) envLayerDir(c *registry.Component) string {
 }
 
 // envHash keys the layer on the setup script + a base-rootfs identity, so both a
-// script edit and a base-rootfs rebuild invalidate it.
-func (r *Runner) envHash(c *registry.Component) string {
+// script edit and a base-rootfs rebuild invalidate it. c is the deployment's
+// view, whose setup is its own code's (deployment-level, 05-model §6), so
+// deployments with the same script share one layer.
+func (r *Runner) envHash(c *registry.Component) string { return r.setupHash(c.Manifest.Setup) }
+
+func (r *Runner) setupHash(setup string) string {
 	id := r.Rootfs
 	if fi, err := os.Stat(filepath.Join(r.Rootfs, "etc", "os-release")); err == nil {
 		id = fmt.Sprintf("%s:%d", r.Rootfs, fi.ModTime().UnixNano())
 	}
-	sum := sha256.Sum256([]byte(c.Manifest.Setup + "\x00" + id))
+	sum := sha256.Sum256([]byte(setup + "\x00" + id))
 	return hex.EncodeToString(sum[:])[:16]
 }
 
@@ -69,21 +73,13 @@ func (r *Runner) ensureEnvLayer(c *registry.Component) (string, error) {
 		return "", err
 	}
 
-	r.Hub.Publish(events.Event{Type: "build-start", Component: c.Path, Text: "setting up environment…"})
-
-	spec := &sandbox.Spec{
-		Lower:   []string{r.Rootfs},
-		Upper:   upper,
-		Work:    work,
-		Binds:   []sandbox.Bind{{Src: c.Dir, Dst: c.Dir, RO: true}}, // source available to setup
-		Entry:   "/bin/sh",
-		Argv:    []string{"sh", "-exc", c.Manifest.Setup},
-		Env:     []string{envSetupPATH, "HOME=/root", "LANG=C.UTF-8", "DEBIAN_FRONTEND=noninteractive", "XBIN_COMPONENT=" + c.Path},
-		Cwd:     c.Dir,
-		HostUID: os.Getuid(),
-		HostGID: os.Getgid(),
-		Net:     "relay", // net:internet for the build
+	if c.Deployment == "" {
+		r.Hub.Publish(events.Event{Type: "build-start", Component: c.Path, Text: "setting up environment…"})
+	} else {
+		r.emit(c.Path, c.Deployment, "build-start", "setting up environment…") // never an old type (C2)
 	}
+
+	spec := r.envSetupSpec(c, upper, work)
 
 	logf, _ := os.OpenFile(
 		filepath.Join(r.Root, ".xbin", "log", util.CompKey(c.Path)+".log"),
@@ -126,19 +122,69 @@ func (r *Runner) ensureEnvLayer(c *registry.Component) (string, error) {
 	}
 
 	_ = os.WriteFile(filepath.Join(dir, ".ok"), nil, 0o644)
-	r.gcEnvLayers(c, dir)
+	r.gcEnvLayers(c, r.envKeep(c, filepath.Base(dir)))
 	return upper, nil
 }
 
-// gcEnvLayers removes stale env-layer hashes for a component, keeping only keep.
-func (r *Runner) gcEnvLayers(c *registry.Component, keep string) {
+// envSetupSpec is the sandbox a view's setup script runs in: the base rootfs
+// under a fresh upper, internet egress, and the deployment's own code
+// read-only at the tile's canonical path — a pinned deployment's checkpoint,
+// never the work tree (06-security T17).
+func (r *Runner) envSetupSpec(c *registry.Component, upper, work string) *sandbox.Spec {
+	return &sandbox.Spec{
+		Lower:   []string{r.Rootfs},
+		Upper:   upper,
+		Work:    work,
+		Binds:   []sandbox.Bind{{Src: codeRoot(c), Dst: c.Dir, RO: true}}, // source available to setup
+		Entry:   "/bin/sh",
+		Argv:    []string{"sh", "-exc", c.Manifest.Setup},
+		Env:     []string{envSetupPATH, "HOME=/root", "LANG=C.UTF-8", "DEBIAN_FRONTEND=noninteractive", "XBIN_COMPONENT=" + c.Path},
+		Cwd:     c.Dir,
+		HostUID: os.Getuid(),
+		HostGID: os.Getgid(),
+		Net:     "relay", // net:internet for the build
+	}
+}
+
+// envKeep is the set of c's tile's env-layer hashes still referenced: the
+// layer just built, the one its running generation stacks, and those of the
+// primary's current code (the registry's component: its checkpoint's setup
+// while pinned) and of the work tree, the live reload target's. A pinned
+// deployment's restart then finds its layer (06-security T17).
+func (r *Runner) envKeep(c *registry.Component, built string) map[string]bool {
+	keep := map[string]bool{built: true}
+	r.mu.Lock()
+	s := r.states[c.Path]
+	r.mu.Unlock()
+	if s != nil {
+		s.mu.Lock()
+		if s.cur != nil && s.cur.envHash != "" {
+			keep[s.cur.envHash] = true
+		}
+		s.mu.Unlock()
+	}
+	if r.Reg == nil {
+		return keep
+	}
+	if rc, ok := r.Reg.Component(c.Path); ok {
+		for _, m := range []registry.Manifest{rc.Manifest, rc.WorkTreeManifest()} {
+			if strings.TrimSpace(m.Setup) != "" {
+				keep[r.setupHash(m.Setup)] = true
+			}
+		}
+	}
+	return keep
+}
+
+// gcEnvLayers removes a component's env-layer hashes that keep doesn't name.
+func (r *Runner) gcEnvLayers(c *registry.Component, keep map[string]bool) {
 	base := filepath.Join(r.Root, ".xbin", "env", util.CompKey(c.Path))
 	ents, err := os.ReadDir(base)
 	if err != nil {
 		return
 	}
 	for _, e := range ents {
-		if e.IsDir() && filepath.Join(base, e.Name()) != keep {
+		if e.IsDir() && !keep[e.Name()] {
 			_ = os.RemoveAll(filepath.Join(base, e.Name()))
 		}
 	}
