@@ -166,11 +166,11 @@ func (b *Broker) deadSlotReason(c *registry.Component, slot string, binding regi
 	if !isIface {
 		return ""
 	}
-	if iface.Kind == "net" || iface.Kind == "lan-ingress" {
+	if netKind(iface.Kind) || iface.Kind == "lan-ingress" {
 		if row, ok := ceil.DenyRow(users.PolicyDenyNet); ok {
 			return "a policy row for tiles matching \"" + row.Tiles + "\" denies net under the new owner"
 		}
-		if iface.Kind == "net" {
+		if netKind(iface.Kind) {
 			// Organisation network sets (D54): org egress means nothing away
 			// from an org with sets; an explicit ref must be inside the new
 			// org's sets.
@@ -271,9 +271,13 @@ func (b *Broker) executeTransferEffects(tile string, rep transferReport) []strin
 		}
 	}
 	// The tile's spawn-materialized access (egress, res env, GPU) follows the
-	// new owner's ceiling — restart it regardless of unbinds.
+	// new owner's ceiling — restart it regardless of unbinds — and so do its
+	// sandboxes' network classes (re-resolved by the runtime).
 	if b.OnGrantChange != nil {
 		b.OnGrantChange(tile)
+	}
+	if b.hasSandboxNet(tile) {
+		b.sandboxNetChanged(tile)
 	}
 	b.Hub.Publish(events.Event{Type: "grants", Component: tile})
 	b.usersEvent()

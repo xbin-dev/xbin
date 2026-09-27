@@ -158,11 +158,27 @@ func cmdDoctor() error {
 				}
 			}
 			var binds struct {
-				Inert map[string]map[string]string `json:"inert"`
+				Inert      map[string]map[string]string `json:"inert"`
+				Components []struct {
+					Component  string `json:"component"`
+					Interfaces map[string]struct {
+						Kind string `json:"kind"`
+					} `json:"interfaces"`
+				} `json:"components"`
 			}
 			if apiJSON("GET", "/api/xbin/bindings", nil, &binds) == nil {
+				kind := map[string]string{} // comp\x00slot → interface kind
+				for _, c := range binds.Components {
+					for slot, def := range c.Interfaces {
+						kind[c.Component+"\x00"+slot] = def.Kind
+					}
+				}
 				for comp, slots := range binds.Inert {
 					for slot, reason := range slots {
+						if kind[comp+"\x00"+slot] == "sandbox-net" { // a sandbox manager's network class
+							warn("%s %s: sandbox network class is inert — %s (its sandboxes get no network; rebind the class)", comp, slot, reason)
+							continue
+						}
 						warn("%s %s: net binding is inert — %s (widen the org's network set, or bind net=org)", comp, slot, reason)
 					}
 				}

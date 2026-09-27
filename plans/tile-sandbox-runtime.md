@@ -1489,6 +1489,46 @@ next to its vforking `os.StartProcess`.
     deterministic `net` pick.
   - Harness: the bindings pass renders a sandbox-net row.
 - **Parallel:** with WP-12.
+- **As built** (branch `p2/relay-net`):
+  - `registry.KindSandboxNet`, `ValidSandboxNetSlot` and `ValidateInterfaces`
+    (at load, after `ValidateExposes`): a sandbox-net slot is request-side,
+    takes no `multi`/`service`/`role`/`instances`, and is named
+    `[a-z0-9][a-z0-9_-]{0,31}` (it is spelled `class:<slot>`). A bad one is a
+    `ManifestErr`, is no class, and refuses binding.
+  - `broker/sandboxnet.go`: `SandboxNet{Class, Slot, Ref, Reach, Rules, Note,
+    Policy}`, `SandboxNetClasses(tile)` (none first, then slots by name),
+    `SandboxEgress(tile, "" | "none" | "class:<slot>")` (an error when the
+    selector names no class of the tile), `OnSandboxNetChange` (a `Broker`
+    field; boot wiring waits for the runtime, WP-15). The net case of
+    `validateBinding` moved into `validateNetRef`, shared by both kinds with
+    net's messages unchanged, so `netfn.go` shrank (1131 → 1099; its budget
+    line is left alone to spare merges).
+  - **Host inside a network.** Binding a set that says host is refused (as
+    planned). An `org` or `personal` network whose rules include host is
+    allowed: the class gets the other rules and a `note` says so (a host-only
+    one is inert). The picker labels them.
+  - Inert classes show in the bindings answer's `inert` by slot; `bx doctor`
+    words them as sandbox classes.
+  - `OnSandboxNetChange` fires on bind/unbind (which then skips every
+    `OnGrantChange`), on a set edit (tiles with a class bound to it), on an
+    org attachment (the org's tiles with classes), on a personal holder change
+    (personal defaults included) and on a transfer. A D20 policy-row edit fires
+    nothing, as for net slots: the runtime resolves at every start (WP-15b may
+    also reconcile on the hub's `users` events).
+  - **Added for WP-15b:** `sandbox.EgressPolicy.Covers(q)` is §4's superset
+    test: each rule of the old policy inside one rule of the new (an internet
+    rule covers host rules and wholly public prefixes; ports must match). It
+    is conservative, and a randomized test checks it against `Allow`.
+  - UI: `netOptions({…, sandbox: true})` in `web/bx-netrules.js` (unbound =
+    "no network", no host, no providers, a set that says host greyed) feeds
+    `_netBindRow` and the tile popover (`tr[data-kind=sandbox-net]`);
+    `hack/netrules.test.mjs` pins it. The harness pass `sandboxNet`
+    (`passes/sandboxnet.js`) creates its own manager tile, so the seed is
+    unchanged, and leaves both classes bound to `none`.
+  - Docs also cover `docs/overview/11-interfaces.md` and `12-egress.md`. The
+    runtime-side sentences there and in `isolation.md` (a narrowed class stops
+    the sandbox, a widened one waits for the next start, the relay config)
+    describe WP-15a/15b.
 
 ### WP-12 — `internal/termwire` (Track C · M)
 

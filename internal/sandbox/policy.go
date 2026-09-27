@@ -8,6 +8,7 @@ package sandbox
 import (
 	"fmt"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -191,6 +192,42 @@ func (p EgressPolicy) Reach() string {
 		}
 	}
 	return ReachInternet
+}
+
+// Covers reports whether p admits every flow q admits — p is a superset of
+// q, so a sandbox running under q may keep its flows when its class
+// resolves to p (plans/tile-sandbox-runtime.md §4: a class change that
+// narrows stops the sandbox; one that widens waits for the next start).
+// It is conservative: each rule of q must sit inside a single rule of p,
+// so a q rule that only a union of p's rules covers counts as narrowed.
+func (p EgressPolicy) Covers(q EgressPolicy) bool {
+	for _, r := range q.Rules {
+		if !slices.ContainsFunc(p.Rules, func(s Rule) bool { return s.covers(r) }) {
+			return false
+		}
+	}
+	return true
+}
+
+// covers reports whether rule s admits every flow rule r admits.
+func (s Rule) covers(r Rule) bool {
+	if s.Port != 0 && s.Port != r.Port {
+		return false
+	}
+	switch {
+	case r.Internet:
+		return s.Internet
+	case r.Host != "":
+		// A host rule admits only public pins (the relay never pins a
+		// private answer), so an internet rule covers it too.
+		return s.Internet || (s.Host != "" && hostMatch(s.Host, r.Host))
+	case r.Net.IsValid():
+		if s.Internet {
+			return publicPrefix(r.Net)
+		}
+		return s.Net.IsValid() && s.Net.Bits() <= r.Net.Bits() && s.Net.Contains(r.Net.Masked().Addr())
+	}
+	return false
 }
 
 // nonPublic is every range isPublic refuses: unspecified, RFC1918 and ULA,

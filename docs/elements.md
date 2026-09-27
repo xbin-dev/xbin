@@ -87,8 +87,15 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   // endpoint, "service": "<contract>"), stream (a raw TCP dependency — bind
   // to a sibling's exposed stream slot, "provider#slot"; injected as
   // XBIN_IFACE_<slot>_ADDR), lan-ingress (an inbound link into a router/VPN
-  // tile's subnet; injected as XBIN_IFACE_<slot>_IP), and — provide-side —
-  // ingress (an HTTP ingress terminator tile, docs/ingress.md).
+  // tile's subnet; injected as XBIN_IFACE_<slot>_IP), sandbox-net (request
+  // side only: a class of network for the sandboxes a sandbox-manager tile
+  // runs, not its own egress — bound like net to none/internet/
+  // internet:<spec>/lan:<cidr>/org/personal/set:<name>, never host or a
+  // provider tile; unbound = no network; (re)binding one restarts nothing;
+  // a sandbox selects it as "class:<slot>"; slot names are
+  // [a-z0-9][a-z0-9_-]{0,31}; see
+  // /docs/isolation.md §Network egress), and — provide-side — ingress (an
+  // HTTP ingress terminator tile, docs/ingress.md).
   //
   // Multiplicity (http only): a REQUEST slot with "multi": true explicitly
   // accepts a SET of bindings — the backend gets XBIN_IFACE_<slot> as a JSON

@@ -8,9 +8,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -98,9 +101,46 @@ type Manifest struct {
 	Exposes map[string]ExposeDef `json:"exposes,omitempty"`
 }
 
+// KindSandboxNet is a request-side interface kind: one class of network a
+// sandbox manager's tile sandboxes may use ("class:<slot>"), bound by an
+// approver like a net slot but never the tile's own egress
+// (plans/tile-sandbox-runtime.md §4).
+const KindSandboxNet = "sandbox-net"
+
+// sandboxNetSlot is the grammar of a sandbox-net slot name: the class a
+// sandbox names is "class:<slot>".
+var sandboxNetSlot = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
+
+// ValidSandboxNetSlot reports whether slot may name a sandbox-net class.
+func ValidSandboxNetSlot(slot string) bool { return sandboxNetSlot.MatchString(slot) }
+
+// ValidateInterfaces checks the interface kinds that carry rules of their
+// own — today only sandbox-net, which is request-side, single and plain.
+// Other kinds keep their bind-time checks. The error names the slot.
+func ValidateInterfaces(m Manifest) error {
+	for _, slot := range slices.Sorted(maps.Keys(m.Interfaces)) {
+		def := m.Interfaces[slot]
+		if def.Kind != KindSandboxNet {
+			continue
+		}
+		if !ValidSandboxNetSlot(slot) {
+			return fmt.Errorf("interfaces.%s: a sandbox-net slot is named [a-z0-9][a-z0-9_-]{0,31} (sandboxes select it as class:<slot>)", slot)
+		}
+		if def.Multi || def.Service != "" || def.Role != "" || def.Instances {
+			return fmt.Errorf("interfaces.%s: a sandbox-net slot takes no multi, service, role or instances", slot)
+		}
+	}
+	for _, slot := range slices.Sorted(maps.Keys(m.Provides)) {
+		if m.Provides[slot].Kind == KindSandboxNet {
+			return fmt.Errorf("provides.%s: sandbox-net is request-side only (a manager declares it under interfaces)", slot)
+		}
+	}
+	return nil
+}
+
 // Iface declares one interface slot (requested or provided).
 type Iface struct {
-	Kind    string `json:"kind"`              // net | http | gpu | resource | stream | lan-ingress | ingress (provide)
+	Kind    string `json:"kind"`              // net | http | gpu | resource | stream | lan-ingress | sandbox-net | ingress (provide)
 	Service string `json:"service,omitempty"` // for kind=http: the service contract (e.g. "openai")
 	// Role is which exposed role a kind=http PROVIDER grants bound requesters
 	// (so the binding is also the call grant). Defaults to "reader".
@@ -463,6 +503,8 @@ func (r *Registry) Rescan() error {
 				// Surfaced like a parse error (bx ls/doctor, status API); the
 				// component keeps serving — publishing just refuses at bind.
 				c.ManifestErr = err.Error()
+			} else if err := ValidateInterfaces(c.Manifest); err != nil {
+				c.ManifestErr = err.Error() // the same; binding refuses the slot
 			}
 		}
 		if _, err := os.Stat(filepath.Join(p, "index.html")); err == nil {
