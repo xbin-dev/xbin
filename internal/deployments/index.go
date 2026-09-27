@@ -131,6 +131,14 @@ type index struct {
 
 	lmu   sync.Mutex
 	locks map[string]*sync.Mutex // per-tile: commits, removals, owner rewrites
+
+	// dmu keeps the records directory from going under a write. A write (a
+	// record, a journal: any tile) holds it shared from creating its
+	// directory to renaming its file in (writeIn); removing a directory once
+	// it is empty holds it alone (prune). The per-tile locks can't: one
+	// tile's opt-out would remove the directory another tile's opt-in had
+	// just created, and the write fails (ENOENT).
+	dmu sync.RWMutex
 }
 
 // slot is one tile's record file as loaded or last written. Slots are
@@ -409,10 +417,30 @@ func (x *index) write(tile string, r *Record) error {
 	if err != nil {
 		return fmt.Errorf("%s: encoding the deployment record: %w", tile, err)
 	}
-	if err := fsutil.WriteFileAtomicIn(recordPath(x.root, tile), data, 0o600); err != nil {
+	if err := x.writeIn(recordPath(x.root, tile), data); err != nil {
 		return fmt.Errorf("%s: writing the deployment record: %w", tile, err)
 	}
 	return nil
+}
+
+// writeIn writes data at path, a file under the records directory,
+// atomically and mode 0600, creating its directories; none of them is
+// removed until the file is in (dmu).
+func (x *index) writeIn(path string, data []byte) error {
+	x.dmu.RLock()
+	defer x.dmu.RUnlock()
+	return fsutil.WriteFileAtomicIn(path, data, 0o600)
+}
+
+// prune removes each of dirs that is empty, in order (a tile's directory,
+// then the records directory), while no write is between creating a
+// directory and renaming its file in (dmu).
+func (x *index) prune(dirs ...string) {
+	x.dmu.Lock()
+	defer x.dmu.Unlock()
+	for _, d := range dirs {
+		_ = os.Remove(d) // only when empty
+	}
 }
 
 func (x *index) put(tile string, s *slot) {
@@ -441,7 +469,7 @@ func (x *index) remove(tile string, expect int64) error {
 	if err := os.Remove(recordPath(x.root, tile)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("%s: removing the deployment record: %w", tile, err)
 	}
-	_ = os.Remove(recordDir(x.root)) // only when empty
+	x.prune(recordDir(x.root))
 	key := util.TileKey(tile)
 	x.mu.Lock()
 	delete(x.tiles, tile)
