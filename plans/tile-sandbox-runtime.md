@@ -3657,6 +3657,17 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
   - *Test helpers later WPs can use:* `doRaw(e, p, method, target, body,
     n)` (a raw body; a cut response answers `statusCut`), `launcherFunc`,
     `tarOf`/`untar`.
+  - *Verifier.* Two behaviours no test pinned now are: `TestLiveFiles/…/what
+    is created belongs to defaults.uid/gid` (a PUT with `mkdirs`, a mkdir,
+    a tar-put and a tree and a file copy land as the definition's
+    `uid`/`gid`; a replaced root-owned file stays root's; skipped where the
+    host maps a single uid; the probe gains `owner` and `chown-r`), and
+    `TestSpliceHoldsTheTerminator` (`copy_test.go`: a copy's source failing
+    part-way never gets the destination its terminator). Left as is: xbind
+    doesn't count a read's or a tar-get's streamed total itself — the agent
+    enforces `Max`, and every frame and line is bounded, so xbind's memory
+    isn't at stake — so a compromised agent can stream past
+    `fileMax`/`tarMax` to a manager that keeps reading.
 
 ### WP-19 — Workspace integration (wave 2 · M · after WP-5, WP-9, WP-15b)
 

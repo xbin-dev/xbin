@@ -208,6 +208,45 @@ func testLiveFiles(t *testing.T, bin, mode string) {
 		cp(mgr2, "sb-1", "/work/a.txt", "sb-2", "/work/x").want(t, http.StatusNotFound, RefNotFound) // another tile's
 	})
 
+	t.Run("what is created belongs to defaults.uid/gid", func(t *testing.T) {
+		if !le.m.uidRange {
+			t.Skip("this host maps a single uid (users: root)")
+		}
+		prev := le.t
+		le.t = t
+		t.Cleanup(func() { le.t = prev })
+		le.create(map[string]any{"name": "sb-3", "mode": mode, "mounts": []any{probeMount},
+			"defaults": map[string]any{"uid": 1000, "gid": 1001}})
+		do := func(target string, body any) *httpResult {
+			w := le.do(mgr, "POST", target, body)
+			return &httpResult{code: w.Code, body: w.Body.Bytes(), header: w.Header()}
+		}
+		le.start("sb-3")
+		// (the host's user can't remove what sub-uid 1000 owns: give it back)
+		t.Cleanup(func() { le.probeOK("sb-3", "chown-r", "/work/o") })
+		le.probeOK("sb-3", "mkdir", "/work") // root's
+		put("sb-3", "/work/o/f", url.Values{"mkdirs": {"1"}}, "f").want(t, http.StatusOK, "")
+		do("/sandboxes/sb-3/files/mkdir", map[string]any{"path": "/work/o/d"}).want(t, http.StatusNoContent, "")
+		in := tarOf(t, [][2]string{{"t/", "dir"}, {"t/g", "G"}})
+		raw("PUT", "/sandboxes/sb-3/tar?path=/work/o/x&mkdirs=1", in, int64(len(in))).want(t, http.StatusNoContent, "")
+		do("/sandboxes/copy", map[string]any{"from": map[string]any{"sandbox": "sb-1", "path": "/work/in/t"},
+			"to": map[string]any{"sandbox": "sb-3", "path": "/work/o/c/t"}}).want(t, http.StatusNoContent, "")
+		do("/sandboxes/copy", map[string]any{"from": map[string]any{"sandbox": "sb-1", "path": "/work/a.txt"},
+			"to": map[string]any{"sandbox": "sb-3", "path": "/work/o/a.txt"}}).want(t, http.StatusNoContent, "")
+		for _, p := range []string{"/work/o", "/work/o/f", "/work/o/d", "/work/o/x", "/work/o/x/t", "/work/o/x/t/g",
+			"/work/o/c", "/work/o/c/t", "/work/o/c/t/f", "/work/o/c/t/link", "/work/o/a.txt"} {
+			if got := strings.TrimSpace(le.probeOK("sb-3", "owner", p)); got != "1000:1001" {
+				t.Errorf("%s belongs to %s, want 1000:1001", p, got)
+			}
+		}
+		// a replaced file keeps its owner
+		le.probeOK("sb-3", "write", "/work/mine", "root's")
+		put("sb-3", "/work/mine", nil, "v2").want(t, http.StatusOK, "")
+		if got := strings.TrimSpace(le.probeOK("sb-3", "owner", "/work/mine")); got != "0:0" {
+			t.Errorf("a replaced root-owned file belongs to %s", got)
+		}
+	})
+
 	t.Run("a tar of / leaves out /proc, /sys and /dev", func(t *testing.T) {
 		r := get("sb-1", "tar", url.Values{"path": {"/"}, "exclude": {"opt"}})
 		r.want(t, http.StatusOK, "")
