@@ -40,6 +40,9 @@ var nofollowScope = []string{
 	"internal/registry/deployview.go",
 	"internal/server/deployserve.go",
 	"internal/broker/deploydata.go",
+	"internal/broker/deployseed.go",
+	"internal/broker/deployseed_copy.go",
+	"internal/broker/backup_restore.go",
 	"internal/runner/deploy.go",
 }
 
