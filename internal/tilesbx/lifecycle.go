@@ -553,6 +553,18 @@ func (m *Manager) launch(k Key, d *Def, b *box, lim Limits, ops *modeOps) (err e
 		<-r.done
 		return &Error{Refusal: RefUnavailable, Msg: "the vault was sealed while it started: its resources can't be mounted until it is unsealed", RetryAfter: 30 * time.Second}
 	}
+	// Nor if a mount was narrowed since it was resolved (a res: grant
+	// revoked, a role dropped, the resource gone): the reconcile of the
+	// tile's mounts (OnResourceChange, a rescan) looked at what ran, and
+	// b.run was nil. (Narrowed after b.run was set, it found it, and
+	// stops it after this flight.) Refused as step 4 would have.
+	if len(r.mounts) > 0 {
+		if why := m.mountsNarrowed(r); why != "" {
+			m.end(r, why)
+			<-r.done
+			return refuse(RefInvalid, "a mount changed while it started: %s", why)
+		}
+	}
 	// Nor if its mode was switched off meanwhile (the VM policy): a stop
 	// over the running ones (OnVMPolicy) found it once it had b.run, and
 	// this finds a switch turned before that — refused as the first check

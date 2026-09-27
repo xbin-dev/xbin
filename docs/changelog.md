@@ -258,7 +258,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   read-write one only as a reader; when the vault is sealed (before the
   decrypted views go; its start answers 503 until the vault is unsealed);
   and when disk runs short. A sandbox still starting when one of these
-  happens never comes up (its start answers 503). `diskBytes` is measured
+  happens never comes up (its start answers 503, or 400 for a mount it no
+  longer holds). `diskBytes` is measured
   at each stop and every
   2 minutes while a sandbox runs; a tile past `perTile.diskGiB` has its
   largest running sandbox stopped, and while the workspace disk is low the

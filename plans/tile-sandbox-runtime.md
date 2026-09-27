@@ -4401,7 +4401,10 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     waits for the start's current step — seconds, but a first VM start on
     a new base builds its image inside the flight (bounded at 15 min;
     `StopAll` keeps its 15 s). The VM cases WP-19 left are pinned
-    (`TestVMDiskBytesAndLowDisk`).
+    (`TestVMDiskBytesAndLowDisk`). A narrowed mount isn't a stop over a
+    set (its reconcile looks at what runs): step 8 resolves a start's
+    mounts again (`mountsNarrowed`), so one narrowed after step 4 ends the
+    start, 400 `invalid` (`TestResourceRevokeDuringStart`; the verify).
 
 ### WP-20 — Snapshots and clones (wave 3 · M · after WP-8b, WP-15b, WP-16)
 

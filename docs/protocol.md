@@ -2471,7 +2471,9 @@ longer the tile's to use. A start of a running sandbox changes nothing.
 One of the workspace's own reasons below that arrives while a sandbox is
 still starting — a revoke, a disable, a seal, low disk, the policy
 switched off — ends that start before it comes up: 503, `stopped`, the
-reason in `stateDetail`.
+reason in `stateDetail`; so does a mount the tile no longer holds as the
+start resolved it (a `res:` grant revoked, a writer now a reader): 400
+`invalid`.
 
 **Admission.** Every start is booked against the tile's quotas — with it,
 at most `perTile.running` sandboxes running, their `memMiB` summed within

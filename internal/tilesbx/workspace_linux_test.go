@@ -353,6 +353,37 @@ func TestSealDuringStart(t *testing.T) {
 	fe.assertBookEmpty()
 }
 
+// A start that resolved a mount the tile then stopped holding (a res:
+// grant revoked) before the start had a run — OnResourceChange looked at
+// the running sandboxes, and found none — doesn't come up with it: its
+// step 8 resolves its mounts again. It answers 400, as a start after the
+// revoke would, and ends stopped with the mount named.
+func TestResourceRevokeDuringStart(t *testing.T) {
+	f := newWSFakes()
+	fe := newFakeEnv(t, f.deps)
+	b := ns("m")
+	b["mounts"] = []map[string]any{{"res": "res:apps/mgr/work", "at": "/mnt/w"}}
+	fe.want(fe.do(mgr, "POST", "/sandboxes", b), http.StatusCreated, "")
+	entered, proceed := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	f.set(func(f *wsFakes) {
+		f.resolved = func() { once.Do(func() { close(entered); <-proceed }) } // resolved, still held
+	})
+	answer := make(chan *httptest.ResponseRecorder, 1)
+	go func() { answer <- fe.do(mgr, "POST", "/sandboxes/m/start", nil) }()
+	<-entered
+	f.set(func(f *wsFakes) { delete(f.mounts, "apps/mgr res:apps/mgr/work") })
+	fe.m.OnResourceChange("apps/mgr")
+	time.Sleep(50 * time.Millisecond) // its reconcile ran: nothing running yet
+	close(proceed)
+	fe.want(<-answer, http.StatusBadRequest, RefInvalid)
+	fe.waitStopped(kMgr, "m", "its mount at /mnt/w (res:apps/mgr/work) is no longer held")
+	if fe.runOf("m") != nil || fe.l.count() != 1 {
+		t.Fatalf("it runs, or never launched (%d)", fe.l.count())
+	}
+	fe.assertBookEmpty()
+}
+
 // §6.3: a stop measures the sandbox's state dir (a confined du), and a
 // running one is measured by the worker; a tile measured over
 // perTile.diskGiB while running has its largest running sandbox stopped.
