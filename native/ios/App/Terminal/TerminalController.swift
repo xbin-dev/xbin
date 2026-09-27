@@ -22,6 +22,8 @@ final class TerminalController: NSObject {
     @ObservationIgnored var keyboard = TermKeyboard()
     @ObservationIgnored private var token: String?
     @ObservationIgnored private var resignedForThisSocket = false
+    /// Closed by `detach()` (the screen went away), not by the user or an end.
+    @ObservationIgnored private var detached = false
     @ObservationIgnored private let initialInput: [UInt8]?
 
     var phase: TermSession.Phase = .idle
@@ -122,6 +124,21 @@ final class TerminalController: NSObject {
     }
 
     func close() { session?.close() }
+
+    /// The screen went away: this client lets go of the session (it lives
+    /// on server-side) unless it already ended; `reopen()` reattaches.
+    func detach() {
+        guard !detached, let s = session, s.phase != .exited else { return }
+        detached = true
+        s.close()
+    }
+
+    /// The screen is back after `detach()`: reattach; a no-op otherwise.
+    func reopen() {
+        guard detached else { return }
+        detached = false
+        session?.reconnect()
+    }
 
     /// A new session with other options (network scope, VM): the old one is
     /// ended first, as the web does after asking.

@@ -88,12 +88,20 @@ struct TerminalScreen: View {
                 controller = c
                 Task { await c.start(session: sessionID) }
             }
+            controller?.reopen() // back after a disappear: reattach
             controller?.setVisible(true)
             if controller?.selecting != true, controller?.find.visible != true {
                 _ = controller?.terminalView.becomeFirstResponder()
             }
         }
-        .onDisappear { controller?.setVisible(false) }
+        // Gone from the screen: this client lets go of the session (it lives
+        // on server-side; the screen reattaches if it comes back). Before,
+        // the socket outlived the screen — the controller and its session
+        // hold each other — attached, and reconnecting, for nobody.
+        .onDisappear {
+            controller?.setVisible(false)
+            controller?.detach()
+        }
         .onChange(of: scenePhase) { _, p in controller?.setVisible(p == .active) }
         .sheet(isPresented: $showSessions) {
             if let c = controller { TermSessionsSheet(controller: c) }
