@@ -134,10 +134,18 @@ final class XbinE2ETests: XCTestCase {
         let input = which == 0 ? composer : field
         input.tap()
         input.typeText("hello from the simulator")
-        e.app.buttons["Send"].tap()
+        // Where Send rests once the keyboard is back: tapped while typing had
+        // hidden the keyboard it pressed a key instead (test04 → test05
+        // failed so, 2026-09-27; E2E.tapAfterTyping).
+        e.tapAfterTyping(e.app.buttons["Send"])
+        // Sent: the composer empties (the screen clears its draft).
+        let emptied = e.until(10) { (input.value as? String ?? "").isEmpty }
+        if !emptied { e.shot("05-agent-not-sent") }
+        XCTAssertTrue(emptied, "Send sent the message: the composer still holds \(input.value ?? "nil")")
         let answer = e.containing("echo: hello from the simulator")
-        XCTAssertTrue(answer.waitForExistence(timeout: 60), "the fake agent's answer in the transcript")
+        let answered = answer.waitForExistence(timeout: 60)
         e.shot("05-agent")
+        XCTAssertTrue(answered, "the fake agent's answer in the transcript (what the screen says instead: 05-agent.png)")
         let agents = try await e.server.sessions(cwd: "apps/welcome").filter { $0.kind == "agent" }
         XCTAssertTrue(agents.contains { $0.provider == "fake" }, "a fake-agent session on apps/welcome")
         for s in agents { await e.server.end(s.id) }

@@ -162,6 +162,36 @@ final class E2E {
         return f.height > 120 && f.minY < window.maxY - 120 && f.maxY <= window.maxY + 1 ? f : nil
     }
 
+    /// Taps `element` right after typing. XCUITest types with key presses:
+    /// the software keyboard hides while typeText types and slides back
+    /// 1–3.5 s later, moving what sits above it — the composer's Send, a
+    /// form scrolled to its field. A tap resolved while it was away lands
+    /// where the keyboard then is: on a key (test01's Connect and test05's
+    /// Send, 2026-09-27; the simulator's log has each tap's point). So: wait
+    /// (up to 12 s) until the keyboard is back and it and the element have
+    /// stayed put for a second, scroll the element out from under it if it
+    /// is covered, then tap; with no keyboard coming back, tap where the
+    /// element is.
+    func tapAfterTyping(_ element: XCUIElement) {
+        var seen: (element: CGRect, keyboard: CGRect?)?
+        var since = Date()
+        let settled = until(12) {
+            let now = (element: element.frame, keyboard: softKeyboard())
+            guard let s = seen, s.element == now.element, s.keyboard == now.keyboard else {
+                seen = now
+                since = Date()
+                return false
+            }
+            return now.keyboard != nil && Date().timeIntervalSince(since) >= 1
+        }
+        if !element.isHittable {
+            app.swipeUp() // out from under the keyboard: a form or list scrolls it into view
+            _ = until(5) { element.isHittable }
+        }
+        print("xbin-e2e: tap \(element.frame) after typing (settled \(settled)), keyboard \(softKeyboard().map { "\($0)" } ?? "none")")
+        element.tap()
+    }
+
     /// A key at `f` sits on the keyboard at `kb`: not overlapping it, and no
     /// further above it than the row's own height. The keyboard's element
     /// is its key plane, a little under the glass's top edge — a 46 pt row
@@ -242,7 +272,7 @@ final class E2E {
         token.tap()
         token.typeText(server.token)
         shot("01-add-workspace-form")
-        app.buttons["Connect"].tap()
+        tapAfterTyping(app.buttons["Connect"])
         dismissSystemAlerts()
         if !app.buttons["Workspaces"].waitForExistence(timeout: 30) {
             shot("01-add-workspace-failed")

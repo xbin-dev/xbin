@@ -879,6 +879,14 @@ attach a hardware keyboard — XCUITest always brings the software one up —
 so test07 launches the app with `-XbinNoSoftKeyboard YES` (Debug builds:
 the terminal gets an empty input view). The screenshots land in
 `$XBIN_MAC_PULL/e2e/e2e/` (and in `uitests.xcresult`): **look at them**.
+XCUITest types with key presses: the software keyboard hides while
+`typeText` types and slides back up a moment later, so a control that rides
+on the keyboard (the composer's Send) is found at one place and tapped when
+the keyboard is back there — the tap presses a key. Tap such a control
+with `E2E.tapAfterTyping` (Connect, the agent's Send; the terminal's key
+row waits in `keyRowAboveKeyboard`). Where a tap landed is in the
+simulator's log (`xcrun simctl spawn <udid> log show`): testmanagerd's
+"Synthesizing event … Touch down at x, y".
 `--keep` leaves the xbind up; `--port` moves it; an xbind the Mac reaches
 by itself: `XBIN_E2E_URL=… XBIN_E2E_TOKEN=… mac-remote.sh e2e` (no tunnel).
 `e2e-xbind.sh smoke` checks here, over HTTP and `/ws/term`, everything the
@@ -899,6 +907,19 @@ Sharing the Mac (learned 2026-09-26, several agents at once):
   with "Timed out waiting for AX loaded notification", and xcodebuild then
   waits up to 600 s on `simctl diagnose` (kill that one — it's yours by
   its `--udid`).
+- **"Critical process Xbin crashed in (null)" may be someone else's
+  crash.** xcodebuild watches crash reports by process *name* for the
+  whole Mac user (the session log: "Registering/updating daemon-based
+  crash report observer for process names (Xbin)"), so an Xbin crashing
+  in another agent's simulator — or the owner's — fails whatever test
+  runs in yours, while your app lives on (it ends with the run's
+  SIGTERM). Before chasing it, find the pid: `xcrun xcresulttool export
+  diagnostics --path uitests.xcresult --output-path <dir>` and grep its
+  `Session-*.log` for "Process crashed with pid" (here, without
+  xcresulttool: `zstd -dc uitests.xcresult/Data/* | grep -a "Process
+  crashed"`). Not your app's pid: not your bug — run again. (2026-09-27:
+  Xbins with pids 4638, 7163 and 7305, none of them the run's own app,
+  failed test04 and test05 this way.)
 - **`--keep` and a second run**: point the second at the kept xbind with
   `XBIN_E2E_URL`/`XBIN_E2E_TOKEN` from `$XBIN_E2E_DIR/env` and hold the
   tunnel yourself. Under an ssh ControlMaster `mac-remote.sh tunnel`
