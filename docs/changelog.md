@@ -22,6 +22,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   (else one added), its group and memberships following; the template's
   API.md, "What it adds to the contract". A sandbox started before keeps
   its image's account. Nothing to change.
+- **Docs: a sandbox's `internet` and a host behind a NAT**
+  ([isolation.md](isolation.md) §Network egress, "Networks for a manager's
+  sandboxes"). A tile sandbox never reaches an address the host delivers
+  locally; a cloud VM's public IP, which a NAT outside the host maps onto
+  its private one, isn't such an address — `internet` reaches what the
+  host serves publicly there, as any internet client does. Unchanged
+  behaviour, now said. Don't rely on the host's public address to keep a
+  service from its sandboxes; bind it to loopback or a private address.
 - **A tile held for its encrypted state says so.** A call to the backend
   of a tile xbind holds because a resource it uses can't be decrypted — the
   vault sealed, gocryptfs missing, or the resource's mount refused (on

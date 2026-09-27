@@ -900,8 +900,11 @@ func testCSOperatorPeople(t *testing.T, e *csEnv) {
 // testCSEgress: `internet` reaches the internet (where the host does) and
 // neither the host nor its LAN; `none` reaches nothing; the unbound `open`
 // class isn't offered. On a remote xbind, XBIN_E2E_HOST_TCP names a port
-// listening on that host's own (public) address — its sshd — which
-// `internet` must not reach either.
+// the host listens on at every address (its sshd, host:port): `internet`
+// reaches it at none of the host's own addresses (`ip addr`, public ones
+// included). A public address a NAT outside the host maps to it (a cloud
+// VM's) isn't one: the flow leaves the host and comes back as any internet
+// client's would (docs/isolation.md), so it is only logged.
 func testCSEgress(t *testing.T, e *csEnv, main sandboxcontract.Sandbox, slow time.Duration) {
 	c := e.target().As(t, csCons)
 	c.Refused("POST", "/sandboxes", map[string]any{"name": "open", "egress": "open"}, 400, "invalid")
@@ -921,12 +924,27 @@ func testCSEgress(t *testing.T, e *csEnv, main sandboxcontract.Sandbox, slow tim
 		t.Logf("the host doesn't reach the internet (%v): only the refusals are checked", err)
 	}
 	if hp := os.Getenv("XBIN_E2E_HOST_TCP"); e.d.IsRemote() && hp != "" {
-		t0 := time.Now()
-		if r := connect(main.ID, hp); r.ExitCode == nil || *r.ExitCode == 0 || r.TimedOut {
-			t.Errorf("internet reached the host's own address %s: %+v", hp, r)
+		given, port, err := net.SplitHostPort(hp)
+		if err != nil {
+			t.Fatalf("XBIN_E2E_HOST_TCP %q: %v", hp, err)
 		}
-		if took := time.Since(t0); took > 15*time.Second*slow {
-			t.Errorf("the refusal took %s", took)
+		out, err := e.d.HostSh(`ip -o addr show scope global | awk '{ sub("/.*", "", $4); print $4 }'`)
+		own := strings.Fields(out)
+		if err != nil || len(own) == 0 {
+			t.Fatalf("the host's own addresses: %q %v", out, err)
+		}
+		for _, ip := range own {
+			t0 := time.Now()
+			if r := connect(main.ID, net.JoinHostPort(ip, port)); r.ExitCode == nil || *r.ExitCode == 0 || r.TimedOut {
+				t.Errorf("internet reached the host's own address %s port %s: %+v", ip, port, r)
+			}
+			if took := time.Since(t0); took > 15*time.Second*slow {
+				t.Errorf("the refusal took %s", took)
+			}
+		}
+		if !slices.Contains(own, given) {
+			r := connect(main.ID, hp)
+			t.Logf("%s isn't one of the host's addresses %v (a NAT outside it): a sandbox reaches it as any internet client does (connected: %v)", given, own, r.ExitCode != nil && *r.ExitCode == 0)
 		}
 	} else if e.d.IsRemote() {
 		t.Log("no XBIN_E2E_HOST_TCP: the remote host's own address isn't checked")

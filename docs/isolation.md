@@ -370,7 +370,13 @@ tiles, the same ceiling: every ref inside the org's network sets (D54).
 - A class takes `none`, `internet`, `internet:<host|ip|cidr>[:port][,…]`,
   `lan:<cidr>`, `org`, `personal` or `set:<name>` (a workspace-admin act,
   D65). Never `host`, a provider tile, or a set that says `host`: a sandbox
-  gets no host networking and has no route to the host or to xbind at all.
+  gets no host networking and has no route to the host or to xbind at all
+  (every address the host delivers locally is refused, whatever the
+  class). An address that reaches the host only through a NAT outside it
+  — a cloud VM's public IP, mapped onto its private one — isn't the
+  host's: a flow there leaves the host and comes back as any internet
+  client's would, so `internet` reaches what the host serves publicly
+  there, and nothing more.
   When `org` or `personal` resolves to rules that include `host`, the class
   keeps the other rules and says so.
 - **Unbound is `none`.** A class has no org or personal default: it never

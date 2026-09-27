@@ -2451,7 +2451,8 @@ first started on, with its own hostname, its mounts and its egress class
 resolved again — and answers once the sandbox is `running`. Its network
 goes through a relay in xbind with no route to the host or to xbind (every
 address the host delivers locally, and xbind's listen addresses, are
-refused whatever the class says); under `none` a connection is reset and a
+refused whatever the class says; a public address a NAT outside the host
+maps to it isn't one — [isolation.md](isolation.md)); under `none` a connection is reset and a
 DNS query answered REFUSED at once. Each sandbox may hold at most
 `runtime.limits.flows` connections, and all tile sandboxes together a
 share of xbind's descriptors. Where xbind's cgroup is delegated each
