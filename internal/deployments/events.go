@@ -22,6 +22,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/checkpoint"
 	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -343,7 +344,33 @@ type CodeImpact struct {
 	Deployment string `json:"deployment"`
 	From       string `json:"from"` // a checkpoint id, or "work-tree"
 	To         string `json:"to"`   // a checkpoint id, or "work-tree"
+	// Files, Added and Removed are the diff from From to To (11-contract
+	// §1.1): the files that differ and their lines; 0 when not measured.
+	Files      int    `json:"files"`
+	Added      int    `json:"added"`
+	Removed    int    `json:"removed"`
 	WorkTreeAt string `json:"workTreeAt,omitempty"`
+}
+
+// measure fills code's counts from a stat diff of tile c from → to (full
+// tree ids; "" is the work tree, which the diff captures as by), best
+// effort: a diff that can't run (busy, too slow, refused) leaves them 0.
+func (p *Plane) measure(ctx context.Context, c *registry.Component, code *CodeImpact, by, from, to string) {
+	side := func(t string) checkpoint.DiffSide {
+		if t == "" {
+			return checkpoint.DiffSide{WorkTree: true}
+		}
+		return checkpoint.DiffSide{Tree: t}
+	}
+	res, err := p.store().Diff(ctx, checkpoint.DiffRequest{Source: p.source(c), From: side(from), To: side(to), By: by, Stat: true})
+	if err != nil {
+		return
+	}
+	code.Files = len(res.Files)
+	for _, f := range res.Files {
+		code.Added += f.Added
+		code.Removed += f.Removed
+	}
 }
 
 // ---- answers and errors ----

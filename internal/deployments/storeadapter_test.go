@@ -88,3 +88,28 @@ func TestStoreAdapterLogAndView(t *testing.T) {
 		t.Errorf("after resume the log = %+v", logged)
 	}
 }
+
+// covers SC-SAFE-DEPLOY — a dry run that moves one checkpoint to another
+// reports the diff it would ship (11-contract §1.1's files, added and
+// removed), measured by the real store: reload now after an edit while
+// paused, and resume onto the edited work tree.
+func TestDryRunMeasuresCode(t *testing.T) {
+	f := newGitOpsFx(t, true)
+	f.p.cps = storeAdapter{checkpoint.New(f.root)}
+	tile := opSite
+	f.settle(tile, f.must(ownerP, OpPause, &PauseRequest{Tile: tile}))
+	f.write(tile+"/index.html", "<h1>v2</h1>\n<p>new</p>\n")
+	for op, req := range map[Op]any{
+		OpReloadNow: &ReloadNowRequest{Tile: tile, DryRun: true},
+		OpResume:    &ResumeRequest{Tile: tile, DryRun: true},
+	} {
+		res, err := f.do(ownerP, op, req)
+		a, ok := res.(DryRunAnswer)
+		if err != nil || !ok {
+			t.Fatalf("%s dry run = %T, %v", op, res, err)
+		}
+		if c := a.Impact.Code; c == nil || c.Files != 1 || c.Added != 2 || c.Removed != 1 {
+			t.Errorf("%s dry run's code = %+v, want 1 file, +2 −1", op, c)
+		}
+	}
+}

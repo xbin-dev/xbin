@@ -464,6 +464,7 @@ func runResume(ctx context.Context, p *Plane, g Grant, r *ResumeRequest) (any, e
 	if r.DryRun {
 		im := Impact{Data: "none", Affects: affects(o.rec, y), Reloads: []string{y},
 			Code: &CodeImpact{Deployment: y, From: p.shortOf(ctx, o.tile, *d.Checkpoint), To: "work-tree"}}
+		p.measure(ctx, o.c, im.Code, o.by, *d.Checkpoint, "")
 		return p.answer(ctx, true, nil, im, false)
 	}
 	// The entry names the work tree as it is now (11-contract §1.1): a
@@ -717,6 +718,9 @@ func (p *Plane) moveCode(ctx context.Context, o *op, seq *int64, dry bool, dep, 
 		}
 		im := Impact{Data: "none", PausesLiveReload: d.Checkpoint == nil, Affects: affects(o.rec, dep),
 			Code: &CodeImpact{Deployment: dep, From: from, To: p.shortOf(ctx, o.tile, tree)}}
+		if d.Checkpoint != nil {
+			p.measure(ctx, o.c, im.Code, o.by, *d.Checkpoint, tree)
+		}
 		if !unchanged {
 			im.Reloads = []string{dep}
 		}
