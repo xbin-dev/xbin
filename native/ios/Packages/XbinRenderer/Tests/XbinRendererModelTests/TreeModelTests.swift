@@ -201,7 +201,7 @@ import XbinCore
         #expect(2 * XbinWidgetMetrics.cardWidth(.small, screenWidth: 390) + XbinWidgetMetrics.spacing
                 == XbinWidgetMetrics.cardWidth(.wide, screenWidth: 390))
         let c = XbinWidgetMetrics.contentSize(.small, screenWidth: 390)
-        #expect(c.width == 145 && c.height == 130)
+        #expect(c.width == 145 && c.height == 142)
         #expect(XbinWidgetMetrics.cardWidth(.small, screenWidth: 10) == 0)
     }
 }
