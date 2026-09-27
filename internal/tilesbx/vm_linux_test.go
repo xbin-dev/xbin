@@ -34,6 +34,7 @@ type fakeVMs struct {
 	emulated bool
 	applied  []vm.Options
 	onApply  func() // runs inside Apply (a policy flipped mid-start)
+	applyErr error  // Apply fails with it
 }
 
 func newFakeVMs(t *testing.T, p vm.Policy) *fakeVMs {
@@ -47,10 +48,13 @@ func newFakeVMs(t *testing.T, p vm.Policy) *fakeVMs {
 func (f *fakeVMs) Apply(_ context.Context, spec *sandbox.Spec, o vm.Options) error {
 	f.mu.Lock()
 	f.applied = append(f.applied, o)
-	emulated, hook := f.emulated, f.onApply
+	emulated, hook, failure := f.emulated, f.onApply, f.applyErr
 	f.mu.Unlock()
 	if hook != nil {
 		hook()
+	}
+	if failure != nil {
+		return failure
 	}
 	if !o.Resident || spec.Agent == nil {
 		return errors.New("not a resident VM")
@@ -278,6 +282,70 @@ func TestVMSubBudget(t *testing.T) {
 	lock.Close()
 }
 
+// A start whose VM can't be made gives everything back — the VM
+// reservation, the book, the lock; nothing launched: vm.Apply's refusal
+// (VMs unavailable here) is 503 unavailable, its other failures leave the
+// sandbox stopped with why, and so does a disk that isn't a plain file (a
+// symlink in its place is refused, never followed).
+func TestVMApplyFails(t *testing.T) {
+	fe, fv := newVMEnv(t)
+	fe.create(vmDef("vm-1", 512))
+	d, _ := fe.m.defs.get(fe.k, "vm-1")
+	dir, _ := fe.m.StateDir(fe.k, d)
+	nothingLeft := func(what string) {
+		t.Helper()
+		if fv.UsedTiles().VMs != 0 || fv.Used().VMs != 0 || fe.held() != 0 || fe.l.count() != 0 {
+			t.Fatalf("%s left: VMs %+v (tiles %+v), books %d, launches %d", what, fv.Used(), fv.UsedTiles(), fe.held(), fe.l.count())
+		}
+		lock, err := lockState(dir)
+		if err != nil {
+			t.Fatalf("%s: the lock: %v", what, err)
+		}
+		lock.Close()
+	}
+	setErr := func(err error) {
+		fv.mu.Lock()
+		fv.applyErr = err
+		fv.mu.Unlock()
+	}
+
+	setErr(sbx.Refuse(fmt.Errorf("%w: no /dev/kvm", vm.ErrUnavailable)))
+	w := fe.do(mgr, "POST", "/sandboxes/vm-1/start", nil)
+	fe.want(w, http.StatusServiceUnavailable, RefUnavailable)
+	if !strings.Contains(w.Body.String(), "no /dev/kvm") {
+		t.Fatalf("the refusal: %s", w.Body.String())
+	}
+	nothingLeft("a refused VM")
+
+	setErr(errors.New("a VM sandbox can't export /.xbin-vm"))
+	w = fe.do(mgr, "POST", "/sandboxes/vm-1/start", nil)
+	fe.want(w, http.StatusOK, "")
+	if in := fe.info(w); in.State != StateStopped || in.StateDetail != "its VM: a VM sandbox can't export /.xbin-vm" {
+		t.Fatalf("a failed VM: %+v", in)
+	}
+	nothingLeft("a failed VM")
+
+	setErr(nil)
+	cur, _ := fe.m.CurDir(fe.k, d)
+	disk := filepath.Join(cur, "vm", "disk.img")
+	elsewhere := filepath.Join(t.TempDir(), "elsewhere")
+	if err := os.Remove(disk); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, disk); err != nil {
+		t.Fatal(err)
+	}
+	w = fe.do(mgr, "POST", "/sandboxes/vm-1/start", nil)
+	fe.want(w, http.StatusOK, "")
+	if in := fe.info(w); in.State != StateStopped || !strings.Contains(in.StateDetail, "is a symlink") {
+		t.Fatalf("a symlinked disk: %+v", in)
+	}
+	if _, err := os.Lstat(elsewhere); !os.IsNotExist(err) {
+		t.Fatalf("the disk's symlink was followed: %v", err)
+	}
+	nothingLeft("a symlinked disk")
+}
+
 // VM mode follows the VM policy: create is invalid and a start unavailable
 // while tiles is off, or VMs would run emulated without tilesEmulated —
 // with the reason, and never a namespace instead.
@@ -431,6 +499,8 @@ func TestVMDiedReasons(t *testing.T) {
 		{"", "the VM exited"},
 		{"--- VM console ---\n" + long + "\nvm sandbox: the VM exited", "the VM exited: " + long[:vmDetailMax]},
 		{"--- VM console ---\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\nvm sandbox: the VM exited", "the VM exited: 3\n4\n5\n6\n7\n8\n9\n10"},
+		// the 8-bit CSI (C1, as UTF-8) and friends are control characters too
+		{"--- VM console ---\n\u009b2J\u0085a\u0090b\x1b[1mc\x7f\nvm sandbox: the VM exited", "the VM exited: 2Jab[1mc"},
 	} {
 		if got := vmDied(c.log); got != c.want {
 			t.Errorf("vmDied(%q) = %q, want %q", c.log, got, c.want)

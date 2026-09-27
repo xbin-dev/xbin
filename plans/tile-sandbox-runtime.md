@@ -3608,6 +3608,14 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     root), not `Src`+`Sub`, so it exports a file as a directory; a
     namespace sandbox binds the file. Fixing it wants the sub-path's type
     read beneath the root without following (`openat2`), in `vm.Apply`.
+  - *Verified* (KVM and emulated, Go 1.26, the leaf under a delegated
+    scope). Added `TestVMApplyFails` (Apply's refusal → 503; its other
+    failures and a symlink in the disk's place → `stopped` with why; each
+    gives back the VM reservation, the book and the lock — a dropped
+    release in `vmSpec` was caught by nothing before), and the console
+    quote drops C1 controls too (U+009B, the 8-bit CSI), not only C0/DEL.
+    Not pinned outside the delegated live run: the leaf taking the run's
+    accel (an emulated VM given 192 MiB of overhead passes the unit tests).
 
 ### WP-17 — Execs, run, output, TTY (wave 2 · M · after WP-12, WP-15a)
 

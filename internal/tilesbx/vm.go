@@ -22,6 +22,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/xbin-dev/xbin/internal/cgroup"
@@ -272,11 +273,11 @@ func lastLines(lines []string, n, max int) string {
 	return s
 }
 
-// printable drops control characters (a console's escapes, a tty's \r)
-// and invalid UTF-8.
+// printable drops control characters — C0, DEL and C1 (a console's
+// escapes, U+009B's too; a tty's \r) — and invalid UTF-8.
 func printable(s string) string {
 	return strings.Map(func(r rune) rune {
-		if r == utf8.RuneError || (r < 0x20 && r != '\t') || r == 0x7f {
+		if r == utf8.RuneError || (unicode.IsControl(r) && r != '\t') {
 			return -1
 		}
 		return r
