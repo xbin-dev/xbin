@@ -119,9 +119,10 @@ integration:
 	# bin/ has it) and over .rootfs when present; skip without userns
 	go test -tags=integration -count=1 -v ./internal/tilesbx/
 	# a live terminal's layer — a sub-uid's files in it, in range mode — goes
-	# whole on a reset and an offload-full (WP-9b): only the TestConfined*
-	# tests of these unit-heavy packages; skip without .rootfs/userns
-	go test -tags=integration -count=1 -v -run '^TestConfined' ./internal/term/ ./internal/broker/
+	# whole on a reset and an offload-full (WP-9b), and its mount points are
+	# never followed through it (WP-2b): only these tests of these
+	# unit-heavy packages; skip without .rootfs/userns
+	go test -tags=integration -count=1 -v -run '^(TestConfined|TestTermMountPoints)' ./internal/term/ ./internal/broker/
 	# VM sandboxes (D89): skip without /dev/kvm or the vm-assets; then again
 	# under QEMU's emulation (skips without its assets)
 	go test -tags=integration -count=1 -v ./internal/vm/

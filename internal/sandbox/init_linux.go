@@ -74,7 +74,8 @@ func runInit(specPath string) error {
 	if err := initFDs(&s); err != nil {
 		return err
 	}
-	dbg(s.Debug, "fds: agent=%d lock=%d ctrl=%d hostname=%q nofollow=%v", s.AgentFD, s.LockFD, s.CtrlFD, s.Hostname, s.NoFollow)
+	dbg(s.Debug, "fds: agent=%d lock=%d ctrl=%d hostname=%q nofollow=%v followBase=%v",
+		s.AgentFD, s.LockFD, s.CtrlFD, s.Hostname, s.NoFollow, s.FollowBase)
 
 	// Detach mount propagation so nothing we do leaks to the host.
 	if err := unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
@@ -115,10 +116,15 @@ func runInit(specPath string) error {
 	// gateway socket use a /tmp fallback for the 108-byte unix-socket limit, and
 	// the workspace itself may live under /tmp) land on top rather than being
 	// shadowed. A NoFollow root (a sandbox-written upper) never has a mount
-	// point followed through a symlink.
+	// point followed through a symlink (mountpoint_linux.go).
 	mountAt := mountAt
+	var nf *walk
 	if s.NoFollow {
-		mountAt = mountAtNoFollow
+		if nf, err = openWalk(&s, newroot); err != nil {
+			return err
+		}
+		defer nf.close()
+		mountAt = nf.mountAt
 	}
 	if err := mountAt(newroot, "proc", "proc", "proc", unix.MS_NOSUID|unix.MS_NODEV|unix.MS_NOEXEC, ""); err != nil {
 		return err
@@ -179,7 +185,7 @@ func runInit(specPath string) error {
 	// Mounted ancestors-first (sortBinds) so overlapping binds nest instead of
 	// a later broad mount shadowing an earlier deeper one.
 	if s.NoFollow {
-		if err := mountBindsNoFollow(newroot, s.Binds, s.Debug); err != nil {
+		if err := mountBindsNoFollow(nf, s.Binds, s.Debug); err != nil {
 			return err
 		}
 	} else {
@@ -223,7 +229,7 @@ func runInit(specPath string) error {
 	// pivot_root into the assembled tree.
 	oldroot := filepath.Join(newroot, ".oldroot")
 	if s.NoFollow {
-		if err := oldrootNoFollow(newroot); err != nil {
+		if err := nf.oldroot(); err != nil {
 			return err
 		}
 	} else if err := os.MkdirAll(oldroot, 0o700); err != nil {

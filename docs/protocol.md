@@ -422,6 +422,12 @@ failures carry compiler output in `detail`).
 
 ### xbind API (`/api/xbin/…`)
 
+A path is routed segment by segment as it was sent: an encoded `/` (`%2F`)
+stays part of its segment's value and never reaches another route (a
+catch-all route — `kv`, `blob`, `vault` — sees the decoded value, as it
+always did), and a segment that decodes to `.` or `..` (`%2E`) is 400
+`{"error": …, "refusal": "invalid"}`.
+
 ```
 GET    /status                     admin. terminals ({id,cwd,net,kind,vm,user,
                                    …}), component count, host
@@ -2357,8 +2363,9 @@ encoded `/`, `.` or `\` (`%2F`, `%2E`, `%5C`) in any segment, and a
 `<name>`, `<id>` or `<sid>` that fails its grammar, are 400 `invalid`
 before anything is looked up, so an id a manager forwards can never
 address another route or sandbox. (xbind's router may answer first: a
-dot segment, plain or encoded, with a redirect, and an encoded `/` whose
-decoded path matches no route with 404. Neither reaches a sandbox.) The
+plain dot segment with a redirect, an encoded one with 400 `invalid`, and
+an encoded `/` that leaves no route for the method with 404 or 405.
+None reaches a sandbox.) The
 data plane — `run`, starting an exec, stdin, signals, resizes, file
 writes, tar uploads and copies — isn't audit-logged;
 definitions, lifecycle, snapshots and the policy are.

@@ -550,6 +550,9 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 		MountGuard: rel != "",
 		// Non-admin user terminals additionally get the ns/cap lockdown (D18).
 		Restricted: o.restricted && rel != "",
+		// the persistent layer is the user's: its symlinks never place a
+		// mount point, the image's own may (WP-2b)
+		NoFollow: true, FollowBase: true, RootHint: termRootHint,
 	}
 	if o.kind == KindAgent {
 		spec.Entry, spec.Argv = agentHostPath, []string{"bx", "__agent-host"}

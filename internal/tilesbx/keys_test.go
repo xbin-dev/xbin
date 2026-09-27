@@ -242,22 +242,37 @@ func TestPathHygiene(t *testing.T) {
 			refused(e.do(p, r.method, r.path, "{}"), fmt.Sprintf("%s %s as %+v", r.method, r.path, p), before)
 		}
 	}
-	// Behind xbind's /api/xbin prefix (server.handleAPI) the inner mux
-	// routes the decoded path, so an encoded "/" splits a segment and
-	// reaches another route; the path as sent still carries it.
+	// Behind xbind's /api/xbin prefix (server.handleAPI). Its inner URL
+	// keeps the encoding (WP-2b: Path and RawPath cut from the escaped
+	// path), so an encoded "/" stays in its segment and fails the name's
+	// check. The stale shape it had before (Path decoded, RawPath the outer
+	// one, so the decoded path was routed) is refused too: the path as sent
+	// still carries the encoded "/".
 	for _, r := range []struct{ method, path string }{
 		{"POST", "/api/xbin/sandboxes/x%2Fstop"},
 		{"GET", "/api/xbin/sandboxes/x%2Fexecs%2F0a1b2c-1"},
 		{"POST", "/api/xbin/sandboxes/x/execs/0a1b2c-1%2Fsignal"},
 	} {
-		before := lookups.Load()
-		req := httptest.NewRequest(r.method, r.path, strings.NewReader("{}"))
-		req = req.WithContext(auth.WithPrincipal(req.Context(), mgr))
-		r2 := req.Clone(req.Context())
-		r2.URL.Path = strings.TrimPrefix(req.URL.Path, "/api/xbin")
-		w := httptest.NewRecorder()
-		e.mux.ServeHTTP(w, r2)
-		refused(w, r.method+" "+r.path+" (behind /api/xbin)", before)
+		for _, stale := range []bool{false, true} {
+			before := lookups.Load()
+			req := httptest.NewRequest(r.method, r.path, strings.NewReader("{}"))
+			req = req.WithContext(auth.WithPrincipal(req.Context(), mgr))
+			r2 := req.Clone(req.Context())
+			r2.URL.Path = strings.TrimPrefix(req.URL.Path, "/api/xbin")
+			if !stale {
+				r2.URL.RawPath = strings.TrimPrefix(req.URL.RawPath, "/api/xbin")
+			}
+			w := httptest.NewRecorder()
+			e.mux.ServeHTTP(w, r2)
+			what := fmt.Sprintf("%s %s (behind /api/xbin, stale %v)", r.method, r.path, stale)
+			if !stale && w.Code == http.StatusMethodNotAllowed { // no POST /…/execs/{id}: the mux answers
+				if n := lookups.Load() - before; n != 0 {
+					t.Errorf("%s: %d lookups", what, n)
+				}
+				continue
+			}
+			refused(w, what, before)
+		}
 	}
 	if lookups.Load() != base {
 		t.Fatal("lookups counted outside the refused requests")
