@@ -114,6 +114,7 @@ export const IMPLEMENTS = {
   'tools.render.maximize': 'agent.js — #prev-max',
   'tools.render.source': 'agent.js — #prev-src',
   'tools.sandboxes': 'sandboxes.js — the #sbxdlg dialog: .sbxrow [data-act] (model/sandboxes.js sandboxRows → app.sbx.act, share, remove, choose)',
+  'tools.sandboxes.terminal': 'sandboxes.js — #sbx-term in the popover, a row\'s [data-act="terminal"] → openTerm: the #sbxterm pane with <bx-terminal src> (model/sandboxes.js terminal → app.sbx.terminal, endTerminal)',
   'tools.sandboxes.create': 'sandboxes.js — #sbx-form (model/sandboxes.js createForm → app.sbx.create)',
 
   // Sharing

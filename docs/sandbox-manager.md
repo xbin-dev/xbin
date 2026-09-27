@@ -13,7 +13,8 @@ them), anything else. The split (D115):
 
 The builtin manager will be the `coding-sandbox` template (VM sandboxes
 on xbind's own runtime; it is on its way — until then the reference
-manager below is the one to test against). Any tile that implements the
+manager below is the one to test against). The conformance suite,
+`sdk/sandboxcontract`, checks a manager against this page (below). Any tile that implements the
 routes below is a manager — one that runs sandboxes on a cloud over its API and ssh, for
 example. This page is the contract, **protocol 1**.
 
@@ -264,19 +265,33 @@ across its own restarts, too.
 `GET /sbx/sandboxes/{id}/execs/{eid}/tty` attaches to a `tty` exec, and
 `GET /sbx/sandboxes/{id}/tty?cwd=&cmd=&rows=&cols=` starts one (the login
 shell unless `cmd`) and attaches — both are WebSocket upgrades speaking
-exactly the terminal framing of `/ws/term` (docs/protocol.md §`/ws/term`),
-so `<bx-terminal>` and the xbin app's `terminal` work against it:
+exactly the terminal wire of `/ws/term` (docs/protocol.md §The terminal
+wire), so `<bx-terminal src>` (docs/elements.md) works against it:
 
 - **Binary frames** both ways: raw terminal bytes. The ring's tail replays
   first.
 - **Server → client** JSON: `{"op":"session","id":"<exec id>","sandbox":"<id>","echoAck":false}`
-  first; `{"op":"exit","code":0}` when the command ends; with `echoAck`,
-  `{"op":"ack","n":N}` and `{"op":"pong","t":…}` as `/ws/term` sends them.
+  first; `{"op":"pong","t":…}` answering each ping (`t` echoed verbatim);
+  `{"op":"exit","code":0}` once the command has ended and its output is
+  out (`code` null when a signal ended it, with `"signal":"KILL"`), then a
+  close; with `echoAck`, `{"op":"ack","n":N}` as `/ws/term` sends it.
 - **Client → server** JSON: `{"op":"resize","cols":120,"rows":32}`,
-  `{"op":"ping","t":…}`. Unknown ops are ignored on both ends.
+  `{"op":"ping","t":…}`. Unknown ops are ignored on both ends. A resize
+  reaches the terminal before the keystrokes sent after it.
 
-A page connects with its frame token (`xbin.ws(url)`), so the manager sees
-the verified person.
+The session's `id` is a `tty` exec's: it is listed under `execs`, its
+output (`…/output`) is the terminal's stream, `…/resize` resizes it and
+`…/execs/{id}/tty` attaches to it again. A client that leaves doesn't end
+the command; attaching to one that has ended replays its ring, then says
+`exit`. A request that isn't a WebSocket upgrade is `invalid`, and refusals
+come before the upgrade, as JSON like any other route's.
+
+A page connects with its frame token (`xbin.ws(url)`, or `<bx-terminal
+src="<url>/sbx/sandboxes/{id}/tty?cwd=…">`, which does it for you and
+reattaches to the same exec after a drop), so the manager sees the verified
+person. A Go backend dials with the SDK's `sdk/ws` (docs/sdk.md) through
+`xbin.Client()`. The xbin app's `terminal` primitive dials only a tile's own
+routes, so it can't reach a manager's.
 
 ## Files (`files`) and trees (`tar`)
 
@@ -345,10 +360,51 @@ it still does, and `thaw` brings it back (stopped, or running with
 | `egress: none` | a security group denying all egress (ssh from the manager only) |
 | partitions, people | the manager's own table |
 
+**Check it against the contract.** The conformance suite is a Go package,
+`github.com/xbin-dev/xbin/sdk/sandboxcontract` (the standard library and
+`sdk/ws`). Serve your manager's handler in a test — or aim at one running —
+and run it:
+
+```go
+func TestContract(t *testing.T) {
+	srv := httptest.NewServer(newManager(t.TempDir()))
+	defer srv.Close()
+	sandboxcontract.Run(t, sandboxcontract.Target{
+		URL:   srv.URL,                                  // its routes are URL + "/sbx/…"
+		Caps:  []string{"exec", "files", "tar", "tty"}, // what hello must offer
+		Grace: 5 * time.Second,                          // its TERM → KILL grace
+	})
+}
+```
+
+Every section of this page is a group of parallel subtests (`go test -run
+'TestContract/tty'` picks one). The checks act as consumers of their own
+(`apps/ct-<section>-<check>-a`, …), setting `X-XBin-From`, `X-XBin-User`
+and `Sbx-User` as xbind and a consumer would, and delete the sandboxes they
+make. A section whose optional capability hello leaves out is skipped; its
+routes must answer `unsupported`. The rest of `Target`:
+
+- `Client` — the HTTP client for every call and terminal (TLS, a proxy).
+- `Consumer`, `Verified`, `Asserted` — how to call as a consumer, a verified
+  person and an asserted one, when the headers aren't how your manager
+  hears it.
+- `Create` — fields for every sandbox the suite creates (a small image or
+  size); `Setup` — run first in every check.
+- `Fresh` — a manager of its own for a check that wants `Knobs`: a small
+  output ring, a small `fileMax`, fewer capabilities (so the refusals of a
+  missing one are checked). Without it those checks use your manager with
+  the limits its hello states.
+- `Skip` — checks you know it fails (`"execs/stdin"`, or a whole section),
+  each with why: they show as skipped, never silently.
+
+`Target.As(t, consumer)` is the suite's client (calls, refusals, runs,
+execs, files, terminals) for your own tests of what the contract leaves to
+you.
+
 **The reference manager** is `hack/fakesandbox` in the xbin repository: the
-whole contract in one standard-library Go file (each sandbox a directory on
-the host — for tests only), whose tests are the conformance suite a manager
-can be checked against.
+whole contract in one Go file — the standard library and `sdk/ws`; each
+sandbox a directory on the host, each terminal a host pseudo-terminal, for
+tests only. Its tests run the suite (`hack/fakesandbox/fsb_test.go`).
 
 **Versions.** Protocol 1 grows only by addition: new optional fields,
 routes and capabilities. Consumers ignore fields they don't know; managers

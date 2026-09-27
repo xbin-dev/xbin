@@ -2221,6 +2221,9 @@ lock and Reset as the namespace layer, a separate filesystem).
 The scope is fixed at spawn; switching net, GPU or VM restarts the session (the
 UI ends the old one and opens a new WS).
 
+The frames are [the terminal wire](#the-terminal-wire) (below), with
+`/ws/term`'s own fields on its `session` frame:
+
 - **Binary frames** both directions: raw PTY bytes.
 - **Text frames**: JSON control.
   - server → client: `{"op":"session","id":"…","net":"org","label":"org network
@@ -2258,6 +2261,47 @@ base update on its session chooser too.
 
 Sessions survive disconnects; idle unattached sessions are reaped after 24 h;
 xbind restart kills them (run `tmux` inside if you care).
+
+### The terminal wire
+
+`/ws/term`'s framing is the one terminal protocol in xbin, and other
+endpoints speak it too: a sandbox manager's `tty` routes
+([sandbox-manager.md](sandbox-manager.md) §Terminals), a tile's own pty
+route for the xbin app's `terminal` ([native.md](native.md) §Escape
+hatches), and whatever `<bx-terminal src>` is pointed at
+([elements.md](elements.md) §`<bx-terminal>`). Speak exactly this, and those
+clients work against your endpoint:
+
+- **A WebSocket.** Refusals come before the upgrade, as plain HTTP (a
+  browser page never sees them: the socket just closes, so a client checks
+  what it can beforehand).
+- **Binary frames**, both ways: the terminal's bytes. Keystrokes arrive as
+  typed (Enter is `\r`); output is sent as it comes — on (re)attach the
+  endpoint may first replay what it kept (the scrollback, a ring).
+- **Text frames** are JSON control, `{"op": …}`. Unknown ops, and unknown
+  fields, are ignored on both ends.
+  - server → client, first: `{"op":"session","id":"<session id>",
+    "echoAck":false}` — `id` names what a client reattaches to (`/ws/term`
+    `?session=`; a manager `…/execs/{id}/tty`); an endpoint adds its own
+    fields (`/ws/term`: the scope; a manager: `sandbox`).
+  - `{"op":"pong","t":…}` answers every ping, `t` echoed verbatim.
+  - `{"op":"exit","code":0}` once the command has ended and its output is
+    out (`code` null and `"signal":"KILL"` when a signal ended it; bare
+    `{"op":"exit"}` is fine), then a close with 1000. A clean close (1000,
+    or none) with no exit frame also means it ended.
+  - `{"op":"ack","n":N}` only with `echoAck:true` in the session frame: the
+    client's Nth binary frame on this socket reached the terminal at least
+    50 ms ago, so the output it caused precedes this frame (the client's
+    predictive echo, D70). Without `echoAck` the client doesn't predict.
+  - client → server: `{"op":"resize","cols":120,"rows":32}` — first on every
+    connect, and whenever the client's grid changes; it takes effect before
+    the keystrokes sent after it. `{"op":"ping","t":<any JSON>}` — the
+    client measures its round trip (a WebSocket-level ping is answered below
+    JavaScript).
+- **Leaving.** A client that disconnects doesn't end the command; ending it
+  is the endpoint's own route (`DELETE /ws/term?session=`, a manager's
+  `DELETE …/execs/{id}`). Any close other than a clean one (a drop, 1001,
+  an error code) is a client's cue to reconnect with backoff.
 
 ### `/ws/events` — event stream
 

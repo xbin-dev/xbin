@@ -240,9 +240,22 @@ In order:
 ## Phase 3 — the tiles
 
 1. `<bx-terminal src>`: aimed at a manager's `tty` with the page's frame
-   token; the terminal wire documented as reusable.
+   token; the terminal wire documented as reusable. *Landed*: `src` on the
+   element (`web/term-src.js`: a same-host path through `xbin.ws`, a drop
+   reattaching to the same exec on a manager's route, an `exit` frame or a
+   clean close ending it, as the app's terminal does), docs/protocol.md
+   §The terminal wire, and the agent template's **Open terminal** (the ▣
+   popover and a Sandboxes row; ✕ DELETEs the exec at the manager). The
+   page dials the manager itself, so the manager checks the verified
+   person. The native view has none: the app's `terminal` dials only the
+   tile's own routes, and relaying through the agent's backend would make
+   the person asserted (a D96 difference; an app release that takes a
+   bound interface's URL would close it).
 2. A conformance suite any manager can run (`sdk/sandboxcontract`; the
-   fakesandbox suite moves there).
+   fakesandbox suite moves there). *Landed*, with its groundwork: `sdk/ws`
+   (a standard-library WebSocket in the SDK, checked against gorilla both
+   ways) and terminals in the reference manager (host PTYs on the
+   `/ws/term` framing), so the suite checks `tty` too.
 3. **`builtin-templates/coding-sandbox`**: a `Backend` Go interface (the
    agent-messaging-bridge `Platform` pattern) with an `xbin` backend (VMs by
    default) and a fake; images as setup scripts snapshotted on first use;
@@ -264,5 +277,6 @@ In order:
 - Emulated VMs for tile sandboxes; a namespace fallback where VMs can't run?
 - Thawing onto a changed base image.
 - Offloading a manager: archive its sandboxes, or refuse?
-- A conformance suite in the SDK.
+- ~~A conformance suite in the SDK.~~ Yes: `sdk/sandboxcontract` (phase 3
+  item 2).
 - Internal-class sandboxes with no network, if ever wanted.

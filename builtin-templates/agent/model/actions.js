@@ -198,6 +198,15 @@ export const sandboxAction = (ref, action, { wait = 20, conversation } = {}) =>
   api(`${sbxPath(ref)}/${action}?wait=${wait}${conversation != null ? `&conversation=${conversation}` : ''}`, jbody({}, 'POST'));
 // setRunSandbox: a conversation's binding — {sandbox: {ref, cwd?} | null, detach?: <ref>}.
 export const setRunSandbox = (id, body) => api(`/runs/${id}`, jbody(body, 'PATCH'));
+// endManagerExec: DELETE a sandbox manager's exec route (url: …/sbx/sandboxes/
+// {id}/execs/{eid}, from model/sandboxes.js execSrc) — a terminal's shell,
+// ended. Called by the page itself through xbind (its frame token), so the
+// manager sees the verified person, as it does the terminal's socket.
+export async function endManagerExec(url) {
+  const x = globalThis.xbin;
+  const r = await (sandboxed() && x && x.fetch ? x.fetch : fetch)(url, { method: 'DELETE' });
+  if (!r.ok && r.status !== 404 && r.status !== 409) throw new Error(`ending the terminal: error ${r.status}`);
+}
 // runConfig: a conversation's stored config and class, re-read (its view's
 // newest page of one message: cheap).
 export async function runConfig(id) {

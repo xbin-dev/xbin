@@ -5,9 +5,10 @@
 // their actions, the create form, the sandbox tool cards
 // (model/tool-heads.js: the box family, its sublines and outcomes), and the
 // app's store (model/sandbox-store.js: picking, binding, detaching,
-// creating, lifecycle, the run events that carry a binding). Both views draw
-// from these; the browser test (test/sandbox.mjs) checks the drawing. Run by
-// `make js-test`.
+// creating, lifecycle, the run events that carry a binding) and terminals
+// (a manager's `tty`: whether one is offered, its route, ending its shell).
+// Both views draw from these; the browser tests (test/sandbox.mjs,
+// test/terminal.mjs) check the drawing. Run by `make js-test`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
@@ -505,4 +506,78 @@ test('the store: pick at home, bind, cwd, detach, create, lifecycle, run events'
   assert.equal(ask.sandbox, undefined, 'the next ask names none');
   assert.equal(cleared, 1, 'sent: the composer empties');
   await new Promise((r) => setTimeout(r, 20));
+});
+
+test('terminals: offered where the manager has tty and the page is bound to it; the route; the rows', () => {
+  const tty = () => managers().map((m) => ({ ...m, caps: [...m.caps, 'tty'] }));
+  const EPS = [{ provider: MGR, url: '/api/apps/coding-sandbox' }, { provider: 'apps/other', instance: 'eu', url: '/api/apps/other/eu/' }];
+  assert.equal(S.endpointOf(EPS, MGR).url, '/api/apps/coding-sandbox');
+  assert.equal(S.endpointOf(EPS, 'apps/other#eu').url, '/api/apps/other/eu/', 'an instance: <tile>#<inst>');
+  assert.equal(S.endpointOf(EPS, 'apps/other'), null);
+  assert.equal(S.endpointOf(null, MGR), null);
+  assert.equal(S.terminalSrc({ url: '/api/apps/other/eu/' }, 'b 1', '/work/my dir'), '/api/apps/other/eu/sbx/sandboxes/b%201/tty?cwd=%2Fwork%2Fmy%20dir');
+  assert.equal(S.terminalSrc({ url: '/api/m' }, 'b1', ' '), '/api/m/sbx/sandboxes/b1/tty', 'no cwd: its workdir');
+  assert.equal(S.execSrc({ url: '/api/m/' }, 'b1', 'e3'), '/api/m/sbx/sandboxes/b1/execs/e3');
+
+  const L = list([sb('run', { caps: undefined }), sb('stop', { state: 'stopped', caps: undefined }), sb('arch', { state: 'archived', caps: undefined }),
+    sb('bobs', { mine: false, canUse: false, canManage: true, caps: undefined }), sb('notty', { caps: ['exec', 'files'] }),
+    sb('busy', { state: 'deleting', caps: undefined })], tty());
+  const t = S.terminal(L, `${MGR}|run`, EPS, '/work/api');
+  assert.deepEqual([t.shown, t.why, t.src, t.base, t.name, t.cwd], [true, '', '/api/apps/coding-sandbox/sbx/sandboxes/run/tty?cwd=%2Fwork%2Fapi',
+    '/api/apps/coding-sandbox', 'run', '/work/api']);
+  assert.equal(S.terminal(L, `${MGR}|stop`, EPS).why, '', 'a stopped one starts on it');
+  assert.match(S.terminal(L, `${MGR}|arch`, EPS).why, /^it is archived — thaw it first$/);
+  assert.match(S.terminal(L, `${MGR}|busy`, EPS).why, /^it is deleting…$/);
+  assert.equal(S.terminal(L, `${MGR}|bobs`, EPS).why, 'you may not use it yourself', 'managing it is not using it: the manager checks you');
+  assert.deepEqual([S.terminal(L, `${MGR}|notty`, EPS).shown], [false], 'the sandbox leaves tty out');
+  assert.equal(S.terminal(L, `${MGR}|run`, []).why, 'this page is not bound to its manager — reload it');
+  assert.equal(S.terminal(L, `${MGR}|gone`, EPS).why, 'gone — its manager no longer has it');
+  assert.equal(S.terminal(L, `${MGR}|run`, null).shown, false, 'a view without terminals (the native one): not shown');
+  assert.equal(S.terminal(list([sb('run', { caps: undefined })]), `${MGR}|run`, EPS).shown, false, 'no tty in hello: not shown');
+  assert.equal(S.terminal(null, `${MGR}|run`, EPS).shown, false, 'not read yet: not shown');
+
+  // the dialog's rows: "Terminal" where it is offered, at the cwd the open conversation has it at
+  const v = conv({ sandbox: bind('run', { cwd: '/work/api' }), attached: [bind('run', { cwd: '/work/api' })] });
+  const rows = Object.fromEntries(S.sandboxRows(L, { user: 'alice' }, { conv: v, tty: EPS }).map((r) => [r.name, r.actions.find((a) => a.id === 'terminal')]));
+  assert.deepEqual(rows.run, { id: 'terminal', label: 'Terminal', cwd: '/work/api' });
+  assert.deepEqual(rows.stop, { id: 'terminal', label: 'Terminal', cwd: '' }, 'not in this conversation: its workdir');
+  assert.deepEqual([rows.arch, rows.bobs, rows.notty, rows.busy], [undefined, undefined, undefined, undefined]);
+  assert.ok(!S.sandboxRows(L, {}, { conv: v }).some((r) => r.actions.some((a) => a.id === 'terminal')), 'no tty endpoints (the native view): never');
+});
+
+test('the store: terminals only where a view set tty; ending one DELETEs its exec at the manager', async () => {
+  const calls = [];
+  const json = (v, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json' } });
+  const mgrs = managers().map((m) => ({ ...m, caps: [...m.caps, 'tty'] }));
+  const fake = async (url, opt = {}) => {
+    const u = String(url);
+    calls.push({ method: opt.method || 'GET', url: u });
+    if (/\/sandboxes(\?fresh=1)?$/.test(u)) return json({ sandboxes: [sb('api', { caps: undefined })], managers: mgrs });
+    if (u.includes('/sbx/sandboxes/api/execs/gone')) return json({ error: 'no such exec', refusal: 'not-found' }, 404);
+    if (u.includes('/sbx/sandboxes/api/execs/deny')) return json({ error: 'not yours', refusal: 'not-allowed' }, 403);
+    if (u.endsWith('/classes')) return json({ default: 'coding', classes: [coding] });
+    if (u.includes('/stream')) return new Response(new ReadableStream({ start() {} }), { headers: { 'Content-Type': 'text/event-stream' } });
+    return json({});
+  };
+  globalThis.window = globalThis;
+  globalThis.xbin = { self: 'apps/agent', fetch: fake };
+  globalThis.fetch = fake;
+  const { createApp } = await import(new URL('model/app.js', TPL).href);
+  const app = createApp({ frame: (fn) => setTimeout(fn, 0) });
+  await app.sbx.load();
+  assert.equal(app.sbx.tty, null, 'no view asked for terminals');
+  assert.equal(app.sbx.terminal(`${MGR}|api`).shown, false);
+  assert.ok(!app.sbx.rows().some((r) => r.actions.some((a) => a.id === 'terminal')));
+  app.sbx.tty = [{ provider: MGR, url: '/api/apps/coding-sandbox' }];
+  const t = app.sbx.terminal(`${MGR}|api`, '/work');
+  assert.equal(t.src, '/api/apps/coding-sandbox/sbx/sandboxes/api/tty?cwd=%2Fwork');
+  assert.ok(app.sbx.rows().find((r) => r.name === 'api').actions.some((a) => a.id === 'terminal'));
+  await app.sbx.endTerminal(t, 'e4');
+  assert.deepEqual(calls.filter((c) => c.method === 'DELETE').map((c) => c.url), ['/api/apps/coding-sandbox/sbx/sandboxes/api/execs/e4'],
+    'straight to the manager, as the page (not through the agent\'s backend)');
+  await app.sbx.endTerminal(t, 'gone');
+  await assert.rejects(app.sbx.endTerminal(t, 'deny'), /error 403/);
+  await app.sbx.endTerminal(t, '');
+  await app.sbx.endTerminal({ ...t, base: '' }, 'e5');
+  assert.equal(calls.filter((c) => c.method === 'DELETE').length, 3, 'nothing to end without an exec or a manager');
 });

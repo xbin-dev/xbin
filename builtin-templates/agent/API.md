@@ -1249,8 +1249,22 @@ the calls); the web draws it in `sandboxes.js`, the native view in
   image and size, the network (the class's `sandboxEgress` only), who may
   use it, a working directory — in a conversation it is made for it and
   bound there (`POST /sandboxes {conversation}`; not offered when you may
-  only read it), at home it becomes the new chat's. Opening a terminal onto
-  one comes with the `sandbox-terminal` tile.
+  only read it), at home it becomes the new chat's.
+- **A terminal** where the sandbox's manager offers one (`tty` in its
+  hello): **Open terminal** in the ▣ popover (the active sandbox, at the
+  conversation's working directory) and **Terminal** on a Sandboxes row (at
+  the working directory the open conversation has it at, else its
+  workdir). The pane (`#sbxterm`, over the chat — not a modal: Escape goes
+  to the shell) holds `<bx-terminal src>` on the manager's
+  `…/sbx/sandboxes/{id}/tty?cwd=`, which the page dials itself, through
+  xbind with its frame token (`xbin.iface('sandboxes')`: the endpoints of
+  the slot). So the manager sees the verified person and applies its own
+  rules to them: offered only for a sandbox you may use yourself (not one
+  a conversation holds for someone else), running or able to start (an
+  archived one says to thaw it). ⤢ makes it larger; when the shell exits it
+  says so and offers **New shell**; **✕** ends the shell (`DELETE
+  …/execs/{id}` at the manager, from the page). One terminal at a time;
+  one left by a page that closed runs on until its manager ends it.
 - **Keeping current.** After a change the conversation's binding is read
   again (`GET /runs/{id}/view?limit=1` → `config`); a `run` event that
   carries `sandbox` (and `attached`, a count) updates it at once, and a
@@ -1277,7 +1291,9 @@ the calls); the web draws it in `sandboxes.js`, the native view in
   its swipe and ⋯ (Archive and Delete confirmed), and New sandbox pushes
   the create form. A ▣ tool card is a `terminal` icon; what the call came to
   is a chip (`exit 1 · 14s · job 3` in red), its command the card's first
-  line.
+  line. It opens no terminal: the app's `terminal` dials only the tile's own
+  routes, and a manager's `tty` is another tile's (a D96 difference,
+  `model/features.js`).
 
 **Subagents on another sandbox.** `subagent_spawn` also takes `{sandbox?,
 cwd?}` where a sandbox is bound: `sandbox` names one of the conversation's
@@ -1311,7 +1327,7 @@ the same model.
 | `home.js` | `HOME` — the home view's words — and what "Needs you" says |
 | `features.js` | `FEATURES`: every feature of the UI by key, and the intended differences between views |
 | `classes.js` | agent classes (D116): the composer's picker and your pick, the conversation's badge, the managers' editor (a class as a form, its checks, what a save sends), an automation's class (its forms' choices, what its card says, a channel's two classes) |
-| `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the ▣ badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form; `app.sbx` — the list, the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, the run events that carry a binding |
+| `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the ▣ badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form, a terminal onto one (its manager's `tty`: the route, whether it is offered and why not); `app.sbx` — the list, the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, the run events that carry a binding, ending a terminal's shell |
 
 `createApp({deltas, page})` are the native view's options: drafts arrive as
 deltas (`/stream?deltas=1`, "Deltas" above) and the open conversation is read
