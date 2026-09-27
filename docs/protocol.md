@@ -109,7 +109,8 @@ GET  /login?impersonate=<tok>    redeems a view-as ticket (POST /api/xbin/
                                  cookie becomes a read-only session as the
                                  user → 302 / (D64)
 GET  /login?ticket=<t>&next=<path>
-                                 signed-in Safari: spends a one-shot
+                                 a signed-in web view (the app's
+                                 chrome tiles): spends a one-shot
                                  ticket the app's device session minted
                                  (POST /api/xbin/web-ticket; single use,
                                  60 s). A GET never signs a browser in: one
@@ -202,7 +203,7 @@ POST /logout                     revoke the session (cookie → 302 /login;
                                  204; a device-key session signs the device
                                  out: every session opened with its key
                                  ends — earlier ones the app replaced, and
-                                 the Safari sessions any of them opened —
+                                 the web sessions any of them opened —
                                  and the device loses its push
                                  registration; it stays enrolled)
 GET  /                           redirect /c/root/
@@ -982,8 +983,9 @@ POST   /web-ticket                the app's device-key session (via
                                    terminal or the owner token (403).
                                    [{next}] → {url: "<device origin>/
                                    login?ticket=<t>&next=<path>", expires,
-                                   expiresIn: 60}: signed-in Safari — the
-                                   app opens url top-level; GET /login?
+                                   expiresIn: 60}: a signed-in web view —
+                                   the app opens url top-level (a chrome
+                                   tile's own web view); GET /login?
                                    ticket= (Core) shows a signed-out
                                    browser "Continue as <name>", and its
                                    button (POST /login/web-ticket) signs

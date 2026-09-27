@@ -10,7 +10,7 @@
 > The iOS app, its Swift packages and the SwiftUI renderer are written; the
 > first round builds and its snapshots pass on GitHub's `xcode-27` runner.
 > The second round — the app's events socket and live reload, windows as
-> tabs, the kill switches, signed-in Safari, the escape hatches, Live
+> tabs, the kill switches, signed-in chrome tiles, the escape hatches, Live
 > Activities, the terminal's search and selection, drawers and IME-safe
 > input (§26 "Round 2") — passes `swift test` and the stub checks on Linux
 > and awaits its first Apple CI run. Nothing has run on a device. Open: who
@@ -242,15 +242,18 @@ check). No new API is exposed (§2 invariant 3).
 
 A native title bar (the tile's title; back/close), pull-to-refresh (reload),
 a progress indicator, error and offline states with retry, keyboard avoidance,
-safe areas, downloads handed to the share sheet / Files, "Open in Safari"
-(signed in via a one-shot ticket, the D64 pattern), "Open on desktop" (Handoff).
+safe areas, downloads handed to the share sheet / Files, the page's own back
+(a bar item when it has history — the edge swipes are the app's panels',
+D117), "Open on desktop" (Handoff). No "Open in Safari" (D117).
 Viewport: pages that set a mobile viewport get it; desktop-first pages render
 at a comfortable width with zoom-to-fit available. Dark appearance follows the
 tile (xbin tiles are dark by default).
 
-**Chrome tiles** (`chrome: true`, e.g. the admin tile) act *as the human* and
-can't run under a frame token — the app opens them in Safari (signed in by
-ticket), never in a tile WebView.
+**Chrome tiles** (`chrome: true`, e.g. the organisations tile) act *as the
+human* and can't run under a frame token — the app opens them in a web view of
+their own on the workspace's origin, with a cookie store no tile page shares,
+signed in by a one-shot web ticket redeemed inside it (the D64 pattern: one
+tap on "Continue as <name>"), never in a tile WebView (D117).
 
 ## 7. Native tiles — the runtime
 
@@ -1679,10 +1682,10 @@ server's `host[:port]` for `<ws>`, plus `xbin://<ws>` and
 **Web tiles in the app (§6).** A top-level page with WebKit's `xbin`
 handler counts as embedded for `xbin-client.js`, so `xbin.dialog` and
 `xbin.window` reach the app (§6.2 assumed the page's own posts would). The
-scheme handler follows redirects only on the workspace origin. "Open in
-Safari" opens a one-shot web ticket that the browser confirms once
-("Continue as <name>", D100); an xbind without the route gets the plain
-URL.
+scheme handler follows redirects only on the workspace origin. A chrome
+tile's web view opens a one-shot web ticket that it confirms once
+("Continue as <name>", D100; D117 moved it from Safari into the app); an
+xbind without the route gets the plain URL.
 
 **Push (§14, D94).** Sealing is ephemeral X25519 + HKDF-SHA256 + AES-256-GCM
 (envelope `{v, epk, n, ct}`), not RFC 9180 HPKE. The SDK helper is
@@ -1738,8 +1741,9 @@ The remaining roadmap, built as nine work packages and integrated on
   a bearer. Windows are tabs: navigation is per window (`WorkspaceNav`),
   and a tile's `xbin.window` — a canvas island's included — pushes onto its
   own window only; the focused-window API is gone.
-- **Signed-in Safari (§6.3, D100)** is a one-shot ticket plus one tap on a
-  "Continue as" page (login-CSRF defence), not a silent sign-in.
+- **Signed-in chrome tiles (§6.3, D100, D117)**: a one-shot ticket plus one
+  tap on a "Continue as" page (login-CSRF defence), not a silent sign-in —
+  in the app's own web view since D117 (Safari before).
 - **The kill switch (§23, D101)** is three: the remote app config
   (fail-open, re-fetched at once after a crash), the workspace's admin
   switch (`whoami.native.runtime` 0, `?native=1` 410, a `native` event), and

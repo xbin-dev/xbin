@@ -28,7 +28,10 @@ reference `applyOps` in web/xb/rt-diff.js) and native/spec/device-login.md.
 | `Client/API.swift` | `APIRequest`/`APIResponse`/`APITransport` (the app injects URLSession), `APIError` (`stepUp`, `reauth`) |
 | `Client/Auth.swift` | `WorkspaceAuth` — the session a workspace's Swift code uses; a 401 re-signs with the device key once, shared by every waiting request (one Face ID prompt); `Enrollment` — QR/typed code, password, SSO ticket, dev token; `SessionCredential`, `SessionStore`, `DeviceKeyStore`, `SignInError` |
 | `Client/Catalog.swift` | `Whoami`, `TileInfo`/`Catalog` (`/components`, search), `PersonalLayout` (the shell's `layout` pref), `SharedScreens` (`/screens`), `NavigatorModel` |
-| `Client/TileLoading.swift` | `TileSurface` (web / native / Safari), `TileScheme` (the `xbin-ws` scheme handler's URL, header and redirect rules), `FrameTokenCache` |
+| `Client/TileLoading.swift` | `TileSurface` (web / native; chrome tiles are web pages signed in by ticket), `TileScheme` (the `xbin-ws` scheme handler's URL, header and redirect rules), `FrameTokenCache` |
+| `Client/Home.swift` | `HomeModel`: Home's screens by section (Mine in its folders, each org, Workspace), where back goes from a tile (D117) |
+| `Client/MobileScreens.swift` | the `mobile-screens` pref and its merge rule; `LayoutPref`: the `layout` pref's bucket (`root`), a new personal screen, a created tile at the shell's free spot, the prefs writer header |
+| `Client/TileCreate.swift` | creating a tile (the web shell's owner choices, the slug, `POST /api/xbin/create`); `TileStatuses` (`/tile-report`, `status` events) |
 | `Client/TileBridge.swift` | `TileBridge` (the relay user script, `xbin:*` requests, `xbin:reply`), `DialogSpec` (bx-dialog's data), `WindowSpec`, `SpawnLimits` |
 | `Client/NativeTile.swift` | `NativeTileLifecycle` (5 s to mount, fallback reasons and banners), `NativeCallAction` (copy/share/open policy), `NativeStateBlob` |
 | `Client/Push.swift` | `PushEnvelope`, `PushPayload`, `PushOpener` (the extension's key choice), `PushStatus`/`PushState`/`PushMaintenance` (push.md §1.4), `PushAPI`, `PushRelayAPI` |
