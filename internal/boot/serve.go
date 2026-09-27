@@ -161,9 +161,10 @@ func (st *State) serve(ctx context.Context) error {
 
 // watchLoop reacts to each batch of workspace changes: the tile-level work
 // (rescan, provisioning, pending grants, ingress, deps, go.work), then a
-// reload and a rebuild per changed tile. dp is the deployments plane, which
-// answers which deployment a save drives (LiveReload, Primary); a tile
-// without a record drives main, as today (P8).
+// reload and a rebuild per changed tile's live reload target (liveroute.go).
+// dp is the deployments plane, which answers which deployment a save drives
+// (LiveReload, Primary); a tile without a record drives main, as today (P8),
+// and a tile whose live reload is paused drives nothing (WorkTreeMoved).
 func watchLoop(w *watch.Watcher, reg *registry.Registry, hub *events.Hub, run *runner.Runner, brk *broker.Broker, dp *deployments.Plane, reconcileIngress func()) {
 	for ev := range w.C {
 		if err := reg.Rescan(); err != nil {
@@ -179,13 +180,7 @@ func watchLoop(w *watch.Watcher, reg *registry.Registry, hub *events.Hub, run *r
 			slog.Warn("go.work", "err", err)
 		}
 		reload, restart := changedComponents(reg, ev.Paths)
-		for _, c := range reload {
-			slog.Debug("changed", "component", c.Path)
-			hub.Publish(events.Event{Type: "reload", Component: c.Path})
-			if restart[c.Path] {
-				run.Changed(c)
-			}
-		}
+		routeBatch(reload, restart, dp, hub, run.ChangedDeployment)
 		run.WakeAlwaysOn() // a new tile, or the flag added
 	}
 }
@@ -194,7 +189,10 @@ func watchLoop(w *watch.Watcher, reg *registry.Registry, hub *events.Hub, run *r
 // components they belong to. Every one reloads (web frames and native
 // runtimes alike); restart marks the ones whose backend must be rebuilt —
 // all but those whose only change is their native UI entry, which no
-// backend reads (registry.Component.NativeOnlyChange).
+// backend reads (registry.Component.NativeOnlyChange). A save changes the
+// work tree, so it is judged by the work tree's manifest (its view), even
+// while the registry's component describes a pinned primary; without a
+// pinned primary the view is the component itself.
 func changedComponents(reg *registry.Registry, paths []string) (reload map[string]*registry.Component, restart map[string]bool) {
 	reload, restart = map[string]*registry.Component{}, map[string]bool{}
 	for _, p := range paths {
@@ -203,7 +201,7 @@ func changedComponents(reg *registry.Registry, paths []string) (reload map[strin
 			continue
 		}
 		reload[c.Path] = c
-		if !c.NativeOnlyChange(rest) {
+		if wt, err := reg.View(c, registry.ViewCode{}); err != nil || !wt.NativeOnlyChange(rest) {
 			restart[c.Path] = true
 		}
 	}
