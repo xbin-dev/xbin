@@ -85,6 +85,8 @@ func setupCS(t *testing.T, vm bool) (*csEnv, string) {
 	accel := ""
 	if vm {
 		accel = d.RequireVM(t)
+	} else if d.IsRemote() { // a VM test before may have left VM tile sandboxes on: auto would give VMs
+		d.NoVM(t)
 	}
 	e := &csEnv{d: d, sess: map[string]string{}, pages: map[string]*csPage{}, people: d.HasPeople()}
 	var made struct {

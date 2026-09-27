@@ -362,6 +362,15 @@ func (d *Daemon) RequireVM(t testing.TB) string {
 	return "kvm"
 }
 
+// NoVM turns VM tile sandboxes off (the VM policy's tiles; the rest of
+// the policy kept), so a manager's `auto` mode gives namespace sandboxes:
+// a namespace test on a daemon an earlier VM test left them on in (a
+// remote one). A fresh daemon of the test's own has them off already.
+func (d *Daemon) NoVM(t testing.TB) {
+	t.Helper()
+	d.Must(t, http.MethodPut, "/api/xbin/vm/policy", map[string]any{"tiles": false}, 200)
+}
+
 // TileSandbox is one row of the admin's tileSandboxes.
 type TileSandbox struct {
 	Tile        string `json:"tile"`
