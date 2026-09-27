@@ -122,6 +122,11 @@ type Plane struct {
 	// dormant cron jobs and bus subscriptions. Both are the broker's.
 	RunNow            func(ctx context.Context, tile, dep, job string) (Delivery, error)
 	DropRegistrations func(tile, dep string) error
+	// DropDeploymentFiles deletes a deployment beyond main's own tile-keyed
+	// files (vault, prefs, registration files, derived state; 08-data §3.3,
+	// §9.2): the broker's. Call it outside index.dmu, since it removes the
+	// registration files through RemoveDeploymentFile, whose prune takes it.
+	DropDeploymentFiles func(tile, dep string) error
 	// TileLimits are a tile's cgroup caps, today's per-component ones: the
 	// ceiling of every deployment's limits (P22), in LimitsFor. Zero without
 	// cgroup delegation.
