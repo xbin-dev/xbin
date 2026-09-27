@@ -330,8 +330,6 @@ func testLive(t *testing.T, bin, rootfs string) {
 		if len(rows) != 1 || rows[0].Name != "sb-1" || rows[0].PID != r.proc.Pid() {
 			t.Fatalf("the registry row: %+v", rows)
 		}
-		// (a subdir: fuse-overlayfs wedges on a file created directly in its
-		// root — a pre-existing bug, see the WP-15a notes)
 		le.probeOK("sb-1", "mkdir", "/work")
 		if out, ex := execRun(t, r, []string{"/opt/probe/probe", "write", "/work/kept", "in the upper"}); ex.Code != 0 {
 			t.Fatalf("write: %q %+v\n%s", out, ex, le.logOf("sb-1"))
@@ -522,34 +520,55 @@ func testLive(t *testing.T, bin, rootfs string) {
 		le.assertGone(r)
 	})
 
-	t.Run("a wedged root still stops", func(t *testing.T) {
+	t.Run("a file made in the root answers; a stopped root still stops", func(t *testing.T) {
 		le.t = t
 		le.start("sb-1")
 		r := le.runOf("sb-1")
 		if !usesFuse(r) {
 			le.stop("sb-1")
-			t.Skip("the kernel overlay: nothing to wedge")
+			t.Skip("the kernel overlay: no FUSE server")
 		}
-		// A file created directly in / wedges fuse-overlayfs (a pre-existing
-		// bug, see the WP-15a notes). Created by a file operation, the
-		// thread stuck on it is the agent's own: PID 1 can't die, so the
-		// pid namespace isn't torn down, until fuse-overlayfs is killed —
-		// the stop must still end it all.
-		c, err := r.client().File(proto.FileOp{Op: "write", Path: "/wedge"})
-		if err != nil {
+		// A file operation's write, made by a thread of the agent itself.
+		write := func(p string) <-chan string {
+			answered := make(chan string, 1)
+			c, err := r.client().File(proto.FileOp{Op: "write", Path: p})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { c.Close() })
+			_ = proto.WriteFrame(c.Writer(), []byte("x"))
+			_ = proto.WriteFrame(c.Writer(), nil)
+			go func() {
+				var res proto.FileResult
+				if err := c.RecvMax(&res, proto.MaxResult); err != nil {
+					answered <- err.Error()
+				} else if !res.OK {
+					answered <- fmt.Sprintf("%+v", res)
+				}
+				close(answered)
+			}()
+			return answered
+		}
+		// A file created directly in / used to wedge fuse-overlayfs for good
+		// (internal/sandbox/fuseroot_linux.go).
+		select {
+		case bad, ok := <-write("/made-in-root"):
+			if ok {
+				t.Fatalf("a write in /: %s", bad)
+			}
+		case <-time.After(15 * time.Second):
+			t.Fatalf("a write in / wedged the root\n%s", le.logOf("sb-1"))
+		}
+		// A root server a session stopped (SIGSTOP) leaves the agent's own
+		// thread waiting on it: the stop must still end it all.
+		pid := fusePid(r.proc.Pid())
+		if err := syscall.Kill(pid, syscall.SIGSTOP); err != nil {
 			t.Fatal(err)
 		}
-		defer c.Close()
-		_ = proto.WriteFrame(c.Writer(), []byte("x"))
-		_ = proto.WriteFrame(c.Writer(), nil)
-		answered := make(chan error, 1)
-		go func() {
-			var res proto.FileResult
-			answered <- c.RecvMax(&res, proto.MaxResult)
-		}()
+		answered := write("/wedge")
 		select {
-		case err := <-answered:
-			t.Logf("the write answered (%v): fuse-overlayfs no longer wedges here", err)
+		case bad := <-answered:
+			t.Fatalf("a write to a stopped root answered: %q", bad)
 		case <-time.After(time.Second):
 		}
 		start := time.Now()

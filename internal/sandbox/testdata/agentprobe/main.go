@@ -1,7 +1,8 @@
 // Command agentprobe is the entry of internal/sandbox's integration tests
 // (launch_agent_linux_test.go): a stand-in for `bx __sbx-agent` that takes
-// `--fd N --lock M` from its argv, performs "read:<path>" and
-// "write:<path>" arguments, and then answers every connection xbind dials
+// `--fd N --lock M` from its argv, performs "read:<path>", "write:<path>"
+// and "userns" (start a child in a user namespace of its own) arguments,
+// and then answers every connection xbind dials
 // over the factory with a JSON report of what it saw, until the factory's
 // EOF. Built statically by the test into a minimal lower.
 package main
@@ -10,8 +11,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"golang.org/x/sys/unix"
 
@@ -52,6 +55,15 @@ func main() {
 		case "write":
 			if err := os.WriteFile(p, []byte("w"), 0o644); err != nil {
 				r.Ops[a] = "ERR"
+			} else {
+				r.Ops[a] = "ok"
+			}
+		case "userns":
+			// the kernel refuses a new user namespace to a chrooted caller
+			c := exec.Command(os.Args[0])
+			c.SysProcAttr = &syscall.SysProcAttr{Cloneflags: syscall.CLONE_NEWUSER}
+			if err := c.Run(); err != nil {
+				r.Ops[a] = "ERR " + err.Error()
 			} else {
 				r.Ops[a] = "ok"
 			}

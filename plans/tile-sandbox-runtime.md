@@ -3522,10 +3522,9 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     removes the state. Under `systemd-run --user --scope -p Delegate=yes`
     (the file's header) also: started into its leaf by `UseCgroupFD`, the
     leaf's limits, and the OOM kill of a session with the sandbox running.
-  - *Found, not fixed (pre-existing; reproduced with the daemonizing
-    mount too, `FuseWatch` off, so terminals and backends on
-    fuse-overlayfs likely share it):* a regular file created **directly in
-    `/`** wedges fuse-overlayfs for good. After `pivot_root` its root is its own FUSE
+  - *Found here, fixed since (p2/fusewedge, §14 "fuse-overlayfs's own
+    root"):* a regular file created **directly in
+    `/`** wedged fuse-overlayfs for good. After `pivot_root` its root is its own FUSE
     mount, and for a create in the root dir it `lgetxattr()`s
     `/proc/self/fd/<upper fd>/<name>` — a path walked through that mount,
     whose one thread is the one waiting (seen in `/proc/<pid>/syscall`;
@@ -3541,7 +3540,9 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     descendant of the init while it is unreaped (`killtree.go`; the cgroup
     leaf's `cgroup.kill` does the same where there is one): killing the
     FUSE server wakes every waiter, and the stop ends in ~5 s (its sync
-    wait) — `TestLive/*/a wedged root still stops`. An orphan left when
+    wait) — `TestLive/*/a wedged root still stops`, now `a file made in
+    the root answers; a stopped root still stops` (the wedge it relies on
+    is a server SIGSTOPped with a write outstanding). An orphan left when
     xbind dies with a wedged root is swept at the next boot only where
     there are cgroups.
 
@@ -4137,6 +4138,46 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
 - **fuse-overlayfs** is slower than a kernel overlay for build-heavy work.
   The flavour stamp keeps it consistent; measuring the difference is a
   WP-21 note, not a blocker.
+- **fuse-overlayfs's own root (fixed, p2/fusewedge).** A regular file
+  created directly in `/` of any fuse-overlayfs root (a tile sandbox, a
+  terminal, a backend; watched or daemonized) wedged the server for good:
+  `echo > /x`, `PUT content?path=/x`, a tar PUT or copy to `/`. *Cause:* the
+  init's `pivot_root` moved every process rooted at the host's `/` into the
+  FUSE mount, fuse-overlayfs included, so its root was the mount it serves.
+  It reads xattrs by path, `lgetxattr("/proc/self/fd/<layer fd>/<name>")`
+  (every release through v1.18 does; there is no `*xattrat` it uses), so it
+  walks its own `/`. A create in `/` makes the kernel drop the root's
+  cached attributes; under `default_permissions` the next walk through `/`
+  first asks the server for them again. When that walk is the server's own
+  (serving the write after the create: `security.capability`'s getxattr for
+  the kill-priv check), it asks itself while holding its big lock. It then sits in
+  `lgetxattr` and the writer in `request_wait_answer`. `-o threaded=1` and
+  entry timeouts can't help (`timeout=0` makes it worse). Refreshing `/`'s
+  attributes from another process between the create and the write avoids
+  it, which confirms the cause. Subdirs were fine. The same walk served its
+  path fallbacks (a setattr on a fifo or socket, xattrs of an unlinked open
+  file); these name host paths and fail with ENOENT, now without touching
+  FUSE. *Fix* (`internal/sandbox/fuseroot_linux.go`): before the pivot the
+  init makes a read-only tmpfs holding only a proc mount of the sandbox's
+  pid namespace. `pivot_root(srv, srv)` stacks the host's root on it and
+  moves the init and fuse-overlayfs onto it. The init alone returns to the
+  host's root through a descriptor opened first. The usual pivot into the
+  FUSE mount then attaches it stacked on srv's root and moves only the
+  init. fuse-overlayfs keeps srv as its root and cwd: it never walks FUSE,
+  and it never gets the host's tree. The stacking matters. With the FUSE
+  mount at `srv/old` the sandbox would be a chroot of its mount namespace,
+  and `create_user_ns` refuses a chrooted caller, which breaks rootless
+  podman and `unshare -U` (tried). A newer fuse-overlayfs wouldn't help,
+  and the pin stays at v1.14. Tests: `TestFuseRootCreateInRoot`
+  (internal/sandbox; daemonized and watched+NoFollow) writes and reads
+  `/x`, starts a user namespace, and checks fuse-overlayfs's root is a
+  tmpfs holding only `proc`, with its cwd there too. Dropping the call
+  wedges it (a 20 s timeout, then fuse-overlayfs is killed); an unstacked
+  `srv/old` fails `userns`. `TestLive/*/a file made in the root answers…`
+  does it through a file operation, and a live terminal on `.rootfs`
+  hung (fuse-overlayfs in `lgetxattr`) before the fix and answers after it.
+  Left: `killtree.go`'s case (a request the server took, then it stopped)
+  no longer has a deterministic trigger in the tests.
 - **The relay per sandbox** costs about 2.5 MiB on a 192-CPU host (its
   goroutine count follows `GOMAXPROCS`). Setting `ProcessorsPerChannel: 1`
   halves it (WP-10). Its flows are capped per sandbox and across sandboxes
