@@ -16,6 +16,8 @@
  * Events: 'bx-session' (detail: {id, net, scopes:[{id,label,desc}], label,
  * netNote, vm}) once the server assigns a session — `scopes` is exactly what this
  * user may pick on this tile, `netNote` explains a clamp.
+ * Methods: note(text) writes a grey notice line (held while a full-screen
+ * program owns the screen).
  * Wire protocol: docs/protocol.md §/ws/term.
  *
  * xterm.js ships as UMD, loaded lazily into the main document; bx-terminal
@@ -106,6 +108,7 @@ export class BxTerminal extends HTMLElement {
   // decoration markers, the last rendered overlay, and the harness's ack hold
   #pred = new Predictor(); #seq = 0; #echoAck = false; #srtt = null; #layer = null; #overlay = []; #hold = null;
   #pingTimer = null; #nullCell = null;
+  #note = null; // a notice held while a full-screen program owns the alternate buffer (note())
   // #baseFont is the user's chosen terminal font size; #ambient is the workspace
   // zoom applied by an ancestor (bx-shell). xterm's actual fontSize is their
   // product, and the host counter-zooms by 1/#ambient — so the terminal looks
@@ -568,7 +571,7 @@ export class BxTerminal extends HTMLElement {
     });
     this.#term.onWriteParsed(() => this.#redraw()); // the screen changed: judge and redraw the overlay
     this.#term.onScroll(() => this.#redraw());      // scrolled back: the overlay hides
-    this.#term.buffer.onBufferChange(() => { this.#pred.reset(); this.#redraw(); });
+    this.#term.buffer.onBufferChange(() => { this.#pred.reset(); this.#redraw(); this.#flushNote(); });
     // A program hiding the cursor (DECTCEM off) switches the engine to anchor
     // mode; showing it, or a full reset, switches back. Only the flag flips
     // here — the onWriteParsed redraw follows the same parse.
@@ -577,6 +580,22 @@ export class BxTerminal extends HTMLElement {
     this.#term.parser.registerCsiHandler({ prefix: '?', final: 'h' }, dectcem(false));
     this.#term.parser.registerEscHandler({ final: 'c' }, () => { this.#pred.setCursorHidden(false); return false; });
     this.#connect();
+    this.#flushNote();
+  }
+
+  // note(text): a grey line from the terminal window, framed like the net
+  // note — the tile's live reload state changed (frame-deploy.js). Written at
+  // once on the normal buffer; while a full-screen program (vim, less, a TUI)
+  // holds the alternate buffer only the latest note is kept, and written when
+  // it exits, so no screen is ever corrupted. Control characters are dropped.
+  note(text) {
+    this.#note = `\r\n\x1b[90m[${String(text).replace(/[\x00-\x1f\x7f]/g, '')}]\x1b[0m\r\n`;
+    this.#flushNote();
+  }
+  #flushNote() {
+    if (!this.#note || !this.#term || this.#term.buffer.active.type !== 'normal') return;
+    this.#term.write(this.#note);
+    this.#note = null;
   }
 
   #connect() {

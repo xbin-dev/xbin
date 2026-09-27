@@ -7,6 +7,7 @@
  * never in the element.
  */
 import { launcherItems, openHistory, resumeHistory } from '/vendor/frame-launcher.js';
+import { deployTestApi } from '/vendor/frame-deploy.js';
 
 // The layouts the window's layout switcher offers, in bar order: the values
 // open(layout) takes, one `.lyt` button each (frame-titlebar.js layoutGroup).
@@ -21,6 +22,8 @@ export function testApi(f) {
     get hovered() { return f.hovered; },
     setHover(v) { f._hover = !!v; },
     get reloading() { return f.reloading; },
+    get reloads() { return f._loadGen || 0; }, // reloads completed (a deploy that reloads the frame shows as +1)
+    get deploy() { return deployTestApi(f); }, // the live reload state and controls (frame-deploy.js)
     beginReload: () => f._beginReload(),
     notifyLoad: () => f._onFrameLoad(),
     get terminalOpen() { return f._termOpen; },
