@@ -44,11 +44,12 @@ import '/vendor/bx-prs.js';
 import { deepActive, clampBox, dragWindow, dragPointer, anchorBox, anchorOffsets, followBox } from '/vendor/bx-kit.js';
 import { makeStore, tabsFrom, activeIndex, uid } from '/vendor/term-sessions.js';
 import { titlebar, toolsRow, titlebarCss, fitBar, barKey } from '/vendor/frame-titlebar.js';
-import { agentProviders, rememberKind, launcherItems, launcher, launcherCss, loadTileState, openHistory, resumeHistory, restartAgent, wantVM } from '/vendor/frame-launcher.js';
+import { agentProviders, rememberKind, launcherItems, launcher, launcherCss, loadTileState, resumeHistory, restartAgent, wantVM } from '/vendor/frame-launcher.js';
 import '/vendor/bx-agent.js';
 import '/vendor/bx-dialog.js';
 import '/vendor/bx-menu.js';
 import { infoFor, refreshFrameInfo, sandboxAttr, frameSource } from '/vendor/frame-info.js';
+import { testApi } from '/vendor/frame-testapi.js';
 
 // Shared z-order for all terminal windows on the page.
 let zTop = 2000;
@@ -560,45 +561,7 @@ export class BxFrame extends LitElement {
   // ---- test surface (hack/ui-harness) ----
   // Stable names over the frame's private state (see bx-shell's testApi).
   // Reads and writes existing state only; nothing in the frame calls it.
-  testApi() {
-    const f = this;
-    return {
-      get iframe() { return f._iframe; },
-      get hovered() { return f.hovered; },
-      setHover(v) { f._hover = !!v; },
-      get reloading() { return f.reloading; },
-      beginReload: () => f._beginReload(),
-      notifyLoad: () => f._onFrameLoad(),
-      get terminalOpen() { return f._termOpen; },
-      closeTerminal() { f._termOpen = false; },
-      open: (layout) => f.open(layout),
-      get pop() { return f._pop ? f._popBox() : null; }, // the viewport box
-      setPop(box) { f._setPopBox(box); f.requestUpdate(); f._popChanged(); },
-      popElement: () => f.renderRoot.querySelector('.pop'),
-      focusTerminal() { f.renderRoot.querySelector('bx-terminal')?.shadowRoot?.querySelector('textarea')?.focus(); },
-      get tabs() { return f._sessions.map((s) => ({ kind: s.kind || 'shell', id: s.id, name: s.name, provider: s.provider, status: s.status, ended: !!s.ended, history: s.history || null, resume: s.resume || null, net: s.net, api: s.api !== false, gpu: s.gpu, vm: !!s.vm, run: s.run || null })); },
-      get history() { return f._history || []; }, openHistory(id) { const r = (f._history || []).find((x) => x.id === id); if (r) openHistory(f, r); }, resumeHistory(id) { const r = (f._history || []).find((x) => x.id === id); if (r) resumeHistory(f, r); },
-      get activeTab() { return f._active; },
-      setActiveTab(i) { f._setActive(i | 0); },
-      get layout() { return f._layout; },
-      get narrow() { return f._narrow; },
-      setTools(v) { f._tools = !!v; }, // the degraded bar's tools row (the pickers) open — a no-op on the full bar
-      newTerm() { f._newTerm(); },
-      newAgent() { f._newAgent(); },
-      startKind(kind, provider, opts) { f._startKind(kind, provider, opts || {}); }, // launcher path (a provider eager-creates)
-      launcherItems() { return launcherItems(f).map((it) => it.label || it.kind || (it.kind === 'sep' ? '—' : '')); },
-      closeTab(i) { f._closeTerm(i | 0); },
-      get dialog() { return f._dialog?.spec ?? null; },
-      answerDialog(button, values = {}) { f._dialogDone({ detail: { button, values } }); },
-      // the <bx-agent> testApi for tab i (default: the active one); null for a shell tab
-      agent(i = f._active) {
-        const t = f._sessions[i];
-        if (t?.kind !== 'agent') return null;
-        const idx = f._sessions.filter((s) => s.kind === 'agent').indexOf(t);
-        return f.renderRoot.querySelectorAll('bx-agent')[idx]?.testApi?.() ?? null;
-      },
-    };
-  }
+  testApi() { return testApi(this); }
 
   _toggleTerm() {
     if (this._termOpen) { this._termOpen = false; return; }
