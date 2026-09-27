@@ -235,8 +235,7 @@ bx ls                   # what exists in this workspace</pre>
           <code>X-XBin-From</code> and <code>X-XBin-Role</code> are
           trustworthy — a caller cannot forge them.</p>
           <pre>c := xbin.Caller(r)     // Go SDK: {From, Role, Owner, User, UserLevel}</pre>
-          <p>node / python read the headers directly; cgi gets
-          <code>XBIN_FROM</code> / <code>XBIN_ROLE</code> in env. When a
+          <p>node / python read the headers directly. When a
           signed-in human is driving the call, <code>X-XBin-User</code> /
           <code>X-XBin-User-Level</code> ride along — your own UI's calls run
           at the tile's full role even for read-level viewers, so gate

@@ -39,7 +39,7 @@ bigger (the component dir is mounted during the build, so `./setup.sh` works).
 
 ```jsonc
 {
-  "runtime": "cgi",                         // any runtime; env is runtime-agnostic
+  "runtime": "python",                      // any runtime; env is runtime-agnostic
   "setup": "apt-get update && apt-get install -y --no-install-recommends ruby && gem install --no-document sinatra"
 }
 ```

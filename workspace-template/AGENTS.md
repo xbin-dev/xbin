@@ -102,7 +102,7 @@ It appears in the shell sidebar immediately (click to open as a card). To
 
 **Create a Go backend component:** `bx new apps/thing --runtime go --expose`
 (scaffolds manifest, view, `backend/main.go`, `go.mod`, `API.md`). Other
-runtimes: `node`, `python`, `cgi`. Never overwrites existing files.
+runtimes: `node`, `python`. Never overwrites existing files.
 
 **Install a bundled optional tile:** `bx tile ls` lists builtin tiles
 (e.g. `llm-gw` an OpenAI-compatible gateway, `chat` a streaming chat UI,
@@ -192,9 +192,9 @@ Full manifest reference (all fields optional):
 
 ```jsonc
 {
-  "runtime": "go",              // static(default) | go | node | python | cgi
+  "runtime": "go",              // static(default) | go | node | python
   "entry": "./backend",         // defaults: go ./backend, node backend/server.js,
-                                //   python backend/server.py, cgi backend/handler
+                                //   python backend/server.py
   "setup": "apt-get update && apt-get install -y ruby",  // extra backend deps →
                                 //   cached env layer, built once (see §Extra deps)
   "deps": ["lib/ui-kit"],       // SOURCE visibility: deps/ui-kit symlink appears.
@@ -332,7 +332,7 @@ entire workspace layout (top bar, sidebar, card canvas) is the **`shell/`
 component in this workspace** — `<bx-shell>` in `shell/bx-shell.js`,
 composed by `root/index.html`. Edit it like any component; shells nest
 (`shell/index.html` is a working nested preview). Sidebar dots encode
-runtime: gray static, blue go, green node, amber python, red cgi. Canvas
+runtime: gray static, blue go, green node, amber python. Canvas
 cards drag by their title bar on a snappable grid. **Menus:** right-click
 the empty canvas for *open tile* (recent + find), *create a new tile* as an
 owner, *new screen*, and *bring windows on-screen* (floating windows clamp
@@ -466,8 +466,9 @@ node/python: no SDK needed — listen on `process.env.XBIN_SOCKET` /
 D29; `X-XBin-Viewed-By` when an admin is viewing as that user, D64) headers,
 call outbound via the `XBIN_GATEWAY` unix socket with
 `Authorization: Bearer $XBIN_TOKEN`. `bx new` scaffolds working skeletons.
-cgi: any executable; CGI/1.1 env + `XBIN_FROM`/`XBIN_ROLE`; response on
-stdout.
+`cgi` was removed (it ran tile code outside the sandbox): a tile declaring it
+shows a manifest error and its API answers 410 — port its handler to one of
+these (`/docs/changes/2026-09-27-cgi-removed.md`).
 
 Lifecycle facts you must design around:
 
@@ -835,7 +836,7 @@ offline subscribers miss messages.
 
 ```
 bx ls | status | doctor
-bx new <path> [--runtime go|node|python|cgi] [--expose]
+bx new <path> [--runtime go|node|python] [--expose]
 bx logs [-f] <component>
 bx code prs [--from] | pr <target> --title <t> -m <msg> <patch>…
 bx code pr show|fetch|comment|close <n>   # cross-tile PRs (§Suggesting changes)

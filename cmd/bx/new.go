@@ -46,7 +46,7 @@ func cmdNew(args []string) error {
 		}
 	}
 	if o.Path == "" {
-		return fmt.Errorf("usage: bx new <path> [--runtime go|node|python|cgi|static] [--expose] [--title \"Pretty Name\"] [--owner user:<id>|org:<id>]")
+		return fmt.Errorf("usage: bx new <path> [--runtime go|node|python|static] [--expose] [--title \"Pretty Name\"] [--owner user:<id>|org:<id>]")
 	}
 	if owner != "" {
 		body := map[string]any{"path": o.Path, "runtime": o.Runtime, "title": o.Title, "expose": o.Expose, "owner": owner}

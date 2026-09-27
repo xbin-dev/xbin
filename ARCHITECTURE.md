@@ -55,7 +55,7 @@ my-component/
 ```jsonc
 // xbin.json
 {
-  "runtime": "go",                        // go | node | python | cgi | static (default)
+  "runtime": "go",                        // go | node | python | static (default)
   "deps": ["lib/ui-kit", "apps/calendar/widgets/month-view"],
   "resources": [
     { "name": "calendar/db", "access": "ro" }
@@ -199,7 +199,8 @@ lazily restarted on next request (CGI-ish economics, resident-process performanc
 
 **Secondary runtime: `cgi`** — exec a script per request, env-passed request, stdout
 response. Zero state, zero lifecycle, perfect for `handler.sh`/`handler.py` one-offs.
-True PHP semantics for when you want them.
+True PHP semantics for when you want them. *(Removed 2026-09-27, D117: it ran the
+handler on the host as xbind, outside the sandbox every other backend gets.)*
 
 ### Considered and deferred
 
@@ -384,7 +385,7 @@ Honest framing: XBin is a **remote code execution appliance by design**. Therefo
 1. **Walking skeleton** — xbind: static serving of `/c/<id>/`, `<bx-frame>` (iframe +
    the 7×7 button), `<bx-terminal>` + PTY over WS with cwd. *Already usable as a
    "directory desktop."*
-2. **Backends** — process Runner (Go rebuild-on-change first, then node/python/cgi),
+2. **Backends** — process Runner (Go rebuild-on-change first, then node/python; cgi, later removed — D117),
    `/api/` routing, unix-socket blue/green swap, error overlay, live reload.
 3. **Structure** — manifests, scopes, `deps/` symlink materialization, generated
    `go.work`, root-component self-hosting.

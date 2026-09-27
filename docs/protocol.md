@@ -417,8 +417,9 @@ credential is accepted for browser WS attribution and is consumed by xbind
 idle reaping; streams still end at the callee's blue/green drain (D8).
 Errors are JSON:
 `{"error": "...", "docs": "/docs/...", "detail": "compiler output"?}` —
-404 unknown component, 403 no grant, 502 build/backend failure (build
-failures carry compiler output in `detail`).
+404 unknown component, 403 no grant, 410 a tile whose manifest declares the
+removed runtime `cgi` (the error says so; its code never runs — D117), 502
+build/backend failure (build failures carry compiler output in `detail`).
 
 ### xbind API (`/api/xbin/…`)
 

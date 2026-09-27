@@ -64,7 +64,7 @@ Everything is optional; each field is one deliberate hook into a subsystem
 
 ```jsonc
 {
-  "runtime": "go",                    // static (default) | go | node | python | cgi
+  "runtime": "go",                    // static (default) | go | node | python
   "entry": "./backend",               // runtime-specific override; sane defaults
 
   // Source visibility: these components appear under deps/ as symlinks,
@@ -109,7 +109,11 @@ published endpoint) is the owner's act. Declaring is cheap and inert.
 | `go` | `./backend` package | compiled per change (workspace `go.work`, shared build cache; `CGO_ENABLED=0` under `--isolate` so the static binary runs on the sandbox rootfs), then the blue/green dance below |
 | `node` | `backend/server.js` | interpreter is the binary — restart-on-change, same swap dance, no compile |
 | `python` | `backend/server.py` | as node |
-| `cgi` | `backend/handler` (executable) | executed **per request** with CGI/1.1 semantics; no process lifecycle at all — caller identity arrives as `XBIN_FROM`/`XBIN_ROLE` env |
+
+`cgi` was removed (D117): it executed a handler per request on the host, as
+the daemon, outside every sandbox. A tile still declaring it serves its files
+and reports the removal as its manifest error; its API answers 410
+([changes/2026-09-27-cgi-removed.md](/docs/changes/2026-09-27-cgi-removed.md)).
 
 Long-running backends (`go`/`node`/`python`) serve plain HTTP on a unix
 socket xbind hands them (`XBIN_SOCKET`); xbind's proxy routes

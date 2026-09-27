@@ -10,12 +10,13 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
 type Options struct {
 	Path    string // workspace-relative component path, e.g. "apps/thing"
-	Runtime string // static (default) | go | node | python | cgi
+	Runtime string // static (default) | go | node | python
 	Expose  bool   // roles block + API.md skeleton
 	Title   string // pretty name for the view; defaults to the path basename
 }
@@ -26,10 +27,13 @@ func Create(root string, o Options) ([]string, error) {
 	if o.Runtime == "" {
 		o.Runtime = "static"
 	}
+	if err := registry.ValidateRuntime(registry.Manifest{Runtime: o.Runtime}); err != nil {
+		return nil, err // "cgi" (D117): say it was removed, not "unknown"
+	}
 	switch o.Runtime {
-	case "static", "go", "node", "python", "cgi":
+	case "static", "go", "node", "python":
 	default:
-		return nil, fmt.Errorf("unknown runtime %q (static|go|node|python|cgi)", o.Runtime)
+		return nil, fmt.Errorf("unknown runtime %q (static|go|node|python)", o.Runtime)
 	}
 	if !util.ComponentPathOK(o.Path) {
 		return nil, fmt.Errorf("invalid component path %q (relative, no reserved names, no dot-dirs)", o.Path)
@@ -60,11 +64,7 @@ func Create(root string, o Options) ([]string, error) {
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			return err
 		}
-		perm := os.FileMode(0o644)
-		if rel == "backend/handler" {
-			perm = 0o755 // cgi entry must be executable
-		}
-		if err := os.WriteFile(p, []byte(content), perm); err != nil {
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
 			return err
 		}
 		written = append(written, o.Path+"/"+rel)
@@ -109,10 +109,6 @@ func Create(root string, o Options) ([]string, error) {
 		}
 	case "python":
 		if err := write("backend/server.py", pythonTpl); err != nil {
-			return written, err
-		}
-	case "cgi":
-		if err := write("backend/handler", cgiTpl); err != nil {
 			return written, err
 		}
 	}

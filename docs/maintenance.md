@@ -38,7 +38,7 @@ target, so a red line names the guard that failed.
 | the native client's contract: xb-native's own tests, the fixture runner's, and every `native/fixtures/<name>` rendered in node and compared with its `expected.json`, plus the vocabulary coverage gate | `native-check` | the tree a tile's `native.js` renders — what the app's renderer and the reference renderer draw — drifting unreviewed, and a vocabulary item no fixture exercises (native/fixtures/README.md) |
 | shellcheck at warning level over `deploy/`, `hack/`, `.githooks/`, the site's `website/install.sh` bootstrap and the iOS CI scripts in `native/ios/scripts/` | `shellcheck` | the installer and release scripts (1,600 lines of bash; only the installer's host-editing helpers have unit tests, above); the iOS CI scripts, which only a macOS runner executes |
 | vendor checksums, Go-version agreement, alpine pins | `pins-offline` | pins drifting apart between the files that state one |
-| unit tests incl. the embed guard, route inventory, docs check, the exec guard | `test` | see the sections below |
+| unit tests incl. the embed guard, route inventory, docs check, the exec and cgi guards | `test` | see the sections below |
 
 Not in `check`: `make swift-test` runs the native client's Swift packages
 (`native/ios/Packages/*`, Foundation only) on any machine with a swift
@@ -60,6 +60,12 @@ workspace data — git on a tile, `go build` of a backend — go through
 `exec-ok` is for isolation-off paths and input only xbind writes; a reviewer
 reads each one. The sandboxed half is exercised by `go test -tags=integration
 ./internal/confine/ ./internal/runner/` (needs `.rootfs` + user namespaces).
+
+Its sibling `TestNoCGIHandler` fails when daemon code imports `net/http/cgi`
+— no exemption, no annotation. `cgi.Handler` execs a program from inside the
+standard library, where the regex above cannot see it; it is how the removed
+`cgi` runtime ran a tile's handler on the host as xbind (D117). Tile code
+runs in a backend's sandbox, never through the proxy.
 
 ## Size budget (the ratchet)
 
@@ -126,9 +132,9 @@ decision, and `assets_test.go` refuses:
   `bx tile import`. `.gitignore` covers those paths, and the copier
   (`internal/builtins` `strayBuildOutput`) skips an ELF named after its own
   directory even when it finds one in a workspace template. xbind never runs
-  an in-tree binary — Go backends compile into `.xbin/build/`; the one
-  legitimate executable, a `cgi` runtime's `backend/handler`, is never
-  matched.
+  an in-tree binary — Go backends compile into `.xbin/build/`; a compiled
+  file not named after its directory (a tool a tile ships under `bin/`) is
+  never matched.
 - **files over 512 KB** outside `web/vendor/` — the vendored frontend deps
   are the only big files by design.
 - **nested repos and dependency trees** (`.git`, `node_modules`, `.claude`,

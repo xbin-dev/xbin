@@ -210,8 +210,8 @@ func skip(rel string) bool {
 // named after its own directory. xbind never runs those — Go backends are
 // compiled into .xbin/build/ (internal/runner) — so copying one into a new
 // component would only ship a stale, multi-megabyte artifact. Deliberately
-// narrow: a `cgi` runtime's `backend/handler` may legitimately be a compiled
-// executable and is never matched.
+// narrow: any other compiled file a tile ships (a tool under bin/, say) is
+// never matched.
 func strayBuildOutput(rel string, data []byte) bool {
 	dir, base := path.Split(rel)
 	return path.Base(strings.TrimSuffix(dir, "/")) == base && isELF(data)
@@ -362,11 +362,7 @@ func WriteTree(dstRoot, targetPath string, files map[string][]byte) ([]string, e
 		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 			return written, err
 		}
-		perm := os.FileMode(0o644)
-		if rel == "backend/handler" {
-			perm = 0o755
-		}
-		if err := os.WriteFile(out, files[rel], perm); err != nil {
+		if err := os.WriteFile(out, files[rel], 0o644); err != nil {
 			return written, err
 		}
 		written = append(written, targetPath+"/"+rel)

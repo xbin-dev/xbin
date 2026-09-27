@@ -188,15 +188,11 @@ req.end();
 `BaseHTTPRequestHandler` skeleton. Gateway calls: any HTTP client that
 supports unix sockets (`requests` + `requests-unixsocket`, or raw
 `http.client.HTTPConnection` with a connected `socket`), bearer token from
-`XBIN_TOKEN`. For quick scripts consider `runtime: cgi` instead — env in,
-stdout out, nothing to keep alive.
+`XBIN_TOKEN`.
 
-## cgi backend
-
-Any executable. CGI/1.1 env (`PATH_INFO`, `QUERY_STRING`, `REQUEST_METHOD`,
-body on stdin) plus `XBIN_COMPONENT`, `XBIN_FROM`, `XBIN_ROLE`. Response:
-headers, blank line, body on stdout. Perfect for shell-script endpoints;
-one exec per request (no persistent process, so no idle reaping or drain).
+A shell-script endpoint (what the removed `cgi` runtime was for) is a few
+lines of any of these backends running the script per request — see
+[changes/2026-09-27-cgi-removed.md](/docs/changes/2026-09-27-cgi-removed.md).
 
 ## In-frame JS API (`window.xbin`)
 

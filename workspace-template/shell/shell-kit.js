@@ -16,7 +16,6 @@ export const RUNTIME_COLOR = {
   go: 'var(--bx-accent, #f5a623)',
   node: 'var(--bx-green, #4caf50)',
   python: 'var(--bx-amber, #f2a71b)',
-  cgi: 'var(--bx-red, #ef5350)',
 };
 
 // Long-press (touch/pen, phones only — the mouse keeps right-click): hold

@@ -3537,3 +3537,58 @@ Deviations and refinements made while implementing; all deliberate:
     windows and recents; the stale device deleted) instead of adding a
     duplicate.
 
+- **D117 — Runtime `cgi` is removed: xbind never executes tile code itself;
+  a cgi manifest is an error, not a fallback (2026-09-27).** Owner's call
+  ("nuke that feature now, it really shouldn't be a thing").
+  `internal/registry` (`ValidateRuntime`), `internal/proxy`,
+  `internal/runner`, `internal/scaffold`, `internal/confine/guard_test.go`;
+  docs/changes/2026-09-27-cgi-removed.md, docs/elements.md §Runtimes.
+  - **The hole.** The proxy served a `"runtime": "cgi"` tile by handing
+    `backend/handler` to the standard library's `net/http/cgi.Handler` —
+    exec'd on the host as the xbind user, `Dir` the tile directory, under
+    `--isolate` too (the runner's `sandboxable` never included cgi, and the
+    proxy never asked the runner). A tile is written from inside sandboxes
+    (its terminals, coding agents), so "write my tile → run code as xbind"
+    — exactly what D78 rules out. `TestNoDirectExec` could not see it: the
+    exec happens inside the standard library.
+  - **Removed, every trace:** the proxy's cgi path and its `net/http/cgi`
+    import, cgi in `HasBackend`, the runner's cgi special cases, the
+    scaffold's `backend/handler` template and its exec bit (also the
+    builtins copier's `backend/handler` 0755 rule), `bx new --runtime cgi`,
+    the openapi enum, the docs and the scaffolded workspace's AGENTS.md,
+    welcome notes, shell runtime colour and admin comment.
+  - **An old workspace, handled loudly — a security hole closes now
+    (docs/compat.md rule 7's stated exception; no warn-first release).** A
+    manifest that still says `cgi` parses; `ValidateRuntime` makes the
+    removal its manifest error (the same path as an `exposes` error: `bx
+    ls` MANIFEST-ERROR, `bx doctor`, `manifestError` in `/components`,
+    the sidebar/admin ⚠), text naming the reason and the fix. The tile keeps
+    serving its files; `HasBackend` is false; the proxy answers
+    `/api/<tile>/…` **410 Gone** with the same message (not a "no backend"
+    404, not 502 noise), checked before lifecycle/policy since it says
+    nothing about the caller; `Runner.Ensure` refuses it too (every start
+    path — ingress, stream dials, alwaysOn — goes through it), and
+    `scaffold.Create`/`POST /create` refuse `cgi` by name. Only `cgi` is
+    refused: other unknown runtime values stay a backend-less tile as they
+    always were (rule 7: unknown tolerated).
+  - **Guard:** `TestNoCGIHandler` (sibling of `TestNoDirectExec`, sharing
+    its daemon-file walk) fails on any `net/http/cgi` import in daemon code
+    (`internal/`, `cmd/xbind`), no exemption and no annotation. A tile's
+    *own* backend may still use it (the migration note's wrapper does): it
+    runs in the tile's sandbox.
+  - **Migration:** a Go backend of ~20 lines (`xbin.Serve` + `cgi.Handler`
+    over the unchanged script, inside the sandbox), or a rewrite as a
+    go/node/python backend. What the script loses is what the sandbox
+    withholds: the tile directory is read-only (state goes to resources),
+    no network without a `net` binding.
+
+  **Not chosen:**
+  - Sandboxing cgi per request (a confined run or a namespace per exec):
+    real work, a second backend lifecycle to keep correct, and a runtime
+    nothing shipped used — the long-running runtimes already give a script
+    the same reach, inside the sandbox.
+  - Silently treating a cgi tile as static (what dropping it from
+    `HasBackend` alone would do): the tile's API would 404 "no backend"
+    with no hint why or what to do.
+  - Refusing to load the tile at all: its frontend and files are harmless
+    and its owner needs them to port it.

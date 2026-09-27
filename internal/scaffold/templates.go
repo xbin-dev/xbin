@@ -87,14 +87,6 @@ signal.signal(signal.SIGTERM, lambda *_: os._exit(0))
 srv.serve_forever()
 `
 
-const cgiTpl = `#!/bin/sh
-# xbin cgi backend: executed per request; CGI/1.1 env; response on stdout.
-# XBIN_FROM / XBIN_ROLE carry the verified caller identity.
-echo "Content-Type: application/json"
-echo
-echo "{\"hello\": \"$XBIN_FROM\", \"path\": \"$PATH_INFO\"}"
-`
-
 const apiMDTpl = `# %[1]s API
 
 <!-- The standard xbin API contract (see /docs/elements.md §API contract).

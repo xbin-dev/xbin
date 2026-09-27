@@ -114,7 +114,7 @@ func usage() {
   bx ls                                 list components
   bx status [<component>] [--all]        one tile's runtime metrics (defaults
                                         to this terminal's tile); --all = global
-  bx new <path> [--runtime go|node|python|cgi] [--expose]
+  bx new <path> [--runtime go|node|python] [--expose]
                                         scaffold a component
   bx tile ls | import <name> [as <path>]
                                         list/install builtin tiles

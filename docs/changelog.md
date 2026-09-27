@@ -12,6 +12,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-27
 
+- **BREAKING (security) — runtime `"cgi"` is removed** (D117). xbind ran a
+  cgi tile's `backend/handler` itself, per request, on the host as the
+  daemon's user — even under `--isolate` — so anyone who could write the
+  tile (its terminals, a coding agent in its sandbox) ran code as xbind. A
+  tile still declaring `"runtime": "cgi"` keeps serving its files, but its
+  backend never runs: the removal is its manifest error (`bx ls`, `bx
+  doctor`, `manifestError` in `/api/xbin/components`), and `/api/<tile>/…`
+  answers **410** with the same text. `bx new --runtime cgi` and `POST
+  /api/xbin/create {"runtime": "cgi"}` are refused. Port the handler to a
+  go/node/python backend — a short Go wrapper around `xbin.Serve` keeps
+  the script as it is, inside the sandbox. Migration:
+  [changes/2026-09-27-cgi-removed.md](/docs/changes/2026-09-27-cgi-removed.md).
+
 - **Admin console: runtime → sandboxes, and the sandbox in the component
   list** (D112, [isolation.md](isolation.md) §VM sandboxes). A new tab lists
   every sandbox xbind runs — backend generations, terminals, agent sessions
