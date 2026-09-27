@@ -20,8 +20,8 @@ package tilesbx
 
 import (
 	"fmt"
-	"sort"
 	"sync"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/sandbox"
 )
@@ -69,7 +69,7 @@ func (m *Manager) Reconcile() {
 	m.recon.idle = make(chan struct{})
 	go func() {
 		for {
-			for _, tile := range m.runningTiles() {
+			for _, tile := range m.activeTiles() {
 				m.reconcileTile(tile)
 			}
 			m.recon.mu.Lock()
@@ -103,16 +103,7 @@ func (m *Manager) waitReconcile() {
 
 // reconcileTile is one tile's share of a reconcile.
 func (m *Manager) reconcileTile(tile string) {
-	var why string
-	switch t := m.deps.Tiles; {
-	case t != nil && !t.Exists(tile):
-		why = "its tile was removed: stopped, state kept (a workspace admin can delete it)"
-	case t != nil && !t.Enabled(tile):
-		why = "its tile is disabled: stopped, state kept"
-	case m.deps.Caps == nil || !m.deps.Caps.SandboxesFor(tile):
-		why = "its tile no longer holds cap:sandboxes: stopped, state kept"
-	}
-	if why != "" {
+	if why, _ := m.tileReach(tile); why != "" {
 		go m.StopTile(tile, why)
 		return
 	}
@@ -120,18 +111,23 @@ func (m *Manager) reconcileTile(tile string) {
 	m.reconcileEgress(tile)
 }
 
-// runningTiles are the tiles with a sandbox running, sorted.
-func (m *Manager) runningTiles() []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, r := range m.running(nil) {
-		if !seen[r.k.Tile] {
-			seen[r.k.Tile] = true
-			out = append(out, r.k.Tile)
-		}
+// tileReach is whether tile may run sandboxes now: "" and nil when it may;
+// else why its sandboxes stop (a reconcile's stateDetail) and the refusal
+// a start answers — the tile removed, disabled (hidden, offloaded) or no
+// longer holding cap:sandboxes. Without Deps.Caps it fails closed.
+func (m *Manager) tileReach(tile string) (why string, refusal *Error) {
+	switch t := m.deps.Tiles; {
+	case t != nil && !t.Exists(tile):
+		return "its tile was removed: stopped, state kept (a workspace admin can delete it)",
+			refuse(RefNotAllowed, "the tile %s was removed: its sandboxes don't start", tile)
+	case t != nil && !t.Enabled(tile):
+		return "its tile is disabled: stopped, state kept",
+			&Error{Refusal: RefUnavailable, Msg: fmt.Sprintf("the tile %s is disabled: its sandboxes don't start", tile), RetryAfter: time.Minute}
+	case m.deps.Caps == nil || !m.deps.Caps.SandboxesFor(tile):
+		return "its tile no longer holds cap:sandboxes: stopped, state kept",
+			refuse(RefNotAllowed, "the tile %s doesn't hold cap:sandboxes", tile)
 	}
-	sort.Strings(out)
-	return out
+	return "", nil
 }
 
 // OnResourceChange is a res: grant of tile approved or revoked (the

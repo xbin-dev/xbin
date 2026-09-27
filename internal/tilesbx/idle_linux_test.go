@@ -33,7 +33,8 @@ func TestIdleStop(t *testing.T) {
 	fe.want(fe.do(mgr, "POST", "/sandboxes/sb-1/start", nil), http.StatusOK, "")
 	clk.advance(20 * time.Minute)
 	fe.do(mgr, "GET", "/sandboxes/sb-1/execs", nil) // an API call on it: activity
-	clk.advance(20 * time.Minute)                   // 40 min since the start, 20 since the call
+	active := clk.Now().UnixMilli()
+	clk.advance(20 * time.Minute) // 40 min since the start, 20 since the call
 	if in := fe.get("sb-1"); in.State != StateRunning || in.LastActive != clk.Now().Add(-20*time.Minute).UnixMilli() {
 		t.Fatalf("stopped though active 20 min ago: %+v", in)
 	}
@@ -43,6 +44,9 @@ func TestIdleStop(t *testing.T) {
 	in := fe.waitState("sb-1", StateStopped)
 	if in.StateDetail != "idle for 30 minutes: stopped, state kept (idleStopMin)" {
 		t.Fatalf("stateDetail %q", in.StateDetail)
+	}
+	if in.LastActive != active { // its last activity, not the idle stop's time
+		t.Fatalf("lastActive %d after the idle stop, want %d", in.LastActive, active)
 	}
 	fe.assertBookEmpty()
 	if clk.armed() != 0 {

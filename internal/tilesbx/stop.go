@@ -10,6 +10,7 @@ package tilesbx
 import (
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 )
@@ -91,11 +92,61 @@ func (m *Manager) running(pred func(Key, *Def) bool) []*run {
 	return out
 }
 
-// StopWhere stops, in parallel, every running sandbox pred picks (given
-// its key and definition as launched), and returns once they all ended.
-// Each stop is idempotent; why is the stateDetail they are left with.
+// StopWhere stops, in parallel, every sandbox pred picks (given its key
+// and definition — as launched, or as defined for one not up yet) that
+// runs or is starting, and returns once they all ended. A start is seen
+// from the moment it is starting (startLocked sets it under m.mu, before
+// its gates: the tile's reach, admission, the disk, the mounts): it is
+// marked (box.stopAsk) and ends before it can come up — at once when its
+// process runs — so a revoke, a disable, a removal, a seal or a low disk
+// never misses one that passed its checks just before. Each stop is
+// idempotent; why is the stateDetail they are left with.
 func (m *Manager) StopWhere(pred func(Key, *Def) bool, why string) {
-	m.stopRuns(m.running(pred), why)
+	type target struct {
+		k    Key
+		name string
+	}
+	var targets []target
+	var starting []*run
+	m.mu.Lock()
+	for k, boxes := range m.live {
+		for name, b := range boxes {
+			d := (*Def)(nil)
+			switch {
+			case b.run != nil:
+				d = b.run.def
+			case b.state == StateStarting:
+				d, _ = m.defs.get(k, name)
+			}
+			if d == nil || (pred != nil && !pred(k, d.clone())) {
+				continue
+			}
+			targets = append(targets, target{k, name})
+			if b.state == StateStarting {
+				if b.stopAsk == "" {
+					b.stopAsk = why
+				}
+				if b.run != nil {
+					starting = append(starting, b.run)
+				}
+			}
+		}
+	}
+	m.mu.Unlock()
+	for _, r := range starting { // its process runs: its start fails at once
+		m.end(r, why)
+	}
+	var wg sync.WaitGroup
+	for _, t := range targets {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := m.Stop(t.k, t.name, why); err != nil {
+				slog.Warn("tile sandbox: stop", "tile", t.k.Tile, "sandbox", t.name, "err", err)
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 // stopRuns stops the sandboxes of runs in parallel, and returns once they
@@ -114,8 +165,9 @@ func (m *Manager) stopRuns(runs []*run, why string) {
 	wg.Wait()
 }
 
-// StopTile stops every running sandbox of tile (all its deployments) and
-// returns once they ended — at once when none runs. Safe from any hook.
+// StopTile stops every sandbox of tile (all its deployments) that runs or
+// is starting, and returns once they ended — at once when none does. Safe
+// from any hook.
 func (m *Manager) StopTile(tile, why string) {
 	m.StopWhere(func(k Key, _ *Def) bool { return k.Tile == tile }, why)
 }
@@ -162,10 +214,33 @@ func (m *Manager) reconcileEgress(tile string) {
 	}
 }
 
-// switchedOff stops every running tile sandbox, state kept: the policy's
-// kill switch went off (§7 "Policy flips"). It returns at once.
+// switchedOff stops every tile sandbox running or starting, state kept:
+// the policy's kill switch went off (§7 "Policy flips"). It returns at
+// once.
 func (m *Manager) switchedOff(why string) {
-	if len(m.running(nil)) > 0 {
+	if len(m.activeTiles()) > 0 {
 		go m.StopWhere(nil, why)
 	}
+}
+
+// activeTiles are the tiles with a sandbox running or starting, sorted:
+// what a reconcile walks (a start is seen from the moment it is starting;
+// StopWhere).
+func (m *Manager) activeTiles() []string {
+	m.mu.Lock()
+	seen := map[string]bool{}
+	for k, boxes := range m.live {
+		for _, b := range boxes {
+			if b.run != nil || b.state == StateStarting {
+				seen[k.Tile] = true
+			}
+		}
+	}
+	m.mu.Unlock()
+	out := make([]string, 0, len(seen))
+	for t := range seen {
+		out = append(out, t)
+	}
+	sort.Strings(out)
+	return out
 }

@@ -307,7 +307,9 @@ func TestSealStopsMounted(t *testing.T) {
 // A start that resolved its mounts before the vault was sealed, and was
 // still starting when the seal stopped what ran (it had no run yet), doesn't
 // come up running: its bind would keep a decrypted view alive past the
-// seal. It answers 503 and ends stopped, "the vault was sealed".
+// seal. The seal's stop sees it (it is starting), marks it, and returns only
+// once it ended; the start answers 503 and ends stopped, "the vault was
+// sealed".
 func TestSealDuringStart(t *testing.T) {
 	f := newWSFakes()
 	fe := newFakeEnv(t, f.deps)
@@ -329,8 +331,18 @@ func TestSealDuringStart(t *testing.T) {
 		ms.Ready = false
 		f.mounts["apps/mgr res:apps/mgr/work"] = ms
 	})
-	fe.m.StopWhere(func(_ Key, d *Def) bool { return len(d.Mounts) > 0 }, "the vault was sealed: stopped, state kept")
+	stopped := make(chan struct{})
+	go func() {
+		fe.m.StopWhere(func(_ Key, d *Def) bool { return len(d.Mounts) > 0 }, "the vault was sealed: stopped, state kept")
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+		t.Fatal("the seal's stop returned while a start it picked was still starting")
+	case <-time.After(100 * time.Millisecond):
+	}
 	close(proceed)
+	<-stopped
 	fe.want(<-answer, http.StatusServiceUnavailable, RefUnavailable)
 	if st, detail := fe.statusOf(kMgr, "m"); st != StateStopped || !strings.HasPrefix(detail, "the vault was sealed") {
 		t.Fatalf("a start the seal overtook: %s %q", st, detail)
@@ -610,4 +622,76 @@ func (fe *fakeEnv) stateDir(k Key, name string) string {
 		fe.t.Fatal(err)
 	}
 	return dir
+}
+
+// A start past its gates but not up yet — here held as it resolves its
+// mounts, admitted, before it has a process — is seen by every stop over
+// a set: a revoke, a
+// disable, a removal (the reconcile), low disk and the kill switch mark it,
+// it ends before it comes up (503, stopped, the reason in stateDetail),
+// and the stop returns only once it ended. The same change made just
+// before the start is refused at its first step, after the sandbox is
+// starting (tileReach).
+func TestStopsSeeStartsInFlight(t *testing.T) {
+	for _, tc := range []struct {
+		name, detail string
+		stop         func(fe *fakeEnv, f *wsFakes, disk *fakeDisk)
+	}{
+		{"a revoke", "cap:sandboxes was revoked", func(fe *fakeEnv, f *wsFakes, _ *fakeDisk) {
+			f.set(func(f *wsFakes) { f.caps["apps/mgr"] = false })
+			fe.m.StopTile("apps/mgr", "cap:sandboxes was revoked: stopped, state kept")
+		}},
+		{"a disable", "its tile is disabled", func(fe *fakeEnv, f *wsFakes, _ *fakeDisk) {
+			f.set(func(f *wsFakes) { f.tiles["apps/mgr"] = false })
+			fe.m.Reconcile()
+		}},
+		{"a removal", "its tile was removed", func(fe *fakeEnv, f *wsFakes, _ *fakeDisk) {
+			f.set(func(f *wsFakes) { delete(f.tiles, "apps/mgr") })
+			fe.m.Reconcile()
+		}},
+		{"low disk", "the workspace disk is low", func(fe *fakeEnv, _ *wsFakes, disk *fakeDisk) {
+			disk.mu.Lock()
+			disk.low = true
+			disk.mu.Unlock()
+			fe.m.OnLowDisk()
+		}},
+		{"the kill switch", "switched off", func(fe *fakeEnv, _ *wsFakes, _ *fakeDisk) {
+			fe.putPolicy(`{"enabled":false}`, http.StatusOK)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newWSFakes()
+			disk := &fakeDisk{fair: -1} // any tile is above it
+			fe := newFakeEnv(t, f.deps, func(o *Options) { o.Deps.Disk = disk })
+			b := ns("sb-1")
+			b["mounts"] = []map[string]any{{"res": "res:apps/mgr/work", "at": "/mnt/w"}}
+			fe.create(b)
+			entered, proceed := make(chan struct{}), make(chan struct{})
+			var once sync.Once
+			f.set(func(f *wsFakes) { f.resolved = func() { once.Do(func() { close(entered); <-proceed }) } })
+			answer := make(chan *httptest.ResponseRecorder, 1)
+			go func() { answer <- fe.do(mgr, "POST", "/sandboxes/sb-1/start", nil) }()
+			<-entered // starting, no process yet
+			stopped := make(chan struct{})
+			go func() { tc.stop(fe, f, disk); close(stopped) }()
+			time.Sleep(100 * time.Millisecond) // the stop has seen it (and waits for it)
+			close(proceed)
+			fe.want(<-answer, http.StatusServiceUnavailable, RefUnavailable)
+			<-stopped
+			fe.waitStopped(kMgr, "sb-1", tc.detail)
+			if fe.runOf("sb-1") != nil {
+				t.Fatal("it runs")
+			}
+			fe.assertBookEmpty()
+		})
+	}
+	// the change made first: the start is refused at its first step
+	f := newWSFakes()
+	fe := newFakeEnv(t, f.deps)
+	fe.create(ns("sb-1"))
+	f.set(func(f *wsFakes) { f.tiles["apps/mgr"] = false })
+	fe.want(fe.do(mgr, "POST", "/sandboxes/sb-1/start", nil), http.StatusServiceUnavailable, RefUnavailable)
+	if fe.l.count() != 0 {
+		t.Fatal("a disabled tile's sandbox launched")
+	}
 }

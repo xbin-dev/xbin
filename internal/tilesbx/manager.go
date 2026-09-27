@@ -281,6 +281,7 @@ type box struct {
 	launched   *Def   // the definition the running sandbox started with
 	reach      string // the running relay's reach
 	egressNext bool   // its class's rules widened since it started: they apply at the next start
+	stopAsk    string // a stop over a set picked it while it started (StopWhere): why — it ends before it comes up
 	run        *run   // the run up now (nil: none)
 	diskBytes  int64  // allocated, snapshots included: measured at each stop and while it runs (usage.go)
 	measured   int64  // when diskBytes was measured (unix ms; 0 = not since xbind started)

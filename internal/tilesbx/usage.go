@@ -390,10 +390,10 @@ func (m *Manager) runsNamespace() bool {
 }
 
 // OnLowDisk is the workspace disk below its reserve — diskmon's verdict or
-// the runtime's own statfs: the running namespace sandboxes of every tile
-// whose sandboxes hold more than diskmon's fair share are synced and
-// stopped, state kept, largest tile first. It returns at once; one pass
-// runs at a time.
+// the runtime's own statfs: the namespace sandboxes running (or starting)
+// of every tile whose sandboxes hold more than diskmon's fair share are
+// synced and stopped, state kept, largest tile first. It returns at once;
+// one pass runs at a time.
 func (m *Manager) OnLowDisk() {
 	u := &m.usage
 	u.mu.Lock()
@@ -427,17 +427,22 @@ func (m *Manager) lowDiskStop() {
 	}
 }
 
-// lowDiskTiles are the tiles a low disk stops, in order: those running a
-// namespace sandbox whose sandboxes hold more than fair, largest first;
-// held is what each holds.
+// lowDiskTiles are the tiles a low disk stops, in order: those running or
+// starting a namespace sandbox whose sandboxes hold more than fair,
+// largest first; held is what each holds.
 func (m *Manager) lowDiskTiles(fair int64) (tiles []string, held map[string]int64) {
 	m.mu.Lock()
 	held, runs := map[string]int64{}, map[string]bool{}
 	for k, boxes := range m.live {
-		for _, b := range boxes {
+		for name, b := range boxes {
 			held[k.Tile] += b.diskBytes
-			if b.run != nil && b.run.def.Mode == ModeNamespace {
-				runs[k.Tile] = true
+			switch {
+			case b.run != nil:
+				runs[k.Tile] = runs[k.Tile] || b.run.def.Mode == ModeNamespace
+			case b.state == StateStarting: // StopWhere marks it: it never comes up
+				if d, ok := m.defs.get(k, name); ok && d.Mode == ModeNamespace {
+					runs[k.Tile] = true
+				}
 			}
 		}
 	}

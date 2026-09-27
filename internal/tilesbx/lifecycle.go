@@ -213,7 +213,10 @@ func (m *Manager) teardown(r *run) {
 			b := r.b
 			b.run, b.launched, b.reach, b.accel, b.started, b.egressNext = nil, nil, "", "", 0, false
 			b.state, b.detail = StateStopped, detail
-			b.lastActive = m.now().UnixMilli()
+			b.lastActive = r.idle.last.Load() // its last activity (a stop the manager asked for is one): an idle stop's is idleStopMin before it
+			if b.lastActive == 0 {
+				b.lastActive = m.now().UnixMilli()
+			}
 		}
 		m.mu.Unlock()
 		if !ready || !asked || why != "" {
@@ -351,7 +354,7 @@ func (m *Manager) startLocked(k Key, name string, b *box) error {
 		m.mu.Unlock()
 		return refuse(RefUnsupported, "%s mode can't run tile sandboxes in this xbind", d.Mode)
 	}
-	b.state, b.detail = StateStarting, ""
+	b.state, b.detail, b.stopAsk = StateStarting, "", "" // from here a stop over a set sees it (StopWhere)
 	m.mu.Unlock()
 
 	err := m.launch(k, d, b, lim, ops)
@@ -389,7 +392,13 @@ func (m *Manager) launch(k Key, d *Def, b *box, lim Limits, ops *modeOps) (err e
 			return err
 		}
 	}
-	// 1. admission: the book (WP-15b fills it)
+	// 0. the tile may run sandboxes (removed, disabled, cap:sandboxes
+	// revoked?) — asked once the sandbox is starting, so a stop over the
+	// tile either finds this start (StopWhere marks it) or is seen here
+	if _, refusal := m.tileReach(k.Tile); refusal != nil {
+		return refusal
+	}
+	// 1. admission: the book
 	release, err := m.reserve(k, d)
 	if err != nil {
 		return err
@@ -458,6 +467,7 @@ func (m *Manager) launch(k Key, d *Def, b *box, lim Limits, ops *modeOps) (err e
 		release: release, modeUndo: modeUndo, log: b.log, logMark: logMark, started: m.now(), exited: make(chan struct{}), done: make(chan struct{})}
 	m.mu.Lock()
 	b.run = r
+	ask := b.stopAsk // a stop over a set picked it before it had a process
 	m.mu.Unlock()
 	go m.watch(r)
 	fail := func(what string, err error) error {
@@ -472,9 +482,16 @@ func (m *Manager) launch(k Key, d *Def, b *box, lim Limits, ops *modeOps) (err e
 		}
 		<-r.done
 		m.mu.Lock()
-		detail := b.detail
+		detail, ask := b.detail, b.stopAsk
 		m.mu.Unlock()
+		if ask != "" {
+			return stoppedStarting(d.Name, ask)
+		}
 		return errors.New(detail)
+	}
+	if ask != "" {
+		m.end(r, ask)
+		return fail("it was stopped", errEnded)
 	}
 	if leaf != "" && !proc.InCgroup() { // the pre-5.7 fallback: join before the maps release it
 		if _, err := m.cg.AddWith(leaf, proc.Pid(), ll); err != nil {
@@ -551,7 +568,8 @@ func (m *Manager) launch(k Key, d *Def, b *box, lim Limits, ops *modeOps) (err e
 		return fail("its agent", errEnded)
 	}
 	m.mu.Lock()
-	if b.run == r && b.state == StateStarting {
+	ask = b.stopAsk // (a stop over a set that picked it has ended it too)
+	if b.run == r && b.state == StateStarting && ask == "" {
 		b.state, b.detail = StateRunning, ""
 		b.launched, b.reach, b.accel, b.started = d, class.Reach, r.accel, r.started.UnixMilli()
 		b.egressNext = false
@@ -559,11 +577,23 @@ func (m *Manager) launch(k Key, d *Def, b *box, lim Limits, ops *modeOps) (err e
 		m.armIdleLocked(r, 0) // the idle stop (idle.go)
 	}
 	m.mu.Unlock()
+	if ask != "" {
+		m.end(r, ask)
+		return fail("it was stopped", errEnded)
+	}
 	m.kickUsage() // measured while it runs (usage.go)
 	if d.Mode == ModeNamespace {
 		m.watchDisk() // an upper has no cap: the partition is watched while one runs
 	}
 	return nil
+}
+
+// stoppedStarting is the answer to a start a stop over a set ended before
+// it came up (StopWhere: a revoke, a disable, a seal, low disk, the kill
+// switch): unavailable, as the same reason answers a start after it; the
+// sandbox is stopped, why in its stateDetail.
+func stoppedStarting(name, why string) error {
+	return &Error{Refusal: RefUnavailable, RetryAfter: 30 * time.Second, Msg: fmt.Sprintf("sandbox %q was stopped while it started: %s", name, why)}
 }
 
 // onceFunc makes f idempotent.

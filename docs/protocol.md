@@ -2463,9 +2463,15 @@ by the other overlay flavour (`stateDetail` says which; a reset repairs
 it, and a rebase repairs a missing base) — or while an earlier run's
 processes still hold its state (a start waits up to 5 s for them first);
 503 `unavailable` while the sandboxes policy is off or its file can't be
-read, the workspace disk is low, the vault is sealed (a resource mount) or
-VM mode is unavailable (a VM sandbox: the reason said); 400 `invalid` when
-a mount or the egress class is no longer the tile's to use. A start of a running sandbox changes nothing.
+read, the workspace disk is low, the vault is sealed (a resource mount),
+VM mode is unavailable (a VM sandbox: the reason said) or the tile is
+disabled; 403 `not-allowed` when the tile no longer holds
+`cap:sandboxes`; 400 `invalid` when a mount or the egress class is no
+longer the tile's to use. A start of a running sandbox changes nothing.
+One of the workspace's own reasons below that arrives while a sandbox is
+still starting — a revoke, a disable, a seal, low disk, the policy
+switched off — ends that start before it comes up: 503, `stopped`, the
+reason in `stateDetail`.
 
 **Admission.** Every start is booked against the tile's quotas — with it,
 at most `perTile.running` sandboxes running, their `memMiB` summed within
@@ -2504,9 +2510,10 @@ kept, `stateDetail` "idle for N minutes: stopped, state kept
 (idleStopMin)". Activity is a call on the sandbox (reading its
 `SandboxInfo` or the list isn't one), exec input and output, a terminal
 attach, detach or keystroke, and a file operation; `lastActive` is the
-last. Work in flight holds it off however long it runs: a non-tty exec, a
-`run`, a file, tar or copy operation, an attached terminal client. A
-terminal exec nobody is attached to and that prints nothing is idle.
+last, and stays so after the sandbox stopped. Work in flight holds it off
+however long it runs: a non-tty exec, a `run`, a file, tar or copy
+operation, an attached terminal client. A terminal exec nobody is
+attached to and that prints nothing is idle.
 A `PATCH` of `idleStopMin`, or a policy change, applies to running
 sandboxes at once.
 
@@ -2541,7 +2548,8 @@ the reason in `stateDetail`:
 
 - its tile is removed, disabled, hidden or offloaded, or loses
   `cap:sandboxes` — a revoke at once, a hand edit of `xbin.json` at the
-  next rescan;
+  next rescan (a sandbox still starting then never comes up; its start
+  answers 503);
 - a mount the tile no longer holds (the grant revoked, the resource
   dropped from its manifest or deleted), or a read-write mount the tile
   now holds only as a reader — `stateDetail` names the mount; a role that
