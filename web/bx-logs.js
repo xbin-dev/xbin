@@ -8,7 +8,14 @@
  * itself, or a terminal-level user), so it only appears where a shell would.
  *
  * Attributes:
- *   component — the tile path whose logs to stream (required)
+ *   component  — the tile path whose logs to stream (required)
+ *   deployment — optional: a non-primary tile deployment of it, whose own log
+ *                this streams (GET /logs?deployment=; absent: the primary's).
+ *                The server must echo it in the X-XBin-Deployment response
+ *                header: an answer without that echo is the primary's log
+ *                (an xbind that can't show a deployment's log ignored the
+ *                parameter), so the view says so and shows none of it — it
+ *                never presents the primary's log as the deployment's.
  *
  * Shares the terminal theme/font-size prefs (bx-term-theme / bx-term-fontsize
  * in localStorage, and the live `bx-term-pref` event) so it looks like the
@@ -58,7 +65,7 @@ function termBg() {
 export class BxLogs extends HTMLElement {
   #term; #fit; #ro; #ac; #host; #closed = false; #onPref; #gen = 0;
 
-  static get observedAttributes() { return ['component']; }
+  static get observedAttributes() { return ['component', 'deployment']; }
 
   connectedCallback() {
     this.style.height = this.style.height || '100%';
@@ -90,10 +97,9 @@ export class BxLogs extends HTMLElement {
   }
 
   attributeChangedCallback(name, oldV, newV) {
-    if (name === 'component' && oldV !== null && oldV !== newV && this.#term) {
-      this.#term.clear();
-      this.#stream();
-    }
+    if (oldV === newV || !this.#term || (name === 'component' && oldV === null)) return;
+    this.#term.clear();
+    this.#stream();
   }
 
   async #start() {
@@ -134,11 +140,13 @@ export class BxLogs extends HTMLElement {
   async #stream() {
     const comp = this.getAttribute('component');
     if (!comp || !this.#term) return;
+    const dep = this.getAttribute('deployment') || '';
     this.#ac?.abort();
     const ac = new AbortController();
     this.#ac = ac;
     const gen = ++this.#gen;
-    const url = `/api/xbin/logs?component=${encodeURIComponent(comp)}&follow=1`;
+    this.#badge(dep);
+    const url = `/api/xbin/logs?component=${encodeURIComponent(comp)}${dep ? `&deployment=${encodeURIComponent(dep)}` : ''}&follow=1`;
     try {
       const r = await fetch(url, { signal: ac.signal });
       if (gen !== this.#gen) return;
@@ -146,6 +154,14 @@ export class BxLogs extends HTMLElement {
         let msg = r.status;
         try { msg = (await r.json()).error ?? msg; } catch { }
         this.#term.write(`\x1b[31m[logs unavailable: ${msg}]\x1b[0m\r\n`);
+        return;
+      }
+      // the echo rule: a named deployment's log comes back named, or it is
+      // the primary's (an older xbind ignores the parameter) — say so and
+      // stop, without reconnecting to the same answer
+      if (dep && r.headers.get('X-XBin-Deployment') !== dep) {
+        ac.abort();
+        this.#term.write(`\x1b[33m[this xbind answered with ${comp}'s primary log, not ${dep}'s: it can't show a deployment's log]\x1b[0m\r\n`);
         return;
       }
       const reader = r.body.getReader();
@@ -164,6 +180,12 @@ export class BxLogs extends HTMLElement {
       this.#term.write(`\r\n\x1b[90m[disconnected — retrying…]\x1b[0m\r\n`);
       setTimeout(() => { if (!this.#closed && gen === this.#gen) this.#stream(); }, 2000);
     }
+  }
+
+  // the corner badge names a deployment's log, so it can't pass for the primary's
+  #badge(dep) {
+    const b = this.shadowRoot?.querySelector('.badge');
+    if (b) b.textContent = dep ? `read-only logs · ${dep}` : 'read-only logs';
   }
 }
 
