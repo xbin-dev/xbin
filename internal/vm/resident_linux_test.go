@@ -85,8 +85,13 @@ func main() { fmt.Println("probe-ok", len(os.Args)) }
 		if r.code != 0 || r.stdout != "probe-ok 2\n" {
 			t.Errorf("the single-file export: %+v", r)
 		}
-		// WP-3b: user work, not the guest's agent, is what an OOM kill takes
-		r = c.run(t, proto.Exec{Argv: []string{"cat", "/proc/self/oom_score_adj", "/proc/1/oom_score_adj"}}, "")
+		// WP-3b: user work, not the guest's agent, is what an OOM kill takes.
+		// The agent sets a session's score just after it started
+		// (adjustOOM), so the session waits for its own (at most 2 s) before
+		// it reads it and the agent's: a bare cat could read it first.
+		r = c.run(t, proto.Exec{Argv: []string{"sh", "-c", `i=0
+while [ "$(cat /proc/$$/oom_score_adj)" != 500 ] && [ $i -lt 200 ]; do sleep 0.01; i=$((i+1)); done
+cat /proc/$$/oom_score_adj /proc/1/oom_score_adj`}}, "")
 		if r.code != 0 || r.stdout != "500\n0\n" {
 			t.Errorf("the oom_score_adj of an exec, then of the agent: %+v", r)
 		}
