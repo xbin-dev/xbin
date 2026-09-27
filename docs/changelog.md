@@ -92,6 +92,31 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   socket, also on a session that already ended, and may carry `sandbox`.
   The same wire serves tile sandboxes' terminals, so a client of your own
   should ignore fields it doesn't know.
+- **Tile sandboxes: the route surface** (D120,
+  [protocol.md](protocol.md) §Tile sandboxes). A manager tile's backend
+  holding `cap:sandboxes` can define sandboxes xbind runs for it under
+  `/api/xbin/sandboxes/…`: `GET /sandboxes/runtime` (the modes, egress
+  classes and limits it may use), and create, list, get, `PATCH` and delete
+  definitions (`clientId`-idempotent, sizes clamped to the new sandboxes
+  policy, mounts of its own `filesystem` resources, `none` egress or a
+  sandbox-net slot, no `XBIN_*` variables). Every other route of the
+  contract — start and stop, `run`, execs and their output, the TTY
+  WebSocket, files, tar, copy and snapshots — is registered and answers
+  501 `unsupported` for now; `runtime.caps` lists what is served. Errors
+  use the sandbox-manager contract's `{error, refusal}` shape. Admins get
+  `GET`/`PUT /sandboxes/policy`, stop and delete with `?tile=`, and a
+  `tileSandboxes` list in `GET /sandboxes`. Nothing changes for a
+  workspace without a manager tile.
+- **Go SDK: tile sandboxes** ([sdk.md](sdk.md) §Tile sandboxes).
+  `xbin.SandboxAPI()` has a call for each of a manager tile's
+  `/api/xbin/sandboxes/…` routes: definitions and lifecycle, `Run`, execs
+  (`Output`, `Follow`, `Stdin`, `Signal`, `Resize`, `Kill`), files and tar
+  (streamed), `Copy` and snapshots. Refusals are `*xbin.SandboxError`, and
+  `errors.Is` works with `ErrSandboxNotFound`, `ErrSandboxLost` and
+  `ErrSandboxState`. `Forward`, `RelayTTY` and `RelayNewTTY` pass a
+  manager's own request through: both bodies stream, a terminal WebSocket
+  is tunnelled byte for byte, and the consumer's credentials and `X-XBin-*`
+  headers are dropped. So most contract routes take one line. Additive.
 
 ## 2026-09-27
 

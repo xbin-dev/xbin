@@ -116,6 +116,7 @@ capability surface is greppable and git-diffable.
 | `data/vault/.barrier.json` + `data/vault/<comp~key>.json` | the encryption barrier + per-element secrets (encrypted at rest when the barrier is unsealed; plaintext only under `--insecure-vault`) | xbind (vault API) |
 | `data/prefs/<user~key>/<comp~key>.json` | per-user, per-component UI preferences (the shell's screens, sidebar and drafts live here under `layout`) | xbind (prefs API) |
 | `data/screens.json` | shared layouts: the ws default screen, revisioned org screens, and the curated sidebar folder sets per owner section (D37/D55) | xbind (screens API) |
+| `data/sandboxes.json` | tile sandbox definitions, keyed by manager tile (D120); mode 0600 — no tile or sandbox can write it | xbind (tile sandboxes API) |
 
 Keys are path-flattened (`apps/calendar` → `apps~calendar`, plus a short hash
 for component keys). `data/` sits outside every terminal's view (masked and

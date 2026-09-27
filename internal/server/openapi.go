@@ -81,7 +81,7 @@ The owner can never be self-approved by an element: cross-scope grants are
 owner-approved in the grants table.`
 
 func endpoints() []ep {
-	return []ep{
+	return append([]ep{
 		// --- info / introspection ---
 		{"GET", "/whoami", "Identity", "Caller identity + permissions", "authenticated",
 			"Returns the resolved principal and what it may do — how a tile discovers whether it's the owner, an element, its granted roles, etc. An admin's view-as session (D64) adds impersonatedBy and readOnly:true. personalTiles says whether the caller (the human behind a tile call) may own tiles personally — the org-only policy and their account's switch folded in; a signed-in non-admin also gets personal {sets, netSets, netRules, allow}: their resolved personal plane (D88). Every caller gets native {runtime: 1}: this xbind serves native runtime documents (/c/<tile>/?native=1, docs/elements.md §Native app UI) — {runtime: 0, disabled: true} while an admin has turned native tile UIs off for the workspace (PUT /native-runtime).", nil, nil, "identity object"},
@@ -165,9 +165,9 @@ func endpoints() []ep {
 		{"PUT", "/vm/policy", "Runtime", "Set the VM sandbox policy", "admin",
 			"Turns VM terminals / VM backends / VM tile sandboxes on or off and sizes them. The body is merged onto the stored policy: a field it leaves out keeps its value. Zero sizes mean the defaults (2048 MiB, 2 vCPUs, 8 VMs, budget = maxVMs × memMiB, a 20 GiB VM terminal disk, tilesBudgetMiB = half the budget). Tile sandboxes' VMs also count against tilesBudgetMiB (≤ budgetMiB); tilesEmulated allows them where VMs run emulated (D120). 400 on unknown fields or out-of-range sizes; 409 without isolation.", nil,
 			jsonBody("policy (partial: absent fields keep their stored values)", oapi{"terminals": oapi{"type": "boolean"}, "backends": oapi{"type": "boolean"}, "memMiB": oapi{"type": "integer"}, "vcpus": oapi{"type": "integer"}, "maxVMs": oapi{"type": "integer"}, "budgetMiB": oapi{"type": "integer"}, "diskGiB": oapi{"type": "integer"}, "tiles": oapi{"type": "boolean"}, "tilesBudgetMiB": oapi{"type": "integer"}, "tilesEmulated": oapi{"type": "boolean"}}), "{status, policy, stored}"},
-		{"GET", "/sandboxes", "Runtime", "Every sandbox xbind runs", "admin",
-			"The sandbox registry (D112): each backend generation, terminal and agent session with its tile, user, isolation mode (vm | namespace | host), VMM (kvm | emulate), reserved memory/vCPUs, pid, cgroup leaf, disk and live stats; the VM disks on the host (a tile's terminal layer's, kind terminal, and its tile sandboxes', kind tile with the sandbox's name); the newest 64 things the sandbox layer refused or failed at (stage refused | start | health | exit, coalesced with a count); and the host's health — isolation tier and guards, whether VMs can run and what is missing, the VM policy as effective and as stored, and what running VMs hold (usedTiles: the part tile sandboxes hold) per tile.",
-			[]oapi{queryParam("tile", "one tile's sandboxes only", false)}, nil, "{sandboxes[], disks[], failures[], failureCounts, cgroup, intervalSec, health}"},
+		{"GET", "/sandboxes", "Runtime", "Every sandbox xbind runs", "admin, or a manager tile (cap:sandboxes)",
+			"For an admin, the sandbox registry (D112): each backend generation, terminal and agent session with its tile, user, isolation mode (vm | namespace | host), VMM (kvm | emulate), reserved memory/vCPUs, pid, cgroup leaf, disk and live stats; the VM disks on the host (a tile's terminal layer's, kind terminal, and its tile sandboxes', kind tile with the sandbox's name); the newest 64 things the sandbox layer refused or failed at (stage refused | start | health | exit, coalesced with a count); the host's health — isolation tier and guards, whether VMs can run and what is missing, the VM policy as effective and as stored, and what running VMs hold (usedTiles: the part tile sandboxes hold) per tile; and tileSandboxes: every tile sandbox definition (D120) — [{tile, name, state, mode, accel?, memMiB, vcpus, diskGiB, diskBytes, for?, forUser?, lastActive?, tileExists}], stopped ones and those of removed tiles too. For a manager tile's backend (cap:sandboxes), its own tile sandboxes: {sandboxes:[SandboxInfo]} (the Tile sandboxes routes; 501 unsupported without --isolate).",
+			[]oapi{queryParam("tile", "admin: one tile's sandboxes only", false)}, nil, "{sandboxes[], disks[], failures[], failureCounts, cgroup, intervalSec, health, tileSandboxes[]} | {sandboxes:[SandboxInfo]}"},
 		{"GET", "/tile-status", "Runtime", "One tile's runtime metrics", "self or admin",
 			"backend {state,gen,sandbox,vm?,cpuSec,cgroup:{mem,pids},rssKb,fds,activeConns,egress}, disk {usage,quota,blocked}, alerts[], and net {netRef,net,netRules,netSource,netNote} — the effective network (D54). Readable from that tile's terminal (tile-scoped token); `bx status` renders it. (Distinct from /tile-report, the status a tile reports about itself.)",
 			[]oapi{queryParam("component", "component path", true)}, nil, "{backend, disk, alerts, net}"},
@@ -493,7 +493,7 @@ func endpoints() []ep {
 		{"PUT", "/cron/jobs", "Resources", "Register a cron job", "writer (resource grant)", "Registers a schedule that calls back into a component. `component` is owner-only; elements always schedule themselves.", nil,
 			jsonBody("job", oapi{"name": str(""), "resource": str("res:<scope>/<name>"), "schedule": str("@every 1m | 5-field cron"), "path": str("/tick"), "role": str("optional"), "component": str("owner-only")}, "name", "resource", "schedule", "path"), "ok"},
 		{"DELETE", "/cron/jobs/{name}", "Resources", "Delete a cron job", "authenticated", "Element: own jobs; admin: any (via ?component=).", []oapi{pathParam("name", "job name"), queryParam("component", "owner-only: whose job", false)}, nil, "ok"},
-	}
+	}, sandboxEndpoints()...)
 }
 
 // OpenAPI builds the OpenAPI 3.1 document.

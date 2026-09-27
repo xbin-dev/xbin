@@ -492,6 +492,31 @@ it) and the VM policy editor;
 pid, namespaces and RSS in the runtime views are its host-side jail's: read
 its cgroup line for what the VM uses. Decision: D112.
 
+## Tile sandboxes — a manager tile's own sandboxes (D120)
+
+A **manager tile** — one that serves coding sandboxes to other tiles
+([sandbox-manager.md](sandbox-manager.md)) — can have xbind run them:
+its backend holds **`cap:sandboxes`** (only a workspace admin approves it)
+and defines and drives them through `/api/xbin/sandboxes/…`
+([protocol.md](protocol.md) §Tile sandboxes). They need `--isolate`.
+
+- **Two modes, the manager's choice per sandbox.** `namespace` is the
+  terminals' restricted sandbox: `apt` works, nested containers don't.
+  `vm` is a microVM with its own kernel, where docker works. A VM that
+  can't start never falls back to a namespace.
+- **No xbin identity inside.** A tile sandbox gets no token, no gateway
+  socket and no route to xbind; `XBIN_*` variables are refused in its
+  definition. Its network is `none` unless the manager gives it one of its
+  **sandbox-net** interface slots, which an approver binds — the manager's
+  own backend needn't hold that network.
+- **Mounts** are the manager's own `filesystem` resources (a reader's
+  read-only) and its code, read-only. Paths in file calls resolve inside
+  the sandbox, never on the host.
+- **Definitions are xbind's** (`data/sandboxes.json`), validated again at
+  every start; the policy (`.xbin/sandboxes/policy.json`, admins) caps what
+  each tile holds. The admin console lists every tile sandbox, and an
+  admin may stop or delete one — never exec into it.
+
 ## Resource limits (blast-radius containment)
 
 The workspace is shared, so one clumsy or runaway tile must not be able to take

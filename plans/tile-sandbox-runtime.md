@@ -1817,6 +1817,34 @@ next to its vforking `os.StartProcess`.
   - `apicheck`, `openapi_test` and the boot order test green.
 - **Parallel:** fully. The real `SandboxesFor` arrives with WP-5; until then
   a Deps fake stands in.
+- **As built (notes):**
+  - `Deps` has `Caps, Admin, Net, Mounts, Vault, Users, Disk, Modes,
+    Tiles` — **no `Launcher`**: its shape follows WP-15a's Spec builder, so
+    WP-15a adds it. The lifecycle seams are stubs in `manager.go` that
+    WP-15a/b fill: `start` (answers unsupported), `stop` (nothing runs),
+    `removeState` (refuses while a state dir exists — no confined remove
+    yet — and the definition is kept), and `box`, the live state.
+  - Validation lives in a new `validate.go`. A PATCH checks only the fields
+    it changes, so an unrelated edit never fails on reach the tile lost
+    since (the start re-checks everything).
+  - **Mounts are same-scope only.** §3.3's "or one granted to it" would hand
+    a cross-scope `filesystem` path out, which EnvFor never does
+    (docs/resources.md) and D120's decision 7 ("the manager's own
+    `filesystem` resources") doesn't ask for; `broker.ResourceMount`
+    refuses another scope's resource even when granted.
+  - Sizes are stored resolved (defaults filled, clamped at create) and are
+    clamped again to the caps of the moment on read and at start.
+  - The boot wiring picks up the broker's `SandboxesFor(tile string) bool`
+    by interface assertion once WP-5 adds it; until then no tile holds the
+    cap (a boot warning says so). `Modes.VM` answers unavailable ("this
+    xbind can't run VM tile sandboxes yet", or the host's reason) until
+    WP-6/WP-16; `Net` is unwired (no classes) until WP-11.
+  - `runtime.caps` is `builtCaps` (`info.go`), empty until wave 2 serves a
+    capability. `stop` is a 501 stub like the other lifecycle routes (an
+    admin passes its gate, then 501). `start: true` on create answers 201
+    with the start's failure in `stateDetail`. An admin's `&deployment=`
+    answers unsupported. An unreadable definitions file, or one from a newer
+    xbind, makes the store read-only (writes 503) — it is never clobbered.
 
 ### WP-14 — The SDK (Track D · M · after WP-13's docs)
 
@@ -1837,6 +1865,42 @@ next to its vforking `os.StartProcess`.
 - **Depends on:** WP-13's protocol text, not its code. `sdk/ws` from
   `p3/prep` for `DialTTY` and the WS test; `Forward` doesn't need it.
 - **Parallel:** fully.
+- **As built (notes):**
+  - **`DialTTY` waits for `sdk/ws`.** `sdk/ws` is committed on `p3/prep`
+    (769d9654), not on this branch. `DialTTY` and the two `sdk/ws` tests
+    (`DialTTY`, and `Forward` of an upgrade with `ws.Upgrade`/`ws.Dial` on
+    both ends) are written against its documented API in
+    `sdk/sandbox_dialtty.go` and `sdk/sandbox_dialtty_test.go`, both behind
+    `//go:build ignore` with a "WIRE ON MERGE" note. They pass in a scratch
+    copy of the module with `p3/prep`'s `sdk/ws`. Once both branches are
+    merged, the integrator deletes the first two lines of each file (the
+    build line and the blank line after it: deleting only the build line
+    leaves a file gofmt rejects) and adds `DialTTY` to docs/sdk.md. The
+    compiled `RelayTTY` test drives the upgrade with a raw
+    handshake (a browser's masked frame through, raw bytes back), which is
+    what "byte for byte" means anyway.
+  - **Small additions to §10:** `WriteSandboxError(w, err)` answers a
+    `*SandboxError` in the contract's shape, so a manager passes a refusal
+    on unchanged. `OutputChunk.Bytes()` decodes a base64 chunk.
+    `Sandbox.Name()`.
+  - **Route safety in the SDK.** A name, exec id or snapshot id that would
+    change the route (empty, `.`, `..`, one with a `/`) and the reserved
+    names are refused (400 `invalid`) before anything is sent. `Forward`
+    escapes each segment of `sub` and refuses the same segments.
+  - **`Refusal` is the runtime's own**, never derived from the status. A
+    plain 404 from an xbind without these routes doesn't read as
+    `ErrSandboxNotFound`.
+  - **`Follow`** asks for `base64`, so the bytes are exact and a character
+    split between two reads stays intact; `Bytes()` decodes. It yields
+    chunks that carry bytes or show a gap, then the last one. It skips
+    empty long-polls, and waits 250 ms after an empty answer that came back
+    at once, so it never spins.
+  - `ReadFile`'s `*FileStat` carries only `Path` and `ETag`; `Stat` has the
+    rest. `Forward` also strips `Set-Cookie` and `X-XBin-*` from the
+    answer, and answers 503 `unavailable` when xbind can't be reached.
+    `uid`/`gid` are `*int` in the SDK. `Reset` and `Rebase` take `wait`
+    like `Start` (§3.1 accepts `?wait` on every lifecycle call). The
+    snapshot calls live in `sandbox.go`.
 
 ### WP-15a — The runtime core: launch, agent client, start and stop (wave 2 · M, the critical path)
 
