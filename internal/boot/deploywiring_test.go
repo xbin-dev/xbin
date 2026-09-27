@@ -61,6 +61,7 @@ func TestDeploymentsWiring(t *testing.T) {
 		"broker.DeploymentExists":          st.Broker.DeploymentExists != nil,
 		"broker.AddressableDeployments":    st.Broker.AddressableDeployments != nil,
 		"broker.DeploymentSummary":         st.Broker.DeploymentSummary != nil,
+		"broker.RestoreDeploymentState":    st.Broker.RestoreDeploymentState != nil,
 		"broker.OnGrantChange":             st.Broker.OnGrantChange != nil,
 		"term.Manager.HasDeploymentRecord": st.Term.HasDeploymentRecord != nil,
 	} {

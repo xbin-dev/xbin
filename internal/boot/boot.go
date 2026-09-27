@@ -376,7 +376,7 @@ func (st *State) stepBroker() error {
 		RewriteDeploymentOwner: dp.RewriteDeploymentOwner, ResetDeploymentState: dp.ResetDeploymentState,
 		DeploymentLeftovers: dp.DeploymentLeftovers, DeploymentCodeRoot: dp.CodeRoot,
 		DeploymentExists: dp.HasDeployment, AddressableDeployments: dp.Addressable,
-		DeploymentSummary: dp.PrimarySummary,
+		DeploymentSummary: dp.PrimarySummary, RestoreDeploymentState: dp.RestoreDeploymentState,
 	}
 	brk.DeploymentAnswers = broker.DeploymentAnswers{PrimaryOf: dp.Primary, DeploymentsOf: dp.DeploymentsOf,
 		AddressedDeployment: dp.Addressed, RegistrationsActive: dp.RegistrationsActive,
