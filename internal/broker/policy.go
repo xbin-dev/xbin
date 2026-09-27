@@ -367,15 +367,6 @@ func (b *Broker) deploymentURLRefusal(path string) string {
 	return fmt.Sprintf("can't create %s: %s has a deployment %q, and that is its URL — pick another path", path, tile, name)
 }
 
-// hasDeploymentRecord reports whether a deployment record governs tile.
-func (b *Broker) hasDeploymentRecord(tile string) bool {
-	if f := b.DeploymentSummary; f != nil {
-		_, _, _, ok := f(tile)
-		return ok
-	}
-	return false
-}
-
 // plusNameWarnings is the answer's warnings entry, for one release, of a new
 // tile whose name holds a '+' that deploymentURLRefusal didn't refuse
 // (11-contract §2.1; 12-compat §7.1(b)): such a name is created as today and
