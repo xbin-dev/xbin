@@ -548,7 +548,7 @@ func endpoints() []ep {
 		{"POST", "/deployments/backup", "Deployments", "Back up a deployment's data now", capDeployAdmin,
 			"Archives its data through the tile's bound @archive provider, under its own archive key; POST /backup is unchanged. 502 with no archiver bound.", nil, deployBody("backup", oapi{"deployment": str("")}, "deployment"), "{ok, deployment, version}"},
 		{"GET", "/deployments/backups", "Deployments", "A deployment's archived versions", capDeployAdmin,
-			reserved + "Empty versions without an archiver, as GET /backups.", []oapi{queryParam("tile", "tile path", true), queryParam("deployment", "whose archive", true)}, nil, "{deployment, versions:[{version, time, size}], archiver}"},
+			"Empty versions without an archiver, as GET /backups. deployment defaults to the ref's qualifier, then the primary; a removed deployment's archives are still listed.", []oapi{queryParam("tile", "tile ref", true), queryParam("deployment", "whose archive (default: the primary)", false)}, nil, "{deployment, versions:[{version, time, size}], archiver}"},
 		{"POST", "/deployments/restore", "Deployments", "Restore a deployment's data", capDeployAdmin,
 			"Data only, never the work tree (POST /restore is unchanged): deployment's archive (main: the data part of the tile's), version (default latest), into a target (default the archive's own). Stops every deployment using the target's data; also needs the reset level on every tile claiming it.", nil,
 			deployBody("restore", oapi{"deployment": str("whose archive"), "version": str("default latest"), "into": str("the target deployment"), "replace": boolean(), "confirm": str("\"erase-data\" when the target has data")}, "deployment"), "{ok, deployment, into, restored, skipped}"},

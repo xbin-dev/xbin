@@ -97,7 +97,7 @@ func mountDeploymentsAPI(m apiMounter, a *deploymentsAPI) {
 	m.RegisterAPI("POST /deployments/reset", a.post(deployments.OpReset))
 	m.RegisterAPI("POST /deployments/vault-copy", a.post(deployments.OpVaultCopy))
 	m.RegisterAPI("POST /deployments/backup", a.post(deployments.OpBackup))
-	m.RegisterAPI("GET /deployments/backups", reservedRoute)
+	m.RegisterAPI("GET /deployments/backups", a.getBackups) // deploybackups.go
 	m.RegisterAPI("POST /deployments/restore", a.post(deployments.OpRestore))
 	m.RegisterAPI("POST /deployments/backup-schedule", a.post(deployments.OpBackupSchedule))
 	// Run a deployment's cron job now.
