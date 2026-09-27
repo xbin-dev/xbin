@@ -21,6 +21,18 @@
 //	all my threads
 //	             threads_list scope all — the owner is asked to allow it
 //	             (D111) → "Found: <its first line>"
+//	sandbox pwd  bash "pwd; echo $SANDBOX_NAME" in the bound sandbox (D115) → "Ran: <its first line>"
+//	sandbox write
+//	             write hello.txt "hi from the agent" → "Wrote it."
+//	sandbox edit edit hello.txt hi → hello → "Edited it."
+//	sandbox find glob **/*.txt → "Found: <its first line>"
+//	sandbox long bash "sleep 3; echo slow done" with timeout_s 1 → it becomes a
+//	             job → bash_output {job, wait_s 20} → "Job: <its first line>"
+//	sandbox restart
+//	             bash "sleep 8; echo survived" (the harness restarts the agent's
+//	             backend under it); the lost call names its job → bash_output
+//	new sandbox  sandbox_create {name "scratch"} — the owner is asked to allow
+//	             it → "Created: <its first line>"
 //	restart me   the FIRST request of that turn hangs 30 s (the harness restarts
 //	             the agent's backend under it), a re-issue answers at once:
 //	             a note "Survive a restart" → "Noted it."
@@ -46,6 +58,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -70,6 +84,7 @@ var (
 	recMu sync.Mutex
 	recs  []*reqRec
 	seen  = map[string]bool{} // "restart me" turns already asked once
+	jobRe = regexp.MustCompile(`\bjob (\d+)`)
 )
 
 func record(wire, model string, conv []turn, system string) *reqRec {
@@ -178,9 +193,27 @@ func script(conv []turn, system string) plan {
 			return plan{Calls: []call{{"attach_to_reply", map[string]any{"paths": []string{"note.txt"}, "summary": "Attach the file"}}}}
 		case "attach_to_reply":
 			return plan{Text: "Here is the file."}
-		case "threads_list", "schedules_list":
+		case "threads_list", "schedules_list", "glob":
 			first, _, _ := strings.Cut(strings.TrimSpace(last.Text), "\n")
 			return plan{Text: "Found: " + first}
+		case "bash":
+			// a command still running (a timeout, or lost to a restart) names its job
+			if m := jobRe.FindStringSubmatch(last.Text); m != nil && !strings.Contains(last.Text, "[exit") {
+				n, _ := strconv.Atoi(m[1])
+				return plan{Calls: []call{{"bash_output", map[string]any{"job": n, "wait_s": 20, "summary": "Wait for the job"}}}}
+			}
+			first, _, _ := strings.Cut(strings.TrimSpace(last.Text), "\n")
+			return plan{Text: "Ran: " + first}
+		case "bash_output":
+			first, _, _ := strings.Cut(strings.TrimSpace(last.Text), "\n")
+			return plan{Text: "Job: " + first}
+		case "write":
+			return plan{Text: "Wrote it."}
+		case "edit":
+			return plan{Text: "Edited it."}
+		case "sandbox_create":
+			first, _, _ := strings.Cut(strings.TrimSpace(last.Text), "\n")
+			return plan{Text: "Created: " + first}
 		case "subagent_spawn", "spawn_subagent":
 			if strings.Contains(last.Text, "background") {
 				return plan{Text: "Started three helpers."}
@@ -214,6 +247,20 @@ func script(conv []turn, system string) plan {
 		return plan{Calls: []call{{"schedules_list", map[string]any{"summary": "List my schedules"}}}}
 	case strings.Contains(lastUser, "all my threads"):
 		return plan{Calls: []call{{"threads_list", map[string]any{"scope": "all", "summary": "List your conversations"}}}}
+	case strings.Contains(lastUser, "sandbox pwd"):
+		return plan{Calls: []call{{"bash", map[string]any{"command": "pwd; echo $SANDBOX_NAME", "summary": "Where am I"}}}}
+	case strings.Contains(lastUser, "sandbox write"):
+		return plan{Calls: []call{{"write", map[string]any{"path": "hello.txt", "content": "hi from the agent\n", "summary": "Write hello.txt"}}}}
+	case strings.Contains(lastUser, "sandbox edit"):
+		return plan{Calls: []call{{"edit", map[string]any{"path": "hello.txt", "old_string": "hi", "new_string": "hello", "summary": "Edit hello.txt"}}}}
+	case strings.Contains(lastUser, "sandbox find"):
+		return plan{Calls: []call{{"glob", map[string]any{"pattern": "**/*.txt", "summary": "Find text files"}}}}
+	case strings.Contains(lastUser, "sandbox long"):
+		return plan{Calls: []call{{"bash", map[string]any{"command": "sleep 3; echo slow done", "timeout_s": 1, "summary": "Run something slow"}}}}
+	case strings.Contains(lastUser, "sandbox restart"):
+		return plan{Calls: []call{{"bash", map[string]any{"command": "sleep 8; echo survived", "summary": "Survive a restart"}}}}
+	case strings.Contains(lastUser, "new sandbox"):
+		return plan{Calls: []call{{"sandbox_create", map[string]any{"name": "scratch", "summary": "Make a sandbox"}}}}
 	case strings.Contains(lastUser, "restart me"):
 		key := fmt.Sprintf("%d:%s", len(conv), lastUser)
 		recMu.Lock()
