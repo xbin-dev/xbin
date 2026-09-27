@@ -350,8 +350,10 @@ export class BxFrame extends LitElement {
   // A session of the user's opened, ended or was renamed — here or in another
   // browser: the directory says what the tabs are now.
   async _relist() {
+    const gen = this._idGen;
     const rows = await sessions.list(this.src);
     if (!this.isConnected) return;
+    if (gen !== this._idGen) return this._relist(); // a tab got its id meanwhile: this listing may predate that session
     this._sessions = keepTargets(tabsFrom(rows, this._sessions), this._sessions, rows);
     this._reindex();
     loadTileState(this); // a session that ended is history now; a reset/rebuilt layer is current
@@ -725,6 +727,7 @@ export class BxFrame extends LitElement {
              net: d.net || cur.net || null, scopes: d.scopes || cur.scopes || null, label: d.label || '',
              baseOutdated: !!d.baseOutdated, ...sessionEcho(this, ev, key) };
     this._sessions = s;
+    this._idGen = (this._idGen | 0) + 1; // a listing already in flight can't know this session (_relist)
     this._reindex();
   }
 
