@@ -196,15 +196,21 @@ func (d *DB) dropJob(j *sbxJob) {
 
 // jobStarted records a job's exec, and says the state the job is in now:
 // "running" — or how it ended already, when that was recorded while its
-// start was in flight (its sandbox detached: killed; given up: lost).
+// start was in flight (its sandbox detached: killed; given up: lost; its
+// conversation deleted, the row gone: lost too, so the command is stopped).
 func (d *DB) jobStarted(j *sbxJob, exec string) string {
 	j.Exec = exec
 	if j.State == "starting" {
 		j.State = "running"
 	}
 	var state string
-	if err := d.q.QueryRow(`UPDATE sandbox_jobs SET exec_id=?, state=CASE WHEN state='starting' THEN 'running' ELSE state END
-		WHERE root_id=? AND job=? RETURNING state`, exec, j.Root, j.Job).Scan(&state); err != nil {
+	err := d.q.QueryRow(`UPDATE sandbox_jobs SET exec_id=?, state=CASE WHEN state='starting' THEN 'running' ELSE state END
+		WHERE root_id=? AND job=? RETURNING state`, exec, j.Root, j.Job).Scan(&state)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		j.State = "lost"
+		return j.State
+	case err != nil:
 		return j.State
 	}
 	return state

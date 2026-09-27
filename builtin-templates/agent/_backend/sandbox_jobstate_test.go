@@ -618,3 +618,28 @@ func TestSandboxSymlinks(t *testing.T) {
 		t.Fatalf("write went through the link: %q", got)
 	}
 }
+
+// A start that answers after its conversation was deleted (its job rows gone
+// with it) reads as lost, so the command is stopped rather than left running
+// untracked (the polish review).
+func TestJobStartedAfterDelete(t *testing.T) {
+	db := newTestDB(t)
+	root, _ := db.createRun("t", "", 0)
+	j := &sbxJob{Root: root, Run: root, Call: "c1", Ref: "apps/cs|sb-1", Command: "sleep 9", State: "starting"}
+	if err := db.newJob(j); err != nil {
+		t.Fatal(err)
+	}
+	if got := db.jobStarted(j, "e1"); got != "running" {
+		t.Fatalf("a live row: %q", got)
+	}
+	j2 := &sbxJob{Root: root, Run: root, Call: "c2", Ref: "apps/cs|sb-1", Command: "sleep 9", State: "starting"}
+	if err := db.newJob(j2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.q.Exec(`DELETE FROM sandbox_jobs WHERE root_id=?`, root); err != nil {
+		t.Fatal(err)
+	}
+	if got := db.jobStarted(j2, "e2"); got != "lost" {
+		t.Fatalf("a row deleted while its start was in flight: %q, want lost", got)
+	}
+}
