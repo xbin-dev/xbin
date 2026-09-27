@@ -599,12 +599,19 @@ type dlFake struct {
 type dlAns struct {
 	status int
 	body   string
+	hdr    map[string]string
 }
 
 func newDLFake() *dlFake { return &dlFake{ans: map[string][]dlAns{}} }
 
 func (f *dlFake) on(key string, status int, body string) *dlFake {
-	f.ans[key] = append(f.ans[key], dlAns{status, body})
+	f.ans[key] = append(f.ans[key], dlAns{status: status, body: body})
+	return f
+}
+
+// onH is on with response headers.
+func (f *dlFake) onH(key string, status int, body string, hdr map[string]string) *dlFake {
+	f.ans[key] = append(f.ans[key], dlAns{status, body, hdr})
 	return f
 }
 
@@ -621,7 +628,7 @@ func (f *dlFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	f.mu.Lock()
 	f.reqs = append(f.reqs, line)
-	a := dlAns{http.StatusNotFound, `{"error":"no fixture for ` + key + `"}`}
+	a := dlAns{status: http.StatusNotFound, body: `{"error":"no fixture for ` + key + `"}`}
 	if q := f.ans[key]; len(q) > 0 {
 		a = q[0]
 		if len(q) > 1 {
@@ -630,6 +637,9 @@ func (f *dlFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	f.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
+	for k, v := range a.hdr {
+		w.Header().Set(k, v)
+	}
 	w.WriteHeader(a.status)
 	io.WriteString(w, a.body)
 }
@@ -743,6 +753,26 @@ func dlEntry(id int, how, cp, prev, result, phase, errText string) map[string]an
 	return e
 }
 
+// dlFrom marks a promotion's entry with the deployment it came from.
+func dlFrom(e map[string]any, from string) map[string]any {
+	e["from"] = from
+	return e
+}
+
+// dlOn makes an entry another deployment's.
+func dlOn(e map[string]any, dep string) map[string]any {
+	e["deployment"] = dep
+	return e
+}
+
+// dlDevDep is dev, a non-primary deployment at its own URL: pinned to cp, or
+// following the work tree.
+func dlDevDep(cp string) map[string]any {
+	d := dlDep("dev", cp, false, dlAllCan())
+	d["url"], d["api"] = "/c/apps/x+dev/", "/api/apps/x+dev/"
+	return d
+}
+
 func dlLogAnswer(e map[string]any) string {
 	b, _ := json.Marshal(map[string]any{"entry": e})
 	return string(b)
@@ -762,7 +792,8 @@ func dlImpact(from, to string, pauses bool, affects string) map[string]any {
 }
 
 // dlCmds are the commands' functions, without dcCommand's os.Exit.
-var dlCmds = map[string]func([]string) error{"live-reload": cmdLiveReload, "deploy": cmdDeploy, "rollback": cmdRollback}
+var dlCmds = map[string]func([]string) error{"live-reload": cmdLiveReload, "deploy": cmdDeploy, "rollback": cmdRollback,
+	"promote": cmdPromote, "deployment": cmdDeployment}
 
 type dlResult struct {
 	code     int
@@ -812,7 +843,10 @@ func dlExec(t *testing.T, dir string, env []string, args ...string) (string, str
 // compat rule 6 superset: flags anywhere among the positionals, --flag value
 // and --flag=value, each boolean's --no- pair with the last one winning, an
 // unknown flag or a dangling value flag as a usage error, and positionals
-// right-aligned, the tile falling back to $XBIN_COMPONENT.
+// right-aligned, the tile falling back to $XBIN_COMPONENT. M2: the family's
+// value flags (repeatable, the last one winning) and their checks, a
+// qualified ref standing for the tile and the first name, the subcommand
+// wherever flags put it, --deployment taken out of a lenient line.
 func TestParseDeploymentArgs(t *testing.T) {
 	flags := []string{"--to", "--checkpoint", "--yes", "--dry-run", "--json", "--wait"}
 	for _, r := range []struct {
@@ -910,6 +944,97 @@ func TestParseDeploymentArgs(t *testing.T) {
 		sub, rest := liveReloadSub(r.args)
 		if sub != r.sub || strings.Join(rest, " ") != r.rest {
 			t.Errorf("%q: sub %q rest %q", r.args, sub, rest)
+		}
+	}
+
+	// M2: the family's flags, in the same superset.
+	m2 := []string{"--from", "--seed", "--attach", "--keys", "--all", "--deliveries", "--mem", "--pids", "--limit", "--path", "--stat", "--yes"}
+	a, err := parseDeploymentArgs("deployment add", []string{"--from=c:3f2a1c9", "dev", "--seed", "--no-seed", "--attach",
+		"--keys", "A,B", "--keys=C", "--mem", "256", "--mem=default", "--limit=5", "--from", "primary"}, m2...)
+	if err != nil || strings.Join(a.pos, ",") != "dev" || a.val("--from") != "primary" || a.has("--seed") || !a.has("--attach") ||
+		strings.Join(a.vals["--keys"], " ") != "A,B C" || a.val("--mem") != "default" || a.val("--limit") != "5" || a.val("--path") != "" {
+		t.Errorf("M2 flags: %+v, %v", a, err)
+	}
+	for _, r := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--from", "HEAD"}, `--from "HEAD": work-tree, primary, or a checkpoint id`},
+		{[]string{"--deliveries=yes"}, `--deliveries "yes": on or off`},
+		{[]string{"--mem", "0"}, `--mem "0": a positive whole number, or "default"`},
+		{[]string{"--pids", "-3"}, `--pids "-3": a positive whole number`},
+		{[]string{"--limit", "default"}, `--limit "default": a positive whole number`},
+		{[]string{"--keys", "A,,B"}, `--keys "A,,B": key names, separated by commas`},
+		{[]string{"--path="}, `--path "": a file of the tile`},
+		{[]string{"--stat=1"}, "--stat takes no value"},
+		{[]string{"--keys"}, "--keys needs a value"},
+		{[]string{"--always-on", "on"}, "unknown flag --always-on"},
+	} {
+		_, err := parseDeploymentArgs("deployment set", r.args, m2...)
+		var e *dcError
+		if !errors.As(err, &e) || e.code != exitUsage || !strings.HasPrefix(e.msg, r.want) {
+			t.Errorf("%q: got %v, want a usage error %q", r.args, err, r.want)
+		}
+	}
+
+	// A qualified ref stands for the tile and the first name, unresolved.
+	t.Setenv("XBIN_COMPONENT", "apps/here")
+	for _, r := range []struct {
+		arity int
+		pos   []string
+		want  string
+	}{
+		{2, []string{"apps/x+dev"}, "apps/x+dev [] q"},
+		{2, []string{"dev"}, "apps/here [dev] -"},
+		{2, []string{"apps/x", "dev"}, "apps/x [dev] -"},
+		{3, []string{"apps/x+dev", "nightly"}, "apps/x+dev [nightly] q"},
+		{3, []string{"dev", "nightly"}, "apps/here [dev nightly] -"},
+		{2, []string{"apps/x"}, "usage"},
+		{3, []string{"apps/x", "nightly"}, "usage"},
+	} {
+		ref, names, q, err := dcArgs{pos: r.pos}.named("deployment rm", r.arity)
+		got := fmt.Sprintf("%s %v %s", ref, names, map[bool]string{true: "q", false: "-"}[q])
+		if err != nil {
+			got = "usage"
+		}
+		if got != r.want {
+			t.Errorf("named %d %q: got %q, want %q", r.arity, r.pos, got, r.want)
+		}
+	}
+
+	// The family's subcommand is the first positional, wherever flags put it.
+	for _, r := range []struct {
+		args      []string
+		sub, rest string
+	}{
+		{[]string{"--json", "ls", "apps/x"}, "ls", "--json apps/x"},
+		{[]string{"--keys", "rm", "vault-copy", "dev"}, "vault-copy", "--keys rm dev"},
+		{[]string{"--yes"}, "", "--yes"},
+	} {
+		sub, rest := deploymentSub(r.args)
+		if sub != r.sub || strings.Join(rest, " ") != r.rest {
+			t.Errorf("%q: sub %q rest %q", r.args, sub, rest)
+		}
+	}
+
+	// --deployment comes out of a lenient line (status, logs, agent run);
+	// everything else stays as it was.
+	for _, r := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"apps/x", "--deployment", "dev", "--all"}, "[apps/x --all] dev true"},
+		{[]string{"--deployment=dev", "-f"}, "[-f] dev true"},
+		{[]string{"--frob", "x"}, "[--frob x]  false"},
+		{[]string{"--deployment"}, "usage"},
+	} {
+		rest, dep, given, err := takeDeployment("logs", r.args)
+		got := fmt.Sprintf("%v %s %v", rest, dep, given)
+		if err != nil {
+			got = "usage"
+		}
+		if got != r.want {
+			t.Errorf("takeDeployment %q: got %q, want %q", r.args, got, r.want)
 		}
 	}
 }
@@ -1048,12 +1173,14 @@ func TestBxExitCodes(t *testing.T) {
 	}
 }
 
-// covers 12-compat PO-13 — against an xbind that predates tile deployments
-// (Go's mux: a 404 or a 405 without a JSON error), every new command says so
-// and exits 6 after its one GET, sending nothing else; a JSON 404 is the
-// server's own refusal (exit 1).
+// covers 12-compat PO-13 NC-2 — against an xbind that predates tile
+// deployments (Go's mux: a 404 or a 405 without a JSON error), every new
+// command says so and exits 6 after its one request of the /deployments
+// family, sending nothing else; so do bx status, bx logs and bx agent run
+// naming a deployment; a JSON 404 is the server's own refusal (exit 1).
 func TestBxOldXbind(t *testing.T) {
 	t.Setenv("XBIN_COMPONENT", "apps/x")
+	t.Setenv("XBIN_DEPLOYMENT", "")
 	var mu sync.Mutex
 	var seen []string
 	record := func(h http.Handler) http.Handler {
@@ -1091,6 +1218,38 @@ func TestBxOldXbind(t *testing.T) {
 	defer srv.Close()
 	if got := dlRun(t, srv.URL, false, "", "live-reload", "pause"); got.code != exitFailed || got.err != "bx: no such tile: apps/x\n" {
 		t.Errorf("a JSON 404: exit %d, %q", got.code, got.err)
+	}
+
+	// M2: the family and promote, in-process; status, logs and agent run
+	// naming a deployment, as a shell runs them.
+	for _, url := range []string{notFound.URL, notAllowed.URL} {
+		for _, args := range [][]string{
+			{"deployment", "ls"}, {"deployment", "ls", "--json"}, {"deployment", "add", "dev"}, {"deployment", "rm", "dev", "--yes"},
+			{"deployment", "primary", "--to", "dev", "--yes"}, {"deployment", "protect", "on"}, {"deployment", "seed", "dev", "--yes"},
+			{"deployment", "reset", "dev"}, {"deployment", "vault-copy", "dev", "--all"}, {"deployment", "set", "dev", "--deliveries", "on"},
+			{"deployment", "edge"}, {"deployment", "edge", "slot:net", "block"}, {"deployment", "run-now", "dev", "nightly"},
+			{"deployment", "log"}, {"deployment", "log", "--json"}, {"deployment", "diff"}, {"deployment", "diff", "--stat", "--json"},
+			{"promote", "dev", "main", "--yes"},
+		} {
+			seen = nil
+			got := dlRun(t, url, false, "", args...)
+			if got.code != exitNoDeployments || got.err != "bx: "+oldXbindMsg+"\n" || got.out != "" {
+				t.Errorf("bx %s: exit %d, stderr %q, stdout %q", strings.Join(args, " "), got.code, got.err, got.out)
+			}
+			if len(seen) != 1 || !strings.HasPrefix(seen[0], "GET /api/xbin/deployments") {
+				t.Errorf("bx %s sent %q", strings.Join(args, " "), seen)
+			}
+		}
+		for _, args := range [][]string{
+			{"status", "--deployment", "dev"}, {"logs", "apps/x", "--deployment=dev"},
+			{"agent", "run", "--deployment", "dev", "hi"}, {"agent", "run", "--tile", "apps/x+dev", "hi"},
+		} {
+			seen = nil
+			out, stderr, code := dlExec(t, t.TempDir(), []string{"XBIN_URL=" + url, "XBIN_TOKEN=dl-token", "XBIN_COMPONENT=apps/x"}, args...)
+			if code != exitNoDeployments || stderr != "bx: "+oldXbindMsg+"\n" || out != "" || len(seen) != 1 || seen[0] != "GET /api/xbin/deployments" {
+				t.Errorf("bx %s: exit %d, stderr %q, stdout %q, sent %q", strings.Join(args, " "), code, stderr, out, seen)
+			}
+		}
 	}
 }
 
@@ -1155,9 +1314,13 @@ func TestBxJSON(t *testing.T) {
 // covers SC-AGENT-BX — every command that changes where saves go says so:
 // pausing live reload, attaching it, resuming it, and a code move onto the
 // live reload target, which pauses it; the report says it before acting,
-// the result after, and `bx live-reload` shows it (10-ux §12.1).
+// the result after, and `bx live-reload` shows it (10-ux §12.1). M2: a
+// promotion onto the live reload target, adding a deployment with --attach,
+// removing the deployment live reload was on, making it the primary, and
+// protecting the primary live reload was on.
 func TestBxSaysWhereSavesGo(t *testing.T) {
 	t.Setenv("XBIN_COMPONENT", "")
+	t.Setenv("XBIN_DEPLOYMENT", "")
 	attached := dlAttached()
 	pausedAfter := dlPaused(dlCP2).with("seq", 8)
 	withDev := func(st dlSt, mainCP, devCP string) dlSt {
@@ -1231,6 +1394,66 @@ func TestBxSaysWhereSavesGo(t *testing.T) {
 		}},
 		{"the state, attached to dev", func(f *dlFake) { f.on(dlGet, 200, withDev(attached.with("liveReload", "dev"), dlCP2, "").json()) },
 			[]string{"live-reload", "apps/x"}, []string{"apps/x: dev — saves reach apps/x+dev; main pinned to c:7b19e02\n"}},
+		{"M2: promote onto the live reload target", func(f *dlFake) {
+			st := withDev(attached, "", dlCP0)
+			f.on(dlGet, 200, st.json()).
+				on(dlPost+"promote dry", 200, dlAnswer(st, "impact", dlImpact(dlCP, dlCP0, true, "everyone"))).
+				on(dlPost+"promote", 200, dlAnswer(withDev(dlPaused(dlCP0), dlCP0, dlCP0), "deploy", dlFrom(dlEntry(13, "promote", dlCP0, dlCP, "ok", "", ""), "dev")))
+		}, []string{"promote", "apps/x", "dev", "main", "--yes"}, []string{
+			"Promote dev → main (the primary of apps/x)\n",
+			"  Data     only code moves — main keeps its data, secrets, cron jobs and routing\n",
+			"  Pauses   live reload — later saves won't reach main until you resume (bx live-reload resume)\n",
+			"main now runs c:1e9d0aa (promoted from dev).\n",
+			"Live reload paused — main is pinned to c:1e9d0aa.",
+		}},
+		{"M2: add --attach", func(f *dlFake) {
+			after := dlPaused(dlCP2).with("liveReload", "dev", "deployments", []any{dlDep("main", dlCP2, true, dlAllCan()), dlDevDep("")})
+			imp := dlImpact("", dlCP2, false, "nobody")
+			imp["code"].(map[string]any)["deployment"] = "dev"
+			f.on(dlGet, 200, attached.json()).
+				on(dlPost+"add dry", 200, dlAnswer(attached, "impact", imp)).
+				on(dlPost+"add", 200, dlAnswer(after, "deploy", dlOn(dlEntry(14, "add", dlCP2, "", "ok", "", ""), "dev")))
+		}, []string{"deployment", "add", "apps/x", "dev", "--attach"}, []string{
+			"Add deployment dev to apps/x\n",
+			"  Code     dev runs a fresh checkpoint of the work tree, c:7b19e02; live reload moves to dev and main is pinned where it stands\n",
+			"  Affects  nobody now. It is reachable at /c/apps/x+dev/ by people with write on apps/x and by its terminals; its cron jobs, bus deliveries and alwaysOn stay off\n",
+			"Added dev at /c/apps/x+dev/.\n",
+			"Live reload: dev — saves reach apps/x+dev; main is pinned to c:7b19e02.\n",
+		}},
+		{"M2: remove the deployment live reload was on", func(f *dlFake) {
+			before := dlPaused(dlCP).with("liveReload", "dev", "deployments", []any{dlDep("main", dlCP, true, dlAllCan()), dlDevDep("")})
+			f.on(dlGet, 200, before.json()).
+				on(dlPost+"remove dry", 200, dlAnswer(before, "impact", dlImpact("", "", false, "deployment"))).
+				on(dlPost+"remove", 200, dlAnswer(dlPaused(dlCP)))
+		}, []string{"deployment", "rm", "apps/x", "dev", "--yes"}, []string{
+			"Remove deployment dev\n",
+			"  Pauses   live reload was on dev; bx live-reload now and resume then go to main, which is pinned to c:3f2a1c9\n",
+			"  Affects  people using /c/apps/x+dev/ lose it\n",
+			"Removed dev.\n",
+			"Live reload paused — it was on dev. bx live-reload now and bx live-reload resume go to main (the primary), which is pinned to c:3f2a1c9.\n",
+		}},
+		{"M2: make the live reload target the primary", func(f *dlFake) {
+			before := dlPaused(dlCP).with("liveReload", "dev", "deployments", []any{dlDep("main", dlCP, true, dlAllCan()), dlDevDep("")})
+			after := before.with("primary", "dev", "deployments", []any{dlDep("main", dlCP, false, dlAllCan()), dlDep("dev", "", true, dlAllCan())})
+			f.on(dlGet, 200, before.json()).
+				on(dlPost+"primary dry", 200, dlAnswer(before, "impact", dlImpact("", "", false, "everyone"))).
+				on(dlPost+"primary", 200, dlAnswer(after))
+		}, []string{"deployment", "primary", "apps/x", "--to", "dev", "--yes"}, []string{
+			"Make dev the primary of apps/x\n",
+			"  Pauses   main's and dev's backends restart now; WebSocket and SSE connections drop; live reload is attached to dev: from now on every save reaches everyone using apps/x\n",
+			"dev is now the primary — it serves dev's data.\n",
+			"Live reload: dev — dev is the primary now: every save reaches everyone using apps/x.\n",
+		}},
+		{"M2: protect the primary live reload is on", func(f *dlFake) {
+			f.on(dlGet, 200, attached.json()).
+				on(dlPost+"protect dry", 200, dlAnswer(attached, "impact", dlImpact(dlCP, dlCP2, true, "everyone"))).
+				on(dlPost+"protect", 200, dlAnswer(dlPaused(dlCP2).with("protectedPrimary", true), "deploy", dlEntry(15, "protect", dlCP2, "", "ok", "", "")))
+		}, []string{"deployment", "protect", "apps/x", "on", "--yes"}, []string{
+			"Protect main\n",
+			"  Pauses   live reload leaves main, which is pinned to c:7b19e02\n",
+			"main is protected.\n",
+			"Live reload paused — main is pinned to c:7b19e02.",
+		}},
 	} {
 		t.Run(r.name, func(t *testing.T) {
 			f := newDLFake()
@@ -1273,51 +1496,102 @@ func TestBxSaysWhereSavesGo(t *testing.T) {
 	}
 }
 
-// covers P21 SC-SAFE-DEPLOY — what a code move sends names what its report
-// showed (11-contract §9.1): a deploy from the work tree sends the dry run's
-// capture as expect, a roll back its checkpoint, reload now its expect;
-// guarded commands send the state's seq, a protected primary's deploy the
-// capture as checkpoint; pausing names nothing; the dry run is the same
-// request with dryRun.
+// covers P21 SC-SAFE-DEPLOY SC-PROTECT — what a code move sends names what
+// its report showed (11-contract §9.1): a deploy from the work tree sends the
+// dry run's capture as expect, a roll back its checkpoint, reload now and
+// promote their expect; guarded commands send the state's seq; pausing names
+// nothing; the dry run is the same request with dryRun. Onto a protected
+// primary the server refuses a request that names no code, dry runs included,
+// so bx names it before the dry run: a deploy's or reload now's capture from
+// a diff's X-XBin-Checkpoint-To, a roll back's target from the deploy log, a
+// promotion's or reassignment's source checkpoint, or its capture; with seq.
 func TestBxNamesReviewedCode(t *testing.T) {
 	t.Setenv("XBIN_COMPONENT", "apps/x")
+	t.Setenv("XBIN_DEPLOYMENT", "")
 	paused := dlPaused(dlCP)
+	prot := paused.with("protectedPrimary", true)
+	withDev := func(st dlSt, devCP string) dlSt {
+		return st.with("deployments", []any{dlDep("main", dlCP, true, dlAllCan()), dlDep("dev", devCP, false, dlAllCan())})
+	}
+	capture := func(from, to string) string {
+		return "GET /api/xbin/deployments/diff?" + url.Values{"from": {from}, "stat": {"1"}, "tile": {"apps/x"}, "to": {to}}.Encode()
+	}
+	diffAns := func(f *dlFake) {
+		f.onH("GET /api/xbin/deployments/diff", 200, `{"from":"c:3f2a1c9","to":"c:7b19e02","files":[],"truncated":false}`,
+			map[string]string{"X-XBin-Checkpoint-From": dlCP, "X-XBin-Checkpoint-To": dlCP2})
+	}
+	logAns := func(f *dlFake) {
+		f.on(dlLog, 200, `{"tile":"apps/x","entries":[`+
+			`{"id":9,"deployment":"main","how":"deploy","checkpoint":"c:3f2a1c9","result":"ok"},`+
+			`{"id":8,"deployment":"main","how":"deploy","checkpoint":"c:5555555","result":"failed"},`+
+			`{"id":7,"deployment":"main","how":"deploy","checkpoint":"c:1e9d0aa","result":"ok"}],"more":false}`)
+	}
 	for _, r := range []struct {
 		st    dlSt
 		route string
 		imp   map[string]any
 		args  []string
+		fake  func(f *dlFake)
+		pre   []string // requests between the state and the dry run
 		dry   string
 		real  string
 	}{
-		{paused, "deploy", dlImpact(dlCP, dlCP2, false, "everyone"), []string{"deploy", "--to", "main", "--yes"},
+		{paused, "deploy", dlImpact(dlCP, dlCP2, false, "everyone"), []string{"deploy", "--to", "main", "--yes"}, nil, nil,
 			`{"deployment":"main","dryRun":true,"tile":"apps/x"}`, `{"deployment":"main","expect":"c:7b19e02","seq":4,"tile":"apps/x"}`},
-		{paused, "deploy", dlImpact(dlCP, dlCP0, false, "everyone"), []string{"deploy", "--to", "main", "--checkpoint", dlCP0, "--yes"},
+		{paused, "deploy", dlImpact(dlCP, dlCP0, false, "everyone"), []string{"deploy", "--to", "main", "--checkpoint", dlCP0, "--yes"}, nil, nil,
 			`{"checkpoint":"c:1e9d0aa","deployment":"main","dryRun":true,"tile":"apps/x"}`, `{"checkpoint":"c:1e9d0aa","deployment":"main","seq":4,"tile":"apps/x"}`},
-		{paused.with("protectedPrimary", true), "deploy", dlImpact(dlCP, dlCP2, false, "everyone"), []string{"deploy", "--to", "main", "--yes"},
-			`{"deployment":"main","dryRun":true,"tile":"apps/x"}`, `{"checkpoint":"c:7b19e02","deployment":"main","seq":4,"tile":"apps/x"}`},
-		{paused, "rollback", dlImpact(dlCP, dlCP0, false, "everyone"), []string{"rollback", "--to", "main", "--yes"},
+		{paused, "rollback", dlImpact(dlCP, dlCP0, false, "everyone"), []string{"rollback", "--to", "main", "--yes"}, nil, nil,
 			`{"deployment":"main","dryRun":true,"tile":"apps/x"}`, `{"checkpoint":"c:1e9d0aa","deployment":"main","seq":4,"tile":"apps/x"}`},
-		{paused, "live-reload/now", dlImpact(dlCP, dlCP2, false, "everyone"), []string{"live-reload", "now", "--yes"},
+		{paused, "live-reload/now", dlImpact(dlCP, dlCP2, false, "everyone"), []string{"live-reload", "now", "--yes"}, nil, nil,
 			`{"dryRun":true,"tile":"apps/x"}`, `{"expect":"c:7b19e02","seq":4,"tile":"apps/x"}`},
-		{dlZero(), "live-reload/pause", dlImpact("", "", true, "nobody"), []string{"live-reload", "pause"},
+		{dlZero(), "live-reload/pause", dlImpact("", "", true, "nobody"), []string{"live-reload", "pause"}, nil, nil,
 			`{"dryRun":true,"tile":"apps/x"}`, `{"tile":"apps/x"}`},
 		{dlAttached().with("selected", "dev", "deployments", []any{dlDep("main", "", true, dlAllCan()), dlDep("dev", dlCP, false, dlAllCan())}),
-			"deploy", dlImpact(dlCP, dlCP2, false, "deployment"), []string{"deploy", "apps/x+dev"}, // not the primary: no --yes needed
+			"deploy", dlImpact(dlCP, dlCP2, false, "deployment"), []string{"deploy", "apps/x+dev"}, nil, nil, // not the primary: no --yes needed
 			`{"dryRun":true,"tile":"apps/x+dev"}`, `{"expect":"c:7b19e02","tile":"apps/x+dev"}`},
+		// M2: promote names A's code as expect; onto the primary it is guarded (seq).
+		{withDev(paused, ""), "promote", dlImpact(dlCP, dlCP2, false, "everyone"), []string{"promote", "dev", "main", "--yes"}, nil, nil,
+			`{"dryRun":true,"from":"dev","tile":"apps/x","to":"main"}`, `{"expect":"c:7b19e02","from":"dev","seq":4,"tile":"apps/x","to":"main"}`},
+		{withDev(paused, dlCP0), "promote", dlImpact(dlCP0, dlCP, false, "deployment"), []string{"promote", "apps/x", "main", "dev"}, nil, nil,
+			`{"dryRun":true,"from":"main","tile":"apps/x","to":"dev"}`, `{"expect":"c:3f2a1c9","from":"main","tile":"apps/x","to":"dev"}`},
+		{paused, "protect", dlImpact(dlCP, dlCP2, false, "everyone"), []string{"deployment", "protect", "on", "--yes"}, nil, nil,
+			`{"dryRun":true,"on":true,"tile":"apps/x"}`, `{"expect":"c:7b19e02","on":true,"seq":4,"tile":"apps/x"}`},
+		// Onto a protected primary: named before the dry run, with seq.
+		{prot, "deploy", dlImpact(dlCP, dlCP2, false, "everyone"), []string{"deploy", "--to", "main", "--yes"}, diffAns,
+			[]string{capture("deployment:main", "work-tree")},
+			`{"checkpoint":"c:7b19e02","deployment":"main","dryRun":true,"seq":4,"tile":"apps/x"}`, `{"checkpoint":"c:7b19e02","deployment":"main","seq":4,"tile":"apps/x"}`},
+		{prot, "deploy", dlImpact(dlCP, dlCP0, false, "everyone"), []string{"deploy", "--to", "main", "--checkpoint", dlCP0, "--yes"}, nil, nil,
+			`{"checkpoint":"c:1e9d0aa","deployment":"main","dryRun":true,"seq":4,"tile":"apps/x"}`, `{"checkpoint":"c:1e9d0aa","deployment":"main","seq":4,"tile":"apps/x"}`},
+		{prot, "rollback", dlImpact(dlCP, dlCP0, false, "everyone"), []string{"rollback", "--to", "main", "--yes"}, logAns,
+			[]string{"GET /api/xbin/deployments/log?deployment=main&limit=200&tile=apps%2Fx"},
+			`{"checkpoint":"c:1e9d0aa","deployment":"main","dryRun":true,"seq":4,"tile":"apps/x"}`, `{"checkpoint":"c:1e9d0aa","deployment":"main","seq":4,"tile":"apps/x"}`},
+		{prot, "live-reload/now", dlImpact(dlCP, dlCP2, false, "everyone"), []string{"live-reload", "now", "--yes"}, diffAns,
+			[]string{capture("deployment:main", "work-tree")},
+			`{"dryRun":true,"expect":"c:7b19e02","seq":4,"tile":"apps/x"}`, `{"expect":"c:7b19e02","seq":4,"tile":"apps/x"}`},
+		{withDev(prot, ""), "promote", dlImpact(dlCP, dlCP2, false, "everyone"), []string{"promote", "dev", "main", "--yes"}, diffAns,
+			[]string{capture("deployment:main", "deployment:dev")},
+			`{"dryRun":true,"expect":"c:7b19e02","from":"dev","seq":4,"tile":"apps/x","to":"main"}`, `{"expect":"c:7b19e02","from":"dev","seq":4,"tile":"apps/x","to":"main"}`},
+		{withDev(prot, dlCP0), "promote", dlImpact(dlCP, dlCP0, false, "everyone"), []string{"promote", "dev", "main", "--yes"}, nil, nil,
+			`{"dryRun":true,"expect":"c:1e9d0aa","from":"dev","seq":4,"tile":"apps/x","to":"main"}`, `{"expect":"c:1e9d0aa","from":"dev","seq":4,"tile":"apps/x","to":"main"}`},
+		{withDev(prot, dlCP0), "primary", dlImpact(dlCP, dlCP0, false, "everyone"), []string{"deployment", "primary", "--to", "dev", "--yes"}, nil, nil,
+			`{"confirm":"data-stays","deployment":"dev","dryRun":true,"expect":"c:1e9d0aa","seq":4,"tile":"apps/x"}`,
+			`{"confirm":"data-stays","deployment":"dev","expect":"c:1e9d0aa","seq":4,"tile":"apps/x"}`},
 	} {
 		f := newDLFake().on(dlGet, 200, r.st.json()).
 			on(dlPost+r.route+" dry", 200, dlAnswer(r.st, "impact", r.imp)).
 			on(dlPost+r.route, 200, dlAnswer(r.st, "unchanged", true))
+		if r.fake != nil {
+			r.fake(f)
+		}
 		srv := httptest.NewServer(f)
 		got := dlRun(t, srv.URL, false, "", r.args...)
 		srv.Close()
 		reqs := f.take()
-		want := []string{"GET /api/xbin/deployments?tile=" + url.QueryEscape(r.st["tile"].(string)),
-			"POST /api/xbin/deployments/" + r.route + " " + r.dry, "POST /api/xbin/deployments/" + r.route + " " + r.real}
+		want := []string{"GET /api/xbin/deployments?tile=" + url.QueryEscape(r.st["tile"].(string))}
 		if strings.Contains(r.args[len(r.args)-1], "+") {
 			want[0] = "GET /api/xbin/deployments?tile=apps%2Fx%2Bdev"
 		}
+		want = append(append(want, r.pre...), "POST /api/xbin/deployments/"+r.route+" "+r.dry, "POST /api/xbin/deployments/"+r.route+" "+r.real)
 		if got.code != 0 || strings.Join(reqs, "\n") != strings.Join(want, "\n") {
 			t.Errorf("bx %s: exit %d (%s)\nsent\n%s\nwant\n%s", strings.Join(r.args, " "), got.code, got.err, strings.Join(reqs, "\n"), strings.Join(want, "\n"))
 		}
@@ -1374,5 +1648,450 @@ func TestBxLogsWhereTheFileCantAnswer(t *testing.T) {
 	}
 	if out, _, code := dlExec(t, ws, env, "logs", "apps/x"); out != "from the file\n" || code != 0 || len(f.take()) != 0 {
 		t.Errorf("a visible .xbin/log: exit %d, %q", code, out)
+	}
+}
+
+// --- the tile-deployments commands beyond live reload (WP-58) ---
+
+// dlDevState: a record, live reload on dev (following the work tree), main
+// the primary, pinned to dlCP.
+func dlDevState() dlSt {
+	return dlPaused(dlCP).with("liveReload", "dev", "lastLiveReload", "dev",
+		"deployments", []any{dlDep("main", dlCP, true, dlAllCan()), dlDevDep("")})
+}
+
+// dlCase is one run of bx against a fake xbind: the requests it sends (the
+// whole line with its body; nil: unchecked), its exit code (-1: unchecked),
+// and text its stdout and stderr hold.
+type dlCase struct {
+	name     string
+	env      []string // extra environment, re-exec only
+	tty      bool
+	stdin    string
+	args     []string
+	fake     func(f *dlFake)
+	code     int
+	reqs     []string
+	out, err []string
+	quiet    bool // nothing on stdout
+}
+
+// check runs c in-process (exec false) or as a shell would (exec true).
+func (c dlCase) check(t *testing.T, exec bool) {
+	t.Helper()
+	f := newDLFake()
+	if c.fake != nil {
+		c.fake(f)
+	}
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+	var got dlResult
+	if exec {
+		env := append([]string{"XBIN_URL=" + srv.URL, "XBIN_TOKEN=dl-token"}, c.env...)
+		got.out, got.err, got.code = dlExec(t, t.TempDir(), env, c.args...)
+	} else {
+		got = dlRun(t, srv.URL, c.tty, c.stdin, c.args...)
+	}
+	reqs := f.take()
+	if c.code >= 0 && got.code != c.code {
+		t.Errorf("%s: bx %s: exit %d, want %d\nstdout %s\nstderr %s", c.name, strings.Join(c.args, " "), got.code, c.code, got.out, got.err)
+	}
+	if c.reqs != nil && strings.Join(reqs, "\n") != strings.Join(c.reqs, "\n") {
+		t.Errorf("%s: bx %s sent\n%s\nwant\n%s", c.name, strings.Join(c.args, " "), strings.Join(reqs, "\n"), strings.Join(c.reqs, "\n"))
+	}
+	if c.quiet && got.out != "" {
+		t.Errorf("%s: bx %s: stdout %q, want nothing", c.name, strings.Join(c.args, " "), got.out)
+	}
+	for _, s := range c.out {
+		if !strings.Contains(got.out, s) {
+			t.Errorf("%s: bx %s: stdout lacks %q:\n%s", c.name, strings.Join(c.args, " "), s, got.out)
+		}
+	}
+	for _, s := range c.err {
+		if !strings.Contains(got.err, s) {
+			t.Errorf("%s: bx %s: stderr lacks %q:\n%s", c.name, strings.Join(c.args, " "), s, got.err)
+		}
+	}
+}
+
+// covers P12 DR3 SC-AGENT-BX NC-2 — $XBIN_DEPLOYMENT is the default of the
+// read commands when the tile is $XBIN_COMPONENT: bx status, bx logs and bx
+// deployment log name it (status and logs resolve it through GET
+// /deployments and check the answer's echo), and their output says which
+// deployment it is. An explicit --deployment or name wins, a qualified ref
+// is sent as it is, and another tile never takes the default. A command that
+// changes something never takes its deployment from the env: a code move
+// without --to, a promotion with one name, rm or reset without a name are
+// usage errors that send nothing, and bx agent run opens today's session. An
+// answer without the echo came from an xbind that answered for the primary:
+// exit 6, and nothing is shown as the deployment's.
+func TestBxHonoursXBINDeployment(t *testing.T) {
+	state := dlDevState().json()
+	ts := func(dep string) string {
+		echo := ""
+		if dep != "" {
+			echo = `"deployment":"` + dep + `",`
+		}
+		return `{"component":"apps/x",` + echo + `"backend":{"state":"healthy","gen":3},"disk":{},` +
+			`"deployments":{"primary":"main","liveReload":"dev","items":[{"name":"main","state":"healthy","gen":12,"checkpoint":"c:3f2a1c9"},{"name":"dev","state":"healthy","gen":3}]}}`
+	}
+	logs := func(dep, body string) func(f *dlFake) {
+		return func(f *dlFake) {
+			f.on(dlGet, 200, state)
+			if dep == "" {
+				f.on("GET /api/xbin/logs", 200, body)
+			} else {
+				f.onH("GET /api/xbin/logs", 200, body, map[string]string{"X-XBin-Deployment": dep})
+			}
+		}
+	}
+	logAns := `{"tile":"apps/x","entries":[{"id":4,"deployment":"dev","how":"deploy","checkpoint":"c:7b19e02","by":"user:ana","agent":true,"result":"ok"}],"more":false}`
+	inDev := []string{"XBIN_COMPONENT=apps/x", "XBIN_DEPLOYMENT=dev"}
+	stateGET := "GET /api/xbin/deployments?tile=apps%2Fx"
+	for _, c := range []dlCase{
+		{name: "status defaults to the session's deployment", env: inDev, args: []string{"status"},
+			fake: func(f *dlFake) { f.on(dlGet, 200, state).on("GET /api/xbin/tile-status", 200, ts("dev")) },
+			reqs: []string{stateGET, "GET /api/xbin/tile-status?component=apps%2Fx&deployment=dev"},
+			out:  []string{"apps/x+dev\n  backend    healthy · gen 3\n", "  deployments live reload: dev · main pinned to c:3f2a1c9 · this terminal → dev\n", "              main healthy g12 · dev healthy g3\n"}},
+		{name: "--deployment wins", env: inDev, args: []string{"status", "--deployment", "main"},
+			fake: func(f *dlFake) { f.on(dlGet, 200, state).on("GET /api/xbin/tile-status", 200, ts("main")) },
+			reqs: []string{stateGET, "GET /api/xbin/tile-status?component=apps%2Fx&deployment=main"},
+			out:  []string{"apps/x\n  backend    healthy · gen 3\n"}},
+		{name: "another tile keeps today's request", env: inDev, args: []string{"status", "apps/other"},
+			fake: func(f *dlFake) { f.on("GET /api/xbin/tile-status", 200, `{"component":"apps/other"}`) },
+			reqs: []string{"GET /api/xbin/tile-status?component=apps%2Fother"}, out: []string{"apps/other\n  backend    not running\n"}},
+		{name: "logs default", env: inDev, args: []string{"logs", "apps/x"}, fake: logs("dev", "dev listening\n"),
+			reqs: []string{stateGET, "GET /api/xbin/logs?component=apps%2Fx&deployment=dev&tail=1048576"},
+			out:  []string{"dev listening\n"}, err: []string{"apps/x+dev: backend log\n"}},
+		{name: "logs --deployment of the primary: no marker needed", env: inDev, args: []string{"logs", "--deployment=main", "-f"},
+			fake: logs("", "main listening\n"),
+			reqs: []string{stateGET, "GET /api/xbin/logs?component=apps%2Fx&deployment=main&follow=1"}, out: []string{"main listening\n"}},
+		{name: "deployment log default", env: inDev, args: []string{"deployment", "log"},
+			fake: func(f *dlFake) { f.on(dlLog, 200, logAns) },
+			reqs: []string{"GET /api/xbin/deployments/log?deployment=dev&tile=apps%2Fx"},
+			out:  []string{"apps/x+dev: deploy log\n  4    deploy     dev            c:7b19e02  ok         by ana (agent)\n"}},
+		{name: "deployment log, named", env: inDev, args: []string{"deployment", "log", "main", "--limit", "3"},
+			fake: func(f *dlFake) { f.on(dlLog, 200, logAns) },
+			reqs: []string{"GET /api/xbin/deployments/log?deployment=main&limit=3&tile=apps%2Fx"}},
+		{name: "deployment log, qualified", env: inDev, args: []string{"deployment", "log", "apps/x+dev"},
+			fake: func(f *dlFake) { f.on(dlLog, 200, logAns) },
+			reqs: []string{"GET /api/xbin/deployments/log?tile=apps%2Fx%2Bdev"}},
+		{name: "status: no echo", env: inDev, args: []string{"status"},
+			fake: func(f *dlFake) { f.on(dlGet, 200, state).on("GET /api/xbin/tile-status", 200, ts("")) },
+			code: exitNoDeployments, quiet: true, err: []string{"bx: this xbind's /tile-status doesn't know deployments: it answered for the primary of apps/x, not dev; upgrade xbind\n"}},
+		{name: "logs: no echo", env: inDev, args: []string{"logs", "apps/x"}, fake: logs("", "main listening\n"),
+			code: exitNoDeployments, quiet: true, err: []string{"bx: this xbind's /logs doesn't know deployments"}},
+		{name: "a code move never defaults its target", env: inDev, args: []string{"deploy"}, code: exitUsage, reqs: []string{}, err: []string{"--to names the deployment"}},
+		{name: "a roll back neither", env: inDev, args: []string{"rollback", "--yes"}, code: exitUsage, reqs: []string{}},
+		{name: "promote names both", env: inDev, args: []string{"promote", "main"}, code: exitUsage, reqs: []string{}, err: []string{"name both deployments"}},
+		{name: "rm never defaults", env: inDev, args: []string{"deployment", "rm", "--yes"}, code: exitUsage, reqs: []string{}, err: []string{"which deployment?"}},
+		{name: "reset never defaults", env: inDev, args: []string{"deployment", "reset"}, code: exitUsage, reqs: []string{}},
+	} {
+		c.check(t, true)
+	}
+	// bx agent run in a dev session opens today's session: no ?deployment=.
+	f := newDLFake().on("POST /api/xbin/term/sessions", 200, `{"id":"s9","provider":"claude","mode":"plan","cwd":"apps/x"}`)
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+	dlExec(t, t.TempDir(), append([]string{"XBIN_URL=" + srv.URL, "XBIN_TOKEN=dl-token"}, inDev...), "agent", "run", "--tile", "apps/x", "hi")
+	if reqs := f.take(); len(reqs) == 0 || !strings.HasPrefix(reqs[0], `POST /api/xbin/term/sessions {"cwd":"apps/x"`) {
+		t.Errorf("bx agent run in a dev session sent %q; want today's POST /term/sessions", reqs)
+	}
+}
+
+// covers P21 SC-PROTECT SC-AGENT-BX T16 — a refusal prints the server's text
+// verbatim and exits 3 when it is authority or policy: a protected primary's
+// (flow C step 7: the Can bx refuses on before sending anything, or the
+// server's 403) names the tile managers and adds where it can be done, and so
+// does a manager act refused to a tile credential; a manager act refused for
+// want of a manager names who may, with no hint; a session naming the
+// protected primary is refused the same way. Existing commands keep exit 1,
+// with the same hint in place of the scoped-terminal one. A refusal of kind
+// state exits 1; --json prints the Can bx refused on.
+func TestBxRefusalMessages(t *testing.T) {
+	t.Setenv("XBIN_COMPONENT", "")
+	t.Setenv("XBIN_DEPLOYMENT", "")
+	protectedWhy := "the primary of apps/x (main) is protected: only tile managers change its code, and not from a terminal or agent session"
+	refused := func(why, kind string) map[string]any { return map[string]any{"ok": false, "why": why, "kind": kind} }
+	prot := dlDevState().with("protectedPrimary", true)
+	withCan := func(st dlSt, dep string, can map[string]any) dlSt {
+		var deps []any
+		for _, d := range st["deployments"].([]any) {
+			d := d.(map[string]any)
+			if d["name"] == dep {
+				c := map[string]any{}
+				for k, v := range d["can"].(map[string]any) {
+					c[k] = v
+				}
+				for k, v := range can {
+					c[k] = v
+				}
+				d = mapWith(d, "can", c)
+			}
+			deps = append(deps, d)
+		}
+		return st.with("deployments", deps)
+	}
+	promoteRefused := withCan(prot, "main", map[string]any{"promoteTo": refused(protectedWhy, "authority")})
+	canJSON, _ := json.Marshal(refused(protectedWhy, "authority"))
+	for _, c := range []dlCase{
+		{name: "promote onto a protected primary", args: []string{"promote", "apps/x", "dev", "main", "--yes"},
+			fake: func(f *dlFake) { f.on(dlGet, 200, promoteRefused.json()) }, code: exitRefused,
+			reqs: []string{"GET /api/xbin/deployments?tile=apps%2Fx"}, err: []string{"bx: " + protectedWhy + protectedHint + "\n"}},
+		{name: "--json: the Can bx refused on", args: []string{"promote", "apps/x", "dev", "main", "--yes", "--json"},
+			fake: func(f *dlFake) { f.on(dlGet, 200, promoteRefused.json()) }, code: exitRefused, out: []string{string(canJSON) + "\n"}},
+		{name: "the server's 403", args: []string{"promote", "apps/x", "dev", "main", "--yes"},
+			fake: func(f *dlFake) {
+				f.on(dlGet, 200, dlDevState().json()).
+					on(dlPost+"promote dry", 403, `{"error":"`+protectedWhy+`","docs":"/docs/auth.md"}`)
+			}, code: exitRefused, err: []string{"bx: " + protectedWhy + protectedHint + "\n"}},
+		{name: "a manager act from a tile credential", args: []string{"deployment", "protect", "apps/x", "on", "--yes"},
+			fake: func(f *dlFake) {
+				f.on(dlGet, 200, dlDevState().with("caller", dlCallerCan(map[string]any{"protect": refused(
+					"protecting the primary is a tile manager's act, done in a person's own session: terminal, agent and tile credentials can't do it", "authority")})).json())
+			}, code: exitRefused, reqs: []string{"GET /api/xbin/deployments?tile=apps%2Fx"},
+			err: []string{"terminal, agent and tile credentials can't do it" + protectedHint + "\n"}},
+		{name: "a manager act, for want of a manager", args: []string{"deployment", "seed", "apps/x", "dev", "--yes"},
+			fake: func(f *dlFake) {
+				f.on(dlGet, 200, withCan(dlDevState(), "dev", map[string]any{"seed": refused(
+					"seeding is a tile manager's act: the tile's owner, its org's admins, or a workspace admin", "authority")}).json())
+			}, code: exitRefused,
+			err: []string{"bx: seeding is a tile manager's act: the tile's owner, its org's admins, or a workspace admin\n"}},
+		{name: "a policy refusal", args: []string{"deployment", "add", "apps/x", "dev"},
+			fake: func(f *dlFake) {
+				f.on(dlGet, 200, dlPaused(dlCP).with("caller", dlCallerCan(map[string]any{"add": refused(
+					"apps/x can't have non-primary deployments: it is chrome", "policy")})).json())
+			}, code: exitRefused, err: []string{"bx: apps/x can't have non-primary deployments: it is chrome\n"}},
+		{name: "a state refusal", args: []string{"deployment", "rm", "apps/x", "main", "--yes"},
+			fake: func(f *dlFake) {
+				f.on(dlGet, 200, withCan(dlDevState(), "main", map[string]any{"remove": refused("main can't be removed", "state")}).json())
+			}, code: exitFailed, err: []string{"bx: main can't be removed\n"}},
+	} {
+		c.check(t, false)
+	}
+
+	// A session naming the protected primary; an existing command's 403.
+	sessionWhy := "the primary of apps/x is protected: terminal and agent sessions can't target it"
+	for _, c := range []dlCase{
+		{name: "agent run --deployment of a protected primary", args: []string{"agent", "run", "--tile", "apps/x", "--deployment", "main", "fix it"},
+			fake: func(f *dlFake) {
+				f.on(dlGet, 200, prot.json()).on("POST /api/xbin/term/sessions", 403, `{"error":"`+sessionWhy+`","docs":"/docs/auth.md"}`)
+			}, code: exitRefused,
+			reqs: []string{"GET /api/xbin/deployments?tile=apps%2Fx",
+				`POST /api/xbin/term/sessions?deployment=main {"cwd":"apps/x","kind":"agent","mode":"","name":"","net":"","provider":"claude","vm":false}`},
+			err: []string{"bx: " + sessionWhy + protectedHint + "\n"}},
+		{name: "an existing command: the hint, exit 1", env: []string{"XBIN_COMPONENT=apps/x"}, args: []string{"vault", "set", "apps/x", "K", "v"},
+			fake: func(f *dlFake) {
+				f.on("PUT /api/xbin/vault/apps/x/K", 403, `{"error":"`+sessionWhy+`","docs":"/docs/auth.md"}`)
+			}, code: 1, err: []string{"bx: " + sessionWhy + " (403 Forbidden)" + protectedHint + "\n"}},
+		{name: "an existing command: today's hint otherwise", env: []string{"XBIN_COMPONENT=apps/x"}, args: []string{"vault", "set", "apps/y", "K", "v"},
+			fake: func(f *dlFake) {
+				f.on("PUT /api/xbin/vault/apps/y/K", 403, `{"error":"admin only","docs":"/docs/auth.md"}`)
+			},
+			code: 1, err: []string{"bx: admin only (403 Forbidden) — this terminal is scoped to apps/x;"}},
+	} {
+		c.check(t, true)
+	}
+}
+
+func mapWith(m map[string]any, k string, v any) map[string]any {
+	c := map[string]any{}
+	for mk, mv := range m {
+		c[mk] = mv
+	}
+	c[k] = v
+	return c
+}
+
+// covers P10 P14 P24 NP-11-5 SC-AGENT-BX — what each command of the family
+// sends (11-contract §1.5–§1.9, §7.4, §9.2): the dry run first, then the
+// request; a guarded command sends the route's confirm token (in the dry run
+// too, which changes nothing) and seq once --yes or the person says yes, and
+// without a terminal and --yes it exits 4 after the report, saying what it
+// would do; add splits its own qualified ref (the deployment doesn't exist
+// yet), the others send theirs unresolved; set calls deliveries, always-on
+// and limits in that order and stops at the first refusal; the reads send one
+// request each; bx agent run --deployment asks for the target and checks the
+// echo, ending a session an xbind opened on the primary instead.
+func TestBxDeploymentRequests(t *testing.T) {
+	t.Setenv("XBIN_COMPONENT", "")
+	t.Setenv("XBIN_DEPLOYMENT", "")
+	dev := dlDevState()
+	st := dev.json()
+	mainOnly := dlPaused(dlCP)
+	get := "GET /api/xbin/deployments?tile=apps%2Fx"
+	post := func(route, body string) string { return "POST /api/xbin/deployments/" + route + " " + body }
+	ok := func(route string, before, after dlSt, kv ...any) func(f *dlFake) {
+		return func(f *dlFake) {
+			f.on(dlGet, 200, before.json()).
+				on(dlPost+route+" dry", 200, dlAnswer(before, "impact", dlImpact("", "", false, "deployment"))).
+				on(dlPost+route, 200, dlAnswer(after, kv...))
+		}
+	}
+	seeding := dev.with("deployments", []any{dlDep("main", dlCP, true, dlAllCan()), mapWith(dlDevDep(""), "data", map[string]any{"state": "empty", "busy": "seeding"})})
+	for _, c := range []dlCase{
+		{name: "add, zero state", args: []string{"deployment", "add", "apps/x", "dev"},
+			fake: ok("add", dlZero(), dlPaused(dlCP2).with("deployments", []any{dlDep("main", dlCP2, true, dlAllCan()), dlDevDep(dlCP2)}),
+				"deploy", dlOn(dlEntry(1, "add", dlCP2, "", "ok", "", ""), "dev")),
+			reqs: []string{get, post("add", `{"deployment":"dev","dryRun":true,"tile":"apps/x"}`), post("add", `{"deployment":"dev","tile":"apps/x"}`)},
+			out:  []string{"Add deployment dev to apps/x\n  Code     dev runs the work tree as it is when the request commits (no checkpoint yet)\n  Data     dev starts empty; secrets start as names only\n", "Added dev at /c/apps/x+dev/.\n"}},
+		{name: "add a seeded one from a qualified ref", args: []string{"deployment", "add", "apps/x+dev", "--seed", "--from", "primary", "--yes"},
+			fake: ok("add", mainOnly, dev, "deploy", dlOn(dlEntry(2, "add", dlCP, "", "ok", "", ""), "dev")),
+			reqs: []string{get, post("add", `{"confirm":"copy-data","data":"seed","deployment":"dev","dryRun":true,"from":"primary","tile":"apps/x"}`),
+				post("add", `{"confirm":"copy-data","data":"seed","deployment":"dev","from":"primary","seq":4,"tile":"apps/x"}`)},
+			out: []string{"  Code     dev runs main's code\n", "  Data     seeded from main: its data, which may be personal; secrets start as names only\n"}},
+		{name: "add --seed without --yes", args: []string{"deployment", "add", "apps/x", "dev", "--seed"},
+			fake: ok("add", mainOnly, dev), code: exitNotConfirmed,
+			reqs: []string{get, post("add", `{"confirm":"copy-data","data":"seed","deployment":"dev","dryRun":true,"tile":"apps/x"}`)},
+			err:  []string{"bx: not confirmed: this copies main's data, which may be personal, into dev — without a terminal, add --yes when the user asked for it\n"}},
+		{name: "rm", args: []string{"deployment", "rm", "apps/x", "dev", "--yes"}, fake: ok("remove", dev, mainOnly),
+			reqs: []string{get, post("remove", `{"confirm":"erase","deployment":"dev","dryRun":true,"tile":"apps/x"}`), post("remove", `{"confirm":"erase","deployment":"dev","seq":4,"tile":"apps/x"}`)},
+			out:  []string{"Remove deployment dev\n  Data     dev stops. Its data, secrets, logs, cron jobs and subscriptions are deleted", "Removed dev.\n"}},
+		{name: "rm, a qualified ref", args: []string{"deployment", "rm", "apps/x+dev", "--yes"}, fake: ok("remove", dev.with("selected", "dev"), mainOnly),
+			reqs: []string{"GET /api/xbin/deployments?tile=apps%2Fx%2Bdev", post("remove", `{"confirm":"erase","dryRun":true,"tile":"apps/x+dev"}`), post("remove", `{"confirm":"erase","seq":4,"tile":"apps/x+dev"}`)},
+			out:  []string{"Removed dev.\n"}},
+		{name: "rm, no terminal, no --yes", args: []string{"deployment", "rm", "apps/x", "dev"}, fake: ok("remove", dev, mainOnly), code: exitNotConfirmed,
+			err: []string{"bx: not confirmed: this deletes dev's data, secrets and logs — without a terminal, add --yes"}},
+		{name: "rm, the person says yes", args: []string{"deployment", "rm", "apps/x", "dev"}, tty: true, stdin: "y\n", fake: ok("remove", dev, mainOnly),
+			reqs: []string{get, post("remove", `{"confirm":"erase","deployment":"dev","dryRun":true,"tile":"apps/x"}`), post("remove", `{"confirm":"erase","deployment":"dev","seq":4,"tile":"apps/x"}`)},
+			err:  []string{"Remove deployment dev? [y/N] "}},
+		{name: "seed --stop", args: []string{"deployment", "seed", "apps/x", "dev", "--stop", "--yes"}, fake: ok("seed", dev, seeding),
+			reqs: []string{get, post("seed", `{"confirm":"copy-data","deployment":"dev","dryRun":true,"stop":true,"tile":"apps/x"}`), post("seed", `{"confirm":"copy-data","deployment":"dev","seq":4,"stop":true,"tile":"apps/x"}`)},
+			out:  []string{"  Data     copies main's data as of now (kv, sqlite, files, blobs) into dev, replacing dev's data; main stops for a point-in-time copy\n", "dev is being seeded from main; bx deployment ls shows when it is done.\n"}},
+		{name: "reset --vault", args: []string{"deployment", "reset", "apps/x", "dev", "--vault", "--yes"}, fake: ok("reset", dev, dev),
+			reqs: []string{get, post("reset", `{"confirm":"erase-data","deployment":"dev","dryRun":true,"tile":"apps/x","vault":true}`), post("reset", `{"confirm":"erase-data","deployment":"dev","seq":4,"tile":"apps/x","vault":true}`)},
+			out:  []string{"dev's data was reset.\n"}},
+		{name: "vault-copy", args: []string{"deployment", "vault-copy", "apps/x", "dev", "--keys", "A,B", "--keys", "C", "--yes"},
+			fake: ok("vault-copy", dev, dev, "copied", []string{"A", "B"}, "missing", []string{"C"}),
+			reqs: []string{get, post("vault-copy", `{"deployment":"dev","dryRun":true,"keys":["A","B","C"],"tile":"apps/x"}`), post("vault-copy", `{"deployment":"dev","keys":["A","B","C"],"seq":4,"tile":"apps/x"}`)},
+			out:  []string{"Copied 2 secret(s) to dev.\n  main has no value for C\n"}},
+		{name: "vault-copy names nothing", args: []string{"deployment", "vault-copy", "apps/x", "dev", "--yes"}, code: exitUsage, reqs: []string{}},
+		{name: "set, in order", args: []string{"deployment", "set", "apps/x", "dev", "--mem", "256", "--pids", "default", "--deliveries", "on"},
+			fake: func(f *dlFake) {
+				ok("deliveries", dev, dev)(f)
+				ok("limits", dev, dev.with("seq", 6))(f)
+			},
+			reqs: []string{get, post("deliveries", `{"deployment":"dev","dryRun":true,"on":true,"tile":"apps/x"}`), post("deliveries", `{"deployment":"dev","on":true,"tile":"apps/x"}`),
+				get, post("limits", `{"deployment":"dev","dryRun":true,"limits":{"memMiB":256,"pids":null},"tile":"apps/x"}`), post("limits", `{"deployment":"dev","limits":{"memMiB":256,"pids":null},"tile":"apps/x"}`)},
+			out: []string{"Turn on deliveries for dev\n", "Deliveries on for dev.\n", "dev's limits set: memory 256 MiB, pids the tile's default.\n"}},
+		{name: "set --json prints the last answer", args: []string{"deployment", "set", "apps/x", "dev", "--always-on", "off", "--disk", "20", "--json"},
+			fake: func(f *dlFake) {
+				ok("always-on", dev, dev)(f)
+				ok("limits", dev, dev.with("seq", 9))(f)
+			}, out: []string{dlAnswer(dev.with("seq", 9)) + "\n"}},
+		{name: "set stops at the first refusal", args: []string{"deployment", "set", "apps/x", "dev", "--deliveries", "off", "--always-on", "on", "--mem", "64"},
+			fake: func(f *dlFake) {
+				ok("deliveries", dev, dev)(f)
+				f.on(dlPost+"always-on dry", 409, `{"error":"dev's code doesn't declare \"alwaysOn\"","docs":"/docs/protocol.md"}`)
+			}, code: exitFailed,
+			reqs: []string{get, post("deliveries", `{"deployment":"dev","dryRun":true,"on":false,"tile":"apps/x"}`), post("deliveries", `{"deployment":"dev","on":false,"tile":"apps/x"}`),
+				get, post("always-on", `{"deployment":"dev","dryRun":true,"on":true,"tile":"apps/x"}`)}},
+		{name: "set, nothing", args: []string{"deployment", "set", "apps/x", "dev"}, code: exitUsage, reqs: []string{}},
+		{name: "edge", args: []string{"deployment", "edge", "apps/x", "grant:apps/cal", "read"}, fake: ok("edge", dev, dev),
+			reqs: []string{get, post("edge", `{"dryRun":true,"edge":"grant:apps/cal","policy":"read","tile":"apps/x"}`), post("edge", `{"edge":"grant:apps/cal","policy":"read","tile":"apps/x"}`)},
+			out:  []string{"Let non-primary deployments read grant:apps/cal\n", "grant:apps/cal: read for the non-primary deployments of apps/x.\n"}},
+		{name: "edge, a bad policy", args: []string{"deployment", "edge", "apps/x", "slot:net", "match"}, code: exitUsage, reqs: []string{}},
+		{name: "edge list", args: []string{"deployment", "edge", "apps/x"},
+			fake: func(f *dlFake) {
+				f.on(dlGet, 200, dev.with("edges", []any{
+					map[string]any{"id": "slot:llm", "kind": "http", "to": "apps/llm-gw", "role": "writer", "policy": "read", "default": "read", "values": []string{"read", "block"}, "set": false, "refused": 0, "clamped": 12},
+					map[string]any{"id": "slot:net", "kind": "net", "to": "", "policy": "inherit", "default": "inherit", "values": []string{"inherit", "block"}, "set": false,
+						"effective": "block", "why": "this tile's network shares the host's: non-primary deployments get no egress", "refused": 3, "clamped": 0},
+				}).json())
+			}, reqs: []string{get},
+			out: []string{"  slot:llm  http  apps/llm-gw (writer)  read (default) · takes read|block · refused 0 · clamped 12\n",
+				"  slot:net  net  -  block — this tile's network shares the host's: non-primary deployments get no egress · takes inherit|block · refused 3 · clamped 0\n"}},
+		{name: "run-now", args: []string{"deployment", "run-now", "apps/x", "dev", "nightly"},
+			fake: ok("run-now", dev, dev, "delivery", map[string]any{"status": 200, "ms": 812}),
+			reqs: []string{get, post("run-now", `{"deployment":"dev","dryRun":true,"job":"nightly","tile":"apps/x"}`), post("run-now", `{"deployment":"dev","job":"nightly","tile":"apps/x"}`)},
+			out:  []string{"Run nightly on dev once\n", "delivered · 200 · 812 ms\n"}},
+		{name: "protect off", args: []string{"deployment", "protect", "apps/x", "off", "--yes"}, fake: ok("protect", dev.with("protectedPrimary", true), dev),
+			reqs: []string{get, post("protect", `{"dryRun":true,"on":false,"tile":"apps/x"}`), post("protect", `{"on":false,"seq":4,"tile":"apps/x"}`)},
+			out:  []string{"Unprotect main\n", "main is no longer protected.\n"}},
+		{name: "primary, the glossary's form", args: []string{"deployment", "primary", "apps/x", "dev", "--yes"},
+			fake: ok("primary", dev, dev.with("primary", "dev"), "inactiveHosts", []string{"crm.example.com"}),
+			reqs: []string{get, post("primary", `{"confirm":"data-stays","deployment":"dev","dryRun":true,"tile":"apps/x"}`), post("primary", `{"confirm":"data-stays","deployment":"dev","seq":4,"tile":"apps/x"}`)},
+			out:  []string{"Make dev the primary of apps/x\n", "dev is now the primary — it serves dev's data.\n  inactive: crm.example.com"}},
+		{name: "ls", args: []string{"deployment", "ls", "apps/x"},
+			fake: func(f *dlFake) {
+				d := mapWith(dlDevDep(""), "data", map[string]any{"state": "seeded", "from": "main", "at": "2026-09-27T10:00:00Z", "by": "user:ana"})
+				d["registrations"] = []any{map[string]any{"kind": "cron", "name": "nightly", "schedule": "0 3 * * *", "path": "/tick", "dormant": true}}
+				d["wouldNotify"] = []any{map[string]any{"at": "", "to": "user:bob", "title": "Order shipped"}}
+				d["status"] = map[string]any{"state": "building", "gen": 0}
+				f.on(dlGet, 200, dev.with("caller", map[string]any{"level": "terminal", "bound": "dev"},
+					"deployments", []any{dlDep("main", dlCP, true, nil), d}).json())
+			}, reqs: []string{get},
+			out: []string{"apps/x · primary main · live reload → dev\n",
+				"  NAME  ROLE     CODE               STATUS      DATA\n",
+				"  main  primary  pinned c:3f2a1c9   healthy g3  original\n",
+				"  dev   -        follows work tree  building    seeded from main 2026-09-27  ← this terminal\n",
+				"  dev: cron nightly (0 3 * * *) dormant\n", "  dev: would notify bob · \"Order shipped\"\n"}},
+		{name: "ls, every tile", args: []string{"deployment", "ls"},
+			fake: func(f *dlFake) {
+				f.on(dlGet, 400, `{"error":"need ?tile=","docs":"/docs/protocol.md"}`).on(dlGet, 200, st).
+					on("GET /api/xbin/components", 200, `[{"path":"apps/x","deployments":{"primary":"main","pinned":true,"protected":false}},{"path":"apps/y"}]`)
+			}, reqs: []string{"GET /api/xbin/deployments", "GET /api/xbin/components", get},
+			out: []string{"apps/x · primary main · live reload → dev\n"}},
+		{name: "log", args: []string{"deployment", "log", "apps/x", "--json"},
+			fake: func(f *dlFake) { f.on(dlLog, 200, `{"tile":"apps/x","entries":[],"more":false}`) },
+			reqs: []string{"GET /api/xbin/deployments/log?tile=apps%2Fx"}, out: []string{`{"tile":"apps/x","entries":[],"more":false}` + "\n"}},
+		{name: "diff: the patch", args: []string{"deployment", "diff", "apps/x"},
+			fake: func(f *dlFake) {
+				f.onH("GET /api/xbin/deployments/diff", 200, "diff --git a/main.go b/main.go\n", map[string]string{"X-XBin-Checkpoint-From": dlCP, "X-XBin-Checkpoint-To": dlCP2})
+			}, reqs: []string{"GET /api/xbin/deployments/diff?tile=apps%2Fx"},
+			out: []string{"diff --git a/main.go b/main.go\n"}, err: []string{"diff c:3f2a1c9 → c:7b19e02\n"}},
+		{name: "diff: the file list, deployments by name", args: []string{"deployment", "diff", "apps/x", "main", "dev", "--stat"},
+			fake: func(f *dlFake) {
+				f.on("GET /api/xbin/deployments/diff", 200, `{"from":"c:3f2a1c9","to":"c:7b19e02","files":[{"path":"main.go","status":"M","added":3,"removed":1}],"truncated":false}`)
+			}, reqs: []string{"GET /api/xbin/deployments/diff?from=deployment%3Amain&stat=1&tile=apps%2Fx&to=deployment%3Adev"},
+			out: []string{"  M  main.go  +3 −1\n1 file, +3 −1 (c:3f2a1c9 → c:7b19e02)\n"}},
+		{name: "diff: a checkpoint and the work tree", args: []string{"deployment", "diff", "apps/x", dlCP0, "work-tree", "--path", "main.go"},
+			fake: func(f *dlFake) { f.on("GET /api/xbin/deployments/diff", 200, "") },
+			reqs: []string{"GET /api/xbin/deployments/diff?from=c%3A1e9d0aa&path=main.go&tile=apps%2Fx&to=work-tree"}},
+		{name: "diff: no record", args: []string{"deployment", "diff", "apps/x"},
+			fake: func(f *dlFake) {
+				f.on("GET /api/xbin/deployments/diff", 409, `{"error":"apps/x has no deployments: its work tree is what runs, so there is nothing to diff","docs":"/docs/protocol.md"}`)
+			}, code: exitFailed, err: []string{"bx: apps/x has no deployments: its work tree is what runs, so there is nothing to diff\n"}},
+	} {
+		c.check(t, false)
+	}
+
+	// bx agent run --deployment: the target asked for, the echo checked.
+	session := `{"cwd":"apps/x","kind":"agent","mode":"","name":"","net":"","provider":"claude","vm":false}`
+	for _, c := range []dlCase{
+		{name: "agent run --deployment", args: []string{"agent", "run", "--tile", "apps/x", "--deployment", "dev", "fix", "it"}, code: -1,
+			fake: func(f *dlFake) {
+				f.on(dlGet, 200, st).on("POST /api/xbin/term/sessions", 200, `{"id":"s9","provider":"claude","mode":"plan","cwd":"apps/x","deployment":"dev"}`).
+					on("POST /api/xbin/term/sessions/s9/prompt", 200, `{}`)
+			},
+			reqs: []string{get, "POST /api/xbin/term/sessions?deployment=dev " + session, `POST /api/xbin/term/sessions/s9/prompt {"text":"fix it"}`,
+				"GET /api/xbin/term/sessions/s9/events?since=0&follow=1"},
+			err: []string{"session s9: claude on apps/x+dev (mode plan)\n"}},
+		{name: "agent run --tile <tile>+<name>", args: []string{"agent", "run", "--tile", "apps/x+dev", "fix"}, code: -1,
+			fake: func(f *dlFake) {
+				f.on(dlGet, 200, dev.with("selected", "dev").json()).
+					on("POST /api/xbin/term/sessions", 200, `{"id":"s9","provider":"claude","mode":"plan","cwd":"apps/x","deployment":"dev"}`)
+			},
+			reqs: []string{"GET /api/xbin/deployments?tile=apps%2Fx%2Bdev", "POST /api/xbin/term/sessions?deployment=dev " + session,
+				`POST /api/xbin/term/sessions/s9/prompt {"text":"fix"}`}},
+		{name: "agent run --tile, a tile whose path holds the +", args: []string{"agent", "run", "--tile", "notes+ideas", "hi"}, code: -1,
+			fake: func(f *dlFake) {
+				f.on(dlGet, 200, dlZero().with("tile", "notes+ideas").json()).
+					on("POST /api/xbin/term/sessions", 200, `{"id":"s9","provider":"claude","mode":"plan","cwd":"notes+ideas"}`)
+			},
+			reqs: []string{"GET /api/xbin/deployments?tile=notes%2Bideas",
+				`POST /api/xbin/term/sessions {"cwd":"notes+ideas","kind":"agent","mode":"","name":"","net":"","provider":"claude","vm":false}`,
+				`POST /api/xbin/term/sessions/s9/prompt {"text":"hi"}`}},
+		{name: "agent run --deployment, no echo", args: []string{"agent", "run", "--tile", "apps/x", "--deployment", "dev", "fix"},
+			fake: func(f *dlFake) {
+				f.on(dlGet, 200, st).on("POST /api/xbin/term/sessions", 200, `{"id":"s9","provider":"claude","mode":"plan","cwd":"apps/x"}`).
+					on("DELETE /api/xbin/term/sessions/s9", 200, `{}`)
+			}, code: exitNoDeployments,
+			reqs: []string{get, "POST /api/xbin/term/sessions?deployment=dev " + session, "DELETE /api/xbin/term/sessions/s9"},
+			err:  []string{"bx: this xbind doesn't point agent sessions at a deployment (no deployment echo): session s9 would have called the primary of apps/x, not dev, so bx ended it; upgrade xbind\n"}},
+		{name: "agent run: two names", args: []string{"agent", "run", "--tile", "apps/x+dev", "--deployment", "main", "fix"},
+			fake: func(f *dlFake) { f.on(dlGet, 200, dev.with("selected", "dev").json()) }, code: exitUsage},
+	} {
+		c.check(t, true)
 	}
 }
