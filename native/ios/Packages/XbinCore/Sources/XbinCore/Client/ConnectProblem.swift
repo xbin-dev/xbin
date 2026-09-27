@@ -21,7 +21,8 @@ public enum ConnectProblem: Error, Sendable, Equatable, CustomStringConvertible 
     /// Something answered, but not as an xbin workspace does — or as one
     /// too old for what was asked (the app's routes are missing).
     case notXbin(host: String, detail: String)
-    /// The enrollment code was refused: expired, used, or wrong.
+    /// The enrollment code was refused: expired, used, or wrong. `detail`
+    /// (the server's words) is kept for logs, not shown.
     case codeRefused(detail: String)
     /// The account can't sign in: wrong password, disabled, SSO only, an
     /// invalid invite, a password the workspace's policy refuses, the
@@ -80,9 +81,11 @@ public enum ConnectProblem: Error, Sendable, Equatable, CustomStringConvertible 
         case .notXbin(let host, let detail):
             return "\(host) didn't answer like an xbin workspace\(Self.paren(detail)). Check the address. If it is "
                 + "your workspace, its xbin may be older than this app needs: its operator can update it."
-        case .codeRefused(let detail):
-            return "The workspace didn't accept the code\(Self.paren(detail)). A code works once and only for "
-                + "5 minutes. Make a new one in the workspace: settings → add a device."
+        case .codeRefused:
+            // The server's own words say the same (and name the shell's
+            // path): ``detail`` stays out of the card.
+            return "The workspace didn't accept the code: it may have expired (a code lasts 5 minutes), been "
+                + "used already, or been copied wrong. Make a new one in the workspace: settings → add a device."
         case .account(let m):
             return m
         case .throttled:
