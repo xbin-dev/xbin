@@ -187,7 +187,9 @@ func cleanCwd(p string) (string, bool) {
 }
 
 // sandboxClassAllows says why a conversation of cfg's class may not work in a
-// sandbox of provider with egress ("" = it may). egress "" skips that check.
+// sandbox of provider with egress ("" = it may). egress "" skips that check
+// (asked before there is a sandbox); a sandbox's egress is its
+// effectiveEgress, never "".
 func sandboxClassAllows(cfg Config, provider, egress string) string {
 	cl := classOf(cfg)
 	name := cl.Name
@@ -235,7 +237,8 @@ func prepareBinding(ctx context.Context, w who, cfg Config, pick sandboxPick) (S
 	if !sandboxAccess(w, box).Use {
 		return SandboxBinding{}, refuse(403, "you may not use this sandbox (%s) — its owner can add you as a member", box.Name)
 	}
-	if why := sandboxClassAllows(cfg, provider, box.Egress); why != "" {
+	egress := box.effectiveEgress()
+	if why := sandboxClassAllows(cfg, provider, egress); why != "" {
 		return SandboxBinding{}, refuse(403, "%s", why)
 	}
 	if !box.hasCap("exec") || !box.hasCap("files") {
@@ -255,7 +258,7 @@ func prepareBinding(ctx context.Context, w who, cfg Config, pick sandboxPick) (S
 		}
 	}
 	return SandboxBinding{Ref: pick.Ref, Cwd: cwd, Name: box.Name, Manager: hello.title(provider),
-		Image: box.Image.ID, Egress: box.Egress, By: w.tag(), At: nowMs()}, nil
+		Image: box.Image.ID, Egress: egress, By: w.tag(), At: nowMs()}, nil
 }
 
 // storeBinding applies a change to root's stored config inside t.

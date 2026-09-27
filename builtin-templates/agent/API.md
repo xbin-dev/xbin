@@ -1001,8 +1001,12 @@ the view).
 
 - **Binding** takes participant access to the conversation **and** the
   right to use the sandbox; the conversation's class must have the `sandbox`
-  toolset and allow the sandbox's manager and egress (D116). A `cwd` must be
-  an absolute path, and a directory when the sandbox is running.
+  toolset and allow the sandbox's manager and egress (D116). The egress
+  checked — here and on every tool call — is the less restrictive of the
+  sandbox's `egress` and its `egressNext` (the one a change gives it at its
+  next start: a stopped sandbox starts on a command), a missing or unknown
+  one counting as `open`; it is also what the binding records. A `cwd` must
+  be an absolute path, and a directory when the sandbox is running.
 - **Anyone who may steer the conversation works in what it has bound** —
   under the binder's right, which every tool call re-checks: the class
   still allows it, the manager is still bound, the sandbox still exists, and
@@ -1033,7 +1037,7 @@ caller must be able to use it; its class must allow it).
 | `GET /sandboxes` | `?fresh=1` skips the cache | `{sandboxes: [{ref, provider, manager, …the contract's sandbox…, mine, canUse, canManage, canEdit, boundTo?}], managers: [{provider, title, ok, error?, refusal?, caps, egress, images, sizes, limits}]}` — every sandbox the caller may see across the bound managers, and those bound to a conversation the caller sees (`boundTo`: its ids). Merged, cached 15 s (the agent's own changes show at once); `manager` is the manager's title. Anyone who can use the tile |
 | `POST /sandboxes` | `{name, provider?, image?, size?, egress?, visibility?, members?, conversation?, bind?, cwd?, clientId?, start?}` | **201** + the sandbox (as below), with `binding` when it was bound. Created at `provider` (optional while one manager is bound), owned by the caller. With `conversation` (the caller takes part in it): made for it (above) and bound there unless `bind: false` — refused up front when its class wouldn't allow it, and deleted again if the binding fails. `clientId` makes a retry return the same sandbox (per person) |
 | `GET /sandboxes/{ref}` | | one sandbox, fresh from its manager, as `GET /sandboxes` lists it |
-| `PATCH /sandboxes/{ref}` | `{name?, visibility?, members?, shares?, labels?, egress?, size?, autoStopMin?, version?}` | the sandbox — its owner's (the contract's `PATCH`; `restartNeeded` when a change waits for the next start) |
+| `PATCH /sandboxes/{ref}` | `{name?, visibility?, members?, shares?, labels?, egress?, size?, autoStopMin?, version?}` | the sandbox — its owner's (the contract's `PATCH`; `restartNeeded` when a change waits for the next start, and `egressNext` while an egress does) |
 | `DELETE /sandboxes/{ref}` | | `{ok, detached}` — its owner's or a tile manager's; it is detached from every conversation that had it |
 | `POST /sandboxes/{ref}/{start\|stop\|archive\|thaw}` | `?wait=<s>` (≤ 120), `?conversation=<id>`; `{start?}` on thaw | the sandbox. Start, stop and thaw: who may use or manage it — or, with `conversation`, a participant of a conversation it is bound to (as the binder). Archive: its owner or a tile manager |
 

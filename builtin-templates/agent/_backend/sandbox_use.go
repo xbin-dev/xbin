@@ -25,9 +25,10 @@ type sbxUse struct {
 //   - the class allows the sandbox toolset and the manager,
 //   - the manager is still bound (and speaks protocol 1 with exec and files),
 //   - the sandbox still exists (asked of the manager, fresh),
-//   - the class allows its egress as it is now (an egress that changed
-//     since it was bound is recorded, and in Approve mode may refuse the
-//     call once: egressChanged, sandbox_turn.go),
+//   - the class allows its egress as it is now — the less restrictive of
+//     what it has and what it takes at its next start (effectiveEgress); an
+//     egress that changed since it was bound is recorded, and in Approve
+//     mode may refuse the call once: egressChanged, sandbox_turn.go,
 //   - whoever bound it may still use it, and still takes part in the
 //     conversation (anyone who may steer a conversation works in what it
 //     has bound — under the binder's right, which is re-checked here).
@@ -72,7 +73,8 @@ func (ag *Agent) sandboxUse(ctx context.Context, root int64, cfg Config, ref str
 		}
 		return nil, err
 	}
-	if why := sandboxClassAllows(cfg, provider, box.Egress); why != "" {
+	live := box.effectiveEgress()
+	if why := sandboxClassAllows(cfg, provider, live); why != "" {
 		return nil, &sbxError{Provider: provider, Refusal: "not-allowed", Msg: why + " (it has changed since it was bound)"}
 	}
 	if !sandboxAccess(binder, box).Use {
@@ -89,11 +91,11 @@ func (ag *Agent) sandboxUse(ctx context.Context, root int64, cfg Config, ref str
 				Msg: fmt.Sprintf("%s, who bound the sandbox %q, no longer takes part in this conversation — ask the user to bind it again", byName(b.By), box.Name)}
 		}
 	}
-	if box.Egress != "" && box.Egress != b.Egress {
-		if err := ag.egressChanged(ctx, root, cfg, b, ref, box.Egress); err != nil {
+	if live != b.Egress {
+		if err := ag.egressChanged(ctx, root, cfg, b, ref, live); err != nil {
 			return nil, err
 		}
-		b.Egress = box.Egress
+		b.Egress = live
 	}
 	cwd := b.Cwd
 	if cwd == "" {
