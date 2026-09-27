@@ -1069,6 +1069,11 @@ Every card includes these; a card states only what differs.
   `TestTerminalTargetBinding`, `TestTerminalTokenCannotMintProtectedPrimaryToken`);
   `TestLegacyFrameTokenUpgrade` unchanged.
 - **Links.** Claims → WP-33, WP-36, WP-37, WP-48, WP-51. PO-6.
+- **From wave 2.0.** WP-30's `Plane.Addressed` resolves a terminal or
+  agent principal whose `Deployment` is empty to the current primary on
+  every request, and refuses it while the primary is protected, so auth
+  needs no primary hook. Keep `""` for a session that follows the primary
+  and the name for a named one, `main` included.
 
 #### WP-33 runner-deployments · L · wave 2.1, merged after WP-32 · after WP-30
 - **Scope** (07-runtime §1.2–§1.3, §8.5, §8.8, §9; NP-07-7). The runner API
@@ -1116,6 +1121,12 @@ Every card includes these; a card states only what differs.
   `TestTerminatorDoorPrimaryOnly`, `TestNonPrimaryAlwaysOn`,
   `TestEdgeStreamDial`.
 - **Links.** PO-11: zero-state and main-only tiles keep the flat leaf.
+- **From wave 2.0.** WP-30 declared `Runner.AtLimitTile` (`limits.go`,
+  the flat leaf alone for now) and installed `LimitsFor` (its ceiling is
+  `Plane.TileLimits`, the caps `stepCgroup` sets). `stepLimitAlerts` already
+  calls `AtLimitTile`, keys its counters by leaf name, and sends a
+  non-primary deployment's hit, naming it, to admins only (`Tile` empty,
+  08-data §4.4): fill the nested-leaf walk and set `LimitHit.Deployment`.
 
 #### WP-35 launch-spec · M · wave 2.1 · after WP-30
 - **Scope** (07-runtime §10.4; 08-data §5; 06-security T17, T18, NP-06-6,
@@ -1133,6 +1144,18 @@ Every card includes these; a card states only what differs.
 - **From wave 1.2.** `build.go` is 753 of 800 (WP-17): its checkpoint half
   moves verbatim into a file of its own before the protected namespace
   lands.
+- **From wave 2.0** (WP-67's A4). Its "GC keep set" must include the env
+  layers of retained checkpoints. `Runner.PruneArtifacts`, which WP-67 calls
+  after each GC, never touches `.xbin/env`, and `envKeep`
+  (`internal/runner/env.go:154`) keeps only the running generation's layer,
+  the registry component's and the work tree's; a roll back to a retained
+  checkpoint with another `setup` then rebuilds its layer, which needs the
+  network (`TestEnvLayerGCKeepsReferenced`). Suggested seam: a
+  `runner.DeploymentHooks` field listing a tile's retained trees, answered
+  by the plane's `artifactKeep` (`internal/deployments/retention.go`, current
+  plus three roll-back targets per deployment), which `envKeep` reads for
+  those checkpoints' `setup`. The field (in a WP-33 file) and its `boot.go`
+  line are integrator amendments: ask.
 
 #### WP-36 deployment-urls · L · wave 2.2 · after WP-31, WP-32
 - **Scope** (11-contract §2.3, §2.5–§2.7, §7.2; 07-runtime §4.3–§4.6;
@@ -1151,6 +1174,13 @@ Every card includes these; a card states only what differs.
   `TestMintRefusesCrossDeployment`, both directions),
   `TestNonPrimaryDocumentAlwaysSandboxed`.
 - **Links.** PO-1, PO-10; `TestLegacyInjectionUnchanged` unchanged.
+- **From wave 2.0.** `brokerPolicy` already answers
+  `Addressed(auth.Principal, string) (string, error)` (WP-30): declare the
+  optional server interface and assert it, as `server.PrimaryPolicy` is.
+  `TestPinnedServingUsesOpenBeneath` (WP-19's `deployserve_test.go`) failed 4
+  of 5 runs in WP-30's worktree (the `deps/` re-dispatch answered 404) and
+  passed every run at the integrator's (25 alone, and in each `make check`):
+  if it fails again in your worktree, report it with an A/B.
 
 #### WP-37 proxy-routing · M · wave 2.2 · after WP-31, WP-32, WP-33
 - **Scope** (11-contract §2.3, §4; 09-fabric §4; P12). `ResolveRef` in the
@@ -1164,6 +1194,17 @@ Every card includes these; a card states only what differs.
   `TestIngressNeverReachesNonPrimary`), 09-fabric §10's
   `TestCrossDeploymentRefused`.
 - **Links.** PO-4; `TestIdentifyZeroState` unchanged.
+- **From wave 2.0.** `broker.Route` (09-fabric §4.1, rules 1–4) and
+  `resolveTarget` (§5.3) are declared in `internal/broker/deploydata.go`
+  (WP-30) with `Decision` and `NotGrantedError`, which keeps the proxy's
+  refusal text byte for byte; `TestZeroStateRoute` pins the zero state.
+  The proxy can't import `broker.Decision`: declare in `proxy.go` a struct
+  with the same fields (`Deployment, Role string; Clamped bool; Edges
+  []string; Deny error`) and a `Route` field, and switch from `Policy` to
+  it. The `boot.go` line (`px.Route = func(p auth.Principal, c
+  *registry.Component, q string) proxy.Decision { return
+  proxy.Decision(brk.Route(p, c, q)) }` in `stepProxy`) is the integrator's,
+  at your merge.
 
 #### WP-38 origins-mode · L · wave 2.3 · after WP-36
 - **Scope** (05-model §7; 11-contract §2.6, §7.5; NP-12-4, NP-11-18).
@@ -1189,6 +1230,11 @@ Every card includes these; a card states only what differs.
   `TestNoAdHocResourceKeys`), the resource-name test; 08-data §14's
   `TestAddDeploymentDropsStaleFiles`.
 - **Links.** `resKeys` → WP-40 to WP-44b. PO-2; `TestZeroStateKeys` unchanged.
+- **From wave 2.0.** `resKeys`'s signature and struct are in
+  `deploydata.go` (WP-30), `main`'s values equal to today's keys, names with
+  `..` or NUL refused, other namespaces refused until this WP builds them;
+  nothing calls it yet. Route and `resolveTarget` live in the same file
+  (owned by this WP in 2.1): leave them as they are.
 
 #### WP-40 data-access · L · wave 2.2 · after WP-39
 - **Scope** (08-data §3.6, §4–§6; 09-fabric §5.10; P22). `EnvFor(view,
@@ -1265,6 +1311,23 @@ Every card includes these; a card states only what differs.
   `TestRestoreRevalidatesRegistrations`; 08-data §14's archive rows
   (`TestZeroStateBackupBytes`).
 - **Links.** PO-9: the main archive means what it means today.
+- **From wave 2.0** (WP-67's A3, pending 16 Q24). The store half of the
+  restore put-back is open: `Store.Restore(ctx, tile, objects string, refs
+  map[string]string) error` in a new `internal/checkpoint/restore.go` (the
+  confined, unforced fetch of `refs/xbin/restored/*` from the staged objects,
+  bound read-only; `transfer.fsckObjects` from `gitConfig`; then whatever
+  Q24 rules makes a restored checkpoint readable; `forget(tile)`), and
+  `storeAdapter.Restore` in a new file of `internal/deployments` (WP-67's
+  `retention.go` has the other optional store interfaces), with the
+  confined half of `TestRestoreRebuildsStoreConfig`. The broker's hook and
+  boot line are wired (ccdcf076, 5324fa17); `Plane.RestoreDeploymentState`
+  finds `Restore` through an optional interface and leaves an archived
+  store out, with a warning, until it exists. Then the restore paragraphs
+  of `docs/tile-deployments.md` and `docs/overview/14-lifecycle.md` change
+  (WP-67's report has the text). A backup-schedule file of a non-main
+  deployment goes through the broker's `readDeploymentFile`,
+  `writeDeploymentFile` and `removeDeploymentFile` (WP-30), never written
+  under `data/deployments` directly.
 
 #### WP-44b data-quota · M · wave 2.3 · after WP-39, WP-41
 - **Scope** (08-data §12; 06-security T10 item 4; P22). A quota bucket per
@@ -1346,6 +1409,12 @@ Every card includes these; a card states only what differs.
 - **Links.** The verdict → WP-34, WP-37, WP-50. The primary equals the
   goldens (12-compat Z3). `netfn.go` (1131 of 1170) takes at most 15 lines
   across WP-47 and WP-50.
+- **From wave 2.0.** Set the verdict through WP-30's `edgeVerdict` seam
+  from an `init` in `edgepolicy.go`; don't declare `Route` or
+  `resolveTarget` again (they live in `deploydata.go`; until the seam is
+  set a non-primary caller is refused). The stored overrides come through
+  `DeploymentAnswers.DeploymentEdges`. If `Route` itself must change, ask:
+  the integrator adds `deploydata.go` to this card's Owns in wave 2.2.
 
 #### WP-48 route-classes-events · M · wave 2.3 · after WP-32, WP-33
 - **Scope** (P26; 09-fabric §6's enforcement; NP-09-4, NP-06-1, NP-04-8,
@@ -1384,6 +1453,13 @@ Every card includes these; a card states only what differs.
 - **Links.** The active set → WP-50, WP-53a. PO-9. `brokerPolicy`
   implements `server.PrimaryPolicy` (`Primary(tile) string`, the plane's
   `Primary`): until then WP-21's event filter treats `main` as the primary.
+- **From wave 2.0.** `brokerPolicy` implements `server.PrimaryPolicy`
+  since WP-30. Every per-deployment file goes through the broker's
+  `readDeploymentFile`, `writeDeploymentFile` and `removeDeploymentFile`,
+  which call the plane's `writeIn`/`prune` under the records-directory lock;
+  never write under `data/deployments` directly. `RegistrationsActive`
+  (fires: the primary, or deliveries on; routes: the primary only) is the
+  active set's hook.
 
 #### WP-50 dormant-rest-obs · L · wave 2.3 · after WP-47, WP-49
 - **Scope** (09-fabric §6's rows, §4.2, NP-09-12, NP-09-13; 11-contract §3.3,
@@ -1405,6 +1481,10 @@ Every card includes these; a card states only what differs.
 - **Links.** PO-5, PO-9; old shells never see non-primary status. WP-21's
   `primarySwap` in `status.go` assumes `main` is the primary until the obs
   plane has WP-30's deployment input.
+- **From wave 2.0.** The obs plane has WP-30's deployment input
+  (`obs.Plane.Primary`, `Addressed`, wired from the broker): switch
+  `status.go`'s `primarySwap` to `o.primary`, and use `o.addressed` where
+  a request's deployment matters (the logs audience).
 
 #### WP-51 term-target · L · wave 2.2 · after WP-32
 - **Scope** (P24; 05-model §7; 11-contract §7.4's wire). A session's target,
@@ -1423,6 +1503,11 @@ Every card includes these; a card states only what differs.
   `TestProtectedPrimaryRefusesTerminalTokens`).
 - **Links.** The target → WP-53a, WP-56a, WP-58. PO-3;
   `TestSessionEnvZeroState` unchanged; `term.go` keeps its lowered budget.
+- **From wave 2.0.** `term.Manager.TileDeployments` exists and boot
+  installs the plane's answer (c51289b5); `target.go` (WP-30) has
+  `TileDeployments`, `ChooseTarget` (11-contract §7.4's three steps),
+  `Entries` and `DeploymentEnv`. Fill `term.go` with them rather than
+  declaring your own.
 
 #### WP-52 plane-code-ops · L · wave 2.2 · after WP-30, WP-33
 - **Scope** (05-model §5, §10; 11-contract §1.4–§1.6; 07-runtime §8.6;
@@ -1438,6 +1523,11 @@ Every card includes these; a card states only what differs.
   `TestDeploymentCountCaps`, `TestP19RefusesChromeAndXbinTiles`,
   `TestWorkTreeWritersReachOnlyLiveTarget`.
 - **Links.** `deployments/1` joins `features` when these register.
+- **From wave 2.0.** The request and answer types are in
+  `internal/deployments/m2types.go` (WP-30), and `Impact` carries `joins`
+  and `placeholders` (0726331f). 07-runtime §2.8's GC on deployment removal
+  (WP-67's A5): call `p.retain(tile)` (`retention.go`) after a removal
+  commits, one call in this card's files.
 
 #### WP-53a plane-governance · L · wave 2.3 · after WP-34, WP-44b, WP-47, WP-49, WP-52
 - **Scope** (05-model §5, §10; 11-contract §1.7–§1.9; 09-fabric §8;
@@ -1466,6 +1556,8 @@ Every card includes these; a card states only what differs.
   `TestDeployPlaneOperations` (these ops).
 - **Links.** PO-15: unprotecting stays allowed while the ship-dark switch is
   off.
+- **From wave 2.0.** Use `m2types.go`'s request types and `Impact`'s
+  `placeholders` (0726331f).
 
 #### WP-53b tile-life · M · wave 2.3 · after WP-23b, WP-33
 - **Scope** (05-model §11). Lifecycle reaching every deployment (disabling,
@@ -1496,6 +1588,12 @@ Every card includes these; a card states only what differs.
   `TestZeroStateListings`,
   `TestZeroStateComponentsEntry` unchanged.
 - **Links.** PO-11, PO-14; 12-compat C3.
+- **From wave 2.0** (proposed; the owner may move it). No card owned the
+  deployments state's M2 facts (data, vault, limits, registrations,
+  wouldNotify, edges, caps, backup), whose shapes WP-30 declared in
+  `m2types.go`. The integrator proposes this card renders them in
+  `internal/boot/{deployments,deployreads}.go` (§3.3), in wave 2.3 when
+  every source plane has merged.
 
 #### WP-55 panel · L · wave 2.1 · after WP-24
 - **Scope** (10-ux §3–§6.1, §12, §14.1; NP-10-4). `web/bx-deploy.js` defines
@@ -1562,6 +1660,9 @@ Every card includes these; a card states only what differs.
   deploy or rollback onto a protected primary must name its checkpoint, but
   bx learns the capture to name from that dry run (WP-26's finding):
   resolve it before WP-53a, e.g. through a diff's `X-XBin-Checkpoint-To`.
+- **From wave 2.0.** The M2 request types are in
+  `internal/deployments/m2types.go` (WP-30); bx keeps its own client types
+  but matches those field names (the bodies are decoded strictly).
 
 #### WP-59 sdk · S · wave 2.1 · after WP-30
 - **Scope** (11-contract §6). `xbin.Deployment()`, `CallerInfo.Deployment`.
@@ -1608,6 +1709,10 @@ Every card includes these; a card states only what differs.
   one reads the live work tree. At the M1 exit (`XBIN_TEST_FULL=1`) that was
   up to 21 reads per run for Go (99 of 100 runs), at most 1 for Python
   (10 runs), and none for node or static.
+- **From wave 2.0.** `TestLiveReloadPauseRace/backends/runs/python`
+  failed in both wave 2.0 WPs' runs and in WP-67's A/B at the base (2 of
+  8): a request 13–22 µs after the pause answer got `backend error: EOF` or
+  a reset from the python generation. go, node and static passed.
 
 #### WP-62 itest-fabric · L · wave 2.4 · after every M2 feature WP
 - **Owns.** `test/{edges,flowc}_test.go`.
@@ -1931,8 +2036,8 @@ which proves that no two WPs in one wave own the same file.
 | `hack/menus.test.mjs` | 0.3 WP-08 · 2.3 WP-57 |
 | `internal/boot/boot.go` | 0.3 WP-07 (one line) · 0.4 WP-06 · 2.0 WP-30 |
 | `internal/boot/serve.go` | 0.4 WP-06 · 1.2 WP-20 |
-| `internal/boot/deployments.go` | 0.3 WP-07 · 0.4 WP-06 · 1.2 WP-15 |
-| `internal/boot/deployreads.go` | 1.2 WP-15 |
+| `internal/boot/deployments.go` | 0.3 WP-07 · 0.4 WP-06 · 1.2 WP-15 · 2.3 WP-54 (the state's M2 facts; proposed at 2.0) |
+| `internal/boot/deployreads.go` | 1.2 WP-15 · 2.3 WP-54 (proposed at 2.0) |
 | `internal/boot/deploystate_test.go` | 0.2 WP-02 · 1.3 WP-28 |
 | `internal/server/{static,tileassets,native,deployserve}.go` | 1.2 WP-19 · 2.2 WP-36 |
 | `internal/server/api.go` | 1.2 WP-19 · 2.3 WP-54 |
@@ -1948,7 +2053,7 @@ which proves that no two WPs in one wave own the same file.
 | `internal/deployments/worktree.go` | 1.2 WP-20 |
 | `internal/deployments/authz.go` | 1.1 WP-14a · 2.2 WP-52 · 2.3 WP-53a |
 | `internal/broker/broker.go` | 0.3 WP-05 · 2.0 WP-30 · 2.1 WP-39 · 2.2 WP-47 |
-| `internal/broker/deploydata.go` | 2.0 WP-30 · 2.1 WP-39 |
+| `internal/broker/deploydata.go` | 2.0 WP-30 · 2.1 WP-39 (WP-47 in 2.2 only if `Route` itself must change: ask) |
 | `internal/broker/resources.go` | 1.1 WP-18 (`Provision`) · 2.1 WP-39 · 2.2 WP-40 |
 | `internal/broker/resenc_wire.go` | 2.1 WP-39 · 2.2 WP-40 · 2.4 WP-45 |
 | `internal/broker/backup.go` | 1.2 WP-23 · 2.1 WP-39 · 2.3 WP-44a · 2.4 WP-45 |

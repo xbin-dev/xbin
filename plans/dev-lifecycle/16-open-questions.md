@@ -599,6 +599,45 @@ the file, no request, and exit 1 without a request for a tile with no log.
 - *Blocks:* nothing; WP-26 (wave 1.2) builds the default. 13 §4.14, 08 §2
   and the card follow.
 
+**Q24 — How a restored store's checkpoints become readable** (WP-67's A3,
+wave 2.0). 08 §11.4 recreates an archive's refs under the restore-only
+namespace `refs/xbin/restored/`, "so checkpoint GC keeps them, and no
+current ref moves". But `Store.known` (and so `Get`, `List`, and the
+plane's check that a record's checkpoints are in the store) lists only
+`refs/xbin/checkpoints/`, so a restored record is never installed and a
+restored checkpoint can't be deployed or rolled back to. 07 owns the ref
+layout and says nothing of this; neither does it say whether a deploy log
+(`refs/xbin/log/<name>`, the roll-back targets) comes back.
+- *Options:* (a) WP-67's proposal: after the fetch, create each live
+  `refs/xbin/checkpoints/<T>` and `views/<T>` whose restored copy exists and
+  whose live ref is absent (`update-ref --stdin` `create` lines), which
+  moves no current ref; (b) `known` also lists
+  `refs/xbin/restored/checkpoints/`, so nothing outside the restore-only
+  namespace is written. Either way, a deploy log whose live ref is absent
+  could be created from its restored copy.
+- *Default:* none built. The store half of the restore stays unbuilt: the
+  broker's hook and the plane's validation and record install are wired,
+  and an archive carrying a store is left out with a warning, as
+  `docs/tile-deployments.md` says. WP-44a (wave 2.3) builds `Store.Restore`
+  once this is ruled.
+- *Blocks:* putting deployment state back on restore (WP-44a's card).
+
+**Q25 — When retention runs** (WP-67's report, wave 2.0). WP-67 runs GC and
+the artifact pruning synchronously in the goroutine that finishes a
+deploy, after its log entry and before its waiters are released. So `bx
+--wait`, `Entry` and a static tile's reload wait for one GC run, and the
+first GC after a start repacks the store on that path. A background pass
+raced `TestDeploymentStateBootsTwiceInProcess`'s snapshot; the alternative
+is a background pass and a `Plane.Close` that daemon shutdown waits on (a
+`serve.go` line). It runs after a *successful* deploy only (07 §2.8; the
+card said "finished"). 07 §2.8's GC at boot and on deployment removal is
+not wired: a GC at boot repacks `data/checkpoints` at boot, which
+`TestDeploymentStateBootsTwice(InProcess)` forbids.
+- *Default:* as built: synchronous, after successful deploys only, no GC
+  at boot. GC on removal is one `p.retain(tile)` call in WP-52's removal.
+  07 §2.8 and 15 follow at the M2 exit.
+- *Blocks:* nothing.
+
 ### 5.2 Divergences still open in the documents
 
 Wording and alignment only; the winning text is named, and no work package
