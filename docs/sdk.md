@@ -64,7 +64,8 @@ missing grant — declare it in `uses`, get it approved.
 **Long-running calls stream.** The client has no overall timeout: SSE /
 chunked responses from another element run until either side closes (bound
 individual calls with a request context). For **WebSocket** to another
-element, dial any WS library through the gateway:
+element, use `sdk/ws` (below) with `xbin.Client()`, or dial any WS library
+through the gateway:
 
 ```go
 d := websocket.Dialer{NetDialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -77,6 +78,61 @@ conn, _, err := d.DialContext(ctx, "ws://xbin/api/apps/other/stream", h)
 Remember the lifecycle: streams to a backend die at its blue/green drain
 (30 s after a save there) — reconnect loops are mandatory. Backends serving
 active streams are not idle-reaped.
+
+### WebSocket — `github.com/xbin-dev/xbin/sdk/ws`
+
+A WebSocket (RFC 6455) client and server in the SDK, on the standard
+library alone. Dial another tile (or xbind) through the gateway — the
+handshake goes through `xbin.Client()`, with this instance's credential:
+
+```go
+import "github.com/xbin-dev/xbin/sdk/ws"
+
+c, _, err := ws.Dial(ctx, "ws://xbin/api/apps/other/stream", nil, &ws.DialOptions{Client: xbin.Client()})
+if err != nil { … }
+defer c.Close()
+go func() { // keep one goroutine reading: it answers the peer's pings
+	for {
+		typ, msg, err := c.ReadMessage() // ws.TextMessage or ws.BinaryMessage, whole
+		if err != nil {
+			return // a *ws.CloseError when the peer closed
+		}
+		…
+	}
+}()
+err = c.WriteMessage(ws.TextMessage, []byte(`{"op":"hello"}`)) // from any goroutine
+```
+
+Serve one from a handler:
+
+```go
+mux.HandleFunc("GET /stream", func(w http.ResponseWriter, r *http.Request) {
+	c, err := ws.Upgrade(w, r, nil) // a request that isn't a handshake is answered for you
+	if err != nil {
+		return
+	}
+	defer c.Close()
+	…
+})
+```
+
+- `DialOptions{Client, Subprotocols, MaxMessageSize}`: `Client` sends the
+  handshake (nil: `http.DefaultClient`, for any `ws://` or `wss://` URL); the
+  context bounds the handshake only. A refused handshake is
+  `ws.ErrBadHandshake`, with the response (its status and up to 4 KiB of its
+  body) returned alongside.
+- `UpgradeOptions{Subprotocols, CheckOrigin, MaxMessageSize, Header,
+  Error}`: every Origin is accepted unless `CheckOrigin` says otherwise —
+  xbind authenticated the call before it reached your backend (a sandboxed
+  page's Origin is `null`); a server of its own that trusts cookies checks
+  it. `Error` answers a refused upgrade in your API's error shape.
+- A received message is at most `MaxMessageSize` (default 32 MiB; over it
+  the connection closes with 1009 and the read returns
+  `ws.ErrMessageTooBig`); fragmented messages arrive whole. `Ping` sends a
+  ping; `SetPongHandler` / `SetPingHandler` observe them. `SetReadDeadline`
+  / `SetWriteDeadline` bound reads and writes (past one, the connection is
+  spent). `Close` / `CloseWith(code, reason)` do the close handshake,
+  waiting up to 2 s for the peer's answer.
 
 ### Resources, vault, bus
 

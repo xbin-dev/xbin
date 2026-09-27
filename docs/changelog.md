@@ -12,6 +12,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-27
 
+- **SDK: WebSocket on the standard library (`sdk/ws`,
+  [sdk.md](sdk.md)).** A client and server — `ws.Dial` and `ws.Upgrade` —
+  with text and binary messages, fragments reassembled, pings answered,
+  the close handshake, a message size limit (32 MiB by default), read and
+  write deadlines and writes safe from any goroutine; checked against
+  gorilla/websocket both ways. `ws.Dial` sends its handshake through an
+  `http.Client`, so `xbin.Client()` reaches another tile through the
+  gateway with the instance's credential. The SDK stays dependency-free.
 - **A contract for sandbox managers** ([sandbox-manager.md](sandbox-manager.md),
   D115). Tiles that run coding sandboxes for other tiles provide the http
   service `sandbox-manager` (protocol 1); tiles that use them — the agent
