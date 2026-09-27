@@ -317,11 +317,16 @@ The rules for an agent working on a tile, beyond the workspace `AGENTS.md`:
   largest paths: large data belongs in a resource or outside the tile.
   Checkpoints of one tile are rate-limited: ten at once, then one every
   3 s.
-- **Retention:** this release collects nothing yet. Checkpoints and deploy
-  logs stay in the store, extracted checkpoints under `.xbin/deploy/` and
-  their kept builds under `.xbin/build/` stay on disk. Those two are rebuilt
-  from the store on demand, so deleting `.xbin/deploy/` or `.xbin/build/`
-  while xbind is stopped is safe.
+- **Retention:** after each successful deploy xbind collects the tile's
+  checkpoint store. It keeps every deployment's current checkpoint, the
+  checkpoints of each deployment's last 20 successful deploys, and anything
+  younger than 24 hours, and trims each deploy log to its last 50 entries.
+  An extracted tree stays under `.xbin/deploy/` for each deployment's
+  current and previous checkpoint. Kept builds under `.xbin/build/` stay for
+  each deployment's current checkpoint and its previous three successful
+  deploys, so restarting or rolling back to one of them reuses its build.
+  Extracted trees and builds are rebuilt from the store on demand, so
+  deleting `.xbin/deploy/` or `.xbin/build/` while xbind is stopped is safe.
 
 ## A tile's life, backups and downgrades
 

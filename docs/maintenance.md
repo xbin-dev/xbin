@@ -313,11 +313,16 @@ stay byte for byte what it was.
   rebuilt on demand; a `.tmp-*` entry is an interrupted extraction, safe to
   delete while xbind is stopped. Kept builds are
   `.xbin/build/<key>/c/<tree>/{bin,build.json}`.
-- **Retention isn't wired yet.** The store's GC (every deployment's current
+- **Retention** runs after each successful deploy of a tile with a record,
+  in the goroutine that finishes it (so a deploy's waiters, and a static
+  tile's reload, wait for it): the store's GC (every deployment's current
   checkpoint, its last 20 successful deploys and anything younger than 24 h
-  kept; deploy logs trimmed to 50 entries), the boot sweep of `.tmp-*` and
-  the pruning of kept builds exist and are tested, but nothing calls them in
-  this release: stores, extracted trees and kept builds only grow.
+  kept; deploy logs trimmed to 50 entries; the first GC after a start also
+  repacks), then the pruning of kept builds (each deployment's current
+  checkpoint and its three newest other successful ones). Once a record
+  governs some tile, boot sweeps the `.tmp-*` extractions killed runs left.
+  A failed or cancelled deploy collects nothing, and a tile without a record
+  is never touched.
 - **Isolated integration tests** (the checkpoint, runner and broker packages'
   confined tests, `startIsolatedDaemon` under `test/`) need
   `XBIN_TEST_ROOTFS` — a rootfs whose image has git — user namespaces and a
