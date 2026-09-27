@@ -41,7 +41,13 @@ final class XbinScreensTests: XCTestCase {
         e.edgeSwipe(fromLeft: true, fraction: 0.75)
         let edit = e.app.buttons["Edit"]
         XCTAssertTrue(e.until(10) { edit.exists && edit.isHittable && welcome.isHittable }, "back on the screen after a left-edge swipe")
-        XCTAssertFalse(heading.isHittable, "the tile left the screen (kept aside for forward)")
+        // The tile's panel is kept aside, off screen to the right. Asked of
+        // the web view itself: the page's own accessibility frames can keep
+        // a position from mid-slide when the main thread is busy (the
+        // screen's widget runtimes start as its cards reappear), so the
+        // heading's isHittable isn't a reliable witness here.
+        let page = e.app.webViews.containing(.staticText, identifier: "the mental model").firstMatch
+        XCTAssertTrue(e.until(5) { !page.exists || page.frame.minX >= e.app.frame.maxX - 1 }, "the tile left the screen (kept aside for forward)")
         e.shot("screens-01-back")
 
         // Forward: the same page, not reloaded from nothing.

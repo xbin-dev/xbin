@@ -525,7 +525,7 @@ has "ci-uitests: running builds signed to run locally (the Keychain)" "$log" "CO
 has "ci-uitests: erases the simulator when asked" "$log" "xcrun simctl erase BBBBBBBB-0000-4000-8000-000000002714"
 has "ci-uitests: …then boots it" "$log" "xcrun simctl bootstatus BBBBBBBB-0000-4000-8000-000000002714 -b"
 has "ci-uitests: test-without-building, only the named tests" "$log" \
-  "xcodebuild test-without-building -project Xbin.xcodeproj -scheme XbinUITests -destination $dest -derivedDataPath $RUNNER_TEMP/xbin-derived/app -clonedSourcePackagesDirPath $RUNNER_TEMP/xbin-derived/SourcePackages -skipMacroValidation -skipPackagePluginValidation -resultBundlePath $RUNNER_TEMP/xbin-ci/uitests.xcresult -only-testing:XbinUITests/XbinE2ETests/test01AddWorkspace -only-testing:XbinUITests/XbinE2ETests/test03NativeCounter"
+  "xcodebuild test-without-building -project Xbin.xcodeproj -scheme XbinUITests -destination $dest -derivedDataPath $RUNNER_TEMP/xbin-derived/app -clonedSourcePackagesDirPath $RUNNER_TEMP/xbin-derived/SourcePackages -skipMacroValidation -skipPackagePluginValidation -resultBundlePath $RUNNER_TEMP/xbin-ci/uitests.xcresult -collect-test-diagnostics never -only-testing:XbinUITests/XbinE2ETests/test01AddWorkspace -only-testing:XbinUITests/XbinE2ETests/test03NativeCounter"
 has "ci-uitests: the tests get the URL, the account and E2E_DIR" "$log" \
   "e2e-env URL=http://127.0.0.1:9871 USER=e2e PASSWORD=pw-secret-123 DIR=$RUNNER_TEMP/xbin-ci/e2e"
 eq "ci-uitests: screenshots in E2E_DIR" "$(find "$RUNNER_TEMP/xbin-ci/e2e" -name '*.png' | wc -l | tr -d ' ')" 4
