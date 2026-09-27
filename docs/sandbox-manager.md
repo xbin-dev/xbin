@@ -366,7 +366,9 @@ opens which:
   labelled `terminal` or not labelled (§Terminals) — for attaching again
   (`…/execs/{id}/tty`) and ending (`DELETE …/execs/{id}`).
 - **Over SSH** (`ssh <sandbox>@host -p 2222`, after an admin runs `bx expose
-  apps/sandbox-terminal ssh=runtime --listen :2222`) a key registered on its
+  apps/sandbox-terminal ssh=runtime --listen :2222` — or `--listen
+  127.0.0.1:2222` to keep it on the host's loopback, for people who come
+  through an SSH tunnel or a VPN) a key registered on its
   page names the person — only while xbind says they may still use the
   tile, asked at every login — and its backend calls you as an
   **asserted** one (`Sbx-User`): `GET /sbx/sandboxes` to find the sandbox,
