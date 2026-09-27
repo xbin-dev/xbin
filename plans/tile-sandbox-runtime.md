@@ -824,8 +824,9 @@ admin view.
      terminals, this never gates xbind's boot.
 4. Resolve the mounts and the egress class.
 5. Build the `Spec`: `Lower: [base]`, `Upper`/`Work` (namespace mode),
-   `Restricted`, `MountGuard`, `Hostname: name`, `Net: "relay"`, `Agent`,
-   `Lock`, binds, and `Entry: /opt/xbin/bin/bx`.
+   `Restricted`, `MountGuard`, `NoFollow` (§5: mount points in the upper
+   are never followed; it is opt-in, WP-2), `Hostname: name`, `Net:
+   "relay"`, `Agent`, `Lock`, binds, and `Entry: /opt/xbin/bin/bx`.
    - In VM mode, `vm.Apply(…, Resident)` also runs, along with `Reserve` and
      `EnsureDiskAt`.
 6. `Launch`, `cmd.Start`, `cgroup.AddWith`, `SetupUserns`, `RecvTUN`,
@@ -1241,10 +1242,10 @@ next to its vforking `os.StartProcess`.
     in a read-only bind gets its read-only remount after the nesting, as on
     dl/confine-dirfrom.
   - *dl/confine-dirfrom's helpers* (`openNoFollow`, `nestedPoint`, `fdPath`,
-    `beneath`) are copied verbatim into `agentfd_linux.go`. Whichever branch
-    lands second deletes one copy. The existing integration tests gained
-    dl's `SetupUserns` hunk byte for byte, so they no longer hang in range
-    mode.
+    `beneath`) are copied verbatim into `nofollow_linux.go`. Whichever
+    branch lands second deletes that file. The existing integration tests
+    gained dl's `SetupUserns` hunk byte for byte, so they no longer hang in
+    range mode.
   - *The fd numbers travel in argv, appended by the init.* Launch picks the
     numbers after the caller built the spec, so the init appends
     `--fd N [--lock M]` to a namespace-mode entry's argv. It leaves a VM
@@ -1597,7 +1598,9 @@ next to its vforking `os.StartProcess`.
     - create → start → exec `true` → stop → start: the upper persists;
     - egress `none`: TCP to 1.1.1.1 is reset, DNS REFUSED, both under
       100 ms;
-    - a read-only mount refuses writes; a `Sub` symlink is refused;
+    - a read-only mount refuses writes; a `Sub` symlink is refused; a
+      symlink planted in the upper at a mount point is refused (the Spec
+      sets `NoFollow`);
     - leaf limits written; the registry row added and removed;
     - `unshare -U` fails inside.
   - Add `./internal/tilesbx/` to `make integration`, twice (KVM, then

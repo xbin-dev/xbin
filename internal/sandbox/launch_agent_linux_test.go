@@ -116,11 +116,32 @@ func runProbe(t *testing.T, spec *Spec) (agentReport, string, error) {
 // telling; xbind reaches it by dialling after Handle.Started closed xbind's
 // copies; the sandbox alone then holds the lock, fuse-overlayfs included,
 // and fuse-overlayfs never holds the factory; the hostname is set; closing
-// the factory ends the sandbox and releases the lock.
+// the factory ends the sandbox and releases the lock; a sandbox that dies
+// fails the next Dial. Under both overlays: fuse-overlayfs is where the
+// factory could leak, so it runs whenever one is found (CI's bin/ included).
 func TestAgentFactoryAndLock(t *testing.T) {
 	if !Available() {
 		t.Skip("unprivileged user namespaces unavailable")
 	}
+	fuse := os.Getenv("XBIN_FUSE_OVERLAYFS")
+	if !isExecutable(fuse) {
+		fuse, _ = filepath.Abs("../../bin/fuse-overlayfs")
+	}
+	if !isExecutable(fuse) {
+		fuse, _ = exec.LookPath("fuse-overlayfs")
+	}
+	for _, flavour := range []struct{ name, fuse string }{{"kernel", "none"}, {"fuse", fuse}} {
+		t.Run(flavour.name, func(t *testing.T) {
+			if !isExecutable(flavour.fuse) && flavour.fuse != "none" {
+				t.Skip("no fuse-overlayfs (make fuse-overlayfs, XBIN_FUSE_OVERLAYFS or PATH)")
+			}
+			t.Setenv("XBIN_FUSE_OVERLAYFS", flavour.fuse) // "none" isn't executable: the kernel overlay
+			testAgentFactoryAndLock(t)
+		})
+	}
+}
+
+func testAgentFactoryAndLock(t *testing.T) {
 	dir, lower, upper, work := probeRoot(t)
 	lockPath := filepath.Join(dir, "lock")
 	lock, err := os.OpenFile(lockPath, os.O_RDONLY|os.O_CREATE, 0o600)
@@ -177,6 +198,9 @@ func TestAgentFactoryAndLock(t *testing.T) {
 	if err := tryLock(lockPath); !errors.Is(err, unix.EWOULDBLOCK) {
 		t.Errorf("the lock while the sandbox runs: %v, want EWOULDBLOCK", err)
 	}
+	if (spec.FuseOverlay != "") != (os.Getenv("XBIN_FUSE_OVERLAYFS") != "none") {
+		t.Fatalf("Launch chose fuse-overlayfs %q under XBIN_FUSE_OVERLAYFS=%q", spec.FuseOverlay, os.Getenv("XBIN_FUSE_OVERLAYFS"))
+	}
 	if spec.FuseOverlay != "" {
 		fuse := childNamed(t, cmd.Process.Pid, "fuse-overlayfs")
 		if fuse == 0 {
@@ -209,6 +233,34 @@ func TestAgentFactoryAndLock(t *testing.T) {
 			t.Fatal("the lock outlived the sandbox")
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+
+	// A sandbox killed with its factory open: the next Dial fails at once,
+	// because Started left the child end to the sandbox alone (no copy in
+	// xbind, none in fuse-overlayfs).
+	fac2, child2, err := NewFactory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fac2.Close()
+	spec2 := probeSpec(lower, upper, work, "agent")
+	spec2.Agent, spec2.NoFollow = child2, true
+	cmd2, _, buf2 := startSpec(t, spec2)
+	defer func() { _ = cmd2.Process.Kill(); _ = cmd2.Wait() }()
+	c2, err := fac2.Dial()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = c2.SetDeadline(time.Now().Add(30 * time.Second))
+	if err := json.NewDecoder(c2).Decode(&r); err != nil { // the agent is up
+		t.Fatalf("no answer over the second factory: %v\n%s", err, buf2.Bytes())
+	}
+	c2.Close()
+	_ = cmd2.Process.Kill()
+	_ = cmd2.Wait()
+	if c, err := fac2.Dial(); err == nil {
+		c.Close()
+		t.Error("Dial succeeded after the sandbox died: something still holds the factory's child end")
 	}
 }
 
