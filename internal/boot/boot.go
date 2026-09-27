@@ -539,10 +539,12 @@ func (st *State) stepProxy() error {
 	run.EnvForComponent = brk.EnvFor
 	// What each tile deployment runs and spawns with (runner/deploy.go); the
 	// primary of a tile without a record keeps its work tree and today's env.
+	// The env is the broker's per deployment: the same values everywhere, and
+	// beyond main the remap onto the deployment's own volumes (08-data §3.6).
 	dp := st.Deployments
 	dp.TileEnv = brk.EnvFor
 	run.DeploymentHooks = runner.DeploymentHooks{CodeFor: dp.CodeFor, Primary: dp.Primary,
-		View: dp.View, Materialize: dp.Materialize, EnvFor: dp.EnvFor, LimitsFor: dp.LimitsFor,
+		View: dp.View, Materialize: dp.Materialize, EnvFor: brk.DeploymentEnv, LimitsFor: dp.LimitsFor,
 		Retained: dp.RetainedTrees}
 	run.AlwaysOnSwitched = dp.AlwaysOnSwitched // a non-primary deployment's alwaysOn switch (07-runtime §11)
 	// Approving a net:*/res:*/gpu:* grant restarts the caller so the new egress
