@@ -187,6 +187,11 @@ PUT /api/xbin/bus/subscriptions
   `xbin.Subscribe` / `xbin.Unsubscribe` / `xbin.BusEvent`.
 - They persist, ride along in the component's backup, and pause while the
   component is disabled; a subscriber that no longer exists loses them.
+- In a tile deployment that isn't the primary they are dormant until its
+  deliveries are on (§Tile deployments below): the subscription answers 200
+  with `"dormant": true` and receives nothing. A subscription on the tile's
+  own bus receives only events published in its deployment's data; one on
+  another scope's bus receives that scope's primary's.
 
 Document your topics in your `API.md` — they're part of your contract.
 
@@ -210,7 +215,9 @@ Schedules: standard 5-field cron or `@every 30s` / `@hourly`. List:
 `bx cron ls` or `GET /api/xbin/cron/jobs`. Delete:
 `DELETE /api/xbin/cron/jobs/<name>`. Failures are logged (xbind log +
 component log); there are no retries — make handlers idempotent and let the
-next tick catch up.
+next tick catch up. In a tile deployment that isn't the primary a job is
+dormant — registered (`"dormant": true`), never ticking — until its
+deliveries are on (§Tile deployments below).
 
 ## filesystem — a persistent read-write directory
 
@@ -293,6 +300,85 @@ silently ignored, so a "busy" write fails at once instead of waiting.
 only handed to same-scope components; other apps go through your service API.
 Sharing files across app boundaries welds schemas together — the whole point of
 the roles/API model is to avoid that.
+
+## Tile deployments: data per deployment
+
+A tile can run several deployments of its code
+([tile-deployments.md](/docs/tile-deployments.md)). The primary keeps the
+data this page describes; each other deployment (`dev`, …) has data of its
+own, so testing against it never touches what everyone else sees.
+
+- **Its own data in the tile's scope.** Each deployment beyond `main` keeps
+  its own kv, blob, bus and filesystem and sqlite volumes in its tile's scope.
+  The scope's tiles that each have a deployment of the same name share that
+  data, as the scope's tiles share the primary's. Resource ids and
+  `XBIN_RES_*` values are the same in every deployment — a file resource's
+  path is bound to the deployment's own volume — so code that stores absolute
+  paths keeps working, and nothing in your code changes. kv, blob and bus
+  calls resolve in the caller's deployment's data.
+- **Declared by its own code.** A deployment's resources are what its own
+  code's `scope.json` declares: a pinned deployment's checkpoint, the live
+  reload target's work tree. A resource the primary's code doesn't declare
+  exists only in the deployments that do. Beyond `main`, a deployment's data
+  holds at most 64 resources, and its volumes mount on first use (a start, a
+  blob request).
+- **Other scopes read-only.** Other scopes' data, and the workspace's, are
+  read-only to non-primary deployments: a write answers 403 `<tile>+<name>
+  may not write <res>: non-primary deployments reach other scopes read-only
+  (edge policy "read")`.
+- **Registrations are dormant.** A deployment beyond `main` registers cron
+  jobs and bus push subscriptions into its own store, never `main`'s. While a
+  deployment isn't the primary (`main` beside another primary included), its
+  registrations are dormant (registering still answers 200, with `"dormant":
+  true`) until it becomes the primary or a tile manager turns its deliveries
+  on. A dormant job doesn't tick and a dormant
+  subscription receives nothing; a tick or delivery always reaches the
+  deployment that registered it. A tile's credential lists its own
+  deployment's jobs and subscriptions: rows carry `deployment` (absent for
+  `main`) and `dormant` (absent while active), and bus rows count
+  `dormantEvents`. Admins pass `?deployment=<name>` to list, register or
+  delete another deployment's, and the answer echoes it. A registration on
+  another scope's resource is refused while its edge is `block`, and stored
+  dormant under `read`. Each deployment may hold 64 push subscriptions. `bx
+  deployment run-now` delivers one job of a non-primary deployment once, as
+  `xbin/cron` with the job's role, whatever its deliveries switch says (one
+  run of a job at a time).
+- **Where it comes from.** A new deployment's data starts empty, unless a
+  tile manager seeds it from the primary's: kv consistent at one moment,
+  each SQLite database at one point in time, files and blobs file by file,
+  or everything at one point in time with the primary stopped (required for
+  a container store and for a VM primary with file resources). A seed copies
+  the resources both deployments' code declare with the same type; those
+  only the new code declares start empty, the rest are skipped and listed.
+  Special files (FIFOs, sockets) aren't copied, and neither are the vault,
+  cron jobs, bus subscriptions or registrations. An admin can back a
+  deployment's data up, now or on a schedule of its own, and restore an
+  archive into it, replacing what it held (`/api/xbin/deployments/backup`,
+  `restore`: [protocol.md](/docs/protocol.md) §Tile deployments).
+- **Reset** empties it: terminal level on every tile of the scope that has
+  that deployment (the refusal names the tile that blocks), `main`'s only by
+  a tile manager while `main` isn't the primary, never data some tile serves
+  as its primary, never `res:workspace/*`.
+- **While a seed, reset or restore runs**, that data's kv, blob and bus
+  requests answer 503 with `Retry-After`, the deployments using it don't
+  start, and another such act answers 409. One cut short leaves the data
+  partial, and its deployments refuse to start (`<act> of <scope> for <name>
+  failed at <step>: reset or seed again`) until a reset or a new seed. The
+  state shows as `original` (`main`, untouched), `empty`, `seeded`,
+  `restored` or `partial`.
+- **Removal.** Removing a deployment deletes its data only with the scope's
+  last tile that has that deployment. Data no tile claims any more (a
+  `scope.json` that went away, a deployment record gone) is kept 14 days,
+  listed to admins, then deleted; `main`'s data is never collected.
+- **Disk.** Each deployment's data beyond `main` is a quota bucket of its
+  own, at the scope quota or a lower per-deployment `diskGiB` limit (the
+  lowest among the tiles sharing it), which a tile manager sets on the
+  scope's root tile. When the workspace disk is low, non-primary data is
+  write-blocked first (507).
+- **On disk** it sits under `data/resources-enc/.deployments/<scope>/<name>/`
+  (its `kv.db`, and `fs/<resource>/` per volume), apart from the primary's;
+  a scope whose data key is longer than 200 bytes can't have deployments
+  beyond `main`.
 
 ## Choosing
 
