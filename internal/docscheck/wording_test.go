@@ -28,6 +28,7 @@ import (
 // is not.
 var wordingSources = []string{
 	"web/deploy-state.js",
+	"web/deploy-panel.js",
 	"web/frame-deploy.js",
 	"web/bx-deploy.js",
 	"cmd/bx/livereload.go",

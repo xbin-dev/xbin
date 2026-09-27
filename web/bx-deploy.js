@@ -11,7 +11,8 @@
  * edges with their per-edge refusal and clamp counts. A zero-state tile gets
  * the one entry point: pause live reload, or add a deployment.
  *
- * The server decides; this renders: web/deploy-state.js turns the state
+ * The server decides; this renders: web/deploy-state.js and
+ * web/deploy-panel.js turn the state
  * (GET /api/xbin/deployments?tile=, in the viewer's view: a reader gets the
  * primary only) and a dry run's impact into every word shown. Every change
  * confirms from a dry run of the exact request through the host frame's
@@ -35,7 +36,10 @@ import { LitElement, html, css, nothing } from 'lit';
 import { unsafeHTML } from 'lit';
 import { diffHTML, diffStats } from '/vendor/bx-code.js';
 import { onEvent, onReconnect } from '/vendor/events-socket.js';
-import * as ds from '/vendor/deploy-state.js';
+import * as dsState from '/vendor/deploy-state.js';
+import * as dsPanel from '/vendor/deploy-panel.js';
+
+const ds = { ...dsState, ...dsPanel };
 
 const SHEET = typeof matchMedia === 'function' ? matchMedia('(max-width: 820px)') : { matches: false, addEventListener() {} };
 const ROUTE = {
