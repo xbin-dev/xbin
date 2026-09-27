@@ -95,7 +95,7 @@ func (m *Manager) opState(w http.ResponseWriter, r *http.Request) {
 	if beErr != nil {
 		be["error"] = beErr.Error()
 	}
-	out["backend"], out["config"], out["images"] = be, cfg, imgs
+	out["backend"], out["config"], out["images"], out["self"] = be, cfg, imgs, xbin.Self()
 	if o, err := m.offer(r.Context()); err != nil {
 		out["runtimeError"] = errText(err)
 	} else {
