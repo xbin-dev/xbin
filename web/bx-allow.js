@@ -31,8 +31,13 @@ export const CAP_INFO = {
     desc: 'keeps user-namespace capabilities and a minimal seccomp floor so rootless podman/docker runs inside the tile' },
   'open-links': { label: 'open links in new tabs',
     desc: 'the tile\'s frontend may open browser tabs/windows that leave its sandbox (target="_blank", window.open) — full-origin pages at a URL the tile chose, so a hostile tile could open a look-alike page; approve for tiles you trust' },
+  'sandboxes': { label: 'sandbox manager', noDelegate: true,
+    desc: 'the tile\'s backend may create, run and delete coding sandboxes on this host through xbind — within the workspace\'s sandbox quotas, reaching only the resources and networks the tile itself was given; approved by a workspace admin only (no allowance delegates it)' },
 };
-export const KNOWN_CAPS = Object.keys(CAP_INFO);
+// The classes an allowance may name — cap:sandboxes is approved by a
+// workspace admin only (D120; the server refuses it in an allowance and
+// `cap:*` never covers it).
+export const KNOWN_CAPS = Object.keys(CAP_INFO).filter((c) => !CAP_INFO[c].noDelegate);
 // capInfo('cap:open-links' | 'open-links') → {label, desc} | null
 export const capInfo = (t) => CAP_INFO[String(t ?? '').replace(/^cap:/, '')] ?? null;
 
@@ -50,7 +55,7 @@ export const ALLOW_KINDS = [
     help: 'their tiles may be granted a role on resources (kv, sqlite, files, pub/sub) whose scope/name matches',
     placeholder: 'scope/name pattern — apps/warehouse/*' },
   { id: 'cap', icon: '✦', label: 'Hold a capability',
-    help: 'their tiles may be granted a capability class; the xbin family is never delegable',
+    help: 'their tiles may be granted a capability class; the xbin family and cap:sandboxes are never delegable',
     placeholder: 'containers, net-admin, or a glob' },
   { id: 'gpu', icon: '▦', label: 'Use a GPU',
     help: 'their tiles may be granted GPUs matching the pattern',
@@ -152,6 +157,7 @@ export function allowProblem(r) {
     case 'cap':
       if (!v) return 'capability required';
       if (v.startsWith('xbin')) return 'the xbin family is never delegable';
+      if (CAP_INFO[v]?.noDelegate) return `cap:${v} is approved by a workspace admin only — never delegable`;
       if (!PATTERN_OK.test(v)) return 'a capability class or glob';
       return '';
     case 'gpu':

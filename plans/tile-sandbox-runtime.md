@@ -1302,6 +1302,26 @@ next to its vforking `os.StartProcess`.
   - a revoke fires `OnCapChange(tile, cap, false)`;
   - an approve restarts no backend.
 - **Parallel:** fully.
+- **As built** (branch `p2/cap-vmpol`):
+  - `OnCapChange func(tile, capTarget string, held bool)` is a `Broker`
+    field (broker.go); `caps.go` has `SandboxesCap`, `SandboxesFor(tile)`
+    (false for a tile that no longer exists), `capChanged` and `capSweep`.
+    `held` is the effective state **after** the change, so it fires on an
+    approve too (`true`), and revoking one of two rows reports `true`.
+  - **Added:** a ceiling change that strips the cap also fires
+    `OnCapChange(tile, cap, false)`. A policy row, a permission set, org or
+    personal sets and an owner transfer all end in `usersEvent`, which now
+    runs `capSweep` over the `cap:` grant rows. It is stateless and may
+    repeat; the hook must be idempotent and return promptly (WP-19's
+    `StopTile` wiring).
+  - **Added:** the floor is `users.NeverDelegable` (xbin family +
+    `users.SandboxesCap`). A literal `cap:sandboxes` allowance entry is
+    refused at write (`parseAllowEntry`), mirrored in `bx doctor` and
+    `web/bx-allow.js` (`CAP_INFO.sandboxes.noDelegate`; `KNOWN_CAPS`
+    leaves it out of the allowance picker). Globs that match it stay valid
+    and never cover it.
+  - Docs also: the reserved-targets table in
+    `docs/overview/06-authorization.md`.
 
 ### WP-6 — VM policy for tiles (Track B · S/M)
 

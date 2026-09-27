@@ -735,6 +735,15 @@ you can't self-bind, same rule as grants) — unbound means no capability.
   `devbox` builtin, was retired on 2026-09-27; coding sandboxes for agents
   and people come through docs/sandbox-manager.md).
 
+  **If you BUILD a sandbox manager on xbind's own sandboxes** (a tile serving
+  docs/sandbox-manager.md), declare `"uses": [{ "target": "cap:sandboxes",
+  "role": "writer" }]`. Only a workspace admin approves it — no org or
+  personal allowance can, not even `cap:*` — and it lets only your backend,
+  with its instance token, drive xbind's tile sandboxes (never your frames
+  or terminals). Revoking it stops your sandboxes and keeps their state.
+  Never pass your token into a sandbox, under any name: a sandbox gets no
+  xbin identity, and your backend proxies everything it needs.
+
   **If your frontend opens links in new tabs** (`<a target="_blank">`,
   `window.open`), declare `"uses": [{ "target": "cap:open-links", "role":
   "writer" }]` (ND11). The tile sandbox has no `allow-popups`, so such links

@@ -74,6 +74,8 @@ func (b *Broker) ceilingBlockWith(c users.Ceiling, from, target string) string {
 		return deny(users.PolicyDenyXbinCaps)
 	case target == OpenLinksCap: // frontend popup capability (ND11) — xbin-caps deny covers it
 		return deny(users.PolicyDenyXbinCaps)
+	case target == SandboxesCap: // the tile-sandbox runtime (D120) — mandatory: unlisted, a mayCall row would strip it
+		return deny(users.PolicyDenyXbinCaps)
 	case strings.HasPrefix(target, "net:"): // legacy net grants (pre-bindings)
 		return deny(users.PolicyDenyNet)
 	default: // component paths and res:… targets

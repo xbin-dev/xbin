@@ -232,11 +232,30 @@ func (s *Store) allowUnionLocked(sets, extras, netRules []string) []string {
 	return union(append(lists, nets)...)
 }
 
+// SandboxesCap is the reserved capability a sandbox-manager tile holds to
+// drive xbind's tile-sandbox runtime (D120; broker.SandboxesCap names the
+// same string). It is spelled here because the allowance floor below needs
+// it and users cannot import the broker.
+const SandboxesCap = "cap:sandboxes"
+
+// NeverDelegable reports whether no allowance may ever cover target — only a
+// workspace admin approves it. Two families:
+//
+//   - xbin / xbin:* — an element granted xbin@admin IS a workspace admin, so
+//     an org admin (or a personal owner) who could approve it would become
+//     one transitively (D26);
+//   - cap:sandboxes — xbind's tile-sandbox runtime is held only by manager
+//     tiles a workspace admin chose (D120), not even under `cap:*`.
+func NeverDelegable(target string) bool {
+	return target == "xbin" || strings.HasPrefix(target, "xbin:") || target == SandboxesCap
+}
+
 // allowCovers matches a normalized approval target (+ role, "" for the
-// binding plane) against allowance entries. The xbin floor holds here:
-// even a hand-edited entry can't delegate workspace management.
+// binding plane) against allowance entries. The floor holds here: even a
+// hand-edited entry — or `cap:*` — can't delegate workspace management or
+// cap:sandboxes (NeverDelegable).
 func allowCovers(entries []string, target, role string) bool {
-	if target == "xbin" || strings.HasPrefix(target, "xbin:") {
+	if NeverDelegable(target) {
 		return false
 	}
 	for _, e := range entries {

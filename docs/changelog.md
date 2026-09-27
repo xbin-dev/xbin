@@ -10,6 +10,19 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-28
+
+- **`cap:sandboxes`: the grant a sandbox manager needs for xbind's tile
+  sandboxes** (D120, [auth.md](auth.md)). A tile that serves
+  [sandbox-manager.md](sandbox-manager.md) on xbind's own sandboxes declares
+  `uses: [{target: "cap:sandboxes", role: "writer"}]`; it lands pending, and
+  only a workspace admin approves it. No org or personal allowance delegates
+  it, not even `cap:*`, and an allowance or permission set that names it is
+  refused. A policy `xbin-caps` deny strips it. Approving restarts nothing;
+  revoking it, or a policy change that strips it, stops the tile's sandboxes
+  and keeps their state. It gates the backend alone: the tile's frames,
+  terminals and signed-in users never gain anything from it.
+
 ## 2026-09-27
 
 - **A contract for sandbox managers** ([sandbox-manager.md](sandbox-manager.md),
