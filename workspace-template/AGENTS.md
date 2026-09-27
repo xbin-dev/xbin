@@ -742,7 +742,8 @@ you can't self-bind, same rule as grants) — unbound means no capability.
   with its instance token, drive xbind's tile sandboxes (never your frames
   or terminals). Revoking it stops your sandboxes and keeps their state.
   Never pass your token into a sandbox, under any name: a sandbox gets no
-  xbin identity, and your backend proxies everything it needs.
+  xbin identity, and your backend proxies everything it needs. Drive them
+  with the Go SDK's `xbin.SandboxAPI()` (docs/sdk.md §Tile sandboxes).
 
   **If your frontend opens links in new tabs** (`<a target="_blank">`,
   `window.open`), declare `"uses": [{ "target": "cap:open-links", "role":

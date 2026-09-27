@@ -47,6 +47,9 @@ type Manager struct {
 	rt       *xbin.SandboxRuntime
 	rtErr    error
 	rtAt     time.Time
+	// self is this tile's path (XBIN_COMPONENT): its own page's calls come
+	// from it (pageReader). Tests set it.
+	self string
 
 	ctx    context.Context // background work (creations, image builds)
 	cancel context.CancelFunc
@@ -85,7 +88,7 @@ func newManager(st *store, be Backend) (*Manager, error) {
 	}
 	m := &Manager{st: st, cfg: cfg, recs: map[string]*record{}, imgs: map[string]*builtImage{},
 		execIdem: map[string]execIdem{}, live: map[string]time.Time{}, starting: map[string]bool{},
-		locks: map[string]*opLock{}, creates: map[string]*createJob{}, builds: map[string]*buildJob{}}
+		locks: map[string]*opLock{}, creates: map[string]*createJob{}, builds: map[string]*buildJob{}, self: xbin.Self()}
 	for _, r := range recs {
 		m.recs[r.ID] = r
 	}
@@ -252,14 +255,39 @@ type caller struct {
 	from     string // the consumer tile (X-XBin-From, set by xbind)
 	user     string // the person: verified (X-XBin-User) or asserted (Sbx-User)
 	verified bool
+	// lookOnly: a person on this tile's own page with less than write access
+	// to it (pageReader). They look and never change: contractHandler refuses
+	// their changes before routing, and a read never starts a stopped sandbox
+	// for them.
+	lookOnly bool
 }
+
+// lookOnlyKey marks a pageReader's request (its context).
+type lookOnlyKey struct{}
 
 func callerOf(r *http.Request) caller {
 	from := r.Header.Get("X-XBin-From")
 	if u := r.Header.Get("X-XBin-User"); u != "" {
-		return caller{from: from, user: u, verified: true}
+		return caller{from: from, user: u, verified: true, lookOnly: r.Context().Value(lookOnlyKey{}) != nil}
 	}
 	return caller{from: from, user: strings.TrimSpace(r.Header.Get("Sbx-User"))}
+}
+
+// pageReader: r comes from this tile's own page (the frame, so the person
+// is verified), and that person has less than write access to the tile.
+// docs/auth.md D29: a frame call runs at the tile's full self-role, so a
+// mutating endpoint gates on the person's level. Such a person gets a
+// read-only view. Other consumers' calls are never gated here: the contract
+// trusts consumers.
+func (m *Manager) pageReader(r *http.Request) bool {
+	c := xbin.Caller(r)
+	return m.self != "" && c.From == m.self && !c.UserCanWrite()
+}
+
+// mutates: r changes something. That is every method but GET and HEAD, and
+// a terminal too: a GET upgrade that starts a shell or types into one.
+func mutates(r *http.Request) bool {
+	return r.Method != http.MethodGet && r.Method != http.MethodHead || strings.HasSuffix(r.URL.Path, "/tty")
 }
 
 func (r *record) share(consumer string) (share, bool) {

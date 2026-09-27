@@ -1,8 +1,10 @@
 // web-ops.js — the operators' Sandboxes and Images tabs on the web: every
 // consumer's sandboxes (metadata only: model/ops.js sandboxRows) with their
-// lifecycle, snapshots and sharing, usage against the quotas, the
+// lifecycle and snapshots, and who may use each (shown: only its home
+// consumer or its owner changes that), usage against the quotas, the
 // substrate's state and orphans; the images with their builds and the image
 // editor. ui is web.js's page state; ui.run does an action and repaints.
+// sharesTpl is "Yours"' sharing form (web-mine.js).
 import { html, nothing } from '/vendor/lit-all.min.js';
 import * as O from './model/ops.js';
 import * as F from './model/format.js';
@@ -49,12 +51,13 @@ function rowTpl(app, ui, r) {
     ui.paint();
   };
   const act = (a) => {
-    if (a.id === 'snapshots' || a.id === 'shares') return toggle(a.id);
+    if (a.id === 'snapshots') return toggle(a.id);
     if (!ask(a.confirm)) return;
     ui.run(`${r.id}:${a.id}`, () => app.opAct(r.id, a.id), a.id === 'delete' ? `${r.name} deleted` : '');
   };
   return html`<tr class="sb" data-id=${r.id}>
-      <td><b>${r.name}</b><div class="mono muted small">${r.id}</div></td>
+      <td><b>${r.name}</b><div class="mono muted small">${r.id}</div>
+        <div class="muted small who" title="who may use it — only its home consumer, or its owner there, changes this">${r.who}</div></td>
       <td class="mono small">${r.consumer}</td>
       <td>${r.owner}</td>
       <td><span class="pill ${r.tone}" title=${r.stateDetail}>${r.stateLabel}</span>
@@ -69,8 +72,7 @@ function rowTpl(app, ui, r) {
       <td class="acts">${r.actions.map((a) => html`<button class="small ${a.danger ? 'rm' : ''} ${open === a.id ? 'on' : ''}" data-act=${a.id}
         ?disabled=${!!ui.busy} @click=${() => act(a)}>${a.label}</button>`)}</td>
     </tr>
-    ${open === 'snapshots' ? html`<tr class="panel"><td colspan="11">${snapshotsTpl(app, ui, r)}</td></tr>` : nothing}
-    ${open === 'shares' ? html`<tr class="panel"><td colspan="11">${sharesTpl(ui, r.shares, (s) => app.opShares(r.id, s), `ops-${r.id}`)}</td></tr>` : nothing}`;
+    ${open === 'snapshots' ? html`<tr class="panel"><td colspan="11">${snapshotsTpl(app, ui, r)}</td></tr>` : nothing}`;
 }
 
 function snapshotsTpl(app, ui, r) {
@@ -98,8 +100,8 @@ function snapshotsTpl(app, ui, r) {
   </div>`;
 }
 
-// sharesTpl: a sandbox's shares, and the form to add one (both tabs'). save
-// sets them whole.
+// sharesTpl: a sandbox's shares, and the form to add one (Yours: a person's
+// own sandboxes). save sets them whole.
 export function sharesTpl(ui, shares, save, key) {
   const now = () => ui.forms['share:' + key] || { consumer: '', users: '' }; // as typed (typing doesn't repaint)
   const f = now();
@@ -166,7 +168,7 @@ export function imagesTab(app, ui) {
     <div id="images">${rows.map((im) => html`<div class="card image" data-image=${im.id}>
       <div class="hd"><b>${im.title}</b> <span class="mono muted">${im.id}</span>
         ${im.default ? html`<span class="pill">default</span>` : nothing}
-        <span class="pill ${im.tone}">${im.buildText}</span>
+        <span class="pill ${im.tone}" title=${im.kept}>${im.buildText}</span>
         ${!im.offered ? html`<span class="pill warn" title="hello leaves it out (Sandboxes shows why)">not offered</span>` : nothing}
         <span class="grow"></span>
         ${im.setup ? html`<button class="small" data-act="build" ?disabled=${!im.canBuild || !!ui.busy}
@@ -175,6 +177,7 @@ export function imagesTab(app, ui) {
         <button class="small rm" data-act="remove" ?disabled=${!!ui.busy} @click=${() => remove(im.id)}>Remove</button></div>
       ${im.tools.length ? html`<div class="small"><span class="muted">tools</span> ${im.tools.join(', ')}</div>` : nothing}
       ${im.built && im.built.detail ? html`<div class="err small">${im.built.detail}</div>` : nothing}
+      ${im.kept ? html`<div class="note small kept">${im.kept}</div>` : nothing}
       ${im.setup ? html`<details><summary class="small">setup script${im.buildEgress ? ` (network while it builds: ${im.buildEgress})` : ''}</summary><pre>${im.setup}</pre></details>` : nothing}
       ${im.built && im.built.log ? html`<details class="log"><summary class="small">the last build's output</summary><pre>${im.built.log}</pre></details>` : nothing}
     </div>`)}</div>

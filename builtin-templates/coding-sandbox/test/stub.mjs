@@ -2,7 +2,10 @@
 // installs a window.xbin whose fetch answers the routes the page uses
 // (API.md): GET /me, the operators' /ops/* (state, config, lifecycle,
 // sharing, snapshots, image builds, orphans) and the page's own /sbx/*
-// (hello, the list, create, lifecycle, sharing, files, execs). It keeps
+// (hello, the list, create, lifecycle, sharing, files, execs). As the
+// manager does, it refuses the operators' sharing (PATCH /ops/… with
+// visibility, members or shares) and every change on /sbx/ from a person
+// who may only look (seed.me.write false). It keeps
 // what the page changes, records every call in window.__calls and every
 // download in window.__downloads; tests add routes with
 // window.__route(method, regexp, fn). Self-contained (Playwright's
@@ -38,6 +41,9 @@ export function STUB(seed) {
   route('PATCH', /\/ops\/sandboxes\/([^/?]+)$/, (m, u, body) => {
     const s = opBox(m[1]);
     if (!s) return fail(404, 'no such sandbox', 'not-found');
+    if (body && ('shares' in body || 'visibility' in body || 'members' in body)) {
+      return fail(403, 'operators don\'t change who may use a sandbox (visibility, members, shares): its home consumer or its owner does', 'not-allowed');
+    }
     Object.assign(s, body);
     return json(s);
   });
@@ -168,6 +174,9 @@ export function STUB(seed) {
       w.__calls.push({ method, url: u, body: raw });
       if (!u.startsWith(base + '/')) return fail(404, `not this tile's: ${u}`, 'not-found');
       const path = u.slice(base.length).split('?')[0];
+      if (st.me && st.me.write === false && path.startsWith('/sbx/') && (method !== 'GET' || /\/tty$/.test(path))) {
+        return fail(403, `${st.me.user} has read access to ${self}: that lets them look, not change — changing a sandbox here needs write access`, 'not-allowed');
+      }
       for (const [m, re, fn] of routes) {
         const hit = m === method && re.exec(path);
         if (hit) return fn(hit, u, body, raw);

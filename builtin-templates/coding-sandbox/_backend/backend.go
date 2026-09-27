@@ -8,8 +8,8 @@
 // commands, files, trees, terminals and snapshots.
 //
 // The shapes are the Go SDK's (sdk/sandbox*.go) on purpose: the `xbin`
-// backend is *xbin.Sandboxes itself (Fleet) and *xbin.Sandbox (Box), with no
-// translation — backend_iface_test.go keeps that true. Another substrate (a
+// backend is *xbin.Sandboxes itself (Fleet) and *xbin.Sandbox (Box), all but
+// untranslated — backend_iface_test.go keeps that true. Another substrate (a
 // cloud's instance API plus ssh, AGENTS.md) implements the same methods and
 // answers refusals as *xbin.SandboxError with the contract's refusal enum.
 //
@@ -56,7 +56,9 @@ type Fleet interface {
 // Box is one sandbox of a Backend, by name. *xbin.Sandbox has exactly these
 // methods. A stopped sandbox starts on a command or a file operation (the
 // runtime's autoStart); the manager starts it first anyway, to count it
-// against the quotas.
+// against the quotas. Exec and snapshot ids are the backend's, handed to
+// the consumer as they are, so any string may come back: one that names
+// nothing is not-found, never invalid.
 type Box interface {
 	Run(ctx context.Context, r xbin.RunRequest) (*xbin.RunResult, error)
 	Exec(ctx context.Context, r xbin.ExecRequest) (*xbin.ExecInfo, error)

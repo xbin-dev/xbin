@@ -37,15 +37,18 @@ test('format: states, networks, sizes, bytes, times, paths', () => {
   assert.equal(F.parentPath('/work/src/'), '/work');
   assert.deepEqual(F.crumbs('/a/b').map((c) => c.path), ['/', '/a', '/a/b']);
   assert.ok(F.looksBinary('PNG\u0000x') && !F.looksBinary('hello\n'));
+  assert.equal(F.whoText({ visibility: 'private', members: ['bob'], shares: [{ consumer: 'apps/term', users: ['carol'] }] }), 'its owner and bob · apps/term (carol)');
+  assert.equal(F.whoText({ visibility: 'team', shares: [] }), 'everyone its consumer serves');
 });
 
 test('ops: rows, usage, the substrate, the mode, images', () => {
   const rows = O.sandboxRows(SEED.ops, NOW);
   assert.deepEqual(rows.map((r) => r.id), ['sb-node', 'sb-api', 'sb-term', 'sb-own', 'sb-rusty', 'sb-web']);
   const act = (id) => rows.find((r) => r.id === id).actions.map((a) => a.id);
-  assert.deepEqual(act('sb-api'), ['stop', 'snapshots', 'shares', 'delete']);
-  assert.deepEqual(act('sb-web'), ['start', 'snapshots', 'shares', 'delete']);
-  assert.deepEqual(act('sb-node'), ['shares', 'delete'], 'a creating sandbox: no lifecycle, no snapshots');
+  assert.deepEqual(act('sb-api'), ['stop', 'snapshots', 'delete'], 'operators never change who may use a sandbox');
+  assert.deepEqual(act('sb-web'), ['start', 'snapshots', 'delete']);
+  assert.deepEqual(act('sb-node'), ['delete'], 'a creating sandbox: no lifecycle, no snapshots');
+  assert.equal(rows.find((r) => r.id === 'sb-term').who, 'everyone its consumer serves · apps/agent (everyone it serves)', 'who may use it, shown');
   const u = O.usageRows(SEED.ops).find((x) => x.who === 'apps/agent');
   assert.ok(u.override && u.cells[0].text === '4 / 6' && !u.full);
   const b = O.backendInfo(SEED.ops);
@@ -58,8 +61,16 @@ test('ops: rows, usage, the substrate, the mode, images', () => {
   const noVM = { ...SEED.ops, config: { ...SEED.ops.config, mode: 'vm' }, runtime: { ...SEED.ops.runtime, modes: [{ mode: 'namespace' }], unavailable: [{ mode: 'vm', reason: 'no KVM' }] } };
   const mi = O.modeInfo(noVM);
   assert.ok(mi.now === '' && mi.blocked === 'no KVM', 'a chosen mode the substrate lacks: none, never another');
-  const imgs = O.imageRows(SEED.ops);
-  assert.deepEqual(imgs.map((i) => [i.id, i.tone, i.canBuild]), [['base', 'muted', false], ['node', 'ok', true], ['rust', 'danger', true]]);
+  const imgs = O.imageRows(SEED.ops, NOW);
+  assert.deepEqual(imgs.map((i) => [i.id, i.tone, i.canBuild]), [['base', 'muted', false], ['node', 'ok', true], ['rust', 'warn', true]]);
+  const rust = imgs.find((i) => i.id === 'rust');
+  assert.equal(rust.buildText, 'the rebuild failed');
+  assert.equal(rust.kept, 'The previous build (3 d ago), of the script before, is kept until a build succeeds.');
+  const same = O.imageRows({ ...SEED.ops, images: [{ ...SEED.ops.images[0], state: 'building', previous: { ...SEED.ops.images[0], built: NOW - 7200e3 } }] }, NOW)
+    .find((i) => i.id === 'node');
+  assert.deepEqual([same.buildText, same.tone, same.kept], ['rebuilding…', 'warn', 'The previous build (2 h ago) is kept: new sandboxes clone it until a build succeeds.']);
+  const plain = O.imageRows({ ...SEED.ops, images: [{ ...SEED.ops.images[0], state: 'error' }] }, NOW).find((i) => i.id === 'node');
+  assert.deepEqual([plain.buildText, plain.tone, plain.kept], ['the build failed', 'danger', '']);
 });
 
 test('ops: the editors — images, sizes, quotas, shares, mounts', () => {
@@ -87,6 +98,24 @@ test('mine: rows, the create form, terminals, files', () => {
   assert.equal(M.terminalSrc('apps/cs', 'sb-1', '/work'), '/api/apps/cs/sbx/sandboxes/sb-1/tty?cwd=%2Fwork');
   assert.equal(M.attachSrc('sb-1', 'e9'), 'sbx/sandboxes/sb-1/execs/e9/tty');
   assert.deepEqual(M.fileRows(SEED.files['/work'], NOW).map((e) => e.name), ['src', 'logo.bin', 'README.md']);
+  const own = rows.find((r) => r.id === 'sb-own');
+  assert.ok(own.canFiles && own.canTerminal && own.canShare && own.canChange && !own.readOnly && !own.termWhy);
+  assert.equal(rows.find((r) => r.id === 'sb-team').shareWhy, 'only its owner changes who may use it');
+});
+
+test('mine: with read access to the tile, you look and never change — and the page says why', () => {
+  assert.ok(M.lookOnly(READER.me) && !M.lookOnly(SEED.me) && !M.lookOnly({ user: 'x' }), 'an older manager (no write in /me) is not read-only');
+  const rows = M.myRows(SEED.mine, READER.me, NOW);
+  assert.deepEqual(rows.map((r) => [r.id, r.mine, r.actions.length]), [['sb-own', false, 0], ['sb-team', true, 0]], 'no lifecycle, no delete');
+  const own = rows.find((r) => r.id === 'sb-own');
+  assert.ok(own.readOnly && own.canFiles && !own.canChange && !own.canTerminal && !own.canShare);
+  assert.equal(own.termWhy, 'a terminal needs write access to this tile');
+  assert.equal(own.shareWhy, 'changing who may use it needs write access to this tile');
+  const team = rows.find((r) => r.id === 'sb-team');
+  assert.equal(team.canFiles, false, 'a stopped sandbox: reading it would start it');
+  assert.equal(team.filesWhy, 'it is stopped, and starting it needs write access to this tile');
+  assert.equal(M.createForm(SEED.hello, {}, READER.me).cant, 'making a sandbox needs write access to this tile');
+  assert.match(M.READ_ONLY, /read access.*write access/s);
 });
 
 test('the app: reads, acts, files — against the fake backend', async () => {
@@ -116,6 +145,18 @@ test('the app: reads, acts, files — against the fake backend', async () => {
   const exec = calls.find((c) => c.method === 'POST' && /\/execs$/.test(c.url));
   assert.deepEqual(JSON.parse(exec.body), { argv: ['/bin/bash', '-l'], cwd: '/work', tty: true, label: 'terminal' });
   await assert.rejects(app.opAct('sb-nope', 'start'), /no such sandbox/);
+  await assert.rejects(app.request('/ops/sandboxes/sb-api', { method: 'PATCH', body: { shares: [] } }), /operators don't change who may use/);
+});
+
+test('the app: a reader looks — the manager refuses their changes', async () => {
+  STUB(READER);
+  const app = createApp();
+  await app.load();
+  assert.ok(app.readOnly && !app.operator && app.mine.length === 2 && !app.ops);
+  await app.browse('sb-own', '/work');
+  assert.equal(app.files.listing.entries.length, 3, 'reading works');
+  await assert.rejects(app.act('sb-own', 'stop'), (e) => e.status === 403 && e.refusal === 'not-allowed' && /write access/.test(e.message));
+  await assert.rejects(app.create({ name: 'x' }), /write access/);
 });
 
 // --- the views are level --------------------------------------------------------------
@@ -211,6 +252,7 @@ test('native: Images and Settings — a rebuild, the mode, a person\'s quota', a
   const r = await run(SEED, [
     show('images'),
     { tap: { t: 'row', p: { title: 'Rust' } } },
+    { snapshot: 'rust' },
     { tap: { t: 'button', p: { label: 'Rebuild' } } },
     { tap: { t: 'button', p: { label: 'Edit' } } },
     { input: [{ t: 'field', p: { label: 'Title' } }, 'Rust nightly'] },
@@ -235,6 +277,9 @@ test('native: Images and Settings — a rebuild, the mode, a person\'s quota', a
     { tap: { t: 'button', p: { label: 'Save' } } },
   ]);
   assert.equal(called(r, 'POST', /\/ops\/images\/rust\/build$/).length, 1);
+  const rust = topScreen(r.snapshots.rust);
+  assert.equal(find(rust, { t: 'row', p: { title: 'Build' } }).p.detail, 'the rebuild failed');
+  assert.ok(find(rust, { t: 'notice', p: { tone: 'info' } }).p.text.startsWith('The previous build'), 'the kept build');
   assert.equal(find(topScreen(r.snapshots.size), { t: 'field', p: { label: 'Memory, MiB' } }).p.value, '4096');
   assert.ok(find(topScreen(r.snapshots.advanced), { t: 'row', p: { title: 'res:apps/coding-sandbox/cache → /cache' } }));
   const st = r.snapshots.settings;
@@ -278,9 +323,46 @@ test('native: yours — create, files (a directory, a file, a download), a termi
   assert.equal(called(r, 'DELETE', new RegExp(`/sbx/sandboxes/sb-own/execs/${eid}$`)).length, 1, 'End ends the shell');
 });
 
-test('native: someone who isn\'t an operator sees only theirs', async () => {
-  const r = await run(READER);
-  assert.equal(find(r.tree, { t: 'picker', p: { label: 'Show' } }), null);
-  assert.ok(find(r.tree, { t: 'section', p: { title: 'Your sandboxes' } }));
+test('native: someone who isn\'t an operator sees only theirs — read-only, saying why', async () => {
+  const r = await run(READER, [
+    { snapshot: 'root' },
+    { tap: { t: 'row', p: { title: 'mine' } } },
+    { snapshot: 'own' },
+    { tap: { t: 'row', p: { title: 'Files' } } },
+    { snapshot: 'files' },
+    { event: [{ t: 'nav' }, 'pop', { depth: 1 }] },
+    { tap: { t: 'row', p: { title: 'team box' } } },
+    { snapshot: 'team' },
+  ]);
+  const root = r.snapshots.root;
+  assert.equal(find(root, { t: 'picker', p: { label: 'Show' } }), null);
+  assert.ok(find(root, { t: 'section', p: { title: 'Your sandboxes' } }));
   assert.equal(called(r, 'GET', /\/ops\//).length, 0);
+  assert.ok(find(root, { t: 'notice', p: { text: M.READ_ONLY } }), 'the page says you may only look, and why');
+  const make = find(root, { t: 'button', p: { label: 'New sandbox' } });
+  assert.equal(make.p.disabled, true);
+  assert.ok(find(root, { t: 'text', p: { text: 'making a sandbox needs write access to this tile' } }));
+  assert.equal(all(root, { t: 'button', in: { t: 'actions' } }).length, 0, 'no row actions');
+  const own = topScreen(r.snapshots.own);
+  assert.equal(own.p.title, 'mine');
+  assert.equal(find(own, { t: 'row', p: { title: 'Terminal' } }).p.subtitle, 'a terminal needs write access to this tile');
+  assert.equal(find(own, { t: 'row', p: { title: 'Terminal' } }).p.disabled, true);
+  assert.equal(all(own, { t: 'button' }).length, 0, 'no lifecycle, no sharing');
+  const files = topScreen(r.snapshots.files);
+  assert.deepEqual(all(files, { t: 'row' }).map((n) => n.p.title), ['src', 'logo.bin', 'README.md']);
+  assert.equal(find(files, { t: 'button', p: { label: 'New folder' } }), null);
+  assert.equal(find(files, { t: 'button', p: { label: 'Remove' } }), null);
+  assert.ok(find(files, { t: 'button', p: { label: 'Download' } }), 'downloads stay');
+  const team = topScreen(r.snapshots.team);
+  assert.equal(find(team, { t: 'row', p: { title: 'Files' } }).p.subtitle, 'it is stopped, and starting it needs write access to this tile');
+  assert.equal(r.calls.filter((c) => c.method !== 'GET').length, 0, 'nothing changed');
+});
+
+test('native: an operator sees who may use a sandbox, and changes nothing about it', async () => {
+  const r = await run(SEED, [{ tap: { t: 'row', p: { title: 'shell box' } } }, { snapshot: 'op' }]);
+  const op = topScreen(r.snapshots.op);
+  const who = find(op, { t: 'section', p: { title: 'Who may use it' } });
+  assert.ok(who && find(who, { t: 'row', p: { title: 'Here', detail: 'everyone its consumer serves' } }) && find(who, { t: 'row', p: { title: 'apps/agent' } }));
+  assert.equal(find(op, { t: 'button', p: { label: 'Share' } }), null);
+  assert.equal(find(op, { t: 'button', p: { label: 'Stop sharing' } }), null);
 });

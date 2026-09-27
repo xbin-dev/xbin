@@ -4094,3 +4094,42 @@ Deviations and refinements made while implementing; all deliberate:
       operators' intent both read `isolation`.
     - The native terminal on `…/tty` directly: every reconnect would start
       another shell and leave the old one running.
+  - **Addendum: follow-ups, the owner's decisions.**
+    - **A change from the manager's own page needs the person's write
+      access to the tile.** The page's frame calls run at the tile's own
+      role (admin of itself). docs/auth.md D29's rule for mutating
+      endpoints therefore applies to `/sbx/*` when `X-XBin-From` is the tile
+      itself and `X-XBin-User-Level` is below write. Every change is
+      `403 not-allowed` before it is routed: every method but GET and HEAD,
+      and both `tty` routes, which are GET upgrades. A read (`files`, `tar`)
+      never starts a stopped sandbox for such a person. `/me` says `level`
+      and `write`. The page gives them a read-only view of the sandboxes
+      they may use, and hides or disables every change with the reason.
+      Other consumers' calls are unchanged, whatever the person's level on
+      the manager: the contract trusts consumers.
+    - **Operators run lifecycle, not access.** They start, stop and delete
+      any sandbox, take its snapshots and set quotas. `visibility`,
+      `members` and `shares` change only through the home consumer: its
+      backend, or its verified owner there (`canAdmin`). `PATCH /ops/…`
+      refuses those fields (`403`). The operators' page shows who may use
+      each sandbox and has no control for it. A person's own sandboxes keep
+      their sharing on the page (Yours, `/sbx/`).
+    - **A failed rebuild keeps the previous good build.** A build carries
+      `previous` (the last good one) until it is ready. The old template
+      sandbox goes only then, never on a failure. While `previous` is
+      current for the script and the mode, new sandboxes clone it. That
+      covers an operator's rebuild that failed, and an outdated base whose
+      rebuild failed. A script changed back clones it at once.
+    - **A clone's creation error never names its source's runtime name.**
+      The plan keeps the source's contract id (`fromId`), and an error
+      says that id. An image's template sandbox, whether the build or the
+      one kept, is `image:<id>`.
+  - **Not chosen (addendum):**
+    - Gating by `operator` (role and level) on `/sbx/*`: every other
+      consumer's calls would then depend on the person's level on the
+      manager, which the contract leaves to consumers.
+    - A read-only person's reads starting a stopped sandbox: a start is
+      lifecycle, and it counts against the quotas.
+    - Letting a failed rebuild's image fall back to a build of another
+      script: the build would not match the script the operators set.
+      That build waits, and it serves only a script changed back.

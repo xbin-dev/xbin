@@ -4,11 +4,12 @@
 // through the share sheet, a folder, remove) and a terminal: the app's
 // `terminal` on this tile's own route, attached to a shell the view starts
 // (so a reconnect is the same shell). Uploads stay on the web (a D96
-// difference: model/features.js).
+// difference: model/features.js). With read access to the tile you only
+// look (app.readOnly): every change is hidden or disabled, saying why.
 import { html, nothing, repeat, native } from '/vendor/xb-native.js';
 import * as F from '../model/format.js';
 import * as M from '../model/mine.js';
-import { ui, ctx, act, push, back, set, fail } from './ui.js';
+import { ui, ctx, act, push, back, set, form, fail } from './ui.js';
 import { sharesSection } from './ops.js';
 
 const ACT_ICON = { start: 'play', stop: 'stop', delete: 'trash' };
@@ -21,8 +22,9 @@ export function mineSections() {
   return html`
     ${app.helloErr ? html`<section><notice tone="danger" text=${app.helloErr}/></section>` : nothing}
     ${app.mineErr ? html`<section><notice tone="danger" text=${app.mineErr}/></section>` : nothing}
+    ${app.readOnly ? html`<section><notice tone="info" text=${M.READ_ONLY}/></section>` : nothing}
     <section title=${app.operator ? 'Yours' : 'Your sandboxes'}
-      footer=${app.operator ? '' : 'Sandboxes you make here are yours; the tile\'s operators see every consumer\'s.'}>
+      footer=${app.operator || app.readOnly ? '' : 'Sandboxes you make here are yours; the tile\'s operators see every consumer\'s.'}>
       ${rows.length ? repeat(rows, (r) => r.id, (r) => html`<row title=${r.name} subtitle=${[r.image, r.egressText, r.lastText].filter(Boolean).join(' · ')}
           detail=${r.stateLabel} tone=${r.tone} nav @tap=${() => push({ kind: 'mine', id: r.id })}>
           <actions>${r.actions.map((a) => html`<button icon=${ACT_ICON[a.id]} role=${a.danger ? 'destructive' : 'secondary'} confirm=${confirmOf(r, a)}
@@ -76,6 +78,7 @@ export function myScreen(s) {
   return html`<screen title=${r.name} subtitle=${r.id} style="form" refreshable @refresh=${() => app.load()}>
     ${ui.err ? html`<section><notice tone="danger" text=${ui.err}/></section>` : nothing}
     ${ui.msg ? html`<section><notice tone="ok" text=${ui.msg}/></section>` : nothing}
+    ${r.readOnly ? html`<section><notice tone="info" text=${M.READ_ONLY}/></section>` : nothing}
     <section title="Sandbox">
       <row title="State" detail=${r.stateLabel} tone=${r.tone} subtitle=${r.stateDetail || undefined}/>
       <row title="Image" detail=${r.image}/>
@@ -86,19 +89,19 @@ export function myScreen(s) {
       <row title="Working directory" detail=${r.workdir} mono="detail"/>
     </section>
     <section>
-      <row title="Files" icon="folder" nav ?disabled=${!r.canFiles} subtitle=${r.canFiles ? r.workdir : 'not now'}
+      <row title="Files" icon="folder" nav ?disabled=${!r.canFiles} subtitle=${r.canFiles ? r.workdir : r.filesWhy}
         @tap=${() => { if (r.canFiles) { push({ kind: 'files', id: r.id, path: r.workdir }); app.browse(r.id, r.workdir); } }}/>
-      <row title="Terminal" icon="terminal" nav ?disabled=${!r.canTerminal} subtitle=${r.canTerminal ? `a shell as ${r.user || 'the sandbox user'}` : 'not now'}
+      <row title="Terminal" icon="terminal" nav ?disabled=${!r.canTerminal} subtitle=${r.canTerminal ? `a shell as ${r.user || 'the sandbox user'}` : r.termWhy}
         @tap=${() => { if (r.canTerminal) openTerminal(r); }}/>
     </section>
-    <section>
+    ${r.actions.length ? html`<section>
       ${r.actions.map((a) => html`<button icon=${ACT_ICON[a.id]} role=${a.danger ? 'destructive' : 'primary'} ?busy=${ui.busy === `${r.id}:${a.id}`} confirm=${confirmOf(r, a)}
         @tap=${() => act(`${r.id}:${a.id}`, async () => { await app.act(r.id, a.id); if (a.id === 'delete') back(); })}>${a.label}</button>`)}
-    </section>
+    </section>` : nothing}
     ${r.canShare ? html`<section title="Who may use it">
       <picker label="Here" value=${r.visibility} options=${VIS} @change=${(e) => act('vis', () => app.setVisibility(r.id, e.value))}/>
     </section>
-    ${sharesSection(r.shares, (x) => app.setShares(r.id, x), shk, ui.forms[shk] || (ui.forms[shk] = { consumer: '', users: '' }))}` : nothing}
+    ${sharesSection(r.shares, (x) => app.setShares(r.id, x), shk, form(shk, { consumer: '', users: '' }))}` : nothing}
   </screen>`;
 }
 
@@ -113,8 +116,9 @@ export function filesScreen(s) {
   const into = (e) => {
     if (e.dir) { push({ kind: 'files', id: s.id, path: e.path }); app.browse(s.id, e.path); } else { push({ kind: 'file', id: s.id, path: e.path }); app.readFile(s.id, e.path); }
   };
+  const change = !app.readOnly; // with read access: look, download — no folder, no remove
   return html`<screen title=${F.baseName(s.path)} subtitle=${s.path} style="list" refreshable @refresh=${() => app.browse(s.id, s.path)}>
-    <toolbar><button icon="folder" @tap=${() => { ui.forms.mkdir = { name: '' }; ui.sheet = { kind: 'mkdir', id: s.id, path: s.path }; ctx.paint(); }}>New folder</button></toolbar>
+    ${change ? html`<toolbar><button icon="folder" @tap=${() => { ui.forms.mkdir = { name: '' }; ui.sheet = { kind: 'mkdir', id: s.id, path: s.path }; ctx.paint(); }}>New folder</button></toolbar>` : nothing}
     ${ui.err ? html`<section><notice tone="danger" text=${ui.err}/></section>` : nothing}
     ${fs && fs.err ? html`<section><notice tone="danger" text=${fs.err}/></section>` : nothing}
     <section>
@@ -123,8 +127,8 @@ export function filesScreen(s) {
       ${repeat(rows, (e) => e.name, (e) => html`<row title=${e.name} icon=${e.icon} detail=${e.detail} subtitle=${e.when} nav=${e.dir} @tap=${() => into(e)}>
         <actions>
           ${e.dir ? nothing : html`<button icon="download" @tap=${() => download(s.id, e.path)}>Download</button>`}
-          <button icon="trash" role="destructive" confirm=${{ title: `Remove ${e.name}?`, message: e.dir ? 'It and everything in it.' : e.path, label: 'Remove', destructive: true }}
-            @tap=${() => act('remove', () => app.remove(s.id, e.path, e.dir).then(() => app.browse(s.id, s.path)))}>Remove</button>
+          ${change ? html`<button icon="trash" role="destructive" confirm=${{ title: `Remove ${e.name}?`, message: e.dir ? 'It and everything in it.' : e.path, label: 'Remove', destructive: true }}
+            @tap=${() => act('remove', () => app.remove(s.id, e.path, e.dir).then(() => app.browse(s.id, s.path)))}>Remove</button>` : nothing}
         </actions></row>`)}
     </section>
   </screen>`;

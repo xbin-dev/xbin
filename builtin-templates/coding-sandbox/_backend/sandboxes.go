@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -34,6 +35,15 @@ func (m *Manager) contractHandler() http.Handler {
 		if r.Header.Get("X-XBin-From") == "" && r.URL.Path != "/sbx/hello" {
 			fail(w, http.StatusForbidden, "not-allowed", "no consumer: calls come from a tile (X-XBin-From, set by xbind)")
 			return
+		}
+		if m.pageReader(r) { // this tile's own page, a person who may only look
+			if mutates(r) {
+				c := xbin.Caller(r)
+				fail(w, http.StatusForbidden, "not-allowed", fmt.Sprintf("%s has %s access to %s: that lets them look, not change — changing a sandbox here needs write access",
+					c.User, orStr(c.UserLevel, "no"), m.self))
+				return
+			}
+			r = r.WithContext(context.WithValue(r.Context(), lookOnlyKey{}, true))
 		}
 		x.ServeHTTP(w, r)
 	})

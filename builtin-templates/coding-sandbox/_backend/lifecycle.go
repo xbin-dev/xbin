@@ -43,8 +43,9 @@ done`
 
 // ready makes rec usable for a command or a file operation: started (within
 // the quotas) and prepared. A sandbox seen running within LiveTTL is taken
-// to be; one the substrate stopped since starts on the operation itself.
-func (m *Manager) ready(ctx context.Context, rec *record) error {
+// to be; one the substrate stopped since starts on the operation itself —
+// unless !start (a person who may only look): then a stopped one is refused.
+func (m *Manager) ready(ctx context.Context, rec *record, start bool) error {
 	if rec.Overlay != "" {
 		return &xbin.SandboxError{Status: http.StatusConflict, Refusal: "state", State: rec.Overlay,
 			Message: "the sandbox is " + rec.Overlay + orStr(prefixed(": ", rec.Detail), "")}
@@ -66,6 +67,12 @@ func (m *Manager) ready(ctx context.Context, rec *record) error {
 	switch in.State {
 	case "running":
 	case "stopped", "starting":
+		if !start && in.State == "stopped" {
+			return errf(http.StatusForbidden, "not-allowed", "the sandbox is stopped, and starting it needs write access to this tile")
+		}
+		if !start {
+			return &xbin.SandboxError{Status: http.StatusConflict, Refusal: "state", State: in.State, Message: "the sandbox is starting"}
+		}
 		if _, err := m.startBox(ctx, *rec, 0, false); err != nil {
 			return err
 		}
@@ -230,6 +237,9 @@ func (m *Manager) resume() {
 		if im.State == "building" {
 			next := *im
 			next.State, next.Detail, next.Started = "error", "the build was interrupted (the manager restarted); the next sandbox of the image builds it again", 0
+			if next.Previous != nil {
+				next.Detail = "the build was interrupted (the manager restarted); the previous build is kept, and a sandbox of the image that needs a new one builds it again"
+			}
 			if err := m.st.putImage(&next); err == nil {
 				m.imgs[id] = &next
 			}

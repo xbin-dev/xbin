@@ -1515,6 +1515,7 @@ func (b *Sandbox) RelayTTY(w http.ResponseWriter, r *http.Request, execID string
 func (b *Sandbox) RelayNewTTY(w http.ResponseWriter, r *http.Request, o TTYStart)              // Forward to tty?cwd=&cmd=…
 func (b *Sandbox) DialTTY(ctx context.Context, execID string, o TTYOptions) (*ws.Conn, error)   // sdk/ws, via Client()
 func WriteSandboxError(w http.ResponseWriter, err error)  // a *SandboxError in the contract's shape
+func IsExecID(id string) bool; func IsSnapshotID(id string) bool // the grammars, for a manager's own not-found (WP-14b as built)
 
 type SandboxError struct { Status int; Refusal, Message, State, ETag string; RetryAfter time.Duration }
 ```
@@ -1556,7 +1557,7 @@ ids**.
 | `archive` · `thaw` | WP-22 (until then `unsupported`) | — |
 | `run` | `POST …/run` · `Run` | the body passes through; it adds `uid`/`gid` from its user and `forUser` |
 | `execs` (POST/GET/one/DELETE) | same · `Exec`/`Execs`/`GetExec`/`Kill` | `clientId` → the runtime's, prefixed `<consumer hash>:` (contract clientIds are per consumer); `forUser` |
-| `…/output`, `stdin`, `signal`, `resize` | same routes · `Forward(…, ExecOutput(eid) \| ExecStdin(eid) \| ExecSignal(eid) \| ExecResize(eid), q)` | nothing: identical query and shapes (a bad `eid` is 400 before anything is sent) |
+| `…/output`, `stdin`, `signal`, `resize` | same routes · `Forward(…, ExecOutput(eid) \| ExecStdin(eid) \| ExecSignal(eid) \| ExecResize(eid), q)` | nothing: identical query and shapes (a bad `eid` never goes out: `Forward` answers 400, so a manager answers the contract's 404 first, with `IsExecID`) |
 | `…/execs/{eid}/tty`, `…/tty` | same routes · `RelayTTY`/`RelayNewTTY` | its person check (verified `X-XBin-User`); `forUser` = that person; `sessionId`/`sandboxId` = its ids |
 | `files/*`, `tar` | same routes · `Forward(…, FilesRoute(op) \| TarRoute(), q)` | nothing |
 | `snapshots` | same · `Snapshots`… | snapshot names in its table if it wants them |
@@ -3140,6 +3141,51 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
   or failing its grammar, makes `Forward` answer 400 `invalid` with nothing
   sent (the fake gateway sees no request); a valid route forwards byte for
   byte as before (the existing Forward and upgrade tests, ported).
+- **As built** (branch `p2/wp14b`):
+  - As specified: `SandboxRoute` (unexported escaped sub + the builder's
+    error), `ExecRoute`/`ExecOutput`/`ExecStdin`/`ExecSignal`/`ExecResize`/
+    `ExecTTY`, `FilesOp` with `FilesStat … FilesMove`, `FilesRoute` (an op
+    outside the constants is a refused route), `TarRoute`, and
+    `Forward(w, r, rt SandboxRoute, q)`. The zero `SandboxRoute` is refused
+    too (400, "no route"). `RelayTTY` forwards to `ExecTTY(id)`;
+    `RelayNewTTY` builds its `tty` route internally (no exported builder:
+    it is the only caller). `execRoute` (every typed call taking an exec
+    id, `Follow` and `DialTTY` included) and `RestoreSnapshot`/
+    `DeleteSnapshot` check the same grammars. A refusal quotes the id cut
+    to 64 bytes (it may be a consumer's).
+  - **Added: `xbin.IsExecID`, `xbin.IsSnapshotID`** (the grammars as
+    predicates). The contract says an id that names nothing is 404
+    `not-found` (its conformance suite asks `GET …/execs/nope` → 404),
+    while the SDK and the runtime (§3.1) refuse one that fails the grammar
+    as 400 `invalid`. A manager whose contract ids are the runtime's (§11)
+    must answer it `not-found` itself, and needs the grammar to do so
+    without copying it. docs/sdk.md and `Forward`'s doc example show the
+    check.
+  - **The caller, `coding-sandbox`'s `xbin` backend**, never used
+    `Forward` (it maps output, stdin, signals and resizes onto the typed
+    calls, and terminals onto `RelayTTY`/`RelayNewTTY`), so nothing there
+    changed signature. The grammar did change what it answered: "nope" as
+    an exec id became the SDK's 400 (and would have been the runtime's
+    400 once WP-13b lands), failing the contract. `xbinBackend.Sandbox`
+    now returns `xbinBox{*xbin.Sandbox}`, which answers an exec or snapshot
+    id failing the grammar with `not-found` before calling the SDK
+    (`GetExec`, `Output`, `Stdin`, `Signal`, `Resize`, `Kill`, `RelayTTY`,
+    `RestoreSnapshot`, `DeleteSnapshot`); `backend_iface_test.go` still
+    asserts `*xbin.Sandbox` is a `Box`. New
+    `TestXbinBackendUnknownIDs`: bad ids (including `..%2F<runtime name>`)
+    on every exec and snapshot route and a terminal attach answer 404 and
+    reach nothing at the runtime double. The template's API.md and AGENTS.md
+    say so (a backend's id that names nothing is `not-found`, never
+    `invalid`).
+  - Tests ported: the ids in `sdk/sandbox_test.go` and
+    `sandbox_dialtty_test.go` are grammar ids now (`ab12cd-1`); the
+    "escaped id" case (`x y` → `x%20y`) is gone, since no grammar id needs
+    escaping. `TestSandboxRouteSegments` covers every id-taking call with
+    22 bad exec ids and 15 bad snapshot ids; new `TestSandboxRoutes`
+    covers every builder's path and method, and bad routes answering 400
+    with nothing sent (a `RelayTTY` to `..%2Fsb-2` included).
+  - WP-14's open note (docs for AGENTS.md) closed: one line in
+    `workspace-template/AGENTS.md`'s sandbox-manager paragraph.
 
 ### WP-15a — The runtime core: launch, agent client, start, stop, teardown (wave 2 · M, the critical path)
 

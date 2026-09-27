@@ -185,24 +185,24 @@ func TestSandboxCalls(t *testing.T) {
 					t.Fatalf("%+v", l)
 				}
 			}},
-		{name: "get exec", answer: `{"id":"x y"}`, call: func() (any, error) { return sb.GetExec(ctx, "x y") }, method: "GET", uri: "/api/xbin/sandboxes/sb-1/execs/x%20y"},
-		{name: "kill", status: 204, call: func() (any, error) { return nil, sb.Kill(ctx, "e1") }, method: "DELETE", uri: "/api/xbin/sandboxes/sb-1/execs/e1"},
+		{name: "get exec", answer: `{"id":"ab12cd-2"}`, call: func() (any, error) { return sb.GetExec(ctx, "ab12cd-2") }, method: "GET", uri: "/api/xbin/sandboxes/sb-1/execs/ab12cd-2"},
+		{name: "kill", status: 204, call: func() (any, error) { return nil, sb.Kill(ctx, "ab12cd-1") }, method: "DELETE", uri: "/api/xbin/sandboxes/sb-1/execs/ab12cd-1"},
 		{name: "output", answer: `{"start":5,"end":8,"total":8,"data":"aGV5","encoding":"base64","state":"running","exitCode":null}`,
 			call: func() (any, error) {
-				return sb.Output(ctx, "e1", OutputQuery{Since: 5, Max: 10, WaitMs: 100, Encoding: "base64"})
+				return sb.Output(ctx, "ab12cd-1", OutputQuery{Since: 5, Max: 10, WaitMs: 100, Encoding: "base64"})
 			},
-			method: "GET", uri: "/api/xbin/sandboxes/sb-1/execs/e1/output?encoding=base64&max=10&since=5&waitMs=100",
+			method: "GET", uri: "/api/xbin/sandboxes/sb-1/execs/ab12cd-1/output?encoding=base64&max=10&since=5&waitMs=100",
 			check: func(t *testing.T, got any) {
 				if b, err := got.(*OutputChunk).Bytes(); err != nil || string(b) != "hey" {
 					t.Fatalf("%q %v", b, err)
 				}
 			}},
-		{name: "stdin eof", status: 204, call: func() (any, error) { return nil, sb.Stdin(ctx, "e1", nil, true) },
-			method: "POST", uri: "/api/xbin/sandboxes/sb-1/execs/e1/stdin?eof=1", ctype: "application/octet-stream"},
-		{name: "signal", status: 204, call: func() (any, error) { return nil, sb.Signal(ctx, "e1", "INT", false) },
-			method: "POST", uri: "/api/xbin/sandboxes/sb-1/execs/e1/signal", body: `{"signal":"INT","group":false}`},
-		{name: "resize", status: 204, call: func() (any, error) { return nil, sb.Resize(ctx, "e1", 24, 80) },
-			method: "POST", uri: "/api/xbin/sandboxes/sb-1/execs/e1/resize", body: `{"rows":24,"cols":80}`},
+		{name: "stdin eof", status: 204, call: func() (any, error) { return nil, sb.Stdin(ctx, "ab12cd-1", nil, true) },
+			method: "POST", uri: "/api/xbin/sandboxes/sb-1/execs/ab12cd-1/stdin?eof=1", ctype: "application/octet-stream"},
+		{name: "signal", status: 204, call: func() (any, error) { return nil, sb.Signal(ctx, "ab12cd-1", "INT", false) },
+			method: "POST", uri: "/api/xbin/sandboxes/sb-1/execs/ab12cd-1/signal", body: `{"signal":"INT","group":false}`},
+		{name: "resize", status: 204, call: func() (any, error) { return nil, sb.Resize(ctx, "ab12cd-1", 24, 80) },
+			method: "POST", uri: "/api/xbin/sandboxes/sb-1/execs/ab12cd-1/resize", body: `{"rows":24,"cols":80}`},
 		{name: "stat", answer: `{"path":"/work/a b","type":"file","size":3,"mode":"0644","etag":"e1"}`,
 			call:   func() (any, error) { return sb.Stat(ctx, "/work/a b") },
 			method: "GET", uri: "/api/xbin/sandboxes/sb-1/files/stat?path=%2Fwork%2Fa+b",
@@ -292,8 +292,19 @@ func TestSandboxCalls(t *testing.T) {
 	}
 }
 
-// A name, exec or snapshot id that would change the route is refused
-// before anything is sent.
+// badExecIDs change the route or fail the runtime's exec id grammar;
+// badSnapshotIDs fail the snapshot id grammar.
+var (
+	badExecIDs = []string{"", ".", "..", "nope", "e1", "s-1", "a/b", "ab12cd-1/../x", "../ab12cd-1", "..%2F..%2Fsb-2",
+		"ab12cd-1%2Fx", "ab12cd-1?x=1", "ab12cd-1#f", "ab12cd-1/", "AB12CD-1", "ab12cd-", "ab12c-1", "ab12cd-1234567890123",
+		"ab12cd-1\n", " ab12cd-1", "ab12cd-1.", "ab12cd-%31"}
+	badSnapshotIDs = []string{"", ".", "..", "s1", "s-", "s-x", "S-1", "s-1/..", "s-1/restore", "s-1%2F", "s-1?", "s-1#",
+		"s-1234567890123", "ab12cd-1", "s-1\n"}
+)
+
+// A name, exec or snapshot id that would change the route, or an id that
+// fails the runtime's grammar, is refused before anything is sent — by
+// every call that takes one.
 func TestSandboxRouteSegments(t *testing.T) {
 	rc := &recorder{}
 	sbx := fakeGateway(t, rc)
@@ -303,16 +314,59 @@ func TestSandboxRouteSegments(t *testing.T) {
 			t.Fatalf("name %q: %v", name, err)
 		}
 	}
-	for _, id := range []string{"", "..", "e/../../x"} {
-		if _, err := sbx.Sandbox("sb-1").GetExec(ctx, id); !isInvalid(err) {
-			t.Fatalf("exec %q: %v", id, err)
+	sb := sbx.Sandbox("sb-1")
+	for _, id := range badExecIDs {
+		if IsExecID(id) {
+			t.Fatalf("IsExecID(%q)", id)
 		}
-		if err := sbx.Sandbox("sb-1").DeleteSnapshot(ctx, id); !isInvalid(err) {
-			t.Fatalf("snapshot %q: %v", id, err)
+		calls := map[string]func() error{
+			"GetExec": func() error { _, err := sb.GetExec(ctx, id); return err },
+			"Kill":    func() error { return sb.Kill(ctx, id) },
+			"Output":  func() error { _, err := sb.Output(ctx, id, OutputQuery{}); return err },
+			"Stdin":   func() error { return sb.Stdin(ctx, id, strings.NewReader("x"), true) },
+			"Signal":  func() error { return sb.Signal(ctx, id, "INT", true) },
+			"Resize":  func() error { return sb.Resize(ctx, id, 1, 1) },
+			"DialTTY": func() error { _, err := sb.DialTTY(ctx, id, TTYOptions{}); return err },
+			"Follow": func() error {
+				for _, err := range sb.Follow(ctx, id, 0) {
+					return err
+				}
+				return nil
+			},
+		}
+		for name, call := range calls {
+			if err := call(); !isInvalid(err) {
+				t.Fatalf("%s(%q): %v", name, id, err)
+			}
+		}
+	}
+	for _, id := range badSnapshotIDs {
+		if IsSnapshotID(id) {
+			t.Fatalf("IsSnapshotID(%q)", id)
+		}
+		if _, err := sb.RestoreSnapshot(ctx, id); !isInvalid(err) {
+			t.Fatalf("RestoreSnapshot(%q): %v", id, err)
+		}
+		if err := sb.DeleteSnapshot(ctx, id); !isInvalid(err) {
+			t.Fatalf("DeleteSnapshot(%q): %v", id, err)
 		}
 	}
 	if n := len(rc.take()); n != 0 {
 		t.Fatalf("%d requests sent", n)
+	}
+	for _, id := range []string{"ab12cd-1", "000000-0", "ffffff-123456789012"} {
+		if !IsExecID(id) {
+			t.Fatalf("IsExecID(%q) = false", id)
+		}
+	}
+	for _, id := range []string{"s-0", "s-1", "s-123456789012"} {
+		if !IsSnapshotID(id) {
+			t.Fatalf("IsSnapshotID(%q) = false", id)
+		}
+	}
+	// a long id is cut short in the refusal (it may be a consumer's)
+	if _, err := sb.GetExec(ctx, strings.Repeat("x", 4096)); !isInvalid(err) || len(err.Error()) > 200 {
+		t.Fatalf("a long id: %v", err)
 	}
 }
 
@@ -349,11 +403,11 @@ func TestSandboxErrors(t *testing.T) {
 		t.Fatalf("404: %#v", err)
 	}
 	set(410, `{"error":"gone","refusal":"lost"}`, nil)
-	if _, err := sb.Output(ctx, "e1", OutputQuery{}); !errors.Is(err, ErrSandboxLost) {
+	if _, err := sb.Output(ctx, "ab12cd-1", OutputQuery{}); !errors.Is(err, ErrSandboxLost) {
 		t.Fatalf("410: %v", err)
 	}
 	set(409, `{"error":"stopped","refusal":"state","state":"stopped"}`, nil)
-	if err := sb.Resize(ctx, "e1", 1, 1); !errors.Is(err, ErrSandboxState) || !errors.As(err, &se) || se.State != "stopped" {
+	if err := sb.Resize(ctx, "ab12cd-1", 1, 1); !errors.Is(err, ErrSandboxState) || !errors.As(err, &se) || se.State != "stopped" {
 		t.Fatalf("409: %v", err)
 	}
 	set(412, `{"error":"changed","refusal":"precondition","etag":"\"abc\""}`, nil)
@@ -402,7 +456,7 @@ func TestSandboxFollow(t *testing.T) {
 		mu.Lock()
 		queries = append(queries, r.URL.RawQuery)
 		mu.Unlock()
-		if !strings.HasSuffix(r.URL.Path, "/execs/e1/output") {
+		if !strings.HasSuffix(r.URL.Path, "/execs/ab12cd-1/output") {
 			w.WriteHeader(410)
 			io.WriteString(w, `{"error":"gone","refusal":"lost"}`)
 			return
@@ -432,7 +486,7 @@ func TestSandboxFollow(t *testing.T) {
 	ctx := context.Background()
 	var got []OutputChunk
 	var data []byte
-	for c, err := range sbx.Sandbox("sb-1").Follow(ctx, "e1", 0) {
+	for c, err := range sbx.Sandbox("sb-1").Follow(ctx, "ab12cd-1", 0) {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -450,7 +504,7 @@ func TestSandboxFollow(t *testing.T) {
 	mu.Lock()
 	queries = nil
 	mu.Unlock()
-	for range sbx.Sandbox("sb-1").Follow(ctx, "e1", 0) {
+	for range sbx.Sandbox("sb-1").Follow(ctx, "ab12cd-1", 0) {
 		break
 	}
 	mu.Lock()
@@ -460,7 +514,7 @@ func TestSandboxFollow(t *testing.T) {
 	mu.Unlock()
 	// a lost exec ends it with the error
 	n := 0
-	for _, err := range sbx.Sandbox("sb-1").Follow(ctx, "gone", 0) {
+	for _, err := range sbx.Sandbox("sb-1").Follow(ctx, "ab12cd-9", 0) {
 		n++
 		if !errors.Is(err, ErrSandboxLost) {
 			t.Fatalf("lost: %v", err)
@@ -501,8 +555,8 @@ func TestSandboxStreamingBodies(t *testing.T) {
 		name, uri, ctype string
 		call             func(r io.Reader) error
 	}{
-		{"stdin", "/api/xbin/sandboxes/sb-1/execs/e1/stdin?eof=1", "application/octet-stream",
-			func(r io.Reader) error { return sb.Stdin(ctx, "e1", r, true) }},
+		{"stdin", "/api/xbin/sandboxes/sb-1/execs/ab12cd-1/stdin?eof=1", "application/octet-stream",
+			func(r io.Reader) error { return sb.Stdin(ctx, "ab12cd-1", r, true) }},
 		{"write file", "/api/xbin/sandboxes/sb-1/files/content?ifNoneMatch=%2A&mkdirs=1&mode=0600&path=%2Ff", "application/octet-stream",
 			func(r io.Reader) error {
 				st, err := sb.WriteFile(ctx, "/f", r, WriteOptions{Mode: "0600", Mkdirs: true, IfNoneMatch: "*"})
@@ -560,7 +614,7 @@ func TestSandboxForward(t *testing.T) {
 		b, _ := io.ReadAll(r.Body)
 		seenc <- seen{r.Method, r.RequestURI, r.Header.Clone(), string(b)}
 		switch {
-		case strings.HasSuffix(r.URL.Path, "/e1/output"):
+		case strings.HasSuffix(r.URL.Path, "/ab12cd-1/output"):
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("ETag", `"v1"`)
 			w.Header().Set("Set-Cookie", "s=1")
@@ -577,13 +631,13 @@ func TestSandboxForward(t *testing.T) {
 	mgr := fakeManager(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/output":
-			sb.Forward(w, r, "execs/e1/output", url.Values{"since": {"5"}})
+			sb.Forward(w, r, ExecOutput("ab12cd-1"), url.Values{"since": {"5"}})
 		case "/tar":
-			sb.Forward(w, r, "tar", url.Values{"path": {"/w"}})
+			sb.Forward(w, r, TarRoute(), url.Values{"path": {"/w"}})
 		case "/lost":
-			sb.Forward(w, r, "execs/gone/output", nil)
+			sb.Forward(w, r, ExecOutput("ab12cd-9"), nil)
 		case "/bad":
-			sb.Forward(w, r, "execs/../../x", nil)
+			sb.Forward(w, r, ExecOutput("../../x"), nil)
 		}
 	})
 	req, _ := http.NewRequest("GET", mgr.URL+"/output?since=1&frame=evil", nil)
@@ -599,7 +653,7 @@ func TestSandboxForward(t *testing.T) {
 	b, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	s := <-seenc
-	if s.method != "GET" || s.uri != "/api/xbin/sandboxes/sb-1/execs/e1/output?since=5" {
+	if s.method != "GET" || s.uri != "/api/xbin/sandboxes/sb-1/execs/ab12cd-1/output?since=5" {
 		t.Fatalf("forwarded %s %s", s.method, s.uri)
 	}
 	if s.header.Get("Authorization") != "Bearer tok" || s.header.Get("Cookie") != "" || s.header.Get("X-XBin-From") != "" ||
@@ -634,7 +688,7 @@ func TestSandboxForward(t *testing.T) {
 		t.Fatalf("lost: %d %s", resp.StatusCode, b)
 	}
 
-	// a sub that would leave the sandbox's routes never goes out
+	// an id that would leave the sandbox's routes never goes out
 	resp, err = http.Get(mgr.URL + "/bad")
 	if err != nil {
 		t.Fatal(err)
@@ -642,7 +696,7 @@ func TestSandboxForward(t *testing.T) {
 	b, _ = io.ReadAll(resp.Body)
 	resp.Body.Close()
 	if resp.StatusCode != 400 || !strings.Contains(string(b), `"refusal":"invalid"`) {
-		t.Fatalf("bad sub: %d %s", resp.StatusCode, b)
+		t.Fatalf("bad id: %d %s", resp.StatusCode, b)
 	}
 	select {
 	case s := <-seenc:
@@ -654,7 +708,7 @@ func TestSandboxForward(t *testing.T) {
 	t.Setenv("XBIN_GATEWAY", filepath.Join(t.TempDir(), "nothing.sock"))
 	clientOnce = sync.Once{}
 	down := SandboxAPI().Sandbox("sb-1")
-	mgr2 := fakeManager(t, func(w http.ResponseWriter, r *http.Request) { down.Forward(w, r, "tar", nil) })
+	mgr2 := fakeManager(t, func(w http.ResponseWriter, r *http.Request) { down.Forward(w, r, TarRoute(), nil) })
 	resp, err = http.Get(mgr2.URL)
 	if err != nil {
 		t.Fatal(err)
@@ -663,6 +717,100 @@ func TestSandboxForward(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != 503 || !strings.Contains(string(b), `"refusal":"unavailable"`) {
 		t.Fatalf("down: %d %s", resp.StatusCode, b)
+	}
+}
+
+// Every builder's route, forwarded where it says, with the manager's
+// method; a route whose id fails its grammar (or that no builder made) is
+// answered 400 invalid, and the runtime sees nothing.
+func TestSandboxRoutes(t *testing.T) {
+	seenc := make(chan string, 64)
+	sbx := fakeGateway(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenc <- r.Method + " " + r.RequestURI
+		w.WriteHeader(204)
+	}))
+	sb := sbx.Sandbox("sb-1")
+	var mu sync.Mutex
+	var cur SandboxRoute
+	mgr := fakeManager(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		rt := cur
+		mu.Unlock()
+		sb.Forward(w, r, rt, url.Values{"k": {"v"}})
+	})
+	do := func(method string, rt SandboxRoute) (int, string) {
+		t.Helper()
+		mu.Lock()
+		cur = rt
+		mu.Unlock()
+		req, _ := http.NewRequest(method, mgr.URL+"/x", nil)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return resp.StatusCode, string(b)
+	}
+	const base = "/api/xbin/sandboxes/sb-1/"
+	good := []struct {
+		method string
+		rt     SandboxRoute
+		path   string
+	}{
+		{"GET", ExecRoute("ab12cd-1"), "execs/ab12cd-1"},
+		{"DELETE", ExecRoute("ab12cd-1"), "execs/ab12cd-1"},
+		{"GET", ExecOutput("ab12cd-1"), "execs/ab12cd-1/output"},
+		{"POST", ExecStdin("ffffff-123456789012"), "execs/ffffff-123456789012/stdin"},
+		{"POST", ExecSignal("000000-0"), "execs/000000-0/signal"},
+		{"POST", ExecResize("ab12cd-1"), "execs/ab12cd-1/resize"},
+		{"GET", ExecTTY("ab12cd-1"), "execs/ab12cd-1/tty"},
+		{"GET", FilesRoute(FilesStat), "files/stat"},
+		{"PUT", FilesRoute(FilesContent), "files/content"},
+		{"GET", FilesRoute(FilesList), "files/list"},
+		{"POST", FilesRoute(FilesMkdir), "files/mkdir"},
+		{"POST", FilesRoute(FilesRemove), "files/remove"},
+		{"POST", FilesRoute(FilesMove), "files/move"},
+		{"GET", TarRoute(), "tar"},
+		{"PUT", TarRoute(), "tar"},
+	}
+	for _, g := range good {
+		if code, body := do(g.method, g.rt); code != 204 {
+			t.Fatalf("%s %s: %d %s", g.method, g.path, code, body)
+		}
+		if got := <-seenc; got != g.method+" "+base+g.path+"?k=v" {
+			t.Fatalf("%s %s went to %s", g.method, g.path, got)
+		}
+	}
+	var bad []SandboxRoute
+	for _, id := range badExecIDs {
+		bad = append(bad, ExecRoute(id), ExecOutput(id), ExecStdin(id), ExecSignal(id), ExecResize(id), ExecTTY(id))
+	}
+	for _, op := range []FilesOp{"", "Stat", "stat/../../x", "..", "content?x", "chmod"} {
+		bad = append(bad, FilesRoute(op))
+	}
+	bad = append(bad, SandboxRoute{})
+	for _, rt := range bad {
+		code, body := do("GET", rt)
+		if code != 400 || !strings.Contains(body, `"refusal":"invalid"`) {
+			t.Fatalf("%+v: %d %s", rt, code, body)
+		}
+	}
+	// a relayed terminal to a bad exec id is refused the same way
+	mgr2 := fakeManager(t, func(w http.ResponseWriter, r *http.Request) { sb.RelayTTY(w, r, "..%2Fsb-2", TTYOptions{}) })
+	resp, err := http.Get(mgr2.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 400 || !strings.Contains(string(b), `"refusal":"invalid"`) {
+		t.Fatalf("RelayTTY: %d %s", resp.StatusCode, b)
+	}
+	select {
+	case got := <-seenc:
+		t.Fatalf("a refused route reached the runtime: %s", got)
+	default:
 	}
 }
 

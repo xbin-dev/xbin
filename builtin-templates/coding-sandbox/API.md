@@ -41,16 +41,34 @@ As the contract says: the consumer is `X-XBin-From`; a person is verified
 (`X-XBin-User`, a page's call) or asserted (`Sbx-User`, a backend's call).
 `/sbx/*` admits the `consumer` role and the tile itself (its own page is a
 consumer with a partition of its own). **Operators** — the tile's owner and
-the people with write access to it — use `/ops/*`; they see every
-sandbox's metadata and change who may use it, but no route reads or writes
-a sandbox's contents except through a consumer's own partition.
+the people with write access to it — use `/ops/*`: they see every
+sandbox's metadata and run its lifecycle (start, stop, delete, snapshots)
+within the quotas they set. They never change who may use a sandbox: its
+`visibility`, `members` and `shares` change only through its home consumer
+(that consumer's backend, or its verified owner there). No route reads or
+writes a sandbox's contents except through a consumer's own partition.
+
+**The tile's own page** is a consumer like any other, with one more rule
+(docs/auth.md, D29's rule for mutating endpoints): its calls run at the
+tile's own role, so a change needs the verified person's **write** access
+to the tile (write or terminal). With read access a person may look: hello,
+the list, a sandbox, a running sandbox's files and trees, its execs and
+their output, its snapshots. Every change is `403 not-allowed` before it is
+routed: create, PATCH, DELETE, start and stop, run, execs and their stdin,
+signals and resizes, terminals (both `tty` routes), file writes, moves and
+removes, `PUT …/tar`, and taking, restoring or deleting snapshots. A read
+never starts a stopped sandbox for them: that is `403 not-allowed` too, and
+`409 state` while one starts. Calls from every other consumer are as the
+contract says, whatever the person's level on this tile: the contract
+trusts its consumers.
 
 ## What it adds to the contract
 
 - **Ids.** A sandbox's contract id is `sb-<10 hex>`; the substrate's
-  sandbox behind it has a name of its own (never shown to consumers; errors
-  that name it are rewritten to the id). Exec and snapshot ids are the
-  substrate's.
+  sandbox behind it has a name of its own, never shown to consumers. Errors
+  that name it are rewritten to the id, and so are a clone's errors that
+  name its source; an image's template sandbox is `image:<id>`. Exec and
+  snapshot ids are the substrate's.
 - **Its own table** (the `db` resource): per sandbox the id, runtime name,
   name, image, size, egress asked, owner, visibility, members, shares,
   labels, layout, version and an overlay state (`creating`, `deleting`,
@@ -97,7 +115,13 @@ made and prepared, the script runs in it **as root** in the workdir (with
 `IMAGE_ID`, `SANDBOX_USER`, `SANDBOX_HOME`, `SANDBOX_WORKDIR`), and the
 sandbox is stopped and snapshotted. Every later sandbox of the image is a
 **clone** of that snapshot. A changed script, a changed mode or an outdated
-base rebuilds it at the next use, and the old template sandbox goes. The
+base rebuilds it at the next use. The old template sandbox goes only once
+the new build is ready: **a rebuild that fails keeps the previous good
+build**. While that build is still current for the script and the mode (an
+outdated base, an operator's rebuild), new sandboxes clone it, and the
+failure is the image's `detail`. A changed script whose build fails leaves
+the new sandboxes of the image in `error` as a first build does; the old
+build waits, and a script changed back clones it at once. The
 build's network is `buildEgress` (default: `internet` where that class is
 bound, else `none`). A built image keeps its template sandbox, stopped: it
 counts against the substrate's sandbox limit for the tile. Building needs
@@ -148,10 +172,10 @@ the tile): `403 not-allowed` otherwise. Errors are the contract's shape.
 
 | Route | |
 |---|---|
-| `GET /me` | `{user, operator, self}` — anyone the tile serves |
+| `GET /me` | `{user, level, write, operator, self}` — anyone the tile serves: the person, their level on the tile (`read`, `write`, `terminal`; `""` with no person), whether they may change sandboxes on the page, whether they are an operator |
 | `GET /ops/state` | `{self, backend: {name, registered, error?}, runtime?, runtimeError?, listError?, offer: {caps, egress, images, sizes, notes}, config, images: [built image], sandboxes: [sandbox + {consumer, runtime, mode, diskBytes, execsRunning, base}], orphans: [{name, state, labels, created}], usage: {consumers, people}}` |
 | `PUT /ops/config` | above → the state |
-| `PATCH /ops/sandboxes/{id}` | the contract's PATCH body (name, visibility, members, shares, labels, egress, size, autoStopMin, version) → the sandbox |
+| `PATCH /ops/sandboxes/{id}` | the contract's PATCH body without who may use it (name, labels, egress, size, autoStopMin, version) → the sandbox. `visibility`, `members` or `shares` are `403 not-allowed`: they change only through the home consumer |
 | `POST /ops/sandboxes/{id}/start` · `/stop` | `?wait=` → the sandbox |
 | `DELETE /ops/sandboxes/{id}` | 204 |
 | `GET /ops/sandboxes/{id}/snapshots` | `{snapshots: [{id, name, created, bytes?}]}` — any consumer's sandbox (`501 unsupported` while the substrate keeps none) |
@@ -162,7 +186,9 @@ the tile): `403 not-allowed` otherwise. Errors are the contract's shape.
 | `DELETE /ops/orphans/{name}` | 204 — a substrate sandbox the manager doesn't know (a creation cut short before it was written down) |
 
 A built image is `{id, runtime, snapshot, setupHash, mode, state:
-building|ready|error, detail, log, started, built}`.
+building|ready|error, detail, log, started, built, previous?}`. `previous`
+is the last good build (`{id, runtime, snapshot, setupHash, mode, state:
+ready, started, built}`), kept while this one is building or failed.
 
 ## The page
 
@@ -174,29 +200,38 @@ it (`hack/coding-sandbox-ui.test.mjs` holds them level, D96).
 
 - **Operators** (write access to the tile) get four tabs:
   - **Sandboxes** — every consumer's sandboxes, most recently active first:
-    state (and why), consumer, owner (asserted ones say so), image, size,
-    network, isolation, disk and last activity; start, stop, delete;
-    snapshots (take, restore, delete); sharing with another consumer (everyone
-    it serves, or named people). Usage by consumer and person against the
+    state (and why), consumer, owner (asserted ones say so), who may use it
+    (shown, never changed here), image, size, network, isolation, disk and
+    last activity; start, stop, delete; snapshots (take, restore, delete).
+    Usage by consumer and person against the
     quota that binds each; the substrate (its errors, modes, capabilities,
     hello's notes — and, while `cap:sandboxes` waits, who approves it);
     orphans.
-  - **Images** — each image's build (built, building, failed and why), its
-    script and last output; build now; add, edit, remove.
+  - **Images** — each image's build (built, building, failed and why, and
+    the previous good build a failed or running rebuild keeps), its script
+    and last output; build now; add, edit, remove.
   - **Settings** — the mode (and what new sandboxes get with it now, or why
     none can be made), the `sandbox-net` classes (bound to what, reaching
     what, offered or not, the `bx bind` to bind one), sizes, quotas (the
     defaults and each override), the layout, the idle stop and mounts.
   - **Yours** — below.
-- **Anyone who may open the page** gets **their own sandboxes**: the page
-  calls `/sbx/*` as a consumer of its own (its partition is this tile's
-  path; the person is verified), within the per-person quota. Create
+- **People with write access** get **their own sandboxes** (the operators'
+  Yours tab): the page calls `/sbx/*` as a consumer of its own (its
+  partition is this tile's path; the person is verified), within the
+  per-person quota. Create
   (name, image, size, network, who may use it), start, stop, delete,
   visibility and shares; a **file browser** (list, view the first 256 KiB of
   a text file, download, upload, a new folder, remove) over the contract's
   `files/*` routes; a **terminal**: `<bx-terminal src="/api/<self>/sbx/sandboxes/{id}/tty?cwd=<workdir>">`,
   dialled with the frame token (docs/elements.md), ended at the manager
   (`DELETE …/execs/{session}`) when it is closed.
+- **People with read access** get a read-only view (`/me`'s `write` is
+  false) of the sandboxes they may use: the ones the team may use, or those
+  they are a member of. They see the list and its facts, and a running
+  sandbox's files (browse, view, download). Every change is hidden or
+  disabled with the reason: New sandbox, start, stop, delete, sharing, the
+  terminal, upload, new folder, remove. A stopped sandbox's files say that
+  starting it needs write access.
 - **The native view** has the same, one screen at a time. Its terminal is
   the app's `terminal` on the tile's own route: it starts a login shell as a
   `tty` exec (`POST …/execs {argv: [<shell>, -l], tty: true}`) and attaches to
@@ -238,7 +273,11 @@ runtime (docs/protocol.md §Tile sandboxes): `*xbin.Sandboxes` and
 - **terminals**: relayed byte for byte (`RelayTTY` / `RelayNewTTY`) with
   `forUser` = the person and the session frame's ids = the contract's; a
   refusal before the upgrade comes back with the runtime's name for the
-  sandbox replaced by its id. The consumer's headers never travel.
+  sandbox replaced by its id. The consumer's headers never travel;
+- **ids**: exec and snapshot ids are the runtime's, as they are. One its
+  grammar can't hold (`xbin.IsExecID`, `xbin.IsSnapshotID`) is `not-found`
+  here and never reaches the runtime, so a consumer's id can't name
+  another route or sandbox.
 
 It needs **`cap:sandboxes`**, which only a workspace admin approves: until
 then every call is refused and the page says who approves it. On an xbind

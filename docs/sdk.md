@@ -277,17 +277,30 @@ snaps, err := sb.Snapshots(ctx)                                             // S
   `errors.Is` matches `xbin.ErrSandboxNotFound`, `ErrSandboxLost` and
   `ErrSandboxState`. `xbin.WriteSandboxError(w, err)` answers one to your
   consumer unchanged. A route this xbind doesn't serve yet answers
-  `unsupported`. A name or id that would change the route (empty, `.`,
-  `..`, one with a `/`, or a reserved name: `runtime`, `policy`, `copy`)
-  is refused before anything is sent.
+  `unsupported`. A name that would change the route (empty, `.`, `..`, one
+  with a `/`, or a reserved name: `runtime`, `policy`, `copy`) is refused
+  (`invalid`) before anything is sent, and so is an exec or snapshot id
+  that fails the runtime's grammar: exec ids are `^[0-9a-f]{6}-[0-9]{1,12}$`
+  (`ab12cd-7`), snapshot ids `^s-[0-9]{1,12}$` (`s-3`). If your contract
+  ids are the runtime's, answer one that fails it `not-found` yourself
+  (`xbin.IsExecID(eid)`, `xbin.IsSnapshotID(sid)`): it names nothing, and
+  the contract says so.
 - **Forwarding.** The runtime's routes mirror the contract's, so most of a
-  manager's routes pass its own request through:
-  `sb.Forward(w, r, "execs/"+eid+"/output", q)`. It streams both bodies and
-  copies the status and headers (but not `Set-Cookie`). It sends only the
-  query `q` you chose, never the consumer's raw query. It drops the
-  inbound `Cookie`, `Authorization`, `Sbx-User`, `X-XBin-*` and
-  `Sec-WebSocket-Extensions`: the call carries your tile's credential. Do
-  your own checks first (the verified person, the consumer's sandboxes).
+  manager's routes pass its own request through to a typed route:
+  `sb.Forward(w, r, xbin.ExecOutput(eid), q)`. The routes are
+  `xbin.ExecRoute(eid)` (GET, DELETE), `ExecOutput`, `ExecStdin`,
+  `ExecSignal`, `ExecResize`, `ExecTTY`, `FilesRoute(xbin.FilesStat |
+  FilesContent | FilesList | FilesMkdir | FilesRemove | FilesMove)` and
+  `TarRoute()`; there is no free-form one. Each builder checks its id
+  against the grammar and escapes it itself, so a consumer's id (one with a
+  `/`, `..`, `%2F`, `?` or `#`) can only fail — Forward answers `400
+  invalid` and sends nothing — and never reaches another route or
+  sandbox. Forward streams both bodies and copies the status and headers
+  (but not `Set-Cookie`). It sends only the query `q` you chose, never the
+  consumer's raw query. It drops the inbound `Cookie`, `Authorization`,
+  `Sbx-User`, `X-XBin-*` and `Sec-WebSocket-Extensions`: the call carries
+  your tile's credential. Do your own checks first (the verified person,
+  the consumer's sandboxes).
 - **Terminals.** `sb.RelayTTY(w, r, eid, xbin.TTYOptions{SessionID,
   SandboxID, ForUser})` relays a consumer's terminal WebSocket to a tty
   exec, and `sb.RelayNewTTY(w, r, xbin.TTYStart{Cwd, Cmd, …})` starts one

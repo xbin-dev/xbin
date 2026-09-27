@@ -35,13 +35,14 @@ func (m *Manager) commandRoutes(x *http.ServeMux) {
 func (m *Manager) box(rec record) Box { return m.backend().Sandbox(rec.Runtime) }
 
 // usable is find + ready: {id} for a command or a file operation, started
-// and prepared.
+// and prepared. A caller who may only look (caller.lookOnly) reads a running
+// sandbox and never starts a stopped one.
 func (m *Manager) usable(w http.ResponseWriter, r *http.Request) (record, caller, bool) {
 	rec, c, ok := m.find(w, r)
 	if !ok {
 		return rec, c, false
 	}
-	if err := m.ready(r.Context(), &rec); err != nil {
+	if err := m.ready(r.Context(), &rec, !c.lookOnly); err != nil {
 		writeErr(w, err, &rec)
 		return rec, c, false
 	}
@@ -187,7 +188,7 @@ func (m *Manager) execStart(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if err := m.ready(r.Context(), &rec); err != nil {
+	if err := m.ready(r.Context(), &rec, true); err != nil {
 		writeErr(w, err, &rec)
 		return
 	}
@@ -386,7 +387,7 @@ func (m *Manager) ttyStart(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "invalid", "a terminal is a WebSocket upgrade")
 		return
 	}
-	if err := m.ready(r.Context(), &rec); err != nil {
+	if err := m.ready(r.Context(), &rec, true); err != nil {
 		writeErr(w, err, &rec)
 		return
 	}

@@ -181,6 +181,8 @@ m = json.load(open(sys.argv[1]))
 m["uses"].append({"target": "res:apps/coding-sandbox/boxes", "role": "writer"})
 json.dump(m, open(sys.argv[1], "w"), indent=2)
 PY
+# dev1 may open its page with read access: a read-only view (D122 addendum)
+api PUT /access '{"tile":"apps/coding-sandbox","kind":"user","id":"dev1","level":"read"}'
 
 say "messaging bridge + webhooks → the agent (the channels pass)"
 # a copy of the agent-messaging-bridge template (alwaysOn; no platform added,

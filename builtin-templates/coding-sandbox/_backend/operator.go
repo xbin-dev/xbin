@@ -10,6 +10,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"slices"
 	"sort"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
@@ -35,9 +36,13 @@ func (m *Manager) op(h http.HandlerFunc) http.HandlerFunc {
 // operatorRoutes are the operators' routes, under /ops/ (and /me for anyone
 // the tile serves).
 func (m *Manager) operatorRoutes(mux *http.ServeMux) {
+	// /me: who the page serves — the person, their level on the tile, whether
+	// they may change sandboxes here (write access: pageReader), whether they
+	// are an operator.
 	mux.HandleFunc("GET /me", func(w http.ResponseWriter, r *http.Request) {
 		c := xbin.Caller(r)
-		writeJSON(w, http.StatusOK, map[string]any{"user": c.User, "operator": operator(r), "self": xbin.Self()})
+		writeJSON(w, http.StatusOK, map[string]any{"user": c.User, "level": c.UserLevel, "write": c.UserCanWrite(),
+			"operator": operator(r), "self": m.self})
 	})
 	mux.HandleFunc("GET /ops/state", m.op(m.opState))
 	mux.HandleFunc("PUT /ops/config", m.op(m.opConfig))
@@ -95,7 +100,7 @@ func (m *Manager) opState(w http.ResponseWriter, r *http.Request) {
 	if beErr != nil {
 		be["error"] = beErr.Error()
 	}
-	out["backend"], out["config"], out["images"], out["self"] = be, cfg, imgs, xbin.Self()
+	out["backend"], out["config"], out["images"], out["self"] = be, cfg, imgs, m.self
 	if o, err := m.offer(r.Context()); err != nil {
 		out["runtimeError"] = errText(err)
 	} else {
@@ -133,7 +138,9 @@ func (m *Manager) opState(w http.ResponseWriter, r *http.Request) {
 		views = append(views, v)
 	}
 	for _, im := range imgs {
-		known[im.Runtime] = true
+		for _, name := range im.runtimes() {
+			known[name] = true
+		}
 	}
 	orphans := []orphan{}
 	if err == nil {
@@ -191,10 +198,20 @@ func (m *Manager) opConfig(w http.ResponseWriter, r *http.Request) {
 	m.opState(w, r)
 }
 
+// opPatch: PATCH /ops/sandboxes/{id} — the contract's PATCH body without
+// who may use the sandbox. Operators run every consumer's sandboxes, but
+// visibility, members and shares change only through the sandbox's home
+// consumer (its backend, or its verified owner there): an operator must
+// not reach into another partition to change who uses a sandbox. They
+// change their own sandboxes' sharing where they own them, on /sbx/.
 func (m *Manager) opPatch(w http.ResponseWriter, r *http.Request) {
 	var q patchReq
 	if err := decode(r, 64<<10, &q); err != nil {
 		fail(w, http.StatusBadRequest, "invalid", "bad body: "+err.Error())
+		return
+	}
+	if q.Visibility != nil || q.Members != nil || q.Shares != nil {
+		fail(w, http.StatusForbidden, "not-allowed", "operators don't change who may use a sandbox (visibility, members, shares): its home consumer or its owner does")
 		return
 	}
 	id := r.PathValue("id")
@@ -335,7 +352,7 @@ func (m *Manager) opOrphan(w http.ResponseWriter, r *http.Request) {
 		known = known || rec.Runtime == name
 	}
 	for _, im := range m.imgs {
-		known = known || im.Runtime == name
+		known = known || slices.Contains(im.runtimes(), name)
 	}
 	m.mu.Unlock()
 	if known {

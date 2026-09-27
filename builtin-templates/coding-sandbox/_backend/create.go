@@ -156,7 +156,7 @@ func (m *Manager) create(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		plan.FromRuntime, plan.FromSnap = s.Runtime, q.From.Snapshot
+		plan.FromRuntime, plan.FromID, plan.FromSnap = s.Runtime, s.ID, q.From.Snapshot
 		image = s.Image // a clone is of its source's image, whatever the body says
 		if q.Size == "" {
 			if x, ok := m.config().size(s.Size); ok {
@@ -357,6 +357,10 @@ func (m *Manager) makeSandbox(ctx context.Context, id string) (err error) {
 	plan := *rec.Plan
 	cfg := m.cfg
 	m.mu.Unlock()
+	// srcName is the substrate's sandbox this one is made from, which an
+	// error says as srcLabel: a clone's source by its contract id, an image's
+	// template sandbox as image:<id>. A consumer never sees a runtime name.
+	var srcName, srcLabel string
 	defer func() {
 		m.mu.Lock()
 		delete(m.starting, id)
@@ -364,6 +368,7 @@ func (m *Manager) makeSandbox(ctx context.Context, id string) (err error) {
 		if err == nil {
 			return
 		}
+		err = m.hideImageNames(hideName(err, srcName, srcLabel), rec.Image)
 		if ctx.Err() != nil && m.ctx.Err() != nil {
 			return // the manager is stopping: the next one resumes it
 		}
@@ -400,6 +405,7 @@ func (m *Manager) makeSandbox(ctx context.Context, id string) (err error) {
 	switch {
 	case plan.FromRuntime != "":
 		spec.From = &xbin.SandboxFrom{Sandbox: plan.FromRuntime, Snapshot: plan.FromSnap}
+		srcName, srcLabel = plan.FromRuntime, m.sourceID(plan)
 	default:
 		if im, ok := cfg.image(rec.Image); ok && im.Setup != "" {
 			built, err := m.imageFor(ctx, im, mode)
@@ -407,6 +413,7 @@ func (m *Manager) makeSandbox(ctx context.Context, id string) (err error) {
 				return errf(http.StatusServiceUnavailable, "unavailable", "the image %s didn't build: %s", im.ID, errText(err))
 			}
 			spec.From = &xbin.SandboxFrom{Sandbox: built.Runtime, Snapshot: built.Snapshot}
+			srcName, srcLabel = built.Runtime, "image:"+im.ID
 		}
 	}
 	info, err := be.Create(ctx, spec)
@@ -452,6 +459,38 @@ func (m *Manager) makeSandbox(ctx context.Context, id string) (err error) {
 	_, err = m.update(id, func(r *record) { r.Overlay, r.Detail, r.Plan, r.Prepared = "", "", nil, rec.Prepared })
 	if plan.Start {
 		m.live[id] = time.Now()
+	}
+	return err
+}
+
+// sourceID is a clone's source as a consumer knows it: its contract id (a
+// plan from before FromID was kept: the record that has the runtime name).
+func (m *Manager) sourceID(plan createPlan) string {
+	if plan.FromID != "" {
+		return plan.FromID
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, r := range m.recs {
+		if r.Runtime == plan.FromRuntime {
+			return r.ID
+		}
+	}
+	return "its source sandbox"
+}
+
+// hideImageNames is err with the template sandboxes of image id (its build,
+// the previous one it keeps) said as image:<id>.
+func (m *Manager) hideImageNames(err error, id string) error {
+	m.mu.Lock()
+	b := m.imgs[id]
+	var names []string
+	if b != nil {
+		names = b.runtimes()
+	}
+	m.mu.Unlock()
+	for _, n := range names {
+		err = hideName(err, n, "image:"+id)
 	}
 	return err
 }

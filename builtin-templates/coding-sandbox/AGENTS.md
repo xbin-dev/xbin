@@ -90,7 +90,9 @@ the level of this interface:
 `not-found`, `state` with `State`, `exists`, `lost`, `precondition` with
 `ETag`, `too-large`, `limit`, `unsupported`, `unavailable` with
 `RetryAfter`). Anything else becomes `503 unavailable`. Put the runtime
-name in a message freely: the manager rewrites it to the contract id.
+name in a message freely: the manager rewrites it to the contract id. Your
+exec and snapshot ids reach consumers as they are, so any string can come
+back as one: an id that names nothing is `not-found`, never `invalid`.
 
 **Networks.** A sandbox's `Net.Egress` is `none` or `class:internet` /
 `class:open` — this tile's `sandbox-net` classes. On a cloud, map them to

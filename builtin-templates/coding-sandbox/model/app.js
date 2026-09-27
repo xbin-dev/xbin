@@ -46,7 +46,7 @@ export function createApp(opts = {}) {
 
   const app = {
     self, request,
-    me: null,        // GET /me: {user, operator, self}
+    me: null,        // GET /me: {user, level, write, operator, self}
     ops: null,       // GET /ops/state (operators)
     opsErr: '',
     hello: null,     // GET /sbx/hello — what you may make here
@@ -62,6 +62,9 @@ export function createApp(opts = {}) {
     emit,
 
     get operator() { return !!(app.me && app.me.operator); },
+    // readOnly: you have read access to this tile — you look, never change
+    // (the manager refuses every change from its page without write access).
+    get readOnly() { return M.lookOnly(app.me); },
 
     // --- reading --------------------------------------------------------------------
 
@@ -89,7 +92,7 @@ export function createApp(opts = {}) {
     myRows(now) { return M.myRows(app.mine, app.me, now); },
     mySandbox(id) { return (app.mine || []).find((s) => s.id === id) || null; },
     opSandbox(id) { return ((app.ops && app.ops.sandboxes) || []).find((s) => s.id === id) || null; },
-    createForm(form) { return M.createForm(app.hello, form); },
+    createForm(form) { return M.createForm(app.hello, form, app.me); },
 
     // --- the operators ----------------------------------------------------------------
 
@@ -97,11 +100,6 @@ export function createApp(opts = {}) {
     async opAct(id, act) {
       if (act === 'delete') await request(`/ops/sandboxes/${q(id)}`, { method: 'DELETE' });
       else await request(`/ops/sandboxes/${q(id)}/${act}?wait=30`, { method: 'POST' });
-      await app.load();
-    },
-    // opShares: a sandbox's shares, set whole.
-    async opShares(id, shares) {
-      await request(`/ops/sandboxes/${q(id)}`, { method: 'PATCH', body: { shares } });
       await app.load();
     },
     // snapshots of one sandbox (opSnapshots opens the look, the rest act in it).

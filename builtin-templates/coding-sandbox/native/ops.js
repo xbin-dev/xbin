@@ -1,13 +1,15 @@
 // native/ops.js — the operators' Sandboxes tab in the native view (every
 // consumer's sandboxes, their usage, the substrate, orphans) and one
-// sandbox's screen: its facts, lifecycle, snapshots and sharing. The same
-// model as the web's web-ops.js (model/ops.js).
+// sandbox's screen: its facts, lifecycle, snapshots and who may use it
+// (shown: only its home consumer or its owner changes that). The same
+// model as the web's web-ops.js (model/ops.js). sharesSection is "Yours"'
+// sharing form (native/mine.js).
 import { html, nothing, repeat } from '/vendor/xb-native.js';
 import * as F from '../model/format.js';
 import * as O from '../model/ops.js';
-import { ui, ctx, act, push, back, set, form } from './ui.js';
+import { ui, ctx, act, push, back, set } from './ui.js';
 
-const ACT_ICON = { start: 'play', stop: 'stop', delete: 'trash', snapshots: 'archive', shares: 'people' };
+const ACT_ICON = { start: 'play', stop: 'stop', delete: 'trash', snapshots: 'archive' };
 
 // opsSections: the Sandboxes tab's content.
 export function opsSections() {
@@ -29,7 +31,7 @@ export function opsSections() {
     <section title="Sandboxes" badge=${String(rows.length)}>
       ${rows.length ? repeat(rows, (r) => r.id, (r) => html`<row title=${r.name} subtitle=${`${r.consumer} · ${r.owner}`}
           detail=${r.stateLabel} tone=${r.tone} nav @tap=${() => push({ kind: 'op', id: r.id })}>
-          <actions>${r.actions.filter((a) => a.id !== 'snapshots' && a.id !== 'shares').map((a) => html`<button icon=${ACT_ICON[a.id]}
+          <actions>${r.actions.filter((a) => a.id !== 'snapshots').map((a) => html`<button icon=${ACT_ICON[a.id]}
             role=${a.danger ? 'destructive' : 'secondary'} confirm=${a.confirm ? { title: `Delete ${r.name}?`, message: a.confirm, label: 'Delete', destructive: true } : undefined}
             @tap=${() => act(`${r.id}:${a.id}`, () => app.opAct(r.id, a.id))}>${a.label}</button>`)}</actions></row>`)
         : html`<empty icon="box" title="No sandboxes yet" text=${`Bind a consumer: bx bind apps/agent sandboxes+=${app.self}`}/>`}
@@ -53,8 +55,6 @@ export function opScreen(s) {
   if (!s.snapsAsked && r.actions.some((a) => a.id === 'snapshots')) { s.snapsAsked = true; app.opSnapshots(r.id); }
   const snaps = app.snaps && app.snaps.id === r.id ? app.snaps : null;
   const sk = 'snap:' + r.id;
-  const shk = 'share:ops-' + r.id;
-  const sf = form(shk, { consumer: '', users: '' });
   const lifecycle = r.actions.filter((a) => a.id === 'start' || a.id === 'stop' || a.id === 'delete');
   return html`<screen title=${r.name} subtitle=${r.id} style="form" refreshable @refresh=${() => app.load()}>
     ${ui.err ? html`<section><notice tone="danger" text=${ui.err}/></section>` : nothing}
@@ -85,11 +85,16 @@ export function opScreen(s) {
       <field label="Name" placeholder="optional" value=${(ui.forms[sk] || {}).name || ''} @input=${set(sk, 'name')}/>
       <button icon="archive" ?busy=${ui.busy === 'snap'} @tap=${() => act('snap', () => app.opSnapshot(r.id, (ui.forms[sk] || {}).name).then(() => { ui.forms[sk] = null; }), 'snapshot taken')}>Take a snapshot</button>
     </section>` : nothing}
-    ${sharesSection(r.shares, (x) => app.opShares(r.id, x), shk, sf)}
+    <section title="Who may use it" footer="Only its home consumer, or its owner there, changes this.">
+      <row title="Here" detail=${r.visibility === 'team' ? 'everyone its consumer serves' : 'its owner and members'}/>
+      ${r.members.length ? html`<row title="Members" detail=${r.members.join(', ')}/>` : nothing}
+      ${r.shares.length ? repeat(r.shares, (x) => x.consumer, (x) => html`<row title=${x.consumer} subtitle=${F.usersText(x.users)} mono="title"/>`)
+        : html`<row title="no other consumer" tone="muted"/>`}
+    </section>
   </screen>`;
 }
 
-// sharesSection: a sandbox's shares and the form to add one (both tabs').
+// sharesSection: a sandbox's shares and the form to add one (Yours).
 export function sharesSection(shares, save, key, f) {
   const add = () => {
     const g = ui.forms[key] || f;
