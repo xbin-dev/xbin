@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/checkpoint"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -71,11 +72,16 @@ func TestAuthorizationRecheckedAtCommit(t *testing.T) {
 			t.Errorf("commit answered the runner %v, want the 403", errs)
 		}
 
-		// The owner, a manager, commits onto the protected primary. (Naming
-		// the reviewed checkpoint is the governance operations' rule.)
+		// The owner, a manager, commits onto the protected primary, naming
+		// the checkpoint it reviewed and the seq it read (P21).
 		f.run.set(func(r *fakeRunner) { r.before, r.started = nil, nil })
 		f.write(opAPI+"/main.go", "package main // v3\n")
-		ans = f.must(ownerP, OpDeploy, &DeployRequest{Tile: opAPI})
+		c, _ := f.p.component(opAPI)
+		v3, err := f.st.Capture(t.Context(), checkpoint.CaptureRequest{Source: f.p.source(c), By: "owner"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ans = f.must(ownerP, OpDeploy, &DeployRequest{Tile: opAPI, Checkpoint: v3.ID, Seq: ptr(f.rec(opAPI).Seq)})
 		if e := f.wait(opAPI, ans.Deploy.ID); e.Result != resultOK || *f.rec(opAPI).Deployments[util.MainDeployment].Checkpoint == pinned {
 			t.Errorf("a manager's deploy onto the protected primary = %+v", e)
 		}
