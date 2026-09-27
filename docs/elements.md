@@ -64,7 +64,9 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   // Runtime call rights this component wants (docs/auth.md). Targets are
   // component paths, resources ("res:<scope>/<name>"), reserved capabilities
   // ("cap:open-links" — links in new tabs from the frontend; "cap:net-admin",
-  // "cap:containers" — admin-only), or — under isolation (xbind --isolate) —
+  // "cap:containers" — admin-only; "cap:sandboxes" — a sandbox manager's
+  // backend drives xbind's tile sandboxes, approved by a workspace admin
+  // only), or — under isolation (xbind --isolate) —
   // GPUs ("gpu:all", "gpu:<index>", or "gpu:<uuid>"). All are owner-approved
   // grants. (Network egress is NOT a use — it is a "net" interface the owner
   // binds, below.)

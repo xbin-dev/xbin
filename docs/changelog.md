@@ -19,6 +19,31 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   left there (a terminal's persistent layer keeps one) used to be followed —
   an absolute one outside the sandbox — and is now replaced by a regular file
   with the same content the sandbox always got. Nothing to change.
+- **`cap:sandboxes`: the grant a sandbox manager needs for xbind's tile
+  sandboxes** (D120, [auth.md](auth.md)). A tile that serves
+  [sandbox-manager.md](sandbox-manager.md) on xbind's own sandboxes declares
+  `uses: [{target: "cap:sandboxes", role: "writer"}]`; it lands pending, and
+  only a workspace admin approves it. No org or personal allowance delegates
+  it, not even `cap:*`, and an allowance or permission set that names it is
+  refused. A policy `xbin-caps` deny strips it. Approving restarts nothing;
+  revoking it, or a policy change that strips it, stops the tile's sandboxes
+  and keeps their state. It gates the backend alone: the tile's frames,
+  terminals and signed-in users never gain anything from it.
+
+- **The VM policy gains `tiles`, `tilesBudgetMiB` and `tilesEmulated`,
+  and `PUT /api/xbin/vm/policy` merges** (D120,
+  [isolation.md](isolation.md) §VM sandboxes). `tiles` lets a manager tile's
+  sandboxes run in VMs. It is off unless an admin turns it on; the
+  installer's fresh policy turns it on where KVM is usable, and an existing
+  policy file is never touched. Their VMs count against the workspace's VM
+  budget and also against `tilesBudgetMiB` (0 = half the budget, at most
+  the budget), so they can't starve VM terminals. Where VMs run emulated
+  they also need `tilesEmulated`. `PUT /vm/policy` now merges its body onto
+  the stored policy: a field left out keeps its value instead of resetting
+  to off or the default, and a body with every field works as before. It
+  answers `stored` too. `GET /vm` and `GET /sandboxes` show admins
+  `usedTiles`, and the admin console's runtime → sandboxes tab edits the
+  three fields and shows the sub-budget.
 
 ## 2026-09-27
 

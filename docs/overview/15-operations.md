@@ -69,9 +69,11 @@ plan (D110):
 - **VM sandboxes on by default.** When `<workspace>/.xbin/vm/policy.json`
   doesn't exist (nobody ever configured VM sandboxes), the installer writes
   one turning them on: terminals always (each terminal still opts in with
-  its **⧉ VM** toggle), backends only when KVM is usable — where VMs would
-  run emulated (several times slower) a backend's `"vm"` stays refused
-  until an admin turns backends on. Sizes are left at xbind's defaults. An
+  its **⧉ VM** toggle), backends and tile sandboxes (the VMs a manager tile
+  runs, D120) only when KVM is usable — where VMs would run emulated
+  (several times slower) a backend's `"vm"` stays refused until an admin
+  turns backends on, and a manager's VM sandboxes until an admin turns
+  `tiles` and `tilesEmulated` on. Sizes are left at xbind's defaults. An
   existing policy is an admin's choice — "off" included — and is never
   touched; change it in the admin console (runtime → sandboxes) or with
   `PUT /api/xbin/vm/policy` ([isolation.md](/docs/isolation.md) §VM

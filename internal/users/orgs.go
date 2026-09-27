@@ -526,7 +526,8 @@ func (s *Store) DeletePermissionSet(name string) error {
 //
 //	res:<glob>[@<role>]          resource grants, optionally capped at a role
 //	gpu:<glob>                   gpu grants
-//	cap:<glob>                   capability grants (cap:net-admin, cap:containers)
+//	cap:<glob>                   capability grants (cap:net-admin, cap:containers;
+//	                             never cap:sandboxes — NeverDelegable)
 //	net:internet | net:host | net:lan:<glob> | net:provider:<tile-glob>
 //	iface:<svc>[@<tile-glob>[#<inst-glob>]]
 //	                             interface bindings — optionally pinned to a
@@ -617,6 +618,9 @@ func parseAllowEntry(e string) (allowEntry, error) {
 		if strings.HasPrefix(rest, "xbin") {
 			return allowEntry{}, fmt.Errorf("%q — the xbin capability family is never delegable (and no cap: target spells it)", e)
 		}
+		if NeverDelegable(e) {
+			return allowEntry{}, fmt.Errorf("%q is never delegable — only a workspace admin approves a sandbox manager (D120; `cap:*` doesn't cover it either)", e)
+		}
 	case "net":
 		switch {
 		case rest == "internet" || rest == "host":
@@ -666,7 +670,9 @@ func parseAllowEntry(e string) (allowEntry, error) {
 // ValidateAllow checks allowance entries against the grammar and the xbin
 // floor: the workspace-governance capability family (xbin, xbin:*) is never
 // delegable — an element granted xbin@admin IS a workspace admin, so an org
-// admin who could self-approve it would transitively be one too (D26).
+// admin who could self-approve it would transitively be one too (D26). A
+// literal cap:sandboxes entry is refused the same way (D120); a glob that
+// would match it is valid but never covers it (allowCovers).
 func ValidateAllow(entries []string) error {
 	for i, e := range entries {
 		if _, err := parseAllowEntry(e); err != nil {

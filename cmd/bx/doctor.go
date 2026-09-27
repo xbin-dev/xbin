@@ -392,6 +392,9 @@ func allowEntryProblem(e string) string {
 	if e == "xbin" || strings.HasPrefix(e, "xbin:") || strings.HasPrefix(e, "cap:xbin") {
 		return "the xbin capability family is never delegable"
 	}
+	if e == "cap:sandboxes" {
+		return "cap:sandboxes is never delegable — only a workspace admin approves a sandbox manager (D120)"
+	}
 	class, rest, okCut := strings.Cut(e, ":")
 	if !okCut || rest == "" {
 		return "not <class>:<value>"

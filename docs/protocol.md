@@ -477,8 +477,11 @@ GET    /vm                         authenticated. VM sandboxes (D89)
                                    → {status:{available,reason,emulated?,
                                    note?}, policy:
                                    {terminals,backends,memMiB,vcpus,maxVMs,
-                                   budgetMiB,diskGiB}, used?:{vms,memMiB}}
-                                   (used: admins).
+                                   budgetMiB,diskGiB,tiles,tilesBudgetMiB,
+                                   tilesEmulated}, used?:{vms,memMiB},
+                                   usedTiles?:{vms,memMiB}} (used,
+                                   usedTiles: admins; usedTiles is the part
+                                   of used that tile sandboxes hold).
                                    available=false names why: no /dev/kvm, the
                                    xbind user not in the kvm group, a missing
                                    asset (firecracker, vmlinux, xbin-vmagent,
@@ -486,17 +489,30 @@ GET    /vm                         authenticated. VM sandboxes (D89)
                                    emulated=true: no usable KVM, so VMs run
                                    under QEMU's emulation, much slower (D90);
                                    note says why
-PUT    /vm/policy                  admin. body {terminals,backends,memMiB,vcpus,
-                                   maxVMs,budgetMiB,diskGiB} → {status, policy}.
+PUT    /vm/policy                  admin. body: any of {terminals,backends,
+                                   memMiB,vcpus,maxVMs,budgetMiB,diskGiB,
+                                   tiles,tilesBudgetMiB,tilesEmulated},
+                                   merged onto the stored policy (a field the
+                                   body leaves out keeps its value) →
+                                   {status, policy, stored}.
                                    Off by default (the installer writes
-                                   terminals on, backends on with KVM, for a
-                                   workspace with no policy: D110); zero
+                                   terminals on, backends and tiles on with
+                                   KVM, for a workspace with no policy: D110,
+                                   D120); zero
                                    sizes = defaults (2048 MiB, 2 vCPUs, 8
                                    VMs, budget maxVMs×memMiB,
                                    a 20 GiB VM terminal disk — grown, never
                                    shrunk). Turning backends off stops new VM
-                                   generations; running ones keep going. 400
-                                   on out-of-range sizes, 409 without --isolate
+                                   generations; running ones keep going.
+                                   tiles: the sandboxes manager tiles run
+                                   (cap:sandboxes) may use VM mode; their VMs
+                                   also count against tilesBudgetMiB (0 =
+                                   half the budget; at most budgetMiB);
+                                   tilesEmulated also allows it where VMs run
+                                   emulated. Turning either off stops running
+                                   tile VM sandboxes (state kept). 400 on
+                                   unknown fields or out-of-range sizes, 409
+                                   without --isolate
 GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
                                    {sandboxes:[{id,kind (backend|terminal|
                                    agent),tile,parent?,user?,label?,mode
@@ -515,7 +531,8 @@ GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
                                    available,reason?,emulated?,note?,accel?,
                                    forced?,assets:{piece:path},missing?:[…],
                                    kvm?,emulation?,policy,stored,used,
-                                   usedBy:{<tile>:{vms,memMiB}}}}}. A backend
+                                   usedTiles,usedBy:{<tile>:{vms,memMiB}}}}}.
+                                   A backend
                                    is listed per generation (blue/green shows
                                    two; stats scope "tile" is the tile's
                                    shared leaf — count it once), a session
@@ -1570,7 +1587,8 @@ POST   /grants                     admin — any. An org admin may approve on
                                    owner approves on it (D88): targets they
                                    own themselves or their personal
                                    allowance covers. Ceilings still apply;
-                                   xbin/xbin:* never delegable. body
+                                   xbin/xbin:* and cap:sandboxes never
+                                   delegable (D120). body
                                    {from,target,role} — approve/add; the
                                    stored row records approvedBy/approvedAt.
                                    Approving a res:* / gpu:* grant restarts the

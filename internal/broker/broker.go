@@ -77,6 +77,15 @@ type Broker struct {
 	// new policy/env — those are captured at spawn, not per request.
 	OnGrantChange func(component string)
 
+	// OnCapChange, if set, is told a tile's hold on a reserved cap: target
+	// after it may have changed: an approve or a revoke of that grant
+	// (held = the effective state afterwards), and held=false again whenever
+	// a ceiling change strips one (capSweep, caps.go). Boot wires it to the
+	// tile-sandbox runtime, which stops a tile's sandboxes when it loses
+	// cap:sandboxes (D120). Called on the request goroutine and possibly
+	// repeated — return promptly and be idempotent.
+	OnCapChange func(tile, capTarget string, held bool)
+
 	// OnUserSignedOut, if set, is called after a user was signed out
 	// everywhere — by an admin, by disabling the account, or by deleting it
 	// (deleted) — so per-user state bound to their devices (push
@@ -645,14 +654,19 @@ func (b *Broker) apiGrantsRevoke(w http.ResponseWriter, r *http.Request) {
 // net-admin capability), so approving e.g. res:…, gpu:0, or cap:net-admin takes
 // effect without a manual restart. (Egress is no longer a grant — it's a `net`
 // interface binding, restarted via the bindings API; see apiBindingSet.)
+// Every cap: change is also reported to OnCapChange (caps.go).
 func (b *Broker) grantRestart(g registry.Grant) {
+	b.capChanged(g.From, g.Target)
 	if b.OnGrantChange == nil {
 		return
 	}
 	// cap:open-links (ND11) is deliberately absent: it is frontend-only, its
 	// effect is the tile's next document load, and the `grants` event the
 	// caller publishes already makes bx-frame re-create the iframe — a backend
-	// restart would be an outage for nothing.
+	// restart would be an outage for nothing. So is cap:sandboxes (D120): it
+	// gates xbind's runtime routes per call, never the backend's spawn — an
+	// approve restarts nothing and a revoke stops the tile's sandboxes
+	// (OnCapChange), not its backend.
 	if strings.HasPrefix(g.Target, "res:") || strings.HasPrefix(g.Target, "gpu:") ||
 		g.Target == NetAdminCap || g.Target == ContainersCap {
 		b.OnGrantChange(g.From)
