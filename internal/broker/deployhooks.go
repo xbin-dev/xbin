@@ -116,3 +116,11 @@ func (p brokerPolicy) PrimarySummary(tile string) (string, bool, bool, bool) {
 	}
 	return "", false, false, false
 }
+
+// brokerPolicy names every deployment of a tile, so origins mode maps each
+// deployment's origin label back to (tile, deployment) (WP-38).
+var _ server.DeploymentNamesPolicy = brokerPolicy{}
+
+func (p brokerPolicy) DeploymentsOf(tile string) (string, []string) {
+	return p.b.deploymentsOf(tile)
+}
