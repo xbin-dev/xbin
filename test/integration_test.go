@@ -105,7 +105,22 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 	killGroup()
+	// os.Exit skips the deferred RemoveAll above: clean up here, or every
+	// run leaves its xbin-itest-* tree (thousands of files) in /tmp.
+	removeTree(tmp)
 	os.Exit(code)
+}
+
+// removeTree removes dir even where Go's module cache (a backend build's)
+// left read-only directories in it.
+func removeTree(dir string) {
+	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err == nil && d.IsDir() {
+			_ = os.Chmod(p, 0o755)
+		}
+		return nil
+	})
+	_ = os.RemoveAll(dir)
 }
 
 func waitFor(cond func() bool, timeout time.Duration) bool {
