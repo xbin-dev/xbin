@@ -1,14 +1,23 @@
 package runner
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/cgroup"
+	"github.com/xbin-dev/xbin/internal/fsutil"
+	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/sandbox/relay"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -56,6 +65,9 @@ type Backend struct {
 	Net       string `json:"net,omitempty"`
 	NetSource string `json:"netSource,omitempty"`
 	NetNote   string `json:"netNote,omitempty"`
+	// Checkpoint is the full tree id of the checkpoint the running
+	// generation runs; absent while it runs the work tree (P9).
+	Checkpoint string `json:"checkpoint,omitempty"`
 }
 
 // Inspect returns the runtime picture of every known component backend.
@@ -101,6 +113,7 @@ func (r *Runner) Inspect() []Backend {
 				b.VM = &v
 			}
 			b.UptimeSec = int64(time.Since(inst.started).Seconds())
+			b.Checkpoint = inst.code.Tree
 			b.Egress = inst.egress
 			if inst.relay != nil {
 				st := inst.relay.Stats()
@@ -208,4 +221,254 @@ func statFields(s string) []string {
 	}
 	out := []string{s[:open-1], s[open+1 : close]}
 	return append(out, strings.Fields(s[close+1:])...)
+}
+
+// ---- what a generation runs (P9, 07-runtime §1, §7, §9) ----
+
+// genPlan is what one generation starts from.
+type genPlan struct {
+	view     *registry.Component // what it spawns from: c itself for the work tree
+	bin      string              // its runnable entry
+	root     string              // the materialized checkpoint bound at c.Dir; "" = the work tree
+	artifact string              // the checkpoint artifact's directory; "" = none kept (the work tree's bin, node, python)
+	release  func()              // drops root and artifact from what generations use; idempotent
+}
+
+// resolveGen resolves what a generation of c running code starts from. The
+// work tree: c itself and a build of it, exactly as before tile deployments,
+// with no hook but CodeFor asked (P5, P8). A checkpoint: its materialized
+// tree, its deployment view (whose CodeRoot is that tree, never a mutated
+// copy: views are shared), and for Go its artifact, kept per checkpoint and
+// built only when none is (a restart never compiles). Nothing falls back to
+// the work tree (06-security C7): a checkpoint that can't be materialized,
+// viewed or built fails the start, and without isolation nothing can show
+// it at c.Dir, so it never starts (07-runtime §12).
+func (r *Runner) resolveGen(c *registry.Component, code Code) (genPlan, error) {
+	if code.WorkTree {
+		bin, err := r.buildGen(c)
+		return genPlan{view: c, bin: bin, release: func() {}}, err
+	}
+	switch {
+	case !isTreeID(code.Tree):
+		return genPlan{}, fmt.Errorf("%s: no code to run (checkpoint %q)", c.Path, code.Tree)
+	case !r.Isolate:
+		return genPlan{}, fmt.Errorf("%s is pinned to checkpoint c:%.7s, and a pinned backend runs only with --isolate: it isn't started, and its work tree never runs in its place", c.Path, code.Tree)
+	}
+	root, err := r.materialize(c.Path, code.Tree)
+	if err != nil {
+		return genPlan{}, err
+	}
+	// Held from here, so checkpoint GC can't take the tree before it is bound.
+	g := genPlan{root: root, release: r.inUse.hold(&r.inUse.roots, root)}
+	fail := func(err error) (genPlan, error) { g.release(); return genPlan{}, err }
+	v, err := r.view(c, code)
+	switch {
+	case err != nil:
+		return fail(err)
+	case root == "" || v == nil || filepath.Clean(v.CodeRoot) != filepath.Clean(root):
+		return fail(fmt.Errorf("%s: the view of checkpoint c:%.7s doesn't run from its materialized tree", c.Path, code.Tree))
+	}
+	g.view = v
+	if v.Manifest.Runtime != "go" { // node and python run their entry from the tree itself
+		if g.bin, err = r.buildCheckpoint(v, code); err != nil {
+			return fail(err)
+		}
+		return g, nil
+	}
+	dir := filepath.Join(r.checkpointArtifacts(c.Path), code.Tree)
+	relArt := r.inUse.hold(&r.inUse.arts, dir) // before the lookup: pruning skips it
+	relRoot := g.release
+	g.artifact, g.release = dir, func() { relRoot(); relArt() }
+	if bin, ok := r.Artifact(c, code.Tree); ok {
+		g.bin = bin
+		return g, nil
+	}
+	if _, err := r.buildCheckpoint(v, code); err != nil {
+		return fail(err)
+	}
+	bin, ok := r.Artifact(c, code.Tree)
+	if !ok {
+		return fail(fmt.Errorf("%s: building checkpoint c:%.7s left no artifact", c.Path, code.Tree))
+	}
+	g.bin = bin
+	return g, nil
+}
+
+// buildCheckpoint builds checkpoint code from its view v, whose CodeRoot is
+// the materialized tree: a Go artifact in checkpointArtifacts, or a node or
+// python entry checked beneath the tree. The engine's build stands in for it
+// in tests. Without the checkpoint build (build.go) nothing is built, never
+// the work tree in its place.
+func (r *Runner) buildCheckpoint(v *registry.Component, code Code) (string, error) {
+	if e := r.engine; e != nil && e.build != nil {
+		return e.build(v)
+	}
+	return "", fmt.Errorf("%s: checkpoint c:%.7s can't be built by this xbind", v.Path, code.Tree)
+}
+
+// inUse counts, per host path, the generations that use it, from their
+// preparation until they exit: the materialized trees they bind (roots) and
+// the checkpoint artifacts they run (arts). GC never removes either
+// (06-security T18). The zero value is ready.
+type inUse struct {
+	mu          sync.Mutex
+	roots, arts map[string]int
+}
+
+// hold counts one more user of p in *m until the returned release, which is
+// idempotent. An empty p holds nothing.
+func (u *inUse) hold(m *map[string]int, p string) func() {
+	if p == "" {
+		return func() {}
+	}
+	u.mu.Lock()
+	if *m == nil {
+		*m = map[string]int{}
+	}
+	(*m)[p]++
+	u.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			u.mu.Lock()
+			if (*m)[p]--; (*m)[p] <= 0 {
+				delete(*m, p)
+			}
+			u.mu.Unlock()
+		})
+	}
+}
+
+// RootsInUse lists the materialized checkpoint trees that generations bind,
+// sorted, which checkpoint GC must never remove (its keep set). A generation
+// of the work tree binds none, so it is nil while no checkpoint runs.
+func (r *Runner) RootsInUse() []string {
+	r.inUse.mu.Lock()
+	defer r.inUse.mu.Unlock()
+	if len(r.inUse.roots) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(r.inUse.roots))
+	for p := range r.inUse.roots {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// checkpointArtifacts holds tile's checkpoint artifacts, beside the live
+// reload target's own .xbin/build/<CompKey>/bin, which is never one of them
+// (07-runtime §3.1, §9). A checkpoint build writes <tree>.tmp-<rand>/ there —
+// bin, and build.json recording at least {"tile": <tile path>, "tree":
+// <tree>} — and renames it to <tree> on success, so a crash never leaves a
+// partial artifact that looks valid. Artifacts are keyed by (tile, tree),
+// not by deployment.
+func (r *Runner) checkpointArtifacts(tile string) string {
+	return filepath.Join(r.Root, ".xbin", "build", util.CompKey(tile), "c")
+}
+
+// Artifact returns the Go binary kept for tile c's checkpoint tree, and
+// whether one is: a regular bin beside a build.json that records c's path
+// and the tree (the CompKey in the directory keeps 32 bits of hash, so the
+// path is checked). Nothing is followed out of, or into, the artifact's
+// directory.
+func (r *Runner) Artifact(c *registry.Component, tree string) (string, bool) {
+	if !isTreeID(tree) || artifactTile(r.Root, c.Path, tree) != c.Path {
+		return "", false
+	}
+	f, err := fsutil.OpenIn(filepath.Join(r.Root, ".xbin", "build"), artifactSub(c.Path, tree), "bin")
+	if err != nil {
+		return "", false
+	}
+	fi, err := f.Stat()
+	f.Close()
+	if err != nil || !fi.Mode().IsRegular() {
+		return "", false
+	}
+	return filepath.Join(r.checkpointArtifacts(c.Path), tree, "bin"), true
+}
+
+// artifactSub is an artifact's directory relative to .xbin/build.
+func artifactSub(tile, tree string) string { return path.Join(util.CompKey(tile), "c", tree) }
+
+// artifactTile is the tile path the build.json of tile's artifact directory
+// entry records: "" when it has none that parses, or it records another
+// tree than the entry's name.
+func artifactTile(root, tile, entry string) string {
+	f, err := fsutil.OpenIn(filepath.Join(root, ".xbin", "build"), artifactSub(tile, entry), "build.json")
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	var stamp struct {
+		Tile string `json:"tile"`
+		Tree string `json:"tree"`
+	}
+	if json.NewDecoder(io.LimitReader(f, 1<<20)).Decode(&stamp) != nil || stamp.Tree != entry {
+		return ""
+	}
+	return stamp.Tile
+}
+
+// artifactTmpAge is how old a build's temporary directory must be before
+// pruning takes it for a crashed build's leftover: well past a build's
+// 20-minute timeout (build.go).
+const artifactTmpAge = time.Hour
+
+// PruneArtifacts removes tile's checkpoint artifacts except those of the
+// trees in keep and those a generation still runs (06-security T18). The
+// deployments plane names keep: each deployment's current checkpoint and
+// those of its previous three deploy-log entries (NP-02-3), so a restart or
+// a roll back to them never compiles. It runs after a successful deploy, at
+// boot and on a deployment's removal (07-runtime §2.8). Left alone: the
+// live reload target's bin, another tile's artifact under the same CompKey,
+// and a build still writing its temporary directory. An entry with no valid
+// build.json is no artifact (Artifact refuses it, and it would block the
+// rebuild's rename), so it goes even when kept.
+func (r *Runner) PruneArtifacts(tile string, keep []string) error {
+	dir := r.checkpointArtifacts(tile)
+	ents, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	kept := make(map[string]bool, len(keep))
+	for _, t := range keep {
+		kept[t] = true
+	}
+	var errs []error
+	for _, e := range ents {
+		name := e.Name()
+		if strings.Contains(name, ".tmp-") {
+			if fi, err := e.Info(); err != nil || time.Since(fi.ModTime()) < artifactTmpAge {
+				continue
+			}
+		} else if owner := artifactTile(r.Root, tile, name); owner != "" && (owner != tile || kept[name]) {
+			continue
+		}
+		p := filepath.Join(dir, name)
+		r.inUse.mu.Lock() // held across the removal: a start can't take it meanwhile
+		if r.inUse.arts[p] == 0 {
+			if err := os.RemoveAll(p); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		r.inUse.mu.Unlock()
+	}
+	return errors.Join(errs...)
+}
+
+// isTreeID reports whether s is a full git tree id: 40 lowercase hex digits
+// (SHA-1, the store's format), or 64 (SHA-256).
+func isTreeID(s string) bool {
+	if len(s) != 40 && len(s) != 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }
