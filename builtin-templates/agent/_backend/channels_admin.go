@@ -163,7 +163,7 @@ func applyChannelPatch(ch *Channel, p channelPatch) string {
 		ch.Visibility = *p.Visibility
 	}
 	if p.Policy != nil {
-		if msg := p.Policy.validate(); msg != "" {
+		if msg := p.Policy.validate(ch.Policy); msg != "" {
 			return msg
 		}
 		ch.Policy = *p.Policy
@@ -205,8 +205,12 @@ func handleChannelUpdate(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 403, "only the channel's owner can change its settings")
 		return
 	}
-	if p.Policy != nil { // a managers-only class is theirs to hand out (D116)
-		for _, id := range []string{p.Policy.PrivateClass, p.Policy.WebClass} {
+	if p.Policy != nil { // a managers-only class is theirs to hand out (D116) — checked when it changes
+		for _, slot := range [][2]string{{p.Policy.PrivateClass, ch.Policy.PrivateClass}, {p.Policy.WebClass, ch.Policy.WebClass}} {
+			id := slot[0]
+			if id == slot[1] {
+				continue
+			}
 			if _, err := requestedClass(c, id, ""); id != "" && err != nil {
 				writeClassErr(w, err)
 				return

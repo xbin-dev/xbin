@@ -143,6 +143,7 @@ export function wiring(it) {
 export const REASONS = {
   'data-class': 'private data, but this trigger takes public data only', halted: 'the agent was paused',
   rate: 'over its hourly cap', disabled: 'switched off', 'target-gone': 'its conversation is gone',
+  'class-mixed': 'public data, but the class it would run in can move internal data out',
 };
 export const MODES = { isolated: 'a new run for each event', persistent: 'one ongoing thread', conversation: 'into a conversation' };
 

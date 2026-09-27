@@ -44,6 +44,9 @@ type inboxBody struct {
 	// adapter's channelAddr, JSON; D86).
 	Addr    string `json:"addr,omitempty"`
 	Approve bool   `json:"approve,omitempty"`
+	// Park is the park a verdict answers (pendingState.Park): applied to
+	// that park only, and dropped once it is gone.
+	Park string `json:"park,omitempty"`
 	// Grant is how a grant was allowed (grants.go): "once" | "hour".
 	Grant  string `json:"grant,omitempty"`
 	Reason string `json:"reason,omitempty"`
@@ -251,16 +254,20 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 
 // handleApprove is a verdict on a parked approval.
 //
-//	POST /runs/{id}/approve {approve, grant?: "once"|"hour"}
+//	POST /runs/{id}/approve {approve, grant?: "once"|"hour", park?}
 //
 // A parked call that needs a grant (pendingState.grant, grants.go) is the
 // conversation owner's to allow — anyone who may steer it may still deny it;
-// grant says for how long ("once" when absent).
+// grant says for how long ("once" when absent). park names the park the
+// verdict answers (pendingState.park): 409 when that one is no longer
+// pending; absent, the one pending now. Either way the verdict is applied to
+// that park only — a verdict queued for one park is never spent on the next.
 func handleApprove(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
 	var body struct {
 		Approve bool
 		Grant   string
+		Park    string
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	run, err := agent.db.getRun(id)
@@ -273,8 +280,12 @@ func handleApprove(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 400, "no pending approval")
 		return
 	}
+	if body.Park != "" && body.Park != p.Park {
+		xbin.WriteError(w, 409, "that approval is no longer pending — the agent is asking something else now")
+		return
+	}
 	c := callerOf(r)
-	verdict := inboxBody{Approve: body.Approve, Sender: c.tag()}
+	verdict := inboxBody{Approve: body.Approve, Sender: c.tag(), Park: p.Park}
 	if p.Grant != "" && body.Approve {
 		root := run
 		if run.ParentID != 0 {

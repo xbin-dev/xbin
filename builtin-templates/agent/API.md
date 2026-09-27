@@ -141,7 +141,7 @@ llm-gw's logs. Give team members `read` on the tile.
 | `POST /runs/{id}/message` | `{text, files?, clientId?}` | send a user message → `{inboxId, queued}`. An idle, finished or failed run starts a new turn; a working run gets it at its next step (`queued:true`). A retried post with the same `clientId` is stored once. `files` names session files (normally just uploaded) the message carries — each must exist, or **400** and nothing is written. `text` may be empty when `files` is not |
 | `DELETE /runs/{id}/inbox/{iid}` | — | take back a queued message; **409** once the agent has it |
 | `POST /runs/{id}/answer` | `{text}` | answer an `ask_user` (alias of message) |
-| `POST /runs/{id}/approve` | `{approve, grant?}` | approve/deny a parked tool turn (approval mode). A turn parked on a **grant** (`pendingState.grant`, see **Threads, schedules and grants**) is allowed only by the conversation's owner — **403** for anyone else, who may still deny — with `grant: "once"` (the default) or `"hour"`; **400** for anything else |
+| `POST /runs/{id}/approve` | `{approve, grant?, park?}` | approve/deny a parked tool turn (approval mode). A turn parked on a **grant** (`pendingState.grant`, see **Threads, schedules and grants**) is allowed only by the conversation's owner — **403** for anyone else, who may still deny — with `grant: "once"` (the default) or `"hour"`; **400** for anything else. Every park has an id, `pendingState.park`; `park` names the one the verdict answers — **409** when that ask is no longer pending (the agent moved on) — and without it the verdict answers the one pending now. A verdict applies to its own park only: one queued for an ask that is gone is dropped, never spent on the next ask, and an allow of a grant counts only from the owner (checked again when it is applied) |
 | `DELETE /runs/{id}/grants/{cap}` | — | the owner takes a grant back before it expires → `{revoked}` (false when none was in force); **404** for an unknown `cap` |
 | `POST /runs/{id}/interrupt` | — | stop the turn in flight (never an error); the run goes idle, its subagents are cancelled, and messages still queued come back as `{returned:[{text, files}]}` |
 | `POST /runs/{id}/resume` | — | drive the run again |
@@ -390,8 +390,10 @@ policy and the thread tools keyed by it work as before, and `toolset:
 "private"|"web"` keeps working everywhere it was accepted (`POST /ask`, `POST
 /runs`, schedules, triggers), naming `internal`/`web`; `class` is accepted in
 the same places and wins. A request naming neither gets the caller's default
-(below). A stored config without `class` resolves from its `toolset`; a class
-that was deleted resolves the same way. The tile's managers can edit a class
+(below). A stored config without `class` resolves from its `toolset` (one
+from before the lanes, with no `toolset` either, is the private lane — and
+held there); a class that was deleted resolves the same way, and so does a
+schedule's. The tile's managers can edit a class
 at any time: the edit applies from the next step of its conversations, but
 never carries one across the firewall — one that started reaching outside
 never gains internal reach, and one that started without egress gains it only
@@ -401,7 +403,7 @@ class is refused (400).
 | Method & path | Body | Purpose |
 |---|---|---|
 | `GET /classes` | — | `{classes: [class…], default}` — the classes the caller may start conversations in (a manager sees every one): the built-ins first, then the others as saved, each with `builtin`, `stored` (it is in the saved set — a built-in that is not is its default), `lane` (`private`\|`web`), `egress` and `mixed`; `default` is the class a new conversation of theirs gets when it names none |
-| `PUT /classes` | `{classes: [class…], default?, confirmMixed?}` | managers: replace the classes. A built-in left out comes back as its default (old conversations and APIs name it). **409** `{error, mixed: [id…]}` when a class mixes internal reach with egress and `confirmMixed` isn't set; **400** for a bad id (`a–z 0–9 -`, a letter first, ≤ 32), an unknown toolset or egress, a repeated id, an unknown `default`, or a `who` other than `everyone`/`managers`; **400** too for an edit that would take a class a channel runs strangers in — a channel policy's `webClass`, and the built-in `web` for every channel that names none — out of the web lane (losing its egress or gaining internal reach), or delete it (a built-in left out is fine: its default is web-lane); the error names the channel. Answers as `GET /classes` does |
+| `PUT /classes` | `{classes: [class…], default?, confirmMixed?}` | managers: replace the classes. A built-in left out comes back as its default (old conversations and APIs name it). **409** `{error, mixed: [id…]}` when a class mixes internal reach with egress and `confirmMixed` isn't set; **400** for a bad id (`a–z 0–9 -`, a letter first, ≤ 32), an unknown toolset or egress, a repeated id, an unknown `default`, or a `who` other than `everyone`/`managers`; **400** too for an edit that would take a class a channel runs strangers in — a channel policy's `webClass`, and the built-in `web` for every channel that names none — out of the web lane (losing its egress or gaining internal reach), or delete it (a built-in left out is fine: its default is web-lane); the error names the channel. **400** as well for deleting a class a trigger or a channel policy (`privateClass`, `webClass`) names, and for making mixed a class a public-data trigger runs in (data from outside must not steer a class that can move internal data out; `confirmMixed` doesn't change that — a legacy webhook trigger's is the built-in `internal`); the error names the trigger or channel. Schedules and conversations don't hold a deletion up: theirs fall back to their lane's built-in. Answers as `GET /classes` does |
 
 **In the tile.** The composer's class picker (at home, where a new chat
 starts) shows the classes you may use — icon and name, each one's
@@ -691,16 +693,22 @@ Where each event goes (`mode`):
   (`web`, `coding`, …), or announcing its answers to a chat channel
   (`deliver`: a session key of a channel you own).
 - Public data never steers a class that can move internal data out (a
-  mixed class, D116).
+  mixed class, D116): refused when the trigger is saved, `PUT /classes`
+  won't make its class mixed, and an event with public data into a class
+  that is mixed now — the trigger's, or the ongoing thread's or target
+  conversation's — is refused (`reason: "class-mixed"`).
+- A trigger's lane (`toolset`) is set when its class is picked and kept
+  after, like a conversation's: an edit to the class never carries its runs
+  across the firewall.
 - Runs on public data also can't schedule or save skills.
 
 | Method & path | Body | Purpose |
 |---|---|---|
 | `POST /triggers` | `{name, source: push\|bus, sourceRef, match?, goal, system?, mode?, targetRun?, class?, toolset?, dataClass?, deliver?, maxPerHour?, visibility?}` | create; the caller owns it. `class` (or the legacy `toolset`) is its runs' class; an edit that changes only `toolset` to the other lane names that lane's built-in. A bus trigger subscribes at once; `status` says `ok`, or `needs-grant: …` naming the `uses` entry (`{"target": "<bus>", "role": "reader"}`) |
-| `PUT /triggers/{id}` | any of the above, `enabled` | its owner; a manager only switches it on or off |
+| `PUT /triggers/{id}` | any of the above, `enabled` | its owner; a manager only switches it on or off. `{enabled}` alone is never refused, and the class rules are checked again only when `class`, `toolset`, `dataClass` or `deliver` change — a trigger whose class was edited or deleted since still switches and edits |
 | `DELETE /triggers/{id}` | — | its owner or a manager |
 | `POST /triggers/{id}/test` | `{topic?, text?, data?}` | fire it with a sample event (its owner) |
-| `GET /triggers/{id}/events` | — | the last 50 events: `{eventId, source, topic, accepted, reason, runId, at}` |
+| `GET /triggers/{id}/events` | — | the last 50 events: `{eventId, source, topic, accepted, reason, runId, at}`; `reason` for one refused: `disabled`, `halted`, `data-class`, `class-mixed`, `rate`, `target-gone` |
 | `GET /triggers/unmatched` | — | pushes no trigger took (managers): `{items:[{from, name, count, at}]}` — the Automations page offers to make one |
 
 Triggers are kind `trigger` in `GET /automations` (reset starts a persistent

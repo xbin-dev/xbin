@@ -187,7 +187,7 @@ export function sessionTpl(s, ui) {
     ${s.olderHidden ? html`<div class="muted small center">— earlier turns were compacted into the summary —</div>` : nothing}
     ${blocksTpl(s.blocks, ui)}
     ${r.status === 'waiting_input' && ps.kind === 'approval'
-      ? approvalTpl(ps.toolCalls, (yes, how) => ui.act.approve(r.id, yes, how), undefined, grantAsk(r, ui.who ? ui.who() : null)) : nothing}
+      ? approvalTpl(ps.toolCalls, (yes, how) => ui.act.approve(r.id, yes, how, ps.park), undefined, grantAsk(r, ui.who ? ui.who() : null)) : nothing}
     ${r.status === 'waiting_input' && ps.kind !== 'approval' && r.result
       ? html`<div class="ask"><b>The agent is asking:</b><div class="md">${unsafeHTML(md(r.result))}</div>
           <div class="muted small">answer below to continue</div></div>` : nothing}

@@ -248,8 +248,9 @@ The response is `{"results": [{"trigger", "accepted", "reason"?, "dup"?, "runId"
 | 404 | No trigger takes it. The agent's owner sees "`<tile>` sent `<name>`" and can create one. |
 | 503 | The agent is halted. Retry later. |
 
-`reason` is one of `disabled`, `halted`, `data-class`, `rate` or
-`target-gone`.
+`reason` is one of `disabled`, `halted`, `data-class`, `class-mixed`
+(public data into a class that can move internal data out — the agent
+refuses that however the class got there), `rate` or `target-gone`.
 
 `GET /adapter/triggers` lists the caller's push triggers:
 `{"triggers": [{name, match, dataClass, enabled}]}`.
@@ -321,8 +322,10 @@ agent's **web lane**, which has no internal reach.
   classes**): `webClass` for everyone (default `web`; it must reach
   outside and have no internal reach) and `privateClass` for the trusted
   (default `internal`). A class only the agent's managers may use can be
-  named only by one of them. Changing a conversation's class starts a new
-  one on the next message, as revoking trust does.
+  named only by one of them, and a class a channel names can't be deleted.
+  Saving the rules re-checks a class only when it changes. Changing a
+  conversation's class starts a new one on the next message, as revoking
+  trust does.
 - Revoking trust moves the conversation to a new web-lane run on the
   next message.
 - `deny` lists tools a channel session never gets. The default is

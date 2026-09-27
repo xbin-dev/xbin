@@ -17,6 +17,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -34,6 +36,11 @@ type pendingState struct {
 	Grant    string      `json:"grant,omitempty"`
 	GrantAsk string      `json:"grantAsk,omitempty"`
 	Waits    []waitEntry `json:"waits,omitempty"` // await: subagent_wait calls
+	// Park, on an approval, names this park: a verdict carries the park it
+	// answers (inboxBody.Park) and is applied to that park only — never to a
+	// later one. A park stored by an older process has none; it reads as
+	// its calls' ids (unique in a run), so it can still be answered.
+	Park string `json:"park,omitempty"`
 }
 
 // waitEntry is one subagent_wait call the run is parked on.
@@ -52,7 +59,21 @@ func parsePending(s string) pendingState {
 	if p.Grant != "" && p.GrantAsk == "" {
 		p.GrantAsk = grantOf(p.Grant).Ask
 	}
+	if p.Kind == "approval" && p.Park == "" && len(p.ToolCalls) > 0 {
+		ids := make([]string, len(p.ToolCalls))
+		for i, tc := range p.ToolCalls {
+			ids[i] = tc.ID
+		}
+		p.Park = "calls:" + strings.Join(ids, ",")
+	}
 	return p
+}
+
+// newPark is a fresh park id (pendingState.Park).
+func newPark() string {
+	var b [9]byte
+	_, _ = rand.Read(b[:])
+	return base64.RawURLEncoding.EncodeToString(b[:])
 }
 
 // turnState is what a turn carries between steps.
@@ -115,8 +136,11 @@ func (e *Engine) pass(a *actor) {
 		p := parsePending(run.Pending)
 		if p.Kind == "approval" {
 			if len(in.approve) > 0 {
-				e.turn(a, run, in.approve[len(in.approve)-1])
-				return
+				if row := e.verdictFor(run, p, in.approve); row != nil {
+					e.turn(a, run, &verdict{row: row, all: in.approve})
+					return
+				}
+				e.consumeStale(run, in.approve) // none answers this park
 			}
 			if len(in.user) > 0 {
 				// Replying instead of approving DENIES the parked calls — the
@@ -173,8 +197,46 @@ func (e *Engine) pass(a *actor) {
 	}
 }
 
+// verdict is the approve row a pass applies to the park in force, and every
+// approve row it read: all of them are consumed with it, so no verdict is
+// left over to be spent on a later park.
+type verdict struct {
+	row *InboxRow
+	all []*InboxRow
+}
+
+// verdictFor is the approve row that answers the park in force: the latest
+// one naming this park (pendingState.Park) — for a grant, an allow counts
+// only from the conversation's owner (grantOwner, checked again here: who
+// may allow is the park's question, not the request's). A row without a
+// park (queued by an older process) answers none: the safe side — the card
+// is still up, and a click sends a fresh one. nil: no row answers it.
+func (e *Engine) verdictFor(run *Run, p pendingState, rows []*InboxRow) *InboxRow {
+	if p.Kind != "approval" || p.Park == "" {
+		return nil
+	}
+	root := run
+	if p.Grant != "" && run.ParentID != 0 {
+		var err error
+		if root, err = e.db.getRun(rootOf(run)); err != nil {
+			return nil
+		}
+	}
+	for i := len(rows) - 1; i >= 0; i-- {
+		r := rows[i]
+		if r.Kind != inboxApprove || r.Body.Park != p.Park {
+			continue
+		}
+		if p.Grant != "" && r.Body.Approve && !grantOwner(who{kind: whoUser, user: r.Body.Sender}, root) {
+			continue
+		}
+		return r
+	}
+	return nil
+}
+
 // consumeStale drops approve rows that no longer apply (the approval was
-// already decided some other way).
+// already decided some other way, or they answer another park).
 func (e *Engine) consumeStale(run *Run, rows []*InboxRow) {
 	if len(rows) == 0 {
 		return
@@ -317,17 +379,31 @@ func (e *Engine) denyParked(run *Run, p pendingState, text string) bool {
 
 // --- the turn ------------------------------------------------------------------
 
-// turn runs steps until the run parks, ends or is stopped. approval, when set,
-// is a verdict row for the parked approval: consumed (with pending cleared
-// and the calls marked running, in one transaction — so an approved call runs
-// at most once even across a crash) before anything else happens.
-func (e *Engine) turn(a *actor, run *Run, approval *InboxRow) {
+// turn runs steps until the run parks, ends or is stopped. v, when set, is a
+// verdict on the parked approval: its row and every other approve row the
+// pass read are consumed (with pending cleared and the calls marked running,
+// in one transaction — so an approved call runs at most once even across a
+// crash) before anything else happens — provided it still answers the park
+// in force (read again here); else they are dropped and the run stays parked.
+func (e *Engine) turn(a *actor, run *Run, v *verdict) {
 	ctx, cancel := context.WithCancelCause(e.base)
 	e.setStepCancel(run.ID, cancel)
 	defer func() {
 		e.setStepCancel(run.ID, nil)
 		cancel(nil)
 	}()
+	var approval *InboxRow
+	if v != nil {
+		fresh, err := e.db.getRun(run.ID)
+		if err != nil {
+			return
+		}
+		run = fresh
+		if approval = e.verdictFor(run, parsePending(run.Pending), []*InboxRow{v.row}); approval == nil {
+			e.consumeStale(run, v.all)
+			return
+		}
+	}
 	cfg, err := e.db.runConfig(run.ID)
 	if err != nil {
 		return
@@ -339,8 +415,15 @@ func (e *Engine) turn(a *actor, run *Run, approval *InboxRow) {
 	grantCtx := ctx // the approved calls' context: carries a grant allowed once
 	if approval != nil {
 		p := parsePending(run.Pending)
+		others := func(t *DB) {
+			for _, r := range v.all {
+				if r.ID != approval.ID {
+					t.consume(r.ID, 0)
+				}
+			}
+		}
 		if !approval.Body.Approve {
-			_ = e.fenced(func(t *DB) error { t.consume(approval.ID, 0); return nil })
+			_ = e.fenced(func(t *DB) error { t.consume(approval.ID, 0); others(t); return nil })
 			denied := "(denied by user)"
 			if d := grantOf(p.Grant).Denied; p.Grant != "" && d != "" {
 				denied = d
@@ -353,6 +436,7 @@ func (e *Engine) turn(a *actor, run *Run, approval *InboxRow) {
 				if !t.consume(approval.ID, 0) {
 					return fmt.Errorf("approval already consumed")
 				}
+				others(t)
 				for _, tc := range p.ToolCalls {
 					_, _ = t.setToolPlaceholder(run.ID, tc.ID, toolRunning)
 				}
