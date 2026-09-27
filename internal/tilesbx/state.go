@@ -65,17 +65,17 @@ func (m *Manager) pin(k Key, d *Def, cur string) (string, error) {
 	case !fi.IsDir():
 		return "", &Error{Refusal: RefState, State: StateError, Msg: "its state dir isn't a directory — reset it"}
 	}
-	for _, sub := range []struct {
-		name string
-		mode os.FileMode
-	}{{"upper", 0o755}, {"work", 0o700}} { // the upper is the sandbox's /: others traverse it
-		if err := os.Mkdir(filepath.Join(cur, sub.name), sub.mode); err != nil && !os.IsExist(err) {
-			return "", err
-		}
-	}
-	flavour := ""
+	flavour := "" // a VM's state is its disk (vm/disk.img, EnsureDiskAt): no upper, no flavour
 	if d.Mode == ModeNamespace {
 		flavour = overlayFlavour()
+		for _, sub := range []struct {
+			name string
+			mode os.FileMode
+		}{{"upper", 0o755}, {"work", 0o700}} { // the upper is the sandbox's /: others traverse it
+			if err := os.Mkdir(filepath.Join(cur, sub.name), sub.mode); err != nil && !os.IsExist(err) {
+				return "", err
+			}
+		}
 	}
 	st, base, err := pinLayer(cur, m.rootfs, flavour)
 	if err != nil {

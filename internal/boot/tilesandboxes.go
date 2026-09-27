@@ -44,6 +44,9 @@ func (st *State) stepTileSandboxes() error {
 	st.Broker.OnSandboxNetChange = st.TileSbx.OnSandboxNetChange
 	// The runner's sampler reads a tile sandbox's leaf inside the parent.
 	st.Run.TileCgroup = st.TileSbx.Cgroup()
+	// Turning the VM policy's tiles or tilesEmulated off stops the VM
+	// sandboxes it no longer allows (putVMPolicy).
+	st.onVMPolicy = st.TileSbx.OnVMPolicy
 	return nil
 }
 
@@ -64,6 +67,9 @@ func (st *State) tileSandboxDeps() tilesbx.Deps {
 		Listen: st.listenAddrs(),
 		Cgroup: st.Run.Cgroup,
 		Sbx:    st.Sbx,
+	}
+	if st.VM != nil { // never a nil *vm.Manager in the interface
+		d.VM = st.VM
 	}
 	return d
 }
@@ -171,16 +177,20 @@ func (s tileDiskQuota) Blocked(tile string) bool {
 	return blocked
 }
 
-// sandboxModes: VM mode for tile sandboxes needs the VM policy's tiles
-// switch, which this xbind doesn't have yet — so it is unavailable, with
-// the host's own reason when the host can't run VMs at all.
+// sandboxModes: VM mode for tile sandboxes is the VM manager's TileVMs —
+// the host can run VMs, the VM policy's tiles switch is on and, where VMs
+// run emulated, so is tilesEmulated — and its acceleration the probe's.
 type sandboxModes struct{ vm *vm.Manager }
 
 func (s sandboxModes) VM() (accel, reason string) {
-	if st := s.vm.Status(); !st.Available {
-		return "", st.Reason
+	st, reason := s.vm.TileVMs()
+	switch {
+	case reason != "":
+		return "", reason
+	case st.Emulated:
+		return "emulate", ""
 	}
-	return "", "this xbind can't run VM tile sandboxes yet"
+	return "kvm", ""
 }
 
 type sandboxTiles struct{ st *State }

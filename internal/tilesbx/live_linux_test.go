@@ -145,7 +145,7 @@ type liveEnv struct {
 	bookMu    sync.Mutex
 }
 
-func newLiveEnv(t *testing.T, bin, rootfs string) *liveEnv {
+func newLiveEnv(t *testing.T, bin, rootfs string, mut ...func(*Options)) *liveEnv {
 	t.Helper()
 	root := t.TempDir()
 	tile := filepath.Join(root, "apps", "mgr")
@@ -177,6 +177,9 @@ func newLiveEnv(t *testing.T, bin, rootfs string) *liveEnv {
 			"apps/mgr res:apps/mgr/ro":   {Src: le.ro, Role: "reader", Kind: "filesystem", Ready: true},
 		}
 		o.Deps.Sbx, o.Deps.Cgroup = le.sbx, liveCgroup
+		for _, f := range mut {
+			f(o)
+		}
 	})
 	le.m.reserve = func(Key, *Def) (func(), error) {
 		le.bookMu.Lock()

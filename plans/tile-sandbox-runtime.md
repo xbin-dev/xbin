@@ -3511,6 +3511,103 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
   `/vm/policy`, `docs/isolation.md` §VM sandboxes, the admin editor's
   warning); this WP makes those sentences true.
 - **Parallel:** with WP-17, WP-18 and WP-19.
+- **As built** (branch `p2/wp16`):
+  - *Files.* New `internal/tilesbx/vm.go`: the `VMs` dep (`Apply`,
+    `Reserve`: `*vm.Manager`), `vmOps`, `vmGate`, `vmSpec`, `vmLeaf`,
+    `vmStop`, `vmExitReason`/`vmDied` and `OnVMPolicy`. The seams WP-15a
+    left changed a little: `modeOps` gains **`check`** (the mode can run
+    now), `leaf` takes the run's accel, `exitReason` takes the leaf's OOM
+    count and says whether it quoted the log already; `end` = `ask` (record
+    why, first wins) + kill, so a mode's stop can let the process exit on
+    its own first; the run's accel is `specAccel(spec)` (Apply's choice:
+    `spec.VM.Emulated()`); `StopWhere` is `stopRuns(running(pred))`.
+    `state.go`'s pin makes `upper/` and `work/` in namespace mode only (a
+    VM's `cur/` holds `vm/disk.img` and the stamps; no flavour). `vmOps`
+    is always registered; without `Deps.VM` the gate says "this xbind
+    can't run VM tile sandboxes". Boot: `sandboxModes.VM()` is
+    `TileVMs()` (`"kvm"`/`"emulate"` or the reason), `Deps.VM = st.VM`
+    (never a nil pointer in the interface), and `putVMPolicy` calls
+    `st.onVMPolicy(old, new)` (a `State` func field, set in
+    `stepTileSandboxes` to `TileSbx.OnVMPolicy`) with the stored policy it
+    replaced.
+  - *The gate runs twice:* before the book (a refusal is 503
+    `unavailable` with the reason, recorded as an `sbx` refusal), and
+    again once the run is up, before `running`. The second closes a race
+    with a flip: `OnVMPolicy` stops the runs it finds, so a start that
+    passed the first check before the flip and set `b.run` after the
+    flip's scan would otherwise run on under a policy that forbids it
+    (`TestVMGateRecheckedAfterTheStart`, mutation-checked).
+  - *`OnVMPolicy(old, cur vm.Policy)` lives in tilesbx*, not a
+    `StopWhere(mode == vm)` in boot: `tiles` true → false stops every
+    VM-mode run, `tilesEmulated` true → false the runs whose accel is
+    `emulate` (`StopWhere`'s predicate doesn't see the run). Where every
+    VM is emulated the two are the same; where the probe changed while
+    VMs ran, a KVM one isn't stopped for emulation. Async, like
+    `OnSandboxNetChange`; `stateDetail` names the switch.
+  - *Admission.* `vm.Reserve(tile, memMiB, vm.TileSandbox())` in the spec
+    step (its release is the mode's undo, run at the unwind or the
+    teardown): a refusal — the VM count, the sub-budget, the budget — is
+    429 `limit`, an `sbx` refusal. `vm.Apply`'s own refusal (VMs
+    unavailable) is 503; its other errors fail the start (`stopped` +
+    `stateDetail`). `Apply` may build the base's VM image first
+    (confined mkfs.erofs, seconds here; bounded at 15 min), inside the
+    sandbox's flight. `EnsureDiskAt(cur, diskGiB)` grows the disk at each
+    start (PATCH to less stays `invalid`).
+  - *The leaf.* §6.2's VM row exactly: `memMiB` + 192 (512 emulated), no
+    `memory.high`, **no `NoSwap`** (the guest can't use more than its
+    `memMiB` anyway), `pids.max` 512, `cpu.max` (`vcpus`+1) × 100 ms,
+    weight 100. Ready: 60 s, 180 s emulated.
+  - *The stop.* A `sync` over `ctl` (≤ 5 s), then SIGHUP (the shim flushes
+    again and exits 129); SIGKILL only if it hasn't exited after 10 s
+    (**30 s emulated**: the shim itself waits up to 12 s for the guest
+    there). The stop's 15 s teardown wait starts after that.
+  - *The VMM's end.* The shim's 125 is "the VM exited: <the console's last
+    ≤ 8 lines, ≤ 1 KiB, control characters dropped>" when the shim quoted
+    a console (it does when the VMM exited), else "the VM failed: <the
+    shim's message>". A killed VMM makes the shim see the guest's `ctl`
+    EOF first ("guest agent: EOF"), so the console, not the shim's line,
+    is what says why. The console tail is the VMM's ring: the guest's
+    console and Firecracker's (or QEMU's) own log. A start that never got
+    to `running` gets the same text after "the sandbox didn't start: ",
+    without the log line again. Other shim ends: "the sandbox's VM ended
+    (its shim exited with code N | was killed by SIG…)"; an OOM kill in
+    the leaf keeps the common reason.
+  - *Tests.* Unit (`vm_linux_test.go`, the fake launcher; a real
+    `vm.Manager` for the books with a fake `Apply`): start/stop (the
+    resident spec, `vm.Options`, the disk sparse at `diskGiB`, no upper,
+    the sub-budget held and given back, the registry row's mode and
+    accel, a sync then SIGHUP → 129), a shim that ignores SIGHUP is
+    killed, the leaf, a grow at the next start, the sub-budget's 429 with
+    nothing left, the gate (tiles, tilesEmulated, no `Deps.VM`), the
+    re-check, `OnVMPolicy` (KVM runs survive a `tilesEmulated` flip,
+    namespace runs every flip), the 125 reasons. Boot:
+    `TestVMPolicyPutTellsTheTileSandboxes`. Integration
+    (`vm_live_linux_test.go` `TestLiveVM`, real shim and guest agent built
+    from the tree, `.rootfs`): the disk persists across a stop, hostname
+    and root in the guest, writer and reader mounts, egress `none` (TCP
+    reset and DNS REFUSED < 100 ms, < 1 s emulated; the gateway a dead
+    end; `10.0.2.15/32`), the leaf's files (under `systemd-run --user
+    --scope -p Delegate=yes`), a grow (974 → 1981 MiB), the sub-budget,
+    both flips and the 503 after them, 10 start/stop cycles (3 emulated)
+    leaving no fd or reservation, a `lan:<host>/32` class still refused
+    the host's own address (the relay's `Deny`), an `internet` class
+    reaching `https://example.com` (TestVMSandboxEgressAllowed's check
+    under the tile config), killing the VMM (the console tail, nothing
+    left), delete. KVM ~8 s, emulated ~22 s here. `make integration` runs
+    it again under `XBIN_VM_ACCEL=emulate` (`-run '^TestLiveVM$'`).
+    `internal/vm`'s `TestVMSandboxRelay` and `TestVMSandboxEgressAllowed`
+    pass on the hardened relay, KVM and emulated. Mutation-checked: the
+    re-check, `TileSandbox()`, the SIGHUP, the boot hook.
+  - *For later WPs.* WP-17: set `Exec.NoSync` on a VM sandbox's execs
+    (each exit otherwise runs the guest's `unix.Sync()`; the tests'
+    `execRun` doesn't set it). WP-19: a VM's `diskBytes` is its disk's
+    allocated blocks (an `fstat`; nothing measures it yet). WP-20: a VM
+    snapshot is `cur/vm/disk.img` (`CloneSparse`) plus the base stamp —
+    there is no upper. Open: a `res` mount whose `path` names a *file*
+    fails in VM mode — `vm.exports` stats the bind's `Src` (the resource
+    root), not `Src`+`Sub`, so it exports a file as a directory; a
+    namespace sandbox binds the file. Fixing it wants the sub-path's type
+    read beneath the root without following (`openat2`), in `vm.Apply`.
 
 ### WP-17 — Execs, run, output, TTY (wave 2 · M · after WP-12, WP-15a)
 

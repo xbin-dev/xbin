@@ -4,8 +4,8 @@ package tilesbx
 // (plans/tile-sandbox-runtime.md §7 step 5, §5): the Spec a definition
 // becomes, the binds its mounts become, and the Launcher that starts it —
 // sandbox.Launch and exec.Cmd.Start in production, a fake in the unit tests.
-// Namespace mode is built here; VM mode's Spec (vm.Apply, Resident) is
-// WP-16's, through modeOps.
+// Namespace mode is built here; VM mode (vm.Apply, Resident) is vm.go's,
+// through modeOps.
 
 import (
 	"errors"
@@ -265,22 +265,28 @@ type specInput struct {
 }
 
 // modeOps is what differs between the modes at a start and a stop.
-// Namespace mode's are nsOps; VM mode's are WP-16's (m.modes[ModeVM]).
+// Namespace mode's are nsOps; VM mode's vmOps (vm.go).
 type modeOps struct {
+	// check refuses a start the mode can't run now (nil: none): before the
+	// book, and again once the run is up — a switch turned off meanwhile
+	// never leaves one running.
+	check func(m *Manager) error
 	// spec builds the sandbox's Spec. What it takes that must be given back
 	// (a VM reservation) its undo releases — on a failed start before the
 	// process runs, else at the run's teardown. undo may be nil.
 	spec func(m *Manager, k Key, d *Def, in specInput) (spec *sandbox.Spec, undo func(), err error)
-	// leaf is the sandbox's cgroup leaf limits (§6.2's table).
-	leaf func(d *Def, lim Limits) cgroup.Limits
+	// leaf is the sandbox's cgroup leaf limits (§6.2's table); accel is
+	// the run's (specAccel: "" in namespace mode).
+	leaf func(d *Def, lim Limits, accel string) cgroup.Limits
 	// readyWait bounds the wait for the agent's "ready".
 	readyWait func(r *run) time.Duration
 	// stop ends a run a stop asked to end, and asks it to end
 	// (m.end) — nil: syncThenEnd, a sync then SIGKILL.
 	stop func(m *Manager, r *run, why string)
-	// exitReason is why a run of this mode ended on its own ("": the
-	// common reasons, exitReason).
-	exitReason func(r *run) string
+	// exitReason is why a run of this mode ended on its own, given its
+	// leaf's OOM kills ("": the common reasons, exitReason); quoted: it
+	// quotes the run's log already, so a start it failed adds no line of it.
+	exitReason func(r *run, oom int64) (why string, quoted bool)
 }
 
 // nsOps is namespace mode.
@@ -291,7 +297,7 @@ var nsOps = &modeOps{
 		}
 		return m.nsSpec(d, in.Lower, in.Cur, in.Binds, in.Agent, in.Lock), nil, nil
 	},
-	leaf:      leafLimits,
+	leaf:      func(d *Def, lim Limits, _ string) cgroup.Limits { return leafLimits(d, lim) },
 	readyWait: func(*run) time.Duration { return nsReadyWait },
 }
 

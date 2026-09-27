@@ -42,7 +42,7 @@ type run struct {
 	relay    *relay.Relay
 	tunFD    int
 	leaf     string
-	accel    string
+	accel    string // a VM's: kvm | emulate (specAccel; "" in namespace mode)
 	class    EgressClass
 	pol      sandbox.EgressPolicy
 	ops      *modeOps
@@ -94,14 +94,23 @@ func (r *run) attach(set func()) bool {
 // process; the watcher then runs the teardown. It reports whether this
 // call was the first to ask.
 func (m *Manager) end(r *run, why string) bool {
+	first := m.ask(r, why)
+	if first {
+		m.kill(r)
+	}
+	return first
+}
+
+// ask records that r is to end, and why (the first reason wins), without
+// ending it: a mode's stop that lets the process exit on its own first (a
+// VM's SIGHUP) kills it itself if it doesn't. It reports whether this call
+// was the first to ask.
+func (m *Manager) ask(r *run, why string) bool {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	first := !r.asked
 	if first {
 		r.asked, r.why = true, why
-	}
-	r.mu.Unlock()
-	if first {
-		m.kill(r)
 	}
 	return first
 }
@@ -190,13 +199,14 @@ func (m *Manager) teardown(r *run) {
 	})
 }
 
-// exitReason is why a run ended on its own (§7): the OOM killer, its root
-// filesystem, or its agent's exit — with the log's last line when it never
-// got as far as running.
+// exitReason is why a run ended on its own (§7): its mode's reason (a VM's
+// console), the OOM killer, its root filesystem, or its agent's exit —
+// with the log's last line when it never got as far as running.
 func (m *Manager) exitReason(r *run, oom int64) string {
 	var why string
+	var quoted bool
 	if r.ops.exitReason != nil {
-		why = r.ops.exitReason(r)
+		why, quoted = r.ops.exitReason(r, oom)
 	}
 	switch {
 	case why != "":
@@ -216,7 +226,7 @@ func (m *Manager) exitReason(r *run, oom int64) string {
 	r.mu.Unlock()
 	if !ready {
 		why = "the sandbox didn't start: " + why
-		if t := r.log.TailSince(r.logMark, 1); t != "" {
+		if t := r.log.TailSince(r.logMark, 1); t != "" && !quoted {
 			why += ": " + t
 		}
 	}
@@ -348,6 +358,12 @@ func (m *Manager) launch(k Key, d *Def, b *box, lim Limits, ops *modeOps) (err e
 			}
 		}
 	}()
+	// 0. the mode can run now (a VM: the VM policy's switches)
+	if ops.check != nil {
+		if err := ops.check(m); err != nil {
+			return err
+		}
+	}
 	// 1. admission: the book (WP-15b fills it)
 	release, err := m.reserve(k, d)
 	if err != nil {
@@ -392,8 +408,9 @@ func (m *Manager) launch(k Key, d *Def, b *box, lim Limits, ops *modeOps) (err e
 	}
 	modeUndo = onceFunc(modeUndo)
 	undo = append(undo, modeUndo)
+	accel := specAccel(spec)
 	// 6. the leaf, the launch
-	ll := ops.leaf(d, lim)
+	ll := ops.leaf(d, lim, accel)
 	leafDir, leaf, err := m.prepareLeaf(k, d, ll)
 	if err != nil {
 		return fmt.Errorf("its cgroup: %w", err)
@@ -412,7 +429,7 @@ func (m *Manager) launch(k Key, d *Def, b *box, lim Limits, ops *modeOps) (err e
 	}
 	undo = nil // the run owns it all from here: its teardown undoes it
 	proc.Started()
-	r := &run{k: k, def: d, b: b, proc: proc, fac: fac, tunFD: -1, leaf: leaf, class: class, pol: pol, ops: ops,
+	r := &run{k: k, def: d, b: b, proc: proc, fac: fac, tunFD: -1, leaf: leaf, accel: accel, class: class, pol: pol, ops: ops,
 		release: release, modeUndo: modeUndo, log: b.log, logMark: logMark, started: m.now(), exited: make(chan struct{}), done: make(chan struct{})}
 	m.mu.Lock()
 	b.run = r
@@ -473,6 +490,14 @@ func (m *Manager) launch(k Key, d *Def, b *box, lim Limits, ops *modeOps) (err e
 	}
 	if err := a.WaitReady(ops.readyWait(r), r.exited); err != nil {
 		return fail("its agent", err)
+	}
+	// the mode may have been switched off while it started: a stop over
+	// the running ones (OnVMPolicy) found it when it had b.run, and this
+	// finds a switch turned before that
+	if ops.check != nil {
+		if err := ops.check(m); err != nil {
+			return fail("its mode", err)
+		}
 	}
 	// 8. running
 	if !r.attach(func() { r.ready = true; r.unlist = m.register(r) }) {

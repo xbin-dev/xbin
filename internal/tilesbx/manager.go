@@ -90,7 +90,9 @@ type Disk interface {
 }
 
 // Modes says whether VM mode may run tile sandboxes now: its acceleration
-// ("kvm" | "emulate"), or why not. Namespace mode needs only isolation.
+// ("kvm" | "emulate"), or why not — the VM policy's tiles and
+// tilesEmulated switches and the host (vm.Manager.TileVMs). Namespace mode
+// needs only isolation. Every VM start asks it again (vm.go).
 type Modes interface {
 	VM() (accel, reason string)
 }
@@ -102,7 +104,7 @@ type Tiles interface {
 
 // Deps is what the runtime needs from the rest of xbind. A nil member
 // answers conservatively: no cap, no classes, no mounts, VM unavailable, no
-// cgroup limits, no registry rows.
+// cgroup limits, no registry rows, no VMs.
 type Deps struct {
 	Caps   Caps
 	Admin  AdminFunc // workspace admins (broker.IsAdmin)
@@ -113,6 +115,9 @@ type Deps struct {
 	Disk   Disk
 	Modes  Modes
 	Tiles  Tiles
+	// VM runs VM mode's sandboxes (*vm.Manager; nil: VM mode can't run
+	// here, whatever Modes says).
+	VM VMs
 	// Launcher starts a sandbox's first process (nil: sandbox.Launch).
 	Launcher Launcher
 	// Listen is every address xbind listens on: a sandbox's relay denies
@@ -174,7 +179,7 @@ type Manager struct {
 func New(o Options) *Manager {
 	m := &Manager{root: o.Root, isolated: o.Isolated, uidRange: o.UIDRange, deps: o.Deps, now: o.Now,
 		rootfs: o.Rootfs, bxPath: o.BxPath, launcher: o.Deps.Launcher,
-		modes: map[string]*modeOps{ModeNamespace: nsOps},
+		modes: map[string]*modeOps{ModeNamespace: nsOps, ModeVM: vmOps},
 		net:   &netState{budget: relay.NewBudget(flowBudgetSize()), listen: o.Deps.Listen},
 		live:  map[Key]map[string]*box{}}
 	if m.now == nil {
