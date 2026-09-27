@@ -192,6 +192,46 @@ func TestAutoStart(t *testing.T) {
 	}
 }
 
+// An exec on a sandbox a stop left stopping (its kill didn't take: a PID 1
+// stuck in the kernel) waits for the run to end — without spinning, though
+// the flight is free — then starts it again; one whose wait runs out first
+// answers 409 state.
+func TestAutoStartAfterStuckStop(t *testing.T) {
+	fe := newFakeEnv(t)
+	fe.m.endWait = 200 * time.Millisecond
+	fe.create(ns("sb-1"))
+	fe.want(fe.do(mgr, "POST", "/sandboxes/sb-1/start", nil), http.StatusOK, "")
+	p := fe.l.last()
+	p.ignoreKills.Store(1 << 20)
+	fe.want(fe.do(mgr, "POST", "/sandboxes/sb-1/stop", nil), http.StatusServiceUnavailable, RefUnavailable)
+	cpu, wall := cpuTime(), time.Now()
+	_, _, err := fe.m.acquire(fe.k, "sb-1", time.Second)
+	var e *Error
+	if !errors.As(err, &e) || e.State != StateStopping {
+		t.Fatalf("a wait that ran out: %v", err)
+	}
+	if used, waited := cpuTime()-cpu, time.Since(wall); used > waited/2 {
+		t.Fatalf("waiting %s for the stop burned %s of CPU", waited, used)
+	}
+	go func() { // the kill takes at last
+		time.Sleep(200 * time.Millisecond)
+		p.ignoreKills.Store(0)
+		_ = p.Kill()
+	}()
+	r, release, err := fe.m.acquire(fe.k, "sb-1", 10*time.Second)
+	if err != nil || r == nil || r.proc == Proc(p) || fe.l.count() != 2 {
+		t.Fatalf("after the run ended: %v, %d launches", err, fe.l.count())
+	}
+	release()
+}
+
+// cpuTime is the CPU the test process has used.
+func cpuTime() time.Duration {
+	var ru syscall.Rusage
+	_ = syscall.Getrusage(syscall.RUSAGE_SELF, &ru)
+	return time.Duration(ru.Utime.Nano() + ru.Stime.Nano())
+}
+
 // ?wait bounds how long a lifecycle call waits: absent is waitMaxSec, 0
 // answers the sandbox as it stands, and the transition goes on after it.
 func TestLifecycleWait(t *testing.T) {

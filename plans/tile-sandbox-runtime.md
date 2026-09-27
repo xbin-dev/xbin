@@ -3577,6 +3577,15 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     upper (confined removal in the rootfs variant); an exec on a stopped
     sandbox starts it; an orphan's lock → 409 after the wait; the factory
     closed ends the sandbox and a new runtime finds it `stopped`.
+  - *Verifier's fixes:* `acquire` on a sandbox a timed-out stop left
+    `stopping` (its flight free) spun for the whole wait — it now waits
+    for the run's `done`, then the flight (`TestAutoStartAfterStuckStop`,
+    CPU-bounded); a start already past the policy check when `enabled`
+    went off came up running — step 8 checks the switch again after
+    `b.run` is set, so either it sees the switch or the switch sees it
+    (`TestPolicyOffDuringStart`, 503); `admit` read the tile's book for
+    its refusal message after unlocking it, a data race with a release
+    (`TestAdmissionRefusalUnderLock`, `-race`).
 
 ### WP-16 — VM mode (wave 2 · M · after WP-4, WP-6, WP-15a)
 

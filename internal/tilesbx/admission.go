@@ -80,16 +80,18 @@ func (m *Manager) admit(k Key, d *Def) (func(), error) {
 	tb := m.books.tile(k.Tile)
 	tb.mu.Lock()
 	pt := lim.PerTile
+	var over error // made under the book's mutex: a release may change it the moment it's let go
 	switch {
 	case tb.running+1 > pt.Running:
-		tb.mu.Unlock()
-		return nil, refuse(RefLimit, "the tile runs %d sandboxes, its limit (sandboxes policy: perTile.running): stop one first", tb.running)
+		over = refuse(RefLimit, "the tile runs %d sandboxes, its limit (sandboxes policy: perTile.running): stop one first", tb.running)
 	case tb.memMiB+d.MemMiB > pt.MemMiB:
-		tb.mu.Unlock()
-		return nil, refuse(RefLimit, "the tile's running sandboxes would hold %d MiB of memory, over its %d MiB (sandboxes policy: perTile.memMiB)", tb.memMiB+d.MemMiB, pt.MemMiB)
+		over = refuse(RefLimit, "the tile's running sandboxes would hold %d MiB of memory, over its %d MiB (sandboxes policy: perTile.memMiB)", tb.memMiB+d.MemMiB, pt.MemMiB)
 	case tb.vcpus+d.VCPUs > pt.VCPUs:
+		over = refuse(RefLimit, "the tile's running sandboxes would hold %d vCPUs, over its %d (sandboxes policy: perTile.vcpus)", tb.vcpus+d.VCPUs, pt.VCPUs)
+	}
+	if over != nil {
 		tb.mu.Unlock()
-		return nil, refuse(RefLimit, "the tile's running sandboxes would hold %d vCPUs, over its %d (sandboxes policy: perTile.vcpus)", tb.vcpus+d.VCPUs, pt.VCPUs)
+		return nil, over
 	}
 	tb.running++
 	tb.memMiB += d.MemMiB

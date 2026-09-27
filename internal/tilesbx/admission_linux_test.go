@@ -5,6 +5,7 @@ package tilesbx
 import (
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -108,6 +109,28 @@ func TestAdmissionCaps(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A refusal is made while the book is held: its figures are read under
+// the book's mutex, never after a concurrent release changed them (-race).
+func TestAdmissionRefusalUnderLock(t *testing.T) {
+	fe := newFakeEnv(t)
+	fe.putPolicy(`{"overrides":{"apps/mgr":{"perTile":{"running":1}}}}`, http.StatusOK)
+	d := &Def{Name: "sb-1", Mode: ModeNamespace, MemMiB: 256, VCPUs: 1}
+	var wg sync.WaitGroup
+	for g := 0; g < 2; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 500; i++ {
+				if release, err := fe.m.admit(fe.k, d); err == nil {
+					release()
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	fe.assertBookEmpty()
 }
 
 // The total book counts each sandbox's leaf as its mode makes it: the
@@ -239,6 +262,34 @@ func TestPolicyOffStops(t *testing.T) {
 	fe.putPolicy(`{"enabled":true}`, http.StatusOK)
 	fe.want(fe.do(mgr, "POST", "/sandboxes/sb-1/start", nil), http.StatusOK, "")
 	fe.waitState("sb-1", StateRunning)
+}
+
+// A start already past the policy's check when an admin turns tile
+// sandboxes off (the switch stops only what runs by then) doesn't come up
+// running: it answers 503 and ends stopped, the switch in stateDetail.
+func TestPolicyOffDuringStart(t *testing.T) {
+	fe := newFakeEnv(t)
+	fe.create(ns("sb-1"))
+	entered, proceed := make(chan struct{}), make(chan struct{})
+	admit := fe.m.reserve
+	fe.m.reserve = func(k Key, d *Def) (func(), error) {
+		close(entered) // past the policy's check, nothing launched yet
+		<-proceed
+		return admit(k, d)
+	}
+	answer := make(chan *httptest.ResponseRecorder, 1)
+	go func() { answer <- fe.do(mgr, "POST", "/sandboxes/sb-1/start", nil) }()
+	<-entered
+	fe.putPolicy(`{"enabled":false}`, http.StatusOK)
+	close(proceed)
+	fe.want(<-answer, http.StatusServiceUnavailable, RefUnavailable)
+	if in := fe.get("sb-1"); in.State != StateStopped || !strings.Contains(in.StateDetail, "switched off") {
+		t.Fatalf("a start the switch overtook: %+v", in)
+	}
+	if fe.runOf("sb-1") != nil || fe.l.count() != 1 {
+		t.Fatalf("it runs, or never launched (%d)", fe.l.count())
+	}
+	fe.assertBookEmpty()
 }
 
 // A definition is checked again at every start: a mount the tile no

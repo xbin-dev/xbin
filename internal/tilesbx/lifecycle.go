@@ -496,7 +496,17 @@ func (m *Manager) launch(k Key, d *Def, b *box, lim Limits, ops *modeOps) (err e
 	if err := a.WaitReady(ops.readyWait(r), r.exited); err != nil {
 		return fail("its agent", err)
 	}
-	// 8. running
+	// 8. running — unless tile sandboxes were switched off since the start's
+	// check: the switch stopped what ran then, and b.run was nil. (Switched
+	// off after this check, it finds b.run and stops it after this flight.)
+	m.mu.Lock()
+	on, why := m.policy.on()
+	m.mu.Unlock()
+	if !on {
+		m.end(r, why+": stopped, state kept")
+		<-r.done
+		return &Error{Refusal: RefUnavailable, Msg: why, RetryAfter: time.Minute}
+	}
 	if !r.attach(func() { r.ready = true; r.unlist = m.register(r) }) {
 		return fail("its agent", errEnded)
 	}

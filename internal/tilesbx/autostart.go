@@ -71,6 +71,22 @@ func waitFlight(b *box, d time.Duration) bool {
 	}
 }
 
+// waitEnded waits, at most d, for r's teardown to finish. A stop that
+// timed out (its kill didn't take) leaves the sandbox stopping with its
+// flight free until the run ends: waiting on the flight alone would spin.
+func waitEnded(r *run, d time.Duration) {
+	if r == nil { // stopping always has a run; were it not to, don't spin
+		time.Sleep(min(d, 10*time.Millisecond))
+		return
+	}
+	t := time.NewTimer(max(d, time.Millisecond))
+	defer t.Stop()
+	select {
+	case <-r.done:
+	case <-t.C:
+	}
+}
+
 // acquire readies k's sandbox for an exec, a run or a file operation — the
 // execs, files and TTY routes call it (WP-17, WP-18) — and returns its run
 // with a hold on it (idle.go), which the caller releases when its work
@@ -97,7 +113,7 @@ func (m *Manager) acquire(k Key, name string, wait time.Duration) (*run, func(),
 				return r, release, nil
 			}
 		}
-		st, detail := b.state, b.detail
+		st, detail, cur := b.state, b.detail, b.run
 		m.mu.Unlock()
 		left := time.Until(deadline)
 		if left <= 0 {
@@ -115,7 +131,8 @@ func (m *Manager) acquire(k Key, name string, wait time.Duration) (*run, func(),
 			if !d.AutoStart {
 				return nil, nil, &Error{Refusal: RefState, State: st, Msg: fmt.Sprintf("sandbox %q is stopping (autoStart is off): start it again once it stopped", name), RetryAfter: time.Second}
 			}
-			waitFlight(b, left)
+			waitEnded(cur, left)                // the run's teardown…
+			waitFlight(b, time.Until(deadline)) // …and whatever the flight does after it (a reset)
 		default: // stopped
 			if !d.AutoStart {
 				return nil, nil, &Error{Refusal: RefState, State: st, Msg: fmt.Sprintf("sandbox %q is stopped (autoStart is off): start it first", name)}
