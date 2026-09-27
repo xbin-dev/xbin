@@ -104,6 +104,9 @@ func TestBrokerDeploymentHooksZeroState(t *testing.T) {
 	if got := pol.Addressable(p, c.Path); !reflect.DeepEqual(got, []string{"main"}) {
 		t.Errorf("Addressable = %q, want [main]", got)
 	}
+	if _, _, _, ok := pol.PrimarySummary(c.Path); ok {
+		t.Error("PrimarySummary without the hook gives the entry a summary")
+	}
 
 	// Installed, the hooks answer.
 	var calls []string
@@ -116,6 +119,7 @@ func TestBrokerDeploymentHooksZeroState(t *testing.T) {
 	}
 	b.DeploymentExists = func(tile, name string) bool { return name == "dev" }
 	b.AddressableDeployments = func(auth.Principal, string) []string { return []string{"main", "dev"} }
+	b.DeploymentSummary = func(tile string) (string, bool, bool, bool) { return "main", true, false, tile == "apps/calendar" }
 
 	if err := b.rewriteDeploymentOwner("apps/calendar", "org:sales"); err != nil {
 		t.Errorf("rewriteDeploymentOwner: %v", err)
@@ -137,5 +141,8 @@ func TestBrokerDeploymentHooksZeroState(t *testing.T) {
 	}
 	if got := pol.Addressable(p, c.Path); !reflect.DeepEqual(got, []string{"main", "dev"}) {
 		t.Errorf("Addressable through the hook = %q", got)
+	}
+	if primary, pinned, protected, ok := pol.PrimarySummary(c.Path); primary != "main" || !pinned || protected || !ok {
+		t.Errorf("PrimarySummary through the hook = (%q, %v, %v, %v)", primary, pinned, protected, ok)
 	}
 }

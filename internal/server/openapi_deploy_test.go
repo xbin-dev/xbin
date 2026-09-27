@@ -141,7 +141,7 @@ func TestOpenAPIDeploymentRows(t *testing.T) {
 	// /tile-status, /logs and /frame-token the parameter carries the note).
 	note := strings.TrimSpace(reservedField)
 	for _, r := range [][2]string{
-		{"GET", "/backends"}, {"GET", "/runtime"}, {"GET", "/components"}, {"GET", "/components/{path}"},
+		{"GET", "/backends"}, {"GET", "/runtime"},
 		{"GET", "/whoami"}, {"GET", "/term/sessions"}, {"GET", "/status"}, {"GET", "/sandboxes"},
 		{"GET", "/cron/jobs"}, {"PUT", "/cron/jobs"}, {"GET", "/bus/subscriptions"}, {"PUT", "/bus/subscriptions"},
 		{"POST", "/tile-report"}, {"POST", "/notify"}, {"PUT", "/iface-instances"},

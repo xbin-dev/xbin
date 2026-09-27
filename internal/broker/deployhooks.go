@@ -39,6 +39,9 @@ type DeploymentHooks struct {
 	DeploymentCodeRoot     func(c *registry.Component, dep string) (root string, pinned bool, err error)
 	DeploymentExists       func(tile, name string) bool
 	AddressableDeployments func(p auth.Principal, tile string) []string
+	// DeploymentSummary answers /components' primary summary of tile
+	// (server.PrimarySummaryPolicy); nil: no entry has one.
+	DeploymentSummary func(tile string) (primary string, pinned, protected, ok bool)
 }
 
 // MayManageDeployments is the manager gate of the deployments plane: a
@@ -95,4 +98,14 @@ func (p brokerPolicy) Addressable(pr auth.Principal, tile string) []string {
 		return f(pr, tile)
 	}
 	return server.NoopPolicy{}.Addressable(pr, tile)
+}
+
+// brokerPolicy answers /components' deployments summary (WP-19).
+var _ server.PrimarySummaryPolicy = brokerPolicy{}
+
+func (p brokerPolicy) PrimarySummary(tile string) (string, bool, bool, bool) {
+	if f := p.b.DeploymentSummary; f != nil {
+		return f(tile)
+	}
+	return "", false, false, false
 }

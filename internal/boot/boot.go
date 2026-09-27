@@ -376,6 +376,7 @@ func (st *State) stepBroker() error {
 		RewriteDeploymentOwner: dp.RewriteDeploymentOwner, ResetDeploymentState: dp.ResetDeploymentState,
 		DeploymentLeftovers: dp.DeploymentLeftovers, DeploymentCodeRoot: dp.CodeRoot,
 		DeploymentExists: dp.HasDeployment, AddressableDeployments: dp.Addressable,
+		DeploymentSummary: dp.PrimarySummary,
 	}
 	dp.IsAdmin, dp.MayManage, dp.Provision = brk.IsAdmin, brk.MayManageDeployments, brk.Provision
 	// Embedded optional tile catalog (plans/tile-sharing.md).
