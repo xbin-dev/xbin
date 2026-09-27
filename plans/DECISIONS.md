@@ -3656,3 +3656,97 @@ Deviations and refinements made while implementing; all deliberate:
     with no hint why or what to do.
   - Refusing to load the tile at all: its frontend and files are harmless
     and its owner needs them to port it.
+
+- **D118 — Hardening: trust never comes from a file a sandbox can write
+  (2026-09-27).** Three defects a design review found
+  (the dev-lifecycle threat model, 06-security.md §5.2 and its side
+  findings), each closed without changing any on-disk layout.
+  - **(a) Chrome is admin-approved.** `internal/server/static.go`
+    (`trustedChrome`, `sandboxedFrame`), `internal/server/chrome.go`
+    (`GET`/`PUT /api/xbin/chrome`), `internal/users/chrome.go`
+    (`chromeTiles` in users.json), `cmd/bx/chrome.go`; docs/auth.md §Who is
+    calling, docs/changes/2026-09-27-chrome-needs-approval.md.
+    `chrome: true` turns off the frame sandbox, so the tile's frontend runs
+    with the session cookie as whoever opens it (ND8, plans/auth.md §6).
+    The flag lived only in the tile's own xbin.json, which its terminals
+    and coding agents can write (D40). So a terminal-level user, or an agent
+    following a prompt injection, could act as the next admin who opened the
+    tile. The registry comment and docs/auth.md called the flag "host-set";
+    it was not. Now the manifest flag is a request. It is honoured for the
+    implicit chrome (root, shell), for the shipped `tiles/organisations`
+    (the only shipped tile that declares it; `tiles/` is reserved for
+    built-ins, D82) and for paths a workspace admin approved. An approval
+    applies while the manifest still asks, so writers can drop chrome but
+    never add it. Every other asking tile is served sandboxed, and
+    `/components` says `chromeRequested`. `bx doctor` lists requests and
+    approvals naming no component. An approval is path-keyed, so it is a
+    D82 leftover: a non-admin can't create a tile at an approved path. It
+    is kept next to the other admin-set workspace policy in users.json,
+    never in the workspace tree, and is never grantable.
+    - **Breaking** for custom chrome tiles: they run sandboxed until an
+      admin approves them. A security hole closes in the release that finds
+      it (docs/compat.md rule 11), so there is no warning release.
+    - **Not chosen:**
+      - A per-tile content hash bound to the approval: a chrome tile's
+        writers are trusted by design, and every edit would need
+        re-approval.
+      - An `xbin:chrome` grant: grants are requested from the manifest, and
+        chrome must never be an element capability.
+      - Approving from the tile's own terminal token: element principals
+        are never workspace admins (the API refuses them).
+      - Making `tiles/organisations` chrome by its path alone: it still
+        needs its manifest flag, so it behaves exactly as before.
+  - **(b) One scope per data key.** `internal/registry/scopekeys.go`,
+    `internal/broker/policy.go` (`guardNewComponentTree`),
+    `internal/broker/backup.go`; docs/resources.md,
+    docs/changes/2026-09-27-scope-json-checks.md. `util.ScopeKey` turns
+    `/` into `~`, so `apps~x` and `apps/x` share
+    `data/resources*/<key>`, the resenc mount and the gocryptfs password
+    label `fs:<key>/<name>`. A scope at `workspace` shares the
+    workspace-level resources' key, and also their kv buckets, because
+    buckets are named `res:<scope path>/<name>` and the workspace's are
+    `res:workspace/<name>`. `apps~x` and `apps/x` don't share buckets. Each
+    key now has one holder:
+    - the workspace scope always holds `workspace`;
+    - otherwise the holder recorded in `data/scope-keys.json` the first time
+      the key is contested, kept while that holder's directory exists;
+    - otherwise the scope that held the key at the previous scan;
+    - with no history, no claimant holds it.
+    A refused scope stays in the scope table, so membership, same-scope
+    grants and uids don't shift. Its `Resources` are dropped, so nothing is
+    provisioned, chowned, mounted or backed up for it. Its tiles'
+    `ManifestErr` names the holder, and resource removal and restore check
+    `HoldsScopeKey`. Every creation path refuses a path whose key clashes
+    (`ScopeKeyClash`).
+    - **Not chosen:**
+      - Rekeying (a longer or hashed key): it moves every workspace's data,
+        for a collision that needs a literal `~` in a directory name.
+      - Refusing `~` in paths outright: existing tiles may have one, and it
+        still leaves `workspace`.
+      - Always refusing every claimant: it lets a newcomer disable an
+        existing scope's resources.
+      - Remembering holders only in memory: a restart would forget which
+        scope was first.
+  - **(c) Resource names are one plain segment.**
+    `internal/registry/resnames.go`, `internal/resenc/resenc.go`
+    (`Ensure`), `internal/broker/backup.go` (restore); docs/resources.md.
+    A name from scope.json went unchecked into
+    `data/resources-enc/<key>/<name>` and `.xbin/resenc/<key>/<name>`.
+    `MountEncrypted` creates, `gocryptfs -init`s and mounts those for every
+    declared file resource, granted or not. So a name like `../../../x`, from
+    a file the tile's terminals write, steered xbind's mkdir, init and FUSE
+    mount anywhere its user can write. A name with `/` also collided kv
+    buckets (`res:<scope>/<name>`) in backup, offload and restore. Names
+    must now match `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, and the check runs in
+    three places:
+    - at parse time: scope.json drops an invalid name and records a
+      manifest error on the scope's tiles. `Workspace()` leaves out invalid
+      workspace-level names, logged, while `MutateWorkspace` writes the file
+      back as declared;
+    - in `resenc.Ensure`, which refuses any key or name that isn't one
+      plain segment, the last line for every caller;
+    - in restore, for the names an archive carries.
+    - **Not chosen:** only rejecting `/`, `.` and `..`: the name is also a
+      key label, a bucket suffix and an env name, and a small set is
+      easier to reason about. Existing names with spaces or other
+      characters need renaming (migration note).

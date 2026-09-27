@@ -57,12 +57,15 @@ type Manifest struct {
 	Uses    []Use    `json:"uses,omitempty"`    // runtime call grant requests
 	Expose  *Expose  `json:"expose,omitempty"`
 	Inject  *bool    `json:"inject,omitempty"` // false disables D4 HTML injection
-	// Chrome marks a component as trusted workspace chrome (plans/auth.md §6):
-	// its frames are NOT sandboxed, so its frontend keeps the ambient session
-	// cookie and acts as the signed-in human (like the shell itself). This is
-	// the highest-trust manifest flag — settable only by editing xbin.json on
-	// the host (the create APIs never write it), never grantable to elements.
-	// root and shell are chrome implicitly.
+	// Chrome ASKS for the component to be trusted workspace chrome
+	// (plans/auth.md §6): frames NOT sandboxed, so its frontend keeps the
+	// ambient session cookie and acts as whoever opens it (like the shell
+	// itself). The tile's own terminals and agents can write this file
+	// (D40), so the flag is only a request: xbind honours it for the shipped
+	// tiles/organisations and for paths a workspace admin approved (D118,
+	// server.trustedChrome); otherwise the tile stays sandboxed and
+	// /components reports chromeRequested. root and shell are chrome
+	// implicitly.
 	Chrome   bool          `json:"chrome,omitempty"`
 	Template *TemplateMeta `json:"template,omitempty"`
 	// Setup is a freeform shell script run once at build time to populate the
@@ -206,6 +209,19 @@ type Resource struct {
 type ScopeManifest struct {
 	Resources map[string]Resource `json:"resources,omitempty"`
 	ImportMap map[string]string   `json:"importMap,omitempty"`
+	// Err says what xbind refused in this scope.json (D118): resource names
+	// outside the rule (resnames.go — those dropped), a data key another
+	// scope holds (scopekeys.go — every resource dropped). Surfaced on its
+	// tiles' ManifestErr.
+	Err string `json:"-"`
+}
+
+// addErr records one refusal for the scope at path.
+func (sm *ScopeManifest) addErr(path, why string) {
+	if sm.Err != "" {
+		sm.Err += "; "
+	}
+	sm.Err += "scope.json (" + path + "): " + why
 }
 
 // Grant is one row of the workspace grant table: caller may call target at
@@ -426,6 +442,8 @@ type Registry struct {
 	components map[string]*Component
 	scopes     map[string]*ScopeManifest // scope path → manifest
 	workspace  WorkspaceManifest
+	keys       scopeKeys // who holds each scope data key (scopekeys.go)
+	wsBadRes   string    // invalid workspace resource names last warned about (resnames.go)
 }
 
 func Open(root string) (*Registry, error) {
@@ -465,6 +483,7 @@ func (r *Registry) Rescan() error {
 		if b, err := os.ReadFile(filepath.Join(p, "scope.json")); err == nil {
 			sm := &ScopeManifest{}
 			if err := jsonc.Unmarshal(b, sm); err == nil {
+				sm.dropInvalidResources(rel) // names steer paths (resnames.go, D118)
 				scopes[rel] = sm
 			} else {
 				scopes[rel] = &ScopeManifest{} // still a scope; error surfaces on component
@@ -512,6 +531,16 @@ func (r *Registry) Rescan() error {
 	}
 
 	r.mu.Lock()
+	r.warnWorkspaceResources(ws)
+	r.keys.resolve(r.Root, scopes) // one holder per data key (D118)
+	for _, c := range comps {
+		if sm := scopes[c.Scope]; sm != nil && sm.Err != "" {
+			if c.ManifestErr != "" {
+				c.ManifestErr += "; "
+			}
+			c.ManifestErr += sm.Err
+		}
+	}
 	r.components, r.scopes, r.workspace = comps, scopes, ws
 	r.mu.Unlock()
 	return nil
@@ -577,10 +606,15 @@ func (r *Registry) Scopes() map[string]*ScopeManifest {
 	return out
 }
 
+// Workspace returns the workspace manifest. Its Resources leave out names
+// outside the resource name rule (resnames.go, D118) — never provisioned —
+// while MutateWorkspace still writes back what the file declares.
 func (r *Registry) Workspace() WorkspaceManifest {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.workspace
+	ws := r.workspace
+	ws.Resources = validResources(ws.Resources)
+	return ws
 }
 
 // ImportMapFor returns the merged import map for a component: workspace map

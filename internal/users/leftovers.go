@@ -8,8 +8,8 @@ import "sort"
 
 // PathLeftovers lists identity-store state still keyed by a path that a new
 // tile owned by ownerRef would silently inherit (D82): another owner's entry,
-// other users' exact per-tile entries, org shares, and an exact
-// default-visibility entry. Paths are durable keys
+// other users' exact per-tile entries, org shares, an exact
+// default-visibility entry, and a chrome approval. Paths are durable keys
 // and nothing prunes them when a tile's directory disappears, so a non-admin
 // creating there would take over access someone set up for the old tile.
 // Explicit `none` exclusions, admins' entries (they see everything anyway),
@@ -38,6 +38,11 @@ func (s *Store) PathLeftovers(path, ownerRef string) []string {
 	// surface, not just a share.
 	if l, ok := s.defaultTiles[path]; ok && l != LevelNone {
 		out = append(out, "visible to every user by default ("+l+")")
+	}
+	// A chrome approval (D118) is trust in whoever writes the tile: a new
+	// tile at the path must not inherit it.
+	if s.chrome[path] {
+		out = append(out, "approved as trusted chrome")
 	}
 	sort.Strings(out)
 	return out

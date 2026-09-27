@@ -107,12 +107,18 @@ Source is still no place for secrets. That credential-less rule is the
 gating*).
 
 **Chrome is the exception.** Components that must act as the signed-in human
-— the shell itself, and host-trusted components with `"chrome": true` in
-xbin.json (e.g. tiles/organisations, which raw-fetches as the user by design)
-— run unsandboxed and keep the cookie. The flag is a host-level trust
-decision: it can only be set by editing the manifest directly (the create
-APIs never write it), never via grants. Don't set it on anything you wouldn't
-trust with your own session.
+run unsandboxed and keep the cookie: the shell itself (root, shell), the
+shipped `tiles/organisations` (it raw-fetches as the user by design), and
+components with `"chrome": true` in xbin.json **that a workspace admin
+approved** (D118). The flag alone is only a request: a tile's xbin.json lives
+in its own directory, which its terminal users and their coding agents can
+write, and an unsandboxed tile acts as whoever opens it — admins included. A
+tile that asks without an approval runs sandboxed like any other;
+`/components` marks it `chromeRequested` and `bx doctor` lists it. An admin
+approves with `bx chrome approve <tile>` (or `PUT /api/xbin/chrome`),
+withdraws with `bx chrome revoke <tile>`, and sees requests and approvals with
+`bx chrome`. Approvals live in `data/users.json`, never grantable. Approve
+only a tile whose every writer you would trust with your own session.
 
 ### Tile asset gating (`--tile-assets`)
 

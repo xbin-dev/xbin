@@ -18,6 +18,13 @@ cross-scope needs owner approval ([auth.md](/docs/auth.md)).
 // address as res:workspace/<name>.
 ```
 
+**Names** are letters, digits, `.`, `_` and `-`, start with a letter or
+digit, and are at most 64 characters (D118). A name becomes a directory, a
+key-derivation label and a kv bucket suffix, so anything else (`a/b`, `..`,
+spaces) is refused. The resource isn't provisioned, and the scope's tiles
+show a manifest error naming it (`bx doctor`, `manifestError`). A
+workspace-level one is left out and logged.
+
 ```jsonc
 // a component's xbin.json
 { "uses": [
@@ -33,6 +40,16 @@ path (both a real rw path bound into your sandbox — the *decrypted* mount when
 encryption is on, see §Encryption). The on-disk bytes are ciphertext under
 `data/resources-enc/<scope>/` (or plaintext `data/resources/<scope>/` when the
 vault is off) — gitignored, captured by backups.
+
+That `<scope>` is the scope's **data key**: its path with `/` written as `~`
+(`apps/thing` → `apps~thing`; workspace-level resources use `workspace`).
+Two paths can map to one key (`apps/thing` and a directory literally named
+`apps~thing`, or a scope at a top-level `workspace/`), so each key has one
+holder: the scope that had it first (D118). A scope whose key another scope
+holds keeps being a scope, but none of its resources are provisioned, and
+its tiles show a manifest error naming the holder (`bx doctor`,
+`manifestError`). Rename its directory. Creating a tile at such a path is
+refused.
 
 Roles: `reader` / `writer` as usual (`subscriber`/`publisher` accepted for
 bus).

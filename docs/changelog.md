@@ -12,6 +12,38 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-27
 
+- **BREAKING (rare) — security: resource names are checked** (D118,
+  [migration](changes/2026-09-27-scope-json-checks.md)). A resource name in
+  scope.json (or the workspace xbin.json) must be letters, digits, `.`, `_`
+  and `-`, start with a letter or digit, and be at most 64 characters.
+  Before this change a name like `../../x` steered where xbind created,
+  initialized and mounted the encrypted volume, and `a/b` could share another
+  scope's kv bucket in backups. An invalid name is now a manifest error on
+  the scope's tiles and is never provisioned. A backup naming one is not
+  restored.
+
+- **BREAKING (rare) — security: one scope per resource data key** (D118,
+  [migration](changes/2026-09-27-scope-json-checks.md)). A scope's resource
+  data lives under its path with `/` written as `~`. Before this change,
+  `apps/x` and a directory named `apps~x`, or a scope at a top-level
+  `workspace/` and the workspace-level resources, shared encrypted volumes.
+  Now the scope that held the key first keeps it, and the other is still a
+  scope but gets none of its resources. Its tiles show a `manifestError`
+  naming the holder. Creating a tile at a colliding path is refused. No data
+  moves, and workspaces without such pairs see no change.
+
+- **BREAKING — security: `chrome: true` needs a workspace admin's
+  approval** (D118, [migration](changes/2026-09-27-chrome-needs-approval.md)).
+  A tile's own xbin.json is writable from its terminals and coding agents,
+  and chrome runs unsandboxed as whoever opens the tile, so the flag alone
+  no longer unsandboxes anything. Besides `root`, `shell` and the shipped
+  `tiles/organisations`, a tile is chrome only once an admin approves it:
+  `bx chrome approve <tile>` / `revoke`, `bx chrome` to list, or
+  `GET`/`PUT /api/xbin/chrome` (admin). Until then it is served sandboxed.
+  `/components` reports it as `chrome: false, chromeRequested: true`, and
+  `bx doctor` lists it. Approvals live in `data/users.json`, and a non-admin
+  can't create a tile at an approved path.
+
 - **BREAKING (security) — runtime `"cgi"` is removed** (D117). xbind ran a
   cgi tile's `backend/handler` itself, per request, on the host as the
   daemon's user — even under `--isolate` — so anyone who could write the

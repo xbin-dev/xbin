@@ -18,7 +18,7 @@ export const sandboxed = () => typeof document !== 'undefined' && !!document.que
 // api(url, opts): the request carries the credential the document HAS —
 // in a sandboxed tile the frame token via the in-frame client (the tile's
 // own identity; the opaque origin holds no cookie), in chrome (the shell,
-// tiles/organisations, any `chrome: true` component) the session cookie, so
+// tiles/organisations, an admin-approved `chrome: true` tile) the session cookie, so
 // the caller is the signed-in human. That is the identity split every
 // hand-rolled helper encoded before the kit (a chrome tile calling through
 // xbin.fetch would act as the tile, not the person — and lose its rights).

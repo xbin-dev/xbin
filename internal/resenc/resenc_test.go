@@ -201,3 +201,32 @@ func TestEnsureMountDeniedHint(t *testing.T) {
 		t.Fatalf("Ensure's error lacks the AppArmor hint: %v", err)
 	}
 }
+
+// Ensure never creates, initializes or mounts outside data/resources-enc and
+// .xbin/resenc (D118): a scope key or resource name that isn't one plain
+// path segment is refused before any directory or gocryptfs run.
+func TestEnsureRefusesPathSteering(t *testing.T) {
+	dir := t.TempDir()
+	ran := filepath.Join(dir, "ran")
+	bin := filepath.Join(dir, "gocryptfs")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\ntouch "+ran+"\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(dir, "ws")
+	m := New(root, bin, func(string) ([]byte, error) { return make([]byte, 32), nil })
+	for _, c := range [][2]string{
+		{"apps~x", "../../../escape"},
+		{"apps~x", "a/b"},
+		{"apps~x", ".."},
+		{"apps~x", ""},
+		{"..", "db"},
+		{"apps~x/../y", "db"},
+	} {
+		if _, err := m.Ensure(c[0]+"/"+c[1], c[0], c[1], false); err == nil || !strings.Contains(err.Error(), "plain path segment") {
+			t.Fatalf("Ensure(%q, %q): %v", c[0], c[1], err)
+		}
+	}
+	if fileExists(ran) || fileExists(filepath.Join(dir, "escape")) || fileExists(root) {
+		t.Fatal("a refused Ensure ran gocryptfs or created a directory")
+	}
+}

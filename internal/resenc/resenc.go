@@ -80,6 +80,12 @@ func (m *Manager) Available() bool { return m.bin != "" }
 
 func mkey(scopeKey, name string) string { return scopeKey + "\x00" + name }
 
+// plainSegment: s names one directory entry — no separator, not . or ..,
+// no NUL.
+func plainSegment(s string) bool {
+	return s != "" && s != "." && s != ".." && !strings.ContainsAny(s, "/\\\x00")
+}
+
 // CipherDir is the on-disk ciphertext directory for a resource.
 func (m *Manager) CipherDir(scopeKey, name string) string {
 	return filepath.Join(m.root, "data", "resources-enc", scopeKey, name)
@@ -130,6 +136,12 @@ func (m *Manager) password(resID string) (string, error) {
 // scopes (docs/resources.md). The on-disk format is identical either way; a
 // mode change (cap granted/revoked) just remounts.
 func (m *Manager) Ensure(resID, scopeKey, name string, singleTenant bool) (string, error) {
+	// The last line behind the registry's resource name rule (D118): the two
+	// become directories under data/resources-enc and .xbin/resenc, where
+	// this creates, initializes and mounts — never anywhere else.
+	if !plainSegment(scopeKey) || !plainSegment(name) {
+		return "", fmt.Errorf("resource %q/%q: not a plain path segment — refused", scopeKey, name)
+	}
 	if m.bin == "" {
 		return "", fmt.Errorf("gocryptfs not available")
 	}

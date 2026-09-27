@@ -40,6 +40,8 @@ func cmdExtra(cmd string, args []string) error {
 		return cmdVMHost(args)
 	case "fix":
 		return cmdFix(args) // fixassets.go
+	case "chrome":
+		return cmdChrome(args) // chrome.go
 	}
 	usage()
 	return nil

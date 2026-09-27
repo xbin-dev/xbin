@@ -35,7 +35,7 @@ export const CREDENTIALLESS = 'credentialless' in HTMLIFrameElement.prototype;
 const facts = (c) => ({ chrome: !!c.chrome, sandbox: c.sandbox || [], origin: c.origin || '' });
 
 // Per-component frame facts from /api/xbin/components: chrome (runs
-// UNsandboxed — the shell itself and manifest-flagged trusted chrome like
+// UNsandboxed — the shell itself and trusted chrome (shipped or admin-approved) like
 // tiles/organisations act as the signed-in human), the extra sandbox tokens
 // the tile's grants unlock, and its own origin (origins mode). Fetched once;
 // frames await it before creating their iframe so the sandbox attribute is

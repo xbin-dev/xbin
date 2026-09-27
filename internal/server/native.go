@@ -35,7 +35,7 @@ type nativeInfo struct {
 // Trusted chrome never gets one: it acts as the signed-in human, which a
 // frame-token runtime can't (the app opens chrome in the browser).
 func (s *Server) nativeOf(c *registry.Component) *nativeInfo {
-	if c == nil || c.Native == "" || !sandboxedFrame(c.Path, c) {
+	if c == nil || c.Native == "" || !s.sandboxedFrame(c.Path, c) {
 		return nil
 	}
 	return &nativeInfo{Entry: c.Native}
@@ -79,7 +79,7 @@ func (s *Server) serveNativeRoute(w http.ResponseWriter, r *http.Request, cleane
 	if ni == nil {
 		why := "this tile has no native app UI (no native.js, and no \"native\" in its xbin.json)"
 		switch {
-		case !sandboxedFrame(comp.Path, comp):
+		case !s.sandboxedFrame(comp.Path, comp):
 			why = "trusted chrome has no native runtime"
 		case comp.NativeErr != "":
 			why = comp.NativeErr

@@ -66,7 +66,7 @@ func (s *Server) exchangeReturn(r *http.Request) bool {
 	}
 	owner := s.owningComponent(path.Clean("/" + strings.TrimPrefix(r.URL.Path, "/c/"))[1:])
 	c, ok := s.Reg.Component(owner)
-	return ok && sandboxedFrame(owner, c)
+	return ok && s.sandboxedFrame(owner, c)
 }
 
 // onTilesDomain: an Origin or Referer value naming a host under the tiles

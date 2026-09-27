@@ -14,6 +14,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/users"
 )
 
 // Credential-less tile subresource authorization (plans/auth.md §6): a
@@ -69,26 +70,59 @@ func TestTileSubresource(t *testing.T) {
 }
 
 // The sandbox decision: everything runs in an opaque origin EXCEPT implicit
-// chrome (root, shell — the workspace UI itself) and manifest-flagged trusted
-// chrome (e.g. tiles/organisations, which acts as the human by design).
+// chrome (root, shell — the workspace UI itself) and a manifest that asks for
+// chrome where that is honoured: the shipped tiles/organisations, or a path a
+// workspace admin approved (D118). The flag alone — written by anyone who can
+// write the tile — never unsandboxes a tile.
 func TestSandboxedFrame(t *testing.T) {
+	a, err := auth.Load(t.TempDir(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := users.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.SetUsers(st)
+	s := &Server{Auth: a}
+	asks := func(p string) *registry.Component {
+		return &registry.Component{Path: p, Manifest: registry.Manifest{Chrome: true}}
+	}
 	plain := &registry.Component{Path: "apps/x"}
-	chrome := &registry.Component{Path: "tiles/organisations", Manifest: registry.Manifest{Chrome: true}}
+	if err := st.SetChromeApproved("apps/approved", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetChromeApproved("apps/x", true); err != nil { // approved, but its manifest doesn't ask
+		t.Fatal(err)
+	}
 	cases := []struct {
 		path string
 		comp *registry.Component
 		want bool
 	}{
-		{"apps/x", plain, true},
+		{"apps/y", &registry.Component{Path: "apps/y"}, true},
 		{"apps/x", nil, true}, // unregistered dir before rescan: sandboxed
 		{"root", nil, false},
 		{"shell", nil, false},
-		{"tiles/organisations", chrome, false},
+		{"tiles/organisations", asks("tiles/organisations"), false}, // shipped chrome
+		{"apps/evil", asks("apps/evil"), true},                      // asks, unapproved: sandboxed
+		{"tiles/other", asks("tiles/other"), true},                  // only the shipped tile is implicit
+		{"apps/approved", asks("apps/approved"), false},             // asks + admin-approved
+		{"apps/x", plain, true},                                     // approved but not asking
+		{"apps/approved", asks("apps/elsewhere"), true},             // a component for another path
 	}
 	for _, c := range cases {
-		if got := sandboxedFrame(c.path, c.comp); got != c.want {
+		if got := s.sandboxedFrame(c.path, c.comp); got != c.want {
 			t.Errorf("%s: sandboxedFrame=%v, want %v", c.path, got, c.want)
 		}
+	}
+	if !s.chromeRequested(asks("apps/evil")) || s.chromeRequested(asks("apps/approved")) || s.chromeRequested(plain) {
+		t.Error("chromeRequested: an unapproved ask only")
+	}
+	// No user store (single-user dev, tests): only root, shell and shipped.
+	bare := &Server{}
+	if !bare.sandboxedFrame("apps/approved", asks("apps/approved")) || bare.sandboxedFrame("tiles/organisations", asks("tiles/organisations")) {
+		t.Error("without a user store nothing is approved; the shipped tile still is chrome")
 	}
 	// The CSP the sandboxed path serves must carry allow-downloads (ND10 —
 	// tiles may trigger file downloads) and must never carry
@@ -191,8 +225,8 @@ func TestSandboxHeaderPerComponent(t *testing.T) {
 	mk("apps/linky/index.html", page)
 	mk("apps/raw/xbin.json", `{"inject":false}`)
 	mk("apps/raw/index.html", page)
-	mk("tiles/chrome/xbin.json", `{"chrome":true}`)
-	mk("tiles/chrome/index.html", page)
+	mk("tiles/organisations/xbin.json", `{"chrome":true}`)
+	mk("tiles/organisations/index.html", page)
 
 	reg, err := registry.Open(root)
 	if err != nil {
@@ -250,7 +284,7 @@ func TestSandboxHeaderPerComponent(t *testing.T) {
 		t.Fatal("inject:false is byte-exact — no meta")
 	}
 
-	w = get("/c/tiles/chrome/index.html")
+	w = get("/c/tiles/organisations/index.html")
 	if w.Header().Get("Content-Security-Policy") != "" {
 		t.Fatal("chrome must not be sandboxed")
 	}
@@ -285,8 +319,8 @@ func TestSandboxHeaderPerComponent(t *testing.T) {
 	if len(got["apps/linky"]) != 2 || got["apps/linky"][1] != "allow-popups-to-escape-sandbox" {
 		t.Fatalf("linky sandbox field: %v", got["apps/linky"])
 	}
-	if got["apps/plain"] != nil || got["tiles/chrome"] != nil {
-		t.Fatalf("plain/chrome must report no extras: %v / %v", got["apps/plain"], got["tiles/chrome"])
+	if got["apps/plain"] != nil || got["tiles/organisations"] != nil {
+		t.Fatalf("plain/chrome must report no extras: %v / %v", got["apps/plain"], got["tiles/organisations"])
 	}
 }
 
