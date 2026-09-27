@@ -1,11 +1,12 @@
 // web/deploy-state.js — the terminal window's view of a tile's live reload
-// state, and every string it shows. Pure functions from the deployments
-// state (`GET /api/xbin/deployments?tile=`, docs/protocol.md) and the
-// viewer's permissions (the state's `caller`, plus who a view-as session
-// views) to what the window draws: the title-bar chip, the Reload now offer,
-// the chip's menu, the launcher's banner, the frame chip, the tile API
-// select's entries; and the words of confirmations, results, refusals and
-// the grey terminal lines.
+// state and deployments, and every string it shows. Pure functions from the
+// deployments state (`GET /api/xbin/deployments?tile=`, docs/protocol.md)
+// and the viewer's permissions (the state's `caller`, plus who a view-as
+// session views) to what the window draws: the title-bar chip, the Reload
+// now offer, the chip's menu, the launcher's banner, the frame chip, the tile
+// API select's entries, the Deployments panel (header, rows, overview,
+// actions, edges, registrations, deploy log); and the words of
+// confirmations, results, refusals and the grey terminal lines.
 //
 // The server decides; this module renders. Who may do what is the state's
 // `can` and `why` (a control the viewer may not use is disabled with that
@@ -18,8 +19,8 @@
 // (`entry`) and today's two tile API options, byte for byte.
 //
 // Imports nothing and touches no DOM, so hack/deploy-state.test.mjs runs it
-// under node (`make js-test`); web/frame-deploy.js does the fetching, the
-// events and the dialogs.
+// under node (`make js-test`); web/frame-deploy.js and web/bx-deploy.js do
+// the fetching, the events and the dialogs.
 
 export const GLYPH = Object.freeze({ attached: '●', pinned: '📌', reloadNow: '⇡', layout: '⇈' });
 
@@ -121,7 +122,7 @@ export function control(s, op, name, opts = {}) {
   const allowed = op === 'pause' ? s?.allowed?.pause : op === 'add' ? s?.allowed?.deployments : null;
   if (allowed && allowed.ok === false) return { enabled: false, why: allowed.why || '', kind: allowed.kind || 'policy' };
   const can = name ? dep(s, name)?.can?.[op] : s?.caller?.can?.[op];
-  if (!can || can.ok !== true) return { enabled: false, why: can?.why || '', kind: can?.kind || '' };
+  if (!can || can.ok !== true) return { enabled: false, why: can?.why || (s?.view === 'reader' ? REASON.needsWrite(s.tile) : ''), kind: can?.kind || '' };
   if (s?.caller?.readOnly) return { enabled: false, why: viewAsWhy(opts.viewing), kind: 'authority' };
   return { enabled: true, why: '', kind: '' };
 }
@@ -155,7 +156,7 @@ function pausedSentence(s, f, opts) {
   const by = since ? who(since.by) : '';
   const when = since ? ago(since.at, opts.now) : '';
   const head = `Live reload paused${by ? ` by ${by}${since.agent ? ' (agent)' : ''}` : ''}${when ? ` ${when}` : ''}`;
-  if (f.changed > 0) return `${head} — ${files(f.changed)} changed since ${f.since}, which ${L} runs. Reload now ships them to ${L} once.`;
+  if (f.changed > 0) return `${head} — ${files(f.changed)} changed since ${f.since}, ${opts.header ? `the checkpoint ${L} runs.` : `which ${L} runs. Reload now ships them to ${L} once.`}`;
   return `${head} — no changes since ${f.since}.`;
 }
 
@@ -196,13 +197,8 @@ export function chip(s, opts = {}) {
     title = `Live reload: ${A} — saves reach ${s.tile}+${A}. The primary, ${P}, is pinned to ${cp(s, P)}.`;
   }
   const failed = !!f.failed;
-  return {
-    text: failed ? `${base} · deploy failed` : base,
-    compact: failed ? `${baseCompact}!` : baseCompact,
-    base, baseCompact,
-    title: failed ? `${title} ${failedSentence(s, f)}` : title,
-    failed, count,
-  };
+  return { text: failed ? `${base} · deploy failed` : base, compact: failed ? `${baseCompact}!` : baseCompact, base, baseCompact,
+    title: failed ? `${title} ${failedSentence(s, f)}` : title, failed, count };
 }
 
 // offer(state, opts) → the full bar's Reload now offer, or null: only while
@@ -389,66 +385,20 @@ function affects(s, im, name, tail) {
   return '';
 }
 
-// confirmation(op, {state, impact, deployment}, opts) → the dialog for one
-// operation, rendered from its dry run: {title, message, ok, expect, spec}.
-// spec is the <bx-dialog> spec (Cancel first, the verb as OK); expect is the
-// checkpoint the request then sends as `expect` (Reload now), so what the
-// dialog showed is what ships. op: pause | resume | reloadNow | attach.
-export function confirmation(op, { state: s, impact: im, deployment } = {}, opts = {}) {
-  const f = facts(s);
-  const code = im?.code || null;
-  const lines = [];
-  let title, ok, expect;
-  if (op === 'pause') {
-    const X = f.attached || f.primary;
-    title = `Pause live reload on ${s.tile}?`;
-    ok = 'Pause live reload';
-    let c = code?.to ? `Code: ${X} keeps running the code it runs now, pinned to ${code.to}.`
-      : `Code: ${X} keeps running the code it runs now, pinned to a checkpoint of the work tree taken when you confirm.`;
-    if (code?.files > 0) c += ` The work tree changed since ${X}'s last build (${files(code.files)}): pausing live reload ships those changes to ${X} once, now.`;
-    lines.push(c, 'Data: nothing moves.', `Pauses: live reload — saves stop reaching ${X} until Reload now or Resume live reload.`, affects(s, im, X, 'frames reload once'));
-  } else if (op === 'resume') {
-    const Y = deployment || f.last;
-    title = `Resume live reload on ${Y}?`;
-    ok = 'Resume live reload';
-    const from = code?.from || cp(s, Y);
-    let c = code?.files > 0
-      ? `Code: ${Y} switches to the work tree now: ${files(code.files)} (${stat(code)}) changed since ${Y}'s ${from} ${ships(code.files)} at once, then every save reaches ${Y}.`
-      : `Code: ${Y} switches to the work tree now, then every save reaches ${Y}.`;
-    const last = dep(s, Y)?.lastDeploy;
-    if (last?.how === 'rollback') c += ` This includes the change rolled back ${ago(last.at, opts.now)}.`;
-    lines.push(c, 'Data: nothing moves.', affects(s, im, Y, 'frames reload'));
-  } else if (op === 'reloadNow') {
-    const X = f.last;
-    title = `Reload ${X} now?`;
-    ok = 'Reload now';
-    expect = code?.to || undefined;
-    const d = dep(s, X);
-    const staticTile = d?.status?.state === 'static';
-    const as = code?.to ? `, as ${code.to}${code.from ? ` (${files(code.files | 0)}, ${stat(code)} against ${code.from})` : ''}` : '';
-    let c = `Code: ships the work tree to ${X} once${as}${staticTile ? '' : ': build, health check, swap'}. ${X} stays pinned; later saves wait for the next Reload now.`;
-    if (opts.panel) c += ' The Deployments panel shows the diff.';
-    const drain = d?.api ? '; open WebSocket and SSE connections drop at the 30 s drain' : '';
-    lines.push(c, 'Data: nothing moves.', affects(s, im, X, `frames reload once${drain}`));
-  } else if (op === 'attach') {
-    const Y = deployment;
-    const A = f.attached;
-    title = `Attach live reload to ${Y}?`;
-    ok = `Attach to ${Y}`;
-    const pin = code?.to ? `${A} is pinned to a fresh checkpoint of the work tree, ${code.to}, and stops following saves. ` : '';
-    const from = code?.from || cp(s, Y);
-    const moves = code?.files > 0
-      ? `${Y} switches to the work tree now: ${files(code.files)} (${stat(code)}) against ${Y}'s ${from} ${ships(code.files)} at once, and ${Y} follows every save.`
-      : `${Y} switches to the work tree now and follows every save.`;
-    let a = affects(s, im, Y, 'frames reload');
-    if (a && Array.isArray(im?.reloads) && !im.reloads.includes(A)) a += ` Nobody using ${A} sees a change.`;
-    lines.push(`Code: ${pin}${moves}`, 'Data: nothing moves.', a);
-  } else {
-    throw new Error(`deploy-state: no confirmation for ${op}`);
-  }
-  const message = lines.filter(Boolean).join('\n');
-  const spec = { title, message, buttons: [{ label: 'Cancel', value: null }, { label: ok, value: 'ok', primary: true }] };
-  return { title, message, ok, expect, spec };
+// confirmation(op, {state, impact, deployment, …}, opts) → the dialog for one
+// operation, rendered from its dry run: {title, message, ok, expect, spec,
+// required, send}. spec is the <bx-dialog> spec (Cancel first, the verb as
+// OK, danger for data loss); expect is the checkpoint Reload now then sends,
+// so what the dialog showed is what ships; required names the checkboxes
+// that must be ticked; send(values) → the request's extra fields (a confirm
+// token, the reviewed checkpoint; null: send nothing). op: pause | resume |
+// reloadNow | attach, or one of the panel's (PANEL_OPS).
+export function confirmation(op, { state: s, impact: im, deployment, ...x } = {}, opts = {}) {
+  if (!Object.hasOwn(ROWS, op)) throw new Error(`deploy-state: no confirmation for ${op}`);
+  const r = ROWS[op](s, im, deployment, x, facts(s), opts), message = r.lines.filter(Boolean).join('\n');
+  const okButton = { label: r.ok, value: 'ok', ...(r.danger ? { danger: true } : { primary: true }) };
+  const spec = { title: r.title, message, ...(r.fields ? { fields: r.fields } : {}), buttons: [{ label: 'Cancel', value: null }, okButton] };
+  return { title: r.title, message, ok: r.ok, expect: r.expect, danger: !!r.danger, required: r.required || [], send: r.send || sendAs('expect', r.expect), spec };
 }
 
 // refusal(op, error) → the dialog for a refused bar action: the server's
@@ -498,9 +448,11 @@ export function deployText(e, s) {
 export function result(op, answer, opts = {}) {
   const s = answer?.state;
   const e = answer?.deploy;
+  if (s && Object.hasOwn(RESULT, op)) return RESULT[op](s, answer, opts.deployment || '');
   if (e && e.result !== 'running' && e.result !== 'ok') return deployText(e, s);
   if (!s) return null;
   const P = s.primary || 'main';
+  if (['deploy', 'promote', 'rollback', 'undo'].includes(op)) return answer.unchanged ? REASON.emptyDiff(opts.deployment || P) : e?.result === 'ok' ? deployText(e, s) : null;
   if (op === 'pause') {
     const L = s.lastLiveReload || P;
     return `Live reload paused — ${L} is pinned to ${cp(s, L)}.`;
@@ -532,8 +484,13 @@ export function notice(prev, next, ev, opts = {}) {
   const by = who(ev.by || (ev.op === 'record' ? next.liveReloadSince?.by : ''));
   const byPart = by ? ` by ${by}` : '';
   if (ev.op === 'record') {
-    if (!(ev.what || []).includes('liveReload')) return null;
-    const P = next.primary || 'main';
+    const what = ev.what || [], P = next.primary || 'main', t = opts.target;
+    if (what.includes('primary') && prev?.primary && prev.primary !== P) return `${P} is now the primary of ${next.tile}${by ? ` (by ${by})` : ''} — it serves ${P}'s data`;
+    if (what.includes('protectedPrimary') && next.protectedPrimary && !prev?.protectedPrimary) return `${P} is protected${byPart} — only tile managers change its code`;
+    if (what.includes('deployments') && t && t !== 'primary' && t !== 'off' && dep(prev, t) && !dep(next, t)) {
+      return `deployment ${t} was removed${byPart} — this terminal's API calls fail until you switch it in the tile API select`;
+    }
+    if (!what.includes('liveReload')) return null;
     const was = prev?.record ? (prev.liveReload || '') : (prev?.primary || P);
     const now = next.record ? (next.liveReload || '') : P;
     let line;
@@ -544,8 +501,7 @@ export function notice(prev, next, ev, opts = {}) {
       line = `live reload resumed on ${now}${byPart} — saves reach ${now} again`;
     } else if (was && now && was !== now) {
       line = `live reload attached to ${now}${byPart} — saves reach ${next.tile}+${now}; ${was} is pinned to ${cp(next, was)}`;
-      const t = opts.target || 'primary';
-      const calls = t === 'primary' ? P : t;
+      const calls = !t || t === 'primary' ? P : t;
       if (t !== 'off' && calls !== now) line += ` — this terminal still calls ${calls}`;
     } else return null;
     if (prev && !prev.record && next.record) line += ' — new terminals get the xbin-deploy remote';
@@ -584,25 +540,360 @@ export function applyEvent(s, d) {
 // (the active tab's echo, for the API select)}. barKey changes whenever the
 // bar's width may (D107's fitBar measures again).
 export function viewModel(s, opts = {}) {
-  const f = facts(s);
-  const c = chip(s, opts);
-  const o = offer(s, opts);
-  const n = s?.record ? (s.deployments || []).length : 0;
+  const f = facts(s), c = chip(s, opts), o = offer(s, opts), n = s?.record ? (s.deployments || []).length : 0;
   return {
-    feature: !!s,
-    zero: f.zero,
-    reader: f.reader,
-    primary: f.primary,
-    attached: f.attached,
-    paused: f.paused,
-    last: f.last,
-    changed: f.changed,
-    entry: entry(s),
-    chip: c,
-    offer: o,
-    items: chipItems(s, opts),
-    launcher: launcher(s, opts),
-    api: apiOptions(s, opts.session),
+    feature: !!s, zero: f.zero, reader: f.reader, primary: f.primary, attached: f.attached, paused: f.paused, last: f.last, changed: f.changed,
+    entry: entry(s), chip: c, offer: o, items: chipItems(s, opts), launcher: launcher(s, opts), api: apiOptions(s, opts.session),
     barKey: [f.zero ? '' : f.attached, f.paused ? 1 : 0, f.changed ?? '', n, o ? 1 : 0, c?.failed ? 1 : 0].join('|'),
   };
 }
+
+// ---- the Deployments panel (M2): what web/bx-deploy.js draws ----
+
+// The panel's words that belong to no operation: reasons that aren't refusals, and notes.
+export const REASON = Object.freeze({
+  needsWrite: (t) => `Needs write access to ${t}.`, logs: (t) => `Logs need terminal access to ${t} (they can carry secrets).`,
+  emptyDiff: (b) => `${b} already runs this code.`, unhealthy: (y) => `${y} isn't healthy — deploy working code to it first.`,
+  manager: 'Only tile managers change this: the tile\'s owner, its org\'s admins, or a workspace admin',
+  stale: 'The work tree changed since this diff was taken.', reviewAgain: 'The code changed since you reviewed it — review the new diff.',
+  tick: 'Tick the box to confirm.', wouldNotify: 'Would notify (not sent — only the primary notifies people)',
+  gitNote: 'terminals opened before this tile had deployments lack the remote: open a new one',
+  caps: (c, t) => `non-primary deployments: ${c.tileUsed} of ${c.tile} on ${t}, ${c.workspaceUsed} of ${c.workspace} in the workspace`,
+  edgeRule: (t) => `The primary uses every edge as today. Non-primary deployments reach other tiles' primaries as reader (writer and admin roles are clamped to reader) and never write to them. Edges that can't be limited to reading are blocked for them, with no override. They use ${t}'s network, but never host networking.`,
+});
+
+// the deploy log's `how`, in words
+const HOW = { deploy: 'deploy', promote: 'promote', rollback: 'roll back', 'reload-now': 'reload now', resume: 'resume live reload', pause: 'live reload paused', attach: 'live reload attached', add: 'added', protect: 'protected', reassign: 'primary reassigned', restart: 'restart' };
+const same = (a, b) => !!a && !!b && (a.startsWith(b) || b.startsWith(a)); // two prefixes of one checkpoint id
+const pointer = (d) => (d?.checkpoint?.id ? `📌 ${d.checkpoint.id}` : '● work tree');
+const others = (s) => (s?.deployments || []).filter((d) => !d.primary).map((d) => d.name);
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+const deliveriesText = (d) => (typeof d.deliveries !== 'boolean' ? '' : d.primary ? 'deliveries: active' : `deliveries: ${d.deliveries ? 'on' : 'off'}`);
+
+function dataText(d, opts = {}) {
+  const x = d?.data, when = x?.at ? ago(x.at, opts.now) : '';
+  if (!x) return '';
+  if (x.busy) return `${x.busy}…`;
+  if (x.state === 'empty') return x.reset ? `started empty · reset${when ? ` ${when}` : ''}` : 'started empty';
+  if (x.state === 'seeded' || x.state === 'restored') return `${x.state === 'seeded' ? `seeded from ${x.from || 'main'}` : 'restored'}${when ? ` · ${when}` : ''}`;
+  return x.state === 'partial' ? 'partial — the last seed or restore failed' : x.state || '';
+}
+
+function statusText(d) {
+  const st = d?.status || {};
+  const moving = st.deploying ? `deploying${st.deploying.checkpoint ? ` ${st.deploying.checkpoint}` : ''}…` : st.queued?.length ? 'queued' : '';
+  return [st.state === 'crash-looping' ? 'failed' : st.state, moving].filter(Boolean).join(' · ');
+}
+
+// panelRows(state, opts) → the side list, primary first; opts.target: the active tab's target.
+export function panelRows(s, opts = {}) {
+  const P = s?.primary || 'main', t = opts.target === 'primary' ? P : opts.target;
+  return [...(s?.deployments || [])].sort((a, b) => (b.name === P) - (a.name === P) || a.name.localeCompare(b.name)).map((d) => ({
+    name: d.name, primary: d.name === P, protected: d.name === P && !!s.protectedPrimary, code: pointer(d), status: statusText(d),
+    data: dataText(d, opts), deliveries: deliveriesText(d), target: !!t && t === d.name, lastDeployFailed: d.lastDeploy?.result === 'failed',
+  }));
+}
+
+// panelHeader(state, opts) → {text, actions: [{id, label, enabled, why, items?}]}; opts.undo (the last
+// target's newest deploy-log entry) adds Undo after a code move onto it, back to its `previous`.
+export function panelHeader(s, opts = {}) {
+  if (!s) return null;
+  const f = facts(s), P = f.primary;
+  let text = f.zero ? zeroSentence(s) : f.reader && s.liveReload !== P ? `${P} is pinned to ${cp(s, P)}.` : f.paused ? pausedSentence(s, f, { ...opts, header: true })
+    : f.attached === P ? `Live reload: ${P} (primary) — every save reaches everyone using ${s.tile}.`
+      : `Live reload: ${f.attached} — saves reach ${s.tile}+${f.attached}. The primary, ${P}, is pinned to ${cp(s, P)}.`;
+  if (f.failed && !f.zero) text = `${text.replace(/\.$/, '')} — the last deploy to ${f.failed} failed; ${f.failed} keeps running ${serving(s, f.failed)}.`;
+  const actions = chipItems(s, { ...opts, panel: false }).filter((it) => !it.kind && (it.op || it.items)).map((it) => {
+    const id = it.op || (it.label === LABEL.resume ? 'resume' : 'attach');
+    const items = it.items?.map((x) => ({ id: `${id}/${x.deployment}`, label: x.label, enabled: x.enabled, why: x.hint || '', title: x.title }));
+    return { id, label: it.label, enabled: it.enabled, why: it.hint || '', title: it.title, ...(items ? { items } : {}) };
+  });
+  const u = opts.undo;
+  if (f.paused && ['deploy', 'promote', 'rollback'].includes(f.cause) && u?.previous && u.deployment === f.last && u.result === 'ok') {
+    const c = control(s, 'rollback', f.last, opts);
+    actions.push({ id: 'undo', label: `Undo: roll ${f.last} back to ${u.previous}`, enabled: c.enabled, why: c.why, title: `Put back the code ${f.last} ran before the last move.` });
+  }
+  return { text, actions };
+}
+
+// overview(state, name, opts) → {heading, lines: [[label, text]], url, gitLine, gitNote}; opts.entry:
+// the newest deploy-log entry, which says how the code got there.
+export function overview(s, name, opts = {}) {
+  const d = dep(s, name), e = opts.entry?.deployment === name ? opts.entry : d?.lastDeploy, lines = [];
+  if (!d) return null;
+  const how = e?.how ? (CODE_MOVES.has(e.how) ? howPhrase(e) : HOW[e.how] || e.how) : '', at = e?.finishedAt || e?.at || e?.requestedAt;
+  if (d.primary) lines.push(['primary', `primary — everything from outside reaches it${s.protectedPrimary ? ' · 🛡 protected' : ''}`]);
+  lines.push(['code', `${pointer(d)}${how ? ` · ${how}${e.by ? ` by ${who(e.by)}` : ''}${at ? `, ${ago(at, opts.now)}` : ''}` : ''}`],
+    ['status', `${statusText(d)}${d.status?.error ? ` — ${d.status.error}` : ''}`]);
+  if (d.lastDeploy?.result === 'failed') lines.push(['last deploy', 'last deploy failed — the deploy log has its error']);
+  const l = d.limits, ov = new Set(l?.overrides || []), v = d.vault;
+  const lim = (k, word, unit) => `${word}: ${ov.has(k) ? `${l[k]} ${unit} (set by a tile manager)` : `the tile's default (${l[k]} ${unit})`}`;
+  if (dataText(d, opts)) lines.push(['data', dataText(d, opts)]);
+  if (l) lines.push(['limits', `${lim('memMiB', 'memory', 'MiB')} · ${lim('diskGiB', 'disk', 'GiB')}`]);
+  if (v) lines.push(['vault', `${plural(v.keys | 0, 'secret', 'secrets')}${v.placeholders ? ` · ${v.placeholders === 1 ? '1 is a placeholder' : `${v.placeholders} are placeholders`}` : ''}`]);
+  if (deliveriesText(d)) lines.push(['deliveries', deliveriesText(d)]);
+  if (!d.primary && d.alwaysOnDeclared) lines.push(['alwaysOn', `alwaysOn: ${d.alwaysOn ? 'on' : 'off'}`]);
+  const git = !!d.checkpoint && s.view !== 'reader';
+  return { heading: name, lines, url: d.url || `/c/${s.tile}${d.primary ? '' : `+${name}`}/`, gitLine: git ? `git: deploy/${name} — git fetch xbin-deploy` : null, gitNote: git ? REASON.gitNote : null };
+}
+
+// panelActions(state, name, opts) → [{id, label, enabled, why, title, on? (a switch), to?}] of a
+// deployment, or the tile-wide page (name ''); what the viewer may not use is disabled with its reason.
+export function panelActions(s, name, opts = {}) {
+  const P = s?.primary || 'main', out = [], d = dep(s, name), c = (op, y = name) => control(s, op, y, opts);
+  const add = (id, label, k, title, extra) => out.push({ id, label, enabled: k.enabled, why: k.why, title, ...extra });
+  if (!s?.record || (name && !d)) return out;
+  if (!name) {
+    const ys = others(s).map((y) => dep(s, y)), ok = ys.filter((y) => y.can?.primary?.ok && y.status?.state === 'healthy');
+    const k = ys.length ? c('primary', (ok[0] || ys[0]).name) : null;
+    if (k?.enabled && !ok.length) Object.assign(k, { enabled: false, why: REASON.unhealthy(ys[0].name) });
+    if (k) add('reassign', 'Reassign the primary…', k, 'Send everything from outside to another deployment; data doesn\'t move.');
+    const pr = !!s.protectedPrimary;
+    add(pr ? 'unprotect' : 'protect', `${pr ? 'Unprotect' : 'Protect'} the primary`, c('protect', null), pr ? `Terminal users and agents may deploy to ${P} again.` : `Only tile managers change ${P}'s code.`);
+    if ((s.edges || []).some((e) => (e.effective || e.policy) !== 'block')) add('blockEdges', 'Block every edge', c('edges', null), 'Set every edge\'s non-primary access to block.');
+    return out;
+  }
+  const B = d.primary ? others(s).sort()[0] : P;
+  add('deploy', `Deploy to ${name}`, c('deploy'), `Put a fresh checkpoint of the work tree on ${name}.`);
+  if (B) add('promote', `Promote ${name} → ${B}…`, c('promoteTo', B), `${B} gets exactly ${name}'s code; its data stays.`, { to: B });
+  add('remove', 'Remove deployment…', c('remove'), `Delete ${name} and its data.`);
+  if (!d.primary) {
+    add('seed', `Seed from ${P}…`, c('seed'), `Copy ${P}'s data into ${name} (it may contain personal data).`);
+    add('reset', 'Reset data…', c('reset'), `Delete everything ${name} stored.`);
+    add('vaultCopy', 'Copy vault values…', c('vaultCopy'), `Copy chosen secrets from ${P} into ${name}.`);
+    add('deliveries', `Deliveries: ${d.deliveries ? 'on' : 'off'}`, c('deliveries'), `${name}'s cron jobs and bus deliveries fire for ${name}.`, { on: !!d.deliveries });
+    if (d.alwaysOnDeclared) add('alwaysOn', `alwaysOn: ${d.alwaysOn ? 'on' : 'off'}`, c('alwaysOn'), `Keep ${name} running, never idle-stopped.`, { on: !!d.alwaysOn });
+  }
+  add('limits', 'Set limits…', c('limits'), `${name}'s memory and disk share, never above ${s.tile}'s.`);
+  add('open', 'open ↗', d.primary && !d.can ? { enabled: true, why: '' } : c('open'), `Open ${d.primary ? s.tile : `${s.tile}+${name}`} in a new tab.`);
+  return out;
+}
+
+// zeroPanel(state, opts) → the zero state's entry point: [{id?, lead, text, enabled?, why?}].
+export const zeroPanel = (s, opts = {}) => [{ lead: `Live reload: ${s.primary || 'main'}`, text: `every save reaches everyone using ${s.tile}.` },
+  { id: 'pause', lead: LABEL.pause, text: `keep ${s.tile} on its current code while you work; Reload now ships your changes when you're ready.`, ...control(s, 'pause', null, opts) },
+  { id: 'add', lead: 'Add deployment…', text: `a second runtime of ${s.tile}, for example dev, with its own data, at /c/${s.tile}+dev/. Saves can go there while ${s.primary || 'main'} stays put.`, ...control(s, 'add', null, opts) }];
+
+const edgeLabel = (e) => (e.id.startsWith('slot:') ? `${e.id.slice(5)}${e.to ? ` → ${e.to}` : ''}` : e.id.replace(/^grant:/, ''));
+
+// edgeRows(state, opts) → the edges table: [{id, label, primary, value, values (none: text only), text,
+// refused, enabled, why}].
+export function edgeRows(s, opts = {}) {
+  const m = control(s, 'edges', null, opts);
+  return (s?.edges || []).map((e) => {
+    const vl = (v) => (v === 'read' ? `read — its primary, as reader${/^(writer|admin)$/.test(e.role || '') ? ` (clamped from ${e.role})` : ''}` : v === 'inherit' ? `inherit — as ${s.tile}` : v);
+    const fixed = (e.values || []).length < 2 || (e.effective === 'block' && !!e.why);
+    return { id: e.id, label: edgeLabel(e), primary: e.role || 'as today', value: e.policy, refused: `refused ${e.refused | 0} · clamped ${e.clamped | 0}`,
+      values: fixed ? [] : [...e.values.map((v) => ({ value: v, label: vl(v) })), ...(e.set ? [{ value: 'default', label: `default (${e.default})` }] : [])],
+      text: fixed ? `blocked — ${e.why || 'this edge can\'t be limited to reading'}` : vl(e.effective || e.policy), enabled: m.enabled && !fixed, why: m.enabled ? '' : (m.why || REASON.manager) };
+  });
+}
+
+// widens(state, edge, value): block → read or inherit, the one direction that confirms.
+export function widens(s, id, v) {
+  const e = (s?.edges || []).find((g) => g.id === id);
+  return !!e && (e.effective || e.policy) === 'block' && (v === 'default' ? e.default : v) !== 'block';
+}
+
+// registrationRows(state, name, opts) → registrations with their pill, and Run now for cron jobs.
+export const registrationRows = (s, name, opts = {}) => (dep(s, name)?.registrations || []).map((r) => {
+  const d = dep(s, name), routes = r.kind === 'iface-instance' || r.kind === 'ingress-host';
+  return { kind: r.kind, name: r.name, pill: d.primary ? 'active' : routes ? 'dormant — routes reach the primary only' : r.dormant ? 'dormant' : 'active',
+    label: r.kind === 'cron' ? `${r.name} · ${r.schedule || ''}` : r.kind === 'bus' ? `${r.name} · ${r.resource || ''}${r.prefix ? ` ${r.prefix}` : ''}` : r.kind === 'iface-instance' ? `#${r.name}` : r.name,
+    runNow: r.kind === 'cron' && !d.primary ? control(s, 'runNow', name, opts) : null };
+});
+
+// asksToRun(state, name): Run now confirms unless the data is empty and the network blocked.
+export function asksToRun(s, name) {
+  const net = (s?.edges || []).find((e) => e.id === 'slot:net');
+  return !(dep(s, name)?.data?.state === 'empty' && net && (net.effective || net.policy) === 'block');
+}
+
+export const wouldNotifyRows = (s, name, opts = {}) => (dep(s, name)?.wouldNotify || []).map((w) => `would notify ${who(w.to)} · "${w.title}" · ${ago(w.at, opts.now)}`);
+
+// logRows(state, name, entries, opts) → the deploy log: the entry that runs now, Roll back on older ok ones.
+export function logRows(s, name, entries, opts = {}) {
+  const d = dep(s, name), cur = d?.checkpoint?.id;
+  let found = false;
+  return (entries || []).map((e) => {
+    const running = !found && e.result === 'ok' && (e.followsWorkTree ? !!d?.liveReload : same(e.checkpoint, cur)), back = e.result === 'ok' && !e.followsWorkTree && !!e.checkpoint && !same(e.checkpoint, cur);
+    found ||= running;
+    return { id: e.id, checkpoint: e.checkpoint || '', code: e.followsWorkTree || !e.checkpoint ? '● work tree' : `📌 ${e.checkpoint}`, how: `${HOW[e.how] || e.how}${e.how === 'promote' && e.from ? ` (from ${e.from})` : ''}`,
+      result: e.result === 'failed' ? `failed${e.error ? ` — ${e.error}` : ''}` : e.result === 'running' ? `running${e.phase ? ` · ${e.phase}` : ''}` : e.result,
+      who: `${who(e.by)}${e.agent ? ' (agent)' : ''} · ${ago(e.finishedAt || e.requestedAt, opts.now)}`, feed: !e.feed || e.feed === 'work-tree' ? 'work tree' : e.feed,
+      state: running ? 'running' : '', rollback: back ? { label: `Roll back to ${e.checkpoint}`, ...control(s, 'rollback', name, opts) } : null };
+  });
+}
+
+// diffLine(from, to, stats) → "c:3f2a1c9 → c:7b19e02 · 3 files, +40 −12".
+export const diffLine = (from, to, st) => `${from || '?'} → ${to || '?'} · ${files(st?.files | 0)}, +${st?.add | 0} ${MINUS}${st?.del | 0}`;
+
+// addDialog(state, error, recent) → the Add deployment form; recent: checkpoint ids to offer.
+export function addDialog(s, error, recent = []) {
+  const P = s.primary || 'main', pin = cp(s, P), man = !!s.caller?.manager, opt = (value, label) => ({ value, label });
+  return { title: `Add deployment to ${s.tile}`, ...(error ? { error } : {}), message: man ? '' : 'Seeding needs a tile manager.',
+    fields: [{ name: 'name', label: 'Name', placeholder: 'dev' },
+      { name: 'from', label: 'Code', type: 'select', value: 'work-tree', options: [opt('work-tree', 'the work tree now (a fresh checkpoint)'), opt('primary', `${P}'s code${pin ? ` (${pin})` : ''}`), ...recent.filter((id) => id !== pin).map((id) => opt(id, id))] },
+      { name: 'data', label: 'Data', type: 'select', value: 'empty', options: [opt('empty', 'start empty'), ...(man ? [opt('seed', `seed from ${P} (copies its data, which may be personal)`)] : [])] },
+      { name: 'attach', type: 'checkbox', label: `Attach live reload to it — ${P} is pinned to its current code` }],
+    buttons: [{ label: 'Cancel', value: null }, { label: 'Add deployment', value: 'ok', primary: true }] };
+}
+
+// ---- the panel's confirmations (§5.2 rows 5–20) and results ----
+
+const box = (name, label) => ({ name, type: 'checkbox', label });
+const hm = (at) => { const t = new Date(at); return Number.isFinite(t.getTime()) ? `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}` : ''; };
+const against = (c, whose = '') => (c?.from && c.from !== 'work-tree' ? `${files(c.files | 0)}, ${stat(c)} against ${whose}${c.from}` : '');
+const pausesLine = (im, X, more = '') => (im?.pausesLiveReload ? `Pauses: live reload — later saves won't reach ${X} until you resume.${more}` : '');
+const reach = (s, im, X) => (im?.affects === 'everyone' ? `Affects: everyone using ${s.tile}: frames reload once${dep(s, X)?.api ? '; WebSocket and SSE connections drop at the 30 s drain' : ''}.`
+  : im?.affects === 'deployment' ? `Affects: only people using ${s.tile}+${X}.` : affects(s, im, X, ''));
+const stopping = (Y, im) => [Y, ...(im?.stops || []).filter((n) => n !== Y)];
+const sendAs = (key, k) => () => (k ? { [key]: k } : {});
+
+// Each row: (state, impact, deployment, extra, facts, opts) → {title, ok, lines, expect?, danger?, fields?, required?, send?}.
+const ROWS = {
+  pause(s, im, D, x, f) {
+    const X = f.attached || f.primary, c = im?.code;
+    return { title: `Pause live reload on ${s.tile}?`, ok: 'Pause live reload', lines: [
+      `Code: ${X} keeps running the code it runs now, pinned to ${c?.to || 'a checkpoint of the work tree taken when you confirm'}.${c?.files > 0 ? ` The work tree changed since ${X}'s last build (${files(c.files)}): pausing live reload ships those changes to ${X} once, now.` : ''}`,
+      'Data: nothing moves.', `Pauses: live reload — saves stop reaching ${X} until Reload now or Resume live reload.`, affects(s, im, X, 'frames reload once')] };
+  },
+  resume(s, im, D, x, f, o) {
+    const Y = D || f.last, c = im?.code, last = dep(s, Y)?.lastDeploy;
+    const code = c?.files > 0 ? `${Y} switches to the work tree now: ${files(c.files)} (${stat(c)}) changed since ${Y}'s ${c.from || cp(s, Y)} ${ships(c.files)} at once, then every save reaches ${Y}.`
+      : `${Y} switches to the work tree now, then every save reaches ${Y}.`;
+    return { title: `Resume live reload on ${Y}?`, ok: 'Resume live reload',
+      lines: [`Code: ${code}${last?.how === 'rollback' ? ` This includes the change rolled back ${ago(last.at, o.now)}.` : ''}`, 'Data: nothing moves.', affects(s, im, Y, 'frames reload')] };
+  },
+  reloadNow(s, im, D, x, f, o) {
+    const X = f.last, c = im?.code, d = dep(s, X), as = c?.to ? `, as ${c.to}${c.from ? ` (${files(c.files | 0)}, ${stat(c)} against ${c.from})` : ''}` : '';
+    return { title: `Reload ${X} now?`, ok: 'Reload now', expect: c?.to || undefined,
+      lines: [`Code: ships the work tree to ${X} once${as}${d?.status?.state === 'static' ? '' : ': build, health check, swap'}. ${X} stays pinned; later saves wait for the next Reload now.${o.panel ? ' The Deployments panel shows the diff.' : ''}`,
+        'Data: nothing moves.', affects(s, im, X, `frames reload once${d?.api ? '; open WebSocket and SSE connections drop at the 30 s drain' : ''}`)] };
+  },
+  attach(s, im, Y, x, f) {
+    const A = f.attached, c = im?.code, pin = c?.to ? `${A} is pinned to a fresh checkpoint of the work tree, ${c.to}, and stops following saves. ` : '';
+    const moves = c?.files > 0 ? `${Y} switches to the work tree now: ${files(c.files)} (${stat(c)}) against ${Y}'s ${c.from || cp(s, Y)} ${ships(c.files)} at once, and ${Y} follows every save.`
+      : `${Y} switches to the work tree now and follows every save.`;
+    let a = affects(s, im, Y, 'frames reload');
+    if (a && Array.isArray(im?.reloads) && !im.reloads.includes(A)) a += ` Nobody using ${A} sees a change.`;
+    return { title: `Attach live reload to ${Y}?`, ok: `Attach to ${Y}`, lines: [`Code: ${pin}${moves}`, 'Data: nothing moves.', a] };
+  },
+  add(s, im, X, x, f, o) {
+    const P = f.primary, c = im?.code, v = x.add || {}, j = im?.joins, seed = v.data === 'seed' ? ROWS.seed(s, im, X, x, f) : null;
+    const code = v.from === 'primary' ? `${P}'s code${c?.to ? `, ${c.to}` : ''}` : v.from && v.from !== 'work-tree' ? v.from : `a fresh checkpoint of the work tree${c?.to ? `, ${c.to}` : ''}`;
+    const lr = v.attach ? ` Live reload moves to ${X}; ${f.attached || P} is pinned to ${c?.to || 'a checkpoint of the work tree taken when you confirm'}.` : '';
+    const data = seed ? `seeded from ${P}: its data, which may be personal — see below` : j ? `joins ${j.scope}'s "${X}" data (${j.state}${j.by ? ` by ${who(j.by)}` : ''}${j.at ? ` ${ago(j.at, o.now)}` : ''})` : 'starts empty';
+    return { title: `Add deployment ${X} to ${s.tile}?`, ok: 'Add deployment', fields: seed?.fields.filter((b) => b.name !== 'stop'), required: seed?.required, send: sendAs('confirm', seed && 'copy-data'),
+      lines: [`Code: ${X} runs ${code}.${lr}`, `Data: ${data}; secrets start as names only.`, `Edges: it uses ${s.tile}'s grants and bindings, reading other tiles' primaries as reader.`,
+        `Affects: nobody now. It is reachable at /c/${s.tile}+${X}/ by people with write on ${s.tile} and by this tile's terminals. Its cron jobs, bus deliveries and alwaysOn stay off.`, ...(seed?.lines || [])] };
+  },
+  deploy(s, im, X, x) {
+    const c = im?.code, named = x.checkpoint, st = against(c);
+    const what = named ? `${named}${st ? ` (${st})` : ''}` : `a fresh checkpoint of the work tree${c?.to ? `, ${c.to}${st ? ` (${st})` : ''}` : ''}`;
+    return { title: named ? `Deploy ${named} to ${X}?` : `Deploy the work tree to ${X}?`, ok: `Deploy to ${X}`, send: sendAs('checkpoint', named || x.reviewed || c?.to),
+      lines: [`Code: ${X} runs ${what}. If it fails, ${X} keeps its current code.`, `Data: ${X} keeps its data.`, pausesLine(im, X), reach(s, im, X)] };
+  },
+  promote(s, im, X, x) {
+    const { from: A, to: B } = x, c = im?.code, st = against(c, `${B}'s `);
+    const code = c?.to ? `, ${c.to}${c.workTreeAt ? `, the work tree at ${hm(c.workTreeAt)}` : ''}${st ? ` (${st})` : ''}` : '';
+    return { title: `Promote ${A} → ${B}?`, ok: 'Promote', send: sendAs('expect', x.reviewed || c?.to),
+      lines: [`Code: ${B} runs ${A}'s code${code}.`, `Data: only code moves — ${B} keeps its data, secrets, cron jobs and routing.`, pausesLine(im, B), reach(s, im, B)] };
+  },
+  rollback(s, im, X, x, f, o) {
+    const C = x.checkpoint, e = x.entry, when = e && (e.finishedAt || e.requestedAt);
+    const was = [when ? `deployed ${ago(when, o.now)}${e.by ? ` by ${who(e.by)}` : ''}` : '', against(im?.code)].filter(Boolean).join('; ');
+    return { title: `Roll back ${X} to ${C}?`, ok: 'Roll back', send: sendAs('checkpoint', C),
+      lines: [`Code: ${X} runs ${C} again${was ? ` (${was})` : ''}.`, 'Data: stays as it is — a roll back moves code, not state; resources the newer code created are kept.',
+        pausesLine(im, X, ' The work tree still holds the code you roll back from.'), reach(s, im, X)] };
+  },
+  remove(s, im, Y, x, f) {
+    const P = f.primary, onY = s.liveReload === Y || (!s.liveReload && s.lastLiveReload === Y);
+    return { title: `Remove deployment ${Y}?`, ok: `Remove ${Y}`, danger: true, fields: [box('ok', `I understand ${Y}'s data is deleted`)], required: ['ok'], send: sendAs('confirm', 'erase'),
+      lines: [`${Y} stops. Its data, secrets, logs, cron jobs and subscriptions are deleted, and this can't be undone. Its checkpoints stay until cleanup.`,
+        onY ? `Pauses: live reload was on ${Y}; Reload now and Resume live reload then go to ${P}, which keeps running ${serving(s, P)}.` : '', `Affects: people using /c/${s.tile}+${Y}/ lose it.`] };
+  },
+  primary(s, im, Y, x, f, o) {
+    const P = f.primary, data = dataText(dep(s, Y), o), miss = im?.placeholders || [];
+    return { title: `Make ${Y} the primary of ${s.tile}?`, ok: 'Reassign the primary', danger: true, required: miss.length ? ['ok', 'secrets'] : ['ok'],
+      fields: [box('ok', `I understand ${P}'s data does not move to ${Y}`), ...(miss.length ? [box('secrets', `I understand ${Y} has no value for ${miss.join(', ')}`)] : [])],
+      send: () => ({ confirm: 'data-stays', ...(s.protectedPrimary && im?.code?.to ? { expect: im.code.to } : {}) }),
+      lines: [`Everything that reaches ${s.tile} moves to ${Y} at once: its URL, other tiles' bindings and grants, ingress, cron jobs, bus deliveries, notifications and the app.`,
+        `Data: the primary will serve ${Y}'s data${data ? ` (${data})` : ''}. ${P}'s data does not move: ${P} keeps it, keeps running ${serving(s, P)}, and its cron jobs and subscriptions become dormant. Per-user settings saved while ${P} was primary stay with ${P}.`,
+        miss.length ? `Secrets: ${Y} has no value for ${plural(miss.length, 'secret', 'secrets')} ${P} uses (${miss.slice(0, 3).join(', ')}${miss.length > 3 ? ', …' : ''}): copy or set them first.` : '',
+        s.liveReload === Y && !s.protectedPrimary ? `Live reload is attached to ${Y}: from now on every save reaches everyone using ${s.tile}. Pause live reload first to keep ${Y} pinned.` : '',
+        s.protectedPrimary ? `The primary is protected: ${Y} becomes protected, live reload leaves it, and ${Y} is pinned to ${im?.code?.to || cp(s, Y) || 'its current code'}.` : '',
+        `Pauses: ${P}'s and ${Y}'s backends restart now; WebSocket and SSE connections drop.${dep(s, P)?.alwaysOn ? ` ${P} is no longer kept running (alwaysOn).` : ''}`,
+        `Terminals: sessions that follow the primary now call ${Y} and ${Y}'s data; sessions that name a deployment keep calling it.`] };
+  },
+  protect(s, im, X, x, f) {
+    const P = f.primary, A = s.liveReload && s.liveReload !== P ? s.liveReload : '';
+    return { title: `Protect ${P}?`, ok: `Protect ${P}`, send: sendAs('expect', im?.code?.to),
+      lines: [`Only tile managers (the tile's owner, its org's admins, or a workspace admin) can change ${P}'s code: deploy, promote, roll back, reload now — from their own browser session, naming the checkpoint they reviewed, never from a terminal or an agent.`,
+        f.attached === P && !f.paused ? `Pauses: live reload leaves ${P}, which is pinned to ${im?.code?.to || 'a checkpoint of the work tree taken when you confirm'}.` : '',
+        `Terminals: terminal and agent sessions that call ${P} restart now, ${A ? `calling ${A}` : 'with the tile API off: nothing else can be offered'}; their running commands end and shell scrollback is lost (agents resume their conversation).`,
+        'Other deployments work as before.'] };
+  },
+  unprotect: (s, im, X, x, f) => ({ title: `Unprotect ${f.primary}?`, ok: 'Unprotect',
+    lines: [`Terminal users and their agents can deploy to ${f.primary} again, as saving did before protection. New sessions call ${f.primary} by default again; running ones keep their target.`] }),
+  seed(s, im, Y, x, f) {
+    const P = f.primary, st = stopping(Y, im), full = dep(s, Y)?.data?.state;
+    return { title: `Seed ${Y} with ${P}'s data?`, ok: `Seed ${Y}`, danger: !!full && full !== 'empty', required: ['ok'], send: (v) => ({ confirm: 'copy-data', ...(v.stop ? { stop: true } : {}) }),
+      fields: [box('stop', `Stop ${P} for a point-in-time copy`), box('ok', `I understand ${P}'s data is copied into ${Y}, replacing ${Y}'s`)],
+      lines: [`Data: copies ${P}'s data as of now (kv, sqlite, files, blobs) into ${Y}, replacing ${Y}'s data. ${st.join(' and ')} ${st.length > 1 ? 'stop during the copy and restart' : 'stops during the copy and restarts'}.`,
+        `The copy may contain personal data. Everyone with write on ${s.tile}, and their agents, can open ${Y} and run any code there; protecting the primary doesn't cover this copy. It stays until reset or removal, and opt-in backups of ${Y} send it to the archiver.`] };
+  },
+  reset(s, im, Y, x, f) {
+    const P = f.primary, st = stopping(Y, im), main = Y === 'main' && P !== 'main' ? ` ${Y} is main and not the primary: this deletes main's data — what ${s.tile} served until ${P} became the primary.` : '';
+    return { title: `Reset ${Y}'s data?`, ok: `Reset ${Y}`, danger: true, required: ['ok'], send: (v) => ({ confirm: 'erase-data', ...(v.vault ? { vault: true } : {}) }),
+      fields: [box('vault', `Also clear ${Y}'s secrets`), box('ok', `I understand ${Y}'s data is deleted`)],
+      lines: [`Data: deletes everything in ${Y}'s data (kv, sqlite, files, blobs). ${st.join(' and ')} ${st.length > 1 ? 'restart' : 'restarts'} empty. ${P}'s data is not touched. This can't be undone.${main}`] };
+  },
+  vaultCopy(s, im, Y, x, f) {
+    const keys = x.keys || [];
+    return { title: `Copy secrets to ${Y}?`, ok: 'Copy values', fields: keys.length ? keys.map((k) => box(`key:${k}`, k)) : [box('all', `all of ${f.primary}'s secrets`)],
+      send: (v) => { const k = keys.filter((n) => v[`key:${n}`]); return k.length ? { keys: k } : v.all ? { all: true } : null; },
+      lines: [`Copies the ticked secrets' values from ${f.primary} into ${Y}'s vault. Any code running on ${Y} can read them, and any terminal user can deploy code to ${Y}, even while ${f.primary} is protected.`] };
+  },
+  deliveries(s, im, Y, x, f) {
+    const r = dep(s, Y)?.registrations || [], n = (k) => r.filter((g) => g.kind === k).length;
+    return { title: `Turn on deliveries for ${Y}?`, ok: 'Turn on deliveries',
+      lines: [`${Y}'s cron jobs (${n('cron')}) and bus subscriptions (${n('bus')}) start firing for ${Y}, alongside ${f.primary}'s. Their side effects are real: they run with ${Y}'s data, ${s.tile}'s grants (reading other tiles' primaries) and ${s.tile}'s network, so anything they send (email, webhooks) is real.`] };
+  },
+  alwaysOn: (s, im, Y, x, f) => ({ title: `Keep ${Y} running?`, ok: 'Turn on alwaysOn', lines: [`${Y} starts now, is never idle-stopped and restarts after exits, like ${f.primary}. It uses memory while it runs.`] }),
+  edge(s, im, X, x) {
+    const e = (s.edges || []).find((g) => g.id === x.edge) || { id: x.edge }, to = e.to || edgeLabel(e), net = e.kind === 'net' || e.id === 'slot:net';
+    const v = x.policy === 'default' ? e.default : x.policy, them = `${s.tile}'s non-primary deployments${others(s).length ? ` (${others(s).join(', ')})` : ''}`;
+    return { title: v === 'read' ? `Let non-primary deployments read ${to}?` : `Let non-primary deployments use ${net ? `${s.tile}'s network` : to}?`, ok: 'Allow',
+      lines: [v === 'read' ? `${them} may call ${to}'s primary, as reader. They never write to it.` : net ? `${them} get ${s.tile}'s relay policy, never host networking; anything they send is real.` : `${them} may use ${to} as ${s.tile} does.`] };
+  },
+  runNow(s, im, Y, x) {
+    const d = dep(s, Y)?.data;
+    return { title: `Run ${x.job} on ${Y} once?`, ok: 'Run now',
+      lines: [`Runs ${x.job} once on ${Y}, with ${Y}'s data${d?.state === 'seeded' ? ` seeded from ${d.from || 'main'}: real people's data` : ''} and ${s.tile}'s network: anything it sends (email, webhooks) is real.`] };
+  },
+  limits(s, im, Y, x, f) {
+    const l = dep(s, Y)?.limits || {}, ov = new Set(l.overrides || []), pl = dep(s, f.primary)?.limits;
+    const fld = (k, word, unit) => ({ name: k, type: 'number', label: `${word} (${unit})`, value: ov.has(k) ? String(l[k]) : '', placeholder: !ov.has(k) && l[k] ? `the tile's default (${l[k]} ${unit})` : 'the tile\'s default' });
+    return { title: `Set ${Y}'s limits?`, ok: 'Set limits', fields: [fld('memMiB', 'memory', 'MiB'), fld('diskGiB', 'disk-quota share', 'GiB')],
+      send: (v) => ({ limits: Object.fromEntries(['memMiB', 'diskGiB'].map((k) => [k, String(v[k] ?? '').trim()]).filter(([k, t]) => t || ov.has(k)).map(([k, t]) => [k, !t ? null : /^\d+$/.test(t) ? Number(t) : t])) }),
+      lines: [`${s.tile}'s own limits${pl && !pl.overrides?.length ? ` (${pl.memMiB} MiB, ${pl.diskGiB} GiB)` : ''} are the ceiling, and the primary keeps first call on them.`] };
+  },
+  target: (s, im, Y) => ({ title: Y === 'off' ? 'Restart this terminal without API access?' : `Restart this terminal calling ${Y === 'primary' ? s.primary || 'main' : Y}?`, ok: 'Restart',
+    lines: [`Its shell and anything running in it end, and the scrollback is lost.${Y === 'off' ? '' : ` Its API calls and bx commands then reach ${Y === 'primary' ? 'the primary' : `${s.tile}+${Y}`}.`}`] }),
+};
+ROWS.undo = ROWS.rollback;
+
+// The operations the panel confirms beyond M1's four (undo: a roll back to what the last move replaced).
+export const PANEL_OPS = Object.freeze(Object.keys(ROWS).filter((op) => !OP_NAME[op]));
+
+const RESULT = {
+  add: (s, a, X) => `Added ${X} at /c/${s.tile}+${X}/.`, remove: (s, a, X) => `Removed ${X}.`,
+  primary: (s) => `${s.primary} is now the primary — it serves ${s.primary}'s data.`,
+  protect: (s) => `${s.primary} is protected.`, unprotect: (s) => `${s.primary} is no longer protected.`,
+  seed: (s, a, X) => `${X} seeded from ${s.primary}.`, reset: (s, a, X) => `${X}'s data was reset.`,
+  vaultCopy: (s, a, X) => `Copied ${plural(a.copied?.length | 0, 'secret', 'secrets')} to ${X}.`,
+  deliveries: (s, a, X) => `Deliveries ${dep(s, X)?.deliveries ? 'on' : 'off'} for ${X}.`, alwaysOn: (s, a, X) => `alwaysOn ${dep(s, X)?.alwaysOn ? 'on' : 'off'} for ${X}.`,
+  limits: (s, a, X) => { const l = dep(s, X)?.limits; return l ? `${X}'s limits set: ${l.memMiB} MiB, ${l.diskGiB} GiB.` : `${X}'s limits set.`; },
+  runNow: (s, a) => (a.delivery ? `delivered · ${a.delivery.status} · ${a.delivery.ms} ms` : null),
+};
