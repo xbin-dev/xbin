@@ -171,8 +171,9 @@ func watchLoop(w *watch.Watcher, reg *registry.Registry, hub *events.Hub, run *r
 			slog.Warn("rescan", "err", err)
 		}
 		brk.Provision()
-		brk.RefreshPending() // new `uses` requests → notify approvers (D33)
-		reconcileIngress()   // manifest exposes / bindings may have changed on disk
+		brk.SweepNamespaces() // after Provision, never inside it: the plane's answers must exist
+		brk.RefreshPending()  // new `uses` requests → notify approvers (D33)
+		reconcileIngress()    // manifest exposes / bindings may have changed on disk
 		for _, p := range deps.Reconcile(reg) {
 			slog.Debug("deps", "problem", p)
 		}

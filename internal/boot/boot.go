@@ -454,6 +454,7 @@ func (st *State) stepBroker() error {
 	// sets; the broker knows ownership + sets, the term manager asks.
 	st.Term.TermNet = brk.TermNetFor
 	brk.ExternalURL = st.externalURL
+	brk.SweepNamespaces() // crashed data acts become partial, unclaimed namespaces orphaned (08-data §9.3)
 	st.Broker = brk
 	return nil
 }
