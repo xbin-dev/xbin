@@ -34,11 +34,11 @@ target, so a red line names the guard that failed.
 | gofmt over `GOFMT_DIRS` | `fmt-check` | formatting drift (CI's gofmt must match go.mod's minor — the pins check enforces that) |
 | `go vet ./...` | `vet` | the usual |
 | `node --check` over every shipped script and inline module block — a `.js` written as an ES module is checked as one (node's detection on a plain `.js` is lenient); named imports resolved against the exports of the relative / `/vendor/` module they name | `js-check` | a syntax error in a tile's inline `<script type="module">` or an unbalanced template expression in a module, or an import of a renamed or mislocated export — none is parsed by anything else before a user's browser (the trees include `website/`, so the landing page's inline module and its `js/` are covered) |
-| `node --test hack/*.test.mjs` — unit tests for pure frontend modules, and for the installer's host-editing helpers (`hack/install-sh.test.mjs`: functions cut out of `deploy/install.sh` by name, run by bash against temp files) | `js-test` | the installer's AppArmor block in `/etc/apparmor.d/local/fusermount3` (replaced in place, never duplicated, other lines kept, a hand-broken file left alone) and the VM policy it writes (xbind's field names, never over an existing file); the shell's context-menu builders (`shell/menus.js`), revisioned-draft helpers (`shell/rev-draft.js`), grid math (`shell/grid-layout.js` — the push a drag performs) the terminal's prediction engine (`web/term-predict.js` — what a keystroke predicts, what an ack confirms), the frame's view of the session directory (`web/term-sessions.js` — how a listing becomes the tab bar, how the legacy browser record is adopted) and the terminal window's live reload view (`web/deploy-state.js` — which chip, menu items and API select entries a state and a viewer's permissions yield, and every string they show): every branch a menu can show, how a stale save is classified, where a pushed tile lands, which predictions survive, which tabs a listing yields — without a browser |
+| `node --test hack/*.test.mjs` — unit tests for pure frontend modules, and for the installer's host-editing helpers (`hack/install-sh.test.mjs`: functions cut out of `deploy/install.sh` by name, run by bash against temp files) | `js-test` | the installer's AppArmor block in `/etc/apparmor.d/local/fusermount3` (replaced in place, never duplicated, other lines kept, a hand-broken file left alone) and the VM policy it writes (xbind's field names, never over an existing file); the shell's context-menu builders (`shell/menus.js`), revisioned-draft helpers (`shell/rev-draft.js`), grid math (`shell/grid-layout.js` — the push a drag performs) the terminal's prediction engine (`web/term-predict.js` — what a keystroke predicts, what an ack confirms), the frame's view of the session directory (`web/term-sessions.js` — how a listing becomes the tab bar, how the legacy browser record is adopted), the terminal window's live reload view (`web/deploy-state.js` — which chip, menu items and API select entries a state and a viewer's permissions yield, and every string they show), the Deployments panel's view (`web/deploy-panel.js`), session targets and deployment frames (`hack/deploy-target.test.mjs`), how the binary-served components treat a tile deployment (`web/frame-info.js`, `web/term-sessions.js`, `web/xbin-client.js`: `hack/deploy-aware.test.mjs`), and old clients as fixtures (`hack/events-socket.test.mjs`: the web shell's reload targeting exactly as it ships, replayed against a deploy's event tape, so no frame of an old event type names a non-primary deployment): every branch a menu can show, how a stale save is classified, where a pushed tile lands, which predictions survive, which tabs a listing yields — without a browser |
 | the native client's contract: xb-native's own tests, the fixture runner's, and every `native/fixtures/<name>` rendered in node and compared with its `expected.json`, plus the vocabulary coverage gate | `native-check` | the tree a tile's `native.js` renders — what the app's renderer and the reference renderer draw — drifting unreviewed, and a vocabulary item no fixture exercises (native/fixtures/README.md) |
 | shellcheck at warning level over `deploy/`, `hack/`, `.githooks/`, the site's `website/install.sh` bootstrap and the iOS CI scripts in `native/ios/scripts/` | `shellcheck` | the installer and release scripts (1,600 lines of bash; only the installer's host-editing helpers have unit tests, above); the iOS CI scripts, which only a macOS runner executes |
 | vendor checksums, Go-version agreement, alpine pins | `pins-offline` | pins drifting apart between the files that state one |
-| unit tests incl. the embed guard, route inventory, docs check and wording guard, the exec, cgi and no-following-walk guards, the zero-state goldens | `test` | see the sections below |
+| unit tests incl. the embed guard, route inventory and route classes, docs check and wording guard, the exec, cgi and no-following-walk guards, the zero-state goldens | `test` | see the sections below |
 
 Not in `check`: `make swift-test` runs the native client's Swift packages
 (`native/ios/Packages/*`, Foundation only) on any machine with a swift
@@ -120,8 +120,9 @@ than deleted.
 
 `TestDeploymentWording` (same package) guards the vocabulary of tile
 deployments and live reload: the prose strings of the terminal window's
-modules (`web/deploy-state.js`, `web/frame-deploy.js`) and of bx's
-live-reload, deploy and rollback commands, the builder page
+modules (`web/deploy-state.js`, `web/deploy-panel.js`, `web/frame-deploy.js`,
+`web/bx-deploy.js`) and of bx's live-reload, deploy, promote, rollback and
+deployment commands, the builder page
 `docs/tile-deployments.md`, and every docs section whose heading names live
 reload or tile deployments may not use a word another feature already owns —
 identity, instance, environment, snapshot, version, preview, slot, "pause
@@ -323,6 +324,37 @@ stay byte for byte what it was.
   governs some tile, boot sweeps the `.tmp-*` extractions killed runs left.
   A failed or cancelled deploy collects nothing, and a tile without a record
   is never touched.
+- **Named deployments' state** lives beside `main`'s, never in it: each
+  deployment's registration files (cron jobs, bus subscriptions,
+  interface instances, ingress hosts, a backup schedule) under
+  `data/deployments/<key>/<name>/`, written through the plane's records lock
+  (`idx.writeIn`, so one tile's opt-out never removes the directory under
+  another tile's write); its data under
+  `data/resources-enc/.deployments/<scope>/<name>/` (`kv.db`, `fs/<res>/`),
+  mounted from `.xbin/resenc/.deployments/…`; its vault at
+  `data/vault/.deployments/<key>/<name>.json`; prefs at
+  `data/prefs/<user>/.deployments/<key>/<name>.json`; its backend log at
+  `.xbin/deploy/<key>/d/<name>/backend.log`. `main` keeps today's keys and
+  stores byte for byte. Never add a non-`main` row to today's stores
+  (`data/cron-jobs.json`, `data/bus-subscriptions.json`, the root
+  `xbin.json`): an older xbind would load it as `main`'s and fire it.
+- **The primary is a role, and old types speak only of it.** `Runner.Ensure`
+  stays the primary's funnel, with `EnsureDeployment` and friends beside it;
+  `TestEnsureCallSitesPassPrimary` pins the callers that still mean the
+  primary. `reload`, `build-*`, `status` and notify never carry a
+  non-primary deployment or a qualified `component`: its facts ride the
+  `deployments` event, delivered to the tile's write audience only
+  (`TestEventBytesZeroState` and the old-client fixtures above). `main`'s
+  sandbox registry rows keep their ids (`backend:<key>:g<gen>`); another
+  deployment's are `backend+<name>:<key>:g<gen>`.
+- **Route classes.** xbind's API is default-deny for a non-primary
+  deployment's credentials: every `/api/xbin/*` route has a class in
+  `internal/server/deployclass.go` — deployment-scoped, primary-only or
+  neutral — and `internal/apicheck`'s `TestDeploymentRouteClasses` fails on
+  a route without one (and on a row naming no route);
+  `TestDeploymentRouteClassesLive` drives the refusals with real
+  credentials. A new route gets its row in the same commit (§Route
+  inventory).
 - **Isolated integration tests** (the checkpoint, runner and broker packages'
   confined tests, `startIsolatedDaemon` under `test/`) need
   `XBIN_TEST_ROOTFS` — a rootfs whose image has git — user namespaces and a
@@ -332,8 +364,9 @@ stay byte for byte what it was.
   closes opting in, enforced in the plane's one authorize function: a
   release that must ship before the feature is ready carries it off, and
   the next release turns it on with a changelog line. Off never unpins
-  anything, and resuming live reload onto `main` stays allowed, so every tile
-  can return to the zero state without a downgrade. `Plane{}` in a test is
+  anything, and resuming live reload onto `main`, removing a deployment,
+  resetting its data and unprotecting stay allowed, so every tile can return
+  to the zero state without a downgrade. `Plane{}` in a test is
   open.
 
 ## Builtin tiles and templates
@@ -536,7 +569,13 @@ terminal window; the harness xbind runs without `--isolate`, so on a node
 backend it asserts the isolation refusal and skips pausing it (`SKIP …
 needs HARNESS_ISOLATE`). `HARNESS_ISOLATE=1` — with `XBIN_TEST_ROOTFS`, user
 namespaces, and the agent's own tool sandbox off — runs that half.
-(`deployments` is a stub that skips until named deployments exist.) The
+`deployments` drives the terminal window's Deployments panel on the static,
+org-owned `deployy` (so it needs no `--isolate`): a manager, a terminal-level
+user and a reader add `dev` with live reload attached, see the rows, the
+tile API select's targets and the reader's filtered view; promote, roll
+back, set an edge, read registrations and "would notify", protect the
+primary, and restore the zero state at the end — a part this xbind can't
+exercise prints `SKIP` with what it got. The
 agent passes don't run under `HARNESS_ISOLATE`: their scripted fake agent is
 a host path the tile sandbox can't see.
 
@@ -558,7 +597,9 @@ Rules that keep it cheap to maintain:
   `layouts` is what its layout switcher offers — a pass compares against
   it, never a count — `reloads` the reloads it completed, and `deploy` its
   live reload controls: `state`, `chip`, `offer`, `entry`, `banner`,
-  `chipItems()`, `chipAction(label)`, `frameChip`, `refresh()`). A pass
+  `chipItems()`, `chipAction(label)`, `frameChip`, the tile API select's
+  `target()`, `apiOptions()` and `setTarget()`, `panel()` — the Deployments
+  panel's own `testApi()` — and `refresh()`). A pass
   never touches a `_member` or walks `shadowRoot` by hand; `make js-check`
   fails on `._x` in that directory. When a refactor renames state, only
   `testApi()` moves. The surface reads and writes existing state — no
@@ -617,9 +658,11 @@ are all "one segment"; `?query` suffixes are ignored — which is why an
 *optional* query goes in the row as `?frame=<token>`, never `[?frame=…]`
 (the bracket would turn the segment into a wildcard).
 
-Adding a route is therefore three edits in one commit — `RegisterAPI` (or
-`Handler`), an `openapi.go` row, a `protocol.md` row — and `make test` says
-which one you forgot.
+Adding a route is therefore four edits in one commit — `RegisterAPI` (or
+`Handler`), an `openapi.go` row, a `protocol.md` row, and a row in
+`internal/server/deployclass.go` (its class for a non-primary tile
+deployment's credentials, §Tile deployments) — and `make test` says which one
+you forgot.
 
 ## Pins (`hack/check-pins.sh`)
 

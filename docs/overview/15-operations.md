@@ -272,9 +272,11 @@ nothing else.
     finally the console TCP listener and the login URL print.
 12. **The watcher** rescans on debounced (300 ms) file changes: re-provision
     resources, reconcile deps/go.work/ingress, live-reload frames, rebuild
-    changed backends — except in a tile whose live reload is paused, where a
-    save reloads and rebuilds nothing and only moves the work tree's
-    changed-file count.
+    changed backends — for a tile with tile deployments, only the deployment
+    live reload follows (a non-primary one's reloads and builds ride the
+    `deployments` event); in a tile whose live reload is paused, a save
+    reloads and rebuilds nothing and only moves the work tree's changed-file
+    count.
 
 Shutdown (SIGTERM): close the HTTP server, stop every backend, exit.
 
@@ -296,16 +298,30 @@ Shutdown (SIGTERM): close the HTTP server, stop every backend, exit.
 
 **`--tile-deployments=off`** is the operator's switch for tile deployments
 ([/docs/tile-deployments.md](/docs/tile-deployments.md)): no tile can pause
-its live reload any more, `GET /api/xbin/deployments` lists no `features`,
-and the terminal window shows the zero state's entry with the reason. It
-never unpins anything — existing deployment records keep governing what
-runs — and what leads back to the zero state or creates no state stays
-open (resuming live reload onto `main`, restarting), so every tile can
-return to plain live reload without a downgrade. Pinned backends need
-`--isolate`: restarting xbind without it holds them (their `/api/` fails
-with `pinning a backend to a checkpoint needs isolation (--isolate)`, their
-pages keep serving the checkpoint); resume live reload on those tiles
-first.
+its live reload, add a deployment or move code any more,
+`GET /api/xbin/deployments` lists no `features`, and the terminal window
+shows the zero state's entry with the reason. It never unpins anything —
+existing deployment records keep governing what runs — and what leads back
+to the zero state or creates no state stays open (resuming live reload onto
+`main`, restarting, removing a deployment, resetting its data,
+unprotecting), so every tile can return to plain live reload without a
+downgrade. Pinned and non-primary backends need `--isolate`: restarting
+xbind without it holds pinned ones (their `/api/` fails with `pinning a
+backend to a checkpoint needs isolation (--isolate)`, their pages keep
+serving the checkpoint) and leaves non-primary ones down; resume live reload
+onto the primary on those tiles first.
+
+**What tile deployments cost the host.** A workspace runs at most 3
+non-primary deployments per tile, 24 in all and 12 non-primary backends at
+once; a start past them is refused, and the refusal shows in the
+deployment's status and in the sandboxes tab's failure list. At most
+max(1, CPUs/4) builds for non-primary deployments run at once, and a
+primary's build never waits for them. Every deployment's VM is charged to
+its tile, and a non-primary one never takes the room the primary's next
+guest needs; inside a tile's cgroup the primary has the higher CPU weight,
+and non-primary data is write-blocked first on low disk. A tile's
+checkpoints, extracted trees and kept builds count against a 10 GiB per-tile
+quota ([/docs/isolation.md](/docs/isolation.md)).
 
 Other env: `XBIN_VAULT_PASSPHRASE`, `XBIN_SDK_PATH`, `XBIN_BIN` (where `bx`
 lives), `XBIN_FUSE_OVERLAYFS`, `XBIN_GOCRYPTFS`, `XBIN_LIMIT_MEM` (per-tile
@@ -403,12 +419,16 @@ Two operator contracts around an upgrade:
   <id> --replace|--merge` applies it without trampling local edits.
 
 **Going back to an older xbind** loses no tile-deployments state — an older
-binary never reads it — but serves every tile's work tree with live reload
-again. Before downgrading, check out what each pinned tile runs in its work
-tree (`git fetch xbin-deploy`, then `git checkout --no-track -b
-pre-downgrade deploy/main`). After upgrading again each pinned tile returns
-to its checkpoint; for one whose checkout was skipped, the older binary
-served its work tree, so deploy that at once (`bx deploy <tile> --to main`;
+binary never reads it, and never activates a non-`main` deployment's data or
+registrations — but serves every tile's work tree with live reload again.
+Before downgrading, list the tiles with deployments (`bx deployment ls` on
+the host, with no tile), reassign every primary that isn't `main` back to
+`main` (data moves in neither direction), and check out what each pinned
+tile runs in its work tree (`git fetch xbin-deploy`, then
+`git checkout --no-track -b pre-downgrade deploy/main`). After upgrading
+again each pinned tile returns to its checkpoint; for one whose checkout was
+skipped, the older binary served its work tree, so deploy that at once
+(`bx deploy <tile> --to main`;
 [/docs/tile-deployments.md](/docs/tile-deployments.md)).
 
 Backups are workspace-level insurance, not upgrade insurance — the

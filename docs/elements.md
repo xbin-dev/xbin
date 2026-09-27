@@ -209,6 +209,12 @@ into `<head>`:
   fetches your page gets it with an empty token)
 - `<script type="module" src="/vendor/xbin-client.js">` — the in-frame API
   (`xbin.self`, `xbin.fetch`, `xbin.bus`; see [sdk.md](/docs/sdk.md))
+- only at a tile deployment's URL (`/c/<tile>+<name>/`,
+  [tile-deployments.md](/docs/tile-deployments.md)):
+  `<meta name="xbin-deployment" content="<name>">` (read it as
+  `xbin.deployment`) and one import-map entry sending `/c/<tile>/` to
+  `/c/<tile>+<name>/`, so your absolute self-imports stay in that deployment.
+  At the bare URL, which is the tile's primary, neither is there
 - only when the xbin app requested the document (`X-XBin-Client:
   app/<version>`): `<meta name="xbin-ws-origin" content="wss://<host>">` —
   the app loads pages from its own URL scheme, which has no WebSocket origin
@@ -293,7 +299,9 @@ and one habit works in all of them — **relative URLs**:
   cookie and can't set cookies there (`Set-Cookie` is dropped). A
   sub-directory holding its own `index.html` is a component of its own and
   so gets its own origin: navigating your frame to it (a relative link)
-  still works.
+  still works. Each tile deployment has an origin of its own too: at
+  `/c/<tile>+<name>/` a raw `fetch('/api/<you>/x')` acts as that
+  deployment, and its browser storage is its own.
 - **In every mode**, a file that isn't `.html`/`.htm` (any case) is served
   with `Content-Security-Policy: sandbox`: as a subresource nothing changes,
   but opened directly or framed (`<iframe>`, `<object>`) an SVG's or an
@@ -360,9 +368,13 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   hand.
 - **Live reload**: the most specific mounted frame for a changed path
   reloads — editing `apps/cal/widgets/month` reloads that frame, not the
-  whole `apps/cal` frame, when both are mounted. While a tile's live reload
-  is paused its frames don't reload on saves; they reload once when a deploy
-  changes the code the tile serves (§Live reload and tile deployments).
+  whole `apps/cal` frame, when both are mounted. Frames of a pinned
+  deployment don't reload on saves; they reload once when a deploy changes
+  the code it serves (§Live reload and tile deployments).
+- **A tile deployment**: `<bx-frame src="apps/cal+dev">` shows deployment
+  `dev` of `apps/cal` (`/c/apps/cal+dev/`) to people who may open it — write
+  access on the tile. It is never chrome, and it reloads and paints its
+  build overlay from the tile's `deployments` events.
 - **Build errors** render as an overlay with compiler output; cleared by the
   next successful build. A failed deploy of a checkpoint paints none: the
   tile keeps serving its previous code.
@@ -375,8 +387,11 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   The launcher shows a banner while live reload is paused; people with
   terminal access see a `📌 pinned` chip over the tile (a click opens its
   window); open terminals print a grey line when live reload pauses or
-  resumes, or code moves or fails to. An xbind without tile deployments
-  draws today's window.
+  resumes, or code moves or fails to. The layout switcher's `⇈` opens the
+  **Deployments panel**, and once a tile has more than an unprotected
+  `main` the tile API select picks the session's target deployment
+  (`🔌 target: dev`; switching restarts the session). An xbind without tile
+  deployments draws today's window.
 
 Frames nest. The root page is itself a component full of frames; you can
 frame the root inside the root if you enjoy that sort of thing.
@@ -513,7 +528,10 @@ shell renders it as a colour on the tile's sidebar entry (breathing for
   (SDK). Both planes POST `/api/xbin/tile-report` ([protocol.md](/docs/protocol.md)).
 
 Status is per-component and self-reported (the owner sees all; other users only
-tiles they can read), and it **resets when your backend restarts**. Keep
+tiles they can read), and it **resets when your backend restarts**. It speaks
+of the tile's primary: a non-primary tile deployment's status shows only in
+its Deployments panel, and its notifications are held there as "would
+notify", never pushed ([tile-deployments.md](/docs/tile-deployments.md)). Keep
 messages to a short headline. Full guidelines — when to use which level, and the
 “always clear it” rule — are in the workspace `AGENTS.md`.
 
@@ -551,9 +569,10 @@ Lifecycle facts that matter when writing backends:
   connection (a chat adapter) sets `"alwaysOn": true` instead: it starts at
   boot, is never reaped, and is restarted after an exit.
 - **Crash loops**: 3 quick exits → marked failed (overlay + `bx status`)
-  until you save a change — or, while live reload is paused, until a deploy
+  until you save a change — or, for a pinned deployment, until a deploy
   or a restart (a save doesn't reach it). Logs: `bx logs -f <component>`,
-  or `tail -f $XBIN_WORKSPACE/.xbin/log/<key>.log`.
+  or `tail -f $XBIN_WORKSPACE/.xbin/log/<key>.log` (a non-primary tile
+  deployment's: `bx logs -f <component>+<name>`).
 - **Graceful stop**: handle SIGTERM ([sdk.md](/docs/sdk.md) `xbin.Serve`
   does).
 
@@ -562,7 +581,8 @@ Env every backend instance gets:
 | Env | Meaning |
 |-----|---------|
 | `XBIN_SOCKET` | unix socket to listen on |
-| `XBIN_COMPONENT` | own path (identity) |
+| `XBIN_COMPONENT` | own path (identity) — the same in every tile deployment |
+| `XBIN_DEPLOYMENT` | only in a tile deployment that isn't the tile's primary: its name (`dev`); absent for the primary ([tile-deployments.md](/docs/tile-deployments.md)) |
 | `XBIN_GATEWAY`, `XBIN_TOKEN` | how to call other elements / xbin APIs (this generation's credential — dies at swap) |
 | `XBIN_RES_<NAME>` | each granted resource ([resources.md](/docs/resources.md)) |
 
@@ -575,31 +595,58 @@ xbind's environment.
 ## Live reload and tile deployments
 
 A save reaches everyone — unless the tile's developers paused its live
-reload. Every tile that never does keeps exactly today's behaviour: saves
-reload live, there is no deploy step, and no manifest key or file of yours
-is involved (the state lives in xbind's `data/`, never in the tile).
+reload, or gave it tile deployments. Every tile that never does keeps
+exactly today's behaviour: saves reload live, there is no deploy step, and no
+manifest key or file of yours is involved (the state lives in xbind's
+`data/`, never in the tile).
 
 - **Pausing live reload** (`bx live-reload pause`, or the terminal window's
-  `⇈` → Pause live reload) pins the tile's one deployment, `main`, to a
+  `⇈` → Pause live reload) pins the deployment live reload followed to a
   checkpoint of the work tree. Saves then change the files and nothing else:
   frames don't reload, the backend doesn't rebuild. **Reload now** ships the
-  work tree once and stays paused; **resuming** follows every save again and
-  returns the tile to the zero state.
-- **What runs while paused is the checkpoint**: the pages under `/c/<tile>/`,
-  the backend (at every restart), and the manifest fields that say how the
-  tile runs and what it offers — `runtime`, `entry`, `setup`, `alwaysOn`,
-  `vm`, `inject`, `native`, `exposes`, `expose`, `provides`, `template`,
-  `chrome`, and `scope.json`'s resources and import map. `uses`,
-  `interfaces` and `deps` stay the work tree's, so declaring a new `uses`
-  works as always.
-- **Backends need `--isolate`** to be pinned; static tiles pause everywhere.
-- **Before you test or debug, run `bx live-reload`**: while it says
-  `paused`, your saves reach nobody. Resuming, Reload now and `bx deploy`
-  ship to everyone using the tile — do them when the user asked, not as part
-  of committing. Committing never deploys.
+  work tree once and stays paused; **resuming** follows every save again,
+  and on a tile whose only deployment is `main` returns it to the zero
+  state.
+- **Tile deployments** (`bx deployment add dev`) are named runtimes of one
+  tile, each with its own code, data, secrets, backend, logs and URL
+  (`/c/<tile>+dev/`, `/api/<tile>+dev/…`). Live reload follows at most one of
+  them; the others run pinned checkpoints. The **primary** (usually `main`)
+  is what everyone and everything else reaches at the bare URLs; the others
+  are open only to people who write the tile and to the tile's own terminals
+  and agents. **Promote** (`bx promote dev main`) moves code only.
+- **Your code runs unchanged in every deployment.** `XBIN_COMPONENT` and
+  `xbin.self` stay the tile path, resource ids and `XBIN_RES_*` paths are the
+  same, and xbind picks the deployment's own data, vault and self-calls from
+  its credentials. Reference your files with relative URLs: an absolute
+  `/c/<tile>/…` in markup or CSS loads the primary's file in the legacy asset
+  mode. `XBIN_DEPLOYMENT` (backend) and `xbin.deployment` (frontend) name a
+  non-primary deployment, and are absent at the primary.
+- **What a non-primary deployment doesn't do:** it starts with empty data;
+  its calls to other tiles reach their primary as `reader` (so, for example,
+  LLM turns through llm-gw are refused), and edges that can't be limited to
+  reading are blocked; its cron jobs, bus subscriptions, interface instances
+  and ingress hosts are registered dormant (the call succeeds, nothing
+  fires); its notifications are held; its status shows only in the
+  Deployments panel.
+- **What runs from a checkpoint**: the pages, the backend (at every
+  restart), and the manifest fields that say how the deployment runs —
+  `runtime`, `entry`, `setup`, `alwaysOn`, `vm`, `inject`, `native`, and
+  `scope.json`'s resources and import map. What the tile offers others
+  (`exposes`, `expose`, `provides`, `template`, `chrome`) follows the
+  primary's code; `uses`, `interfaces` and `deps` stay the work tree's, so
+  declaring a new `uses` works as always.
+- **Backends need `--isolate`** to be pinned or to run a non-primary
+  deployment; static tiles pause everywhere.
+- **Before you test or debug, run `bx live-reload` and `bx deployment ls`**:
+  saves reach the live reload target (nobody while it says `paused`), and
+  your terminal's calls reach its target (`$XBIN_DEPLOYMENT`, unset = the
+  primary). Resuming, Reload now, `bx deploy` and `bx promote` onto the
+  primary ship to everyone using the tile — do them when the user asked, not
+  as part of committing. Committing never deploys.
 
-The whole story — the deploy log, roll back, the diff, `git fetch
-xbin-deploy`, backups, limits — is
+The whole story — targets, data and secrets per deployment, what a
+non-primary deployment can reach, the primary's protection, the deploy log,
+roll back, the diff, `git fetch xbin-deploy`, backups, limits — is
 [tile-deployments.md](/docs/tile-deployments.md).
 
 ## Scopes

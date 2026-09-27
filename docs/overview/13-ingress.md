@@ -303,6 +303,17 @@ has no DNS and no hairpin, so "no network" keeps meaning no network.
 - **Lifecycle** ([14-lifecycle.md](14-lifecycle.md)): templates and
   disabled/offloaded tiles publish nothing; re-enabling restores routes from
   the same bindings.
+- **Tile deployments** ([/docs/tile-deployments.md](/docs/tile-deployments.md)):
+  ingress belongs to the tile's **primary**. Published endpoints, terminator
+  forwards, lan-ingress links and stream doors reach only the primary, never
+  a deployment URL. Hosts a non-primary deployment registers at runtime
+  (`PUT /api/xbin/ingress-hosts`) are stored **dormant** — the answer is
+  today's plus `dormant: true`, zone-validated but not conflict-checked, and
+  nothing routes to them, deliveries switch or not; a non-primary
+  deployment's terminator reads an empty route table. Reassigning the primary
+  activates the new primary's hosts after re-validating them: one that
+  conflicts stays inactive and is listed, and the old primary's go dormant.
+  An exact-host binding's conflict check reads each tile's primary's hosts.
 - **Low ports**: binding a host port below 1024 (the Traefik tile's :80/:443)
   needs `AmbientCapabilities=CAP_NET_BIND_SERVICE` on the xbind unit — that
   grant covers host binding only; in-netns low ports need nothing.
