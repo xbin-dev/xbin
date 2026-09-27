@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -159,31 +160,45 @@ func Launch(s *Spec) (*exec.Cmd, *Handle, error) {
 	}
 	// Range mode leaves the maps unset here; SetupUserns writes them post-Start.
 
-	h.cleanup = func() {
-		os.Remove(f.Name())
-		if syncW != nil {
-			syncW.Close()
-		}
-	}
+	var apply func() error
 	if ids != nil {
-		h.setup = func() error {
-			defer func() {
-				if syncW != nil {
-					syncW.Close()
-					syncW = nil
-				}
-			}()
+		apply = func() error {
 			if cmd.Process == nil {
 				return errors.New("SetupUserns: sandbox not started")
 			}
-			if err := ids.apply(cmd.Process.Pid); err != nil {
-				return err // syncW closed by defer → init reads EOF and aborts
-			}
-			_, err := syncW.Write([]byte{1}) // release the init
-			return err
+			return ids.apply(cmd.Process.Pid)
 		}
 	}
+	h.arm(f.Name(), syncW, apply)
 	return cmd, h, nil
+}
+
+// arm sets h's cleanup (the spec file, the sync pipe's write end) and, in
+// range mode (apply writes the uid maps), its setup, which releases the init
+// with a byte on that pipe. Both close syncW, and they may run at once: a
+// teardown on a watcher's goroutine overtakes a SetupUserns still running on
+// the start's when the init exits early. So the pipe closes exactly once
+// (sync.OnceFunc) and neither closure writes anything the other reads.
+func (h *Handle) arm(spec string, syncW *os.File, apply func() error) {
+	closeSync := func() {}
+	if syncW != nil {
+		closeSync = sync.OnceFunc(func() { syncW.Close() })
+	}
+	h.cleanup = func() {
+		os.Remove(spec)
+		closeSync()
+	}
+	if apply == nil {
+		return
+	}
+	h.setup = func() error {
+		defer closeSync() // without the byte, the init reads EOF and aborts
+		if err := apply(); err != nil {
+			return err
+		}
+		_, err := syncW.Write([]byte{1}) // release the init
+		return err
+	}
 }
 
 // idRanges is a container→host uid/gid mapping using a delegated sub-id range:

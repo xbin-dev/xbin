@@ -3969,6 +3969,17 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     sealed") — `TestSealDuringStart`. A measurement a delete overtook (the
     du fails on the dir renamed into `.trash`) no longer logs a warning —
     `TestMeasureOvertakenByDelete`.
+  - *The sync pipe's race (fixed on `p2/regress`).* The verifier found a
+    data race from WP-2/WP-15a: when the init exits before `SetupUserns`
+    returns, the teardown's `proc.Cleanup()` (the watcher's goroutine) read
+    the range-mode sync pipe's `syncW` while `h.setup` (the start's) set it
+    to nil — `go test -race -tags=integration ./internal/tilesbx/` failed in
+    `TestLive/minimal/mount_refusals`. `Handle.arm` (`launch_linux.go`) now
+    builds both closures around one `sync.OnceFunc` close and writes no
+    shared variable: the pipe closes once, whichever runs first, and a
+    setup the teardown overtook releases nothing.
+    `TestHandleCleanupOvertakesSetup` (unit, `-race`; it fails on the old
+    closures); the tilesbx `TestLive` run is clean under `-race` again.
 
 ### WP-20 — Snapshots and clones (wave 3 · M · after WP-8b, WP-15b, WP-16)
 
