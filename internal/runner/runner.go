@@ -385,12 +385,8 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error
 				recent++
 			}
 		}
-		if recent >= crashLimit {
-			fix := "fix the code and save to retry"
-			if !code.WorkTree { // a save never reaches pinned code (07-runtime §7)
-				fix = "deploy a fixed checkpoint or restart it"
-			}
-			s.lastErr = fmt.Errorf("backend crash-looping (%d exits); %s — see .xbin/log/%s.log", recent, fix, util.CompKey(c.Path))
+		if recent >= crashLimit { // a save never reaches pinned code (07-runtime §7)
+			s.lastErr = crashLoopError(c.Path, dep, code, recent)
 			r.emit(c.Path, dep, "build-error", s.lastErr.Error())
 		} else {
 			s.dirty = true // transparent restart on next request
