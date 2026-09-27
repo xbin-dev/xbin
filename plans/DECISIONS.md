@@ -3386,3 +3386,38 @@ Deviations and refinements made while implementing; all deliberate:
     their failures surface where they run); a push event stream (the admin
     tab polls like the runtime tab); persisting failures across restarts.
 
+- **D113 — Tile-managed sandboxes: xbind launches them as siblings, gated by
+  `cap:sandboxes` and a policy, driven over one exec protocol in both modes
+  (2026-09-27; designed, not built).** plans/tile-sandboxes.md.
+  - **Chosen.** A tile owns a set of named sandboxes, launched by xbind
+    through the same `Launch` (+ `vm.Apply`) path — siblings, never nested
+    (D82) — independent of its backend's generations, listed in the D112
+    registry as kind `tile` under their owner. Three gates: an admin-approved
+    `cap:sandboxes` (revoke stops the tile's sandboxes), a workspace
+    sandboxes policy (sizes, per-tile caps, a kill switch) and, for VM mode,
+    `vm.Policy.tiles` with a tile sub-budget. One exec protocol for both
+    modes (`proto`): a resident `bx __sbx-agent` as PID 1 in namespace mode,
+    the shim as a resident router in VM mode, reached through a listener fd
+    xbind owns. File I/O happens only inside sandboxes (xbind pipes opaque
+    bytes). Mounts only from the tile's own reach; no token, gateway, homes
+    or workspace view inside. Egress a subset of the tile's `net`, `none` by
+    default, a relay always present; L4 peers later, never an L3 splice.
+    Backends drive it over HTTP with chunked NDJSON and cursors (resumable
+    across blue/green); humans attach over the `/ws/term` wire with a
+    tile-minted ticket xbind verifies. Definitions persist in the tile's
+    `data/`, state in `.xbin/sbx/<CompKey>/<name>/`; processes don't survive
+    a restart; idle stop without tickers.
+  - **Not chosen:** backends spawning their own (no nested KVM; it would
+    bypass the budget, the registry and the policy); reusing terminal/agent
+    sessions (human-plane, per-user `$HOME`, elements refused by design);
+    per-sandbox API tokens in the MVP (sandbox code could drive its tile or
+    siblings); a `res:<scope>/sandboxes` quota object (the scope author
+    would set its own quota); host-side file operations or an xbind file
+    server (D78, D89); host-mounting VM disks (the host kernel would parse a
+    guest's ext4); an L3 private network via splice (VMs refuse it);
+    WebSocket streams for backends (the zero-dependency SDK has none, and
+    they don't resume across blue/green); hard per-directory confinement
+    inside one sandbox (`Restricted` forbids nested mount namespaces — the
+    modes would differ); a namespace fallback when a VM can't start
+    (D78/D89).
+
