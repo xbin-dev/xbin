@@ -22,7 +22,8 @@ export function opsSections() {
     <section title="Substrate" footer=${b.caps.length ? `offers ${b.caps.join(' ')}` : ''}>
       <row title=${b.name} subtitle=${b.modes.map((m) => m.mode + (m.accel ? ` (${m.accel})` : '')).join(', ') || 'no modes'}
         detail=${b.egress.map((e) => F.EGRESS[e] || e).join(', ')} icon="server"/>
-      ${[b.error, b.runtimeError, b.listError].filter(Boolean).map((e) => html`<notice tone="danger" text=${e}/>`)}
+      ${b.errors.map((e) => html`<notice tone="danger" text=${e}/>`)}
+      ${b.hint ? html`<notice tone="info" text=${b.hint}/>` : nothing}
       ${b.notes.map((n) => html`<notice tone="info" text=${n}/>`)}
     </section>
     <section title="Sandboxes" badge=${String(rows.length)}>

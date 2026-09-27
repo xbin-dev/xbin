@@ -30,14 +30,14 @@ export function opsTab(app, ui) {
 }
 
 function backendTpl(b) {
-  const bad = [b.error, b.runtimeError, b.listError].filter(Boolean);
   return html`<div class="substrate" id="substrate">
       <span class="muted">substrate</span> <b>${b.name}</b>
       ${b.modes.length ? html` · <span class="muted">modes</span> ${b.modes.map((m) => m.mode + (m.accel ? ` (${m.accel})` : '')).join(', ')}` : nothing}
       ${b.caps.length ? html` · <span class="muted">offers</span> <code>${b.caps.join(' ')}</code>` : nothing}
       ${b.egress.length ? html` · <span class="muted">networks</span> ${b.egress.map((e) => F.EGRESS[e] || e).join(', ')}` : nothing}
     </div>
-    ${bad.map((e) => html`<div class="err substrate-err">${e}</div>`)}
+    ${b.errors.map((e) => html`<div class="err substrate-err">${e}</div>`)}
+    ${b.hint ? html`<div class="note small" id="grant-hint">${b.hint}</div>` : nothing}
     ${b.notes.map((n) => html`<div class="note small offer-note">${n}</div>`)}`;
 }
 

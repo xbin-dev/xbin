@@ -78,9 +78,13 @@ export function backendInfo(st) {
       bind: `bx bind ${self} ${word}=${word === 'internet' ? 'internet' : 'lan:10.0.0.0/16'}`,
     };
   });
+  const errors = [...new Set([st && st.backend && st.backend.error, st && st.runtimeError, st && st.listError].filter(Boolean))];
+  // the xbin backend's first hurdle: a workspace admin approves cap:sandboxes
+  const hint = errors.some((e) => /cap:sandboxes/.test(e))
+    ? 'This tile\'s cap:sandboxes grant waits for a workspace admin: approve it in the tile\'s pending grants (the binding panel, or the admin console).' : '';
   return {
     name: (st && st.backend && st.backend.name) || 'xbin', error: (st && st.backend && st.backend.error) || '',
-    runtimeError: (st && st.runtimeError) || '', listError: (st && st.listError) || '',
+    runtimeError: (st && st.runtimeError) || '', listError: (st && st.listError) || '', errors, hint,
     modes: (rt && rt.modes) || [], unavailable: (rt && rt.unavailable) || [], users: (rt && rt.users) || '',
     caps: (offer && offer.caps) || [], egress: (offer && offer.egress) || [], notes: (offer && offer.notes) || [],
     classes, limits: (rt && rt.limits) || null, used: (rt && rt.used) || null,
@@ -102,11 +106,12 @@ export function modeInfo(st) {
   const has = (m) => b.modes.some((x) => x.mode === m);
   const why = (m) => (b.unavailable.find((x) => x.mode === m) || {}).reason || 'the substrate doesn\'t offer it';
   let now = '', blocked = '';
-  if (value === 'auto') now = has('vm') ? 'vm' : has('namespace') ? 'namespace' : '';
+  if (value === 'auto') now = has('vm') ? 'vm' : has('namespace') ? 'namespace' : ((b.modes[0] && b.modes[0].mode) || '');
   else if (has(value)) now = value;
   if (!now) blocked = value === 'auto' ? (b.unavailable.map((u) => `${u.mode}: ${u.reason}`).join('; ') || 'the substrate runs no sandboxes') : why(value);
   const options = MODES.map((m) => ({ ...m, why: m.value !== 'auto' && !has(m.value) ? why(m.value) : '' }));
-  return { value, now, nowText: now ? `new sandboxes are ${now === 'vm' ? 'VMs' : 'namespaces'}` : '', blocked, options };
+  const words = { vm: 'VMs', namespace: 'namespaces', container: 'containers', 'cloud-vm': 'cloud VMs' };
+  return { value, now, nowText: now ? `new sandboxes are ${words[now] || now}` : '', blocked, options };
 }
 
 // --- images -----------------------------------------------------------------------------

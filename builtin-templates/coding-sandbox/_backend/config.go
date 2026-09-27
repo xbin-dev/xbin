@@ -141,10 +141,8 @@ var (
 
 // validate checks c and fills what is implied (one default image and size).
 func (c *Config) validate() error {
-	switch c.Mode {
-	case "", "auto", "vm", "namespace":
-	default:
-		return fmt.Errorf("mode is auto (a VM where available, else a namespace), vm or namespace")
+	if !isolationWord[c.Mode] && c.Mode != "" && c.Mode != "auto" {
+		return fmt.Errorf("mode is auto (a VM where available, else a namespace), vm, namespace — or another backend's own: container, cloud-vm")
 	}
 	for _, mt := range c.Mounts {
 		if err := mt.check(); err != nil {
@@ -255,6 +253,10 @@ func (c Config) sandboxMounts() []xbin.SandboxMount {
 	}
 	return out
 }
+
+// isolationWord: the contract's words for what keeps a sandbox from its host
+// (docs/sandbox-manager.md), which a backend's modes are named by.
+var isolationWord = map[string]bool{"vm": true, "namespace": true, "container": true, "cloud-vm": true}
 
 // autoMode: the operators leave the mode to the substrate's offer.
 func (c Config) autoMode() bool { return c.Mode == "" || c.Mode == "auto" }

@@ -52,6 +52,9 @@ test('ops: rows, usage, the substrate, the mode, images', () => {
   assert.deepEqual(b.classes.map((c) => [c.slot, c.offered]), [['internet', true], ['open', false]]);
   assert.match(b.classes[1].bind, /^bx bind apps\/coding-sandbox open=/);
   assert.equal(O.modeInfo(SEED.ops).now, 'vm');
+  const refused = O.backendInfo({ ...SEED.ops, runtimeError: 'no cap:sandboxes', listError: 'no cap:sandboxes' });
+  assert.deepEqual(refused.errors, ['no cap:sandboxes'], 'one error, said once');
+  assert.match(refused.hint, /workspace admin/);
   const noVM = { ...SEED.ops, config: { ...SEED.ops.config, mode: 'vm' }, runtime: { ...SEED.ops.runtime, modes: [{ mode: 'namespace' }], unavailable: [{ mode: 'vm', reason: 'no KVM' }] } };
   const mi = O.modeInfo(noVM);
   assert.ok(mi.now === '' && mi.blocked === 'no KVM', 'a chosen mode the substrate lacks: none, never another');

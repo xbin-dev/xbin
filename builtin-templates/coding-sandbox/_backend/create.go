@@ -271,7 +271,8 @@ func (m *Manager) layout(rt *xbin.SandboxRuntime) Layout {
 
 // chooseMode is the mode a new sandbox runs in: the operators' choice
 // (config.mode) while the substrate offers it, or — auto — a VM where it
-// offers VMs now, else a namespace. It is never another mode than the
+// offers VMs now, else a namespace, else the substrate's first (another
+// backend's: a cloud's cloud-vm). It is never another mode than the
 // operators chose: without it, no sandbox is made (503, saying why), and
 // the sandbox's `isolation` always says the mode it got.
 func (m *Manager) chooseMode(rt *xbin.SandboxRuntime) (string, error) {
@@ -302,6 +303,8 @@ func (m *Manager) chooseMode(rt *xbin.SandboxRuntime) (string, error) {
 		return "vm", nil
 	case has("namespace"):
 		return "namespace", nil
+	case len(rt.Modes) > 0: // another substrate's own (a cloud's cloud-vm, say)
+		return rt.Modes[0].Mode, nil
 	}
 	return "", errf(http.StatusServiceUnavailable, "unavailable", "the substrate runs no sandboxes now: %s", unavailableWhy(rt))
 }

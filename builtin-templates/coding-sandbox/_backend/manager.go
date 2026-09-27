@@ -635,7 +635,7 @@ func (m *Manager) view(rec record, info *xbin.SandboxInfo, c caller, caps []stri
 	if im, ok := cfg.image(rec.Image); ok {
 		v.Image.Title = im.Title
 	}
-	if rec.Mode == "vm" || rec.Mode == "namespace" { // the mode it was made in (the substrate's info says it too)
+	if isolationWord[rec.Mode] { // the mode it was made in (the substrate's info says it too)
 		v.Isolation = rec.Mode
 	}
 	v.Size.ID = rec.Size
@@ -663,8 +663,7 @@ func (m *Manager) view(rec record, info *xbin.SandboxInfo, c caller, caps []stri
 		v.State, v.StateDetail = info.State, strings.ReplaceAll(info.StateDetail, rec.Runtime, rec.ID)
 	}
 	if info != nil {
-		switch info.Mode {
-		case "vm", "namespace":
+		if isolationWord[info.Mode] {
 			v.Isolation = info.Mode
 		}
 		if info.MemMiB > 0 { // what applied (clamped by the substrate)
