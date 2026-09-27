@@ -19,12 +19,20 @@ const api = (page, path, opt) => page.evaluate(async ([path, opt]) => {
 }, [path, opt]);
 const json = (method, body) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
+// openAgent opens the agent as user, at home, with new chats in the
+// internal class — the pick is remembered per person, and a leftover one
+// (the sandbox pass's coding) would change what a new chat here gets.
+// Picked the way a person does.
 async function openAgent(browser, user, pass) {
   const { ctx, page } = await login(browser, user, pass, { viewport: { width: 1200, height: 850 } });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${URL}/c/apps/agent/`);
   await page.waitForSelector('#msg', { timeout: 30000 });
+  await page.waitForSelector('#tset', { timeout: 30000 });
+  if (!(await page.$('.clsmenu'))) await page.click('#tset');
+  await page.click('.clsmenu .mi[data-class="internal"]');
+  await until(page, () => !document.querySelector('.clsmenu'));
   return { ctx, page, errors };
 }
 
