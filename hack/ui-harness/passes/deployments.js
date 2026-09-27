@@ -367,7 +367,11 @@ async function stepRollback(X) {
   const { check, A } = X, P = A.page;
   await openPanel(P);
   await pn(P, (p) => { p.select('main'); p.tab('log'); return true; });
-  await waitPanel(P, (p) => (p.log || []).some((r) => r.rollback?.enabled), null, "main's deploy log offers a roll back", 20000);
+  // the panel's state has caught up with step 3 once main's newest entry
+  // (the promote) is the one running; before that the promoted checkpoint
+  // itself reads as a roll back target
+  await waitPanel(P, (p) => (p.log || [])[0]?.state === 'running' && p.log.some((r) => r.rollback?.enabled), null,
+    "main's deploy log offers a roll back", 20000);
   const row = await pn(P, (p) => p.log.filter((r) => r.rollback?.enabled).pop()); // the oldest: the seeded page
   const r = await confirm(P, `rollback/${row.checkpoint}`, `Roll back main to ${row.checkpoint}?`, {}, 'the roll back confirmation');
   check(r.ok, `Roll back asks first (${r.d?.title})`);
