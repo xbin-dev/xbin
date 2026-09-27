@@ -309,3 +309,21 @@ func TestFileTree(t *testing.T) {
 	h.refused(proto.FileOp{Op: "move", Path: "/d", To: "e"}, nil, proto.RefuseInvalid)
 	h.refused(proto.FileOp{Op: "move", Path: "/", To: "/e"}, nil, proto.RefuseInvalid)
 }
+
+// A listing's line stays under proto.MaxResult however its names and link
+// targets escape in JSON (a control byte is six bytes there).
+func TestListBudgetCountsEscapes(t *testing.T) {
+	h := newHarness(t, nil)
+	dir := filepath.Join(h.root, "many")
+	_ = os.Mkdir(dir, 0o755)
+	target := strings.Repeat("\x01", 4000)
+	for i := range 400 {
+		if err := os.Symlink(target, filepath.Join(dir, fmt.Sprintf("l%03d", i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	l := h.ok(proto.FileOp{Op: "list", Path: "/many"}, nil) // fails past MaxResult
+	if !l.Truncated || len(l.Entries) == 0 || l.Entries[0].Target != target {
+		t.Fatalf("%d entries, truncated %v", len(l.Entries), l.Truncated)
+	}
+}

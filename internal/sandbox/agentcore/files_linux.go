@@ -3,6 +3,7 @@
 package agentcore
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -336,7 +337,8 @@ func (f *files) list(op *proto.FileOp, rel string) proto.FileResult {
 		if st.Mode&unix.S_IFMT == unix.S_IFLNK {
 			e.Target, _ = readlinkAt(fd, name)
 		}
-		if used += 96 + len(name) + len(e.Target); used > listBudget {
+		b, _ := json.Marshal(e) // as it is sent: a control byte escapes to six
+		if used += len(b) + 1; used > listBudget {
 			r.Truncated = true
 			break
 		}
