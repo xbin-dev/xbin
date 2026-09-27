@@ -490,6 +490,16 @@ func (b *Broker) DeploymentDiskStatus(tile, dep string) (usage, quota int64, blo
 	return d.usage[k.Quota], quota, blocked
 }
 
+// DiskQuota is the per-scope disk quota in bytes (XBIN_LIMIT_DISK, or the
+// default): a tile's disk ceiling, which a deployment's diskGiB never
+// exceeds (P22), for the plane's limits op (GovHooks.DiskCeiling).
+func (b *Broker) DiskQuota() int64 {
+	if b.disk == nil {
+		return defaultQuotaBytes
+	}
+	return b.disk.quota
+}
+
 // DiskLimitCheck judges a tile manager's diskGiB for deployment dep of tile,
 // for POST /deployments/limits (11-contract §1.7, §1.14) (P22): a positive
 // number of GiB, at most the tile's ceiling (the scope quota,

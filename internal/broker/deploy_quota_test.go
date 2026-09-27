@@ -550,3 +550,15 @@ func TestResourceUsagePerDeployment(t *testing.T) {
 		t.Errorf("main's rows after the reassignment: %q, want main's own code's %q", mains, want)
 	}
 }
+
+// covers P22 — the tile's disk ceiling the plane's limits op reads is the
+// scope quota: XBIN_LIMIT_DISK's, or the default without a disk monitor.
+func TestDiskQuotaIsTheCeiling(t *testing.T) {
+	if got := (&Broker{}).DiskQuota(); got != defaultQuotaBytes {
+		t.Errorf("DiskQuota without a monitor = %d, want the default %d", got, int64(defaultQuotaBytes))
+	}
+	b := &Broker{disk: newDiskMon(t.TempDir(), 3<<30, nil)}
+	if got := b.DiskQuota(); got != 3<<30 {
+		t.Errorf("DiskQuota = %d, want the scope quota %d", got, int64(3<<30))
+	}
+}
