@@ -23,6 +23,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   person, a backend names the person it acts for in `Sbx-User`. Managers can
   be built on xbind's own sandboxes or on a cloud's API and ssh.
 
+- **The sandbox-manager conformance suite** (`hack/fakesandbox`, D115). The
+  reference manager's tests check protocol 1 over HTTP alone, section by
+  section — hello, sandboxes and `clientId`s, partitions and shares, verified
+  and asserted people, `version` on PATCH, the lifecycle (a stopped sandbox
+  starting on use, an archived one refusing with `state`), `run` (output
+  shaping, timeouts: TERM, then KILL for the whole group), background execs
+  (offsets, the ring, stdin, signals), files and etags, tar, snapshots and
+  clones, and `unsupported` for a missing capability — so a manager can be
+  checked against it. The reference manager now answers every error in
+  JSON, refuses a PATCH whole or not at all, and ends a timed-out command's
+  group even when a member outlived its leader.
+
 - **Admin console: runtime → sandboxes, and the sandbox in the component
   list** (D112, [isolation.md](isolation.md) §VM sandboxes). A new tab lists
   every sandbox xbind runs — backend generations, terminals, agent sessions

@@ -33,6 +33,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unicode/utf8"
@@ -43,19 +44,22 @@ type fsbManager struct {
 	Root        string        // sandboxes live in <Root>/<id>/, snapshots in <Root>/.snaps/
 	DefaultFrom string        // the consumer when X-XBin-From is missing (a test calling directly)
 	Caps        []string      // the capabilities hello offers (nil = all but tty)
-	Grace       time.Duration // TERM → KILL on a timeout or a stop (0 = 5 s)
-	Ring        int           // an exec's output ring (0 = 1 MiB)
+	Grace       time.Duration // TERM → KILL on a timeout (0 = 5 s)
+	Ring        int           // an exec's output ring (0 = 1 MiB); it keeps between Ring and 2×Ring bytes
+	FileMax     int64         // limits.fileMax (0 = 64 MiB)
 
-	mu    sync.Mutex
-	boxes map[string]*fsbBox
-	seq   int
-	idem  map[string]fsbIdem
-	calls []fsbCall
-	fault map[string]fsbFault
-	gate  chan struct{} // non-nil: exec starts wait for it to close
-	f412  int           // the next N conditional writes fail
-	once  sync.Once
-	mux   *http.ServeMux
+	mu     sync.Mutex
+	boxes  map[string]*fsbBox
+	seq    int
+	idem   map[string]fsbIdem
+	calls  []fsbCall
+	fault  map[string]fsbFault
+	gate   chan struct{} // non-nil: exec starts wait for it to close
+	f412   int           // the next N conditional writes fail
+	closed bool          // Close ran: nothing new starts
+	wmu    sync.Mutex    // serialises content writes (a conditional write's check and its rename)
+	once   sync.Once
+	mux    *http.ServeMux
 }
 
 // fsbCall is one request the manager saw (tests assert on them).
@@ -166,7 +170,7 @@ type fsbSandbox struct {
 
 type fsbBox struct {
 	fsbSandbox
-	dir   string
+	dir   string // the sandbox's root: symlink-free, so "inside" paths and host paths agree
 	execs map[string]*fsbExec
 	eseq  int
 	snaps map[string]*fsbSnap
@@ -179,6 +183,7 @@ type fsbSnap struct {
 	Created int64  `json:"created"`
 	Bytes   int64  `json:"bytes"`
 	dir     string
+	seq     int
 }
 
 // fsbExec is a background command.
@@ -199,8 +204,11 @@ type fsbExec struct {
 
 	ring   *fsbRing
 	cmd    *exec.Cmd
+	pid    int // the process group, once started (m.mu); 0 before
+	seq    int
 	stdin  io.WriteCloser
-	done   chan struct{}
+	eof    bool          // stdin was closed (m.mu)
+	done   chan struct{} // closed once the exec has ended (or never started)
 	killed bool
 }
 
@@ -209,6 +217,7 @@ var fsbSizes = []fsbSize{{ID: "small", MemMiB: 2048, VCPUs: 2, DiskGiB: 20}}
 
 const (
 	fsbFileMax   = 64 << 20
+	fsbStdinMax  = 1 << 20
 	fsbRunOutMax = 1 << 20
 	fsbRunMaxMs  = 600000
 	fsbWaitMax   = 120
@@ -219,9 +228,9 @@ func fsbNow() int64 { return time.Now().UnixMilli() }
 // --- test hooks --------------------------------------------------------------
 
 // FailNext makes the next request of op (hello, list, create, get, patch,
-// delete, action, run, exec, output, stdin, signal, stat, read, write,
-// list-dir, mkdir, remove, move, tar-get, tar-put, snapshot) answer this
-// refusal.
+// delete, action, run, exec, execs, exec-get, exec-delete, output, stdin,
+// signal, stat, read, write, list-dir, mkdir, remove, move, tar-get, tar-put,
+// snapshot, snapshots, restore, snapshot-delete) answer this refusal.
 func (m *fsbManager) FailNext(op string, status int, refusal, msg string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -275,19 +284,17 @@ func (m *fsbManager) Box(id string) (fsbSandbox, bool) {
 	return b.fsbSandbox, true
 }
 
-// Close kills every running command (tests' cleanup).
+// Close kills every running command and waits (a few seconds at most) for
+// them to end; nothing starts after it (tests' cleanup).
 func (m *fsbManager) Close() {
 	m.mu.Lock()
+	m.closed = true
 	var all []*fsbExec
 	for _, b := range m.boxes {
-		for _, e := range b.execs {
-			all = append(all, e)
-		}
+		all = append(all, b.stopExecs()...)
 	}
 	m.mu.Unlock()
-	for _, e := range all {
-		fsbKillGroup(e.cmd, syscall.SIGKILL)
-	}
+	fsbAwait(all, 5*time.Second)
 }
 
 // --- plumbing ----------------------------------------------------------------
@@ -331,7 +338,7 @@ func fsbDecode(r *http.Request, v any) error {
 	if r.Body == nil {
 		return nil
 	}
-	b, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	b, err := io.ReadAll(io.LimitReader(r.Body, 8<<20)) // room for a run's stdin (limits.stdinMax) as JSON
 	if err != nil {
 		return err
 	}
@@ -383,6 +390,13 @@ func (m *fsbManager) ringSize() int {
 		return m.Ring
 	}
 	return 1 << 20
+}
+
+func (m *fsbManager) fileMax() int64 {
+	if m.FileMax > 0 {
+		return m.FileMax
+	}
+	return fsbFileMax
 }
 
 // ServeHTTP records the call and routes it.
@@ -442,6 +456,9 @@ func (m *fsbManager) routes() {
 	x.HandleFunc("POST /sbx/sandboxes/{id}/snapshots", m.snapCreate)
 	x.HandleFunc("POST /sbx/sandboxes/{id}/snapshots/{sid}/restore", m.snapRestore)
 	x.HandleFunc("DELETE /sbx/sandboxes/{id}/snapshots/{sid}", m.snapDelete)
+	x.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { // errors are JSON, even for a route that isn't here
+		fsbFail(w, http.StatusNotFound, "not-found", "no route "+r.Method+" "+r.URL.Path)
+	})
 	m.mux = x
 }
 
@@ -566,7 +583,7 @@ func (m *fsbManager) hello(w http.ResponseWriter, r *http.Request) {
 		"caps":    m.caps(), "egress": []string{"none", "internet"},
 		"images": fsbImages, "sizes": []map[string]any{{"id": "small", "memMiB": 2048, "vcpus": 2, "diskGiB": 20, "default": true}},
 		"limits": map[string]int{"sandboxes": 0, "runTimeoutMaxMs": fsbRunMaxMs, "runOutputMax": fsbRunOutMax,
-			"execsRunning": 16, "outputRing": m.ringSize(), "stdinMax": 1 << 20, "fileMax": fsbFileMax,
+			"execsRunning": 16, "outputRing": m.ringSize(), "stdinMax": fsbStdinMax, "fileMax": int(m.fileMax()),
 			"tarMax": 1 << 30, "waitMaxSec": fsbWaitMax},
 	})
 }
@@ -683,7 +700,12 @@ func (m *fsbManager) create(w http.ResponseWriter, r *http.Request) {
 	}
 	m.seq++
 	id := fmt.Sprintf("sb-%d", m.seq)
-	dir := filepath.Join(m.Root, id)
+	root := m.Root
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		root = resolved // a sandbox's paths are its host paths: keep them symlink-free (pwd agrees)
+	}
+	dir := filepath.Join(root, id)
+	_ = os.RemoveAll(dir) // a previous run's leftovers: a new sandbox starts empty
 	if err := os.MkdirAll(filepath.Join(dir, "work"), 0o755); err != nil {
 		fsbFail(w, http.StatusServiceUnavailable, "unavailable", err.Error())
 		return
@@ -766,19 +788,42 @@ func (m *fsbManager) patch(w http.ResponseWriter, r *http.Request) {
 		fsbFail(w, http.StatusForbidden, "not-allowed", "only its home consumer or its owner changes who may use it")
 		return
 	}
-	restart := false
-	if q.Name != nil {
-		if n := strings.TrimSpace(*q.Name); n == "" || len(n) > 64 {
-			fsbFail(w, http.StatusBadRequest, "invalid", "name is 1–64 characters")
+	// Every field is checked before any applies: a refused PATCH changes nothing.
+	bad := ""
+	switch {
+	case q.Name != nil && (strings.TrimSpace(*q.Name) == "" || len(strings.TrimSpace(*q.Name)) > 64):
+		bad = "name is 1–64 characters"
+	case q.Visibility != nil && *q.Visibility != "private" && *q.Visibility != "team":
+		bad = "visibility is private or team"
+	case q.Egress != nil && *q.Egress != "none" && *q.Egress != "internet":
+		bad = "egress is none or internet here"
+	case q.Size != nil && *q.Size != "small":
+		bad = "no size " + *q.Size
+	case q.AutoStopMin != nil && *q.AutoStopMin < 0:
+		bad = "autoStopMin is 0 or more"
+	}
+	if q.Shares != nil {
+		for _, s := range *q.Shares {
+			if s.Consumer == "" {
+				bad = "a share names its consumer"
+			}
+		}
+	}
+	if bad != "" {
+		fsbFail(w, http.StatusBadRequest, "invalid", bad)
+		return
+	}
+	if q.Labels != nil {
+		if lb, _ := json.Marshal(*q.Labels); len(lb) > 1024 {
+			fsbFail(w, http.StatusRequestEntityTooLarge, "too-large", "labels are 1 KiB at most")
 			return
 		}
+	}
+	restart := false
+	if q.Name != nil {
 		b.Name = strings.TrimSpace(*q.Name)
 	}
 	if q.Visibility != nil {
-		if *q.Visibility != "private" && *q.Visibility != "team" {
-			fsbFail(w, http.StatusBadRequest, "invalid", "visibility is private or team")
-			return
-		}
 		b.Visibility = *q.Visibility
 	}
 	if q.Members != nil {
@@ -791,16 +836,8 @@ func (m *fsbManager) patch(w http.ResponseWriter, r *http.Request) {
 		b.Labels = *q.Labels
 	}
 	if q.Egress != nil {
-		if *q.Egress != "none" && *q.Egress != "internet" {
-			fsbFail(w, http.StatusBadRequest, "invalid", "egress is none or internet here")
-			return
-		}
-		restart = restart || *q.Egress != b.Egress
+		restart = *q.Egress != b.Egress
 		b.Egress = *q.Egress
-	}
-	if q.Size != nil && *q.Size != "small" {
-		fsbFail(w, http.StatusBadRequest, "invalid", "no size "+*q.Size)
-		return
 	}
 	if q.AutoStopMin != nil {
 		b.AutoStopMin = *q.AutoStopMin
@@ -827,30 +864,40 @@ func (m *fsbManager) del(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	delete(m.boxes, b.ID)
-	execs := b.execList()
+	killed := b.stopExecs()
 	m.mu.Unlock()
-	for _, e := range execs {
-		fsbKillGroup(e.cmd, syscall.SIGKILL)
-	}
+	fsbAwait(killed, 5*time.Second) // nothing writes into the tree while it goes
 	_ = os.RemoveAll(b.dir)
+	_ = os.RemoveAll(filepath.Join(m.Root, ".snaps", b.ID))
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (b *fsbBox) execList() []*fsbExec {
-	out := make([]*fsbExec, 0, len(b.execs))
+// stopExecs kills a sandbox's running commands and returns those that had
+// started (m.mu held; the kill doesn't wait — fsbAwait them after unlocking).
+// One still held by GateExecs never starts.
+func (b *fsbBox) stopExecs() []*fsbExec {
+	var out []*fsbExec
 	for _, e := range b.execs {
-		out = append(out, e)
+		if e.State == "running" {
+			e.killed = true
+			if e.pid > 0 {
+				fsbKill(e.pid, syscall.SIGKILL)
+				out = append(out, e)
+			}
+		}
 	}
 	return out
 }
 
-// stopExecs kills a sandbox's running commands (m.mu held by the caller —
-// the kill itself doesn't take it).
-func (b *fsbBox) stopExecs() {
-	for _, e := range b.execs {
-		if e.State == "running" {
-			e.killed = true
-			fsbKillGroup(e.cmd, syscall.SIGKILL)
+// fsbAwait waits for execs to end, up to d in all.
+func fsbAwait(execs []*fsbExec, d time.Duration) {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	for _, e := range execs {
+		select {
+		case <-e.done:
+		case <-t.C:
+			return
 		}
 	}
 }
@@ -864,42 +911,41 @@ func (m *fsbManager) action(w http.ResponseWriter, r *http.Request) {
 		Start bool `json:"start"`
 	}
 	_ = fsbDecode(r, &q)
+	if (act == "archive" || act == "thaw") && !m.hasCap("archive") {
+		fsbFail(w, http.StatusNotImplemented, "unsupported", "no archives here")
+		return
+	}
 	b, c, ok := m.box(w, r)
 	if !ok {
 		return
 	}
-	defer m.mu.Unlock()
+	var killed []*fsbExec
 	switch act {
 	case "start":
 		if b.State != "stopped" && b.State != "running" {
-			fsbStateErr(w, fmt.Errorf("a %s sandbox can't start", b.State), b.State)
+			st := b.State
+			m.mu.Unlock()
+			fsbStateErr(w, fmt.Errorf("a %s sandbox can't start", st), st)
 			return
 		}
 		b.State = "running"
 	case "stop":
 		if b.State != "running" && b.State != "stopped" {
-			fsbStateErr(w, fmt.Errorf("a %s sandbox can't stop", b.State), b.State)
+			st := b.State
+			m.mu.Unlock()
+			fsbStateErr(w, fmt.Errorf("a %s sandbox can't stop", st), st)
 			return
 		}
-		b.stopExecs()
+		killed = b.stopExecs()
 		b.State = "stopped"
 	case "archive":
-		if !m.hasCap("archive") {
-			fsbFail(w, http.StatusNotImplemented, "unsupported", "no archives here")
-			return
-		}
-		if b.State == "archived" {
-			break
-		}
-		b.stopExecs()
+		killed = b.stopExecs()
 		b.State = "archived"
 	case "thaw":
-		if !m.hasCap("archive") {
-			fsbFail(w, http.StatusNotImplemented, "unsupported", "no archives here")
-			return
-		}
 		if b.State != "archived" {
-			fsbStateErr(w, fmt.Errorf("a %s sandbox isn't archived", b.State), b.State)
+			st := b.State
+			m.mu.Unlock()
+			fsbStateErr(w, fmt.Errorf("a %s sandbox isn't archived", st), st)
 			return
 		}
 		b.State = "stopped"
@@ -907,26 +953,66 @@ func (m *fsbManager) action(w http.ResponseWriter, r *http.Request) {
 			b.State = "running"
 		}
 	default:
+		m.mu.Unlock()
 		fsbFail(w, http.StatusNotFound, "not-found", "no action "+act)
 		return
 	}
 	b.Version++
 	b.LastActive = fsbNow()
-	fsbJSON(w, http.StatusOK, b.view(c))
+	m.mu.Unlock()
+	fsbAwait(killed, 5*time.Second) // its execs have ended when it answers
+	m.mu.Lock()
+	v := b.view(c)
+	m.mu.Unlock()
+	fsbJSON(w, http.StatusOK, v)
 }
 
 // --- commands ---------------------------------------------------------------------
 
-// path resolves an absolute in-sandbox path (m.mu held; b.dir is fixed).
+// path resolves an absolute in-sandbox path for an operation on the entry
+// itself (stat, remove, move, mkdir): lexically inside the sandbox, with the
+// symlinks of its parent resolving inside it too. b.dir is fixed, so no lock.
 func (b *fsbBox) path(p string) (string, error) {
 	if !strings.HasPrefix(p, "/") {
 		return "", fmt.Errorf("%q is not an absolute path", p)
 	}
 	c := filepath.Clean(p)
-	if rel, err := filepath.Rel(b.dir, c); err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
+	if !fsbWithin(b.dir, c) || !fsbWithin(b.dir, fsbResolve(filepath.Dir(c))) {
 		return "", fmt.Errorf("%s is outside the sandbox", p)
 	}
 	return c, nil
+}
+
+// pathFollow is path for an operation that follows a final symlink (read,
+// write, list, a cwd, a tree): all of it must resolve inside the sandbox.
+func (b *fsbBox) pathFollow(p string) (string, error) {
+	c, err := b.path(p)
+	if err == nil && !fsbWithin(b.dir, fsbResolve(c)) {
+		err = fmt.Errorf("%s is outside the sandbox", p)
+	}
+	return c, err
+}
+
+// fsbWithin: p is dir or below it (both clean).
+func fsbWithin(dir, p string) bool {
+	rel, err := filepath.Rel(dir, p)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, "../")
+}
+
+// fsbResolve is p with the symlinks of its longest existing prefix resolved.
+func fsbResolve(p string) string {
+	rest := ""
+	for {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return filepath.Join(r, rest)
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			return filepath.Join(p, rest)
+		}
+		rest = filepath.Join(filepath.Base(p), rest)
+		p = parent
+	}
 }
 
 type fsbCmdReq struct {
@@ -950,14 +1036,14 @@ func (m *fsbManager) command(b *fsbBox, q fsbCmdReq) (*exec.Cmd, error) {
 	}
 	cwd := b.Workdir
 	if q.Cwd != "" {
-		p, err := b.path(q.Cwd)
+		p, err := b.pathFollow(q.Cwd)
 		if err != nil {
 			return nil, err
 		}
 		cwd = p
 	}
 	if fi, err := os.Stat(cwd); err != nil || !fi.IsDir() {
-		return nil, fmt.Errorf("cwd %s doesn't exist", q.Cwd)
+		return nil, fmt.Errorf("cwd %s isn't a directory in the sandbox", cwd)
 	}
 	var c *exec.Cmd
 	if len(q.Argv) > 0 {
@@ -966,7 +1052,7 @@ func (m *fsbManager) command(b *fsbBox, q fsbCmdReq) (*exec.Cmd, error) {
 		c = exec.Command("sh", "-c", q.Cmd) // exec-ok: a test fixture (see above)
 	}
 	c.Dir = cwd
-	c.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + b.Home, "LANG=C.UTF-8",
+	c.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + b.Home, "PWD=" + cwd, "LANG=C.UTF-8",
 		"IN_SANDBOX=1", "SANDBOX_ID=" + b.ID, "SANDBOX_NAME=" + b.Name}
 	keys := make([]string, 0, len(q.Env))
 	for k := range q.Env {
@@ -980,11 +1066,30 @@ func (m *fsbManager) command(b *fsbBox, q fsbCmdReq) (*exec.Cmd, error) {
 	return c, nil
 }
 
-func fsbKillGroup(c *exec.Cmd, sig syscall.Signal) {
-	if c == nil || c.Process == nil {
+// fsbKill signals a started command's process group. Only a group whose
+// leader hasn't been waited for (a running exec, a run in flight) or that
+// still has members is signalled — a finished one's number may be reused.
+func fsbKill(pgid int, sig syscall.Signal) {
+	if pgid > 0 { // never 0: kill(0) is our own group
+		_ = syscall.Kill(-pgid, sig)
+	}
+}
+
+// fsbEnd ends a process group the contract's way: TERM, then KILL once grace
+// runs out while any of it is left (a member that ignores TERM, or one that
+// outlived its leader).
+func fsbEnd(pgid int, grace time.Duration) {
+	if pgid <= 0 {
 		return
 	}
-	_ = syscall.Kill(-c.Process.Pid, sig)
+	fsbKill(pgid, syscall.SIGTERM)
+	for deadline := time.Now().Add(grace); time.Now().Before(deadline); {
+		if syscall.Kill(-pgid, 0) != nil {
+			return // the group is gone
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	fsbKill(pgid, syscall.SIGKILL)
 }
 
 func fsbSigName(ps *os.ProcessState) (int, string) {
@@ -992,12 +1097,18 @@ func fsbSigName(ps *os.ProcessState) (int, string) {
 		return -1, ""
 	}
 	if ws, ok := ps.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-		return -1, strings.ToUpper(strings.TrimPrefix(fsbSignalNames[ws.Signal()], "SIG"))
+		if n, ok := fsbSignalNames[ws.Signal()]; ok {
+			return -1, n
+		}
+		return -1, strconv.Itoa(int(ws.Signal()))
 	}
 	return ps.ExitCode(), ""
 }
 
-var fsbSignalNames = map[syscall.Signal]string{syscall.SIGINT: "INT", syscall.SIGTERM: "TERM", syscall.SIGKILL: "KILL", syscall.SIGHUP: "HUP"}
+var fsbSignalNames = map[syscall.Signal]string{syscall.SIGINT: "INT", syscall.SIGTERM: "TERM", syscall.SIGKILL: "KILL",
+	syscall.SIGHUP: "HUP", syscall.SIGQUIT: "QUIT", syscall.SIGABRT: "ABRT", syscall.SIGSEGV: "SEGV", syscall.SIGBUS: "BUS",
+	syscall.SIGFPE: "FPE", syscall.SIGILL: "ILL", syscall.SIGPIPE: "PIPE", syscall.SIGALRM: "ALRM", syscall.SIGUSR1: "USR1",
+	syscall.SIGUSR2: "USR2", syscall.SIGTRAP: "TRAP", syscall.SIGXCPU: "XCPU", syscall.SIGXFSZ: "XFSZ"}
 
 var fsbSignals = map[string]syscall.Signal{"INT": syscall.SIGINT, "TERM": syscall.SIGTERM, "KILL": syscall.SIGKILL, "HUP": syscall.SIGHUP}
 
@@ -1022,7 +1133,7 @@ func (h *fsbHeadTail) Write(p []byte) (int, error) {
 		rest = rest[n:]
 	}
 	h.tail = append(h.tail, rest...)
-	if keep := h.max - q; len(h.tail) > keep {
+	if keep := h.max - q; len(h.tail) > 2*keep+4096 { // compact now and then, not on every write
 		h.tail = append(h.tail[:0:0], h.tail[len(h.tail)-keep:]...)
 	}
 	return len(p), nil
@@ -1031,11 +1142,15 @@ func (h *fsbHeadTail) Write(p []byte) (int, error) {
 func (h *fsbHeadTail) out() map[string]any {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	kept := int64(len(h.head) + len(h.tail))
-	if kept >= h.bytes { // it all fit: one piece
-		return map[string]any{"head": fsbText(append(append([]byte{}, h.head...), h.tail...)), "tail": "", "elided": 0, "bytes": h.bytes}
+	tail := h.tail
+	if keep := h.max - h.max/4; len(tail) > keep {
+		tail = tail[len(tail)-keep:]
 	}
-	return map[string]any{"head": fsbText(h.head), "tail": fsbText(h.tail), "elided": h.bytes - kept, "bytes": h.bytes}
+	kept := int64(len(h.head) + len(tail))
+	if kept >= h.bytes { // it all fit: one piece
+		return map[string]any{"head": fsbText(append(append([]byte{}, h.head...), tail...)), "tail": "", "elided": 0, "bytes": h.bytes}
+	}
+	return map[string]any{"head": fsbText(h.head), "tail": fsbText(tail), "elided": h.bytes - kept, "bytes": h.bytes}
 }
 
 func fsbText(b []byte) string {
@@ -1087,7 +1202,14 @@ func (m *fsbManager) run(w http.ResponseWriter, r *http.Request) {
 	}
 	var stdin string
 	if len(q.Stdin) > 0 {
-		_ = json.Unmarshal(q.Stdin, &stdin)
+		if err := json.Unmarshal(q.Stdin, &stdin); err != nil {
+			fsbFail(w, http.StatusBadRequest, "invalid", "a run's stdin is a string")
+			return
+		}
+	}
+	if len(stdin) > fsbStdinMax {
+		fsbFail(w, http.StatusRequestEntityTooLarge, "too-large", "stdin is over limits.stdinMax")
+		return
 	}
 	c.Stdin = strings.NewReader(stdin)
 	start := time.Now()
@@ -1095,27 +1217,29 @@ func (m *fsbManager) run(w http.ResponseWriter, r *http.Request) {
 		fsbFail(w, http.StatusBadRequest, "invalid", err.Error())
 		return
 	}
+	pgid := c.Process.Pid
 	done := make(chan struct{})
-	timedOut := false
+	var timedOut atomic.Bool
 	go func() {
+		timer := time.NewTimer(time.Duration(timeout) * time.Millisecond)
+		defer timer.Stop()
 		select {
 		case <-done:
-		case <-time.After(time.Duration(timeout) * time.Millisecond):
-			timedOut = true
-			fsbKillGroup(c, syscall.SIGTERM)
+		case <-timer.C:
+			timedOut.Store(true)
+			fsbEnd(pgid, m.grace()) // on past the answer if a member outlived the leader
+		case <-r.Context().Done(): // the caller hung up: the run is its request's
 			select {
-			case <-done:
-			case <-time.After(m.grace()):
-				fsbKillGroup(c, syscall.SIGKILL)
+			case <-done: // the request ended because the run did
+			default:
+				fsbKill(pgid, syscall.SIGKILL)
 			}
-		case <-r.Context().Done():
-			fsbKillGroup(c, syscall.SIGKILL)
 		}
 	}()
 	_ = c.Wait()
 	close(done)
 	code, sig := fsbSigName(c.ProcessState)
-	res := map[string]any{"exitCode": code, "signal": sig, "timedOut": timedOut, "ms": time.Since(start).Milliseconds()}
+	res := map[string]any{"exitCode": code, "signal": sig, "timedOut": timedOut.Load(), "ms": time.Since(start).Milliseconds()}
 	if q.Merge {
 		res["output"] = out.out()
 	} else {
@@ -1124,7 +1248,8 @@ func (m *fsbManager) run(w http.ResponseWriter, r *http.Request) {
 	fsbJSON(w, http.StatusOK, res)
 }
 
-// fsbRing is an exec's combined output: the newest max bytes of a stream.
+// fsbRing is an exec's combined output: the newest bytes of a stream, at
+// least max of them (up to 2×max between compactions).
 type fsbRing struct {
 	mu     sync.Mutex
 	max    int
@@ -1139,7 +1264,7 @@ func newFsbRing(size int) *fsbRing { return &fsbRing{max: size, ch: make(chan st
 func (r *fsbRing) Write(p []byte) (int, error) {
 	r.mu.Lock()
 	r.buf = append(r.buf, p...)
-	if len(r.buf) > r.max {
+	if len(r.buf) > 2*r.max {
 		r.buf = append(r.buf[:0:0], r.buf[len(r.buf)-r.max:]...)
 	}
 	r.total += int64(len(p))
@@ -1253,44 +1378,71 @@ func (m *fsbManager) execStart(w http.ResponseWriter, r *http.Request) {
 	}
 	gate := m.gate
 	b.eseq++
-	e := &fsbExec{ID: fmt.Sprintf("e%d", b.eseq), Label: q.Label, Cmd: q.Cmd, Argv: q.Argv, Cwd: cmd.Dir,
+	e := &fsbExec{ID: fmt.Sprintf("e%d", b.eseq), seq: b.eseq, Label: q.Label, Cmd: q.Cmd, Argv: q.Argv, Cwd: cmd.Dir,
 		State: "running", Started: fsbNow(), ClientID: q.ClientID, ring: newFsbRing(m.ringSize()), cmd: cmd, done: make(chan struct{})}
 	b.execs[e.ID] = e
 	if q.ClientID != "" {
 		m.idem[ikey] = fsbIdem{id: e.ID, hash: fsbHash(q)}
 	}
 	cmd.Stdout, cmd.Stderr = e.ring, e.ring
-	if wantStdin {
-		p, err := cmd.StdinPipe()
-		if err == nil {
-			e.stdin = p
-		}
-	}
 	m.mu.Unlock()
 	if gate != nil {
-		<-gate
+		select {
+		case <-gate:
+		case <-r.Context().Done(): // the caller gave up while it was held: it never starts
+			m.mu.Lock()
+			delete(b.execs, e.ID)
+			m.mu.Unlock()
+			m.unstarted(e, "killed")
+			return
+		}
 	}
-	if err := cmd.Start(); err != nil {
+	// Killed (a stop, a DELETE, Close) while it was held: it never starts.
+	m.mu.Lock()
+	gone := e.killed || m.closed || m.boxes[b.ID] != b || b.execs[e.ID] != e
+	m.mu.Unlock()
+	if gone {
+		m.unstarted(e, "killed")
+		m.mu.Lock()
+		v := m.execView(e)
+		m.mu.Unlock()
+		fsbJSON(w, http.StatusCreated, v)
+		return
+	}
+	var in io.WriteCloser
+	if wantStdin {
+		in, _ = cmd.StdinPipe()
+	}
+	if err := cmd.Start(); err != nil { // (Start closes the pipe)
 		m.mu.Lock()
 		delete(b.execs, e.ID)
 		m.mu.Unlock()
+		m.unstarted(e, "exited")
 		fsbFail(w, http.StatusBadRequest, "invalid", err.Error())
 		return
+	}
+	m.mu.Lock()
+	e.pid, e.stdin = cmd.Process.Pid, in
+	// A kill that came between the check above and now saw no pid: deliver it.
+	late := e.killed || m.closed || m.boxes[b.ID] != b || b.execs[e.ID] != e
+	m.mu.Unlock()
+	if late {
+		fsbKill(e.pid, syscall.SIGKILL)
 	}
 	go m.reap(e)
 	if q.TimeoutMs > 0 {
 		go func() {
+			t := time.NewTimer(time.Duration(q.TimeoutMs) * time.Millisecond)
+			defer t.Stop()
 			select {
 			case <-e.done:
-			case <-time.After(time.Duration(q.TimeoutMs) * time.Millisecond):
+			case <-t.C:
 				m.mu.Lock()
-				e.killed = true
+				running := e.State == "running"
+				e.killed = e.killed || running
 				m.mu.Unlock()
-				fsbKillGroup(cmd, syscall.SIGTERM)
-				select {
-				case <-e.done:
-				case <-time.After(m.grace()):
-					fsbKillGroup(cmd, syscall.SIGKILL)
+				if running {
+					fsbEnd(e.pid, m.grace())
 				}
 			}
 		}()
@@ -1299,6 +1451,15 @@ func (m *fsbManager) execStart(w http.ResponseWriter, r *http.Request) {
 	v := m.execView(e)
 	m.mu.Unlock()
 	fsbJSON(w, http.StatusCreated, v)
+}
+
+// unstarted ends an exec that never ran.
+func (m *fsbManager) unstarted(e *fsbExec, state string) {
+	m.mu.Lock()
+	e.State, e.Ended = state, fsbNow()
+	m.mu.Unlock()
+	e.ring.close()
+	close(e.done)
 }
 
 func (m *fsbManager) reap(e *fsbExec) {
@@ -1334,6 +1495,9 @@ func (m *fsbManager) exec(w http.ResponseWriter, r *http.Request) (*fsbExec, boo
 }
 
 func (m *fsbManager) execList(w http.ResponseWriter, r *http.Request) {
+	if m.faulted(w, "execs") {
+		return
+	}
 	b, _, ok := m.box(w, r)
 	if !ok {
 		return
@@ -1343,11 +1507,14 @@ func (m *fsbManager) execList(w http.ResponseWriter, r *http.Request) {
 		out = append(out, m.execView(e))
 	}
 	m.mu.Unlock()
-	sort.Slice(out, func(i, j int) bool { return out[i].Started < out[j].Started || out[i].ID < out[j].ID })
+	sort.Slice(out, func(i, j int) bool { return out[i].seq < out[j].seq })
 	fsbJSON(w, http.StatusOK, map[string]any{"execs": out})
 }
 
 func (m *fsbManager) execGet(w http.ResponseWriter, r *http.Request) {
+	if m.faulted(w, "exec-get") {
+		return
+	}
 	e, ok := m.exec(w, r)
 	if !ok {
 		return
@@ -1358,18 +1525,24 @@ func (m *fsbManager) execGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (m *fsbManager) execDelete(w http.ResponseWriter, r *http.Request) {
+	if m.faulted(w, "exec-delete") {
+		return
+	}
 	b, _, ok := m.box(w, r)
 	if !ok {
 		return
 	}
 	e := b.execs[r.PathValue("eid")]
 	delete(b.execs, r.PathValue("eid"))
+	if e != nil && e.State == "running" {
+		e.killed = true
+		fsbKill(e.pid, syscall.SIGKILL)
+	}
 	m.mu.Unlock()
 	if e == nil {
 		fsbFail(w, http.StatusNotFound, "not-found", "no such exec")
 		return
 	}
-	fsbKillGroup(e.cmd, syscall.SIGKILL)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1377,13 +1550,19 @@ func (m *fsbManager) execOutput(w http.ResponseWriter, r *http.Request) {
 	if m.faulted(w, "output") {
 		return
 	}
+	qs := r.URL.Query()
+	enc := orFsb(qs.Get("encoding"), "text")
+	if enc != "text" && enc != "base64" {
+		fsbFail(w, http.StatusBadRequest, "invalid", "encoding is text or base64")
+		return
+	}
 	e, ok := m.exec(w, r)
 	if !ok {
 		return
 	}
 	m.mu.Unlock()
-	qs := r.URL.Query()
 	since, _ := strconv.ParseInt(qs.Get("since"), 10, 64)
+	since = max(since, 0)
 	limit, _ := strconv.Atoi(qs.Get("max"))
 	if limit <= 0 {
 		limit = 64 << 10
@@ -1391,7 +1570,6 @@ func (m *fsbManager) execOutput(w http.ResponseWriter, r *http.Request) {
 	limit = min(limit, 1<<20)
 	waitMs, _ := strconv.Atoi(qs.Get("waitMs"))
 	waitMs = max(0, min(waitMs, 30000))
-	enc := orFsb(qs.Get("encoding"), "text")
 	start, end, total, ringStart, data := e.ring.read(r.Context(), since, limit, time.Duration(waitMs)*time.Millisecond)
 	m.mu.Lock()
 	st, code, sig := e.State, e.ExitCode, e.Signal
@@ -1414,22 +1592,36 @@ func (m *fsbManager) execStdin(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	in, running := e.stdin, e.State == "running"
+	in, st, eof := e.stdin, e.State, e.eof
+	closing := r.URL.Query().Get("eof") == "1"
 	m.mu.Unlock()
-	if in == nil {
+	switch {
+	case in == nil:
 		fsbFail(w, http.StatusBadRequest, "invalid", "this exec wasn't started with stdin")
 		return
-	}
-	if !running {
-		fsbStateErr(w, errors.New("the exec has ended"), "exited")
+	case st != "running":
+		fsbStateErr(w, errors.New("the exec has ended"), st)
+		return
+	case eof:
+		fsbFail(w, http.StatusBadRequest, "invalid", "stdin is closed")
 		return
 	}
-	if _, err := io.Copy(in, io.LimitReader(r.Body, 1<<20)); err != nil {
-		fsbStateErr(w, err, "exited")
+	body, err := io.ReadAll(io.LimitReader(r.Body, fsbStdinMax+1))
+	if err == nil && len(body) > fsbStdinMax {
+		fsbFail(w, http.StatusRequestEntityTooLarge, "too-large", "over limits.stdinMax")
 		return
 	}
-	if r.URL.Query().Get("eof") == "1" {
-		_ = in.Close()
+	if len(body) > 0 {
+		if _, err := in.Write(body); err != nil {
+			fsbStateErr(w, errors.New("the exec has stopped reading"), "exited")
+			return
+		}
+	}
+	if closing {
+		_ = in.Close() // (closes once)
+		m.mu.Lock()
+		e.eof = true
+		m.mu.Unlock()
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -1455,16 +1647,18 @@ func (m *fsbManager) execSignal(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if sig == syscall.SIGKILL || sig == syscall.SIGTERM {
-		e.killed = true
+	// A finished exec's group is gone (its number may be another's now): a
+	// signal to it is a no-op, as a kill that raced the end is.
+	// How it ends says whether it was killed: a TERM it handles and exits 7
+	// on is "exited" with 7.
+	if e.State == "running" && e.pid > 0 {
+		if q.Group == nil || *q.Group {
+			fsbKill(e.pid, sig)
+		} else {
+			_ = syscall.Kill(e.pid, sig)
+		}
 	}
-	c := e.cmd
 	m.mu.Unlock()
-	if q.Group == nil || *q.Group {
-		fsbKillGroup(c, sig)
-	} else if c.Process != nil {
-		_ = c.Process.Signal(sig)
-	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1509,8 +1703,9 @@ func fsbStat(p, inside string) (map[string]any, error) {
 	return out, nil
 }
 
-// fileBox resolves {id} and ?path for a file operation.
-func (m *fsbManager) fileBox(w http.ResponseWriter, r *http.Request, p string) (*fsbBox, string, bool) {
+// fileBox resolves {id} and a path for a file operation; follow: the
+// operation follows a final symlink (see pathFollow).
+func (m *fsbManager) fileBox(w http.ResponseWriter, r *http.Request, p string, follow bool) (*fsbBox, string, bool) {
 	b, _, ok := m.box(w, r)
 	if !ok {
 		return nil, "", false
@@ -1521,8 +1716,11 @@ func (m *fsbManager) fileBox(w http.ResponseWriter, r *http.Request, p string) (
 		fsbStateErr(w, err, st)
 		return nil, "", false
 	}
-	hp, err := b.path(p)
 	m.mu.Unlock()
+	hp, err := b.path(p)
+	if follow && err == nil {
+		hp, err = b.pathFollow(p)
+	}
 	if err != nil {
 		fsbFail(w, http.StatusBadRequest, "invalid", err.Error())
 		return nil, "", false
@@ -1543,7 +1741,7 @@ func (m *fsbManager) fileStat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := r.URL.Query().Get("path")
-	_, hp, ok := m.fileBox(w, r, p)
+	_, hp, ok := m.fileBox(w, r, p, false)
 	if !ok {
 		return
 	}
@@ -1561,7 +1759,7 @@ func (m *fsbManager) fileRead(w http.ResponseWriter, r *http.Request) {
 	}
 	qs := r.URL.Query()
 	p := qs.Get("path")
-	_, hp, ok := m.fileBox(w, r, p)
+	_, hp, ok := m.fileBox(w, r, p, true)
 	if !ok {
 		return
 	}
@@ -1574,10 +1772,18 @@ func (m *fsbManager) fileRead(w http.ResponseWriter, r *http.Request) {
 		fsbFail(w, http.StatusBadRequest, "invalid", p+" is a directory")
 		return
 	}
-	offset, _ := strconv.ParseInt(qs.Get("offset"), 10, 64)
-	length, _ := strconv.ParseInt(qs.Get("length"), 10, 64)
-	if qs.Get("length") == "" && fi.Size()-offset > fsbFileMax {
-		fsbFail(w, http.StatusRequestEntityTooLarge, "too-large", "the file is over the file limit; read a range")
+	offset, err1 := strconv.ParseInt(orFsb(qs.Get("offset"), "0"), 10, 64)
+	length, err2 := strconv.ParseInt(orFsb(qs.Get("length"), "-1"), 10, 64)
+	if err1 != nil || err2 != nil || offset < 0 {
+		fsbFail(w, http.StatusBadRequest, "invalid", "offset and length are byte counts")
+		return
+	}
+	n := max(fi.Size()-offset, 0) // what the read returns
+	if length >= 0 {
+		n = min(n, length)
+	}
+	if n > m.fileMax() {
+		fsbFail(w, http.StatusRequestEntityTooLarge, "too-large", "over limits.fileMax; read a smaller range")
 		return
 	}
 	f, err := os.Open(hp)
@@ -1590,13 +1796,9 @@ func (m *fsbManager) fileRead(w http.ResponseWriter, r *http.Request) {
 		fsbFail(w, http.StatusBadRequest, "invalid", err.Error())
 		return
 	}
-	var rd io.Reader = f
-	if length > 0 {
-		rd = io.LimitReader(f, length)
-	}
 	w.Header().Set("ETag", `"`+fsbETag(hp, fi)+`"`)
 	w.Header().Set("Content-Type", "application/octet-stream")
-	_, _ = io.Copy(w, rd)
+	_, _ = io.Copy(w, io.LimitReader(f, n))
 }
 
 func (m *fsbManager) fileWrite(w http.ResponseWriter, r *http.Request) {
@@ -1605,10 +1807,31 @@ func (m *fsbManager) fileWrite(w http.ResponseWriter, r *http.Request) {
 	}
 	qs := r.URL.Query()
 	p := qs.Get("path")
-	_, hp, ok := m.fileBox(w, r, p)
+	_, hp, ok := m.fileBox(w, r, p, false) // it replaces the entry (a symlink too), as a rename does
 	if !ok {
 		return
 	}
+	mode := fs.FileMode(0o644)
+	ms := qs.Get("mode")
+	if ms != "" {
+		v, err := strconv.ParseUint(ms, 8, 32)
+		if err != nil || v > 0o777 {
+			fsbFail(w, http.StatusBadRequest, "invalid", "mode is octal permission bits")
+			return
+		}
+		mode = fs.FileMode(v)
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, m.fileMax()+1))
+	if err != nil {
+		fsbFail(w, http.StatusBadRequest, "invalid", err.Error())
+		return
+	}
+	if int64(len(body)) > m.fileMax() {
+		fsbFail(w, http.StatusRequestEntityTooLarge, "too-large", "over limits.fileMax")
+		return
+	}
+	m.wmu.Lock() // the check and the rename are one step against another write
+	defer m.wmu.Unlock()
 	cur, statErr := os.Lstat(hp)
 	if cur != nil && cur.IsDir() {
 		fsbFail(w, http.StatusBadRequest, "invalid", p+" is a directory")
@@ -1633,35 +1856,29 @@ func (m *fsbManager) fileWrite(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, fsbFileMax+1))
-	if err != nil {
-		fsbFail(w, http.StatusBadRequest, "invalid", err.Error())
-		return
-	}
-	if len(body) > fsbFileMax {
-		fsbFail(w, http.StatusRequestEntityTooLarge, "too-large", "over the file limit")
-		return
-	}
 	if qs.Get("mkdirs") == "1" {
 		_ = os.MkdirAll(filepath.Dir(hp), 0o755)
 	}
-	mode := fs.FileMode(0o644)
-	if cur != nil {
-		mode = cur.Mode().Perm()
+	if ms == "" && cur != nil && cur.Mode().IsRegular() {
+		mode = cur.Mode().Perm() // a replaced file keeps its mode
 	}
-	if ms := qs.Get("mode"); ms != "" {
-		if v, err := strconv.ParseUint(ms, 8, 32); err == nil {
-			mode = fs.FileMode(v)
-		}
-	}
-	tmp := hp + ".fsb-tmp"
-	if err := os.WriteFile(tmp, body, mode); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(hp), ".fsb-tmp-*")
+	if err != nil {
 		fsbNotFound(w, err)
 		return
 	}
-	_ = os.Chmod(tmp, mode)
-	if err := os.Rename(tmp, hp); err != nil {
-		_ = os.Remove(tmp)
+	_, err = tmp.Write(body)
+	if err2 := tmp.Close(); err == nil {
+		err = err2
+	}
+	if err == nil {
+		err = os.Chmod(tmp.Name(), mode)
+	}
+	if err == nil {
+		err = os.Rename(tmp.Name(), hp)
+	}
+	if err != nil {
+		_ = os.Remove(tmp.Name())
 		fsbNotFound(w, err)
 		return
 	}
@@ -1675,7 +1892,7 @@ func (m *fsbManager) fileList(w http.ResponseWriter, r *http.Request) {
 	}
 	qs := r.URL.Query()
 	p := qs.Get("path")
-	_, hp, ok := m.fileBox(w, r, p)
+	_, hp, ok := m.fileBox(w, r, p, true)
 	if !ok {
 		return
 	}
@@ -1716,7 +1933,7 @@ func (m *fsbManager) fileMkdir(w http.ResponseWriter, r *http.Request) {
 		Parents bool   `json:"parents"`
 	}
 	_ = fsbDecode(r, &q)
-	_, hp, ok := m.fileBox(w, r, q.Path)
+	_, hp, ok := m.fileBox(w, r, q.Path, false)
 	if !ok {
 		return
 	}
@@ -1742,7 +1959,7 @@ func (m *fsbManager) fileRemove(w http.ResponseWriter, r *http.Request) {
 		Recursive bool   `json:"recursive"`
 	}
 	_ = fsbDecode(r, &q)
-	b, hp, ok := m.fileBox(w, r, q.Path)
+	b, hp, ok := m.fileBox(w, r, q.Path, false)
 	if !ok {
 		return
 	}
@@ -1777,13 +1994,11 @@ func (m *fsbManager) fileMove(w http.ResponseWriter, r *http.Request) {
 		Overwrite bool   `json:"overwrite"`
 	}
 	_ = fsbDecode(r, &q)
-	b, from, ok := m.fileBox(w, r, q.From)
+	b, from, ok := m.fileBox(w, r, q.From, false)
 	if !ok {
 		return
 	}
-	m.mu.Lock()
 	to, err := b.path(q.To)
-	m.mu.Unlock()
 	if err != nil {
 		fsbFail(w, http.StatusBadRequest, "invalid", err.Error())
 		return
@@ -1811,12 +2026,15 @@ func (m *fsbManager) tarGet(w http.ResponseWriter, r *http.Request) {
 	}
 	qs := r.URL.Query()
 	p := qs.Get("path")
-	_, hp, ok := m.fileBox(w, r, p)
+	_, hp, ok := m.fileBox(w, r, p, true)
 	if !ok {
 		return
 	}
-	if _, err := os.Stat(hp); err != nil {
+	if fi, err := os.Stat(hp); err != nil {
 		fsbNotFound(w, err)
+		return
+	} else if !fi.IsDir() {
+		fsbFail(w, http.StatusBadRequest, "invalid", p+" is not a directory (read a file with files/content)")
 		return
 	}
 	excl := qs["exclude"]
@@ -1880,14 +2098,17 @@ func (m *fsbManager) tarPut(w http.ResponseWriter, r *http.Request) {
 	}
 	qs := r.URL.Query()
 	p := qs.Get("path")
-	_, hp, ok := m.fileBox(w, r, p)
+	b, hp, ok := m.fileBox(w, r, p, true)
 	if !ok {
 		return
 	}
 	if qs.Get("mkdirs") == "1" {
 		_ = os.MkdirAll(hp, 0o755)
 	}
-	if fi, err := os.Stat(hp); err != nil || !fi.IsDir() {
+	if fi, err := os.Stat(hp); err != nil {
+		fsbNotFound(w, err)
+		return
+	} else if !fi.IsDir() {
 		fsbFail(w, http.StatusBadRequest, "invalid", p+" is not a directory")
 		return
 	}
@@ -1897,31 +2118,49 @@ func (m *fsbManager) tarPut(w http.ResponseWriter, r *http.Request) {
 		if err == io.EOF {
 			break
 		}
+		if errors.Is(err, tar.ErrInsecurePath) && hdr != nil {
+			continue // (GODEBUG=tarinsecurepath=0) skipped, as below
+		}
 		if err != nil {
 			fsbFail(w, http.StatusBadRequest, "invalid", "bad tar: "+err.Error())
 			return
 		}
 		name := filepath.Clean(filepath.FromSlash(hdr.Name))
 		if name == "." || filepath.IsAbs(name) || name == ".." || strings.HasPrefix(name, ".."+string(filepath.Separator)) {
-			continue
+			continue // never outside path
 		}
 		dst := filepath.Join(hp, name)
+		if !fsbWithin(b.dir, fsbResolve(filepath.Dir(dst))) {
+			continue // nor through a symlink out of the sandbox
+		}
+		if fi, err := os.Lstat(dst); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
+			_ = os.Remove(dst) // an entry replaces a symlink; it isn't written through it
+		}
 		switch hdr.Typeflag {
 		case tar.TypeDir:
-			_ = os.MkdirAll(dst, 0o755)
+			err = os.MkdirAll(dst, 0o755)
+		case tar.TypeSymlink:
+			_ = os.MkdirAll(filepath.Dir(dst), 0o755)
+			_ = os.Remove(dst)
+			err = os.Symlink(hdr.Linkname, dst)
 		case tar.TypeReg:
 			_ = os.MkdirAll(filepath.Dir(dst), 0o755)
-			f, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, fs.FileMode(hdr.Mode).Perm())
-			if err != nil {
-				fsbFail(w, http.StatusBadRequest, "invalid", err.Error())
-				return
+			var f *os.File
+			f, err = os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, fs.FileMode(hdr.Mode).Perm())
+			if err == nil {
+				_, err = io.Copy(f, tr)
+				if err2 := f.Close(); err == nil {
+					err = err2
+				}
 			}
-			_, err = io.Copy(f, tr)
-			f.Close()
-			if err != nil {
-				fsbFail(w, http.StatusBadRequest, "invalid", err.Error())
-				return
+			if err == nil {
+				_ = os.Chmod(dst, fs.FileMode(hdr.Mode).Perm())
+				_ = os.Chtimes(dst, hdr.ModTime, hdr.ModTime)
 			}
+		}
+		if err != nil {
+			fsbFail(w, http.StatusBadRequest, "invalid", err.Error())
+			return
 		}
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -1976,6 +2215,9 @@ func fsbTreeBytes(dir string) int64 {
 // --- snapshots --------------------------------------------------------------------
 
 func (m *fsbManager) snapList(w http.ResponseWriter, r *http.Request) {
+	if m.faulted(w, "snapshots") {
+		return
+	}
 	if !m.hasCap("snapshots") {
 		fsbFail(w, http.StatusNotImplemented, "unsupported", "no snapshots here")
 		return
@@ -1989,7 +2231,7 @@ func (m *fsbManager) snapList(w http.ResponseWriter, r *http.Request) {
 		out = append(out, *s)
 	}
 	m.mu.Unlock()
-	sort.Slice(out, func(i, j int) bool { return out[i].Created < out[j].Created || out[i].ID < out[j].ID })
+	sort.Slice(out, func(i, j int) bool { return out[i].seq < out[j].seq })
 	fsbJSON(w, http.StatusOK, map[string]any{"snapshots": out})
 }
 
@@ -2005,38 +2247,69 @@ func (m *fsbManager) snapCreate(w http.ResponseWriter, r *http.Request) {
 		Name     string `json:"name"`
 		ClientID string `json:"clientId"`
 	}
-	_ = fsbDecode(r, &q)
+	if err := fsbDecode(r, &q); err != nil {
+		fsbFail(w, http.StatusBadRequest, "invalid", "bad body: "+err.Error())
+		return
+	}
 	b, c, ok := m.box(w, r)
 	if !ok {
 		return
 	}
 	ikey := c.from + "\x00snap\x00" + b.ID + "\x00" + q.ClientID
-	if q.ClientID != "" {
-		if prev, ok := m.idem[ikey]; ok && b.snaps[prev.id] != nil {
-			s := *b.snaps[prev.id]
-			m.mu.Unlock()
-			fsbJSON(w, http.StatusOK, s)
-			return
+	// again answers a repeated clientId (m.mu held; false: not a repeat).
+	again := func() bool {
+		prev, ok := m.idem[ikey]
+		if q.ClientID == "" || !ok || b.snaps[prev.id] == nil {
+			return false
 		}
+		if prev.hash != fsbHash(q) {
+			m.mu.Unlock()
+			fsbFail(w, http.StatusConflict, "exists", "clientId "+q.ClientID+" was used for a different snapshot")
+			return true
+		}
+		s := *b.snaps[prev.id]
+		m.mu.Unlock()
+		fsbJSON(w, http.StatusOK, s)
+		return true
 	}
-	b.sseq++
-	s := &fsbSnap{ID: fmt.Sprintf("s%d", b.sseq), Name: orFsb(q.Name, fmt.Sprintf("snapshot %d", b.sseq)), Created: fsbNow(),
-		dir: filepath.Join(m.Root, ".snaps", b.ID, fmt.Sprintf("s%d", b.sseq))}
-	b.snaps[s.ID] = s
-	if q.ClientID != "" {
-		m.idem[ikey] = fsbIdem{id: s.ID}
-	}
-	src := b.dir
-	m.mu.Unlock()
-	if err := fsbCopyTree(src, s.dir); err != nil {
-		fsbFail(w, http.StatusServiceUnavailable, "unavailable", err.Error())
+	if again() {
 		return
 	}
+	b.sseq++
+	s := &fsbSnap{ID: fmt.Sprintf("s%d", b.sseq), seq: b.sseq, Name: orFsb(q.Name, fmt.Sprintf("snapshot %d", b.sseq)), Created: fsbNow(),
+		dir: filepath.Join(m.Root, ".snaps", b.ID, fmt.Sprintf("s%d", b.sseq))}
+	src := b.dir
+	m.mu.Unlock()
+	// Copied first, published after: nobody sees (or clones) a half-made one.
+	err := fsbCopyTree(src, s.dir)
 	s.Bytes = fsbTreeBytes(s.dir)
-	fsbJSON(w, http.StatusCreated, *s)
+	m.mu.Lock()
+	if err == nil && m.boxes[b.ID] != b {
+		err = errors.New("the sandbox was deleted")
+	}
+	if err != nil {
+		m.mu.Unlock()
+		_ = os.RemoveAll(s.dir)
+		fsbFail(w, http.StatusServiceUnavailable, "unavailable", "snapshot: "+err.Error())
+		return
+	}
+	if again() { // the same clientId won a race meanwhile
+		_ = os.RemoveAll(s.dir)
+		return
+	}
+	b.snaps[s.ID] = s
+	if q.ClientID != "" {
+		m.idem[ikey] = fsbIdem{id: s.ID, hash: fsbHash(q)}
+	}
+	v := *s
+	m.mu.Unlock()
+	fsbJSON(w, http.StatusCreated, v)
 }
 
 func (m *fsbManager) snapRestore(w http.ResponseWriter, r *http.Request) {
+	if m.faulted(w, "restore") {
+		return
+	}
 	if !m.hasCap("snapshots") {
 		fsbFail(w, http.StatusNotImplemented, "unsupported", "no snapshots here")
 		return
@@ -2051,9 +2324,10 @@ func (m *fsbManager) snapRestore(w http.ResponseWriter, r *http.Request) {
 		fsbFail(w, http.StatusNotFound, "not-found", "no such snapshot")
 		return
 	}
-	b.stopExecs()
+	killed := b.stopExecs()
 	dir := b.dir
 	m.mu.Unlock()
+	fsbAwait(killed, 5*time.Second) // nothing writes into the tree while it's replaced
 	ents, _ := os.ReadDir(dir)
 	for _, e := range ents {
 		_ = os.RemoveAll(filepath.Join(dir, e.Name()))
@@ -2070,6 +2344,13 @@ func (m *fsbManager) snapRestore(w http.ResponseWriter, r *http.Request) {
 }
 
 func (m *fsbManager) snapDelete(w http.ResponseWriter, r *http.Request) {
+	if m.faulted(w, "snapshot-delete") {
+		return
+	}
+	if !m.hasCap("snapshots") {
+		fsbFail(w, http.StatusNotImplemented, "unsupported", "no snapshots here")
+		return
+	}
 	b, _, ok := m.box(w, r)
 	if !ok {
 		return
