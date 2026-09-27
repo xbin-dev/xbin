@@ -3316,6 +3316,14 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     attaching its TUN, relay, agent client or registry row: each is
     attached under the run's mutex unless the teardown began (`attach`),
     else the start closes it itself. `-race` clean (the unit tests, ×3).
+  - *A stop's sync is bounded as a whole, its send included* (verifier):
+    the agent runs `syncfs` and a session's spawn inline in its control
+    loop, so over a wedged root it stops reading `ctl`; one large line
+    (an exec's body can pass the socket buffer) then blocks `send` holding
+    `sendMu`, and an unbounded `Sync` never reached the kill. **WP-17:**
+    the agent client's other sends (`Exec`, `Signal`, `Resize`) are still
+    unbounded — bound them the same way (or end the run), so a request
+    never hangs on a sandbox that stopped reading.
   - *One host `Deny` per runtime*, not per relay: `HostDeny`'s netlink
     socket (one per call, closed only by a GC cleanup) would otherwise be
     one more fd per start until a GC. The TUN is closed by the runtime

@@ -4,6 +4,7 @@ package tilesbx
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"net/netip"
 	"os"
@@ -431,5 +432,29 @@ func TestPinErrors(t *testing.T) {
 	fe.want(fe.do(mgr, "POST", "/sandboxes/sb-2/start", nil), http.StatusConflict, RefState)
 	if in := fe.get("sb-2"); in.State != StateError || !strings.Contains(in.StateDetail, "b-gone") {
 		t.Fatalf("missing base: %+v", in)
+	}
+}
+
+// A stop's sync is bounded as a whole, its send included: an agent whose
+// control loop is stuck (a syncfs or a spawn on a wedged root) stops
+// reading, a large line fills the connection and blocks the next send, and
+// the stop must still get to its kill.
+func TestSyncBoundedWhenTheAgentStopsReading(t *testing.T) {
+	ours, theirs := net.Pipe() // unbuffered: nothing gets through while nobody reads
+	defer theirs.Close()
+	a := &agentClient{ctl: proto.NewConn(ours, nil), sessions: map[int]*agentSession{}, next: firstSession,
+		ready: make(chan struct{}), gone: make(chan struct{}), logf: func(string, ...any) {}}
+	defer a.Close()
+	go func() { _ = a.send(proto.Msg{Op: "exec", Exec: &proto.Exec{Argv: []string{"true"}}}) }() // holds sendMu, blocked
+	time.Sleep(50 * time.Millisecond)
+	done := make(chan error, 1)
+	go func() { done <- a.Sync(200 * time.Millisecond) }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a sync nobody answered succeeded")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Sync blocked past its bound on a send the agent never reads")
 	}
 }

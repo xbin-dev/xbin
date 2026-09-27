@@ -172,6 +172,10 @@ func (a *agentClient) send(m proto.Msg) error {
 // Sync asks the agent to flush the sandbox's filesystem and waits for its
 // "synced", at most d. A fuse-overlayfs a session stopped can wedge the
 // flush (WP-3's note): a stop gives up after d and kills the sandbox anyway.
+// The send is inside the bound too: an agent whose control loop is stuck (a
+// syncfs or a spawn on a wedged root) stops reading, and a send already
+// blocked on the full connection holds sendMu. A send left behind ends when
+// the teardown closes the connection.
 func (a *agentClient) Sync(d time.Duration) error {
 	w := make(chan struct{})
 	a.mu.Lock()
@@ -181,18 +185,24 @@ func (a *agentClient) Sync(d time.Duration) error {
 	}
 	a.syncs = append(a.syncs, w)
 	a.mu.Unlock()
-	if err := a.send(proto.Msg{Op: "sync"}); err != nil {
-		return err
-	}
 	t := time.NewTimer(d)
 	defer t.Stop()
-	select {
-	case <-w:
-		return nil
-	case <-a.gone:
-		return errors.New("the agent closed its control connection")
-	case <-t.C:
-		return fmt.Errorf("no synced within %s", d)
+	sent := make(chan error, 1)
+	go func() { sent <- a.send(proto.Msg{Op: "sync"}) }()
+	for {
+		select {
+		case err := <-sent:
+			if err != nil {
+				return err
+			}
+			sent = nil
+		case <-w:
+			return nil
+		case <-a.gone:
+			return errors.New("the agent closed its control connection")
+		case <-t.C:
+			return fmt.Errorf("no synced within %s", d)
+		}
 	}
 }
 
