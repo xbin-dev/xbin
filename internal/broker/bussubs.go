@@ -2,11 +2,13 @@ package broker
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"iter"
 	"log/slog"
 	"net/http"
 	"os"
@@ -21,6 +23,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Bus push subscriptions (D85). A backend can't hold a /ws/events socket
@@ -78,10 +81,14 @@ type busSubStats struct {
 	Failed    int64  `json:"failed"`  // the POST failed or answered ≥400, or the grant is gone
 	LastError string `json:"lastError,omitempty"`
 	LastAt    int64  `json:"lastAt,omitempty"` // unix ms of the last attempt
+	// DormantEvents counts events that reached no delivery because the
+	// subscription's deployment isn't in the active set (dormant.go).
+	DormantEvents int64 `json:"dormantEvents,omitempty"`
 }
 
 type busSubState struct {
 	sub   busSub
+	owner string // the deployment it belongs to: "" for main, whose live in today's store
 	stats busSubStats
 	queue []busDelivery
 	busy  bool // a drain goroutine owns the queue
@@ -99,10 +106,15 @@ type busSubs struct {
 	mu       sync.Mutex
 	subs     map[string]*busSubState // component \x00 name
 	dispatch BusDispatch
+	// The subscriptions of deployments beyond main, kept in their own files
+	// (dormant.go), keyed by depKey, and the lock that serializes rewrites
+	// of those files.
+	dep    map[string]*busSubState
+	fileMu sync.Mutex
 }
 
 func newBusSubs(b *Broker) *busSubs {
-	bs := &busSubs{b: b, subs: map[string]*busSubState{}}
+	bs := &busSubs{b: b, subs: map[string]*busSubState{}, dep: map[string]*busSubState{}}
 	if bts, err := os.ReadFile(bs.storePath()); err == nil {
 		var list []busSub
 		if json.Unmarshal(bts, &list) == nil {
@@ -115,11 +127,14 @@ func newBusSubs(b *Broker) *busSubs {
 }
 
 // SetBusDispatch installs the delivery path (from main, backed by the proxy).
-// Events published before it is set reach no subscription.
+// Events published before it is set reach no subscription. It then loads the
+// subscriptions of every deployment beyond main (dormant.go): boot calls it
+// after installing the deployments plane's answers.
 func (b *Broker) SetBusDispatch(fn BusDispatch) {
 	b.bus.mu.Lock()
 	b.bus.dispatch = fn
 	b.bus.mu.Unlock()
+	b.bus.loadDeps()
 }
 
 // DispatchBodyViaProxy adapts the proxy into BusDispatch: a POST with a JSON
@@ -267,14 +282,25 @@ func newBusEventID() string {
 }
 
 // publish queues one bus event for every matching subscription. It never
-// blocks on delivery.
-func (bs *busSubs) publish(resource, topic string, data any) {
+// blocks on delivery. The event is in the resource's primary namespace.
+func (bs *busSubs) publish(resource, topic string, data any) { bs.publishIn(resource, "", topic, data) }
+
+// publishIn is publish for an event in deployment ns's data namespace ("" is
+// the resource's primary's): it reaches only the subscriptions whose
+// addressed namespace that is, and queues nothing for those whose deployment
+// isn't in the active set, counting the event as dormant (dormant.go).
+func (bs *busSubs) publishIn(resource, ns, topic string, data any) {
 	now := time.Now()
 	var ev *busDelivery
+	where := bs.b.busNamespace(resource, ns)
 	bs.mu.Lock()
 	defer bs.mu.Unlock()
-	for _, st := range bs.subs {
-		if st.sub.Resource != resource || !strings.HasPrefix(topic, st.sub.Prefix) {
+	for st := range bs.all() {
+		if st.sub.Resource != resource || !strings.HasPrefix(topic, st.sub.Prefix) || !where.reaches(st) {
+			continue
+		}
+		if !bs.b.firing(st.sub.Component, st.owner) {
+			st.stats.DormantEvents++
 			continue
 		}
 		if ev == nil {
@@ -298,6 +324,55 @@ func (bs *busSubs) publish(resource, topic string, data any) {
 	}
 }
 
+// all ranges over main's subscriptions and every other deployment's; the
+// caller holds bs.mu.
+func (bs *busSubs) all() iter.Seq[*busSubState] {
+	return func(yield func(*busSubState) bool) {
+		for _, set := range [2]map[string]*busSubState{bs.subs, bs.dep} {
+			for _, st := range set {
+				if !yield(st) {
+					return
+				}
+			}
+		}
+	}
+}
+
+// busNS is where one published event is (08-data §4.3; 09-fabric §5.10):
+// the resource's scope, its primary namespace P(R) (the scope root's
+// primary; main for a plain directory or the workspace level), and the
+// namespace the event is in.
+type busNS struct {
+	b       *Broker
+	scope   string
+	primary string
+	ns      string
+}
+
+// busNamespace places an event on resource in deployment ns's namespace;
+// "" is the resource's primary namespace, what an unqualified publish is.
+func (b *Broker) busNamespace(resource, ns string) busNS {
+	n := busNS{b: b, primary: util.MainDeployment}
+	if rt, _, ok := b.parseRes(resource); ok && rt.Scope != "" {
+		n.scope, n.primary = rt.Scope, b.primaryOf(rt.Scope)
+	}
+	n.ns = cmp.Or(ns, n.primary)
+	return n
+}
+
+// reaches reports whether the event is in st's addressed namespace for the
+// resource: an own-scope subscription reads its owner's namespace, any other
+// the scope's primary's. In the zero state both are main.
+func (n busNS) reaches(st *busSubState) bool {
+	want := n.primary
+	if n.scope != "" {
+		if c, ok := n.b.Reg.Component(st.sub.Component); ok && c.Scope == n.scope {
+			want = cmp.Or(st.owner, util.MainDeployment)
+		}
+	}
+	return want == n.ns
+}
+
 // drain delivers st's queue in order, one at a time, and exits when it is
 // empty (the next publish starts another).
 func (bs *busSubs) drain(st *busSubState) {
@@ -313,7 +388,7 @@ func (bs *busSubs) drain(st *busSubState) {
 		sub, dispatch := st.sub, bs.dispatch
 		bs.mu.Unlock()
 
-		outcome, errText := bs.deliver(dispatch, sub, d)
+		outcome, errText := bs.deliver(dispatch, st.owner, sub, d)
 
 		bs.mu.Lock()
 		st.stats.LastAt = time.Now().UnixMilli()
@@ -325,16 +400,23 @@ func (bs *busSubs) drain(st *busSubState) {
 		case "failed":
 			st.stats.Failed++
 			st.stats.LastError = errText
+		case "dormant":
+			st.stats.DormantEvents++
 		}
 		bs.mu.Unlock()
-		if outcome == "gone" && bs.remove(sub.Component, sub.Name) {
+		if outcome == "gone" && st.owner != "" {
+			bs.b.pruneDepSub(sub.Component, st.owner, sub.Name)
+		} else if outcome == "gone" && bs.remove(sub.Component, sub.Name) {
 			slog.Info("bus subscription pruned: its component is gone", "component", sub.Component, "name", sub.Name)
 			bs.persist()
 		}
 	}
 }
 
-func (bs *busSubs) deliver(dispatch BusDispatch, sub busSub, d busDelivery) (outcome, errText string) {
+// deliver POSTs one queued event to sub, which belongs to deployment owner
+// ("" is main), re-checking at delivery that owner's registrations are
+// active and that it can still read the bus (P13).
+func (bs *busSubs) deliver(dispatch BusDispatch, owner string, sub busSub, d busDelivery) (outcome, errText string) {
 	b := bs.b
 	if _, ok := b.Reg.Component(sub.Component); !ok {
 		return "gone", ""
@@ -342,7 +424,10 @@ func (bs *busSubs) deliver(dispatch BusDispatch, sub busSub, d busDelivery) (out
 	if b.Reg.LifecycleState(sub.Component) != registry.StateEnabled || dispatch == nil {
 		return "dropped", ""
 	}
-	if err := b.allowRes(auth.Principal{Component: sub.Component}, sub.Resource, "reader"); err != nil {
+	if !b.firing(sub.Component, owner) {
+		return "dormant", ""
+	}
+	if err := b.busOwnerMayRead(sub.Component, owner, sub.Resource); err != nil {
 		return "failed", err.Error()
 	}
 	body, err := json.Marshal(d)
@@ -351,7 +436,7 @@ func (bs *busSubs) deliver(dispatch BusDispatch, sub busSub, d busDelivery) (out
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), busSubTimeout)
 	defer cancel()
-	p := auth.Principal{Component: BusPrincipal, Via: "bus", Role: sub.Role}
+	p := auth.Principal{Component: BusPrincipal, Via: "bus", Role: sub.Role, Deployment: owner}
 	code, resp := dispatch(ctx, p, sub.Component, sub.Path, body)
 	if code >= 400 {
 		slog.Warn("bus delivery failed", "component", sub.Component, "subscription", sub.Name,
@@ -363,29 +448,39 @@ func (bs *busSubs) deliver(dispatch BusDispatch, sub busSub, d busDelivery) (out
 
 // --- API ---------------------------------------------------------------
 
+// busSubView is a row of GET /bus/subscriptions: today's row, plus the
+// deployment by the name rule and whether it is dormant (11-contract §8),
+// both absent for a zero-state tile.
 type busSubView struct {
 	busSub
 	busSubStats
+	Deployment string `json:"deployment,omitempty"`
+	Dormant    bool   `json:"dormant,omitempty"`
 }
 
 func (b *Broker) apiBusSubsList(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
 	admin := b.IsAdmin(p)
-	b.bus.mu.Lock()
-	out := []busSubView{}
-	for _, st := range b.bus.subs {
-		if admin || (p.Component != "" && p.Component == st.sub.Component) {
-			out = append(out, busSubView{st.sub, st.stats})
-		}
+	// the deployment listed: a tile principal's own, else ?deployment= or main
+	dep, code, err := b.listDeployment(r, p)
+	if err != nil {
+		server.WriteError(w, code, err.Error(), "/docs/resources.md")
+		return
 	}
-	b.bus.mu.Unlock()
-	sort.Slice(out, func(i, k int) bool {
-		if out[i].Component != out[k].Component {
-			return out[i].Component < out[k].Component
+	keep := func(comp string) bool { return admin || (p.Component != "" && p.Component == comp) }
+	out := []busSubView{}
+	if dep == util.MainDeployment {
+		b.bus.mu.Lock()
+		for _, st := range b.bus.subs {
+			if keep(st.sub.Component) {
+				out = append(out, busSubView{busSub: st.sub, busSubStats: st.stats})
+			}
 		}
-		return out[i].Name < out[k].Name
-	})
-	server.WriteJSON(w, http.StatusOK, map[string]any{"subscriptions": out})
+		b.bus.mu.Unlock()
+	} else {
+		out = append(out, b.bus.depViews(dep, keep)...)
+	}
+	server.WriteJSON(w, http.StatusOK, b.busList(r, dep, out))
 }
 
 func (b *Broker) apiBusSubsPut(w http.ResponseWriter, r *http.Request) {
@@ -417,9 +512,23 @@ func (b *Broker) apiBusSubsPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Resource = rt.String()
+	// the deployment it subscribes for: a tile's own, else ?deployment= or main
+	dep, code, err := b.regDeployment(r, p, s.Component)
+	if err != nil {
+		server.WriteError(w, code, err.Error(), docs)
+		return
+	}
+	if dep != util.MainDeployment {
+		b.putDepSub(w, r, dep, s, rt) // its own file (dormant.go)
+		return
+	}
 	// the SUBSCRIBER must be able to read the bus — an admin registering for
 	// a component doesn't lend it their access
 	if err := b.allowRes(auth.Principal{Component: s.Component}, s.Resource, "reader"); err != nil {
+		server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/auth.md")
+		return
+	}
+	if err := b.depEdge(s.Component, dep, s.Resource); err != nil { // main while it isn't the primary
 		server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/auth.md")
 		return
 	}
@@ -431,7 +540,7 @@ func (b *Broker) apiBusSubsPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.bus.persist()
-	server.WriteOK(w)
+	writeRegOK(w, r, !b.firing(s.Component, dep))
 }
 
 func (b *Broker) apiBusSubsDelete(w http.ResponseWriter, r *http.Request) {
@@ -440,10 +549,19 @@ func (b *Broker) apiBusSubsDelete(w http.ResponseWriter, r *http.Request) {
 	if !b.IsAdmin(p) {
 		comp = p.Component // only your own
 	}
+	dep, code, err := b.regDeployment(r, p, comp)
+	if err != nil {
+		server.WriteError(w, code, err.Error(), "/docs/resources.md")
+		return
+	}
+	if dep != util.MainDeployment {
+		b.deleteDepSub(w, r, comp, dep, r.PathValue("name")) // its own file (dormant.go)
+		return
+	}
 	if !b.bus.remove(comp, r.PathValue("name")) {
 		server.WriteError(w, http.StatusNotFound, "no such subscription")
 		return
 	}
 	b.bus.persist()
-	server.WriteOK(w)
+	writeRegOK(w, r, false)
 }
