@@ -6,6 +6,8 @@ package broker
 // nil answers exactly as a workspace without tile deployments does today.
 
 import (
+	"context"
+
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/server"
@@ -33,6 +35,11 @@ type DeploymentHooks struct {
 	// non-main data namespaces), for pathLeftovers' refusal list (D82).
 	// nil: none.
 	DeploymentLeftovers func(path string) []string
+	// RestoreDeploymentState puts a restore's validated deployment section
+	// back (deploymentRestorer, backup_deploy.go): it rebuilds the tile's
+	// checkpoint store from the staged objects and installs the archived
+	// record only when the tile has none. nil: the section is left out.
+	RestoreDeploymentState func(ctx context.Context, tile string, record []byte, objects string, refs map[string]string) error
 
 	// The server's deployment questions (server.Policy): brokerPolicy
 	// answers through these, and nil answers as server.NoopPolicy does.

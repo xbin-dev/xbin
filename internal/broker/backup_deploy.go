@@ -71,10 +71,11 @@ const (
 type deploymentRestorer func(ctx context.Context, tile string, record []byte, objects string, refs map[string]string) error
 
 // deploymentStateRestorer is the plane's restorer: nil until the
-// deployments plane installs one (a DeploymentHooks field, which boot wires
-// to the plane). Until then a restore checks whose deployment section it
-// reads, refuses another tile's, and leaves the rest out.
-func (b *Broker) deploymentStateRestorer() deploymentRestorer { return nil }
+// deployments plane installs one (DeploymentHooks.RestoreDeploymentState,
+// which boot wires to the plane). Until then a restore checks whose
+// deployment section it reads, refuses another tile's, and leaves the rest
+// out.
+func (b *Broker) deploymentStateRestorer() deploymentRestorer { return b.RestoreDeploymentState }
 
 // ---- backup ----
 
