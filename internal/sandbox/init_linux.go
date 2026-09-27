@@ -4,11 +4,14 @@ package sandbox
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"unsafe"
 
@@ -166,11 +169,8 @@ func runInit(specPath string) error {
 	// Extra binds: component dir (ro), resource files (rw), gateway socket, …
 	// Mounted ancestors-first (sortBinds) so overlapping binds nest instead of
 	// a later broad mount shadowing an earlier deeper one.
-	for _, b := range sortBinds(s.Binds) {
-		dbg(s.Debug, "bind %q -> %q (ro=%v mask=%v)", b.Src, b.Dst, b.RO, b.Mask)
-		if err := mountBind(newroot, b); err != nil {
-			return err
-		}
+	if err := mountBinds(newroot, s.Binds, s.Debug); err != nil {
+		return err
 	}
 	dbg(s.Debug, "binds done (%d)", len(s.Binds))
 
@@ -421,6 +421,215 @@ func mountBind(newroot string, b Bind) error {
 	}
 	return nil
 }
+
+// mountBinds mounts a spec's binds, ancestors first (sortBinds). A bind
+// outside every other bind's destination takes mountBind's path, as ever.
+// One whose destination lies under another's has its mount point walked from
+// the enclosing bind's mounted root without following a symlink
+// (mountNested): a checkpoint's content can hold a symlink where a nested
+// component's mount point goes, and a mount that followed it would show that
+// code elsewhere in the sandbox, or make directories outside the tree (P16).
+// An enclosing bind's read-only remount waits until everything nested in it
+// is mounted: the mount point may be missing from the tree it shows (nested
+// components aren't in a checkpoint), and a read-only bind can't take the
+// mkdirat. Masks keep mountMask's path.
+func mountBinds(newroot string, binds []Bind, debug bool) error {
+	binds = sortBinds(binds)
+	var roots []bindRoot // mounted binds a later bind nests under
+	defer func() {
+		for _, r := range roots {
+			unix.Close(r.fd)
+		}
+	}()
+	for i, b := range binds {
+		dbg(debug, "bind %q -> %q (ro=%v mask=%v)", b.Src, b.Dst, b.RO, b.Mask)
+		dst := path.Clean("/" + b.Dst)
+		holds := false // a later bind mounts beneath this one
+		for _, n := range binds[i+1:] {
+			holds = holds || beneath(path.Clean("/"+n.Dst), dst)
+		}
+		seal := holds && b.RO && !b.Mask // its read-only remount waits for them
+		root, err := -1, error(nil)
+		if enc, ok := enclosing(roots, dst); ok && !b.Mask {
+			dbg(debug, "  nested in %q: mount point made without following symlinks", enc.dst)
+			if root, err = mountNested(enc, dst, b); err == nil && b.RO && !seal {
+				err = must(remountRO(fdPath(root)), "remount ro "+b.Dst)
+			}
+		} else {
+			bb := b
+			bb.RO = b.RO && !seal
+			if err = mountBind(newroot, bb); err == nil && holds {
+				fd, oerr := unix.Open(filepath.Join(newroot, b.Dst), unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+				switch {
+				case oerr == nil:
+					root = fd
+				case !b.Mask: // a mask over nothing mounted nothing and holds no root
+					err = must(oerr, "open bind root "+b.Dst)
+				}
+			}
+		}
+		if root >= 0 && holds && err == nil {
+			roots = append(roots, bindRoot{dst: dst, fd: root, seal: seal})
+		} else if root >= 0 {
+			unix.Close(root)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	for _, r := range roots {
+		if r.seal {
+			if err := remountRO(fdPath(r.fd)); err != nil {
+				return must(err, "remount ro "+r.dst)
+			}
+		}
+	}
+	return nil
+}
+
+// bindRoot is a mounted bind that a later bind nests under: an O_PATH fd on
+// the root it shows, where nested mount points are walked from, and whether
+// its read-only remount waits until they are mounted.
+type bindRoot struct {
+	dst  string
+	fd   int
+	seal bool
+}
+
+// enclosing is the deepest mounted bind whose destination dst lies under;
+// among equal destinations the last mounted, the one on top.
+func enclosing(roots []bindRoot, dst string) (bindRoot, bool) {
+	var best bindRoot
+	ok := false
+	for _, r := range roots {
+		if beneath(dst, r.dst) && (!ok || len(r.dst) >= len(best.dst)) {
+			best, ok = r, true
+		}
+	}
+	return best, ok
+}
+
+// beneath reports whether the clean absolute path p lies strictly under dir.
+func beneath(p, dir string) bool {
+	if dir == "/" {
+		return p != "/"
+	}
+	return strings.HasPrefix(p, dir+"/")
+}
+
+// mountNested binds b.Src at dst, which lies under enc's destination: each
+// component below enc's root is opened (or made: mkdirat, or an empty file
+// for a file bind) without following a symlink, and the bind lands on the
+// opened mount point through its /proc/self/fd path, never on a path string
+// resolved again. A symlink or a file in the way fails the start, naming the
+// path. It returns an O_PATH fd on the new mount's root.
+func mountNested(enc bindRoot, dst string, b Bind) (int, error) {
+	fi, err := os.Lstat(b.Src)
+	if err != nil {
+		return -1, must(err, "bind src "+b.Src)
+	}
+	comps := strings.Split(strings.TrimPrefix(strings.TrimPrefix(dst, enc.dst), "/"), "/")
+	dir, at := enc.fd, enc.dst
+	defer func() {
+		if dir != enc.fd {
+			unix.Close(dir)
+		}
+	}()
+	for _, c := range comps[:len(comps)-1] {
+		at = path.Join(at, c)
+		next, err := nestedPoint(dir, c, at, true)
+		if err != nil {
+			return -1, err
+		}
+		if dir != enc.fd {
+			unix.Close(dir)
+		}
+		dir = next
+	}
+	last := comps[len(comps)-1]
+	mp, err := nestedPoint(dir, last, dst, fi.IsDir())
+	if err != nil {
+		return -1, err
+	}
+	// Always recursive, as mountBind (see Bind's doc).
+	err = unix.Mount(b.Src, fdPath(mp), "", unix.MS_BIND|unix.MS_REC, "")
+	unix.Close(mp)
+	if err != nil {
+		return -1, must(err, "bind "+b.Src+" -> "+b.Dst)
+	}
+	// The name looked up again from its parent lands on top of the new mount.
+	root, err := openNoFollow(dir, last, unix.O_PATH)
+	if err != nil {
+		return -1, must(err, "open bind root "+b.Dst)
+	}
+	return root, nil
+}
+
+// nestedPoint opens the mount point name beneath dirfd (at is its path in
+// the sandbox, for errors), making it when missing: a directory, or an empty
+// file when isDir is false.
+func nestedPoint(dirfd int, name, at string, isDir bool) (int, error) {
+	flags := unix.O_PATH
+	if isDir {
+		flags |= unix.O_DIRECTORY
+	}
+	fd, err := openNoFollow(dirfd, name, flags)
+	if errors.Is(err, unix.ENOENT) {
+		// neither follows a symlink in name's place: both fail with EEXIST
+		if isDir {
+			err = unix.Mkdirat(dirfd, name, 0o755)
+		} else {
+			var f int
+			if f, err = unix.Openat(dirfd, name, unix.O_CREAT|unix.O_EXCL|unix.O_WRONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o644); err == nil {
+				unix.Close(f)
+			}
+		}
+		if err != nil && !errors.Is(err, unix.EEXIST) {
+			return -1, must(err, "make mount point "+at)
+		}
+		fd, err = openNoFollow(dirfd, name, flags)
+	}
+	switch {
+	case err == nil:
+		return fd, nil
+	case errors.Is(err, unix.ELOOP), errors.Is(err, unix.EXDEV):
+		return -1, fmt.Errorf("nested mount point %s: a symlink is in the way", at)
+	case errors.Is(err, unix.ENOTDIR):
+		return -1, fmt.Errorf("nested mount point %s: not a directory", at)
+	default:
+		return -1, must(err, "open "+at)
+	}
+}
+
+// openNoFollow opens one name beneath dirfd without following a symlink:
+// openat2 with RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS, or, on a kernel before
+// 5.6, openat with O_NOFOLLOW and a type check, which for a single plain name
+// is the same guarantee.
+func openNoFollow(dirfd int, name string, flags int) (int, error) {
+	fd, err := unix.Openat2(dirfd, name, &unix.OpenHow{
+		Flags:   uint64(flags | unix.O_CLOEXEC),
+		Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
+	})
+	if !errors.Is(err, unix.ENOSYS) {
+		return fd, err
+	}
+	if fd, err = unix.Openat(dirfd, name, flags|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0); err != nil {
+		return -1, err
+	}
+	var st unix.Stat_t
+	if err = unix.Fstat(fd, &st); err == nil && st.Mode&unix.S_IFMT == unix.S_IFLNK {
+		err = unix.ELOOP
+	}
+	if err != nil {
+		unix.Close(fd)
+		return -1, err
+	}
+	return fd, nil
+}
+
+// fdPath names an open fd for mount(2): the kernel resolves the magic link
+// to the very file the fd holds, whatever its path now resolves to.
+func fdPath(fd int) string { return "/proc/self/fd/" + strconv.Itoa(fd) }
 
 // mountMask shadows dst with an empty tmpfs, hiding whatever is beneath it
 // (workspace secrets, other users' homes) from the sandbox — the caller relies
