@@ -125,11 +125,12 @@ type Usage struct {
 }
 
 // Reserve admits one VM of memMiB under the policy's count and budget,
-// charged to owner (the tile it runs for: a backend's component, a
-// session's tile); the returned release gives it back when the VM ends.
-// A refusal is marked sbx.ErrRefused. (Per-tile quotas, for the sandboxes
+// charged to owner (the tile it runs for: a backend's component, whatever
+// its deployment; a session's tile); the returned release gives it back when
+// the VM ends. A refusal is marked sbx.ErrRefused. opts refine admission
+// (reserve.go); none is honoured yet. (Per-tile quotas, for the sandboxes
 // tiles manage themselves, would be checked here against UsedBy.)
-func (m *Manager) Reserve(owner string, memMiB int) (release func(), err error) {
+func (m *Manager) Reserve(owner string, memMiB int, opts ...ReserveOption) (release func(), err error) {
 	p := m.Policy()
 	m.umu.Lock()
 	defer m.umu.Unlock()
