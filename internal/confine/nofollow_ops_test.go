@@ -1,6 +1,7 @@
 package confine_test
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/backup"
 	"github.com/xbin-dev/xbin/internal/checkpoint"
 	"github.com/xbin-dev/xbin/internal/confine"
 )
@@ -24,6 +26,7 @@ func init() {
 		confine.NofollowOperation{Name: "checkpoint capture", Run: nofollowCapture},
 		confine.NofollowOperation{Name: "checkpoint materialize and GC", Run: nofollowMaterializeGC},
 		confine.NofollowOperation{Name: "checkpoint drift count", Run: nofollowDrift},
+		confine.NofollowOperation{Name: "backup of a checkpoint store", Run: nofollowStoreBackup},
 	)
 }
 
@@ -140,6 +143,80 @@ func nofollowDrift(t *testing.T, fifo string) {
 	}
 	if _, err := s.Drift(ctx, src, res.Hash); err != nil {
 		t.Fatalf("drift: %v", err)
+	}
+}
+
+// covers P16 T2 T11 — rule C5 for a tile's backup of its deployment state
+// (the store half of internal/broker's TestBackupDeploymentsNoFollow): the
+// archive walk (backup.Writer.TreeBeneath) over a checkpoint store whose
+// packed-refs, a ref and a loose object link to the FIFO, whose pack
+// directory links out of it, and whose deploy-log ref is a FIFO of its own,
+// archives the one regular object and opens nothing else.
+func nofollowStoreBackup(t *testing.T, fifo string) {
+	store, outside := filepath.Join(t.TempDir(), "store"), t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "pack-"+strings.Repeat("1", 40)+".pack"), []byte("PACK"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	regular := "objects/cd/" + strings.Repeat("2", 38)
+	for rel, body := range map[string]string{"HEAD": "ref: refs/heads/deploy/main\n", regular: "x"} {
+		p := filepath.Join(store, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o444); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for rel, target := range map[string]string{
+		"packed-refs": fifo,
+		"refs/xbin/checkpoints/" + strings.Repeat("3", 40): fifo,
+		"objects/ab/" + strings.Repeat("4", 38):            fifo,
+		"objects/pack":                                     outside,
+	} {
+		p := filepath.Join(store, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(store, "refs", "xbin", "log"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(store, "refs", "xbin", "log", "main"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	w := backup.NewWriter(&buf)
+	done := make(chan error, 1)
+	go func() {
+		done <- w.TreeBeneath(backup.CheckpointsPrefix, store, func(string, bool) bool { return true })
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("archive walk: %v", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the archive walk hung: it opened a FIFO")
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	r := tar.NewReader(&buf)
+	var files []string
+	for {
+		h, err := r.Next()
+		if err != nil {
+			break
+		}
+		if h.Typeflag == tar.TypeReg {
+			files = append(files, strings.TrimPrefix(h.Name, backup.CheckpointsPrefix))
+		}
+	}
+	if strings.Join(files, " ") != "HEAD "+regular {
+		t.Errorf("the archive walk put %q in, want HEAD and the one regular object", files)
 	}
 }
 
