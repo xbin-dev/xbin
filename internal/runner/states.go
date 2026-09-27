@@ -40,7 +40,7 @@ func (r *Runner) Stop(comp string) {
 	s.cur = nil
 	s.mu.Unlock()
 	if inst != nil {
-		r.stop(inst, 5*time.Second)
+		r.stopGen(inst, 5*time.Second)
 	}
 }
 
@@ -60,7 +60,7 @@ func (r *Runner) StopAll() {
 		s.mu.Unlock()
 		if inst != nil {
 			wg.Add(1)
-			go func() { defer wg.Done(); r.stop(inst, 5*time.Second) }()
+			go func() { defer wg.Done(); r.stopGen(inst, 5*time.Second) }()
 		}
 	}
 	wg.Wait()
@@ -94,24 +94,30 @@ func (r *Runner) Status() map[string]any {
 
 func (r *Runner) reaper() {
 	for range time.Tick(time.Minute) {
-		r.mu.Lock()
-		states := make([]*state, 0, len(r.states))
-		for _, s := range r.states {
-			states = append(states, s)
-		}
-		r.mu.Unlock()
-		for _, s := range states {
-			s.mu.Lock()
-			if s.cur != nil && s.active == 0 && time.Since(s.lastReq) > idleReap && !r.isAlwaysOn(s.comp) {
-				inst := s.cur
-				s.cur = nil
-				s.dirty = true // next request restarts lazily
-				s.mu.Unlock()
-				slog.Info("reaping idle backend", "component", s.comp)
-				go r.stop(inst, 5*time.Second)
-				continue
-			}
+		r.reapOnce()
+	}
+}
+
+// reapOnce stops every backend that has served nothing for idleReap: no
+// in-flight connection, not alwaysOn. The next request restarts it lazily.
+func (r *Runner) reapOnce() {
+	r.mu.Lock()
+	states := make([]*state, 0, len(r.states))
+	for _, s := range r.states {
+		states = append(states, s)
+	}
+	r.mu.Unlock()
+	for _, s := range states {
+		s.mu.Lock()
+		if s.cur != nil && s.active == 0 && r.now().Sub(s.lastReq) > idleReap && !r.isAlwaysOn(s.comp) {
+			inst := s.cur
+			s.cur = nil
+			s.dirty = true // next request restarts lazily
 			s.mu.Unlock()
+			slog.Info("reaping idle backend", "component", s.comp)
+			go r.stopGen(inst, 5*time.Second)
+			continue
 		}
+		s.mu.Unlock()
 	}
 }
