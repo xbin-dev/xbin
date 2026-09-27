@@ -268,6 +268,9 @@ func (m *Manager) build(ctx context.Context, im Image, mode string) (out *builtI
 		return nil, err
 	}
 	snap, err := box.Snapshot(ctx, "image "+im.ID, b.Runtime)
+	if err == nil {
+		snap, err = settleSnapshot(ctx, box, snap) // a large image copies past the substrate's wait
+	}
 	if err != nil {
 		return nil, err
 	}

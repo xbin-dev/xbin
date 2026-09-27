@@ -417,6 +417,9 @@ func (m *Manager) makeSandbox(ctx context.Context, id string) (err error) {
 		}
 	}
 	info, err := be.Create(ctx, spec)
+	if err == nil {
+		info, err = settleCreated(ctx, be, info) // a clone's copy may run past the substrate's wait
+	}
 	if err != nil {
 		return err
 	}

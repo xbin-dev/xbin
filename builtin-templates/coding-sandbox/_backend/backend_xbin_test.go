@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
 	"github.com/xbin-dev/xbin/sdk/sandboxcontract"
@@ -83,8 +84,12 @@ type rtCall struct {
 
 // rtDouble answers the runtime's routes from memory: definitions and
 // lifecycle as the runtime would, every command exiting 0 at once, a
-// directory of one file, snapshots as a list. refuse makes a route answer
-// a refusal ("POST start" → 501: a route not built yet).
+// directory of one file, snapshots as a list, clones of a snapshot or of a
+// stopped source (a running one's cur/ is 409 state). refuse makes a route
+// answer a refusal ("POST start" → 501: a route not built yet). slow > 0
+// makes every copy outlast the runtime's wait, as a large one does: a
+// snapshot answers 202 pending, a clone `creating`, a restore the sandbox
+// "busy: restoring …" — each done after slow more reads of it.
 type rtDouble struct {
 	mu     sync.Mutex
 	rt     xbin.SandboxRuntime
@@ -95,11 +100,27 @@ type rtDouble struct {
 	seen   []rtCall
 	refuse map[string]int
 	seq    int
+	slow   int
+	left   map[string]int // a copy still running: reads before it is done ("box:<name>", "snap:<name>/<sid>", "busy:<name>")
+}
+
+// tick counts one read of what key names down: whether its copy is done now.
+func (d *rtDouble) tick(key string) bool {
+	n, ok := d.left[key]
+	if !ok {
+		return false
+	}
+	if n <= 1 {
+		delete(d.left, key)
+		return true
+	}
+	d.left[key] = n - 1
+	return false
 }
 
 func newRuntime(modes ...string) *rtDouble {
 	d := &rtDouble{boxes: map[string]*xbin.SandboxInfo{}, specs: map[string]xbin.SandboxSpec{},
-		execs: map[string][]xbin.ExecInfo{}, snaps: map[string][]xbin.Snapshot{}, refuse: map[string]int{}}
+		execs: map[string][]xbin.ExecInfo{}, snaps: map[string][]xbin.Snapshot{}, refuse: map[string]int{}, left: map[string]int{}}
 	d.rt = xbin.SandboxRuntime{Enabled: true, Isolation: true, Users: "any",
 		Caps: []string{"exec", "files", "tar", "tty", "snapshots", "clone"},
 		Egress: []xbin.SandboxEgress{{Class: "none", Reach: "none"},
@@ -198,7 +219,28 @@ func (d *rtDouble) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			rtJSON(w, 200, b)
 			return
 		}
-		in := &xbin.SandboxInfo{Name: spec.Name, State: "stopped", Mode: spec.Mode, MemMiB: spec.MemMiB, VCPUs: spec.VCPUs,
+		state := "stopped"
+		if f := spec.From; f != nil { // a clone
+			src := d.boxes[f.Sandbox]
+			switch {
+			case src == nil:
+				rtFail(w, 404, "not-found", "no sandbox "+f.Sandbox+" to clone")
+				return
+			case f.Snapshot != "" && !slices.ContainsFunc(d.snaps[f.Sandbox], func(s xbin.Snapshot) bool { return s.ID == f.Snapshot && !s.Pending }):
+				rtFail(w, 404, "not-found", "sandbox "+f.Sandbox+" has no snapshot "+f.Snapshot)
+				return
+			case f.Snapshot == "" && src.State != "stopped":
+				rtFail(w, 409, "state", "sandbox "+f.Sandbox+" is "+src.State+": stop it, or clone a snapshot of it")
+				return
+			case src.Mode != spec.Mode:
+				rtFail(w, 400, "invalid", "a clone runs in its source's mode")
+				return
+			}
+			if d.slow > 0 {
+				state, d.left["box:"+spec.Name] = "creating", d.slow
+			}
+		}
+		in := &xbin.SandboxInfo{Name: spec.Name, State: state, Mode: spec.Mode, MemMiB: spec.MemMiB, VCPUs: spec.VCPUs,
 			DiskGiB: spec.DiskGiB, Labels: spec.Labels, For: spec.For, ForUser: spec.ForUser, IdleStopMin: spec.IdleStopMin,
 			Mounts: spec.Mounts, Users: "any", Version: 1, ClientID: spec.ClientID}
 		if spec.Net != nil {
@@ -219,6 +261,12 @@ func (d *rtDouble) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		switch r.Method {
 		case "GET":
+			if d.tick("box:" + seg[0]) {
+				b.State = "stopped"
+			}
+			if d.tick("busy:" + seg[0]) {
+				b.StateDetail = ""
+			}
 			rtJSON(w, 200, b)
 		case "PATCH":
 			var q xbin.SandboxPatch
@@ -244,6 +292,10 @@ func (d *rtDouble) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case len(seg) == 2 && (seg[1] == "start" || seg[1] == "stop"):
 		b := box()
 		if b == nil {
+			return
+		}
+		if b.State == "creating" || strings.HasPrefix(b.StateDetail, "busy:") {
+			rtFail(w, 409, "state", "sandbox "+seg[0]+" is "+b.State+" "+b.StateDetail)
 			return
 		}
 		b.State = map[string]string{"start": "running", "stop": "stopped"}[seg[1]]
@@ -293,12 +345,24 @@ func (d *rtDouble) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.Unmarshal(body, &q)
 		d.seq++
 		s := xbin.Snapshot{ID: fmt.Sprintf("s-%d", d.seq), Name: q.Name}
+		status := 201
+		if d.slow > 0 {
+			s.Pending, d.left["snap:"+seg[0]+"/"+s.ID], status = true, d.slow, 202
+		}
 		d.snaps[seg[0]] = append(d.snaps[seg[0]], s)
-		rtJSON(w, 201, s)
+		rtJSON(w, status, s)
 	case len(seg) == 2 && seg[1] == "snapshots":
+		for i, s := range d.snaps[seg[0]] {
+			if d.tick("snap:" + seg[0] + "/" + s.ID) {
+				d.snaps[seg[0]][i].Pending = false
+			}
+		}
 		rtJSON(w, 200, map[string]any{"snapshots": d.snaps[seg[0]]})
 	case len(seg) == 4 && seg[1] == "snapshots" && seg[3] == "restore":
 		b := box()
+		if b != nil && d.slow > 0 {
+			b.StateDetail, d.left["busy:"+seg[0]] = "busy: restoring snapshot "+seg[2], d.slow
+		}
 		if b != nil {
 			rtJSON(w, 200, b)
 		}
@@ -518,6 +582,77 @@ func TestXbinBackendRuntimeUnbuilt(t *testing.T) {
 		t.Fatalf("a create that failed leaves nothing: %d records, %d at the runtime", n, left)
 	}
 	a.Refused("POST", "/sandboxes", map[string]any{"name": "y", "image": "node"}, 400, "invalid")
+}
+
+// With the runtime's snapshots and clones (WP-20) hello offers images with
+// a setup script (D122): the first sandbox of one builds it — a template
+// sandbox, its setup run as root, stopped, snapshotted — and clones the
+// snapshot. Every copy the runtime answers before it is done (a pending
+// snapshot, a creating clone, a busy restore) is waited out, so the
+// contract answers each one done; a clone of a running sandbox without a
+// snapshot is the runtime's 409, passed through.
+func TestXbinBackendCopies(t *testing.T) {
+	defer func(p time.Duration) { settlePoll = p }(settlePoll)
+	settlePoll = time.Millisecond
+	rt := newRuntime("vm")
+	rt.slow = 3
+	m, _, tg := xbinManager(t, rt, func(c *Config) {
+		c.Images = append(c.Images, Image{ID: "node", Setup: "apt-get install -y nodejs"})
+	})
+	a := tg.As(t, "apps/agent").Verified("alice")
+	h := hello(t, a)
+	if notes := fmt.Sprint(h["notes"]); strings.Contains(notes, "hidden") || !strings.Contains(fmt.Sprint(h["images"]), "node") {
+		t.Fatalf("hello offers the image: %v", h)
+	}
+	var sb sandboxcontract.Sandbox
+	a.Call("POST", "/sandboxes?wait=30", map[string]any{"name": "n", "image": "node"}, 201, &sb)
+	if sb.State != "running" || sb.Image.ID != "node" {
+		t.Fatalf("a sandbox of a built image: %+v", sb)
+	}
+	m.mu.Lock()
+	built := *m.imgs["node"]
+	m.mu.Unlock()
+	if built.State != "ready" || built.Snapshot == "" {
+		t.Fatalf("the image: %+v", built)
+	}
+	var setup xbin.ExecRequest
+	_ = json.Unmarshal([]byte(rt.last(t, "POST", "/"+built.Runtime+"/execs").Body), &setup)
+	if setup.Cmd != "apt-get install -y nodejs" || *setup.UID != 0 {
+		t.Fatalf("the setup runs as root: %+v", setup)
+	}
+	if len(rt.calls("POST", "/"+built.Runtime+"/stop")) == 0 || len(rt.calls("POST", "/"+built.Runtime+"/snapshots")) != 1 {
+		t.Fatal("the template is stopped, then snapshotted once")
+	}
+	var spec xbin.SandboxSpec
+	_ = json.Unmarshal([]byte(rt.last(t, "POST", "").Body), &spec)
+	if rec := m.recCopy(sb.ID); spec.Name != rec.Runtime || spec.From == nil || *spec.From != (xbin.SandboxFrom{Sandbox: built.Runtime, Snapshot: built.Snapshot}) {
+		t.Fatalf("the sandbox clones the image's snapshot: %+v", spec)
+	}
+	// the contract's snapshot answers it taken, its restore the sandbox restored
+	var snap struct {
+		ID      string
+		Pending bool
+	}
+	a.Call("POST", "/sandboxes/"+sb.ID+"/snapshots", map[string]any{"name": "before"}, 201, &snap)
+	if snap.ID == "" || snap.Pending {
+		t.Fatalf("the snapshot: %+v", snap)
+	}
+	var restored sandboxcontract.Sandbox
+	a.Call("POST", "/sandboxes/"+sb.ID+"/snapshots/"+snap.ID+"/restore", nil, 200, &restored)
+	if strings.HasPrefix(restored.StateDetail, "busy:") {
+		t.Fatalf("restored: %+v", restored)
+	}
+	// a clone of it at the snapshot is made (creating at the runtime, waited out)
+	var c sandboxcontract.Sandbox
+	a.Call("POST", "/sandboxes?wait=30", map[string]any{"name": "c", "from": map[string]any{"sandbox": sb.ID, "snapshot": snap.ID}}, 201, &c)
+	if c.State != "running" {
+		t.Fatalf("the clone: %+v", c)
+	}
+	// not of its running self: the runtime's refusal, naming ours
+	e := a.Refused("POST", "/sandboxes", map[string]any{"name": "d", "from": map[string]any{"sandbox": sb.ID}}, 409, "state")
+	if strings.Contains(e.Error, m.recCopy(sb.ID).Runtime) || !strings.Contains(e.Error, "clone a snapshot") {
+		t.Fatalf("the refusal: %q", e.Error)
+	}
 }
 
 // A terminal is relayed to the runtime's route with the person and our ids;

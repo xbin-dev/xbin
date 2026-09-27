@@ -26,7 +26,9 @@
 // `caps` (routes still being built answer 501 unsupported), and hello offers
 // only what it lists: images with a setup script need `snapshots` and
 // `clone` (hello.notes says so while they're missing), and `archive` isn't
-// offered at all. The call needs cap:sandboxes, which only a workspace admin
+// offered at all. The runtime answers a copy that outlasts its wait as it
+// stands — a snapshot pending, a clone creating, a restore busy — and the
+// manager waits it out (settle.go). The call needs cap:sandboxes, which only a workspace admin
 // approves; without it every call is 403 and the manager answers 503
 // unavailable, saying so.
 package main

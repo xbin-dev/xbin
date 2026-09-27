@@ -277,7 +277,16 @@ runtime (docs/protocol.md §Tile sandboxes): `*xbin.Sandboxes` and
 - **ids**: exec and snapshot ids are the runtime's, as they are. One its
   grammar can't hold (`xbin.IsExecID`, `xbin.IsSnapshotID`) is `not-found`
   here and never reaches the runtime, so a consumer's id can't name
-  another route or sandbox.
+  another route or sandbox;
+- **copies**: the runtime copies a snapshot, a clone and a restore off the
+  request, and answers one still copying after its `waitMaxSec` as it
+  stands — a snapshot `pending` (202), a clone `creating`, a restore with
+  the sandbox's `stateDetail` `busy: …`. The manager waits each out
+  (`_backend/settle.go`, polling while the caller waits), so the contract
+  answers it done: an image's snapshot before its clones are made, a
+  consumer's snapshot `201`, a restore the sandbox restored. A clone of a
+  running sandbox without a `snapshot` is the runtime's `409 state`,
+  passed through ("stop it, or clone a snapshot of it").
 
 It needs **`cap:sandboxes`**, which only a workspace admin approves: until
 then every call is refused and the page says who approves it. On an xbind
@@ -305,9 +314,8 @@ second manager next to `examples/sandbox-go`:
 1. An `--isolate` xbind (range-uid, then KVM and emulated VMs):
    `bx template new coding-sandbox as apps/cs`, approve `cap:sandboxes`,
    `bx bind apps/cs internet=internet`.
-2. Hello: `caps` are the runtime's (`exec files tar tty`, then `snapshots
-   clone` with WP-20), `egress` `none internet`, no `notes` but the missing
-   ones.
+2. Hello: `caps` are the runtime's (`exec files tar tty snapshots
+   clone`), `egress` `none internet`, no `notes` but the missing ones.
 3. The conformance suite through xbind: a consumer tile bound to `apps/cs`
    whose backend runs `sandboxcontract.Run` against its bound URL with its
    instance client (`Target.Client`), `Target.Consumer` setting nothing

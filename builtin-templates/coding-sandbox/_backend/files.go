@@ -281,7 +281,11 @@ func (m *Manager) snapCreate(w http.ResponseWriter, r *http.Request) {
 
 // snapshot saves rec's state as name (the contract's, and the operators').
 func (m *Manager) snapshot(ctx context.Context, rec record, name, clientID string) (*xbin.Snapshot, error) {
-	s, err := m.box(rec).Snapshot(ctx, name, clientID)
+	box := m.box(rec)
+	s, err := box.Snapshot(ctx, name, clientID)
+	if err == nil {
+		s, err = settleSnapshot(ctx, box, s) // the contract answers it taken
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -298,6 +302,9 @@ func (m *Manager) restore(ctx context.Context, rec record, sid string) (*xbin.Sa
 		return nil, &xbin.SandboxError{Status: http.StatusConflict, Refusal: "state", State: rec.Overlay, Message: "the sandbox is " + rec.Overlay}
 	}
 	in, err := m.box(rec).RestoreSnapshot(ctx, sid)
+	if err == nil {
+		in, err = settleBusy(ctx, m.backend(), in) // the contract answers it restored
+	}
 	if err != nil {
 		return nil, err
 	}
