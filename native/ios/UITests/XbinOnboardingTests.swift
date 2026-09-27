@@ -56,9 +56,9 @@ final class XbinOnboardingTests: XCTestCase {
         for (i, title) in ["1. Open settings", "2. Add a device", "3. Scan it"].enumerated() {
             XCTAssertTrue(e.element(title).waitForExistence(timeout: 10), "help page \(i + 1)")
             e.shot("onboarding-04-help-\(i + 1)")
+            if i == 0 { XCTAssertTrue(e.containing("Click settings").exists, "the shell's own word: settings") }
             if i < 2 { e.app.buttons["Next"].tap() }
         }
-        XCTAssertTrue(e.containing("settings").exists)
         e.app.buttons["Back to Log in"].tap()
         XCTAssertTrue(e.app.buttons["Enter workspace address"].waitForExistence(timeout: 10), "back on Log in")
     }
@@ -122,10 +122,13 @@ final class XbinOnboardingTests: XCTestCase {
             XCTFail("the workspace did not open after joining (the page's error is in the screenshot)")
             return
         }
+        e.dismissSavePassword()
         e.shot("onboarding-07-joined")
-        let account = try await e.server.account(id)
-        XCTAssertEqual(account?.invitePending ?? true, false, "the invite is spent")
-        XCTAssertEqual(account?.deviceCount, 1, "the invitee's first device is this simulator")
+        // (GET /api/xbin/users leaves out invitePending and deviceCount when false or 0.)
+        let found = try await e.server.account(id)
+        let account = try XCTUnwrap(found, "the invited account")
+        XCTAssertFalse(account.invitePending ?? false, "the invite is spent")
+        XCTAssertEqual(account.deviceCount ?? 0, 1, "the invitee's first device is this simulator")
     }
 
     /// An address nothing answers at: "Can't connect", before any sign-in.
@@ -187,6 +190,7 @@ final class XbinOnboardingTests: XCTestCase {
         password.tap()
         password.typeText(e.server.password + "\n")
         XCTAssertTrue(e.app.buttons["Sign in again"].waitForNonExistence(timeout: 60), "signed in again")
+        e.dismissSavePassword()
         // One workspace in the switcher, not two.
         e.app.buttons["Workspaces"].tap()
         let rows = e.app.buttons.matching(NSPredicate(format: "label CONTAINS %@", e.server.url.host ?? "127.0.0.1"))

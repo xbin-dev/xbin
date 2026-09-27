@@ -295,27 +295,29 @@ struct WelcomeLevel: View {
     let flow: OnboardingFlow
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 28) {
-                VStack(spacing: 14) {
-                    XbinMark().frame(width: 96, height: 96)
-                        .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
-                    Text(verbatim: "xbin").font(.largeTitle.bold())
-                    Text("An office for your agents.").font(.title3).foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
+        // Centred on the screen; it scrolls when large text makes it taller.
+        GeometryReader { geo in
+            ScrollView {
+                VStack(spacing: 28) {
+                    VStack(spacing: 14) {
+                        XbinMark().frame(width: 96, height: 96)
+                            .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+                        Text(verbatim: "xbin").font(.largeTitle.bold())
+                        Text("An office for your agents.").font(.title3).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    VStack(spacing: 12) {
+                        WelcomeButton(title: "Log in", symbol: "person.crop.circle", prominent: true) { flow.push(.login) }
+                        WelcomeButton(title: "Join with an invite", symbol: "envelope.open") { flow.push(.invite) }
+                        WelcomeButton(title: "Run your own xbin", symbol: "server.rack") { flow.push(.runYourOwn) }
+                        WelcomeButton(title: "What is xbin?", symbol: "questionmark.circle") { flow.push(.about(page: 1)) }
+                    }
+                    .frame(maxWidth: 380)
                 }
-                .padding(.top, 48)
-                VStack(spacing: 12) {
-                    WelcomeButton(title: "Log in", symbol: "person.crop.circle", prominent: true) { flow.push(.login) }
-                    WelcomeButton(title: "Join with an invite", symbol: "envelope.open") { flow.push(.invite) }
-                    WelcomeButton(title: "Run your own xbin", symbol: "server.rack") { flow.push(.runYourOwn) }
-                    WelcomeButton(title: "What is xbin?", symbol: "questionmark.circle") { flow.push(.about(page: 1)) }
-                }
-                .frame(maxWidth: 380)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 32)
+                .frame(maxWidth: .infinity, minHeight: geo.size.height)
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 32)
-            .frame(maxWidth: .infinity)
         }
         .toolbar(.hidden, for: .navigationBar)
     }
@@ -332,7 +334,9 @@ struct WelcomeButton: View {
         if prominent {
             Button(action: action) { label }.buttonStyle(.borderedProminent).foregroundStyle(.black)
         } else {
-            Button(action: action) { label }.buttonStyle(.bordered)
+            // The tint's pale fill, the words in the text colour (amber on
+            // pale amber reads poorly).
+            Button(action: action) { label }.buttonStyle(.bordered).foregroundStyle(.primary)
         }
     }
 
@@ -423,6 +427,8 @@ struct RunYourOwnPage: View {
             Section {
                 Text(verbatim: Self.install)
                     .font(.system(.callout, design: .monospaced))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
                     .textSelection(.enabled)
                 Button(copied ? "Copied" : "Copy the command", systemImage: copied ? "checkmark" : "doc.on.doc") {
                     UIPasteboard.general.string = Self.install

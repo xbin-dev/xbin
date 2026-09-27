@@ -351,7 +351,18 @@ final class E2E {
         if !app.buttons["Workspaces"].waitForExistence(timeout: 60) {
             shot("01-sign-in-failed")
             XCTFail("the workspace did not open after signing in (the page's error is in the screenshot)", file: file, line: line)
+            return
         }
+        dismissSavePassword()
+    }
+
+    /// iOS offers to keep a password just typed in its Passwords app ("Save
+    /// Password?", over the workspace): Not Now.
+    func dismissSavePassword() {
+        let inApp = app.buttons["Not Now"]
+        let onBoard = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Not Now"]
+        guard let i = first(of: [inApp, onBoard], timeout: 8) else { return }
+        (i == 0 ? inApp : onBoard).tap()
     }
 
     /// On Log in: Enter workspace address → `address` → Continue.
