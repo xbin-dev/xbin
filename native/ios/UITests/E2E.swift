@@ -342,8 +342,7 @@ final class E2E {
             return
         }
         if let prefix { shot(prefix + "-methods") }
-        user.tap()
-        user.typeText(server.user)
+        fill(user, server.user)
         let password = element("Password", in: app.secureTextFields)
         password.tap()
         password.typeText(server.password + "\n")
@@ -363,6 +362,21 @@ final class E2E {
         let onBoard = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Not Now"]
         guard let i = first(of: [inApp, onBoard], timeout: 8) else { return }
         (i == 0 ? inApp : onBoard).tap()
+    }
+
+    /// Types `text` into a plain text field and checks it landed: the first
+    /// typing on a freshly erased simulator sometimes goes nowhere (seen in
+    /// the username field on a full run's first sign-in), so it clears what
+    /// is there and types once more.
+    func fill(_ field: XCUIElement, _ text: String) {
+        for _ in 0..<3 {
+            field.tap()
+            field.typeText(text)
+            let now = field.value as? String ?? ""
+            if now == text { return }
+            field.tap()
+            field.typeText(String(repeating: "\u{8}", count: now.count + 2))
+        }
     }
 
     /// On Log in: Enter workspace address → `address` → Continue.
