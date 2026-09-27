@@ -497,6 +497,10 @@ final class E2E {
         let search = app.searchFields["Search tiles"]
         if search.waitForExistence(timeout: 10) {
             search.tap()
+            // Home keeps its last search: clear it first.
+            if let now = search.value as? String, !now.isEmpty, now != "Search tiles" {
+                search.typeText(String(repeating: "\u{8}", count: now.count))
+            }
             search.typeText(path)
         }
         XCTAssertTrue(row.waitForExistence(timeout: 15), "search lists \(path)", file: file, line: line)
