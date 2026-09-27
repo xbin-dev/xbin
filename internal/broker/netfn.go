@@ -195,6 +195,8 @@ func (b *Broker) netClientsOf(provider string) []string {
 // or to "org" where the org's network sets grant host networking (D54).
 func (b *Broker) NetHostShare(c *registry.Component) bool {
 	switch nb := b.netBinding(c.Path); {
+	case c.Deployment != "": // a non-primary view: never the host's network (P23)
+		return false
 	case nb == "host":
 		return true
 	case nb == NetRefOrg:
@@ -283,29 +285,13 @@ func httpProvideFor(p *registry.Component, service string) (registry.Iface, bool
 // httpBindingRole returns the role a from→target http-interface binding grants —
 // so the binding is also the call grant (from may call target's API). ok=false
 // unless from has an http interface slot bound to target and target provides one.
+// The role comes from the provide matching THAT slot's service (a multi-provide
+// target like openai + metrics would otherwise flap between writer and reader);
+// with several such slots, the first by name (httpSlotsTo, which the read clamp
+// reads per slot, edgepolicy.go).
 func (b *Broker) httpBindingRole(from, target string) (string, bool) {
-	c, ok := b.Reg.Component(from)
-	if !ok {
-		return "", false
-	}
-	for slot, refs := range b.Reg.Workspace().Bindings[from] {
-		for _, ref := range refs.Refs() {
-			if prov, _ := splitRef(ref); prov != target {
-				continue
-			}
-			req, ok := c.Manifest.Interfaces[slot]
-			if !ok || req.Kind != "http" {
-				continue
-			}
-			if p, ok := b.Reg.Component(target); ok {
-				// Role comes from the provide matching THIS slot's service, not
-				// an arbitrary one — otherwise a multi-provide target (openai +
-				// metrics) flaps the granted role between writer and reader.
-				if def, ok := httpProvideFor(p, req.Service); ok {
-					return provideRole(def), true
-				}
-			}
-		}
+	for _, l := range b.httpSlotsTo(from, target) {
+		return l.role, true
 	}
 	return "", false
 }
