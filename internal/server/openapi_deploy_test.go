@@ -111,6 +111,7 @@ func TestOpenAPIDeploymentRows(t *testing.T) {
 	builtParam := map[[2]string]bool{
 		{"POST", "/term/sessions"}: true, {"POST", "/term/sessions/{id}/restart"}: true, {"GET", "/sandboxes"}: true,
 		{"GET", "/vault/{component}"}: true, {"GET", "/vault/{component}/{key}"}: true, {"GET", "/logs"}: true,
+		{"GET", "/tile-status"}: true, {"GET", "/frame-token"}: true,
 		{"PUT", "/vault/{component}/{key}"}: true, {"DELETE", "/vault/{component}/{key}"}: true,
 	}
 	for r := range builtParam {
@@ -147,8 +148,6 @@ func TestOpenAPIDeploymentRows(t *testing.T) {
 	// until this xbind sets them; then the note is plain prose.
 	note := strings.TrimSpace(reservedField)
 	for _, r := range [][2]string{
-		{"GET", "/backends"}, {"GET", "/runtime"},
-		{"GET", "/whoami"},
 		{"GET", "/cron/jobs"}, {"PUT", "/cron/jobs"}, {"GET", "/bus/subscriptions"}, {"PUT", "/bus/subscriptions"},
 	} {
 		if o := op(r[0], r[1]); o != nil && !strings.Contains(o["description"].(string), note) {
@@ -156,7 +155,8 @@ func TestOpenAPIDeploymentRows(t *testing.T) {
 		}
 	}
 	for _, r := range [][2]string{{"GET", "/term/sessions"}, {"GET", "/status"}, {"GET", "/agent/history"}, {"POST", "/grants"}, {"GET", "/sandboxes"},
-		{"POST", "/tile-report"}, {"POST", "/notify"}, {"PUT", "/iface-instances"}, {"PUT", "/ingress-hosts"}} {
+		{"POST", "/tile-report"}, {"POST", "/notify"}, {"PUT", "/iface-instances"}, {"PUT", "/ingress-hosts"},
+		{"GET", "/backends"}, {"GET", "/runtime"}, {"GET", "/whoami"}} {
 		if o := op(r[0], r[1]); o != nil && (strings.Contains(o["description"].(string), note) || !strings.Contains(o["description"].(string), "deployment")) {
 			t.Errorf("%s %s: its deployment field is built: noted in plain prose, not as reserved", r[0], r[1])
 		}
