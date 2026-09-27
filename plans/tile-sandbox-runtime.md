@@ -4510,6 +4510,106 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     integration test) leaves the old state intact, no half snapshot listed,
     `tmp/` emptied at boot, and a cut-short clone `error`.
 - **Parallel:** with WP-21's fixture work.
+- **As built** (branch `p2/wp20`):
+  - *Files.* `internal/fsutil/clone_linux.go` (+ `_other`):
+    `CloneSparse(ctx, src, dst) (reflinked bool, err)` — `FICLONE`, else
+    `SEEK_DATA`/`SEEK_HOLE` + `copy_file_range` (a read/write where the
+    kernel can't), 64 MiB chunks so a cancel lands between them; never
+    through a symlink at either end, never over a file, `dst` fsynced or
+    removed — and `Exchange` (`renameat2(RENAME_EXCHANGE)`). `tilesbx`:
+    `snapshot.go` (the snapshot job, the list, delete, the busy/pending
+    refusals, `snapMeta`), `restore.go`, `clone.go`, `stage.go` (the copy
+    job, `copyCtl`, `tmp/<rand>` staging, `copyLayer`: an upper by
+    `m.copyTree` = `confine.CopyTree`, a disk by `CloneSparse`, then the
+    stamps), `api_snapshots.go`; `create` takes `from`; `sweep.go`'s boot
+    (`bootDefs`: a `pending` clone → `error`, every sandbox's snapshots
+    read; `requeueTrash` also moves a snapshot dir without `meta.json`).
+    `meta.json` is `{id, name, created, mode, base, overlay, bytes,
+    diskGiB (VM), clientId}`, written (atomically) into the staged dir
+    before its rename. `runtime.caps` gains `snapshots`, `clone`.
+  - *Busy.* A snapshot or restore claims `box.busy` ("busy: taking
+    snapshot s-3", "busy: restoring snapshot s-2") under `m.mu`, **then**
+    takes the flight, stops what runs, copies under `lockRun`, starts it
+    again if it ran (`startLocked`: the launch's gates apply, so a revoke
+    or seal during the copy refuses the restart), clears `busy` and only
+    then lets the flight go. `Start`, `Reset`/`Rebase`, the stop route,
+    `Delete`, another snapshot and a restore check `busy` (and `creating`)
+    before the flight: 409 `state`, `retryAfterMs` 2 s. `acquire` checks it
+    first: without `autoStart` 409; with it, it waits for the flight and
+    loops (a `Start` that raced a claim answers a busy refusal —
+    `Error.busy` — and the loop waits instead). The runtime's own stops
+    (`StopWhere`) don't ask: they find the sandbox stopped for its copy.
+    `StopAll` cancels the copies in flight (`copyCtl.cancelAll`; later
+    copies get a fresh context) — nothing staged outlives xbind's shutdown.
+  - *Clones.* The definition is stored with `pending: "clone"` and the
+    source's base (`Def.base` pins it during the copy), the new box
+    `creating`; the copy runs off the request into the new state dir's
+    `tmp/`, renamed to `cur/`; then `pending` is cleared (`stopped`, or
+    started with `start`). A failed copy leaves it `error` with `pending`
+    kept, so a restart says "cut short" and only `DELETE` helps (start,
+    reset, restore, snapshot: 409). While a clone copies a **snapshot**,
+    the source's `readers[sid]` keeps that snapshot and the source from
+    being deleted (409); while it copies a stopped source's **cur/**, the
+    source is busy ("busy: being cloned into …") and the copy holds its
+    flight and its lock (a start that won the flight first fails the
+    clone: "stop it, or clone a snapshot"). `DELETE` of a `creating`
+    clone cancels its copy and waits for it (≤ `endWait`, else 409),
+    then deletes as usual. A `from` source that never ran copies nothing:
+    the clone is a plain create (no `creating`). A VM clone's `diskGiB` is
+    at least the snapshot's (a disk never shrinks).
+  - *Departures from §3.9.* A snapshot of a sandbox that never ran (no
+    `cur/`) or is in `error` is 409 `state`. The disk check of a snapshot
+    and of a clone of `cur/` uses the source's **cur** bytes (`diskBytes`
+    less its snapshots' `bytes`), not its whole `diskBytes`, which
+    counted its snapshots twice. A restore restarts what ran and repairs
+    `error` (as reset and rebase), and answers 500 for a copy that failed
+    (the state as it was). Deleting a snapshot is refused while the
+    sandbox is busy.
+  - *Tests.* `fsutil`: holes kept on tmpfs, a reflink where `FICLONE`
+    works (the test falls back to a dir beside the package when `/tmp`
+    is a tmpfs), the refusals, a cancelled copy leaving nothing,
+    `Exchange`. `tilesbx` unit (`snapshot_linux_test.go`, fake launcher):
+    snapshot/restore/delete with an xattr, modes and execs killed, a
+    `clientId` repeat and `exists`, ids never reused; bases (a rebase
+    then a restore brings the old base back and the run's lower is the
+    sibling; the GC pins after a reset; a clone of the old snapshot runs
+    on it; a removed base is `invalid`); clones (of a snapshot while the
+    source runs, of a stopped cur, a running source's 409, mode/flavour/
+    missing refusals, a `clientId` repeat); the caps (429 for a snapshot
+    and a clone past `perTile.diskGiB`, `perTile.max` counting a clone);
+    busy (202 pending, the list, the busy `stateDetail`, every lifecycle
+    and copy route 409 with `retryAfterMs`, a run without `autoStart` 409,
+    one with it waiting the copy out, a pending `clientId` repeat waiting
+    with it; a restore's busy answer); `creating` (?wait=0, the 409s, the
+    source busy, `DELETE` cancelling the copy); failures (a failed copy
+    never listed and its id not reused, a failed `Exchange` leaving the
+    state, a failed clone `error` until deleted); the boot (staging and a
+    meta-less snapshot swept, a pending clone `error`); a VM's disk
+    snapshot/restore/clone sparse (`TestVMSnapshotClone`). Integration
+    (`snapshot_live_linux_test.go`, inside `TestLive`'s three variants
+    and `TestLiveVM`, KVM and emulated): a whiteout, an opaque directory
+    and a file chowned to 1000 survive snapshot, restore and clone (in
+    range mode here, confined copies), the clone of a running source is
+    409, another flavour's snapshot `invalid` (the env switched), the
+    snapshot in `diskBytes`; copies cancelled mid-way (as `StopAll`
+    does) list no snapshot, and a second runtime over the workspace sweeps
+    the staging and finds the clone `error`. The coding-sandbox template:
+    `settle.go` waits out a pending snapshot, a `creating` clone and a
+    busy restore (the image build, the contract's snapshot and restore,
+    every clone); the runtime double models clones and slow copies;
+    `TestXbinBackendCopies` builds an image through them
+    (mutation-checked: without the settle the clone of a pending snapshot
+    fails). `hack/tile-check.sh coding-sandbox` green.
+  - *Found, left open.* **The kernel overlay (no fuse-overlayfs) can't
+    remove a directory of the base in any sandbox** (a tile sandbox, a
+    terminal, a backend): `internal/sandbox`'s `mountRoot` mounts it
+    without `userxattr`, so in a user namespace it has no xattrs for an
+    opaque directory and `rm -rf /usr/share/doc` fails with EIO
+    (reproduced with a plain `unshare -Urm` overlay; with `userxattr` it
+    works and writes `user.overlay.opaque`). Pre-existing, not WP-20's;
+    fixing it (`,userxattr` where the kernel has it, ≥ 5.11) changes every
+    kernel-overlay sandbox's mount, so it wants its own change. The live
+    test logs it and checks the opaque case on fuse-overlayfs and in VMs.
 
 ### WP-21 — Fixture, end to end, phase 3 gate (wave 3 · M · after WP-14b, WP-20)
 

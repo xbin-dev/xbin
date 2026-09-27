@@ -434,6 +434,13 @@ may stop one under it — synced, state kept, the reason in its
   definitions, never their state; a restore brings them back by `uid`,
   stopped. State moves only through snapshots and clones — so offloading a
   manager whose sandboxes hold state is refused.
+- **Snapshots and clones.** xbind copies a sandbox's state off the request
+  — an upper exactly, a VM disk sparse — and a snapshot keeps the base
+  image it was built on installed. A copy still running after
+  `waitMaxSec` answers as it stands (a snapshot `pending`, a restore
+  `busy: …`, a clone `creating`), and meanwhile the sandbox answers
+  `state`: wait it out before you answer your consumer, as the builtin
+  manager does. A clone of a running sandbox needs a snapshot.
 
 ## Building a manager
 

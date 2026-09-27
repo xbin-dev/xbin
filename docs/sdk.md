@@ -285,6 +285,13 @@ snaps, err := sb.Snapshots(ctx)                                             // S
   ids are the runtime's, answer one that fails it `not-found` yourself
   (`xbin.IsExecID(eid)`, `xbin.IsSnapshotID(sid)`): it names nothing, and
   the contract says so.
+- **Copies.** A snapshot, a restore and a clone (`SandboxSpec.From`) copy
+  the sandbox's state off the request; the runtime waits up to
+  `limits.waitMaxSec` for the copy, then answers as it stands: a
+  `Snapshot` with `Pending` set, a restore's `SandboxInfo` with
+  `StateDetail` `busy: …`, a clone's with `State` `creating`. Poll
+  `Snapshots` or `Get` until it is done. Meanwhile the sandbox is busy:
+  its calls answer `ErrSandboxState` with a `RetryAfter`.
 - **Forwarding.** The runtime's routes mirror the contract's, so most of a
   manager's routes pass its own request through to a typed route:
   `sb.Forward(w, r, xbin.ExecOutput(eid), q)`. The routes are

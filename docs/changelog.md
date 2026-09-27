@@ -71,7 +71,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   is `403 not-allowed`. Other consumers' calls are trusted as the contract
   says. Another substrate (a cloud's API and ssh) is one Go file in a copy,
   checked with the conformance suite, `sdk/sandboxcontract`, which the
-  template passes.
+  template passes. On xbind's runtime, images with a setup script, the
+  contract's snapshots and clones are offered now that the runtime serves
+  them; a copy the runtime answers before it is done (a snapshot pending,
+  a clone creating, a restore busy) is waited out, so the contract answers
+  each one done.
 - **A sandbox's `/etc/resolv.conf` is written in place, never through a
   symlink.** When a terminal or backend with egress starts, xbind writes the
   relay's resolver into the sandbox's `/etc/resolv.conf`; a host-network
@@ -214,8 +218,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   identity: a name deleted and created again gets another, so a manager
   can tell the two apart. Start, stop, reset and rebase run sandboxes,
   commands run in them, and files, tar and copy reach them (the next
-  bullets); the snapshot routes are registered and answer 501
-  `unsupported` for now; `runtime.caps` lists what is served. Errors use the
+  bullets), and so do snapshots, restores and clones; `runtime.caps` lists
+  what is served. Errors use the
   sandbox-manager contract's `{error, refusal}` shape. A path with a `.`
   or `..` segment or an encoded `/`, `.` or `\`, or a name, exec id
   (`[0-9a-f]{6}-<n>`) or snapshot id (`s-<n>`) that fails its grammar, is
@@ -244,8 +248,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   (409 `state` on start). The admin's `GET /sandboxes` lists running tile
   sandboxes as `kind: "tile"` rows with `name`, `for` and `forUser`, and
   `health.tileSandboxes` reports the relays' shared connection budget and
-  why the sandboxes run without cgroup limits, if they do. Snapshots still
-  answer as before. Nothing changes for a workspace without a manager tile.
+  why the sandboxes run without cgroup limits, if they do. Nothing changes
+  for a workspace without a manager tile.
 - **Tile sandboxes: quotas, the idle stop, reset and rebase** (D120,
   [protocol.md](protocol.md) §Tile sandboxes). A start is booked against
   the sandboxes policy — the tile's `perTile.running`, `perTile.memMiB`,
@@ -369,6 +373,36 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   runs. A stream that fails after its status went out is cut, never ended
   as if it were whole. Nothing changes for a workspace without a manager
   tile.
+- **Tile sandboxes: snapshots, restores and clones** (D120,
+  [protocol.md](protocol.md) §Tile sandboxes, "Snapshots and clones").
+  `POST /sandboxes/<name>/snapshots` stops the sandbox (its execs end
+  `killed`), copies its state — an upper exactly, whiteouts, opaque
+  directories, owners and `user.*` xattrs included, in a confined run; a
+  VM's disk sparse, shared with the original where the filesystem can —
+  and starts it again if it ran. A snapshot keeps the base image its
+  state was built on installed, whatever the sandbox does next, and ids
+  (`s-<n>`) are never handed out twice. `…/snapshots/<sid>/restore` puts
+  that state back, base included (`base.version` follows it; a rebase
+  moves it on again), and starts the sandbox again if it ran; it repairs
+  `error`. A clone is `POST /sandboxes` with `from: {sandbox, snapshot?}`
+  in the source's mode: of a snapshot whatever the source does, or of a
+  stopped source's state (a running one is 409 `state`: stop it, or clone
+  a snapshot). Another mode, another overlay flavour or a base image no
+  longer installed is 400 `invalid`; a copy that would take the tile past
+  `perTile.diskGiB` is 429 `limit`, and a clone counts against
+  `perTile.max` at once. Copies are made whole or not at all, off the
+  request: `?wait=<seconds>` (absent: `waitMaxSec`) bounds the wait, and
+  one still copying answers as it stands — a snapshot 202 with `pending:
+  true`, a restore the sandbox with `stateDetail` "busy: restoring snapshot
+  s-2", a clone 201 `creating`. Meanwhile the sandbox is busy: its
+  lifecycle calls, another snapshot or restore, `DELETE` and a command or
+  file call without `autoStart` answer 409 `state` with `retryAfterMs`,
+  and one with `autoStart` waits the copy out; a `creating` clone answers
+  409 to everything but `GET`, the list and `DELETE`. A clone whose copy
+  fails, or which an xbind restart cut short, is `error` until deleted.
+  `runtime.caps` lists `snapshots` and `clone`, and `snapshots` in
+  `SandboxInfo` counts them. The Go SDK's `Snapshot` gains `Pending`.
+  Nothing changes for a workspace without a manager tile.
 - **Go SDK: tile sandboxes** ([sdk.md](sdk.md) §Tile sandboxes).
   `xbin.SandboxAPI()` has a call for each of a manager tile's
   `/api/xbin/sandboxes/…` routes: definitions and lifecycle, `Run`, execs

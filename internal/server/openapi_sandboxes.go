@@ -44,7 +44,7 @@ func sandboxDef(create bool) oapi {
 	props["mode"] = str("namespace | vm")
 	props["clientId"] = str("repeat-safe create: the same request answers 200, another 409 exists")
 	props["start"] = boolean()
-	props["from"] = object("{sandbox, snapshot?}: a clone (snapshots)")
+	props["from"] = object("{sandbox, snapshot?}: a clone, in the source's mode and on its base image — of a snapshot, or of a stopped source's state (a running one is 409 state); creating while its copy runs")
 	return jsonBody("the definition", props, "name", "mode")
 }
 
@@ -63,7 +63,7 @@ func sandboxEndpoints() []ep {
 			nil, jsonBody("a partial policy", oapi{"enabled": boolean(), "perTile": object(""), "perSandbox": object(""), "total": object("{memMiB, pids}"), "idleStopMin": integer(), "outputRingMiB": integer(), "outputBudgetMiB": integer(), "overrides": object("by tile path")}), "{policy, stored}"},
 		// definitions
 		{"POST", "/sandboxes", sbxTag, "Define a tile sandbox", capManager,
-			"201 SandboxInfo (200 when clientId repeats the same request). Sizes: 0 = the policy default, clamped to the caps (the answer says what applied). mode is required and must be available now; net names none or a sandbox-net slot of the tile; a res mount is a filesystem resource of the tile's own scope that it declares in uses and holds (a reader's is read-only at start); source mounts the tile's code read-only; at is absolute, not / and not under /proc, /sys, /dev, /run/xbin or /opt/xbin. 409 exists: the name, or a clientId used for another request; 429 limit: perTile.max, or VM disks over perTile.diskGiB. start: true starts it within ?wait." + sbxErrors,
+			"201 SandboxInfo (200 when clientId repeats the same request). Sizes: 0 = the policy default, clamped to the caps (the answer says what applied). mode is required and must be available now; net names none or a sandbox-net slot of the tile; a res mount is a filesystem resource of the tile's own scope that it declares in uses and holds (a reader's is read-only at start); source mounts the tile's code read-only; at is absolute, not / and not under /proc, /sys, /dev, /run/xbin or /opt/xbin. 409 exists: the name, or a clientId used for another request; 429 limit: perTile.max, or VM disks over perTile.diskGiB. start: true starts it within ?wait. A clone (from) copies off the request: ?wait bounds the wait for the copy (then its start), and one still copying answers 201 state creating (every call but GET, the list and DELETE is 409 until it is stopped, running or error); another mode, overlay flavour or a base no longer installed is 400 invalid; a copy past perTile.diskGiB is 429." + sbxErrors,
 			[]oapi{sbxWait()}, sandboxDef(true), "SandboxInfo"},
 		{"GET", "/sandboxes/{name}", sbxTag, "One tile sandbox", capManager,
 			"SandboxInfo {name, uid (its identity: a name deleted and created again gets another), state (creating | stopped | starting | running | stopping | error), stateDetail, mode, accel?, memMiB, vcpus, diskGiB, net {egress, reach, egressNext, note}, mounts, defaults, labels, for, forUser, idleStopMin, autoStart, base {version, outdated}, users, diskBytes, snapshots, execsRunning, created, started?, lastActive?, version, clientId?, restartNeeded}." + sbxErrors,
@@ -149,14 +149,14 @@ func sandboxEndpoints() []ep {
 			nil, jsonBody("the copy", oapi{"from": object("{sandbox, path}"), "to": object("{sandbox, path}"), "overwrite": boolean()}, "from", "to"), "204"},
 		// snapshots
 		{"GET", "/sandboxes/{name}/snapshots", sbxTag, "A sandbox's snapshots", capManager,
-			"{snapshots:[{id, name, created, bytes}]}." + sbxErrors, name, nil, "{snapshots}"},
+			"{snapshots:[{id, name, created, bytes, pending?}]}, by id; one still being taken is pending." + sbxErrors, name, nil, "{snapshots}"},
 		{"POST", "/sandboxes/{name}/snapshots", sbxTag, "Take a snapshot", capManager,
-			"{name, clientId} → 201 (stops the sandbox briefly; restarts it if it ran)." + sbxErrors,
-			name, jsonBody("the snapshot", oapi{"name": str(""), "clientId": str("")}), "the snapshot"},
+			"{name, clientId} → 201 {id (s-<n>, never reused), name, created, bytes}: stops the sandbox (its execs end killed), copies its state exactly (an upper confined, a VM disk sparse), pins its base image, starts it again if it ran. 200 on a clientId repeat (409 exists for another name); 202 {…, pending: true} when ?wait ran out first (poll the list). Meanwhile the sandbox is busy: its calls answer 409 state with retryAfterMs, an auto-starting one waits. 409 state for a sandbox that never ran or is in error; 429 limit past perTile.diskGiB." + sbxErrors,
+			[]oapi{sbxName(), sbxWait()}, jsonBody("the snapshot", oapi{"name": str(""), "clientId": str("")}), "the snapshot"},
 		{"POST", "/sandboxes/{name}/snapshots/{sid}/restore", sbxTag, "Restore a snapshot", capManager,
-			"SandboxInfo; its execs are killed. A snapshot of another base or mode is 400 invalid." + sbxErrors,
-			[]oapi{sbxName(), sbxSnap()}, nil, "SandboxInfo"},
+			"SandboxInfo: the snapshot's state swapped in whole (base included: base.version follows), its execs killed, started again if it ran; repairs error. When ?wait runs out first, the sandbox as it stands, stateDetail \"busy: restoring snapshot <sid>\" (poll GET). Another mode, another overlay flavour or a base no longer installed is 400 invalid." + sbxErrors,
+			[]oapi{sbxName(), sbxSnap(), sbxWait()}, nil, "SandboxInfo"},
 		{"DELETE", "/sandboxes/{name}/snapshots/{sid}", sbxTag, "Delete a snapshot", capManager,
-			"204." + sbxErrors, []oapi{sbxName(), sbxSnap()}, nil, "204"},
+			"204: put aside for a confined removal. 409 state while the sandbox is busy or a clone copies the snapshot." + sbxErrors, []oapi{sbxName(), sbxSnap()}, nil, "204"},
 	}
 }

@@ -252,6 +252,25 @@ func (m *Manager) cloneState(ctx context.Context, k Key, d *Def, src *cloneSourc
 	return nil
 }
 
+// deleteBlockedLocked refuses a DELETE while a copy reads the sandbox's
+// state — its own snapshot or restore, a clone of its cur/ (busy), or a
+// clone of one of its snapshots (readers): the confined remover would pull
+// it from under the copy. A clone of its own that is copying ends first
+// (endClone). Callers hold m.mu.
+func deleteBlockedLocked(name string, b *box) *Error {
+	if b.state == StateCreating {
+		return nil
+	}
+	if e := busyLocked(name, b); e != nil {
+		return e
+	}
+	if len(b.readers) > 0 {
+		return &Error{Refusal: RefState, State: b.state, RetryAfter: busyRetry, busy: true,
+			Msg: fmt.Sprintf("sandbox %q is being cloned (a snapshot of it is being copied): try again once the clone is made", name)}
+	}
+	return nil
+}
+
 // endClone ends k's sandbox's clone copy, if it is creating, and waits for
 // it (at most endWait): a DELETE then puts away what it made.
 func (m *Manager) endClone(k Key, name string) error {

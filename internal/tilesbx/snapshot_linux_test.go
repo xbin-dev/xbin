@@ -503,6 +503,23 @@ func TestCloneCreating(t *testing.T) {
 		t.Fatalf("the source after a cancelled clone: %+v", in)
 	}
 	fe.want(fe.do(mgr, "POST", "/sandboxes/src/start", nil), http.StatusOK, "")
+
+	// a clone of a snapshot: the source runs on, but neither it nor the
+	// snapshot is deleted from under the copy
+	fe.m.copyTree = g.next
+	fe.want(fe.do(mgr, "POST", "/sandboxes/src/snapshots", map[string]any{"name": "s"}), http.StatusCreated, "")
+	g3 := newGate(g.next)
+	fe.m.copyTree = g3.copyTree
+	fe.want(fe.do(mgr, "POST", "/sandboxes?wait=0", map[string]any{"name": "c-3", "mode": "namespace",
+		"from": map[string]any{"sandbox": "src", "snapshot": "s-1"}}), http.StatusCreated, "")
+	<-g3.entered
+	fe.running(fe.k, "src")
+	fe.want(fe.do(mgr, "DELETE", "/sandboxes/src/snapshots/s-1", nil), http.StatusConflict, RefState)
+	fe.want(fe.do(mgr, "DELETE", "/sandboxes/src", nil), http.StatusConflict, RefState)
+	close(g3.release)
+	fe.waitState("c-3", StateStopped)
+	fe.want(fe.do(mgr, "DELETE", "/sandboxes/src/snapshots/s-1", nil), http.StatusNoContent, "")
+	fe.want(fe.do(mgr, "DELETE", "/sandboxes/src", nil), http.StatusNoContent, "")
 }
 
 // A copy cut short leaves nothing half-done: a failed snapshot is never

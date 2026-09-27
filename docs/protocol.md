@@ -2273,10 +2273,10 @@ sandboxes).
 - **In this xbind** the definition routes work — runtime, policy, list,
   create, get, patch, delete — and so do start, stop, reset and rebase, in
   both modes, the commands (`run`, execs and their output, stdin, signals,
-  resizes and the TTY WebSocket) and the file, tar and copy routes. The
-  snapshot routes are registered and answer 501 `unsupported`;
-  `runtime.caps` lists the contract capabilities served (`exec`, `tty`,
-  `files`, `tar`).
+  resizes and the TTY WebSocket), the file, tar and copy routes, and
+  snapshots, restores and clones; `runtime.caps` lists the contract
+  capabilities served (`exec`, `tty`, `files`, `tar`, `snapshots`,
+  `clone`).
 
 ```
 GET    /sandboxes/runtime          manager. what this tile may use now → {enabled,
@@ -2347,10 +2347,15 @@ PUT    /sandboxes/<name>/tar?path=&mkdirs=1  tar body → 204
 POST   /sandboxes/copy                       {from:{sandbox, path}, to:{sandbox,
                                              path}, overwrite} → 204 (both the caller's)
 
-GET    /sandboxes/<name>/snapshots           → {snapshots:[{id, name, created, bytes}]}
-POST   /sandboxes/<name>/snapshots           {name, clientId} → 201
-POST   /sandboxes/<name>/snapshots/<sid>/restore   → SandboxInfo (execs killed)
-DELETE /sandboxes/<name>/snapshots/<sid>     → 204
+GET    /sandboxes/<name>/snapshots           manager. → {snapshots:[{id, name, created,
+                                             bytes, pending?}]}
+POST   /sandboxes/<name>/snapshots?wait=     manager. {name, clientId} → 201 the snapshot
+                                             (200 on a clientId repeat; 202 {…, pending:
+                                             true} when ?wait ran out first)
+POST   /sandboxes/<name>/snapshots/<sid>/restore?wait=
+                                             manager. → SandboxInfo (execs killed; busy
+                                             when ?wait ran out first)
+DELETE /sandboxes/<name>/snapshots/<sid>     manager. → 204
 ```
 
 **Conventions.** Errors are the contract's: `{error, refusal, state?,
@@ -2421,7 +2426,7 @@ definitions, lifecycle, snapshots and the policy are.
   `precondition`); a `PATCH` changes the fields it names, `defaults` and
   `labels` as a whole. `start: true` starts it after the create; a start
   that fails leaves it `stopped`, the failure in `stateDetail`. `from`
-  clones (the `clone` capability; `unsupported` until served).
+  clones (below).
 
 **Running one.** A start runs the sandbox's first process — in
 namespace mode, xbind's agent as PID 1 under the terminals' restricted
@@ -2661,6 +2666,58 @@ one on the host.
   - A source that fails part-way leaves a file copy uncommitted. A tree
     keeps what was extracted by then.
   - Copying a tree into itself is 400.
+
+**Snapshots and clones.** A snapshot is a copy of a sandbox's state — a
+namespace sandbox's upper, exactly (whiteouts, opaque directories, owners,
+modes and `user.*` xattrs; a copy that can't keep one fails), copied in a
+confined run; a VM's disk, sparse, sharing its extents with the original
+where the filesystem can. xbind never reads either.
+
+- **Taking one** stops the sandbox (its execs end `killed`), copies, and
+  starts it again if it ran. A sandbox that never ran has nothing to copy
+  (409 `state`). Ids are `s-<n>`, never handed out twice for a sandbox.
+  `clientId` makes it repeat-safe (per sandbox): the same `name` answers the
+  snapshot (200), another is 409 `exists`.
+- **A snapshot pins its base image**: the base it was built on stays
+  installed while the snapshot exists, whatever the sandbox does next
+  (reset, rebase, an upgrade).
+- **A restore** puts the snapshot's state back, base included — `base`
+  follows it, and a rebase moves it on again — and starts the sandbox again
+  if it ran. It repairs `error`. The old state goes to a confined removal.
+- **A clone** is `POST /sandboxes` with `from: {sandbox, snapshot?}`, a
+  sandbox of the same manager, in its `mode`: of a snapshot, whatever the
+  source does meanwhile, or — without `snapshot` — of the source's state,
+  only while it is `stopped` (409 `state` otherwise: stop it, or clone a
+  snapshot of it). It takes the source's base image; a VM clone's disk is
+  never smaller than the source's. It counts against `perTile.max` from
+  the moment it is defined.
+- **Refused:** another `mode`, and in namespace mode an upper of the other
+  overlay flavour (fuse-overlayfs's and the kernel's can't read each
+  other's), are 400 `invalid`; so is a snapshot whose base image is no
+  longer installed. A snapshot or clone whose bytes (the snapshot's, or the
+  source's last measured) would take the tile's sandboxes past
+  `perTile.diskGiB` is 429 `limit`. Snapshots count toward `diskBytes`.
+- **Copies run off the request**, and are made whole or not at all: a
+  crash or a restart leaves the old state, no half snapshot, and a clone
+  it cut short in `error`. `?wait=<seconds>` (absent: `waitMaxSec`) bounds
+  how long the call waits: done in time, the normal answer; not done, a
+  snapshot answers 202 with `pending: true` (it lists so until it is
+  done), a restore the sandbox with `stateDetail` `busy: restoring
+  snapshot s-2`, a clone 201 `creating` — poll `GET`.
+- **While a snapshot or a restore copies** (and while a clone copies a
+  stopped source's state, the source) the sandbox is **busy**: its
+  `stateDetail` starts `busy: `, and start, stop, reset, rebase, another
+  snapshot, a restore, `DELETE` and every command or file call answer 409
+  `state` with that `stateDetail` and `retryAfterMs` — but a command or
+  file call on a sandbox with `autoStart` waits the copy out, as it waits
+  out a stop. A snapshot a clone is copying, and its sandbox, aren't
+  deleted meanwhile (409 `state`). The workspace's own reasons (a revoke,
+  a seal, the policy switched off) find the sandbox stopped for its copy,
+  and its start after the copy is refused as any start would be; xbind's
+  shutdown ends the copy, and what it staged is removed.
+- **A clone that fails** — its copy failed, or an xbind restart cut it
+  short — is `error`, and answers 409 `state` to everything but `GET`, the
+  list and `DELETE`.
 
 **SandboxInfo:** `{name, uid, state (creating | stopped | starting |
 running | stopping | error), stateDetail, mode, accel?, memMiB, vcpus,

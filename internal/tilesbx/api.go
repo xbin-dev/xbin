@@ -11,7 +11,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -538,15 +537,11 @@ func (m *Manager) Delete(k Key, name string) error {
 		return err
 	}
 	m.mu.Lock()
-	e := busyLocked(name, b)
-	if e == nil && len(b.readers) > 0 {
-		e = &Error{Refusal: RefState, State: b.state, RetryAfter: busyRetry, busy: true, Msg: fmt.Sprintf("sandbox %q is being cloned (a snapshot of it is being copied): try again once the clone is made", name)}
-	}
-	if e != nil && b.state != StateCreating {
-		m.mu.Unlock()
+	e := deleteBlockedLocked(name, b)
+	m.mu.Unlock()
+	if e != nil {
 		return e
 	}
-	m.mu.Unlock()
 	b.flight.Lock()
 	defer b.flight.Unlock()
 	if err := m.stopLocked(b, "deleted"); err != nil {
@@ -557,6 +552,9 @@ func (m *Manager) Delete(k Key, name string) error {
 	d, ok := m.defs.get(k, name)
 	if !ok || m.live[k][name] != b {
 		return refuse(RefNotFound, "no sandbox %q", name)
+	}
+	if e := deleteBlockedLocked(name, b); e != nil { // a copy of it began meanwhile
+		return e
 	}
 	to, undo, err := m.trashState(k, d)
 	if err != nil {
