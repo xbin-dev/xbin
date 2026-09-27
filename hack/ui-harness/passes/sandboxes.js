@@ -3,16 +3,20 @@
 //   A. live, as the harness runs (no --isolate): isolation tier 1, VMs
 //      unavailable with the reason, the policy not editable here; a spawned
 //      node backend listed as "host", its row still backend:<key>:g<gen>
-//      with no deployment field; a shell listed as a terminal; a terminal
-//      asked as a VM refused — and recorded as a failure.
+//      with no deployment field; ?deployment= narrows and is echoed, a bad
+//      name is a 400; a shell listed as a terminal; a terminal asked as a VM
+//      refused — and recorded as a failure.
 //   B. a VM-capable host, faked by routing GET /sandboxes: emulated, over
 //      the budget, a blue/green pair on one tile leaf (its memory counted
 //      once), a tile running another deployment beside main (generations
-//      count per deployment: main's current one isn't draining, and each
-//      deployment's leaf is counted once), a VM terminal with its disk, a
-//      tile-owned sandbox nested under its parent, a failure counted ×3; the
-//      policy editor sends what the admin set (zero = the default) plus the
-//      edit — never the effective values.
+//      count per deployment: main's current one isn't draining; the dev
+//      generations are listed under the tile, below main's, with the
+//      deployment named; each leaf's memory is counted once, main's old
+//      generation draining in the flat leaf included), a VM terminal with its
+//      disk, a tile-owned sandbox nested under its parent, a failure counted
+//      ×3 and one naming its deployment; the policy editor sends what the
+//      admin set (zero = the default) plus the edit — never the effective
+//      values.
 //   C. components: an idle tile that asks for a VM shows it (routed
 //      /runtime + /auth-overview: isolation on, the tile not running).
 const { URL, login, closeCtx, settle, gotoTab, shot, checker, sleep } = require('../lib');
@@ -32,7 +36,10 @@ function fixture() {
       { ...web, id: 'backend:apps~web-1:g4', gen: 4, pid: 4202, started: ago(5), uptimeSec: 5 },
       { id: 'tile-child', kind: 'tile', tile: 'apps/web', parent: 'backend:apps~web-1:g4', mode: 'namespace', name: 'build box', pid: 4300,
         started: ago(4), uptimeSec: 4, stats: { cpu: 0, mem: 20 * MiB, pids: 2, scope: 'sandbox' } },
-      // main at g2 beside a blue/green pair of the tile's dev deployment
+      // main at g2 beside a blue/green pair of the tile's dev deployment; main's
+      // g1 still drains in the flat leaf it ran in before dev started
+      { ...api, id: 'backend:apps~api-2:g1', gen: 1, pid: 4400, started: ago(1200), uptimeSec: 1200, leaf: 'apps~api-2',
+        stats: { cpu: 0, mem: 10 * MiB, pids: 1, scope: 'tile' } },
       { ...api, id: 'backend:apps~api-2:g2', gen: 2, pid: 4401, started: ago(900), uptimeSec: 900, leaf: 'tile-apps~api-2/d-main/backend',
         stats: { cpu: 0.5, mem: 30 * MiB, pids: 4, scope: 'tile' } },
       { ...api, ...dev, id: 'backend+dev:apps~api-2:g7', gen: 7, pid: 4402, started: ago(20), uptimeSec: 20 },
@@ -52,8 +59,10 @@ function fixture() {
         error: "the workspace's VM memory budget (4096 MiB) is spent — close a VM terminal or ask an admin to raise it" },
       { time: ago(300), kind: 'terminal', tile: 'apps/dev', user: 'alice', mode: 'vm', stage: 'exit', count: 1,
         error: 'the VM exited (125): vm sandbox: guest agent never answered' },
+      { time: ago(400), kind: 'backend', tile: 'apps/api', deployment: 'dev', mode: 'namespace', stage: 'refused', count: 1,
+        error: 'the workspace runs 12 non-primary backends, the most allowed at once' },
     ],
-    failureCounts: { refused: 3, exit: 1 }, cgroup: true, intervalSec: 2,
+    failureCounts: { refused: 4, exit: 1 }, cgroup: true, intervalSec: 2,
     health: {
       isolation: { tier: 3, isolate: true, rootfs: '/opt/xbin/rootfs', scopeUids: false, cgroup: true, uidRange: true,
         protections: { seccomp: true, landlock: true, landlockAbi: 5 } },
@@ -106,6 +115,16 @@ async function sandboxes(browser) {
   check(backs.length >= 1 && backs.every((e) => /^backend:apps~crawler-[0-9a-f]{8}:g\d+$/.test(e.id) && e.tile === TILE &&
     !('deployment' in e) && (!e.stats || e.stats.scope === 'tile')),
   `the ${TILE} backend rows keep their id and carry no deployment (${JSON.stringify(backs.map((e) => [e.id, e.deployment, e.stats?.scope]))})`);
+  check(!('deployment' in listed), 'an answer asked for no deployment names none');
+  // ?deployment= narrows (main's rows are the ones without a deployment) and is echoed
+  const narrowed = async (dep) => (await A.ctx.request.get(`${URL}/api/xbin/sandboxes?tile=${encodeURIComponent(TILE)}&deployment=${dep}`));
+  const onMain = await (await narrowed('main')).json();
+  const onDev = await (await narrowed('dev')).json();
+  check(onMain.deployment === 'main' && onMain.sandboxes.filter((e) => e.kind === 'backend').length === backs.length,
+    `?deployment=main keeps main's rows and echoes it (${onMain.deployment}, ${onMain.sandboxes.length})`);
+  check(onDev.deployment === 'dev' && onDev.sandboxes.length === 0, `?deployment=dev lists nothing here and echoes it (${onDev.deployment}, ${onDev.sandboxes.length})`);
+  const bad = await narrowed('Dev');
+  check(bad.status() === 400 && /deployment names are lowercase/.test((await bad.json()).error || ''), `a bad deployment name is a 400 (${bad.status()})`);
   if (sid) check(await p.locator(`tr[data-sbx-id="${sid}"][data-sbx-kind="terminal"][data-sbx-mode="host"]`).count() === 1, 'the shell is listed as a terminal');
   const refused = p.locator('tr[data-sbx-failure][data-stage="refused"]', { hasText: TILE });
   check(await refused.count() >= 1, 'the refused VM terminal is a recorded failure');
@@ -135,12 +154,26 @@ async function sandboxes(browser) {
   check(/120\.0M in use/.test(head), `the tile leaf's memory is counted once for its two generations (${head.replace(/\s+/g, ' ').trim()})`);
   check(/draining/.test(await q.locator('tr[data-sbx-id="backend:apps~web-1:g3"]').textContent()), 'the older generation is draining');
   const gen = async (id) => (await q.locator(`tr[data-sbx-id="${id}"]`).textContent()).replace(/\s+/g, ' ').trim();
-  const [m2, d7, d8] = [await gen('backend:apps~api-2:g2'), await gen('backend+dev:apps~api-2:g7'), await gen('backend+dev:apps~api-2:g8')];
-  check(!/draining/.test(m2) && /draining/.test(d7) && !/draining/.test(d8),
-    `each deployment has its own current generation: main's g2 serves beside dev's g8 (${m2} | ${d7} | ${d8})`);
+  const [m1, m2, d7, d8] = [await gen('backend:apps~api-2:g1'), await gen('backend:apps~api-2:g2'),
+    await gen('backend+dev:apps~api-2:g7'), await gen('backend+dev:apps~api-2:g8')];
+  check(/draining/.test(m1) && !/draining/.test(m2) && /draining/.test(d7) && !/draining/.test(d8),
+    `each deployment has its own current generation: main's g2 serves beside dev's g8 (${m1} | ${m2} | ${d7} | ${d8})`);
   check(/50\.0M/.test(d8) && !/50\.0M/.test(d7), `a deployment's leaf stats show on its current generation only (${d7} | ${d8})`);
+  check(/10\.0M/.test(m1) && /30\.0M/.test(m2), `main's generations in two leaves show each leaf's stats (${m1} | ${m2})`);
   const apiHead = await q.locator('tr.sbx-tile[data-sbx-tile="apps/api"]').textContent();
-  check(/80\.0M in use/.test(apiHead), `main's and dev's leaves are each counted once (${apiHead.replace(/\s+/g, ' ').trim()})`);
+  check(/90\.0M in use/.test(apiHead), `each leaf of the tile is counted once: main's flat and nested ones, dev's (${apiHead.replace(/\s+/g, ' ').trim()})`);
+  // the dev generations are listed under the tile, after main's, the deployment named
+  const trs = await q.locator('table.sbx tr').evaluateAll((els) => els.map((tr) => (tr.classList.contains('sbx-tile') ? `tile:${tr.dataset.sbxTile}`
+    : tr.classList.contains('sbx-dep') ? `dep:${tr.dataset.sbxDeployment}` : tr.dataset.sbxId || '')));
+  const from = trs.indexOf('tile:apps/api'), to = trs.findIndex((k, i) => i > from && k.startsWith('tile:'));
+  const apiRows = trs.slice(from + 1, to < 0 ? trs.length : to).join(' ');
+  check(apiRows === 'backend:apps~api-2:g1 backend:apps~api-2:g2 dep:dev backend+dev:apps~api-2:g7 backend+dev:apps~api-2:g8',
+    `apps/api lists main's generations, then dev's under its heading (${apiRows})`);
+  check(await q.locator('tr[data-sbx-deployment="dev"][data-sbx-id^="backend+dev:"]').count() === 2 && /\bdev · g8\b/.test(d8) && /\bmain · g2\b/.test(m2),
+    `the rows name their deployment (${m2} | ${d8})`);
+  check(await q.locator('tr[data-sbx-id^="backend:apps~api-2"][data-sbx-deployment]').count() === 0, "main's rows carry no deployment attribute");
+  check(!/main ·/.test(await gen('backend:apps~web-1:g4')), 'a tile that runs only main names no deployment');
+  check(await q.locator('tr[data-sbx-failure] [data-sbx-failure-deployment="dev"]').count() === 1, "a deployment's failure names it");
   check(/×3/.test(await q.locator('tr[data-sbx-failure][data-stage="refused"]').first().textContent()), 'a repeated failure shows its count');
   check(await q.locator('[data-sbx-disk="apps~gone-3"]').count() === 1, 'a disk no tile holds is listed');
   check(await q.locator('.sbx-piece.no[data-piece="firecracker"]').count() === 1, 'the missing firecracker is marked');
