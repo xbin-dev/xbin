@@ -2308,8 +2308,11 @@ snapshot ids `s-[0-9]{1,12}`. A path with a `.` or `..` segment, or an
 encoded `/`, `.` or `\` (`%2F`, `%2E`, `%5C`) in any segment, and a
 `<name>`, `<id>` or `<sid>` that fails its grammar, are 400 `invalid`
 before anything is looked up, so an id a manager forwards can never
-address another route or sandbox. The data plane — `run`, starting an exec, stdin,
-signals, resizes, file writes, tar uploads and copies — isn't audit-logged;
+address another route or sandbox. (xbind's router may answer first: a
+dot segment, plain or encoded, with a redirect, and an encoded `/` whose
+decoded path matches no route with 404. Neither reaches a sandbox.) The
+data plane — `run`, starting an exec, stdin, signals, resizes, file
+writes, tar uploads and copies — isn't audit-logged;
 definitions, lifecycle, snapshots and the policy are.
 
 **A definition** (`POST /sandboxes`; `PATCH` takes the same fields but
