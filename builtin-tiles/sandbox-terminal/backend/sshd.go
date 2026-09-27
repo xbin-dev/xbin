@@ -176,14 +176,25 @@ func (t *Tile) startSSH(addr string) {
 		log.Printf("ssh: the host key: %v (retrying in %s)", err, wait)
 		time.Sleep(wait)
 	}
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		t.setSSHState(false, err.Error())
-		log.Printf("ssh: %v", err)
-		return
-	}
+	ln := t.listen(addr)
 	log.Printf("ssh: serving %s (host key %s)", ln.Addr(), ssh.FingerprintSHA256(signer.PublicKey()))
 	_ = t.serveSSH(ln, signer)
+}
+
+// listen binds addr, retrying until it can: after a restart (a rebinding
+// restarts the backend) the previous run may still hold the port for a
+// moment, and giving up would leave SSH down until the next restart. Until
+// then GET /me says why it isn't listening.
+func (t *Tile) listen(addr string) net.Listener {
+	for wait := t.listenRetry; ; wait = min(2*wait, 30*time.Second) {
+		ln, err := net.Listen("tcp", addr)
+		if err == nil {
+			return ln
+		}
+		t.setSSHState(false, err.Error())
+		log.Printf("ssh: %v (retrying in %s)", err, wait)
+		time.Sleep(wait)
+	}
 }
 
 func (t *Tile) setSSHState(listening bool, errMsg string) {

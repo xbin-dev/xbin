@@ -3816,3 +3816,38 @@ Deviations and refinements made while implementing; all deliberate:
       someone still has access to it.
     - A session already running when a share is withdrawn runs on until it
       ends.
+  - **The page, the native view and the agent's share (part 2).**
+    - **Tabs of terminals the manager owns.** Each tab is `<bx-terminal
+      src>` on the manager's route; closing a tab leaves the shell running,
+      **End** is `DELETE …/execs/{id}` from the page. Reattaching after a
+      reload uses the contract's own execs list, read as the person (tty
+      execs labelled `terminal`, or unlabelled — the contract now asks a
+      manager to label its `tty` route's execs so): nothing is remembered
+      by the page (a sandboxed frame has no storage) or the backend. They
+      are everyone's who may use the sandbox — the manager already lets any
+      of them attach — and are shown as such.
+    - **"Published" is an address set by a tile manager.** The tile can't
+      see xbind's port binding, so the ssh command shows once the listener
+      is up and a manager set the address people type; until then the page
+      says what an admin runs.
+    - **The native view opens no terminal** (a D96 difference, like the
+      agent's): the app's `terminal` dials only the tile's own routes, and
+      relaying the manager's `tty` through the backend would make the
+      person asserted. It lists, ends and manages keys, and offers "Open in
+      the browser" — `xbin.native.open` when the tile holds
+      `cap:open-links`, else the link copied — rather than declaring the
+      grant, which every import would then have to approve. Parity for a
+      builtin tile is its `native.js` header and the `tile-*` fixture;
+      the page's logic is the shared `sbxterm.js`.
+    - **The agent shares, with the person rules unchanged.** "Share with a
+      terminal tile…" is offered on a sandbox the person owns whose home is
+      the agent (only the home consumer changes shares); the share is for
+      the person (joining a list that tile's share already has) or `"*"`
+      for a team sandbox. The tile's path is a field, default
+      `apps/sandbox-terminal`: the agent can't know where it was imported.
+      The agent's `PATCH /sandboxes/{ref}` already passed `shares` through.
+    - **Not chosen:** a per-person directory of open terminals in the
+      backend (the manager's execs list is the truth, and the page reads it
+      as the verified person); auto-reopening running terminals as tabs on
+      load (on a team sandbox they may be someone else's); a picker of
+      terminal tiles in the agent (it has no view of the workspace's tiles).

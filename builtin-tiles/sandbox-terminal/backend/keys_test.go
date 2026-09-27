@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"encoding/json"
 	"errors"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -143,6 +144,31 @@ func TestHostKey(t *testing.T) {
 	v.err = errors.New("vault: 503 Service Unavailable: sealed")
 	if _, err := tile.loadHostKey(); err == nil {
 		t.Fatal("a sealed vault made a key")
+	}
+}
+
+// A port still held (the previous run, on its way out after a restart) is
+// bound once it is free, and GET /me says why SSH is down meanwhile.
+func TestListenRetries(t *testing.T) {
+	t.Parallel()
+	held, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tile := newTile(self, &memKV{}, (&memVault{}).get, nil, func() []manager { return nil }, nil)
+	tile.listenRetry = 20 * time.Millisecond
+	got := make(chan net.Listener, 1)
+	go func() { got <- tile.listen(held.Addr().String()) }()
+	eventually(t, 5*time.Second, "the bind error in GET /me", func() bool {
+		v := tile.sshView()
+		return !v.Listening && strings.Contains(v.Error, "address already in use")
+	})
+	held.Close()
+	select {
+	case ln := <-got:
+		ln.Close()
+	case <-time.After(5 * time.Second):
+		t.Fatal("never bound the port once it was free")
 	}
 }
 

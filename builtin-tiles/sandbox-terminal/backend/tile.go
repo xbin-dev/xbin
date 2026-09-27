@@ -24,15 +24,16 @@ var errNotFound = xbin.ErrNotFound
 
 // Tile is the sandbox-terminal backend.
 type Tile struct {
-	self       string                       // this tile's path: the consumer managers see
-	kv         store                        // keys, settings
-	secret     func(string) (string, error) // the vault: the host key
-	setSecret  func(string, string) error
-	managers   func() []manager // the bound managers
-	hc         *http.Client     // reaches them (xbin.Client(): the gateway)
-	sshPort    int              // the port the `ssh` expose declares
-	hupGrace   time.Duration    // HUP → DELETE for a command whose client left
-	loginGrace time.Duration    // a connection's time to authenticate
+	self        string                       // this tile's path: the consumer managers see
+	kv          store                        // keys, settings
+	secret      func(string) (string, error) // the vault: the host key
+	setSecret   func(string, string) error
+	managers    func() []manager // the bound managers
+	hc          *http.Client     // reaches them (xbin.Client(): the gateway)
+	sshPort     int              // the port the `ssh` expose declares
+	hupGrace    time.Duration    // HUP → DELETE for a command whose client left
+	loginGrace  time.Duration    // a connection's time to authenticate
+	listenRetry time.Duration    // the first wait before binding the SSH port again
 
 	mu         sync.Mutex
 	keys       []keyRec
@@ -58,7 +59,7 @@ type settings struct {
 func newTile(self string, kv store, secret func(string) (string, error), setSecret func(string, string) error,
 	managers func() []manager, hc *http.Client) *Tile {
 	return &Tile{self: self, kv: kv, secret: secret, setSecret: setSecret, managers: managers, hc: hc,
-		sshPort: 2222, hupGrace: 2 * time.Second, loginGrace: 30 * time.Second,
+		sshPort: 2222, hupGrace: 2 * time.Second, loginGrace: 30 * time.Second, listenRetry: 500 * time.Millisecond,
 		conns: map[*liveConn]struct{}{}, limit: newLimiter(), preauth: make(chan struct{}, maxPreauth)}
 }
 

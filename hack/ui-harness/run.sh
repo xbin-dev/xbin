@@ -43,6 +43,9 @@ export REPO
 export FAKEOPENAI_ADDR=${FAKEOPENAI_ADDR:-127.0.0.1:$((PORT + 10280))}
 # the ingress listener the channels pass's webhooks arrive on
 export INGRESS_ADDR=${INGRESS_ADDR:-127.0.0.1:$((PORT + 1))}
+# the host port the sandbox-terminal tile's SSH is published on (the
+# sandboxTerminal pass logs in there with OpenSSH)
+export SBXTERM_SSH_ADDR=${SBXTERM_SSH_ADDR:-127.0.0.1:$((PORT + 2))}
 mkdir -p "$OUT"
 mode="${1:-}"
 [[ $# -gt 0 ]] && shift

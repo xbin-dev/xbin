@@ -847,9 +847,9 @@ test('coding sandboxes (D115): no picker without the toolset; the Sandboxes scre
   assert.equal(list.p.subtitle, 'for your next new chat');
   assert.ok(called(r, 'GET', /\/sandboxes\?fresh=1$/).length, 'Manage reads them afresh');
   const acts = (tree, name) => all(find(tree, row(name)), { t: 'button' }).map((b) => b.p.label);
-  assert.deepEqual(acts(r.snapshots.list, 'web'), ['Use for a new chat', 'Start', 'Archive', 'Share with the team', 'Delete']);
+  assert.deepEqual(acts(r.snapshots.list, 'web'), ['Use for a new chat', 'Start', 'Archive', 'Share with the team', 'Share with a terminal tile…', 'Delete']);
   assert.deepEqual(acts(r.snapshots.list, 'team-box'), ['Use for a new chat', 'Stop'], 'another\'s team sandbox: use it, no managing');
-  assert.deepEqual(acts(r.snapshots.list, 'wide'), ['Stop', 'Archive', 'Share with the team', 'Delete'], 'one the class does not allow is not offered for use');
+  assert.deepEqual(acts(r.snapshots.list, 'wide'), ['Stop', 'Archive', 'Share with the team', 'Share with a terminal tile…', 'Delete'], 'one the class does not allow is not offered for use');
   const del = find(find(r.snapshots.list, row('web')), { t: 'button', p: { label: 'Delete' } });
   assert.match(del.p.confirm.title, /^Delete the sandbox “web”\?/);
   assert.equal(del.p.role, 'destructive');

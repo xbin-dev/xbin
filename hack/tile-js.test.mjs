@@ -1,13 +1,14 @@
 // The DOM-free modules builtin tile pages share with their native views
 // (plans/native.md §18): egress-approver's fmt.js, prometheus-viewer's
 // prom.js and chat's chat-core.js — the engine that used to be the chat
-// page's inline script. The pages' own rendering is checked in a browser by
+// page's inline script — and sandbox-terminal's sbxterm.js (D121). The pages' own rendering is checked in a browser by
 // the UI harness's tilePages pass; these pin the logic both views rely on.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fmtBytes, ago, norm } from '../builtin-tiles/egress-approver/fmt.js';
 import { parseProm, rateOf, fmtN, fmtRate, labelStr, scrape, histKey, asEndpoints, epLabel, HIST } from '../builtin-tiles/prometheus-viewer/prom.js';
 import { Chat, splitThink, SEP } from '../builtin-tiles/chat/chat-core.js';
+import * as SBT from '../builtin-tiles/sandbox-terminal/sbxterm.js';
 
 test('egress fmt: bytes, ago, norm', () => {
   assert.equal(fmtBytes(0), '0');
@@ -195,4 +196,103 @@ test('chat-core: truncation, errors, stop and a new chat', async () => {
   assert.equal(resets, 1);
   assert.deepEqual(c3.history.map((t) => [t.role, t.error]), [['assistant', '— stopped —']]);
   assert.deepEqual(c3.messages, []);
+});
+
+test('sandbox-terminal: the managers\' routes, running terminals, the list, SSH, keys', () => {
+  const eps = [{ provider: 'apps/cs', url: '/api/apps/cs/' }, { provider: 'apps/cs', instance: 'eu', url: '/api/apps/cs/i/eu' }];
+  assert.equal(SBT.endpointOf(eps, 'apps/cs').url, '/api/apps/cs/');
+  assert.equal(SBT.endpointOf(eps, 'apps/cs#eu').url, '/api/apps/cs/i/eu');
+  assert.equal(SBT.endpointOf(eps, 'apps/other'), null);
+  const ep = eps[0];
+  assert.equal(SBT.terminalSrc(ep, 'sb 1'), '/api/apps/cs/sbx/sandboxes/sb%201/tty');
+  assert.equal(SBT.terminalSrc(ep, 'sb-1', '/work/a b'), '/api/apps/cs/sbx/sandboxes/sb-1/tty?cwd=%2Fwork%2Fa%20b');
+  assert.equal(SBT.attachSrc(ep, 'sb-1', 'e 2'), '/api/apps/cs/sbx/sandboxes/sb-1/execs/e%202/tty');
+  assert.equal(SBT.execsURL(ep, 'sb-1'), '/api/apps/cs/sbx/sandboxes/sb-1/execs');
+  assert.equal(SBT.execURL(ep, 'sb-1', 'e2'), '/api/apps/cs/sbx/sandboxes/sb-1/execs/e2');
+  // running terminals: tty execs labelled "terminal", still running, oldest first
+  const ex = [
+    { id: 'b', tty: true, state: 'running', label: 'terminal', started: 20, cwd: '/work' },
+    { id: 'a', tty: true, state: 'running', label: 'terminal', started: 10 },
+    { id: 'c', tty: true, state: 'exited', label: 'terminal', started: 5 },
+    { id: 'd', tty: false, state: 'running', label: 'ssh alice', started: 1 },
+    { id: 'e', tty: true, state: 'running', label: 'build', started: 2 },
+  ];
+  assert.deepEqual(SBT.runningTerminals(ex).map((e) => e.id), ['a', 'b']);
+  assert.deepEqual(SBT.runningTerminals(null), []);
+
+  // SSH: where people reach it; the command; the states
+  const ssh = { port: 2222, listening: true, address: 'sbx.example.com:2200', hostKey: { publicKey: 'ssh-ed25519 AAAA' } };
+  assert.deepEqual(SBT.sshTarget(ssh), { host: 'sbx.example.com', port: 2200 });
+  assert.deepEqual(SBT.sshTarget({ address: 'sbx.example.com' }), { host: 'sbx.example.com', port: 22 });
+  assert.deepEqual(SBT.sshTarget({ address: '[2001:db8::1]:2222' }), { host: '2001:db8::1', port: 2222 });
+  assert.equal(SBT.sshTarget({ address: '' }), null);
+  assert.equal(SBT.sshCommand(ssh, 'api-dev'), 'ssh api-dev@sbx.example.com -p 2200');
+  assert.equal(SBT.sshCommand({ ...ssh, address: 'h' }, 'api-dev'), 'ssh api-dev@h');
+  assert.equal(SBT.sshCommand({ ...ssh, address: '[::1]:2222' }, 'x'), 'ssh x@[::1] -p 2222');
+  assert.equal(SBT.sshCommand({ ...ssh, listening: false }, 'api-dev'), '', 'no server: no command');
+  assert.equal(SBT.sshCommand({ ...ssh, address: '' }, 'api-dev'), '', 'not published: no command');
+  assert.equal(SBT.knownHosts(ssh), '[sbx.example.com]:2200 ssh-ed25519 AAAA');
+  assert.equal(SBT.knownHosts({ ...ssh, address: 'h' }), 'h ssh-ed25519 AAAA');
+  assert.equal(SBT.sshState(ssh).ready, true);
+  const down = SBT.sshState({ port: 2222, listening: false, error: 'listen tcp :2222: address already in use' });
+  assert.deepEqual([down.ready, down.tone, down.text], [false, 'danger', 'listen tcp :2222: address already in use']);
+  const unpub = SBT.sshState({ port: 2222, listening: true }, { self: 'apps/st', manager: true });
+  assert.equal(unpub.ready, false);
+  assert.equal(unpub.expose, 'bx expose apps/st ssh=runtime --listen :2222');
+  assert.match(unpub.text, /then you set the address/);
+  assert.match(SBT.sshState({ port: 2222, listening: true }).text, /a manager of this tile sets/);
+
+  // the list: grouped by manager, why a terminal can't open, the running ones, the ssh command
+  const list = {
+    managers: [{ provider: 'apps/cs', title: 'Coding sandboxes', tty: true }, { provider: 'apps/down', error: 'apps/down: status 502' }],
+    sandboxes: [
+      { provider: 'apps/cs', id: 'sb-1', name: 'API dev', login: 'api-dev', state: 'running', owner: 'alice', via: 'apps/agent',
+        visibility: 'private', image: 'Debian', egress: 'none', workdir: '/work', tty: true },
+      { provider: 'apps/cs', id: 'sb-2', name: 'old', login: 'old', state: 'archived', owner: 'bob', visibility: 'team', tty: true },
+      { provider: 'apps/cs', id: 'sb-3', name: 'plain', login: 'plain', state: 'running', owner: 'alice', visibility: 'private', tty: false },
+    ],
+  };
+  const tabs = [{ key: 'apps/cs|sb-1', session: 'b', ended: '' }];
+  const gs = SBT.withSSH(SBT.groups(list, { eps, me: { user: 'alice' }, execs: { 'apps/cs|sb-1': ex }, tabs, now: 20 + 120e3 }), ssh);
+  assert.deepEqual(gs.map((g) => [g.provider, g.title, g.error, g.rows.length]),
+    [['apps/cs', 'Coding sandboxes', '', 3], ['apps/down', 'apps/down', 'apps/down: status 502', 0]]);
+  const [api, old, plain] = gs[0].rows;
+  assert.equal(api.facts, 'private · owner: you · from apps/agent · Debian · no network');
+  assert.deepEqual([api.open, api.ssh, api.stateLabel, api.tone], [{ ok: true, why: '' }, 'ssh api-dev@sbx.example.com -p 2200', 'running', 'ok']);
+  assert.deepEqual(api.running.map((r) => [r.id, r.n, r.here, r.label]), [['a', 1, false, 'started 2 min ago'], ['b', 2, true, 'started 2 min ago · /work']]);
+  assert.deepEqual(old.open, { ok: false, why: 'it is archived — thaw it in its manager' });
+  assert.equal(old.facts, 'team · owner: bob');
+  assert.equal(plain.open.why, 'its manager offers no terminals');
+  const noEp = SBT.groups(list, { eps: [], me: { user: 'alice' } })[0].rows[0];
+  assert.equal(noEp.open.why, 'this page is not bound to its manager — reload it');
+  const viewing = SBT.groups(list, { eps, me: { user: 'alice', viewedBy: 'admin' } })[0].rows[0];
+  assert.equal(viewing.open.why, 'viewing as someone opens no terminals');
+
+  // empty states say how sandboxes get here
+  assert.equal(SBT.emptyWhy(list), null);
+  assert.match(SBT.emptyWhy({ managers: [], sandboxes: [] }, 'apps/st').cmd, /^bx bind apps\/st sandboxes=/);
+  assert.match(SBT.emptyWhy({ managers: [{ provider: 'apps/cs' }], sandboxes: [] }, 'apps/st').text, /Share with a terminal tile/);
+  assert.match(SBT.emptyWhy({ managers: [{ provider: 'apps/cs', error: 'x' }], sandboxes: [] }).title, /No sandbox manager answered/);
+
+  // keys: what a pasted key lacks before it is sent; the rows
+  assert.match(SBT.keyCheck(''), /Paste a public key/);
+  assert.match(SBT.keyCheck('-----BEGIN OPENSSH PRIVATE KEY-----\nb3Bl\n-----END OPENSSH PRIVATE KEY-----'), /PRIVATE key/);
+  assert.match(SBT.keyCheck('ssh-ed25519 AAAA a\nssh-ed25519 BBBB b'), /One key at a time/);
+  assert.match(SBT.keyCheck('hello'), /doesn't look like/);
+  assert.equal(SBT.keyCheck('ssh-ed25519 AAAAC3Nza me@x'), '');
+  assert.equal(SBT.keyCheck('sk-ssh-ed25519@openssh.com AAAA'), '');
+  assert.equal(SBT.keyCheck('ecdsa-sha2-nistp256 AAAA'), '');
+  assert.deepEqual(SBT.keyRows([{ id: 'k', user: 'u', name: '', type: 'ssh-ed25519', fingerprint: 'SHA256:x', added: 0 }], 1),
+    [{ id: 'k', user: 'u', name: 'ssh-ed25519', type: 'ssh-ed25519', fingerprint: 'SHA256:x', added: '', lastUsed: 'never used' }]);
+
+  assert.equal(SBT.shortPath('/work'), '/work');
+  assert.equal(SBT.shortPath('/tmp/a-very-long-scratch-directory/ws/.xbin/resenc/boxes/sb-1/work', 30), '…/.xbin/resenc/boxes/sb-1/work');
+  assert.equal(SBT.shortPath('/x/' + 'y'.repeat(50), 20), `…/${'y'.repeat(50)}`, 'the last part stays whole');
+  // tabs and the way to a browser
+  const t1 = { key: 'k1', name: 'api' }, t2 = { key: 'k1', name: 'api' }, t3 = { key: 'k2', name: 'web' };
+  assert.deepEqual([t1, t2, t3].map((t) => SBT.tabTitle([t1, t2, t3], t)), ['api 1', 'api 2', 'web']);
+  assert.equal(SBT.browserURL('wss://ws.example.com:8443', 'xbin-app://x/c/apps/st/?native=1'), 'https://ws.example.com:8443/');
+  assert.equal(SBT.browserURL('ws://127.0.0.1:8697', ''), 'http://127.0.0.1:8697/');
+  assert.equal(SBT.browserURL('', 'https://ws.example.com/c/apps/st/?native=1'), 'https://ws.example.com/');
+  assert.equal(SBT.browserURL('', 'xbin-app://x/c/apps/st/'), '');
 });

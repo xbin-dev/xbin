@@ -12,10 +12,11 @@ people — or by being its own.
 1. **Bind it to the managers** whose sandboxes it opens:
    `bx bind apps/sandbox-terminal sandboxes=apps/coding-sandbox` (more:
    `--add`). The binding grants this tile the managers' `consumer` role.
-2. **Share sandboxes with it.** From the agent (its sandbox's share, "a
-   terminal tile"), from the manager's own page, or any consumer that owns
-   one: `PATCH …/sbx/sandboxes/{id}` with
-   `{"shares": [{"consumer": "apps/sandbox-terminal", "users": "*"}]}`.
+2. **Share sandboxes with it.** From the agent (its Sandboxes dialog →
+   **Share with a terminal tile…** on a sandbox you own: for you, or for
+   everyone who may use it when it is a team sandbox), from the manager's
+   own page, or any consumer that owns one: `PATCH …/sbx/sandboxes/{id}`
+   with `{"shares": [{"consumer": "apps/sandbox-terminal", "users": "*"}]}`.
 3. **For SSH, publish the port** (an admin):
    `bx expose apps/sandbox-terminal ssh=runtime --listen :2222`. People
    register their public keys on the tile's page, and a manager of the tile
@@ -38,6 +39,53 @@ with this tile doesn't exist here.
   manager naming them in `Sbx-User` (an **asserted** person: the manager
   records it, and trusts this tile to have checked the rules above). No xbin
   identity reaches a sandbox; only a terminal's bytes cross.
+
+## The page
+
+- **Sandboxes**, grouped by the manager they are on (a manager that didn't
+  answer says why): state, private or team, owner, the consumer that shared
+  it (`from apps/agent`), image and network, and its `ssh` command once SSH
+  is published. **Open terminal** starts the sandbox user's login shell at
+  its workdir (a stopped sandbox starts; an archived one says to thaw it in
+  its manager) in a new tab; several can be open, on one sandbox or many.
+- **Terminals are the manager's, not the page's.** A tab is `<bx-terminal
+  src>` on the manager's route, dialled by the page with its frame token.
+  **✕** closes the tab and leaves the shell running; **End** ends it
+  (`DELETE …/execs/{id}` at the manager, confirmed); ⤢ makes it larger.
+  Each sandbox lists its **running terminals** — the manager's tty execs
+  labelled `terminal`, read as you (`GET …/execs`), so after a reload or
+  from another browser **Attach** opens one again (its screen replays,
+  then it goes on) and **End** ends one. They are everyone's who may use
+  the sandbox: the agent's Open terminal and SSH logins with a terminal
+  are there too.
+- **SSH**: whether people can log in — the server isn't running (why), or
+  the port isn't published yet (the `bx expose` an admin runs; the tile
+  can't see xbind's port binding, so "published" means a manager of the
+  tile has set the address people type) — the host key's fingerprint and
+  `known_hosts` line, **your keys** (add one by pasting its `.pub`;
+  remove), and your live SSH sessions. A manager of the tile also sets the
+  address, and sees and revokes **everyone's keys**.
+- **Empty states** say how sandboxes get here: bind a manager, then share
+  a sandbox with this tile (the agent's Sandboxes → Share with a terminal
+  tile…, or the manager's own page).
+- Viewing the workspace as someone (D64) shows their list read only: no
+  terminals, no key changes.
+
+What the page shows is `sbxterm.js` (no DOM; `index.html` and `native.js`
+both draw from it).
+
+## The native view (the xbin app)
+
+`native.js` shows the same list, a detail screen per sandbox (its `ssh`
+command, the terminals running in it — **End** behind the swipe), and a
+keys screen (add, remove, the host key; a manager sets the address). It
+opens **no terminal** — a difference from the page (D96): the app's
+`terminal` primitive dials only this tile's own routes, and a sandbox's
+terminal is its manager's; relaying it through this tile's backend would
+turn the verified person the manager checks into an asserted one. So where
+a terminal would be it says so and offers **Open in the browser**: the
+workspace the app reached, opened outside the app when this tile holds
+`cap:open-links`, and otherwise copied to paste into a browser.
 
 ## SSH
 

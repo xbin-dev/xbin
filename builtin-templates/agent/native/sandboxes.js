@@ -5,7 +5,8 @@
 // subtitle, a notice when the binding no longer resolves, and ⋯ → Sandbox:
 // the working directory, switching among the attached ones, Detach,
 // Manage…), and the pushed Sandboxes screens: the list with the lifecycle
-// actions your rights allow, and the create form. What they say is
+// actions your rights allow, the create form, and sharing one with a
+// terminal tile (the builtin sandbox-terminal, D121). What they say is
 // model/sandboxes.js, what they do app.sbx (model/sandbox-store.js); the web
 // draws the same from sandboxes.js — and a terminal, which this view leaves
 // out (app.sbx.tty stays null: the app's terminal dials only the tile's own
@@ -144,7 +145,7 @@ function boxTpl(s) {
   </screen>`;
 }
 
-const ACT_ICON = { use: 'check', start: 'play', stop: 'stop', thaw: 'sun', archive: 'archive', team: 'people', private: 'lock', delete: 'trash' };
+const ACT_ICON = { use: 'check', start: 'play', stop: 'stop', thaw: 'sun', archive: 'archive', team: 'people', private: 'lock', shareTerm: 'terminal', delete: 'trash' };
 
 // sandboxes: every sandbox you may see (model/sandboxes.js sandboxRows), each
 // row's actions behind its swipe and ⋯ (archive and delete confirmed).
@@ -157,6 +158,7 @@ function listTpl(s) {
   s.order = rows.map((r) => r.ref);
   const cant = app.sbx.createWhy();
   const act = (r, a) => async () => {
+    if (a.id === 'shareTerm') { push({ kind: 'sandboxShare', ref: r.ref, f: {} }); return; }
     s.busy = r.ref; s.err = ''; s.msg = '';
     ctx.paint();
     try { s.msg = await app.sbx.perform(r.ref, a.id, r.name); } catch (e) { s.err = `${r.name}: ${e.message}`; }
@@ -185,7 +187,8 @@ function listTpl(s) {
 function rowTpl(r, busy, act, managers) {
   const facts = [busy === r.ref ? `${r.stateLabel.replace(/…$/, '')}…` : r.stateLabel, r.stateDetail, r.where,
     r.visLabel, managers && r.manager, r.image, r.size, r.egressLabel, `owner: ${r.owner}`, r.lastLabel && `active ${r.lastLabel}`,
-    r.bound ? `in ${r.bound} conversation${r.bound === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
+    r.bound ? `in ${r.bound} conversation${r.bound === 1 ? '' : 's'}` : '', r.sharedWith.length ? `shared with ${r.sharedWith.join(', ')}` : '']
+    .filter(Boolean).join(' · ');
   return html`<row title=${r.name} subtitle=${facts} icon="box" ?selected=${r.active} tone=${r.state === 'error' ? 'danger' : nothing}>
     ${r.actions.length ? html`<actions>${repeat(r.actions, (a) => a.id, (a) => html`<button icon=${ACT_ICON[a.id]}
       role=${a.danger ? 'destructive' : nothing} ?disabled=${!!busy}
@@ -249,4 +252,42 @@ function newTpl(s) {
   </screen>`;
 }
 
-export const sandboxScreens = { sandbox: boxTpl, sandboxes: listTpl, sandboxNew: newTpl };
+// sandboxShare: "Share with a terminal tile…" (model/sandboxes.js
+// shareForm) — the tile's path, who it is for, the shares it has now (Stop
+// sharing, confirmed); Share says so on the Sandboxes screen.
+function shareTpl(s) {
+  const app = ctx.app;
+  const box = app.sbx.list.sandboxes.find((x) => x.ref === s.ref);
+  const name = (box && box.name) || S.splitRef(s.ref).id;
+  const vm = app.sbx.shareForm(s.ref, s.f);
+  const share = async () => {
+    s.busy = true; s.err = ''; ctx.paint();
+    try {
+      const msg = await app.sbx.shareTerminal(s.ref, s.f);
+      drop(s);
+      for (const x of ui.stack) if (x.kind === 'sandboxes') x.msg = msg;
+    } catch (e) { s.err = e.message; }
+    s.busy = false; ctx.paint();
+  };
+  const stop = (c) => async () => {
+    s.err = ''; ctx.paint();
+    try { await app.sbx.unshare(s.ref, c.consumer); } catch (e) { s.err = e.message; }
+    ctx.paint();
+  };
+  return html`<screen title="Share with a terminal tile" subtitle=${`${S.ICON} ${name}`} style="form">
+    <toolbar><button role="primary" ?busy=${!!s.busy} ?disabled=${!vm.ok} @tap=${share}>Share</button></toolbar>
+    ${s.err || (vm.error && vm.tile) ? html`<section><notice tone="danger" text=${s.err || vm.error}/></section>` : nothing}
+    <section footer="A terminal tile — the builtin sandbox-terminal — gives people terminals onto it in a browser and over SSH. It checks who may use the sandbox as well: a share never widens that.">
+      <field label="The terminal tile's path" placeholder=${S.TERMINAL_TILE} value=${vm.tile} @input=${(e) => { s.f = { tile: e.value }; ctx.paint(); }}/>
+      <row title="For" detail=${vm.usersLabel}/>
+    </section>
+    ${vm.current.length ? html`<section title="Shared with now">${repeat(vm.current, (c) => c.consumer, (c) => html`
+      <row title=${c.consumer} mono="title" subtitle=${c.usersLabel} icon="terminal">
+        <actions><button role="destructive" icon="xmark"
+          confirm=${{ title: `Stop sharing “${name}” with ${c.consumer}?`, message: 'Its terminals there can\'t be opened again.', label: 'Stop sharing', destructive: true }}
+          @tap=${stop(c)}>Stop sharing</button></actions>
+      </row>`)}</section>` : nothing}
+  </screen>`;
+}
+
+export const sandboxScreens = { sandbox: boxTpl, sandboxes: listTpl, sandboxNew: newTpl, sandboxShare: shareTpl };
