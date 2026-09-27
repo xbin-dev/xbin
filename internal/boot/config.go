@@ -49,6 +49,7 @@ type Config struct {
 	ExternalURL   string `flag:"external-url" env:"XBIN_EXTERNAL_URL" doc:"the console's public base URL, e.g. https://xbin.corp.example — the stable address SSO redirect URIs are registered under (required for SSO login); also used for printed login/invite links. Empty on tunnel-only setups"`
 	TileAssets    string `flag:"tile-assets" env:"XBIN_TILE_ASSETS" def:"legacy" doc:"how tile frontends' files are authorized (docs/auth.md §Tile asset gating): legacy = today's credential-less subresource rule (Fetch-Metadata + a recently signed-in IP; removed in the next release); tokens = strict, relative URLs carry a path-scoped asset token; origins = strict, each tile on its own origin under --tiles-domain (needs --external-url, wildcard DNS + TLS)"`
 	TilesDomain   string `flag:"tiles-domain" env:"XBIN_TILES_DOMAIN" doc:"parent domain of the per-tile origins for --tile-assets=origins, e.g. tiles.xbin.corp.example (tiles at t-<id>.tiles.xbin.corp.example); must be same-site with --external-url; optional :port. Dev: shell at http://xbin.localhost:PORT, --tiles-domain xbin.localhost"`
+	TileDeploys   string `flag:"tile-deployments" env:"XBIN_TILE_DEPLOYMENTS" def:"on" doc:"whether tiles may opt in to tile deployments — pausing live reload, deployments, promotion (docs/protocol.md, Tile deployments): on = they may; off = nothing creates or extends deployment state, while resuming live reload, removing a deployment, resetting its data and unprotecting stay allowed, so every tile can return to today's behaviour. Either way, existing deployment records keep governing what runs, and a tile that never opted in is untouched"`
 
 	// env-only, consumed by boot
 	VaultPassphrase string `env:"XBIN_VAULT_PASSPHRASE" secret:"true" doc:"vault passphrase: auto-init/unseal the encryption barrier at boot (docs/auth.md §vault). Unset in production means the daemon starts SEALED (or LOCKED before first setup) until an admin unseals"`
@@ -172,6 +173,9 @@ func (c *Config) Validate() (derived, error) {
 	if err := c.validateTileAssets(d.externalURL); err != nil {
 		return d, err
 	}
+	if c.TileDeploys != "" && c.TileDeploys != "on" && c.TileDeploys != "off" {
+		return d, fmt.Errorf("bad --tile-deployments %q: want on or off", c.TileDeploys)
+	}
 	if d.ws, err = filepath.Abs(c.Workspace); err != nil {
 		return d, err
 	}
@@ -262,6 +266,10 @@ func (c *Config) validateTileAssets(external string) error {
 	}
 	return nil
 }
+
+// tileDeploysClosed reports --tile-deployments=off: opting in to tile
+// deployments is closed ("" is the default, on).
+func (c *Config) tileDeploysClosed() bool { return c.TileDeploys == "off" }
 
 // tilesDomain is --tiles-domain normalized (lowercase, trimmed).
 func (c *Config) tilesDomain() string { return strings.ToLower(strings.TrimSpace(c.TilesDomain)) }

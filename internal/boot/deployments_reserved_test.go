@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/xbin-dev/xbin/internal/deployments"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -33,7 +34,7 @@ func TestDeploymentRoutesReserved(t *testing.T) {
 		"GET /checkpoints/{rest...}",
 	}
 	srv := &server.Server{}
-	(&State{}).registerDeploymentsAPI(srv)
+	registerDeploymentsAPI(srv, &deployments.Plane{})
 	got := srv.APIRoutes()
 	slices.Sort(got)
 	slices.Sort(want)
