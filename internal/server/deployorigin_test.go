@@ -281,10 +281,6 @@ func TestOriginLabelPerDeployment(t *testing.T) {
 	t.Run("served", func(t *testing.T) {
 		w := newOriginWS(t)
 		wes := w.session("wes")
-		if rec := w.do("/c/apps/a+dev/", append(shellNav, wes)...); rec.Code == http.StatusNotFound && strings.Contains(rec.Body.String(), "--tile-assets=origins") {
-			t.Skip("deployment URLs still answer the interim 404 of origins mode (serveQualified, deployserve.go): " +
-				"the amendment WP-38 asks for removes it")
-		}
 		devHost := w.depHost("apps/a", "dev")
 		u, rec := w.ticketURL("/c/apps/a+dev/?x=1", wes)
 		if u == nil || u.Host != devHost || !strings.HasPrefix(u.Query().Get(ticketParam), "x2.") {
