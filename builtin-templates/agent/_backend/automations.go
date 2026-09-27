@@ -85,7 +85,7 @@ func scheduleItems(w who, watchers bool) []AutomationItem {
 			Enabled: s.Enabled, Mode: orStr(s.Mode, modeIsolated), TargetRun: s.TargetRun, LastRunID: s.LastRunID,
 			LastRunAt: s.LastRun, LastStatus: s.LastStatus,
 			Summary: s.Cron + " · " + clip(s.Goal, 120),
-			Config:  map[string]any{"cron": s.Cron, "goal": s.Goal, "system": s.System, "toolset": s.Toolset, "createdByRun": s.CreatedByRun}}
+			Config:  map[string]any{"cron": s.Cron, "goal": s.Goal, "system": s.System, "toolset": s.Toolset, "class": s.Class, "createdByRun": s.CreatedByRun}}
 		if watchers {
 			it.Kind, it.Mode, it.CurrentRun = "watcher", "", s.RunID
 		} else if s.Mode == modePersistent {

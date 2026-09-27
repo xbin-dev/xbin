@@ -42,13 +42,19 @@ func init() {
 	registerAutomationKind(automationKind{Kind: "channel", Origin: "channel", List: channelItems})
 }
 
+// title is what the Automations page calls a channel: its name, else its
+// platform and account.
+func (c *Channel) title() string {
+	return orStr(c.Name, c.platformName()+" · "+orStr(c.AccountName, c.AccountID))
+}
+
 // channelItems lists channels as automations: yours and the team's; for a
 // manager also the others' (that they exist, not how they are set up) and
 // the unclaimed ones, to claim.
 func channelItems(w who) []AutomationItem {
 	var out []AutomationItem
 	for _, c := range agent.db.listChannels() {
-		it := AutomationItem{Kind: "channel", ID: c.ID, Name: orStr(c.Name, c.platformName()+" · "+orStr(c.AccountName, c.AccountID)),
+		it := AutomationItem{Kind: "channel", ID: c.ID, Name: c.title(),
 			Owner: c.Owner, Visibility: c.Visibility, Enabled: c.State == chActive, Mode: c.State,
 			Summary: c.platformName() + " · " + orStr(c.AccountName, c.AccountID) + " via " + c.Adapter}
 		switch lv := c.access(w); {
@@ -157,7 +163,7 @@ func applyChannelPatch(ch *Channel, p channelPatch) string {
 		ch.Visibility = *p.Visibility
 	}
 	if p.Policy != nil {
-		if msg := p.Policy.validate(); msg != "" {
+		if msg := p.Policy.validate(ch.Policy); msg != "" {
 			return msg
 		}
 		ch.Policy = *p.Policy
@@ -198,6 +204,18 @@ func handleChannelUpdate(w http.ResponseWriter, r *http.Request) {
 	if !owner && (p.Name != nil || p.Visibility != nil || p.Policy != nil) {
 		xbin.WriteError(w, 403, "only the channel's owner can change its settings")
 		return
+	}
+	if p.Policy != nil { // a managers-only class is theirs to hand out (D116) — checked when it changes
+		for _, slot := range [][2]string{{p.Policy.PrivateClass, ch.Policy.PrivateClass}, {p.Policy.WebClass, ch.Policy.WebClass}} {
+			id := slot[0]
+			if id == slot[1] {
+				continue
+			}
+			if _, err := requestedClass(c, id, ""); id != "" && err != nil {
+				writeClassErr(w, err)
+				return
+			}
+		}
 	}
 	prevVis, prevState := ch.Visibility, ch.State
 	if msg := applyChannelPatch(ch, p); msg != "" {

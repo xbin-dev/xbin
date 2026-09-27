@@ -12,6 +12,220 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-27
 
+- **A contract for sandbox managers** ([sandbox-manager.md](sandbox-manager.md),
+  D115). Tiles that run coding sandboxes for other tiles provide the http
+  service `sandbox-manager` (protocol 1); tiles that use them — the agent
+  template next — multi-bind it. It covers sandboxes and their lifecycle,
+  running commands (a blocking `run`, background execs read by byte offset
+  with a long-poll), terminals on the `/ws/term` wire, files and tar, and
+  optional snapshots, clones and archives. Each consumer tile sees its own
+  sandboxes and those shared with it; a page's calls carry the verified
+  person, a backend names the person it acts for in `Sbx-User`. Managers can
+  be built on xbind's own sandboxes or on a cloud's API and ssh.
+
+- **The sandbox-manager conformance suite** (`hack/fakesandbox`, D115). The
+  reference manager's tests check protocol 1 over HTTP alone, section by
+  section — hello, sandboxes and `clientId`s, partitions and shares, verified
+  and asserted people, `version` on PATCH, the lifecycle (a stopped sandbox
+  starting on use, an archived one refusing with `state`), `run` (output
+  shaping, timeouts: TERM, then KILL for the whole group), background execs
+  (offsets, the ring, stdin, signals), files and etags, tar, snapshots and
+  clones, and `unsupported` for a missing capability — so a manager can be
+  checked against it. The reference manager now answers every error in
+  JSON, refuses a PATCH whole or not at all, and ends a timed-out command's
+  group even when a member outlived its leader.
+- **The `devbox` builtin tile is retired** (D115; migration note
+  [changes/2026-09-27-devbox-retired.md](/docs/changes/2026-09-27-devbox-retired.md)).
+  It never really worked. `bx tile import devbox` (`POST /builtins/import`)
+  now answers 410 with what replaces it: coding sandboxes come from sandbox
+  managers — the `coding-sandbox` template, with the `sandbox-terminal` tile
+  for people's terminals and SSH, both on their way. A workspace that
+  imported devbox keeps its copy as it is; xbind just stops offering it
+  updates. `cap:containers` is unchanged.
+- **Agent template: agent classes** (D116, the template's API.md §Agent
+  classes). A conversation's 🔒/🌐 lane becomes a class: a named set of
+  toolsets (`files`, `repl`, `web`, `internal`, `sandbox`, `subagents`,
+  `schedule`, `threads`, `skills`), with the MCP servers, sandbox managers
+  and sandbox egress it may use, and optionally a model and a system
+  addendum. Built in: `internal` (the old private lane), `web` (the old web
+  lane) and `coding` (sandbox + web). The tile's managers edit them (`GET`/
+  `PUT /classes`); a class that holds internal reach together with egress
+  takes `confirmMixed` to save and its conversations say so. `class` is
+  accepted wherever `toolset` was (`POST /ask`, `POST /runs`, schedules,
+  triggers; channel policies gain `privateClass`/`webClass`); `toolset:
+  "private"|"web"` keeps working and names the built-ins, and
+  `config.toolset` still says the lane. A conversation's class is fixed; the
+  view carries it as `class` (with `mixed`). `PUT /classes` refuses (400,
+  naming the channel) an edit that would take a class a channel runs
+  strangers in — its policy's `webClass`, or the built-in `web` for a
+  channel that names none — out of the web lane, or delete it. The owner's
+  grants became a registry: the pending ask carries
+  `pendingState.grantAsk` and each live grant `{ask, chip}`.
+
+- **Agent template: classes in the UI** (D116). The composer's 🔒/🌐 toggle
+  is a class picker — icon and name, each class's description in its menu,
+  only the classes you may use — at home, where a new chat starts; your
+  last pick is remembered (`/api/xbin/prefs/class`; with none yet, the lane
+  you picked before). The open conversation's top bar shows its class, and
+  a class that can move internal data out says so. Managers edit the
+  classes under ⚙ → **Classes** (toolsets, MCP servers, sandbox managers
+  and egress, model, system addendum, who may use it, the default for new
+  chats); a built-in resets to its default, and saving a mixed class asks
+  first. "New chat with options" picks a class. The native view has the
+  same (a Class picker in the home toolbar, the subtitle, Settings →
+  Classes). `GET /classes` marks each class `stored` and lists the
+  built-ins first. On the Automations page, schedules, watchers and
+  triggers pick a class instead of the tool mode (they send `class`, and
+  its lane as `toolset`) and their cards and details say it; the trigger
+  form also refuses public data for a class that can move internal data
+  out. A channel's rules pick everyone else's class (web-lane classes
+  only) and, with the private lane, trusted people's (`webClass`,
+  `privateClass`), and a save sends the whole policy back — fields the
+  form doesn't show (such as `groups.scope`) are no longer dropped.
+- **Agent template: sandbox managers, and a sandbox per conversation**
+  (D115; the template's API.md §Coding sandboxes). A new `sandboxes`
+  interface slot (`http`, service `sandbox-manager`, multi) binds the agent
+  to one or more sandbox managers; `GET /sandboxes` lists the sandboxes the
+  caller may see across them (references `<provider>[#inst]|<id>`, with
+  `mine`, `canUse`, `canManage`, `canEdit`, `boundTo`) and what each manager
+  offers, or why it can't be used; `POST /sandboxes` creates one (for a
+  conversation: a team conversation's is a team one, and it is bound
+  there), and `PATCH`/`DELETE /sandboxes/{ref}` and
+  `POST /sandboxes/{ref}/{start|stop|archive|thaw}` manage them. A
+  conversation's `config.sandbox` (the active one) and `config.attached`
+  (up to 8) are set by `PATCH /runs/{id} {sandbox, detach}` or `POST /ask
+  {sandbox}` — participant access, the right to use the sandbox, and a class
+  with the `sandbox` toolset — read every turn and inherited by subagents.
+  The agent names the person it acts for in `Sbx-User` and enforces the
+  owner / members / team rules itself. A bound conversation gets the coding
+  tools (§The coding tools): `bash` (at its timeout the command goes on as a
+  numbered job; interrupting the turn TERMs, then KILLs, its process group;
+  after a backend restart the call's result names the job), `bash_output`
+  and `bash_kill`; `read`, `write`, `edit` (etag-guarded), `ls`, `glob`
+  and `grep` for its files; `sandbox_upload`/`sandbox_download` (session
+  files ↔ sandbox), `sandbox_copy` (between attached sandboxes) and
+  `sandbox_info`; and `subagent_spawn {sandbox, cwd}` puts a subagent on
+  another attached sandbox. Its system prompt gains a `# Sandbox` section;
+  in Approve mode the tools that change a sandbox park only when it has
+  egress. The agent can make its own: `sandbox_create {name, manager?,
+  image?, size?, egress?, cwd?}` asks the conversation's owner — a new
+  `sandboxes` grant, once or for an hour, whose `pendingState.grantAsk`
+  names what will be made — then creates the sandbox for them and binds it
+  (active when none is), and the tools work in it from the next step; at
+  most 4 per conversation, never from a subagent, a chat channel's
+  conversation or an unowned one. `run` events (and the view's `run`) carry
+  the active binding as `sandbox: {ref, name, cwd, egress, manager} | null`
+  with the `attached` count. Deleting a conversation kills the jobs it left
+  running (archiving doesn't). A sandbox whose egress changed since it was
+  bound updates the binding, and in Approve mode a call it would now park
+  is refused once and parks when called again.
+- **Agent template: fixes from the phase-1 review — the sandbox job engine
+  and the coding tools** (the template's API.md §The coding tools). A
+  provider that repeats or omits tool call ids no longer makes `bash` hand
+  back an earlier turn's job instead of running the new command: generated
+  call ids are unique within the run, and a call's earlier job answers it
+  only for the same request still running. Detaching a sandbox — or
+  deleting it — KILLs the conversation's jobs in it (in the background) and
+  records them, a `bash` whose start was still in flight included: when its
+  start answers, the command is KILLed at once and the call says so — and
+  the turn in flight works there no more (its later tool calls are
+  refused, where they used its copy of the bindings); a job whose sandbox
+  the conversation can no longer use is
+  lost and no longer counts toward the 8, so leftover rows can't block
+  `bash` for good, and `bash_output`/`bash_kill` on it say what is known. A
+  start the manager doesn't answer keeps its job (named in the result, found
+  by its clientId) instead of being forgotten and run twice. `sandbox_create`
+  asks the owner for exactly what it will make — resolved against the
+  manager first, the name quoted — and makes that or refuses; its `cwd` is
+  made even when the manager answers before the sandbox runs. `read` and
+  `edit` follow a symlink to its file (`write` still replaces the path).
+- **Agent template: coding sandboxes in the UI** (D115; the template's
+  API.md §Coding sandboxes → "In the UI"). Where the conversation's class
+  (or the new chat's) has the `sandbox` toolset, the composer has a sandbox
+  picker beside the model — This conversation · Yours · Shared · Team, the
+  ones you may not use or the class does not allow disabled with the reason,
+  ＋ New and Manage… — and a pick binds it from the next turn (at home the
+  new chat starts in it). The top bar's ▣ badge shows the sandbox and its
+  working directory, or why the binding no longer resolves (gone, its
+  manager unbound or down, its class no longer allows it); it sets the
+  directory, switches among the attached sandboxes and detaches. The
+  Sandboxes dialog starts, stops, archives, thaws, shares with the team and
+  deletes them as your rights allow, and creates one (manager, image, size,
+  the network the class allows, private or team) — in a conversation, bound
+  there. The coding tools' cards (a ▣ family) show the command under the
+  model's summary and what it came to: bash's `exit 1 · 14s · job 3` or
+  `still running · job 3`, match and file counts, sizes. The model is
+  `model/sandboxes.js` and `app.sbx` (`model/sandbox-store.js`); both views
+  draw it — in the xbin app a Sandbox picker in the toolbar beside the
+  model's, the ▣ in the conversation's subtitle with ⋯ → Sandbox for the
+  directory, the attached ones and Detach, and pushed Sandboxes screens.
+- **Fixes from the phase-1 review: sandbox access and the firewall** (D115,
+  D116). The contract's sandbox gains `egressNext` (additive): `egress` is
+  what a sandbox has now, and an egress `PATCH`ed on a running one waits in
+  `egressNext` for its next start (on a stopped one it applies at once);
+  a firewall checks the less restrictive of the two, a missing or unknown
+  egress counting as `open` — the reference manager and its conformance
+  suite follow. The agent checks egress that way when binding and on every
+  tool call (a lowered egress is no longer trusted before the restart, nor
+  a sandbox whose manager doesn't say). A detach — or a rebind by someone
+  else — reaches subagents' copies of the binding at once. A sandbox
+  another consumer shared with the agent is usable only by the people its
+  share names. Binding a sandbox to a conversation with internal reach
+  labels it `xbin.agent/internal`, and a class that reaches outside without
+  internal reach may then neither bind it nor keep working in it. The label
+  spreads within a conversation: one that has had a labeled sandbox
+  (`config.heldInternal`) labels every sandbox it has attached and every one
+  it binds or works in after, and `sandbox_copy` from a labeled sandbox
+  labels its target first — a class with neither internal reach nor egress
+  can no longer carry internal data into a clean sandbox for a web-lane
+  conversation. `PATCH /sandboxes/{ref}` with `labels` sends the sandbox's
+  `version` (re-reading once on a 412), so it never overwrites a label set
+  meanwhile. Re-picking
+  an attached sandbox keeps its working directory, and `sandbox_create`'s
+  grant card says when the sandbox will be the team's — the allow is of
+  exactly that: a team conversation's create is made once allowed (the
+  note had made every one refuse as changed since the owner allowed it),
+  and one asked while private but made after the conversation was shared
+  with the team is refused.
+
+- **Agent template: fixes from the phase-1 review — approvals and class
+  rules** (the template's API.md). An approval answers its own ask: every
+  park has an id (`pendingState.park`), `POST /runs/{id}/approve` takes an
+  optional `park` (409 when that ask is gone; without it, the one pending
+  now), and a verdict queued for one ask is dropped rather than spent on the
+  next — a participant's second click can no longer allow the owner-only
+  sandboxes or threads grant. A click on an ask that is gone says so beside
+  the card (the web threw it as an unhandled error). `PUT /classes` refuses
+  (400, naming them) to make mixed a class a public-data trigger runs in, or
+  to delete a class a trigger or a channel's `privateClass`/`webClass`
+  names; a public event into a class that is mixed now is refused (`reason:
+  "class-mixed"`). A trigger's `{enabled}` switch is never refused over its
+  class, edits re-check the class rules only when the class, data class or
+  delivery change, and its lane stays the one it was saved in — while a
+  legacy `{toolset}` that switches lanes always applies, naming that lane's
+  built-in (it was ignored when the class already was that built-in); a
+  channel's rules save while a class they name is gone. A conversation or
+  schedule from before the lanes stays in the private lane whatever the
+  built-in `internal` is edited into.
+- **Agent template: sandbox UI — fixes from the phase-1 review** (D115; the
+  template's API.md §Coding sandboxes → "In the UI"). Picking an attached
+  sandbox again (the picker, "Use here") keeps the working directory it had
+  in the conversation, and the badge popover's directory field follows a
+  switch. A new-chat pick whose sandbox is gone says so in the picker once
+  the list is read; an ask refused for it keeps the typed message, drops the
+  pick and says why (it no longer fails every new chat). Start / Stop / Thaw
+  are offered through the conversation (`?conversation=`) for a sandbox it
+  holds that you may neither use nor manage; a viewer is no longer offered
+  New sandbox for the conversation. Binding a private sandbox into a
+  conversation other people are in asks first (a sheet in the xbin app). The
+  Sandboxes list keeps its order while open, and lays a row out as its name
+  and badges with the actions one right-aligned group beside them (under
+  them on a phone) — they no longer wrap in under the name. A sandbox bound
+  since the list was read (one the agent just made) has the list read again
+  instead of showing ⚠ gone in the badge. After a class edit the open
+  conversation's class badge, mixed warning and sandbox reasons follow at
+  once.
+
 - **Admin console: runtime → sandboxes, and the sandbox in the component
   list** (D112, [isolation.md](isolation.md) §VM sandboxes). A new tab lists
   every sandbox xbind runs — backend generations, terminals, agent sessions

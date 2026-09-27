@@ -9,6 +9,8 @@ import { html, nothing } from '/vendor/lit-all.min.js';
 import { extendKind, ago } from './model/auto.js';
 import { st, draftOf, channelCan, pendingPeers, knownPeers, codeMinutes, claim, save, toggle, pair, peer, forget, resetSession, retry,
   del as remove } from './model/auto-channels.js';
+import { channelClasses } from './model/classes.js';
+import { classFieldTpl } from './classes.js';
 
 // The channel's state and actions are model/auto-channels.js (shared with the
 // native view); what is drawn here, and the "are you sure?" before a removal.
@@ -158,6 +160,7 @@ function rulesTpl(it, p, claiming) {
       ${d.privateLane ? html`<input class="mono" .value=${d.trustedGroups} @input=${set('trustedGroups')} placeholder="trusted group ids">
         <label class="chk small"><input type="checkbox" .checked=${d.trustLinked} @change=${set('trustLinked')}> people who linked their xbin account count as trusted</label>` : nothing}
     </div>
+    ${classesTpl(d, p)}
     <div class="row2">
       <div class="field"><label>Start a conversation afresh</label><select @change=${set('reset')}>
         ${opt('reset', '', 'never (send /new)')}${opt('reset', 'idle:3600', 'after an hour of quiet')}
@@ -168,6 +171,17 @@ function rulesTpl(it, p, claiming) {
     <div class="field"><label>Extra instructions</label>
       <textarea rows="2" .value=${d.system} @input=${set('system')} placeholder="e.g. answer in the language you are written to"></textarea></div>
     <div><button class="btn" @click=${() => (claiming ? claim(it, p) : save(it, p))}>${claiming ? 'Claim' : 'Save rules'}</button></div>`;
+}
+
+// classesTpl: the classes its conversations run in (D116) — everyone else's
+// reaches outside with no internal reach; trusted people's, with the private lane.
+function classesTpl(d, p) {
+  const cls = channelClasses(p.classes(), d);
+  const pick = (k) => (v) => { d[k] = v; p.changed(); };
+  return html`<div class="row2">
+    ${classFieldTpl('Everyone else\'s class', cls.web.rows, pick('webClass'), { name: 'webClass', title: 'a class that reaches outside and has no internal reach' })}
+    ${d.privateLane ? classFieldTpl('Trusted people\'s class', cls.private.rows, pick('privateClass'), { name: 'privateClass' }) : nothing}
+  </div>`;
 }
 
 extendKind('channel', { card, head, detail });

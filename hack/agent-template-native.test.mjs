@@ -108,7 +108,9 @@ test('home: the greeting, example asks, what needs you, and the composer', async
   const composer = find(home, { t: 'composer' });
   assert.equal(composer.p.placeholder, 'ask anything…');
   assert.match(composer.p.upload.path, /^\/api\/apps\/agent\/ask\/upload\?draft=[\w-]{8,64}&name=\{name\}$/, 'at home the app uploads into the new ask\'s draft');
-  assert.ok(find(home, { t: 'button', p: { label: 'internal', icon: 'lock' } }), 'the tool-mode chip');
+  const cls = find(home, { t: 'picker', p: { label: 'Class' } });
+  assert.equal(cls.p.value, 'internal', 'the class for new chats, in the toolbar');
+  assert.deepEqual(cls.p.options.map((o) => [o.label, o.icon]), [['Internal', 'lock'], ['Web', 'globe'], ['Coding', 'terminal']]);
   assert.equal(find(r.snapshots.picked, { t: 'composer' }).p.value, 'What can you do in this workspace?', 'an example fills the composer');
   assert.equal(called(r, 'GET', /\/runs\/2\/view\?limit=50$/).length, 1, 'a need opens its conversation, read in pages');
   assert.equal(topScreen(r.tree).p.title, 'which vendor?');
@@ -234,7 +236,7 @@ test('a new ask with attachments from home: the app uploads into the draft, Send
   assert.deepEqual(chips('back'), ['shot.png', 'huge.mov — too large (max 16.0 MB)', 'b.txt'], '…and is there when you come back');
   const asks = called(r, 'POST', /\/ask$/);
   assert.equal(asks.length, 1);
-  assert.deepEqual(JSON.parse(asks[0].body), { text: 'look at this', toolset: 'private', draft: key, files: ['shot.png'] }, 'Send sends the draft with the chips still there');
+  assert.deepEqual(JSON.parse(asks[0].body), { text: 'look at this', class: 'internal', toolset: 'private', draft: key, files: ['shot.png'] }, 'Send sends the draft with the chips still there');
   assert.equal(called(r, 'PUT', /upload/).length, 0, 'the tile uploads nothing itself: the app did');
   assert.equal(topScreen(r.snapshots.sent).p.title, 'look at this', 'the new conversation opens');
   assert.deepEqual(chips('sent'), []);
@@ -447,7 +449,8 @@ test('new chat with options, rename and share sheets', async () => {
     { snapshot: 'linked' },
   ]);
   assert.equal(find(r.snapshots.form, { t: 'sheet' }).p.title, 'New chat');
-  assert.deepEqual(JSON.parse(called(r, 'POST', /\/ask$/)[0].body), { text: 'summarise the week', title: 'weekly', system: '', toolset: 'web' });
+  assert.deepEqual(JSON.parse(called(r, 'POST', /\/ask$/)[0].body), { text: 'summarise the week', title: 'weekly', system: '', class: 'web', toolset: 'web' });
+  assert.match(find(r.snapshots.form, { t: 'section', p: { title: 'Class' } }).p.footer, /^Searches and reads the web/, 'the class says what it is for');
   assert.equal(find(r.snapshots.started, { t: 'sheet' }), null);
   const share = find(r.snapshots.share, { t: 'sheet' });
   assert.equal(share.p.title, 'Share “plan”');
@@ -480,6 +483,7 @@ test('automations: the page, one schedule with its runs, the forms (all four kin
     { tap: { t: 'button', p: { label: 'New schedule' } } },
     { input: [{ t: 'field', p: { label: 'Name' } }, 'standup'] },
     { input: [{ t: 'field', p: { label: 'What to do' } }, 'post the standup'] },
+    { event: [{ t: 'picker', p: { label: 'Class' }, in: { t: 'screen', p: { title: 'New schedule' } } }, 'change', { value: 'coding' }] },
     { snapshot: 'form' },
     { tap: { t: 'button', p: { label: 'Create' } } },
     { snapshot: 'created' },
@@ -489,6 +493,7 @@ test('automations: the page, one schedule with its runs, the forms (all four kin
   assert.deepEqual(nav.c.map((s) => s.p.title), ['Agent', 'Automations', 'digest'], 'a deep link to one automation');
   const detail = topScreen(d);
   assert.ok(find(detail, { t: 'row', p: { title: 'every day at 9:00' } }));
+  assert.equal(find(detail, { t: 'row', p: { title: 'Class' } }).p.detail, '🔒 Internal', 'a schedule from before classes: its lane\'s built-in');
   assert.deepEqual(all(find(detail, { t: 'section', p: { title: 'Runs' } }), { t: 'row' }).map((x) => x.p.title), ['a digest']);
   assert.equal(find(detail, { t: 'button', p: { label: 'Delete' } }).p.confirm.title, 'Delete "digest"?');
   assert.ok(called(r, 'POST', /\/automations\/schedule\/3\/read$/).length, 'opening it marks its runs read');
@@ -504,15 +509,17 @@ test('automations: the page, one schedule with its runs, the forms (all four kin
   assert.equal(row('deploys').p.badge, 'error');
   assert.ok(find(list, { t: 'button', p: { label: 'Create a trigger' } }));
   assert.equal(topScreen(r.snapshots.form).p.title, 'New schedule');
+  assert.deepEqual(find(topScreen(r.snapshots.form), { t: 'picker', p: { label: 'Class' } }).p.options.map((o) => o.value), ['internal', 'web', 'coding'],
+    'the classes you may use');
   assert.deepEqual(JSON.parse(called(r, 'POST', /\/schedules$/)[0].body), { name: 'standup', cron: '0 9 * * *', goal: 'post the standup', mode: 'isolated',
-    visibility: 'private', watcher: false, toolset: 'private', targetRun: 0 });
+    visibility: 'private', watcher: false, class: 'coding', toolset: 'web', targetRun: 0 }, 'the class, and its lane as the legacy toolset');
   assert.equal(topScreen(r.snapshots.created).p.title, 'standup', 'a new schedule opens');
 
   // a trigger: its events and actions; the form refuses a lane/data-class clash
   const t = await run(seed, [
     { snapshot: 'trigger' },
     { tap: { t: 'button', p: { label: 'Edit' } } },
-    { event: [{ t: 'picker', p: { label: 'Tool mode' } }, 'change', { value: 'web' }] },
+    { event: [{ t: 'picker', p: { label: 'Class' }, in: { t: 'screen', p: { title: 'Edit trigger' } } }, 'change', { value: 'web' }] },
     { event: [{ t: 'picker', p: { label: 'The data it takes' } }, 'change', { value: 'private' }] },
     { snapshot: 'clash' },
   ], { state: { hash: 'auto=trigger:6' } });
@@ -522,16 +529,20 @@ test('automations: the page, one schedule with its runs, the forms (all four kin
     [['deploy.prod', 'ran #20'], ['deploy.dev', 'over its hourly cap']]);
   assert.ok(find(tr, { t: 'notice', p: { tone: 'info' } }).p.text.startsWith('Pushes come from apps/webhooks'));
   assert.ok(find(tr, { t: 'button', p: { label: 'Fire a test event' } }));
+  assert.equal(find(tr, { t: 'row', p: { title: 'Class' } }).p.detail, '🔒 Internal');
   const form = topScreen(t.snapshots.clash);
   assert.equal(form.p.title, 'Edit trigger');
   assert.equal(find(form, { t: 'button', p: { label: 'Save' } }).p.disabled, true, 'the firewall holds Save');
-  assert.ok(find(form, { t: 'notice', p: { tone: 'danger' } }));
+  assert.match(find(form, { t: 'notice', p: { tone: 'danger' } }).p.text, /^A class that reaches outside/);
 
   // a channel to claim: its rules and Claim
   const c = await run(seed, [{ snapshot: 'channel' }], { state: { hash: 'auto=channel:5' } });
   const ch = topScreen(c.snapshots.channel);
   assert.ok(find(ch, { t: 'picker', p: { label: 'Direct messages' } }));
   assert.ok(find(ch, { t: 'button', p: { label: 'Claim' } }));
+  const web = find(ch, { t: 'picker', p: { label: 'Everyone else\'s class' } });
+  assert.deepEqual([web.p.value, web.p.options.map((o) => o.value)], ['web', ['web', 'coding']], 'everyone else\'s: web-lane classes only');
+  assert.equal(find(ch, { t: 'picker', p: { label: 'Trusted people\'s class' } }), null, 'no trusted class without the private lane');
 });
 
 test('run tools: memory, files and the editor, skills, the workflow tree, settings', async () => {
@@ -597,7 +608,7 @@ test('run tools: memory, files and the editor, skills, the workflow tree, settin
   assert.equal(find(tree, { t: 'row', p: { title: '· research' } }).p.subtitle, '⛔ waiting on #3');
   assert.equal(find(tree, { t: 'button', p: { label: 'Stop' } }).p.confirm.title, 'Cancel this workflow and every run below it?');
   const set = topScreen(r.snapshots.settings);
-  assert.deepEqual(all(set, { t: 'row' }).map((x) => x.p.title), ['Config', 'Features', 'Skills', 'MCP servers']);
+  assert.deepEqual(all(set, { t: 'row' }).map((x) => x.p.title), ['Config', 'Features', 'Classes', 'Skills', 'MCP servers']);
   const cfg = topScreen(r.snapshots.config);
   assert.equal(find(cfg, { t: 'picker', p: { label: 'General' } }).p.value, 'm1');
   assert.equal(find(cfg, { t: 'toggle', p: { label: 'Subagents (expose spawn_subagent)' } }).p.value, true);
@@ -671,4 +682,215 @@ test('rename from the conversation\'s menu: the title follows at once', async ()
   assert.deepEqual(JSON.parse(called(r, 'PATCH', /\/runs\/9$/)[0].body), { title: 'new name' });
   assert.equal(topScreen(r.tree).p.title, 'new name');
   assert.equal(find(r.tree, { t: 'sheet' }), null);
+});
+
+test('classes (D116): the picker remembers your pick, the badge warns, managers edit them', async () => {
+  const mixedView = { run: { title: 'bridged', status: 'idle' },
+    class: { id: 'bridge', name: 'Bridge', icon: '🌉', description: 'both worlds', toolsets: ['internal', 'web'], mixed: true, lane: 'private' } };
+  const r = await run(oneSeed(mixedView, { classes: { classes: [
+    { id: 'ops', name: 'Ops', icon: '🛡', toolsets: ['internal', 'files'], who: 'managers', mcp: ['apps/pg'] }], default: 'ops' } }), [
+    { snapshot: 'chat' },
+    { tap: { t: 'button', p: { label: 'New chat' } } },
+    { snapshot: 'home' },
+    { event: [{ t: 'picker', p: { label: 'Class' } }, 'change', { value: 'coding' }] },
+    { tap: { t: 'button', p: { label: 'Settings' } } },
+    { tap: { t: 'row', p: { title: 'Classes' } } },
+    { snapshot: 'list' },
+    { tap: { t: 'button', p: { label: 'New class' } } },
+    { input: [{ t: 'field', p: { label: 'Id' } }, 'bridge'] },
+    { input: [{ t: 'field', p: { label: 'Name' } }, 'Bridge'] },
+    { event: [{ t: 'toggle', has: 'Internal systems' }, 'change', { value: true }] },
+    { event: [{ t: 'toggle', has: 'Web —' }, 'change', { value: true }] },
+    { snapshot: 'form' },
+    { tap: { t: 'button', p: { label: 'Save' } } },
+    { snapshot: 'saved' },
+    { tap: { t: 'button', p: { label: 'Delete' }, in: { t: 'row', p: { title: '🛡 Ops' } } } },
+    { snapshot: 'deleted' },
+  ], { state: { hash: 'c=9' } });
+  // the badge: the conversation's class, and the warning of a mixed one
+  assert.match(topScreen(r.snapshots.chat).p.subtitle, /idle · 🌉 Bridge · ⚠ can move internal data out/);
+  assert.equal(find(r.snapshots.chat, { t: 'picker', p: { label: 'Class' } }), null, 'an open conversation\'s class is fixed: no picker');
+  // the picker: the tile's default first (a manager may use a managers' class), a pick is remembered
+  assert.equal(find(r.snapshots.home, { t: 'picker', p: { label: 'Class' } }).p.value, 'ops');
+  assert.deepEqual(JSON.parse(called(r, 'PUT', /\/prefs\/class$/)[0].body), 'coding');
+  // the list: tags, and Delete only where it means something
+  const list = topScreen(r.snapshots.list);
+  assert.deepEqual(all(list, { t: 'row' }).map((x) => [x.p.title, x.p.detail || '']),
+    [['🔒 Internal', 'built-in'], ['🌐 Web', 'built-in'], ['▣ Coding', 'built-in'], ['🛡 Ops', 'default · managers only']]);
+  assert.equal(all(list, { t: 'button', p: { role: 'destructive' } }).length, 1, 'a built-in at its default has nothing to reset');
+  // the form: a mixed class warns and its Save asks first
+  const form = topScreen(r.snapshots.form);
+  assert.equal(find(form, { t: 'notice', p: { tone: 'warn' } }).p.title, 'This class can move internal data out');
+  assert.equal(find(form, { t: 'button', p: { label: 'Save' } }).p.confirm.title, 'Save a class that can move internal data out?');
+  assert.ok(find(form, { t: 'section', p: { title: 'MCP servers' } }), 'internal reach: which MCP servers');
+  const puts = called(r, 'PUT', /\/classes$/).map((c) => JSON.parse(c.body));
+  assert.deepEqual(puts[0].classes.map((c) => c.id), ['ops', 'bridge'], 'only the stored classes go back, and the new one');
+  assert.equal(puts[0].confirmMixed, true, 'confirmed on the button');
+  assert.equal(puts[0].default, 'ops');
+  assert.deepEqual(puts[0].classes[1], { id: 'bridge', name: 'Bridge', icon: '', description: '', toolsets: ['files', 'repl', 'web', 'internal', 'subagents', 'skills'],
+    model: '', system: '', who: 'everyone', mcp: 'all' });
+  assert.equal(topScreen(r.snapshots.saved).p.title, 'Classes', 'saved: back on the list');
+  assert.ok(find(r.snapshots.saved, { t: 'row', p: { title: 'Bridge' } }), 'with the new class in it');
+  assert.deepEqual(puts[1].classes.map((c) => c.id), ['bridge'], 'Delete sends the rest');
+  assert.equal(puts[1].default, '', 'a deleted default hands over to the backend\'s');
+  assert.equal(puts[1].confirmMixed, true, 'the mixed class that stays was confirmed before');
+});
+
+// --- coding sandboxes (D115) ---------------------------------------------------------------
+
+const MGR = 'apps/coding-sandbox';
+const CODING = { id: 'coding', name: 'Coding', icon: '▣', toolsets: ['sandbox', 'web', 'files'], managers: 'all', sandboxEgress: ['none', 'internet'] };
+const sb = (id, extra = {}) => ({ ref: `${MGR}|${id}`, provider: MGR, manager: 'Coding sandboxes', id, name: id, state: 'running', egress: 'none',
+  visibility: 'private', owner: { user: 'admin' }, mine: true, canUse: true, canManage: true, canEdit: true, workdir: '/work',
+  caps: ['exec', 'files', 'tar', 'archive'], image: { id: 'base', title: 'Debian' }, lastActive: NOW - 60e3, ...extra });
+const bound = (id, extra = {}) => ({ ref: `${MGR}|${id}`, name: id, cwd: '/work', manager: 'Coding sandboxes', egress: 'none', by: 'admin', ...extra });
+const boxes = () => [sb('api', { boundTo: [9] }), sb('web', { state: 'stopped', lastActive: NOW - 3600e3 }),
+  sb('wide', { egress: 'open' }), sb('team-box', { mine: false, owner: { user: 'carol' }, visibility: 'team', canManage: false, canEdit: false })];
+const bodies = (r, method, re) => called(r, method, re).map((c) => JSON.parse(c.body));
+
+test('coding sandboxes (D115): the picker, the ▣ badge and its screen, the tool cards', async () => {
+  const view = { run: { title: 'fix the build', status: 'idle' }, class: CODING,
+    config: { sandbox: bound('api'), attached: [bound('api'), bound('web')] },
+    messages: [msg(1, 'user', 'make the tests pass', { runId: 9 }), msg(2, 'assistant', '', { runId: 9, toolCalls: [
+      call('b1', 'bash', { command: 'go test ./...', summary: 'Run the tests' }),
+      call('b2', 'grep', { pattern: 'TODO', path: 'src' })] }),
+    msg(3, 'tool', '--- FAIL: TestX\nFAIL\n[exit 1 · 14s · job 3]', { runId: 9, toolCallId: 'b1', name: 'bash' }),
+    msg(4, 'tool', 'src/a.go:3: // TODO\nsrc/b.go:9: // TODO', { runId: 9, toolCallId: 'b2', name: 'grep' })] };
+  const picker = { t: 'picker', p: { label: 'Sandbox' } };
+  const r = await run(oneSeed(view, { sandboxes: boxes() }), [
+    { wait: 50 },
+    { snapshot: 'chat' },
+    { event: [picker, 'change', { value: `${MGR}|wide` }] },
+    { snapshot: 'refused' },
+    { event: [picker, 'change', { value: `${MGR}|web` }] },
+    { snapshot: 'bound' },
+    { tap: { t: 'button', p: { label: 'Sandbox: web' } } },
+    { snapshot: 'box' },
+    { input: [{ t: 'field', p: { label: 'Working directory' } }, 'src'] },
+    { tap: { t: 'button', p: { label: 'Set' } } },
+    { snapshot: 'relative' },
+    { input: [{ t: 'field', p: { label: 'Working directory' } }, '/work/web'] },
+    { tap: { t: 'button', p: { label: 'Set' } } },
+    { tap: { t: 'row', p: { title: 'api' }, in: { t: 'section', p: { title: 'Attached' } } } },
+    { snapshot: 'switched' },
+    { tap: { t: 'button', p: { label: 'Detach' } } },
+    { snapshot: 'detached' },
+  ], { state: { hash: 'c=9' } });
+
+  // the picker: beside the model, the conversation's sandbox; what it may not use says why when picked
+  const p = find(r.snapshots.chat, picker);
+  assert.equal(p.p.value, `${MGR}|api`);
+  assert.deepEqual(p.p.options.map((o) => [o.label, o.icon]), [
+    ['No sandbox', 'minus'], ['api', 'box'], ['web (stopped)', 'box'], ['wide — unavailable', 'lock'],
+    ['team-box · team', 'box'], ['＋ New sandbox…', 'plus'], ['Manage sandboxes…', 'list']], 'short: the bar shows the current one beside the model');
+  assert.match(topScreen(r.snapshots.chat).p.subtitle, /idle · ▣ Coding · ▣ api · \/work/, 'the ▣ badge in the header');
+  assert.equal(called(r, 'GET', /\/sandboxes$/).length, 1, 'the list is read once');
+  const note = texts(r.snapshots.refused, 'notice', 'text').find((t) => /wide/.test(t || ''));
+  assert.match(note, /^wide: the Coding class doesn't allow a sandbox with open network/);
+  // the tool cards: ▣ as a terminal, the command inside, what it came to on the card
+  const bash = find(r.snapshots.chat, { t: 'toolcard', p: { title: 'Run the tests' } });
+  assert.equal(bash.p.family, 'box');
+  assert.equal(bash.p.icon, 'terminal');
+  assert.deepEqual(bash.p.chips, [{ text: 'exit 1 · 14s · job 3', tone: 'danger' }]);
+  assert.ok(find(bash, { t: 'text', p: { text: '$ go test ./...' } }), 'the command under the summary');
+  assert.deepEqual(find(r.snapshots.chat, { t: 'toolcard', has: 'Search /TODO/' }).p.chips, [{ text: '2 matches' }]);
+  // a pick binds it from the next turn, and the header follows
+  const patches = bodies(r, 'PATCH', /\/runs\/9$/);
+  assert.deepEqual(patches[0], { sandbox: { ref: `${MGR}|web`, cwd: '/work' } }, 'the refused pick sent nothing; an attached one keeps its cwd');
+  assert.match(topScreen(r.snapshots.bound).p.subtitle, /▣ web · \/work/);
+  // ⋯ → Sandbox: its working directory, the attached ones, Detach
+  const box = topScreen(r.snapshots.box);
+  assert.equal(box.p.title, 'web');
+  assert.equal(find(box, { t: 'field', p: { label: 'Working directory' } }).p.value, '/work');
+  assert.deepEqual(all(find(box, { t: 'section', p: { title: 'Attached' } }), { t: 'row' }).map((x) => [x.p.title, !!x.p.selected]), [['api', false], ['web', true]]);
+  assert.match(texts(r.snapshots.relative, 'notice', 'text').join('|'), /an absolute path/, 'a relative directory is refused before it is sent');
+  assert.deepEqual(patches.slice(1), [{ sandbox: { ref: `${MGR}|web`, cwd: '/work/web' } }, { sandbox: { ref: `${MGR}|api`, cwd: '/work' } }, { detach: `${MGR}|api` }]);
+  assert.equal(topScreen(r.snapshots.switched).p.title, 'api', 'switching makes another the active one');
+  assert.equal(topScreen(r.snapshots.detached).p.title, 'fix the build', 'detached: back on the conversation');
+  assert.doesNotMatch(topScreen(r.snapshots.detached).p.subtitle, /▣ api/);
+  assert.equal(find(r.snapshots.detached, { t: 'button', p: { label: 'Sandbox: api' } }), null);
+});
+
+test('coding sandboxes (D115): no picker without the toolset; the Sandboxes screens at home; a new chat starts in the pick', async () => {
+  const seed = { me: ME, runs: [{ id: 9, title: 'build it', status: 'running' }], sandboxes: boxes(),
+    views: { 9: { access: 'owner', class: CODING, run: { id: 9, rootId: 9, parentId: 0, title: 'build it', status: 'running' } } },
+    routes: [['POST', '/ask$', { id: 9, title: 'build it', status: 'running', rootId: 9, parentId: 0 }]] };
+  const row = (name) => ({ t: 'row', p: { title: name }, in: { t: 'screen', p: { title: 'Sandboxes' } } });
+  const r = await run(seed, [
+    { snapshot: 'home' },
+    { event: [{ t: 'picker', p: { label: 'Class' } }, 'change', { value: 'coding' }] },
+    { wait: 50 },
+    { snapshot: 'coding' },
+    { event: [{ t: 'picker', p: { label: 'Sandbox' } }, 'change', { value: '+manage' }] },
+    { wait: 50 },
+    { snapshot: 'list' },
+    { tap: { t: 'button', p: { label: 'Start' }, in: row('web') } },
+    { snapshot: 'started' },
+    { tap: { t: 'button', p: { label: 'Delete' }, in: row('web') } },
+    { snapshot: 'deleted' },
+    { tap: { t: 'button', p: { label: 'New sandbox' } } },
+    { tap: { t: 'button', p: { label: 'Create' } } },
+    { snapshot: 'unnamed' },
+    { input: [{ t: 'field', p: { label: 'Name' } }, 'scratch'] },
+    { event: [{ t: 'picker', p: { label: 'Network' } }, 'change', { value: 'open' }] },
+    { snapshot: 'open' },
+    { event: [{ t: 'picker', p: { label: 'Network' } }, 'change', { value: 'internet' }] },
+    { tap: { t: 'button', p: { label: 'Create' } } },
+    { snapshot: 'created' },
+    { event: [{ t: 'composer' }, 'send', { value: 'build it' }] },
+  ]);
+  assert.equal(find(r.snapshots.home, { t: 'picker', p: { label: 'Sandbox' } }), null, 'the internal class has no sandbox: no picker');
+  const p = find(r.snapshots.coding, { t: 'picker', p: { label: 'Sandbox' } });
+  assert.equal(p.p.value, '', 'the coding class: the picker, no sandbox yet');
+  // the list: yours first, each with what your rights allow
+  const list = topScreen(r.snapshots.list);
+  assert.equal(list.p.subtitle, 'for your next new chat');
+  assert.ok(called(r, 'GET', /\/sandboxes\?fresh=1$/).length, 'Manage reads them afresh');
+  const acts = (tree, name) => all(find(tree, row(name)), { t: 'button' }).map((b) => b.p.label);
+  assert.deepEqual(acts(r.snapshots.list, 'web'), ['Use for a new chat', 'Start', 'Archive', 'Share with the team', 'Delete']);
+  assert.deepEqual(acts(r.snapshots.list, 'team-box'), ['Use for a new chat', 'Stop'], 'another\'s team sandbox: use it, no managing');
+  assert.deepEqual(acts(r.snapshots.list, 'wide'), ['Stop', 'Archive', 'Share with the team', 'Delete'], 'one the class does not allow is not offered for use');
+  const del = find(find(r.snapshots.list, row('web')), { t: 'button', p: { label: 'Delete' } });
+  assert.match(del.p.confirm.title, /^Delete the sandbox “web”\?/);
+  assert.equal(del.p.role, 'destructive');
+  assert.match(find(r.snapshots.list, row('web')).p.subtitle, /^stopped · private · Debian · no network · owner: you · active 1 h ago$/);
+  assert.equal(find(r.snapshots.list, row('api')).p.subtitle.split(' · ')[0], 'running');
+  assert.equal(called(r, 'POST', /\/sandboxes\/apps\/coding-sandbox%7Cweb\/start\?wait=20$/).length, 1);
+  assert.match(find(r.snapshots.started, row('web')).p.subtitle, /^running · /);
+  assert.equal(called(r, 'DELETE', /\/sandboxes\/apps\/coding-sandbox%7Cweb$/).length, 1);
+  assert.equal(find(r.snapshots.deleted, row('web')), null);
+  assert.ok(texts(r.snapshots.deleted, 'notice', 'text').includes('deleted web'));
+  // the create form: its checks, the class's egress, then back on the list
+  assert.ok(texts(r.snapshots.unnamed, 'notice', 'text').includes('Name the sandbox.'));
+  const form = topScreen(r.snapshots.open);
+  assert.equal(form.p.subtitle, 'for your next new chat');
+  assert.deepEqual(find(form, { t: 'picker', p: { label: 'Network' } }).p.options.map((o) => o.label), ['no network', 'internet', 'open network — not in this class']);
+  assert.match(texts(r.snapshots.open, 'notice', 'text').join('|'), /the Coding class doesn't allow a sandbox with open network/);
+  const made = bodies(r, 'POST', /\/sandboxes$/);
+  assert.deepEqual({ ...made[0], clientId: 'x' }, { name: 'scratch', provider: MGR, egress: 'internet', visibility: 'private', image: 'base', size: 'small', clientId: 'x' });
+  assert.equal(topScreen(r.snapshots.created).p.title, 'Sandboxes');
+  assert.ok(texts(r.snapshots.created, 'notice', 'text').includes('created scratch — your next new chat starts in it ✓'));
+  assert.equal(find(r.snapshots.created, { t: 'picker', p: { label: 'Sandbox' } }).p.value, `${MGR}|sb-scratch`, 'the picker has it');
+  // the new chat starts in it
+  const ask = bodies(r, 'POST', /\/ask$/)[0];
+  assert.equal(ask.class, 'coding');
+  assert.deepEqual(ask.sandbox, { ref: `${MGR}|sb-scratch` });
+});
+
+test('coding sandboxes (D115): a binding that no longer resolves is marked; a viewer may not change it', async () => {
+  const view = { access: 'viewer', run: { title: 'lost box', status: 'idle' }, class: CODING, config: { sandbox: bound('vanished', { cwd: '/srv' }) } };
+  const r = await run(oneSeed(view, { sandboxes: boxes() }), [
+    { wait: 50 },
+    { snapshot: 'chat' },
+    { tap: { t: 'button', p: { label: 'Sandbox: vanished ⚠' } } },
+    { snapshot: 'box' },
+  ], { state: { hash: 'c=9' } });
+  assert.match(topScreen(r.snapshots.chat).p.subtitle, /▣ vanished · \/srv ⚠/);
+  const warn = find(r.snapshots.chat, { t: 'notice', p: { tone: 'warn', title: '▣ vanished' } });
+  assert.match(warn.p.text, /^gone — its manager no longer has it — pick another sandbox, or detach it/);
+  assert.equal(find(r.snapshots.chat, { t: 'picker', p: { label: 'Sandbox' } }), null, 'a viewer gets no picker');
+  const box = topScreen(r.snapshots.box);
+  assert.equal(find(box, { t: 'notice', p: { tone: 'warn' } }).p.title, 'The binding no longer resolves');
+  assert.equal(find(box, { t: 'field', p: { label: 'Working directory' } }).p.disabled, true);
+  assert.equal(find(box, { t: 'button', p: { label: 'Detach' } }).p.disabled, true);
 });

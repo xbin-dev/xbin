@@ -5,6 +5,8 @@
 // to your eye), its settings, and — for a thread — "start afresh".
 import { html, nothing, repeat } from '/vendor/lit-all.min.js';
 import { AutoPage as Model, KINDS, kinds, CADENCES, MODES, ago, cadence, scheduleCan, summaryCount } from './model/auto.js';
+import { choices, ofAutomation } from './model/classes.js';
+import { classFieldTpl, clsBadgeTpl } from './classes.js';
 
 // The page's state, kinds and schedule actions are model/auto.js (shared with
 // the native view); what is drawn here, and the "are you sure?" before a delete.
@@ -51,7 +53,7 @@ function cardTpl(p, it) {
       ${mine ? html`<button class="btn ghost btnsm" @click=${(e) => { e.stopPropagation(); p.runNow(it); }}>Run now</button>` : nothing}
     </div>
     <div class="as muted small">${it.config ? cadence(it.config.cron) : it.summary}${it.config ? ' · ' + (it.config.goal || '').slice(0, 140) : ''}</div>
-    <div class="as muted small">${it.kind === 'schedule' ? MODES[it.mode] || '' : 'keeps only the rounds where something changed'}
+    <div class="as muted small">${it.config ? html`${clsBadgeTpl(ofAutomation(p.classes(), it.config))} ` : nothing}${it.kind === 'schedule' ? MODES[it.mode] || '' : 'keeps only the rounds where something changed'}
       ${it.lastRunAt ? ` · last ${ago(it.lastRunAt)}` : ''}${it.runs ? ` · ${it.runs} run${it.runs === 1 ? '' : 's'}` : ''}</div>
   </div>`;
 }
@@ -85,7 +87,8 @@ function scheduleHead(it, p) {
 function scheduleDetail(it, p) {
   return html`<div class="muted small">${it.config ? html`${cadence(it.config.cron)} · ${it.kind === 'schedule' ? MODES[it.mode] : 'a watcher'}
       ${it.mode === 'conversation' && it.targetRun ? html` · <a @click=${() => p.on.select(it.targetRun)}>reports to its conversation</a>` : nothing}`
-      : it.summary}${it.lastStatus ? ` · last run: ${it.lastStatus}` : ''}</div>
+      : it.summary}${it.lastStatus ? ` · last run: ${it.lastStatus}` : ''}
+      ${it.config ? html` · ${clsBadgeTpl(ofAutomation(p.classes(), it.config))}` : nothing}</div>
     ${it.config && it.config.goal ? html`<div class="agoal">${it.config.goal}</div>` : nothing}`;
 }
 
@@ -112,9 +115,8 @@ function formTpl(p) {
         ${f.mode === 'conversation' ? html`<option value="conversation" selected>into its conversation</option>` : nothing}
       </select></div>`}
     <div class="row2">
-      <div class="field"><label>Tool mode</label><select @change=${set('toolset')} ?disabled=${!!f.id}>
-        <option value="private" ?selected=${f.toolset !== 'web'}>internal systems, no web</option>
-        <option value="web" ?selected=${f.toolset === 'web'}>web, no internal systems</option></select></div>
+      ${classFieldTpl('Class', choices(p.classes(), f.class), (v) => { f.class = v; p.changed(); },
+        { disabled: !!f.id, title: f.id ? 'fixed when it was made' : 'the tools its runs get' })}
       <div class="field"><label>Who can see its runs</label><select @change=${set('visibility')}>
         <option value="private" ?selected=${f.visibility !== 'team'}>only you</option>
         <option value="team" ?selected=${f.visibility === 'team'}>everyone who can open this agent</option></select></div>

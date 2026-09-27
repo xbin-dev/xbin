@@ -9,7 +9,7 @@ import { ORIGIN, STUB, serveTile, launch, checker } from './backend.mjs';
 const { ok, done } = checker();
 const call = (id, name, args) => ({ id, type: 'function', function: { name, arguments: JSON.stringify(args) } });
 const asking = { id: 1, title: 'catch me up', status: 'waiting_input', parentId: 0, rootId: 1, owner: 'alice',
-  pendingState: { kind: 'approval', grant: 'threads', toolCalls: [call('c1', 'threads_list', { scope: 'all' })] } };
+  pendingState: { kind: 'approval', grant: 'threads', park: 'p1', toolCalls: [call('c1', 'threads_list', { scope: 'all' })] } };
 const seedAs = (user) => ({
   runs: [{ ...asking, activityMs: Date.now() }],
   views: { 1: { access: user === 'alice' ? 'owner' : 'participant', run: { ...asking } } },
@@ -39,7 +39,7 @@ ok('its owner gets Allow once · Allow here for 1 hour · Deny', buttons.join('|
 await page.click('.ask.approve.grant .btn:has-text("Allow here for 1 hour")');
 await page.waitForFunction(() => window.__calls.some((c) => c.method === 'POST' && c.url.endsWith('/runs/1/approve')));
 const body = await page.evaluate(() => window.__calls.find((c) => c.url.endsWith('/runs/1/approve')).body);
-ok('an hour is sent as grant:"hour"', body === JSON.stringify({ approve: true, grant: 'hour' }), body);
+ok('an hour is sent as grant:"hour", naming the ask it answers', body === JSON.stringify({ approve: true, grant: 'hour', park: 'p1' }), body);
 
 // the grant in force: a chip with revoke; the run event that follows the
 // revoke clears it
@@ -70,7 +70,14 @@ ok('someone else may only deny', theirs.join('|') === 'Deny', theirs.join('|'));
 ok('…and is told whose it is', (await page.textContent('.ask.approve.grant')).includes('Only alice can allow this'));
 await page.click('.ask.approve.grant .btn:has-text("Deny")');
 await page.waitForFunction(() => window.__calls.some((c) => c.method === 'POST' && c.url.endsWith('/runs/1/approve')));
-ok('deny is a plain verdict', await page.evaluate(() => window.__calls.find((c) => c.url.endsWith('/runs/1/approve')).body) === JSON.stringify({ approve: false }));
+ok('deny is a plain verdict', await page.evaluate(() => window.__calls.find((c) => c.url.endsWith('/runs/1/approve')).body) === JSON.stringify({ approve: false, park: 'p1' }));
+
+// a click on an ask that is gone (the agent moved on before its event came):
+// the 409 is said beside the card, never an unhandled rejection
+await page.evaluate(() => { window.__views[1].run.pendingState = { ...window.__views[1].run.pendingState, park: 'p2' }; });
+await page.click('.ask.approve.grant .btn:has-text("Deny")');
+await page.waitForSelector('.anote');
+ok('a refused verdict says why, inline', (await page.textContent('.anote')).includes('That approval is no longer pending'), await page.textContent('.anote'));
 
 ok('no page errors', errors.length === 0, errors.join(' | '));
 await browser.close();

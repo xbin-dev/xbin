@@ -31,14 +31,17 @@ func strProp(desc string) map[string]any {
 	return map[string]any{"type": "string", "description": desc}
 }
 
-// toolSpecs returns the tool specs advertised to the LLM for this run's config,
-// including any MCP-sourced tools.
-// toolSpecs builds the model's tool list. depth is the caller's position in the
-// run graph: the delegation and scheduling tools are ABSENT at the limit rather
-// than present-and-erroring, because leaves are the most numerous runs in any
-// fan-out and would otherwise pay ~600 prompt tokens per call for tools they
-// cannot use.
+// toolSpecs builds the model's tool list for this run's config, including
+// any MCP-sourced tools. The run's class (classes.go, D116) decides which
+// toolsets are offered — the core tools (memory, note, finish, yield,
+// ask_user, recall, state_changed, attach_to_reply) always are — and the
+// Features menu can still switch an optional one off. depth is the caller's
+// position in the run graph: the delegation and scheduling tools are ABSENT
+// at the limit rather than present-and-erroring, because leaves are the most
+// numerous runs in any fan-out and would otherwise pay ~600 prompt tokens per
+// call for tools they cannot use.
 func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
+	cls := classOf(cfg)
 	// A subagent has no one to ask: it would park on a human while its parent
 	// parks on it, and nothing could answer either. The child contract tells it
 	// to finish() with the blocker instead; the loop converts a hallucinated
@@ -81,7 +84,7 @@ func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
 	}
 	// Cron-agents are top-level only. A subagent creating one is the unbounded
 	// -spend path: the job outlives the tree that made it and answers to nobody.
-	if depth == 0 {
+	if depth == 0 && cls.has(tsSchedule) {
 		specs = append(specs,
 			toolSpec{Type: "function", Function: funcDef{
 				Name: "schedule", Description: "Schedule future work: create a cron-agent that runs goal on a cadence. cron is a 5-field expression or '@every 30m'. " +
@@ -103,7 +106,7 @@ func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
 	}
 	// Looking at its automations and threads (threads_tools.go) — top-level
 	// only, like scheduling: a subagent reports to its parent instead.
-	if depth == 0 && cfg.feature("threads") {
+	if depth == 0 && cls.has(tsThreads) && cfg.feature("threads") {
 		specs = append(specs, threadToolSpecs()...)
 	}
 	if cfg.feature("watcher") {
@@ -112,7 +115,7 @@ func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
 			Parameters: obj([]string{"summary"}, map[string]any{"summary": strProp("what changed")}),
 		}})
 	}
-	if cfg.feature("skills") {
+	if cls.has(tsSkills) && cfg.feature("skills") {
 		specs = append(specs,
 			toolSpec{Type: "function", Function: funcDef{
 				Name: "skills_list", Description: "List your saved skills (reusable procedures you authored) — names + one-line descriptions.",
@@ -132,31 +135,35 @@ func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
 				}),
 			}})
 	}
-	// Session files + the render pane, and the JS sandbox over them. Offered in
-	// BOTH lanes because they have zero egress and zero internal reach — they
+	// Session files + the render pane, and the JS sandbox over them. Safe in
+	// any class because they have zero egress and zero internal reach — they
 	// widen neither side of the firewall below (repl.go deliberately exposes no
 	// host bridge).
-	if cfg.feature("files") {
+	if cls.has(tsFiles) && cfg.feature("files") {
 		specs = append(specs, fileToolSpecs(cfg)...)
 		// Only offered when the run can actually see images.
 		if cfg.feature("vision") {
 			specs = append(specs, fileViewSpec())
 		}
 	}
-	if cfg.feature("repl") {
+	if cls.has(tsRepl) && cfg.feature("repl") {
 		specs = append(specs, replToolSpecs()...)
 	}
 	if cfg.Channel && depth == 0 { // its answers are posted to a chat (channel_files.go)
 		specs = append(specs, attachReplySpec())
 	}
-	// Toolset firewall (Config.Toolset): a run gets EITHER internal reach OR
-	// web egress, never both — otherwise injected/private content in context
-	// could be exfiltrated via crafted URLs/queries. Enforced again at
-	// execution time in runTool.
-	if cfg.toolset() == "web" {
+	// The toolset firewall is the class's (classes.go): a run gets internal
+	// reach or egress, never both — otherwise injected/private content in
+	// context could be exfiltrated via crafted URLs/queries — unless a manager
+	// confirmed a class that mixes them. Enforced again at execution time in
+	// runTool.
+	if cls.has(tsWeb) {
 		specs = append(specs, webToolSpecs()...) // web_search / web_fetch
-		mcp = nil                                // no internal MCP tools
+	}
+	if !cls.has(tsInternal) {
+		mcp = nil // no internal MCP tools
 	} else {
+		mcp = classMCP(cls, mcp)
 		specs = append(specs, toolSpec{Type: "function", Function: funcDef{
 			Name: "xbin_call", Description: "Call another xbin component's API through the gateway (only components this agent has been granted). path like '/api/apps/other/thing'. Returns the response body.",
 			Parameters: obj([]string{"method", "path"}, map[string]any{
@@ -166,7 +173,11 @@ func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
 			}),
 		}})
 	}
-	specs = append(specs, subagentToolSpecs(cfg, depth)...)
+	// The sandbox toolset (D115/D116): only a class with it, only when bound.
+	specs = append(specs, sandboxToolSpecs(cfg, depth)...)
+	if cls.has(tsSubagents) {
+		specs = append(specs, subagentToolSpecs(cfg, depth)...)
+	}
 	specs = append(specs, mcp...)
 	if len(cfg.Deny) == 0 {
 		return specs
@@ -180,23 +191,95 @@ func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
 	return kept
 }
 
+// toolsetOf is the class toolset a tool belongs to ("" = a core tool every
+// class has).
+func toolsetOf(name string) string {
+	switch {
+	case name == "xbin_call" || strings.HasPrefix(name, "mcp:"):
+		return tsInternal
+	case name == "web_search" || name == "web_fetch":
+		return tsWeb
+	case name == "schedule" || name == "unschedule":
+		return tsSchedule
+	case threadToolNames[name]:
+		return tsThreads
+	case name == "skills_list" || name == "skill_view" || name == "skill_manage":
+		return tsSkills
+	case fileToolNames[name]:
+		return tsFiles
+	case replToolNames[name]:
+		return tsRepl
+	case isSubagentTool(name):
+		return tsSubagents
+	case sandboxToolNames[name]:
+		return tsSandbox
+	}
+	return ""
+}
+
+// classAllows refuses a tool outside the class's toolsets (and an MCP server
+// the class doesn't name) — in the lanes' words where they apply.
+func classAllows(cls agentClass, name string) error {
+	ts := toolsetOf(name)
+	switch {
+	case ts == "":
+		return nil
+	case cls.has(ts):
+		if strings.HasPrefix(name, "mcp:") && !cls.allowsMCP(mcpServerOf(name)) {
+			return fmt.Errorf("the MCP server %q is not available in this conversation's class (%s)", mcpServerOf(name), cls.Name)
+		}
+		return nil
+	case ts == tsInternal && cls.lane() == "web":
+		return fmt.Errorf("%s is not available in the web toolset (no internal reach from web runs)", name)
+	case ts == tsWeb && !cls.egress():
+		return fmt.Errorf("%s is not available in the private toolset (no egress from private runs — start a web-toolset run instead)", name)
+	}
+	return fmt.Errorf("%s is not available in this conversation's class (%s)", name, cls.Name)
+}
+
+// mcpServerOf is the server an "mcp:<server>:<tool>" name calls.
+func mcpServerOf(name string) string {
+	server, _, _ := strings.Cut(strings.TrimPrefix(name, "mcp:"), ":")
+	return server
+}
+
+// classMCP is the MCP tools the class's servers offer.
+func classMCP(cls agentClass, mcp []toolSpec) []toolSpec {
+	if cls.MCP.All {
+		return mcp
+	}
+	var out []toolSpec
+	for _, s := range mcp {
+		if cls.allowsMCP(mcpServerOf(s.Function.Name)) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // sideEffect reports whether a tool mutates the world (gated by approval mode).
-// The file and sandbox tools are deliberately NOT here: despite writing to
+// The file and REPL tools are deliberately NOT here: despite writing to
 // sqlite, they touch only this run's private rows — no egress, no other
 // component, nothing outside the run — so pausing a turn for approval would be
-// pure friction.
-func sideEffect(name string) bool {
+// pure friction. The coding tools that change a sandbox are, when it has
+// egress (sandbox_tools.go).
+func sideEffect(name string, cfg Config) bool {
 	switch name {
 	case "xbin_call":
 		return true
 	}
-	return strings.HasPrefix(name, "mcp:")
+	return strings.HasPrefix(name, "mcp:") || sandboxSideEffect(name, cfg)
 }
 
 // runTool executes a non-control tool and returns its textual result.
 func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string, args map[string]any) (string, error) {
 	if cfg.denied(name) {
 		return "", fmt.Errorf("%s is not available in this conversation", name)
+	}
+	// The class's toolsets (classes.go), whatever the model was offered: a
+	// hallucinated call, or a transcript from another class, stops here.
+	if err := classAllows(classOf(cfg), name); err != nil {
+		return "", err
 	}
 	// Enforced here as well as by hiding the tools from deeper runs: a subagent
 	// creating a cron-agent is the unbounded-spend path — the job outlives the
@@ -244,10 +327,12 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 			Cron:    strings.TrimSpace(fmt.Sprint(args["cron"])),
 			Goal:    strings.TrimSpace(fmt.Sprint(args["goal"])),
 			Watcher: args["watcher"] == true,
-			// Agent-created schedules INHERIT the creating run's toolset —
-			// a private run must not be able to smuggle data into a future
-			// web run's goal text (the firewall would leak through time).
-			Toolset: cfg.toolset(),
+			// Agent-created schedules INHERIT the creating run's class and
+			// lane — a private run must not be able to smuggle data into a
+			// future web run's goal text (the firewall would leak through
+			// time).
+			Toolset: cfg.fixedLane(),
+			Class:   classOf(cfg).ID,
 			// It belongs to whoever owns this conversation (D83), and by
 			// default reports back into it.
 			CreatedByRun: run.ID,
@@ -323,21 +408,12 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 		return strings.TrimSpace(b.String()), nil
 
 	case "xbin_call":
-		if cfg.toolset() == "web" {
-			return "", fmt.Errorf("xbin_call is not available in the web toolset (no internal reach from web runs)")
-		}
 		return ag.toolXBinCall(ctx, args)
 
 	case "web_search":
-		if cfg.toolset() != "web" {
-			return "", fmt.Errorf("web_search is not available in the private toolset (no egress from private runs — start a web-toolset run instead)")
-		}
 		return toolWebSearch(ctx, fmt.Sprint(args["query"]))
 
 	case "web_fetch":
-		if cfg.toolset() != "web" {
-			return "", fmt.Errorf("web_fetch is not available in the private toolset (no egress from private runs — start a web-toolset run instead)")
-		}
 		return toolWebFetch(ctx, fmt.Sprint(args["url"]))
 
 	case "skills_list", "skill_view", "skill_manage":
@@ -353,6 +429,9 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 	if threadToolNames[name] {
 		return ag.runThreadTool(ctx, run, cfg, name, args)
 	}
+	if sandboxToolNames[name] {
+		return ag.runSandboxTool(ctx, run, cfg, name, args)
+	}
 	if fileToolNames[name] {
 		return ag.runFileTool(ctx, run, cfg, name, args)
 	}
@@ -360,9 +439,6 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 		return ag.runReplTool(ctx, run, cfg, name, args)
 	}
 	if strings.HasPrefix(name, "mcp:") {
-		if cfg.toolset() == "web" {
-			return "", fmt.Errorf("mcp tools are not available in the web toolset (no internal reach from web runs)")
-		}
 		return ag.mcpCall(ctx, cfg, name, args)
 	}
 	return "", fmt.Errorf("unknown tool %q", name)

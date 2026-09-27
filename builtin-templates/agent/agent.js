@@ -3,7 +3,7 @@
 // view of what needs you, the chat of the selected conversation, the render
 // pane for render_html output (sandboxed, see frameDoc), the workflow tree,
 // the Automations page (automations.js: schedules, watchers), and a tabbed
-// settings area (config / features / memory / files / skills / MCP).
+// settings area (config / features / classes / memory / files / skills / MCP).
 //
 // The state lives in model/ (shared with the native view): model/app.js wires
 // the Session (chat-view.js adds its lit template), the conversation list and
@@ -26,6 +26,8 @@ import { AutoPage, autoPageTpl, sideEntryTpl } from './automations.js';
 import './auto-channels.js'; // draws the Channels kind on that page
 import './auto-triggers.js'; // …and Triggers
 import { openShare } from './share.js';
+import { makeClassPicker, classOptionsTpl, tabClasses } from './classes.js';
+import { makeSandboxUI } from './sandboxes.js';
 import { createApp } from './model/app.js';
 import { HOME } from './model/home.js';
 import * as rules from './model/rules.js';
@@ -41,8 +43,8 @@ const fmtN = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!
 const errBox = (e) => `<div class="err">${esc(e && e.message ? e.message : e)}</div>`;
 
 // The model (model/app.js): where you are (app.sel — the selected run id,
-// null = home; app.page), who you are (app.me), the tool mode for new asks
-// (app.toolset), what needs you, the halt switch, the composer's attachments.
+// null = home; app.page), who you are (app.me), the class for new asks
+// (app.classId), what needs you, the halt switch, the composer's attachments.
 // The home view's words are HOME (model/home.js) — an instance that
 // specializes the agent (a persona, a domain) changes those and nothing else.
 const app = createApp({
@@ -52,18 +54,14 @@ const app = createApp({
 });
 const { session, convs, autos } = app;
 
-// Capability lane for NEW asks (app.toolset, immutable per run once started):
-// 'private' = internal systems only, 'web' = web only — the exfiltration
-// firewall. Persisted via the per-user prefs API, NOT localStorage: tile
-// frames are sandboxed opaque origins with no localStorage at all, and
-// touching it throws — at module scope that kills the whole tile. The default
-// stands until the async load lands.
-const TSET = { private: ['🔒', 'private data — internal systems, no web'], web: ['🌐', 'web — no internal systems'] };
-function syncToolsetBtn() {
-  const b = $('tset');
-  b.textContent = TSET[app.toolset][0];
-  b.title = `Tool mode for new asks: ${TSET[app.toolset][1]} (click to switch)`;
-}
+// The class for NEW asks (D116; app.classId, fixed per run once started —
+// the exfiltration firewall is the class's): the composer's picker
+// (classes.js), at home. Your pick is kept by the per-user prefs API, NOT
+// localStorage: tile frames are sandboxed opaque origins with no localStorage
+// at all, and touching it throws — at module scope that kills the whole tile.
+const classPicker = makeClassPicker(app, $('cpick'));
+// The coding sandbox (D115): #ssel beside the model, the top bar's ▣, the Sandboxes dialog.
+const sbxUI = makeSandboxUI(app, { sel: $('ssel'), dlg: $('sbxdlg'), repaint: () => paint() });
 let models = [];         // model references from GET /models ({data:[{ref, id, provider}]})
 let cfgCache = null;     // last GET /config
 let settingsOpen = false;
@@ -87,7 +85,7 @@ app.on('autos', () => { paintSide(); if (app.page) paint(); });
 app.on('needs', () => { if (app.sel == null) paint(); });
 app.on('me', () => { $('gear').hidden = !app.me.manager; syncHalt(); });
 app.on('halt', () => syncHalt());
-app.on('toolset', () => syncToolsetBtn());
+app.on('class', () => classPicker.paint(session.current()));
 app.on('model', () => paint());
 app.on('attach', () => renderAttach());
 app.on('sending', () => { $('send').disabled = app.sending; if (!app.sending) renderAttach(); });
@@ -160,7 +158,9 @@ function topTpl(v) {
   const t = rules.topBar(v, convs.find(r.rootId || r.id), app.me);
   return html`${t.crumb ? html`<a class="crumb" @click=${() => app.openAutomations(t.crumb.kind, t.crumb.id)}>Automations ›</a>` : nothing}
     <span class="title" title=${r.title || ''}>${t.title}</span>
-    <span class="badge" title="tool mode (immutable for this run)">${t.laneLabel}</span>
+    <span class="badge clsbadge" title=${t.cls.title}>${t.cls.label}</span>
+    ${t.cls.warn ? html`<span class="badge clswarn" title=${t.cls.warnTitle}>${t.cls.warn}</span>` : nothing}
+    ${sbxUI.badgeTpl(v)}
     ${t.model ? html`<span class="badge" title="the model this conversation was switched to (the composer's picker)">✦ ${t.model}</span>` : nothing}
     <span class="badge ${r.status}">${r.status}</span>
     ${t.viewOnly ? html`<span class="badge" title="shared with you to read">view only</span>` : nothing}
@@ -193,7 +193,9 @@ function paint() {
   render(queueTpl(v ? session.queued() : [], (iid) => session.removeQueued(iid).catch((e) => alert(e.message))), $('queue'));
   $('queue').hidden = !(v && session.queued().length);
   const c = rules.composer(v, HOME);
+  classPicker.paint(v);
   syncModelPicker(v);
+  sbxUI.paint();
   $('stop').hidden = !c.stop;
   $('msg').disabled = c.disabled;
   $('msg').placeholder = c.placeholder;
@@ -637,28 +639,30 @@ $('prev-src').onclick = () => {
   openSettings('files');
 };
 document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape' || $('newdlg').open || settingsOpen) return;
+  if (e.key !== 'Escape' || $('newdlg').open || $('sbxdlg').open || settingsOpen) return;
+  if (classPicker.open) { classPicker.close(); return; }
+  if (sbxUI.closePop()) return;
   if (preview) { prevDismissed = prevSeen; closePreview(); return; }
   if (wfOpen) closeWorkflow();
 });
 $('home').onclick = goHome;
-$('tset').onclick = () => app.toggleToolset();
-syncToolsetBtn();
 
 // --- new chat ------------------------------------------------------------
 
 $('new').onclick = () => { goHome(); $('msg').focus(); };
-// "New chat with options": a title, a system prompt, a lane — the first
+// "New chat with options": a title, a system prompt, a class — the first
 // message is the dialog's text.
 $('newopts').onclick = () => {
-  $('n-goal').value = ''; $('n-title').value = ''; $('n-system').value = ''; $('n-toolset').value = app.toolset;
+  $('n-goal').value = ''; $('n-title').value = ''; $('n-system').value = '';
+  render(classOptionsTpl(app, app.classId), $('n-class'));
+  $('n-class').value = app.classId;
   $('newdlg').showModal();
 };
 $('n-create').onclick = async (e) => {
   const text = $('n-goal').value.trim();
   if (!text) { e.preventDefault(); return; }
   try {
-    await app.ask({ text, title: $('n-title').value.trim(), system: $('n-system').value.trim(), toolset: $('n-toolset').value });
+    await app.ask({ text, title: $('n-title').value.trim(), system: $('n-system').value.trim(), class: $('n-class').value });
   } catch (err) { alert(err.message); }
 };
 let searchT = null;
@@ -685,7 +689,7 @@ function closeSettings() { settingsOpen = false; $('settings').hidden = true; }
 
 async function renderTab() {
   const bd = $('sbd');
-  const fns = { config: tabConfig, features: tabFeatures, memory: tabMemory, files: tabFiles, skills: tabSkills, mcp: tabMcp };
+  const fns = { config: tabConfig, features: tabFeatures, classes: (b) => tabClasses(b, app), memory: tabMemory, files: tabFiles, skills: tabSkills, mcp: tabMcp };
   const fn = fns[activeTab] || tabConfig;
   bd.innerHTML = '<div class="empty">loading…</div>';
   try { await fn(bd); } catch (e) { bd.innerHTML = errBox(e); }

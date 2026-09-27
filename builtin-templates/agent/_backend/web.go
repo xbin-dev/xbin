@@ -4,10 +4,11 @@
 // `net` interface; unbound, the sandbox has no egress and they report
 // themselves unavailable instead of failing the run.
 //
-// They are offered ONLY to runs in the web lane (Config.Toolset), which in turn
-// get no internal reach — see toolSpecs and runTool. A run that could read the
-// owner's systems AND make arbitrary web requests could be steered by injected
-// content into sending that data out in a URL or a query.
+// They are offered ONLY to runs whose class holds the web toolset (classes.go,
+// D116), which — unless a manager confirmed a mixed class — get no internal
+// reach: see toolSpecs and runTool. A run that could read the owner's systems
+// AND make arbitrary web requests could be steered by injected content into
+// sending that data out in a URL or a query.
 package main
 
 import (

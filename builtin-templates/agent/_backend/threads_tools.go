@@ -217,11 +217,9 @@ func (ag *Agent) threadScope(tc *threadCtx, name string, args map[string]any) (s
 	return "", fmt.Errorf("unknown tool %q", name)
 }
 
-// grantNeeded is the capability a step's calls need from the conversation's
-// owner and don't have yet ("" = none): a thread tool reading scope all
-// without a live grant. Refusals and misses are not parked — the call runs
-// and reports them.
-func (ag *Agent) grantNeeded(run *Run, cfg Config, calls []toolCall, own map[string]bool) string {
+// threadsGrantNeeded (grantDefs): a thread tool reading scope all without a
+// live grant.
+func threadsGrantNeeded(ag *Agent, run *Run, cfg Config, calls []toolCall, own map[string]bool) bool {
 	var tc *threadCtx
 	for _, c := range calls {
 		name := c.Function.Name
@@ -231,15 +229,15 @@ func (ag *Agent) grantNeeded(run *Run, cfg Config, calls []toolCall, own map[str
 		if tc == nil {
 			var err error
 			if tc, err = ag.threadCtxOf(run, cfg); err != nil {
-				return ""
+				return false
 			}
 		}
 		args, _ := callArgs(c, own)
 		if sc, err := ag.threadScope(tc, name, args); err == nil && sc == scopeAll && !ag.db.liveGrant(tc.root.ID, capThreads) {
-			return capThreads
+			return true
 		}
 	}
-	return ""
+	return false
 }
 
 // runThreadTool executes one of the four.
@@ -257,7 +255,7 @@ func (ag *Agent) runThreadTool(ctx context.Context, run *Run, cfg Config, name s
 	}
 	if sc == scopeAll && !ag.db.liveGrant(tc.root.ID, capThreads) && !grantedOnce(ctx, capThreads) {
 		// execTools parks for the grant first; this is the backstop
-		return "", fmt.Errorf("reading the person's other conversations needs their permission — call it again to ask them")
+		return "", fmt.Errorf("%s", grantOf(capThreads).Forbid)
 	}
 	switch name {
 	case "schedules_list":
@@ -409,7 +407,7 @@ func (ag *Agent) toolScheduleInspect(tc *threadCtx, args map[string]any) (string
 		state = "disabled"
 	}
 	fmt.Fprintf(&b, "schedule #%d %q — %s\n", s.ID, orStr(s.Name, flat(s.Goal, 40)), state)
-	fmt.Fprintf(&b, "cron: %s · toolset %s · owner %s · %s\n", s.Cron, orStr(s.Toolset, "private"), orStr(s.Owner, "(none)"), orStr(s.Visibility, visTeam))
+	fmt.Fprintf(&b, "cron: %s · toolset %s · class %s · owner %s · %s\n", s.Cron, orStr(s.Toolset, "private"), s.Class, orStr(s.Owner, "(none)"), orStr(s.Visibility, visTeam))
 	fmt.Fprintf(&b, "delivers: %s\n", ag.delivery(s, tc.root.ID))
 	made := "by a person"
 	switch {

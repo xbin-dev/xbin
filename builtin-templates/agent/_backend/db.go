@@ -431,6 +431,8 @@ func (d *DB) deleteOneRun(id int64) error {
 			`DELETE FROM inbox WHERE run_id=?`,
 			`DELETE FROM link_deps WHERE child_id=?1 OR dep_run=?1`,
 			`DELETE FROM links WHERE parent_id=?1 OR child_id=?1`,
+			`DELETE FROM sandbox_jobs WHERE root_id=?`,
+			`DELETE FROM sandbox_creates WHERE root_id=?`,
 			`DELETE FROM runs WHERE id=?`,
 		} {
 			if _, err := t.q.Exec(q, id); err != nil {

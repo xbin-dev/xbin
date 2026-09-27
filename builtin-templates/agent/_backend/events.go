@@ -318,6 +318,9 @@ func (e *Engine) publishRun(runID int64) {
 		return
 	}
 	data := runSummary(r)
+	if cfg, err := e.db.runConfig(r.ID); err == nil {
+		data["sandbox"], data["attached"] = sandboxSummary(cfg)
+	}
 	ev := &Event{Type: evRun, Run: r.ID, Root: rootOf(r), Data: data}
 	if r.ParentID == 0 {
 		data["grants"] = e.db.liveGrants(r.ID)
@@ -377,6 +380,17 @@ func runSummary(r *Run) map[string]any {
 		"owner": r.Owner, "visibility": r.Visibility, "teamRole": r.TeamRole, "origin": r.Origin,
 		"originId": r.OriginID, "sessionKey": r.SessionKey, "titleSrc": r.TitleSrc, "activityMs": r.ActivityMs,
 	}
+}
+
+// sandboxSummary is a run's active sandbox as run events carry it — {ref,
+// name, cwd, egress, manager}, or nil — and how many it has attached, so a
+// view follows a rebind without reading the view again.
+func sandboxSummary(cfg Config) (any, int) {
+	if cfg.Sandbox == nil {
+		return nil, len(cfg.Attached)
+	}
+	b := cfg.Sandbox
+	return map[string]any{"ref": b.Ref, "name": b.Name, "cwd": b.Cwd, "egress": b.Egress, "manager": b.Manager}, len(cfg.Attached)
 }
 
 func rootOf(r *Run) int64 {

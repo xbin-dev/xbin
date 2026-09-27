@@ -9,6 +9,7 @@ import * as actions from '../model/actions.js';
 import { ui, ctx, push, fmtN, clip, base, when, thumb, raw, IMAGE } from './ui.js';
 import { renderDoc } from './render-doc.js';
 import { settingsScreens } from './settings.js';
+import { sandboxScreens } from './sandboxes.js';
 
 const isHtml = (p) => /\.html?$/i.test(p || '');
 let seq = 0;
@@ -44,7 +45,7 @@ const SCREENS = { memory: memoryTpl, files: filesTpl, file: fileTpl, skills: ski
 export function toolScreens() {
   return ui.stack.map((s, i) => {
     if (!s.id) s.id = ++seq;
-    const tpl = SCREENS[s.kind] || settingsScreens[s.kind];
+    const tpl = SCREENS[s.kind] || settingsScreens[s.kind] || sandboxScreens[s.kind];
     return { key: `tool:${s.id}`, entry: s, tpl: () => (tpl ? tpl(s) : html`<screen title="?"/>`), leave: () => { ui.stack.length = Math.min(ui.stack.length, i); } };
   });
 }

@@ -89,7 +89,8 @@ function toolTpl(b, ui) {
   return html`<div class=${classMap({ tcard: true, on: open, [st]: true })} data-fam=${b.fam} data-tool=${b.name}>
     <div class="tch" @click=${() => ui.toggle(b.id, false)} title=${b.name}>
       <span class="ic">${ICON[b.fam] || '•'}</span>
-      <span class="hl">${b.headline}</span>
+      <span class="hl">${b.headline}${b.sub ? html`<span class="sub">${b.sub}</span>` : nothing}</span>
+      ${b.outcome ? html`<span class="oc ${b.outcome.tone}">${b.outcome.text}</span>` : nothing}
       ${st === 'running' || st === 'writing' ? html`<span class="spin"></span>` : nothing}
       ${STATE_LABEL[st] ? html`<span class="st">${STATE_LABEL[st]}</span>` : nothing}
       <span class="tw">${open ? '▾' : '▸'}</span>
@@ -131,6 +132,7 @@ function agentTpl(b, ui, depth) {
       <span class="tw">${open ? '▾' : '▸'}</span>
     </div>
     ${b.pendingApproval ? approvalTpl(b.pendingApproval, (yes) => ui.act.approve(b.childId, yes), 'The subagent wants to run') : nothing}
+    ${approveNoteTpl(ui, b.childId)}
     ${open ? html`<div class="acb">
       ${b.task ? html`<div class="task ${ui.isOpen(b.id + ':task', false) ? 'on' : ''}" @click=${() => ui.toggle(b.id + ':task', false)}>
         <span class="k">task</span> ${b.task}</div>` : nothing}
@@ -176,6 +178,13 @@ export function approvalTpl(calls, decide, lead = 'The agent wants to run', gran
   </div>`;
 }
 
+// approveNoteTpl says why a verdict on runId's ask was refused (its ask is
+// gone — Session.noteApprove), for a few seconds.
+function approveNoteTpl(ui, runId) {
+  const note = runId != null && ui.approveNote ? ui.approveNote(runId) : '';
+  return note ? html`<div class="anote muted small" role="status">⚠ ${note}</div>` : nothing;
+}
+
 // sessionTpl is the whole chat of the selected run.
 export function sessionTpl(s, ui) {
   const r = s.run || {};
@@ -186,7 +195,8 @@ export function sessionTpl(s, ui) {
     ${s.olderHidden ? html`<div class="muted small center">— earlier turns were compacted into the summary —</div>` : nothing}
     ${blocksTpl(s.blocks, ui)}
     ${r.status === 'waiting_input' && ps.kind === 'approval'
-      ? approvalTpl(ps.toolCalls, (yes, how) => ui.act.approve(r.id, yes, how), undefined, grantAsk(r, ui.who ? ui.who() : null)) : nothing}
+      ? approvalTpl(ps.toolCalls, (yes, how) => ui.act.approve(r.id, yes, how, ps.park), undefined, grantAsk(r, ui.who ? ui.who() : null)) : nothing}
+    ${approveNoteTpl(ui, r.id)}
     ${r.status === 'waiting_input' && ps.kind !== 'approval' && r.result
       ? html`<div class="ask"><b>The agent is asking:</b><div class="md">${unsafeHTML(md(r.result))}</div>
           <div class="muted small">answer below to continue</div></div>` : nothing}

@@ -4,6 +4,7 @@
 // the backend sends (a run's view, GET /me, conversation rows), so both views
 // show the same controls to the same person in the same state.
 import { busy } from './fold.js';
+import { badge } from './classes.js';
 
 // access: what you may do in a conversation (its view's `access`: owner |
 // system | participant | viewer; absent from an older backend = everything).
@@ -27,6 +28,9 @@ export function topBar(v, row, me) {
     // the tool mode — not who may see it (that is Share)
     lane: web ? 'web' : 'private',
     laneLabel: web ? '🌐 web' : '🔒 internal',
+    // its class (D116, fixed for its life): icon + name, and the warning of
+    // a class that can move internal data out (model/classes.js badge)
+    cls: badge(v),
     viewOnly: !talk,
     talk, own,
     retry: talk && (r.status === 'error' || r.status === 'canceled'),
@@ -48,11 +52,17 @@ export function topBar(v, row, me) {
 
 // --- grants (D111) ----------------------------------------------------------------
 
-// What a grant lets the agent do, in words: the ask and the chip.
+// What a grant lets the agent do, in words: the ask and the chip. The backend's
+// registry (_backend/grants.go grantDefs) sends them with the pending ask
+// (pendingState.grantAsk) and each live grant ({ask, chip}); this table is the
+// fallback for an older backend.
 export const GRANTS = {
   threads: { ask: 'read your other conversations and automations', chip: 'reads your threads' },
 };
-const grantWords = (cap) => GRANTS[cap] || { ask: `use “${cap}”`, chip: cap };
+const grantWords = (cap, sent = {}) => {
+  const w = GRANTS[cap] || { ask: `use “${cap}”`, chip: cap };
+  return { ask: sent.ask || w.ask, chip: sent.chip || w.chip };
+};
 
 // grantAsk: a parked call that needs the owner's grant — what it asks, and
 // whether you may allow it (only the conversation's owner, whose threads
@@ -64,7 +74,7 @@ export function grantAsk(run, me) {
   const canAllow = !!(me && me.kind === 'user' && !me.viewedBy && owner && me.user === owner);
   return {
     cap: ps.grant,
-    lead: `The agent asks to ${grantWords(ps.grant).ask}`,
+    lead: `The agent asks to ${grantWords(ps.grant, { ask: ps.grantAsk }).ask}`,
     canAllow,
     note: canAllow ? 'Allow it once, or in this conversation for an hour.' : `Only ${owner || 'its owner'} can allow this — you may deny it.`,
   };
@@ -81,7 +91,7 @@ export function grantChips(v, me, now = Date.now()) {
   const r = v.run;
   const { own } = access(v);
   return (r.grants || []).filter((g) => g.expiresMs > now).map((g) => {
-    const w = grantWords(g.cap);
+    const w = grantWords(g.cap, g);
     return {
       cap: g.cap,
       label: `🔓 ${w.chip} · until ${clock(g.expiresMs)}`,

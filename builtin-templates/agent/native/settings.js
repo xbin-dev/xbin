@@ -1,11 +1,12 @@
 // native/settings.js — the managers' settings, as pushed screens: the config
 // (a model per tier, the base system prompt, limits, behaviour), the feature
-// switches, the skill library (tools.js) and the MCP servers bound. The web's
-// agent.js draws the same as the ⚙ panel's tabs, over the same calls
-// (model/actions.js).
+// switches, the classes (classes.js), the skill library (tools.js) and the
+// MCP servers bound. The web's agent.js draws the same as the ⚙ panel's
+// tabs, over the same calls (model/actions.js).
 import { html, repeat, nothing } from '/vendor/xb-native.js';
 import * as actions from '../model/actions.js';
 import { ui, ctx, push } from './ui.js';
+import { classScreens } from './classes.js';
 
 function load(s, fn) {
   if (s.loaded) return;
@@ -23,6 +24,8 @@ function settingsTpl() {
     <section>
       <row title="Config" subtitle="models, system prompt, limits, behaviour" icon="gear" nav @tap=${() => push({ kind: 'config' })}/>
       <row title="Features" icon="bolt" nav @tap=${() => push({ kind: 'features' })}/>
+      <row title="Classes" subtitle="which tools a conversation gets" icon="shield" detail=${app.classes ? String(app.classes.classes.length) : nothing}
+        nav @tap=${() => push({ kind: 'classes' })}/>
       <row title="Skills" icon="star" nav @tap=${() => push({ kind: 'skills' })}/>
       <row title="MCP servers" icon="server" detail=${String(n)} nav @tap=${() => push({ kind: 'mcp' })}/>
     </section>
@@ -120,4 +123,4 @@ function mcpTpl() {
   </screen>`;
 }
 
-export const settingsScreens = { settings: settingsTpl, config: configTpl, features: featuresTpl, mcp: mcpTpl };
+export const settingsScreens = { settings: settingsTpl, config: configTpl, features: featuresTpl, mcp: mcpTpl, ...classScreens };

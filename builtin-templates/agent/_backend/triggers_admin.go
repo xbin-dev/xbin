@@ -106,8 +106,12 @@ func handleNewTrigger(w http.ResponseWriter, r *http.Request) {
 	if tr.DataClass == "" {
 		tr.DataClass = "private"
 	}
-	if msg := tr.validate(); msg != "" {
+	if msg := tr.validate(nil); msg != "" {
 		xbin.WriteError(w, 400, msg)
+		return
+	}
+	if _, err := requestedClass(c, tr.Class, ""); err != nil {
+		writeClassErr(w, err)
 		return
 	}
 	if msg := deliverOK(c, tr.Deliver); msg != "" {
@@ -133,7 +137,9 @@ func handleNewTrigger(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleUpdateTrigger: its owner changes anything; a manager only switches
-// it on or off. A visibility change carries to its runs.
+// it on or off. A visibility change carries to its runs. A switch alone
+// ({enabled}) is never refused: it checks nothing else (validate re-checks
+// the class rules only when what they are about changes).
 func handleUpdateTrigger(w http.ResponseWriter, r *http.Request) {
 	tr, c, lv, ok := triggerFor(w, r)
 	if !ok {
@@ -158,9 +164,25 @@ func handleUpdateTrigger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	next.ID, next.Owner, next.Status, next.Created = tr.ID, tr.Owner, tr.Status, tr.Created
-	if msg := next.validate(); msg != "" {
-		xbin.WriteError(w, 400, msg)
-		return
+	prev := tr
+	if _, named := patch["class"]; !named && normalizeToolset(next.Toolset) != normalizeToolset(tr.Toolset) {
+		// a legacy lane switch names its built-in, picked (and checked) as a
+		// new class is — even when the class already is that built-in, saved
+		// while an edit had it in the other lane; an echoed lane keeps the class
+		next.Class, prev = "", nil
+	}
+	_, switched := patch["enabled"]
+	if !switched || len(patch) != 1 {
+		if msg := next.validate(prev); msg != "" {
+			xbin.WriteError(w, 400, msg)
+			return
+		}
+	}
+	if next.Class != tr.Class {
+		if _, err := requestedClass(c, next.Class, ""); err != nil {
+			writeClassErr(w, err)
+			return
+		}
 	}
 	if next.Deliver != tr.Deliver {
 		if msg := deliverOK(c, next.Deliver); msg != "" {

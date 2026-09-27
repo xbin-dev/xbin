@@ -18,11 +18,14 @@ const FAMILY = {
   subagent_status: 'agent', workflow_status: 'agent', subagent_result: 'agent', workflow_result: 'agent',
   subagent_message: 'agent', subagent_cancel: 'agent', workflow_cancel: 'agent',
   finish: 'done', ask_user: 'ask', state_changed: 'note',
+  // the coding sandbox (D115): commands, its files, moving files in and out
+  bash: 'box', bash_output: 'box', bash_kill: 'box', read: 'box', write: 'box', edit: 'box', ls: 'box', glob: 'box', grep: 'box',
+  sandbox_upload: 'box', sandbox_download: 'box', sandbox_copy: 'box', sandbox_info: 'box', sandbox_create: 'box',
 };
 
 export const ICON = {
   net: '⇄', web: '🌐', file: '📄', code: '{ }', mem: '🧠', note: '✎', skill: '✦', time: '⏱',
-  agent: '⑂', done: '✓', ask: '?', mcp: '⚙', thread: '☰', other: '•',
+  agent: '⑂', done: '✓', ask: '?', mcp: '⚙', thread: '☰', box: '▣', other: '•',
 };
 
 export function family(name) {
@@ -96,11 +99,101 @@ function reading(name, a) {
     case 'subagent_message': return `Message #${a.id ?? '?'}: ${one(a.text, 60)}`;
     case 'subagent_cancel': case 'workflow_cancel': return `Stop ${ids(a.ids)}`;
   }
+  if (FAMILY[name] === 'box') return boxReading(name, a);
   if (String(name).startsWith('mcp:')) {
     const [, srv, tool] = String(name).split(':');
     return `${tool || name} · ${srv || 'mcp'}`;
   }
   return name || 'tool';
+}
+
+// --- the coding sandbox (D115) ------------------------------------------------------
+
+const spot = (x) => (x && typeof x === 'object' ? `${x.sandbox ? x.sandbox + ':' : ''}${x.path || '?'}` : '?');
+
+// boxReading: a sandbox call from its arguments — the command, the path, the
+// pattern, what moves where.
+function boxReading(name, a) {
+  switch (name) {
+    case 'bash': return `$ ${one(a.command, 90)}${a.background ? ' &' : ''}`;
+    case 'bash_output': return `Output of job ${a.job ?? '?'}${Number(a.wait_s) > 0 ? ` (waits ${a.wait_s}s)` : ''}`;
+    case 'bash_kill': return `Stop job ${a.job ?? '?'}${a.signal ? ` (${a.signal})` : ''}`;
+    case 'read': return `Read ${a.path || 'a file'}${a.offset ? ` from line ${a.offset}` : ''}`;
+    case 'write': return `Write ${a.path || 'a file'}`;
+    case 'edit': return `Edit ${a.path || 'a file'}: ${one(a.old_string, 28) || '…'} → ${one(a.new_string, 28) || '∅'}${a.replace_all ? ' (all)' : ''}`;
+    case 'ls': return `List ${a.path || 'the working directory'}`;
+    case 'glob': return `Find ${a.pattern || '?'}${a.path ? ` in ${a.path}` : ''}`;
+    case 'grep': return `Search /${one(a.pattern, 50)}/${a.glob ? ` in ${a.glob}` : ''}${a.path ? ` under ${a.path}` : ''}`;
+    case 'sandbox_upload': return `Upload ${a.file || 'a file'} → ${a.path || 'the working directory'}`;
+    case 'sandbox_download': return `Download ${a.path || 'a file'}${a.name ? ` as ${a.name}` : ''}`;
+    case 'sandbox_copy': return `Copy ${spot(a.from)} → ${spot(a.to)}`;
+    case 'sandbox_info': return 'Look at the sandboxes';
+    case 'sandbox_create': return `Create sandbox ${a.name || ''}`.trim();
+  }
+  return name;
+}
+
+// subline: the sandbox call's own words (the command, old → new, the
+// pattern) under a headline that is the model's summary; '' otherwise — the
+// headline already says them.
+export function subline(name, rawArgs) {
+  if (FAMILY[name] !== 'box') return '';
+  const a = parseArgs(rawArgs);
+  return typeof a.summary === 'string' && a.summary.trim() ? boxReading(name, a) : '';
+}
+
+// outcome: what a finished sandbox call came to, read from its result —
+// bash's footer ([exit 1 · 14s · job 3], still running · job 3), a command
+// that went on as a job across a restart, how many matches, entries or
+// files, a size. {text, tone: ok | bad | run | ''} or null (none to say, or
+// not a sandbox call).
+export function outcome(name, content) {
+  if (FAMILY[name] !== 'box') return null;
+  const c = String(content ?? '');
+  const st = resultState(c);
+  if (st !== 'done') return null;
+  const lines = c.replace(/\n+$/, '').split('\n');
+  const first = lines[0] || '';
+  const last = lines[lines.length - 1] || '';
+  const paren = (s) => { const m = /\(([^()]+)\)\s*$/.exec(s); return m ? { text: m[1], tone: '' } : null; };
+  switch (name) {
+    case 'bash': case 'bash_output': {
+      const moved = MOVED.exec(c);
+      if (moved) return { text: `went on as job ${moved[1]}`, tone: 'run' };
+      const started = /^started job (\d+)/.exec(first);
+      if (started) return { text: `job ${started[1]} started`, tone: 'run' };
+      const m = /^\[(.*)\]$/.exec(last);
+      if (!m) return null;
+      const f = m[1].split(' — ')[0].replace(/ · read to byte \d+$/, '').replace(/^still running after /, 'still running · ');
+      const tone = /^exit 0\b/.test(f) ? 'ok' : /^(still )?running\b/.test(f) ? 'run' : 'bad';
+      return { text: f, tone };
+    }
+    case 'bash_kill': return { text: one(first, 48), tone: /still running/.test(first) ? 'run' : '' };
+    case 'grep': {
+      if (/^no matches /.test(first)) return { text: 'no matches', tone: '' };
+      const n = lines.filter((l) => /^[^\s:][^:]*:\d+: /.test(l)).length;
+      const more = /… \[(\d+)(\+)? (more )?matching lines/.exec(c);
+      const total = more ? (more[3] ? n + +more[1] : +more[1]) : n;
+      return { text: `${total}${more && more[2] ? '+' : ''} match${total === 1 && !(more && more[2]) ? '' : 'es'}`, tone: '' };
+    }
+    case 'glob': {
+      if (/^no files match /.test(first)) return { text: 'no files', tone: '' };
+      const more = /… and (\d+) more/.exec(c);
+      const n = lines.filter((l) => l && !l.startsWith('… ')).length + (more ? +more[1] : 0);
+      return { text: `${n} file${n === 1 ? '' : 's'}`, tone: '' };
+    }
+    case 'ls': {
+      if (/: \(empty\)$/.test(first)) return { text: 'empty', tone: '' };
+      const n = lines.slice(1).filter((l) => l && !l.startsWith('… ')).length;
+      return { text: `${n}${/… \[more entries/.test(c) ? '+' : ''} entr${n === 1 ? 'y' : 'ies'}`, tone: '' };
+    }
+    case 'read': {
+      const n = lines.filter((l) => /^\s*\d+\t/.test(l)).length;
+      return n ? { text: `${n} line${n === 1 ? '' : 's'}`, tone: '' } : null;
+    }
+    case 'sandbox_info': return null;
+  }
+  return paren(first);
 }
 
 // headline is a call's one-line description.
@@ -118,6 +211,11 @@ export function argsShown(rawArgs) {
   return a;
 }
 
+// MOVED: a bash command a backend restart cut off, which went on in the
+// sandbox as a job (_backend/sandbox_jobs.go lostResultText) — answered, like
+// one that outlived its timeout, not stopped.
+const MOVED = /^\(no result: the backend restarted while this command ran\. It went on in the sandbox as job (\d+)/;
+
 // resultState reads a tool result's content: the engine's placeholders
 // and error prefix mean the call is still going, parked, or failed.
 export function resultState(content) {
@@ -126,6 +224,7 @@ export function resultState(content) {
   if (c === '(awaiting your approval)') return 'approval';
   if (c.startsWith('(waiting for ')) return 'waiting';
   if (c.startsWith('error:')) return 'error';
+  if (MOVED.test(c)) return 'done';
   if (/^\((interrupted|cancelled|not executed|denied|no result:)/.test(c)) return 'stopped';
   return 'done';
 }

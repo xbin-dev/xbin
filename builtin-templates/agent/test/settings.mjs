@@ -2,7 +2,9 @@
 // system prompt, limits; Save sends the whole config back), Features (a
 // switch merges into the config), Memory (set, add, delete a run's blocks),
 // Files (edit and save a text file with its version), Skills (list, edit,
-// save, delete) and MCP — the calls model/actions.js makes for both views.
+// save, delete), Classes (D116: edit a built-in, add one, a mixed one asks
+// first, the default, delete) and MCP — the calls model/actions.js makes for
+// both views.
 //
 //   node test/settings.mjs     (needs playwright + a chromium build)
 //   SHOTS=<dir> node test/settings.mjs   also screenshots each tab
@@ -53,7 +55,8 @@ await ctx.addInitScript(() => {
   });
   window.__route('DELETE', /\/skills\/(.*)$/, (m) => { S.skills = S.skills.filter((s) => s.name !== decodeURIComponent(m[1])); return j({ ok: 'true' }); });
   window.alert = (msg) => { window.__alerted = msg; };
-  window.confirm = () => true;
+  window.__confirms = [];
+  window.confirm = (msg) => { window.__confirms.push(msg); return window.__confirmAnswer ?? true; };
 });
 const page = await ctx.newPage();
 const errors = [];
@@ -133,6 +136,62 @@ ok('skills: saved', (await S()).skills.some((k) => k.name === 'weekly') && (awai
 await page.click('[data-skdel="0"]');
 await page.waitForFunction(() => !window.__settings.skills.some((k) => k.name === 'triage'));
 ok('skills: saved and deleted', (await S()).skills.map((k) => k.name).join() === 'weekly');
+
+// Classes (D116): the built-ins; editing one saves only it (the others stay
+// at their defaults); a new one that mixes internal reach with egress asks
+// first; the default for new chats; delete.
+const puts = () => page.evaluate(() => window.__calls.filter((c) => c.method === 'PUT' && /\/classes$/.test(c.url)).map((c) => JSON.parse(c.body)));
+const rowIds = () => page.$$eval('.clsrow', (els) => els.map((e) => e.dataset.cls).join());
+await tab('classes', '.clsrow');
+await shot('classes');
+ok('classes: the built-ins are listed', (await rowIds()) === 'internal,web,coding', await rowIds());
+ok('classes: a built-in at its default has nothing to reset', !(await page.$('.clsrow [data-del]')));
+await page.click('[data-edit="web"]');
+await page.waitForSelector('#clf-save');
+ok('classes: an existing class keeps its id', await page.$eval('#clf-id', (e) => e.disabled && e.value === 'web'));
+ok('classes: its toolsets are checked', (await page.$$eval('[data-ts]', (els) => els.filter((e) => e.checked).map((e) => e.dataset.ts).join())) ===
+  'files,repl,web,subagents,schedule,threads,skills');
+await page.fill('#clf-desc', 'the open web');
+await page.click('#clf-save');
+await page.waitForFunction(() => document.getElementById('cl-msg')?.textContent === 'saved ✓');
+let p = (await puts()).pop();
+ok('classes: saving a built-in sends it alone', p.classes.length === 1 && p.classes[0].id === 'web' && p.classes[0].description === 'the open web' &&
+  p.default === 'internal' && !p.confirmMixed && !('mcp' in p.classes[0]), JSON.stringify(p));
+ok('classes: …which can now be reset', await page.$eval('[data-del="web"]', (e) => e.textContent === 'Reset to default'));
+// a new class: a bad id is refused here
+await page.click('#cl-new');
+await page.fill('#clf-id', 'Bridge');
+await page.click('#clf-save');
+ok('classes: a bad id is said, not sent', (await page.textContent('.clsform .err')).startsWith('The id is a–z') && (await puts()).length === 1);
+await page.fill('#clf-id', 'bridge');
+await page.fill('#clf-name', 'Bridge');
+await page.fill('#clf-icon', '🌉');
+await page.check('[data-ts="internal"]');
+await page.check('[data-ts="web"]');
+ok('classes: a mixed class warns in the form', (await page.textContent('.clsmixed')).includes('can move internal data out'));
+await shot('classes-form');
+ok('classes: internal reach offers the MCP servers', !!(await page.$('#clf-mcpMode')));
+await page.evaluate(() => { window.__confirmAnswer = false; });
+await page.click('#clf-save');
+ok('classes: a declined confirmation saves nothing', (await puts()).length === 1 && (await page.evaluate(() => window.__confirms.pop())).startsWith('Save “Bridge”? It can move internal data out'));
+await page.evaluate(() => { window.__confirmAnswer = true; });
+await page.click('#clf-save');
+await page.waitForFunction(() => [...document.querySelectorAll('.clsrow')].some((e) => e.dataset.cls === 'bridge'));
+p = (await puts()).pop();
+ok('classes: a confirmed mixed class is sent confirmed, after the stored ones', p.confirmMixed === true && p.classes.map((c) => c.id).join() === 'web,bridge' &&
+  p.classes[1].mcp === 'all' && p.classes[1].icon === '🌉', JSON.stringify(p));
+ok('classes: the list says it can move internal data out', (await page.textContent('.clsrow[data-cls="bridge"]')).includes('⚠ can move internal data out'));
+await shot('classes-mixed');
+// the default, then deleting it
+await page.selectOption('#cl-default', 'bridge');
+await page.waitForFunction(() => window.__classes.default === 'bridge');
+p = (await puts()).pop();
+ok('classes: the default is saved (the stored mixed one rides along confirmed)', p.default === 'bridge' && p.confirmMixed === true, JSON.stringify(p));
+await page.click('[data-del="bridge"]');
+await page.waitForFunction(() => !window.__classes.classes.some((c) => c.id === 'bridge'));
+p = (await puts()).pop();
+ok('classes: delete sends the rest, and a deleted default hands over', p.classes.map((c) => c.id).join() === 'web' && p.default === '', JSON.stringify(p));
+ok('classes: delete asked first', (await page.evaluate(() => window.__confirms.pop())).startsWith('Delete the Bridge class?'));
 
 await tab('mcp', '.sec h4');
 ok('mcp: says none are bound', (await page.textContent('#sbd')).includes('No MCP servers bound'));

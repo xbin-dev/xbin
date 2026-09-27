@@ -1,5 +1,9 @@
 # 2026-07-14 — container-host tiles need the `cap:containers` grant
 
+> **2026-09-27:** the `devbox` builtin named below was retired
+> ([2026-09-27-devbox-retired.md](2026-09-27-devbox-retired.md)); a workspace
+> that imported it keeps its copy. `cap:containers` itself is unchanged.
+
 A **container-host tile** — one that runs rootless Podman/Docker inside its
 sandbox to spawn sub-containers (the new `devbox` builtin; any "dev sandbox"
 tile) — must hold the reserved capability grant **`cap:containers`**.

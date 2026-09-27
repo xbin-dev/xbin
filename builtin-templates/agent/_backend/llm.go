@@ -87,6 +87,9 @@ type Config struct {
 	// A run never holds both private data and an egress channel; subagents
 	// and agent-created schedules inherit it.
 	Toolset string `json:"toolset,omitempty"`
+	// Class is the conversation's agent class (D116): which toolsets it has.
+	// Fixed per conversation, like Toolset; "" resolves from Toolset.
+	Class string `json:"class,omitempty"`
 	// Deny names tools this run never gets ("mcp:*" style prefixes end in
 	// '*'): hidden from the model and refused if called anyway. Set per run
 	// (a channel session's profile, D86) and inherited by its subagents.
@@ -99,18 +102,30 @@ type Config struct {
 	// Absent or true = on; set a key false to turn it off. Known keys are in
 	// featureKeys; unlisted keys default on so older configs get everything.
 	Features map[string]bool `json:"features"`
+
+	// Sandbox is the coding sandbox the conversation works in (D115,
+	// sandbox_bind.go) — read every turn, so a rebind applies from the next
+	// one; nil = none. Attached is every sandbox the conversation has
+	// attached (≤ 8, the active one among them): a subagent may be spawned
+	// onto one, files copied between them. Subagents inherit both
+	// (childConfig); the global defaults never hold either (PUT /config).
+	Sandbox  *SandboxBinding  `json:"sandbox,omitempty"`
+	Attached []SandboxBinding `json:"attached,omitempty"`
+	// HeldInternal: the conversation has had a sandbox holding internal data
+	// (sbxInternalLabel) bound, or worked in one — from then on every sandbox
+	// it binds or works in is marked too (sandbox_access.go: the mark spreads
+	// within a conversation). Kept on the root, never cleared.
+	HeldInternal bool `json:"heldInternal,omitempty"`
 }
 
 // featureKeys are the toggleable capabilities shown in the tile's Features menu.
 var featureKeys = []string{"recall", "skills", "streaming", "vision", "parallelTools", "watcher", "files", "repl", "workflow", "titles", "threads"}
 
-// toolset normalizes the capability lane: anything but "web" is "private".
-func (c Config) toolset() string {
-	if c.Toolset == "web" {
-		return "web"
-	}
-	return "private"
-}
+// toolset is the capability lane, from the run's class (classes.go): "web"
+// when it reaches outside and has no internal reach, else "private". Since
+// D116 Config.Toolset stores the lane the class had when the run started:
+// what the class is held to, and what older tiles read.
+func (c Config) toolset() string { return classOf(c).lane() }
 
 // denied reports whether Deny covers the tool name. finish never is: a run
 // must always be able to end.
@@ -421,7 +436,8 @@ func modelFor(ctx context.Context, cfg Config, tier string) string {
 	case "vlm":
 		explicit, use = cfg.Models.VLM, "vlm"
 	default: // general
-		explicit, use = firstNonEmpty(cfg.Pick, cfg.Models.General, cfg.Model), "agent"
+		// a person's pick, else the class's model (D116), else the tiers
+		explicit, use = firstNonEmpty(cfg.Pick, classOf(cfg).Model, cfg.Models.General, cfg.Model), "agent"
 	}
 	if explicit != "" {
 		return explicit

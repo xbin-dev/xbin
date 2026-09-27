@@ -60,6 +60,16 @@ const setModel = (page, model) => page.evaluate(async (model) => {
   if (!r.ok) throw new Error(`PUT config: ${r.status}`);
 }, model);
 
+// internalClass: new chats in the internal class — the pick is remembered
+// per person, and a leftover one (the sandbox pass's coding) would change
+// the tools every new chat here gets. Picked the way a person does.
+async function internalClass(page) {
+  await page.waitForSelector('#tset', { timeout: 30000 });
+  if (!(await page.$('.clsmenu'))) await page.click('#tset');
+  await page.click('.clsmenu .mi[data-class="internal"]');
+  await until(page, () => !document.querySelector('.clsmenu'));
+}
+
 async function agentTemplate(browser) {
   const { check, skip, done } = checker('agent-template');
   if (noGocryptfs()) { skip(`apps/agent is held: ${noGocryptfs()}`); return done(); }
@@ -71,6 +81,7 @@ async function agentTemplate(browser) {
   since = Date.now();
   await page.goto(`${URL}/c/apps/agent/`);
   await page.waitForSelector('#msg', { timeout: 30000 });
+  await internalClass(page);
   await setModel(page, 'fake/fake-chat');
 
   // 1. thinking streams, then folds; the answer is markdown.

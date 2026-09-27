@@ -271,8 +271,8 @@ signals and the exit code; everything else is `boot.Run(ctx, cfg)`.
   the bump, `UPDATE_TILE_VERSIONS=1 go test ./internal/builtins -run
   TestTileVersions` moves the baseline.
 - The pure cores have tests that run under `make tile-check`: traefik's
-  static/dynamic config renderers are pinned verbatim, devbox's container
-  spec (`createArgs`) and the egress approver's packet decoding likewise.
+  static/dynamic config renderers are pinned verbatim, the egress approver's
+  packet decoding likewise.
   Response bodies go through `xbin.WriteJSON` / `xbin.WriteError` from the
   SDK — a backend defining its own `writeJSON` is a copy to delete.
 
@@ -425,7 +425,9 @@ slice.
 The frontend has no unit-test runner; browser behaviour is pinned by
 `hack/ui-harness`: `run.sh` builds xbind, seeds a throwaway workspace
 (orgs, network sets, users, org tiles in every binding state, the
-`focusy` and `linky` fixture tiles) and runs Playwright passes from
+`focusy` and `linky` fixture tiles, the agent template wired to
+`hack/fakeopenai` through llm-gw and to `apps/fakesbx` — `hack/fakesandbox`
+as a sandbox manager tile) and runs Playwright passes from
 `shots.js` — screenshots and `<select>` dumps to look at, plus asserting
 passes that write `PASS`/`FAIL` lines under `$HARNESS_DIR/out/<pass>.txt`
 and exit 1 on any FAIL. A part the environment cannot exercise writes a
@@ -433,8 +435,8 @@ and exit 1 on any FAIL. A part the environment cannot exercise writes a
 `run.sh`) — never a timeout, never a silent pass: without a `gocryptfs`
 binary (a fresh worktree has no `bin/gocryptfs`: `make gocryptfs`, or
 `XBIN_GOCRYPTFS`) the seeded agent tiles are held, so `agentTemplate`,
-`agentConvs` and `channels` skip; a harness xbind that can run VM
-sandboxes skips `vmToggle`'s disabled-toggle half.
+`agentConvs`, `agentSandbox` and `channels` skip; a harness xbind that can
+run VM sandboxes skips `vmToggle`'s disabled-toggle half.
 
 ```
 hack/ui-harness/run.sh                    # build, fresh workspace, seed, every pass, stop

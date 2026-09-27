@@ -1,7 +1,8 @@
 // automations.mjs — the Automations page (D83): the sidebar entry with what
 // is new, automations grouped by kind (someone else's shown to a manager for
 // oversight, without what it does), one automation's runs (reading marks them
-// read; a run opens with a way back), and the new-schedule form.
+// read; a run opens with a way back), and the new-schedule form — in a class
+// (D116): the card says it, the form picks one, an edit can't change it.
 //
 //   node test/automations.mjs        (needs playwright + a chromium build)
 import { ORIGIN, STUB, serveTile, launch, checker } from './backend.mjs';
@@ -19,7 +20,10 @@ const seed = {
     { kind: 'watcher', id: 4, name: 'Watch invoices', owner: 'admin', access: 'owner', enabled: true, visibility: 'private',
       config: { cron: '@every 1h', goal: 'new invoices?' }, runs: 1, unread: 0 },
     { kind: 'schedule', id: 5, name: 'bob report', owner: 'bob', access: 'oversee', enabled: true, summary: '@daily', runs: 0, unread: 0 },
+    { kind: 'schedule', id: 6, name: 'Leak check', owner: 'admin', access: 'owner', enabled: true, mode: 'isolated', visibility: 'private',
+      config: { cron: '@every 1h', goal: 'compare', class: 'bridge', toolset: 'private' }, runs: 0, unread: 0 },
   ],
+  classes: { classes: [{ id: 'bridge', name: 'Bridge', icon: '🌉', description: 'both worlds', toolsets: ['internal', 'web'] }], default: '' },
   autoRuns: { 3: [{ id: 20, title: '⏱ Morning digest', status: 'idle', activityMs: now, unread: true }] },
 };
 
@@ -41,7 +45,10 @@ await page.waitForSelector('.autos-page .acard2');
 const groups = await page.$$eval('.autos-page h5', (els) => els.map((e) => e.textContent));
 ok('grouped by kind', JSON.stringify(groups) === JSON.stringify(['Channels', 'Schedules', 'Watchers', 'Triggers']), groups.join(' | '));
 const bob = await page.textContent('.acard2[data-auto="schedule:5"]');
-ok('someone else\'s, overseen: whose it is, not what it does', bob.includes("bob's") && !bob.includes('Run now'), bob);
+ok('someone else\'s, overseen: whose it is, not what it does', bob.includes("bob's") && !bob.includes('Run now') && !bob.includes('Internal'), bob);
+ok('a card says its class (one from before classes: its lane\'s built-in)', (await page.textContent('.acard2[data-auto="schedule:3"] [data-cls]')) === '🔒 Internal');
+const leak = await page.textContent('.acard2[data-auto="schedule:6"]');
+ok('…and warns of one that can move internal data out', leak.includes('🌉 Bridge') && leak.includes('⚠ can move internal data out'), leak);
 ok('#auto is in the address', await page.evaluate(() => location.hash === '#auto'));
 
 await page.click('.acard2[data-auto="schedule:3"]');
@@ -57,6 +64,12 @@ ok('…with the way back to its automation', (await page.textContent('#top .crum
 await page.click('#top .crumb');
 await page.waitForSelector('.autos-page .agoal');
 ok('the crumb returns to the automation', (await page.textContent('.autos-page')).includes('Morning digest'));
+ok('its detail says its class', (await page.textContent('.autos-page [data-cls]')) === '🔒 Internal');
+await page.click('.autos-page button:has-text("Edit")');
+await page.waitForSelector('.autos-page select[data-cls="class"]');
+ok('an edit shows its class, fixed', await page.isDisabled('.autos-page select[data-cls="class"]')
+  && (await page.inputValue('.autos-page select[data-cls="class"]')) === 'internal');
+await page.click('.autos-page .crumb');
 
 // a new schedule
 await page.click('.autos-page .crumb');
@@ -65,11 +78,17 @@ await page.click('.autos-page button:has-text("New schedule")');
 await page.fill('.autos-page input[placeholder="Morning digest"]', 'Weekly report');
 await page.selectOption('.autos-page select >> nth=0', '0 9 * * 1-5');
 await page.fill('.autos-page textarea', 'sum up the week');
+const opts = await page.$$eval('.autos-page select[data-cls="class"] option', (els) => els.map((e) => e.value));
+ok('the form offers the classes you may use', opts.join() === 'internal,web,coding,bridge', opts.join());
+ok('a new one starts in your default', (await page.inputValue('.autos-page select[data-cls="class"]')) === 'internal');
+await page.selectOption('.autos-page select[data-cls="class"]', 'coding');
+await page.waitForFunction(() => document.querySelector('.autos-page select[data-cls="class"]')?.parentElement.textContent.includes('coding sandbox'));
+ok('the picked class says what it is for', true);
 await page.click('.autos-page button:has-text("Create")');
 await page.waitForFunction(() => window.__calls.some((c) => c.method === 'POST' && c.url.endsWith('/schedules')));
 const body = await page.evaluate(() => JSON.parse(window.__calls.find((c) => c.method === 'POST' && c.url.endsWith('/schedules')).body));
 ok('the form creates it', body.name === 'Weekly report' && body.cron === '0 9 * * 1-5' && body.goal === 'sum up the week'
-  && body.mode === 'isolated' && body.visibility === 'private', JSON.stringify(body));
+  && body.mode === 'isolated' && body.visibility === 'private' && body.class === 'coding' && body.toolset === 'web', JSON.stringify(body));
 
 ok('no page errors', errors.length === 0, errors.join(' | '));
 await browser.close();

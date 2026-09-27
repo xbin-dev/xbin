@@ -283,7 +283,7 @@ func (u *Updater) record(def unitDef, installPath string, files map[string][]byt
 func (u *Updater) RecordTile(name, installPath string) error {
 	def, ok := u.defByID("tile:" + name)
 	if !ok {
-		return fmt.Errorf("no builtin tile %q", name)
+		return noSuchTile(name)
 	}
 	files, err := u.render(def, installPath)
 	if err != nil {
@@ -504,7 +504,7 @@ func (u *Updater) oursHash(installPath, rel string) (string, bool) {
 func (u *Updater) ApplyReplace(id string) ([]string, error) {
 	def, ok := u.defByID(id)
 	if !ok {
-		return nil, fmt.Errorf("no such builtin %q", id)
+		return nil, noSuchUnit(id)
 	}
 	o := u.load()
 	state := o.Units[id]
@@ -538,7 +538,7 @@ func (u *Updater) ApplyReplace(id string) ([]string, error) {
 func (u *Updater) ApplyMerge(id string) ([]string, error) {
 	def, ok := u.defByID(id)
 	if !ok {
-		return nil, fmt.Errorf("no such builtin %q", id)
+		return nil, noSuchUnit(id)
 	}
 	o := u.load()
 	state := o.Units[id]
@@ -625,7 +625,7 @@ type Proposal struct {
 func (u *Updater) Propose(id string) (*Proposal, error) {
 	def, ok := u.defByID(id)
 	if !ok {
-		return nil, fmt.Errorf("no such builtin %q", id)
+		return nil, noSuchUnit(id)
 	}
 	o := u.load()
 	state := o.Units[id]
@@ -705,7 +705,7 @@ func (u *Updater) Propose(id string) (*Proposal, error) {
 func (u *Updater) RecordApplied(id, toHash string) error {
 	def, ok := u.defByID(id)
 	if !ok {
-		return fmt.Errorf("no such builtin %q", id)
+		return noSuchUnit(id)
 	}
 	o := u.load()
 	installPath := def.DefaultPath

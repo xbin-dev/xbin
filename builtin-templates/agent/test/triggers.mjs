@@ -1,8 +1,9 @@
 // triggers.mjs — event triggers on the Automations page (D87): a trigger's
 // card and detail (a bus trigger still missing its grant shows the exact
 // `uses` entry; its recent events say why one didn't run), test fire, a push
-// nothing took offering "Create a trigger", and the form keeping the lane
-// firewall (the web lane or announcing needs public data).
+// nothing took offering "Create a trigger", and the form picking a class
+// (D116) and keeping the firewall (a web-lane class or announcing needs
+// public data; public data never steers a class that can move internal data out).
 //
 //   node test/triggers.mjs        (needs playwright + a chromium build)
 import { ORIGIN, STUB, serveTile, launch, checker } from './backend.mjs';
@@ -18,6 +19,7 @@ const seed = {
         mode: 'persistent', toolset: 'private', dataClass: 'private', maxPerHour: 30, visibility: 'private' } },
     { kind: 'channel', id: 8, name: 'Support bot', owner: 'admin', access: 'owner', enabled: true, summary: 'Slack · Beta', config: { state: 'active' } },
   ],
+  classes: { classes: [{ id: 'bridge', name: 'Bridge', icon: '🌉', toolsets: ['internal', 'web'] }], default: '' },
 };
 
 const browser = await launch();
@@ -27,7 +29,8 @@ await ctx.addInitScript(STUB, seed);
 await ctx.addInitScript((t) => {
   window.__route('GET', /\/triggers\/3\/events$/, () => window.__json({ events: [
     { eventId: 'bus:a', topic: 'events/created', accepted: true, runId: 40, at: t / 1000 - 60 },
-    { eventId: 'bus:b', topic: 'events/moved', accepted: false, reason: 'rate', at: t / 1000 - 30 }] }));
+    { eventId: 'bus:b', topic: 'events/moved', accepted: false, reason: 'rate', at: t / 1000 - 30 },
+    { eventId: 'push:c', topic: 'events/pushed', accepted: false, reason: 'class-mixed', at: t / 1000 - 20 }] }));
   window.__route('GET', /\/triggers\/unmatched$/, () => window.__json({ items: [{ from: 'apps/webhooks', name: 'deploy', count: 2, at: t / 1000 }] }));
   window.__route('POST', /\/triggers\/3\/test$/, () => window.__json({ trigger: 'calendar changes', accepted: true, runId: 41 }));
   window.__route('POST', /\/triggers$/, (m, o) => window.__json({ id: 9, ...JSON.parse(o.body) }));
@@ -48,6 +51,8 @@ await page.waitForSelector('.autos-page .agoal');
 const detail = await page.textContent('.autos-page');
 ok('the detail names the grant it needs', detail.includes('{ "target": "res:apps/cal/bus", "role": "reader" }'), detail.slice(0, 300));
 ok('its events say why one didn\'t run', detail.includes('over its hourly cap') && detail.includes('ran #40'));
+ok('…public data into a mixed class, in words', detail.includes('can move internal data out') && !detail.includes('class-mixed'));
+ok('its detail says its class', (await page.textContent('.autos-page [data-cls]')) === '🔒 Internal');
 await page.click('.autos-page button:has-text("Test")');
 await page.waitForSelector('.autos-page .said');
 ok('test fires it', (await page.textContent('.autos-page .said')).includes('Fired a test event'));
@@ -59,17 +64,26 @@ await page.waitForSelector('.autos-page textarea');
 ok('the form starts from the push', (await page.inputValue('.autos-page input[placeholder="deploys"]')) === 'deploy'
   && (await page.inputValue('.autos-page input[placeholder="apps/webhooks"]')) === 'apps/webhooks');
 await page.fill('.autos-page textarea', 'Check the {{topic}} deploy');
-await page.selectOption('.autos-page select >> nth=2', 'web');
+ok('a new one starts in the internal class', (await page.inputValue('.autos-page select[data-cls="class"]')) === 'internal');
+await page.selectOption('.autos-page select[data-cls="class"]', 'coding');
 await page.waitForSelector('.autos-page .err');
-ok('the web lane with private data is refused before saving', await page.isDisabled('.autos-page button:has-text("Create")'));
+ok('a web-lane class with private data is refused before saving', await page.isDisabled('.autos-page button:has-text("Create")')
+  && (await page.textContent('.autos-page .err')).includes('public data only'));
 await page.selectOption('.autos-page select >> nth=3', 'public');
 await page.selectOption('.autos-page select >> nth=4', 'chan:8:dm:U2');
 ok('public data unblocks it', !(await page.isDisabled('.autos-page button:has-text("Create")')));
+await page.selectOption('.autos-page select >> nth=4', '');
+await page.selectOption('.autos-page select[data-cls="class"]', 'bridge');
+await page.waitForSelector('.autos-page .err');
+ok('public data never steers a class that can move internal data out', await page.isDisabled('.autos-page button:has-text("Create")')
+  && (await page.textContent('.autos-page .err')).includes('Bridge class can move internal data out'));
+await page.selectOption('.autos-page select[data-cls="class"]', 'web');
+await page.selectOption('.autos-page select >> nth=4', 'chan:8:dm:U2');
 await page.click('.autos-page button:has-text("Create")');
 await page.waitForFunction(() => window.__calls.some((c) => c.method === 'POST' && c.url.endsWith('/triggers')));
 const b = JSON.parse((await called('POST', '/triggers'))[0]);
 ok('the form sends the trigger', b.name === 'deploy' && b.source === 'push' && b.sourceRef === 'apps/webhooks' && b.match === 'deploy'
-  && b.toolset === 'web' && b.dataClass === 'public' && b.deliver === 'chan:8:dm:U2' && b.goal.includes('{{topic}}'), JSON.stringify(b));
+  && b.class === 'web' && b.toolset === 'web' && b.dataClass === 'public' && b.deliver === 'chan:8:dm:U2' && b.goal.includes('{{topic}}'), JSON.stringify(b));
 
 ok('no page errors', errors.length === 0, errors.join(' | '));
 await browser.close();

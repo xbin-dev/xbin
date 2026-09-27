@@ -9,6 +9,8 @@ import { html, nothing } from '/vendor/lit-all.min.js';
 import { extendKind, KINDS, ago } from './model/auto.js';
 import { st, self, startForm as openForm, closeForm, firewall, save, toggle, test, reset, del as remove, triggerCan, status,
   wiring as needs, REASONS, MODES } from './model/auto-triggers.js';
+import { choices, ofAutomation } from './model/classes.js';
+import { classFieldTpl, clsBadgeTpl } from './classes.js';
 
 // The trigger's state and actions are model/auto-triggers.js (shared with the
 // native view); what is drawn here, and the "are you sure?" before a delete.
@@ -36,7 +38,7 @@ function card(p, it) {
       <span style="flex:1"></span>
       ${it.access === 'oversee' ? html`<span class="muted small">${it.owner}'s</span>` : it.access !== 'owner' && it.owner ? html`<span class="muted small">by ${it.owner}</span>` : nothing}
     </div>
-    <div class="as muted small">when ${it.summary}${it.lastRunAt ? ` · last ${ago(it.lastRunAt)}` : ''}${it.runs ? ` · ${it.runs} run${it.runs === 1 ? '' : 's'}` : ''}</div>
+    <div class="as muted small">${it.config ? html`${clsBadgeTpl(ofAutomation(p.classes(), it.config))} ` : nothing}when ${it.summary}${it.lastRunAt ? ` · last ${ago(it.lastRunAt)}` : ''}${it.runs ? ` · ${it.runs} run${it.runs === 1 ? '' : 's'}` : ''}</div>
   </div>`;
 }
 
@@ -68,7 +70,7 @@ function wiring(it) {
 function detail(it, p) {
   const c = it.config || {};
   if (triggerCan(it).oversee) return html`<div class="muted small">${it.summary}</div>`;
-  return html`<div class="muted small">when ${it.summary} · ${c.toolset === 'web' ? 'web lane' : 'internal lane'} · takes ${c.dataClass} data
+  return html`<div class="muted small">when ${it.summary} · ${clsBadgeTpl(ofAutomation(p.classes(), c))} · takes ${c.dataClass} data
       ${c.deliver ? html` · announces to <code>${c.deliver}</code>` : nothing}
       ${c.mode === 'conversation' && c.targetRun ? html` · <a @click=${() => p.on.select(c.targetRun)}>its conversation</a>` : nothing}</div>
     ${st.note ? html`<div class="note small said">${st.note}</div>` : nothing}
@@ -95,7 +97,7 @@ function formTpl(p) {
   const f = st.form;
   const set = (k) => (e) => { f[k] = e.target.type === 'checkbox' ? e.target.checked : e.target.value; p.changed(); };
   const opt = (k, v, label, dis = false) => html`<option value=${v} ?selected=${f[k] === v} ?disabled=${dis}>${label}</option>`;
-  const { clash } = firewall(f);
+  const { clash, why } = firewall(f, p.classes());
   return html`<div class="autos-page">
     <div class="ahd"><a class="crumb" @click=${() => closeForm(p)}>Automations</a> ›
       <b>${f.id ? 'Edit trigger' : 'New trigger'}</b></div>
@@ -120,8 +122,7 @@ function formTpl(p) {
       <div class="field"><label>At most, per hour</label><input type="number" min="1" .value=${String(f.maxPerHour)} @input=${set('maxPerHour')}></div>
     </div>
     <div class="row2">
-      <div class="field"><label>Tool mode</label><select @change=${set('toolset')}>
-        ${opt('toolset', 'private', 'internal systems, no web')}${opt('toolset', 'web', 'web, no internal systems')}</select></div>
+      ${classFieldTpl('Class', choices(p.classes(), f.class), (v) => { f.class = v; p.changed(); }, { title: 'the tools its runs get' })}
       <div class="field"><label>The data it takes</label><select @change=${set('dataClass')} ?disabled=${f.source === 'bus'}>
         ${opt('dataClass', 'private', 'private (from inside the workspace)')}${opt('dataClass', 'public', 'public (e.g. webhooks from outside)', f.source === 'bus')}</select></div>
     </div>
@@ -133,8 +134,7 @@ function formTpl(p) {
       <div class="field"><label>Who can see its runs</label><select @change=${set('visibility')}>
         ${opt('visibility', 'private', 'only you')}${opt('visibility', 'team', 'everyone who can open this agent')}</select></div>
     </div>
-    ${clash ? html`<div class="err small">The web lane and announcing to a chat both reach outside the workspace, so this trigger
-      must take public data only — or use internal systems and read its answers here.</div>` : nothing}
+    ${clash ? html`<div class="err small">${why}</div>` : nothing}
     <div><button class="btn" ?disabled=${clash} @click=${() => save(p)}>${f.id ? 'Save' : 'Create'}</button></div>
   </div>`;
 }

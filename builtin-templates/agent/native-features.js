@@ -13,7 +13,7 @@ export const IMPLEMENTS = {
 
   // Conversations
   'conv.new': 'native/convs.js — the drawer\'s New chat row',
-  'conv.newOptions': 'native/convs.js — newChatSheet',
+  'conv.newOptions': 'native/convs.js — newChatSheet (the class: native/classes.js classSectionTpl)',
   'conv.search': 'native/convs.js — the drawer screen\'s search → ConvList.search',
   'conv.search.snippets': 'native/convs.js — rowTpl subtitle (r.match.snippet)',
   'conv.search.join': 'native/convs.js — search → app.join',
@@ -68,7 +68,8 @@ export const IMPLEMENTS = {
   'composer.text': 'native/chat.js — composer',
   'composer.placeholder': 'native/chat.js — composerTpl (model/rules.js composer)',
   'composer.disabled': 'native/chat.js — composerTpl (model/rules.js composer)',
-  'composer.toolMode': 'native/chat.js — the lock/globe chip (app.toolset)',
+  'composer.class': 'native/classes.js classPickerTpl — the Class picker in the home toolbar (the app\'s composer holds buttons only)',
+  'composer.sandbox': 'native/sandboxes.js sandboxPickerTpl — the Sandbox picker in the chat and home toolbars, beside the model (a row you may not use is marked, and picking it says why; ＋ New and Manage… push the Sandboxes screens)',
   'composer.model': 'native/chat.js modelPickerTpl — the Model picker in the chat and home toolbars (the app\'s composer holds buttons only)',
   'composer.attach': 'native/chat.js — composer upload (the app picks and uploads)',
   'composer.heldAsk': 'native/chat.js — at home the composer uploads into the new ask\'s draft (app.uploadTarget: PUT /ask/upload?draft=); model/app.js — send sends the draft (POST /ask {draft, files})',
@@ -83,8 +84,9 @@ export const IMPLEMENTS = {
   // Top bar
   'top.crumb': 'native/chat.js — runMenu: Its automation',
   'top.title': 'native/chat.js — the screen\'s title',
-  'top.toolMode': 'native/chat.js — the subtitle (laneLabel)',
+  'top.class': 'native/chat.js — the subtitle (rules.topBar cls: its class, and ⚠ when it can move internal data out)',
   'top.model': 'native/chat.js — ✦ in the subtitle',
+  'top.sandbox': 'native/chat.js — ▣ in the subtitle (badgeWords), a notice when the binding no longer resolves (brokenTpl), runMenu → native/sandboxes.js boxTpl: the working directory, the attached ones, Detach, Manage…',
   'top.status': 'native/chat.js — the subtitle',
   'top.viewOnly': 'native/chat.js — the subtitle',
   'top.retry': 'native/chat.js — runMenu and the composer\'s Retry chip',
@@ -111,6 +113,8 @@ export const IMPLEMENTS = {
   'tools.render.blocked': 'native/tools.js — renderTpl',
   'tools.render.maximize': 'native/tools.js — renderTpl (a screen of its own)',
   'tools.render.source': 'native/tools.js — renderTpl Source',
+  'tools.sandboxes': 'native/sandboxes.js — listTpl: a row per sandbox, its actions (sandboxRows) behind swipe and ⋯, archive and delete confirmed',
+  'tools.sandboxes.create': 'native/sandboxes.js — newTpl (createForm → app.sbx.create)',
 
   // Sharing
   'share.visibility': 'native/share.js',
@@ -127,6 +131,7 @@ export const IMPLEMENTS = {
   'auto.detail': 'native/auto.js — detailTpl',
   'auto.schedule.form': 'native/auto.js — scheduleForm',
   'auto.watcher.form': 'native/auto.js — scheduleForm',
+  'auto.class': 'native/auto.js scheduleForm, rowTpl, scheduleDetail; native/auto-triggers.js triggerForm, triggerDetail (native/classes.js classPicker, classRow; model/classes.js choices, ofAutomation)',
   'auto.schedule.runNow': 'native/auto.js — rowTpl actions, scheduleDetail',
   'auto.schedule.toggle': 'native/auto.js — scheduleDetail',
   'auto.schedule.reset': 'native/auto.js — scheduleDetail',
@@ -138,6 +143,7 @@ export const IMPLEMENTS = {
   'auto.channel.sessions': 'native/auto-channels.js — sessionsTpl',
   'auto.channel.undelivered': 'native/auto-channels.js — failedTpl',
   'auto.channel.rules': 'native/auto-channels.js — rulesTpl',
+  'auto.channel.classes': 'native/auto-channels.js — classesTpl (model/classes.js channelClasses)',
   'auto.channel.manage': 'native/auto-channels.js — channelDetail, confirmed',
   'auto.trigger.form': 'native/auto-triggers.js — triggerForm',
   'auto.trigger.firewall': 'native/auto-triggers.js — triggerForm (model/auto-triggers.js firewall)',
@@ -152,6 +158,7 @@ export const IMPLEMENTS = {
   'manage.config': 'native/settings.js — configTpl',
   'manage.features': 'native/settings.js — featuresTpl',
   'manage.mcp': 'native/settings.js — mcpTpl',
+  'manage.classes': 'native/classes.js — classesTpl, classFormTpl (native/settings.js — the Classes row)',
   'manage.halt': 'native/home.js — mainMenu (home and the drawer); native/settings.js — the brake (confirmed)',
 
   // States

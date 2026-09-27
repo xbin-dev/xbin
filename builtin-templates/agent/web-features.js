@@ -12,7 +12,7 @@ export const IMPLEMENTS = {
 
   // Conversations
   'conv.new': 'agent.js — #new',
-  'conv.newOptions': 'agent.js — #newdlg',
+  'conv.newOptions': 'agent.js — #newdlg (the class: classes.js classOptionsTpl)',
   'conv.search': 'agent.js — #csearch → ConvList.search',
   'conv.search.snippets': 'sidebar.js — .snip',
   'conv.search.join': 'agent.js — #csearch → app.join',
@@ -68,8 +68,9 @@ export const IMPLEMENTS = {
   'composer.keys': 'agent.js — keydown',
   'composer.placeholder': 'agent.js — paint() (model/rules.js composer)',
   'composer.disabled': 'agent.js — paint() (model/rules.js composer)',
-  'composer.toolMode': 'agent.js — #tset (app.toolset)',
+  'composer.class': 'classes.js — makeClassPicker: #tset opens .clsmenu (model/classes.js classPicker → app.pickClass)',
   'composer.model': 'agent.js — #msel (rules.modelPicker → app.pickModel)',
+  'composer.sandbox': 'sandboxes.js — makeSandboxUI: #ssel (model/sandboxes.js sandboxPicker → app.sbx.choose; ＋ New / Manage… open #sbxdlg)',
   'composer.attach': 'agent.js — #clip',
   'composer.attach.paste': 'agent.js — paste',
   'composer.attach.drop': 'agent.js — drop on #main',
@@ -83,8 +84,9 @@ export const IMPLEMENTS = {
   // Top bar
   'top.crumb': 'agent.js — topTpl',
   'top.title': 'agent.js — topTpl',
-  'top.toolMode': 'agent.js — topTpl',
+  'top.class': 'agent.js — topTpl .clsbadge, .clswarn (model/classes.js badge)',
   'top.model': 'agent.js — topTpl ✦ badge',
+  'top.sandbox': 'sandboxes.js — badgeTpl #sbxbadge and its popover #sbxpop: #sbx-cwd, .sbxatt, #sbx-detach, #sbx-manage (model/sandboxes.js sandboxBadge)',
   'top.status': 'agent.js — topTpl',
   'top.viewOnly': 'agent.js — topTpl',
   'top.retry': 'agent.js — topTpl',
@@ -111,6 +113,8 @@ export const IMPLEMENTS = {
   'tools.render.blocked': 'agent.js — paintPreview',
   'tools.render.maximize': 'agent.js — #prev-max',
   'tools.render.source': 'agent.js — #prev-src',
+  'tools.sandboxes': 'sandboxes.js — the #sbxdlg dialog: .sbxrow [data-act] (model/sandboxes.js sandboxRows → app.sbx.act, share, remove, choose)',
+  'tools.sandboxes.create': 'sandboxes.js — #sbx-form (model/sandboxes.js createForm → app.sbx.create)',
 
   // Sharing
   'share.visibility': 'share.js',
@@ -127,6 +131,7 @@ export const IMPLEMENTS = {
   'auto.detail': 'automations.js — detailTpl',
   'auto.schedule.form': 'automations.js — formTpl',
   'auto.watcher.form': 'automations.js — formTpl',
+  'auto.class': 'automations.js formTpl, cardTpl, scheduleDetail; auto-triggers.js formTpl, card, detail (classes.js classFieldTpl, clsBadgeTpl; model/classes.js choices, ofAutomation)',
   'auto.schedule.runNow': 'automations.js',
   'auto.schedule.toggle': 'automations.js — scheduleHead',
   'auto.schedule.reset': 'automations.js — scheduleHead',
@@ -138,6 +143,7 @@ export const IMPLEMENTS = {
   'auto.channel.sessions': 'auto-channels.js — sessionsTpl',
   'auto.channel.undelivered': 'auto-channels.js — failedTpl',
   'auto.channel.rules': 'auto-channels.js — rulesTpl',
+  'auto.channel.classes': 'auto-channels.js — classesTpl (model/classes.js channelClasses)',
   'auto.channel.manage': 'auto-channels.js — head',
   'auto.trigger.form': 'auto-triggers.js — formTpl',
   'auto.trigger.firewall': 'auto-triggers.js — formTpl (model/auto-triggers.js firewall)',
@@ -152,6 +158,7 @@ export const IMPLEMENTS = {
   'manage.config': 'agent.js — tabConfig',
   'manage.features': 'agent.js — tabFeatures',
   'manage.mcp': 'agent.js — tabMcp',
+  'manage.classes': 'classes.js — tabClasses (model/classes.js savePlan, removePlan, defaultPlan → app.saveClasses)',
   'manage.halt': 'agent.js — #halt (model/rules.js halt)',
 
   // States

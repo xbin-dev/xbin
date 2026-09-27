@@ -26,6 +26,7 @@ func (ag *Agent) assembleContext(ctx context.Context, run *Run, cfg Config) ([]w
 	// Date only (not a full timestamp) keeps the system prefix stable within a
 	// day, so prompt caching keeps hitting.
 	fmt.Fprintf(&sys, "\n\nToday's date (UTC): %s.", time.Now().UTC().Format("2006-01-02"))
+	sys.WriteString(sandboxPrompt(cfg)) // the bound sandbox; "" when none (sandbox_tools.go)
 	if len(mem) > 0 {
 		sys.WriteString("\n\n# Memory blocks\n")
 		for k, v := range mem {
