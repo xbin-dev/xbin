@@ -11,13 +11,14 @@ package boot
 import (
 	"net/http"
 
+	"github.com/xbin-dev/xbin/internal/deployments"
 	"github.com/xbin-dev/xbin/internal/server"
 )
 
 // registerDeploymentsAPI mounts the /deployments family and the checkpoint
-// remote. Nothing here reads or writes a tile's files: a tile with no
-// deployment record stays in the zero state (P5).
-func (st *State) registerDeploymentsAPI(srv *server.Server) {
+// remote over dp, the deployments plane. Nothing here reads or writes a
+// tile's files: a tile with no deployment record stays in the zero state (P5).
+func registerDeploymentsAPI(srv *server.Server, dp *deployments.Plane) {
 	// Reading: the state (the caller's view), the deploy log, the diff.
 	srv.RegisterAPI("GET /deployments", reservedRoute)
 	srv.RegisterAPI("GET /deployments/log", reservedRoute)

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/broker"
+	"github.com/xbin-dev/xbin/internal/deployments"
 	"github.com/xbin-dev/xbin/internal/deps"
 	"github.com/xbin-dev/xbin/internal/events"
 	ingressPkg "github.com/xbin-dev/xbin/internal/ingress"
@@ -158,7 +159,12 @@ func (st *State) serve(ctx context.Context) error {
 	return err
 }
 
-func watchLoop(w *watch.Watcher, reg *registry.Registry, hub *events.Hub, run *runner.Runner, brk *broker.Broker, reconcileIngress func()) {
+// watchLoop reacts to each batch of workspace changes: the tile-level work
+// (rescan, provisioning, pending grants, ingress, deps, go.work), then a
+// reload and a rebuild per changed tile. dp is the deployments plane, which
+// answers which deployment a save drives (LiveReload, Primary); a tile
+// without a record drives main, as today (P8).
+func watchLoop(w *watch.Watcher, reg *registry.Registry, hub *events.Hub, run *runner.Runner, brk *broker.Broker, dp *deployments.Plane, reconcileIngress func()) {
 	for ev := range w.C {
 		if err := reg.Rescan(); err != nil {
 			slog.Warn("rescan", "err", err)

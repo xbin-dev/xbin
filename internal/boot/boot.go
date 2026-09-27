@@ -19,6 +19,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/builtins"
 	"github.com/xbin-dev/xbin/internal/cgroup"
 	"github.com/xbin-dev/xbin/internal/confine"
+	"github.com/xbin-dev/xbin/internal/deployments"
 	"github.com/xbin-dev/xbin/internal/deps"
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/gpu"
@@ -59,6 +60,9 @@ type State struct {
 	Sbx     *sbx.Registry // every live sandbox and what the sandbox layer failed at (D112)
 	Push    *push.Service // the push plane (push.go)
 	Started time.Time
+	// Deployments is the deployments plane: its methods are the registry's,
+	// runner's, broker's and terminal manager's deployment hooks (P5).
+	Deployments *deployments.Plane
 
 	trusted          []netip.Prefix
 	externalURL      string
@@ -244,6 +248,15 @@ func (st *State) stepRegistry() error {
 	st.Run = runner.New(st.WS, st.Auth, st.Hub, reg)
 	st.Sbx = sbx.New()
 	st.Run.Sandboxes = st.Sbx
+	// The deployments plane loads its records before the first Provision
+	// (broker.New), so a pinned primary's code is what the registry composes.
+	dp := &deployments.Plane{Root: st.WS, Reg: reg, Hub: st.Hub, Run: st.Run,
+		OwnerRef: st.Users.Owner, OptInClosed: st.Cfg.tileDeploysClosed()}
+	reg.PinnedPrimary, reg.ScopeResources = dp.PinnedPrimary, dp.ScopeResources
+	if err := dp.Boot(); err != nil {
+		return fmt.Errorf("deployments: %w", err)
+	}
+	st.Deployments = dp
 	// Materialize deps/ symlinks and the generated go.work (phase 3).
 	for _, p := range deps.Reconcile(reg) {
 		slog.Warn("deps", "problem", p)
@@ -328,6 +341,7 @@ func (st *State) stepTerminals() error {
 	}
 	st.Term = tm
 	tm.Sandboxes = st.Sbx
+	tm.HasDeploymentRecord = st.Deployments.HasRecord // the checkpoint fetch remote in sessions
 	return nil
 }
 
@@ -355,6 +369,15 @@ func (st *State) stepBroker() error {
 	if err != nil {
 		return err
 	}
+	// Tile deployments: the tile-life hooks (transfer, creation, leftovers)
+	// and the server's deployment questions answer from the plane.
+	dp := st.Deployments
+	brk.DeploymentHooks = broker.DeploymentHooks{
+		RewriteDeploymentOwner: dp.RewriteDeploymentOwner, ResetDeploymentState: dp.ResetDeploymentState,
+		DeploymentLeftovers: dp.DeploymentLeftovers, DeploymentCodeRoot: dp.CodeRoot,
+		DeploymentExists: dp.HasDeployment, AddressableDeployments: dp.Addressable,
+	}
+	dp.IsAdmin, dp.MayManage, dp.Provision = brk.IsAdmin, brk.MayManageDeployments, brk.Provision
 	// Embedded optional tile catalog (plans/tile-sharing.md).
 	if set, err := builtins.Load(xbin.BuiltinTilesFS()); err != nil {
 		slog.Warn("builtin tiles", "err", err)
@@ -503,11 +526,18 @@ func (st *State) stepProxy() error {
 	brk.SetDispatch(broker.DispatchViaProxy(px))
 	brk.SetBusDispatch(broker.DispatchBodyViaProxy(px))
 	run.EnvForComponent = brk.EnvFor
+	// What each tile deployment runs and spawns with (runner/deploy.go); the
+	// primary of a tile without a record keeps its work tree and today's env.
+	dp := st.Deployments
+	dp.TileEnv = brk.EnvFor
+	run.DeploymentHooks = runner.DeploymentHooks{CodeFor: dp.CodeFor, Primary: dp.Primary,
+		View: dp.View, Materialize: dp.Materialize, EnvFor: dp.EnvFor}
 	// Approving a net:*/res:*/gpu:* grant restarts the caller so the new egress
-	// policy / resource env / GPU devices (all captured at spawn) take effect now.
+	// policy / resource env / GPU devices (all captured at spawn) take effect now:
+	// every deployment of the tile with a generation, since authority is per tile.
 	brk.OnGrantChange = func(comp string) {
 		if c, ok := reg.Component(comp); ok {
-			run.Changed(c)
+			run.ChangedTile(c)
 		}
 	}
 	brk.StopBackend = run.Stop // lifecycle: disabling stops the backend now
@@ -547,6 +577,7 @@ func (st *State) stepIngress() error {
 		fwds.Reconcile(brk.IngressSources())
 	}
 	brk.OnIngressChange = st.reconcileIngress
+	st.Deployments.ReconcileIngress = st.reconcileIngress
 	run.IngressNet = brk.IngressNetFor
 	run.IngressFwd = brk.IngressFwdFor
 	run.NetLinks = brk.NetLinksFor
@@ -696,7 +727,7 @@ func (st *State) stepServer() error {
 	st.registerRuntimeAPI(srv)
 	st.registerVMAPI(srv)
 	st.registerSandboxAPI(srv)
-	st.registerDeploymentsAPI(srv)
+	registerDeploymentsAPI(srv, st.Deployments)
 	if err := st.setupPush(srv); err != nil {
 		return err
 	}
@@ -711,7 +742,7 @@ func (st *State) stepWatch() error {
 		return err
 	}
 	st.watcher = w
-	go watchLoop(w, st.Reg, st.Hub, st.Run, st.Broker, st.reconcileIngress)
+	go watchLoop(w, st.Reg, st.Hub, st.Run, st.Broker, st.Deployments, st.reconcileIngress)
 	return nil
 }
 
