@@ -189,9 +189,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   declares in `uses` (a grant alone mounts nothing), `none` egress or a
   sandbox-net slot, no `XBIN_*` variables). Each sandbox has a `uid`, its
   identity: a name deleted and created again gets another, so a manager
-  can tell the two apart. Start, stop, reset and rebase run sandboxes, and
-  commands run in them (the next bullets); every other route of the
-  contract — files, tar, copy and snapshots — is registered and answers 501
+  can tell the two apart. Start, stop, reset and rebase run sandboxes,
+  commands run in them, and files, tar and copy reach them (the next
+  bullets); the snapshot routes are registered and answer 501
   `unsupported` for now; `runtime.caps` lists what is served. Errors use the
   sandbox-manager contract's `{error, refusal}` shape. A path with a `.`
   or `..` segment or an encoded `/`, `.` or `\`, or a name, exec id
@@ -221,9 +221,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   (409 `state` on start). The admin's `GET /sandboxes` lists running tile
   sandboxes as `kind: "tile"` rows with `name`, `for` and `forUser`, and
   `health.tileSandboxes` reports the relays' shared connection budget and
-  why the sandboxes run without cgroup limits, if they do. Files and
-  snapshots still answer as before. Nothing changes for a workspace without
-  a manager tile.
+  why the sandboxes run without cgroup limits, if they do. Snapshots still
+  answer as before. Nothing changes for a workspace without a manager tile.
 - **Tile sandboxes: quotas, the idle stop, reset and rebase** (D120,
   [protocol.md](protocol.md) §Tile sandboxes). A start is booked against
   the sandboxes policy — the tile's `perTile.running`, `perTile.memMiB`,
@@ -317,6 +316,24 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `noTerminal` (D88) is refused, and killed when it is switched on.
   `runtime.caps` now lists `exec` and `tty`. Nothing changes for a
   workspace without a manager tile.
+- **Tile sandboxes: files, tar and copy** (D120,
+  [protocol.md](protocol.md) §Tile sandboxes). A manager tile's
+  `/sandboxes/<name>/files/…`, `tar` and `POST /sandboxes/copy` routes,
+  which answered 501 until now, work, and `runtime.caps` lists `files`
+  and `tar`. The sandbox's own agent resolves every path inside the
+  sandbox, so a symlink never leads to the host, and a read-only mount
+  refuses writes. You get stat, list, ranged reads whose `ETag` is the
+  stat's `etag` (quoted), atomic writes with `mode`, `mkdirs`, `ifMatch`
+  (412 with the current `etag`) and `ifNoneMatch=*`, mkdir, remove and
+  move, and tar streams both ways that keep symlinks and extract nothing
+  outside the target. A tar of `/` leaves out `/proc`, `/sys` and `/dev`.
+  Copies of a file or a tree between two of the manager's sandboxes stream
+  from agent to agent. Paths are absolute, clean and UTF-8, and
+  `limits.fileMax` and `limits.tarMax` answer 413. A call starts a stopped
+  sandbox that has `autoStart`, and the sandbox isn't idle while the call
+  runs. A stream that fails after its status went out is cut, never ended
+  as if it were whole. Nothing changes for a workspace without a manager
+  tile.
 - **Go SDK: tile sandboxes** ([sdk.md](sdk.md) §Tile sandboxes).
   `xbin.SandboxAPI()` has a call for each of a manager tile's
   `/api/xbin/sandboxes/…` routes: definitions and lifecycle, `Run`, execs

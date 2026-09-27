@@ -201,16 +201,20 @@ func TestNotBuilt(t *testing.T) {
 	e := newEnv(t)
 	e.create(ns("sb-1"))
 	for _, r := range [][2]string{
-		{"GET", "/sandboxes/sb-1/files/stat"}, {"GET", "/sandboxes/sb-1/files/content"}, {"PUT", "/sandboxes/sb-1/files/content"},
-		{"GET", "/sandboxes/sb-1/files/list"}, {"POST", "/sandboxes/sb-1/files/mkdir"}, {"POST", "/sandboxes/sb-1/files/remove"},
-		{"POST", "/sandboxes/sb-1/files/move"}, {"GET", "/sandboxes/sb-1/tar"}, {"PUT", "/sandboxes/sb-1/tar"},
-		{"POST", "/sandboxes/copy"}, {"GET", "/sandboxes/sb-1/snapshots"}, {"POST", "/sandboxes/sb-1/snapshots"},
+		{"GET", "/sandboxes/sb-1/snapshots"}, {"POST", "/sandboxes/sb-1/snapshots"},
 		{"POST", "/sandboxes/sb-1/snapshots/s-1/restore"}, {"DELETE", "/sandboxes/sb-1/snapshots/s-1"},
 	} {
 		e.want(e.do(mgr, r[0], r[1], nil), http.StatusNotImplemented, RefUnsupported)
-		if r[1] != "/sandboxes/copy" {
-			e.want(e.do(mgr, r[0], strings.Replace(r[1], "sb-1", "sb-9", 1), nil), http.StatusNotFound, RefNotFound)
-		}
+		e.want(e.do(mgr, r[0], strings.Replace(r[1], "sb-1", "sb-9", 1), nil), http.StatusNotFound, RefNotFound)
+	}
+	// the file routes are served: a sandbox that isn't there is 404 before
+	// anything else is looked at (files_linux_test.go has the rest)
+	for _, r := range [][2]string{
+		{"GET", "/sandboxes/sb-9/files/stat"}, {"GET", "/sandboxes/sb-9/files/content"}, {"PUT", "/sandboxes/sb-9/files/content"},
+		{"GET", "/sandboxes/sb-9/files/list"}, {"POST", "/sandboxes/sb-9/files/mkdir"}, {"POST", "/sandboxes/sb-9/files/remove"},
+		{"POST", "/sandboxes/sb-9/files/move"}, {"GET", "/sandboxes/sb-9/tar"}, {"PUT", "/sandboxes/sb-9/tar"},
+	} {
+		e.want(e.do(mgr, r[0], r[1], nil), http.StatusNotFound, RefNotFound)
 	}
 	// The command routes are built: they find the sandbox first.
 	for _, r := range [][2]string{
@@ -244,7 +248,7 @@ func TestRuntime(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &rt); err != nil {
 		t.Fatal(err)
 	}
-	if !rt.Enabled || !rt.Isolation || rt.Users != "root" || strings.Join(rt.Caps, ",") != "exec,tty" ||
+	if !rt.Enabled || !rt.Isolation || rt.Users != "root" || strings.Join(rt.Caps, ",") != "exec,tty,files,tar" ||
 		rt.Limits.Sandboxes != 32 || rt.Limits.Running != 4 || rt.Limits.PerSandbox.MaxMemMiB != 8192 ||
 		rt.Limits.OutputRing != 1<<20 || rt.Limits.WaitMaxSec != 120 || rt.Used.Sandboxes != 1 {
 		t.Fatalf("runtime %+v", rt)

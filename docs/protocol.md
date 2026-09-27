@@ -2272,11 +2272,11 @@ sandboxes).
   says `isolation: false`.
 - **In this xbind** the definition routes work — runtime, policy, list,
   create, get, patch, delete — and so do start, stop, reset and rebase, in
-  both modes, and the commands: `run`, execs and their output, stdin,
-  signals, resizes and the TTY WebSocket. The file, tar and snapshot routes
-  are registered and answer 501
-  `unsupported`; `runtime.caps` lists the contract capabilities served
-  (`exec`, `tty`).
+  both modes, the commands (`run`, execs and their output, stdin, signals,
+  resizes and the TTY WebSocket) and the file, tar and copy routes. The
+  snapshot routes are registered and answer 501 `unsupported`;
+  `runtime.caps` lists the contract capabilities served (`exec`, `tty`,
+  `files`, `tar`).
 
 ```
 GET    /sandboxes/runtime          manager. what this tile may use now → {enabled,
@@ -2573,6 +2573,83 @@ sandboxes stay — definitions and state — as leftovers of its path: a
 non-admin can't create a tile there, and an admin deletes them with
 `DELETE /sandboxes/<name>?tile=<path>`.
 
+**Files and trees** go to the sandbox's own agent, which resolves every
+path inside the sandbox: a symlink leads only to the sandbox's files, and
+its read-only mounts refuse a write (400 `invalid`). xbind never resolves
+one on the host.
+
+- **Paths** are absolute and clean — no empty, `.` or `..` segment, no
+  trailing `/` — and UTF-8 without NUL. A call's paths and `exclude`
+  patterns together must fit the agent's 4 KiB request line: a path of a
+  few thousand plain characters fits, and fewer where JSON escapes
+  characters. Anything else is 400 `invalid`.
+- **Running.** As for a command (Auto-start, above): a stopped sandbox
+  with `autoStart` starts for the call, a `starting` one is waited for and
+  a `stopping` one is waited out and started again, within `waitMaxSec`;
+  without `autoStart` a stopped or stopping sandbox is 409 `state`. While a
+  file, tar or copy call runs, the sandbox isn't idle, however long its
+  stream takes.
+- **`stat`** answers `{path, type: file | dir | symlink | other, size,
+  mode, mtimeMs, etag, target?}`. A symlink is stated itself, not its
+  target. `mode` is the permission bits in octal (`"0644"`). `etag` is
+  `<inode>-<size>-<mtime ns>` in hex, so an atomic replace changes it.
+- **Reading `content`** answers the bytes with `Content-Length` and
+  `ETag: "<etag>"`, the stat's etag quoted. `offset` and `length` (0 = to
+  the end) pick a range. A range over `limits.fileMax` is 413
+  `too-large`. Only regular files are read: a device, FIFO or socket is
+  `invalid`.
+- **Writing `content`** streams the raw body into a temporary file and
+  renames it into place (fsynced) only once all of it arrived, so a body
+  cut short changes nothing. It answers the new stat.
+  - `mode` sets the permission bits. Without it a replaced file keeps its
+    mode, and a new one is `0644`. A replaced file keeps its owner too.
+  - `mkdirs=1` makes missing parent directories.
+  - `ifMatch=<etag>`, bare or quoted as the header gives it, replaces the
+    file only while its etag is that one. `ifNoneMatch=*` only creates it.
+    Either failing is 412 `precondition` with the current `etag`.
+  - A body over `limits.fileMax` is 413, at once when its
+    `Content-Length` says so.
+- **`list`** answers `{path, entries: [{name, type, size, mtimeMs, mode,
+  target?}], truncated}`, sorted by name. `limit` defaults to 1000; more
+  than 100000 is clamped.
+- **`mkdir`, `remove` and `move`** answer 204. `mkdir` without `parents`
+  of a path that exists, and `remove` of a non-empty directory without
+  `recursive`, are `invalid`. `move` onto an existing path without
+  `overwrite` is 412 `precondition`, with the destination's `etag`.
+- **Owners.** What these calls create (files, directories, tar entries)
+  belongs to the sandbox's `defaults.uid`/`gid`.
+- **`GET tar`** is the directory as a tar stream, with names relative to
+  `path`.
+  - Symlinks are stored as links and never followed. Hard links are
+    stored as links. Devices, FIFOs and sockets are left out.
+  - An `exclude` glob drops an entry whose name relative to `path`, or
+    whose base name, matches it.
+  - A tar of `/`, or of a symlink leading there, leaves out `/proc`,
+    `/sys` and `/dev`.
+  - It is bounded by `limits.tarMax`.
+- **`PUT tar`** extracts the stream under `path`, which `mkdirs=1` makes.
+  - No entry lands outside `path`: `../x` is skipped, and `/x` lands at
+    `path/x`. A symlink an entry plants is never written through.
+  - setuid and setgid bits are dropped, and devices aren't extracted.
+  - A body over `limits.tarMax` is 413.
+- **A stream that fails after its status went out** is cut: the
+  connection closes before the body ends. This covers a tar passing
+  `tarMax` and a read error part-way. Such a body never ends as if it
+  were whole.
+- **`POST /sandboxes/copy`** copies between two of the caller's own
+  sandboxes, or within one. Naming another tile's sandbox is 404. The copy
+  streams from agent to agent, bounded by `limits.tarMax`, and answers
+  204.
+  - A directory, or a symlink leading to one, is copied as a tree: its
+    contents land at `to.path`. With `overwrite` they merge into what is
+    there; without it, an existing `to.path` is 412.
+  - Anything else is copied as a file, atomically. Without `overwrite`, an
+    existing `to.path` is 412.
+  - Missing parents of `to.path` are made.
+  - A source that fails part-way leaves a file copy uncommitted. A tree
+    keeps what was extracted by then.
+  - Copying a tree into itself is 400.
+
 **SandboxInfo:** `{name, uid, state (creating | stopped | starting |
 running | stopping | error), stateDetail, mode, accel?, memMiB, vcpus,
 diskGiB, net:{egress, reach, egressNext, note}, mounts, defaults, labels,
@@ -2622,8 +2699,10 @@ error.
   command leads its own process group, and it is what the OOM killer
   takes first.
 - **A stopped sandbox** with `autoStart` (the default) is started for a
-  command, and a `starting` one waited for; without `autoStart` it is 409
-  `state`. A run's `timeoutMs` doesn't count the start.
+  command, a `starting` one waited for and a `stopping` one waited out and
+  started again (Auto-start, above); without `autoStart` a stopped or
+  stopping one is 409 `state`. A run's `timeoutMs` doesn't count the
+  start.
 - **Limits.** A sandbox runs at most `runtime.limits.execsRunning` (16)
   commands at once — execs and runs together; past it 429 `limit`.
 - **`run`** answers when the command ends: `{exitCode, signal, timedOut,

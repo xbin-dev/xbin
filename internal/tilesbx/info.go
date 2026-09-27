@@ -186,9 +186,9 @@ type Used struct {
 	DiskBytes int64 `json:"diskBytes"`
 }
 
-// builtCaps are the contract capabilities this runtime serves. The file,
-// tar, snapshot and clone routes answer unsupported until they are built.
-var builtCaps = []string{"exec", "tty"}
+// builtCaps are the contract capabilities this runtime serves. The
+// snapshot and clone routes answer unsupported until they are built.
+var builtCaps = []string{"exec", "tty", "files", "tar"}
 
 // runtime builds a tile's Runtime. Callers hold m.mu.
 func (m *Manager) runtime(k Key) Runtime {

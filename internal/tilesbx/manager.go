@@ -14,10 +14,10 @@
 // (idle.go), auto-start (autostart.go), reset and rebase (reset.go), and
 // the boot's sweep (sweep.go) — and the commands a sandbox runs: execs and
 // their output rings (exec.go, ring.go), run (run.go) and the TTY WebSocket
-// (tty.go). What it needs from the rest of xbind comes in through Deps,
-// small interfaces a test fakes. Files and snapshots answer `unsupported`
-// until they are built
-// (plans/tile-sandbox-runtime.md §12).
+// (tty.go) — and files, trees and copies, which go to a sandbox's agent
+// (files.go, copy.go). What it needs from the rest of xbind comes in
+// through Deps, small interfaces a test fakes. Snapshots answer
+// `unsupported` until they are built (plans/tile-sandbox-runtime.md §12).
 package tilesbx
 
 import (

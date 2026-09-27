@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"os"
 	"os/exec"
@@ -50,6 +51,23 @@ func main() {
 			fail(err.Error())
 		}
 		os.Stdout.Write(b)
+	case "owner": // path: its uid:gid (a final symlink itself)
+		var st syscall.Stat_t
+		if err := syscall.Lstat(a[0], &st); err != nil {
+			fail(err.Error())
+		}
+		fmt.Printf("%d:%d\n", st.Uid, st.Gid)
+	case "chown-r": // path: it and everything under it back to root
+		err := filepath.WalkDir(a[0], func(p string, _ fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			return os.Lchown(p, 0, 0)
+		})
+		if err != nil {
+			fail(err.Error())
+		}
+		fmt.Println("ok")
 	case "tcp": // addr: how a connect ends, and how fast
 		start := time.Now()
 		c, err := net.DialTimeout("tcp", a[0], 3*time.Second)

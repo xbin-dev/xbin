@@ -4051,6 +4051,106 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
   - (unit, injected clock) a tar stream longer than `idleStopMin` isn't
     cut by the idle timer.
 - **Parallel:** with WP-16, WP-17 and WP-19.
+- **As built** (branch `p2/wp18`):
+  - *Files.* `files.go` (the call plumbing: `opRun`, `begin`/`fileCall`,
+    the result mapping, `sendBody`, `pipeOut`, `relayFrames`, the path and
+    Hello checks), `copy.go` (`POST /sandboxes/copy`), `api_files.go` (the
+    routes). `builtCaps` gains `files` and `tar`.
+  - *One call = one `file` connection* (`agentClient.File`), closed when
+    the request's context ends, so a caller hanging up never leaves one
+    open. Answers map onto the contract: the agent's refusals as
+    themselves (`precondition` with the current `etag` from its stat); an
+    error without a refusal (I/O inside the sandbox) is a 500; a
+    connection that ends is 409 `state` when the run is ending, else 503.
+    A response whose status is out when its stream fails (a tar past
+    `tarMax`, a read error, a short read) is cut with
+    `http.ErrAbortHandler`, never ended cleanly. A read sets
+    `Content-Length`; the agent's etag reaches the `ETag` header only when
+    it is `[0-9A-Za-z._-]{1,128}` (§2.6).
+  - *Paths:* absolute, clean (`path.Clean(p) == p`), UTF-8 (the wire is
+    JSON, which would change other bytes) and NUL-free. **The Hello
+    bound (WP-1's note)** is checked exactly: the call's Hello is
+    marshalled and refused (400) when it wouldn't fit `proto.MaxHello`,
+    so a move's two paths, a tar's excludes and JSON-escaped characters
+    all count, and the agent never drops a call unanswered. `exclude`
+    globs are checked with `path.Match`.
+  - *Bounds:* every read and tar-get carries `Max` (`fileMax`, `tarMax`);
+    writes and tar-puts too, and xbind also counts the body it streams
+    (413 at once by `Content-Length`; past the cap it stops without the
+    terminator, so the agent commits nothing). An agent that refuses
+    before the body ends (a stale `ifMatch`) answers at once: its answer
+    is read beside the upload.
+  - ***A tar of `/` leaves out `/proc`, `/sys` and `/dev` in agentcore***
+    (`tar_linux.go`, WP-1's verifier note), not as xbind excludes: an
+    exclude matches any base name at any depth (it would drop
+    `/usr/include/sys`), and a symlink leading to `/` would pass a check
+    on the path string. The walk compares the opened directory with the
+    agent's root (dev, ino) and skips those three names at its top only.
+    Without it a live tar of `/` fails part-way in `/proc`
+    (mutation-checked). `proto.FileOp.Exclude`'s comment says so; the VM
+    guest agent gets it with its next build.
+  - *Running and idle (the WP-15b seams).* `opRun` is the auto-start
+    §3.4 asks for, through the sandbox's flight: a start or stop holds
+    it, so waiting for the flight is waiting for the transition; then a
+    `stopped` sandbox with `autoStart` is started (`startLocked`), and
+    anything else not `running` is 409 `state` (a failed auto-start says
+    why). **WP-15b's helper (`?wait`, `busy`) replaces it at `opRun`'s
+    call site in `begin`.** The hold is `box.inflight` (under `m.mu`),
+    taken before the first byte and released after the last (idempotent),
+    with `lastActive` set at both ends: **WP-15b's idle timer must not
+    stop a sandbox whose `inflight > 0`.** `TestFileOpHoldsIdle` pins
+    that with an injected clock (a tar stream blocked past
+    `idleStopMin`); once the timer exists it should drive it too.
+  - *Copy* does files as well as trees (the SDK's `Copy` says "a file or
+    tree"): a directory, or a symlink leading to one (tar-get follows),
+    is a tar-get spliced into a tar-put at `to.path` (merged with
+    `overwrite`, 412 without it when `to.path` exists); anything else a
+    read spliced into an atomic write (`Create` without `overwrite`).
+    Missing parents are made; both sides carry `tarMax`; what is created
+    is owned by the destination's defaults. The splice forwards frames
+    by their length headers only and **holds back the terminator** until
+    the source's last line says the data was whole, so a file copy whose
+    source fails commits nothing (a tree keeps what was extracted). A
+    copy into itself (same sandbox, `to` at or under `from`, or `from`
+    `/`) is 400.
+  - *Owners:* `Owner` is the definition's `defaults.uid`/`gid` (the unset
+    one 0, as agentcore's exec credential does), nil when neither is set.
+  - *Tests.* Unit (`files_linux_test.go`, the fake launcher's in-process
+    agent): every route, ETag = stat etag (quoted and bare `ifMatch`),
+    412 with the current etag (write, create-only, move), ranges, the
+    path and Hello refusals (nothing started), `fileMax` both ways with
+    nothing committed, a cut upload committing nothing, tar in/out with
+    `../` and absolute entries, the root exclusion, a tar cut part-way
+    (a real server: the client never sees a clean end), copies (tree,
+    file, symlinks to either, overwrite, into itself, another tile's
+    `not-found`), autoStart off → 409, the idle hold. Mutation-checked:
+    the hold, the abort and the Hello check each fail a test.
+    `agentcore/tar_test.go`: `TestTarOfRootLeavesOutPseudoFS`.
+    Integration (`files_live_linux_test.go`, `TestLiveFiles`, per mode in
+    `liveFileModes` — namespace now, **WP-16 adds `ModeVM`**; minimal
+    lower with the kernel overlay and with fuse-overlayfs): stat, list,
+    ranged content with the stat's etag; an atomic PUT (a new inode in
+    the upper), `ifMatch` with the header's and the stat's etag, 412,
+    `ifNoneMatch`, `mkdirs`; `fileMax`; a tar round trip keeping
+    symlinks, `../x` and `/x` landing inside; `/work/l → /etc` then a
+    PUT through it writes the upper's `etc/`, never the host's `/etc`;
+    a reader's mount refuses; copies between two sandboxes (the second
+    auto-started), another tile's `not-found`; a tar of `/` without
+    `/proc`, `/sys`, `/dev`.
+  - *Test helpers later WPs can use:* `doRaw(e, p, method, target, body,
+    n)` (a raw body; a cut response answers `statusCut`), `launcherFunc`,
+    `tarOf`/`untar`.
+  - *Verifier.* Two behaviours no test pinned now are: `TestLiveFiles/…/what
+    is created belongs to defaults.uid/gid` (a PUT with `mkdirs`, a mkdir,
+    a tar-put and a tree and a file copy land as the definition's
+    `uid`/`gid`; a replaced root-owned file stays root's; skipped where the
+    host maps a single uid; the probe gains `owner` and `chown-r`), and
+    `TestSpliceHoldsTheTerminator` (`copy_test.go`: a copy's source failing
+    part-way never gets the destination its terminator). Left as is: xbind
+    doesn't count a read's or a tar-get's streamed total itself — the agent
+    enforces `Max`, and every frame and line is bounded, so xbind's memory
+    isn't at stake — so a compromised agent can stream past
+    `fileMax`/`tarMax` to a manager that keeps reading.
 
 ### WP-19 — Workspace integration (wave 2 · M · after WP-5, WP-9, WP-15b)
 
