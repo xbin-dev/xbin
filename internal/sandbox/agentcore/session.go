@@ -284,6 +284,7 @@ func (s *session) run() error {
 	s.mu.Lock()
 	s.proc, s.pid = proc, proc.Pid
 	s.mu.Unlock()
+	s.c.adjustOOM(s.id, proc.Pid) // procattr_linux.go
 	pipes.copy()
 	s.c.send(proto.Msg{Op: "started", Session: s.id, Pid: proc.Pid})
 	stop := make(chan struct{})

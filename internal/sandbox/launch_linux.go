@@ -50,6 +50,10 @@ func (h *Handle) RecvTUN() (int, error) {
 // Stdout/Stderr/Start/Wait wiring; after Start, call h.RecvTUN if h.NeedsRelay.
 func Launch(s *Spec) (*exec.Cmd, *Handle, error) {
 	h := &Handle{}
+	if s.FuseWatch && s.Agent == nil {
+		// the agent is what watches it: any other entry would never hear
+		return nil, nil, errors.New("sandbox: FuseWatch needs an Agent")
+	}
 
 	// Choose the uid model and overlay backend up front — the init reads the
 	// resulting fd numbers / fuse path out of the spec, so they must be decided

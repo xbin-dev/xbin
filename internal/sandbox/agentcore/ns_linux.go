@@ -17,20 +17,24 @@ import (
 	"github.com/xbin-dev/xbin/internal/sandbox"
 )
 
-// RunNamespace is `bx __sbx-agent --fd N [--lock M]`: PID 1 of a
-// namespace-mode tile sandbox (plans/tile-sandbox-runtime.md §2.1, §2.4).
-// The sandbox's init execs it last, under every guard it applies (the
+// RunNamespace is `bx __sbx-agent --fd N [--lock M] [--fuse-pid P]`: PID 1
+// of a namespace-mode tile sandbox (plans/tile-sandbox-runtime.md §2.1,
+// §2.4). The sandbox's init execs it last, under every guard it applies (the
 // entry's Restricted and MountGuard profile, no_new_privs), with agentFD the
-// sandbox's end of xbind's connection factory and lockFD (0: none) the
-// state lock xbind flocked. It serves every connection xbind dials over the
-// factory until the factory's EOF — xbind is gone, or has stopped this
-// sandbox — then flushes the sandbox's filesystem and returns 0; PID 1
-// exiting tears the pid namespace down, sessions and fuse-overlayfs with it.
-// It returns the exit code (1: a setup or transport failure).
+// sandbox's end of xbind's connection factory, lockFD (0: none) the state
+// lock xbind flocked, and fusePID (0: none) the root's fuse-overlayfs, which
+// the init started as its child (sandbox.Spec.FuseWatch). It serves every
+// connection xbind dials over the factory until the factory's EOF — xbind is
+// gone, or has stopped this sandbox — then flushes the sandbox's filesystem
+// and returns 0; PID 1 exiting tears the pid namespace down, sessions and
+// fuse-overlayfs with it. When fuse-overlayfs exits first, the root is gone:
+// it returns ExitRootGone at once. Sessions run with oom_score_adj 500, so an
+// OOM kill takes them before the agent. It returns the exit code (1: a setup
+// or transport failure).
 //
 // Its stdout and stderr are xbind's log for the sandbox; the sessions it
 // runs never inherit them, nor either fd, nor its environment.
-func RunNamespace(agentFD, lockFD int) int {
+func RunNamespace(agentFD, lockFD, fusePID int) int {
 	if os.Getpid() != 1 {
 		nsLogf("must run as PID 1 of a tile sandbox (xbind starts it)")
 		return 2
@@ -46,20 +50,53 @@ func RunNamespace(agentFD, lockFD int) int {
 	}
 	shrugSignals()
 
+	// the reaper of the whole pid namespace, and of the root's fuse-overlayfs
+	spawn := PID1Spawner()
+	var rootGone <-chan unix.WaitStatus // nil: nothing to watch
+	if fusePID > 1 {
+		// registered before any session starts: an exit already reaped is
+		// among the statuses the spawner remembers
+		rootGone = spawn.Register(fusePID)
+	}
 	core := New(Options{
-		Spawn:     PID1Spawner(), // the reaper of the whole pid namespace
-		Configure: nil,           // nothing to configure: every ctl gets "ready"
-		Sync:      syncRoot,
-		Root:      "/",
-		Logf:      nsLogf,
+		Spawn:              spawn,
+		Configure:          nil, // nothing to configure: every ctl gets "ready"
+		Sync:               syncRoot,
+		Root:               "/",
+		SessionOOMScoreAdj: sessionOOMScoreAdj,
+		Logf:               nsLogf,
 	})
-	err = core.Serve(func() (io.ReadWriteCloser, error) { return sandbox.AcceptFrom(factory) })
+	served := make(chan error, 1)
+	go func() {
+		served <- core.Serve(func() (io.ReadWriteCloser, error) { return sandbox.AcceptFrom(factory) })
+	}()
+	select {
+	case err = <-served:
+	case ws := <-rootGone:
+		// Every file access in the sandbox fails with ENOTCONN from here
+		// on, and nothing can be flushed: end it, and say why.
+		nsLogf("the root filesystem is gone: fuse-overlayfs (pid %d) %s", fusePID, describeExit(ws))
+		return ExitRootGone
+	}
 	exitSync()
 	if errors.Is(err, io.EOF) {
 		return 0 // xbind closed the factory
 	}
 	nsLogf("accept: %v", err)
 	return 1
+}
+
+// sessionOOMScoreAdj is every exec's oom_score_adj (§2.4). The agent keeps
+// the score it inherited; the sandbox's cgroup leaf keeps memory.oom.group
+// 0, so an OOM kill ends a process, not the sandbox.
+const sessionOOMScoreAdj = 500
+
+// describeExit says how a process ended.
+func describeExit(ws unix.WaitStatus) string {
+	if ws.Signaled() {
+		return "was killed by " + unix.SignalName(ws.Signal())
+	}
+	return "exited with code " + strconv.Itoa(ws.ExitStatus())
 }
 
 func nsLogf(format string, args ...any) {

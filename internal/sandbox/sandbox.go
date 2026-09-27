@@ -213,6 +213,18 @@ type Spec struct {
 	// legitimately pass a symlink the rootfs ships.
 	NoFollow bool `json:"noFollow,omitempty"`
 
+	// FuseWatch (tile sandboxes) makes a fuse-overlayfs root a process the
+	// agent watches rather than a daemon: the init starts fuse-overlayfs in
+	// the foreground (-f), waits until the new root is a FUSE mount (at most
+	// 10 s; fuse-overlayfs exiting first fails the start with its output),
+	// and appends `--fuse-pid P` to the agent's argv. The agent — PID 1, and
+	// fuse-overlayfs's parent once the init has exec'd it — then ends the
+	// sandbox (exit 3) when fuse-overlayfs does, instead of running on over a
+	// root whose every access fails with ENOTCONN. Needs Agent. Off
+	// (terminals, backends), fuse-overlayfs daemonizes as it always has; a
+	// kernel overlay or a VM has nothing to watch.
+	FuseWatch bool `json:"fuseWatch,omitempty"`
+
 	// Rootless single-uid mapping: container uid/gid 0 → these host ids.
 	HostUID int `json:"hostUid"`
 	HostGID int `json:"hostGid"`

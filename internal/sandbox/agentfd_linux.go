@@ -49,8 +49,9 @@ func initFDs(s *Spec) error {
 
 // entryArgv is the argv the init execs the entry with. A namespace-mode
 // agent learns its factory's and lock's numbers here, never from the
-// environment (a VM's shim reads them from its HostSpec).
-func entryArgv(s *Spec) []string {
+// environment (a VM's shim reads them from its HostSpec), and the pid of
+// the fuse-overlayfs it watches (fusePID > 0: FuseWatch).
+func entryArgv(s *Spec, fusePID int) []string {
 	argv := s.Argv
 	if len(argv) == 0 {
 		argv = []string{s.Entry}
@@ -59,6 +60,9 @@ func entryArgv(s *Spec) []string {
 		argv = append(slices.Clip(argv), "--fd", strconv.Itoa(s.AgentFD))
 		if s.LockFD > 0 {
 			argv = append(argv, "--lock", strconv.Itoa(s.LockFD))
+		}
+		if fusePID > 0 {
+			argv = append(argv, "--fuse-pid", strconv.Itoa(fusePID))
 		}
 	}
 	return argv

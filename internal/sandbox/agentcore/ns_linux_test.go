@@ -39,11 +39,12 @@ func TestMain(m *testing.M) {
 }
 
 // covers WP-3 — `bx __sbx-agent` as a tile sandbox's PID 1, reached only
-// through the factory, under Restricted + MountGuard + NoFollow: execs with
-// a clean environment and no inherited fds, strict cwd, stdio streams, a
-// group signal, a tty with a resize, file operations and tar that land in
-// the upper and stay in the sandbox; the agent survives every signal and
-// every attempt on it its execs can make, as root or a mapped non-root uid;
+// through the factory, under Restricted + MountGuard + NoFollow (+ FuseWatch,
+// WP-3b): execs with a clean environment and no inherited fds, strict cwd,
+// oom_score_adj 500 (the agent keeps its own), stdio streams, a group
+// signal, a tty with a resize, file operations and tar that land in the
+// upper and stay in the sandbox; the agent survives every signal and every
+// attempt on it its execs can make, as root or a mapped non-root uid;
 // closing the factory empties the pid namespace and frees the lock, even
 // with fuse-overlayfs stopped by a session.
 func TestNamespaceAgent(t *testing.T) {
@@ -66,19 +67,29 @@ func TestNamespaceAgent(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(rootfs, "bin", "sh")); err != nil {
 			t.Skip("no rootfs ($XBIN_TEST_ROOTFS or .rootfs)")
 		}
-		fuse := os.Getenv("XBIN_FUSE_OVERLAYFS")
-		if !executable(fuse) {
-			fuse, _ = filepath.Abs("../../../bin/fuse-overlayfs")
-		}
-		if !executable(fuse) {
-			fuse, _ = exec.LookPath("fuse-overlayfs")
-		}
-		if !executable(fuse) {
+		fuse := findFuseOverlayfs()
+		if fuse == "" {
 			fuse = "none"
 		}
 		t.Setenv("XBIN_FUSE_OVERLAYFS", fuse)
 		testNamespaceAgent(t, bin, rootfs)
 	})
+}
+
+// findFuseOverlayfs is a fuse-overlayfs binary ($XBIN_FUSE_OVERLAYFS, the
+// repo's bin/, PATH), or "".
+func findFuseOverlayfs() string {
+	fuse := os.Getenv("XBIN_FUSE_OVERLAYFS")
+	if !executable(fuse) {
+		fuse, _ = filepath.Abs("../../../bin/fuse-overlayfs")
+	}
+	if !executable(fuse) {
+		fuse, _ = exec.LookPath("fuse-overlayfs")
+	}
+	if !executable(fuse) {
+		return ""
+	}
+	return fuse
 }
 
 func build(t *testing.T, out, pkg string) {
@@ -124,7 +135,27 @@ type nsSandbox struct {
 	next               int // the next session number
 }
 
-func startNamespaceAgent(t *testing.T, bin, rootfs string) *nsSandbox {
+// startNamespaceAgent launches a tile sandbox as the runtime will (mod
+// changes its spec first) and connects to its agent.
+func startNamespaceAgent(t *testing.T, bin, rootfs string, mod ...func(*sandbox.Spec)) *nsSandbox {
+	t.Helper()
+	sb := launchNamespaceAgent(t, bin, rootfs, mod...)
+	hs := &harness{t: t, more: make(chan struct{}, 1), ctlGone: make(chan struct{})}
+	hs.open = func() *net.UnixConn {
+		c, err := sb.fac.Dial()
+		if err != nil {
+			hs.t.Fatalf("dial the agent: %v\n%s", err, sb.log)
+		}
+		hs.t.Cleanup(func() { c.Close() })
+		return c.(*net.UnixConn)
+	}
+	hs.start()
+	sb.harness = hs
+	return sb
+}
+
+// launchNamespaceAgent starts the sandbox, without a connection to it.
+func launchNamespaceAgent(t *testing.T, bin, rootfs string, mod ...func(*sandbox.Spec)) *nsSandbox {
 	t.Helper()
 	dir := t.TempDir()
 	lower, state := filepath.Join(dir, "lower"), filepath.Join(dir, "state")
@@ -167,8 +198,11 @@ func startNamespaceAgent(t *testing.T, bin, rootfs string) *nsSandbox {
 		Env:      []string{"AGENT_ONLY=secret"}, // the agent's; no session may see it
 		Hostname: "sbx-agent-test",
 		HostUID:  os.Getuid(), HostGID: os.Getgid(),
-		Restricted: true, MountGuard: true, NoFollow: true,
+		Restricted: true, MountGuard: true, NoFollow: true, FuseWatch: true,
 		Agent: child, Lock: lock,
+	}
+	for _, m := range mod {
+		m(spec)
 	}
 	cmd, h, err := sandbox.Launch(spec)
 	if err != nil {
@@ -196,19 +230,7 @@ func startNamespaceAgent(t *testing.T, bin, rootfs string) *nsSandbox {
 	if err := h.SetupUserns(); err != nil {
 		t.Fatalf("userns: %v\n%s", err, sb.log)
 	}
-	t.Logf("fuse-overlayfs=%q agentFd=%d lockFd=%d", spec.FuseOverlay, spec.AgentFD, spec.LockFD)
-
-	hs := &harness{t: t, more: make(chan struct{}, 1), ctlGone: make(chan struct{})}
-	hs.open = func() *net.UnixConn {
-		c, err := fac.Dial()
-		if err != nil {
-			hs.t.Fatalf("dial the agent: %v\n%s", err, sb.log)
-		}
-		hs.t.Cleanup(func() { c.Close() })
-		return c.(*net.UnixConn)
-	}
-	hs.start()
-	sb.harness = hs
+	t.Logf("fuse-overlayfs=%q (watched %v) agentFd=%d lockFd=%d", spec.FuseOverlay, spec.FuseWatch, spec.AgentFD, spec.LockFD)
 	return sb
 }
 
@@ -293,6 +315,11 @@ func testNamespaceAgent(t *testing.T, bin, rootfs string) {
 		if out, _ := sb.run(proto.Exec{Argv: []string{"/probe", "pwd"}, Cwd: "/nope"}); out != "/\n" {
 			t.Errorf("a missing cwd, not strict: %q", out)
 		}
+	})
+
+	t.Run("oom_score_adj", func(t *testing.T) {
+		sb.t = t
+		testOOMScores(t, sb)
 	})
 
 	t.Run("streams", func(t *testing.T) {

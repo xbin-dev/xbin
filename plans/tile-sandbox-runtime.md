@@ -2575,6 +2575,73 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
   - a session's `/proc/<pid>/oom_score_adj` reads 500, the agent's 0;
   - a start whose fuse-overlayfs fails to mount answers with its output;
   - a terminal (no `FuseWatch`) still daemonizes it (unchanged).
+- **As built** (branch `p2/wp3b`):
+  - *`Spec.FuseWatch` needs `Spec.Agent`*: Launch refuses it otherwise,
+    since no other entry would hear. It does nothing over a kernel overlay
+    or in a VM. The init's side is `internal/sandbox/fusewatch_linux.go`
+    (`mountFuseWatched`); `mountRoot` returns the pid, and `entryArgv(s,
+    fusePID)` appends `--fuse-pid P` after `--fd`/`--lock`, to a
+    namespace-mode agent only.
+  - *fuse-overlayfs is started as a daemon places itself*: `-f`, in `/`
+    (pivot_root then moves its cwd into the new root, as it did the
+    daemon's) and in a session of its own (`Setsid`: a ^C to the process
+    group xbind runs in doesn't reach it). Its stdout and stderr go to a
+    memfd, not xbind's log pipe: the init quotes its last 4 KiB when it
+    fails, as `sandbox-init: fuse-overlayfs mount: it exited before
+    mounting the root (exit status 1): <output>` or `… no FUSE mount after
+    10s: <output>` (exit 127), and traces it under `Debug` otherwise, as
+    the old path hid its harmless `lazytime` warning. Whatever it prints
+    later stays in the memfd; it is quiet without `-d`.
+  - *The 10 s bound is a watchdog*, not only the poll: statfs on a FUSE
+    mount asks its server, so one that mounted and never answers would
+    hang the init. At 10 s the watchdog kills it, which aborts the
+    connection and ends the wait.
+  - *The init never reaps it.* It looks with `waitid(WNOWAIT)`, so an exit
+    between its last look and the exec is still a zombie for the agent's
+    `PID1Spawner`, which remembers the status for `Register` (called before
+    the first session).
+  - *The agent:* `RunNamespace(agentFD, lockFD, fusePID)`; `--fuse-pid`
+    takes a pid ≥ 2. When fuse-overlayfs exits, the agent logs `sbx-agent:
+    the root filesystem is gone: fuse-overlayfs (pid N) was killed by
+    SIGKILL` (or `exited with code N`) and returns
+    `agentcore.ExitRootGone` (3) at once, with no sync (nothing can be
+    flushed). The constant is in an untagged `agentcore/exit.go` for
+    WP-15a's teardown to map. The watch ends with the factory: a stop's
+    exit stays 0 even when `exitSync` then kills a stopped fuse-overlayfs.
+    Measured here: the agent exits and the pid namespace is empty 2–3 ms
+    after the SIGKILL.
+  - *`Options.SessionOOMScoreAdj`* is clamped to ±1000 and written right
+    after the spawn, before `started` is sent. A write that fails because
+    the session already ended (gone, or a zombie, whose `oom_score_adj` is
+    root's: `EACCES`) is silent; any other failure is logged. That is
+    chiefly a target below `oom_score_adj_min`, the floor a privileged
+    writer sets (systemd's `OOMScoreAdjust=` for xbind's unit): an
+    unprivileged write may lower a score down to that floor, not past it.
+    So a session can lower its own score back to the agent's, and a root
+    session can raise the agent's (its `/proc/1` belongs to the sandbox's
+    root once the agent is non-dumpable). Both only change which of the
+    sandbox's own processes an OOM takes: code in a sandbox can always end
+    its own sandbox.
+  - *Tests.* `agentcore/procattr_test.go` (unit): session 1 and the agent
+    keep the test's score, sessions 2 and 3 read 500, a reaped or zombie
+    process logs nothing, and without the option nothing changes.
+    `agentcore/ns_fuse_linux_test.go` (integration, `TestNamespaceAgentRoot`,
+    minimal lower, so CI's `bin/fuse-overlayfs` runs it):
+    - a stand-in that fails (the probe binary) and one that never mounts (a
+      10 s script): 127, the output quoted;
+    - the real binary refusing a missing lower: its own lines quoted;
+    - watched: the agent's child, `-f`, its own session, `--fuse-pid` equal
+      to its in-namespace pid, sessions at 500 (and as uid 1000 in range
+      mode), then SIGKILL from the host: exit 3 and an empty pid namespace
+      within 1 s;
+    - unwatched: a daemon (its own session, no `-f`), and the agent gets no
+      `--fuse-pid`.
+
+    `TestNamespaceAgent` now sets `FuseWatch` as the runtime will, and
+    checks the scores over both overlay flavours. `internal/vm`'s
+    `TestResidentVM` reads `500` for an exec and `0` for the guest's agent
+    (KVM and emulated). Mutation-checked: without the `Register`, without
+    `-f`, and without the write, the tests fail.
 
 #### WP-7b — State layout: `<name>.<uid>/cur/`, snapshot stamps, pins with errors (B · S · now; before WP-15a)
 

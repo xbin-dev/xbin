@@ -10,7 +10,7 @@ import (
 )
 
 // RunNamespace refuses: tile sandboxes are Linux-only.
-func RunNamespace(agentFD, lockFD int) int {
+func RunNamespace(agentFD, lockFD, fusePID int) int {
 	fmt.Fprintln(os.Stderr, "sbx-agent: tile sandboxes are Linux-only")
 	return 125
 }

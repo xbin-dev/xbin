@@ -3,6 +3,7 @@
 // in a minimal lower, doing one thing per invocation and printing it.
 //
 //	env | pwd | fds | echo <text>… | cat | exit <code> | sleep <s>
+//	read <file>      its content
 //	ln <target> <link>
 //	sleeper          start a child in this process group, print its pid, wait
 //	alive <pid>      "alive" or "gone"
@@ -56,6 +57,10 @@ func main() {
 		os.Exit(n)
 	case "ln":
 		check(os.Symlink(args[0], args[1]))
+	case "read":
+		b, err := os.ReadFile(args[0])
+		check(err)
+		fmt.Print(string(b))
 	case "sleep":
 		n, _ := strconv.Atoi(args[0])
 		time.Sleep(time.Duration(n) * time.Second)

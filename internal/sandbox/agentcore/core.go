@@ -51,6 +51,13 @@ type Options struct {
 	Gateway func(path string) error
 	// Dump answers "dump" (a VM guest's report); nil ignores it.
 	Dump func() string
+	// SessionOOMScoreAdj, when not 0, is the oom_score_adj (-1000…1000)
+	// every session from 2 on gets right after it starts — a tile sandbox's
+	// execs — so that under memory pressure the OOM killer takes user work,
+	// not the agent. Session 1 (a backend's, a terminal's) keeps what it
+	// inherited. A failed write is logged, never fatal (procattr_linux.go).
+	SessionOOMScoreAdj int
+
 	Logf func(format string, args ...any)
 }
 
@@ -88,6 +95,7 @@ func New(o Options) *Core {
 	if o.Logf == nil {
 		o.Logf = func(string, ...any) {}
 	}
+	o.SessionOOMScoreAdj = min(max(o.SessionOOMScoreAdj, -1000), 1000)
 	return &Core{
 		o:          o,
 		configured: o.Configure == nil,

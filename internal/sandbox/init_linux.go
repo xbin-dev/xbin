@@ -99,11 +99,13 @@ func runInit(specPath string) error {
 	// Overlay: base rootfs + granted deps (lower, ro) with a per-component
 	// writable upper. If the caller gave no Upper, use dirs on our private tmpfs.
 	// A VM sandbox has no rootfs of its own: a bare tmpfs (init_vm_linux.go).
+	// fusePID is a watched fuse-overlayfs's (FuseWatch), for the agent.
+	var fusePID int
 	if s.VM != nil {
 		if err := vmRoot(newroot); err != nil {
 			return err
 		}
-	} else if err := mountRoot(&s, base, newroot); err != nil {
+	} else if fusePID, err = mountRoot(&s, base, newroot); err != nil {
 		return err
 	}
 	dbg(s.Debug, "root mounted at %s (vm=%v)", newroot, s.VM != nil)
@@ -354,7 +356,7 @@ func runInit(specPath string) error {
 		// Non-fatal: fall back to / so a bad Cwd doesn't wedge the backend.
 		_ = unix.Chdir("/")
 	}
-	argv := entryArgv(&s)
+	argv := entryArgv(&s, fusePID)
 	dbg(s.Debug, "guards on, exec %s (cwd=%s)", s.Entry, cwd)
 	if err := handAgentFD(&s); err != nil {
 		return err
@@ -366,24 +368,28 @@ func runInit(specPath string) error {
 }
 
 // mountRoot mounts the overlay root: base rootfs + granted deps (lower, ro)
-// with a per-component writable upper, or dirs on the private tmpfs.
-func mountRoot(s *Spec, base, newroot string) error {
+// with a per-component writable upper, or dirs on the private tmpfs. The pid
+// is a watched fuse-overlayfs's (FuseWatch, fusewatch_linux.go), else 0.
+func mountRoot(s *Spec, base, newroot string) (int, error) {
 	upper, work := s.Upper, s.Work
 	if upper == "" {
 		upper = filepath.Join(base, "up")
 		work = filepath.Join(base, "work")
 		if err := os.Mkdir(upper, 0o755); err != nil {
-			return must(err, "mkdir upper")
+			return 0, must(err, "mkdir upper")
 		}
 		if err := os.Mkdir(work, 0o755); err != nil {
-			return must(err, "mkdir work")
+			return 0, must(err, "mkdir work")
 		}
 	}
 	if len(s.Lower) == 0 {
-		return fmt.Errorf("spec has no rootfs lowerdir")
+		return 0, fmt.Errorf("spec has no rootfs lowerdir")
 	}
 	opt := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", strings.Join(s.Lower, ":"), upper, work)
-	dbg(s.Debug, "overlay: %s (fuse=%q)", opt, s.FuseOverlay)
+	dbg(s.Debug, "overlay: %s (fuse=%q watch=%v)", opt, s.FuseOverlay, s.FuseWatch)
+	if s.FuseOverlay != "" && s.FuseWatch {
+		return mountFuseWatched(s, opt, newroot)
+	}
 	if s.FuseOverlay != "" {
 		// fuse-overlayfs honors redirect_dir/metacopy (which unprivileged kernel
 		// overlayfs forbids), so directory renames work → `apt install` etc. It
@@ -392,12 +398,12 @@ func mountRoot(s *Spec, base, newroot string) error {
 		// don't print into every terminal; surface output only on failure.
 		fo := exec.Command(s.FuseOverlay, "-o", opt, newroot)
 		if out, err := fo.CombinedOutput(); err != nil {
-			return must(fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out))), "fuse-overlayfs mount")
+			return 0, must(fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out))), "fuse-overlayfs mount")
 		}
 	} else if err := unix.Mount("overlay", newroot, "overlay", 0, opt); err != nil {
-		return must(err, "mount overlay ("+opt+")")
+		return 0, must(err, "mount overlay ("+opt+")")
 	}
-	return nil
+	return 0, nil
 }
 
 // awaitMaps blocks until the parent writes our uid/gid maps and signals via the

@@ -55,7 +55,10 @@ func Main() {
 		StreamWait: 60 * time.Second,
 		Gateway:    serveGateway,
 		Dump:       func() string { return a.dump(dumpBudget) },
-		Logf:       logf,
+		// a resident VM's execs (sessions from 2) go before the agent under
+		// memory pressure; session 1, a backend's or a terminal's, keeps 0
+		SessionOOMScoreAdj: 500,
+		Logf:               logf,
 	})
 	ln, err := listenVsock(proto.AgentPort)
 	if err != nil {

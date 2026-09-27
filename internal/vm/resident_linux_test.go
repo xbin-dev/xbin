@@ -85,6 +85,11 @@ func main() { fmt.Println("probe-ok", len(os.Args)) }
 		if r.code != 0 || r.stdout != "probe-ok 2\n" {
 			t.Errorf("the single-file export: %+v", r)
 		}
+		// WP-3b: user work, not the guest's agent, is what an OOM kill takes
+		r = c.run(t, proto.Exec{Argv: []string{"cat", "/proc/self/oom_score_adj", "/proc/1/oom_score_adj"}}, "")
+		if r.code != 0 || r.stdout != "500\n0\n" {
+			t.Errorf("the oom_score_adj of an exec, then of the agent: %+v", r)
+		}
 	})
 
 	t.Run("strict cwd", func(t *testing.T) {

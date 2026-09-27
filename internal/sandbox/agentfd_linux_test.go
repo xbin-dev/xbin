@@ -17,17 +17,21 @@ import (
 func TestEntryArgv(t *testing.T) {
 	for _, c := range []struct {
 		s    Spec
+		fuse int
 		want []string
 	}{
-		{Spec{Entry: "/e"}, []string{"/e"}},
-		{Spec{Entry: "/e", Argv: []string{"bx", "__sbx-agent"}}, []string{"bx", "__sbx-agent"}},
-		{Spec{Argv: []string{"bx", "__sbx-agent"}, AgentFD: 5, LockFD: 6}, []string{"bx", "__sbx-agent", "--fd", "5", "--lock", "6"}},
-		{Spec{Argv: []string{"bx"}, AgentFD: 3}, []string{"bx", "--fd", "3"}},
-		{Spec{Argv: []string{"bx"}, LockFD: 4}, []string{"bx"}},                                                             // a lock alone: nothing to tell
-		{Spec{Argv: []string{"bx", "__vm-host", "s"}, AgentFD: 3, VM: &proto.HostSpec{}}, []string{"bx", "__vm-host", "s"}}, // the shim reads its HostSpec
+		{Spec{Entry: "/e"}, 0, []string{"/e"}},
+		{Spec{Entry: "/e", Argv: []string{"bx", "__sbx-agent"}}, 0, []string{"bx", "__sbx-agent"}},
+		{Spec{Argv: []string{"bx", "__sbx-agent"}, AgentFD: 5, LockFD: 6}, 0, []string{"bx", "__sbx-agent", "--fd", "5", "--lock", "6"}},
+		{Spec{Argv: []string{"bx"}, AgentFD: 3}, 0, []string{"bx", "--fd", "3"}},
+		{Spec{Argv: []string{"bx"}, LockFD: 4}, 0, []string{"bx"}},                                                             // a lock alone: nothing to tell
+		{Spec{Argv: []string{"bx", "__vm-host", "s"}, AgentFD: 3, VM: &proto.HostSpec{}}, 0, []string{"bx", "__vm-host", "s"}}, // the shim reads its HostSpec
+		{Spec{Argv: []string{"bx"}, AgentFD: 4, LockFD: 5}, 2, []string{"bx", "--fd", "4", "--lock", "5", "--fuse-pid", "2"}},  // FuseWatch
+		{Spec{Argv: []string{"bx"}, AgentFD: 4}, 7, []string{"bx", "--fd", "4", "--fuse-pid", "7"}},
+		{Spec{Argv: []string{"sh"}}, 2, []string{"sh"}}, // no agent: nobody to tell
 	} {
 		argv := slices.Clone(c.s.Argv)
-		if got := entryArgv(&c.s); !slices.Equal(got, c.want) {
+		if got := entryArgv(&c.s, c.fuse); !slices.Equal(got, c.want) {
 			t.Errorf("entryArgv(%+v) = %q, want %q", c.s, got, c.want)
 		}
 		if !slices.Equal(c.s.Argv, argv) {

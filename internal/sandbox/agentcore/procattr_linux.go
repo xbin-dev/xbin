@@ -3,6 +3,7 @@
 package agentcore
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -15,7 +16,7 @@ import (
 )
 
 // What a session's process starts with: its directory, its user, its
-// program.
+// program, its OOM score.
 
 // sessionCwd is the directory the session starts in: Cwd, or "/" when it
 // doesn't name one — unless CwdStrict, which makes that an error.
@@ -124,4 +125,30 @@ func lookPath(argv0 string, env []string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("%s: not found in PATH", argv0)
+}
+
+// adjustOOM gives session id's process, just started, the core's
+// SessionOOMScoreAdj — sessions from 2 on only. Raising a score needs no
+// privilege, so the write fails only when the process is already gone (a
+// quick exec: not logged) or when the target is below the floor a
+// privileged writer set for the agent (oom_score_adj_min, say xbind's unit's
+// OOMScoreAdjust: logged). Until the write lands the session has the
+// agent's score, which matters only to an OOM kill in that instant.
+func (c *Core) adjustOOM(id, pid int) {
+	adj := c.o.SessionOOMScoreAdj
+	if adj == 0 || id < 2 {
+		return
+	}
+	proc := "/proc/" + strconv.Itoa(pid)
+	if err := os.WriteFile(proc+"/oom_score_adj", []byte(strconv.Itoa(adj)), 0); err != nil && !ended(proc) {
+		c.o.Logf("session %d: oom_score_adj %d: %v", id, adj, err)
+	}
+}
+
+// ended reports whether the process at proc (/proc/<pid>) is gone or a
+// zombie — whose oom_score_adj is root's and has nothing to adjust.
+func ended(proc string) bool {
+	b, err := os.ReadFile(proc + "/stat")
+	i := bytes.LastIndexByte(b, ')') // the state follows the comm: "pid (comm) S …"
+	return err != nil || i < 0 || i+2 >= len(b) || b[i+2] == 'Z' || b[i+2] == 'X'
 }
