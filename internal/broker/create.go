@@ -185,9 +185,17 @@ func (b *Broker) defaultOrgOwner(userID, why string) (ref, msg string) {
 // removed tile's delivery registrations, not access decisions (grants and
 // bindings still refuse the path, D82), so the new tile starts with none and
 // registers its own (D85).
+//
+// Then it resets the path's deployment state (P29), whoever creates the
+// tile: a deployment record and view repository a removed tile left there
+// never apply to the new one, which starts in the zero state. The
+// checkpoint store stays, a leftover (pathLeftovers).
 func (b *Broker) assignOwner(path, ref string) {
 	if n := b.cron.forget(path) + b.bus.forget(path); n > 0 {
 		slog.Info("dropped a removed tile's cron jobs and bus subscriptions", "tile", path, "count", n)
+	}
+	if err := b.resetDeploymentState(path); err != nil {
+		slog.Error("a removed tile's deployment record couldn't be reset for the new tile", "tile", path, "err", err)
 	}
 	if b.Users == nil || ref == "" {
 		return

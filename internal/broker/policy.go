@@ -211,8 +211,9 @@ func (b *Broker) scopeOwnedBy(scope, ownerRef string) bool {
 // pathLeftovers names the state still keyed by path (or a path under it)
 // that a new tile there would inherit: workspace grant rows naming it on
 // either side, interface bindings / instances / ingress hosts, its vault,
-// and the identity store's entries (Store.PathLeftovers). Nothing prunes
-// these when a tile's directory disappears. A path whose owner entry is
+// the identity store's entries (Store.PathLeftovers), and its deployment
+// state (a record, a checkpoint store; P29). Nothing prunes these when a
+// tile's directory disappears. A path whose owner entry is
 // already ownerRef is the owner re-creating their own tile — nothing to
 // take over.
 func (b *Broker) pathLeftovers(path, ownerRef string) []string {
@@ -253,6 +254,7 @@ func (b *Broker) pathLeftovers(path, ownerRef string) []string {
 	if b.Users != nil {
 		out = append(out, b.Users.PathLeftovers(path, ownerRef)...)
 	}
+	out = append(out, b.deploymentLeftovers(path)...)
 	sort.Strings(out)
 	return out
 }
