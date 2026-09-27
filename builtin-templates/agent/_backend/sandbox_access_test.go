@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
@@ -9,9 +10,14 @@ import (
 )
 
 // Classes a manager may define: internal reach with a sandbox that has no
-// network (not mixed).
+// network (not mixed), a confirmed mixed one, and one with no reach either
+// way.
 var (
 	intSbxClass = agentClass{ID: "intsbx", Name: "Internal coding", Toolsets: []string{tsInternal, tsSandbox},
+		Managers: classSet{All: true}, SandboxEgress: []string{"none"}}
+	mixedSbxClass = agentClass{ID: "mixed", Name: "Mixed", Toolsets: []string{tsInternal, tsWeb, tsSandbox},
+		Managers: classSet{All: true}, SandboxEgress: []string{"none"}}
+	quietSbxClass = agentClass{ID: "quiet", Name: "Quiet", Toolsets: []string{tsSandbox},
 		Managers: classSet{All: true}, SandboxEgress: []string{"none"}}
 )
 
@@ -142,6 +148,237 @@ func TestSandboxUnknownEgressIsOpen(t *testing.T) {
 	} {
 		if got := (&sbxSandbox{Egress: c.now, EgressNext: c.next}).effectiveEgress(); got != c.want {
 			t.Errorf("egress %q next %q: %q, want %q", c.now, c.next, got, c.want)
+		}
+	}
+}
+
+// A detach reaches the subagents' copies of the binding at once, and so
+// does a rebind by someone else: a subagent works only in what its root
+// still has, as it was bound.
+func TestSandboxDetachReachesSubagents(t *testing.T) {
+	ag, mux := accessFixture(t)
+	bindSbx(t, "apps/cs")
+	conv := codingRunAs(t, ag, alicePrivate, true)
+	carols := mkSandbox(t, "apps/cs", "carol", sbxCreate{Name: "carols", Members: []string{"alice"}})
+	ref := sandboxRef("apps/cs", carols.ID)
+	if got := bindTo(t, mux, asCarol, conv, ref, ""); got != 200 {
+		t.Fatal(got)
+	}
+	spawn := func() (*Run, Config) {
+		t.Helper()
+		rootCfg, _ := ag.db.runConfig(conv)
+		id, err := ag.db.createRun("kid", "{}", conv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		kid, _ := ag.db.getRun(id)
+		return kid, childConfig(rootCfg, "")
+	}
+	kid, kidCfg := spawn()
+	if out := mustTool(t, ag, kid, kidCfg, "k1", "bash", map[string]any{"command": "echo in-carols"}); !strings.Contains(out, "in-carols") {
+		t.Fatalf("the subagent works in the root's sandbox: %s", out)
+	}
+	// carol detaches her sandbox: the subagent's copy stops working with it
+	if w := callAs(t, mux, asCarol, "PATCH", fmt.Sprintf("/runs/%d", conv), map[string]any{"detach": ref}); w.Code != 200 {
+		t.Fatalf("detach: %d %s", w.Code, w.Body)
+	}
+	if err := useOf(t, ag, conv, ref); sbxRefusal(err) != "not-attached" {
+		t.Fatalf("the root: %v", err)
+	}
+	if _, err := tool(t, ag, kid, kidCfg, "k2", "bash", map[string]any{"command": "echo still"}); err == nil || !strings.Contains(err.Error(), "no longer attached") {
+		t.Fatalf("the subagent after the detach: %v", err)
+	}
+	// alice binds it again, herself: carol's copy stays refused, a new subagent works
+	if got := bindTo(t, mux, asAlice, conv, ref, ""); got != 200 {
+		t.Fatal(got)
+	}
+	if _, err := tool(t, ag, kid, kidCfg, "k3", "read", map[string]any{"path": "."}); err == nil || !strings.Contains(err.Error(), "no longer attached") {
+		t.Fatalf("the old copy after a rebind by someone else: %v", err)
+	}
+	kid2, kidCfg2 := spawn()
+	if _, err := tool(t, ag, kid2, kidCfg2, "k4", "bash", map[string]any{"command": "true"}); err != nil {
+		t.Fatalf("a subagent of the new binding: %v", err)
+	}
+}
+
+// A sandbox another consumer shared with this tile is people's only as far
+// as the share names them.
+func TestSandboxShareUsers(t *testing.T) {
+	ag, mux := accessFixture(t)
+	bindSbx(t, "apps/cs")
+	conv := codingRunAs(t, ag, aliceTeam, false) // the team may talk in it
+	box := mkSandbox(t, "apps/cs", "dave", sbxCreate{Name: "ci's", Visibility: "team"})
+	ref := sandboxRef("apps/cs", box.ID)
+	share := func(users fsbUsers) {
+		setBox(t, box.ID, func(b *fsbBox) {
+			b.Owner.Via = "apps/ci"
+			b.Shares = []fsbShare{{Consumer: "apps/other", Users: fsbUsers{All: true}}, {Consumer: "apps/agent", Users: users}}
+		})
+	}
+	share(fsbUsers{List: []string{"bob"}})
+	if got := bindTo(t, mux, asCarol, conv, ref, ""); got != 403 {
+		t.Fatalf("carol, not in the share, binds a team sandbox: %d", got)
+	}
+	if got := bindTo(t, mux, asAlice, conv, ref, ""); got != 403 {
+		t.Fatalf("alice, not in the share: %d", got)
+	}
+	if got := bindTo(t, mux, asBob, conv, ref, ""); got != 200 {
+		t.Fatalf("bob, in the share: %d", got)
+	}
+	canUse := func(c caller) any {
+		w := callAs(t, mux, c, "GET", "/sandboxes/"+url.PathEscape(ref), nil)
+		var v map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &v)
+		return v["canUse"]
+	}
+	if canUse(asCarol) != false || canUse(asBob) != true {
+		t.Fatalf("canUse: carol %v, bob %v", canUse(asCarol), canUse(asBob))
+	}
+	if err := useOf(t, ag, conv, ""); err != nil {
+		t.Fatal(err)
+	}
+	// the share drops bob: his binding goes with it
+	share(fsbUsers{List: []string{"carol"}})
+	if err := useOf(t, ag, conv, ""); sbxRefusal(err) != "not-allowed" || !strings.Contains(err.Error(), "may no longer use it") {
+		t.Fatalf("bob dropped from the share: %v", err)
+	}
+	share(fsbUsers{All: true})
+	if got := bindTo(t, mux, asCarol, conv, ref, ""); got != 200 {
+		t.Fatalf("a share for everyone: %d", got)
+	}
+	// no share for this tile: nobody
+	t.Setenv("XBIN_COMPONENT", "apps/agent#2")
+	if a := sandboxAccess(who{kind: whoUser, user: "dave", level: "write"}, &sbxSandbox{Shared: true, Visibility: visTeam,
+		Shares: json.RawMessage(`[{"consumer":"apps/agent","users":"*"}]`)}); a.seen() {
+		t.Fatalf("a share for another consumer: %+v", a)
+	}
+}
+
+// The class firewall across a sandbox that conversations share: one with
+// internal reach marks it; a class that reaches outside without internal
+// reach may then neither bind it nor keep working in it.
+func TestSandboxInternalTaint(t *testing.T) {
+	ag, mux := accessFixture(t)
+	bindSbx(t, "apps/cs")
+	useClasses(t, intSbxClass, mixedSbxClass, quietSbxClass)
+	coding := codingRunAs(t, ag, alicePrivate, false)
+	internal := classRunAs(t, ag, "intsbx", alicePrivate)
+	box := mkSandbox(t, "apps/cs", "alice", sbxCreate{Name: "scratch", Labels: map[string]string{"k": "v"}})
+	ref := sandboxRef("apps/cs", box.ID)
+	if got := bindTo(t, mux, asAlice, coding, ref, ""); got != 200 {
+		t.Fatal(got)
+	}
+	if err := useOf(t, ag, coding, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := bindTo(t, mux, asAlice, internal, ref, ""); got != 200 {
+		t.Fatal(got)
+	}
+	if b, _ := theManager(t).Box(box.ID); b.Labels[sbxInternalLabel] != "1" || b.Labels["k"] != "v" {
+		t.Fatalf("marked, its labels kept: %+v", b.Labels)
+	}
+	// the coding conversation that had it first can't work in it any more
+	if err := useOf(t, ag, coding, ""); sbxRefusal(err) != "not-allowed" || !strings.Contains(err.Error(), "held data from an internal-reach conversation") {
+		t.Fatalf("a web-lane conversation after the mark: %v", err)
+	}
+	coding2 := codingRunAs(t, ag, alicePrivate, false)
+	w := callAs(t, mux, asAlice, "PATCH", fmt.Sprintf("/runs/%d", coding2), map[string]any{"sandbox": map[string]string{"ref": ref}})
+	if w.Code != 403 || !strings.Contains(w.Body.String(), "held data from an internal-reach conversation") {
+		t.Fatalf("binding it to a web-lane conversation: %d %s", w.Code, w.Body)
+	}
+	// no egress, or a confirmed mixed class: they may
+	for _, cls := range []string{"quiet", "mixed"} {
+		if got := bindTo(t, mux, asAlice, classRunAs(t, ag, cls, alicePrivate), ref, ""); got != 200 {
+			t.Fatalf("class %s: %d", cls, got)
+		}
+	}
+	// the owner's label edit keeps the mark
+	if w := callAs(t, mux, asAlice, "PATCH", "/sandboxes/"+url.PathEscape(ref), map[string]any{"labels": map[string]string{"k": "w"}}); w.Code != 200 {
+		t.Fatalf("relabel: %d %s", w.Code, w.Body)
+	}
+	if b, _ := theManager(t).Box(box.ID); b.Labels[sbxInternalLabel] != "1" || b.Labels["k"] != "w" {
+		t.Fatalf("relabeled: %+v", b.Labels)
+	}
+	// a mark lost at the manager is made again by the next tool call
+	setBox(t, box.ID, func(b *fsbBox) { b.Labels = map[string]string{} })
+	if err := useOf(t, ag, internal, ""); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := theManager(t).Box(box.ID); b.Labels[sbxInternalLabel] != "1" {
+		t.Fatalf("marked again: %+v", b.Labels)
+	}
+	// a mark the manager refuses: no binding
+	other := mkSandbox(t, "apps/cs", "alice", sbxCreate{Name: "other"})
+	theManager(t).FailNext("patch", 503, "unavailable", "down")
+	w = callAs(t, mux, asAlice, "PATCH", fmt.Sprintf("/runs/%d", internal), map[string]any{"sandbox": map[string]string{"ref": sandboxRef("apps/cs", other.ID)}})
+	if w.Code != 502 || !strings.Contains(w.Body.String(), "marking it failed") {
+		t.Fatalf("an unmarkable sandbox: %d %s", w.Code, w.Body)
+	}
+	if active, _ := sandboxOf(t, ag, internal); active == nil || active.Ref != ref {
+		t.Fatalf("still bound to the first: %+v", active)
+	}
+	// a label change racing the mark: read again, marked
+	theManager(t).FailNext("patch", 412, "precondition", "the sandbox changed")
+	if got := bindTo(t, mux, asAlice, internal, sandboxRef("apps/cs", other.ID), ""); got != 200 {
+		t.Fatalf("after a lost update: %d", got)
+	}
+	if b, _ := theManager(t).Box(other.ID); b.Labels[sbxInternalLabel] != "1" {
+		t.Fatalf("marked after a retry: %+v", b.Labels)
+	}
+	// one made for an internal-reach conversation is marked as it is bound
+	w = callAs(t, mux, asAlice, "POST", "/sandboxes", map[string]any{"name": "made", "conversation": internal})
+	var made struct{ ID string }
+	_ = json.Unmarshal(w.Body.Bytes(), &made)
+	if b, _ := theManager(t).Box(made.ID); w.Code != 201 || b.Labels[sbxInternalLabel] != "1" {
+		t.Fatalf("made for it: %d %s %+v", w.Code, w.Body, b.Labels)
+	}
+}
+
+// Picking a sandbox the conversation has attached again, with no cwd, keeps
+// the cwd it is attached at.
+func TestSandboxRepickKeepsCwd(t *testing.T) {
+	ag, mux := accessFixture(t)
+	bindSbx(t, "apps/cs")
+	conv := codingRunAs(t, ag, alicePrivate, false)
+	a := mkSandbox(t, "apps/cs", "alice", sbxCreate{Name: "a"})
+	b := mkSandbox(t, "apps/cs", "alice", sbxCreate{Name: "b"})
+	refA, refB := sandboxRef("apps/cs", a.ID), sandboxRef("apps/cs", b.ID)
+	c, _ := sbxDial("apps/cs", "alice")
+	_ = c.Mkdir(context.Background(), a.ID, a.Workdir+"/api", false)
+	if got := bindTo(t, mux, asAlice, conv, refA, a.Workdir+"/api"); got != 200 {
+		t.Fatal(got)
+	}
+	if got := bindTo(t, mux, asAlice, conv, refA, ""); got != 200 {
+		t.Fatal(got)
+	}
+	if active, _ := sandboxOf(t, ag, conv); active.Cwd != a.Workdir+"/api" {
+		t.Fatalf("re-picked: %q", active.Cwd)
+	}
+	for _, ref := range []string{refB, refA} {
+		if got := bindTo(t, mux, asAlice, conv, ref, ""); got != 200 {
+			t.Fatal(got)
+		}
+	}
+	if active, att := sandboxOf(t, ag, conv); active.Ref != refA || active.Cwd != a.Workdir+"/api" || len(att) != 2 || att[1].Cwd != b.Workdir {
+		t.Fatalf("switched back: %+v %+v", active, att)
+	}
+}
+
+// The owner's grant card says when the sandbox will be the team's: made for
+// a team conversation, it takes the conversation's audience.
+func TestSandboxCreateGrantSaysTeam(t *testing.T) {
+	ag, _ := accessFixture(t)
+	bindSbx(t, "apps/cs")
+	calls := []toolCall{tc("c1", "sandbox_create", `{"name":"x"}`)}
+	for _, c := range []struct {
+		st   runStamp
+		team bool
+	}{{alicePrivate, false}, {aliceTeam, true}} {
+		id := codingRunAs(t, ag, c.st, false)
+		cfg, _ := ag.db.runConfig(id)
+		ask := sandboxesGrantAsk(ag, mustRun(t, ag, id), cfg, calls, nil)
+		if !strings.Contains(ask, "“x”") || strings.Contains(ask, "anyone on the team may use it") != c.team {
+			t.Errorf("%s conversation: %q", c.st.Visibility, ask)
 		}
 	}
 }

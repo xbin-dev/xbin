@@ -280,7 +280,7 @@ func sandboxesGrantNeeded(ag *Agent, run *Run, cfg Config, calls []toolCall, own
 
 // sandboxesGrantAsk (grantDefs): what the step's creates will make, with the
 // manager's defaults (asked once; its words without them if it doesn't
-// answer).
+// answer), and that a team conversation's is the team's (forConversation).
 func sandboxesGrantAsk(ag *Agent, run *Run, cfg Config, calls []toolCall, own map[string]bool) string {
 	var parts []string
 	for _, c := range calls {
@@ -300,7 +300,11 @@ func sandboxesGrantAsk(ag *Agent, run *Run, cfg Config, calls []toolCall, own ma
 	if len(parts) == 0 {
 		return ""
 	}
-	return "create " + strings.Join(parts, "; and ")
+	ask := "create " + strings.Join(parts, "; and ")
+	if a, err := ag.aclOf(rootOf(run)); err == nil && a.visibility == visTeam {
+		ask += " — shared with the team, as this conversation is: anyone on the team may use it"
+	}
+	return ask
 }
 
 // --- the tool --------------------------------------------------------------------

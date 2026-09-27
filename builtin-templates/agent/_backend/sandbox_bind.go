@@ -209,7 +209,10 @@ func sandboxClassAllows(cfg Config, provider, egress string) string {
 
 // prepareBinding checks that w may bind pick to a conversation of cfg's
 // class, and returns the binding (not yet stored). The caller has checked
-// w's access to the conversation.
+// w's access to the conversation. No cwd keeps the one the conversation has
+// the sandbox attached at (a re-pick), else it is the sandbox's workdir. A
+// class with internal reach marks the sandbox (markInternal) before it is
+// bound; one that reaches outside may not bind a sandbox so marked.
 func prepareBinding(ctx context.Context, w who, cfg Config, pick sandboxPick) (SandboxBinding, error) {
 	provider, id, ok := splitSandboxRef(pick.Ref)
 	if !ok {
@@ -241,11 +244,18 @@ func prepareBinding(ctx context.Context, w who, cfg Config, pick sandboxPick) (S
 	if why := sandboxClassAllows(cfg, provider, egress); why != "" {
 		return SandboxBinding{}, refuse(403, "%s", why)
 	}
+	cl := classOf(cfg)
+	if why := taintRefusal(cl, box); why != "" {
+		return SandboxBinding{}, refuse(403, "%s", why)
+	}
 	if !box.hasCap("exec") || !box.hasCap("files") {
 		return SandboxBinding{}, refuse(409, "this sandbox offers no commands or files")
 	}
 	if cwd == "" {
 		cwd = box.Workdir
+		if old, ok := cfg.sandboxBinding(pick.Ref); ok && old.Cwd != "" {
+			cwd = old.Cwd
+		}
 	} else if box.State == "running" {
 		st, err := conn.Stat(ctx, id, cwd)
 		switch {
@@ -255,6 +265,13 @@ func prepareBinding(ctx context.Context, w who, cfg Config, pick sandboxPick) (S
 			return SandboxBinding{}, err
 		case st.Type != "dir":
 			return SandboxBinding{}, refuse(400, "sandbox.cwd: %s isn't a directory", cwd)
+		}
+	}
+	if cl.has(tsInternal) {
+		if err := markInternal(ctx, conn, id, box); err != nil {
+			return SandboxBinding{}, refuse(sbxStatus(sbxRefusal(err)),
+				"this conversation's class has internal reach, so the sandbox must be marked as holding internal data (label %s) before it is bound, and marking it failed: %v",
+				sbxInternalLabel, err)
 		}
 	}
 	return SandboxBinding{Ref: pick.Ref, Cwd: cwd, Name: box.Name, Manager: hello.title(provider),

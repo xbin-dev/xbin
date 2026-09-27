@@ -156,6 +156,7 @@ func handleSandbox(w http.ResponseWriter, r *http.Request) {
 }
 
 // handlePatchSandbox changes a sandbox at its manager — its owner's call.
+// New labels keep sbxInternalLabel when the sandbox has it.
 //
 //	PATCH /sandboxes/{ref} {name?, visibility?, members?, shares?, labels?,
 //	egress?, size?, autoStopMin?, version?}
@@ -185,6 +186,15 @@ func handlePatchSandbox(w http.ResponseWriter, r *http.Request) {
 	if !rs.access.Edit {
 		xbin.WriteError(w, 403, "only the sandbox's owner can change it")
 		return
+	}
+	if mark := rs.entry.Box.Labels[sbxInternalLabel]; mark != "" && p.Labels != nil && (*p.Labels)[sbxInternalLabel] == "" {
+		labels := map[string]string{sbxInternalLabel: mark} // what it has held stays marked
+		for k, v := range *p.Labels {
+			if k != sbxInternalLabel {
+				labels[k] = v
+			}
+		}
+		p.Labels = &labels
 	}
 	box, err := rs.conn.Patch(r.Context(), rs.id, p)
 	if err != nil {

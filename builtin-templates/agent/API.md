@@ -972,7 +972,10 @@ what it creates); the agent enforces who may do what:
 
 - **use** (bind it, work in it, start it): its owner, a member, or anyone
   when it is `team`. A sandbox with no owner (created by a component or the
-  tile itself) is theirs, and people's only when it is `team`;
+  tile itself) is theirs, and people's only when it is `team`. A sandbox
+  another consumer shared with this agent (`shared`) is, besides, only for
+  the people its share names (`users`: `"*"` or their ids) — with no share
+  for this agent, it is nobody's here;
 - **manage** (stop, archive, delete): its owner, and the tile's managers —
   who may stop or delete any sandbox but never bind someone else's private
   one;
@@ -1006,12 +1009,29 @@ the view).
   sandbox's `egress` and its `egressNext` (the one a change gives it at its
   next start: a stopped sandbox starts on a command), a missing or unknown
   one counting as `open`; it is also what the binding records. A `cwd` must
-  be an absolute path, and a directory when the sandbox is running.
+  be an absolute path, and a directory when the sandbox is running; no
+  `cwd` is the sandbox's workdir — or, for a sandbox the conversation has
+  attached already (a re-pick), the `cwd` it is attached at.
 - **Anyone who may steer the conversation works in what it has bound** —
   under the binder's right, which every tool call re-checks: the class
   still allows it, the manager is still bound, the sandbox still exists, and
   the binder may still use it and still takes part in the conversation.
+  A subagent's copy of a binding holds only while the conversation still
+  has that sandbox bound or attached, by the same binder: a detach (or a
+  rebind by someone else) reaches every subagent at once.
   Otherwise the tool says why and the conversation needs a new binding.
+- **The firewall across a shared sandbox.** A sandbox outlives a
+  conversation and may be bound to several, so the class firewall follows
+  what it has held: binding a sandbox to a conversation whose class has
+  internal reach first labels it `xbin.agent/internal: "1"` (merged into
+  its labels; a manager that won't keep it refuses the binding), and a
+  class that reaches outside (`web`, or a sandbox egress other than `none`)
+  with no internal reach may then neither bind it nor keep working in it —
+  `this sandbox has held data from an internal-reach conversation` — even
+  where it was bound first. A confirmed mixed class may. A tool call of an
+  internal-reach conversation re-labels a sandbox that lost the label, and
+  `PATCH /sandboxes/{ref}` keeps it when it replaces the labels. The only
+  way back is a new sandbox.
 - **A changed egress** (its owner changed the sandbox's network access since
   it was bound, and the class still allows it): the tool call that finds it
   records the live value in the conversation's bindings (and the calling
@@ -1021,9 +1041,14 @@ the view).
   again to ask for approval` — and parks when called again, so a side effect
   never runs on an egress nobody approved it for.
 - A **sandbox created for a conversation** (`POST /sandboxes
-  {conversation}`) follows it: a team conversation's is `team`; the
-  conversation's owner and participants are its members; it is labeled
-  `xbin.agent/conversation: <id>` and bound there.
+  {conversation}`, or `sandbox_create`) takes the conversation's audience
+  when it is made: a team conversation's is `team` (whatever the team's
+  role there — anyone on the team may use it); the conversation's owner and
+  participants are its members; it is labeled `xbin.agent/conversation:
+  <id>` and bound there. It is copied once: sharing the conversation
+  differently later, or removing a participant, doesn't change the
+  sandbox — its owner manages that in the Sandboxes dialog (visibility,
+  members). `sandbox_create`'s grant card says when it will be the team's.
 
 `PATCH /runs/{id}` also takes `{sandbox: {ref, cwd?} | null, detach?: <ref>}`
 — bind (and attach) a sandbox, or change the active one's `cwd`; `null`
@@ -1037,7 +1062,7 @@ caller must be able to use it; its class must allow it).
 | `GET /sandboxes` | `?fresh=1` skips the cache | `{sandboxes: [{ref, provider, manager, …the contract's sandbox…, mine, canUse, canManage, canEdit, boundTo?}], managers: [{provider, title, ok, error?, refusal?, caps, egress, images, sizes, limits}]}` — every sandbox the caller may see across the bound managers, and those bound to a conversation the caller sees (`boundTo`: its ids). Merged, cached 15 s (the agent's own changes show at once); `manager` is the manager's title. Anyone who can use the tile |
 | `POST /sandboxes` | `{name, provider?, image?, size?, egress?, visibility?, members?, conversation?, bind?, cwd?, clientId?, start?}` | **201** + the sandbox (as below), with `binding` when it was bound. Created at `provider` (optional while one manager is bound), owned by the caller. With `conversation` (the caller takes part in it): made for it (above) and bound there unless `bind: false` — refused up front when its class wouldn't allow it, and deleted again if the binding fails. `clientId` makes a retry return the same sandbox (per person) |
 | `GET /sandboxes/{ref}` | | one sandbox, fresh from its manager, as `GET /sandboxes` lists it |
-| `PATCH /sandboxes/{ref}` | `{name?, visibility?, members?, shares?, labels?, egress?, size?, autoStopMin?, version?}` | the sandbox — its owner's (the contract's `PATCH`; `restartNeeded` when a change waits for the next start, and `egressNext` while an egress does) |
+| `PATCH /sandboxes/{ref}` | `{name?, visibility?, members?, shares?, labels?, egress?, size?, autoStopMin?, version?}` | the sandbox — its owner's (the contract's `PATCH`; `restartNeeded` when a change waits for the next start, and `egressNext` while an egress does). New `labels` keep `xbin.agent/internal` |
 | `DELETE /sandboxes/{ref}` | | `{ok, detached}` — its owner's or a tile manager's; it is detached from every conversation that had it |
 | `POST /sandboxes/{ref}/{start\|stop\|archive\|thaw}` | `?wait=<s>` (≤ 120), `?conversation=<id>`; `{start?}` on thaw | the sandbox. Start, stop and thaw: who may use or manage it — or, with `conversation`, a participant of a conversation it is bound to (as the binder). Archive: its owner or a tile manager |
 
