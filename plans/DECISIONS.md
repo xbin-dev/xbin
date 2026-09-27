@@ -3601,3 +3601,50 @@ Deviations and refinements made while implementing; all deliberate:
     about the class being saved when it mixes; other stored mixed classes
     ride along confirmed — they were confirmed when saved.
 
+
+- **D123 — Thin themed scrollbars and the focused-scroll tint (2026-09-27).**
+  web/bx-scroll.js; docs/frontend-kit.md; docs/protocol.md §Tile ↔ shell
+  messaging.
+  - **Chosen.** On fine pointers (`@media (hover:hover) and (pointer:fine)`)
+    every scrollbar is a 6px bar whose thumb is drawn 3px at the outer edge
+    (a transparent border, `background-clip: padding-box`) and fattens to 6px
+    while hovered or dragged — ~3px to the eye, a grab zone a mouse can hit.
+    The box never changes width: xterm measures its scrollbar once, at open
+    (the terminals now wait for their shadow `xterm.css` before opening, or
+    xterm reads 0 and assumes 15px). The CSS is one text,
+    `scrollCssText`, carried by every shadow root that scrolls (`scrollCss`,
+    a shared lit CSSResult in `/vendor/scroll-css.js`) and, verbatim, by
+    `theme.css` for documents (`hack/scroll-css.test.mjs` keeps the two
+    equal). Chromium 121+ switches `::-webkit-scrollbar` off for an element
+    with a non-auto `scrollbar-color`/`scrollbar-width`, and
+    `scrollbar-color` inherits, so the standard properties (Firefox:
+    `thin`, themed colours) sit behind `@supports not
+    selector(::-webkit-scrollbar)` — Chromium never sees them, and a
+    Chromium that someday drops the prefixed selector falls through to
+    them. Touch keeps its native overlay bars.
+  - **The tint.** A tracker per document keeps `data-bx-scroll` (an
+    attribute, so lit class bindings never clobber it) on the scroller the
+    next scroll would move: the innermost scrollable under the mouse; on a
+    wheel, the first scroller on the composed path that can still move that
+    way (or contains its overscroll), latched for 300 ms as Chromium latches
+    a gesture; on a scroll key or focus, the focused element's. The thumb
+    turns hazard amber. One tint per screen across documents: the pointer
+    crossing into an (out-of-process) iframe gives the parent no reliable
+    pointerout, so a framed document's tracker posts `xbin:scroll-focus` to
+    its embedder, which drops its tint; leaving the iframe, the framed
+    document gets its own pointerout.
+  - **Reach.** The shell's and `/vendor` components' shadow roots include
+    the sheet (importing it installs the tracker, so old workspace shells
+    get it everywhere `/vendor` renders; their own canvas/sidebar keep native
+    bars until `bx builtin update`). A tile document that links `theme.css`
+    gets the rules from the sheet and the tracker from `xbin-client.js` —
+    linking the theme is the opt-in D59 asked for; `<meta
+    name="xbin-scroll-focus" content="off">` opts out. `theme.css` is still
+    never injected.
+  - **Not chosen:** a strict 3px box (unhittable with a mouse);
+    `scrollbar-width: thin` in Chromium (~11px); widening on hover
+    (re-layout, and xterm's width goes stale); the shell reading hover
+    across the iframe boundary (it cannot); a tint on the scroll that a
+    tile's wheel chains out to (the shell never sees that wheel — the
+    tile's own scroller keeps the tint).
+

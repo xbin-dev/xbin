@@ -19,6 +19,7 @@
  * session, so the frame records the id; 'bx-exit' when the session ends.
  */
 import { LitElement, html, css, nothing } from 'lit';
+import { scrollCss } from '/vendor/scroll-css.js';
 import { repeat } from 'lit';
 import { onEvent } from '/vendor/events-socket.js';
 import { md } from '/vendor/bx-md.js';
@@ -51,7 +52,7 @@ export class BxAgent extends LitElement {
     _slashOff: { state: true }, // Escape closed the menu (until the draft changes)
   };
 
-  static styles = [cardsCss, css`
+  static styles = [scrollCss, cardsCss, css`
     /* the terminal pane's surface, not a tile's: a floating agent window
        must stand apart from the tiles under it, as a shell's does */
     :host { display: flex; flex-direction: column; height: 100%; min-height: 0;

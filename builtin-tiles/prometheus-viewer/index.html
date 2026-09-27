@@ -20,6 +20,7 @@
 
   <script type="module">
     import { LitElement, html, css, nothing } from 'lit';
+    import { scrollCss } from '/vendor/scroll-css.js';
     // The binding, the scrape, the parser, rate math and formatters live in
     // prom.js, shared with the native view (native.js).
     import { asEndpoints, epLabel, POLL_MS, histKey, scrape, fmtN, fmtRate, rateOf, labelStr } from './prom.js';
@@ -55,7 +56,7 @@
         _live: { state: true },      // any source scraped OK on the last tick
       };
 
-      static styles = css`
+      static styles = [scrollCss, css`
         :host { display: block; font: var(--bx-font, 13px/1.45 system-ui, sans-serif);
                 color: var(--bx-text, #d4d9e0); background: var(--bx-bg, #1b1e24); }
         .wrap { padding: 12px 14px 14px; box-sizing: border-box; }
@@ -107,7 +108,7 @@
         .empty .etitle { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
         .empty p { font-size: 12px; line-height: 1.5; color: var(--bx-muted, #868f9a); margin: 0; }
         .empty .mono, .empty b { color: var(--bx-text, #d4d9e0); }
-      `;
+      `];
 
       constructor() {
         super();

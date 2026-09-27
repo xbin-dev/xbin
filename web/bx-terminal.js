@@ -30,6 +30,7 @@
  * auto (on when the RTT is over 100 ms), on, off. The 🔧 menu shows the RTT.
  */
 import { Predictor, srttUpdate, SRTT_SHOW } from '/vendor/term-predict.js';
+import { scrollCssText } from '/vendor/bx-scroll.js';
 
 // Load a classic script once per document. Several elements (the terminal,
 // the read-only logs view) share the tag by id, so a second caller must wait
@@ -131,6 +132,7 @@ export class BxTerminal extends HTMLElement {
       root.innerHTML =
         `<link rel="stylesheet" href="/vendor/xterm.css">` +
         `<style>
+          ${scrollCssText}
           :host{display:block; position:relative}
           .host{height:100%;background:var(--bx-term-bg, #262c36)}
           .gear{position:absolute; top:4px; right:10px; z-index:8; width:22px; height:22px;
@@ -499,6 +501,11 @@ export class BxTerminal extends HTMLElement {
 
   async #start() {
     await loadXterm();
+    // xterm measures its scrollbar once, when it opens (the thin 6px bar,
+    // D123): let the shadow root's xterm.css apply first, or it reads 0 and
+    // assumes 15px (a link that already failed never fires again: capped)
+    const css = this.shadowRoot.querySelector('link[rel="stylesheet"]');
+    if (css && !css.sheet) await new Promise((r) => { css.addEventListener('load', r, { once: true }); css.addEventListener('error', r, { once: true }); setTimeout(r, 2000); });
     if (this.#closed) return;
     this.#baseFont = savedFontSize();
     this.#ambient = this.#detectAmbient();

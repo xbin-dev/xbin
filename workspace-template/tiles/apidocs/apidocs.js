@@ -5,6 +5,7 @@
  * spec is standard OpenAPI, so the "spec" link also feeds Swagger UI / Postman.
  */
 import { LitElement, html, css, nothing } from 'lit';
+import { scrollCss } from '/vendor/scroll-css.js';
 import { unsafeHTML } from 'lit';
 import { marked } from '/vendor/marked.esm.js';
 
@@ -26,7 +27,7 @@ const METHOD_COLOR = {
 export class BxApiDocs extends LitElement {
   static properties = { _spec: { state: true }, _q: { state: true }, _open: { state: true }, _err: { state: true } };
 
-  static styles = css`
+  static styles = [scrollCss, css`
     :host { display: block; font: var(--bx-font, 13px/1.5 system-ui, sans-serif); color: var(--bx-text, #d4d9e0);
             background: var(--bx-panel, #23272e); }
     .top { position: sticky; top: 0; z-index: 1; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
@@ -66,7 +67,7 @@ export class BxApiDocs extends LitElement {
     .muted { color: var(--bx-muted, #868f9a); }
     .req { color: var(--bx-red, #ef5350); font-size: 10px; }
     .err { color: var(--bx-red, #ef5350); padding: 20px 14px; }
-  `;
+  `];
 
   constructor() { super(); this._q = ''; this._open = new Set(); }
 

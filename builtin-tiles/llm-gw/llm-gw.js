@@ -8,6 +8,7 @@
  * one backend is configured.
  */
 import { LitElement, html, css, nothing } from 'lit';
+import { scrollCss } from '/vendor/scroll-css.js';
 
 import { selfApi as api } from '/vendor/bx-kit.js';
 
@@ -32,7 +33,7 @@ export class BxLlmGw extends LitElement {
     _busy: { state: true },
   };
 
-  static styles = css`
+  static styles = [scrollCss, css`
     :host { display: block; font: var(--bx-font, 13px/1.45 system-ui, sans-serif);
             color: var(--bx-text, #d4d9e0); background: var(--bx-panel, #23272e); }
     .body { padding: 12px 14px; }
@@ -78,7 +79,7 @@ export class BxLlmGw extends LitElement {
     .models-head { display: flex; align-items: baseline; justify-content: space-between; }
     .spin { display: inline-block; animation: spin 0.8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
-  `;
+  `];
 
   constructor() {
     super();

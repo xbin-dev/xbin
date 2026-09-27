@@ -18,6 +18,7 @@
  * anyway.
  */
 import { LitElement, html, css, nothing } from 'lit';
+import { scrollCss } from '/vendor/scroll-css.js';
 import '/vendor/bx-multiselect.js';
 import { netOptions } from '/vendor/bx-netrules.js';
 import { capInfo } from '/vendor/bx-allow.js';
@@ -47,7 +48,7 @@ export class BxTileAdmin extends LitElement {
     _busy: { state: true },
   };
 
-  static styles = css`
+  static styles = [scrollCss, css`
     :host {
       display: block; min-width: 0; font: var(--bx-font, 12.5px/1.45 system-ui, sans-serif);
       color: var(--bx-text, #d4d9e0);
@@ -95,7 +96,7 @@ export class BxTileAdmin extends LitElement {
     .row { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
     .kv { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; font-size: 11.5px; }
     .kv .k { color: var(--bx-muted, #868f9a); }
-  `;
+  `];
 
   constructor() {
     super();

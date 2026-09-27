@@ -11,6 +11,7 @@
  * (the signed-in user), like bx-code. Live-refreshes on `pr` events.
  */
 import { LitElement, html, css, nothing } from 'lit';
+import { scrollCss } from '/vendor/scroll-css.js';
 import { unsafeHTML } from 'lit';
 import { diffHTML, diffStats } from '/vendor/bx-code.js';
 import { onEvent } from '/vendor/events-socket.js';
@@ -38,7 +39,7 @@ export class BxPrs extends LitElement {
     _err: { state: true },
   };
 
-  static styles = css`
+  static styles = [scrollCss, css`
     :host { display: flex; height: 100%; min-height: 0; font: 12px/1.5 var(--bx-mono, ui-monospace, monospace);
       color: var(--bx-text, #d4d9e0); background: var(--bx-panel, #23272e); }
     .side { width: 230px; flex: none; display: flex; flex-direction: column; border-right: 1px solid var(--bx-border, #363c45); min-height: 0; }
@@ -92,7 +93,7 @@ export class BxPrs extends LitElement {
     .actions button[disabled] { opacity: .5; cursor: default; }
     .muted { color: var(--bx-muted, #868f9a); padding: 12px; display: block; }
     .err { color: var(--bx-red, #ef5350); padding: 6px 12px; }
-  `;
+  `];
 
   constructor() {
     super();

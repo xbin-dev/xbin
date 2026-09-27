@@ -329,6 +329,10 @@ build errors overlay the frame with compiler output until the next good save.
 CSS tokens in `/vendor/theme.css` — link it and use `--bx-bg/-panel/
 -panel-2/-border/-text/-muted/-accent/-green/-amber/-red/-radius/-shadow/
 -font/-mono` (plus `body.bx` base and the `.bx-label` small-caps class).
+The sheet also gives your document the workspace's thin scrollbars, with the
+one the next scroll would move tinted amber; a lit component's own shadow
+root takes them with `import { scrollCss } from '/vendor/scroll-css.js'` in
+its `static styles`.
 Match it in your components; override tokens per document to retheme. The
 entire workspace layout (top bar, sidebar, card canvas) is the **`shell/`
 component in this workspace** — `<bx-shell>` in `shell/bx-shell.js`,
