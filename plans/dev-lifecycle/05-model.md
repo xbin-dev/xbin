@@ -167,9 +167,21 @@ own code: the work tree for the live reload target, the checkpoint otherwise.
 
 | Tile-level (work tree) | Deployment-level (the deployment's code) |
 |---|---|
-| existence (`xbin.json` / `index.html`), path, scope membership (`scope.json`), `chrome`, `template`, `uses`, `interfaces`, `provides`, `exposes`, `expose.roles`, `deps` | `runtime`, `entry`, `setup`, `alwaysOn`, `vm`, `inject`, `native`, and every file the frontend serves and the backend executes |
+| existence (`xbin.json` / `index.html`), path, scope membership (where `scope.json` sits), `chrome`, `template`, `uses`, `interfaces`, `provides`, `exposes`, `expose.roles`, `deps` | `runtime`, `entry`, `setup`, `alwaysOn`, `vm`, `inject`, `native`, the **resources the scope declares** (`scope.json`'s `resources`), and every file the frontend serves and the backend executes |
 
 Consequences:
+- **Resources are provisioned per deployment, from the deployment's own
+  code** (owner, 2026-09-27). A dev deployment whose code declares a new kv,
+  sqlite or fs resource gets it provisioned in its own namespace, and it
+  exists nowhere else. The primary gains it only when code declaring it is
+  promoted. Development usually needs more resources than the older code in
+  production, so resources split per deployment rather than lock-step. A
+  resource the primary's code no longer declares is kept, not deleted, which
+  matches today's behaviour. For a scope whose `scope.json` belongs to no tile
+  (a plain-directory scope), the declarations come from that file for every
+  deployment. Resource *limits* (quota share, cgroup memory) are also
+  per-deployment settings, defaulting to the tile's (`08-data.md`,
+  `07-runtime.md`).
 - **Authority requests track the tile's latest intent.** A `uses` entry added
   in the work tree files its pending grant as today. Approval grants the
   tile. A deployment whose code doesn't use the grant simply doesn't use it.
@@ -208,7 +220,8 @@ primary. Adding a deployment adds no inbound path.
 - the **deployment URL** (`/c/<tile>+<name>/`, `/api/<tile>+<name>/…`), for
   humans with at least `write` on the tile;
 - the tile's own **terminal and agent sessions**, whose own calls go to their
-  **target deployment**;
+  **target deployment**, chosen in the terminal's API dropdown (default: the
+  primary, P24);
 - the deployment's **own self-calls**.
 
 **Self-calls stay inside the caller's deployment (P12).**
@@ -369,9 +382,11 @@ non-primary deployments but not operate them.
   serves the checkpoint.
 - **VM backends (D89/D90)** run one guest per deployment, counted against the
   VM budget.
-- **`runtime: "cgi"`** is excluded from pinning and non-primary deployments
-  until cgi runs sandboxed. It runs on the host today, which is a separate
-  urgent fix (research/side-findings.md #1).
+- **`runtime: "cgi"` is being removed from xbin** (owner, 2026-09-27; its
+  own change and decision, branch `remove-cgi`). It ran tile code on the host
+  outside every sandbox (research/side-findings.md #1). This design assumes
+  it is gone: a cgi manifest is a manifest error, and nothing here handles
+  cgi.
 - **Chrome tiles** (root, shell, `chrome: true`) **and tiles holding
   `xbin`/`xbin:*` capabilities** may pause live reload: freezing their code is
   safe. They may not have non-primary deployments, because workspace
@@ -430,7 +445,7 @@ When D113 is built, **tile-managed sandboxes belong to the deployment**:
 | P4 | Parity: terminal-level users and their agents deploy to the primary as saving does today. Tile managers can protect the primary. | ratified 2026-09-27 |
 | P5 | The zero state is byte-for-byte today. Opting out returns to it. No manifest key. | proposed |
 | P6 | Storage follows the deployment. `main` owns today's keys forever. | proposed |
-| P7 | Primary is a role. Only the primary receives inbound edges. Reassignment moves routing, not data. | proposed |
+| P7 | Primary is a role. Only the primary receives inbound edges. Reassignment moves routing, not data. | owner-confirmed 2026-09-27 |
 | P8 | Live reload attaches to at most one deployment, which runs the work tree directly. The default path adds no per-save cost. | proposed |
 | P9 | Pinned means pinned. Every restart path runs the pinned checkpoint, and built artifacts are kept per checkpoint. | proposed |
 | P10 | Promotion moves code only. Data, vault, config and routing are late-bound to the target. | proposed |
@@ -441,9 +456,12 @@ When D113 is built, **tile-managed sandboxes belong to the deployment**:
 | P15 | Deployment state is xbind-owned (`data/`), never in the root `xbin.json` or the work tree. | proposed |
 | P16 | Every git or tool run touching tile code happens in confine. The checkpoint store is confine-only. Materialized trees are served with containment and never followed out through symlinks. | proposed |
 | P17 | Deployment URL qualifier `+`; the bare URL is the primary. Non-primary markers (env, header, event, frame-token claim) are additive and absent for `main`. | proposed |
-| P18 | Pinned or non-primary backends need isolation. Static tiles pause everywhere. cgi is excluded until sandboxed. | proposed |
-| P19 | Chrome tiles and xbin-capable tiles may pause, but can't have non-primary deployments. | proposed |
+| P18 | Pinned or non-primary backends need isolation: non-isolated mode is not a supported production mode. Static tiles pause everywhere. cgi no longer exists. | owner-confirmed 2026-09-27 |
+| P19 | Chrome tiles and xbin-capable tiles may pause, but can't have non-primary deployments. | owner-confirmed 2026-09-27 |
 | P20 | A non-primary deployment is an accident boundary, not a trust boundary. | proposed |
+| P22 | Resource declarations are deployment-level. Each deployment provisions what its own code declares, in its own namespace, with per-deployment limits defaulting to the tile's. | owner-confirmed 2026-09-27 |
+| P23 | Edges that cannot be read-clamped (custom roles, raw streams, lan-ingress) are blocked for non-primary deployments in v1. Un-restricting later is easy; loosening after the fact is not. | owner-confirmed 2026-09-27 |
+| P24 | The terminal's API dropdown selects the session's target deployment, defaulting to the primary. A protected primary is not offered, and the default then falls to the live reload target. | owner-confirmed 2026-09-27 |
 | P21 | A protected primary cannot be the live reload target. Every change to its code is a tile-manager act, and terminal/agent tokens cannot target it. | proposed |
 
 ## 14. Worked flows

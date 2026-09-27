@@ -162,9 +162,12 @@ existing component wins, so existing directories keep resolving. The bare URL
 always means the primary. `<tile>+<primary name>` also works.
 
 **Target deployment.** The deployment that a terminal or agent session's own
-calls and `bx` commands address by default. It defaults to the live reload
-target, or the primary when live reload is paused. It is exposed to the
-session as `XBIN_DEPLOYMENT`, set only when the target is not the primary.
+calls and `bx` commands address. It is chosen in the terminal window's API
+dropdown, which today switches the tile API on or off, and gains one entry
+per deployment the user may reach. The default is the **primary**. When the
+primary is protected it is not offered, and the default falls to the live
+reload target. It is exposed to the session as `XBIN_DEPLOYMENT`, set only
+when the target is not the primary.
 
 ### Live reload and moving code
 
