@@ -3537,3 +3537,49 @@ Deviations and refinements made while implementing; all deliberate:
     windows and recents; the stale device deleted) instead of adding a
     duplicate.
 
+- **D115 — Coding sandboxes come from sandbox managers: tiles that implement
+  a service contract (`sandbox-manager`), which the agent and other tiles
+  multi-bind; each consumer sees its own partition (2026-09-27).**
+  docs/sandbox-manager.md; plans/sandbox-managers.md.
+  - **Chosen.** Sandboxes are not built into the agent tile (owner): a
+    *manager* tile provides the `sandbox-manager` service (role `consumer`,
+    the D86 custom-role pattern), and consumers request it on a multi
+    `http` slot (`sandboxes`). The builtin manager is the `coding-sandbox`
+    template, on xbind's tile-sandbox runtime (D113, revised: only managers
+    hold `cap:sandboxes`); anyone may write another — over a cloud's API and
+    ssh. The contract (protocol 1, negotiated by `hello`) covers sandboxes
+    and their lifecycle, blocking `run`, background execs read by byte
+    offset with a long-poll, a TTY WebSocket on the `/ws/term` wire, files
+    and tar, and optional snapshots, clones and archives. **Partitions**
+    (owner): a sandbox belongs to the consumer that created it
+    (`X-XBin-From`) and is shared with other consumers explicitly. A
+    person is verified on a page's calls (`X-XBin-User`) and asserted by a
+    consumer's backend (`Sbx-User`, recorded as asserted). No xbin identity
+    ever enters a sandbox. In the agent: a sandbox is bound per conversation
+    (`Config.Sandbox`, plus `Attached` for subagents), in `runs.config` like
+    D111's pick; `sandbox_create` takes the owner's grant (D111).
+  - **Not chosen:** sandboxes inside the agent; one manager-wide set visible
+    to every bound consumer; a bindings table (the config is read every turn
+    and inherited by subagents already); manager-side glob/grep (keeps the
+    contract implementable on a cloud); SSE or WebSocket for exec output
+    (offsets resume across restarts); the agent keeping `cap:sandboxes`
+    (D113 §7 — every tile would need the cap and the runtime's attention).
+
+- **D116 — The agent's lane becomes admin-defined classes of toolsets
+  (2026-09-27).** builtin-templates/agent/API.md §Classes;
+  plans/sandbox-managers.md.
+  - **Chosen.** A class names the toolsets a conversation gets (`files`,
+    `repl`, `web`, `internal`, `sandbox`, `subagents`, `schedule`, `threads`,
+    `skills`; the core tools always), which MCP servers and sandbox managers
+    and which sandbox egress it may use, and optionally a model and a system
+    addendum. Built in: `internal` (today's private lane), `web` (today's web
+    lane) and `coding` (sandbox + web). A class is fixed per conversation.
+    The toolset firewall (a run gets internal reach or egress, never both)
+    becomes the class's property: a class that mixes them takes an explicit
+    confirmation and says so; the built-ins never do. `toolset:
+    "private"|"web"` keeps working everywhere, mapped to the built-ins, and
+    `toolset()` keeps answering the lane from the class, so skills and
+    channels keyed by it are unchanged.
+  - **Not chosen:** a third lane for coding; switching class mid-conversation;
+    per-person class grants beyond managers/everyone (not asked for yet).
+
