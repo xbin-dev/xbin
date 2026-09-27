@@ -38,9 +38,10 @@ type snapKept struct{ opaque, owned bool }
 // file of the base removed), an opaque directory (one of the base's
 // removed and made again, holding only a new file), a file owned by 1000
 // (where the sandbox maps more than root) and a plain one. The kernel
-// overlay of a tile sandbox can't remove a directory of the base here
-// (EIO; fuse-overlayfs and a VM can), and a host mapping one uid can't
-// chown: it answers what it made.
+// overlay can't remove a directory of the base (EIO: internal/sandbox
+// mounts it without userxattr, so in a user namespace it has no xattrs for
+// an opaque directory; fuse-overlayfs and a VM can), and a host mapping
+// one uid can't chown: it answers what it made.
 func snapState(le *liveEnv, name, v string) (k snapKept) {
 	le.probeOK(name, "rm", "/etc/debian_version")
 	if out, ex := le.probe(name, "rm", "/usr/share/doc"); ex.Code == 0 {
@@ -50,7 +51,7 @@ func snapState(le *liveEnv, name, v string) (k snapKept) {
 	} else if overlayFlavour() != layers.OverlayKernel || le.runOf(name).def.Mode != ModeNamespace {
 		le.t.Fatalf("rm -rf /usr/share/doc in %s: %q", name, out)
 	} else {
-		le.t.Logf("the kernel overlay can't remove a directory of the base here: %q (the opaque-directory case is fuse-overlayfs's and a VM's)", out)
+		le.t.Logf("the kernel overlay (no userxattr) can't remove a directory of the base: %q (the opaque-directory case is fuse-overlayfs's and a VM's)", out)
 	}
 	le.probeOK(name, "mkdir", "/work")
 	le.probeOK(name, "write", "/work/v", v)
