@@ -1,7 +1,9 @@
 package server
 
 import (
+	"cmp"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
@@ -11,6 +13,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/gpu"
 	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // registerCoreAPI mounts the always-present /api/xbin/* endpoints. Broker,
@@ -250,7 +253,8 @@ func (s *Server) apiComponent(w http.ResponseWriter, r *http.Request) {
 // token is re-bound to the caller's user and to the caller's credential
 // generation: a human's login session, or — a tile renewing — the
 // generation its own token carries, so logout / revocation /
-// sign-out-everywhere end the renewals too.
+// sign-out-everywhere end the renewals too. Which deployment's document it
+// is for is frameTokenOf's; ?deployment= is echoed (11-contract §7.2, §8).
 func (s *Server) apiFrameToken(w http.ResponseWriter, r *http.Request) {
 	comp := r.URL.Query().Get("component")
 	p := auth.PrincipalOf(r)
@@ -259,7 +263,68 @@ func (s *Server) apiFrameToken(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusForbidden, "cannot mint frame token for this tile")
 		return
 	}
-	WriteJSON(w, http.StatusOK, map[string]string{
-		"token": s.Auth.MintFrameTokenFor(p, comp, frameTokenTTL),
-	})
+	dep := r.URL.Query().Get("deployment")
+	tok, code, msg := s.frameTokenOf(p, comp, dep)
+	if code == 0 && tok == "" {
+		code, msg = http.StatusForbidden, "cannot mint frame token for this tile"
+	}
+	if code != 0 {
+		WriteError(w, code, msg, map[bool]string{true: "/docs/auth.md", false: "/docs/protocol.md"}[code == http.StatusForbidden])
+		return
+	}
+	out := map[string]string{"token": tok}
+	if dep != "" {
+		out["deployment"] = dep
+	}
+	WriteJSON(w, http.StatusOK, out)
+}
+
+// badDeploymentName is 11-contract §1.14's text for a malformed name.
+const badDeploymentName = `deployment names are lowercase letters, digits and "-", start with a letter, at most 24 characters`
+
+// frameTokenOf mints comp's frame token for p, whom apiFrameToken admitted
+// (11-contract §7.2), or answers the refusal's status and text.
+//   - The tile's own credential renews its bound deployment's token (P12): a
+//     frame keeps its claim, as it keeps its generation; a terminal or agent
+//     session that follows the primary gets the current primary's. It may
+//     name only that deployment, and one bound beyond the primary renews only
+//     while its user writes the tile.
+//   - A person gets the primary's token, or the named deployment's: read for
+//     the primary, write at their current level for any other, checked at
+//     every renewal (P7, P20).
+//
+// A tile without a deployment record has main alone, the primary, whose
+// token is today's: no claim, minted exactly as before tile deployments (P5).
+func (s *Server) frameTokenOf(p auth.Principal, comp, dep string) (tok string, code int, msg string) {
+	if dep != "" && !util.DeploymentNameOK(dep) {
+		return "", http.StatusBadRequest, badDeploymentName
+	}
+	tile := s.owningComponent(comp) // an xbin.window sub-path is its tile's
+	primary := s.primaryOf(tile)
+	if p.Component != "" {
+		bound, err := s.boundDeployment(p, tile)
+		switch {
+		case errors.Is(err, util.ErrNoDeployment):
+			return "", http.StatusNotFound, err.Error()
+		case err != nil:
+			return "", http.StatusForbidden, err.Error()
+		case dep != "" && dep != bound:
+			return "", http.StatusForbidden, "a tile's own credentials act only on their own deployment (" + bound + ")"
+		case bound != primary && !writesTile(p, tile):
+			return "", http.StatusForbidden, "deployment URLs need write access on " + tile
+		case p.Via == "terminal" && p.Deployment == "" && bound != util.MainDeployment:
+			return s.Auth.MintFrameTokenForDeployment(p, comp, bound, frameTokenTTL), 0, ""
+		}
+		return s.Auth.MintFrameTokenFor(p, comp, frameTokenTTL), 0, ""
+	}
+	target := cmp.Or(dep, primary)
+	switch {
+	case target != primary && !p.CanWriteTile(tile):
+		return "", http.StatusForbidden, "deployment URLs need write access on " + tile
+	case !s.policy().HasDeployment(tile, target):
+		return "", http.StatusNotFound, util.NoDeployment(tile, target).Error()
+	case target == util.MainDeployment:
+		return s.Auth.MintFrameTokenFor(p, comp, frameTokenTTL), 0, ""
+	}
+	return s.Auth.MintFrameTokenForDeployment(p, comp, target, frameTokenTTL), 0, ""
 }
