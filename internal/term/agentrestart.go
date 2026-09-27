@@ -19,8 +19,17 @@ import (
 // tile, provider, current mode, current settings (model, effort, …) and name
 // carry over. Only the session's creator may: the new one mounts the
 // caller's $HOME and resumes from the caller's history. resumed reports
-// which it was.
-func (m *Manager) RestartAgent(p auth.Principal, id, net, gpu string, api bool, vm *bool) (info SessionInfo, resumed bool, code int, err error) {
+// which it was. The new session takes the default target (P24).
+func (m *Manager) RestartAgent(p auth.Principal, id, net, gpu string, api bool, vm *bool) (SessionInfo, bool, int, error) {
+	return m.RestartAgentOnto(p, id, net, gpu, api, vm, "")
+}
+
+// RestartAgentOnto is RestartAgent onto a requested target (P24):
+// deployment names a deployment of the tile, "" takes the default
+// (11-contract §7.4). The target is chosen before the session ends, so a
+// refused one (403 a protected primary, 404 unknown, 400 not a name) leaves
+// the session running.
+func (m *Manager) RestartAgentOnto(p auth.Principal, id, net, gpu string, api bool, vm *bool, deployment string) (info SessionInfo, resumed bool, code int, err error) {
 	s, st, err := m.agentOf(id)
 	if err != nil {
 		return SessionInfo{}, false, 404, err
@@ -38,6 +47,10 @@ func (m *Manager) RestartAgent(p auth.Principal, id, net, gpu string, api bool, 
 		inVM = *vm // nil keeps the session's sandbox kind
 	}
 	options := currentOptions(st.log)
+	probe := openOpts{api: api}
+	if c, err := m.pickTarget(p, &probe, s.Cwd, deployment); err != nil {
+		return SessionInfo{}, false, c, err
+	}
 
 	s.kill()
 	select { // history saved, the tile's layer released, the row gone
@@ -55,7 +68,7 @@ func (m *Manager) RestartAgent(p auth.Principal, id, net, gpu string, api bool, 
 		}
 	}
 	info, code, err = m.OpenAgentWith(p, AgentOpen{Cwd: s.Cwd, Net: net, GPU: gpu, NoAPI: !api, VM: inVM,
-		Provider: provider, Mode: mode, Name: name, Resume: resume, Options: options})
+		Provider: provider, Mode: mode, Name: name, Resume: resume, Options: options, Deployment: deployment})
 	return info, resume != "", code, err
 }
 
