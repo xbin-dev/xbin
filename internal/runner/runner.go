@@ -104,6 +104,9 @@ type Runner struct {
 	// the watcher/grant respawn paths (run.Changed) can't bring a disabled backend
 	// back. nil = always allowed. Wired to the registry lifecycle by main.
 	ShouldRun func(comp string) bool
+	// AlwaysOnSwitched names tile's non-primary deployments whose alwaysOn
+	// switch is on (alwayson.go, 07-runtime §11); nil = none.
+	AlwaysOnSwitched func(tile string) []string
 	// SpawnUser, when non-nil, returns uid/gid to run a component's backend
 	// as (auth tier 2, per-scope uids). nil = same-user (tier 1).
 	SpawnUser func(c *registry.Component) *syscall.Credential
@@ -158,6 +161,7 @@ type Runner struct {
 	// Cgroup, when set, attaches each backend to a per-component cgroup v2 leaf
 	// for memory/CPU/pids accounting (best-effort; nil-safe).
 	Cgroup *cgroup.Manager
+	cgOps  cgroupOps   // limits.go: a test's cgroup manager in Cgroup's place; nil = Cgroup
 	VM     *vm.Manager // "vm" backends (vm.go); nil = none
 	vms    vmState
 	// Sandboxes lists every running generation (sbx.go, D112; nil-safe).
@@ -396,11 +400,8 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error
 			s.lastErr = crashLoopError(c.Path, dep, code, recent)
 			r.emit(c.Path, dep, "build-error", s.lastErr.Error())
 		} else {
-			s.dirty = true // transparent restart on next request
-			// alwaysOn is the primary's (alwayson.go)
-			if dep == r.primary(c.Path) {
-				go r.afterExit(c)
-			}
+			s.dirty = true           // transparent restart on next request
+			go r.afterExitOf(c, dep) // alwaysOn: each deployment's own (alwayson.go)
 		}
 	}()
 
@@ -427,11 +428,10 @@ func (r *Runner) startDeployment(c *registry.Component, dep, bin string, gen int
 	var cmd *exec.Cmd
 	var sb *sandbox.Handle
 	var pol sandbox.EgressPolicy
+	var netWhy string // why the net verdict withheld egress (netmux.go)
 	cleanup := func() {}
 	if r.Isolate && sandboxable(c.Manifest.Runtime) {
-		if r.Egress != nil {
-			pol = r.Egress(c)
-		}
+		pol, netWhy = r.spawnEgress(c)
 		// Build the component's env layer (setup deps) if declared, then stack it.
 		envLower, err := r.ensureEnvLayer(c)
 		if err != nil {
@@ -473,6 +473,7 @@ func (r *Runner) startDeployment(c *registry.Component, dep, bin string, gen int
 		return nil, err
 	}
 	fmt.Fprintf(logf, "--- gen %d start %s ---\n", gen, time.Now().Format(time.RFC3339))
+	logVerdict(logf, netWhy)
 	cmd.Stdout, cmd.Stderr = logf, logf
 
 	if err := cmd.Start(); err != nil {
@@ -482,43 +483,33 @@ func (r *Runner) startDeployment(c *registry.Component, dep, bin string, gen int
 		r.sbxFail(c, sbx.Start, err)
 		return nil, fmt.Errorf("start backend: %w", err)
 	}
+	leaf := r.chooseLeaf(c.Path, dep) // limits.go: flat while main runs alone
 	mode, unlist := r.modeOf(c, sock), r.sbxAdd(c, gen, sock, cmd.Process.Pid)
 	r.registerInstance(token, c.Path, dep)
-	if b, ok := r.vmLeafBytes(sock); ok && r.Cgroup != nil {
-		r.Cgroup.AddMem(util.CompKey(c.Path), cmd.Process.Pid, b)
-	} else if r.Cgroup != nil {
-		r.Cgroup.Add(util.CompKey(c.Path), cmd.Process.Pid)
-	}
+	r.joinLeaf(c.Path, dep, leaf, sock, cmd.Process.Pid)
 	// Range-uid sandbox: map the child's uids and release its init (which is
 	// blocked waiting) before anything reads back from it (e.g. the TUN fd).
 	if err := sb.SetupUserns(); err != nil {
 		fmt.Fprintf(logf, "userns setup: %v\n", err)
 	}
 
-	inst := &instance{gen: gen, sock: sock, token: token, cmd: cmd, started: time.Now(), egress: pol.Strings(), waitCh: make(chan struct{})}
+	inst := &instance{gen: gen, sock: sock, token: token, cmd: cmd, started: time.Now(), egress: pol.Strings(), waitCh: make(chan struct{}), leaf: leaf}
 
 	// Network setup: the init handed back its TUN fd(s) — egress first, then one
 	// per provider client-link, then this component's own lan-ingress legs. The
 	// egress is either spliced to a provider tile (this component is a client of
 	// it) or run through the userspace relay.
 	if sb.NeedsRelay() {
-		var netClients []sandbox.NetClient
-		if r.NetRoster != nil {
-			netClients = r.NetRoster(c)
-		}
-		provider, _, _, spliced := "", "", "", false
-		if r.NetTarget != nil {
-			provider, _, _, spliced = r.NetTarget(c)
-		}
+		np := r.netPlanFor(c, dep, logf) // netmux.go: a non-primary view gets no primary-only wiring (P23)
 		if fd, err := sb.RecvTUN(); err != nil {
 			fmt.Fprintf(logf, "egress tun: %v (egress disabled)\n", err)
-		} else if spliced {
-			r.ensureProvider(provider) // provider must be up so its links are registered
-			if pfd, ok := r.netmux.get(provider, c.Path); ok {
+		} else if np.spliced {
+			r.ensureProvider(np.provider) // provider must be up so its links are registered
+			if pfd, ok := r.netmux.get(np.provider, c.Path); ok {
 				inst.splicer = relay.Splice(fd, pfd)
-				inst.provider = provider
+				inst.provider = np.provider
 			} else {
-				fmt.Fprintf(logf, "net provider %s link not ready — no egress\n", provider)
+				fmt.Fprintf(logf, "net provider %s link not ready — no egress\n", np.provider)
 			}
 		} else {
 			cfg := relay.Config{TunFD: fd, Allow: pol.Allow, Resolver: sandbox.HostResolver()}
@@ -536,12 +527,10 @@ func (r *Runner) startDeployment(c *registry.Component, dep, bin string, gen int
 				cfg.Published = r.Published
 				cfg.HairpinDial = r.HairpinDial
 			}
-			if r.IngressFwd != nil {
-				if m := r.IngressFwd(c); len(m) > 0 {
-					cfg.Gateway = netip.MustParseAddr(sandbox.GatewayIP)
-					cfg.HostFwd = m
-					cfg.HostDial = r.hostDial
-				}
+			if len(np.fwd) > 0 {
+				cfg.Gateway = netip.MustParseAddr(sandbox.GatewayIP)
+				cfg.HostFwd = np.fwd
+				cfg.HostDial = np.dial // ingress.go: checked at each dial, as the generation's deployment
 			}
 			if rl, err := relay.Start(cfg); err != nil {
 				fmt.Fprintf(logf, "egress relay: %v (egress disabled)\n", err)
@@ -550,7 +539,7 @@ func (r *Runner) startDeployment(c *registry.Component, dep, bin string, gen int
 			}
 		}
 		// Provider tile: receive one TUN per client link and register it.
-		for _, cl := range netClients {
+		for _, cl := range np.clients {
 			if fd, err := sb.RecvTUN(); err != nil {
 				fmt.Fprintf(logf, "client link %s: %v\n", cl.Name, err)
 			} else {
@@ -559,11 +548,7 @@ func (r *Runner) startDeployment(c *registry.Component, dep, bin string, gen int
 		}
 		// Lan-ingress legs: splice each to the provider's matching client link
 		// (registered under "<client>#<slot>" in its roster).
-		var netLinks []sandbox.NetLink
-		if r.NetLinks != nil {
-			netLinks = r.NetLinks(c)
-		}
-		for _, ll := range netLinks {
+		for _, ll := range np.links {
 			fd, err := sb.RecvTUN()
 			if err != nil {
 				fmt.Fprintf(logf, "lan-ingress link %s: %v\n", ll.Slot, err)
@@ -576,7 +561,7 @@ func (r *Runner) startDeployment(c *registry.Component, dep, bin string, gen int
 				fmt.Fprintf(logf, "lan-ingress provider %s link not ready for %s\n", ll.Provider, ll.Slot)
 			}
 		}
-		if len(netClients) > 0 {
+		if len(np.clients) > 0 {
 			// This provider (re)started with fresh link fds; any client already
 			// running is spliced to a now-stale fd, so nudge each to re-splice.
 			// Lan-ingress roster entries are keyed "<client>#<slot>" — strip to
@@ -591,7 +576,7 @@ func (r *Runner) startDeployment(c *registry.Component, dep, bin string, gen int
 						r.ChangedTile(cc)
 					}
 				}
-			}(netClients)
+			}(np.clients)
 		}
 	}
 
@@ -608,10 +593,8 @@ func (r *Runner) startDeployment(c *registry.Component, dep, bin string, gen int
 		for _, s := range inst.linkSplicers {
 			s.Close()
 		}
-		if r.Cgroup != nil {
-			r.Cgroup.Remove(util.CompKey(c.Path))
-		}
-		cleanup() // remove the sandbox spec temp file (init self-removes; this is a backstop)
+		r.leaveLeaf(leaf) // its own deployment's leaf alone (limits.go)
+		cleanup()         // remove the sandbox spec temp file (init self-removes; this is a backstop)
 		r.vmRelease(sock)
 		logf.Close()
 		r.Auth.RevokeInstance(token)

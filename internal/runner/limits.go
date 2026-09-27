@@ -1,13 +1,108 @@
 package runner
 
-// limits.go — a tile's cgroup leaves at their caps, for the workspace's
-// limit alerts. Today a tile has one flat leaf, comp-<CompKey>, which every
-// generation shares; a tile that runs a deployment beyond main moves to a
-// per-tile parent with a leaf per deployment (07-runtime §10.3), so the
-// alerts ask for the tile's hits rather than for one leaf, and each hit
-// names the deployment whose leaf it is (P25).
+// limits.go — a tile's cgroup leaves: which leaf a backend generation
+// starts in, with which caps, and which leaves hit their caps, for the
+// workspace's limit alerts. Today a tile has one flat leaf, comp-<CompKey>,
+// which every generation shares; a tile that runs a deployment beyond main
+// moves to a per-tile parent with a leaf per deployment (07-runtime §10.3),
+// so a generation keeps the leaf it started in (instance.leaf), the alerts
+// ask for the tile's hits rather than for one leaf, and each hit names the
+// deployment whose leaf it is (P25).
 
-import "github.com/xbin-dev/xbin/internal/util"
+import (
+	"github.com/xbin-dev/xbin/internal/cgroup"
+	"github.com/xbin-dev/xbin/internal/util"
+)
+
+// cgroupOps is what the runner asks of the cgroup manager: *cgroup.Manager,
+// or a test's model of the tree (Runner.cgOps).
+type cgroupOps interface {
+	Enabled() bool
+	Add(name string, pid int)
+	AddWith(name string, pid int, l cgroup.Limits)
+	AddMem(name string, pid int, memMax int64)
+	AddMemWith(name string, pid int, l cgroup.Limits, memMax int64)
+	Remove(name string)
+	Usage(name string) (cgroup.Usage, bool)
+	AtLimit(name string) (mem, pids int64, ok bool)
+	Procs(name string) ([]int, bool)
+	TileProcs(compKey string) ([]int, bool)
+	TileUsage(compKey string) (cgroup.Usage, bool)
+	TileLeaves(compKey string) []cgroup.Leaf
+}
+
+// cgroups is the runner's cgroup manager; nil without one.
+func (r *Runner) cgroups() cgroupOps {
+	if r.cgOps != nil {
+		return r.cgOps
+	}
+	if r.Cgroup == nil {
+		return nil // never a typed nil in the interface
+	}
+	return r.Cgroup
+}
+
+// chooseLeaf is the leaf a generation of deployment dep of tile starts in,
+// chosen once, at its start (07-runtime §10.3). main keeps the flat leaf,
+// util.CompKey(tile), while it runs alone: a zero-state or main-only tile
+// never gets the per-tile parent, and a record alone changes nothing (P5).
+// Any other deployment starts in its own leaf under the parent, which its
+// start creates; main moves in at its first generation after that, while
+// its old one drains in the flat leaf. No live process ever moves, and a
+// tile whose parent emptied starts main flat again.
+func (r *Runner) chooseLeaf(tile, dep string) string {
+	key := util.CompKey(tile)
+	if dep == util.MainDeployment {
+		cg := r.cgroups()
+		if cg == nil {
+			return key
+		}
+		if _, nested := cg.Usage(cgroup.TileNode(key)); !nested {
+			return key
+		}
+	}
+	return cgroup.DeploymentLeaf(key, dep)
+}
+
+// joinLeaf puts pid, of generation sock of deployment dep of tile, into leaf
+// with that deployment's caps: LimitsFor's, which default to the tile's and
+// never exceed its ceilings (P22), with the primary's node weighted first
+// (P25). A VM generation's leaf holds two guests (vmLeafBytes). Without
+// LimitsFor a leaf takes the caps installed on the manager, today's calls.
+func (r *Runner) joinLeaf(tile, dep, leaf, sock string, pid int) {
+	cg := r.cgroups()
+	if cg == nil {
+		return
+	}
+	b, isVM := r.vmLeafBytes(sock)
+	switch {
+	case r.LimitsFor == nil && isVM:
+		cg.AddMem(leaf, pid, b)
+	case r.LimitsFor == nil:
+		cg.Add(leaf, pid)
+	case isVM:
+		cg.AddMemWith(leaf, pid, r.leafLimits(tile, dep), b)
+	default:
+		cg.AddWith(leaf, pid, r.leafLimits(tile, dep))
+	}
+}
+
+// leafLimits are deployment dep of tile's caps, and its node's CPU weight:
+// the primary's above the others' (P25). A flat leaf has no such node.
+func (r *Runner) leafLimits(tile, dep string) cgroup.Limits {
+	l := r.LimitsFor(tile, dep)
+	l.NodeWeight = cgroup.DeploymentWeight(dep == r.primary(tile))
+	return l
+}
+
+// leaveLeaf removes an exited generation's leaf: a flat one as always, a
+// nested one only while no other generation of its deployment is in it, and
+// then its empty parents; never another deployment's (cgroup.Remove).
+func (r *Runner) leaveLeaf(leaf string) {
+	if cg := r.cgroups(); cg != nil && leaf != "" {
+		cg.Remove(leaf)
+	}
+}
 
 // LimitHit is one leaf of a tile that hit its memory or pids cap: the
 // cumulative counters cgroup keeps (memory.events "max", pids.events
@@ -23,16 +118,21 @@ type LimitHit struct {
 }
 
 // AtLimitTile reports tile's leaves whose limit-hit counters cgroup can
-// read; nil without cgroup accounting. A tile with the flat leaf answers it
-// alone, exactly as Cgroup.AtLimit(util.CompKey(tile)) does.
+// read, the flat leaf first; nil without cgroup accounting. A tile with
+// only the flat leaf answers it alone, exactly as
+// Cgroup.AtLimit(util.CompKey(tile)) does. A tile with the per-tile parent
+// answers each leaf beneath it too (and the flat one while main's old
+// generation drains there), each naming its deployment (P25).
 func (r *Runner) AtLimitTile(tile string) []LimitHit {
-	if r.Cgroup == nil {
+	cg := r.cgroups()
+	if cg == nil {
 		return nil
 	}
-	leaf := util.CompKey(tile)
-	mem, pids, ok := r.Cgroup.AtLimit(leaf)
-	if !ok {
-		return nil
+	var hits []LimitHit
+	for _, l := range cg.TileLeaves(util.CompKey(tile)) {
+		if mem, pids, ok := cg.AtLimit(l.Name); ok {
+			hits = append(hits, LimitHit{Deployment: l.Deployment, Leaf: l.Name, Mem: mem, Pids: pids})
+		}
 	}
-	return []LimitHit{{Leaf: leaf, Mem: mem, Pids: pids}}
+	return hits
 }
