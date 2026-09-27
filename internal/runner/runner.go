@@ -155,6 +155,7 @@ type Runner struct {
 
 	mu     sync.Mutex
 	states map[string]*state
+	engine *engine  // engine.go: nil = today's build, start, health, stop and clock
 	ao     alwaysOn // alwayson.go
 	netmux *netMux
 	stats  statsState // live per-tile resource stats (stats.go)
@@ -203,7 +204,7 @@ func (r *Runner) Ensure(ctx context.Context, c *registry.Component) (string, err
 
 	for {
 		s.mu.Lock()
-		s.lastReq = time.Now()
+		s.lastReq = r.now()
 		if !s.dirty && s.cur != nil {
 			sock := s.cur.sock
 			s.mu.Unlock()
@@ -249,14 +250,14 @@ func (r *Runner) Track(comp string) func() {
 	s := r.state(comp)
 	s.mu.Lock()
 	s.active++
-	s.lastReq = time.Now()
+	s.lastReq = r.now()
 	s.mu.Unlock()
 	var once sync.Once
 	return func() {
 		once.Do(func() {
 			s.mu.Lock()
 			s.active--
-			s.lastReq = time.Now()
+			s.lastReq = r.now()
 			s.mu.Unlock()
 		})
 	}
@@ -289,7 +290,7 @@ func (r *Runner) Changed(c *registry.Component) {
 func (r *Runner) buildAndStart(c *registry.Component, s *state) error {
 	r.Hub.Publish(events.Event{Type: "build-start", Component: c.Path})
 
-	bin, err := r.build(c)
+	bin, err := r.buildGen(c)
 	if err != nil {
 		r.Hub.Publish(events.Event{Type: "build-error", Component: c.Path, Text: err.Error()})
 		return err
@@ -305,20 +306,20 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state) error {
 	}
 	s.mu.Unlock()
 	if first {
-		r.stop(old, drainDeadline)
+		r.stopGen(old, drainDeadline)
 		old = nil
 	}
 
-	inst, err := r.start(c, bin, gen)
+	inst, err := r.startGen(c, bin, gen)
 	if err != nil {
 		r.Hub.Publish(events.Event{Type: "build-error", Component: c.Path, Text: err.Error()})
 		return err
 	}
-	if err := waitHealthy(inst.sock, inst.waitCh, r.healthFor(c)); err != nil {
+	if err := r.awaitHealthy(c, inst); err != nil {
 		if !errors.Is(err, errExited) && r.wantsVM(c) {
 			r.sbxFail(c, sbx.Health, fmt.Errorf("the VM backend never listened: %w", err))
 		}
-		r.stop(inst, 2*time.Second)
+		r.stopGen(inst, 2*time.Second)
 		err = fmt.Errorf("backend did not become healthy: %w", err)
 		r.Hub.Publish(events.Event{Type: "build-error", Component: c.Path, Text: err.Error()})
 		return err
@@ -328,7 +329,7 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state) error {
 	s.cur = inst
 	s.mu.Unlock()
 	if old != nil {
-		go r.stop(old, drainDeadline)
+		go r.stopGen(old, drainDeadline)
 	}
 
 	// Crash watch: if the healthy process dies without being replaced, mark
@@ -341,10 +342,10 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state) error {
 			return // replaced normally
 		}
 		s.cur = nil
-		s.crashes = append(s.crashes, time.Now())
+		s.crashes = append(s.crashes, r.now())
 		recent := 0
 		for _, t := range s.crashes {
-			if time.Since(t) < crashWindow*time.Duration(crashLimit) {
+			if r.now().Sub(t) < crashWindow*time.Duration(crashLimit) {
 				recent++
 			}
 		}
