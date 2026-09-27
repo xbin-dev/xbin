@@ -401,7 +401,7 @@ class is refused (400).
 | Method & path | Body | Purpose |
 |---|---|---|
 | `GET /classes` | — | `{classes: [class…], default}` — the classes the caller may start conversations in (a manager sees every one): the built-ins first, then the others as saved, each with `builtin`, `stored` (it is in the saved set — a built-in that is not is its default), `lane` (`private`\|`web`), `egress` and `mixed`; `default` is the class a new conversation of theirs gets when it names none |
-| `PUT /classes` | `{classes: [class…], default?, confirmMixed?}` | managers: replace the classes. A built-in left out comes back as its default (old conversations and APIs name it). **409** `{error, mixed: [id…]}` when a class mixes internal reach with egress and `confirmMixed` isn't set; **400** for a bad id (`a–z 0–9 -`, a letter first, ≤ 32), an unknown toolset or egress, a repeated id, an unknown `default`, or a `who` other than `everyone`/`managers`. Answers as `GET /classes` does |
+| `PUT /classes` | `{classes: [class…], default?, confirmMixed?}` | managers: replace the classes. A built-in left out comes back as its default (old conversations and APIs name it). **409** `{error, mixed: [id…]}` when a class mixes internal reach with egress and `confirmMixed` isn't set; **400** for a bad id (`a–z 0–9 -`, a letter first, ≤ 32), an unknown toolset or egress, a repeated id, an unknown `default`, or a `who` other than `everyone`/`managers`; **400** too for an edit that would take a class a channel runs strangers in — a channel policy's `webClass`, and the built-in `web` for every channel that names none — out of the web lane (losing its egress or gaining internal reach), or delete it (a built-in left out is fine: its default is web-lane); the error names the channel. Answers as `GET /classes` does |
 
 **In the tile.** The composer's class picker (at home, where a new chat
 starts) shows the classes you may use — icon and name, each one's
@@ -615,8 +615,9 @@ the agent decides everything else — which conversation a message joins (a
 session per DM, per thread), who may talk (pairing codes, allowlists,
 mentions), the lane (web by default: a reply is an egress) and its class
 (policy `webClass` for everyone, default `web` — a class that reaches outside
-and has no internal reach; `privateClass` for trusted people when
-`privateLane` is on, default `internal`) and the tools (`deny`). The adapter contract, the session keys, the chat commands (`/new`,
+and has no internal reach, which `PUT /classes` keeps so while a channel
+names it; `privateClass` for trusted people when `privateLane` is on,
+default `internal`) and the tools (`deny`). The adapter contract, the session keys, the chat commands (`/new`,
 `/status`, `/stop`, …) and the policy fields are in `/docs/agent-inbox.md`.
 
 A channel appears (kind `channel` in `GET /automations`, `access: "claim"`

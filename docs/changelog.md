@@ -55,9 +55,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   triggers; channel policies gain `privateClass`/`webClass`); `toolset:
   "private"|"web"` keeps working and names the built-ins, and
   `config.toolset` still says the lane. A conversation's class is fixed; the
-  view carries it as `class` (with `mixed`). The owner's grants became a
-  registry: the pending ask carries `pendingState.grantAsk` and each live
-  grant `{ask, chip}`.
+  view carries it as `class` (with `mixed`). `PUT /classes` refuses (400,
+  naming the channel) an edit that would take a class a channel runs
+  strangers in — its policy's `webClass`, or the built-in `web` for a
+  channel that names none — out of the web lane, or delete it. The owner's
+  grants became a registry: the pending ask carries
+  `pendingState.grantAsk` and each live grant `{ask, chip}`.
 
 - **Agent template: classes in the UI** (D116). The composer's 🔒/🌐 toggle
   is a class picker — icon and name, each class's description in its menu,

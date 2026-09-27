@@ -42,13 +42,19 @@ func init() {
 	registerAutomationKind(automationKind{Kind: "channel", Origin: "channel", List: channelItems})
 }
 
+// title is what the Automations page calls a channel: its name, else its
+// platform and account.
+func (c *Channel) title() string {
+	return orStr(c.Name, c.platformName()+" · "+orStr(c.AccountName, c.AccountID))
+}
+
 // channelItems lists channels as automations: yours and the team's; for a
 // manager also the others' (that they exist, not how they are set up) and
 // the unclaimed ones, to claim.
 func channelItems(w who) []AutomationItem {
 	var out []AutomationItem
 	for _, c := range agent.db.listChannels() {
-		it := AutomationItem{Kind: "channel", ID: c.ID, Name: orStr(c.Name, c.platformName()+" · "+orStr(c.AccountName, c.AccountID)),
+		it := AutomationItem{Kind: "channel", ID: c.ID, Name: c.title(),
 			Owner: c.Owner, Visibility: c.Visibility, Enabled: c.State == chActive, Mode: c.State,
 			Summary: c.platformName() + " · " + orStr(c.AccountName, c.AccountID) + " via " + c.Adapter}
 		switch lv := c.access(w); {
