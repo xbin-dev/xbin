@@ -75,7 +75,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   a pin can't be read, nothing is released that boot. `GET
   /api/xbin/sandboxes` lists the tile sandboxes' VM disks next to the
   terminal ones: each disk row gains `kind` (`terminal` | `tile`) and, for a
-  tile sandbox, `sandbox` (its name). Additive; nothing to change.
+  tile sandbox, `sandbox` (its name) and `sandboxUid` (its identity: a
+  sandbox deleted and re-created under the same name gets a new one).
+  Additive; nothing to change.
   ([protocol.md](protocol.md), [09-terminals](/docs/overview/09-terminals.md)
   §Base images.)
 - **Security: backups and restores never follow a planted symlink**

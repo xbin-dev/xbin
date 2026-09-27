@@ -90,8 +90,9 @@ type vmView struct {
 }
 
 // sandboxDisk is a VM disk on the host: a tile's terminal layer's (kind
-// terminal) or a tile sandbox's (kind tile, with its sandbox's name). Both
-// carry the tile's key, so both map to their tile the same way.
+// terminal) or a tile sandbox's (kind tile, with its sandbox's name and uid,
+// from its state dir's `<name>.<uid>`). Both carry the tile's key, so both
+// map to their tile the same way.
 type sandboxDisk struct {
 	vm.Disk
 	Tile  string `json:"tile,omitempty"` // "" = no tile has that key now

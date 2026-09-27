@@ -1,6 +1,7 @@
 package layers
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -8,25 +9,33 @@ import (
 	"testing"
 )
 
+// The sandbox state dirs of pinWS (`<name>.<uid>`).
+const (
+	webDir = "web.0123456789ab"
+	newDir = "new.aaaaaaaaaaaa"
+)
+
 // pinWS is a workspace whose layers pin, between them, every source:
 //
-//	.xbin/term/apps~t-1     b-term (stamped)
-//	.xbin/term/apps~old-2   (unstamped: predates stamps → v0)
-//	.xbin/term/view-abc     a staged view — not a layer
-//	.xbin/sbx/apps~m-3/web  b-sbx
-//	.xbin/sbx/apps~m-3/new  (unstamped: never started — pins nothing)
-//	.xbin/sbx/apps~m-3/web/snapshots/s1  b-snap
+//	.xbin/term/apps~t-1                        b-term (stamped)
+//	.xbin/term/apps~old-2                      (unstamped: predates stamps → v0)
+//	.xbin/term/view-abc                        a staged view — not a layer
+//	.xbin/sbx/apps~m-3/web.<uid>/cur           b-sbx
+//	.xbin/sbx/apps~m-3/web.<uid>/snapshots/s1  b-snap
+//	.xbin/sbx/apps~m-3/new.<uid>               (no cur/: never started — pins nothing)
 //
-// and the host has the current base (b-cur) plus preserved siblings for
-// every version, one of them pinned by nothing, and a sibling that isn't a
-// base image at all.
+// and, pinning nothing: what the trash holds (a deleted sandbox's state dir,
+// a reset's old cur), a staging dir, and dirs not named `<name>.<uid>`
+// (b-gone). The host has the current base (b-cur) plus preserved siblings
+// for every version, some pinned by nothing, and a sibling that isn't a base
+// image at all.
 func pinWS(t *testing.T) (ws, rootfs string) {
 	t.Helper()
 	root := t.TempDir()
 	ws = mkdir(t, filepath.Join(root, "ws"))
 	rootfs = filepath.Join(root, "rootfs")
 	stampBase(t, rootfs, "b-cur")
-	for _, v := range []string{"b-term", "v0", "b-sbx", "b-snap", "b-def", "b-free"} {
+	for _, v := range []string{"b-term", "v0", "b-sbx", "b-snap", "b-def", "b-free", "b-gone"} {
 		stampBase(t, rootfs+"-"+v, v)
 	}
 	mkdir(t, rootfs+"-notabase")
@@ -36,9 +45,20 @@ func pinWS(t *testing.T) (ws, rootfs string) {
 	mkdir(t, filepath.Join(term, "apps~old-2", "upper"))
 	mkdir(t, filepath.Join(term, "view-abc"))
 	sbx := filepath.Join(ws, ".xbin", "sbx", "apps~m-3")
-	must(t, Stamp(mkdir(t, filepath.Join(sbx, "web")), Stamps{Base: "b-sbx", Overlay: OverlayFuse}))
-	mkdir(t, filepath.Join(sbx, "new"))
-	must(t, Stamp(mkdir(t, filepath.Join(sbx, "web", "snapshots", "s1")), Stamps{Base: "b-snap", Overlay: OverlayFuse}))
+	must(t, Stamp(mkdir(t, filepath.Join(sbx, webDir, CurDir)), Stamps{Base: "b-sbx", Overlay: OverlayFuse}))
+	mkdir(t, filepath.Join(sbx, newDir))
+	must(t, Stamp(mkdir(t, filepath.Join(sbx, webDir, "snapshots", "s1")), Stamps{Base: "b-snap", Overlay: OverlayFuse}))
+	for _, d := range []string{
+		filepath.Join(sbx, ".trash", "fedcba987654", CurDir), // a deleted sandbox
+		filepath.Join(sbx, ".trash", "0123456789ab.r4nd"),    // a reset's old cur
+		filepath.Join(sbx, webDir, "tmp", "r4nd"),            // staging
+		filepath.Join(sbx, "old", CurDir),                    // no uid
+		filepath.Join(sbx, "old"),
+		filepath.Join(sbx, "odd.0123456789AB", CurDir), // not a uid
+		filepath.Join(sbx, ".hidden.0123456789ab", CurDir),
+	} {
+		must(t, Stamp(mkdir(t, d), Stamps{Base: "b-gone"}))
+	}
 	return ws, rootfs
 }
 
@@ -76,7 +96,7 @@ func remaining(t *testing.T, rootfs string) string {
 // and what isn't a base image).
 func TestPinnedUnionAndGC(t *testing.T) {
 	ws, rootfs := pinWS(t)
-	pins, err := Pinned(ws, func() []string { return []string{"b-def", ""} })
+	pins, err := Pinned(ws, func() ([]string, error) { return []string{"b-def", ""}, nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +104,8 @@ func TestPinnedUnionAndGC(t *testing.T) {
 		t.Fatalf("pinned: %s", got)
 	}
 	gone := GC(rootfs, pins)
-	if len(gone) != 1 || gone[0] != rootfs+"-b-free" {
+	sort.Strings(gone)
+	if len(gone) != 2 || gone[0] != rootfs+"-b-free" || gone[1] != rootfs+"-b-gone" {
 		t.Fatalf("released: %v", gone)
 	}
 	if got := remaining(t, rootfs); got != "b-def,b-sbx,b-snap,b-term,notabase,v0" {
@@ -97,7 +118,7 @@ func TestPinnedUnionAndGC(t *testing.T) {
 func TestGCKeepsSandboxOnlyPins(t *testing.T) {
 	ws, rootfs := pinWS(t)
 	os.RemoveAll(filepath.Join(ws, ".xbin", "term"))
-	pins, err := Pinned(ws, func() []string { return []string{"b-def"} })
+	pins, err := Pinned(ws, func() ([]string, error) { return []string{"b-def"}, nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,8 +128,8 @@ func TestGCKeepsSandboxOnlyPins(t *testing.T) {
 	}
 	// The snapshot is deleted, the sandbox reset onto the current base, the
 	// definition too: nothing old is pinned any more.
-	os.RemoveAll(filepath.Join(ws, ".xbin", "sbx", "apps~m-3", "web", "snapshots"))
-	must(t, Stamp(filepath.Join(ws, ".xbin", "sbx", "apps~m-3", "web"), Stamps{Base: "b-cur"}))
+	os.RemoveAll(filepath.Join(ws, ".xbin", "sbx", "apps~m-3", webDir, "snapshots"))
+	must(t, Stamp(filepath.Join(ws, ".xbin", "sbx", "apps~m-3", webDir, CurDir), Stamps{Base: "b-cur"}))
 	pins, err = Pinned(ws, nil)
 	if err != nil || keys(pins) != "b-cur" {
 		t.Fatalf("pinned: %s %v", keys(pins), err)
@@ -123,7 +144,7 @@ func TestGCKeepsSandboxOnlyPins(t *testing.T) {
 // unknown (nil) pins releases nothing.
 func TestPinnedUnreadableStampReleasesNothing(t *testing.T) {
 	ws, rootfs := pinWS(t)
-	stamp := filepath.Join(ws, ".xbin", "sbx", "apps~m-3", "web", BaseFile)
+	stamp := filepath.Join(ws, ".xbin", "sbx", "apps~m-3", webDir, CurDir, BaseFile)
 	os.Remove(stamp)
 	os.Symlink(filepath.Join(rootfs, VersionFile), stamp)
 	if _, err := Pinned(ws, nil); err == nil || !strings.Contains(err.Error(), "unreadable") {
@@ -134,6 +155,15 @@ func TestPinnedUnreadableStampReleasesNothing(t *testing.T) {
 	}
 	if got := remaining(t, rootfs); !strings.Contains(got, "b-free") {
 		t.Fatalf("left: %s", got)
+	}
+	// So is a cur/ swapped for a symlink (to a dir with a readable stamp):
+	// refused, not followed.
+	os.Remove(stamp)
+	cur := filepath.Dir(stamp)
+	os.Rename(cur, cur+".real")
+	os.Symlink(cur+".real", cur)
+	if _, err := Pinned(ws, nil); err == nil || !strings.Contains(err.Error(), "not a directory") {
+		t.Fatalf("a symlinked cur/: %v", err)
 	}
 	// A tree swapped for a symlink is refused, not walked.
 	sbx := filepath.Join(ws, ".xbin", "sbx")
@@ -155,17 +185,17 @@ func TestCheckPerLayer(t *testing.T) {
 	}
 	got := map[string]Layer{}
 	for _, l := range ls {
-		got[l.Tree+":"+l.Key+"/"+l.Sandbox+"/"+l.Snapshot] = l
+		got[l.Tree+":"+l.Key+"/"+l.Sandbox+"."+l.UID+"/"+l.Snapshot] = l
 	}
 	if len(got) != 5 {
 		t.Fatalf("layers: %+v", ls)
 	}
 	for id, want := range map[string]Layer{
-		"term:apps~t-1//":     {Stamps: Stamps{Base: "b-term"}, Resolved: rootfs + "-b-term", Outdated: true},
-		"term:apps~old-2//":   {Stamps: Stamps{Base: Legacy}, Resolved: rootfs + "-v0", Outdated: true},
-		"sbx:apps~m-3/web/":   {Stamps: Stamps{Base: "b-sbx", Overlay: OverlayFuse}, Resolved: rootfs + "-b-sbx", Outdated: true},
-		"sbx:apps~m-3/new/":   {},
-		"sbx:apps~m-3/web/s1": {Stamps: Stamps{Base: "b-snap", Overlay: OverlayFuse}, Missing: true, Outdated: true},
+		"term:apps~t-1/./":               {Stamps: Stamps{Base: "b-term"}, Resolved: rootfs + "-b-term", Outdated: true},
+		"term:apps~old-2/./":             {Stamps: Stamps{Base: Legacy}, Resolved: rootfs + "-v0", Outdated: true},
+		"sbx:apps~m-3/" + webDir + "/":   {Stamps: Stamps{Base: "b-sbx", Overlay: OverlayFuse}, Resolved: rootfs + "-b-sbx", Outdated: true},
+		"sbx:apps~m-3/" + newDir + "/":   {},
+		"sbx:apps~m-3/" + webDir + "/s1": {Stamps: Stamps{Base: "b-snap", Overlay: OverlayFuse}, Missing: true, Outdated: true},
 	} {
 		l, ok := got[id]
 		if !ok {
@@ -175,7 +205,55 @@ func TestCheckPerLayer(t *testing.T) {
 			t.Fatalf("%s: %+v, want %+v", id, l, want)
 		}
 	}
-	if l := got["sbx:apps~m-3/web/s1"]; l.Dir != filepath.Join(ws, ".xbin", "sbx", "apps~m-3", "web", "snapshots", "s1") {
-		t.Fatalf("snapshot dir: %q", l.Dir)
+	sbx := filepath.Join(ws, ".xbin", "sbx", "apps~m-3")
+	if l := got["sbx:apps~m-3/"+webDir+"/s1"]; l.Dir != filepath.Join(sbx, webDir, "snapshots", "s1") || l.Sandbox != "web" || l.UID != "0123456789ab" {
+		t.Fatalf("snapshot: %+v", l)
+	}
+	if l := got["sbx:apps~m-3/"+webDir+"/"]; l.Dir != filepath.Join(sbx, webDir, CurDir) {
+		t.Fatalf("a sandbox's layer is its cur/: %q", l.Dir)
+	}
+}
+
+// An error from the definitions' source (an unreadable definitions file)
+// makes the set unknown, as an unreadable stamp does; what it did return
+// still counts.
+func TestPinnedExtraError(t *testing.T) {
+	ws, _ := pinWS(t)
+	pins, err := Pinned(ws, func() ([]string, error) {
+		return []string{"b-def"}, errors.New("data/sandboxes.json: unexpected EOF")
+	})
+	if err == nil || !strings.Contains(err.Error(), "unexpected EOF") {
+		t.Fatalf("an erroring definitions source: %v", err)
+	}
+	if !pins["b-def"] || !pins["b-sbx"] {
+		t.Fatalf("pins: %s", keys(pins))
+	}
+}
+
+// A state dir name is `<name>.<uid>`, split at its last dot; the uid is 12
+// lowercase hex.
+func TestSplitStateDir(t *testing.T) {
+	for in, want := range map[string]string{
+		"web.0123456789ab":        "web 0123456789ab",
+		"a.b.0123456789ab":        "a.b 0123456789ab",
+		"web":                     "",
+		".trash":                  "",
+		".0123456789ab":           "",
+		".x.0123456789ab":         "",
+		"web.0123456789AB":        "",
+		"web.0123456789a":         "",
+		"web.0123456789abc":       "",
+		"web.0123456789ab.":       "",
+		"0123456789ab.r4nd":       "",
+		"web.0123456789ab.backup": "",
+	} {
+		n, u, ok := SplitStateDir(in)
+		got := ""
+		if ok {
+			got = n + " " + u
+		}
+		if got != want {
+			t.Errorf("SplitStateDir(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

@@ -2605,6 +2605,30 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
   doesn't; a malformed dir name is skipped; `extra` erroring makes
   `Pinned` error. `vm` `TestListDisks` for `cur/vm/disk.img`. `boot`
   `TestPinnedBases` with an erroring source.
+- **As built (p2/wp7b).** Additions, no departures:
+  - `layers.CurDir` (`"cur"`) and `layers.SplitStateDir(dir) (name, uid,
+    ok)`: the split at the last `.`; the uid must be 12 lowercase hex, the
+    name non-empty and not starting with `.` (so `.trash`, hidden and
+    uid-less dirs are skipped). The name's grammar is `tilesbx`'s and isn't
+    re-checked here: a widened name grammar must never un-pin a sandbox's
+    base. `vm.ListDisks` uses the same split; WP-13b's `StateDir`/`CurDir`
+    can build on it.
+  - A sandbox's `Layer.Dir` is its `cur/` (a snapshot's, `snapshots/<sid>/`);
+    both carry `Sandbox` and `UID`. A state dir with no `cur/` (never
+    started) is listed and pins nothing; a `cur` that is a symlink or a
+    file is listed with `Err` (so the pins are unknown), never followed.
+  - `Pinned` keeps what `extra` returned alongside its error (the caller
+    releases nothing on an error anyway).
+  - `Disk.SandboxUID` is `sandboxUid` in JSON (`GET /sandboxes`' disk
+    rows; protocol.md, openapi and the WP-7 changelog bullet amended, no
+    new bullet). `ListDisks` also skips a disk whose `cur` isn't a real
+    dir; a disk in `.trash` isn't listed (it is being removed).
+  - `boot/sandboxes.go` needed only its comment (the embedded `vm.Disk`
+    carries the uid). The admin tab puts the uid in the sandbox name's
+    hover title; the harness `sandboxes` pass asserts it.
+  - `term`: `TestEnsureLayerBaseKeepsBaseOverBadOverlay` pins the
+    `ensureLayerBase` fix; `TestCheckBaseImagesIgnoresTileSandboxes` uses
+    the `cur/` layout (and checks both are listed as layers).
 
 #### WP-8b — The `comp-tilesbx` parent, cgroup-fd starts, xattr-exact copies (B · S · now; before WP-15a)
 

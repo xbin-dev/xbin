@@ -521,8 +521,8 @@ GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
                                    disk?,net?,restricted?,owner?,name?,
                                    status?,uptimeSec,stats?:{cpu,mem,pids,
                                    scope}}], disks:[{kind (terminal|tile),
-                                   key,sandbox?,path,tile?,apparentBytes,
-                                   allocatedBytes,inUse}],
+                                   key,sandbox?,sandboxUid?,path,tile?,
+                                   apparentBytes,allocatedBytes,inUse}],
                                    failures:[{time,kind,tile,user?,mode,stage
                                    (refused|start|health|exit),error,count}],
                                    failureCounts:{<stage>:n}, cgroup,
@@ -543,7 +543,8 @@ GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
                                    an editor PUTs back. disks: the VM disks
                                    on the host — a tile's terminal layer's
                                    (kind terminal) and its tile sandboxes'
-                                   (kind tile, with the sandbox's name).
+                                   (kind tile, with the sandbox's name and
+                                   uid).
                                    failures: the newest 64, identical ones
                                    within 10 min coalesced (count). ?tile=
                                    narrows.

@@ -77,10 +77,12 @@ type State struct {
 	uidRange         bool   // sandboxes map a delegated sub-id range (stepIsolation)
 	uidRangeNote     string // why not
 	// sandboxBasePins is the base of every tile-sandbox definition, archived
-	// ones included (plans/tile-sandbox-runtime.md §9) — one of the three pin
-	// sources the boot's base-image GC passes keep (pinnedBases). nil until
-	// the tile-sandbox runtime is wired; it must answer by stepIsolation.
-	sandboxBasePins func() []string
+	// ones included (plans/tile-sandbox-runtime.md §9) — one of the pin
+	// sources the boot's base-image GC passes keep (pinnedBases). An error
+	// (the definitions file can't be read) makes the pins unknown, so
+	// nothing is released. nil until the tile-sandbox runtime is wired; it
+	// must answer by stepIsolation.
+	sandboxBasePins func() ([]string, error)
 }
 
 // Step is one named stage of a boot. Steps run in list order; the order is
@@ -621,8 +623,9 @@ func (st *State) stepConfine() error {
 // the terminal layers, the tile sandboxes and their snapshots, and the
 // tile-sandbox definitions) — what both base-image GC passes keep: the
 // preserved `<rootfs>-<version>` dirs (stepIsolation) and the VM images
-// built from them (stepVM). nil when a pin couldn't be read: the set may be
-// short, so neither pass releases anything this boot.
+// built from them (stepVM). nil when a pin couldn't be read (a stamp, a
+// tree, or the definitions): the set may be short, so neither pass releases
+// anything this boot.
 func (st *State) pinnedBases() map[string]bool {
 	pins, err := layers.Pinned(st.WS, st.sandboxBasePins)
 	if err != nil {

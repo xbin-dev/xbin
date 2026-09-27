@@ -3,11 +3,11 @@
 //
 // A layer is a dir whose contents only make sense on top of one base: a
 // terminal's overlay upper (.xbin/term/<key>/upper) or VM disk, and a tile
-// sandbox's upper or disk (.xbin/sbx/<CK>/<name>/, and its snapshots). An
-// upper records apt installs and the dpkg/apt state copied up from the base;
-// stacking it on a DIFFERENT base merges new-base packages under an old dpkg
-// status and apt breaks. So each layer dir carries stamps, written by xbind
-// only:
+// sandbox's upper or disk (.xbin/sbx/<CK>/<name>.<uid>/cur/, and its
+// snapshots). An upper records apt installs and the dpkg/apt state copied up
+// from the base; stacking it on a DIFFERENT base merges new-base packages
+// under an old dpkg status and apt breaks. So each layer dir carries stamps,
+// written by xbind only:
 //
 //	base      the base version it was built on (a rootfs's etc/xbin-base-version)
 //	overlay   namespace sandboxes: the overlay flavour that wrote its upper
@@ -200,7 +200,8 @@ func Outdated(dir, rootfs string) bool {
 // step 3): it stamps an unpinned layer with the current base (and overlay,
 // when given), and returns the rootfs dir serving the layer's base. A base
 // that isn't installed is ErrBaseMissing; an upper written by another
-// overlay flavour is ErrOverlay. Neither writes anything. dir must exist.
+// overlay flavour is ErrOverlay. Neither writes anything. dir must exist:
+// a tile sandbox's is its cur/ (CurDir), where Stamp writes its stamps too.
 // A restart keeps the pin; only a reset or rebase re-stamps (Stamp).
 func Pin(dir, rootfs, overlay string) (Stamps, string, error) {
 	if rootfs == "" {
