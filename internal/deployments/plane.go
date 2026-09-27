@@ -14,11 +14,16 @@
 // A tile without a deployment record is in the zero state (P5): every method
 // answers exactly as xbind did before tile deployments, with no file read or
 // written; its one deployment is main, the primary, following the work tree.
+// A tile with one answers from it (record.go), through the in-memory index
+// Boot fills (index.go); a record that can't be used holds its tile, which
+// then fails closed (06-security C7): no backend, no inbound surface, never
+// its work tree in place of a pinned checkpoint.
 package deployments
 
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
@@ -76,47 +81,106 @@ type Plane struct {
 	// keep governing what runs. Only the authorize function reads it; the
 	// zero-state answers below never do.
 	OptInClosed bool
+
+	// idx holds the records, from Boot on; nil (a literal that never booted)
+	// answers the zero state for every tile.
+	idx *index
 }
 
 // Boot runs once, from boot's registry step, after the registry hooks are
 // installed and before the first Provision and any backend start. It loads
-// the deployment records into memory, reconciles the journal of an
-// operation a crash interrupted into the deploy log, prepares each pinned
-// primary's code (materializing a missing tree) and re-runs Rescan when a
-// primary is pinned, so the primary's code is what the registry composes,
-// provisions and serves from the first request (P9). A tile whose
-// preparation fails composes with no inbound surface and no backend; an
-// error stops the daemon. Boot never rewrites a record. With no record it
-// does nothing.
-func (p *Plane) Boot() error { return nil }
+// the deployment records into memory (PO-8: it reads them and never
+// rewrites one). A record that can't be used holds its own tile, which fails
+// closed; an error — data/deployments can't be read, so no tile's record
+// can be judged — stops the daemon. Without data/deployments it reads
+// nothing more and writes nothing; a literal without a Root reads nothing.
+func (p *Plane) Boot() error {
+	if p.Root == "" {
+		return nil
+	}
+	idx := newIndex(p.Root, p.OwnerRef)
+	if err := idx.load(); err != nil {
+		return err
+	}
+	p.idx = idx
+	return nil
+}
+
+// Lookup answers what tile's record means for it (the synthesized zero state
+// for a tile it doesn't govern). An in-memory lookup.
+func (p *Plane) Lookup(tile string) Found {
+	if p.idx == nil {
+		return Found{State: RecordNone, Record: ZeroRecord(tile)}
+	}
+	return p.idx.lookup(tile)
+}
+
+// record is tile's governing record: (rec, nil) while an active record
+// governs it, (nil, err) while one holds it, (nil, nil) in the zero state (no
+// record, or one that isn't the tile's). It allocates nothing.
+func (p *Plane) record(tile string) (*Record, error) {
+	if p.idx == nil {
+		return nil, nil
+	}
+	switch f := p.idx.get(tile); f.State {
+	case RecordActive:
+		return f.Record, nil
+	case RecordHeld:
+		return nil, f.Err
+	}
+	return nil, nil
+}
 
 // ---- the runner's hooks (runner.DeploymentHooks) ----
 
-// CodeFor answers what deployment dep of tile runs: the work tree for main,
-// util.ErrNoDeployment for any other name.
+// CodeFor answers what deployment dep of tile runs: its record's checkpoint,
+// or the work tree while live reload drives it (P9); util.ErrNoDeployment for
+// a name the tile doesn't have; a *HeldError while its record holds it, so
+// nothing starts. Without a record: the work tree for main.
 func (p *Plane) CodeFor(tile, dep string) (runner.Code, error) {
-	if dep != util.MainDeployment {
-		return runner.Code{}, util.NoDeployment(tile, dep)
+	rec, err := p.record(tile)
+	if err != nil {
+		return runner.Code{}, err
 	}
-	return runner.Code{WorkTree: true}, nil
+	if rec == nil {
+		if dep != util.MainDeployment {
+			return runner.Code{}, util.NoDeployment(tile, dep)
+		}
+		return runner.Code{WorkTree: true}, nil
+	}
+	d := rec.Deployments[dep]
+	switch {
+	case d == nil:
+		return runner.Code{}, util.NoDeployment(tile, dep)
+	case d.Checkpoint == nil:
+		return runner.Code{WorkTree: true}, nil
+	}
+	return runner.Code{Tree: *d.Checkpoint}, nil
 }
 
-// Primary names tile's primary deployment: main.
-func (p *Plane) Primary(tile string) string { return util.MainDeployment }
+// Primary names tile's primary deployment: its record's, else main.
+func (p *Plane) Primary(tile string) string {
+	if rec, _ := p.record(tile); rec != nil {
+		return rec.Primary
+	}
+	return util.MainDeployment
+}
 
 // View is the component a generation running code spawns from: c itself for
-// the work tree, the registry's own pointer. No checkpoint has a view.
+// the work tree, the registry's own pointer. No checkpoint has a view yet, so
+// nothing starts from one.
 func (p *Plane) View(c *registry.Component, code runner.Code) (*registry.Component, error) {
 	if !code.WorkTree {
-		return nil, fmt.Errorf("%s: checkpoint %s has no view: the tile has no deployment record", c.Path, code.Tree)
+		return nil, fmt.Errorf("%s: checkpoint %s has no view: this xbind can't run checkpoints yet", c.Path, code.Tree)
 	}
 	return c, nil
 }
 
-// Materialize returns the read-only host tree of tile's checkpoint tree.
-// Without a record there is no checkpoint to materialize.
+// Materialize returns the read-only host tree of tile's checkpoint tree. No
+// checkpoint can be materialized yet, so nothing serves or runs one, and
+// nothing falls back to the work tree.
 func (p *Plane) Materialize(tile, tree string) (string, error) {
-	return "", fmt.Errorf("%s: no checkpoint %s to materialize: the tile has no deployment record", tile, tree)
+	return "", fmt.Errorf("%s: checkpoint %s can't be materialized: this xbind can't run checkpoints yet", tile, tree)
 }
 
 // EnvFor is deployment dep's spawn env and resource remap. The primary gets
@@ -137,8 +201,26 @@ func (p *Plane) EnvFor(c *registry.Component, dep string) ([]string, map[string]
 
 // PinnedPrimary answers for a tile whose primary is pinned to a checkpoint:
 // what that checkpoint declares, which Rescan composes into the tile's
-// component. No primary is pinned.
-func (p *Plane) PinnedPrimary(rel string) (*registry.PinnedCode, bool) { return nil, false }
+// component. It answers the zero manifest with the reason — no backend, no
+// inbound surface (07-runtime §5.1) — for a tile its record holds, and for a
+// pinned primary whose code isn't prepared: never the work tree's surface in
+// its place (C7). No answer for a primary that follows the work tree, or a
+// tile without a record.
+func (p *Plane) PinnedPrimary(rel string) (*registry.PinnedCode, bool) {
+	rec, err := p.record(rel)
+	if err != nil {
+		return &registry.PinnedCode{ManifestErr: err.Error()}, true
+	}
+	if rec == nil {
+		return nil, false
+	}
+	d := rec.Deployments[rec.Primary]
+	if d.Checkpoint == nil {
+		return nil, false
+	}
+	return &registry.PinnedCode{ManifestErr: fmt.Sprintf("%s: the primary (%s) is pinned to checkpoint %s, which isn't prepared",
+		rel, rec.Primary, *d.Checkpoint)}, true
+}
 
 // ScopeResources answers the resources a scope root declares when they don't
 // come from the work tree's scope.json (a pinned primary's checkpoint, P22).
@@ -150,32 +232,93 @@ func (p *Plane) ScopeResources(scope string) (map[string]registry.Resource, bool
 // ---- the broker's hooks (broker.DeploymentHooks) ----
 
 // RewriteDeploymentOwner rewrites the owner ref of tile's record in the same
-// step as a transfer (P29). No record: nothing to rewrite.
-func (p *Plane) RewriteDeploymentOwner(tile, ownerRef string) error { return nil }
+// step as a transfer (P29), and must run before the owner store moves: until
+// the store reports ownerRef, the record keeps answering to the former owner,
+// so the tile never reads as inert in between. Only a record bound to the
+// tile follows it. No record: nothing to rewrite.
+func (p *Plane) RewriteDeploymentOwner(tile, ownerRef string) error {
+	if p.idx == nil {
+		return nil
+	}
+	return p.idx.rewriteOwner(tile, ownerRef)
+}
 
-// ResetDeploymentState drops path's record and view repository before a
-// creation path assigns the new tile's owner (P29). No record: nothing to
-// reset.
-func (p *Plane) ResetDeploymentState(path string) error { return nil }
+// ResetDeploymentState drops path's record, whatever it holds, and its view
+// repository before a creation path assigns the new tile's owner (P29), so
+// the new tile starts in the zero state. The checkpoint store stays, a
+// leftover. No record: nothing to reset.
+func (p *Plane) ResetDeploymentState(path string) error {
+	if p.idx == nil {
+		return nil
+	}
+	if err := p.idx.remove(path, -1); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(viewDir(p.Root, path)); err != nil {
+		return fmt.Errorf("%s: removing the view repository: %w", path, err)
+	}
+	return nil
+}
 
 // DeploymentLeftovers lists the deployment state still keyed by path that a
-// new tile there would find. None.
-func (p *Plane) DeploymentLeftovers(path string) []string { return nil }
+// new tile there would find: a record file, a checkpoint store. None: nil.
+func (p *Plane) DeploymentLeftovers(path string) []string {
+	if p.idx == nil {
+		return nil
+	}
+	var out []string
+	if p.idx.fileExists(path) {
+		out = append(out, "deployment record")
+	}
+	if _, err := os.Lstat(storeDir(p.Root, path)); err == nil {
+		out = append(out, "checkpoint store")
+	}
+	return out
+}
 
 // ---- the server's questions (server.Policy, through the broker) ----
 
 // CodeRoot answers where deployment dep of c serves its files from ("" names
-// the primary): its directory, unpinned, for the primary; util.ErrNoDeployment
-// for any other name, never a fallback to the work tree.
+// the primary): its directory, unpinned, while it follows the work tree; its
+// materialized checkpoint, pinned, otherwise; util.ErrNoDeployment for a name
+// the tile doesn't have. A held record, or a checkpoint that can't be
+// materialized, is an error: never a fallback to the work tree.
 func (p *Plane) CodeRoot(c *registry.Component, dep string) (string, bool, error) {
-	if dep != "" && dep != p.Primary(c.Path) {
-		return "", false, util.NoDeployment(c.Path, dep)
+	rec, err := p.record(c.Path)
+	if err != nil {
+		return "", false, err
 	}
-	return c.Dir, false, nil
+	if rec == nil {
+		if dep != "" && dep != util.MainDeployment {
+			return "", false, util.NoDeployment(c.Path, dep)
+		}
+		return c.Dir, false, nil
+	}
+	if dep == "" {
+		dep = rec.Primary
+	}
+	d := rec.Deployments[dep]
+	switch {
+	case d == nil:
+		return "", false, util.NoDeployment(c.Path, dep)
+	case d.Checkpoint == nil:
+		return c.Dir, false, nil
+	}
+	root, err := p.Materialize(c.Path, *d.Checkpoint)
+	if err != nil {
+		return "", false, err
+	}
+	return root, true, nil
 }
 
-// HasDeployment reports whether tile has a deployment called name: main only.
-func (p *Plane) HasDeployment(tile, name string) bool { return name == util.MainDeployment }
+// HasDeployment reports whether tile has a deployment called name: its
+// record's; main alone without one, or while its record holds it.
+func (p *Plane) HasDeployment(tile, name string) bool {
+	if rec, _ := p.record(tile); rec != nil {
+		return rec.Deployments[name] != nil
+	}
+	return name == util.MainDeployment
+}
 
 // Addressable lists the deployments of tile that pr may name: main, which
 // the bare URL serves exactly as today.
@@ -185,17 +328,30 @@ func (p *Plane) Addressable(pr auth.Principal, tile string) []string {
 
 // ---- the terminal manager's hook ----
 
-// HasRecord reports whether tile has a deployment record, which gives its
-// terminal and agent sessions the checkpoint fetch remote. No tile has one.
-func (p *Plane) HasRecord(tile string) bool { return false }
+// HasRecord reports whether a deployment record governs tile, which gives
+// its terminal and agent sessions the checkpoint fetch remote: a valid one,
+// bound to the tile. One that holds the tile, or isn't its, doesn't count.
+func (p *Plane) HasRecord(tile string) bool {
+	rec, _ := p.record(tile)
+	return rec != nil
+}
 
 // ---- the watcher's questions (boot's watchLoop) ----
 
 // LiveReload answers which deployment a save in tile's work tree drives:
 // (dep, true) while live reload is attached to dep, ("", false) while it is
-// paused. An in-memory lookup, called on every save (P8): main, attached.
+// paused, and while the tile's record holds it (nothing may follow its work
+// tree then). An in-memory lookup, called on every save (P8); without a
+// record: main, attached.
 func (p *Plane) LiveReload(tile string) (dep string, attached bool) {
-	return util.MainDeployment, true
+	rec, err := p.record(tile)
+	switch {
+	case err != nil:
+		return "", false
+	case rec == nil:
+		return util.MainDeployment, true
+	}
+	return rec.LiveReload, rec.LiveReload != ""
 }
 
 // WorkTreeMoved is the watcher's notice that a batch touched tile while its
