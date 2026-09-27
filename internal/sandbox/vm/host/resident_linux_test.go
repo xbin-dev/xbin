@@ -349,6 +349,16 @@ func TestResidentBounds(t *testing.T) {
 	if m := rg.guestRecv(); m.Op != "exec" || m.Exec.Session != 2 {
 		t.Errorf("the guest got %+v", m)
 	}
+	// a guest event within MaxEvent that re-encodes past it ("<" sent raw
+	// becomes "\u003c") is dropped, and xbind's ctl stays up
+	raw := `{"op":"exited","session":2,"error":"` + strings.Repeat("<", proto.MaxEvent/2) + "\"}\n"
+	if _, err := rg.gconn.Write([]byte(raw)); err != nil {
+		t.Fatal(err)
+	}
+	_ = rg.guest.Send(proto.Msg{Op: "exited", Session: 3, Code: 7})
+	if m := recvMsg(t, b, bc); m.Op != "exited" || m.Session != 3 || m.Code != 7 {
+		t.Errorf("xbind got %+v (%d bytes of error), want session 3's exit", m.Op, len(m.Error))
+	}
 	// a guest event past MaxEvent ends the VM (nothing after it can be trusted)
 	_ = rg.guest.Send(proto.Msg{Op: "exited", Session: 2, Error: strings.Repeat("e", proto.MaxEvent)})
 	select {
@@ -360,7 +370,6 @@ func TestResidentBounds(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("an oversized guest event didn't end the router")
 	}
-	_ = bc
 }
 
 func TestResidentHangup(t *testing.T) {

@@ -1352,7 +1352,9 @@ next to its vforking `os.StartProcess`.
   - *`vm.Options.Resident`* needs `spec.Agent` and refuses `Listen`,
     `Gateway` and `TTY`. It leaves `hs.Guest` empty and keeps `spec.Agent`
     and `spec.Lock`. The guest's hostname falls back to `spec.Hostname`,
-    which no other caller sets.
+    which no other caller sets. A VM that isn't resident refuses
+    `spec.Agent`: no shim would take the factory, and the VMM would inherit
+    it.
   - *What goes to the guest is rebuilt.* The shim rebuilds each command
     from the fields its op uses and never forwards the raw line. It also
     re-marshals each Hello, so unknown fields don't pass. What it refuses
@@ -1364,7 +1366,10 @@ next to its vforking `os.StartProcess`.
     30 s.
   - *An upstream that stops reading loses its ctl.* Each event line to
     xbind has a 10 s write deadline; past it the shim closes that ctl, so a
-    wedged reader can't hold the shim's loop, or its SIGHUP.
+    wedged reader can't hold the shim's loop, or its SIGHUP. A guest event
+    is re-encoded on its way up, which can grow it (a raw `<` becomes
+    `\u003c`); one that would pass `MaxEvent` is dropped, so xbind's
+    `RecvMax(MaxEvent)` never cuts its ctl over what the guest sent.
   - *Hangup.* SIGHUP, SIGTERM and SIGINT exit 128+signal; the factory's EOF
     exits 129. Each sends the flush-only sync. The shim counts the syncs in
     flight, xbind's own included, and exits on the answer to its own (the

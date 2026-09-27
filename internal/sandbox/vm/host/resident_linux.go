@@ -4,6 +4,7 @@ package host
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -205,10 +206,17 @@ func (r *router) answered() int64 {
 	}
 }
 
-// event passes a guest event up to xbind (none connected: dropped).
+// event passes a guest event up to xbind (none connected: dropped). Its
+// line stays within the MaxEvent xbind reads with: re-encoding can grow what
+// the guest sent raw ("<" becomes "\u003c"), and past the bound it is
+// dropped here rather than cutting xbind's ctl.
 func (r *router) event(m proto.Msg) {
 	if m.Op == "synced" {
 		r.answered()
+	}
+	if b, err := json.Marshal(m); err != nil || len(b) >= proto.MaxEvent {
+		r.logf("a guest event over %d bytes re-encoded: dropped", proto.MaxEvent)
+		return
 	}
 	r.sendUp(m)
 }

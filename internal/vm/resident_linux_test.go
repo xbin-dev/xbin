@@ -368,6 +368,7 @@ func startResident(t *testing.T, m *Manager, binds []sandbox.Bind, disk, lockPat
 		{*spec, Options{Resident: true, Listen: "/run/x.sock"}},
 		{*spec, Options{Resident: true, Gateway: "/run/gw.sock"}},
 		{*spec, Options{Resident: true, TTY: true}},
+		{*spec, Options{}}, // a factory, but no resident shim to take it
 	} {
 		if err := m.Apply(context.Background(), &bad.spec, bad.o); err == nil {
 			t.Errorf("Apply took a resident VM with %+v (agent %v)", bad.o, bad.spec.Agent != nil)

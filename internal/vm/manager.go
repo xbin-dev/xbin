@@ -262,6 +262,8 @@ func (m *Manager) Apply(ctx context.Context, spec *sandbox.Spec, o Options) erro
 		return fmt.Errorf("a resident VM needs its connection factory (spec.Agent)")
 	case o.Resident && (o.Listen != "" || o.Gateway != "" || o.TTY):
 		return fmt.Errorf("a resident VM has no listen socket, gateway or TTY")
+	case !o.Resident && spec.Agent != nil: // no shim would take it: the VMM would inherit it
+		return fmt.Errorf("only a resident VM serves a connection factory (spec.Agent)")
 	}
 	mounts, err := exports(spec.Binds, o.Local)
 	if err != nil {
