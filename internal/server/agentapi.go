@@ -111,8 +111,9 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 // {net?, api?, gpu?, vm?} (fixed when a sandbox starts; vm absent = keep): the session ends and a
 // new one opens on the same tile with the same provider, mode, settings and
 // name — resuming the conversation where the agent can reopen its own
-// session. Creator only (the new session is the caller's). → {session,
-// resumed}.
+// session. Creator only (the new session is the caller's). ?deployment=
+// names the new session's target (P24), echoed in SessionInfo; a refused
+// one leaves the session running. → {session, resumed}.
 func (s *Server) apiAgentRestart(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.driveOther(w, r)
 	if !ok {
@@ -126,9 +127,10 @@ func (s *Server) apiAgentRestart(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusBadRequest, "need {net?, api?, gpu?, vm?}")
 		return
 	}
-	info, resumed, code, err := s.Term.RestartAgent(auth.PrincipalOf(r), id, body.Net, body.GPU, body.API == nil || *body.API, body.VM)
+	info, resumed, code, err := s.Term.RestartAgentOnto(auth.PrincipalOf(r), id, body.Net, body.GPU, body.API == nil || *body.API, body.VM,
+		r.URL.Query().Get("deployment")) // the new target (P24); "" the default
 	if err != nil {
-		apiErr(w, code, err.Error())
+		agentOpenErr(w, code, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, map[string]any{"session": info, "resumed": resumed})
