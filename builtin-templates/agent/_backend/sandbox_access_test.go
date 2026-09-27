@@ -332,6 +332,14 @@ func TestSandboxInternalTaint(t *testing.T) {
 	if b, _ := theManager(t).Box(made.ID); w.Code != 201 || b.Labels[sbxInternalLabel] != "1" {
 		t.Fatalf("made for it: %d %s %+v", w.Code, w.Body, b.Labels)
 	}
+	// the label present but empty (unmarked): marking sets it, never copies the blank back
+	blank := mkSandbox(t, "apps/cs", "alice", sbxCreate{Name: "blank", Labels: map[string]string{sbxInternalLabel: "", "k": "v"}})
+	if got := bindTo(t, mux, asAlice, internal, sandboxRef("apps/cs", blank.ID), ""); got != 200 {
+		t.Fatalf("a blank label: %d", got)
+	}
+	if b, _ := theManager(t).Box(blank.ID); b.Labels[sbxInternalLabel] != "1" || b.Labels["k"] != "v" {
+		t.Fatalf("marked over a blank label: %+v", b.Labels)
+	}
 }
 
 // Picking a sandbox the conversation has attached again, with no cwd, keeps

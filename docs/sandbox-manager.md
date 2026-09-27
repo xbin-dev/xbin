@@ -159,9 +159,12 @@ answers `unsupported`. `limits.sandboxes` 0 means no fixed limit.
   - `open` — whatever the manager's substrate gives (a LAN, say).
 - `egressNext` — the egress a `PATCH` set that applies at the sandbox's next
   start; present only while it differs from `egress`. A `PATCH` of a
-  running sandbox's egress sets it (`restartNeeded`); of any other, it
-  applies at once. A consumer that enforces a firewall on egress checks the
-  **less restrictive** of `egress` and `egressNext` — a stopped sandbox
+  running sandbox's egress sets it (`restartNeeded`); of a stopped or
+  archived one, it applies at once. In a state between (`starting`,
+  `stopping`, `thawing`) the manager picks either, as long as `egress`
+  never claims less than the sandbox can reach. A consumer that enforces a
+  firewall on egress checks the **less restrictive** of `egress` and
+  `egressNext` — a stopped sandbox
   starts on an exec, and takes `egressNext` — in the order `none` <
   `internet` < `open`, counting a missing or unknown value as `open`.
 - `shared` is true when the caller sees the sandbox through a share.

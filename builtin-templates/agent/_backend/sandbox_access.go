@@ -136,10 +136,11 @@ func markInternal(ctx context.Context, conn *sbxConn, id string, b *sbxSandbox) 
 		if b.Labels[sbxInternalLabel] != "" {
 			return nil
 		}
-		labels := map[string]string{sbxInternalLabel: "1"}
+		labels := map[string]string{}
 		for k, v := range b.Labels {
 			labels[k] = v
 		}
+		labels[sbxInternalLabel] = "1" // over a blank one too
 		p := sbxPatch{Labels: &labels}
 		if v := b.Version; v > 0 {
 			p.Version = &v
