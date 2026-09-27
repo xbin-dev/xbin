@@ -663,7 +663,31 @@ func auditable(method, path string) bool {
 	if strings.HasPrefix(path, "/term/sessions/") && (strings.HasSuffix(path, "/prompt") || strings.HasSuffix(path, "/cancel") || strings.HasSuffix(path, "/options") || strings.Contains(path, "/permissions/") || strings.Contains(path, "/elicitations/")) {
 		return false
 	}
-	return true
+	return !sandboxDataPlane(method, path)
+}
+
+// sandboxDataPlane: driving a tile sandbox (D120) — its commands, their
+// input, signals and resizes, file writes, tar uploads and copies — is the
+// same plane as an agent session's drive routes. Definitions, lifecycle,
+// snapshots and the policy stay audited.
+func sandboxDataPlane(method, path string) bool {
+	seg := strings.Split(strings.Trim(path, "/"), "/")
+	if len(seg) < 2 || seg[0] != "sandboxes" {
+		return false
+	}
+	switch {
+	case len(seg) == 2:
+		return method == http.MethodPost && seg[1] == "copy"
+	case len(seg) == 3:
+		return (method == http.MethodPost && (seg[2] == "run" || seg[2] == "execs")) ||
+			(method == http.MethodPut && seg[2] == "tar")
+	case len(seg) == 4 && seg[2] == "files":
+		return method == http.MethodPut && seg[3] == "content" ||
+			method == http.MethodPost && (seg[3] == "mkdir" || seg[3] == "remove" || seg[3] == "move")
+	case len(seg) == 5 && seg[2] == "execs":
+		return method == http.MethodPost && (seg[4] == "stdin" || seg[4] == "signal" || seg[4] == "resize")
+	}
+	return false
 }
 
 // auditWriter records the response status for an audit line (bytes/streaming

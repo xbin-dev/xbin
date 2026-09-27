@@ -1510,6 +1510,34 @@ next to its vforking `os.StartProcess`.
   - `apicheck`, `openapi_test` and the boot order test green.
 - **Parallel:** fully. The real `SandboxesFor` arrives with WP-5; until then
   a Deps fake stands in.
+- **As built (notes):**
+  - `Deps` has `Caps, Admin, Net, Mounts, Vault, Users, Disk, Modes,
+    Tiles` — **no `Launcher`**: its shape follows WP-15a's Spec builder, so
+    WP-15a adds it. The lifecycle seams are stubs in `manager.go` that
+    WP-15a/b fill: `start` (answers unsupported), `stop` (nothing runs),
+    `removeState` (refuses while a state dir exists — no confined remove
+    yet — and the definition is kept), and `box`, the live state.
+  - Validation lives in a new `validate.go`. A PATCH checks only the fields
+    it changes, so an unrelated edit never fails on reach the tile lost
+    since (the start re-checks everything).
+  - **Mounts are same-scope only.** §3.3's "or one granted to it" would hand
+    a cross-scope `filesystem` path out, which EnvFor never does
+    (docs/resources.md) and D120's decision 7 ("the manager's own
+    `filesystem` resources") doesn't ask for; `broker.ResourceMount`
+    refuses another scope's resource even when granted.
+  - Sizes are stored resolved (defaults filled, clamped at create) and are
+    clamped again to the caps of the moment on read and at start.
+  - The boot wiring picks up the broker's `SandboxesFor(tile string) bool`
+    by interface assertion once WP-5 adds it; until then no tile holds the
+    cap (a boot warning says so). `Modes.VM` answers unavailable ("this
+    xbind can't run VM tile sandboxes yet", or the host's reason) until
+    WP-6/WP-16; `Net` is unwired (no classes) until WP-11.
+  - `runtime.caps` is `builtCaps` (`info.go`), empty until wave 2 serves a
+    capability. `stop` is a 501 stub like the other lifecycle routes (an
+    admin passes its gate, then 501). `start: true` on create answers 201
+    with the start's failure in `stateDetail`. An admin's `&deployment=`
+    answers unsupported. An unreadable definitions file, or one from a newer
+    xbind, makes the store read-only (writes 503) — it is never clobbered.
 
 ### WP-14 — The SDK (Track D · M · after WP-13's docs)
 

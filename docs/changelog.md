@@ -10,6 +10,24 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-28
+
+- **Tile sandboxes: the route surface** (D120,
+  [protocol.md](protocol.md) §Tile sandboxes). A manager tile's backend
+  holding `cap:sandboxes` can define sandboxes xbind runs for it under
+  `/api/xbin/sandboxes/…`: `GET /sandboxes/runtime` (the modes, egress
+  classes and limits it may use), and create, list, get, `PATCH` and delete
+  definitions (`clientId`-idempotent, sizes clamped to the new sandboxes
+  policy, mounts of its own `filesystem` resources, `none` egress or a
+  sandbox-net slot, no `XBIN_*` variables). Every other route of the
+  contract — start and stop, `run`, execs and their output, the TTY
+  WebSocket, files, tar, copy and snapshots — is registered and answers
+  501 `unsupported` for now; `runtime.caps` lists what is served. Errors
+  use the sandbox-manager contract's `{error, refusal}` shape. Admins get
+  `GET`/`PUT /sandboxes/policy`, stop and delete with `?tile=`, and a
+  `tileSandboxes` list in `GET /sandboxes`. Nothing changes for a
+  workspace without a manager tile.
+
 ## 2026-09-27
 
 - **A contract for sandbox managers** ([sandbox-manager.md](sandbox-manager.md),

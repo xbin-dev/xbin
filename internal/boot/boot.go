@@ -31,6 +31,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/sbx"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/term"
+	"github.com/xbin-dev/xbin/internal/tilesbx"
 	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/util"
 	"github.com/xbin-dev/xbin/internal/vm"
@@ -55,9 +56,10 @@ type State struct {
 	Broker  *broker.Broker
 	Proxy   *proxy.Proxy
 	Server  *server.Server
-	VM      *vm.Manager   // VM sandboxes (vm.go); nil without isolation
-	Sbx     *sbx.Registry // every live sandbox and what the sandbox layer failed at (D112)
-	Push    *push.Service // the push plane (push.go)
+	VM      *vm.Manager      // VM sandboxes (vm.go); nil without isolation
+	Sbx     *sbx.Registry    // every live sandbox and what the sandbox layer failed at (D112)
+	TileSbx *tilesbx.Manager // the tile-sandbox runtime (tilesandboxes.go, D120)
+	Push    *push.Service    // the push plane (push.go)
 	Started time.Time
 
 	trusted          []netip.Prefix
@@ -93,6 +95,9 @@ type Step struct {
 //   - server last before watch/serve: every handler is registered by then.
 //   - confine first after privileges: the registry and broker steps run git
 //     on tiles (repo init, template repos), which must already be confined.
+//   - isolation and vm before tile-sandboxes: the runtime reads the uid
+//     mapping and the VM manager; tile-sandboxes before server, which
+//     mounts its routes.
 var Steps = []Step{
 	{"workspace", (*State).stepWorkspace},
 	{"privileges", (*State).stepPrivileges},
@@ -110,6 +115,7 @@ var Steps = []Step{
 	{"limit-alerts", (*State).stepLimitAlerts},
 	{"isolation", (*State).stepIsolation},
 	{"vm", (*State).stepVM},
+	{"tile-sandboxes", (*State).stepTileSandboxes},
 	{"server", (*State).stepServer},
 	{"watch", (*State).stepWatch},
 	{"always-on", (*State).stepAlwaysOn},
@@ -696,6 +702,7 @@ func (st *State) stepServer() error {
 	st.registerRuntimeAPI(srv)
 	st.registerVMAPI(srv)
 	st.registerSandboxAPI(srv)
+	st.registerTileSandboxAPI(srv)
 	if err := st.setupPush(srv); err != nil {
 		return err
 	}

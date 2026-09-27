@@ -18,20 +18,25 @@ import (
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/sbx"
 	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/tilesbx"
 	"github.com/xbin-dev/xbin/internal/util"
 	"github.com/xbin-dev/xbin/internal/vm"
 )
 
 // sandboxScope is what a caller of GET /sandboxes may see.
 type sandboxScope struct {
-	all  bool   // the host's health too
-	tile string // one tile's ("" = every tile)
+	all     bool   // the host's health too
+	tile    string // one tile's ("" = every tile)
+	manager bool   // a manager tile: its own tile sandboxes, nothing of the host's
 }
 
-// sandboxScopeOf: an admin sees everything (?tile= narrows); anyone else,
-// nothing yet — a tile listing its own sandboxes (plans/tile-sandboxes.md)
-// is one more case here, without the host's health.
+// sandboxScopeOf: a manager tile's backend (cap:sandboxes) sees its own
+// tile sandboxes (D120); an admin sees everything (?tile= narrows); anyone
+// else, nothing.
 func (st *State) sandboxScopeOf(p auth.Principal, q url.Values) (sandboxScope, bool) {
+	if st.TileSbx != nil && st.TileSbx.Manages(p) {
+		return sandboxScope{manager: true}, true
+	}
 	if st.Broker.IsAdmin(p) {
 		return sandboxScope{all: true, tile: strings.Trim(q.Get("tile"), "/")}, true
 	}
@@ -41,11 +46,14 @@ func (st *State) sandboxScopeOf(p auth.Principal, q url.Values) (sandboxScope, b
 func (st *State) registerSandboxAPI(srv *server.Server) {
 	srv.RegisterAPI("GET /sandboxes", func(w http.ResponseWriter, r *http.Request) {
 		sc, ok := st.sandboxScopeOf(auth.PrincipalOf(r), r.URL.Query())
-		if !ok {
+		switch {
+		case !ok:
 			http.Error(w, "admin only", http.StatusForbidden)
-			return
+		case sc.manager:
+			st.TileSbx.ServeList(w, r)
+		default:
+			server.WriteJSON(w, http.StatusOK, st.sandboxesView(sc))
 		}
-		server.WriteJSON(w, http.StatusOK, st.sandboxesView(sc))
 	})
 }
 
@@ -144,6 +152,10 @@ func (st *State) sandboxesView(sc sandboxScope) map[string]any {
 	out := map[string]any{
 		"sandboxes": rows, "disks": disks, "failures": st.Sbx.Failures(f),
 		"failureCounts": st.Sbx.FailureCounts(), "cgroup": cg, "intervalSec": 2,
+		"tileSandboxes": []tilesbx.AdminRow{},
+	}
+	if st.TileSbx != nil { // every tile sandbox definition: stopped ones, and those of removed tiles
+		out["tileSandboxes"] = st.TileSbx.AdminList(sc.tile)
 	}
 	if sc.all {
 		out["health"] = map[string]any{

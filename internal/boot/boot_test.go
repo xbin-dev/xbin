@@ -63,6 +63,10 @@ func TestStepsOrder(t *testing.T) {
 		{"server", "watch"},
 		{"cgroup", "limit-alerts"}, // the alerts read run.Cgroup, which the cgroup step sets
 		{"broker", "limit-alerts"},
+		{"isolation", "tile-sandboxes"}, // the runtime reads the uid mapping
+		{"vm", "tile-sandboxes"},        // and the VM manager
+		{"broker", "tile-sandboxes"},
+		{"tile-sandboxes", "server"}, // which mounts its routes
 	} {
 		if idx(e[0]) >= idx(e[1]) {
 			t.Errorf("step %q must run before %q", e[0], e[1])

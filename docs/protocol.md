@@ -524,7 +524,14 @@ GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
                                    the VM policy as set (0 = default) — what
                                    an editor PUTs back. failures: the newest
                                    64, identical ones within 10 min
-                                   coalesced (count). ?tile= narrows
+                                   coalesced (count). ?tile= narrows.
+                                   tileSandboxes:[{tile,name,state,mode,accel?,
+                                   memMiB,vcpus,diskGiB,diskBytes,for?,forUser?,
+                                   lastActive?,tileExists}] — every tile
+                                   sandbox definition (D120), stopped ones
+                                   and those of removed tiles too. A manager
+                                   tile's backend gets its own tile sandboxes
+                                   instead (§Tile sandboxes)
 GET    /tile-status?component=<p>  self or admin. one tile's runtime metrics —
                                    backend {state,gen,sandbox,vm?,cpuSec,cgroup:{mem,pids},
                                    rssKb,fds,activeConns,egress}, disk {usage,
@@ -2133,6 +2140,181 @@ relay/README.md): xbind fetches its challenge (`GET
 /v1/workspaces/challenge`), solves it — at most 28 bits; `PUT /push/config`
 waits for it — and registers with it; a relay that asks for more answers
 502 with a hint to get a key from its operator.
+
+### Tile sandboxes (manager tiles)
+
+A **manager tile** runs coding sandboxes for the tiles it serves (the
+sandbox-manager contract, [sandbox-manager.md](sandbox-manager.md)). On
+xbin its backend defines and drives them through the routes below (D120),
+which mirror the contract, so the manager forwards most calls unchanged.
+
+- **Who.** Only a *manager call* reaches them: the tile's **backend** — its
+  instance token, over the gateway — holding **`cap:sandboxes`**, a grant
+  only a workspace admin approves. The key is the caller's own tile: a
+  manager names only its own sandboxes. Everyone else gets 403
+  `not-allowed`: a frame of the same tile, terminals, cron and signed-in
+  people. An **admin** may read and set the policy and list, stop and
+  delete a tile's sandboxes (`?tile=`) — and never defines one, runs a
+  command in one, reads its files or attaches to it.
+- **Isolation.** Without `--isolate` every manager route but `runtime`
+  answers 501 `unsupported` ("tile sandboxes need isolation"), and `runtime`
+  says `isolation: false`.
+- **In this xbind** the definition routes work — runtime, policy, list,
+  create, get, patch, delete. The lifecycle, command, terminal, file, tar
+  and snapshot routes are registered and answer 501 `unsupported`;
+  `runtime.caps` lists the contract capabilities served (none yet).
+
+```
+GET    /sandboxes/runtime          manager. what this tile may use now → {enabled,
+                                   isolation, modes:[{mode,accel?}],
+                                   unavailable:[{mode,reason}], users, egress:
+                                   [{class,slot?,ref?,reach,rules?,note?}], caps,
+                                   limits:{sandboxes,running,memMiB,vcpus,diskGiB,
+                                   perSandbox:{memMiB,vcpus,diskGiB,maxMemMiB,
+                                   maxVCPUs,maxDiskGiB,pids},idleStopMin,
+                                   runTimeoutMaxMs,runOutputMax,execsRunning,
+                                   outputRing,stdinMax,fileMax,tarMax,waitMaxSec},
+                                   used:{sandboxes,running,memMiB,vcpus,diskBytes}}
+GET    /sandboxes/policy           admin. → {policy (effective), stored (0 = default)}
+PUT    /sandboxes/policy           admin. a partial policy, merged onto the stored
+                                   one → {policy, stored}; 400 invalid when out of range
+GET    /sandboxes                  manager. → {sandboxes:[SandboxInfo]} (an admin's
+                                   GET /sandboxes is the registry view above)
+POST   /sandboxes                  manager. define one → 201 SandboxInfo (200 when
+                                   clientId repeats the same request)
+GET    /sandboxes/<name>           manager. → SandboxInfo
+PATCH  /sandboxes/<name>           manager. change it → SandboxInfo (restartNeeded
+                                   when a change waits for the next start)
+DELETE /sandboxes/<name>[?tile=]   manager, admin (?tile=). stop it, remove its
+                                   state (confined), forget it → 204
+
+POST   /sandboxes/<name>/start?wait=         manager. → SandboxInfo
+POST   /sandboxes/<name>/stop?wait=[&tile=]  manager, admin. sync, then kill; state
+                                             kept, running execs end killed
+POST   /sandboxes/<name>/reset               manager. stop, wipe the state, pin the
+                                             current base image
+POST   /sandboxes/<name>/rebase              manager. stop, keep the state, pin the
+                                             current base image
+
+POST   /sandboxes/<name>/run                 manager. the contract's run → its result
+GET    /sandboxes/<name>/execs               manager. → {execs:[Exec]}
+POST   /sandboxes/<name>/execs               manager. → 201 Exec (200 on a clientId repeat)
+GET    /sandboxes/<name>/execs/<id>          manager. → Exec
+DELETE /sandboxes/<name>/execs/<id>          manager. kill the group, forget it → 204
+GET    /sandboxes/<name>/execs/<id>/output?since=&max=&waitMs=&encoding=text|base64
+                                             manager. → the contract's chunk
+POST   /sandboxes/<name>/execs/<id>/stdin?eof=   manager. raw body → 204 (eof=1 closes stdin)
+POST   /sandboxes/<name>/execs/<id>/signal   manager. {signal: INT|TERM|KILL|HUP,
+                                             group?} → 204
+POST   /sandboxes/<name>/execs/<id>/resize   manager. {rows, cols} → 204 (tty)
+GET    /sandboxes/<name>/execs/<id>/tty?sessionId=&sandboxId=&forUser=
+                                             manager. WebSocket: attach (below)
+GET    /sandboxes/<name>/tty?cwd=&cmd=&rows=&cols=&uid=&gid=&forUser=&sessionId=&sandboxId=
+                                             manager. WebSocket: start a tty exec
+                                             (the login shell unless cmd) and attach
+
+GET    /sandboxes/<name>/files/stat?path=
+GET    /sandboxes/<name>/files/content?path=&offset=&length=      → bytes + ETag
+PUT    /sandboxes/<name>/files/content?path=&mode=&mkdirs=1&ifMatch=&ifNoneMatch=*
+                                             raw body → the stat
+GET    /sandboxes/<name>/files/list?path=&limit=
+POST   /sandboxes/<name>/files/mkdir         {path, parents} → 204
+POST   /sandboxes/<name>/files/remove        {path, recursive} → 204
+POST   /sandboxes/<name>/files/move          {from, to, overwrite} → 204
+GET    /sandboxes/<name>/tar?path=&exclude=… → application/x-tar
+PUT    /sandboxes/<name>/tar?path=&mkdirs=1  tar body → 204
+POST   /sandboxes/copy                       {from:{sandbox, path}, to:{sandbox,
+                                             path}, overwrite} → 204 (both the caller's)
+
+GET    /sandboxes/<name>/snapshots           → {snapshots:[{id, name, created, bytes}]}
+POST   /sandboxes/<name>/snapshots           {name, clientId} → 201
+POST   /sandboxes/<name>/snapshots/<sid>/restore   → SandboxInfo (execs killed)
+DELETE /sandboxes/<name>/snapshots/<sid>     → 204
+```
+
+**Conventions.** Errors are the contract's: `{error, refusal, state?,
+etag?, retryAfterMs?}` with its statuses (`invalid` 400, `not-allowed` 403,
+`not-found` 404, `state`/`exists` 409, `lost` 410, `precondition` 412,
+`too-large` 413, `limit` 429, `unsupported` 501, `unavailable` 503). Bodies
+are JSON decoded leniently — unknown fields are ignored, so a newer SDK
+works against an older xbind — and capped: 64 KiB for a definition, a PATCH
+and the policy (413 `too-large` past it). Times are unix ms, sizes bytes
+unless named. Names match `[a-z0-9][a-z0-9-]{0,31}`; `runtime`, `policy`
+and `copy` are reserved. The data plane — `run`, starting an exec, stdin,
+signals, resizes, file writes, tar uploads and copies — isn't audit-logged;
+definitions, lifecycle, snapshots and the policy are.
+
+**A definition** (`POST /sandboxes`; `PATCH` takes the same fields but
+`name`, `mode` and `from`, plus `version`):
+
+```
+{"name": "sb-7f3a", "mode": "namespace" | "vm",
+ "memMiB": 2048, "vcpus": 2, "diskGiB": 20,
+ "net": {"egress": "none" | "class:<slot>"},
+ "mounts": [{"res": "res:apps/coding-sandbox/work", "path": "shared", "at": "/mnt/shared", "ro": false},
+            {"source": true, "at": "/opt/manager"}],
+ "defaults": {"cwd": "/work", "uid": 1000, "gid": 1000, "shell": "/bin/bash", "env": {"HOME": "/home/dev"}},
+ "labels": {"manager.v": "1"}, "for": "apps/agent", "forUser": "alice",
+ "idleStopMin": 30, "autoStart": true, "clientId": "c-5e1", "start": false,
+ "from": {"sandbox": "img-base", "snapshot": "s-2"}}
+```
+
+- `mode` is required and must be available now (`runtime.modes`; `invalid`
+  names why) — xbind never picks it, and a VM never falls back to a
+  namespace.
+- Sizes: 0 is the policy default; a size over a cap is clamped to it, and
+  the answer says what applied. A VM's disk only grows (`PATCH` to less is
+  `invalid`). More sandboxes than `perTile.max`, or VM disks summing over
+  `perTile.diskGiB`, is 429 `limit`.
+- `net.egress` is `none` (the default) or a **sandbox-net slot** the
+  manager's manifest declares (`interfaces: {"internet": {"kind":
+  "sandbox-net"}}`); `runtime.egress` lists them with what each reaches.
+- A `res` mount is a `filesystem` resource of the manager's own scope that
+  it holds (`uses`); a reader's is read-only. `path` is a clean relative
+  sub-path of the resource. `source: true` mounts the tile's own code,
+  read-only. `at` is absolute and clean, not `/`, and not under `/proc`,
+  `/sys`, `/dev`, `/run/xbin` or `/opt/xbin`. `sqlite` and other kinds are
+  `invalid`.
+- `defaults.env` keys `XBIN_*` are `invalid`: a sandbox never gets an xbin
+  identity. `uid`/`gid` must be runnable (`users: root` — a namespace host
+  mapping a single uid — allows only 0). `labels` are opaque, ≤ 1 KiB in
+  all; `for` and `forUser` (≤ 128) are claims, stored and shown, widening
+  nothing.
+- `clientId` makes a create repeat-safe: the same request again answers 200
+  with the sandbox, another request with that id is 409 `exists` (so is an
+  existing name). `version` in a `PATCH` refuses a lost update (412
+  `precondition`); a `PATCH` changes the fields it names, `defaults` and
+  `labels` as a whole. `start: true` starts it after the create; a start
+  that fails leaves it `stopped`, the failure in `stateDetail`. `from`
+  clones (the `clone` capability; `unsupported` until served).
+
+**SandboxInfo:** `{name, state (stopped | starting | running | stopping |
+error), stateDetail, mode, accel?, memMiB, vcpus, diskGiB, net:{egress,
+reach, egressNext, note}, mounts, defaults, labels, for?, forUser?,
+idleStopMin, autoStart, base:{version, outdated}, users, diskBytes,
+snapshots, execsRunning, created, started?, lastActive?, version,
+clientId?, restartNeeded}` — `reach` is what the egress reaches (`none`,
+`internet` or `open`, the contract's words), `egressNext` an egress a
+`PATCH` set that waits for the next start.
+
+**The policy** (`.xbin/sandboxes/policy.json`; 0 = the default, a `PUT`
+keeps the fields it doesn't name): `{enabled (true), perTile:{max 8,
+running 4, memMiB 8192, vcpus 8, diskGiB 100}, perSandbox:{memMiB 2048,
+vcpus 2, diskGiB 20, maxMemMiB 8192, maxVCPUs 8, maxDiskGiB 200, pids
+4096}, idleStopMin 30 (≤ 1440), outputRingMiB 1 (≤ 8), outputBudgetMiB 64,
+overrides:{"<tile>": {perTile, perSandbox, …}}}` — an override replaces
+that tile's previous one, `null` removes it.
+
+**The TTY routes** are WebSockets on exactly the `/ws/term` wire (below):
+binary frames both ways (the ring's tail replays first), `{"op":
+"session","id":…,"sandbox":…,"echoAck":true}` first, acks and pongs, and
+`{"op":"exit","code":N}` at the end; the client sends `resize` and `ping`.
+`sessionId` and `sandboxId` replace the session frame's `id` and `sandbox`,
+so a manager relaying the bytes shows its consumer its own ids. Only the
+manager's instance token reaches them — no person does; the manager relays
+the socket to its consumer's page. A tty exec whose `forUser` names a user
+with `noTerminal` (D88) is 403, checked again at every attach; non-tty
+execs aren't restricted by it.
 
 ## WebSockets
 
