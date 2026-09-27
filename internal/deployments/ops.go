@@ -705,12 +705,14 @@ func runRollback(ctx context.Context, p *Plane, g Grant, r *RollbackRequest) (an
 // it (live reload pauses, the pointer is written now); a pinned one gets a
 // queued deploy whose swap writes the pointer (commitSwap). A request whose
 // code equals the lane's tail merges into it; code dep already runs, with
-// nothing queued, answers unchanged — unless its last move failed, which a
-// deploy of the same checkpoint retries.
+// nothing queued, answers unchanged — unless its last move failed, or (a
+// deploy or roll back, not reload now: 11-contract §1.5, §1.6) its
+// generation is down, which a move of the same checkpoint restarts.
 func (p *Plane) moveCode(ctx context.Context, o *op, seq *int64, dry bool, dep, tree, how string) (any, error) {
 	d := o.rec.Deployments[dep]
 	tail := p.tail(o.tile, dep)
-	unchanged := tail == nil && d.Checkpoint != nil && *d.Checkpoint == tree && d.State != "failed"
+	unchanged := tail == nil && d.Checkpoint != nil && *d.Checkpoint == tree && d.State != "failed" &&
+		(how == "reload-now" || !p.down(o.c, dep))
 	if dry {
 		from := "work-tree"
 		if d.Checkpoint != nil {

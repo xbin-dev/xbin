@@ -68,6 +68,27 @@ type Runner interface {
 	RootsInUse() []string
 }
 
+// statuser is the runner's view of one deployment's generation, which
+// *runner.Runner reports; a runner without it (a test fake) counts every
+// deployment as up.
+type statuser interface {
+	DeploymentStatus(tile, dep string) runner.DeploymentState
+}
+
+// down answers whether dep of c has no healthy generation — crash-looping,
+// failed or not running — so deploying the checkpoint it already runs starts
+// a new generation from the kept artifact instead of answering unchanged
+// (11-contract §1.6; 07-runtime §8.7). A generation being built is on its
+// way up; code without a backend has no generation to be down.
+func (p *Plane) down(c *registry.Component, dep string) bool {
+	s, ok := p.Run.(statuser)
+	if !ok || !c.HasBackend() {
+		return false
+	}
+	st := s.DeploymentStatus(c.Path, dep).State
+	return st == "failed" || st == "idle"
+}
+
 // Plane is the deployments plane. Boot fills the fields step by step, before
 // the daemon serves; nothing changes them afterwards.
 type Plane struct {
