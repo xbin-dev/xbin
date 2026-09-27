@@ -282,7 +282,10 @@ func (b *Broker) apiCronPut(w http.ResponseWriter, r *http.Request) {
 		b.putDepCron(w, r, dep, j, rt) // its own file (dormant.go)
 		return
 	}
-	if err := b.allowRes(p, rt.String(), "writer"); err != nil {
+	// Unclamped: a job only schedules its own handler, so main while it isn't
+	// the primary stores a foreign one dormant under read (NP-09-18); block
+	// is depEdge's.
+	if err := b.allowResUnclamped(p, rt.String(), "writer"); err != nil {
 		server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/auth.md")
 		return
 	}
