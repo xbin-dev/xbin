@@ -128,17 +128,32 @@ type Usage struct {
 // charged to owner (the tile it runs for: a backend's component, whatever
 // its deployment; a session's tile); the returned release gives it back when
 // the VM ends. A refusal is marked sbx.ErrRefused. opts refine admission
-// (reserve.go); none is honoured yet. (Per-tile quotas, for the sandboxes
-// tiles manage themselves, would be checked here against UsedBy.)
+// (reserve.go): a non-primary deployment's headroom, a primary's first claim
+// on its tile's non-primary guests (P25). (Per-tile quotas, for the
+// sandboxes tiles manage themselves, would be checked here against UsedBy.)
 func (m *Manager) Reserve(owner string, memMiB int, opts ...ReserveOption) (release func(), err error) {
+	o := reserveOpts(opts)
 	p := m.Policy()
+	release, short, err := m.admit(p, owner, memMiB, o)
+	if err != nil && o.makeRoom(short) {
+		release, _, err = m.admit(p, owner, memMiB, o)
+	}
+	return release, err
+}
+
+// admit books one VM of memMiB to owner, or refuses it and says how far the
+// policy's count and budget fall short.
+func (m *Manager) admit(p Policy, owner string, memMiB int, o reserveOptions) (release func(), short Usage, err error) {
 	m.umu.Lock()
 	defer m.umu.Unlock()
-	if m.used.VMs+1 > p.MaxVMs {
-		return nil, sbx.Refuse(fmt.Errorf("the workspace's VM limit (%d running) is reached — close a VM terminal or ask an admin to raise it", p.MaxVMs))
+	if short = shortfall(p, m.used, memMiB); short.VMs > 0 {
+		return nil, short, sbx.Refuse(fmt.Errorf("the workspace's VM limit (%d running) is reached — close a VM terminal or ask an admin to raise it", p.MaxVMs))
 	}
-	if m.used.MemMiB+memMiB > p.BudgetMiB {
-		return nil, sbx.Refuse(fmt.Errorf("the workspace's VM memory budget (%d MiB) is spent — close a VM terminal or ask an admin to raise it", p.BudgetMiB))
+	if short.MemMiB > 0 {
+		return nil, short, sbx.Refuse(fmt.Errorf("the workspace's VM memory budget (%d MiB) is spent — close a VM terminal or ask an admin to raise it", p.BudgetMiB))
+	}
+	if err := o.headroom(p, m.used, memMiB); err != nil {
+		return nil, Usage{}, err
 	}
 	m.used.VMs++
 	m.used.MemMiB += memMiB
@@ -165,7 +180,7 @@ func (m *Manager) Reserve(owner string, memMiB int, opts ...ReserveOption) (rele
 			}
 			m.umu.Unlock()
 		})
-	}, nil
+	}, Usage{}, nil
 }
 
 // UsedBy is what running VMs hold, by the tile they are charged to.
