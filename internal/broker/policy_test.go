@@ -554,6 +554,13 @@ func TestGuardNewComponentTree(t *testing.T) {
 	if err := b.guardNewComponentTree("apps"); err == nil || !strings.Contains(err.Error(), "would contain") {
 		t.Fatalf("above components: %v", err)
 	}
+	// A path whose scope data key another scope has (D118): apps~calendar
+	// and apps/calendar share data/resources*/apps~calendar.
+	for _, p := range []string{"apps~calendar", "workspace"} {
+		if err := b.guardNewComponentTree(p); err == nil || !strings.Contains(err.Error(), "resource data key") {
+			t.Fatalf("%s: %v", p, err)
+		}
+	}
 }
 
 // Pending annotates ceiling-blocked requests so UIs can grey them out

@@ -42,7 +42,9 @@ func cmdDoctor() error {
 		byPath[c.Path] = true
 	}
 	for _, c := range comps {
-		if c.ManifestErr != "" {
+		if strings.HasPrefix(c.ManifestErr, "scope.json (") { // what xbind refused in the tile's scope (D118)
+			warn("%s: %s", c.Path, c.ManifestErr)
+		} else if c.ManifestErr != "" {
 			warn("%s: xbin.json: %s", c.Path, c.ManifestErr)
 		}
 		for _, d := range c.Deps {
@@ -296,6 +298,7 @@ func cmdDoctor() error {
 	// Strict tile asset gating (docs/auth.md): absolute /c/ URLs, inject:false.
 	if comps != nil {
 		doctorTileAssets(warn, ok)
+		doctorChrome(warn) // chrome requests awaiting an admin (chrome.go)
 	}
 
 	// inotify budget (the #1 support issue per plans/deployment.md).

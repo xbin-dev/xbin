@@ -289,7 +289,8 @@ func (b *Broker) attributedAccess(userID string) *users.Access {
 // guardNewComponentTree rejects creation paths that nest with existing
 // components either way (the same rule clone always had): not inside one,
 // and not a subtree that already contains one — e.g. a tile AT an org
-// container (apps/o/sales) above existing org tiles.
+// container (apps/o/sales) above existing org tiles — and paths whose scope
+// data key another scope has (registry.ScopeKeyClash).
 func (b *Broker) guardNewComponentTree(path string) error {
 	if owner, _, ok := b.Reg.Resolve(path); ok && owner != nil {
 		if owner.Path == path {
@@ -301,6 +302,11 @@ func (b *Broker) guardNewComponentTree(path string) error {
 		if strings.HasPrefix(c.Path, path+"/") {
 			return fmt.Errorf("%s would contain existing component %s", path, c.Path)
 		}
+	}
+	// Resource data is keyed by util.ScopeKey ("/" → "~"): a tile here could
+	// become a scope sharing another's encrypted volumes (D118).
+	if other := b.Reg.ScopeKeyClash(path); other != "" {
+		return fmt.Errorf("%s would share its resource data key with %s (\"/\" and \"~\" in a path map to the same key) — pick another path", path, other)
 	}
 	return nil
 }

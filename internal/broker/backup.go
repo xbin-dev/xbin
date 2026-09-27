@@ -309,8 +309,15 @@ func (b *Broker) restore(r io.Reader) (backup.Manifest, error) {
 // re-encrypted under the current vault. filesystem/sqlite/blob are all mount
 // dirs, so rest is always "<name>/<rel>".
 func (b *Broker) restoreFileDest(scope, rest string) (string, error) {
+	if !b.Reg.HoldsScopeKey(scope) {
+		// Another scope holds this data key (D118): its volume isn't ours to write.
+		return "", fmt.Errorf("scope %s doesn't hold its resource data key %q — its data isn't restored", scope, util.ScopeKey(scope))
+	}
 	scopeKey := util.ScopeKey(scope)
 	name, rel, _ := strings.Cut(rest, "/")
+	if !registry.ValidResourceName(name) { // the archive names it (D118)
+		return "", fmt.Errorf("backup entry names resource %q, which isn't a valid resource name", name)
+	}
 	mdir, err := b.resenc.Ensure(resLabel(scopeKey, name), scopeKey, name,
 		b.resSingleTenant(scope, b.resType(scope, name)))
 	if err != nil {
@@ -323,9 +330,18 @@ func (b *Broker) loadKV(scope string, body []byte) error {
 	if b.kv == nil {
 		return nil
 	}
+	if !b.Reg.HoldsScopeKey(scope) {
+		// A scope at "workspace" would write the workspace-level buckets (D118).
+		return fmt.Errorf("scope %s doesn't hold its resource data key %q — its data isn't restored", scope, util.ScopeKey(scope))
+	}
 	var dump map[string]map[string]string
 	if err := json.Unmarshal(body, &dump); err != nil {
 		return err
+	}
+	for name := range dump {
+		if !registry.ValidResourceName(name) { // "a/b" would land in another scope's bucket (D118)
+			return fmt.Errorf("backup names kv resource %q, which isn't a valid resource name", name)
+		}
 	}
 	return b.kv.db.Update(func(tx *bolt.Tx) error {
 		for name, kvs := range dump {
@@ -484,6 +500,9 @@ func (b *Broker) removeScopeData(comp string) error {
 			}
 			return nil
 		})
+	}
+	if !b.Reg.HoldsScopeKey(comp) {
+		return nil // data/resources/<key> belongs to the scope that holds the key (D118)
 	}
 	return os.RemoveAll(b.resourcesRoot(comp))
 }

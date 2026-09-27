@@ -139,8 +139,9 @@ therefore the tile's *only* credential, and it authenticates standalone.
   the session cookie from requests showing the opaque-origin fingerprint
   (`Sec-Fetch-Site: cross-site` non-navigations; non-GET navigations to
   `/api/*`/`/ws/*`), so a tile omitting its token can't ride the human's
-  session. Humans act from **chrome** — root/shell plus manifest
-  `chrome: true` (host-set only).
+  session. Humans act from **chrome** — root/shell, the shipped
+  tiles/organisations, and manifest `chrome: true` tiles a workspace admin
+  approved (D118; the flag alone is only a request).
 - A frame token naming a **deleted user** is rejected, and WebSockets pass
   the token as a `?frame=` query parameter (headers are impossible there) —
   consumed by xbind and never forwarded to the callee, where it could be

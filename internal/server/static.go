@@ -55,7 +55,7 @@ func (s *Server) sandboxExtras(comp string) []string { return s.policy().Sandbox
 // Opener severing lives on the popup targets instead (chrome pages and
 // /docs/ send COOP; tile authors use rel="noopener").
 func (s *Server) sandboxDocument(w http.ResponseWriter, r *http.Request, compPath string, comp *registry.Component) bool {
-	if !sandboxedFrame(compPath, comp) {
+	if !s.sandboxedFrame(compPath, comp) {
 		return false
 	}
 	s.setDocCSP(w, r, sandboxHeader(s.docSandboxExtras(r, compPath)))
@@ -237,7 +237,7 @@ func localRedirect(w http.ResponseWriter, r *http.Request, newPath string) {
 // PDFs are left alone: browsers refuse to render them sandboxed and they
 // cannot script. Chrome is trusted and never gated.
 func (s *Server) inertNonDocument(w http.ResponseWriter, r *http.Request, owner string, comp *registry.Component) {
-	if tileOriginOf(r) != "" || !sandboxedFrame(owner, comp) {
+	if tileOriginOf(r) != "" || !s.sandboxedFrame(owner, comp) {
 		return
 	}
 	if strings.HasPrefix(mime.TypeByExtension(path.Ext(r.URL.Path)), "application/pdf") {
@@ -311,17 +311,41 @@ func tileSubresource(r *http.Request) bool {
 }
 
 // sandboxedFrame reports whether a component's documents run in a sandboxed
-// opaque origin (plans/auth.md §6): everything except implicit chrome
-// (root, shell — they ARE the workspace UI) and components whose manifest
-// carries the host-set trust flag `chrome: true`.
-func sandboxedFrame(compPath string, comp *registry.Component) bool {
+// opaque origin (plans/auth.md §6): everything except trusted chrome.
+func (s *Server) sandboxedFrame(compPath string, comp *registry.Component) bool {
+	return !s.trustedChrome(compPath, comp)
+}
+
+// shippedChrome are the built-in tiles whose `chrome: true` is honoured
+// without an approval. tiles/ is reserved for built-ins (D82): no non-admin
+// creates a tile there.
+var shippedChrome = map[string]bool{"tiles/organisations": true}
+
+// trustedChrome reports the components whose documents run unsandboxed,
+// with the session cookie, acting as whoever opens them: the implicit
+// chrome (root, shell — they ARE the workspace UI), and a component whose
+// manifest asks for `chrome: true` when it is shipped chrome or a workspace
+// admin approved it (D118). Never the manifest alone: a tile's xbin.json is
+// writable from its own terminals and coding agents (D40).
+func (s *Server) trustedChrome(compPath string, comp *registry.Component) bool {
 	if isChrome(compPath) {
+		return true
+	}
+	if comp == nil || comp.Path != compPath || !comp.Manifest.Chrome {
 		return false
 	}
-	if comp != nil && comp.Manifest.Chrome {
-		return false
-	}
-	return true
+	return shippedChrome[compPath] || s.chromeApproved(compPath)
+}
+
+// chromeRequested: the manifest asks for chrome but no admin approved it —
+// the tile runs sandboxed (/components chromeRequested, bx doctor).
+func (s *Server) chromeRequested(c *registry.Component) bool {
+	return c.Manifest.Chrome && !s.trustedChrome(c.Path, c)
+}
+
+// chromeApproved: a workspace admin approved path as chrome (users.Store).
+func (s *Server) chromeApproved(path string) bool {
+	return s.Auth != nil && s.Auth.Users != nil && s.Auth.Users.ChromeApproved(path)
 }
 
 // owningComponent returns the registered component that owns a /c/ path (its
@@ -451,7 +475,7 @@ func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPa
 	// — the injected client reads it to tell "unsandboxed" from "sandboxed
 	// without popups" and say which grant a blocked target=_blank needs.
 	sandboxMeta := ""
-	if sandboxedFrame(compPath, comp) {
+	if s.sandboxedFrame(compPath, comp) {
 		tokens := strings.TrimPrefix(sandboxHeader(s.docSandboxExtras(r, compPath)), "sandbox ")
 		sandboxMeta = fmt.Sprintf("<meta name=\"xbin-sandbox\" content=\"%s\">\n", htmlEscape(tokens))
 	}
