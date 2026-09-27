@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"crypto/subtle"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Per-tile origins (--tile-assets=origins; plans/tile-asset-auth.md
@@ -50,6 +52,19 @@ import (
 // minted on the tile origin (TilePrincipal carries that login's
 // generation), and a view-as session's stay read-only without the cookie.
 // Chrome (root, shell, chrome:true tiles) stays on the workspace origin.
+//
+// Tile deployments (P17; 11-contract §2.6, §7.5): each deployment of a tile
+// has an origin of its own, labelled by the tile and the deployment's name
+// (auth.TileHostIDDeployment), so each keeps its own storage whichever
+// deployment is primary. main's label is the tile's, and its tickets and
+// cookies keep today's bytes (x1, c1); any other deployment's are x2 and c2,
+// which name it. A navigation to the bare /c/<tile>/ goes to the primary's
+// origin, one to /c/<tile>+<name>/ to that deployment's. On the origin of
+// (tile, N) both /c/<tile>/… and /c/<tile>+<N>/… serve N, /api/<tile>/…
+// acts as N's tile principal, and a path naming another deployment of the
+// tile is sent to the workspace like another tile's page. Every check that
+// compared a label with TileHostID(tile) asks which (tile, deployment) the
+// label is (originDeployment, originOf).
 
 type tileOriginKey struct{}
 
@@ -122,17 +137,34 @@ func (s *Server) tileHostOf(host string) (string, bool) {
 }
 
 // tileOriginURL is a tile's origin (scheme://t-<id>.<tiles-domain>[:port]),
-// or "" outside origins mode. Scheme and port follow --external-url unless
-// --tiles-domain carries its own port.
+// or "" outside origins mode: its primary's (P7), which is the tile's own
+// label while main is primary, as on every tile without a deployment record.
+// Scheme and port follow --external-url unless --tiles-domain carries its
+// own port.
 func (s *Server) tileOriginURL(tile string) string {
+	if s.assetMode() != TileAssetsOrigins {
+		return ""
+	}
+	return s.deploymentOriginURL(tile, s.primaryOf(tile))
+}
+
+// DeploymentOrigin is the origin of deployment dep of tile under
+// --tile-assets=origins (11-contract §2.6), "" in every other mode: what
+// GET /deployments names as a deployment's origin to the callers who see
+// that deployment.
+func (s *Server) DeploymentOrigin(tile, dep string) string { return s.deploymentOriginURL(tile, dep) }
+
+// deploymentOriginURL is tileOriginURL for deployment dep of tile.
+func (s *Server) deploymentOriginURL(tile, dep string) string {
 	if s.assetMode() != TileAssetsOrigins || s.TilesDomain == "" || s.ExternalURL == "" {
 		return ""
 	}
 	u, err := url.Parse(s.ExternalURL)
-	if err != nil || u.Scheme == "" {
+	label := s.Auth.TileHostIDDeployment(tile, dep)
+	if err != nil || u.Scheme == "" || label == "" {
 		return ""
 	}
-	host := s.Auth.TileHostID(tile) + "." + s.TilesDomain
+	host := label + "." + s.TilesDomain
 	if !strings.Contains(s.TilesDomain, ":") && u.Port() != "" {
 		host += ":" + u.Port()
 	}
@@ -160,11 +192,13 @@ func (s *Server) serveTileOrigin(w http.ResponseWriter, r *http.Request, id stri
 		if rel := strings.TrimPrefix(p, "/c/"); strings.HasPrefix(rel, "~") {
 			http.NotFound(w, r)
 			return
-		} else if owner := s.owningComponent(path.Clean("/" + rel)[1:]); isChrome(owner) || s.Auth.TileHostID(owner) != id {
+		} else if ref := s.docTargetOf(path.Clean("/" + rel)[1:]); isChrome(ref.tile) || !s.originServes(id, ref) {
 			switch {
-			case s.toWorkspace(w, r): // another tile's (or chrome's) page: its own origin, via the workspace
-			case isChrome(owner):
+			case s.toWorkspace(w, r): // another tile's (or deployment's, or chrome's) page: its own origin, via the workspace
+			case isChrome(ref.tile):
 				http.NotFound(w, r) // chrome lives on the workspace origin only
+			case ref.dep != "" && s.originIsTile(id, ref.tile) && documentRequest(r, ref.rest):
+				http.Error(w, "a tile origin serves only its own deployment's documents", http.StatusForbidden)
 			default:
 				s.serveTileOriginAuthed(w, r, id) // another tile's assets: authorized for the user; documents refused
 			}
@@ -212,7 +246,7 @@ func (s *Server) serveTileOriginAuthed(w http.ResponseWriter, r *http.Request, i
 				q += "&"
 			}
 			w.Header().Set("Cache-Control", "no-store")
-			http.Redirect(w, r, strings.TrimRight(s.ExternalURL, "/")+r.URL.EscapedPath()+"?"+q+retryMarker+"=1", http.StatusFound)
+			http.Redirect(w, r, strings.TrimRight(s.ExternalURL, "/")+s.workspacePath(r)+"?"+q+retryMarker+"=1", http.StatusFound)
 			return
 		}
 		s.tileOriginDenied(w, r, code)
@@ -230,7 +264,7 @@ func (s *Server) serveTileOriginAuthed(w http.ResponseWriter, r *http.Request, i
 	switch p := r.URL.Path; {
 	case strings.HasPrefix(p, "/c/"):
 		w.Header().Set("Content-Security-Policy", s.tileFrameAncestors())
-		s.handleComponentStatic(w, r)
+		s.handleComponentStatic(w, s.onDeploymentOrigin(r, tile, pr.Deployment))
 	case strings.HasPrefix(p, "/api/"):
 		r = withoutTileCookie(r)
 		s.handleAPI(noSetCookie(w), r.WithContext(auth.WithNoSetCookie(r.Context())))
@@ -293,8 +327,8 @@ func (s *Server) tileOriginPrincipal(w http.ResponseWriter, r *http.Request, id 
 			return p, "", false, http.StatusUnauthorized
 		}
 		tile = s.owningComponent(fp.Component)
-		if s.Auth.TileHostID(tile) != id {
-			return p, "", false, http.StatusForbidden // another tile's token on this origin
+		if s.Auth.TileHostIDDeployment(tile, fp.Deployment) != id {
+			return p, "", false, http.StatusForbidden // another tile's (or deployment's) token on this origin
 		}
 		p, have = fp, true
 	}
@@ -306,7 +340,7 @@ func (s *Server) tileOriginPrincipal(w http.ResponseWriter, r *http.Request, id 
 	if c != nil {
 		g, ok := s.Auth.VerifyTileCookie(c.Value)
 		switch {
-		case !ok || s.Auth.TileHostID(g.Tile) != id:
+		case !ok || s.Auth.TileHostIDDeployment(g.Tile, g.Deployment) != id:
 			// a dead cookie next to a token: the login behind this browser's
 			// tile session ended — the token must not outlive it
 			return p, "", false, http.StatusUnauthorized
@@ -331,7 +365,7 @@ func (s *Server) tileOriginPrincipal(w http.ResponseWriter, r *http.Request, id 
 	if !have {
 		return p, "", false, http.StatusUnauthorized
 	}
-	if !s.Auth.UserCanReadTile(p.UserID, tile) {
+	if !s.Auth.UserCanReadTile(p.UserID, tile) || !s.originLevelHolds(p.UserID, tile, p.Deployment) {
 		return p, "", false, http.StatusForbidden // RBAC changed since the credential was minted
 	}
 	return p, tile, viaCookie, 0
@@ -372,7 +406,7 @@ func cookieRequestAllowed(r *http.Request) bool {
 func (s *Server) tileOriginBegin(w http.ResponseWriter, r *http.Request, id string) {
 	if hint := r.URL.Query().Get(beginParam); hint != "" {
 		if c, err := auth.OnlyCookie(r, tileCookieName(r)); err == nil {
-			if g, ok := s.Auth.VerifyTileCookie(c.Value); ok && s.Auth.TileHostID(g.Tile) == id &&
+			if g, ok := s.Auth.VerifyTileCookie(c.Value); ok && s.Auth.TileHostIDDeployment(g.Tile, g.Deployment) == id &&
 				subtle.ConstantTimeCompare([]byte(s.Auth.TileBindingHint(g.Gen)), []byte(hint)) == 1 {
 				s.cleanRedirect(w, r)
 				return
@@ -395,7 +429,7 @@ func (s *Server) tileOriginBegin(w http.ResponseWriter, r *http.Request, id stri
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	http.Redirect(w, r, strings.TrimRight(s.ExternalURL, "/")+r.URL.EscapedPath()+"?"+q+stateParam+"="+state, http.StatusFound)
+	http.Redirect(w, r, strings.TrimRight(s.ExternalURL, "/")+s.workspacePath(r)+"?"+q+stateParam+"="+state, http.StatusFound)
 }
 
 // tileOriginExchange trades a navigation's one-time ticket for the tile
@@ -408,7 +442,8 @@ func (s *Server) tileOriginExchange(w http.ResponseWriter, r *http.Request, id s
 		state = c.Value
 	}
 	g, ok := s.Auth.RedeemTileTicket(r.URL.Query().Get(ticketParam), state)
-	if !ok || isChrome(g.Tile) || s.Auth.TileHostID(g.Tile) != id || !s.Auth.UserCanReadTile(g.UserID, g.Tile) {
+	if !ok || isChrome(g.Tile) || s.Auth.TileHostIDDeployment(g.Tile, g.Deployment) != id ||
+		!s.Auth.UserCanReadTile(g.UserID, g.Tile) || !s.originLevelHolds(g.UserID, g.Tile, g.Deployment) {
 		s.tileOriginDenied(w, r, http.StatusUnauthorized)
 		return
 	}
@@ -447,7 +482,7 @@ func (s *Server) setTileCookie(w http.ResponseWriter, r *http.Request, g auth.As
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name: tileCookieName(r), Value: s.Auth.MintTileCookie(g.Tile, g.UserID, g.Gen, ttl), Path: "/",
+		Name: tileCookieName(r), Value: s.Auth.MintTileCookieDeployment(g.Tile, g.Deployment, g.UserID, g.Gen, ttl), Path: "/",
 		HttpOnly: true, Secure: auth.SecureRequest(r), SameSite: http.SameSiteStrictMode,
 		MaxAge: int(ttl.Seconds()),
 	})
@@ -469,7 +504,7 @@ func (s *Server) tileOriginDenied(w http.ResponseWriter, r *http.Request, code i
 		http.Error(w, http.StatusText(code)+" — this tile origin needs the tile's credential; open the tile from the workspace", code)
 		return
 	}
-	back := strings.TrimRight(s.ExternalURL, "/") + r.URL.EscapedPath()
+	back := strings.TrimRight(s.ExternalURL, "/") + s.workspacePath(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; style-src 'unsafe-inline'; "+s.tileFrameAncestors())
 	w.WriteHeader(code)
@@ -512,4 +547,157 @@ func dropQueryKey(raw, key string) string {
 		keep = append(keep, kv)
 	}
 	return strings.Join(keep, "&")
+}
+
+// ---- deployment origins (11-contract §2.6) (P17) ----
+
+// DeploymentNamesPolicy is a Policy that names every deployment of a tile:
+// its primary and each name, main first (the deployments plane's
+// DeploymentsOf, in-memory). Origins mode maps an origin label back to
+// (tile, deployment) with it. Without it the labels known for a tile are
+// main's and its primary's, which is every label of a tile without a
+// deployment record.
+type DeploymentNamesPolicy interface {
+	DeploymentsOf(tile string) (primary string, names []string)
+}
+
+// deploymentNames lists the deployments of tile whose origin labels
+// originDeployment knows.
+func (s *Server) deploymentNames(tile string) []string {
+	if dp, ok := s.policy().(DeploymentNamesPolicy); ok {
+		_, names := dp.DeploymentsOf(tile)
+		return names
+	}
+	names := []string{util.MainDeployment}
+	if p := s.primaryOf(tile); p != util.MainDeployment {
+		names = append(names, p)
+	}
+	return names
+}
+
+// originDeployment answers which deployment of tile the origin labelled id
+// serves: the one whose label it is (main's is TileHostID(tile), so a tile
+// without a record answers main exactly where today's comparison matched).
+// ok is false for any other label: another tile's origin, chrome, or a
+// deployment that no longer exists.
+func (s *Server) originDeployment(tile, id string) (string, bool) {
+	if id == "" || isChrome(tile) {
+		return "", false
+	}
+	for _, n := range s.deploymentNames(tile) {
+		if s.Auth.TileHostIDDeployment(tile, n) == id {
+			return n, true
+		}
+	}
+	return "", false
+}
+
+// originOf is the label → (tile, deployment) lookup over the registered
+// tiles and their deployments.
+func (s *Server) originOf(id string) (tile, dep string, ok bool) {
+	for _, c := range s.Reg.Components() {
+		if dep, ok := s.originDeployment(c.Path, id); ok {
+			return c.Path, dep, true
+		}
+	}
+	return "", "", false
+}
+
+// docTarget is what a cleaned /c/ path names: the tile whose code it is,
+// the deployment a deployment URL names ("" for a bare path: the primary on
+// the workspace, the origin's deployment on a tile origin) and the rest
+// beneath the tile.
+type docTarget struct{ tile, dep, rest string }
+
+func (s *Server) docTargetOf(cleaned string) docTarget {
+	if q, ok := s.resolveQualified(cleaned); ok {
+		return docTarget{tile: q.c.Path, dep: q.dep, rest: q.rest}
+	}
+	owner := s.owningComponent(cleaned)
+	return docTarget{tile: owner, rest: tileRel(owner, cleaned)}
+}
+
+// originServes reports whether the origin labelled id serves what ref
+// names: a bare path of its tile, or a deployment URL naming its own
+// deployment of its tile (the alias of the primary, on the primary's own
+// origin, included).
+func (s *Server) originServes(id string, ref docTarget) bool {
+	if ref.dep != "" {
+		return !isChrome(ref.tile) && s.Auth.TileHostIDDeployment(ref.tile, ref.dep) == id
+	}
+	_, ok := s.originDeployment(ref.tile, id)
+	return ok
+}
+
+// originIsTile reports whether the origin labelled id is one of tile's.
+func (s *Server) originIsTile(id, tile string) bool {
+	_, ok := s.originDeployment(tile, id)
+	return ok
+}
+
+// originLevelHolds is a tile origin's level check on every request, beside
+// the read check: the origin of a deployment other than the primary needs
+// the user to write the tile, at their current level, as that deployment's
+// URL does on the workspace (11-contract §2.3) (P20). dep is the
+// credential's ("" is main).
+func (s *Server) originLevelHolds(uid, tile, dep string) bool {
+	return cmp.Or(dep, util.MainDeployment) == s.primaryOf(tile) || s.userWritesTile(uid, tile)
+}
+
+// onDeploymentOrigin serves a bare /c/<tile>/… request on the origin of a
+// deployment of tile other than its primary as /c/<tile>+<dep>/…: on a
+// deployment's origin both name it (11-contract §2.6), so its documents'
+// absolute self-URLs stay in it, and the deployment URL's gate and code
+// answer. Anything else is r as it is: the primary's origin, a deployment
+// URL, another tile's file, a deps/ link re-dispatched to the tile's bare
+// URL, which serves its primary (07-runtime §4.1), and a deployment URL
+// that something on disk shadows (11-contract §2.1).
+func (s *Server) onDeploymentOrigin(r *http.Request, tile, dep string) *http.Request {
+	dep = cmp.Or(dep, util.MainDeployment)
+	if dep == s.primaryOf(tile) || r.Context().Value(depsHopsKey{}) != nil {
+		return r
+	}
+	cleaned := path.Clean("/" + strings.TrimPrefix(r.URL.Path, "/c/"))[1:]
+	if ref := s.docTargetOf(cleaned); ref.dep != "" || ref.tile != tile {
+		return r
+	}
+	qp := qualifiedDocPath(r, tile, dep, cleaned)
+	if ref := s.docTargetOf(path.Clean(qp)[len("/c/"):]); ref.tile != tile || ref.dep != dep {
+		return r
+	}
+	r2 := r.Clone(r.Context())
+	r2.URL.Path, r2.URL.RawPath = qp, ""
+	r2.RequestURI = r2.URL.RequestURI()
+	return r2
+}
+
+// qualifiedDocPath is r's cleaned /c/ path of tile at deployment dep's URL,
+// /c/<tile>+<dep>/<rest>, keeping r's trailing slash.
+func qualifiedDocPath(r *http.Request, tile, dep, cleaned string) string {
+	p := "/c/" + tile + "+" + dep + strings.TrimPrefix(cleaned, tile)
+	if strings.HasSuffix(r.URL.Path, "/") && !strings.HasSuffix(p, "/") {
+		p += "/"
+	}
+	return p
+}
+
+// workspacePath is r's escaped path as a tile origin sends its browser to
+// the workspace (a fresh exchange, the page asking for one): a bare path of
+// the origin's own tile names the origin's deployment when that isn't the
+// primary, so the workspace sends it back to this origin, never to the
+// primary's. Every other path is r's own.
+func (s *Server) workspacePath(r *http.Request) string {
+	id, _ := s.tileHostOf(r.Host)
+	if id == "" || !strings.HasPrefix(r.URL.Path, "/c/") {
+		return r.URL.EscapedPath()
+	}
+	cleaned := path.Clean("/" + strings.TrimPrefix(r.URL.Path, "/c/"))[1:]
+	ref := s.docTargetOf(cleaned)
+	if ref.dep != "" {
+		return r.URL.EscapedPath()
+	}
+	if dep, ok := s.originDeployment(ref.tile, id); ok && dep != s.primaryOf(ref.tile) {
+		return (&url.URL{Path: qualifiedDocPath(r, ref.tile, dep, cleaned)}).EscapedPath()
+	}
+	return r.URL.EscapedPath()
 }

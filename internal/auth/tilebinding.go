@@ -36,12 +36,14 @@ const (
 	// HostTileCookieName is the tile cookie's name on secure origins.
 	HostTileCookieName = "__Host-" + TileCookieName
 
-	sessionRefPurpose = "xbin-session-ref-v1"
-	tileTicketPurpose = "xbin-tile-ticket-v1"
-	tileStatePurpose  = "xbin-tile-state-v1"
-	tileHintPurpose   = "xbin-tile-hint-v1"
-	tileTicketPrefix  = "x1"
-	sessionGenPrefix  = "s:"
+	sessionRefPurpose   = "xbin-session-ref-v1"
+	tileTicketPurpose   = "xbin-tile-ticket-v1"
+	tileTicketPurposeV2 = "xbin-tile-ticket-v2" // a deployment origin's (assettoken.go)
+	tileStatePurpose    = "xbin-tile-state-v1"
+	tileHintPurpose     = "xbin-tile-hint-v1"
+	tileTicketPrefix    = "x1"
+	tileTicketPrefixV2  = "x2"
+	sessionGenPrefix    = "s:"
 
 	// TileStateCookieName holds a tile origin's exchange state on an
 	// insecure origin (HostTileStateCookieName on a secure one): host-only,
@@ -231,8 +233,28 @@ func (a *Auth) TileBindingHint(binding string) string { return a.mac(tileHintPur
 // string, or the second would count as spent (the shell framing a tile and
 // a direct open of it, side by side).
 func (a *Auth) MintTileTicket(tile, uid, binding, state string) string {
-	return a.mintGrant(tileTicketPrefix, tileTicketPurpose, tile, uid,
-		binding+ticketNonceSep+util.RandomToken(8)+ticketNonceSep+a.mac(tileStatePurpose, state), TileTicketTTL)
+	return a.mintGrant(tileTicketPrefix, tileTicketPurpose, tile, uid, a.ticketGen(binding, state), TileTicketTTL)
+}
+
+// MintTileTicketDeployment is MintTileTicket for the origin of deployment
+// dep of tile (P17; 11-contract §7.5): main's ("" or "main") is today's x1,
+// byte for byte; any other deployment's an x2, which carries the deployment
+// inside its MAC. "" for a string that isn't a deployment name.
+func (a *Auth) MintTileTicketDeployment(tile, dep, uid, binding, state string) string {
+	claim, ok := claimName(dep)
+	switch {
+	case !ok:
+		return ""
+	case claim == "":
+		return a.MintTileTicket(tile, uid, binding, state)
+	}
+	return a.mintGrantDeployment(tileTicketPrefixV2, tileTicketPurposeV2, tile, uid, a.ticketGen(binding, state), claim, TileTicketTTL)
+}
+
+// ticketGen is a ticket's binding field: the binding, a nonce and the
+// exchange state's keyed hash.
+func (a *Auth) ticketGen(binding, state string) string {
+	return binding + ticketNonceSep + util.RandomToken(8) + ticketNonceSep + a.mac(tileStatePurpose, state)
 }
 
 // ticketNonceSep separates a ticket's binding, nonce and state hash ('#' is
@@ -245,8 +267,12 @@ const ticketNonceSep = "#"
 // redemption fails — and checks that what it is bound to is still live. A
 // ticket minted for another browser's state — someone else's session sent
 // here to sign this browser in as them — is refused.
+//
+// Either form redeems: an x1 for main's origin, an x2 naming the deployment
+// whose origin it is for (the grant's Deployment); the caller checks that
+// the redeeming origin is that deployment's.
 func (a *Auth) RedeemTileTicket(tok, state string) (AssetGrant, bool) {
-	g, ok := a.verifyGrant(tileTicketPrefix, tileTicketPurpose, tok)
+	g, ok := a.verifyTileGrant(tileTicketPrefix, tileTicketPurpose, tileTicketPrefixV2, tileTicketPurposeV2, tok)
 	if !ok {
 		return AssetGrant{}, false
 	}
@@ -280,15 +306,42 @@ func (a *Auth) MintTileCookie(tile, uid, binding string, ttl time.Duration) stri
 	return a.mintGrant(tileCookiePrefix, tileCookiePurpose, tile, uid, binding, ttl)
 }
 
+// MintTileCookieDeployment is MintTileCookie for the origin of deployment
+// dep of tile (P17; 11-contract §7.5): main's ("" or "main") is today's c1,
+// byte for byte; any other deployment's a c2,
+// c2.b64(tile).b64(user).exp.b64(gen).b64(deployment).mac. "" for a string
+// that isn't a deployment name.
+func (a *Auth) MintTileCookieDeployment(tile, dep, uid, binding string, ttl time.Duration) string {
+	claim, ok := claimName(dep)
+	switch {
+	case !ok:
+		return ""
+	case claim == "":
+		return a.MintTileCookie(tile, uid, binding, ttl)
+	}
+	return a.mintGrantDeployment(tileCookiePrefixV2, tileCookiePurposeV2, tile, uid, binding, claim, ttl)
+}
+
 // VerifyTileCookie returns the grant of a valid, unexpired tile-origin
-// cookie whose binding is live. The caller checks that its tile is the
-// origin's tile and that the user may still read it.
+// cookie whose binding is live: a c1 (main's origin) or a c2, whose grant
+// names its deployment. The caller checks that its (tile, deployment) is
+// the origin's and that the user may still read it (write, for a
+// deployment other than the primary).
 func (a *Auth) VerifyTileCookie(v string) (AssetGrant, bool) {
-	g, ok := a.verifyGrant(tileCookiePrefix, tileCookiePurpose, v)
+	g, ok := a.verifyTileGrant(tileCookiePrefix, tileCookiePurpose, tileCookiePrefixV2, tileCookiePurposeV2, v)
 	if !ok {
 		return AssetGrant{}, false
 	}
 	return a.liveTileGrant(g)
+}
+
+// verifyTileGrant verifies a tile-origin credential in either form: main's
+// (prefix v1, six parts) or a deployment's (prefix v2, seven).
+func (a *Auth) verifyTileGrant(v1, purpose1, v2, purpose2, tok string) (AssetGrant, bool) {
+	if strings.HasPrefix(tok, v2+".") {
+		return a.verifyGrantDeployment(v2, purpose2, tok)
+	}
+	return a.verifyGrant(v1, purpose1, tok)
 }
 
 // liveTileGrant: a user's tile credential must be bound to a live browser
