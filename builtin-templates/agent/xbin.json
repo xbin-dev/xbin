@@ -47,6 +47,12 @@
     // by name (an older instance's grant).
     "llm": { "kind": "http", "service": "openai", "multi": true },
     "mcp": { "kind": "http", "service": "mcp", "multi": true },
+    // Coding sandboxes (D115): one or more sandbox managers — the builtin
+    // coding-sandbox template, or any tile that provides service
+    // "sandbox-manager" (docs/sandbox-manager.md). A conversation of a class
+    // with the sandbox toolset works in one of their sandboxes; the binding
+    // is the grant. Unbound = no sandboxes.
+    "sandboxes": { "kind": "http", "service": "sandbox-manager", "multi": true },
     // Egress for the web lane's web_search/web_fetch tools. Unbound = zero
     // egress and the tools report themselves unavailable; the owner may
     // `bx bind <this component> net=internet` (or the admin Interfaces tab).

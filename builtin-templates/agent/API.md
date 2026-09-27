@@ -852,6 +852,44 @@ chip shows the file's current content, with the header noting the difference.
 The tile's Files tab edits them too, sending back the version it loaded so a
 write the agent made in between comes back as a 409 instead of being lost.
 
+## Coding sandboxes (D115)
+
+A conversation can work in a **coding sandbox**: a box with a shell, a
+filesystem and the tools of a job, run by a **sandbox manager** — a tile
+that implements the `sandbox-manager` contract (docs/sandbox-manager.md;
+the builtin `coding-sandbox` template, or anyone's own). The agent holds no
+sandboxes itself.
+
+**Where they come from.** The manifest's `sandboxes` interface slot (`http`,
+service `sandbox-manager`, multi): `bx bind <this component>
+sandboxes+=apps/coding-sandbox`, or the binding panel. Several managers may
+be bound at once; rebinding restarts the backend; unbound, there are no
+sandboxes. The agent says `hello` to each (protocol 1; cached five minutes)
+and ignores — listing it with the reason — one that speaks another protocol
+or lacks the `exec` and `files` capabilities. A manager shows this agent the
+sandboxes it created and those shared with it (its **partition**).
+
+**References.** A sandbox is named `<provider>[#inst]|<id>` — the manager
+tile as its binding names it and the manager's id — always qualified, so a
+stored reference keeps naming the same sandbox however many managers are
+bound. In a URL path it may be sent as is or percent-encoded.
+
+**People (D83).** Every call the agent makes to a manager names the person
+it acts for in `Sbx-User` (asserted: the manager records it as the owner of
+what it creates); the agent enforces who may do what:
+
+- **use** (bind it, work in it, start it): its owner, a member, or anyone
+  when it is `team`. A sandbox with no owner (created by a component or the
+  tile itself) is theirs, and people's only when it is `team`;
+- **manage** (stop, archive, delete): its owner, and the tile's managers —
+  who may stop or delete any sandbox but never bind someone else's private
+  one;
+- **edit** (name, visibility, members, shares): its owner.
+
+| Route | Body / query | Result |
+|---|---|---|
+| `GET /sandboxes` | `?fresh=1` skips the cache | `{sandboxes: [{ref, provider, manager, …the contract's sandbox…, mine, canUse, canManage, canEdit}], managers: [{provider, title, ok, error?, refusal?, caps, egress, images, sizes, limits}]}` — every sandbox the caller may see, across the bound managers (merged, cached 15 s; the agent's own changes show at once); `manager` is the manager's title. Anyone who can use the tile |
+
 ## The frontend: one model, thin views
 
 The tile's state and behaviour live in **`model/`** — plain ES modules with no

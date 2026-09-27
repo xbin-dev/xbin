@@ -23,6 +23,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   person, a backend names the person it acts for in `Sbx-User`. Managers can
   be built on xbind's own sandboxes or on a cloud's API and ssh.
 
+- **Agent template: sandbox managers** (D115; the template's API.md
+  §Coding sandboxes). A new
+  `sandboxes` interface slot (`http`, service `sandbox-manager`, multi) binds
+  the agent to one or more sandbox managers; `GET /sandboxes` lists the
+  sandboxes the caller may see across them (references
+  `<provider>[#inst]|<id>`, with `mine`, `canUse`, `canManage`, `canEdit`)
+  and what each manager offers, or why it can't be used. The agent names the
+  person it acts for in `Sbx-User` and enforces the owner / members / team
+  rules itself.
+
 - **Admin console: runtime → sandboxes, and the sandbox in the component
   list** (D112, [isolation.md](isolation.md) §VM sandboxes). A new tab lists
   every sandbox xbind runs — backend generations, terminals, agent sessions
