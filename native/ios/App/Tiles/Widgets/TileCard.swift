@@ -47,7 +47,7 @@ struct TileCard: View {
         .onAppear { setShown(native) }
         .onDisappear { setShown(false) }
         .onScrollVisibilityChange(threshold: 0.2) { setShown($0 && native) }
-        .onChange(of: size) { if shown { pool.show(workspace, tile, size: size) } }
+        .onChange(of: size) { if shown { pool.resize(workspace, tile.path, size: size) } }
     }
 
     private func setShown(_ on: Bool) {

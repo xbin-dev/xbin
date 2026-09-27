@@ -105,6 +105,11 @@ final class NativeRuntimePool {
         finish(evicted)
     }
 
+    /// The card on screen changed size: the live runtime draws for it.
+    func resize(_ workspace: WorkspaceModel, _ tile: String, size: CardSize) {
+        runtimes[Key(workspace: workspace.id, tile: tile)]?.setWidgetSize(size)
+    }
+
     /// The card went off screen.
     func hide(_ workspace: WorkspaceModel, _ tile: String) {
         let key = Key(workspace: workspace.id, tile: tile)
