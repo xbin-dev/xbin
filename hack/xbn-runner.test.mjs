@@ -113,3 +113,30 @@ test('event-stream frames with `after` arrive as the clock moves; `open` keeps t
     assert.deepEqual(open.tree.root.c.map((c) => c.p.text), ['Hello, **world**!', 'streaming']);
   } finally { t.done(); }
 });
+
+test('widgets: {widget} plays an app that shows them — r.widget, target on steps, widgetSize', async () => {
+  const t = tile(`import { html, render, widget, native } from '/vendor/xb-native.js';
+    let n = 0;
+    const paint = () => {
+      render(html\`<screen><button @tap=\${() => { n += 10; paint(); }}>main</button></screen>\`);
+      widget(html\`<stack><text>\${native.widgetSize} \${n}</text><button @tap=\${() => { n++; paint(); }}>+1</button></stack>\`);
+    };
+    native.on('widgetsize', paint);
+    paint();`);
+  try {
+    const off = await runNative({ entry: t.entry });
+    assert.equal(off.widget, null, 'no widget without the feature');
+    assert.ok(off.messages.every((m) => !m.target));
+    const r = await runNative({ entry: t.entry, widget: 'small', steps: [
+      { tap: 'r.1', target: 'widget' },
+      { widgetSize: 'wide' },
+      { event: { select: 'button[label="+1"]', type: 'tap', target: 'widget' } },
+      { snapshot: 'w', target: 'widget' },
+      { event: ['r.0', 'tap', {}, undefined] },
+    ] });
+    assert.equal(r.widget.root.c[0].p.text, 'wide 12');
+    assert.equal(r.snapshots.w.root.c[0].p.text, 'wide 2');
+    assert.equal(r.tree.root.c[0].p.label, 'main');
+    assert.deepEqual([...new Set(r.messages.filter((m) => m.op !== 'diag').map((m) => m.target ?? 'main'))], ['main', 'widget']);
+  } finally { t.done(); }
+});

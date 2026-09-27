@@ -57,7 +57,7 @@ export async function runFixture(fx) {
     const r = e?.result;
     for (const m of r?.errors ?? []) problems.push(`runtime error (${m.kind}): ${m.message}${m.where ? ` (${m.where})` : ''}`);
     for (const u of r?.unmatched ?? []) problems.push(`no route answers ${u} (add it to data.json "routes")`);
-    return { tree: r?.tree ?? null, problems, notes, result: r ?? null };
+    return { tree: (fx.run.widget ? r?.widget : r?.tree) ?? null, problems, notes, result: r ?? null };
   }
   const allow = new Set(fx.data.allowDiagnostics || []);
   for (const m of r.errors) problems.push(`runtime error (${m.kind}): ${m.message}${m.where ? ` (${m.where})` : ''}`);
@@ -71,7 +71,7 @@ export async function runFixture(fx) {
     const path = key.replace(/^[A-Z]+ /, '');
     if (![...used].some((u) => u === path || u.split('?')[0] === path)) notes.push(`route ${key} is never requested`);
   }
-  return { tree: r.tree, problems, notes, result: r };
+  return { tree: fx.run.widget ? r.widget : r.tree, problems, notes, result: r };
 }
 
 async function pool(items, limit, fn) {

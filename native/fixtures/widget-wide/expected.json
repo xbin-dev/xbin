@@ -1,0 +1,11 @@
+{"v":1,"root":{"k":"r","t":"stack","p":{"gap":"xs"},"c":[
+  {"k":"r.0","t":"row","p":{"title":"checkout-api","subtitle":"v2.14.0 → prod","icon":"box","badge":"rolling","tone":"accent"}},
+  {"k":"r.1","t":"progress","p":{"value":0.7,"label":"70% of hosts"}},
+  {"k":"r.2","t":"stack","p":{"axis":"h","gap":"s","align":"center"},"c":[
+    {"k":"r.2.0","t":"icon","p":{"name":"clock","tone":"muted"}},
+    {"k":"r.2.1","t":"text","p":{"style":"caption","tone":"muted","text":"7 min in"}},
+    {"k":"r.2.2","t":"badge","p":{"tone":"ok","text":"1.2% errors"}},
+    {"k":"r.2.3","t":"chart","p":{"kind":"spark","y":"percent","height":"xs","series":[{"name":"errors","points":[[0,0.011],[1,0.013],[2,0.012],[3,0.014],[4,0.012],[5,0.012]]}]}},
+    {"k":"r.2.4","t":"button","p":{"role":"primary","icon":"forward","disabled":false,"label":"Promote"},"e":["tap"]}
+  ]}
+]}}

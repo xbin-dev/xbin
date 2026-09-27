@@ -31,8 +31,36 @@ func TestParseNativeArgs(t *testing.T) {
 	if err != nil || !a.static || !a.json || len(a.tiles) != 2 || a.timeout != 2*time.Minute {
 		t.Fatalf("lint: %+v %v", a, err)
 	}
-	if a, err := parseNativeArgs("tree", []string{"apps/x"}); err != nil || a.tiles[0] != "apps/x" || a.width != 390 || a.height != 844 {
+	if a, err := parseNativeArgs("tree", []string{"apps/x"}); err != nil || a.tiles[0] != "apps/x" || a.width != 390 || a.height != 844 || a.widget != "" {
 		t.Fatalf("tree defaults: %+v %v", a, err)
+	}
+	// widgets: --widget is the small one; --size small|wide picks the size class (and implies it)
+	for _, w := range []struct {
+		cmd  string
+		args []string
+		want string
+	}{
+		{"tree", []string{"apps/x", "--widget"}, "small"},
+		{"tree", []string{"apps/x", "--widget", "--size", "wide"}, "wide"},
+		{"tree", []string{"apps/x", "--size=wide", "--widget"}, "wide"},
+		{"preview", []string{"--native", "apps/x", "--widget", "--size", "wide"}, "wide"},
+		{"preview", []string{"--native", "apps/x", "--size", "small"}, "small"},
+	} {
+		a, err := parseNativeArgs(w.cmd, w.args)
+		if err != nil || a.widget != w.want {
+			t.Errorf("%s %v: widget %q, err %v; want %q", w.cmd, w.args, a.widget, err, w.want)
+		}
+	}
+	if a, err := parseNativeArgs("preview", []string{"--native", "apps/x", "--widget", "--size", "430x932"}); err != nil || a.widget != "small" || a.width != 430 {
+		t.Errorf("preview --widget with a viewport: %+v %v", a, err)
+	}
+	for mode, want := range map[string]string{"tree": "", "lint": "small"} {
+		if cfg, err := (nativeArgs{}).probeConfig(mode, []string{"apps/x"}); err != nil || cfg.Widget != want {
+			t.Errorf("probeConfig(%s).Widget = %q, want %q (%v)", mode, cfg.Widget, want, err)
+		}
+	}
+	if cfg, _ := (nativeArgs{widget: "wide"}).probeConfig("tree", []string{"apps/x"}); cfg.Widget != "wide" {
+		t.Errorf("probeConfig(tree --widget wide).Widget = %q", cfg.Widget)
 	}
 
 	bad := []struct {
@@ -44,6 +72,8 @@ func TestParseNativeArgs(t *testing.T) {
 		{"preview", []string{"apps/x"}, "only --native"},
 		{"lint", []string{"--native", "--dark"}, "unknown flag --dark"},
 		{"tree", []string{"apps/x", "--out", "f.png"}, "unknown flag --out"},
+		{"tree", []string{"apps/x", "--size", "390x844"}, "widget size class"},
+		{"lint", []string{"--native", "--widget"}, "unknown flag --widget"},
 		{"preview", []string{"--native", "apps/x", "--size", "390"}, "--size wants"},
 		{"preview", []string{"--native", "apps/x", "--size", "10x10"}, "--size wants"},
 		{"preview", []string{"--native", "apps/x", "--timeout", "soon"}, "--timeout wants"},
@@ -419,6 +449,20 @@ func TestRuntimeFindings(t *testing.T) {
 	gone := &probeResult{Tile: "apps/x", Status: 404, LoadError: "this tile has no native app UI"}
 	if fs := runtimeFindings(gone); len(fs) != 1 || !has(fs, "error", "HTTP 404") {
 		t.Fatalf("load error:\n%s", levels(fs))
+	}
+	// findings about the widget say so; its size is reported
+	r.Errors = []probeMsg{{Kind: "unsupported", Message: "the app does not support <chart> kind=\"area\"", Target: "widget"}}
+	r.Diagnostics = []probeMsg{{Level: "error", Code: "widget-tag", Message: "<list> cannot be in a widget", Target: "widget"}}
+	r.WidgetStats = &widgetStats{Nodes: 3, Depth: 2, Bytes: 100}
+	fs = runtimeFindings(r)
+	for _, w := range []struct{ level, substr string }{
+		{"error", "widget unsupported: the app does not support <chart>"},
+		{"error", "widget widget-tag: <list> cannot be in a widget"},
+		{"ok", "widget: 3 nodes, depth 2, 100 B"},
+	} {
+		if !has(fs, w.level, w.substr) {
+			t.Errorf("no %s %q in\n%s", w.level, w.substr, levels(fs))
+		}
 	}
 	empty := &probeResult{Tile: "apps/x"}
 	if fs := runtimeFindings(empty); !has(fs, "error", "rendered nothing") {

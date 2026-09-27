@@ -17,8 +17,12 @@
  *
  * render() coalesces per frame, diffs against what the app shows and posts
  * patches — an unchanged re-render costs nothing. Events arrive as
- * {type, value, …payload}. `xbin.native` (caps, supports, meta, copy, share,
- * open, state, saveState) is the small app API; it is also exported here as
+ * {type, value, …payload}. widget(template) renders the tile's widget — a
+ * card on the app's screens, from a small vocabulary, at the size class
+ * xbin.native.widgetSize ("small" | "wide"; xbin.native.on('widgetsize', fn)
+ * hears it change) — and does nothing in an app that shows no widgets.
+ * `xbin.native` (caps, supports, meta, copy, share, open, state, saveState,
+ * widgetSize, on) is the small app API; it is also exported here as
  * `native`. The vocabulary is /vendor/xb/vocab.js; the wire contract the app
  * implements is native/spec/tree.md in the xbin repository.
  *
@@ -26,7 +30,7 @@
  * JSON strings); otherwise a preview host that called attach(post) or set
  * globalThis.xbnHost = {post}; otherwise messages queue until attach().
  * The app talks back through globalThis.xbn = {event, visibility, resolve,
- * frame, remount}. createRuntime({post}) makes an independent runtime (node, tests);
+ * frame, remount, widgetSize}. createRuntime({post}) makes an independent runtime (node, tests);
  * with {global: true} it becomes the one render() and globalThis.xbn use.
  *
  * FROZEN once shipped: the exports, the vocabulary and the wire format change
@@ -92,6 +96,9 @@ export function createRuntime(opts = {}) {
 }
 
 export const render = (value) => current$().render(value);
+// widget(value): the widget tree (tree.md §13) — dropped unless the app's
+// caps list the "widget" feature.
+export const widget = (value) => current$().widget(value);
 
 // native — xbin.native, also for documents whose xbin object could not take it.
 export const native = {
@@ -103,20 +110,24 @@ export const native = {
   share: (o) => current$().native.share(o),
   open: (url) => current$().native.open(url),
   saveState: (obj) => current$().native.saveState(obj),
+  get widgetSize() { return current$().native.widgetSize; },
+  on: (type, fn) => current$().native.on(type, fn),
 };
 
 // globalThis.xbn — how the app calls in (callAsyncJavaScript):
-//   xbn.event(k, type, payload, n?)  a user action on node k
+//   xbn.event(k, type, payload, n?, target?)  a user action on node k (target "widget": the widget's)
 //   xbn.visibility('visible'|'hidden')
 //   xbn.resolve(id, value, error?)   answers a {op:"call"}
 //   xbn.frame()                      the renderer's frame clock: flush a pending render
-//   xbn.remount()                    send the whole tree again (a fresh mount)
+//   xbn.remount(target?)             send a tree again (a fresh mount; "widget": the widget's)
+//   xbn.widgetSize('small'|'wide')   the app shows the widget at another size class
 G.xbn = {
-  event: (k, type, payload, n) => current$().xbn.event(k, type, payload, n),
+  event: (k, type, payload, n, target) => current$().xbn.event(k, type, payload, n, target),
   visibility: (s) => current$().xbn.visibility(s),
   resolve: (id, v, err) => current$().xbn.resolve(id, v, err),
   frame: () => current$().xbn.frame(),
-  remount: () => current$().xbn.remount(),
+  remount: (target) => current$().xbn.remount(target),
+  widgetSize: (size) => current$().xbn.widgetSize(size),
 };
 
 let listening = false;

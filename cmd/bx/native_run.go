@@ -44,6 +44,7 @@ type probeConfig struct {
 	Steps   json.RawMessage `json:"steps,omitempty"`
 	Timeout int64           `json:"timeout"`
 	Settle  int64           `json:"settle"`
+	Widget  string          `json:"widget,omitempty"` // "small" | "wide": an app that shows widgets
 }
 
 type probeMsg struct {
@@ -52,6 +53,14 @@ type probeMsg struct {
 	Code    string `json:"code,omitempty"`
 	Message string `json:"message"`
 	Where   string `json:"where,omitempty"`
+	Target  string `json:"target,omitempty"` // "widget": about the widget tree
+}
+
+// widgetStats: the size of the widget tree a headless run ended with.
+type widgetStats struct {
+	Nodes int `json:"nodes"`
+	Depth int `json:"depth"`
+	Bytes int `json:"bytes"`
 }
 
 // probeResult is one tile's headless run.
@@ -61,6 +70,8 @@ type probeResult struct {
 	Status      int             `json:"status"`
 	LoadError   string          `json:"loadError,omitempty"`
 	Tree        json.RawMessage `json:"tree,omitempty"`
+	WidgetTree  json.RawMessage `json:"widgetTree,omitempty"`
+	WidgetStats *widgetStats    `json:"widgetStats,omitempty"`
 	FirstTreeMs *float64        `json:"firstTreeMs"`
 	Settled     bool            `json:"settled"`
 	Stats       struct {
