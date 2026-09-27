@@ -72,8 +72,12 @@ export function STUB(seed) {
   const view = (id) => {
     const v = window.__views[id];
     const run = (v && v.run) || window.__runs.find((r) => r.id === id) || { id, status: 'idle', title: 'run ' + id };
+    // a conversation's class is resolved by its id, as _backend does: one a
+    // PUT /classes stored is read as saved
+    const cid = v && v.class && v.class.id;
+    const saved = cid && window.__classes.classes.some((c) => c.id === cid) ? classesView().classes.find((c) => c.id === cid) : null;
     return { cursor: 'g.' + seq, run: { pendingState: {}, ...run }, messages: [], steps: [], links: [], queued: [], drafts: [],
-      chain: [], files: [], memory: {}, config: {}, messageFiles: {}, ...(v || {}) };
+      chain: [], files: [], memory: {}, config: {}, messageFiles: {}, ...(v || {}), ...(saved ? { class: saved } : {}) };
   };
 
   const base = [
@@ -225,6 +229,7 @@ export function STUB(seed) {
       const s = box(refOf(m[1]));
       if (!s) return json({ error: 'no such sandbox' }, 404);
       s.state = { start: 'running', stop: 'stopped', archive: 'archived', thaw: 'stopped' }[m[2]];
+      if (m[2] === 'start' || m[2] === 'thaw') s.lastActive = Date.now(); // it was active just now
       return json(s);
     }],
     ['PATCH', /\/sandboxes\/(.+)$/, (m, o) => {

@@ -385,7 +385,7 @@ func TestSandboxCreateGrantSaysTeam(t *testing.T) {
 		id := codingRunAs(t, ag, c.st, false)
 		cfg, _ := ag.db.runConfig(id)
 		ask := sandboxesGrantAsk(ag, mustRun(t, ag, id), cfg, calls, nil)
-		if !strings.Contains(ask, "“x”") || strings.Contains(ask, "anyone on the team may use it") != c.team {
+		if !strings.Contains(ask, `"x"`) || strings.Contains(ask, "anyone on the team may use it") != c.team {
 			t.Errorf("%s conversation: %q", c.st.Visibility, ask)
 		}
 	}

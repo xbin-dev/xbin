@@ -21,8 +21,8 @@ const MANAGE = '+manage';
  * badgeTpl(v) in its top bar, and closePop() on Escape.
  */
 export function makeSandboxUI(app, { sel, dlg, repaint }) {
-  const pop = { open: false, cwd: '', err: '' };
-  const dl = { form: null, err: '', msg: '', busy: '', bind: true };
+  const pop = { open: false, ref: '', cwd: '', err: '' }; // cwd: the field, for the sandbox ref
+  const dl = { form: null, err: '', msg: '', busy: '', bind: true, order: null }; // order: the rows as shown, kept while open
   const draw = () => { if (dlg.open) render(dlgTpl(), dlg); };
   app.on('sandboxes', () => { repaint(); draw(); });
   app.on('class', () => paint()); // the class for new chats: the picker follows it at home
@@ -33,6 +33,8 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
   sel.addEventListener('change', async () => {
     const to = sel.value;
     if (to === NEW || to === MANAGE) { paint(); open({ create: to === NEW }); return; }
+    const ask = app.sbx.confirmBind(to);
+    if (ask && !confirm(ask)) { paint(); return; }
     try { await app.sbx.choose(to); } catch (e) { alert(e.message); }
     paint();
   });
@@ -54,11 +56,14 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
     const b = app.sbx.badge(v);
     if (!b) { pop.open = false; return nothing; }
     app.sbx.ensure();
+    // another sandbox became the active one: the field is its directory
+    if (pop.open && pop.ref !== b.ref) { pop.ref = b.ref; pop.cwd = b.cwd; }
     return html`<span class="sbxwrap"><span class="badge sbxbadge ${b.broken ? 'broken' : ''}" id="sbxbadge" role="button" tabindex="0"
         title=${b.title} @click=${() => toggle(b)}>${b.label}${b.broken ? ' ⚠' : ''}</span>${pop.open ? popTpl(b) : nothing}</span>`;
   }
   function toggle(b) {
     pop.open = !pop.open;
+    pop.ref = b.ref;
     pop.cwd = b.cwd;
     pop.err = '';
     if (pop.open) app.sbx.refresh();
@@ -109,7 +114,7 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
   function open({ create = false } = {}) {
     dl.form = create ? {} : null;
     dl.err = ''; dl.msg = ''; dl.busy = ''; dl.bind = true;
-    if (!dlg.open) dlg.showModal();
+    if (!dlg.open) { dl.order = null; dlg.showModal(); } // its rows sorted afresh when it opens, then kept
     draw();
     app.sbx.load(true).catch(() => {});
     repaint();
@@ -141,8 +146,9 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
 
   function dlgTpl() {
     const L = app.sbx.list;
-    const rows = app.sbx.rows();
-    const usable = L.managers.some((m) => m.ok !== false);
+    const rows = app.sbx.rows(dl.order);
+    dl.order = rows.map((r) => r.ref);
+    const cant = app.sbx.createWhy();
     return html`<div class="dlg-hd sbxdhd">${S.ICON} Sandboxes<span style="flex:1"></span>
         <button class="btn ghost btnsm" id="sbx-refresh" title="Read them again from their managers" @click=${() => app.sbx.load(true)}>↻</button>
         <button class="btn ghost btnsm" id="sbx-close" title="Close" @click=${() => dlg.close()}>✕</button></div>
@@ -156,8 +162,9 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
         ${L.loaded && !rows.length ? html`<div class="muted" id="sbx-empty">No sandboxes yet.</div>` : nothing}
         ${dl.msg ? html`<div class="muted" id="sbx-msg">${dl.msg}</div>` : nothing}
         ${dl.err && !dl.form ? html`<div class="err" id="sbx-err">${dl.err}</div>` : nothing}
-        ${dl.form ? formTpl() : html`<div><button class="btn btnsm" id="sbx-new" ?disabled=${!usable}
-          @click=${() => { dl.form = {}; dl.err = ''; dl.msg = ''; draw(); }}>＋ New sandbox</button></div>`}
+        ${dl.form ? formTpl() : html`<div><button class="btn btnsm" id="sbx-new" ?disabled=${!!cant} title=${cant}
+          @click=${() => { dl.form = {}; dl.err = ''; dl.msg = ''; draw(); }}>＋ New sandbox</button>
+          ${cant === S.VIEW_ONLY ? html`<span class="hint" id="sbx-new-why">${S.sentence(cant)}</span>` : nothing}</div>`}
       </div>`;
   }
 

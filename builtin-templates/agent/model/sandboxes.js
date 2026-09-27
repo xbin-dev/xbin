@@ -102,6 +102,54 @@ export function attachedOf(v) {
 
 const rootOf = (v) => (v && v.run ? v.run.rootId || v.run.id : null);
 const talks = (v) => !v || v.access !== 'viewer';
+// the open conversation holds ref: attached, or bound there as the list says
+const heldHere = (v, s) => !!v && (attachedOf(v).some((a) => a.ref === s.ref) || (s.boundTo || []).includes(rootOf(v)));
+
+// sharedConv: the conversation has other people in it — shared with the
+// team, or with people (its view's acl; a run that says its visibility).
+export function sharedConv(v) {
+  if (!v) return false;
+  const acl = v.acl || {};
+  return (acl.visibility || (v.run && v.run.visibility)) === 'team' || (acl.members || []).length > 0;
+}
+
+// VIEW_ONLY: why someone who may only read a conversation can't make or bind
+// a sandbox for it.
+export const VIEW_ONLY = 'you may only read this conversation — someone who may talk in it can make it a sandbox';
+// sentence: a reason ("why …" above) said on its own.
+export const sentence = (why) => (why ? why[0].toUpperCase() + why.slice(1) + (/[.!?]$/.test(why) ? '' : '.') : '');
+
+// createWhy: why New sandbox can't be offered here ('' = it can): the open
+// conversation is view-only for you (a sandbox made while it is open is made
+// for it), or no manager is available (list: GET /sandboxes; null skips it).
+export function createWhy(list, conv) {
+  if (conv && !talks(conv)) return VIEW_ONLY;
+  if (!list) return '';
+  const ms = list.managers || [];
+  if (ms.some((m) => m.ok !== false)) return '';
+  return !list.loaded ? 'the sandboxes are still being read' : ms.length ? 'no sandbox manager is available right now' : 'no sandbox manager is bound';
+}
+
+// bindConfirm: what to confirm before ref becomes the open conversation's
+// sandbox ('' = nothing): a private one that isn't there yet, in a
+// conversation other people are in — they will be able to work in it.
+export function bindConfirm(list, conv, ref) {
+  if (!conv || !ref || !sharedConv(conv)) return '';
+  const s = find(list, ref);
+  if (!s || s.visibility === 'team' || heldHere(conv, s)) return '';
+  return `“${nameOf(s)}” is private — people in this conversation will be able to work in it. Use it here?`;
+}
+
+// askRefusal: why POST /ask refused the sandbox it named ('' = the refusal
+// was not about the sandbox): a manager's refusal (e.refusal: the sandbox is
+// gone, not allowed, or its manager unbound or down), or the backend's own
+// (the class doesn't allow it, you may not use it, a bad cwd).
+const BIND_REFUSED = /^sandbox\.(ref|cwd):|has no sandbox toolset|doesn't allow (sandboxes from|a sandbox with)|may not use this sandbox|this sandbox offers no|has held data from an internal-reach|must be marked as holding internal data/;
+export function askRefusal(e) {
+  if (!e || !e.status) return '';
+  if (e.refusal) return [403, 404, 410].includes(e.status) || e.status >= 500 ? e.message : '';
+  return [400, 403, 409].includes(e.status) && BIND_REFUSED.test(e.message || '') ? e.message : '';
+}
 const find = (list, ref) => ((list && list.sandboxes) || []).find((s) => s.ref === ref) || null;
 const nameOf = (s) => (s && (s.name || splitRef(s.ref).id)) || '';
 const recent = (a, b) => (b.lastActive || 0) - (a.lastActive || 0) || nameOf(a).localeCompare(nameOf(b));
@@ -168,14 +216,22 @@ export function sandboxPicker(list, conv, me, opts = {}) {
     { id: 'shared', label: 'Shared', rows: rest.filter((s) => !s.mine && s.visibility !== 'team').map((s) => row(s)) },
     { id: 'team', label: 'Team', rows: rest.filter((s) => !s.mine && s.visibility === 'team').map((s) => row(s)) },
   ].filter((g) => g.rows.length);
-  // a pick that is not listed (not loaded yet, or gone) still says itself
+  // a pick that is not listed still says itself — and, once the list is
+  // read, why it can't be used (gone, its manager unbound or down, or listed
+  // but no longer yours to use)
+  let stale = '';
   if (value && !groups.some((g) => g.rows.some((r) => r.value === value))) {
     const b = active;
-    groups.unshift({ id: 'picked', label: conv ? 'This conversation' : 'Picked', rows: [{ value, name: b.name || splitRef(value).id,
-      label: b.name || splitRef(value).id, detail: '', state: '', egress: b.egress || '', on: true, disabled: false, why: '' }] });
+    const name = b.name || splitRef(value).id;
+    stale = list && list.loaded ? brokenWhy(b, cls, list) || (find(list, value) ? 'you may no longer use it' : 'gone — its manager no longer has it') : '';
+    groups.unshift({ id: 'picked', label: conv ? 'This conversation' : 'Picked', rows: [{ value, name,
+      label: `${name}${stale ? ' · unavailable' : ''}`, detail: '', state: '', egress: b.egress || '', on: true, disabled: false, why: stale }] });
   }
   const managers = ((list && list.managers) || []).filter((m) => m.ok !== false && !classAllows(cls, m.provider, '', m.title));
   const talk = talks(conv);
+  const newWhy = !talk ? VIEW_ONLY : !managers.length ? (list && list.loaded ? 'no sandbox manager this class allows is available' : '') : '';
+  const notes = ((list && list.managers) || []).filter((m) => m.ok === false).map((m) => `${m.title || m.provider}: ${m.error || 'unavailable'}`);
+  if (stale) notes.unshift(`${active.name || splitRef(value).id}: ${stale} — pick another`);
   return {
     shown, value, cls: cls || null,
     loading: !!list && !list.loaded,
@@ -185,11 +241,11 @@ export function sandboxPicker(list, conv, me, opts = {}) {
     none: { value: '', label: 'No sandbox', on: !value },
     groups,
     actions: [
-      { id: 'new', label: '＋ New sandbox…', disabled: !talk || !managers.length,
-        why: !managers.length ? (list && list.loaded ? 'no sandbox manager this class allows is available' : '') : '' },
+      { id: 'new', label: '＋ New sandbox…', disabled: !talk || !managers.length, why: newWhy },
       { id: 'manage', label: 'Manage sandboxes…', disabled: false, why: '' },
     ],
-    notes: ((list && list.managers) || []).filter((m) => m.ok === false).map((m) => `${m.title || m.provider}: ${m.error || 'unavailable'}`),
+    stale, // why the pick can't be used ('' = it can, or the list isn't read yet)
+    notes,
   };
 }
 
@@ -245,13 +301,26 @@ const sizeWords = (z) => (!z ? '' : [z.id, z.memMiB && `${+(z.memMiB / 1024).toF
   .filter(Boolean).join(' · '));
 const capsOf = (s, list) => s.caps || ((list.managers.find((m) => m.provider === s.provider) || {}).caps) || [];
 
+// viaConv: the conversation start/stop/thaw goes through for s (its root;
+// undefined = as yourself): one the open conversation holds that you may
+// neither use nor manage, while you may talk in it — the backend acts as
+// the one who bound it there (?conversation=).
+export function viaConv(s, conv) {
+  return s && !(s.canUse || s.canManage) && talks(conv) && heldHere(conv, s) ? rootOf(conv) : undefined;
+}
+
 // sandboxRows: the Sandboxes dialog — every sandbox you may see, yours
 // first, then by when it was last active; each with the actions your rights
-// allow: start/stop/thaw (who may use or manage it), archive (who may manage
-// it, where its manager archives), share with the team or make private (its
-// owner), delete (who may manage it — confirmed). opts.conv: the open
-// conversation — "Use here" binds one; opts.cls at home: "Use for a new chat".
-// "Open terminal" waits for phase 3 (a bx-terminal src): not offered.
+// allow: start/stop/thaw (who may use or manage it — or, for one the open
+// conversation holds, anyone who may talk in it: through the conversation),
+// archive (who may manage it, where its manager archives), share with the
+// team or make private (its owner), delete (who may manage it — confirmed).
+// opts.conv: the open conversation — "Use here" binds one (confirmed when a
+// private one goes into a conversation other people are in); opts.cls at
+// home: "Use for a new chat". opts.order: the refs in the order a view shows
+// them — kept while it is open (a row never moves under the cursor), the
+// ones it hasn't shown yet after them. "Open terminal" waits for phase 3 (a
+// bx-terminal src): not offered.
 export function sandboxRows(list, me, opts = {}) {
   const conv = opts.conv || null;
   const cls = conv ? conv.class : opts.cls;
@@ -259,20 +328,25 @@ export function sandboxRows(list, me, opts = {}) {
   const root = rootOf(conv);
   const user = (me && me.user) || '';
   const L = list || listOf(null);
-  return [...L.sandboxes].sort((a, b) => (!!b.mine - !!a.mine) || recent(a, b)).map((s) => {
+  const at = new Map((opts.order || []).map((ref, i) => [ref, i]));
+  const pos = (s) => (at.has(s.ref) ? at.get(s.ref) : Infinity);
+  return [...L.sandboxes].sort((a, b) => (pos(a) - pos(b)) || (!!b.mine - !!a.mine) || recent(a, b)).map((s) => {
     const st = s.state || '';
-    const use = !!(s.canUse || s.canManage);
+    const via = viaConv(s, conv);
+    const use = !!(s.canUse || s.canManage) || via != null;
     const bound = (s.boundTo || []).length;
     const name = nameOf(s);
     const acts = [];
     const on = !!(active && active.ref === s.ref);
     if (hasSandbox(cls) && s.canUse && !on && talks(conv) && !classAllows(cls, s.provider || splitRef(s.ref).provider, firewallEgress(s))
       && !taintWhy(cls, s)) {
-      acts.push({ id: 'use', label: conv ? 'Use here' : 'Use for a new chat' });
+      const ask = bindConfirm(L, conv, s.ref);
+      acts.push({ id: 'use', label: conv ? 'Use here' : 'Use for a new chat', ...(ask ? { confirm: ask } : {}) });
     }
-    if (use && st === 'stopped') acts.push({ id: 'start', label: 'Start' });
-    if (use && st === 'running') acts.push({ id: 'stop', label: 'Stop' });
-    if (use && st === 'archived') acts.push({ id: 'thaw', label: 'Thaw' });
+    const through = via != null ? { via: true } : {};
+    if (use && st === 'stopped') acts.push({ id: 'start', label: 'Start', ...through });
+    if (use && st === 'running') acts.push({ id: 'stop', label: 'Stop', ...through });
+    if (use && st === 'archived') acts.push({ id: 'thaw', label: 'Thaw', ...through });
     if (s.canManage && (st === 'running' || st === 'stopped') && capsOf(s, L).includes('archive')) {
       acts.push({ id: 'archive', label: 'Archive', confirm: `Archive the sandbox “${name}”? It stops, and thawing it takes a while.` });
     }

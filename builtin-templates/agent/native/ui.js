@@ -13,6 +13,7 @@ export const ui = {
   newChat: null,    // the "new chat with options" sheet: {text, title, system, class}
   rename: null,     // the rename sheet: {id, title}
   share: null,      // the share sheet: {run: {id, title}, data, link, err, user, role, linkRole, linkExp}
+  sbxAsk: null,     // the Sandbox picker's confirmation sheet: {ref, name, text} (native/sandboxes.js)
   stack: [],        // screens pushed over the conversation or home: {kind, …} (native/tools.js)
   opening: null,    // a subagent being opened full screen (its view is loading)
   err: '',          // the last failure, said at the top of the screen on top

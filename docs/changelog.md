@@ -188,6 +188,20 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   save while a class they name is gone. A conversation or schedule from
   before the lanes stays in the private lane whatever the built-in
   `internal` is edited into.
+- **Agent template: sandbox UI — fixes from the phase-1 review** (D115; the
+  template's API.md §Coding sandboxes → "In the UI"). Picking an attached
+  sandbox again (the picker, "Use here") keeps the working directory it had
+  in the conversation, and the badge popover's directory field follows a
+  switch. A new-chat pick whose sandbox is gone says so in the picker once
+  the list is read; an ask refused for it keeps the typed message, drops the
+  pick and says why (it no longer fails every new chat). Start / Stop / Thaw
+  are offered through the conversation (`?conversation=`) for a sandbox it
+  holds that you may neither use nor manage; a viewer is no longer offered
+  New sandbox for the conversation. Binding a private sandbox into a
+  conversation other people are in asks first (a sheet in the xbin app).
+  The Sandboxes list keeps its order while open. After a class edit the
+  open conversation's class badge, mixed warning and sandbox reasons
+  follow at once.
 
 - **Admin console: runtime → sandboxes, and the sandbox in the component
   list** (D112, [isolation.md](isolation.md) §VM sandboxes). A new tab lists

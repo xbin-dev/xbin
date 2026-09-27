@@ -796,7 +796,7 @@ test('coding sandboxes (D115): the picker, the ▣ badge and its screen, the too
   assert.deepEqual(find(r.snapshots.chat, { t: 'toolcard', has: 'Search /TODO/' }).p.chips, [{ text: '2 matches' }]);
   // a pick binds it from the next turn, and the header follows
   const patches = bodies(r, 'PATCH', /\/runs\/9$/);
-  assert.deepEqual(patches[0], { sandbox: { ref: `${MGR}|web` } }, 'the refused pick sent nothing');
+  assert.deepEqual(patches[0], { sandbox: { ref: `${MGR}|web`, cwd: '/work' } }, 'the refused pick sent nothing; an attached one keeps its cwd');
   assert.match(topScreen(r.snapshots.bound).p.subtitle, /▣ web · \/work/);
   // ⋯ → Sandbox: its working directory, the attached ones, Detach
   const box = topScreen(r.snapshots.box);

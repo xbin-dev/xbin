@@ -138,12 +138,16 @@ export function createApp(opts = {}) {
       const legacy = pref ? '' : await actions.loadToolset().catch(() => '');
       app.setClasses(list, pref || app.classId, legacy);
     },
-    // setClasses takes GET (or PUT) /classes' answer; your pick stays while you may use it.
+    // setClasses takes GET (or PUT) /classes' answer; your pick stays while
+    // you may use it. When the classes changed, the open conversation's class
+    // is read again (its badge and warning, what its sandboxes may be).
     setClasses(list, pref = app.classId, legacy = '') {
+      const before = app.classes;
       app.classes = classes.listOf(list);
       app.classId = classes.resolvePick(app.classes, pref, legacy);
       emit('class');
       emit('toolset');
+      if (before && JSON.stringify(before.classes) !== JSON.stringify(app.classes.classes)) app.sbx.classesChanged();
     },
     // pickClass: the class for your next new chats — remembered as your default.
     pickClass(id) {
@@ -242,7 +246,7 @@ export function createApp(opts = {}) {
     // still names its lane. Throws on failure.
     async ask(body) {
       const cls = body.class != null || body.toolset == null ? classOf(body.class || undefined) : {};
-      const run = await actions.ask({ ...cls, ...picked(cls.class || ''), ...body });
+      const run = await asking({ ...cls, ...picked(cls.class || ''), ...body });
       app.session.runs.set(run.id, run);
       await app.select(run.id);
       return run;
@@ -253,7 +257,8 @@ export function createApp(opts = {}) {
     // already uploaded them into the draft, the draft is sent); in a
     // conversation it is a message — queued while the run works, delivered
     // at its next step. clear() empties the view's text box once the text is
-    // on its way. Only the chips of where you are go (Attachments.here).
+    // on its way — a refused ask keeps it. Only the chips of where you are go
+    // (Attachments.here).
     async send(text, clear = () => {}) {
       if (app.sending) return;
       const t = String(text ?? '').trim();
@@ -269,7 +274,7 @@ export function createApp(opts = {}) {
           // the app uploaded them into the draft already: send it
           let run;
           try {
-            run = await actions.ask({ text: t, ...classOf(), ...picked(), draft: app.draft, files: items.map((a) => a.path) });
+            run = await asking({ text: t, ...classOf(), ...picked(), draft: app.draft, files: items.map((a) => a.path) });
           } catch (e) {
             // the draft is gone (sent from elsewhere, or expired): those chips can't go
             if (/attach them again/.test(e.message)) { att.clear('home'); app.draft = actions.draftKey(); emit('attach'); }
@@ -283,8 +288,8 @@ export function createApp(opts = {}) {
         }
         if (app.sel == null) {
           if (!items.length) {
+            const run = await asking({ text: t, ...classOf(), ...picked() });
             clear();
-            const run = await actions.ask({ text: t, ...classOf(), ...picked() });
             app.session.runs.set(run.id, run);
             await app.select(run.id);
             return;
@@ -292,7 +297,7 @@ export function createApp(opts = {}) {
           // With attachments there is no run to upload into yet: create it held
           // (no message, no drive), upload, then send the message into it.
           const title = t || items.map((a) => a.name).join(', ');
-          const run = await actions.ask({ text: title, ...classOf(), ...picked(), hold: true });
+          const run = await asking({ text: title, ...classOf(), ...picked(), hold: true });
           try {
             const files = await att.upload(base, run.id, place);
             await actions.message(run.id, { text: t, files });
@@ -360,6 +365,11 @@ export function createApp(opts = {}) {
   // default) — and its sandbox, while the ask's class has the sandbox toolset
   // (D115; app.sbx.pick). No class read yet: no sandbox.
   const picked = (cls = app.classId) => ({ ...(app.model ? { model: app.model } : {}), ...(cls ? app.sbx.askPart(cls) : {}) });
+  // asking: POST /ask — one refused for the sandbox it named drops that pick
+  // and says so (app.sbx.refused), so the next ask isn't refused the same way.
+  const asking = async (body) => {
+    try { return await actions.ask(body); } catch (e) { if (body.sandbox) app.sbx.refused(e); throw e; }
+  };
   // classOf: a new ask's class (yours, unless the form named one) and, beside
   // it, its lane as the legacy toolset; nothing before the classes are read
   // (the backend then gives the caller's default).
