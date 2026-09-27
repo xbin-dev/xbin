@@ -3,6 +3,8 @@ package fsutil
 import (
 	"errors"
 	"os"
+	"path/filepath"
+	"syscall"
 )
 
 // ErrEscapes is returned when a path resolves outside what the opener
@@ -54,4 +56,53 @@ func OpenIn(root, sub, rel string) (*os.File, error) { return openIn(root, sub, 
 // Anything but a regular file or a directory: ErrNotRegular.
 func OpenResolved(root, rel string, allow func(resolved string) bool) (*os.File, string, error) {
 	return openResolved(root, rel, allow)
+}
+
+// MkdirAllIn creates the missing directories of root/sub, never through a
+// symlink: every step of sub is made (or found) as a real directory beneath
+// root, and a symlink or a file on the way fails the call (ErrEscapes, or
+// ENOTDIR) instead of being followed. root is the trust boundary, as for
+// OpenIn; sub must be a local path (filepath.IsLocal), and "" or "." is root
+// itself. A restore makes a tile's directory with it: the tile may sit in
+// another tile's writable tree, which could plant a link on the way.
+func MkdirAllIn(root, sub string, perm os.FileMode) error {
+	if sub == "" || sub == "." {
+		return nil
+	}
+	if !filepath.IsLocal(sub) {
+		return &os.PathError{Op: "mkdir", Path: filepath.Join(root, sub), Err: ErrEscapes}
+	}
+	return mkdirAllIn(root, filepath.Clean(sub), perm)
+}
+
+// OpenRootIn is an os.Root at root/sub, where sub is reached from root
+// without any symlink (as for OpenIn): what the Root then opens stays inside
+// that directory whatever is swapped in later, and the directory itself is
+// the one the no-symlink walk found — not wherever a link planted on the way
+// points. Writes into a tree that a sandbox can write go through here.
+func OpenRootIn(root, sub string) (*os.Root, error) {
+	d, err := OpenIn(root, sub, "")
+	if err != nil {
+		return nil, err
+	}
+	defer d.Close()
+	name := filepath.Join(root, filepath.FromSlash(sub))
+	di, err := d.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !di.IsDir() {
+		return nil, &os.PathError{Op: "open", Path: name, Err: syscall.ENOTDIR}
+	}
+	r, err := os.OpenRoot(name)
+	if err != nil {
+		return nil, err
+	}
+	// The Root re-resolved the path; it must have landed on the very
+	// directory the no-symlink open found (a link swapped in between would not).
+	if ri, err := r.Stat("."); err != nil || !os.SameFile(di, ri) {
+		r.Close()
+		return nil, &os.PathError{Op: "open", Path: name, Err: ErrEscapes}
+	}
+	return r, nil
 }

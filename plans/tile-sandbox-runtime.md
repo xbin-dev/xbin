@@ -1400,6 +1400,46 @@ next to its vforking `os.StartProcess`.
   code; the first test proves or disproves it.
 - **Parallel:** fully. Conflicts with dev-lifecycle's `backup.go` edits;
   whichever lands second rebases.
+- **Landed (branch `p2/cg-backup`) — notes and deviations:**
+  - **Proved.** Written first, against the old code: `restore` wrote
+    through a symlinked dir planted in `source/`, `term/upper` and a
+    resource mount (all three wrote outside the tree), and `Tree` read a
+    file, and a directory's file, swapped for a symlink between the listing
+    and the open (`TestTreeNeverFollowsASwappedSymlink`, racing inside the
+    `skip` callback). A symlink *at a file's path* was already replaced
+    (`Remove` then `Create`), barring a race between the two.
+  - **`Tree`** lists each directory from its fd and opens every entry with
+    `openat(O_NOFOLLOW)` relative to it (a swapped entry is skipped); only
+    the walk's top goes through `fsutil.OpenIn`. **`TreeIn(prefix, root,
+    sub)`** is new: the tile's source dir is reached without symlinks (a
+    nested tile lives in its parent's writable tree), and a link there fails
+    the backup. `TestTreeBytesUnchanged` pins the bytes against the old
+    `WalkDir` walk.
+  - **Restore** writes through `os.Root`, but **replaces** a symlink met on
+    the way (a dir's or a file's path) instead of following it in-tree as a
+    bare `os.Root` would; `os.Root` still bounds a link swapped in
+    mid-restore. The tile's dir is made and opened without symlinks — new
+    `fsutil.MkdirAllIn` / `fsutil.OpenRootIn`.
+  - **The term staging dir is `.xbin/restore/<CK>-*`**, not under
+    `.xbin/term/` (every dir there is read as a layer by `CheckBaseImages`,
+    `pinnedBases`, `vm.ListDisks`). The swap runs under the new
+    `Broker.HoldTermEnv` → `term.Manager.HoldEnv` (kill the sessions, wait,
+    hold the layer; a hold that times out fails the restore and leaves the
+    layer alone), keeps the old layer's `vm/`, ignores `term/vm/…` entries,
+    and removes the old layer with `os.RemoveAll` (never follows; WP-8's
+    confined remove can take it over for sub-uid-owned uppers). Leftovers
+    older than a day are swept on the next term restore. The layer is now
+    **replaced**, not merged.
+  - **Extra, cheap hardening:** the manifest's `Component` must equal the
+    component being restored (it named the host path to write); resource
+    data only for a scope-root archive (`Scope == Component`); resource
+    names are one path segment; offload-full's `removeSourceBulk` clears
+    through `OpenRootIn` (a symlinked tile dir used to aim `RemoveAll` at the
+    link's target).
+  - **Files, for the size budget:** the restore half of
+    `internal/broker/backup.go` moved to `internal/broker/restore.go`, and
+    `HoldEnv` lives in `internal/term/holdenv.go` (dev-lifecycle's
+    `backup.go` edits rebase onto the split).
 
 ### WP-10 — Relay hardening (Track C · S)
 

@@ -10,6 +10,22 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-28
+
+- **Security: backups and restores never follow a planted symlink**
+  ([overview/14-lifecycle.md](overview/14-lifecycle.md), WP-9 of D120). A
+  restore (including re-enabling an offloaded tile, which its owner can do)
+  wrote through symlinks a sandbox had planted in the tile's source, its
+  terminal layer or a resource mount — as xbind, anywhere on the host. It
+  now writes every file through a root that nothing leads out of, replaces a
+  symlink met on the way instead of following it, refuses a tile directory
+  reached through one, and refuses an archive that isn't the component's
+  own. A backup no longer reads a file or directory swapped for a symlink
+  mid-walk. The terminal layer is now rebuilt apart and swapped in whole
+  after the tile's terminal sessions are closed (it used to be merged into
+  the live layer); a VM terminal's disk stays. Archives are unchanged, byte
+  for byte.
+
 ## 2026-09-27
 
 - **A contract for sandbox managers** ([sandbox-manager.md](sandbox-manager.md),

@@ -137,6 +137,7 @@ model itself.
 | `.xbin/env/<comp~key>/<hash>/` | built `setup` environment layers, keyed by script+rootfs hash |
 | `.xbin/term/<key>/` | persistent per-tile terminal dev layers (overlay upper + base-image pin). Keyed by tile, **not** by user — shared across every user's terminals on that tile ([09-terminals.md](09-terminals.md) §How tiles and terminals share the filesystem) |
 | `.xbin/resenc/<scope~key>/<name>` | **decrypted** gocryptfs mountpoints for encrypted resources |
+| `.xbin/restore/` | a restore rebuilds a terminal layer here, then swaps it into `.xbin/term/<key>/`; a leftover (xbind died mid-restore) is safe to delete, and goes by itself after a day |
 | `.xbin/docs/` | the builder docs extracted to disk so terminals read them as files (`$XBIN_DOCS`) |
 | `.xbin/builtins.json`, `.xbin/builtins/<id>/` | builtin-update provenance + pristine base snapshots ([14-lifecycle.md](14-lifecycle.md)) |
 

@@ -420,6 +420,7 @@ func (st *State) stepBroker() error {
 	// D54: a terminal's network on an org-owned tile is the org's network
 	// sets; the broker knows ownership + sets, the term manager asks.
 	st.Term.TermNet = brk.TermNetFor
+	brk.HoldTermEnv = st.Term.HoldEnv // a restore swaps the terminal layer in whole (WP-9)
 	brk.ExternalURL = st.externalURL
 	st.Broker = brk
 	return nil

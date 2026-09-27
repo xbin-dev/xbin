@@ -17,6 +17,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/backup"
+	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/util"
@@ -89,8 +90,10 @@ func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component) error {
 		return err
 	}
 
-	// Source subtree — skip reproducible/history dirs (git owns history).
-	if err := bw.Tree(backup.SourcePrefix, c.Dir, skipSource); err != nil {
+	// Source subtree — skip reproducible/history dirs (git owns history). The
+	// tile's dir is reached from the workspace without symlinks: a nested
+	// tile lives in its parent's writable tree, which could swap it for a link.
+	if err := bw.TreeIn(backup.SourcePrefix, b.Reg.Root, c.Path, skipSource); err != nil {
 		return err
 	}
 	// Resource data (only when this component roots its scope).
@@ -212,164 +215,6 @@ func (b *Broker) cronJobsFor(comp string) []json.RawMessage {
 	return out
 }
 
-// --- restore ----------------------------------------------------------------
-
-// restore unpacks a backup tar, reconstructing the component at the path recorded
-// in the manifest. Placement is purely manifest-driven (self-describing).
-func (b *Broker) restore(r io.Reader) (backup.Manifest, error) {
-	br, err := backup.NewReader(r)
-	if err != nil {
-		return backup.Manifest{}, err
-	}
-	m := br.M
-	root := b.Reg.Root
-	srcRoot := filepath.Join(root, filepath.FromSlash(m.Component))
-	termRoot := b.termDir(m.Component)
-	// Restored resource data is re-encrypted under the current vault, so this
-	// needs the vault unsealed (plans/vault-data.md).
-	if b.vaultSealed() {
-		return m, fmt.Errorf("vault sealed — unseal before restoring encrypted resources")
-	}
-
-	for {
-		name, rd, err := br.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return m, err
-		}
-		switch {
-		case name == backup.KVName:
-			body, _ := io.ReadAll(rd)
-			if err := b.loadKV(m.Scope, body); err != nil {
-				return m, err
-			}
-		case strings.HasPrefix(name, backup.SQLitePrefix):
-			dst, err := b.restoreFileDest(m.Scope, strings.TrimPrefix(name, backup.SQLitePrefix))
-			if err != nil {
-				return m, err
-			}
-			if err := writeFileFrom(dst, rd); err != nil {
-				return m, err
-			}
-		case strings.HasPrefix(name, backup.FSPrefix):
-			dst, err := b.restoreFileDest(m.Scope, strings.TrimPrefix(name, backup.FSPrefix))
-			if err != nil {
-				return m, err
-			}
-			if err := writeFileFrom(dst, rd); err != nil {
-				return m, err
-			}
-		case strings.HasPrefix(name, backup.BlobPrefix):
-			dst, err := b.restoreFileDest(m.Scope, strings.TrimPrefix(name, backup.BlobPrefix))
-			if err != nil {
-				return m, err
-			}
-			if err := writeFileFrom(dst, rd); err != nil {
-				return m, err
-			}
-		case strings.HasPrefix(name, backup.SourcePrefix):
-			if err := writeFileFrom(backup.SafeJoin(srcRoot, strings.TrimPrefix(name, backup.SourcePrefix)), rd); err != nil {
-				return m, err
-			}
-		case strings.HasPrefix(name, backup.TermPrefix):
-			if err := writeFileFrom(backup.SafeJoin(termRoot, strings.TrimPrefix(name, backup.TermPrefix)), rd); err != nil {
-				return m, err
-			}
-		}
-	}
-	// Restore this component's cron jobs.
-	for _, raw := range m.CronJobs {
-		var j cronJob
-		if json.Unmarshal(raw, &j) == nil && b.cron != nil {
-			if b.cron.add(j) == nil {
-				b.cron.persist()
-			}
-		}
-	}
-	// And its bus subscriptions (a subscription of another component is
-	// never restored from this backup). Each delivery re-checks the grant.
-	restored := false
-	for _, raw := range m.BusSubs {
-		var s busSub
-		if json.Unmarshal(raw, &s) == nil && s.Component == m.Component && busSubNameRe.MatchString(s.Name) &&
-			strings.HasPrefix(s.Path, "/") && b.bus.put(s) == nil {
-			restored = true
-		}
-	}
-	if restored {
-		b.bus.persist()
-	}
-	return m, nil
-}
-
-// restoreFileDest maps a backup tar entry (its name minus the xbin prefix) to
-// the on-disk destination, mounting the resource first so restored data is
-// re-encrypted under the current vault. filesystem/sqlite/blob are all mount
-// dirs, so rest is always "<name>/<rel>".
-func (b *Broker) restoreFileDest(scope, rest string) (string, error) {
-	scopeKey := util.ScopeKey(scope)
-	name, rel, _ := strings.Cut(rest, "/")
-	mdir, err := b.resenc.Ensure(resLabel(scopeKey, name), scopeKey, name,
-		b.resSingleTenant(scope, b.resType(scope, name)))
-	if err != nil {
-		return "", err
-	}
-	return backup.SafeJoin(mdir, rel), nil
-}
-
-func (b *Broker) loadKV(scope string, body []byte) error {
-	if b.kv == nil {
-		return nil
-	}
-	var dump map[string]map[string]string
-	if err := json.Unmarshal(body, &dump); err != nil {
-		return err
-	}
-	return b.kv.db.Update(func(tx *bolt.Tx) error {
-		for name, kvs := range dump {
-			bucket := "res:" + scope + "/" + name
-			bk, err := tx.CreateBucketIfNotExists([]byte(bucket))
-			if err != nil {
-				return err
-			}
-			for k, v64 := range kvs {
-				v, err := base64.StdEncoding.DecodeString(v64)
-				if err != nil {
-					return err
-				}
-				// Re-encode under the current vault (the tar held plaintext).
-				stored, err := b.encodeKV(bucket, v)
-				if err != nil {
-					return err
-				}
-				if err := bk.Put([]byte(k), stored); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	})
-}
-
-func writeFileFrom(dst string, r io.Reader) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	// Replace even if the existing file is read-only — git objects (.git/objects)
-	// are mode 0444, and os.Create can't reopen those for writing. A restore
-	// overwrites wholesale, so removing first is correct.
-	_ = os.Remove(dst)
-	f, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = io.Copy(f, r)
-	return err
-}
-
 // --- archiver dispatch ------------------------------------------------------
 
 // archiveDo calls the archiver's API internally, as the owner (admin), routed
@@ -437,7 +282,7 @@ func (b *Broker) doRestore(comp, version string) (backup.Manifest, error) {
 		return backup.Manifest{}, fmt.Errorf("archiver %s: %s", provider, firstLine(string(body)))
 	}
 	b.StopBackendSafe(comp)
-	return b.restore(bytes.NewReader(body))
+	return b.restore(bytes.NewReader(body), comp)
 }
 
 func (b *Broker) StopBackendSafe(comp string) {
@@ -490,21 +335,33 @@ func (b *Broker) removeScopeData(comp string) error {
 
 // removeSourceBulk clears a component's source subtree but keeps a stub
 // (xbin.json + scope.json) so it stays listed and restorable (offloaded-full).
+// The tile's dir is reached without symlinks and cleared through an os.Root,
+// so a link planted in place of it (a nested tile's parent can) never turns
+// the clearing onto whatever the link points at.
 func (b *Broker) removeSourceBulk(comp string) error {
-	c, ok := b.Reg.Component(comp)
-	if !ok {
+	if _, ok := b.Reg.Component(comp); !ok {
 		return nil
 	}
-	keep := map[string]bool{"xbin.json": true, "scope.json": true}
-	entries, err := os.ReadDir(c.Dir)
+	r, err := fsutil.OpenRootIn(b.Reg.Root, comp)
 	if err != nil {
 		return err
 	}
-	for _, e := range entries {
-		if keep[e.Name()] {
+	defer r.Close()
+	d, err := r.Open(".")
+	if err != nil {
+		return err
+	}
+	names, err := d.Readdirnames(-1)
+	d.Close()
+	if err != nil {
+		return err
+	}
+	keep := map[string]bool{"xbin.json": true, "scope.json": true}
+	for _, name := range names {
+		if keep[name] {
 			continue
 		}
-		if err := os.RemoveAll(filepath.Join(c.Dir, e.Name())); err != nil {
+		if err := r.RemoveAll(name); err != nil {
 			return err
 		}
 	}
