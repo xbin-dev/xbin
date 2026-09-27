@@ -1487,7 +1487,7 @@ POST   /create                     owner/admin, a user creating a tile
                                    target "xbin" at role writer (workspace
                                    management). body {path, runtime?,
                                    title?, expose?, owner?} → {path, files,
-                                   owner?}. owner: "org:<id>" creates the
+                                   owner?, warnings?}. owner: "org:<id>" creates the
                                    tile OWNED by that org — gated by the
                                    org's Create knob / org admin (elements
                                    still need the xbin:writer capability).
@@ -1520,13 +1520,20 @@ POST   /create                     owner/admin, a user creating a tile
                                    component, or whose scope data key
                                    ("/" → "~") another scope has — e.g.
                                    apps~x beside apps/x, or workspace
-                                   (D118, docs/resources.md).
+                                   (D118, docs/resources.md). Every
+                                   creator, every creation route: 403 for
+                                   <P>+<N> while tile P has a deployment
+                                   N (that is its URL); any other name
+                                   holding '+' is created, and for one
+                                   release the 200 answer carries
+                                   warnings: ["…"].
 POST   /clone                      same authority as /create (the
                                    ownership path rule; the deputy clamp applies)
                                    + the human must have READ on `from`
                                    (copying is reading). body {from, to,
                                    owner?}
-                                   → {path, from, rewritten, pendingGrants}.
+                                   → {path, from, rewritten, pendingGrants,
+                                   warnings?}.
                                    Forks a component: copies it (git history
                                    included), rewrites old-path references
                                    across its files, registers it fresh.
@@ -1537,7 +1544,8 @@ GET    /builtins                   any. optional tile catalog
 POST   /builtins/import            same authority as /create, checked on
                                    the resolved target (path? or the tile's
                                    defaultPath). body {name, path?, owner?}
-                                   → {path, files, pendingGrants} — installs an
+                                   → {path, files, pendingGrants, warnings?}
+                                   — installs an
                                    embedded tile (docs/overview/14-lifecycle.md §Getting code in).
                                    A retired tile (`devbox`) → 410 {error}
                                    saying what replaces it.
@@ -1566,7 +1574,7 @@ POST   /templates/new               same authority as /create on the
                                    resolved target; a workspace-template
                                    source also needs READ. body {source,
                                    path?, owner?} → {path,
-                                   files, pendingGrants} — instantiates a template
+                                   files, pendingGrants, warnings?} — instantiates a template
                                    into a named copy (docs/overview/03-components.md §Templates). A
                                    builtin-template instance gets a read-only
                                    `template` git remote (below), and its repo
@@ -1620,7 +1628,7 @@ POST   /git/import                 same authority as /create on the
                                    any git URL); path defaults to apps/<repo>, ref
                                    = a tag/branch. Its origin remote is kept (so
                                    it's updatable). → {path, remote, ref,
-                                   pendingGrants}. Rejects local/file:// URLs and
+                                   pendingGrants, warnings?}. Rejects local/file:// URLs and
                                    repos with no xbin.json/index.html.
 
 Cross-tile change proposals ("code PRs", docs/bx.md §code pr). READ visibility
