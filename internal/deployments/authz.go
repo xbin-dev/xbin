@@ -5,12 +5,22 @@ package deployments
 // principal: Authorize before an operation runs (the dispatcher calls it,
 // dispatch.go), Recheck at its commit, Can for the permissions the state
 // reports. The ship-dark switch (Plane.OptInClosed, NP-14-5) is read here
-// and nowhere else.
+// and nowhere else. Beside it, what the tile itself may do (Allowed: P19,
+// the admission caps), the refusals of a new deployment and the manager gate
+// on joining seeded data (ops_code.go's add), and who learns of a record
+// change (the record event's reader form).
 
 import (
+	"cmp"
+	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/runner"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -261,12 +271,87 @@ func (p *Plane) Can(pr auth.Principal, op Op, s Subject) Can {
 
 // Allowed is what the tile itself may do, whoever asks: the state's allowed
 // entries. While the ship-dark switch is off, every act that creates or
-// extends deployment state is refused with kind policy (NP-14-5).
+// extends deployment state is refused with kind policy (NP-14-5). Adding a
+// deployment is refused, kind policy, for a tile that must keep one
+// deployment (P19) and at the admission caps (P25), as mayAdd judges it.
 func (p *Plane) Allowed(op Op, s Subject) Can {
 	if a, ok := acts[op]; ok && p.OptInClosed && grows(op, a, s) {
 		return closed(a.what).Can()
 	}
+	if op == OpAdd {
+		if e := p.mayAdd(s.Tile); e != nil {
+			return e.Can()
+		}
+	}
 	return Can{OK: true}
+}
+
+// mayAdd is what refuses a new deployment on tile whoever asks, from what
+// the plane holds in memory: a tile that must keep one deployment (P19),
+// then the admission caps (P25). The add judges it again at its request,
+// its deployments' checkpoints read as well (ops_code.go).
+func (p *Plane) mayAdd(tile string) *Error {
+	if why := p.singleDeployment(tile); why != "" {
+		return cantHaveDeployments(tile, why)
+	}
+	c := p.CapsOf(tile)
+	switch {
+	case c.TileUsed >= c.Tile:
+		return &Error{Status: http.StatusConflict, Kind: KindPolicy,
+			Msg: tile + " has " + strconv.Itoa(c.TileUsed) + " non-primary deployments, the most allowed here"}
+	case c.WorkspaceUsed >= c.Workspace:
+		return &Error{Status: http.StatusConflict, Kind: KindPolicy,
+			Msg: "the workspace has " + strconv.Itoa(c.WorkspaceUsed) + " non-primary deployments, the most allowed here"}
+	}
+	return nil
+}
+
+// singleDeployment says why tile can't have non-primary deployments (P19;
+// 06-security T14), "" when it can: it is workspace chrome — root or shell,
+// or its code asks for chrome, the primary's or its work tree's (the flag is
+// tile-editable, so asking is enough) — or it holds an xbin or xbin:* grant,
+// which governs the workspace.
+func (p *Plane) singleDeployment(tile string) string {
+	if tile == "root" || tile == "shell" {
+		return "it is the workspace's chrome"
+	}
+	if c, ok := p.component(tile); ok && (c.Manifest.Chrome || c.WorkTreeManifest().Chrome) {
+		return chromeWhy
+	}
+	if p.Reg == nil {
+		return ""
+	}
+	for _, g := range p.Reg.Workspace().Grants {
+		if g.From == tile && (g.Target == "xbin" || strings.HasPrefix(g.Target, "xbin:")) {
+			return "it holds the " + g.Target + " grant, which governs the workspace"
+		}
+	}
+	return ""
+}
+
+// chromeWhy is P19's reason for a tile whose code asks for chrome.
+const chromeWhy = "its code asks to be workspace chrome"
+
+func cantHaveDeployments(tile, why string) *Error {
+	return &Error{Status: http.StatusConflict, Kind: KindPolicy, Msg: tile + " can't have non-primary deployments: " + why}
+}
+
+// CapsOf is State.caps for tile (11-contract §1.1): its non-primary
+// deployments and the workspace's, each against its admission cap
+// (07-runtime §10.3). Only records that govern their tile count: a held one
+// runs nothing.
+func (p *Plane) CapsOf(tile string) Caps {
+	c := Caps{Tile: MaxNonPrimaryPerTile, Workspace: MaxNonPrimaryPerWorkspace}
+	for _, t := range p.boundTiles() {
+		if rec, _ := p.record(t); rec != nil {
+			n := len(rec.Deployments) - 1
+			c.WorkspaceUsed += n
+			if t == tile {
+				c.TileUsed = n
+			}
+		}
+	}
+	return c
 }
 
 // Manager reports the manager gate: a person in their own
@@ -450,4 +535,130 @@ func refuseProtected(s Subject, status int, detail string) *Error {
 func closed(what string) *Error {
 	return &Error{Status: http.StatusConflict, Kind: KindPolicy,
 		Msg: what + " is turned off on this xbind (--tile-deployments=off): it would create or extend deployment state; resuming live reload onto main, removing a deployment, resetting its data and unprotecting still work"}
+}
+
+// ---- the add's refusals and the record event's audience (ops_code.go) ----
+
+// addable refuses a new deployment y on o's tile before anything is read or
+// captured: a name the tile has (main always), a component at <tile>+<y>
+// (P17), a tile that must keep one deployment and the caps (mayAdd), and a
+// backend tile without isolation (P18).
+func (p *Plane) addable(o *op, y string) error {
+	if y == util.MainDeployment || o.rec.Deployments[y] != nil {
+		return &Error{Status: http.StatusConflict, Kind: KindState, Msg: fmt.Sprintf("%s already has a deployment %q", o.tile, y)}
+	}
+	if _, ok := p.component(o.tile + "+" + y); ok {
+		return &Error{Status: http.StatusConflict, Kind: KindState, Msg: "a tile exists at " + o.tile + "+" + y + "; pick another name"}
+	}
+	if e := p.mayAdd(o.tile); e != nil {
+		return e
+	}
+	return p.needsIsolation(o.c)
+}
+
+// chromeCode is P19 read from the code itself, at the request (06-security
+// T14 item 5): the tile counts as chrome when any of its deployments' code
+// asks for it — the primary's and the work tree's are the registry's
+// (mayAdd), each non-primary checkpoint is read here — or the new
+// deployment's code does (tree, "" for the work tree).
+func (p *Plane) chromeCode(o *op, y, tree string) error {
+	var trees []string
+	for _, name := range sortedKeys(o.rec.Deployments) {
+		if cp := o.rec.Deployments[name].Checkpoint; cp != nil && name != o.rec.Primary {
+			trees = append(trees, *cp)
+		}
+	}
+	if tree != "" {
+		trees = append(trees, tree)
+	}
+	for _, t := range trees {
+		release := runner.NonPrimaryBuildTurn()
+		root, err := p.store().Materialize(o.tile, t)
+		release()
+		var pc *registry.PinnedCode
+		if err == nil {
+			pc, err = registry.ReadCheckpoint(root)
+		}
+		switch {
+		case err != nil && t == tree:
+			return &Error{Status: http.StatusConflict, Kind: KindState,
+				Msg: fmt.Sprintf("%s: checkpoint %s can't be read for %s: %v", o.tile, shortTree(t), y, err)}
+		case err == nil && pc.Manifest.Chrome:
+			return cantHaveDeployments(o.tile, chromeWhy)
+		}
+	}
+	return nil
+}
+
+// joining is the (scope, y) namespace a new deployment y joins (08-data
+// §6.1): nil when no sibling claims it. Joining one that holds data (seeded,
+// restored, partial) gives this tile's writers reach into it: a tile
+// manager's act, in a person's own session (§6.2).
+func (p *Plane) joining(o *op, pr auth.Principal, y string) (*Joins, error) {
+	j, err := p.joinsOf(o.tile, y)
+	if err != nil {
+		return nil, opError(o.tile, err)
+	}
+	if err := p.joinGate(pr, o.tile, y, j); err != nil {
+		return nil, err
+	}
+	return j, nil
+}
+
+// joinGate refuses pr joining j, the namespace a new deployment y of tile
+// would join, while it holds data and pr isn't a tile manager in a person's
+// own session: 11-contract §1.14's "joining seeded data" 403.
+func (p *Plane) joinGate(pr auth.Principal, tile, y string, j *Joins) error {
+	if j == nil {
+		return nil
+	}
+	done := map[string]string{"seeded": "seeded", "restored": "restored", "partial": "partly seeded or restored"}[j.State]
+	if done != "" && !p.Manager(pr, tile) {
+		when := strings.TrimSpace(j.By + " " + j.At)
+		return forbidden(fmt.Sprintf("%s's %q data was %s by %s: joining it is a tile manager's act", j.Scope, y, done, cmp.Or(when, "someone")))
+	}
+	return nil
+}
+
+// announce publishes a committed record change: the full form to the write
+// audience, and the reader form only when the reader view moved (reader:
+// its fields), so a change that concerns only non-primary deployments tells
+// readers nothing, not even that something changed (11-contract §1.3).
+func (p *Plane) announce(tile string, rec *Record, by string, what, reader []string) {
+	if p.Hub == nil {
+		return
+	}
+	p.Hub.Publish(events.Event{Type: "deployments", Component: tile, Data: recordEvent{Op: "record", Seq: rec.Seq, By: by, What: what}})
+	if len(reader) > 0 {
+		p.Hub.Publish(events.Event{Type: "deployments", Component: tile, Data: recordReaderEvent{Op: "record", What: reader}})
+	}
+}
+
+// readerChange names the fields of the reader view (11-contract §1.3) that
+// moved from before to after: live reload as it concerns the primary (its
+// name while it follows the work tree, "" otherwise), the primary, its
+// protection, and the primary's own row.
+func readerChange(before, after *Record) []string {
+	var out []string
+	lr := func(r *Record) string {
+		if r.LiveReload == r.Primary {
+			return r.Primary
+		}
+		return ""
+	}
+	if lr(before) != lr(after) {
+		out = append(out, "liveReload")
+	}
+	if before.Primary != after.Primary {
+		out = append(out, "primary")
+	}
+	if before.ProtectedPrimary != after.ProtectedPrimary {
+		out = append(out, "protectedPrimary")
+	}
+	pb, pa := before.Deployments[before.Primary], after.Deployments[after.Primary]
+	if before.Primary != after.Primary || pb == nil || pa == nil || pb.State != pa.State ||
+		(pb.Checkpoint == nil) != (pa.Checkpoint == nil) || (pb.Checkpoint != nil && *pb.Checkpoint != *pa.Checkpoint) {
+		out = append(out, "deployments")
+	}
+	return out
 }
