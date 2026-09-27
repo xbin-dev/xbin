@@ -192,3 +192,32 @@ import XbinCore
         }
     }
 }
+
+@Suite struct WidgetMetricsTests {
+    @Test func twoColumnsOnAPhone() {
+        // A 390-point iPhone: two 173-point cards, or one 358 across.
+        #expect(XbinWidgetMetrics.cardWidth(.small, screenWidth: 390) == 173)
+        #expect(XbinWidgetMetrics.cardWidth(.wide, screenWidth: 390) == 358)
+        #expect(2 * XbinWidgetMetrics.cardWidth(.small, screenWidth: 390) + XbinWidgetMetrics.spacing
+                == XbinWidgetMetrics.cardWidth(.wide, screenWidth: 390))
+        let c = XbinWidgetMetrics.contentSize(.small, screenWidth: 390)
+        #expect(c.width == 145 && c.height == 130)
+        #expect(XbinWidgetMetrics.cardWidth(.small, screenWidth: 10) == 0)
+    }
+}
+
+@MainActor
+@Suite struct WidgetModelTests {
+    @Test func aWidgetModelSendsItsEventsToTheWidget() throws {
+        let store = TreeStore()
+        let widget = try #require(store.widget)
+        let sent = Sent()
+        let model = XbinTreeModel(store: widget) { sent.calls.append($0) }
+        store.apply(try BridgeMessage(parsing: #"{"op":"mount","target":"widget","v":1,"n":2,"root":{"k":"w","t":"stack","c":[{"k":"w.0","t":"text","p":{"text":"Count: 3"}},{"k":"w.1","t":"button","p":{"label":"+1"},"e":["tap"]}]}}"#))
+        #expect(model.root?.key == "w" && model.node("w.0")?.props.string("text") == "Count: 3")
+        #expect(model.emit("w.1", "tap"))
+        #expect(sent.calls == [.event(key: "w.1", type: "tap", payload: [:], n: 2, target: .widget)])
+        store.apply(.widget(.patch([.set(key: "w.0", props: ["text": "Count: 4"])], n: 3)))
+        #expect(model.node("w.0")?.props.string("text") == "Count: 4")
+    }
+}

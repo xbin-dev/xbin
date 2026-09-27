@@ -101,9 +101,17 @@ public struct XbinRenderOptions: Sendable, Equatable {
     /// presenting them — for snapshots and previews, which can't capture a
     /// modal presentation.
     public var inlineSheets: Bool
+    /// Draw the tree as a tile's widget on a phone screen's card of this
+    /// size (D117): the root fills the frame it is given — the card's
+    /// content area, ``XbinWidgetMetrics`` — from the top leading corner,
+    /// with no scroll view and no margins, and is clipped to it; controls
+    /// are the regular size. Taps outside the widget's controls fall
+    /// through to the card (which opens the tile).
+    public var compact: CardSize?
 
-    public init(inlineSheets: Bool = false) {
+    public init(inlineSheets: Bool = false, compact: CardSize? = nil) {
         self.inlineSheets = inlineSheets
+        self.compact = compact
     }
 }
 
@@ -220,6 +228,14 @@ private struct TabBarKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+private struct CompactKey: EnvironmentKey {
+    static let defaultValue: CardSize? = nil
+}
+
+private struct InHStackKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
 extension EnvironmentValues {
     var xbin: XbinRenderContext? {
         get { self[ContextKey.self] }
@@ -255,6 +271,19 @@ extension EnvironmentValues {
     var xbinInTabBar: Bool {
         get { self[TabBarKey.self] }
         set { self[TabBarKey.self] = newValue }
+    }
+
+    /// Drawn as a widget on a card of this size (``XbinRenderOptions/compact``).
+    var xbinCompact: CardSize? {
+        get { self[CompactKey.self] }
+        set { self[CompactKey.self] = newValue }
+    }
+
+    /// A child of a horizontal `stack` (a widget's controls then keep
+    /// their size instead of filling the line).
+    var xbinInHStack: Bool {
+        get { self[InHStackKey.self] }
+        set { self[InHStackKey.self] = newValue }
     }
 }
 
