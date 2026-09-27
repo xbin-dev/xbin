@@ -1,24 +1,30 @@
 package boot
 
-// deployreads.go — the tile-deployments API's reads beyond the state: the
-// deploy log (11-contract §1.10), the diff (§1.11) and the checkpoint remote
-// (§1.12). Each judges the caller with the plane's one authorize function
-// and answers what its source says (deployReads, deployments.go); without
-// its source it answers 501, as a reserved route.
+// deployreads.go — the tile-deployments API's reads beyond the record: the
+// state's facts from the other planes (11-contract §1.1), the deploy log
+// (§1.10), the diff (§1.11) and the checkpoint remote (§1.12). Each judges
+// the caller with the plane's one authorize function and answers what its
+// source says (deployReads, deployments.go); without its source a fact is
+// left out and a route answers 501, as a reserved one.
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/broker"
+	"github.com/xbin-dev/xbin/internal/cgroup"
 	"github.com/xbin-dev/xbin/internal/checkpoint"
 	"github.com/xbin-dev/xbin/internal/deployments"
+	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -76,7 +82,197 @@ func planeReads(dp *deployments.Plane) deployReads {
 				writeDeployErr(w, err)
 			}
 		},
+		factReads: planeFacts(dp),
 	}
+}
+
+// ---- the state's facts from the other planes (11-contract §1.1) ----
+
+// factReads are the sources of what a tile with a record shows beyond its
+// record: on each deployment, its data, vault, limits, alwaysOn declaration,
+// backup schedule, registrations and held notifications; on the state, the
+// admission caps and the edges. A nil source leaves its fact out. The plane
+// answers data, limits, the declaration and caps (planeFacts); the broker
+// the vault, registrations, edges and the tile's disk quota (from).
+type factReads struct {
+	data          func(tile, dep string) *deployments.DataState
+	vault         func(tile, dep string) (deployments.VaultSummary, error)
+	limits        func(tile, dep string) cgroup.Limits // effective, the tile's caps lowered (P22)
+	diskQuota     func(tile string) int64              // the tile's disk quota in bytes; 0: none
+	declared      func(c *registry.Component, dep string) (alwaysOn, known bool)
+	registrations func(tile, dep string) []deployments.Registration
+	wouldNotify   func(tile, dep string) []deployments.WouldNotify   // held notifications, newest last (P13)
+	backup        func(tile, dep string) *deployments.BackupSchedule // nil: no schedule
+	caps          func(tile string) deployments.Caps
+	edges         func(tile string) []deployments.Edge
+}
+
+// brokerFacts are the broker's answers the state's facts need
+// (*broker.Broker): a deployment's vault summary and registrations, the
+// tile's edges with their policy, and its disk quota.
+type brokerFacts interface {
+	DeploymentVault(tile, dep string) (deployments.VaultSummary, error)
+	DeploymentRegistrations(tile, dep string) []deployments.Registration
+	EdgesOf(tile string) []deployments.Edge
+	TileDiskStatus(tile string) (usage, quota int64, blocked bool)
+}
+
+var _ brokerFacts = (*broker.Broker)(nil)
+
+// planeFacts are the facts the plane answers. Deployment.data is the
+// broker's data hook, which boot installs on the plane after the API's
+// sources are built, so it is read per call.
+func planeFacts(dp *deployments.Plane) factReads {
+	return factReads{
+		data: func(tile, dep string) *deployments.DataState {
+			if dp.DataOf == nil {
+				return nil
+			}
+			return dp.DataOf(tile, dep)
+		},
+		limits:   dp.LimitsFor,
+		declared: func(c *registry.Component, dep string) (bool, bool) { return declaredAlwaysOn(dp, c, dep) },
+		caps:     dp.CapsOf,
+	}
+}
+
+// from takes the broker's facts from b.
+func (r *factReads) from(b brokerFacts) {
+	r.vault, r.registrations, r.edges = b.DeploymentVault, b.DeploymentRegistrations, b.EdgesOf
+	r.diskQuota = func(tile string) int64 {
+		_, quota, _ := b.TileDiskStatus(tile)
+		return quota
+	}
+}
+
+// declaredAlwaysOn answers whether deployment dep of c's own code says
+// "alwaysOn" (07-runtime §11): the primary's is the registry's component,
+// composed from the primary's code; another's is its work tree's manifest
+// while it follows the work tree, its checkpoint's while pinned, read from
+// the checkpoint's materialized tree when one is there. A read never
+// extracts a checkpoint (P5; reading the state is pure): known is false
+// then.
+func declaredAlwaysOn(dp *deployments.Plane, c *registry.Component, dep string) (alwaysOn, known bool) {
+	if dep == dp.Primary(c.Path) {
+		return c.Manifest.AlwaysOn, true
+	}
+	code, err := dp.CodeFor(c.Path, dep)
+	switch {
+	case err != nil:
+		return false, false
+	case code.WorkTree:
+		return c.WorkTreeManifest().AlwaysOn, true
+	case dp.Reg == nil || dp.Root == "":
+		return false, false
+	}
+	root := filepath.Join((&checkpoint.Store{Root: dp.Root}).TreesDir(c.Path), code.Tree)
+	if fi, err := os.Lstat(root); err != nil || !fi.IsDir() { // xbind's own .xbin/deploy: no tile writes there
+		return false, false
+	}
+	v, err := dp.Reg.View(c, registry.ViewCode{Deployment: dep, Tree: code.Tree, Root: root})
+	if err != nil {
+		return false, false
+	}
+	return v.Manifest.AlwaysOn, true
+}
+
+// addFacts adds the facts of 11-contract §1.1 beyond the record to the
+// state of t, a tile with an active record, as the caller's view keeps them
+// (§1.3): the full view gets them on every deployment, and caps and edges;
+// the deployment view of d's own principals only on the primary and d. The
+// reader view gets none, so they are never computed for it.
+func (a *deploymentsAPI) addFacts(out map[string]any, t tileRef, rows []map[string]any, full bool, d string) {
+	rec, tile, r := t.found.Record, t.c.Path, a.reads.factReads
+	for _, row := range rows {
+		name, _ := row["name"].(string)
+		dr := rec.Deployments[name]
+		if dr == nil || !full && name != rec.Primary && name != d {
+			continue
+		}
+		a.deploymentFacts(row, t, name, dr)
+	}
+	if !full {
+		return
+	}
+	if r.caps != nil {
+		out["caps"] = r.caps(tile)
+	}
+	if r.edges != nil {
+		out["edges"] = nonNil(r.edges(tile))
+	}
+}
+
+// deploymentFacts adds Deployment's facts beyond the record to row, the
+// deployment name of t (dr, its record entry). deliveries is always on for
+// the primary, and alwaysOn is its code's value: neither is a switch there.
+func (a *deploymentsAPI) deploymentFacts(row map[string]any, t tileRef, name string, dr *deployments.DeploymentRecord) {
+	tile, r := t.c.Path, a.reads.factReads
+	primary := name == t.found.Record.Primary
+	if r.data != nil {
+		if d := r.data(tile, name); d != nil {
+			row["data"] = d
+		}
+	}
+	if r.vault != nil {
+		if v, err := r.vault(tile, name); err == nil {
+			row["vault"] = v
+		}
+	}
+	if r.limits != nil {
+		var quota int64
+		if r.diskQuota != nil {
+			quota = r.diskQuota(tile)
+		}
+		row["limits"] = limitsView(r.limits(tile, name), quota, dr.Limits)
+	}
+	row["deliveries"] = primary || dr.Deliveries
+	declared, known := false, false
+	if r.declared != nil {
+		declared, known = r.declared(t.c, name)
+	}
+	if known {
+		row["alwaysOnDeclared"] = declared
+	}
+	row["alwaysOn"] = dr.AlwaysOn
+	if primary {
+		row["alwaysOn"] = t.c.Manifest.AlwaysOn
+	}
+	if r.backup != nil && !primary {
+		if b := r.backup(tile, name); b != nil {
+			row["backup"] = b
+		}
+	}
+	if r.registrations != nil {
+		row["registrations"] = nonNil(r.registrations(tile, name))
+	}
+	if r.wouldNotify != nil && !primary {
+		row["wouldNotify"] = nonNil(r.wouldNotify(tile, name))
+	}
+}
+
+// limitsView is Deployment.limits (P22): the effective memory and pids caps
+// (0: none), the disk quota — the tile's, lowered by the deployment's
+// override — and the limits a tile manager lowered for it.
+func limitsView(l cgroup.Limits, quota int64, set map[string]int64) deployments.LimitsView {
+	v := deployments.LimitsView{MemMiB: max(l.MemMax, 0) >> 20, Pids: max(l.PidsMax, 0), DiskGiB: max(quota, 0) >> 30}
+	if g := set[deployments.LimitDiskGiB]; g > 0 && (v.DiskGiB == 0 || g < v.DiskGiB) {
+		v.DiskGiB = g
+	}
+	for _, k := range []string{deployments.LimitMemMiB, deployments.LimitPids, deployments.LimitDiskGiB} {
+		if set[k] > 0 {
+			v.Overrides = append(v.Overrides, k)
+		}
+	}
+	return v
+}
+
+// nonNil is s, or an empty list for nil: a fact that is a list is [], never
+// null.
+func nonNil[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
 }
 
 // writeDiff answers a judged diff from the plane (11-contract §1.11): the

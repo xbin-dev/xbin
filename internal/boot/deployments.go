@@ -43,17 +43,23 @@ type (
 )
 
 // registerDeploymentsAPI mounts the /deployments family and the checkpoint
-// remote over dp, the deployments plane.
-func registerDeploymentsAPI(srv *server.Server, dp *deployments.Plane) {
+// remote over dp, the deployments plane. facts, the broker in xbind, answers
+// the state's facts the plane doesn't hold (brokerFacts); without it the
+// state leaves them out.
+func registerDeploymentsAPI(srv *server.Server, dp *deployments.Plane, facts ...brokerFacts) {
 	owner := func(tile string) string {
 		if srv.Pol != nil { // the broker's, installed at boot: read per request
 			return srv.Pol.OwnerOf(tile)
 		}
 		return ""
 	}
+	reads := planeReads(dp)
+	for _, f := range facts {
+		reads.from(f)
+	}
 	mountDeploymentsAPI(srv, &deploymentsAPI{dp: dp, owner: owner,
 		ops:   opRegistry{deployments.Registered, deployments.NewRequest, dp.Do},
-		reads: planeReads(dp)})
+		reads: reads})
 }
 
 // apiMounter is where the routes go: the server, or a test's mux.
@@ -142,6 +148,8 @@ type deployReads struct {
 	// view repository, 404 outside the dumb-HTTP allow-list.
 	diff  func(w http.ResponseWriter, r *http.Request, q diffQuery) error
 	fetch func(w http.ResponseWriter, r *http.Request, tile, gitPath string)
+
+	factReads // the state's facts beyond the record (deployreads.go)
 }
 
 // depStatus is a deployment's generation as the runner sees it.
@@ -151,22 +159,34 @@ type depStatus struct {
 	Error string
 }
 
-// runnerStatus reads the runner xbind hands the plane: its generations are
-// keyed by tile path, so they are the primary's; any other deployment is
-// idle, and a tile whose code has no backend is static.
+// beyondPrimaries is the runner's status of every deployment that isn't its
+// tile's primary: tile → deployment → {state, gen, error?}.
+type beyondPrimaries interface {
+	StatusDeployments() map[string]map[string]any
+}
+
+// runnerStatus reads the runner xbind hands the plane: the primary's
+// generation from its rows keyed by tile path, any other deployment's from
+// its rows beyond the primaries; a deployment it has no row for, or can't
+// say about, is idle, and a tile whose code has no backend is static.
 func runnerStatus(dp *deployments.Plane) func(*registry.Component, string) depStatus {
 	return func(c *registry.Component, dep string) depStatus {
 		if !c.HasBackend() {
 			return depStatus{State: "static"}
 		}
-		st := depStatus{State: "idle"}
-		if src, ok := dp.Run.(interface{ Status() map[string]any }); ok && dep == dp.Primary(c.Path) {
-			if e, ok := src.Status()[c.Path].(map[string]any); ok {
-				st.Gen, _ = e["gen"].(int)
-				st.Error, _ = e["error"].(string)
-				if s, _ := e["state"].(string); s != "" {
-					st.State = s
-				}
+		st, primary := depStatus{State: "idle"}, dep == dp.Primary(c.Path)
+		var e map[string]any
+		if src, ok := dp.Run.(interface{ Status() map[string]any }); ok && primary {
+			e, _ = src.Status()[c.Path].(map[string]any)
+		}
+		if src, ok := dp.Run.(beyondPrimaries); ok && !primary {
+			e, _ = src.StatusDeployments()[c.Path][dep].(map[string]any)
+		}
+		if e != nil {
+			st.Gen, _ = e["gen"].(int)
+			st.Error, _ = e["error"].(string)
+			if s, _ := e["state"].(string); s != "" {
+				st.State = s
 			}
 		}
 		return st
@@ -326,6 +346,9 @@ func (a *deploymentsAPI) state(ctx context.Context, pr auth.Principal, t tileRef
 			}
 		}
 		out["workTree"] = wt
+	}
+	if t.active() && (au == deployments.AudienceWrite || au == deployments.AudienceDeployment) {
+		a.addFacts(out, t, rows, au == deployments.AudienceWrite, bound(pr))
 	}
 	switch {
 	case !t.active():
