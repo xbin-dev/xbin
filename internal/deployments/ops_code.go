@@ -492,15 +492,26 @@ func (p *Plane) addAnswer(ctx context.Context, dry bool, a *attempt, im Impact, 
 
 // joinsOf answers the (scope, y) data namespace a new deployment y of tile
 // would join, from the namespace's ns.json: the broker's namespace plane
-// (08-data §6.1–§6.4). Until the plane holds that answer, no namespace is
-// reported shared, and every add starts its data empty.
-func (p *Plane) joinsOf(tile, y string) (*Joins, error) { return nil, nil }
+// (08-data §6.1–§6.4), asked as a manager, since joinGate judges the actor.
+// Without that plane no namespace is reported shared.
+func (p *Plane) joinsOf(tile, y string) (*Joins, error) {
+	if p.JoinData == nil {
+		return nil, nil
+	}
+	return p.JoinData(tile, y, true)
+}
 
 // dropNamespace deletes the (scope, y) data namespace once no member tile of
 // tile's scope claims y any more (08-data §9.2 step 3, §6.4): the broker's
-// namespace plane. Until the plane holds it, a removed deployment's
-// namespace stays, an orphan the namespace sweep lists and collects (§9.3).
-func (p *Plane) dropNamespace(tile, y string) error { return nil }
+// namespace plane. Without that plane a removed deployment's namespace
+// stays, an orphan the namespace sweep lists and collects (§9.3).
+func (p *Plane) dropNamespace(tile, y string) error {
+	if p.DropData == nil {
+		return nil
+	}
+	_, err := p.DropData(tile, y, false)
+	return err
+}
 
 // ---- remove a deployment ----
 
