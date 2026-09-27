@@ -58,6 +58,7 @@ type State struct {
 	VM      *vm.Manager   // VM sandboxes (vm.go); nil without isolation
 	Sbx     *sbx.Registry // every live sandbox and what the sandbox layer failed at (D112)
 	Push    *push.Service // the push plane (push.go)
+	held    *push.Holder  // non-primary notifications, kept as would-notify (push.go)
 	Started time.Time
 	// Deployments is the deployments plane: its methods are the registry's,
 	// runner's, broker's and terminal manager's deployment hooks (P5).
@@ -389,7 +390,8 @@ func (st *State) stepBroker() error {
 	dp.ResetData, dp.DropData = brk.ResetDeploymentData, brk.DropDeploymentData // (scope, name) namespaces
 	dp.DataOf, dp.JoinData = brk.DeploymentData, brk.JoinDeploymentData
 	dp.VaultCopy, dp.VaultPlaceholders = brk.VaultCopy, brk.VaultPlaceholders // a vault per deployment
-	wireDeploymentData(dp, brk) // the data acts beyond main (deploywire.go)
+	// The data acts beyond main: seed, backup, quota (deploywire.go).
+	wireDeploymentData(dp, brk)
 	// Embedded optional tile catalog (plans/tile-sharing.md).
 	if set, err := builtins.Load(xbin.BuiltinTilesFS()); err != nil {
 		slog.Warn("builtin tiles", "err", err)
