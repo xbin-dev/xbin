@@ -190,7 +190,12 @@ export const sandboxes = (fresh) => api('/sandboxes' + (fresh ? '?fresh=1' : '')
 // createSandbox: {name, provider?, image?, size?, egress?, visibility?,
 // conversation?, bind?, cwd?, clientId?} → the sandbox (+ binding).
 export const createSandbox = (body) => api('/sandboxes', jbody(body, 'POST'));
-export const patchSandbox = (ref, body) => api(sbxPath(ref), jbody(body, 'PATCH'));
+// getSandbox: one sandbox, fresh from its manager. patchSandbox: {name?,
+// visibility?, members?, shares?, labels?, egress?, size?, autoStopMin?,
+// version?} — with version, a change made since it was read is refused
+// (e.status 412, e.refusal 'precondition') rather than overwritten.
+export const getSandbox = (ref) => refusing(sbxPath(ref));
+export const patchSandbox = (ref, body) => refusing(sbxPath(ref), jbody(body, 'PATCH'));
 export const deleteSandbox = (ref) => api(sbxPath(ref), { method: 'DELETE' });
 // sandboxAction: start | stop | archive | thaw, waiting up to `wait` s for it
 // to settle; `conversation`: acting as a participant of one it is bound to.

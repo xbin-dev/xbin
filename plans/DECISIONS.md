@@ -3756,10 +3756,36 @@ Deviations and refinements made while implementing; all deliberate:
       connections.
     - **On login** the key names the person and the SSH user name names the
       sandbox: its login (the name in lower case, runs of other characters
-      `-`), `<login>.<n>` when several of the person's sandboxes share one,
+      `-`), `<login>~<n>` when several of the person's sandboxes share one,
       or its id. Unknown or ambiguous → a message listing the choices, exit
       1. The session is authenticated first, so the message reaches the
-      person instead of a bare "Permission denied".
+      person instead of a bare "Permission denied". The disambiguator is
+      `~` because a login never has one (the name's other characters become
+      `-`): with `.<n>`, a sandbox named `web.1` and the first of two `web`s
+      were both `web.1`. A login or id that matches exactly wins over the
+      loose match of a name (`web~1` spells `web-1` loosely, and a sandbox
+      named `web-1` beside two `web`s must not make it ambiguous).
+    - **Access at every login.** A key outlives the page call that
+      registered it, so the tile asks xbind what its person may do on it
+      now: `GET /api/xbin/access/<user>` (`xbin.AccessOf`), a route for a
+      tile's backend about itself only — `{user, level:
+      none|read|write|terminal, active}`, the level `X-XBin-User-Level`
+      would carry (the proxy's `users.Access.TileLevel`; xbind's own
+      levels, so an admin or the tile's owner is `terminal` — there is no
+      `owner` level), none for a disabled or unknown account, never a 404.
+      `active` says the id is an account that can sign in, which tells a
+      tile whether an id exists — accepted: ids are names people use, and
+      the tile learns nothing else about them. Asked at every login, every
+      session a connection opens, every key registration, every 30 s while
+      a connection lives, and for everyone's keys when a manager lists them;
+      kept 30 s (a failure 2 s). Without read access the person is let in
+      only to be told `access revoked` (exit 1), a live connection is cut
+      (its sessions told why), and their keys are **marked inactive, not
+      deleted** — access may come back, and the next check that finds it
+      clears the mark. No answer from xbind: logins **fail closed**; a live
+      connection isn't cut over a failed check, only over a "no". A page
+      request with no level (a frame token outliving its person's access)
+      is refused beyond `/me` and their own keys.
     - **No new role for the SSH path** (the kickoff's open question: a
       `gateway` role for asserted users). The backend lists and opens
       sandboxes **as an asserted person** (`Sbx-User`), which the contract
@@ -3781,10 +3807,16 @@ Deviations and refinements made while implementing; all deliberate:
       group, then DELETE if it still runs 2 s later. A command that ended on
       its own isn't DELETEd, so work it detached into its own group survives.
     - **Rate limits.** Failed keys are a token bucket per source address
-      (20, then one every 2 s). Over the rate an attempt is answered 2 s
-      late: a tarpit, not a lockout, because xbind's relay shows one source
-      address for everyone and a good key must never be locked out by a
-      flood. There are also at most 32 handshakes in flight, a 30 s login
+      **and claimed user name** (20, then one every 2 s). Over the rate an
+      attempt is answered 2 s late: a tarpit, not a lockout, because
+      xbind's relay shows one source address for everyone and a good key
+      must never be locked out by a flood; keyed by the name too, a flood
+      against one name doesn't tarpit another person's old keys into their
+      login grace. The buckets are bounded (4096; the full ones swept, then
+      arbitrary ones dropped — a forgotten bucket only starts full). At most
+      32 handshakes are in flight; one more **drops a random older pending
+      handshake** (randomized early drop) instead of being refused, so
+      connections that never finish can't hold every slot. A 10 s login
       grace, 6 tries and 10 sessions per connection.
     - **The host key** is ed25519, made on first start and kept in the
       tile's **vault** (it is a secret). Only a vault that answers "no such
@@ -3807,15 +3839,25 @@ Deviations and refinements made while implementing; all deliberate:
       as a bad key.
     - The `tty` route for commands without a pty: see above.
     - Per-source lockouts: behind the relay they would lock everyone out.
+    - Refusing new connections at the handshake cap (sshd's MaxStartups
+      "full"): a slow flood would then keep everyone out.
+    - Refusing a revoked person at the key (a bare "Permission denied"),
+      or deleting their keys: the first hides why, the second loses what a
+      re-granted person would need again.
+    - A frame/terminal token asking `/access/<user>`: the tile's frontend
+      acts for the person using it, and would list who else uses the tile.
     - Port forwarding, agent forwarding, X11, sftp and client environment in
       v1: each needs its own reach decision (a forward is egress from the
       sandbox's network into the person's machine, or the reverse).
   - **Known limits.**
-    - A person who loses access to the tile keeps their keys until they or
-      a manager remove them: xbind has no API for a tile to ask whether
-      someone still has access to it.
     - A session already running when a share is withdrawn runs on until it
-      ends.
+      ends (the person's access to the tile is re-checked; a share is the
+      manager's and isn't).
+    - A person's removal reaches a live connection within a minute (a
+      check every 30 s, of an answer kept up to 30 s), and a new login
+      within 30 s; a re-grant reaches a refused login within 30 s — at once
+      when they open the tile's page (its request's level is xbind's
+      answer, and replaces the cached one).
   - **The page, the native view and the agent's share (part 2).**
     - **Tabs of terminals the manager owns.** Each tab is `<bx-terminal
       src>` on the manager's route; closing a tab leaves the shell running,
@@ -3846,6 +3888,11 @@ Deviations and refinements made while implementing; all deliberate:
       for a team sandbox. The tile's path is a field, default
       `apps/sandbox-terminal`: the agent can't know where it was imported.
       The agent's `PATCH /sandboxes/{ref}` already passed `shares` through.
+      Share and Stop sharing replace the whole list, so they send the
+      sandbox's `version` as it was read (the contract's lost-update
+      guard); a 412 reads the sandbox again (`GET /sandboxes/{ref}`),
+      computes the list afresh from it and sends it once more — a share
+      someone else added meanwhile is kept, not overwritten.
     - **Not chosen:** a per-person directory of open terminals in the
       backend (the manager's execs list is the truth, and the page reads it
       as the verified person); auto-reopening running terminals as tabs on

@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	mrand "math/rand/v2"
 	"net"
 	"strings"
 	"sync"
@@ -30,6 +31,7 @@ const (
 	hostKeySecret      = "ssh-host-key" // the vault key of the host key (an OpenSSH PEM)
 	maxPreauth         = 32             // handshakes in flight at once (sshd's MaxStartups)
 	maxSessionsPerConn = 10
+	maxBuckets         = 4096 // the failed-login limiter's (source, name) buckets
 )
 
 // --- the host key ----------------------------------------------------------------
@@ -76,17 +78,22 @@ func secretMissing(err error) bool {
 
 // --- auth failures ---------------------------------------------------------------
 
-// limiter rate-limits failed logins per source address: a token bucket of
-// `burst` failures refilled one per `every`. A failure with the bucket empty
-// is answered only after `delay` — a tarpit, never a lockout: a good key
-// isn't slowed, so a flood of bad ones can't lock people out even when every
-// connection arrives from one address (xbind's relay into the sandbox).
+// limiter rate-limits failed logins per source address AND the user name the
+// client claims: a token bucket of `burst` failures refilled one per
+// `every`. A failure with the bucket empty is answered only after `delay` —
+// a tarpit, never a lockout: a good key isn't slowed. Behind xbind's port
+// relay every connection arrives from one address, so a bucket per address
+// alone would let a flood of bad keys slow everyone's failures down — a
+// person whose client offers two old keys before the right one would then
+// spend the login grace in the tarpit. Keyed by the claimed name too, a
+// flood slows only the name it claims.
 type limiter struct {
 	burst   float64
 	every   time.Duration
 	delay   time.Duration
 	mu      sync.Mutex
 	buckets map[string]*bucket
+	swept   time.Time
 	slowed  int
 	logged  time.Time
 }
@@ -100,23 +107,20 @@ func newLimiter() *limiter {
 	return &limiter{burst: 20, every: 2 * time.Second, delay: 2 * time.Second, buckets: map[string]*bucket{}}
 }
 
-// fail records a failed attempt from src; it reports false when src is over
-// its rate.
-func (l *limiter) fail(src string) bool {
+// fail records a failed attempt from src claiming name; it reports false
+// when that pair is over its rate.
+func (l *limiter) fail(src, name string) bool {
 	now := time.Now()
+	key := src + "\x00" + name
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	b := l.buckets[src]
+	b := l.buckets[key]
 	if b == nil {
-		if len(l.buckets) >= 4096 { // forget sources that are back to full
-			for k, x := range l.buckets {
-				if x.tokens+now.Sub(x.at).Seconds()/l.every.Seconds() >= l.burst {
-					delete(l.buckets, k)
-				}
-			}
+		if len(l.buckets) >= maxBuckets {
+			l.shrink(now)
 		}
 		b = &bucket{tokens: l.burst, at: now}
-		l.buckets[src] = b
+		l.buckets[key] = b
 	}
 	b.tokens = min(l.burst, b.tokens+now.Sub(b.at).Seconds()/l.every.Seconds())
 	b.at = now
@@ -126,21 +130,105 @@ func (l *limiter) fail(src string) bool {
 	}
 	l.slowed++
 	if now.Sub(l.logged) > time.Minute {
-		log.Printf("ssh: failed logins over the rate from %s — %d slowed down in the last minute", src, l.slowed)
+		log.Printf("ssh: failed logins over the rate from %s as %q — %d slowed down in the last minute", src, name, l.slowed)
 		l.logged, l.slowed = now, 0
 	}
 	return false
 }
 
-// failed is a refused key: counted, and slowed down when over the rate.
-func (t *Tile) failed(addr net.Addr) {
-	src := addr.String()
+// shrink makes room for a bucket (l.mu held): the ones back to full go (at
+// most one sweep a second), then arbitrary ones while it is still full —
+// a flood of names can't grow the map, and a bucket forgotten early only
+// starts full again.
+func (l *limiter) shrink(now time.Time) {
+	if now.Sub(l.swept) >= time.Second {
+		l.swept = now
+		for k, x := range l.buckets {
+			if x.tokens+now.Sub(x.at).Seconds()/l.every.Seconds() >= l.burst {
+				delete(l.buckets, k)
+			}
+		}
+	}
+	for k := range l.buckets {
+		if len(l.buckets) < maxBuckets {
+			break
+		}
+		delete(l.buckets, k)
+	}
+}
+
+// failed is a refused key: counted against its source and the name it
+// claims, and slowed down when over the rate.
+func (t *Tile) failed(c ssh.ConnMetadata) {
+	src := c.RemoteAddr().String()
 	if h, _, err := net.SplitHostPort(src); err == nil {
 		src = h
 	}
-	if !t.limit.fail(src) {
+	name := c.User()
+	if len(name) > 64 { // the client's to choose: a bucket's key stays small
+		name = name[:64]
+	}
+	if !t.limit.fail(src, name) {
 		time.Sleep(t.limit.delay)
 	}
+}
+
+// --- handshakes in flight ------------------------------------------------------------
+
+// pending is the connections still in their handshake (sshd's
+// MaxStartups): at most max. A connection over it drops a random one of
+// the older ones rather than being refused itself — randomized early drop:
+// a flood of connections that never finish their handshake can't fill
+// every slot and keep people out; a real login finishes in well under the
+// login grace and is unlikely to be the one dropped while it does.
+type pending struct {
+	mu      sync.Mutex
+	max     int
+	conns   []net.Conn
+	dropped int
+	logged  time.Time
+}
+
+// admit adds nc, dropping (closing) a random older one when full.
+func (p *pending) admit(nc net.Conn) {
+	p.mu.Lock()
+	var victim net.Conn
+	if len(p.conns) >= p.max && len(p.conns) > 0 {
+		i := mrand.IntN(len(p.conns))
+		victim = p.conns[i]
+		p.conns[i] = p.conns[len(p.conns)-1]
+		p.conns = p.conns[:len(p.conns)-1]
+		p.dropped++
+		if now := time.Now(); now.Sub(p.logged) > time.Minute {
+			log.Printf("ssh: %d handshakes in flight — dropping a random older one for each new connection (%d in the last minute)", p.max, p.dropped)
+			p.logged, p.dropped = now, 0
+		}
+	}
+	p.conns = append(p.conns, nc)
+	p.mu.Unlock()
+	if victim != nil {
+		_ = victim.Close()
+	}
+}
+
+// done takes nc out once its handshake ended (or it was dropped).
+func (p *pending) done(nc net.Conn) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i, c := range p.conns {
+		if c == nc {
+			p.conns[i] = p.conns[len(p.conns)-1]
+			p.conns = p.conns[:len(p.conns)-1]
+			return
+		}
+	}
+}
+
+// inFlight is how many handshakes are pending.
+func (p *pending) inFlight() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.conns)
 }
 
 // --- the server ------------------------------------------------------------------
@@ -152,10 +240,21 @@ func (t *Tile) sshConfig(signer ssh.Signer) *ssh.ServerConfig {
 		PublicKeyCallback: func(c ssh.ConnMetadata, pk ssh.PublicKey) (*ssh.Permissions, error) {
 			k, ok := t.keyFor(pk)
 			if !ok {
-				t.failed(c.RemoteAddr())
+				t.failed(c)
 				return nil, errors.New("unknown key")
 			}
-			return &ssh.Permissions{Extensions: map[string]string{"xbin-user": k.User, "xbin-key": k.ID}}, nil
+			// the key's person must still use this tile (access.go): one who
+			// may not is let in only to be told so (the session says it and
+			// exits 1), so the message reaches them instead of a bare
+			// "Permission denied"
+			ctx, cancel := context.WithTimeout(context.Background(), t.loginGrace/2) // within the login grace
+			a, err := t.access(ctx, k.User)
+			cancel()
+			ext := map[string]string{"xbin-user": k.User, "xbin-key": k.ID}
+			if why := refusedWhy(a, err); why != "" {
+				ext["xbin-denied"] = why
+			}
+			return &ssh.Permissions{Extensions: ext}, nil
 		},
 	}
 	cfg.AddHostKey(signer)
@@ -220,12 +319,8 @@ func (t *Tile) serveSSH(ln net.Listener, signer ssh.Signer) error {
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
-		select {
-		case t.preauth <- struct{}{}:
-			go t.handleConn(nc, cfg)
-		default:
-			_ = nc.Close() // too many logins in flight: like sshd's MaxStartups
-		}
+		t.preauth.admit(nc) // over the cap: a random older handshake is dropped
+		go t.handleConn(nc, cfg)
 	}
 }
 
@@ -237,6 +332,7 @@ type liveConn struct {
 	login   string // the SSH user name: the sandbox asked for
 	remote  string
 	started int64
+	denied  string // why the person may not use this tile ("" = they may): its sessions say it, and nothing runs
 	nsess   atomic.Int32
 	mu      sync.Mutex
 	sess    map[*session]struct{}
@@ -246,27 +342,34 @@ func (t *Tile) handleConn(nc net.Conn, cfg *ssh.ServerConfig) {
 	defer nc.Close()
 	_ = nc.SetDeadline(time.Now().Add(t.loginGrace))
 	sc, chans, reqs, err := ssh.NewServerConn(nc, cfg)
-	<-t.preauth
+	t.preauth.done(nc)
 	if err != nil {
 		return
 	}
-	_ = nc.SetDeadline(time.Time{})
 	defer sc.Close()
 	lc := &liveConn{sc: sc, user: sc.Permissions.Extensions["xbin-user"], key: sc.Permissions.Extensions["xbin-key"],
-		login: sc.User(), remote: sc.RemoteAddr().String(), started: time.Now().UnixMilli(), sess: map[*session]struct{}{}}
-	t.mu.Lock()
-	t.conns[lc] = struct{}{}
-	t.mu.Unlock()
-	defer func() {
-		t.mu.Lock()
-		delete(t.conns, lc)
-		t.mu.Unlock()
-	}()
-	go t.touchKey(lc.key)
-	go ssh.DiscardRequests(reqs) // global requests (tcpip-forward, …) are refused
-	go keepalive(sc)
+		login: sc.User(), remote: sc.RemoteAddr().String(), started: time.Now().UnixMilli(), sess: map[*session]struct{}{},
+		denied: sc.Permissions.Extensions["xbin-denied"]}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	if lc.denied != "" {
+		// told on its sessions, then gone: the connection keeps a deadline
+		_ = nc.SetDeadline(time.Now().Add(t.loginGrace))
+	} else {
+		_ = nc.SetDeadline(time.Time{})
+		t.mu.Lock()
+		t.conns[lc] = struct{}{}
+		t.mu.Unlock()
+		defer func() {
+			t.mu.Lock()
+			delete(t.conns, lc)
+			t.mu.Unlock()
+		}()
+		go t.touchKey(lc.key)
+		go keepalive(sc)
+		go t.watchAccess(ctx, lc)
+	}
+	go ssh.DiscardRequests(reqs) // global requests (tcpip-forward, …) are refused
 	var wg sync.WaitGroup
 	for nch := range chans {
 		if nch.ChannelType() != "session" {

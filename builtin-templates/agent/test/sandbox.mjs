@@ -67,7 +67,7 @@ const seed = {
     6: { access: 'owner', class: coding, config: {}, acl: { owner: 'admin', visibility: 'team', teamRole: 'participant', members: [] },
       run: { id: 6, title: 'team build', status: 'idle', parentId: 0, rootId: 6, visibility: 'team' } },
   },
-  sandboxes: [sb('api', { boundTo: [1] }), sb('web', { state: 'stopped', lastActive: Date.now() - 3600e3 }),
+  sandboxes: [sb('api', { boundTo: [1] }), sb('web', { state: 'stopped', lastActive: Date.now() - 3600e3, version: 7 }),
     sb('team-box', { mine: false, owner: { user: 'carol' }, visibility: 'team', canManage: false, canEdit: false }),
     // an internal-reach conversation has worked in it; its network opens at the next start
     sb('vault', { labels: { 'xbin.agent/internal': '1' }, lastActive: Date.now() - 7200e3 }),
@@ -298,12 +298,19 @@ ok('Share with a terminal tile…: the form, the builtin\'s path, for you',
 await page.fill('#sbxs-tile', 'apps/agent');
 ok('…this agent itself is refused', /That is this agent/.test(await page.textContent('#sbxs-err')) && await page.$eval('#sbxs-share', (b) => b.disabled));
 await page.fill('#sbxs-tile', 'apps/sandbox-terminal');
+// meanwhile someone shares it with another tile: the list the form read is stale
+await page.evaluate(() => { const s = window.__sbx.sandboxes.find((x) => x.id === 'web'); s.shares = [{ consumer: 'apps/other', users: '*' }]; s.version++; });
 await page.click('#sbxs-share');
 await page.waitForSelector('#sbx-msg');
-ok('Share: PATCH {shares} naming the tile, for you', JSON.stringify(await lastBody('PATCH', /\/sandboxes\/apps\/coding-sandbox%7Cweb$/))
-  === JSON.stringify({ shares: [{ consumer: 'apps/sandbox-terminal', users: ['admin'] }] }), JSON.stringify(await lastBody('PATCH', /\/sandboxes\//)));
+const sharePatches = (await calls('PATCH', /\/sandboxes\/apps\/coding-sandbox%7Cweb$/)).map((c) => c.body);
+ok('Share: PATCH {shares, version} naming the tile, for you — refused at the stale version (412), read again, sent once more with the other share kept',
+  JSON.stringify(sharePatches) === JSON.stringify([
+    JSON.stringify({ shares: [{ consumer: 'apps/sandbox-terminal', users: ['admin'] }], version: 7 }),
+    JSON.stringify({ shares: [{ consumer: 'apps/other', users: '*' }, { consumer: 'apps/sandbox-terminal', users: ['admin'] }], version: 8 }),
+  ]) && (await calls('GET', /\/sandboxes\/apps\/coding-sandbox%7Cweb$/)).length === 1, JSON.stringify(sharePatches));
 ok('…said, and the row says it', /^web is shared with apps\/sandbox-terminal/.test(await page.textContent('#sbx-msg'))
-  && (await page.textContent(`#sbxdlg .sbxrow[data-ref="${MGR}|web"] .l2`)).includes('shared with apps/sandbox-terminal'));
+  && /shared with apps\/other, apps\/sandbox-terminal/.test(await page.textContent(`#sbxdlg .sbxrow[data-ref="${MGR}|web"] .l2`)),
+  await page.textContent(`#sbxdlg .sbxrow[data-ref="${MGR}|web"] .l2`));
 if (process.env.SBX_SHOTS) {
   await page.click(`#sbxdlg .sbxrow[data-ref="${MGR}|web"] [data-act="shareTerm"]`);
   await page.locator('#sbxdlg').screenshot({ path: `${process.env.SBX_SHOTS}/dialog-share.png` });
@@ -311,9 +318,10 @@ if (process.env.SBX_SHOTS) {
 }
 await page.click(`#sbxdlg .sbxrow[data-ref="${MGR}|web"] [data-act="shareTerm"]`);
 await page.click('#sbx-share [data-unshare="apps/sandbox-terminal"]');
-await page.waitForFunction(() => !document.querySelector('#sbx-share [data-unshare]'));
-ok('Stop sharing (confirmed): PATCH {shares: []}', /^Stop sharing “web” with apps\/sandbox-terminal\?/.test(dialogs.at(-1))
-  && JSON.stringify(await lastBody('PATCH', /\/sandboxes\//)) === JSON.stringify({ shares: [] }), dialogs.at(-1));
+await page.waitForFunction(() => !document.querySelector('#sbx-share [data-unshare="apps/sandbox-terminal"]'));
+ok('Stop sharing (confirmed): PATCH {shares, version} without it, the other kept', /^Stop sharing “web” with apps\/sandbox-terminal\?/.test(dialogs.at(-1))
+  && JSON.stringify(await lastBody('PATCH', /\/sandboxes\//)) === JSON.stringify({ shares: [{ consumer: 'apps/other', users: '*' }], version: 9 }),
+  `${dialogs.at(-1)} ${JSON.stringify(await lastBody('PATCH', /\/sandboxes\//))}`);
 await page.click('#sbxs-cancel');
 ok('Cancel closes the form', !(await page.$('#sbx-share')));
 await page.click(`#sbxdlg .sbxrow[data-ref="${MGR}|api"] [data-act="delete"]`);

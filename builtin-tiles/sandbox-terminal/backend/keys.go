@@ -3,7 +3,9 @@
 // A person registers and removes their own keys from the tile's page (the
 // frame token makes them the verified X-XBin-User); the tile's managers
 // (write or terminal on the tile, or the owner) list and revoke anyone's. A
-// key belongs to one person: it is how an SSH login says who is asking.
+// key belongs to one person: it is how an SSH login says who is asking —
+// and only while that person may still use this tile (access.go: a key
+// whose person lost access is kept, marked inactive).
 // Keys live in the tile's kv (`state`, key "keys"), the list as one JSON
 // document — a few dozen per workspace, read at start and on every change.
 package main
@@ -32,6 +34,10 @@ type keyRec struct {
 	PublicKey   string `json:"publicKey"`   // the authorized_keys line, without a comment
 	Added       int64  `json:"added"`       // unix ms
 	LastUsed    int64  `json:"lastUsed,omitempty"`
+	// Inactive is when xbind last said the key's person may no longer use
+	// this tile (unix ms; 0 = active): the key logs nobody in while that
+	// holds, and is active again once a check finds access back (access.go).
+	Inactive int64 `json:"inactive,omitempty"`
 }
 
 const (

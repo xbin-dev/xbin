@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"strings"
 	"testing"
@@ -172,15 +173,27 @@ func TestListenRetries(t *testing.T) {
 	}
 }
 
-// Failed logins over the rate are slowed down, per source.
+// Failed logins over the rate are slowed down per source AND claimed name:
+// behind xbind's relay every source is one address, and a flood against one
+// name mustn't slow another's failures.
 func TestLimiter(t *testing.T) {
 	t.Parallel()
 	l := &limiter{burst: 2, every: time.Hour, buckets: map[string]*bucket{}}
-	if !l.fail("a") || !l.fail("a") || l.fail("a") {
+	if !l.fail("relay", "x") || !l.fail("relay", "x") || l.fail("relay", "x") {
 		t.Fatal("the third failure within the burst isn't slowed")
 	}
-	if !l.fail("b") {
+	if !l.fail("relay", "api-dev") {
+		t.Fatal("another name from the same address is slowed")
+	}
+	if !l.fail("elsewhere", "x") {
 		t.Fatal("another source is slowed")
+	}
+	// a flood of names never grows the map past its bound
+	for i := range 3 * maxBuckets {
+		l.fail("relay", fmt.Sprint("n", i))
+	}
+	if n := len(l.buckets); n > maxBuckets {
+		t.Fatalf("%d buckets", n)
 	}
 }
 

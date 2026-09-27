@@ -238,10 +238,22 @@ export function STUB(seed) {
       if (m[2] === 'start' || m[2] === 'thaw') s.lastActive = Date.now(); // it was active just now
       return json(s);
     }],
+    ['GET', /\/sandboxes\/(.+)$/, (m) => {
+      const s = box(refOf(m[1]));
+      return s ? json(s) : json({ error: 'no such sandbox' }, 404);
+    }],
+    // a sandbox with a version refuses a PATCH made at another one (412
+    // precondition, as a manager does), and moves on with every change
     ['PATCH', /\/sandboxes\/(.+)$/, (m, o) => {
       const s = box(refOf(m[1]));
       if (!s) return json({ error: 'no such sandbox' }, 404);
-      Object.assign(s, JSON.parse(o.body));
+      const b = JSON.parse(o.body);
+      if (b.version != null && s.version != null && b.version !== s.version) {
+        return json({ error: `apps/coding-sandbox: version ${b.version} is not ${s.version}`, refusal: 'precondition' }, 412);
+      }
+      delete b.version;
+      Object.assign(s, b);
+      if (s.version != null) s.version++;
       return json(s);
     }],
     ['DELETE', /\/sandboxes\/(.+)$/, (m) => {

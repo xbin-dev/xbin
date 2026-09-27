@@ -38,6 +38,8 @@ c.UserCanWrite()             // gate mutating endpoints on the DRIVING user's
                              // at full role even for read-level viewers
 c.ViewedBy                   // an admin viewing as User (D64): hide User's
                              // private data from them
+xbin.AccessOf(ctx, user)     // that person's level on this tile NOW — for a
+                             // credential kept past the call (below)
 xbin.Role("writer", h)       // middleware: 403 below writer
 xbin.RoleFunc("writer", hf)  // same, for HandlerFuncs
 xbin.RoleSatisfies(have, want) // admin ⊃ writer ⊃ reader; custom = exact;
@@ -216,6 +218,32 @@ if errors.Is(err, xbin.ErrNotifyRateLimited) { /* back off */ }
   are cut. The content is sealed end to end to the device; the push relay
   never sees it.
 - `xbin.Notify(level, message)` is different: a toast in the web shell.
+
+### Is a person still one of this tile's users? — `xbin.AccessOf`
+
+`xbin.Caller(r).UserLevel` says what the person **calling now** may do. A
+credential your tile keeps past that call — an SSH key, an API token or a
+webhook secret a person registered on your page — outlives it: they may be
+removed from the workspace or from the tile later, and the credential would
+still name them. Check it at each use:
+
+```go
+a, err := xbin.AccessOf(ctx, key.User) // GET /api/xbin/access/<user>
+if err != nil || !a.CanRead() {        // fail closed: no answer is no
+	// refuse, and mark the credential inactive rather than delete it —
+	// access may come back
+}
+```
+
+- `a.Level` is `none | read | write | terminal` on **this tile** — what
+  `UserLevel` would say if they called now; `a.Active` is false for a
+  disabled or deleted account (its level is then `none`). `CanRead()` /
+  `CanWrite()` fold both.
+- Only the backend asks (its instance token), and only about its own tile;
+  an unknown id is level `none`, never an error. An error means xbind
+  didn't answer — don't let the credential in. Cache answers briefly (the
+  sandbox-terminal tile keeps them 30 s) rather than asking on every
+  packet.
 
 ### Tile sandboxes, for manager tiles — `xbin.SandboxAPI()`
 

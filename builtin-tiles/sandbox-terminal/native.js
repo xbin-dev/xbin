@@ -167,7 +167,7 @@ const keysTpl = () => {
     ${note ? html`<section><notice tone="ok" text=${note}/></section>` : nothing}
     <section footer="Swipe a key to remove it; its SSH connections end at once.">
       ${keys && keys.length ? repeat(T.keyRows(keys), (k) => k.id, (k) => html`
-        <row title=${k.name} subtitle=${k.fingerprint} mono="subtitle" detail=${k.type} icon="key">
+        <row title=${k.name} subtitle=${k.inactive ? `${k.fingerprint} · ${k.inactive}` : k.fingerprint} mono="subtitle" detail=${k.inactive ? 'inactive' : k.type} icon="key">
           <actions><button role="destructive" icon="trash" ?disabled=${ro}
             confirm=${{ title: `Remove the key “${k.name}”?`, message: 'Its SSH connections end now.', label: 'Remove', destructive: true }}
             @tap=${() => removeKey(k)}>Remove</button></actions>
@@ -190,7 +190,7 @@ const keysTpl = () => {
     </section>` : nothing}
     ${me && me.manager && !ro && everyone ? html`<section title="Everyone's keys" footer="You manage this tile: revoking a key ends its SSH connections at once.">
       ${everyone.length ? repeat(T.keyRows(everyone), (k) => k.id, (k) => html`
-        <row title=${k.user} subtitle=${`${k.name} · ${k.fingerprint}`} detail=${k.lastUsed} icon="person">
+        <row title=${k.user} subtitle=${`${k.name} · ${k.fingerprint}${k.inactive ? ` · ${k.inactive}` : ''}`} detail=${k.inactive ? 'inactive' : k.lastUsed} icon="person">
           <actions><button role="destructive" icon="trash"
             confirm=${{ title: `Revoke ${k.user}'s key “${k.name}”?`, message: 'Its SSH connections end now.', label: 'Revoke', destructive: true }}
             @tap=${() => removeKey(k)}>Revoke</button></actions>

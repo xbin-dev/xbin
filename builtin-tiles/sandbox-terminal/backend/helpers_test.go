@@ -6,6 +6,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
@@ -19,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	xbin "github.com/xbin-dev/xbin/sdk"
 	"github.com/xbin-dev/xbin/sdk/sandboxcontract"
 	"golang.org/x/crypto/ssh"
 )
@@ -99,9 +101,52 @@ type rig struct {
 	sshAddr string
 	hostPub ssh.PublicKey
 	api     *httptest.Server
+	xbind   *fakeAccess
 }
 
-func newRig(t *testing.T) *rig {
+// fakeAccess is xbind's GET /access/<user> for the tile: everyone reads it
+// unless set otherwise; err, when set, is every answer.
+type fakeAccess struct {
+	mu    sync.Mutex
+	m     map[string]xbin.UserAccess
+	err   error
+	calls int
+}
+
+func (f *fakeAccess) of(_ context.Context, user string) (xbin.UserAccess, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if f.err != nil {
+		return xbin.UserAccess{}, f.err
+	}
+	if a, ok := f.m[user]; ok {
+		return a, nil
+	}
+	return xbin.UserAccess{User: user, Level: "read", Active: true}, nil
+}
+
+// set says what user may do from now on (level "none"; active false: a
+// disabled account) — and forgets what the tile cached.
+func (r *rig) setAccess(user, level string, active bool) {
+	r.xbind.mu.Lock()
+	if r.xbind.m == nil {
+		r.xbind.m = map[string]xbin.UserAccess{}
+	}
+	r.xbind.m[user] = xbin.UserAccess{User: user, Level: level, Active: active}
+	r.xbind.mu.Unlock()
+	r.forget()
+}
+
+// forget drops the tile's cached answers (as if 30 s went by).
+func (r *rig) forget() {
+	r.tile.accMu.Lock()
+	clear(r.tile.accCache)
+	r.tile.accMu.Unlock()
+}
+
+// newRig: opts adjust the tile before its SSH server starts.
+func newRig(t *testing.T, opts ...func(*Tile)) *rig {
 	t.Helper()
 	m := &fsbManager{Root: t.TempDir(), DefaultFrom: "apps/nobody", Grace: 200 * time.Millisecond}
 	srv := httptest.NewServer(m)
@@ -111,6 +156,11 @@ func newRig(t *testing.T) *rig {
 		func() []manager { return []manager{{Provider: "apps/fsb", URL: srv.URL}} },
 		&http.Client{Transport: fromTransport{from: self}})
 	tile.hupGrace = 300 * time.Millisecond
+	xb := &fakeAccess{}
+	tile.accessOf = xb.of
+	for _, o := range opts {
+		o(tile)
+	}
 	if err := tile.loadKeys(); err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +177,7 @@ func newRig(t *testing.T) *rig {
 	api := httptest.NewServer(tile.routes())
 	t.Cleanup(api.Close)
 	return &rig{t: t, tile: tile, mgr: m, tg: sandboxcontract.Target{URL: srv.URL, Grace: m.Grace},
-		sshAddr: ln.Addr().String(), hostPub: signer.PublicKey(), api: api}
+		sshAddr: ln.Addr().String(), hostPub: signer.PublicKey(), api: api, xbind: xb}
 }
 
 // agent is another consumer of the manager (the agent tile), acting for user.

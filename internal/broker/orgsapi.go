@@ -44,6 +44,7 @@ func (b *Broker) registerOrgs(srv *server.Server) {
 	srv.RegisterAPI("POST /owner", b.apiOwnerTransfer)
 	srv.RegisterAPI("GET /access", b.apiAccessGet)
 	srv.RegisterAPI("PUT /access", b.apiAccessPut)
+	srv.RegisterAPI("GET /access/{user}", b.apiAccessOf) // a tile backend: a person's level on itself (accessof.go)
 	srv.RegisterAPI("GET /access-matrix", b.apiAccessMatrix)
 	srv.RegisterAPI("GET /users-directory", b.apiUsersDirectory)
 	srv.RegisterAPI("GET /policy", b.apiPolicyGet)

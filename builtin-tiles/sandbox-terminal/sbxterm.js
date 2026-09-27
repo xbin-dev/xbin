@@ -142,11 +142,14 @@ export function keyCheck(text) {
   return '';
 }
 
-// keyRows: registered keys as a list shows them.
+// keyRows: registered keys as a list shows them. inactive: when xbind last
+// said the key's person may no longer use this tile ('' = active) — the key
+// logs nobody in until their access is back (the backend marks it; D121).
 export function keyRows(keys, now = Date.now()) {
   return (keys || []).map((k) => ({
     id: k.id, user: k.user || '', name: k.name || k.type || 'key', type: k.type || '', fingerprint: k.fingerprint || '',
     added: ago(k.added, now), lastUsed: k.lastUsed ? ago(k.lastUsed, now) : 'never used',
+    inactive: k.inactive ? `inactive — access gone ${ago(k.inactive, now) || 'a while ago'}` : '',
   }));
 }
 

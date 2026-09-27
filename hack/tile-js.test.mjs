@@ -283,7 +283,9 @@ test('sandbox-terminal: the managers\' routes, running terminals, the list, SSH,
   assert.equal(SBT.keyCheck('sk-ssh-ed25519@openssh.com AAAA'), '');
   assert.equal(SBT.keyCheck('ecdsa-sha2-nistp256 AAAA'), '');
   assert.deepEqual(SBT.keyRows([{ id: 'k', user: 'u', name: '', type: 'ssh-ed25519', fingerprint: 'SHA256:x', added: 0 }], 1),
-    [{ id: 'k', user: 'u', name: 'ssh-ed25519', type: 'ssh-ed25519', fingerprint: 'SHA256:x', added: '', lastUsed: 'never used' }]);
+    [{ id: 'k', user: 'u', name: 'ssh-ed25519', type: 'ssh-ed25519', fingerprint: 'SHA256:x', added: '', lastUsed: 'never used', inactive: '' }]);
+  // a key whose person lost access to the tile: kept, marked (D121)
+  assert.equal(SBT.keyRows([{ id: 'k', user: 'u', inactive: 1000 }], 1000 + 7200e3)[0].inactive, 'inactive — access gone 2 h ago');
 
   assert.equal(SBT.shortPath('/work'), '/work');
   assert.equal(SBT.shortPath('/tmp/a-very-long-scratch-directory/ws/.xbin/resenc/boxes/sb-1/work', 30), '…/.xbin/resenc/boxes/sb-1/work');
