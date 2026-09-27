@@ -16,6 +16,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/confine"
 	"github.com/xbin-dev/xbin/internal/deps"
+	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/util"
@@ -131,13 +132,16 @@ func (r *Runner) tileGoWork(dir string) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
+	// dir is bound read-write into every build of the tile: what a build
+	// left there (a symlink named go.work) is replaced, never followed —
+	// xbind writes nothing through a sandbox-written path (D78)
 	gw := filepath.Join(dir, "go.work")
-	if err := os.WriteFile(gw, []byte(content), 0o644); err != nil {
+	if err := fsutil.WriteFileAtomic(gw, []byte(content), 0o644); err != nil {
 		return "", err
 	}
 	if _, err := os.Lstat(gw + ".sum"); os.IsNotExist(err) {
 		if seed, ok := readRegular(filepath.Join(r.Root, "go.work.sum"), 16<<20); ok {
-			if err := os.WriteFile(gw+".sum", seed, 0o644); err != nil {
+			if err := fsutil.WriteFileAtomic(gw+".sum", seed, 0o644); err != nil {
 				return "", err
 			}
 		}
