@@ -50,7 +50,7 @@ var (
 // who may not use terminals (D88).
 var csPeople = map[string]map[string]any{
 	"alice": nil, "bob": nil, "carol": nil, "zoe": nil, "mallory": nil,
-	"wanda": {"tiles": map[string]string{"apps/*": "read", csTile: "write"}},
+	"wanda": {"operator": true},
 	"nora":  {"noTerminal": true},
 }
 
@@ -86,7 +86,7 @@ func setupCS(t *testing.T, vm bool) (*csEnv, string) {
 	if vm {
 		accel = d.RequireVM(t)
 	}
-	e := &csEnv{d: d, sess: map[string]string{}, pages: map[string]*csPage{}, people: d.HasPeople() && !d.IsRemote()}
+	e := &csEnv{d: d, sess: map[string]string{}, pages: map[string]*csPage{}, people: d.HasPeople()}
 	var made struct {
 		Path          string
 		PendingGrants []struct{ From, Target, Role string }
@@ -108,8 +108,8 @@ func setupCS(t *testing.T, vm bool) (*csEnv, string) {
 		tiles := map[string]string{"apps/*": "read"}
 		x := map[string]any{}
 		for k, v := range extra {
-			if k == "tiles" {
-				tiles = v.(map[string]string)
+			if k == "operator" { // write access to the manager (named per run remotely)
+				tiles[csTile] = "write"
 				continue
 			}
 			x[k] = v

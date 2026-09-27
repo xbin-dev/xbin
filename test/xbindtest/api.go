@@ -167,7 +167,9 @@ func (d *Daemon) owner(h http.Header) {
 // AddUser makes an account (Options.Auth; POST /api/xbin/users): role
 // "user" or "admin", tiles its access entries (a path or a `prefix/*`
 // pattern → read, write or terminal). extra fields (noTerminal, …) are
-// merged into the request.
+// merged into the request. On a remote daemon, whose workspace outlives
+// the test, an earlier run's account of that id is deleted first, and
+// this one when the test ends.
 func (d *Daemon) AddUser(t testing.TB, id, password, role string, tiles map[string]string, extra ...map[string]any) {
 	t.Helper()
 	body := map[string]any{"id": id, "name": id, "role": role, "password": password, "tiles": tiles}
@@ -175,6 +177,12 @@ func (d *Daemon) AddUser(t testing.TB, id, password, role string, tiles map[stri
 		for k, v := range e {
 			body[k] = v
 		}
+	}
+	if d.IsRemote() {
+		if r := d.Call(t, http.MethodDelete, "/api/xbin/users/"+url.PathEscape(id), nil); r.Status != 200 && r.Status != 404 {
+			t.Fatalf("deleting an earlier run's %s: %d %s", id, r.Status, r)
+		}
+		t.Cleanup(func() { _, _, _ = d.do(http.MethodDelete, "/api/xbin/users/"+url.PathEscape(id), nil, nil) })
 	}
 	d.Must(t, http.MethodPost, "/api/xbin/users", body, 200)
 }

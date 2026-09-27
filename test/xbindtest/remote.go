@@ -7,7 +7,9 @@ package xbindtest
 // tests. The environment names it:
 //
 //	XBIN_E2E_URL      its base URL (http://127.0.0.1:18650: a tunnel)
-//	XBIN_E2E_TOKEN    its owner token ("" = it runs --no-auth)
+//	XBIN_E2E_TOKEN    its owner token; unset, one with owner auth on is
+//	                  read from the workspace (.xbin/token, through
+//	                  XBIN_E2E_SH), and --no-auth needs none
 //	XBIN_E2E_SH       a command that runs the shell script on its stdin on
 //	                  xbind's host as the workspace's user (WriteTile,
 //	                  CopyTile), e.g. "qa-sbxtest.sh sh 'sudo -u xbin sh -s'"
@@ -17,6 +19,11 @@ package xbindtest
 //	XBIN_E2E_LOGS     a command printing its log's tail (a failed test's)
 //	XBIN_E2E_VM_MIB   the tile VMs' memory budget RequireVM sets (2048)
 //	XBIN_E2E_VMS      and their number (4)
+//	XBIN_E2E_FORWARD  a command forwarding a local port to one on xbind's
+//	                  host's loopback until it is killed (Forward), {local}
+//	                  and {remote} its addresses, e.g. "ssh -o BatchMode=yes
+//	                  -o ExitOnForwardFailure=yes -N -L {local}:{remote}
+//	                  ubuntu@84.239.100.188"
 //
 // The commands run under sh -c on this host. Its workspace outlives the
 // test: tiles a test writes stay (name them per run), its tile sandboxes
@@ -27,6 +34,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -78,6 +86,22 @@ func Connect(t testing.TB) *Daemon {
 	}
 	if err := d.waitHealthy(30 * time.Second); err != nil {
 		t.Fatalf("XBIN_E2E_URL: %v", err)
+	}
+	if d.token == "" {
+		var m struct{ Auth bool }
+		if err := d.get("/api/xbin/login/methods", &m); err != nil {
+			t.Fatalf("XBIN_E2E_URL: %v", err)
+		}
+		if m.Auth {
+			if d.rem.ws == "" || strings.ContainsAny(d.rem.ws, "'\n") {
+				t.Fatalf("XBIN_E2E_URL has owner auth on: set XBIN_E2E_TOKEN, or XBIN_E2E_SH and XBIN_E2E_WS to read it (XBIN_E2E_WS %q)", d.rem.ws)
+			}
+			out, err := d.HostSh("cat -- '" + d.rem.ws + "/.xbin/token'\n")
+			if err != nil || strings.TrimSpace(out) == "" {
+				t.Fatalf("XBIN_E2E_URL has owner auth on: set XBIN_E2E_TOKEN, or XBIN_E2E_SH and XBIN_E2E_WS to read it (%v)", err)
+			}
+			d.token = strings.TrimSpace(out)
+		}
 	}
 	t.Cleanup(func() { d.cleanup(t) })
 	return d
@@ -218,4 +242,51 @@ func (d *Daemon) Workspace() string {
 		return d.rem.ws
 	}
 	return d.WS
+}
+
+// Forward is a local address reaching addr, a loopback address on xbind's
+// host (a stream expose bound there): addr itself here; on a remote daemon
+// a forward XBIN_E2E_FORWARD starts, stopped when the test ends.
+func (d *Daemon) Forward(t testing.TB, addr string) string {
+	t.Helper()
+	if d.rem == nil {
+		return addr
+	}
+	tmpl := os.Getenv("XBIN_E2E_FORWARD")
+	if tmpl == "" || !strings.Contains(tmpl, "{local}") || !strings.Contains(tmpl, "{remote}") {
+		t.Skip("reaching a port on a remote xbind's host needs XBIN_E2E_FORWARD (with {local} and {remote})")
+	}
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	local := l.Addr().String()
+	l.Close()
+	command := strings.NewReplacer("{local}", local, "{remote}", addr).Replace(tmpl)
+	var out bytes.Buffer
+	cmd := exec.Command("sh", "-c", "exec "+command) // exec-ok: the test's own configured forward (XBIN_E2E_FORWARD), on the test's host
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("XBIN_E2E_FORWARD: %v", err)
+	}
+	exited := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(exited) }()
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		<-exited
+	})
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+		select {
+		case <-exited:
+			t.Fatalf("XBIN_E2E_FORWARD %q ended: %s", command, out.String())
+		default:
+		}
+		if c, err := net.DialTimeout("tcp", local, time.Second); err == nil {
+			c.Close()
+			return local
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("XBIN_E2E_FORWARD %q: %s isn't listening after 30 s", command, local)
+		}
+	}
 }
