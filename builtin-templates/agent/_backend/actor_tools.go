@@ -159,7 +159,7 @@ func (e *Engine) parkApproval(ts *turnState, calls []toolCall, grant string) {
 	if grant != "" {
 		ask = grantOf(grant).askFor(e.ag, run, ts.cfg, calls, ts.own)
 	}
-	pend, _ := json.Marshal(pendingState{Kind: "approval", ToolCalls: calls, Grant: grant, GrantAsk: ask})
+	pend, _ := json.Marshal(pendingState{Kind: "approval", ToolCalls: calls, Grant: grant, GrantAsk: ask, Park: newPark()})
 	_ = e.fenced(func(t *DB) error {
 		for _, tc := range calls {
 			if ok, _ := t.setToolPlaceholder(run.ID, tc.ID, toolAwaitingApproval); ok {

@@ -165,14 +165,14 @@ function stepTpl(b) {
 // from its parent's card too).
 // grant (rules grantAsk) is a capability only the conversation's owner may
 // allow (D111): once, or here for an hour; others may only deny.
-export function approvalTpl(calls, runId, lead = 'The agent wants to run', grant = null) {
+export function approvalTpl(calls, runId, lead = 'The agent wants to run', grant = null, park = undefined) {
   const names = (calls || []).map((c) => (c.function ? c.function.name : String(c)));
   const options = !grant ? [{ id: 'approve', label: 'Approve', kind: 'allow_once' }, { id: 'deny', label: 'Deny', kind: 'reject_once' }]
     : [...(grant.canAllow ? [{ id: 'once', label: 'Allow once', kind: 'allow_once' }, { id: 'hour', label: 'Allow here for 1 hour', kind: 'allow_always' }] : []),
       { id: 'deny', label: 'Deny', kind: 'reject_once' }];
   const text = grant ? [grant.note, ...names].join('\n') : names.join('\n');
   return html`<approval title=${grant ? grant.lead : lead} text=${text} options=${options}
-    @choose=${guard((e) => ctx.app.session.approve(runId, e.id !== 'deny', grant && e.id !== 'deny' ? e.id : undefined))}/>`;
+    @choose=${guard((e) => ctx.app.session.approve(runId, e.id !== 'deny', grant && e.id !== 'deny' ? e.id : undefined, park))}/>`;
 }
 
 // --- the conversation screen ------------------------------------------------------------
@@ -227,7 +227,7 @@ export function chatScreen(v) {
     <transcript follow ?older=${s.hasOlder} @more=${() => app.session.loadOlder().catch(fail)}>
       ${s.olderHidden ? html`<notice tone="muted" text="earlier turns were compacted into the summary"/>` : nothing}
       ${repeat(s.blocks, (b) => b.id, (b) => blockTpl(b))}
-      ${r.status === 'waiting_input' && ps.kind === 'approval' ? approvalTpl(ps.toolCalls, r.id, undefined, rules.grantAsk(r, app.me)) : nothing}
+      ${r.status === 'waiting_input' && ps.kind === 'approval' ? approvalTpl(ps.toolCalls, r.id, undefined, rules.grantAsk(r, app.me), ps.park) : nothing}
       ${r.status === 'waiting_input' && ps.kind !== 'approval' && r.result ? questionTpl(r) : nothing}
       ${s.activity ? html`<activity live text=${s.activity}/>` : nothing}
       ${s.conn === 'reconnecting' ? html`<notice tone="warn" text="live updates lost — reconnecting…"/>` : nothing}

@@ -48,7 +48,7 @@ export class Session {
     };
     this.ui.act.loadChild = (id) => this.loadChild(id);
     this.ui.file = (msgId, f) => this.fileState(msgId, f);
-    this.ui.act.approve = (id, yes, grant) => this.approve(id, yes, grant);
+    this.ui.act.approve = (id, yes, grant, park) => this.approve(id, yes, grant, park);
     this.ui.who = () => null; // the page's GET /me (the app sets it): who may allow a grant
     this.pending = false;
   }
@@ -313,9 +313,16 @@ export class Session {
   }
 
   // approve answers a parked approval; grant ('once' | 'hour') is how long
-  // the owner allows a grant it asks for (D111).
-  async approve(runId, yes, grant) {
-    await api(`/runs/${runId}/approve`, jbody(grant ? { approve: yes, grant } : { approve: yes }, 'POST'));
+  // the owner allows a grant it asks for (D111). park names the ask it
+  // answers (pendingState.park; else the one the run's view shows): if the
+  // agent has moved on to another ask, the server refuses (409) rather than
+  // spend the click on that one.
+  async approve(runId, yes, grant, park) {
+    park = park || this.views.get(runId)?.run?.pendingState?.park;
+    const body = { approve: yes };
+    if (grant) body.grant = grant;
+    if (park) body.park = park;
+    await api(`/runs/${runId}/approve`, jbody(body, 'POST'));
   }
 
   // revokeGrant takes a grant back before it expires; the run event that

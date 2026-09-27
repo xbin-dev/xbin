@@ -50,7 +50,7 @@ const seed = {
     },
     3: {
       access: 'owner',
-      run: { id: 3, title: 'send the invoices', status: 'waiting_input', rootId: 3, pendingState: { kind: 'approval', toolCalls: [{ function: { name: 'mcp:mail:send' } }] } },
+      run: { id: 3, title: 'send the invoices', status: 'waiting_input', rootId: 3, pendingState: { kind: 'approval', park: 'p3', toolCalls: [{ function: { name: 'mcp:mail:send' } }] } },
       messages: [msg(1, 'user', 'send them', { runId: 3 })],
     },
     // a coding conversation (D115) working in a sandbox
@@ -163,7 +163,7 @@ await view.locator('button[aria-label="Conversations"]').first().click();
 await view.locator('xb-sheet xb-row:has-text("send the invoices") .row-main').click();
 ok('the approval card', await shown('xb-approval:has-text("mcp:mail:send")'));
 await view.locator('xb-approval button:has-text("Approve")').click();
-ok('Approve is sent', await page.waitForFunction(() => window.__calls.some((c) => c.url.endsWith('/runs/3/approve') && JSON.parse(c.body).approve === true)).then(() => true, () => false));
+ok('Approve is sent, naming the ask', await page.waitForFunction(() => window.__calls.some((c) => c.url.endsWith('/runs/3/approve') && JSON.parse(c.body).approve === true && JSON.parse(c.body).park === 'p3')).then(() => true, () => false));
 
 // a coding sandbox (D115): ▣ in the subtitle, the card's outcome, the toolbar's picker, ⋯ → Sandbox, Manage
 const subtitle = () => page.evaluate(() => window.navOf().c[window.navOf().c.length - 1].p.subtitle || '');
