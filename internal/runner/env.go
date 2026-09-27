@@ -113,7 +113,7 @@ func (r *Runner) ensureEnvLayer(c *registry.Component) (string, error) {
 	if h.NeedsRelay() {
 		if fd, err := h.RecvTUN(); err == nil {
 			pol, _ := sandbox.Parse([]string{"net:internet"})
-			if rl, err := relay.Start(relay.Config{TunFD: fd, Allow: pol.Allow, Resolver: sandbox.HostResolver()}); err == nil {
+			if rl, err := relay.Start(relay.Config{TunFD: fd, CloseTUN: true, Allow: pol.Allow, Resolver: sandbox.HostResolver()}); err == nil {
 				defer rl.Close()
 			}
 		}

@@ -521,10 +521,11 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 				inst.splicer = relay.Splice(fd, pfd)
 				inst.provider = provider
 			} else {
+				_ = syscall.Close(fd)
 				fmt.Fprintf(logf, "net provider %s link not ready — no egress\n", provider)
 			}
 		} else {
-			cfg := relay.Config{TunFD: fd, Allow: pol.Allow, Resolver: sandbox.HostResolver()}
+			cfg := relay.Config{TunFD: fd, CloseTUN: true, Allow: pol.Allow, Resolver: sandbox.HostResolver()}
 			if pol.HasHostRules() {
 				cfg.AllowHost = pol.AllowsHost // DNS-pinned hostname egress (D35)
 			}
@@ -576,6 +577,7 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 			if pfd, ok := r.netmux.get(ll.Provider, c.Path+"#"+ll.Slot); ok {
 				inst.linkSplicers = append(inst.linkSplicers, relay.Splice(fd, pfd))
 			} else {
+				_ = syscall.Close(fd)
 				fmt.Fprintf(logf, "lan-ingress provider %s link not ready for %s\n", ll.Provider, ll.Slot)
 			}
 		}

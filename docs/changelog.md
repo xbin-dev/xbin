@@ -115,12 +115,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   D88), to `none`, `internet`, `internet:<spec>`, `lan:<cidr>`, `org`,
   `personal` or `set:<name>`. `host`, provider tiles, sets that say `host` and
   `#instance` are refused. An unbound class is `none`: there is no org or
-  personal default. Binding a class restarts nothing, and the tile's own `net`
-  slot is unaffected. `GET /bindings` adds `sandboxNetOptions` (the option
-  list per component) and lists inert classes in `inert`. The admin console's
-  binding tab, the tile popover and `bx doctor` show the classes. Also: a tile
-  that declares two `net` slots now resolves the name-sorted first every time,
-  instead of whichever map order gave.
+  personal default. A class's `internet` is strict: it also excludes CGNAT
+  (`100.64.0.0/10`, Tailscale's), benchmarking (`198.18.0.0/15`), reserved
+  (`240.0.0.0/4`) and NAT64 (`64:ff9b::/96`, `64:ff9b:1::/48`) addresses, in
+  its rules, its DNS answers and its reported reach (a tile backend's
+  `net:internet` is unchanged). Binding a class restarts nothing, and the
+  tile's own `net` slot is unaffected. `GET /bindings` adds
+  `sandboxNetOptions` (the option list per component) and lists inert
+  classes in `inert`. The admin console's binding tab, the tile popover and
+  `bx doctor` show the classes. Also: a tile that declares two `net` slots
+  now resolves the name-sorted first every time, instead of whichever map
+  order gave.
 - **Terminals: a slow connection no longer reads as "shell ended"**
   ([protocol.md](protocol.md) §`/ws/term`). A socket that fell too far
   behind a terminal's output got `{"op":"exit"}` before it was closed, so

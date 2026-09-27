@@ -2937,6 +2937,75 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     admits a public address; `Reach()` of `net:100.64.0.0/10` under
     `Strict()` is `open`, of `net:internet` still `internet`; a non-strict
     policy is byte-for-byte today's (a table over the old cases).
+- **As built** (branch `p2/wp10b`):
+  - **Flow caps.** `relay.Budget` (`budget.go`, all platforms; a nil
+    `*Budget` admits everything, `NewBudget(n ≤ 0)` admits nothing). A
+    dialed flow — policy, gateway forward, hairpin, the DNS forward — takes
+    a *claim* (`admit`) before its dial: the relay's `MaxTCP`/`MaxUDP` slot
+    and a `Budget` slot, held until the splice ends. Past either cap a SYN
+    gets a RST and a UDP datagram is left unhandled, so gVisor answers it
+    with a port-unreachable (gVisor's ICMP rate limit, 1000/s burst 50,
+    applies); both are recorded denied. A ping holds a `Budget` slot for
+    its ≤ 3 s (its per-relay cap stays the old 32 in flight) and ends with
+    the relay. `Close` cancels a context every host dial now takes (the test
+    seam changed from a `net.Dialer` to a dial func), refuses new flows,
+    releases every claim **synchronously** (`Budget.Used()` is back when
+    `Close` returns) and closes both sides of every open flow, **TCP as well
+    as UDP** (a TCP flow's host side could also linger on an idle remote).
+  - **Locality per flow** (`deny_linux.go`): a hand-rolled `RTM_GETROUTE`
+    (`x/sys/unix`, no dump; ~70 lines) on one netlink socket per `HostDeny`
+    under a mutex, with a 1 s send/receive timeout (a timeout closes the
+    socket and denies; the next lookup reopens it). The socket is opened
+    when `HostDeny` is called, so in the caller's netns, and is closed by a
+    `runtime.AddCleanup` when the `Deny` is dropped: one per relay would
+    otherwise leak with every sandbox start. `local`, `broadcast`,
+    `multicast`, `anycast` deny; `ENETUNREACH`/`EHOSTUNREACH` pass on; any
+    other error (a blackhole route's `EINVAL`, `EACCES` of `prohibit`)
+    denies. The static checks and the listen set come first. Off Linux the
+    old re-read is `addrSet` (`deny.go`), wired in `deny_other.go`; the
+    local-routing-table read is gone.
+  - **Strict.** `EgressPolicy` gains an unexported `strict` flag
+    (`Strict()`, `IsStrict()`); `Allow`, `Reach` and **`Covers`** honour
+    it — a strict policy never covers a non-strict `internet` or host rule
+    (whose pins may land in the refused ranges), the other way round it
+    does. `SandboxEgress`/`SandboxNetClasses` return strict policies for
+    every class, `none` included, so WP-15a can set `StrictPublic` from
+    `IsStrict()`. The relay keeps its own copy of the five ranges
+    (`strictPublicAddr`; the parent package imports it).
+  - **Deviation — `Config.CloseTUN`.** Instead of each caller closing the
+    fd after `Close`, the four existing callers (runner, term — at its
+    922-line budget —, the env-setup run and confine) pass `CloseTUN: true`
+    and the relay closes the fd after `Close` has stopped the readers, and
+    on a failed `Start` (which leaked it too). §4's "the caller owns the fd"
+    stays the default; tilesbx may use either.
+  - **Found on the way and fixed** (no changelog entry: no builder-visible
+    behaviour):
+    - **gVisor leaks an eventfd per relay.** fdbased makes a stop eventfd per
+      inbound dispatcher and never closes it (its endpoint's `Close` is
+      empty), so every relay — backend, terminal, confined tool run — leaked
+      one fd besides the TUN. `stopfd_linux.go` reads them out of the
+      endpoint by reflection (read-only) and `Close` closes them once the
+      readers stop; `TestCloseReleasesFDs` fails if a gVisor bump moves them.
+    - The runner leaked the egress TUN fd when the net provider's link wasn't
+      ready, and a lan-ingress leg's fd likewise; both are closed now.
+    - A failed `CreateNIC` in `start` left the stack and the context behind.
+  - **Tests.** `flowcap_linux_test.go`: 5000 SYNs at `MaxTCP` 1024 with the
+    dials held (their sockets open): exactly 1024 dials, 3976 RSTs in well
+    under a second, peak fds base + ~1024 (the flood would reach 2048, the
+    TCP forwarder's in-flight bound); SYNs are resent for unanswered ports,
+    since the non-blocking TUN drops what the peer doesn't read in time; a
+    shared `Budget(100)` across two relays; `MaxUDP` → port-unreachable;
+    `Close` returns a budget of 6 TCP + 4 UDP at once and closes the UDP
+    flows' host sides; strict pins; `CloseTUN`; route lookups on this host;
+    netlink sockets and stop eventfds released. `locality_linux_test.go`
+    (`linux && integration`, added to `make integration`): the test binary
+    re-execs itself into a new user + net namespace with a dummy interface
+    (falls back to `lo`); an address (v4 and v6) added after the relay
+    started, an AnyIP route and the link's broadcast address are refused on
+    the first flow, a routed non-local address and one with no route are
+    dialed, a removed address passes again. It fails against the 5 s
+    re-read. `strict_test.go` and `TestSandboxNetStrict` (broker) cover
+    Strict; `TestCoversSound` now mixes strict and plain policies.
 
 #### WP-11b — The bind prompt never preselects a network for a sandbox class (C · XS · now)
 

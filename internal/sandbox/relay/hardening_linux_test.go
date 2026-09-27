@@ -41,7 +41,11 @@ type harness struct {
 	sport uint16
 }
 
-func newHarness(t *testing.T, cfg Config) *harness {
+func newHarness(t *testing.T, cfg Config) *harness { return newHarnessDial(t, cfg, nil) }
+
+// newHarnessDial is newHarness with the relay's host-side dials going to
+// dial (nil = vetted and refused, each reported on h.dials).
+func newHarnessDial(t *testing.T, cfg Config, dial dialFunc) *harness {
 	t.Helper()
 	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_SEQPACKET|unix.SOCK_CLOEXEC, 0)
 	if err != nil {
@@ -49,11 +53,14 @@ func newHarness(t *testing.T, cfg Config) *harness {
 	}
 	h := &harness{t: t, dials: make(chan string, 64), sport: 40000}
 	cfg.TunFD = fds[0]
-	d := net.Dialer{Timeout: time.Second, Control: func(network, address string, _ syscall.RawConn) error {
-		h.dials <- network[:3] + " " + address
-		return errNoDial
-	}}
-	h.r, err = start(cfg, d)
+	if dial == nil {
+		d := net.Dialer{Timeout: time.Second, Control: func(network, address string, _ syscall.RawConn) error {
+			h.dials <- network[:3] + " " + address
+			return errNoDial
+		}}
+		dial = d.DialContext
+	}
+	h.r, err = start(cfg, dial)
 	if err != nil {
 		t.Fatal(err)
 	}

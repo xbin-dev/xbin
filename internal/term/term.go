@@ -653,7 +653,7 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 			return nil
 		}
 		cfg := relay.Config{
-			TunFD: fd, Allow: pol.Allow, Resolver: sandbox.HostResolver(),
+			TunFD: fd, CloseTUN: true, Allow: pol.Allow, Resolver: sandbox.HostResolver(),
 			Gateway: netip.MustParseAddr(sandbox.GatewayIP), HostFwd: hostFwd,
 		}
 		if pol.HasHostRules() { // hostname rules need DNS pinning (D35)

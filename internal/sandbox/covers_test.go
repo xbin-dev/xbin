@@ -59,9 +59,11 @@ func TestCovers(t *testing.T) {
 func TestCoversSound(t *testing.T) {
 	rng := rand.New(rand.NewPCG(1, 2))
 	pool := []string{"net:internet", "net:internet:443", "net:10.0.0.0/8", "net:10.42.0.0/16", "net:10.42.1.7:22",
-		"net:192.168.0.0/16:5432", "net:8.8.8.0/24", "net:8.0.0.0/5", "net:1.1.1.1:53", "net:0.0.0.0/0", "net:127.0.0.1"}
-	probes := []string{"10.1.2.3", "10.42.1.7", "192.168.3.4", "8.8.8.8", "9.9.9.9", "1.1.1.1", "127.0.0.1", "0.0.0.0", "172.16.0.1"}
-	pick := func() EgressPolicy {
+		"net:192.168.0.0/16:5432", "net:8.8.8.0/24", "net:8.0.0.0/5", "net:1.1.1.1:53", "net:0.0.0.0/0", "net:127.0.0.1",
+		"net:100.64.0.0/10", "net:96.0.0.0/4", "net:[64:ff9b::]/96"}
+	probes := []string{"10.1.2.3", "10.42.1.7", "192.168.3.4", "8.8.8.8", "9.9.9.9", "1.1.1.1", "127.0.0.1", "0.0.0.0", "172.16.0.1",
+		"100.64.1.2", "100.100.100.100", "198.18.0.9", "240.0.0.1", "64:ff9b::808:808", "2606:4700::1111"}
+	pick := func() EgressPolicy { // strict (a tile sandbox's) or not, at random
 		var targets []string
 		for i := rng.IntN(4); i > 0; i-- {
 			targets = append(targets, pool[rng.IntN(len(pool))])
@@ -69,6 +71,9 @@ func TestCoversSound(t *testing.T) {
 		pol, err := Parse(targets)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if rng.IntN(2) == 0 {
+			pol = pol.Strict()
 		}
 		return pol
 	}

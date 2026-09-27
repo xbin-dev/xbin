@@ -242,6 +242,12 @@ the reason, like a `net` slot.
   policy, resolved at each start. The class's **reach** — `none`, `internet` (every
   rule on the public internet) or `open` — is what a manager reports to its
   consumers.
+- **A class's `internet` is strict** (D120): the contract's `internet` reaches no
+  private or local network, so a sandbox's also excludes CGNAT/Tailscale
+  (`100.64.0.0/10`), benchmarking (`198.18.0.0/15`), reserved (`240.0.0.0/4`) and
+  NAT64 (`64:ff9b::/96`, `64:ff9b:1::/48`) addresses — rules, DNS pins and reach
+  alike, so `lan:100.64.0.0/10` is `open`. A tile backend's `net:internet` keeps
+  reaching them: narrowing it would change existing tiles' egress.
 - **No restarts**: (un)binding a class, or editing a network set it resolves through,
   restarts nothing. A running sandbox whose class narrows is stopped (its state
   kept); one whose class widens takes the wider network at its next start.

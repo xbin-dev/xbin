@@ -202,7 +202,7 @@ func Run(ctx context.Context, c Cmd) (Result, error) {
 				return Result{}, fmt.Errorf("%w: egress: %v", ErrUnavailable, err)
 			}
 			pol, _ := sandbox.Parse([]string{"net:internet"})
-			rl, err := relay.Start(relay.Config{TunFD: fd, Allow: pol.Allow, Resolver: sandbox.HostResolver()})
+			rl, err := relay.Start(relay.Config{TunFD: fd, CloseTUN: true, Allow: pol.Allow, Resolver: sandbox.HostResolver()})
 			if err != nil {
 				_ = cmd.Process.Kill()
 				_ = cmd.Wait()

@@ -352,6 +352,14 @@ tiles, the same ceiling: every ref inside the org's network sets (D54).
   keeps the other rules and says so.
 - **Unbound is `none`.** A class has no org or personal default: it never
   quietly gets the org's network.
+- **A class's `internet` is strict.** The sandbox-manager contract promises
+  that `internet` reaches no private or local network, so for a sandbox it
+  also excludes CGNAT (`100.64.0.0/10`, which Tailscale uses), benchmarking
+  (`198.18.0.0/15`), reserved (`240.0.0.0/4`) and NAT64 (`64:ff9b::/96`,
+  `64:ff9b:1::/48`) addresses — as a rule, as a hostname's DNS answer, and in
+  the class's reported `reach` (a class bound to `lan:100.64.0.0/10` reaches
+  that range and says `open`). A tile backend's own `net:internet` doesn't
+  change: it still reaches those ranges.
 - A sandbox selects `none` or `class:<slot>`; the class is resolved again
   at each start, through the same relay as a backend's egress. A class
   whose binding resolves to nothing (a set deleted or narrowed, a

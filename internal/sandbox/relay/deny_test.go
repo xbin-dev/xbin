@@ -16,7 +16,8 @@ func TestHostDeny(t *testing.T) {
 		netip.MustParsePrefix("198.51.100.0/28"), // an AnyIP range
 		netip.MustParsePrefix("::ffff:192.0.2.77/128"),
 	}
-	d := newHostDeny(func() ([]netip.Prefix, error) { return host, nil }, time.Hour,
+	set := newAddrSet(func() ([]netip.Prefix, error) { return host, nil }, time.Hour)
+	d := newHostDeny(set.contains,
 		netip.MustParseAddrPort("192.0.2.80:8080"), netip.MustParseAddrPort("[::]:8080"))
 
 	for _, c := range []struct {
@@ -62,8 +63,9 @@ func TestHostDeny(t *testing.T) {
 	}
 }
 
-// The host's addresses are re-read when stale; until one read succeeds,
-// everything is denied, and a failed re-read keeps the last good view.
+// Off Linux, the host's addresses are re-read when stale; until one read
+// succeeds, everything is denied, and a failed re-read keeps the last good
+// view.
 func TestHostDenyRefresh(t *testing.T) {
 	var host []netip.Prefix
 	var fail bool
@@ -77,12 +79,13 @@ func TestHostDenyRefresh(t *testing.T) {
 	vpn := netip.MustParseAddr("100.64.1.2")
 
 	fail = true
-	d := newHostDeny(read, time.Nanosecond)
+	set := newAddrSet(read, time.Nanosecond)
+	d := newHostDeny(set.contains)
 	if !d.denied(pub) {
 		t.Fatal("with no view of the host yet, everything must be denied")
 	}
 	fail = false
-	d.next = time.Time{} // skip the retry pacing
+	set.next = time.Time{} // skip the retry pacing
 	if d.denied(pub) || d.denied(vpn) {
 		t.Fatal("after a good read, the internet passes")
 	}
@@ -118,9 +121,9 @@ func TestHostDenyThisHost(t *testing.T) {
 			t.Errorf("host address %s is not denied", ip)
 		}
 	}
-	pfx, err := hostLocalPrefixes()
+	pfx, err := interfacePrefixes()
 	if err != nil || len(pfx) == 0 {
-		t.Fatalf("hostLocalPrefixes = %v, %v", pfx, err)
+		t.Fatalf("interfacePrefixes = %v, %v", pfx, err)
 	}
 	if deny(netip.MustParseAddr("192.0.2.1")) { // TEST-NET-1: never a host's
 		t.Error("an address the host doesn't own must pass")
