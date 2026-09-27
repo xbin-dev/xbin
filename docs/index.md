@@ -31,6 +31,9 @@ overview is the map that puts them in context.
 - [ingress.md](/docs/ingress.md) — publishing tiles: public HTTP(S) + TCP/UDP endpoints
 - [agent-inbox.md](/docs/agent-inbox.md) — the contract between chat adapters
   (Slack, …) and agents built from the agent template
+- [sandbox-manager.md](/docs/sandbox-manager.md) — the contract between
+  sandbox managers (tiles that run coding sandboxes) and the tiles that use
+  them, such as the agent template
 - [bx.md](/docs/bx.md) — the `bx` CLI
 - [tile-deployments.md](/docs/tile-deployments.md) — pausing a tile's live
   reload, Reload now, the deploy log, rolling back, and

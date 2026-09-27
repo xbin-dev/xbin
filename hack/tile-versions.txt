@@ -2,7 +2,6 @@
 # its files (tile.json excluded). internal/builtins TestTileVersions fails when a tile's
 # files change without a version bump; regenerate with UPDATE_TILE_VERSIONS=1 (see the test).
 chat 3 sha256:aab975239e32b82042bf97811111ee9fdd666a8e8c9ee89c090ed08152354750
-devbox 4 sha256:86e4a20f576260b341bf3678bfaffe49b12ae339cb357f0d51194c0b6fa811ce
 egress-approver 3 sha256:c17bc58fd10fd89205a5917521b6242ae6dd66bb0095767abf87bfd3d06090a7
 llm-gw 6 sha256:1e0bf7e5850447a137169c88548ce6ab1eff431528c3058b398d86c62a271399
 prometheus-viewer 2 sha256:1fcbbaabb983fe28814e6bead57b84b9d737fafb87750a5ddad5c2341a661715

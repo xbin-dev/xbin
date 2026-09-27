@@ -10,6 +10,7 @@ import { groupRows } from '../model/conv-groups.js';
 import { rowGlyph, rowShared, rowMenu } from '../model/rules.js';
 import { summaryCount } from '../model/auto.js';
 import { mainMenu } from './home.js';
+import { classSectionTpl } from './classes.js';
 
 const GLYPH = { ask: ['waiting for you', 'accent'], error: ['failed', 'danger'], spin: ['working', 'muted'] };
 const SCOPES = [{ value: 'mine', label: 'Mine' }, { value: 'shared', label: 'Shared' }, { value: 'archived', label: 'Archived' }];
@@ -33,7 +34,7 @@ export function drawerSheet() {
       <list style="inset" @more=${list.next && !results ? () => list.more().catch(() => {}) : nothing}>
         <section>
           <row title="New chat" icon="plus" @tap=${() => { app.home(); close(); }}/>
-          <row title="New chat with options…" icon="pencil" @tap=${() => { ui.newChat = { text: '', title: '', system: '', toolset: app.toolset }; close(); }}/>
+          <row title="New chat with options…" icon="pencil" @tap=${() => { ui.newChat = { text: '', title: '', system: '', class: app.classId }; close(); }}/>
           <row title="Automations" icon="clock" badge=${n ? String(n) : nothing} tone=${s.failing ? 'danger' : n ? 'accent' : nothing}
             nav @tap=${() => { app.openAutomations(); close(); }}/>
         </section>
@@ -118,7 +119,7 @@ export function newChatSheet() {
   const start = guard(async () => {
     const text = f.text.trim();
     if (!text) return;
-    await app.ask({ text, title: f.title.trim(), system: f.system.trim(), toolset: f.toolset });
+    await app.ask({ text, title: f.title.trim(), system: f.system.trim(), class: f.class });
     ui.newChat = null;
   });
   return html`<sheet open title="New chat" @dismiss=${done}>
@@ -128,10 +129,7 @@ export function newChatSheet() {
       <section title="First message">
         <field kind="multiline" placeholder="what should it do?" value=${f.text} @input=${set('text')}/>
       </section>
-      <section title="Tool mode" footer="Fixed for the conversation once it starts: internal systems and the web never meet in one run.">
-        <picker style="segmented" value=${f.toolset} options=${[{ value: 'private', label: 'internal', icon: 'lock' }, { value: 'web', label: 'web', icon: 'globe' }]}
-          @change=${(e) => { f.toolset = e.value; ctx.paint(); }}/>
-      </section>
+      ${classSectionTpl(f)}
       <section title="Optional">
         <field label="Title" placeholder="from the first message" value=${f.title} @input=${set('title')}/>
         <field label="Instructions" kind="multiline" placeholder="extra system instructions" value=${f.system} @input=${set('system')}/>

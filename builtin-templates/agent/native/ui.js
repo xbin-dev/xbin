@@ -10,9 +10,10 @@ export const ui = {
   draft: '',        // the composer's text (a controlled prop: the app reports each keystroke)
   drawer: false,    // the conversations drawer is open
   q: '',            // the drawer's search field
-  newChat: null,    // the "new chat with options" sheet: {text, title, system, toolset}
+  newChat: null,    // the "new chat with options" sheet: {text, title, system, class}
   rename: null,     // the rename sheet: {id, title}
   share: null,      // the share sheet: {run: {id, title}, data, link, err, user, role, linkRole, linkExp}
+  sbxAsk: null,     // the Sandbox picker's confirmation sheet: {ref, name, text} (native/sandboxes.js)
   stack: [],        // screens pushed over the conversation or home: {kind, …} (native/tools.js)
   opening: null,    // a subagent being opened full screen (its view is loading)
   err: '',          // the last failure, said at the top of the screen on top
@@ -60,7 +61,7 @@ export const when = (ms) => (ms ? new Date(ms).toLocaleString([], { dateStyle: '
 // The icon of a tool family (model/tool-heads.js) — the web draws glyphs.
 export const FAMILY_ICON = {
   net: 'network', web: 'globe', file: 'file', code: 'code', mem: 'database', note: 'pencil', skill: 'star',
-  time: 'clock', agent: 'branch', done: 'check', ask: 'question', mcp: 'gear', other: 'wrench',
+  time: 'clock', agent: 'branch', done: 'check', ask: 'question', mcp: 'gear', box: 'terminal', other: 'wrench',
 };
 
 // A tool card's state (model/fold.js) as the chat family says it, and the

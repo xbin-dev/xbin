@@ -570,11 +570,11 @@ func (e *Engine) linkView(l *Link) map[string]any {
 
 // --- child config ---------------------------------------------------------------------
 
-// childConfig derives a node's config from its parent's. The capability lane
-// is re-normalized FROM THE PARENT and never from arguments.
+// childConfig derives a node's config from its parent's. The class and the
+// capability lane are re-normalized FROM THE PARENT and never from arguments.
 func childConfig(parent Config, system string) Config {
 	c := parent
-	c.Toolset = parent.toolset()
+	c.Class, c.Toolset = classOf(parent).ID, parent.fixedLane()
 	c.System = parent.System
 	if strings.TrimSpace(system) != "" {
 		c.System = system
@@ -590,6 +590,7 @@ func childConfig(parent Config, system string) Config {
 		c.MCP = append([]MCPServer(nil), parent.MCP...)
 	}
 	c.Deny = append([]string(nil), parent.Deny...)
+	c.Sandbox, c.Attached = copySandboxes(parent)
 	return c
 }
 

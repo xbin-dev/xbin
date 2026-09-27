@@ -27,6 +27,7 @@ func (d *DB) migrate() error {
 		`ALTER TABLE runs ADD COLUMN last_prompt_tokens INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE runs ADD COLUMN kind TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE schedules ADD COLUMN toolset TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE schedules ADD COLUMN class TEXT NOT NULL DEFAULT ''`, // D116
 		`ALTER TABLE runs ADD COLUMN root_id INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE runs ADD COLUMN depth INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE runs ADD COLUMN detached INTEGER NOT NULL DEFAULT 0`,
@@ -54,6 +55,12 @@ func (d *DB) migrate() error {
 		return err
 	}
 	if err := d.addTriggerSchema(); err != nil {
+		return err
+	}
+	if err := d.addSandboxJobSchema(); err != nil {
+		return err
+	}
+	if err := d.addSandboxCreateSchema(); err != nil {
 		return err
 	}
 	for _, q := range []string{

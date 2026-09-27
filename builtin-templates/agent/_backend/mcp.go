@@ -188,10 +188,16 @@ func mcpCacheKey(s MCPServer) string { return "mcp_tools:" + s.Name + "|" + s.UR
 
 // mcpTools returns every configured server's tools, prefixed for the LLM.
 func (ag *Agent) mcpTools(ctx context.Context, cfg Config) []toolSpec {
-	if cfg.toolset() == "web" {
-		return nil // the web lane gets no internal tools, so don't wake the servers
+	cls := classOf(cfg)
+	if !cls.has(tsInternal) {
+		return nil // a class without internal reach gets no MCP tools, so don't wake the servers
 	}
-	servers := allMCPServers(cfg)
+	var servers []MCPServer
+	for _, srv := range allMCPServers(cfg) {
+		if cls.allowsMCP(srv.Name) { // only the class's servers (D116)
+			servers = append(servers, srv)
+		}
+	}
 	lists := make([][]toolSpec, len(servers))
 	var wg sync.WaitGroup
 	for i, srv := range servers {

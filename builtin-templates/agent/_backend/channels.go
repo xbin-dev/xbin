@@ -470,6 +470,13 @@ func laneFor(p channelPolicy, m *adapterMsg, peer *chanPeer) string {
 // none, or when the session's lane no longer matches — trust was revoked).
 func (ag *Agent) channelDeliver(t *DB, ch *Channel, m *adapterMsg, key, addr string, peer *chanPeer, text string, v *msgVerdict, after *[]func()) error {
 	lane := laneFor(ch.Policy, m, peer)
+	cls := ch.Policy.classFor(lane) // D116: the lane's class
+	// a stranger's conversation is held to the web lane — no internal reach,
+	// whatever its class becomes (clampTo); a trusted one takes its class's
+	want := cls.lane()
+	if lane == "web" {
+		want = "web"
+	}
 	// A person who linked their xbin account speaks as themselves: their
 	// DM conversation is theirs (listed with their chats, private), and in a
 	// group their messages carry their id. Everyone else's run is the
@@ -482,11 +489,12 @@ func (ag *Agent) channelDeliver(t *DB, ch *Channel, m *adapterMsg, key, addr str
 		}
 	}
 	if cur, ok := t.sessionRun(key); ok {
-		// the conversation changes hands or lanes (a link, a revoked trust):
-		// a new one — the old stays with whoever it belonged to
+		// the conversation changes hands, lanes or classes (a link, a revoked
+		// trust, a new policy): a new one — the old stays with whoever it
+		// belonged to
 		cfg, err := t.runConfig(cur)
 		run, err2 := t.getRun(cur)
-		if err == nil && err2 == nil && (cfg.toolset() != lane || run.Owner != stamp.Owner) {
+		if err == nil && err2 == nil && (normalizeToolset(cfg.Toolset) != want || classOf(cfg).ID != cls.ID || run.Owner != stamp.Owner) {
 			t.resetSession(key)
 		}
 	}
@@ -498,7 +506,8 @@ func (ag *Agent) channelDeliver(t *DB, ch *Channel, m *adapterMsg, key, addr str
 		text = fmt.Sprintf("[%s %s] %s: %s", ch.platformName(), convLabel(m), who, text)
 	}
 	cfg := parseConfig(t.getSetting("config"))
-	cfg.Toolset, cfg.Channel = lane, true
+	cfg.setClass(cls, false)
+	cfg.Toolset, cfg.Channel = want, true
 	cfg.Deny = append([]string(nil), ch.Policy.deny()...)
 	cfg.System += channelAddendum(ch, m) + orStr("\n\n"+ch.Policy.System, "")
 	client := ""
@@ -641,7 +650,8 @@ func (ag *Agent) channelCommand(t *DB, ch *Channel, m *adapterMsg, key, addr str
 		case parsePending(run.Pending).Grant != "" && cmd == "approve":
 			say("Only the conversation's owner can allow this, in the agent's page.")
 		default:
-			if _, _, err := t.enqueue(cur, inboxApprove, inboxBody{Approve: cmd == "approve", Sender: "channel:" + m.Sender.ID}, ""); err != nil {
+			if _, _, err := t.enqueue(cur, inboxApprove, inboxBody{Approve: cmd == "approve", Sender: "channel:" + m.Sender.ID,
+				Park: parsePending(run.Pending).Park}, ""); err != nil {
 				return false, nil, err
 			}
 			after = append(after, func() {

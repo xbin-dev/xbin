@@ -6,7 +6,8 @@
 # what runs; this is. Needs network on first run (each tile's own deps).
 #
 #   hack/tile-check.sh            # every tile (make tile-check)
-#   hack/tile-check.sh devbox     # one
+#   hack/tile-check.sh agent      # one
+#   TILE_TEST_FLAGS="-race -count=1" hack/tile-check.sh agent   # extra go test flags
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/.." && pwd)
 scratch=$(mktemp -d)
@@ -41,7 +42,7 @@ for d in "${dirs[@]}"; do
     cd "$work"
     go mod edit -replace "github.com/xbin-dev/xbin/sdk=$repo/sdk"
     GOFLAGS=-mod=mod go mod tidy >/dev/null 2>&1 || true
-    if out=$(GOFLAGS=-mod=mod go vet ./... 2>&1 && GOFLAGS=-mod=mod go test ./... 2>&1); then
+    if out=$(GOFLAGS=-mod=mod go vet ./... 2>&1 && GOFLAGS=-mod=mod go test ${TILE_TEST_FLAGS:-} ./... 2>&1); then
       echo "$out" | grep -v "no test files" || true
       echo "  ✓ $name"
     else

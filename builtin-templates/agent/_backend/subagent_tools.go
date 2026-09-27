@@ -63,6 +63,7 @@ func subagentToolSpecs(cfg Config, depth int) []toolSpec {
 		"timeout_s": intProp(fmt.Sprintf("how long to wait for the answer before it moves to the background (default %d, 30–3600)", cfg.subagentTimeout())),
 		"system":    strProp("optional system-prompt override for the subagent; it cannot change the capability lane"),
 	}
+	sandboxSpawnProps(cfg, spawnProps) // {sandbox, cwd} (sandbox_move.go)
 	desc := "Start a subagent on a focused task in its own fresh context and wait for its answer. Emit several in one step to run them in parallel. " +
 		"If it takes longer than timeout_s it moves to the background: you get a progress digest now and its answer later as a message."
 	if bg {
@@ -144,6 +145,8 @@ func (e *Engine) subagentTool(ctx context.Context, ts *turnState, tc toolCall) {
 	switch {
 	case !cfg.Subagents:
 		err = fmt.Errorf("subagents are turned off for this agent")
+	case !classOf(cfg).has(tsSubagents):
+		err = classAllows(classOf(cfg), name)
 	case ts.run.Depth >= cfg.maxDepth() && (name == "subagent_spawn" || name == "subagent_message"):
 		err = fmt.Errorf("you are at the delegation depth limit (%d) — do the work yourself", cfg.maxDepth())
 	default:
@@ -197,7 +200,7 @@ func (e *Engine) node(caller *Run, id int64, direct bool) (*Run, error) {
 		return nil, fmt.Errorf("#%d was started by one of your subagents, not by you — ask that one", id)
 	}
 	if nc, err := e.db.runConfig(n.ID); err == nil {
-		if cc, err2 := e.db.runConfig(caller.ID); err2 == nil && nc.toolset() != cc.toolset() {
+		if cc, err2 := e.db.runConfig(caller.ID); err2 == nil && (nc.toolset() != cc.toolset() || classOf(nc).ID != classOf(cc).ID) {
 			return nil, fmt.Errorf("#%d is in a different capability lane", id)
 		}
 	}
@@ -251,19 +254,26 @@ func (e *Engine) spawn(ts *turnState, tc toolCall, args map[string]any) (string,
 		wait, after = true, nil
 	}
 	timeout := clampTimeout(toInt(args["timeout_s"]), cfg.subagentTimeout(), 30, 3600)
+	onSandbox, err := spawnSandbox(cfg, args)
+	if err != nil {
+		return "", err
+	}
 	label := strings.TrimSpace(str(args["label"]))
 	title := label
 	if title == "" {
 		title = "subagent: " + clip(task, 60)
 	}
 	var childID int64
-	err := e.fenced(func(t *DB) error {
+	err = e.fenced(func(t *DB) error {
 		root := ts.root
 		ok, spawned, max := t.reserveSpawn(root, cfg.maxSpawn())
 		if !ok {
 			return fmt.Errorf("this workflow has already created %d runs (its lifetime budget of %d) — finish with what you have, or ask the owner to raise maxSpawn", spawned, max)
 		}
 		child := childConfig(cfg, str(args["system"]))
+		if onSandbox != nil {
+			child.Sandbox = onSandbox
+		}
 		cfgJSON, _ := json.Marshal(child)
 		status, pending := statusRunning, ""
 		var depLinks []*Link

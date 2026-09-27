@@ -5,6 +5,7 @@
 // fire, and pushes no trigger took yet. auto-triggers.js draws it on the web.
 import { selfApi as api, jbody } from '/vendor/bx-kit.js';
 import { registerKind } from './auto.js';
+import { find, laneClass, laneFor, MIXED } from './classes.js';
 
 // st: the open trigger's recent events, the pushes nobody took, the channel
 // sessions a trigger may announce to, what the last action said, and the
@@ -34,13 +35,18 @@ export async function loadSessions(page) {
 
 // startForm opens the form for a trigger (it; null: a new one, from preset).
 // custom is what the page shows instead of its list (page.custom — the web
-// passes its form template).
+// passes its form template). A new one starts in the internal class (what
+// the backend gives one that names none), or your default when you may not
+// use that.
 export function startForm(page, it, preset = {}, custom = null) {
   const c = (it && it.config) || {};
+  const classes = page.classes();
+  const cls = it ? c.class || laneClass(c.toolset) : find(classes, 'internal') ? 'internal' : classes.default;
   st.form = {
     id: it ? it.id : 0, name: c.name || preset.name || '', source: c.source || preset.source || 'push',
     sourceRef: c.sourceRef || preset.sourceRef || '', match: c.match ?? preset.match ?? '', goal: c.goal || '',
-    mode: c.mode || 'isolated', targetRun: c.targetRun || 0, toolset: c.toolset || 'private', dataClass: c.dataClass || 'private',
+    mode: c.mode || 'isolated', targetRun: c.targetRun || 0, class: cls, toolset: c.toolset || laneFor(classes, cls),
+    dataClass: c.dataClass || 'private',
     deliver: c.deliver || '', maxPerHour: c.maxPerHour || 30, visibility: c.visibility || 'private', system: c.system || '',
   };
   page.custom = custom;
@@ -55,13 +61,22 @@ export function closeForm(page) {
   page.changed();
 }
 
-// firewall: the web lane and announcing to a chat both reach outside the
-// workspace, so such a trigger must take public data only; a bus event is
-// always private. clash: the form cannot be saved as it is.
-export function firewall(f) {
-  const outward = f.toolset === 'web' || !!f.deliver;
+// firewall: a class in the web lane and announcing to a chat both reach
+// outside the workspace, so such a trigger must take public data only; and
+// public data never steers a class that can move internal data out (D116).
+// A bus event is always private. classes: GET /classes (the app's); without
+// it the form's legacy toolset says the lane. clash: the form cannot be
+// saved as it is; why: what to say.
+export const OUTWARD = 'A class that reaches outside (the web lane) and announcing to a chat both send things out of the workspace, ' +
+  'so this trigger must take public data only — or pick an internal class and read its answers here.';
+export function firewall(f, classes = null) {
   if (f.source === 'bus') f.dataClass = 'private';
-  return { clash: outward && f.dataClass === 'private' };
+  const c = find(classes, f.class);
+  if ((laneFor(classes, f.class, f.toolset) === 'web' || !!f.deliver) && f.dataClass === 'private') return { clash: true, why: OUTWARD };
+  if (c && c.mixed && f.dataClass === 'public') {
+    return { clash: true, why: `The ${c.name || c.id} class ${MIXED}, so data from outside must not steer it — pick another class, or take private data.` };
+  }
+  return { clash: false, why: '' };
 }
 
 async function act(page, fn, note = '') {
@@ -75,7 +90,8 @@ async function act(page, fn, note = '') {
 
 export async function save(page) {
   const f = st.form;
-  const body = { ...f, maxPerHour: +f.maxPerHour || 30, targetRun: +f.targetRun || 0 };
+  // the class, and beside it its lane as the legacy toolset (an older backend reads that)
+  const body = { ...f, maxPerHour: +f.maxPerHour || 30, targetRun: +f.targetRun || 0, toolset: laneFor(page.classes(), f.class, f.toolset) };
   delete body.id;
   page.err = '';
   try {
@@ -127,6 +143,7 @@ export function wiring(it) {
 export const REASONS = {
   'data-class': 'private data, but this trigger takes public data only', halted: 'the agent was paused',
   rate: 'over its hourly cap', disabled: 'switched off', 'target-gone': 'its conversation is gone',
+  'class-mixed': 'public data, but the class it would run in can move internal data out',
 };
 export const MODES = { isolated: 'a new run for each event', persistent: 'one ongoing thread', conversation: 'into a conversation' };
 

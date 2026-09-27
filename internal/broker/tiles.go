@@ -53,6 +53,13 @@ func (b *Broker) apiBuiltinsImport(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, "need {name, path?, owner?}", "/docs/protocol.md")
 		return
 	}
+	// A tile xbind no longer ships (devbox): say what replaces it.
+	if _, ok := b.tiles.Get(body.Name); !ok {
+		if msg, retired := builtins.Retired(body.Name); retired {
+			server.WriteError(w, http.StatusGone, msg)
+			return
+		}
+	}
 	// Importing a tile creates a component at the (possibly default) target:
 	// same authority as /create — resolve the target first so the gate and
 	// the reserved-segment check see the real path.

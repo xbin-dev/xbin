@@ -134,8 +134,8 @@ func (ag *Agent) needsPushes(runID int64) []needsPush {
 				fp += c.ID + "\x00"
 			}
 			body = "Wants to run " + clip(strings.Join(names, ", "), 120) + " — approve or deny."
-			if pend.Grant == capThreads {
-				body = "Asks to read your other conversations and automations — allow or deny."
+			if pend.Grant != "" {
+				body = "Asks to " + orStr(pend.GrantAsk, grantOf(pend.Grant).askText()) + " — allow or deny."
 			}
 			ownerOnly = pend.Grant != ""
 		} else {

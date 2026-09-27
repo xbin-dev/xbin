@@ -33,6 +33,11 @@ type channelPolicy struct {
 	// chat is an egress, and a run never holds both (the lane firewall).
 	PrivateLane   bool     `json:"privateLane,omitempty"`
 	TrustedGroups []string `json:"trustedGroups,omitempty"`
+	// The classes the two lanes run in (D116): the trusted one's (default
+	// internal) and everyone else's (default web — a class that reaches
+	// outside and has no internal reach).
+	PrivateClass string `json:"privateClass,omitempty"`
+	WebClass     string `json:"webClass,omitempty"`
 	// TrustLinked counts people linked to an xbin account as trusted (the
 	// private lane when it is open, /approve) — for a team's own workspace.
 	TrustLinked bool   `json:"trustLinked,omitempty"`
@@ -75,7 +80,10 @@ func (p channelPolicy) deny() []string {
 }
 
 // validate refuses combinations that open the private lane to strangers.
-func (p channelPolicy) validate() string {
+// prev is the policy it replaces: a class it names is checked only when it
+// changes — a save that leaves them be never fails on a class edited or
+// deleted since (classFor falls back to the lane's built-in).
+func (p channelPolicy) validate(prev channelPolicy) string {
 	switch p.dmPolicy() {
 	case "pairing", "linked", "allowlist", "open", "disabled":
 	default:
@@ -95,7 +103,41 @@ func (p channelPolicy) validate() string {
 	if p.Reset != "" && !policyValid(p.Reset) {
 		return "reset is idle:<seconds> or daily:<hour>"
 	}
+	st := currentClasses()
+	if p.PrivateClass != "" && p.PrivateClass != prev.PrivateClass {
+		if _, ok := st.find(p.PrivateClass); !ok {
+			return "privateClass: no class " + strconv.Quote(p.PrivateClass)
+		}
+	}
+	if p.WebClass != "" && p.WebClass != prev.WebClass {
+		c, ok := st.find(p.WebClass)
+		switch {
+		case !ok:
+			return "webClass: no class " + strconv.Quote(p.WebClass)
+		case c.lane() != "web":
+			return "webClass: everyone else's class reaches outside (a reply is an egress) and has no internal reach — " + c.Name + " isn't one"
+		}
+	}
 	return ""
+}
+
+// classFor is the class a lane's conversations run in: the one the owner
+// named, else the lane's built-in. Everyone else's must still be a web-lane
+// class (an edit may have changed it since): else the built-in web.
+func (p channelPolicy) classFor(lane string) agentClass {
+	st := currentClasses()
+	if lane == "private" {
+		if c, ok := st.find(orStr(p.PrivateClass, classInternal)); ok {
+			return c
+		}
+		c, _ := st.find(classInternal)
+		return c
+	}
+	if c, ok := st.find(orStr(p.WebClass, classWeb)); ok && c.lane() == "web" {
+		return c
+	}
+	c, _ := st.find(classWeb)
+	return c
 }
 
 func policyValid(s string) bool {

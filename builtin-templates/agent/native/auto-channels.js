@@ -9,6 +9,8 @@ import { html, repeat, nothing } from '/vendor/xb-native.js';
 import { ago } from '../model/auto.js';
 import { st, draftOf, channelCan, pendingPeers, knownPeers, codeMinutes, claim, save, toggle, pair, peer, forget, resetSession, retry,
   del } from '../model/auto-channels.js';
+import { channelClasses } from '../model/classes.js';
+import { classPicker } from './classes.js';
 
 export function channelRow(p, it) {
   const c = it.config || {};
@@ -91,6 +93,17 @@ function failedTpl(it, p) {
 
 const O = (pairs) => pairs.map(([value, label]) => ({ value, label }));
 
+// classesTpl: the classes its conversations run in (D116) — everyone else's
+// reaches outside with no internal reach; trusted people's, with the private lane.
+function classesTpl(d, p) {
+  const cls = channelClasses(p.classes(), d);
+  const pick = (k) => (v) => { d[k] = v; p.changed(); };
+  return html`<section title="Classes" footer="Everyone else's class reaches outside (a reply is an egress) and has no internal reach.">
+    ${classPicker('Everyone else\'s class', cls.web.rows, cls.web.value, pick('webClass'))}
+    ${d.privateLane ? classPicker('Trusted people\'s class', cls.private.rows, cls.private.value, pick('privateClass')) : nothing}
+  </section>`;
+}
+
 function rulesTpl(it, p, claiming) {
   const d = st.draft;
   const set = (k, paint = false) => (e) => { d[k] = e.value; if (paint) p.changed(); };
@@ -118,6 +131,7 @@ function rulesTpl(it, p, claiming) {
       ${d.privateLane ? html`<field label="Trusted group ids" value=${d.trustedGroups} @input=${set('trustedGroups')}/>
         <toggle label="People who linked their xbin account count as trusted" value=${d.trustLinked} @change=${set('trustLinked', true)}/>` : nothing}
     </section>
+    ${classesTpl(d, p)}
     <section>
       <picker label="Start a conversation afresh" style="menu" value=${d.reset} @change=${set('reset', true)}
         options=${O([['', 'never (send /new)'], ['idle:3600', 'after an hour of quiet'], ['idle:86400', 'after a day of quiet'], ['daily:4', 'every day at 4:00']])}/>

@@ -101,6 +101,9 @@ func isControlTool(name string) bool {
 // ended, or the step was cancelled).
 func (e *Engine) execTools(ctx context.Context, ts *turnState, calls []toolCall, approved bool) bool {
 	run, cfg := ts.run, ts.cfg
+	if ts.sbx == nil {
+		ts.sbx = &sbxTurn{}
+	}
 	ts.waits, ts.spawnedThisStep = nil, 0
 	if !approved {
 		// A call that needs the owner's grant parks the whole step for them
@@ -112,7 +115,7 @@ func (e *Engine) execTools(ctx context.Context, ts *turnState, calls []toolCall,
 	}
 	if cfg.Approve && !approved {
 		for _, tc := range calls {
-			if sideEffect(tc.Function.Name) {
+			if sideEffect(tc.Function.Name, cfg) {
 				e.parkApproval(ts, calls, "")
 				return true
 			}
@@ -136,6 +139,7 @@ func (e *Engine) execTools(ctx context.Context, ts *turnState, calls []toolCall,
 				j++
 			}
 			e.runToolBatch(ctx, ts, calls[i:j])
+			ts.sbx.apply(&ts.cfg) // a sandbox made or changed: the next step works with it
 			if ctx.Err() != nil {
 				return true
 			}
@@ -151,7 +155,11 @@ func (e *Engine) execTools(ctx context.Context, ts *turnState, calls []toolCall,
 // when set, is the capability only the conversation's owner may allow.
 func (e *Engine) parkApproval(ts *turnState, calls []toolCall, grant string) {
 	run := ts.run
-	pend, _ := json.Marshal(pendingState{Kind: "approval", ToolCalls: calls, Grant: grant})
+	ask := ""
+	if grant != "" {
+		ask = grantOf(grant).askFor(e.ag, run, ts.cfg, calls, ts.own)
+	}
+	pend, _ := json.Marshal(pendingState{Kind: "approval", ToolCalls: calls, Grant: grant, GrantAsk: ask, Park: newPark()})
 	_ = e.fenced(func(t *DB) error {
 		for _, tc := range calls {
 			if ok, _ := t.setToolPlaceholder(run.ID, tc.ID, toolAwaitingApproval); ok {
@@ -221,7 +229,7 @@ func (e *Engine) runOneTool(ctx context.Context, ts *turnState, tc toolCall) str
 		tctx, cancel = context.WithTimeout(ctx, time.Duration(cfg.ToolTimeout)*time.Second)
 		defer cancel()
 	}
-	out, err := e.ag.runTool(tctx, ts.run, cfg, tc.Function.Name, args)
+	out, err := e.ag.runTool(withSbxTurn(withToolCall(tctx, tc.ID), ts.sbx), ts.run, cfg, tc.Function.Name, args)
 	if err != nil {
 		switch {
 		case ctx.Err() != nil:

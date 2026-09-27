@@ -471,7 +471,7 @@ func TestReplToolsAreNotSideEffecting(t *testing.T) {
 	// The approval gate exists for tools that touch the world. These touch one
 	// run's private sqlite rows; pausing a turn for them would be pure friction.
 	for name := range replToolNames {
-		if sideEffect(name) {
+		if sideEffect(name, Config{}) {
 			t.Fatalf("%s should not require approval", name)
 		}
 	}

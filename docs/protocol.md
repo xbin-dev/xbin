@@ -1539,6 +1539,8 @@ POST   /builtins/import            same authority as /create, checked on
                                    defaultPath). body {name, path?, owner?}
                                    → {path, files, pendingGrants} — installs an
                                    embedded tile (docs/overview/14-lifecycle.md §Getting code in).
+                                   A retired tile (`devbox`) → 410 {error}
+                                   saying what replaces it.
 GET    /builtins/updates            any. builtins (scaffold + imported tiles) with
                                    a newer embedded version. [{id,installPath,
                                    fromVersion,toVersion,adopted,files:[{path,

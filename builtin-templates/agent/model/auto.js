@@ -6,6 +6,7 @@
 // lit, no DOM, no dialogs: automations.js draws it on the web (and asks
 // "are you sure?" before a delete), a native view draws the same.
 import { selfApi as api, jbody } from '/vendor/bx-kit.js';
+import { listOf, laneClass, laneFor } from './classes.js';
 
 // KINDS: kind → spec. A view adds its drawing to a kind (extendKind).
 export const KINDS = new Map();
@@ -40,7 +41,8 @@ export const CADENCES = [
 export const MODES = { isolated: 'a new run each time', persistent: 'one ongoing thread', conversation: 'into a conversation' };
 
 export class AutoPage {
-  /** @param on {change(), select(runId), me() → GET /me, route(kind, id) — what is open, for the address} */
+  /** @param on {change(), select(runId), me() → GET /me, route(kind, id) — what is open, for the address,
+   *   classes() → GET /classes as the app keeps it (model/classes.js listOf)} */
   constructor(on) {
     this.on = on;
     this.items = [];
@@ -54,6 +56,10 @@ export class AutoPage {
   }
 
   changed() { this.on.change?.(); }
+
+  // classes: the classes you may run an automation in (D116) — GET /classes
+  // as the app keeps it; the two lanes until it is read.
+  classes() { return this.on.classes?.() || listOf(null); }
 
   async loadSummary() {
     try { this.summary = await api('/automations?summary=1'); } catch { /* keep */ }
@@ -94,16 +100,22 @@ export class AutoPage {
     this.changed();
   }
 
+  // newSchedule: the form for a new schedule or watcher, in the class a new
+  // one of yours gets when it names none (GET /classes' default).
   newSchedule(watcher = false) {
     this.open = null;
-    this.form = { name: '', cron: CADENCES[0][0], goal: '', mode: 'isolated', toolset: 'private', visibility: 'private', watcher };
+    const cls = this.classes().default;
+    this.form = { name: '', cron: CADENCES[0][0], goal: '', mode: 'isolated', class: cls, toolset: laneFor(this.classes(), cls),
+      visibility: 'private', watcher };
     this.changed();
   }
 
+  // editSchedule: its class (and lane) are fixed at creation — the form shows them.
   editSchedule(it) {
     const c = it.config || {};
     this.form = { id: it.id, name: it.name, cron: c.cron, goal: c.goal, system: c.system || '', mode: it.mode || 'isolated',
-      toolset: c.toolset || 'private', visibility: it.visibility, watcher: it.kind === 'watcher', targetRun: it.targetRun };
+      class: c.class || laneClass(c.toolset), toolset: c.toolset || 'private', visibility: it.visibility, watcher: it.kind === 'watcher',
+      targetRun: it.targetRun };
     this.changed();
   }
 
@@ -112,8 +124,10 @@ export class AutoPage {
   async save() {
     const f = this.form;
     if (!f.cron.trim() || !f.goal.trim()) { this.err = 'a cadence and what to do are needed'; this.changed(); return; }
+    // the class, and beside it its lane as the legacy toolset (an older backend reads that)
     const body = { name: f.name.trim(), cron: f.cron.trim(), goal: f.goal.trim(), mode: f.watcher ? '' : f.mode,
-      visibility: f.visibility, watcher: f.watcher, toolset: f.toolset, targetRun: f.targetRun || 0 };
+      visibility: f.visibility, watcher: f.watcher, class: f.class, toolset: laneFor(this.classes(), f.class, f.toolset),
+      targetRun: f.targetRun || 0 };
     try {
       const s = f.id ? await api(`/schedules/${f.id}`, jbody(body, 'PUT')) : await api('/schedules', jbody(body, 'POST'));
       this.form = null;

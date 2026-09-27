@@ -7,7 +7,8 @@
 //   home ─ or ─ a conversation (a subagent's parents under it: back goes up)
 //     ├─ the Automations screens (the page, one automation, a form)
 //     └─ pushed tools: memory, files (+ editor), skills, the workflow tree,
-//        settings, one tool call in full, the render preview
+//        settings, one tool call in full, the render preview, the coding
+//        sandboxes (native/sandboxes.js)
 //   + the conversations drawer (a sheet from the leading edge), and the
 //     sheets: new chat with options, rename, share
 //
@@ -25,6 +26,7 @@ import { chatScreens } from './native/chat.js';
 import { homeScreen } from './native/home.js';
 import { drawerSheet, newChatSheet, renameSheet } from './native/convs.js';
 import { shareSheet } from './native/share.js';
+import { sandboxAskSheet } from './native/sandboxes.js';
 import { toolScreens, treeDirty, openRender } from './native/tools.js';
 import { autoScreens } from './native/auto.js';
 
@@ -61,7 +63,7 @@ function draw() {
     ...toolScreens(),
   ];
   render(html`<nav @pop=${pop}>${repeat(screens, (s) => s.key, (s) => s.tpl())}</nav>
-    ${drawerSheet()}${newChatSheet()}${renameSheet()}${shareSheet()}`);
+    ${drawerSheet()}${newChatSheet()}${renameSheet()}${shareSheet()}${sandboxAskSheet()}`);
   // the tile's title and badge in the app's navigator and switcher
   const v = app.session.current();
   const m = { title: v ? app.rules.topBar(v).title : app.HOME.title, badge: app.needs.length ? String(app.needs.length) : null };

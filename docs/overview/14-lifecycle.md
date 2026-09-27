@@ -280,7 +280,9 @@ that exists at a builtin's path *without* recorded provenance is "adopted" —
 no trustworthy base, so any divergence is a conflict and merge is refused in
 favor of replace-or-hand-diff. Template *instances* are deliberately never
 tracked here: they're forks meant to diverge, served by the `template`
-remote instead.
+remote instead. A builtin xbind stops shipping is **retired** (`devbox`,
+2026-09-27): copies already imported are left alone and no longer offered
+updates, and importing it again answers 410 with what replaces it.
 
 Underneath all of this sits the versioning substrate: **each component is
 its own git repo** (created/migrated idempotently at startup and after

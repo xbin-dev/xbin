@@ -121,6 +121,33 @@ say "narrow sales → apps/leads goes inert"
 api PATCH /orgs/sales '{"netSets":["sales-net"]}' >/dev/null
 sleep 1
 
+say "a scripted sandbox manager: apps/fakesbx (the agentSandbox pass)"
+# hack/fakesandbox as a Go tile — the sandbox-manager contract (D115,
+# docs/sandbox-manager.md "Wiring") with every sandbox a directory under its
+# own `boxes` filesystem resource and every command a HOST process (a test
+# fixture: nothing is isolated). Its source is copied (stdlib only: the tile
+# builds without the SDK). Bound to the agent's `sandboxes` slot below, once
+# the agent exists.
+api POST /create '{"path":"apps/fakesbx","runtime":"go","title":"fake sandboxes"}' | head -c 200; echo
+FSB="$WS/apps/fakesbx"
+mkdir -p "$FSB/backend"
+cp "$REPO/hack/fakesandbox/fsb.go" "$REPO/hack/fakesandbox/main.go" "$FSB/backend/"
+printf 'module fakesbx\n\ngo 1.24\n' > "$FSB/go.mod"
+printf '{\n  "resources": { "boxes": { "type": "filesystem" } }\n}\n' > "$FSB/scope.json"
+cat > "$FSB/xbin.json" <<'EOF'
+{
+  // hack/fakesandbox as a tile (seeded by hack/ui-harness/seed.sh)
+  "runtime": "go",
+  "uses": [{ "target": "res:apps/fakesbx/boxes", "role": "writer" }],
+  "provides": { "sandboxes": { "kind": "http", "service": "sandbox-manager", "role": "consumer" } },
+  "expose": { "roles": { "consumer": "Use this tile's sandboxes (the sandbox-manager contract)" } }
+}
+EOF
+cat > "$FSB/index.html" <<'EOF'
+<!doctype html><meta charset="utf-8"><title>fake sandboxes</title>
+<p>hack/fakesandbox: a scripted sandbox manager for the UI harness. Every sandbox is a host directory; nothing is isolated.</p>
+EOF
+
 say "agent template → llm-gw → fakeopenai (the agentTemplate pass)"
 # llm-gw (host egress: fakeopenai listens on loopback) with one backend
 # "fake"; an agent instance whose model is fake/fake-chat (Chat Completions;
@@ -132,6 +159,9 @@ api POST /templates/new '{"source":"agent","path":"apps/agent"}' | head -c 300; 
 # the agent's models come through its `llm` interface (D111): bound to
 # llm-gw — the binding is the grant
 api POST /bindings '{"component":"apps/agent","slot":"llm","providers":["apps/llm-gw"]}'
+# its coding sandboxes (D115) come from apps/fakesbx: the binding grants the
+# agent the manager's consumer role
+api POST /bindings '{"component":"apps/agent","slot":"sandboxes","providers":["apps/fakesbx"]}'
 api POST /grants '{"from":"apps/agent","target":"cap:open-links","role":"writer"}'
 # dev1 may open (and chat with) the agent — the agentConvs pass: per-user
 # conversations and sharing (D83)

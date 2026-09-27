@@ -94,6 +94,16 @@ struct MethodsPage: View {
                     Text(verbatim: server.origin).font(.footnote).foregroundStyle(.secondary)
                 }
             }
+            if !server.isEncryptedInTransit {
+                Section {
+                    Label {
+                        Text("Not encrypted: this address uses http, so your password and everything you do here can be read on the network, unless the network itself is encrypted (a VPN such as Tailscale). Use https if you can.")
+                            .font(.footnote)
+                    } icon: {
+                        Image(systemName: "lock.open").foregroundStyle(.orange)
+                    }
+                }
+            }
             ProblemSection(problem: flow.problem)
             ForEach(Array(options.methods.enumerated()), id: \.offset) { _, m in
                 switch m {

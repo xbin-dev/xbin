@@ -1,15 +1,17 @@
 // native/chat.js — an open conversation, full screen: the transcript drawn
 // from the model's blocks (model/fold.js → the chat family: message,
 // thinking, toolcard with a subagent's own transcript inside, step, notice,
-// activity, approval, question), the composer (tool mode, attachments the app
+// activity, approval, question), the composer (attachments the app
 // uploads itself, Stop giving queued text back, queued messages as chips you
 // take back, a placeholder by state) and the toolbar's menu (retry, rename,
-// compact, learn, memory, files, the tree, share, delete). Who may do what is
-// model/rules.js — the same words and controls as the web's top bar.
+// compact, learn, memory, files, the sandbox, the tree, share, delete). Who
+// may do what is model/rules.js — the same words and controls as the web's
+// top bar; the coding sandbox's picker and ▣ are native/sandboxes.js.
 import { html, repeat, nothing } from '/vendor/xb-native.js';
 import { ui, ctx, fail, guard, push, secs, clip, base, cardState, FAMILY_ICON, thumb, raw, IMAGE } from './ui.js';
 import { argsShown } from '../model/tool-heads.js';
 import { MAX_ATTACH, fmtBytes } from '../model/actions.js';
+import { sandboxPickerTpl, badgeWords, brokenTpl, sandboxMenuTpl } from './sandboxes.js';
 
 const CUT = 1200; // a long result is cut here; the card's ↗ opens all of it
 
@@ -88,14 +90,21 @@ function argRows(raw) {
     ${repeat(long, ([k]) => k, ([k, s]) => html`<text style="caption" tone="muted">${k}</text><code text=${clip(s, CUT * 4)}/>`)}`;
 }
 
+// A sandbox call's outcome (model/tool-heads.js outcome) as a chip's tone.
+const OUTCOME_TONE = { ok: 'ok', bad: 'danger', run: 'accent' };
+
 function toolTpl(b) {
   const { state, chip } = cardState(b.state);
   const long = b.result && b.result.length > CUT;
   const done = b.result && b.state !== 'running';
+  // a sandbox call (▣) says what it came to on the card, and its command inside
+  const oc = b.outcome ? [{ text: b.outcome.text, ...(OUTCOME_TONE[b.outcome.tone] ? { tone: OUTCOME_TONE[b.outcome.tone] } : {}) }] : [];
+  const chips = [...oc, ...(chip ? [chip] : [])];
   return html`<toolcard title=${b.headline} icon=${FAMILY_ICON[b.fam] || 'wrench'} family=${b.fam} state=${state}
-      chips=${chip ? [chip] : nothing} open=${isOpen(b.id, false)} @toggle=${setOpen(b.id)}
+      chips=${chips.length ? chips : nothing} open=${isOpen(b.id, false)} @toggle=${setOpen(b.id)}
       @open=${long ? () => push({ kind: 'call', run: ctx.app.sel, id: b.id }) : nothing}>
     <text style="caption" tone="muted" mono>${b.name}</text>
+    ${b.sub ? html`<text mono selectable>${b.sub}</text>` : nothing}
     ${argRows(b.args)}
     ${done ? html`<code text=${long ? b.result.slice(0, CUT) + '…' : b.result}/>` : nothing}
     ${done && long ? html`<text style="footnote" tone="muted">${`cut at ${CUT} of ${b.result.length} characters — ↗ shows all`}</text>` : nothing}
@@ -156,14 +165,14 @@ function stepTpl(b) {
 // from its parent's card too).
 // grant (rules grantAsk) is a capability only the conversation's owner may
 // allow (D111): once, or here for an hour; others may only deny.
-export function approvalTpl(calls, runId, lead = 'The agent wants to run', grant = null) {
+export function approvalTpl(calls, runId, lead = 'The agent wants to run', grant = null, park = undefined) {
   const names = (calls || []).map((c) => (c.function ? c.function.name : String(c)));
   const options = !grant ? [{ id: 'approve', label: 'Approve', kind: 'allow_once' }, { id: 'deny', label: 'Deny', kind: 'reject_once' }]
     : [...(grant.canAllow ? [{ id: 'once', label: 'Allow once', kind: 'allow_once' }, { id: 'hour', label: 'Allow here for 1 hour', kind: 'allow_always' }] : []),
       { id: 'deny', label: 'Deny', kind: 'reject_once' }];
   const text = grant ? [grant.note, ...names].join('\n') : names.join('\n');
   return html`<approval title=${grant ? grant.lead : lead} text=${text} options=${options}
-    @choose=${guard((e) => ctx.app.session.approve(runId, e.id !== 'deny', grant && e.id !== 'deny' ? e.id : undefined))}/>`;
+    @choose=${guard((e) => ctx.app.session.approve(runId, e.id !== 'deny', grant && e.id !== 'deny' ? e.id : undefined, park))}/>`;
 }
 
 // --- the conversation screen ------------------------------------------------------------
@@ -205,23 +214,25 @@ export function chatScreen(v) {
   const ps = r.pendingState || {};
   const chain = (v.chain || []).map((c) => c.title || '#' + c.id);
   // a shared conversation says so in its header, as the web's top bar does
-  const subtitle = [chain.length ? 'in ' + chain.join(' › ') : '', r.status, t.laneLabel, t.viewOnly ? 'view only' : '',
+  const subtitle = [chain.length ? 'in ' + chain.join(' › ') : '', r.status, t.cls.label, t.cls.warn, badgeWords(v), t.viewOnly ? 'view only' : '',
     t.share.tone ? `${t.share.icon} ${t.share.label}` : '', t.model ? `✦ ${t.model}` : '', ...t.grants.map((g) => g.label)].filter(Boolean).join(' · ');
   return html`<screen title=${t.title} subtitle=${subtitle} style="scroll">
     <toolbar>
       <button icon="list" @tap=${() => { ui.drawer = true; ctx.paint(); }}>Conversations</button>
       <button icon="pencil" @tap=${() => app.home()}>New chat</button>
       ${modelPickerTpl(v)}
+      ${sandboxPickerTpl()}
       <menu icon="ellipsis" label="More">${runMenu(v, t)}</menu>
     </toolbar>
     <transcript follow ?older=${s.hasOlder} @more=${() => app.session.loadOlder().catch(fail)}>
       ${s.olderHidden ? html`<notice tone="muted" text="earlier turns were compacted into the summary"/>` : nothing}
       ${repeat(s.blocks, (b) => b.id, (b) => blockTpl(b))}
-      ${r.status === 'waiting_input' && ps.kind === 'approval' ? approvalTpl(ps.toolCalls, r.id, undefined, rules.grantAsk(r, app.me)) : nothing}
+      ${r.status === 'waiting_input' && ps.kind === 'approval' ? approvalTpl(ps.toolCalls, r.id, undefined, rules.grantAsk(r, app.me), ps.park) : nothing}
       ${r.status === 'waiting_input' && ps.kind !== 'approval' && r.result ? questionTpl(r) : nothing}
       ${s.activity ? html`<activity live text=${s.activity}/>` : nothing}
       ${s.conn === 'reconnecting' ? html`<notice tone="warn" text="live updates lost — reconnecting…"/>` : nothing}
       ${app.halted ? html`<notice tone="warn" title="Halted" text="Every run of this agent is stopped until a manager resumes it."/>` : nothing}
+      ${brokenTpl(v)}
       ${ui.err ? html`<notice tone="danger" text=${ui.err}/>` : nothing}
     </transcript>
     ${composerTpl(v, t)}
@@ -252,6 +263,7 @@ function runMenu(v, t) {
       <button icon="sparkles" @tap=${control('learn')}>Learn skill</button>` : nothing}
     <button icon="database" @tap=${() => push({ kind: 'memory', run: id })}>${`Memory (${t.memory})`}</button>
     <button icon="folder" @tap=${() => push({ kind: 'files', run: id })}>${`Files (${t.files})`}</button>
+    ${sandboxMenuTpl(v)}
     ${t.tree ? html`<button icon="branch" @tap=${() => push({ kind: 'tree', root: v.run.rootId || id })}>Workflow tree</button>` : nothing}
     <button icon="people" @tap=${() => { ui.share = { run: t.shareRun }; ctx.paint(); }}>${t.own ? 'Share' : 'Shared'}</button>
     ${t.grants.filter((g) => g.revoke).map((g) => html`<button icon="lock" @tap=${guard(() => app.session.revokeGrant(g.run, g.cap))}>${`Revoke: ${g.label.replace(/^🔓 /, '')}`}</button>`)}
@@ -285,7 +297,6 @@ export function composerTpl(v, t) {
     ...(a.state === 'up' ? { progress: 0 } : {}),
   }));
   const queued = v ? app.session.queued() : [];
-  const web = app.toolset === 'web';
   return html`<composer value=${ui.draft} placeholder=${c.placeholder} ?busy=${c.busy} ?disabled=${c.disabled}
       attachments=${att}
       upload=${talk ? app.uploadTarget() : nothing}
@@ -294,7 +305,6 @@ export function composerTpl(v, t) {
       @stop=${stop}
       @uploaded=${uploaded(place)}
       @remove=${(e) => app.attach.remove(+e.id)}>
-    <button icon=${web ? 'globe' : 'lock'} @tap=${() => app.toggleToolset()}>${web ? 'web' : 'internal'}</button>
     ${t && t.retry ? html`<button icon="refresh" role="primary" @tap=${guard(() => app.actions.control(v.run.id, 'resume'))}>Retry</button>` : nothing}
     ${repeat(queued, (q) => q.id, (q) => html`<button icon="xmark"
       @tap=${guard(() => app.session.removeQueued(q.id))}>${'queued: ' + clip(q.text || '(files)', 40)}</button>`)}

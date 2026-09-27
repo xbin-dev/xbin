@@ -131,17 +131,17 @@ llm-gw's logs. Give team members `read` on the tile.
 | Method & path | Body | Purpose |
 |---|---|---|
 | `GET /runs` | — | list runs (id, title, kind, status, timestamps; a quick ask also carries `last`, its latest answer, for the home view's cards). `?roots=1` lists top-level runs only — what the sidebar shows; subagents are reached through their parent |
-| `POST /runs` | `{goal, title?, system?, toolset?}` | create a run and start driving it |
-| `POST /ask` | `{text, toolset?, model?, hold?, draft?, files?}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately (`hold`, `draft`: see Attachments) |
+| `POST /runs` | `{goal, title?, system?, class?, toolset?}` | create a run and start driving it; `class` (or the legacy `toolset`): see **Agent classes** |
+| `POST /ask` | `{text, class?, toolset?, model?, hold?, draft?, files?}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately (`hold`, `draft`: see Attachments; `class`: see **Agent classes**) |
 | `PUT /ask/upload?draft=&name=` | raw bytes, the file's own `Content-Type` | attach a file to a new ask before it exists (a native app's upload at home): into the run held for the draft key `{path, mime, bytes, binary, run}` — see Attachments |
-| `GET /runs/{id}` | — | run detail: `{run, messages, steps, memory, config, files, draft, messageFiles, slots, queued}` (`draft` = live streaming text; `files` is session-file METADATA only; `messageFiles` = `{msgId: [path…]}`, the files each user message carried; `slots` = `{active, limit}` model calls in flight; `queued` = messages not yet delivered) |
+| `GET /runs/{id}` | — | run detail: `{run, messages, steps, memory, config, class, files, draft, messageFiles, slots, queued}` (`class`: the conversation's class, see **Agent classes**) (`draft` = live streaming text; `files` is session-file METADATA only; `messageFiles` = `{msgId: [path…]}`, the files each user message carried; `slots` = `{active, limit}` model calls in flight; `queued` = messages not yet delivered) |
 | `GET /runs/{id}/view` | — | the run as the chat draws it, plus a stream cursor — see **The live view**. `?limit=&before=` pages it, newest first — see **Paging the view** |
 | `GET /stream?run=&since=` · `GET /runs/{id}/stream?since=` | — | SSE: run-list changes plus the whole tree of `run` — see **The live view**. `&deltas=1`: draft text and tool-call arguments as appended pieces |
-| `DELETE /runs/{id}` | — | delete a run, its history, and every subagent run below it |
+| `DELETE /runs/{id}` | — | delete a run, its history, and every subagent run below it. A conversation's sandbox jobs still running are killed in the background (§The coding tools); its sandboxes stay |
 | `POST /runs/{id}/message` | `{text, files?, clientId?}` | send a user message → `{inboxId, queued}`. An idle, finished or failed run starts a new turn; a working run gets it at its next step (`queued:true`). A retried post with the same `clientId` is stored once. `files` names session files (normally just uploaded) the message carries — each must exist, or **400** and nothing is written. `text` may be empty when `files` is not |
 | `DELETE /runs/{id}/inbox/{iid}` | — | take back a queued message; **409** once the agent has it |
 | `POST /runs/{id}/answer` | `{text}` | answer an `ask_user` (alias of message) |
-| `POST /runs/{id}/approve` | `{approve, grant?}` | approve/deny a parked tool turn (approval mode). A turn parked on a **grant** (`pendingState.grant`, see **Threads, schedules and grants**) is allowed only by the conversation's owner — **403** for anyone else, who may still deny — with `grant: "once"` (the default) or `"hour"`; **400** for anything else |
+| `POST /runs/{id}/approve` | `{approve, grant?, park?}` | approve/deny a parked tool turn (approval mode). A turn parked on a **grant** (`pendingState.grant`, see **Threads, schedules and grants**) is allowed only by the conversation's owner — **403** for anyone else, who may still deny — with `grant: "once"` (the default) or `"hour"`; **400** for anything else. Every park has an id, `pendingState.park`; `park` names the one the verdict answers — **409** when that ask is no longer pending (the agent moved on; the web card and the xbin app say so beside the card, and the run event redraws it) — and without it the verdict answers the one pending now. A verdict applies to its own park only: one queued for an ask that is gone is dropped, never spent on the next ask, and an allow of a grant counts only from the owner (checked again when it is applied) |
 | `DELETE /runs/{id}/grants/{cap}` | — | the owner takes a grant back before it expires → `{revoked}` (false when none was in force); **404** for an unknown `cap` |
 | `POST /runs/{id}/interrupt` | — | stop the turn in flight (never an error); the run goes idle, its subagents are cancelled, and messages still queued come back as `{returned:[{text, files}]}` |
 | `POST /runs/{id}/resume` | — | drive the run again |
@@ -176,9 +176,10 @@ visibility, so nothing disappears.
 
 Runs carry a `kind`: `""` for a task, `"quick"` for a quick ask — kept for
 compatibility; both are conversations. The tile opens on a home view: the
-composer starts a new conversation (in the lane chosen with its 🔒/🌐 toggle,
-remembered per user through `/api/xbin/prefs` — tile frames have no
-`localStorage`), and **Needs you** lists what waits for you (`GET /needs`).
+composer starts a new conversation (in the class chosen with its picker —
+"Agent classes" below — remembered per user through `/api/xbin/prefs` —
+tile frames have no `localStorage`), and **Needs you** lists what waits for
+you (`GET /needs`).
 The sidebar is your conversation list (`GET /conversations`): Pinned, then
 Today / Yesterday / Previous 7 days / Previous 30 days / Older by last
 activity, unread in bold, a search box, and a row menu (right-click or ⋯) to
@@ -189,7 +190,7 @@ read or write; how many people; from whom). The open conversation's top bar
 says who can see it (private · team can read/write · shared with N · from
 its owner) and opens the share dialog. **New chat** goes
 home; **⋯** opens "New chat with options" (a title, instructions that
-replace the system prompt, the tool mode). A link to a conversation is the
+replace the system prompt, the class). A link to a conversation is the
 tile's URL with `#c=<id>`. Automation runs (schedules, watchers) are not in
 this list.
 
@@ -198,12 +199,13 @@ this list.
 The tile never polls. It reads `GET /runs/{id}/view` — messages (with their
 `reasoning`/`reasoningMs`), steps, `links` (subagents, each with its child's
 summary and phase), `queued`, the calls in flight as `drafts`, `chain` (the
-path from the root) and a `cursor` — then opens `GET /stream?run={id}&since=<cursor>`.
+path from the root), `config`, `class` (the conversation's class as `GET
+/classes` shows one, `mixed` included) and a `cursor` — then opens `GET /stream?run={id}&since=<cursor>`.
 The stream is Server-Sent Events, `data:` a JSON `{type, run, root, seq, data}`:
 
 | type | data |
 |---|---|
-| `run` | a run's summary changed (or `{deleted:true}`); top-level runs arrive whatever run is followed — the sidebar |
+| `run` | a run's summary changed (or `{deleted:true}`); top-level runs arrive whatever run is followed — the sidebar. It carries the run's coding sandbox: `sandbox` — the active binding's `{ref, name, cwd, egress, manager}` or `null` — and `attached` (how many), as does the view's `run` (§Coding sandboxes) |
 | `message` | a message added or rewritten (a settled tool result); upsert by `id` |
 | `step` | a journal step |
 | `inbox` | `{queued}` — the run's undelivered messages |
@@ -334,25 +336,106 @@ next ask and names `PUT /ask/upload?draft=<key>&name={name}`:
 - a draft nobody sent is deleted, files and all, when its owner starts
   another more than a day later.
 
-## Capability lanes (the toolset firewall)
+## Agent classes (D116) and the toolset firewall
 
-Every run is in exactly one lane, chosen at creation and immutable
-(`config.toolset`):
+A run's **class** says which toolsets it gets. It is chosen when a
+conversation starts and fixed for its life (`config.class`); subagents get
+their parent's, and **a schedule the agent creates gets the creating run's**.
 
-- **`private`** (default) — internal reach: `xbin_call` and every bound
-  `mcp:*` tool. **No web tools.**
-- **`web`** — `web_search` (DuckDuckGo) and `web_fetch` (a URL as readable
-  text, capped). **No `xbin_call`, no `mcp:*` tools.**
+| Toolset | Tools |
+|---|---|
+| `files` | the session files and `render_html` (`file_view` with the `vision` feature) |
+| `repl` | the JavaScript sandbox (`js_eval`, `js_run`, `js_reset`) |
+| `web` | `web_search`, `web_fetch` |
+| `internal` | `xbin_call` and the bound MCP servers' tools — `mcp` narrows them |
+| `sandbox` | the coding-sandbox tools; `managers` and `sandboxEgress` narrow what may be bound |
+| `subagents` | the `subagent_*` tools |
+| `schedule` | `schedule`, `unschedule` |
+| `threads` | `schedules_list`, `schedule_inspect`, `threads_list`, `thread_inspect` |
+| `skills` | `skills_list`, `skill_view`, `skill_manage` |
+
+The core tools — `memory_set`/`memory_get`, `note`, `recall`, `finish`,
+`yield`, `ask_user`, `state_changed`, `attach_to_reply` — are in every class.
+The Features menu can still switch an optional toolset off, and a run's
+`deny` list still hides tools.
+
+A class is `{id, name, description?, icon?, toolsets, mcp, managers,
+sandboxEgress?, model?, system?, who?}`: `mcp` and `managers` are `"all"` or a
+list (MCP server names; sandbox-manager tile paths); `sandboxEgress` is the
+egress a bound sandbox may have (`none`, `internet`, `open`; `["none"]` when a
+sandbox class names none); `model` is the class's model when the person picked
+none; `system` is added to the agent's prompt when the conversation has no
+system prompt of its own; `who` is `everyone` (default) or `managers` (only
+the tile's managers may start conversations or automations in it). Built in:
+
+- **`internal`** 🔒 — files, repl, internal (every MCP server), subagents,
+  schedule, threads, skills. **No web.** The old private lane.
+- **`web`** 🌐 — files, repl, web, subagents, schedule, threads, skills.
+  **No `xbin_call`, no MCP tools.** The old web lane.
+- **`coding`** ▣ — sandbox (any manager; egress `none` or `internet`), web,
+  files, subagents, skills. No internal reach.
 
 A run must never hold private data AND an egress channel: content injected into
 its context could otherwise steer it into sending that data out in a URL or a
-query. The lane is enforced twice — in the tool list offered to the model, and
-again when a tool runs (`runTool`) — and it is inherited: subagents get their
-parent's lane, and **a schedule the agent creates gets the creating run's
-lane**, so a private run cannot smuggle data into a future web run's goal.
-Human-created runs and schedules may pick either (`toolset` on `POST /runs`,
-`POST /ask`, `POST /schedules`); the tile has a select in the new-run dialog
-and the schedule form, and a lane badge on each run.
+query. So the firewall is the class's property: a class that holds `internal`
+together with any egress — `web`, or `sandbox` with an egress other than
+`none` — **can move internal data out**. Saving one takes `confirmMixed`, and
+its conversations say so (`class.mixed`). The built-ins never mix them. The
+class is enforced twice — in the tool list offered to the model, and again
+when a tool runs (`runTool`).
+
+`config.toolset` stays, and still answers the lane: `"web"` for a class that
+reaches outside with no internal reach, else `"private"`. Skills, the channel
+policy and the thread tools keyed by it work as before, and `toolset:
+"private"|"web"` keeps working everywhere it was accepted (`POST /ask`, `POST
+/runs`, schedules, triggers), naming `internal`/`web`; `class` is accepted in
+the same places and wins. A request naming neither gets the caller's default
+(below). A stored config without `class` resolves from its `toolset` (one
+from before the lanes, with no `toolset` either, is the private lane — and
+held there); a class that was deleted resolves the same way, and so does a
+schedule's. The tile's managers can edit a class
+at any time: the edit applies from the next step of its conversations, but
+never carries one across the firewall — one that started reaching outside
+never gains internal reach, and one that started without egress gains it only
+if its class was saved as mixed. `PATCH /runs/{id} {class}` naming another
+class is refused (400).
+
+| Method & path | Body | Purpose |
+|---|---|---|
+| `GET /classes` | — | `{classes: [class…], default}` — the classes the caller may start conversations in (a manager sees every one): the built-ins first, then the others as saved, each with `builtin`, `stored` (it is in the saved set — a built-in that is not is its default), `lane` (`private`\|`web`), `egress` and `mixed`; `default` is the class a new conversation of theirs gets when it names none |
+| `PUT /classes` | `{classes: [class…], default?, confirmMixed?}` | managers: replace the classes. A built-in left out comes back as its default (old conversations and APIs name it). **409** `{error, mixed: [id…]}` when a class mixes internal reach with egress and `confirmMixed` isn't set; **400** for a bad id (`a–z 0–9 -`, a letter first, ≤ 32), an unknown toolset or egress, a repeated id, an unknown `default`, or a `who` other than `everyone`/`managers`; **400** too for an edit that would take a class a channel runs strangers in — a channel policy's `webClass`, and the built-in `web` for every channel that names none — out of the web lane (losing its egress or gaining internal reach), or delete it (a built-in left out is fine: its default is web-lane); the error names the channel. **400** as well for deleting a class a trigger or a channel policy (`privateClass`, `webClass`) names, and for making mixed a class a public-data trigger runs in (data from outside must not steer a class that can move internal data out; `confirmMixed` doesn't change that — a legacy webhook trigger's is the built-in `internal`); the error names the trigger or channel. Schedules and conversations don't hold a deletion up: theirs fall back to their lane's built-in. Answers as `GET /classes` does |
+
+**In the tile.** The composer's class picker (at home, where a new chat
+starts) shows the classes you may use — icon and name, each one's
+description in its menu, a ⚠ on one that can move internal data out; the
+open conversation's top bar shows its class, with the same warning (a
+conversation's class is fixed, so there is no picker there). Your last pick
+is your default for new chats, kept per person at `/api/xbin/prefs/class`;
+with no pick yet, the lane picked before classes (`/api/xbin/prefs/toolset`:
+`web` → `web`, else `internal`), then `GET /classes`' `default`. A new ask
+sends `class` and, beside it, its lane as `toolset`. Managers edit the
+classes under ⚙ → **Classes**: name, icon, description, toolsets, the MCP
+servers and sandbox managers (all, or a list), a sandbox's egress, model,
+system addendum and who may use them, and the default for new chats. A save
+sends the saved classes back with the one edited (a built-in nobody edited
+stays at its default); **Delete** on a built-in is **Reset to default**;
+saving a mixed class asks first, then sends `confirmMixed`. The native view
+has the same: a Class picker in the home toolbar, the class in the
+conversation's subtitle, Settings → Classes.
+
+**Automations.** The schedule/watcher and trigger forms pick a class the same
+way — the classes you may use; a new schedule starts in `GET /classes`'
+`default`, a new trigger in `internal` (what the backend gives either when
+it names none) — and send `class` with its lane beside it as `toolset`. A
+schedule's class is fixed once it is made, so its edit form only shows it.
+Cards and details say each automation's class (`config.class` in `GET
+/automations`; one from before classes: its lane's built-in; one you may not
+use: its id), with the warning of a mixed one. The trigger form holds Save
+on a clash — private data into a web-lane class or a chat, public data into a
+mixed class. A channel's rules pick everyone else's class (`webClass`: only
+web-lane classes) and, with the private lane open, trusted people's
+(`privateClass`); `PUT /channels/{id}` replaces the whole policy, so the form
+sends back every field, the ones it does not show included.
 
 The web tools go straight out, not through the gateway, so they need the `net`
 interface bound (`bx bind <this component> net=internet`); unbound, they return
@@ -414,8 +497,8 @@ whichever bound provider answers it. **Unbound**, the agent reaches
 `apps/llm-gw` by name — an instance made before the slot keeps working on its
 old grant (`/models` then marks the provider `legacy`).
 
-The main loop uses the conversation's `pick` when it has one, else the
-`general` tier (or `vlm` when a message carries image content and that model
+The main loop uses the conversation's `pick` when it has one, else its
+class's `model` (see **Agent classes**), else the `general` tier (or `vlm` when a message carries image content and that model
 isn't vision-capable); compaction and the summarizer use `memory`. The chat's
 composer picks a conversation's model (grouped by provider when several are
 bound); the last pick is the person's default for new chats (`/api/xbin/prefs/model`).
@@ -499,7 +582,7 @@ Schedules are individual cron jobs; nothing else polls (see **The engine**).
 | Method & path | Body | Purpose |
 |---|---|---|
 | `GET /schedules` | — | the schedules the caller may see (a manager also sees others' private ones, without their goal) |
-| `POST /schedules` | `{name?, cron, goal, watcher?, toolset?, visibility?, mode?, targetRun?}` | create + register a cron-agent; its owner is the caller |
+| `POST /schedules` | `{name?, cron, goal, watcher?, class?, toolset?, visibility?, mode?, targetRun?}` | create + register a cron-agent; its owner is the caller. `class` (or the legacy `toolset`) is its runs' class, fixed at creation; a schedule from before classes answers the built-in its `toolset` names |
 | `PUT /schedules/{id}` | `{enabled?, cron?, goal?, visibility?, mode?, targetRun?, …}` | edit (its owner) / enable or disable (also a manager) |
 | `DELETE /schedules/{id}` | — | remove (its owner or a manager) |
 | `POST /schedules/{id}/trigger` | — | run it now (its owner) |
@@ -532,8 +615,11 @@ agent) bound to this agent's `inbox` provide (service `agent-inbox`): the bindin
 reaches only `/adapter/*`. The adapter reports messages and pulls replies;
 the agent decides everything else — which conversation a message joins (a
 session per DM, per thread), who may talk (pairing codes, allowlists,
-mentions), the lane (web by default: a reply is an egress) and the tools
-(`deny`). The adapter contract, the session keys, the chat commands (`/new`,
+mentions), the lane (web by default: a reply is an egress) and its class
+(policy `webClass` for everyone, default `web` — a class that reaches outside
+and has no internal reach, which `PUT /classes` keeps so while a channel
+names it; `privateClass` for trusted people when `privateLane` is on,
+default `internal`) and the tools (`deny`). The adapter contract, the session keys, the chat commands (`/new`,
 `/status`, `/stop`, …) and the policy fields are in `/docs/agent-inbox.md`.
 
 A channel appears (kind `channel` in `GET /automations`, `access: "claim"`
@@ -603,18 +689,26 @@ Where each event goes (`mode`):
 - Event data is `private` unless its source says `public` (a webhook from
   outside). Bus data is always private.
 - A trigger that reaches outside takes public data only, checked on save
-  and for every event. Reaching outside means the `web` toolset, or
-  announcing its answers to a chat channel (`deliver`: a session key of a
-  channel you own).
+  and for every event. Reaching outside means a class in the web lane
+  (`web`, `coding`, …), or announcing its answers to a chat channel
+  (`deliver`: a session key of a channel you own).
+- Public data never steers a class that can move internal data out (a
+  mixed class, D116): refused when the trigger is saved, `PUT /classes`
+  won't make its class mixed, and an event with public data into a class
+  that is mixed now — the trigger's, or the ongoing thread's or target
+  conversation's — is refused (`reason: "class-mixed"`).
+- A trigger's lane (`toolset`) is set when its class is picked and kept
+  after, like a conversation's: an edit to the class never carries its runs
+  across the firewall.
 - Runs on public data also can't schedule or save skills.
 
 | Method & path | Body | Purpose |
 |---|---|---|
-| `POST /triggers` | `{name, source: push\|bus, sourceRef, match?, goal, system?, mode?, targetRun?, toolset?, dataClass?, deliver?, maxPerHour?, visibility?}` | create; the caller owns it. A bus trigger subscribes at once; `status` says `ok`, or `needs-grant: …` naming the `uses` entry (`{"target": "<bus>", "role": "reader"}`) |
-| `PUT /triggers/{id}` | any of the above, `enabled` | its owner; a manager only switches it on or off |
+| `POST /triggers` | `{name, source: push\|bus, sourceRef, match?, goal, system?, mode?, targetRun?, class?, toolset?, dataClass?, deliver?, maxPerHour?, visibility?}` | create; the caller owns it. `class` (or the legacy `toolset`) is its runs' class; an edit that changes only `toolset` to the other lane names that lane's built-in. A bus trigger subscribes at once; `status` says `ok`, or `needs-grant: …` naming the `uses` entry (`{"target": "<bus>", "role": "reader"}`) |
+| `PUT /triggers/{id}` | any of the above, `enabled` | its owner; a manager only switches it on or off. `{enabled}` alone is never refused, and the class rules are checked again only when `class`, `toolset`, `dataClass` or `deliver` change — a trigger whose class was edited or deleted since still switches and edits. A `toolset` that switches lanes (without `class`) always applies: the lane's built-in class, picked as on create (its lane is that class's lane now) |
 | `DELETE /triggers/{id}` | — | its owner or a manager |
 | `POST /triggers/{id}/test` | `{topic?, text?, data?}` | fire it with a sample event (its owner) |
-| `GET /triggers/{id}/events` | — | the last 50 events: `{eventId, source, topic, accepted, reason, runId, at}` |
+| `GET /triggers/{id}/events` | — | the last 50 events: `{eventId, source, topic, accepted, reason, runId, at}`; `reason` for one refused: `disabled`, `halted`, `data-class`, `class-mixed`, `rate`, `target-gone` |
 | `GET /triggers/unmatched` | — | pushes no trigger took (managers): `{items:[{from, name, count, at}]}` — the Automations page offers to make one |
 
 Triggers are kind `trigger` in `GET /automations` (reset starts a persistent
@@ -762,20 +856,21 @@ transcript, compacting the oldest turns when over budget) → LLM call (streamed
 when the feature is on) → execute tool calls (a step's non-control tools run in
 parallel, each under `toolTimeout`) → repeat, up to `maxTurnSteps` per turn.
 Built-in tools: `memory_set`/`memory_get`, `note`, `recall` (FTS5 over full
-history), `xbin_call` (reach other granted components; private lane),
-`web_search`/`web_fetch` (web lane), `schedule`/`unschedule`, `state_changed`
+history), `xbin_call` (reach other granted components; `internal`),
+`web_search`/`web_fetch` (`web`), `schedule`/`unschedule`, `state_changed`
 (watcher), `schedules_list`/`schedule_inspect`/`threads_list`/`thread_inspect`
 (below), `skills_list`/`skill_view`/`skill_manage`, `finish`, `ask_user`,
 `yield`, the `subagent_*` tools above, the session-file and sandbox tools below,
-plus any bound MCP tool.
+plus any bound MCP tool — each as its class allows (**Agent classes**).
 MCP servers are bound via the `mcp` interface (multi:true, like the chat tile).
 Extend these in `_backend/tools.go`.
 
 MCP tool lists are cached per server and persisted: a list younger than 5
 minutes is used as is, an older one is used at once and refreshed in the
 background, and only a server never listed before is waited for —
-concurrently, 5 s at most each. A run is marked `running` before any of this,
-and the web lane skips discovery entirely.
+concurrently, 5 s at most each. A run is marked `running` before any of this;
+a class without `internal` skips discovery entirely, and one naming servers
+wakes only those.
 
 ### Threads, schedules and grants (D111)
 
@@ -809,8 +904,13 @@ and keeps nothing; `"hour"` also lets later calls in this conversation read
 all for an hour. Anyone who may steer the conversation may deny it; Needs you
 and push notifications reach the owner alone. A grant in force is on the
 conversation's `run` (view and stream): `grants: [{cap, grantedBy,
-expiresMs}]`; expiry is read where a grant is used (nothing ticks), and the
+expiresMs, ask, chip}]` (`ask`/`chip`: the capability in words, as the
+pending ask carries them in `pendingState.grantAsk`); expiry is read where a grant is used (nothing ticks), and the
 owner can revoke it (`DELETE /runs/{id}/grants/threads`).
+
+The grants are a registry: `threads` (above) and `sandboxes` — creating a
+coding sandbox with `sandbox_create` (§The coding tools), whose
+`pendingState.grantAsk` names the sandbox that will be made.
 
 "all" is refused outright — the call says why — in a web-toolset run (a web
 lane carries public data only; its "mine" also lists only web-toolset
@@ -852,29 +952,366 @@ chip shows the file's current content, with the header noting the difference.
 The tile's Files tab edits them too, sending back the version it loaded so a
 write the agent made in between comes back as a 409 instead of being lost.
 
+## Coding sandboxes (D115)
+
+A conversation can work in a **coding sandbox**: a box with a shell, a
+filesystem and the tools of a job, run by a **sandbox manager** — a tile
+that implements the `sandbox-manager` contract (docs/sandbox-manager.md;
+the builtin `coding-sandbox` template once it ships, or anyone's own). The agent holds no
+sandboxes itself.
+
+**Where they come from.** The manifest's `sandboxes` interface slot (`http`,
+service `sandbox-manager`, multi): `bx bind <this component>
+sandboxes+=apps/<manager>`, or the binding panel. Several managers may
+be bound at once; rebinding restarts the backend; unbound, there are no
+sandboxes. The agent says `hello` to each (protocol 1; cached five minutes)
+and ignores — listing it with the reason — one that speaks another protocol
+or lacks the `exec` and `files` capabilities. A manager shows this agent the
+sandboxes it created and those shared with it (its **partition**).
+
+**References.** A sandbox is named `<provider>[#inst]|<id>` — the manager
+tile as its binding names it and the manager's id — always qualified, so a
+stored reference keeps naming the same sandbox however many managers are
+bound. In a URL path it may be sent as is or percent-encoded.
+
+**People (D83).** Every call the agent makes to a manager names the person
+it acts for in `Sbx-User` (asserted: the manager records it as the owner of
+what it creates); the agent enforces who may do what:
+
+- **use** (bind it, work in it, start it): its owner, a member, or anyone
+  when it is `team`. A sandbox with no owner (created by a component or the
+  tile itself) is theirs, and people's only when it is `team`. A sandbox
+  another consumer shared with this agent (`shared`) is, besides, only for
+  the people its share names (`users`: `"*"` or their ids) — with no share
+  for this agent, it is nobody's here;
+- **manage** (stop, archive, delete): its owner, and the tile's managers —
+  who may stop or delete any sandbox but never bind someone else's private
+  one;
+- **edit** (name, visibility, members, shares): its owner.
+
+**A conversation's sandbox.** `config.sandbox` is the one its tools work in
+and `config.attached` every sandbox it has attached (up to 8, the active one
+among them — a subagent may be spawned onto another, and files copied
+between them). Each is a binding:
+
+```jsonc
+{"ref": "apps/coding-sandbox|sb-7f3a", "cwd": "/work/api",  // where tools work (default: the sandbox's workdir)
+ "name": "api-dev", "manager": "Coding sandboxes",           // as they were when it was bound (for display)
+ "image": "base", "egress": "none",
+ "by": "alice", "at": 1790000000000}                          // who bound it: tools act for them (Sbx-User)
+```
+
+Both live in the conversation's stored config (the view's `config`) like
+its model pick: read every turn — a rebind applies from the next one — and
+copied into subagents and workflows, which work in their root's sandbox.
+The global defaults (`PUT /config`) never hold either. `run` events and the
+view's `run` carry the active one in short — `sandbox: {ref, name, cwd,
+egress, manager} | null` — and `attached` (how many), so a view follows a
+rebind without reading the view again (a tile that predates them re-reads
+the view).
+
+- **Binding** takes participant access to the conversation **and** the
+  right to use the sandbox; the conversation's class must have the `sandbox`
+  toolset and allow the sandbox's manager and egress (D116). The egress
+  checked — here and on every tool call — is the less restrictive of the
+  sandbox's `egress` and its `egressNext` (the one a change gives it at its
+  next start: a stopped sandbox starts on a command), a missing or unknown
+  one counting as `open`; it is also what the binding records. A `cwd` must
+  be an absolute path, and a directory when the sandbox is running; no
+  `cwd` is the sandbox's workdir — or, for a sandbox the conversation has
+  attached already (a re-pick), the `cwd` it is attached at.
+- **Anyone who may steer the conversation works in what it has bound** —
+  under the binder's right, which every tool call re-checks: the class
+  still allows it, the manager is still bound, the sandbox still exists, and
+  the binder may still use it and still takes part in the conversation.
+  A subagent's copy of a binding holds only while the conversation still
+  has that sandbox bound or attached, by the same binder: a detach (or a
+  rebind by someone else) reaches every subagent at once — and the turn in
+  flight, whose later tool calls there are refused (`was detached from this
+  conversation during this turn`).
+  Otherwise the tool says why and the conversation needs a new binding.
+- **The firewall across a shared sandbox.** A sandbox outlives a
+  conversation and may be bound to several, so the class firewall follows
+  what it has held: binding a sandbox to a conversation whose class has
+  internal reach first labels it `xbin.agent/internal: "1"` (merged into
+  its labels; a manager that won't keep it refuses the binding), and a
+  class that reaches outside (`web`, or a sandbox egress other than `none`)
+  with no internal reach may then neither bind it nor keep working in it —
+  `this sandbox has held data from an internal-reach conversation` — even
+  where it was bound first. A confirmed mixed class may. The mark spreads
+  within a conversation, whatever its class: once a conversation has had a
+  marked sandbox — bound it, or worked in one that was marked since — it has
+  held internal data (`config.heldInternal`, kept for good), every sandbox
+  it has attached is labeled then, and every one it binds or works in after
+  is labeled first (a detach doesn't undo it: the data may be in its session
+  files or its context); `sandbox_copy` from a marked sandbox so labels its
+  target before it writes. So a class with a sandbox but neither internal
+  reach nor egress can't launder data into a clean sandbox for a web-lane
+  conversation. A tool call of an internal-reach conversation (or one that
+  has held internal data) re-labels a sandbox that lost the label, and
+  `PATCH /sandboxes/{ref}` keeps it when it replaces the labels — against a
+  concurrent label too (it sends the sandbox's `version`, and re-reads once
+  on a 412). The only way back is a new sandbox.
+- **A changed egress** (its owner changed the sandbox's network access since
+  it was bound, and the class still allows it): the tool call that finds it
+  records the live value in the conversation's bindings (and the calling
+  subagent's copy), which the turn's next step already uses. In Approve
+  mode, a call that would park under the new egress is refused once — `the
+  sandbox's network access changed from none to internet; call the tool
+  again to ask for approval` — and parks when called again, so a side effect
+  never runs on an egress nobody approved it for.
+- A **sandbox created for a conversation** (`POST /sandboxes
+  {conversation}`, or `sandbox_create`) takes the conversation's audience
+  when it is made: a team conversation's is `team` (whatever the team's
+  role there — anyone on the team may use it); the conversation's owner and
+  participants are its members; it is labeled `xbin.agent/conversation:
+  <id>` and bound there. It is copied once: sharing the conversation
+  differently later, or removing a participant, doesn't change the
+  sandbox — its owner manages that in the Sandboxes dialog (visibility,
+  members). `sandbox_create`'s grant card says when it will be the team's.
+
+`PATCH /runs/{id}` also takes `{sandbox: {ref, cwd?} | null, detach?: <ref>}`
+— bind (and attach) a sandbox, or change the active one's `cwd`; `null`
+leaves the conversation with no active sandbox (the attached stay);
+`detach` takes one off (applied first when both are sent). `POST /ask` also
+takes `{sandbox: {ref, cwd?}}`: the new conversation starts bound (the
+caller must be able to use it; its class must allow it) — refused as the
+sandbox routes refuse (a manager's `refusal` with its status: 404 gone or
+unbound, 403 not allowed, 502 its manager down), and nothing is created.
+
+| Route | Body / query | Result |
+|---|---|---|
+| `GET /sandboxes` | `?fresh=1` skips the cache | `{sandboxes: [{ref, provider, manager, …the contract's sandbox…, mine, canUse, canManage, canEdit, boundTo?}], managers: [{provider, title, ok, error?, refusal?, caps, egress, images, sizes, limits}]}` — every sandbox the caller may see across the bound managers, and those bound to a conversation the caller sees (`boundTo`: its ids). Merged, cached 15 s (the agent's own changes show at once); `manager` is the manager's title. Anyone who can use the tile |
+| `POST /sandboxes` | `{name, provider?, image?, size?, egress?, visibility?, members?, conversation?, bind?, cwd?, clientId?, start?}` | **201** + the sandbox (as below), with `binding` when it was bound. Created at `provider` (optional while one manager is bound), owned by the caller. With `conversation` (the caller takes part in it): made for it (above) and bound there unless `bind: false` — refused up front when its class wouldn't allow it, and deleted again if the binding fails. `clientId` makes a retry return the same sandbox (per person) |
+| `GET /sandboxes/{ref}` | | one sandbox, fresh from its manager, as `GET /sandboxes` lists it |
+| `PATCH /sandboxes/{ref}` | `{name?, visibility?, members?, shares?, labels?, egress?, size?, autoStopMin?, version?}` | the sandbox — its owner's (the contract's `PATCH`; `restartNeeded` when a change waits for the next start, and `egressNext` while an egress does). New `labels` keep `xbin.agent/internal` (sent with the sandbox's `version` unless you send one: a label set meanwhile is read again and kept) |
+| `DELETE /sandboxes/{ref}` | | `{ok, detached}` — its owner's or a tile manager's; it is detached from every conversation that had it |
+| `POST /sandboxes/{ref}/{start\|stop\|archive\|thaw}` | `?wait=<s>` (≤ 120), `?conversation=<id>`; `{start?}` on thaw | the sandbox. Start, stop and thaw: who may use or manage it — or, with `conversation`, a participant of a conversation it is bound to (as the binder). Archive: its owner or a tile manager |
+
+Refusals from a manager keep its `refusal` (and `state`) in the error body,
+with the status the contract gives it (a manager that is down or
+unreachable: 502). A route's sandbox the caller may neither see nor find
+bound to a conversation of theirs is 404.
+
+### The coding tools
+
+A conversation whose class has the `sandbox` toolset **and** has a sandbox
+bound gets these tools (subagents too — they work in their root's sandbox);
+otherwise they are absent, and a call that names one anyway is refused
+(`sandbox_create`, below, is the exception: it makes the first one). Every
+call re-runs the binding check above. Paths are absolute, relative to the
+binding's `cwd` (else the sandbox's workdir), or `~/…` (the sandbox user's
+home). The session files (`file_*`) are a different store: nothing moves
+between the two unless a tool below moves it. The system prompt carries a
+`# Sandbox` section — the active sandbox's name, manager, image, egress and
+`cwd`, and the other attached ones — built from the binding alone, so it
+changes on a rebind only (the prompt's cached prefix stays valid).
+
+| Tool | Arguments | What it does |
+|---|---|---|
+| `bash` | `{command, cwd?, timeout_s? (120), background?}` | runs `command` with the sandbox user's login shell (an exec named `agent:<run>:<tool call>`, so the same call re-issued — the same command, cwd and sandbox, while it hasn't ended — finds the one command; anything else under that call id is a job of its own, `agent:<root>:job-<n>`), no TTY, no stdin, `TERM=dumb NO_COLOR=1 PAGER=cat GIT_TERMINAL_PROMPT=0`, and follows its combined output. The result is at most 12 KiB — a short head and a long tail with `… N bytes elided …` between, escapes and `\r` redraws cleaned — and a footer: `[exit 1 · 14s · job 3]`. At `timeout_s` (or just before the tool's own `toolTimeout`) the command **goes on as a job**: the footer says `still running after 2m00s · job 3` and how to follow it. `background: true` starts it as a job at once. A start the manager doesn't answer (a timeout, a lost connection, the tool's own timeout) may have started all the same: the job stays, and the result names it — `bash_output` finds its command by its clientId (or says it never started); only the manager's refusal drops it |
+| `bash_output` | `{job, wait_s? (0, ≤ 600), offset?}` | a job's output since it was last read (or from byte `offset`), waiting up to `wait_s` for it to end; the footer says it still runs (and up to which byte it was read) or how it ended. A job in a sandbox the conversation can no longer use (below) answers what is known of it |
+| `bash_kill` | `{job, signal?}` | signals the job's whole process group: `INT`, `TERM`, `KILL` or `HUP`; by default TERM, then KILL if it hasn't ended 3 s later |
+| `read` | `{path, offset?, limit? (2000)}` | numbered lines (`cat -n` style), within ~14 KiB, saying what it left out; a file up to 256 KiB is read whole and sliced, a larger one ranged with `sed -n`; a binary file (a NUL or non-UTF-8 near its start) gets a hint instead. A symlink is followed to its file (a relative target against the link's directory; at most 40 links) |
+| `write` | `{path, content}` | replaces the file atomically (the contract's `PUT …/files/content`), creating missing directories. It replaces what is at `path`: a symlink there becomes the file (write the target to write through it) |
+| `edit` | `{path, old_string, new_string, replace_all?}` | `file_edit`'s exact-string replacement (the same rules, one shared implementation) on a sandbox file of up to 4 MiB, written back with `ifMatch` = the etag it read; a `precondition` refusal (the file changed meanwhile) is retried once from a fresh read. A symlink is followed as `read` follows it: the target is edited, the link stays. The result shows the changed lines, numbered |
+| `ls` | `{path?}` | a directory (≤ 500 entries): subdirectories first, with `/`; files with their size; symlinks with their target |
+| `glob` | `{pattern, path?}` | files by name, relative to the working directory, sorted, at most 200: `**` spans directories, a pattern without `/` matches names at any depth, `{a,b}` alternates. The listing is the sandbox's own `rg --files` (which honours `.gitignore`) or `find` (skipping `.git` and `node_modules`) — at most 20 000 files — matched here |
+| `grep` | `{pattern, path?, glob?, ignore_case?}` | `path:line: text` lines, at most 100 (then how many more), text clipped at 300 characters: `rg` where the sandbox has it (its regex syntax), else `grep -rE`; skips `.git` and binary files |
+| `sandbox_upload` | `{file, path?}` | copies a session file (text or attachment) into the sandbox: to `path`, into it when it ends in `/` or is a directory (default: the working directory). Feature `files` |
+| `sandbox_download` | `{path, name?}` | copies a sandbox file (≤ 16 MiB) into the session files as an upload would be stored — text within the text cap as text, anything else as an attachment — under `name` or its own (a taken name gets a suffix). A directory is refused: pack it with `bash` first. Feature `files` |
+| `sandbox_copy` | `{from: {sandbox?, path}, to: {sandbox?, path}}` | between the conversation's attached sandboxes (a ref or a unique name; default the active one), or within one: a directory is tar-streamed (`GET …/tar` into `PUT …/tar`; both managers need `tar`) and its **contents** land in `to.path`; a file goes through the file routes (mode kept) to `to.path`, or into it when it is a directory. Offered when more than one sandbox is attached |
+| `sandbox_info` | `{}` | every attached sandbox as its manager describes it now (active or attached, state, egress, image, manager, cwd, workdir, home, user, caps — or why it is unavailable) and the conversation's latest 15 jobs |
+
+**`sandbox_create`** `{name, manager?, image?, size?, egress?, cwd?}` — the
+agent makes a sandbox for its conversation. It is offered to a top-level
+conversation whose class has the `sandbox` toolset and allows a bound
+manager, **with or without** a sandbox bound, and not to a chat channel's
+conversation. It takes the conversation **owner's grant** `sandboxes`
+(§Threads, schedules and grants): the step parks — `pendingState: {kind:
+"approval", grant: "sandboxes", grantAsk, toolCalls}`, where `grantAsk` says
+exactly what will be made (`create the coding sandbox "api-dev" at Coding
+sandboxes — image base, size small, egress none`: the manager asked first,
+its defaults resolved; the name quoted) — and only the owner may allow it,
+once or for an hour (`POST /runs/{id}/approve {approve: true, grant:
+"once"|"hour"}`; `DELETE /runs/{id}/grants/sandboxes` takes an hour's grant
+back); anyone who may steer the conversation may deny it.
+
+- **Defaults**: `manager` — the first bound manager the class allows (a
+  provider, as `GET /sandboxes` names it); `egress` — the first the class
+  allows that the manager offers, `none` first; `image` and `size` — the
+  manager's defaults; `cwd` — the sandbox's workdir (a relative one is
+  under it; a missing one is made — once the sandbox runs: a create the
+  manager answers while it is still starting waits for it, up to 2 min).
+- **As asked**: the call is resolved against its manager before it parks,
+  and the parked calls the owner allows — once or for the hour — make
+  exactly what `grantAsk` said, or refuse (saying what changed) when the
+  manager's offer changed meanwhile. A call whose manager doesn't answer
+  isn't parked on a guess: it runs and says why. `name` is 1–64 characters
+  on one line, with no control or format characters.
+- **What is made**: the sandbox is created for the owner — `Sbx-User` is the
+  owner, who approved it — as `POST /sandboxes {conversation}` makes one (a
+  team conversation's is `team`, its participants are members, it is
+  labeled `xbin.agent/conversation`), and bound with `by` = the owner: the
+  **active** sandbox when none is active, else attached beside it. The coding
+  tools work in it from the **next step of the same turn**. The result names
+  it, its ref, its workdir and egress, and whether it is now active.
+- **Refused, never parked**: in a subagent, in a chat channel's
+  conversation, in a conversation no person owns, after **4** creates in one
+  conversation, and when the class doesn't allow the manager or the egress.
+  An image, size or egress the manager doesn't offer is refused before
+  anyone is asked; a binding that can't be made deletes the new sandbox
+  again.
+- **Idempotent**: each create is numbered per conversation
+  (`sandbox_creates`) and sent with `clientId` `agent:<root>:name:<n>`. A
+  call a restart cut off leaves its number pending; the next call with the
+  same name reuses it, so the manager answers with the sandbox it already
+  made. A sandbox of the same name this conversation made and still has
+  attached is answered as already there.
+
+**Jobs** are numbered per conversation (subagents share their root's
+numbers) and kept in the `sandbox_jobs` table (`root_id, job, run_id,
+tool_call_id, ref, exec_id, command, cwd, state, exit_code, read_off, fg,
+created_ms, ended_ms, client_id` — `client_id` set when it isn't
+`agent:<run>:<call>`); a conversation runs at most **8** at once (asked of
+the manager before a start is refused). **Detaching a sandbox** (`PATCH
+/runs/{id} {detach}`, or deleting it, which detaches it everywhere) KILLs
+the process group of every job the conversation still runs in it — best
+effort, in the background, so the change doesn't wait for a manager — and
+records them `killed`. A `bash` whose start is still in flight then is
+`killed` too: when the start answers, its command gets a KILL at once and
+the call fails with `job N was stopped as it started: its sandbox was
+detached from this conversation…` (so for a job given up as `lost` while
+its start was in flight). A job whose sandbox the conversation can no longer
+use at all (detached, deleted, its manager unbound, no longer allowed) is
+`lost` and doesn't count toward the 8; `bash_output` and `bash_kill` on it
+say what is known of it. **Interrupting or cancelling** the
+turn stops the command bash is following — TERM to its process group, KILL
+if it is still there 3 s later — while background jobs keep running. **A
+backend restart** (a handoff to the next process) leaves it running: the
+call's result becomes `(no result: the backend restarted while this command
+ran. It went on in the sandbox as job 3 — bash_output {"job": 3} shows its
+output from the start …)` instead of the generic lost-result text, and the
+job's output resumes by offset. **Deleting the conversation** (`DELETE
+/runs/{id}`) KILLs the process group of every job it still has running —
+best effort, in the background, so the delete doesn't wait for a manager
+(the sandboxes themselves stay; they are their owners'). **Archiving** it
+leaves them running.
+
+**Approve mode.** `bash`, `write`, `edit` and `sandbox_upload` are
+side-effecting tools — the step parks for approval — only when the bound
+sandbox has egress other than `none` (`sandbox_copy`: when any attached one
+has); a sandbox with no network is private scratch.
+
+### In the UI
+
+The model is `model/sandboxes.js` (pure: what the controls say) and
+`app.sbx` (`model/sandbox-store.js`: the list, the next new chat's pick and
+the calls); the web draws it in `sandboxes.js`, the native view in
+`native/sandboxes.js`.
+
+- **The composer's picker** (`#ssel`, beside the model's) shows where the
+  class — the open conversation's, or at home the next new chat's — has the
+  `sandbox` toolset: no sandbox, then This conversation (what it has
+  attached or bound) · Yours · Shared · Team, then ＋ New sandbox… and
+  Manage sandboxes…. One you may not use, or that the class does not allow
+  (its manager, its egress — the less restrictive of `egress` and
+  `egressNext` — or, for a class that reaches outside, the internal data it
+  has held), is listed disabled with the reason. A pick
+  binds it (`PATCH /runs/{root} {sandbox: {ref}}`, from the next turn) — one
+  the conversation has attached is sent with the `cwd` it had there; a
+  private one going into a conversation other people are in (shared with
+  the team or with people) is confirmed first: they will be able to work in
+  it. At home it goes with the new chat (`POST /ask {sandbox}`) while the
+  ask's class has the toolset; once the list is read, a pick it no longer
+  has says why (gone, its manager unbound or down). An ask refused for its
+  sandbox keeps the typed message, drops the pick and says why — the next
+  new chat goes without one until another is picked. New sandbox is not
+  offered in a conversation you may only read.
+- **The ▣ badge** in the top bar: the active sandbox and its `cwd` — or,
+  marked, why the binding no longer resolves (its class no longer allows it,
+  its manager is unbound or unavailable, its manager no longer has it). Its
+  popover sets the working directory (absolute; empty is the sandbox's
+  workdir), makes another attached sandbox the active one, detaches the
+  active one (`{detach}`) and opens Manage.
+- **The Sandboxes dialog** (`#sbxdlg`): every sandbox you may see, yours
+  first — state, manager, image, size, egress (and the one it takes at its
+  next start, when a change waits for it), owner, private/team, when it
+  was last active, how many conversations have it — with **Use here** (or
+  for a new chat; confirmed as the picker confirms it), Start / Stop / Thaw
+  (who may use or manage it — and, for one the open conversation holds that
+  you may neither use nor manage, anyone who may talk in it: through the
+  conversation, `?conversation=`, as the one who bound it), Archive (who
+  may manage it, where its manager archives), Share with the team / Make
+  private (its owner) and Delete (who may manage it, confirmed). The rows
+  keep their order while it is open (a Start doesn't move one under the
+  cursor); new ones come after. **New sandbox**: the manager, a name, its
+  image and size, the network (the class's `sandboxEgress` only), who may
+  use it, a working directory — in a conversation it is made for it and
+  bound there (`POST /sandboxes {conversation}`; not offered when you may
+  only read it), at home it becomes the new chat's. Opening a terminal onto
+  one comes with the `sandbox-terminal` tile.
+- **Keeping current.** After a change the conversation's binding is read
+  again (`GET /runs/{id}/view?limit=1` → `config`); a `run` event that
+  carries `sandbox` (and `attached`, a count) updates it at once, and a
+  changed count reads the binding again. When the classes change (a
+  manager's save here, or `GET /classes` read afresh) the open
+  conversation's `class` is read again too — its badge, the mixed warning
+  and what its sandboxes may be follow the edit, as the backend applies it
+  from the conversation's next step.
+- **Tool cards**: the coding tools are the ▣ family. A card shows the call's
+  own words (the command, `old → new`, the pattern) under the model's
+  summary, and what it came to, read from the result: bash's footer
+  (`exit 1 · 14s · job 3`, `still running · 2m00s · job 3`, `job 3
+  started`), match, file and entry counts, lines read, sizes
+  (`model/tool-heads.js` `subline`, `outcome`; the fold's blocks carry them
+  as `sub` and `outcome`).
+- **In the native view** the picker is a Sandbox picker in the chat and
+  home toolbars, beside the model's, with short labels (a picker cannot
+  disable an option: one you may not use is marked, and picking it says
+  why; a private one into a conversation other people are in asks in a
+  sheet first). The ▣ badge is in the conversation's subtitle, a notice in the
+  transcript says why a binding no longer resolves, and ⋯ → Sandbox pushes
+  the popover's screen (working directory, the attached ones, Detach,
+  Manage sandboxes…). The Sandboxes screen puts each row's actions behind
+  its swipe and ⋯ (Archive and Delete confirmed), and New sandbox pushes
+  the create form. A ▣ tool card is a `terminal` icon; what the call came to
+  is a chip (`exit 1 · 14s · job 3` in red), its command the card's first
+  line.
+
+**Subagents on another sandbox.** `subagent_spawn` also takes `{sandbox?,
+cwd?}` where a sandbox is bound: `sandbox` names one of the conversation's
+attached sandboxes (a ref or a unique name; any other is refused), which
+becomes the subagent's active one; `cwd` is its working directory there
+(absolute, or relative to that sandbox's). The subagent keeps the attached
+list, and the root's binding is unchanged.
+
 ## The frontend: one model, thin views
 
 The tile's state and behaviour live in **`model/`** — plain ES modules with no
 lit and no DOM — and each way of showing the tile is a thin view over it. The
 web view is the files you know (`agent.js`, `chat-cards.js`, `sidebar.js`,
-`home.js`, `share.js`, `automations.js`, `auto-*.js`, `index.html`); the
+`home.js`, `share.js`, `classes.js`, `sandboxes.js`, `automations.js`,
+`auto-*.js`, `index.html`); the
 **native view** is `native.js` and `native/` — what the xbin app draws with
 platform controls (`/vendor/xb-native.js`, docs/frontend-kit.md). Both draw
 the same model.
 
 | `model/` | What it holds |
 |---|---|
-| `app.js` | `createApp()`: the model in one object — where you are (`sel`, `page`), who you are (`me`), the tool mode for new asks, what needs you, the halt switch, the composer's attachments and sending — wired to the one live stream; views subscribe with `app.on(event, fn)` |
+| `app.js` | `createApp()`: the model in one object — where you are (`sel`, `page`), who you are (`me`), the class for new asks (`classes`, `classId`, `pickClass`; `toolset` is its lane), what needs you, the halt switch, the composer's attachments and sending — wired to the one live stream; views subscribe with `app.on(event, fn)` |
 | `session.js` | the open conversation: its views, the model calls in flight, `shown()` (what the chat draws), `blocks(id)` (a held run folded through its cache) |
 | `fold.js`, `tool-heads.js` | a run's view → chat blocks (with a `FoldCache`, only the blocks whose message, result, step, link or subagent changed are rebuilt; the rest come back as the same objects); a tool call's headline, family and state |
 | `conv-list.js`, `conv-groups.js` | the conversation list: paging, search, pins, read state, live updates; date groups |
 | `stream.js` | the live connection (`GET /stream`, resumable) |
-| `actions.js` | the calls a view makes: ask, send, attachments, control, halt, the tool mode, row actions, sharing, joining, and the settings (config, models, features), a run's memory and files, the skill library |
+| `actions.js` | the calls a view makes: ask, send, attachments, control, halt, the class pick, row actions, sharing, joining, and the settings (config, models, features, classes), a run's memory and files, the skill library |
 | `rules.js` | who may do what and what the controls say: the top bar, the composer's state, the halt switch, a row's menu, the share dialog |
 | `router.js` | addresses: `#c=<id>`, `#auto[=kind:id]`, `#join=<token>` |
 | `auto.js`, `auto-channels.js`, `auto-triggers.js` | the Automations page's state, its kinds (`registerKind`), and each kind's actions |
 | `home.js` | `HOME` — the home view's words — and what "Needs you" says |
 | `features.js` | `FEATURES`: every feature of the UI by key, and the intended differences between views |
+| `classes.js` | agent classes (D116): the composer's picker and your pick, the conversation's badge, the managers' editor (a class as a form, its checks, what a save sends), an automation's class (its forms' choices, what its card says, a channel's two classes) |
+| `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the ▣ badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form; `app.sbx` — the list, the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, the run events that carry a binding |
 
 `createApp({deltas, page})` are the native view's options: drafts arrive as
 deltas (`/stream?deltas=1`, "Deltas" above) and the open conversation is read
@@ -891,6 +1328,8 @@ home sends the draft (`POST /ask {draft, files}`).
 | `native/chat.js` | the conversation: `fold()` blocks as the chat family (`message`, `thinking`, `toolcard` with a subagent's transcript inside, `step`, `activity`, `approval`, `question`), the composer (attachments the app uploads to `PUT /runs/{id}/upload`, or at home into the new ask's draft, `PUT /ask/upload?draft=`), the top bar as the toolbar's menu |
 | `native/home.js`, `native/convs.js`, `native/share.js` | home and Needs you; the conversations drawer (a `sheet edge="leading"`), new chat with options, rename; the share sheet |
 | `native/tools.js`, `native/settings.js` | memory, files (+ editor, share/export), skills, the workflow tree, one call in full, the render preview (a `canvas html=` island, `native/render-doc.js` — the web's CSP); settings for managers |
+| `native/classes.js` | agent classes: the Class picker in the home toolbar, the new-chat sheet's class, Settings → Classes (the list, one class's form), an automation's class row and picker |
+| `native/sandboxes.js` | coding sandboxes: the Sandbox picker in the chat and home toolbars, the ▣ in the subtitle and the broken-binding notice, the Sandbox screen (⋯ → Sandbox), the Sandboxes screen and the create form |
 | `native/auto.js`, `native/auto-channels.js`, `native/auto-triggers.js` | the Automations screens for all four kinds |
 | `native-features.js` | `IMPLEMENTS`: what the native view implements, by feature key (as `web-features.js` for the web) |
 

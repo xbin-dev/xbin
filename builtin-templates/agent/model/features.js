@@ -32,7 +32,7 @@ export const FEATURES = {
 
   // Conversations
   'conv.new': 'New chat (home, the composer focused)',
-  'conv.newOptions': 'new chat with options: first message, tool mode, title, instructions',
+  'conv.newOptions': 'new chat with options: first message, class, title, instructions',
   'conv.search': 'search conversations (?q=)',
   'conv.search.snippets': 'search results show the matching line',
   'conv.search.join': 'pasting a #join= link into search joins that conversation',
@@ -79,7 +79,7 @@ export const FEATURES = {
   'chat.queue.takeBack': 'take a queued message back',
 
   // Asking
-  'ask.approval': 'an approval card: the calls it wants to run, approve or deny',
+  'ask.approval': 'an approval card: the calls it wants to run, approve or deny; a verdict refused because the ask is gone (409) says so',
   'ask.grant': 'a grant card (D111): the agent asks to read your other conversations — its owner allows it once or here for an hour; others may only deny',
   'ask.question': 'the agent\'s question, answered by your next message',
 
@@ -88,8 +88,9 @@ export const FEATURES = {
   'composer.keys': 'Enter sends, Shift+Enter is a new line, an IME\'s Enter is the IME\'s',
   'composer.placeholder': 'its prompt by state: a new ask, view only, steer, answer, follow up',
   'composer.disabled': 'disabled in a conversation you may only read',
-  'composer.toolMode': 'the tool mode for new asks (🔒 internal / 🌐 web), remembered per person',
+  'composer.class': 'the class for new chats (D116): icon and name, each one\'s description in its menu, only the classes you may use (GET /classes); your last pick is your default',
   'composer.model': 'the model: any bound provider\'s, grouped by provider — the open conversation\'s from its next turn, or the next new chat\'s; your last pick is your default',
+  'composer.sandbox': 'the coding sandbox (D115), beside the model — only where the class (the conversation\'s, or the new chat\'s) has the sandbox toolset: grouped This conversation · Yours · Shared · Team, ones you may not use or the class does not allow disabled with the reason, ＋ New and Manage…; a pick binds it from the next turn (at home: the new chat starts in it)',
   'composer.attach': 'attach files (a picker)',
   'composer.attach.paste': 'paste an image to attach it',
   'composer.attach.drop': 'drop files on the chat to attach them',
@@ -105,8 +106,9 @@ export const FEATURES = {
   // Top bar
   'top.crumb': 'an automation\'s run links back to it (Automations ›)',
   'top.title': 'the conversation\'s title',
-  'top.toolMode': 'its tool mode (immutable per run)',
+  'top.class': 'its class, fixed for its life (icon and name); a class that can move internal data out says so',
   'top.model': 'the model it was switched to, when one was picked',
+  'top.sandbox': '▣ its sandbox and working directory, and why a binding no longer resolves (gone, its manager unbound or down, its class no longer allows it); opens the working directory, switching among the attached ones, Detach, Manage…',
   'top.status': 'its status',
   'top.viewOnly': 'view only, when shared with you to read',
   'top.retry': 'Retry, when the run failed or was cancelled',
@@ -133,6 +135,8 @@ export const FEATURES = {
   'tools.render.blocked': 'says how many external resources it blocked, and when it shows a newer version',
   'tools.render.maximize': 'maximize the preview',
   'tools.render.source': 'open the rendered file in Files',
+  'tools.sandboxes': 'the Sandboxes screen (D115): every sandbox you may see — state, manager, image, egress, owner, private/team, last active, where it is bound — with start, stop, archive, thaw, share with the team / make private and delete (confirmed) as your rights allow, and "Use here"',
+  'tools.sandboxes.create': 'create a sandbox: manager, name, image, size, network (what the class allows), private or team, a working directory; made in a conversation it is bound there (a team conversation\'s is a team one), at home the next new chat starts in it',
 
   // Sharing
   'share.visibility': 'who can see it: only invited people, the team to read, the team to write',
@@ -147,7 +151,8 @@ export const FEATURES = {
   'auto.page': 'the page: a section per kind, a card per automation',
   'auto.card': 'a card\'s badges: new runs, needs attention, failed, off; whose it is',
   'auto.detail': 'one automation: what it does and its runs, paged; opening it marks them read',
-  'auto.schedule.form': 'new / edit schedule: name, cadence presets or a custom cron, what to do, where runs go, tool mode, visibility',
+  'auto.schedule.form': 'new / edit schedule: name, cadence presets or a custom cron, what to do, where runs go, class, visibility',
+  'auto.class': 'schedules, watchers and triggers run in a class (D116): the forms pick one of the classes you may use (a schedule\'s is fixed once made); cards and details say it, with the warning of one that can move internal data out',
   'auto.watcher.form': 'new / edit watcher',
   'auto.schedule.runNow': 'run now',
   'auto.schedule.toggle': 'switch on / off',
@@ -160,9 +165,10 @@ export const FEATURES = {
   'auto.channel.sessions': 'its sessions: open one, start one afresh',
   'auto.channel.undelivered': 'replies it could not deliver: retry',
   'auto.channel.rules': 'its rules: DMs, groups, mentions, threads, lanes, reset, rate, instructions',
+  'auto.channel.classes': 'the classes its conversations run in (D116): everyone else\'s (only classes that reach outside with no internal reach) and, with the private lane, trusted people\'s',
   'auto.channel.manage': 'switch it off, remove it (confirmed)',
-  'auto.trigger.form': 'new / edit trigger: source, topics, what to do, where events go, cap, lane, data class, announce, visibility',
-  'auto.trigger.firewall': 'the form refuses a lane/data-class clash',
+  'auto.trigger.form': 'new / edit trigger: source, topics, what to do, where events go, cap, class, data class, announce, visibility',
+  'auto.trigger.firewall': 'the form refuses a class/data-class clash: private data into the web lane or a chat, public data into a class that can move internal data out',
   'auto.trigger.testFire': 'fire a test event',
   'auto.trigger.events': 'its recent events, and why one did not run',
   'auto.trigger.wiring': 'what it still needs: a grant, or a binding',
@@ -174,6 +180,7 @@ export const FEATURES = {
   'manage.config': 'the config: model per tier, system prompt, limits, behaviour',
   'manage.features': 'feature switches',
   'manage.mcp': 'the MCP servers bound',
+  'manage.classes': 'the classes: list, add, edit (name, icon, description, toolsets, MCP servers, sandbox managers and egress, model, system addendum, who), delete — a built-in resets to its default; the default for new chats; saving one that can move internal data out is confirmed',
   'manage.halt': 'halt every run (while runs are active), and resume',
 
   // States

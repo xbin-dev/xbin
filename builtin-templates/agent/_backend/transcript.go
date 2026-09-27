@@ -61,6 +61,7 @@ func (e *Engine) repairTranscript(runID int64) int {
 	var order []int64
 	var miss []missing
 	var rewrite []*Message
+	callOf := map[int64]toolCall{} // a rewritten placeholder's call
 	for _, m := range msgs {
 		if m.Role == "tool" {
 			continue
@@ -96,6 +97,7 @@ func (e *Engine) repairTranscript(runID int64) int {
 			if isPlaceholder(pick.Content) && !legit[c.ID] &&
 				!(pick.Content == toolAwaitingApproval && p.Kind == "approval") {
 				rewrite = append(rewrite, pick)
+				callOf[pick.ID] = c
 			}
 		}
 	}
@@ -131,7 +133,7 @@ func (e *Engine) repairTranscript(runID int64) int {
 	fixed := 0
 	err = e.fenced(func(t *DB) error {
 		for _, ms := range miss {
-			nm := &Message{RunID: runID, Role: "tool", Name: ms.call.Function.Name, ToolCallID: ms.call.ID, Content: toolLostToRestart}
+			nm := &Message{RunID: runID, Role: "tool", Name: ms.call.Function.Name, ToolCallID: ms.call.ID, Content: t.lostResultText(runID, ms.call)}
 			if _, err := t.addMessage(nm); err != nil {
 				return err
 			}
@@ -144,7 +146,7 @@ func (e *Engine) repairTranscript(runID int64) int {
 			fixed++
 		}
 		for _, m := range rewrite {
-			if err := t.rewriteMessage(runID, m.ID, toolLostToRestart); err != nil {
+			if err := t.rewriteMessage(runID, m.ID, t.lostResultText(runID, callOf[m.ID])); err != nil {
 				return err
 			}
 			fixed++
