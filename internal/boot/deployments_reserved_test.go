@@ -18,7 +18,11 @@ import (
 // through the real daemon (auth on), every operation the OpenAPI document
 // marks reserved answers 501 in the {"error","docs"} shape of every API error
 // (an older xbind answers a plain-text 404 or 405 instead) and changes
-// nothing: the zero-state workspace gains no deployment state.
+// nothing: the zero-state workspace gains no deployment state. A route this
+// xbind builds — the state, and each operation the plane registers — is
+// left to its own tests; the integrator drops its row's reserved marks in
+// the merge that builds it (14-implementation §4.3), and until then the
+// test names it.
 func TestDeploymentRoutesReserved(t *testing.T) {
 	want := []string{
 		"GET /deployments", "GET /deployments/log", "GET /deployments/diff",
@@ -54,8 +58,13 @@ func TestDeploymentRoutesReserved(t *testing.T) {
 			if op.(map[string]any)["x-xbin-reserved"] != true {
 				continue
 			}
-			n++
 			method := strings.ToUpper(m)
+			o, isOp := strings.CutPrefix(p, "/deployments/")
+			if method == "GET" && p == "/deployments" || method == "POST" && isOp && deployments.Registered(deployments.Op(o)) {
+				t.Logf("%s %s is built here: its openapi.go row keeps reserved marks for the integrator to drop", method, p)
+				continue
+			}
+			n++
 			path := "/api/xbin" + wildcard.ReplaceAllString(p, "x")
 			code, body := d.do(t, method, path+"?tile=apps/zs", "Bearer "+d.owner)
 			var e map[string]string
