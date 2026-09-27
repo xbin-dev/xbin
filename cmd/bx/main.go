@@ -269,7 +269,7 @@ func apiJSON(method, path string, body, out any) error {
 		}
 		var e struct{ Error string }
 		if json.Unmarshal(b, &e) == nil && e.Error != "" {
-			return fmt.Errorf("%s (%s)%s", e.Error, resp.Status, hint)
+			return fmt.Errorf("%s (%s)%s", e.Error, resp.Status, apiHint(resp.StatusCode, e.Error, hint))
 		}
 		return fmt.Errorf("%s: %s%s", resp.Status, strings.TrimSpace(string(b)), hint)
 	}

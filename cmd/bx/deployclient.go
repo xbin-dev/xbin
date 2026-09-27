@@ -6,7 +6,9 @@ package main
 // impact report, the prompt or --yes, naming the reviewed code, waiting on a
 // deploy, --json, and the exit codes. The commands register into moreCmds
 // from their own files: livereload.go (bx live-reload, and the words for where
-// saves go), deploy.go (bx deploy, bx rollback, and the impact report).
+// saves go), deploy.go (bx deploy, bx promote, bx rollback, and the impact
+// report), deployment.go (the bx deployment family), agentdeploy.go (bx agent
+// run --deployment); status.go reads a named deployment's status and log.
 
 import (
 	"bufio"
@@ -35,8 +37,7 @@ const deployUsage = `  bx live-reload [<tile>] [--json]      where saves go: liv
                                         put a fresh checkpoint of the work tree (or c:<id>) on it
   bx rollback [<tile>] --to <name> [--checkpoint c:<id>]
                                         back to the previous checkpoint in its deploy log
-                                        changing commands take --dry-run, --yes, --json, --no-wait
-`
+` + deploymentUsage // deployment.go
 
 // Exit codes of the tile-deployments commands (11-contract §9.1). Every
 // existing command keeps exiting 1 on any error and 2 on usage.
@@ -151,10 +152,13 @@ type dcArgs struct {
 	dryRun     bool
 	json       bool
 	noWait     bool
+	vals       map[string][]string // every other value flag, in order (deployment.go checks each)
+	bools      map[string]bool     // every other boolean
 }
 
 // dcValueFlags are the flags that take a value; the rest are booleans.
-var dcValueFlags = map[string]bool{"--to": true, "--checkpoint": true}
+var dcValueFlags = map[string]bool{"--to": true, "--checkpoint": true, "--from": true, "--keys": true,
+	"--deliveries": true, "--always-on": true, "--mem": true, "--pids": true, "--disk": true, "--limit": true, "--path": true}
 
 var (
 	dcNameRe       = regexp.MustCompile(`^[a-z][a-z0-9-]{0,23}$`)
@@ -206,6 +210,14 @@ func parseDeploymentArgs(cmd string, args []string, allowed ...string) (dcArgs, 
 					return a, usageError(cmd, "--checkpoint %q: a checkpoint id is c: and at least 7 lowercase hex digits", val)
 				}
 				a.checkpoint = val
+			default:
+				if err := dcCheckFlag(base, val); err != nil {
+					return a, usageError(cmd, "%s %q: %v", base, val, err)
+				}
+				if a.vals == nil {
+					a.vals = map[string][]string{}
+				}
+				a.vals[base] = append(a.vals[base], val)
 			}
 			continue
 		}
@@ -221,6 +233,11 @@ func parseDeploymentArgs(cmd string, args []string, allowed ...string) (dcArgs, 
 			a.json = on
 		case "--wait":
 			a.noWait = !on
+		default:
+			if a.bools == nil {
+				a.bools = map[string]bool{}
+			}
+			a.bools[base] = on
 		}
 	}
 	return a, nil
@@ -287,6 +304,8 @@ type deploymentSt struct {
 		Deploying *deployEntry `json:"deploying"`
 	} `json:"status"`
 	API        string                     `json:"api"`
+	URL        string                     `json:"url"`
+	Data       *dataState                 `json:"data"`
 	LastDeploy *deployEntry               `json:"lastDeploy"`
 	Can        map[string]json.RawMessage `json:"can"`
 }
@@ -302,6 +321,9 @@ type deployEntry struct {
 	Result     string `json:"result"`
 	Phase      string `json:"phase"`
 	Error      string `json:"error"`
+	By         string `json:"by"`
+	Agent      bool   `json:"agent"`
+	At         string `json:"requestedAt"`
 }
 
 // deployImpact is a dry run's report (11-contract §1.1 Impact).
@@ -316,6 +338,8 @@ type deployImpact struct {
 		WorkTreeAt string `json:"workTreeAt"`
 	} `json:"code"`
 	Data             string   `json:"data"`
+	Joins            *joins   `json:"joins"`
+	Placeholders     []string `json:"placeholders"`
 	PausesLiveReload bool     `json:"pausesLiveReload"`
 	Stops            []string `json:"stops"`
 	Affects          string   `json:"affects"`
@@ -411,6 +435,16 @@ func refusalHint(msg string) string {
 	return ""
 }
 
+// apiHint is apiJSON's hint for a refusal (main.go): on a protected primary,
+// or a manager act refused to a tile credential, where it can be done, in
+// place of the scoped-terminal hint (10-ux §8.4).
+func apiHint(status int, msg, hint string) string {
+	if h := refusalHint(msg); status == http.StatusForbidden && h != "" {
+		return h
+	}
+	return hint
+}
+
 // dcCall sends one request of the family; an answer of 400 or more is a
 // *dcError carrying its exit code.
 func dcCall(method, path string, body any) ([]byte, error) {
@@ -481,12 +515,21 @@ func getDeployState(ref string) (*deployState, []byte, error) {
 type deployOp struct {
 	cmd    string         // the command, for usage and messages: "live-reload pause"
 	route  string         // under /api/xbin/deployments/
-	how    string         // pause | resume | reload-now | attach | deploy | rollback
+	how    string         // pause | resume | reload-now | attach | deploy | rollback | promote | …
 	can    string         // the permission it needs (11-contract §1.1)
 	perDep bool           // can is the target deployment's, not the caller's
 	body   map[string]any // the request, without dryRun, expect, checkpoint and seq
 	// target is the deployment acted on, read from the state.
 	target func(st *deployState) string
+	// deployment.go's ops: guard always asks; confirm, the route's token, is
+	// sent in the dry run and once confirmed; report and result word the op;
+	// jsonOut keeps the answer (bx deployment set); timeout outlasts 30 s.
+	guard   bool
+	confirm string
+	report  func(st *deployState, x string, imp *deployImpact) deployReport
+	result  func(b []byte, before, after *deployState, x string) string
+	jsonOut *[]byte
+	timeout time.Duration
 }
 
 // runDeployOp runs a changing command (11-contract §9.1): the state and the
@@ -508,10 +551,20 @@ func runDeployOp(op deployOp, a dcArgs) error {
 	if c := st.can(op.can, target, op.perDep); c != nil && !c.OK {
 		return c.refusal()
 	}
+	named, err := reviewedCode(op, a, st, target) // deploy.go: onto a protected primary
+	if err != nil {
+		return err
+	}
+	for k, v := range named {
+		op.body[k] = v
+	}
 
 	dry := map[string]any{"dryRun": true}
 	for k, v := range op.body {
 		dry[k] = v
+	}
+	if op.confirm != "" {
+		dry["confirm"] = op.confirm // judged as for real (11-contract §1.2); a dry run changes nothing
 	}
 	b, err := dcCall("POST", "/api/xbin/deployments/"+op.route, dry)
 	if err != nil {
@@ -529,13 +582,18 @@ func runDeployOp(op deployOp, a dcArgs) error {
 		imp = &deployImpact{}
 	}
 	rep := buildReport(op, a, st, target, imp)
+	if op.report != nil {
+		rep = op.report(st, target, imp)
+	}
 	info := dcOut // what a person reads; stdout carries only JSON under --json
 	if a.json {
 		info = dcErr
 	}
 	rep.print(info)
 	if a.dryRun {
-		if a.json {
+		if op.jsonOut != nil {
+			*op.jsonOut = b
+		} else if a.json {
 			printRaw(dcOut, b)
 		} else {
 			fmt.Fprintln(dcOut, "dry run: nothing changed")
@@ -544,11 +602,12 @@ func runDeployOp(op deployOp, a dcArgs) error {
 	}
 
 	onPrimary := target == st.primary()
-	guarded := onPrimary && (op.how == "deploy" || op.how == "rollback" || op.how == "promote" ||
+	guarded := op.guard || onPrimary && (op.how == "deploy" || op.how == "rollback" || op.how == "promote" ||
 		((op.how == "reload-now" || op.how == "resume" || op.how == "attach") && movesCode(imp)))
 	if guarded && !a.yes {
 		if !dcIsTerminal() {
-			return &dcError{code: exitNotConfirmed, msg: fmt.Sprintf("not confirmed: this moves code onto the primary of %s, which everyone using it runs — without a terminal, add --yes when the user asked for it", st.Tile)}
+			why := firstOf(rep.why, fmt.Sprintf("this moves code onto the primary of %s, which everyone using it runs", st.Tile))
+			return &dcError{code: exitNotConfirmed, msg: "not confirmed: " + why + " — without a terminal, add --yes when the user asked for it"}
 		}
 		fmt.Fprintf(dcErr, "%s? [y/N] ", rep.question)
 		line, _ := bufio.NewReader(dcIn).ReadString('\n')
@@ -562,23 +621,36 @@ func runDeployOp(op deployOp, a dcArgs) error {
 	for k, v := range op.body {
 		body[k] = v
 	}
+	if op.confirm != "" {
+		body["confirm"] = op.confirm // --yes, or the person said yes
+	}
+	name := func(key, id string) { // a code named before the dry run stays named
+		if _, ok := body[key]; !ok {
+			body[key] = id
+		}
+	}
 	if c := imp.Code; c != nil && c.To != "" {
 		switch {
-		case op.how == "reload-now":
-			body["expect"] = c.To
+		case op.how == "reload-now", op.how == "promote", op.how == "primary" && st.ProtectedPrimary,
+			op.how == "protect" && body["on"] == true:
+			name("expect", c.To)
 		case op.how == "deploy" && a.checkpoint == "" && st.ProtectedPrimary && onPrimary:
-			body["checkpoint"] = c.To
-		case op.how == "deploy" && a.checkpoint == "":
-			body["expect"] = c.To
+			name("checkpoint", c.To)
+		case op.how == "deploy" && a.checkpoint == "" && body["restart"] == nil:
+			name("expect", c.To)
 		case op.how == "rollback" && a.checkpoint == "":
-			body["checkpoint"] = c.To
+			name("checkpoint", c.To)
 		}
 	}
 	if st.Record && (guarded || (st.ProtectedPrimary && onPrimary)) {
 		body["seq"] = st.Seq
 	}
 	before := st
-	b, err = dcCall("POST", "/api/xbin/deployments/"+op.route, body)
+	if op.timeout > 0 {
+		b, _, err = dcRequest("POST", "/api/xbin/deployments/"+op.route, body, op.timeout)
+	} else {
+		b, err = dcCall("POST", "/api/xbin/deployments/"+op.route, body)
+	}
 	if err != nil {
 		return err
 	}
@@ -586,7 +658,9 @@ func runDeployOp(op deployOp, a dcArgs) error {
 	if err := decodeAnswer(b, &ans); err != nil {
 		return err
 	}
-	if a.json {
+	if op.jsonOut != nil {
+		*op.jsonOut = b
+	} else if a.json {
 		printRaw(dcOut, b)
 	}
 	after := ans.State
@@ -596,12 +670,16 @@ func runDeployOp(op deployOp, a dcArgs) error {
 	// Where saves go moved when the request was committed, whatever the
 	// deploy's fate: say so on every path from here (SC-AGENT-BX).
 	saves := func() {
-		if s := savesLine(before, after); s != "" {
+		if s := whereSavesGo(before, after); s != "" { // deployment.go
 			fmt.Fprintln(info, s)
 		}
 	}
 	if ans.Deploy == nil || ans.Unchanged {
-		fmt.Fprintln(info, unchangedText(op.how, after, target))
+		if op.result != nil && !ans.Unchanged {
+			fmt.Fprintln(info, op.result(b, before, after, target))
+		} else {
+			fmt.Fprintln(info, unchangedText(op.how, after, target))
+		}
 		saves()
 		return nil
 	}
@@ -637,6 +715,9 @@ func runDeployOp(op deployOp, a dcArgs) error {
 	if t := movedText(op.how, e); t != "" {
 		fmt.Fprintln(info, t)
 	}
+	if op.result != nil {
+		fmt.Fprintln(info, op.result(b, before, after, target))
+	}
 	saves()
 	if !after.Record && before.Record {
 		fmt.Fprintf(info, "%s is back to plain live reload, with no deployments.\n", tile)
@@ -654,7 +735,7 @@ func movesCode(imp *deployImpact) bool {
 // final result, printing each phase to stderr, for at most dcWaitMax.
 func waitDeploy(tile string, e deployEntry) (deployEntry, error) {
 	start := dcNow()
-	fmt.Fprintf(dcErr, "%s: %s %d %s", tile, e.How, e.ID, e.Deployment)
+	fmt.Fprintf(dcErr, "%s: %s %d %s", tile, e.How, e.ID, strings.TrimPrefix(e.From+" → "+e.Deployment, " → "))
 	if e.Checkpoint != "" {
 		fmt.Fprintf(dcErr, " %s", e.Checkpoint)
 	}
@@ -671,7 +752,7 @@ func waitDeploy(tile string, e deployEntry) (deployEntry, error) {
 		left := dcWaitMax - dcNow().Sub(start)
 		if left <= 0 {
 			fmt.Fprintln(dcErr, " …")
-			return e, &dcError{code: exitStillRunning, msg: fmt.Sprintf("%s %d on %s is still %s — bx stopped waiting after %s; bx live-reload %s shows where it stands", howWord(e.How), e.ID, e.Deployment, e.Result, dcWaitMax.Round(time.Second), tile)}
+			return e, &dcError{code: exitStillRunning, msg: fmt.Sprintf("%s %d on %s is still %s — bx stopped waiting after %s; bx deployment log %s shows where it stands", howWord(e.How), e.ID, e.Deployment, e.Result, dcWaitMax.Round(time.Second), tile)}
 		}
 		wait := min(25, max(1, int(left/time.Second)))
 		asked := dcNow()
