@@ -85,6 +85,11 @@ func (b *Broker) apiBuiltinsImport(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusConflict, err.Error())
 		return
 	}
+	// A removed tile's deployment state at the path goes before the tree is
+	// written, so the first Rescan composes the new tile in the zero state (P29).
+	if err := b.resetDeploymentState(target); err != nil {
+		slog.Error("a removed tile's deployment record couldn't be reset for the new tile", "tile", target, "err", err)
+	}
 	installed, files, err := b.tiles.Import(b.Reg.Root, body.Name, target)
 	if err != nil {
 		server.WriteError(w, http.StatusBadRequest, err.Error())
@@ -115,9 +120,11 @@ func (b *Broker) apiBuiltinsImport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	b.assignOwner(installed, owner) // D24: creator-owned (workspace-owned for admins) unless requested
-	server.WriteJSON(w, http.StatusOK, map[string]any{
-		"path": installed, "files": files, "pendingGrants": pending,
-	})
+	out := map[string]any{"path": installed, "files": files, "pendingGrants": pending}
+	if ws := plusNameWarnings(installed); ws != nil { // a '+' in the name, for one release (P17)
+		out["warnings"] = ws
+	}
+	server.WriteJSON(w, http.StatusOK, out)
 }
 
 // requireWriter gates workspace-mutating builtin endpoints on the same

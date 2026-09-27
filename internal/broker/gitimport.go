@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -162,6 +163,11 @@ func (b *Broker) apiGitImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A removed tile's deployment state at the path goes before the tree is
+	// written, so the first Rescan composes the new tile in the zero state (P29).
+	if err := b.resetDeploymentState(path); err != nil {
+		slog.Error("a removed tile's deployment record couldn't be reset for the new tile", "tile", path, "err", err)
+	}
 	// the target exists (empty) before the clone so the sandbox can bind it
 	if err := os.Mkdir(target, 0o755); err != nil {
 		server.WriteError(w, http.StatusInternalServerError, err.Error())
@@ -222,9 +228,11 @@ func (b *Broker) apiGitImport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	b.assignOwner(path, owner) // D24: creator-owned (workspace-owned for admins) unless requested
-	server.WriteJSON(w, http.StatusOK, map[string]any{
-		"path": path, "remote": url, "ref": body.Ref, "pendingGrants": pending,
-	})
+	out := map[string]any{"path": path, "remote": url, "ref": body.Ref, "pendingGrants": pending}
+	if ws := plusNameWarnings(path); ws != nil { // a '+' in the name, for one release (P17)
+		out["warnings"] = ws
+	}
+	server.WriteJSON(w, http.StatusOK, out)
 }
 
 // unresolvedUses returns human-readable descriptions of a component's `uses`
