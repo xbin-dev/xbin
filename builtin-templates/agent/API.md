@@ -1176,7 +1176,11 @@ the manager before a start is refused). **Detaching a sandbox** (`PATCH
 /runs/{id} {detach}`, or deleting it, which detaches it everywhere) KILLs
 the process group of every job the conversation still runs in it — best
 effort, in the background, so the change doesn't wait for a manager — and
-records them `killed`. A job whose sandbox the conversation can no longer
+records them `killed`. A `bash` whose start is still in flight then is
+`killed` too: when the start answers, its command gets a KILL at once and
+the call fails with `job N was stopped as it started: its sandbox was
+detached from this conversation…` (so for a job given up as `lost` while
+its start was in flight). A job whose sandbox the conversation can no longer
 use at all (detached, deleted, its manager unbound, no longer allowed) is
 `lost` and doesn't count toward the 8; `bash_output` and `bash_kill` on it
 say what is known of it. **Interrupting or cancelling** the

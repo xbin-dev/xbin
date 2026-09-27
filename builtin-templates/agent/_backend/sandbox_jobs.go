@@ -194,13 +194,20 @@ func (d *DB) dropJob(j *sbxJob) {
 	_, _ = d.q.Exec(`DELETE FROM sandbox_jobs WHERE root_id=? AND job=?`, j.Root, j.Job)
 }
 
-func (d *DB) jobStarted(j *sbxJob, exec string) {
+// jobStarted records a job's exec, and says the state the job is in now:
+// "running" — or how it ended already, when that was recorded while its
+// start was in flight (its sandbox detached: killed; given up: lost).
+func (d *DB) jobStarted(j *sbxJob, exec string) string {
 	j.Exec = exec
 	if j.State == "starting" {
 		j.State = "running"
 	}
-	_, _ = d.q.Exec(`UPDATE sandbox_jobs SET exec_id=?, state=CASE WHEN state='starting' THEN 'running' ELSE state END
-		WHERE root_id=? AND job=?`, exec, j.Root, j.Job)
+	var state string
+	if err := d.q.QueryRow(`UPDATE sandbox_jobs SET exec_id=?, state=CASE WHEN state='starting' THEN 'running' ELSE state END
+		WHERE root_id=? AND job=? RETURNING state`, exec, j.Root, j.Job).Scan(&state); err != nil {
+		return j.State
+	}
+	return state
 }
 
 func (d *DB) jobRead(j *sbxJob, off int64) {
@@ -308,7 +315,22 @@ func (ag *Agent) toolBash(ctx context.Context, run *Run, cfg Config, args map[st
 		go ag.stopStarting(use, j, killGrace)
 		return "", cause
 	}
-	ag.db.jobStarted(j, ex.ID)
+	if state := ag.db.jobStarted(j, ex.ID); state == "killed" || state == "lost" {
+		// ended while its start was in flight — its sandbox detached
+		// (stopDetachedJobs) or the job given up — so nothing would follow
+		// the command: stop it now
+		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sbxCallTimeout)
+		err := use.Conn.ExecSignal(sctx, use.ID, ex.ID, "KILL", true)
+		cancel()
+		if err != nil && !gone(err) {
+			logf("job %d of #%d: KILL after its start: %v", j.Job, j.Root, err)
+		}
+		why := "the job was given up"
+		if state == "killed" {
+			why = "its sandbox was detached from this conversation"
+		}
+		return "", fmt.Errorf("job %d was stopped as it started: %s while the command was starting", j.Job, why)
+	}
 	if bg {
 		ag.db.jobBackground(j)
 		return fmt.Sprintf("started job %d in %s: %s\n[bash_output {\"job\": %d} reads its output · bash_kill {\"job\": %d} stops it]",

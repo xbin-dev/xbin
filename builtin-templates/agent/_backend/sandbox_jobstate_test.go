@@ -236,6 +236,64 @@ func TestDetachedSandboxJobs(t *testing.T) {
 	}
 }
 
+// A bash start still in flight when its sandbox is detached (review): the
+// detach records the job killed and its KILL finds no exec yet; when the
+// start answers, the command is stopped at once rather than left running
+// with nothing following it.
+func TestBashStartInFlightWhenDetached(t *testing.T) {
+	ag, mux := accessFixture(t)
+	bindSbx(t, "apps/cs")
+	conv := createConv(t, ag, alicePrivate, nil)
+	a := mkSandbox(t, "apps/cs", "alice", sbxCreate{Name: "a"})
+	refA := sandboxRef("apps/cs", a.ID)
+	if got := bindTo(t, mux, asAlice, conv.ID, refA, ""); got != 200 {
+		t.Fatal(got)
+	}
+	cfg, _ := ag.db.runConfig(conv.ID)
+	arrived, release, listed := make(chan struct{}), make(chan struct{}), make(chan struct{}, 8)
+	sbxTransport(t, func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+		switch {
+		case req.Method == "POST" && strings.HasSuffix(req.URL.Path, "/execs"):
+			close(arrived)
+			<-release
+		case req.Method == "GET" && strings.HasSuffix(req.URL.Path, "/execs"):
+			listed <- struct{}{}
+		}
+		return next.RoundTrip(req)
+	})
+	type result struct {
+		out string
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		out, err := tool(t, ag, conv, cfg, "b1", "bash", map[string]any{"command": "sleep 30", "background": true})
+		done <- result{out, err}
+	}()
+	<-arrived
+	if w := callAs(t, mux, asAlice, "PATCH", fmt.Sprintf("/runs/%d", conv.ID), map[string]any{"detach": refA}); w.Code != 200 {
+		t.Fatalf("detach: %d %s", w.Code, w.Body)
+	}
+	select { // the detach's KILL looked for it and found nothing yet
+	case <-listed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the detach never looked for the job's exec")
+	}
+	close(release)
+	res := <-done
+	if res.err == nil || !strings.Contains(res.err.Error(), "job 1 was stopped as it started: its sandbox was detached") {
+		t.Fatalf("the start's answer: %q %v", res.out, res.err)
+	}
+	conn, _ := sbxDial("apps/cs", "alice")
+	waitFor(t, "the command to be stopped", func() bool {
+		execs, err := conn.ExecList(context.Background(), a.ID)
+		return err == nil && len(execs) == 1 && execs[0].State != "running"
+	})
+	if j, _ := ag.db.job(conv.ID, 1); j == nil || j.State != "killed" {
+		t.Fatalf("the job: %+v", j)
+	}
+}
+
 // A start the manager never answered may have started all the same: the
 // job stays, named, and bash_output finds its command by its clientId —
 // it never runs twice.
