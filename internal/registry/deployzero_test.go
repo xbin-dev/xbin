@@ -24,7 +24,7 @@ func TestDeploymentFieldsZeroState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.PinnedPrimary != nil || r.ScopeResources != nil {
+	if r.PinnedPrimary != nil {
 		t.Fatal("a fresh registry has deployment hooks installed")
 	}
 	want := []string{"apps/broken", "apps/crm", "apps/crm+dev", "apps/page"}

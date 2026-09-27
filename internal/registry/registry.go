@@ -492,11 +492,6 @@ type Registry struct {
 	// the deployment-level fields follow the primary's code (P9). An O(1)
 	// lookup that answers false for every other path; nil means today's scan.
 	PinnedPrimary func(rel string) (*PinnedCode, bool)
-	// ScopeResources is never called: a pinned primary's scope declarations
-	// arrive through PinnedPrimary, as PinnedCode.Scope, which Rescan
-	// composes with the checkpoint's importMap. It goes, with its wiring in
-	// boot and the plane.
-	ScopeResources func(scope string) (map[string]Resource, bool)
 
 	mu         sync.RWMutex
 	components map[string]*Component
