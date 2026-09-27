@@ -949,12 +949,12 @@ write the agent made in between comes back as a 409 instead of being lost.
 A conversation can work in a **coding sandbox**: a box with a shell, a
 filesystem and the tools of a job, run by a **sandbox manager** — a tile
 that implements the `sandbox-manager` contract (docs/sandbox-manager.md;
-the builtin `coding-sandbox` template, or anyone's own). The agent holds no
+the builtin `coding-sandbox` template once it ships, or anyone's own). The agent holds no
 sandboxes itself.
 
 **Where they come from.** The manifest's `sandboxes` interface slot (`http`,
 service `sandbox-manager`, multi): `bx bind <this component>
-sandboxes+=apps/coding-sandbox`, or the binding panel. Several managers may
+sandboxes+=apps/<manager>`, or the binding panel. Several managers may
 be bound at once; rebinding restarts the backend; unbound, there are no
 sandboxes. The agent says `hello` to each (protocol 1; cached five minutes)
 and ignores — listing it with the reason — one that speaks another protocol

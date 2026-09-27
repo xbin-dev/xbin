@@ -48,7 +48,7 @@
     "llm": { "kind": "http", "service": "openai", "multi": true },
     "mcp": { "kind": "http", "service": "mcp", "multi": true },
     // Coding sandboxes (D115): one or more sandbox managers — the builtin
-    // coding-sandbox template, or any tile that provides service
+    // coding-sandbox template once it ships, or any tile that provides service
     // "sandbox-manager" (docs/sandbox-manager.md). A conversation of a class
     // with the sandbox toolset works in one of their sandboxes; the binding
     // is the grant. Unbound = no sandboxes.

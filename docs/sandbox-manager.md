@@ -11,9 +11,10 @@ them), anything else. The split (D115):
 - **The consumer knows who and why:** the people it acts for, its own
   conversations, which of its users may use which sandbox.
 
-The builtin manager is the `coding-sandbox` template (VM sandboxes on
-xbind's own runtime). Any tile that implements the routes below is a
-manager too — one that runs sandboxes on a cloud over its API and ssh, for
+The builtin manager will be the `coding-sandbox` template (VM sandboxes
+on xbind's own runtime; it is on its way — until then the reference
+manager below is the one to test against). Any tile that implements the
+routes below is a manager — one that runs sandboxes on a cloud over its API and ssh, for
 example. This page is the contract, **protocol 1**.
 
 ## Wiring
@@ -32,7 +33,7 @@ A consumer requests it; several managers can be bound at once:
 "interfaces": { "sandboxes": { "kind": "http", "service": "sandbox-manager", "multi": true } }
 ```
 
-The owner binds them — `bx bind apps/agent sandboxes+=apps/coding-sandbox`,
+The owner binds them — `bx bind apps/agent sandboxes+=apps/<manager>`,
 or the binding panel — and the binding grants the consumer the `consumer`
 role. The consumer's backend finds its managers in
 `XBIN_IFACE_SANDBOXES` (`[{provider, instance?, url, service}]`) and calls
@@ -84,6 +85,10 @@ body (a sandboxed page can't set custom request headers).
 - **`?wait=<seconds>`** (up to `limits.waitMaxSec`) on any lifecycle call
   returns when the transition is done or the wait runs out; the resource
   returned always says where it stands.
+- **Limits.** A request parameter above its `hello.limits` value
+  (`maxOutput`, `timeoutMs`, an output read's `max` and `waitMs`, `?wait`)
+  is clamped to it, never refused; a body over one (a file over `fileMax`,
+  a tar over `tarMax`) is `too-large`.
 - **Idempotency.** `clientId` on creates (unique per consumer), execs and
   snapshots (unique per consumer and sandbox): repeating it returns the
   existing object (200); reusing it for a different request is `exists`.
@@ -239,7 +244,8 @@ hour or the last 50 per sandbox.
 Offsets count bytes of the stream from its beginning. The answer carries
 the bytes from `since` (or the ring's oldest, `start > since` meaning the
 gap was dropped) up to `end`. With nothing past `since` and the exec still
-running it waits up to `waitMs` for more. `text` is UTF-8 with invalid bytes
+running it waits up to `waitMs` for more — and answers as soon as the exec
+ends. `text` is UTF-8 with invalid bytes
 replaced; `base64` is exact. A reader resumes from the last `end` it saw —
 across its own restarts, too.
 
