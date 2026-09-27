@@ -454,6 +454,8 @@ func TestLiveVM(t *testing.T) {
 		}
 	})
 
+	testLiveVMSnapshots(t, lv) // snapshot_live_linux_test.go
+
 	t.Run("delete", func(t *testing.T) {
 		le.t = t
 		d, _ := le.m.defs.get(le.k, "vm-1")

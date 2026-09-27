@@ -57,6 +57,37 @@ func main() {
 			fail(err.Error())
 		}
 		fmt.Printf("%d:%d\n", st.Uid, st.Gid)
+	case "ls": // dir: its entries' names, one line, sorted ("-" for none)
+		ents, err := os.ReadDir(a[0])
+		if err != nil {
+			fail(err.Error())
+		}
+		var names []string
+		for _, e := range ents {
+			names = append(names, e.Name())
+		}
+		if len(names) == 0 {
+			names = []string{"-"}
+		}
+		fmt.Println(strings.Join(names, " "))
+	case "rm": // path: removed, and everything under it
+		if err := os.RemoveAll(a[0]); err != nil {
+			fail(err.Error())
+		}
+		fmt.Println("ok")
+	case "exists": // path: yes | no
+		if _, err := os.Lstat(a[0]); err == nil {
+			fmt.Println("yes")
+		} else {
+			fmt.Println("no")
+		}
+	case "chown": // path uid gid
+		uid, _ := strconv.Atoi(a[1])
+		gid, _ := strconv.Atoi(a[2])
+		if err := os.Lchown(a[0], uid, gid); err != nil {
+			fail(err.Error())
+		}
+		fmt.Println("ok")
 	case "chown-r": // path: it and everything under it back to root
 		err := filepath.WalkDir(a[0], func(p string, _ fs.DirEntry, err error) error {
 			if err != nil {

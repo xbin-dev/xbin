@@ -600,7 +600,8 @@ func testLive(t *testing.T, bin, rootfs string) {
 		}
 	})
 
-	testLivePolicy(t, le) // live_policy_linux_test.go
+	testLivePolicy(t, le)                  // live_policy_linux_test.go
+	testLiveSnapshots(t, le, rootfs == "") // snapshot_live_linux_test.go
 
 	t.Run("delete", func(t *testing.T) {
 		le.t = t
