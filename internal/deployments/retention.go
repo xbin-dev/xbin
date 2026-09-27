@@ -163,6 +163,28 @@ func (p *Plane) referenced(tile string) []string {
 	return out
 }
 
+// RetainedTrees answers the runner's Retained hook: tile's retained
+// checkpoint trees (artifactKeep), which the env-layer GC keeps the layers
+// of. A tile no record governs retains none; a record or deploy log that
+// can't be read answers ok false, and the GC then keeps every layer.
+func (p *Plane) RetainedTrees(tile string) ([]string, bool) {
+	rec, err := p.record(tile)
+	switch {
+	case err != nil:
+		return nil, false
+	case rec == nil:
+		return nil, true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), retainTime)
+	defer cancel()
+	keep, err := p.artifactKeep(ctx, tile)
+	if err != nil {
+		warn("reading the deploy log; every env layer is kept", tile, err)
+		return nil, false
+	}
+	return keep, true
+}
+
 // artifactKeep is what PruneArtifacts keeps of tile, sorted: every
 // checkpoint tile references, and for each of its deployments the
 // checkpoints of its newest successful deploy-log entries — the

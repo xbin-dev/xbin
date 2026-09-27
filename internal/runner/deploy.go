@@ -86,6 +86,11 @@ type DeploymentHooks struct {
 	// tile manager set lower ones, never above the tile's ceilings (P22).
 	// nil: the caps installed on Cgroup, today's.
 	LimitsFor func(tile, dep string) cgroup.Limits
+	// Retained lists tile's retained checkpoint trees: each deployment's
+	// current checkpoint and its roll-back targets, whose env layers the
+	// env-layer GC keeps. ok false: they can't be read, so every layer is
+	// kept. nil: none are retained.
+	Retained func(tile string) (trees []string, ok bool)
 }
 
 // primary names tile's primary deployment.

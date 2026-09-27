@@ -541,7 +541,8 @@ func (st *State) stepProxy() error {
 	dp := st.Deployments
 	dp.TileEnv = brk.EnvFor
 	run.DeploymentHooks = runner.DeploymentHooks{CodeFor: dp.CodeFor, Primary: dp.Primary,
-		View: dp.View, Materialize: dp.Materialize, EnvFor: dp.EnvFor, LimitsFor: dp.LimitsFor}
+		View: dp.View, Materialize: dp.Materialize, EnvFor: dp.EnvFor, LimitsFor: dp.LimitsFor,
+		Retained: dp.RetainedTrees}
 	// Approving a net:*/res:*/gpu:* grant restarts the caller so the new egress
 	// policy / resource env / GPU devices (all captured at spawn) take effect now:
 	// every deployment of the tile with a generation, since authority is per tile.
