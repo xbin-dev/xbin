@@ -184,12 +184,13 @@ export function sandboxPicker(list, conv, me, opts = {}) {
     { id: 'team', label: 'Team', rows: rest.filter((s) => !s.mine && s.visibility === 'team').map((s) => row(s)) },
   ].filter((g) => g.rows.length);
   // a pick that is not listed still says itself — and, once the list is
-  // read, why it can't be used (gone, its manager unbound or down)
+  // read, why it can't be used (gone, its manager unbound or down, or listed
+  // but no longer yours to use)
   let stale = '';
   if (value && !groups.some((g) => g.rows.some((r) => r.value === value))) {
     const b = active;
     const name = b.name || splitRef(value).id;
-    stale = list && list.loaded ? brokenWhy(b, cls, list) || 'gone — its manager no longer has it' : '';
+    stale = list && list.loaded ? brokenWhy(b, cls, list) || (find(list, value) ? 'you may no longer use it' : 'gone — its manager no longer has it') : '';
     groups.unshift({ id: 'picked', label: conv ? 'This conversation' : 'Picked', rows: [{ value, name,
       label: `${name}${stale ? ' · unavailable' : ''}`, detail: '', state: '', egress: b.egress || '', on: true, disabled: false, why: stale }] });
   }

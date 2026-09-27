@@ -97,6 +97,10 @@ test('the picker: only where the class has the sandbox toolset; grouped; the rea
   assert.deepEqual(gone.groups[0].rows.map((r) => [r.value, r.on, r.label]), [[`${MGR}|x`, true, 'x · unavailable']]);
   assert.match(gone.groups[0].rows[0].why, /^gone/);
   assert.match(gone.notes[0], /^x: gone .* — pick another$/);
+  // listed, but no longer yours to use (made private, you removed): not "gone"
+  const locked = S.sandboxPicker(list([sb('x', { mine: false, canUse: false, canManage: false })]), null, {}, { cls: coding, pick: { ref: `${MGR}|x`, name: 'x' } });
+  assert.equal(locked.stale, 'you may no longer use it');
+  assert.deepEqual(locked.groups.map((g) => g.id), ['picked']);
   const unbound = S.sandboxPicker(list([], []), null, {}, { cls: coding, pick: { ref: `${MGR}|x`, name: 'x' } });
   assert.match(unbound.stale, /its manager \(apps\/coding-sandbox\) is no longer bound/);
   // a viewer's New says why (review: a viewer was offered New "for this conversation")
