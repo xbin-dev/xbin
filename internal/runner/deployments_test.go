@@ -1151,7 +1151,6 @@ func TestDeploymentsHelperProcess(t *testing.T) {
 // own rebuild. A caller that acts on a named deployment calls
 // EnsureDeployment instead, annotated.
 var ensureCallers = map[string]bool{
-	"internal/proxy/proxy.go ServeHTTP":        true, // /api/ proxy: a bare URL (WP-37 moves qualified ones)
 	"internal/proxy/ingress.go ForwardIngress": true, // public HTTP ingress
 	"internal/runner/ingress.go DialInto":      true, // L4 streams, hairpin, stream interfaces
 	"internal/runner/alwayson.go aoStart":      true, // alwaysOn: the primary's (07-runtime §11)

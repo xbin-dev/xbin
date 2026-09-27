@@ -3,15 +3,17 @@ package boot
 import (
 	"testing"
 
+	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // covers P5 P14 P22 PO-2 PO-3 PO-8 — boot installs the hooks wave 2.2's work
 // packages reach xbind through: the runner's alwaysOn switch, per-deployment
-// env and spawn hold, and the plane's data namespace and vault acts. Through
-// them a zero-state workspace answers today's: no switch is on, each tile's
-// main spawns under the tile's own gate with today's env and no remap, main's
-// data is original, and the primary has no placeholders.
+// env and spawn hold, the plane's data namespace and vault acts, and the
+// proxy's Route and deployment lookup. Through them a zero-state workspace
+// answers today's: no switch is on, each tile's main spawns under the tile's
+// own gate with today's env and no remap, main's data is original, the
+// primary has no placeholders, and a tile's self-call reaches main.
 func TestDeploymentsWiringWave22(t *testing.T) {
 	if testing.Short() {
 		t.Skip("boots a workspace")
@@ -24,6 +26,7 @@ func TestDeploymentsWiringWave22(t *testing.T) {
 		"plane.ResetData":            dp.ResetData != nil, "plane.DropData": dp.DropData != nil,
 		"plane.DataOf": dp.DataOf != nil, "plane.JoinData": dp.JoinData != nil,
 		"plane.VaultCopy": dp.VaultCopy != nil, "plane.VaultPlaceholders": dp.VaultPlaceholders != nil,
+		"proxy.Route": st.Proxy.Route != nil, "proxy.Deployments": st.Proxy.Deployments != nil,
 	} {
 		if !set {
 			t.Errorf("the hook %s is not installed", name)
@@ -48,6 +51,9 @@ func TestDeploymentsWiringWave22(t *testing.T) {
 		}
 		if ph, err := dp.VaultPlaceholders(c.Path, util.MainDeployment); len(ph) != 0 || err != nil {
 			t.Errorf("%s: the primary's placeholders %v, %v", c.Path, ph, err)
+		}
+		if d := st.Proxy.Route(auth.Principal{Component: c.Path, Via: "instance"}, c, ""); d.Deny != nil || d.Deployment != util.MainDeployment {
+			t.Errorf("%s: a self-call routes to %+v; want main", c.Path, d)
 		}
 	}
 }

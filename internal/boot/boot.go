@@ -530,6 +530,12 @@ func (st *State) stepVault() error {
 func (st *State) stepProxy() error {
 	reg, run, hub, brk, userStore := st.Reg, st.Run, st.Hub, st.Broker, st.Users
 	px := &proxy.Proxy{Reg: reg, Runner: run, Hub: hub, Policy: brk.Policy}
+	// Which deployment a call reaches, and in what role (09-fabric §4): the
+	// broker's Route, over qualified refs the plane's records resolve.
+	px.Route = func(p auth.Principal, c *registry.Component, q string) proxy.Decision {
+		return proxy.Decision(brk.Route(p, c, q))
+	}
+	px.Deployments = st.Deployments
 	// D29: backends get the driving user attributed (X-XBin-User[-Level]).
 	px.UserLevel = func(uid, tile string) string {
 		acc, ok := userStore.Access(uid)
