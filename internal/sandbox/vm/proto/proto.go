@@ -168,7 +168,9 @@ type Msg struct {
 	Error   string  `json:"error,omitempty"`
 	Dump    string  `json:"dump,omitempty"` // dump: the guest's report, plain text
 	// Group makes "signal" kill(-pgid): every session leads its own
-	// process group (setsid), so the group is its pid's.
+	// process group (setsid), so the group is its pid's. It still reaches
+	// the group for 15 s after the session's process ended — the
+	// members that outlived it (a timeout's KILL after its grace).
 	Group bool `json:"group,omitempty"`
 	// Pid is "started"'s process id, in the sandbox's pid namespace.
 	Pid int `json:"pid,omitempty"`

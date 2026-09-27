@@ -419,7 +419,9 @@ func outOfResources(msg string) bool {
 }
 
 // timeout is its timeoutMs passing: TERM to its group, then KILL after
-// termGrace. It ends killed.
+// termGrace. It ends killed. The KILL stays armed when the exec ends first:
+// a member that ignored the TERM and outlived its leader goes too (the
+// agent still signals an ended session's group, agentcore).
 func (e *execRec) timeout() {
 	e.mu.Lock()
 	if e.state != ExecRunning {
@@ -427,7 +429,7 @@ func (e *execRec) timeout() {
 		return
 	}
 	e.timedOut = true
-	e.timers = append(e.timers, time.AfterFunc(termGrace, func() { _ = e.signalGroup(syscall.SIGKILL, true) }))
+	time.AfterFunc(termGrace, func() { _ = e.signalGroup(syscall.SIGKILL, true) })
 	e.mu.Unlock()
 	_ = e.signalGroup(syscall.SIGTERM, true)
 }

@@ -235,6 +235,32 @@ func testLiveExecs(t *testing.T, le *liveEnv, mode string, hasShell bool) {
 		le.liveGone("ex-1", pid)
 	})
 
+	t.Run("a run's timeout kills a member that outlives its leader", func(t *testing.T) {
+		le.t = t
+		// the leader dies of the TERM; its child ignores it and lives on
+		// until the KILL after the grace, which still reaches the group
+		r := le.liveRun("ex-1", map[string]any{"argv": []string{probeBin, "orphan", "100s"}, "timeoutMs": 500})
+		if !r.TimedOut || r.Signal != "TERM" || r.ExitCode != nil {
+			t.Fatalf("a timeout: %+v", r)
+		}
+		f := strings.Fields(r.Stdout.Head)
+		if len(f) < 2 {
+			t.Fatalf("no child: %q", r.Stdout.Head)
+		}
+		pid, _ := strconv.Atoi(f[1])
+		if a := le.liveRun("ex-1", map[string]any{"argv": []string{probeBin, "alive", f[1]}}); strings.TrimSpace(a.Stdout.Head) != "alive" {
+			t.Fatalf("the member ignoring TERM is gone before the grace: %q", a.Stdout.Head)
+		}
+		le.liveGone("ex-1", pid)
+		// and an exec's timeout the same
+		x := le.liveExec("ex-1", map[string]any{"argv": []string{probeBin, "orphan", "100s"}, "timeoutMs": 500})
+		pid = le.liveChild("ex-1", x.ID)
+		if e := le.liveEnded("ex-1", x.ID); e.State != ExecKilled || e.Signal != "TERM" {
+			t.Fatalf("the exec: %+v", e)
+		}
+		le.liveGone("ex-1", pid)
+	})
+
 	t.Run("a hang-up kills the group", func(t *testing.T) {
 		le.t = t
 		srv := le.server(mgr)

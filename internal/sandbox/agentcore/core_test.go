@@ -283,6 +283,76 @@ func TestGroupSignal(t *testing.T) {
 	}
 }
 
+// TestGroupSignalAfterExit: a member that outlived its session's process
+// (it ignored the TERM that ended the leader) still gets a group signal sent
+// to the ended session — a timeout's KILL after its grace — but only within
+// groupAfterlife, and only as a group signal.
+func TestGroupSignalAfterExit(t *testing.T) {
+	h := newHarness(t, nil)
+	orphan := func(session int) int {
+		t.Helper()
+		ss := h.exec(proto.Exec{Session: session, Argv: sh("(trap '' TERM; exec sleep 60) >/dev/null 2>&1 & echo $!"), Merge: true, NoStdin: true})
+		line, err := bufio.NewReader(ss["stdout"]).ReadString('\n')
+		if err != nil {
+			t.Fatal(err)
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(line))
+		if err != nil {
+			t.Fatalf("pid line %q", line)
+		}
+		t.Cleanup(func() { _ = unix.Kill(pid, unix.SIGKILL) })
+		if m := h.wait(session, "exited"); m.Code != 0 {
+			t.Fatalf("exited %+v", m)
+		}
+		return pid
+	}
+	gone := func(pid int) bool {
+		for end := time.Now().Add(5 * time.Second); alive(pid); time.Sleep(20 * time.Millisecond) {
+			if time.Now().After(end) {
+				return false
+			}
+		}
+		return true
+	}
+
+	pid := orphan(2)
+	h.send(proto.Msg{Op: "signal", Session: 2, Signal: int(unix.SIGTERM), Group: true})
+	h.send(proto.Msg{Op: "signal", Session: 2, Signal: int(unix.SIGKILL)}) // not a group signal: the process is gone
+	time.Sleep(200 * time.Millisecond)
+	if !alive(pid) {
+		t.Fatal("a TERM it ignores, or a signal without group, ended the member")
+	}
+	h.send(proto.Msg{Op: "signal", Session: 2, Signal: int(unix.SIGKILL), Group: true})
+	if !gone(pid) {
+		t.Fatalf("the member %d outlived a group KILL to its ended session", pid)
+	}
+
+	// a number that came round to a live session's group is left alone
+	h.exec(proto.Exec{Session: 4, Argv: []string{"sleep", "60"}, Merge: true, NoStdin: true})
+	started := h.wait(4, "started")
+	h.core.mu.Lock()
+	h.core.ended[5] = endedGroup{pgid: started.Pid, until: time.Now().Add(time.Minute)}
+	h.core.mu.Unlock()
+	h.send(proto.Msg{Op: "signal", Session: 5, Signal: int(unix.SIGKILL), Group: true})
+	time.Sleep(200 * time.Millisecond)
+	if !alive(started.Pid) {
+		t.Fatal("a group signal to an ended session reached a live session's group")
+	}
+	h.send(proto.Msg{Op: "signal", Session: 4, Signal: int(unix.SIGKILL), Group: true})
+	h.wait(4, "exited")
+
+	// past the afterlife the group is forgotten
+	was := groupAfterlife
+	groupAfterlife = 0
+	t.Cleanup(func() { groupAfterlife = was })
+	pid = orphan(3)
+	h.send(proto.Msg{Op: "signal", Session: 3, Signal: int(unix.SIGKILL), Group: true})
+	time.Sleep(200 * time.Millisecond)
+	if !alive(pid) {
+		t.Fatal("a group signal past the afterlife reached the member")
+	}
+}
+
 func TestExitedSignal(t *testing.T) {
 	h := newHarness(t, nil)
 	h.exec(proto.Exec{Session: 2, Argv: []string{"sleep", "60"}, Merge: true, NoStdin: true})

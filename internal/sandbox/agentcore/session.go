@@ -317,6 +317,7 @@ func (s *session) run() error {
 	}
 	s.c.mu.Lock()
 	s.c.retireLocked(s.id, s)
+	s.c.endedLocked(s.id, s.pid)
 	s.c.mu.Unlock()
 	s.c.send(proto.Msg{Op: "exited", Session: s.id, Code: code, Signal: sig})
 	return nil

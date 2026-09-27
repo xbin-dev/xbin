@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -167,6 +168,18 @@ func main() {
 		if len(a) > 1 {
 			_ = os.WriteFile(a[1], []byte(strconv.Itoa(child.Process.Pid)), 0o644)
 		}
+		d, _ := time.ParseDuration(a[0])
+		time.Sleep(d)
+	case "orphan": // dur: a child in its process group that ignores TERM, sleeping dur; its pid printed; then sleeps dur itself
+		child := exec.Command(os.Args[0], "sleep-noterm", a[0]) // exec-ok: the test probe, run inside a sandbox
+		if err := child.Start(); err != nil {
+			fail(err.Error())
+		}
+		fmt.Printf("child %d\n", child.Process.Pid)
+		d, _ := time.ParseDuration(a[0])
+		time.Sleep(d)
+	case "sleep-noterm": // dur: sleeps, TERM ignored
+		signal.Ignore(syscall.SIGTERM)
 		d, _ := time.ParseDuration(a[0])
 		time.Sleep(d)
 	case "alive": // pid: alive, or gone (a zombie is gone)

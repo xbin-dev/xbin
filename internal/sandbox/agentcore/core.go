@@ -73,6 +73,11 @@ type Core struct {
 	sessions   map[int]*session
 	retired    map[int]bool // ids that ran (or were pruned): never run again
 	retiredQ   []int
+	// ended keeps, for groupAfterlife, the process group of each session
+	// whose process ended: a group "signal" to it still reaches the members
+	// that outlived their leader — a timeout's KILL after its grace
+	// (plans/tile-sandbox-runtime.md §3.6: TERM to the group, then KILL).
+	ended map[int]endedGroup
 
 	sendMu sync.Mutex // one event line at a time
 	wmu    sync.Mutex // file writes: a precondition and its rename are one step
@@ -101,6 +106,7 @@ func New(o Options) *Core {
 		configured: o.Configure == nil,
 		sessions:   map[int]*session{},
 		retired:    map[int]bool{},
+		ended:      map[int]endedGroup{},
 	}
 }
 
@@ -200,6 +206,8 @@ func (c *Core) command(m proto.Msg) {
 	case "signal":
 		if s := c.session(m.Session); s != nil {
 			s.signal(m.Signal, m.Group)
+		} else if m.Group {
+			c.signalEnded(m.Session, m.Signal)
 		}
 	case "sync":
 		// the host is ending the sandbox (a terminal closed, xbind is
@@ -289,6 +297,64 @@ func (c *Core) retireLocked(id int, s *session) {
 			c.retiredQ = c.retiredQ[1:]
 		}
 	}
+}
+
+// groupAfterlife is how long an ended session's process group can still be
+// signalled: longer than the TERM → KILL grace its peer keeps (5 s), and
+// short, so the group's number can't have come round to another group.
+var groupAfterlife = 15 * time.Second
+
+// endedGroup is an ended session's process group (its pid: setsid) and
+// until when a group signal still reaches it.
+type endedGroup struct {
+	pgid  int
+	until time.Time
+}
+
+// endedLocked remembers session id's process group, which its process
+// (pid) led, once that process has ended. Callers hold c.mu.
+func (c *Core) endedLocked(id, pid int) {
+	if pid <= 0 {
+		return
+	}
+	now := time.Now()
+	for k, g := range c.ended {
+		if now.After(g.until) {
+			delete(c.ended, k)
+		}
+	}
+	c.ended[id] = endedGroup{pgid: pid, until: now.Add(groupAfterlife)}
+}
+
+// signalEnded sends sig to the process group of session id, which ended
+// within groupAfterlife: the members that outlived their leader. The group
+// number can't have been reused meanwhile while any of them lives (the
+// kernel keeps a pgid in use); once none does, the kill finds nothing —
+// unless the number came round to a new group within the afterlife, which
+// a live session's own group (the likeliest taker) is kept from.
+func (c *Core) signalEnded(id, sig int) {
+	if sig <= 0 || sig > 64 {
+		return
+	}
+	c.mu.Lock()
+	g, ok := c.ended[id]
+	live := make([]*session, 0, len(c.sessions))
+	for _, s := range c.sessions {
+		live = append(live, s)
+	}
+	c.mu.Unlock()
+	if !ok || !time.Now().Before(g.until) {
+		return
+	}
+	for _, s := range live {
+		s.mu.Lock()
+		taken := s.pid == g.pgid
+		s.mu.Unlock()
+		if taken {
+			return
+		}
+	}
+	_ = unix.Kill(-g.pgid, unix.Signal(sig))
 }
 
 // countsLocked reports the live sessions (their exec arrived) and the

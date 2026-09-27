@@ -5,9 +5,10 @@ package tilesbx
 // past maxOutput keeps its first quarter in head and its last three
 // quarters in tail, elided bytes between; the text is UTF-8 with invalid
 // bytes replaced. At timeoutMs the process group gets TERM, then KILL 5 s
-// later; a caller that hangs up has the group killed. A run keeps nothing
-// past its answer and isn't listed as an exec, but counts against
-// execsRunning and holds the idle stop off while it runs.
+// later (even when its leader ended in between); a caller that hangs up
+// has the group killed. A run keeps nothing past its answer and isn't
+// listed as an exec, but counts against execsRunning and holds the idle
+// stop off while it runs.
 
 import (
 	"context"
@@ -220,13 +221,12 @@ func (m *Manager) runCommand(ctx context.Context, k Key, d *Def, req *RunRequest
 
 	var timedOut atomic.Bool
 	group := func(sig syscall.Signal) { _ = c.Signal(sess.ID(), int(sig), true) }
-	var mu sync.Mutex
-	var kill *time.Timer
+	// a timeout's KILL stays armed past the leader's end: a member that
+	// ignored the TERM and outlived it goes after the grace too (the agent
+	// still signals an ended session's group, agentcore)
 	term := time.AfterFunc(time.Duration(timeout)*time.Millisecond, func() {
 		timedOut.Store(true)
-		mu.Lock()
-		kill = time.AfterFunc(termGrace, func() { group(syscall.SIGKILL) })
-		mu.Unlock()
+		time.AfterFunc(termGrace, func() { group(syscall.SIGKILL) })
 		group(syscall.SIGTERM)
 	})
 	select {
@@ -239,11 +239,6 @@ func (m *Manager) runCommand(ctx context.Context, k Key, d *Def, req *RunRequest
 		}
 	}
 	term.Stop()
-	mu.Lock()
-	if kill != nil {
-		kill.Stop()
-	}
-	mu.Unlock()
 	ms := time.Since(t0).Milliseconds()
 	x := sess.Exit()
 	drainStreams(streams, &pumps, x.Killed)
