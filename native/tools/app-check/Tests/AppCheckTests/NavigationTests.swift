@@ -66,7 +66,7 @@ import XbinCore
         #expect(back == t)
         #expect(t.restoring(afterUncleanExit: false) == t)
         #expect(t.restoring(afterUncleanExit: true) == WindowTarget(workspace: "w1", screen: "s1"))
-        // What builds before D117 stored (no screen) still restores.
+        // What builds before D125 stored (no screen) still restores.
         let old = try #require(WindowTarget(encoded: #"{"workspace":"w1","surface":{"agent":{"cwd":"apps/x"}}}"#))
         #expect(old == WindowTarget(workspace: "w1", surface: .agent(cwd: "apps/x", session: nil)))
         let build = try #require(WindowTarget(encoded: WindowTarget(workspace: "w1", surface: .build(tile: "apps/n")).encoded))

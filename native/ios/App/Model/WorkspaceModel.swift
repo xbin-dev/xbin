@@ -21,7 +21,7 @@ final class WorkspaceModel: Identifiable {
     var catalog = Catalog(tiles: [])
     var layout = PersonalLayout()
     var shared = SharedScreens()
-    /// Home: the screens by section (HomeModel, D117).
+    /// Home: the screens by section (HomeModel, D125).
     var home = HomeModel()
     /// How this user arranged screens on their phone (the `mobile-screens`
     /// pref, per user, next to `layout`).
@@ -169,7 +169,7 @@ final class WorkspaceModel: Identifiable {
 
     /// The shell's `layout` pref, as stored. It lives in the `root` bucket
     /// (the shell is `/c/root/`), which the app's session reads without a
-    /// frame token; builds before D117 read `shell`'s (a frame token for
+    /// frame token; builds before D125 read `shell`'s (a frame token for
     /// shell), so a layout only there is still found.
     private func loadLayout() async -> XbinCore.JSONValue? {
         if let r = try? await auth.send(APIRequest("GET", LayoutPref.path)) {
@@ -184,7 +184,7 @@ final class WorkspaceModel: Identifiable {
         return try? r.json()
     }
 
-    // MARK: Screens (D117)
+    // MARK: Screens (D125)
 
     func tilesOnPhone(_ s: ScreenInfo) -> [String] { cards(for: s).map(\.path) }
 

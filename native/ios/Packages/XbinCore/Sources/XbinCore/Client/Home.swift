@@ -1,6 +1,6 @@
 import Foundation
 
-// The app's Home (plans/native.md §4, D117): the first level lists screens
+// The app's Home (plans/native.md §4, D125): the first level lists screens
 // only, by section as the web sidebar groups them —
 //
 // - **Mine**: the user's own screens (the `layout` pref), inside the

@@ -16,7 +16,7 @@ private struct PanelActiveKey: EnvironmentKey {
     static let defaultValue = true
 }
 
-/// A window's panels side by side (plans/native.md §4, D117): Home → a
+/// A window's panels side by side (plans/native.md §4, D125): Home → a
 /// screen → a tile, terminal or agent, each a full-screen panel with its
 /// own bar. The panel under the top one stays put under it, and a back
 /// that leaves a panel keeps it, off to the right, for forward:

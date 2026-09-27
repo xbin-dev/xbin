@@ -120,6 +120,7 @@ extension View {
     public func accessibilityElement(children: AccessibilityChildBehavior = .ignore) -> some View { _V(self) }
     public func accessibilityAddTraits(_ traits: AccessibilityTraits) -> some View { _V(self) }
     public func onAppear(perform action: (() -> Void)? = nil) -> some View { _V(self) }
+    public func onScrollVisibilityChange(threshold: Double = 0.5, _ action: @escaping (Bool) -> Void) -> some View { _V(self) }
     public func onTapGesture(count: Int = 1, perform action: @escaping () -> Void) -> some View { _V(self) }
     public func onChange<V: Equatable>(of value: V, initial: Bool = false, _ action: @escaping () -> Void) -> some View { _V(self) }
     public func onChange<V: Equatable>(of value: V, initial: Bool = false, _ action: @escaping (_ oldValue: V, _ newValue: V) -> Void) -> some View { _V(self) }

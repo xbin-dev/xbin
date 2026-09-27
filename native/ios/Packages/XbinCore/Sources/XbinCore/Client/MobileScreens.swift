@@ -1,6 +1,6 @@
 import Foundation
 
-// A screen on the phone (plans/native.md §4, D117): a 2-column grid of
+// A screen on the phone (plans/native.md §4, D125): a 2-column grid of
 // cards, small (one column) or wide (both). How a user arranges a screen on
 // their phone is theirs, in a pref of its own next to the web shell's
 // `layout` (the same bucket — per user, `root`), for every kind of screen
@@ -130,7 +130,7 @@ public enum LayoutPref {
     /// writes the `root` bucket: the one a request without a frame token —
     /// the app's own session — reads and writes.
     public static let path = "/api/xbin/prefs/layout"
-    /// Where builds before D117 looked: the `shell` bucket (a frame token
+    /// Where builds before D125 looked: the `shell` bucket (a frame token
     /// for `shell`). Read only when `root` has none.
     public static let legacyComponent = "shell"
     /// The bucket the shell and the app share.

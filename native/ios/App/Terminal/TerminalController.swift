@@ -67,7 +67,7 @@ final class TerminalController: NSObject {
         terminalView.keyboardAppearance = .dark
         terminalView.inputAccessoryView = AccessoryBar(controller: self)
         // Dragging the text down into the keyboard takes the keyboard down
-        // with the finger (D117); scrolling through the output is unchanged.
+        // with the finger (D125); scrolling through the output is unchanged.
         // The view must bounce vertically for a drag to start when the
         // output doesn't fill it yet.
         terminalView.keyboardDismissMode = .interactive

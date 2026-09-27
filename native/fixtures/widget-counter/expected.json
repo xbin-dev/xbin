@@ -1,4 +1,5 @@
 {"v":1,"root":{"k":"r","t":"stack","p":{"axis":"v","gap":"s","align":"center"},"c":[
-  {"k":"r.0","t":"text","p":{"style":"largeTitle","text":"42"}},
-  {"k":"r.1","t":"button","p":{"role":"primary","icon":"plus","busy":false,"label":"+1"},"e":["tap"]}
+  {"k":"r.0","t":"text","p":{"style":"caption","tone":"muted","text":"Counter"}},
+  {"k":"r.1","t":"text","p":{"style":"largeTitle","text":"42"}},
+  {"k":"r.2","t":"button","p":{"role":"primary","icon":"plus","busy":false,"label":"+1"},"e":["tap"]}
 ]}}

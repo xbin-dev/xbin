@@ -178,7 +178,7 @@ struct WorkspaceView: View {
     }
 }
 
-/// A panel's bar, leading side (D117): the workspace switcher — small, with
+/// A panel's bar, leading side (D125): the workspace switcher — small, with
 /// what needs you — then the way back: ▦ Home on a screen, ‹ the screen's
 /// name on a tile. The title and the trailing items are the panel's own.
 struct PanelBar: ViewModifier {

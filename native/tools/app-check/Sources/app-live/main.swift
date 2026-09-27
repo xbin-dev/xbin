@@ -204,7 +204,7 @@ let tokens = FrameTokenCache { comp in
     return t
 }
 // The shell's layout pref lives in the root bucket: the device session
-// (no frame token) reads it; the pre-D117 app looked in `shell`'s (a
+// (no frame token) reads it; the pre-D125 app looked in `shell`'s (a
 // frame token for shell), which the shell never wrote.
 let layoutResp = try await auth.send(APIRequest("GET", LayoutPref.path))
 check(layoutResp.status == 200 || layoutResp.status == 404, "the shell's layout pref in the root bucket (\(layoutResp.status))")

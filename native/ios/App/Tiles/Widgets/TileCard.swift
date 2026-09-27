@@ -2,7 +2,7 @@ import SwiftUI
 import XbinCore
 import XbinRenderer
 
-/// One tile on a phone screen (D117): the tile's native widget when it has
+/// One tile on a phone screen (D125): the tile's native widget when it has
 /// sent one, else the standard card. The screen grid (App/Shell/Screens)
 /// draws every tile through this.
 ///

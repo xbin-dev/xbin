@@ -3687,3 +3687,58 @@ Deviations and refinements made while implementing; all deliberate:
     was rendering); `content-visibility: auto` (estimated heights shift as
     rows paint in, which is the jump this avoids); windowing a subagent
     card's children (rendered only while the card is open).
+
+- **D125 — The app's screens: panels you swipe between, the phone's own
+  arrangement, tile widgets, create-a-tile, and no Safari (2026-09-27).**
+  native/ios App/Shell (PanelStack, Screens/), App/Tiles/Widgets, XbinCore
+  Client/{Home,MobileScreens,TileCreate,WidgetStore}.swift; web/xb-native.js
+  + web/xb/rt-runtime.js; internal/obs/prefs.go; workspace-template/shell/
+  layout-sync.js; native/spec/tree.md §13, docs/native.md §Widgets,
+  docs/protocol.md (the `prefs` event). The owner's direction after using
+  TestFlight build 3 on a phone.
+  - **Panels, not a root swap.** A window is Home → a screen → a tile (or a
+    terminal/agent), side by side: a left-edge swipe goes back
+    (interactive — let go early and it snaps back, a peek), a right-edge
+    swipe right after goes forward to what you left; any new navigation
+    drops that. A native tile's own stack pops first; web views give the
+    edges up (their page back is a bar item). The panel you left stays
+    mounted, so forward is instant. Before, opening a tile replaced the
+    root: no back, and no way home.
+  - **Home lists screens** (owner's choice), by Mine / each org / Workspace
+    inside their folders, as the web sidebar files them; shortcuts on top,
+    search and All tiles at the bottom, + New screen. The workspace
+    default shows while the user has no screen of their own, as the shell
+    seeds.
+  - **A phone arrangement per user** (owner's choice): the `mobile-screens`
+    pref (same bucket as `layout`) holds each screen's order, small/wide
+    and hidden tiles; unset, the web layout's order. It never writes the
+    web layout — the shell rewrites that object whole on its saves — except
+    that a tile created on a personal screen also lands there at a free
+    spot. Edit mode is a list editor (reorder handles, small/wide, hide),
+    sturdier and accessible than dragging cards. The app read the layout
+    from the wrong prefs bucket (`shell`; the shell's is `root`) — fixed,
+    with a fallback read.
+  - **Widgets** (owner's choice: this round). A native tile may render a
+    second, small tree with `widget()` — its card, `small` or `wide`,
+    stack/text/icon/badge/chart/progress/button/row only. The runtime sends
+    it only to an app whose caps list the feature `widget` (old apps see
+    byte-identical traffic); widget errors carry `target: "widget"` and
+    fall back to the standard card, never the tile. The app keeps at most
+    6 live runtimes (LRU; the open tile never goes), shows a cached widget
+    tree when a tile isn't live, and treats a tile that sends no widget
+    within 3 s of its first render as having none. Every other tile gets
+    the standard card (icon, title, badge, status dot).
+  - **Create a tile on the phone**: name + owner (the shell's choices) →
+    `POST /api/xbin/create` → the tile opens on "What should this tile
+    be?": a prompt for an agent, or a terminal.
+  - **No Safari.** Chrome tiles (the admin console and the like), which
+    need the user's own session, open in an in-app web view with a cookie
+    store of its own, signed in by redeeming the web ticket (D100) inside
+    it. The web ticket stays; the Safari hand-offs go.
+  - **Prefs, shared by two editors now:** writes are serialized per bucket
+    (writes to different keys could lose each other), and every write
+    publishes a `prefs` event to the user's own clients with an optional
+    writer id; the shell reloads its layout on another client's write
+    unless an edit is in progress (existing workspaces: `bx builtin
+    update`).
+

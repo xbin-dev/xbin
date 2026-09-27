@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import XbinCore
 
-// A tile's widget (D117): the `target:"widget"` tree messages, the widget
+// A tile's widget (D125): the `target:"widget"` tree messages, the widget
 // store inside a TreeStore, the calls back, the caps, the on-disk cache
 // and the runtime pool's policy.
 

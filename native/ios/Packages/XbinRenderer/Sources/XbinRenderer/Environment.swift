@@ -102,7 +102,7 @@ public struct XbinRenderOptions: Sendable, Equatable {
     /// modal presentation.
     public var inlineSheets: Bool
     /// Draw the tree as a tile's widget on a phone screen's card of this
-    /// size (D117): the root fills the frame it is given — the card's
+    /// size (D125): the root fills the frame it is given — the card's
     /// content area, ``XbinWidgetMetrics`` — from the top leading corner,
     /// with no scroll view and no margins, and is clipped to it; controls
     /// are the regular size. Taps outside the widget's controls fall

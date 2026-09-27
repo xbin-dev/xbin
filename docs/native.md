@@ -74,6 +74,7 @@ const paint = () => {
   // +1 — side by side when the card is wide. An app without widgets ignores it.
   widget(html`
     <stack axis=${native.widgetSize === 'wide' ? 'h' : 'v'} gap="s" align="center">
+      <text style="caption" tone="muted">Counter</text>
       <text style="largeTitle">${count ?? '…'}</text>
       <button role="primary" icon="plus" ?busy=${busy} @tap=${inc}>+1</button>
     </stack>`);

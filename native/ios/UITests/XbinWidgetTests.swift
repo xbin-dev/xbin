@@ -1,6 +1,6 @@
 import XCTest
 
-/// Tile widgets on the phone's screens (D117, native/spec/tree.md §13), end
+/// Tile widgets on the phone's screens (D125, native/spec/tree.md §13), end
 /// to end on a simulator against the e2e xbind (native/AGENTS.md → "Mac
 /// mini"): the native counter (examples/counter-go) draws its widget on the
 /// screen's card — the count and a +1 — and the +1 on the card increments

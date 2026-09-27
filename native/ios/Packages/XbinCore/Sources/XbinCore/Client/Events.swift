@@ -40,7 +40,7 @@ public enum AppEvent: Sendable, Equatable {
     case session(id: String, component: String, frame: String)
     /// A tile reported its condition (`status`).
     case tileStatus(component: String, level: String, message: String, transient: Bool = false)
-    /// One of the user's pref buckets changed (`prefs`, D117): the bucket
+    /// One of the user's pref buckets changed (`prefs`, D125): the bucket
     /// (`root` for the shell's), the key, and the writer the request named
     /// (`X-Prefs-Writer`; "" when none) — a client skips its own.
     case prefs(component: String, key: String, writer: String)

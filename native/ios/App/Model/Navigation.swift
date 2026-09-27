@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import XbinCore
 
-// A window's navigation in one workspace (plans/native.md §4, §15; D117):
+// A window's navigation in one workspace (plans/native.md §4, §15; D125):
 // panels you swipe between — Home (level 0: the workspace's screens) →
 // a Screen (1: its tiles as cards) → a tile, terminal or agent (2: full
 // screen) — one PanelStack per window. Back is a left-edge swipe (or the

@@ -1,7 +1,8 @@
 import SwiftUI
 import XbinCore
+import XbinRenderer
 
-/// A screen on the phone, the second panel (plans/native.md §4, D117): its
+/// A screen on the phone, the second panel (plans/native.md §4, D125): its
 /// tiles as cards in two columns — small (one) or wide (both) — in the
 /// user's phone arrangement (MobileScreens' merge rule). A card is the
 /// tile's own widget when it draws one, else the standard card (TileCard);
@@ -18,7 +19,7 @@ struct ScreenView: View {
     @State private var problem: String?
 
     /// A card's height; a wide one is as tall, twice as wide.
-    static let cardHeight: CGFloat = 158
+    static let cardHeight: CGFloat = XbinWidgetMetrics.cardHeight
 
     private var screen: ScreenInfo? { workspace.home.screen(screenID) }
 

@@ -4,7 +4,7 @@ import XbinCore
 import XbinRendererModel
 import XbinTerm
 
-/// Home, a workspace's first panel (plans/native.md §4, D117): its screens
+/// Home, a workspace's first panel (plans/native.md §4, D125): its screens
 /// only — Mine, each org, Workspace, inside their folders as the web
 /// sidebar files them (HomeModel) — with what needs you, the terminals and
 /// the agents on top, and search and "All tiles" at the bottom. A screen

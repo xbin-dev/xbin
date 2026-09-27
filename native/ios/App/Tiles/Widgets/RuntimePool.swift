@@ -4,7 +4,7 @@ import UIKit
 import WebKit
 import XbinCore
 
-/// The native runtimes that are live, app-wide (D117): a tile screen's and
+/// The native runtimes that are live, app-wide (D125): a tile screen's and
 /// the widgets' on a phone screen share them. At most
 /// ``NativeRuntimePool/capacity`` run — least recently used first out, an
 /// open tile never (RuntimePoolPolicy) — and a card whose runtime isn't

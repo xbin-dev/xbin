@@ -1,6 +1,6 @@
 import XCTest
 
-/// The phone's screens and panels (plans/native.md §4, D117), end to end on
+/// The phone's screens and panels (plans/native.md §4, D125), end to end on
 /// a simulator against the e2e xbind (native/AGENTS.md → "Mac mini"): Home
 /// lists the account's screens (a layout seeded as the web shell writes
 /// it), a screen shows its tiles as cards, a tile opens as the next panel;

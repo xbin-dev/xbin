@@ -15,7 +15,7 @@ import XbinRenderer
 /// No tree within 5 s, a crash, a bad patch or an unsupported primitive
 /// falls back to the web tile (§7.6).
 ///
-/// The caps ask for the tile's widget too (D117): its `target:"widget"`
+/// The caps ask for the tile's widget too (D125): its `target:"widget"`
 /// trees land in `store.widget`, drawn by a phone screen's card through
 /// ``widgetModel`` and kept in the workspace's ``WidgetCache``. Runtimes
 /// come from ``NativeRuntimePool``, which starts, parks and stops them.

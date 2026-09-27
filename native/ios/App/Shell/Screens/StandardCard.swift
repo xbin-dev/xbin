@@ -2,7 +2,7 @@ import SwiftUI
 import XbinCore
 
 /// The card every tile gets on a phone screen when it draws no widget of
-/// its own (D117): its icon, title, badge and status — the dot and, when
+/// its own (D125): its icon, title, badge and status — the dot and, when
 /// there's room, what it said — and how it runs (native, or its runtime).
 /// The screen grid gives it its frame and rounded background.
 struct StandardCard: View {

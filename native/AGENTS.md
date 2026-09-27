@@ -893,7 +893,7 @@ docked at the bottom with no software keyboard (test07). A headless
 simulator can't attach a hardware keyboard — XCUITest always brings the
 software one up — so test07 launches the app with `-XbinNoSoftKeyboard
 YES` (Debug builds: the terminal gets an empty input view).
-`XbinScreensTests` (D117) seed the account's `layout` pref as the web
+`XbinScreensTests` (D125) seed the account's `layout` pref as the web
 shell writes it (one screen, `E2E screen`, of three tiles) and clear its
 `mobile-screens`, then: Home → the screen's cards → a tile, a left-edge
 swipe back and a right-edge one forward (`E2E.edgeSwipe`: a press at the

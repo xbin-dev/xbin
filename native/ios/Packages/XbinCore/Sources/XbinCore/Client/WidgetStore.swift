@@ -1,6 +1,6 @@
 import Foundation
 
-/// The last widget each native tile drew, per workspace (D117): a phone
+/// The last widget each native tile drew, per workspace (D125): a phone
 /// screen shows it while the tile's runtime isn't live (not started yet,
 /// evicted from the runtime pool, the app just launched). One tree per card
 /// size — a small card's widget isn't a wide card's — and, for a tile whose
@@ -177,7 +177,7 @@ public final class WidgetStore {
     }
 }
 
-/// Which native runtimes stay live (D117): at most ``capacity``, least
+/// Which native runtimes stay live (D125): at most ``capacity``, least
 /// recently used first out, across the widgets on screen and the open
 /// tiles — an open tile is never evicted, and a widget scrolled off screen
 /// goes before one still showing. The app's pool keeps one of these and

@@ -1,6 +1,6 @@
 import Foundation
 
-// Creating a tile from the phone (plans/native.md §4, D117): a name and an
+// Creating a tile from the phone (plans/native.md §4, D125): a name and an
 // owner → `POST /api/xbin/create {path, title, owner?}` → the tile goes on
 // the screen (MobileScreens, and LayoutEdit for a personal screen) and opens
 // on "What should this tile be?". The owner choices are the web shell's

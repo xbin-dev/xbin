@@ -906,7 +906,7 @@ account — the bootstrap owner token has none.
   your credential.
 - **Opening a chrome tile, signed in** (D100). The app opens
   a chrome tile — one that acts as you, so never under a frame token — in a
-  web view of its own, signed in (D117; Safari before): it asks for a
+  web view of its own, signed in (D125; Safari before): it asks for a
   one-shot link (`POST /api/xbin/web-ticket`, only from a device-key
   session), valid **60 seconds**, and opens it; the browser gets an
   ordinary session of the same account and lands on the page asked for —

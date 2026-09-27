@@ -45,7 +45,7 @@ public struct XbinTreeView: View {
 }
 
 extension View {
-    /// A tile's widget inside its card (D117): the card's inset around an
+    /// A tile's widget inside its card (D125): the card's inset around an
     /// ``XbinTreeView`` drawn with ``XbinRenderOptions/compact``, filling
     /// what's left. The card itself — frame, background, shape, the tap
     /// that opens the tile — is the screen grid's (``xbinWidgetCard()``

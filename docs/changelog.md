@@ -12,6 +12,37 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-27
 
+- **xbin app: screens you swipe between** (D125, [native.md](native.md)).
+  After sign-in the app opens on **Home**, your screens by Mine / each org /
+  Workspace inside their folders; a screen shows its tiles as cards in two
+  columns; a tile opens on the right. Swipe from the left edge to go back
+  (let go early to just peek), from the right edge to go forward again.
+  **Edit** on a screen reorders, resizes (small/wide) and hides cards for
+  this phone — kept per user in the `mobile-screens` pref, never in the web
+  layout — adds tiles, and **creates** one: name it, and it opens asking
+  what it should be (a prompt for an agent, or a terminal). The top bar
+  starts with the workspace switcher (⇄); the switcher's list reads "Used
+  recently". Dragging down into the terminal's keyboard hides it. "Open in
+  Safari" is gone: web tiles open in the app, and chrome tiles (the admin
+  console) open in an in-app web view, signed in.
+- **Native tiles: a widget for the app's screens** (D125,
+  [native.md](native.md) §Widgets, `native/spec/tree.md` §13). `import {
+  widget } from '/vendor/xb-native.js'` renders a second, small tree — the
+  tile's card, `small` or `wide` (`native.widgetSize`, `native.on
+  ('widgetsize', …)`), with stack, text, icon, badge, chart, progress,
+  button and row; taps on its buttons reach the tile, taps elsewhere open
+  it. Only an app that asks gets widget trees. A tile that sends none
+  within 3 s of its first render gets the standard card. `bx native tree
+  --widget`, `bx preview --native --widget` and `bx lint --native` cover
+  it; the counter example has one.
+- **Prefs: no lost writes, and clients hear each other** (D125,
+  [protocol.md](protocol.md)). Writes to one user's prefs bucket are
+  serialized (two keys written at once could lose one), and every write
+  publishes a `prefs` event `{component, key, writer}` to that user's own
+  clients (`X-Prefs-Writer` names the writer). The shell follows a layout
+  another client wrote — the app's new screen, say — without a reload
+  (existing workspaces: `bx builtin update scaffold:shell`).
+
 - **Thin themed scrollbars, and the one you're about to scroll is tinted**
   (D123). On a mouse or trackpad every scrollbar in the shell, its pop-ups and
   terminals, and any document that links `/vendor/theme.css` is a 6px bar with

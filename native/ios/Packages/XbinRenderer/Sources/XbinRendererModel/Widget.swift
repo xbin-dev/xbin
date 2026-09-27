@@ -1,7 +1,7 @@
 import Foundation
 import XbinCore
 
-/// A phone screen's cards (D117): two columns in portrait, a `small` card
+/// A phone screen's cards (D125): two columns in portrait, a `small` card
 /// one of them, a `wide` card both, every card the same height. A tile's
 /// widget is drawn inside the card's inset (``XbinRenderOptions/compact``
 /// in the renderer); the standard card uses the same box. The app's screen

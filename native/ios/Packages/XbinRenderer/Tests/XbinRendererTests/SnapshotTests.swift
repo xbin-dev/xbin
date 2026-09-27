@@ -1,7 +1,7 @@
 // Snapshots of every fixture (plans/native.md §17, native/AGENTS.md): each
 // native/fixtures/<name>/expected.json drawn by XbinTreeView at 390×844
 // points (a widget fixture — data.json `widget` — as its card on a 390-point
-// strip of a phone screen, compact, D117), scale 2, light and dark, at three Dynamic Type sizes — default
+// strip of a phone screen, compact, D125), scale 2, light and dark, at three Dynamic Type sizes — default
 // (Large), large (xxxLarge, the size the reference renderer's "large"
 // screenshots use, so the two compare like for like) and ax2
 // (accessibility2, the overflow test) — written as

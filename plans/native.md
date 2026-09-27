@@ -132,6 +132,13 @@ workspace + one surface; a tile, terminal or agent can be dragged into a new
 window (Stage Manager). Scene state (`@SceneStorage`) restores the exact
 surface after relaunch or a fold/unfold.
 
+> **Superseded in part by D125 (2026-09-27):** a window is now panels side
+> by side — Home (screens by Mine/org/Workspace in their folders) → a
+> screen (its tiles as 2-column cards: native widgets or the standard card,
+> the phone's own arrangement in the `mobile-screens` pref) → a tile — with
+> edge swipes back and forward, and no Safari hand-off (chrome tiles open
+> signed in, in an in-app web view). See D125 in plans/DECISIONS.md.
+
 **Navigating a workspace.** The tile navigator mirrors the web shell's model
 without copying its layout: personal screens (prefs key `layout`), org screens
 and folders (`GET /api/xbin/screens`), personal tiles (D88), and search over
@@ -244,7 +251,7 @@ A native title bar (the tile's title; back/close), pull-to-refresh (reload),
 a progress indicator, error and offline states with retry, keyboard avoidance,
 safe areas, downloads handed to the share sheet / Files, the page's own back
 (a bar item when it has history — the edge swipes are the app's panels',
-D117), "Open on desktop" (Handoff). No "Open in Safari" (D117).
+D125), "Open on desktop" (Handoff). No "Open in Safari" (D125).
 Viewport: pages that set a mobile viewport get it; desktop-first pages render
 at a comfortable width with zoom-to-fit available. Dark appearance follows the
 tile (xbin tiles are dark by default).
@@ -253,7 +260,7 @@ tile (xbin tiles are dark by default).
 human* and can't run under a frame token — the app opens them in a web view of
 their own on the workspace's origin, with a cookie store no tile page shares,
 signed in by a one-shot web ticket redeemed inside it (the D64 pattern: one
-tap on "Continue as <name>"), never in a tile WebView (D117).
+tap on "Continue as <name>"), never in a tile WebView (D125).
 
 ## 7. Native tiles — the runtime
 
@@ -1684,7 +1691,7 @@ handler counts as embedded for `xbin-client.js`, so `xbin.dialog` and
 `xbin.window` reach the app (§6.2 assumed the page's own posts would). The
 scheme handler follows redirects only on the workspace origin. A chrome
 tile's web view opens a one-shot web ticket that it confirms once
-("Continue as <name>", D100; D117 moved it from Safari into the app); an
+("Continue as <name>", D100; D125 moved it from Safari into the app); an
 xbind without the route gets the plain URL.
 
 **Push (§14, D94).** Sealing is ephemeral X25519 + HKDF-SHA256 + AES-256-GCM
@@ -1741,9 +1748,9 @@ The remaining roadmap, built as nine work packages and integrated on
   a bearer. Windows are tabs: navigation is per window (`WorkspaceNav`),
   and a tile's `xbin.window` — a canvas island's included — pushes onto its
   own window only; the focused-window API is gone.
-- **Signed-in chrome tiles (§6.3, D100, D117)**: a one-shot ticket plus one
+- **Signed-in chrome tiles (§6.3, D100, D125)**: a one-shot ticket plus one
   tap on a "Continue as" page (login-CSRF defence), not a silent sign-in —
-  in the app's own web view since D117 (Safari before).
+  in the app's own web view since D125 (Safari before).
 - **The kill switch (§23, D101)** is three: the remote app config
   (fail-open, re-fetched at once after a crash), the workspace's admin
   switch (`whoami.native.runtime` 0, `?native=1` 410, a `native` event), and
