@@ -193,19 +193,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   now), and a verdict queued for one ask is dropped rather than spent on the
   next — a participant's second click can no longer allow the owner-only
   sandboxes or threads grant. A click on an ask that is gone says so beside
-  the card (the web threw it as an unhandled error). `PUT /classes` refuses (400, naming them) to
-  make mixed a class a public-data trigger runs in, or to delete a class a
-  trigger or a channel's `privateClass`/`webClass` names; a public event
-  into a class that is mixed now is refused (`reason: "class-mixed"`). A
-  trigger's `{enabled}` switch is never refused over its class, edits
-  re-check the class rules only when the class, data class or delivery
-  change, and its lane stays the one it was saved in — while a legacy
-  `{toolset}` that switches lanes always applies, naming that lane's
-  built-in (it was ignored when the class already was that built-in);
-  a channel's rules
-  save while a class they name is gone. A conversation or schedule from
-  before the lanes stays in the private lane whatever the built-in
-  `internal` is edited into.
+  the card (the web threw it as an unhandled error). `PUT /classes` refuses
+  (400, naming them) to make mixed a class a public-data trigger runs in, or
+  to delete a class a trigger or a channel's `privateClass`/`webClass`
+  names; a public event into a class that is mixed now is refused (`reason:
+  "class-mixed"`). A trigger's `{enabled}` switch is never refused over its
+  class, edits re-check the class rules only when the class, data class or
+  delivery change, and its lane stays the one it was saved in — while a
+  legacy `{toolset}` that switches lanes always applies, naming that lane's
+  built-in (it was ignored when the class already was that built-in); a
+  channel's rules save while a class they name is gone. A conversation or
+  schedule from before the lanes stays in the private lane whatever the
+  built-in `internal` is edited into.
 - **Agent template: sandbox UI — fixes from the phase-1 review** (D115; the
   template's API.md §Coding sandboxes → "In the UI"). Picking an attached
   sandbox again (the picker, "Use here") keeps the working directory it had
@@ -216,14 +215,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   are offered through the conversation (`?conversation=`) for a sandbox it
   holds that you may neither use nor manage; a viewer is no longer offered
   New sandbox for the conversation. Binding a private sandbox into a
-  conversation other people are in asks first (a sheet in the xbin app).
-  The Sandboxes list keeps its order while open, and lays a row out as its
-  name and badges with the actions one right-aligned group beside them
-  (under them on a phone) — they no longer wrap in under the name. A
-  sandbox bound since the list was read (one the agent just made) has the
-  list read again instead of showing ⚠ gone in the badge. After a
-  class edit the open conversation's class badge, mixed warning and
-  sandbox reasons follow at once.
+  conversation other people are in asks first (a sheet in the xbin app). The
+  Sandboxes list keeps its order while open, and lays a row out as its name
+  and badges with the actions one right-aligned group beside them (under
+  them on a phone) — they no longer wrap in under the name. A sandbox bound
+  since the list was read (one the agent just made) has the list read again
+  instead of showing ⚠ gone in the badge. After a class edit the open
+  conversation's class badge, mixed warning and sandbox reasons follow at
+  once.
 
 - **Admin console: runtime → sandboxes, and the sandbox in the component
   list** (D112, [isolation.md](isolation.md) §VM sandboxes). A new tab lists
