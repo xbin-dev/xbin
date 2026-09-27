@@ -102,6 +102,7 @@ at once, with no restart and no lingering behaviour.
 | The binary-served terminal window shows the opt-in controls (pause live reload, the deployments panel) to users at `terminal` level | It is where one opts in. The controls act only when pressed, and viewers of the tile see nothing new. The API dropdown keeps exactly today's two options for a tile with no record or only `main` (PO-10). |
 | Creating a tile whose name contains `+` answers with a `warnings` entry, for one release | Additive field; the creation succeeds as today (§7.1). |
 | `/docs/`, `bx` usage text and the changelog grow | Documentation, not behaviour. |
+| A restore refuses resource data that an archive files under the workspace scope (manifest scope `""`), and fails with the reason (WP-39; 08-data §14.3 closure 3) | A security closure, with a changelog line. xbind never writes such an archive: a tile's backup holds only the scope that tile roots, never the workspace, so no archive xbind made restores differently. Before it, a crafted archive could write the workspace-level volumes and kv buckets that D118's guard exists to protect. |
 
 ### 1.4 Proof obligations
 
@@ -1151,7 +1152,9 @@ must change code or config, or a wire/persisted format changes incompatibly"
   lives in new files (§5.3).
 - **The only new refusals**, §7.1(a), apply to states that need a deployment
   record. Nothing that works today is refused. Every other `+` gets only a
-  warning.
+  warning. The one refusal reaching zero-state tiles is a security closure
+  (§1.3): a restore of resource data filed under the workspace scope, which
+  no archive xbind writes holds.
 
 No migration note is required, and the changelog entry is not marked
 BREAKING.

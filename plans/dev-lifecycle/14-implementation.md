@@ -1303,6 +1303,13 @@ Every card includes these; a card states only what differs.
   error` and the `stepBroker` line `dp.DropDeploymentFiles =
   brk.DropDeploymentFiles`. The workspace-scope restore refusal it adds
   needs a 12-compat §1.3/§10.1 entry and a changelog line at that merge.
+- **From wave 2.1b.** Merged, rebased onto the head that resolved Q10
+  (AppArmor's documented `**` semantics; the live QA-box mount is 15-test-plan
+  §10.3 item 10, for the owner at the M2 exit). The amendment is in:
+  `Plane.DropDeploymentFiles`, installed by `stepBroker` (WP-52 calls it). The
+  restore refusal is 08-data §14.3 closure 3, in 12-compat §1.3 and §10.1,
+  with its `docs/changelog.md` line. WP-40, WP-41, WP-43, WP-44a/b, WP-46
+  and WP-47 are no longer held on Q10.
 
 #### WP-40 data-access · L · wave 2.2 · after WP-39
 - **Scope** (08-data §3.6, §4–§6; 09-fabric §5.10; P22). `EnvFor(view,

@@ -1417,13 +1417,17 @@ Input to `15-test-plan.md`:
 
 ### 14.3 Zero-state security closures
 
-Nothing in this document changes a tile without a record, except two
-security closures. `12-compat.md` must list both in §1.3 and §10.1, and each
+Nothing in this document changes a tile without a record, except three
+security closures. `12-compat.md` must list each in §1.3 and §10.1, and each
 gets a `docs/changelog.md` line:
 1. A `scope.json` resource name with a `..` segment or a NUL is refused in
    `(S, main)` (§3.2). It escapes the resource roots today.
 2. Today's backup walk opens through `OpenBeneath` (§11.6). Archive bytes change
    only when an entry is replaced by a symlink mid-walk.
+3. A restore refuses resource data an archive files under the workspace scope
+   (manifest scope `""`; WP-39, added at its merge). Routed through the key
+   function it would write the workspace-level buckets and volumes. No
+   archive xbind writes holds such data.
 
 ### 14.4 Builder docs to update at implementation
 

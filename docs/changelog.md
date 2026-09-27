@@ -44,6 +44,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   naming the holder. Creating a tile at a colliding path is refused. No data
   moves, and workspaces without such pairs see no change.
 
+- **Security: a restore never writes workspace-level resource data.** A
+  tile's restore now fails, naming the reason, when the archive files
+  resource data under the workspace scope. xbind never writes such an
+  archive (a tile's backup holds only the scope that tile roots), so no
+  backup it made is affected. Before this change a crafted archive could
+  write the workspace-level encrypted volumes and kv buckets, which D118's
+  scope checks exist to protect.
+
 - **BREAKING — security: `chrome: true` needs a workspace admin's
   approval** (D118, [migration](changes/2026-09-27-chrome-needs-approval.md)).
   A tile's own xbin.json is writable from its terminals and coding agents,
