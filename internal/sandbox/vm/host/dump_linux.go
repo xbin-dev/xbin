@@ -70,6 +70,8 @@ func (s *shim) writeDump() {
 	switch {
 	case agent == nil:
 		b.WriteString("guest agent: not connected yet\n")
+	case s.hs.Resident: // its control lines are bounded by MaxEvent, and a dump can outgrow them
+		b.WriteString("guest agent: not asked (a resident VM's control lines are bounded; a dump would cut them)\n")
 	default:
 		wait := s.slow(dumpAnswer)
 		if err := agent.Send(proto.Msg{Op: "dump"}); err != nil {

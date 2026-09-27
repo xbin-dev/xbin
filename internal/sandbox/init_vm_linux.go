@@ -56,9 +56,13 @@ func vmDevices(newroot string, s *Spec) error {
 	return nil
 }
 
-// writeVMSpec leaves Spec.VM where the shim reads it.
+// writeVMSpec leaves Spec.VM where the shim reads it, with the factory's fd
+// number (a resident VM's shim serves it; handAgentFD keeps it open across
+// the exec, and the VM lockdown closes no fd).
 func writeVMSpec(newroot string, s *Spec) error {
-	b, err := json.Marshal(s.VM)
+	hs := *s.VM
+	hs.AgentFD = s.AgentFD
+	b, err := json.Marshal(&hs)
 	if err != nil {
 		return err
 	}
