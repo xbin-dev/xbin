@@ -201,6 +201,38 @@ final class XbinOnboardingTests: XCTestCase {
         XCTAssertFalse(now.contains { $0.id == mine.id }, "the removed device stays removed")
     }
 
+    /// The switcher's "Add a workspace": Log in in a sheet, over the
+    /// workspace; signing in adds a second one (the same account may be
+    /// there twice) and shows it.
+    @MainActor
+    func test09AddFromSwitcher() throws {
+        let e = try E2E(self)
+        e.launchFresh()
+        XCTAssertTrue(e.app.buttons["Log in"].waitForExistence(timeout: 30))
+        e.signIn()
+        e.app.buttons["Workspaces"].tap()
+        let add = e.app.buttons["Add a workspace"]
+        XCTAssertTrue(add.waitForExistence(timeout: 10), "the switcher's Add a workspace")
+        add.tap()
+        XCTAssertTrue(e.app.buttons["Cancel"].waitForExistence(timeout: 10), "Log in, in a sheet")
+        e.shot("onboarding-11-add-sheet")
+        e.enterAddress(e.server.address)
+        let user = e.element("Username", in: e.app.textFields)
+        XCTAssertTrue(user.waitForExistence(timeout: 30), "the password form")
+        user.tap()
+        user.typeText(e.server.user)
+        let password = e.element("Password", in: e.app.secureTextFields)
+        password.tap()
+        password.typeText(e.server.password + "\n")
+        XCTAssertTrue(e.app.buttons["Cancel"].waitForNonExistence(timeout: 60), "the sheet closes")
+        e.dismissSavePassword()
+        e.app.buttons["Workspaces"].tap()
+        let rows = e.app.buttons.matching(NSPredicate(format: "label CONTAINS %@", e.server.url.host ?? "127.0.0.1"))
+        XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 10))
+        e.shot("onboarding-11-two-workspaces")
+        XCTAssertEqual(rows.count, 2, "a second workspace")
+    }
+
     /// Every onboarding screen, light and dark, for looking at.
     @MainActor
     func test10Gallery() async throws {

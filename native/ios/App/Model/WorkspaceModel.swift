@@ -298,6 +298,11 @@ final class WorkspaceModel: Identifiable {
         await EnclaveKeyStore().deleteKey(workspace: id)
         if let uuid = UUID(uuidString: id) {
             dataStoreCache = nil
+            // WebKit crashes (SIGSEGV, iOS 27 simulator) removing a data
+            // store it hasn't seen in this process — a workspace whose web
+            // tiles weren't opened since launch. Naming it first sets WebKit
+            // up for it; the object goes at once, so it isn't "in use".
+            _ = WKWebsiteDataStore(forIdentifier: uuid)
             try? await WKWebsiteDataStore.remove(forIdentifier: uuid)
         }
         NativeStateFile.removeAll(workspace: id)
