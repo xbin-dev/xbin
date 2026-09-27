@@ -1274,6 +1274,16 @@ Every card includes these; a card states only what differs.
   `internal/auth/{assettoken,tilebinding}.go`, tests.
 - **Tests.** `TestOriginLabelPerDeployment`.
 - **Links.** `main`'s `x1` and `c1` stay byte-identical (PO-6).
+- **From wave 2.2.** WP-36's deployment URLs answer 404 with the reason in
+  origins mode, after the §2.3 gate (so readers still get 403), until this
+  card. Its lookup comes from the broker's policy (`deploymentLookup()` in
+  `deployserve.go`), not a `Server.Deployments` field. A reassigned primary
+  mints no bare-URL frame token for the tile-origin cookie yet (`c1` is
+  bound to `main`). The server's `SandboxExtras(comp)` and
+  `Policy.CodeReadGrant(from, target)` pass no deployment or principal, so
+  the broker's `OpenLinksFor`/`SandboxTokensFor` and the `/c/` plane's code
+  read still read the tile's grant for a non-primary document (the open
+  halves of WP-47's A2 and A6).
 
 #### WP-39 data-keys · L · wave 2.1 · after WP-30
 - **Scope** (08-data §2, §3; NP-08-1, NP-08-11). `resKeys` with the
@@ -1374,6 +1384,17 @@ Every card includes these; a card states only what differs.
   confined `TestSeedSqliteConfined`; 08-data §14's seed rows
   (`TestSeedWithDivergentDeclarations`).
 - **Links.** PO-2: the primary's keys are only read.
+- **From wave 2.2.** WP-41's `deployns.go` (798 of 800 lines: new code goes
+  in this card's file) gives the seed its hold and metadata, in package
+  `broker`: `holdNS(id, nsSeeding)`, `markBusy`, `nsTab().gate(id).Lock()`
+  on the primary's namespace while reading it (and in stopped mode),
+  `wipe(id)`, `judgeClaimant("seed", "a tile manager", …)`, and
+  `updateNS(id, true, fn)` with `nsMeta`'s `From`, `FromCheckpoint`,
+  `Consistency`, `Resources` and `Skipped`. The data plane honours the hold
+  (503 with Retry-After) and the write gate, and a held or partial
+  namespace keeps its deployments from starting (cee6f7c7). WP-52's add
+  answers 501 for `data:"seed"` after the manager gate and `confirm`: point
+  it at this card's seed. The seed op itself registers in WP-53a.
 
 #### WP-43 data-vault · M · wave 2.2 · after WP-39
 - **Scope** (08-data §10; 06-security T5, NP-06-9). `vaultPath(comp, dep)`;
@@ -1418,6 +1439,11 @@ Every card includes these; a card states only what differs.
   deployment goes through the broker's `readDeploymentFile`,
   `writeDeploymentFile` and `removeDeploymentFile` (WP-30), never written
   under `data/deployments` directly.
+- **From wave 2.2.** WP-41's `eachNamespace` and `nsOf` list the namespaces;
+  a restore holds with `holdNS(id, nsRestoring)` and commits `restored` or
+  `partial` through `updateNS`. `backup.go` still reads the registry's
+  scopes (the primary's code) for `main`'s namespace: after a reassignment
+  it would apply the primary's declarations to `main`'s keys (WP-40's note).
 
 #### WP-44b data-quota · M · wave 2.3 · after WP-39, WP-41
 - **Scope** (08-data §12; 06-security T10 item 4; P22). A quota bucket per
@@ -1429,6 +1455,9 @@ Every card includes these; a card states only what differs.
 - **Tests.** `TestDiskQuotaCountsDeploymentData`; 08-data §14's quota rows
   (`TestNamespaceLimitIsClaimantsMinimum`).
 - **Links.** The limit setter → WP-53a.
+- **From wave 2.2.** `diskmon.go` and `resusage.go` read the registry's
+  scopes (the primary's code) for `main`'s namespace: after a reassignment
+  they apply the primary's declarations to `main`'s keys (WP-40's note).
 
 #### WP-45 offload-fix · M · wave 2.4 · after WP-44a · gated by R-3
 - **Scope** (08-data §9.4, §11.6; NP-08-10; side findings #3, #5). The backup
@@ -1462,6 +1491,11 @@ Every card includes these; a card states only what differs.
   re-creating their own removed, paused tile by one of those paths runs its
   leftover pinned record until the next rescan; `resetDeploymentState`
   belongs before those rescans.
+- **From wave 2.2.** WP-41's `eachNamespace` and `nsOf` (package `broker`)
+  list the namespaces at or under a path; `OrphanedNamespaces` and
+  `DeleteOrphanedNamespace` wait for an admin surface 11-contract doesn't
+  define (WP-41's A4, for the owner). `canCreateAt` reads `xbin` through
+  `governanceRole` (d69a2afe).
 
 #### WP-47 edge-policy · L · wave 2.2 · after WP-30, WP-39
 - **Scope** (09-fabric §5, NP-09-1 to NP-09-6, NP-09-10; 08-data §7; P3,
@@ -1531,6 +1565,11 @@ Every card includes these; a card states only what differs.
   `TestNonPrimaryBuildErrorNotBroadcast`, 09-fabric §10's
   `TestPrimaryFrameTokenGetsNoNonPrimaryFacts`.
 - **Links.** PO-5; zero-state tiles never meet the class check.
+- **From wave 2.2.** WP-40's `busFilter` already delivers a namespace's bus
+  events only to principals that reach it (and admins), and events beyond
+  `main` carry `deployment`: keep one filter. WP-37's proxy injects
+  `X-XBin-Deployment` for a non-primary caller and on a non-primary
+  deployment's responses.
 
 #### WP-49 dormant-cron-bus · L · wave 2.1 · after WP-30
 - **Scope** (09-fabric §6, §7; 11-contract §10.2; P13; NP-09-9, NP-09-16,
@@ -1580,6 +1619,12 @@ Every card includes these; a card states only what differs.
   (`obs.Plane.Primary`, `Addressed`, wired from the broker): switch
   `status.go`'s `primarySwap` to `o.primary`, and use `o.addressed` where
   a request's deployment matters (the logs audience).
+- **From wave 2.2.** `netfn.go` is 1117 of 1170 lines after WP-47
+  (`httpBindingRole`, `NetHostShare`). `bussubs.go`'s `busNamespace` and
+  `busOwnerMayRead` resolve a resource through `parseRes`, the primary's
+  declarations: a push subscription on a bus only a non-primary deployment
+  declares gets nothing and fails the read re-check (WP-40's note; WebSocket
+  delivery works).
 
 #### WP-51 term-target · L · wave 2.2 · after WP-32
 - **Scope** (P24; 05-model §7; 11-contract §7.4's wire). A session's target,
@@ -1688,6 +1733,32 @@ Every card includes these; a card states only what differs.
   (`buildprotected.go`) and `protectedLayer` in `ensureEnvLayer`. The
   protect op follows its commit with `Runner.Restart` of the primary
   (07-runtime §3.4).
+- **From wave 2.2.** Installed for this card's ops (`datahooks.go`, boot):
+  `Plane.ResetData(tile, dep, by, vault, dryRun, authorize, stop)`, with
+  `authorize` judging each other claimant through `p.Authorize(g.P,
+  OpReset, Subject{Tile: t, Deployment: dep, Primary: p.Primary(t), Record:
+  true})` and `stop` = `p.Run.StopDeployment`; `Plane.VaultCopy(p, req)`;
+  `Plane.VaultPlaceholders(tile, dep)` for a reassignment's
+  `Impact.placeholders`. `Plane.AlwaysOnSwitched` feeds the runner: the
+  always-on op calls `Run.WakeAlwaysOn()` after it turns a switch on. The
+  edge op validates with `brk.ValidateEdgePolicy` (400 and 404 as
+  `*deployments.Error`) through a hook the integrator adds, and after a
+  commit where `brk.EdgeChangeRestarts(tile, edge)` restarts only the
+  non-primary deployments (WP-47's A7). Protect and reassign call
+  `term.Manager.PrimaryProtected(tile)` and `PrimaryReassigned(tile, from,
+  to)` after the record commits, outside the plane's locks, through a plane
+  hook and a `stepTerminals` line (WP-51's A2). Open findings: a reassigned
+  non-main primary of a workspace-scope tile with a workspace-level
+  filesystem or sqlite resource gets `{Src: canonical}` from
+  `DeploymentEnv`, which the runner's `resourceBindsFor` refuses as
+  `main`'s data (WP-40); WP-34's runner refuses non-primary stream dials
+  itself, so the edge panel's refused count stays 0 until a runner hook
+  calls `brk.StreamDialAllowed` (WP-47's A8); `Record.Edges` is
+  `map[string]string`, so an object value from a newer xbind fails the whole
+  record where 09-fabric §5.2 wants that edge read as block (`record.go`,
+  WP-47); WP-52's follow-ups in `queue.go` and `ops.go` (an attach's pin not
+  marked identical, reader forms for non-primary-only swaps, `prepareCode`
+  without `NonPrimaryBuildTurn`).
 
 #### WP-53b tile-life · M · wave 2.3 · after WP-23b, WP-33
 - **Scope** (05-model §11). Lifecycle reaching every deployment (disabling,
@@ -1737,6 +1808,14 @@ Every card includes these; a card states only what differs.
   and its `deployments` summary (`primary`, `liveReload`, `items[{name,
   state, gen, checkpoint}]`), and `X-XBin-Deployment` on `/logs`'
   non-primary answers (with WP-50).
+- **From wave 2.2.** The state's M2 sources: `Plane.DataOf`
+  (`Deployment.data`), `brk.DeploymentVault(tile, dep)` (`Deployment.vault`,
+  a deployReads source), `brk.EdgesOf(tile)` (`State.edges`),
+  `Plane.CapsOf` (`State.caps`). `GET /frame-token` still mints through
+  `MintFrameTokenFor`: the person's `?deployment=` (write re-checked at
+  renewal) and the following session's mint when the primary isn't `main`
+  are this card's (WP-36). `elementXbinCapable` takes the principal and
+  reads through `governanceRole` (d69a2afe).
 
 #### WP-55 panel · L · wave 2.1 · after WP-24
 - **Scope** (10-ux §3–§6.1, §12, §14.1; NP-10-4). `web/bx-deploy.js` defines
