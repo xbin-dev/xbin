@@ -3784,9 +3784,12 @@ Deviations and refinements made while implementing; all deliberate:
       image builds — and no route to a sandbox's contents.
     - **Terminals** relay to the Box: session ids the contract's, `forUser`
       the person. `archive` isn't offered yet.
-    - **The layout** (user, uid/gid, home, workdir, shell) is config, made by
-      the files API at the first start, so it holds on any substrate; one
-      that runs everything as root (`users: root`) gets root at `/root`.
+    - **The layout** (user, uid/gid, home, workdir, shell) is config; the
+      first start makes the workdir and home with a run as root (mkdir,
+      chown), so it holds on any substrate, and a backend may place the
+      layout (the answer's `defaults`), which the manager then takes. A
+      substrate that runs everything as root (`users: root`) gets root at
+      `/root`.
   - **Not chosen:**
     - The contract id as the runtime name (tile-sandbox-runtime.md §11):
       nothing should depend on the two agreeing, and a consumer can never
