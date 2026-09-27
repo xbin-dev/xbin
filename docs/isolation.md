@@ -522,8 +522,8 @@ and defines and drives them through `/api/xbin/sandboxes/…`
   definition. Its network is `none` unless the manager gives it one of its
   **sandbox-net** interface slots, which an approver binds — the manager's
   own backend needn't hold that network.
-- **Mounts** are the manager's own `filesystem` resources (a reader's
-  read-only) and its code, read-only. Paths in file calls resolve inside
+- **Mounts** are the manager's own `filesystem` resources, declared in its
+  `uses` (a reader's read-only), and its code, read-only. Paths in file calls resolve inside
   the sandbox, never on the host.
 - **Definitions are xbind's** (`data/sandboxes.json`), validated again at
   every start; the policy (`.xbin/sandboxes/policy.json`, admins) caps what

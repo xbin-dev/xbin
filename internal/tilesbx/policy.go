@@ -45,10 +45,19 @@ type Limits struct {
 	OutputBudgetMiB int        `json:"outputBudgetMiB,omitempty"` // a tile's rings together
 }
 
+// Total caps every tile sandbox together: the comp-tilesbx cgroup parent
+// that holds each sandbox's leaf (§6.2). It is the workspace's alone: no
+// override changes it.
+type Total struct {
+	MemMiB int `json:"memMiB,omitempty"` // 0 = ¾ of the host's RAM
+	Pids   int `json:"pids,omitempty"`   // 0 = 32768
+}
+
 // Policy is the sandboxes policy. Enabled nil = on (the default).
 type Policy struct {
 	Enabled *bool `json:"enabled,omitempty"`
 	Limits
+	Total     Total              `json:"total"`
 	Overrides map[string]*Limits `json:"overrides,omitempty"` // by tile path
 }
 
@@ -72,6 +81,9 @@ const (
 	waitMaxSec      = 120
 	defBodyMax      = 64 << 10 // a definition, a PATCH, the policy
 	minMemMiB       = 256
+	flowsTCP        = 1024  // a sandbox's concurrent relay TCP flows (the relay's MaxTCP)
+	flowsUDP        = 256   // … and UDP flows (MaxUDP)
+	totalPids       = 32768 // policy.total.pids's default
 )
 
 // over lays o's set (non-zero) fields over l.
@@ -109,8 +121,31 @@ func (p Policy) On() bool { return p.Enabled == nil || *p.Enabled }
 // overrides as stored).
 func (p Policy) Effective() Policy {
 	on := p.On()
-	out := Policy{Enabled: &on, Limits: p.Limits.withDefaults(), Overrides: p.Overrides}
+	out := Policy{Enabled: &on, Limits: p.Limits.withDefaults(), Total: p.Total.withDefaults(), Overrides: p.Overrides}
 	return out
+}
+
+// withDefaults fills pids; memMiB 0 stays 0 (¾ of the host's RAM, which
+// the cgroup parent resolves).
+func (t Total) withDefaults() Total {
+	if t.Pids == 0 {
+		t.Pids = totalPids
+	}
+	return t
+}
+
+func (t Total) validate() error {
+	switch {
+	case t.MemMiB < 0 || t.MemMiB > 1<<24:
+		return fmt.Errorf("total.memMiB must be between 0 and %d (0 = ¾ of the host's RAM)", 1<<24)
+	case t.MemMiB != 0 && t.MemMiB < minMemMiB:
+		return fmt.Errorf("total.memMiB must be at least %d MiB", minMemMiB)
+	case t.Pids < 0 || t.Pids > 1<<22:
+		return fmt.Errorf("total.pids must be between 0 and %d (0 = the default)", 1<<22)
+	case t.Pids != 0 && t.Pids < 64:
+		return fmt.Errorf("total.pids must be at least 64")
+	}
+	return nil
 }
 
 // For is what one tile is held to: the workspace's limits, its override on
@@ -127,6 +162,9 @@ func (p Policy) For(tile string) Limits {
 // the workspace and for every override.
 func (p Policy) Validate() error {
 	if err := p.Limits.validate(); err != nil {
+		return err
+	}
+	if err := p.Total.validate(); err != nil {
 		return err
 	}
 	if err := p.Limits.withDefaults().consistent(); err != nil {

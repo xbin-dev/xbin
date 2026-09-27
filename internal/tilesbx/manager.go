@@ -133,6 +133,7 @@ func New(o Options) *Manager {
 		m.now = time.Now
 	}
 	m.defs = loadDefs(m.defsPath())
+	m.defs.flush() // uids given to definitions written before uids existed
 	m.policy = &policyStore{path: m.policyPath()}
 	return m
 }
@@ -146,7 +147,7 @@ func (m *Manager) Isolated() bool { return m.isolated }
 // box is one sandbox's live state. The skeleton knows only "stopped"; the
 // lifecycle fills the rest.
 type box struct {
-	state        string // stopped | starting | running | stopping | error
+	state        string // creating | stopped | starting | running | stopping | error
 	detail       string // why: a failed start, a stop the runtime made
 	accel        string // a running VM's
 	started      int64  // unix ms
@@ -158,8 +159,11 @@ type box struct {
 	snapshots    int
 }
 
-// States a sandbox is in.
+// States a sandbox is in. StateCreating is a clone whose copy still runs
+// (Def.Pending "clone"): every call but GET, list and DELETE answers 409
+// state until it ends stopped, running or error (WP-20 sets it).
 const (
+	StateCreating = "creating"
 	StateStopped  = "stopped"
 	StateStarting = "starting"
 	StateRunning  = "running"
@@ -210,13 +214,13 @@ func (m *Manager) stop(k Key, name, why string) error {
 // sandbox-written, so only a confined remove may touch it (D78); until the
 // runtime brings one, state that exists is refused rather than walked as
 // xbind — and the definition is kept, so nothing is orphaned silently.
-func (m *Manager) removeState(k Key, name string) error {
-	dir, err := m.StateDir(k, name)
+func (m *Manager) removeState(k Key, d *Def) error {
+	dir, err := m.StateDir(k, d)
 	if err != nil {
 		return err
 	}
 	if _, err := os.Lstat(dir); os.IsNotExist(err) {
 		return nil
 	}
-	return refuse(RefUnsupported, "sandbox %q has state on disk, and this xbind can't remove sandbox state yet", name)
+	return refuse(RefUnsupported, "sandbox %q has state on disk, and this xbind can't remove sandbox state yet", d.Name)
 }

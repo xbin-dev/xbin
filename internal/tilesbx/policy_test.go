@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -94,5 +95,59 @@ func TestPolicyFor(t *testing.T) {
 	}
 	if err := (Policy{}).Validate(); err != nil {
 		t.Fatalf("the zero policy: %v", err)
+	}
+}
+
+// total caps every tile sandbox together: validated, pids defaulted, merged
+// like the rest, and never per tile. The runtime tells a manager its
+// sandboxes' flow caps.
+func TestPolicyTotalAndFlows(t *testing.T) {
+	e := newEnv(t)
+	a := e.putPolicy(`{"idleStopMin":45}`, http.StatusOK)
+	if a.Policy.Total.Pids != 32768 || a.Policy.Total.MemMiB != 0 || a.Stored.Total != (Total{}) {
+		t.Fatalf("total's defaults %+v / %+v", a.Policy.Total, a.Stored.Total)
+	}
+	e.putPolicy(`{"total":{"memMiB":65536}}`, http.StatusOK)
+	a = e.putPolicy(`{"total":{"pids":100000}}`, http.StatusOK)
+	if a.Stored.Total != (Total{MemMiB: 65536, Pids: 100000}) || a.Policy.Total.Pids != 100000 {
+		t.Fatalf("total merged %+v", a.Stored.Total)
+	}
+	// An override can't carry one: the field is ignored (lenient), never applied.
+	a = e.putPolicy(`{"overrides":{"apps/mgr":{"total":{"pids":64},"idleStopMin":5}}}`, http.StatusOK)
+	if b, _ := json.Marshal(a.Stored.Overrides["apps/mgr"]); contains(string(b), "total") || a.Stored.Total.Pids != 100000 {
+		t.Fatalf("an override's total: %s, total %+v", b, a.Stored.Total)
+	}
+	for _, bad := range []string{`{"total":{"pids":10}}`, `{"total":{"pids":-1}}`, `{"total":{"pids":8388608}}`,
+		`{"total":{"memMiB":100}}`, `{"total":{"memMiB":-1}}`, `{"total":{"memMiB":33554432}}`} {
+		e.want(e.do(admin, "PUT", "/sandboxes/policy", bad), http.StatusBadRequest, RefInvalid)
+	}
+	w := e.do(mgr, "GET", "/sandboxes/runtime", nil)
+	var rt Runtime
+	if err := json.Unmarshal(w.Body.Bytes(), &rt); err != nil || rt.Limits.Flows != (Flows{TCP: 1024, UDP: 256}) ||
+		!contains(w.Body.String(), `"flows":{"tcp":1024,"udp":256}`) {
+		t.Fatalf("runtime limits: %s", w.Body)
+	}
+}
+
+// An unreadable policy file says so in GET /sandboxes/policy (error); a
+// PUT replaces it and clears the error.
+func TestPolicyError(t *testing.T) {
+	e := newEnv(t)
+	if err := os.MkdirAll(filepath.Dir(e.m.policyPath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(e.m.policyPath(), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var v struct{ Error string }
+	w := e.do(admin, "GET", "/sandboxes/policy", nil)
+	e.want(w, http.StatusOK, "")
+	if err := json.Unmarshal(w.Body.Bytes(), &v); err != nil || !contains(v.Error, "policy.json") {
+		t.Fatalf("an unreadable policy file: %s", w.Body)
+	}
+	e.putPolicy(`{"idleStopMin":45}`, http.StatusOK)
+	w = e.do(admin, "GET", "/sandboxes/policy", nil)
+	if contains(w.Body.String(), `"error"`) {
+		t.Fatalf("the error outlived a PUT: %s", w.Body)
 	}
 }
