@@ -421,7 +421,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   exec or snapshot id checks it against the runtime's grammar
   (`xbin.IsExecID`, `xbin.IsSnapshotID`) and refuses a bad one with `400
   invalid` before anything is sent, so a consumer's id can never reach
-  another route or sandbox. Additive.
+  another route or sandbox. `Runtime`'s limits carry `Flows` (each
+  sandbox's cap on concurrent network flows). Additive.
 - **The `sandbox-terminal` builtin tile: terminals onto coding sandboxes,
   for people — in the browser and over SSH** (`bx tile import
   sandbox-terminal`; [sandbox-manager.md](sandbox-manager.md) §People's

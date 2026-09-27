@@ -106,13 +106,14 @@ func TestSandboxCalls(t *testing.T) {
 		ctype       string
 		check       func(t *testing.T, got any)
 	}{
-		{name: "runtime", answer: `{"enabled":true,"isolation":true,"modes":[{"mode":"namespace"}],"unavailable":[{"mode":"vm","reason":"no"}],"users":"root","egress":[{"class":"none","reach":"none"}],"caps":["exec"],"limits":{"sandboxes":8,"perSandbox":{"maxMemMiB":8192},"fileMax":67108864},"used":{"running":1}}`,
+		{name: "runtime", answer: `{"enabled":true,"isolation":true,"modes":[{"mode":"namespace"}],"unavailable":[{"mode":"vm","reason":"no"}],"users":"root","egress":[{"class":"none","reach":"none"}],"caps":["exec"],"limits":{"sandboxes":8,"perSandbox":{"maxMemMiB":8192},"fileMax":67108864,"flows":{"tcp":1024,"udp":256}},"used":{"running":1}}`,
 			call:   func() (any, error) { return sbx.Runtime(ctx) },
 			method: "GET", uri: "/api/xbin/sandboxes/runtime",
 			check: func(t *testing.T, got any) {
 				rt := got.(*SandboxRuntime)
 				if !rt.Isolation || rt.Users != "root" || rt.Modes[0].Mode != "namespace" || rt.Unavailable[0].Reason != "no" ||
-					rt.Limits.Sandboxes != 8 || rt.Limits.PerSandbox.MaxMemMiB != 8192 || rt.Limits.FileMax != 64<<20 || rt.Used.Running != 1 {
+					rt.Limits.Sandboxes != 8 || rt.Limits.PerSandbox.MaxMemMiB != 8192 || rt.Limits.FileMax != 64<<20 || rt.Used.Running != 1 ||
+					rt.Limits.Flows != (SandboxFlows{TCP: 1024, UDP: 256}) {
 					t.Fatalf("%+v", rt)
 				}
 			}},

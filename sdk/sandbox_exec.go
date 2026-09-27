@@ -91,9 +91,10 @@ type ExecRequest struct {
 	ForUser   string            `json:"forUser,omitempty"` // a claim: the person (a tty exec is refused for one with noTerminal)
 }
 
-// ExecInfo is an exec: State is running, exited, killed (a signal, its
-// timeout, a stop or a Kill ended it; ExitCode nil when a signal did) or
-// lost. Total is the bytes its output stream has had.
+// ExecInfo is an exec: State is running, exited or killed (a signal, its
+// timeout, a stop or a Kill ended it; ExitCode nil when a signal did). An
+// exec of an earlier xbind start isn't answered at all: its calls are
+// ErrSandboxLost. Total is the bytes its output stream has had.
 type ExecInfo struct {
 	ID       string   `json:"id"`
 	Label    string   `json:"label,omitempty"`

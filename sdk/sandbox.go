@@ -357,6 +357,15 @@ type SandboxLimits struct {
 	FileMax         int64             `json:"fileMax"`
 	TarMax          int64             `json:"tarMax"`
 	WaitMaxSec      int               `json:"waitMaxSec"`
+	Flows           SandboxFlows      `json:"flows"`
+}
+
+// SandboxFlows caps one sandbox's concurrent network flows through its
+// relay (TCP connections, UDP flows): past them a new one is refused at
+// once.
+type SandboxFlows struct {
+	TCP int `json:"tcp"`
+	UDP int `json:"udp"`
 }
 
 // SandboxSizeLimits are one sandbox's default sizes and caps.
