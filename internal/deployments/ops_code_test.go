@@ -416,7 +416,7 @@ func TestDeployPlaneOperationsCode(t *testing.T) {
 		_, err = f.do(ownerP, OpAdd, &AddRequest{Tile: opSite, Deployment: "exp", Data: DataSeed})
 		wantErr(t, "seed without confirm", err, 400, `seeding exp copies main's data, which may be personal: send confirm:"copy-data" to proceed`)
 		_, err = f.do(ownerP, OpAdd, &AddRequest{Tile: opSite, Deployment: "exp", Data: DataSeed, Confirm: ConfirmCopyData})
-		wantErr(t, "seed, confirmed", err, http.StatusNotImplemented, "adding a seeded deployment isn't built in this xbind yet")
+		wantErr(t, "seed, confirmed", err, http.StatusConflict, "apps/site is in the workspace scope, whose resources have one namespace: exp has no data of its own to seed")
 		if f.rec(opSite).Seq != seq {
 			t.Errorf("a refusal moved the record: seq %d → %d", seq, f.rec(opSite).Seq)
 		}

@@ -36,7 +36,7 @@ import (
 
 func init() {
 	register(OpAttach, Handler[AttachRequest]{Subject: attachSubject, Run: runAttach})
-	register(OpAdd, Handler[AddRequest]{Subject: addSubject, Run: runAdd})
+	register(OpAdd, Handler[AddRequest]{Subject: addSubject, Run: runAddSeeded}) // runAdd, then a seed (ops_addseed.go)
 	register(OpRemove, Handler[RemoveRequest]{Subject: removeSubject, Run: runRemove})
 	register(OpPromote, Handler[PromoteRequest]{Subject: promoteSubject, Run: runPromote})
 }
@@ -294,8 +294,9 @@ func runAdd(ctx context.Context, p *Plane, g Grant, r *AddRequest) (any, error) 
 		if err := confirmed(r.Confirm, ConfirmCopyData, "seeding "+y+" copies "+o.rec.Primary+"'s data, which may be personal"); err != nil {
 			return nil, err
 		}
-		return nil, &Error{Status: http.StatusNotImplemented,
-			Msg: "adding a seeded deployment isn't built in this xbind yet: add it empty (data:\"empty\")"}
+		if err := p.seedable(o, y); err != nil {
+			return nil, err
+		}
 	}
 	joins, err := p.joining(o, g.P, y)
 	if err != nil {

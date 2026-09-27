@@ -94,7 +94,7 @@ func TestDeployAuthzMatrixCode(t *testing.T) {
 		{"attach", false, OpAttach, func(*codeFx) any { return &AttachRequest{Tile: opSite, Deployment: "dev"} }, operators},
 		{"add seeded data", false, OpAdd, func(*codeFx) any {
 			return &AddRequest{Tile: opSite, Deployment: "new", Data: DataSeed, Confirm: ConfirmCopyData}
-		}, map[string]string{"manager": "501", "term": azManager, "token": azSession, "person": azTerminal, "cred": azCredential}},
+		}, map[string]string{"manager": "409", "term": azManager, "token": azSession, "person": azTerminal, "cred": azCredential}}, // a workspace-scope tile has no data of its own
 		{"promote onto a protected primary, reviewed", true, OpPromote, func(f *codeFx) any {
 			return &PromoteRequest{Tile: opSite, From: "dev", To: "main", Expect: "c:" + cp(f.rec(opSite), "dev")[:12], Seq: seq(f)}
 		}, map[string]string{"manager": azOK, "term": azProtected, "token": azProtected, "person": azProtected, "cred": azCredential}},
@@ -120,7 +120,7 @@ func TestDeployAuthzMatrixCode(t *testing.T) {
 						t.Error("passed and changed nothing")
 					}
 					return
-				case "400", "501":
+				case "400", "409", "501":
 					if code, msg := errStatus(err); itoa(int64(code)) != want {
 						t.Fatalf("%d %s, want %s", code, msg, want)
 					}
