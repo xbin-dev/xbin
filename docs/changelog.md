@@ -12,6 +12,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-28
 
+- **A tile held for its encrypted state says so.** A call to the backend
+  of a tile xbind holds because a resource it uses can't be decrypted — the
+  vault sealed, gocryptfs missing, or the resource's mount refused (on
+  Ubuntu, AppArmor's `fusermount3` profile outside the installer's
+  workspace) — answered `502` "component … is not enabled", though the
+  tile was enabled. It now names the resource and the cause
+  ([resources.md](resources.md) §Encryption at rest). Nothing to change.
 - **Sandbox-manager contract: a stop may apply a pending `egress`**
   ([sandbox-manager.md](sandbox-manager.md) §Sandboxes). A `PATCH` of a
   running sandbox's `egress` stays `egressNext` until the next start; a

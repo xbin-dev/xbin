@@ -51,8 +51,11 @@ a passphrase / manual unseal in production, or a built-in dev key under a bare
 
 - **If encryption can't run, the resource is unavailable — never plaintext.** A
   component that uses a `filesystem`/`sqlite`/`blob`/`kv` resource is **held**
-  (won't spawn) while the vault is sealed or gocryptfs is missing, and
-  `kv`/`blob` API calls return `503`. Everything resumes on unseal.
+  (won't spawn) while the vault is sealed, gocryptfs is missing or the
+  resource's mount failed, and `kv`/`blob` API calls return `503`. A call
+  to a held component's backend answers `502` naming the resource and the
+  cause ("component apps/x is held: it uses the encrypted resource
+  res:apps/x/db, and …"). Everything resumes on unseal.
 - **On Ubuntu, AppArmor must let `fusermount3` mount under the workspace.**
   gocryptfs mounts through `fusermount3`, whose AppArmor profile allows FUSE
   mount points only under home dirs, `/mnt`, `/media` and `/tmp`. With the

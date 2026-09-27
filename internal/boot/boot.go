@@ -536,9 +536,13 @@ func (st *State) stepProxy() error {
 	brk.WakeBackends = run.WakeAlwaysOn
 	// A component may spawn only if enabled AND its encrypted tile state is
 	// currently accessible (vault unsealed + mounts up) — see plans/vault-data.md.
-	run.ShouldRun = func(comp string) bool {
-		return reg.LifecycleState(comp) == registry.StateEnabled && !brk.EncryptionHold(comp)
+	run.HoldReason = func(comp string) string {
+		if s := reg.LifecycleState(comp); s != registry.StateEnabled {
+			return "is " + s
+		}
+		return brk.EncryptionHoldReason(comp)
 	}
+	run.ShouldRun = func(comp string) bool { return run.HoldReason(comp) == "" }
 	brk.Version = st.Cfg.Version
 	brk.ProxyHandler = px // internal archiver calls for backup/restore
 	st.Proxy = px

@@ -95,6 +95,9 @@ type Runner struct {
 	// the watcher/grant respawn paths (run.Changed) can't bring a disabled backend
 	// back. nil = always allowed. Wired to the registry lifecycle by main.
 	ShouldRun func(comp string) bool
+	// HoldReason says why ShouldRun refuses comp ("is disabled", "is held:
+	// …"), for Ensure's error; nil or "" = "is not enabled".
+	HoldReason func(comp string) string
 	// SpawnUser, when non-nil, returns uid/gid to run a component's backend
 	// as (auth tier 2, per-scope uids). nil = same-user (tier 1).
 	SpawnUser func(c *registry.Component) *syscall.Credential
@@ -198,7 +201,13 @@ func (r *Runner) Ensure(ctx context.Context, c *registry.Component) (string, err
 	// spawns — enforced here so no path (proxy, watcher rebuild, grant change)
 	// can start it. The proxy still 409s earlier for a nicer message.
 	if r.ShouldRun != nil && !r.ShouldRun(c.Path) {
-		return "", fmt.Errorf("component %s is not enabled", c.Path)
+		why := "is not enabled"
+		if r.HoldReason != nil {
+			if w := r.HoldReason(c.Path); w != "" {
+				why = w
+			}
+		}
+		return "", fmt.Errorf("component %s %s", c.Path, why)
 	}
 	s := r.state(c.Path)
 

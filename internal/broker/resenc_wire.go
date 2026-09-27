@@ -103,10 +103,14 @@ func (b *Broker) fsResPath(scope, name string, sqlite bool) string {
 // the tile state it depends on isn't currently accessible: a file resource whose
 // encrypted mount isn't up (gocryptfs missing, vault sealed, or not yet mounted),
 // or a kv bucket behind a sealed vault. Composed into runner.ShouldRun.
-func (b *Broker) EncryptionHold(comp string) bool {
+func (b *Broker) EncryptionHold(comp string) bool { return b.EncryptionHoldReason(comp) != "" }
+
+// EncryptionHoldReason is why EncryptionHold holds comp ("" when it doesn't):
+// what a refused call to its backend says, instead of a bare "not enabled".
+func (b *Broker) EncryptionHoldReason(comp string) string {
 	c, ok := b.Reg.Component(comp)
 	if !ok {
-		return false
+		return ""
 	}
 	sealedVault := b.barrier != nil && b.barrier.Initialized() && b.barrier.Sealed()
 	for _, u := range c.Manifest.Uses {
@@ -116,16 +120,26 @@ func (b *Broker) EncryptionHold(comp string) bool {
 		}
 		switch {
 		case fileBackedType(res.Type):
-			if !b.fsReady(util.ScopeKey(rt.Scope), rt.Name) {
-				return true
+			if b.fsReady(util.ScopeKey(rt.Scope), rt.Name) {
+				continue
 			}
+			why := "its decrypted view isn't mounted (xbind's log says why)"
+			switch {
+			case b.resenc == nil || !b.resenc.Available():
+				why = "gocryptfs isn't available (make build, or XBIN_GOCRYPTFS)"
+			case b.barrier == nil || !b.barrier.Initialized():
+				why = "the vault isn't set up"
+			case b.barrier.Sealed():
+				why = "the vault is sealed"
+			}
+			return "is held: it uses the encrypted resource " + u.Target + ", and " + why
 		case res.Type == "kv":
-			if sealedVault {
-				return true // can't decode kv values while sealed
+			if sealedVault { // can't decode kv values while sealed
+				return "is held: it uses the kv resource " + u.Target + ", and the vault is sealed"
 			}
 		}
 	}
-	return false
+	return ""
 }
 
 // MountEncrypted ensures every declared file-backed resource has its decrypted
