@@ -137,6 +137,12 @@ today's behaviour for the primary and refuses anything else:
 - `ShouldRun(tile, dep)` = lifecycle (per tile) ∧ ¬`EncryptionHold` (per the
   deployment's data namespace, which it mounts on demand;
   [08-data.md](08-data.md)).
+- As built (WP-05): the hooks are fields of a `DeploymentHooks` struct that
+  `Runner` embeds (`internal/runner/deploy.go`). `EnvForComponent(c)` and
+  `ShouldRun(tile)` keep their signatures because boot wires them: `EnvFor`
+  is a new hook that falls back to `EnvForComponent` with no remap, and
+  `ShouldRun(tile, dep)` is the unexported `shouldRun` helper over the
+  per-tile hook, where the per-namespace hold joins it.
 - The spawn-time hooks keep their signatures (`Egress`, `GPU`, `NetRoster`,
   `NetTarget`, `NetHost`, `NetCaps`, `ContainerCaps`, `IngressNet`,
   `IngressFwd`, `NetLinks`; `runner.go:109-142`). They receive the deployment
@@ -782,10 +788,11 @@ Every opener uses one resolver:
 - the tile-origin plane;
 - the native route.
 
-The resolver is `CodeRoot(tile, dep) (root string, pinned bool, err error)`,
-a new `server.Policy` method, with its opener in the new
-`internal/server/deployserve.go`. `NoopPolicy` answers today's
-`(c.Dir, false)`.
+The resolver is `CodeRoot(c *registry.Component, dep string) (root string,
+pinned bool, err error)`, a new `server.Policy` method (as WP-05 declared
+it: `dep` "" names the primary, since the server has no `Primary` question),
+with its opener in the new `internal/server/deployserve.go`. `NoopPolicy`
+answers today's `(c.Dir, false)`, and `util.NoDeployment` for any other name.
 
 | The deployment's code | Root | How files are opened |
 |---|---|---|

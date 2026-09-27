@@ -665,6 +665,9 @@ Every card includes these; a card states only what differs.
   (`internal/registry/registry.go:447`); `Provision`
   (`internal/broker/resources.go:36`, called at `internal/boot/serve.go:166`)
   provisions through the hook and keeps resources no longer declared.
+  WP-05 declared the checkpoint's `scope.json` in two places, as the design
+  gives it: `PinnedCode.Scope` (07-runtime §5.1) and the `ScopeResources`
+  hook. WP-18 wires one of them and deletes the other.
 - **Owns.** `internal/registry/{deployview,native,registry}.go`,
   `internal/broker/resources.go` (`Provision`), unit tests.
 - **Tests.** `TestManifestFieldSplit` (the three field kinds, the inbound
@@ -1789,6 +1792,15 @@ moves master (§4.6).
 3. After the second WP of a seam pair (§3.3), run both WPs' suites.
 4. A red gate is fixed on the WP's branch and merged again; the integrator
    never fixes a WP's code inside a merge commit.
+5. A WP that builds a route or parameter WP-07 reserved: in the same merge the
+   integrator drops that row's reserved marks in `openapi.go` (the
+   **Reserved** prefix, `x-xbin-reserved` and the 501 response), since
+   `TestDeploymentRoutesReserved` (`internal/boot/deployments_reserved_test.go`)
+   drives every row still marked and wants 501. protocol.md's "(reserved)"
+   markers stay for the docs WPs (WP-29, WP-64). That test file goes with
+   `internal/boot/deployments.go`: WP-06 in wave 0.4 (its
+   `registerDeploymentsAPI(srv)` call changes when the plane is passed in),
+   WP-15 in wave 1.2 (WP-07's report).
 
 ### 4.4 Contract amendments
 
@@ -1877,6 +1889,11 @@ export XBIN_FUSE_OVERLAYFS=/home/magik6k/buxon/bin/fuse-overlayfs
   every Go build in that workspace then fails (seen in WP-03 and WP-04;
   `TestGoBackendLifecycle`'s copy keeps `counter`). WP-28, WP-61 and WP-62
   follow this.
+- **Harness scripts under a running harness.** Never edit `run.sh` or
+  `seed.sh` in a worktree while a harness run there is executing them: bash
+  reads a script as it runs it. `HARNESS_ISOLATE=1` is for the passes that ask
+  for it (`livereload`, `deployments`): the agent passes' scripted fake agent
+  is a host path the tile sandbox can't see (WP-08's report).
 - **A WP that finds the design wrong stops and reports.** It doesn't
   improvise another design, raise a budget, or edit outside its Owns list.
 
@@ -1965,7 +1982,7 @@ the test that verifies it.
 | §4.16 web | `bx-frame.js` WP-00, 25, 56a · `frame-testapi.js` WP-00, 08, 25, 56a · `frame-titlebar.js`, `frame-deploy.js`, `bx-terminal.js` WP-25, 56a · `frame-launcher.js` WP-25 · `bx-logs.js`, `frame-info.js`, `term-sessions.js`, `xbin-client.js`, `bx-code.js` WP-56b · `events-socket.js`, `native/ios/…`: no change (WP-60's tests) |
 | §4.17 workspace template | `tabs/runtime.js`, `shell/menus.js`, `shell/bx-tile-admin.js`, `manager/index.html`, the optional chips in `shell/{bx-canvas,bx-side,shell-kit}.js` WP-57 · `tabs/sandboxes.js` WP-S0, S4 · `AGENTS.md` WP-29, 65 · `bx-shell.js`, `admin.js`, `welcome/notes.js`: not edited |
 | §4.18 docs | `protocol.md` WP-07, 29, 64 · `sdk.md`, `resources.md`, `auth.md` WP-64 · `elements.md`, `isolation.md`, `bx.md`, `frontend-kit.md`, `compat.md`, `maintenance.md`, `tile-deployments.md` WP-29, 65 · `overview/01`, `03`, `04`, `index.md`, `getting-started.md` WP-29 · `overview/05`, `06`, `08`, `10`, `13`, `16` WP-65 · `overview/09`, `14`, `15` WP-29, 65 · `config.md` WP-06 · `changelog.md`, `changes/`: the integrator |
-| §4.19 tests, harness, CI | goldens WP-01a, 01b, 02, 03, 05 · seam tests WP-01a · `liveroute_test.go` WP-20 · checkpoint tests WP-10, 11, 12 · `resourcebinds_test.go` WP-35 · `runner/sbx_test.go` WP-S4 · `sbx/filter_deploy_test.go` WP-S0 · `sbx/deploy_test.go` WP-03 · broker fixture WP-30 · `gates_test.go` WP-51 · `test/deployments_test.go` WP-28, 61 · legacy fixtures: untouched (WP-03 adds files) · `shots.js`, `seed.sh`, `run.sh`, `passes/agenttab.js` WP-08 · `passes/livereload.js` WP-08, 25 · `passes/deployments.js` WP-08, 56b · `hack/deploy-state.test.mjs` WP-24, 55 · `Makefile`, `ci.yml`: the integrator |
+| §4.19 tests, harness, CI | goldens WP-01a, 01b, 02, 03, 05 · seam tests WP-01a · the declarations' zero-state tests (`util/deployname_test.go`, `events/event_deployment_test.go`, `registry/deployzero_test.go`, `runner/deployhooks_test.go`, `broker/deployhooks_test.go`, `server/policy_zerostate_test.go`) WP-05 · `boot/deployments_reserved_test.go` WP-07, 06, 15 · `server/openapi_deploy_test.go` WP-07 · `liveroute_test.go` WP-20 · checkpoint tests WP-10, 11, 12 · `resourcebinds_test.go` WP-35 · `runner/sbx_test.go` WP-S4 · `sbx/filter_deploy_test.go` WP-S0 · `sbx/deploy_test.go` WP-03 · broker fixture WP-30 · `gates_test.go` WP-51 · `test/deployments_test.go` WP-28, 61 · legacy fixtures: untouched (WP-03 adds files) · `shots.js`, `seed.sh`, `run.sh`, `passes/agenttab.js` WP-08 · `passes/livereload.js` WP-08, 25 · `passes/deployments.js` WP-08, 56b · `hack/deploy-state.test.mjs` WP-24, 55 · `Makefile`, `ci.yml`: the integrator |
 
 ### 7.2 Every test has an owner
 
