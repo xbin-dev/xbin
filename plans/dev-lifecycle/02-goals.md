@@ -4,16 +4,18 @@
 
 This document says what the dev lifecycle is for and how its implementation
 will be judged. It does not restate the mechanism. Objects, operations,
-routing, authority, invariants P1–P21 and flows A–H are in
+routing, authority, invariants P1–P29 and flows A–H are in
 [05-model.md](05-model.md), and every term is used exactly as
 [01-glossary.md](01-glossary.md) defines it. Facts about today carry
-`file:line` references, re-verified against this worktree (master plus the
-sandbox-visibility branch: D112 landed, D113 designed), and name the research
-note they came from.
+`file:line` references, re-verified against this worktree, and name the
+research note they came from. The baseline is master: D112 is landed, and
+D113 is designed ([plans/tile-sandboxes.md](../tile-sandboxes.md)). cgi no
+longer exists (removed from xbin by its own change), so nothing here covers
+it.
 
 **Labels.**
 - Goals `G1…` (§1.7).
-- Scenarios `S-A…S-H` (the model's flows) and `S-1…S-10` (§3).
+- Scenarios `S-A…S-H` (the model's flows) and `S-1…S-11` (§3).
 - Non-goals `NG-1…` (§4).
 - Success criteria `SC-…` (§5). [15-test-plan.md](15-test-plan.md) cites
   them by name.
@@ -21,14 +23,14 @@ note they came from.
 - New proposals `NP-02-n` (last section).
 
 **Milestones.** Every scenario names the milestone that delivers it.
-[14-implementation.md](14-implementation.md) owns the work packages; this
-split is the recommendation NP-02-1.
+[14-implementation.md](14-implementation.md) §1 builds this split and owns
+the work packages (NP-02-1).
 
 | Milestone | Delivers | Shared sandbox mechanics it changes |
 |---|---|---|
-| **M1 — pause live reload** | The checkpoint store and deploy log for `main`. Pause live reload, reload now, resume. `main` pinned on the static plane and in isolated backends, VM backends included. Roll back of `main`. The `deployments` event, the terminal window control, `bx live-reload`, and roll back through `bx deploy --checkpoint`. | The backend launch-spec bind of a checkpoint at the tile's canonical path. A confine bind destination, so a confined build sees a checkpoint at the canonical path. |
-| **M2 — tile deployments** | Non-primary deployments and deployment URLs. The target deployment of sessions. Deployment data, seed, reset, vault copy. Dormant registrations and deliveries. Edge policy `read` / `block`. Promote, reassign the primary, protected primary. Namespaced events, status and logs. The read-only checkpoint remote. | The D112 registry's deployment dimension. VM books charged to the tile for every deployment. The per-tile cgroup parent with a leaf per deployment. Data-namespace binds at the primary's resource paths. |
-| **M3 — later rungs** | Feeds: tracked branch and deploy remote. Edge policy `match`. Per-deployment ingress hostnames. | A streaming confined run for `receive-pack`, after D113's exec-protocol precedent. |
+| **M1 — pause live reload** | The checkpoint store and deploy log for `main`. Pause live reload, reload now, resume. `main` pinned on the static plane and in isolated backends, VM backends included. A pinned primary serves its inbound surface and provisions its resources from its checkpoint (P9, P22). Roll back of `main` (`bx rollback`). The read-only fetch remote `xbin-deploy`, served from the tile's view repository. The `deployments` event, the terminal window control, `bx live-reload`. | The backend launch-spec bind of a checkpoint at the tile's canonical path. A confine bind destination, so a confined build sees a checkpoint at the canonical path. |
+| **M2 — tile deployments** | Non-primary deployments and deployment URLs. The target deployment of sessions, picked in the terminal's API dropdown (P24). Deployment data (empty by default), seed, reset, vault copy; resources declared and limits set per deployment (P22). Dormant registrations and deliveries. Edge policy: `read` / `block`, and `inherit` / `block` for the net slot and capability grants. Promote, reassign the primary, protected primary. Non-primary status, logs and activity in the `deployments` event only. | The D112 registry's deployment dimension, on non-`main` entries only. VM books charged to the tile for every deployment. A separate cgroup per deployment, under a per-tile parent from the tile's first non-`main` deployment. Data-namespace binds at the primary's resource paths. |
+| **M3 — later rungs** | Feeds: tracked branch and deploy remote. Edge policy `match`. Per-deployment ingress hostnames. | A streaming confined run for `receive-pack`, independent of D113's exec protocol, which may reuse it. |
 
 Tile-managed sandboxes that belong to their deployment
 ([05-model.md](05-model.md) §12) land with whichever of M2 and D113
@@ -64,8 +66,7 @@ The mechanism has no place for code that isn't meant for users yet
   [research/inbound-edges.md](research/inbound-edges.md) §0.5).
 
 No state exists in which a tile keeps serving known code while its files
-change. The work tree *is* what users run; this set's README calls it "test
-in prod".
+change. The work tree *is* what users run.
 
 ### 1.2 A coding agent's edit breaks the tile for every user
 
@@ -164,8 +165,8 @@ in prod".
 |---|---|---|---|
 | G1 | Hold a tile on known code while its work tree moves, and ship the work tree deliberately, as one built and health-checked checkpoint. | 1.1, 1.2, 1.6 | M1 |
 | G2 | Undo a bad deploy in seconds, without git, without a build and without touching data. | 1.4 | M1 (`main`), M2 |
-| G3 | Try changes on a runtime that no user, consumer, schedule or webhook reaches, with data that starts empty and is seeded only on purpose. | 1.1, 1.2, 1.5 | M2 |
-| G4 | Change what a deployment runs only by explicit, logged acts: deploy, promote, roll back, reload now, resume. | 1.3, 1.4 | M1, M2 |
+| G3 | Try changes on a runtime that no user, consumer, schedule or webhook reaches, with data that starts empty, is usually filled by the deployment's own code, and is seeded from the primary only on purpose. | 1.1, 1.2, 1.5 | M2 |
+| G4 | Change what a deployment runs only by explicit, logged acts: deploy, promote, roll back, reload now, resume, and the pins that pausing live reload, attaching it or protecting the primary take. | 1.3, 1.4 | M1, M2 |
 | G5 | Let a team decide who may change the primary, down to "no agent ever can". | 1.2 | M2 |
 | G6 | Make every step drivable by a coding agent from a tile terminal with `bx`. | 1.2 | M1, M2 |
 | G7 | Change nothing for tiles that never opt in (§6). | — | always |
@@ -174,10 +175,10 @@ in prod".
 | Problem | What M1 fixes | What M2 adds | What M3 adds |
 |---|---|---|---|
 | 1.1 every save goes to every user | While live reload is paused, saves reach nobody. Reload now ships a whole, built, health-checked checkpoint. | A non-primary deployment is the place to try things; the primary changes only by deploy or promote. | git-driven feeds |
-| 1.2 agents break the tile | Agents pause live reload and reload now; a failed build or health check keeps the previous code serving. | Agents target `dev`; a protected primary stops unattended promotion. | — |
+| 1.2 agents break the tile | Agents pause live reload and reload now; a failed build or health check keeps the previous code serving, and no viewer sees it. | Agents target `dev` from the terminal's API dropdown; a protected primary stops unattended promotion. | — |
 | 1.3 xbind's writers ship at once | Pause live reload, apply, reload now once it builds. | Updates and PRs land in the work tree and reach `dev`; promote when they work. | — |
 | 1.4 no rollback | Roll back `main` from its deploy log (for tiles that opted in). | A deploy log and roll back per deployment. | — |
-| 1.5 no data separation | — | Per-deployment data, empty by default, seeded on request. | name matching (`match`): the parallel fabric across tiles |
+| 1.5 no data separation | — | Per-deployment data, empty by default, filled by the deployment's own code or fixtures, seeded on request. | name matching (`match`): the parallel fabric across tiles |
 
 ## 2. Who is involved
 
@@ -189,10 +190,11 @@ says what each party needs, what it gets, and what must never happen to it.
 D16, `docs/overview/07-users-orgs.md:85`), working in the terminal window.
 - *Needs:* to stop reloads while working, try changes against realistic data,
   ship on purpose, and undo fast.
-- *Gets:* pause live reload, reload now and resume. Adding, removing and
-  deploying to non-primary deployments. Deploying, promoting and rolling back
-  onto the primary at parity with saving (P4), unless the primary is
-  protected.
+- *Gets:* pause live reload, reload now and resume. Adding, removing,
+  resetting and deploying to non-primary deployments, and filling them with
+  synthetic data and test secrets from a session that targets them (S-11).
+  Deploying, promoting and rolling back onto the primary at parity with
+  saving (P4), unless the primary is protected.
 - *Never:* loses work — no deployment operation writes the work tree
   (SC-WORKTREE) — and never ships by accident.
 
@@ -202,21 +204,37 @@ token acts as the tile's element principal with the driving human attributed
 - *Needs:* a runtime to test on, a stable target, and state and refusals it
   can read from `bx`.
 - *Gets:* the builder's operations, addressed by default to the session's
-  target deployment (`XBIN_DEPLOYMENT`, set only for a non-primary target).
-- *Structurally never a tile manager.* Ownership rights never ride an element
-  principal (`internal/broker/orgsapi.go:71-78`). So an agent can never seed,
-  copy vault values, turn on deliveries, set edge policies, or reassign or
-  protect the primary. With protection on it can never change the primary's
-  code (P21).
+  **target deployment**. The target is picked in the terminal window's API
+  dropdown when the session starts (P24): the primary by default; the live
+  reload target when the primary is protected; "API off" when neither
+  exists. It is fixed for the session's life, and exposed as
+  `XBIN_DEPLOYMENT` when it isn't the primary.
+- *Structurally never a tile manager.* Manager acts need a human session:
+  `p.Component == ""` and (`IsAdmin` or `mayManageTile`;
+  `internal/auth/auth.go:92`, `internal/broker/orgsapi.go:427`). Terminal
+  and agent tokens carry the tile as their component, so they fail the gate
+  even when the driving human is a manager, and no element principal passes
+  it, whatever `xbin` or `xbin:users` grants its tile holds
+  ([05-model.md](05-model.md) §10). Ownership rights already never ride an
+  element principal (`internal/broker/orgsapi.go:71-78`). So an agent can
+  never seed, copy vault values, turn on deliveries or alwaysOn, set edge
+  policies or resource limits, or reassign or protect the primary. With
+  protection on it never changes the primary's code, and the primary is
+  never its target (P21, P24).
 - *Never:* reaches another deployment of its own tile through self-calls
-  (P12).
+  (P12). On a non-primary target it is a non-primary principal, so xbind's
+  API is default-deny for it: every `/api/xbin/*` route not classified
+  deployment-scoped or neutral refuses it (P26).
 
 **Tile managers.** The tile's user-owner, the owning org's admins, and
 workspace admins (D24; `mayManageTile`,
 `internal/broker/orgsapi.go:425-442`).
 - *Needs:* control over the primary and over where its data goes.
 - *Gets:* seed, vault copy, deliveries and alwaysOn for non-primary
-  deployments, edge policies, reassigning and protecting the primary.
+  deployments; edge policies; per-deployment resource limits, which default
+  to the tile's and never exceed its ceilings (P22); reassigning and
+  protecting the primary; resetting `main`'s data while it isn't primary;
+  purging checkpoints. Each of these needs the manager's human session.
 - *Never:* finds the primary's data copied without a manager having done it
   (P14).
 
@@ -224,18 +242,30 @@ workspace admins (D24; `mayManageTile`,
 host.
 - *Needs:* to run deployments within the host's means.
 - *Gets:*
-  - `--isolate`, which pinned and non-primary backends require (P18);
+  - `--isolate`, which pinned and non-primary backends require: non-isolated
+    mode is unsupported for them (P18);
   - the VM policy and budget;
-  - per-tile and per-workspace deployment caps;
   - every deployment's sandboxes in the D112 registry
-    (`GET /api/xbin/sandboxes`).
+    (`GET /api/xbin/sandboxes`): non-`main` backends as
+    `backend+<name>:<CompKey>:g<gen>` with the deployment named, `main`'s
+    rows exactly as today.
+- *Sees:* the admission caps, fixed in v1 at 3 non-primary deployments per
+  tile, 24 per workspace and 12 running
+  ([07-runtime.md](07-runtime.md) §10.3). Whether they become configuration
+  is [13-surfaces.md](13-surfaces.md)'s open question.
 - *Never:* sees a non-primary deployment starve a primary of memory or VM
   budget (SC-PRIMARY-FIRST).
 
 **Tile users: readers and writers.**
-- Readers (`read`) only ever see the primary.
+- Readers (`read`) only ever see the primary. The deployment state they can
+  read is primary-scoped: live reload state as it concerns the primary, the
+  primary's checkpoint and deploy state, and protection. It holds no
+  non-primary deployment names and no counts that reveal them, and
+  `/components` adds only the primary summary ([05-model.md](05-model.md)
+  §8).
 - Writers (`write`) may also open a non-primary deployment's URL and use it,
-  with that deployment's data, but cannot operate it.
+  with that deployment's data, and follow its status and activity, but
+  cannot operate it. Their current level is checked on every request.
 - `noTerminal` accounts are capped at `write` (D88; `docs/auth.md:667`).
   View-as sessions are read-only (D64).
 - *Never:* a reload, overlay, status change or notification caused by a
@@ -246,9 +276,19 @@ host.
   reach only the primary: inbound edges never move to a non-primary
   deployment (P7). When the primary is reassigned, they follow it.
 - *Providers* are tiles this tile calls. They receive a non-primary
-  deployment's calls on their primary, role clamped to `reader` and marked
-  with `X-XBin-Deployment` (P3). The calling tile's managers can `block` an
-  edge.
+  deployment's calls on their primary, marked with `X-XBin-Deployment`,
+  under the calling tile's edge policy (P3): `read`, the default, clamps the
+  role to `reader`, and `block` refuses.
+  - Edges that can't be read-clamped are blocked in v1, with no override
+    (P23): custom roles with no path to `reader`, stream interfaces,
+    lan-ingress links and net-provider splices.
+  - A provider whose write role means spend refuses clamped calls. llm-gw
+    serves `/v1/*` only at `writer`
+    (`builtin-tiles/llm-gw/backend/main.go:274`), so non-primary
+    deployments can list models but can't run a completion.
+  - The agent tile reaches its sandbox managers through the custom role
+    `consumer` (the sandbox-managers work, on another branch), so its
+    non-primary deployments are blocked from them (NG-16).
 - *Never:* a consumer's traffic landing on untested code, or a provider's
   primary written by a non-primary deployment (SC-CLAMP).
 
@@ -281,8 +321,8 @@ files changed since `c:3f2a1c9`. She builds in her terminal until it is
 clean, then presses **Reload now**. The work tree becomes `c:8b04e12`, which
 is built, started and health-checked, and every open frame reloads once. Had
 the build failed, `main` would have kept serving `c:3f2a1c9`, and the error
-would have gone to Ana, not to her users (NP-02-4). She resumes live reload,
-and the tile returns to the zero state.
+would have gone to Ana, not to her users ([05-model.md](05-model.md) §8). She
+resumes live reload, and the tile returns to the zero state.
 
 **What M1 does not give her:** while live reload is paused, the work tree is
 served nowhere, so she can't see her change running before her users do.
@@ -294,33 +334,43 @@ Ana adds `dev`, with code from the work tree and empty data, and attaches
 live reload to it. `main` is pinned to a fresh checkpoint; nobody notices.
 Her saves now reach `/c/apps/crm+dev/`.
 
-Empty data isn't enough for the change she is making, so she seeds `dev`
-from `main` (a manager act, with a PII warning). Ben could not have. Carla
-opens the deployment URL Ana sends her and tries the new flow without a
-terminal.
+Her change adds an audit trail: `dev`'s code declares a new kv resource in
+`scope.json`. It is provisioned in `dev`'s namespace only; `main` gains it
+when that code is promoted (P22). `dev` runs on data its own code and
+fixtures create (S-11). For one migration she needs realistic data, so she
+seeds `dev` from `main`: optional, a manager act, with a PII warning. Ben
+could not have. Carla opens the deployment URL Ana sends her and tries the
+new flow without a terminal.
 
 Ana presses **Promote dev → main**, reviews the diff between `main`'s
-checkpoint and a fresh checkpoint of the work tree, and confirms. `main`
-runs the new code on its own data; `dev` keeps following the work tree.
+checkpoint and a fresh checkpoint of the work tree, and confirms. The promote
+deploys exactly the checkpoint the diff showed (`expect`), or answers 409 if
+the work tree moved since. `main` runs the new code on its own data and
+provisions the new kv in its own namespace; `dev` keeps following the work
+tree.
 
 ### S-C — An agent iterating on `dev` (flow C; M2)
 
-Ben starts an agent session whose target is `dev` (`XBIN_DEPLOYMENT=dev`).
-The agent:
+Ben opens an agent session and picks `dev` in the terminal window's API
+dropdown, so the session's target is `dev` (`XBIN_DEPLOYMENT=dev`) for its
+life. The agent:
 - edits, and reads `bx status` and `bx logs` for `dev`;
 - curls `$XBIN_URL/api/$XBIN_COMPONENT/…`, which reaches `dev`;
 - commits often — committing deploys nothing;
-- finally runs `bx promote apps/crm dev main`, which succeeds at parity (P4).
+- finally runs `bx promote apps/crm dev main --yes`, which succeeds at parity
+  (P4). It runs `bx` without a terminal, so it must pass `--yes`; without it
+  `bx` exits 4 (not confirmed).
 
-On a tile whose primary is protected, the same command is refused with a
-message naming the protection and the tile managers, and the agent reports
-that to Ben.
+On a tile whose primary is protected, the same command is refused: `bx`
+exits 3 (refused) with a message naming the protection and the tile
+managers, and the agent reports that to Ben.
 
 ### S-D — Roll back (flow D; M1 for `main`, M2 after a promotion)
 
 Ana's reload now shipped a regression. From `main`'s deploy log she rolls
 `main` back to `c:3f2a1c9`. That checkpoint's artifact is still built
-(NP-02-3), so the rollback needs no build and no network and completes in
+([07-runtime.md](07-runtime.md) §2.8 keeps the current and last three per
+deployment), so the rollback needs no build and no network and completes in
 seconds. `main`'s data stays as it is; the UI says a rollback moves code,
 not state.
 
@@ -329,9 +379,9 @@ regression ([research/prior-art.md](research/prior-art.md) §2, rule b). The
 work tree still holds the bad change, so resuming would redeploy it, and the
 terminal window says so.
 
-If Ana had resumed earlier, the checkpoint store survives the resume
-(NP-02-2). A break introduced by a later save can still be rolled back to a
-checkpoint from before; the rollback pauses live reload.
+Had Ana resumed earlier, the checkpoint store would have survived the resume
+([05-model.md](05-model.md) §2). A break introduced by a later save can still
+be rolled back to a checkpoint from before; the rollback pauses live reload.
 
 **M2 variant:** after **Promote dev → main**, the same roll back of `main`,
 with `dev` untouched.
@@ -355,16 +405,20 @@ users as one built unit, or not at all.
 ### S-F — Cut over with data (flow F; M2)
 
 A schema migration was rehearsed on a seeded `dev`, and `dev` has served
-Carla's testing for a day. Ana reassigns the primary to `dev`. The
+Carla's testing for a day. `apps/crm` roots its scope alone, as v1 requires
+of a reassignment (P28). Ana reassigns the primary to `dev`. The
 confirmation says three things:
 - inbound traffic will read and write `dev`'s data;
 - `main`'s data does not follow;
 - when `dev` was seeded. Writes to `main`'s data since then stay there
   (NG-4).
 
-Every inbound edge — consumers, ingress, cron ticks, bus deliveries — now
-reaches `dev`. `main` remains, pinned, with its registrations dormant, and it
-can become the primary again.
+`dev` starts as the primary first; then `main` restarts. Every inbound edge
+— consumers, ingress, cron ticks, bus deliveries — now reaches `dev`. `main`
+remains, pinned, with its registrations dormant, and it can become the
+primary again. Had the primary been protected, her request would also have
+named the checkpoint of `dev` she reviewed (`expect`), and a `dev` that had
+moved since would have answered 409.
 
 ### S-G — A multi-tile scope: routing (flow G; M2, `match` in M3)
 
@@ -378,12 +432,18 @@ instead. S-4 covers the data side of the same setup.
 
 `main` is pinned; live reload is on `dev`, whose work tree holds unpromoted
 work. Ana:
-1. runs `git fetch xbin-deploy` (the read-only checkpoint remote);
+1. runs `git fetch xbin-deploy`. That read-only remote is injected into the
+   tile's sessions while the tile has a deployment record. It is served
+   from the tile's view repository, which holds only `deploy/<name>` for
+   each pinned deployment: the checkpoint's git view, without the files the
+   tile's ignore rules exclude (`node_modules`, `.env`);
 2. puts the unfinished work on a branch;
 3. runs `git checkout -b hotfix deploy/main`, fixes and commits. `dev`
    follows the work tree, so the fix runs there first;
 4. uses **Deploy to main**;
-5. checks the unfinished branch out again, rebased on the fix.
+5. checks the unfinished branch out again and moves it onto the fix with the
+   `git rebase --onto` command `bx` prints. The checkpoint commit's message
+   names the work-tree head it was captured from.
 
 xbind merged nothing and wrote nothing into the work tree. git did the
 combining; deployments only moved checkpoints.
@@ -396,9 +456,9 @@ task list, and goes home. The primary is protected, as in S-2.
 **Through the night:**
 - The agent edits and saves; `dev` rebuilds on each save, and `main` keeps
   serving on its pinned checkpoint.
-- It tests against `dev`'s seeded data through
-  `$XBIN_URL/api/$XBIN_COMPONENT/…`, which its session routes to `dev`
-  (P12).
+- It tests against the data its own fixtures loaded into `dev` (S-11),
+  through `$XBIN_URL/api/$XBIN_COMPONENT/…`, which its session routes to
+  `dev` (P12).
 - The tile's nightly report is a cron job registered by `dev`'s backend at
   start. It is dormant and fires nowhere. The agent triggers it once with
   **run now** and reads the output.
@@ -406,20 +466,23 @@ task list, and goes home. The primary is protected, as in S-2.
   instead of paging anyone.
 
 **At 02:10** a change makes `dev` crash-loop. The sticky error is `dev`'s
-alone: no primary viewer sees an overlay, and `main`'s status is untouched.
-The agent fixes it and carries on.
+alone: it rides only the `deployments` event, to writers and the tile's own
+sessions. No primary viewer sees an overlay, and `main`'s status is
+untouched. The agent fixes it and carries on.
 
-**Resources:** the agent's backend is capped in `dev`'s own cgroup leaf. If
-it is a VM, the guest is charged to the tile's VM books and never costs
-`main` its place in the budget (NP-02-12). If the tile drives tile-managed
-sandboxes (S-10), `dev`'s set is separate from `main`'s.
+**Resources:** the agent's backend runs in `dev`'s own cgroup, with limits
+defaulting to the tile's (P22). If it is a VM, the guest is charged to the
+tile's VM books and leaves the primary's guest size free in the budget
+(P25). If the tile drives tile-managed sandboxes (S-10), `dev`'s set is
+separate from `main`'s.
 
 **One hazard `bx` must defuse** (SC-AGENT-BX): deploying onto its own live
 reload target pauses live reload, and silently stops the agent's saves from
 reaching `dev`. The command's output must say so.
 
 **At 08:00** Ben reads the deploy log and the diff, and asks Ana to promote.
-The agent could not have: the primary is protected.
+The agent could not have: the primary is protected. Ana promotes from her own
+browser session, naming the checkpoint she reviewed (`expect`).
 
 ### S-2 — Protected primary: separation of duties (M2)
 
@@ -427,19 +490,28 @@ A team runs `apps/billing`. The policy: developers and their agents never
 change what customers run; two managers do.
 
 Ana turns protection on. Live reload is detached from `main`, which stays
-pinned in place, and Ben attaches it to `dev`. From then on:
+pinned in place, and live reload is now paused. Sessions that targeted
+`main` restart onto P24's default; with nothing attached, their API is off.
+Ben resumes live reload onto `dev`, and new sessions default to `dev`. From
+then on:
 - **Ben and every agent session** may deploy to, promote to, roll back and
-  reset `dev`, and add or remove other non-primary deployments. Any attempt
-  on `main` is refused with a message naming the protection and the
-  managers. Terminal and agent tokens cannot target `main` (P21).
+  reset `dev`, and add or remove other non-primary deployments. `main` is
+  never offered in the terminal's API dropdown (P24). Any attempt to deploy,
+  promote, roll back, reload now or resume onto it is refused, naming the
+  protection and the managers.
 - **Carla** tries changes at `/c/apps/billing+dev/`.
-- **Ana** reviews and promotes `dev → main`, or rolls `main` back. Every act
-  lands in `main`'s deploy log under her name.
+- **Ana** reviews and promotes `dev → main`, or rolls `main` back, from her
+  browser session, naming the checkpoint she reviewed (`expect` on promote,
+  `checkpoint` on roll back). Every act lands in `main`'s deploy log under
+  her name.
 
-The separation is structural, not a convention. Agents act as the tile's
-element principal, which is never a manager
-(`internal/broker/orgsapi.go:71-78`). No token minted for a terminal can pass
-the gate. Unprotecting is itself a logged manager act.
+The separation is structural, not a convention. Manager acts need a human
+session (`p.Component == ""`), which no token minted for a terminal or agent
+session is, and no element principal passes the manager gate whatever grants
+its tile holds (§2). While protected, `main`'s inbound surface (`template`,
+`exposes`, `provides`, `chrome`) comes from its checkpoint, so its framing
+and routes change only by Ana's deploy. Unprotecting is itself a logged
+manager act.
 
 ### S-3 — A static-only tile held during a content edit (M1; drafts in M2)
 
@@ -467,19 +539,22 @@ promotes `draft → main`.
 
 - **One `dev` namespace for the scope.** Ana adds `dev` to both tiles. Both
   see the scope's `dev` namespace: an order created in `apps/shop-admin+dev`
-  shows up in `apps/shop+dev`, and neither `main` sees it.
+  shows up in `apps/shop+dev`, and neither `main` sees it (P28).
 - **Calls stay edges.** `apps/shop-admin+dev`'s calls to `apps/shop` reach
   `apps/shop`'s primary, read-clamped (S-G). They can read the scope's
-  primary data through that API, but never write it (divergence 2).
-- **Namespace operations reach both tiles.**
-  - Seeding either `dev` fills the shared namespace.
-  - Resetting either `dev` empties it for both.
-  - Removing `apps/shop+dev` must not delete the namespace
-    `apps/shop-admin+dev` still uses (divergence 1, NP-02-10).
+  primary data through that API, but never write it; `block` on that edge
+  stops even the reads ([05-model.md](05-model.md) §9).
+- **Namespace operations reach both tiles** (P28).
+  - Seeding or resetting either `dev` fills or empties the shared namespace
+    for both, stops both tiles' `dev` for the operation, and needs the
+    actor's authority on both tiles.
+  - Removing `apps/shop+dev` deletes the namespace only if
+    `apps/shop-admin+dev` is gone too: a namespace is deleted with its last
+    claimant.
 - **A tile without `dev`** in the same scope keeps using the primary
   namespace.
-- **Split primaries.** If only `apps/shop` reassigns its primary to `dev`,
-  one scope serves two namespaces to users (open question 5).
+- **No split primaries.** Neither tile can reassign its primary in v1,
+  because reassigning one member would split the scope's primary data (P28).
 
 No shipped tile sits in a multi-tile scope
 ([research/data-plane.md](research/data-plane.md), summary). This is a case
@@ -492,16 +567,16 @@ files. Its guidance, from `/docs/` and `bx` usage, says to pause live reload
 first:
 
 ```sh
-bx live-reload pause apps/crm     # main pinned to the code it runs
+bx live-reload pause apps/crm --yes   # main pinned to the code it runs
 # edit 14 files, build and test in the terminal
-bx live-reload now apps/crm       # fails: compiler output, non-zero exit
+bx live-reload now apps/crm --yes     # exit 1: compiler output; main keeps serving
 # fix the error
-bx live-reload now apps/crm       # built, health-checked, frames reload once
-bx status apps/crm && bx live-reload resume apps/crm
+bx live-reload now apps/crm --yes     # built, health-checked, frames reload once
+bx status apps/crm && bx live-reload resume apps/crm --yes
 ```
 
 The failed reload now leaves `main` serving its previous code, and no viewer
-sees an overlay (NP-02-4).
+sees an overlay ([05-model.md](05-model.md) §8).
 
 **M1 limit:** the agent still ships to every user when it reloads now — but
 as one built, health-checked checkpoint instead of 14 intermediate states.
@@ -510,8 +585,8 @@ as one built, health-checked checkpoint instead of 14 intermediate states.
 
 A workspace admin reworks `shell/`, the layout every user sees. She pauses
 live reload on `shell`: users keep the current shell until she reloads now.
-`shell` cannot have non-primary deployments (P19). A second copy of chrome
-would act on real users and grants.
+`shell` cannot have non-primary deployments (P19): a non-primary deployment
+of chrome would act on real users and grants.
 
 ### S-7 — A provider changes its API (M2; `match` in M3)
 
@@ -532,10 +607,11 @@ could be exercised together before either is promoted.
 A git-minded builder sets `dev` to follow the tracked branch `next`. Each
 commit on `next`, read inside confine, becomes a checkpoint and is deployed
 to `dev`. She deploys to `main` by pushing to the deploy remote, at parity.
-With the primary protected, that push is refused: a push from a terminal
-carries the session's tile-scoped token (`internal/term/term.go:791`), and
-terminal tokens cannot target a protected primary (P21). A manager deploys
-to it from their own session instead.
+With the primary protected, that push is refused: a protected primary takes
+no deploy-remote push (P21), and a push from a terminal carries the
+session's tile-scoped token (`internal/term/term.go:791`), which never
+passes the manager gate. A manager deploys to it from their own human
+session instead.
 
 Commits on other branches deploy nothing. CM-2's "commit often" never turns
 into "deploy unprompted", because only the configured branch or the deploy
@@ -544,11 +620,12 @@ remote feeds a deployment.
 ### S-9 — Refusals where isolation is off (M1)
 
 The host runs without `--isolate` — the integration suite's daemon does
-(`test/integration_test.go:210`). Pausing live reload on a Go, node or python
+(`test/integration_test.go:85`). Pausing live reload on a Go, node or python
 tile is refused with a reason naming isolation; nothing changes, and live
-reload stays attached. Pausing live reload on a static tile works normally.
-A `runtime: "cgi"` tile is refused everywhere until cgi runs sandboxed (P18;
-[research/side-findings.md](research/side-findings.md) #1).
+reload stays attached. Adding a deployment to such a tile is refused the
+same way (M2). Non-isolated mode is unsupported for pinned or non-primary
+backends, and there is no fallback to the work tree (P18). Pausing live
+reload on a static tile works normally.
 
 ### S-10 — A tile that drives tile-managed sandboxes (M2 with D113)
 
@@ -563,38 +640,62 @@ backend:
 deployments. The D112 registry lists `dev`'s sandboxes under `apps/grader`,
 with the deployment named. `main`'s sandboxes never change because of `dev`.
 
+### S-11 — Synthetic data and test secrets on `dev` (M2)
+
+Ben's agent, in a session targeting `dev`, needs customers, orders and a
+payment key to exercise a new checkout flow. No manager is involved, and
+nothing comes from `main`:
+- **Fixtures.** It loads them through `dev`'s own backend API, or writes kv
+  and blob values directly through `/api/xbin/kv/…` and `/api/xbin/blob/…`
+  (`internal/broker/broker.go:277-282`), which resolve in `dev`'s namespace
+  for a session targeting `dev` ([08-data.md](08-data.md) §4.1). sqlite and
+  filesystem resources are reached through `dev`'s backend only: `data/` is
+  masked in terminals (`internal/term/binds.go:51`).
+- **Test secrets.** It sets a test API key with
+  `bx vault set apps/crm STRIPE_KEY` in that session. Tile terminals may set
+  their tile's secrets today (`internal/broker/vault.go:159-166`), and a
+  session's vault writes reach its target's vault (08-data §10). The key had
+  been a placeholder: a name from the primary's vault, with no value.
+- **Starting over.** It iterates, and uses **Reset** (terminal level) and a
+  fixture re-run to start clean.
+
+`main`'s data and vault are untouched throughout (SC-DATA). Copying real
+values from `main` (seed, vault copy) stays a manager's act for the rare case
+synthetic data can't cover, and it carries the PII warning (NP-02-13).
+
 ### Scenario summary
 
 | Scenario | Milestone | Model invariants | Verified by |
 |---|---|---|---|
 | S-A pause live reload, reload now, resume | M1 | P5, P8, P9, P16, P18 | SC-LIVE-RELOAD-PAUSE, SC-LATENCY-OPS, SC-SAFE-DEPLOY, SC-OPT-OUT |
-| S-B a `dev` deployment | M2 | P6, P7, P10, P14, P17 | SC-INBOUND, SC-DATA, SC-LATENCY-OPS, SC-AUDIT |
-| S-C agent on `dev` | M2 | P4, P12, P21 | SC-AGENT-BX, SC-PROTECT |
+| S-B a `dev` deployment | M2 | P6, P7, P10, P14, P17, P22 | SC-INBOUND, SC-DATA, SC-LATENCY-OPS, SC-AUDIT |
+| S-C agent on `dev` | M2 | P4, P12, P21, P24 | SC-AGENT-BX, SC-PROTECT |
 | S-D roll back | M1 (`main`), M2 | P9, P10 | SC-ROLLBACK, SC-WORKTREE, SC-AUDIT |
 | S-E update tried on `dev` | M2 (M1 variant) | P8, P9 | SC-PINNED, SC-SAFE-DEPLOY |
-| S-F cut over with data | M2 | P6, P7, P13 | SC-INBOUND, SC-DORMANT, SC-LATENCY-OPS |
+| S-F cut over with data | M2 | P6, P7, P13, P28 | SC-INBOUND, SC-DORMANT, SC-LATENCY-OPS |
 | S-G multi-tile scope, routing | M2 (`match` M3) | P3, P11 | SC-CLAMP |
 | S-H hotfix | M2 | P1, P16 | SC-WORKTREE, SC-AUDIT |
-| S-1 overnight agent | M2 | P12, P13, P20 | SC-DORMANT, SC-EVENTS, SC-PRIMARY-FIRST, SC-AGENT-BX |
-| S-2 separation of duties | M2 | P4, P21 | SC-PROTECT, SC-AUDIT |
+| S-1 overnight agent | M2 | P12, P13, P20, P22, P25 | SC-DORMANT, SC-EVENTS, SC-PRIMARY-FIRST, SC-AGENT-BX |
+| S-2 separation of duties | M2 | P4, P21, P24 | SC-PROTECT, SC-PINNED, SC-AUDIT |
 | S-3 static content edit | M1 (drafts M2) | P18 | SC-LIVE-RELOAD-PAUSE, SC-LATENCY-OPS, SC-FAIL-CLOSED |
-| S-4 shared scope, data | M2 | P6, P14 | SC-DATA, SC-CLAMP |
+| S-4 shared scope, data | M2 | P6, P14, P28 | SC-DATA, SC-CLAMP |
 | S-5 agent refactor, live reload paused | M1 | P4, P9 | SC-AGENT-BX, SC-SAFE-DEPLOY, SC-LIVE-RELOAD-PAUSE |
 | S-6 chrome tile | M1 | P19 | SC-LIVE-RELOAD-PAUSE, SC-FAIL-CLOSED |
 | S-7 provider API change | M2 (`match` M3) | P3, P7 | SC-INBOUND |
-| S-8 deploying from git | M3 | P1, P16 | defined with M3 |
+| S-8 deploying from git | M3 | P1, P16, P21 | defined with M3 |
 | S-9 isolation off | M1 | P18 | SC-FAIL-CLOSED |
 | S-10 tile-managed sandboxes | M2 with D113 | P11, P14 | SC-DATA, SC-PRIMARY-FIRST |
+| S-11 synthetic data and test secrets | M2 | P12, P14 | SC-DATA, SC-AGENT-BX |
 
 ## 4. Non-goals
 
 | # | Not a goal | Why |
 |---|---|---|
-| NG-1 | Traffic splits and gradual rollout | A tile has exactly one primary (P7). A split would be a later routing feature on the same `Ensure(comp, deployment)` funnel, and nothing here may preclude it. |
-| NG-2 | PR previews, or any trust boundary | A non-primary deployment shares the tile's principal and authority (P11, P20). Running code written by people who can't write the tile needs separate principals. |
-| NG-3 | Cross-tile "environments" before `match` | Non-primary edges go to providers' primaries, read-clamped (P3). A named set of same-named deployments across tiles needs `match`, which is M3. |
+| NG-1 | Traffic splits and gradual rollout | A tile has exactly one primary (P7). A split would be a later routing feature on the same inbound resolver ([05-model.md](05-model.md) §7), and nothing here may preclude it. |
+| NG-2 | A deployment per pull request, or any trust boundary | A non-primary deployment shares the tile's principal and authority (P11, P20). Running code written by people who can't write the tile needs separate principals. |
+| NG-3 | Cross-tile groups of same-named deployments before `match` | Non-primary edges go to providers' primaries, read-clamped (P3). Grouping same-named deployments across tiles needs `match`, which is M3. |
 | NG-4 | Data flowing back to the primary | Promotion moves code only (P10). The primary's data changes through the primary's own code and migrations, never by merging a namespace back. |
-| NG-5 | Deployments for chrome and governance tiles | Workspace governance has no deployment dimension; a copy of the admin tile would act on real users (P19). These tiles may still pause live reload. |
+| NG-5 | Deployments for chrome and governance tiles | Workspace governance has no deployment dimension; a non-primary deployment of the admin tile would act on real users (P19). These tiles may still pause live reload. |
 | NG-6 | Per-user work trees | A tile has one work tree, so live reload attaches to at most one deployment (P8). Per-person isolation is a git branch, or clone (a new tile). |
 | NG-7 | A manifest key, or any author-side opt-in | Deployment state is operator state in `data/` (P5, P15). A key would travel with clone and import, and toggling it would restart the backend ([research/builder-contract.md](research/builder-contract.md) §1). |
 | NG-8 | Per-deployment authority | Grants, bindings and capabilities stay the tile's (P11). Edge policy only narrows them. |
@@ -603,8 +704,9 @@ with the deployment named. `main`'s sandboxes never change because of `dev`.
 | NG-11 | History for tiles that never opted in | The zero state has no checkpoint store (P5, Z1). git stays the undo for those tiles, exactly as today (CM-2). |
 | NG-12 | Per-deployment ingress hostnames in M1/M2 | Ingress belongs to the primary. A manager-routed test hostname is a later rung ([05-model.md](05-model.md) §15). |
 | NG-13 | New health checks or promotion gates | Deploys use D8's blue/green with today's socket-dial health check (`internal/runner/health.go:12-15`). Tests before promoting are the builder's or the agent's job. |
-| NG-14 | cgi tiles; pinned or non-primary backends without isolation | Excluded until cgi runs sandboxed. Without `--isolate`, xbind refuses rather than falling back to the work tree (P18, D78). |
+| NG-14 | Pinned or non-primary backends without isolation | Non-isolated mode is unsupported for them: without `--isolate`, xbind refuses rather than falling back to the work tree (P18, D78). |
 | NG-15 | Building deployments on tile-managed sandboxes | The owner's direction: a deployment's backend is a runner backend with a serving lifecycle ([05-model.md](05-model.md) §12). |
+| NG-16 | Non-primary deployments that need an unclampable or spend edge | Edges that can't be read-clamped are blocked in v1 with no override (P23), and a provider whose write role means spend refuses the clamped role. So a non-primary deployment of the agent tile reaches none of its sandbox managers (the custom role `consumer`, from the sandbox-managers work on another branch) and runs no LLM completion through llm-gw (`writer`). Agent sandbox work and LLM turns are tested on the primary in v1. Loosening later is easy; tightening after the fact is not. |
 
 ## 5. Success criteria
 
@@ -614,10 +716,12 @@ it gates.
 
 **Conventions.**
 - "p95" is over at least 30 runs, on one host, with the baseline and the
-  candidate measured back to back.
+  candidate measured back to back. [15-test-plan.md](15-test-plan.md) §8
+  runs a short tier on every `make integration` and the full p95 at
+  milestone exits.
 - Backends run in namespace sandboxes unless stated otherwise. VM backends
   add today's VM start window (60 s, tripled when emulated:
-  `internal/runner/vm.go:26`, `:47-54`).
+  `internal/runner/vm.go:26`, `:47-55`).
 
 **Reference tiles.**
 - **R-static:** a static tile the size of the largest shipped tile,
@@ -641,9 +745,11 @@ it gates.
     `/whoami`, `/cron/jobs`, `/bus/subscriptions`, `/api/xbin/sandboxes`
     rows;
   - the backend launch spec, every `confine.Cmd` bind list, and backup
-    members.
+    members;
+  - a dry run of pause live reload and of add deployment, and a work-tree
+    diff, after which no checkpoint store exists (Z1).
 
-  Templates to copy:
+  Templates to follow:
   - `TestLegacyInjectionUnchanged`
     (`internal/server/tileassets_test.go:187`);
   - the joined-string `b.EnvFor` assertions
@@ -662,13 +768,15 @@ it gates.
 ### SC-OPT-OUT — opting out restores the zero state
 
 - **Criterion.** Resuming live reload on a tile whose only deployment is
-  `main`, with default settings, removes the deployment record. The
-  observable clauses Z2–Z10 then hold again, at once.
+  `main`, with default settings, removes the deployment record and the view
+  repository. The observable clauses Z2–Z10 then hold again, at once: no
+  fetch remote is injected or served, and no event names the tile's
+  deployments.
 - **Measured by:** the SC-ZERO suite, run after pause live reload → reload
   now → resume live reload.
 - **Passes when:** there are zero differences. The only permitted leftover
-  is the checkpoint store with its deploy log (NP-02-2), which nothing reads
-  until the tile opts in again.
+  is the checkpoint store with its deploy log ([05-model.md](05-model.md)
+  §2), which nothing reads until the tile opts in again.
 - **Milestone:** M1.
 
 ### SC-LATENCY-DEFAULT — the default path keeps its budgets
@@ -704,10 +812,11 @@ it gates.
   answers, and behaviour after a reap, a crash, a grant change and an xbind
   restart against the checkpoint.
 - **Passes when:** there are zero leaks in at least 100 runs for each of
-  static, go, node and python. This is conditional on the deploy that pausing
-  live reload performs succeeding. If that deploy failed, the API and the
-  terminal window say that pausing live reload did not complete, and
-  NP-02-11 governs.
+  static, go, node and python. If the deploy that pausing live reload
+  performs fails, the API and the terminal window say so; the deployment is
+  pinned to the attempted checkpoint in state `failed`, and every restart
+  runs that checkpoint, never the work tree ([05-model.md](05-model.md) §5).
+  The race test covers that case too.
 - **Milestone:** M1.
 
 ### SC-LATENCY-OPS — targets for pause live reload, reload now, deploy, promote
@@ -718,16 +827,16 @@ does. The design's budget for it is **1 s**, capture plus materialization.
 | Operation | Tile | p95 target | Hard bound | Rationale |
 |---|---|---|---|---|
 | Checkpoint (capture + materialize) | R-static, R-go, R-node | 0.5 s | 5 s, else the operation fails and nothing changes | 1–3 confined runs at 17–45 ms each (D78, `plans/DECISIONS.md:1995-1996`) plus hashing ≈2 MB. D77 already captures a tile's tree (`git add -A` + `write-tree`, `internal/term/agentdiff.go:270-284`) on every agent tool call, with an 8 s cut-off (`:41`). |
-| Checkpoint, incremental (≤ 100 changed files) | R-large | 5 s | 60 s | Stress case. The first checkpoint of R-large is reported, not gated (open question 4). |
+| Checkpoint, incremental (≤ 100 changed files) | R-large | 5 s | 60 s | Stress case. The first checkpoint of R-large is reported, not gated; [07-runtime.md](07-runtime.md) §2.10 estimates 2–4 s for the capture and 3–6 s for a full materialization. |
 | Pause live reload | R-static | 1 s | 5 s | A checkpoint, then a pointer change on the static plane. |
-| Pause live reload, work tree unchanged since the last build | R-go, R-node | 1.5 s | 10 s | Checkpoint, start and socket health (`internal/runner/health.go:12-15`), no build: the code-identical case in [05-model.md](05-model.md) §5. |
-| Pause live reload, work tree moved | R-go | 3.5 s | — | One warm build, which live reload was about to do anyway. |
+| Pause live reload | R-node | 1.5 s | 10 s | Checkpoint, start and socket health (`internal/runner/health.go:12-15`), no build: the code-identical case in [05-model.md](05-model.md) §5. |
+| Pause live reload | R-go | 3.5 s | the confined build timeout | Always one warm-cache build of the checkpoint: the watcher ignores directories a checkpoint includes, so the work tree's `bin` is never reused ([07-runtime.md](07-runtime.md) §8.6). |
 | Reload now, resume | R-static | 1.5 s | 5 s | Today's 500 ms save budget plus the 1 s checkpoint budget. |
 | Reload now, resume | R-go | 3 s | — | Today's 2 s warm budget plus 1 s. |
 | Reload now, resume | R-node | 2 s | 10 s | Start and health check; no build. |
 | Deploy, promote or roll back to an existing checkpoint whose artifact is kept | all | static 1 s, backends 2 s | 10 s | No checkpoint and no build. The bound is the 5 s health timeout (`internal/runner/runner.go:44`) plus start slack. |
 | Deploy that needs a build | R-go | build + 1.5 s | the confined build timeout | ([research/runner-hot-reload.md](research/runner-hot-reload.md) §2b) |
-| Reassign the primary (the target is healthy) | all | 1 s | 5 s | A routing change; no process starts. |
+| Reassign the primary (the new primary is healthy, its artifact kept) | all | static 1 s, backends 2 s | 10 s | Routing, plus the new primary's restart as primary first (start and health check, no build); the old primary restarts after ([05-model.md](05-model.md) §5). |
 
 - **Measured by:** integration timings from the request to the first request
   served by the new code, with every open frame of the deployment reloaded.
@@ -749,8 +858,9 @@ does. The design's budget for it is **1 s**, capture plus materialization.
   disabled for the build sandbox and the Go toolchain absent, and a hash of
   the deployment's data before and after.
 - **Passes when:** every bound holds, the data is unchanged, and the live
-  reload state is as stated. This depends on NP-02-3 (artifact and env-layer
-  retention).
+  reload state is as stated. This depends on
+  [07-runtime.md](07-runtime.md) §2.8's artifact retention (the current and
+  last three per deployment) and on NP-02-3's env-layer retention.
 - **Milestone:** M1 (`main`), M2 (every deployment).
 
 ### SC-PINNED — pinned means pinned
@@ -761,28 +871,50 @@ does. The design's budget for it is **1 s**, capture plus materialization.
   - a grant or binding change, a provider nudge, alwaysOn backoff;
   - lifecycle re-enable, vault unseal, xbind restart;
   - loss of `.xbin/`.
-- **Measured by:** one test per path, each run after changing the work tree,
-  asserting that the served code equals the checkpoint.
-- **Passes when:** no path runs work-tree code.
+
+  What a pinned primary serves and provisions follows its checkpoint, not
+  the work tree ([05-model.md](05-model.md) §6):
+  - its inbound surface: `template`, `exposes`, `expose.roles`, `provides`,
+    `chrome`;
+  - the resources its checkpoint's `scope.json` declares (P22), read beneath
+    the checkpoint and validated before anything is provisioned;
+  - `/components`' `runtime`, `hasIndex` and `native`, while
+    `manifestError`, `roles`, `uses` and `deps` keep describing the work
+    tree.
+- **Measured by:** one test per restart path, each run after changing the
+  work tree, asserting that the served code equals the checkpoint; and a
+  work-tree edit to each inbound-surface field and to `scope.json`'s
+  resources, asserting what the primary exposes, frames, provisions and
+  reports.
+- **Passes when:** no path runs work-tree code, and no work-tree edit changes
+  what the pinned primary exposes, frames or provisions.
 - **Milestone:** M1.
 
 ### SC-SAFE-DEPLOY — a failed deploy is invisible to users
 
 - **Criterion.** A deploy, promote, roll back or reload now whose build,
-  start or health check fails (saves and resume on the live reload target
-  keep today's behaviour):
+  start or health check fails:
   - leaves the deployment serving its previous code;
-  - publishes no bare `build-start`, `build-error` or `reload` for the tile;
+  - emits no `build-start`, `build-error`, `reload` or `status` for any
+    component of the tile: its phases and its failure ride only the
+    `deployments` event;
   - leaves the tile's reported status as it was;
-  - returns the failure, with compiler output, to the actor, and records it
-    in the `deployments` event.
+  - returns the failure to the actor (the API answer, `bx` exit 1 and its
+    output, the terminal window), with the compiler output in the deploy
+    log's entry.
+
+  A successful swap emits one `reload` for the primary's bare component,
+  only when the primary's code changed, and clears the primary's status at
+  the swap. A non-primary swap is announced only in `deployments`. Saves and
+  resume onto a primary that follows the work tree keep today's events
+  ([05-model.md](05-model.md) §8).
 - **Measured by:** fault injection per runtime (a broken build, a crash at
   start, a health timeout). An open primary frame and a client using the
   shipped iOS event parser are subscribed throughout.
 - **Passes when:** the previous code serves every request during and after
-  the failure, no event reaches a viewer, the status is unchanged, and the
-  error reaches the actor.
-- **Milestone:** M1 (NP-02-4).
+  the failure, no old-type event reaches a viewer, the status is unchanged,
+  and the error reaches the actor.
+- **Milestone:** M1.
 
 ### SC-INBOUND — no inbound edge reaches a non-primary deployment
 
@@ -800,16 +932,20 @@ does. The design's budget for it is **1 s**, capture plus materialization.
   - its deployment URL, by humans with at least `write`;
   - the tile's own sessions, through their target;
   - its own self-calls;
-  - its own registrations and run now, once a manager turns deliveries on.
+  - its own registrations, once a manager turns deliveries on;
+  - run now on one of its dormant cron jobs (terminal level).
 - **Measured by:**
   - a matrix test with a backend that reports which deployment answered;
   - a static inventory guard, in the pattern of `TestNoDirectExec`
-    (`internal/confine/guard_test.go:22`), over every `Runner.Ensure` call
-    site. Today those are `internal/proxy/proxy.go:182`,
+    (`internal/confine/guard_test.go:22`). `Runner.Ensure`
+    (`internal/runner/runner.go:190`) keeps meaning the primary, and
+    deployment-aware names sit beside it. The guard lists every call site of
+    both. Today's `Ensure` call sites are `internal/proxy/proxy.go:182`,
     `internal/proxy/ingress.go:58`, `internal/runner/ingress.go:37`,
     `internal/runner/netmux.go:62`, `internal/runner/alwayson.go:74` and
-    `internal/runner/runner.go:281`. Each must pass the primary unless
-    annotated.
+    `internal/runner/runner.go:281`. A call site of a deployment-aware name
+    must carry an annotation saying why it may reach a non-primary
+    deployment.
 - **Passes when:** no matrix cell reaches a non-primary deployment and the
   guard finds no unannotated call site. After a reassignment (S-F), the same
   matrix reaches the new primary.
@@ -827,14 +963,18 @@ does. The design's budget for it is **1 s**, capture plus materialization.
   - vault reads built from `Self()`.
 
   Reading another tile's API under the `read` edge policy is an edge, not
-  data-plane access (SC-CLAMP; divergence 2).
-- **Measured by:** a backend on `dev` that exercises every resource kind (kv,
-  sqlite, blob, filesystem, bus, cron) through every addressing path and
-  reads every vault key, with the primary's data and vault hashed before and
-  after.
+  data-plane access (SC-CLAMP; [05-model.md](05-model.md) §9).
+- **Measured by:**
+  - a backend on `dev` that exercises every resource kind (kv, sqlite, blob,
+    filesystem, bus, cron) through every addressing path and reads every
+    vault key;
+  - a session targeting `dev` that writes kv and blob values through the
+    resource APIs and sets a vault key (S-11);
+  - with the primary's data and vault hashed before and after.
 - **Passes when:**
   - before a seed, `dev` sees an empty namespace and placeholder vault keys;
-  - the primary's data and vault are byte-identical after `dev` writes;
+  - the primary's data and vault are byte-identical after `dev`'s and the
+    session's writes, which land only in `dev`'s namespace and vault;
   - after a seed, `dev` sees the copy, and the primary is still unchanged by
     `dev`'s writes.
 - **Milestone:** M2.
@@ -843,15 +983,26 @@ does. The design's budget for it is **1 s**, capture plus materialization.
 
 - **Criterion.** No call from a non-primary deployment, over any edge, gets
   more than `reader` on any provider's primary.
-  - Edges that can't be read-clamped follow their defaults in
-    [09-fabric.md](09-fabric.md).
-  - A `block` edge fails closed, with an error that names the policy.
+  - Edges that can't be read-clamped are blocked for non-primary deployments
+    in v1, with no override (P23): custom roles with no path to `reader`
+    (among them the agent tile's `consumer` role on its sandbox managers),
+    stream interfaces, lan-ingress links and net-provider splices.
+    [09-fabric.md](09-fabric.md) §5.1 lists them.
+  - The net slot and capability grants take `inherit` (the default) or
+    `block`. `inherit` never reaches host networking or a provider splice: a
+    tile whose `net` resolves to host sharing gives its non-primary
+    deployments no egress, with the reason shown. `gpu:*` defaults to
+    `block`.
+  - A `block` edge fails closed, with an error that names the policy. An
+    unknown or invalid policy value reads as `block` (P27).
   - Callees see `X-XBin-Deployment` on non-primary calls.
 - **Measured by:** a write attempt over each edge kind: interface binding,
-  grant call, cross-scope `res:`, bus subscription, stream, lan-ingress, the
-  net slot.
-- **Passes when:** no write succeeds. The header is present on every
-  non-primary call and absent on every primary call.
+  grant call, a custom-role binding, cross-scope `res:`, bus subscription,
+  stream, lan-ingress, the net slot of a relay tile and of a host-sharing
+  tile, a `gpu:*` grant, and llm-gw's `/v1/*` at `writer`.
+- **Passes when:** no write succeeds, every unclampable edge refuses, the
+  host-sharing tile's non-primary deployment has no egress, and the header
+  is present on every non-primary call and absent on every primary call.
 - **Milestone:** M2.
 
 ### SC-DORMANT — non-primary background work stays dormant
@@ -876,32 +1027,54 @@ does. The design's budget for it is **1 s**, capture plus materialization.
 
 ### SC-EVENTS — primary viewers never see a non-primary deployment
 
-- **Criterion.** No event caused by a non-primary deployment reaches a
-  primary viewer — web frames, the scaffold shell, or the shipped iOS app —
-  as a reload, an overlay or a status change. Events about non-primary
-  deployments reach only subscribers with at least `write` on the tile
-  (NP-02-5).
-- **Measured by:** subscriptions as a reader, as a writer, and through the
-  iOS event parser, while `dev` builds, crashes and reports status.
+- **Criterion** ([05-model.md](05-model.md) §8):
+  - Non-primary activity never rides `reload`, `build-*`, `status` or
+    notify, and no old event type ever carries a qualified `component`. It
+    rides only the `deployments` event, which names the deployment.
+  - Facts naming a non-primary deployment (its name, builds, compiler
+    output, status, would-notify lines, data operations) reach only admins,
+    humans with at least `write` on the tile at their current level, that
+    deployment's own principals, and the tile's terminal and agent sessions.
+    The primary's frame token, minted for readers, is not one of them. Other
+    tiles receive none of it.
+  - A reader's `GET /api/xbin/deployments` holds only primary-scoped facts:
+    no non-primary deployment names, and no counts that reveal them.
+    `/components` adds only the primary summary.
+- **Measured by:** subscriptions as a reader, through the primary's frame
+  token, as a writer, as another tile's principal, and through the shipped
+  iOS event parser, while `dev` builds, crashes, reports status, notifies
+  and is seeded; the reader's and the writer's `GET /api/xbin/deployments`
+  and `/components`; a writer lowered to `read` mid-stream.
 - **Passes when:**
-  - no primary frame reloads or shows an overlay;
-  - the primary's status never changes;
-  - no non-primary event reaches the reader.
+  - no old-type event names `dev` or carries a qualified component;
+  - no primary frame reloads or shows an overlay, and the primary's status
+    never changes;
+  - the reader, the primary's frame token and the other tile receive nothing
+    that names `dev`, and the lowered writer stops receiving from the next
+    event;
+  - the reader's state answers 200 with the filtered view, never a 403.
 - **Milestone:** M2.
 
 ### SC-PROTECT — a protected primary changes only by a manager's hand
 
 - **Criterion.** While the primary is protected:
-  - no change to its code succeeds unless a tile manager's human session
-    makes it;
-  - live reload cannot attach to it;
+  - no change to its code succeeds unless a tile manager makes it in a human
+    session, naming the reviewed checkpoint: `checkpoint` on deploy and roll
+    back, `expect` on promote, reload now and reassignment. A request
+    without it answers 400. The check is a compare-and-set on the record's
+    `seq`, so a record or work tree that moved since the review answers 409;
+  - live reload can't attach or resume onto it, and the terminal's API
+    dropdown never offers it (P24);
   - every refusal names the protection and who can act.
 - **Measured by:** every code-changing operation, tried by every kind of
-  principal: terminal token, agent token, `terminal` human, `write` human,
-  view-as session, manager.
-- **Passes when:** only the manager succeeds. Refusals are deterministic and
-  machine-readable (a non-zero `bx` exit and a stable error code;
-  [11-contract.md](11-contract.md) names it).
+  principal: a terminal token and an agent token (a manager's own
+  included), a `terminal` human, a `write` human, a view-as session, an
+  element principal of a tile holding `xbin:admin` or `xbin:users`, and a
+  manager in a human session, with and without the reviewed checkpoint.
+- **Passes when:** only the manager's human session naming a current
+  reviewed checkpoint succeeds. Refusals are deterministic and
+  machine-readable: the protected-primary 403 of
+  [11-contract.md](11-contract.md) §1.14, and `bx` exit 3 (refused).
 - **Milestone:** M2.
 
 ### SC-AGENT-BX — an agent completes flow C with `bx`
@@ -917,21 +1090,24 @@ does. The design's budget for it is **1 s**, capture plus materialization.
      (`cmd/bx/main.go:511`), and `.xbin` is masked in tile terminals
      (`internal/term/binds.go:50`).
   3. Call `dev`'s API as `$XBIN_URL/api/$XBIN_COMPONENT/…`.
-  4. Trigger one of `dev`'s dormant cron jobs with run now (open
-     question 6).
-  5. See what a promotion would change: a diff against `main`'s checkpoint,
-     through the checkpoint remote or `bx`.
+  4. Trigger one of `dev`'s dormant cron jobs with run now (terminal level).
+  5. See what a promotion would change: `bx deployment diff`, or
+     `git fetch xbin-deploy` and a git diff against `deploy/main`.
   6. Promote `dev → main` at parity, and roll `main` back.
   7. On a protected primary, get a refusal it can report, with nothing
      changed.
 
   Every `bx` command that changes where saves go — deploying onto the live
   reload target, pausing live reload, attaching it — says so in its output.
+  The exit codes are [11-contract.md](11-contract.md) §9.1's: without a
+  terminal a changing command needs `--yes`, else it exits 4 (not
+  confirmed); a refusal exits 3; a deploy still running when `bx` stops
+  waiting exits 5; an xbind without tile deployments exits 6.
 - **Measured by:** an integration test that runs the steps with an isolated
-  session's token. The M1 variant is pause live reload, reload now,
-  `bx status`, `bx logs`, roll back, resume.
-- **Passes when:** every step succeeds, or is refused in step 7, with no UI
-  and no host token.
+  session's token and no terminal. The M1 variant is pause live reload,
+  reload now, `bx status`, `bx logs`, roll back, resume.
+- **Passes when:** every step succeeds, or exits 3 in step 7, with no UI and
+  no host token.
 - **Milestone:** M1 (the variant), M2.
 
 ### SC-WORKTREE — deployment operations never write the work tree
@@ -939,7 +1115,9 @@ does. The design's budget for it is **1 s**, capture plus materialization.
 - **Criterion.** No deployment operation creates, changes or deletes any file
   under the tile directory, `.git` included. That covers pause live reload,
   resume, reload now, deploy, promote, roll back, add, remove, seed, reset,
-  reassign and protect (see NP-02-7 for the checkpoint remote).
+  reassign, protect, dry runs and diffs. The fetch remote reaches sessions
+  only as `GIT_CONFIG_*` env entries, never in `.git/config`
+  ([05-model.md](05-model.md) §3).
 - **Measured by:** a hash of the tile directory, `.git` included, before and
   after each operation.
 - **Passes when:** the hashes are identical.
@@ -959,52 +1137,68 @@ does. The design's budget for it is **1 s**, capture plus materialization.
 ### SC-FAIL-CLOSED — refusals instead of fallbacks
 
 - **Criterion.** These are refused with a reason, and none of them ever falls
-  back to serving the work tree (P18, P19, D78):
+  back to serving the work tree or to wider authority (P18, P19, P26, D78):
   - without `--isolate`, pausing live reload, pinning, and non-primary
-    deployments for go, node and python tiles;
-  - `runtime: "cgi"`, everywhere;
-  - non-primary deployments for chrome and `xbin`-capable tiles.
+    deployments for go, node and python tiles: non-isolated mode is
+    unsupported for them;
+  - non-primary deployments for chrome and `xbin`-capable tiles, and
+    approving an `xbin`/`xbin:*` grant while a tile has non-primary
+    deployments;
+  - a non-primary principal on any `/api/xbin/*` route not classified
+    deployment-scoped or neutral, reads included. A guard test keeps the
+    classification complete.
 - **Measured by:** the operations on a non-isolated daemon (the integration
-  suite's setup, `test/integration_test.go:210`) and on each excluded tile
-  class.
+  suite's setup, `test/integration_test.go:85`), on each excluded tile
+  class, and a sweep of every `/api/xbin/*` route with a non-primary
+  instance token.
 - **Passes when:** every refusal happens before any state changes, and
   pausing live reload on a static tile works normally.
-- **Milestone:** M1 (pausing live reload), M2 (deployments).
+- **Milestone:** M1 (pausing live reload), M2 (deployments, route
+  classification).
 
 ### SC-PRIMARY-FIRST — a non-primary deployment never starves its primary
 
-- **Criterion.** A non-primary deployment's memory, pids and CPU use never
-  lowers what its primary can use below today's per-component caps
-  (`internal/boot/boot.go:565-572`). The primary is never refused a start or
-  restart for lack of VM budget while a non-primary deployment of the same
-  tile holds a reservation (NP-02-12).
+- **Criterion.** A non-primary deployment never takes what its primary needs
+  (P25):
+  - its memory, pids and CPU use never lowers what the primary can use below
+    today's per-component caps (`internal/boot/boot.go:565-572`): each
+    deployment's backend runs in its own cgroup with its own caps, and the
+    primary has the higher CPU weight inside the tile;
+  - its VM reservation leaves the primary's guest size free in the budget,
+    and never preempts a primary start.
 - **Measured by:**
-  - a `dev` backend that exhausts its leaf's memory;
-  - a VM budget filled with the tile's non-primary guests, followed by a
-    primary crash.
-- **Passes when:** the primary keeps its caps and restarts — xbind stops the
-  tile's non-primary guests first. `dev`'s start is the one refused, and it
-  is recorded in the D112 failure ring as `refused`.
+  - a `dev` backend that exhausts its own memory;
+  - the VM budget filled with the tile's non-primary guests up to the
+    headroom, followed by a primary crash, then one more non-primary start.
+- **Passes when:** the primary keeps its caps and restarts. The extra
+  non-primary start is the one refused, and it is recorded in the D112
+  failure ring as `refused` (`internal/sbx/sbx.go:90`).
 - **Milestone:** M2.
 
 ## 6. The zero-change guarantee
 
 A tile is in the **zero state** when it has no deployment record
-(`data/deployments/<CompKey>.json`, [05-model.md](05-model.md) §3). A tile
+(`data/deployments/<TileKey>.json`, [05-model.md](05-model.md) §3). A tile
 that never opted in is in the zero state, and opting out returns a tile to it
 (P5).
 
 **The contract.** Every clause is normative. A violation blocks the release,
 and is reverted, never waived.
 
-- **Z1 — Nothing new exists.** For a tile that never opted in, xbind
-  creates:
-  - no deployment record, checkpoint store or materialized checkpoint;
+- **Z1 — Nothing new exists.** Unless someone asks for a dry run or a diff
+  (below), xbind creates for a tile that never opted in:
+  - no deployment record, checkpoint store, view repository or materialized
+    checkpoint;
   - no per-checkpoint artifact and no per-deployment file;
   - no process, no timer, and no confined run.
 
   A save costs no confined run, filesystem walk or disk read beyond today's.
   The only added work is an in-memory check that the record is absent.
+
+  A dry run of pause live reload or add deployment computes the impact
+  without capturing. A work-tree diff answers 409 and captures nothing
+  ([05-model.md](05-model.md) §5; [11-contract.md](11-contract.md) §1.11).
+  The checkpoint store exists only after a committed opt-in.
 - **Z2 — The same URLs.** These resolve and respond exactly as today —
   status, headers and bodies, including the head injection
   (`internal/server/static.go:431-466`):
@@ -1012,8 +1206,10 @@ and is reverted, never waived.
   - `/api/<tile>/…`;
   - the tile-origin and asset-token URLs (D95).
 
-  An existing component whose own path contains `+` keeps resolving by exact
-  match ([01-glossary.md](01-glossary.md)).
+  A qualified URL resolves only for tiles with a deployment record, and only
+  after today's resolution fails. An existing component whose own path
+  contains `+`, and `<tile>+main` on a zero-state tile, therefore resolve
+  exactly as today ([01-glossary.md](01-glossary.md)).
 - **Z3 — The same events.** Every event about the tile keeps today's `type`,
   bare `component` and fields. None carries `deployment`, and no
   `deployments` event names the tile. A save publishes today's sequence:
@@ -1022,7 +1218,8 @@ and is reverted, never waived.
 - **Z4 — The same env.** The backend env has today's names and values
   (`internal/runner/runner.go:423-431`; `internal/broker/resources.go:71`),
   with no `XBIN_DEPLOYMENT`. Terminal and agent sessions get today's env
-  (`internal/term/term.go:740-793`), with no new `GIT_CONFIG_*` entries.
+  (`internal/term/term.go:740-793`), with no new `GIT_CONFIG_*` entries: the
+  fetch remote is injected only while a tile has a record.
 - **Z5 — The same headers and tokens.**
   - Requests to its backend carry today's `X-XBin-*` set, never
     `X-XBin-Deployment`.
@@ -1037,16 +1234,19 @@ and is reverted, never waived.
   - `data/cron-jobs.json` and `data/bus-subscriptions.json`;
   - interface instances and ingress hosts in the root `xbin.json`;
   - `.xbin/log/<CompKey>.log`, which is documented
-    (`docs/protocol.md:2400`);
+    (`docs/protocol.md:2401`);
   - `.xbin/build/<CompKey>/bin`, the run dir and the env layer;
   - the backup archive key (`internal/broker/backup.go:45`);
   - prefs and agent history.
 - **Z7 — The same API responses.** Every existing endpoint returns today's
   field set for the tile: new fields are `omitempty` and absent.
   - The D112 registry row keeps its ID, `backend:<CompKey>:g<gen>`
-    (`internal/runner/sbx.go:63`), and gains no field.
+    (`internal/runner/sbx.go:63`), and gains no field. `main`'s rows stay
+    byte-identical even after the tile gets a record; only non-`main`
+    entries carry a deployment.
   - `/backends` gains no key: the old scaffold shell counts its keys
     ([research/builder-contract.md](research/builder-contract.md), hazards).
+  - `GET /api/xbin/deployments` answers `record:false` and writes nothing.
 - **Z8 — The same sandboxes.** The backend's launch spec equals today's:
   - binds: the work tree read-only at its own path
     (`internal/runner/runner.go:641`), the run dir, the gateway socket, and
@@ -1060,8 +1260,9 @@ and is reverted, never waived.
   shared-layer changes of M1/M2 default to today's values for `main` of a
   zero-state tile. Its backend stays in today's flat `comp-<CompKey>` leaf
   (`internal/cgroup/cgroup_linux.go:89`), reported unchanged as `leaf`
-  (`internal/runner/sbx.go:66`). The per-tile parent exists only for tiles
-  with a deployment record (open question 1).
+  (`internal/runner/sbx.go:66`). The per-tile parent exists only from a
+  tile's first non-`main` deployment, so main-only tiles with a record keep
+  the flat leaf too ([07-runtime.md](07-runtime.md) §10.3).
 - **Z9 — The same behaviour.**
   - Saves live-reload within today's budgets (SC-LATENCY-DEFAULT).
   - Every restart path rebuilds from the work tree, as today.
@@ -1069,8 +1270,10 @@ and is reverted, never waived.
     PRs, backup and restore behave as today.
   - A component backup contains today's members.
 - **Z10 — The same UI behaviour.** The tile's frames, overlays and reload
-  targeting, the scaffold shell and the native app behave as today. The one
-  visible difference is in the terminal window:
+  targeting, the scaffold shell and the native app behave as today. The
+  terminal window's API dropdown keeps today's two entries, tile API and no
+  API (`web/frame-titlebar.js:162-167`), because the primary is the tile's
+  only deployment. The one visible difference is in the terminal window:
   - it offers the opt-in controls ([10-ux.md](10-ux.md)) to users with
     `terminal` on the tile;
   - they show disabled, with the server's reason, where the tile can't opt
@@ -1084,17 +1287,21 @@ and is reverted, never waived.
   - The legacy fixture's allowed paths and its byte-identical root
     `xbin.json` stay as they are (`test/legacy_workspace_test.go:69-87`).
 - **Z12 — Exit.** Opting out (SC-OPT-OUT) re-establishes Z2–Z10 at once. The
-  permitted leftover is the checkpoint store with its deploy log (NP-02-2).
+  permitted leftover is the checkpoint store with its deploy log; the view
+  repository is removed with the record ([05-model.md](05-model.md) §2).
 
 **Permitted workspace-level differences.** These are not per tile:
 - New endpoints, a new event type, new `bx` commands, new docs and a
   changelog entry, all additive (rules 2, 6 and 11 of
   [/docs/compat.md](/docs/compat.md)).
-- `+` in new tile names is refused for non-admin creation, the D82 way (the
-  precedent for `:` is `internal/broker/policy.go:162-165`), with a changelog
-  line (open question 2).
-- A per-tile cgroup parent exists for tiles with a deployment record (see
-  Z8).
+- Two narrow refusals, for every creator: no tile at `<P>+<N>` while `P` has
+  deployment `N`, and no deployment `N` on `P` while a component exists at
+  `<P>+<N>`. They arise only once a tile has deployments. Other new tile
+  names containing `+` get a one-release warning, never a refusal, the D82
+  way (the precedent for `:` is `internal/broker/policy.go:162-165`), with a
+  changelog line.
+- A per-tile cgroup parent exists for tiles that run a non-`main` deployment
+  (Z8).
 
 **Outside the contract.**
 - Tiles that opted in: [05-model.md](05-model.md) defines their behaviour.
@@ -1111,192 +1318,90 @@ and is reverted, never waived.
 
 ## Open questions
 
-1. **Cgroup leaf naming for zero-state tiles.** Today every backend runs in a
-   flat `comp-<CompKey>` leaf (`internal/cgroup/cgroup_linux.go:89`),
-   reported as `leaf` in `/api/xbin/sandboxes`
-   (`internal/runner/sbx.go:66`). Two options:
-   - Keep the flat leaf until the tile gets a deployment record, then place
-     its generations under the per-tile parent. cgroup v2 allows no
-     processes in a parent that enables controllers for its children. This
-     keeps SC-ZERO byte-exact.
-   - Move every tile under a parent at once. This is simpler.
+Every question this document raised is settled; the numbers stay stable.
 
-   Z8 requires the first. The draft of [07-runtime.md](07-runtime.md) (its
-   §10.3) chooses the same; the integrator should confirm the two agree.
-2. **The `+` reservation.** Refusing it at once follows D82's precedent for
-   `:`. Compat rule 11 asks for a one-release warning before a path that
-   succeeds today starts to fail ([/docs/compat.md](/docs/compat.md)).
-   [12-compat.md](12-compat.md) should choose.
-3. **What P21's "terminal/agent tokens cannot target it" covers.** It could
-   also refuse a session's own-API calls to a protected primary — for
-   example, from a session created before protection whose target is the
-   primary. Or it could refuse only code-changing operations. The first is
-   stricter separation. It also leaves a protected tile without any
-   non-primary deployment with no API target for its terminals.
-4. **Dependency trees in checkpoints.** The glossary says gitignore rules
-   don't apply, so `node_modules`, `.venv` and build caches are captured.
-   D77's tree capture skips exactly these, "nobody wants hashed on every tool
-   call" (`internal/term/agentdiff.go:47-49`). The watcher ignores them too
-   (`internal/watch/watch.go:61-74`; `internal/util/util.go:73-76`). A
-   pinned node backend needs its `node_modules`, so they can't simply be
-   skipped. [07-runtime.md](07-runtime.md) should give an incremental
-   materialization strategy, measured on R-large.
-5. **Reassigning the primary of one tile in a multi-tile scope** splits the
-   scope: two tiles serve two namespaces of one scope to users (S-4). Should
-   reassignment be refused, made scope-wide, or confirmed with that warning?
-   [08-data.md](08-data.md) should decide.
-6. **Who may run now.** [05-model.md](05-model.md) §10 doesn't list run now.
-   SC-AGENT-BX assumes `terminal` level for non-primary deployments, since
-   it delivers only into the deployment's own namespace.
-7. **Timing criteria in CI:** gate or benchmark? Timing assertions on shared
-   runners are noisy. [15-test-plan.md](15-test-plan.md) should decide
-   whether SC-LATENCY-* gate CI, with a documented slack factor that never
-   applies to the absolute budgets of plans/dev-flow.md, or run as a tracked
-   benchmark.
+1. Cgroup leaf naming for zero-state tiles — resolved by
+   [05-model.md](05-model.md) §12 and [07-runtime.md](07-runtime.md) §10.3
+   (flat leaf until the first non-`main` deployment; Z8).
+2. The `+` reservation — resolved by the narrow-refusal rule
+   ([05-model.md](05-model.md) §7; §6 above).
+3. What "cannot target" a protected primary covers — resolved by P24.
+4. Dependency trees in checkpoints — answered by
+   [07-runtime.md](07-runtime.md) §2.2 and §2.10 (incremental capture,
+   NP-07-8's differential materialization); R-large's first checkpoint is
+   reported, not gated.
+5. Reassigning one tile's primary in a multi-tile scope — resolved by P28
+   (refused in v1).
+6. Who may run now — resolved by [05-model.md](05-model.md) §5 (terminal
+   level).
+7. Timing criteria in CI — resolved by [15-test-plan.md](15-test-plan.md) §8
+   (NP-15-11: a short tier on every run, the full p95 at milestone exits).
 
 ## Divergences from the model
 
-1. **Shared (scope, name) namespaces vs per-deployment remove, seed and
-   reset.**
-   - *Conflict.* [05-model.md](05-model.md) §5 says **Remove deployment Y**
-     deletes "its data namespace", and Seed and Reset act on "Y's
-     namespace". §9 makes that namespace shared by the same-named
-     deployments of every tile in the scope.
-   - *Effect.* Removing `apps/shop+dev` would delete data that
-     `apps/shop-admin+dev` still uses. A `terminal`-level reset on one tile
-     empties the other's (S-4).
-   - *Fix:* NP-02-10.
-2. **§9's "never a shortcut into the primary's data" holds for the data
-   plane only.**
-   - *Case.* Under `read`, `apps/a+dev` calling its sibling `apps/b` reaches
-     `apps/b`'s primary. That primary's data is the scope's primary
-     namespace, which is `apps/a`'s own `main` data (flow G).
-   - This is P3 working as ratified, so SC-DATA is scoped to direct access.
-   - *Fix:* [08-data.md](08-data.md) and [09-fabric.md](09-fabric.md) should
-     say so explicitly. The edge-policy UI should show that `read` on a
-     same-scope sibling edge exposes the scope's primary data, and offer
-     `block`.
-3. **Who receives non-primary events.**
-   - *Conflict.* §8 publishes non-primary events under `<tile>+<name>`, plus
-     a `deployments` event. But `/ws/events` delivers every non-bus event
-     except `pr`, `term` and `session` to every subscriber
-     (`internal/server/server.go:592-612`). §7 and §10 limit non-primary
-     deployments to humans with at least `write`.
-   - *Why it matters.* Build errors carry compiler output, and logs are
-     `terminal`-gated precisely because output carries secrets
-     (`docs/overview/07-users-orgs.md:83`).
-   - *Fix:* NP-02-5.
-4. **"Published exactly as today" for a pinned primary.**
-   - *Conflict.* Read literally, §8 makes a failed reload now or deploy onto
-     a pinned primary publish:
-     - a bare `build-error`, which is every viewer's overlay
-       (`web/bx-frame.js:374-376`);
-     - a `build-start` that clears the primary's status
-       (`internal/obs/status.go:132`).
+None remain.
 
-     All this while the primary keeps serving its previous code: exactly the
-     harm §1.2 describes.
-   - *Fix:* NP-02-4.
-5. **The record after pausing live reload fails.**
-   - *Conflict.* §5 says that if the build triggered by pausing live reload
-     fails, live reload stays detached and X keeps serving its current
-     generation. §4 requires every deployment other than the live reload
-     target to have a checkpoint. X's current generation was started from the
-     work tree, which node and python keep reading lazily
-     (`internal/runner/runner.go:394-407`).
-   - *Gap.* The record state and X's restart behaviour are unspecified. A
-     restart that rebuilt from the work tree would silently put X back on the
-     work tree while the UI says live reload is paused.
-   - *Fix:* NP-02-11.
-6. **§2 says the zero state has no checkpoint store.**
-   - *Change.* NP-02-2 keeps the store after opt-out. The zero state is then
-     defined by the absence of the deployment record; a tile that never
-     opted in also has no store (Z1).
-   - No behaviour differs between the two definitions.
+1. Shared (scope, name) namespaces vs per-deployment remove, seed and reset —
+   resolved by P28.
+2. §9's "never a shortcut into the primary's data" holds for the data plane
+   only — resolved by [05-model.md](05-model.md) §9 and flow G, which state
+   the read-clamp exposure and the `block` answer.
+3. Who receives non-primary events — resolved by the event-audience ruling
+   ([05-model.md](05-model.md) §8).
+4. "Published exactly as today" for a pinned primary — resolved by rule C2
+   ([05-model.md](05-model.md) §8).
+5. The record after pausing live reload fails — resolved by P9
+   ([05-model.md](05-model.md) §4, §5).
+6. The zero state and the checkpoint store — resolved by P5
+   ([05-model.md](05-model.md) §2).
 
 ## New proposals
 
 - **NP-02-1 — Milestone split.** Use the split in the milestone table at the
-  top of this document.
-  - Roll back of `main` is in M1. It needs only the store and log that
-    pausing live reload creates, and it answers §1.4 early.
+  top of this document; [14-implementation.md](14-implementation.md) §1
+  builds it.
+  - Roll back of `main` and the fetch remote are in M1. They need only the
+    store and log that pausing live reload creates; roll back answers §1.4
+    early, and the fetch remote lets a builder branch from what a pinned
+    `main` runs.
   - Protected primary is in M2. Without a non-primary deployment it would
-    leave developers nowhere to deploy.
-- **NP-02-2 — Opting out keeps the checkpoint store and deploy log,** under
-  the store's normal GC.
-  - *Why.* Otherwise a builder who resumes loses every rollback target at
-    the moment they go back to live reload.
-  - *With it,* a later rollback (which opts the tile in again) can reach
-    checkpoints from before. Roll back's precondition already allows "any
-    checkpoint of the tile" ([05-model.md](05-model.md) §5).
-- **NP-02-3 — Retention for roll back.** A deployment's current checkpoint
-  and its previous three deploy-log entries count as references for built
-  artifacts and for env layers (`setup`). Rolling back to them then never
-  builds and never needs the network.
+    leave developers nowhere to deploy. Reassignment is in M2 (owner,
+    2026-09-27).
+- **NP-02-2** — resolved by P5 ([05-model.md](05-model.md) §2).
+- **NP-02-3 — Env-layer retention for roll back.** The env layers (`setup`)
+  of a deployment's current checkpoint and of its previous three deploy-log
+  entries count as references for env-layer GC, so rolling back to them
+  never rebuilds a layer and never needs the network.
+  - [07-runtime.md](07-runtime.md) §2.8 already keeps the artifacts of the
+    current and last three checkpoints per deployment; its §3.3 keep set
+    covers running generations, pinned manifests and the live reload
+    target's manifest, not roll-back targets.
   - Today only the current env layer is kept
-    (`internal/runner/env.go:133-145`), and the one Go artifact is
-    overwritten (`internal/runner/runner.go:372`).
-  - SC-ROLLBACK's bound can't hold if a rollback may rebuild.
-- **NP-02-4 — Failed deploys onto pinned deployments stay off viewers'
-  screens.**
-  - The failure is reported to the actor (the API response, `bx` exit status
-    and output, the terminal window) and in the `deployments` event. It
-    never publishes a bare `build-start`, `build-error` or `reload` for the
-    tile.
-  - A successful deploy publishes one `reload`. The status plane clears the
-    deployment's status when the new generation becomes current, not at
-    `build-start`.
-  - The live reload target keeps today's events.
-- **NP-02-5 — Who receives non-primary events.** Events whose `component` is
-  `<tile>+<name>`, and `deployments` events, go only to `/ws/events`
-  subscribers with at least `write` on the tile. The precedent is the `pr`
-  filter (`internal/server/server.go:597-599`). Compiler output inside them
-  goes only to `terminal`-level subscribers.
-- **NP-02-6 — Deployment names vs existing components.** Adding deployment
-  `b` to `apps/a` is refused while a component `apps/a+b` exists. If such a
-  component appears later (only admins and host shells can create one),
-  exact match wins, and the deployments panel flags `b` as unreachable by
-  URL.
-- **NP-02-7 — The read-only checkpoint remote lives in the session env.**
-  - It is configured per session through injected `GIT_CONFIG_*` entries,
-    like today's `http://xbin/` rewrite (`internal/term/term.go:782-793`).
-    It is never written into the tile's `.git/config`, as the `template`
-    remote is (`internal/broker/templaterepo.go:139-151`).
-  - *Why:* no deployment operation writes the work tree (SC-WORKTREE).
-    Clone copies `.git` (`internal/broker/clone.go:18-22`), so a written
-    remote would travel into a zero-state copy. And zero-state tiles keep
-    their session env (Z4).
-- **NP-02-8 — Isolated CI before M1.** CI gains a job with a rootfs that has
-  git and the Go toolchain, and runs the isolation-dependent integration
-  tests there.
-  - Pinned and non-primary backends exist only under `--isolate` (P18).
-  - CI's only rootfs is a small Ubuntu image without git, built for the VM
-    tests (`.github/workflows/ci.yml:69-70`), so the confined tests skip
-    ([research/delivery-infra.md](research/delivery-infra.md) §0).
-  - The integration daemon runs without `--isolate`
-    (`test/integration_test.go:210`).
+    (`internal/runner/env.go:133-145`).
+  - SC-ROLLBACK's bound can't hold if a rollback may rebuild a layer.
+- **NP-02-4** — resolved by rule C2 ([05-model.md](05-model.md) §8).
+- **NP-02-5** — resolved by the event-audience ruling
+  ([05-model.md](05-model.md) §8).
+- **NP-02-6** — resolved by the narrow `+` refusals
+  ([05-model.md](05-model.md) §7).
+- **NP-02-7** — resolved by the fetch-remote ruling
+  ([05-model.md](05-model.md) §3).
+- **NP-02-8** — see NP-15-1, the survivor for the isolated CI rootfs
+  ([14-implementation.md](14-implementation.md) R-7).
 - **NP-02-9 — Latency baseline first.** The plans/dev-flow.md budgets
   (`plans/dev-flow.md:102-105`) become an integration benchmark, with a
   recorded baseline, before any watcher or runner change lands.
-- **NP-02-10 — Shared namespaces in multi-tile scopes.**
-  - Seed and reset on a (scope, name) namespace list every sibling
-    deployment that shares it, and require the actor's gate on each affected
-    tile. (Vault copy is unaffected: the vault is per tile.)
-  - Seeding stops every sibling's same-named deployment for the copy.
-  - Removing a deployment deletes its namespace only when no sibling in the
-    scope still has a deployment of that name.
-- **NP-02-11 — When pausing live reload fails.**
-  - X is recorded pinned to the attempted checkpoint, in state `failed`.
-  - X keeps its running generation until that exits. Any restart runs the
-    attempted checkpoint, and fails visibly, as today's crash with a broken
-    tree does; it never runs the work tree.
-  - The static plane serves the attempted checkpoint at once: the state live
-    reload would have left, held.
-- **NP-02-12 — Primary first.**
-  - The primary's cgroup leaf keeps today's per-component caps as its own
-    (`internal/boot/boot.go:565-572`), whatever its non-primary siblings
-    use.
-  - When the VM budget can't admit a primary start
-    (`internal/vm/policy.go:132-141`), xbind first stops the same tile's
-    non-primary VM guests.
-  - A non-primary start is refused rather than preempting any primary.
+- **NP-02-10** — resolved by P28.
+- **NP-02-11** — resolved by P9 ([05-model.md](05-model.md) §4, §5).
+- **NP-02-12** — resolved by P25.
+- **NP-02-13 — Synthetic data is the documented default.** S-11's pattern
+  is taught wherever builders and agents learn deployments.
+  - The builder docs and the AGENTS.md text ([10-ux.md](10-ux.md) §10.2)
+    say: fill a non-primary deployment from its own code or fixtures, set
+    test secrets with `bx vault set` from a session that targets it, and
+    reset and re-run to start clean; seeding and vault copy are the
+    exception.
+  - The deployments panel offers "Set a test value…" at terminal level
+    next to "Copy vault values…", never onto a protected primary.
+  - [15-test-plan.md](15-test-plan.md) adds
+    `TestTargetedSessionWritesOnlyItsNamespace` (SC-DATA).

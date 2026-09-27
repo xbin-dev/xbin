@@ -1,16 +1,17 @@
 # Tile dev lifecycle: pause live reload, tile deployments, promotion
 
 > Status: live — design proposal (2026-09-27), not yet implemented. This set
-> of documents is the input to the implementation workflow. Owner decisions
-> P1–P4 are ratified; P5 onward are proposed (see
-> [16-open-questions.md](16-open-questions.md)). D-numbers are assigned only
-> at ratification, because `make test`'s docscheck refuses undefined IDs.
+> of documents is the input to the implementation workflow. P1–P4 are
+> ratified. P7, P18, P19 and P22–P24 are owner-confirmed (2026-09-27). The
+> rest are proposed (see [16-open-questions.md](16-open-questions.md)).
+> D-numbers are assigned only at ratification, because `make test`'s docscheck
+> refuses undefined IDs.
 
 ## What this is
 
-Today every tile is live-reload "test in prod": a save in the tile directory
-rebuilds and swaps its backend and reloads every open frame. That stays the
-default. This design adds, for tiles that opt in:
+Today every tile runs under live reload: a save in the tile directory
+rebuilds and swaps its backend and reloads every open frame, for every user at
+once. That stays the default. This design adds, for tiles that opt in:
 
 - **Pause live reload**, with **reload now**. The tile keeps serving a pinned
   checkpoint while its work tree moves.
@@ -29,7 +30,7 @@ Tiles that never opt in change in no way at all (P5).
 | # | Document | Read it for |
 |---|---|---|
 | — | [01-glossary.md](01-glossary.md) | The vocabulary. Read it first; every other document uses it verbatim. |
-| — | [05-model.md](05-model.md) | The recommended model: objects, operations, routing, authority, invariants P1–P21, worked flows. |
+| — | [05-model.md](05-model.md) | The recommended model: objects, operations, routing, authority, invariants P1–P29, worked flows. |
 | 1 | [02-goals.md](02-goals.md) | Problem, scenarios, non-goals, success criteria, the zero-change guarantee. |
 | 2 | [03-current-state.md](03-current-state.md) | How things work today, with file:line, as the baseline the design changes. |
 | 3 | [04-options.md](04-options.md) | The tradeoff surface: every axis, its options, and why the model chose what it chose. |
@@ -51,17 +52,25 @@ Tiles that never opt in change in no way at all (P5).
 - **Vocabulary:** [01-glossary.md](01-glossary.md) is normative. The banned
   words (identity, instance, environment, "pause the tile", …) are banned in
   normative text.
-- **Baseline:** master plus the `sandbox-visibility` branch (D112's sandbox
-  registry is landed; D113's tile-managed sandboxes are designed). That branch
-  is expected to merge first, and this set is written against it
-  ([research/sandbox-visibility.md](research/sandbox-visibility.md)).
-  Deployments are not built on tile-managed sandboxes. They change the shared
-  sandbox mechanics one layer up.
+- **Baseline:** master, where D112's sandbox registry is landed and D113's
+  tile-managed sandboxes are designed ([plans/tile-sandboxes.md](../tile-sandboxes.md);
+  [research/sandbox-visibility.md](research/sandbox-visibility.md)).
+  Deployments are not built on tile-managed sandboxes; they change the shared
+  sandbox mechanics one layer up. cgi no longer exists: its removal is its
+  own change, which lands first ([14-implementation.md](14-implementation.md)
+  PRE-5).
 - **Facts about today** carry `file:line` references and point at the
   research file they came from. Line numbers drift, so re-check them before
   editing code.
 - **Decisions:** P-numbers are local to this set. `plans/DECISIONS.md`
-  receives D-numbers at ratification.
+  receives D-numbers at ratification. Only D1–D114 exist on this branch. Work
+  on other branches (the sandbox-managers contract and agent classes, cgi's
+  removal) is described in words, never cited by ID, because docscheck refuses
+  undefined IDs.
+- **`16-open-questions.md` must exist before this set is committed:**
+  `TestRelativeLinksResolve` fails until then on every link to it (this
+  README's status note and reading order, and 06-security.md). It is written
+  from the triage's proposal list and open questions.
 - **Plans aren't embedded** in xbind. Builder docs (`docs/`) are written from
   these documents at implementation time, following the rules in the repo's
   AGENTS.md (a changelog entry, protocol.md rows, a migration note if

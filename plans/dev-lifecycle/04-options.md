@@ -4,16 +4,17 @@
 
 This document argues each choice in [05-model.md](05-model.md) against the
 alternatives. It does not restate the model. Every recommendation names the
-invariant (P1–P21, [05-model.md §13](05-model.md#13-invariants-the-proposed-decisions))
-that carries it, and where this document and the model differ in detail, the
-model is normative until the integrator resolves the entry in
-[Divergences from the model](#divergences-from-the-model). Terms are
+invariant (P1–P29, [05-model.md §13](05-model.md#13-invariants-the-proposed-decisions))
+that carries it. Where this document and the model differ in detail, the
+model is normative; [Divergences from the model](#divergences-from-the-model)
+records the ones found and how they were settled. Terms are
 [01-glossary.md](01-glossary.md)'s, used verbatim.
 
 Evidence:
-- Facts about today carry `file:line`. They were re-verified against this
-  worktree (master plus the `sandbox-visibility` branch), so some differ from
-  the research maps, which were taken before those commits.
+- Facts about today carry `file:line`, re-verified against this worktree. The
+  baseline is master: D112 is landed, and D113 is designed
+  ([plans/tile-sandboxes.md](../tile-sandboxes.md)). Some line numbers differ
+  from the research maps, which were taken earlier.
 - Decision IDs resolve in [../DECISIONS.md](../DECISIONS.md); IFACE-7 is in
   [../interfaces.md](../interfaces.md).
 - Prior art names platforms from [research/prior-art.md](research/prior-art.md).
@@ -38,8 +39,11 @@ Each axis has five parts:
 - **Recommendation:** the choice, and the P-number that carries it. Where this
   document needs a decision the model doesn't make, it adds a proposal labelled
   NP-04-n (listed in [New proposals](#new-proposals)).
-- **Status:** *ratified* means the owner ratified it on 2026-09-27 (P1–P4).
-  *Proposed* covers P5 onward and every NP-04-n.
+- **Status:**
+  - *ratified*: P1–P4, ratified by the owner on 2026-09-27;
+  - *owner-confirmed*: P7, P18, P19 and P22–P24, and the owner's answers of
+    the same day;
+  - *proposed*: every other P-number, and every open NP-04-n.
 
 ## Constraints every option is judged against
 
@@ -130,14 +134,16 @@ move between deployments?
 | A pointers | Pausing live reload works on any tile: with or without git, committed or not. What runs is exactly what was tested, gitignored runtime files included. | The store is xbind-owned and confine-only (P16). The tile repository is never the record of what runs. | The zero state is untouched (P5). | Medium–high: the store, materialization, artifacts per checkpoint, deployment-aware routing. | Lambda `$LATEST` plus aliases, Apps Script's head plus pinned deployments, Cloud Run's LATEST, Cloudflare's immutable uploads plus a serving pointer, Netlify's locked deploys, Deno timelines, Convex. |
 | B1 branch tips | Git-native, and promotion is a merge. But a commit becomes a deploy, which collides with CM-2 ("commit often and on your own initiative… never ask", `workspace-template/AGENTS.md:160-166`). Pausing live reload needs a commit, and xbind never commits (D2). Gitignored runtime files such as `node_modules` aren't at a branch tip. | Branches are writable from the tile's sandboxes: `reset`, `branch -f` or a force push rewrite what a deployment runs. Every read must be confined, and pinning needs a capture into xbind storage, which is A. | Imported repositories keep their own default branch. Nested components are separate repositories. | Medium, plus a confined poller per followed branch. | Deno timelines per branch, Vercel's branch tracking, Railway's and Amplify's trigger branches, Supabase, n8n (a server per branch). |
 | B2 checkout selects | Switching deployments is `git checkout`. But agents check out branches routinely, and checking out the primary's branch turns the work tree into the primary's code at once, uncommitted changes included. | HEAD is controlled from the terminal, so checking out a protected primary's branch would bypass P21 unless the mapping were inert for it. | As B1. | Medium. | None found. n8n's guidance against pushing and pulling on the same server warns against running what is being edited. |
-| C deploy remote | An explicit act: push is not commit. Agent-friendly, and a dirty tree is no problem. Non-git users are left out, and gitignored runtime files are missing unless xbind builds them. | Every receive must run confined. The remote must refuse pushes to a protected primary. | Additive routes under `/api/xbin/`. | High. There is no receive-pack in xbind. Confine buffers all output (`internal/confine/confine.go:87-89`, `:250-265`), so a push needs a streaming confined run; D113's exec protocol is the precedent. | Heroku (one branch deploys), Dokku (a deploy-branch filter; `apps:lock`), Piku. |
+| C deploy remote | An explicit act: push is not commit. Agent-friendly, and a dirty tree is no problem. Non-git users are left out, and gitignored runtime files are missing unless xbind builds them. | Every receive must run confined. The remote must refuse pushes to a protected primary. | Additive routes under `/api/xbin/`. | High. There is no receive-pack in xbind. Confine buffers all output (`internal/confine/confine.go:87-89`, `:250-265`), so a push needs a confine-level streaming run ([05-model.md §12](05-model.md#12-isolation-and-runtimes)), independent of D113's unbuilt exec protocol. | Heroku (one branch deploys), Dokku (a deploy-branch filter; `apps:lock`), Piku. |
 | D work tree per deployment | Every deployment can be edited at once. But agents, terminals, the watcher and `go.work` all assume one directory per tile (C4). A second tree is either an unwatched dot directory or a new path, which is option 0. | Doubles the editing surfaces per tile. | Rewrites the editing plane. | Very high. | Val Town's always-live branches, whose data semantics are undocumented; Amplify sandboxes ("only one can be running at a time"). |
 
 **Recommendation: A**, with B and C recast as **feeds** on the same core:
 - The **tracked branch** feed keeps B1's behaviour. It reads the branch inside
   confine and captures each new commit into the store, so the untrusted
   repository never becomes the record.
-- The **deploy remote** feed is C.
+- The **deploy remote** feed is C's push side (M3).
+- C's read side ships in v1 as the read-only checkpoint fetch remote
+  `xbin-deploy` (A2), which flow H needs. Nothing is ever pushed through it.
 
 The other options:
 - **B2 is rejected.** Choosing the live reload target by checkout turns routine
@@ -162,16 +168,21 @@ tree, and what does it contain?
 
 **Options.**
 - **a) A private confined git store** (the model).
-  - A bare repository at `data/checkpoints/<CompKey>.git`.
-  - Capture is a confined `git --git-dir=<store> --work-tree=<tile>` run with
-    a store-private index: `add --all --force`, minus exclude pathspecs, then
-    `write-tree`. The tile is bound read-only. The checkpoint id derives from
-    the tree hash, so identical content is one checkpoint.
+  - A bare repository at `data/checkpoints/<TileKey>.git`. `<TileKey>` is a
+    128-bit hash of the tile path; `CompKey` keeps only 32 bits and can be
+    ground (`internal/util/util.go:137-144`), so the new stores use the
+    collision-free key and existing stores keep theirs.
+  - Capture is confined `git --git-dir=<store> --work-tree=<tile>` with a
+    store-private index: `add --all --force`, minus exclude pathspecs, then
+    `write-tree`. The tile is bound read-only. The checkpoint is named by its
+    tree hash, so identical content is one checkpoint. `07-runtime.md` §2.2
+    fixes the pipeline (two confined runs, with an admission check on the
+    listing).
   - This is D77's private-git-dir pattern (`internal/term/agentdiff.go:91-124`;
     `add -A` and `write-tree` at `:273-279`), run with confine's hardened
     flags and env vars (`internal/confine/git.go:14-34`).
-  - Checkpoints are materialized read-only under
-    `.xbin/deploy/<CompKey>/<id>/`.
+  - Checkpoints are materialized under
+    `.xbin/deploy/<TileKey>/<full tree hash>/`.
 - **b) Tar or copy.** A full copy of the tree per checkpoint: `rsync -aHAX` or
   `cp -a` inside confine, or an in-process Go copier.
 - **c) Reflinks.** `cp --reflink` on btrfs or XFS: the filesystem shares
@@ -193,7 +204,7 @@ tree, and what does it contain?
 
 | Option | UX | Security | Compat | Cost | Prior art |
 |---|---|---|---|---|---|
-| a) git store | Content-addressed ids (`c:3f2a1c9`) and deduplication for free. `diff-tree` gives the promote dialog its diff. `update-server-info` makes it a fetch-only remote for flow H, as for template repositories (`internal/broker/templaterepo.go:93`). The fidelity limits must be documented, and the glossary does. | Confined runs only (D78), with hooks and fsmonitor off. The store sits in `data/`, which every terminal masks (`internal/term/binds.go:49-53`). | Internal; the `data/` layout isn't promised (`docs/compat.md:141`). | Medium. Each confined run costs about 45 ms (fuse-overlayfs) or 17 ms (kernel overlay) per D78, plus hashing the changed files. Keeping the index in the store makes repeat captures cheap. | Lambda, Apps Script and Cloud Run all keep immutable, content-fixed captures behind their pointers; Val Town built its own VCS. |
+| a) git store | Content-addressed ids (`c:3f2a1c9`) and deduplication for free. `diff-tree` gives the promote dialog its diff. The store also keeps each checkpoint's git view, which a separate view repository serves as flow H's read-only fetch remote (below), refreshed by a confined `update-server-info` as template repositories are (`internal/broker/templaterepo.go:93`). The fidelity limits must be documented, and the glossary does. | Confined runs only (D78), with hooks and fsmonitor off. The store sits in `data/`, which every terminal masks (`internal/term/binds.go:49-53`), and is never served itself. | Internal; the `data/` layout isn't promised (`docs/compat.md:141`). | Medium. Each confined run costs about 45 ms (fuse-overlayfs) or 17 ms (kernel overlay) per D78, plus hashing the changed files. Keeping the index in the store makes repeat captures cheap. | Lambda, Apps Script and Cloud Run all keep immutable, content-fixed captures behind their pointers; Val Town built its own VCS. |
 | b) tar/copy | Full fidelity. But no ids, no diff and no fetchable remote. | An in-process copier reads sandbox-writable files and races a symlink put in a file's place; the backup writer has exactly this race (`internal/backup/backup.go:124-130`). Inside confine it is safe but slow. | Same as a. | Storage grows with every checkpoint, since there is no deduplication without a hardlink farm. A content-addressed file store would reinvent git. | Heroku slugs, Fly images, Netlify atomic deploys. All of these store built artifacts, not the tree that produced them. |
 | c) reflink | Instant, full fidelity. | Same race as b unless run in confine. | Depends on the filesystem: ext4 and overlay have no reflinks, so a or b is needed as a fallback anyway. | Low where it works, but two code paths overall. | Neon's copy-on-write branches (at the storage level). |
 
@@ -204,27 +215,54 @@ tree, and what does it contain?
 | gitignored files | included: `add --force`, and the store's own exclude files are empty | A pinned deployment must run what the live reload target ran. `node_modules`, generated assets and local config files are usually gitignored, and node and python backends load them from the tile directory (`internal/runner/runner.go:395-405`). |
 | `node_modules` | included | A runtime dependency. Backups skip it as reproducible (`internal/broker/backup.go:117-118`), but reinstalling at deploy time would be a network build, not a pin. Deduplication limits the cost to changed files. |
 | `.git` directories | excluded | History isn't code, and the repository is untrusted. |
-| nested components | excluded, by exclude pathspecs taken from the registry and from any directory holding a `.git`, so no gitlink entries appear | Each is a tile of its own (`internal/registry/registry.go:469-471`), with its own deployments or its own zero state. |
-| `deps/` symlinks | included, as links | xbind regenerates them as relative links (`internal/deps/deps.go:59-69`). The static plane never follows a link out of a checkpoint (P16), unlike the legacy plane, which follows cross-tile links today (`internal/server/static.go:193-195`). See [Divergences](#divergences-from-the-model) for where they lead. |
+| nested components | excluded, by exclude pathspecs taken from the registry and from any directory holding a `.git`, so no gitlink entries appear | Each is a tile of its own (`internal/registry/registry.go:469-471`), with its own deployments or its own zero state. Inside a pinned backend's sandbox, its own code is bound back after the checkpoint bind (A13). |
+| `deps/` symlinks | included, as links, and never followed on disk (P16) | xbind regenerates them as relative links (`internal/deps/deps.go:59-69`); today's legacy plane follows them out of the tile (`internal/server/static.go:193-195`). With a checkpoint: the static plane resolves a `deps/<name>/…` path by re-dispatching it to that tile's `/c/` plane (its primary); any other link that leaves the checkpoint answers 404 (`ErrEscapes`, `internal/fsutil/beneath.go:11`); confined Go builds get the other tile's pinned primary checkpoint (or its work tree, while that primary follows it) bound over its `go.work` directory ([05-model.md §6](05-model.md#6-what-code-and-which-manifest-a-deployment-runs)). |
 | dot files and dot directories | included | The watcher ignores them (`internal/watch/watch.go:61-74`), but backends read them, `.env`-style configuration for example. |
-| size | capped per checkpoint (bytes and files) and per store | Over the cap, the capture is refused with the largest directories named; it is never truncated. `07-runtime.md` sets the numbers. The exclude knob is NP-04-4. |
+| size | capped per checkpoint (entries, bytes, largest file, path length, depth, time) and per store | Over a cap, the capture is refused with the largest directories named; it is never truncated. `07-runtime.md` §2.5 sets the numbers. A per-tile exclude list, if a tile needs one, lives in the deployment record, never in a work-tree file. |
+| the git view | the checkpoint minus the paths the tile's own ignore rules exclude, evaluated in confine at capture and kept in the store beside its checkpoint (never advertised) | Only the fetch remote serves it. A branch made from the full checkpoint would commit `node_modules`, `.env` and build output into the tile's history, and the next branch switch would delete them from the work tree (flow H). |
 
 A capture reads a tree that may still be changing, so a file caught mid-write
 can be captured torn. Live reload has the same race today. A capture must
 therefore start only after the watcher's 300 ms quiet period
 (`internal/boot/boot.go:40-41`).
 
+**The read-only fetch remote** (`xbin-deploy`, flow H):
+- It is served from a separate, xbind-owned **view repository** per tile
+  (`data/checkpoints/<TileKey>.view.git`). That repository holds only
+  `refs/heads/deploy/<name>` for each pinned deployment, pointing at its
+  checkpoint's git view, plus `HEAD` naming the primary's ref (dangling while
+  the primary follows the work tree). It holds no other objects, so no
+  `refs/xbin/*` ref and no store object is ever fetchable. A confined
+  `update-server-info` refreshes it after each change to its refs. The refspec
+  is `+refs/heads/deploy/*:refs/deploy/*`, so `deploy/<name>` resolves after
+  `git fetch xbin-deploy`.
+- It serves an allow-list of dumb-HTTP files (`HEAD`, `info/refs`,
+  `objects/info/packs`, loose objects, packs), opened beneath the view
+  repository with every symlink refused. It never goes through the `template`
+  remote's `http.ServeFile` (`internal/broker/templaterepo.go:226`).
+- Only the tile's own terminal and agent sessions, and humans with at least
+  `write` on the tile (their current level, checked per request), may fetch.
+- It is injected per session through `GIT_CONFIG_*` env entries beside
+  today's rewrite (`internal/term/term.go:789-791`), and only while the tile
+  has a deployment record. It is never written into the tile's `.git/config`:
+  clone copies `.git`, and opting out or downgrading must leave nothing
+  behind.
+
 **Recommendation: a).**
 - Checkpoints use the private confined git store.
 - The fidelity limits are part of the checkpoint's definition.
-- Checkpoints are materialized read-only, and built artifacts are kept per
-  checkpoint (P9).
+- Materialized trees use directory mode 0755 and file modes 0444/0555 (the
+  exec bit kept), so `rm -rf .xbin` keeps working. They are read-only to
+  sandboxes by bind flags, not by host modes. Host-side code never follows
+  links or walks inside them, which 06-security's rule C5 states and a guard
+  test enforces (`15-test-plan.md`).
+- Built artifacts are kept per checkpoint (P9).
 - Reflinks may later speed up materialization, never capture.
 
 → **P1** (the store), **P9**, **P16**.
 
 **Status:** P1 is ratified (an xbind-owned checkpoint store). The mechanism
-and the inclusion rules are proposed (P16, NP-04-4).
+and the inclusion rules are proposed (P16).
 
 ## A3 — Pausing live reload
 
@@ -236,8 +274,18 @@ taken? What do reload now and resume do?
 | Option | UX | Security | Compat | Cost | Prior art |
 |---|---|---|---|---|---|
 | a) Watcher flag: skip `reload` and `run.Changed` for the tile in `watchLoop` (`internal/boot/serve.go:178-180`) | Live reload looks paused until the first restart or page load. Every restart path rebuilds from the work tree (C5). node and python run straight from the tile directory (`internal/runner/runner.go:395-405`, `:454-462`). The next navigation serves the unfinished files. | Unfinished code reaches the primary silently. | — | Very low. | n8n 2.0 is the cautionary tale: its webhook path ran drafts, bypassing the pin. Every entry point must resolve through one "which code runs" pointer. |
-| **b) Pin to a checkpoint (the model):** pausing live reload checkpoints the work tree and deploys it, and every restart runs that checkpoint | Frontend and backend both hold still. | Nothing reaches the primary without an explicit act. | The zero state is untouched. | Medium: a checkpoint and a materialization, and for Go a build keyed by checkpoint. Backends need isolation (A13). | Netlify's locked deploys, Deno's timeline locking, Cloud Run's `--no-traffic`, Vercel with auto-assign off. |
+| **b) Pin to a checkpoint (the model):** pausing live reload checkpoints the work tree and deploys it, and every restart runs that checkpoint | Frontend and backend both hold still. | Nothing reaches the primary without an explicit act. | The zero state is untouched. | Medium: a checkpoint and a materialization, and for Go a warm-cache rebuild keyed by checkpoint. Backends need isolation (A13). | Netlify's locked deploys, Deno's timeline locking, Cloud Run's `--no-traffic`, Vercel with auto-assign off. |
 | c) Refuse edits while live reload is paused (Dokku `apps:lock`) | Defeats the purpose: the developer pauses live reload precisely to keep editing. | — | — | Low. | Dokku `apps:lock`, which rejects pushes. |
+
+Pausing live reload is a file-identical swap only within the checkpoint's
+fidelity limits (A2): a backend that reads its own `.git`, or expects an empty
+directory, sees a different tree once live reload is paused. A Go backend
+needs a warm-cache rebuild, because the watcher ignores directories a
+checkpoint includes. If that build fails, live reload stays detached, and the
+deployment is recorded pinned to the attempted checkpoint (state `failed`).
+It keeps serving its current generation, and every restart runs the
+attempted checkpoint, never the work tree
+([05-model.md §5](05-model.md#5-operations)).
 
 ### A3.2 When checkpoints are taken
 
@@ -245,8 +293,13 @@ taken? What do reload now and resume do?
 |---|---|---|---|
 | **a) On demand (the model):** when live reload is paused, and at reload now, deploy, promote and add deployment | Build errors appear only when reload now runs. The terminal bar can still show "N files changed since c:…", via a confined capture and diff on each debounced batch, for tiles whose live reload is paused. | Lowest. No per-save cost on the default path (P8). | Netlify's manual deploy activation, Piku with `PIKU_AUTO_RESTART=false`. |
 | b) A checkpoint on every save while live reload is paused | A checkpoint for every save. Little extra value, since the deploy log already records what ran. | One confined run per batch. | Val Town (every change kept), Retool's history. |
-| c) As b, plus a candidate build that isn't activated | Reload now activates something already built. Build errors show in the terminal window before anyone presses it. | One build per save: what live reload costs today. | Netlify (builds continue while locked, ready to activate later); Deno (pushes build but don't activate). |
+| c) As b, plus a candidate build that isn't activated | Reload now activates something already built. Build errors show in the terminal window before anyone presses it. But it contradicts the glossary's "paused: saves change the work tree and nothing else", and adds activation-by-hash state. | One build per save: what live reload costs today. | Netlify (builds continue while locked, ready to activate later); Deno (pushes build but don't activate). |
 | d) A checkpoint on every save, on every tile with deployments, the live reload target included | — | Breaks P8. | — |
+
+Dry runs capture nothing. A dry run of pause live reload or add deployment
+computes the impact without capturing, so on a zero-state tile it never
+creates a checkpoint store; the store exists only after a committed opt-in
+(A11).
 
 ### A3.3 What resume does
 
@@ -266,8 +319,9 @@ Rules the prior art settles, all kept by the model:
 
 **Recommendation:**
 - the pin mechanism (A3.1 b);
-- checkpoints on demand in v1 (A3.2 a), with candidate builds (c) as a later
-  enhancement that doesn't change what activation means (NP-04-6);
+- checkpoints on demand (A3.2 a). Candidate builds (c) are rejected for v1,
+  and revisited only if [02-goals.md](02-goals.md)'s SC-LATENCY-OPS fails with
+  warm caches and differential materialization;
 - resume deploys the work tree (A3.3 a).
 
 → **P8, P9**, and the glossary's definitions of pause live reload, reload now
@@ -295,20 +349,28 @@ when the primary role moves?
 
 | Option | UX | Security | Compat | Cost | Prior art |
 |---|---|---|---|---|---|
-| **a) follows the deployment** | "Primary" and `main` can diverge, so the UI must say whose data the primary serves (flow F). | There is no re-encryption step to get wrong. | No migration. The files builder docs name, such as `.xbin/log/<compkey>.log`, stay where they are. | Low: one key function routes every call site. | Neon (the default branch can be reassigned; data stays with each branch), Convex, Heroku (add-ons stay with their app), Deno Deploy's late binding per timeline. |
+| **a) follows the deployment** | "Primary" and `main` can diverge, so the UI must say whose data the primary serves (flow F). | There is no re-encryption step to get wrong. | No migration. The files builder docs name, such as `.xbin/log/<compkey>.log`, stay where they are for `main`. | Low: one key function routes every call site. | Neon (the default branch can be reassigned; data stays with each branch), Convex, Heroku (add-ons stay with their app), Deno Deploy's late binding per timeline. |
 | b) follows the role | Intuitive: the primary always holds the real data. | Reassignment must rename directories, re-encrypt kv under its `kv:<bucket>` label (`internal/broker/resenc_wire.go:202-223`) and re-wrap every gocryptfs volume, whose key derives from `resLabel` (`:43`). None of that is atomic, and a crash midway splits the data. | Fine. | High. | Azure moves non-sticky connection settings along with the code, a documented trap. Deno Classic's bug served the wrong KV from the primary domain. |
 | c) everyone namespaced | — | — | Migrates every opted-in tile's data, the opposite of "enabling deployments never migrates". | High. | Replit's shared-to-separate database migration left old remixes needing manual work. |
 | d) opaque ids | Names could be renamed. | — | — | An indirection table to back up and restore. Names are immutable for the reason user ids are (D15). | — |
 
-**Recommendation: a).** Non-primary namespaces sit at a dot level that no
-scope key can produce. `util.ScopeKey` isn't injective
-(`internal/util/util.go:127-132`), but no component path can start with a dot
-(`internal/util/util.go:97-114`). Encrypted mounts stay under `.xbin/resenc/`
-for the installer's AppArmor rule (`deploy/install.sh:909`). The exact
-scheme is `08-data.md`'s. Reassigning the primary moves routing only.
+**Recommendation: a).**
+- Non-primary namespaces sit at a dot level that no scope key can produce.
+  `util.ScopeKey` isn't injective (`internal/util/util.go:127-132`), but no
+  component path can start with a dot (`internal/util/util.go:97-114`).
+  Encrypted mounts stay under `.xbin/resenc/` for the installer's AppArmor
+  rule (`deploy/install.sh:909`). The exact scheme is `08-data.md`'s.
+- A non-`main` deployment's backend log is
+  `.xbin/deploy/<TileKey>/d/<name>/backend.log`; `main` keeps today's.
+- Reassigning the primary moves routing only. It is M2, a tile-manager act
+  with a loud confirmation that names whose data the new primary serves. In
+  v1 the tile must be in the workspace scope or be the only member of the
+  scope it roots, because reassigning one member would split the scope's
+  primary data (P28).
+
 → **P6, P7.**
 
-**Status:** proposed.
+**Status:** P7 owner-confirmed; P6 and P28 proposed.
 
 ## A5 — The outbound fabric (F0–F4)
 
@@ -321,7 +383,7 @@ Today:
   (`internal/broker/broker.go:418-452`).
 - The proxy turns the result into one role, strips every inbound `X-XBin-*`
   header, sets `X-XBin-Role` (`internal/proxy/proxy.go:160-173`,
-  `:275-279`), and reaches the provider through `Runner.Ensure(comp)`
+  `:275-279`), and reaches the provider through `Runner.Ensure`
   (`:182`).
 - So a marker xbind sets itself is trustworthy, and today the callee can't
   tell deployments apart.
@@ -341,16 +403,29 @@ Today:
 |---|---|---|---|---|---|
 | F0 none | Most tiles can't be exercised: there's no llm and no calendar, and slot env is missing or dead. | Safest. | Fine. | Low. | Render's switch that blocks private traffic between its named sets. |
 | F1 full primaries | Everything works. | Non-primary code writes other tiles' primaries with the tile's full rights. A webhooks tile would fire the agent's real triggers, and a bridge would post real replies ([research/inbound-edges.md](research/inbound-edges.md) E5 and §3 F). | Fine. | Lowest. | Cloudflare's per-branch Workers call the bound Worker's primary deployment; Firebase's and Vercel's per-branch URLs use the real backend. Cloudflare now advises against testing on URLs that run with the primary's resources. |
-| **F2 read-clamped + `block`** | Reads work (dashboards, lookups). Writes are refused with an error that names the policy. `block` is for edges that shouldn't even read. | No writes into another tile's primary through xbind-brokered resources. For HTTP APIs, the provider enforces the role it's told (see below). Reading real provider data widens nothing compared with the zero state, where a terminal-level user can make the primary read and log it by saving. Under a protected primary, though, `read` edges are the one route left by which terminal-level code reads providers' data, which is why edge policies are a tile-manager setting and `block` exists. | The primary is unaffected, and the deployment marker is absent on its calls. | Medium: a clamp in one resolver, plus a per-edge record. | Retool (resource permissions set per resource configuration, e.g. read-only on the real database). No platform clamps by default; this is new. |
-| F3 `match` | The best fidelity: `dev` talks to `dev` with no code change. Needs same-named deployments to exist and be seeded, and a rule for a missing name. | Safe if a missing name is refused; a leak if it falls back to the primary. | Needs an exception to P7 (see A16). | High for L3: net splices are numbered by the sorted client index (`internal/broker/netfn.go:182-191`, `:223-249`). Moderate for HTTP. | Railway (a service's private DNS name resolves to its counterpart in the same named set), Render's `fromService`, Amplify's backend per branch, and Cloudflare's stated future work. |
+| **F2 read-clamped + `block`** | Reads work (dashboards, lookups). Writes are refused with an error that names the policy. `block` is for edges that shouldn't even read. | No writes into another tile's primary through xbind-brokered resources. For HTTP APIs, the provider enforces the role it's told (below). Reading real provider data widens nothing compared with the zero state, where a terminal-level user can make the primary read and log it by saving. Under a protected primary, though, `read` edges are the one route left by which terminal-level code reads providers' data, which is why edge policies are a tile-manager setting and `block` exists. | The primary is unaffected, and the deployment marker is absent on its calls. | Medium: a clamp in one resolver, plus a per-edge record. | Retool (resource permissions set per resource configuration, e.g. read-only on the real database). No platform clamps by default; this is new. |
+| F3 `match` | The best fidelity: `dev` talks to `dev` with no code change. Needs same-named deployments to exist and be seeded, and a rule for a missing name. | Safe if a missing name never gets a full-role fallback to the primary. | Adds its exception at P7's one resolver (A16). | High for L3: net splices are numbered by the sorted client index (`internal/broker/netfn.go:182-191`, `:223-249`). Moderate for HTTP. | Railway (a service's private DNS name resolves to its counterpart in the same named set), Render's `fromService`, Amplify's backend per branch, and Cloudflare's stated future work. |
 | F4 per binding | The most control, with many knobs per edge. | Depends on the knob, and easy to misconfigure: Azure's per-setting stickiness is the documented trap. | — | Medium. | Render's `previewValue`, Amplify's "share resources across branches", Cloudflare's per-branch binding overrides. |
 
-**The owner's choice (P3):**
+**The owner's choice (P3, P23):**
 - F2, with a per-edge `block`.
 - F3 later, as the edge-policy value `match` on the same per-edge record.
+- Edges that cannot be read-clamped are blocked for non-primary deployments
+  in v1, with no override (P23). Loosening later is easy; tightening after
+  the fact is not.
+- The net edge defaults to `inherit`, with `block` available.
 
-The per-edge record is shaped like F4, but its value set is closed (`read` |
-`block`, later `match`). That keeps F4's control without its free-form knobs.
+The per-edge record is shaped like F4, but its value set is closed per edge
+kind:
+- `read` | `block` for edges that can be read-clamped (`read` is the default);
+- `inherit` | `block` for role-less edges: the net slot and capability grants;
+- `block` only, for edges that cannot be read-clamped (P23);
+- later, `match`.
+
+A value this xbind doesn't know, or one invalid for the edge's kind, reads as
+`block`, so a downgrade after `match` ships fails closed. When several edges
+authorize one call, any `block` among them refuses it (P27). That keeps F4's
+control without its free-form knobs.
 
 **What the clamp can enforce.**
 - **Brokered resources:** kv, blob and bus writes against `res:` targets are
@@ -358,35 +433,51 @@ The per-edge record is shaped like F4, but its value set is closed (`read` |
 - **Tile-to-tile HTTP:** xbind authorizes the call and tells the provider the
   role in `X-XBin-Role` (`internal/proxy/proxy.go:160-173`). Each endpoint's
   role check is the provider's code, exactly as for any consumer that holds
-  `reader` today. A provider that ignores roles would accept a write. This is
-  the residual `06-security.md` must list, and `block` is the tile manager's
-  answer to it (see [Divergences](#divergences-from-the-model)).
+  `reader` today. A provider that ignores roles would accept a write. The
+  glossary's Read clamp says so, `06-security.md` lists the residual, and
+  `block` is the tile manager's answer to it.
 
 **Custom roles and unclampable edges.** "Clamp to `reader`" needs a `reader`
 to clamp to. Roles rank `reader < writer < admin`, and a custom role satisfies
 `reader` only through the provider's declared `expose.implies`
-(`roleSatisfies`, `internal/broker/broker.go:370-410`).
+(`roleSatisfies`, `internal/broker/broker.go:371-410`).
 
-| Edge | Clampable? | Proposed non-primary default | Evidence |
+| Edge | Clampable? | v1 values for non-primary deployments (default first) | Evidence |
 |---|---|---|---|
-| http binding or grant with `reader`, `writer` or `admin` | yes | `read` (clamped to `reader`) | conventional ranking (`internal/broker/broker.go:370-410`) |
-| custom role whose provider's `implies` reaches `reader` | yes | `read` | `roleSatisfies` walks `implies` |
-| custom role with no path to `reader` (D86's `channel`) | no: a clamp would either invent a `reader` the tile was never granted or leave nothing | `block`; `read` is refused on this edge | custom roles are accepted in allowances (`internal/users/orgs.go:609-610`) |
-| cross-scope `res:` (kv, blob, bus read) | yes | `read` | xbind enforces `res:` roles itself |
-| bus subscription to another scope's bus | yes | `read`: deliveries come from the provider's primary bus | [05-model.md §7](05-model.md#7-routing) |
-| stream interface (`XBIN_IFACE_<SLOT>_ADDR`) | no: a byte stream has no roles | `block` | reached through `DialInto(prov)` ([research/inbound-edges.md](research/inbound-edges.md) E9) |
-| lan-ingress link | no | `block` | on the provider's L3 roster, by index (`internal/broker/netfn.go:223-233`) |
-| net slot: internet, lan, set, org, personal, none | not a role | inherit the tile's policy, since the network belongs to the tile (D54) | `netBinding`, `internal/broker/netfn.go:47` |
-| net slot bound to a provider tile (L3 splice) | no | `block`: relay-only egress or none. Links are keyed by (provider, client path), so a second deployment of the client would close the primary's link fd, and a new roster entry renumbers every link and restarts the provider. | `internal/runner/netmux.go:22-32`; addresses by sorted index (`internal/broker/netfn.go:182-191`, `:212-216`, `:239-249`) |
+| http binding or grant with `reader`, `writer` or `admin` | yes | `read` (clamped to `reader`), `block` | conventional ranking (`internal/broker/broker.go:371-410`) |
+| custom role whose provider's `implies` reaches `reader` | yes | `read`, `block` | `roleSatisfies` walks `implies` |
+| custom role with no path to `reader` (D86's `channel`; the agent tile's `consumer` role on its sandbox managers) | no: a clamp would either invent a `reader` the tile was never granted or leave nothing | `block` only, no override (P23) | custom roles are accepted in allowances (`internal/users/orgs.go:608-612`) |
+| cross-scope `res:` (kv, blob, bus read) | yes | `read`, `block` | xbind enforces `res:` roles itself |
+| bus subscription to another scope's bus | yes | `read`: deliveries come from the provider's primary bus, re-checked against the edge at every delivery; `block` | [05-model.md §7](05-model.md#7-routing) |
+| stream interface (`XBIN_IFACE_<SLOT>_ADDR`) | no: a byte stream has no roles | `block` only (P23) | reached through `DialInto` (`internal/runner/ingress.go:32`; [research/inbound-edges.md](research/inbound-edges.md) E9) |
+| lan-ingress link | no | `block` only (P23) | on the provider's L3 roster, by index (`internal/broker/netfn.go:223-233`) |
+| net slot: internet, lan, set, org, personal, none | not a role | `inherit` (the tile's relay policy, since the network belongs to the tile, D54), `block`. `inherit` never reaches host networking: a tile whose `net` resolves to host sharing (the `host` builtin, or a set whose rules say host) gives its non-primary deployments no egress (`block`, P23), and the panel shows why. | `netBinding` (`internal/broker/netfn.go:47`); `Broker.NetHostShare` (`:196`) |
+| net slot bound to a provider tile (L3 splice) | no | `block` only (P23): no egress through it. Links are keyed by (provider, client path), so a second deployment of the client would close the primary's link fd, and a new roster entry renumbers every link and restarts the provider. | `internal/runner/netmux.go:22-32`; addresses by sorted index (`internal/broker/netfn.go:182-191`, `:212-216`, `:239-249`) |
+| capability grant `gpu:*` | not a role | `block` (a shared device that cgroups don't cover), `inherit` | `GPUFor` (`internal/broker/gpu.go:14`) |
+| other capability grants (`cap:*`) | not a role | `inherit`, `block` | `internal/broker/gpu.go:38-96` |
+
+**Consequences to state plainly.**
+- The agent tile reaches its sandbox managers through the custom role
+  `consumer` (the sandbox-managers programme, on another branch). Under P3
+  and P23, its non-primary deployments are blocked from them.
+- llm-gw guards completions with `writer` (`builtin-tiles/llm-gw/backend/main.go:274`)
+  and model listing with `reader` (`:269`). Under the read clamp, every
+  LLM-using tile's non-primary deployments can list models but can't run a
+  turn.
+- Refusals and clamps are visible: the deployments panel counts them per
+  edge, and a clamped call's response names the clamp.
 
 **Recommendation:**
 - F2 with a per-edge `block` (P3).
-- The unclampable defaults above, proposed for `09-fabric.md` to adopt
-  (NP-04-3).
-- Any edge-policy value an xbind doesn't know reads as `block` (NP-04-2).
+- Edges that cannot be read-clamped take only `block` in v1 (P23);
+  `09-fabric.md` §5.1 lists them.
+- The net slot and capability grants take `inherit` | `block`, and `inherit`
+  never reaches host networking or a provider splice.
+- Unknown or invalid values read as `block`, and `block` wins among several
+  edges (P27).
 
-**Status:** F2, `block` and `match`-later are ratified (P3). The unclampable
-defaults are proposed.
+**Status:** F2, `block` and `match`-later are ratified (P3). P23 and the net
+edge's `inherit` default are owner-confirmed. P27 is proposed.
 
 ## A6 — Self-scoped registrations
 
@@ -423,14 +514,14 @@ What the model does with each kind:
 
 | Kind | Non-primary behaviour |
 |---|---|
-| cron job | dormant; active for its deployment only with deliveries on; run now |
+| cron job | dormant; active for its deployment only with deliveries on; run now (`terminal` level) |
 | bus push subscription | dormant; active with deliveries on (from its own-scope bus, or the provider's primary bus under `read`) |
 | interface instances, ingress hosts | dormant and never active: inbound edges belong to the primary |
-| status (`/tile-report`) | stored per deployment, and emitted only under a new event type (A10, NP-04-1) |
-| notify and push | never pushed; shown in the panel as "would notify …" |
+| status (`/tile-report`) | stored per deployment; travels only as a `deployments` event, to the non-primary audience (A10) |
+| notify and push | never pushed; shown in the panel as "would notify …", to the non-primary audience (A10) |
 
 **Recommendation: dormant**, with the deliveries switch reserved to tile
-managers, and run now. → **P13.**
+managers in a human session (A12), and run now. → **P13.**
 
 **Status:** proposed.
 
@@ -458,8 +549,8 @@ Today:
 | per-key sticky or shared | Flexible. | Per-key state is easy to get wrong. | Fine. | Medium. | Azure's per-setting stickiness. |
 
 **Recommendation:** a separate vault per deployment, starting with the
-primary's key names as placeholders, plus a tile-manager **vault copy**.
-→ **P14.**
+primary's key names as placeholders, plus **vault copy**, a tile-manager act
+in a human session (A12). → **P14.**
 
 **Status:** proposed.
 
@@ -472,20 +563,28 @@ is it filled or refreshed?
 
 | Option | UX | Security | Compat | Cost | Prior art |
 |---|---|---|---|---|---|
-| **empty (the default)** | Tiles that migrate at start create their schema anyway. Realistic data needs an explicit seed. | Nothing leaves the primary's namespace. | Fine. | Lowest. | Supabase ("data-less by default"), Render's full-stack duplicates, Heroku review apps with seed scripts, Convex, Railway, Replit's fresh primary database. |
+| **empty (the default)** | Tiles that migrate at start create their schema anyway. Most development runs on synthetic data the deployment's own code creates. Realistic data needs an explicit seed. | Nothing leaves the primary's namespace. | Fine. | Lowest. | Supabase ("data-less by default"), Render's full-stack duplicates, Heroku review apps with seed scripts, Convex, Railway, Replit's fresh primary database. |
 | **seed** (copy the primary's deployment data, explicitly) | Realistic testing. | PII leaves the primary's namespace, so it's a tile-manager act with a warning (Netlify: per-PR databases "can contain PII"). | Fine. | Medium. kv is re-encoded label by label inside one consistent bbolt read transaction (`internal/broker/resenc_wire.go:202-223`; `dumpKV` and `loadKV` at `internal/broker/backup.go:174`, `:322`). File resources are copied in confine or duplicated at the ciphertext level, and sqlite is quiesced first. The backup tar can't be the base: it drops symlinks and non-regular files (`internal/backup/backup.go:124-129`), and restore merges instead of replacing (`internal/broker/backup.go:219-245`). | Neon (copy by default), Supabase's "Include data", PlanetScale's data branching, Val Town (a duplicated project can take its database along). |
 | copy-on-write | Instant. | As seed. | Fine. | xbin has no copy-on-write substrate: kv lives in one shared bbolt file, and file resources in per-resource gocryptfs volumes. Reflinks can make a ciphertext-level duplicate cheap where the filesystem allows, but that's an implementation detail of seed, not a separate mode. | Neon, Netlify Database. |
 | schema-only | Tests migrations without real rows. | Safe. | Fine. | Needs a notion of schema across kv, blob, files and sqlite. Only sqlite has one, and the rootfs ships no `sqlite3` CLI ([research/data-plane.md](research/data-plane.md) §6b). | PlanetScale's default, Neon's schema-only branches. |
 | seed hook (a tile function run once at creation) | Convenient. | Safe. | Needs a manifest key or a convention, and P5 says no manifest key. A tile can already seed itself when it finds an empty store. | Medium. | Heroku's `postdeploy`, Convex's run-once seed function, Supabase's `seed.sql`. |
 
 **Recommendation:**
-- Every non-primary deployment starts **empty**.
-- **Seed** is an explicit tile-manager act with a PII warning.
+- Every non-primary deployment starts **empty**. Seeding is optional
+  (owner, 2026-09-27).
+- **Seed** is an explicit tile-manager act in a human session, with a PII
+  warning.
 - **Reset** empties the namespace again, so "reset, then seed" is Neon's
   "reset from parent".
+- In a multi-tile scope the namespace is (scope, deployment name), shared by
+  the siblings' same-named deployments. Seed, reset and restore stop every
+  claimant and need the act's authority on each (P28).
+- Seed, reset, and per-deployment backup and restore use new routes under
+  `/api/xbin/deployments/…` (`11-contract.md`). Existing strictly-decoded
+  bodies, `POST /restore` among them, gain no fields.
 - Copy-on-write is used only to make seeding faster.
 
-→ **P14.**
+→ **P14, P28.**
 
 **Status:** proposed.
 
@@ -499,7 +598,7 @@ Constraints:
   (`internal/server/static.go:256-311`), and relative URLs drop the query.
   So the deployment must be in the path or in the host.
 - `/c/` and `/api/` resolve to the longest registered prefix
-  (`internal/registry/registry.go:519-536`).
+  (`internal/registry/registry.go:517-536`).
 
 **Options.**
 - **a) An in-segment `+` suffix:** `/c/<tile>+<name>/` and
@@ -513,32 +612,47 @@ Constraints:
 
 | Option | UX | Security | Compat | Cost | Prior art |
 |---|---|---|---|---|---|
-| **a) `+` suffix** | Readable, and the same form works for `/c/`, `/api/` and `bx` arguments (`apps/crm+dev`). Relative URLs stay under the qualified prefix. | `+` means nothing in grants, refs, events or routes. Its one use is the `bx bind` operator (`cmd/bx/main.go:890`). | `+` is legal in directory names, since `ComponentPathOK` has no character rule (`internal/util/util.go:97-114`). It is therefore reserved for new tile names the D82 way, and an exact match on an existing component wins. `+` becomes a space in an unencoded query string, so a qualified string must never go into a query (NP-04-5). | Low: `Resolve` splits the suffix off the last segment before the prefix walk. | Cloud Run's tagged `TAG---SERVICE` hosts, App Engine's `-dot-` hosts, Netlify's per-PR hostnames: all name-qualified addresses. |
+| **a) `+` suffix** | Readable, and the same form works for `/c/`, `/api/` and `bx` arguments (`apps/crm+dev`). Relative URLs stay under the qualified prefix. | `+` means nothing in grants, refs, events or routes. Its one use is the `bx bind` operator (`cmd/bx/main.go:890`). | `+` is legal in directory names, since `ComponentPathOK` has no character rule (`internal/util/util.go:97-114`). So a qualified URL resolves only for tiles with a deployment record, and only after today's resolution fails: every existing path resolves as today, `<tile>+main` on a zero-state tile included. Two narrow refusals keep it unambiguous (below). `+` becomes a space in an unencoded query string, so a qualified string never goes into a query or a JSON field. | Low: today's `Resolve` runs first, and only on a miss is a `+<name>` suffix split off and matched against a tile with a record. | Cloud Run's tagged `TAG---SERVICE` hosts, App Engine's `-dot-` hosts, Netlify's per-PR hostnames: all name-qualified addresses. |
 | b) dot marker | Harder to read. Two extra segments. `/api/` needs a form of its own. | Free of collisions: no component path starts with a dot (`internal/util/util.go:97-114`), and `pathAllowed` refuses dot segments today (`internal/server/static.go:347`). | Nothing existing breaks. | Low. | — |
 | c) top-level route | Clear. The API side needs a second scheme. | Fine. | Additive (rule 2), with no reservation in tile names. But tile origins serve only `/c/`, `/api/`, `/ws/events`, `/vendor/` and `/healthz` (`internal/server/tileorigin.go:153-180`). | Medium: route tables, apicheck, openapi and protocol rows. | — |
 | d) query | Subresources lose it. | — | Queries are forwarded to tiles, and several keys are taken (`frame`, `native`, `preview`, `xbin_*`). | — | Rejected. |
-| e) origin-only | Clean URLs. | Needed anyway in origins mode: on a shared origin, a non-primary document would share the primary's localStorage and IndexedDB (`internal/server/tileassets.go:74-81`). | Origins mode is opt-in (D95), so this can't be the only form. A label hashed over tile‖NUL‖name leaves `TileHostID` unchanged for primaries (`internal/auth/assettoken.go:182`). | Medium: reverse lookup from label to (tile, name). | Cloud Run's tagged hosts. |
+| e) origin-only | Clean URLs. | Needed anyway in origins mode: on a shared origin, a non-primary document would share the primary's localStorage and IndexedDB (`internal/server/tileassets.go:74-81`). | Origins mode is opt-in (D95), so this can't be the only form. A label hashed over tile‖NUL‖name leaves `TileHostID` unchanged for `main` (`internal/auth/assettoken.go:182`). | Medium: reverse lookup from label to (tile, name). | Cloud Run's tagged hosts. |
 
 **Recommendation:**
 - a) for `/c/` and `/api/`;
-- plus e) in origins mode;
-- plus the credential for self-calls: the frame-token claim and the terminal
-  session's target (P12).
+- plus e) in origins mode: each deployment has its own origin label, keyed by
+  name; `main` keeps today's label, and the bare URL goes to the primary's
+  origin;
+- plus the credential for self-calls: the frame-token claim and the session's
+  target (P12, A19).
 
-The deployments API must refuse a name whose qualified path is already a
-component (NP-04-9). → **P17.**
+The qualifier's rules:
+- Two narrow refusals, for every creator, admins included:
+  - no tile at `<P>+<N>` while `P` has deployment `N`;
+  - no deployment `N` on `P` while a component exists at `<P>+<N>`.
+- Other new tile names containing `+` get a one-release warning, never a
+  refusal (compat rule 11, the D82 way).
+- `<tile>+<primary name>` works for humans and the tile's own principals;
+  other tiles use the bare URL.
+- `+` appears only in URL paths, `bx` arguments and display text. Queries and
+  JSON carry `deployment` as its own field, and no event carries a qualified
+  `component` (A10).
+
+→ **P17.**
 
 **Status:** proposed.
 
 ## A10 — Event shapes
 
 **Question.** What do events about a non-primary deployment look like on
-`/ws/events`, so that old clients are unaffected and new clients can show
-them?
+`/ws/events`, who receives them, and what does a reader of the tile see, so
+that old clients are unaffected and new clients can show them?
 
 Today's consumers:
 - The hub's event is `{Type, Component, Text, Topic, Data}`
-  (`internal/events/events.go:11-17`).
+  (`internal/events/events.go:10-16`).
+- Every non-bus event reaches every subscriber, except `pr`, `term` and
+  `session` (`internal/server/server.go:592-610`).
 - bx-frame reloads on a prefix match (`component === src ||
   startsWith(src + '/')`) and paints build overlays only on an exact match
   (`web/bx-frame.js:366-378`).
@@ -553,10 +667,9 @@ Today's consumers:
 
 **Options.**
 - **a) Existing types** with a qualified component `"<tile>+<name>"` and a
-  `deployment` field (the model).
-- **b) New types for everything non-primary**, for example one `deployment`
-  type with `data.kind`, still carrying `component: "<tile>+<name>"` and
-  `deployment`.
+  `deployment` field.
+- **b) One new type, `deployments`, for everything non-primary** (the model):
+  the bare tile path as `component`, and the deployment named in its data.
 - **c) Existing types** with the bare component and a `deployment` field.
 - **d) No hub events** for non-primary deployments; the panel polls instead.
 
@@ -564,26 +677,52 @@ Today's consumers:
 
 | Option | UX | Security / isolation | Compat | Cost |
 |---|---|---|---|---|
-| a) qualified component | New clients reuse today's handlers. | Two leaks. The old shell renders any component's `status`, so a non-primary `xbin.Status` or transient notice shows as a toast in every old shell. And a nested tile's component `apps/cal/widgets/month+dev` is covered by an ancestor frame `apps/cal` in bx-frame and in the iOS app, so a non-primary save reloads the ancestor's primary view. | Old clients ignore `reload` and `build-*` only for tiles with no mounted ancestor. | Low. |
-| **b) new types** | New vendor code handles them. The terminal window is `/vendor/` code that ships with the binary (`internal/server/server.go:156-160`). | None: old clients ignore unknown types (rule 10; iOS `.other`). | Additive: one more row in protocol.md. | Low. |
+| a) qualified component | New clients reuse today's handlers. | Two leaks. The old shell renders any component's `status`, so a non-primary `xbin.Status` or transient notice shows as a toast in every old shell. And a nested tile's component `apps/cal/widgets/month+dev` is covered by an ancestor frame `apps/cal` in bx-frame and in the iOS app, so a non-primary save reloads the ancestor's primary view, even when that ancestor tile is in the zero state (a P5 break). | Old clients ignore `reload` and `build-*` only for tiles with no mounted ancestor. | Low. |
+| **b) `deployments` only** | New vendor code handles it. The terminal window is `/vendor/` code that ships with the binary (`internal/server/server.go:156-160`). | None: old clients ignore unknown types (rule 10; iOS `.other`). | Additive: one more row in protocol.md. | Low. |
 | c) bare component + field | — | Old clients reload the primary's frames, paint non-primary build errors on them and clear the primary's status. | Breaks old clients. | — |
 | d) no hub events | The panel has no push updates. | None. | Fine. | A second transport. |
 
-**Recommendation: b)** for everything a non-primary deployment emits.
-- The glossary's spelling stays as the payload (`component: "<tile>+<name>"`,
-  `deployment: "<name>"`).
-- Tile-level changes use the model's `deployments` type.
-- Everything about the primary is emitted exactly as today (P5).
+**Recommendation: b)**, which is 12-compat's rule C2:
+- Non-primary activity never rides `reload`, `build-*`, `status` or notify. It
+  rides only the `deployments` type, which carries `deployment`.
+  `11-contract.md` §3.3 owns the shape and the ops.
+- No qualified `component` string appears on an old event type, ever: not for
+  deploys, not for reassignment, not for lifecycle.
+- Everything about the primary is emitted exactly as today, with the bare
+  component (P5). `build-*` keep today's meaning, for the primary only.
+- A deploy's phases and failures ride `deployments`. A failed deploy onto a
+  pinned primary paints no overlay: the primary keeps serving, and the actor,
+  the panel and `bx` see the failure.
+- A successful swap on the primary emits one `reload` for the bare component,
+  only when the primary's code changed, and clears the primary's status at
+  the swap, not at build start. A non-primary swap is announced only in
+  `deployments`.
 
-This departs from [05-model.md §8](05-model.md#8-events-and-what-clients-see)
-(see [Divergences](#divergences-from-the-model)). → **P13, P17**, **NP-04-1.**
+**Delivery is filtered by audience.**
+- Facts about the primary go to the tile's readers, as today.
+- Anything naming a non-primary deployment (its name, builds, compiler output,
+  status, would-notify lines, data ops) goes only to admins, humans with at
+  least `write` on the tile (their current level), and that deployment's own
+  principals plus the tile's terminal and agent sessions.
+- The primary's frame token, minted for the tile's readers, is not an own
+  principal for non-primary facts.
+- Other tiles receive none of it.
+
+**What a reader sees.** A reader of the tile gets only primary-scoped facts.
+`GET /api/xbin/deployments` returns live reload state as it concerns the
+primary, the primary's checkpoint and deploy state, and protection: no
+non-primary deployment names, and no counts that reveal them. `/components`
+adds only the primary summary (A18). `11-contract.md` owns the exact shape;
+the harness asserts this filtered view, not a 403.
+
+→ **P13, P17.**
 
 **Status:** proposed.
 
 ## A11 — Where deployment state lives
 
 **Question.** Where do the deployment record, the checkpoint store, dormant
-registrations and edge policies live?
+registrations and edge policies live, and when do they come into existence?
 
 **Assessment.**
 
@@ -595,22 +734,41 @@ registrations and edge policies live?
 | a key in the tile's `xbin.json` | Visible, and kept in git with the code. | Writable from the tile's terminals, so the primary would move by hand edit, against the D24 precedent. | Every xbind ignores unknown keys (`internal/jsonc/jsonc.go:90-95`), but the key travels with clone, import and templates. Toggling it is a file edit that restarts the backend (`internal/boot/serve.go:178-180`). It is circular for branch feeds, where `xbin.json` differs per branch. | Low, but wrong. |
 | refs or notes in the tile repository | Visible to git users. | Writable from the tile's sandboxes. D48 rejected foreign refs in component repositories. | — | Medium. |
 
-**Recommendation:** the record, the checkpoint store, dormant registrations
-and edge policies live in `data/`. Materialized trees and built artifacts are
-derived, and live in `.xbin/`. No manifest key. → **P5, P15.**
+**Recommendation:**
+- The record, the checkpoint store, the view repository, dormant registrations
+  and edge policies live in `data/`: `data/deployments/<TileKey>.json` and
+  `data/deployments/<TileKey>/<name>/`, `data/checkpoints/<TileKey>.git` and
+  `.view.git`. Only the deployments API (`internal/deployments`) writes the
+  record, and only confined git touches the repositories.
+- The record carries and verifies the tile path, the owner ref and a creation
+  stamp, so a tile re-created at the path never inherits it (P29).
+- Materialized trees and built artifacts are derived, and live in `.xbin/`
+  (`.xbin/deploy/<TileKey>/…`).
+- No manifest key.
+- **Nothing is created before a committed opt-in.** Dry runs of pause live
+  reload and add deployment compute the impact without capturing. A
+  work-tree diff on a tile without a record answers 409 and captures nothing
+  (`11-contract.md` §1.11).
+- Opting out removes the record. The checkpoint store stays, inert, until GC
+  or a manager's purge; the view repository is removed with the record (P5).
+
+→ **P5, P15, P29.**
 
 **Status:** proposed.
 
 ## A12 — Authority
 
-**Question.** Who may change what the primary runs?
+**Question.** Who may change what the primary runs, and who may perform the
+manager acts?
 
 Today:
 - `terminal` is a root shell in the tile's directory
   (`docs/auth.md:584-590`), and a save deploys to the primary.
 - Lifecycle changes are reserved to tile managers
-  (`internal/broker/lifecycle.go:28-30`, via `mayManageTile`,
-  `internal/broker/orgsapi.go:427`).
+  (`internal/broker/lifecycle.go:28-30`, via `IsAdmin` or `mayManageTile`,
+  `internal/broker/orgsapi.go:427`). `Broker.IsAdmin` also admits an element
+  principal whose tile holds `xbin` at `admin`
+  (`internal/broker/broker.go:466-476`), so that gate is not a human gate.
 
 **Options.**
 - **a) Parity, plus an optional protected primary** (the owner's choice).
@@ -625,9 +783,29 @@ Today:
 | **a) parity + protected primary** | Opting in takes nothing away from a terminal-level user. Tile managers opt into protection. | The same power as today. Protection makes every change to the primary's code a tile-manager act, and detaches live reload from the primary (P21). | None. | Low. | Shopify (`--allow-live` is required to touch the theme customers see), Vercel's separate right to change what its primary deployment serves, protection switches at Render and n8n, Neon's protected branches. |
 | b) protected by default | Opting in demotes contributors: a terminal-level user who pauses live reload can no longer reload now onto the primary, which is less than saving gave them. | Stricter than today. | Surprising: the tile behaves differently for the same people. | Low. | Convex (only admins may edit the primary deployment). |
 | c) a new capability or level | Another concept in every ACL screen. | It doesn't bite while the primary is the live reload target, since a save deploys, so it needs protection's detach rule anyway. | Touches the ACL, allowances, D88's caps and the UI. | High. | n8n (`workflow:publish` versus `workflow:update`). |
-| d) humans yes, agents no | Appealing. | Unenforceable. An agent runs in the human's terminal with the same terminal token, a (tile, user) principal (`internal/auth/auth.go:471`, `:499`), and D74 agent sessions reuse the terminal sandbox (`internal/term/agent.go:248`). | — | — | Replit's agent can't touch the primary database, because a platform boundary sits between the human and the agent. xbin has no such boundary. |
+| d) humans yes, agents no | Appealing. | Unenforceable for deploying. An agent runs in the human's terminal with the same terminal token, a (tile, user) principal (`internal/auth/auth.go:471`, `:499`), and D74 agent sessions reuse the terminal sandbox (`internal/term/agent.go:248`). What xbind can tell apart is a browser session from a terminal or agent token, which is why the manager acts below refuse those tokens outright. | — | — | Replit's agent can't touch the primary database, because a platform boundary sits between the human and the agent. xbin has no such boundary. |
 
-**Recommendation: a).** → **P4** (ratified), **P21** (proposed).
+**Recommendation: a)**, with these rules:
+- **Reviewed operations onto a protected primary** name the checkpoint the
+  actor reviewed: `checkpoint` on deploy and roll back; `expect` on promote,
+  reload now and reassignment. A request without it is refused with 400. The
+  check is a compare-and-set on the record's `seq`, with the actor's authority
+  re-checked at commit; a record or work tree that moved since the review
+  answers 409.
+- **A protected primary is never the live reload target or a session's
+  target** (P21, P24; A19).
+- **Manager acts need a human session:** `p.Component == ""` and (`IsAdmin`
+  or `mayManageTile`) (`internal/auth/auth.go:92`,
+  `internal/broker/orgsapi.go:427`). They are seed, vault copy, deliveries,
+  alwaysOn, edge policy, limits, reassign, protect, purge, and non-primary
+  backup and restore. Terminal and agent tokens are refused even for
+  managers, because agents share them. No element principal passes the
+  manager gate in the deployments plane, whatever `xbin` or `xbin:users`
+  grants its tile holds.
+- Every mutating operation is a non-GET JSON request, never a WebSocket
+  upgrade, so view-as sessions and form posts cannot forge it.
+
+→ **P4** (ratified), **P21** (proposed).
 
 **Status:** P4 ratified; P21 proposed.
 
@@ -674,13 +852,14 @@ sandboxes:
 
 | Sub-decision | Options | Recommendation | Evidence |
 |---|---|---|---|
-| D112 registry entry for a non-primary generation | new id + `deployment` field / same id, deployment in the label / a new kind | `main` keeps `backend:<CompKey>:g<gen>`. Non-primary entries get their own id and a `deployment` field; `Filter.Deployment` is additive. | `internal/runner/sbx.go:59-66`; `internal/sbx/sbx.go:50-83` |
-| VM budget owner | per deployment / per tile | per tile. `Reserve` already books to the tile path. | `internal/runner/vm.go:80`; `internal/vm/policy.go:132-171` |
-| cgroup | today's shared leaf / a flat leaf per deployment / a per-tile parent with one leaf per deployment | per-tile parent. With a shared leaf, one deployment's exit removes the others' leaf. With a flat leaf each, every deployment gets the tile's whole cap, so adding `dev` doubles the tile's memory. The parent is the "nested per-tile cgroup" D113 defers. | leaves are flat `comp-<name>` under one base (`internal/cgroup/cgroup_linux.go:78-94`), removed on exit (`internal/runner/runner.go:614`); the VM leaf is sized for two guests (`internal/runner/vm.go:103-111`) |
-| code bind | the checkpoint at its own path / at the canonical path | canonical path: `Src = .xbin/deploy/<CompKey>/<id>`, `Dst = c.Dir` | `internal/runner/runner.go:641` |
+| D112 registry entry for a non-`main` generation | new id + `deployment` field / same id, deployment in the label / a new kind | `main`'s rows stay byte-identical to today's (`backend:<CompKey>:g<gen>`, no deployment field), even when the tile has a record and even when `main` isn't primary. A non-`main` entry's ID is `backend+<name>:<CompKey>:g<gen>`, and only non-`main` entries set `Entry.Deployment`. `Filter.Deployment` is additive. | `internal/runner/sbx.go:63`; `internal/sbx/sbx.go:50-83` |
+| VM budget owner | per deployment / per tile | per tile. `Reserve` already books to the tile path. A non-primary reservation leaves the primary's guest size free and never preempts a primary start (P25). | `internal/runner/vm.go:80`; `internal/vm/policy.go:132-171` |
+| cgroup | today's shared leaf / a flat leaf per deployment / a per-tile parent with one cgroup per deployment | separate cgroups per deployment (owner, 2026-09-27) under a per-tile parent, `tile-<CompKey>/d-<name>/{backend, sbx-*}`, created when the tile first runs a non-`main` deployment. Zero-state and main-only tiles keep today's flat `comp-<CompKey>` leaf; `main` moves at a generation boundary. With a shared leaf, one deployment's exit removes the others' leaf. With a flat leaf each, every deployment gets the tile's whole cap, so adding `dev` doubles the tile's memory. The parent holds the tile's ceiling; each deployment's limits default to the tile's and never exceed it (P22), and the primary has the higher CPU weight (P25). The parent is the "nested per-tile cgroup" D113 defers, and D113 reuses it. | leaves are flat `comp-<name>` under one base (`internal/cgroup/cgroup_linux.go:78-94`), removed on exit (`internal/runner/runner.go:614`); the VM leaf is sized for two guests (`internal/runner/vm.go:103-111`) |
+| code bind | the checkpoint at its own path / at the canonical path | canonical path: `Src = .xbin/deploy/<TileKey>/<full tree hash>`, `Dst = c.Dir` | `internal/runner/runner.go:641` |
+| nested components inside the checkpoint bind | no bind inside / bind each nested component's code over the checkpoint | each nested component's own code (its primary's work tree or pinned checkpoint) is bound after the checkpoint bind. Mountpoints under the canonical path are created without traversing symlinks (`openat2` with `RESOLVE_NO_SYMLINKS \| RESOLVE_BENEATH` in the sandbox init), because the checkpoint's contents are tile-written. | today's `mountBind` creates targets with `os.MkdirAll`, which follows symlinks (`internal/sandbox/init_linux.go:400-407`); deeper binds mount later (`internal/sandbox/sandbox.go:122-127`) |
 | data bind | the deployment's own paths / the primary's paths | the primary's paths, so `XBIN_RES_*` is identical in every deployment | [research/data-plane.md](research/data-plane.md) §6a |
-| confine | an extra bind at the same depth, relying on the stable sort / an explicit bind destination | an explicit destination. The stable-sort trick (`internal/sandbox/sandbox.go:122-127`) is implicit behaviour a refactor could break. | `Dir` is bound at itself (`internal/confine/confine.go:218-224`) |
-| streaming (deploy-remote rung) | buffered / streaming | streaming, reusing D113's exec-protocol mechanism | `internal/confine/confine.go:87-89` |
+| confine | an extra bind at the same depth, relying on the stable sort / an explicit bind destination | an explicit destination (`DirFrom`). The stable-sort trick (`internal/sandbox/sandbox.go:122-127`) is implicit behaviour a refactor could break. A non-isolated run with such a bind fails with a clear error instead of building the work tree. | `Dir` is bound at itself (`internal/confine/confine.go:218-224`) |
+| streaming (deploy-remote rung) | buffered / streaming | a confine-level streaming run (caller-supplied readers and writers through `confine.Run`), independent of D113's unbuilt exec protocol; D113 may reuse it | `internal/confine/confine.go:87-89` |
 
 Once D113 is built, a tile's managed sandboxes belong to its deployment,
 following [05-model.md §12](05-model.md#12-isolation-and-runtimes).
@@ -691,30 +870,23 @@ following [05-model.md §12](05-model.md#12-isolation-and-runtimes).
 |---|---|---|
 | isolation off (dev mode, tier 1) | static-only tiles: yes. Tiles with a backend: refused, with the reason. | static-only: yes. With a backend: refused. |
 | isolation on, a `vm` backend, VMs unavailable | refused like any VM start today; the reason goes into D112's failure ring | the same |
-| `runtime: "cgi"` | refused until cgi runs sandboxed (A14) | refused |
 
-**Recommendation: a)**, with the shared mechanics above. → **P18.**
+**Recommendation: a)**, with the shared mechanics above. Non-isolated mode is
+unsupported for pinned or non-primary backends. → **P18.**
 
-**Status:** the shared mechanics are the owner's direction (2026-09-27). P18
-is proposed.
+**Status:** the shared mechanics are the owner's direction (2026-09-27), and
+separate cgroups per deployment is the owner's answer. P18 is
+owner-confirmed. P25 is proposed.
 
-## A14 — cgi, chrome and governance tiles
+## A14 — Chrome and governance tiles
 
-**Question.** Which tiles are excluded from pausing live reload, or from
-having non-primary deployments?
+**Question.** Which tiles may pause live reload but not have non-primary
+deployments?
 
-**cgi.**
-- `serveCGI` runs `backend/handler` through `net/http/cgi`, as xbind on the
-  host, even under `--isolate` (`internal/proxy/proxy.go:239-261`).
-- There is no long-running backend to pin (`internal/runner/runner.go:191-193`).
+cgi no longer exists (removed from xbin by its own change), so no runtime
+needs an exclusion here.
 
-| Option | Assessment |
-|---|---|
-| run the handler from the materialized checkpoint, on the host | Widens an existing D78 violation ([research/side-findings.md](research/side-findings.md) #1). Rejected. |
-| **exclude until cgi is sandboxed (the model)** | Safe. The separate, urgent cgi fix then lets cgi run per request from the checkpoint, inside the sandbox. |
-| fix cgi first, then include | The right order, but not this feature's work package. |
-
-**Chrome and governance tiles.**
+Today:
 - Chrome runs unsandboxed and acts as the signed-in human (`sandboxedFrame`,
   `internal/server/static.go:317`; the `chrome` field,
   `internal/registry/registry.go:59-65`).
@@ -728,11 +900,19 @@ having non-primary deployments?
 | forbid both | Loses a safe, useful way to pause live reload. |
 | allow both, with non-primary principals narrowed on governance calls | A non-primary admin tile that can't govern can't do its job. A non-primary chrome deployment can't be narrowed at all: it is the human. |
 
-**Recommendation:** cgi is excluded (P18). Chrome tiles and tiles holding
-`xbin`/`xbin:*` capabilities may pause live reload, but may not have
-non-primary deployments (P19).
+**Recommendation:**
+- Chrome tiles (root, shell, `chrome: true`) and tiles holding
+  `xbin`/`xbin:*` capabilities may pause live reload, but may not have
+  non-primary deployments.
+- Approving an `xbin`/`xbin:*` grant is refused while the tile has
+  non-primary deployments, and a non-primary principal never satisfies
+  `IsAdmin` or any governance check.
+- `chrome` is part of the inbound surface, so it follows the primary's code
+  (A18). A non-primary deployment's documents are never chrome.
 
-**Status:** proposed.
+→ **P19.**
+
+**Status:** owner-confirmed (P19).
 
 ## A15 — Naming (ratified)
 
@@ -763,45 +943,46 @@ must v1 build now so that it can?
 
 | Seam | Built for | What `match` adds |
 |---|---|---|
-| the per-edge record `edges: {"<edge>": "read"\|"block"}` | P3 | one more value |
-| one resolver, `resolveTarget(caller, callerDeployment, target, edgePolicy)`, used by the HTTP proxy, stream forwards, bus-subscription resolution and `res:` namespace resolution | the read clamp | picks the provider's deployment of the caller's name |
+| the per-edge record `edges: {"<edge>": "read"\|"block"\|"inherit"}` | P3, P23 | one more value |
+| one outbound resolver, `resolveTarget(caller, callerDeployment, target, edgePolicy)`, used by the HTTP proxy, stream forwards, bus-subscription resolution and `res:` namespace resolution | the read clamp | picks the provider's deployment of the caller's name |
+| one inbound resolver, through which every inbound edge resolves and which returns the primary for every v1 edge-policy value | P7 | the exception for calls from same-named deployments whose edge policy is `match` |
 | a deployment on `Principal` | P12 (self-calls) | carries the caller's name to the resolver |
-| `Runner.Ensure(comp, deployment)` | non-primary backends | a non-primary target |
+| `EnsureDeployment` and the other new runner names, beside `Runner.Ensure` (`internal/runner/runner.go:190`), which keeps meaning the primary | non-primary backends | a non-primary target |
 | `X-XBin-Deployment` on non-primary calls | P17 | the same header, on both sides |
 
 **What `match` needs beyond the seams.**
 - **A rule for a missing name** (table below).
-- **An exception to P7.** A non-primary deployment receives calls from other
-  tiles' same-named deployments whose edge policy is `match`.
+- **The exception at P7's resolver.** A non-primary deployment receives calls
+  from other tiles' same-named deployments whose edge policy is `match`.
 - **No clamp.** The target is itself a non-primary deployment, inside the
   accident boundary. The authority is still the tile's grant, unchanged
   (P11).
 - **Data.** `match` on a `res:` edge resolves to the provider scope's
-  namespace of the same name, and refuses if no tile in that scope has the
-  deployment.
-- **Streams.** The consumer's forward map is computed per spawn, so
-  `DialInto(prov, name)` is a small change
+  namespace of the same name, which exists only when that scope has the
+  deployment; otherwise the missing-name rule applies.
+- **Streams.** The consumer's forward map is computed per spawn, so passing a
+  deployment to `DialInto` is a small change
   ([research/inbound-edges.md](research/inbound-edges.md) E9).
 - **Net splices** are the only real redesign. They need rosters keyed by
   (client, deployment), with addresses that don't depend on the sorted index
   (`internal/broker/netfn.go:182-191`, `:223-249`;
   `internal/runner/netmux.go:22-32`). Because v1 blocks provider splices for
-  non-primary deployments (A5), nothing in v1 depends on index-derived
+  non-primary deployments (P23), nothing in v1 depends on index-derived
   addresses.
 
 **Missing-name options.**
 
 | Option | Assessment |
 |---|---|
-| **refuse (proposed)** | Safe and explicit. The error names the missing deployment. |
-| fall back to the primary, read-clamped | Tolerable as a separate, explicit value later. As the meaning of `match` it would hide a miswired deployment. |
-| fall back to the primary with full rights | Leaks non-primary effects into the primary. Rejected. |
-| a choice per binding | Belongs to the per-edge record, if ever wanted. |
+| refuse (NP-04-7) | Safe and explicit. The error names the missing deployment. Switching an edge from `read` to `match` can lose reads that worked. |
+| fall back to the primary, read-clamped (09-fabric §9, NP-09-15) | `match` strictly extends `read`, so no working read is lost. It can hide a miswired deployment unless the fallback is visible. |
+| fall back to the primary with full rights | Leaks non-primary effects into the primary. Never offered. |
+| a choice per edge | Belongs to the per-edge record, if ever wanted. |
 
 **What v1 must do now:**
 - Every edge-policy value it doesn't know reads as `block`, so a downgrade
-  after `match` ships fails closed (NP-04-2).
-- The resolver is the only place that picks a target deployment.
+  after `match` ships fails closed (P27).
+- The resolvers are the only places that pick a target deployment.
 - Edge keys (`slot:<name>`, `grant:<target>`, …) are stable identifiers.
 
 Prior art:
@@ -814,37 +995,150 @@ Prior art:
   addresses, not boundaries: `httpBindingRole` ignores the instance
   (`internal/broker/netfn.go:286-312`). So `match` must not be built on them.
 
-**Recommendation:** `match` on the same record. A missing name is refused,
-and P7 gains its exception when `match` ships (NP-04-7).
+**Recommendation:** `match` on the same record, with its exception at P7's
+resolver when it ships. The missing-name default is M3's call, between refuse
+and a read-clamped fallback; both exclude a full-role fallback (NP-04-7).
 
-**Status:** `match` later, on the same per-edge record, is ratified (P3). The
-missing-name rule and the P7 exception are proposed.
+**Status:** `match` later, on the same per-edge record, is ratified (P3). P7's
+one-resolver wording is owner-confirmed. The missing-name default is open
+for M3.
 
 ## A17 — The principal model
 
-An axis the list above leaves implicit. P11, P12 and P20 rest on it.
+An axis the list above leaves implicit. P11, P12, P20 and P26 rest on it.
 
 **Question.** Is a deployment its own principal?
 
 | Option | UX | Security | Compat | Cost |
 |---|---|---|---|---|
-| **(i) one principal per tile, with a deployment attribute (the model)** | Tile code is unchanged: `xbin.self`, `XBIN_COMPONENT` and `res:${xbin.self}` all still name the tile. | Grants, bindings, ceilings and ownership apply unchanged. The risk is a self-scoped handler nobody converted: it writes the primary's state. That fails open for isolation, not for privilege. Countered by NP-04-8. | The zero value means the primary, so every existing principal behaves as today. | Moderate: about 15 self-scoped handlers ([research/serving-fabric.md](research/serving-fabric.md) B.7). |
-| (ii) deployment-qualified principals (`apps/x@dev`) | Every store separates automatically. | Ceilings fail open: owner-derived rows look up `owners[path]` (`internal/users/orgs.go:1210-1215`), and a qualified name has no owner entry. | `/api/${xbin.self}` resolves by longest prefix (`internal/registry/registry.go:519-536`), and vault URLs derive from `Self()`, so both break. There is no free separator: `@` is legal in paths and is the allowance separator. | High, and the risk is to privilege. |
+| **(i) one principal per tile, with a deployment attribute (the model)** | Tile code is unchanged: `xbin.self`, `XBIN_COMPONENT` and `res:${xbin.self}` all still name the tile. | Grants, bindings, ceilings and ownership apply unchanged. The risk is a self-scoped handler nobody converted: it reads or writes the primary's state. That fails open for isolation, not for privilege. P26 counters it: every `/api/xbin/*` route is classified deployment-scoped, primary-only or neutral, unclassified routes refuse non-primary principals (reads included), and a guard test keeps the classification complete. | The zero value means the primary, so every existing principal behaves as today. | Moderate: about 15 self-scoped handlers ([research/serving-fabric.md](research/serving-fabric.md) B.7), plus the route classification. |
+| (ii) deployment-qualified principals (`apps/x@dev`) | Every store separates automatically. | Ceilings fail open: owner-derived rows look up `owners[path]` (`internal/users/orgs.go:1210-1215`), and a qualified name has no owner entry. | `/api/${xbin.self}` resolves by longest prefix (`internal/registry/registry.go:517-536`), and vault URLs derive from `Self()`, so both break. There is no free separator: `@` is legal in paths and is the allowance separator. | High, and the risk is to privilege. |
 | (iii) separate tiles (A1's option 0) | Everything is set up again for each twin. | The only real trust boundary. | None. | None. |
 
 **Recommendation: (i)**, with non-primary deployments as an accident boundary
-rather than a trust boundary. → **P11, P12, P20**, **NP-04-8.**
+rather than a trust boundary, and xbind's API default-deny for non-primary
+principals. → **P11, P12, P20, P26.**
 
 **Status:** proposed.
 
+## A18 — Which code each manifest field follows
+
+**Question.** Once the work tree, the primary's code and a non-primary
+deployment's code can differ, which of them does each manifest field, each
+resource declaration and each `/components` field come from?
+
+**Options.**
+- **a) Everything from the work tree** (one manifest, as today).
+- **b) Everything from each deployment's own code.**
+- **c) Two columns:** tile-level fields from the work tree, deployment-level
+  fields from the deployment's own code.
+- **d) Three columns (the model):** authority requests from the work tree;
+  the inbound surface from the primary's code; deployment-level fields from
+  the deployment's own code.
+
+**Assessment.**
+
+| Option | UX | Security | Compat | Cost |
+|---|---|---|---|---|
+| a) work tree | One place to look. | Pinned stops meaning pinned: a work-tree edit to `runtime`, `entry` or `scope.json` changes what a pinned deployment runs at its next restart (P9). | Zero-state behaviour, but wrong for every pinned deployment. | Lowest. |
+| b) own code | Each deployment is self-contained. | A pinned checkpoint's stale `uses` could not file new requests, and a non-primary deployment's `exposes` has no meaning, since only the primary receives inbound edges (P7). Authority is the tile's (P11), so per-deployment requests would conflict. | Breaks the pending-grant flow for anything not yet deployed. | Medium. |
+| c) two columns | Close to the code's reading. | `exposes`, `provides`, `template` and `chrome` stay tile-level, so a save while live reload is paused changes what the pinned primary exposes and how it is framed, and a terminal-level user changes a protected primary's framing and routes without a manager. | Fine. | Medium. |
+| **d) three columns** | A save while live reload is paused changes nothing that serves traffic. | A protected primary's inbound surface changes only through a manager's deploy (P21). | The zero state reads every column from the work tree, as today. | Medium. |
+
+**Resource declarations.** The owner decided them separately (P22):
+
+| Option | Assessment |
+|---|---|
+| lock-step (the tile declares; every deployment gets every resource) | The primary provisions resources only development code needs, and a pinned primary's set moves with the work tree. |
+| the primary's code declares for everyone | Development usually needs more resources than the older code on the primary, so `dev` could never add one. |
+| **per deployment, from each deployment's own code (P22)** | A new resource exists only in the namespace of the deployment whose code declares it; the primary gains it when that code is promoted. |
+
+**Recommendation: d)**, as [05-model.md §6](05-model.md#6-what-code-and-which-manifest-a-deployment-runs)
+tabulates:
+- **Tile-level (the work tree):** existence (`xbin.json` / `index.html`),
+  path, scope membership, `uses`, `interfaces`, `deps`. A pinned deployment's
+  `XBIN_RES_*` env is built from the union of the work tree's and its own
+  code's `uses`, filtered by the tile's grants.
+- **Inbound surface (the primary's code):** `template`, `exposes`,
+  `expose.roles`, `provides`, `chrome`: the work tree while the primary
+  follows it, its checkpoint while pinned. A non-primary deployment's
+  documents are never chrome.
+- **Deployment-level (the deployment's own code):** `runtime`, `entry`,
+  `setup`, `alwaysOn`, `vm`, `inject`, `native`, `scope.json`'s `resources`,
+  and every file served or executed.
+- **Resources (P22):** every deployment provisions what its own code
+  declares, in its own namespace; a pinned primary provisions from its
+  checkpoint's `scope.json`. A checkpoint's `scope.json` is read with
+  `OpenBeneath` (`internal/fsutil/beneath.go:34`) and validated (the
+  resource-name charset) before anything is provisioned. A resource the
+  primary's code no longer declares is kept, as today. A plain-directory
+  scope's `scope.json` applies to every deployment. Limits are per
+  deployment: they default to the tile's, are set by tile managers, and never
+  exceed the tile's ceilings.
+- **`/components`** (`internal/server/api.go:129-160`): the deployment-level
+  fields `runtime`, `hasIndex` and `native` (and `/c/<tile>/?native=1`)
+  describe the primary's code, its checkpoint when pinned; `chrome` follows
+  the inbound surface; `manifestError`, `roles`, `uses` and `deps` stay the
+  work tree's. It adds only the primary summary (A10).
+- When the work tree has no valid manifest, a tile with a record keeps
+  serving its pinned primary; the tile-level fields fall back to the
+  primary's checkpoint manifest, and the manifest error is surfaced.
+
+→ **P9, P21, P22.**
+
+**Status:** P22 owner-confirmed; the three-column split (P9, P21) proposed.
+
+## A19 — A session's target
+
+**Question.** Which deployment do a terminal or agent session's self-calls and
+`bx` commands address, and how is it chosen?
+
+**Options.**
+- **a) The terminal's existing API dropdown**, with one entry per deployment
+  the user may reach (the owner's choice).
+- **b) A separate target picker** beside the API dropdown.
+- **c) Chosen per command** (`XBIN_DEPLOYMENT` changed in the shell, or a
+  flag on each `bx` call).
+- **d) Always the live reload target.**
+
+**Assessment.**
+
+| Option | UX | Security | Compat | Cost |
+|---|---|---|---|---|
+| **a) API dropdown** | One control users already know: today it switches the tile API on or off. The default (the primary) is what every session reaches today. | The target is bound into the session's token at start and fixed for its life, so an agent can't retarget itself mid-session; changing it restarts the session, a terminal-level act (P12, P20). | A zero-state tile's dropdown looks as today. | Low. |
+| b) separate picker | Two controls that can disagree (API off, target `dev`). | As a. | A new control in every terminal window. | Low–medium. |
+| c) per command | Flexible. | The server must trust whatever the shell says, and an agent could flip a call to the primary. Operation commands (`bx deploy --to`) already name their deployment explicitly; self-calls need one bound target. | — | Medium. |
+| d) live reload target | Follows the code being edited. | Sessions on a tile whose live reload is on `dev` silently stop reaching the primary, and while live reload is paused there is no target at all. | Surprising for existing sessions. | Low. |
+
+**Recommendation: a).**
+- The default is the primary. A protected primary is never offered, and the
+  default then falls to the live reload target. When neither exists (a
+  protected primary with live reload paused), the dropdown falls to "API
+  off".
+- A session's target is fixed for its life: a named deployment or "the
+  primary". `XBIN_DEPLOYMENT` is set only when the target is not the primary
+  at session start.
+- Protecting the primary restarts the sessions that target it onto the
+  default, or ends them.
+- The dropdown offers only deployments the user may reach: at least `write`
+  on the tile, and `terminal` level to open the session at all.
+
+→ **P24**, with P12 and P21.
+
+**Status:** owner-confirmed (P24).
+
 ## Open questions
 
-These go to `16-open-questions.md`.
+These go to [16-open-questions.md](16-open-questions.md).
 
-1. **Nested components under a parent's deployment URL.** What does
-   `/c/<parent>+<name>/<child>/` serve? The parent's checkpoint excludes the
-   child. The proposal is that the path resolves to the child's primary, as
-   the bare URL does, so a parent page's relative references keep working.
+1. **Nested components under a parent's deployment URL** (settled). This
+   document proposed that `/c/<parent>+<name>/<child>/` serve the child's
+   primary. It withdraws that in favour of `11-contract.md` §2.4: a qualified
+   URL never enters a nested component, and the answer is 404 naming the
+   child's own deployment URLs. The parent's deployment never speaks for the
+   child. Serving the child under the parent's write-gated prefix would also
+   show the child's code to a user who can write the parent but not read the
+   child.
 2. **Tracked-branch feed.** Does any new head deploy, force pushes included,
    or only fast-forwards? The proposal is any head, since each is simply a new
    checkpoint, but it's worth a deliberate call.
@@ -858,134 +1152,64 @@ These go to `16-open-questions.md`.
 
 | Axis | Choice | P | Status |
 |---|---|---|---|
-| A1 model | pointers over a checkpoint store; tracked branch and deploy remote as later feeds; twin tiles unchanged | P1 | ratified |
-| A2 checkpoint mechanism | private confined git store; gitignore doesn't apply; `.git` and nested components excluded; fidelity limits documented; caps | P1, P9, P16; NP-04-4 | ratified (store); proposed (mechanism) |
-| A3 pausing live reload | pin to a checkpoint; checkpoints on demand; resume deploys the work tree; a deploy onto the target pauses live reload | P8, P9; NP-04-6 (later) | proposed |
-| A4 storage keys | follow the deployment; `main` owns today's keys; reassignment moves routing only | P6, P7 | proposed |
-| A5 fabric | F2: providers' primaries, read-clamped, per-edge `block`; unclampable edges `block`; net egress inherited | P3; NP-04-2, NP-04-3 | ratified; proposed (defaults) |
+| A1 model | pointers over a checkpoint store; tracked branch and deploy remote as later feeds; a read-only fetch remote in v1; twin tiles unchanged | P1 | ratified |
+| A2 checkpoint mechanism | private confined git store keyed by `<TileKey>`; gitignore doesn't apply; `.git` and nested components excluded; fidelity limits documented; caps; a git view served from a separate view repository | P1, P9, P16 | ratified (store); proposed (mechanism) |
+| A3 pausing live reload | pin to a checkpoint; checkpoints on demand; no candidate builds in v1; resume deploys the work tree; a deploy onto the target pauses live reload; dry runs capture nothing | P8, P9 | proposed |
+| A4 storage keys | follow the deployment; `main` owns today's keys; reassignment (M2, managers) moves routing only | P6, P7, P28 | owner-confirmed (P7); proposed |
+| A5 fabric | F2: providers' primaries, read-clamped, per-edge `block`; unclampable edges `block` only; net and capability edges `inherit` \| `block`, never host networking or a splice; fail-closed values | P3, P23, P27 | ratified; owner-confirmed (P23); proposed (P27) |
 | A6 registrations | dormant; deliveries switch; run now; notifications never pushed | P13 | proposed |
 | A7 vault | separate, key names as placeholders; tile-manager vault copy | P14 | proposed |
-| A8 seeding | empty; tile-manager seed with PII warning; reset | P14 | proposed |
-| A9 URL | `+` suffix for `/c/` and `/api/`; an origin per deployment in origins mode; `deployment` as its own wire field | P17; NP-04-5, NP-04-9 | proposed |
-| A10 events | new event types for everything non-primary; `deployments` for tile-level changes | P13, P17; NP-04-1 | proposed |
-| A11 state | `data/`; `.xbin/` only for derived trees and artifacts; no manifest key | P5, P15 | proposed |
-| A12 authority | parity plus an optional protected primary | P4, P21 | ratified; proposed (P21) |
-| A13 isolation | required for pinned and non-primary backends; the shared mechanics (registry, VM books, per-tile cgroup parent, launch binds, confine destination) | P18 | proposed; owner's direction |
-| A14 cgi, chrome | cgi excluded; chrome and `xbin`-capable tiles may pause live reload, with no non-primary deployments | P18, P19 | proposed |
+| A8 seeding | empty by default; optional tile-manager seed with PII warning; reset; shared (scope, name) namespaces | P14, P28 | proposed |
+| A9 URL | `+` suffix for `/c/` and `/api/`, resolved only for tiles with a record after today's resolution fails; two narrow refusals; an origin per deployment in origins mode; `deployment` as its own wire field | P17 | proposed |
+| A10 events | only the `deployments` type for anything non-primary (12-compat rule C2); audience-filtered delivery; readers see primary-scoped facts only | P13, P17 | proposed |
+| A11 state | `data/`, keyed by `<TileKey>`; `.xbin/` only for derived trees and artifacts; no manifest key; nothing created before a committed opt-in | P5, P15, P29 | proposed |
+| A12 authority | parity plus an optional protected primary; reviewed operations name the checkpoint; manager acts need a human session | P4, P21 | ratified; proposed (P21) |
+| A13 isolation | required for pinned and non-primary backends; the shared mechanics (registry IDs, VM books, separate cgroups under a per-tile parent, launch binds, nested binds, confine destination) | P18, P25 | owner-confirmed; owner's direction; proposed (P25) |
+| A14 chrome and governance | may pause live reload, with no non-primary deployments; `xbin` grants refused while non-primary deployments exist | P19 | owner-confirmed |
 | A15 naming | tile deployment; `main` (name) and primary (role) | P2 | ratified |
-| A16 parallel fabric | `match` on the same record; a missing name is refused; P7 exception | P3; NP-04-7 | ratified; proposed (rule) |
-| A17 principal | one principal plus a deployment attribute; an accident boundary | P11, P12, P20; NP-04-8 | proposed |
+| A16 parallel fabric | `match` on the same record; its exception at P7's resolver; the missing-name default decided in M3 | P3, P7; NP-04-7 | ratified; owner-confirmed (P7); open (rule) |
+| A17 principal | one principal plus a deployment attribute; an accident boundary; default-deny API | P11, P12, P20, P26 | proposed |
+| A18 manifest fields | three columns: authority requests from the work tree, inbound surface from the primary's code, the rest (resources included) from each deployment's own code | P9, P21, P22 | owner-confirmed (P22); proposed |
+| A19 session target | the terminal's API dropdown; default the primary; a protected primary never offered; fixed for the session's life | P24 | owner-confirmed |
 
 ## Divergences from the model
 
-1. **Events (§8): a qualified component on existing types doesn't keep old
-   clients unaffected.**
-   - *Evidence:* the old shell renders a status entry or toast for any
-     `component` (`workspace-template/shell/bx-shell.js:1257-1263`).
-     bx-frame and the iOS app treat any `<ancestor>/…` component as their
-     own (`web/bx-frame.js:368`, `web/events-socket.js:40-42`,
-     `native/ios/Packages/XbinCore/Sources/XbinCore/Client/Events.swift:160-166`).
-   - *Effect:* a non-primary `status` shows as a toast in every old shell,
-     and a nested tile's non-primary save reloads its ancestor's primary view
-     in bx-frame and in the shipped app. §8's "a dev build error can never …
-     reload a shipped iOS app" doesn't hold for nested tiles.
-   - *Fix:* non-primary deployments emit only new event types, keeping the
-     glossary's payload fields (NP-04-1).
-2. **Cross-tile references (§6) don't all "follow the other tile's primary".**
-   - *Evidence:* confined Go builds bind the whole workspace read-only and
-     resolve `go.work` `use` entries to the other tile's directory, i.e. its
-     work tree (`internal/runner/build.go:51-56`, `:85-87`;
-     `internal/deps/deps.go:120-146`).
-     `deps/` links are relative links into that same directory
-     (`internal/deps/deps.go:59-69`), and the static plane doesn't follow them
-     out of a checkpoint at all (P16). Only absolute `/c/<other>/…` imports
-     reach the other tile's primary.
-   - *Fix:* restate §6. `/c/` imports resolve to the other tile's primary at
-     serve time. Build-time references resolve to its work tree, so
-     `07-runtime.md`'s reproducibility caveat must name them. Frontends of
-     tiles that pin should import other tiles by absolute `/c/<other>/` URL.
-3. **The read clamp's "never writes" (glossary, §7) holds only for brokered
-   resources.**
-   - *Evidence:* for tile-to-tile HTTP, xbind only authorizes the call and
-     passes the role in `X-XBin-Role` (`internal/proxy/proxy.go:160-173`).
-     Endpoint-level role checks are the provider's code.
-   - *Fix:* state it that way. `06-security.md` lists the residual (a
-     provider that ignores roles), and `block` is the tile manager's control
-     for such providers. See also open question 4.
-4. **`match` needs an exception to P7** (§7 and §15 say it plugs in "without
-   redesign").
-   - *Evidence:* `match` routes calls into a non-primary deployment, while P7
-     says only the primary receives inbound edges.
-   - *Fix:* word P7 now as "every inbound edge resolves through one resolver,
-     which returns the primary for every v1 policy value", and add the
-     `match` exception with M3 (NP-04-7).
-5. **Pausing live reload is a "code-identical swap" (§5) only within the
-   checkpoint's fidelity limits.**
-   - *Evidence:* a checkpoint drops `.git`, empty directories, other
-     permission bits, xattrs and special files (A2's table), while the process
-     it replaces ran from the full work tree (`internal/runner/runner.go:641`).
-     A backend that reads its own `.git`, or expects an empty directory, sees
-     a different tree once live reload is paused.
-   - *Fix:* say "file-identical within the checkpoint's fidelity limits", and
-     have `07-runtime.md` list what differs.
-6. **"Non-primary deployments inherit the tile's network" (§7) can't hold for
-   a net slot bound to a provider tile.**
-   - *Evidence:* provider links are keyed by (provider, client path), and
-     registering a link closes any earlier fd for the same key
-     (`internal/runner/netmux.go:22-32`). Link addresses come from the
-     client's index in a sorted roster (`internal/broker/netfn.go:182-191`,
-     `:212-216`, `:239-249`). A second deployment of the client would either
-     share the primary's link and split its packets, or need a roster entry
-     that renumbers every client and restarts the provider.
-   - *Fix:* inherit egress for internet, LAN, set, org and personal nets;
-     `block` (relay-only egress, or none) for provider splices and
-     lan-ingress (NP-04-3), until `match` brings per-deployment rosters
-     (A16).
+None is open. The six this document raised were settled by the spine and the
+integrator's rulings of 2026-09-27:
+
+1. Events on existing types with a qualified component: resolved by P13 and
+   [05-model.md §8](05-model.md#8-events-and-what-clients-see) (12-compat's
+   rule C2; A10).
+2. Cross-tile references: resolved by [05-model.md §6](05-model.md#6-what-code-and-which-manifest-a-deployment-runs)
+   (`deps/` re-dispatched through the other tile's `/c/` plane, `go.work`
+   binds; A2).
+3. The read clamp's "never writes": resolved by the glossary's Read clamp
+   (HTTP roles are the provider's to enforce; A5).
+4. `match` and P7: resolved by P7's one-resolver wording (A16).
+5. "Code-identical swap": resolved by [05-model.md §5](05-model.md#5-operations)
+   ("file-identical within the checkpoint's fidelity limits"; A3.1).
+6. The net edge and provider splices: resolved by P23 and
+   [05-model.md §7](05-model.md#7-routing) (`inherit` never reaches host
+   networking or a splice; A5).
 
 ## New proposals
 
-- **NP-04-1 — Non-primary deployments emit only new event types** (A10).
-  - They never emit `reload`, `build-*` or `status`. The payload keeps
-    `component: "<tile>+<name>"` and `deployment: "<name>"`.
-  - The primary's events are unchanged. `11-contract.md` names the types.
-- **NP-04-2 — An unknown edge-policy value reads as `block`** (A5, A16).
-  v1 must fail closed on values it doesn't know, so a downgrade after
-  `match` ships can't widen access.
-- **NP-04-3 — Defaults for unclampable edges** (A5), for `09-fabric.md` to
-  adopt:
-  - a custom role with no path to `reader`, stream interfaces, lan-ingress
-    links and net-provider splices default to `block`, and refuse `read`;
-  - net egress to the internet, the LAN or net sets inherits the tile's
-    policy (D54).
-- **NP-04-4 — Checkpoint caps and a per-tile exclude list** (A2).
-  - Over a cap, a capture is refused with the largest directories named.
-    It is never truncated.
-  - Terminal-level users can set an exclude list, kept in the deployment
-    record and shown in the deploy and promote dialogs. It is never a
-    work-tree file, which would add a builder-facing convention and travel
-    with clones.
-- **NP-04-5 — The deployment is its own wire field** (A9). The
-  `<tile>+<name>` form appears only in URL paths, `bx` arguments, display
-  text and the event `component`. Query parameters and JSON bodies carry
-  `deployment` separately, because an unencoded `+` in a query decodes to a
-  space.
-- **NP-04-6 — Candidate builds while live reload is paused** (A3, later).
-  - Saves build a candidate without activating it, and build errors show in
-    the terminal window.
-  - Reload now activates the candidate if the work tree's tree hash still
-    matches. Activation semantics don't change.
-- **NP-04-7 — `match` refuses a missing name, and P7 gains an exception**
-  (A16).
-  - `match` resolves to the provider's same-named deployment, or refuses. It
-    never falls back to the primary.
-  - When `match` ships, P7 admits inbound calls into a non-primary deployment
-    only from same-named deployments whose edge policy is `match`.
-- **NP-04-8 — Default-deny for non-primary principals on xbind writes** (A17).
-  Every `/api/xbin/*` write from a non-primary principal is refused unless it
-  is on an explicit allow-list of converted handlers. A guard test in the
-  style of `TestNoDirectExec` enforces the list.
-- **NP-04-9 — Deployment names can't shadow components** (A9).
-  - The deployments API refuses name `n` on tile `t` when `t+n` is an
-    existing component.
-  - The registry reports a component created later at `t+n` as shadowing
-    that deployment's URL.
+IDs are stable; resolved entries keep one line.
+
+- **NP-04-1** — resolved by P13 and [05-model.md §8](05-model.md#8-events-and-what-clients-see) (12-compat's rule C2).
+- **NP-04-2** — resolved by P27.
+- **NP-04-3** — resolved by P23 and [05-model.md §7](05-model.md#7-routing) (the net edge's `inherit`).
+- **NP-04-4** — resolved: adopted into `07-runtime.md` (caps in §2.5; a per-tile exclude list, if any, lives in the record).
+- **NP-04-5** — resolved: adopted into `11-contract.md`; under 12-compat's rule C2 no event carries a qualified `component` (A9).
+- **NP-04-6** — resolved: rejected for v1 by the glossary's "paused: saves change the work tree and nothing else" (A3.2).
+- **NP-04-7 — The missing-name default for `match`** (A16; M3, open). P7's
+  one-resolver wording is settled; what remains is the fallback when the
+  provider has no same-named deployment:
+  - this proposal: refuse, naming the missing deployment;
+  - `09-fabric.md` §9's NP-09-15: fall back to the provider's primary,
+    read-clamped, with `deny` available per edge.
+
+  Both exclude a full-role fallback to the primary. M3's design decides
+  between them.
+- **NP-04-8** — resolved by P26, which also covers reads.
+- **NP-04-9** — resolved by P17 and the glossary's Deployment URL (the two narrow refusals, for every creator).

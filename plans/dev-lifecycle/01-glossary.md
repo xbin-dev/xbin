@@ -79,17 +79,23 @@ taken at a moment in time. It is what a pinned deployment runs.
 - **What it loses:** empty directories, other permission bits, xattrs and
   special files. These are the fidelity limits of the storage format; see
   `05-model.md`.
-- **Identity:** a checkpoint is named by a short id derived from its content
-  hash, e.g. `c:3f2a1c9`.
+- **Name:** a checkpoint is named by its content (tree) hash, shown as a
+  short id such as `c:3f2a1c9`, lengthened until unique.
+- **Its git view:** the checkpoint minus the paths the tile's own ignore rules
+  exclude. That is what the read-only fetch remote serves, from a separate
+  view repository that holds only pinned deployments' refs, so a branch made
+  from it never tracks ignored files (`05-model.md` §3).
 - **Where it comes from:** a *feed*.
 - **Why the word:** the census found it effectively unused, and it reads as
   "a state you can return to". That is compatible with CM-2/BU-5's "checkpoint
   commit" wording.
 
 **Checkpoint store.** The per-tile, xbind-owned repository holding a tile's
-checkpoints and deploy log. It lives under `data/`: backed up, masked from
-every terminal, never inside the work tree. Only confined tools read or write
-it (D78). It is not the tile's own git repository.
+checkpoints and deploy log. It lives under `data/`
+(`data/checkpoints/<TileKey>.git`): backed up, masked from every terminal,
+never inside the work tree. Only confined tools read or write it (D78). It is
+not the tile's own git repository. It may outlive the deployment record:
+opting out keeps it, inert, until GC or a manager's purge.
 
 **Feed.** Where a new checkpoint comes from:
 - the **work tree**, the default and the only v1 feed;
@@ -107,7 +113,8 @@ always say "tracked branch".
 **Deploy remote** (later rung). A git remote that xbind serves and injects
 into the tile's terminals: the `template` remote precedent, via
 `GIT_CONFIG_COUNT`. Pushing a deployment's ref to it creates a checkpoint and
-deploys it. Every receive runs confined.
+deploys it. Every receive runs confined. A protected primary never takes a
+push.
 
 ### Deployments
 
@@ -125,8 +132,8 @@ policy. It is not a principal, not an identity and not a new tile.
 **`main`.** The reserved name of a tile's first deployment. Every tile has it
 implicitly, with no configuration. `main` owns the storage keys the tile uses
 today: data, vault, log, build output and registrations. Enabling
-deployments therefore never migrates production data. `main` cannot be
-deleted.
+deployments therefore never migrates the data a tile already has. `main`
+cannot be deleted.
 
 **Primary.** The role held by exactly one deployment of a tile (by default
 `main`). The primary is the only deployment that receives **inbound edges**:
@@ -141,7 +148,7 @@ it).
 
 **Non-primary deployment.** Any deployment other than the primary. It is
 reachable only at its **deployment URL**, by:
-- humans with at least `write` on the tile;
+- humans with at least `write` on the tile, checked on every request;
 - the tile's own terminals and agent sessions that target it;
 - its own self-calls.
 
@@ -157,17 +164,28 @@ map to deployments explicitly (tracked-branch config), never by equality.
 **Deployment URL.** `/c/<tile>+<name>/` for a deployment's frontend and
 `/api/<tile>+<name>/…` for its backend. `+` is the **deployment qualifier**.
 It is the one punctuation character the census found free in grammar and URL
-positions. It is reserved in new tile names the D82 way: an exact match on an
-existing component wins, so existing directories keep resolving. The bare URL
-always means the primary. `<tile>+<primary name>` also works.
+positions. It resolves only for tiles that have a deployment record, and only
+after today's resolution fails, so every existing path resolves exactly as
+today, including a directory whose name contains `+` and `<tile>+main` on a
+zero-state tile. Two refusals, for every creator:
+- creating a tile at `<P>+<N>` while `P` has deployment `N`;
+- adding deployment `N` to `P` while a component exists at `<P>+<N>`.
+
+`+` in other new tile names is warned about for one release, the D82 way. The
+bare URL always means the primary. `<tile>+<primary name>` also works, for
+humans and the tile's own principals; other tiles use the bare URL.
 
 **Target deployment.** The deployment that a terminal or agent session's own
 calls and `bx` commands address. It is chosen in the terminal window's API
 dropdown, which today switches the tile API on or off, and gains one entry
-per deployment the user may reach. The default is the **primary**. When the
-primary is protected it is not offered, and the default falls to the live
-reload target. It is exposed to the session as `XBIN_DEPLOYMENT`, set only
-when the target is not the primary.
+per deployment the user may reach; there is no separate target picker. The
+default is the **primary**. When the primary is protected it is not offered,
+and the default falls to the live reload target. When neither exists (a
+protected primary with live reload paused), the dropdown falls to "API off".
+A session's target is fixed for its life: a named deployment or "the
+primary"; changing it restarts the session. It is exposed to the session as
+`XBIN_DEPLOYMENT`, set only when the target is not the primary at session
+start.
 
 ### Live reload and moving code
 
@@ -181,12 +199,14 @@ cost. At most one deployment is attached, because there is one work tree.
 **Paused (live reload).** The tile state in which live reload is attached to
 no deployment. Saves change the work tree and nothing else. Every deployment
 is pinned. The former target is pinned to the checkpoint taken at the moment
-of pausing. The terminal window shows how far the work tree has moved since.
+live reload was paused. The terminal window shows how far the work tree has moved since.
 
 **Pinned.** A deployment that is not the live reload target runs a
 checkpoint, and is pinned to it. A pinned deployment's code changes **only**
-by an explicit deploy, promote, roll back or reload now. That holds through
-every restart: idle reap, crash, grant change, xbind restart, cache loss. "Pin"
+by an explicit deploy, promote, roll back or reload now, or by the pin that
+pausing live reload, attaching live reload or protecting the primary takes.
+That holds through every restart: idle reap, crash, grant change,
+interface-instance change, transfer, xbind restart, cache loss. "Pin"
 already means "fix to a version" elsewhere in xbin (a terminal layer pinned to
 its base image, release pinning), and this is the same sense. Always say
 "pinned to <checkpoint>".
@@ -202,7 +222,9 @@ deployment stays pinned.
 **Deploy.** Put code on a deployment. The source is a checkpoint, most often a
 fresh checkpoint of the work tree. A deploy goes through the existing
 blue/green path: build if needed, start, health check, swap, drain (D8). On
-failure the deployment keeps running its previous code. Deploying onto the
+failure the deployment keeps serving its previous code. If the failed deploy
+moved it off the work tree, it is pinned to the attempted checkpoint, which
+every restart runs. Deploying onto the
 live reload target pauses live reload, because a deploy that the next save
 silently overwrote would be a lie (the prior-art "rollback implies pause"
 rule).
@@ -219,8 +241,9 @@ reload.
 
 **Deploy log.** A deployment's ordered history of the checkpoints it has
 run. Each entry records who deployed it, when, from which feed, and how
-(deploy / promote / roll back / reload now / resume). It is kept in the
-checkpoint store.
+(deploy, promote, roll back, reload now, resume, pause or attach live
+reload), failed attempts included. It is a commit chain per deployment in the checkpoint
+store, written by confined git.
 
 ### Data, secrets and background work
 
@@ -232,11 +255,18 @@ filesystem, bus) and vault entries a deployment sees.
   share that scope's namespace for the name. Resources belong to scopes, not
   tiles.
 
-**Seed.** Copy the primary's deployment data into a non-primary deployment's
-namespace. This is explicit, gated to tile managers, and carries a PII
-warning. It is never automatic.
+Acts on a shared namespace (seed, reset, restore) affect every sibling's
+same-named deployment and need authority on each. `res:workspace/*` is never
+split.
 
-**Reset.** Empty a non-primary deployment's data.
+**Seed.** Copy the primary's deployment data into a non-primary deployment's
+namespace. This is explicit, optional, gated to tile managers in a human
+session, and carries a PII warning. It is never automatic. Most non-primary
+deployments run on empty or synthetic data.
+
+**Reset.** Empty a non-primary deployment's data. The vault is kept unless
+asked. In a shared namespace this empties it for every sibling's same-named
+deployment.
 
 **Vault copy.** Copy selected vault values from the primary into a
 non-primary deployment's vault. This is explicit and gated to tile managers.
@@ -262,6 +292,7 @@ separate per-deployment switch, also off for non-primary deployments.
 - an **interface binding** (slot → provider);
 - an **assigned grant**: a call to another tile, a cross-scope `res:`, a bus
   subscription;
+- a **capability grant** (`gpu:*`, `cap:*`) or a **code grant**;
 - the **net slot**.
 
 docs/overview/06-authorization.md already calls a cross-scope grant an
@@ -269,19 +300,30 @@ docs/overview/06-authorization.md already calls a cross-scope grant an
 
 **Edge policy.** Per tile and per edge, how the tile's **non-primary**
 deployments may use that edge:
-- **`read`** (the default): the call goes to the provider's primary, with the
-  role clamped to `reader`;
-- **`block`**: no access.
+- **`read`** (the default for edges that can be read-clamped): the call goes
+  to the provider's primary, with the role clamped to `reader`;
+- **`block`**: no access;
+- **`inherit`**, for role-less edges (the net slot and capability grants): the
+  tile's own authority, but never host networking or a provider splice. A tile
+  whose `net` resolves to host sharing gives its non-primary deployments no
+  egress (P23). `inherit` is the default for these edges, except for `gpu:*`,
+  which defaults to `block`.
+
+Edges that cannot be read-clamped (custom roles with no path to `reader`,
+stream interfaces, lan-ingress links, net-provider splices) take only `block`
+in v1 (P23). An unknown or invalid value reads as `block`.
 
 A later value, **`match`**, routes to the provider's same-named deployment:
 the parallel fabric. The primary always uses edges exactly as today; the edge
-policy never touches it. Edges that cannot be read-clamped (a custom role, a
-raw stream) have their own defaults, set in `09-fabric.md`.
+policy never touches it.
 
 **Read clamp.** The narrowing applied under `read`: the effective role on the
 provider becomes `reader` when the grant or binding carries a role that
-implies it. A non-primary deployment never writes into another tile's primary
-in v1.
+implies it. xbind never lets a non-primary deployment write into another
+tile's primary through what it brokers (resources, buses). For tile-to-tile
+HTTP it passes the clamped role, and the provider's code enforces it. A
+provider whose write role means spend (llm-gw's completions) therefore
+refuses non-primary deployments.
 
 **Name matching** (deferred). The parallel binding fabric: a non-primary
 deployment's edge resolves to the provider's deployment of the same name. For
@@ -294,18 +336,28 @@ with its future `match` value, is the seam that adds it later.
 org's admins, and workspace admins. They alone may:
 - seed data and copy vault values;
 - turn on deliveries or alwaysOn for a non-primary deployment;
-- reassign the primary, and protect it.
+- reassign the primary, and protect it;
+- set edge policies and per-deployment resource limits;
+- reset `main`'s data while it isn't primary, and purge checkpoints.
+
+Manager acts need a human session; terminal and agent tokens are refused for
+them. No element principal passes the manager gate for deployments, whatever
+`xbin` or `xbin:users` grants its tile holds.
 
 **Protected primary.** A per-tile switch, set by tile managers. While it is
-on, only tile managers may deploy, promote, roll back, reload now or resume
-onto the primary. Without it, terminal-level users and their agents may, as
-saving does today: **parity** (P4, ratified).
+on, only tile managers may deploy, promote, roll back or reload now onto the
+primary, in a human session, naming the checkpoint they reviewed. It is never
+the live reload target or a session's target (P24), follows no tracked
+branch, and takes no deploy-remote push. Its inbound surface (`exposes`,
+`provides`, `template`, `chrome`) comes from its checkpoint. Without it,
+terminal-level users and their agents may deploy onto the primary, as saving
+does today: **parity** (P4, ratified).
 
 **Accident boundary.** What a non-primary deployment is. It keeps untested
-code away from production data and traffic when everyone involved is already
-trusted with the tile's code. It is **not a trust boundary**. Running code
-written by non-writers (for example, a PR preview) would need separate
-principals, and is out of scope.
+code away from the primary's data and traffic when everyone involved is
+already trusted with the tile's code. It is **not a trust boundary**. Running
+code written by non-writers (for example, a non-writer's pull request) would
+need separate principals, and is out of scope.
 
 ## Spellings
 
@@ -315,24 +367,25 @@ principals, and is out of scope.
 | pause / resume | "Pause live reload" / "Resume live reload" | `bx live-reload pause\|resume <tile>` | | |
 | reload now | "Reload now" | `bx live-reload now <tile>` | | |
 | deployment | "Deployment", panel "Deployments" | `bx deployment ls\|add\|rm` | `deployment: "<name>"` | "tile deployment" in operator and pitch copy |
-| primary | "primary" badge | `bx deployment primary <tile> <name>` | `primary: "<name>"` | |
+| primary | "primary" badge | `bx deployment primary <tile> --to <name>` | `primary: "<name>"` | |
 | deploy | "Deploy to <name>" | `bx deploy <tile> --to <name>` | | |
 | promote | "Promote <a> → <b>" | `bx promote <tile> <a> <b>` | | |
-| roll back | "Roll back to <checkpoint>" | `bx deploy <tile> --to <name> --checkpoint <id>` | | |
+| roll back | "Roll back to <checkpoint>" | `bx rollback <tile> --to <name> [--checkpoint c:<id>]` | | logged `rollback`; `bx deploy --checkpoint` is a deploy of a named checkpoint |
 | checkpoint | "checkpoint c:3f2a1c9" | `--checkpoint <id>` | `checkpoint: "<id>"` | |
 | pinned | "pinned to c:3f2a1c9" | | | |
-| deployment URL | | | `/c/<tile>+<name>/`, `/api/<tile>+<name>/` | |
-| target deployment | "target: dev" in the terminal bar | honours `XBIN_DEPLOYMENT` | `XBIN_DEPLOYMENT` (non-primary only) | |
+| deployment URL | | | `/c/<tile>+<name>/`, `/api/<tile>+<name>/` | resolves only for tiles with a deployment record |
+| target deployment | "target: dev" in the terminal bar | honours `XBIN_DEPLOYMENT` | `XBIN_DEPLOYMENT` (absent when the target is the primary) | |
 | deployment marker to callees | | | `X-XBin-Deployment: <name>` (non-primary only) | |
-| events for non-primary | | | `component: "<tile>+<name>"`, `deployment: "<name>"` | old clients' prefix match ignores them |
-| deployment data | "Data: empty / seeded from main" | `bx deployment seed\|reset` | | |
+| events for non-primary | | | the `deployments` event, with `deployment: "<name>"` | never `reload`, `build-*` or `status`: old types carry only the primary |
+| deployment data | "Data: original" (main) / "started empty" / "seeded from main · <when>" | `bx deployment seed\|reset` | | |
 | dormant registrations | "dormant" | | `dormant: true` | |
+| run now | "Run now" | `bx deployment run-now <tile> <name> <job>` | | terminal level |
 | deliveries | "Deliveries: off" | `--deliveries on\|off` | `deliveries: bool` | |
-| edge policy | "Non-primary access: read / block" | `bx deployment edge <tile> <edge> read\|block` | `edges: {"<edge>": "read"\|"block"}` | |
-| protected primary | "Protected" | `--protect` | `protectedPrimary: bool` | |
+| edge policy | "Non-primary access: read / block / inherit" | `bx deployment edge <tile> <edge> read\|block\|inherit\|default` | `edges: {"<edge>": "read"\|"block"\|"inherit"}` | |
+| protected primary | "Protected" | `bx deployment protect <tile> on\|off` | `protectedPrimary: bool` | |
 
-The command names above are the glossary's proposal. `11-contract.md` owns
-the final shapes and may refine them, but not the nouns.
+The command names above follow `11-contract.md`, which owns the final shapes
+(flags, output, exit codes) and may refine them, but not the nouns.
 
 Glyphs:
 - Pause live reload must not use ⏸, which is Disable.
