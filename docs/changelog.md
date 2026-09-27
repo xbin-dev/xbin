@@ -12,6 +12,20 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-28
 
+- **Restores keep file permissions, and terminal layers are removed whole.**
+  A restore (re-enabling an offloaded tile, `bx restore`) gives each file
+  the permission bits it was archived with, so an executable — a script in
+  the tile's source, a tool an `apt install` put in its terminal layer —
+  stays executable; restored files used to lose their execute bits. A
+  setuid, setgid or sticky bit is never restored. Resetting a terminal
+  (⟲), offloading a tile `offloaded-full` and a restore replacing the
+  terminal layer remove the old layer in a confined run with the file
+  capabilities, so where the host delegates a sub-uid range the files an
+  `apt install` left owned by other users go too; they used to stay on
+  disk. `offloaded-full` ends the tile's terminal sessions first: if one
+  won't end, the offload fails after the archive with nothing removed, and
+  a reset whose session won't end fails with the layer untouched (it used
+  to remove the layer anyway). Nothing to change.
 - **New builtin template `coding-sandbox`: the builtin sandbox manager**
   (D122, [sandbox-manager.md](sandbox-manager.md) §The builtin manager; the
   template's `API.md` and `AGENTS.md`). An instance serves the

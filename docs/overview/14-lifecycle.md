@@ -173,7 +173,9 @@ fully **archive-driven**: the tar's manifest says where everything goes.
   reprovision. The **terminal layer** is rebuilt apart and swapped in whole:
   the tile's terminal sessions are closed first, the layer becomes exactly
   what the archive holds, and a VM terminal's disk (never in a backup) stays.
-  A restore overwrites wholesale.
+  A restore overwrites wholesale. Each file gets back the permission bits it
+  was archived with — an executable stays executable — but never a setuid,
+  setgid or sticky bit.
 - **Nothing in the archive or on disk redirects a write.** The archive must
   be the component's own (its manifest names the component being restored),
   and resource data comes back only for the scope the component roots. Tar
@@ -197,8 +199,10 @@ Offload composes what's above: **stop → back up → verify → remove**. Nothi
 is deleted until the archiver has confirmed the PUT (`archive before offload
 failed (nothing removed)` is a real error string, and the invariant it
 states is the design). `offloaded` removes the scope's resource data (files
-and kv buckets); `offloaded-full` also removes the terminal layer and the
-source subtree — keeping just `xbin.json`/`scope.json` so the tile stays
+and kv buckets); `offloaded-full` also removes the terminal layer — its
+live sessions are ended first, and one that won't end fails the offload
+after the archive, with nothing removed — and the source subtree — keeping
+just `xbin.json`/`scope.json` so the tile stays
 listed, renders its "offloaded — restore to use" placeholder, and remains
 restorable from the admin tile. Re-enabling an offloaded component *is* a
 restore of the latest version (LC-4: one archive path for everything).

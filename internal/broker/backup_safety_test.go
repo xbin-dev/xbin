@@ -443,7 +443,7 @@ func TestOffloadFullThenRestore(t *testing.T) {
 	if got := readRegular(t, filepath.Join(layer, "upper", "etc", "motd")); got != "hi" {
 		t.Fatalf("the terminal layer came back as %q", got)
 	}
-	if holds != 1 {
+	if holds != 2 { // the offload's removal, the restore's swap
 		t.Fatalf("the layer was held %d times", holds)
 	}
 }
@@ -512,7 +512,7 @@ func TestRestoreSweepsOnlyStaleLeftovers(t *testing.T) {
 	if err := os.Chmod(filepath.Join(old, "upper", "locked"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	sweepRestoreLeftovers(dir)
+	b.sweepRestoreLeftovers(dir)
 	if _, err := os.Lstat(old); err != nil {
 		t.Fatalf("a sweep took the layer a swap had just moved aside: %v", err)
 	}

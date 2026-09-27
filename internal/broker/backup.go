@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -296,16 +297,31 @@ func (b *Broker) StopBackendSafe(comp string) {
 // offload archives a component, then removes its local data (and, when full,
 // its source + terminal env layer). It NEVER removes anything before the archive
 // PUT is confirmed. full=false keeps source + term-env (LC-1: two depths).
+//
+// full takes the terminal layer out of use first (HoldTermEnv: its sessions
+// killed, the layer held so none mounts it until the offload is done) — a
+// session that won't let go fails the offload there, after the archive, with
+// nothing removed — then removes it in a confined run (removeTree, WP-9b). A
+// layer that removal leaves behind is replaced whole by the restore.
 func (b *Broker) offload(comp string, full bool) error {
 	b.StopBackendSafe(comp)
 	if _, err := b.doBackup(comp); err != nil {
 		return fmt.Errorf("archive before offload failed (nothing removed): %w", err)
 	}
+	if full && b.HoldTermEnv != nil {
+		release, err := b.HoldTermEnv(comp)
+		if err != nil {
+			return fmt.Errorf("archived, but its terminal layer is still in use (nothing removed): %w", err)
+		}
+		defer release()
+	}
 	if err := b.removeScopeData(comp); err != nil {
 		return err
 	}
 	if full {
-		_ = os.RemoveAll(b.termDir(comp))
+		if err := b.removeTree(b.termDir(comp)); err != nil {
+			slog.Warn("offload: removing the terminal layer", "component", comp, "err", err)
+		}
 		if err := b.removeSourceBulk(comp); err != nil {
 			return err
 		}

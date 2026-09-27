@@ -116,6 +116,9 @@ type Broker struct {
 	// release; a restore swaps a rebuilt layer in meanwhile. Wired to
 	// term.Manager.HoldEnv by boot.
 	HoldTermEnv func(component string) (release func(), err error)
+	// rmTree stands in for the confined removal of a terminal layer
+	// (removeTree) in tests; nil = confine.RemoveAll.
+	rmTree func(dir string) error
 
 	// ProxyHandler is the element proxy, used to call an archiver tile's API
 	// internally (as the owner) for backup/restore (plans/lifecycle.md). Set by
