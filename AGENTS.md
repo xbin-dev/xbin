@@ -70,7 +70,7 @@ make release TAG=vX.Y.Z   # the whole release (docs/maintenance.md → Releasing
 - Builtin tile backends aren't part of the workspace build: `make tile-check`
   vets and tests each one (and the agent template's) against its own
   `go.mod.tile` in a scratch copy, the way a workspace builds it (CI runs
-  it; `hack/tile-check.sh devbox` for one). Never copy `go.mod.tile` to
+  it; `hack/tile-check.sh traefik` for one). Never copy `go.mod.tile` to
   `go.mod` in place.
 - Verify before pushing: `make check` (every guard, under a minute) — and
   `make integration` when you touched the runner/sandbox/broker path. The

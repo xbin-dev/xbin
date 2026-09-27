@@ -34,6 +34,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   checked against it. The reference manager now answers every error in
   JSON, refuses a PATCH whole or not at all, and ends a timed-out command's
   group even when a member outlived its leader.
+- **The `devbox` builtin tile is retired** (D115; migration note
+  [changes/2026-09-27-devbox-retired.md](/docs/changes/2026-09-27-devbox-retired.md)).
+  It never really worked. `bx tile import devbox` (`POST /builtins/import`)
+  now answers 410 with what replaces it: coding sandboxes come from sandbox
+  managers — the `coding-sandbox` template, with the `sandbox-terminal` tile
+  for people's terminals and SSH, both on their way. A workspace that
+  imported devbox keeps its copy as it is; xbind just stops offering it
+  updates. `cap:containers` is unchanged.
 
 - **Admin console: runtime → sandboxes, and the sandbox in the component
   list** (D112, [isolation.md](isolation.md) §VM sandboxes). A new tab lists

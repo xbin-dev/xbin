@@ -271,8 +271,8 @@ signals and the exit code; everything else is `boot.Run(ctx, cfg)`.
   the bump, `UPDATE_TILE_VERSIONS=1 go test ./internal/builtins -run
   TestTileVersions` moves the baseline.
 - The pure cores have tests that run under `make tile-check`: traefik's
-  static/dynamic config renderers are pinned verbatim, devbox's container
-  spec (`createArgs`) and the egress approver's packet decoding likewise.
+  static/dynamic config renderers are pinned verbatim, the egress approver's
+  packet decoding likewise.
   Response bodies go through `xbin.WriteJSON` / `xbin.WriteError` from the
   SDK — a backend defining its own `writeJSON` is a copy to delete.
 

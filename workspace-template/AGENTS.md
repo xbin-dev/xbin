@@ -730,8 +730,10 @@ you can't self-bind, same rule as grants) — unbound means no capability.
   minimal seccomp floor so podman can build nested namespaces/mounts. Still
   rootless, still fully namespaced — no host reach. Add a `filesystem` resource
   for image storage (`--root`) and a `net` binding for container egress; seed
-  nested `/etc/subuid`+`/etc/subgid` in `setup`. Worked example: the `devbox`
-  builtin tile (docs/changes/2026-07-14-container-tiles.md).
+  nested `/etc/subuid`+`/etc/subgid` in `setup`. The recipe:
+  docs/changes/2026-07-14-container-tiles.md (its worked example, the
+  `devbox` builtin, was retired on 2026-09-27; coding sandboxes for agents
+  and people come through docs/sandbox-manager.md).
 
   **If your frontend opens links in new tabs** (`<a target="_blank">`,
   `window.open`), declare `"uses": [{ "target": "cap:open-links", "role":

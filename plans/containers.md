@@ -120,6 +120,12 @@ userland:
 
 ## Worked example
 
+> **2026-09-27:** the devbox tile is retired — it never worked reliably
+> (owner). Coding sandboxes come from sandbox managers instead
+> (plans/sandbox-managers.md, D115: the `coding-sandbox` template and the
+> `sandbox-terminal` tile); `cap:containers` stays. The paragraph below is
+> the original design, kept as written.
+
 `builtin-tiles/devbox` — creates/removes Podman containers and exposes their
 shells over SSH: an `exposes` `ssh` stream port (→ a host TCP port via the
 runtime L4 relay) fronted by an in-tile Go SSH server that authenticates the
@@ -148,5 +154,6 @@ cgroup2 view at /sys/fs/cgroup) · `internal/runner` (`ContainerCaps` hook) ·
 grant restart + store remount, `resSingleTenant`) · `internal/resenc`
 (single-tenant Ensure + support probe) · `hack/gocryptfs-patches/` (the
 gocryptfs single-tenant mode itself, D43) · `cmd/xbind` (wire
-`run.ContainerCaps`) · `builtin-tiles/devbox` (the worked example) ·
-`workspace-template/AGENTS.md` (how to build a container-host tile).
+`run.ContainerCaps`) · `builtin-tiles/devbox` (the worked example; retired
+2026-09-27) · `workspace-template/AGENTS.md` (how to build a container-host
+tile).

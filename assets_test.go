@@ -14,9 +14,9 @@ import (
 // into workspaces (`xbind init`, `bx tile import`, template instantiation),
 // so their contents are a release decision, not a build accident. Guards:
 //
-//   - no compiled binaries: a stray `go build` in builtin-tiles/devbox once
-//     rode along in every xbind (+10 MB) and would have been copied by
-//     `bx tile import`;
+//   - no compiled binaries: a stray `go build` in builtin-tiles/devbox (since
+//     retired) once rode along in every xbind (+10 MB) and would have been
+//     copied by `bx tile import`;
 //   - nothing large outside web/vendor/ — the vendored frontend deps are the
 //     only big files by design;
 //   - no nested repos / dependency trees (`all:` embeds dotfiles too);
