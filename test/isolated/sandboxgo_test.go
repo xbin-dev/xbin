@@ -32,8 +32,7 @@ func TestNamespace(t *testing.T) {
 // TestVM is the same with VM sandboxes (KVM, or QEMU's emulation with
 // XBIN_VM_ACCEL=emulate); it skips where VMs can't run.
 func TestVM(t *testing.T) {
-	a := xbindtest.Require(t)
-	d := xbindtest.Start(t, a, xbindtest.Options{})
+	d := xbindtest.StartOrConnect(t, xbindtest.Options{})
 	slow := time.Duration(1)
 	if d.RequireVM(t) == "emulate" {
 		slow = 6
@@ -68,7 +67,11 @@ func runSuite(t *testing.T, owner, cons *manager, mode string, slow time.Duratio
 	if box.Mode != mode || box.Net.Reach != "internet" || box.Labels["sandbox-go.home"] != "owner" || box.For != "" {
 		t.Errorf("box: %+v", box)
 	}
-	if want := baseVersion(t, d.Rootfs()); box.Base.Version != want || box.Base.Outdated {
+	if d.IsRemote() { // its rootfs is on its host
+		if box.Base.Version == "" || box.Base.Outdated {
+			t.Errorf("box's base: %+v", box.Base)
+		}
+	} else if want := baseVersion(t, d.Rootfs()); box.Base.Version != want || box.Base.Outdated {
 		t.Errorf("box's base: %+v, want %s", box.Base, want)
 	}
 	if mode == "vm" && box.Accel == "" {
@@ -409,15 +412,9 @@ func testRangeMode(t *testing.T, owner *manager) {
 		map[string]any{"uid": 1000, "gid": 1000})
 	stateDir := findStateDir(t, d, "ranged", in.UID)
 	blob := filepath.Join(stateDir, "cur", "upper", "srv", "r", "blob")
-	fi, err := os.Lstat(blob)
-	if err != nil {
-		t.Fatalf("the upper's file on the host: %v", err)
-	}
-	if uid := statUID(fi); uid == os.Getuid() || uid == 0 {
-		t.Errorf("the upper's file is owned by host uid %d: not a sub-uid", uid)
-	}
-	if _, err := os.ReadFile(blob); err == nil {
-		t.Errorf("xbind's user reads a sub-uid's 0600 file in the upper")
+	// on xbind's host, as its user: owned by a sub-uid, unreadable
+	if got := hostSh(t, d, fmt.Sprintf(`u=$(stat -c %%u '%s') || exit 1; [ "$u" != "$(id -u)" ] && [ "$u" != 0 ] && echo sub-uid || echo "uid $u"; cat '%s' >/dev/null 2>&1 && echo readable || echo denied`, blob, blob)); got != "sub-uid\ndenied\n" {
+		t.Errorf("the upper's file on the host: %q (want a sub-uid's, unreadable to xbind's user)", got)
 	}
 	var stopped sandboxInfo
 	owner.must(t, "POST", "/sandboxes/ranged/stop", nil, 200, &stopped)
@@ -441,19 +438,28 @@ func testRangeMode(t *testing.T, owner *manager) {
 	}
 	owner.must(t, "DELETE", "/sandboxes/ranged", nil, 204, nil)
 	xbindtest.Eventually(t, 2*time.Minute, "the sandbox's state removed", func() (bool, string) {
-		_, err := os.Lstat(stateDir)
-		trash, _ := filepath.Glob(filepath.Join(filepath.Dir(stateDir), ".trash", "*"))
-		return os.IsNotExist(err) && len(trash) == 0, fmt.Sprint(err, trash)
+		left := hostSh(t, d, fmt.Sprintf(`[ -e '%s' ] && echo '%s'; ls -A '%s/.trash' 2>/dev/null; true`, stateDir, stateDir, filepath.Dir(stateDir)))
+		return left == "", left
 	})
 }
 
-// findStateDir is .xbin/sbx/<CK>/<name>.<uid>.
+// findStateDir is .xbin/sbx/<CK>/<name>.<uid> on xbind's host.
 func findStateDir(t *testing.T, d *xbindtest.Daemon, name, uid string) string {
-	m, _ := filepath.Glob(filepath.Join(d.WS, ".xbin", "sbx", "*", name+"."+uid))
+	m := strings.Fields(hostSh(t, d, fmt.Sprintf(`ls -d '%s'/.xbin/sbx/*/'%s.%s' 2>/dev/null; true`, d.Workspace(), name, uid)))
 	if len(m) != 1 {
 		t.Fatalf("the state dir of %s.%s: %v", name, uid, m)
 	}
 	return m[0]
+}
+
+// hostSh runs script on xbind's host as its user (xbindtest HostSh).
+func hostSh(t *testing.T, d *xbindtest.Daemon, script string) string {
+	t.Helper()
+	out, err := d.HostSh(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
 
 // --- the terminal wire -------------------------------------------------------

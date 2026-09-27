@@ -24,7 +24,9 @@ package isolated
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -35,10 +37,12 @@ import (
 
 func TestMain(m *testing.M) { xbindtest.Main(m) }
 
-// The manager's and the consumer's paths in the workspace.
-const (
+// The manager's and the consumer's paths in the workspace (per test on a
+// remote xbind, whose workspace outlives the test: importManager).
+var (
 	mgrTile  = "apps/sbx"
 	consTile = "apps/cons"
+	imports  int
 )
 
 // manager is examples/sandbox-go on a daemon, called as one consumer: the
@@ -55,8 +59,7 @@ type manager struct {
 // and the consumer's view of the manager.
 func setup(t *testing.T, o xbindtest.Options) (owner, cons *manager) {
 	t.Helper()
-	a := xbindtest.Require(t)
-	d := xbindtest.Start(t, a, o)
+	d := xbindtest.StartOrConnect(t, o)
 	importManager(t, d)
 	return managers(t, d)
 }
@@ -65,7 +68,32 @@ func setup(t *testing.T, o xbindtest.Options) (owner, cons *manager) {
 // them, and waits for the manager's backend.
 func importManager(t *testing.T, d *xbindtest.Daemon) {
 	t.Helper()
-	d.CopyTile(t, d.A.Example("sandbox-go"), mgrTile)
+	mgrTile, consTile = "apps/sbx", "apps/cons"
+	if d.IsRemote() {
+		// a tile of an earlier run would restart under this one: a copy of
+		// our own, its module renamed (one workspace, one go.work)
+		imports++
+		run := fmt.Sprintf("%s-%d", time.Now().Format("0102-150405"), imports)
+		mgrTile, consTile = "apps/sbx-"+run, "apps/cons-"+run
+		files := map[string]string{}
+		src := d.A.Example("sandbox-go")
+		err := filepath.WalkDir(src, func(p string, e fs.DirEntry, err error) error {
+			if err != nil || !e.Type().IsRegular() {
+				return err
+			}
+			b, err := os.ReadFile(p)
+			rel, _ := filepath.Rel(src, p)
+			files[filepath.ToSlash(rel)] = string(b)
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		files["go.mod"] = strings.Replace(files["go.mod"], "module sandboxgo\n", "module sandboxgo_"+strings.ReplaceAll(run, "-", "_")+"\n", 1)
+		d.WriteTile(t, mgrTile, files)
+	} else {
+		d.CopyTile(t, d.A.Example("sandbox-go"), mgrTile)
+	}
 	d.Grant(t, mgrTile, "cap:sandboxes", "writer")
 	d.Bind(t, mgrTile, "internet", "internet")
 	d.WriteTile(t, consTile, map[string]string{

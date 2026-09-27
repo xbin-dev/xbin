@@ -65,7 +65,12 @@ func Connect(t testing.TB) *Daemon {
 	if err != nil || u.Host == "" || u.Scheme != "http" {
 		t.Fatalf("XBIN_E2E_URL %q: want http://host:port", os.Getenv("XBIN_E2E_URL"))
 	}
+	repo, err := repoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
 	d := &Daemon{
+		A:   &Assets{Repo: repo}, // the examples to copy; nothing built, no rootfs here
 		URL: strings.TrimRight(u.String(), "/"), Addr: u.Host, seen: map[int]string{},
 		token: os.Getenv("XBIN_E2E_TOKEN"),
 		rem: &remote{sh: os.Getenv("XBIN_E2E_SH"), ws: os.Getenv("XBIN_E2E_WS"),
@@ -191,4 +196,26 @@ func (d *Daemon) vmBudget() (mib, vms int) {
 		vms = n
 	}
 	return mib, vms
+}
+
+// HostSh runs script on xbind's host as the workspace's user — here, as
+// this process; on a remote daemon, through XBIN_E2E_SH — and returns its
+// output: what a test checks of the host's files (owners, modes, what's
+// left).
+func (d *Daemon) HostSh(script string) (string, error) {
+	if d.rem != nil {
+		if d.rem.sh == "" {
+			return "", fmt.Errorf("a remote xbind's host needs XBIN_E2E_SH")
+		}
+		return runLocal(d.rem.sh, []byte(script))
+	}
+	return runLocal("sh -s", []byte(script))
+}
+
+// Workspace is the workspace's path on xbind's host.
+func (d *Daemon) Workspace() string {
+	if d.rem != nil {
+		return d.rem.ws
+	}
+	return d.WS
 }
