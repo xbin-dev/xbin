@@ -3648,3 +3648,42 @@ Deviations and refinements made while implementing; all deliberate:
     tile's wheel chains out to (the shell never sees that wheel — the
     tile's own scroller keeps the tint).
 
+- **D124 — The Agent tab renders a window over an incremental fold
+  (2026-09-27).** web/agent-fold.js, web/bx-agent.js; docs/overview/
+  09-terminals.md §Agent sessions.
+  - **Why.** The tab re-folded the whole event log, and re-ran markdown,
+    diffs (an LCS per edit) and highlighting for every block, on every event
+    and every keystroke, and rendered every block — a long or replayed
+    conversation crawled, worst on resume, where the agent streams the old
+    turns one event at a time.
+  - **Chosen.** (1) `Fold` (pure, node-tested against the old fold over the
+    captured fixtures) applies one event at a time; every block has a stable
+    `key` and a version `v` bumped when it or a nested block changes, and
+    `st` digests the latest status fields (the per-render log scans are
+    gone). (2) At most one render per frame (`scheduleUpdate` awaits a
+    frame), so a burst folds as it arrives and paints once. (3) Rows are
+    `repeat`ed by key under `guard([v, ui, …])`; markdown, diffs and stripped
+    output are memoized on the block per version (`cached`), and a folded
+    card's body, a file patch or a thought renders only once opened. (4) Only
+    a window renders: the last 30 blocks (filled to two views), a page of 30
+    more whenever the reader is within 1.5 views of the top — on a touch
+    scroll only once it settles, since a `scrollTop` write stops iOS
+    momentum — or all of them from the "earlier entries" row (for find).
+    Following the bottom with over 120 rendered and 6 views above, what is
+    more than 2.5 views up is dropped (above the pinned view: invisible;
+    2.5 > 1.5, so dropping and loading never ping-pong).
+  - **No jumps.** `overflow-anchor: none` and one explicit anchor for every
+    update: `willUpdate` records the first visible row's top (binary search
+    over the rows), `updated` — inside the same frame, before paint —
+    moves `scrollTop` by however far it moved, or pins the bottom when the
+    reader was there. The same path covers a page prepended, a block above
+    growing, the per-turn changes block spliced in. A card the reader opens
+    keeps their view instead of chasing the bottom.
+  - **Not chosen:** native scroll anchoring (Safari has none; with a manual
+    fallback beside it, the two can double-correct); `flex-direction:
+    column-reverse` (free bottom-pinning, but the view then moves whenever a
+    new turn streams while the reader is scrolled up); server-side paging of
+    the log (the whole ring — 5000 events — folds in milliseconds; the cost
+    was rendering); `content-visibility: auto` (estimated heights shift as
+    rows paint in, which is the jump this avoids); windowing a subagent
+    card's children (rendered only while the card is open).

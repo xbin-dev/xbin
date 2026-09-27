@@ -27,6 +27,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   embedder `xbin:scroll-focus` when the pointer arrives
   ([protocol.md](protocol.md) §Tile ↔ shell messaging).
 
+- **Long agent conversations stay quick** (D124). The Agent tab no longer
+  re-renders the whole transcript on every update: it folds the event log as
+  it arrives, paints at most once a frame, keeps the recent part on the page
+  and loads earlier entries as you scroll up, without moving what you are
+  reading (an "earlier entries" row loads the rest at once). A long replay —
+  a reload, a resumed or past session — opens at the bottom right away.
+  Folded tool cards, file diffs and thoughts render when opened.
+
 - **xbin app: plain http works to any address** — a tailnet IP, a LAN
   address, an unqualified name. The app's Info.plist also allowed "local
   networking", and iOS then ignores its allow-any rule, so a phone got

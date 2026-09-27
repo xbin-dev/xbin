@@ -176,6 +176,8 @@ async function agentTab(browser) {
   const wroteCard = A.page.locator(`${agentSel} details.tool.exec`).last();
   await wroteCard.locator(':scope > summary').click();
   await wroteCard.locator('details.files > summary').click();
+  // a folded card's body (and a files block's patch) renders once opened (D124): wait for it
+  await wroteCard.locator('pre.diff .d').first().waitFor({ timeout: 5000 }).catch(() => {});
   check(await wroteCard.locator('pre.diff .d').count() >= 1, 'the card shows the patch (+ lines)');
   await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-shell-write');
 
@@ -191,6 +193,7 @@ async function agentTab(browser) {
   const subCard = A.page.locator(`${agentSel} details.tool.sub`).last();
   check(!(await subCard.evaluate((el) => el.open)), 'the finished subagent folds');
   await subCard.locator(':scope > summary').click();
+  await subCard.locator('.answer').waitFor({ timeout: 5000 }).catch(() => {});
   check(await subCard.locator('.children details.tool').count() === 1 && /main\.go/.test(await subCard.locator('.answer').innerText()), 'opened: the nested call and the answer show');
   await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-subagent');
 
@@ -199,6 +202,7 @@ async function agentTab(browser) {
   const ta = A.page.locator(`${agentSel} .compose textarea`);
   await ta.click();
   await A.page.keyboard.type('/re');
+  await settle(A.page); // the tab renders once a frame (D124)
   const menu = await fr(A.page, TILE, (f) => f.agent().slashMenu);
   check(menu[0] === 'review' && await A.page.locator(`${agentSel} .slash .sc`).count() === menu.length, `"/re" offers /review first (${JSON.stringify(menu)})`);
   await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-slash');

@@ -340,7 +340,8 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   attached client can answer (first answer wins); the same session is
   reachable from another browser or from `bx agent`
   (docs/overview/09-terminals.md §Agent sessions). A tab whose session
-  ended keeps its transcript, greyed, until you dismiss it.
+  ended keeps its transcript, greyed, until you dismiss it. A long transcript
+  shows its recent part; scrolling up loads earlier entries in place (D124).
 - **The bar degrades, never clips**: when the window is narrow (below
   ~640 px, or the phone sheet) or the full bar measures wider than the
   window (it varies by host and tab: a GPU picker, the VM toggle, long tab
