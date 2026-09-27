@@ -203,6 +203,24 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   why the sandboxes run without cgroup limits, if they do. VM mode, reset,
   rebase, commands, files and snapshots still answer as before. Nothing
   changes for a workspace without a manager tile.
+- **Tile sandboxes: files, tar and copy** (D120,
+  [protocol.md](protocol.md) §Tile sandboxes). A manager tile's
+  `/sandboxes/<name>/files/…`, `tar` and `POST /sandboxes/copy` routes,
+  which answered 501 until now, work, and `runtime.caps` lists `files`
+  and `tar`. The sandbox's own agent resolves every path inside the
+  sandbox, so a symlink never leads to the host, and a read-only mount
+  refuses writes. You get stat, list, ranged reads whose `ETag` is the
+  stat's `etag` (quoted), atomic writes with `mode`, `mkdirs`, `ifMatch`
+  (412 with the current `etag`) and `ifNoneMatch=*`, mkdir, remove and
+  move, and tar streams both ways that keep symlinks and extract nothing
+  outside the target. A tar of `/` leaves out `/proc`, `/sys` and `/dev`.
+  Copies of a file or a tree between two of the manager's sandboxes stream
+  from agent to agent. Paths are absolute, clean and UTF-8, and
+  `limits.fileMax` and `limits.tarMax` answer 413. A call starts a stopped
+  sandbox that has `autoStart`, and the sandbox isn't idle while the call
+  runs. A stream that fails after its status went out is cut, never ended
+  as if it were whole. Nothing changes for a workspace without a manager
+  tile.
 - **Go SDK: tile sandboxes** ([sdk.md](sdk.md) §Tile sandboxes).
   `xbin.SandboxAPI()` has a call for each of a manager tile's
   `/api/xbin/sandboxes/…` routes: definitions and lifecycle, `Run`, execs

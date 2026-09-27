@@ -190,9 +190,9 @@ type Used struct {
 }
 
 // builtCaps are the contract capabilities this runtime serves. The exec,
-// file, tar, tty, snapshot and clone routes answer unsupported until they
-// are built, so none is claimed yet.
-var builtCaps = []string{}
+// tty, snapshot and clone routes answer unsupported until they are built,
+// so they aren't claimed yet.
+var builtCaps = []string{"files", "tar"}
 
 // runtime builds a tile's Runtime. Callers hold m.mu.
 func (m *Manager) runtime(k Key) Runtime {

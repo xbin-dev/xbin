@@ -152,3 +152,39 @@ func TestTarPutStaysInside(t *testing.T) {
 		t.Errorf("l: %q %v", l, err)
 	}
 }
+
+// A tar of the sandbox's root leaves out /proc, /sys and /dev — also when a
+// symlink leads there — and nothing else of those names deeper down.
+func TestTarOfRootLeavesOutPseudoFS(t *testing.T) {
+	h := newHarness(t, nil)
+	for _, p := range []string{"proc/1/status", "sys/kernel/x", "dev/null-ish", "usr/include/sys/types.h", "work/proc", "etc/hostname"} {
+		_ = os.MkdirAll(filepath.Dir(filepath.Join(h.root, p)), 0o755)
+		_ = os.WriteFile(filepath.Join(h.root, p), []byte("x"), 0o644)
+	}
+	_ = os.Symlink("/", filepath.Join(h.root, "work", "root"))
+	for _, p := range []string{"/", "/work/root"} {
+		first, data, last := h.call(proto.FileOp{Op: "tar-get", Path: p}, nil)
+		if !first.OK || !last.OK {
+			t.Fatalf("tar-get %s: %+v / %+v", p, first, last)
+		}
+		ents := untar(t, data)
+		for _, gone := range []string{"proc/", "proc/1/status", "sys/", "sys/kernel/x", "dev/", "dev/null-ish"} {
+			if _, ok := ents[gone]; ok {
+				t.Errorf("tar-get %s: %s archived", p, gone)
+			}
+		}
+		for _, kept := range []string{"usr/include/sys/types.h", "work/proc", "etc/hostname"} {
+			if _, ok := ents[kept]; !ok {
+				t.Errorf("tar-get %s: %s left out", p, kept)
+			}
+		}
+	}
+	// below the root, a directory of that name is an ordinary one
+	first, data, last := h.call(proto.FileOp{Op: "tar-get", Path: "/usr/include"}, nil)
+	if !first.OK || !last.OK {
+		t.Fatalf("tar-get /usr/include: %+v / %+v", first, last)
+	}
+	if _, ok := untar(t, data)["sys/types.h"]; !ok {
+		t.Fatal("tar-get /usr/include: sys/ left out")
+	}
+}

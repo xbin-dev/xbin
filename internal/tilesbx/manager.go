@@ -11,7 +11,8 @@
 // its relay (netcfg.go), its cgroup leaf (cgroup.go), its registry row
 // (registry.go) and the confined removal of what is deleted (trash.go).
 // What it needs from the rest of xbind comes in through Deps, small
-// interfaces a test fakes. Execs, files, snapshots and the lifecycle policy
+// interfaces a test fakes. Files, trees and copies go to a sandbox's agent
+// (files.go, copy.go). Execs, snapshots and the lifecycle policy
 // (admission, idle) answer `unsupported` or do nothing until they are
 // built (plans/tile-sandbox-runtime.md §12).
 package tilesbx
@@ -219,6 +220,7 @@ type box struct {
 	egressNext   bool   // its class's rules widened since it started: they apply at the next start
 	run          *run   // the run up now (nil: none)
 	execsRunning int
+	inflight     int   // file, tar and copy operations under way: the idle timer leaves the sandbox alone meanwhile (§7)
 	diskBytes    int64 // allocated, measured at each stop
 	snapshots    int
 }

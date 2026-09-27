@@ -27,7 +27,8 @@ import (
 // through a symlink it planted itself — writes outside it.
 
 // tarGet: the directory's stat line, the archive in frames, the
-// terminator, the last line.
+// terminator, the last line. A tar of the sandbox's root leaves out its
+// pseudo-filesystems (pseudoFS).
 func (f *files) tarGet(op *proto.FileOp, rel string, conn *proto.Conn) {
 	fd, err := f.open(rel, unix.O_RDONLY|unix.O_DIRECTORY, 0)
 	if err == unix.ENOTDIR {
@@ -52,6 +53,10 @@ func (f *files) tarGet(op *proto.FileOp, rel string, conn *proto.Conn) {
 	out := &capWriter{w: fw, left: op.Max}
 	bw := bufio.NewWriterSize(out, 256<<10)
 	w := &tarWalk{tw: tar.NewWriter(bw), exclude: op.Exclude, links: map[[2]uint64]string{}}
+	var root unix.Stat_t
+	if unix.Fstat(f.root, &root) == nil && root.Dev == st.Dev && root.Ino == st.Ino {
+		w.skipTop = pseudoFS // the sandbox's root, however the path led there
+	}
 	err = w.dir(fd, "", 0) // closes fd
 	if err == nil {
 		err = w.tw.Close()
@@ -100,7 +105,14 @@ type tarWalk struct {
 	tw      *tar.Writer
 	exclude []string
 	links   map[[2]uint64]string // dev/ino → the first name of a hard-linked file
+	skipTop map[string]bool      // names left out at the top: a tar of the root's pseudo-filesystems
 }
+
+// pseudoFS are the kernel's views a tar of the sandbox's root leaves out:
+// /proc (its /proc/kcore alone claims 128 TiB), /sys and /dev (device
+// nodes, which are never archived anyway). A path leading to the root
+// through a symlink leaves them out too.
+var pseudoFS = map[string]bool{"proc": true, "sys": true, "dev": true}
 
 func (w *tarWalk) excluded(rel, name string) bool {
 	for _, x := range w.exclude {
@@ -128,7 +140,7 @@ func (w *tarWalk) dir(fd int, prefix string, depth int) error {
 	sort.Strings(names)
 	for _, name := range names {
 		rel := prefix + name
-		if w.excluded(rel, name) {
+		if w.excluded(rel, name) || (prefix == "" && w.skipTop[name]) {
 			continue
 		}
 		var st unix.Stat_t

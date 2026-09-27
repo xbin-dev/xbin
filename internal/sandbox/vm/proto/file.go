@@ -53,9 +53,12 @@ type FileOp struct {
 	// Owner chowns what the operation creates (the definition's default
 	// uid/gid); nil leaves it the agent's. A write that replaces a regular
 	// file keeps that file's owner.
-	Owner   *[2]uint32 `json:"owner,omitempty"`
-	Limit   int        `json:"limit,omitempty"`   // list: at most this many entries (default 1000)
-	Exclude []string   `json:"exclude,omitempty"` // tar-get: globs matched against names relative to Path (and each base name)
+	Owner *[2]uint32 `json:"owner,omitempty"`
+	Limit int        `json:"limit,omitempty"` // list: at most this many entries (default 1000)
+	// Exclude: tar-get's globs, matched against names relative to Path and
+	// against each base name. A tar-get of the sandbox's root also leaves
+	// out /proc, /sys and /dev, whatever Exclude says.
+	Exclude []string `json:"exclude,omitempty"`
 	// Max refuses past this many bytes (too-large): a read's range, a
 	// write's content, a tar stream's bytes either way. 0: no bound.
 	Max int64 `json:"max,omitempty"`
