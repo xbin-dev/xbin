@@ -13,6 +13,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/gpu"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/sandbox"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 func sandboxable(runtime string) bool {
@@ -24,16 +25,22 @@ func sandboxable(runtime string) bool {
 }
 
 // sandboxCmd builds and launches the isolated backend command
-// (plans/isolation.md): the generation's launchSpec, with the components
-// nested in pinned code bound back from their own code (nestedBinds), turned
-// into a VM sandbox when the tile runs its backend in one (vmApply reserves
-// the VM's memory), then sandbox.Launch.
+// (plans/isolation.md): the generation's launch spec, with the components
+// nested in pinned code bound back from their own code (nestedBinds) and its
+// deployment's own data (dataBinds), turned into a VM sandbox when the tile
+// runs its backend in one (vmApply reserves the VM's memory), then
+// sandbox.Launch. A deployment whose data can't be bound fails the start
+// before anything is reserved or launched (06-security C7).
 func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []string, pol sandbox.EgressPolicy, envLower string) (*exec.Cmd, *sandbox.Handle, error) {
 	nested, err := r.nestedBinds(c)
 	if err != nil {
 		return nil, nil, err
 	}
-	spec := r.launchSpec(c, bin, dir, env, pol, envLower, nested...)
+	data, err := r.dataBinds(c, env)
+	if err != nil {
+		return nil, nil, err
+	}
+	spec := r.launchSpecWith(c, bin, dir, env, pol, envLower, data, nested)
 	if r.wantsVM(c) {
 		if err := r.vmApply(c, spec, dir, sock, filepath.Join(r.RunDir, "gateway.sock")); err != nil {
 			return nil, nil, err
@@ -42,17 +49,31 @@ func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []
 	return sandbox.Launch(spec)
 }
 
-// launchSpec is the sandbox spec of an isolated backend generation: a
+// launchSpec is launchSpecWith with the view's own data binds: none of them
+// when dataBinds refuses them, a start sandboxCmd fails.
+func (r *Runner) launchSpec(c *registry.Component, bin, dir string, env []string, pol sandbox.EgressPolicy, envLower string, nested ...sandbox.Bind) *sandbox.Spec {
+	data, err := r.dataBinds(c, env)
+	if err != nil {
+		data = nil
+	}
+	return r.launchSpecWith(c, bin, dir, env, pol, envLower, data, nested)
+}
+
+// launchSpecWith is the sandbox spec of an isolated backend generation: a
 // per-component namespace set over an overlay of r.Rootfs. The component's
 // code is read-only at its own path — the work tree, or for pinned code its
 // materialized checkpoint (c.CodeRoot) with each nested component's code
-// bound after it (nested, from nestedBinds; P9) — its run dir and
-// same-scope resource files are read-write, the gateway socket is the one
-// door out, and the netns is empty (default-deny egress) unless the tile's
-// grants and bindings wire a relay, a splice or the host network. It is
-// pure: it reads the runner's hooks and the host paths it binds, and
+// bound after it (nested, from nestedBinds; P9) — its run dir and its
+// deployment's resource files (data, from dataBinds) are read-write, the
+// gateway socket is the one door out, and the netns is empty (default-deny
+// egress) unless the tile's grants and bindings wire a relay, a splice or
+// the host network. A non-primary view never gets the primary-only wiring,
+// whatever a hook answers (07-runtime §10.4; P23): no provider roster, no
+// lan-ingress legs, no splice, no host network and no ingress plumbing; the
+// relay under its egress policy, capabilities and GPUs stay the hooks'. It
+// is pure: it reads the runner's hooks and the host paths it binds, and
 // launches, reserves and records nothing.
-func (r *Runner) launchSpec(c *registry.Component, bin, dir string, env []string, pol sandbox.EgressPolicy, envLower string, nested ...sandbox.Bind) *sandbox.Spec {
+func (r *Runner) launchSpecWith(c *registry.Component, bin, dir string, env []string, pol sandbox.EgressPolicy, envLower string, data, nested []sandbox.Bind) *sandbox.Spec {
 	gw := filepath.Join(r.RunDir, "gateway.sock")
 	binds := []sandbox.Bind{{Src: codeRoot(c), Dst: c.Dir, RO: true}} // the code, read-only by the bind
 	binds = append(binds, nested...)
@@ -62,7 +83,7 @@ func (r *Runner) launchSpec(c *registry.Component, bin, dir string, env []string
 	)
 	// File-backed resources (sqlite) are handed to the backend as absolute
 	// XBIN_RES_* env paths; bind their dirs read-write so they persist.
-	binds = append(binds, resourceBinds(env, r.Root)...)
+	binds = append(binds, data...)
 
 	var entry string
 	var argv []string
@@ -105,10 +126,11 @@ func (r *Runner) launchSpec(c *registry.Component, bin, dir string, env []string
 	// Interface wiring (plans/interfaces.md): a net-provider tile gets one TUN per
 	// bound client; a component's `net` interface resolves to host-share, a splice
 	// through a provider tile, or the relay under a builtin (internet/lan) policy.
-	if r.NetRoster != nil {
+	primary := c.Deployment == "" // the rest is the primary's wiring alone (07-runtime §10.4)
+	if primary && r.NetRoster != nil {
 		spec.NetClients = r.NetRoster(c)
 	}
-	if r.NetLinks != nil {
+	if primary && r.NetLinks != nil {
 		spec.NetLinks = r.NetLinks(c) // lan-ingress legs (plans/ingress.md)
 	}
 	if r.NetCaps != nil && r.NetCaps(c) {
@@ -117,9 +139,11 @@ func (r *Runner) launchSpec(c *registry.Component, bin, dir string, env []string
 	if r.ContainerCaps != nil && r.ContainerCaps(c) {
 		spec.Containers = true // container-host tile (cap:containers): keep caps, minimal seccomp
 	}
-	if r.NetHost != nil && r.NetHost(c) {
+	switch {
+	case !primary: // never the host network or a provider's splice (P23)
+	case r.NetHost != nil && r.NetHost(c):
 		spec.HostNet = true // net → host builtin (share the host network)
-	} else if r.NetTarget != nil {
+	case r.NetTarget != nil:
 		if _, addr, gw, ok := r.NetTarget(c); ok {
 			spec.Net, spec.NetAddr, spec.NetGw = "splice", addr, gw
 		}
@@ -127,7 +151,7 @@ func (r *Runner) launchSpec(c *registry.Component, bin, dir string, env []string
 	if spec.Net == "" && !spec.HostNet && !pol.Empty() {
 		spec.Net = "relay" // granted / bound builtin egress → TUN + userspace relay
 	}
-	if spec.Net == "" && !spec.HostNet {
+	if spec.Net == "" && !spec.HostNet && primary {
 		// Ingress plumbing without egress (plans/ingress.md): a bound stream
 		// expose / stream interface / lan-ingress leg needs the TUN so xbind
 		// can reach in — the relay runs with a deny-all outbound policy.
@@ -136,6 +160,28 @@ func (r *Runner) launchSpec(c *registry.Component, bin, dir string, env []string
 		}
 	}
 	return spec
+}
+
+// dataBinds are the resource binds of view c's generation, whose env is env
+// (07-runtime §10.4; 08-data §5): main's are today's, every path at itself;
+// any other deployment's come from the resource remap its EnvFor hook
+// answers, and fail closed (resourceBindsFor). An answer without a remap is
+// never read as main's for another deployment: it binds no path, and a
+// path-valued resource then fails the start. main never asks the hook here,
+// so a zero-state start calls it no more than before.
+func (r *Runner) dataBinds(c *registry.Component, env []string) ([]sandbox.Bind, error) {
+	dep := r.viewDeployment(c)
+	if dep == util.MainDeployment {
+		return resourceBinds(env, r.Root), nil
+	}
+	var remap map[string]ResBind
+	if r.EnvFor != nil {
+		_, remap = r.EnvFor(c, dep)
+	}
+	if remap == nil {
+		remap = map[string]ResBind{}
+	}
+	return resourceBindsFor(env, r.Root, dep, remap)
 }
 
 // codeRoot is the host directory a view's code is in, which its sandboxes
