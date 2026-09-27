@@ -433,7 +433,14 @@ GET    /status                     admin. terminals ({id,cwd,net,kind,vm,user,
                                    {reqs,bytesOut,uptimeSec} (cumulative —
                                    delta two polls for rates), and version (the
                                    running xbind build commit)
+                                   (reserved) a terminal whose session targets a
+                                   named deployment gains deployment
 GET    /backends                   admin. per-component backend state
+                                   {<path>: {state, gen, error?}}. (reserved) The
+                                   row stays the primary's; a tile with
+                                   deployments adds deployment (the primary's
+                                   name) and deployments: {<name>: {state, gen,
+                                   error?}} for its other deployments
 GET    /runtime                    admin. full runtime visibility →
                                    {host:{version,kernel,pid,uid,numCPU,goroutines,
                                    heapMB,uptimeSec,isolate,rootfs,scopeUids,
@@ -473,6 +480,11 @@ GET    /runtime                    admin. full runtime visibility →
                                    fds describe its host-side jail (the shim,
                                    whose child VMM holds guest memory) — read
                                    cgroup for what the VM uses
+                                   (reserved) backends[] keeps one row per tile,
+                                   the primary's, which gains deployment on a
+                                   tile with deployments; the others' rows (the
+                                   same shape plus deployment) are listed in a
+                                   top-level deploymentBackends[]
 GET    /gpus                       admin. host NVIDIA GPUs for gpu:* grants and
                                    the terminal picker → {gpus:[{index,uuid,
                                    name,node}]}
@@ -528,6 +540,11 @@ GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
                                    an editor PUTs back. failures: the newest
                                    64, identical ones within 10 min
                                    coalesced (count). ?tile= narrows
+                                   (reserved) &deployment=<name> narrows to one
+                                   deployment. main's rows stay as they are;
+                                   another deployment's backend rows have the id
+                                   backend+<name>:<key>:g<gen>, deployment, and
+                                   stats scope "deployment"
 GET    /tile-status?component=<p>  self or admin. one tile's runtime metrics —
                                    backend {state,gen,sandbox,vm?,cpuSec,cgroup:{mem,pids},
                                    rssKb,fds,activeConns,egress}, disk {usage,
@@ -536,6 +553,14 @@ GET    /tile-status?component=<p>  self or admin. one tile's runtime metrics —
                                    network, D54). Readable from that tile's
                                    terminal (tile-scoped token). `bx status`
                                    renders it.
+                                   (reserved) &deployment=<name>: the deployment
+                                   reported (default: the caller's bound
+                                   deployment, else the primary; a tile's frames
+                                   and backends read their own only). The answer
+                                   gains deployment on a tile with deployments,
+                                   and for admins and the tile's terminal/agent
+                                   tokens deployments: {primary, liveReload,
+                                   items:[{name, state, gen, checkpoint?}]}
 GET    /term-net?tile=<p>          terminal access on the tile. the network
                                    scopes a terminal there may take for the
                                    caller (D54): {tile, scopes:[{id,label,
@@ -560,6 +585,12 @@ GET    /logs?component=<p>         admin, the tile itself, or a user with
                                    appended bytes (chunked) until the client
                                    goes away. The HTTP twin of `bx logs [-f]`;
                                    the terminal window's read-only logs tab.
+                                   (reserved) &deployment=<name>: one
+                                   deployment's log (default: the caller's bound
+                                   deployment, else the primary; a tile's frames
+                                   and backends read their own only); 404 for an
+                                   unknown one. A non-primary answer carries
+                                   X-XBin-Deployment: <name>, the echo
 GET    /auth-overview              admin. components(+roles/uses/vault, vm?:
                                    {memMiB?,vcpus?} when the manifest asks for
                                    a VM), grants, pending, counts — powers the
@@ -590,6 +621,12 @@ GET    /components                 any. [{path, scope, runtime, hasIndex,
                                    server sends there, with allow-same-origin
                                    and no credentialless, and talks to it with
                                    that postMessage origin)}]
+                                   (reserved) The entry of a tile with
+                                   deployments gains deployments: {primary,
+                                   pinned, protected}, the same for every caller
+                                   who sees it; runtime, hasIndex, native, chrome
+                                   and template then describe the primary's code.
+                                   Deployments are never rows
 GET    /components/<path>          any. {component, apiDoc: <API.md text>}
                                    (component as above, native included)
 GET    /tile-assets                any (read-filtered); ?component=<p> for one.
@@ -615,6 +652,11 @@ GET    /frame-token?component=<p>  a principal that may use the tile: humans
                                    owner's frame). {token} — bound to
                                    the caller's login (a renewal keeps its
                                    token's binding; see Authentication)
+                                   (reserved) &deployment=<name>: a person asks
+                                   for a deployment's token (write on the tile
+                                   for a non-primary one); a tile renews only its
+                                   own bound deployment's. The answer echoes
+                                   deployment
 
 GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    tile?,message,system}]} — disk quota / low
@@ -653,6 +695,9 @@ GET    /whoami                    any. caller identity + permissions; for
                                    an admin has turned native tile UIs off
                                    (PUT /native-runtime): the app opens
                                    every tile as its web page
+                                   (reserved) An element principal bound to a
+                                   non-primary deployment also gets deployment,
+                                   its name
 GET    /openapi.json              any. OpenAPI 3.1 spec of this built-in API,
                                    incl. the RBAC capability per endpoint
                                    (x-xbin-capability). Rendered by the API-docs
@@ -689,6 +734,8 @@ GET    /term/sessions             authenticated. the caller's live terminal
                                    browser the user signs into sees the same
                                    tabs (the shell's <bx-frame> lists them here,
                                    not in the browser)
+                                   (reserved) A row whose session targets a named
+                                   deployment gains deployment
 PATCH  /term/sessions/<id>        creator or admin. {name}: name the tab (empty
                                    clears; lives on the session → follows the
                                    user) → ok
@@ -717,6 +764,12 @@ POST   /term/sessions             terminal-level on the tile (a shell's own
                                    takes (api false = code-only, no
                                    terminal token). Shells still open on
                                    /ws/term
+                                   (reserved) ?deployment=<name>: the session's
+                                   target, fixed for its life (the primary's name
+                                   follows the primary; a protected primary 403,
+                                   an unknown one 404). SessionInfo echoes
+                                   deployment; no echo means this xbind can't
+                                   target deployments
 GET    /term/sessions/<id>        creator or admin → {session, permissions:
                                    [{pid,toolCall,options}], elicitations:
                                    [{eid,toolCallId?,message,schema}]}
@@ -773,6 +826,8 @@ POST   /term/sessions/<id>/restart
                                    its history entry superseded), else
                                    fresh (the transcript stays in
                                    /agent/history)
+                                   (reserved) ?deployment=<name>: restart onto
+                                   that target; the new SessionInfo echoes it
 POST   /term/sessions/<id>/cancel creator or admin → ok (the turn ends
                                    cancelled; pending permissions cancelled;
                                    a prompt still handing its files over
@@ -1606,6 +1661,9 @@ POST   /grants                     admin — any. An org admin may approve on
                                    Approving a res:* / gpu:* grant restarts the
                                    caller's backend (that env/devices are captured
                                    at spawn) so it takes effect at once.
+                                   (reserved) Granting xbin or an xbin:* target to
+                                   a tile that has non-primary deployments
+                                   answers 409
 DELETE /grants                     admin; also both D26/D33 edges (an org
                                    admin may always revoke their org's or
                                    their property's rows, a personal
@@ -1750,6 +1808,10 @@ PUT    /iface-instances            self or admin. body {component?, instances:
                                    install path into persisted state (stale
                                    after a rename/clone). Trailing "/" is
                                    normalized away.
+                                   (reserved) From a non-primary deployment the
+                                   map is stored dormant and never routed (no
+                                   grants event, no re-wiring); the answer gains
+                                   dormant:true
 
 PUT    /ingress-hosts              self or admin. body {component?, hosts:[…]}
                                    — a tile with a DELEGATED-ZONE http expose
@@ -1761,6 +1823,9 @@ PUT    /ingress-hosts              self or admin. body {component?, hosts:[…]}
                                    hostname, and not collide with any exact-
                                    bound host or another tile's registration
                                    (409). Routes update live; no restart.
+                                   (reserved) From a non-primary deployment the
+                                   set is stored dormant and never routed; the
+                                   answer gains dormant:true
 GET    /ingress-routes             terminator tiles + admin. {routes: [{host,
                                    component, slot, paths, source, zone?}]} —
                                    the concrete host→tile routes. A tile with
@@ -1817,6 +1882,199 @@ POST   /backup-schedule            admin. body {component, schedule, retention} 
                                    retention prunes to N newest versions per run.
 DELETE /backup-schedule?component= admin. remove a component's schedule
 
+Tile deployments: pausing live reload, a tile's deployments, promotion. The
+routes of this group are RESERVED: a row marked (reserved: 501) answers 501
+({"error","docs"}) until this xbind builds it; an older xbind answers a plain
+404 or 405, which is how a client detects the feature. Bodies are JSON,
+decoded strictly; each names `tile`, a tile ref (apps/crm, or apps/crm+dev for
+one deployment; a body's deployment and the ref's qualifier must agree), and
+takes seq (the record's sequence the caller acted on: 409 when it moved) and
+dryRun:true (judged as for real, nothing changes → {state, impact}). An
+operation answers {state, deploy?, …} (each row names its answer) once the
+record change is committed; deploys are asynchronous (follow the deploy entry
+with the log's ?id= and `deployments` events). On a tile without deployments
+nothing here writes a file, except the three opt-ins (live-reload/pause, add,
+protect); any other POST on it answers 409. Onto a protected primary every
+code move names the checkpoint its actor reviewed (checkpoint or expect, plus
+seq), else 400.
+
+GET    /deployments?tile=<tile-ref>
+                                   (reserved: 501) read on the tile, or the
+                                   tile itself (readers get the primary
+                                   only). → State in the caller's view: full
+                                   (the tile's writers), deployment (a
+                                   non-primary deployment's own credentials:
+                                   the primary and that deployment) or
+                                   reader (facts about the primary only — no
+                                   other deployment's name, no count).
+                                   record:false for a tile without
+                                   deployments, and nothing is written.
+                                   features lists what this xbind speaks
+GET    /deployments/log?tile=<tile-ref>&deployment=<name>&limit=<n>&before=<id>
+                                   (reserved: 501) write on the tile, or its
+                                   terminal/agent sessions. → {tile,
+                                   entries:[DeployEntry], more}: every
+                                   finished attempt, newest first, failed
+                                   ones included (limit default 50, max
+                                   200); ?id=<id>&wait=<s> one attempt,
+                                   held until it finishes (wait ≤ 25) →
+                                   {entry}. A non-primary deployment's own
+                                   credentials see its entries only
+GET    /deployments/diff?tile=<tile-ref>&from=<spec>&to=<spec>&path=<file>&stat=1
+                                   (reserved: 501) write on the tile, or its
+                                   terminal/agent sessions; a work-tree side
+                                   captures a checkpoint and needs terminal
+                                   level. spec: c:<id> | deployment:<name> |
+                                   work-tree (default: the primary → the
+                                   work tree). → text/x-diff with
+                                   X-XBin-Checkpoint-From / -To (X-Truncated
+                                   past 16 MiB), or stat=1 → {from, to,
+                                   files:[{path, status, added, removed,
+                                   binary?}], truncated}. Confined. 409 on a
+                                   tile without deployments (nothing is
+                                   captured), 429 while one diff runs and
+                                   one waits for the tile, 504 past 30 s
+POST   /deployments/live-reload/pause
+                                   (reserved: 501) terminal-level on the tile
+                                   (its own terminal/agent tokens count).
+                                   {tile} → {state, deploy?}: saves stop
+                                   reaching the live reload target, which
+                                   keeps a fresh checkpoint of the work
+                                   tree. The opt-in that creates a tile's
+                                   record. Idempotent. 409 for a backend
+                                   tile without --isolate
+POST   /deployments/live-reload/resume
+                                   (reserved: 501) terminal-level on the
+                                   tile. {tile, deployment?} → {state,
+                                   deploy}: deployment (default: where live
+                                   reload last was) follows the work tree
+                                   again. Onto main, while it is the only
+                                   deployment and every setting is at its
+                                   default, the record is removed
+                                   (record:false). 409 onto a protected
+                                   primary
+POST   /deployments/live-reload/now
+                                   (reserved: 501) terminal-level on the
+                                   tile. {tile, expect?} → {state, deploy?}:
+                                   checkpoint the work tree and deploy it
+                                   once where live reload last was, which
+                                   stays pinned (unchanged:true when nothing
+                                   moved)
+POST   /deployments/live-reload/attach
+                                   (reserved: 501) terminal-level on the
+                                   tile. {tile, deployment} → {state,
+                                   deploy}: the former target keeps a fresh
+                                   checkpoint, deployment follows the work
+                                   tree. 409 while paused (resume instead)
+POST   /deployments/add            (reserved: 501) terminal-level on the tile.
+                                   {tile, deployment, from?: work-tree|
+                                   primary|c:<id>, data?: empty|seed,
+                                   attach?, confirm?} → {state, deploy,
+                                   joins?}: a new deployment with its own
+                                   data (empty; seed — confirm:"copy-data"
+                                   — and joining data already seeded or
+                                   restored are a tile manager's acts), a
+                                   vault of the primary's key names without
+                                   values, deliveries and alwaysOn off. A
+                                   name is lowercase letters, digits and -,
+                                   a letter first, at most 24; not main, not
+                                   taken, no tile at <tile>+<name>
+POST   /deployments/remove         (reserved: 501) terminal-level on the tile.
+                                   {tile, deployment, confirm:"erase"} →
+                                   {state}: stops it; deletes its vault,
+                                   logs, registrations, build products, and
+                                   its data when this tile is the last to
+                                   claim them. 409 for main or the primary
+POST   /deployments/deploy         (reserved: 501) terminal-level on the tile.
+                                   {tile, deployment, checkpoint? | expect?
+                                   | restart?} → {state, deploy?}: puts the
+                                   checkpoint (default: a fresh one of the
+                                   work tree, equal to expect when given) on
+                                   deployment; live reload attached to it
+                                   pauses. restart:true starts a new
+                                   generation of its current code
+POST   /deployments/promote        (reserved: 501) as deploy, for the target.
+                                   {tile, from, to, expect?} → {state,
+                                   deploy?}: to receives from's current
+                                   code; data stays
+POST   /deployments/rollback       (reserved: 501) as deploy. {tile,
+                                   deployment, checkpoint?} → {state,
+                                   deploy?}: default the newest ok entry of
+                                   its deploy log with other code; data
+                                   stays
+POST   /deployments/primary        (reserved: 501) tile manager in a person's
+                                   own session (the tile's owner, its org's
+                                   admins, a workspace admin). {tile,
+                                   deployment, confirm:"data-stays",
+                                   expect?} → {state, deploy?,
+                                   inactiveHosts?}: the bare URL moves to
+                                   deployment; data and xbin.json don't.
+                                   409 unless it is healthy
+POST   /deployments/protect        (reserved: 501) tile manager (as above).
+                                   {tile, on, expect?} → {state, deploy?}:
+                                   on pins the primary in place; from then
+                                   on only tile managers change its code.
+                                   An opt-in
+POST   /deployments/edge           (reserved: 501) tile manager. {tile, edge:
+                                   slot:<slot>|grant:<target>, policy: read|
+                                   block|inherit|default} → {state}: the
+                                   edge's policy for non-primary deployments
+POST   /deployments/deliveries     (reserved: 501) tile manager. {tile,
+                                   deployment, on} → {state}: its dormant
+                                   cron jobs and bus push subscriptions
+                                   become active for it
+POST   /deployments/always-on      (reserved: 501) tile manager. {tile,
+                                   deployment, on} → {state}
+POST   /deployments/limits         (reserved: 501) tile manager. {tile,
+                                   deployment, limits:{memMiB?, pids?,
+                                   diskGiB?}} → {state}: overrides below the
+                                   tile's ceilings (null removes one)
+POST   /deployments/seed           (reserved: 501) tile manager. {tile,
+                                   deployment, confirm:"copy-data", stop?}
+                                   → {state}: its data from the primary's
+POST   /deployments/reset          (reserved: 501) terminal-level on the tile
+                                   (main: a tile manager). {tile,
+                                   deployment, confirm:"erase-data", vault?}
+                                   → {state}: empties its data
+POST   /deployments/vault-copy     (reserved: 501) tile manager. {tile,
+                                   deployment, keys? | all?} → {state,
+                                   copied, missing}: the primary's values
+                                   into its vault, never the other way
+POST   /deployments/backup         (reserved: 501) admin in a person's own
+                                   session. {tile, deployment} → {ok,
+                                   deployment, version}: archives its data
+                                   through the tile's @archive provider
+GET    /deployments/backups?tile=<p>&deployment=<name>
+                                   (reserved: 501) admin (as above) →
+                                   {deployment, versions:[{version, time,
+                                   size}], archiver}
+POST   /deployments/restore        (reserved: 501) admin (as above), and the
+                                   reset level on every tile claiming the
+                                   target's data. {tile, deployment,
+                                   version?, into?, replace?, confirm?} →
+                                   {ok, deployment, into, restored,
+                                   skipped}: data only, never the work tree
+POST   /deployments/backup-schedule
+                                   (reserved: 501) admin (as above). {tile,
+                                   deployment, schedule, retention?} →
+                                   {state}; schedule "" removes it
+POST   /deployments/run-now        (reserved: 501) terminal-level on the tile.
+                                   {tile, deployment, job} → {state,
+                                   delivery:{status, ms}}: delivers the job
+                                   once as xbin/cron, dormant or not, and
+                                   waits for it (≤ 2 min). 409 for the
+                                   primary
+GET    /checkpoints/<tile>.git/<path>
+                                   (reserved: 501) the tile's terminal/agent
+                                   sessions, or write on the tile. Read-only
+                                   dumb HTTP git (git fetch xbin-deploy):
+                                   the tile's view repository —
+                                   refs/heads/deploy/<name> per pinned
+                                   deployment and HEAD naming the primary's,
+                                   nothing else. path: HEAD, info/refs,
+                                   objects/info/packs, a pack or a loose
+                                   object; anything else 404
+
 GET    /vault-status              admin. {initialized, sealed, mode, insecure}
                                    mode: unsealed|sealed|unconfigured|plaintext
 POST   /vault-rekey               admin. body {current, new} — change the
@@ -1838,6 +2096,10 @@ PUT    /vault/<component>/<key>    backend/terminal self, or admin. body
                                    frame tokens can't reach the vault API)
 DELETE /vault/<component>/<key>    backend/terminal self, or admin.
                                    (all vault get/set → 503 when sealed)
+                                   (reserved) ?deployment=<name> on each vault
+                                   route: tile managers and admins reach another
+                                   deployment's vault; a tile's own credentials
+                                   act on their bound deployment's
 
 GET    /kv/res:<scope>/<name>/?prefix=   reader. {keys}
 GET    /kv/res:<scope>/<name>/<key>      reader. raw bytes
@@ -1856,13 +2118,24 @@ GET    /bus/subscriptions                own push subscriptions (admin: all),
                                          {subscriptions:[{name, resource, prefix,
                                          component, path, role, delivered,
                                          dropped, failed, lastError?, lastAt?}]}
+                                         (reserved) a non-primary deployment's
+                                         credentials list its own; rows gain
+                                         deployment and dormant; ?deployment=<name>
+                                         (admin) narrows to one deployment
 PUT    /bus/subscriptions                reader on the bus resource (the
                                          SUBSCRIBER's grant, even when an admin
                                          registers it). body {name, resource,
                                          prefix?, path, role?, component?¹};
                                          idempotent by name; ≤64 per component;
                                          409 over the limit. Delivery: below.
+                                         (reserved) from a non-primary deployment the
+                                         subscription is its own, dormant until its
+                                         deliveries are on, and the answer gains
+                                         dormant:true; ?deployment=<name> (admin)
+                                         subscribes that deployment
 DELETE /bus/subscriptions/<name>[?component=]  element: own; admin: any.
+                                         (reserved) ?deployment=<name> (admin): that
+                                         deployment's
 
 GET    /tile-report                      any signed-in user (read-filtered).
                                          {statuses:{<component>:{level,message,ts}}}
@@ -1879,6 +2152,10 @@ POST   /tile-report                      element (self) or owner (?component=).
                                          event. SDK xbin.Status/Notify; JS
                                          xbin.status/notify. Cleared on backend
                                          restart. Guidelines: workspace AGENTS.md.
+                                         (reserved) From a non-primary deployment's
+                                         credentials: stored for that deployment and
+                                         published as a `deployments` event, never
+                                         `status`
 
 POST   /notify                           element: a tile's backend (instance
                                          token). body {user, title, body?, link?,
@@ -1908,6 +2185,10 @@ POST   /notify                           element: a tile's backend (instance
                                          counted then), or is over the per-user
                                          limit (dropped) — delivery is
                                          best-effort. SDK xbin.NotifyUser
+                                         (reserved) From a non-primary deployment
+                                         nothing is sent: the answer gains
+                                         suppressed:true and the line is listed as
+                                         would-notify
 POST   /devices/push                     a signed-in person (the app's device
                                          session; not a tile). body {deviceId,
                                          handle, publicKey, kinds?,
@@ -2041,9 +2322,20 @@ DELETE /push/devices/<user>/<deviceId>   admin. Revoke one (a lost phone) →
                                          {removed} | 404
 
 GET    /cron/jobs                        own jobs (admin: all). {jobs}
+                                         (reserved) a non-primary deployment's
+                                         credentials list its own; rows gain
+                                         deployment and dormant; ?deployment=<name>
+                                         (admin) narrows to one deployment
 PUT    /cron/jobs                        writer on the cron resource.
                                          body {name, resource, schedule, path, role?, component?¹}
+                                         (reserved) from a non-primary deployment the job
+                                         is its own, dormant until its deliveries are
+                                         on, and the answer gains dormant:true;
+                                         ?deployment=<name> (admin) schedules for that
+                                         deployment
 DELETE /cron/jobs/<name>[?component=]    element: own; admin: any.
+                                         (reserved) ?deployment=<name> (admin): that
+                                         deployment's
 ```
 
 ¹ `component` is owner-only; elements always schedule (and subscribe)
@@ -2170,6 +2462,9 @@ waits for it — and registers with it; a relay that asks for more answers
 
 ```
 GET    /ws/term?cwd=<p>|session=<id>   WebSocket upgrade → a terminal session (below)
+                                   (reserved) &deployment=<name>: a new session's
+                                   target (ignored on reattach); the session
+                                   control frame echoes deployment
 DELETE /ws/term?session=<id>       end a session now (creator or admin) → 204
 DELETE /ws/term/env?cwd=<p>        terminal level on the tile: wipe its persistent
                                    terminal layer back to the base rootfs → 204

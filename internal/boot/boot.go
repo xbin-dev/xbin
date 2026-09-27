@@ -696,6 +696,7 @@ func (st *State) stepServer() error {
 	st.registerRuntimeAPI(srv)
 	st.registerVMAPI(srv)
 	st.registerSandboxAPI(srv)
+	st.registerDeploymentsAPI(srv)
 	if err := st.setupPush(srv); err != nil {
 		return err
 	}
