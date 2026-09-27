@@ -40,12 +40,13 @@ func (p namesPolicy) DeploymentsOf(tile string) (string, []string) {
 }
 
 // newOriginWS is depWS in origins mode with every deployment named, and
-// GET /api/xbin/who-test echoing the request's principal.
+// GET /api/xbin/whoami echoing the request's principal (a neutral route,
+// so a non-primary deployment's credentials reach it; P26).
 func newOriginWS(t *testing.T) *depWS {
 	t.Helper()
 	w := newDepWS(t, TileAssetsOrigins)
 	w.s.Pol = namesPolicy{w.pol}
-	w.s.RegisterAPI("GET /who-test", func(rw http.ResponseWriter, r *http.Request) {
+	w.s.RegisterAPI("GET /whoami", func(rw http.ResponseWriter, r *http.Request) {
 		p := auth.PrincipalOf(r)
 		WriteJSON(rw, http.StatusOK, map[string]string{"component": p.Component, "deployment": p.Deployment, "via": p.Via})
 	})
@@ -57,11 +58,11 @@ func (w *depWS) depHost(tile, dep string) string {
 	return w.a.TileHostIDDeployment(tile, dep) + ".xbin.localhost:9260"
 }
 
-// who asks the who-test route on host with opts: the status and the
+// who asks the whoami echo on host with opts: the status and the
 // principal's (component, deployment).
 func (w *depWS) who(h string, opts ...reqOpt) (int, string, string) {
 	w.t.Helper()
-	rec := w.do("/api/xbin/who-test", append([]reqOpt{host(h), sameOrig}, opts...)...)
+	rec := w.do("/api/xbin/whoami", append([]reqOpt{host(h), sameOrig}, opts...)...)
 	var p map[string]string
 	if rec.Code == 200 {
 		if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
