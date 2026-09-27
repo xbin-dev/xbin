@@ -533,6 +533,24 @@ func (p *Plane) LimitsFor(tile, dep string) cgroup.Limits {
 	return l
 }
 
+// AlwaysOnSwitched names tile's deployments beyond its primary whose alwaysOn
+// switch a tile manager turned on (05-model §5; 07-runtime §11), sorted: the
+// runner keeps one up only while its own code also says alwaysOn. None
+// without a record.
+func (p *Plane) AlwaysOnSwitched(tile string) []string {
+	rec, _ := p.record(tile)
+	if rec == nil {
+		return nil
+	}
+	var out []string
+	for _, n := range sortedKeys(rec.Deployments) {
+		if d := rec.Deployments[n]; n != rec.Primary && d != nil && d.AlwaysOn {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // TileDeployments is what a session's target choice (P24) needs to know of
 // tile, for the terminal manager: without a record, main alone, unprotected
 // and followed by live reload, so every session follows the primary.
