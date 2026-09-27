@@ -12,9 +12,20 @@ import Foundation
 /// Read entries (`store.tree[key]`) rather than keeping a copy of `tree`
 /// across messages — a live copy makes the next patch copy the whole index
 /// (copy-on-write).
+///
+/// A tile may also draw a **widget** (a phone screen's card): its tree
+/// messages carry `target:"widget"` and go to ``widget``, a store of its
+/// own — its own tree, revision, sequence and failure, observed on its own
+/// — whose events go back with the widget target. A broken widget fails
+/// only the widget store (ask for a remount); the tile's own view goes on.
 public final class TreeStore {
     /// The tree major version this store understands (`mount.v`).
     public static let supportedVersion = 1
+
+    /// The tree this store holds: the tile's UI (`main`) or its widget.
+    public let target: TreeTarget
+    /// The tile's widget tree (nil in the widget store itself).
+    public let widget: TreeStore?
 
     /// The current tree (empty before the first mount).
     public private(set) var tree = Tree()
@@ -52,12 +63,19 @@ public final class TreeStore {
     /// A store; `savedState` is the blob persisted from an earlier runtime.
     public init(savedState: JSONValue? = nil) {
         self.savedState = savedState
+        target = .main
+        widget = TreeStore(widgetStore: ())
+    }
+
+    private init(widgetStore: Void) {
+        target = .widget
+        widget = nil
     }
 
     /// A user action on node `key`, as the call to send — with the tree
-    /// sequence the renderer has applied.
+    /// sequence the renderer has applied, and this store's target.
     public func event(_ key: String, _ type: String, payload: JSONValue = [:]) -> RuntimeCall {
-        .event(key: key, type: type, payload: payload, n: treeSequence)
+        .event(key: key, type: type, payload: payload, n: treeSequence, target: target)
     }
 
     /// Registers `observer`; it is called after every change until the
@@ -91,6 +109,21 @@ public final class TreeStore {
     /// the observers); nil when the message changed nothing or was ignored.
     @discardableResult
     public func apply(_ message: BridgeMessage) -> TreeStoreEvent? {
+        if case .widget(let m) = message {
+            // The widget's own store, whatever state this one is in. (A
+            // widget message reaching the widget store itself is a runtime
+            // bug: nested targets don't exist.)
+            guard let widget, m.target == .main else { return nil }
+            return widget.apply(m)
+        }
+        if target == .widget {
+            // Only trees reach a widget store: meta, state, calls and errors
+            // are the tile's (the main store's).
+            switch message {
+            case .mount, .patch: break
+            default: return nil
+            }
+        }
         if case .mount(let v, let root, let n) = message {
             guard v <= Self.supportedVersion, v >= 1 else { return fail(.unsupportedVersion(v)) }
             do {
@@ -130,6 +163,11 @@ public final class TreeStore {
             let e = TreeStoreEvent.meta(merged)
             emit(e)
             return e
+        case .error(let err) where err.isFatal && err.target == .widget:
+            // The widget's render failed: the widget, not the tile. (Its
+            // observers hear it and ask for the last good tree again.)
+            guard let widget, widget.failure == nil else { return nil }
+            return widget.fail(.runtime(err))
         case .error(let err):
             lastRuntimeError = err
             let e = TreeStoreEvent.runtimeError(err)
@@ -151,8 +189,8 @@ public final class TreeStore {
             let e = TreeStoreEvent.call(c)
             emit(e)
             return e
-        case .unknown:
-            return nil
+        case .widget, .unknown:
+            return nil // (a widget message was routed above)
         }
     }
 
@@ -166,9 +204,11 @@ public final class TreeStore {
     }
 
     /// Forgets the runtime's state (it was torn down or reloaded) — all but
-    /// ``savedState``, which is meant to outlive it. The revision keeps
-    /// counting so a renderer never sees one twice.
+    /// ``savedState``, which is meant to outlive it; the widget store is
+    /// reset too. The revision keeps counting so a renderer never sees one
+    /// twice.
     public func reset() {
+        widget?.reset()
         tree = Tree()
         version = nil
         treeSequence = nil
