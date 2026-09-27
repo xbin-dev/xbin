@@ -28,6 +28,14 @@ const HeaderIngressHost = "X-XBin-Ingress-Host"
 // directly, so it stamps X-Forwarded-*); a terminator tile's forward socket
 // passes true (the terminator already stamped them and its RemoteAddr is a
 // meaningless unix peer).
+//
+// Public traffic reaches only the tile's primary (P7): rt.Component is an
+// exact tile path, looked up as it is (a '+' in it is never a deployment
+// qualifier), and Ensure and Track resolve the primary at the runner's
+// funnel (09-fabric F3), so a tile's non-primary deployments receive no
+// ingress, whichever deployment is primary. Nothing here names a
+// deployment: the request carries no X-XBin-Deployment (it is stripped
+// with every inbound X-XBin-*), and the response is the primary's.
 func (px *Proxy) ForwardIngress(w http.ResponseWriter, r *http.Request, rt ingress.Route, viaTerminator bool) {
 	comp, ok := px.Reg.Component(rt.Component)
 	if !ok || !comp.HasBackend() || comp.IsTemplate() {
