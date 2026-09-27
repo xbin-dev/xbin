@@ -318,7 +318,8 @@ their alias map, `_refresh()` (the shared lists: overview, users, orgs,
 policy, sets, defaults, requests, sessions), the global `.err` /
 `.notice` slots — about 300 lines. Every tab is its own element under
 `tabs/<name>.js` (`runtime` for components + the code drill-in + live
-stats + resources, `map`, `netsets`, `permsets`, `vault`, `cron`,
+stats + resources, `sandboxes` for every sandbox, the host's isolation and
+VM health and the VM policy, `map`, `netsets`, `permsets`, `vault`, `cron`,
 `backup`, `binding` for grants/roles/providers/wiring, `ingress` for
 expose/endpoints, `orgs` for the org list, one org's page (`#orgs/<id>`
 — the router passes the hash's `sub` down), policy ceilings and the
@@ -347,13 +348,19 @@ older workspace's monolith keeps working while a fresh one gets the split
   `bx-admin-refresh` (reload the shared lists), `bx-admin-tab` (navigate),
   and any shared toggle it changes (`bx-admin-show-hidden`);
 - keeps the markup hooks the harness locates (`.mcell`, `.maprow`,
-  `[data-set]`, `[data-netset]`, `[data-edit-allow]`, …) and, if it holds
+  `[data-set]`, `[data-netset]`, `[data-edit-allow]`, the sandboxes tab's
+  `[data-sbx-*]` / `[data-vm-*]` and the components tab's
+  `[data-sbx-cell]`, …) and, if it holds
   drafts, is routed to from the router's `testApi()` by key namespace
   (`permset:`, `netset:`, `bindcustom:`, `orgallow:`/`ws:`, `user:`).
 
 Adding a tab: the element under `tabs/`, an entry in `GROUPS`, one arm in
 `render()`, and the `adminTabs` harness pass opens every id in `GROUPS`
-and fails on an empty or `.err` body (`hack/ui-harness/shots.js`).
+(it reads them from `BxAdmin.tabsFlat()`) and fails on an empty or `.err`
+body (`hack/ui-harness/shots.js`). The `sandboxes` pass
+(`hack/ui-harness/passes/sandboxes.js`) checks the sandboxes tab live —
+the harness runs without `--isolate`, so it sees host-mode sandboxes and
+refused VMs — and against a routed VM-capable host.
 
 ## The shell (`workspace-template/shell`)
 

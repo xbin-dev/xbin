@@ -73,8 +73,9 @@ plan (D110):
   run emulated (several times slower) a backend's `"vm"` stays refused
   until an admin turns backends on. Sizes are left at xbind's defaults. An
   existing policy is an admin's choice — "off" included — and is never
-  touched; change it in the admin console or with `PUT
-  /api/xbin/vm/policy` ([isolation.md](/docs/isolation.md) §VM sandboxes).
+  touched; change it in the admin console (runtime → sandboxes) or with
+  `PUT /api/xbin/vm/policy` ([isolation.md](/docs/isolation.md) §VM
+  sandboxes).
   A bundle without the VM pieces (arm64) writes nothing.
 
 ### Prebuilt bundles (the default)

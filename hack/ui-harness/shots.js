@@ -31,7 +31,7 @@ const { devices } = require('./passes/devices'), { appHelp } = require('./passes
 const { tileAssets } = require('./passes/tileassets');
 const { tilePages } = require('./passes/tilepages');
 const { termRun } = require('./passes/termrun');
-const { tabStrip } = require('./passes/tabstrip');
+const { tabStrip } = require('./passes/tabstrip'), { sandboxes } = require('./passes/sandboxes');
 
 // Screenshots of the admin console's D54 surfaces, the tile popover and a
 // terminal on an org tile.
@@ -812,8 +812,8 @@ async function adminMap(browser) {
 async function adminTabs(browser) {
   const { check, done } = checker('admin-tabs');
   const { ctx, page } = await login(browser, 'admin', 'admin');
-  const tabs = ['components', 'resources', 'backup', 'cron', 'users', 'sign-in', 'sessions', 'orgs', 'permsets', 'netsets', 'map',
-    'vault', 'roles', 'grants', 'providers', 'wiring', 'endpoints', 'expose', 'branding'];
+  await page.goto(`${URL}/c/tiles/admin/`); // every sub-tab the router declares (GROUPS)
+  const tabs = await page.evaluate(async () => (await customElements.whenDefined('bx-admin')).tabsFlat().map((t) => t.id));
   for (const id of tabs) {
     await page.goto(`${URL}/c/tiles/admin/#${id}`);
     await page.reload();
@@ -845,7 +845,7 @@ async function adminTabs(browser) {
 const PASSES = {
   admin, adminTabs, adminMap, menus, mobile, screens,
   orgAdmin: async (b) => { await orgAdmin(b, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']); await orgAdmin(b, 'sales1', 'salespass123', ['apps/leads']); },
-  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle, devices, appHelp, tileAssets, tilePages, termRun, tabStrip,
+  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle, devices, appHelp, tileAssets, tilePages, termRun, tabStrip, sandboxes,
 };
 
 (async () => {

@@ -26,6 +26,7 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
     vaultStatus: { attribute: false }, // {initialized, sealed, mode, insecure} — the banner
     showHidden: { attribute: false },  // reveal hidden (state=hidden) tiles (D42)
     _rt: { state: true },       // /runtime snapshot {host, backends, stats, resources}
+    _vm: { state: true },       // /vm (resources: the host card's VM line)
     _rtOpen: { state: true },   // set of expanded component paths
     _busy: { state: true },     // comp path mid lifecycle change
     _codeComp: { state: true }, // component being browsed in the drill-in
@@ -88,9 +89,20 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
         this._busRing.set(r.id, ring);
       }
       this._rt = rt;
+      if (this.view === 'resources') this._vm = await api('/vm');
     } catch (e) { this._fail(e); }
   }
   refresh() { return this.load(); }
+
+  // the Resources host card's VM line (GET /vm: availability, policy, use)
+  _vmSummary() {
+    const v = this._vm;
+    if (!v) return '…';
+    const st = v.status || {}, p = v.policy || {}, u = v.used || { vms: 0, memMiB: 0 };
+    if (!st.available) return 'unavailable';
+    const on = [p.terminals && 'terminals', p.backends && 'backends'].filter(Boolean).join(' + ') || 'switched off';
+    return `${st.emulated ? 'emulated' : 'KVM'} · ${on} · ${u.vms}/${p.maxVMs} running`;
+  }
 
   render() {
     if (this.view === 'resources') return this._resourcesView();
@@ -254,6 +266,12 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
     const act = b.activity;
     return html`<div class="detail">
       <div>
+        <h5>sandbox</h5>
+        <div class="mono">${{ vm: '⧉ VM', namespace: '🔒 namespace sandbox', host: 'none — host (no --isolate)' }[b.sandbox] || '—'}${b.vm ? ` · ${b.vm.memMiB} MiB · ${b.vm.vcpus} vCPU · ${b.vm.emulated ? 'emulated' : 'KVM'}` : ''}</div>
+        ${b.sandbox === 'vm' ? html`<div class="muted" style="font-size:11px">pid, threads and namespaces here are the VM's host-side jail (the shim); its VMM holds the guest's memory — the cgroup line is what the VM uses</div>` : nothing}
+        <a class="link" style="font-size:11px" @click=${() => this._emit('bx-admin-tab', 'sandboxes')}>all sandboxes →</a>
+      </div>
+      <div>
         <h5>process</h5>
         <div class="mono">runtime ${b.runtime || 'static'} · gen ${b.gen} · up ${fmtDur(b.uptimeSec)}</div>
         <div class="mono">threads ${b.threads || '—'} · restarts ${b.restarts} · last req ${b.lastReqSec < 0 ? 'never' : fmtDur(b.lastReqSec) + ' ago'}</div>
@@ -356,9 +374,9 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
         <input type="checkbox" .checked=${!!this.showHidden}
           @change=${(e) => { this._emit('bx-admin-show-hidden', e.target.checked); }}> show hidden (${hiddenN})</label>` : nothing}
       <table>
-        <tr><th></th><th>component</th><th>runtime</th><th>state</th><th>exposes</th><th>uses</th><th>vault</th><th>lifecycle</th></tr>
+        <tr><th></th><th>component</th><th>runtime</th><th>state</th><th>sandbox</th><th>exposes</th><th>uses</th><th>vault</th><th>lifecycle</th></tr>
         ${live.map((k) => this._compRow(k, bk[k.path]))}
-        ${live.length === 0 ? html`<tr><td></td><td class="muted" colspan="7">no matching components</td></tr>` : nothing}
+        ${live.length === 0 ? html`<tr><td></td><td class="muted" colspan="8">no matching components</td></tr>` : nothing}
       </table>
       ${off.length ? html`<h4>offloaded <span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0">— archived, not running</span></h4>
         <table>
@@ -373,7 +391,7 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
 
   _compRow(k, b) {
     const open = this._rtOpen.has(k.path);
-    const state = b ? html`<span class="state ${b.state}">${b.state}</span>${b.isolated ? html` <span class="lock" title="sandboxed">🔒</span>` : nothing}`
+    const state = b ? html`<span class="state ${b.state}">${b.state}</span>`
       : html`<span class="muted">${(k.runtime && k.runtime !== 'static') ? 'idle' : 'static'}</span>`;
     return html`
       <tr>
@@ -381,12 +399,28 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
         <td class="mono"><a class="link" @click=${() => this._openCode(k.path)} title="view code & history">${k.path}</a>${k.manifestError ? html` <span class="st-failed" title=${k.manifestError}>⚠</span>` : nothing}</td>
         <td class="muted">${k.runtime || 'static'}</td>
         <td>${state}</td>
+        <td>${this._sbxCell(k, b)}</td>
         <td>${k.roles ? Object.keys(k.roles).map((r) => html`<span class="pill">${r}</span>`) : html`<span class="muted">—</span>`}</td>
         <td>${(k.uses ?? []).map((u) => html`<span class="pill">${u.target}:${u.role}</span>`)}</td>
         <td>${k.hasVault ? '🔑' : ''}</td>
         <td>${this._lifecycleCell(k)}</td>
       </tr>
-      ${open ? html`<tr><td></td><td colspan="7">${this._compDetail(k, b)}</td></tr>` : nothing}`;
+      ${open ? html`<tr><td></td><td colspan="8">${this._compDetail(k, b)}</td></tr>` : nothing}`;
+  }
+
+  // _sbxCell: how the backend is isolated (D112) — ⧉ VM, 🔒 the namespace
+  // sandbox, or host (no --isolate) — for a running generation, else how it
+  // would start (muted): the manifest's "vm" ask where isolation is on.
+  _sbxCell(k, b) {
+    if (!k.runtime || k.runtime === 'static') return html`<span class="muted">—</span>`;
+    const iso = !!this._rt?.host?.isolate;
+    const running = b && b.state === 'healthy';
+    const mode = b?.sandbox || (iso && k.vm ? 'vm' : iso && ['go', 'node', 'python'].includes(k.runtime) ? 'namespace' : 'host');
+    const label = { vm: '⧉ VM', namespace: '🔒 ns', host: 'host' }[mode] || mode;
+    const title = mode === 'vm' ? (b?.vm ? `a VM: ${b.vm.memMiB} MiB · ${b.vm.vcpus} vCPU · ${b.vm.emulated ? 'emulated (no KVM)' : 'KVM'}` : 'runs in a VM (D89)')
+      : mode === 'namespace' ? 'the rootless namespace sandbox'
+      : k.vm ? 'asks for a VM ("vm" in xbin.json), but isolation is off here: it runs on the host' : 'no sandbox: xbind runs without --isolate';
+    return html`<span class="sbxmode ${mode} ${running ? '' : 'idle'}" data-sbx-cell=${mode} title=${title}>${label}</span>${running ? nothing : html` <span class="muted" style="font-size:10.5px">when it starts</span>`}`;
   }
 
   // Component detail (expanded): who can reach it (access relations) + live
@@ -657,6 +691,8 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
         ${kv('isolation', h.isolate ? 'on (tier 3)' : (h.scopeUids ? 'uids (tier 2)' : 'off (tier 1)'))}
         ${h.isolate ? kv('rootfs', h.rootfs) : nothing}
         ${h.isolate ? kv('terminal guard', this._guardStatus(h.protections)) : nothing}
+        ${kv('VM sandboxes', html`<a class="link" data-vm-summary @click=${() => this._emit('bx-admin-tab', 'sandboxes')}
+          title="runtime → sandboxes">${this._vmSummary()}</a>`)}
       </div>
       ${this._stTotals(rt.stats)}
       ${this._liveStatsSection(rt.stats)}

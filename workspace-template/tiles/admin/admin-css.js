@@ -297,6 +297,11 @@ export const runtimeCss = css`
     .state.failed  { color: var(--bx-red, #ef5350); }
     .state.idle    { color: var(--bx-muted, #868f9a); }
     .lock { font-size: 11px; }
+    .sbxmode { font-size: 10.5px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--bx-border, #363c45); white-space: nowrap; }
+    .sbxmode.vm { color: #5b8def; border-color: color-mix(in srgb, #5b8def 50%, var(--bx-border, #363c45)); }
+    .sbxmode.namespace { color: var(--bx-green, #4caf50); }
+    .sbxmode.host { color: var(--bx-amber, #f2a71b); }
+    .sbxmode.idle { opacity: .6; }
     .detail { border-top: 1px solid var(--bx-border, #363c45); padding: 8px 12px; background: var(--bx-panel-2, #2b3038);
       display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
     .detail h5 { margin: 0 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--bx-muted); }
@@ -307,4 +312,39 @@ export const runtimeCss = css`
     .flowtab { width: 100%; font-size: 11px; }
     .flowtab td { padding: 1px 6px 1px 0; }
 
+`;
+
+// runtime → sandboxes (tabs/sandboxes.js, D112)
+export const sandboxesCss = css`
+    .sbx-assets { display: flex; flex-wrap: wrap; gap: 4px 6px; margin: 6px 0 12px; font-size: 11px; }
+    .sbx-piece { font-family: var(--bx-mono, monospace); padding: 0 6px; border-radius: 999px; border: 1px solid var(--bx-border, #363c45); }
+    .sbx-piece.ok { color: var(--bx-green, #4caf50); }
+    .sbx-piece.no { color: var(--bx-red, #ef5350); border-color: color-mix(in srgb, var(--bx-red, #ef5350) 45%, var(--bx-border, #363c45)); }
+    .sbx-why { flex-basis: 100%; }
+    .sbx-budget { margin: 0 0 10px; }
+    .sbx-budget .bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden;
+      background: var(--bx-panel-2, #2b3038); border: 1px solid var(--bx-border, #363c45); }
+    .sbx-budget[data-over] .bar { border-color: var(--bx-red, #ef5350); }
+    .sbx-budget .lbl { font-size: 12px; margin-top: 4px; }
+    .sbx-budget .lbl b { font-family: var(--bx-mono, monospace); color: var(--bx-accent, #f5a623); }
+    .sbx-by { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+    .seg { height: 100%; }
+    .c0 { background: #5b8def; } .c1 { background: #4caf50; } .c2 { background: #f2a71b; }
+    .c3 { background: #c678dd; } .c4 { background: #56b6c2; } .c5 { background: #e06c75; }
+    .sbx-policy { font-size: 12px; margin: 0 0 12px; }
+    .sbx-policy.editor { display: flex; flex-direction: column; gap: 6px; max-width: 720px; }
+    .sbx-policy label { display: inline-flex; gap: 6px; align-items: center; }
+    .sbx-fields { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+    .sbx-fields input { width: 90px; }
+    .sbx-modes { margin: -4px 0 8px; }
+    table.sbx .num { text-align: right; font-family: var(--bx-mono, monospace); }
+    tr.sbx-tile td { background: var(--bx-panel-2, #2b3038); font-size: 11.5px; padding-top: 4px; }
+    .sbx-mode { font-size: 11px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--bx-border, #363c45); white-space: nowrap; }
+    .sbx-mode.vm { color: #5b8def; border-color: color-mix(in srgb, #5b8def 50%, var(--bx-border, #363c45)); }
+    .sbx-mode.namespace { color: var(--bx-green, #4caf50); }
+    .sbx-mode.host { color: var(--bx-amber, #f2a71b); }
+    .sbx-stage { font-size: 10.5px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--bx-border, #363c45); }
+    .sbx-stage.refused { color: var(--bx-amber, #f2a71b); }
+    .sbx-stage.start, .sbx-stage.exit, .sbx-stage.health { color: var(--bx-red, #ef5350); }
+    .sbx-err { font-size: 11px; word-break: break-word; }
 `;

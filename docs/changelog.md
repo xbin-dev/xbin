@@ -12,6 +12,21 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-27
 
+- **Admin console: runtime → sandboxes, and the sandbox in the component
+  list** (D112, [isolation.md](isolation.md) §VM sandboxes). A new tab lists
+  every sandbox xbind runs — backend generations, terminals, agent sessions
+  — grouped by tile, with how each is isolated (⧉ VM, 🔒 namespace sandbox,
+  host), the VMM (KVM or emulated), reserved size, CPU/memory/pids, uptime,
+  pid and cgroup; above it the host's health (isolation tier, guards, uid
+  range, whether VMs can run and which pieces are missing), the VM budget in
+  use per tile, and the **VM policy editor** (`PUT /api/xbin/vm/policy` had
+  no UI, though the docs said the console could set it); below it the VM
+  disks on the host and what the sandbox layer refused or failed at, with
+  counts. The components tab has a **sandbox** column (an idle tile shows
+  how it will run, a `"vm"` ask included), a backend's detail opens with its
+  sandbox (for a VM: size, VMM, and that the pid/namespaces shown are its
+  jail's), and the resources host card and the tile popover say it too.
+
 - **Sandboxes you can see: VM or namespace per backend, terminal kinds, a
   faster failed VM boot** (D112, [isolation.md](isolation.md) §VM
   sandboxes). `GET /api/xbin/runtime` backends say how each is isolated —

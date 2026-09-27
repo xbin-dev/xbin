@@ -197,11 +197,13 @@ export class BxTileAdmin extends LitElement {
     const rt = this._rt;
     if (!rt) return html`<div class="sec muted">…</div>`;
     if (rt.err) return html`<div class="sec err">${rt.err}</div>`;
-    if (rt.none) return html`<div class="sec muted">no backend (static tile, or not spawned)</div>`;
+    if (rt.none) return html`<div class="sec muted">no backend (static tile, or not spawned)${this._ov?.vm ? html` — it asks for a ⧉ VM when it starts` : nothing}</div>`;
     const act = rt.activity ?? {};
+    const sbx = { vm: '⧉ VM', namespace: '🔒 namespace sandbox', host: 'none (host)' }[rt.sandbox];
     return html`<div class="sec kv">
       <span class="k">state</span><span class="mono">${rt.state} (gen ${rt.gen ?? '—'}${rt.restarts ? `, ${rt.restarts} restarts` : ''})</span>
-      <span class="k">pid</span><span class="mono">${rt.pid ?? '—'}${rt.isolated ? ' · sandboxed' : ''}</span>
+      ${sbx ? html`<span class="k">sandbox</span><span class="mono">${sbx}${rt.vm ? ` · ${rt.vm.memMiB} MiB · ${rt.vm.vcpus} vCPU · ${rt.vm.emulated ? 'emulated' : 'KVM'}` : ''}</span>` : nothing}
+      <span class="k">pid</span><span class="mono">${rt.pid ?? '—'}${rt.sandbox === 'vm' ? " · the VM's jail" : rt.isolated ? ' · sandboxed' : ''}</span>
       <span class="k">uptime</span><span class="mono">${rt.uptimeSec != null ? Math.floor(rt.uptimeSec / 60) + ' min' : '—'}</span>
       <span class="k">memory</span><span class="mono">${rt.rssKb != null ? (rt.rssKb / 1024).toFixed(1) + ' MB' : '—'}</span>
       <span class="k">cpu</span><span class="mono">${rt.cpuSec != null ? rt.cpuSec.toFixed(1) + ' s' : '—'}</span>
