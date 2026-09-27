@@ -281,8 +281,14 @@ or a `setup` script left where one goes (`/opt` or `/run` replaced by a link)
 fails the start with the path named, and nothing is made where it points: a
 terminal's reset clears it, and a backend's `setup` has to stop making it.
 The base rootfs's own links (`/lib → usr/lib`, `/var/run → /run`) are
-followed, inside the sandbox, and a symlink anywhere else — a tool under
-`/usr/local/bin`, a link in your source — is untouched.
+followed, inside the sandbox, and so are the workspace root's own (an
+operator's `homes/` → another disk: no sandbox writes the workspace root; a
+link in a tile's directory is refused). A link the layer holds at a *file*
+mount point — an apt-installed `/usr/bin/nvidia-smi` (a Debian alternatives
+link) under a GPU terminal — is covered by the mount, not followed: the
+sandbox sees the host's file there, and the layer keeps its link. A symlink
+anywhere else — a tool under `/usr/local/bin`, a link in your source — is
+untouched.
 
 > Only one live session may hold a given component's persistent layer at a time
 > (concurrent overlay mounts of one upper dir would corrupt it). A second

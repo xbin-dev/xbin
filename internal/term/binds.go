@@ -45,7 +45,10 @@ func scopedBinds(root, rel, homeDir string, extra []sandbox.Bind, hide []string)
 	// terminal's mountinfo. That's an accepted limitation (docs/isolation.md): a
 	// terminal user can already `ls` every tile, so the mount-table names disclose
 	// nothing new; truly hiding them needs resenc storage outside the workspace.
-	binds := []sandbox.Bind{{Src: root, Dst: root, RO: true}}
+	// Layout: the root's own entries are xbind's and the operator's (no sandbox
+	// writes there), so an operator's homes/ → another disk still places $HOME
+	// (sandbox.Bind; a symlink a tile made never places a mount).
+	binds := []sandbox.Bind{{Src: root, Dst: root, RO: true, Layout: true}}
 	// ...and the platform's secrets and other users' data are masked out entirely:
 	// .xbin (owner token + frame-token secret), data (vault, the encrypted
 	// resource state, and users.json password hashes), and every OTHER user's

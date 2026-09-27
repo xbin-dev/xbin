@@ -18,25 +18,40 @@ import (
 // in its root — a terminal's persistent upper, a backend's environment
 // layer, a tile sandbox's upper — can neither redirect a mount nor make a
 // directory or a file on the host (before pivot_root an absolute symlink
-// resolves against the host's root). Two kinds of symlink are followed, and
+// resolves against the host's root). Three kinds of symlink are followed, and
 // always inside the new root, never against the host's:
 //   - with FollowBase, one the base rootfs (the last Lower) ships as it is:
 //     the same link to the same target at the same path (shipped);
+//   - one directly in a Layout bind's source (Bind.Layout), a host directory
+//     only xbind and the operator write: the workspace's own homes/ → another
+//     disk (host);
 //   - on a mask's path, any: a mask only covers, and what it covers is what
 //     that path reaches inside the sandbox.
 //
 // Following restarts the walk from the root on the path the link names, so
-// every component of it is checked the same way.
+// every component of it is checked the same way. Who wrote a link is what
+// decides: the image or the host, never the sandbox's own layer, nor a
+// directory a sandbox writes (a tile's). One more is never followed but
+// covered: a file mount point that is itself a symlink gets the mount on the
+// link (cover), so the layer's apt-installed /usr/bin/nvidia-smi →
+// /etc/alternatives/… shows the host's driver tool and stays as it was.
 
 // maxHops bounds the symlinks one walk follows (the kernel's MAXSYMLINKS).
 const maxHops = 40
 
 // walk finds the mount points of a NoFollow root.
 type walk struct {
-	root int    // the new root, O_PATH
-	base int    // the base rootfs, O_PATH (FollowBase), or -1
-	hint string // Spec.RootHint: ends a refusal
+	root   int      // the new root, O_PATH
+	base   int      // the base rootfs, O_PATH (FollowBase), or -1
+	hint   string   // Spec.RootHint: ends a refusal
+	layout []fileID // the Layout binds' source directories mounted so far
 }
+
+// fileID is a file's identity: (st_dev, st_ino).
+type fileID struct{ dev, ino uint64 }
+
+// statID is st's identity (the conversions: some GOARCHes' fields are narrower).
+func statID(st *unix.Stat_t) fileID { return fileID{uint64(st.Dev), uint64(st.Ino)} }
 
 // openWalk opens the new root (after its root is mounted) and, with
 // FollowBase, the base rootfs. A VM's root is a bare tmpfs: no base.
@@ -85,7 +100,8 @@ func pointAt(rootfd int, dst string, isDir, create bool) (int, error) {
 // and the last an empty file when !isDir. Without create a missing
 // component is unix.ENOENT. Walking crosses the mounts already made, so a
 // later bind nests in an earlier one. A symlink on the way fails it unless
-// it is shipped or anyLink (a mask's walk) says to follow it.
+// it is shipped, the host's (a Layout bind's entry) or anyLink (a mask's
+// walk) says to follow it; one at a file mount point itself is covered.
 func (w *walk) point(dst string, isDir, create, anyLink bool) (int, error) {
 	comps := splitPath(dst)
 	if comps == nil {
@@ -135,8 +151,11 @@ func (w *walk) try(comps []string, isDir, create, anyLink bool) (int, []string, 
 			return -1, nil, err
 		default:
 			if target, ok := readLink(dir, c); ok {
-				if anyLink || w.shipped(at, target) {
+				if anyLink || w.shipped(at, target) || w.host(dir) {
 					return -1, follow(at, target, comps[i+1:]), nil
+				}
+				if !wantDir {
+					return w.cover(dir, c, at)
 				}
 				return -1, nil, w.blocked(dir, "nested mount point %s: a symlink is in the way", at)
 			}
@@ -183,6 +202,33 @@ func (w *walk) shipped(at, target string) bool {
 	}
 	t, ok := readLink(dir, comps[len(comps)-1])
 	return ok && t == target
+}
+
+// host reports whether dir is a Layout bind's source directory, whose
+// entries the host wrote. It is the directory's identity that counts, not
+// the path the walk took to it: the root's own layers are another
+// filesystem, and a tile's directory, even inside the workspace bind,
+// another directory.
+func (w *walk) host(dir int) bool {
+	var st unix.Stat_t
+	return len(w.layout) > 0 && unix.Fstat(dir, &st) == nil && slices.Contains(w.layout, statID(&st))
+}
+
+// cover is the mount point for a file whose last component, name in dir,
+// is a symlink the walk doesn't follow: the link itself (O_PATH|O_NOFOLLOW),
+// so the mount covers it and nothing is followed, made or changed. A
+// directory can't be mounted on a link: that stays a refusal.
+func (w *walk) cover(dir int, name, at string) (int, []string, error) {
+	fd, err := unix.Openat(dir, name, unix.O_PATH|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return -1, nil, must(err, "open "+at)
+	}
+	var st unix.Stat_t
+	if err := unix.Fstat(fd, &st); err != nil || st.Mode&unix.S_IFMT != unix.S_IFLNK {
+		unix.Close(fd) // changed under the walk
+		return -1, nil, w.blocked(dir, "nested mount point %s: a symlink is in the way", at)
+	}
+	return fd, nil, nil
 }
 
 // readLink is name's target when name (beneath dir) is a symlink.
@@ -273,6 +319,10 @@ func mountBindsNoFollow(w *walk, binds []Bind, debug bool) error {
 			// Always recursive, as mountBind (see Bind's doc).
 			err = must(unix.Mount(src, fdPath(mp), "", unix.MS_BIND|unix.MS_REC, ""), "bind "+b.Src+" -> "+b.Dst)
 			unix.Close(mp)
+		}
+		var st unix.Stat_t
+		if err == nil && b.Layout && isDir && unix.Stat(src, &st) == nil {
+			w.layout = append(w.layout, statID(&st)) // its entries are the host's
 		}
 		release()
 		if err != nil {

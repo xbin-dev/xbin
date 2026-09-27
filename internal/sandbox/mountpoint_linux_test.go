@@ -146,3 +146,117 @@ func TestWalkFollowsBase(t *testing.T) {
 		t.Errorf("made %v where a symlink pointed", ents)
 	}
 }
+
+// covers the WP-2b regressions: a symlink directly in a Layout bind's
+// source — the workspace root, which only the host writes — is followed
+// inside the root (an operator's homes/ → .homes or → another disk), one in
+// a tile's directory under it is still refused; and a file mount point that
+// is itself a symlink the walk won't follow (the layer's apt-installed
+// /usr/bin/nvidia-smi → /etc/alternatives/…) is covered: the walk hands back
+// the link itself, following, making and changing nothing.
+func TestWalkHostLinksAndCover(t *testing.T) {
+	dir := t.TempDir()
+	root, outside := filepath.Join(dir, "root"), filepath.Join(dir, "outside")
+	ws := filepath.Join(root, "ws")
+	for _, d := range []string{filepath.Join(ws, ".homes", "u"), filepath.Join(ws, "tile"), filepath.Join(ws, ".xbin"),
+		filepath.Join(root, "usr", "bin"), filepath.Join(root, "etc", "alternatives"), outside} {
+		tMkdir(t, d)
+	}
+	for link, target := range map[string]string{
+		"ws/homes":                    ".homes", // the operator's, in the workspace
+		"ws/disk":                     outside,  // the operator's, to another disk: inside the root
+		"ws/tile/child":               "../.xbin",
+		"usr/bin/nvidia-smi":          "/etc/alternatives/nvidia-smi",
+		"etc/alternatives/nvidia-smi": "/usr/lib/nvidia/current/nvidia-smi", // dangling in the root
+		"usr/bin/planted":             filepath.Join(outside, "f"),
+		"usr/bin/dirpoint":            outside,
+	} {
+		if err := os.Symlink(target, filepath.Join(root, link)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rfd, err := unix.Open(root, unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unix.Close(rfd)
+	var wsSt unix.Stat_t
+	if err := unix.Stat(ws, &wsSt); err != nil {
+		t.Fatal(err)
+	}
+	w := &walk{root: rfd, base: -1, hint: "reset it", layout: []fileID{statID(&wsSt)}}
+	ino := func(fd int) uint64 {
+		var st unix.Stat_t
+		_ = unix.Fstat(fd, &st)
+		unix.Close(fd)
+		return st.Ino
+	}
+	lstatIno := func(p string) uint64 {
+		var st unix.Stat_t
+		if err := unix.Lstat(p, &st); err != nil {
+			t.Fatalf("lstat %s: %v", p, err)
+		}
+		return st.Ino
+	}
+
+	// the host's links: followed inside the root
+	fd, err := w.point("/ws/homes/u", true, true, false)
+	if err != nil {
+		t.Fatalf("through the workspace's homes → .homes: %v", err)
+	}
+	if ino(fd) != lstatIno(filepath.Join(ws, ".homes", "u")) {
+		t.Error("homes/u landed elsewhere than .homes/u")
+	}
+	if fd, err = w.point("/ws/disk/u", true, true, false); err != nil {
+		t.Fatalf("through the workspace's disk → another disk: %v", err)
+	}
+	if ino(fd) != lstatIno(filepath.Join(root, outside, "u")) {
+		t.Error("disk/u landed elsewhere than inside the root")
+	}
+	// without the Layout bind (or in a tile's directory) the same links are refused
+	strict := &walk{root: rfd, base: -1, hint: "reset it"}
+	if fd, err := strict.point("/ws/homes/u", true, true, false); err == nil || !strings.Contains(err.Error(), "nested mount point /ws/homes: a symlink is in the way") {
+		if err == nil {
+			unix.Close(fd)
+		}
+		t.Errorf("no Layout bind: %v", err)
+	}
+	if fd, err := w.point("/ws/tile/child/x", true, true, false); err == nil || !strings.Contains(err.Error(), "nested mount point /ws/tile/child: a symlink is in the way") {
+		if err == nil {
+			unix.Close(fd)
+		}
+		t.Errorf("a link in a tile's directory: %v", err)
+	}
+
+	// a file mount point that is a symlink: the link itself, in either walk
+	for _, wk := range []*walk{w, strict} {
+		for _, dst := range []string{"/usr/bin/nvidia-smi", "/usr/bin/planted"} {
+			for _, create := range []bool{true, false} {
+				fd, err := wk.point(dst, false, create, false)
+				if err != nil {
+					t.Fatalf("file mount point %s (create=%v): %v", dst, create, err)
+				}
+				var st unix.Stat_t
+				_ = unix.Fstat(fd, &st)
+				unix.Close(fd)
+				if st.Mode&unix.S_IFMT != unix.S_IFLNK || st.Ino != lstatIno(filepath.Join(root, dst)) {
+					t.Errorf("file mount point %s: not the link itself (mode %o)", dst, st.Mode)
+				}
+			}
+		}
+	}
+	// a directory can't be mounted on a link: refused, with the hint
+	if fd, err := w.point("/usr/bin/dirpoint", true, true, false); err == nil ||
+		err.Error() != "nested mount point /usr/bin/dirpoint: a symlink is in the way (reset it)" {
+		if err == nil {
+			unix.Close(fd)
+		}
+		t.Errorf("a directory mount point on a link: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, "usr", "lib")); !os.IsNotExist(err) {
+		t.Errorf("the covered link's target was made: %v", err)
+	}
+	if ents, _ := os.ReadDir(outside); len(ents) != 0 {
+		t.Errorf("made %v on the host", ents)
+	}
+}

@@ -278,9 +278,11 @@ because your code and `$HOME` are bind mounts, not part of the overlay. Reset
 needs `terminal` level on the tile; resetting the (disabled) root layer is
 admin-only. It is also what clears a symlink the layer holds where a mount
 point goes (`/opt`, `/proc`, …): the terminal refuses to start over one,
-naming the path, instead of following it (D78; the base rootfs's own links
-are followed, inside the sandbox — [isolation.md](/docs/isolation.md) §The dev
-layer).
+naming the path, instead of following it (D78; the base rootfs's own links,
+and the workspace root's — an operator's `homes/` → another disk — are
+followed, inside the sandbox, and one at a file mount point, like an
+apt-installed `nvidia-smi` under a GPU terminal, is covered by the mount —
+[isolation.md](/docs/isolation.md) §The dev layer).
 
 ## How tiles and terminals share the filesystem
 

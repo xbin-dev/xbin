@@ -161,3 +161,87 @@ func waitNoSessions(t *testing.T, m *Manager) {
 		}
 	}
 }
+
+// covers the WP-2b regressions, on the shipped rootfs: an operator's homes/
+// symlink in the workspace — to a dir inside it, or to another disk — no
+// longer fails every terminal's start, and $HOME is the user's real home
+// on the host; and a GPU-style file bind at /usr/bin/nvidia-smi starts over
+// a layer whose apt-installed nvidia-smi is a Debian alternatives symlink,
+// shows the host's tool, and leaves the layer's link as it was.
+func TestTermMountPointsHostLinks(t *testing.T) {
+	rootfs := layerRootfs(t)
+	root, disk, host := t.TempDir(), t.TempDir(), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "apps", "x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	smi := filepath.Join(host, "nvidia-smi")
+	if err := os.WriteFile(smi, []byte("host-smi-marker\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	confine.Configure(rootfs)
+	t.Cleanup(func() {
+		_ = confine.RemoveAll(context.Background(), root)
+		confine.Configure("")
+	})
+	m := NewManager(root, nil)
+	m.Isolate, m.Rootfs = true, rootfs
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		m.ServeWS(w, r.WithContext(auth.WithPrincipal(r.Context(), auth.Principal{Owner: true})))
+	}))
+	t.Cleanup(srv.Close)
+	key := HomeKey(auth.Principal{Owner: true})
+
+	for _, c := range []struct{ name, target, real string }{
+		{"in the workspace", ".homes", filepath.Join(root, ".homes")},
+		{"to another disk", filepath.Join(disk, "homes"), filepath.Join(disk, "homes")},
+	} {
+		_ = os.Remove(filepath.Join(root, "homes"))
+		if err := os.MkdirAll(c.real, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(c.target, filepath.Join(root, "homes")); err != nil {
+			t.Fatal(err)
+		}
+		script := "cd && echo home-''ok > f && cat \"$HOME/f\" && echo DONE-''MARK; exit\n"
+		out, ended := termRun(t, srv.URL, "apps/x", script, "DONE-MARK")
+		if ended || !strings.Contains(out, "home-ok") {
+			t.Fatalf("homes → %s: the terminal (ended early %v):\n%s", c.name, ended, out)
+		}
+		if b, err := os.ReadFile(filepath.Join(c.real, key, "f")); err != nil || string(b) != "home-ok\n" {
+			t.Errorf("homes → %s: $HOME/f on the host = %q, %v", c.name, b, err)
+		}
+		waitNoSessions(t, m)
+	}
+
+	// the GPU's nvidia-smi bind over the layer's alternatives link
+	m.ExtraBinds = []sandbox.Bind{{Src: smi, Dst: "/usr/bin/nvidia-smi", RO: true}} // as gpu.Binds
+	upper := filepath.Join(root, ".xbin", "term", termKey("apps/x"), "upper")
+	layerSmi := filepath.Join(upper, "usr", "lib", "nvidia", "current", "nvidia-smi")
+	for _, d := range []string{filepath.Join(upper, "usr", "bin"), filepath.Join(upper, "etc", "alternatives"), filepath.Dir(layerSmi)} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(layerSmi, []byte("layer-smi\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for link, target := range map[string]string{
+		"usr/bin/nvidia-smi":          "/etc/alternatives/nvidia-smi",
+		"etc/alternatives/nvidia-smi": "/usr/lib/nvidia/current/nvidia-smi",
+	} {
+		if err := os.Symlink(target, filepath.Join(upper, link)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, ended := termRun(t, srv.URL, "apps/x", "cat /usr/bin/nvidia-smi; echo DONE-''MARK; exit\n", "DONE-MARK")
+	if ended || !strings.Contains(out, "host-smi-marker") {
+		t.Fatalf("a GPU bind over the layer's nvidia-smi link (ended early %v):\n%s", ended, out)
+	}
+	waitNoSessions(t, m)
+	if got, err := os.Readlink(filepath.Join(upper, "usr", "bin", "nvidia-smi")); err != nil || got != "/etc/alternatives/nvidia-smi" {
+		t.Errorf("the layer's nvidia-smi link is now %q (%v)", got, err)
+	}
+	if b, _ := os.ReadFile(layerSmi); string(b) != "layer-smi\n" {
+		t.Errorf("the layer's own nvidia-smi = %q", b)
+	}
+}

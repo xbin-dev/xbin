@@ -2675,11 +2675,54 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     terminals' start. With a link out of the workspace `$HOME` used to
     dangle; with one inside it (`homes → .homes`) the old path-based init
     followed it in the root and terminals worked, so that setup regresses
-    (the owner decides whether it must keep working). And a bind's *source*
+    (the owner decides whether it must keep working) — *closed on
+    `p2/regress`, below.* And a bind's *source*
     is still resolved on the host through symlinks: a parent tile's
     terminal can swap a nested tile's dir for a symlink, which a D40 view
     binds as a readable tile until the rescan drops it (the mount point is
     refused now, which closes the relative-link case).
+  - **Regressions fixed** (branch `p2/regress`; never break users). Two
+    setups that worked before WP-2b were refused; who wrote a link is now
+    what decides, as it was meant to:
+    - *A workspace whose `homes/` is a symlink* (in the workspace, or to
+      another disk) failed every tile terminal at `…/homes`. `Bind.Layout`
+      (json `layout`) marks a bind whose source directory's own entries only
+      xbind and the operator write; term's read-only workspace-root bind
+      carries it (`scopedBinds`; the D40 view's staged dirs need nothing).
+      The bind loop records the source's identity (`st_dev`/`st_ino`, after
+      the mount) and the walk follows a symlink met *directly in* such a
+      directory (`walk.host`), inside the new root like a shipped one. It is
+      the directory's identity, not the path: a tile's directory under the
+      workspace — sandbox-written; a parent's terminal can swap a nested
+      tile for a link — is another directory, and its links are still
+      refused (without the hint). A link to another disk now lands its
+      target path inside the sandbox's root (made in the layer, or in `/tmp`'s
+      tmpfs), so `$HOME` works where it used to dangle. The runner needs no
+      Layout: no backend bind nests under a host-layout bind.
+    - *A GPU terminal whose layer has an apt-installed `nvidia-smi`*
+      (`/usr/bin/nvidia-smi` → `/etc/alternatives/…`) was refused at the gpu
+      bind's mount point. A *file* mount point whose last component is a
+      symlink the walk won't follow is now covered (`walk.cover`): the walk
+      hands back an `O_PATH|O_NOFOLLOW` fd on the link and the bind is
+      mounted on the link itself — the kernel traverses a mount on a
+      symlink's dentry before looking at the link, so the path shows the
+      host's file, the RO remount's re-walk lands on the mount, and the
+      layer keeps its link and its own target untouched. Nothing is
+      followed or made; a directory can't be mounted on a link and stays a
+      refusal. It applies to every `NoFollow` spec (tile sandboxes' file
+      binds too: the agent's `/opt/xbin/bin/bx`).
+    - *Tests.* `TestWalkHostLinksAndCover` (unit): the host's links followed
+      in the root, refused without Layout and in a tile's dir; the cover is
+      the link itself in either walk, a dir on a link refused, nothing made.
+      `TestFollowBaseMountPoints` (both overlays): `$HOME` through `homes →
+      .homes-real` and `→` another dir, no Layout refused without the hint,
+      a tile's link refused; nvidia-smi and a host-file plant covered, RO,
+      links and targets unchanged. `TestTermMountPointsHostLinks` (rootfs,
+      both overlays): `homes →` in-workspace and another disk, `$HOME/f`
+      lands on the host; an `ExtraBinds` nvidia-smi over the Debian
+      alternatives chain shows the host's tool. Mutation-checked: without
+      `walk.host`, without the cover, and without term's `Layout`, each
+      fails.
 
 #### WP-3b — The agent dies with its root; user work dies first (A · S · after WP-1, WP-3)
 

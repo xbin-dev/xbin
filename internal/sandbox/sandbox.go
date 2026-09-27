@@ -141,12 +141,20 @@ type NetLink struct {
 // binds through /proc/self/fd: Src's own tree may be written by others, and a
 // symlink planted anywhere in the sub-path fails the start rather than show
 // another host path at Dst.
+//
+// Layout (with Spec.NoFollow) says Src is a directory whose own entries only
+// xbind and the operator write, never a sandbox: a terminal's workspace root,
+// whose homes/ may be the operator's symlink to another disk. A symlink
+// directly in Src that a later mount point's path meets is followed, inside
+// the new root, like one the image ships; one deeper in Src (in a tile's
+// directory, which sandboxes write) still fails the start.
 type Bind struct {
-	Src  string `json:"src"`            // host path (as seen before pivot_root); unused when Mask
-	Sub  string `json:"sub,omitempty"`  // relative path beneath Src, resolved without symlinks
-	Dst  string `json:"dst"`            // absolute path inside the new root
-	RO   bool   `json:"ro"`             // remount read-only after binding (seal, if Mask)
-	Mask bool   `json:"mask,omitempty"` // cover Dst with an empty tmpfs instead of binding Src
+	Src    string `json:"src"`              // host path (as seen before pivot_root); unused when Mask
+	Sub    string `json:"sub,omitempty"`    // relative path beneath Src, resolved without symlinks
+	Dst    string `json:"dst"`              // absolute path inside the new root
+	RO     bool   `json:"ro"`               // remount read-only after binding (seal, if Mask)
+	Mask   bool   `json:"mask,omitempty"`   // cover Dst with an empty tmpfs instead of binding Src
+	Layout bool   `json:"layout,omitempty"` // Src's own entries are the host's (see above)
 }
 
 // sortBinds orders binds ancestors-first (shallower Dst mounts earlier; stable
@@ -211,7 +219,11 @@ type Spec struct {
 	// absolute symlink resolves against the host's root). A symlink or a file
 	// in the way fails the start, naming the path. A mask's path follows its
 	// symlinks, inside the new root: a mask only covers, and what it covers
-	// is what the path reaches in the sandbox. Off, the init makes mount
+	// is what the path reaches in the sandbox. So does a path through a
+	// Layout bind's own entries (the host wrote them, Bind.Layout). A file
+	// mount point that is itself a symlink (an apt-installed nvidia-smi, a
+	// Debian alternatives link) is covered, not followed: the bind lands on
+	// the link, which the layer keeps. Off, the init makes mount
 	// points by path (confine's throwaway sandboxes: nothing in their root
 	// was written by a sandbox).
 	NoFollow bool `json:"noFollow,omitempty"`
