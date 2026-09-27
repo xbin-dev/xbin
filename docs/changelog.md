@@ -73,6 +73,32 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   Classes). `GET /classes` marks each class `stored` and lists the
   built-ins first. The channel rules form keeps a policy's
   `privateClass`/`webClass`.
+- **Agent template: sandbox managers, and a sandbox per conversation**
+  (D115; the template's API.md §Coding sandboxes). A new `sandboxes`
+  interface slot (`http`, service `sandbox-manager`, multi) binds the agent
+  to one or more sandbox managers; `GET /sandboxes` lists the sandboxes the
+  caller may see across them (references `<provider>[#inst]|<id>`, with
+  `mine`, `canUse`, `canManage`, `canEdit`, `boundTo`) and what each manager
+  offers, or why it can't be used; `POST /sandboxes` creates one (for a
+  conversation: a team conversation's is a team one, and it is bound
+  there), and `PATCH`/`DELETE /sandboxes/{ref}` and
+  `POST /sandboxes/{ref}/{start|stop|archive|thaw}` manage them. A
+  conversation's `config.sandbox` (the active one) and `config.attached`
+  (up to 8) are set by `PATCH /runs/{id} {sandbox, detach}` or `POST /ask
+  {sandbox}` — participant access, the right to use the sandbox, and a class
+  with the `sandbox` toolset — read every turn and inherited by subagents.
+  The agent names the person it acts for in `Sbx-User` and enforces the
+  owner / members / team rules itself. A bound conversation gets the coding
+  tools (§The coding tools): `bash` (at its timeout the command goes on as a
+  numbered job; interrupting the turn TERMs, then KILLs, its process group;
+  after a backend restart the call's result names the job), `bash_output`
+  and `bash_kill`; `read`, `write`, `edit` (etag-guarded), `ls`, `glob`
+  and `grep` for its files; `sandbox_upload`/`sandbox_download` (session
+  files ↔ sandbox), `sandbox_copy` (between attached sandboxes) and
+  `sandbox_info`; and `subagent_spawn {sandbox, cwd}` puts a subagent on
+  another attached sandbox. Its system prompt gains a `# Sandbox` section;
+  in Approve mode the tools that change a sandbox park only when it has
+  egress.
 
 - **Admin console: runtime → sandboxes, and the sandbox in the component
   list** (D112, [isolation.md](isolation.md) §VM sandboxes). A new tab lists

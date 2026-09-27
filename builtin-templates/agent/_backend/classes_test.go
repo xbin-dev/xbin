@@ -448,3 +448,22 @@ func TestClassAutomations(t *testing.T) {
 		t.Fatalf("the same session moved: %d vs %d", v3.RunID, v2.RunID)
 	}
 }
+
+// A class naming a manager tile allows its instances; naming an instance
+// allows only that one.
+func TestClassManagersInstances(t *testing.T) {
+	tile := agentClass{Toolsets: []string{tsSandbox}, Managers: classSet{Names: []string{"apps/cs"}}}
+	inst := agentClass{Toolsets: []string{tsSandbox}, Managers: classSet{Names: []string{"apps/cs#eu"}}}
+	for _, c := range []struct {
+		cls      agentClass
+		provider string
+		want     bool
+	}{
+		{tile, "apps/cs", true}, {tile, "apps/cs#eu", true}, {tile, "apps/other", false},
+		{inst, "apps/cs#eu", true}, {inst, "apps/cs#us", false}, {inst, "apps/cs", false},
+	} {
+		if got := c.cls.allowsManager(c.provider); got != c.want {
+			t.Errorf("%v allowsManager(%q) = %v, want %v", c.cls.Managers.Names, c.provider, got, c.want)
+		}
+	}
+}

@@ -53,7 +53,7 @@ func routeTable() []routeDef {
 		{"POST /automations/{kind}/{aid}/read", needAny, handleAutomationRead},
 		{"POST /automations/{kind}/{aid}/reset", needAny, handleAutomationReset},
 		{"POST /runs", needStart, handleNewRun},
-		{"POST /ask", needStart, handleAsk},
+		{"POST /ask", needStart, withAskSandbox(handleAsk)},
 		{"PUT /ask/upload", needStart, handleAskUpload},
 		{"GET /runs/{id}", needViewer, handleGetRun},
 		{"GET /runs/{id}/view", needViewer, handleView},
@@ -130,7 +130,7 @@ func routeTable() []routeDef {
 // level (the tile itself and its owner); who the human behind a call is, and
 // what they may do with a run, is decided here.
 func routes(mux *http.ServeMux) {
-	for _, rt := range routeTable() {
+	for _, rt := range append(routeTable(), sandboxRoutes()...) {
 		mux.Handle(rt.pattern, xbin.RoleFunc("admin", guard(rt.need, rt.h)))
 	}
 }

@@ -119,8 +119,11 @@ type agentClass struct {
 func (c agentClass) has(toolset string) bool { return hasStr(c.Toolsets, toolset) }
 
 // allowsManager: may a conversation of this class bind a sandbox of provider?
+// A class naming a tile allows every instance of it ("apps/cs" allows
+// "apps/cs#eu"); naming an instance allows only that one.
 func (c agentClass) allowsManager(provider string) bool {
-	return c.has(tsSandbox) && c.Managers.allows(provider)
+	tile, _, _ := strings.Cut(provider, "#")
+	return c.has(tsSandbox) && (c.Managers.allows(provider) || c.Managers.allows(tile))
 }
 
 // allowsEgress: may a conversation of this class bind a sandbox with egress?

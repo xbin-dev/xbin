@@ -91,6 +91,9 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 	if body.System != "" {
 		cfg.System = body.System
 	}
+	if !askSandbox(w, r, &cfg) {
+		return
+	}
 	// No journal note: a new conversation needs no caption (D83).
 	note := ""
 	if !body.Hold && haltBlocks(w, r, 0) {
@@ -204,6 +207,9 @@ func releaseDraft(w http.ResponseWriter, r *http.Request, id int64, key, text st
 	cfg.Pick = model
 	if system != "" {
 		cfg.System = system
+	}
+	if !askSandbox(w, r, &cfg) {
+		return
 	}
 	cfgJSON, _ := json.Marshal(cfg)
 	titleSrc := "user"

@@ -112,7 +112,7 @@ func (e *Engine) execTools(ctx context.Context, ts *turnState, calls []toolCall,
 	}
 	if cfg.Approve && !approved {
 		for _, tc := range calls {
-			if sideEffect(tc.Function.Name) {
+			if sideEffect(tc.Function.Name, cfg) {
 				e.parkApproval(ts, calls, "")
 				return true
 			}
@@ -221,7 +221,7 @@ func (e *Engine) runOneTool(ctx context.Context, ts *turnState, tc toolCall) str
 		tctx, cancel = context.WithTimeout(ctx, time.Duration(cfg.ToolTimeout)*time.Second)
 		defer cancel()
 	}
-	out, err := e.ag.runTool(tctx, ts.run, cfg, tc.Function.Name, args)
+	out, err := e.ag.runTool(withToolCall(tctx, tc.ID), ts.run, cfg, tc.Function.Name, args)
 	if err != nil {
 		switch {
 		case ctx.Err() != nil:

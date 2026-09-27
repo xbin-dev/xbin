@@ -93,7 +93,7 @@ func TestFileToolGatingAndLanes(t *testing.T) {
 
 func TestFileToolsAreNotSideEffecting(t *testing.T) {
 	for name := range fileToolNames {
-		if sideEffect(name) {
+		if sideEffect(name, Config{}) {
 			t.Fatalf("%s should not require approval", name)
 		}
 	}

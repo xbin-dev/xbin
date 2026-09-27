@@ -173,8 +173,8 @@ func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
 			}),
 		}})
 	}
-	// The sandbox toolset (D116 phase 1) adds its tools here:
-	// sandboxToolSpecs(cfg, depth), dispatched in runTool by runSandboxTool.
+	// The sandbox toolset (D115/D116): only a class with it, only when bound.
+	specs = append(specs, sandboxToolSpecs(cfg, depth)...)
 	if cls.has(tsSubagents) {
 		specs = append(specs, subagentToolSpecs(cfg, depth)...)
 	}
@@ -211,8 +211,9 @@ func toolsetOf(name string) string {
 		return tsRepl
 	case isSubagentTool(name):
 		return tsSubagents
+	case sandboxToolNames[name]:
+		return tsSandbox
 	}
-	// the sandbox track: its tool names belong to tsSandbox
 	return ""
 }
 
@@ -257,16 +258,17 @@ func classMCP(cls agentClass, mcp []toolSpec) []toolSpec {
 }
 
 // sideEffect reports whether a tool mutates the world (gated by approval mode).
-// The file and sandbox tools are deliberately NOT here: despite writing to
+// The file and REPL tools are deliberately NOT here: despite writing to
 // sqlite, they touch only this run's private rows — no egress, no other
 // component, nothing outside the run — so pausing a turn for approval would be
-// pure friction.
-func sideEffect(name string) bool {
+// pure friction. The coding tools that change a sandbox are, when it has
+// egress (sandbox_tools.go).
+func sideEffect(name string, cfg Config) bool {
 	switch name {
 	case "xbin_call":
 		return true
 	}
-	return strings.HasPrefix(name, "mcp:")
+	return strings.HasPrefix(name, "mcp:") || sandboxSideEffect(name, cfg)
 }
 
 // runTool executes a non-control tool and returns its textual result.
@@ -427,13 +429,15 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 	if threadToolNames[name] {
 		return ag.runThreadTool(ctx, run, cfg, name, args)
 	}
+	if sandboxToolNames[name] {
+		return ag.runSandboxTool(ctx, run, cfg, name, args)
+	}
 	if fileToolNames[name] {
 		return ag.runFileTool(ctx, run, cfg, name, args)
 	}
 	if replToolNames[name] {
 		return ag.runReplTool(ctx, run, cfg, name, args)
 	}
-	// the sandbox toolset's tools dispatch here (runSandboxTool, D116 phase 1)
 	if strings.HasPrefix(name, "mcp:") {
 		return ag.mcpCall(ctx, cfg, name, args)
 	}

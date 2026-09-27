@@ -431,6 +431,7 @@ func handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 400, "bad config")
 		return
 	}
+	cfg.Sandbox, cfg.Attached = nil, nil // a conversation's own, never a default
 	b, _ := json.Marshal(cfg)
 	if err := agent.db.putSetting("config", string(b)); err != nil {
 		xbin.WriteError(w, 500, err.Error())

@@ -590,6 +590,7 @@ func childConfig(parent Config, system string) Config {
 		c.MCP = append([]MCPServer(nil), parent.MCP...)
 	}
 	c.Deny = append([]string(nil), parent.Deny...)
+	c.Sandbox, c.Attached = copySandboxes(parent)
 	return c
 }
 

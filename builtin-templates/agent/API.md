@@ -925,6 +925,146 @@ chip shows the file's current content, with the header noting the difference.
 The tile's Files tab edits them too, sending back the version it loaded so a
 write the agent made in between comes back as a 409 instead of being lost.
 
+## Coding sandboxes (D115)
+
+A conversation can work in a **coding sandbox**: a box with a shell, a
+filesystem and the tools of a job, run by a **sandbox manager** — a tile
+that implements the `sandbox-manager` contract (docs/sandbox-manager.md;
+the builtin `coding-sandbox` template, or anyone's own). The agent holds no
+sandboxes itself.
+
+**Where they come from.** The manifest's `sandboxes` interface slot (`http`,
+service `sandbox-manager`, multi): `bx bind <this component>
+sandboxes+=apps/coding-sandbox`, or the binding panel. Several managers may
+be bound at once; rebinding restarts the backend; unbound, there are no
+sandboxes. The agent says `hello` to each (protocol 1; cached five minutes)
+and ignores — listing it with the reason — one that speaks another protocol
+or lacks the `exec` and `files` capabilities. A manager shows this agent the
+sandboxes it created and those shared with it (its **partition**).
+
+**References.** A sandbox is named `<provider>[#inst]|<id>` — the manager
+tile as its binding names it and the manager's id — always qualified, so a
+stored reference keeps naming the same sandbox however many managers are
+bound. In a URL path it may be sent as is or percent-encoded.
+
+**People (D83).** Every call the agent makes to a manager names the person
+it acts for in `Sbx-User` (asserted: the manager records it as the owner of
+what it creates); the agent enforces who may do what:
+
+- **use** (bind it, work in it, start it): its owner, a member, or anyone
+  when it is `team`. A sandbox with no owner (created by a component or the
+  tile itself) is theirs, and people's only when it is `team`;
+- **manage** (stop, archive, delete): its owner, and the tile's managers —
+  who may stop or delete any sandbox but never bind someone else's private
+  one;
+- **edit** (name, visibility, members, shares): its owner.
+
+**A conversation's sandbox.** `config.sandbox` is the one its tools work in
+and `config.attached` every sandbox it has attached (up to 8, the active one
+among them — a subagent may be spawned onto another, and files copied
+between them). Each is a binding:
+
+```jsonc
+{"ref": "apps/coding-sandbox|sb-7f3a", "cwd": "/work/api",  // where tools work (default: the sandbox's workdir)
+ "name": "api-dev", "manager": "Coding sandboxes",           // as they were when it was bound (for display)
+ "image": "base", "egress": "none",
+ "by": "alice", "at": 1790000000000}                          // who bound it: tools act for them (Sbx-User)
+```
+
+Both live in the conversation's stored config (the view's `config`) like
+its model pick: read every turn — a rebind applies from the next one — and
+copied into subagents and workflows, which work in their root's sandbox.
+The global defaults (`PUT /config`) never hold either.
+
+- **Binding** takes participant access to the conversation **and** the
+  right to use the sandbox; the conversation's class must have the `sandbox`
+  toolset and allow the sandbox's manager and egress (D116). A `cwd` must be
+  an absolute path, and a directory when the sandbox is running.
+- **Anyone who may steer the conversation works in what it has bound** —
+  under the binder's right, which every tool call re-checks: the class
+  still allows it, the manager is still bound, the sandbox still exists, and
+  the binder may still use it and still takes part in the conversation.
+  Otherwise the tool says why and the conversation needs a new binding.
+- A **sandbox created for a conversation** (`POST /sandboxes
+  {conversation}`) follows it: a team conversation's is `team`; the
+  conversation's owner and participants are its members; it is labeled
+  `xbin.agent/conversation: <id>` and bound there.
+
+`PATCH /runs/{id}` also takes `{sandbox: {ref, cwd?} | null, detach?: <ref>}`
+— bind (and attach) a sandbox, or change the active one's `cwd`; `null`
+leaves the conversation with no active sandbox (the attached stay);
+`detach` takes one off (applied first when both are sent). `POST /ask` also
+takes `{sandbox: {ref, cwd?}}`: the new conversation starts bound (the
+caller must be able to use it; its class must allow it).
+
+| Route | Body / query | Result |
+|---|---|---|
+| `GET /sandboxes` | `?fresh=1` skips the cache | `{sandboxes: [{ref, provider, manager, …the contract's sandbox…, mine, canUse, canManage, canEdit, boundTo?}], managers: [{provider, title, ok, error?, refusal?, caps, egress, images, sizes, limits}]}` — every sandbox the caller may see across the bound managers, and those bound to a conversation the caller sees (`boundTo`: its ids). Merged, cached 15 s (the agent's own changes show at once); `manager` is the manager's title. Anyone who can use the tile |
+| `POST /sandboxes` | `{name, provider?, image?, size?, egress?, visibility?, members?, conversation?, bind?, cwd?, clientId?, start?}` | **201** + the sandbox (as below), with `binding` when it was bound. Created at `provider` (optional while one manager is bound), owned by the caller. With `conversation` (the caller takes part in it): made for it (above) and bound there unless `bind: false` — refused up front when its class wouldn't allow it, and deleted again if the binding fails. `clientId` makes a retry return the same sandbox (per person) |
+| `GET /sandboxes/{ref}` | | one sandbox, fresh from its manager, as `GET /sandboxes` lists it |
+| `PATCH /sandboxes/{ref}` | `{name?, visibility?, members?, shares?, labels?, egress?, size?, autoStopMin?, version?}` | the sandbox — its owner's (the contract's `PATCH`; `restartNeeded` when a change waits for the next start) |
+| `DELETE /sandboxes/{ref}` | | `{ok, detached}` — its owner's or a tile manager's; it is detached from every conversation that had it |
+| `POST /sandboxes/{ref}/{start\|stop\|archive\|thaw}` | `?wait=<s>` (≤ 120), `?conversation=<id>`; `{start?}` on thaw | the sandbox. Start, stop and thaw: who may use or manage it — or, with `conversation`, a participant of a conversation it is bound to (as the binder). Archive: its owner or a tile manager |
+
+Refusals from a manager keep its `refusal` (and `state`) in the error body,
+with the status the contract gives it (a manager that is down or
+unreachable: 502). A route's sandbox the caller may neither see nor find
+bound to a conversation of theirs is 404.
+
+### The coding tools
+
+A conversation whose class has the `sandbox` toolset **and** has a sandbox
+bound gets these tools (subagents too — they work in their root's sandbox);
+otherwise they are absent, and a call that names one anyway is refused. Every
+call re-runs the binding check above. Paths are absolute, relative to the
+binding's `cwd` (else the sandbox's workdir), or `~/…` (the sandbox user's
+home). The session files (`file_*`) are a different store: nothing moves
+between the two unless a tool below moves it. The system prompt carries a
+`# Sandbox` section — the active sandbox's name, manager, image, egress and
+`cwd`, and the other attached ones — built from the binding alone, so it
+changes on a rebind only (the prompt's cached prefix stays valid).
+
+| Tool | Arguments | What it does |
+|---|---|---|
+| `bash` | `{command, cwd?, timeout_s? (120), background?}` | runs `command` with the sandbox user's login shell (an exec named `agent:<run>:<tool call>`, so starting it twice finds the one command), no TTY, no stdin, `TERM=dumb NO_COLOR=1 PAGER=cat GIT_TERMINAL_PROMPT=0`, and follows its combined output. The result is at most 12 KiB — a short head and a long tail with `… N bytes elided …` between, escapes and `\r` redraws cleaned — and a footer: `[exit 1 · 14s · job 3]`. At `timeout_s` (or just before the tool's own `toolTimeout`) the command **goes on as a job**: the footer says `still running after 2m00s · job 3` and how to follow it. `background: true` starts it as a job at once |
+| `bash_output` | `{job, wait_s? (0, ≤ 600), offset?}` | a job's output since it was last read (or from byte `offset`), waiting up to `wait_s` for it to end; the footer says it still runs (and up to which byte it was read) or how it ended |
+| `bash_kill` | `{job, signal?}` | signals the job's whole process group: `INT`, `TERM`, `KILL` or `HUP`; by default TERM, then KILL if it hasn't ended 3 s later |
+| `read` | `{path, offset?, limit? (2000)}` | numbered lines (`cat -n` style), within ~14 KiB, saying what it left out; a file up to 256 KiB is read whole and sliced, a larger one ranged with `sed -n`; a binary file (a NUL or non-UTF-8 near its start) gets a hint instead |
+| `write` | `{path, content}` | replaces the file atomically (the contract's `PUT …/files/content`), creating missing directories |
+| `edit` | `{path, old_string, new_string, replace_all?}` | `file_edit`'s exact-string replacement (the same rules, one shared implementation) on a sandbox file of up to 4 MiB, written back with `ifMatch` = the etag it read; a `precondition` refusal (the file changed meanwhile) is retried once from a fresh read. The result shows the changed lines, numbered |
+| `ls` | `{path?}` | a directory (≤ 500 entries): subdirectories first, with `/`; files with their size; symlinks with their target |
+| `glob` | `{pattern, path?}` | files by name, relative to the working directory, sorted, at most 200: `**` spans directories, a pattern without `/` matches names at any depth, `{a,b}` alternates. The listing is the sandbox's own `rg --files` (which honours `.gitignore`) or `find` (skipping `.git` and `node_modules`) — at most 20 000 files — matched here |
+| `grep` | `{pattern, path?, glob?, ignore_case?}` | `path:line: text` lines, at most 100 (then how many more), text clipped at 300 characters: `rg` where the sandbox has it (its regex syntax), else `grep -rE`; skips `.git` and binary files |
+| `sandbox_upload` | `{file, path?}` | copies a session file (text or attachment) into the sandbox: to `path`, into it when it ends in `/` or is a directory (default: the working directory). Feature `files` |
+| `sandbox_download` | `{path, name?}` | copies a sandbox file (≤ 16 MiB) into the session files as an upload would be stored — text within the text cap as text, anything else as an attachment — under `name` or its own (a taken name gets a suffix). A directory is refused: pack it with `bash` first. Feature `files` |
+| `sandbox_copy` | `{from: {sandbox?, path}, to: {sandbox?, path}}` | between the conversation's attached sandboxes (a ref or a unique name; default the active one), or within one: a directory is tar-streamed (`GET …/tar` into `PUT …/tar`; both managers need `tar`) and its **contents** land in `to.path`; a file goes through the file routes (mode kept) to `to.path`, or into it when it is a directory. Offered when more than one sandbox is attached |
+| `sandbox_info` | `{}` | every attached sandbox as its manager describes it now (active or attached, state, egress, image, manager, cwd, workdir, home, user, caps — or why it is unavailable) and the conversation's latest 15 jobs |
+
+**Jobs** are numbered per conversation (subagents share their root's
+numbers) and kept in the `sandbox_jobs` table (`root_id, job, run_id,
+tool_call_id, ref, exec_id, command, cwd, state, exit_code, read_off, fg,
+created_ms, ended_ms`); a conversation runs at most **8** at once (asked of
+the manager before a start is refused). **Interrupting or cancelling** the
+turn stops the command bash is following — TERM to its process group, KILL
+if it is still there 3 s later — while background jobs keep running. **A
+backend restart** (a handoff to the next process) leaves it running: the
+call's result becomes `(no result: the backend restarted while this command
+ran. It went on in the sandbox as job 3 — bash_output {"job": 3} shows its
+output from the start …)` instead of the generic lost-result text, and the
+job's output resumes by offset.
+
+**Approve mode.** `bash`, `write`, `edit` and `sandbox_upload` are
+side-effecting tools — the step parks for approval — only when the bound
+sandbox has egress other than `none` (`sandbox_copy`: when any attached one
+has); a sandbox with no network is private scratch.
+
+**Subagents on another sandbox.** `subagent_spawn` also takes `{sandbox?,
+cwd?}` where a sandbox is bound: `sandbox` names one of the conversation's
+attached sandboxes (a ref or a unique name; any other is refused), which
+becomes the subagent's active one; `cwd` is its working directory there
+(absolute, or relative to that sandbox's). The subagent keeps the attached
+list, and the root's binding is unchanged.
+
 ## The frontend: one model, thin views
 
 The tile's state and behaviour live in **`model/`** — plain ES modules with no
