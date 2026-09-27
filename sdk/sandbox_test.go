@@ -251,6 +251,14 @@ func TestSandboxCalls(t *testing.T) {
 			}},
 		{name: "snapshot", status: 201, answer: `{"id":"s-2","name":"n"}`, call: func() (any, error) { return sb.Snapshot(ctx, "n", "c-9") },
 			method: "POST", uri: "/api/xbin/sandboxes/sb-1/snapshots", body: `{"name":"n","clientId":"c-9"}`},
+		{name: "snapshot pending", status: 202, answer: `{"id":"s-3","name":"n","created":7,"pending":true}`,
+			call:   func() (any, error) { return sb.Snapshot(ctx, "n", "") },
+			method: "POST", uri: "/api/xbin/sandboxes/sb-1/snapshots", body: `{"name":"n"}`,
+			check: func(t *testing.T, got any) {
+				if s := got.(*Snapshot); s.ID != "s-3" || !s.Pending {
+					t.Fatalf("%+v", s)
+				}
+			}},
 		{name: "restore", answer: info, call: func() (any, error) { return sb.RestoreSnapshot(ctx, "s-2") },
 			method: "POST", uri: "/api/xbin/sandboxes/sb-1/snapshots/s-2/restore"},
 		{name: "delete snapshot", status: 204, call: func() (any, error) { return nil, sb.DeleteSnapshot(ctx, "s-2") },

@@ -523,7 +523,11 @@ func (s *Sandboxes) List(ctx context.Context) ([]SandboxInfo, error) {
 }
 
 // Create defines a sandbox (and starts it with spec.Start). A repeat of
-// the same spec with the same ClientID answers the existing sandbox.
+// the same spec with the same ClientID answers the existing sandbox. A
+// clone (spec.From) copies its source's state off the request: the runtime
+// waits up to limits.waitMaxSec for the copy, then answers with State
+// "creating" — poll Get until it is "stopped" (or "running", with Start),
+// or "error" when the copy failed (only Delete helps then).
 func (s *Sandboxes) Create(ctx context.Context, spec SandboxSpec) (*SandboxInfo, error) {
 	var in SandboxInfo
 	if err := s.call(ctx, http.MethodPost, "", nil, spec, &in); err != nil {
@@ -607,12 +611,15 @@ func (b *Sandbox) info(ctx context.Context, method, sub string, q url.Values, bo
 
 // --- snapshots ---------------------------------------------------------------
 
-// Snapshot is a sandbox's saved state.
+// Snapshot is a sandbox's saved state. Pending is one still being taken
+// (its copy runs off the request): it lists, but can't be restored,
+// cloned or deleted until it is done.
 type Snapshot struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
 	Created int64  `json:"created"` // unix ms
 	Bytes   int64  `json:"bytes,omitempty"`
+	Pending bool   `json:"pending,omitempty"`
 }
 
 // Snapshots lists the sandbox's snapshots (the snapshots capability).
@@ -632,6 +639,10 @@ func (b *Sandbox) Snapshots(ctx context.Context) ([]Snapshot, error) {
 
 // Snapshot saves the sandbox's state as name (it stops briefly and starts
 // again if it ran). A repeat with the same clientID answers the same one.
+// The runtime waits up to limits.waitMaxSec for the copy; when it runs
+// longer the answer is Pending (202) — poll Snapshots. Meanwhile the
+// sandbox is busy: its calls answer ErrSandboxState with a RetryAfter, and
+// one that auto-starts it waits.
 func (b *Sandbox) Snapshot(ctx context.Context, name, clientID string) (*Snapshot, error) {
 	path, err := b.route("snapshots")
 	if err != nil {
@@ -648,8 +659,10 @@ func (b *Sandbox) Snapshot(ctx context.Context, name, clientID string) (*Snapsho
 	return &sn, nil
 }
 
-// RestoreSnapshot puts the sandbox's state back to snapshot id; its execs
-// are killed.
+// RestoreSnapshot puts the sandbox's state back to snapshot id — its base
+// image included — and starts it again if it ran; its execs are killed.
+// When the copy runs past limits.waitMaxSec the answer is the sandbox with
+// its busy StateDetail ("busy: restoring snapshot s-2"): poll Get.
 func (b *Sandbox) RestoreSnapshot(ctx context.Context, id string) (*SandboxInfo, error) {
 	sid, err := snapshotIDSeg(id)
 	if err != nil {
