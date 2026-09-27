@@ -144,6 +144,7 @@ func (w ctWho) refused(method, path string, body any, status int, refusal string
 
 type ctSandbox struct {
 	ID, Name, State, StateDetail, Isolation, Egress, Visibility string
+	EgressNext                                                  string
 	Workdir, Home, User, Shell                                  string
 	Image                                                       struct{ ID, Title string }
 	Owner                                                       struct {
@@ -452,14 +453,46 @@ func TestSandboxPatchDelete(t *testing.T) {
 	if got := a.get(sb.ID); got.Name != "fresh" || got.Version != p.Version {
 		t.Fatalf("after refused PATCHes: %+v", got)
 	}
-	// egress applies at the next start
-	other := "internet"
-	if p.Egress == "internet" {
+	// egress on a running sandbox applies at the next start: egress is what it
+	// has now, egressNext what it takes then (and absent when there is none)
+	do := func(method, path string, body any) (out ctSandbox) {
+		t.Helper()
+		a.call(method, "/sandboxes/"+sb.ID+path, body, 200, &out)
+		return out
+	}
+	was, other := p.Egress, "internet"
+	if was == "internet" {
 		other = "none"
 	}
-	a.call("PATCH", "/sandboxes/"+sb.ID, map[string]any{"egress": other}, 200, &p)
-	if p.Egress != other || !p.RestartNeeded {
+	if p := do("PATCH", "", map[string]any{"egress": other}); p.Egress != was || p.EgressNext != other || !p.RestartNeeded {
 		t.Fatalf("egress change on a running sandbox: %+v", p)
+	}
+	if got := a.get(sb.ID); got.Egress != was || got.EgressNext != other {
+		t.Fatalf("a pending egress, read back: %+v", got)
+	}
+	if p := do("PATCH", "", map[string]any{"egress": was}); p.Egress != was || p.EgressNext != "" || p.RestartNeeded {
+		t.Fatalf("egress set back to what it has: %+v", p)
+	}
+	// pending across a stop; a start applies it
+	do("PATCH", "", map[string]any{"egress": other})
+	if p := do("POST", "/stop?wait=5", nil); p.Egress != was || p.EgressNext != other {
+		t.Fatalf("a pending egress on a stopped sandbox: %+v", p)
+	}
+	if p := do("POST", "/start?wait=5", nil); p.Egress != other || p.EgressNext != "" {
+		t.Fatalf("started: %+v", p)
+	}
+	// on a stopped sandbox it applies at once
+	do("POST", "/stop?wait=5", nil)
+	if p := do("PATCH", "", map[string]any{"egress": was}); p.Egress != was || p.EgressNext != "" || p.RestartNeeded {
+		t.Fatalf("egress change on a stopped sandbox: %+v", p)
+	}
+	// an exec that starts a stopped sandbox applies a pending one too
+	do("POST", "/start?wait=5", nil)
+	do("PATCH", "", map[string]any{"egress": other})
+	do("POST", "/stop?wait=5", nil)
+	a.sh(sb.ID, "true")
+	if got := a.get(sb.ID); got.State != "running" || got.Egress != other || got.EgressNext != "" {
+		t.Fatalf("started by an exec: %+v", got)
 	}
 	a.call("DELETE", "/sandboxes/"+sb.ID, nil, http.StatusNoContent, nil)
 	a.refused("GET", "/sandboxes/"+sb.ID, nil, 404, "not-found")

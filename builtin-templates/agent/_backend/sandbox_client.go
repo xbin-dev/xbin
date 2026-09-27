@@ -284,6 +284,7 @@ type sbxSandbox struct {
 	Size         sbxSize `json:"size"`
 	Isolation    string  `json:"isolation"`
 	Egress       string  `json:"egress"`
+	EgressNext   string  `json:"egressNext,omitempty"` // a PATCHed egress for its next start
 	EgressDetail string  `json:"egressDetail"`
 	Owner        struct {
 		User     string `json:"user"`
@@ -332,6 +333,33 @@ func (s *sbxSandbox) view() map[string]any {
 	}{sbxSandbox: s})
 	_ = json.Unmarshal(raw, &out)
 	return out
+}
+
+// egressRank orders egress by what it reaches; anything unknown (or
+// missing) counts as open.
+func egressRank(e string) int {
+	switch e {
+	case "none":
+		return 0
+	case "internet":
+		return 1
+	}
+	return 2
+}
+
+// effectiveEgress is the egress the firewall checks: the less restrictive of
+// what the sandbox has now and what it takes at its next start (a stopped
+// sandbox starts on an exec) — none, internet or open, an unknown or
+// missing one counting as open.
+func (s *sbxSandbox) effectiveEgress() string {
+	e := s.Egress
+	if s.EgressNext != "" && egressRank(s.EgressNext) > egressRank(e) {
+		e = s.EgressNext
+	}
+	if egressRank(e) == 2 {
+		return "open"
+	}
+	return e
 }
 
 // hasCap: a sandbox may offer fewer capabilities than its manager.

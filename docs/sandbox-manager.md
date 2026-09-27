@@ -157,11 +157,21 @@ answers `unsupported`. `limits.sandboxes` 0 means no fixed limit.
   (`stateDetail` says why).
 - `isolation`: `vm`, `container`, `namespace`, `cloud-vm` or `other` — what
   keeps the sandbox from its host.
-- `egress` — what the sandbox may reach:
+- `egress` — what the sandbox may reach **now**, always present:
   - `none` — nothing: no network at all.
   - `internet` — the public internet only: no private or local networks,
     nothing of the workspace.
   - `open` — whatever the manager's substrate gives (a LAN, say).
+- `egressNext` — the egress a `PATCH` set that applies at the sandbox's next
+  start; present only while it differs from `egress`. A `PATCH` of a
+  running sandbox's egress sets it (`restartNeeded`); of a stopped or
+  archived one, it applies at once. In a state between (`starting`,
+  `stopping`, `thawing`) the manager picks either, as long as `egress`
+  never claims less than the sandbox can reach. A consumer that enforces a
+  firewall on egress checks the **less restrictive** of `egress` and
+  `egressNext` — a stopped sandbox
+  starts on an exec, and takes `egressNext` — in the order `none` <
+  `internet` < `open`, counting a missing or unknown value as `open`.
 - `shared` is true when the caller sees the sandbox through a share.
 - `labels` are the consumer's (≤1 KiB in all); the manager stores them.
 - `caps` may be fewer than `hello.caps` for this sandbox.
@@ -175,7 +185,7 @@ answers `unsupported`. `limits.sandboxes` 0 means no fixed limit.
 | `GET /sbx/sandboxes` | | `{"sandboxes": [sandbox…]}` — the caller's own and those shared with it (a verified person: only those they may use) |
 | `POST /sbx/sandboxes` | `{name, image?, size?, egress?, visibility?, members?, labels?, clientId?, start?, from?}` | **201** + the sandbox. `start` defaults to true; `from: {sandbox, snapshot?}` clones (`clone`) |
 | `GET /sbx/sandboxes/{id}` | | the sandbox |
-| `PATCH /sbx/sandboxes/{id}` | `{name?, visibility?, members?, shares?, labels?, egress?, size?, autoStopMin?, version?}` | the sandbox, with `restartNeeded: true` when a change applies at the next start |
+| `PATCH /sbx/sandboxes/{id}` | `{name?, visibility?, members?, shares?, labels?, egress?, size?, autoStopMin?, version?}` | the sandbox, with `restartNeeded: true` when a change applies at the next start (an egress: `egressNext`) |
 | `DELETE /sbx/sandboxes/{id}` | | **204** |
 | `POST /sbx/sandboxes/{id}/start` · `/stop` · `/archive` · `/thaw` | `{start?}` on thaw | the sandbox |
 

@@ -57,7 +57,10 @@ const seed = {
     4: { access: 'owner', class: coding, config: {} }, // its run: the list's row (seed.runs)
   },
   sandboxes: [sb('api', { boundTo: [1] }), sb('web', { state: 'stopped', lastActive: Date.now() - 3600e3 }),
-    sb('team-box', { mine: false, owner: { user: 'carol' }, visibility: 'team', canManage: false, canEdit: false })],
+    sb('team-box', { mine: false, owner: { user: 'carol' }, visibility: 'team', canManage: false, canEdit: false }),
+    // an internal-reach conversation has worked in it; its network opens at the next start
+    sb('vault', { labels: { 'xbin.agent/internal': '1' }, lastActive: Date.now() - 7200e3 }),
+    sb('pending', { egressNext: 'open', lastActive: Date.now() - 7300e3 })],
 };
 
 const browser = await launch();
@@ -89,6 +92,11 @@ ok('the coding class: the picker shows', true);
 await page.waitForFunction(() => [...document.querySelectorAll('#ssel option')].some((o) => o.value.endsWith('|web')));
 const groups = await page.$$eval('#ssel optgroup', (els) => els.map((e) => e.label));
 ok('grouped: Yours · Team, then the actions', groups.join('|') === 'Yours|Team|Sandboxes', groups.join('|'));
+const opt = (id) => page.$eval(`#ssel option[value="${MGR}|${id}"]`, (o) => ({ disabled: o.disabled, title: o.title }));
+const vault = await opt('vault');
+ok('one that held internal data: disabled for a class that reaches outside', vault.disabled && vault.title.includes('internal-reach'), JSON.stringify(vault));
+const pend = await opt('pending');
+ok('one whose network opens at its next start: counted as open', pend.disabled && pend.title.includes('open network'), JSON.stringify(pend));
 await page.selectOption('#ssel', `${MGR}|web`);
 await page.fill('#msg', 'build it');
 await page.click('#send');

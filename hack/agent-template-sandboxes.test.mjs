@@ -91,6 +91,33 @@ test('the picker: only where the class has the sandbox toolset; grouped; the rea
   assert.equal(down.actions[0].disabled, true, 'nothing to create at');
 });
 
+test('the firewall\'s egress: the less restrictive of now and the next start; what a sandbox has held', () => {
+  for (const [now, next, want] of [['none', '', 'none'], ['none', 'internet', 'internet'], ['internet', 'none', 'internet'],
+    ['', '', 'open'], ['none', 'lan', 'open'], ['toString', '', 'open']]) {
+    assert.equal(S.firewallEgress({ egress: now, egressNext: next }), want, `${now} → ${next}`);
+  }
+  assert.equal(S.egressWords({ egress: 'none' }), 'no network');
+  assert.equal(S.egressWords({ egress: 'none', egressNext: 'internet' }), 'no network → internet at the next start');
+  const held = sb('vault', { labels: { [S.INTERNAL_LABEL]: '1' } });
+  const intsbx = { id: 'intsbx', name: 'Internal coding', toolsets: ['internal', 'sandbox'], sandboxEgress: ['none'] };
+  const quiet = { id: 'quiet', name: 'Quiet', toolsets: ['sandbox'], sandboxEgress: ['none'] };
+  assert.match(S.taintWhy(coding, held), /held data from an internal-reach conversation/);
+  assert.equal(S.taintWhy(intsbx, held), '', 'internal reach may');
+  assert.equal(S.taintWhy(quiet, held), '', 'no egress may');
+  assert.equal(S.taintWhy(coding, sb('clean')), '');
+  // the picker disables them, the dialog offers no "use", the badge says why
+  const p = S.sandboxPicker(list([held, sb('pending', { egressNext: 'open' }), sb('ok')]), conv({}), { user: 'alice' });
+  const rows = Object.fromEntries(p.groups.flatMap((g) => g.rows).map((r) => [r.name, r]));
+  assert.ok(rows.vault.disabled && /internal-reach/.test(rows.vault.why), JSON.stringify(rows.vault));
+  assert.ok(rows.pending.disabled && /open network/.test(rows.pending.why) && /at the next start/.test(rows.pending.detail), JSON.stringify(rows.pending));
+  assert.equal(rows.ok.disabled, false);
+  const acts = Object.fromEntries(S.sandboxRows(list([held, sb('ok')]), { user: 'alice' }, { conv: conv({}) }).map((r) => [r.name, r.actions.map((a) => a.id)]));
+  assert.ok(!acts.vault.includes('use') && acts.ok.includes('use'), JSON.stringify(acts));
+  const v = conv({ sandbox: bind('vault') });
+  assert.match(S.sandboxBadge(v, list([held])).broken, /^not allowed: .*internal-reach/);
+  assert.match(S.sandboxBadge(v, list([sb('vault', { egressNext: 'open' })])).broken, /^not allowed: .*open network/);
+});
+
 test('the badge: name · cwd, the attached ones, and why a binding no longer resolves', () => {
   assert.equal(S.sandboxBadge(conv({}), list([])), null);
   const v = conv({ sandbox: bind('api', { cwd: '/work/api' }), attached: [bind('api', { cwd: '/old' }), bind('web')] });

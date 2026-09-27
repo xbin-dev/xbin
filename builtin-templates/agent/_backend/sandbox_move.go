@@ -270,7 +270,11 @@ func (ag *Agent) toolSbxInfo(ctx context.Context, run *Run, cfg Config) (string,
 		}
 		x := use.Box
 		names[bd.Ref] = orStr(x.Name, bd.Ref)
-		fmt.Fprintf(&b, "%s %q (%s) — %s · egress %s · image %s · %s\n", mark, x.Name, bd.Ref, x.State, x.Egress,
+		egress := orStr(x.Egress, "unknown")
+		if x.EgressNext != "" && x.EgressNext != x.Egress {
+			egress += " (" + x.EgressNext + " from its next start)"
+		}
+		fmt.Fprintf(&b, "%s %q (%s) — %s · egress %s · image %s · %s\n", mark, x.Name, bd.Ref, x.State, egress,
 			orStr(x.Image.ID, "?"), use.Hello.title(bd.Ref))
 		fmt.Fprintf(&b, "  cwd %s · workdir %s · home %s · user %s · caps %s\n", use.cwd(), x.Workdir, orStr(x.Home, "?"),
 			orStr(x.User, "?"), strings.Join(x.Caps, ","))

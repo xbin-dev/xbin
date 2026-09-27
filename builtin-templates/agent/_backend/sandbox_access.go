@@ -9,7 +9,9 @@
 //   - use (bind it, run the agent's tools in it, start it): its owner, a
 //     member, or anyone when it is team. A sandbox of the tile itself (no
 //     owner) is the system's and other components', and people's only when
-//     it is team.
+//     it is team. A sandbox another consumer shared with this tile is
+//     people's only as far as the share names them (its users: "*" or a
+//     list) — no share for this tile, nothing for anyone.
 //   - manage (stop, archive, delete): its owner, and the tile's managers —
 //     who may stop or delete any sandbox, but never bind someone else's
 //     private one.
@@ -18,7 +20,21 @@
 //
 // Anyone who may steer a conversation may use what is bound to it — through
 // the conversation, never to bind it elsewhere (sandbox_bind.go).
+//
+// The class firewall (D116) reaches across a sandbox that conversations
+// share: one whose class has internal reach marks the sandbox it works in
+// (sbxInternalLabel), and a class that reaches outside with no internal
+// reach may not bind or work in a sandbox so marked.
 package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+
+	xbin "github.com/xbin-dev/xbin/sdk"
+)
 
 // sbxAccess is what one caller may do with one sandbox.
 type sbxAccess struct {
@@ -48,6 +64,9 @@ func sandboxAccess(w who, b *sbxSandbox) sbxAccess {
 		if w.viewedBy != "" {
 			return sbxAccess{} // an admin viewing as someone acts for nobody
 		}
+		if b.Shared && !b.shareAllows(w.user) {
+			return sbxAccess{} // shared with this tile, but not for them
+		}
 		mine := !unowned && b.Owner.User == w.user
 		member := false
 		for _, m := range b.Members {
@@ -60,6 +79,86 @@ func sandboxAccess(w who, b *sbxSandbox) sbxAccess {
 			Edit: mine || (unowned && w.manager())}
 	}
 	return sbxAccess{}
+}
+
+// sbxShare is one of a sandbox's shares: a consumer, and the people ("*" or
+// a list of user ids) it may act for there.
+type sbxShare struct {
+	Consumer string          `json:"consumer"`
+	Users    json.RawMessage `json:"users"`
+}
+
+// shareAllows: this tile's share of a sandbox another consumer shared with
+// it names user. No share for this tile (or one that can't be read) is no.
+func (s *sbxSandbox) shareAllows(user string) bool {
+	var shares []sbxShare
+	self := xbin.Self()
+	if self == "" || user == "" || json.Unmarshal(s.Shares, &shares) != nil {
+		return false
+	}
+	for _, sh := range shares {
+		if sh.Consumer != self {
+			continue
+		}
+		var all string
+		if json.Unmarshal(sh.Users, &all) == nil {
+			return all == "*"
+		}
+		var list []string
+		return json.Unmarshal(sh.Users, &list) == nil && hasStr(list, user)
+	}
+	return false
+}
+
+// --- the firewall across a shared sandbox ------------------------------------------
+
+// sbxInternalLabel marks a sandbox that a conversation with internal reach
+// has worked in: it may hold internal data from then on.
+const sbxInternalLabel = "xbin.agent/internal"
+
+// taintRefusal says why a conversation of class cl may not work in b (""
+// = it may): one that reaches outside (web, or a sandbox with egress) with
+// no internal reach, in a sandbox that has held internal data. A confirmed
+// mixed class has internal reach, so it may.
+func taintRefusal(cl agentClass, b *sbxSandbox) string {
+	if b == nil || b.Labels[sbxInternalLabel] == "" || !cl.egress() || cl.has(tsInternal) {
+		return ""
+	}
+	return fmt.Sprintf("this sandbox has held data from an internal-reach conversation, so a conversation of a class that reaches outside (%s) can't work in it — use another sandbox",
+		orStr(cl.Name, cl.ID))
+}
+
+// markInternal records on b, through conn, that a conversation with
+// internal reach works in it: sbxInternalLabel merged into its labels (a
+// lost update retried), and checked — the manager must keep it.
+func markInternal(ctx context.Context, conn *sbxConn, id string, b *sbxSandbox) error {
+	for attempt := 0; ; attempt++ {
+		if b.Labels[sbxInternalLabel] != "" {
+			return nil
+		}
+		labels := map[string]string{}
+		for k, v := range b.Labels {
+			labels[k] = v
+		}
+		labels[sbxInternalLabel] = "1" // over a blank one too
+		p := sbxPatch{Labels: &labels}
+		if v := b.Version; v > 0 {
+			p.Version = &v
+		}
+		nb, err := conn.Patch(ctx, id, p)
+		switch {
+		case err == nil && nb.Labels[sbxInternalLabel] == "":
+			return errors.New("its manager didn't keep the label")
+		case err == nil:
+			invalidateSandboxCatalog()
+			return nil
+		case sbxRefusal(err) != "precondition" || attempt >= 2:
+			return err
+		}
+		if b, err = conn.Get(ctx, id); err != nil {
+			return err
+		}
+	}
 }
 
 // binderWho is the caller a binding's By names (who.tag()), for re-checking

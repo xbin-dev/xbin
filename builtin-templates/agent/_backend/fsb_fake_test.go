@@ -150,6 +150,7 @@ type fsbSandbox struct {
 	Size         fsbSize           `json:"size"`
 	Isolation    string            `json:"isolation"`
 	Egress       string            `json:"egress"`
+	EgressNext   string            `json:"egressNext,omitempty"` // a PATCHed egress that applies at the next start
 	EgressDetail string            `json:"egressDetail"`
 	Owner        fsbOwner          `json:"owner"`
 	Visibility   string            `json:"visibility"`
@@ -554,13 +555,21 @@ func (b *fsbBox) usable() error {
 	switch b.State {
 	case "running":
 	case "stopped":
-		b.State = "running"
+		b.started()
 		b.Version++
 	default:
 		return fmt.Errorf("the sandbox is %s", b.State)
 	}
 	b.LastActive = fsbNow()
 	return nil
+}
+
+// started brings the sandbox up (m.mu held): a pending egress applies now.
+func (b *fsbBox) started() {
+	b.State = "running"
+	if b.EgressNext != "" {
+		b.Egress, b.EgressNext = b.EgressNext, ""
+	}
 }
 
 func fsbStateErr(w http.ResponseWriter, err error, state string) {
@@ -819,7 +828,6 @@ func (m *fsbManager) patch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	restart := false
 	if q.Name != nil {
 		b.Name = strings.TrimSpace(*q.Name)
 	}
@@ -836,8 +844,16 @@ func (m *fsbManager) patch(w http.ResponseWriter, r *http.Request) {
 		b.Labels = *q.Labels
 	}
 	if q.Egress != nil {
-		restart = *q.Egress != b.Egress
-		b.Egress = *q.Egress
+		// a running sandbox keeps its network until it restarts (egressNext);
+		// any other takes the new one at once
+		switch {
+		case b.State != "running":
+			b.Egress, b.EgressNext = *q.Egress, ""
+		case *q.Egress == b.Egress:
+			b.EgressNext = ""
+		default:
+			b.EgressNext = *q.Egress
+		}
 	}
 	if q.AutoStopMin != nil {
 		b.AutoStopMin = *q.AutoStopMin
@@ -847,7 +863,7 @@ func (m *fsbManager) patch(w http.ResponseWriter, r *http.Request) {
 	fsbJSON(w, http.StatusOK, struct {
 		fsbSandbox
 		RestartNeeded bool `json:"restartNeeded,omitempty"`
-	}{v, restart && b.State == "running"})
+	}{v, b.EgressNext != ""})
 }
 
 func (m *fsbManager) del(w http.ResponseWriter, r *http.Request) {
@@ -928,7 +944,9 @@ func (m *fsbManager) action(w http.ResponseWriter, r *http.Request) {
 			fsbStateErr(w, fmt.Errorf("a %s sandbox can't start", st), st)
 			return
 		}
-		b.State = "running"
+		if b.State == "stopped" {
+			b.started()
+		}
 	case "stop":
 		if b.State != "running" && b.State != "stopped" {
 			st := b.State
@@ -950,7 +968,7 @@ func (m *fsbManager) action(w http.ResponseWriter, r *http.Request) {
 		}
 		b.State = "stopped"
 		if q.Start {
-			b.State = "running"
+			b.started()
 		}
 	default:
 		m.mu.Unlock()
