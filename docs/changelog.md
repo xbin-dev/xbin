@@ -27,6 +27,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `GET`/`PUT /sandboxes/policy`, stop and delete with `?tile=`, and a
   `tileSandboxes` list in `GET /sandboxes`. Nothing changes for a
   workspace without a manager tile.
+- **Go SDK: tile sandboxes** ([sdk.md](sdk.md) §Tile sandboxes).
+  `xbin.SandboxAPI()` has a call for each of a manager tile's
+  `/api/xbin/sandboxes/…` routes: definitions and lifecycle, `Run`, execs
+  (`Output`, `Follow`, `Stdin`, `Signal`, `Resize`, `Kill`), files and tar
+  (streamed), `Copy` and snapshots. Refusals are `*xbin.SandboxError`, and
+  `errors.Is` works with `ErrSandboxNotFound`, `ErrSandboxLost` and
+  `ErrSandboxState`. `Forward`, `RelayTTY` and `RelayNewTTY` pass a
+  manager's own request through: both bodies stream, a terminal WebSocket
+  is tunnelled byte for byte, and the consumer's credentials and `X-XBin-*`
+  headers are dropped. So most contract routes take one line. Additive.
 
 ## 2026-09-27
 

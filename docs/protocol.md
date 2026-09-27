@@ -2147,6 +2147,8 @@ A **manager tile** runs coding sandboxes for the tiles it serves (the
 sandbox-manager contract, [sandbox-manager.md](sandbox-manager.md)). On
 xbin its backend defines and drives them through the routes below (D120),
 which mirror the contract, so the manager forwards most calls unchanged.
+The Go SDK wraps them: `xbin.SandboxAPI()` ([sdk.md](sdk.md) §Tile
+sandboxes).
 
 - **Who.** Only a *manager call* reaches them: the tile's **backend** — its
   instance token, over the gateway — holding **`cap:sandboxes`**, a grant

@@ -1558,6 +1558,40 @@ next to its vforking `os.StartProcess`.
 - **Depends on:** WP-13's protocol text, not its code. `sdk/ws` from
   `p3/prep` for `DialTTY` and the WS test; `Forward` doesn't need it.
 - **Parallel:** fully.
+- **As built (notes):**
+  - **`DialTTY` waits for `sdk/ws`.** `sdk/ws` is committed on `p3/prep`
+    (769d9654), not on this branch. `DialTTY` and the two `sdk/ws` tests
+    (`DialTTY`, and `Forward` of an upgrade with `ws.Upgrade`/`ws.Dial` on
+    both ends) are written against its documented API in
+    `sdk/sandbox_dialtty.go` and `sdk/sandbox_dialtty_test.go`, both behind
+    `//go:build ignore` with a "WIRE ON MERGE" note. They pass in a scratch
+    copy of the module with `p3/prep`'s `sdk/ws`. Once both branches are
+    merged, the integrator deletes the two build lines and adds `DialTTY` to
+    docs/sdk.md. The compiled `RelayTTY` test drives the upgrade with a raw
+    handshake (a browser's masked frame through, raw bytes back), which is
+    what "byte for byte" means anyway.
+  - **Small additions to §10:** `WriteSandboxError(w, err)` answers a
+    `*SandboxError` in the contract's shape, so a manager passes a refusal
+    on unchanged. `OutputChunk.Bytes()` decodes a base64 chunk.
+    `Sandbox.Name()`.
+  - **Route safety in the SDK.** A name, exec id or snapshot id that would
+    change the route (empty, `.`, `..`, one with a `/`) and the reserved
+    names are refused (400 `invalid`) before anything is sent. `Forward`
+    escapes each segment of `sub` and refuses the same segments.
+  - **`Refusal` is the runtime's own**, never derived from the status. A
+    plain 404 from an xbind without these routes doesn't read as
+    `ErrSandboxNotFound`.
+  - **`Follow`** asks for `base64`, so the bytes are exact and a character
+    split between two reads stays intact; `Bytes()` decodes. It yields
+    chunks that carry bytes or show a gap, then the last one. It skips
+    empty long-polls, and waits 250 ms after an empty answer that came back
+    at once, so it never spins.
+  - `ReadFile`'s `*FileStat` carries only `Path` and `ETag`; `Stat` has the
+    rest. `Forward` also strips `Set-Cookie` and `X-XBin-*` from the
+    answer, and answers 503 `unavailable` when xbind can't be reached.
+    `uid`/`gid` are `*int` in the SDK. `Reset` and `Rebase` take `wait`
+    like `Start` (§3.1 accepts `?wait` on every lifecycle call). The
+    snapshot calls live in `sandbox.go`.
 
 ### WP-15a — The runtime core: launch, agent client, start and stop (wave 2 · M, the critical path)
 

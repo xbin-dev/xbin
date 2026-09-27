@@ -153,6 +153,63 @@ if errors.Is(err, xbin.ErrNotifyRateLimited) { /* back off */ }
   never sees it.
 - `xbin.Notify(level, message)` is different: a toast in the web shell.
 
+### Tile sandboxes, for manager tiles — `xbin.SandboxAPI()`
+
+A **manager tile** serves the sandbox-manager contract
+([sandbox-manager.md](sandbox-manager.md)) to other tiles and can have
+xbind run its sandboxes (D120). Its backend needs **`cap:sandboxes`**, a
+grant only a workspace admin approves, and an xbind running with
+`--isolate`. The routes are in [protocol.md](protocol.md) §Tile sandboxes;
+the SDK has one call per route:
+
+```go
+sbx := xbin.SandboxAPI()
+rt, err := sbx.Runtime(ctx) // modes, egress classes, limits, and rt.Caps: what this xbind serves
+info, err := sbx.Create(ctx, xbin.SandboxSpec{Name: "sb-7f3a", Mode: "vm",
+	Net: &xbin.SandboxNet{Egress: "class:internet"}, ClientID: reqID})
+info, err = sbx.Start(ctx, "sb-7f3a", 30*time.Second) // Stop, Reset, Rebase alike; List, Get, Patch, Delete, Copy
+
+sb := sbx.Sandbox("sb-7f3a")
+res, err := sb.Run(ctx, xbin.RunRequest{Cmd: "go test ./...", Cwd: "/work"})
+ex, err := sb.Exec(ctx, xbin.ExecRequest{Cmd: "make", Stdin: true}) // Execs, GetExec, Stdin, Signal, Resize, Kill
+for c, err := range sb.Follow(ctx, ex.ID, 0) { // to the exec's end; c.Bytes() are exact
+	…
+}
+st, err := sb.WriteFile(ctx, "/work/a.go", r, xbin.WriteOptions{Mkdirs: true}) // ReadFile, Stat, List, Mkdir, Remove, Move
+tr, err := sb.GetTar(ctx, "/work", []string{"node_modules"})               // PutTar; both stream
+snaps, err := sb.Snapshots(ctx)                                             // Snapshot, RestoreSnapshot, DeleteSnapshot
+```
+
+- **Errors.** Every refusal is a `*xbin.SandboxError`: `Status`, the
+  contract's `Refusal`, `Message`, `State`, `ETag`, `RetryAfter`.
+  `errors.Is` matches `xbin.ErrSandboxNotFound`, `ErrSandboxLost` and
+  `ErrSandboxState`. `xbin.WriteSandboxError(w, err)` answers one to your
+  consumer unchanged. A route this xbind doesn't serve yet answers
+  `unsupported`. A name or id that would change the route (empty, `.`,
+  `..`, one with a `/`, or a reserved name: `runtime`, `policy`, `copy`)
+  is refused before anything is sent.
+- **Forwarding.** The runtime's routes mirror the contract's, so most of a
+  manager's routes pass its own request through:
+  `sb.Forward(w, r, "execs/"+eid+"/output", q)`. It streams both bodies and
+  copies the status and headers (but not `Set-Cookie`). It sends only the
+  query `q` you chose, never the consumer's raw query. It drops the
+  inbound `Cookie`, `Authorization`, `Sbx-User`, `X-XBin-*` and
+  `Sec-WebSocket-Extensions`: the call carries your tile's credential. Do
+  your own checks first (the verified person, the consumer's sandboxes).
+- **Terminals.** `sb.RelayTTY(w, r, eid, xbin.TTYOptions{SessionID,
+  SandboxID, ForUser})` relays a consumer's terminal WebSocket to a tty
+  exec, and `sb.RelayNewTTY(w, r, xbin.TTYStart{Cwd, Cmd, …})` starts one
+  (the login shell unless `Cmd`). The upgrade is tunnelled byte for byte,
+  so your backend needs no WebSocket code and the consumer speaks the
+  `/ws/term` wire end to end. `SessionID` and `SandboxID` put your own ids
+  in the session frame; `ForUser` is the verified person, refused by xbind
+  when they have no terminal access.
+- **Compatibility.** Request structs omit empty fields and answers decode
+  leniently, so a newer SDK works against an older xbind.
+- **Never hand your token to a sandbox.** A sandbox has no xbin identity:
+  `XBIN_*` variables are refused in its environment, and it has no route to
+  xbind.
+
 ## node backend (no SDK needed)
 
 The contract is just "HTTP on a unix socket + a couple of env vars", so a
