@@ -55,6 +55,9 @@ func validateFilteredInternet(ref string) error {
 }
 
 func (b *Broker) EgressFor(c *registry.Component) sandbox.EgressPolicy {
+	if !b.viewNetInherits(c) { // a non-primary view whose net edge is block (09-fabric §5.8)
+		return sandbox.EgressPolicy{}
+	}
 	var targets []string
 	switch nb := b.netBinding(c.Path); {
 	case nb == "internet":
