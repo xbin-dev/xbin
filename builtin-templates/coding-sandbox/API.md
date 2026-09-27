@@ -187,8 +187,8 @@ the tile): `403 not-allowed` otherwise. Errors are the contract's shape.
 
 A built image is `{id, runtime, snapshot, setupHash, mode, state:
 building|ready|error, detail, log, started, built, previous?}`. `previous`
-is the last good build (`{runtime, snapshot, setupHash, mode, state: ready,
-built}`), kept while this one is building or failed.
+is the last good build (`{id, runtime, snapshot, setupHash, mode, state:
+ready, started, built}`), kept while this one is building or failed.
 
 ## The page
 

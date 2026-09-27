@@ -392,10 +392,10 @@ manager of its own (its `API.md` has everything):
   `tty`, `snapshots`, `clone`; not `archive`), `hello.notes` say what it
   lacks.
 - **Images** are the runtime's base plus a setup script, built once as root
-  and cloned (a rebuild that fails keeps the previous good build); **sizes**, per-consumer and per-person **quotas**
-  (`hello.limits` carry the effective ones), the layout (a `dev` user in
-  `/work`), the idle stop and mounts of the tile's own filesystem
-  resources are its operators'.
+  and cloned (a rebuild that fails keeps the previous good build);
+  **sizes**, per-consumer and per-person **quotas** (`hello.limits` carry
+  the effective ones), the layout (a `dev` user in `/work`), the idle stop
+  and mounts of the tile's own filesystem resources are its operators'.
 - **Networks**: `none`, then `internet` and `open` while the copy's
   `sandbox-net` classes of those names are bound.
 - **Its page**: for its operators (write access to the tile) every
