@@ -1026,6 +1026,26 @@ Every card includes these; a card states only what differs.
   a file vanishes mid-read (`settledPass`); `drift.go`'s count has the same
   `git add` step and recomputes on the next save.
 
+#### WP-67 retention-wire · M · wave 2.0 · after the M1 exit
+- **Scope** (07-runtime §2.7, §9; 08-data §9; P9; the M1 exit's open item). M1 built the retention
+  pieces but no card wired them. This card calls them, and nothing else:
+  - `Store.GC` after every finished deploy of a tile, bounded by the retention 07 §2.7 sets:
+    current checkpoints, the last N deploy-log entries per deployment, and the age window;
+  - `Store.Sweep` at boot for each tile with a store (leftover `.tmp-*`), through the existing
+    plane start hook. No new boot step: boot.go stays closed, and a seam that needs a boot line
+    is an amendment for the integrator;
+  - `Runner.PruneArtifacts` after GC, keeping the artifacts and env layers of retained
+    checkpoints (NP-02-3: current plus the last three deploy-log entries);
+  - WP-23's restore put-back of deployment state (the record, the store and the view
+    repository), validated as 05-model §11 requires. That means refusing an archive naming another
+    tile before writing, and rebuilding the store from objects only.
+- **Owns.** `internal/deployments/retention.go` (new), `internal/deployments/retention_test.go`
+  (new), and seams in the files that expose `Store.GC`/`Sweep`/`PruneArtifacts` and WP-23's
+  restore hook (one call each).
+- **Tests.** `TestCheckpointGCAfterDeploy`, `TestSweepAtBoot`, `TestPruneKeepsRetained`,
+  `TestRestorePutsBackDeploymentState` (with a foreign-tile archive refused before any write).
+  Zero-state goldens stay green: a tile with no store is never touched.
+
 #### WP-31 qualifier · S · wave 2.1 · after WP-30
 - **Scope** (11-contract §2.1, §2.2, §2.4; NP-12-1). `ResolveRef`: a `+`-free
   fast path; a split only for a tile with a record, and only after today's
@@ -1823,7 +1843,7 @@ the order listed, then runs the gate.
 | 1.1 | | WP-24, WP-27, WP-S1, WP-10, WP-13, WP-14a, WP-18, WP-21, WP-22 | `make check`, `make integration` |
 | 1.2 | | WP-11, WP-12, WP-17, WP-16a, WP-16b, WP-19, WP-20, WP-23, WP-23b, WP-14b, WP-15, WP-25, WP-26 | the same, and harness `livereload` |
 | 1.3 | | WP-28, WP-29 | the M1 exit |
-| 2.0 | | WP-30 | `make check` |
+| 2.0 | | WP-30, WP-67 | `make check` |
 | 2.1 | | WP-31, WP-32, WP-35, WP-39, WP-59, WP-S2, WP-S3, WP-33, WP-49, WP-55, WP-58 | `make check`, `make integration` |
 | 2.2 | | WP-34, WP-40, WP-41, WP-43, WP-47, WP-36, WP-37, WP-51, WP-S4, WP-52, WP-56a, WP-56b | the same, and harness `deployments` |
 | 2.3 | | WP-38, WP-42, WP-44a, WP-44b, WP-46, WP-48, WP-50, WP-53a, WP-53b, WP-54, WP-57, WP-60, WP-66 | the same |
