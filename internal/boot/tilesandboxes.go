@@ -42,6 +42,8 @@ func (st *State) stepTileSandboxes() error {
 	// A bind, an unbind or a network-set change re-resolves the running
 	// sandboxes' classes: a narrowed one stops them (§4).
 	st.Broker.OnSandboxNetChange = st.TileSbx.OnSandboxNetChange
+	// Switching a user's noTerminal on kills the tty execs claimed for them (D88).
+	st.Broker.OnNoTerminal = st.TileSbx.OnNoTerminal
 	// The runner's sampler reads a tile sandbox's leaf inside the parent.
 	st.Run.TileCgroup = st.TileSbx.Cgroup()
 	return nil
@@ -161,7 +163,7 @@ func (s sandboxUsers) NoTerminal(user string) bool {
 		return false
 	}
 	u, ok := s.st.Users.Get(user)
-	return ok && u.NoTerminal
+	return ok && u.NoTerminal && !u.IsAdmin() // admins never have it (users.Access.NoTerminal)
 }
 
 type tileDiskQuota struct{ b *broker.Broker }

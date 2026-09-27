@@ -202,11 +202,7 @@ func TestNotBuilt(t *testing.T) {
 	e.create(ns("sb-1"))
 	for _, r := range [][2]string{
 		{"POST", "/sandboxes/sb-1/reset"},
-		{"POST", "/sandboxes/sb-1/rebase"}, {"POST", "/sandboxes/sb-1/run"}, {"GET", "/sandboxes/sb-1/execs"},
-		{"POST", "/sandboxes/sb-1/execs"}, {"GET", "/sandboxes/sb-1/execs/abc123-1"}, {"DELETE", "/sandboxes/sb-1/execs/abc123-1"},
-		{"GET", "/sandboxes/sb-1/execs/abc123-1/output"}, {"POST", "/sandboxes/sb-1/execs/abc123-1/stdin"},
-		{"POST", "/sandboxes/sb-1/execs/abc123-1/signal"}, {"POST", "/sandboxes/sb-1/execs/abc123-1/resize"},
-		{"GET", "/sandboxes/sb-1/execs/abc123-1/tty"}, {"GET", "/sandboxes/sb-1/tty"},
+		{"POST", "/sandboxes/sb-1/rebase"},
 		{"GET", "/sandboxes/sb-1/files/stat"}, {"GET", "/sandboxes/sb-1/files/content"}, {"PUT", "/sandboxes/sb-1/files/content"},
 		{"GET", "/sandboxes/sb-1/files/list"}, {"POST", "/sandboxes/sb-1/files/mkdir"}, {"POST", "/sandboxes/sb-1/files/remove"},
 		{"POST", "/sandboxes/sb-1/files/move"}, {"GET", "/sandboxes/sb-1/tar"}, {"PUT", "/sandboxes/sb-1/tar"},
@@ -217,6 +213,16 @@ func TestNotBuilt(t *testing.T) {
 		if r[1] != "/sandboxes/copy" {
 			e.want(e.do(mgr, r[0], strings.Replace(r[1], "sb-1", "sb-9", 1), nil), http.StatusNotFound, RefNotFound)
 		}
+	}
+	// The command routes are built: they find the sandbox first.
+	for _, r := range [][2]string{
+		{"POST", "/sandboxes/sb-9/run"}, {"GET", "/sandboxes/sb-9/execs"},
+		{"POST", "/sandboxes/sb-9/execs"}, {"GET", "/sandboxes/sb-9/execs/abc123-1"}, {"DELETE", "/sandboxes/sb-9/execs/abc123-1"},
+		{"GET", "/sandboxes/sb-9/execs/abc123-1/output"}, {"POST", "/sandboxes/sb-9/execs/abc123-1/stdin"},
+		{"POST", "/sandboxes/sb-9/execs/abc123-1/signal"}, {"POST", "/sandboxes/sb-9/execs/abc123-1/resize"},
+		{"GET", "/sandboxes/sb-9/execs/abc123-1/tty"}, {"GET", "/sandboxes/sb-9/tty"},
+	} {
+		e.want(e.do(mgr, r[0], r[1], nil), http.StatusNotFound, RefNotFound)
 	}
 	// A clone is unsupported too; a start on create that fails leaves it
 	// stopped, and says why (this runtime has no base rootfs).
@@ -240,7 +246,7 @@ func TestRuntime(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &rt); err != nil {
 		t.Fatal(err)
 	}
-	if !rt.Enabled || !rt.Isolation || rt.Users != "root" || len(rt.Caps) != 0 ||
+	if !rt.Enabled || !rt.Isolation || rt.Users != "root" || strings.Join(rt.Caps, ",") != "exec,tty" ||
 		rt.Limits.Sandboxes != 32 || rt.Limits.Running != 4 || rt.Limits.PerSandbox.MaxMemMiB != 8192 ||
 		rt.Limits.OutputRing != 1<<20 || rt.Limits.WaitMaxSec != 120 || rt.Used.Sandboxes != 1 {
 		t.Fatalf("runtime %+v", rt)

@@ -129,8 +129,8 @@ func (m *Manager) watch(r *run) {
 // teardown is §7's, once per run: the relay closed and then its TUN, the
 // leaf killed, its OOM kills read and the leaf removed, the book released,
 // the registry row, the factory and the control connection gone (every
-// session still open ends killed), and the sandbox stopped with why it
-// ended in stateDetail.
+// exec still running ends killed, its record and ring kept), and the
+// sandbox stopped with why it ended in stateDetail.
 func (m *Manager) teardown(r *run) {
 	r.once.Do(func() {
 		r.mu.Lock()
@@ -157,8 +157,9 @@ func (m *Manager) teardown(r *run) {
 			unlist()
 		}
 		if agent != nil {
-			agent.Close()
+			agent.Close() // every session still open ends killed
 		}
+		r.b.execs.awaitRun(r, execEndWait) // their records say so before a stop answers
 		r.fac.Close()
 		if r.modeUndo != nil {
 			r.modeUndo()

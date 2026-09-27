@@ -9,16 +9,19 @@
 // handlers and the runtime core: the launch (launch.go), the agent client
 // (agent.go), each sandbox's runs and their one teardown (lifecycle.go),
 // its relay (netcfg.go), its cgroup leaf (cgroup.go), its registry row
-// (registry.go) and the confined removal of what is deleted (trash.go).
-// What it needs from the rest of xbind comes in through Deps, small
-// interfaces a test fakes. Execs, files, snapshots and the lifecycle policy
-// (admission, idle) answer `unsupported` or do nothing until they are
-// built (plans/tile-sandbox-runtime.md §12).
+// (registry.go) and the confined removal of what is deleted (trash.go) —
+// and the commands a sandbox runs: execs and their output rings (exec.go,
+// ring.go), run (run.go) and the TTY WebSocket (tty.go). What it needs
+// from the rest of xbind comes in through Deps, small interfaces a test
+// fakes. Files, snapshots and the lifecycle policy (admission, idle)
+// answer `unsupported` or do nothing until they are built
+// (plans/tile-sandbox-runtime.md §12).
 package tilesbx
 
 import (
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/cgroup"
@@ -166,6 +169,14 @@ type Manager struct {
 	defs   *defStore
 	policy *policyStore
 	live   map[Key]map[string]*box
+
+	// Execs (exec.go): their ids are <boot>-<n>, boot random per xbind
+	// start, so an id from before a restart is told apart (410 lost); a
+	// tile's output rings share one budget (ring.go).
+	boot    string
+	execSeq atomic.Int64
+	ringsMu sync.Mutex
+	rings   map[string]*ringBudget // by tile
 }
 
 // New builds the runtime over a workspace and loads its definitions. An
@@ -176,7 +187,8 @@ func New(o Options) *Manager {
 		rootfs: o.Rootfs, bxPath: o.BxPath, launcher: o.Deps.Launcher,
 		modes: map[string]*modeOps{ModeNamespace: nsOps},
 		net:   &netState{budget: relay.NewBudget(flowBudgetSize()), listen: o.Deps.Listen},
-		live:  map[Key]map[string]*box{}}
+		live:  map[Key]map[string]*box{},
+		boot:  newBoot(), rings: map[string]*ringBudget{}}
 	if m.now == nil {
 		m.now = time.Now
 	}
@@ -209,21 +221,25 @@ type box struct {
 	flight *sync.Mutex
 	log    *logRing // its first process's output, across runs
 
-	state        string // creating | stopped | starting | running | stopping | error
-	detail       string // why: a failed start, a stop the runtime made
-	accel        string // a running VM's
-	started      int64  // unix ms
-	lastActive   int64  // unix ms
-	launched     *Def   // the definition the running sandbox started with
-	reach        string // the running relay's reach
-	egressNext   bool   // its class's rules widened since it started: they apply at the next start
-	run          *run   // the run up now (nil: none)
-	execsRunning int
-	diskBytes    int64 // allocated, measured at each stop
-	snapshots    int
+	state      string // creating | stopped | starting | running | stopping | error
+	detail     string // why: a failed start, a stop the runtime made
+	accel      string // a running VM's
+	started    int64  // unix ms
+	lastActive int64  // unix ms
+	launched   *Def   // the definition the running sandbox started with
+	reach      string // the running relay's reach
+	egressNext bool   // its class's rules widened since it started: they apply at the next start
+	run        *run   // the run up now (nil: none)
+	diskBytes  int64  // allocated, measured at each stop
+	snapshots  int
+
+	execs *execTable // its execs, across its runs (exec.go)
+	act   *activity  // its use: the idle stop's input (activity.go)
 }
 
-func newBox() *box { return &box{flight: &sync.Mutex{}, log: &logRing{}, state: StateStopped} }
+func newBox() *box {
+	return &box{flight: &sync.Mutex{}, log: &logRing{}, state: StateStopped, execs: newExecTable(), act: &activity{}}
+}
 
 // States a sandbox is in. StateCreating is a clone whose copy still runs
 // (Def.Pending "clone"): every call but GET, list and DELETE answers 409

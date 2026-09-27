@@ -89,8 +89,8 @@ func (m *Manager) info(k Key, d *Def) Info {
 		Defaults: d.Defaults, Labels: d.Labels, For: d.For, ForUser: d.ForUser,
 		IdleStopMin: d.IdleStopMin, AutoStart: d.AutoStart,
 		Base:  BaseInfo{Version: d.Base},
-		Users: m.users(d.Mode), DiskBytes: b.diskBytes, Snapshots: b.snapshots, ExecsRunning: b.execsRunning,
-		Created: d.Created, LastActive: b.lastActive, Version: d.Version, ClientID: d.ClientID,
+		Users: m.users(d.Mode), DiskBytes: b.diskBytes, Snapshots: b.snapshots, ExecsRunning: b.execs.runningCount(),
+		Created: d.Created, LastActive: b.lastUsed(), Version: d.Version, ClientID: d.ClientID,
 	}
 	if in.IdleStopMin == 0 {
 		in.IdleStopMin = lim.IdleStopMin
@@ -189,10 +189,9 @@ type Used struct {
 	DiskBytes int64 `json:"diskBytes"`
 }
 
-// builtCaps are the contract capabilities this runtime serves. The exec,
-// file, tar, tty, snapshot and clone routes answer unsupported until they
-// are built, so none is claimed yet.
-var builtCaps = []string{}
+// builtCaps are the contract capabilities this runtime serves. The file,
+// tar, snapshot and clone routes answer unsupported until they are built.
+var builtCaps = []string{"exec", "tty"}
 
 // runtime builds a tile's Runtime. Callers hold m.mu.
 func (m *Manager) runtime(k Key) Runtime {

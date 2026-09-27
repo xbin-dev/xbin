@@ -80,7 +80,7 @@ type SandboxError struct {
 // Refusals errors.Is matches on a *SandboxError.
 var (
 	ErrSandboxNotFound = errors.New("sandbox: not found")          // refusal not-found: no such sandbox, exec, snapshot or path
-	ErrSandboxLost     = errors.New("sandbox: exec lost")          // refusal lost: the exec is gone (another xbind run, or its sandbox stopped)
+	ErrSandboxLost     = errors.New("sandbox: exec lost")          // refusal lost: the exec is gone (it ran before xbind restarted)
 	ErrSandboxState    = errors.New("sandbox: in the wrong state") // refusal state: SandboxError.State says which
 )
 

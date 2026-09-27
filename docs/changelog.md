@@ -167,11 +167,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   declares in `uses` (a grant alone mounts nothing), `none` egress or a
   sandbox-net slot, no `XBIN_*` variables). Each sandbox has a `uid`, its
   identity: a name deleted and created again gets another, so a manager
-  can tell the two apart. Start and stop run sandboxes (next bullet); every
-  other route of the contract — reset and rebase, `run`, execs and their
-  output, the TTY WebSocket, files, tar, copy and snapshots — is registered
-  and answers 501 `unsupported` for now; `runtime.caps` lists what is
-  served. Errors use the
+  can tell the two apart. Start and stop run sandboxes, and commands run in
+  them (the next two bullets); every other route of the contract — reset
+  and rebase, files, tar, copy and snapshots — is registered and answers
+  501 `unsupported` for now; `runtime.caps` lists what is served. Errors use the
   sandbox-manager contract's `{error, refusal}` shape. A path with a `.`
   or `..` segment or an encoded `/`, `.` or `\`, or a name, exec id
   (`[0-9a-f]{6}-<n>`) or snapshot id (`s-<n>`) that fails its grammar, is
@@ -201,8 +200,31 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   sandboxes as `kind: "tile"` rows with `name`, `for` and `forUser`, and
   `health.tileSandboxes` reports the relays' shared connection budget and
   why the sandboxes run without cgroup limits, if they do. VM mode, reset,
-  rebase, commands, files and snapshots still answer as before. Nothing
-  changes for a workspace without a manager tile.
+  rebase, files and snapshots still answer as before. Nothing changes for
+  a workspace without a manager tile.
+- **Tile sandboxes run commands: `run`, execs, their output, stdin,
+  signals and terminals** (D120, [protocol.md](protocol.md) §Tile
+  sandboxes). A manager tile's `POST /sandboxes/<name>/run` and `…/execs`
+  now run commands in its sandbox, starting a stopped one with `autoStart`,
+  with the sandbox-manager contract's bodies and answers, so the manager
+  forwards them unchanged: `run` answers `{exitCode, signal, timedOut, ms,
+  stdout, stderr}` (head and tail past `maxOutput`; TERM then KILL at
+  `timeoutMs`; a hang-up kills the group); an exec's output is one stream
+  read by byte offset with a long-poll (`…/output?since=&waitMs=`), and
+  `stdin` (with `?eof=1`), `signal` (`group` defaults to true), `resize`
+  and `DELETE` work. `…/execs/<id>/tty` and `…/tty` are WebSockets on the
+  `/ws/term` wire (the session frame first, with the manager's
+  `sessionId`/`sandboxId`; the ring replayed; echo acks; the exit with its
+  code or signal), for the manager's instance token only. A command gets
+  `IN_SANDBOX=1`, `SANDBOX_ID`, `SANDBOX_NAME` and `HOME` from xbind, then
+  `defaults.env` and its own `env`; a `cwd` that doesn't exist is 400. A
+  stop, however it comes, ends the running execs `killed` (`signal:
+  "KILL"`) and keeps their output; only an exec id from before an xbind
+  restart is 410 `lost`. A sandbox runs at most 16 commands at once
+  (`runtime.limits.execsRunning`), and a terminal claimed for a user with
+  `noTerminal` (D88) is refused, and killed when it is switched on.
+  `runtime.caps` now lists `exec` and `tty`. Nothing changes for a
+  workspace without a manager tile.
 - **Go SDK: tile sandboxes** ([sdk.md](sdk.md) §Tile sandboxes).
   `xbin.SandboxAPI()` has a call for each of a manager tile's
   `/api/xbin/sandboxes/…` routes: definitions and lifecycle, `Run`, execs

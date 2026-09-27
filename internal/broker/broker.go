@@ -91,6 +91,10 @@ type Broker struct {
 	// sandbox runtime re-resolves each running sandbox's class; the tile's
 	// own backend is never restarted for it.
 	OnSandboxNetChange func(tile string)
+	// OnNoTerminal, if set, is told a user whose noTerminal (D88) was just
+	// switched on: the tile-sandbox runtime kills the tty execs claimed for
+	// them. Called on the request goroutine; return promptly.
+	OnNoTerminal func(userID string)
 
 	// OnUserSignedOut, if set, is called after a user was signed out
 	// everywhere — by an admin, by disabling the account, or by deleting it

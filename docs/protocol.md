@@ -2235,10 +2235,11 @@ sandboxes).
   says `isolation: false`.
 - **In this xbind** the definition routes work — runtime, policy, list,
   create, get, patch, delete — and so do start and stop, for namespace
-  mode (VM mode is unavailable). Reset, rebase and the command, terminal,
-  file, tar and snapshot routes are registered and answer 501
+  mode (VM mode is unavailable), and the commands: `run`, execs and their
+  output, stdin, signals, resizes and the TTY WebSocket. Reset, rebase and
+  the file, tar and snapshot routes are registered and answer 501
   `unsupported`; `runtime.caps` lists the contract capabilities served
-  (none yet).
+  (`exec`, `tty`).
 
 ```
 GET    /sandboxes/runtime          manager. what this tile may use now → {enabled,
@@ -2446,16 +2447,90 @@ previous one, `null` removes it. `runtime.limits.flows` is each sandbox's
 cap on concurrent network connections (TCP and UDP flows through its relay);
 past it a new one is refused at once.
 
+**Commands** (`run`, `execs`) are the contract's, byte for byte
+([sandbox-manager.md](sandbox-manager.md) §Running commands), plus `uid`,
+`gid` and `forUser` (a claim, like the definition's):
+
+- **What runs.** `argv`, or `cmd` run as `<defaults.shell or /bin/sh> -lc
+  <cmd>` — one of them, never both. `cwd` defaults to `defaults.cwd`, else
+  `/`, and must exist: a missing one is 400 `invalid`, never a fallback to
+  `/`; so is an `argv` whose program can't start. `uid`/`gid` default to
+  the definition's (`users: root` allows only 0). `argv` and `env` together
+  are at most 256 KiB (413). The environment is xbind's: `IN_SANDBOX=1`
+  (always), `SANDBOX_ID` and `SANDBOX_NAME` (the sandbox's name), `HOME`
+  (`/root` for root, `/` for any other user) and a `PATH`, with
+  `defaults.env` and then the command's `env` over them; `XBIN_*` keys are
+  400. Nothing of xbind's or of the agent's own environment gets in. Each
+  command leads its own process group, and it is what the OOM killer
+  takes first.
+- **A stopped sandbox** with `autoStart` (the default) is started for a
+  command, and a `starting` one waited for; without `autoStart` it is 409
+  `state`. A run's `timeoutMs` doesn't count the start.
+- **Limits.** A sandbox runs at most `runtime.limits.execsRunning` (16)
+  commands at once — execs and runs together; past it 429 `limit`.
+- **`run`** answers when the command ends: `{exitCode, signal, timedOut,
+  ms, stdout, stderr}` (`output` with `merge`), each `{head, tail, elided,
+  bytes}` — past `maxOutput` (default and cap `runOutputMax`, 1 MiB per
+  stream) its first quarter in `head` and its last three quarters in
+  `tail`; text is UTF-8 with invalid bytes replaced. `timeoutMs` defaults
+  to 60000 (cap `runTimeoutMaxMs`); at it the process group gets TERM,
+  then KILL 5 s later, and `timedOut` is true. A caller that hangs up has
+  the group killed. `stdin` is a string (at most `stdinMax`). A run isn't
+  listed.
+- **Execs.** `POST …/execs` answers 201 once the command runs (200 when a
+  `clientId`, per sandbox, repeats the same request; 409 `exists` for
+  another). Its id is `<6 hex>-<n>`, the hex random per xbind start: an id
+  from before xbind restarted is 410 `lost` — the only `lost` — and one
+  this sandbox doesn't have is 404. An exec is `{id, label, cmd, argv,
+  cwd, tty, state (running | exited | killed), exitCode, signal, started,
+  ended, total, clientId, forUser, uid}`: `killed` when a signal ended it
+  (`exitCode` null, `signal` names it), and when its timeout or a `DELETE`
+  did. **A stop — the manager's, an admin's, or however the sandbox ended
+  — ends its running execs `killed` with `signal: "KILL"`**; their records
+  and output stay. A finished exec is kept an hour, and past that while it
+  is one of the sandbox's last 50 (at most 1000 within the hour); deleting
+  the sandbox forgets them all. `timeoutMs` (0 = none) sends TERM to the
+  group, then KILL 5 s later.
+- **Output.** A non-tty exec's stdout and stderr are one stream, a tty
+  exec's is its terminal, kept in a ring of `limits.outputRing` bytes;
+  the tile's rings share the policy's `outputBudgetMiB`, and past it the
+  oldest finished exec's bytes go first (its `ringStart` moves). `GET
+  …/output?since=&max=&waitMs=&encoding=` answers `{start, end, total,
+  ringStart, data, encoding, state, exitCode, signal}`: the bytes from
+  `since` (or the ring's oldest: `start > since` is a gap), at most `max`
+  (default 64 KiB, cap 1 MiB); with nothing past `since` while the exec
+  runs it waits up to `waitMs` (cap 30000) and answers as soon as the exec
+  ends. `text` never splits a character across two reads (`end` stops
+  before it) and replaces invalid bytes; `base64` is exact. A `since` past
+  `total` is 400.
+- **stdin** (`POST …/stdin`, the raw body, at most `stdinMax`) goes to an
+  exec started with `stdin: true`, or to a tty exec's terminal; `?eof=1`
+  closes stdin after it (a tty's is 400: send `^D`). Without `stdin: true`
+  it is 400, after the exec ended 409 `state`, and a command that doesn't
+  read it for 30 s answers 503. **signal** takes `{signal: INT | TERM |
+  KILL | HUP, group?}`: `group` defaults to true, so a forwarded
+  `{"signal":"INT"}` reaches the whole process group. **resize** is a tty
+  exec's (`{rows, cols}`, 1…65535). Both are 409 `state` once the exec
+  ended. `DELETE …/execs/<id>` kills the group and forgets the exec.
+
 **The TTY routes** are WebSockets on exactly the `/ws/term` wire (below):
-binary frames both ways (the ring's tail replays first), `{"op":
-"session","id":…,"sandbox":…,"echoAck":true}` first, acks and pongs, and
-`{"op":"exit","code":N}` at the end; the client sends `resize` and `ping`.
-`sessionId` and `sandboxId` replace the session frame's `id` and `sandbox`,
-so a manager relaying the bytes shows its consumer its own ids. Only the
-manager's instance token reaches them — no person does; the manager relays
-the socket to its consumer's page. A tty exec whose `forUser` names a user
-with `noTerminal` (D88) is 403, checked again at every attach; non-tty
-execs aren't restricted by it.
+binary frames both ways (the ring's tail replays first, at most 256 KiB),
+`{"op":"session","id":…,"sandbox":…,"echoAck":true}` first, acks and
+pongs, and `{"op":"exit","code":N}` at the end (`code` null and a `signal`
+when a signal ended it); the client sends `resize` and `ping`. `sessionId`
+and `sandboxId` (`[A-Za-z0-9._-]{1,64}`) replace the session frame's `id`
+and `sandbox`, so a manager relaying the bytes shows its consumer its own
+ids. `GET …/tty` starts a tty exec — the login shell (`<shell> -l`), or
+`cmd` — labelled `terminal` and listed under `execs`, and attaches; an
+attach to a tty exec that ended replays its ring and says `exit`. A client
+that leaves doesn't end the command. Refusals come before the upgrade, as
+JSON: a request that isn't a WebSocket upgrade is 400, and so is an attach
+to an exec without a terminal. Only the manager's instance token reaches
+them — no person does; the manager relays the socket to its consumer's
+page. A tty exec whose `forUser`, or an attach whose `forUser`, names a
+user with `noTerminal` (D88) is 403, checked again at every attach, and
+switching a user's `noTerminal` on kills the tty execs claimed for them
+(and those they attached to); non-tty execs aren't restricted by it.
 
 ## WebSockets
 

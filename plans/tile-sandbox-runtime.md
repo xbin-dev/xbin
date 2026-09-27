@@ -3546,6 +3546,138 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
   `code`/`signal` on `exit` as tile-TTY behaviour (`docs/protocol.md`
   §`/ws/term`); this WP implements them.
 - **Parallel:** with WP-16, WP-18 and WP-19.
+- **As built** (branch `p2/wp17`):
+  - *Files.* `exec.go` (the records, start/pump/watch/finish, timeouts,
+    kill), `command.go` (the command builder `execOf`, `sessionEnv`, the
+    signal names), `exectable.go` (a sandbox's execs, `execsRunning`,
+    retention),
+    `ring.go` (the ring and the tile's `ringBudget`), `run.go` (`run` and
+    its `headTail` collector), `tty.go` (both TTY routes, the attach,
+    `OnNoTerminal`), `api_exec.go` (the handlers, `execFor`), and
+    `activity.go` (the seams below). `agent.go` gains `sendWithin` and
+    `abandon`; `lifecycle.go`'s teardown waits for its execs' records;
+    `api.go`'s `Delete` forgets the sandbox's execs (their rings go back to
+    the budget). Broker: `OnNoTerminal func(userID)` (`broker.go`), fired
+    from `applyPersonal` when `noTerminal` switches on; boot wires it.
+  - *Seams for WP-15b* (`activity.go`, kept minimal so its helpers replace
+    the bodies): `box.act` = `activity{last, inflight, clients}` (atomics);
+    `m.touch(b)` on every command route, output chunk, input write and TTY
+    attach/frame; `m.hold(b) func()` held by a `run` and by every non-tty
+    exec for its life; a TTY hub's `OnClients` adds to `clients`
+    (`ttyClients`). `SandboxInfo.lastActive` reads `box.lastUsed()` (the
+    run's end or the last activity). **`ensureRunning(k, name) (*box, *run,
+    error)`** is the auto-start every command calls: running → its run;
+    `starting` → the flight is waited for; stopped/stopping with
+    `autoStart` → `Start` (which waits out a stop in the flight); without
+    `autoStart` → 409 `state`. It has no `waitMaxSec` bound and a
+    `stopping` sandbox without `autoStart` answers 409 at once instead of
+    after the stop: WP-15b's helper replaces it (WP-18 needs the same).
+  - *Semantics as specified:* ids `<boot>-<n>` (`m.boot`, 6 random hex per
+    `New`; `m.execSeq`); another boot's id → 410 `lost` before any lookup,
+    this boot's unknown one 404; a teardown ends every running exec
+    `killed`/`KILL`/`exitCode` null through the agent client's `Close`, and
+    the teardown now waits (≤ 3 s, `awaitRun`) until those records say so,
+    so a stop's answer already shows them; records and rings are kept
+    across runs. Non-tty execs run `Merge`; a tty's stream is its PTY; the
+    signal body decodes `Group *bool` (nil = true). `run`: head = the first
+    `max/4`, tail = the last `max - max/4`, elided the rest (the contract's
+    example is a unit test), UTF-8 replaced; TERM at `timeoutMs`, KILL 5 s
+    later; a hang-up (the request's context) KILLs the group.
+  - *Decisions the spec left open:*
+    - **The environment** (`sessionEnv(d, env, uid)`): `PATH`, `HOME`
+      (`/root` for uid 0 or none, `/` otherwise — set it in
+      `defaults.env` for a non-root user), `SANDBOX_ID` = `SANDBOX_NAME` =
+      the sandbox's name, then `defaults.env`, then the command's `env`,
+      then `IN_SANDBOX=1` forced; `XBIN_*` dropped (and 400 at the route).
+    - **Every tile-sandbox exec sets `NoSync`**, namespace mode too: the
+      stop syncs, and a per-exit `syncfs` would stall every short command
+      (and hang on a stopped fuse-overlayfs).
+    - **An exec answers 201 only once the agent says it runs** (≤ 30 s):
+      its "error" (a missing `cwd` — `CwdStrict` always, default
+      `defaults.cwd`, else `/` — or a program that can't start) is 400
+      `invalid` and nothing is kept; no answer is 503 and the session is
+      given up (`abandon`). The streams are read from before the wait.
+    - **Retention** adds a cap: within the hour at most 1000 finished
+      records per sandbox (the last 50 are always kept), so a burst of
+      short execs can't grow xbind without bound. Pruning runs on a list
+      and on each new exec.
+    - **The ring budget** drops the oldest finished ring whole first, as
+      specified; with none left it trims the oldest bytes of the running
+      ring holding the most (running execs can together pass the budget:
+      16 × `outputRingMiB` 8 > 64). It counts bytes held, not capacity.
+    - **Output reads:** `since` past `total` is 400; `max` is clamped to
+      1…1 MiB (default 64 KiB) and `waitMs` to 30 000; `text` ends a read
+      before a character cut short (unless it is all the read has, or the
+      exec ended), so a reader moving `since` to `end` never sees a split
+      character; `base64` is exact. The chunk's `state` is read after the
+      bytes, and a record turns non-running only after its stream was read
+      to the end (≤ 3 s after the exit, 0.5 s after a stop), so `state !=
+      running && end == total` means done (the SDK's `Follow`).
+    - **stdin** writes the body in 32 KiB pieces, each bounded by 30 s (a
+      command that doesn't read it: 503); `eof=1` half-closes the stream
+      (the VM shim propagates it). On a **tty** exec `eof` is 400 (send
+      `^D`): half-closing a PTY's input would end the TTY's input too.
+      `run`'s body cap is `2 × (stdinMax + argvEnvMax) + 64 KiB` (its
+      stdin is a JSON string, escaped), and `stdin` itself ≤ `stdinMax`.
+    - **Bodies and bounds:** argv + env ≤ 256 KiB → 413; `label` ≤ 128;
+      `timeoutMs` < 0 → 400 (capped at a year for execs); `rows`/`cols`
+      1…65535 (a tty defaults to 24×80).
+    - **TTY:** the start route runs `<shell> -l` (or `<shell> -lc cmd`),
+      labelled `terminal`; the hub replays 256 KiB. When an exec ends its
+      hub is dropped, and a later attach builds an ended hub from the
+      ring's tail (so finished TTYs cost only their ring, under the
+      budget). A request that isn't an upgrade, a bad `sessionId`/
+      `sandboxId`, and an attach to a non-tty exec are 400 before the
+      upgrade. A resize travels on `ctl` and keystrokes on the PTY stream,
+      so "a resize before the keystrokes after it" holds only as far as the
+      agent's control loop runs first (it has no resize ack) — true in
+      every test, not guaranteed.
+    - **D88:** `OnNoTerminal` kills (KILL, group) every running tty exec
+      claimed for the user **or attached to with that `forUser`** — an
+      attach's claim is remembered per exec — since that user held a live
+      terminal on it. `sandboxUsers.NoTerminal` now also says false for an
+      admin, as `users.Access.NoTerminal` does.
+  - *WP-15a's note closed:* `Exec`, `Signal` and `Resize` send through
+    `sendWithin` (10 s, `ctlSendWait`): an agent that stopped reading its
+    control connection answers 503, never hangs the request
+    (`TestControlSendsBounded`, net.Pipe; mutation-checked).
+  - *Found and fixed in WP-15a's launch:* a data race between the
+    watcher's `Proc.Cleanup` and the start's `SetupUserns` when the init
+    dies at once (both touch the handle's sync pipe): `-race` over the
+    integration suite, which hadn't run with it, caught it in
+    `TestLive/*/mount refusals`. `nsProc` now serializes the two (`hmu`).
+  - *Tests.* Unit (`ring_test.go`, `run_test.go`: offsets across wraps, a
+    gap, the long-poll's wake/end/timeout/hang-up, the budget's order, the
+    text cut; head/tail arithmetic from the contract's example in every
+    chunking, UTF-8, signal names, the environment). With the fake
+    launcher (`exec_linux_test.go`, `tty_linux_test.go`; its sessions are
+    host processes, and the fake's death now KILLs their groups as a pid
+    namespace's would): an exec auto-starting its sandbox, ids and their
+    grammar, the environment, every refusal listing nothing, `cmd` through
+    the shell, 410/404, DELETE; `clientId` (4 concurrent repeats → one
+    exec); the long-poll and the text boundary; stdin/eof/413; a signal
+    without `group` reaching a grandchild and `group:false` not; an exec's
+    timeout; a stop (and the agent dying) ending execs `killed` with their
+    output kept, and a delete giving the rings back; the 16 cap for execs
+    and runs; `run` (streams, merge, head/tail, stdin, a timeout killing a
+    grandchild, 400/413); a hang-up (the hold and the slot released); the
+    TTY (session frame with overrides, the echo ack, exit code, replay of
+    an ended one, reattach, a resize by the route read back by `stty`,
+    ping/pong, refusals) and D88 (start, attach, `OnNoTerminal` for a
+    claim and for an attach). Mutation-checked: `group` default flipped,
+    the teardown's wait removed, `Signal` unbounded — each fails its test.
+    Integration (`exec_live_linux_test.go`, over a minimal lower and the
+    rootfs with fuse-overlayfs): the environment inside, an exec
+    auto-starting, 400s, 20 concurrent execs (429 retried), a run's
+    timeout and a hang-up killing a grandchild (checked inside by the
+    probe), `{"signal":"INT"}` reaching a grandchild, stdin, the TTY (with
+    `readexit`; on the rootfs also the login shell with `stty size` and a
+    `cmd`), a stop ending an exec `killed` with its output, and a second
+    Manager over the same workspace answering 410. **VM mode:**
+    `testLiveExecs(t, le, mode, hasShell)` takes the mode; WP-16 calls it
+    with `ModeVM` (the probe is a static binary on a `{source:true}`
+    mount). New probe ops: `echo`, `env`, `copy`, `tree`, `alive`,
+    `readexit`.
 
 ### WP-18 — Files, tar, copy (wave 2 · S/M · after WP-15a)
 
