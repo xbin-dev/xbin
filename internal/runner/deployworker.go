@@ -46,8 +46,9 @@ const (
 // status, and the compiler output goes to the deployment's log (§8.4). A
 // deploy of the work tree (resume, attach) is today's rebuild, announced by
 // build-* for the primary. After a swap that changed what the deployment
-// serves, the runner announces one reload: the bare reload for the primary
-// (§8.5; Code.Identical tells a same-files move). Besides:
+// serves, the runner announces one reload: the bare reload for the primary,
+// a deployments reload for any other deployment (§8.5; Code.Identical tells
+// a same-files move). Besides:
 //   - the code a healthy generation already runs: nothing to do (§8.7);
 //   - no generation and none failing (never started, reaped): the code is
 //     prepared, built so its errors surface now, and the next request
@@ -56,10 +57,11 @@ const (
 //   - a failing deployment (crash loop, failed start) gets a new generation,
 //     which clears its breaker.
 //
-// Refused before anything is touched, neither callback called: a deployment
-// other than the primary (only it has runner state in this release), code no
-// view describes, a disabled tile, and a backend pinned to a checkpoint on
-// an xbind without isolation (P18, ErrNeedsIsolation).
+// Refused before anything is touched, neither callback called: a name the
+// record doesn't hold (util.ErrNoDeployment), code no view describes, a
+// disabled tile, a backend pinned to a checkpoint on an xbind without
+// isolation (P18, ErrNeedsIsolation), and there, too, a backend of any
+// deployment but main as the primary.
 func (r *Runner) Deploy(ctx context.Context, c *registry.Component, dep string, code Code, commit func() error, progress DeployProgress) error {
 	return r.deploy(ctx, c, dep, code, commit, progress, false)
 }
@@ -71,9 +73,6 @@ func (r *Runner) Deploy(ctx context.Context, c *registry.Component, dep string, 
 // reload; besides progress, build-* report it for the primary, as any restart
 // of its current code.
 func (r *Runner) Restart(ctx context.Context, c *registry.Component, dep string, progress DeployProgress) error {
-	if dep != r.primary(c.Path) {
-		return util.NoDeployment(c.Path, dep)
-	}
 	code, err := r.codeFor(c.Path, dep)
 	if err != nil {
 		return err
@@ -105,14 +104,17 @@ func (inst *instance) served() Code {
 }
 
 func (r *Runner) planDeploy(c *registry.Component, dep string, code Code, restart bool) (*deployPlan, error) {
-	if dep != r.primary(c.Path) {
-		return nil, util.NoDeployment(c.Path, dep)
+	primary := dep == r.primary(c.Path)
+	if !primary {
+		if _, err := r.recordCode(c.Path, dep); err != nil {
+			return nil, err
+		}
 	}
 	if code.WorkTree == (code.Tree != "") {
 		return nil, fmt.Errorf("%s: a generation runs the work tree or one checkpoint", c.Path)
 	}
 	p := &deployPlan{dep: dep, code: code.runs(), identical: code.Identical, restart: restart}
-	view, err := r.view(c, p.code)
+	view, err := r.viewOf(c, dep, p.code, "")
 	if err != nil {
 		return nil, err
 	}
@@ -122,6 +124,9 @@ func (r *Runner) planDeploy(c *registry.Component, dep string, code Code, restar
 	p.view = view
 	if !view.HasBackend() {
 		return p, nil // served by the static plane: needs no isolation, starts nothing
+	}
+	if !r.Isolate && p.code.WorkTree && (!primary || dep != util.MainDeployment) { // P18
+		return nil, fmt.Errorf("%s: deployment %s runs only in a sandbox (--isolate), and this xbind runs backends without one", c.Path, dep)
 	}
 	if !p.code.WorkTree {
 		if !r.Isolate {
@@ -157,8 +162,8 @@ func (r *Runner) deploy(ctx context.Context, c *registry.Component, dep string, 
 	backend := p.view.HasBackend()
 	var s *state
 	if backend {
-		s = r.state(c.Path)
-	} else if s = r.existingState(c.Path); s == nil {
+		s = r.stateOf(c.Path, dep)
+	} else if s = r.existingStateOf(c.Path, dep); s == nil {
 		return r.deployStatic(c, nil, p, commit, rep) // no generation to drain
 	}
 	if err := takeTurn(ctx, s); err != nil {
@@ -242,13 +247,6 @@ func releaseTurn(s *state) {
 	s.building = false
 	close(s.buildDone)
 	s.mu.Unlock()
-}
-
-// existingState is comp's runner state, never creating one.
-func (r *Runner) existingState(comp string) *state {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.states[comp]
 }
 
 // deployStatic puts code without a backend on the deployment: the static
@@ -345,7 +343,7 @@ func (r *Runner) deploySwap(c *registry.Component, s *state, p *deployPlan, comm
 	if !r.shouldRun(tile, dep) { // disabled while it built
 		err = fmt.Errorf("component %s is not enabled", tile)
 	} else {
-		inst, err = r.spawn(g.view, g.bin, gen)
+		inst, err = r.spawnFor(g.view, dep, g.bin, gen)
 	}
 	if err != nil {
 		g.release()
@@ -358,10 +356,10 @@ func (r *Runner) deploySwap(c *registry.Component, s *state, p *deployPlan, comm
 	inst.code, inst.root, inst.artifact = p.code, g.root, g.artifact
 
 	rep.step(PhaseSwap)
-	s.mu.Lock()
-	s.cur = inst
-	s.lastReq = r.now()
-	s.mu.Unlock()
+	if !r.install(s, inst, true) {
+		g.release()
+		return rep.failed(util.NoDeployment(tile, dep)) // removed while it deployed
+	}
 	if err := commit(); err != nil {
 		// The record didn't take the new code: its previous generation keeps
 		// serving what the record names; the new one stops.
@@ -397,10 +395,15 @@ func (r *Runner) deploySwap(c *registry.Component, s *state, p *deployPlan, comm
 	return nil
 }
 
-// spawn starts generation gen from bin and waits until it answers; one that
-// never does is stopped.
+// spawn is spawnFor the deployment view names.
 func (r *Runner) spawn(view *registry.Component, bin string, gen int) (*instance, error) {
-	inst, err := r.startGen(view, bin, gen)
+	return r.spawnFor(view, r.viewDeployment(view), bin, gen)
+}
+
+// spawnFor starts generation gen of deployment dep from bin and waits until
+// it answers; one that never does is stopped.
+func (r *Runner) spawnFor(view *registry.Component, dep, bin string, gen int) (*instance, error) {
+	inst, err := r.startFor(view, dep, bin, gen)
 	if err != nil {
 		return nil, err
 	}
@@ -433,7 +436,7 @@ func (r *Runner) deployBuild(c *registry.Component, p *deployPlan) (genPlan, err
 	if err := checkpointEntry(p.view); err != nil {
 		return genPlan{}, err
 	}
-	return r.resolveGen(c, p.code)
+	return r.resolveGenFor(c, p.dep, p.code)
 }
 
 // checkpointEntry checks that an interpreted checkpoint has its entry file,

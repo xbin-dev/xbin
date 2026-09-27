@@ -14,7 +14,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/cgroup"
 	"github.com/xbin-dev/xbin/internal/events"
@@ -110,11 +113,13 @@ func (r *Runner) codeFor(tile, dep string) (Code, error) {
 }
 
 // recordCode is what deployment dep of tile runs, as its record says.
+// Without CodeFor there is no record: the primary (main, unless Primary
+// says otherwise) follows the work tree, and no other name exists.
 func (r *Runner) recordCode(tile, dep string) (Code, error) {
 	if f := r.CodeFor; f != nil {
 		return f(tile, dep)
 	}
-	if dep != util.MainDeployment {
+	if dep != r.primary(tile) {
 		return Code{}, util.NoDeployment(tile, dep)
 	}
 	return Code{WorkTree: true}, nil
@@ -220,50 +225,97 @@ func (r *Runner) emit(tile, dep, typ, text string) {
 }
 
 // EnsureDeployment returns the unix socket of a healthy backend for
-// deployment dep of c, as Ensure does for the primary. Only the primary runs
-// until the runner keys its state by deployment; any other name is refused
-// with util.ErrNoDeployment. A pinned backend on an xbind without isolation
-// is held with the reason (C7).
+// deployment dep of c, single-flight per (tile, deployment): the primary's
+// as Ensure's, any other from its own code (ensureOther). A name the record
+// doesn't hold is refused with util.ErrNoDeployment and creates no state. A
+// pinned backend on an xbind without isolation is held with the reason
+// (C7).
 func (r *Runner) EnsureDeployment(ctx context.Context, c *registry.Component, dep string) (string, error) {
 	if dep != r.primary(c.Path) {
-		return "", util.NoDeployment(c.Path, dep)
+		return r.ensureOther(ctx, c, dep)
 	}
 	if c.HasBackend() {
 		if err := r.heldWithoutIsolation(c.Path, dep); err != nil {
 			return "", err
 		}
 	}
-	return r.Ensure(ctx, c)
+	return r.ensurePrimary(ctx, c, dep)
 }
 
 // TrackDeployment marks one in-flight connection to deployment dep of tile,
-// as Track does for the primary. Another deployment has nothing to track.
+// as Track does for the primary. Another deployment is tracked only once it
+// has state (EnsureDeployment made it); before that there is nothing to
+// keep from the reaper.
 func (r *Runner) TrackDeployment(tile, dep string) func() {
-	if dep != r.primary(tile) {
-		return func() {}
+	if dep == r.primary(tile) {
+		return r.Track(tile)
 	}
-	return r.Track(tile)
+	if s := r.existingStateOf(tile, dep); s != nil {
+		return r.track(s)
+	}
+	return func() {}
 }
 
 // ChangedDeployment marks deployment dep of c dirty and clears its crash
-// history, as Changed does for the primary. Another deployment has no state.
+// history, as Changed does for the primary, and rebuilds it in the
+// background when it had a generation, a build or an error. Another
+// deployment without state has nothing to rebuild: its first request
+// builds it.
 func (r *Runner) ChangedDeployment(c *registry.Component, dep string) {
 	if dep == r.primary(c.Path) {
 		r.Changed(c)
+		return
+	}
+	if s := r.existingStateOf(c.Path, dep); s != nil {
+		r.changedState(c, s)
+	}
+}
+
+// changedState is Changed for a non-primary deployment's state s.
+func (r *Runner) changedState(c *registry.Component, s *state) {
+	s.mu.Lock()
+	s.dirty = true
+	s.crashes = nil
+	hadProcess := s.cur != nil || s.building || s.lastErr != nil
+	s.mu.Unlock()
+	if hadProcess && r.shouldRun(c.Path, s.dep) {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cancel()
+			_, _ = r.EnsureDeployment(ctx, c, s.dep) // deployment: the one ChangedDeployment or ChangedTile named (07-runtime §1.3)
+		}()
 	}
 }
 
 // ChangedTile is ChangedDeployment for every deployment of c with a running,
 // building or failed generation: tile-level restarts (a grant, a binding, a
-// transfer) reach them all. Only the primary has one today.
+// net set, a transfer, a provider's nudge) reach them all, since authority
+// is the tile's (07-runtime §7 rows 5–6). The primary's is today's Changed.
 func (r *Runner) ChangedTile(c *registry.Component) {
+	primary := r.primary(c.Path)
 	r.Changed(c)
+	for _, s := range r.allStates(c.Path) {
+		if s.dep != primary {
+			r.changedState(c, s)
+		}
+	}
 }
 
-// StopDeployment stops one deployment of tile (its removal). Stop stops
-// every deployment of the tile; only the primary runs today.
+// StopDeployment stops one deployment of tile. For any deployment but the
+// primary it is its removal: the runner forgets its state and its run dir,
+// and a build still running for it stops the generation it starts (the
+// deployments plane removes the rest of .xbin/deploy/<TileKey>/d/<name>/).
+// Stop stops every deployment of the tile.
 func (r *Runner) StopDeployment(tile, dep string) {
-	if dep == r.primary(tile) {
-		r.Stop(tile)
+	s := r.existingStateOf(tile, dep)
+	if s == nil {
+		return
 	}
+	if dep != r.primary(tile) {
+		r.dropState(s)
+		if r.RunDir != "" {
+			defer os.RemoveAll(filepath.Join(r.RunDir, sockDir(tile, dep)))
+		}
+	}
+	r.stopState(s)
 }
