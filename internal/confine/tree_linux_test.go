@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"testing"
 
+	fusefs "github.com/hanwen/go-fuse/v2/fs"
+	"github.com/hanwen/go-fuse/v2/fuse"
 	"golang.org/x/sys/unix"
 
 	"github.com/xbin-dev/xbin/internal/sandbox"
@@ -157,4 +159,100 @@ func unlock(root string) {
 		}
 		return nil
 	})
+}
+
+// Confined, as direct: a copied upper keeps every user xattr exactly —
+// both overlay flavours' opaque markers and ownership overrides included.
+func TestCopyTreeXattrs(t *testing.T) {
+	rootfs := testRootfs(t)
+	root := t.TempDir()
+	src, dst := filepath.Join(root, "src"), filepath.Join(root, "dst")
+	if err := os.Mkdir(dst, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if !xattrTree(t, src) {
+		t.Skip("the temp dir's filesystem takes no user xattrs")
+	}
+	Configure(rootfs)
+	defer Configure("")
+	if err := CopyTree(context.Background(), src, dst); err != nil {
+		t.Fatal(err)
+	}
+	checkXattrs(t, dst)
+}
+
+// A destination that refuses user xattrs fails the copy, confined or
+// direct: an error, never a silent drop. The same tree without them copies
+// onto it fine, so the xattrs are what fails it.
+func TestCopyTreeRefusedXattrs(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	src, plain := filepath.Join(root, "src"), filepath.Join(root, "plain")
+	if !xattrTree(t, src) {
+		t.Skip("the temp dir's filesystem takes no user xattrs")
+	}
+	if err := os.MkdirAll(filepath.Join(plain, "d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(plain, "d", "f"), []byte("f"), 0o600)
+	mnt := noXattrFS(t, root)
+
+	copyOnto := func(t *testing.T, mode string) {
+		for _, c := range []struct {
+			src     string
+			refused bool
+		}{{plain, false}, {src, true}} {
+			dst := filepath.Join(mnt, mode+"-"+filepath.Base(c.src))
+			if err := os.Mkdir(dst, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			err := CopyTree(ctx, c.src, dst)
+			switch {
+			case c.refused && err == nil:
+				t.Errorf("%s: the xattrs were dropped without an error", c.src)
+			case c.refused:
+				t.Logf("refused as it should be: %v", err)
+			case err != nil:
+				t.Errorf("%s (no xattrs): %v", c.src, err)
+			}
+		}
+		if b, err := os.ReadFile(filepath.Join(mnt, mode+"-plain", "d", "f")); err != nil || string(b) != "f" {
+			t.Errorf("the plain copy: %q %v", b, err)
+		}
+	}
+	t.Run("direct", func(t *testing.T) { copyOnto(t, "direct") })
+	t.Run("confined", func(t *testing.T) {
+		Configure(testRootfs(t))
+		defer Configure("")
+		copyOnto(t, "confined")
+	})
+}
+
+// noXattrFS mounts, under root, a FUSE loopback of a fresh dir that answers
+// every xattr call ENOSYS — a filesystem without user xattrs, as tmpfs was
+// before Linux 6.6 — and returns its mount point. Skips where FUSE isn't.
+func noXattrFS(t *testing.T, root string) string {
+	t.Helper()
+	back, mnt := filepath.Join(root, "noxattr-back"), filepath.Join(root, "noxattr")
+	for _, d := range []string{back, mnt} {
+		if err := os.Mkdir(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lb, err := fusefs.NewLoopbackRoot(back)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, err := fusefs.Mount(mnt, lb, &fusefs.Options{MountOptions: fuse.MountOptions{DisableXAttrs: true, FsName: "noxattr"}})
+	if err != nil {
+		t.Skip("no FUSE here:", err)
+	}
+	t.Cleanup(func() { _ = srv.Unmount() })
+	probe := filepath.Join(mnt, "probe")
+	_ = os.WriteFile(probe, nil, 0o644)
+	if err := unix.Setxattr(probe, "user.test", []byte("x"), 0); err == nil {
+		t.Skip("the FUSE mount took a user xattr")
+	}
+	_ = os.Remove(probe)
+	return mnt
 }

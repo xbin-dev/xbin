@@ -45,18 +45,29 @@ type Limits struct {
 // cpuPeriod is cpu.max's period, µs.
 const cpuPeriod = 100000
 
-// Manager owns xbind's delegated cgroup subtree and per-component leaves.
+// Manager owns xbind's delegated cgroup subtree and per-component leaves —
+// or, made by Parent, one cgroup inside it and the leaves under that.
 type Manager struct {
-	base    string // the delegated base cgroup dir
+	base    string // the delegated base cgroup dir (a Parent's: its own dir)
 	enabled bool
 	limits  Limits
+	parent  bool // made by Parent: SetLimits re-writes base's own limits
 }
 
 // SetLimits installs the per-component caps applied to every leaf in Add.
-func (m *Manager) SetLimits(l Limits) {
-	if m != nil {
+// On a Parent's Manager it re-writes the parent's own memory.max and
+// pids.max instead (a policy change; see Parent), and says when that failed.
+func (m *Manager) SetLimits(l Limits) error {
+	switch {
+	case m == nil:
+	case m.parent:
+		if m.enabled {
+			return writeParentLimits(m.base, l)
+		}
+	default:
 		m.limits = l
 	}
+	return nil
 }
 
 // New sets up (if possible) a delegated subtree: xbind moves itself into a

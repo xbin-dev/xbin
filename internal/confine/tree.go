@@ -86,9 +86,16 @@ func RemoveAll(ctx context.Context, dir string) error {
 
 // CopyTree copies everything in the dir src into the dir dst — one xbind
 // created, empty — keeping owners, modes, times, links, special files
-// (whiteouts, FIFOs) and xattrs: `cp -a`, sharing extents where the
-// filesystem can (--reflink=auto; confined runs use the rootfs's GNU cp).
-// src is bound read-only; the two may not nest.
+// (whiteouts, FIFOs) and xattrs, sharing extents where the filesystem can:
+// `cp -a --preserve=xattr --reflink=auto` (GNU cp: the rootfs's when
+// confined, the host's when direct). Naming xattr makes one that can't be
+// copied an error, where plain -a drops it silently: both overlay flavours
+// keep opaque-directory markers and ownership overrides in user.* xattrs
+// (fuse-overlayfs's user.fuseoverlayfs.*, a userxattr kernel overlay's
+// user.overlay.*), and a copied upper without them shows the base's old
+// entries in a directory that was deleted and made again, or files with the
+// wrong owner (plans/tile-sandbox-runtime.md §3.9). src is bound read-only;
+// the two may not nest.
 func CopyTree(ctx context.Context, src, dst string) error {
 	for _, p := range []string{src, dst} {
 		if err := treePath(p); err != nil {
@@ -103,11 +110,7 @@ func CopyTree(ctx context.Context, src, dst string) error {
 	if within(src, dst) || within(dst, src) {
 		return fmt.Errorf("copy: %s and %s nest", src, dst)
 	}
-	argv := []string{"cp", "-a"}
-	if Isolated() {
-		argv = append(argv, "--reflink=auto")
-	}
-	argv = append(argv, "--", src+"/.", dst+"/")
+	argv := []string{"cp", "-a", "--preserve=xattr", "--reflink=auto", "--", src + "/.", dst + "/"}
 	if _, err := Run(ctx, Cmd{Argv: argv, Dir: dst, Binds: []sandbox.Bind{RO(src)},
 		Env: []string{"LC_ALL=C"}, FSCaps: true, Timeout: treeTimeout, MaxOutput: 1 << 20}); err != nil {
 		return fmt.Errorf("copy %s: %w", src, err)

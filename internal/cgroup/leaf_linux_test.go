@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // fakeBase is a Manager over a temp dir standing in for xbind's delegated
@@ -250,5 +252,170 @@ func TestSweep(t *testing.T) {
 	}
 	if s, err := (&Manager{}).Sweep("sbx-"); s != nil || err != nil {
 		t.Errorf("disabled Sweep = %v, %v", s, err)
+	}
+}
+
+// The tile sandboxes' parent: its own caps and controllers, its leaves
+// inside it, and a Sweep that never reaches a backend's leaf beside it —
+// comp-sbx-foo is the leaf of a backend tile at path "sbx-foo".
+func TestParent(t *testing.T) {
+	m, base := fakeBase(t)
+	backend := filepath.Join(base, "comp-sbx-foo")
+	_ = os.Mkdir(backend, 0o755)
+	_ = os.WriteFile(filepath.Join(backend, "cgroup.kill"), nil, 0o644)
+	dir := filepath.Join(base, "comp-tilesbx-1a2b3c4d")
+	_ = os.MkdirAll(filepath.Join(dir, "comp-sbx-left"), 0o755) // a previous xbind's
+
+	// a parent is sized by memory.max and pids.max alone
+	p, err := m.Parent("tilesbx-1a2b3c4d", Limits{MemMax: 48 << 30, PidsMax: 32768, MemHigh: 1 << 30, CPUMax: cpuPeriod, CPUWeight: 50})
+	if err != nil || !p.Enabled() {
+		t.Fatalf("Parent = %v, %v", p, err)
+	}
+	for f, want := range map[string]string{
+		"memory.max": "51539607552", "pids.max": "32768", "cgroup.subtree_control": "+cpu +memory +pids",
+	} {
+		if got := read(t, filepath.Join(dir, f)); got != want {
+			t.Errorf("%s = %q, want %q", f, got, want)
+		}
+	}
+	for _, f := range []string{"memory.high", "cpu.max", "cpu.weight", "cgroup.procs"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); !os.IsNotExist(err) {
+			t.Errorf("the parent got a %s", f)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "comp-sbx-left")); err != nil {
+		t.Fatal("Parent dropped a leftover leaf: the caller sweeps those")
+	}
+
+	// its leaves live in it, never beside it
+	leaf, err := p.AddWith("sbx-apps~x-1234-build", 4242, Limits{MemMax: 1152 << 20, PidsMax: 4096})
+	if err != nil || leaf != "sbx-apps~x-1234-build" {
+		t.Fatalf("AddWith = %q, %v", leaf, err)
+	}
+	in := filepath.Join(dir, "comp-sbx-apps~x-1234-build")
+	if got := read(t, filepath.Join(in, "cgroup.procs")); got != "4242" {
+		t.Errorf("the leaf's cgroup.procs = %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(base, "comp-sbx-apps~x-1234-build")); !os.IsNotExist(err) {
+		t.Error("a parent's leaf landed beside the parent")
+	}
+	_ = os.WriteFile(filepath.Join(in, "cgroup.kill"), nil, 0o644) // the kernel's kill, not a SIGKILL to pid 4242
+	_ = os.WriteFile(filepath.Join(in, "memory.current"), []byte("1048576\n"), 0o644)
+	if u, ok := p.Usage("sbx-apps~x-1234-build"); !ok || u.MemCurrent != 1<<20 || u.MemMax != 1152<<20 {
+		t.Errorf("Usage = %+v, %v", u, ok)
+	}
+	if _, ok := m.Usage("sbx-apps~x-1234-build"); ok {
+		t.Error("the base found the parent's leaf as its own")
+	}
+
+	swept, err := p.Sweep("sbx-")
+	slices.Sort(swept)
+	if err != nil || !slices.Equal(swept, []string{"sbx-apps~x-1234-build", "sbx-left"}) {
+		t.Fatalf("the parent's Sweep = %v, %v", swept, err)
+	}
+	if got := read(t, filepath.Join(backend, "cgroup.kill")); got != "" {
+		t.Error("the parent's Sweep killed a backend's leaf beside it")
+	}
+	if _, err := os.Stat(backend); err != nil {
+		t.Error("the parent's Sweep removed a backend's leaf beside it")
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Error("the parent's Sweep removed the parent")
+	}
+
+	// a policy change: the parent's caps, a zero lifting one
+	if err := p.SetLimits(Limits{MemMax: 8 << 30}); err != nil {
+		t.Fatal(err)
+	}
+	if mem, pids := read(t, filepath.Join(dir, "memory.max")), read(t, filepath.Join(dir, "pids.max")); mem != "8589934592" || pids != "max" {
+		t.Errorf("after SetLimits: memory.max %q, pids.max %q", mem, pids)
+	}
+	if err := m.SetLimits(Limits{MemMax: 1 << 30}); err != nil {
+		t.Error(err)
+	}
+	if got := read(t, filepath.Join(dir, "memory.max")); got != "8589934592" {
+		t.Error("the base's SetLimits wrote the parent's limits")
+	}
+
+	// cgroups off: a disabled child, whose every call is a no-op
+	off, err := (&Manager{}).Parent("tilesbx-1a2b3c4d", Limits{MemMax: 1 << 30})
+	if err != nil || off.Enabled() {
+		t.Fatalf("disabled Parent = %v, %v", off, err)
+	}
+	if f, leaf, err := off.Prepare("sbx-a", Limits{MemMax: 1 << 30}); f != nil || leaf != "" || err != nil {
+		t.Errorf("disabled child's Prepare = %v, %q, %v", f, leaf, err)
+	}
+	if err := off.SetLimits(Limits{MemMax: 1 << 30}); err != nil {
+		t.Error(err)
+	}
+	for _, bad := range []string{"", "..", "a/b"} {
+		if _, err := m.Parent(bad, Limits{}); err == nil {
+			t.Errorf("Parent(%q) accepted", bad)
+		}
+	}
+}
+
+// Prepare makes a leaf and joins nothing: the fd is the leaf's dir, for
+// clone3 to start a child straight into it.
+func TestPrepare(t *testing.T) {
+	m, base := fakeBase(t)
+	p, err := m.Parent("tilesbx-t", Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, leaf, err := p.Prepare("sbx-a", Limits{MemMax: 1152 << 20, PidsMax: 4096, CPUWeight: 100, CPUMax: 2 * cpuPeriod})
+	if err != nil || leaf != "sbx-a" || f == nil {
+		t.Fatalf("Prepare = %v, %q, %v", f, leaf, err)
+	}
+	dir := filepath.Join(base, "comp-tilesbx-t", "comp-sbx-a")
+	var fst, dst syscall.Stat_t
+	if err := syscall.Fstat(int(f.Fd()), &fst); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Stat(dir, &dst); err != nil || fst.Ino != dst.Ino || fst.Mode&syscall.S_IFMT != syscall.S_IFDIR {
+		t.Fatalf("the fd isn't the leaf's dir: %v", err)
+	}
+	if fl, err := unix.FcntlInt(f.Fd(), unix.F_GETFD, 0); err != nil || fl&unix.FD_CLOEXEC == 0 {
+		t.Errorf("the leaf's fd isn't close-on-exec: %d %v", fl, err)
+	}
+	_ = f.Close()
+	for file, want := range map[string]string{
+		"memory.max": "1207959552", "memory.high": "1056964608", "pids.max": "4096", "cpu.max": "200000 100000",
+	} {
+		if got := read(t, filepath.Join(dir, file)); got != want {
+			t.Errorf("%s = %q, want %q", file, got, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "cgroup.procs")); !os.IsNotExist(err) {
+		t.Error("Prepare joined something")
+	}
+
+	// the stale-leaf rule: a populated leaf refuses, an empty one is replaced
+	_ = os.WriteFile(filepath.Join(dir, "cgroup.events"), []byte("populated 1\n"), 0o644)
+	if f, _, err := p.Prepare("sbx-a", Limits{}); err == nil || f != nil || !strings.Contains(err.Error(), "still in use") {
+		t.Fatalf("Prepare over a populated leaf: %v, %v", f, err)
+	}
+	_ = os.WriteFile(filepath.Join(dir, "cgroup.events"), []byte("populated 0\n"), 0o644)
+	f, _, err = p.Prepare("sbx-a", Limits{PidsMax: 64})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+	if _, err := os.Stat(filepath.Join(dir, "cpu.max")); !os.IsNotExist(err) {
+		t.Error("the previous run's cpu.max survived")
+	}
+	for _, bad := range []string{"", ".", "../comp-x", "a/b"} {
+		if f, _, err := p.Prepare(bad, Limits{}); err == nil || f != nil {
+			t.Errorf("Prepare(%q) accepted", bad)
+		}
+	}
+
+	// OOMKills reads memory.events' oom_kill
+	_ = os.WriteFile(filepath.Join(dir, "memory.events"), []byte("low 0\nhigh 12\nmax 7\noom 2\noom_kill 3\noom_group_kill 0\n"), 0o644)
+	if n := p.OOMKills("sbx-a"); n != 3 {
+		t.Errorf("OOMKills = %d, want 3", n)
+	}
+	if p.OOMKills("sbx-none") != 0 || p.OOMKills("../x") != 0 || (&Manager{}).OOMKills("sbx-a") != 0 {
+		t.Error("OOMKills of a missing leaf, a bad name or with cgroups off")
 	}
 }
