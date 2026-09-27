@@ -590,8 +590,12 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleEventsWS(w http.ResponseWriter, r *http.Request) {
-	p := auth.PrincipalOf(r)
-	filter := func(e events.Event) bool {
+	serveEventsWS(w, r, s.Hub, s.eventFilter(auth.PrincipalOf(r)))
+}
+
+// eventFilter decides which hub events one /ws/events subscriber receives.
+func (s *Server) eventFilter(p auth.Principal) events.Filter {
+	return func(e events.Event) bool {
 		// pr events name a component that has PR activity — D40 visibility:
 		// only subscribers who can read that tile see them.
 		if e.Type == "pr" {
@@ -599,6 +603,9 @@ func (s *Server) handleEventsWS(w http.ResponseWriter, r *http.Request) {
 		}
 		if e.Type == "term" || e.Type == "session" { // per-user: the owner's browsers, and admins (D73/D74)
 			return termEventFor(p, e)
+		}
+		if e.Type == "deployments" {
+			return s.deploymentsEventFor(p, e)
 		}
 		if e.Type != "bus" {
 			return true
@@ -608,7 +615,6 @@ func (s *Server) handleEventsWS(w http.ResponseWriter, r *http.Request) {
 		}
 		return s.policy().BusAllows(p, e)
 	}
-	serveEventsWS(w, r, s.Hub, filter)
 }
 
 // Cumulative HTTP traffic counters (all routes), exposed by /status for the
