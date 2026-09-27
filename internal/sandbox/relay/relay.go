@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -52,8 +53,12 @@ const udpIdleTimeout = 30 * time.Second
 type Relay struct {
 	stack     *stack.Stack
 	link      stack.LinkEndpoint // the TUN's fdbased endpoint
+	tunFD     int                // closed by Close (Config.CloseTUN); -1 = the caller's
+	stopFDs   []int              // the TUN readers' wake-up eventfds (stopFDs), closed by Close
 	closeOnce sync.Once
-	dial      net.Dialer
+	dial      dialFunc        // host-side dials (tests vet them)
+	ctx       context.Context // cancelled by Close: dials in flight give up
+	cancel    context.CancelFunc
 	allow     Allow
 	deny      Deny           // checked before everything else (nil = none)
 	dnsRefuse bool           // answer every :53 query REFUSED
@@ -66,6 +71,16 @@ type Relay struct {
 	hairDial  func(port int) (net.Conn, error) // ingress-path dial for hairpin flows
 	icmp      *icmpTap                         // link-layer ICMP echo forwarder (nil if setup failed)
 	allowHost func(name string, port int) bool // host-rule policy (D35; nil = no host rules)
+	strict    bool                             // DNS pins judged by the strict public test
+
+	// Flow caps (Config.MaxTCP/MaxUDP/Budget): every dialed flow holds a
+	// claim from before its dial until it closes.
+	maxTCP, maxUDP int
+	budget         *Budget
+	flowMu         sync.Mutex
+	closed         bool // Close has run: no flow is admitted
+	nTCP, nUDP     int
+	open           map[*claim]struct{}
 
 	pinMu sync.Mutex
 	pins  map[netip.Addr]map[string]int64 // DNS pins: addr → name → expiry (unix)
@@ -172,7 +187,7 @@ const maxPins = 4096
 // addresses pin — hostname egress is internet-class, so a name resolving
 // into RFC1918/loopback (DNS rebinding) confers nothing.
 func (r *Relay) pin(name string, addr netip.Addr, ttl uint32) {
-	if r.pins == nil || !publicAddr(addr) {
+	if r.pins == nil || !publicAddr(addr) || (r.strict && !strictPublicAddr(addr)) {
 		return
 	}
 	if ttl < 60 {
@@ -219,14 +234,129 @@ func publicAddr(ip netip.Addr) bool {
 		!ip.IsMulticast() && !ip.IsUnspecified()
 }
 
+// strictNonPublic is what the strict "internet" test (Config.StrictPublic,
+// sandbox.EgressPolicy.Strict) refuses beyond publicAddr: CGNAT (Tailscale's
+// range), benchmarking, reserved, and NAT64 — well-known and local-use.
+var strictNonPublic = []netip.Prefix{
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("64:ff9b::/96"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
+}
+
+// strictPublicAddr is publicAddr under the strict test.
+func strictPublicAddr(ip netip.Addr) bool {
+	if !publicAddr(ip) {
+		return false
+	}
+	ip = ip.Unmap()
+	for _, p := range strictNonPublic {
+		if p.Contains(ip) {
+			return false
+		}
+	}
+	return true
+}
+
+// dialFunc dials a host-side flow.
+type dialFunc func(ctx context.Context, network, address string) (net.Conn, error)
+
+// claim is one admitted flow's hold on a slot of its relay's cap and one of
+// the shared Budget, with the conns Close shuts to end the flow at once.
+type claim struct {
+	udp   bool
+	conns []net.Conn
+	done  bool // released: the slots are back
+}
+
+// admit claims a flow slot of this relay and one of the budget before a
+// dial; nil when a cap is reached or the relay is closed.
+func (r *Relay) admit(udp bool) *claim {
+	r.flowMu.Lock()
+	defer r.flowMu.Unlock()
+	n, limit := &r.nTCP, r.maxTCP
+	if udp {
+		n, limit = &r.nUDP, r.maxUDP
+	}
+	if r.closed || (limit > 0 && *n >= limit) || !r.budget.take() {
+		return nil
+	}
+	*n++
+	c := &claim{udp: udp}
+	r.open[c] = struct{}{}
+	return c
+}
+
+// hold ties conns to c, so Close shuts them; when c was already released
+// (the relay closed meanwhile), they are closed now.
+func (r *Relay) hold(c *claim, conns ...net.Conn) {
+	r.flowMu.Lock()
+	if !c.done {
+		c.conns = append(c.conns, conns...)
+		r.flowMu.Unlock()
+		return
+	}
+	r.flowMu.Unlock()
+	for _, cn := range conns {
+		_ = cn.Close()
+	}
+}
+
+// release gives c's slots back; idempotent.
+func (r *Relay) release(c *claim) {
+	r.flowMu.Lock()
+	r.releaseLocked(c)
+	r.flowMu.Unlock()
+}
+
+func (r *Relay) releaseLocked(c *claim) {
+	if c.done {
+		return
+	}
+	c.done = true
+	if c.udp {
+		r.nUDP--
+	} else {
+		r.nTCP--
+	}
+	r.budget.give()
+	delete(r.open, c)
+}
+
+// closeFlows refuses every new flow, gives back every open flow's slots and
+// shuts its conns, so a closed relay holds no budget and no host fd: a UDP
+// flow used to linger until its idle timeout.
+func (r *Relay) closeFlows() {
+	r.flowMu.Lock()
+	r.closed = true
+	var conns []net.Conn
+	for c := range r.open {
+		conns = append(conns, c.conns...)
+		r.releaseLocked(c)
+	}
+	r.flowMu.Unlock()
+	for _, cn := range conns {
+		_ = cn.Close()
+	}
+}
+
 // Start attaches a stack to a TUN (opened inside the target netns and passed to
 // us) and begins forwarding under cfg.
 func Start(cfg Config) (*Relay, error) {
-	return start(cfg, net.Dialer{Timeout: 15 * time.Second})
+	d := &net.Dialer{Timeout: 15 * time.Second}
+	return start(cfg, d.DialContext)
 }
 
 // start is Start with the dialer for host-side flows (tests vet dials).
-func start(cfg Config, dial net.Dialer) (*Relay, error) {
+func start(cfg Config, dial dialFunc) (_ *Relay, err error) {
+	if cfg.CloseTUN {
+		defer func() {
+			if err != nil {
+				unix.Close(cfg.TunFD)
+			}
+		}()
+	}
 	ep, err := fdbased.New(&fdbased.Options{FDs: []int{cfg.TunFD}, MTU: 1500,
 		ProcessorsPerChannel: max(cfg.Processors, 0)})
 	if err != nil {
@@ -237,11 +367,17 @@ func start(cfg Config, dial net.Dialer) (*Relay, error) {
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol},
 	})
 
+	ctx, cancel := context.WithCancel(context.Background())
 	r := &Relay{
-		stack: s, link: ep, dial: dial, allow: cfg.Allow, deny: cfg.Deny,
+		stack: s, link: ep, dial: dial, ctx: ctx, cancel: cancel, allow: cfg.Allow, deny: cfg.Deny,
 		dnsRefuse: cfg.DNSRefuse, refuseSem: make(chan struct{}, dnsRefuseMax),
 		gateway: cfg.Gateway, hostFwd: cfg.HostFwd, hostDial: cfg.HostDial,
 		tileIP: cfg.TileIP, hairDial: cfg.HairpinDial, allowHost: cfg.AllowHost,
+		strict: cfg.StrictPublic, maxTCP: max(cfg.MaxTCP, 0), maxUDP: max(cfg.MaxUDP, 0),
+		budget: cfg.Budget, open: map[*claim]struct{}{}, tunFD: -1, stopFDs: stopFDs(ep),
+	}
+	if cfg.CloseTUN {
+		r.tunFD = cfg.TunFD
 	}
 	if r.allowHost != nil {
 		r.pins = map[netip.Addr]map[string]int64{}
@@ -271,6 +407,10 @@ func start(cfg Config, dial net.Dialer) (*Relay, error) {
 		if r.icmp != nil {
 			r.icmp.close()
 		}
+		cancel()
+		s.Close()
+		ep.Attach(nil) // stops the readers, if they started
+		closeFDs(r.stopFDs)
 		return nil, errf(e)
 	}
 	// Accept packets addressed to anyone (we're a transparent gateway).
@@ -284,18 +424,27 @@ func start(cfg Config, dial net.Dialer) (*Relay, error) {
 	return r, nil
 }
 
-// Close tears the relay down. The TUN's readers have stopped when it returns,
-// so the caller may close the fd: a reader left running would leak with its
-// per-CPU processors and go on reading whatever file later takes the fd's
-// number. They stop first, holding no stack lock — a one-processor reader
-// delivers packets inline, and delivery can take the stack's locks.
+// Close tears the relay down. Every flow ends at once — dials in flight are
+// cancelled and each open flow's host side is closed — and gives its flow
+// slots back (Config.Budget) before Close returns. The TUN's readers have
+// stopped when it returns, so the caller may close the fd (Config.CloseTUN
+// has Close do it): a reader left running would leak with its per-CPU
+// processors and go on reading whatever file later takes the fd's number.
+// They stop holding no stack lock — a one-processor reader delivers packets
+// inline, and delivery can take the stack's locks.
 func (r *Relay) Close() {
 	r.closeOnce.Do(func() {
-		r.link.Attach(nil)
+		r.cancel()
+		r.closeFlows()
+		r.link.Attach(nil) // returns once the TUN's readers have stopped
+		closeFDs(r.stopFDs)
 		r.stack.Close()
 		_ = r.stack.RemoveNIC(nicID)
 		if r.icmp != nil {
 			r.icmp.close()
+		}
+		if r.tunFD >= 0 { // Config.CloseTUN: the readers have stopped
+			unix.Close(r.tunFD)
 		}
 	})
 }
@@ -304,83 +453,85 @@ func (r *Relay) handleTCP(req *tcp.ForwarderRequest) {
 	id := req.ID()
 	ip, ok := addr(id.LocalAddress)
 	port := int(id.LocalPort)
+	deny := func() {
+		r.record("tcp", ip, port, false) // RST
+		req.Complete(true)
+	}
 
 	// Deny comes first: before the gateway forwards and the hairpin, which
 	// are policy-exempt, so a relay with Deny serves neither.
 	if !ok || r.blocked(ip) {
-		r.record("tcp", ip, port, false) // RST
-		req.Complete(true)
+		deny()
 		return
 	}
 
-	// Gateway host-forward: flows to the virtual gateway IP on a mapped port go
-	// to a host service (e.g. xbind), policy-exempt — that's how a netns-isolated
-	// terminal reaches the workspace controller without seeing host interfaces.
-	if r.gateway.IsValid() && ip == r.gateway {
+	var dial func() (net.Conn, error)
+	switch {
+	case r.gateway.IsValid() && ip == r.gateway:
+		// Gateway host-forward: flows to the virtual gateway IP on a mapped
+		// port go to a host service (e.g. xbind), policy-exempt — that's how a
+		// netns-isolated terminal reaches the workspace controller without
+		// seeing host interfaces.
 		host, mapped := r.hostFwd[port]
 		if !mapped {
-			r.record("tcp", ip, port, false)
-			req.Complete(true)
+			deny()
 			return
 		}
-		r.proxyTCP(req, ip, port, host)
+		dial = func() (net.Conn, error) { return r.dialHost(host) }
+	case r.hairpin.IsValid() && ip == r.hairpin:
+		// Split-horizon hairpin (plans/ingress.md ING-6): flows to the
+		// published-services VIP take the internal ingress path. Policy-exempt
+		// like the gateway forwards — the target is a PUBLISHED endpoint,
+		// reachable by the whole internet; the tile arrives as the same
+		// anonymous ingress caller.
+		dial = func() (net.Conn, error) { return r.hairDial(port) }
+	case !r.permitted(ip, port):
+		deny() // RST — denied
 		return
-	}
-
-	// Split-horizon hairpin (plans/ingress.md ING-6): flows to the published-
-	// services VIP take the internal ingress path. Policy-exempt like the
-	// gateway forwards — the target is a PUBLISHED endpoint, reachable by the
-	// whole internet; the tile arrives as the same anonymous ingress caller.
-	if r.hairpin.IsValid() && ip == r.hairpin {
-		out, err := r.hairDial(port)
-		if err != nil {
-			f := r.record("tcp", ip, port, true)
-			r.finish(f, 0, 0)
-			req.Complete(true)
-			return
-		}
-		r.spliceTCP(req, ip, port, out)
-		return
-	}
-
-	if !r.permitted(ip, port) {
-		r.record("tcp", ip, port, false) // RST — denied
-		req.Complete(true)
-		return
-	}
-	r.proxyTCP(req, ip, port, net.JoinHostPort(ip.String(), strconv.Itoa(port)))
-}
-
-// proxyTCP dials dst on the host, accepts the netns-side endpoint, and splices
-// them, recording the flow under (ip, port). "unix:<path>" targets dial a
-// unix socket (the ingress-forward door); cfg.HostDial overrides entirely.
-func (r *Relay) proxyTCP(req *tcp.ForwarderRequest, ip netip.Addr, port int, dst string) {
-	var out net.Conn
-	var err error
-	switch {
-	case r.hostDial != nil:
-		out, err = r.hostDial(dst)
-	case strings.HasPrefix(dst, "unix:"):
-		out, err = r.dial.Dial("unix", strings.TrimPrefix(dst, "unix:"))
 	default:
-		out, err = r.dial.Dial("tcp", dst)
+		dst := net.JoinHostPort(ip.String(), strconv.Itoa(port))
+		dial = func() (net.Conn, error) { return r.dialHost(dst) }
 	}
+
+	// A flow cap reached: a RST at once, before anything is dialed.
+	c := r.admit(false)
+	if c == nil {
+		deny()
+		return
+	}
+	out, err := dial()
 	if err != nil {
+		r.release(c)
 		f := r.record("tcp", ip, port, true) // allowed, but unreachable
 		r.finish(f, 0, 0)
 		req.Complete(true)
 		return
 	}
-	r.spliceTCP(req, ip, port, out)
+	r.spliceTCP(req, ip, port, out, c)
+}
+
+// dialHost dials dst on the host: "unix:<path>" targets dial a unix socket
+// (the ingress-forward door); cfg.HostDial overrides entirely.
+func (r *Relay) dialHost(dst string) (net.Conn, error) {
+	switch {
+	case r.hostDial != nil:
+		return r.hostDial(dst)
+	case strings.HasPrefix(dst, "unix:"):
+		return r.dial(r.ctx, "unix", strings.TrimPrefix(dst, "unix:"))
+	default:
+		return r.dial(r.ctx, "tcp", dst)
+	}
 }
 
 // spliceTCP accepts the netns-side endpoint and splices it with an
-// already-dialed host-side conn, recording the flow under (ip, port).
-func (r *Relay) spliceTCP(req *tcp.ForwarderRequest, ip netip.Addr, port int, out net.Conn) {
+// already-dialed host-side conn, recording the flow under (ip, port); the
+// flow's claim is released when the splice ends.
+func (r *Relay) spliceTCP(req *tcp.ForwarderRequest, ip netip.Addr, port int, out net.Conn, c *claim) {
 	var wq waiter.Queue
 	gep, e := req.CreateEndpoint(&wq)
 	if e != nil {
 		out.Close()
+		r.release(c)
 		f := r.record("tcp", ip, port, true)
 		r.finish(f, 0, 0)
 		req.Complete(true)
@@ -388,8 +539,13 @@ func (r *Relay) spliceTCP(req *tcp.ForwarderRequest, ip netip.Addr, port int, ou
 	}
 	req.Complete(false)
 	in := gonet.NewTCPConn(&wq, gep)
+	r.hold(c, in, out)
 	f := r.record("tcp", ip, port, true)
-	go func() { tx, rx := splice(in, out); r.finish(f, tx, rx) }()
+	go func() {
+		tx, rx := splice(in, out)
+		r.release(c)
+		r.finish(f, tx, rx)
+	}()
 }
 
 // DialIn opens a flow from the host side INTO the netns — to a port the
@@ -413,7 +569,8 @@ func (r *Relay) DialIn(ctx context.Context, proto string, port int) (net.Conn, e
 // or relayed to the configured host resolver (so name resolution works for
 // net:internet) — with published hostnames answered locally (split horizon)
 // when configured; other UDP is subject to the same checks as TCP (permitted
-// asks Deny first).
+// asks Deny first). A flow past a cap is left unhandled, so the stack
+// answers it with an ICMP port-unreachable.
 func (r *Relay) udpHandler(cfg Config) func(*udp.ForwarderRequest) bool {
 	resolver := cfg.Resolver
 	return func(req *udp.ForwarderRequest) bool {
@@ -431,17 +588,25 @@ func (r *Relay) udpHandler(cfg Config) func(*udp.ForwarderRequest) bool {
 		} else if !ok || !r.permitted(ip, port) {
 			return true // consumed (dropped)
 		}
+		c := r.admit(true)
+		if c == nil {
+			r.record("udp", ip, port, false)
+			return false // over a flow cap: port unreachable, at once
+		}
 		var wq waiter.Queue
 		gep, e := req.CreateEndpoint(&wq)
 		if e != nil {
+			r.release(c)
 			return true
 		}
-		out, err := r.dial.Dial("udp", dst)
+		out, err := r.dial(r.ctx, "udp", dst)
 		if err != nil {
 			gep.Close()
+			r.release(c)
 			return true
 		}
 		in := gonet.NewUDPConn(&wq, gep)
+		r.hold(c, in, out)
 		f := r.record("udp", ip, port, true)
 		if dns && ((r.hairpin.IsValid() && cfg.Published != nil) || r.pins != nil) {
 			pub := cfg.Published
@@ -450,11 +615,16 @@ func (r *Relay) udpHandler(cfg Config) func(*udp.ForwarderRequest) bool {
 			}
 			go func() {
 				tx, rx := spliceDNS(in, out, pub, r.hairpin, udpIdleTimeout, r.pinAnswers)
+				r.release(c)
 				r.finish(f, tx, rx)
 			}()
 			return true
 		}
-		go func() { tx, rx := spliceUDPIdle(in, out, udpIdleTimeout); r.finish(f, tx, rx) }()
+		go func() {
+			tx, rx := spliceUDPIdle(in, out, udpIdleTimeout)
+			r.release(c)
+			r.finish(f, tx, rx)
+		}()
 		return true
 	}
 }

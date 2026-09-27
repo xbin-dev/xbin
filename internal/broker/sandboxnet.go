@@ -46,7 +46,9 @@ type SandboxNet struct {
 	// binding resolves to nothing — a set narrowed, a transfer, a deny row)
 	// or narrowed (host networking left out).
 	Note string `json:"note,omitempty"`
-	// Policy is the relay policy a sandbox of this class runs under.
+	// Policy is the relay policy a sandbox of this class runs under — always
+	// strict (EgressPolicy.Strict): a class's internet reaches no CGNAT,
+	// benchmarking, reserved or NAT64 range, and Reach says so.
 	Policy sandbox.EgressPolicy `json:"-"`
 	inert  bool                 // bound to something, resolving to nothing
 }
@@ -90,11 +92,11 @@ func (b *Broker) hasSandboxNet(comp string) bool {
 }
 
 // SandboxNetClasses lists the classes a tile's sandboxes may name, resolved
-// now: none first, then each sandbox-net slot by name. GET
-// /sandboxes/runtime answers it, and a manager builds its contract's
-// hello.egress from it.
+// now (strict policies, and their strict reach): none first, then each
+// sandbox-net slot by name. GET /sandboxes/runtime answers it, and a manager
+// builds its contract's hello.egress from it.
 func (b *Broker) SandboxNetClasses(tile string) []SandboxNet {
-	out := []SandboxNet{{Class: SandboxClassNone, Reach: sandbox.ReachNone}}
+	out := []SandboxNet{sandboxNetNone()}
 	if c, ok := b.Reg.Component(tile); ok {
 		for _, slot := range sandboxNetSlots(c) {
 			out = append(out, b.resolveSandboxNet(tile, slot))
@@ -105,12 +107,13 @@ func (b *Broker) SandboxNetClasses(tile string) []SandboxNet {
 
 // SandboxEgress resolves a sandbox's egress selector — "" or "none", or
 // "class:<slot>" naming one of the tile's sandbox-net slots — into the
-// policy it runs under. The runtime calls it at every start, so a binding
+// policy it runs under, which is strict (EgressPolicy.Strict; the relay sets
+// StrictPublic with it). The runtime calls it at every start, so a binding
 // changed since the sandbox was defined applies; an error means the
 // selector names no class of this tile (any longer).
 func (b *Broker) SandboxEgress(tile, class string) (SandboxNet, error) {
 	if class == "" || class == SandboxClassNone {
-		return SandboxNet{Class: SandboxClassNone, Reach: sandbox.ReachNone}, nil
+		return sandboxNetNone(), nil
 	}
 	slot, ok := strings.CutPrefix(class, SandboxClassPrefix)
 	if ok {
@@ -121,10 +124,17 @@ func (b *Broker) SandboxEgress(tile, class string) (SandboxNet, error) {
 	return SandboxNet{}, fmt.Errorf("egress %q names no network class of %s: it takes none or class:<slot>, one of the tile's sandbox-net slots", class, tile)
 }
 
+// sandboxNetNone is the none class: an empty (strict) policy.
+func sandboxNetNone() SandboxNet {
+	return SandboxNet{Class: SandboxClassNone, Reach: sandbox.ReachNone, Policy: sandbox.EgressPolicy{}.Strict()}
+}
+
 // resolveSandboxNet is one class's resolution — netBinding + EgressFor for
-// a sandbox-net slot, with no auto-default and no host networking.
+// a sandbox-net slot, with no auto-default and no host networking. Its
+// policy is strict (EgressPolicy.Strict), and so is its reach.
 func (b *Broker) resolveSandboxNet(tile, slot string) SandboxNet {
-	out := SandboxNet{Class: SandboxClassPrefix + slot, Slot: slot, Reach: sandbox.ReachNone}
+	out := SandboxNet{Class: SandboxClassPrefix + slot, Slot: slot, Reach: sandbox.ReachNone,
+		Policy: sandbox.EgressPolicy{}.Strict()}
 	binding := b.Reg.Workspace().Bindings[tile][slot]
 	ref := binding.First()
 	out.Ref = ref
@@ -190,6 +200,7 @@ func (b *Broker) resolveSandboxNet(tile, slot string) SandboxNet {
 	if pol.Empty() {
 		return inert("its network has no relay rules (host networking or provider tiles only) — no network for these sandboxes")
 	}
+	pol = pol.Strict()
 	out.Policy, out.Reach, out.Rules = pol, pol.Reach(), pol.Strings()
 	if host {
 		out.Note = "its network says host, which a sandbox never gets: the class has the other rules"

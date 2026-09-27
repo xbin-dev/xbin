@@ -145,32 +145,45 @@ func TestReach(t *testing.T) {
 	}
 }
 
-// publicPrefix agrees with isPublic, address by address: every /16 of IPv4
-// (the ranges isPublic refuses are /16-aligned or wider, bar 0.0.0.0/32 at
-// the start of 0.0.0.0/16), and the same IPv4-mapped.
+// publicPrefix agrees with isPublic (and, strict, with isPublicStrict),
+// address by address: every /16 of IPv4 (the ranges either test refuses are
+// /16-aligned or wider, bar 0.0.0.0/32 at the start of 0.0.0.0/16), and the
+// same IPv4-mapped.
 func TestPublicPrefixMatchesIsPublic(t *testing.T) {
-	for i := 0; i < 1<<16; i++ {
-		first := netip.AddrFrom4([4]byte{byte(i >> 8), byte(i), 0, 0})
-		last := netip.AddrFrom4([4]byte{byte(i >> 8), byte(i), 255, 255})
-		want := isPublic(first) && isPublic(last)
-		if got := publicPrefix(netip.PrefixFrom(first, 16)); got != want {
-			t.Fatalf("publicPrefix(%s/16) = %v, isPublic says %v", first, got, want)
+	for _, strict := range []bool{false, true} {
+		pub := isPublic
+		if strict {
+			pub = isPublicStrict
 		}
-		mapped := netip.AddrFrom16(first.As16())
-		if got := publicPrefix(netip.PrefixFrom(mapped, 112)); got != want {
-			t.Fatalf("publicPrefix(%s/112) = %v, isPublic says %v", mapped, got, want)
+		for i := 0; i < 1<<16; i++ {
+			first := netip.AddrFrom4([4]byte{byte(i >> 8), byte(i), 0, 0})
+			last := netip.AddrFrom4([4]byte{byte(i >> 8), byte(i), 255, 255})
+			want := pub(first) && pub(last)
+			if got := publicPrefix(netip.PrefixFrom(first, 16), strict); got != want {
+				t.Fatalf("strict=%v: publicPrefix(%s/16) = %v, isPublic says %v", strict, first, got, want)
+			}
+			mapped := netip.AddrFrom16(first.As16())
+			if got := publicPrefix(netip.PrefixFrom(mapped, 112), strict); got != want {
+				t.Fatalf("strict=%v: publicPrefix(%s/112) = %v, isPublic says %v", strict, mapped, got, want)
+			}
 		}
-	}
-	for _, s := range []string{"::", "::1", "fc00::1", "fdff::1", "fe80::1", "febf::1", "ff00::1", "ff02::1"} {
-		a := netip.MustParseAddr(s)
-		if isPublic(a) || publicPrefix(netip.PrefixFrom(a, 128)) {
-			t.Errorf("%s: isPublic=%v publicPrefix=%v, want both false", s, isPublic(a), publicPrefix(netip.PrefixFrom(a, 128)))
+		for _, s := range []string{"::", "::1", "fc00::1", "fdff::1", "fe80::1", "febf::1", "ff00::1", "ff02::1"} {
+			a := netip.MustParseAddr(s)
+			if pub(a) || publicPrefix(netip.PrefixFrom(a, 128), strict) {
+				t.Errorf("strict=%v: %s: isPublic=%v publicPrefix=%v, want both false", strict, s, pub(a), publicPrefix(netip.PrefixFrom(a, 128), strict))
+			}
 		}
-	}
-	for _, s := range []string{"2001:db8::1", "2606:4700::1", "fbff::1", "fec0::1"} {
-		a := netip.MustParseAddr(s)
-		if !isPublic(a) || !publicPrefix(netip.PrefixFrom(a, 128)) {
-			t.Errorf("%s: isPublic=%v publicPrefix=%v, want both true", s, isPublic(a), publicPrefix(netip.PrefixFrom(a, 128)))
+		for _, s := range []string{"2001:db8::1", "2606:4700::1", "fbff::1", "fec0::1", "64:ff9b:2::1"} {
+			a := netip.MustParseAddr(s)
+			if !pub(a) || !publicPrefix(netip.PrefixFrom(a, 128), strict) {
+				t.Errorf("strict=%v: %s: isPublic=%v publicPrefix=%v, want both true", strict, s, pub(a), publicPrefix(netip.PrefixFrom(a, 128), strict))
+			}
+		}
+		for _, s := range []string{"64:ff9b::808:808", "64:ff9b:1::1"} { // NAT64: public unless strict
+			a := netip.MustParseAddr(s)
+			if pub(a) == strict || publicPrefix(netip.PrefixFrom(a, 128), strict) == strict {
+				t.Errorf("strict=%v: %s: isPublic=%v publicPrefix=%v", strict, s, pub(a), publicPrefix(netip.PrefixFrom(a, 128), strict))
+			}
 		}
 	}
 }

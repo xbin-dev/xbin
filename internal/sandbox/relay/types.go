@@ -26,8 +26,13 @@ const HairpinIP = "10.0.2.4"
 
 // Config configures a relay (see Start).
 type Config struct {
-	TunFD int
-	Allow Allow // egress policy for IP destinations; nil = none
+	// TunFD is the sandbox's egress TUN. The caller keeps owning it — close
+	// it after Relay.Close returns (Close stops the TUN's readers first), or
+	// after a failed Start — unless CloseTUN hands it to the relay, which
+	// then closes it at those two points itself.
+	TunFD    int
+	CloseTUN bool
+	Allow    Allow // egress policy for IP destinations; nil = none
 	// Deny is checked before everything else (see Deny); nil = nothing is
 	// denied beyond what Allow refuses.
 	Deny Deny
@@ -39,6 +44,24 @@ type Config struct {
 	// 0 = gVisor's default, one per CPU. Every relay pays for them, so a
 	// relay per sandbox passes 1.
 	Processors int
+
+	// MaxTCP and MaxUDP cap this relay's concurrent TCP and UDP flows (0 =
+	// no cap: backends and terminals). Budget, when set, caps them together
+	// with every other relay that shares it (a ping holds a Budget slot
+	// too). A flow takes its slots before it dials and gives them back when
+	// it closes; past a cap a TCP SYN is answered with a RST and a UDP
+	// datagram with an ICMP port-unreachable, at once, and the flow is
+	// recorded as denied. The relay runs inside xbind, so these are what
+	// keep a sandbox from spending xbind's fds and memory.
+	MaxTCP, MaxUDP int
+	Budget         *Budget
+	// StrictPublic judges the addresses DNS pins may name (AllowHost) with
+	// the strict "internet" test of a tile sandbox's policy
+	// (sandbox.EgressPolicy.Strict): besides private, loopback, link-local
+	// and multicast addresses it refuses CGNAT (100.64.0.0/10), benchmarking
+	// (198.18.0.0/15), reserved (240.0.0.0/4) and NAT64 (64:ff9b::/96,
+	// 64:ff9b:1::/48) ones. Set it with a strict policy's Allow.
+	StrictPublic bool
 
 	// AllowHost enables DNS-pinned HOSTNAME egress (D35): when set, the
 	// relay inspects the DNS responses it forwards and records name→address

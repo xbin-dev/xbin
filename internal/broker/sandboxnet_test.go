@@ -573,3 +573,47 @@ func TestSandboxNetBadSlotIsNoClass(t *testing.T) {
 		t.Errorf("control: %v", err)
 	}
 }
+
+// A class's "internet" is strict (the D120 addendum): its policy refuses
+// CGNAT (Tailscale), benchmarking, reserved and NAT64 addresses, and its
+// reach says open for a range there. The manager's own net:internet, a tile
+// backend's egress, is unchanged.
+func TestSandboxNetStrict(t *testing.T) {
+	b, st := sandboxNetFixture(t)
+	if err := st.SetOrgNetSets("sales", nil); err != nil {
+		t.Fatal(err)
+	}
+	storeBind(t, b, "apps/mgr", "net", "internet")
+	storeBind(t, b, "apps/mgr", "internet", "internet")
+	storeBind(t, b, "apps/mgr", "lab", "lan:100.64.0.0/10")
+	tailnet := mustAddr("100.100.1.2")
+
+	c := classOf(t, b, "apps/mgr", "class:internet")
+	if !c.Policy.IsStrict() || c.Reach != sandbox.ReachInternet {
+		t.Fatalf("internet class: %+v", c)
+	}
+	for _, s := range []string{"100.100.1.2", "198.18.0.1", "240.0.0.1", "64:ff9b::808:808", "64:ff9b:1::1"} {
+		if c.Policy.Allow(mustAddr(s), 443) {
+			t.Errorf("the internet class admits %s", s)
+		}
+	}
+	if !c.Policy.Allow(mustAddr("1.1.1.1"), 443) {
+		t.Error("the internet class admits the internet")
+	}
+	if c := classOf(t, b, "apps/mgr", "class:lab"); c.Reach != sandbox.ReachOpen || !c.Policy.Allow(tailnet, 22) {
+		t.Fatalf("a class bound to the CGNAT range reaches it, and says open: %+v", c)
+	}
+	for _, c := range b.SandboxNetClasses("apps/mgr") {
+		if !c.Policy.IsStrict() {
+			t.Errorf("class %s: its policy must be strict", c.Class)
+		}
+	}
+	if c := classOf(t, b, "apps/mgr", SandboxClassNone); !c.Policy.IsStrict() || !c.Policy.Empty() {
+		t.Errorf("none: %+v", c)
+	}
+
+	mgr, _ := b.Reg.Component("apps/mgr")
+	if own := b.EgressFor(mgr); own.IsStrict() || !own.Allow(tailnet, 443) {
+		t.Fatalf("the manager's own net:internet is unchanged: strict=%v admits %s=%v", own.IsStrict(), tailnet, own.Allow(tailnet, 443))
+	}
+}

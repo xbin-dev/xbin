@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/xbin-dev/xbin/internal/sandbox/relay"
 )
 
@@ -126,7 +128,7 @@ func runNetProbe(t *testing.T, lower string, cfg relay.Config, targets []string)
 		}
 		t.Fatalf("recv tun: %v\n%s", err, out.String())
 	}
-	cfg.TunFD = fd
+	cfg.TunFD, cfg.CloseTUN = fd, true // as the runner and terminals do
 	rl, err := relay.Start(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -141,6 +143,9 @@ func runNetProbe(t *testing.T, lower string, cfg relay.Config, targets []string)
 		t.Fatalf("netprobe timed out\n%s", out.String())
 	}
 	rl.Close()
+	if _, ferr := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0); ferr != unix.EBADF {
+		t.Errorf("the TUN fd is still open after Close with CloseTUN: %v", ferr)
+	}
 	if err != nil {
 		t.Fatalf("netprobe: %v\n%s", err, out.String())
 	}
