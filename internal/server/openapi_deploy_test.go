@@ -108,11 +108,11 @@ func TestOpenAPIDeploymentRows(t *testing.T) {
 		{"GET", "/sandboxes"},
 		{"GET", "/cron/jobs"}, {"PUT", "/cron/jobs"}, {"DELETE", "/cron/jobs/{name}"},
 		{"GET", "/bus/subscriptions"}, {"PUT", "/bus/subscriptions"}, {"DELETE", "/bus/subscriptions/{name}"},
-		{"GET", "/vault/{component}"}, {"GET", "/vault/{component}/{key}"},
-		{"PUT", "/vault/{component}/{key}"}, {"DELETE", "/vault/{component}/{key}"},
 	}
 	builtParam := map[[2]string]bool{
 		{"POST", "/term/sessions"}: true, {"POST", "/term/sessions/{id}/restart"}: true,
+		{"GET", "/vault/{component}"}: true, {"GET", "/vault/{component}/{key}"}: true,
+		{"PUT", "/vault/{component}/{key}"}: true, {"DELETE", "/vault/{component}/{key}"}: true,
 	}
 	for r := range builtParam {
 		withParam = append(withParam, r)
