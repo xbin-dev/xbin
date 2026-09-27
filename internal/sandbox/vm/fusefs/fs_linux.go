@@ -58,6 +58,8 @@ type FS struct {
 
 	srv *fuse.Server
 	w   *watcher // nil = no inotify: short TTLs
+
+	traffic traffic // what the guest asked and still waits on (traffic_linux.go)
 }
 
 type nodeKey struct{ mnt, ino uint64 }

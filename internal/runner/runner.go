@@ -314,7 +314,8 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state) error {
 	}
 	if err := waitHealthy(inst.sock, inst.waitCh, r.healthFor(c)); err != nil {
 		if !errors.Is(err, errExited) && r.wantsVM(c) {
-			r.sbxFail(c, sbx.Health, fmt.Errorf("the VM backend never listened: %w", err))
+			r.dumpVM(inst) // vm.go: what the guest was doing, into the log
+			r.sbxFail(c, sbx.Health, fmt.Errorf("the VM backend never listened: %w — what the VM was doing is in .xbin/log/%s.log", err, util.CompKey(c.Path)))
 		}
 		r.stop(inst, 2*time.Second)
 		err = fmt.Errorf("backend did not become healthy: %w", err)

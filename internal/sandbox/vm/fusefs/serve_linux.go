@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"time"
 
 	"github.com/hanwen/go-fuse/v2/fuse"
 	"golang.org/x/sys/unix"
@@ -51,6 +52,7 @@ func Serve(c net.Conn, fs *FS) error {
 			if _, err := io.ReadFull(c, buf[4:n]); err != nil {
 				return
 			}
+			fs.traffic.request(buf[:n], time.Now())
 			if _, err := unix.Write(fds[1], buf[:n]); err != nil {
 				return
 			}
@@ -70,6 +72,7 @@ func Serve(c net.Conn, fs *FS) error {
 			if _, err := c.Write(buf[:n]); err != nil {
 				return
 			}
+			fs.traffic.reply(buf[:n])
 		}
 	}()
 	debug := os.Getenv("XBIN_VM_FUSE_DEBUG") != ""
