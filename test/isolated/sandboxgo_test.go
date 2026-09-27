@@ -77,8 +77,21 @@ func runSuite(t *testing.T, owner, cons *manager, mode string, slow time.Duratio
 
 	t.Run("run", func(t *testing.T) {
 		res := owner.run(t, "box", `echo out; echo err >&2; echo "$IN_SANDBOX $SANDBOX_NAME"; id -u; id -G`)
-		if res.Stdout.Head != "out\n1 box\n0\n0\n" || res.Stderr.Head != "err\n" {
+		// no supplementary groups (id -G is 0) — except in a namespace
+		// mapping a single uid (users: root), which can't drop xbind's
+		// user's: they read as nogroup there
+		ok := res.Stdout.Head == "out\n1 box\n0\n0\n"
+		if mode == "namespace" && rt.Users != "any" {
+			ok = strings.HasPrefix(res.Stdout.Head, "out\n1 box\n0\n0") && strings.Count(res.Stdout.Head, "\n") == 4
+		}
+		if !ok || res.Stderr.Head != "err\n" {
 			t.Errorf("run: stdout %q stderr %q (want no supplementary groups: id -G is 0)", res.Stdout.Head, res.Stderr.Head)
+		}
+		// nothing of xbind's reaches a command: no XBIN_ variable, no
+		// token, none of the manager's own identity
+		env := owner.run(t, "box", "env; cat /proc/1/environ 2>/dev/null | tr '\\0' '\\n'")
+		if strings.Contains(env.Stdout.Head+env.Stdout.Tail, "XBIN_") {
+			t.Errorf("an xbin variable inside:\n%s", env.Stdout.Head)
 		}
 		var bad runResult
 		owner.must(t, "POST", "/sandboxes/box/run", map[string]any{"argv": []string{"sh", "-c", "exit 3"}}, 200, &bad)

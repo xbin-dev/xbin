@@ -357,7 +357,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   code or signal), for the manager's instance token only. A command gets
   `IN_SANDBOX=1`, `SANDBOX_ID`, `SANDBOX_NAME` and `HOME` from xbind, then
   `defaults.env` and its own `env`, and no supplementary groups (none of
-  xbind's user's); a `cwd` that doesn't exist is 400. A
+  xbind's user's — except in a namespace mapping a single uid, `users:
+  root`, which can't drop them); a `cwd` that doesn't exist is 400. A
   stop, however it comes, ends the running execs `killed` (`signal:
   "KILL"`) and keeps their output; only an exec id from before an xbind
   restart is 410 `lost`. A sandbox runs at most 16 commands at once

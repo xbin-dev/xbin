@@ -35,7 +35,11 @@ xbind names it in `X-XBin-From` — the calling tile (this tile's own page
 included), or `owner` / `user:<id>` for a call made without a tile's
 credential — kept in its `sandbox-go.home` label. A sandbox of another
 caller answers `404 not-found` on every route, as if it didn't exist; the
-list shows only yours.
+list shows only yours. The caller is a tile, not a person: everyone
+driving one tile's page shares that tile's sandboxes (the
+`coding-sandbox` template partitions by person too). Names are one
+namespace across callers: a create of a name another caller holds answers
+`409 exists`.
 
 ## Endpoints
 

@@ -4674,7 +4674,8 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     the VM policy's tiles on)/`TileSandboxes`, `CopyRootfs`/`TempRoot`
     (`XBIN_ITEST_DIR`), `Eventually`.
   - `test/isolated` (linux && integration): `TestNamespace` and `TestVM`
-    run one suite — runtime, create, `run` (`id -G` is `0`), output through
+    run one suite — runtime, create, `run` (`id -G` is `0` wherever groups
+    can be dropped; no `XBIN_` variable), output through
     `Forward` to the end, stdin, a forwarded TERM, files and tar both ways,
     a new and an attached terminal through the relay (gorilla; the session
     frame's ids, resize, the exec outliving its client), the consumer's
