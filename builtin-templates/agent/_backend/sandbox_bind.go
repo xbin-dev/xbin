@@ -258,18 +258,25 @@ func prepareBinding(ctx context.Context, w who, cfg Config, pick sandboxPick) (S
 		Image: box.Image.ID, Egress: box.Egress, By: w.tag(), At: nowMs()}, nil
 }
 
-// storeBinding applies a change to root's stored config inside t.
+// storeBinding applies a change to root's stored config inside t. A sandbox
+// the change takes off the conversation stops the jobs it still runs there
+// (stopDetachedJobs) — every detach path comes through here.
 func storeBinding(t *DB, root int64, change func(*Config) error) error {
 	cfg, err := t.runConfig(root)
 	if err != nil {
 		return err
 	}
+	before := cfg
+	before.Sandbox, before.Attached = copySandboxes(cfg)
 	if err := change(&cfg); err != nil {
 		return err
 	}
 	raw, _ := json.Marshal(cfg)
-	_, err = t.q.Exec(`UPDATE runs SET config=? WHERE id=?`, string(raw), root)
-	return err
+	if _, err = t.q.Exec(`UPDATE runs SET config=? WHERE id=?`, string(raw), root); err != nil {
+		return err
+	}
+	t.stopDetachedJobs(root, before, cfg)
+	return nil
 }
 
 // --- PATCH /runs/{id} {sandbox, detach} --------------------------------------------

@@ -443,22 +443,24 @@ func (e *Engine) turn(a *actor, run *Run, approval *InboxRow) {
 
 // uniqueCallIDs gives every call an id no other call in the run has. Some
 // providers omit ids, and some (small local models) reuse "call_0" every
-// step — either would make a result answer the wrong call. Ids are replayed
-// from storage, so renaming here is safe.
+// step — either would make a result answer the wrong call, and a bash call
+// find an earlier call's job (sandbox_jobs keys jobs by call). Ids are
+// replayed from storage, so renaming here is safe. A generated id is checked
+// like a given one: the step counter restarts every turn, so the same
+// candidate comes round again.
 func (e *Engine) uniqueCallIDs(run *Run, in []toolCall) []toolCall {
 	calls := make([]toolCall, len(in))
 	copy(calls, in)
 	seen := map[string]bool{}
+	taken := func(id string) bool { return id == "" || seen[id] || e.db.callIDUsed(run.ID, id) }
 	for i := range calls {
 		id := calls[i].ID
-		taken := id == "" || seen[id]
-		if !taken {
-			var n int
-			_ = e.db.q.QueryRow(`SELECT count(*) FROM messages WHERE run_id=? AND role='tool' AND tool_call_id=?`, run.ID, id).Scan(&n)
-			taken = n > 0
-		}
-		if taken {
-			id = fmt.Sprintf("call_%d_%d_%d_%s", run.ID, run.TurnSteps, i, e.gen)
+		if taken(id) {
+			base := fmt.Sprintf("call_%d_%d_%d_%s", run.ID, run.TurnSteps, i, e.gen)
+			id = base
+			for n := 2; taken(id); n++ {
+				id = fmt.Sprintf("%s_%d", base, n)
+			}
 		}
 		seen[id] = true
 		calls[i].ID = id
@@ -467,6 +469,15 @@ func (e *Engine) uniqueCallIDs(run *Run, in []toolCall) []toolCall {
 		}
 	}
 	return calls
+}
+
+// callIDUsed: a call of the run already has this id — it has a result (or
+// its placeholder), or it started a sandbox job.
+func (d *DB) callIDUsed(runID int64, id string) bool {
+	var n int
+	_ = d.q.QueryRow(`SELECT EXISTS(SELECT 1 FROM messages WHERE run_id=?1 AND role='tool' AND tool_call_id=?2)
+		OR EXISTS(SELECT 1 FROM sandbox_jobs WHERE run_id=?1 AND tool_call_id=?2)`, runID, id).Scan(&n)
+	return n > 0
 }
 
 // controlQueued reports an interrupt or cancel waiting to be applied.
