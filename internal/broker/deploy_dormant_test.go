@@ -236,6 +236,15 @@ func (f *dormantFx) sameStores(t *testing.T, before map[string]string) {
 	}
 }
 
+// noEdgePolicy removes the installed edge verdict (edgepolicy.go's, once it
+// is built) for the test's duration: the state before any edge policy,
+// which refuses every non-primary call to a foreign resource.
+func noEdgePolicy(t *testing.T) {
+	old := edgeVerdict
+	edgeVerdict = nil
+	t.Cleanup(func() { edgeVerdict = old })
+}
+
 // edgeAs installs an edge verdict answering every non-primary call with v
 // (read or block) for the test's duration.
 func edgeAs(t *testing.T, v string) {
@@ -349,6 +358,7 @@ func TestDormantRegistrations(t *testing.T) {
 
 		// a foreign cron resource: no edge policy refuses; read stores dormant; block refuses
 		foreign := map[string]any{"name": "f", "resource": "res:apps/shop/ticks", "schedule": "@every 1h", "path": "/f"}
+		noEdgePolicy(t)
 		rec = regCall(t, b.apiCronPut, calDev, "PUT", "/cron/jobs", "", foreign)
 		if rec.Code != 403 || !strings.Contains(rec.Body.String(), "edge policy") {
 			t.Errorf("a foreign job without an edge policy: %d %s", rec.Code, rec.Body)
@@ -433,6 +443,7 @@ func TestDormantRegistrations(t *testing.T) {
 
 		// a foreign bus: apps/email reads apps/calendar's
 		foreign := map[string]any{"name": "cal", "resource": "res:apps/calendar/bus", "path": "/cal"}
+		noEdgePolicy(t)
 		rec = busAPI(t, b.apiBusSubsPut, emailDev, "PUT", "/bus/subscriptions", foreign)
 		if rec.Code != 403 || !strings.Contains(rec.Body.String(), "edge policy") {
 			t.Errorf("a foreign subscription without an edge policy: %d %s", rec.Code, rec.Body)
