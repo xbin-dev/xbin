@@ -9,6 +9,12 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
+// termRootHint ends the refusal of a mount point that a symlink or a file
+// the terminal's persistent layer holds is in the way of (sandbox.Spec's
+// NoFollow): only a reset clears it. ASCII only: the failure record and the
+// log keep printable ASCII.
+const termRootHint = "the tile's persistent terminal layer holds it: reset the tile's sandbox (its window's reset button) to clear it"
+
 // scopedBinds builds a terminal's workspace binds (plans/runtime.md).
 //
 //   - A ROOT terminal (rel == "") is the owner plane: the whole workspace

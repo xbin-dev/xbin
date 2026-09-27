@@ -686,6 +686,9 @@ func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []
 		HostUID:      os.Getuid(),
 		HostGID:      os.Getgid(),
 		Unprivileged: true, // tile backends need no caps: drop them + seccomp block-list
+		// the env layer is the setup script's: its symlinks never place a
+		// mount point, the image's own may (WP-2b)
+		NoFollow: true, FollowBase: true, RootHint: envRootHint,
 	}
 	// Interface wiring (plans/interfaces.md): a net-provider tile gets one TUN per
 	// bound client; a component's `net` interface resolves to host-share, a splice

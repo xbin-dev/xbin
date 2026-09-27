@@ -21,6 +21,10 @@ import (
 // hash of the script + base rootfs; a script change builds a *fresh* layer. The
 // running backend then stacks it as a read-only lower.
 
+// envRootHint ends the refusal of a backend's mount point that a symlink
+// or a file in the env layer is in the way of (sandbox.Spec's NoFollow).
+const envRootHint = "the tile's environment layer holds it: its setup script made it"
+
 // envSetupPATH mirrors the rootfs toolchain PATH used elsewhere, so `apt`,
 // language package managers, etc. resolve inside the setup sandbox.
 const envSetupPATH = "PATH=/usr/local/go/bin:/usr/local/node/bin:/usr/local/bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -83,6 +87,9 @@ func (r *Runner) ensureEnvLayer(c *registry.Component) (string, error) {
 		HostUID: os.Getuid(),
 		HostGID: os.Getgid(),
 		Net:     "relay", // net:internet for the build
+		// a fresh upper holds nothing yet; the image's own symlinks may
+		// still place a mount point (WP-2b)
+		NoFollow: true, FollowBase: true,
 	}
 
 	logf, _ := os.OpenFile(

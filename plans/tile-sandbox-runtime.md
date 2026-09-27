@@ -1765,8 +1765,8 @@ next to its vforking `os.StartProcess`.
     file as xbind (`TestResolvConfNeverFollowed` reproduces it on the old
     code). `writeInRoot` now replaces a symlink there with a regular file,
     whatever `NoFollow` says.
-  - *Still open, outside tile sandboxes:* a terminal's or backend's
-    path-based mount points still follow a symlink in a persistent upper.
+  - *Still open, outside tile sandboxes* (closed by WP-2b): a terminal's or
+    backend's path-based mount points still follow a symlink in a persistent upper.
     That can make empty directories and files on the host (the old code
     made `xbin/` where a planted `/opt` pointed), though it can't overwrite
     anything. A planted `/proc` symlink also wedged that old path, with the
@@ -2553,6 +2553,126 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
 - **Never break users:** a terminal whose upper holds a planted link at a
   mount point fails to start with a message naming the path and `bx term
   reset`, instead of silently making host dirs.
+- **As built** (branch `p2/wp2b`):
+  - **The survey.** Mount points `internal/term` passes: `/proc`, `/tmp`,
+    `/dev` (+ `shm`, `pts`, the device nodes, all inside the fresh `/dev`
+    tmpfs), `/.oldroot`, the workspace root (a host path: an install's
+    `/opt/xbin/workspace` or `~/.local/opt/xbin/workspace`, else wherever
+    `--workspace` says), its masks (`.xbin`, `data`, `homes`, hidden
+    tiles), `$HOME`, the tile's dir, D40's view and readable tiles, the SDK
+    (`/opt/xbin/sdk`, `~/.local/opt/xbin/sdk` or `XBIN_SDK_PATH`), an agent
+    session's `/opt/xbin/bin/bx`, and a GPU's `/dev/nvidia*`,
+    `/usr/lib/lib{cuda,nvidia-*}.so.1` and `/usr/bin/nvidia-smi`.
+    `internal/runner` passes the tile's dir, its run dir and the gateway
+    socket (`/run/xbin/…`, `/run/user/<uid>/…` or `$TMPDIR`), resource dirs
+    (under the workspace), `/run/backend` and the GPU binds; the env-setup
+    run only the tile's dir. The current `.rootfs` (base `b89214a12869`, the
+    Dockerfile's Debian image) ships these directory symlinks: `/bin`,
+    `/lib`, `/lib64`, `/sbin` (→ `usr/…`), `/var/run → /run`, `/var/lock →
+    /run/lock`, `/var/spool/mail → ../mail`, `/usr/bin/X11 → .`,
+    `/usr/local/man → share/man`, `/usr/lib/ssl/{certs,private} →
+    /etc/ssl/…`, and links deeper in `/usr/share`, `/usr/lib/<triplet>`,
+    `/usr/local/go` and bun's cache; `/opt`, `/run`, `/home`, `/srv`,
+    `/tmp`, `/proc`, `/usr/lib`, `/usr/bin` are directories, and
+    `/usr/bin/nvidia-smi` and the GPU libraries are absent. **No mount point
+    passes a shipped symlink on any default or installer path;** only an
+    operator path under one of those links would (a workspace or SDK under
+    `/var/run` or `/lib`). The absolute ones were already broken there: the
+    old init resolved them against the host, so such a mount landed on the
+    host's `/run` (or failed making it, `EACCES`), out of the sandbox's
+    sight.
+  - **The approach: `NoFollow` on for terminals, backends and the env-setup
+    run, with a new `Spec.FollowBase`.** Rather than probing whether an
+    entry exists in the upper (the variant above), a symlink met on a mount
+    point's path is followed only when the base rootfs — the last `Lower`,
+    xbind's own image — has the same link to the same target at the same
+    path (`walk.shipped`, reading the base with `openNoFollow`). That covers
+    a backend's env layer too (a sandbox-written *lower* above the base,
+    which an upper probe misses) and doesn't depend on how either overlay
+    flavour writes whiteouts. A followed link is resolved **inside the new
+    root**: the walk restarts from the root fd on the lexically joined path
+    (`..` clamps at the root; ≤ 40 hops), checking every component again, so
+    the absolute ones now work instead of reaching the host. `FollowBase` does
+    nothing on a VM (its root is a bare tmpfs); tile sandboxes keep strict
+    `NoFollow`.
+  - **Masks follow any symlink, inside the root.** A mask only covers
+    (tmpfs, no source), and what a masked path reaches in the sandbox is
+    what its symlinks resolve to there, so a workspace whose `data/`,
+    `.xbin/` or `homes/` is a symlink keeps working: a link into the
+    workspace gets the target masked, one that leaves the sandbox's root
+    reaches nothing and is skipped (strict would have refused every terminal
+    of such a workspace). This applies to every `NoFollow` spec; tilesbx
+    has no masks.
+  - **`Spec.RootHint`** ends the refusal in parentheses: terminals say "the
+    tile's persistent terminal layer holds it: reset the tile's sandbox
+    (its window's reset button) to clear it" — there is no `bx term reset`,
+    and the hint is ASCII because the failure record and the log keep
+    printable ASCII only (a ⟲ came out as `()`); backends say "the tile's
+    environment layer holds it: its setup script made it". The message is
+    `sandbox-init: nested mount point /opt: a symlink is in the way (…)`
+    (exit 127): the terminal shows it, the log and `GET /sandboxes`'
+    failures carry it.
+  - **Files.** The walk moved out of `agentfd_linux.go` (now 131 lines)
+    into new `mountpoint_linux.go` (`walk`, `openWalk`, `point`/`try`,
+    `shipped`, `follow`, `mountAt`, `mountBindsNoFollow(w, …)`, `oldroot`,
+    `writeInRoot`, `pointAt` = a strict walk); `nofollow_linux.go` (dl's
+    copied helpers) is untouched, so §14's merge note stands. Call sites:
+    `term.go` (+3), `binds.go` (`termRootHint`), `runner.go` (+3),
+    `env.go` (the setup run, and `envRootHint`).
+  - **Also here: `/api/xbin` keeps the path's encoding** (the WP-13b
+    verifier's finding). `server.handleAPI` set the inner `Path` and left
+    `RawPath` the outer one, which no longer encoded it, so the inner mux
+    (which routes `EscapedPath`) routed the decoded path and
+    `…/sandboxes/x%2Fstop` reached `stop` for `x` (tilesbx's hygiene still
+    refused it, off the stale `RawPath`). `xbinInner` now cuts both from the
+    escaped path (a `/` encoded inside the `/api/xbin` prefix is 404, as
+    `http.StripPrefix` answers), so an encoded `/` stays in its segment. The
+    decoded path used to be cleaned into a redirect whenever it held a `.` or
+    `..` segment, so no handler ever saw one; handleAPI now answers such a
+    path (only an encoded dot reaches it) 400 `{error, refusal:
+    "invalid"}` to keep that true. A `{rest...}` value (kv, blob, vault) is
+    the same string as before; a single-segment value can now hold a `/`
+    (audited: map lookups, `validID`, `historyPath`'s check). `keys_test.go`
+    drives both the fixed and the old shape; protocol.md says so.
+  - **Tests.** `mountpoint_linux_test.go` (unit, no namespaces): shipped
+    links followed in the root (`/lib`, the absolute `/var/run`,
+    `/usr/bin/X11/X11/…`, `..` past the root), a file mount point through
+    one, refused without `FollowBase`; a new link, a retargeted image link
+    and relative/absolute plants refused with the hint; a mask's walk
+    through a relative, an absolute and a looping link; nothing made
+    outside. `followbase_linux_test.go` (integration, both overlays): a
+    minimal lower with `/lib → usr/lib` and `/var/run → /run` serves binds
+    through them, the upper re-planting the image's link is fine, planted or
+    retargeted `/var/run`, `/lib`, `/proc`, `/ws` fail with the hint in
+    well under a second (no wedge), a backend-style env lower's `/var/run`
+    too, and a masked symlinked `data/` stays hidden.
+    `internal/term/mountpoints_linux_test.go` (`TestTermMountPoints`, the
+    real rootfs, added to `make integration`'s term line): a live terminal
+    reads the SDK at `/opt/xbin/sdk` and through `/var/run → /run`; a
+    planted `/opt` or `/proc` in its layer fails the start with the path and
+    `termRootHint`, makes nothing on the host; a reset clears it.
+    `internal/runner/mountpoints_linux_test.go` (`TestBackendMountPoints`,
+    the rootfs): a Go backend's sandbox reads its source and the gateway
+    socket; an env layer's `/run → host dir` fails with `envRootHint`.
+    Mutation-checked: without `shipped` or without the mask's follow the
+    integration test fails; with the runner's `NoFollow` off the old init
+    made `backend` in the host dir; with the terminal's off the old init
+    failed on the host's `/run` (`EACCES`). `server/apiroute_test.go`:
+    `x%2Fstop` (either case) reaches `/probe/{name}` as `x/stop`, a
+    `{rest...}` value is unchanged, `/api/%78bin/…` is the prefix,
+    `/api/xbin%2F…` is 404, encoded dots are 400 (fails on the old shape).
+    A live isolated xbind (rootfs, fuse-overlayfs): a Go backend with a
+    `setup` served, one whose `setup` ran `ln -s <host dir> /run` failed
+    with the hint and left the dir empty, a namespace and a VM terminal
+    read the SDK, and the backend moved to a VM served. `internal/vm`
+    (KVM) is green.
+  - **Left open:** a host symlink *inside a bind* on another bind's path
+    is still refused (a workspace whose `homes/` is a symlink now fails its
+    terminals' start, where `$HOME` used to dangle); and a bind's *source*
+    is still resolved on the host through symlinks: a parent tile's
+    terminal can swap a nested tile's dir for a symlink, which a D40 view
+    binds as a readable tile until the rescan drops it (the mount point is
+    refused now, which closes the relative-link case).
 
 #### WP-3b — The agent dies with its root; user work dies first (A · S · after WP-1, WP-3)
 

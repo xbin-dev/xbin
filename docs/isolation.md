@@ -273,6 +273,17 @@ Keep two "layers" straight — they are deliberately separate:
 Rule of thumb: `apt install` in a terminal to try something; move anything the
 backend needs into `setup`.
 
+**Neither layer can move a mount.** xbind mounts things at fixed paths in a
+sandbox — `/proc`, `/tmp`, `/dev`, the SDK under `/opt/xbin`, your source,
+`$HOME`, the run dir, a backend's `/run/backend` — and finds each path from
+the sandbox's root without following a symlink. A symlink a terminal's layer
+or a `setup` script left where one goes (`/opt` or `/run` replaced by a link)
+fails the start with the path named, and nothing is made where it points: a
+terminal's reset clears it, and a backend's `setup` has to stop making it.
+The base rootfs's own links (`/lib → usr/lib`, `/var/run → /run`) are
+followed, inside the sandbox, and a symlink anywhere else — a tool under
+`/usr/local/bin`, a link in your source — is untouched.
+
 > Only one live session may hold a given component's persistent layer at a time
 > (concurrent overlay mounts of one upper dir would corrupt it). A second
 > concurrent terminal on the same component falls back to an ephemeral layer —

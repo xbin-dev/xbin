@@ -276,7 +276,11 @@ terminal to try things; move anything the backend needs into `setup`.
 live session on the layer and wipes the upper back to a clean base — safe,
 because your code and `$HOME` are bind mounts, not part of the overlay. Reset
 needs `terminal` level on the tile; resetting the (disabled) root layer is
-admin-only.
+admin-only. It is also what clears a symlink the layer holds where a mount
+point goes (`/opt`, `/proc`, …): the terminal refuses to start over one,
+naming the path, instead of following it (D78; the base rootfs's own links
+are followed, inside the sandbox — [isolation.md](/docs/isolation.md) §The dev
+layer).
 
 ## How tiles and terminals share the filesystem
 

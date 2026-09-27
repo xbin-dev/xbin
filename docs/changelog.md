@@ -67,6 +67,28 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   left there (a terminal's persistent layer keeps one) used to be followed —
   an absolute one outside the sandbox — and is now replaced by a regular file
   with the same content the sandbox always got. Nothing to change.
+- **Security: a terminal's or backend's mount points never follow a symlink
+  its layer holds** ([isolation.md](isolation.md) §The dev layer; WP-2b of
+  D120). xbind mounts things at fixed paths in every sandbox — `/proc`,
+  `/tmp`, `/dev`, the SDK under `/opt/xbin`, the workspace, `$HOME`, a
+  backend's `/run/backend` and run dir — and made each path by name before
+  the sandbox's root was in place, so a symlink a terminal's persistent layer
+  or a tile's `setup` script had left there (`/opt → /home/…`) was followed
+  on the host: xbind made empty directories and files there as itself (it
+  never overwrote one), and a planted `/proc` could hang the start. Each path
+  is now found from the sandbox's root without following a symlink. One that
+  such a layer holds fails the start, naming the path and how to clear it (a
+  terminal's reset; a backend's `setup`), and nothing is made where it
+  points. The base rootfs's own links (`/lib → usr/lib`, `/var/run → /run`)
+  are still followed, now inside the sandbox (a mount point under `/var/run`
+  used to resolve to the host's `/run`), and a mask over the workspace's
+  `.xbin`, `data` or `homes` follows the workspace's own symlinks inside the
+  sandbox. Nothing to change unless a terminal's layer replaced `/opt`,
+  `/tmp` or another mount point with a symlink: reset that terminal. Also:
+  `/api/xbin` routes a path as it was sent, so an encoded `/` (`%2F`) stays
+  part of its segment's value instead of reaching another route, and a
+  segment that decodes to `.` or `..` is 400 `invalid`
+  ([protocol.md](protocol.md) §xbind API).
 - **`cap:sandboxes`: the grant a sandbox manager needs for xbind's tile
   sandboxes** (D120, [auth.md](auth.md)). A tile that serves
   [sandbox-manager.md](sandbox-manager.md) on xbind's own sandboxes declares

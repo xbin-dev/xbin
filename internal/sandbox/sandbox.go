@@ -202,16 +202,34 @@ type Spec struct {
 	Lock  *os.File `json:"-"`
 
 	// NoFollow marks a root that untrusted code writes and keeps (a tile
-	// sandbox's persistent upper): every mount point the init makes in it —
-	// /proc, /tmp, /dev, each bind's and mask's Dst, the pivot's .oldroot — is
-	// walked from the root one component at a time without following a
-	// symlink, and made where missing, so a symlink planted in the upper can
-	// neither redirect a mount nor make a directory or file on the host (before
-	// pivot_root an absolute symlink resolves against the host's root). A
-	// symlink or a file in the way fails the start, naming the path. Off, the
-	// init keeps its old path-based mounts: a terminal's or backend's bind may
-	// legitimately pass a symlink the rootfs ships.
+	// sandbox's or a terminal's persistent upper, a backend's environment
+	// layer): every mount point the init makes in it — /proc, /tmp, /dev,
+	// each bind's and mask's Dst, the pivot's .oldroot — is walked from the
+	// root one component at a time without following a symlink, and made
+	// where missing, so a symlink planted in the root can neither redirect a
+	// mount nor make a directory or file on the host (before pivot_root an
+	// absolute symlink resolves against the host's root). A symlink or a file
+	// in the way fails the start, naming the path. A mask's path follows its
+	// symlinks, inside the new root: a mask only covers, and what it covers
+	// is what the path reaches in the sandbox. Off, the init makes mount
+	// points by path (confine's throwaway sandboxes: nothing in their root
+	// was written by a sandbox).
 	NoFollow bool `json:"noFollow,omitempty"`
+
+	// FollowBase (with NoFollow: terminals and backends) also follows a
+	// symlink on a mount point's path that the base rootfs — the last Lower,
+	// the image xbind was given — ships as it is: the same link to the same
+	// target at the same path, resolved inside the new root, never against
+	// the host's. A mount point then may pass the image's own /var/run →
+	// /run or /lib → usr/lib; a symlink the sandbox made, or one it
+	// changed, still fails the start. No effect on a VM (its root is a bare
+	// tmpfs).
+	FollowBase bool `json:"followBase,omitempty"`
+
+	// RootHint (with NoFollow) ends the refusal of a mount point that a
+	// symlink or a file is in the way of, in parentheses: where it lives and
+	// how the sandbox's owner clears it (a terminal: reset its layer).
+	RootHint string `json:"rootHint,omitempty"`
 
 	// FuseWatch (tile sandboxes) makes a fuse-overlayfs root a process the
 	// agent watches rather than a daemon: the init starts fuse-overlayfs in
