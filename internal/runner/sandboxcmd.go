@@ -21,12 +21,28 @@ func sandboxable(runtime string) bool {
 	return false
 }
 
-// sandboxCmd builds the isolated backend command (plans/isolation.md): a
-// per-component namespace set over an overlay of r.Rootfs. The component's
-// source is read-only, its run dir and same-scope resource files are read-write,
-// the gateway socket is the one door out, and the netns is empty (default-deny
-// egress; the egress relay is a follow-on).
+// sandboxCmd builds and launches the isolated backend command
+// (plans/isolation.md): the generation's launchSpec, turned into a VM sandbox
+// when the tile runs its backend in one (vmApply reserves the VM's memory),
+// then sandbox.Launch.
 func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []string, pol sandbox.EgressPolicy, envLower string) (*exec.Cmd, *sandbox.Handle, error) {
+	spec := r.launchSpec(c, bin, dir, env, pol, envLower)
+	if r.wantsVM(c) {
+		if err := r.vmApply(c, spec, dir, sock, filepath.Join(r.RunDir, "gateway.sock")); err != nil {
+			return nil, nil, err
+		}
+	}
+	return sandbox.Launch(spec)
+}
+
+// launchSpec is the sandbox spec of an isolated backend generation: a
+// per-component namespace set over an overlay of r.Rootfs. The component's
+// source is read-only, its run dir and same-scope resource files are
+// read-write, the gateway socket is the one door out, and the netns is empty
+// (default-deny egress) unless the tile's grants and bindings wire a relay,
+// a splice or the host network. It is pure: it reads the runner's hooks and
+// the host paths it binds, and launches, reserves and records nothing.
+func (r *Runner) launchSpec(c *registry.Component, bin, dir string, env []string, pol sandbox.EgressPolicy, envLower string) *sandbox.Spec {
 	gw := filepath.Join(r.RunDir, "gateway.sock")
 	binds := []sandbox.Bind{
 		{Src: c.Dir, Dst: c.Dir, RO: true}, // component source, read-only
@@ -54,7 +70,7 @@ func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []
 	if r.GPU != nil {
 		if gb, genv := gpu.Binds(r.GPU(c)); len(gb) > 0 {
 			binds = append(binds, gb...)
-			env = append(env, genv...)
+			env = append(env[:len(env):len(env)], genv...) // a copy: never into the caller's spare capacity
 		}
 	}
 
@@ -108,10 +124,5 @@ func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []
 			spec.Net = "relay"
 		}
 	}
-	if r.wantsVM(c) {
-		if err := r.vmApply(c, spec, dir, sock, gw); err != nil {
-			return nil, nil, err
-		}
-	}
-	return sandbox.Launch(spec)
+	return spec
 }
