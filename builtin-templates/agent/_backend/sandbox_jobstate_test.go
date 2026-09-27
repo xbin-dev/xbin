@@ -294,6 +294,43 @@ func TestBashStartInFlightWhenDetached(t *testing.T) {
 	}
 }
 
+// A detach reaches the turn in flight (verify): the turn's config is its
+// copy from when it began, but a tool call after the detach — a bash
+// started then included, which the detach's KILL pass never saw — is
+// refused, not run in a sandbox the conversation no longer has.
+func TestDetachReachesTheTurnInFlight(t *testing.T) {
+	ag, mux := accessFixture(t)
+	bindSbx(t, "apps/cs")
+	conv := createConv(t, ag, alicePrivate, nil)
+	a := mkSandbox(t, "apps/cs", "alice", sbxCreate{Name: "a"})
+	refA := sandboxRef("apps/cs", a.ID)
+	if got := bindTo(t, mux, asAlice, conv.ID, refA, ""); got != 200 {
+		t.Fatal(got)
+	}
+	cfg, _ := ag.db.runConfig(conv.ID) // the turn's copy
+	if out := mustTool(t, ag, conv, cfg, "b1", "bash", map[string]any{"command": "echo before"}); !strings.Contains(out, "before") {
+		t.Fatalf("before the detach: %s", out)
+	}
+	if w := callAs(t, mux, asAlice, "PATCH", fmt.Sprintf("/runs/%d", conv.ID), map[string]any{"detach": refA}); w.Code != 200 {
+		t.Fatalf("detach: %d %s", w.Code, w.Body)
+	}
+	for i, call := range []struct {
+		name string
+		args map[string]any
+	}{
+		{"bash", map[string]any{"command": "sleep 30", "background": true}},
+		{"write", map[string]any{"path": "x.txt", "content": "after"}},
+	} {
+		if out, err := tool(t, ag, conv, cfg, fmt.Sprintf("a%d", i), call.name, call.args); err == nil || !strings.Contains(err.Error(), "was detached from this conversation during this turn") {
+			t.Fatalf("%s after the detach, in the same turn: %q %v", call.name, out, err)
+		}
+	}
+	conn, _ := sbxDial("apps/cs", "alice")
+	if execs, err := conn.ExecList(context.Background(), a.ID); err != nil || len(execs) != 1 {
+		t.Fatalf("execs in the detached sandbox: %+v %v", execs, err)
+	}
+}
+
 // In a team conversation the ask says the sandbox will be the team's — and
 // the owner's allow is still an allow of exactly that (harness: the note
 // appended to the ask made every team conversation's create refuse as

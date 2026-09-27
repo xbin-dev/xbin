@@ -22,9 +22,10 @@ type sbxUse struct {
 // ref "" is the active one; another must be attached — and checks, every
 // call, that it still may:
 //
-//   - a subagent's copy of the binding is still the conversation's: the
-//     root still has the sandbox bound or attached, by the same binder (a
-//     detach reaches every subagent at once),
+//   - the calling run's copy of the binding is still the conversation's:
+//     the root still has the sandbox bound or attached — for a subagent, by
+//     the same binder (a detach reaches the turn in flight and every
+//     subagent at once),
 //   - the class allows the sandbox toolset and the manager,
 //   - the manager is still bound (and speaks protocol 1 with exec and files),
 //   - the sandbox still exists (asked of the manager, fresh),
@@ -62,10 +63,16 @@ func (ag *Agent) sandboxUse(ctx context.Context, root int64, cfg Config, ref str
 	if !ok {
 		return nil, &sbxError{Refusal: "invalid", Msg: fmt.Sprintf("%q is not a sandbox reference", b.Ref)}
 	}
-	if run := sbxCallOf(ctx).run; run != 0 && run != root {
+	if run := sbxCallOf(ctx).run; run != 0 {
+		// the calling run's copy is as its turn began: the root's stored
+		// bindings are what the conversation has now
 		rc, err := ag.db.runConfig(root)
 		rb, ok := rc.sandboxBinding(b.Ref)
-		if err != nil || !ok || rb.By != b.By {
+		switch {
+		case run == root && (err != nil || !ok):
+			return nil, &sbxError{Refusal: "not-attached", Msg: fmt.Sprintf("the sandbox %q was detached from this conversation during this turn — ask the user to bind it again, or use another",
+				orStr(b.Name, b.Ref))}
+		case run != root && (err != nil || !ok || rb.By != b.By):
 			return nil, &sbxError{Refusal: "not-attached", Msg: fmt.Sprintf("the sandbox %q is no longer attached to this conversation as it was when this subagent started (detached, or bound again by someone else) — tell your parent",
 				orStr(b.Name, b.Ref))}
 		}

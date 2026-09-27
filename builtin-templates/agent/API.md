@@ -1026,7 +1026,9 @@ the view).
   the binder may still use it and still takes part in the conversation.
   A subagent's copy of a binding holds only while the conversation still
   has that sandbox bound or attached, by the same binder: a detach (or a
-  rebind by someone else) reaches every subagent at once.
+  rebind by someone else) reaches every subagent at once — and the turn in
+  flight, whose later tool calls there are refused (`was detached from this
+  conversation during this turn`).
   Otherwise the tool says why and the conversation needs a new binding.
 - **The firewall across a shared sandbox.** A sandbox outlives a
   conversation and may be bound to several, so the class firewall follows

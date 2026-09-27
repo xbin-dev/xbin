@@ -127,8 +127,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   only for the same request still running. Detaching a sandbox — or
   deleting it — KILLs the conversation's jobs in it (in the background) and
   records them, a `bash` whose start was still in flight included: when its
-  start answers, the command is KILLed at once and the call says so; a job
-  whose sandbox the conversation can no longer use is
+  start answers, the command is KILLed at once and the call says so — and
+  the turn in flight works there no more (its later tool calls are
+  refused, where they used its copy of the bindings); a job whose sandbox
+  the conversation can no longer use is
   lost and no longer counts toward the 8, so leftover rows can't block
   `bash` for good, and `bash_output`/`bash_kill` on it say what is known. A
   start the manager doesn't answer keeps its job (named in the result, found
