@@ -788,6 +788,16 @@ with the website: `make website`). Its sentence that the relay does not
 store IP addresses holds only if the relay's deployment (its reverse proxy
 included) keeps no access logs with them.
 
+**Plain http (App Review).** `NSAllowsArbitraryLoads` is on, alone: the
+app connects to servers its user runs, at whatever address they give —
+often http on a tailnet or LAN. (With `NSAllowsLocalNetworking` beside
+it, iOS ignores the allow-any rule and only localhost-like names get
+http.) App Review asks why: "xbin is a client for self-hosted
+workspaces; users enter their own server's address, which may be plain
+http on a private network or VPN. The app warns when an http address may
+travel unencrypted." The sign-in page's note is
+`ServerOrigin.isEncryptedInTransit` (https, loopback, Tailscale).
+
 **Export compliance.** `ITSAppUsesNonExemptEncryption` is `false`: the app's
 encryption is TLS through URLSession and Apple's CryptoKit and Secure Enclave
 (push sealing, device keys). That is encryption within Apple's operating

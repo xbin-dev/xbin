@@ -12,6 +12,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-27
 
+- **xbin app: plain http works to any address** — a tailnet IP, a LAN
+  address, an unqualified name. The app's Info.plist also allowed "local
+  networking", and iOS then ignores its allow-any rule, so a phone got
+  "this address needs https" for anything but localhost-like names. The
+  sign-in page now says when an http address isn't encrypted on the way
+  (not https, not loopback, not a Tailscale address).
+
 - **A contract for sandbox managers** ([sandbox-manager.md](sandbox-manager.md),
   D115). Tiles that run coding sandboxes for other tiles provide the http
   service `sandbox-manager` (protocol 1); tiles that use them — the agent
