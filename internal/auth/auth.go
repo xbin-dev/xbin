@@ -81,6 +81,12 @@ type Principal struct {
 	// id; impersonate.go). Everything reads as the user; the server refuses
 	// every write while it is set (ReadOnly).
 	Impersonator string
+	// Deployment names the tile deployment this principal acts in; "" =
+	// main. Tile principals: set from the credential, never from a header.
+	// Cron and bus principals: the registration's deployment. Humans: always
+	// "" (a person names a deployment by URL, not by credential). From()
+	// stays the tile path, and authority stays the tile's (P11).
+	Deployment string
 }
 
 // ReadOnly reports an impersonation principal: an admin looking through a

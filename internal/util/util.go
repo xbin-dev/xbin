@@ -142,3 +142,47 @@ func CompKey(comp string) string {
 	}
 	return base + "-" + hex.EncodeToString(h[:4])
 }
+
+// MainDeployment is the deployment every tile has: the one a tile without a
+// deployment record runs, and the one storage keys leave unnamed.
+const MainDeployment = "main"
+
+// DeploymentNameOK reports whether s is a tile deployment name: a lowercase
+// letter, then up to 23 lowercase letters, digits or '-' (the glossary
+// grammar, ^[a-z][a-z0-9-]{0,23}$). A name never holds '+' or '/', so a tile
+// ref "<tile>+<name>" splits one way only.
+func DeploymentNameOK(s string) bool {
+	if len(s) == 0 || len(s) > 24 || s[0] < 'a' || s[0] > 'z' {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		if c := s[i]; !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+// TileKey is the 128-bit key of a tile path that names the stores tile
+// deployments add (data/deployments, data/checkpoints, .xbin/deploy): 32
+// lowercase hex digits of SHA-256("xbin-tile-key-v1" ‖ 0x00 ‖ path). Unlike
+// CompKey's 32 bits it can't be ground into a collision; existing stores keep
+// their CompKey and ScopeKey names. Each new store also records the full path
+// and refuses a load whose path differs.
+func TileKey(path string) string {
+	h := sha256.Sum256([]byte("xbin-tile-key-v1\x00" + path))
+	return hex.EncodeToString(h[:16])
+}
+
+// ErrNoDeployment is the "unknown deployment" condition (a 404 on the wire).
+// NoDeployment wraps it with the tile and the name.
+var ErrNoDeployment = errors.New("no such deployment")
+
+// NoDeployment is the error for a tile that has no deployment called name:
+// `<tile> has no deployment "<name>"`. errors.Is matches ErrNoDeployment.
+func NoDeployment(tile, name string) error { return noDeployment{tile, name} }
+
+type noDeployment struct{ tile, name string }
+
+func (e noDeployment) Error() string        { return e.tile + " has no deployment " + strconv.Quote(e.name) }
+func (e noDeployment) Is(target error) bool { return target == ErrNoDeployment }

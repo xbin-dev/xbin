@@ -9,11 +9,17 @@ import (
 
 // Event is one message on the hub. JSON-encoded on the wire.
 type Event struct {
-	Type      string `json:"type"`                // reload|build-start|build-error|build-ok|backend|log|bus|grants|status|pr|users|term|session|branding|native
-	Component string `json:"component,omitempty"` // workspace-relative path
+	Type      string `json:"type"`                // reload|build-start|build-error|build-ok|backend|log|bus|grants|status|pr|users|term|session|branding|native|deployments
+	Component string `json:"component,omitempty"` // workspace-relative path; always the bare tile path, never "<tile>+<name>"
 	Text      string `json:"text,omitempty"`      // human text (compiler output, log line)
 	Topic     string `json:"topic,omitempty"`     // bus: resource-qualified topic "res:scope/name/topic"
-	Data      any    `json:"data,omitempty"`      // bus payload / structured extras
+	// Deployment names the deployment whose data namespace a bus event
+	// belongs to, set only when it isn't main (the name rule). Every other
+	// type leaves it empty: the primary's events keep today's bytes, and a
+	// non-primary deployment's activity rides the "deployments" type, which
+	// names it in Data.
+	Deployment string `json:"deployment,omitempty"`
+	Data       any    `json:"data,omitempty"` // bus payload / structured extras
 }
 
 // Filter decides whether a subscriber receives an event. Most events are

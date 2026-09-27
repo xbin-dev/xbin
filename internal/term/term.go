@@ -156,6 +156,10 @@ type Manager struct {
 	VM *vm.Manager
 	// Sandboxes lists every live session (sbx.go, D112; nil-safe).
 	Sandboxes *sbx.Registry
+	// HasDeploymentRecord reports whether a tile has a deployment record
+	// (wired to the deployments plane by main); nil ⇒ no tile has one, and
+	// sessions get today's env.
+	HasDeploymentRecord func(tile string) bool
 
 	mu       sync.Mutex
 	sessions map[string]*Session

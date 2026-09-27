@@ -416,6 +416,51 @@ type Component struct {
 	// declared entry was not usable (native.go). Resolved at scan time.
 	Native    string
 	NativeErr string
+
+	// Tile deployments (in memory only). The registry's own component
+	// describes the tile's primary and leaves Deployment and CodeRoot empty;
+	// a deployment view sets them for the spawn-time hooks, which learn the
+	// spawning deployment from it. WorkTree and Kept are set only while the
+	// registry's PinnedPrimary hook answers for the tile: every zero-state
+	// component has them nil and false.
+	Deployment string        // the non-primary deployment a view describes; "" = the primary
+	CodeRoot   string        // the host directory holding the view's code when it isn't Dir (a materialized checkpoint); "" = Dir
+	WorkTree   *WorkTreeScan // the work tree's own scan while the primary is pinned
+	Kept       bool          // registered for its pinned primary though the work tree has neither xbin.json nor index.html, or a broken xbin.json
+}
+
+// WorkTreeScan is the work tree's own scan of a tile whose primary is pinned
+// to a checkpoint, kept beside the component composed from that checkpoint.
+type WorkTreeScan struct {
+	Manifest  Manifest
+	HasIndex  bool
+	Native    string
+	NativeErr string
+}
+
+// WorkTreeManifest is the manifest the tile's work tree declares: c.Manifest,
+// unless the primary is pinned and the work tree's scan sits in WorkTree. What
+// the tile's authors are writing (the roles the grants UI offers) reads it;
+// enforcement follows c.Manifest, the primary's code (P9).
+func (c *Component) WorkTreeManifest() Manifest {
+	if c.WorkTree != nil {
+		return c.WorkTree.Manifest
+	}
+	return c.Manifest
+}
+
+// PinnedCode is what a pinned primary's checkpoint declares, read from its
+// materialized tree without following a symlink and parsed as Rescan parses a
+// work tree. A manifest that doesn't parse is the zero manifest (no backend,
+// no exposes, no chrome) with ManifestErr set; file contents never appear in
+// it.
+type PinnedCode struct {
+	Manifest    Manifest
+	ManifestErr string
+	HasIndex    bool
+	Native      string
+	NativeErr   string
+	Scope       *ScopeManifest // the checkpoint's scope.json when the tile roots its scope; nil otherwise
 }
 
 // IsTemplate reports whether the component is a template blueprint (not
@@ -437,6 +482,20 @@ func (c *Component) HasBackend() bool {
 
 type Registry struct {
 	Root string
+
+	// PinnedPrimary, set by the deployments plane at boot, answers for a tile
+	// whose primary is pinned to a checkpoint: what that code declares, which
+	// Rescan composes into the tile's component, so the inbound surface and
+	// the deployment-level fields follow the primary's code (P9). An O(1)
+	// lookup that answers false for every other path; nil means today's scan.
+	PinnedPrimary func(rel string) (*PinnedCode, bool)
+	// ScopeResources, set by the deployments plane at boot, answers the
+	// resources a scope root declares when they don't come from the work
+	// tree's scope.json: a scope rooted by a tile whose primary is pinned
+	// declares what its checkpoint's scope.json does (P22). Whether a
+	// directory roots a scope stays the work tree's. false, or nil, means
+	// today's map, read from the work tree.
+	ScopeResources func(scope string) (map[string]Resource, bool)
 
 	mu         sync.RWMutex
 	components map[string]*Component
