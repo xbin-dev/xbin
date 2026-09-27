@@ -117,6 +117,11 @@ type Plane struct {
 	// ReconcileIngress re-derives the ingress listeners and doors from the
 	// registry and the bindings.
 	ReconcileIngress func()
+	// RunNow delivers one cron job of a deployment once, whatever its
+	// deliveries switch says; DropRegistrations removes a deployment's
+	// dormant cron jobs and bus subscriptions. Both are the broker's.
+	RunNow            func(ctx context.Context, tile, dep, job string) (Delivery, error)
+	DropRegistrations func(tile, dep string) error
 	// TileLimits are a tile's cgroup caps, today's per-component ones: the
 	// ceiling of every deployment's limits (P22), in LimitsFor. Zero without
 	// cgroup delegation.
