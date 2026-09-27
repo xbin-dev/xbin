@@ -24,6 +24,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/cgroup"
+	"github.com/xbin-dev/xbin/internal/runner"
 	"github.com/xbin-dev/xbin/internal/term"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -270,11 +271,12 @@ const (
 )
 
 // The admission caps on non-primary deployments (07-runtime §10.3) (P25):
-// constants, not settings.
+// constants, not settings. The runner enforces them at start and declares
+// them; these are its values, so there is one declaration.
 const (
-	MaxNonPrimaryPerTile      = 3
-	MaxNonPrimaryPerWorkspace = 24
-	MaxNonPrimaryRunning      = 12 // backends running at once, workspace-wide
+	MaxNonPrimaryPerTile      = runner.MaxNonPrimaryPerTile
+	MaxNonPrimaryPerWorkspace = runner.MaxNonPrimaryPerWorkspace
+	MaxNonPrimaryRunning      = runner.MaxNonPrimaryRunning // backends running at once, workspace-wide
 )
 
 // ---- the operations' answers (the handler adds the state) ----
