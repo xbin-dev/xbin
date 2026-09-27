@@ -159,6 +159,15 @@ func testLiveExecs(t *testing.T, le *liveEnv, mode string, hasShell bool) {
 		if strings.Contains(out, "XBIN_") {
 			t.Errorf("an xbin variable inside:\n%s", out)
 		}
+		// nor xbind's user's supplementary groups, wherever they can be
+		// dropped (a range-mode namespace, a VM; a single-uid namespace
+		// denies setgroups)
+		if mode == ModeVM || le.m.uidRange {
+			g := le.liveRun("ex-1", map[string]any{"argv": []string{probeBin, "groups"}})
+			if g.Stdout.Head != "-\n" {
+				t.Errorf("the command's supplementary groups: %q (%+v)", g.Stdout.Head, g.Stderr)
+			}
+		}
 		if in, _ := le.m.infoOf(le.k, "ex-1"); in.State != StateRunning {
 			t.Fatalf("the sandbox: %+v", in)
 		}

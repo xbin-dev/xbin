@@ -2779,9 +2779,11 @@ error.
   (always), `SANDBOX_ID` and `SANDBOX_NAME` (the sandbox's name), `HOME`
   (`/root` for root, `/` for any other user) and a `PATH`, with
   `defaults.env` and then the command's `env` over them; `XBIN_*` keys are
-  400. Nothing of xbind's or of the agent's own environment gets in. Each
-  command leads its own process group, and it is what the OOM killer
-  takes first.
+  400. Nothing of xbind's or of the agent's own environment gets in, nor
+  xbind's user's supplementary groups: a command has none (except on a
+  namespace host mapping a single uid, `users: root`, which can't drop
+  them). Each command leads its own process group, and it is what the OOM
+  killer takes first.
 - **A stopped sandbox** with `autoStart` (the default) is started for a
   command, a `starting` one waited for and a `stopping` one waited out and
   started again (Auto-start, above); without `autoStart` a stopped or

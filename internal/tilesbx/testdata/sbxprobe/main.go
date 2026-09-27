@@ -143,6 +143,19 @@ func main() {
 		for _, e := range os.Environ() {
 			fmt.Println(e)
 		}
+	case "groups": // its supplementary groups, one line ("-" for none)
+		gs, err := syscall.Getgroups()
+		if err != nil {
+			fail(err.Error())
+		}
+		out := []string{}
+		for _, g := range gs {
+			out = append(out, strconv.Itoa(g))
+		}
+		if len(out) == 0 {
+			out = append(out, "-")
+		}
+		fmt.Println(strings.Join(out, " "))
 	case "copy": // stdin to stdout
 		_, _ = io.Copy(os.Stdout, os.Stdin)
 	case "tree": // dur [pidfile]: a child in its process group, sleeping dur; its pid printed (and written)

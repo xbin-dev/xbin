@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 
 	"golang.org/x/sys/unix"
@@ -94,5 +96,38 @@ func lowerOwnOOMScore() {
 		if n, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil && n > 0 {
 			_ = os.WriteFile("/proc/self/oom_score_adj", []byte("0"), 0)
 		}
+	}
+}
+
+// The namespace agent clears its supplementary groups (xbind's user's,
+// unmapped in the sandbox) unless its user namespace denies setgroups —
+// WP-21's live run found `id -G` in a tile sandbox listing seven nogroups.
+func TestDropGroups(t *testing.T) {
+	var calls [][]int
+	setgroups = func(gids []int) error { calls = append(calls, gids); return nil }
+	t.Cleanup(func() { setgroups = syscall.Setgroups })
+	dir := t.TempDir()
+	for _, c := range []struct {
+		file string // the setgroups file's contents ("" = none)
+		drop bool
+	}{{"allow\n", true}, {"deny\n", false}, {"", true}} {
+		calls = nil
+		p := filepath.Join(dir, "setgroups")
+		_ = os.Remove(p)
+		if c.file != "" {
+			if err := os.WriteFile(p, []byte(c.file), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := dropGroups(p); err != nil {
+			t.Fatal(err)
+		}
+		if dropped := len(calls) == 1 && len(calls[0]) == 0; dropped != c.drop || len(calls) > 1 {
+			t.Errorf("setgroups %q: calls %v, want a drop: %v", c.file, calls, c.drop)
+		}
+	}
+	setgroups = func([]int) error { return syscall.EPERM }
+	if err := dropGroups(filepath.Join(dir, "none")); err == nil {
+		t.Error("a failed drop must fail the agent's start")
 	}
 }

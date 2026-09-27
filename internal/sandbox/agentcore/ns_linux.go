@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
+	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -48,6 +50,10 @@ func RunNamespace(agentFD, lockFD, fusePID int) int {
 		nsLogf("set non-dumpable: %v", err)
 		return 1
 	}
+	if err := dropGroups("/proc/self/setgroups"); err != nil {
+		nsLogf("drop the supplementary groups: %v", err)
+		return 1
+	}
 	shrugSignals()
 
 	// the reaper of the whole pid namespace, and of the root's fuse-overlayfs
@@ -84,6 +90,27 @@ func RunNamespace(agentFD, lockFD, fusePID int) int {
 	}
 	nsLogf("accept: %v", err)
 	return 1
+}
+
+// setgroups is syscall.Setgroups (all of the process's threads; tests swap
+// it).
+var setgroups = syscall.Setgroups
+
+// dropGroups clears the agent's supplementary groups — and so every
+// session's that runs as the agent (no uid or gid of its own). The agent
+// inherits xbind's user's groups; the sandbox's user namespace doesn't map
+// them (they read as nogroup inside), yet they still count on the host: a
+// host file bound in and owned by one of those groups (docker's, kvm's, a
+// shared group's) would open for the sandbox. Where the namespace denies
+// setgroups (a single-uid map) they can't be dropped, nor used to widen
+// anything the sandbox's one mapped id couldn't reach already: nothing to
+// do. A missing file (a kernel before 3.19) allows setgroups.
+func dropGroups(setgroupsFile string) error {
+	b, err := os.ReadFile(setgroupsFile)
+	if err == nil && strings.TrimSpace(string(b)) == "deny" {
+		return nil
+	}
+	return setgroups([]int{})
 }
 
 // sessionOOMScoreAdj is every exec's oom_score_adj (§2.4). The agent keeps
