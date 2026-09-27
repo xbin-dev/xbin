@@ -527,8 +527,12 @@ and defines and drives them through `/api/xbin/sandboxes/…`
   the sandbox, never on the host.
 - **Definitions are xbind's** (`data/sandboxes.json`), validated again at
   every start; the policy (`.xbin/sandboxes/policy.json`, admins) caps what
-  each tile holds. The admin console lists every tile sandbox, and an
-  admin may stop or delete one — never exec into it.
+  each tile holds. Every start is booked against those caps and the
+  workspace's `total` (429 over one), none starts while the workspace disk
+  is low, an idle sandbox is stopped after its `idleStopMin`, and a policy
+  file that can't be read keeps every tile sandbox off until an admin
+  saves the policy again. The admin console lists every tile sandbox, and
+  an admin may stop or delete one — never exec into it.
 - **Contained like the rest.** A running namespace sandbox has its own
   cgroup (its memory + 128 MiB, no swap; its pids; its vCPUs as a hard
   cap) inside one cgroup for every tile sandbox, capped by the policy's

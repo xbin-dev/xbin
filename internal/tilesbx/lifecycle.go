@@ -26,9 +26,10 @@ import (
 const (
 	nsReadyWait = 30 * time.Second // a namespace sandbox's agent answers "ready" within
 	stopSync    = 5 * time.Second  // a stop waits this long for "synced", then kills
-	endWait     = 15 * time.Second // a stop waits this long for the teardown
 	ctlGrace    = time.Second      // a lost ctl waits this long for the process's own exit (its reason wins)
-	lockWait    = 5 * time.Second  // a start waits this long for an earlier run's lock
+
+	endWait  = 15 * time.Second // a stop waits this long for the teardown (Manager.endWait: tests shorten it)
+	lockWait = 5 * time.Second  // a start (a reset, a rebase) waits this long for an earlier run's lock and leaf (Manager.lockWait)
 )
 
 // run is one run of a sandbox: from its launch to its teardown.
@@ -57,6 +58,9 @@ type run struct {
 	exit   ExitStatus
 	done   chan struct{} // closed once the teardown finished
 	once   sync.Once
+
+	idle    idleState      // activity, holds and the idle timer (idle.go)
+	killers sync.WaitGroup // leaf killers in flight: the teardown waits for them before removing the leaf
 
 	// mu guards what the start attaches while the watcher may already be
 	// tearing the run down (tunFD, relay, agent, unlist, ready), and why it
@@ -91,7 +95,8 @@ func (r *run) attach(set func()) bool {
 }
 
 // end asks the run to end with why (the first reason wins) and kills its
-// process; the watcher then runs the teardown. It reports whether this
+// process; the watcher then runs the teardown. Every ask kills again, so a
+// second stop retries a kill that didn't take. It reports whether this
 // call was the first to ask.
 func (m *Manager) end(r *run, why string) bool {
 	r.mu.Lock()
@@ -100,9 +105,7 @@ func (m *Manager) end(r *run, why string) bool {
 		r.asked, r.why = true, why
 	}
 	r.mu.Unlock()
-	if first {
-		m.kill(r)
-	}
+	m.kill(r)
 	return first
 }
 
@@ -110,12 +113,28 @@ func (m *Manager) end(r *run, why string) bool {
 // so the kernel ends the rest — and every process of the sandbox besides
 // (Proc.Kill: its descendants; cgroup.kill: its leaf). A PID 1 stuck on a
 // FUSE request of a wedged fuse-overlayfs (WP-3's note; the root-dir create
-// deadlock) can't die before its server does (killtree.go).
+// deadlock) can't die before its server does (killtree.go). The leaf is
+// killed off the caller's goroutine (cgroup.Kill waits for it to empty),
+// and only while the teardown hasn't begun, which waits for it before it
+// removes the leaf: without cgroup.kill (before 5.14) the killer SIGKILLs
+// the leaf's pids on every round, and a leaf removed and made again by the
+// next start (a reset's restart) must never get those rounds.
 func (m *Manager) kill(r *run) {
 	_ = r.proc.Kill()
-	if r.leaf != "" {
-		go func() { _ = m.cg.Kill(r.leaf) }()
+	if r.leaf == "" {
+		return
 	}
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return
+	}
+	r.killers.Add(1)
+	r.mu.Unlock()
+	go func() {
+		defer r.killers.Done()
+		_ = m.cg.Kill(r.leaf)
+	}()
 }
 
 // watch waits for the process and tears the run down: every way a
@@ -138,6 +157,7 @@ func (m *Manager) teardown(r *run) {
 		rl, tunFD, agent, unlist := r.relay, r.tunFD, r.agent, r.unlist
 		r.tunFD = -1
 		r.mu.Unlock()
+		m.disarmIdle(r)
 		if rl != nil {
 			rl.Close() // its readers have stopped when it returns
 		}
@@ -146,6 +166,7 @@ func (m *Manager) teardown(r *run) {
 		}
 		var oom int64
 		if r.leaf != "" {
+			r.killers.Wait() // no killer of this run outlives its leaf
 			if err := m.cg.Kill(r.leaf); err != nil {
 				slog.Warn("tile sandbox: emptying its cgroup", "tile", r.k.Tile, "sandbox", r.def.Name, "err", err)
 			}
@@ -305,9 +326,10 @@ func (m *Manager) startLocked(k Key, name string, b *box) error {
 		st, detail := b.state, b.detail
 		m.mu.Unlock()
 		return &Error{Refusal: RefState, State: st, Msg: fmt.Sprintf("sandbox %q is %s: %s", name, st, detail)}
-	case !m.policy.get().On():
+	}
+	if on, why := m.policy.on(); !on {
 		m.mu.Unlock()
-		return &Error{Refusal: RefUnavailable, Msg: "tile sandboxes are switched off (sandboxes policy: enabled)", RetryAfter: time.Minute}
+		return &Error{Refusal: RefUnavailable, Msg: why, RetryAfter: time.Minute}
 	}
 	lim := m.limitsFor(k.Tile)
 	d.MemMiB, d.VCPUs, d.DiskGiB = clamp(d, lim)
@@ -355,12 +377,12 @@ func (m *Manager) launch(k Key, d *Def, b *box, lim Limits, ops *modeOps) (err e
 	}
 	release = onceFunc(release)
 	undo = append(undo, release)
-	// 2. the lock
+	// 2. the lock (and an orphan's leaf, emptied)
 	dir, err := m.StateDir(k, d)
 	if err != nil {
 		return err
 	}
-	lock, err := lockState(dir)
+	lock, err := m.lockRun(k, d, dir)
 	if err != nil {
 		return err
 	}
@@ -483,6 +505,8 @@ func (m *Manager) launch(k Key, d *Def, b *box, lim Limits, ops *modeOps) (err e
 		b.state, b.detail = StateRunning, ""
 		b.launched, b.reach, b.accel, b.started = d, class.Reach, r.accel, r.started.UnixMilli()
 		b.egressNext = false
+		m.touch(r)
+		m.armIdleLocked(r, 0) // the idle stop (idle.go)
 	}
 	m.mu.Unlock()
 	return nil

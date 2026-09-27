@@ -129,25 +129,54 @@ func TestPolicyTotalAndFlows(t *testing.T) {
 	}
 }
 
-// An unreadable policy file says so in GET /sandboxes/policy (error); a
-// PUT replaces it and clears the error.
+// An unreadable policy file fails closed (§3.2): it says so in GET
+// /sandboxes/policy (error, and enabled false), the runtime says enabled
+// false, every start answers 503; a PUT replaces it and clears the error.
 func TestPolicyError(t *testing.T) {
-	e := newEnv(t)
-	if err := os.MkdirAll(filepath.Dir(e.m.policyPath()), 0o700); err != nil {
+	root := t.TempDir()
+	path := filepath.Join(root, ".xbin", "sandboxes", "policy.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(e.m.policyPath(), []byte("{not json"), 0o600); err != nil {
+	// it said enabled, and more: none of it counts while it can't be read
+	if err := os.WriteFile(path, []byte(`{"enabled": true, "idleStopMin": 5`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	var v struct{ Error string }
+	e := newEnv(t, func(o *Options) { o.Root = root })
+	e.create(ns("sb-1"))
+	var v struct {
+		Error  string
+		Policy Policy
+	}
 	w := e.do(admin, "GET", "/sandboxes/policy", nil)
 	e.want(w, http.StatusOK, "")
-	if err := json.Unmarshal(w.Body.Bytes(), &v); err != nil || !contains(v.Error, "policy.json") {
+	if err := json.Unmarshal(w.Body.Bytes(), &v); err != nil || !contains(v.Error, "policy.json") || v.Policy.On() {
 		t.Fatalf("an unreadable policy file: %s", w.Body)
 	}
-	e.putPolicy(`{"idleStopMin":45}`, http.StatusOK)
+	if e.m.PolicyError() == "" {
+		t.Fatal("no policy error for the health view")
+	}
+	var rt Runtime
+	w = e.do(mgr, "GET", "/sandboxes/runtime", nil)
+	if err := json.Unmarshal(w.Body.Bytes(), &rt); err != nil || rt.Enabled {
+		t.Fatalf("the runtime with an unreadable policy file: %s", w.Body)
+	}
+	w = e.do(mgr, "POST", "/sandboxes/sb-1/start", nil)
+	e.want(w, http.StatusServiceUnavailable, RefUnavailable)
+	if !contains(w.Body.String(), "policy file is unreadable") {
+		t.Fatalf("the refusal: %s", w.Body)
+	}
+
+	a := e.putPolicy(`{"idleStopMin":45}`, http.StatusOK)
+	if !a.Policy.On() || a.Stored.IdleStopMin != 45 {
+		t.Fatalf("the PUT's policy: %+v", a)
+	}
 	w = e.do(admin, "GET", "/sandboxes/policy", nil)
-	if contains(w.Body.String(), `"error"`) {
+	if contains(w.Body.String(), `"error"`) || e.m.PolicyError() != "" {
 		t.Fatalf("the error outlived a PUT: %s", w.Body)
+	}
+	w = e.do(mgr, "GET", "/sandboxes/runtime", nil)
+	if err := json.Unmarshal(w.Body.Bytes(), &rt); err != nil || !rt.Enabled {
+		t.Fatalf("the runtime after the PUT: %s", w.Body)
 	}
 }

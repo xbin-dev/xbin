@@ -534,7 +534,8 @@ GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
                                    forced?,assets:{piece:path},missing?:[…],
                                    kvm?,emulation?,policy,stored,used,
                                    usedTiles,usedBy:{<tile>:{vms,memMiB}}},
-                                   tileSandboxes:{cgroup,flows:{used,cap}}}}.
+                                   tileSandboxes:{cgroup,flows:{used,cap},
+                                   total:{memMiB:{used,cap}},policyError}}}.
                                    A backend
                                    is listed per generation (blue/green shows
                                    two; stats scope "tile" is the tile's
@@ -553,8 +554,13 @@ GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
                                    sandboxes run without cgroup limits
                                    although xbind's cgroup is delegated
                                    (cgroup; "" = they have them, or nothing
-                                   does) and their relays' shared cap on
-                                   concurrent connections (flows).
+                                   does), their relays' shared cap on
+                                   concurrent connections (flows), the
+                                   memory the running ones may take of the
+                                   policy's total (total.memMiB, MiB; cap 0 =
+                                   none), and why the sandboxes policy file
+                                   can't be read (policyError; "" = it can —
+                                   tile sandboxes are off while it can't).
                                    failures: the newest 64, identical ones
                                    within 10 min coalesced (count). ?tile=
                                    narrows.
@@ -2234,8 +2240,8 @@ sandboxes).
   answers 501 `unsupported` ("tile sandboxes need isolation"), and `runtime`
   says `isolation: false`.
 - **In this xbind** the definition routes work — runtime, policy, list,
-  create, get, patch, delete — and so do start and stop, for namespace
-  mode (VM mode is unavailable). Reset, rebase and the command, terminal,
+  create, get, patch, delete — and so do start, stop, reset and rebase,
+  for namespace mode (VM mode is unavailable). The command, terminal,
   file, tar and snapshot routes are registered and answer 501
   `unsupported`; `runtime.caps` lists the contract capabilities served
   (none yet).
@@ -2272,10 +2278,12 @@ POST   /sandboxes/<name>/start?wait=         manager. → SandboxInfo (running, 
 POST   /sandboxes/<name>/stop?wait=[&tile=]  manager, admin. sync, then kill; state
                                              kept, running execs end killed
                                              → SandboxInfo
-POST   /sandboxes/<name>/reset               manager. stop, wipe the state, pin the
-                                             current base image
-POST   /sandboxes/<name>/rebase              manager. stop, keep the state, pin the
-                                             current base image
+POST   /sandboxes/<name>/reset?wait=         manager. stop, wipe the state, pin the
+                                             current base image, start again if it
+                                             ran → SandboxInfo
+POST   /sandboxes/<name>/rebase?wait=        manager. stop, keep the state, pin the
+                                             current base image, start again if it
+                                             ran → SandboxInfo
 
 POST   /sandboxes/<name>/run                 manager. the contract's run → its result
 GET    /sandboxes/<name>/execs               manager. → {execs:[Exec]}
@@ -2403,10 +2411,61 @@ the failure in `stateDetail` (the sandbox's own start-up error, quoted). It
 is refused 409 `state` when the sandbox is in `error` — its state went
 missing, its base image is no longer installed, or its upper was written
 by the other overlay flavour (`stateDetail` says which; a reset repairs
-it) — or while an earlier run's processes still hold its state; 503
-`unavailable` while the sandboxes policy is off or the vault is sealed
-(a resource mount); 400 `invalid` when a mount or the egress class is no
-longer the tile's to use. A start of a running sandbox changes nothing.
+it, and a rebase repairs a missing base) — or while an earlier run's
+processes still hold its state (a start waits up to 5 s for them first);
+503 `unavailable` while the sandboxes policy is off or its file can't be
+read, the workspace disk is low, or the vault is sealed (a resource
+mount); 400 `invalid` when a mount or the egress class is no longer the
+tile's to use. A start of a running sandbox changes nothing.
+
+**Admission.** Every start is booked against the tile's quotas — with it,
+at most `perTile.running` sandboxes running, their `memMiB` summed within
+`perTile.memMiB` and their `vcpus` within `perTile.vcpus` — and against the
+workspace's `total.memMiB` (each running sandbox counts its `memMiB` +
+128 MiB, what its cgroup may take); over any of them is 429 `limit`,
+naming the cap. So is a tile whose sandboxes' bytes on disk, snapshots
+included, pass `perTile.diskGiB`; those bytes never count against the
+tile's resource-write quota. The booking is atomic: ten starts at once
+under `running: 4` run exactly four. A lowered cap applies at the next
+start (a running sandbox shows `restartNeeded` for its sizes).
+
+**Waiting.** Lifecycle calls take `?wait=<seconds>` (up to
+`limits.waitMaxSec`; more is clamped; absent is `waitMaxSec`): the call
+answers once its transition is done or the wait runs out, with the
+sandbox as it stands (`starting`, say) — the transition goes on, and `GET`
+says where it got. `?wait=0` answers without waiting. A refusal is
+answered as itself. `POST /sandboxes` with `start: true` takes it too.
+
+**Reset and rebase.** Both restart a sandbox that was running: it is
+stopped (its execs end `killed`), reset or re-pinned, and started again,
+so it is `running` afterwards; a stopped one stays stopped. Both keep its
+snapshots and both answer the sandbox. **Reset** puts the state aside for
+a confined removal and clears `base`, so the next start runs on the
+current base image from an empty upper; it repairs `error` and repeating
+it is harmless. **Rebase** keeps the state and pins it to the current
+base image — what a package manager installed on the old one may break;
+it repairs a missing base, but an upper of the other overlay flavour only
+a reset repairs. `base.outdated` says a sandbox is pinned to an older base
+than the current one.
+
+**Idle stop.** A running sandbox that sees no activity for its
+`idleStopMin` (its definition's, else the policy's) is stopped, state
+kept, `stateDetail` "idle for N minutes: stopped, state kept
+(idleStopMin)". Activity is a call on the sandbox (reading its
+`SandboxInfo` or the list isn't one), exec input and output, a terminal
+attach, detach or keystroke, and a file operation; `lastActive` is the
+last. Work in flight holds it off however long it runs: a non-tty exec, a
+`run`, a file, tar or copy operation, an attached terminal client. A
+terminal exec nobody is attached to and that prints nothing is idle.
+A `PATCH` of `idleStopMin`, or a policy change, applies to running
+sandboxes at once.
+
+**Auto-start.** An exec or file call on a `stopped` sandbox with
+`autoStart` starts it and waits for it (the command's `timeoutMs` starts
+after); on a `starting` one it waits for `running`; on a `stopping` one it
+waits for the stop, then starts it again — within `waitMaxSec`, else 409
+`state`. Without `autoStart` a stopped or stopping sandbox answers 409
+`state`.
 
 However a run ends, the sandbox is `stopped` and `stateDetail` says why:
 `""` after the manager's stop; "stopped by a workspace admin"; "the
@@ -2418,7 +2477,10 @@ rules don't cover the running ones (a class that widens shows in
 `egressNext` and applies at the next start, `restartNeeded`). A stop's
 `stateDetail` is kept until the next start. xbind stops its tile sandboxes,
 synced, when it exits, and they die with it when it dies: after a restart
-every sandbox is `stopped`, its state kept.
+every sandbox is `stopped`, its state kept, and an exec id of the old boot
+answers 410 `lost`. A users-plane change (a policy row, a network set) is
+checked against the running sandboxes' classes too: one whose class
+narrowed is stopped as above.
 
 **SandboxInfo:** `{name, uid, state (creating | stopped | starting |
 running | stopping | error), stateDetail, mode, accel?, memMiB, vcpus,
@@ -2444,7 +2506,13 @@ vcpus 2, diskGiB 20, maxMemMiB 8192, maxVCPUs 8, maxDiskGiB 200, pids
 host's RAM) and has no per-tile override; an override replaces that tile's
 previous one, `null` removes it. `runtime.limits.flows` is each sandbox's
 cap on concurrent network connections (TCP and UDP flows through its relay);
-past it a new one is refused at once.
+past it a new one is refused at once. Turning `enabled` off stops every
+running tile sandbox (state kept, `stateDetail` says so) and refuses
+starts. **A policy file that can't be read fails closed:** `GET` shows why
+in `error`, `policy.enabled` is false and so is `runtime.enabled`, and no
+tile sandbox starts (503) — whatever the file said — until an admin's
+`PUT` writes a new one (merged onto the defaults), which clears the
+error.
 
 **The TTY routes** are WebSockets on exactly the `/ws/term` wire (below):
 binary frames both ways (the ring's tail replays first), `{"op":

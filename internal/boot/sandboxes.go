@@ -275,11 +275,15 @@ func sessionWhat(e sbx.Entry) string {
 
 // tileSandboxHealth is the tile sandboxes' part of the health (§3.10): why
 // they run without cgroup limits (cgroup: "" = they have them, or nothing
-// does) and the relays' shared flow budget.
+// does), the relays' shared flow budget, the total book (the memory every
+// running tile sandbox may take, of the policy's total) and why the
+// policy file can't be read (policyError: tile sandboxes are off meanwhile).
 func (st *State) tileSandboxHealth() map[string]any {
 	if st.TileSbx == nil {
 		return nil
 	}
 	used, cap := st.TileSbx.FlowBudget()
-	return map[string]any{"cgroup": st.TileSbx.CgroupNote(), "flows": map[string]int{"used": used, "cap": cap}}
+	memUsed, memCap := st.TileSbx.TotalBook()
+	return map[string]any{"cgroup": st.TileSbx.CgroupNote(), "flows": map[string]int{"used": used, "cap": cap},
+		"total": map[string]any{"memMiB": map[string]int{"used": memUsed, "cap": memCap}}, "policyError": st.TileSbx.PolicyError()}
 }

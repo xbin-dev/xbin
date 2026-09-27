@@ -87,13 +87,10 @@ func (m *Manager) info(k Key, d *Def) Info {
 		Net:      NetInfo{Egress: d.Net.Egress},
 		Mounts:   d.Mounts,
 		Defaults: d.Defaults, Labels: d.Labels, For: d.For, ForUser: d.ForUser,
-		IdleStopMin: d.IdleStopMin, AutoStart: d.AutoStart,
-		Base:  BaseInfo{Version: d.Base},
+		IdleStopMin: idleMinutes(d, lim), AutoStart: d.AutoStart,
+		Base:  BaseInfo{Version: d.Base, Outdated: d.Base != "" && m.baseVersion != "" && d.Base != m.baseVersion},
 		Users: m.users(d.Mode), DiskBytes: b.diskBytes, Snapshots: b.snapshots, ExecsRunning: b.execsRunning,
-		Created: d.Created, LastActive: b.lastActive, Version: d.Version, ClientID: d.ClientID,
-	}
-	if in.IdleStopMin == 0 {
-		in.IdleStopMin = lim.IdleStopMin
+		Created: d.Created, LastActive: lastActiveLocked(b), Version: d.Version, ClientID: d.ClientID,
 	}
 	if in.Mounts == nil {
 		in.Mounts = []Mount{}
@@ -198,8 +195,9 @@ var builtCaps = []string{}
 func (m *Manager) runtime(k Key) Runtime {
 	p := m.policy.get()
 	lim := p.For(k.Tile)
+	on, _ := m.policy.on()
 	rt := Runtime{
-		Enabled: p.On(), Isolation: m.isolated, Users: m.users(ModeNamespace),
+		Enabled: on, Isolation: m.isolated, Users: m.users(ModeNamespace),
 		Modes: []ModeInfo{}, Unavailable: []ModeInfo{},
 		Egress: append([]EgressClass{{Class: "none", Reach: "none"}}, m.classes(k)...),
 		Caps:   append([]string{}, builtCaps...),

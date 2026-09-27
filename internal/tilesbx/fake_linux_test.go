@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -92,6 +93,8 @@ type fakeProc struct {
 	once sync.Once
 	exit chan ExitStatus
 	dead chan struct{}
+
+	ignoreKills atomic.Int32 // kills that don't take
 }
 
 func (p *fakeProc) Pid() int           { return p.pid }
@@ -122,7 +125,16 @@ func (p *fakeProc) Started() {
 }
 
 func (p *fakeProc) Wait() ExitStatus { return <-p.exit }
-func (p *fakeProc) Kill() error      { p.die(ExitStatus{Code: -1, Signal: syscall.SIGKILL}); return nil }
+
+// Kill ends it — unless it was told to shrug kills off (ignoreKills): a
+// PID 1 stuck in the kernel.
+func (p *fakeProc) Kill() error {
+	if p.ignoreKills.Add(-1) >= 0 {
+		return nil
+	}
+	p.die(ExitStatus{Code: -1, Signal: syscall.SIGKILL})
+	return nil
+}
 
 func (p *fakeProc) Signal(s os.Signal) error {
 	if s == syscall.SIGKILL {
@@ -181,12 +193,18 @@ func newFakeEnv(t *testing.T, mut ...func(*Options)) *fakeEnv {
 		o.Rootfs, o.BxPath = rootfs, "/nonexistent/bx"
 		o.Deps.Launcher, o.Deps.Sbx = fe.l, fe.sbx
 	}}, mut...)...)
-	fe.m.reserve = func(Key, *Def) (func(), error) {
+	admit := fe.m.reserve // the real admission, counted
+	fe.m.reserve = func(k Key, d *Def) (func(), error) {
+		release, err := admit(k, d)
+		if err != nil {
+			return nil, err
+		}
 		fe.bookMu.Lock()
 		fe.reserved++
 		fe.books++
 		fe.bookMu.Unlock()
 		return func() {
+			release()
 			fe.bookMu.Lock()
 			fe.reserved--
 			fe.bookMu.Unlock()
@@ -258,3 +276,87 @@ func execRun(t *testing.T, r *run, argv []string) (string, SessionExit) {
 	}
 	return string(b), s.Exit()
 }
+
+// fakeClock is the runtime's time in the idle tests: Now moves only when
+// advance says so, and advance fires the timers that fell due, in order —
+// on the caller's goroutine, so it returns once what they did is done.
+type fakeClock struct {
+	mu     sync.Mutex
+	now    time.Time
+	timers []*fakeTimer
+}
+
+type fakeTimer struct {
+	c    *fakeClock
+	at   time.Time
+	f    func()
+	done bool // fired or stopped
+}
+
+func (t *fakeTimer) Stop() bool {
+	t.c.mu.Lock()
+	defer t.c.mu.Unlock()
+	was := !t.done
+	t.done = true
+	return was
+}
+
+func newFakeClock() *fakeClock { return &fakeClock{now: time.UnixMilli(1790000000000)} }
+
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *fakeClock) AfterFunc(d time.Duration, f func()) stopper {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	t := &fakeTimer{c: c, at: c.now.Add(d), f: f}
+	c.timers = append(c.timers, t)
+	return t
+}
+
+// armed is how many timers wait to fire.
+func (c *fakeClock) armed() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := 0
+	for _, t := range c.timers {
+		if !t.done {
+			n++
+		}
+	}
+	return n
+}
+
+// advance moves the clock on by d, firing every timer due by then (and
+// those the fired ones arm, when they fall due too).
+func (c *fakeClock) advance(d time.Duration) {
+	c.mu.Lock()
+	end := c.now.Add(d)
+	c.mu.Unlock()
+	for {
+		c.mu.Lock()
+		var next *fakeTimer
+		for _, t := range c.timers {
+			if !t.done && !t.at.After(end) && (next == nil || t.at.Before(next.at)) {
+				next = t
+			}
+		}
+		if next == nil {
+			c.now = end
+			c.mu.Unlock()
+			return
+		}
+		next.done = true
+		if next.at.After(c.now) {
+			c.now = next.at
+		}
+		c.mu.Unlock()
+		next.f()
+	}
+}
+
+// withClock runs the runtime on c.
+func withClock(c *fakeClock) func(*Options) { return func(o *Options) { o.Now = c.Now } }

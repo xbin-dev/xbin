@@ -167,8 +167,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   declares in `uses` (a grant alone mounts nothing), `none` egress or a
   sandbox-net slot, no `XBIN_*` variables). Each sandbox has a `uid`, its
   identity: a name deleted and created again gets another, so a manager
-  can tell the two apart. Start and stop run sandboxes (next bullet); every
-  other route of the contract — reset and rebase, `run`, execs and their
+  can tell the two apart. Start, stop, reset and rebase run sandboxes (the
+  next bullets); every other route of the contract — `run`, execs and their
   output, the TTY WebSocket, files, tar, copy and snapshots — is registered
   and answers 501 `unsupported` for now; `runtime.caps` lists what is
   served. Errors use the
@@ -200,9 +200,34 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   (409 `state` on start). The admin's `GET /sandboxes` lists running tile
   sandboxes as `kind: "tile"` rows with `name`, `for` and `forUser`, and
   `health.tileSandboxes` reports the relays' shared connection budget and
-  why the sandboxes run without cgroup limits, if they do. VM mode, reset,
-  rebase, commands, files and snapshots still answer as before. Nothing
-  changes for a workspace without a manager tile.
+  why the sandboxes run without cgroup limits, if they do. VM mode,
+  commands, files and snapshots still answer as before. Nothing changes for
+  a workspace without a manager tile.
+- **Tile sandboxes: quotas, the idle stop, reset and rebase** (D120,
+  [protocol.md](protocol.md) §Tile sandboxes). A start is booked against
+  the sandboxes policy — the tile's `perTile.running`, `perTile.memMiB`,
+  `perTile.vcpus` and `perTile.diskGiB` (its sandboxes' bytes on disk,
+  which never count against its resource-write quota), and the workspace's
+  `total.memMiB` — and one over a cap is 429 `limit` naming it: ten starts
+  at once under `running: 4` run exactly four. While the workspace disk is
+  low no tile sandbox starts (503). A running sandbox that sees no
+  activity for its `idleStopMin` is stopped, state kept; a non-tty exec, a
+  `run`, a file operation or an attached terminal holds it up however long
+  it runs, and reading its `SandboxInfo` isn't activity. `POST …/reset`
+  and `…/rebase` work: each restarts a sandbox that was running and keeps
+  its snapshots; reset starts it from an empty upper on the current base
+  image (it repairs `error`), rebase keeps its state and pins it to the
+  current base image (`base.outdated` says when it isn't). Every lifecycle
+  call, and a create with `start: true`, takes `?wait=<seconds>`: absent it
+  waits up to `waitMaxSec`, `0` answers without waiting, and the answer is
+  the sandbox as it stands. Turning the policy's `enabled` off stops every
+  running tile sandbox. A policy file that can't be read now keeps tile
+  sandboxes off until an admin saves the policy again — it used to fall
+  back to the defaults, which are on — and `GET /sandboxes/policy`
+  (`error`) and the admin's `health.tileSandboxes` (`policyError`, and
+  `total`, the memory booked of the policy's total) say so. An exec id
+  from before an xbind restart answers 410 `lost`. Nothing changes for a
+  workspace without a manager tile.
 - **Go SDK: tile sandboxes** ([sdk.md](sdk.md) §Tile sandboxes).
   `xbin.SandboxAPI()` has a call for each of a manager tile's
   `/api/xbin/sandboxes/…` routes: definitions and lifecycle, `Run`, execs

@@ -1,10 +1,12 @@
 package tilesbx
 
-// api_lifecycle.go — start, stop, reset and rebase (§3.4). Start and stop
-// run the lifecycle (lifecycle.go) and answer the sandbox as it stands
-// afterwards: a start that failed leaves it stopped with why in
-// stateDetail, a refusal answers the refusal. Reset, rebase and ?wait are
-// WP-15b's.
+// api_lifecycle.go — start, stop, reset and rebase (§3.4). Each runs its
+// transition (lifecycle.go, stop.go, reset.go) and answers the sandbox as
+// it stands once the transition is done or ?wait=<seconds> runs out
+// (waitMaxSec when absent; 0: without waiting) — the transition goes on
+// after the answer, and GET says where it got. A start that failed leaves
+// the sandbox stopped with why in stateDetail; a refusal answers the
+// refusal.
 
 import (
 	"errors"
@@ -19,7 +21,7 @@ func (m *Manager) ServeStart(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	m.answerTransition(w, k, d.Name, m.Start(k, d.Name))
+	m.transition(w, r, k, d.Name, func() error { return m.Start(k, d.Name) })
 }
 
 // ServeStop answers POST /sandboxes/{name}/stop?wait= (the manager, or an
@@ -37,7 +39,43 @@ func (m *Manager) ServeStop(w http.ResponseWriter, r *http.Request) {
 	if !m.Manages(auth.PrincipalOf(r)) {
 		why = "stopped by a workspace admin"
 	}
-	m.answerTransition(w, k, d.Name, m.Stop(k, d.Name, why))
+	m.transition(w, r, k, d.Name, func() error { return m.Stop(k, d.Name, why) })
+}
+
+// ServeReset answers POST /sandboxes/{name}/reset?wait= (the manager):
+// stop it if it runs, put its state aside for the confined remover, clear
+// its base pin, start it again if it ran (reset.go).
+func (m *Manager) ServeReset(w http.ResponseWriter, r *http.Request) {
+	k, d, ok := m.managed(w, r)
+	if !ok {
+		return
+	}
+	m.transition(w, r, k, d.Name, func() error { return m.Reset(k, d.Name) })
+}
+
+// ServeRebase answers POST /sandboxes/{name}/rebase?wait= (the manager):
+// stop it if it runs, pin its kept state to the current base, start it
+// again if it ran (reset.go).
+func (m *Manager) ServeRebase(w http.ResponseWriter, r *http.Request) {
+	k, d, ok := m.managed(w, r)
+	if !ok {
+		return
+	}
+	m.transition(w, r, k, d.Name, func() error { return m.Rebase(k, d.Name) })
+}
+
+// transition runs f within the call's ?wait and answers.
+func (m *Manager) transition(w http.ResponseWriter, r *http.Request, k Key, name string, f func() error) {
+	wait, err := waitOf(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	done, err := within(wait, f)
+	if !done {
+		err = nil // still going: the sandbox as it stands
+	}
+	m.answerTransition(w, k, name, err)
 }
 
 // answerTransition answers a lifecycle call: a refusal as itself, anything
@@ -54,20 +92,4 @@ func (m *Manager) answerTransition(w http.ResponseWriter, k Key, name string, er
 		return
 	}
 	writeJSON(w, http.StatusOK, in)
-}
-
-// ServeReset answers POST /sandboxes/{name}/reset (the manager): stop, wipe
-// the state (confined), pin the current base.
-func (m *Manager) ServeReset(w http.ResponseWriter, r *http.Request) {
-	if _, _, ok := m.managed(w, r); ok {
-		writeErr(w, notBuilt("resetting tile sandboxes"))
-	}
-}
-
-// ServeRebase answers POST /sandboxes/{name}/rebase (the manager): stop,
-// keep the state, pin the current base.
-func (m *Manager) ServeRebase(w http.ResponseWriter, r *http.Request) {
-	if _, _, ok := m.managed(w, r); ok {
-		writeErr(w, notBuilt("rebasing tile sandboxes"))
-	}
 }

@@ -14,6 +14,7 @@ import (
 	"strconv"
 
 	"github.com/xbin-dev/xbin/internal/broker"
+	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/tilesbx"
@@ -40,8 +41,12 @@ func (st *State) stepTileSandboxes() error {
 		slog.Error("tile sandboxes: definitions unreadable", "err", err)
 	}
 	// A bind, an unbind or a network-set change re-resolves the running
-	// sandboxes' classes: a narrowed one stops them (§4).
+	// sandboxes' classes: a narrowed one stops them (§4). So does a users
+	// event: a D20 policy-row edit fires no OnSandboxNetChange.
 	st.Broker.OnSandboxNetChange = st.TileSbx.OnSandboxNetChange
+	if st.Cfg.Isolate {
+		go st.onUsersEvents(st.TileSbx.OnUsersChange)
+	}
 	// The runner's sampler reads a tile sandbox's leaf inside the parent.
 	st.Run.TileCgroup = st.TileSbx.Cgroup()
 	return nil
@@ -57,7 +62,7 @@ func (st *State) tileSandboxDeps() tilesbx.Deps {
 		Mounts: sandboxMounts{brk},
 		Vault:  sandboxVault{brk},
 		Users:  sandboxUsers{st},
-		Disk:   tileDiskQuota{brk},
+		Disk:   tileDiskLow{brk},
 		Modes:  sandboxModes{st.VM},
 		Tiles:  sandboxTiles{st},
 		Net:    sandboxNet{brk},
@@ -164,11 +169,24 @@ func (s sandboxUsers) NoTerminal(user string) bool {
 	return ok && u.NoTerminal
 }
 
-type tileDiskQuota struct{ b *broker.Broker }
+// tileDiskLow is diskmon's last low-disk verdict: no tile sandbox starts
+// meanwhile (their bytes never count against a scope's write quota).
+type tileDiskLow struct{ b *broker.Broker }
 
-func (s tileDiskQuota) Blocked(tile string) bool {
-	_, _, blocked := s.b.TileDiskStatus(tile)
-	return blocked
+func (s tileDiskLow) Low() bool { return s.b.DiskLow() }
+
+// onUsersEvents calls f on every users event on the hub (a users-plane
+// change that can move a policy ceiling), for as long as xbind runs; a
+// subscription the hub drops for falling behind is made again.
+func (st *State) onUsersEvents(f func()) {
+	for {
+		ch, cancel := st.Hub.Subscribe(func(e events.Event) bool { return e.Type == "users" })
+		for range ch {
+			f()
+		}
+		cancel()
+		f() // events may have been missed while it lagged
+	}
 }
 
 // sandboxModes: VM mode for tile sandboxes needs the VM policy's tiles

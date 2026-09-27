@@ -264,8 +264,8 @@ func TestPathHygiene(t *testing.T) {
 	}
 	// Well-formed ids pass the gates (to routes not built yet: 501).
 	for _, r := range []struct{ method, path string }{
-		{"GET", "/sandboxes/x/execs/0a1b2c-1"},
-		{"GET", "/sandboxes/x/execs/ffffff-123456789012/output"},
+		{"GET", "/sandboxes/x/execs/" + e.m.bootID + "-1"},
+		{"GET", "/sandboxes/x/execs/" + e.m.bootID + "-123456789012/output"},
 		{"POST", "/sandboxes/x/snapshots/s-1/restore"},
 		{"DELETE", "/sandboxes/x/snapshots/s-123456789012"},
 	} {

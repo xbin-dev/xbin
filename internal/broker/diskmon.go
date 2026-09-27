@@ -59,6 +59,7 @@ type diskMon struct {
 	alerts   []Alert
 	freeB    int64
 	totalB   int64
+	low      bool // the last scan's verdict: the partition is below its reserve
 	lastScan time.Time
 }
 
@@ -161,7 +162,7 @@ func (d *diskMon) scan() {
 
 	d.mu.Lock()
 	d.blocked, d.usage, d.alerts = blocked, usage, alerts
-	d.freeB, d.totalB, d.lastScan = free, total, time.Now()
+	d.freeB, d.totalB, d.low, d.lastScan = free, total, lowDisk, time.Now()
 	d.mu.Unlock()
 }
 
@@ -187,6 +188,22 @@ func (d *diskMon) Status(scopeKey string) (usage, quota int64, blocked bool) {
 	_, blocked = d.blocked[scopeKey]
 	return d.usage[scopeKey], d.quota, blocked
 }
+
+// Low reports the last scan's verdict: the data partition is below its
+// reserve (reserveFraction free).
+func (d *diskMon) Low() bool {
+	if d == nil {
+		return false
+	}
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.low
+}
+
+// DiskLow is the disk monitor's last verdict on the workspace partition:
+// below its reserve. Tile sandboxes don't start meanwhile
+// (plans/tile-sandbox-runtime.md §6.3).
+func (b *Broker) DiskLow() bool { return b.disk.Low() }
 
 // Alerts returns the active alerts (a copy).
 func (d *diskMon) Alerts() []Alert {

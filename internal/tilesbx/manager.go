@@ -9,11 +9,13 @@
 // handlers and the runtime core: the launch (launch.go), the agent client
 // (agent.go), each sandbox's runs and their one teardown (lifecycle.go),
 // its relay (netcfg.go), its cgroup leaf (cgroup.go), its registry row
-// (registry.go) and the confined removal of what is deleted (trash.go).
-// What it needs from the rest of xbind comes in through Deps, small
-// interfaces a test fakes. Execs, files, snapshots and the lifecycle policy
-// (admission, idle) answer `unsupported` or do nothing until they are
-// built (plans/tile-sandbox-runtime.md §12).
+// (registry.go) and the confined removal of what is deleted (trash.go) —
+// and the lifecycle policy: admission (admission.go), the idle stop
+// (idle.go), auto-start (autostart.go), reset and rebase (reset.go), and
+// the boot's sweep (sweep.go). What it needs from the rest of xbind comes
+// in through Deps, small interfaces a test fakes. Execs, files and
+// snapshots answer `unsupported` until they are built
+// (plans/tile-sandbox-runtime.md §12).
 package tilesbx
 
 import (
@@ -23,6 +25,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/cgroup"
 	"github.com/xbin-dev/xbin/internal/confine"
+	"github.com/xbin-dev/xbin/internal/layers"
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/sandbox/relay"
 	"github.com/xbin-dev/xbin/internal/sbx"
@@ -84,9 +87,11 @@ type Users interface {
 	NoTerminal(user string) bool
 }
 
-// Disk says whether the tile's scope is over its disk quota (diskmon).
+// Disk says whether the workspace disk is low (diskmon's last verdict):
+// meanwhile no tile sandbox starts (§6.3). Sandbox bytes never count
+// against a scope's resource-write quota, so that isn't asked.
 type Disk interface {
-	Blocked(tile string) bool
+	Low() bool
 }
 
 // Modes says whether VM mode may run tile sandboxes now: its acceleration
@@ -150,17 +155,28 @@ type Manager struct {
 	deps     Deps
 	now      func() time.Time
 
-	rootfs   string
-	bxPath   string
-	launcher Launcher
-	modes    map[string]*modeOps // how each mode starts and stops (VM: WP-16)
-	net      *netState           // the relays' shared flow budget and host Deny
-	cg       *cgroup.Manager     // the tile sandboxes' parent (nil: no limits)
-	cgNote   string              // why there is no parent though xbind's cgroup is delegated
+	rootfs      string
+	baseVersion string // the rootfs's base version: a sandbox pinned to another is outdated (rebase, reset)
+	bxPath      string
+	launcher    Launcher
+	modes       map[string]*modeOps // how each mode starts and stops (VM: WP-16)
+	net         *netState           // the relays' shared flow budget and host Deny
+	cg          *cgroup.Manager     // the tile sandboxes' parent (nil: no limits)
+	cgNote      string              // why there is no parent though xbind's cgroup is delegated
 	// reserve books a start against the tile's quotas (§6.1) and returns
-	// its idempotent release — WP-15b's admission; a no-op book until then.
+	// its idempotent release: admit (admission.go); a test may wrap it.
 	reserve func(k Key, d *Def) (release func(), err error)
+	books   books      // what the running sandboxes hold (admission.go)
 	trash   trashQueue // what waits for the confined remover (trash.go)
+	// afterFunc is time.AfterFunc (a test's clock may stand in): the idle
+	// timers (idle.go).
+	afterFunc func(time.Duration, func()) stopper
+	// bootID is this xbind start's exec-id prefix: <bootID>-<n>. An id
+	// with another is an exec of an earlier boot — lost (410).
+	bootID string
+	recon  reconcileState // the users-event reconcile (stop.go)
+	// endWait and lockWait are lifecycle.go's (tests shorten them).
+	endWait, lockWait time.Duration
 
 	mu     sync.Mutex // defs, live and the policy file
 	defs   *defStore
@@ -183,14 +199,21 @@ func New(o Options) *Manager {
 	if m.launcher == nil {
 		m.launcher = nsLauncher{}
 	}
-	m.reserve = func(Key, *Def) (func(), error) { return func() {}, nil }
+	if m.rootfs != "" {
+		m.baseVersion = layers.BaseVersion(m.rootfs)
+	}
+	m.reserve = m.admit
+	m.afterFunc = func(d time.Duration, f func()) stopper { return time.AfterFunc(d, f) }
+	m.bootID = newBootID()
+	m.endWait, m.lockWait = endWait, lockWait
 	m.trash.remove = confine.RemoveAll
 	m.defs = loadDefs(m.defsPath())
 	m.defs.flush() // uids given to definitions written before uids existed
 	m.policy = &policyStore{path: m.policyPath()}
+	m.policy.get() // loaded now: an unreadable file is logged at boot (and fails closed)
 	if o.Isolated {
 		m.initCgroup(o.Deps.Cgroup)
-		m.requeueTrash() // what a previous xbind put aside, and every staging dir
+		m.bootSweep() // what a previous xbind left: its leaves, its trash, its staging
 	}
 	return m
 }

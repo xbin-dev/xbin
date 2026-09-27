@@ -154,14 +154,24 @@ func (m *Manager) lookup(w http.ResponseWriter, k Key, name string) (*Def, bool)
 }
 
 // managed gates a manager route on one sandbox and finds it: {name}, and
-// any {id} or {sid}, have passed their grammars (hygiene) first.
+// any {id} or {sid}, have passed their grammars (hygiene) first; an exec id
+// of an earlier boot is 410 lost (its exec ended with that xbind). The call
+// is activity on the sandbox (the idle stop, idle.go).
 func (m *Manager) managed(w http.ResponseWriter, r *http.Request) (Key, *Def, bool) {
 	k, ok := m.manager(w, r)
 	if !ok {
 		return Key{}, nil, false
 	}
 	d, ok := m.lookup(w, k, r.PathValue("name"))
-	return k, d, ok
+	if !ok {
+		return Key{}, nil, false
+	}
+	if err := m.execLost(r.PathValue("id")); err != nil {
+		writeErr(w, err)
+		return Key{}, nil, false
+	}
+	m.touchBox(k, d.Name)
+	return k, d, true
 }
 
 // notBuilt is a route of the contract this runtime doesn't serve yet.
@@ -225,7 +235,7 @@ func (m *Manager) ServeRuntime(w http.ResponseWriter, r *http.Request) {
 // why the policy file can't be read (error), when it can't.
 func (m *Manager) policyView() map[string]any {
 	st := m.policy.get()
-	v := map[string]any{"policy": st.Effective(), "stored": st}
+	v := map[string]any{"policy": m.policy.effective(), "stored": st}
 	if m.policy.err != nil {
 		v["error"] = m.policy.err.Error()
 	}
@@ -280,8 +290,13 @@ func (m *Manager) ServeSetPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := m.policyView()
+	on, why := m.policy.on()
 	m.mu.Unlock()
 	m.applyTotal() // the cgroup parent's caps follow policy.total
+	if !on {
+		m.switchedOff(why + ": stopped, state kept")
+	}
+	m.rearmIdle(nil) // idleStopMin applies to running sandboxes now
 	writeJSON(w, http.StatusOK, v)
 }
 
@@ -314,6 +329,11 @@ func (m *Manager) ServeCreate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	wait, err := waitOf(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
 	m.mu.Lock()
 	in, status, err := m.create(k, &req)
 	m.mu.Unlock()
@@ -323,8 +343,8 @@ func (m *Manager) ServeCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if status == http.StatusCreated && req.Start {
 		// A start that fails leaves the sandbox stopped, the failure in
-		// stateDetail — the create itself stands.
-		if err := m.Start(k, req.Name); err != nil {
+		// stateDetail — the create itself stands. ?wait bounds the wait.
+		if done, err := within(wait, func() error { return m.Start(k, req.Name) }); done && err != nil {
 			m.mu.Lock()
 			if b := m.live[k][req.Name]; b != nil && b.run == nil && b.detail == "" {
 				b.detail = err.Error()
@@ -410,9 +430,15 @@ func (m *Manager) vmDisks(k Key, d *Def, lim Limits) error {
 	return nil
 }
 
-// ServeGet answers GET /sandboxes/{name}.
+// ServeGet answers GET /sandboxes/{name}. Reading xbind's record of a
+// sandbox isn't activity on it: a manager polling its state doesn't keep
+// it from idling.
 func (m *Manager) ServeGet(w http.ResponseWriter, r *http.Request) {
-	k, d, ok := m.managed(w, r)
+	k, ok := m.manager(w, r)
+	if !ok {
+		return
+	}
+	d, ok := m.lookup(w, k, r.PathValue("name"))
 	if !ok {
 		return
 	}
@@ -453,6 +479,9 @@ func (m *Manager) ServePatch(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, err)
 		return
+	}
+	if changed && n.IdleStopMin != d.IdleStopMin { // a running sandbox's idle stop follows at once
+		m.rearmIdleLocked(func(rk Key, rd *Def) bool { return rk == k && rd.UID == n.UID })
 	}
 	writeJSON(w, http.StatusOK, m.info(k, n))
 }

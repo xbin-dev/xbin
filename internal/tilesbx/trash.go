@@ -8,7 +8,7 @@ package tilesbx
 // a confined remove (confine.RemoveAll: a throwaway sandbox with the file
 // capabilities), one entry at a time. At boot whatever .trash holds is
 // queued again, and every staging dir (tmp/) goes there too: nothing staged
-// survives a restart.
+// survives a restart (sweep.go).
 
 import (
 	"context"
@@ -21,8 +21,6 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
-
-	"github.com/xbin-dev/xbin/internal/layers"
 )
 
 // trashTimeout bounds one entry's removal.
@@ -120,49 +118,4 @@ func (m *Manager) trashState(k Key, d *Def) (to string, undo func() error, err e
 		return "", nil, err
 	}
 	return to, func() error { return os.Rename(to, dir) }, nil
-}
-
-// requeueTrash is the boot's share: every .trash entry of every key is
-// queued again, and every sandbox's staging dir (tmp/<rand>) goes to its
-// key's .trash first (a copy a restart cut short).
-func (m *Manager) requeueTrash() {
-	root := filepath.Join(m.root, ".xbin", "sbx")
-	keys, err := os.ReadDir(root)
-	if err != nil {
-		return
-	}
-	var queue []string
-	for _, kd := range keys {
-		if !kd.IsDir() {
-			continue
-		}
-		base := filepath.Join(root, kd.Name())
-		trash := filepath.Join(base, ".trash")
-		sbs, _ := os.ReadDir(base)
-		for _, sd := range sbs {
-			if !sd.IsDir() || sd.Name() == ".trash" {
-				continue
-			}
-			tmp := filepath.Join(base, sd.Name(), "tmp")
-			ents, _ := os.ReadDir(tmp)
-			for _, e := range ents {
-				_, uid, ok := layers.SplitStateDir(sd.Name())
-				if !ok {
-					continue
-				}
-				if err := os.MkdirAll(trash, 0o700); err != nil {
-					continue
-				}
-				_ = os.Rename(filepath.Join(tmp, e.Name()), filepath.Join(trash, uid+"."+randSuffix()))
-			}
-		}
-		ents, _ := os.ReadDir(trash)
-		for _, e := range ents {
-			queue = append(queue, filepath.Join(trash, e.Name()))
-		}
-	}
-	if len(queue) > 0 {
-		slog.Info("tile sandboxes: removing state put aside before the restart", "entries", len(queue))
-	}
-	m.trash.put(queue...)
 }

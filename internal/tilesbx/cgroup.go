@@ -40,9 +40,9 @@ func ws8(root string) string {
 // comp-tilesbx-<ws8>/.
 func parentName(root string) string { return "tilesbx-" + ws8(root) }
 
-// initCgroup makes the parent from xbind's delegated base and clears the
-// leaves a previous xbind left in it (they died with it, or are dying).
-// A parent that can't be made — a broken delegation, the memory controller
+// initCgroup makes the parent from xbind's delegated base (the boot's
+// sweep then clears the leaves a previous xbind left in it, sweep.go). A
+// parent that can't be made — a broken delegation, the memory controller
 // unavailable — leaves the sandboxes running without limits; CgroupNote
 // says why (the admin's health view).
 func (m *Manager) initCgroup(base *cgroup.Manager) {
@@ -54,11 +54,6 @@ func (m *Manager) initCgroup(base *cgroup.Manager) {
 		m.cgNote = fmt.Sprintf("tile sandboxes run without cgroup limits: %v", err)
 		slog.Warn("tile sandboxes: no cgroup parent; they run without limits", "err", err)
 		return
-	}
-	if swept, err := p.Sweep("sbx-"); err != nil {
-		slog.Warn("tile sandboxes: clearing a previous xbind's leaves", "err", err)
-	} else if len(swept) > 0 {
-		slog.Info("tile sandboxes: cleared a previous xbind's leaves", "leaves", swept)
 	}
 	m.cg = p
 }
@@ -76,13 +71,8 @@ func (m *Manager) Cgroup() *cgroup.Manager { return m.cg }
 // of the host's RAM.
 func (m *Manager) totalLimits() cgroup.Limits {
 	m.mu.Lock()
-	t := m.policy.get().Effective().Total
-	m.mu.Unlock()
-	mem := int64(t.MemMiB) << 20
-	if mem == 0 {
-		mem = hostMemBytes() / 4 * 3
-	}
-	return cgroup.Limits{MemMax: mem, PidsMax: int64(t.Pids)}
+	defer m.mu.Unlock()
+	return cgroup.Limits{MemMax: int64(m.totalMemMiBLocked()) << 20, PidsMax: int64(m.policy.get().Effective().Total.Pids)}
 }
 
 // applyTotal re-writes the parent's caps after a policy change.

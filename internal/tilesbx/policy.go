@@ -8,6 +8,7 @@ package tilesbx
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path"
 	"path/filepath"
@@ -279,14 +280,22 @@ func (m *Manager) policyPath() string {
 }
 
 // policyStore is the policy file, read once and written through.
+//
+// An unreadable file fails closed (§3.2): its error is logged once at
+// load, shown in GET /sandboxes/policy (error) and the admin's health, and
+// while it stands tile sandboxes are off — no start is admitted — whatever
+// the file may have said, so a corrupt file never undoes an admin's kill
+// switch. The limits meanwhile are the defaults. An admin's PUT writes a
+// new file (merged onto the defaults) and clears the error.
 type policyStore struct {
 	path   string
 	loaded bool
 	p      Policy
-	err    error // unreadable: the defaults apply, and a PUT replaces it
+	err    error // unreadable: tile sandboxes are off until a PUT replaces it
 }
 
-// get is the stored policy. Callers hold m.mu.
+// get is the stored policy (zero while the file is unreadable). Callers
+// hold m.mu.
 func (s *policyStore) get() Policy {
 	if !s.loaded {
 		s.loaded = true
@@ -300,8 +309,35 @@ func (s *policyStore) get() Policy {
 				s.err, s.p = fmt.Errorf("%s: %w", s.path, err), Policy{}
 			}
 		}
+		if s.err != nil {
+			slog.Error("tile sandboxes: the sandboxes policy file is unreadable; tile sandboxes are off until an admin saves the policy again", "err", s.err)
+		}
 	}
 	return s.p
+}
+
+// on reports whether tile sandboxes may start now, and why not: the kill
+// switch, or a policy file that can't be read. Callers hold m.mu.
+func (s *policyStore) on() (bool, string) {
+	p := s.get()
+	switch {
+	case s.err != nil:
+		return false, "the sandboxes policy file is unreadable (" + s.err.Error() + "): tile sandboxes are off until an admin saves the policy again"
+	case !p.On():
+		return false, "tile sandboxes are switched off (sandboxes policy: enabled)"
+	}
+	return true, ""
+}
+
+// effective is the policy in force: the stored one with the defaults
+// filled, and enabled false while the file can't be read. Callers hold m.mu.
+func (s *policyStore) effective() Policy {
+	e := s.get().Effective()
+	if s.err != nil {
+		off := false
+		e.Enabled = &off
+	}
+	return e
 }
 
 // set validates and stores p. Callers hold m.mu.
@@ -328,6 +364,18 @@ func (m *Manager) Policy() Policy {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.policy.get()
+}
+
+// PolicyError is why the policy file can't be read ("" = it can): while
+// it can't, tile sandboxes are off (the admin's health view).
+func (m *Manager) PolicyError() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.policy.get()
+	if m.policy.err != nil {
+		return m.policy.err.Error()
+	}
+	return ""
 }
 
 // limitsFor is what tile is held to now. Callers hold m.mu.

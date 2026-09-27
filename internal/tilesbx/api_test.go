@@ -200,13 +200,13 @@ func TestBodies(t *testing.T) {
 func TestNotBuilt(t *testing.T) {
 	e := newEnv(t)
 	e.create(ns("sb-1"))
+	id := e.m.bootID + "-1" // an exec id of this boot (another boot's is lost)
 	for _, r := range [][2]string{
-		{"POST", "/sandboxes/sb-1/reset"},
-		{"POST", "/sandboxes/sb-1/rebase"}, {"POST", "/sandboxes/sb-1/run"}, {"GET", "/sandboxes/sb-1/execs"},
-		{"POST", "/sandboxes/sb-1/execs"}, {"GET", "/sandboxes/sb-1/execs/abc123-1"}, {"DELETE", "/sandboxes/sb-1/execs/abc123-1"},
-		{"GET", "/sandboxes/sb-1/execs/abc123-1/output"}, {"POST", "/sandboxes/sb-1/execs/abc123-1/stdin"},
-		{"POST", "/sandboxes/sb-1/execs/abc123-1/signal"}, {"POST", "/sandboxes/sb-1/execs/abc123-1/resize"},
-		{"GET", "/sandboxes/sb-1/execs/abc123-1/tty"}, {"GET", "/sandboxes/sb-1/tty"},
+		{"POST", "/sandboxes/sb-1/run"}, {"GET", "/sandboxes/sb-1/execs"},
+		{"POST", "/sandboxes/sb-1/execs"}, {"GET", "/sandboxes/sb-1/execs/" + id}, {"DELETE", "/sandboxes/sb-1/execs/" + id},
+		{"GET", "/sandboxes/sb-1/execs/" + id + "/output"}, {"POST", "/sandboxes/sb-1/execs/" + id + "/stdin"},
+		{"POST", "/sandboxes/sb-1/execs/" + id + "/signal"}, {"POST", "/sandboxes/sb-1/execs/" + id + "/resize"},
+		{"GET", "/sandboxes/sb-1/execs/" + id + "/tty"}, {"GET", "/sandboxes/sb-1/tty"},
 		{"GET", "/sandboxes/sb-1/files/stat"}, {"GET", "/sandboxes/sb-1/files/content"}, {"PUT", "/sandboxes/sb-1/files/content"},
 		{"GET", "/sandboxes/sb-1/files/list"}, {"POST", "/sandboxes/sb-1/files/mkdir"}, {"POST", "/sandboxes/sb-1/files/remove"},
 		{"POST", "/sandboxes/sb-1/files/move"}, {"GET", "/sandboxes/sb-1/tar"}, {"PUT", "/sandboxes/sb-1/tar"},

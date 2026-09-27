@@ -178,12 +178,17 @@ func newLiveEnv(t *testing.T, bin, rootfs string) *liveEnv {
 		}
 		o.Deps.Sbx, o.Deps.Cgroup = le.sbx, liveCgroup
 	})
-	le.m.reserve = func(Key, *Def) (func(), error) {
+	admit := le.m.reserve // the real admission, counted
+	le.m.reserve = func(k Key, d *Def) (func(), error) {
+		release, err := admit(k, d)
+		if err != nil {
+			return nil, err
+		}
 		le.bookMu.Lock()
 		le.books++
 		le.booksHeld++
 		le.bookMu.Unlock()
-		return func() { le.bookMu.Lock(); le.booksHeld--; le.bookMu.Unlock() }, nil
+		return func() { release(); le.bookMu.Lock(); le.booksHeld--; le.bookMu.Unlock() }, nil
 	}
 	if !confine.Isolated() {
 		le.m.trash.remove = func(_ context.Context, dir string) error { return os.RemoveAll(dir) }
@@ -566,6 +571,8 @@ func testLive(t *testing.T, bin, rootfs string) {
 			t.Fatalf("open fds %d → %d over 20 cycles", before, after)
 		}
 	})
+
+	testLivePolicy(t, le) // live_policy_linux_test.go
 
 	t.Run("delete", func(t *testing.T) {
 		le.t = t

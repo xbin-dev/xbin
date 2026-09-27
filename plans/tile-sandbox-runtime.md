@@ -3474,6 +3474,109 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     - a second start while an orphan holds the lock waits, then fails;
     - an exec on a stopped sandbox starts it.
 - **Parallel:** with WP-16, WP-17 and WP-18, which need only WP-15a.
+- **As built** (branch `p2/wp15b`):
+  - *Files.* `admission.go` (the books, `admit` = `Manager.reserve`),
+    `idle.go`, `autostart.go` (`acquire`, `within`, `waitOf`), `reset.go`
+    (reset, rebase, `recordBase`), `sweep.go` (the boot's sweep, the boot
+    id, `execLost`; `requeueTrash` moved here from `trash.go`, the leaf
+    `Sweep` out of `initCgroup`); `policy.go`, `api.go`,
+    `api_lifecycle.go`, `lifecycle.go`, `state.go`, `stop.go`, `info.go`
+    changed. The auto-start helper and reset/rebase are their own files,
+    not `lifecycle.go` (it would pass 600 lines).
+  - *Admission* (`admit`, called at §7 step 1 as WP-15a's seam; tests
+    wrap it to count): the disk-low verdict (503), the tile's measured
+    sandbox bytes (`b.diskBytes`, summed; WP-19's worker fills them) over
+    `perTile.diskGiB` (429), then the tile's book (`running`, `memMiB`,
+    `vcpus`, each "with this one ≤ cap") and the **total book**, each
+    under its own mutex, the tile's taken first and given back if the
+    total refuses. The total book counts what each leaf may take — the
+    mode's `leaf(d, lim).MemMax` (namespace: `memMiB` + 128; WP-16's VM
+    leaf its own) — against `total.memMiB` (0 = ¾ of the host's RAM, the
+    parent's own cap); pids aren't booked (a kernel ceiling, not a
+    reservation). `enabled` stays `startLocked`'s check, now through
+    `policyStore.on()`. `TotalBook()` feeds `health.tileSandboxes.total`.
+    `Deps.Disk` is `Low() bool`; boot's `tileDiskLow` → the new
+    `(*Broker) DiskLow()` (diskmon's last scan's `low`).
+  - *Idle* (`run.idle`: `last` atomic, `holds`/`timer`/`off` under `m.mu`):
+    armed at running for the definition's `idleStopMin`, **or the
+    policy's when it has none** — the policy's is the default, not a cap
+    (WP-13 stored and answered a definition's 60 under a policy of 30; a
+    cap would change that answer). On firing it re-arms for what remains
+    since the last activity, a full interval while a hold is on; a quiet
+    sandbox is stopped in its flight after a second look, the state set
+    `stopping` under `m.mu` so no hold is taken once the stop is decided
+    (a call arriving then waits and auto-starts). `stateDetail` "idle for
+    N minutes: stopped, state kept (idleStopMin)". Activity: `managed()`
+    (every per-sandbox manager route) touches — **but `GET
+    /sandboxes/{name}` doesn't** (it reads xbind's record; a manager
+    polling state would otherwise keep a sandbox up forever); a hold's take
+    and release touch. A PATCH of `idleStopMin` and a policy PUT re-arm
+    running timers at once. The teardown disarms. Injected clock:
+    `Manager.afterFunc` (+ `Options.Now`).
+  - *For WP-17/18:* `m.acquire(k, name, wait) (*run, release, error)` —
+    the auto-start path — returns the run **with a hold**; release it when
+    the work ends (a non-tty exec at its exit, a `run`, a file/tar/copy
+    op when done, a TTY exec once started). `m.hold(r)`, `m.touch(r)`
+    (exec output/input), `m.ttyClients(r)` (a hub's `OnClients`). Exec
+    ids must be `m.bootID + "-" + n`; `managed()` already answers another
+    boot's id 410 `lost` (`execLost`). A busy sandbox (WP-20) should hold
+    the flight while it copies, or `acquire` must learn to wait on it.
+  - *`?wait`* (`waitOf`, `within`): absent = `waitMaxSec` (WP-15a's
+    blocking behaviour kept), clamped, `0` = don't wait — with a 50 ms
+    floor so a transition whose flight is free says `starting` (or its
+    refusal) rather than the state before it. Also on `POST /sandboxes`
+    with `start: true`. The transition runs on after the answer.
+  - *Reset/rebase* (`restage`, in the flight): stop if up; then under
+    `lockRun` (the lock and the orphan leaf) reset clears `Def.base`
+    first (a failed rename then leaves `cur/` pinned as it was) and
+    renames `cur/` to `.trash/<uid>.<rand>`; rebase `layers.Stamp`s the
+    current base and `Def.base` follows. Both clear `error` (an error the
+    restage itself finds — rebase of a missing `cur/` — sets it); both
+    restart what ran. A sandbox that never ran creates no state dir.
+    `base.outdated` is now answered (`Def.base` vs the rootfs's version,
+    read once at `New`).
+  - *The lock wait* (`lockRun` → `lockStateAnd`): the flock and the leaf's
+    `populated 0`, within one `Manager.lockWait` (5 s; `endWait` is a
+    field too, for tests).
+  - *The policy file fails closed:* loaded in `New` (logged once),
+    `policyStore.on()`/`effective()` answer off while `err` stands; the
+    runtime says `enabled: false`; a PUT merges onto the zero policy (the
+    file's content is unknown) and clears it. `PolicyError()` feeds
+    `health.tileSandboxes.policyError`. A PUT leaving sandboxes off
+    stops every running one (`switchedOff`, async) — the WP-15a
+    verifier's gap.
+  - *Users events:* boot subscribes to the hub's `users` events (under
+    `--isolate`; resubscribes if dropped) → `OnUsersChange`, coalesced (one
+    reconcile at a time, one more if events came meanwhile), re-resolving
+    every running tile's egress with `reconcileEgress`. WP-19 extends the
+    same hook (caps, resources).
+  - *WP-15a verifier's findings fixed:* the leaf killer is registered on
+    a `WaitGroup` only while the teardown hasn't begun, and the teardown
+    waits for it before `cg.Remove` — a reset's fast restart re-creating
+    the leaf name can't be hit by the old run's pre-5.14 kill rounds;
+    `end()` kills on every ask, so a second stop retries a kill that
+    didn't take (`TestSecondStopKillsAgain`).
+  - *Tests.* Unit (`admission_linux_test.go`, `idle_linux_test.go`, a fake
+    clock in `fake_linux_test.go`): ten concurrent starts per cap
+    (running, memMiB, vcpus, total) → exactly the cap, the book back to
+    zero and admitting again; the total book per mode; releases after a
+    failed launch, an own end, a stop; twenty concurrent creates under 8;
+    low disk 503 and the disk cap 429; the kill switch stops; a revoked
+    mount fails the start (400) with nothing launched; idle re-arm/fire,
+    a GET not being activity, a PATCH re-arming; holds (exec, run, tar,
+    TTY client) over 3 h; a detached TTY exec idles; `acquire` from
+    stopped, waiting out a stop then starting, starting, the wait running
+    out, no autoStart, error; `?wait` (invalid 400, `0` answering as it
+    stands, clamping); an orphan's lock (409 after the wait; let go within
+    it → runs); reset/rebase of a running sandbox (fresh vs re-pinned
+    `cur/`, snapshots untouched, the old `cur/` removed via `.trash`),
+    rebase repairing a missing base, reset repairing a missing state,
+    idempotence; another boot's exec ids 410; a users event narrowing.
+    Integration (`live_policy_linux_test.go`, inside `TestLive`, all three
+    variants, and under `systemd-run … Delegate=yes`): reset wipes the
+    upper (confined removal in the rootfs variant); an exec on a stopped
+    sandbox starts it; an orphan's lock → 409 after the wait; the factory
+    closed ends the sandbox and a new runtime finds it `stopped`.
 
 ### WP-16 — VM mode (wave 2 · M · after WP-4, WP-6, WP-15a)
 
