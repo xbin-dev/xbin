@@ -180,7 +180,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `version` (re-reading once on a 412), so it never overwrites a label set
   meanwhile. Re-picking
   an attached sandbox keeps its working directory, and `sandbox_create`'s
-  grant card says when the sandbox will be the team's.
+  grant card says when the sandbox will be the team's — the allow is of
+  exactly that: a team conversation's create is made once allowed (the
+  note had made every one refuse as changed since the owner allowed it),
+  and one asked while private but made after the conversation was shared
+  with the team is refused.
 
 - **Agent template: fixes from the phase-1 review — approvals and class
   rules** (the template's API.md). An approval answers its own ask: every

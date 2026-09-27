@@ -275,7 +275,7 @@ async function agentSandbox(browser) {
     await a.click('.ask.approve.grant .btn:has-text("Allow once")');
     await until(a, () => [...document.querySelectorAll('#timeline .msg.assistant:not(.live)')].some((e) => e.textContent.includes('Created: ')), null, 30000);
     const created = (await text(a, '#timeline .msg.assistant:not(.live)')).filter((t) => t.includes('Created: ')).pop();
-    check(/scratch/.test(created), `allowed once, the agent made it (${created.slice(0, 160)})`);
+    check(/^Created: Created the sandbox "scratch"/.test(created), `allowed once, the agent made it (${created.slice(0, 160)})`);
     await until(d, () => [...document.querySelectorAll('#timeline .msg.assistant:not(.live)')].some((e) => e.textContent.includes('Created: ')), null, 15000);
     check(true, 'dev1 sees it made too');
     await until(a, () => document.getElementById('stop').hidden, null, 15000);

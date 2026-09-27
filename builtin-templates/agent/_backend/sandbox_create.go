@@ -273,8 +273,15 @@ func clipRunes(s string, n int) string {
 	return string([]rune(s)[:n])
 }
 
-// askedIn: the owner's ask (sandboxesGrantAsk) names exactly this plan.
-func (p *sbxCreatePlan) askedIn(ask string) bool {
+// askedIn: the owner's ask (sandboxesGrantAsk) names exactly this plan —
+// and said it would be the team's exactly when it will be (team: the
+// conversation is shared with the team now; forConversation).
+func (p *sbxCreatePlan) askedIn(ask string, team bool) bool {
+	plain := strings.TrimSuffix(ask, teamAskNote)
+	if (plain != ask) != team {
+		return false
+	}
+	ask = plain
 	w := p.words()
 	return ask == "create "+w || strings.HasPrefix(ask, "create "+w+"; and ") ||
 		strings.Contains(ask, "; and "+w+"; and ") || strings.HasSuffix(ask, "; and "+w)
@@ -355,10 +362,21 @@ func sandboxesGrantAsk(ag *Agent, run *Run, cfg Config, calls []toolCall, own ma
 		return ""
 	}
 	ask := "create " + strings.Join(parts, "; and ")
-	if a, err := ag.aclOf(rootOf(run)); err == nil && a.visibility == visTeam {
-		ask += " — shared with the team, as this conversation is: anyone on the team may use it"
+	if ag.teamConversation(rootOf(run)) {
+		ask += teamAskNote
 	}
 	return ask
+}
+
+// teamAskNote ends the ask for a team conversation's creates: they will be
+// the team's (forConversation).
+const teamAskNote = " — shared with the team, as this conversation is: anyone on the team may use it"
+
+// teamConversation: root is shared with the team (a sandbox made for it is
+// the team's).
+func (ag *Agent) teamConversation(root int64) bool {
+	a, err := ag.aclOf(root)
+	return err == nil && a.visibility == visTeam
 }
 
 // --- the tool --------------------------------------------------------------------
@@ -415,10 +433,18 @@ func (ag *Agent) toolSandboxCreate(ctx context.Context, run *Run, cfg Config, ar
 		// execTools parks for the grant first; this is the backstop
 		return "", errors.New(grantOf(capSandboxes).Forbid)
 	}
-	if ask, ok := grantAskOf(ctx, capSandboxes); ok && !p.askedIn(ask) {
-		// the owner allowed what the ask said; the manager's offer changed since
-		return "", fmt.Errorf("what this call would make has changed since the owner allowed it (they allowed: %s; it would now be %s) — call sandbox_create again to ask them",
-			strings.TrimPrefix(ask, "create "), p.words())
+	if ask, ok := grantAskOf(ctx, capSandboxes); ok {
+		// the owner allowed what the ask said; the manager's offer (or the
+		// conversation's sharing) may have changed since
+		team := ag.teamConversation(root)
+		if !p.askedIn(ask, team) {
+			now := p.words()
+			if team {
+				now += teamAskNote
+			}
+			return "", fmt.Errorf("what this call would make has changed since the owner allowed it (they allowed: %s; it would now be %s) — call sandbox_create again to ask them",
+				strings.TrimPrefix(ask, "create "), now)
+		}
 	}
 	stored, err := ag.db.runConfig(root)
 	if err != nil {

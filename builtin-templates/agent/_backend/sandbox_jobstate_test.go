@@ -294,6 +294,60 @@ func TestBashStartInFlightWhenDetached(t *testing.T) {
 	}
 }
 
+// In a team conversation the ask says the sandbox will be the team's — and
+// the owner's allow is still an allow of exactly that (harness: the note
+// appended to the ask made every team conversation's create refuse as
+// "changed since the owner allowed it"). A conversation shared with the team
+// only after the ask is not what was allowed.
+func TestSandboxCreateInATeamConversation(t *testing.T) {
+	ag, mux := accessFixture(t)
+	bindSbx(t, "apps/cs")
+	conv := createConv(t, ag, aliceTeam, nil)
+	f := fakeOf(ag)
+	f.on(lastIs("tool", ""), say("done"))
+	f.on(lastUser("box t"), callTools(tc("c1", "sandbox_create", `{"name":"t"}`))).once()
+	f.on(lastUser("box u"), callTools(tc("c2", "sandbox_create", `{"name":"u"}`))).once()
+	approve := func() {
+		t.Helper()
+		waitStatus(t, ag.db, conv.ID, statusWaiting)
+		if got := callAs(t, mux, asAlice, "POST", fmt.Sprintf("/runs/%d/approve", conv.ID), map[string]any{"approve": true}).Code; got != 200 {
+			t.Fatalf("approve: %d", got)
+		}
+		waitQuiet(t, ag)
+	}
+	send(t, ag, conv.ID, "box t")
+	waitStatus(t, ag.db, conv.ID, statusWaiting)
+	if ask := parsePending(mustRun(t, ag, conv.ID).Pending).GrantAsk; !strings.HasSuffix(ask, "anyone on the team may use it") {
+		t.Fatalf("the ask: %q", ask)
+	}
+	approve()
+	if out := lastToolOf(ag, conv.ID); !strings.HasPrefix(out, "Created ") {
+		t.Fatalf("allowed, but: %q", out)
+	}
+	if boxes := sandboxesAt(t); len(boxes) != 1 || boxes[0].Visibility != visTeam {
+		t.Fatalf("made: %+v", boxes)
+	}
+
+	// asked while private, made after it was shared: not what the owner allowed
+	if _, err := ag.db.q.Exec(`UPDATE runs SET visibility='private' WHERE id=?`, conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	ag.acl.flush(0)
+	send(t, ag, conv.ID, "box u")
+	waitStatus(t, ag.db, conv.ID, statusWaiting)
+	if ask := parsePending(mustRun(t, ag, conv.ID).Pending).GrantAsk; strings.Contains(ask, "team") {
+		t.Fatalf("a private conversation's ask: %q", ask)
+	}
+	if _, err := ag.db.q.Exec(`UPDATE runs SET visibility='team' WHERE id=?`, conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	ag.acl.flush(0)
+	approve()
+	if out := lastToolOf(ag, conv.ID); !strings.Contains(out, "changed since") || len(sandboxesAt(t)) != 1 {
+		t.Fatalf("made a team sandbox the owner allowed as private: %q (%d)", out, len(sandboxesAt(t)))
+	}
+}
+
 // A start the manager never answered may have started all the same: the
 // job stays, named, and bash_output finds its command by its clientId —
 // it never runs twice.
