@@ -64,6 +64,13 @@ type instance struct {
 	egress       []string         // granted net:* rules (for visibility)
 	started      time.Time        // for uptime
 	waitCh       chan struct{}    // closed when the process exits
+	// Per deployment (deploy.go); zero values mean today's generation: the
+	// work tree bound at c.Dir, the tile's one bin, its flat CompKey leaf.
+	code     Code   // what it runs
+	root     string // the host directory bound at c.Dir
+	artifact string // its built artifact
+	leaf     string // its cgroup leaf
+	envHash  string // its env layer's hash
 }
 
 type state struct {
@@ -151,7 +158,8 @@ type Runner struct {
 	VM     *vm.Manager // "vm" backends (vm.go); nil = none
 	vms    vmState
 	// Sandboxes lists every running generation (sbx.go, D112; nil-safe).
-	Sandboxes *sbx.Registry
+	Sandboxes       *sbx.Registry
+	DeploymentHooks // installed by the deployments plane; nil-safe (deploy.go)
 
 	mu     sync.Mutex
 	states map[string]*state
@@ -285,6 +293,11 @@ func (r *Runner) Changed(c *registry.Component) {
 		}()
 	}
 }
+
+// RootsInUse lists the materialized checkpoint trees that running
+// generations bind, which checkpoint GC must never remove. Every generation
+// binds its work tree today, so none.
+func (r *Runner) RootsInUse() []string { return nil }
 
 // buildAndStart runs one generation transition. Called single-flight per state.
 func (r *Runner) buildAndStart(c *registry.Component, s *state) error {
