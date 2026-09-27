@@ -69,7 +69,10 @@ func testFollowBase(t *testing.T) {
 	link(".data-real", filepath.Join(ws, "data")) // the workspace's own: an operator's
 	link("/elsewhere", filepath.Join(ws, "data2"))
 	layers := 0
-	fresh := func() { // a new persistent layer: an earlier start made mount points in the last
+	// fresh is a new persistent layer, for every start after the first: an
+	// earlier start made mount points in the last, and a kernel overlay's
+	// upper stays busy (EBUSY) a moment after its sandbox exits
+	fresh := func() {
 		t.Helper()
 		layers++
 		upper, work = filepath.Join(dir, fmt.Sprintf("upper%d", layers)), filepath.Join(dir, fmt.Sprintf("work%d", layers))
@@ -109,6 +112,7 @@ func testFollowBase(t *testing.T) {
 	ok(spec(ops...))
 
 	// without FollowBase (a tile sandbox) the image's own link is refused
+	fresh()
 	strict := spec()
 	strict.FollowBase = false
 	if _, out, err := runProbe(t, strict); err == nil || !strings.Contains(out, "nested mount point /lib: a symlink is in the way") {
@@ -155,6 +159,7 @@ func testFollowBase(t *testing.T) {
 		t.Errorf("an env layer's /var/run: %v\n%s", err, out)
 	}
 	link("/run", filepath.Join(env, "var", "run")) // the image's own, re-planted as it is
+	fresh()
 	s = spec(ops...)
 	s.Lower = []string{env, lower}
 	ok(s)
@@ -162,15 +167,91 @@ func testFollowBase(t *testing.T) {
 		t.Errorf("made %v where a symlink points", ents)
 	}
 
-	// a symlink in a bound host dir on another bind's path (the workspace's
-	// own homes/ → another dir) is refused too, but without the hint: the
-	// layer doesn't hold it, and a reset wouldn't clear it
+	// the workspace's own homes/ → another dir (an operator's symlink, directly
+	// in a Layout bind's source) on another bind's path: followed inside the
+	// sandbox, to a dir in the workspace or to another disk (a path the
+	// sandbox's root then holds); without Layout it is refused, but without
+	// the hint: the layer doesn't hold it, and a reset wouldn't clear it
 	mkdir(t, filepath.Join(ws, ".homes-real", "u"))
-	link(".homes-real", filepath.Join(ws, "homes"))
-	s = spec()
-	s.Binds = append(s.Binds, Bind{Src: sdk, Dst: "/ws/homes/u"})
+	layoutSpec := func(ops ...string) *Spec {
+		s := spec(ops...)
+		s.Binds[2].Layout = true // the /ws bind
+		s.Binds = append(s.Binds, Bind{Src: sdk, Dst: "/ws/homes/u"})
+		return s
+	}
+	for _, target := range []string{".homes-real", outside} {
+		fresh()
+		link(target, filepath.Join(ws, "homes"))
+		r, out, err := runProbe(t, layoutSpec("read:/ws/homes/u/go.mod", "read:/ws/tiles/f"))
+		if err != nil {
+			t.Fatalf("homes → %s: %v\n%s", target, err, out)
+		}
+		if got := r.Ops["read:/ws/homes/u/go.mod"]; got != "sdk" || r.Ops["read:/ws/tiles/f"] != "tile" {
+			t.Errorf("homes → %s: $HOME's bind reads %q", target, got)
+		}
+		if ents, _ := os.ReadDir(outside); len(ents) != 0 {
+			t.Fatalf("homes → %s: made %v on the host", target, ents)
+		}
+	}
+	fresh()
+	s = layoutSpec()
+	s.Binds[2].Layout = false
 	if _, out, err := runProbe(t, s); err == nil || !strings.Contains(out, "nested mount point /ws/homes: a symlink is in the way") ||
 		strings.Contains(out, "reset it") {
-		t.Errorf("a symlink in the bound workspace: %v, want the refusal without the layer's hint in\n%s", err, out)
+		t.Errorf("a symlink in the bound workspace, no Layout: %v, want the refusal without the layer's hint in\n%s", err, out)
+	}
+	// deeper in the Layout bind — a tile's directory, which sandboxes write —
+	// a link is refused, the same way
+	link("../.data-real", filepath.Join(ws, "tiles", "child"))
+	fresh()
+	s = layoutSpec()
+	s.Binds = append(s.Binds, Bind{Src: sdk, Dst: "/ws/tiles/child/x"})
+	if _, out, err := runProbe(t, s); err == nil || !strings.Contains(out, "nested mount point /ws/tiles/child: a symlink is in the way") ||
+		strings.Contains(out, "reset it") {
+		t.Errorf("a symlink in a tile's directory: %v, want the refusal without the hint in\n%s", err, out)
+	}
+
+	// a file mount point the layer holds a symlink at (apt's nvidia-smi, a
+	// Debian alternatives link; or one planted at a host file) is covered:
+	// the bind shows the host's file, read-only, and the layer keeps its link
+	// and its own target untouched
+	fresh()
+	smi, victim := filepath.Join(dir, "host-smi"), filepath.Join(outside, "victim")
+	for f, body := range map[string]string{
+		smi: "host-smi", victim: "victim", filepath.Join(upper, "usr", "lib", "nvidia", "current", "nvidia-smi"): "layer-smi",
+	} {
+		mkdir(t, filepath.Dir(f))
+		if err := os.WriteFile(f, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mkdir(t, filepath.Join(upper, "usr", "bin"))
+	mkdir(t, filepath.Join(upper, "etc", "alternatives"))
+	link("/etc/alternatives/nvidia-smi", filepath.Join(upper, "usr", "bin", "nvidia-smi"))
+	link("/usr/lib/nvidia/current/nvidia-smi", filepath.Join(upper, "etc", "alternatives", "nvidia-smi"))
+	link(victim, filepath.Join(upper, "usr", "bin", "planted"))
+	s = spec("read:/usr/bin/nvidia-smi", "write:/usr/bin/nvidia-smi", "read:/usr/lib/nvidia/current/nvidia-smi", "read:/usr/bin/planted")
+	s.Binds = append(s.Binds, Bind{Src: smi, Dst: "/usr/bin/nvidia-smi", RO: true}, Bind{Src: smi, Dst: "/usr/bin/planted", RO: true})
+	r, out, err := runProbe(t, s)
+	if err != nil {
+		t.Fatalf("file mount points on the layer's links: %v\n%s", err, out)
+	}
+	for op, want := range map[string]string{
+		"read:/usr/bin/nvidia-smi": "host-smi", "write:/usr/bin/nvidia-smi": "ERR",
+		"read:/usr/lib/nvidia/current/nvidia-smi": "layer-smi", "read:/usr/bin/planted": "host-smi",
+	} {
+		if got := r.Ops[op]; got != want {
+			t.Errorf("%s = %q, want %q", op, got, want)
+		}
+	}
+	for at, want := range map[string]string{"usr/bin/nvidia-smi": "/etc/alternatives/nvidia-smi", "usr/bin/planted": victim} {
+		if got, err := os.Readlink(filepath.Join(upper, at)); err != nil || got != want {
+			t.Errorf("the layer's %s is now %q (%v), want the link to %s", at, got, err, want)
+		}
+	}
+	for f, want := range map[string]string{victim: "victim", filepath.Join(upper, "usr", "lib", "nvidia", "current", "nvidia-smi"): "layer-smi"} {
+		if b, _ := os.ReadFile(f); string(b) != want {
+			t.Errorf("%s = %q, want %q", f, b, want)
+		}
 	}
 }
