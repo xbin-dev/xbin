@@ -39,7 +39,7 @@ public enum AppEvent: Sendable, Equatable {
     /// XbinAgent's `SessionHubEvent(json:)`.
     case session(id: String, component: String, frame: String)
     /// A tile reported its condition (`status`).
-    case tileStatus(component: String, level: String, message: String)
+    case tileStatus(component: String, level: String, message: String, transient: Bool = false)
     /// Anything else (`bus`, `pr`, future types): ignored by the app.
     case other(type: String)
 
@@ -75,7 +75,7 @@ public enum AppEvent: Sendable, Equatable {
         case "status":
             let d = j["data"]
             return .tileStatus(component: component, level: d?["level"]?.stringValue ?? "",
-                               message: d?["message"]?.stringValue ?? "")
+                               message: d?["message"]?.stringValue ?? "", transient: d?["transient"]?.boolValue ?? false)
         default:
             return .other(type: type)
         }

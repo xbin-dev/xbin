@@ -30,7 +30,7 @@ import XbinCore
         #expect(b.windows.isEmpty && a.windows.map(\.replyID) == ["r2"])
         // Opening another surface drops that window's pushed screens only.
         a.open(.terminal(cwd: "apps/x", session: nil))
-        #expect(a.windows.isEmpty && !a.showNavigator)
+        #expect(a.windows.isEmpty && a.surface == .terminal(cwd: "apps/x", session: nil))
     }
 
     /// The agent launcher creates its session asynchronously: the window it
@@ -61,11 +61,16 @@ import XbinCore
     /// ended in the foreground (a crash, maybe a native tile mounting on
     /// restore) the window comes back on its workspace only.
     @Test func windowTargetsRestoreCautiouslyAfterACrash() throws {
-        let t = WindowTarget(workspace: "w1", surface: .tile("apps/x", sub: "a/", fragment: "f"))
+        let t = WindowTarget(workspace: "w1", screen: "s1", surface: .tile("apps/x", sub: "a/", fragment: "f"))
         let back = try #require(WindowTarget(encoded: t.encoded))
         #expect(back == t)
         #expect(t.restoring(afterUncleanExit: false) == t)
-        #expect(t.restoring(afterUncleanExit: true) == WindowTarget(workspace: "w1"))
+        #expect(t.restoring(afterUncleanExit: true) == WindowTarget(workspace: "w1", screen: "s1"))
+        // What builds before D117 stored (no screen) still restores.
+        let old = try #require(WindowTarget(encoded: #"{"workspace":"w1","surface":{"agent":{"cwd":"apps/x"}}}"#))
+        #expect(old == WindowTarget(workspace: "w1", surface: .agent(cwd: "apps/x", session: nil)))
+        let build = try #require(WindowTarget(encoded: WindowTarget(workspace: "w1", surface: .build(tile: "apps/n")).encoded))
+        #expect(build.surface == .build(tile: "apps/n") && Surface.build(tile: "apps/new-thing").title == "New thing")
         #expect(WindowTarget(encoded: "") == nil && WindowTarget(encoded: "junk") == nil)
         #expect(Surface.agent(cwd: "apps/my-tile", session: nil).title.hasPrefix("Agent · "))
     }
@@ -93,5 +98,81 @@ import XbinCore
         nav.push(w1)
         nav.open(.tile("apps/y"))                // another surface: everything goes
         #expect(!nav.stillStacked(window: nil) && !nav.stillStacked(window: "r1"))
+    }
+
+    /// Home → Screen → tile, and back: the panel left is the forward
+    /// memory — one right-edge swipe returns to it (the same panel, its
+    /// view kept) — until any new navigation forgets it.
+    @Test func levelsBackAndForwardMemory() {
+        let nav = WorkspaceNav(workspaceID: "w1")
+        #expect(nav.level == 0 && nav.current == .home && !nav.canGoBack && !nav.canGoForward && nav.screenID == nil)
+        nav.openScreen("s1")
+        #expect(nav.level == 1 && nav.screenID == "s1" && nav.below == .home)
+        nav.open(.tile("apps/x"))                                // from the screen's card
+        #expect(nav.level == 2 && nav.surface == .tile("apps/x") && nav.screenID == "s1" && nav.below == .screen("s1"))
+        let tileEntry = nav.entries[2].id
+        nav.push(PushedWindow(fromTile: "apps/x", target: "apps/x/a", title: "A", replyID: "r1"))
+
+        #expect(nav.back())                                      // the left-edge swipe
+        #expect(nav.level == 1 && nav.surface == nil && nav.canGoForward && nav.ahead == .surface(.tile("apps/x")))
+        #expect(nav.windows.isEmpty)                             // (the inner stack pops first; nothing is left over)
+        #expect(nav.back() && nav.level == 0 && nav.ahead == .screen("s1"))
+        #expect(!nav.back())
+        #expect(nav.forward() && nav.forward() && !nav.forward()) // right-edge swipes, twice: back on the tile
+        #expect(nav.surface == .tile("apps/x") && nav.entries[2].id == tileEntry)
+
+        // Reopening the tile a back left is the forward swipe (same view)…
+        nav.back()
+        nav.open(.tile("apps/x"))
+        #expect(nav.surface == .tile("apps/x") && nav.entries[2].id == tileEntry && !nav.canGoForward)
+        // …any other navigation forgets the forward memory.
+        nav.back()
+        nav.open(.tile("apps/y"))
+        #expect(nav.surface == .tile("apps/y") && nav.entries[2].id != tileEntry && nav.entries.count == 3)
+        nav.back()
+        nav.back()
+        nav.openScreen("s2")
+        #expect(!nav.canGoForward && nav.entries.map(\.panel) == [.home, .screen("s2")])
+        nav.back()
+        nav.goHome()
+        #expect(nav.level == 0 && !nav.canGoForward && nav.entries.count == 1)
+    }
+
+    /// A tile opened from search, recents or a link goes back to the screen
+    /// it sits on — the one shown when it's there — or Home; a terminal or
+    /// agent stays over the screen shown.
+    @Test func whereBackGoesFromATile() {
+        let screens = ["s1": ["apps/a"], "s2": ["apps/a", "apps/b"]]
+        let containing = { (path: String, current: String?) -> String? in
+            if let current, screens[current]?.contains(path) == true { return current }
+            return ["s1", "s2"].first { screens[$0]!.contains(path) }
+        }
+        #expect(WorkspaceNav.screen(for: .tile("apps/a"), current: "s2", containing: containing) == "s2")
+        #expect(WorkspaceNav.screen(for: .tile("apps/b"), current: "s1", containing: containing) == "s2")
+        #expect(WorkspaceNav.screen(for: .tile("apps/z"), current: "s1", containing: containing) == nil)
+        #expect(WorkspaceNav.screen(for: .build(tile: "apps/b"), current: nil, containing: containing) == "s2")
+        #expect(WorkspaceNav.screen(for: .terminal(cwd: "apps/z", session: nil), current: "s1", containing: containing) == "s1")
+        #expect(WorkspaceNav.screen(for: .agent(cwd: nil, session: "x"), current: nil, containing: containing) == nil)
+        let nav = WorkspaceNav(workspaceID: "w1")
+        nav.open(.tile("apps/z"), on: nil)                      // from Home's search: back is Home
+        #expect(nav.entries.map(\.panel) == [.home, .surface(.tile("apps/z"))] && nav.below == .home)
+        nav.restore(screen: "s1", surface: .agent(cwd: "apps/a", session: "x"))
+        #expect(nav.entries.map(\.panel) == [.home, .screen("s1"), .surface(.agent(cwd: "apps/a", session: "x"))])
+    }
+
+    /// The build chooser hands over to the agent it started: the same
+    /// panel, now the session; a launcher that started does the same.
+    @Test func surfacesChangedInPlace() {
+        let nav = WorkspaceNav(workspaceID: "w1")
+        nav.open(.build(tile: "apps/n"), on: "s1")
+        let id = nav.entries.last!.id
+        nav.replace(with: .agent(cwd: "apps/n", session: "a1"))
+        #expect(nav.surface == .agent(cwd: "apps/n", session: "a1") && nav.entries.last!.id == id && nav.screenID == "s1")
+        nav.open(.agent(cwd: "apps/n", session: nil))
+        let launcher = nav.entries.last!.id
+        #expect(nav.started(session: "a2", cwd: "apps/n") && nav.entries.last!.id == launcher)
+        nav.back()
+        nav.replace(with: .tile("apps/q"))                      // nothing full screen: an ordinary open
+        #expect(nav.surface == .tile("apps/q") && nav.screenID == "s1")
     }
 }

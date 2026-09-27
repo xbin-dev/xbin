@@ -9,7 +9,7 @@ import Testing
         #expect(c.tiles.count == 7)
         #expect(c.listed.map(\.path) == ["apps/welcome", "tiles/admin", "tiles/apidocs", "tiles/manager", "tiles/organisations"])
         let org = try #require(c["tiles/organisations"])
-        #expect(org.chrome && TileSurface.pick(org, serverRuntime: 1) == .safari)
+        #expect(org.chrome && TileSurface.pick(org, serverRuntime: 1) == .web)   // signed in, in the app's web view
         let welcome = try #require(c["apps/welcome"])
         #expect(welcome.canOpenLinks && !welcome.chrome && welcome.title == "Welcome" && welcome.parent == "apps")
         #expect(!c["tiles/manager"]!.canOpenLinks)
@@ -24,7 +24,7 @@ import Testing
         #expect(TileSurface.pick(n, serverRuntime: 1, forceWeb: true) == .web)
         #expect(TileSurface.pick(n, serverRuntime: 1, runtimeOff: true) == .web)
         let chromeNative = TileInfo(json: ["path": "x", "chrome": true, "native": ["entry": "n.js"]])!
-        #expect(TileSurface.pick(chromeNative, serverRuntime: 1) == .safari)
+        #expect(TileSurface.pick(chromeNative, serverRuntime: 1) == .web)   // chrome never opens natively
         #expect(TileInfo(json: ["hasIndex": true]) == nil)
         #expect(TileInfo(json: ["path": "a", "native": .null])?.nativeEntry == nil)
         #expect(TileInfo.humanize("apps/egress-approver") == "Egress approver")

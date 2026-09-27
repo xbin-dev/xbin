@@ -2,10 +2,15 @@ import Foundation
 import Observation
 import XbinCore
 
-// A window's navigation in one workspace (plans/native.md §15: one surface
-// full screen; lists are overlays). Windows are tabs: every window has its
-// own WorkspaceNav per workspace (SceneModel keeps them), over the state the
-// workspace shares (session, catalog, sockets: WorkspaceModel).
+// A window's navigation in one workspace (plans/native.md §4, §15; D117):
+// panels you swipe between — Home (level 0: the workspace's screens) →
+// a Screen (1: its tiles as cards) → a tile, terminal or agent (2: full
+// screen) — one PanelStack per window. Back is a left-edge swipe (or the
+// bar's Home / ‹ screen); forward, a right-edge swipe, is there only right
+// after a back, to the panel just left, and any new navigation forgets it.
+// Windows are tabs: every window has its own WorkspaceNav per workspace
+// (SceneModel keeps them), over the state the workspace shares (session,
+// catalog, sockets: WorkspaceModel).
 //
 // A screen acts on its own window's nav — `@Environment(WorkspaceNav.self)`,
 // handed to the models it creates — never on "the focused window": a tile
@@ -20,14 +25,49 @@ enum Surface: Hashable, Codable {
     case tile(String, sub: String = "", fragment: String? = nil)
     case terminal(cwd: String, session: String?)
     case agent(cwd: String?, session: String?)
+    /// A tile just created on the phone: "What should this tile be?" —
+    /// an agent to build it, or a terminal (BuildChooser).
+    case build(tile: String)
 
     var title: String {
         switch self {
-        case .tile(let t, _, _): return TileInfo.humanize(t)
+        case .tile(let t, _, _), .build(let t): return TileInfo.humanize(t)
         case .terminal(let cwd, _): return "Terminal · \(TileInfo.humanize(cwd))"
         case .agent(let cwd, _): return "Agent" + (cwd.map { " · \(TileInfo.humanize($0))" } ?? "")
         }
     }
+
+    /// The tile it is about (a terminal's or agent's directory), if any.
+    var tilePath: String? {
+        switch self {
+        case .tile(let t, _, _), .build(let t): return t
+        case .terminal(let cwd, _): return cwd
+        case .agent(let cwd, _): return cwd
+        }
+    }
+}
+
+/// One panel of a window's stack.
+enum Panel: Hashable, Codable {
+    case home
+    case screen(String)
+    case surface(Surface)
+
+    var level: Int {
+        switch self {
+        case .home: return 0
+        case .screen: return 1
+        case .surface: return 2
+        }
+    }
+}
+
+/// A panel in the stack, with an identity of its own: a panel changed in
+/// place (an agent launcher that started its session) stays the same view
+/// in the stack — it doesn't slide out and in again.
+struct PanelEntry: Hashable, Identifiable {
+    let id: Int
+    var panel: Panel
 }
 
 /// A screen pushed over a tile: an `xbin.window` (another sub-path of the
@@ -39,11 +79,14 @@ struct PushedWindow: Hashable {
     var replyID: String
 }
 
-/// What a window shows: a workspace and, optionally, a surface in it. The
-/// value `openWindow(value:)` opens a window with (WindowGroup(for:)), what
-/// a dragged tile or a Handoff carries, and what `@SceneStorage` keeps.
+/// What a window shows: a workspace and, optionally, a screen and a
+/// surface in it. The value `openWindow(value:)` opens a window with
+/// (WindowGroup(for:)), what a dragged tile or a Handoff carries, and what
+/// `@SceneStorage` keeps.
 struct WindowTarget: Codable, Hashable {
     var workspace: String
+    /// The screen (level 1) under the surface, or shown (nil: Home).
+    var screen: String?
     var surface: Surface?
 
     /// For `@SceneStorage` (strings survive every restore).
@@ -52,8 +95,9 @@ struct WindowTarget: Codable, Hashable {
         return String(decoding: d, as: UTF8.self)
     }
 
-    init(workspace: String, surface: Surface? = nil) {
+    init(workspace: String, screen: String? = nil, surface: Surface? = nil) {
         self.workspace = workspace
+        self.screen = screen
         self.surface = surface
     }
 
@@ -65,10 +109,11 @@ struct WindowTarget: Codable, Hashable {
     /// What a window restores after a launch: its place — or, when the app
     /// last ended in the foreground (a crash, or the watchdog killing a
     /// hang, possibly in a native tile mounting on restore: the case the
-    /// kill switch exists for, plans/native.md §23), just its workspace, so
-    /// the remote switch can land before anything mounts again.
+    /// kill switch exists for, plans/native.md §23), its workspace and
+    /// screen only, so the remote switch can land before anything mounts
+    /// again.
     func restoring(afterUncleanExit unclean: Bool) -> WindowTarget {
-        unclean ? WindowTarget(workspace: workspace) : self
+        unclean ? WindowTarget(workspace: workspace, screen: screen) : self
     }
 }
 
@@ -77,21 +122,122 @@ struct WindowTarget: Codable, Hashable {
 @Observable
 final class WorkspaceNav {
     let workspaceID: String
-    /// The full-screen surface (nil: the navigator is the home).
-    var surface: Surface?
+    /// Every panel: the ones shown (the first `depth`) and, after them, the
+    /// ones a back left — the forward memory.
+    private(set) var entries: [PanelEntry]
+    /// How many panels are shown; the top one is current.
+    private(set) var depth = 1
     /// Windows pushed over the current tile (`xbin.window`).
     var windows: [PushedWindow] = []
-    /// The navigator overlay is up.
-    var showNavigator = false
+    @ObservationIgnored private var serial = 0
 
     init(workspaceID: String) {
         self.workspaceID = workspaceID
+        entries = [PanelEntry(id: 0, panel: .home)]
     }
 
-    func open(_ s: Surface) {
+    var current: Panel { entries[depth - 1].panel }
+    var level: Int { current.level }
+    /// The surface shown full screen (level 2), if one is.
+    var surface: Surface? {
+        if case .surface(let s) = current { return s }
+        return nil
+    }
+    /// The screen shown or under the surface.
+    var screenID: String? {
+        for e in entries[..<depth].reversed() { if case .screen(let id) = e.panel { return id } }
+        return nil
+    }
+    var canGoBack: Bool { depth > 1 }
+    var canGoForward: Bool { depth < entries.count }
+    /// The panel a back would show.
+    var below: Panel? { depth > 1 ? entries[depth - 2].panel : nil }
+    /// The panel a forward would show again.
+    var ahead: Panel? { canGoForward ? entries[depth].panel : nil }
+
+    private func entry(_ p: Panel) -> PanelEntry {
+        serial += 1
+        return PanelEntry(id: serial, panel: p)
+    }
+
+    /// New navigation to `panels` (Home first, implied): the forward memory
+    /// goes, and panels already there (the same place) keep their views —
+    /// reopening the tile a back just left is the forward swipe.
+    private func show(_ panels: [Panel]) {
+        let want = [Panel.home] + panels
+        var next: [PanelEntry] = []
+        var shared = true
+        for (i, p) in want.enumerated() {
+            if shared, i < entries.count, entries[i].panel == p {
+                next.append(entries[i])
+            } else {
+                shared = false
+                next.append(entry(p))
+            }
+        }
+        // Another panel on top: the windows pushed over the old one go.
+        if next[next.count - 1].id != entries[depth - 1].id { windows = [] }
+        entries = next
+        depth = next.count
+    }
+
+    /// Opens `s` full screen over `screen` (nil: over Home). Where back
+    /// goes is the caller's to know (WorkspaceModel: the screen the tile
+    /// sits on, `screenFor`).
+    func open(_ s: Surface, on screen: String?) {
+        show((screen.map { [Panel.screen($0)] } ?? []) + [.surface(s)])
+    }
+
+    /// Opens `s` over the screen shown now (or under the surface shown).
+    func open(_ s: Surface) { open(s, on: screenID) }
+
+    /// Shows screen `id` (level 1).
+    func openScreen(_ id: String) { show([.screen(id)]) }
+
+    /// Home, as new navigation (a link to the workspace itself).
+    func goHome() { show([]) }
+
+    /// Back one panel; what it left is the forward memory.
+    @discardableResult
+    func back() -> Bool {
+        guard depth > 1 else { return false }
+        if surface != nil { windows = [] }
+        depth -= 1
+        return true
+    }
+
+    /// Forward to the panel a back left.
+    @discardableResult
+    func forward() -> Bool {
+        guard canGoForward else { return false }
+        depth += 1
+        return true
+    }
+
+    /// The surface shown becomes `s` in place (the build chooser handing
+    /// over to the agent it started): same panel, no forward memory.
+    func replace(with s: Surface) {
+        guard surface != nil else { open(s); return }
+        entries[depth - 1].panel = .surface(s)
+        entries.removeSubrange(depth...)
         windows = []
-        surface = s
-        showNavigator = false
+    }
+
+    /// A window's restored place.
+    func restore(screen: String?, surface: Surface?) {
+        show((screen.map { [Panel.screen($0)] } ?? []) + (surface.map { [Panel.surface($0)] } ?? []))
+    }
+
+    /// The screen back goes to from `s`: the screen the tile sits on
+    /// (`containing`: Home's lookup, preferring `current`); a terminal or
+    /// agent on a tile no screen has stays over the current screen; a tile
+    /// no screen has goes back to Home.
+    static func screen(for s: Surface, current: String?, containing: (String, String?) -> String?) -> String? {
+        let found = s.tilePath.flatMap { containing($0, current) }
+        switch s {
+        case .tile, .build: return found
+        case .terminal, .agent: return found ?? current
+        }
     }
 
     /// A tile's `xbin.window`: a screen pushed over this window's tile.
@@ -119,7 +265,7 @@ final class WorkspaceNav {
     @discardableResult
     func started(session: String, cwd: String) -> Bool {
         guard case .agent(let c, .none)? = surface, c == cwd else { return false }
-        surface = .agent(cwd: cwd, session: session)
+        entries[depth - 1].panel = .surface(.agent(cwd: cwd, session: session))
         return true
     }
 }
