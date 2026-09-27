@@ -1002,11 +1002,11 @@ func TestLiveReloadPauseRace(t *testing.T) {
 				t.Run(rt, func(t *testing.T) {
 					t.Parallel()
 					tile := "apps/lr-race-" + rt
-					var cp string
+					var cpV, cpF string
 					for run := 1; run <= runs; run++ {
-						cp = raceRun(t, a, d.WS, tile, rt, run)
+						cpV, cpF = raceRun(t, a, d.WS, tile, rt, run)
 					}
-					racePinnedHolds(t, a, d.WS, tile, rt, cp, runs+1)
+					racePinnedHolds(t, a, d.WS, tile, rt, cpV, cpF, runs+1)
 					fixed := raceFailedPause(t, a, d.WS, tile, rt)
 					mu.Lock()
 					pinned[tile] = fixed
@@ -1104,8 +1104,11 @@ func observe(a dlAPI, tile, rt string) (stop func() []raceObs) {
 
 // raceRun is one run of TestLiveReloadPauseRace on tile, which follows its
 // work tree when the run starts (a resume opts it out first). It returns the
-// marker the checkpoint's code answers.
-func raceRun(t *testing.T, a dlAPI, ws, tile, rt string, run int) string {
+// markers the checkpoint's code and tree answer: a backend save writes its
+// code and its tree file one after the other, so a capture between the two
+// holds a save's code beside the next one's file (both after the request's
+// cutoff), and the two differ.
+func raceRun(t *testing.T, a dlAPI, ws, tile, rt string, run int) (cpV, cpF string) {
 	t.Helper()
 	first := raceMarker(run, 0)
 	mustRT(t, ws, tile, rt, first, "")
@@ -1191,14 +1194,25 @@ func raceRun(t *testing.T, a dlAPI, ws, tile, rt string, run int) string {
 	}
 	t.Logf("run %d: save %d completed before the request; the checkpoint holds %s/%s; %d answers checked, %d reads of the work tree by the old generation before the swap",
 		run, before, cpV, cpF, len(seen), window)
-	return cpV
+	return cpV, cpF
 }
 
-// racePinnedHolds checks that tile, pinned to code answering cp, keeps it
-// through a crash restart and a grant change while its work tree moves on
-// (a save of run next).
-func racePinnedHolds(t *testing.T, a dlAPI, ws, tile, rt, cp string, next int) {
+// racePinnedHolds checks that tile, pinned to a checkpoint whose code
+// answers cpV and whose tree file holds cpF, keeps both through a crash
+// restart and a grant change while its work tree moves on (a save of run
+// next).
+func racePinnedHolds(t *testing.T, a dlAPI, ws, tile, rt, cpV, cpF string, next int) {
 	t.Helper()
+	cp := cpV
+	servesCheckpoint := func() {
+		t.Helper()
+		var v, f string
+		var ok bool
+		if !waitFor(func() bool { v, f, ok = a.served(tile, rt); return ok && v == cpV && f == cpF }, 10*time.Second) {
+			t.Fatalf("%s never served its checkpoint %q/%q: /v %q, /file %q", tile, cpV, cpF, v, f)
+		}
+		a.waitTile(t, tile)
+	}
 	mustRT(t, ws, tile, rt, raceMarker(next, 1), "")
 	pid := backendPID(t, a, tile)
 	if pid <= 0 {
@@ -1209,14 +1223,14 @@ func racePinnedHolds(t *testing.T, a dlAPI, ws, tile, rt, cp string, next int) {
 		v, f, _ := a.served(tile, rt)
 		t.Fatalf("%s: after a crash it serves %q/%q, pinned %q", tile, v, f, cp)
 	}
-	a.waitServed(t, tile, rt, cp, 10*time.Second)
+	servesCheckpoint()
 	gen := backendGen(t, a, tile)
 	grantChange(t, a, tile)
 	if !waitFor(func() bool { v, _, ok := a.served(tile, rt); return ok && v == cp && backendGen(t, a, tile) > gen }, time.Minute) {
 		v, f, _ := a.served(tile, rt)
 		t.Fatalf("%s: after a grant change (gen %d → %d) it serves %q/%q, pinned %q", tile, gen, backendGen(t, a, tile), v, f, cp)
 	}
-	a.waitServed(t, tile, rt, cp, 10*time.Second)
+	servesCheckpoint()
 	t.Logf("%s: idle reap not run end to end: a 30-minute constant with no test knob (seam row 18)", tile)
 }
 
