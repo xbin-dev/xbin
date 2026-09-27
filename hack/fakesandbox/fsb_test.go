@@ -167,7 +167,7 @@ type ctOut struct {
 }
 
 type ctRun struct {
-	ExitCode               int
+	ExitCode               *int // nil: a signal ended it
 	Signal                 string
 	TimedOut               bool
 	Ms                     int64
@@ -236,8 +236,8 @@ func (w ctWho) run(id string, body map[string]any) ctRun {
 func (w ctWho) sh(id, cmd string) string {
 	w.e.t.Helper()
 	r := w.run(id, map[string]any{"cmd": cmd})
-	if r.ExitCode != 0 || r.Stdout == nil {
-		w.e.t.Fatalf("run %q: exit %d, stderr %+v", cmd, r.ExitCode, r.Stderr)
+	if r.ExitCode == nil || *r.ExitCode != 0 || r.Stdout == nil {
+		w.e.t.Fatalf("run %q: exit %v (signal %q), stderr %+v", cmd, r.ExitCode, r.Signal, r.Stderr)
 	}
 	return r.Stdout.Head + r.Stdout.Tail
 }
@@ -663,7 +663,7 @@ func TestRunResults(t *testing.T) {
 	a := newCT(t).as("apps/a")
 	sb := a.mk(map[string]any{"name": "runner"})
 	id := sb.ID
-	if r := a.run(id, map[string]any{"cmd": "exit 3"}); r.ExitCode != 3 || r.TimedOut || r.Signal != "" {
+	if r := a.run(id, map[string]any{"cmd": "exit 3"}); r.ExitCode == nil || *r.ExitCode != 3 || r.TimedOut || r.Signal != "" {
 		t.Fatalf("exit 3: %+v", r)
 	}
 	r := a.run(id, map[string]any{"cmd": "echo out; echo err >&2"})
@@ -729,7 +729,7 @@ func TestRunTimeout(t *testing.T) {
 	// TERM ends it
 	start := time.Now()
 	r := a.run(sb.ID, map[string]any{"cmd": "sleep 30", "timeoutMs": 200})
-	if !r.TimedOut || r.Signal != "TERM" || time.Since(start) > 5*time.Second {
+	if !r.TimedOut || r.Signal != "TERM" || r.ExitCode != nil || time.Since(start) > 5*time.Second {
 		t.Fatalf("a timeout: %+v", r)
 	}
 	// TERM is ignored: KILL after the grace, the whole group — a child too

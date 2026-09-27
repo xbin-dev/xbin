@@ -1239,7 +1239,11 @@ func (m *fsbManager) run(w http.ResponseWriter, r *http.Request) {
 	_ = c.Wait()
 	close(done)
 	code, sig := fsbSigName(c.ProcessState)
-	res := map[string]any{"exitCode": code, "signal": sig, "timedOut": timedOut.Load(), "ms": time.Since(start).Milliseconds()}
+	var exit any = code
+	if sig != "" { // a signal ended it: no exit code
+		exit = nil
+	}
+	res := map[string]any{"exitCode": exit, "signal": sig, "timedOut": timedOut.Load(), "ms": time.Since(start).Milliseconds()}
 	if q.Merge {
 		res["output"] = out.out()
 	} else {

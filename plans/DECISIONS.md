@@ -3564,6 +3564,14 @@ Deviations and refinements made while implementing; all deliberate:
     contract implementable on a cloud); SSE or WebSocket for exec output
     (offsets resume across restarts); the agent keeping `cap:sandboxes`
     (D113 §7 — every tile would need the cap and the runtime's attention).
+  - **The builtin `devbox` tile is retired** (it never really worked):
+    `bx tile import devbox` answers 410 pointing at the sandbox managers;
+    imported copies keep running as they are (docs/changes/2026-09-27-devbox-retired.md).
+  - **Clarified in protocol 1 while building the reference manager:**
+    `exitCode` is null when a signal ended a command (`run` and execs alike,
+    so a killed command never reads as exit 0); exec and snapshot
+    `clientId`s are per consumer and sandbox; only the home consumer deletes
+    a sandbox; `mode` is an octal string.
 
 - **D116 — The agent's lane becomes admin-defined classes of toolsets
   (2026-09-27).** builtin-templates/agent/API.md §Classes;

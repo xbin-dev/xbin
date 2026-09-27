@@ -71,7 +71,8 @@ body (a sandboxed page can't set custom request headers).
   the consumer is trusted to enforce its own rules for the person it acts
   for; the manager only records the assertion.
 - Changing `visibility`, `members` or `shares` takes the home consumer's
-  backend, the owner (verified), or the manager's operators.
+  backend, the owner (verified, through the home consumer), or the
+  manager's operators. Only the home consumer deletes a sandbox.
 
 ## Conventions
 
@@ -83,9 +84,9 @@ body (a sandboxed page can't set custom request headers).
 - **`?wait=<seconds>`** (up to `limits.waitMaxSec`) on any lifecycle call
   returns when the transition is done or the wait runs out; the resource
   returned always says where it stands.
-- **Idempotency.** `clientId` (unique per consumer) on creates, execs and
-  snapshots: repeating it returns the existing object (200); reusing it for
-  a different request is `exists`.
+- **Idempotency.** `clientId` on creates (unique per consumer), execs and
+  snapshots (unique per consumer and sandbox): repeating it returns the
+  existing object (200); reusing it for a different request is `exists`.
 - A **stopped** sandbox starts on an exec or a file operation; an
   **archived** one doesn't (`state` — thawing is explicit, it may be slow
   or cost money).
@@ -174,7 +175,8 @@ answers `unsupported`. `limits.sandboxes` 0 means no fixed limit.
 | `POST /sbx/sandboxes/{id}/start` · `/stop` · `/archive` · `/thaw` | `{start?}` on thaw | the sandbox |
 
 The owner of a new sandbox is the verified person, else the asserted one,
-else none (a sandbox of the consumer itself).
+else none (a sandbox of the consumer itself). Stopping, archiving,
+restoring or deleting a sandbox kills its execs.
 
 ## Running commands (`exec`)
 
@@ -197,8 +199,11 @@ command's process group is what signals, timeouts and kills reach.
 quarter in `head` and its last three quarters in `tail`, `elided` bytes
 between; output that fits is all in `head`. At `timeoutMs` (at most
 `limits.runTimeoutMaxMs`) the group gets TERM, then KILL 5 s later, and
-`timedOut` is true. The run belongs to its request: if the caller hangs up,
-the group is killed. Output is UTF-8 (invalid bytes replaced).
+`timedOut` is true. `timeoutMs` defaults to 60000. `exitCode` is null
+when a signal ended the command (`signal` names it). The run belongs to
+its request: if the caller hangs up, the group is killed. Output is UTF-8
+(invalid bytes replaced). An `argv` whose program can't start is
+`invalid` (a `cmd`'s shell reports exit 127 instead).
 
 ### Background execs
 
@@ -215,7 +220,10 @@ the group is killed. Output is UTF-8 (invalid bytes replaced).
 
 An exec is `{id, label, cmd, argv, cwd, tty, state, exitCode, signal,
 started, ended, total, clientId}`; `state` is `running`, `exited`, `killed`
-or `lost`; `timeoutMs` 0 means none. Its stdout and stderr are **one
+(a signal, its timeout, a stop or a `DELETE` ended it — `exitCode` is null
+when a signal did) or `lost`; `timeoutMs` 0 means none. `stdin` to an exec
+started without `stdin: true`, or after `eof`, is `invalid`; after it
+ended, `state`. Its stdout and stderr are **one
 combined byte stream** (a `tty` exec's is the terminal's), kept in a ring
 of at least `limits.outputRing` bytes. A finished exec is kept at least an
 hour or the last 50 per sandbox.
@@ -267,6 +275,11 @@ the verified person.
 | `POST /sbx/sandboxes/{id}/files/move` | `{from, to, overwrite?}` | **204** |
 | `GET /sbx/sandboxes/{id}/tar` | `path, exclude=` (repeatable) | `application/x-tar`, names relative to `path` (`tar`) |
 | `PUT /sbx/sandboxes/{id}/tar` | a tar stream; `path, mkdirs=1` | **204** — extracted under `path` (`tar`) |
+
+`mode` is the permission bits as an octal string (`"0644"`). `move` onto
+an existing path without `overwrite` is `precondition`; `mkdir` without
+`parents` of an existing path, `remove` of a non-empty directory without
+`recursive`, and `tar` on a path that isn't a directory are `invalid`.
 
 A file's `etag` changes whenever its content does (a content hash, or its
 modification time with nanoseconds, size and inode). `PUT content` replaces

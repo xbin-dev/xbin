@@ -452,7 +452,7 @@ type sbxOutput struct {
 }
 
 type sbxRunResult struct {
-	ExitCode int        `json:"exitCode"`
+	ExitCode *int       `json:"exitCode"` // nil: a signal ended it (Signal)
 	Signal   string     `json:"signal"`
 	TimedOut bool       `json:"timedOut"`
 	Ms       int64      `json:"ms"`

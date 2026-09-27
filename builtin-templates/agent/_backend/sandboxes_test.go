@@ -250,7 +250,7 @@ func TestSandboxClientRoutes(t *testing.T) {
 
 	// run: blocking, head/tail, exit codes, cwd refused when missing
 	rr, err := c.Run(ctx, id, sbxRunReq{Cmd: "echo hi; echo oops >&2; exit 3", TimeoutMs: 10000})
-	if err != nil || rr.ExitCode != 3 || rr.Stdout.Head != "hi\n" || rr.Stderr.Head != "oops\n" {
+	if err != nil || rr.ExitCode == nil || *rr.ExitCode != 3 || rr.Stdout.Head != "hi\n" || rr.Stderr.Head != "oops\n" {
 		t.Fatalf("run: %+v %v", rr, err)
 	}
 	if _, err := c.Run(ctx, id, sbxRunReq{Cmd: "true", Cwd: "/nonexistent-dir"}); sbxRefusal(err) != "invalid" {

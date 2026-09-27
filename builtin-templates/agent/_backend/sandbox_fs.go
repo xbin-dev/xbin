@@ -190,7 +190,7 @@ func sbxRead(ctx context.Context, use *sbxUse, args map[string]any) (string, err
 	if err != nil {
 		return "", err
 	}
-	if res.ExitCode != 0 {
+	if !res.ok() {
 		return "", fmt.Errorf("reading %s: %s", p, runErrText(res))
 	}
 	lines, _ := runLines(res.Stdout)
@@ -374,7 +374,7 @@ func sbxGlob(ctx context.Context, use *sbxUse, args map[string]any) (string, err
 	if err != nil {
 		return "", err
 	}
-	if res.ExitCode != 0 {
+	if !res.ok() {
 		return "", fmt.Errorf("listing %s: %s", base, runErrText(res))
 	}
 	files, cut := runLines(res.Stdout)
@@ -578,9 +578,15 @@ func runLines(o *sbxOutput) (lines []string, cut bool) {
 	return append(head, tail...), true
 }
 
+// ok: the command exited 0 (not a signal, not a failure).
+func (r *sbxRunResult) ok() bool { return r.ExitCode != nil && *r.ExitCode == 0 }
+
 // runErrText is what a failed helper command said on stderr.
 func runErrText(r *sbxRunResult) string {
-	return orStr(stderrText(r), fmt.Sprintf("exit %d", r.ExitCode))
+	if r.ExitCode == nil {
+		return orStr(stderrText(r), "killed by "+orStr(r.Signal, "a signal"))
+	}
+	return orStr(stderrText(r), fmt.Sprintf("exit %d", *r.ExitCode))
 }
 
 func stderrText(r *sbxRunResult) string {
