@@ -313,12 +313,12 @@ suite over the fake backend. The live end to end is
 `test/isolated/codingsandbox_test.go` in xbind's repo (D120's WP-21, beside
 `examples/sandbox-go`): `TestCodingSandbox[VM]` walks this plan,
 `TestCodingSandboxContract[VM]` runs the suite, on an `--isolate` xbind of
-the test's own, or on another through `XBIN_E2E_URL`
-(plans/tile-sandbox-runtime.md §13 has the commands):
+the test's own, or on another through `XBIN_E2E_URL` (D120's testing
+notes have the commands):
 
 1. An `--isolate` xbind (range-uid; KVM VMs; emulated VMs are a known
-   issue: plans/tile-sandbox-runtime.md §14) with owner auth on, so
-   people are accounts:
+   issue of D120's: large reads stall) with owner auth on, so people are
+   accounts:
    `bx template new coding-sandbox as apps/cs`, approve `cap:sandboxes`,
    `bx bind apps/cs internet=internet`, and a consumer tile whose
    `sandboxes` slot is bound to it (`bx bind apps/csc sandboxes=apps/cs`).
