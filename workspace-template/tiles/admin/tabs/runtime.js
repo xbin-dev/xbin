@@ -700,7 +700,7 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
       ${(!rt.resources || !rt.resources.length) ? html`<p class="muted">no brokered resources provisioned yet — declare them in a <span class="mono">scope.json</span> (kv, blob, bus, cron, sqlite, filesystem). See <a href="/docs/resources.md" target="_blank">docs/resources.md</a>.</p>` : nothing}`;
   }
 
-  // Lifecycle toggle (docs/overview/14-lifecycle.md). Static/CGI components with no backend
+  // Lifecycle toggle (docs/overview/14-lifecycle.md). Static components with no backend
   // still list, but only a running-backend runtime benefits — offer the toggle
   // for any runtime the owner may want paused.
   _lifecycleCell(k) {

@@ -98,7 +98,7 @@ For each component backend, xbind assembles a sandbox from:
 - **cgroup v2 limits** — CPU / memory / pids per component (or per scope), so one
   runaway backend can't starve the box (ARCHITECTURE §7 already wanted this).
 - **seccomp profile** — a sane default syscall allow-list; drop the exotic stuff.
-- **runtimes plug in as today** (go/node/python/cgi) on this base — **plus
+- **runtimes plug in as today** (go/node/python; cgi was removed, D117) on this base — **plus
   `wasm`/wazero as a first-class lightweight option**: capability-pure, no rootfs
   at all, the lightest sandbox for components that fit it.
 

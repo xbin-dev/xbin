@@ -1,7 +1,6 @@
 // Package runner supervises component backends: rebuild-on-change (Go),
-// restart-on-change (node/python), per-request exec (cgi). Each component's
-// backend serves HTTP on a private unix socket; the proxy package routes
-// /api/<component>/… to it.
+// restart-on-change (node/python). Each component's backend serves HTTP on
+// a private unix socket; the proxy package routes /api/<component>/… to it.
 //
 // Lifecycle per component (plans/implementation.md phase 2):
 //
@@ -188,7 +187,10 @@ func (r *Runner) state(comp string) *state {
 // first if needed. Blocks concurrent callers during builds (single-flight)
 // so a save under load never surfaces connection-refused.
 func (r *Runner) Ensure(ctx context.Context, c *registry.Component) (string, error) {
-	if c.Manifest.Runtime == "cgi" || c.Manifest.Runtime == "" || c.Manifest.Runtime == "static" {
+	if err := registry.ValidateRuntime(c.Manifest); err != nil {
+		return "", fmt.Errorf("component %s: %w", c.Path, err) // runtime "cgi" (D117): never runs
+	}
+	if c.Manifest.Runtime == "" || c.Manifest.Runtime == "static" {
 		return "", fmt.Errorf("component %s has no long-running backend", c.Path)
 	}
 	// Lifecycle gate (plans/lifecycle.md): a disabled/offloaded component never
@@ -263,7 +265,7 @@ func (r *Runner) Track(comp string) func() {
 // Changed marks a component dirty and kicks a background rebuild so build
 // errors surface on save, not on next request.
 func (r *Runner) Changed(c *registry.Component) {
-	if !c.HasBackend() || c.Manifest.Runtime == "cgi" {
+	if !c.HasBackend() {
 		return
 	}
 	s := r.state(c.Path)

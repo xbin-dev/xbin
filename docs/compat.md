@@ -50,7 +50,10 @@ migrations is checked against it.
    error.
 7. **Manifest schema is additive.** Both `expose` (roles) and `exposes`
    (ports) keep working; new keys only; unknown keys are ignored, never
-   rejected.
+   rejected. The one removal was a security hole, closed at once:
+   `"runtime": "cgi"` (and `bx new --runtime cgi`) — such a tile keeps
+   serving its files and reports a manifest error
+   ([changes/2026-09-27-cgi-removed.md](/docs/changes/2026-09-27-cgi-removed.md)).
 8. **The SDK stays zero-dependency**, and its semantics change only in the
    permissive direction (a call that succeeds today keeps succeeding), with
    a changelog entry.

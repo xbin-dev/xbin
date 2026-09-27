@@ -56,7 +56,7 @@ vendored, no bundler anywhere).
   HTML transform (import map + client injection), PTY terminals over WebSocket
   (xterm.js), a file watcher driving live reload, and a backend runner —
   `go build` on save, blue/green socket swap, error overlays, crash-loop
-  breaking, idle reaping. CGI for shell scripts; node/python restart-on-change.
+  breaking, idle reaping; node/python restart-on-change.
 - **RBAC between elements**: callees declare roles, callers request them, the
   owner approves once (UI panel or `bx grant`); xbind verifies identity on
   every call and injects `X-XBin-From`/`X-XBin-Role`. Element frontends are

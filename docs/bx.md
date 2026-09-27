@@ -165,8 +165,9 @@ bx preview --native <tile> [--dark] [--size 390x844] [--large-text]
 ## Notes per command
 
 **`bx new`** — runtimes: `go` (module + `backend/main.go` + SDK wiring via
-the generated go.work), `node`, `python`, `cgi` (executable shell script),
-`static` (default). `--expose` adds a roles block to the manifest and the
+the generated go.work), `node`, `python`, `static` (default). `cgi` was
+removed ([changes/2026-09-27-cgi-removed.md](/docs/changes/2026-09-27-cgi-removed.md))
+and is refused. `--expose` adds a roles block to the manifest and the
 standard `API.md` skeleton. Never overwrites existing files. After
 scaffolding, frame it somewhere:
 `<bx-frame src="apps/thing"></bx-frame>`.

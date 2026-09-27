@@ -7,8 +7,8 @@ import (
 
 // A bare `go build` inside a backend directory leaves `backend/backend`; that
 // ELF must never be copied into a new component (xbind builds into
-// .xbin/build/ itself). A cgi handler that happens to be a compiled
-// executable is a real entry point and must survive.
+// .xbin/build/ itself). Any other compiled file the tile ships (a tool
+// under bin/) is the builder's and must survive.
 func TestRenderTreeSkipsStrayBuildOutput(t *testing.T) {
 	elf := append([]byte{0x7f, 'E', 'L', 'F', 2, 1, 1}, make([]byte, 64)...)
 	src := fstest.MapFS{
@@ -16,7 +16,7 @@ func TestRenderTreeSkipsStrayBuildOutput(t *testing.T) {
 		"t/backend/main.go":    {Data: []byte("package main\n")},
 		"t/backend/backend":    {Data: elf}, // stray go build output
 		"t/_backend/_backend":  {Data: elf}, // same, agent-template layout
-		"t/backend/handler":    {Data: elf}, // a compiled cgi entry: keep
+		"t/bin/helper":         {Data: elf}, // a compiled tool the tile ships: keep
 		"t/backend/backend.go": {Data: []byte("package main\n")},
 		"t/bin/tool":           {Data: []byte("#!/bin/sh\necho hi\n")},
 	}
@@ -29,7 +29,7 @@ func TestRenderTreeSkipsStrayBuildOutput(t *testing.T) {
 			t.Errorf("%s: stray build output was rendered", rel)
 		}
 	}
-	for _, rel := range []string{"xbin.json", "backend/main.go", "backend/handler", "backend/backend.go", "bin/tool"} {
+	for _, rel := range []string{"xbin.json", "backend/main.go", "bin/helper", "backend/backend.go", "bin/tool"} {
 		if _, ok := files[rel]; !ok {
 			t.Errorf("%s: missing from the rendered tree", rel)
 		}
@@ -47,7 +47,7 @@ func TestStrayBuildOutput(t *testing.T) {
 		{"_backend/_backend", elf, true},
 		{"deep/dir/dir", elf, true},
 		{"backend/backend", []byte("#!/bin/sh\n"), false}, // a script named like the dir
-		{"backend/handler", elf, false},
+		{"bin/helper", elf, false},
 		{"backend", elf, false}, // no directory component
 		{"x/y", elf, false},
 		{"backend/backend", []byte{0x7f, 'E'}, false}, // too short to be ELF

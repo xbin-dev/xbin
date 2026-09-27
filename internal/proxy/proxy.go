@@ -1,8 +1,9 @@
-// Package proxy routes /api/<component-path>/… to component backends:
-// long-running runtimes over their unix sockets (blue/green targets from the
-// runner), cgi per-request. It enforces the gateway side of the RBAC model:
-// strips inbound X-XBin-* headers, consults the policy, and injects the
-// verified caller identity (plans/auth.md §3).
+// Package proxy routes /api/<component-path>/… to component backends over
+// their unix sockets (blue/green targets from the runner, which sandboxes
+// them). It never executes tile code itself — runtime "cgi", which did, was
+// removed (D117). It enforces the gateway side of the RBAC model: strips
+// inbound X-XBin-* headers, consults the policy, and injects the verified
+// caller identity (plans/auth.md §3).
 package proxy
 
 import (
@@ -12,10 +13,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/http/cgi"
 	"net/http/httputil"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -137,6 +136,11 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("%s is a template — instantiate it first (Tile Manager → New from template, or `bx template new`)", comp.Path), "")
 		return
 	}
+	if err := registry.ValidateRuntime(comp.Manifest); err != nil {
+		// runtime "cgi" (D117): its code never runs; say why, not "no backend".
+		jsonErr(w, http.StatusGone, comp.Path+": "+err.Error(), "")
+		return
+	}
 	if !comp.HasBackend() {
 		jsonErr(w, http.StatusNotFound,
 			fmt.Sprintf("component %s has no backend (runtime %q)", comp.Path, comp.Manifest.Runtime), "")
@@ -171,11 +175,6 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	px.identify(r, p, role, comp.Path)
-
-	if comp.Manifest.Runtime == "cgi" {
-		px.serveCGI(w, r, comp, endpoint)
-		return
-	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
 	defer cancel()
@@ -232,32 +231,6 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	rp.ServeHTTP(w, r)
-}
-
-// serveCGI executes the component's entry per request with CGI semantics —
-// the zero-lifecycle runtime for scripts (docs/elements.md §runtimes).
-func (px *Proxy) serveCGI(w http.ResponseWriter, r *http.Request, comp *registry.Component, endpoint string) {
-	entry := comp.Manifest.Entry
-	if entry == "" {
-		entry = "backend/handler"
-	}
-	script := filepath.Join(comp.Dir, filepath.FromSlash(entry))
-	if fi, err := os.Stat(script); err != nil || fi.IsDir() {
-		jsonErr(w, http.StatusNotFound, fmt.Sprintf("cgi entry %s not found", entry), "")
-		return
-	}
-	h := &cgi.Handler{
-		Path: script,
-		Dir:  comp.Dir,
-		Root: "/api/" + comp.Path,
-		Env: []string{
-			"XBIN_COMPONENT=" + comp.Path,
-			"XBIN_FROM=" + r.Header.Get(HeaderFrom),
-			"XBIN_ROLE=" + r.Header.Get(HeaderRole),
-		},
-		InheritEnv: []string{"PATH", "HOME"},
-	}
-	h.ServeHTTP(w, r)
 }
 
 // identify scrubs any spoofed identity from r and injects the verified one.

@@ -6,6 +6,7 @@ package registry
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -50,7 +51,7 @@ type TemplateMeta struct {
 // Manifest is a component's xbin.json. All fields optional; a bare directory
 // with index.html is a valid static component.
 type Manifest struct {
-	Runtime string   `json:"runtime,omitempty"` // static|go|node|python|cgi
+	Runtime string   `json:"runtime,omitempty"` // static|go|node|python ("cgi" removed: ValidateRuntime)
 	Entry   string   `json:"entry,omitempty"`   // runtime-specific; defaults in runner
 	Deps    []string `json:"deps,omitempty"`    // source visibility (deps/ symlinks)
 	Uses    []Use    `json:"uses,omitempty"`    // runtime call grant requests
@@ -170,6 +171,23 @@ func ValidateExposes(m Manifest) error {
 	}
 	return nil
 }
+
+// ValidateRuntime refuses a runtime xbin no longer runs. There is one:
+// "cgi" (D117) executed the tile's backend/handler through net/http/cgi on
+// the host, as xbind, outside every sandbox — so anyone who could write the
+// tile ran code as the daemon. A tile still declaring it gets this as its
+// manifest error (bx ls/doctor, /components); it keeps serving its files,
+// its backend never runs, and its /api answers 410 with the same text.
+// Other unknown runtimes stay tolerated (a tile without a backend).
+func ValidateRuntime(m Manifest) error {
+	if m.Runtime == "cgi" {
+		return errCGIRemoved
+	}
+	return nil
+}
+
+var errCGIRemoved = errors.New(`runtime "cgi" was removed (unsafe: it ran tile code outside the sandbox) — ` +
+	`port the handler to a go/node/python backend (/docs/changes/2026-09-27-cgi-removed.md)`)
 
 // StreamProto returns a stream expose's protocol (tcp default).
 func (d ExposeDef) StreamProto() string {
@@ -395,7 +413,7 @@ func (c *Component) HasBackend() bool {
 		return false
 	}
 	switch c.Manifest.Runtime {
-	case "go", "node", "python", "cgi":
+	case "go", "node", "python":
 		return true
 	}
 	return false
@@ -458,6 +476,9 @@ func (r *Registry) Rescan() error {
 		if b, err := os.ReadFile(filepath.Join(p, "xbin.json")); err == nil {
 			hasManifest = true
 			if err := jsonc.Unmarshal(b, &c.Manifest); err != nil {
+				c.ManifestErr = err.Error()
+			} else if err := ValidateRuntime(c.Manifest); err != nil {
+				// A removed runtime: files still serve, the backend never runs.
 				c.ManifestErr = err.Error()
 			} else if err := ValidateExposes(c.Manifest); err != nil {
 				// Surfaced like a parse error (bx ls/doctor, status API); the

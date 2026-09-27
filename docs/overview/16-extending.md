@@ -69,10 +69,9 @@ them):
   process.env.XBIN_GATEWAY }` with the bearer token.
 - **python** — a `UnixStreamServer` + `BaseHTTPRequestHandler`; any
   unix-socket-capable HTTP client for the gateway.
-- **cgi** — any executable: CGI/1.1 env (`PATH_INFO`, `REQUEST_METHOD`,
-  body on stdin) plus `XBIN_COMPONENT`/`XBIN_FROM`/`XBIN_ROLE`, response on
-  stdout. Per-request exec, zero lifecycle — right for shell-script
-  endpoints.
+
+On an isolated workspace every backend runs in its tile's sandbox. (`cgi`, a
+per-request executable, ran outside it and was removed — D117.)
 
 ## Frontends
 

@@ -44,7 +44,7 @@ func (r *Runner) isAlwaysOn(comp string) bool {
 // Idempotent; call it whenever something may have made one runnable.
 func (r *Runner) WakeAlwaysOn() {
 	for _, c := range r.Reg.Components() {
-		if !c.Manifest.AlwaysOn || !c.HasBackend() || c.Manifest.Runtime == "cgi" {
+		if !c.Manifest.AlwaysOn || !c.HasBackend() {
 			continue
 		}
 		if r.ShouldRun != nil && !r.ShouldRun(c.Path) {

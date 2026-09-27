@@ -25,11 +25,12 @@ JSONC (comments and trailing commas allowed). Everything is optional.
 
 ```jsonc
 {
-  // Backend runtime: "static" (default, no backend), go, node, python, cgi.
+  // Backend runtime: "static" (default, no backend), go, node, python.
+  // ("cgi" was removed — a manifest error now; §Runtimes & backend lifecycle.)
   "runtime": "go",
 
   // Backend entry. Defaults: go "./backend" (a package), node
-  // "backend/server.js", python "backend/server.py", cgi "backend/handler".
+  // "backend/server.js", python "backend/server.py".
   "entry": "./backend",
 
   // Source-level dependencies: materialized as deps/<basename> symlinks so
@@ -508,7 +509,13 @@ stripping the prefix (your handler sees `/<path>`).
 | `go` | `./backend` package | `go build` (workspace go.work, shared cache) → new process → health check → atomic swap → old gets SIGTERM, 30 s drain |
 | `node` | `backend/server.js` | restart-on-change (same swap dance, no compile) |
 | `python` | `backend/server.py` | restart-on-change |
-| `cgi` | `backend/handler` (executable) | executed per request, CGI/1.1; nothing to restart |
+
+`cgi` (a handler executed per request) **was removed** on 2026-09-27: it ran
+the tile's code on the host as the daemon, outside every sandbox. A tile that
+still declares it keeps serving its files, shows the removal as its manifest
+error (`bx ls`, `bx doctor`, `/api/xbin/components`), and its `/api/` answers
+410 — port the handler to one of the runtimes above
+([changes/2026-09-27-cgi-removed.md](/docs/changes/2026-09-27-cgi-removed.md)).
 
 Lifecycle facts that matter when writing backends:
 

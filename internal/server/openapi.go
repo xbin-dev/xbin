@@ -382,7 +382,7 @@ func endpoints() []ep {
 		// --- workspace management ---
 		{"POST", "/create", "Workspace", "Create a component", "xbin:writer",
 			"Scaffolds a new component (same as `bx new`); never overwrites. Owner, or an element granted xbin:writer. owner: org:<id> (needs the org's Create knob) | user:<id> | \"\" = creator-owned, workspace-owned for admins; under the org-only tile-creation policy a non-admin's empty owner resolves to their single Create org.", nil,
-			jsonBody("component to create", oapi{"path": str("apps/thing"), "runtime": str("static|go|node|python|cgi"), "title": str(""), "expose": boolean(), "owner": str("org:<id> | user:<id> | \"\"")}, "path"), "{path, files, owner?}"},
+			jsonBody("component to create", oapi{"path": str("apps/thing"), "runtime": str("static|go|node|python"), "title": str(""), "expose": boolean(), "owner": str("org:<id> | user:<id> | \"\"")}, "path"), "{path, files, owner?}"},
 		{"POST", "/clone", "Workspace", "Clone (fork) a component", "xbin:writer",
 			"Copies an existing component (git history included) and rewrites references to the old path across its files. Secrets and resource data are not copied; cross-scope uses re-enter owner approval. Rejects a copy whose uses don't resolve. owner as /create.", nil,
 			jsonBody("what to clone", oapi{"from": str("apps/thing"), "to": str("apps/thing-fork"), "owner": str("org:<id> | user:<id> | \"\"")}, "from", "to"), "{path, from, rewritten, pendingGrants}"},
