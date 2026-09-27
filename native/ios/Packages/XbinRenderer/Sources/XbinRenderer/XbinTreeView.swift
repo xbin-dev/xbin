@@ -52,7 +52,7 @@ extension View {
     /// draws one for snapshots and previews).
     public func xbinWidgetInset() -> some View {
         padding(XbinWidgetMetrics.inset)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
     }
 
     /// A tile's widget as a phone screen's card, as the app's grid draws
@@ -83,8 +83,10 @@ private struct RootView: View {
                 // A widget with several top-level nodes comes as a fragment
                 // root: they stack, as a vertical `stack` would.
                 let top = root.type == "fragment" ? root.children : [root]
+                // (Minimum 0 too: a frame with only a maximum grows to a
+                // taller child, which the card would then center.)
                 VStack(alignment: .leading, spacing: 8) { ForEach(top) { NodeView(node: $0) } }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
                     .clipped()
             } else if Self.fullScreen.contains(root.type) {
                 NodeView(node: root)

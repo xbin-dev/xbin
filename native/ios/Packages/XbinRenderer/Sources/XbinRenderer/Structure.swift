@@ -176,10 +176,15 @@ struct StackView: View {
                     .environment(\.xbinInHStack, true)
             } else if horizontal {
                 // On a widget's card a chart is the line's filler: the rest
-                // is laid out first, the chart gets what's left.
+                // is laid out first, the chart gets what's left (a spark's
+                // worth at least).
                 HStack(alignment: Self.vertical(align), spacing: gap) {
                     ForEach(node.children) { c in
-                        NodeView(node: c).layoutPriority(compact != nil && c.type == "chart" ? -1 : 0)
+                        if compact != nil && c.type == "chart" {
+                            NodeView(node: c).frame(minWidth: 64).layoutPriority(-1)
+                        } else {
+                            NodeView(node: c)
+                        }
                     }
                 }
                 .environment(\.xbinInHStack, true)
