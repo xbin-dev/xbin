@@ -42,6 +42,9 @@ fi
 # borrows the main checkout's). Passes read it: without it a backend half
 # asserts the isolation refusal and prints SKIP needs HARNESS_ISOLATE. Needs
 # user namespaces; XBIN_FUSE_OVERLAYFS reaches xbind from the environment.
+# Run it for the passes that ask for it: the scripted fake agent
+# (XBIN_AGENT_FAKE, a host path) can't start inside a tile sandbox, so the
+# agent passes (agentTab…) fail under it.
 isolate_flags=()
 if [[ "${HARNESS_ISOLATE:-}" == 1 ]]; then
   isolate_flags=(--isolate --rootfs "${XBIN_TEST_ROOTFS:-}")
