@@ -1010,6 +1010,21 @@ Every card includes these; a card states only what differs.
   (`Plane.Diff`, `Plane.ServeFetch`) and `summary.go`
   (`Plane.PrimarySummary`); the interface gained `RemoveView`, `Drift`,
   `Diff` and `ServeFetch`. `ops.go` is 768 of 800.
+- **From wave 1.3.** `plane.go` is 747 of 800 and `ops.go` 770 of 800.
+  The M1 exit gate found two races and one contract gap in the plane, fixed
+  on the WPs' branches. (1) Records-directory race: the index now holds a
+  records-directory lock (`index.dmu`). Every write into `data/deployments`
+  goes through `idx.writeIn`, and every removal of an emptied directory
+  through `idx.prune`. So M2's files under `data/deployments/<key>/` take
+  the same path, or one tile's opt-out removes the directory under another
+  tile's write. (2) A deploy of the checkpoint a deployment already runs asks
+  the runner (`DeploymentStatus`, an optional interface) and starts a new
+  generation when the runner reports `failed` or `idle` (11-contract §1.6).
+  `runner.DeploymentStatus` answers `idle` for every non-primary deployment
+  until WP-33 gives them runner state, so WP-33 makes it report theirs.
+  (3) `internal/checkpoint/capture.go` (697 of 800) runs capture again when
+  a file vanishes mid-read (`settledPass`); `drift.go`'s count has the same
+  `git add` step and recomputes on the next save.
 
 #### WP-31 qualifier · S · wave 2.1 · after WP-30
 - **Scope** (11-contract §2.1, §2.2, §2.4; NP-12-1). `ResolveRef`: a `+`-free
@@ -1549,6 +1564,9 @@ Every card includes these; a card states only what differs.
 - **Tests.** Both; `make swift-test` where Swift exists, else CI's `native`
   job, as the commit body says.
 - **Links.** PO-5.
+- **From wave 1.3.** `TestFailedDeployInvisible` writes its event tape as
+  JSON lines to the file `$XBIN_DEPLOY_TAPE` names; promote is M2, so the
+  tape has none.
 
 #### WP-61 itest-data · L · wave 2.4 · after every M2 feature WP
 - **Owns.** `test/{deploy_static,deployments}_test.go`.
@@ -1559,6 +1577,17 @@ Every card includes these; a card states only what differs.
 - **Links.** WP-27's probe registers no cron job or bus subscription at
   start: `TestRegistrationsAtStartStayDormant` brings its own start-time
   registration.
+- **From wave 1.3.** WP-28's `TestRollBackBound` keeps live reload paused.
+  In M1 a rollback of `main` can never pause live reload, because a
+  main-only tile with a record is always paused. The row "a rollback pauses
+  live reload when the deployment was its target" waits for this WP's
+  deployment that follows the work tree. `TestDeploymentStateBootsTwice`
+  logs its M2 parts (add `dev`, an edge policy, a dormant job of `dev`'s) as
+  501, for this WP and WP-62 to extend. `TestLiveReloadPauseRace` logs the
+  pause window (05-model §5): until the pinned generation swaps in, the old
+  one reads the live work tree. At the M1 exit (`XBIN_TEST_FULL=1`) that was
+  up to 21 reads per run for Go (99 of 100 runs), at most 1 for Python
+  (10 runs), and none for node or static.
 
 #### WP-62 itest-fabric · L · wave 2.4 · after every M2 feature WP
 - **Owns.** `test/{edges,flowc}_test.go`.
@@ -1598,6 +1627,11 @@ Every card includes these; a card states only what differs.
   the blocked edges).
 - **Owns.** Those files. **Tests.** The docscheck guards,
   `TestDeploymentWording`.
+- **From wave 1.3.** Under `--isolate` a terminal's `PATH` is the rootfs's,
+  so `bx` in a session is the rootfs's build (isolation.md says so since
+  WP-29). `docs/config.md`'s `XBIN_BIN` row ("put on terminals' PATH") is
+  generated from `internal/boot/config.go`'s doc tag, which now says so (an
+  integrator amendment at the M1 exit gate).
 
 #### WP-66 checkpoint-purge · M · wave 2.3 · after WP-11, WP-12 and a route amendment · gated by R-4
 - **Scope** (05-model §2, §10; 06-security T20, NP-06-16). A tile manager,
@@ -2074,6 +2108,14 @@ export XBIN_FUSE_OVERLAYFS=/home/magik6k/buxon/bin/fuse-overlayfs
   reads a script as it runs it. `HARNESS_ISOLATE=1` is for the passes that ask
   for it (`livereload`, `deployments`): the agent passes' scripted fake agent
   is a host path the tile sandbox can't see (WP-08's report).
+- **`agentTab` depends on the passes before it.** Run alone, or first
+  after a fresh seed, it stops at the shell-write card ("element is outside
+  of the viewport", `passes/agenttab.js:177`). It did the same at M0
+  (03b854c5), so this is not a regression. The M1 exit gate's `run.sh --keep livereload
+  viewAs agentTab sandboxes reloadFocus` stops there: run the other four
+  without it and count `agentTab` from the full run, where it passes. And
+  `run.sh <pass>` is not a pass filter: its first argument is the mode, so
+  an unknown one seeds afresh, runs every pass and leaves xbind running.
 - **A WP that finds the design wrong stops and reports.** It doesn't
   improvise another design, raise a budget, or edit outside its Owns list.
 
