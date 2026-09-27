@@ -9,7 +9,7 @@ This file is the set's ledger. Precedence, highest first:
 4. every other document of the set.
 
 A work package that meets an open question here builds the question's
-**Built meanwhile** default and cites the question's id (O1–O6, Q1–Q22,
+**Built meanwhile** default and cites the question's id (O1–O6, Q1–Q23,
 L1–L3). It waits only when the question's **Blocks** line names it.
 
 Shorthand:
@@ -582,6 +582,22 @@ directly.
   unchanged.
 - *Blocks:* nothing; WP-S1 (wave 1.1) builds the default. 07 §10.5 and the
   card follow.
+
+**Q23 — `bx logs` without a deployment** (WP-02's report, wave 0.2). 11
+§9.3, the wire's authority, says it "behaves as today"; 13 §4.14's
+`cmd/bx/status.go` row, 08 §2's backend-log row and WP-26's card move it to
+`GET /logs`, to fix side finding #22 (`.xbin` is masked in isolated
+terminals). `TestBxTodayInvocationsUnchanged` (WP-02) pins today's reading:
+the file, no request, and exit 1 without a request for a tile with no log.
+- *Default:* 11 §9.3 wins. Every invocation that works today keeps reading
+  `.xbin/log/<CompKey>.log` without a request. `GET /logs` is used only where
+  that read cannot answer: a deployment named by `--deployment` or
+  `$XBIN_DEPLOYMENT`, and a workspace whose `.xbin/log` bx cannot see (an
+  isolated terminal: side finding #22). A missing file under a visible
+  `.xbin/log` stays today's "no logs yet", exit 1. Changing the golden
+  instead is a compat change (14 §2.1 clause 8).
+- *Blocks:* nothing; WP-26 (wave 1.2) builds the default. 13 §4.14, 08 §2
+  and the card follow.
 
 ### 5.2 Divergences still open in the documents
 

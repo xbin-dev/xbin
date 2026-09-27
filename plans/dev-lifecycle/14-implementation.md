@@ -807,7 +807,8 @@ Every card includes these; a card states only what differs.
   codes 3 refused, 4 not confirmed (`--yes` needed without a TTY), 5 still
   running, 6 no tile deployments); registration through `moreCmds`
   (`cmd/bx/native.go:28-32`), usage on the `+nativeUsage` line
-  (`cmd/bx/main.go:174`); `bx logs` through `GET /logs`.
+  (`cmd/bx/main.go:174`); `bx logs` through `GET /logs` where the log file
+  can't answer (16-open-questions Q23).
 - **Owns.** `cmd/bx/{livereload,deploy,deployclient,status,main}.go`,
   `cmd/bx/deploy_test.go`.
 - **Tests.** `TestParseDeploymentArgs`, `TestBxSaysWhereSavesGo` (M1),

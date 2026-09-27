@@ -423,7 +423,7 @@ Evidence: [research/builder-contract.md](research/builder-contract.md) §9.
 | File | Change | M | Lines / limit | Prep | Hot | Ref |
 |---|---|---|---|---|---|---|
 | `cmd/bx/main.go` | **M0:** the moves of §2. **M1:** the usage text gets a new block on the existing concatenation line, which is line-neutral | M0, M1 | 1150 / 1150 b | yes | yes | `main.go:346-530`, `:111-174` (`:174`) |
-| `cmd/bx/status.go` (moved) | `status` and `logs` take a lenient `--deployment`, defaulting to `$XBIN_DEPLOYMENT` for read commands only. `logs` reads `GET /logs` instead of `.xbin/log`, which isolated terminals cannot see. Both check the echo | M0, M2 | new (≈ 187) | — | — | `main.go:494-530`; `term/binds.go:49-53` |
+| `cmd/bx/status.go` (moved) | `status` and `logs` take a lenient `--deployment`, defaulting to `$XBIN_DEPLOYMENT` for read commands only. `logs` reads `GET /logs` where `.xbin/log` can't answer (a deployment named, or `.xbin` masked in an isolated terminal) and the file otherwise, as today (16-open-questions Q23). Both check the echo | M0, M2 | new (≈ 187) | — | — | `main.go:494-530`; `term/binds.go:49-53` |
 | `cmd/bx/livereload.go`, `deploy.go`, `deployment.go`, `deployclient.go` (new) | Registered into `moreCmds` from `init()`s, so `native.go` is not edited. Names follow the glossary spellings; commands, flags, output and exit codes are `11-contract.md` §9's verbatim. A command that moves code never takes its target from `$XBIN_DEPLOYMENT` | M1, M2 | new | — | — | `native.go:26-32`; `agent.go:28-33` |
 | `cmd/bx/native.go`, `agent.go`, `args.go` | none; new flags stay lenient, as on `status`/`logs` today | — | 569 / 786 / 34 | — | — | `args.go` |
 | `cmd/xbind/main.go` | none | — | 81 / 85 b | — | — | |
