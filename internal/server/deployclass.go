@@ -332,10 +332,7 @@ func (s *Server) classGate(r2 *http.Request) (dep string, deny http.HandlerFunc)
 	if p.Component == "" || (p.Via != "instance" && p.Via != "frame" && p.Via != "terminal") || s.apiMux == nil {
 		return "", nil
 	}
-	tile := p.Component
-	if s.Reg != nil {
-		tile = s.owningComponent(tile) // an xbin.window sub-path binds as its tile
-	}
+	tile := s.credentialTile(p) // an xbin.window sub-path binds as its tile
 	bound, err := s.boundDeployment(p, tile)
 	if err == nil && bound != util.MainDeployment {
 		dep = bound

@@ -604,6 +604,7 @@ func (s *Server) handleEventsWS(w http.ResponseWriter, r *http.Request) {
 
 // eventFilter decides which hub events one /ws/events subscriber receives.
 func (s *Server) eventFilter(p auth.Principal) events.Filter {
+	tile := s.credentialTile(p) // once, outside the hub's lock (deployaudience.go)
 	return func(e events.Event) bool {
 		// pr events name a component that has PR activity — D40 visibility:
 		// only subscribers who can read that tile see them.
@@ -614,7 +615,7 @@ func (s *Server) eventFilter(p auth.Principal) events.Filter {
 			return termEventFor(p, e)
 		}
 		if e.Type == "deployments" {
-			return s.deploymentsEventFor(p, e)
+			return s.deploymentsEventFor(p, tile, e)
 		}
 		if e.Type != "bus" {
 			return true
