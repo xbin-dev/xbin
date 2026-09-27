@@ -3898,3 +3898,87 @@ Deviations and refinements made while implementing; all deliberate:
       as the verified person); auto-reopening running terminals as tabs on
       load (on a team sandbox they may be someone else's); a picker of
       terminal tiles in the agent (it has no view of the workspace's tiles).
+  - **Addendum (2026-09-27, after wave 1): an adversarial review of waves
+    2–3 and wave 1's handoffs.** plans/tile-sandbox-runtime.md (§1–§11
+    amended; the follow-up WPs WP-2b … WP-14b in §12).
+    - **The owner's decisions.**
+      - **Mounts are same-scope only in v1.** A manager mounts only
+        `filesystem` resources of its own scope that it holds (a `uses`
+        entry and the grant, as `EnvFor` requires). A cross-scope resource
+        is refused even when granted: handing another scope's path to a
+        sandbox is what `EnvFor` never does. Granted foreign resources come
+        later, with their own design. (WP-13 built it this way; §3.3's "or
+        one granted to it" is withdrawn.)
+      - **"Internet" is strict for tile sandboxes.** A sandbox class's
+        `internet` (its `Allow`, its reported `reach` and its DNS pins)
+        also excludes `100.64.0.0/10` (CGNAT, which Tailscale uses),
+        `198.18.0.0/15`, `240.0.0.0/4` and `64:ff9b::/96` (NAT64), plus
+        `64:ff9b:1::/48` (local-use NAT64, the same kind of range), because
+        the contract says `internet` reaches no private or local network.
+        Tile backends' `net:internet` is unchanged: narrowing it would
+        change existing tiles' egress.
+    - **Chosen in the plan (the designer's calls).**
+      - **A sandbox has an immutable `uid`**, and state is keyed by it
+        (`.xbin/sbx/<CK>/<name>.<uid>/`; the archive key; a backup's match).
+        A name is only an address: deleting and re-creating `img-base`
+        never meets the old state, its removal or its archive. Deletions
+        rename into `.trash` and a confined remover empties it later. The
+        state a restore swaps is one `cur/` dir (stamps, `upper/`, `work/`
+        or the disk) exchanged with `renameat2(RENAME_EXCHANGE)`, so a
+        crash leaves the old state or the new one, never neither. A
+        definition whose state is missing is `error`, never a blank start.
+      - **One key builder, and a guard for deployments.** `keyOf(p)` is the
+        only place a key comes from. Until non-main keys exist, a
+        principal of a non-main deployment gets 501 — read by reflection
+        so the guard works the moment dev-lifecycle adds the field — and a
+        reflect test over `auth.Principal`'s fields fails on any field
+        nobody reviewed. Otherwise a dev deployment of a manager would
+        compile unchanged and address main's sandboxes.
+      - **Running sandboxes follow what they were granted.** A vault seal
+        stops (synced) every sandbox with a resource mount before the views
+        unmount. A `res:` grant change, a deleted resource or a ceiling
+        change re-resolves running sandboxes' mounts; a lost mount, or a
+        read-write one downgraded to reader, stops the sandbox with its
+        state kept — the rule a narrowed egress class already had.
+      - **One teardown for every way a sandbox ends** (a stop, a crash, a
+        cgroup OOM, the VMM exiting, fuse-overlayfs dying). The agent exits
+        when fuse-overlayfs does, and sessions carry `oom_score_adj` 500 so
+        user work, not the agent, is what the OOM killer picks.
+      - **Admission books atomically**, per tile and workspace-wide, and
+        tile-sandbox cgroup leaves live under one per-workspace parent,
+        `comp-tilesbx-<ws8>`, capped by a new `policy.total`; the init is
+        started straight into its leaf (`UseCgroupFD`).
+      - **The relay can't spend xbind.** Flows are capped per sandbox
+        (1024 TCP, 256 UDP) and across all tile sandboxes; host locality is
+        decided per flow with `RTM_GETROUTE`, not from a periodic read.
+      - **Disk.** Sandbox bytes count against `perTile.diskGiB` only, never
+        a scope's resource-write quota (whose 50 GiB default is below the
+        100 GiB cap). Running uppers are re-measured by a confined `du`, one
+        at a time; low disk stops running namespace sandboxes, largest tile
+        first, and holds starts.
+      - **Snapshots pin their base; a restore brings the base back too**,
+        and a clone takes its snapshot's base. Only a mode (or, in namespace
+        mode, an overlay-flavour) mismatch is refused. Copies are staged,
+        honour `?wait`, show `creating` or a busy `stateDetail`, and are
+        reconciled at boot; `cp` names `--preserve=xattr` so a lost xattr is
+        an error.
+      - **A clone without `snapshot` copies only a stopped source**; a
+        running one answers 409 `state` (not an implicit snapshot, which
+        would stop the source's work from inside someone else's create).
+      - **Exec semantics follow the contract.** A stop leaves execs
+        `killed`; only another boot's ids are `lost`. `signal`'s `group`
+        defaults to true. Idle stop is held off by in-flight runs, file and
+        tar operations and attached TTY clients. An exec arriving while a
+        sandbox stops waits, then auto-starts. Reset and rebase restart a
+        sandbox that was running.
+      - **`Forward` takes typed routes** whose ids are checked against the
+        runtime's grammars, and the runtime refuses dot and encoded-slash
+        segments: a consumer's id can't retarget another sandbox of the
+        same manager.
+      - **An unreadable sandboxes policy file fails closed** (`enabled`
+        false, the error surfaced) instead of re-enabling a kill switch.
+    - **Not chosen:** a netlink address subscription for locality (its
+      events arrive after the address is usable); keying state dirs by uid
+      alone (unreadable for admins); stopping VM sandboxes on low disk (their
+      disks are bounded); an implicit snapshot for a clone of a running
+      sandbox.
