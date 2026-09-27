@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -86,6 +87,25 @@ func plainSegment(s string) bool {
 	return s != "" && s != "." && s != ".." && !strings.ContainsAny(s, "/\\\x00")
 }
 
+// deploymentsLevel is the directory level, inside data/resources-enc and
+// .xbin/resenc, that holds the volumes of every tile deployment but main.
+const deploymentsLevel = ".deployments"
+
+// dirKeyOK: scopeKey is one of the two shapes a resource's directory key
+// takes. main's is one plain segment, a scope key, which never starts with
+// "." (no scope directory does), so it can't reach the deployments level.
+// Every other deployment's is exactly ".deployments/<scope>/<deployment>/fs",
+// each middle part a plain segment that doesn't start with "." either: the
+// broker's encoded scope and a deployment name.
+func dirKeyOK(scopeKey string) bool {
+	if plainSegment(scopeKey) {
+		return scopeKey[0] != '.'
+	}
+	parts := strings.Split(scopeKey, "/")
+	return len(parts) == 4 && parts[0] == deploymentsLevel && parts[3] == "fs" &&
+		plainSegment(parts[1]) && parts[1][0] != '.' && plainSegment(parts[2]) && parts[2][0] != '.'
+}
+
 // CipherDir is the on-disk ciphertext directory for a resource.
 func (m *Manager) CipherDir(scopeKey, name string) string {
 	return filepath.Join(m.root, "data", "resources-enc", scopeKey, name)
@@ -138,8 +158,9 @@ func (m *Manager) password(resID string) (string, error) {
 func (m *Manager) Ensure(resID, scopeKey, name string, singleTenant bool) (string, error) {
 	// The last line behind the registry's resource name rule (D118): the two
 	// become directories under data/resources-enc and .xbin/resenc, where
-	// this creates, initializes and mounts — never anywhere else.
-	if !plainSegment(scopeKey) || !plainSegment(name) {
+	// this creates, initializes and mounts — never anywhere else. A
+	// deployment beyond main keeps its volumes one level down (dirKeyOK).
+	if !dirKeyOK(scopeKey) || !plainSegment(name) {
 		return "", fmt.Errorf("resource %q/%q: not a plain path segment — refused", scopeKey, name)
 	}
 	if m.bin == "" {
@@ -262,6 +283,32 @@ func (m *Manager) Unmount(scopeKey, name string) error {
 		return nil
 	}
 	return fusermountU(mount, false)
+}
+
+// Mount is one decrypted view a Manager holds: the directory key and name it
+// was ensured with, and its mode.
+type Mount struct {
+	ScopeKey, Name string
+	SingleTenant   bool
+}
+
+// Mounts lists the views this Manager has ensured and not unmounted since,
+// sorted, so a caller can re-Ensure them when their mode may have changed.
+func (m *Manager) Mounts() []Mount {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]Mount, 0, len(m.mounts))
+	for k := range m.mounts {
+		sk, name, _ := strings.Cut(k, "\x00")
+		out = append(out, Mount{ScopeKey: sk, Name: name, SingleTenant: m.modes[k]})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ScopeKey != out[j].ScopeKey {
+			return out[i].ScopeKey < out[j].ScopeKey
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
 }
 
 // UnmountAll unmounts every mount this Manager holds (seal / shutdown).

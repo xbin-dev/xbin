@@ -1,12 +1,15 @@
 package broker
 
 import (
+	"cmp"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -33,11 +36,17 @@ import (
 //   cron   — scheduled calls to the owning element's endpoints (cron.go)
 
 // Provision creates on-disk state for declared resources. Called at start
-// and after every rescan; idempotent. The scopes are the registry's, so a
-// scope rooted by a tile whose primary is pinned provisions what the
-// checkpoint's scope.json declares, read beneath its tree and checked
-// before it gets here (P22). A resource no longer declared is kept: nothing
-// here removes data.
+// and after every rescan; idempotent. It provisions main's namespaces, each
+// from main's own code (declaredFrom): the registry's scopes while main is
+// the primary, so a scope rooted by a tile whose primary is pinned
+// provisions what the checkpoint's scope.json declares, read beneath its
+// tree and checked before it gets here (P22). A save therefore reaches only
+// the namespace of the deployment that follows the work tree: main's here,
+// and a deployment beyond main's through its declared set, which is read
+// from its code when asked. A namespace beyond main has nothing to
+// provision on disk: its kv file is made by its first write and its volumes
+// on their first use (08-data §3.6, §3.7). A resource no longer declared is
+// kept: nothing here removes data.
 func (b *Broker) Provision() {
 	do := func(scope string, resources map[string]registry.Resource) {
 		sk, _ := scopeKeys(scope, util.MainDeployment) // main's keys: never an error
@@ -69,7 +78,11 @@ func (b *Broker) Provision() {
 	}
 	do("", b.Reg.Workspace().Resources)
 	for scope, sm := range b.Reg.Scopes() {
-		do(scope, sm.Resources)
+		res, err := b.declaredFrom(scope, sm, util.MainDeployment)
+		if err != nil {
+			slog.Warn("provision: main's declarations", "scope", scope, "err", err)
+		}
+		do(scope, res)
 	}
 	b.MountEncrypted() // mount any (new) encrypted file resources when unsealed
 }
@@ -77,15 +90,25 @@ func (b *Broker) Provision() {
 // EnvFor is installed into the runner: resource env for a component instance.
 // Every granted resource yields XBIN_RES_<NAME>=<dsn>; sqlite additionally
 // resolves to a direct file path when caller and resource share a scope.
+//
+// c may be a deployment view: its env is the deployment's (viewDeployment),
+// whose own-scope uses resolve in its own declared set, so a resource only
+// some deployments declare yields its variable only in those (P22). Every
+// value is the same in every deployment that declares the resource: the
+// canonical path (main's mount) or the canonical id (P17); DeploymentEnv
+// adds the remap that binds a deployment's own volume at that path.
 func (b *Broker) EnvFor(c *registry.Component) []string {
+	dep := b.viewDeployment(c)
 	var env []string
 	for _, u := range c.Manifest.Uses {
-		rt, res, ok := b.parseRes(u.Target)
-		if !ok || res == nil {
+		rt, res, ok := b.envTarget(c, dep, u.Target)
+		if !ok {
 			continue
 		}
 		if _, granted := b.grantedRole(c.Path, rt.String()); !granted {
-			continue
+			if _, granted = b.ownUse(c.Path, rt); !granted {
+				continue
+			}
 		}
 		key := "XBIN_RES_" + envName(rt.Name)
 		switch {
@@ -191,7 +214,8 @@ func openKV(root string) (*kvStore, error) {
 }
 
 // kvAccess parses /kv/{res-target}/{key...} and authorizes, answering the
-// resource's keys (its bucket, file and label).
+// resource's keys (its bucket, file and label) in the data namespace the
+// caller reaches (reachRes).
 // URL form: /api/xbin/kv/res:<scope>/<name>/<key…>
 func (b *Broker) kvAccess(w http.ResponseWriter, r *http.Request, want string) (k resKeys, key string, ok bool) {
 	rest := strings.Trim(r.PathValue("rest"), "/")
@@ -199,17 +223,23 @@ func (b *Broker) kvAccess(w http.ResponseWriter, r *http.Request, want string) (
 		server.WriteError(w, http.StatusBadRequest, "kv paths are /api/xbin/kv/res:<scope>/<name>/<key>", "/docs/resources.md")
 		return resKeys{}, "", false
 	}
+	p := auth.PrincipalOf(r)
 	// Find the declared resource by longest prefix.
 	probe := rest
 	for probe != "res:" {
-		if rt, res, found := b.parseRes(probe); found && res != nil && res.Type == "kv" {
+		ra, found, err := b.reachRes(p, probe)
+		if err != nil {
+			writeNamespaceRefusal(w, err)
+			return resKeys{}, "", false
+		}
+		if found && ra.res.Type == "kv" {
 			key = strings.TrimPrefix(rest, probe)
 			key = strings.TrimPrefix(key, "/")
-			if err := b.allowRes(auth.PrincipalOf(r), rt.String(), want); err != nil {
+			if err := b.allowAt(p, ra, want); err != nil {
 				server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/auth.md")
 				return resKeys{}, "", false
 			}
-			k, err := b.resKeys(rt, util.MainDeployment)
+			k, err := b.resKeys(ra.rt, ra.dep)
 			if err != nil {
 				server.WriteError(w, http.StatusNotFound, err.Error(), "/docs/resources.md")
 				return resKeys{}, "", false
@@ -340,23 +370,40 @@ func (b *Broker) apiKVDelete(w http.ResponseWriter, r *http.Request) {
 
 // --- blob ------------------------------------------------------------------
 
+// blobAccess parses /blob/{res-target}/{path...} and authorizes, answering
+// the file's path in the decrypted volume of the data namespace the caller
+// reaches (reachRes). A volume beyond main mounts on its first use; one
+// nothing ever wrote answers "" for every request but a PUT, which reads as
+// empty and creates nothing (08-data §3.6, §3.7).
 func (b *Broker) blobAccess(w http.ResponseWriter, r *http.Request, want string) (dir, rel string, ok bool) {
 	rest := strings.Trim(r.PathValue("rest"), "/")
+	p := auth.PrincipalOf(r)
 	probe := rest
 	for strings.HasPrefix(probe, "res:") {
-		if rt, res, found := b.parseRes(probe); found && res != nil && res.Type == "blob" {
+		ra, found, err := b.reachRes(p, probe)
+		if err != nil {
+			writeNamespaceRefusal(w, err)
+			return "", "", false
+		}
+		if found && ra.res.Type == "blob" {
 			rel = strings.TrimPrefix(strings.TrimPrefix(rest, probe), "/")
-			if err := b.allowRes(auth.PrincipalOf(r), rt.String(), want); err != nil {
+			if err := b.allowAt(p, ra, want); err != nil {
 				server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/auth.md")
 				return "", "", false
 			}
-			k, err := b.resKeys(rt, util.MainDeployment)
+			k, err := b.resKeys(ra.rt, ra.dep)
 			if err != nil {
 				server.WriteError(w, http.StatusNotFound, err.Error(), "/docs/resources.md")
 				return "", "", false
 			}
 			if !b.quotaOK(w, k.quotaKey(), want) {
 				return "", "", false
+			}
+			if k.NS != "" && b.encryptionReady() {
+				if !b.resenc.Encrypted(k.DirKey, k.Name) && r.Method != http.MethodPut {
+					return "", rel, true // never written: reads as empty, creates nothing
+				}
+				b.ensureVolume(k, ra.rt.Scope, ra.res.Type)
 			}
 			// blob is always an encrypted gocryptfs mount; refuse until it's up
 			// (vault sealed / gocryptfs missing) so we never read or write plaintext
@@ -384,8 +431,15 @@ func (b *Broker) blobAccess(w http.ResponseWriter, r *http.Request, want string)
 }
 
 func (b *Broker) apiBlobGet(w http.ResponseWriter, r *http.Request) {
-	full, _, ok := b.blobAccess(w, r, "reader")
-	if !ok {
+	full, rel, ok := b.blobAccess(w, r, "reader")
+	switch {
+	case !ok:
+		return
+	case full == "" && rel == "": // a volume nothing wrote to: an empty listing
+		server.WriteJSON(w, http.StatusOK, map[string]any{"entries": []string(nil)})
+		return
+	case full == "":
+		server.WriteError(w, http.StatusNotFound, "not found")
 		return
 	}
 	fi, err := os.Stat(full)
@@ -444,6 +498,10 @@ func (b *Broker) apiBlobDelete(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, "missing blob path")
 		return
 	}
+	if full == "" { // a volume nothing wrote to has nothing to delete
+		server.WriteError(w, http.StatusNotFound, "not found")
+		return
+	}
 	if err := os.Remove(full); err != nil {
 		server.WriteError(w, http.StatusNotFound, "not found")
 		return
@@ -463,36 +521,56 @@ func (b *Broker) apiBusPublish(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, "need {resource, topic, data?}", "/docs/resources.md")
 		return
 	}
-	rt, res, ok := b.parseRes(msg.Resource)
-	if !ok || res == nil || res.Type != "bus" {
+	p := auth.PrincipalOf(r)
+	ra, found, err := b.reachRes(p, msg.Resource)
+	switch {
+	case err != nil:
+		writeNamespaceRefusal(w, err)
+		return
+	case !found || ra.res.Type != "bus":
 		server.WriteError(w, http.StatusNotFound, "no such bus resource", "/docs/resources.md")
 		return
 	}
-	if err := b.allowRes(auth.PrincipalOf(r), rt.String(), "writer"); err != nil {
+	if err := b.allowAt(p, ra, "writer"); err != nil {
 		server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/auth.md")
 		return
 	}
-	b.Hub.Publish(events.Event{
-		Type:  "bus",
-		Topic: rt.String() + "/" + msg.Topic,
-		Data:  msg.Data,
-	})
-	b.countBusEvent(rt.String())
-	b.bus.publish(rt.String(), msg.Topic, msg.Data)
+	// The event is in the namespace the publisher reaches: its own scope's
+	// in its deployment's (08-data §4.3). One beyond main names it, so
+	// delivery can match it; main's carries no field, as today.
+	id, ev := ra.rt.String(), events.Event{Type: "bus", Topic: ra.rt.String() + "/" + msg.Topic, Data: msg.Data}
+	counter := id
+	if ra.dep != util.MainDeployment {
+		ev.Deployment, counter = ra.dep, id+"\x00"+ra.dep
+	}
+	b.Hub.Publish(ev)
+	b.countBusEvent(counter)
+	b.bus.publishIn(id, ra.dep, msg.Topic, msg.Data)
 	server.WriteOK(w)
 }
 
 // busFilter authorizes bus event delivery to a WS subscriber (installed as
-// server.BusFilter; owner passes upstream of this).
+// server.BusFilter; owner passes upstream of this). The event is in the
+// data namespace e.Deployment names (main's without one), and reaches a
+// tile principal only when that is the namespace it reaches for the
+// resource (resNamespace) and it can read the bus there (08-data §4.3;
+// 09-fabric §5.10). A frame is never an admin, so a primary's frontend
+// never sees a publish of another namespace, even in an admin's browser.
 func (b *Broker) busFilter(p auth.Principal, e events.Event) bool {
 	if p.Component == "" {
 		return false
 	}
+	ns := cmp.Or(e.Deployment, util.MainDeployment)
 	// e.Topic = "res:<scope-or-workspace>/<name>/<topic…>"
 	probe := e.Topic
 	for strings.HasPrefix(probe, "res:") {
-		if rt, res, found := b.parseRes(probe); found && res != nil && res.Type == "bus" {
-			return b.allowRes(p, rt.String(), "reader") == nil
+		if rt, ok := b.resScope(probe); ok {
+			set, _ := b.declaredIn(rt.Scope, ns)
+			if res, ok := set[rt.Name]; ok && res.Type == "bus" {
+				dep, own, err := b.resNamespace(p, rt.Scope)
+				return err == nil && dep == ns &&
+					b.allowAt(p, reach{rt: rt, res: res, dep: dep, own: own}, "reader") == nil
+			}
 		}
 		i := strings.LastIndex(probe, "/")
 		if i < 0 {
@@ -501,4 +579,191 @@ func (b *Broker) busFilter(p auth.Principal, e events.Event) bool {
 		probe = probe[:i]
 	}
 	return false
+}
+
+// --- tile deployments: which namespace, which declarations ---------------
+//
+// A deployment beyond main has a data namespace of its own in its tile's
+// scope (P6), holding what its own code declares (P22). A request by a
+// tile's principal reaches its own scope's resources in the namespace of the
+// deployment its credential addresses, and every other scope's, the
+// workspace's included, in the scope primary's namespace, as an edge
+// (08-data §4.1, §4.2). A tile without a record has only main: every answer
+// here is then today's.
+
+// maxNSResources caps the resources a data namespace beyond main declares:
+// each file-backed one can mean a gocryptfs process (08-data §6.7). main
+// keeps no cap (P5).
+const maxNSResources = 64
+
+// reach is one resource as a request reaches it.
+type reach struct {
+	rt  resTarget
+	res registry.Resource
+	dep string // the deployment whose data namespace holds it ("main": today's keys)
+	own bool   // the caller's own scope: its deployment's data, not an edge
+}
+
+// reachRes resolves target for a request by p: the resource, the namespace
+// holding it (resNamespace) and that namespace's declared set. found is false
+// when the namespace declares no such name; the error is resNamespace's.
+func (b *Broker) reachRes(p auth.Principal, target string) (ra reach, found bool, err error) {
+	rt, ok := b.resScope(target)
+	if !ok {
+		return reach{}, false, nil
+	}
+	dep, own, err := b.resNamespace(p, rt.Scope)
+	if err != nil {
+		return reach{}, false, err
+	}
+	set, _ := b.declaredIn(rt.Scope, dep)
+	res, ok := set[rt.Name]
+	if !ok {
+		return reach{}, false, nil
+	}
+	return reach{rt: rt, res: res, dep: dep, own: own}, true, nil
+}
+
+// resNamespace is the deployment whose data namespace of scope a request by
+// p reaches: for one of a tile's own principals, in its own scope, the
+// deployment its credential addresses; otherwise the scope primary's,
+// scopePrimary (08-data §4.1, §4.2). own reports the first case. The error
+// is the addressed deployment's: gone (util.ErrNoDeployment) or refused.
+func (b *Broker) resNamespace(p auth.Principal, scope string) (dep string, own bool, err error) {
+	if scope != "" && p.Component != "" {
+		if c, ok := b.Reg.Component(p.Component); ok && c.Scope == scope {
+			dep, err := b.addressed(p, p.Component)
+			return dep, true, err
+		}
+	}
+	return b.scopePrimary(scope), false, nil
+}
+
+// scopePrimary is P(scope), the name of the scope primary's namespace: the
+// scope root tile's primary; main for the workspace scope, which is never
+// split, and for a scope no tile roots.
+func (b *Broker) scopePrimary(scope string) string {
+	if scope == "" {
+		return util.MainDeployment
+	}
+	return b.primaryOf(scope)
+}
+
+// writeNamespaceRefusal answers a request whose credential's deployment
+// can't be reached: 404 when it is gone, 403 otherwise.
+func writeNamespaceRefusal(w http.ResponseWriter, err error) {
+	if errors.Is(err, util.ErrNoDeployment) {
+		server.WriteError(w, http.StatusNotFound, err.Error(), "/docs/protocol.md")
+		return
+	}
+	server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/auth.md")
+}
+
+// resScope splits a res: target as parseRes does, at its deepest declared
+// scope, without asking whether the name is declared there: which
+// namespace's declarations answer that is the caller's question.
+func (b *Broker) resScope(target string) (resTarget, bool) {
+	rest, ok := strings.CutPrefix(target, "res:")
+	if !ok {
+		return resTarget{}, false
+	}
+	if name, ok := strings.CutPrefix(rest, "workspace/"); ok {
+		return resTarget{Name: name}, true
+	}
+	scopes := b.Reg.Scopes()
+	for p := rest; p != "." && p != ""; {
+		dir := path.Dir(p)
+		if _, ok := scopes[dir]; ok && dir != "." {
+			return resTarget{Scope: dir, Name: strings.TrimPrefix(rest, dir+"/")}, true
+		}
+		p = dir
+	}
+	return resTarget{}, false
+}
+
+// allowAt authorizes p on a resource it reaches at want. A resource the
+// primary's code declares is authorized by allowRes, the tile's authority,
+// exactly as today; one only the reached namespace's own code declares (its
+// own scope, P22) by the tile's same-scope use declaration (ownUse). Then
+// the read clamp: a deployment beyond its tile's primary never writes any
+// data but its own (08-data §7) (P3).
+func (b *Broker) allowAt(p auth.Principal, ra reach, want string) error {
+	id := ra.rt.String()
+	switch _, res, ok := b.parseRes(id); {
+	case ok && res != nil:
+		if err := b.allowRes(p, id, want); err != nil {
+			return err
+		}
+	case p.IsAdmin():
+	case p.Component == "":
+		return fmt.Errorf("unauthenticated")
+	default:
+		if role, ok := b.ownUse(p.Component, ra.rt); !ok || !roleSatisfies(role, want, nil) {
+			return fmt.Errorf("%s needs role %q on %s — declare it in \"uses\" and approve with bx grant", p.Component, want, ra.rt)
+		}
+	}
+	return b.readClamp(p, ra, want)
+}
+
+// readClamp refuses a write by a non-primary deployment's principal to data
+// that isn't its own: another scope's, or the workspace's, reached as an
+// edge, which never gives it more than reader, whatever role the tile holds
+// (08-data §7). Which edges it may read is the edge policy's, at
+// resolveTarget; this refuses only what no policy value allows.
+func (b *Broker) readClamp(p auth.Principal, ra reach, want string) error {
+	if ra.own || p.Component == "" || roleSatisfies("reader", want, nil) {
+		return nil
+	}
+	if _, ok := b.Reg.Component(p.Component); !ok {
+		return nil // xbind's own cron and bus principals
+	}
+	dep, err := b.addressed(p, p.Component)
+	switch {
+	case err != nil:
+		return err
+	case b.isPrimary(p.Component, dep):
+		return nil
+	}
+	return fmt.Errorf("%s+%s may not write %s: non-primary deployments reach other scopes read-only (edge policy \"read\")",
+		p.Component, dep, ra.rt)
+}
+
+// ownUse is the role tile's own use declaration grants on rt when only the
+// reached namespace's own code declares rt, so grantedRole, which resolves
+// against the primary's code, can't see it: the same-scope auto-grant (ND5)
+// under the policy ceiling. Nothing for a resource the primary's code
+// declares, whose authority stays grantedRole's.
+func (b *Broker) ownUse(tile string, rt resTarget) (string, bool) {
+	c, ok := b.Reg.Component(tile)
+	if !ok || rt.Scope == "" || rt.Scope != c.Scope || !b.ceilingAllows(tile, rt.String()) {
+		return "", false
+	}
+	if _, res, ok := b.parseRes(rt.String()); ok && res != nil {
+		return "", false
+	}
+	for _, u := range c.Manifest.Uses {
+		if u.Target == rt.String() {
+			return u.Role, true
+		}
+	}
+	return "", false
+}
+
+// viewDeployment is the deployment a view describes: its Deployment, or the
+// tile's primary for the registry's own component.
+func (b *Broker) viewDeployment(c *registry.Component) string {
+	return cmp.Or(c.Deployment, b.primaryOf(c.Path))
+}
+
+// envTarget resolves a uses target of c for deployment dep: its own scope in
+// dep's declared set, any other scope and the workspace level in the scope
+// primary's, which is the registry's (08-data §4.2).
+func (b *Broker) envTarget(c *registry.Component, dep, target string) (resTarget, *registry.Resource, bool) {
+	if rt, ok := b.resScope(target); ok && rt.Scope != "" && rt.Scope == c.Scope {
+		set, _ := b.declaredIn(rt.Scope, dep)
+		r, ok := set[rt.Name]
+		return rt, &r, ok
+	}
+	rt, res, ok := b.parseRes(target)
+	return rt, res, ok && res != nil
 }
