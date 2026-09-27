@@ -155,6 +155,27 @@ func TestClassFirewall(t *testing.T) {
 	}
 }
 
+// A conversation (and a schedule) from before the lanes — no toolset stored —
+// is the private lane: an edit that turns the built-in internal outward
+// doesn't carry it outside.
+func TestPreLaneConfigsStayPrivate(t *testing.T) {
+	useClasses(t, agentClass{ID: classInternal, Name: "Internal", Toolsets: []string{tsWeb, tsFiles}})
+	for _, raw := range []string{`{}`, `{"toolset":""}`, `{"toolset":"private"}`} {
+		cfg := parseConfig(raw)
+		if got := specNames(cfg, 0, testMCP); got["web_fetch"] || got["web_search"] || cfg.toolset() != "private" || cfg.fixedLane() != "private" {
+			t.Errorf("stored %s: lane %s, offers %v", raw, cfg.toolset(), got)
+		}
+	}
+	s := &Schedule{Class: laneClass(""), Toolset: ""} // as a legacy row scans
+	if c := s.class(); c.has(tsWeb) || c.lane() != "private" {
+		t.Errorf("a schedule from before the lanes: %+v", c)
+	}
+	// a web-lane conversation is still held to its own lane
+	if got := specNames(parseConfig(`{"toolset":"web"}`), 0, testMCP); !got["web_fetch"] || got["xbin_call"] {
+		t.Errorf("a web conversation: %v", got)
+	}
+}
+
 // toolset in the APIs names a built-in; class is accepted beside it; a stored
 // config from before classes resolves from its lane; the view says which
 // class a conversation has; PATCH can't change it.

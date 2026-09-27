@@ -390,8 +390,10 @@ policy and the thread tools keyed by it work as before, and `toolset:
 "private"|"web"` keeps working everywhere it was accepted (`POST /ask`, `POST
 /runs`, schedules, triggers), naming `internal`/`web`; `class` is accepted in
 the same places and wins. A request naming neither gets the caller's default
-(below). A stored config without `class` resolves from its `toolset`; a class
-that was deleted resolves the same way. The tile's managers can edit a class
+(below). A stored config without `class` resolves from its `toolset` (one
+from before the lanes, with no `toolset` either, is the private lane — and
+held there); a class that was deleted resolves the same way, and so does a
+schedule's. The tile's managers can edit a class
 at any time: the edit applies from the next step of its conversations, but
 never carries one across the firewall — one that started reaching outside
 never gains internal reach, and one that started without egress gains it only

@@ -327,13 +327,20 @@ func loadClasses(d *DB) *classState {
 // classOf is a conversation's class. Never fails: cfg.Class names a stored
 // class; unknown or "" resolves from cfg.Toolset to a built-in. Held to the
 // lane the conversation started in (clampTo).
-func classOf(cfg Config) agentClass {
-	st := currentClasses()
+func classOf(cfg Config) agentClass { return currentClasses().classOf(cfg) }
+
+// classOf is cfg's class in this set (the package classOf: the set in
+// force). The lane it is held to is cfg.Toolset; a config from before
+// classes (no Class) with no Toolset either predates the lanes, when
+// everything was the private lane — held there, so an edit to the built-in
+// it resolves to never carries it outside. Only a class-bearing config with
+// no lane (no stored one has that shape) is not held.
+func (st *classState) classOf(cfg Config) agentClass {
 	c, ok := st.find(cfg.Class)
 	if !ok {
 		c, _ = st.find(laneClass(cfg.Toolset))
 	}
-	if cfg.Toolset == "" {
+	if cfg.Toolset == "" && cfg.Class != "" {
 		return c
 	}
 	return c.clampTo(normalizeToolset(cfg.Toolset))
@@ -341,7 +348,7 @@ func classOf(cfg Config) agentClass {
 
 // fixedLane is the lane the conversation started in — what what it starts
 // (subagents, schedules) is held to, even when an edit to its class has since
-// clamped it into another.
+// clamped it into another. One from before the lanes is private.
 func (c Config) fixedLane() string {
 	if c.Toolset != "" {
 		return normalizeToolset(c.Toolset)

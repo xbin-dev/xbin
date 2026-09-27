@@ -95,9 +95,11 @@ func (s *Schedule) stamp() runStamp {
 	return st
 }
 
-// class is the class its runs start in (a deleted one's lane's built-in).
+// class is the class its runs start in (a deleted one's lane's built-in),
+// held to its lane — a schedule from before the lanes (no toolset) is
+// private.
 func (s *Schedule) class() agentClass {
-	return classOf(Config{Class: s.Class, Toolset: s.Toolset})
+	return classOf(Config{Class: s.Class, Toolset: normalizeToolset(s.Toolset)})
 }
 
 // --- storage -------------------------------------------------------------
