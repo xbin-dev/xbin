@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/registry"
@@ -28,10 +29,21 @@ const envSetupPATH = "PATH=/usr/local/go/bin:/usr/local/node/bin:/usr/local/bun/
 // envLayerDir is the per-component, per-hash directory holding the env layer.
 // Empty when the component declares no setup or isolation is off.
 func (r *Runner) envLayerDir(c *registry.Component) string {
+	return r.envLayerDirIn(c, r.envLayers(c.Path))
+}
+
+// envLayers is the directory of tile's shared env layers, one per hash.
+func (r *Runner) envLayers(tile string) string {
+	return filepath.Join(r.Root, ".xbin", "env", util.CompKey(tile))
+}
+
+// envLayerDirIn is envLayerDir beneath layers: the tile's shared layers, or
+// its protected primary's own (07-runtime §3.4).
+func (r *Runner) envLayerDirIn(c *registry.Component, layers string) string {
 	if strings.TrimSpace(c.Manifest.Setup) == "" || !r.Isolate || r.Rootfs == "" {
 		return ""
 	}
-	return filepath.Join(r.Root, ".xbin", "env", util.CompKey(c.Path), r.envHash(c))
+	return filepath.Join(layers, r.envHash(c))
 }
 
 // envHash keys the layer on the setup script + a base-rootfs identity, so both a
@@ -52,15 +64,34 @@ func (r *Runner) setupHash(setup string) string {
 // ensureEnvLayer builds the component's env layer if it isn't already, and
 // returns the read-only lowerdir to stack under the backend ("" = no layer).
 // Called single-flight from start(), so its cost is paid on first build / on a
-// setup change, surfaced through the normal build events.
+// setup change, surfaced through the normal build events. A layer it builds
+// then collects the tile's unreferenced ones (envKeep).
 func (r *Runner) ensureEnvLayer(c *registry.Component) (string, error) {
-	dir := r.envLayerDir(c)
+	return r.buildEnvLayer(c, r.envLayers(c.Path), func(built string) {
+		r.gcEnvLayers(c, r.envKeep(c, built))
+	})
+}
+
+// buildEnvLayer is ensureEnvLayer beneath layers, with gc called on the
+// layer's hash once one was built. The run's output goes to the log of the
+// view's deployment (07-runtime §9), and a non-primary deployment's run
+// waits for its turn of the build limiter (buildTurn).
+func (r *Runner) buildEnvLayer(c *registry.Component, layers string, gc func(built string)) (string, error) {
+	dir := r.envLayerDirIn(c, layers)
 	if dir == "" {
 		return "", nil
 	}
 	upper := filepath.Join(dir, "upper")
 	if _, err := os.Stat(filepath.Join(dir, ".ok")); err == nil {
 		return upper, nil // already built for this setup hash
+	}
+	// Deployments with the same setup share its layer: one builds it while
+	// the others wait, and GC leaves it alone meanwhile.
+	mu := layerLock(dir)
+	mu.Lock()
+	defer mu.Unlock()
+	if _, err := os.Stat(filepath.Join(dir, ".ok")); err == nil {
+		return upper, nil // built while this one waited
 	}
 
 	// Fresh build (never re-apply onto a stale layer): start from an empty upper.
@@ -80,10 +111,10 @@ func (r *Runner) ensureEnvLayer(c *registry.Component) (string, error) {
 	}
 
 	spec := r.envSetupSpec(c, upper, work)
+	release := buildTurn(c)
+	defer release()
 
-	logf, _ := os.OpenFile(
-		filepath.Join(r.Root, ".xbin", "log", util.CompKey(c.Path)+".log"),
-		os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	logf, _ := os.OpenFile(r.envSetupLog(c), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 
 	cmd, h, err := sandbox.Launch(spec)
 	if err != nil {
@@ -122,8 +153,20 @@ func (r *Runner) ensureEnvLayer(c *registry.Component) (string, error) {
 	}
 
 	_ = os.WriteFile(filepath.Join(dir, ".ok"), nil, 0o644)
-	r.gcEnvLayers(c, r.envKeep(c, filepath.Base(dir)))
+	gc(filepath.Base(dir))
 	return upper, nil
+}
+
+// envSetupLog is where view c's setup run writes: its deployment's backend
+// log, main's today's .xbin/log/<CompKey>.log and any other deployment's
+// under the tile's deploy state, whose directory is made for it.
+func (r *Runner) envSetupLog(c *registry.Component) string {
+	dep := r.viewDeployment(c)
+	p := filepath.Join(r.Root, filepath.FromSlash(deploymentLog(c.Path, dep)))
+	if dep != util.MainDeployment {
+		_ = os.MkdirAll(filepath.Dir(p), 0o755)
+	}
+	return p
 }
 
 // envSetupSpec is the sandbox a view's setup script runs in: the base rootfs
@@ -149,9 +192,13 @@ func (r *Runner) envSetupSpec(c *registry.Component, upper, work string) *sandbo
 // envKeep is the set of c's tile's env-layer hashes still referenced: the
 // layer just built, the one its running generation stacks, and those of the
 // primary's current code (the registry's component: its checkpoint's setup
-// while pinned) and of the work tree, the live reload target's. A pinned
-// deployment's restart then finds its layer (06-security T17).
-func (r *Runner) envKeep(c *registry.Component, built string) map[string]bool {
+// while pinned), of the work tree, the live reload target's, and of each of
+// retained, the tile's retained checkpoints (each deployment's current one
+// and its roll-back targets, as the deployments plane keeps their
+// artifacts), whose setup their views give. A pinned deployment's restart,
+// or a roll back, then finds its layer (06-security T17; SC-ROLLBACK). nil
+// when a retained checkpoint's setup can't be read: nothing is collected.
+func (r *Runner) envKeep(c *registry.Component, built string, retained ...string) map[string]bool {
 	keep := map[string]bool{built: true}
 	r.mu.Lock()
 	s := r.states[c.Path]
@@ -166,26 +213,60 @@ func (r *Runner) envKeep(c *registry.Component, built string) map[string]bool {
 	if r.Reg == nil {
 		return keep
 	}
-	if rc, ok := r.Reg.Component(c.Path); ok {
-		for _, m := range []registry.Manifest{rc.Manifest, rc.WorkTreeManifest()} {
-			if strings.TrimSpace(m.Setup) != "" {
-				keep[r.setupHash(m.Setup)] = true
-			}
+	rc, ok := r.Reg.Component(c.Path)
+	if !ok {
+		return keep
+	}
+	for _, m := range []registry.Manifest{rc.Manifest, rc.WorkTreeManifest()} {
+		if strings.TrimSpace(m.Setup) != "" {
+			keep[r.setupHash(m.Setup)] = true
+		}
+	}
+	for _, tree := range retained {
+		v, err := r.view(rc, Code{Tree: tree})
+		if err != nil {
+			return nil
+		}
+		if strings.TrimSpace(v.Manifest.Setup) != "" {
+			keep[r.setupHash(v.Manifest.Setup)] = true
 		}
 	}
 	return keep
 }
 
-// gcEnvLayers removes a component's env-layer hashes that keep doesn't name.
+// gcEnvLayers removes a component's env-layer hashes that keep doesn't name;
+// a nil keep removes nothing.
 func (r *Runner) gcEnvLayers(c *registry.Component, keep map[string]bool) {
-	base := filepath.Join(r.Root, ".xbin", "env", util.CompKey(c.Path))
-	ents, err := os.ReadDir(base)
+	gcLayers(r.envLayers(c.Path), keep)
+}
+
+// gcLayers removes the layers beneath layers that keep doesn't name; a nil
+// keep removes nothing.
+func gcLayers(layers string, keep map[string]bool) {
+	if keep == nil {
+		return
+	}
+	ents, err := os.ReadDir(layers)
 	if err != nil {
 		return
 	}
 	for _, e := range ents {
-		if e.IsDir() && !keep[e.Name()] {
-			_ = os.RemoveAll(filepath.Join(base, e.Name()))
+		if !e.IsDir() || keep[e.Name()] {
+			continue
+		}
+		dir := filepath.Join(layers, e.Name())
+		if mu := layerLock(dir); mu.TryLock() { // one being built is left to its builder
+			_ = os.RemoveAll(dir)
+			mu.Unlock()
 		}
 	}
+}
+
+// layerLocks holds one mutex per env-layer directory: a layer's build holds
+// it, and GC takes a layer only while it is free.
+var layerLocks sync.Map
+
+func layerLock(dir string) *sync.Mutex {
+	mu, _ := layerLocks.LoadOrStore(dir, &sync.Mutex{})
+	return mu.(*sync.Mutex)
 }
