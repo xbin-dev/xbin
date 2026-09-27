@@ -320,8 +320,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   stop, however it comes, ends the running execs `killed` (`signal:
   "KILL"`) and keeps their output; only an exec id from before an xbind
   restart is 410 `lost`. A sandbox runs at most 16 commands at once
-  (`runtime.limits.execsRunning`), and a terminal claimed for a user with
-  `noTerminal` (D88) is refused, and killed when it is switched on.
+  (`runtime.limits.execsRunning`); a command the sandbox can't start
+  because it ran out of processes or memory is 429 `limit`. A terminal
+  claimed for a user with `noTerminal` (D88) is refused, and killed once
+  the flag takes effect (switched on, or an admin who had it set
+  demoted); a terminal is attached for at most 64 users.
   `runtime.caps` now lists `exec` and `tty`. Nothing changes for a
   workspace without a manager tile.
 - **Tile sandboxes: files, tar and copy** (D120,

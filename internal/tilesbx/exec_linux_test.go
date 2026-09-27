@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -586,4 +587,34 @@ func asError(err error, e **Error) bool {
 	x, ok := err.(*Error)
 	*e = x
 	return ok
+}
+
+// An agent's "error" at an exec's start is the command's fault (400
+// invalid: a cwd that isn't there, a program that can't start) — unless
+// the sandbox's own resources ran out (fork's EAGAIN at pids.max, ENOMEM,
+// EMFILE, ENFILE): 429 limit, to be retried.
+func TestExecStartErrors(t *testing.T) {
+	for msg, want := range map[string]string{
+		"fork/exec /bin/sh: resource temporarily unavailable":      RefLimit,
+		"fork/exec /usr/bin/make: cannot allocate memory":          RefLimit,
+		"open /dev/null: too many open files":                      RefLimit,
+		"pipe: too many open files in system":                      RefLimit,
+		"chdir /nope: no such file or directory":                   RefInvalid,
+		"fork/exec /bin/nope: no such file or directory":           RefInvalid,
+		"exec: resource temporarily unavailable, said the program": RefInvalid,
+	} {
+		a := &agentClient{sessions: map[int]*agentSession{}}
+		s := &agentSession{id: 2, started: make(chan struct{}), done: make(chan struct{})}
+		s.finish(a, SessionExit{Error: msg, Code: -1})
+		var e *Error
+		if err := waitStarted(a, s); !errors.As(err, &e) || e.Refusal != want {
+			t.Errorf("%q: %v, want %s", msg, err, want)
+		}
+	}
+	a := &agentClient{sessions: map[int]*agentSession{}}
+	s := &agentSession{id: 2, started: make(chan struct{}), done: make(chan struct{})}
+	s.finish(a, SessionExit{Killed: true, Code: -1})
+	if err := waitStarted(a, s); !errors.As(err, new(*Error)) || err.(*Error).Refusal != RefState {
+		t.Errorf("a sandbox stopped under the start: %v", err)
+	}
 }

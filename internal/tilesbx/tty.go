@@ -9,12 +9,15 @@ package tilesbx
 // {"op":"exit"} with the code (or the signal) when the command ends.
 //
 // D88: a tty exec claimed for a user with noTerminal is refused, at its
-// start and at every attach (the attach's own forUser too), and turning
-// noTerminal on kills the tty execs claimed for that user (OnNoTerminal).
+// start and at every attach (the attach's own forUser too), and noTerminal
+// taking effect — switched on (OnNoTerminal), or an admin who had it set
+// demoted (a users event: cutNoTerminal) — kills the tty execs claimed for
+// that user or attached by them.
 
 import (
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"syscall"
 
@@ -139,18 +142,39 @@ func (m *Manager) ServeTTY(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ttyUsersMax bounds whom one tty exec remembers as attached (forUser):
+// a manager can't grow xbind's memory by attaching under ever more names.
+const ttyUsersMax = 64
+
+// admitUser records that an attach is for user (noTerminal then ends the
+// exec for them too, cutNoTerminal) — past ttyUsersMax distinct users, a
+// new one is refused (429).
+func (e *execRec) admitUser(user string) error {
+	if user == "" {
+		return nil
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.users[user] && len(e.users) >= ttyUsersMax {
+		return refuse(RefLimit, "exec %s was attached for %d users, its limit: attach for one of them", e.id, ttyUsersMax)
+	}
+	e.users[user] = true
+	return nil
+}
+
 // attach upgrades the request and attaches it to e's terminal: its live
 // hub, or — once it ended — one that replays its ring's tail and says
 // exit. It reports whether the socket was made.
 func (m *Manager) attach(w http.ResponseWriter, r *http.Request, b *box, d *Def, e *execRec, tq ttyQuery) bool {
+	if err := e.admitUser(tq.forUser); err != nil {
+		writeErr(w, err) // before the upgrade: refusals are JSON
+		return false
+	}
 	conn, err := termwire.Upgrade(w, r, nil, termwire.ReadLimit)
 	if err != nil {
 		return false // answered
 	}
 	e.mu.Lock()
-	if tq.forUser != "" {
-		e.users[tq.forUser] = true
-	}
 	hub := e.hub
 	e.mu.Unlock()
 	if hub == nil {
@@ -185,6 +209,25 @@ func (m *Manager) OnNoTerminal(user string) {
 	if user == "" {
 		return
 	}
+	m.killTTYs(func(users []string) bool { return slices.Contains(users, user) })
+}
+
+// cutNoTerminal kills every running tty exec claimed for, or attached by,
+// a user who has noTerminal now, however the flag took effect — switched
+// on (OnNoTerminal is its quick path), an admin who had it set demoted
+// (by the users API, an org role, SSO): every users event calls it
+// (OnUsersChange). It returns at once.
+func (m *Manager) cutNoTerminal() {
+	if m.deps.Users == nil {
+		return
+	}
+	m.killTTYs(func(users []string) bool { return slices.ContainsFunc(users, m.noTerminal) })
+}
+
+// killTTYs kills, off the caller's goroutine, every running tty exec of
+// every sandbox whose users — forUser, then who attached — cut picks. cut
+// is called with no lock held.
+func (m *Manager) killTTYs(cut func(users []string) bool) {
 	m.mu.Lock()
 	var tables []*execTable
 	for _, boxes := range m.live {
@@ -199,9 +242,17 @@ func (m *Manager) OnNoTerminal(user string) {
 		t.mu.Unlock()
 		for _, e := range execs {
 			e.mu.Lock()
-			claimed := e.tty && e.state == ExecRunning && (e.forUser == user || e.users[user])
+			var users []string
+			if e.tty && e.state == ExecRunning {
+				if e.forUser != "" {
+					users = append(users, e.forUser)
+				}
+				for u := range e.users {
+					users = append(users, u)
+				}
+			}
 			e.mu.Unlock()
-			if claimed {
+			if len(users) > 0 && cut(users) {
 				go func(e *execRec) { _ = e.signalGroup(syscall.SIGKILL, true) }(e)
 			}
 		}

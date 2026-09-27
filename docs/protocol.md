@@ -2699,7 +2699,10 @@ error.
 - **What runs.** `argv`, or `cmd` run as `<defaults.shell or /bin/sh> -lc
   <cmd>` — one of them, never both. `cwd` defaults to `defaults.cwd`, else
   `/`, and must exist: a missing one is 400 `invalid`, never a fallback to
-  `/`; so is an `argv` whose program can't start. `uid`/`gid` default to
+  `/`; so is an `argv` whose program can't start — but a start that
+  fails because the sandbox itself ran out of processes, memory or file
+  descriptors (its `pids.max`, say) is 429 `limit`, to retry once some of
+  its processes ended. `uid`/`gid` default to
   the definition's (`users: root` allows only 0). `argv` and `env` together
   are at most 256 KiB (413). The environment is xbind's: `IN_SANDBOX=1`
   (always), `SANDBOX_ID` and `SANDBOX_NAME` (the sandbox's name), `HOME`
@@ -2775,9 +2778,12 @@ JSON: a request that isn't a WebSocket upgrade is 400, and so is an attach
 to an exec without a terminal. Only the manager's instance token reaches
 them — no person does; the manager relays the socket to its consumer's
 page. A tty exec whose `forUser`, or an attach whose `forUser`, names a
-user with `noTerminal` (D88) is 403, checked again at every attach, and
-switching a user's `noTerminal` on kills the tty execs claimed for them
-(and those they attached to); non-tty execs aren't restricted by it.
+user with `noTerminal` (D88) is 403, checked again at every attach, and a
+user's `noTerminal` taking effect — switched on, or an admin who had it
+set demoted (by the users API, an org role or SSO) — kills the tty execs
+claimed for them and those they attached to; non-tty execs aren't
+restricted by it. One tty exec is attached for at most 64 distinct
+`forUser` values; a new one past them is 429 `limit`.
 
 ## WebSockets
 

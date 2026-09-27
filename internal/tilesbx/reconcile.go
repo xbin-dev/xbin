@@ -86,10 +86,16 @@ func (m *Manager) Reconcile() {
 }
 
 // OnUsersChange is the hub's users events (a policy row, a permission,
-// org or personal set, an owner transfer changed): a ceiling may have
-// moved — a D20 policy-row edit fires no OnSandboxNetChange (§4) and no
-// OnCapChange for a grant it narrows. It reconciles.
-func (m *Manager) OnUsersChange() { m.Reconcile() }
+// org or personal set, an owner transfer, a user's role changed): a
+// ceiling may have moved — a D20 policy-row edit fires no
+// OnSandboxNetChange (§4) and no OnCapChange for a grant it narrows — and
+// a user's noTerminal may have taken effect (an admin demoted). It
+// reconciles, and cuts the terminals noTerminal now forbids (D88). It
+// returns at once.
+func (m *Manager) OnUsersChange() {
+	m.Reconcile()
+	m.cutNoTerminal()
+}
 
 // waitReconcile waits until no reconcile runs (tests).
 func (m *Manager) waitReconcile() {

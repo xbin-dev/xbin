@@ -4,10 +4,12 @@ package tilesbx
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -241,5 +243,126 @@ func TestTTYNoTerminal(t *testing.T) {
 	fe.m.OnNoTerminal("dave")
 	if x := fe.waitEnded("sb-1", carol.ID); x.State != ExecKilled {
 		t.Fatalf("carol's, dave attached: %+v", x)
+	}
+}
+
+// noTerminal taking effect some other way than being switched on — an
+// admin who had it set demoted, by the users API, an org role or SSO — is
+// seen at the users event (OnUsersChange): the tty execs claimed for that
+// user, and those they attached to, are killed.
+func TestTTYNoTerminalOnUsersEvent(t *testing.T) {
+	var mu sync.Mutex
+	cut := map[string]bool{}
+	fe := startedEnv(t, func(o *Options) {
+		o.Deps.Users = usersFunc(func(u string) bool { mu.Lock(); defer mu.Unlock(); return cut[u] })
+	})
+	srv := fe.server(mgr)
+	erin := fe.exec("sb-1", map[string]any{"tty": true, "argv": []string{"sleep", "100"}, "forUser": "erin"})
+	gina := fe.exec("sb-1", map[string]any{"tty": true, "argv": []string{"sleep", "100"}, "forUser": "gina"})
+	if _, code := dialTTY(t, srv, "/sandboxes/sb-1/execs/"+gina.ID+"/tty?forUser=frank"); code != http.StatusSwitchingProtocols {
+		t.Fatalf("frank attaching to gina's: %d", code)
+	}
+	fe.m.OnUsersChange() // nothing changed: nothing is cut
+	time.Sleep(50 * time.Millisecond)
+	if x := fe.execGet("sb-1", erin.ID); x.State != ExecRunning {
+		t.Fatalf("erin's, before: %+v", x)
+	}
+	mu.Lock()
+	cut["erin"], cut["frank"] = true, true // demoted, the flag set
+	mu.Unlock()
+	fe.m.OnUsersChange()
+	for _, id := range []string{erin.ID, gina.ID} {
+		if x := fe.waitEnded("sb-1", id); x.State != ExecKilled || x.Signal != "KILL" {
+			t.Fatalf("exec %s after the users event: %+v", id, x)
+		}
+	}
+}
+
+// One tty exec remembers at most ttyUsersMax users it was attached for: a
+// new one past them is refused before the upgrade (429); one it already
+// knows still attaches.
+func TestTTYAttachUsersBounded(t *testing.T) {
+	fe := startedEnv(t, func(o *Options) { o.Deps.Users = fakeUsers{} })
+	srv := fe.server(mgr)
+	x := fe.exec("sb-1", map[string]any{"tty": true, "argv": []string{"sleep", "100"}})
+	e := fe.box("sb-1").execs.get(x.ID)
+	for i := range ttyUsersMax - 1 {
+		if err := e.admitUser(fmt.Sprintf("u%d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, code := dialTTY(t, srv, "/sandboxes/sb-1/execs/"+x.ID+"/tty?forUser=last"); code != http.StatusSwitchingProtocols {
+		t.Fatalf("the %dth user: %d", ttyUsersMax, code)
+	}
+	if _, code := dialTTY(t, srv, "/sandboxes/sb-1/execs/"+x.ID+"/tty?forUser=one-more"); code != http.StatusTooManyRequests {
+		t.Fatalf("past %d users: %d", ttyUsersMax, code)
+	}
+	if _, code := dialTTY(t, srv, "/sandboxes/sb-1/execs/"+x.ID+"/tty?forUser=u3"); code != http.StatusSwitchingProtocols {
+		t.Fatalf("a user it knows: %d", code)
+	}
+	if _, code := dialTTY(t, srv, "/sandboxes/sb-1/execs/"+x.ID+"/tty"); code != http.StatusSwitchingProtocols {
+		t.Fatalf("an attach for nobody: %d", code)
+	}
+	e.mu.Lock()
+	n := len(e.users)
+	e.mu.Unlock()
+	if n != ttyUsersMax {
+		t.Fatalf("%d users remembered", n)
+	}
+}
+
+type usersFunc func(string) bool
+
+func (f usersFunc) NoTerminal(u string) bool { return f(u) }
+
+// The idle timer — the real one, on a fake clock — honours what the
+// command routes hold: a non-tty exec in flight and an attached TTY
+// client keep a quiet sandbox up for hours; once the exec ended and the
+// client left, idleStopMin later it stops.
+func TestIdleHeldThroughTheRoutes(t *testing.T) {
+	clk := newFakeClock()
+	fe := newFakeEnv(t, withClock(clk))
+	fe.m.afterFunc = clk.AfterFunc
+	fe.create(ns("sb-1"))
+	fe.want(fe.do(mgr, "POST", "/sandboxes/sb-1/start", nil), http.StatusOK, "")
+	srv := fe.server(mgr)
+
+	x := fe.exec("sb-1", map[string]any{"argv": []string{"sleep", "100"}})
+	clk.advance(3 * time.Hour)
+	if in := fe.get("sb-1"); in.State != StateRunning {
+		t.Fatalf("stopped under a running exec: %+v", in)
+	}
+	fe.want(fe.do(mgr, "DELETE", "/sandboxes/sb-1/execs/"+x.ID, nil), http.StatusNoContent, "")
+	for deadline := time.Now().Add(5 * time.Second); fe.holds("sb-1") != 0; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the killed exec still holds: %d", fe.holds("sb-1"))
+		}
+	}
+
+	tty := fe.exec("sb-1", map[string]any{"tty": true, "argv": []string{"sleep", "100"}})
+	tc, code := dialTTY(t, srv, "/sandboxes/sb-1/execs/"+tty.ID+"/tty")
+	if code != http.StatusSwitchingProtocols {
+		t.Fatalf("attach: %d", code)
+	}
+	for deadline := time.Now().Add(5 * time.Second); fe.holds("sb-1") != 1; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("an attached client holds %d", fe.holds("sb-1"))
+		}
+	}
+	clk.advance(3 * time.Hour)
+	if in := fe.get("sb-1"); in.State != StateRunning {
+		t.Fatalf("stopped under an attached terminal: %+v", in)
+	}
+	tc.c.Close() // detached: its exec runs on, quiet
+	for deadline := time.Now().Add(5 * time.Second); fe.holds("sb-1") != 0; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("a detached terminal holds %d", fe.holds("sb-1"))
+		}
+	}
+	idle := time.Duration(fe.get("sb-1").IdleStopMin) * time.Minute
+	clk.advance(idle)
+	fe.waitState("sb-1", StateStopped)
+	if x := fe.waitEnded("sb-1", tty.ID); x.State != ExecKilled {
+		t.Fatalf("the detached terminal's exec after the idle stop: %+v", x)
 	}
 }

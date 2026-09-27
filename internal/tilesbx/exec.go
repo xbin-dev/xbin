@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -372,9 +373,10 @@ func (m *Manager) launchExec(k Key, d *Def, b *box, e *execRec, ex proto.Exec, t
 }
 
 // waitStarted waits for the agent's "started": an "error" instead (a cwd
-// that isn't there, a program that can't start) is invalid; a sandbox that
-// stopped meanwhile is state; no answer within startWait is unavailable,
-// and the session is given up.
+// that isn't there, a program that can't start) is invalid — unless it is
+// the sandbox's own resources running out (outOfResources: 429 limit); a
+// sandbox that stopped meanwhile is state; no answer within startWait is
+// unavailable, and the session is given up.
 func waitStarted(c *agentClient, sess *agentSession) error {
 	t := time.NewTimer(startWait)
 	defer t.Stop()
@@ -388,10 +390,32 @@ func waitStarted(c *agentClient, sess *agentSession) error {
 		return nil
 	}
 	x := sess.Exit()
-	if x.Killed {
+	switch {
+	case x.Killed:
 		return refuse(RefState, "the sandbox stopped")
+	case outOfResources(x.Error):
+		return &Error{Refusal: RefLimit, RetryAfter: time.Second,
+			Msg: "the sandbox couldn't start the command: it ran out of processes, memory or files (" + x.Error + ") — end some of its processes, or give it more"}
 	}
 	return refuse(RefInvalid, "%s", x.Error)
+}
+
+// resourceErrs are how a start fails when the sandbox's own limits ran out
+// (its cgroup's pids.max or memory.max, its descriptors): EAGAIN, ENOMEM,
+// EMFILE and ENFILE, as the agent (Go, on Linux) words a failed fork/exec.
+var resourceErrs = []string{"resource temporarily unavailable", "cannot allocate memory", "too many open files", "too many open files in system"}
+
+// outOfResources reports that the agent's error starting a command is the
+// sandbox's own resource exhaustion (fork's EAGAIN at pids.max, say), not
+// the command's fault. The text is the sandbox's: it only picks between
+// two refusals.
+func outOfResources(msg string) bool {
+	for _, e := range resourceErrs {
+		if strings.HasSuffix(msg, e) {
+			return true
+		}
+	}
+	return false
 }
 
 // timeout is its timeoutMs passing: TERM to its group, then KILL after
