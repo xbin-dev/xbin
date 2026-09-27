@@ -107,7 +107,8 @@ func (m *Manager) acquire(k Key, name string, wait time.Duration) (*run, func(),
 			return nil, nil, refuse(RefNotFound, "no sandbox %q", name)
 		}
 		b := m.boxLocked(k, name)
-		if r := b.run; r != nil && b.state == StateRunning {
+		busy := busyLocked(name, b) // a copy runs: nothing starts in it meanwhile
+		if r := b.run; r != nil && b.state == StateRunning && busy == nil {
 			if release, ok := m.holdLocked(r); ok {
 				m.mu.Unlock()
 				return r, release, nil
@@ -117,8 +118,22 @@ func (m *Manager) acquire(k Key, name string, wait time.Duration) (*run, func(),
 		m.mu.Unlock()
 		left := time.Until(deadline)
 		if left <= 0 {
+			if busy != nil {
+				return nil, nil, busy
+			}
 			return nil, nil, &Error{Refusal: RefState, State: st, RetryAfter: time.Second,
 				Msg: fmt.Sprintf("sandbox %q is still %s after %s: try again", name, st, wait.Round(time.Second))}
+		}
+		if busy != nil && st != StateCreating {
+			if !d.AutoStart {
+				return nil, nil, busy
+			}
+			// waited out like a stop (§3.9): the copy holds the flight to its end
+			if !waitFlight(b, left) {
+				continue // the deadline answers
+			}
+			time.Sleep(5 * time.Millisecond) // (claimed, its flight not yet taken: don't spin)
+			continue
 		}
 		switch st {
 		case StateError, StateCreating:
@@ -146,6 +161,9 @@ func (m *Manager) acquire(k Key, name string, wait time.Duration) (*run, func(),
 			switch {
 			case !done:
 				continue // the deadline answers
+			case isBusy(err): // a copy began meanwhile: waited out above
+				started = false
+				continue
 			case errors.As(err, &e):
 				return nil, nil, e
 			case err != nil:

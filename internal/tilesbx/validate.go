@@ -109,9 +109,6 @@ func (m *Manager) define(k Key, req *CreateRequest, lim Limits) (*Def, error) {
 	if err := validName(req.Name); err != nil {
 		return nil, err
 	}
-	if req.From != nil {
-		return nil, refuse(RefUnsupported, "clones (from) aren't supported by this xbind yet")
-	}
 	if _, err := m.modeAvailable(req.Mode); err != nil {
 		return nil, err
 	}

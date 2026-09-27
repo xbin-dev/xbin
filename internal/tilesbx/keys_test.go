@@ -278,7 +278,7 @@ func TestPathHygiene(t *testing.T) {
 		t.Fatal("lookups counted outside the refused requests")
 	}
 	// Well-formed ids pass the gates: an exec id of another boot is lost;
-	// the snapshot routes aren't built yet (501).
+	// a snapshot the sandbox doesn't have is not-found.
 	e.m.bootID = "123456"
 	for _, r := range []struct{ method, path string }{
 		{"GET", "/sandboxes/x/execs/0a1b2c-1"},
@@ -290,7 +290,7 @@ func TestPathHygiene(t *testing.T) {
 		{"POST", "/sandboxes/x/snapshots/s-1/restore"},
 		{"DELETE", "/sandboxes/x/snapshots/s-123456789012"},
 	} {
-		e.want(e.do(mgr, r.method, r.path, "{}"), http.StatusNotImplemented, RefUnsupported)
+		e.want(e.do(mgr, r.method, r.path, "{}"), http.StatusNotFound, RefNotFound)
 	}
 	if lookups.Load() == base {
 		t.Fatal("the counting fake saw nothing: the test proves nothing")

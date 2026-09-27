@@ -175,7 +175,8 @@ func (m *Manager) StopTile(tile, why string) {
 // StopAll stops every tile sandbox, synced, within endWait in all: xbind is
 // shutting down (its exit would kill them anyway, unsynced).
 func (m *Manager) StopAll(why string) {
-	m.closeUsage() // no confined du starts while xbind exits
+	m.closeUsage()       // no confined du starts while xbind exits
+	m.copies.cancelAll() // nor does a copy go on: what it staged goes to .trash at the next boot
 	done := make(chan struct{})
 	go func() { m.StopWhere(nil, why); close(done) }()
 	select {

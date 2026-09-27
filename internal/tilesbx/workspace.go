@@ -94,6 +94,8 @@ func (m *Manager) restoreOne(k Key, d *Def, lim Limits) string {
 	switch {
 	case had && live.UID != d.UID:
 		return fmt.Sprintf("the name is taken by another sandbox (uid %s): the live one is kept", live.UID)
+	case had && m.live[k][d.Name] != nil && busyLocked(d.Name, m.live[k][d.Name]) != nil:
+		return "a copy of its state runs (a clone, a snapshot or a restore): restore it again once it is done"
 	case !had:
 		for _, o := range m.defs.list(k) {
 			if o.UID == d.UID {

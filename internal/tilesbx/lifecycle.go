@@ -322,6 +322,9 @@ func (m *Manager) Start(k Key, name string) error {
 	if err != nil {
 		return err
 	}
+	if err := m.ready(k, name); err != nil { // a copy runs (snapshot.go): 409, not a wait for its flight
+		return err
+	}
 	b.flight.Lock()
 	defer b.flight.Unlock()
 	return m.startLocked(k, name, b)

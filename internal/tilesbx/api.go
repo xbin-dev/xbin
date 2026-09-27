@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -174,11 +175,6 @@ func (m *Manager) managed(w http.ResponseWriter, r *http.Request) (Key, *Def, bo
 	return k, d, true
 }
 
-// notBuilt is a route of the contract this runtime doesn't serve yet.
-func notBuilt(what string) *Error {
-	return refuse(RefUnsupported, "%s: not supported by this xbind yet", what)
-}
-
 // readBody reads a request body of at most max bytes (413 too-large past it).
 func readBody(w http.ResponseWriter, r *http.Request, max int64) ([]byte, error) {
 	b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, max))
@@ -336,12 +332,19 @@ func (m *Manager) ServeCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	m.mu.Lock()
 	in, status, err := m.create(k, &req)
+	var clone *copyJob
+	if b := m.live[k][req.Name]; err == nil && b != nil {
+		clone = b.clone
+	}
 	m.mu.Unlock()
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
-	if status == http.StatusCreated && req.Start {
+	if clone != nil { // a clone copying: ?wait bounds the wait (it starts itself, with start)
+		waitJob(clone, wait)
+		in, _ = m.infoOf(k, req.Name)
+	} else if status == http.StatusCreated && req.Start {
 		// A start that fails leaves the sandbox stopped, the failure in
 		// stateDetail — the create itself stands. ?wait bounds the wait.
 		if done, err := within(wait, func() error { return m.Start(k, req.Name) }); done && err != nil {
@@ -396,11 +399,27 @@ func (m *Manager) create(k Key, req *CreateRequest) (Info, int, error) {
 	if err != nil {
 		return Info{}, 0, err
 	}
+	var src *cloneSource
+	if req.From != nil { // a clone (clone.go)
+		if src, err = m.cloneSource(k, req.From, d); err != nil {
+			return Info{}, 0, err
+		}
+		d.Base = src.st.Base // it takes its source's base
+		if d.Mode == ModeVM {
+			d.DiskGiB = max(d.DiskGiB, src.diskGiB) // a disk never shrinks
+		}
+	}
 	if n := m.defs.count(k); n >= lim.PerTile.Max {
 		return Info{}, 0, refuse(RefLimit, "the tile has %d sandboxes, its limit (sandboxes policy: perTile.max)", n)
 	}
 	if err := m.vmDisks(k, d, lim); err != nil {
 		return Info{}, 0, err
+	}
+	if src != nil && src.dir != "" {
+		if err := m.diskRoom(k.Tile, src.bytes); err != nil {
+			return Info{}, 0, err
+		}
+		d.Pending = "clone"
 	}
 	d.UID, d.Created, d.Version = newUID(), m.now().UnixMilli(), 1
 	if req.ClientID != "" {
@@ -408,6 +427,9 @@ func (m *Manager) create(k Key, req *CreateRequest) (Info, int, error) {
 	}
 	if err := m.defs.put(k, d); err != nil {
 		return Info{}, 0, err
+	}
+	if d.Pending != "" {
+		m.beginClone(k, d, src, req.Start)
 	}
 	return m.info(k, d), http.StatusCreated, nil
 }
@@ -468,6 +490,10 @@ func (m *Manager) ServePatch(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, refuse(RefNotFound, "no sandbox %q", name))
 		return
 	}
+	if b := m.live[k][name]; b != nil && b.state == StateCreating { // (busy with a copy, it may change)
+		writeErr(w, busyLocked(name, b))
+		return
+	}
 	lim := m.limitsFor(k.Tile)
 	n, changed, err := m.amend(k, d, &p, lim)
 	if err == nil && changed && n.DiskGiB > d.DiskGiB {
@@ -504,10 +530,23 @@ func (m *Manager) ServeDelete(w http.ResponseWriter, r *http.Request) {
 // Delete stops k's sandbox, puts its state aside and forgets it, in its
 // flight: a start waiting for the flight then finds no sandbox.
 func (m *Manager) Delete(k Key, name string) error {
+	if err := m.endClone(k, name); err != nil { // a clone still copying ends first
+		return err
+	}
 	b, err := m.boxFor(k, name)
 	if err != nil {
 		return err
 	}
+	m.mu.Lock()
+	e := busyLocked(name, b)
+	if e == nil && len(b.readers) > 0 {
+		e = &Error{Refusal: RefState, State: b.state, RetryAfter: busyRetry, busy: true, Msg: fmt.Sprintf("sandbox %q is being cloned (a snapshot of it is being copied): try again once the clone is made", name)}
+	}
+	if e != nil && b.state != StateCreating {
+		m.mu.Unlock()
+		return e
+	}
+	m.mu.Unlock()
 	b.flight.Lock()
 	defer b.flight.Unlock()
 	if err := m.stopLocked(b, "deleted"); err != nil {

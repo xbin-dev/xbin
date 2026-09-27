@@ -16,8 +16,10 @@
 // their output rings (exec.go, ring.go), run (run.go) and the TTY WebSocket
 // (tty.go) — and files, trees and copies, which go to a sandbox's agent
 // (files.go, copy.go). What it needs from the rest of xbind comes in
-// through Deps, small interfaces a test fakes. Snapshots answer
-// `unsupported` until they are built (plans/tile-sandbox-runtime.md §12).
+// through Deps, small interfaces a test fakes. Snapshots, restores and
+// clones copy a sandbox's state off the request, staged and swapped in
+// whole (snapshot.go, restore.go, clone.go; plans/tile-sandbox-runtime.md
+// §3.9).
 package tilesbx
 
 import (
@@ -29,6 +31,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/cgroup"
 	"github.com/xbin-dev/xbin/internal/confine"
+	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/layers"
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/sandbox/relay"
@@ -203,6 +206,12 @@ type Manager struct {
 	usage  usageState     // the disk measurements and the low-disk watch (usage.go)
 	// endWait and lockWait are lifecycle.go's (tests shorten them).
 	endWait, lockWait time.Duration
+	// copies is the context every snapshot, restore and clone copy runs
+	// under: StopAll ends the ones in flight. copyTree and exchange are
+	// confine.CopyTree and fsutil.Exchange (a test injects a failure).
+	copies   copyCtl
+	copyTree func(ctx context.Context, src, dst string) error
+	exchange func(a, b string) error
 
 	mu     sync.Mutex // defs, live and the policy file
 	defs   *defStore
@@ -240,6 +249,7 @@ func New(o Options) *Manager {
 	m.bootID = newBootID()
 	m.endWait, m.lockWait = endWait, lockWait
 	m.trash.remove = confine.RemoveAll
+	m.copyTree, m.exchange = confine.CopyTree, fsutil.Exchange
 	m.usage.du, m.usage.statfs = o.DiskUsage, o.Statfs
 	if m.usage.du == nil {
 		m.usage.du = confine.DiskUsage
@@ -251,6 +261,7 @@ func New(o Options) *Manager {
 	m.defs.flush() // uids given to definitions written before uids existed
 	m.policy = &policyStore{path: m.policyPath()}
 	m.policy.get() // loaded now: an unreadable file is logged at boot (and fails closed)
+	m.bootDefs()   // a clone a restart cut short is in error; every sandbox's snapshots are read
 	if o.Isolated {
 		m.initCgroup(o.Deps.Cgroup)
 		m.bootSweep()  // what a previous xbind left: its leaves, its trash, its staging
@@ -285,7 +296,19 @@ type box struct {
 	run        *run   // the run up now (nil: none)
 	diskBytes  int64  // allocated, snapshots included: measured at each stop and while it runs (usage.go)
 	measured   int64  // when diskBytes was measured (unix ms; 0 = not since xbind started)
-	snapshots  int
+
+	// Snapshots and clones (snapshot.go, restore.go, clone.go). busy is the
+	// stateDetail of a copy that keeps the sandbox from running meanwhile —
+	// a snapshot being taken, a restore, a clone of its cur/ — set by the
+	// copy before it takes the flight and cleared before it lets go of it.
+	busy        string
+	snaps       []snapMeta     // its snapshots on disk (snapsLoaded: read once, then kept in step)
+	snapsLoaded bool           //
+	pendingSnap *snapMeta      // the snapshot being taken (listed pending)
+	copying     *copyJob       // the snapshot or restore running (busy)
+	readers     map[string]int // snapshot id → clones copying it: it isn't deleted meanwhile
+	clone       *copyJob       // a creating clone's copy (state creating)
+	cloneCancel func()         // ends that copy (a delete while it is creating)
 
 	execs *execTable // its execs, across its runs (exec.go)
 }

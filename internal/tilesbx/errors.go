@@ -46,6 +46,8 @@ type Error struct {
 	State      string        // RefState: the sandbox's current state
 	ETag       string        // RefPrecondition: the current etag
 	RetryAfter time.Duration // RefUnavailable: when to try again
+
+	busy bool // RefState: a copy keeps the sandbox busy (snapshot.go) — a caller that waits (acquire) waits it out
 }
 
 func (e *Error) Error() string { return e.Msg }

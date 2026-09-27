@@ -195,18 +195,22 @@ func TestBodies(t *testing.T) {
 	e.want(e.do(admin, "PUT", "/sandboxes/policy", `{"idleStopMin": 10, "`+strings.Repeat("x", defBodyMax)+`": 1}`), http.StatusRequestEntityTooLarge, RefTooLarge)
 }
 
-// Routes the runtime doesn't serve yet answer unsupported, after the
-// sandbox is found.
-func TestNotBuilt(t *testing.T) {
+// Every per-sandbox route finds the sandbox first: one that isn't there is
+// 404. The snapshot routes are served (snapshot_linux_test.go has them).
+func TestRoutesFindTheSandbox(t *testing.T) {
 	e := newEnv(t)
 	e.create(ns("sb-1"))
 	for _, r := range [][2]string{
 		{"GET", "/sandboxes/sb-1/snapshots"}, {"POST", "/sandboxes/sb-1/snapshots"},
 		{"POST", "/sandboxes/sb-1/snapshots/s-1/restore"}, {"DELETE", "/sandboxes/sb-1/snapshots/s-1"},
 	} {
-		e.want(e.do(mgr, r[0], r[1], nil), http.StatusNotImplemented, RefUnsupported)
 		e.want(e.do(mgr, r[0], strings.Replace(r[1], "sb-1", "sb-9", 1), nil), http.StatusNotFound, RefNotFound)
 	}
+	e.want(e.do(mgr, "GET", "/sandboxes/sb-1/snapshots", nil), http.StatusOK, "")
+	e.want(e.do(mgr, "POST", "/sandboxes/sb-1/snapshots", nil), http.StatusBadRequest, RefInvalid)                     // a body is required
+	e.want(e.do(mgr, "POST", "/sandboxes/sb-1/snapshots", map[string]any{"name": "x"}), http.StatusConflict, RefState) // it never ran
+	e.want(e.do(mgr, "POST", "/sandboxes/sb-1/snapshots/s-1/restore", nil), http.StatusNotFound, RefNotFound)
+	e.want(e.do(mgr, "DELETE", "/sandboxes/sb-1/snapshots/s-1", nil), http.StatusNotFound, RefNotFound)
 	// the file routes are served: a sandbox that isn't there is 404 before
 	// anything else is looked at (files_linux_test.go has the rest)
 	for _, r := range [][2]string{
@@ -226,10 +230,14 @@ func TestNotBuilt(t *testing.T) {
 	} {
 		e.want(e.do(mgr, r[0], r[1], nil), http.StatusNotFound, RefNotFound)
 	}
-	// A clone is unsupported too; a start on create that fails leaves it
-	// stopped, and says why (this runtime has no base rootfs).
-	e.want(e.do(mgr, "POST", "/sandboxes", map[string]any{"name": "sb-2", "mode": "namespace", "from": map[string]any{"sandbox": "sb-1"}}),
-		http.StatusNotImplemented, RefUnsupported)
+	// A clone of a sandbox that never ran starts from nothing, as it would;
+	// a start on create that fails leaves it stopped, and says why (this
+	// runtime has no base rootfs).
+	if in := e.create(map[string]any{"name": "sb-2", "mode": "namespace", "from": map[string]any{"sandbox": "sb-1"}}); in.State != StateStopped {
+		t.Fatalf("a clone of nothing: %+v", in)
+	}
+	e.want(e.do(mgr, "POST", "/sandboxes", map[string]any{"name": "sb-4", "mode": "namespace", "from": map[string]any{"sandbox": "sb-9"}}),
+		http.StatusNotFound, RefNotFound)
 	in := e.create(map[string]any{"name": "sb-3", "mode": "namespace", "start": true})
 	if in.State != StateStopped || !contains(in.StateDetail, "base rootfs") {
 		t.Fatalf("start on create: %+v", in)
@@ -248,7 +256,7 @@ func TestRuntime(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &rt); err != nil {
 		t.Fatal(err)
 	}
-	if !rt.Enabled || !rt.Isolation || rt.Users != "root" || strings.Join(rt.Caps, ",") != "exec,tty,files,tar" ||
+	if !rt.Enabled || !rt.Isolation || rt.Users != "root" || strings.Join(rt.Caps, ",") != "exec,tty,files,tar,snapshots,clone" ||
 		rt.Limits.Sandboxes != 32 || rt.Limits.Running != 4 || rt.Limits.PerSandbox.MaxMemMiB != 8192 ||
 		rt.Limits.OutputRing != 1<<20 || rt.Limits.WaitMaxSec != 120 || rt.Used.Sandboxes != 1 {
 		t.Fatalf("runtime %+v", rt)

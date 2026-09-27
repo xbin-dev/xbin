@@ -79,17 +79,25 @@ func (m *Manager) reachOf(k Key, egress string) (reach, note string) {
 // info builds a definition's SandboxInfo. Callers hold m.mu.
 func (m *Manager) info(k Key, d *Def) Info {
 	b := m.boxOf(k, d.Name)
+	snapshots := 0
+	if lb := m.live[k][d.Name]; lb != nil {
+		snapshots = len(m.snapsLocked(k, d, lb))
+	}
+	detail := b.detail
+	if b.busy != "" { // a copy runs: it says so (§3.9); the state is kept
+		detail = b.busy
+	}
 	lim := m.limitsFor(k.Tile)
 	mem, vcpus, disk := clamp(d, lim)
 	in := Info{
-		Name: d.Name, UID: d.UID, State: b.state, StateDetail: b.detail, Mode: d.Mode,
+		Name: d.Name, UID: d.UID, State: b.state, StateDetail: detail, Mode: d.Mode,
 		MemMiB: mem, VCPUs: vcpus, DiskGiB: disk,
 		Net:      NetInfo{Egress: d.Net.Egress},
 		Mounts:   d.Mounts,
 		Defaults: d.Defaults, Labels: d.Labels, For: d.For, ForUser: d.ForUser,
 		IdleStopMin: idleMinutes(d, lim), AutoStart: d.AutoStart,
 		Base:  BaseInfo{Version: d.Base, Outdated: d.Base != "" && m.baseVersion != "" && d.Base != m.baseVersion},
-		Users: m.users(d.Mode), DiskBytes: b.diskBytes, Snapshots: b.snapshots, ExecsRunning: b.execs.runningCount(),
+		Users: m.users(d.Mode), DiskBytes: b.diskBytes, Snapshots: snapshots, ExecsRunning: b.execs.runningCount(),
 		Created: d.Created, LastActive: lastActiveLocked(b), Version: d.Version, ClientID: d.ClientID,
 	}
 	if in.Mounts == nil {
@@ -186,9 +194,8 @@ type Used struct {
 	DiskBytes int64 `json:"diskBytes"`
 }
 
-// builtCaps are the contract capabilities this runtime serves. The
-// snapshot and clone routes answer unsupported until they are built.
-var builtCaps = []string{"exec", "tty", "files", "tar"}
+// builtCaps are the contract capabilities this runtime serves.
+var builtCaps = []string{"exec", "tty", "files", "tar", "snapshots", "clone"}
 
 // runtime builds a tile's Runtime. Callers hold m.mu.
 func (m *Manager) runtime(k Key) Runtime {

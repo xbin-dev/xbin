@@ -39,7 +39,25 @@ func (m *Manager) ServeStop(w http.ResponseWriter, r *http.Request) {
 	if !m.Manages(auth.PrincipalOf(r)) {
 		why = "stopped by a workspace admin"
 	}
+	if err := m.ready(k, d.Name); err != nil {
+		writeErr(w, err)
+		return
+	}
 	m.transition(w, r, k, d.Name, func() error { return m.Stop(k, d.Name, why) })
+}
+
+// ready refuses a call on a sandbox being created or busy with a copy
+// (409 state, snapshot.go). The runtime's own stops (StopWhere) never ask:
+// a copy holds the flight, and they wait for it.
+func (m *Manager) ready(k Key, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if b := m.live[k][name]; b != nil {
+		if e := busyLocked(name, b); e != nil {
+			return e
+		}
+	}
+	return nil
 }
 
 // ServeReset answers POST /sandboxes/{name}/reset?wait= (the manager):

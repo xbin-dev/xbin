@@ -38,18 +38,27 @@ func (m *Manager) restage(k Key, name string, rebase bool) error {
 	if err != nil {
 		return err
 	}
+	m.mu.Lock()
+	e := busyLocked(name, b) // a copy runs (snapshot.go): 409, not a wait for its flight
+	m.mu.Unlock()
+	if e != nil {
+		return e
+	}
 	b.flight.Lock()
 	defer b.flight.Unlock()
 	m.mu.Lock()
 	d, ok := m.defs.get(k, name)
-	switch {
-	case !ok || m.live[k][name] != b:
+	if !ok || m.live[k][name] != b {
 		m.mu.Unlock()
 		return refuse(RefNotFound, "no sandbox %q", name)
-	case b.state == StateCreating:
-		st, detail := b.state, b.detail
+	}
+	if e := busyLocked(name, b); e != nil {
 		m.mu.Unlock()
-		return &Error{Refusal: RefState, State: st, Msg: "sandbox " + name + " is " + st + ": " + detail}
+		return e
+	}
+	if e := pendingLocked(d, b); e != nil { // a clone that never finished: only a DELETE helps
+		m.mu.Unlock()
+		return e
 	}
 	up := b.run != nil
 	restart := up && b.state == StateRunning // not one a stop that timed out left stopping
