@@ -8,6 +8,8 @@
 import { html, repeat, nothing } from '/vendor/xb-native.js';
 import { ctx, when } from './ui.js';
 import { KINDS, kinds, CADENCES, MODES, ago, cadence, scheduleCan } from '../model/auto.js';
+import { choices, ofAutomation } from '../model/classes.js';
+import { classRow, classPicker } from './classes.js';
 import { channelDetail, channelRow } from './auto-channels.js';
 import { triggerDetail, triggerRow, triggerForm, unmatchedTpl, TRIGGER_FORM, startTrigger, closeForm as closeTrigger } from './auto-triggers.js';
 
@@ -49,7 +51,8 @@ function rowTpl(p, it) {
   const badge = failed ? ['failed', 'danger'] : it.unread ? [`${it.unread} new`, 'accent'] : !it.enabled ? ['off', 'muted'] : null;
   const whose = it.access === 'oversee' ? `${it.owner}'s · ` : !can.mine && it.owner ? `by ${it.owner} · ` : '';
   const what = it.config ? `${cadence(it.config.cron)} · ${(it.config.goal || '').slice(0, 140)}` : it.summary;
-  const how = `${it.kind === 'schedule' ? MODES[it.mode] || '' : 'keeps only the rounds where something changed'}${it.lastRunAt ? ` · last ${ago(it.lastRunAt)}` : ''}${it.runs ? ` · ${it.runs} run${it.runs === 1 ? '' : 's'}` : ''}`;
+  const cls = it.config ? `${ofAutomation(p.classes(), it.config).label} · ` : '';
+  const how = `${cls}${it.kind === 'schedule' ? MODES[it.mode] || '' : 'keeps only the rounds where something changed'}${it.lastRunAt ? ` · last ${ago(it.lastRunAt)}` : ''}${it.runs ? ` · ${it.runs} run${it.runs === 1 ? '' : 's'}` : ''}`;
   return html`<row title=${it.name} subtitle=${`${whose}${what} · ${how}`} icon=${it.kind === 'watcher' ? 'eye' : 'clock'}
       badge=${badge ? badge[0] : nothing} tone=${badge ? badge[1] : nothing} nav @tap=${() => p.show(it.kind, it.id)}>
     ${can.runNow ? html`<actions><button icon="play" @tap=${() => p.runNow(it)}>Run now</button></actions>` : nothing}
@@ -78,6 +81,7 @@ function scheduleDetail(p, it) {
   return html`<section>
       <row title=${c ? cadence(c.cron) : it.summary} subtitle=${c ? (it.kind === 'schedule' ? MODES[it.mode] : 'a watcher') : nothing}
         detail=${it.lastStatus ? `last run: ${it.lastStatus}` : nothing}/>
+      ${c ? classRow(ofAutomation(p.classes(), c)) : nothing}
       ${c && c.goal ? html`<text selectable>${c.goal}</text>` : nothing}
       ${it.mode === 'conversation' && it.targetRun ? html`<row title="Reports to its conversation" icon="chat" nav @tap=${() => ctx.app.select(it.targetRun)}/>` : nothing}
     </section>
@@ -113,9 +117,8 @@ function scheduleForm(p) {
     </section>
     <section>
       ${f.watcher ? nothing : html`<picker label="Where each run goes" style="menu" value=${f.mode} options=${modes} @change=${set('mode', true)}/>`}
-      ${f.id ? html`<row title="Tool mode" detail=${f.toolset === 'web' ? 'web, no internal systems' : 'internal systems, no web'}/>`
-        : html`<picker label="Tool mode" style="menu" value=${f.toolset}
-          options=${[{ value: 'private', label: 'internal systems, no web' }, { value: 'web', label: 'web, no internal systems' }]} @change=${set('toolset', true)}/>`}
+      ${f.id ? classRow(ofAutomation(p.classes(), f))
+        : classPicker('Class', choices(p.classes(), f.class), f.class, (v) => { f.class = v; p.changed(); })}
       <picker label="Who can see its runs" style="menu" value=${f.visibility === 'team' ? 'team' : 'private'}
         options=${[{ value: 'private', label: 'only you' }, { value: 'team', label: 'everyone who can open this agent' }]} @change=${set('visibility', true)}/>
     </section>

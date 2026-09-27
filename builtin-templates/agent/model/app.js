@@ -369,6 +369,7 @@ export function createApp(opts = {}) {
     select: (id) => app.select(id),
     me: () => app.me,
     route: (kind, id) => { if (app.page === 'automations') route(router.autoHash(kind, id)); },
+    classes: () => app.classes, // what an automation's form offers (D116)
   });
   app.attach = new actions.Attachments({ change: () => emit('attach') });
   app.session.ui.act.select = (id) => app.select(id);

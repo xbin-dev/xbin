@@ -32,6 +32,15 @@ export function classSectionTpl(f) {
   </section>`;
 }
 
+// classRow: an automation's class (model/classes.js ofAutomation) — a class
+// that can move internal data out says so.
+export const classRow = (c) => html`<row title="Class" detail=${c.label} icon=${c.nativeIcon} subtitle=${c.warn || nothing}
+  tone=${c.mixed ? 'warn' : nothing}/>`;
+
+// classPicker: an automation form's class select (model/classes.js choices rows).
+export const classPicker = (label, rows, value, pick) => html`<picker label=${label} style="menu" value=${value}
+  options=${rows.map((r) => ({ value: r.value, label: r.mixed ? `${r.name} ⚠` : r.name, icon: r.nativeIcon }))} @change=${(e) => pick(e.value)}/>`;
+
 // --- the managers' screens -----------------------------------------------------------
 
 function load(s, fn) {

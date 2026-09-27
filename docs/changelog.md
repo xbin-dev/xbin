@@ -71,8 +71,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   first. "New chat with options" picks a class. The native view has the
   same (a Class picker in the home toolbar, the subtitle, Settings →
   Classes). `GET /classes` marks each class `stored` and lists the
-  built-ins first. The channel rules form keeps a policy's
-  `privateClass`/`webClass`.
+  built-ins first. On the Automations page, schedules, watchers and
+  triggers pick a class instead of the tool mode (they send `class`, and
+  its lane as `toolset`) and their cards and details say it; the trigger
+  form also refuses public data for a class that can move internal data
+  out. A channel's rules pick everyone else's class (web-lane classes
+  only) and, with the private lane, trusted people's (`webClass`,
+  `privateClass`), and a save sends the whole policy back — fields the
+  form doesn't show (such as `groups.scope`) are no longer dropped.
 - **Agent template: sandbox managers, and a sandbox per conversation**
   (D115; the template's API.md §Coding sandboxes). A new `sandboxes`
   interface slot (`http`, service `sandbox-manager`, multi) binds the agent

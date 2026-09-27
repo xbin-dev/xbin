@@ -483,6 +483,7 @@ test('automations: the page, one schedule with its runs, the forms (all four kin
     { tap: { t: 'button', p: { label: 'New schedule' } } },
     { input: [{ t: 'field', p: { label: 'Name' } }, 'standup'] },
     { input: [{ t: 'field', p: { label: 'What to do' } }, 'post the standup'] },
+    { event: [{ t: 'picker', p: { label: 'Class' }, in: { t: 'screen', p: { title: 'New schedule' } } }, 'change', { value: 'coding' }] },
     { snapshot: 'form' },
     { tap: { t: 'button', p: { label: 'Create' } } },
     { snapshot: 'created' },
@@ -492,6 +493,7 @@ test('automations: the page, one schedule with its runs, the forms (all four kin
   assert.deepEqual(nav.c.map((s) => s.p.title), ['Agent', 'Automations', 'digest'], 'a deep link to one automation');
   const detail = topScreen(d);
   assert.ok(find(detail, { t: 'row', p: { title: 'every day at 9:00' } }));
+  assert.equal(find(detail, { t: 'row', p: { title: 'Class' } }).p.detail, '🔒 Internal', 'a schedule from before classes: its lane\'s built-in');
   assert.deepEqual(all(find(detail, { t: 'section', p: { title: 'Runs' } }), { t: 'row' }).map((x) => x.p.title), ['a digest']);
   assert.equal(find(detail, { t: 'button', p: { label: 'Delete' } }).p.confirm.title, 'Delete "digest"?');
   assert.ok(called(r, 'POST', /\/automations\/schedule\/3\/read$/).length, 'opening it marks its runs read');
@@ -507,15 +509,17 @@ test('automations: the page, one schedule with its runs, the forms (all four kin
   assert.equal(row('deploys').p.badge, 'error');
   assert.ok(find(list, { t: 'button', p: { label: 'Create a trigger' } }));
   assert.equal(topScreen(r.snapshots.form).p.title, 'New schedule');
+  assert.deepEqual(find(topScreen(r.snapshots.form), { t: 'picker', p: { label: 'Class' } }).p.options.map((o) => o.value), ['internal', 'web', 'coding'],
+    'the classes you may use');
   assert.deepEqual(JSON.parse(called(r, 'POST', /\/schedules$/)[0].body), { name: 'standup', cron: '0 9 * * *', goal: 'post the standup', mode: 'isolated',
-    visibility: 'private', watcher: false, toolset: 'private', targetRun: 0 });
+    visibility: 'private', watcher: false, class: 'coding', toolset: 'web', targetRun: 0 }, 'the class, and its lane as the legacy toolset');
   assert.equal(topScreen(r.snapshots.created).p.title, 'standup', 'a new schedule opens');
 
   // a trigger: its events and actions; the form refuses a lane/data-class clash
   const t = await run(seed, [
     { snapshot: 'trigger' },
     { tap: { t: 'button', p: { label: 'Edit' } } },
-    { event: [{ t: 'picker', p: { label: 'Tool mode' } }, 'change', { value: 'web' }] },
+    { event: [{ t: 'picker', p: { label: 'Class' }, in: { t: 'screen', p: { title: 'Edit trigger' } } }, 'change', { value: 'web' }] },
     { event: [{ t: 'picker', p: { label: 'The data it takes' } }, 'change', { value: 'private' }] },
     { snapshot: 'clash' },
   ], { state: { hash: 'auto=trigger:6' } });
@@ -525,16 +529,20 @@ test('automations: the page, one schedule with its runs, the forms (all four kin
     [['deploy.prod', 'ran #20'], ['deploy.dev', 'over its hourly cap']]);
   assert.ok(find(tr, { t: 'notice', p: { tone: 'info' } }).p.text.startsWith('Pushes come from apps/webhooks'));
   assert.ok(find(tr, { t: 'button', p: { label: 'Fire a test event' } }));
+  assert.equal(find(tr, { t: 'row', p: { title: 'Class' } }).p.detail, '🔒 Internal');
   const form = topScreen(t.snapshots.clash);
   assert.equal(form.p.title, 'Edit trigger');
   assert.equal(find(form, { t: 'button', p: { label: 'Save' } }).p.disabled, true, 'the firewall holds Save');
-  assert.ok(find(form, { t: 'notice', p: { tone: 'danger' } }));
+  assert.match(find(form, { t: 'notice', p: { tone: 'danger' } }).p.text, /^A class that reaches outside/);
 
   // a channel to claim: its rules and Claim
   const c = await run(seed, [{ snapshot: 'channel' }], { state: { hash: 'auto=channel:5' } });
   const ch = topScreen(c.snapshots.channel);
   assert.ok(find(ch, { t: 'picker', p: { label: 'Direct messages' } }));
   assert.ok(find(ch, { t: 'button', p: { label: 'Claim' } }));
+  const web = find(ch, { t: 'picker', p: { label: 'Everyone else\'s class' } });
+  assert.deepEqual([web.p.value, web.p.options.map((o) => o.value)], ['web', ['web', 'coding']], 'everyone else\'s: web-lane classes only');
+  assert.equal(find(ch, { t: 'picker', p: { label: 'Trusted people\'s class' } }), null, 'no trusted class without the private lane');
 });
 
 test('run tools: memory, files and the editor, skills, the workflow tree, settings', async () => {

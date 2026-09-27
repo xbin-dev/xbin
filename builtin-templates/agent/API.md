@@ -421,6 +421,20 @@ saving a mixed class asks first, then sends `confirmMixed`. The native view
 has the same: a Class picker in the home toolbar, the class in the
 conversation's subtitle, Settings → Classes.
 
+**Automations.** The schedule/watcher and trigger forms pick a class the same
+way — the classes you may use; a new schedule starts in `GET /classes`'
+`default`, a new trigger in `internal` (what the backend gives either when
+it names none) — and send `class` with its lane beside it as `toolset`. A
+schedule's class is fixed once it is made, so its edit form only shows it.
+Cards and details say each automation's class (`config.class` in `GET
+/automations`; one from before classes: its lane's built-in; one you may not
+use: its id), with the warning of a mixed one. The trigger form holds Save
+on a clash — private data into a web-lane class or a chat, public data into a
+mixed class. A channel's rules pick everyone else's class (`webClass`: only
+web-lane classes) and, with the private lane open, trusted people's
+(`privateClass`); `PUT /channels/{id}` replaces the whole policy, so the form
+sends back every field, the ones it does not show included.
+
 The web tools go straight out, not through the gateway, so they need the `net`
 interface bound (`bx bind <this component> net=internet`); unbound, they return
 "web access unavailable" so the model can adapt.
@@ -1089,7 +1103,7 @@ the same model.
 | `auto.js`, `auto-channels.js`, `auto-triggers.js` | the Automations page's state, its kinds (`registerKind`), and each kind's actions |
 | `home.js` | `HOME` — the home view's words — and what "Needs you" says |
 | `features.js` | `FEATURES`: every feature of the UI by key, and the intended differences between views |
-| `classes.js` | agent classes (D116): the composer's picker and your pick, the conversation's badge, the managers' editor (a class as a form, its checks, what a save sends) |
+| `classes.js` | agent classes (D116): the composer's picker and your pick, the conversation's badge, the managers' editor (a class as a form, its checks, what a save sends), an automation's class (its forms' choices, what its card says, a channel's two classes) |
 
 `createApp({deltas, page})` are the native view's options: drafts arrive as
 deltas (`/stream?deltas=1`, "Deltas" above) and the open conversation is read
@@ -1106,7 +1120,7 @@ home sends the draft (`POST /ask {draft, files}`).
 | `native/chat.js` | the conversation: `fold()` blocks as the chat family (`message`, `thinking`, `toolcard` with a subagent's transcript inside, `step`, `activity`, `approval`, `question`), the composer (attachments the app uploads to `PUT /runs/{id}/upload`, or at home into the new ask's draft, `PUT /ask/upload?draft=`), the top bar as the toolbar's menu |
 | `native/home.js`, `native/convs.js`, `native/share.js` | home and Needs you; the conversations drawer (a `sheet edge="leading"`), new chat with options, rename; the share sheet |
 | `native/tools.js`, `native/settings.js` | memory, files (+ editor, share/export), skills, the workflow tree, one call in full, the render preview (a `canvas html=` island, `native/render-doc.js` — the web's CSP); settings for managers |
-| `native/classes.js` | agent classes: the Class picker in the home toolbar, the new-chat sheet's class, Settings → Classes (the list, one class's form) |
+| `native/classes.js` | agent classes: the Class picker in the home toolbar, the new-chat sheet's class, Settings → Classes (the list, one class's form), an automation's class row and picker |
 | `native/auto.js`, `native/auto-channels.js`, `native/auto-triggers.js` | the Automations screens for all four kinds |
 | `native-features.js` | `IMPLEMENTS`: what the native view implements, by feature key (as `web-features.js` for the web) |
 

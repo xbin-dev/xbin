@@ -155,7 +155,7 @@ const SCENES = {
   automations: [{ hash: 'auto' }, []],
   'auto-schedule': [{ hash: 'auto=schedule:3' }, []],
   'auto-trigger-form': [{ hash: 'auto=trigger:6' }, [tap({ t: 'button', p: { label: 'Edit' } }),
-    { event: [{ t: 'picker', p: { label: 'Tool mode' } }, 'change', { value: 'web' }] },
+    { event: [{ t: 'picker', p: { label: 'Class' }, in: { t: 'screen', p: { title: 'Edit trigger' } } }, 'change', { value: 'web' }] },
     { event: [{ t: 'picker', p: { label: 'The data it takes' } }, 'change', { value: 'private' }] }]],
   'auto-channel': [{ hash: 'auto=channel:5' }, []],
   memory: [{ hash: 'c=1' }, [tap({ t: 'button', p: { label: 'Memory (2)' } })]],
