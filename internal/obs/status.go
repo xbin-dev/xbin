@@ -1,6 +1,7 @@
 package obs
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -8,6 +9,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Component status & notifications — a small channel for a component to tell the
@@ -18,7 +20,8 @@ import (
 // A component reports its OWN status (element-self-scoped); the owner may report
 // for any component (?component= / body.component). State is in-memory
 // (component → last record), reset when the component's backend restarts
-// (build-start) so a stale problem doesn't outlive the process that had it.
+// (build-start), or when a deploy swaps the generation its primary runs, so a
+// stale problem doesn't outlive the process that had it.
 // Every change publishes a `status` event on the hub, delivered like the other
 // non-bus events (reload/build) — the shell renders it only for tiles it shows;
 // the GET list below is read-filtered by the caller.
@@ -125,11 +128,20 @@ func (o *Plane) publishStatus(comp string, rec statusRec, transient bool) {
 
 // watchStatusRestarts clears a component's stored status when its backend
 // (re)starts, so a problem reported before a crash/restart doesn't linger — the
-// fresh process re-asserts its own status. Runs for the broker's lifetime.
+// fresh process re-asserts its own status. A deploy that puts a checkpoint on
+// the primary emits no build-start, so the primary's status clears at that
+// deploy's swap instead, never at its start: a failed deploy leaves the old
+// generation serving with its status (P13). Runs for the broker's lifetime.
 func (o *Plane) watchStatusRestarts() {
 	ch, _ := o.Hub.Subscribe(nil)
+	swapped := map[string]string{} // tile → the checkpoint whose swap cleared it, or clearedByBuild
 	for e := range ch {
-		if e.Type != "build-start" || e.Component == "" {
+		if e.Component == "" {
+			continue
+		}
+		if e.Type == "build-start" {
+			swapped[e.Component] = clearedByBuild
+		} else if !primarySwap(e, swapped) {
 			continue
 		}
 		o.statusMu.Lock()
@@ -140,4 +152,42 @@ func (o *Plane) watchStatusRestarts() {
 			o.publishStatus(e.Component, statusRec{Level: "ok", TS: time.Now().Unix()}, false)
 		}
 	}
+}
+
+// clearedByBuild marks a tile whose status a build-start cleared: the swap
+// that build leads to (a resume's) clears nothing more.
+const clearedByBuild = "build-start"
+
+// primarySwap reports whether e announces the swap of a deploy onto its
+// tile's primary: a deployments event of op deploy in phase swap, running or
+// ok. The swap clears once: the same swap's later events (its result, its
+// reader form) find it in swapped, so a status the new generation reports
+// after the swap stays; the next deploy's running phases start over. The
+// primary is main, every tile's until the obs plane learns reassignments.
+func primarySwap(e events.Event, swapped map[string]string) bool {
+	if e.Type != "deployments" {
+		return false
+	}
+	var d struct {
+		Op         string `json:"op"`
+		Deployment string `json:"deployment"`
+		Checkpoint string `json:"checkpoint"`
+		Result     string `json:"result"`
+		Phase      string `json:"phase"`
+	}
+	b, err := json.Marshal(e.Data)
+	if err != nil || json.Unmarshal(b, &d) != nil || d.Op != "deploy" || d.Deployment != util.MainDeployment {
+		return false
+	}
+	if d.Phase != "swap" || (d.Result != "running" && d.Result != "ok") {
+		if d.Result == "running" {
+			delete(swapped, e.Component) // a deploy's turn, before its swap
+		}
+		return false
+	}
+	if c, seen := swapped[e.Component]; seen && (c == d.Checkpoint || c == clearedByBuild) {
+		return false
+	}
+	swapped[e.Component] = d.Checkpoint
+	return true
 }
