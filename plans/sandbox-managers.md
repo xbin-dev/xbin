@@ -262,6 +262,19 @@ In order:
    per-consumer and per-person access and quotas; a UI (sandboxes, create,
    lifecycle, snapshots, archive/thaw, files, a terminal, shares); a native
    view; `AGENTS.md` on adding a cloud/ssh backend; live isolated tests.
+   *Landed* (D122). Part 1: the template, the contract layer (every route
+   but archive), the `Backend` seam in the SDK's shapes, the `fake` backend
+   (tests only), the sqlite table, images, quotas, hello, the operators'
+   `/ops/*`, and the conformance suite passing in its tests
+   (`hack/tile-check.sh coding-sandbox`). Part 2: the `xbin` backend (the
+   SDK itself; tested against a double of the runtime's routes), the mode
+   setting (`auto | vm | namespace`, never a fallback), mounts, the
+   operators' snapshots, the page (web and native, one model, D96 parity;
+   the native terminal attaches to a tty exec on the tile's own route),
+   `AGENTS.md` on adding a cloud/ssh backend, and the UI harness's
+   `codingSandbox` pass on the fake. Open: the live end to end on an
+   `--isolate` xbind (the runtime's WP-21; the template's API.md §Testing
+   on xbind is its plan), archive/thaw (WP-22).
 4. **`builtin-tiles/sandbox-terminal`**: browser terminals straight to the
    manager (the page's verified user), SSH ingress (a `stream` expose, keys
    registered per person, the user name is the sandbox) bridged to the

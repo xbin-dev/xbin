@@ -164,6 +164,24 @@ print(json.dumps(c))' > "$WS/.agent-config.json"
 gw PUT agent/config "$(cat "$WS/.agent-config.json")" | head -c 200; echo
 rm -f "$WS/.agent-config.json"
 
+say "the builtin sandbox manager on its test backend: apps/coding-sandbox (the codingSandbox pass)"
+# a copy of the coding-sandbox template (D122) whose backend also carries the
+# template's `fake` backend — its fake_*_test.go files, renamed: every
+# sandbox a host directory under a `boxes` resource of its own, every
+# command a host process (a test fixture: nothing is isolated). The pass
+# switches its config to it and binds it to the agent beside apps/fakesbx.
+api POST /templates/new '{"source":"coding-sandbox","path":"apps/coding-sandbox"}' | head -c 300; echo
+CS="$WS/apps/coding-sandbox"
+for f in backend exec files tty; do cp "$REPO/builtin-templates/coding-sandbox/_backend/fake_${f}_test.go" "$CS/_backend/fake_${f}.go"; done
+sed -i 's|"db": { "type": "sqlite" }|"db": { "type": "sqlite" }, "boxes": { "type": "filesystem" }|' "$CS/scope.json"
+# (a copy's xbin.json is plain JSON: the template block and comments go)
+python3 - "$CS/xbin.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+m["uses"].append({"target": "res:apps/coding-sandbox/boxes", "role": "writer"})
+json.dump(m, open(sys.argv[1], "w"), indent=2)
+PY
+
 say "messaging bridge + webhooks → the agent (the channels pass)"
 # a copy of the agent-messaging-bridge template (alwaysOn; no platform added,
 # so its console plays one) and the webhooks tile (/hook/* on the ingress

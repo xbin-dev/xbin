@@ -12,11 +12,10 @@ The split (D115):
 - **The consumer knows who and why:** the people it acts for, its own
   conversations, which of its users may use which sandbox.
 
-The builtin manager will be the `coding-sandbox` template (VM sandboxes
-on xbind's own runtime; it is on its way — until then the reference
-manager below is the one to test against). The conformance suite,
-`sdk/sandboxcontract`, checks a manager against this page (below). Any tile that implements the
-routes below is a manager — one that runs sandboxes on a cloud over its API and ssh, for
+The builtin manager is the **`coding-sandbox` template** (§The builtin
+manager). The conformance suite, `sdk/sandboxcontract`, checks a manager
+against this page (below). Any tile that implements the routes below is a
+manager — one that runs sandboxes on a cloud over its API and ssh, for
 example. This page is the contract, **protocol 1**.
 
 ## Wiring
@@ -379,6 +378,34 @@ opens which:
 
 What it offers people and its page, route by route, is its `API.md`
 (`apps/sandbox-terminal/API.md` once imported).
+## The builtin manager
+
+`bx template new coding-sandbox as apps/coding-sandbox`, a workspace admin
+approves its `cap:sandboxes`, and consumers bind it
+(`bx bind apps/agent sandboxes+=apps/coding-sandbox`). Each copy is a
+manager of its own (its `API.md` has everything):
+
+- **Sandboxes on xbind's own runtime** (docs/protocol.md §Tile sandboxes):
+  a VM where the workspace runs VMs for tiles, else a namespace — or only
+  the one mode its operators choose, never falling back (`isolation` always
+  says which). `caps` are what the runtime serves (`exec`, `files`, `tar`,
+  `tty`, `snapshots`, `clone`; not `archive`), `hello.notes` say what it
+  lacks.
+- **Images** are the runtime's base plus a setup script, built once as root
+  and cloned; **sizes**, per-consumer and per-person **quotas**
+  (`hello.limits` carry the effective ones), the layout (a `dev` user in
+  `/work`), the idle stop and mounts of the tile's own filesystem
+  resources are its operators'.
+- **Networks**: `none`, then `internet` and `open` while the copy's
+  `sandbox-net` classes of those names are bound.
+- **Its page**: for its operators (write access to the tile) every
+  consumer's sandboxes — metadata, never contents — with their lifecycle,
+  snapshots and sharing, usage against the quotas, the images and the
+  settings; for anyone who may open it, their own sandboxes with a file
+  browser and a terminal. The app draws the same natively.
+- **Other substrates**: a copy adds a backend (a cloud's API and ssh) in one
+  Go file; its `AGENTS.md` says how, and how to run the conformance suite
+  against it.
 
 ## Building a manager
 

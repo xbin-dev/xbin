@@ -3982,3 +3982,115 @@ Deviations and refinements made while implementing; all deliberate:
       alone (unreadable for admins); stopping VM sandboxes on low disk (their
       disks are bounded); an implicit snapshot for a clone of a running
       sandbox.
+- **D122 — The builtin sandbox manager is the `coding-sandbox` template: a
+  contract layer over a pluggable Backend whose shapes are the SDK's
+  (2026-09-28).** builtin-templates/coding-sandbox/API.md;
+  plans/sandbox-managers.md phase 3 item 3.
+  - **Chosen.**
+    - **A template**, so each copy is a manager with its own config. It
+      provides `sandboxes` (`sandbox-manager`, role `consumer`, which reaches
+      `/sbx/*` only), requests `cap:sandboxes` and a sqlite `db`, and declares
+      two `sandbox-net` classes, `internet` and `open`. Contract egress `none`
+      is always offered; `internet` while its class is bound with reach
+      `internet`, `open` while its class is bound at all. A sandbox's `egress`
+      is its class's word, or its reach when that is wider.
+    - **The Backend seam sits at the runtime's level, in the SDK's shapes.**
+      `Fleet` (the offer; sandboxes by name: list, create — `from` clones —,
+      get, patch, delete, start, stop) is exactly `*xbin.Sandboxes`, and `Box`
+      (run, execs and output by offset, stdin, signals, resizes, the terminal
+      relay, files, tar, snapshots) exactly `*xbin.Sandbox`; a compile-time
+      check keeps it so, and the `xbin` backend needs no translation.
+      Backends register like the messaging bridge's platforms. Refusals are
+      `*xbin.SandboxError`; anything else answers `503 unavailable`.
+    - **The contract layer owns** partitions and shares, owners (verified
+      `X-XBin-User` over asserted `Sbx-User`), visibility and members,
+      labels, versions, an overlay state (`creating`, `deleting`, `error`),
+      and `clientId`s: creates per consumer and snapshots per consumer and
+      sandbox in its table, execs per consumer and sandbox in memory (they die
+      with the substrate), handed down prefixed with a hash of the consumer.
+      **Contract ids (`sb-…`) and runtime names are separate** random names
+      mapped in the table; a refusal that names the runtime sandbox is
+      rewritten to the id.
+    - **Storage:** the tile's sqlite resource (modernc, as the agent), one
+      JSON document per row and an in-memory mirror written through, so a new
+      field needs no migration. A restarted manager finishes the creations
+      and deletions it left.
+    - **Images** are the substrate's base plus an optional setup script. The
+      first use makes a template sandbox, makes its workdir and home, runs
+      the script as root, stops it and snapshots it; later sandboxes clone the
+      snapshot. A changed script or mode, or an outdated base, rebuilds at the
+      next use. Without the substrate's snapshots and clones only plain images
+      are offered, and hello's `notes` says so. A create is synchronous unless
+      an image builds: then it answers after `?wait`, `creating`, and a failed
+      build leaves the sandbox in `error` with the script's last lines.
+    - **Quotas** per consumer and per person (`owner.user`, across
+      consumers), with overrides that replace the default whole; count and
+      disk checked at creation, running, memory and vCPUs at a start. The
+      manager starts a stopped sandbox itself before a command, a file
+      operation or a terminal, so the contract's auto-start counts too.
+      `hello.limits` carry the effective values (and, additively, `running`,
+      `memMiB`, `vcpus`, `diskGiB`).
+    - **Operators** (the owner and people with write access) get `/ops/*`:
+      every sandbox's metadata, usage, lifecycle, sharing, the config and
+      image builds — and no route to a sandbox's contents.
+    - **Terminals** relay to the Box: session ids the contract's, `forUser`
+      the person. `archive` isn't offered yet.
+    - **The layout** (user, uid/gid, home, workdir, shell) is config; the
+      first start makes the workdir and home with a run as root (mkdir,
+      chown), so it holds on any substrate, and a backend may place the
+      layout (the answer's `defaults`), which the manager then takes. A
+      substrate that runs everything as root (`users: root`) gets root at
+      `/root`.
+  - **Not chosen:**
+    - The contract id as the runtime name (tile-sandbox-runtime.md §11):
+      nothing should depend on the two agreeing, and a consumer can never
+      address an image's template sandbox.
+    - A Backend at the contract's level: every substrate would redo
+      partitions, people and ids.
+    - Forwarding raw HTTP through the Backend: the fake would need a runtime
+      server of its own; typed calls cost one JSON re-encode.
+    - The fake backend as a shipped, configurable backend: it would run a
+      consumer's commands in the manager's own sandbox, next to its xbin
+      token. It lives in `_test.go` files only.
+    - A JSON file for the table: the ecosystem's templates use sqlite.
+  - **Part 2 (the same day): the `xbin` backend, the mode, the page.**
+    - **The `xbin` backend is the SDK itself** (`xbinBackend{*xbin.Sandboxes}`),
+      registered as the default; its test drives the manager against a
+      double of the runtime's routes, so the mapping is pinned while the
+      runtime's wave 2 is still being built (the live run is WP-21).
+    - **`config.mode` is `auto | vm | namespace`** (another backend may name
+      its own: `container`, `cloud-vm`). `auto` takes a VM where the runtime
+      offers one now, else a namespace; a chosen mode the runtime lacks makes
+      no sandbox (`503` with the runtime's reason, and `hello.notes` says so)
+      — never another mode. The record keeps the mode it was made in, so
+      `isolation` is right while it is `creating` too.
+    - **Mounts are a top-level `config.mounts`**, not `backendConfig`
+      (changing that one needs every sandbox gone), checked as the runtime
+      checks them; image builds get none.
+    - **Operators take snapshots of any sandbox** (`/ops/sandboxes/{id}/
+      snapshots…`): a backup and a restore are metadata-level acts, and
+      still no route reads a sandbox's contents.
+    - **Relayed terminals' refusals are rewritten** (the runtime's name for
+      the sandbox → the contract id) by holding a refused answer before the
+      upgrade; an upgrade passes untouched (`Unwrap` for the hijack).
+    - **The page is one model, two views** (D96's mechanism: a feature
+      registry, each view's declaration, a node test). Operators get every
+      consumer's metadata; anyone who may open the page gets their own
+      sandboxes — the page is a consumer of its own, with the verified
+      person, within the per-person quota.
+    - **The native view has a terminal**: the app's `terminal` dials only
+      the tile's own routes, and here the tty route *is* the tile's own. It
+      starts a login shell as a `tty` exec and attaches to
+      `execs/{eid}/tty`, so a reconnect is the same shell; leaving the
+      screen ends it. The one declared difference is uploads (the app
+      uploads only from a composer).
+    - **The UI harness runs a copy on the fake backend** (its test files
+      copied in, renamed, over a filesystem resource of its own), bound to
+      the agent beside `apps/fakesbx` for the pass and unbound after.
+  - **Not chosen (part 2):**
+    - The terminal as the native view's declared difference (the agent
+      template's reason — another tile's route — doesn't hold here).
+    - A silent `vm → namespace` fallback: a consumer's firewall and the
+      operators' intent both read `isolation`.
+    - The native terminal on `…/tty` directly: every reconnect would start
+      another shell and leave the old one running.
