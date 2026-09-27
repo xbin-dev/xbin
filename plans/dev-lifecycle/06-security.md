@@ -156,7 +156,8 @@ Every mitigation below relies on these. Each is testable on its own.
   guard test in `TestNoDirectExec`'s style, `TestNoFollowingHostWalks`,
   refuses those calls in `internal/checkpoint`, `internal/deployments` and the
   checkpoint-serving code of `internal/server`, unless the call site says
-  `// follow-ok: <why>`.
+  `// walk-ok: <why>` on its line or one of the two above (15-test-plan
+  §3.13).
 - **C6 — Every tool run is confined** (the ledger, §4). Under isolation a
   sandbox that fails to start is an error (`internal/confine/confine.go:114`,
   `:165-168`): the operation fails and the deployment keeps its previous code.
