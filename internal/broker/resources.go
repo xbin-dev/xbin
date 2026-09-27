@@ -32,7 +32,11 @@ import (
 //   cron   — scheduled calls to the owning element's endpoints (cron.go)
 
 // Provision creates on-disk state for declared resources. Called at start
-// and after every rescan; idempotent.
+// and after every rescan; idempotent. The scopes are the registry's, so a
+// scope rooted by a tile whose primary is pinned provisions what the
+// checkpoint's scope.json declares, read beneath its tree and checked
+// before it gets here (P22). A resource no longer declared is kept: nothing
+// here removes data.
 func (b *Broker) Provision() {
 	do := func(scope string, resources map[string]registry.Resource) {
 		scopeKey := util.ScopeKey(scope)
