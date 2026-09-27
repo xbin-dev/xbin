@@ -1295,6 +1295,19 @@ PUT    /access                    same gate (sharing is an ownership right,
                                    user entries are AUTHORITATIVE (D31):
                                    they override org level, shares, pattern
                                    entries and defaults — down as well as up
+GET    /access/<user>             element: a tile's BACKEND (instance
+                                   token), about ITSELF. {user, level:
+                                   none|read|write|terminal, active} — the
+                                   level X-XBin-User-Level would carry for
+                                   that person now; none for a disabled or
+                                   unknown account (active: false). For a
+                                   credential the tile keeps past a call (an
+                                   SSH key registered on its page): is its
+                                   person still one of its users? Never
+                                   another tile; never 404 (an unknown id is
+                                   level none); frame/terminal tokens,
+                                   people and admins 403. "user:<id>"
+                                   accepted. SDK xbin.AccessOf
 GET    /access-matrix             admin/xbin:users. users×components
                                    effective levels with provenance:
                                    {users, components, matrix:{user:{tile:
