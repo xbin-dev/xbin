@@ -94,6 +94,54 @@ struct E2EServer: Sendable {
         try JSONDecoder().decode(Count.self, from: await send("GET", "/api/apps/counter/count")).count
     }
 
+    /// A pref of the e2e account's `root` bucket — the web shell's, which
+    /// the app reads (`layout`, `mobile-screens`); nil when unset.
+    func pref(_ key: String) async throws -> Any? {
+        var r = URLRequest(url: URL(string: address + "/api/xbin/prefs/\(key)")!)
+        r.setValue("Bearer \(try await session())", forHTTPHeaderField: "Authorization")
+        r.timeoutInterval = 15
+        let (data, response) = try await URLSession.shared.data(for: r)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if status == 404 { return nil }
+        guard status == 200 else { throw Failure(description: "GET /api/xbin/prefs/\(key) → \(status)") }
+        return try JSONSerialization.jsonObject(with: data)
+    }
+
+    func setPref(_ key: String, _ value: [String: Any]?) async throws {
+        if let value {
+            _ = try await send("PUT", "/api/xbin/prefs/\(key)", json: value)
+        } else {
+            _ = try? await send("DELETE", "/api/xbin/prefs/\(key)")
+        }
+    }
+
+    /// The screen the screens tests start from: the account's layout (as
+    /// the web shell writes it) with one screen of three tiles, and no
+    /// phone arrangement yet.
+    static let screenID = "e2escr1"
+    static let screenName = "E2E screen"
+
+    func seedScreens() async throws {
+        let tile = { (path: String, x: Int, y: Int) -> [String: Any] in ["path": path, "x": x, "y": y, "w": 576, "h": 384] }
+        try await setPref("layout", ["screens": [["id": Self.screenID, "name": Self.screenName,
+                                                  "tiles": [tile("apps/welcome", 0, 0), tile("apps/counter", 576, 0), tile("apps/wide", 0, 384)]]],
+                                     "active": Self.screenID, "side": ["folders": [] as [Any]]])
+        try await setPref("mobile-screens", nil)
+    }
+
+    /// The tile paths of a screen's phone arrangement, in order, with sizes.
+    func arrangement(_ screen: String) async throws -> [(path: String, size: String)] {
+        let m = try await pref("mobile-screens") as? [String: Any]
+        let s = (m?["screens"] as? [String: Any])?[screen] as? [String: Any]
+        return ((s?["tiles"] as? [[String: Any]]) ?? []).map { ($0["path"] as? String ?? "", $0["size"] as? String ?? "") }
+    }
+
+    /// The components the account sees (GET /api/xbin/components).
+    func components() async throws -> [String] {
+        let list = try JSONSerialization.jsonObject(with: await send("GET", "/api/xbin/components")) as? [[String: Any]] ?? []
+        return list.compactMap { $0["path"] as? String }
+    }
+
     /// The owner's live terminal and agent sessions on a tile.
     func sessions(cwd: String) async throws -> [Session] {
         let q = cwd.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? cwd
@@ -390,30 +438,68 @@ final class E2E {
         field.typeText(address + "\n")
     }
 
+    // MARK: Panels (Home → screen → tile)
+
+    /// The bar's way back: ‹ the screen's name (on a tile), ▦ Home (on a screen).
+    var backButton: XCUIElement { app.buttons.matching(identifier: "panel-back").firstMatch }
+    var homeButton: XCUIElement { app.buttons.matching(identifier: "panel-home").firstMatch }
+
+    /// Back to Home by the bar's buttons, from wherever the window is.
+    func goHome() {
+        for _ in 0..<4 {
+            if backButton.exists, backButton.isHittable { backButton.tap() }
+            else if homeButton.exists, homeButton.isHittable { homeButton.tap() }
+            else { return }
+            _ = app.otherElements["xbin-e2e-never"].waitForExistence(timeout: 0.6) // the slide
+        }
+    }
+
+    /// A screen's row on Home.
+    func screenRow(_ id: String = E2EServer.screenID) -> XCUIElement {
+        app.buttons.matching(identifier: "screen:\(id)").firstMatch
+    }
+
+    /// A tile's card on a screen.
+    func card(_ path: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: "card:\(path)").firstMatch
+    }
+
+    /// Opens a screen from Home.
+    func openScreen(_ id: String = E2EServer.screenID, file: StaticString = #filePath, line: UInt = #line) {
+        goHome()
+        let row = screenRow(id)
+        XCTAssertTrue(row.waitForExistence(timeout: 30), "Home lists screen \(id)", file: file, line: line)
+        row.tap()
+    }
+
+    /// An edge swipe: from the left edge (back) or the right (forward),
+    /// `fraction` of the width across, at `speed` points a second, held a
+    /// moment before the finger lifts — a slow short one is a peek.
+    func edgeSwipe(fromLeft: Bool, fraction: CGFloat, speed: CGFloat = 900) {
+        let y: CGFloat = 0.55
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: fromLeft ? 0 : 1, dy: y))
+            .withOffset(CGVector(dx: fromLeft ? 2 : -2, dy: 0))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: fromLeft ? fraction : 1 - fraction, dy: y))
+        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: XCUIGestureVelocity(speed), thenHoldForDuration: 0.2)
+    }
+
     // MARK: Tiles
 
-    /// The navigator's row for a tile: a button whose label holds its path.
+    /// Search's row for a tile: a button whose label holds its path.
     func tileRow(_ path: String) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "label CONTAINS %@", path)).firstMatch
     }
 
-    /// Finds a tile's row in the navigator — the home screen, or the Tiles
-    /// sheet over a surface — searching for it when it isn't in view.
+    /// Finds a tile by Home's search (the field at the bottom).
     func findTile(_ path: String, file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
-        let tiles = app.buttons["Tiles"]
-        if tiles.exists { tiles.tap() }
+        goHome()
         let row = tileRow(path)
-        if row.waitForExistence(timeout: 5), row.isHittable { return row }
-        var search = app.searchFields["Search tiles"]
-        if !search.exists {
-            app.swipeDown() // the navigation-bar drawer hides the field until pulled
-            search = app.searchFields["Search tiles"]
-        }
-        if search.waitForExistence(timeout: 5) {
+        let search = app.searchFields["Search tiles"]
+        if search.waitForExistence(timeout: 10) {
             search.tap()
             search.typeText(path)
         }
-        XCTAssertTrue(row.waitForExistence(timeout: 15), "the navigator lists \(path)", file: file, line: line)
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "search lists \(path)", file: file, line: line)
         return row
     }
 
