@@ -44,6 +44,26 @@ export function createSandboxStore(app) {
     sbx.load(true).catch(() => {});
   };
 
+  // patchShares PATCHes ref's whole shares list as bodyOf(sandbox) computes
+  // it from the sandbox as the list has it — with its version, so a change
+  // made since (someone else's share) isn't overwritten: on a 412 the
+  // sandbox is read again, the body computed afresh from it, and sent once
+  // more. The answer lands in the list.
+  const patchShares = async (ref, bodyOf) => {
+    let s = find(ref);
+    for (let tries = 0; ; tries++) {
+      try {
+        put(await actions.patchSandbox(ref, bodyOf(s)));
+        return;
+      } catch (e) {
+        if (e.status !== 412 || tries) throw e;
+      }
+      s = await actions.getSandbox(ref);
+      put(s);
+      s = find(ref);
+    }
+  };
+
   const sbx = {
     list: S.listOf(null), // GET /sandboxes (model/sandboxes.js listOf); loaded once read
     pick: null,           // the next new chat's sandbox: {ref, cwd, name} (sent while its class has the sandbox toolset)
@@ -178,16 +198,19 @@ export function createSandboxStore(app) {
     // shareTerminal shares ref with the terminal tile f.tile (its owner; the
     // contract's PATCH {shares}), and says so.
     async shareTerminal(ref, f = {}) {
-      const vm = sbx.shareForm(ref, f);
-      if (!vm.ok) throw new Error(S.sentence(vm.error));
-      put(await actions.patchSandbox(ref, vm.body));
+      let vm = null;
+      await patchShares(ref, (s) => {
+        vm = S.shareForm(s, app.me, f, (globalThis.xbin && globalThis.xbin.self) || '');
+        if (!vm.ok) throw new Error(S.sentence(vm.error));
+        return vm.body;
+      });
       emit();
       const s = find(ref);
       return `${(s && s.name) || S.splitRef(ref).id} is shared with ${vm.tile} — ${vm.users === '*' ? 'everyone who may use it' : 'you'} can open terminals onto it there ✓`;
     },
     // unshare takes consumer's share of ref away.
     async unshare(ref, consumer) {
-      put(await actions.patchSandbox(ref, S.unshareBody(find(ref), consumer)));
+      await patchShares(ref, (s) => S.unshareBody(s, consumer));
       emit();
     },
     // perform: a Sandboxes row's action (model/sandboxes.js sandboxRows'

@@ -655,3 +655,73 @@ test('the store: sharing with a terminal tile PATCHes the sandbox\'s shares (its
   assert.deepEqual(JSON.parse(calls.filter((c) => c.method === 'PATCH').pop().body), { shares: [] });
   assert.deepEqual(app.sbx.rows()[0].sharedWith, []);
 });
+
+test('the store: a share goes with the version it was read at; a 412 is read again and retried once', async () => {
+  const calls = [];
+  const json = (v, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json' } });
+  let box = sb('api', { shares: [], version: 3 });
+  let stale = 0; // PATCHes still to refuse whatever they carry (a manager that keeps moving)
+  const fake = async (url, opt = {}) => {
+    const u = String(url);
+    const method = opt.method || 'GET';
+    calls.push({ method, url: u, body: opt.body });
+    if (/\/sandboxes(\?fresh=1)?$/.test(u)) return json({ sandboxes: [box], managers: managers() });
+    if (u.endsWith('/sandboxes/apps/coding-sandbox%7Capi')) {
+      if (method === 'GET') return json(box);
+      if (method === 'PATCH') {
+        const b = JSON.parse(opt.body);
+        if (stale > 0 || b.version !== box.version) {
+          stale--;
+          return json({ error: `apps/coding-sandbox: version ${b.version} is not ${box.version}`, refusal: 'precondition' }, 412);
+        }
+        box = { ...box, shares: b.shares, version: box.version + 1 };
+        return json(box);
+      }
+    }
+    if (u.endsWith('/me')) return json({ kind: 'user', user: 'alice', manager: false });
+    if (u.endsWith('/classes')) return json({ default: 'coding', classes: [coding] });
+    if (u.includes('/stream')) return new Response(new ReadableStream({ start() {} }), { headers: { 'Content-Type': 'text/event-stream' } });
+    return json({});
+  };
+  globalThis.window = globalThis;
+  globalThis.xbin = { self: 'apps/agent', fetch: fake };
+  globalThis.fetch = fake;
+  const { createApp } = await import(new URL('model/app.js', TPL).href + '?share-version');
+  const app = createApp({ frame: (fn) => setTimeout(fn, 0) });
+  app.me = { user: 'alice' };
+  await app.sbx.load();
+  const ref = `${MGR}|api`;
+  const sent = () => calls.filter((c) => c.method === 'PATCH').map((c) => JSON.parse(c.body));
+
+  // the pure bodies carry it
+  assert.deepEqual(S.shareForm(box, { user: 'alice' }).body, { shares: [{ consumer: 'apps/sandbox-terminal', users: ['alice'] }], version: 3 });
+  assert.deepEqual(S.unshareBody(box, 'x'), { shares: [], version: 3 });
+
+  // someone shares it with another tile after the list was read
+  box = { ...box, shares: [{ consumer: 'apps/other', users: '*' }], version: 4 };
+  await app.sbx.shareTerminal(ref, {});
+  assert.deepEqual(sent(), [
+    { shares: [{ consumer: 'apps/sandbox-terminal', users: ['alice'] }], version: 3 },
+    { shares: [{ consumer: 'apps/other', users: '*' }, { consumer: 'apps/sandbox-terminal', users: ['alice'] }], version: 4 },
+  ], 'refused at the version read, then computed afresh from the sandbox read again — the other share kept');
+  assert.ok(calls.some((c) => c.method === 'GET' && c.url.endsWith('/sandboxes/apps/coding-sandbox%7Capi')), 'read again');
+  assert.deepEqual(box.shares.map((x) => x.consumer), ['apps/other', 'apps/sandbox-terminal']);
+  assert.deepEqual(app.sbx.rows()[0].sharedWith, ['apps/other', 'apps/sandbox-terminal'], 'the answer lands in the list');
+
+  // Stop sharing: the version it has now
+  await app.sbx.unshare(ref, 'apps/sandbox-terminal');
+  assert.deepEqual(sent().pop(), { shares: [{ consumer: 'apps/other', users: '*' }], version: 5 });
+
+  // only once: a second 412 is the caller's
+  stale = 2;
+  const before = sent().length;
+  await assert.rejects(app.sbx.unshare(ref, 'apps/other'), (e) => e.status === 412 && /version/.test(e.message));
+  assert.equal(sent().length - before, 2, 'one retry');
+  // other refusals aren't retried
+  stale = 0;
+  const f = globalThis.fetch;
+  let n = 0;
+  globalThis.xbin.fetch = globalThis.fetch = async (url, opt = {}) => (opt.method === 'PATCH' ? (n++, json({ error: 'only its owner shares it', refusal: 'not-allowed' }, 403)) : f(url, opt));
+  await assert.rejects(app.sbx.shareTerminal(ref, {}), /only its owner/);
+  assert.equal(n, 1);
+});

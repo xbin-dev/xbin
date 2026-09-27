@@ -153,7 +153,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     the tile (`POST /keys` from its page; the tile's managers list and
     revoke anyone's, and a revoke ends the key's live connections). Then
     `ssh <sandbox>@host -p 2222`: the user name is the sandbox's name in
-    lower case (`<name>.<n>` when several share it, or its id), and an
+    lower case (`<name>~<n>` when several share it, or its id), and an
     unknown or ambiguous one lists the choices.
   - **How a session runs.** With a terminal it is the manager's `tty`
     route, with resize and the exit status. Without one (`ssh host cmd`) it
@@ -164,6 +164,32 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   - Failed keys are rate-limited. The host key is kept in the tile's vault,
     and `GET /me` shows its fingerprint.
   - `bx tile import devbox`'s 410 now points at this tile.
+- **A tile's backend can ask what a person may do on it now: `GET
+  /api/xbin/access/<user>`, `xbin.AccessOf`** ([protocol.md](protocol.md),
+  [sdk.md](sdk.md) §Is a person still one of this tile's users?). For a
+  credential the tile keeps past a call — an SSH key or token a person
+  registered on its page — which would otherwise outlive their removal. It
+  answers `{user, level: none|read|write|terminal, active}` about the
+  calling tile only: the level `X-XBin-User-Level` would carry now, `none`
+  for a disabled or unknown account (`active: false`), never a 404. Only the
+  backend asks (its instance token); frame and terminal tokens get 403.
+  Additive.
+  - **The `sandbox-terminal` tile uses it**: every SSH login, every
+    session, every key registration, and every 30 s of a live connection
+    checks that the key's person still has access to the tile (cached
+    30 s; no answer from xbind is no login). Someone removed, disabled or
+    taken off the tile gets `access revoked`, a connection they have open
+    is cut, and their keys are kept, marked `inactive`, until access is
+    back.
+  - Its SSH login grace is 10 s; at 32 handshakes in flight a new
+    connection drops a random older one instead of being refused; failed
+    keys are tarpitted per source address and user name, so a flood
+    against one name doesn't slow anyone else. Several sandboxes sharing a
+    name log in as `<name>~1`, `<name>~2` (was `<name>.1`, which a sandbox
+    named `web.1` also was).
+  - The agent template's **Share with a terminal tile…** and **Stop
+    sharing** send the sandbox's `version`; a change someone made since is
+    read again and kept rather than overwritten.
 
 ## 2026-09-27
 

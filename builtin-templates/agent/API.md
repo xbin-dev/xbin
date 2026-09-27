@@ -1257,9 +1257,12 @@ the calls); the web draws it in `sandboxes.js`, the native view in
   `sandbox-terminal`'s `apps/sandbox-terminal` by default — and who the
   share is for: you (joining whoever that tile's share already names), or
   everyone who may use it when it is a team sandbox (`"*"`). Share sends
-  `PATCH /sandboxes/{ref} {shares}`: the sandbox's shares with that tile's
-  replaced, the others kept. The form lists the shares it has, each with
-  **Stop sharing** (confirmed). The tile applies the person rules too, so
+  `PATCH /sandboxes/{ref} {shares, version}`: the sandbox's shares with
+  that tile's replaced, the others kept, at the `version` they were read
+  at — when someone changed the sandbox since (412 `precondition`), it is
+  read again (`GET /sandboxes/{ref}`) and the list sent once more from
+  what it holds now, so their change isn't overwritten. The form lists the
+  shares it has, each with **Stop sharing** (confirmed; sent the same way). The tile applies the person rules too, so
   a share never widens who may use the sandbox; a row says who it is
   shared with.
 - **A terminal** where the sandbox's manager offers one (`tty` in its

@@ -461,9 +461,10 @@ const usersWords = (u, me) => (u === '*' ? 'everyone who may use it'
 // sandbox: "*", everyone who may use it; a private one: you, with whoever
 // that tile's share already named), the shares it has now, what is wrong
 // (error; '' = it can be shared), and the PATCH /sandboxes/{ref} body: its
-// shares with that tile's replaced. The terminal tile applies the person
-// rules too (owner, members, team), so a share never widens who may use
-// the sandbox. self: this agent's path (a share with itself is refused).
+// shares with that tile's replaced, and the version they were read at
+// (withVersion). The terminal tile applies the person rules too (owner,
+// members, team), so a share never widens who may use the sandbox. self:
+// this agent's path (a share with itself is refused).
 export function shareForm(s, me, f = {}, self = '') {
   const user = (me && me.user) || '';
   const tile = String(f.tile ?? TERMINAL_TILE).trim().replace(/^\/+|\/+$/g, '');
@@ -484,12 +485,19 @@ export function shareForm(s, me, f = {}, self = '') {
     usersLabel: team ? 'everyone who may use it (a team sandbox)' : usersWords(users, user),
     current: current.map((x) => ({ consumer: x.consumer, users: x.users, usersLabel: usersWords(x.users, user) })),
     error, ok: !error,
-    body: { shares: [...current.filter((x) => x.consumer !== tile), { consumer: tile, users }] },
+    body: withVersion(s, { shares: [...current.filter((x) => x.consumer !== tile), { consumer: tile, users }] }),
   };
 }
 
-// unshareBody: the PATCH /sandboxes/{ref} body that takes consumer's share away.
-export const unshareBody = (s, consumer) => ({ shares: sharesOf(s).filter((x) => x.consumer !== consumer) });
+// unshareBody: the PATCH /sandboxes/{ref} body that takes consumer's share
+// away (with the version it was read at).
+export const unshareBody = (s, consumer) => withVersion(s, { shares: sharesOf(s).filter((x) => x.consumer !== consumer) });
+
+// withVersion: a PATCH body that replaces a whole list (the shares) goes
+// with the sandbox's version as it was read, so a change made since — a
+// share someone else added — is refused (412) rather than lost; the store
+// reads it again and computes the body afresh (sandbox-store.js).
+const withVersion = (s, body) => (s && Number.isInteger(s.version) ? { ...body, version: s.version } : body);
 
 // --- the create form ---------------------------------------------------------------
 
