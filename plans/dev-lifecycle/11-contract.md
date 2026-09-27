@@ -774,8 +774,11 @@ errors     403 · 404 no such tile, deployment or id · 409 no record
 ```
 
 The log holds every finished attempt, failed ones included. It is kept in the
-checkpoint store (§10.3). Queued and in-flight entries live in memory and are
-lost with an xbind restart; the deployment then keeps its previous code.
+checkpoint store (§10.3). Queued and in-flight entries are journaled
+(§10.1's deploy journal) and logged at the next boot after a restart:
+queued ones as `cancelled`, swapped ones as `ok`, running ones as `failed`
+with the error `interrupted: xbind restarted mid-deploy; <name> runs
+<code>`. The deployment keeps the code its record names (Q3).
 
 ### 1.11 Diff
 
@@ -1864,6 +1867,28 @@ load whose path doesn't match (06-security C10).
   the work tree (P9).
 - A binary without the feature never reads `data/deployments/`. The downgrade
   story is [12-compat.md](12-compat.md)'s.
+
+**The deploy journal,** `data/deployments/<TileKey>/pending.json` (Q3,
+NP-07-13): every accepted attempt until its deploy-log entry is written,
+mode 0600, written atomically.
+
+```jsonc
+{
+  "schema": 1,
+  "tile": "apps/crm",
+  "next": 44,                           // the next deploy id: never below the record's nextDeploy or past the log's newest
+  "attempts": [                         // the deploy entry's fields (§1.1) with full tree ids, plus:
+    {"id": 43, "deployment": "main", "how": "reload-now", "checkpoint": "<full tree id>", "previous": "<full tree id>",
+     "by": "user:ana", "requestedAt": "…", "result": "running", "phase": "build",
+     "pointer": "request",              // the record's pointer was written at request time (a move off the work tree)
+     "swapped": false}                  // the swap committed the pointer
+  ]
+}
+```
+
+Boot reconciles it into the deploy log (§1.10) and never rewrites the record.
+The file goes with the record at an opt-out. Backups leave it out: a
+restored tile has no deploy in flight.
 
 ### 10.2 Per-deployment registration files: `data/deployments/<TileKey>/<name>/`
 
