@@ -37,15 +37,10 @@ func earlyMounts() error {
 	return nil
 }
 
-// configure applies Config once: the clock, the network, the root, the file
-// mounts, then switches the agent itself into the new root.
+// configure applies Config (the core calls it once): the clock, the
+// network, the root, the file mounts, then switches the agent itself into the
+// new root.
 func (a *agent) configure(c proto.Config) error {
-	a.mu.Lock()
-	done := a.configured
-	a.mu.Unlock()
-	if done {
-		return errors.New("already configured")
-	}
 	if c.Time != 0 {
 		ts := unix.NsecToTimespec(c.Time)
 		_ = unix.ClockSettime(unix.CLOCK_REALTIME, &ts)
@@ -73,13 +68,7 @@ func (a *agent) configure(c proto.Config) error {
 	if err := writeEtc(c); err != nil {
 		return err
 	}
-	if err := switchRoot(); err != nil {
-		return err
-	}
-	a.mu.Lock()
-	a.configured = true
-	a.mu.Unlock()
-	return nil
+	return switchRoot()
 }
 
 const newRoot = "/newroot"
