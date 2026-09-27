@@ -134,7 +134,7 @@
     .sbxwrap { position: relative; display: inline-flex; }
     .badge.sbxbadge { cursor: pointer; text-transform: none; letter-spacing: 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--bx-mono); }
     .badge.sbxbadge.broken { color: var(--bx-red); border-color: color-mix(in srgb, var(--bx-red) 50%, var(--bx-border)); }
-    .sbxpop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 31; width: min(340px, 86vw); padding: 10px 12px; display: grid; gap: 8px;
+    .sbxpop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 31; width: min(340px, 86vw); padding: 10px 12px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px;
               background: var(--bx-panel); border: 1px solid var(--bx-border); border-radius: 6px; box-shadow: 0 6px 24px rgba(0,0,0,.35); font-size: 12px; }
     .sbxhd { display: flex; flex-direction: column; gap: 1px; }
     .sbxcwd { display: flex; gap: 6px; }

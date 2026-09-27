@@ -136,6 +136,10 @@ test('the dialog\'s rows: state, owner, the actions your rights allow', () => {
   assert.deepEqual(S.sandboxRows(L, {}, {}).find((r) => r.name === 'theirs').actions.map((a) => a.id), ['stop'], 'at home: no "use"');
   assert.ok(!S.sandboxRows(L, {}, {}).some((r) => r.actions.some((a) => a.id === 'use')), 'at home without a sandbox class: no "use"');
   assert.match(S.sandboxRows(L, {}, { cls: coding }).find((r) => r.name === 'stop').actions[0].label, /new chat/);
+  // where it is used: here, or — at home — the next new chat's pick (never "active here" with no conversation)
+  assert.deepEqual([by.run.where, by.stop.where, by.theirs.where], ['active here', '', 'attached here'], 'in a conversation: its active and attached ones say so');
+  const home = S.sandboxRows(L, {}, { cls: coding, pick: { ref: `${MGR}|stop` } });
+  assert.deepEqual(home.filter((r) => r.where).map((r) => [r.name, r.where, r.active]), [['stop', 'next new chat', true]], 'at home: the pick is the next new chat\'s');
   assert.ok(!S.sandboxRows(L, {}, { conv: conv({}, { access: 'viewer' }) }).some((r) => r.actions.some((a) => a.id === 'use')), 'view only: no "use"');
 });
 
@@ -189,6 +193,12 @@ test('the tool cards: the box family, its sublines and what a call came to', () 
   assert.deepEqual(T.outcome('bash', 'started job 4 in "api": make\n[bash_output {"job": 4} reads its output · bash_kill {"job": 4} stops it]'),
     { text: 'job 4 started', tone: 'run' });
   assert.deepEqual(T.outcome('bash', 'x\n[killed by TERM · 3s · job 5]'), { text: 'killed by TERM · 3s · job 5', tone: 'bad' });
+  // a restart cut it off: it went on as a job (sandbox_jobs.go lostResultText) — answered, not stopped
+  const moved = '(no result: the backend restarted while this command ran. It went on in the sandbox as job 5 — bash_output {"job": 5} '
+    + 'shows its output from the start and whether it has finished; bash_kill {"job": 5} stops it.)';
+  assert.equal(T.resultState(moved), 'done', 'a command a restart cut off went on as a job: the card is not struck through');
+  assert.deepEqual(T.outcome('bash', moved), { text: 'went on as job 5', tone: 'run' });
+  assert.equal(T.resultState('(no result: the backend restarted while this tool was running)'), 'stopped', 'any other call a restart cut off stays stopped');
   assert.equal(T.outcome('bash', '(running…)'), null, 'still going: nothing yet');
   assert.equal(T.outcome('bash', 'error: no sandbox'), null, 'an error says itself');
   // counts and sizes

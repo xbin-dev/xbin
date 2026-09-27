@@ -143,9 +143,10 @@ export function subline(name, rawArgs) {
 }
 
 // outcome: what a finished sandbox call came to, read from its result —
-// bash's footer ([exit 1 · 14s · job 3], still running · job 3), how many
-// matches, entries or files, a size. {text, tone: ok | bad | run | ''} or
-// null (none to say, or not a sandbox call).
+// bash's footer ([exit 1 · 14s · job 3], still running · job 3), a command
+// that went on as a job across a restart, how many matches, entries or
+// files, a size. {text, tone: ok | bad | run | ''} or null (none to say, or
+// not a sandbox call).
 export function outcome(name, content) {
   if (FAMILY[name] !== 'box') return null;
   const c = String(content ?? '');
@@ -157,6 +158,8 @@ export function outcome(name, content) {
   const paren = (s) => { const m = /\(([^()]+)\)\s*$/.exec(s); return m ? { text: m[1], tone: '' } : null; };
   switch (name) {
     case 'bash': case 'bash_output': {
+      const moved = MOVED.exec(c);
+      if (moved) return { text: `went on as job ${moved[1]}`, tone: 'run' };
       const started = /^started job (\d+)/.exec(first);
       if (started) return { text: `job ${started[1]} started`, tone: 'run' };
       const m = /^\[(.*)\]$/.exec(last);
@@ -208,6 +211,11 @@ export function argsShown(rawArgs) {
   return a;
 }
 
+// MOVED: a bash command a backend restart cut off, which went on in the
+// sandbox as a job (_backend/sandbox_jobs.go lostResultText) — answered, like
+// one that outlived its timeout, not stopped.
+const MOVED = /^\(no result: the backend restarted while this command ran\. It went on in the sandbox as job (\d+)/;
+
 // resultState reads a tool result's content: the engine's placeholders
 // and error prefix mean the call is still going, parked, or failed.
 export function resultState(content) {
@@ -216,6 +224,7 @@ export function resultState(content) {
   if (c === '(awaiting your approval)') return 'approval';
   if (c.startsWith('(waiting for ')) return 'waiting';
   if (c.startsWith('error:')) return 'error';
+  if (MOVED.test(c)) return 'done';
   if (/^\((interrupted|cancelled|not executed|denied|no result:)/.test(c)) return 'stopped';
   return 'done';
 }

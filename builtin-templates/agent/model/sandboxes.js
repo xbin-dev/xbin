@@ -257,6 +257,9 @@ export function sandboxRows(list, me, opts = {}) {
       visibility: s.visibility === 'team' ? 'team' : 'private', visLabel: s.visibility === 'team' ? 'team' : 'private',
       lastActive: s.lastActive || 0, lastLabel: ago(s.lastActive, opts.now),
       bound, here: root != null && (s.boundTo || []).includes(root), active: on,
+      // where it is used, in words: the open conversation's active or attached
+      // one — at home, the pick is the next new chat's
+      where: on ? (conv ? 'active here' : 'next new chat') : root != null && (s.boundTo || []).includes(root) ? 'attached here' : '',
       actions: acts,
     };
   });

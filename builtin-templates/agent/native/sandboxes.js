@@ -158,7 +158,7 @@ function listTpl(s) {
 // a row: its state and where it is used first, then what it is (the manager
 // only when there are several)
 function rowTpl(r, busy, act, managers) {
-  const facts = [busy === r.ref ? `${r.stateLabel.replace(/…$/, '')}…` : r.stateLabel, r.stateDetail, r.active ? 'active here' : r.here ? 'attached here' : '',
+  const facts = [busy === r.ref ? `${r.stateLabel.replace(/…$/, '')}…` : r.stateLabel, r.stateDetail, r.where,
     r.visLabel, managers && r.manager, r.image, r.size, r.egressLabel, `owner: ${r.owner}`, r.lastLabel && `active ${r.lastLabel}`,
     r.bound ? `in ${r.bound} conversation${r.bound === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
   return html`<row title=${r.name} subtitle=${facts} icon="box" ?selected=${r.active} tone=${r.state === 'error' ? 'danger' : nothing}>

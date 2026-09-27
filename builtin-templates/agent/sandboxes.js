@@ -168,7 +168,7 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
       <div class="l1"><b class="nm">${r.name}</b>
         <span class="badge sbxst ${r.state}" title=${r.stateDetail}>${r.stateLabel}</span>
         <span class="badge">${r.visLabel}</span>
-        ${r.active ? html`<span class="badge sbxon">active here</span>` : r.here ? html`<span class="badge">attached here</span>` : nothing}
+        ${r.where ? html`<span class="badge ${r.active ? 'sbxon' : ''}">${r.where}</span>` : nothing}
         <span style="flex:1"></span>
         ${r.actions.map((a) => html`<button class="btn btnsm ${a.danger ? 'rm' : 'ghost'}" data-act=${a.id} ?disabled=${!!dl.busy}
           @click=${() => act(r, a)}>${a.label}</button>`)}</div>
