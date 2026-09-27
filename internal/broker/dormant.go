@@ -693,7 +693,7 @@ func (b *Broker) DeploymentRegistrations(tile, dep string) []deployments.Registr
 		out = append(out, deployments.Registration{Kind: deployments.RegBus, Name: s.Name, Resource: s.Resource,
 			Prefix: s.Prefix, Path: s.Path, Dormant: dormant})
 	}
-	return out
+	return append(out, b.DeploymentRouteRegistrations(tile, dep)...) // interface instances, ingress hosts (WP-50)
 }
 
 // DropDeploymentRegistrations deletes deployment dep of tile's cron jobs
