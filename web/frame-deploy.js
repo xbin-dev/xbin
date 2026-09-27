@@ -82,7 +82,7 @@ export async function loadDeploy(f) {
   const gen = ++r.gen;
   let s = null;
   try {
-    const res = await fetch(`/api/xbin/deployments?tile=${encodeURIComponent(f.src)}`);
+    const res = await fetch(`/api/xbin/deployments?tile=${encodeURIComponent(f.src)}`, { cache: 'no-store' });
     const j = res.ok ? await res.json() : null;
     if (j && typeof j === 'object' && j.tile === f.src) s = j;
   } catch { /* no state: today's window */ }
