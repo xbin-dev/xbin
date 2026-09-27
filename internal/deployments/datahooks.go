@@ -43,4 +43,21 @@ type DataHooks struct {
 	// primary's key names dep has no value for (none for the primary): a
 	// reassignment's dry run shows its target's as Impact.placeholders.
 	VaultPlaceholders func(tile, dep string) ([]string, error)
+
+	// The per-deployment backups (08-data §11; 11-contract §1.8), each
+	// judged by the plane first. BackupData archives dep of tile's data now
+	// under its own key (main: the tile's main archive); a dry run writes
+	// nothing. DataBackups lists dep's archived versions (dep need not
+	// exist: a removed deployment keeps its archives). RestoreData restores
+	// req's archive into req.Into by replace, judging every other claimant
+	// with authorize at the reset level and stopping each with stop; it
+	// answers those claimants too (a dry run's stops). SetBackupSchedule
+	// sets or, with schedule "", removes dep's own schedule;
+	// BackupScheduleOf is Deployment.backup, nil without one. Errors are
+	// *Error.
+	BackupData        func(tile, dep string, dryRun bool) (BackupAnswer, error)
+	DataBackups       func(tile, dep string) (any, error)
+	RestoreData       func(tile, by string, req RestoreRequest, authorize func(tile string) error, stop func(tile, dep string)) (RestoreAnswer, []string, error)
+	SetBackupSchedule func(tile, dep string, schedule *string, retention *int, dryRun bool) error
+	BackupScheduleOf  func(tile, dep string) *BackupSchedule
 }

@@ -202,6 +202,29 @@ type SeedRequest struct {
 	DryRun     bool   `json:"dryRun,omitempty"`
 }
 
+// SeedFacts are what a seed judged (08-data §8.1; NP-10-10): the claimants
+// whose deployments of the name stop, and in the stopped mode the primary's
+// too, the bytes and resources copied, left empty or skipped, and the mode.
+// A dry run answers them; a real seed's copy runs on until Done closes, and
+// its completion is the deployments event op data. The broker's SeedFacts
+// has these fields, so one converts to the other.
+type SeedFacts struct {
+	Scope       string   `json:"scope"`
+	From        string   `json:"from"`
+	Deployment  string   `json:"deployment"`
+	Claimants   []string `json:"claimants"`
+	Stops       []string `json:"stops"`
+	Bytes       int64    `json:"bytes"`
+	Copies      []string `json:"copies"`
+	Empty       []string `json:"empty"`
+	Skipped     []string `json:"skipped"`
+	Consistency string   `json:"consistency"`
+	StopWhy     string   `json:"stopWhy,omitempty"`
+	Downtime    int      `json:"downtimeSeconds,omitempty"`
+
+	Done <-chan struct{} `json:"-"`
+}
+
 // ResetRequest is POST /deployments/reset's body.
 type ResetRequest struct {
 	Tile       string `json:"tile"`
