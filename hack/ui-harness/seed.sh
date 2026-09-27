@@ -28,13 +28,13 @@ api PATCH /orgs/sales '{"allow":["net:internet"]}' >/dev/null
 
 say "users"
 api POST /users '{"id":"dev1","name":"Dev One","role":"user","password":"devpass123","termNet":false,
-  "tiles":{"tiles/organisations":"read","apps/leads":"terminal"},
+  "tiles":{"tiles/organisations":"read","apps/leads":"terminal","apps/deployy":"terminal"},
   "orgs":[{"org":"devs","level":"terminal","create":true,"admin":true}]}' | head -c 300; echo
 api POST /users '{"id":"sales1","name":"Sales One","role":"user","password":"salespass123","termNet":true,
   "tiles":{"tiles/organisations":"read"},
   "orgs":[{"org":"sales","level":"terminal","create":true,"admin":true}]}' | head -c 200; echo
 api POST /users '{"id":"infra1","name":"Infra One","role":"user","password":"infrapass123",
-  "tiles":{"tiles/organisations":"read"},
+  "tiles":{"tiles/organisations":"read","apps/deployy":"read","apps/reloady":"read"},
   "orgs":[{"org":"infra","level":"terminal","create":true,"admin":true}]}' | head -c 200; echo
 
 say "tiles"
@@ -76,6 +76,24 @@ cat > "$WS/apps/linky/index.html" <<'EOF'
 <p>a link that wants a new tab:</p>
 <a id="ext" href="/docs/" target="_blank" rel="noopener">docs ↗</a>
 EOF
+# the tile dev lifecycle fixtures (passes/livereload.js, passes/deployments.js).
+# Both static, created without mk's `net` slot so they add no row to the root
+# page's pending-bindings panel. apps/reloady: org:devs, so dev1 (a devs admin)
+# manages it and infra1 reads it. apps/deployy: org:sales (sales1 manages it;
+# dev1 has terminal level without managing it, infra1 reads it), with a `uses`
+# edge on apps/leads, approved here so it is a grant row, not a pending request.
+api POST /create '{"path":"apps/reloady","owner":"org:devs","title":"apps/reloady"}' | head -c 200; echo
+cat > "$WS/apps/reloady/index.html" <<'EOF'
+<!doctype html><meta charset="utf-8"><title>reloady</title>
+<p id="v">reloady: the seeded page</p>
+EOF
+api POST /create '{"path":"apps/deployy","owner":"org:sales","title":"apps/deployy"}' | head -c 200; echo
+printf '{\n  "uses": [{ "target": "apps/leads", "role": "reader" }]\n}\n' > "$WS/apps/deployy/xbin.json"
+cat > "$WS/apps/deployy/index.html" <<'EOF'
+<!doctype html><meta charset="utf-8"><title>deployy</title>
+<p id="v">deployy: the seeded page</p>
+EOF
+api POST /grants '{"from":"apps/deployy","target":"apps/leads","role":"reader"}'
 # an http provider with a deliberately long path + a consumer with a multi
 # slot — the tile-admin window's overflow case (D56)
 LONG=apps/a-provider-with-a-deliberately-long-component-path-for-overflow

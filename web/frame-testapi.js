@@ -8,8 +8,15 @@
  */
 import { launcherItems, openHistory, resumeHistory } from '/vendor/frame-launcher.js';
 
+// The layouts the window's layout switcher offers, in bar order: the values
+// open(layout) takes, one `.lyt` button each (frame-titlebar.js layoutGroup).
+// A pass compares the bar against this instead of a magic number; the change
+// that adds a layout button adds its name here.
+const LAYOUTS = ['term', 'code', 'split', 'logs', 'prs'];
+
 export function testApi(f) {
   return {
+    get layouts() { return [...LAYOUTS]; },
     get iframe() { return f._iframe; },
     get hovered() { return f.hovered; },
     setHover(v) { f._hover = !!v; },
