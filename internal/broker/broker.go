@@ -136,8 +136,8 @@ func (b *Broker) Close() {
 	if b.disk != nil {
 		b.disk.close()
 	}
-	if b.kv != nil && b.kv.db != nil {
-		_ = b.kv.db.Close()
+	if b.kv != nil {
+		b.kv.close() // kv.db and every namespace's file (deploydata.go)
 	}
 }
 
@@ -187,10 +187,10 @@ func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, erro
 func (b *Broker) scopeDiskUsage() map[string]int64 {
 	out := map[string]int64{}
 	measure := func(scope string) {
-		key := util.ScopeKey(scope)
-		plain, _ := dirUsage(filepath.Join(b.Reg.Root, "data", "resources", key))
-		enc, _ := dirUsage(filepath.Join(b.Reg.Root, "data", "resources-enc", key))
-		out[key] = plain + enc
+		k, _ := scopeKeys(scope, util.MainDeployment) // main's keys: never an error
+		plain, _ := dirUsage(filepath.Join(b.Reg.Root, filepath.FromSlash(k.Plain)))
+		enc, _ := dirUsage(filepath.Join(b.Reg.Root, filepath.FromSlash(k.Enc)))
+		out[k.Quota] = plain + enc
 	}
 	measure("")
 	for scope := range b.Reg.Scopes() {
@@ -323,18 +323,11 @@ func (p brokerPolicy) CodeReadGrant(from, target string) bool {
 
 // --- resource identity -------------------------------------------------
 
-// resTarget is a parsed "res:<scope>/<name>" grant target.
+// resTarget is a parsed "res:<scope>/<name>" grant target; its String and
+// every physical key are in deploydata.go.
 type resTarget struct {
 	Scope string // scope path; "" = workspace
 	Name  string
-}
-
-func (rt resTarget) String() string {
-	s := rt.Scope
-	if s == "" {
-		s = "workspace"
-	}
-	return "res:" + s + "/" + rt.Name
 }
 
 // parseRes resolves "res:apps/calendar/db" against declared scopes: the
@@ -730,7 +723,8 @@ func (b *Broker) TileDiskStatus(component string) (usage, quota int64, blocked b
 	if c, ok := b.Reg.Component(component); ok {
 		scope = c.Scope
 	}
-	return b.disk.Status(util.ScopeKey(scope))
+	k, _ := scopeKeys(scope, util.MainDeployment)
+	return b.disk.Status(k.Quota)
 }
 
 // TileAlerts returns the alerts relevant to one component (its own tile-scoped

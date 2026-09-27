@@ -45,7 +45,14 @@ func (b *Broker) archiveProvider(comp string) string {
 func backupKey(comp string) string { return util.CompKey(comp) }
 
 func (b *Broker) resourcesRoot(scope string) string {
-	return filepath.Join(b.Reg.Root, "data", "resources", util.ScopeKey(scope))
+	k, _ := scopeKeys(scope, util.MainDeployment) // main's keys: never an error
+	return filepath.Join(b.Reg.Root, filepath.FromSlash(k.Plain))
+}
+
+// scopeDataKey is scope's data key in main, as the D118 refusals name it.
+func scopeDataKey(scope string) string {
+	k, _ := scopeKeys(scope, util.MainDeployment)
+	return k.DirKey
 }
 
 func (b *Broker) termDir(comp string) string {
@@ -131,24 +138,28 @@ func (b *Broker) writeScopeData(bw *backup.Writer, scopePath string, scope *regi
 	}
 	kv := map[string]map[string]string{} // resource -> {key: base64(value)}
 	for name, res := range scope.Resources {
+		k, err := b.resKeys(resTarget{Scope: scopePath, Name: name}, util.MainDeployment)
+		if err != nil {
+			return err
+		}
 		switch res.Type {
 		case "sqlite":
 			// sqlite is a gocryptfs mount dir like filesystem (it holds the db,
 			// but a tile may keep other files there too — e.g. use it as $HOME),
 			// so back up the whole decrypted dir, not just <name>.sqlite*.
-			if err := bw.Tree(backup.SQLitePrefix+name+"/", b.fsResPath(scopePath, name, false), nil); err != nil {
+			if err := bw.Tree(backup.SQLitePrefix+name+"/", b.resMount(k, false), nil); err != nil {
 				return err
 			}
 		case "filesystem":
-			if err := bw.Tree(backup.FSPrefix+name+"/", b.fsResPath(scopePath, name, false), nil); err != nil {
+			if err := bw.Tree(backup.FSPrefix+name+"/", b.resMount(k, false), nil); err != nil {
 				return err
 			}
 		case "blob":
-			if err := bw.Tree(backup.BlobPrefix+name+"/", b.fsResPath(scopePath, name, false), nil); err != nil {
+			if err := bw.Tree(backup.BlobPrefix+name+"/", b.resMount(k, false), nil); err != nil {
 				return err
 			}
 		case "kv":
-			kv[name] = b.dumpKV("res:" + scopePath + "/" + name)
+			kv[name] = b.dumpKV(k)
 		}
 	}
 	if len(kv) > 0 {
@@ -175,21 +186,23 @@ func addFile(bw *backup.Writer, tarName, osPath string) error {
 	return bw.Stream(tarName, 0o644, fi.Size(), f)
 }
 
-// dumpKV reads every key of one kv bucket into {key: base64(value)}.
-func (b *Broker) dumpKV(bucket string) map[string]string {
+// dumpKV reads every key of one kv resource's bucket into {key:
+// base64(value)}.
+func (b *Broker) dumpKV(rk resKeys) map[string]string {
 	out := map[string]string{}
-	if b.kv == nil {
+	db, err := b.kvDB(rk, false)
+	if err != nil || db == nil {
 		return out
 	}
-	_ = b.kv.db.View(func(tx *bolt.Tx) error {
-		bk := tx.Bucket([]byte(bucket))
+	_ = db.View(func(tx *bolt.Tx) error {
+		bk := tx.Bucket([]byte(rk.Bucket))
 		if bk == nil {
 			return nil
 		}
 		return bk.ForEach(func(k, v []byte) error {
 			// Store decrypted values so the tar is plaintext (constraint: the
 			// archiver, not the tar, is responsible for encryption).
-			pv, err := b.decodeKV(bucket, append([]byte(nil), v...))
+			pv, err := b.decodeKV(rk.KVLabel, append([]byte(nil), v...))
 			if err != nil {
 				return err // sealed / undecodable — abort the backup
 			}
@@ -334,16 +347,22 @@ func (b *Broker) restore(tile string, r io.Reader, put deploymentRestorer) (back
 // re-encrypted under the current vault. filesystem/sqlite/blob are all mount
 // dirs, so rest is always "<name>/<rel>".
 func (b *Broker) restoreFileDest(scope, rest string) (string, error) {
+	if err := archivedScopeOK(scope); err != nil {
+		return "", err
+	}
 	if !b.Reg.HoldsScopeKey(scope) {
 		// Another scope holds this data key (D118): its volume isn't ours to write.
-		return "", fmt.Errorf("scope %s doesn't hold its resource data key %q — its data isn't restored", scope, util.ScopeKey(scope))
+		return "", fmt.Errorf("scope %s doesn't hold its resource data key %q — its data isn't restored", scope, scopeDataKey(scope))
 	}
-	scopeKey := util.ScopeKey(scope)
 	name, rel, _ := strings.Cut(rest, "/")
 	if !registry.ValidResourceName(name) { // the archive names it (D118)
 		return "", fmt.Errorf("backup entry names resource %q, which isn't a valid resource name", name)
 	}
-	mdir, err := b.resenc.Ensure(resLabel(scopeKey, name), scopeKey, name,
+	k, err := b.resKeys(resTarget{Scope: scope, Name: name}, util.MainDeployment)
+	if err != nil {
+		return "", err
+	}
+	mdir, err := b.resenc.Ensure(k.FSLabel, k.DirKey, k.Name,
 		b.resSingleTenant(scope, b.resType(scope, name)))
 	if err != nil {
 		return "", err
@@ -355,9 +374,12 @@ func (b *Broker) loadKV(scope string, body []byte) error {
 	if b.kv == nil {
 		return nil
 	}
+	if err := archivedScopeOK(scope); err != nil {
+		return err
+	}
 	if !b.Reg.HoldsScopeKey(scope) {
 		// A scope at "workspace" would write the workspace-level buckets (D118).
-		return fmt.Errorf("scope %s doesn't hold its resource data key %q — its data isn't restored", scope, util.ScopeKey(scope))
+		return fmt.Errorf("scope %s doesn't hold its resource data key %q — its data isn't restored", scope, scopeDataKey(scope))
 	}
 	var dump map[string]map[string]string
 	if err := json.Unmarshal(body, &dump); err != nil {
@@ -368,10 +390,22 @@ func (b *Broker) loadKV(scope string, body []byte) error {
 			return fmt.Errorf("backup names kv resource %q, which isn't a valid resource name", name)
 		}
 	}
-	return b.kv.db.Update(func(tx *bolt.Tx) error {
+	keys := make(map[string]resKeys, len(dump))
+	for name := range dump {
+		k, err := b.resKeys(resTarget{Scope: scope, Name: name}, util.MainDeployment)
+		if err != nil {
+			return err
+		}
+		keys[name] = k
+	}
+	db, err := b.scopeKV(scope, util.MainDeployment, true) // main's: data/kv.db
+	if err != nil {
+		return err
+	}
+	return db.Update(func(tx *bolt.Tx) error {
 		for name, kvs := range dump {
-			bucket := "res:" + scope + "/" + name
-			bk, err := tx.CreateBucketIfNotExists([]byte(bucket))
+			rk := keys[name]
+			bk, err := tx.CreateBucketIfNotExists([]byte(rk.Bucket))
 			if err != nil {
 				return err
 			}
@@ -381,7 +415,7 @@ func (b *Broker) loadKV(scope string, body []byte) error {
 					return err
 				}
 				// Re-encode under the current vault (the tar held plaintext).
-				stored, err := b.encodeKV(bucket, v)
+				stored, err := b.encodeKV(rk.KVLabel, v)
 				if err != nil {
 					return err
 				}
@@ -392,6 +426,17 @@ func (b *Broker) loadKV(scope string, body []byte) error {
 		}
 		return nil
 	})
+}
+
+// archivedScopeOK refuses resource data an archive files under the
+// workspace scope: an archive carries data only for the scope its tile roots
+// (writeBackup), and the workspace's resources are no tile's, so such an
+// entry would write the workspace-level volumes or buckets.
+func archivedScopeOK(scope string) error {
+	if scope == "" {
+		return fmt.Errorf("the archive files resource data under the workspace scope, which no tile's archive holds — its data isn't restored")
+	}
+	return nil
 }
 
 func writeFileFrom(dst string, r io.Reader) error {
@@ -516,11 +561,11 @@ func (b *Broker) removeScopeData(comp string) error {
 	if !isRoot {
 		return nil
 	}
-	if b.kv != nil {
-		_ = b.kv.db.Update(func(tx *bolt.Tx) error {
+	if db, _ := b.scopeKV(comp, util.MainDeployment, false); db != nil { // main's: data/kv.db
+		_ = db.Update(func(tx *bolt.Tx) error {
 			for name, res := range scope.Resources {
-				if res.Type == "kv" {
-					_ = tx.DeleteBucket([]byte("res:" + comp + "/" + name))
+				if k, err := b.resKeys(resTarget{Scope: comp, Name: name}, util.MainDeployment); err == nil && res.Type == "kv" {
+					_ = tx.DeleteBucket([]byte(k.Bucket))
 				}
 			}
 			return nil

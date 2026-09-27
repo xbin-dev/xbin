@@ -93,7 +93,7 @@ func (b *Broker) resourceUsage(scope, name, typ, id string) ResourceInfo {
 		})
 	case "kv":
 		ri.Size, ri.Detail = b.cachedUsage(id, func() (int64, string) {
-			keys, size := b.kvUsage(id)
+			keys, size := b.kvUsage(resTarget{Scope: scope, Name: name})
 			return size, plural(keys, "key")
 		})
 	case "cron":
@@ -116,11 +116,15 @@ func (b *Broker) resourceUsage(scope, name, typ, id string) ResourceInfo {
 // data/resources/<key> layout. (blob file counts are ciphertext counts when
 // encrypted — a small gocryptfs-metadata skew.)
 func (b *Broker) fileResSize(scope, name, typ string) (int64, int) {
-	key := util.ScopeKey(scope)
-	if b.resenc != nil && b.resenc.Encrypted(key, name) {
-		return dirUsage(b.resenc.CipherDir(key, name))
+	k, err := b.resKeys(resTarget{Scope: scope, Name: name}, util.MainDeployment)
+	if err != nil {
+		return 0, 0 // a refused name: never provisioned
 	}
-	dir := filepath.Join(b.Reg.Root, "data", "resources", key)
+	if b.resenc != nil && b.resenc.Encrypted(k.DirKey, k.Name) {
+		return dirUsage(b.resenc.CipherDir(k.DirKey, k.Name))
+	}
+	sk, _ := scopeKeys(scope, util.MainDeployment)
+	dir := filepath.Join(b.Reg.Root, filepath.FromSlash(sk.Plain))
 	if typ == "sqlite" {
 		if fi, err := os.Stat(filepath.Join(dir, name+".sqlite")); err == nil {
 			return fi.Size(), 1
@@ -144,12 +148,17 @@ func dirUsage(dir string) (size int64, files int) {
 	return size, files
 }
 
-func (b *Broker) kvUsage(bucket string) (keys int, size int64) {
-	if b.kv == nil || b.kv.db == nil {
+func (b *Broker) kvUsage(rt resTarget) (keys int, size int64) {
+	k, err := b.resKeys(rt, util.MainDeployment)
+	if err != nil {
 		return 0, 0
 	}
-	_ = b.kv.db.View(func(tx *bolt.Tx) error {
-		bk := tx.Bucket([]byte(bucket))
+	db, err := b.kvDB(k, false)
+	if err != nil || db == nil {
+		return 0, 0
+	}
+	_ = db.View(func(tx *bolt.Tx) error {
+		bk := tx.Bucket([]byte(k.Bucket))
 		if bk == nil {
 			return nil
 		}

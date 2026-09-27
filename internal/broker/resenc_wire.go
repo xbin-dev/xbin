@@ -82,21 +82,31 @@ func (b *Broker) resType(scope, name string) string {
 
 // fsReady reports whether a file-backed resource can be served right now:
 // gocryptfs present, a vault configured + unsealed, and its mount up.
-func (b *Broker) fsReady(scopeKey, name string) bool {
+func (b *Broker) fsReady(k resKeys) bool {
 	return b.resenc != nil && b.resenc.Available() &&
 		b.barrier != nil && b.barrier.Initialized() && !b.barrier.Sealed() &&
-		b.resenc.Mounted(scopeKey, name)
+		b.resenc.Mounted(k.DirKey, k.Name)
 }
 
-// fsResPath returns the decrypted-mount path handed to a same-scope backend for
-// a filesystem/sqlite resource (blob uses it via blobAccess). sqlite points at
-// the .sqlite file inside the mount.
-func (b *Broker) fsResPath(scope, name string, sqlite bool) string {
-	dir := b.resenc.MountDir(util.ScopeKey(scope), name)
+// resMount returns the decrypted mount of a file-backed resource: the path
+// handed to a same-scope backend for a filesystem resource, and the one
+// blobAccess serves. With sqlite, the .sqlite file inside the mount.
+func (b *Broker) resMount(k resKeys, sqlite bool) string {
+	dir := b.resenc.MountDir(k.DirKey, k.Name)
 	if sqlite {
-		return filepath.Join(dir, name+".sqlite")
+		return filepath.Join(dir, k.Name+".sqlite")
 	}
 	return dir
+}
+
+// fsResPath is resMount of main's keys for scope's resource name: "" for a
+// name the key function refuses, which is never provisioned.
+func (b *Broker) fsResPath(scope, name string, sqlite bool) string {
+	k, err := b.resKeys(resTarget{Scope: scope, Name: name}, util.MainDeployment)
+	if err != nil {
+		return ""
+	}
+	return b.resMount(k, sqlite)
 }
 
 // EncryptionHold reports whether a component must be kept from spawning because
@@ -116,8 +126,8 @@ func (b *Broker) EncryptionHold(comp string) bool {
 		}
 		switch {
 		case fileBackedType(res.Type):
-			if !b.fsReady(util.ScopeKey(rt.Scope), rt.Name) {
-				return true
+			if k, err := b.resKeys(rt, util.MainDeployment); err != nil || !b.fsReady(k) {
+				return true // a refused name is never mounted
 			}
 		case res.Type == "kv":
 			if sealedVault {
@@ -137,9 +147,13 @@ func (b *Broker) MountEncrypted() {
 		return
 	}
 	b.forEachFileRes(func(scope, name, rtype string) {
-		scopeKey := util.ScopeKey(scope)
-		if _, err := b.resenc.Ensure(resLabel(scopeKey, name), scopeKey, name, b.resSingleTenant(scope, rtype)); err != nil {
-			slog.Error("resource encryption: mount failed", "res", resLabel(scopeKey, name), "err", err)
+		k, err := b.resKeys(resTarget{Scope: scope, Name: name}, util.MainDeployment)
+		if err != nil {
+			slog.Error("resource encryption: not mounted", "err", err) // a refused name (NP-08-11)
+			return
+		}
+		if _, err := b.resenc.Ensure(k.FSLabel, k.DirKey, k.Name, b.resSingleTenant(scope, rtype)); err != nil {
+			slog.Error("resource encryption: mount failed", "res", k.FSLabel, "err", err)
 		}
 	})
 }
@@ -189,7 +203,9 @@ func (b *Broker) forEachFileRes(fn func(scope, name, rtype string)) {
 // kv values carry a 1-byte storage tag so the store is self-describing and can
 // hold a mix of encrypted and (dev/insecure) plaintext values:
 //
-//	0x01 | nonce||ciphertext   — encrypted with DeriveKey("kv:<bucket>")
+//	0x01 | nonce||ciphertext   — encrypted with DeriveKey(<label>): the
+//	                             resource's resKeys.KVLabel, "kv:<bucket>" in
+//	                             main, the namespace's own beyond it
 //	0x00 | plaintext           — stored while no barrier was configured
 //	(anything else)            — legacy untagged plaintext (returned as-is)
 const (
@@ -197,11 +213,12 @@ const (
 	kvTagEnc   = 0x01
 )
 
-// encodeKV wraps a kv value for storage, encrypting it whenever a barrier is
-// configured. Returns vault.ErrSealed when the barrier is sealed.
-func (b *Broker) encodeKV(bucket string, val []byte) ([]byte, error) {
+// encodeKV wraps a kv value for storage under label (resKeys.KVLabel),
+// encrypting it whenever a barrier is configured. Returns vault.ErrSealed
+// when the barrier is sealed.
+func (b *Broker) encodeKV(label string, val []byte) ([]byte, error) {
 	if b.barrier != nil && b.barrier.Initialized() {
-		ct, err := b.barrier.EncryptFor("kv:"+bucket, val)
+		ct, err := b.barrier.EncryptFor(label, val)
 		if err != nil {
 			return nil, err
 		}
@@ -210,8 +227,9 @@ func (b *Broker) encodeKV(bucket string, val []byte) ([]byte, error) {
 	return append([]byte{kvTagPlain}, val...), nil
 }
 
-// decodeKV unwraps a stored kv value, decrypting when tagged encrypted.
-func (b *Broker) decodeKV(bucket string, raw []byte) ([]byte, error) {
+// decodeKV unwraps a kv value stored under label, decrypting when tagged
+// encrypted: a value moved to another resource or namespace fails closed.
+func (b *Broker) decodeKV(label string, raw []byte) ([]byte, error) {
 	if len(raw) == 0 {
 		return raw, nil
 	}
@@ -220,7 +238,7 @@ func (b *Broker) decodeKV(bucket string, raw []byte) ([]byte, error) {
 		if b.barrier == nil {
 			return nil, vault.ErrSealed
 		}
-		return b.barrier.DecryptFor("kv:"+bucket, raw[1:])
+		return b.barrier.DecryptFor(label, raw[1:])
 	case kvTagPlain:
 		return raw[1:], nil
 	default:
