@@ -556,6 +556,13 @@ Every card includes these; a card states only what differs.
   (record half).
 - **Links.** The record and the index → WP-14a, WP-14b, WP-18, WP-20, WP-22,
   WP-23b. PO-7, PO-8 (boot reads records, never rewrites them).
+  `Plane.Boot` runs inside boot's `stepRegistry`, after the registry hooks
+  and before `broker.New`'s first `Provision`, and an error from it stops
+  xbind (WP-06). Following 07-runtime §5.1, a tile whose record or
+  preparation fails, fails closed on its own: no inbound surface, no
+  backend, and a status that names the failure. So Boot returns an error
+  only for what no tile can survive, and one bad record never keeps xbind
+  down.
 
 #### WP-14a plane-authz · M · wave 1.1, merged after WP-13 · after WP-13
 - **Scope** (05-model §10; 11-contract §1.2; 06-security T9, C4; NP-14-3).
@@ -563,7 +570,7 @@ Every card includes these; a card states only what differs.
   `internal/auth/sessiongate.go:7`; manager acts through
   `Broker.MayManageDeployments`, never an element principal); view-as
   refusals; a `Recheck` the ops call at commit; the ship-dark switch
-  (NP-14-5); the op registry.
+  (NP-14-5), read as `Plane.OptInClosed` (§6.3); the op registry.
 - **Owns.** `internal/deployments/{authz,dispatch}.go`, unit tests.
 - **Tests.** `TestDeployAuthzMatrix` (M1 rows, and the manager column),
   `TestViewAsRefusedEveryOp` (M1 ops), `TestNoTerminalCannotOperate`,
@@ -586,7 +593,9 @@ Every card includes these; a card states only what differs.
   plane half of `TestNonIsolatedRefusesBackendDeployments`,
   `TestAuthorizationRecheckedAtCommit`, `TestDeployLogAudit`,
   `TestOptOutReturnsToZeroState` (plane), `TestDryRunsCreateNoStore`.
-- **Links.** Ops → WP-15. PO-7, PO-15.
+- **Links.** Ops → WP-15. PO-7, PO-15. The plane has no store field and
+  boot builds no store: WP-14b builds WP-10's lazy `Store` inside the plane
+  from `Plane.Root`, since `boot.go` is closed (NP-14-2).
 
 #### WP-15 plane-api · M · wave 1.2, merged after WP-14b · after WP-07
 - **Scope** (11-contract §1). Generic handlers: decode a route's body into its
@@ -663,7 +672,7 @@ Every card includes these; a card states only what differs.
   checkpoint's `scope.json`, read through `OpenBeneath` and validated (the
   resource-name charset), where the registry reads the work tree's today
   (`internal/registry/registry.go:447`); `Provision`
-  (`internal/broker/resources.go:36`, called at `internal/boot/serve.go:166`)
+  (`internal/broker/resources.go:36`, called at `internal/boot/serve.go:172`)
   provisions through the hook and keeps resources no longer declared.
   WP-05 declared the checkpoint's `scope.json` in two places, as the design
   gives it: `PinnedCode.Scope` (07-runtime §5.1) and the `ScopeResources`
@@ -703,10 +712,18 @@ Every card includes these; a card states only what differs.
 #### WP-20 watch-gate · M · wave 1.2 · after WP-06, WP-12, WP-13
 - **Scope** (07-runtime §6; NP-13-12). The pure `liveTargets` in
   `internal/boot/liveroute.go`; the six-line change in `watchLoop`
-  (`internal/boot/serve.go:161`, its loop at `:178-180`); while live reload
+  (`internal/boot/serve.go:167`, its loop at `:183-187`); while live reload
   is paused, a drift count debounced to one per tile every 2 s, and the
-  `deployments` op `work-tree`.
-- **Owns.** `internal/boot/{serve,liveroute}.go`, `liveroute_test.go`.
+  `deployments` op `work-tree`. `watchLoop` already receives the plane as
+  `dp` and doesn't read it (WP-06). `dp.LiveReload(tile) (dep, attached)` and
+  `dp.Primary` are `liveTargets`' `lr` and `primary`. `dp.WorkTreeMoved(tile)`
+  is the loop's notice for a paused tile that a batch touched, and the drift
+  count, its debounce and the op go behind it.
+- **Owns.** `internal/boot/{serve,liveroute}.go`, `liveroute_test.go`,
+  `internal/deployments/worktree.go`. WP-06 left a no-op `WorkTreeMoved` in
+  `plane.go`, which is WP-14b's file in this wave. At the wave's start the
+  integrator moves that method verbatim into `worktree.go`, and WP-20 fills
+  it there.
 - **Tests.** `TestReloadPlan`, `TestWatchLoopZeroStateNoStoreIO`,
   `TestPendingCountAfterDroppedBatch`, a 1 000-path batch benchmark within 5 %
   of today (07-runtime §13.1).
@@ -849,7 +866,10 @@ Every card includes these; a card states only what differs.
   the save-to-reload statements in `docs/overview/{01,03,04,09,14,15}-*.md`,
   `docs/index.md` and `docs/getting-started.md`; `workspace-template/AGENTS.md`;
   the builder page `docs/tile-deployments.md` (NP-14-10);
-  `TestDeploymentWording` (NP-15-9).
+  `TestDeploymentWording` (NP-15-9). `--tile-deployments=off` goes in
+  `docs/tile-deployments.md`, `docs/maintenance.md` and
+  `docs/overview/15-operations.md`, as §6.3 describes it (WP-06's hand-off;
+  `docs/config.md` already carries the generated row).
 - **Owns.** Those files, `internal/docscheck/wording_test.go`.
 - **Tests.** `TestDeploymentWording`, `TestRelativeLinksResolve`,
   `TestDecisionIDsResolve`, `TestEmbeddedAssets`.
@@ -866,9 +886,11 @@ Every card includes these; a card states only what differs.
   shared broker fixture of 15-test-plan §3.7, with a users store;
   `Runner.AtLimitTile(path) []LimitHit` in a new file, answering today's
   single-leaf `AtLimit(CompKey)`, with `stepLimitAlerts`
-  (`internal/boot/boot.go:434-461`, today `AtLimit(key)` at `:443`) switched
+  (`internal/boot/boot.go:457-484`, today `AtLimit(key)` at `:466`) switched
   to it so at-limit alerts survive the nested leaves; a `boot.go` amendment
-  installing the hooks.
+  installing the hooks, the runner's `LimitsFor` among them (P22). WP-06 left
+  `LimitsFor` nil, which keeps the installed caps. After WP-06, `boot.go` is
+  754 lines of its 800, so WP-30 has 46.
 - **Owns.** `internal/broker/{broker,deploydata}.go` (declarations),
   `internal/broker/deploy_fixture_test.go`, `internal/obs/obs.go`,
   `internal/term/target.go`, `internal/deployments/{plane,m2types}.go`,
@@ -1712,6 +1734,7 @@ which proves that no two WPs in one wave own the same file.
 | `internal/auth/deployment_test.go` | 0.2 WP-02 · 2.1 WP-32 |
 | `internal/registry/registry.go` | 0.3 WP-05 · 1.1 WP-18 |
 | `internal/deployments/plane.go` | 0.4 WP-06 · 1.1 WP-13 · 1.2 WP-14b · 2.0 WP-30 |
+| `internal/deployments/worktree.go` | 1.2 WP-20 |
 | `internal/deployments/authz.go` | 1.1 WP-14a · 2.2 WP-52 · 2.3 WP-53a |
 | `internal/broker/broker.go` | 0.3 WP-05 · 2.0 WP-30 · 2.1 WP-39 · 2.2 WP-47 |
 | `internal/broker/deploydata.go` | 2.0 WP-30 · 2.1 WP-39 |
@@ -1936,7 +1959,11 @@ export XBIN_FUSE_OVERLAYFS=/home/magik6k/buxon/bin/fuse-overlayfs
 
 The feature is opt-in per tile, so a tile that nobody opts in is untouched
 whatever ships. To ship the code with opting in closed, WP-06 adds one switch
-and WP-14a enforces it in the plane's single authorize function (NP-14-5):
+and WP-14a enforces it in the plane's single authorize function (NP-14-5).
+The switch is `Config.TileDeploys`: `--tile-deployments` or
+`XBIN_TILE_DEPLOYMENTS`, set to `on` or `off`, with empty meaning `on`
+(R-9). The plane reads it as `Plane.OptInClosed`, so a `Plane{}` literal in
+a test is open.
 - **Off:** `GET /deployments` lists no `features` and reports every
   `allowed` entry refused with kind `policy` and the reason; POSTs that would
   create or extend deployment state answer 409 with that reason; the terminal
