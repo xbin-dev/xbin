@@ -509,6 +509,15 @@ func (m *Manager) launch(k Key, d *Def, b *box, lim Limits, ops *modeOps) (err e
 		<-r.done
 		return &Error{Refusal: RefUnavailable, Msg: why, RetryAfter: time.Minute}
 	}
+	// Nor if the vault was sealed since its mounts were resolved: the seal
+	// stopped what ran then (§5), and b.run was nil — its bind would keep a
+	// decrypted view alive past the seal. (Sealed after b.run was set, the
+	// seal found it, and stops it after this flight.)
+	if len(r.mounts) > 0 && m.deps.Vault != nil && m.deps.Vault.Sealed() {
+		m.end(r, "the vault was sealed: stopped, state kept — start it again once the vault is unsealed")
+		<-r.done
+		return &Error{Refusal: RefUnavailable, Msg: "the vault was sealed while it started: its resources can't be mounted until it is unsealed", RetryAfter: 30 * time.Second}
+	}
 	if !r.attach(func() { r.ready = true; r.unlist = m.register(r) }) {
 		return fail("its agent", errEnded)
 	}

@@ -3834,6 +3834,14 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     `fill`). The harness `sandboxes` pass (41 PASS) was run against an
     xbind started and stopped by PID, not `run.sh`, whose `--stop` kills by
     pattern.
+  - *Verifier fixes.* A start that resolved its mounts before a seal and
+    registered its run after the seal's `StopWhere` looked (it had none
+    yet) came up running, its bind holding the view past `UnmountAll`: the
+    start's step 8 now re-checks `Vault.Sealed()` for a run with res mounts,
+    as it re-checks the kill switch, and ends it (503, "the vault was
+    sealed") — `TestSealDuringStart`. A measurement a delete overtook (the
+    du fails on the dir renamed into `.trash`) no longer logs a warning —
+    `TestMeasureOvertakenByDelete`.
 
 ### WP-20 — Snapshots and clones (wave 3 · M · after WP-8b, WP-15b, WP-16)
 

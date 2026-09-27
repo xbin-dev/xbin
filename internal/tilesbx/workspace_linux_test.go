@@ -6,7 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +28,9 @@ type wsFakes struct {
 	caps   map[string]bool
 	mounts map[string]MountSource
 	sealed bool
+	// resolved, if set, runs after ResourceMount answered (a start resolved
+	// its mounts), before the runtime acts on the answer.
+	resolved func()
 }
 
 func newWSFakes() *wsFakes {
@@ -57,8 +62,13 @@ func (f *wsFakes) Sealed() bool               { f.mu.Lock(); defer f.mu.Unlock()
 
 func (f *wsFakes) ResourceMount(tile, res string) (MountSource, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	if ms, ok := f.mounts[tile+" "+res]; ok {
+	ms, ok := f.mounts[tile+" "+res]
+	after := f.resolved
+	f.mu.Unlock()
+	if after != nil {
+		after()
+	}
+	if ok {
 		return ms, nil
 	}
 	return MountSource{}, errors.New("the tile doesn't hold " + res + ": declare it in uses")
@@ -294,6 +304,43 @@ func TestSealStopsMounted(t *testing.T) {
 	}
 }
 
+// A start that resolved its mounts before the vault was sealed, and was
+// still starting when the seal stopped what ran (it had no run yet), doesn't
+// come up running: its bind would keep a decrypted view alive past the
+// seal. It answers 503 and ends stopped, "the vault was sealed".
+func TestSealDuringStart(t *testing.T) {
+	f := newWSFakes()
+	fe := newFakeEnv(t, f.deps)
+	b := ns("m")
+	b["mounts"] = []map[string]any{{"res": "res:apps/mgr/work", "at": "/mnt/w"}}
+	fe.want(fe.do(mgr, "POST", "/sandboxes", b), http.StatusCreated, "")
+	entered, proceed := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	f.set(func(f *wsFakes) {
+		f.resolved = func() { once.Do(func() { close(entered); <-proceed }) } // resolved, the view still up
+	})
+	answer := make(chan *httptest.ResponseRecorder, 1)
+	go func() { answer <- fe.do(mgr, "POST", "/sandboxes/m/start", nil) }()
+	<-entered
+	// the seal: the barrier first, then the stop of what runs (nothing yet)
+	f.set(func(f *wsFakes) {
+		f.sealed = true
+		ms := f.mounts["apps/mgr res:apps/mgr/work"]
+		ms.Ready = false
+		f.mounts["apps/mgr res:apps/mgr/work"] = ms
+	})
+	fe.m.StopWhere(func(_ Key, d *Def) bool { return len(d.Mounts) > 0 }, "the vault was sealed: stopped, state kept")
+	close(proceed)
+	fe.want(<-answer, http.StatusServiceUnavailable, RefUnavailable)
+	if st, detail := fe.statusOf(kMgr, "m"); st != StateStopped || !strings.HasPrefix(detail, "the vault was sealed") {
+		t.Fatalf("a start the seal overtook: %s %q", st, detail)
+	}
+	if fe.runOf("m") != nil || fe.l.count() != 1 {
+		t.Fatalf("it runs, or never launched (%d)", fe.l.count())
+	}
+	fe.assertBookEmpty()
+}
+
 // §6.3: a stop measures the sandbox's state dir (a confined du), and a
 // running one is measured by the worker; a tile measured over
 // perTile.diskGiB while running has its largest running sandbox stopped.
@@ -501,6 +548,53 @@ func TestTrashBacklog(t *testing.T) {
 		t.Fatalf("backlog %d after the removal", n)
 	}
 }
+
+// A delete overtakes its stop's measurement: the du then fails on a state
+// dir that went to .trash under it. That is no disk trouble — nothing is
+// logged — while a du that fails on a sandbox still there warns.
+func TestMeasureOvertakenByDelete(t *testing.T) {
+	var logMu sync.Mutex
+	var logBuf strings.Builder
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(writerFunc(func(p []byte) (int, error) {
+		logMu.Lock()
+		defer logMu.Unlock()
+		return logBuf.Write(p)
+	}), nil)))
+	defer slog.SetDefault(prev)
+	logged := func() string { logMu.Lock(); defer logMu.Unlock(); return logBuf.String() }
+
+	entered, release := make(chan string, 4), make(chan struct{})
+	fe := newFakeEnv(t, func(o *Options) {
+		o.DiskUsage = func(_ context.Context, dir string) (int64, error) {
+			entered <- filepath.Base(dir)
+			<-release
+			return 0, errors.New("du " + dir + ": no such file or directory")
+		}
+	})
+	fe.create(ns("a"))
+	fe.create(ns("b"))
+	for _, name := range []string{"a", "b"} {
+		fe.want(fe.do(mgr, "POST", "/sandboxes/"+name+"/start", nil), http.StatusOK, "")
+	}
+	fe.want(fe.do(mgr, "POST", "/sandboxes/a/stop", nil), http.StatusOK, "")
+	<-entered // a's stop measurement runs, and waits
+	fe.want(fe.do(mgr, "DELETE", "/sandboxes/a", nil), http.StatusNoContent, "")
+	release <- struct{}{}
+	fe.want(fe.do(mgr, "POST", "/sandboxes/b/stop", nil), http.StatusOK, "")
+	<-entered // b's, still there
+	close(release)
+	fe.m.waitUsage()
+	if out := logged(); strings.Contains(out, "sandbox=a ") {
+		t.Fatalf("a deleted sandbox's failed measurement was logged:\n%s", out)
+	} else if !strings.Contains(out, "measuring its disk") || !strings.Contains(out, "sandbox=b ") {
+		t.Fatalf("a live sandbox's failed measurement wasn't logged:\n%s", out)
+	}
+}
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 
 // stateDir is k's sandbox's state dir.
 func (fe *fakeEnv) stateDir(k Key, name string) string {

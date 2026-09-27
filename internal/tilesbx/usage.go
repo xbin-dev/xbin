@@ -230,13 +230,13 @@ func (m *Manager) measure(ref usageRef) {
 		return
 	}
 	n, err := m.measureState(ref.k, d)
-	if err != nil {
-		slog.Warn("tile sandbox: measuring its disk", "tile", ref.k.Tile, "sandbox", ref.name, "err", err)
-	}
 	m.mu.Lock()
 	if m.live[ref.k][ref.name] != b {
 		m.mu.Unlock()
-		return // deleted meanwhile
+		return // deleted meanwhile: its state dir went to .trash under the du, which then fails — nothing to say
+	}
+	if err != nil {
+		slog.Warn("tile sandbox: measuring its disk", "tile", ref.k.Tile, "sandbox", ref.name, "err", err)
 	}
 	b.measured = m.now().UnixMilli() // a failure waits measureGap too
 	if err == nil {
