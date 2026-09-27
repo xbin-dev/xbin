@@ -229,6 +229,29 @@ ok('a command that went on as a job', cards[3].hl === '$ make serve &' && cards[
 await page.selectOption('#ssel', '+manage');
 await page.waitForSelector('#sbxdlg[open] .sbxrow');
 ok('Manage… opens the dialog, the picker keeps its value', (await page.$eval('#ssel', (el) => el.value)) === `${MGR}|web`);
+// a row: the name and its badges on the left, the actions one right-aligned
+// group beside them that wraps within itself (review: they wrapped onto a
+// second line under the name) — on a phone, the group under them
+const rowLayout = () => page.$$eval('#sbxdlg .sbxrow', (rows) => rows.map((row) => {
+  const box = (el) => el.getBoundingClientRect();
+  const hd = box(row.querySelector('.hd'));
+  const acts = row.querySelector('.acts');
+  const bs = [...row.querySelectorAll('.acts [data-act]')].map(box);
+  const r = box(row);
+  return { ref: row.dataset.ref, beside: !acts || bs.every((b) => b.left >= hd.right - 0.5), under: !acts || bs.every((b) => b.top >= hd.bottom - 0.5),
+    right: !acts || Math.abs(box(acts).right - r.right) < 1.5, inside: bs.every((b) => b.left >= r.left - 0.5 && b.right <= r.right + 0.5) };
+}));
+const bad = (rows, k) => rows.filter((x) => !x[k]).map((x) => x.ref).join(' ');
+let lay = await rowLayout();
+ok('rows: the actions beside the name, right-aligned', !bad(lay, 'beside') && !bad(lay, 'right') && !bad(lay, 'inside'), JSON.stringify(lay));
+if (process.env.SBX_SHOTS) await page.locator('#sbxdlg').screenshot({ path: `${process.env.SBX_SHOTS}/dialog-wide.png` });
+const wide = page.viewportSize();
+await page.setViewportSize({ width: 390, height: 800 });
+lay = await rowLayout();
+ok('on a phone: the actions under it, right-aligned, inside the row', !bad(lay, 'under') && !bad(lay, 'right') && !bad(lay, 'inside'), JSON.stringify(lay));
+ok('…and the dialog never scrolls sideways', await page.$eval('#sbxdlg .dlg-bd', (el) => el.scrollWidth <= el.clientWidth));
+if (process.env.SBX_SHOTS) await page.locator('#sbxdlg').screenshot({ path: `${process.env.SBX_SHOTS}/dialog-phone.png` });
+await page.setViewportSize(wide);
 const rowActs = (ref) => page.$$eval(`#sbxdlg .sbxrow[data-ref="${ref}"] [data-act]`, (els) => els.map((e) => e.dataset.act));
 ok('a stopped one of yours (active here: no "use"): start, archive, share, delete', (await rowActs(`${MGR}|web`)).join(',') === 'start,archive,team,delete',
   (await rowActs(`${MGR}|web`)).join(','));

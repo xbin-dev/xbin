@@ -213,9 +213,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   holds that you may neither use nor manage; a viewer is no longer offered
   New sandbox for the conversation. Binding a private sandbox into a
   conversation other people are in asks first (a sheet in the xbin app).
-  The Sandboxes list keeps its order while open. After a class edit the
-  open conversation's class badge, mixed warning and sandbox reasons
-  follow at once.
+  The Sandboxes list keeps its order while open, and lays a row out as its
+  name and badges with the actions one right-aligned group beside them
+  (under them on a phone) — they no longer wrap in under the name. After a
+  class edit the open conversation's class badge, mixed warning and
+  sandbox reasons follow at once.
 
 - **Admin console: runtime → sandboxes, and the sandbox in the component
   list** (D112, [isolation.md](isolation.md) §VM sandboxes). A new tab lists

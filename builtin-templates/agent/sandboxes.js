@@ -171,14 +171,17 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
   function rowTpl(r) {
     const facts = [r.manager, r.image, r.size, r.egressLabel, `owner: ${r.owner}`, r.lastLabel && `active ${r.lastLabel}`,
       r.bound ? `in ${r.bound} conversation${r.bound === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
+    // the name and its badges on the left; the actions one group on the
+    // right, wrapping within itself (under it on a phone); the facts below
     return html`<div class="sbxrow ${r.active ? 'on' : ''}" data-ref=${r.ref}>
-      <div class="l1"><b class="nm">${r.name}</b>
-        <span class="badge sbxst ${r.state}" title=${r.stateDetail}>${r.stateLabel}</span>
-        <span class="badge">${r.visLabel}</span>
-        ${r.where ? html`<span class="badge ${r.active ? 'sbxon' : ''}">${r.where}</span>` : nothing}
-        <span style="flex:1"></span>
-        ${r.actions.map((a) => html`<button class="btn btnsm ${a.danger ? 'rm' : 'ghost'}" data-act=${a.id} ?disabled=${!!dl.busy}
-          @click=${() => act(r, a)}>${a.label}</button>`)}</div>
+      <div class="l1">
+        <div class="hd"><b class="nm">${r.name}</b>
+          <span class="badge sbxst ${r.state}" title=${r.stateDetail}>${r.stateLabel}</span>
+          <span class="badge">${r.visLabel}</span>
+          ${r.where ? html`<span class="badge ${r.active ? 'sbxon' : ''}">${r.where}</span>` : nothing}</div>
+        ${r.actions.length ? html`<div class="acts">${r.actions.map((a) => html`<button class="btn btnsm ${a.danger ? 'rm' : 'ghost'}"
+          data-act=${a.id} ?disabled=${!!dl.busy} @click=${() => act(r, a)}>${a.label}</button>`)}</div>` : nothing}
+      </div>
       <div class="l2 muted">${facts}</div>
     </div>`;
   }
