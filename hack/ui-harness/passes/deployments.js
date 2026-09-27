@@ -405,6 +405,11 @@ async function stepEdges(X) {
   await waitPanel(S.page, (p, id) => p.edges.find((e) => e.id === id)?.value === 'block', EDGE.id, "sales1's row shows block");
   await waitPanel(A.page, (p, id) => p.edges.find((e) => e.id === id)?.value === 'block', EDGE.id, "dev1's row shows block too");
   check(((await stateOf(S.ctx)).body.edges || []).find((e) => e.id === EDGE.id)?.policy === 'block', 'the state holds the block');
+  // back to its default: an edge override keeps the record, so step 8's
+  // resume could never return the tile to the zero state
+  const back = await post(S.ctx, 'edge', { tile: TILE, edge: EDGE.id, policy: 'default' });
+  const e = ((await stateOf(S.ctx)).body.edges || []).find((x) => x.id === EDGE.id);
+  check(back.status === 200 && e && !e.set, `the edge goes back to its default (${back.status} ${JSON.stringify(e)})`);
 }
 
 async function salesPanel(X) {
