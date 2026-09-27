@@ -64,7 +64,10 @@ func (b *Broker) termDir(comp string) string {
 // writeBackup streams a component's backup tar into bw. Scope (owner decision,
 // LC-2): source + the scope's resource data (when the component roots its scope)
 // + the terminal env layer. Excludes the env layer (rebuilt), logs, and vault.
-func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component) error {
+// Its data is main's namespace, as main's code declares it, whichever
+// deployment is the primary; archives lists the deployment archives written
+// before it, which a tile with a record names in its manifest.
+func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component, archives map[string]string) error {
 	scope, isRoot := b.Reg.Scopes()[c.Path]
 	includes := []string{"source"}
 	m := backup.Manifest{
@@ -72,6 +75,7 @@ func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component) error {
 		XBinVersion: b.Version, Created: time.Now().UTC().Format(time.RFC3339),
 	}
 	if isRoot {
+		scope = b.mainDeclared(c.Path, scope)
 		m.Resources = map[string]string{}
 		for name, res := range scope.Resources {
 			m.Resources[name] = res.Type
@@ -93,7 +97,7 @@ func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component) error {
 	}
 	m.Includes = includes
 	dep := b.deploymentBackupFor(c.Path) // nil in the zero state (backup_deploy.go)
-	dep.section(&m)
+	dep.section(&m, archives)
 	if err := bw.Manifest(m); err != nil {
 		return err
 	}
@@ -236,18 +240,25 @@ func (b *Broker) cronJobsFor(comp string) []json.RawMessage {
 // in the manifest. Placement is purely manifest-driven (self-describing).
 // tile is the component the archive was fetched for: an archive carrying
 // deployment state is refused unless it is tile's, and that state is
-// settled through put before anything is written (backup_deploy.go).
+// settled through put before anything is written (backup_deploy.go). A
+// deployment archive is never a tile: POST /deployments/restore restores it.
 func (b *Broker) restore(tile string, r io.Reader, put deploymentRestorer) (backup.Manifest, error) {
 	br, err := backup.NewReader(r)
 	if err != nil {
 		return backup.Manifest{}, err
 	}
 	m := br.M
+	if m.DeploymentArchive() {
+		return m, fmt.Errorf("the archive holds deployment %q's data of %s, not a tile: restore it into a deployment (POST /deployments/restore)", m.Deployment, m.Component)
+	}
 	dep, err := newDeploymentRestore(b.Reg.Root, tile, m, put)
 	if err != nil {
 		return m, err
 	}
 	defer dep.close()
+	if dep != nil {
+		dep.putRegs = b.restoreRegistrations
+	}
 	root := b.Reg.Root
 	srcRoot := filepath.Join(root, filepath.FromSlash(m.Component))
 	termRoot := b.termDir(m.Component)
@@ -476,24 +487,45 @@ func (b *Broker) archiveDo(method, provider, apiPath string, body io.Reader) (in
 // doBackup builds a component's tar and PUTs it to its archiver, returning the
 // version the archiver assigned.
 func (b *Broker) doBackup(comp string) (string, error) {
+	v, _, err := b.backupTile(comp, false)
+	return v, err
+}
+
+// backupTile archives comp (08-data §11.1): first the deployment archives —
+// the primary's when it isn't main, and with every (an offload) each other
+// deployment's whose namespace holds data — then the main archive, which
+// lists them. It answers the main archive's version and theirs; a failed PUT
+// fails it before anything later is written.
+func (b *Broker) backupTile(comp string, every bool) (string, map[string]string, error) {
 	c, ok := b.Reg.Component(comp)
 	if !ok {
-		return "", fmt.Errorf("no such component %q", comp)
+		return "", nil, fmt.Errorf("no such component %q", comp)
 	}
 	provider := b.archiveProvider(comp)
 	if provider == "" {
-		return "", fmt.Errorf("no archiver bound — set one: bx bind %q %s=<archiver> (or bind '*' for a default)", comp, archiveSlot)
+		return "", nil, fmt.Errorf("no archiver bound — set one: bx bind %q %s=<archiver> (or bind '*' for a default)", comp, archiveSlot)
 	}
+	archives, err := b.putDeploymentArchives(c, provider, every)
+	if err != nil {
+		return "", nil, err
+	}
+	v, err := b.putArchive(provider, backupKey(comp), func(bw *backup.Writer) error { return b.writeBackup(bw, c, archives) })
+	return v, archives, err
+}
+
+// putArchive streams the tar write builds to provider under key, answering
+// the version the archiver assigned.
+func (b *Broker) putArchive(provider, key string, write func(*backup.Writer) error) (string, error) {
 	pr, pw := io.Pipe()
 	go func() {
 		bw := backup.NewWriter(pw)
-		err := b.writeBackup(bw, c)
+		err := write(bw)
 		if err == nil {
 			err = bw.Close()
 		}
 		pw.CloseWithError(err)
 	}()
-	code, resp, err := b.archiveDo("PUT", provider, "/archive/"+backupKey(comp), pr)
+	code, resp, err := b.archiveDo("PUT", provider, "/archive/"+key, pr)
 	if err != nil {
 		return "", err
 	}
@@ -508,22 +540,33 @@ func (b *Broker) doBackup(comp string) (string, error) {
 // doRestore fetches a version's tar from the archiver and unpacks it. version ""
 // means the latest.
 func (b *Broker) doRestore(comp, version string) (backup.Manifest, error) {
+	m, _, err := b.restoreTile(comp, version)
+	return m, err
+}
+
+// restoreTile is doRestore, then the deployment archives the main archive
+// lists, each into its deployment when that exists (listedRestore).
+func (b *Broker) restoreTile(comp, version string) (backup.Manifest, *listedRestore, error) {
 	provider := b.archiveProvider(comp)
 	if provider == "" {
-		return backup.Manifest{}, fmt.Errorf("no archiver bound for %q", comp)
+		return backup.Manifest{}, nil, fmt.Errorf("no archiver bound for %q", comp)
 	}
 	if version == "" {
 		version = "latest"
 	}
 	code, body, err := b.archiveDo("GET", provider, "/archive/"+backupKey(comp)+"/versions/"+version, nil)
 	if err != nil {
-		return backup.Manifest{}, err
+		return backup.Manifest{}, nil, err
 	}
 	if code >= 400 {
-		return backup.Manifest{}, fmt.Errorf("archiver %s: %s", provider, firstLine(string(body)))
+		return backup.Manifest{}, nil, fmt.Errorf("archiver %s: %s", provider, firstLine(string(body)))
 	}
 	b.StopBackendSafe(comp)
-	return b.restore(comp, bytes.NewReader(body), b.deploymentStateRestorer())
+	m, err := b.restore(comp, bytes.NewReader(body), b.deploymentStateRestorer())
+	if err != nil || m.Deployments == nil || len(m.Deployments.Archives) == 0 {
+		return m, nil, err
+	}
+	return m, b.restoreListed(comp, m.Deployments.Archives), nil
 }
 
 func (b *Broker) StopBackendSafe(comp string) {
@@ -537,12 +580,21 @@ func (b *Broker) StopBackendSafe(comp string) {
 // offload archives a component, then removes its local data (and, when full,
 // its source + terminal env layer). It NEVER removes anything before the archive
 // PUT is confirmed. full=false keeps source + term-env (LC-1: two depths).
+// Every deployment stops, and every data namespace of comp's deployments is
+// archived, under its write gate, before anything is removed (08-data
+// §11.5); beyond main only the kv files go, which a deployment archive holds
+// whole.
 func (b *Broker) offload(comp string, full bool) error {
 	b.StopBackendSafe(comp)
-	if _, err := b.doBackup(comp); err != nil {
+	defer b.gateNamespaces(comp)()
+	_, archived, err := b.backupTile(comp, true)
+	if err != nil {
 		return fmt.Errorf("archive before offload failed (nothing removed): %w", err)
 	}
 	if err := b.removeScopeData(comp); err != nil {
+		return err
+	}
+	if err := b.dropNamespaceKV(comp, archived); err != nil {
 		return err
 	}
 	if full {
@@ -561,6 +613,7 @@ func (b *Broker) removeScopeData(comp string) error {
 	if !isRoot {
 		return nil
 	}
+	scope = b.mainDeclared(comp, scope)
 	if db, _ := b.scopeKV(comp, util.MainDeployment, false); db != nil { // main's: data/kv.db
 		_ = db.Update(func(tx *bolt.Tx) error {
 			for name, res := range scope.Resources {
@@ -663,7 +716,7 @@ func (b *Broker) apiRestore(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(data)
 		return
 	}
-	m, err := b.doRestore(body.Component, body.Version)
+	m, listed, err := b.restoreTile(body.Component, body.Version)
 	if err != nil {
 		server.WriteError(w, http.StatusBadGateway, err.Error())
 		return
@@ -675,5 +728,9 @@ func (b *Broker) apiRestore(w http.ResponseWriter, r *http.Request) {
 	if b.OnStructureChange != nil {
 		b.OnStructureChange()
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "component": m.Component, "restored": m.Includes})
+	out := map[string]any{"ok": true, "component": m.Component, "restored": m.Includes}
+	if listed != nil { // the deployment archives the main archive lists: restored, or why not
+		out["deployments"] = listed
+	}
+	server.WriteJSON(w, http.StatusOK, out)
 }

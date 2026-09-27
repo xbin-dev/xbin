@@ -22,28 +22,42 @@ package broker
 // restore-only namespace refs/xbin/restored/ (so checkpoint GC keeps them,
 // and no current ref moves), and installs the record only when the tile has
 // none. All of that happens before the restore writes the tile's files.
+//
+// The main archive also carries the registration files of the tile's
+// deployments beyond main, which a restore validates row by row and merges
+// into the deployments that exist (backup_restore.go),
+// and names in its manifest the deployment archives the same backup wrote.
+// A deployment archive (schema 2, key .deployments.<TileKey>.<d>) holds one
+// deployment's data namespace, walked beneath each volume (08-data §11.1–
+// §11.3, §11.6).
 
 import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
+
+	bolt "go.etcd.io/bbolt"
 
 	"github.com/xbin-dev/xbin/internal/backup"
 	"github.com/xbin-dev/xbin/internal/confine"
 	"github.com/xbin-dev/xbin/internal/deployments"
 	"github.com/xbin-dev/xbin/internal/fsutil"
+	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -57,6 +71,8 @@ const (
 	maxPackedRefs     = 16 << 20 // packed-refs
 	maxArchivedRefs   = 1 << 16  // refs one archive may bring back
 	restoreCheckTime  = 10 * time.Minute
+	maxRegFile        = 1 << 20 // one registration file
+	maxArchivedRegs   = 256     // registration files one archive may bring back
 )
 
 // deploymentRestorer puts a validated deployment section back: the
@@ -82,8 +98,15 @@ func (b *Broker) deploymentStateRestorer() deploymentRestorer { return b.Restore
 // deploymentBackup is what a tile's main archive adds for its deployment
 // state; nil for a tile in the zero state.
 type deploymentBackup struct {
-	record []byte // data/deployments/<TileKey>.json, verbatim
-	store  string // data/checkpoints/<TileKey>.git; "" when the tile has none
+	record []byte    // data/deployments/<TileKey>.json, verbatim
+	store  string    // data/checkpoints/<TileKey>.git; "" when the tile has none
+	regs   []regFile // the registration files of its deployments beyond main
+}
+
+// regFile is one registration file of a deployment beyond main.
+type regFile struct {
+	dep, file string
+	data      []byte
 }
 
 // deploymentBackupFor reads tile's deployment state for its backup: the
@@ -106,6 +129,21 @@ func (b *Broker) deploymentBackupFor(tile string) *deploymentBackup {
 	if _, err := os.Lstat(filepath.Join(store, "HEAD")); err == nil {
 		db.store = store
 	}
+	_, names := b.deploymentsOf(tile)
+	for _, dep := range names {
+		for _, file := range registrationFileNames {
+			if dep == util.MainDeployment {
+				break // main's registrations are the manifest's rows, as today
+			}
+			switch data, err := b.readDeploymentFile(tile, dep, file); {
+			case err != nil:
+			case len(data) > maxRegFile:
+				slog.Warn("backup: a registration file too large to archive is left out", "tile", tile, "deployment", dep, "file", file)
+			default:
+				db.regs = append(db.regs, regFile{dep, file, data})
+			}
+		}
+	}
 	return db
 }
 
@@ -117,11 +155,11 @@ func (b *Broker) ownerRef(tile string) string {
 	return b.Users.Owner(tile)
 }
 
-// section fills m's deployment section. Nil-safe: a zero-state tile's
-// manifest keeps none.
-func (d *deploymentBackup) section(m *backup.Manifest) {
+// section fills m's deployment section, listing the deployment archives
+// the same backup wrote. Nil-safe: a zero-state tile's manifest keeps none.
+func (d *deploymentBackup) section(m *backup.Manifest, archives map[string]string) {
 	if d != nil {
-		m.Deployments = &backup.Deployments{Record: true, Checkpoints: d.store != ""}
+		m.Deployments = &backup.Deployments{Record: true, Checkpoints: d.store != "", Archives: archives}
 	}
 }
 
@@ -138,13 +176,20 @@ func (d *deploymentBackup) write(bw *backup.Writer) error {
 	if err := bw.File(backup.RecordName, 0o600, d.record); err != nil {
 		return err
 	}
-	if d.store == "" {
-		return nil
+	if d.store != "" {
+		if err := bw.TreeBeneath(backup.CheckpointsPrefix, d.store, storeRefsMember); err != nil {
+			return err
+		}
+		if err := bw.TreeBeneath(backup.CheckpointsPrefix, d.store, storeObjectsMember); err != nil {
+			return err
+		}
 	}
-	if err := bw.TreeBeneath(backup.CheckpointsPrefix, d.store, storeRefsMember); err != nil {
-		return err
+	for _, r := range d.regs {
+		if err := bw.File(backup.RegistrationsPrefix+r.dep+"/"+r.file, 0o600, r.data); err != nil {
+			return err
+		}
 	}
-	return bw.TreeBeneath(backup.CheckpointsPrefix, d.store, storeObjectsMember)
+	return nil
 }
 
 var (
@@ -191,6 +236,8 @@ type deploymentRestore struct {
 	ignored []string          // archived store paths never restored: config, hooks/, info/, alternates, …
 	late    int               // deployment entries after the first other member: never used
 	settled bool
+	regs    []regFile                         // registration files, put back once the record is settled
+	putRegs func(tile string, regs []regFile) // the broker's registration restore; nil: left out
 }
 
 // newDeploymentRestore starts the restore of m's deployment section into
@@ -234,6 +281,18 @@ func (d *deploymentRestore) entry(name string, r io.Reader) error {
 		return nil
 	case strings.HasPrefix(name, backup.CheckpointsPrefix):
 		return d.storeEntry(strings.TrimPrefix(name, backup.CheckpointsPrefix), r)
+	case strings.HasPrefix(name, backup.RegistrationsPrefix):
+		dep, file, _ := strings.Cut(strings.TrimPrefix(name, backup.RegistrationsPrefix), "/")
+		if dep == util.MainDeployment || !util.DeploymentNameOK(dep) || !slices.Contains(registrationFileNames, file) ||
+			len(d.regs) == maxArchivedRegs {
+			break
+		}
+		data, err := readCapped(r, maxRegFile)
+		if err != nil {
+			return fmt.Errorf("the archive's registration file %s: %w", name, err)
+		}
+		d.regs = append(d.regs, regFile{dep, file, data})
+		return nil
 	}
 	d.ignored = append(d.ignored, name) // sections this xbind doesn't know
 	return nil
@@ -318,11 +377,22 @@ func (d *deploymentRestore) stageObject(rel string, r io.Reader) error {
 // their checks. A record this xbind can't use otherwise (a newer schema, a
 // broken invariant) isn't installed, and the rest goes on. Without a
 // restorer only the record's tile is checked: nothing else would be used.
-// Nil-safe.
+// Then the registration files go back, into the deployments that exist
+// once the record is settled. Nil-safe.
 func (d *deploymentRestore) settle() error {
 	if d == nil || d.settled {
 		return nil
 	}
+	if err := d.settleState(); err != nil {
+		return err
+	}
+	if d.putRegs != nil && len(d.regs) > 0 {
+		d.putRegs(d.tile, d.regs)
+	}
+	return nil
+}
+
+func (d *deploymentRestore) settleState() error {
 	d.settled = true
 	var record []byte
 	if d.record != nil {
@@ -504,6 +574,94 @@ func checkArchivedRefs(ctx context.Context, stage string, refs map[string]string
 var fsckContentPolicy = []string{
 	"-c", "fsck.gitmodulesBlob=ignore", "-c", "fsck.gitmodulesLarge=ignore", "-c", "fsck.gitmodulesName=ignore",
 	"-c", "fsck.gitmodulesPath=ignore", "-c", "fsck.gitmodulesSymlink=ignore", "-c", "fsck.gitmodulesUrl=ignore",
+}
+
+// ---- deployment archives ----
+
+// archiveKey is deployment dep of tile's archive key (08-data §11.3):
+// main's is today's CompKey; any other's is .deployments.<TileKey>.<d>,
+// which no CompKey equals (none starts with "."), split by its dots (neither
+// part holds one), and one path segment, so the archiver never lists two
+// keys together.
+func archiveKey(tile, dep string) string {
+	if dep == util.MainDeployment {
+		return backupKey(tile)
+	}
+	return ".deployments." + util.TileKey(tile) + "." + dep
+}
+
+// writeDeploymentArchive streams deployment dep's data archive of the scope
+// root tile c: a schema-2 manifest naming dep, then the data of every
+// resource dep's namespace declares, as a main archive lays data out. It
+// holds nothing else: no source, terminal layer, registrations or vault.
+func (b *Broker) writeDeploymentArchive(bw *backup.Writer, c *registry.Component, dep string) error {
+	if b.vaultSealed() {
+		return fmt.Errorf("vault sealed — unseal before backing up encrypted resources")
+	}
+	declared, err := b.declaredIn(c.Path, dep)
+	if err != nil {
+		slog.Warn("backup: resources left out of a deployment archive", "tile", c.Path, "deployment", dep, "err", err)
+	}
+	m := backup.Manifest{Schema: backup.SchemaDeployment, Component: c.Path, Deployment: dep, Scope: c.Path, ScopeRoot: true,
+		Resources: map[string]string{}, XBinVersion: b.Version, Created: time.Now().UTC().Format(time.RFC3339),
+		Includes: []string{"data"}}
+	for name, res := range declared {
+		m.Resources[name] = res.Type
+	}
+	if err := bw.Manifest(m); err != nil {
+		return err
+	}
+	kv := map[string]map[string]string{}
+	for _, name := range slices.Sorted(maps.Keys(declared)) {
+		k, err := b.resKeys(resTarget{Scope: c.Path, Name: name}, dep)
+		if err != nil {
+			return err
+		}
+		switch typ := declared[name].Type; {
+		case typ == "kv":
+			if kv[name], err = b.dumpNSKV(k); err != nil {
+				return fmt.Errorf("%s's %s: %w", dep, name, err)
+			}
+		case fileBackedType(typ) && b.resenc.Encrypted(k.DirKey, k.Name): // a volume never written holds nothing
+			if !b.ensureVolume(k, c.Path, typ) {
+				return fmt.Errorf("%s's %s can't be mounted to be archived", dep, name)
+			}
+			prefix := map[string]string{"sqlite": backup.SQLitePrefix, "filesystem": backup.FSPrefix, "blob": backup.BlobPrefix}[typ]
+			if err := bw.TreeBeneath(prefix+name+"/", b.resMount(k, false), nil); err != nil { // never follows a link out (§11.6)
+				return err
+			}
+		}
+	}
+	if len(kv) == 0 {
+		return nil
+	}
+	j, _ := json.Marshal(kv)
+	return bw.File(backup.KVName, 0o644, j)
+}
+
+// dumpNSKV reads one kv resource of a namespace beyond main as dumpKV does,
+// but a value that doesn't decode fails the archive instead of leaving it
+// out.
+func (b *Broker) dumpNSKV(k resKeys) (map[string]string, error) {
+	out := map[string]string{}
+	db, err := b.kvDB(k, false)
+	if err != nil {
+		return nil, err
+	}
+	return out, kvView(db, func(tx *bolt.Tx) error {
+		bk := tx.Bucket([]byte(k.Bucket))
+		if bk == nil {
+			return nil
+		}
+		return bk.ForEach(func(key, v []byte) error {
+			pv, err := b.decodeKV(k.KVLabel, append([]byte(nil), v...))
+			if err != nil {
+				return err
+			}
+			out[string(key)] = base64.StdEncoding.EncodeToString(pv)
+			return nil
+		})
+	})
 }
 
 // ---- small helpers ----
