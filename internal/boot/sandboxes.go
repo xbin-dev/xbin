@@ -80,14 +80,17 @@ type vmView struct {
 	UsedBy    map[string]vm.Usage `json:"usedBy"`
 }
 
-// sandboxDisk is a VM terminal disk on the host.
+// sandboxDisk is a VM disk on the host: a tile's terminal layer's (kind
+// terminal) or a tile sandbox's (kind tile, with its sandbox's name). Both
+// carry the tile's key, so both map to their tile the same way.
 type sandboxDisk struct {
 	vm.Disk
 	Tile  string `json:"tile,omitempty"` // "" = no tile has that key now
 	InUse bool   `json:"inUse"`
 }
 
-// disks are listed at most every 15 s (a glob and a stat per tile).
+// disks are listed at most every 15 s (a glob and a stat per disk, over the
+// terminal layers and the tile sandboxes).
 var sandboxDisks struct {
 	sync.Mutex
 	at   time.Time

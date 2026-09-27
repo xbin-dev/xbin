@@ -274,7 +274,8 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
       <table class="sbx">
         <tr><th>tile</th><th>size</th><th>on disk</th><th>in use</th><th>path</th></tr>
         ${disks.map((d) => html`<tr data-sbx-disk=${d.key}>
-          <td class="mono">${d.tile || html`<span class="muted" title="no tile has this key now (deleted or renamed)">${d.key}</span>`}</td>
+          <td class="mono">${d.tile || html`<span class="muted" title="no tile has this key now (deleted or renamed)">${d.key}</span>`}${d.sandbox
+            ? html` <span class="muted" title="a tile sandbox's disk" data-sbx-disk-sandbox=${d.sandbox}>· sandbox ${d.sandbox}</span>` : nothing}</td>
           <td class="num">${fmtBytes(d.apparentBytes)}</td>
           <td class="num" title="sparse: what it takes on the host">${fmtBytes(d.allocatedBytes)}</td>
           <td>${d.inUse ? '✓' : html`<span class="muted">—</span>`}</td>
