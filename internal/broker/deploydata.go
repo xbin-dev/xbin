@@ -170,6 +170,7 @@ func (b *Broker) removeDeploymentFile(tile, dep, file string) error {
 // (server.PrimaryPolicy), and the deployment a principal's request reaches
 // for the planes that bind a credential to one (the D4 mint, renewal).
 var _ server.PrimaryPolicy = brokerPolicy{}
+var _ server.AddressedPolicy = brokerPolicy{} // mayMintFrameToken never crosses deployments (WP-36)
 
 func (p brokerPolicy) Primary(tile string) string { return p.b.primaryOf(tile) }
 
