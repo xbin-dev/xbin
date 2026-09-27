@@ -105,12 +105,11 @@ func TestOpenAPIDeploymentRows(t *testing.T) {
 	// until this xbind reads it, and no longer once it does (§4.3 step 5).
 	withParam := [][2]string{
 		{"GET", "/tile-status"}, {"GET", "/logs"}, {"GET", "/frame-token"},
-		{"GET", "/sandboxes"},
 		{"GET", "/cron/jobs"}, {"PUT", "/cron/jobs"}, {"DELETE", "/cron/jobs/{name}"},
 		{"GET", "/bus/subscriptions"}, {"PUT", "/bus/subscriptions"}, {"DELETE", "/bus/subscriptions/{name}"},
 	}
 	builtParam := map[[2]string]bool{
-		{"POST", "/term/sessions"}: true, {"POST", "/term/sessions/{id}/restart"}: true,
+		{"POST", "/term/sessions"}: true, {"POST", "/term/sessions/{id}/restart"}: true, {"GET", "/sandboxes"}: true,
 		{"GET", "/vault/{component}"}: true, {"GET", "/vault/{component}/{key}"}: true,
 		{"PUT", "/vault/{component}/{key}"}: true, {"DELETE", "/vault/{component}/{key}"}: true,
 	}
@@ -149,7 +148,7 @@ func TestOpenAPIDeploymentRows(t *testing.T) {
 	note := strings.TrimSpace(reservedField)
 	for _, r := range [][2]string{
 		{"GET", "/backends"}, {"GET", "/runtime"},
-		{"GET", "/whoami"}, {"GET", "/sandboxes"},
+		{"GET", "/whoami"},
 		{"GET", "/cron/jobs"}, {"PUT", "/cron/jobs"}, {"GET", "/bus/subscriptions"}, {"PUT", "/bus/subscriptions"},
 		{"POST", "/tile-report"}, {"POST", "/notify"}, {"PUT", "/iface-instances"},
 		{"PUT", "/ingress-hosts"},
@@ -158,7 +157,7 @@ func TestOpenAPIDeploymentRows(t *testing.T) {
 			t.Errorf("%s %s: no reserved field note", r[0], r[1])
 		}
 	}
-	for _, r := range [][2]string{{"GET", "/term/sessions"}, {"GET", "/status"}, {"GET", "/agent/history"}, {"POST", "/grants"}} {
+	for _, r := range [][2]string{{"GET", "/term/sessions"}, {"GET", "/status"}, {"GET", "/agent/history"}, {"POST", "/grants"}, {"GET", "/sandboxes"}} {
 		if o := op(r[0], r[1]); o != nil && (strings.Contains(o["description"].(string), note) || !strings.Contains(o["description"].(string), "deployment")) {
 			t.Errorf("%s %s: its deployment field is built: noted in plain prose, not as reserved", r[0], r[1])
 		}
