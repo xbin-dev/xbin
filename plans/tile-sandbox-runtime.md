@@ -2739,6 +2739,72 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     them through `CopyTree`; copying onto a filesystem that refuses
     `user.*` xattrs (tmpfs without `user_xattr`, where available) is an
     error, not a silent drop.
+- **As built (branch `p2/wp8b`) — notes and deviations:**
+  - **On disk, a parent's leaves keep the `comp-` prefix:** a Parent's
+    Manager names leaves exactly as the base one does, so the runtime's
+    leaf `sbx-<CK>-<name>` is `comp-tilesbx-<ws8>/comp-sbx-<CK>-<name>/`.
+    The registry's `Leaf` stays the name (`sbx-…`), as for `AddWith`.
+  - **`Parent`** keeps a parent a previous xbind left (leaves and all: the
+    runtime then runs the child's `Sweep("sbx-")`); a zero cap is written as
+    `max`, so a policy change can lift one; only `MemMax`/`PidsMax` apply
+    (a parent gets no `memory.high` or `cpu.*`). It enables `+cpu +memory
+    +pids`, one at a time if the base doesn't pass one on (cpu, say), and
+    **errors when memory can't be enabled** (a process left directly in the
+    dir, a broken delegation), and when `memory.max` can't be written;
+    `pids.max` is best-effort. WP-15a decides whether to run on without the
+    parent (a disabled child) and says so in the health view.
+  - **`SetLimits` now returns an `error`** (every existing call is a
+    statement, so nothing else changed): on a Parent's Manager it re-writes
+    `memory.max`/`pids.max` and reports a failed write; on the base it
+    stores the shared caps as before and returns nil.
+  - **`Prepare`** opens the leaf `O_RDONLY|O_DIRECTORY|O_CLOEXEC` and
+    shares `AddWith`'s stale-leaf rule (`makeLeaf`). WP-15a's `ENOSYS`/
+    `EINVAL` fallback can call `AddWith` on the same name right after: it
+    `rmdir`s the empty prepared leaf and makes it again.
+  - **`OOMKills`** counts the leaf's subtree (`memory.events` is
+    hierarchical), whichever limit was hit; the integration test shows a
+    parent-limit kill lands in the leaf's `oom_kill` with the leaf's own
+    `oom` at 0 and the parent's at 1.
+  - **For WP-15a/WP-19: the base Manager can't see a parent's leaves.**
+    `runner/stats.go` and `boot.sessionLimitAlerts` query registry leaves
+    through the base Manager (`Procs`, `Usage`, `AtLimit`); for tile rows
+    they must go through the tilesbx parent's Manager (e.g. `Deps.Cgroup`
+    held by the runtime and passed to the observers), or tile sandboxes get
+    no cgroup stats and no OOM/pids alerts.
+  - **A name collision, left as is:** the parent shares the base's
+    namespace with backend leaves (`comp-<CompKey>`). Only a tile at path
+    `tilesbx` can meet it, and only when the 8 hex of its `CompKey` hash
+    equal the workspace path's (2⁻³² per workspace); then the two share one
+    cgroup dir (`Parent` fails while the backend runs in it).
+  - **`CopyTree`** runs `cp -a --preserve=xattr --reflink=auto` in both
+    runs (the direct run used plain `-a` before). GNU cp: a busybox host
+    running without isolation would fail the direct copy, and nothing
+    copies trees without isolation (tile sandboxes need it).
+  - **Tests.** cgroup unit: `TestParent` (limits, controllers, a leftover
+    kept, the leaf inside, the parent's `Sweep` leaving `comp-sbx-foo` of
+    the base unkilled and in place, `SetLimits` on each, disabled, bad
+    names), `TestPrepare` (the fd is the leaf's dir and close-on-exec,
+    limits written, nothing joined, stale leaf, `OOMKills`). The
+    real-cgroupfs test gains a `TestMain` whose re-exec is a helper
+    (`fork`: forks `cat /proc/self/cgroup` at once and prints both;
+    `hog`: 1 GiB touched) and `TestParentOnCgroupfs`: both lines name the
+    prepared leaf under the parent, and a hog in a 1 GiB leaf under a
+    96 MiB parent (swap.max 0) is SIGKILLed; checked failing with
+    `UseCgroupFD: false` and with a 4 GiB parent. confine:
+    `TestCopyTreeXattrsDirect` (unit, linux), and in the integration file
+    `TestCopyTreeXattrs` (confined: `user.test`, a binary value,
+    `user.fuseoverlayfs.opaque`, `user.overlay.opaque`, two
+    `override_stat`s, exactly) and `TestCopyTreeRefusedXattrs`. **The
+    refusing filesystem is a FUSE loopback with `DisableXAttrs`** (go-fuse,
+    already a dependency; skips without FUSE), not tmpfs: tmpfs takes user
+    xattrs since Linux 6.6 (this box runs 7.1) and has no option to refuse
+    them. It checks direct and confined: a tree without xattrs copies onto
+    it; the xattr tree fails with cp's "setting attributes …: Operation not
+    supported"; with plain `-a` both runs pass silently (checked). The
+    direct subtest needs no rootfs, so CI runs it wherever the runner has
+    FUSE.
+  - No docs or changelog: nothing builder-visible uses any of it until
+    WP-15a/WP-20.
 
 #### WP-9b — Terminal-layer removals confined; offload-full holds the layer (B · S · now)
 
@@ -3338,7 +3404,8 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
   - The real-cgroupfs test (`internal/cgroup/leaf_integration_test.go`)
     needs a delegated cgroup holding only the test binary, so it isn't in
     `make integration`; run it with the `systemd-run --user --scope -p
-    Delegate=yes` recipe in its header (WP-8b extends it).
+    Delegate=yes` recipe in its header (`-test.run OnCgroupfs` takes both
+    WP-8's leaves test and WP-8b's parent + `UseCgroupFD` test).
   - No live isolated boot has exercised the base-GC wiring yet: a boot GC
     would release unpinned `.rootfs-*` siblings of the shared main
     checkout's rootfs, so use a copied rootfs (WP-21's `test/isolated/`).
