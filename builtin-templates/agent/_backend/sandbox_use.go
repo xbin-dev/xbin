@@ -113,7 +113,7 @@ func (ag *Agent) sandboxUse(ctx context.Context, root int64, cfg Config, ref str
 		}
 	}
 	held := cfg.HeldInternal
-	if !held && !cl.has(tsInternal) {
+	if !held && !cl.has(tsInternal) && !cl.egress() { // (a class that reaches outside never works in a marked one: taintRefusal)
 		rc, err := ag.db.runConfig(root) // the root's, now: an earlier call may have set it
 		if err != nil {
 			return nil, err
