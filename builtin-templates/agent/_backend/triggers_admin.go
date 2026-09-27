@@ -164,12 +164,16 @@ func handleUpdateTrigger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	next.ID, next.Owner, next.Status, next.Created = tr.ID, tr.Owner, tr.Status, tr.Created
+	prev := tr
 	if _, named := patch["class"]; !named && normalizeToolset(next.Toolset) != normalizeToolset(tr.Toolset) {
-		next.Class = "" // a legacy lane switch names its built-in; an echoed lane keeps the class
+		// a legacy lane switch names its built-in, picked (and checked) as a
+		// new class is — even when the class already is that built-in, saved
+		// while an edit had it in the other lane; an echoed lane keeps the class
+		next.Class, prev = "", nil
 	}
 	_, switched := patch["enabled"]
 	if !switched || len(patch) != 1 {
-		if msg := next.validate(tr); msg != "" {
+		if msg := next.validate(prev); msg != "" {
 			xbin.WriteError(w, 400, msg)
 			return
 		}

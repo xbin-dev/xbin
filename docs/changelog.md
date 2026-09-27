@@ -194,7 +194,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   into a class that is mixed now is refused (`reason: "class-mixed"`). A
   trigger's `{enabled}` switch is never refused over its class, edits
   re-check the class rules only when the class, data class or delivery
-  change, and its lane stays the one it was saved in; a channel's rules
+  change, and its lane stays the one it was saved in — while a legacy
+  `{toolset}` that switches lanes always applies, naming that lane's
+  built-in (it was ignored when the class already was that built-in);
+  a channel's rules
   save while a class they name is gone. A conversation or schedule from
   before the lanes stays in the private lane whatever the built-in
   `internal` is edited into.

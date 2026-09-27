@@ -232,3 +232,39 @@ func TestTriggerSwitchSurvivesClassChanges(t *testing.T) {
 		t.Fatalf("naming a class that isn't: %d %s", w.Code, w.Body)
 	}
 }
+
+// A legacy lane switch always applies (review): a {toolset}-only edit that
+// switches lanes names that lane's built-in — also when the trigger's class
+// already is that built-in (saved while an edit had it in the other lane),
+// which used to leave the lane as it was, silently.
+func TestTriggerLaneSwitchApplies(t *testing.T) {
+	ag, mux := chanFixture(t)
+	storeClasses(t, ag, agentClass{ID: classWeb, Name: "Web", Toolsets: []string{tsFiles}}) // no egress: the private lane
+	tr := mkTrigger(t, mux, asAlice, map[string]any{"name": "news", "source": "push", "sourceRef": "apps/webhooks", "match": "news",
+		"goal": "g", "class": classWeb, "dataClass": "public"})
+	if tr.Class != classWeb || tr.Toolset != "private" {
+		t.Fatalf("saved while web was edited: %+v", tr)
+	}
+	storeClasses(t, ag) // the built-ins as they come
+	put := func(body map[string]any) Trigger {
+		t.Helper()
+		w := callAs(t, mux, asAlice, "PUT", fmt.Sprintf("/triggers/%d", tr.ID), body)
+		var out Trigger
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &out) != nil {
+			t.Fatalf("PUT %v: %d %s", body, w.Code, w.Body)
+		}
+		return out
+	}
+	if got := put(map[string]any{"toolset": "web"}); got.Class != classWeb || got.Toolset != "web" {
+		t.Fatalf("switched to the web lane: %+v", got)
+	}
+	// an echoed lane is no switch: the class and lane stay
+	if got := put(map[string]any{"toolset": "web", "goal": "g2"}); got.Class != classWeb || got.Toolset != "web" || got.Goal != "g2" {
+		t.Fatalf("an echo: %+v", got)
+	}
+	// and back: the private lane's built-in, checked like a new pick
+	if w := callAs(t, mux, asAlice, "PUT", fmt.Sprintf("/triggers/%d", tr.ID), map[string]any{"toolset": "private"}); w.Code != 200 ||
+		!strings.Contains(w.Body.String(), `"class":"internal"`) || !strings.Contains(w.Body.String(), `"toolset":"private"`) {
+		t.Fatalf("back to private: %d %s", w.Code, w.Body)
+	}
+}
