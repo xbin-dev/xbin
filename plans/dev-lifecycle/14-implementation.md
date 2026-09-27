@@ -2285,9 +2285,7 @@ M2 exit):
   ask `brk.DeployStoreRoom(tile)` and refuse with its 507 after a GC.
 - `bx deployment backup|backups|restore|backup-schedule` and
   `bx deployment purge` (WP-58's files).
-- WP-53a's follow-ups: the deployments pass's step 8 acts while the panel is
-  busy (`passes/deployments.js` `stepRestore` should wait for `!p.busy`);
-  `queue.go` marks only `pause` attempts identical, so a protect pin
+- WP-53a's follow-ups: `queue.go` marks only `pause` attempts identical, so a protect pin
   announces one needless reload; `cron.go`'s RunNow in-flight text differs
   from §1.14's; the state doesn't show `Unenforced(pr)`; T5 item 5's alwaysOn
   duplicate-connection warning needs vault-copy provenance.
@@ -2311,6 +2309,15 @@ M2 exit):
   5), where 11-contract's compat table says "fields, never rows". WP-50 keeps
   non-primary statuses in obs's map under `<tile>\x00<name>`, never listed
   (08-data §2 says "never in obs's statuses map").
+- Found at the wave 2.3 gate, fixed on their branches: the page's readers of
+  one deployments state URL queued on Chromium's per-URL cache lock (each
+  state reads the deploy log through a confined git, ~300 ms), so a
+  protect's refresh of the frame's store came seconds late (WP-56a: the
+  state and log fetches use `cache: 'no-store'`); the deployments pass
+  acted on a busy panel, picked step 4's roll back before the panel caught
+  up with step 3, and left step 5's edge override in place, which keeps the
+  record through step 8's resume (WP-56b). frame-info.js's origin read and
+  the shell's badge store (WP-57) still fetch the state through the cache.
 
 ### 3.2 Dependency graph
 
