@@ -148,17 +148,18 @@ func (r *Runner) reaper() {
 }
 
 // reapOnce stops every backend that has served nothing for idleReap: no
-// in-flight connection, not alwaysOn (its own code's, alwayson.go; only a
-// primary's exempts it, until non-primary deployments' switches, 07-runtime
-// §11). The next request restarts it lazily. The alwaysOn question may
-// resolve a deployment view, so it is asked outside the state's lock, and
-// the idleness checked again under it.
+// in-flight connection, not kept up by effective alwaysOn, which is per
+// deployment (keptUp, alwayson.go; 07-runtime §11: the primary's own code's
+// flag, a non-primary deployment's flag and its switch together). The next
+// request restarts it lazily. The alwaysOn question may resolve a deployment
+// view, so it is asked outside the state's lock, and the idleness checked
+// again under it.
 func (r *Runner) reapOnce() {
 	for _, s := range r.allStates("") {
 		s.mu.Lock()
 		comp, idle := s.comp, r.idle(s)
 		s.mu.Unlock()
-		if !idle || s.dep == r.primary(comp) && r.isAlwaysOn(comp) {
+		if !idle || r.keptUp(comp, s.dep) {
 			continue
 		}
 		s.mu.Lock()
@@ -208,11 +209,8 @@ func (r *Runner) watchGen(c *registry.Component, s *state, dep string, inst *ins
 			s.lastErr = crashLoopError(c.Path, dep, inst.served(), recent)
 			r.emit(c.Path, dep, "build-error", s.lastErr.Error())
 		} else {
-			s.dirty = true // transparent restart on the next request
-			// alwaysOn is the primary's (alwayson.go)
-			if dep == r.primary(c.Path) {
-				go r.afterExit(c)
-			}
+			s.dirty = true           // transparent restart on the next request
+			go r.afterExitOf(c, dep) // alwaysOn: each deployment's own (alwayson.go)
 		}
 	}()
 }
