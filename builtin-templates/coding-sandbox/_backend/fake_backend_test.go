@@ -340,6 +340,9 @@ func (f *fakeBackend) Create(ctx context.Context, spec xbin.SandboxSpec) (*xbin.
 				return nil, fkErr(http.StatusNotFound, "not-found", "no snapshot %s", spec.From.Snapshot)
 			}
 			src = sn.dir
+		} else if st := sb.info.State; st != "stopped" { // as xbind's runtime: it copies a stopped sandbox only
+			return nil, &xbin.SandboxError{Status: http.StatusConflict, Refusal: "state", State: st,
+				Message: fmt.Sprintf("sandbox %q is %s: a clone copies a stopped sandbox — stop it, or clone a snapshot of it", spec.From.Sandbox, st)}
 		}
 	}
 	root := f.Root

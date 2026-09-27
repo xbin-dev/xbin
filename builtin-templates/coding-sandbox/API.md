@@ -284,9 +284,10 @@ runtime (docs/protocol.md §Tile sandboxes): `*xbin.Sandboxes` and
   the sandbox's `stateDetail` `busy: …`. The manager waits each out
   (`_backend/settle.go`, polling while the caller waits), so the contract
   answers it done: an image's snapshot before its clones are made, a
-  consumer's snapshot `201`, a restore the sandbox restored. A clone of a
-  running sandbox without a `snapshot` is the runtime's `409 state`,
-  passed through ("stop it, or clone a snapshot of it").
+  consumer's snapshot `201`, a restore the sandbox restored. The runtime
+  clones only a stopped sandbox, or a snapshot: a clone of a running one
+  without a `snapshot` (the contract's "the sandbox now") is made of a
+  snapshot taken for it, which is deleted once the clone is made.
 
 It needs **`cap:sandboxes`**, which only a workspace admin approves: until
 then every call is refused and the page says who approves it. On an xbind

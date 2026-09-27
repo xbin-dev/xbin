@@ -358,6 +358,14 @@ func (d *rtDouble) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		rtJSON(w, 200, map[string]any{"snapshots": d.snaps[seg[0]]})
+	case len(seg) == 3 && seg[1] == "snapshots" && r.Method == "DELETE":
+		i := slices.IndexFunc(d.snaps[seg[0]], func(s xbin.Snapshot) bool { return s.ID == seg[2] })
+		if i < 0 {
+			rtFail(w, 404, "not-found", "no snapshot "+seg[2])
+			return
+		}
+		d.snaps[seg[0]] = slices.Delete(d.snaps[seg[0]], i, i+1)
+		w.WriteHeader(204)
 	case len(seg) == 4 && seg[1] == "snapshots" && seg[3] == "restore":
 		b := box()
 		if b != nil && d.slow > 0 {
@@ -590,7 +598,7 @@ func TestXbinBackendRuntimeUnbuilt(t *testing.T) {
 // snapshot. Every copy the runtime answers before it is done (a pending
 // snapshot, a creating clone, a busy restore) is waited out, so the
 // contract answers each one done; a clone of a running sandbox without a
-// snapshot is the runtime's 409, passed through.
+// snapshot (the runtime's 409) is made of a snapshot taken for it.
 func TestXbinBackendCopies(t *testing.T) {
 	defer func(p time.Duration) { settlePoll = p }(settlePoll)
 	settlePoll = time.Millisecond
@@ -648,10 +656,28 @@ func TestXbinBackendCopies(t *testing.T) {
 	if c.State != "running" {
 		t.Fatalf("the clone: %+v", c)
 	}
-	// not of its running self: the runtime's refusal, naming ours
-	e := a.Refused("POST", "/sandboxes", map[string]any{"name": "d", "from": map[string]any{"sandbox": sb.ID}}, 409, "state")
-	if strings.Contains(e.Error, m.recCopy(sb.ID).Runtime) || !strings.Contains(e.Error, "clone a snapshot") {
-		t.Fatalf("the refusal: %q", e.Error)
+	// of its running self, which the runtime copies only stopped: made of a
+	// snapshot taken for it, which goes once the clone is made
+	src := m.recCopy(sb.ID).Runtime
+	var d sandboxcontract.Sandbox
+	a.Call("POST", "/sandboxes?wait=30", map[string]any{"name": "d", "from": map[string]any{"sandbox": sb.ID}}, 201, &d)
+	if d.State != "running" {
+		t.Fatalf("the clone of a running sandbox: %+v", d)
+	}
+	if n := len(rt.calls("POST", "/"+src+"/snapshots")); n != 2 {
+		t.Fatalf("snapshots taken of the source: %d, want 2 (the consumer's, the clone's)", n)
+	}
+	_ = json.Unmarshal([]byte(rt.last(t, "POST", "").Body), &spec)
+	if spec.From == nil || spec.From.Sandbox != src || spec.From.Snapshot == "" || spec.From.Snapshot == snap.ID {
+		t.Fatalf("the clone is made of a snapshot of its own: %+v", spec.From)
+	}
+	if del := rt.calls("DELETE", "/"+src+"/snapshots/"+spec.From.Snapshot); len(del) != 1 {
+		t.Fatalf("the clone's snapshot isn't removed: %v", del)
+	}
+	var left struct{ Snapshots []sandboxcontract.Snapshot }
+	a.Call("GET", "/sandboxes/"+sb.ID+"/snapshots", nil, 200, &left)
+	if len(left.Snapshots) != 1 || left.Snapshots[0].ID != snap.ID {
+		t.Fatalf("the source's snapshots: %+v", left.Snapshots)
 	}
 }
 

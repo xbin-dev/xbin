@@ -704,8 +704,10 @@ func TestCloneNamesStayInside(t *testing.T) {
 		}
 	}
 	// the substrate refuses, naming the source
-	tm.fb.FailNext("create", &xbin.SandboxError{Status: 409, Refusal: "state", State: "stopping", Message: "sandbox " + srcRT + " is stopping"})
-	clean(a.Refused("POST", "/sandboxes", map[string]any{"name": "c1", "from": map[string]any{"sandbox": src.ID}}, 409, "state"), srcRT, src.ID)
+	tm.fb.FailNext("create", &xbin.SandboxError{Status: 409, Refusal: "exists", Message: "sandbox " + srcRT + " has a clone of that name"})
+	clean(a.Refused("POST", "/sandboxes", map[string]any{"name": "c1", "from": map[string]any{"sandbox": src.ID}}, 409, "exists"), srcRT, src.ID)
+	tm.fb.FailNext("snapshot", &xbin.SandboxError{Status: 409, Refusal: "state", State: "stopping", Message: "sandbox " + srcRT + " is stopping"})
+	clean(a.Refused("POST", "/sandboxes", map[string]any{"name": "c1", "from": map[string]any{"sandbox": src.ID}}, 409, "state"), srcRT, src.ID) // running: snapshotted for the clone
 	// the source is gone at the substrate (the manager still has it)
 	if err := tm.fb.Delete(context.Background(), srcRT); err != nil {
 		t.Fatal(err)

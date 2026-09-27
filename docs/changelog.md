@@ -97,7 +97,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   contract's snapshots and clones are offered now that the runtime serves
   them; a copy the runtime answers before it is done (a snapshot pending,
   a clone creating, a restore busy) is waited out, so the contract answers
-  each one done.
+  each one done. The runtime copies only a stopped sandbox, so a clone of
+  a running one without a `snapshot` is made of a snapshot the manager
+  takes for it and deletes once the clone is made.
 - **A sandbox's `/etc/resolv.conf` is written in place, never through a
   symlink.** When a terminal or backend with egress starts, xbind writes the
   relay's resolver into the sandbox's `/etc/resolv.conf`; a host-network

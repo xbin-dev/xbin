@@ -416,10 +416,7 @@ func (m *Manager) makeSandbox(ctx context.Context, id string) (err error) {
 			srcName, srcLabel = built.Runtime, "image:"+im.ID
 		}
 	}
-	info, err := be.Create(ctx, spec)
-	if err == nil {
-		info, err = settleCreated(ctx, be, info) // a clone's copy may run past the substrate's wait
-	}
+	info, err := m.createOn(ctx, be, spec)
 	if err != nil {
 		return err
 	}
@@ -464,6 +461,41 @@ func (m *Manager) makeSandbox(ctx context.Context, id string) (err error) {
 		m.live[id] = time.Now()
 	}
 	return err
+}
+
+// createOn makes spec on be, waiting out a clone's copy. A clone of a
+// sandbox as it is now (no snapshot named) where the substrate copies only a
+// stopped one — xbind's runtime answers a running one 409 state — is made
+// of a snapshot taken for it, which goes once the clone is made: the
+// contract's clone of "the sandbox now" (a snapshot may stop it briefly).
+func (m *Manager) createOn(ctx context.Context, be Backend, spec xbin.SandboxSpec) (*xbin.SandboxInfo, error) {
+	info, err := be.Create(ctx, spec)
+	var se *xbin.SandboxError
+	if err != nil && spec.From != nil && spec.From.Snapshot == "" && errors.As(err, &se) && se.Refusal == "state" && se.State != "stopped" {
+		box := be.Sandbox(spec.From.Sandbox)
+		snap, serr := box.Snapshot(ctx, "clone "+spec.Name, "clone-"+spec.Name) // repeat-safe: a resumed creation takes the same one
+		if serr == nil && snap.Pending {
+			snap, serr = settleSnapshot(ctx, box, snap)
+		}
+		if serr != nil {
+			return nil, serr
+		}
+		defer func() {
+			dctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			if err := box.DeleteSnapshot(dctx, snap.ID); err != nil {
+				m.logf("clone %s: removing the snapshot %s it was made of: %v", spec.Name, snap.ID, err)
+			}
+		}()
+		from := *spec.From
+		from.Snapshot = snap.ID
+		spec.From = &from
+		info, err = be.Create(ctx, spec)
+	}
+	if err == nil {
+		info, err = settleCreated(ctx, be, info) // a clone's copy may run past the substrate's wait
+	}
+	return info, err
 }
 
 // sourceID is a clone's source as a consumer knows it: its contract id (a

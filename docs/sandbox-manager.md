@@ -453,7 +453,8 @@ the cause is gone:
   `waitMaxSec` answers as it stands (a snapshot `pending`, a restore
   `busy: …`, a clone `creating`), and meanwhile the sandbox answers
   `state`: wait it out before you answer your consumer, as the builtin
-  manager does. A clone of a running sandbox needs a snapshot.
+  manager does. A clone of a running sandbox needs a snapshot (the
+  builtin manager takes one for it, and deletes it once the clone is made).
 
 ## Building a manager
 
