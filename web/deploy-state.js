@@ -4,9 +4,11 @@
 // and the viewer's permissions (the state's `caller`, plus who a view-as
 // session views) to what the window draws: the title-bar chip, the Reload
 // now offer, the chip's menu, the launcher's banner, the frame chip, the tile
-// API select's entries, the Deployments panel (header, rows, overview,
-// actions, edges, registrations, deploy log); and the words of
-// confirmations, results, refusals and the grey terminal lines.
+// API select's entries and a session's target (what switching it restarts,
+// how a listing keeps it), what a frame of a deployment does for an event,
+// the Deployments panel (header, rows, overview, actions, edges,
+// registrations, deploy log); and the words of confirmations, results,
+// refusals and the grey terminal lines.
 //
 // The server decides; this module renders. Who may do what is the state's
 // `can` and `why` (a control the viewer may not use is disabled with that
@@ -320,12 +322,66 @@ export function apiOptions(s, session = {}) {
     .forEach((n) => options.push({ value: n, label: `🔌 target: ${n}` }));
   options.push(off);
   const value = session?.api === false ? 'off' : (session?.deployment || 'primary');
+  // a named target the list lacks (removed, or no longer the viewer's to
+  // open) is still what the session calls: shown, so the select never guesses
+  if (value !== 'off' && value !== 'primary' && !options.some((o) => o.value === value)) options.splice(-1, 0, { value, label: `🔌 target: ${value}` });
   const notes = [];
   if (s.protectedPrimary) notes.push(`${P} is protected: terminals and agents can't call it.`);
   const A = s.liveReload || '';
   const calls = value === 'primary' ? P : value;
   if (A && value !== 'off' && calls !== A) notes.push(`Saves reach ${A}; this terminal calls ${calls}.`);
   return { options, value, def: defaultTarget(s), notes };
+}
+
+// sessionTarget(tab) → a tab's target, from its session's echo ({api,
+// deployment}): 'off' (no API), a deployment's name, or 'primary' (the
+// session follows the primary); null without a tab.
+export const sessionTarget = (t) => (!t ? null : t.api === false ? 'off' : t.deployment || 'primary');
+
+// apiTitle(options, who, restarts) → the tile API select's tooltip while it
+// lists targets: what the entry decides, what "off" means, and the notes of
+// apiOptions. who: 'shell' | 'agent'; restarts: what switching restarts.
+export const apiTitle = (a, who, restarts) => [`the tile API this ${who} calls, bx included — off = the ${who} can read and edit code, but every API call, bx included, is unauthorized (${restarts})`, ...(a?.notes || [])].join('\n');
+
+// targetChange(state, tab, value) → how choosing `value` in the tile API
+// select restarts the tab ({patch, what, message}: the tab fields, the
+// "Restart this terminal <what>?" phrase and §5.2 row 18's text), or null
+// when it is what the session already calls. value: today's 'on' / 'off',
+// or a target entry ('primary', a deployment's name, 'off'). The primary's
+// entry requests no deployment: the session follows the primary.
+export function targetChange(s, tab, value) {
+  const want = value === 'on' ? 'primary' : String(value || '');
+  if (!tab || !want || want === sessionTarget(tab)) return null;
+  if (want === 'off') return { patch: { api: false, deployment: '' }, what: 'without API access' };
+  const patch = { api: true, deployment: want === 'primary' ? '' : want };
+  if (value === 'on' || !s) return { patch, what: 'with tile API access' };
+  return { patch, what: `calling ${want === 'primary' ? s.primary || 'main' : want}`, message: confirmation('target', { state: s, deployment: want }).message };
+}
+
+// noTarget(name) → the line a terminal ends with when it asked for
+// deployment `name` and the session came back without it (11-contract §7.4).
+export const noTarget = (name) => `this xbind can't target deployments: the session that asked for ${name} was ended — reload the page`;
+
+// keepTargets(tabs, prev, rows) → the tabs after a session listing
+// (term-sessions.js tabsFrom, which carries no target) with each one's
+// target: a shell keeps what its own session frame echoed (a changed
+// attribute would restart it); an agent, and a tab first seen, take the
+// directory's row (its `deployment`); a tab still spawning keeps its own.
+// A shell whose target came back without an echo keeps its tab and its
+// flags while that is checked (`refusing`, however the listings race it) and,
+// once ended for it (`refused`), stays ended with its line until dismissed.
+export function keepTargets(tabs, prev = [], rows = []) {
+  const was = new Map(prev.map((t) => [t.key, t])), row = new Map(rows.map((r) => [r.id, r]));
+  const out = tabs.map((t) => {
+    const p = was.get(t.key), r = t.id ? row.get(t.id) : null;
+    const echoed = p && p.id === t.id && t.kind !== 'agent' && typeof p.deployment === 'string';
+    const deployment = echoed || !r ? p?.deployment ?? t.deployment : r.deployment || '';
+    const keep = { ...(deployment === undefined || deployment === t.deployment ? {} : { deployment }),
+      ...(p?.refused && !t.refused ? { ended: true, refused: true } : {}), ...(p?.refusing && !t.refusing ? { refusing: true } : {}) };
+    return Object.keys(keep).length ? { ...t, ...keep } : t;
+  });
+  const keys = new Set(out.map((t) => t.key));
+  return [...out, ...prev.filter((t) => (t.refused || t.refusing) && !keys.has(t.key))];
 }
 
 // ---- the launcher (the empty window) ----
@@ -374,6 +430,22 @@ export function frameChip(summary, s) {
   const why = dep(s, P)?.lastDeploy?.result === 'failed' ? 'deploy failed'
     : s.liveReload ? `saves reach ${s.liveReload}` : 'live reload paused';
   return { text: '📌 pinned', title: `${P} pinned to ${cp(s, P)} · ${why}` };
+}
+
+// ---- a frame of a deployment (<bx-frame src="<tile>+<name>">) ----
+
+// deploymentFrame(src, event) → what a frame showing a non-primary
+// deployment does for an event: {reload: true} on its deployment's op
+// reload; {error} on op build, the overlay's text on phase error and null
+// (clear it) on ok; else null. Only `deployments` events speak of a
+// non-primary deployment, always with the tile's bare path, so the match is
+// exact: a frame of the primary, or of an ancestor tile, never matches.
+export function deploymentFrame(src, e) {
+  const d = e?.data;
+  if (e?.type !== 'deployments' || !d?.deployment || src !== `${e.component}+${d.deployment}`) return null;
+  if (d.op === 'reload') return { reload: true };
+  if (d.op === 'build' && (d.phase === 'error' || d.phase === 'ok')) return { error: d.phase === 'ok' ? null : d.text || 'the logs tab has the output' };
+  return null;
 }
 
 // ---- confirmations ----

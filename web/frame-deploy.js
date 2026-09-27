@@ -12,6 +12,14 @@
  * Grey lines in the tile's open terminals (bx-terminal note()) say when the
  * tile-wide state changes.
  *
+ * Tile deployments (M2): the layout switcher's ⇈ opens the Deployments panel
+ * (<bx-deployments>, web/bx-deploy.js); the tile API select lists one target
+ * per deployment the viewer may reach once the tile has more than an
+ * unprotected main (today's two entries otherwise, byte for byte), shows the
+ * session's echoed target, and restarts the session onto another; a frame
+ * of a deployment (<bx-frame src="<tile>+<name>">) reloads and paints its
+ * build overlay from the tile's `deployments` events.
+ *
  * `f` is the BxFrame. Nothing here decides who may do what: the state's
  * `can`/`why` and the dry run's `impact` do, rendered by deploy-state.js.
  * A state of null — an xbind without tile deployments (a plain 404/405), a
@@ -22,13 +30,15 @@
  * chip over the tile starts from the /components summary, so a tile in the
  * zero state costs no request while its window is closed.
  */
-import { html, css, nothing } from 'lit';
+import { html, css, nothing, live } from 'lit';
 import * as events from '/vendor/events-socket.js';
 import { infoFor } from '/vendor/frame-info.js';
 import {
   viewModel, chipItems, toMenu, confirmation, refusal, conflict, applyEvent, notice,
-  frameChip as chipOverTile, apiOptions,
+  frameChip as chipOverTile, apiOptions, apiTitle, sessionTarget, targetChange, noTarget, deploymentFrame, keepTargets,
 } from '/vendor/deploy-state.js';
+
+export { keepTargets }; // bx-frame's listings keep each tab's target (deploy-state.js)
 
 const SHEET = typeof matchMedia === 'function' ? matchMedia('(max-width: 820px)') : { matches: false };
 const OP_PATH = { pause: 'live-reload/pause', resume: 'live-reload/resume', reloadNow: 'live-reload/now', attach: 'live-reload/attach' };
@@ -60,8 +70,9 @@ function learnViewing() {
 // still reloads on open, on relist and when the page becomes visible again.
 events.onReconnect?.(() => { for (const f of events.mountedFrames) if (per.get(f)?.loaded) loadDeploy(f); });
 
-// the active tab's echo, for the API select's entries (the tab owns it)
-const echo = (f, i = f._active) => { const t = f._sessions?.[i]; return t ? { api: t.api !== false } : {}; };
+// a tab's echo, for the API select's entries (the tab owns it: its session's
+// answer, never what it asked for)
+const echo = (f, i = f._active) => { const t = f._sessions?.[i]; return t ? { api: t.api !== false, deployment: t.deployment || '' } : {}; };
 const opts = (f) => ({ now: Date.now(), viewing: viewing || '', panel: false, session: echo(f) });
 const vmOf = (f) => viewModel(per.get(f)?.state ?? null, opts(f));
 
@@ -108,8 +119,12 @@ export function deployMount(f) {
 // deployment is named inside data). op work-tree moves the count in place;
 // record, deploy and data changes load the state again (debounced), then
 // each open terminal gets its line.
+// A frame of a non-primary deployment instead reloads on its deployment's op
+// reload and sets or clears its build overlay on op build (deploymentFrame).
 export function onDeployEvent(f, e) {
   const d = e?.data;
+  const q = deploymentFrame(f.src, e);
+  if (q) { if (q.reload) f._reload(); else f._buildError = q.error; return; }
   if (e.component !== f.src || !d) return;
   const r = rec(f);
   if (r.state) {
@@ -130,11 +145,13 @@ export function onDeployEvent(f, e) {
 }
 
 // A grey line in each of the window's open terminals, except the one whose
-// own session acted (bx printed the result there already).
+// own session acted (bx printed the result there already); each line knows
+// what its terminal calls.
 function noteTerminals(f, prev, next, ev) {
   for (const el of f.renderRoot?.querySelectorAll('bx-terminal') ?? []) {
     if (ev.session && el.getAttribute('session') === ev.session) continue;
-    const line = notice(prev, next, ev, { target: el.getAttribute('api') === '0' ? 'off' : 'primary', panel: false });
+    const target = el.getAttribute('api') === '0' ? 'off' : el.getAttribute('deployment') || 'primary';
+    const line = notice(prev, next, ev, { target, panel: true });
     if (line) el.note?.(line);
   }
 }
@@ -182,7 +199,7 @@ export async function act(f, op, deployment) {
       }
       const cur = dry.body.state?.tile === f.src ? dry.body.state : s;
       if (cur !== s) { r.state = cur; f.requestUpdate(); }
-      const c = confirmation(op, { state: cur, impact: dry.body.impact, deployment }, opts(f));
+      const c = confirmation(op, { state: cur, impact: dry.body.impact, deployment }, { ...opts(f), panel: true });
       const answer = await f._ask(c.spec);
       if (answer?.button !== 'ok') return;
       if (Number.isInteger(cur.seq)) body.seq = cur.seq;
@@ -255,8 +272,87 @@ export function titleChip(f) {
   return c ? chipButton(f, c, true) : nothing;
 }
 
-// deployKey(f): what the bar's width depends on here (frame-titlebar barKey).
-export const deployKey = (f) => vmOf(f).barKey;
+// deployKey(f): what the bar's width depends on here (frame-titlebar barKey):
+// the state's facts, and whether there is a state at all (the ⇈ button).
+export const deployKey = (f) => { const vm = vmOf(f); return `${vm.feature ? 1 : 0}|${vm.barKey}`; };
+
+// ---- the Deployments layout (⇈) ----
+
+// hasLayout(f): the window offers the 'deployments' layout — on every tile
+// of an xbind with tile deployments, once its state has loaded.
+export const hasLayout = (f) => !!vmOf(f).entry;
+
+// layoutButton(f): the layout switcher's sixth button, ⇈ (with the count of
+// deployments once the viewer's state lists two or more), or nothing.
+export function layoutButton(f) {
+  const e = vmOf(f).entry;
+  if (!e) return nothing;
+  return html`<button class=${f._layout === 'deployments' ? 'on' : ''} title=${e.title}
+      aria-label=${e.count ? `${e.title} (${e.count} deployments)` : e.title} @click=${() => f._setLayout('deployments')}>${glyphed(e.text)}</button>`;
+}
+
+// ---- the tile API select: a session's target ----
+
+// targetSelect(f, restarts): the tile API select while the tile has
+// targets to choose from — one entry per deployment the viewer may reach,
+// never a protected primary, then "no API" — marked from the active tab's
+// echo; null for a tile with no record or only an unprotected main, whose
+// select stays today's (frame-titlebar.js).
+export function targetSelect(f, restarts) {
+  const a = apiOptions(per.get(f)?.state ?? null, echo(f));
+  if (a.def === 'on') return null;
+  return html`<select class="scope target" title=${apiTitle(a, f._isAgent ? 'agent' : 'shell', restarts)}
+        @change=${async (e) => { if (!(await f._setApi(f._active, e.target.value))) e.target.value = a.value; }}>
+      ${a.options.map((o) => html`<option value=${o.value} .selected=${live(o.value === a.value)}>${o.label}</option>`)}
+    </select>`;
+}
+
+// setTarget(f, i, value): tab i's session onto another target, restarted
+// like every picker (the target is fixed for the session's life): a shell
+// through f._respawn, whose confirmation names what it will call, an agent
+// through restartAgent (its conversation resumes). Resolves false when it
+// is what the session calls already, or the restart was declined.
+export function setTarget(f, i, value) {
+  const c = targetChange(per.get(f)?.state ?? null, f._sessions[i], value);
+  return c ? f._respawn(i, c.patch, c.what, c.message) : Promise.resolve(false);
+}
+
+// sessionEcho(f, ev, key) → what a session's own answer (bx-terminal's
+// session frame, bx-agent's create) says of its target, for its tab (`key`):
+// api and deployment as the server echoed them. A shell that asked for a
+// deployment and came back without the echo is checked against the state
+// loaded afresh (the tab `refusing` meanwhile, which listings keep): an
+// xbind without tile deployments, or a primary other than the name asked
+// for, ends the session and says so (11-contract §7.4); a primary of that
+// name is the answer (the session follows it).
+export function sessionEcho(f, ev, key) {
+  const d = ev?.detail || {}, out = {};
+  if (typeof d.api === 'boolean') out.api = d.api;
+  if (typeof d.deployment === 'string') out.deployment = d.deployment;
+  if (d.asked && !d.deployment) {
+    const el = ev.target;
+    out.refusing = true;
+    loadDeploy(f).then((s) => {
+      const ok = (s?.features || []).includes('deployments/1') && s.primary === d.asked;
+      if (!ok) el?.end?.(noTarget(d.asked));
+      f._sessions = f._sessions.map((t) => (t.key !== key ? t : ok ? { ...t, refusing: false } : { ...t, refusing: false, ended: true, refused: true }));
+    });
+  }
+  return out;
+}
+
+// targetQuery(want) and targetRefused(f, want, session): an agent's restart
+// onto a target (frame-launcher.js restartAgent) — the query that requests
+// it, and the refusal to show when the restarted session came back without
+// the echo (that session is ended), or ''.
+export const targetQuery = (want) => (want?.api !== false && want?.deployment ? `?deployment=${encodeURIComponent(want.deployment)}` : '');
+export function targetRefused(f, want, s) {
+  if (!targetQuery(want) || s?.deployment === want.deployment) return '';
+  const st = per.get(f)?.state;
+  if ((st?.features || []).includes('deployments/1') && st.primary === want.deployment) return '';
+  if (s?.id) fetch(`/api/xbin/term/sessions/${encodeURIComponent(s.id)}`, { method: 'DELETE' }).catch(() => { });
+  return noTarget(want.deployment);
+}
 
 // ---- the launcher (the empty window) ----
 
@@ -268,6 +364,10 @@ export function launchBanner(f) {
       <button class="lreload" aria-label="Reload now" @click=${() => act(f, 'reloadNow')}><span aria-hidden="true">⇡</span> Reload now</button>` : nothing}
     </div>` : nothing}${l.note ? html`<div class="ldepnote">${l.note}</div>` : nothing}`;
 }
+
+// launchTarget(f): what a new session calls, for the launcher's session
+// cards ("· target: main", 10-ux §2.7), or '' (the zero state, a reader).
+export const launchTarget = (f) => vmOf(f).launcher?.subtitle || '';
 
 // ---- the chip over the tile ----
 
@@ -317,8 +417,13 @@ export function deployTestApi(f) {
       return true;
     },
     get frameChip() { const c = overTile(f); return c ? { ...c } : null; },
-    target(i = f._active) { const t = f._sessions?.[i]; return t ? (t.api === false ? 'off' : 'primary') : null; },
+    // tab i's target from its session's echo: 'primary', a deployment's name or 'off'
+    target(i = f._active) { return sessionTarget(f._sessions?.[i]); },
     apiOptions(i = f._active) { return apiOptions(r()?.state ?? null, echo(f, i)).options; },
+    // switches tab i's target (an apiOptions value); asks through the dialog, like _setNet
+    setTarget(i, value) { return f._setApi(i | 0, value); },
+    // the Deployments layout's <bx-deployments> test surface, or null while it isn't mounted
+    panel() { return f.renderRoot?.querySelector('bx-deployments')?.testApi?.() ?? null; },
     refresh: () => loadDeploy(f),
   };
 }

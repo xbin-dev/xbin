@@ -22,11 +22,15 @@
  * buttons: the chip and the Reload now offer on the full bar, the zero
  * state's one entry point wherever the settings are; on the degraded bar the
  * compact chip stays in the title row, so the state never hides behind ⋯.
+ * The layout switcher's sixth button, ⇈, opens the Deployments panel; once
+ * a tile has deployments to choose from, the tile API select lists them as
+ * the session's target ("🔌 target: dev"), and shows today's two entries
+ * otherwise.
  */
 import { html, css, nothing, live } from 'lit';
 import { scopeIcon } from '/vendor/bx-netrules.js';
 import { rememberVM } from '/vendor/frame-launcher.js';
-import { barDeploy, titleChip, deployKey } from '/vendor/frame-deploy.js';
+import { barDeploy, titleChip, deployKey, layoutButton, targetSelect } from '/vendor/frame-deploy.js';
 
 export function titlebar(f) {
   return html`
@@ -64,7 +68,7 @@ function scrollTabs(e) {
 // barKey: what the full bar's width depends on. When it changes, the width
 // the bar last needed (f._barNeed) is stale and fitBar measures again.
 export const barKey = (f) => JSON.stringify([f._active, f._gpus.length, !!f._vmStatus, !!f._envOld, f._prCount || 0,
-  f._sessions.map((s) => [s.kind, s.name, s.provider, !!s.ended, !!s.history, !!s.vm, s.net, !!s.baseOutdated]), deployKey(f)]);
+  f._sessions.map((s) => [s.kind, s.name, s.provider, !!s.ended, !!s.history, !!s.vm, s.net, !!s.baseOutdated, s.api !== false, s.deployment || '']), deployKey(f)]);
 
 // fitBar(f, pop, sheet): whether the bar must degrade (the new f._narrow).
 // Under 640 px or on the phone sheet it always does. Otherwise the full bar
@@ -137,6 +141,7 @@ function layoutGroup(f) {
       <button class=${f._layout === 'prs' ? 'on' : ''}
               title="change proposals — patches other tiles' agents suggested for this one"
               @click=${() => f._setLayout('prs')}>⇄${f._prCount ? ` ${f._prCount}` : ''}</button>
+      ${layoutButton(f)}
     </span>`;
 }
 
@@ -164,12 +169,12 @@ function pickers(f) {
             @change=${async (e) => { if (!(await f._setNet(f._active, e.target.value))) e.target.value = now.id; }}>
       ${scopes.map((s) => html`<option value=${s.id} title=${s.desc ?? ''} .selected=${live(s.id === now.id)}>${scopeIcon(s.id)} ${s.label}</option>`)}
     </select>
-    <select class="scope" title=${`live tile API access — off = the ${f._isAgent ? 'agent' : 'shell'} can read/edit code but every API call is unauthorized (${restarts})`}
+    ${targetSelect(f, restarts) || html`<select class="scope" title=${`live tile API access — off = the ${f._isAgent ? 'agent' : 'shell'} can read/edit code but every API call is unauthorized (${restarts})`}
             .value=${api}
-            @change=${async (e) => { if (!(await f._setApi(f._active, e.target.value === 'on'))) e.target.value = api; }}>
+            @change=${async (e) => { if (!(await f._setApi(f._active, e.target.value))) e.target.value = api; }}>
       <option value="on">🔌 tile API</option>
       <option value="off">⛔ no API</option>
-    </select>
+    </select>`}
     ${vmToggle(f, restarts)}
     ${f._gpus.length && !cur?.vm ? html`
       <select class="scope" title=${`GPU (${restarts})`}

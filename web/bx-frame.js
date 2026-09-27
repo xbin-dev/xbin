@@ -6,9 +6,12 @@
  * the component's source directory) plus a code browser / git-review panel
  * (bx-code) that can share the window with the terminal (layout: terminal /
  * code / split), a read-only backend log view (bx-logs), and the
- * change-proposal panel (bx-prs — cross-tile "code PRs"). The tile's live
- * reload state (frame-deploy.js) shows on the window's bar and, while the
- * tile's primary is pinned, as a chip over the tile.
+ * change-proposal panel (bx-prs — cross-tile "code PRs") and the
+ * Deployments panel (bx-deployments). The tile's live reload state
+ * (frame-deploy.js) shows on the window's bar and, while the tile's primary
+ * is pinned, as a chip over the tile; a session's target deployment is its
+ * tile API select's entry. With src="<tile>+<name>" the frame shows that
+ * deployment, reloading on its `deployments` events.
  *
  * Attributes:
  *   src     — component path (workspace-relative)
@@ -43,6 +46,7 @@ import '/vendor/bx-terminal.js';
 import '/vendor/bx-code.js';
 import '/vendor/bx-logs.js';
 import '/vendor/bx-prs.js';
+import '/vendor/bx-deploy.js';
 import { deepActive, clampBox, dragWindow, dragPointer, anchorBox, anchorOffsets, followBox } from '/vendor/bx-kit.js';
 import { makeStore, tabsFrom, activeIndex, uid } from '/vendor/term-sessions.js';
 import { titlebar, toolsRow, titlebarCss, fitBar, barKey } from '/vendor/frame-titlebar.js';
@@ -52,7 +56,7 @@ import '/vendor/bx-dialog.js';
 import '/vendor/bx-menu.js';
 import { infoFor, refreshFrameInfo, sandboxAttr, frameSource } from '/vendor/frame-info.js';
 import { testApi } from '/vendor/frame-testapi.js';
-import { deployCss, deployMount, onDeployEvent, frameChip } from '/vendor/frame-deploy.js';
+import { deployCss, deployMount, onDeployEvent, frameChip, keepTargets, setTarget, sessionEcho } from '/vendor/frame-deploy.js';
 
 // Shared z-order for all terminal windows on the page.
 let zTop = 2000;
@@ -96,7 +100,7 @@ export class BxFrame extends LitElement {
     _gpus: { state: true },
     _buildError: { state: true },
     _autoHeight: { state: true },
-    _layout: { state: true },  // 'term' | 'code' | 'split' | 'logs' | 'prs'
+    _layout: { state: true },  // 'term' | 'code' | 'split' | 'logs' | 'prs' | 'deployments' (never saved: NP-10-2)
     _codeW: { state: true },   // code panel width % in split
     _frame: { state: true },   // {url, sandboxed, sandbox, credentialless, origin} | null
     _prCount: { state: true }, // open change proposals targeting this tile
@@ -310,7 +314,7 @@ export class BxFrame extends LitElement {
   _flushWindow() {
     clearTimeout(this._winTimer); this._winTimer = null;
     const w = this._termOpen || this._sessions.length
-      ? { open: !!this._termOpen, active: this._active, activeId: this._sessions[this._active]?.id ?? null, pop: this._pop, layout: this._layout, codeW: this._codeW }
+      ? { open: !!this._termOpen, active: this._active, activeId: this._sessions[this._active]?.id ?? null, pop: this._pop, layout: this._layout === 'deployments' ? 'term' : this._layout, codeW: this._codeW }
       : null;
     if (w || this._hadWindow) sessions.saveWindow(this.src, w);
     this._hadWindow = !!w;
@@ -324,7 +328,7 @@ export class BxFrame extends LitElement {
     const [rows, win] = await Promise.all([sessions.list(this.src), sessions.loadWindow(this.src)]);
     if (!this.isConnected) return;
     for (const r of rows) if (legacy?.names?.[r.id] && !r.name) { r.name = legacy.names[r.id]; sessions.rename(r.id, r.name); }
-    this._sessions = tabsFrom(rows, this._sessions);
+    this._sessions = keepTargets(tabsFrom(rows, this._sessions), this._sessions, rows);
     const w = win ?? legacy?.window;
     if (w) {
       this._hadWindow = !!win;
@@ -348,7 +352,7 @@ export class BxFrame extends LitElement {
   async _relist() {
     const rows = await sessions.list(this.src);
     if (!this.isConnected) return;
-    this._sessions = tabsFrom(rows, this._sessions);
+    this._sessions = keepTargets(tabsFrom(rows, this._sessions), this._sessions, rows);
     this._reindex();
     loadTileState(this); // a session that ended is history now; a reset/rebuilt layer is current
     if (!this._sessions.length && this._termOpen) this._termOpen = false;
@@ -369,6 +373,7 @@ export class BxFrame extends LitElement {
   get _popEl() { return this.renderRoot?.querySelector('.pop'); }
 
   _event(e) {
+    if (e.type === 'deployments') return onDeployEvent(this, e); // every one: a frame of <tile>+<name> hears its tile's (frame-deploy.js)
     if (!e.component) return;
     const mine = e.component === this.src || e.component.startsWith(this.src + '/');
     if (!mine) return;
@@ -397,7 +402,6 @@ export class BxFrame extends LitElement {
       case 'term': // the session directory changed for this tile (D73); a status op carries its own row data
         if (e.component === this.src && e.data?.op !== 'status') this._relist();
         break;
-      case 'deployments': onDeployEvent(this, e); break; // live reload and deploys (frame-deploy.js)
     }
   }
 
@@ -547,8 +551,9 @@ export class BxFrame extends LitElement {
   toggleTerminal() { this._toggleTerm(); }
 
   // open(layout) makes sure the pop-up is open and shows the given panel:
-  // 'term' | 'code' | 'split' | 'logs' | 'prs' (omit to keep the current one).
-  // The shell's tile menu uses it for "terminal / logs / source / proposals".
+  // 'term' | 'code' | 'split' | 'logs' | 'prs' | 'deployments' (omit to keep
+  // the current one). The shell's tile menu uses it for "terminal / logs /
+  // source / proposals / deployments".
   open(layout) {
     if (!this._termOpen) this._toggleTerm();
     else this.fitToViewport(); // already open: make sure it can be seen
@@ -718,7 +723,7 @@ export class BxFrame extends LitElement {
     // pick on this tile — the select renders exactly that list (D54).
     s[i] = { ...cur, id: d.id, kind: d.kind || cur.kind || 'shell', name: cur.name || d.name || '',
              net: d.net || cur.net || null, scopes: d.scopes || cur.scopes || null, label: d.label || '',
-             baseOutdated: !!d.baseOutdated };
+             baseOutdated: !!d.baseOutdated, ...sessionEcho(this, ev, key) };
     this._sessions = s;
     this._reindex();
   }
@@ -728,12 +733,12 @@ export class BxFrame extends LitElement {
   // is ended only after the user confirms — it takes its shell, its jobs and
   // its scrollback with it. Resolves false when declined (the picker snaps
   // back; bx-terminal reconnects on the attribute change otherwise).
-  async _respawn(i, patch, what) {
+  async _respawn(i, patch, what, message) {
     if (this._sessions[i]?.kind === 'agent') return restartAgent(this, i, patch, what); // keeps the conversation
     const cur = this._sessions[i];
     if (!cur) return false;
     const live = cur.id && !cur.ended;
-    if (live && !(await this._confirm(`Restart this terminal ${what}?`, 'Its shell and anything running in it end, and the scrollback is lost.', 'Restart'))) return false;
+    if (live && !(await this._confirm(`Restart this terminal ${what}?`, message || 'Its shell and anything running in it end, and the scrollback is lost.', 'Restart'))) return false;
     if (live) endSession(cur.id);
     const s = [...this._sessions];
     const { run, ...rest } = cur; // a restart is not a sign-in again
@@ -743,7 +748,7 @@ export class BxFrame extends LitElement {
   }
   _setNet(i, net) { const c = this._sessions[i]; return !c || c.net === net ? Promise.resolve(false) : this._respawn(i, { net }, `on the ${net} network`); }
   _setGpu(i, gpu) { const c = this._sessions[i]; return !c || (c.gpu || 'none') === gpu ? Promise.resolve(false) : this._respawn(i, { gpu }, gpu === 'none' ? 'without a GPU' : `with GPU ${gpu}`); }
-  _setApi(i, on) { const c = this._sessions[i]; return !c || (c.api !== false) === on ? Promise.resolve(false) : this._respawn(i, { api: on }, on ? 'with tile API access' : 'without API access'); }
+  _setApi(i, value) { return setTarget(this, i, value); } // the tile API select: 'on' | 'off', or a target entry (frame-deploy.js)
 
   // Reset the tile's persistent terminal layer (installed packages, system
   // config) — or rebuild it on the newer base image. The server ends every
@@ -764,12 +769,12 @@ export class BxFrame extends LitElement {
   }
 
   // Switch the pop-up layout: terminal only, code browser/review only, a
-  // resizable split of the two, backend logs, or change proposals (PRs). The
-  // terminal stays mounted (hidden in non-term views) so its session
-  // survives; the panels mount lazily on first view.
+  // resizable split of the two, backend logs, change proposals (PRs), or the
+  // tile's deployments. The terminal stays mounted (hidden in non-term views)
+  // so its session survives; the panels mount lazily on first view.
   _setLayout(l) {
     this._layout = l;
-    if ((l === 'code' || l === 'split' || l === 'prs') && this._pop && this._pop.w < 760) {
+    if ((l === 'code' || l === 'split' || l === 'prs' || l === 'deployments') && this._pop && this._pop.w < 760) {
       // widen for the code panel, keeping the window reachable
       const box = { ...this._popBox(), w: 960 };
       this._setPopBox(this._bounds() ? box : clampBox(box));
@@ -821,6 +826,7 @@ export class BxFrame extends LitElement {
             ${this._layout === 'split' ? html`<div class="vsplit" @pointerdown=${this._splitStart}></div>` : nothing}
             ${this._layout === 'logs' ? html`<bx-logs component=${this.src} style="flex:1; min-width:0"></bx-logs>` : nothing}
             ${this._layout === 'prs' ? html`<bx-prs component=${this.src} style="flex:1; min-width:0"></bx-prs>` : nothing}
+            ${this._layout === 'deployments' ? html`<bx-deployments component=${this.src} .frame=${this} style="flex:1; min-width:0"></bx-deployments>` : nothing}
             <div class="term-host" style="display:${this._sessions.length === 0 || this._panelVisible() ? 'flex' : 'none'}; flex-direction:column">
             ${this._sessions.length === 0 ? launcher(this) : nothing}
             ${repeat(this._sessions, (s) => s.key, (s, i) => s.kind === 'agent'
@@ -832,7 +838,7 @@ export class BxFrame extends LitElement {
                   @bx-open-terminal=${this._signIn}
                   @bx-exit=${() => this._endTab(s.key)}></bx-agent>`
               : html`<bx-terminal style="height:100%; display:${i === this._active ? 'block' : 'none'}"
-                  cwd=${this.src} session=${s.id ?? nothing} net=${s.net || nothing} gpu=${s.gpu || 'none'} api=${s.api === false ? '0' : '1'} vm=${s.vm ? '1' : '0'} run=${s.run || nothing}
+                  cwd=${this.src} session=${s.id ?? nothing} net=${s.net || nothing} gpu=${s.gpu || 'none'} deployment=${s.deployment || nothing} api=${s.api === false ? '0' : '1'} vm=${s.vm ? '1' : '0'} run=${s.run || nothing}
                   @bx-session=${(ev) => this._gotSession(s.key, ev)}
                   @bx-exit=${() => this._closeTerm(s.key, true)}></bx-terminal>`)}
             </div>
