@@ -131,6 +131,10 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusNotFound, "no such component", "")
 		return
 	}
+	// comp is the tile's primary: the registry composes a pinned primary
+	// from its checkpoint, so the template (inbound surface) and runtime
+	// (deployment-level) gates below follow the code the primary runs, never
+	// a work-tree edit made while it is pinned (P9).
 	if comp.IsTemplate() {
 		jsonErr(w, http.StatusNotFound,
 			fmt.Sprintf("%s is a template — instantiate it first (Tile Manager → New from template, or `bx template new`)", comp.Path), "")
