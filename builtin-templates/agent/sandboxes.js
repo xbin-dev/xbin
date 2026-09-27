@@ -119,19 +119,7 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
     if (a.confirm && !confirm(a.confirm)) return;
     dl.busy = r.ref; dl.err = ''; dl.msg = '';
     draw();
-    try {
-      if (a.id === 'use') {
-        await app.sbx.choose(r.ref);
-        dl.msg = app.session.current() ? `${r.name} is this conversation's sandbox from its next turn ✓` : `${r.name} is your next new chat's sandbox ✓`;
-      } else if (a.id === 'delete') {
-        await app.sbx.remove(r.ref);
-        dl.msg = `deleted ${r.name}`;
-      } else if (a.id === 'team' || a.id === 'private') {
-        await app.sbx.share(r.ref, a.id);
-      } else {
-        await app.sbx.act(r.ref, a.id);
-      }
-    } catch (e) { dl.err = `${r.name}: ${e.message}`; }
+    try { dl.msg = await app.sbx.perform(r.ref, a.id, r.name); } catch (e) { dl.err = `${r.name}: ${e.message}`; }
     dl.busy = '';
     draw();
   }
@@ -143,10 +131,9 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
     dl.busy = 'create';
     draw();
     try {
-      const here = !!app.session.current();
       const s = await app.sbx.create(vm.f, { bind: dl.bind });
       dl.form = null;
-      dl.msg = `created ${s.name}${dl.bind ? (here ? ' — this conversation works in it from its next turn' : ' — your next new chat starts in it') : ''} ✓`;
+      dl.msg = app.sbx.created(s, dl.bind);
     } catch (e) { dl.err = e.message; }
     dl.busy = '';
     draw();

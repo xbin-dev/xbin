@@ -103,8 +103,38 @@ const views = {
   },
 };
 
+// a coding conversation (D115) in a sandbox — not in the list: the drawer's shots stay as they are
+const MGR = 'apps/coding-sandbox';
+const CODING = { id: 'coding', name: 'Coding', icon: '▣', toolsets: ['sandbox', 'web', 'files'], managers: 'all', sandboxEgress: ['none', 'internet'] };
+const box = (id, extra = {}) => ({ ref: `${MGR}|${id}`, provider: MGR, manager: 'Coding sandboxes', id, name: id, state: 'running', egress: 'none',
+  visibility: 'private', owner: { user: 'admin' }, mine: true, canUse: true, canManage: true, canEdit: true, workdir: '/work',
+  caps: ['exec', 'files', 'tar', 'archive'], image: { id: 'go', title: 'Go' }, size: { id: 'small', memMiB: 2048, vcpus: 2, diskGiB: 20 },
+  lastActive: NOW - 60000, ...extra });
+const bound = (id, cwd = '/work') => ({ ref: `${MGR}|${id}`, name: id, cwd, manager: 'Coding sandboxes', egress: 'none', by: 'admin' });
+views[8] = {
+  access: 'owner', class: CODING, config: { sandbox: bound('api', '/work/api'), attached: [bound('api', '/work/api'), bound('web')] },
+  run: { id: 8, title: 'Fix the build', status: 'idle', parentId: 0, rootId: 8 },
+  messages: [
+    msg(1, 'user', 'The API tests fail since this morning — fix them.', { runId: 8 }),
+    msg(2, 'assistant', '', { runId: 8, toolCalls: [
+      call('b1', 'bash', { command: 'go test ./...', summary: 'Run the tests' }),
+      call('b2', 'grep', { pattern: 'ErrNotFound', path: 'internal' }),
+      call('b3', 'edit', { path: '/work/api/store.go', old_string: 'return nil', new_string: 'return err' }),
+      call('b4', 'bash', { command: 'go test ./...' }),
+    ] }),
+    msg(3, 'tool', '--- FAIL: TestGet (0.01s)\n    store_test.go:41: got nil, want ErrNotFound\nFAIL\n[exit 1 · 14s · job 3]', { runId: 8, toolCallId: 'b1', name: 'bash' }),
+    msg(4, 'tool', 'internal/store.go:12: var ErrNotFound = errors.New("not found")\ninternal/store.go:58: \t\treturn nil', { runId: 8, toolCallId: 'b2', name: 'grep' }),
+    msg(5, 'tool', 'edited /work/api/store.go (1 replacement)', { runId: 8, toolCallId: 'b3', name: 'edit' }),
+    msg(6, 'tool', 'ok  \texample.com/api/internal\t0.412s\n[exit 0 · 9s · job 4]', { runId: 8, toolCallId: 'b4', name: 'bash' }),
+    msg(7, 'assistant', '`Get` swallowed the store\'s error; it returns it now and the tests pass.', { runId: 8 }),
+  ],
+};
+const sandboxes = [box('api', { boundTo: [8] }), box('web', { state: 'stopped', lastActive: NOW - 5 * 3600000 }),
+  box('ml-train', { state: 'archived', egress: 'internet', image: { id: 'base', title: 'Debian' }, lastActive: NOW - 9 * 86400000 }),
+  box('team-box', { mine: false, owner: { user: 'carol' }, visibility: 'team', canManage: false, canEdit: false, boundTo: [3, 5] })];
+
 const seed = (extra = {}) => ({
-  me: ME, runs, views, needs: [
+  me: ME, runs, views, sandboxes, needs: [
     { reason: 'approval', run: { id: 3, title: 'Send the invoices' } },
     { reason: 'question', run: { id: 6, title: 'Pick a vendor' } },
     { reason: 'failed', run: { id: 4, title: 'Nightly import' } }],
@@ -164,6 +194,11 @@ const SCENES = {
   render: [{ hash: 'c=1' }, [tap({ t: 'button', p: { label: 'Files (2)' } }), tap({ t: 'button', p: { label: 'Render' } })]],
   tree: [{ hash: 'c=1' }, [tap({ t: 'button', p: { label: 'Workflow tree' } })]],
   settings: [{}, [tap({ t: 'button', p: { label: 'Settings' } }), tap({ t: 'row', p: { title: 'Config' } })]],
+  'sandbox-home': [{}, [{ event: [{ t: 'picker', p: { label: 'Class' } }, 'change', { value: 'coding' }] }]],
+  'sandbox-chat': [{ hash: 'c=8' }, [{ event: [{ t: 'toolcard', p: { title: 'Run the tests' } }, 'toggle', { open: true }] }]],
+  sandbox: [{ hash: 'c=8' }, [tap({ t: 'button', p: { label: 'Sandbox: api' } })]],
+  sandboxes: [{ hash: 'c=8' }, [{ event: [{ t: 'picker', p: { label: 'Sandbox' } }, 'change', { value: '+manage' }] }]],
+  'sandbox-new': [{ hash: 'c=8' }, [{ event: [{ t: 'picker', p: { label: 'Sandbox' } }, 'change', { value: '+new' }] }]],
 };
 
 const treesDir = join(OUT, 'trees');

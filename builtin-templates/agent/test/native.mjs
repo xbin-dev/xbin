@@ -4,7 +4,8 @@
 // /vendor/xb/preview-host.js). Against backend.mjs's fake backend and its
 // live stream, it walks what a person does: home, the drawer, a
 // conversation, a streamed answer, an approval, typing and sending, the
-// menu's Files, back — and checks that nothing errs and no diagnostic is
+// menu's Files, back, a coding sandbox (the toolbar's picker, ▣, ⋯ → Sandbox,
+// Manage) — and checks that nothing errs and no diagnostic is
 // raised. The node tests (hack/agent-template-native.test.mjs) cover the
 // semantics screen by screen; this proves the same code in WebKit's shoes
 // (real frames, fetch streaming, DOMParser for the render preview).
@@ -26,6 +27,10 @@ const { ok, done } = checker();
 const now = Math.floor(Date.now() / 1000);
 const call = (id, name, args) => ({ id, type: 'function', function: { name, arguments: JSON.stringify(args) } });
 const msg = (id, role, content, extra = {}) => ({ id, runId: extra.runId || 1, seq: id, role, content, created: now - 60 + id, ...extra });
+const SBX = 'apps/coding-sandbox';
+const sbx = (id, extra = {}) => ({ ref: `${SBX}|${id}`, provider: SBX, manager: 'Coding sandboxes', id, name: id, state: 'running', egress: 'none',
+  visibility: 'private', owner: { user: 'admin' }, mine: true, canUse: true, canManage: true, canEdit: true, workdir: '/work', ...extra });
+const box = (id) => ({ ref: `${SBX}|${id}`, name: id, cwd: '/work', manager: 'Coding sandboxes', egress: 'none' });
 
 const seed = {
   me: { kind: 'user', user: 'admin', manager: true, epochMs: 0 },
@@ -33,6 +38,7 @@ const seed = {
   runs: [
     { id: 1, title: 'plan the quarter', status: 'running', parentId: 0, rootId: 1 },
     { id: 3, title: 'send the invoices', status: 'waiting_input', parentId: 0, rootId: 3 },
+    { id: 5, title: 'fix the build', status: 'idle', parentId: 0, rootId: 5 },
   ],
   views: {
     1: {
@@ -47,7 +53,17 @@ const seed = {
       run: { id: 3, title: 'send the invoices', status: 'waiting_input', rootId: 3, pendingState: { kind: 'approval', toolCalls: [{ function: { name: 'mcp:mail:send' } }] } },
       messages: [msg(1, 'user', 'send them', { runId: 3 })],
     },
+    // a coding conversation (D115) working in a sandbox
+    5: {
+      access: 'owner', class: { id: 'coding', name: 'Coding', icon: '▣', toolsets: ['sandbox', 'web'], managers: 'all', sandboxEgress: ['none'] },
+      config: { sandbox: box('api'), attached: [box('api')] },
+      run: { id: 5, title: 'fix the build', status: 'idle', parentId: 0, rootId: 5 },
+      messages: [msg(1, 'user', 'make the tests pass', { runId: 5 }),
+        msg(2, 'assistant', '', { runId: 5, toolCalls: [call('b1', 'bash', { command: 'go test ./...', summary: 'Run the tests' })] }),
+        msg(3, 'tool', 'FAIL\n[exit 1 · 14s · job 3]', { runId: 5, toolCallId: 'b1', name: 'bash' })],
+    },
   },
+  sandboxes: [sbx('api', { boundTo: [5] }), sbx('web', { state: 'stopped' })],
 };
 
 const PAGE = `<!doctype html><html><head><meta charset="utf-8"><meta name="xbin-sandbox"><meta name="xbin-native-preview" content="1">
@@ -148,6 +164,28 @@ await view.locator('xb-sheet xb-row:has-text("send the invoices") .row-main').cl
 ok('the approval card', await shown('xb-approval:has-text("mcp:mail:send")'));
 await view.locator('xb-approval button:has-text("Approve")').click();
 ok('Approve is sent', await page.waitForFunction(() => window.__calls.some((c) => c.url.endsWith('/runs/3/approve') && JSON.parse(c.body).approve === true)).then(() => true, () => false));
+
+// a coding sandbox (D115): ▣ in the subtitle, the card's outcome, the toolbar's picker, ⋯ → Sandbox, Manage
+const subtitle = () => page.evaluate(() => window.navOf().c[window.navOf().c.length - 1].p.subtitle || '');
+await view.locator('button[aria-label="Conversations"]').first().click();
+await view.locator('xb-sheet xb-row:has-text("fix the build") .row-main').click();
+ok('a coding conversation opens', await titled('fix the build'));
+ok('▣ its sandbox in the subtitle', await page.waitForFunction(() => /▣ api · \/work/.test(window.topTitle() && window.navOf().c.at(-1).p.subtitle)).then(() => true, () => false), await subtitle());
+ok('the bash card says what it came to', await shown('xb-toolcard:has-text("exit 1 · 14s · job 3")'));
+await view.locator('select[aria-label="Sandbox"]').selectOption({ label: 'web (stopped)' });
+ok('the picker binds from the next turn', await page.waitForFunction(() => window.__calls.some((c) => c.method === 'PATCH' && c.url.endsWith('/runs/5')
+  && JSON.parse(c.body).sandbox?.ref === 'apps/coding-sandbox|web')).then(() => true, () => false));
+ok('…and the subtitle follows', await page.waitForFunction(() => /▣ web · \/work/.test(window.navOf().c.at(-1).p.subtitle)).then(() => true, () => false), await subtitle());
+await view.locator('xb-menu button[aria-label="More"]:visible').first().click();
+await view.locator('.pop button:has-text("Sandbox: web")').click();
+ok('⋯ → Sandbox is pushed', await titled('web'));
+ok('its working directory', await shown('xb-field:has-text("Working directory")'));
+await view.locator('xb-row:has-text("Manage sandboxes") .row-main').click();
+ok('Manage pushes the Sandboxes', await titled('Sandboxes'));
+ok('…listing them', await shown('xb-row:has-text("stopped · active here")') && await shown('xb-row:has-text("running · attached here")'));
+await view.locator('.back:visible').click();
+await view.locator('.back:visible').click();
+ok('back to the conversation', await titled('fix the build'));
 
 ok('no page errors', errors.length === 0, errors.join(' | '));
 ok('no runtime errors', (await page.evaluate(() => window.xbnPreview.errors)).length === 0, JSON.stringify(await page.evaluate(() => window.xbnPreview.errors)));

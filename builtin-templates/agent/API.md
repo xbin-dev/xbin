@@ -1062,7 +1062,8 @@ has); a sandbox with no network is private scratch.
 
 The model is `model/sandboxes.js` (pure: what the controls say) and
 `app.sbx` (`model/sandbox-store.js`: the list, the next new chat's pick and
-the calls); the web draws it in `sandboxes.js`.
+the calls); the web draws it in `sandboxes.js`, the native view in
+`native/sandboxes.js`.
 
 - **The composer's picker** (`#ssel`, beside the model's) shows where the
   class — the open conversation's, or at home the next new chat's — has the
@@ -1102,6 +1103,17 @@ the calls); the web draws it in `sandboxes.js`.
   started`), match, file and entry counts, lines read, sizes
   (`model/tool-heads.js` `subline`, `outcome`; the fold's blocks carry them
   as `sub` and `outcome`).
+- **In the native view** the picker is a Sandbox picker in the chat and
+  home toolbars, beside the model's, with short labels (a picker cannot
+  disable an option: one you may not use is marked, and picking it says
+  why). The ▣ badge is in the conversation's subtitle, a notice in the
+  transcript says why a binding no longer resolves, and ⋯ → Sandbox pushes
+  the popover's screen (working directory, the attached ones, Detach,
+  Manage sandboxes…). The Sandboxes screen puts each row's actions behind
+  its swipe and ⋯ (Archive and Delete confirmed), and New sandbox pushes
+  the create form. A ▣ tool card is a `terminal` icon; what the call came to
+  is a chip (`exit 1 · 14s · job 3` in red), its command the card's first
+  line.
 
 **Subagents on another sandbox.** `subagent_spawn` also takes `{sandbox?,
 cwd?}` where a sandbox is bound: `sandbox` names one of the conversation's
@@ -1153,6 +1165,7 @@ home sends the draft (`POST /ask {draft, files}`).
 | `native/home.js`, `native/convs.js`, `native/share.js` | home and Needs you; the conversations drawer (a `sheet edge="leading"`), new chat with options, rename; the share sheet |
 | `native/tools.js`, `native/settings.js` | memory, files (+ editor, share/export), skills, the workflow tree, one call in full, the render preview (a `canvas html=` island, `native/render-doc.js` — the web's CSP); settings for managers |
 | `native/classes.js` | agent classes: the Class picker in the home toolbar, the new-chat sheet's class, Settings → Classes (the list, one class's form) |
+| `native/sandboxes.js` | coding sandboxes: the Sandbox picker in the chat and home toolbars, the ▣ in the subtitle and the broken-binding notice, the Sandbox screen (⋯ → Sandbox), the Sandboxes screen and the create form |
 | `native/auto.js`, `native/auto-channels.js`, `native/auto-triggers.js` | the Automations screens for all four kinds |
 | `native-features.js` | `IMPLEMENTS`: what the native view implements, by feature key (as `web-features.js` for the web) |
 

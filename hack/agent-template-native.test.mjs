@@ -727,3 +727,162 @@ test('classes (D116): the picker remembers your pick, the badge warns, managers 
   assert.equal(puts[1].default, '', 'a deleted default hands over to the backend\'s');
   assert.equal(puts[1].confirmMixed, true, 'the mixed class that stays was confirmed before');
 });
+
+// --- coding sandboxes (D115) ---------------------------------------------------------------
+
+const MGR = 'apps/coding-sandbox';
+const CODING = { id: 'coding', name: 'Coding', icon: '▣', toolsets: ['sandbox', 'web', 'files'], managers: 'all', sandboxEgress: ['none', 'internet'] };
+const sb = (id, extra = {}) => ({ ref: `${MGR}|${id}`, provider: MGR, manager: 'Coding sandboxes', id, name: id, state: 'running', egress: 'none',
+  visibility: 'private', owner: { user: 'admin' }, mine: true, canUse: true, canManage: true, canEdit: true, workdir: '/work',
+  caps: ['exec', 'files', 'tar', 'archive'], image: { id: 'base', title: 'Debian' }, lastActive: NOW - 60e3, ...extra });
+const bound = (id, extra = {}) => ({ ref: `${MGR}|${id}`, name: id, cwd: '/work', manager: 'Coding sandboxes', egress: 'none', by: 'admin', ...extra });
+const boxes = () => [sb('api', { boundTo: [9] }), sb('web', { state: 'stopped', lastActive: NOW - 3600e3 }),
+  sb('wide', { egress: 'open' }), sb('team-box', { mine: false, owner: { user: 'carol' }, visibility: 'team', canManage: false, canEdit: false })];
+const bodies = (r, method, re) => called(r, method, re).map((c) => JSON.parse(c.body));
+
+test('coding sandboxes (D115): the picker, the ▣ badge and its screen, the tool cards', async () => {
+  const view = { run: { title: 'fix the build', status: 'idle' }, class: CODING,
+    config: { sandbox: bound('api'), attached: [bound('api'), bound('web')] },
+    messages: [msg(1, 'user', 'make the tests pass', { runId: 9 }), msg(2, 'assistant', '', { runId: 9, toolCalls: [
+      call('b1', 'bash', { command: 'go test ./...', summary: 'Run the tests' }),
+      call('b2', 'grep', { pattern: 'TODO', path: 'src' })] }),
+    msg(3, 'tool', '--- FAIL: TestX\nFAIL\n[exit 1 · 14s · job 3]', { runId: 9, toolCallId: 'b1', name: 'bash' }),
+    msg(4, 'tool', 'src/a.go:3: // TODO\nsrc/b.go:9: // TODO', { runId: 9, toolCallId: 'b2', name: 'grep' })] };
+  const picker = { t: 'picker', p: { label: 'Sandbox' } };
+  const r = await run(oneSeed(view, { sandboxes: boxes() }), [
+    { wait: 50 },
+    { snapshot: 'chat' },
+    { event: [picker, 'change', { value: `${MGR}|wide` }] },
+    { snapshot: 'refused' },
+    { event: [picker, 'change', { value: `${MGR}|web` }] },
+    { snapshot: 'bound' },
+    { tap: { t: 'button', p: { label: 'Sandbox: web' } } },
+    { snapshot: 'box' },
+    { input: [{ t: 'field', p: { label: 'Working directory' } }, 'src'] },
+    { tap: { t: 'button', p: { label: 'Set' } } },
+    { snapshot: 'relative' },
+    { input: [{ t: 'field', p: { label: 'Working directory' } }, '/work/web'] },
+    { tap: { t: 'button', p: { label: 'Set' } } },
+    { tap: { t: 'row', p: { title: 'api' }, in: { t: 'section', p: { title: 'Attached' } } } },
+    { snapshot: 'switched' },
+    { tap: { t: 'button', p: { label: 'Detach' } } },
+    { snapshot: 'detached' },
+  ], { state: { hash: 'c=9' } });
+
+  // the picker: beside the model, the conversation's sandbox; what it may not use says why when picked
+  const p = find(r.snapshots.chat, picker);
+  assert.equal(p.p.value, `${MGR}|api`);
+  assert.deepEqual(p.p.options.map((o) => [o.label, o.icon]), [
+    ['No sandbox', 'minus'], ['api', 'box'], ['web (stopped)', 'box'], ['wide — unavailable', 'lock'],
+    ['team-box · team', 'box'], ['＋ New sandbox…', 'plus'], ['Manage sandboxes…', 'list']], 'short: the bar shows the current one beside the model');
+  assert.match(topScreen(r.snapshots.chat).p.subtitle, /idle · ▣ Coding · ▣ api · \/work/, 'the ▣ badge in the header');
+  assert.equal(called(r, 'GET', /\/sandboxes$/).length, 1, 'the list is read once');
+  const note = texts(r.snapshots.refused, 'notice', 'text').find((t) => /wide/.test(t || ''));
+  assert.match(note, /^wide: the Coding class doesn't allow a sandbox with open network/);
+  // the tool cards: ▣ as a terminal, the command inside, what it came to on the card
+  const bash = find(r.snapshots.chat, { t: 'toolcard', p: { title: 'Run the tests' } });
+  assert.equal(bash.p.family, 'box');
+  assert.equal(bash.p.icon, 'terminal');
+  assert.deepEqual(bash.p.chips, [{ text: 'exit 1 · 14s · job 3', tone: 'danger' }]);
+  assert.ok(find(bash, { t: 'text', p: { text: '$ go test ./...' } }), 'the command under the summary');
+  assert.deepEqual(find(r.snapshots.chat, { t: 'toolcard', has: 'Search /TODO/' }).p.chips, [{ text: '2 matches' }]);
+  // a pick binds it from the next turn, and the header follows
+  const patches = bodies(r, 'PATCH', /\/runs\/9$/);
+  assert.deepEqual(patches[0], { sandbox: { ref: `${MGR}|web` } }, 'the refused pick sent nothing');
+  assert.match(topScreen(r.snapshots.bound).p.subtitle, /▣ web · \/work/);
+  // ⋯ → Sandbox: its working directory, the attached ones, Detach
+  const box = topScreen(r.snapshots.box);
+  assert.equal(box.p.title, 'web');
+  assert.equal(find(box, { t: 'field', p: { label: 'Working directory' } }).p.value, '/work');
+  assert.deepEqual(all(find(box, { t: 'section', p: { title: 'Attached' } }), { t: 'row' }).map((x) => [x.p.title, !!x.p.selected]), [['api', false], ['web', true]]);
+  assert.match(texts(r.snapshots.relative, 'notice', 'text').join('|'), /an absolute path/, 'a relative directory is refused before it is sent');
+  assert.deepEqual(patches.slice(1), [{ sandbox: { ref: `${MGR}|web`, cwd: '/work/web' } }, { sandbox: { ref: `${MGR}|api`, cwd: '/work' } }, { detach: `${MGR}|api` }]);
+  assert.equal(topScreen(r.snapshots.switched).p.title, 'api', 'switching makes another the active one');
+  assert.equal(topScreen(r.snapshots.detached).p.title, 'fix the build', 'detached: back on the conversation');
+  assert.doesNotMatch(topScreen(r.snapshots.detached).p.subtitle, /▣ api/);
+  assert.equal(find(r.snapshots.detached, { t: 'button', p: { label: 'Sandbox: api' } }), null);
+});
+
+test('coding sandboxes (D115): no picker without the toolset; the Sandboxes screens at home; a new chat starts in the pick', async () => {
+  const seed = { me: ME, runs: [{ id: 9, title: 'build it', status: 'running' }], sandboxes: boxes(),
+    views: { 9: { access: 'owner', class: CODING, run: { id: 9, rootId: 9, parentId: 0, title: 'build it', status: 'running' } } },
+    routes: [['POST', '/ask$', { id: 9, title: 'build it', status: 'running', rootId: 9, parentId: 0 }]] };
+  const row = (name) => ({ t: 'row', p: { title: name }, in: { t: 'screen', p: { title: 'Sandboxes' } } });
+  const r = await run(seed, [
+    { snapshot: 'home' },
+    { event: [{ t: 'picker', p: { label: 'Class' } }, 'change', { value: 'coding' }] },
+    { wait: 50 },
+    { snapshot: 'coding' },
+    { event: [{ t: 'picker', p: { label: 'Sandbox' } }, 'change', { value: '+manage' }] },
+    { wait: 50 },
+    { snapshot: 'list' },
+    { tap: { t: 'button', p: { label: 'Start' }, in: row('web') } },
+    { snapshot: 'started' },
+    { tap: { t: 'button', p: { label: 'Delete' }, in: row('web') } },
+    { snapshot: 'deleted' },
+    { tap: { t: 'button', p: { label: 'New sandbox' } } },
+    { tap: { t: 'button', p: { label: 'Create' } } },
+    { snapshot: 'unnamed' },
+    { input: [{ t: 'field', p: { label: 'Name' } }, 'scratch'] },
+    { event: [{ t: 'picker', p: { label: 'Network' } }, 'change', { value: 'open' }] },
+    { snapshot: 'open' },
+    { event: [{ t: 'picker', p: { label: 'Network' } }, 'change', { value: 'internet' }] },
+    { tap: { t: 'button', p: { label: 'Create' } } },
+    { snapshot: 'created' },
+    { event: [{ t: 'composer' }, 'send', { value: 'build it' }] },
+  ]);
+  assert.equal(find(r.snapshots.home, { t: 'picker', p: { label: 'Sandbox' } }), null, 'the internal class has no sandbox: no picker');
+  const p = find(r.snapshots.coding, { t: 'picker', p: { label: 'Sandbox' } });
+  assert.equal(p.p.value, '', 'the coding class: the picker, no sandbox yet');
+  // the list: yours first, each with what your rights allow
+  const list = topScreen(r.snapshots.list);
+  assert.equal(list.p.subtitle, 'for your next new chat');
+  assert.ok(called(r, 'GET', /\/sandboxes\?fresh=1$/).length, 'Manage reads them afresh');
+  const acts = (tree, name) => all(find(tree, row(name)), { t: 'button' }).map((b) => b.p.label);
+  assert.deepEqual(acts(r.snapshots.list, 'web'), ['Use for a new chat', 'Start', 'Archive', 'Share with the team', 'Delete']);
+  assert.deepEqual(acts(r.snapshots.list, 'team-box'), ['Use for a new chat', 'Stop'], 'another\'s team sandbox: use it, no managing');
+  assert.deepEqual(acts(r.snapshots.list, 'wide'), ['Stop', 'Archive', 'Share with the team', 'Delete'], 'one the class does not allow is not offered for use');
+  const del = find(find(r.snapshots.list, row('web')), { t: 'button', p: { label: 'Delete' } });
+  assert.match(del.p.confirm.title, /^Delete the sandbox “web”\?/);
+  assert.equal(del.p.role, 'destructive');
+  assert.match(find(r.snapshots.list, row('web')).p.subtitle, /^stopped · private · Debian · no network · owner: you · active 1 h ago$/);
+  assert.equal(find(r.snapshots.list, row('api')).p.subtitle.split(' · ')[0], 'running');
+  assert.equal(called(r, 'POST', /\/sandboxes\/apps\/coding-sandbox%7Cweb\/start\?wait=20$/).length, 1);
+  assert.match(find(r.snapshots.started, row('web')).p.subtitle, /^running · /);
+  assert.equal(called(r, 'DELETE', /\/sandboxes\/apps\/coding-sandbox%7Cweb$/).length, 1);
+  assert.equal(find(r.snapshots.deleted, row('web')), null);
+  assert.ok(texts(r.snapshots.deleted, 'notice', 'text').includes('deleted web'));
+  // the create form: its checks, the class's egress, then back on the list
+  assert.ok(texts(r.snapshots.unnamed, 'notice', 'text').includes('Name the sandbox.'));
+  const form = topScreen(r.snapshots.open);
+  assert.equal(form.p.subtitle, 'for your next new chat');
+  assert.deepEqual(find(form, { t: 'picker', p: { label: 'Network' } }).p.options.map((o) => o.label), ['no network', 'internet', 'open network — not in this class']);
+  assert.match(texts(r.snapshots.open, 'notice', 'text').join('|'), /the Coding class doesn't allow a sandbox with open network/);
+  const made = bodies(r, 'POST', /\/sandboxes$/);
+  assert.deepEqual({ ...made[0], clientId: 'x' }, { name: 'scratch', provider: MGR, egress: 'internet', visibility: 'private', image: 'base', size: 'small', clientId: 'x' });
+  assert.equal(topScreen(r.snapshots.created).p.title, 'Sandboxes');
+  assert.ok(texts(r.snapshots.created, 'notice', 'text').includes('created scratch — your next new chat starts in it ✓'));
+  assert.equal(find(r.snapshots.created, { t: 'picker', p: { label: 'Sandbox' } }).p.value, `${MGR}|sb-scratch`, 'the picker has it');
+  // the new chat starts in it
+  const ask = bodies(r, 'POST', /\/ask$/)[0];
+  assert.equal(ask.class, 'coding');
+  assert.deepEqual(ask.sandbox, { ref: `${MGR}|sb-scratch` });
+});
+
+test('coding sandboxes (D115): a binding that no longer resolves is marked; a viewer may not change it', async () => {
+  const view = { access: 'viewer', run: { title: 'lost box', status: 'idle' }, class: CODING, config: { sandbox: bound('vanished', { cwd: '/srv' }) } };
+  const r = await run(oneSeed(view, { sandboxes: boxes() }), [
+    { wait: 50 },
+    { snapshot: 'chat' },
+    { tap: { t: 'button', p: { label: 'Sandbox: vanished ⚠' } } },
+    { snapshot: 'box' },
+  ], { state: { hash: 'c=9' } });
+  assert.match(topScreen(r.snapshots.chat).p.subtitle, /▣ vanished · \/srv ⚠/);
+  const warn = find(r.snapshots.chat, { t: 'notice', p: { tone: 'warn', title: '▣ vanished' } });
+  assert.match(warn.p.text, /^gone — its manager no longer has it — pick another sandbox, or detach it/);
+  assert.equal(find(r.snapshots.chat, { t: 'picker', p: { label: 'Sandbox' } }), null, 'a viewer gets no picker');
+  const box = topScreen(r.snapshots.box);
+  assert.equal(find(box, { t: 'notice', p: { tone: 'warn' } }).p.title, 'The binding no longer resolves');
+  assert.equal(find(box, { t: 'field', p: { label: 'Working directory' } }).p.disabled, true);
+  assert.equal(find(box, { t: 'button', p: { label: 'Detach' } }).p.disabled, true);
+});

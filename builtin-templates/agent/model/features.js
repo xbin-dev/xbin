@@ -203,13 +203,6 @@ export const DIFFERENCES = {
     'composer.attach.camera': 'the browser\'s file picker offers the camera and the photo library itself',
   },
   native: {
-    // TEMPORARY (coding sandboxes, phase 1): the web lands first; the native
-    // view's parity is the next change of the same wave — it removes these
-    // four and adds them to native-features.js.
-    'composer.sandbox': 'not yet native: the sandbox picker lands in the native view in the next change of this wave (model/sandbox-store.js app.sbx.picker/choose)',
-    'top.sandbox': 'not yet native: the ▣ badge lands in the native view in the next change of this wave (app.sbx.badge, setCwd, detach)',
-    'tools.sandboxes': 'not yet native: the Sandboxes screen lands in the native view in the next change of this wave (app.sbx.rows, act, share, remove)',
-    'tools.sandboxes.create': 'not yet native: the create form lands in the native view in the next change of this wave (app.sbx.form, create)',
     'composer.keys': 'on a phone Return is a new line and Send is the button; the app\'s composer handles a hardware keyboard and IME composition itself',
     'composer.attach.paste': 'the app\'s composer owns the pasteboard: an image pasted there is uploaded like a picked one — nothing for the tile to draw',
     'composer.attach.drop': 'dropping files on the composer (iPad) is the app\'s: they upload like picked ones — nothing for the tile to draw',

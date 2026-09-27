@@ -132,6 +132,24 @@ export function createSandboxStore(app) {
       put(await actions.patchSandbox(ref, { visibility }));
       emit();
     },
+    // perform: a Sandboxes row's action (model/sandboxes.js sandboxRows'
+    // actions[].id) as both views' lists do it — a view confirms first where
+    // the action says so — and what to say once it is done ('' = the row
+    // says it).
+    async perform(ref, id, name = S.splitRef(ref).id) {
+      if (id === 'use') {
+        await sbx.choose(ref);
+        return conv() ? `${name} is this conversation's sandbox from its next turn ✓` : `${name} is your next new chat's sandbox ✓`;
+      }
+      if (id === 'delete') { await sbx.remove(ref); return `deleted ${name}`; }
+      if (id === 'team' || id === 'private') { await sbx.share(ref, id); return ''; }
+      await sbx.act(ref, id);
+      return '';
+    },
+    // created: what to say once create() made s (bind: as it was asked).
+    created(s, bind) {
+      return `created ${s.name}${bind ? (conv() ? ' — this conversation works in it from its next turn' : ' — your next new chat starts in it') : ''} ✓`;
+    },
     // remove deletes it; every conversation that had it loses it.
     async remove(ref) {
       await actions.deleteSandbox(ref);

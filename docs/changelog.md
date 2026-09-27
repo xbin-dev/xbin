@@ -115,8 +115,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   there. The coding tools' cards (a ▣ family) show the command under the
   model's summary and what it came to: bash's `exit 1 · 14s · job 3` or
   `still running · job 3`, match and file counts, sizes. The model is
-  `model/sandboxes.js` and `app.sbx` (`model/sandbox-store.js`); the web
-  view draws it now, the native view in the next change.
+  `model/sandboxes.js` and `app.sbx` (`model/sandbox-store.js`); both views
+  draw it — in the xbin app a Sandbox picker in the toolbar beside the
+  model's, the ▣ in the conversation's subtitle with ⋯ → Sandbox for the
+  directory, the attached ones and Detach, and pushed Sandboxes screens.
 
 - **Admin console: runtime → sandboxes, and the sandbox in the component
   list** (D112, [isolation.md](isolation.md) §VM sandboxes). A new tab lists
