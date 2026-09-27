@@ -143,6 +143,36 @@ export function orgNetLabel(org) {
 }
 
 /**
+ * bindPreselect(pending) → the option a bind prompt's picker starts on for a
+ * pending row of GET /bindings (its `options` in server order). A
+ * `sandbox-net` class starts on `none`: its first unblocked option is
+ * usually `internet`, and an approver who clicks through must not grant a
+ * manager's sandboxes the internet. Any other slot starts on its first
+ * unblocked option. '' when there is nothing to start on.
+ */
+export function bindPreselect(pending) {
+  const opts = pending?.options ?? [];
+  if (pending?.kind === 'sandbox-net') return opts.some((o) => o.id === 'none' && !o.blocked) ? 'none' : '';
+  return opts.find((o) => !o.blocked)?.id ?? '';
+}
+
+/**
+ * blockedTitle(option) → why a picker greys out a server-blocked option,
+ * read off its server label: a set that says host is never a sandbox
+ * class's network; binding a set is a workspace admin's act (D65); the
+ * personal owner's allowance (D88); otherwise the owning org's network sets
+ * (D54).
+ */
+export function blockedTitle(o) {
+  const l = o?.label ?? '';
+  if (/says host/.test(l)) return 'a sandbox class can\'t reach the host';
+  if (/workspace admins only/.test(l)) return 'binding a network set is a workspace admin\'s act';
+  if (/outside your network allowance/.test(l)) return 'outside your network allowance';
+  if (/not bindable/.test(l)) return 'a provider-only set can\'t be bound';
+  return 'refused by the owning org\'s network sets';
+}
+
+/**
  * netOptions({org, providers, pending, options}) → [{id, label, title,
  * disabled?}] for a net slot's picker. `org` is the owning org (with
  * netSets/resolvedNet) or null; `providers` are provider-tile paths;

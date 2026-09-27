@@ -3017,6 +3017,26 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
   sandbox class can't reach the host" instead of "refused by the owning
   org's network sets". `hack/netrules.test.mjs` or the `sandboxNet` harness
   pass checks the preselection. The WP-11 changelog bullet amended.
+- **As built** (branch `p2/wp11b`):
+  - The two rules are pure helpers in `web/bx-netrules.js`, so `make
+    js-test` covers them: `bindPreselect(pending)` (a `sandbox-net` row →
+    `none`; `''` if the server offered no unblocked `none`, which today's
+    never does; any other row → its first unblocked option, as before) and
+    `blockedTitle(option)`, read off the server label. Beyond the host case
+    it also names "workspace admins only", "outside your network allowance"
+    and "provider-only" instead of blaming the org's sets for them; anything
+    else keeps "refused by the owning org's network sets".
+  - `web/bx-bindings.js`: the picker renders the preselection (`?selected`)
+    and the bind submits the same value; a row with nothing to start on shows
+    a disabled "pick one…" and its bind button is off. The rows are keyed
+    (`repeat`), so a `<select>` is never reused for another slot's row after
+    a bind reloads the list (what it shows is what it submits).
+  - Tests: `hack/netrules.test.mjs` (three cases); the `sandboxNet` pass
+    opens the shell's prompt, checks both classes start on `none` and the
+    seed's `infra-net` is greyed with the new title, and clicks `lab`'s bind
+    (→ `none`) before the wiring checks. Docs: the changelog bullet,
+    `docs/overview/11-interfaces.md` and `docs/isolation.md` (one sentence
+    each).
 
 #### WP-13b — One key builder, a deployment guard, `uid`, path hygiene, `uses` for mounts (D · S · now; before WP-15a)
 

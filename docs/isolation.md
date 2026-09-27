@@ -351,7 +351,8 @@ tiles, the same ceiling: every ref inside the org's network sets (D54).
   When `org` or `personal` resolves to rules that include `host`, the class
   keeps the other rules and says so.
 - **Unbound is `none`.** A class has no org or personal default: it never
-  quietly gets the org's network.
+  quietly gets the org's network. The shell's bind prompt starts a class on
+  `none` too, so an approver who clicks through grants nothing.
 - **A class's `internet` is strict.** The sandbox-manager contract promises
   that `internet` reaches no private or local network, so for a sandbox it
   also excludes CGNAT (`100.64.0.0/10`, which Tailscale uses), benchmarking

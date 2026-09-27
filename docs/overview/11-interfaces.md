@@ -176,8 +176,9 @@ Each `sandbox-net` slot is one **class**; a sandbox selects `none` or `class:<sl
 It binds like `net` — same approvers, same D20/D54 ceilings — but only to the
 builtins that go through the relay: `none`, `internet[:<spec>]`, `lan:<cidr>`, `org`,
 `personal`, `set:<name>`. `host`, provider tiles and sets that say `host` are refused.
-Unbound is `none` (no org or personal default), and (re)binding restarts nothing: the
-runtime re-resolves the class for the running sandboxes. Details:
+Unbound is `none` (no org or personal default), and the shell's bind prompt starts a
+class on `none`, so an approver who clicks through grants no network. (Re)binding
+restarts nothing: the runtime re-resolves the class for the running sandboxes. Details:
 [12-egress.md](12-egress.md).
 
 ## Binding mechanics

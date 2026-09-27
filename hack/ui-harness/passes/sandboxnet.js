@@ -5,6 +5,9 @@
 //   - the server's bindings answer carries sandboxNetOptions for the tile
 //     (no host, no provider tiles) and its pending class rows claim no
 //     org/personal default;
+//   - the shell's bind prompt (bx-bindings) starts each pending class on
+//     none, never on internet, greys a set that says host with the reason,
+//     and a click-through binds none (WP-11b);
 //   - admin → binding → wiring renders each class as a net-style row
 //     (tr[data-kind=sandbox-net]): unbound reads "no network", host is not
 //     offered, and picking internet binds it;
@@ -13,7 +16,7 @@
 // The manager tile is created here (a rerun reuses it) and both classes end
 // bound to none, so no pending row is left for later passes.
 const path = require('path');
-const { URL, fs, sleep, login, closeCtx, settle, sh, waitSel, gotoTab, openShell, shot, dumpSelects, checker } = require('../lib');
+const { URL, fs, sleep, login, closeCtx, settle, sh, waitFor, waitSel, gotoTab, openShell, shot, dumpSelects, checker } = require('../lib');
 
 const TILE = 'apps/sbxmgr';
 const CLASSES = ['internet', 'lab'];
@@ -50,8 +53,33 @@ async function sandboxNet(browser) {
   check(pend.length === 2 && pend.every((p) => p.kind === 'sandbox-net' && !p.default && !p.options.some((o) => o.id === 'host')),
     `pending class rows, no default, no host (${JSON.stringify(pend.map((p) => [p.slot, p.kind, p.default ?? '']))})`);
 
-  // admin → binding → wiring
+  // the shell's bind prompt: what an approver clicking through gets
   const { page } = A;
+  await openShell(page);
+  await waitFor(page, (t, tile) => [...(t.query('bx-bindings')?.renderRoot?.querySelectorAll('.row') ?? [])]
+    .filter((r) => r.querySelector('.who')?.textContent === tile).length === 2, TILE, { label: 'bind prompt: the class rows' });
+  const prompt = await sh(page, (t, tile) => [...t.query('bx-bindings').renderRoot.querySelectorAll('.row')]
+    .filter((r) => r.querySelector('.who')?.textContent === tile)
+    .map((r) => ({
+      slot: r.querySelector('.slot')?.textContent,
+      value: r.querySelector('select')?.value,
+      hostSets: [...r.querySelectorAll('option')].filter((o) => /says host/.test(o.textContent)).map((o) => ({ disabled: o.disabled, title: o.title })),
+    })), TILE);
+  check(prompt.length === 2 && prompt.every((r) => r.value === 'none'),
+    `bind prompt: each class starts on none (${JSON.stringify(prompt.map((r) => [r.slot, r.value]))})`);
+  if (opts.some((o) => /says host/.test(o.label ?? ''))) { // the seed's infra-net
+    check(prompt.every((r) => r.hostSets.length > 0 && r.hostSets.every((o) => o.disabled && o.title === 'a sandbox class can\'t reach the host')),
+      `bind prompt: a set that says host is greyed, "a sandbox class can't reach the host" (${JSON.stringify(prompt.map((r) => r.hostSets))})`);
+  }
+  await dumpSelects(page, 'sandbox-net-bind-prompt-selects', 'bx-bindings select');
+  await sh(page, (t, tile) => [...t.query('bx-bindings').renderRoot.querySelectorAll('.row')]
+    .find((r) => r.querySelector('.who')?.textContent === tile && r.querySelector('.slot')?.textContent === 'lab')
+    ?.querySelector('button')?.click(), TILE);
+  let clicked = '';
+  for (let i = 0; i < 50 && clicked !== 'none'; i++) { await sleep(100); clicked = [].concat((await bindings()).bindings?.[TILE]?.lab ?? [])[0]; }
+  check(clicked === 'none', `bind prompt: a click-through binds the class to none (${clicked})`);
+
+  // admin → binding → wiring
   await gotoTab(page, 'wiring', 'Each component');
   const rows = page.locator('bx-admin-binding tr[data-kind="sandbox-net"]', { has: page.locator('td.mono', { hasText: TILE }) });
   await rows.first().waitFor({ timeout: 10000 });
