@@ -333,6 +333,42 @@ func TestPlusReservedInNewTilePaths(t *testing.T) {
 		}
 	})
 
+	t.Run("clone warns too, and resets before its first Rescan", func(t *testing.T) {
+		reset := b.ResetDeploymentState
+		first := map[string]bool{} // path → registered at its first reset
+		b.ResetDeploymentState = func(path string) error {
+			if _, seen := first[path]; !seen {
+				_, first[path] = b.Reg.Component(path)
+			}
+			return reset(path)
+		}
+		defer func() { b.ResetDeploymentState = reset }()
+		clone := func(to string) map[string]any {
+			t.Helper()
+			w := call(t, b.apiClone, ana, "POST", "/clone", `{"from":"apps/plain-two","to":"`+to+`"}`, nil)
+			if w.Code != 200 {
+				t.Fatalf("cloning to %s: %d %s", to, w.Code, w.Body.String())
+			}
+			var m map[string]any
+			if err := json.Unmarshal(w.Body.Bytes(), &m); err != nil {
+				t.Fatal(err)
+			}
+			return m
+		}
+		if m := clone("apps/plain+copy"); !reflect.DeepEqual(m["warnings"], warning("apps/plain+copy")) {
+			t.Errorf("clone's warnings = %#v, want %#v", m["warnings"], warning("apps/plain+copy"))
+		}
+		m := clone("apps/plain-three")
+		if want := []string{"from", "path", "pendingGrants", "rewritten"}; !reflect.DeepEqual(lifeKeys(m), want) {
+			t.Errorf("clone's answer keys %q, want today's %q", lifeKeys(m), want)
+		}
+		for _, to := range []string{"apps/plain+copy", "apps/plain-three"} {
+			if registered, reset := first[to]; !reset || registered {
+				t.Errorf("%s: reset %v, already registered at its first reset %v; want a reset before the tree exists", to, reset, registered)
+			}
+		}
+	})
+
 	t.Run("exact matches keep resolving", func(t *testing.T) {
 		c, dep, qualified, rest, err := b.Reg.ResolveRef("apps/calendar+nope/index.html", dp)
 		if err != nil || c == nil || c.Path != "apps/calendar+nope" || qualified || rest != "index.html" {
