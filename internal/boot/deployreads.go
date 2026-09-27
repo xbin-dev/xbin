@@ -7,6 +7,7 @@ package boot
 // its source it answers 501, as a reserved route.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -21,6 +22,94 @@ import (
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/util"
 )
+
+// planeReads are the reads' sources in xbind: the plane's runner status,
+// checkpoint store (WP-11, WP-12), deploy queue and log (WP-14b) and drift
+// count (WP-20).
+func planeReads(dp *deployments.Plane) deployReads {
+	return deployReads{
+		status:     runnerStatus(dp),
+		checkpoint: dp.Checkpoint,
+		queue: func(tile, dep string) (any, []any) {
+			df := dp.Deploys(context.Background(), tile, dep)
+			var deploying any
+			if df.Deploying != nil {
+				deploying = *df.Deploying
+			}
+			queued := make([]any, 0, len(df.Queued))
+			for _, b := range df.Queued {
+				queued = append(queued, b)
+			}
+			return deploying, queued
+		},
+		lastDeploy: func(ctx context.Context, tile, dep string) (any, error) {
+			if last := dp.Deploys(ctx, tile, dep).LastDeploy; last != nil {
+				return *last, nil
+			}
+			return nil, nil
+		},
+		workTree: func(tile string) (int, bool) {
+			d, ok := dp.WorkTreeDrift(tile)
+			return d.Changed, ok
+		},
+		log: func(ctx context.Context, tile, dep string, limit int, before int64) ([]any, bool, error) {
+			es, more := dp.Log(ctx, tile, dep, limit, before)
+			out := make([]any, len(es))
+			for i, e := range es {
+				out[i] = e
+			}
+			return out, more, nil
+		},
+		entry: func(ctx context.Context, tile string, id int64, wait time.Duration) (any, error) {
+			e, err := dp.Entry(ctx, tile, id, wait)
+			if errors.Is(err, deployments.ErrNoAttempt) {
+				return nil, nil
+			}
+			if err != nil {
+				return nil, err
+			}
+			return e, nil
+		},
+		diff: func(w http.ResponseWriter, r *http.Request, q diffQuery) error { return writeDiff(w, r, dp, q) },
+		fetch: func(w http.ResponseWriter, r *http.Request, tile, gitPath string) {
+			if err := dp.ServeFetch(w, r, tile, gitPath); err != nil { // ErrNotFetchable: nothing written yet
+				writeDeployErr(w, err)
+			}
+		},
+	}
+}
+
+// writeDiff answers a judged diff from the plane (11-contract §1.11): the
+// patch as text/x-diff, or with stat the per-file summary as JSON, with the
+// resolved checkpoints in X-XBin-Checkpoint-From and -To. Nothing is
+// written before the diff ran.
+func writeDiff(w http.ResponseWriter, r *http.Request, dp *deployments.Plane, q diffQuery) error {
+	spec := func(s diffSide) deployments.DiffSpec {
+		return deployments.DiffSpec{WorkTree: s.WorkTree, ID: s.ID, Tree: s.Tree}
+	}
+	res, err := dp.Diff(r.Context(), q.By, q.Tile, spec(q.From), spec(q.To), q.Path, q.Stat)
+	if err != nil {
+		return err
+	}
+	h := w.Header()
+	h.Set("X-XBin-Checkpoint-From", res.From.ID)
+	h.Set("X-XBin-Checkpoint-To", res.To.ID)
+	if q.Stat {
+		files := res.Files
+		if files == nil {
+			files = []checkpoint.DiffFile{}
+		}
+		server.WriteJSON(w, http.StatusOK, map[string]any{"from": res.From.ID, "to": res.To.ID, "files": files, "truncated": res.Truncated})
+		return nil
+	}
+	h.Set("Content-Type", "text/x-diff; charset=utf-8")
+	if res.Truncated {
+		h.Set("X-Truncated", "true")
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(res.Patch)
+	return nil
+}
 
 // ---- GET /deployments/log ----
 

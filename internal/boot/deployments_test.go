@@ -959,7 +959,7 @@ func TestDeploymentsOperationHandler(t *testing.T) {
 func registerDeploymentsAPIOn(m apiMounter, dp *deployments.Plane) {
 	mountDeploymentsAPI(m, &deploymentsAPI{dp: dp, owner: func(string) string { return "" },
 		ops:   opRegistry{deployments.Registered, deployments.NewRequest, dp.Do},
-		reads: deployReads{status: runnerStatus(dp)}})
+		reads: planeReads(dp)})
 }
 
 // covers NP-14-3 PO-14 — each route reaches its own act. Every POST route

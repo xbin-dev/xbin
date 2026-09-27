@@ -53,7 +53,7 @@ func registerDeploymentsAPI(srv *server.Server, dp *deployments.Plane) {
 	}
 	mountDeploymentsAPI(srv, &deploymentsAPI{dp: dp, owner: owner,
 		ops:   opRegistry{deployments.Registered, deployments.NewRequest, dp.Do},
-		reads: deployReads{status: runnerStatus(dp)}})
+		reads: planeReads(dp)})
 }
 
 // apiMounter is where the routes go: the server, or a test's mux.
@@ -462,14 +462,20 @@ func (a *deploymentsAPI) caller(pr auth.Principal, t tileRef, s deployments.Subj
 // notBuilt is an act whose route answers 501 here: this xbind can't.
 var notBuilt = deployments.Can{Why: "not built in this xbind yet", Kind: deployments.KindPolicy}
 
-// can is the plane's answer for pr; an act it allows that this xbind
-// doesn't build is notBuilt. allowed is the tile's, whoever asks.
+// can is the plane's answer for pr, then what the tile itself may do
+// (Policy: P18's isolation refusal among them, as the request would be
+// judged); an act it allows that this xbind doesn't build is notBuilt.
+// allowed is the tile's, whoever asks.
 func (a *deploymentsAPI) can(pr auth.Principal, o op, s deployments.Subject) deployments.Can {
-	return a.orNotBuilt(o, a.dp.Can(pr, o, s))
+	c := a.dp.Can(pr, o, s)
+	if c.OK {
+		c = a.dp.Policy(o, s)
+	}
+	return a.orNotBuilt(o, c)
 }
 
 func (a *deploymentsAPI) allowed(o op, s deployments.Subject) deployments.Can {
-	return a.orNotBuilt(o, a.dp.Allowed(o, s))
+	return a.orNotBuilt(o, a.dp.Policy(o, s))
 }
 
 func (a *deploymentsAPI) orNotBuilt(o op, c deployments.Can) deployments.Can {
@@ -673,7 +679,10 @@ func asDeployError(err error) *dpe {
 		{util.ErrNoDeployment, http.StatusNotFound}, {checkpoint.ErrAmbiguousID, http.StatusConflict},
 		{checkpoint.ErrRefused, http.StatusConflict}, {deployments.ErrStaleSeq, http.StatusConflict},
 		{deployments.ErrRecordHeld, http.StatusConflict}, {checkpoint.ErrRateLimited, http.StatusTooManyRequests},
-		{context.DeadlineExceeded, http.StatusGatewayTimeout},
+		{context.DeadlineExceeded, http.StatusGatewayTimeout}, {deployments.ErrNoAttempt, http.StatusNotFound},
+		{checkpoint.ErrBadDiffPath, http.StatusBadRequest}, {checkpoint.ErrNothingToDiff, http.StatusConflict},
+		{checkpoint.ErrDiffBusy, http.StatusTooManyRequests}, {checkpoint.ErrDiffTimeout, http.StatusGatewayTimeout},
+		{checkpoint.ErrNotFetchable, http.StatusNotFound},
 	} {
 		if errors.Is(err, c.is) {
 			return &dpe{Status: c.status, Msg: err.Error()}
