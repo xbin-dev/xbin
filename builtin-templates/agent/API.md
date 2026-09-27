@@ -886,9 +886,57 @@ what it creates); the agent enforces who may do what:
   one;
 - **edit** (name, visibility, members, shares): its owner.
 
+**A conversation's sandbox.** `config.sandbox` is the one its tools work in
+and `config.attached` every sandbox it has attached (up to 8, the active one
+among them — a subagent may be spawned onto another, and files copied
+between them). Each is a binding:
+
+```jsonc
+{"ref": "apps/coding-sandbox|sb-7f3a", "cwd": "/work/api",  // where tools work (default: the sandbox's workdir)
+ "name": "api-dev", "manager": "Coding sandboxes",           // as they were when it was bound (for display)
+ "image": "base", "egress": "none",
+ "by": "alice", "at": 1790000000000}                          // who bound it: tools act for them (Sbx-User)
+```
+
+Both live in the conversation's stored config (the view's `config`) like
+its model pick: read every turn — a rebind applies from the next one — and
+copied into subagents and workflows, which work in their root's sandbox.
+The global defaults (`PUT /config`) never hold either.
+
+- **Binding** takes participant access to the conversation **and** the
+  right to use the sandbox; the conversation's class must have the `sandbox`
+  toolset and allow the sandbox's manager and egress (D116). A `cwd` must be
+  an absolute path, and a directory when the sandbox is running.
+- **Anyone who may steer the conversation works in what it has bound** —
+  under the binder's right, which every tool call re-checks: the class
+  still allows it, the manager is still bound, the sandbox still exists, and
+  the binder may still use it and still takes part in the conversation.
+  Otherwise the tool says why and the conversation needs a new binding.
+- A **sandbox created for a conversation** (`POST /sandboxes
+  {conversation}`) follows it: a team conversation's is `team`; the
+  conversation's owner and participants are its members; it is labeled
+  `xbin.agent/conversation: <id>` and bound there.
+
+`PATCH /runs/{id}` also takes `{sandbox: {ref, cwd?} | null, detach?: <ref>}`
+— bind (and attach) a sandbox, or change the active one's `cwd`; `null`
+leaves the conversation with no active sandbox (the attached stay);
+`detach` takes one off (applied first when both are sent). `POST /ask` also
+takes `{sandbox: {ref, cwd?}}`: the new conversation starts bound (the
+caller must be able to use it; its class must allow it).
+
 | Route | Body / query | Result |
 |---|---|---|
-| `GET /sandboxes` | `?fresh=1` skips the cache | `{sandboxes: [{ref, provider, manager, …the contract's sandbox…, mine, canUse, canManage, canEdit}], managers: [{provider, title, ok, error?, refusal?, caps, egress, images, sizes, limits}]}` — every sandbox the caller may see, across the bound managers (merged, cached 15 s; the agent's own changes show at once); `manager` is the manager's title. Anyone who can use the tile |
+| `GET /sandboxes` | `?fresh=1` skips the cache | `{sandboxes: [{ref, provider, manager, …the contract's sandbox…, mine, canUse, canManage, canEdit, boundTo?}], managers: [{provider, title, ok, error?, refusal?, caps, egress, images, sizes, limits}]}` — every sandbox the caller may see across the bound managers, and those bound to a conversation the caller sees (`boundTo`: its ids). Merged, cached 15 s (the agent's own changes show at once); `manager` is the manager's title. Anyone who can use the tile |
+| `POST /sandboxes` | `{name, provider?, image?, size?, egress?, visibility?, members?, conversation?, bind?, cwd?, clientId?, start?}` | **201** + the sandbox (as below), with `binding` when it was bound. Created at `provider` (optional while one manager is bound), owned by the caller. With `conversation` (the caller takes part in it): made for it (above) and bound there unless `bind: false` — refused up front when its class wouldn't allow it, and deleted again if the binding fails. `clientId` makes a retry return the same sandbox (per person) |
+| `GET /sandboxes/{ref}` | | one sandbox, fresh from its manager, as `GET /sandboxes` lists it |
+| `PATCH /sandboxes/{ref}` | `{name?, visibility?, members?, shares?, labels?, egress?, size?, autoStopMin?, version?}` | the sandbox — its owner's (the contract's `PATCH`; `restartNeeded` when a change waits for the next start) |
+| `DELETE /sandboxes/{ref}` | | `{ok, detached}` — its owner's or a tile manager's; it is detached from every conversation that had it |
+| `POST /sandboxes/{ref}/{start\|stop\|archive\|thaw}` | `?wait=<s>` (≤ 120), `?conversation=<id>`; `{start?}` on thaw | the sandbox. Start, stop and thaw: who may use or manage it — or, with `conversation`, a participant of a conversation it is bound to (as the binder). Archive: its owner or a tile manager |
+
+Refusals from a manager keep its `refusal` (and `state`) in the error body,
+with the status the contract gives it (a manager that is down or
+unreachable: 502). A route's sandbox the caller may neither see nor find
+bound to a conversation of theirs is 404.
 
 ## The frontend: one model, thin views
 

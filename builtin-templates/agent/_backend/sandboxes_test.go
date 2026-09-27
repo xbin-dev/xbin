@@ -21,6 +21,9 @@ type sbxTestManager struct {
 	srv *httptest.Server
 }
 
+// testManagers are the managers the running test bound (bindSbx).
+var testManagers []*sbxTestManager
+
 // bindSbx starts a reference manager per provider ("apps/x" or
 // "apps/x#inst") and injects the sandboxes slot as the runner would. The
 // managers see this agent (apps/agent) as their consumer.
@@ -28,6 +31,7 @@ func bindSbx(t *testing.T, providers ...string) map[string]*sbxTestManager {
 	t.Helper()
 	out := map[string]*sbxTestManager{}
 	var eps []map[string]string
+	testManagers = nil
 	for _, p := range providers {
 		m := &sbxTestManager{fsbManager: &fsbManager{Root: t.TempDir(), DefaultFrom: "apps/agent", Grace: 200 * time.Millisecond}}
 		m.srv = httptest.NewServer(m.fsbManager)
@@ -36,6 +40,7 @@ func bindSbx(t *testing.T, providers ...string) map[string]*sbxTestManager {
 			m.Close()
 		})
 		out[p] = m
+		testManagers = append(testManagers, m)
 		prov, inst, _ := strings.Cut(p, "#")
 		ep := map[string]string{"provider": prov, "url": m.srv.URL + "/", "service": "sandbox-manager"}
 		if inst != "" {
@@ -51,6 +56,7 @@ func bindSbx(t *testing.T, providers ...string) map[string]*sbxTestManager {
 	invalidateSandboxCatalog()
 	t.Cleanup(func() {
 		sbxClient = old
+		testManagers = nil
 		forgetHellos()
 		invalidateSandboxCatalog()
 	})

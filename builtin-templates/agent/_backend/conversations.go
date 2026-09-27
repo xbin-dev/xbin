@@ -291,10 +291,11 @@ func searchConversations(w http.ResponseWriter, c who, q string) {
 // handlePatchRun changes a conversation: your own pin and archive (any
 // viewer), or its title and who may see it (its owner).
 //
-//	PATCH /runs/{id} {title?, pinned?, archived?, visibility?, teamRole?, model?}
+//	PATCH /runs/{id} {title?, pinned?, archived?, visibility?, teamRole?, model?, sandbox?, detach?}
 //
 // model is the conversation's pick (Config.Pick, "" = the agent's default):
-// anyone who may talk in it may switch it; its next turn uses it.
+// anyone who may talk in it may switch it; its next turn uses it. So is its
+// sandbox (sandbox_bind.go).
 func handlePatchRun(w http.ResponseWriter, r *http.Request) {
 	c, lv := callerOf(r), levelOf(r)
 	run, err := agent.db.getRun(pathID(r))
@@ -310,6 +311,9 @@ func handlePatchRun(w http.ResponseWriter, r *http.Request) {
 		Visibility *string `json:"visibility"`
 		TeamRole   *string `json:"teamRole"`
 		Model      *string `json:"model"`
+		// the conversation's sandbox (sandbox_bind.go): {ref, cwd?} | null; detach: a ref
+		Sandbox json.RawMessage `json:"sandbox"`
+		Detach  *string         `json:"detach"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		xbin.WriteError(w, 400, "bad body")
@@ -325,6 +329,10 @@ func handlePatchRun(w http.ResponseWriter, r *http.Request) {
 		} else {
 			xbin.WriteError(w, 400, "model: a model id from GET /models (up to 200 characters)")
 		}
+		return
+	}
+	sbx, ok := patchSandbox(w, r, lv, root, body.Sandbox, body.Detach)
+	if !ok {
 		return
 	}
 	if body.Pinned != nil || body.Archived != nil {
@@ -383,6 +391,11 @@ func handlePatchRun(w http.ResponseWriter, r *http.Request) {
 			cfg.Pick = *body.Model
 			raw, _ := json.Marshal(cfg)
 			if _, err := t.q.Exec(`UPDATE runs SET config=? WHERE id=?`, string(raw), root); err != nil {
+				return err
+			}
+		}
+		if sbx != nil {
+			if err := sbx.apply(t, root); err != nil {
 				return err
 			}
 		}

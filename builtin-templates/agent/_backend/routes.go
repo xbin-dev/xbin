@@ -53,7 +53,7 @@ func routeTable() []routeDef {
 		{"POST /automations/{kind}/{aid}/read", needAny, handleAutomationRead},
 		{"POST /automations/{kind}/{aid}/reset", needAny, handleAutomationReset},
 		{"POST /runs", needStart, handleNewRun},
-		{"POST /ask", needStart, handleAsk},
+		{"POST /ask", needStart, withAskSandbox(handleAsk)},
 		{"PUT /ask/upload", needStart, handleAskUpload},
 		{"GET /runs/{id}", needViewer, handleGetRun},
 		{"GET /runs/{id}/view", needViewer, handleView},

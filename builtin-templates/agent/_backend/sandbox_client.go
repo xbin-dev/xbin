@@ -103,6 +103,10 @@ func (e *sbxError) Error() string {
 			hint += " — start it first"
 		}
 	}
+	// a manager's answer gets a hint; the agent's own words stand alone
+	if e.Status == 0 && e.Refusal != "unbound" && e.Refusal != "unreachable" {
+		hint = ""
+	}
 	if hint != "" && !strings.Contains(msg, hint) {
 		b.WriteString(" (" + hint + ")")
 	}

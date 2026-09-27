@@ -87,6 +87,9 @@ type Config struct {
 	// A run never holds both private data and an egress channel; subagents
 	// and agent-created schedules inherit it.
 	Toolset string `json:"toolset,omitempty"`
+	// Class is the conversation's agent class (D116): which toolsets it has.
+	// Fixed per conversation, like Toolset; "" resolves from Toolset.
+	Class string `json:"class,omitempty"`
 	// Deny names tools this run never gets ("mcp:*" style prefixes end in
 	// '*'): hidden from the model and refused if called anyway. Set per run
 	// (a channel session's profile, D86) and inherited by its subagents.
@@ -99,6 +102,15 @@ type Config struct {
 	// Absent or true = on; set a key false to turn it off. Known keys are in
 	// featureKeys; unlisted keys default on so older configs get everything.
 	Features map[string]bool `json:"features"`
+
+	// Sandbox is the coding sandbox the conversation works in (D115,
+	// sandbox_bind.go) — read every turn, so a rebind applies from the next
+	// one; nil = none. Attached is every sandbox the conversation has
+	// attached (≤ 8, the active one among them): a subagent may be spawned
+	// onto one, files copied between them. Subagents inherit both
+	// (childConfig); the global defaults never hold either (PUT /config).
+	Sandbox  *SandboxBinding  `json:"sandbox,omitempty"`
+	Attached []SandboxBinding `json:"attached,omitempty"`
 }
 
 // featureKeys are the toggleable capabilities shown in the tile's Features menu.
