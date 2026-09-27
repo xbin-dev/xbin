@@ -3,8 +3,9 @@ package tilesbx
 // killtree.go — ending a sandbox whose processes won't die with their
 // PID 1. SIGKILL can't end a task waiting on a FUSE request its server has
 // already taken, and the pid namespace is torn down only once PID 1 is
-// gone: a fuse-overlayfs root that wedged (a stopped server, the root-dir
-// create deadlock) keeps the agent — and so the whole sandbox — alive.
+// gone: a fuse-overlayfs root that wedged (a server a session stopped; a
+// file created in / did it too, before internal/sandbox/fuseroot_linux.go)
+// keeps the agent — and so the whole sandbox — alive.
 // Killing the server ends its connection and wakes every waiter. With a
 // cgroup leaf, cgroup.kill reaches every process; without one, the
 // sandbox's processes are PID 1's descendants (an orphan in a pid

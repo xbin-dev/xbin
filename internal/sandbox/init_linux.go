@@ -235,6 +235,13 @@ func runInit(specPath string) error {
 	} else if err := os.MkdirAll(oldroot, 0o700); err != nil {
 		return must(err, "mkdir .oldroot")
 	}
+	// fuse-overlayfs serving the root gets a root of its own first, so it
+	// never resolves a path through the mount it serves (fuseroot_linux.go).
+	if s.FuseOverlay != "" {
+		if err := fuseServerRoot(base); err != nil {
+			return err
+		}
+	}
 	if err := unix.PivotRoot(newroot, oldroot); err != nil {
 		return must(err, "pivot_root")
 	}

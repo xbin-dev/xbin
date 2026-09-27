@@ -122,8 +122,8 @@ func (m *Manager) ask(r *run, why string) bool {
 // kill SIGKILLs the sandbox's first process — PID 1 of its pid namespace,
 // so the kernel ends the rest — and every process of the sandbox besides
 // (Proc.Kill: its descendants; cgroup.kill: its leaf). A PID 1 stuck on a
-// FUSE request of a wedged fuse-overlayfs (WP-3's note; the root-dir create
-// deadlock) can't die before its server does (killtree.go). The leaf is
+// FUSE request of a wedged fuse-overlayfs (WP-3's note: a server a session
+// stopped) can't die before its server does (killtree.go). The leaf is
 // killed off the caller's goroutine (cgroup.Kill waits for it to empty),
 // and only while the teardown hasn't begun, which waits for it before it
 // removes the leaf: without cgroup.kill (before 5.14) the killer SIGKILLs

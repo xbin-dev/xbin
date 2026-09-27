@@ -45,9 +45,9 @@ func mountFuseWatched(s *Spec, opt, newroot string) (int, error) {
 	fo := exec.Command(s.FuseOverlay, "-f", "-o", opt, newroot)
 	fo.Stdout, fo.Stderr = out, out
 	// Where a daemonizing fuse-overlayfs puts itself: in / — pivot_root then
-	// moves it into the new root, leaving it no host directory as its cwd —
-	// and in a session of its own, out of reach of a signal to xbind's
-	// process group (a ^C in the terminal xbind runs in).
+	// moves it into a root of its own (fuseroot_linux.go), leaving it no host
+	// directory as its cwd — and in a session of its own, out of reach of a
+	// signal to xbind's process group (a ^C in the terminal xbind runs in).
 	fo.Dir = "/"
 	fo.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := fo.Start(); err != nil {
