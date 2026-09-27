@@ -32,7 +32,7 @@ export const SANDBOX = 'allow-scripts allow-forms allow-modals allow-downloads';
 // credential context — no ambient cookie even on the document navigation.
 export const CREDENTIALLESS = 'credentialless' in HTMLIFrameElement.prototype;
 
-const facts = (c) => ({ chrome: !!c.chrome, sandbox: c.sandbox || [], origin: c.origin || '' });
+const facts = (c) => ({ chrome: !!c.chrome, sandbox: c.sandbox || [], origin: c.origin || '', deployments: c.deployments || null });
 
 // Per-component frame facts from /api/xbin/components: chrome (runs
 // UNsandboxed — the shell itself and trusted chrome (shipped or admin-approved) like
