@@ -5,15 +5,18 @@
 //	read, write, edit, ls, glob, grep   files (sandbox_fs.go)
 //	sandbox_upload, sandbox_download   session files ↔ the sandbox (sandbox_move.go)
 //	sandbox_copy, sandbox_info         between attached sandboxes; what is attached
+//	sandbox_create                     a new sandbox, the owner's grant (sandbox_create.go)
 //
 // subagent_spawn {sandbox, cwd} puts a subagent on another attached sandbox
 // (spawnSandbox).
 //
 // The tools exist only when the conversation's class has the `sandbox`
-// toolset AND a sandbox is bound; every call re-runs sandboxUse (the class,
-// the manager, the sandbox, the binder's right). Paths resolve against the
-// binding's cwd, `~` against the sandbox user's home. Nothing here touches
-// the session files (file_*), which live in this tile's own store.
+// toolset AND a sandbox is bound (sandbox_create alone is offered unbound, to
+// a top-level conversation with a manager its class allows); every call
+// re-runs sandboxUse (the class, the manager, the sandbox, the binder's
+// right). Paths resolve against the binding's cwd, `~` against the sandbox
+// user's home. Nothing here touches the session files (file_*), which live
+// in this tile's own store.
 package main
 
 import (
@@ -47,6 +50,7 @@ var sandboxToolNames = map[string]bool{
 	"bash": true, "bash_output": true, "bash_kill": true,
 	"read": true, "write": true, "edit": true, "ls": true, "glob": true, "grep": true,
 	"sandbox_upload": true, "sandbox_download": true, "sandbox_copy": true, "sandbox_info": true,
+	"sandbox_create": true,
 }
 
 // sandboxChanges are the tools that change a sandbox: side effects (Approve
@@ -67,11 +71,21 @@ func sandboxSideEffect(name string, cfg Config) bool {
 	return cfg.Sandbox.Egress != "none"
 }
 
+// sandboxToolSpecs: the coding tools where a sandbox is bound (subagents work
+// in their root's sandbox too, or the one they were spawned onto), and
+// sandbox_create where one may be made — bound or not.
 func sandboxToolSpecs(cfg Config, depth int) []toolSpec {
-	if !sandboxToolsOn(cfg) {
-		return nil
+	var specs []toolSpec
+	if sandboxToolsOn(cfg) {
+		specs = boundSandboxSpecs(cfg)
 	}
-	_ = depth // subagents work in their root's sandbox too (or the one they were spawned onto)
+	if sandboxCreateOffered(cfg, depth) {
+		specs = append(specs, sandboxCreateSpec(classOf(cfg)))
+	}
+	return specs
+}
+
+func boundSandboxSpecs(cfg Config) []toolSpec {
 	jobProp := intProp("the job number (bash's footer says it; sandbox_info lists them)")
 	specs := []toolSpec{
 		{Type: "function", Function: funcDef{
@@ -117,6 +131,8 @@ func (ag *Agent) runSandboxTool(ctx context.Context, run *Run, cfg Config, name 
 		return "", fmt.Errorf("%s is not available: this conversation's class has no sandbox toolset", name)
 	}
 	switch name {
+	case "sandbox_create":
+		return ag.toolSandboxCreate(ctx, run, cfg, args)
 	case "bash":
 		return ag.toolBash(ctx, run, cfg, args)
 	case "bash_output":

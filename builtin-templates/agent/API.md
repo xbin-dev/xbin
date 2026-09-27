@@ -885,6 +885,10 @@ expiresMs, ask, chip}]` (`ask`/`chip`: the capability in words, as the
 pending ask carries them in `pendingState.grantAsk`); expiry is read where a grant is used (nothing ticks), and the
 owner can revoke it (`DELETE /runs/{id}/grants/threads`).
 
+The grants are a registry: `threads` (above) and `sandboxes` — creating a
+coding sandbox with `sandbox_create` (§The coding tools), whose
+`pendingState.grantAsk` names the sandbox that will be made.
+
 "all" is refused outright — the call says why — in a web-toolset run (a web
 lane carries public data only; its "mine" also lists only web-toolset
 automations), in a chat channel's run (no one there can allow it), and in a
@@ -1015,7 +1019,8 @@ bound to a conversation of theirs is 404.
 
 A conversation whose class has the `sandbox` toolset **and** has a sandbox
 bound gets these tools (subagents too — they work in their root's sandbox);
-otherwise they are absent, and a call that names one anyway is refused. Every
+otherwise they are absent, and a call that names one anyway is refused
+(`sandbox_create`, below, is the exception: it makes the first one). Every
 call re-runs the binding check above. Paths are absolute, relative to the
 binding's `cwd` (else the sandbox's workdir), or `~/…` (the sandbox user's
 home). The session files (`file_*`) are a different store: nothing moves
@@ -1039,6 +1044,43 @@ changes on a rebind only (the prompt's cached prefix stays valid).
 | `sandbox_download` | `{path, name?}` | copies a sandbox file (≤ 16 MiB) into the session files as an upload would be stored — text within the text cap as text, anything else as an attachment — under `name` or its own (a taken name gets a suffix). A directory is refused: pack it with `bash` first. Feature `files` |
 | `sandbox_copy` | `{from: {sandbox?, path}, to: {sandbox?, path}}` | between the conversation's attached sandboxes (a ref or a unique name; default the active one), or within one: a directory is tar-streamed (`GET …/tar` into `PUT …/tar`; both managers need `tar`) and its **contents** land in `to.path`; a file goes through the file routes (mode kept) to `to.path`, or into it when it is a directory. Offered when more than one sandbox is attached |
 | `sandbox_info` | `{}` | every attached sandbox as its manager describes it now (active or attached, state, egress, image, manager, cwd, workdir, home, user, caps — or why it is unavailable) and the conversation's latest 15 jobs |
+
+**`sandbox_create`** `{name, manager?, image?, size?, egress?, cwd?}` — the
+agent makes a sandbox for its conversation. It is offered to a top-level
+conversation whose class has the `sandbox` toolset and allows a bound
+manager, **with or without** a sandbox bound, and not to a chat channel's
+conversation. It takes the conversation **owner's grant** `sandboxes`
+(§Threads, schedules and grants): the step parks — `pendingState: {kind:
+"approval", grant: "sandboxes", grantAsk, toolCalls}`, where `grantAsk` says
+what will be made (`create the coding sandbox “api-dev” at Coding sandboxes
+— image base, size small, egress none`) — and only the owner may allow it,
+once or for an hour (`POST /runs/{id}/approve {approve: true, grant:
+"once"|"hour"}`; `DELETE /runs/{id}/grants/sandboxes` takes an hour's grant
+back); anyone who may steer the conversation may deny it.
+
+- **Defaults**: `manager` — the first bound manager the class allows (a
+  provider, as `GET /sandboxes` names it); `egress` — the first the class
+  allows that the manager offers, `none` first; `image` and `size` — the
+  manager's defaults; `cwd` — the sandbox's workdir (a relative one is
+  under it; a missing one is made).
+- **What is made**: the sandbox is created for the owner — `Sbx-User` is the
+  owner, who approved it — as `POST /sandboxes {conversation}` makes one (a
+  team conversation's is `team`, its participants are members, it is
+  labeled `xbin.agent/conversation`), and bound with `by` = the owner: the
+  **active** sandbox when none is active, else attached beside it. The coding
+  tools work in it from the **next step of the same turn**. The result names
+  it, its ref, its workdir and egress, and whether it is now active.
+- **Refused, never parked**: in a subagent, in a chat channel's
+  conversation, in a conversation no person owns, after **4** creates in one
+  conversation, and when the class doesn't allow the manager or the egress.
+  An image, size or egress the manager doesn't offer is refused once
+  allowed; a binding that can't be made deletes the new sandbox again.
+- **Idempotent**: each create is numbered per conversation
+  (`sandbox_creates`) and sent with `clientId` `agent:<root>:name:<n>`. A
+  call a restart cut off leaves its number pending; the next call with the
+  same name reuses it, so the manager answers with the sandbox it already
+  made. A sandbox of the same name this conversation made and still has
+  attached is answered as already there.
 
 **Jobs** are numbered per conversation (subagents share their root's
 numbers) and kept in the `sandbox_jobs` table (`root_id, job, run_id,

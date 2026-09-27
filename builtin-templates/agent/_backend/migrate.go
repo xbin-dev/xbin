@@ -60,6 +60,9 @@ func (d *DB) migrate() error {
 	if err := d.addSandboxJobSchema(); err != nil {
 		return err
 	}
+	if err := d.addSandboxCreateSchema(); err != nil {
+		return err
+	}
 	for _, q := range []string{
 		`CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status, wake_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_runs_parent ON runs(parent_id)`,

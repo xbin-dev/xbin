@@ -29,7 +29,8 @@ type pendingState struct {
 	ToolCalls []toolCall `json:"toolCalls,omitempty"` // approval: the parked calls
 	// Grant, on an approval, is the capability the calls need from the
 	// conversation's owner (grants.go): only they may allow it. GrantAsk is
-	// the registry's words for it, filled in when read (never stored).
+	// what they are asked: stored when the capability words each ask
+	// (grantDef.AskFor), else the registry's words, filled in when read.
 	Grant    string      `json:"grant,omitempty"`
 	GrantAsk string      `json:"grantAsk,omitempty"`
 	Waits    []waitEntry `json:"waits,omitempty"` // await: subagent_wait calls
@@ -48,7 +49,7 @@ func parsePending(s string) pendingState {
 	if s != "" {
 		_ = json.Unmarshal([]byte(s), &p)
 	}
-	if p.Grant != "" {
+	if p.Grant != "" && p.GrantAsk == "" {
 		p.GrantAsk = grantOf(p.Grant).Ask
 	}
 	return p
@@ -67,6 +68,9 @@ type turnState struct {
 	spawnedThisStep int
 	lastLatency     time.Duration
 	back            map[string]string // wire tool name → internal (this step)
+	// sbx collects what the step's sandbox tools changed in the bindings
+	// (sandbox_create.go); execTools applies it to cfg after each batch.
+	sbx *sbxTurn
 }
 
 // --- the pass ------------------------------------------------------------------

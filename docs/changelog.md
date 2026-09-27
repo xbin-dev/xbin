@@ -98,7 +98,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `sandbox_info`; and `subagent_spawn {sandbox, cwd}` puts a subagent on
   another attached sandbox. Its system prompt gains a `# Sandbox` section;
   in Approve mode the tools that change a sandbox park only when it has
-  egress.
+  egress. The agent can make its own: `sandbox_create {name, manager?,
+  image?, size?, egress?, cwd?}` asks the conversation's owner — a new
+  `sandboxes` grant, once or for an hour, whose `pendingState.grantAsk`
+  names what will be made — then creates the sandbox for them and binds it
+  (active when none is), and the tools work in it from the next step; at
+  most 4 per conversation, never from a subagent, a chat channel's
+  conversation or an unowned one.
 
 - **Admin console: runtime → sandboxes, and the sandbox in the component
   list** (D112, [isolation.md](isolation.md) §VM sandboxes). A new tab lists

@@ -135,7 +135,7 @@ func (ag *Agent) needsPushes(runID int64) []needsPush {
 			}
 			body = "Wants to run " + clip(strings.Join(names, ", "), 120) + " — approve or deny."
 			if pend.Grant != "" {
-				body = "Asks to " + grantOf(pend.Grant).askText() + " — allow or deny."
+				body = "Asks to " + orStr(pend.GrantAsk, grantOf(pend.Grant).askText()) + " — allow or deny."
 			}
 			ownerOnly = pend.Grant != ""
 		} else {

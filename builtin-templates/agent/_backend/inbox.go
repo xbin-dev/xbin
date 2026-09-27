@@ -284,7 +284,7 @@ func handleApprove(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if !grantOwner(c, root) {
-			xbin.WriteError(w, 403, "only "+orStr(root.Owner, "the conversation's owner")+" can allow reading their conversations")
+			xbin.WriteError(w, 403, "only "+orStr(root.Owner, "the conversation's owner")+" can allow this ("+orStr(p.GrantAsk, p.Grant)+")")
 			return
 		}
 		switch body.Grant {

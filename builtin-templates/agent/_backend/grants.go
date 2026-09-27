@@ -2,7 +2,9 @@
 // reach, for a while (D111). The capabilities are a registry (grantDefs): each
 // says when a step needs it and what the card, the push and the model are
 // told. capThreads is reading the owner's other conversations and automations
-// with the thread tools (threads_tools.go). Adding a capability is one entry.
+// with the thread tools (threads_tools.go); capSandboxes is creating a coding
+// sandbox for the conversation (sandbox_create.go). Adding a capability is
+// one entry.
 //
 // A grant is asked for by parking the step like an approval (pendingState
 // .Grant) and only the conversation's owner — the person whose threads they
@@ -21,7 +23,8 @@ import (
 )
 
 const (
-	capThreads = "threads"
+	capThreads   = "threads"
+	capSandboxes = "sandboxes"
 	// grantFor is how long "allow here for 1 hour" lasts.
 	grantFor = time.Hour
 )
@@ -41,6 +44,10 @@ type grantDef struct {
 	// Needed: do this step's calls need the grant, and don't have it yet?
 	// Refusals and misses are not parked — the call runs and reports them.
 	Needed func(ag *Agent, run *Run, cfg Config, calls []toolCall, own map[string]bool) bool
+	// AskFor, when set, words this step's ask (what exactly the calls will
+	// do) instead of Ask; it is stored with the parked step
+	// (pendingState.GrantAsk), so it may ask a manager once.
+	AskFor func(ag *Agent, run *Run, cfg Config, calls []toolCall, own map[string]bool) string
 }
 
 // grantDefs is every capability a grant can name, in the order a step's
@@ -53,6 +60,15 @@ var grantDefs = []grantDef{
 		Denied: "(denied: the owner did not allow reading their other conversations — scope mine still works)",
 		Forbid: "reading the person's other conversations needs their permission — call it again to ask them",
 		Needed: threadsGrantNeeded,
+	},
+	{
+		Cap:    capSandboxes,
+		Ask:    "create a coding sandbox for this conversation",
+		Chip:   "creates sandboxes",
+		Denied: "(denied: the owner did not allow creating a sandbox — ask them to bind one, or go on without it)",
+		Forbid: "creating a sandbox needs the conversation owner's permission — call it again to ask them",
+		Needed: sandboxesGrantNeeded,
+		AskFor: sandboxesGrantAsk,
 	},
 }
 
@@ -85,6 +101,16 @@ func (ag *Agent) grantNeeded(run *Run, cfg Config, calls []toolCall, own map[str
 		}
 	}
 	return ""
+}
+
+// askFor is this step's ask: AskFor's words, else Ask's.
+func (g grantDef) askFor(ag *Agent, run *Run, cfg Config, calls []toolCall, own map[string]bool) string {
+	if g.AskFor != nil {
+		if s := g.AskFor(ag, run, cfg, calls, own); s != "" {
+			return s
+		}
+	}
+	return g.Ask
 }
 
 // askText is how a push and a channel name a grant being asked for.
