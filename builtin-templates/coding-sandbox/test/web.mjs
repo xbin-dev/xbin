@@ -283,6 +283,10 @@ const settle = (page) => page.waitForTimeout(120);
   ok('a terminal on the tile\'s own tty route', src === '/api/apps/coding-sandbox/sbx/sandboxes/sb-own/tty?cwd=%2Fwork', src);
   await page.waitForTimeout(60);
   await shot(page, 'yours-terminal');
+  await page.click('#sub-files');
+  await page.click('#sub-term');
+  ok('another tab and back keeps the shell', (await page.$$('#term bx-terminal')).length === 1 &&
+    (await calls(page, 'DELETE', /\/execs\//)).length === 0);
   await page.click('#term-end');
   await settle(page);
   ok('End ends its shell', (await calls(page, 'DELETE', /\/sbx\/sandboxes\/sb-own\/execs\/e77$/)).length === 1);

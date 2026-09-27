@@ -3,7 +3,7 @@ package main
 // backend_xbin_test.go — the `xbin` backend against a double of xbind's
 // tile-sandbox runtime (the /api/xbin/sandboxes routes it uses, as the SDK's
 // own tests fake them): what each contract request becomes at the runtime
-// (plans/tile-sandbox-runtime.md §11), the mode the operators chose (auto,
+// (D120, D122), the mode the operators chose (auto,
 // vm, namespace — never a silent fallback), the egress classes, the
 // operators' mounts, the idle stop, what hello leaves out while the runtime
 // lacks it, and the runtime's refusals as the consumer sees them (its names

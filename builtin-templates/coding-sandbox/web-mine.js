@@ -38,7 +38,7 @@ function createTpl(app, ui) {
   const go = () => {
     const now = app.createForm(ui.forms.create);
     if (now.error) { ui.err = now.error; ui.paint(); return; }
-    ui.run('create', () => app.create(now.f).then((s) => { ui.forms.create = null; ui.sel = s.id; }), `${now.f.name} is made`);
+    ui.run('create', () => app.create(now.f).then((s) => { endTerm(app, ui); ui.forms.create = null; ui.sel = s.id; ui.sub = 'files'; }), `${now.f.name} is made`);
   };
   return html`<div class="card form" id="create">
     <b>New sandbox</b>
@@ -62,7 +62,7 @@ function rowTpl(app, ui, r) {
     if (a.id === 'delete' && ui.sel === r.id) { endTerm(app, ui); ui.sel = ''; }
     ui.run(`${r.id}:${a.id}`, () => app.act(r.id, a.id), a.id === 'delete' ? `${r.name} deleted` : '');
   };
-  const open = () => { if (ui.sel !== r.id) { endTerm(app, ui); ui.sel = r.id; ui.sub = ui.sub || 'files'; app.closeFiles(); } ui.paint(); };
+  const open = () => { if (ui.sel !== r.id) { endTerm(app, ui); ui.sel = r.id; ui.sub = 'files'; app.closeFiles(); } ui.paint(); };
   return html`<div class="card sbx ${ui.sel === r.id ? 'on' : ''}" data-id=${r.id}>
     <div class="hd"><b class="link" @click=${open}>${r.name}</b>
       <span class="pill ${r.tone}" title=${r.stateDetail}>${r.stateLabel}</span>
@@ -83,7 +83,8 @@ function detailTpl(app, ui, r) {
     <div class="hd"><b>${r.name}</b> <span class="mono muted small">${r.id}</span> <span class="grow"></span>
       <nav class="tabs">${tab('files', 'Files', r.canFiles)}${tab('term', 'Terminal', r.canTerminal)}${tab('share', 'Sharing', r.canShare)}</nav>
       <button class="ghost" id="detail-close" title="Close" @click=${() => { endTerm(app, ui); ui.sel = ''; app.closeFiles(); ui.paint(); }}>✕</button></div>
-    ${sub === 'files' ? filesTpl(app, ui, r) : sub === 'term' ? termTpl(app, ui, r) : shareTpl(app, ui, r)}
+    ${sub === 'files' ? filesTpl(app, ui, r) : sub === 'share' ? shareTpl(app, ui, r) : nothing}
+    ${sub === 'term' || (ui.term && ui.term.id === r.id) ? html`<div ?hidden=${sub !== 'term'}>${termTpl(app, ui, r)}</div>` : nothing}
   </div>`;
 }
 
@@ -143,6 +144,8 @@ function fileTpl(app, ui, r, f, download) {
 }
 
 // --- the terminal ----------------------------------------------------------------
+// It stays in the page (hidden) while another tab of the sandbox shows, so
+// the shell lives on; End, another sandbox or closing the pane ends it.
 
 function termTpl(app, ui, r) {
   if (!r.canTerminal) return html`<div class="muted">No terminal: ${r.state === 'error' ? 'the sandbox is in error' : 'the substrate offers none (tty)'}.</div>`;

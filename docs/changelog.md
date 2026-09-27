@@ -12,21 +12,29 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-28
 
-- **New builtin template `coding-sandbox`: the sandbox manager's core**
-  (D122, [sandbox-manager.md](sandbox-manager.md); the template's `API.md`).
-  An instance serves the sandbox-manager contract, protocol 1, to the tiles
-  bound to it (`bx bind apps/agent sandboxes+=apps/coding-sandbox`). Each
-  consumer sees its own sandboxes and those shared with it, and people are
-  checked as the contract says. Images are the substrate's base plus a setup
-  script, built once and cloned; sizes and per-consumer and per-person quotas
-  are the operators' to set, and hello's limits say the effective ones. Its
-  sandboxes reach what its `internet` and `open` `sandbox-net` classes are
-  bound to, and `none` until then. Operators (the owner and people with
-  write access) get `/ops/*`: every sandbox's metadata, lifecycle, sharing
-  and the config, never a sandbox's contents. It passes the conformance
-  suite, `sdk/sandboxcontract`. Its backend on xbind's own runtime and its
-  pages come next: until then an instance answers `503 unavailable`, saying
-  that no backend is in its build.
+- **New builtin template `coding-sandbox`: the builtin sandbox manager**
+  (D122, [sandbox-manager.md](sandbox-manager.md) §The builtin manager; the
+  template's `API.md` and `AGENTS.md`). An instance serves the
+  sandbox-manager contract, protocol 1, to the tiles bound to it
+  (`bx bind apps/agent sandboxes+=apps/coding-sandbox`) and runs their
+  sandboxes on xbind's own tile-sandbox runtime once a workspace admin
+  approves its `cap:sandboxes`: a VM where the workspace runs VMs for tiles,
+  else a namespace, or only the mode its operators choose (`auto | vm |
+  namespace`), never another; each sandbox's `isolation` says which. It
+  offers what the runtime serves and says in `hello.notes` what it lacks.
+  Each consumer sees its own sandboxes and those shared with it, and people
+  are checked as the contract says. Images are the runtime's base plus a
+  setup script, built once and cloned; sizes, per-consumer and per-person
+  quotas, the idle stop and mounts of the tile's own filesystem resources
+  are the operators' to set, and hello's limits say the effective quotas.
+  Its sandboxes reach what its `internet` and `open` `sandbox-net` classes
+  are bound to, and `none` until then. Its page gives operators (the owner
+  and people with write access) every consumer's sandboxes — metadata,
+  lifecycle, snapshots, sharing, never contents —, usage, images and
+  settings, and anyone who may open it their own sandboxes with a file
+  browser and a terminal; the app draws the same natively. Another
+  substrate (a cloud's API and ssh) is one Go file in a copy, checked with
+  the conformance suite, `sdk/sandboxcontract`, which the template passes.
 - **A sandbox's `/etc/resolv.conf` is written in place, never through a
   symlink.** When a terminal or backend with egress starts, xbind writes the
   relay's resolver into the sandbox's `/etc/resolv.conf`; a host-network

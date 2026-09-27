@@ -2,8 +2,7 @@
 // runtime (docs/protocol.md §Tile sandboxes, D120), through the Go SDK
 // (sdk/sandbox*.go). It is the SDK itself — *xbin.Sandboxes is the Fleet and
 // *xbin.Sandbox each Box — so every Backend method is one runtime route, and
-// the contract layer's requests map onto them as plans/tile-sandbox-runtime.md
-// §11 lays out:
+// the contract layer's requests map onto them as D120 and D122 lay out:
 //
 //	hello                       GET  /sandboxes/runtime       Runtime: caps, modes, egress classes, limits
 //	list · get                  GET  /sandboxes[/{name}]      List · Get (merged with the manager's record)

@@ -3802,3 +3802,44 @@ Deviations and refinements made while implementing; all deliberate:
       consumer's commands in the manager's own sandbox, next to its xbin
       token. It lives in `_test.go` files only.
     - A JSON file for the table: the ecosystem's templates use sqlite.
+  - **Part 2 (the same day): the `xbin` backend, the mode, the page.**
+    - **The `xbin` backend is the SDK itself** (`xbinBackend{*xbin.Sandboxes}`),
+      registered as the default; its test drives the manager against a
+      double of the runtime's routes, so the mapping is pinned while the
+      runtime's wave 2 is still being built (the live run is WP-21).
+    - **`config.mode` is `auto | vm | namespace`** (another backend may name
+      its own: `container`, `cloud-vm`). `auto` takes a VM where the runtime
+      offers one now, else a namespace; a chosen mode the runtime lacks makes
+      no sandbox (`503` with the runtime's reason, and `hello.notes` says so)
+      — never another mode. The record keeps the mode it was made in, so
+      `isolation` is right while it is `creating` too.
+    - **Mounts are a top-level `config.mounts`**, not `backendConfig`
+      (changing that one needs every sandbox gone), checked as the runtime
+      checks them; image builds get none.
+    - **Operators take snapshots of any sandbox** (`/ops/sandboxes/{id}/
+      snapshots…`): a backup and a restore are metadata-level acts, and
+      still no route reads a sandbox's contents.
+    - **Relayed terminals' refusals are rewritten** (the runtime's name for
+      the sandbox → the contract id) by holding a refused answer before the
+      upgrade; an upgrade passes untouched (`Unwrap` for the hijack).
+    - **The page is one model, two views** (D96's mechanism: a feature
+      registry, each view's declaration, a node test). Operators get every
+      consumer's metadata; anyone who may open the page gets their own
+      sandboxes — the page is a consumer of its own, with the verified
+      person, within the per-person quota.
+    - **The native view has a terminal**: the app's `terminal` dials only
+      the tile's own routes, and here the tty route *is* the tile's own. It
+      starts a login shell as a `tty` exec and attaches to
+      `execs/{eid}/tty`, so a reconnect is the same shell; leaving the
+      screen ends it. The one declared difference is uploads (the app
+      uploads only from a composer).
+    - **The UI harness runs a copy on the fake backend** (its test files
+      copied in, renamed, over a filesystem resource of its own), bound to
+      the agent beside `apps/fakesbx` for the pass and unbound after.
+  - **Not chosen (part 2):**
+    - The terminal as the native view's declared difference (the agent
+      template's reason — another tile's route — doesn't hold here).
+    - A silent `vm → namespace` fallback: a consumer's firewall and the
+      operators' intent both read `isolation`.
+    - The native terminal on `…/tty` directly: every reconnect would start
+      another shell and leave the old one running.
