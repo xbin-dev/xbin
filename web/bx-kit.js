@@ -127,6 +127,7 @@ export function followBox(target, box, alive) {
 export function dragShield(cursor = 'grabbing') {
   const el = document.createElement('div');
   el.style.cssText = `position:fixed; inset:0; z-index:2147483647; cursor:${cursor};`;
+  el.dataset.dragShield = ''; // "a drag is under way" for whoever asks (the shell's layout reload)
   document.body.appendChild(el);
   return () => el.remove();
 }

@@ -385,6 +385,11 @@ resized tile performs on its neighbours (D66) — lit-free, tested in
 `hack/grid-layout.test.mjs`; `shell-kit.js` re-exports the constants and
 holds the rest of what the shell and its children share: `RUNTIME_COLOR`,
 the `LongPress` gesture, `selectedText()` and the `prBadge()` template.
+`layout-sync.js` is how an open shell follows a layout another client (the
+app, another tab) saved: `follow(shell, event, key)` on a `prefs` event —
+skip our own writes (`X-Prefs-Writer`), hold the reload while `editing()`
+— tested in `hack/layout-sync.test.mjs`, end to end by the harness's
+`layoutSync` pass.
 
 The first child element is `bx-canvas.js` — the snappable grid of cards
 and the floating windows, with every pointer gesture on them (grid
