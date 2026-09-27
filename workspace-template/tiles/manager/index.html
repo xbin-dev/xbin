@@ -115,7 +115,9 @@
       Fork an existing tile: copies its code (git history included — the repos
       stay related), rewrites references to the old path, and registers an
       independent tile. Secrets and stored resource data don't come along;
-      cross-scope grants need your approval again.</p>
+      cross-scope grants need your approval again. Nor do tile deployments:
+      the copy is the source's work tree, even where its primary runs a
+      pinned checkpoint, and it starts with live reload on.</p>
     <div class="field">
       <label for="clone-src">Source tile</label>
       <select id="clone-src" style="width:100%; box-sizing:border-box; background:var(--bx-panel);
