@@ -1570,6 +1570,8 @@ rather than letting D113 build a second layout.
 - **Links.** PO-11: `main`'s rows stay byte-identical.
 
 #### WP-S5 tile-sandboxes-per-deployment · M · wave 2.4, or in D113's project
+
+> **Handed over (2026-09-27).** The coding-sandboxes programme (branch `sandbox-managers`) builds this rule in its phase 2, where the tile-sandbox runtime itself is built. It has recorded the rule in `plans/sandbox-managers.md` (554c1c9): per-deployment sandbox sets; `{source:true}` and data mounts from the deployment; caps, policy, quotas and VM books stay the tile's; registry rows carry the deployment. This programme only documents the rule, and WP-S5 is not scheduled in wave 2.4. Whoever lands first on `internal/sbx`, `internal/cgroup` or `internal/vm` rebases the other.
 - **When.** With whichever of M2 and D113 lands second, as
   [02-goals.md](02-goals.md)'s milestone table says.
 - **Scope** (05-model §12; 07-runtime §10.7; 08-data §2). D113's definitions
