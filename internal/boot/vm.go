@@ -23,7 +23,7 @@ func (st *State) stepVM() error {
 	st.Term.VM = m
 	st.Run.VM = m
 	status := m.Status()
-	m.GC()
+	m.GC(st.pinnedBases()) // keep the images of bases a layer still pins
 	p := m.Policy()
 	if status.Available && status.Emulated {
 		slog.Info("VM sandboxes available, emulated", "why", status.Note, "terminals", p.Terminals, "backends", p.Backends, "memMiB", p.MemMiB, "vcpus", p.VCPUs)

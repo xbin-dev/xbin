@@ -1353,6 +1353,32 @@ next to its vforking `os.StartProcess`.
   - `term` `base_test.go` and `views_boot_test.go` unchanged and green.
   - `vm` `TestListDisks` extended.
 - **Parallel:** fully.
+- **As built (p2/layers).** Additions, no departures:
+  - `layers.Pin(dir, rootfs, overlay)` is §7 step 3 in one call: an
+    unpinned dir takes the current base (and flavour); a base that isn't
+    installed is `ErrBaseMissing`, another flavour `ErrOverlay`, and neither
+    writes. `reset`/`rebase` re-stamp with `Stamp`. VM mode passes no
+    flavour.
+  - **Snapshots pin too.** `Pinned` reads a `base` stamp in each
+    `.xbin/sbx/<CK>/<name>/snapshots/<sid>/`, so a snapshot keeps its base
+    after its sandbox is reset or rebased (a clone needs it). WP-20 stamps
+    each snapshot dir with `layers.Stamp` next to `meta.json`.
+  - An unstamped `.xbin/sbx` dir pins nothing (never started); an unstamped
+    terminal layer still pins `v0`. `view-*` dirs are not layers.
+  - **Unknown pins release nothing.** `Pinned` errors when a stamp or a
+    tree can't be read; the boot then passes nil, and `layers.GC(nil)` /
+    `vm.GC(nil)` keep every base and image (only build leftovers go).
+  - `vm.GC(keep)` takes the pinned versions and keeps the image of each
+    installed pinned base, keyed as it would be built.
+  - `EnsureDiskAt(dir, bytes)` takes the layer or state dir and makes
+    `dir/vm/disk.img`; a symlink or non-regular file there is refused.
+  - `Disk.Kind` is `terminal` | `tile` (the registry's kind names); the
+    admin tab shows a tile disk's sandbox name (a one-line change to
+    `sandboxes.js`, plus a harness fixture row).
+  - The boot's pin-source func is `State.sandboxBasePins` (nil until
+    WP-15a, which must set it and load the definitions before
+    `stepIsolation`). `term.GCBaseImages` is gone: the boot runs
+    `layers.GC(rootfs, st.pinnedBases())` and `vm.GC(st.pinnedBases())`.
 
 ### WP-8 — cgroup leaves + confine's file-caps profile (Track B · S+S)
 

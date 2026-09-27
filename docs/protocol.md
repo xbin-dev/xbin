@@ -504,8 +504,9 @@ GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
                                    memMiB?,vcpus?,pid,gen?,started,leaf?,
                                    disk?,net?,restricted?,owner?,name?,
                                    status?,uptimeSec,stats?:{cpu,mem,pids,
-                                   scope}}], disks:[{key,path,tile?,
-                                   apparentBytes,allocatedBytes,inUse}],
+                                   scope}}], disks:[{kind (terminal|tile),
+                                   key,sandbox?,path,tile?,apparentBytes,
+                                   allocatedBytes,inUse}],
                                    failures:[{time,kind,tile,user?,mode,stage
                                    (refused|start|health|exit),error,count}],
                                    failureCounts:{<stage>:n}, cgroup,
@@ -522,9 +523,13 @@ GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
                                    by its id; stats are the live sampler's
                                    (demand-driven, like /runtime). stored is
                                    the VM policy as set (0 = default) — what
-                                   an editor PUTs back. failures: the newest
-                                   64, identical ones within 10 min
-                                   coalesced (count). ?tile= narrows
+                                   an editor PUTs back. disks: the VM disks
+                                   on the host — a tile's terminal layer's
+                                   (kind terminal) and its tile sandboxes'
+                                   (kind tile, with the sandbox's name).
+                                   failures: the newest 64, identical ones
+                                   within 10 min coalesced (count). ?tile=
+                                   narrows
 GET    /tile-status?component=<p>  self or admin. one tile's runtime metrics —
                                    backend {state,gen,sandbox,vm?,cpuSec,cgroup:{mem,pids},
                                    rssKb,fds,activeConns,egress}, disk {usage,

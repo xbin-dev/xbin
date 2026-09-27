@@ -2,76 +2,47 @@ package term
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/xbin-dev/xbin/internal/layers"
 )
 
-// Base-image versioning for terminal sandbox layers (plans/component-env.md).
-//
-// A terminal's persistent overlay upper (.xbin/term/<key>/upper) records apt
-// installs and the dpkg/apt state copied up from the base rootfs it was built
-// on. Stacking that upper on a DIFFERENT base merges new-base packages under an
-// old dpkg status → apt breaks. So each layer is stamped with its base version
-// and PINNED to it; "upgrading" a terminal to a newer base means discarding the
-// upper (the existing reset action) — safe, because tile code and $HOME are
-// bind mounts, not the overlay. The install upgrade preserves old bases as
-// `<rootfs>-<version>` siblings so pinned layers keep resolving.
+// Base-image versioning for terminal sandbox layers (plans/component-env.md):
+// thin wrappers over internal/layers, which pins terminal layers
+// (.xbin/term/<key>) and tile sandboxes (.xbin/sbx) alike. A terminal's
+// persistent overlay upper records apt installs and the dpkg/apt state
+// copied up from the base it was built on, so each layer is stamped with
+// that base and PINNED to it; "upgrading" a terminal to a newer base means
+// discarding the upper (the existing reset action) — safe, because tile code
+// and $HOME are bind mounts, not the overlay. Releasing the bases nothing
+// pins is the boot's (internal/boot: layers.GC over layers.Pinned).
 
-const baseVersionFile = "etc/xbin-base-version"
+// baseVersion reads a rootfs's stamped base version ("v0" when unstamped).
+func baseVersion(rootfs string) string { return layers.BaseVersion(rootfs) }
 
-// baseVersion reads a rootfs's stamped base version, defaulting to "v0" for an
-// unstamped (legacy, pre-versioning) base.
-func baseVersion(rootfs string) string {
-	if rootfs == "" {
-		return "v0"
-	}
-	b, err := os.ReadFile(filepath.Join(rootfs, baseVersionFile))
-	if err != nil {
-		return "v0"
-	}
-	if v := strings.TrimSpace(string(b)); v != "" {
-		return v
-	}
-	return "v0"
-}
-
-// resolveBase returns the rootfs dir serving base `version`: the current rootfs
-// if it matches, else a preserved sibling `<rootfs>-<version>` (kept by the
-// install upgrade). ok=false when that base isn't installed.
-func resolveBase(rootfs, version string) (string, bool) {
-	if version == baseVersion(rootfs) {
-		return rootfs, true
-	}
-	sib := rootfs + "-" + version
-	if fi, err := os.Stat(sib); err == nil && fi.IsDir() {
-		return sib, true
-	}
-	return "", false
-}
+// resolveBase returns the rootfs dir serving base `version`: the current
+// rootfs, or a preserved `<rootfs>-<version>` sibling; ok=false when it
+// isn't installed.
+func resolveBase(rootfs, version string) (string, bool) { return layers.ResolveBase(rootfs, version) }
 
 // ensureLayerBase stamps a terminal layer with its base version on first use and
 // returns it: a brand-new layer gets the current base; a pre-existing unstamped
 // layer is the legacy base ("v0"). Idempotent.
 func (m *Manager) ensureLayerBase(layer string) string {
-	stamp := filepath.Join(layer, "base")
-	if b, err := os.ReadFile(stamp); err == nil {
-		if v := strings.TrimSpace(string(b)); v != "" {
-			return v
-		}
+	if s, err := layers.Read(layer); err == nil && s.Base != "" {
+		return s.Base
 	}
-	ver := baseVersion(m.Rootfs) // brand-new layer → the current base
+	ver := layers.BaseVersion(m.Rootfs) // brand-new layer → the current base
 	if _, err := os.Stat(layer); err == nil {
-		ver = "v0" // pre-existing unstamped upper → the legacy base
+		ver = layers.Legacy // pre-existing unstamped upper → the legacy base
 	}
 	_ = os.MkdirAll(layer, 0o755)
-	_ = os.WriteFile(stamp, []byte(ver+"\n"), 0o644)
+	_ = layers.Stamp(layer, layers.Stamps{Base: ver})
 	return ver
 }
 
-// layerOutdated reports whether a held layer's base differs from the current
-// rootfs (so the tile can offer an upgrade/reset).
 // EnvStatus reports a component's persistent terminal layer before any
 // terminal is open: whether one exists, and whether it was built on an older
 // base image than the current rootfs (the terminal window's "base update").
@@ -81,107 +52,41 @@ func (m *Manager) EnvStatus(rel string) (exists, outdated bool) {
 	return err == nil, m.layerOutdated(key)
 }
 
+// layerOutdated reports whether a held layer's base differs from the current
+// rootfs (so the tile can offer an upgrade/reset).
 func (m *Manager) layerOutdated(envKey string) bool {
 	if envKey == "" || m.Rootfs == "" {
 		return false
 	}
-	b, err := os.ReadFile(filepath.Join(m.Root, ".xbin", "term", envKey, "base"))
-	if err != nil {
-		return false
-	}
-	v := strings.TrimSpace(string(b))
-	return v != "" && v != baseVersion(m.Rootfs)
-}
-
-// pinnedBases returns the set of base versions still referenced by a terminal
-// layer (unstamped layers count as "v0").
-func (m *Manager) pinnedBases() map[string]bool {
-	pinned := map[string]bool{}
-	entries, err := os.ReadDir(filepath.Join(m.Root, ".xbin", "term"))
-	if err != nil {
-		return pinned
-	}
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		ver := "v0"
-		if b, err := os.ReadFile(filepath.Join(m.Root, ".xbin", "term", e.Name(), "base")); err == nil {
-			if v := strings.TrimSpace(string(b)); v != "" {
-				ver = v
-			}
-		}
-		pinned[ver] = true
-	}
-	return pinned
-}
-
-// GCBaseImages removes preserved base images (`<rootfs>-<version>` siblings) that
-// no terminal layer pins anymore — the "release" side of keeping old bases so
-// they don't accumulate once every terminal has upgraded. Conservative: only
-// touches dirs that carry a base-version stamp.
-func (m *Manager) GCBaseImages() {
-	if m.Rootfs == "" {
-		return
-	}
-	pinned := m.pinnedBases()
-	cur := baseVersion(m.Rootfs)
-	parent, prefix := filepath.Dir(m.Rootfs), filepath.Base(m.Rootfs)+"-"
-	entries, err := os.ReadDir(parent)
-	if err != nil {
-		return
-	}
-	for _, e := range entries {
-		if !e.IsDir() || !strings.HasPrefix(e.Name(), prefix) {
-			continue
-		}
-		ver := strings.TrimPrefix(e.Name(), prefix)
-		if ver == cur || pinned[ver] {
-			continue
-		}
-		p := filepath.Join(parent, e.Name())
-		if _, err := os.Stat(filepath.Join(p, baseVersionFile)); err != nil {
-			continue // not a base image — leave it alone
-		}
-		slog.Info("releasing unreferenced base image", "path", p, "version", ver)
-		_ = os.RemoveAll(p)
-	}
+	return layers.Outdated(filepath.Join(m.Root, ".xbin", "term", envKey), m.Rootfs)
 }
 
 // CheckBaseImages is the startup safety gate: it refuses to run if any existing
 // terminal layer is pinned to a base image that isn't installed — stacking its
 // upper on a different base would corrupt apt/dpkg state. Called once at boot
-// when isolation is on.
+// when isolation is on. It gates on .xbin/term only: a tile sandbox whose base
+// is gone fails its own start instead (plans/tile-sandbox-runtime.md §7).
 func (m *Manager) CheckBaseImages() error {
 	if m.Rootfs == "" {
 		return nil
 	}
 	dir := filepath.Join(m.Root, ".xbin", "term")
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil // no terminal layers yet
-	}
-	var bad []string
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		// view-* dirs are D40 per-session STAGED VIEWS, not env layers — a
-		// daemon restart orphans any live sessions' views, and treating them
-		// as layers pinned to a phantom base crash-looped a production boot
-		// (2026-08-02). Sweep them here: anything present at boot is dead.
-		if strings.HasPrefix(e.Name(), "view-") {
-			_ = os.RemoveAll(filepath.Join(dir, e.Name()))
-			continue
-		}
-		ver := "v0"
-		if b, err := os.ReadFile(filepath.Join(dir, e.Name(), "base")); err == nil {
-			if v := strings.TrimSpace(string(b)); v != "" {
-				ver = v
+	// view-* dirs are D40 per-session STAGED VIEWS, not env layers — a
+	// daemon restart orphans any live sessions' views, and treating them
+	// as layers pinned to a phantom base crash-looped a production boot
+	// (2026-08-02). Sweep them here: anything present at boot is dead.
+	if entries, err := os.ReadDir(dir); err == nil {
+		for _, e := range entries {
+			if e.IsDir() && strings.HasPrefix(e.Name(), "view-") {
+				_ = os.RemoveAll(filepath.Join(dir, e.Name()))
 			}
 		}
-		if _, ok := resolveBase(m.Rootfs, ver); !ok {
-			bad = append(bad, e.Name()+"→"+ver)
+	}
+	ls, _ := layers.Check(m.Root, m.Rootfs)
+	var bad []string
+	for _, l := range ls {
+		if l.Tree == layers.TreeTerm && l.Missing {
+			bad = append(bad, l.Key+"→"+l.Base)
 		}
 	}
 	if len(bad) > 0 {

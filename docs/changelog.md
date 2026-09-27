@@ -10,6 +10,20 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-28
+
+- **Base images stay while tile sandboxes pin them; VM disks list both
+  trees** (D120). The boot's base-image GC now keeps every base that a
+  terminal layer, a tile sandbox, one of its snapshots or a tile-sandbox
+  definition is pinned to, and the VM images built from those bases stay
+  too: a VM terminal on an older base boots without rebuilding its image. If
+  a pin can't be read, nothing is released that boot. `GET
+  /api/xbin/sandboxes` lists the tile sandboxes' VM disks next to the
+  terminal ones: each disk row gains `kind` (`terminal` | `tile`) and, for a
+  tile sandbox, `sandbox` (its name). Additive; nothing to change.
+  ([protocol.md](protocol.md), [09-terminals](/docs/overview/09-terminals.md)
+  §Base images.)
+
 ## 2026-09-27
 
 - **A contract for sandbox managers** ([sandbox-manager.md](sandbox-manager.md),

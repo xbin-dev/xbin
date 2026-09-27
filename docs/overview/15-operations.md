@@ -24,7 +24,7 @@ re-running upgrades in place) produces this layout under `/opt/xbin`:
 |---|---|---|
 | `bin/` | `xbind`, `bx`, static `fuse-overlayfs`, static `gocryptfs` | single-artifact install; xbind auto-finds the helpers next to itself |
 | `rootfs/` | unpacked base OCI image (toolchains: go, node, python, git, vim…) | the read-only lower layer of every backend/terminal sandbox |
-| `rootfs-<ver>/` | preserved previous base images | terminals pin the base their overlay was built on; GC'd once unused ([09-terminals.md](09-terminals.md)) |
+| `rootfs-<ver>/` | preserved previous base images | terminal layers and tile sandboxes pin the base they were built on; GC'd once unused ([09-terminals.md](09-terminals.md)) |
 | `sdk/` | the Go SDK source | the generated `go.work` resolves `github.com/xbin-dev/xbin/sdk` here; terminals get it as a read-only bind so `go build` works offline |
 | `workspace/` | the workspace tree | auto-initialized on first boot |
 | `/etc/xbin/xbin.env` | optional env file (mode 0600) | `XBIN_VAULT_PASSPHRASE` for hands-off unseal; ingress listener opt-ins |
@@ -370,7 +370,7 @@ block, restart. User, subids, vault choice, and the workspace are
 untouched — but for a VM policy nobody ever set, which it writes (above).
 When the base-image version
 changes, the old `rootfs` is preserved as `rootfs-<ver>` so pinned terminal
-layers keep working until they upgrade (then GC'd by xbind).
+layers and tile sandboxes keep working until they upgrade (then GC'd by xbind).
 
 Two operator contracts around an upgrade:
 

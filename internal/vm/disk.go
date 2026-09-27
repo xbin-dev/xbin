@@ -1,9 +1,11 @@
 package vm
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 )
 
 // EnsureDisk returns a VM terminal's persistent disk image in layer (the
@@ -11,16 +13,28 @@ import (
 // formats as ext4 on first use and keeps its root filesystem changes on —
 // `apt install` survives the session (plans/vm-sandbox.md). It grows to the
 // policy's size (never shrinks; the guest grows its filesystem to match) and
-// shares the layer's base pin, lock and Reset. xbind only creates and sizes
-// it; the host never reads what the guest wrote.
+// shares the layer's base pin, lock and Reset.
 func (m *Manager) EnsureDisk(layer string) (string, error) {
-	dir := filepath.Join(layer, "vm")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	return EnsureDiskAt(layer, int64(m.Policy().DiskGiB)<<30)
+}
+
+// EnsureDiskAt makes the sparse disk image of the layer or sandbox state dir
+// dir (dir/vm/disk.img) and grows it to size bytes — grow only: a smaller
+// size leaves it as it is, since the guest's filesystem fills it. Tile
+// sandboxes size theirs by their own diskGiB (plans/tile-sandbox-runtime.md
+// §6.3); terminals by the VM policy (EnsureDisk). xbind only creates, sizes
+// and stats it; the host never reads what the guest wrote, and a symlink or
+// anything but a regular file in its place is refused, never followed.
+func EnsureDiskAt(dir string, size int64) (string, error) {
+	vdir := filepath.Join(dir, "vm")
+	if err := os.MkdirAll(vdir, 0o700); err != nil {
 		return "", err
 	}
-	p := filepath.Join(dir, "disk.img")
-	want := int64(m.Policy().DiskGiB) << 30
-	f, err := os.OpenFile(p, os.O_RDWR|os.O_CREATE, 0o600)
+	p := filepath.Join(vdir, "disk.img")
+	f, err := os.OpenFile(p, os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
+	if errors.Is(err, syscall.ELOOP) {
+		return "", fmt.Errorf("the VM disk %s is a symlink", p)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -29,34 +43,63 @@ func (m *Manager) EnsureDisk(layer string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if fi.Size() < want {
-		if err := f.Truncate(want); err != nil {
+	if !fi.Mode().IsRegular() {
+		return "", fmt.Errorf("the VM disk %s is not a regular file", p)
+	}
+	if fi.Size() < size {
+		if err := f.Truncate(size); err != nil {
 			return "", fmt.Errorf("size the VM disk: %w", err)
 		}
 	}
 	return p, nil
 }
 
-// Disk is one VM terminal disk image on the host.
+// The kinds of VM disk on the host (Disk.Kind), named as the sandbox
+// registry names what uses them.
+const (
+	DiskTerminal = "terminal" // a tile's terminal layer (VM terminals and agent sessions)
+	DiskTile     = "tile"     // a tile sandbox's (plans/tile-sandbox-runtime.md)
+)
+
+// Disk is one VM disk image on the host.
 type Disk struct {
-	Key            string `json:"key"` // the tile's layer key (util.CompKey)
+	Kind           string `json:"kind"`              // DiskTerminal | DiskTile
+	Key            string `json:"key"`               // the tile's key (util.CompKey)
+	Sandbox        string `json:"sandbox,omitempty"` // DiskTile: the sandbox's name
 	Path           string `json:"path"`
 	ApparentBytes  int64  `json:"apparentBytes"`  // its size to the guest
 	AllocatedBytes int64  `json:"allocatedBytes"` // what it takes on the host (sparse)
 }
 
-// ListDisks finds the VM disk images under root's terminal layers. It only
-// stats them (never follows a symlink, never reads what the guest wrote).
+// ListDisks finds the VM disk images under root: the terminal layers'
+// (.xbin/term/<key>/vm/disk.img) and the tile sandboxes'
+// (.xbin/sbx/<CK>/<name>/vm/disk.img). It only stats them (never follows a
+// symlink, never reads what the guest wrote).
 func ListDisks(root string) []Disk {
-	paths, _ := filepath.Glob(filepath.Join(root, ".xbin", "term", "*", "vm", "disk.img"))
 	out := []Disk{}
-	for _, p := range paths {
-		fi, err := os.Lstat(p)
-		if err != nil || !fi.Mode().IsRegular() {
-			continue
+	term, _ := filepath.Glob(filepath.Join(root, ".xbin", "term", "*", "vm", "disk.img"))
+	for _, p := range term {
+		layer := filepath.Dir(filepath.Dir(p))
+		if d, ok := statDisk(p); ok {
+			d.Kind, d.Key = DiskTerminal, filepath.Base(layer)
+			out = append(out, d)
 		}
-		key := filepath.Base(filepath.Dir(filepath.Dir(p)))
-		out = append(out, Disk{Key: key, Path: p, ApparentBytes: fi.Size(), AllocatedBytes: allocated(fi)})
+	}
+	tile, _ := filepath.Glob(filepath.Join(root, ".xbin", "sbx", "*", "*", "vm", "disk.img"))
+	for _, p := range tile {
+		state := filepath.Dir(filepath.Dir(p))
+		if d, ok := statDisk(p); ok {
+			d.Kind, d.Key, d.Sandbox = DiskTile, filepath.Base(filepath.Dir(state)), filepath.Base(state)
+			out = append(out, d)
+		}
 	}
 	return out
+}
+
+func statDisk(p string) (Disk, bool) {
+	fi, err := os.Lstat(p)
+	if err != nil || !fi.Mode().IsRegular() {
+		return Disk{}, false
+	}
+	return Disk{Path: p, ApparentBytes: fi.Size(), AllocatedBytes: allocated(fi)}, true
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/gpu"
 	ingressPkg "github.com/xbin-dev/xbin/internal/ingress"
+	"github.com/xbin-dev/xbin/internal/layers"
 	"github.com/xbin-dev/xbin/internal/proxy"
 	"github.com/xbin-dev/xbin/internal/push"
 	"github.com/xbin-dev/xbin/internal/registry"
@@ -73,6 +74,11 @@ type State struct {
 	rootfs           string // --isolate's rootfs, absolute (stepConfine)
 	uidRange         bool   // sandboxes map a delegated sub-id range (stepIsolation)
 	uidRangeNote     string // why not
+	// sandboxBasePins is the base of every tile-sandbox definition, archived
+	// ones included (plans/tile-sandbox-runtime.md §9) — one of the three pin
+	// sources the boot's base-image GC passes keep (pinnedBases). nil until
+	// the tile-sandbox runtime is wired; it must answer by stepIsolation.
+	sandboxBasePins func() []string
 }
 
 // Step is one named stage of a boot. Steps run in list order; the order is
@@ -604,6 +610,21 @@ func (st *State) stepConfine() error {
 	return nil
 }
 
+// pinnedBases is every base version a layer still pins (internal/layers:
+// the terminal layers, the tile sandboxes and their snapshots, and the
+// tile-sandbox definitions) — what both base-image GC passes keep: the
+// preserved `<rootfs>-<version>` dirs (stepIsolation) and the VM images
+// built from them (stepVM). nil when a pin couldn't be read: the set may be
+// short, so neither pass releases anything this boot.
+func (st *State) pinnedBases() map[string]bool {
+	pins, err := layers.Pinned(st.WS, st.sandboxBasePins)
+	if err != nil {
+		slog.Warn("base images: nothing released this boot — a layer's pin couldn't be read", "err", err)
+		return nil
+	}
+	return pins
+}
+
 func (st *State) stepIsolation() error {
 	cfg, run, tm, brk := st.Cfg, st.Run, st.Term, st.Broker
 	if !cfg.Isolate {
@@ -632,7 +653,7 @@ func (st *State) stepIsolation() error {
 	if err := tm.CheckBaseImages(); err != nil {
 		return err
 	}
-	tm.GCBaseImages() // release preserved bases no terminal pins anymore
+	layers.GC(abs, st.pinnedBases()) // release preserved bases no layer pins anymore
 	// Same locator as go.work generation (XBIN_SDK_PATH → /opt/xbin/sdk).
 	// Never fall back to "": filepath.Abs("") is the daemon's cwd (the
 	// install prefix in prod), and binding that read-only over the sandbox

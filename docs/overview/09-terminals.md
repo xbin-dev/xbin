@@ -339,22 +339,30 @@ backend shares exactly one of them (source, read-only).
 The sandbox lower is a base rootfs directory. Because a persistent upper records
 apt/dpkg state *relative to the base it was built on*, stacking it on a
 **different** base merges new-base packages under an old dpkg status and breaks
-apt. So each layer is **stamped and pinned** to its base
-(`internal/term/base.go`):
+apt. So each layer is **stamped and pinned** to its base (`internal/layers`,
+shared by terminal layers and tile sandboxes; `internal/term/base.go` wraps it
+for terminals):
 
-- **`ensureLayerBase`** stamps a layer with its base version on first use (a
-  brand-new layer → the current base; a pre-existing unstamped upper → the
-  legacy `v0`).
-- **`resolveBase`** pins the layer's upper to the exact base it was built on —
+- **Stamps.** A layer dir records its base version in `base` (and, for a tile
+  sandbox's namespace upper, the overlay flavour that wrote it in `overlay`).
+  xbind writes them, atomically; nothing reads what the sandbox wrote. A
+  terminal layer is stamped on first use (a brand-new layer → the current
+  base; a pre-existing unstamped upper → the legacy `v0`).
+- **`ResolveBase`** pins the layer's upper to the exact base it was built on —
   the current rootfs if it matches, else a preserved sibling `<rootfs>-<version>`.
 - **`CheckBaseImages`** is a startup safety gate: xbind **refuses to start** if
-  any existing layer is pinned to a base that isn't installed, rather than
-  corrupt its apt state. A base upgrade must therefore *preserve* old bases as
-  `<rootfs>-<version>` siblings (`deploy/install.sh` does this on upgrade); the
-  fix if you hit the gate is to restore the base or reset the affected
-  terminal(s).
-- **`GCBaseImages`** releases preserved bases that no layer pins anymore — the
-  cleanup side, so old bases don't accumulate once every terminal has upgraded.
+  any existing terminal layer is pinned to a base that isn't installed, rather
+  than corrupt its apt state. A base upgrade must therefore *preserve* old bases
+  as `<rootfs>-<version>` siblings (`deploy/install.sh` does this on upgrade);
+  the fix if you hit the gate is to restore the base or reset the affected
+  terminal(s). (A tile sandbox whose base is gone fails its own start instead.)
+- **GC at boot** releases preserved bases that nothing pins anymore — the
+  cleanup side, so old bases don't accumulate once every layer has upgraded.
+  The pins are the union of the terminal layers' stamps (`.xbin/term/*`), the
+  tile sandboxes' and their snapshots' stamps (`.xbin/sbx/*/*`), and the base
+  of every tile-sandbox definition. The VM images built from bases (`.xbin/vm/
+  images`) follow the same pins. If any pin can't be read, nothing is released
+  that boot.
 
 A terminal whose layer's base is older than the current rootfs reports
 `baseOutdated` on attach, so the UI can offer a reset-to-upgrade.
