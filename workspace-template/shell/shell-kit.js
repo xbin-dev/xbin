@@ -1,9 +1,11 @@
 // shell/shell-kit.js — what the shell and its child elements share: the
 // grid module the layout is measured in, the runtime colour dots, the
-// touch long-press gesture, the shell-text selection check and the ⇄
-// change-proposal badge. Imported relatively by bx-shell.js and
-// bx-canvas.js; nothing here touches element state.
+// touch long-press gesture, the shell-text selection check, the ⇄
+// change-proposal badge and the tile deployments store behind the ⇈
+// badges. Imported relatively by bx-shell.js and its child elements;
+// nothing here touches element state.
 import { html, nothing } from 'lit';
+import { useDeployLookup, deploySummary, deployHint, deployFailed } from './menus.js';
 
 // The grid module lives in grid-layout.js (lit-free, so its layout math is
 // node-testable); re-exported here for the shell's existing imports.
@@ -87,4 +89,103 @@ export function worstStatus(status, paths) {
     if (s && (rank[s.level] ?? -1) > bestR) { best = s.level; bestR = rank[s.level]; }
   }
   return best;
+}
+
+// ---- tile deployments (optional; docs/tile-deployments.md) ----
+// One per-page store of tiles' deployments states (GET
+// /api/xbin/deployments?tile=, in the signed-in person's view: raw fetch,
+// like the tile admin's calls) for the ⇈ badges, the tile menu's
+// Deployments line and the tile admin. A state loads only for a tile whose
+// /components row carries the primary summary, or whose record a
+// `deployments` event says changed: an xbind without tile deployments sends
+// neither, so it is never asked. Loaded states follow their tile's record
+// and deploy events and the page coming back into view. Words come from the
+// binary's /vendor/deploy-state.js by dynamic import: an older binary
+// doesn't serve it, and a failed static import would take the whole shell
+// down (docs/compat.md rule 3), so a failed import leaves plain text.
+const dstore = new Map(); // path → {state: undefined | null | State, gen}
+const dsubs = new Set();
+let dwords = null, dwordsAsked = false, dfollowing = false, dseen = 0;
+
+const dnotify = () => { for (const fn of dsubs) { try { fn(); } catch (err) { console.error(err); } } };
+// onDeployChange(fn) → unsubscribe: fn runs after a state loads or the words arrive.
+export function onDeployChange(fn) { dsubs.add(fn); return () => dsubs.delete(fn); }
+// deployState(path) → undefined (not loaded), null (this xbind couldn't answer) or the state.
+export const deployState = (path) => dstore.get(path)?.state;
+// loadDeployState(path): fetch the tile's state now; the newest answer wins.
+export function loadDeployState(path) {
+  const r = dstore.get(path) ?? { state: undefined, gen: 0 };
+  dstore.set(path, r);
+  const gen = ++r.gen;
+  return fetch(`/api/xbin/deployments?tile=${encodeURIComponent(path)}`)
+    .then((res) => (res.ok ? res.json() : null)).catch(() => null)
+    .then((s) => {
+      if (gen !== r.gen) return;
+      r.state = s && typeof s === 'object' && s.tile === path ? s : null;
+      if (r.state?.record && !dwordsAsked) {
+        dwordsAsked = true;
+        import('/vendor/deploy-state.js').then((m) => { dwords = m; dnotify(); }, () => { });
+      }
+      dnotify();
+    });
+}
+// wantDeployState(path, c): load once, for a tile whose row carries the summary.
+export function wantDeployState(path, c) {
+  if (c?.deployments && !dstore.has(path)) loadDeployState(path);
+}
+useDeployLookup((path, c) => { wantDeployState(path, c); return deployState(path); });
+
+// followDeployments(): keep the store current (once per page). A record
+// event also loads a tile nobody asked about yet: its first record.
+export function followDeployments() {
+  if (dfollowing || typeof window.xbin?.events?.on !== 'function') return;
+  dfollowing = true;
+  const timers = new Map();
+  window.xbin.events.on((e) => {
+    const op = e?.type === 'deployments' ? e.data?.op : '', p = e?.component;
+    if (!p || !(op === 'record' || (op === 'deploy' && dstore.has(p)))) return;
+    clearTimeout(timers.get(p));
+    timers.set(p, setTimeout(() => { timers.delete(p); loadDeployState(p); }, 300));
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' || !dstore.size || Date.now() - dseen < 30000) return;
+    dseen = Date.now();
+    for (const p of dstore.keys()) loadDeployState(p);
+  });
+}
+
+// deployChip(c, state) → null, or the card head's ⇈ badge {text, title,
+// failed}: while the primary is pinned or its last deploy failed, titled
+// with the terminal window's chip sentence once the words are here.
+export function deployChip(c, st) {
+  const sum = deploySummary(c, st), failed = deployFailed(st);
+  if (!sum || (!sum.pinned && !failed)) return null;
+  let title = '';
+  try { title = (st?.record && dwords?.chip?.(st)?.title) || ''; } catch { /* the words changed: plain text */ }
+  return { text: failed ? '⇈!' : '⇈', title: title || deployHint(sum, st), failed };
+}
+// deployBadge(chip, onOpen): the ⇄N badge's manners; with onOpen a button.
+export function deployBadge(d, onOpen = null) {
+  if (!d) return nothing;
+  const style = d.failed ? 'color: var(--bx-red, #ef5350)' : '';
+  return onOpen
+    ? html`<button class="prb dpb" style=${style} title=${d.title} aria-label=${d.title}
+                   @pointerdown=${(e) => e.stopPropagation()}
+                   @click=${(e) => { e.stopPropagation(); onOpen(); }}>${d.text}</button>`
+    : html`<span class="prb dpb" style=${style} title=${d.title}>${d.text}</span>`;
+}
+// deployMark(c, state): the sidebar's plain ⇈ while the primary is pinned
+// (never 📌, which reads as the card pin).
+export function deployMark(c, st) {
+  const sum = deploySummary(c, st);
+  return sum?.pinned ? html`<span class="prb dpb" title=${deployHint(sum, st)}>⇈</span>` : nothing;
+}
+// openDeployments(root, path): the tile's terminal window on its Deployments
+// layout, from an element inside the shell (root: its getRootNode()); a tile
+// that has no card yet is opened first, as the tile menu's squares do.
+export function openDeployments(root, path) {
+  const canvas = root?.querySelector?.('bx-canvas');
+  if (canvas && !canvas.frameOpen(path, 'deployments')) {
+    canvas.dispatchEvent(new CustomEvent('bx-toggle-tile', { detail: path, bubbles: true, composed: true }));
+  }
 }

@@ -23,10 +23,49 @@
 //   openTile(path) toggle(path) togglePin(path) frameOpen(path, layout)
 //   openFullPage(path) lifecycle(path, state) openAdminWin(path, section)
 //   confirm(message) → boolean
+// optional in state:
+//   deployState(path, c)  a tile's deployments state (below); absent, the
+//                         lookup shell-kit.js installs answers
 
 // Lifecycle predicates over a /components entry (shared with the sidebar).
 export const offloaded = (c) => c?.state === 'offloaded' || c?.state === 'offloaded-full';
 export const hidden = (c) => c?.state === 'hidden';
+
+// ---- tile deployments (docs/tile-deployments.md) ----
+// Optional: an xbind without them sends none of this, and every menu is
+// today's. A tile with a deployment record carries the primary summary on
+// its /components row, `deployments: {primary, pinned, protected}`, the same
+// for everyone who sees the row. The rest (the checkpoint a pinned primary
+// runs, what the viewer may do) is the tile's deployments state, GET
+// /api/xbin/deployments?tile=: undefined while not loaded, null when this
+// xbind couldn't answer, else the state in the viewer's view.
+let deployLookup = () => undefined;
+// useDeployLookup(fn): shell-kit.js's per-page store answers fn(path, c),
+// loading a state the first time a tile with a summary asks.
+export const useDeployLookup = (fn) => { deployLookup = fn; };
+
+const primaryOf = (st) => (st?.deployments || []).find((d) => d.name === (st.primary || 'main')) || null;
+// deploySummary(c, state) → the primary summary, from the state once it is
+// loaded (it is fresher than the row), else the row's; null for a tile
+// without a record.
+export function deploySummary(c, st) {
+  if (!st) return c?.deployments || null;
+  if (!st.record) return null;
+  return { primary: st.primary || 'main', pinned: primaryOf(st)?.liveReload === false, protected: !!st.protectedPrimary };
+}
+// deployCheckpoint(state) → the checkpoint the primary is pinned to ('' unknown)
+export const deployCheckpoint = (st) => primaryOf(st)?.checkpoint?.id || '';
+// deployFailed(state) → the primary's last deploy failed
+export const deployFailed = (st) => primaryOf(st)?.lastDeploy?.result === 'failed';
+// deployHint(summary, state) → the primary's state in a few words
+export function deployHint(sum, st) {
+  const P = sum.primary || 'main', cp = deployCheckpoint(st);
+  if (!sum.pinned) return `${P} follows the work tree`;
+  return cp ? `${P} pinned to ${cp}` : `${P} pinned`;
+}
+// A viewer the state gives only the primary's facts (read access) has
+// nothing to operate; while the state isn't known the window decides.
+const mayOperate = (st) => !st || (st.view !== 'reader' && st.caller?.level !== 'read');
 
 const tidy = (l) => l.replace(/^— | —$/g, '');
 const base = (p) => p.slice(p.lastIndexOf('/') + 1);
@@ -106,6 +145,13 @@ export function tileMenuItems(path, s, a) {
       action: () => a.openTile(path) });
   }
   items.push({ icon: '⤢', label: 'Open full page', action: () => a.openFullPage(path) });
+  // One line, never a fifth square (the phone sheet's grid is four columns):
+  // the terminal window's Deployments layout, for a tile with a record.
+  const st = (s.deployState ?? deployLookup)(path, c);
+  const dsum = deploySummary(c, st);
+  if (dsum && mayOperate(st)) {
+    items.push({ icon: '⇈', label: 'Deployments…', hint: deployHint(dsum, st), action: () => a.frameOpen(path, 'deployments') });
+  }
   if (s.canAdminTile?.(path)) {
     items.push({ kind: 'sep' }, { kind: 'header', label: 'admin' });
     if (state !== 'enabled') {
