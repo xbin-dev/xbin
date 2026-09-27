@@ -3478,3 +3478,62 @@ Deviations and refinements made while implementing; all deliberate:
     modes would differ); a namespace fallback when a VM can't start
     (D78/D89).
 
+- **D114 — The app's way in: a welcome with four doors, sign-in that asks
+  the workspace, invites in the app, no token login; the shell's
+  "settings" chip leads with "add a device" (2026-09-27).**
+  `internal/server/loginmethods.go`, `workspace-template/shell/`
+  (bx-shell.js, shell-css.js, bx-devices.js), `native/ios/App/Shell/`
+  (Onboarding.swift, SignInPages.swift), XbinCore `Client/Onboarding.swift`
+  + `Client/ConnectProblem.swift`; docs/auth.md §Device login and §Invites,
+  native/spec/device-login.md §2/§6/§8/§9, docs/protocol.md.
+  - **Discovery is an API, not the login page's HTML.** `GET
+    /api/xbin/login/methods` (public, cheap, unthrottled) answers `{api,
+    title, auth, password:{enabled, adminOnly}, sso:{enabled, label},
+    invites}` — exactly what `/login` already shows, no version — so the
+    app offers the password form and/or the SSO button (with its label)
+    the workspace really has, SSO first in SSO-only mode. Older xbinds
+    answer the route 401 (their /api gate) or 404 (no-auth); the app then
+    probes `GET /login`: an HTML form = an older xbind (password + SSO as
+    before), a redirect = one without sign-in, anything else = not an
+    xbin workspace. Scraping the HTML was rejected: brittle, and the app
+    needs the no-auth and SSO-only answers.
+  - **Invites in the app.** `POST /api/xbin/invite/check` names the
+    account without spending the link; `POST /api/xbin/invite/redeem` sets
+    the password and answers `/api/xbin/login`'s token response, so the
+    app enrolls straight away. Same single use, expiry and login throttle
+    as the form; a password the policy refuses is a 400 that leaves the
+    invite; in no-auth mode both refuse. The form is unchanged.
+  - **The welcome (owner's direction): Log in · Join with an invite · Run
+    your own xbin · What is xbin?** Log in = scan the QR code (always
+    shown; disabled with "paste the link instead" where the camera
+    scanner isn't supported) or enter the address → methods → password
+    and/or SSO. "Where do I find the QR code?" shows the real shell,
+    screenshotted by the UI harness (`hack/ui-harness/app-help-shots.sh`
+    → `native/ios/App/Resources/Help/`; rerun when the shell changes).
+    "What is xbin?" carries the privacy stance (self-hosted, nothing
+    collected, the push relay as the one opt-in exception).
+  - **No token login in the app** (owner): a bearer token never renews,
+    skips the device key and Face ID, and was a development crutch. The
+    UI tests now sign in as a person does (a password account made by
+    `e2e-xbind.sh`), which also covers enrollment and device login. The
+    `.token` credential kind still decodes, for build 1's Keychain.
+  - **Failures told apart** (`ConnectProblem`): can't connect, TLS, not an
+    xbin workspace / too old, code refused, account, throttled, server,
+    other — each with its own words. The QR path checks the code's shape
+    and probes the server before redeeming, so an unreachable or wrong
+    address never spends a code.
+  - **The shell: a "settings" chip** (no emoji — the 🔧 became a chip like
+    *docs* and *sign out*) whose menu starts with **add a device**, one
+    click to the QR code; *my account → devices…* stays. The add-device
+    panel's **address your phone uses** puts another address in the
+    link's `u` (a browser behind a tunnel or proxy the phone can't use),
+    remembered per browser. The device keeps connecting to `u` and signs
+    the origin its enrollment answered (`deviceOrigin ?? server`, already
+    so); a web ticket's URL, built on that origin, is opened on the
+    connection address. A server-side "phone address" setting was not
+    added: `--external-url` stays the canonical address, the field covers
+    the rest.
+  - **"Sign in again" replaces** the workspace (same place in the list,
+    windows and recents; the stale device deleted) instead of adding a
+    duplicate.
+

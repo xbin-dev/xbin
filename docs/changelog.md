@@ -70,6 +70,22 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   meta to the page from its own script. A page with its own viewport is
   left as it is — set one to choose.
 
+- **xbin app: a welcome with four ways in, sign-in that asks the
+  workspace, invites, and no token login** (D114, [auth.md](auth.md)
+  §Device login). A fresh app opens on **Log in · Join with an invite ·
+  Run your own xbin · What is xbin?**. Log in scans the shell's QR code
+  (or takes its link pasted) or takes the workspace's address, asks
+  `GET /api/xbin/login/methods`, and shows the password form and/or the
+  SSO button the workspace has; "Where do I find the QR code?" walks
+  through the shell with screenshots. An invite link (`/login?invite=…`)
+  can be scanned or pasted to set the password in the app. Failures say
+  which kind they are — can't connect, certificate, not an xbin
+  workspace, code refused, account, throttled, server error — and a bad
+  address no longer spends a code. The app has no token sign-in any more,
+  and "Sign in again" replaces the workspace instead of adding a second
+  one. Older xbins still work: the app falls back to the password and
+  SSO forms.
+
 - **The xbin app: sign-in discovery and invite links, as JSON; the shell:
   a settings chip with "add a device" first, and an address for phones.**
   `GET /api/xbin/login/methods` (public, not throttled) answers what the
