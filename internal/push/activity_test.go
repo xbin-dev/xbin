@@ -719,7 +719,12 @@ func TestLiveActivityDismissedCardStaysAway(t *testing.T) {
 // one: when the device registers again, the next turn starts afresh — its
 // own start, no requests of the old turn pending, and a push-to-start.
 func TestLiveActivityTurnAfterRegistrationsWent(t *testing.T) {
-	r, _ := liveRig(t, 60*time.Millisecond, nil)
+	// The registration must go before turn 1's push-to-start fires — a few
+	// synchronous calls after the turn starts. 60 ms (the other tests')
+	// was not always enough on a loaded CI runner under -race: the push
+	// went to the still-registered device.
+	const start = 400 * time.Millisecond
+	r, _ := liveRig(t, start, nil)
 	reg := func() {
 		t.Helper()
 		body := map[string]any{"deviceId": "phone", "handle": "handle-phone", "publicKey": pubKey(t), "startHandle": "start-handle-phone"}
@@ -746,7 +751,7 @@ func TestLiveActivityTurnAfterRegistrationsWent(t *testing.T) {
 		gone.drop()
 		ev(agent.EvTurnEnd, off+1000, map[string]any{"turn": 1, "stopReason": "end_turn"})
 		ev(agent.EvStatus, off+1001, map[string]any{"status": "idle"})
-		time.Sleep(120 * time.Millisecond) // turn 1's push-to-start would have gone
+		time.Sleep(2 * start) // turn 1's push-to-start would have gone
 		if n := int64(len(livePushes(r))); n != base {
 			t.Fatalf("%s: %d pushes for a turn with no device", gone.name, n-base)
 		}
