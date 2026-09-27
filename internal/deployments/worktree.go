@@ -38,9 +38,8 @@ const (
 type driftFunc func(ctx context.Context, src checkpoint.Source, tree string) (int, error)
 
 // driftCounter is the plane's drift count: the checkpoint store's Drift on
-// the plane's store. nil until both are in this xbind: then nothing is
-// counted, and State.workTree reports no count.
-func (p *Plane) driftCounter() driftFunc { return nil }
+// the plane's store.
+func (p *Plane) driftCounter() driftFunc { return p.store().Drift }
 
 // WorkTreeDrift is State.workTree (11-contract §1.1) for a tile whose live
 // reload is paused.

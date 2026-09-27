@@ -413,15 +413,9 @@ func TestWorkTreeCountOnlyWhilePaused(t *testing.T) {
 		t.Errorf("announced %v, want [1] against the new checkpoint", got)
 	}
 
-	// Without a drift count in this xbind, nothing is counted.
-	p2 := &Plane{Root: f.ws, Reg: f.p.Reg, Hub: f.p.Hub, idx: f.p.idx}
-	t.Cleanup(func() { planeWorkTrees.Delete(p2) })
-	p2.WorkTreeMoved(wtTile)
-	if w := p2.workTrees(); w.count != nil || len(w.tiles) != 0 {
-		t.Errorf("an unwired plane keeps state for %d tiles", len(w.tiles))
-	}
-	if d, ok := p2.WorkTreeDrift(wtTile); !ok || d.Counted {
-		t.Errorf("an unwired plane's State.workTree %+v (ok %v), want paused with no count", d, ok)
+	// In xbind the count is the plane's checkpoint store's.
+	if (&Plane{Root: f.ws}).driftCounter() == nil {
+		t.Error("the plane has no drift count")
 	}
 }
 

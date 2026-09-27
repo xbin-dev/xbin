@@ -356,7 +356,10 @@ func (p *Plane) runAttempt(a *attempt) {
 	if rs, ok := p.Run.(restarter); ok && a.forced {
 		err = rs.Restart(context.Background(), c, a.Deployment, progress)
 	} else {
-		err = p.Run.Deploy(context.Background(), c, a.Deployment, runner.Code{Tree: a.Tree}, commit, progress)
+		// A pause ships a capture of the work tree the deployment served:
+		// the same files, so its swap announces no reload (07-runtime §8.5).
+		code := runner.Code{Tree: a.Tree, Identical: a.How == "pause"}
+		err = p.Run.Deploy(context.Background(), c, a.Deployment, code, commit, progress)
 	}
 	if err != nil {
 		p.finish(a, resultFailed, err)

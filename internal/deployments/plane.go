@@ -225,6 +225,12 @@ type checkpoints interface {
 	// SyncView makes the view repository hold exactly the git views of the
 	// pinned deployments (name → full tree id), with HEAD naming primary's.
 	SyncView(ctx context.Context, tile string, pinned map[string]string, primary string) error
+	// RemoveView removes tile's view repository, a crashed refresh's
+	// leftovers included, under the store's lock.
+	RemoveView(ctx context.Context, tile string) error
+	// Drift counts the files src's work tree differs in from checkpoint
+	// tree, changing nothing durable (worktree.go).
+	Drift(ctx context.Context, src checkpoint.Source, tree string) (int, error)
 }
 
 // store is the plane's checkpoint store, built from Root on first use.
@@ -235,60 +241,6 @@ func (p *Plane) store() checkpoints {
 		}
 	})
 	return p.cps
-}
-
-// errNotBuilt marks a store call this build of xbind doesn't have yet.
-type errNotBuilt string
-
-func (e errNotBuilt) Error() string { return string(e) + " isn't available in this build of xbind" }
-
-// storeAdapter is the plane's view of *checkpoint.Store. Materializing
-// (WP-11), the deploy log and the view repository (WP-12) are the store's
-// own files, landing beside this plane: until one is there its call answers
-// errNotBuilt, so nothing runs or serves a checkpoint that can't be shown,
-// and a finished attempt stays in the journal until its log entry is
-// written. Materialize reaches the store's method by its declared signature
-// (the package doc of internal/checkpoint) as soon as it exists.
-type storeAdapter struct{ s *checkpoint.Store }
-
-func (a storeAdapter) Exists(tile string) bool { return a.s.Exists(tile) }
-func (a storeAdapter) Caps() checkpoint.Caps   { return a.s.Caps }
-
-func (a storeAdapter) Estimate(ctx context.Context, src checkpoint.Source) (checkpoint.Estimate, error) {
-	return a.s.Estimate(ctx, src)
-}
-
-func (a storeAdapter) Capture(ctx context.Context, req checkpoint.CaptureRequest) (checkpoint.Result, error) {
-	return a.s.Capture(ctx, req)
-}
-
-func (a storeAdapter) Resolve(ctx context.Context, tile, id string) (checkpoint.Checkpoint, error) {
-	return a.s.Resolve(ctx, tile, id)
-}
-
-func (a storeAdapter) Get(ctx context.Context, tile, tree string) (checkpoint.Checkpoint, error) {
-	return a.s.Get(ctx, tile, tree)
-}
-
-func (a storeAdapter) Materialize(tile, tree string) (string, error) {
-	if m, ok := any(a.s).(interface {
-		Materialize(tile, tree string) (string, error)
-	}); ok {
-		return m.Materialize(tile, tree)
-	}
-	return "", fmt.Errorf("%s: checkpoint %s can't be materialized: %w", tile, tree, errNotBuilt("materializing a checkpoint"))
-}
-
-func (a storeAdapter) AppendLog(ctx context.Context, tile string, e attempt) error {
-	return errNotBuilt("the deploy log")
-}
-
-func (a storeAdapter) ReadLog(ctx context.Context, tile, dep string) ([]attempt, error) {
-	return nil, errNotBuilt("the deploy log")
-}
-
-func (a storeAdapter) SyncView(ctx context.Context, tile string, pinned map[string]string, primary string) error {
-	return errNotBuilt("the checkpoint remote's view repository")
 }
 
 // isIsolated reports whether backends and tools run sandboxed (P18).
@@ -625,7 +577,9 @@ func (p *Plane) dropDerived(tile string) error {
 	}
 	_ = os.Remove(journalDir(p.Root, tile)) // only when empty
 	_ = os.Remove(recordDir(p.Root))        // only when empty
-	if err := os.RemoveAll(viewDir(p.Root, tile)); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if err := p.store().RemoveView(ctx, tile); err != nil {
 		return fmt.Errorf("%s: removing the view repository: %w", tile, err)
 	}
 	return nil

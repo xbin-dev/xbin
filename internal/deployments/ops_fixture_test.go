@@ -220,11 +220,13 @@ type fakeRunner struct {
 	before, after chan struct{}
 	started       chan string
 	commitErrs    []error
+	identical     []bool // each Deploy's Code.Identical
 }
 
 func (r *fakeRunner) Deploy(ctx context.Context, c *registry.Component, dep string, code runner.Code, commit func() error, progress runner.DeployProgress) error {
 	r.mu.Lock()
 	r.deploys = append(r.deploys, c.Path+"/"+dep+"@"+code.Tree)
+	r.identical = append(r.identical, code.Identical)
 	fail, before, after, started := r.fail, r.before, r.after, r.started
 	r.mu.Unlock()
 	progress("build", "running", nil)
@@ -470,6 +472,18 @@ func (s *fakeStore) SyncView(ctx context.Context, tile string, pinned map[string
 	defer s.mu.Unlock()
 	s.views[tile] = pinned
 	return os.MkdirAll(viewDir(s.root, tile), 0o755)
+}
+
+func (s *fakeStore) RemoveView(ctx context.Context, tile string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.views, tile)
+	return os.RemoveAll(viewDir(s.root, tile))
+}
+
+// Drift counts nothing: the drift count's own tests fake it (worktree_test.go).
+func (s *fakeStore) Drift(ctx context.Context, src checkpoint.Source, tree string) (int, error) {
+	return 0, nil
 }
 
 // logged is tile's deploy log, oldest first.
