@@ -35,7 +35,7 @@ const ckX = "apps~x-ebdae547"
 
 // ckTree is a checkpoint label's full tree id: the label, padded with zeros
 // to 40 hex digits ("c1" → "c100…0").
-func ckTree(label string) string { return label + strings.Repeat("0", 40-len(label)) }
+func pinTree(label string) string { return label + strings.Repeat("0", 40-len(label)) }
 
 // pinWorld is the deployments plane as the runner sees it, over a fake
 // engine: one record answering main's code, a materializer, the registry's
@@ -94,7 +94,7 @@ func (w *pinWorld) callsOf(hook string) int {
 func (w *pinWorld) pin(label string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.pinned = ckTree(label)
+	w.pinned = pinTree(label)
 	w.labels[w.pinned] = label
 }
 
@@ -444,8 +444,8 @@ func checkPaused(t *testing.T, w *pinWorld, tp *tape, answers []string) {
 	w.mu.Lock()
 	views := append([]*registry.Component(nil), w.views...)
 	w.mu.Unlock()
-	root := w.rootOf(w.c.Path, ckTree("c1"))
-	again, err := w.reg.View(w.c, registry.ViewCode{Tree: ckTree("c1"), Root: root})
+	root := w.rootOf(w.c.Path, pinTree("c1"))
+	again, err := w.reg.View(w.c, registry.ViewCode{Tree: pinTree("c1"), Root: root})
 	switch {
 	case len(views) != 1 || err != nil:
 		t.Fatalf("started %d views of c1 (%v), want 1", len(views), err)
@@ -456,8 +456,8 @@ func checkPaused(t *testing.T, w *pinWorld, tp *tape, answers []string) {
 	case w.c.CodeRoot != "" || w.c.Manifest.Runtime != "go":
 		t.Errorf("the registry's component was mutated: %+v", w.c)
 	}
-	if b := w.r.Inspect(); len(b) != 1 || b[0].Checkpoint != ckTree("c1") {
-		t.Errorf("Inspect = %+v, want apps/x running checkpoint %s", b, ckTree("c1"))
+	if b := w.r.Inspect(); len(b) != 1 || b[0].Checkpoint != pinTree("c1") {
+		t.Errorf("Inspect = %+v, want apps/x running checkpoint %s", b, pinTree("c1"))
 	}
 }
 
@@ -526,66 +526,66 @@ func TestArtifactPerCheckpoint(t *testing.T) {
 	}
 
 	t.Run("found where the checkpoint build left it", func(t *testing.T) {
-		put(ckTree("c1"), "apps/x")
-		bin, ok := r.Artifact(x, ckTree("c1"))
-		if want := filepath.Join(root, ".xbin/build/"+ckX+"/c/"+ckTree("c1")+"/bin"); !ok || bin != want {
+		put(pinTree("c1"), "apps/x")
+		bin, ok := r.Artifact(x, pinTree("c1"))
+		if want := filepath.Join(root, ".xbin/build/"+ckX+"/c/"+pinTree("c1")+"/bin"); !ok || bin != want {
 			t.Errorf("Artifact(c1) = %q, %v; want %q", bin, ok, want)
 		}
-		if _, ok := r.Artifact(x, ckTree("c9")); ok {
+		if _, ok := r.Artifact(x, pinTree("c9")); ok {
 			t.Error("Artifact of a checkpoint never built: found")
 		}
 	})
 
 	t.Run("refused unless it is this tile's, complete and contained", func(t *testing.T) {
-		put(ckTree("d1"), "")       // no build.json
-		put(ckTree("d2"), "apps/y") // another tile under the same CompKey
-		put(ckTree("d3"), "apps/x")
-		if err := os.Remove(filepath.Join(arts, ckTree("d3"), "bin")); err != nil {
+		put(pinTree("d1"), "")       // no build.json
+		put(pinTree("d2"), "apps/y") // another tile under the same CompKey
+		put(pinTree("d3"), "apps/x")
+		if err := os.Remove(filepath.Join(arts, pinTree("d3"), "bin")); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Symlink("/bin/sh", filepath.Join(arts, ckTree("d3"), "bin")); err != nil {
+		if err := os.Symlink("/bin/sh", filepath.Join(arts, pinTree("d3"), "bin")); err != nil {
 			t.Fatal(err)
 		}
-		d4 := put(ckTree("d4"), "apps/x")
+		d4 := put(pinTree("d4"), "apps/x")
 		if err := os.Remove(filepath.Join(d4, "bin")); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.Mkdir(filepath.Join(d4, "bin"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Symlink(ckTree("c1"), filepath.Join(arts, ckTree("d5"))); err != nil { // a directory symlinked to a valid one
+		if err := os.Symlink(pinTree("c1"), filepath.Join(arts, pinTree("d5"))); err != nil { // a directory symlinked to a valid one
 			t.Fatal(err)
 		}
-		put(ckTree("d6")+".tmp-1234", "apps/x") // a build in flight
-		d7 := put(ckTree("d7"), "apps/x")       // its record names another tree
-		stamp, _ := json.Marshal(map[string]string{"tile": "apps/x", "tree": ckTree("c1")})
+		put(pinTree("d6")+".tmp-1234", "apps/x") // a build in flight
+		d7 := put(pinTree("d7"), "apps/x")       // its record names another tree
+		stamp, _ := json.Marshal(map[string]string{"tile": "apps/x", "tree": pinTree("c1")})
 		if err := os.WriteFile(filepath.Join(d7, "build.json"), stamp, 0o644); err != nil {
 			t.Fatal(err)
 		}
-		for _, tree := range []string{ckTree("d1"), ckTree("d2"), ckTree("d3"), ckTree("d4"), ckTree("d5"), ckTree("d7"),
-			ckTree("d6") + ".tmp-1234", "../" + ckX + "/c/" + ckTree("c1"), strings.ToUpper(ckTree("c1")), "c1", ""} {
+		for _, tree := range []string{pinTree("d1"), pinTree("d2"), pinTree("d3"), pinTree("d4"), pinTree("d5"), pinTree("d7"),
+			pinTree("d6") + ".tmp-1234", "../" + ckX + "/c/" + pinTree("c1"), strings.ToUpper(pinTree("c1")), "c1", ""} {
 			if bin, ok := r.Artifact(x, tree); ok {
 				t.Errorf("Artifact(%q) = %q, want none", tree, bin)
 			}
 		}
 		for _, name := range []string{"d1", "d3", "d4", "d5", "d7"} {
-			os.RemoveAll(filepath.Join(arts, ckTree(name)))
+			os.RemoveAll(filepath.Join(arts, pinTree(name)))
 		}
 	})
 
 	t.Run("pruning keeps the current checkpoint, the previous three and what runs", func(t *testing.T) {
 		for _, l := range []string{"c0", "c2", "c3", "c4", "c5"} {
-			put(ckTree(l), "apps/x")
+			put(pinTree(l), "apps/x")
 		}
-		put(ckTree("e1"), "") // kept by name, but no artifact
-		stale := put(ckTree("c6")+".tmp-old", "apps/x")
+		put(pinTree("e1"), "") // kept by name, but no artifact
+		stale := put(pinTree("c6")+".tmp-old", "apps/x")
 		old := time.Now().Add(-2 * time.Hour)
 		if err := os.Chtimes(stale, old, old); err != nil {
 			t.Fatal(err)
 		}
 		// c0 runs in a generation (held from its preparation to its exit)
-		release := r.inUse.hold(&r.inUse.arts, filepath.Join(arts, ckTree("c0")))
-		keep := []string{ckTree("c5"), ckTree("c4"), ckTree("c3"), ckTree("c2"), ckTree("e1")}
+		release := r.inUse.hold(&r.inUse.arts, filepath.Join(arts, pinTree("c0")))
+		keep := []string{pinTree("c5"), pinTree("c4"), pinTree("c3"), pinTree("c2"), pinTree("e1")}
 		if err := r.PruneArtifacts("apps/x", keep); err != nil {
 			t.Fatal(err)
 		}
@@ -593,12 +593,12 @@ func TestArtifactPerCheckpoint(t *testing.T) {
 			name string
 			want bool
 		}{
-			{ckTree("c5"), true}, {ckTree("c4"), true}, {ckTree("c3"), true}, {ckTree("c2"), true},
-			{ckTree("c0"), true},  // running
-			{ckTree("c1"), false}, // neither kept nor running
-			{ckTree("d2"), true},  // another tile's
-			{ckTree("d6") + ".tmp-1234", true}, {ckTree("c6") + ".tmp-old", false},
-			{ckTree("e1"), false},
+			{pinTree("c5"), true}, {pinTree("c4"), true}, {pinTree("c3"), true}, {pinTree("c2"), true},
+			{pinTree("c0"), true},  // running
+			{pinTree("c1"), false}, // neither kept nor running
+			{pinTree("d2"), true},  // another tile's
+			{pinTree("d6") + ".tmp-1234", true}, {pinTree("c6") + ".tmp-old", false},
+			{pinTree("e1"), false},
 		} {
 			if got := exists(filepath.Join(arts, tc.name)); got != tc.want {
 				t.Errorf("after pruning, %s exists = %v, want %v", tc.name, got, tc.want)
@@ -607,7 +607,7 @@ func TestArtifactPerCheckpoint(t *testing.T) {
 		if !exists(wtBin) {
 			t.Error("pruning removed the live reload target's bin")
 		}
-		if _, ok := r.Artifact(x, ckTree("c5")); !ok {
+		if _, ok := r.Artifact(x, pinTree("c5")); !ok {
 			t.Error("the current checkpoint's artifact is gone")
 		}
 		release()
@@ -615,7 +615,7 @@ func TestArtifactPerCheckpoint(t *testing.T) {
 		if err := r.PruneArtifacts("apps/x", keep); err != nil {
 			t.Fatal(err)
 		}
-		if exists(filepath.Join(arts, ckTree("c0"))) {
+		if exists(filepath.Join(arts, pinTree("c0"))) {
 			t.Error("c0's artifact outlived its last generation")
 		}
 	})

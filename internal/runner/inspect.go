@@ -296,14 +296,13 @@ func (r *Runner) resolveGen(c *registry.Component, code Code) (genPlan, error) {
 
 // buildCheckpoint builds checkpoint code from its view v, whose CodeRoot is
 // the materialized tree: a Go artifact in checkpointArtifacts, or a node or
-// python entry checked beneath the tree. The engine's build stands in for it
-// in tests. Without the checkpoint build (build.go) nothing is built, never
-// the work tree in its place.
+// python entry checked beneath the tree (buildCode, build.go). The engine's
+// build stands in for it in tests. Never the work tree in its place.
 func (r *Runner) buildCheckpoint(v *registry.Component, code Code) (string, error) {
 	if e := r.engine; e != nil && e.build != nil {
 		return e.build(v)
 	}
-	return "", fmt.Errorf("%s: checkpoint c:%.7s can't be built by this xbind", v.Path, code.Tree)
+	return r.buildCode(v, code)
 }
 
 // inUse counts, per host path, the generations that use it, from their
