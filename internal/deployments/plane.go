@@ -177,6 +177,7 @@ func (p *Plane) Boot() error {
 	if len(tiles) == 0 {
 		return nil // the zero state: nothing more is read or written
 	}
+	p.sweepAtBoot() // leftover .tmp-* extractions, before anything materializes (retention.go)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	for _, tile := range tiles {

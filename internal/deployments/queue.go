@@ -424,6 +424,7 @@ func (p *Plane) finish(a *attempt, result string, err error) {
 	p.q.mu.Unlock()
 	p.publishDeploy(a)
 	p.logAttempt(a)
+	p.retainAfter(a.tile, result) // GC and artifact pruning (retention.go)
 	p.q.mu.Lock()
 	close(a.done)
 	p.q.mu.Unlock()
