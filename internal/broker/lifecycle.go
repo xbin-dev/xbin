@@ -14,6 +14,14 @@ import (
 // once the archiver lands, offloads) a component. State lives in the workspace
 // manifest; the proxy refuses to spawn a non-enabled backend. Disabling also
 // stops any running backend now, to free compute.
+//
+// Lifecycle is the tile's, never a deployment's (05-model §11) (P29): a
+// state set on a tile reaches every deployment it has. Disabling, hiding and
+// offloading stop each one (StopBackend is the runner's Stop, which stops
+// them all, and the spawn gate reads the tile's state for every deployment);
+// enabling starts the primary as today, and a deployment beyond it starts on
+// demand, or by its own alwaysOn switch. A qualified name has no lifecycle of
+// its own: it names no component, so it answers 404.
 
 // apiLifecycleSet handles POST /api/xbin/lifecycle {component, state}.
 // Lifecycle is the OWNER'S to set (D24/D31): workspace admins anywhere, and
@@ -96,12 +104,14 @@ func (b *Broker) apiLifecycleSet(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// Disabling/offloading stops the backend now (free compute); enabling lets
-	// the next request re-spawn it (Ensure is gated on the new state).
+	// Disabling/offloading stops the backend now (free compute): every
+	// deployment's. Enabling lets the next request re-spawn it (Ensure is
+	// gated on the new state); a deployment beyond the primary, the next
+	// request that addresses it.
 	if body.State != registry.StateEnabled {
 		b.StopBackendSafe(body.Component)
 	} else {
-		b.wakeBackends() // an always-on tile starts now; others on first request
+		b.wakeBackends() // an always-on primary starts now, as does a deployment whose alwaysOn switch is on; others on first request
 	}
 	// Only offload/restore moved files — rescan/provision + reconcile then.
 	if filesChanged {
@@ -111,6 +121,29 @@ func (b *Broker) apiLifecycleSet(w http.ResponseWriter, r *http.Request) {
 			b.OnStructureChange()
 		}
 	}
-	b.Hub.Publish(events.Event{Type: "reload", Component: body.Component})
+	b.publishLifecycle(body.Component)
 	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true", "state": body.State})
+}
+
+// lifecycleReload is the data of the deployments event op reload (11-contract
+// §3.3): the frames of the deployment it names reload once.
+type lifecycleReload struct {
+	Op         string `json:"op"`
+	Deployment string `json:"deployment"`
+}
+
+// publishLifecycle tells tile's open frames its lifecycle changed: today's
+// bare reload, which speaks of the primary, whatever its name; then op
+// reload naming each other deployment, since no event of today's types ever
+// names one (C2). A tile without a deployment record has main alone, so it
+// publishes exactly today's one event (P5).
+func (b *Broker) publishLifecycle(tile string) {
+	b.Hub.Publish(events.Event{Type: "reload", Component: tile})
+	primary, names := b.deploymentsOf(tile)
+	for _, dep := range names {
+		if dep != primary {
+			b.Hub.Publish(events.Event{Type: "deployments", Component: tile,
+				Data: lifecycleReload{Op: "reload", Deployment: dep}})
+		}
+	}
 }

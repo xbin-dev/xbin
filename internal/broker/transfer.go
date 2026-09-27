@@ -280,6 +280,14 @@ func (b *Broker) moveOwner(st *users.Store, tile, to string) (int, error) {
 // executeTransferEffects runs the §3 side effects after a successful
 // SetOwner: unbind hard-dead slots, restart what re-materializes at spawn,
 // publish events. Returns the unbound slot names.
+//
+// The tile's deployments moved with it (05-model §11) (P29): moveOwner
+// rewrote its record's owner ref before the owner store moved, so each keeps
+// its code, its settings and its edge policy, and the restart below — the
+// runner's ChangedTile behind OnGrantChange — reaches every deployment with
+// a running, building or failed generation, each onto the code its record
+// names, under the new owner's ceilings. A deployment without one starts on
+// its next request, under them too.
 func (b *Broker) executeTransferEffects(tile string, rep transferReport) []string {
 	unbound := []string{}
 	if len(rep.DeadBind) > 0 {
@@ -315,7 +323,9 @@ func (b *Broker) executeTransferEffects(tile string, rep transferReport) []strin
 		}
 	}
 	// The tile's spawn-materialized access (egress, res env, GPU) follows the
-	// new owner's ceiling — restart it regardless of unbinds.
+	// new owner's ceiling — restart it regardless of unbinds: every running
+	// deployment, the primary and the rest alike, since authority is the
+	// tile's.
 	if b.OnGrantChange != nil {
 		b.OnGrantChange(tile)
 	}
