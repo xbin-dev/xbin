@@ -292,7 +292,16 @@ func (s *Server) serveAssetToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad path", http.StatusBadRequest)
 		return
 	}
-	owner := s.owningComponent(cleaned)
+	// A deployment URL under the token, /c/~<tok>/<tile>+<name>/… (the
+	// document's <base> carries the qualifier): that deployment's code, for a
+	// user who writes the tile (deployserve.go).
+	q, qualified := s.resolveQualified(cleaned)
+	owner, dep := "", ""
+	if qualified {
+		owner, dep, cleaned = q.c.Path, q.dep, path.Join(q.c.Path, q.rest)
+	} else {
+		owner = s.owningComponent(cleaned)
+	}
 	if isChrome(owner) {
 		http.Error(w, "asset tokens never serve workspace chrome", http.StatusForbidden)
 		return
@@ -301,11 +310,14 @@ func (s *Server) serveAssetToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not permitted to use this tile", http.StatusForbidden)
 		return
 	}
+	if qualified && s.assetDeploymentRefused(w, g, q) {
+		return
+	}
 	if documentDest(r) || isHTMLName(cleaned) {
 		http.Error(w, "documents never load through an asset token — link to them with a relative URL (xbin-client navigates it) or xbin.url()", http.StatusForbidden)
 		return
 	}
-	f, fi, done := s.openAssetFile(w, r, owner, cleaned) // the primary's code (deployserve.go)
+	f, fi, done := s.openAssetFile(w, r, owner, dep, cleaned) // the deployment's code (deployserve.go)
 	if done {
 		return
 	}
