@@ -520,7 +520,7 @@ export class BxTerminal extends HTMLElement {
 
   #restart(msg) {
     this.removeAttribute('session');
-    this.#retries = 0;
+    this.#retries = 0; this.#failed = 0; // a fresh start: its own retries (another src after one gave up)
     if (msg) this.#term.write(`\r\n\x1b[90m[${msg}]\x1b[0m\r\n`);
     const old = this.#ws;
     this.#ws = null;

@@ -62,6 +62,8 @@ function FAKE_TTY() {
       T.sockets.push(this);
       const m = /\/sbx\/sandboxes\/([^/]+)\/(?:execs\/([^/]+)\/)?tty/.exec(path);
       this.id = m && m[2] ? decodeURIComponent(m[2]) : 'e' + (++T.execs);
+      // a sandbox named refuse-*: the handshake is refused (the page sees a close, never an open)
+      if (m && m[1].startsWith('refuse')) { setTimeout(() => this.shut(1006), 20); return; }
       setTimeout(() => {
         this.readyState = 1;
         this.onopen && this.onopen({});
@@ -229,6 +231,24 @@ await page.click('#sbxbadge');
 await page.waitForSelector('#sbxpop');
 await page.waitForTimeout(200);
 ok('a manager without tty: no Open terminal', !(await page.$('#sbx-term')) && !(await page.$('#sbx-term-why')));
+
+// --- the element on its own: a refused src gives up after a retry; another src gets its own ------------
+await page.keyboard.press('Escape');
+const refusedDials = (id) => page.evaluate((id) => window.__tty.dials.filter((d) => d.includes(`/sandboxes/${id}/`)).length, id);
+await page.evaluate(async () => {
+  await import('/vendor/bx-terminal.js');
+  const t = document.createElement('bx-terminal');
+  t.id = 'lone';
+  t.style.cssText = 'position:fixed;left:0;top:0;width:400px;height:200px';
+  t.src = '/api/apps/coding-sandbox/sbx/sandboxes/refuse-a/tty';
+  document.body.append(t);
+});
+const gaveUp = (n) => until((n) => (document.getElementById('lone').testApi().text().match(/could not open the terminal/g) || []).length >= n, n);
+await gaveUp(1);
+ok('a refused handshake is tried twice, then the terminal says it could not open', (await refusedDials('refuse-a')) === 2, String(await refusedDials('refuse-a')));
+await page.evaluate(() => { document.getElementById('lone').src = '/api/apps/coding-sandbox/sbx/sandboxes/refuse-b/tty'; });
+await gaveUp(2);
+ok('…and another src starts over: it is tried twice too', (await refusedDials('refuse-b')) === 2, String(await refusedDials('refuse-b')));
 
 ok('no page errors', errors.length === 0, errors.join(' | '));
 await browser.close();
