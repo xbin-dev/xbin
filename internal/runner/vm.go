@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path"
 	"strings"
 	"sync"
@@ -72,14 +73,8 @@ func (r *Runner) vmApply(c *registry.Component, spec *sandbox.Spec, dir, sock, g
 	if c.Manifest.Setup != "" {
 		return errors.New(`"vm" can't be combined with "setup" yet — install the dependencies at start inside the VM (it is root), or drop "vm"`)
 	}
-	mem, cpus := p.MemMiB, p.VCPUs
-	if o := c.Manifest.VM; o.MemMiB > 0 && o.MemMiB < mem {
-		mem = o.MemMiB
-	}
-	if o := c.Manifest.VM; o.VCPUs > 0 && o.VCPUs < cpus {
-		cpus = o.VCPUs
-	}
-	release, err := r.VM.Reserve(c.Path, mem)
+	mem, cpus := guestSize(p, c.Manifest.VM)
+	release, err := r.vmReserve(c, p, mem)
 	if err != nil {
 		return err
 	}
@@ -102,9 +97,99 @@ func (r *Runner) vmApply(c *registry.Component, spec *sandbox.Spec, dir, sock, g
 	return nil
 }
 
-// vmLeafBytes is a VM generation's cgroup cap. Generations of one tile share
-// its leaf, and blue/green briefly runs two, so the cap covers two VMs; each
-// guest still can't use more than its own memory.
+// guestSize is a guest's memory and vCPUs: the policy's, lowered by the
+// manifest's "vm" sizes, never raised.
+func guestSize(p vm.Policy, o *registry.VMOpt) (mem, cpus int) {
+	mem, cpus = p.MemMiB, p.VCPUs
+	if o == nil {
+		return mem, cpus
+	}
+	if o.MemMiB > 0 && o.MemMiB < mem {
+		mem = o.MemMiB
+	}
+	if o.VCPUs > 0 && o.VCPUs < cpus {
+		cpus = o.VCPUs
+	}
+	return mem, cpus
+}
+
+// vmReserve books a guest of mem for a generation spawning from view c,
+// always to its tile: a deployment is never a budget owner, so UsedBy stays
+// per tile (07-runtime §10.2). Primary first (P25): a non-primary view's
+// reservation leaves room for the primary's next guest and never preempts
+// (vm.NonPrimary); the primary's may stop the tile's non-primary guests
+// when the budget can't admit it otherwise (vm.PrimaryFirst).
+func (r *Runner) vmReserve(c *registry.Component, p vm.Policy, mem int) (release func(), err error) {
+	opt := vm.PrimaryFirst(r.stopNonPrimaryGuests(c.Path))
+	if c.Deployment != "" {
+		opt = vm.NonPrimary(r.primaryGuestMiB(c.Path, p))
+	}
+	return r.VM.Reserve(c.Path, mem, opt)
+}
+
+// primaryGuestMiB is the memory of tile's primary's next guest: the
+// registry's component describes the primary's code (07-runtime §5.1); 0
+// when that code runs no VM here.
+func (r *Runner) primaryGuestMiB(tile string, p vm.Policy) int {
+	if r.Reg == nil {
+		return 0
+	}
+	c, ok := r.Reg.Component(tile)
+	if !ok || !r.wantsVM(c) {
+		return 0
+	}
+	mem, _ := guestSize(p, c.Manifest.VM)
+	return mem
+}
+
+// stopNonPrimaryGuests is the primary-first callback of tile's primary's
+// reservations (vm.PrimaryFirst): when the tile's non-primary deployments'
+// running guests together hold at least short, it stops them, all at once,
+// and returns once their reservations are given back (a generation's exit
+// releases its VM before its stop returns); otherwise it stops nothing and
+// returns false. Reserve calls it holding none of its books, and it takes
+// no runner lock across a stop, so the exits it waits for never wait on it.
+func (r *Runner) stopNonPrimaryGuests(tile string) func(short vm.Usage) bool {
+	return func(short vm.Usage) bool {
+		primary := r.primary(tile)
+		var victims []*state
+		var held vm.Usage
+		for _, s := range r.allStates(tile) {
+			if s.dep == primary {
+				continue
+			}
+			s.mu.Lock()
+			inst := s.cur
+			s.mu.Unlock()
+			if inst == nil {
+				continue
+			}
+			r.vms.mu.Lock()
+			res, ok := r.vms.res[inst.sock]
+			r.vms.mu.Unlock()
+			if ok {
+				held.VMs++
+				held.MemMiB += res.memMiB
+				victims = append(victims, s)
+			}
+		}
+		if len(victims) == 0 || held.VMs < short.VMs || held.MemMiB < short.MemMiB {
+			return false
+		}
+		var wg sync.WaitGroup
+		for _, s := range victims {
+			slog.Info("stopping a non-primary VM backend to make room for its tile's primary", "component", tile, "deployment", s.dep)
+			wg.Add(1)
+			go func() { defer wg.Done(); r.stopState(s) }()
+		}
+		wg.Wait()
+		return true
+	}
+}
+
+// vmLeafBytes is a VM generation's cgroup cap. Generations of one
+// deployment share its leaf, and blue/green briefly runs two, so the cap
+// covers two VMs; each guest still can't use more than its own memory.
 func (r *Runner) vmLeafBytes(sock string) (int64, bool) {
 	r.vms.mu.Lock()
 	defer r.vms.mu.Unlock()
@@ -128,13 +213,18 @@ func (r *Runner) vmRelease(sock string) {
 // them through the VM file server, where two guests' caches — a WAL's shared memory above all —
 // are not coherent with each other. c is the deployment view the new
 // generation spawns from, so its own code decides "vm", and its deployment's
-// env the resources.
+// own data binds (dataBinds: main's at their paths, another deployment's
+// from its namespace) the resources. It applies per deployment: the old
+// generation is the same deployment's, and two deployments never share file
+// resources (07-runtime §12). Binds that can't be made fail the start
+// itself, and the old generation keeps serving.
 func (r *Runner) stopFirst(c *registry.Component) bool {
 	if !r.wantsVM(c) {
 		return false
 	}
 	env, _ := r.envFor(c, r.viewDeployment(c))
-	return len(resourceBinds(env, r.Root)) > 0
+	binds, err := r.dataBinds(c, env)
+	return err == nil && len(binds) > 0
 }
 
 // viewDeployment names the deployment a view describes: its Deployment, or
@@ -167,26 +257,26 @@ func hostname(comp string) string {
 	return h
 }
 
-// restorePrevious restarts the checkpoint a deployment ran before a deploy
-// that stopped it first (a VM with file resources) and then failed, from its
-// kept artifact (resolveGen, inspect.go): "keeps running its previous code"
-// holds as "restarts its previous code" (§8.4). A generation of the work tree
-// has no checkpoint to go back to: the deployment stays down with the error
-// until a deploy succeeds.
+// restorePrevious restarts the checkpoint deployment dep ran before a
+// deploy that stopped it first (a VM with file resources) and then failed,
+// from its kept artifact, as that deployment (resolveGenFor, inspect.go):
+// "keeps running its previous code" holds as "restarts its previous code"
+// (§8.4). A generation of the work tree has no checkpoint to go back to: the
+// deployment stays down with the error until a deploy succeeds.
 func (r *Runner) restorePrevious(c *registry.Component, s *state, dep string, old *instance) {
 	if old.code.Tree == "" {
 		return
 	}
 	r.emit(c.Path, dep, "build-start", "")
 	code := old.served()
-	g, err := r.resolveGen(c, code)
+	g, err := r.resolveGenFor(c, dep, code)
 	var inst *instance
 	if err == nil {
 		s.mu.Lock()
 		s.gen++
 		gen := s.gen
 		s.mu.Unlock()
-		if inst, err = r.spawn(g.view, g.bin, gen); err != nil {
+		if inst, err = r.spawnFor(g.view, dep, g.bin, gen); err != nil {
 			g.release()
 		}
 	}

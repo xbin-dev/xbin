@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"strings"
@@ -28,17 +29,22 @@ const (
 // DialInto connects to (proto, port) inside a component's network namespace,
 // spawning the backend first if it is idle (an inbound connection wakes a
 // tile exactly like an HTTP request does). The returned conn holds the
-// backend against the idle reaper until closed.
+// backend against the idle reaper until closed. It reaches the tile's
+// primary, resolved once: the one it ensures is the one it tracks and dials
+// (F3; 09-fabric §1), so L4 streams, hairpin and stream interfaces never
+// reach a non-primary deployment.
 func (r *Runner) DialInto(ctx context.Context, comp, proto string, port int) (net.Conn, error) {
 	c, ok := r.Reg.Component(comp)
 	if !ok {
 		return nil, fmt.Errorf("no such component: %s", comp)
 	}
-	if _, err := r.Ensure(ctx, c); err != nil {
+	dep := r.primary(comp)
+	if _, err := r.ensurePrimary(ctx, c, dep); err != nil {
 		return nil, err
 	}
-	release := r.Track(comp)
-	conn, err := r.dialCurrent(ctx, c, proto, port)
+	s := r.stateOf(comp, dep)
+	release := r.track(s)
+	conn, err := r.dialCurrent(ctx, c, s, proto, port)
 	if err != nil {
 		release()
 		return nil, err
@@ -46,7 +52,9 @@ func (r *Runner) DialInto(ctx context.Context, comp, proto string, port int) (ne
 	return &releaseConn{Conn: conn, release: release}, nil
 }
 
-func (r *Runner) dialCurrent(ctx context.Context, c *registry.Component, proto string, port int) (net.Conn, error) {
+// dialCurrent dials (proto, port) in the netns of state s's current
+// generation of c.
+func (r *Runner) dialCurrent(ctx context.Context, c *registry.Component, s *state, proto string, port int) (net.Conn, error) {
 	// Without per-component sandboxes (tier 1/2, `make dev`) — or when the
 	// tile's net is bound to the host builtin — the backend listens on the
 	// host itself: plain dial, no netns to reach into.
@@ -54,7 +62,6 @@ func (r *Runner) dialCurrent(ctx context.Context, c *registry.Component, proto s
 		var d net.Dialer
 		return d.DialContext(ctx, proto, net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 	}
-	s := r.state(c.Path)
 	var lastErr error
 	for i := 0; i < dialRetries; i++ {
 		if i > 0 {
@@ -134,3 +141,53 @@ func (r *Runner) hostDial(dst string) (net.Conn, error) {
 }
 
 const dialTimeoutHost = 15 * time.Second
+
+// ingressFwd is the relay's gateway forwards for a generation spawning from
+// view c (IngressFwd). A non-primary view keeps only its stream-slot
+// forwards, whose every dial its edge refuses (hostDialFor): a terminator's
+// forward door, the ingress path, is its primary's alone, and inbound edges
+// reach only the primary (09-fabric §1, §5.7).
+func (r *Runner) ingressFwd(c *registry.Component) map[int]string {
+	if r.IngressFwd == nil {
+		return nil
+	}
+	m := r.IngressFwd(c)
+	if c.Deployment == "" {
+		return m
+	}
+	var out map[int]string
+	for port, dst := range m {
+		if strings.HasPrefix(dst, "stream:") {
+			if out == nil {
+				out = map[int]string{}
+			}
+			out[port] = dst
+		}
+	}
+	return out
+}
+
+// hostDialFor is hostDial for the relay of one generation of deployment dep
+// of tile: a relay belongs to one generation, so each dial acts as its
+// deployment, whose role is looked up at the dial (F2; 09-fabric §5.7). The
+// primary's dials are hostDial's. Any other deployment's are refused at
+// once, with one line in log, its backend log: a stream slot reaches into
+// another tile's primary as raw L4 traffic the read clamp can't narrow, so
+// v1 blocks it with no override (P23), and a forward door is the primary's.
+// A generation that stopped being the primary loses its forwards the same
+// way until it restarts.
+func (r *Runner) hostDialFor(tile, dep string, log io.Writer) func(dst string) (net.Conn, error) {
+	return func(dst string) (net.Conn, error) {
+		if dep == r.primary(tile) {
+			return r.hostDial(dst)
+		}
+		err := errors.New("the ingress forward door serves the tile's primary only")
+		if t, ok := strings.CutPrefix(dst, "stream:"); ok {
+			err = fmt.Errorf("stream slot to %s blocked by edge policy (a non-primary deployment reaches no stream slot)", t)
+		}
+		if log != nil {
+			fmt.Fprintln(log, err)
+		}
+		return nil, err
+	}
+}
