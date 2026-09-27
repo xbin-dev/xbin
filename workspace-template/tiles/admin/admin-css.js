@@ -4,8 +4,9 @@
 // `static styles = [base, <slice>]` — synchronous, no flash of unstyled
 // content, never a <link> or a fetch.
 import { css } from 'lit';
+import { scrollCss } from '/vendor/scroll-css.js';
 
-export const base = css`
+export const base = [scrollCss, css`
     :host { display: block; }
     /* filter bar (scales list views to 1000s of tiles) */
     .filterbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 2px 0 10px; }
@@ -112,7 +113,7 @@ export const base = css`
     .allow-desc { font-size: 11px; flex-basis: 100%; padding-left: 4px; }
     .allow-desc .mono { opacity: .75; margin-left: 4px; }
     .seteditor select[name=kind] { min-width: 150px; }
-`;
+`];
 
 export const mapCss = css`
     /* ---- access map (structure + effective-access matrix) ---- */

@@ -35,6 +35,10 @@
 //	write       fs/write_text_file <cwd>/fake-wrote.txt
 //	slow        ten chunks 200 ms apart (cancel lands mid-turn)
 //	burst       fifty one-character chunks back to back (the daemon coalesces them)
+//	long N      (a prefix) N units back to back, a long transcript for the
+//	            Agent tab's windowing (D124): a markdown message (heading,
+//	            list, code fence), an edit tool_call carrying a ~30-line diff,
+//	            its completion; every tenth unit starts with a thought
 //	fail        pushes _auth/status_update{kind:none}, then the prompt fails
 //	            with -32000 (auth required) — a signed-out agent, as Claude does
 //	crash       exits 3 mid-turn
@@ -272,6 +276,33 @@ func (f *fake) turn(text string, files []string, cancel chan struct{}) {
 	case strings.Contains(text, "crash"):
 		f.say("going down")
 		os.Exit(3)
+	case strings.HasPrefix(text, "long"):
+		n := 100
+		fmt.Sscanf(strings.TrimPrefix(text, "long"), "%d", &n)
+		for i := 1; i <= n; i++ {
+			if cancelled(cancel) {
+				return
+			}
+			if i%10 == 1 {
+				f.update(map[string]any{"sessionUpdate": acp.UpThoughtChunk, "content": acp.ContentBlock{Type: "text", Text: fmt.Sprintf("Planning **unit %d**: which file next.", i)}})
+			}
+			f.update(map[string]any{"sessionUpdate": acp.UpAgentChunk, "messageId": fmt.Sprintf("long-%d", i), "content": acp.ContentBlock{Type: "text",
+				Text: fmt.Sprintf("### Unit %d\n\nChanging `file%d.go`:\n\n- rename the helper\n- keep **behaviour**\n\n```go\nfunc helper%d() int { return %d }\n```\n", i, i, i, i)}})
+			var before, after strings.Builder
+			for l := 0; l < 30; l++ {
+				fmt.Fprintf(&before, "line %d of file%d\n", l, i)
+				if l%7 == 3 {
+					fmt.Fprintf(&after, "line %d of file%d, changed\n", l, i)
+				} else {
+					fmt.Fprintf(&after, "line %d of file%d\n", l, i)
+				}
+			}
+			id := fmt.Sprintf("long%d", i)
+			f.update(map[string]any{"sessionUpdate": acp.UpToolCall, "toolCallId": id, "title": fmt.Sprintf("Edit file%d.go", i), "kind": "edit", "status": "in_progress",
+				"content": []map[string]any{{"type": "diff", "path": fmt.Sprintf("file%d.go", i), "oldText": before.String(), "newText": after.String()}}})
+			f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": id, "status": "completed"})
+		}
+		f.say(fmt.Sprintf("done: %d units", n))
 	case strings.Contains(text, "burst"):
 		for i := 0; i < 50; i++ {
 			f.say("x")

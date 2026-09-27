@@ -13,6 +13,8 @@ async function predict(browser) {
   for (const s of await (await ctx.request.get(`${URL}/api/xbin/term/sessions?cwd=apps%2Fcrawler`)).json()) await ctx.request.delete(`${URL}/ws/term?session=${encodeURIComponent(s.id)}`);
   await openShell(page);
   await openTile(page, 'apps/crawler');
+  // the home screen's default tiles can push the card (and its window) below the fold
+  await page.locator('.card[data-path="apps/crawler"]').evaluate((el) => el.scrollIntoView({ block: 'start' }));
   await fr(page, 'apps/crawler', (f) => f.open('term'));
   await fr(page, 'apps/crawler', (f) => { if (!f.tabs.length) f.newTerm(); }); // no auto-bash: create the shell the pass types into
   const termSel = 'bx-frame[src="apps/crawler"] bx-terminal';

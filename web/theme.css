@@ -66,3 +66,24 @@ body.bx {
   padding: 3px 8px;
 }
 .bx input:focus, input.bx:focus { outline: 2px solid color-mix(in srgb, var(--bx-accent) 45%, transparent); }
+
+/* Thin themed scrollbars + the focused-scroll tint (D123). Kept identical to
+   scrollCssText in /vendor/bx-scroll.js (hack/scroll-css.test.mjs checks);
+   xbin-client.js loads that module's tracker, which sets [data-bx-scroll],
+   in tile documents that link this sheet. */
+/* bx-scroll:start */
+@media (hover: hover) and (pointer: fine) {
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--bx-muted, #868f9a) 40%, transparent); background-clip: padding-box;
+    border: 0 solid transparent; border-left-width: 3px; border-radius: 6px; }
+  ::-webkit-scrollbar-thumb:horizontal { border-left-width: 0; border-top-width: 3px; }
+  ::-webkit-scrollbar-thumb:hover, ::-webkit-scrollbar-thumb:active { border-width: 0; background-color: color-mix(in srgb, var(--bx-muted, #868f9a) 75%, transparent); }
+  [data-bx-scroll]::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, var(--bx-accent, #f5a623) 60%, transparent); }
+  [data-bx-scroll]::-webkit-scrollbar-thumb:hover, [data-bx-scroll]::-webkit-scrollbar-thumb:active { background-color: color-mix(in srgb, var(--bx-accent, #f5a623) 90%, transparent); }
+  @supports not selector(::-webkit-scrollbar) {
+    * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--bx-muted, #868f9a) 40%, transparent) transparent; }
+    [data-bx-scroll] { scrollbar-color: color-mix(in srgb, var(--bx-accent, #f5a623) 60%, transparent) transparent; }
+  }
+}
+/* bx-scroll:end */

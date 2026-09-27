@@ -12,6 +12,29 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-27
 
+- **Thin themed scrollbars, and the one you're about to scroll is tinted**
+  (D123). On a mouse or trackpad every scrollbar in the shell, its pop-ups and
+  terminals, and any document that links `/vendor/theme.css` is a 6px bar with
+  a 3px thumb that fattens under the pointer. The scroller the next wheel or
+  key would move — the innermost one under the mouse, the outer one once the
+  inner has reached its end, the focused element's — gets an amber thumb, one
+  per screen, across the shell and tile documents. Touch devices keep their
+  native bars. For your own shadow roots: `import { scrollCss } from
+  '/vendor/scroll-css.js'` into `static styles` (or `scrollCssText` from
+  `/vendor/bx-scroll.js`); `<meta name="xbin-scroll-focus" content="off">`
+  keeps the tracker out of a document that links the theme
+  ([frontend-kit.md](frontend-kit.md)). A framed document's tracker tells its
+  embedder `xbin:scroll-focus` when the pointer arrives
+  ([protocol.md](protocol.md) §Tile ↔ shell messaging).
+
+- **Long agent conversations stay quick** (D124). The Agent tab no longer
+  re-renders the whole transcript on every update: it folds the event log as
+  it arrives, paints at most once a frame, keeps the recent part on the page
+  and loads earlier entries as you scroll up, without moving what you are
+  reading (an "earlier entries" row loads the rest at once). A long replay —
+  a reload, a resumed or past session — opens at the bottom right away.
+  Folded tool cards, file diffs and thoughts render when opened.
+
 - **xbin app: plain http works to any address** — a tailnet IP, a LAN
   address, an unqualified name. The app's Info.plist also allowed "local
   networking", and iOS then ignores its allow-any rule, so a phone got

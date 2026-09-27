@@ -7,6 +7,7 @@
  * behavior in the workspace, keep these notes honest too.
  */
 import { LitElement, html, css, nothing } from 'lit';
+import { scrollCss } from '/vendor/scroll-css.js';
 
 // tinted dark-steel paper per topic: [background, edge]. Muted hues that
 // carry topic identity while light-gray note text stays readable on top.
@@ -815,7 +816,7 @@ class WelcomeNotes extends LitElement {
     this._path = child ? [top.id, child.id] : top ? [top.id] : [];
   }
 
-  static styles = css`
+  static styles = [scrollCss, css`
     :host { display: block; }
     p { margin: 6px 0 0; font-size: 12.5px; color: var(--bx-text, #d4d9e0); }
     ul { margin: 6px 0 0; padding-left: 18px; }
@@ -937,7 +938,7 @@ class WelcomeNotes extends LitElement {
       color: color-mix(in srgb, var(--bx-text, #d4d9e0) 55%, transparent);
     }
     .sheet .docs-link { margin-top: 12px; font-size: 11px; }
-  `;
+  `];
 
   _go(path) {
     this._path = path;

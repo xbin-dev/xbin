@@ -16,6 +16,7 @@
  * open tile shows new requests/membership changes without a reload.
  */
 import { LitElement, html, css, nothing } from 'lit';
+import { scrollCss } from '/vendor/scroll-css.js';
 import { ruleLabel, orgNetLabel, SCOPE_ICON, scopeIcon, scopeLabel } from '/vendor/bx-netrules.js';
 import { capInfo } from '/vendor/bx-allow.js';
 import { grantArrow } from '/vendor/bx-grant-row.js';
@@ -43,7 +44,7 @@ export class BxOrganisations extends LitElement {
     _note: { state: true },
   };
 
-  static styles = css`
+  static styles = [scrollCss, css`
     :host { display: block; font: var(--bx-font, 13px/1.5 system-ui, sans-serif);
       color: var(--bx-text, #d4d9e0); padding: 12px 16px 24px; }
     h3 { font-size: 14px; margin: 14px 0 6px; }
@@ -71,7 +72,7 @@ export class BxOrganisations extends LitElement {
     .err { color: var(--bx-red, #ef5350); font-size: 12px; margin: 6px 0; }
     .note { color: var(--bx-green, #4caf50); font-size: 12px; margin: 6px 0; }
     .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-  `;
+  `];
 
   connectedCallback() {
     super.connectedCallback();

@@ -2384,8 +2384,15 @@ tile → frame   xbin:resize   {component, height}     auto-height (informationa
 tile → frame   xbin:dialog   {id, spec}              request a shell modal
 tile → frame   xbin:window   {id, spec}              request a pop-out window
 tile → frame   xbin:window-close {id}                close a window it opened
+tile → parent  xbin:scroll-focus {}                  the pointer entered this document (cosmetic)
 frame → tile   xbin:reply    {id, result}            dialog result / window closed
 ```
+
+`xbin:scroll-focus` (D123) is sent by `/vendor/bx-scroll.js`'s tracker in a
+framed document when the pointer arrives, so the embedding document's tracker
+drops its own focused-scroll tint (browsers do not reliably tell the parent
+when the pointer crosses into an iframe). It carries nothing and asks for
+nothing; any window may clear a tint, so it is not source-checked.
 
 `<bx-frame>` re-dispatches dialog/window requests as a `bx-spawn` DOM event
 carrying the **verified** component (never a tile-supplied one) plus a `reply`

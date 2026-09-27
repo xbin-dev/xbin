@@ -484,6 +484,14 @@ Rules that keep it cheap to maintain:
   screenshots and the checker; a new pass is a function added to
   `PASSES` in `shots.js` — as its own module under `passes/<name>.js`
   (`shots.js` is at its size budget; `passes/users.js` is the model).
+- **Headless Chromium hides scrollbars** (`--hide-scrollbars`): every
+  scroller measures 0px wide and screenshots show no bars. A pass about
+  them launches its own browser without the flag — `scrollbars` (D123: the
+  6px bars, the focused-scroll tint across the shell and a tile document).
+  `agentLong` (D124) streams the fake agent's `long N` script (hack/fakeacp)
+  and pins the Agent tab's window: what is rendered, pages loading at the
+  top without moving the row being read, a reload and a past session
+  opening windowed at the bottom.
 
 On this box: `PLAYWRIGHT_DIR=~/lcad-wasm` (Playwright + its Chromium) and
 `HARNESS_DIR` somewhere outside the repo.
