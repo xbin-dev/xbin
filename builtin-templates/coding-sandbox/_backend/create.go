@@ -125,9 +125,9 @@ func (m *Manager) create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	mode := m.chooseModeOr(o.rt, "")
-	if mode == "" {
-		writeErr(w, errf(http.StatusServiceUnavailable, "unavailable", "the substrate runs no sandboxes now: %s", unavailableWhy(o.rt)), nil)
+	mode, err := m.chooseMode(o.rt)
+	if err != nil {
+		writeErr(w, err, nil)
 		return
 	}
 	start := q.Start == nil || *q.Start
@@ -172,7 +172,7 @@ func (m *Manager) create(w http.ResponseWriter, r *http.Request) {
 		Egress: orStr(q.Egress, "none"), Owner: owner{User: c.user, Via: c.from, Asserted: !c.verified && c.user != ""},
 		Visibility: orStr(q.Visibility, "private"), Members: q.Members, Labels: q.Labels,
 		Workdir: lay.Workdir, Home: lay.Home, User: lay.User, UID: lay.UID, GID: lay.GID, Shell: lay.Shell,
-		Created: now(), Version: 1, Overlay: "creating", Plan: plan}
+		Created: now(), Version: 1, Overlay: "creating", Plan: plan, Mode: mode}
 	if rec.Members == nil {
 		rec.Members = []string{}
 	}
@@ -269,12 +269,13 @@ func (m *Manager) layout(rt *xbin.SandboxRuntime) Layout {
 	return l
 }
 
-// chooseModeOr is the mode a new sandbox runs in: the configured one, else
-// a VM where the substrate offers one, else a namespace ("" when neither).
-func (m *Manager) chooseModeOr(rt *xbin.SandboxRuntime, def string) string {
-	if want := m.config().Mode; want != "" {
-		return want
-	}
+// chooseMode is the mode a new sandbox runs in: the operators' choice
+// (config.mode) while the substrate offers it, or — auto — a VM where it
+// offers VMs now, else a namespace. It is never another mode than the
+// operators chose: without it, no sandbox is made (503, saying why), and
+// the sandbox's `isolation` always says the mode it got.
+func (m *Manager) chooseMode(rt *xbin.SandboxRuntime) (string, error) {
+	cfg := m.config()
 	has := func(mode string) bool {
 		for _, x := range rt.Modes {
 			if x.Mode == mode {
@@ -283,13 +284,26 @@ func (m *Manager) chooseModeOr(rt *xbin.SandboxRuntime, def string) string {
 		}
 		return false
 	}
+	if !cfg.autoMode() {
+		if has(cfg.Mode) {
+			return cfg.Mode, nil
+		}
+		why := "it doesn't offer them"
+		for _, u := range rt.Unavailable {
+			if u.Mode == cfg.Mode && u.Reason != "" {
+				why = u.Reason
+			}
+		}
+		return "", errf(http.StatusServiceUnavailable, "unavailable",
+			"this manager makes %s sandboxes (its operators' mode), and the substrate has none now: %s", cfg.Mode, why)
+	}
 	switch {
 	case has("vm"):
-		return "vm"
+		return "vm", nil
 	case has("namespace"):
-		return "namespace"
+		return "namespace", nil
 	}
-	return def
+	return "", errf(http.StatusServiceUnavailable, "unavailable", "the substrate runs no sandboxes now: %s", unavailableWhy(rt))
 }
 
 // defaults is what every command in rec's sandbox gets.
@@ -370,14 +384,16 @@ func (m *Manager) makeSandbox(ctx context.Context, id string) (err error) {
 		return err
 	}
 	be := m.backend()
-	mode := m.chooseModeOr(rt, "")
-	if mode == "" {
-		return errf(http.StatusServiceUnavailable, "unavailable", "the substrate runs no sandboxes now: %s", unavailableWhy(rt))
+	mode := rec.Mode
+	if mode == "" { // a record from before the mode was kept
+		if mode, err = m.chooseMode(rt); err != nil {
+			return err
+		}
 	}
 	spec := xbin.SandboxSpec{Name: rec.Runtime, Mode: mode, MemMiB: plan.Size.MemMiB, VCPUs: plan.Size.VCPUs, DiskGiB: plan.Size.DiskGiB,
 		Net: &xbin.SandboxNet{Egress: egressClass(rec.Egress)}, Defaults: defaultsOf(rec),
 		Labels: map[string]string{"coding-sandbox/id": rec.ID}, For: rec.Owner.Via, ForUser: rec.Owner.User,
-		IdleStopMin: plan.AutoStopMin, ClientID: rec.Runtime}
+		IdleStopMin: plan.AutoStopMin, ClientID: rec.Runtime, Mounts: cfg.sandboxMounts()}
 	switch {
 	case plan.FromRuntime != "":
 		spec.From = &xbin.SandboxFrom{Sandbox: plan.FromRuntime, Snapshot: plan.FromSnap}

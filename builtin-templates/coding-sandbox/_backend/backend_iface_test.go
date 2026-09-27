@@ -6,6 +6,7 @@ import xbin "github.com/xbin-dev/xbin/sdk"
 // *xbin.Sandbox a Box, with no translation (backend.go). A change to either
 // side that breaks this fails to compile here.
 var (
-	_ Fleet = (*xbin.Sandboxes)(nil)
-	_ Box   = (*xbin.Sandbox)(nil)
+	_ Fleet   = (*xbin.Sandboxes)(nil)
+	_ Box     = (*xbin.Sandbox)(nil)
+	_ Backend = xbinBackend{}
 )

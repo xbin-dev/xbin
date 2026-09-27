@@ -452,6 +452,25 @@ func TestOperators(t *testing.T) {
 	call(t, srv, agentTile, "POST", "/sbx/sandboxes", map[string]any{"name": "over"}, 429, nil)
 	call(t, srv, owner, "PUT", "/ops/config", map[string]any{"images": []map[string]any{}}, 400, nil)
 	call(t, srv, owner, "PUT", "/ops/config", map[string]any{"backend": "other"}, 409, nil) // its sandboxes live on this one
+	// snapshots: an operator's backups of anyone's sandbox (writers only)
+	var snap xbin.Snapshot
+	call(t, srv, reader, "POST", "/ops/sandboxes/"+sb.ID+"/snapshots", map[string]any{"name": "nightly"}, 403, nil)
+	call(t, srv, writer, "POST", "/ops/sandboxes/"+sb.ID+"/snapshots", map[string]any{"name": "nightly"}, 201, &snap)
+	var snaps struct{ Snapshots []xbin.Snapshot }
+	call(t, srv, owner, "GET", "/ops/sandboxes/"+sb.ID+"/snapshots", nil, 200, &snaps)
+	if len(snaps.Snapshots) != 1 || snaps.Snapshots[0].Name != "nightly" || snap.ID == "" {
+		t.Fatalf("the operators' snapshots: %+v", snaps)
+	}
+	var restored opView
+	call(t, srv, owner, "POST", "/ops/sandboxes/"+sb.ID+"/snapshots/"+snap.ID+"/restore", nil, 200, &restored)
+	if restored.ID != sb.ID || restored.Consumer != "apps/agent" {
+		t.Fatalf("a restore answers the sandbox: %+v", restored)
+	}
+	call(t, srv, owner, "DELETE", "/ops/sandboxes/"+sb.ID+"/snapshots/"+snap.ID, nil, 204, nil)
+	call(t, srv, owner, "GET", "/ops/sandboxes/sb-nope/snapshots", nil, 404, nil)
+	// the mode and the mounts are the operators' too
+	call(t, srv, owner, "PUT", "/ops/config", map[string]any{"mode": "auto", "mounts": []map[string]any{{"res": "res:apps/cs/cache", "at": "/cache"}}}, 200, &st)
+	call(t, srv, owner, "PUT", "/ops/config", map[string]any{"mounts": []map[string]any{{"res": "res:apps/cs/cache", "at": "/proc/x"}}}, 400, nil)
 	// lifecycle and deletion
 	var v opView
 	call(t, srv, owner, "POST", "/ops/sandboxes/"+sb.ID+"/stop?wait=5", nil, 200, &v)
@@ -491,7 +510,9 @@ func TestConfigMerge(t *testing.T) {
 	}
 	for _, bad := range []string{`{"images": []}`, `{"sizes": [{"id": "x", "memMiB": 1, "vcpus": 1, "diskGiB": 1}]}`,
 		`{"layout": {"workdir": "rel", "home": "/h", "user": "u", "shell": "/bin/sh"}}`, `{"mode": "cloud"}`,
-		`{"images": [{"id": "a", "default": true}, {"id": "b", "default": true}]}`, `{"quotas": {"consumer": {"sandboxes": -1}}}`} {
+		`{"images": [{"id": "a", "default": true}, {"id": "b", "default": true}]}`, `{"quotas": {"consumer": {"sandboxes": -1}}}`,
+		`{"mounts": [{"res": "apps/x/y", "at": "/m"}]}`, `{"mounts": [{"res": "res:apps/x/y", "at": "rel"}]}`,
+		`{"mounts": [{"res": "res:apps/x/y", "path": "../up", "at": "/m"}]}`, `{"mounts": [{"res": "res:apps/x/y", "at": "/"}]}`} {
 		if _, err := c.merge([]byte(bad)); err == nil {
 			t.Errorf("merged %s", bad)
 		}

@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,8 +36,11 @@ import (
 func init() {
 	registerBackend("fake", func(env BackendEnv) (Backend, error) {
 		root, _ := env.Config["root"].(string)
+		if res, ok := strings.CutPrefix(root, "res:"); ok { // a filesystem resource of the tile's (a harness copy)
+			root = xbin.Resource(res)
+		}
 		if root == "" {
-			return nil, fmt.Errorf("the fake backend needs backendConfig.root (a host directory)")
+			return nil, fmt.Errorf("the fake backend needs backendConfig.root (a host directory, or res:<resource>)")
 		}
 		return &fakeBackend{Root: root}, nil
 	})

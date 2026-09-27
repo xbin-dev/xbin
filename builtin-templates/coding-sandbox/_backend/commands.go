@@ -8,6 +8,7 @@
 package main
 
 import (
+	"bytes"
 	"net/http"
 	"strconv"
 	"strings"
@@ -366,7 +367,9 @@ func (m *Manager) ttyAttach(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	eid := r.PathValue("eid")
-	m.box(rec).RelayTTY(w, r, eid, xbin.TTYOptions{SessionID: eid, SandboxID: rec.ID, ForUser: c.user})
+	sw := &scrubWriter{ResponseWriter: w, from: rec.Runtime, to: rec.ID}
+	m.box(rec).RelayTTY(sw, r, eid, xbin.TTYOptions{SessionID: eid, SandboxID: rec.ID, ForUser: c.user})
+	sw.finish()
 }
 
 // ttyStart: GET …/tty?cwd=&cmd=&rows=&cols= — a tty exec (the login shell
@@ -391,6 +394,66 @@ func (m *Manager) ttyStart(w http.ResponseWriter, r *http.Request) {
 	rows, _ := strconv.Atoi(qs.Get("rows"))
 	cols, _ := strconv.Atoi(qs.Get("cols"))
 	uid, gid := rec.UID, rec.GID
-	m.box(rec).RelayNewTTY(w, r, xbin.TTYStart{Cwd: qs.Get("cwd"), Cmd: qs.Get("cmd"), Rows: max(rows, 0), Cols: max(cols, 0),
+	sw := &scrubWriter{ResponseWriter: w, from: rec.Runtime, to: rec.ID}
+	m.box(rec).RelayNewTTY(sw, r, xbin.TTYStart{Cwd: qs.Get("cwd"), Cmd: qs.Get("cmd"), Rows: max(rows, 0), Cols: max(cols, 0),
 		UID: &uid, GID: &gid, ForUser: c.user, SandboxID: rec.ID})
+	sw.finish()
+}
+
+// scrubWriter is a relayed terminal's answer: a refusal (before the
+// upgrade) is held and written with the runtime's name for the sandbox
+// replaced by the contract id — the relay copies it as it came. Anything
+// else passes as it is, and an upgrade hijacks the connection underneath
+// (Unwrap).
+type scrubWriter struct {
+	http.ResponseWriter
+	from, to string
+	status   int
+	held     bytes.Buffer
+}
+
+func (s *scrubWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
+func (s *scrubWriter) WriteHeader(code int) {
+	if s.status != 0 {
+		return
+	}
+	s.status = code
+	if code >= 400 {
+		s.ResponseWriter.Header().Del("Content-Length") // the body changes length
+		return
+	}
+	s.ResponseWriter.WriteHeader(code)
+}
+
+func (s *scrubWriter) Write(b []byte) (int, error) {
+	if s.status == 0 {
+		s.WriteHeader(http.StatusOK)
+	}
+	if s.status >= 400 {
+		if s.held.Len() > 64<<10 {
+			return len(b), nil // a refusal is short; the rest isn't kept
+		}
+		return s.held.Write(b)
+	}
+	return s.ResponseWriter.Write(b)
+}
+
+func (s *scrubWriter) Flush() {
+	if s.status != 0 && s.status < 400 {
+		_ = http.NewResponseController(s.ResponseWriter).Flush()
+	}
+}
+
+// finish writes a held refusal.
+func (s *scrubWriter) finish() {
+	if s.status < 400 {
+		return
+	}
+	s.ResponseWriter.WriteHeader(s.status)
+	body := s.held.Bytes()
+	if s.from != "" {
+		body = bytes.ReplaceAll(body, []byte(s.from), []byte(s.to))
+	}
+	_, _ = s.ResponseWriter.Write(body)
 }

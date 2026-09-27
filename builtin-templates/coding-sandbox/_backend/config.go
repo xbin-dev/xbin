@@ -9,6 +9,8 @@ import (
 	"path"
 	"regexp"
 	"strings"
+
+	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
 // Config is the manager's settings (settings "config").
@@ -17,14 +19,28 @@ type Config struct {
 	// xbind's own tile-sandbox runtime). BackendConfig is its own settings.
 	Backend       string         `json:"backend,omitempty"`
 	BackendConfig map[string]any `json:"backendConfig,omitempty"`
-	// Mode is how a new sandbox is isolated: "" (a VM where the runtime
-	// offers VMs, else a namespace), "vm" or "namespace".
+	// Mode is how a new sandbox is isolated: "auto" (or ""): a VM where the
+	// substrate offers VMs now, else a namespace; "vm" or "namespace": that
+	// one, or no new sandbox while the substrate lacks it — never another.
 	Mode        string  `json:"mode,omitempty"`
 	Images      []Image `json:"images"`
 	Sizes       []Size  `json:"sizes"`
 	Quotas      Quotas  `json:"quotas"`
 	Layout      Layout  `json:"layout"`
 	AutoStopMin int     `json:"autoStopMin,omitempty"` // a new sandbox's idle stop, minutes (0 = the substrate's default)
+	// Mounts are filesystems every new sandbox gets: resources this tile
+	// holds (its own scope's, or granted to it), none by default.
+	Mounts []Mount `json:"mounts,omitempty"`
+}
+
+// Mount is a filesystem resource of this tile's (Res, "res:<scope>/<name>";
+// optionally a clean relative sub-path of it) mounted at At in every new
+// sandbox; RO read-only (a reader grant is read-only whatever it says).
+type Mount struct {
+	Res  string `json:"res"`
+	Path string `json:"path,omitempty"`
+	At   string `json:"at"`
+	RO   bool   `json:"ro,omitempty"`
 }
 
 // Image is what a sandbox starts from: the substrate's base, plus a setup
@@ -126,9 +142,14 @@ var (
 // validate checks c and fills what is implied (one default image and size).
 func (c *Config) validate() error {
 	switch c.Mode {
-	case "", "vm", "namespace":
+	case "", "auto", "vm", "namespace":
 	default:
-		return fmt.Errorf("mode is vm, namespace or empty (a VM where available)")
+		return fmt.Errorf("mode is auto (a VM where available, else a namespace), vm or namespace")
+	}
+	for _, mt := range c.Mounts {
+		if err := mt.check(); err != nil {
+			return err
+		}
 	}
 	if c.AutoStopMin < 0 || c.AutoStopMin > 1440 {
 		return fmt.Errorf("autoStopMin is 0–1440")
@@ -205,6 +226,39 @@ func (c *Config) validate() error {
 	return nil
 }
 
+// reservedMount are where no mount goes (the runtime's own places, too).
+var reservedMount = []string{"/proc", "/sys", "/dev", "/run/xbin", "/opt/xbin"}
+
+func (mt Mount) check() error {
+	if !strings.HasPrefix(mt.Res, "res:") || strings.TrimPrefix(mt.Res, "res:") == "" {
+		return fmt.Errorf("mount %q: res is a filesystem resource this tile holds, res:<scope>/<name>", mt.Res)
+	}
+	if mt.Path != "" && (strings.HasPrefix(mt.Path, "/") || path.Clean(mt.Path) != mt.Path || mt.Path == ".." || strings.HasPrefix(mt.Path, "../")) {
+		return fmt.Errorf("mount %s: path is a clean relative path inside the resource", mt.Res)
+	}
+	if !strings.HasPrefix(mt.At, "/") || path.Clean(mt.At) != mt.At || mt.At == "/" {
+		return fmt.Errorf("mount %s: at is a clean absolute path, not /", mt.Res)
+	}
+	for _, r := range reservedMount {
+		if mt.At == r || strings.HasPrefix(mt.At, r+"/") {
+			return fmt.Errorf("mount %s: nothing mounts under %s", mt.Res, r)
+		}
+	}
+	return nil
+}
+
+// sandboxMounts are the mounts a new sandbox gets (nil: none).
+func (c Config) sandboxMounts() []xbin.SandboxMount {
+	var out []xbin.SandboxMount
+	for _, mt := range c.Mounts {
+		out = append(out, xbin.SandboxMount{Res: mt.Res, Path: mt.Path, At: mt.At, RO: mt.RO})
+	}
+	return out
+}
+
+// autoMode: the operators leave the mode to the substrate's offer.
+func (c Config) autoMode() bool { return c.Mode == "" || c.Mode == "auto" }
+
 func quotaList(q Quotas) []Quota {
 	out := []Quota{q.Consumer, q.Person}
 	for _, o := range q.Consumers {
@@ -225,7 +279,8 @@ func (c Config) merge(body []byte) (Config, error) {
 	}
 	out := c
 	fields := map[string]any{"backend": &out.Backend, "backendConfig": &out.BackendConfig, "mode": &out.Mode,
-		"images": &out.Images, "sizes": &out.Sizes, "quotas": &out.Quotas, "layout": &out.Layout, "autoStopMin": &out.AutoStopMin}
+		"images": &out.Images, "sizes": &out.Sizes, "quotas": &out.Quotas, "layout": &out.Layout, "autoStopMin": &out.AutoStopMin,
+		"mounts": &out.Mounts}
 	for k, v := range raw {
 		dst, ok := fields[k]
 		if !ok {
@@ -239,6 +294,8 @@ func (c Config) merge(body []byte) (Config, error) {
 		case *Quotas:
 			*d = Quotas{}
 		case *map[string]any:
+			*d = nil
+		case *[]Mount:
 			*d = nil
 		}
 		if err := json.Unmarshal(v, dst); err != nil {

@@ -439,6 +439,12 @@ func (m *Manager) offer(ctx context.Context) (*offer, error) {
 	if len(o.images) == 0 {
 		o.images = []Image{{ID: "base", Title: "the substrate's base image", Default: true}}
 	}
+	if _, err := m.chooseMode(rt); err != nil {
+		o.notes = append(o.notes, "no sandbox can be made now: "+errText(err))
+	}
+	if missing := missingCaps(o.caps, "exec", "files"); len(missing) > 0 {
+		o.notes = append(o.notes, "the substrate doesn't serve "+strings.Join(missing, " or ")+" yet: sandboxes can be made, started and stopped, but nothing runs in them")
+	}
 	o.images = oneDefault(o.images, func(im *Image) *bool { return &im.Default })
 	ps := rt.Limits.PerSandbox
 	for _, s := range cfg.Sizes {
@@ -459,6 +465,17 @@ func (m *Manager) offer(ctx context.Context) (*offer, error) {
 	}
 	o.sizes = oneDefault(o.sizes, func(s *Size) *bool { return &s.Default })
 	return o, nil
+}
+
+// missingCaps are those of want that caps lacks.
+func missingCaps(caps []string, want ...string) []string {
+	var out []string
+	for _, c := range want {
+		if !slices.Contains(caps, c) {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // oneDefault keeps exactly one default: the first marked one, else the first.
@@ -617,6 +634,9 @@ func (m *Manager) view(rec record, info *xbin.SandboxInfo, c caller, caps []stri
 		Created: rec.Created, LastActive: rec.Created, Version: rec.Version, Egress: orStr(rec.Egress, "none"), Isolation: "other"}
 	if im, ok := cfg.image(rec.Image); ok {
 		v.Image.Title = im.Title
+	}
+	if rec.Mode == "vm" || rec.Mode == "namespace" { // the mode it was made in (the substrate's info says it too)
+		v.Isolation = rec.Mode
 	}
 	v.Size.ID = rec.Size
 	if s, ok := cfg.size(rec.Size); ok {

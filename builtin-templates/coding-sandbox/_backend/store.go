@@ -27,7 +27,8 @@ type record struct {
 	Name       string            `json:"name"`
 	Image      string            `json:"image"`
 	Size       string            `json:"size"`
-	Egress     string            `json:"egress"` // the contract egress last asked for (the runtime says what applies)
+	Egress     string            `json:"egress"`         // the contract egress last asked for (the runtime says what applies)
+	Mode       string            `json:"mode,omitempty"` // the substrate's mode it was made in (vm | namespace): its isolation
 	Owner      owner             `json:"owner"`
 	Visibility string            `json:"visibility"`
 	Members    []string          `json:"members"`

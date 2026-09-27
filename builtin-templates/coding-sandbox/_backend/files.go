@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"strconv"
@@ -265,7 +266,7 @@ func (m *Manager) snapCreate(w http.ResponseWriter, r *http.Request) {
 	if q.ClientID != "" {
 		cid = clientPrefix(c.from) + q.ClientID
 	}
-	s, err := box.Snapshot(r.Context(), q.Name, cid)
+	s, err := m.snapshot(r.Context(), rec, q.Name, cid)
 	if err != nil {
 		writeErr(w, err, &rec)
 		return
@@ -275,10 +276,36 @@ func (m *Manager) snapCreate(w http.ResponseWriter, r *http.Request) {
 			m.logf("snapshot clientId: %v", err)
 		}
 	}
+	writeJSON(w, http.StatusCreated, s)
+}
+
+// snapshot saves rec's state as name (the contract's, and the operators').
+func (m *Manager) snapshot(ctx context.Context, rec record, name, clientID string) (*xbin.Snapshot, error) {
+	s, err := m.box(rec).Snapshot(ctx, name, clientID)
+	if err != nil {
+		return nil, err
+	}
 	m.mu.Lock()
 	delete(m.live, rec.ID) // it may have stopped for it
 	m.mu.Unlock()
-	writeJSON(w, http.StatusCreated, s)
+	return s, nil
+}
+
+// restore puts rec back to snapshot sid (its execs are killed).
+func (m *Manager) restore(ctx context.Context, rec record, sid string) (*xbin.SandboxInfo, error) {
+	defer m.lock(rec.ID)()
+	if rec.Overlay != "" {
+		return nil, &xbin.SandboxError{Status: http.StatusConflict, Refusal: "state", State: rec.Overlay, Message: "the sandbox is " + rec.Overlay}
+	}
+	in, err := m.box(rec).RestoreSnapshot(ctx, sid)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	delete(m.live, rec.ID)
+	_, _ = m.update(rec.ID, func(x *record) { x.Version++ })
+	m.mu.Unlock()
+	return in, nil
 }
 
 func (m *Manager) snapRestore(w http.ResponseWriter, r *http.Request) {
@@ -289,21 +316,7 @@ func (m *Manager) snapRestore(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	in, err := func() (*xbin.SandboxInfo, error) {
-		defer m.lock(rec.ID)()
-		if rec.Overlay != "" {
-			return nil, &xbin.SandboxError{Status: http.StatusConflict, Refusal: "state", State: rec.Overlay, Message: "the sandbox is " + rec.Overlay}
-		}
-		in, err := m.box(rec).RestoreSnapshot(r.Context(), r.PathValue("sid"))
-		if err != nil {
-			return nil, err
-		}
-		m.mu.Lock()
-		delete(m.live, rec.ID)
-		_, _ = m.update(rec.ID, func(x *record) { x.Version++ })
-		m.mu.Unlock()
-		return in, nil
-	}()
+	in, err := m.restore(r.Context(), rec, r.PathValue("sid"))
 	if err != nil {
 		writeErr(w, err, &rec)
 		return

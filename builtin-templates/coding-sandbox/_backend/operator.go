@@ -44,6 +44,10 @@ func (m *Manager) operatorRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /ops/sandboxes/{id}", m.op(m.opPatch))
 	mux.HandleFunc("POST /ops/sandboxes/{id}/{action}", m.op(m.opAction))
 	mux.HandleFunc("DELETE /ops/sandboxes/{id}", m.op(m.opDelete))
+	mux.HandleFunc("GET /ops/sandboxes/{id}/snapshots", m.op(m.opSnapshots))
+	mux.HandleFunc("POST /ops/sandboxes/{id}/snapshots", m.op(m.opSnapshot))
+	mux.HandleFunc("POST /ops/sandboxes/{id}/snapshots/{sid}/restore", m.op(m.opRestore))
+	mux.HandleFunc("DELETE /ops/sandboxes/{id}/snapshots/{sid}", m.op(m.opSnapDelete))
 	mux.HandleFunc("POST /ops/images/{id}/build", m.op(m.opBuild))
 	mux.HandleFunc("DELETE /ops/orphans/{name}", m.op(m.opOrphan))
 }
@@ -221,6 +225,93 @@ func (m *Manager) opDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := m.deleteSandbox(r.Context(), id); err != nil {
 		writeErr(w, err, m.recCopy(id))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- snapshots: an operator's backups, whoever's sandbox it is ----------------------------
+
+// opSnapRec is {id} for a snapshot route: its record, the substrate offering
+// snapshots (a refusal answered when not).
+func (m *Manager) opSnapRec(w http.ResponseWriter, r *http.Request) (record, bool) {
+	o, err := m.offer(r.Context())
+	if err != nil {
+		writeErr(w, err, nil)
+		return record{}, false
+	}
+	if !contains(o.caps, "snapshots") {
+		fail(w, http.StatusNotImplemented, "unsupported", "the substrate keeps no snapshots (yet)")
+		return record{}, false
+	}
+	rec := m.recCopy(r.PathValue("id"))
+	if rec == nil {
+		fail(w, http.StatusNotFound, "not-found", "no such sandbox")
+		return record{}, false
+	}
+	return *rec, true
+}
+
+func (m *Manager) opSnapshots(w http.ResponseWriter, r *http.Request) {
+	rec, ok := m.opSnapRec(w, r)
+	if !ok {
+		return
+	}
+	snaps, err := m.box(rec).Snapshots(r.Context())
+	if err != nil {
+		writeErr(w, err, &rec)
+		return
+	}
+	if snaps == nil {
+		snaps = []xbin.Snapshot{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"snapshots": snaps})
+}
+
+func (m *Manager) opSnapshot(w http.ResponseWriter, r *http.Request) {
+	var q struct {
+		Name string `json:"name"`
+	}
+	if err := decode(r, 64<<10, &q); err != nil {
+		fail(w, http.StatusBadRequest, "invalid", "bad body: "+err.Error())
+		return
+	}
+	rec, ok := m.opSnapRec(w, r)
+	if !ok {
+		return
+	}
+	if rec.Overlay != "" {
+		failState(w, "the sandbox is "+rec.Overlay, rec.Overlay)
+		return
+	}
+	s, err := m.snapshot(r.Context(), rec, q.Name, "")
+	if err != nil {
+		writeErr(w, err, &rec)
+		return
+	}
+	writeJSON(w, http.StatusCreated, s)
+}
+
+func (m *Manager) opRestore(w http.ResponseWriter, r *http.Request) {
+	rec, ok := m.opSnapRec(w, r)
+	if !ok {
+		return
+	}
+	in, err := m.restore(r.Context(), rec, r.PathValue("sid"))
+	if err != nil {
+		writeErr(w, err, &rec)
+		return
+	}
+	m.opAnswer(w, r, rec.ID, in)
+}
+
+func (m *Manager) opSnapDelete(w http.ResponseWriter, r *http.Request) {
+	rec, ok := m.opSnapRec(w, r)
+	if !ok {
+		return
+	}
+	if err := m.box(rec).DeleteSnapshot(r.Context(), r.PathValue("sid")); err != nil {
+		writeErr(w, err, &rec)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

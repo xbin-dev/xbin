@@ -279,9 +279,9 @@ func (m *Manager) rebuildImage(ctx context.Context, id string) error {
 	if !contains(contractCaps(rt), "clone") || !contains(contractCaps(rt), "snapshots") {
 		return errf(http.StatusNotImplemented, "unsupported", "building images needs the substrate's snapshots and clones")
 	}
-	mode := m.chooseModeOr(rt, "")
-	if mode == "" {
-		return errf(http.StatusServiceUnavailable, "unavailable", "the substrate runs no sandboxes now: %s", unavailableWhy(rt))
+	mode, err := m.chooseMode(rt)
+	if err != nil {
+		return err
 	}
 	_, err = m.startBuild(ctx, im, mode, true)
 	return err
