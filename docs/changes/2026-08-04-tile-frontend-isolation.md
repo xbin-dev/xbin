@@ -40,8 +40,10 @@ Now, every non-chrome tile:
 
 Trusted **chrome** — `root`, `shell`, and components with `"chrome": true`
 in xbin.json — is exempt: it runs unsandboxed and keeps acting as the
-signed-in human. The flag is host-set only (edit the manifest on disk; the
-create APIs never write it) and can never be acquired via grants.
+signed-in human. The flag can never be acquired via grants. (Since
+2026-09-27 the flag is only a request: outside `tiles/organisations` a
+workspace admin must also approve the tile —
+[2026-09-27-chrome-needs-approval.md](2026-09-27-chrome-needs-approval.md).)
 
 ## Who's affected
 
@@ -72,9 +74,10 @@ create APIs never write it) and can never be acquired via grants.
 - **Acting as the human** → don't. Element frontends act as the element;
   ask for the grants you need (`uses`) so `xbin.fetch` covers your calls.
   If the component genuinely *is* workspace chrome (a management UI that
-  must see the world as the signed-in user), have the workspace owner add
-  `"chrome": true` to its xbin.json — and treat that component as
-  trusted as the shell itself.
+  must see the world as the signed-in user), add `"chrome": true` to its
+  xbin.json and have a workspace admin approve it (`bx chrome approve
+  <tile>`, since 2026-09-27) — and treat that component as trusted as the
+  shell itself.
 - **Terminals/code browsing from a tile UI** → use the shell's surfaces
   (the frame's edit button / `bx-shell` chrome), which run unsandboxed.
 - **Cross-origin fetches from your tile** (to a genuinely different origin)

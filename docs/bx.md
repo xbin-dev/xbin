@@ -80,6 +80,9 @@ bx netset ls | set <name> [--rules a,b|--add r|--rm r] | rm <name>
                                        opened on them (docs/auth.md §Network sets)
 bx org policy [<org>] [--set '<json>'] policy-ceiling rows (workspace / org)
 bx owner <tile> [--transfer user:U|org:O|workspace]   tile ownership (D24)
+bx chrome [ls] | approve <tile> | revoke <tile>
+                                       trusted chrome (admin, D118): tiles whose
+                                       xbin.json asks for chrome, and approvals
 bx permset ls|set|rm <name> [--allow a,b] [--term-net]  permission sets (D28)
 bx access <tile> [set|rm user:…|org:…=level | request [level] | approve <user> [level]]
                                        per-tile access entries — exact entries
@@ -237,12 +240,23 @@ docs/auth.md §vault.
 sanity (orphaned owner entries, admin-less or member-less orgs, allowance
 entries that can never match, dead defaultTiles/share patterns); network
 sets (unknown attachments, rules that can't parse, orgs granted HOST
-networking, inert net bindings); go.work ownership; strict tile asset
-gating (tiles whose absolute `/c/` URLs, `inject:false` or escaping symlinks
+networking, inert net bindings); chrome requests no admin approved (those
+tiles run sandboxed) and approvals naming no component; go.work
+ownership; strict tile asset gating (tiles whose absolute `/c/` URLs, `inject:false` or escaping symlinks
 the strict modes refuse — from `GET /api/xbin/tile-assets`; under the
 default legacy mode these are what the coming enforcement will refuse);
 host inotify budget; toolchains present for the runtimes in use.
 Run it first when something "doesn't reload".
+
+**`bx chrome`** — trusted workspace chrome ([auth.md §Who is
+calling](/docs/auth.md), D118). A tile whose xbin.json says `"chrome": true`
+runs unsandboxed — with the session cookie, acting as whoever opens it —
+only once a workspace admin approves it; until then it runs sandboxed.
+`bx chrome` lists every tile that asks and every approval, with its state;
+`approve <tile>` needs a component at the path; `revoke <tile>` withdraws an
+approval (also a removed tile's). Admin credentials (`GET`/`PUT
+/api/xbin/chrome`). Approving a tile trusts every writer of it — its
+terminal users and their coding agents — as much as the shell.
 
 **`bx fix assets`** — the codemod for strict tile asset gating
 ([auth.md §Tile asset gating](/docs/auth.md), [elements.md §Asset

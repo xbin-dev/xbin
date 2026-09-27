@@ -3537,3 +3537,42 @@ Deviations and refinements made while implementing; all deliberate:
     windows and recents; the stale device deleted) instead of adding a
     duplicate.
 
+- **D118 — Hardening: trust never comes from a file a sandbox can write
+  (2026-09-27).** Three defects a design review found
+  (the dev-lifecycle threat model, 06-security.md §5.2 and its side
+  findings), each closed without changing any on-disk layout.
+  - **(a) Chrome is admin-approved.** `internal/server/static.go`
+    (`trustedChrome`, `sandboxedFrame`), `internal/server/chrome.go`
+    (`GET`/`PUT /api/xbin/chrome`), `internal/users/chrome.go`
+    (`chromeTiles` in users.json), `cmd/bx/chrome.go`; docs/auth.md §Who is
+    calling, docs/changes/2026-09-27-chrome-needs-approval.md.
+    `chrome: true` turns off the frame sandbox, so the tile's frontend runs
+    with the session cookie as whoever opens it (ND8, plans/auth.md §6).
+    The flag lived only in the tile's own xbin.json, which its terminals
+    and coding agents can write (D40). So a terminal-level user, or an agent
+    following a prompt injection, could act as the next admin who opened the
+    tile. The registry comment and docs/auth.md called the flag "host-set";
+    it was not. Now the manifest flag is a request. It is honoured for the
+    implicit chrome (root, shell), for the shipped `tiles/organisations`
+    (the only shipped tile that declares it; `tiles/` is reserved for
+    built-ins, D82) and for paths a workspace admin approved. An approval
+    applies while the manifest still asks, so writers can drop chrome but
+    never add it. Every other asking tile is served sandboxed, and
+    `/components` says `chromeRequested`. `bx doctor` lists requests and
+    approvals naming no component. An approval is path-keyed, so it is a
+    D82 leftover: a non-admin can't create a tile at an approved path. It
+    is kept next to the other admin-set workspace policy in users.json,
+    never in the workspace tree, and is never grantable.
+    - **Breaking** for custom chrome tiles: they run sandboxed until an
+      admin approves them. A security hole closes in the release that finds
+      it (docs/compat.md rule 11), so there is no warning release.
+    - **Not chosen:**
+      - A per-tile content hash bound to the approval: a chrome tile's
+        writers are trusted by design, and every edit would need
+        re-approval.
+      - An `xbin:chrome` grant: grants are requested from the manifest, and
+        chrome must never be an element capability.
+      - Approving from the tile's own terminal token: element principals
+        are never workspace admins (the API refuses them).
+      - Making `tiles/organisations` chrome by its path alone: it still
+        needs its manifest flag, so it behaves exactly as before.

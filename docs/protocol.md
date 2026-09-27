@@ -39,7 +39,9 @@ opaque: frontends pass it along, never parse it; a renewal answering 401
 means the login ended.
 
 **Browser-plane isolation (ND8):** the cookie proves the human, and humans
-act only from *chrome* (the shell, plus manifest `chrome: true` components).
+act only from *chrome* (the shell, plus `chrome: true` components that are
+shipped chrome — `tiles/organisations` — or that a workspace admin approved
+with `PUT /api/xbin/chrome`, D118; the manifest flag alone is only a request).
 Non-chrome tile documents are served with `Content-Security-Policy: sandbox
 allow-scripts allow-forms allow-modals allow-downloads` (plus
 `allow-popups allow-popups-to-escape-sandbox` for a tile granted
@@ -567,7 +569,11 @@ GET    /components                 any. [{path, scope, runtime, hasIndex,
                                    state? (lifecycle; absent = enabled),
                                    roles, uses, deps, manifestError,
                                    chrome? (trusted chrome — bx-frame does
-                                   not sandbox these),
+                                   not sandbox these: root, shell, shipped
+                                   tiles/organisations, admin-approved tiles),
+                                   chromeRequested? (the manifest says
+                                   chrome: true but no workspace admin
+                                   approved it — it runs sandboxed; D118),
                                    sandbox? (extra iframe/CSP sandbox tokens
                                    the tile's grants unlock — cap:open-links
                                    → allow-popups allow-popups-to-escape-
@@ -1341,6 +1347,25 @@ PUT    /native-runtime            admin. {enabled: bool} → the same view.
                                    answers 410 with the reason (&preview=1
                                    still served). Kept in users.json;
                                    publishes `native`; audited
+GET    /chrome                    admin. {tiles: [{path, requested,
+                                   approved, shipped?, chrome, missing?}]} —
+                                   every component whose xbin.json says
+                                   chrome: true and every approved path
+                                   (D118). chrome = effective (runs
+                                   unsandboxed); missing = approved, no
+                                   component there now. root/shell (implicit
+                                   chrome) are not listed
+PUT    /chrome                    admin. {path, approved: bool} → that row.
+                                   Approving needs a component at the path
+                                   and applies while its xbin.json says
+                                   chrome: true: its documents then run with
+                                   the session cookie, acting as whoever
+                                   opens it — approve only a tile whose every
+                                   writer you trust like the shell. 400 for
+                                   root/shell; 404 approving a missing path.
+                                   Kept in users.json (a leftover a new tile
+                                   at the path would inherit); publishes
+                                   `grants` for the tile; audited
 GET    /defaults                  admin/xbin:users. {defaultTiles:
                                    {pattern: level}, newUsers: {tiles,
                                    termApi, termNet, orgs: [{org, level,

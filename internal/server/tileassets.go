@@ -238,7 +238,7 @@ func (s *Server) assetGate(w http.ResponseWriter, r *http.Request, owner string,
 		}
 		return false
 	}
-	if isChrome(owner) || !sandboxedFrame(owner, comp) {
+	if isChrome(owner) || !s.sandboxedFrame(owner, comp) {
 		return false
 	}
 	if isDoc {
@@ -336,7 +336,7 @@ func (s *Server) serveAssetToken(w http.ResponseWriter, r *http.Request) {
 //     postMessage peer), on the tile origin (the cookie does the rest).
 //   - legacy, and chrome in every mode: "".
 func (s *Server) assetHead(r *http.Request, body []byte, compPath string, comp *registry.Component, p auth.Principal, imports map[string]string) string {
-	if !sandboxedFrame(compPath, comp) {
+	if !s.sandboxedFrame(compPath, comp) {
 		return "" // chrome runs on the workspace origin with the cookie: never gated
 	}
 	switch s.assetMode() {

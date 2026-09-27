@@ -193,9 +193,12 @@ with sandboxed tile frames `[ND8]`:
   server gate below strips them). Communication with the shell is
   postMessage-only, identity = `event.source` window comparison.
 - The owner cookie **authenticates the human**, and humans act only from
-  **chrome** — the shell, plus components whose manifest carries the host-set
-  trust flag `chrome: true` (e.g. tiles/organisations, which deliberately
-  raw-fetches as the signed-in user). Chrome frames are never sandboxed.
+  **chrome** — the shell, plus components whose manifest asks for
+  `chrome: true` AND that are shipped chrome (tiles/organisations, which
+  deliberately raw-fetches as the signed-in user) or approved by a workspace
+  admin in xbind-owned state (D118: the manifest is writable from the tile's
+  own terminals, so the flag alone is only a request). Chrome frames are
+  never sandboxed.
 - The per-frame token is the tile's **only credential** and now authenticates
   **standalone** (no cookie required): sandboxed frames hold nothing else.
   `xbin.fetch()`/`xbin.ws()` attach it; renewal at `/api/xbin/frame-token`

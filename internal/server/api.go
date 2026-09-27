@@ -28,6 +28,7 @@ func (s *Server) registerCoreAPI() {
 	s.RegisterAPI("POST /impersonate/stop", s.apiImpersonateStop) // …and back
 	s.registerTermAPI()                                           // the session directory (termsessions.go, D73)
 	s.registerNativeAPI()                                         // the workspace's native-runtime switch (native.go)
+	s.registerChromeAPI()                                         // admin-approved chrome (chrome.go, D118)
 }
 
 // apiGPUs lists the host GPUs available for gpu:* grants / the terminal picker.
@@ -142,6 +143,10 @@ type componentInfo struct {
 	// Chrome marks trusted workspace chrome (plans/auth.md §6): bx-frame does
 	// NOT sandbox these frames — they act as the signed-in human.
 	Chrome bool `json:"chrome,omitempty"`
+	// ChromeRequested: the manifest says `chrome: true` but no workspace
+	// admin approved it (D118), so the tile runs sandboxed like any other
+	// until one does (PUT /chrome, bx chrome approve).
+	ChromeRequested bool `json:"chromeRequested,omitempty"`
 	// Sandbox lists the `sandbox` tokens this component's grants unlock beyond
 	// the base set (ND11: cap:open-links → allow-popups allow-popups-to-
 	// escape-sandbox). bx-frame appends them to its iframe attribute; the CSP
@@ -175,7 +180,7 @@ func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
 			Path: c.Path, Scope: c.Scope, Runtime: c.Manifest.Runtime,
 			HasIndex: c.HasIndex, Template: c.IsTemplate(),
 			Deps: c.Manifest.Deps, ManifestErr: c.ManifestErr,
-			Chrome: isChrome(c.Path) || c.Manifest.Chrome,
+			Chrome: s.trustedChrome(c.Path, c), ChromeRequested: s.chromeRequested(c),
 			Native: s.nativeOf(c),
 		}
 		ci.Owner = s.policy().OwnerOf(c.Path)
@@ -209,7 +214,7 @@ func (s *Server) apiComponent(w http.ResponseWriter, r *http.Request) {
 	ci := componentInfo{
 		Path: c.Path, Scope: c.Scope, Runtime: c.Manifest.Runtime,
 		HasIndex: c.HasIndex, Deps: c.Manifest.Deps, ManifestErr: c.ManifestErr,
-		Chrome: isChrome(c.Path) || c.Manifest.Chrome,
+		Chrome: s.trustedChrome(c.Path, c), ChromeRequested: s.chromeRequested(c),
 		Native: s.nativeOf(c),
 	}
 	if !ci.Chrome {

@@ -17,7 +17,7 @@
  * Browser-plane isolation (docs/auth.md §Who is calling): non-chrome components load in a
  * SANDBOXED iframe (opaque origin: no DOM access either way, no storage, no
  * ambient cookie — the tile's only credential is its injected frame token).
- * Chrome components (root, shell, manifest chrome:true) run unsandboxed and
+ * Chrome components (root, shell, admin-approved chrome:true) run unsandboxed and
  * act as the signed-in human. Where the browser supports it, sandboxed frames
  * are also credentialless (no cookies even on the navigation, so the document
  * load authenticates with a bootstrap frame token in the URL). Under strict

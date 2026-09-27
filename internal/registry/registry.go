@@ -56,12 +56,15 @@ type Manifest struct {
 	Uses    []Use    `json:"uses,omitempty"`    // runtime call grant requests
 	Expose  *Expose  `json:"expose,omitempty"`
 	Inject  *bool    `json:"inject,omitempty"` // false disables D4 HTML injection
-	// Chrome marks a component as trusted workspace chrome (plans/auth.md §6):
-	// its frames are NOT sandboxed, so its frontend keeps the ambient session
-	// cookie and acts as the signed-in human (like the shell itself). This is
-	// the highest-trust manifest flag — settable only by editing xbin.json on
-	// the host (the create APIs never write it), never grantable to elements.
-	// root and shell are chrome implicitly.
+	// Chrome ASKS for the component to be trusted workspace chrome
+	// (plans/auth.md §6): frames NOT sandboxed, so its frontend keeps the
+	// ambient session cookie and acts as whoever opens it (like the shell
+	// itself). The tile's own terminals and agents can write this file
+	// (D40), so the flag is only a request: xbind honours it for the shipped
+	// tiles/organisations and for paths a workspace admin approved (D118,
+	// server.trustedChrome); otherwise the tile stays sandboxed and
+	// /components reports chromeRequested. root and shell are chrome
+	// implicitly.
 	Chrome   bool          `json:"chrome,omitempty"`
 	Template *TemplateMeta `json:"template,omitempty"`
 	// Setup is a freeform shell script run once at build time to populate the

@@ -34,7 +34,7 @@ func (s *Server) apiTileAssets(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		found = true
-		if !sandboxedFrame(c.Path, c) {
+		if !s.sandboxedFrame(c.Path, c) {
 			continue
 		}
 		rep, err := assetscan.Scan(c.Dir, c.Path, assetscan.Options{Owner: s.owningComponent})

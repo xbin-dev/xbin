@@ -222,9 +222,10 @@ Full manifest reference (all fields optional):
     "implies": { "auditor": ["reader"] }  // only for custom role names
   },
   "inject": true,               // false = serve HTML byte-exact (rarely wanted)
-  "chrome": false               // HOST-TRUST ONLY: run frames unsandboxed, acting
-                                //   as the signed-in human (like the shell). Never
-                                //   set on components you build as a tenant.
+  "chrome": false               // ASKS to run frames unsandboxed, acting as the
+                                //   viewer (like the shell). Inert until a
+                                //   workspace admin approves it (bx chrome
+                                //   approve, D118); never needed for a normal tile.
 }
 ```
 
@@ -247,7 +248,7 @@ are never scanned.
 Your HTML is served at `/c/<path>/` inside a **sandboxed iframe** (opaque
 origin — no parent/sibling DOM, no `localStorage`/IndexedDB/cookies, no
 ambient session cookie, no new tabs unless granted `cap:open-links`; only
-host-trusted `chrome: true` components run unsandboxed). xbind injects into
+admin-approved `chrome: true` components run unsandboxed). xbind injects into
 `<head>`: the import map
 (`import {LitElement, html, css} from 'lit'` just works, vendored/offline),
 identity metas, and `xbin-client.js`, which gives every component document:

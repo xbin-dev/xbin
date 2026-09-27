@@ -32,26 +32,26 @@ func nativeWorkspace(t *testing.T) (*Server, *auth.Auth) {
 	root := t.TempDir()
 	page := `<!doctype html><html><head><title>t</title></head><body>t</body></html>`
 	for rel, content := range map[string]string{
-		"apps/conv/xbin.json":      `{"runtime":"go"}`,
-		"apps/conv/index.html":     page,
-		"apps/conv/native.js":      `export const tile = 'conv';`,
-		"apps/conv/assets/a.svg":   `<svg/>`,
-		"apps/decl/xbin.json":      `{"native": "./mobile/main.js"}`,
-		"apps/decl/mobile/main.js": `export {}`,
-		"apps/web/xbin.json":       `{}`,
-		"apps/web/index.html":      page,
-		"apps/gone/xbin.json":      `{"native": "mobile/gone.js"}`,
-		"apps/gone/index.html":     page,
-		"apps/linky/xbin.json":     `{"uses":[{"target":"cap:open-links","role":"writer"}]}`,
-		"apps/linky/native.js":     `export {}`,
-		"apps/raw/xbin.json":       `{"inject": false}`,
-		"apps/raw/index.html":      page,
-		"apps/raw/native.js":       `export {}`,
-		"apps/ifc/xbin.json":       `{}`,
-		"apps/ifc/native.js":       `export {}`,
-		"tiles/chrome/xbin.json":   `{"chrome": true}`,
-		"tiles/chrome/index.html":  page,
-		"tiles/chrome/native.js":   `export {}`,
+		"apps/conv/xbin.json":            `{"runtime":"go"}`,
+		"apps/conv/index.html":           page,
+		"apps/conv/native.js":            `export const tile = 'conv';`,
+		"apps/conv/assets/a.svg":         `<svg/>`,
+		"apps/decl/xbin.json":            `{"native": "./mobile/main.js"}`,
+		"apps/decl/mobile/main.js":       `export {}`,
+		"apps/web/xbin.json":             `{}`,
+		"apps/web/index.html":            page,
+		"apps/gone/xbin.json":            `{"native": "mobile/gone.js"}`,
+		"apps/gone/index.html":           page,
+		"apps/linky/xbin.json":           `{"uses":[{"target":"cap:open-links","role":"writer"}]}`,
+		"apps/linky/native.js":           `export {}`,
+		"apps/raw/xbin.json":             `{"inject": false}`,
+		"apps/raw/index.html":            page,
+		"apps/raw/native.js":             `export {}`,
+		"apps/ifc/xbin.json":             `{}`,
+		"apps/ifc/native.js":             `export {}`,
+		"tiles/organisations/xbin.json":  `{"chrome": true}`,
+		"tiles/organisations/index.html": page,
+		"tiles/organisations/native.js":  `export {}`,
 	} {
 		p := filepath.Join(root, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -187,11 +187,11 @@ func TestNativeRuntimeDocument(t *testing.T) {
 
 	// No native entry → 404, saying why.
 	for url, why := range map[string]string{
-		"/c/apps/web/?native=1":         "no native app UI",
-		"/c/apps/gone/?native=1":        "no such file",
-		"/c/tiles/chrome/?native=1":     "trusted chrome",
-		"/c/apps/nope/?native=1":        "",
-		"/c/apps/conv/assets/?native=1": "no such tile",
+		"/c/apps/web/?native=1":            "no native app UI",
+		"/c/apps/gone/?native=1":           "no such file",
+		"/c/tiles/organisations/?native=1": "trusted chrome",
+		"/c/apps/nope/?native=1":           "",
+		"/c/apps/conv/assets/?native=1":    "no such tile",
 	} {
 		w := get(url)
 		if w.Code != 404 || !strings.Contains(w.Body.String(), why) {
@@ -459,13 +459,13 @@ func TestComponentsNative(t *testing.T) {
 		got[c.Path] = string(c.Native)
 	}
 	want := map[string]string{
-		"apps/conv":    `{"entry":"native.js"}`,
-		"apps/decl":    `{"entry":"mobile/main.js"}`,
-		"apps/linky":   `{"entry":"native.js"}`,
-		"apps/raw":     `{"entry":"native.js"}`,
-		"apps/web":     "",
-		"apps/gone":    "",
-		"tiles/chrome": "",
+		"apps/conv":           `{"entry":"native.js"}`,
+		"apps/decl":           `{"entry":"mobile/main.js"}`,
+		"apps/linky":          `{"entry":"native.js"}`,
+		"apps/raw":            `{"entry":"native.js"}`,
+		"apps/web":            "",
+		"apps/gone":           "",
+		"tiles/organisations": "",
 	}
 	for p, wv := range want {
 		if got[p] != wv {

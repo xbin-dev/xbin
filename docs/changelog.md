@@ -12,6 +12,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-27
 
+- **BREAKING — security: `chrome: true` needs a workspace admin's
+  approval** (D118, [migration](changes/2026-09-27-chrome-needs-approval.md)).
+  A tile's own xbin.json is writable from its terminals and coding agents,
+  and chrome runs unsandboxed as whoever opens the tile, so the flag alone
+  no longer unsandboxes anything. Besides `root`, `shell` and the shipped
+  `tiles/organisations`, a tile is chrome only once an admin approves it:
+  `bx chrome approve <tile>` / `revoke`, `bx chrome` to list, or
+  `GET`/`PUT /api/xbin/chrome` (admin). Until then it is served sandboxed.
+  `/components` reports it as `chrome: false, chromeRequested: true`, and
+  `bx doctor` lists it. Approvals live in `data/users.json`, and a non-admin
+  can't create a tile at an approved path.
+
 - **Admin console: runtime → sandboxes, and the sandbox in the component
   list** (D112, [isolation.md](isolation.md) §VM sandboxes). A new tab lists
   every sandbox xbind runs — backend generations, terminals, agent sessions

@@ -633,8 +633,9 @@ renders natively — web and iOS agree on what a document is:
 
 - **Your native UI runs as your tile.** Same frame token, grants and
   opaque-origin sandbox as `index.html`; the user's credential never reaches
-  tile code. Trusted chrome (`chrome: true` tiles, the shell) never gets a
-  native UI.
+  tile code. Trusted chrome (the shell, admin-approved `chrome: true`
+  tiles) never gets a native UI; an unapproved `chrome: true` tile is
+  sandboxed like any other and does.
 - **No device APIs exist** for tiles: no camera, location, contacts, files,
   notifications. Where the user picks something (the composer's
   attachments), app UI does the picking and your code gets the result.

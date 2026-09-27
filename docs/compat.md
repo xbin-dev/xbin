@@ -71,7 +71,10 @@ migrations is checked against it.
 11. **Enforcement.** A builder-visible change needs a `docs/changelog.md`
     entry; one that requires an operator action needs a migration note under
     `docs/changes/`; CI verifies what it can. When a silent path has to
-    become an error, it warns for one release first.
+    become an error, it warns for one release first — except a security
+    hole, which closes in the release that finds it, with a changelog entry
+    and a migration note (e.g. D118: `chrome: true` needs an admin's
+    approval).
 
 ## Tile asset URLs (strict tile asset gating)
 

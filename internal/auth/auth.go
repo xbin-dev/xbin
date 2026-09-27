@@ -654,7 +654,7 @@ func subtleEqual(a, b string) bool {
 // TileContext reports Fetch-Metadata evidence that a cookie-bearing request
 // originates from a sandboxed tile frame (an opaque origin — same-origin with
 // nothing, so everything it initiates computes cross-site) rather than from
-// unsandboxed chrome (the shell, chrome-flagged components), where the cookie
+// unsandboxed chrome (the shell, approved chrome tiles), where the cookie
 // is legitimate. The cookie is worthless inside a tile by design
 // (plans/auth.md §6): a hostile tile omitting its frame token and raw-fetching
 // the ambient cookie must NOT authenticate as the human.

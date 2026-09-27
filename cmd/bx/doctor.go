@@ -296,6 +296,7 @@ func cmdDoctor() error {
 	// Strict tile asset gating (docs/auth.md): absolute /c/ URLs, inject:false.
 	if comps != nil {
 		doctorTileAssets(warn, ok)
+		doctorChrome(warn) // chrome requests awaiting an admin (chrome.go)
 	}
 
 	// inotify budget (the #1 support issue per plans/deployment.md).

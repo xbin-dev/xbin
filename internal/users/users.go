@@ -262,6 +262,9 @@ type Store struct {
 	// nativeRuntimeOff turns the xbin app's native tile UIs off for the
 	// workspace (native.go).
 	nativeRuntimeOff bool
+	// chrome: the tiles a workspace admin approved as trusted chrome (D118,
+	// chrome.go) — a manifest's `chrome: true` alone never unsandboxes one.
+	chrome map[string]bool
 }
 
 // Open loads (or starts empty) the user store under dataDir.
@@ -301,6 +304,7 @@ func Open(dataDir string) (*Store, error) {
 		PersonalDefaults   PersonalDefaults          `json:"personalDefaults"`
 		PasswordLoginOff   bool                      `json:"passwordLoginDisabled"`
 		NativeRuntimeOff   bool                      `json:"nativeRuntimeDisabled"`
+		ChromeTiles        []string                  `json:"chromeTiles"`
 	}
 	if err := json.Unmarshal(b, &doc); err != nil {
 		return nil, fmt.Errorf("users.json: %w", err)
@@ -327,6 +331,7 @@ func Open(dataDir string) (*Store, error) {
 	}
 	s.passwordLoginDisabled = doc.PasswordLoginOff && s.sso.Enabled()
 	s.nativeRuntimeOff = doc.NativeRuntimeOff
+	s.chrome = chromeSet(doc.ChromeTiles)
 	if s.owners == nil {
 		s.owners = map[string]string{}
 	}
@@ -675,6 +680,9 @@ func (s *Store) persistLocked() error {
 	}
 	if s.nativeRuntimeOff {
 		doc["nativeRuntimeDisabled"] = true
+	}
+	if len(s.chrome) > 0 {
+		doc["chromeTiles"] = s.chromeTilesLocked()
 	}
 	if len(s.orgs) > 0 {
 		orgs := make([]*Org, 0, len(s.orgs))
