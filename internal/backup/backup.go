@@ -18,6 +18,13 @@
 //
 //	deployments/record.json          the deployment record, verbatim
 //	deployments/checkpoints/…        its checkpoint store's git data: packed-refs, refs/…, objects/…
+//	deployments/registrations/<d>/…  deployment d's registration files (d is never main)
+//
+// That is a main archive: schema 1, whatever the tile has. A deployment
+// archive holds one deployment's data namespace beyond main and nothing
+// else — no source, no terminal layer, no registrations in its manifest —
+// under the same data/ layout, with Deployment naming it and schema 2, so an
+// older xbind refuses it instead of restoring it into main's keys.
 package backup
 
 import (
@@ -35,8 +42,17 @@ import (
 	"github.com/xbin-dev/xbin/internal/fsutil"
 )
 
-// Schema is bumped when the layout changes incompatibly.
+// Schema is a main archive's schema, which stays 1: an older xbind restores
+// a main archive of any tile, skipping the sections it doesn't know.
 const Schema = 1
+
+// SchemaDeployment is a deployment archive's schema. An older reader refuses
+// it ("upgrade to restore") rather than put a deployment's data into main's
+// keys.
+const SchemaDeployment = 2
+
+// MaxSchema is the newest schema this xbind reads.
+const MaxSchema = SchemaDeployment
 
 // Logical path prefixes inside the tar.
 const (
@@ -55,18 +71,20 @@ const (
 // xbind's restore — which has no arm for the prefix — skips them, and
 // restores the archive as a tile in the zero state.
 const (
-	DeploymentsPrefix = "deployments/"
-	RecordName        = "deployments/record.json"  // the tile's deployment record, verbatim
-	CheckpointsPrefix = "deployments/checkpoints/" // its checkpoint store, by its path in the bare repository
+	DeploymentsPrefix   = "deployments/"
+	RecordName          = "deployments/record.json"    // the tile's deployment record, verbatim
+	CheckpointsPrefix   = "deployments/checkpoints/"   // its checkpoint store, by its path in the bare repository
+	RegistrationsPrefix = "deployments/registrations/" // <deployment>/<file>: a deployment's registration files
 )
 
 // Manifest is the self-describing header. Everything needed to place the tar's
 // files back without consulting local state lives here.
 type Manifest struct {
 	Schema      int               `json:"schema"`
-	Component   string            `json:"component"` // path = identity + restore target
-	Scope       string            `json:"scope"`     // scope path ("" = workspace scope)
-	ScopeRoot   bool              `json:"scopeRoot"` // component roots its scope → data included
+	Component   string            `json:"component"`            // path = identity + restore target
+	Deployment  string            `json:"deployment,omitempty"` // a deployment archive's: whose namespace data/ holds (absent: main)
+	Scope       string            `json:"scope"`                // scope path ("" = workspace scope)
+	ScopeRoot   bool              `json:"scopeRoot"`            // component roots its scope → data included
 	Resources   map[string]string `json:"resources,omitempty"`
 	XBinVersion string            `json:"xbinVersion"`
 	Created     string            `json:"created"` // RFC3339
@@ -92,6 +110,12 @@ type Deployments struct {
 	Archives map[string]string `json:"archives,omitempty"`
 }
 
+// DeploymentArchive reports whether m is a deployment archive's: one
+// deployment's data, restored only into a data namespace, never as a tile.
+func (m Manifest) DeploymentArchive() bool {
+	return m.Schema >= SchemaDeployment || m.Deployment != ""
+}
+
 func (m Manifest) Has(part string) bool {
 	for _, p := range m.Includes {
 		if p == part {
@@ -106,9 +130,12 @@ type Writer struct{ tw *tar.Writer }
 
 func NewWriter(w io.Writer) *Writer { return &Writer{tw: tar.NewWriter(w)} }
 
-// Manifest writes backup.json. Call it first.
+// Manifest writes backup.json. Call it first. The caller sets the schema
+// (SchemaDeployment for a deployment archive); unset is a main archive's.
 func (w *Writer) Manifest(m Manifest) error {
-	m.Schema = Schema
+	if m.Schema == 0 {
+		m.Schema = Schema
+	}
 	b, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return err
@@ -276,7 +303,7 @@ func NewReader(r io.Reader) (*Reader, error) {
 	if err := json.NewDecoder(tr).Decode(&m); err != nil {
 		return nil, err
 	}
-	if m.Schema > Schema {
+	if m.Schema > MaxSchema {
 		return nil, errors.New("backup: archive schema newer than this xbin — upgrade to restore")
 	}
 	return &Reader{tr: tr, M: m}, nil
