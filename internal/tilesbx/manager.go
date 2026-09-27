@@ -319,7 +319,7 @@ func newBox() *box {
 
 // States a sandbox is in. StateCreating is a clone whose copy still runs
 // (Def.Pending "clone"): every call but GET, list and DELETE answers 409
-// state until it ends stopped, running or error (WP-20 sets it).
+// state until it ends stopped, running or error (clone.go).
 const (
 	StateCreating = "creating"
 	StateStopped  = "stopped"
