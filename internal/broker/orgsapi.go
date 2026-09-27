@@ -489,8 +489,8 @@ func (b *Broker) apiOwnerTransfer(w http.ResponseWriter, r *http.Request) {
 	// needs the pre-state); the new ceiling is owner-parameterized, so it is
 	// identical either side of SetOwner.
 	rep := b.transferPreview(p, st, body.Tile, body.To)
-	if err := st.SetOwner(body.Tile, body.To); err != nil {
-		server.WriteError(w, http.StatusBadRequest, err.Error())
+	if code, err := b.moveOwner(st, body.Tile, body.To); err != nil { // SetOwner, the deployment record with it
+		server.WriteError(w, code, err.Error())
 		return
 	}
 	rep.Unbound = b.executeTransferEffects(body.Tile, rep)

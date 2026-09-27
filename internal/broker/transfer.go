@@ -1,8 +1,11 @@
 package broker
 
 import (
+	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
@@ -231,6 +234,47 @@ func (b *Broker) apiOwnerPreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	server.WriteJSON(w, http.StatusOK, b.transferPreview(p, st, tile, to))
+}
+
+// ownerMoves makes each transfer's move one step: its deployment record
+// rewrite and its owner store write never interleave with another's.
+var ownerMoves sync.Mutex
+
+// moveOwner is the transfer's move: tile's owner becomes to, and its
+// deployment record's owner ref follows in the same step (P29), so a pinned
+// primary stays pinned across the restart executeTransferEffects makes.
+// The record is rewritten before st.SetOwner: the deployments index compares
+// a record's owner ref with the owner store on every lookup and accepts the
+// former owner only until the store moves, so a record rewritten after it
+// would already read as inert, and the tile would restart onto its work
+// tree. A record that can't be rewritten stops the transfer before anything
+// moves; when SetOwner fails, the record follows whatever the store then
+// says. A tile without a record: SetOwner alone, as before tile deployments.
+// On an error, the status is the one to answer with.
+func (b *Broker) moveOwner(st *users.Store, tile, to string) (int, error) {
+	kind, id, err := users.ParseOwner(to)
+	if err != nil {
+		return http.StatusBadRequest, err
+	}
+	ref := "" // the owner ref as SetOwner stores it, its id normalized
+	if kind != "" {
+		ref = kind + ":" + id
+	}
+	ownerMoves.Lock()
+	defer ownerMoves.Unlock()
+	if err := b.rewriteDeploymentOwner(tile, ref); err != nil {
+		return http.StatusInternalServerError, fmt.Errorf("the tile's deployment record can't follow the transfer, so nothing moved: %w", err)
+	}
+	if err := st.SetOwner(tile, to); err != nil {
+		if now := st.Owner(tile); now != ref {
+			if rerr := b.rewriteDeploymentOwner(tile, now); rerr != nil {
+				slog.Error("owner transfer failed, and the deployment record couldn't follow the owner back",
+					"tile", tile, "owner", now, "err", rerr)
+			}
+		}
+		return http.StatusBadRequest, err
+	}
+	return 0, nil
 }
 
 // executeTransferEffects runs the §3 side effects after a successful
