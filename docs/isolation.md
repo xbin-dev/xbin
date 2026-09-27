@@ -124,6 +124,9 @@ component's directory. (The **root terminal** — a shell on the workspace root 
 is **disabled**; workspace-wide work happens in the browser UI or a host shell.)
 A terminal (or agent session) whose sandbox cannot be set up does not open —
 the error says why; it never falls back to a shell on the host (D78).
+An isolated terminal's `PATH` is the rootfs's own, so the `bx` it runs is the
+rootfs's build (`/usr/local/bin/bx`), not the one in xbind's `XBIN_BIN`
+directory: keep the rootfs as new as the daemon for `bx` to know its routes.
 
 How a component terminal sees the workspace depends on who opened it (D40):
 
