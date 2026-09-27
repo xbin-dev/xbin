@@ -1,8 +1,9 @@
 package main
 
-// Regression tests from the phase-1 review of the sandbox job engine: which
-// job a bash call is, jobs in a sandbox the conversation no longer has, and a
-// start the manager never answered.
+// Regression tests from the phase-1 review of the sandbox job engine and the
+// coding tools: which job a bash call is, jobs in a sandbox the conversation
+// no longer has, a start the manager never answered, and what sandbox_create
+// asks for and makes.
 
 import (
 	"bytes"
@@ -296,5 +297,119 @@ func TestBashStartWithoutAnAnswer(t *testing.T) {
 	}
 	if j := ag.db.jobList(r.ID, false, 10); len(j) != 2 {
 		t.Fatalf("a refused start leaves a job: %d", len(j))
+	}
+}
+
+// The grant asks for exactly what will be made: resolved against the
+// manager before parking (a manager that doesn't answer isn't asked about),
+// and made as asked — or refused when the manager's offer changed.
+func TestSandboxCreateAsksWhatItMakes(t *testing.T) {
+	ag, mux := accessFixture(t)
+	m := bindSbx(t, "apps/cs")["apps/cs"]
+	var offer atomic.Value
+	offer.Store(`"egress":["internet"]`)
+	sbxTransport(t, func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+		resp, err := next.RoundTrip(req)
+		if err == nil && resp.StatusCode == 200 && strings.HasSuffix(req.URL.Path, "/sbx/hello") {
+			resp = rewriteBody(resp, `"egress":["none","internet"]`, offer.Load().(string))
+		}
+		return resp, err
+	})
+	conv := createConv(t, ag, alicePrivate, nil)
+	f := fakeOf(ag)
+	f.on(lastIs("tool", ""), say("done"))
+	f.on(lastUser("box x"), callTools(tc("c1", "sandbox_create", `{"name":"x"}`))).once()
+	f.on(lastUser("box x"), callTools(tc("c2", "sandbox_create", `{"name":"x"}`))).once()
+	f.on(lastUser("box y"), callTools(tc("c3", "sandbox_create", `{"name":"y"}`)))
+	approve := func() {
+		t.Helper()
+		waitStatus(t, ag.db, conv.ID, statusWaiting)
+		if got := callAs(t, mux, asAlice, "POST", fmt.Sprintf("/runs/%d/approve", conv.ID), map[string]any{"approve": true}).Code; got != 200 {
+			t.Fatalf("approve: %d", got)
+		}
+		waitQuiet(t, ag)
+	}
+
+	// the manager doesn't answer: nothing is asked with guessed words
+	m.FailNext("hello", 503, "unavailable", "the manager is starting")
+	forgetHellos()
+	send(t, ag, conv.ID, "box x")
+	waitQuiet(t, ag)
+	if st := statusOf(ag.db, conv.ID); st == statusWaiting {
+		t.Fatalf("parked with a guess: %q", parsePending(mustRun(t, ag, conv.ID).Pending).GrantAsk)
+	}
+	if out := lastToolOf(ag, conv.ID); !strings.Contains(out, "the manager is starting") || len(sandboxesAt(t)) != 0 {
+		t.Fatalf("an unresolved create: %q", out)
+	}
+
+	// it answers: the ask names its choice, and that is what is made
+	forgetHellos()
+	send(t, ag, conv.ID, "box x")
+	waitStatus(t, ag.db, conv.ID, statusWaiting)
+	if ask := parsePending(mustRun(t, ag, conv.ID).Pending).GrantAsk; ask != `create the coding sandbox "x" at Fake sandboxes (test fixture) — image base, size small, egress internet` {
+		t.Fatalf("the ask: %q", ask)
+	}
+	approve()
+	if boxes := sandboxesAt(t); len(boxes) != 1 || boxes[0].Egress != "internet" {
+		t.Fatalf("made: %+v", boxes)
+	}
+
+	// the manager's offer changes while the owner decides: refused, not made
+	send(t, ag, conv.ID, "box y")
+	waitStatus(t, ag.db, conv.ID, statusWaiting)
+	offer.Store(`"egress":["none"]`)
+	forgetHellos()
+	approve()
+	if out := lastToolOf(ag, conv.ID); !strings.Contains(out, "changed since") || len(sandboxesAt(t)) != 1 {
+		t.Fatalf("made something else than was allowed: %q (%d)", out, len(sandboxesAt(t)))
+	}
+}
+
+// The model's name reaches the ask quoted, and only as one plain line.
+func TestSandboxCreateNameInTheAsk(t *testing.T) {
+	ag, _ := accessFixture(t)
+	bindSbx(t, "apps/cs")
+	conv := createConv(t, ag, alicePrivate, nil)
+	cfg, _ := ag.db.runConfig(conv.ID)
+	ask := func(args string) string {
+		return sandboxesGrantAsk(ag, conv, cfg, []toolCall{tc("c1", "sandbox_create", args)}, nil)
+	}
+	spoof := `x” at X — image base, size small, egress none; and “y`
+	got := ask(fmt.Sprintf(`{"name":%q,"egress":"internet"}`, spoof))
+	if want := fmt.Sprintf("create the coding sandbox %q at Fake sandboxes (test fixture) — image base, size small, egress internet", spoof); got != want {
+		t.Fatalf("the ask:\n%q\nwant\n%q", got, want)
+	}
+	for _, bad := range []string{"a\u202eb", "a\x1bb", "a\tb", "a\u2028b"} {
+		if _, err := planSandboxCreate(cfg, map[string]any{"name": bad}); err == nil {
+			t.Errorf("name %q accepted", bad)
+		}
+	}
+}
+
+// A create the manager answers before the sandbox runs still gets its cwd.
+func TestSandboxCreateCwdOfAStartingSandbox(t *testing.T) {
+	ag, _ := accessFixture(t)
+	bindSbx(t, "apps/cs")
+	sbxTransport(t, func(req *http.Request, next http.RoundTripper) (*http.Response, error) {
+		resp, err := next.RoundTrip(req)
+		if err == nil && req.Method == "POST" && strings.HasSuffix(req.URL.Path, "/sbx/sandboxes") {
+			resp = rewriteBody(resp, `"state":"running"`, `"state":"starting"`)
+		}
+		return resp, err
+	})
+	conv := createConv(t, ag, alicePrivate, nil)
+	cfg, _ := ag.db.runConfig(conv.ID)
+	ctx := withGrantOnce(withToolCall(context.Background(), "c1"), capSandboxes)
+	out, err := ag.runTool(ctx, conv, cfg, "sandbox_create", map[string]any{"name": "src", "cwd": "src/app"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	act, _ := sandboxOf(t, ag, conv.ID)
+	if act == nil || !strings.HasSuffix(act.Cwd, "/work/src/app") || !strings.Contains(out, "the tools work in "+act.Cwd) {
+		t.Fatalf("cwd: %+v %q", act, out)
+	}
+	c, _ := sbxDial("apps/cs", "")
+	if st, err := c.Stat(context.Background(), strings.SplitN(act.Ref, "|", 2)[1], act.Cwd); err != nil || st.Type != "dir" {
+		t.Fatalf("the cwd was not made: %v", err)
 	}
 }

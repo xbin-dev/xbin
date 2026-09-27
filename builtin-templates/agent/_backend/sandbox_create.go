@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -136,8 +138,8 @@ func planSandboxCreate(cfg Config, args map[string]any) (*sbxCreatePlan, error) 
 	}
 	p := &sbxCreatePlan{Name: strings.TrimSpace(str(args["name"])), Image: strings.TrimSpace(str(args["image"])),
 		Size: strings.TrimSpace(str(args["size"])), Egress: strings.TrimSpace(str(args["egress"])), cls: cls}
-	if p.Name == "" || utf8.RuneCountInString(p.Name) > 64 || strings.ContainsAny(p.Name, "\x00\n\r") {
-		return nil, fmt.Errorf("sandbox_create needs a name: 1–64 characters on one line")
+	if p.Name == "" || utf8.RuneCountInString(p.Name) > 64 || strings.IndexFunc(p.Name, notPlainRune) >= 0 {
+		return nil, fmt.Errorf("sandbox_create needs a name: 1–64 characters on one line, no control characters")
 	}
 	ms := classManagers(cls)
 	if len(ms) == 0 {
@@ -236,10 +238,62 @@ func (p *sbxCreatePlan) resolve(ctx context.Context) error {
 	return nil
 }
 
-// words is the plan for the owner's approval card.
+// words is the plan for the owner's approval card, resolved: what will be
+// made. The model's words in it are quoted (the name) or plain ids, so they
+// can't pass for the card's own.
 func (p *sbxCreatePlan) words() string {
-	return fmt.Sprintf("the coding sandbox “%s” at %s — image %s, size %s, egress %s",
-		p.Name, p.Title, orStr(p.Image, "default"), orStr(p.Size, "default"), orStr(p.Egress, "default"))
+	return fmt.Sprintf("the coding sandbox %q at %s — image %s, size %s, egress %s",
+		clipRunes(p.Name, 64), p.Title, askToken(p.Image), askToken(p.Size), askToken(p.Egress))
+}
+
+// notPlainRune: a character a name shown to the owner may not carry — a
+// control or format character (bidi overrides among them), or a line break.
+func notPlainRune(r rune) bool {
+	return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.In(r, unicode.Zl, unicode.Zp)
+}
+
+// askToken is a model-supplied id in the ask: as is when it is a plain id,
+// else quoted (and clipped).
+func askToken(s string) string {
+	if s == "" {
+		return "default"
+	}
+	if len(s) <= 64 && strings.IndexFunc(s, func(r rune) bool {
+		return !(r < utf8.RuneSelf && (r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("._:/@+-", r)))
+	}) < 0 {
+		return s
+	}
+	return fmt.Sprintf("%q", clipRunes(s, 64))
+}
+
+func clipRunes(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	return string([]rune(s)[:n])
+}
+
+// askedIn: the owner's ask (sandboxesGrantAsk) names exactly this plan.
+func (p *sbxCreatePlan) askedIn(ask string) bool {
+	w := p.words()
+	return ask == "create "+w || strings.HasPrefix(ask, "create "+w+"; and ") ||
+		strings.Contains(ask, "; and "+w+"; and ") || strings.HasSuffix(ask, "; and "+w)
+}
+
+// resolved is a call planned and resolved against its manager (its hello,
+// cached) within the hello's timeout; nil when it can't be — the call runs
+// and says why instead of parking on a guess.
+func resolved(cfg Config, args map[string]any) *sbxCreatePlan {
+	p, err := planSandboxCreate(cfg, args)
+	if err != nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sbxHelloTimeout)
+	defer cancel()
+	if p.resolve(ctx) != nil {
+		return nil
+	}
+	return p
 }
 
 // --- the grant -------------------------------------------------------------------
@@ -260,27 +314,31 @@ func (ag *Agent) sandboxCreateRefusal(run *Run, cfg Config) string {
 	return ""
 }
 
-// sandboxesGrantNeeded (grantDefs): a sandbox_create call that could run,
-// with no live grant. One that would be refused runs and says why.
+// sandboxesGrantNeeded (grantDefs): a sandbox_create call that could run —
+// resolved against its manager, so the ask can say what it makes — with no
+// live grant. One that would be refused, or that the manager can't resolve
+// now, runs and says why.
 func sandboxesGrantNeeded(ag *Agent, run *Run, cfg Config, calls []toolCall, own map[string]bool) bool {
 	for _, c := range calls {
 		if c.Function.Name != "sandbox_create" || cfg.denied("sandbox_create") {
 			continue
 		}
 		args, _ := callArgs(c, own)
-		if _, err := planSandboxCreate(cfg, args); err != nil || ag.sandboxCreateRefusal(run, cfg) != "" {
+		if _, err := planSandboxCreate(cfg, args); err != nil || ag.sandboxCreateRefusal(run, cfg) != "" ||
+			ag.db.liveGrant(rootOf(run), capSandboxes) {
 			continue
 		}
-		if !ag.db.liveGrant(rootOf(run), capSandboxes) {
+		if resolved(cfg, args) != nil {
 			return true
 		}
 	}
 	return false
 }
 
-// sandboxesGrantAsk (grantDefs): what the step's creates will make, with the
-// manager's defaults (asked once; its words without them if it doesn't
-// answer).
+// sandboxesGrantAsk (grantDefs): exactly what the step's creates will make —
+// the manager, image, size and egress, defaults resolved. A call its manager
+// can't resolve now isn't in it (allowed with the rest, it refuses: its
+// words aren't what the owner allowed).
 func sandboxesGrantAsk(ag *Agent, run *Run, cfg Config, calls []toolCall, own map[string]bool) string {
 	var parts []string
 	for _, c := range calls {
@@ -288,14 +346,9 @@ func sandboxesGrantAsk(ag *Agent, run *Run, cfg Config, calls []toolCall, own ma
 			continue
 		}
 		args, _ := callArgs(c, own)
-		p, err := planSandboxCreate(cfg, args)
-		if err != nil {
-			continue
+		if p := resolved(cfg, args); p != nil {
+			parts = append(parts, p.words())
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), sbxHelloTimeout)
-		_ = p.resolve(ctx)
-		cancel()
-		parts = append(parts, p.words())
 	}
 	if len(parts) == 0 {
 		return ""
@@ -350,12 +403,17 @@ func (ag *Agent) toolSandboxCreate(ctx context.Context, run *Run, cfg Config, ar
 		return "", err
 	}
 	root := rootOf(run)
+	if err := p.resolve(ctx); err != nil {
+		return "", err
+	}
 	if !ag.db.liveGrant(root, capSandboxes) && !grantedOnce(ctx, capSandboxes) {
 		// execTools parks for the grant first; this is the backstop
 		return "", errors.New(grantOf(capSandboxes).Forbid)
 	}
-	if err := p.resolve(ctx); err != nil {
-		return "", err
+	if ask, ok := grantAskOf(ctx, capSandboxes); ok && !p.askedIn(ask) {
+		// the owner allowed what the ask said; the manager's offer changed since
+		return "", fmt.Errorf("what this call would make has changed since the owner allowed it (they allowed: %s; it would now be %s) — call sandbox_create again to ask them",
+			strings.TrimPrefix(ask, "create "), p.words())
 	}
 	stored, err := ag.db.runConfig(root)
 	if err != nil {
@@ -458,7 +516,9 @@ func (ag *Agent) createAt(ctx context.Context, conn *sbxConn, p *sbxCreatePlan, 
 }
 
 // createCwd is where the tools will work in a new sandbox: "" (its workdir),
-// or the asked directory, made when it is missing.
+// or the asked directory, made when it is missing — always: a sandbox the
+// manager answered for before it runs is waited for, and a stopped one starts
+// on the file operation (the contract).
 func (ag *Agent) createCwd(ctx context.Context, conn *sbxConn, box *sbxSandbox, cwd string) (string, error) {
 	if cwd == "" {
 		return "", nil
@@ -470,8 +530,8 @@ func (ag *Agent) createCwd(ctx context.Context, conn *sbxConn, box *sbxSandbox, 
 	if !ok {
 		return "", fmt.Errorf("cwd: an absolute path in the sandbox, or one relative to its workdir")
 	}
-	if box.State != "running" {
-		return c, nil // checked, and made, when it is used
+	if err := awaitStarted(ctx, conn, box); err != nil {
+		return "", err
 	}
 	st, err := conn.Stat(ctx, box.ID, c)
 	switch {
@@ -485,6 +545,37 @@ func (ag *Agent) createCwd(ctx context.Context, conn *sbxConn, box *sbxSandbox, 
 		return "", fmt.Errorf("cwd: %s isn't a directory in the new sandbox", c)
 	}
 	return c, nil
+}
+
+// createStartWait bounds waiting for a new sandbox that is still being made
+// or started.
+var createStartWait = 2 * time.Minute
+
+// awaitStarted waits while a new sandbox is creating or starting (asked
+// again with a growing pause, within createStartWait).
+func awaitStarted(ctx context.Context, conn *sbxConn, box *sbxSandbox) error {
+	until := time.Now().Add(createStartWait)
+	pause := 100 * time.Millisecond
+	for state := box.State; state == "creating" || state == "starting"; {
+		if !time.Now().Before(until) {
+			return fmt.Errorf("the new sandbox is still %s after %s — its working directory can't be made yet", state, fmtDur(createStartWait))
+		}
+		select {
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		case <-time.After(pause):
+		}
+		pause = min(2*pause, 2*time.Second)
+		b, err := conn.Get(ctx, box.ID)
+		if err != nil {
+			return err
+		}
+		state = b.State
+		if state == "error" || state == "deleting" {
+			return fmt.Errorf("the new sandbox is %s (%s)", state, orStr(b.StateDetail, "its manager says no more"))
+		}
+	}
+	return nil
 }
 
 // addSandbox binds b into cfg: the active sandbox when none is active (or it

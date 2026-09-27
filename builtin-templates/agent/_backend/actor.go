@@ -381,7 +381,7 @@ func (e *Engine) turn(a *actor, run *Run, approval *InboxRow) {
 			}
 			approved = p.ToolCalls
 			if p.Grant != "" {
-				grantCtx = withGrantOnce(ctx, p.Grant)
+				grantCtx = withGrantAsked(withGrantOnce(ctx, p.Grant), p.Grant, p.GrantAsk)
 			}
 		}
 	}

@@ -102,7 +102,7 @@ func TestSandboxCreateGrantFlow(t *testing.T) {
 
 	send(t, ag, conv.ID, "box api-dev")
 	p := parked()
-	if p.Grant != capSandboxes || !strings.Contains(p.GrantAsk, "“api-dev” at Fake sandboxes (test fixture) — image base, size small, egress none") {
+	if p.Grant != capSandboxes || p.GrantAsk != `create the coding sandbox "api-dev" at Fake sandboxes (test fixture) — image base, size small, egress none` {
 		t.Fatalf("parked on %+v", p)
 	}
 	var needs struct{ Items []map[string]any }
@@ -244,7 +244,7 @@ func TestSandboxCreateRefusals(t *testing.T) {
 		{"an unknown size", owned, `{"name":"x","size":"huge"}`, `has no size "huge" — it has small`},
 		{"a cwd in home", owned, `{"name":"x","cwd":"~/src"}`, "cwd: an absolute path"},
 	} {
-		if needs(c.run, c.args) && c.name != "an unknown image" && c.name != "an unknown size" {
+		if needs(c.run, c.args) {
 			t.Errorf("%s: parks for the grant", c.name)
 		}
 		if _, err := call(c.run, c.args); err == nil || !strings.Contains(err.Error(), c.want) {
