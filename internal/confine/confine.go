@@ -81,6 +81,13 @@ type Cmd struct {
 	ReadOnlyDir bool          // bind Dir read-only
 	Timeout     time.Duration // 0 = 2 minutes
 	MaxOutput   int           // per stream; 0 = 64 MiB (the rest is dropped)
+
+	// FSCaps runs the tool with the file capabilities instead of none
+	// (sandbox.Spec.FileCaps): for du, rm and cp -a of a tree sandboxes
+	// wrote (tree.go), which can hold files of other (sub-)uids and modes
+	// their owner locked. Only for fixed tools whose argv no tree content
+	// steers. Isolation off: no effect (a direct run is xbind).
+	FSCaps bool
 }
 
 // Result is what a run printed.
@@ -154,6 +161,7 @@ func Run(ctx context.Context, c Cmd) (Result, error) {
 			HostUID:      os.Getuid(),
 			HostGID:      os.Getgid(),
 			Unprivileged: true, // no capabilities, the syscall block-list: nothing to un-mask with
+			FileCaps:     c.FSCaps,
 		}
 		switch c.Net {
 		case NetHost:

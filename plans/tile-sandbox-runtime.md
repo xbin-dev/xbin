@@ -1373,6 +1373,57 @@ next to its vforking `os.StartProcess`.
     char whiteout and a 0600 file, and `rm -rf` it. This box is single-uid;
     range mode is verified on the QA box.
 - **Parallel:** fully. Rebase with dl/confine-dirfrom.
+- **Landed (branch `p2/cg-backup`) — notes and deviations:**
+  - **`cgroup`** (new `leaf_linux.go`): `AddWith(name, pid, Limits) (leaf
+    string, err error)` returns the registry's `Leaf` (`""` without
+    delegation, no error). `Limits` gains `CPUMax` (µs per 100 ms period,
+    so `vcpus × 100000`) and `MemHigh` (0 = ⅞ of `MemMax`, <0 = none, the
+    VM row). A leaf of the same name is `rmdir`'d first — EBUSY while an
+    orphan populates it fails the start, and a fresh leaf means no stale
+    limits carry over. `Kill` writes `cgroup.kill`, else SIGKILLs every
+    listed pid each round, and **waits** (≤ 5 s) until `populated 0`, so a
+    stop's `Remove` follows directly. `Populated(name) bool`.
+    `Sweep(prefix) ([]string, error)` refuses an empty prefix. Names are
+    one path segment. `AddMem` is now `MemHigh: -1` (same writes).
+  - **Real cgroupfs** (`leaf_integration_test.go`, `linux && integration`):
+    a populated leaf's rmdir is EBUSY, `cgroup.kill` empties a tree, and
+    an unreaped zombie doesn't hold `populated`. It needs a delegated
+    cgroup holding only the test binary, so it isn't in `make
+    integration` (the `go` tool shares its cgroup and it would skip): build
+    with `go test -c` and run under `systemd-run --user --scope -p
+    Delegate=yes` (recipe in the file).
+  - **`sandbox.Spec.FileCaps`** (with `Unprivileged`; wins over `NetAdmin`
+    and `Containers`) in `filecaps_linux.go`: the six caps, the VM jail's
+    block-list (`vmDeny`: backend minus `mknodat`), and nested user
+    namespaces pinned to zero like the VM jail (`setUserNSLimits`).
+  - **`confine`**: `Cmd.FSCaps`, plus the helpers the §8.3 bullets need, in
+    `tree.go`: `DiskUsage(ctx, dir)` (`du -skx`, allocated bytes),
+    `RemoveAll(ctx, dir)` (a confined `find dir -xdev -mindepth 1 -delete`,
+    then xbind `rmdir`s the empty dir — a bind's root can't be removed from
+    inside) and `CopyTree(ctx, src, dst)` (`cp -a --reflink=auto -- src/.
+    dst/`, src bound read-only; plain `-a` in a direct run). Paths are
+    absolute, clean, not `/`, and xbind-created in every component (the
+    bind follows a link there; dl/confine-dirfrom's fd binds can tighten
+    this).
+  - **The integration test** (`confine/tree_linux_test.go`) copies,
+    measures and removes a whiteout, a 0600 and a 0000 file and a sealed
+    dir, plus — where the host delegates a sub-uid range, as this box now
+    does — a 0700 dir and 0600 file `chown`ed to sub-uid 1000, which xbind
+    itself can't read; the copy keeps that owner. The capability-less
+    profile fails the same `cp -a` (the whiteout's `mknodat`, the locked
+    modes) and `find -delete`; `mount`, `mknod c 1 3` and `unshare -U`
+    still fail under the file caps.
+  - **Found, not fixed:** this box has a sub-uid range now, and
+    `internal/sandbox`'s own integration tests `TestSandboxIsolation`
+    (hangs) and `TestSandboxServesUnixSocket` (fails) never call
+    `SetupUserns`, so a range-mode init waits for its maps. Same on the
+    parent commit; the package isn't in `make integration`.
+  - **`sessionWhat`** names `the tile sandbox "<name>" of <tile>` from the
+    registry id (`Entry.Name` is WP-15a's); also fixes "a agent session".
+  - **Not done here:** the term layer's existing `os.RemoveAll` calls
+    (WP-9's restore swap, `ResetEnv`, offload-full) still run as xbind;
+    `confine.RemoveAll` can take them over. No docs or changelog: nothing
+    builder-visible uses the profile until WP-15b/WP-20.
 
 ### WP-9 — Backup and restore never follow planted symlinks (Track B · M) — *an existing D78 gap*
 

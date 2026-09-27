@@ -223,6 +223,19 @@ type Spec struct {
 	// secret masks (unlike a terminal), so no mount/read guard is needed.
 	Containers bool `json:"containers,omitempty"`
 
+	// FileCaps (only meaningful with Unprivileged) is the profile of xbind's
+	// own confined file tools on trees sandboxes wrote — du, rm -rf, cp -a of
+	// an upper (internal/confine's Cmd.FSCaps). Instead of dropping every
+	// capability it keeps the file ones (CHOWN, DAC_OVERRIDE, DAC_READ_SEARCH,
+	// FOWNER, FSETID, SETFCAP), so files other (sub-)uids own, and modes their
+	// owner locked, can be read, copied with their ownership and removed. The
+	// block-list is the backend's minus mknodat (cp -a recreates whiteouts,
+	// FIFOs and sockets; a device node still needs CAP_MKNOD, which is gone),
+	// and nested user namespaces are pinned to zero. The caps reach only files
+	// mapped into the sandbox's user namespace, under its binds
+	// (filecaps_linux.go). Wins over NetAdmin and Containers.
+	FileCaps bool `json:"fileCaps,omitempty"`
+
 	// Restricted (set for untrusted, non-admin *user* terminals) hardens a
 	// terminal beyond the mount/read guards without breaking `apt`: init pins
 	// the user namespace to zero nested user/mount namespaces (the ucount knobs

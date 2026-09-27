@@ -32,7 +32,18 @@ type Limits struct {
 	PidsMax   int64 // pids.max (0 = unlimited)
 	CPUWeight int64 // cpu.weight 1..10000 (0 = default 100). Fair share under
 	//                  contention, full burst when idle — no hard cpu.max.
+	// MemHigh is memory.high, bytes: 0 = ⅞ of MemMax, <0 = none (a VM holds
+	// its guest's memory by design; reclaim below that only stalls it).
+	MemHigh int64
+	// CPUMax is a hard CPU cap (cpu.max): µs of CPU time per 100 ms period,
+	// so 100000 = one CPU; 0 = none. Backends keep bursting on their weight;
+	// a tile sandbox is held to the vCPUs it was sized with
+	// (plans/tile-sandbox-runtime.md §6.2).
+	CPUMax int64
 }
+
+// cpuPeriod is cpu.max's period, µs.
+const cpuPeriod = 100000
 
 // Manager owns xbind's delegated cgroup subtree and per-component leaves.
 type Manager struct {
@@ -116,11 +127,8 @@ func (m *Manager) AddMem(name string, pid int, memMax int64) {
 		return
 	}
 	l := m.limits
-	l.MemMax = 0
+	l.MemMax, l.MemHigh = max(memMax, 0), -1
 	writeLimits(leaf, l)
-	if memMax > 0 {
-		_ = os.WriteFile(filepath.Join(leaf, "memory.max"), []byte(strconv.FormatInt(memMax, 10)), 0o644)
-	}
 	_ = os.WriteFile(filepath.Join(leaf, "cgroup.procs"), []byte(strconv.Itoa(pid)), 0o644)
 }
 
@@ -130,8 +138,13 @@ func writeLimits(leaf string, l Limits) {
 	set := func(file, val string) { _ = os.WriteFile(filepath.Join(leaf, file), []byte(val), 0o644) }
 	if l.MemMax > 0 {
 		set("memory.max", strconv.FormatInt(l.MemMax, 10))
-		// A soft ceiling a little under the hard one: reclaim pressure kicks in
-		// before the OOM kill, so a gradual leak is throttled first.
+	}
+	// A soft ceiling a little under the hard one: reclaim pressure kicks in
+	// before the OOM kill, so a gradual leak is throttled first.
+	switch {
+	case l.MemHigh > 0:
+		set("memory.high", strconv.FormatInt(l.MemHigh, 10))
+	case l.MemHigh == 0 && l.MemMax > 0:
 		set("memory.high", strconv.FormatInt(l.MemMax-l.MemMax/8, 10))
 	}
 	if l.PidsMax > 0 {
@@ -139,6 +152,9 @@ func writeLimits(leaf string, l Limits) {
 	}
 	if l.CPUWeight > 0 {
 		set("cpu.weight", strconv.FormatInt(l.CPUWeight, 10)) // fair share; no cpu.max = burst when idle
+	}
+	if l.CPUMax > 0 {
+		set("cpu.max", strconv.FormatInt(l.CPUMax, 10)+" "+strconv.Itoa(cpuPeriod))
 	}
 }
 
