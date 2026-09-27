@@ -191,9 +191,10 @@ type Resource struct {
 type ScopeManifest struct {
 	Resources map[string]Resource `json:"resources,omitempty"`
 	ImportMap map[string]string   `json:"importMap,omitempty"`
-	// Err says what xbind refused in this scope.json (D118): a data key
-	// another scope holds (scopekeys.go — every resource dropped). Surfaced
-	// on its tiles' ManifestErr.
+	// Err says what xbind refused in this scope.json (D118): resource names
+	// outside the rule (resnames.go — those dropped), a data key another
+	// scope holds (scopekeys.go — every resource dropped). Surfaced on its
+	// tiles' ManifestErr.
 	Err string `json:"-"`
 }
 
@@ -424,6 +425,7 @@ type Registry struct {
 	scopes     map[string]*ScopeManifest // scope path → manifest
 	workspace  WorkspaceManifest
 	keys       scopeKeys // who holds each scope data key (scopekeys.go)
+	wsBadRes   string    // invalid workspace resource names last warned about (resnames.go)
 }
 
 func Open(root string) (*Registry, error) {
@@ -463,6 +465,7 @@ func (r *Registry) Rescan() error {
 		if b, err := os.ReadFile(filepath.Join(p, "scope.json")); err == nil {
 			sm := &ScopeManifest{}
 			if err := jsonc.Unmarshal(b, sm); err == nil {
+				sm.dropInvalidResources(rel) // names steer paths (resnames.go, D118)
 				scopes[rel] = sm
 			} else {
 				scopes[rel] = &ScopeManifest{} // still a scope; error surfaces on component
@@ -507,6 +510,7 @@ func (r *Registry) Rescan() error {
 	}
 
 	r.mu.Lock()
+	r.warnWorkspaceResources(ws)
 	r.keys.resolve(r.Root, scopes) // one holder per data key (D118)
 	for _, c := range comps {
 		if sm := scopes[c.Scope]; sm != nil && sm.Err != "" {
@@ -581,10 +585,15 @@ func (r *Registry) Scopes() map[string]*ScopeManifest {
 	return out
 }
 
+// Workspace returns the workspace manifest. Its Resources leave out names
+// outside the resource name rule (resnames.go, D118) — never provisioned —
+// while MutateWorkspace still writes back what the file declares.
 func (r *Registry) Workspace() WorkspaceManifest {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.workspace
+	ws := r.workspace
+	ws.Resources = validResources(ws.Resources)
+	return ws
 }
 
 // ImportMapFor returns the merged import map for a component: workspace map

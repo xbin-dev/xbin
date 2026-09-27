@@ -12,6 +12,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-27
 
+- **BREAKING (rare) — security: resource names are checked** (D118,
+  [migration](changes/2026-09-27-scope-json-checks.md)). A resource name in
+  scope.json (or the workspace xbin.json) must be letters, digits, `.`, `_`
+  and `-`, start with a letter or digit, and be at most 64 characters.
+  Before this change a name like `../../x` steered where xbind created,
+  initialized and mounted the encrypted volume, and `a/b` could share another
+  scope's kv bucket in backups. An invalid name is now a manifest error on
+  the scope's tiles and is never provisioned. A backup naming one is not
+  restored.
+
 - **BREAKING (rare) — security: one scope per resource data key** (D118,
   [migration](changes/2026-09-27-scope-json-checks.md)). A scope's resource
   data lives under its path with `/` written as `~`. Before this change,

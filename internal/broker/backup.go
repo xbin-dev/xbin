@@ -315,6 +315,9 @@ func (b *Broker) restoreFileDest(scope, rest string) (string, error) {
 	}
 	scopeKey := util.ScopeKey(scope)
 	name, rel, _ := strings.Cut(rest, "/")
+	if !registry.ValidResourceName(name) { // the archive names it (D118)
+		return "", fmt.Errorf("backup entry names resource %q, which isn't a valid resource name", name)
+	}
 	mdir, err := b.resenc.Ensure(resLabel(scopeKey, name), scopeKey, name,
 		b.resSingleTenant(scope, b.resType(scope, name)))
 	if err != nil {
@@ -334,6 +337,11 @@ func (b *Broker) loadKV(scope string, body []byte) error {
 	var dump map[string]map[string]string
 	if err := json.Unmarshal(body, &dump); err != nil {
 		return err
+	}
+	for name := range dump {
+		if !registry.ValidResourceName(name) { // "a/b" would land in another scope's bucket (D118)
+			return fmt.Errorf("backup names kv resource %q, which isn't a valid resource name", name)
+		}
 	}
 	return b.kv.db.Update(func(tx *bolt.Tx) error {
 		for name, kvs := range dump {

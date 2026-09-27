@@ -230,7 +230,9 @@ Full manifest reference (all fields optional):
 ```
 
 Scopes: put a `scope.json` at an app's root dir to declare resources and
-import-map overrides:
+import-map overrides (resource names: letters, digits, `.`, `_`, `-`,
+starting with a letter or digit, at most 64 characters; anything else is a
+manifest error and isn't provisioned):
 
 ```jsonc
 // apps/thing/scope.json

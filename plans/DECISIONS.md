@@ -3607,3 +3607,26 @@ Deviations and refinements made while implementing; all deliberate:
         existing scope's resources.
       - Remembering holders only in memory: a restart would forget which
         scope was first.
+  - **(c) Resource names are one plain segment.**
+    `internal/registry/resnames.go`, `internal/resenc/resenc.go`
+    (`Ensure`), `internal/broker/backup.go` (restore); docs/resources.md.
+    A name from scope.json went unchecked into
+    `data/resources-enc/<key>/<name>` and `.xbin/resenc/<key>/<name>`.
+    `MountEncrypted` creates, `gocryptfs -init`s and mounts those for every
+    declared file resource, granted or not. So a name like `../../../x`, from
+    a file the tile's terminals write, steered xbind's mkdir, init and FUSE
+    mount anywhere its user can write. A name with `/` also collided kv
+    buckets (`res:<scope>/<name>`) in backup, offload and restore. Names
+    must now match `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, and the check runs in
+    three places:
+    - at parse time: scope.json drops an invalid name and records a
+      manifest error on the scope's tiles. `Workspace()` leaves out invalid
+      workspace-level names, logged, while `MutateWorkspace` writes the file
+      back as declared;
+    - in `resenc.Ensure`, which refuses any key or name that isn't one
+      plain segment, the last line for every caller;
+    - in restore, for the names an archive carries.
+    - **Not chosen:** only rejecting `/`, `.` and `..`: the name is also a
+      key label, a bucket suffix and an env name, and a small set is
+      easier to reason about. Existing names with spaces or other
+      characters need renaming (migration note).

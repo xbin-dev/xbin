@@ -54,3 +54,41 @@ func TestScopeKeyRefusedLeavesHolderData(t *testing.T) {
 		t.Fatalf("kv restore into a refused scope: %v", err)
 	}
 }
+
+// Resource names from scope.json never steer a path (D118): the registry
+// drops invalid ones, so provisioning never sees them, grants can't address
+// them, and a restore naming one is refused.
+func TestResourceNamesNeverSteerPaths(t *testing.T) {
+	b := testBroker(t)
+	p := filepath.Join(b.Reg.Root, "apps", "calendar", "scope.json")
+	if err := os.WriteFile(p, []byte(`{"resources":{
+		"db":{"type":"sqlite"},
+		"../../../../escape":{"type":"filesystem"},
+		"x/../..":{"type":"blob"},
+		"..":{"type":"filesystem"}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Reg.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	var seen []string
+	b.forEachFileRes(func(scope, name, _ string) { seen = append(seen, scope+"|"+name) })
+	if len(seen) != 1 || seen[0] != "apps/calendar|db" {
+		t.Fatalf("file resources provisioning would see: %v", seen)
+	}
+	for _, target := range []string{"res:apps/calendar/..", "res:apps/calendar/x/../..", "res:apps/calendar/../../../../escape"} {
+		if _, res, _ := b.parseRes(target); res != nil {
+			t.Fatalf("%s resolved to a declared resource", target)
+		}
+	}
+	if _, err := b.restoreFileDest("apps/calendar", "../x/y"); err == nil || !strings.Contains(err.Error(), "valid resource name") {
+		t.Fatalf("restore with a traversal name: %v", err)
+	}
+	if err := b.loadKV("apps/calendar", []byte(`{"x/events":{"k":"dg=="}}`)); err == nil || !strings.Contains(err.Error(), "valid resource name") {
+		t.Fatalf("kv restore with a slash name: %v", err)
+	}
+	c, _ := b.Reg.Component("apps/calendar")
+	if !strings.Contains(c.ManifestErr, `resource name "../../../../escape" is not allowed`) {
+		t.Fatalf("manifest error: %q", c.ManifestErr)
+	}
+}

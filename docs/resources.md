@@ -18,6 +18,13 @@ cross-scope needs owner approval ([auth.md](/docs/auth.md)).
 // address as res:workspace/<name>.
 ```
 
+**Names** are letters, digits, `.`, `_` and `-`, start with a letter or
+digit, and are at most 64 characters (D118). A name becomes a directory, a
+key-derivation label and a kv bucket suffix, so anything else (`a/b`, `..`,
+spaces) is refused. The resource isn't provisioned, and the scope's tiles
+show a manifest error naming it (`bx doctor`, `manifestError`). A
+workspace-level one is left out and logged.
+
 ```jsonc
 // a component's xbin.json
 { "uses": [
