@@ -153,7 +153,7 @@ func (b *Broker) requireCodeRead(w http.ResponseWriter, r *http.Request, comp st
 	if b.IsAdmin(p) || (p.Component != "" && p.Component == comp) {
 		return true
 	}
-	if p.Component != "" && b.codeGrantAllows(p.Component, comp) {
+	if b.codeReadAllowed(p, comp) { // a non-primary principal's code edges through its edge policy
 		return true
 	}
 	server.WriteJSON(w, http.StatusForbidden, map[string]string{

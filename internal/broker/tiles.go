@@ -127,7 +127,7 @@ func (b *Broker) requireWriter(w http.ResponseWriter, r *http.Request) bool {
 	if b.IsAdmin(p) {
 		return true
 	}
-	role, ok := b.grantedRole(p.Component, "xbin")
+	role, ok := b.governanceRole(p, "xbin") // never a non-primary deployment's (P19)
 	if p.Component != "" && ok && roleSatisfies(role, "writer", nil) {
 		return true
 	}

@@ -109,7 +109,7 @@ func (b *Broker) canCreateAt(p auth.Principal, path, ownerRef string) (bool, str
 	if p.Component != "" {
 		// Element callers (frame/terminal/instance) need the
 		// workspace-management capability regardless of owner.
-		if role, ok := b.grantedRole(p.Component, "xbin"); !ok || !roleSatisfies(role, "writer", nil) {
+		if role, ok := b.governanceRole(p, "xbin"); !ok || !roleSatisfies(role, "writer", nil) {
 			return false, "creating components from a tile needs the workspace-management grant — declare {\"target\":\"xbin\",\"role\":\"writer\"} in \"uses\" and have the owner approve it"
 		}
 		if p.UserID == "" {

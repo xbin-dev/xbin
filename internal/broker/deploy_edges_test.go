@@ -954,18 +954,14 @@ func TestEdgeCapabilities(t *testing.T) {
 func TestEdgePolicyCallers(t *testing.T) {
 	allowed := map[string]map[string]string{
 		"grantedRole": {
-			"resolveTarget":      "the single evaluation point itself",
-			"governanceRole":     "governance targets, for a principal that isn't a non-primary one",
-			"viewGrant":          "the primary's view; a non-primary view goes through resolveTarget",
-			"allowRes":           "the tile's authority; a non-primary principal then meets resEdge",
-			"Pending":            "unsatisfied uses declarations: no call",
-			"EnvFor":             "the tile's resource env, which every deployment keeps (09-fabric §5.6); seam for the workspace fs block (WP-40)",
-			"OpenLinksFor":       "seam: the document's deployment (the server's SandboxExtras)",
-			"codeGrantAllows":    "the code grants, for a principal that isn't a non-primary one (codeReadAllowed)",
-			"requireWriter":      "seam: governanceRole",
-			"canCreateAt":        "seam: governanceRole",
-			"canManageUsers":     "seam: governanceRole",
-			"elementXbinCapable": "seam: governanceRole",
+			"resolveTarget":   "the single evaluation point itself",
+			"governanceRole":  "governance targets, for a principal that isn't a non-primary one",
+			"viewGrant":       "the primary's view; a non-primary view goes through resolveTarget",
+			"allowRes":        "the tile's authority; a non-primary principal then meets resEdge",
+			"Pending":         "unsatisfied uses declarations: no call",
+			"EnvFor":          "the tile's resource env, which every deployment keeps (09-fabric §5.6); seam for the workspace fs block (WP-40)",
+			"OpenLinksFor":    "seam: the document's deployment (the server's SandboxExtras)",
+			"codeGrantAllows": "the code grants, for a principal that isn't a non-primary one (codeReadAllowed)",
 		},
 		"httpBindingRole": {
 			"grantedRole": "the tile's authority, merging bindings with grant rows",
@@ -973,8 +969,6 @@ func TestEdgePolicyCallers(t *testing.T) {
 		"codeGrantAllows": {
 			"codeReadAllowed": "the primary's code reads; a non-primary principal's go through resolveTarget",
 			"CodeReadGrant":   "seam: the server's /c/ plane passes no principal",
-			"requireCodeRead": "seam: codeReadAllowed",
-			"canReadPRs":      "seam: codeReadAllowed",
 		},
 	}
 	fset := token.NewFileSet()

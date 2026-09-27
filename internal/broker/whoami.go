@@ -92,7 +92,7 @@ func (b *Broker) driverView(p auth.Principal) map[string]any {
 	}
 	du := map[string]any{"id": u.ID, "name": u.Name, "personalTiles": b.personalRefusal(u.ID) == ""}
 	switch {
-	case b.elementXbinCapable(p.Component):
+	case b.elementXbinCapable(p):
 		du["admin"] = u.IsAdmin()
 		if orgs := b.userOrgsView(u); len(orgs) > 0 {
 			du["orgs"] = orgs
@@ -115,15 +115,16 @@ func (b *Broker) driverView(p auth.Principal) map[string]any {
 // elementXbinCapable reports whether an element holds any workspace-
 // management capability (target "xbin" at any role, or "xbin:users") —
 // grantedRole applies the policy ceiling, so an xbin-caps deny strips this
-// trust tier too.
-func (b *Broker) elementXbinCapable(comp string) bool {
-	if comp == "" {
+// trust tier too, and a non-primary deployment's principal never holds one
+// (governanceRole, P19).
+func (b *Broker) elementXbinCapable(p auth.Principal) bool {
+	if p.Component == "" {
 		return false
 	}
-	if _, ok := b.grantedRole(comp, "xbin"); ok {
+	if _, ok := b.governanceRole(p, "xbin"); ok {
 		return true
 	}
-	_, ok := b.grantedRole(comp, "xbin:users")
+	_, ok := b.governanceRole(p, "xbin:users")
 	return ok
 }
 
