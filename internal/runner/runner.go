@@ -159,7 +159,8 @@ type Runner struct {
 	vms    vmState
 	// Sandboxes lists every running generation (sbx.go, D112; nil-safe).
 	Sandboxes       *sbx.Registry
-	DeploymentHooks // installed by the deployments plane; nil-safe (deploy.go)
+	DeploymentHooks       // installed by the deployments plane; nil-safe (deploy.go)
+	inUse           inUse // inspect.go: the trees and artifacts generations use
 
 	mu     sync.Mutex
 	states map[string]*state
@@ -239,7 +240,7 @@ func (r *Runner) Ensure(ctx context.Context, c *registry.Component) (string, err
 		s.buildDone = make(chan struct{})
 		s.mu.Unlock()
 
-		err := r.buildAndStart(c, s)
+		err := r.runCurrent(c, s)
 
 		s.mu.Lock()
 		s.building = false
@@ -294,26 +295,44 @@ func (r *Runner) Changed(c *registry.Component) {
 	}
 }
 
-// RootsInUse lists the materialized checkpoint trees that running
-// generations bind, which checkpoint GC must never remove. Every generation
-// binds its work tree today, so none.
-func (r *Runner) RootsInUse() []string { return nil }
+// runCurrent runs one generation transition of c's primary onto the code its
+// record names now (P9): every restart path — a lazy start, a crash, a reap,
+// a grant, alwaysOn, an xbind restart — reaches a build through here, so a
+// pinned deployment never runs its work tree. A record that can't answer
+// fails the start (06-security C7).
+func (r *Runner) runCurrent(c *registry.Component, s *state) error {
+	code := Code{WorkTree: true} // no plane: no record, so the primary follows the work tree
+	if r.CodeFor != nil {
+		dep := r.primary(c.Path)
+		var err error
+		if code, err = r.CodeFor(c.Path, dep); err != nil {
+			r.emit(c.Path, dep, "build-start", "")
+			r.emit(c.Path, dep, "build-error", err.Error())
+			return err
+		}
+	}
+	return r.buildAndStart(c, s, code)
+}
 
-// buildAndStart runs one generation transition. Called single-flight per state.
-func (r *Runner) buildAndStart(c *registry.Component, s *state) error {
-	r.Hub.Publish(events.Event{Type: "build-start", Component: c.Path})
+// buildAndStart runs one generation transition onto code. Called single-flight
+// per state. The generation spawns from code's view (c itself for the work
+// tree) and its artifact, kept per checkpoint (resolveGen, inspect.go).
+func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error {
+	dep := r.primary(c.Path) // the state's: runner state is the primary's
+	r.emit(c.Path, dep, "build-start", "")
 
-	bin, err := r.buildGen(c)
+	g, err := r.resolveGen(c, code)
 	if err != nil {
-		r.Hub.Publish(events.Event{Type: "build-error", Component: c.Path, Text: err.Error()})
+		r.emit(c.Path, dep, "build-error", err.Error())
 		return err
 	}
+	v, bin := g.view, g.bin
 
 	s.mu.Lock()
 	s.gen++
 	gen := s.gen
 	old := s.cur
-	first := old != nil && r.stopFirst(c) // vm.go: no two guests on one sqlite
+	first := old != nil && r.stopFirst(v) // vm.go: no two guests on one sqlite
 	if first {
 		s.cur = nil
 	}
@@ -323,18 +342,21 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state) error {
 		old = nil
 	}
 
-	inst, err := r.startGen(c, bin, gen)
+	inst, err := r.startGen(v, bin, gen)
 	if err != nil {
-		r.Hub.Publish(events.Event{Type: "build-error", Component: c.Path, Text: err.Error()})
+		g.release()
+		r.emit(c.Path, dep, "build-error", err.Error())
 		return err
 	}
-	if err := r.awaitHealthy(c, inst); err != nil {
-		if !errors.Is(err, errExited) && r.wantsVM(c) {
-			r.sbxFail(c, sbx.Health, fmt.Errorf("the VM backend never listened: %w", err))
+	inst.code, inst.root, inst.artifact = code, g.root, g.artifact
+	if err := r.awaitHealthy(v, inst); err != nil {
+		if !errors.Is(err, errExited) && r.wantsVM(v) {
+			r.sbxFail(v, sbx.Health, fmt.Errorf("the VM backend never listened: %w", err))
 		}
 		r.stopGen(inst, 2*time.Second)
+		g.release()
 		err = fmt.Errorf("backend did not become healthy: %w", err)
-		r.Hub.Publish(events.Event{Type: "build-error", Component: c.Path, Text: err.Error()})
+		r.emit(c.Path, dep, "build-error", err.Error())
 		return err
 	}
 
@@ -349,6 +371,7 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state) error {
 	// the state so the next request rebuilds (and break crash loops).
 	go func() {
 		<-inst.waitCh
+		g.release() // it binds its tree and runs its artifact no more
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if s.cur != inst {
@@ -363,15 +386,19 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state) error {
 			}
 		}
 		if recent >= crashLimit {
-			s.lastErr = fmt.Errorf("backend crash-looping (%d exits); fix the code and save to retry — see .xbin/log/%s.log", recent, util.CompKey(c.Path))
-			r.Hub.Publish(events.Event{Type: "build-error", Component: c.Path, Text: s.lastErr.Error()})
+			fix := "fix the code and save to retry"
+			if !code.WorkTree { // a save never reaches pinned code (07-runtime §7)
+				fix = "deploy a fixed checkpoint or restart it"
+			}
+			s.lastErr = fmt.Errorf("backend crash-looping (%d exits); %s — see .xbin/log/%s.log", recent, fix, util.CompKey(c.Path))
+			r.emit(c.Path, dep, "build-error", s.lastErr.Error())
 		} else {
 			s.dirty = true // transparent restart on next request
 			go r.afterExit(c)
 		}
 	}()
 
-	r.Hub.Publish(events.Event{Type: "build-ok", Component: c.Path})
+	r.emit(c.Path, dep, "build-ok", "")
 	slog.Info("backend up", "component", c.Path, "gen", gen)
 	return nil
 }
@@ -417,6 +444,9 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 		}
 		cleanup = sb.Cleanup
 	} else {
+		if c.CodeRoot != "" { // no mount namespace shows a checkpoint at c.Dir (P18)
+			return nil, fmt.Errorf("%s: a checkpoint runs only in a sandbox (--isolate)", c.Path)
+		}
 		switch c.Manifest.Runtime { // exec-ok (all three): isolation off — the workspace has no sandbox; SpawnUser may drop to a scope uid
 		case "go":
 			cmd = exec.Command(bin) // exec-ok: see above
@@ -556,7 +586,7 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 						name = name[:i]
 					}
 					if cc, ok := r.Reg.Component(name); ok {
-						r.Changed(cc)
+						r.ChangedTile(cc)
 					}
 				}
 			}(netClients)
