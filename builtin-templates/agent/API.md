@@ -962,6 +962,10 @@ changes on a rebind only (the prompt's cached prefix stays valid).
 | `ls` | `{path?}` | a directory (≤ 500 entries): subdirectories first, with `/`; files with their size; symlinks with their target |
 | `glob` | `{pattern, path?}` | files by name, relative to the working directory, sorted, at most 200: `**` spans directories, a pattern without `/` matches names at any depth, `{a,b}` alternates. The listing is the sandbox's own `rg --files` (which honours `.gitignore`) or `find` (skipping `.git` and `node_modules`) — at most 20 000 files — matched here |
 | `grep` | `{pattern, path?, glob?, ignore_case?}` | `path:line: text` lines, at most 100 (then how many more), text clipped at 300 characters: `rg` where the sandbox has it (its regex syntax), else `grep -rE`; skips `.git` and binary files |
+| `sandbox_upload` | `{file, path?}` | copies a session file (text or attachment) into the sandbox: to `path`, into it when it ends in `/` or is a directory (default: the working directory). Feature `files` |
+| `sandbox_download` | `{path, name?}` | copies a sandbox file (≤ 16 MiB) into the session files as an upload would be stored — text within the text cap as text, anything else as an attachment — under `name` or its own (a taken name gets a suffix). A directory is refused: pack it with `bash` first. Feature `files` |
+| `sandbox_copy` | `{from: {sandbox?, path}, to: {sandbox?, path}}` | between the conversation's attached sandboxes (a ref or a unique name; default the active one), or within one: a directory is tar-streamed (`GET …/tar` into `PUT …/tar`; both managers need `tar`) and its **contents** land in `to.path`; a file goes through the file routes (mode kept) to `to.path`, or into it when it is a directory. Offered when more than one sandbox is attached |
+| `sandbox_info` | `{}` | every attached sandbox as its manager describes it now (active or attached, state, egress, image, manager, cwd, workdir, home, user, caps — or why it is unavailable) and the conversation's latest 15 jobs |
 
 **Jobs** are numbered per conversation (subagents share their root's
 numbers) and kept in the `sandbox_jobs` table (`root_id, job, run_id,
@@ -976,9 +980,17 @@ ran. It went on in the sandbox as job 3 — bash_output {"job": 3} shows its
 output from the start …)` instead of the generic lost-result text, and the
 job's output resumes by offset.
 
-**Approve mode.** `bash`, `write` and `edit` are side-effecting tools —
-the step parks for approval — only when the bound sandbox has egress other
-than `none`; a sandbox with no network is private scratch.
+**Approve mode.** `bash`, `write`, `edit` and `sandbox_upload` are
+side-effecting tools — the step parks for approval — only when the bound
+sandbox has egress other than `none` (`sandbox_copy`: when any attached one
+has); a sandbox with no network is private scratch.
+
+**Subagents on another sandbox.** `subagent_spawn` also takes `{sandbox?,
+cwd?}` where a sandbox is bound: `sandbox` names one of the conversation's
+attached sandboxes (a ref or a unique name; any other is refused), which
+becomes the subagent's active one; `cwd` is its working directory there
+(absolute, or relative to that sandbox's). The subagent keeps the attached
+list, and the root's binding is unchanged.
 
 ## The frontend: one model, thin views
 

@@ -42,9 +42,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   tools (§The coding tools): `bash` (at its timeout the command goes on as a
   numbered job; interrupting the turn TERMs, then KILLs, its process group;
   after a backend restart the call's result names the job), `bash_output`
-  and `bash_kill`, and `read`, `write`, `edit` (etag-guarded), `ls`, `glob`
-  and `grep` for its files; its system prompt gains a `# Sandbox` section;
-  in Approve mode `bash`, `write` and `edit` park only when the sandbox has
+  and `bash_kill`; `read`, `write`, `edit` (etag-guarded), `ls`, `glob`
+  and `grep` for its files; `sandbox_upload`/`sandbox_download` (session
+  files ↔ sandbox), `sandbox_copy` (between attached sandboxes) and
+  `sandbox_info`; and `subagent_spawn {sandbox, cwd}` puts a subagent on
+  another attached sandbox. Its system prompt gains a `# Sandbox` section;
+  in Approve mode the tools that change a sandbox park only when it has
   egress.
 
 - **Admin console: runtime → sandboxes, and the sandbox in the component

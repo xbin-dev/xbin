@@ -63,6 +63,7 @@ func subagentToolSpecs(cfg Config, depth int) []toolSpec {
 		"timeout_s": intProp(fmt.Sprintf("how long to wait for the answer before it moves to the background (default %d, 30–3600)", cfg.subagentTimeout())),
 		"system":    strProp("optional system-prompt override for the subagent; it cannot change the capability lane"),
 	}
+	sandboxSpawnProps(cfg, spawnProps) // {sandbox, cwd} (sandbox_move.go)
 	desc := "Start a subagent on a focused task in its own fresh context and wait for its answer. Emit several in one step to run them in parallel. " +
 		"If it takes longer than timeout_s it moves to the background: you get a progress digest now and its answer later as a message."
 	if bg {
@@ -251,19 +252,26 @@ func (e *Engine) spawn(ts *turnState, tc toolCall, args map[string]any) (string,
 		wait, after = true, nil
 	}
 	timeout := clampTimeout(toInt(args["timeout_s"]), cfg.subagentTimeout(), 30, 3600)
+	onSandbox, err := spawnSandbox(cfg, args)
+	if err != nil {
+		return "", err
+	}
 	label := strings.TrimSpace(str(args["label"]))
 	title := label
 	if title == "" {
 		title = "subagent: " + clip(task, 60)
 	}
 	var childID int64
-	err := e.fenced(func(t *DB) error {
+	err = e.fenced(func(t *DB) error {
 		root := ts.root
 		ok, spawned, max := t.reserveSpawn(root, cfg.maxSpawn())
 		if !ok {
 			return fmt.Errorf("this workflow has already created %d runs (its lifetime budget of %d) — finish with what you have, or ask the owner to raise maxSpawn", spawned, max)
 		}
 		child := childConfig(cfg, str(args["system"]))
+		if onSandbox != nil {
+			child.Sandbox = onSandbox
+		}
 		cfgJSON, _ := json.Marshal(child)
 		status, pending := statusRunning, ""
 		var depLinks []*Link

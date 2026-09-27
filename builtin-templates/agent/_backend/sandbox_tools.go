@@ -3,6 +3,11 @@
 //
 //	bash, bash_output, bash_kill   commands, and the jobs they become (sandbox_jobs.go)
 //	read, write, edit, ls, glob, grep   files (sandbox_fs.go)
+//	sandbox_upload, sandbox_download   session files ↔ the sandbox (sandbox_move.go)
+//	sandbox_copy, sandbox_info         between attached sandboxes; what is attached
+//
+// subagent_spawn {sandbox, cwd} puts a subagent on another attached sandbox
+// (spawnSandbox).
 //
 // The tools exist only when the conversation's class has the `sandbox`
 // toolset AND a sandbox is bound; every call re-runs sandboxUse (the class,
@@ -41,17 +46,21 @@ func sandboxToolsOn(cfg Config) bool {
 var sandboxToolNames = map[string]bool{
 	"bash": true, "bash_output": true, "bash_kill": true,
 	"read": true, "write": true, "edit": true, "ls": true, "glob": true, "grep": true,
+	"sandbox_upload": true, "sandbox_download": true, "sandbox_copy": true, "sandbox_info": true,
 }
 
 // sandboxChanges are the tools that change a sandbox: side effects (Approve
 // mode parks them) only when the sandbox can reach out — one with no egress
 // is private scratch.
 var sandboxChanges = map[string]bool{
-	"bash": true, "write": true, "edit": true,
+	"bash": true, "write": true, "edit": true, "sandbox_upload": true,
 }
 
 // sandboxSideEffect: name changes the bound sandbox, and it has egress.
 func sandboxSideEffect(name string, cfg Config) bool {
+	if name == "sandbox_copy" {
+		return copyTouches(cfg)
+	}
 	if !sandboxChanges[name] || cfg.Sandbox == nil {
 		return false
 	}
@@ -98,7 +107,8 @@ func sandboxToolSpecs(cfg Config, depth int) []toolSpec {
 			}),
 		}},
 	}
-	return append(specs, sandboxFileSpecs()...)
+	specs = append(specs, sandboxFileSpecs()...)
+	return append(specs, sandboxMoveSpecs(cfg)...)
 }
 
 // runSandboxTool dispatches the coding tools. Called from runTool.
@@ -116,6 +126,9 @@ func (ag *Agent) runSandboxTool(ctx context.Context, run *Run, cfg Config, name 
 	}
 	if sandboxFileTools[name] {
 		return ag.runSandboxFileTool(ctx, run, cfg, name, args)
+	}
+	if sandboxMoveTools[name] {
+		return ag.runSandboxMoveTool(ctx, run, cfg, name, args)
 	}
 	return "", fmt.Errorf("unknown sandbox tool %q", name)
 }
@@ -193,7 +206,11 @@ func sandboxPrompt(cfg Config) string {
 	fmt.Fprintf(&s, "; %s). ", egressWords(b.Egress))
 	fmt.Fprintf(&s, "bash runs commands there; read, write, edit, ls, glob and grep work on its files. "+
 		"The working directory is %s: relative paths resolve against it, ~ against the sandbox user's home. ", orStr(b.Cwd, "the sandbox's workdir"))
-	s.WriteString("It is a separate machine: the session files (file_*) are not in it.")
+	s.WriteString("It is a separate machine: the session files (file_*) are not in it")
+	if cfg.feature("files") {
+		s.WriteString(" — sandbox_upload and sandbox_download move files between the two")
+	}
+	s.WriteString(".")
 	var others []string
 	for _, a := range cfg.Attached {
 		if a.Ref != b.Ref {

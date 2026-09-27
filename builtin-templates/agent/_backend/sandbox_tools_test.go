@@ -163,6 +163,15 @@ func TestBashOutputShaping(t *testing.T) {
 	if !strings.HasPrefix(out, box.Workdir+"\ndumb 1 cat 0\n[exit 0 · ") || !strings.Contains(out, "job 2]") {
 		t.Fatalf("cwd and env: %q", out)
 	}
+	// the same call again (a re-issue): the same job, the same exec
+	conn, _ := sbxDial("apps/cs", "")
+	before, _ := conn.ExecList(context.Background(), box.ID)
+	if again := mustTool(t, ag, r, cfg, "c2", "bash", map[string]any{"command": "pwd; echo $TERM $NO_COLOR $PAGER $GIT_TERMINAL_PROMPT"}); !strings.Contains(again, "dumb 1 cat 0\n[exit 0") || !strings.HasSuffix(again, "job 2]") {
+		t.Fatalf("re-issued: %q", again)
+	}
+	if after, _ := conn.ExecList(context.Background(), box.ID); len(after) != len(before) {
+		t.Fatalf("a re-issue started another command: %d → %d", len(before), len(after))
+	}
 	mustTool(t, ag, r, cfg, "c3", "bash", map[string]any{"command": "mkdir -p sub/dir"})
 	if out := mustTool(t, ag, r, cfg, "c4", "bash", map[string]any{"command": "pwd", "cwd": "sub/dir"}); !strings.HasPrefix(out, filepath.Join(box.Workdir, "sub/dir")+"\n") {
 		t.Fatalf("a relative cwd: %q", out)

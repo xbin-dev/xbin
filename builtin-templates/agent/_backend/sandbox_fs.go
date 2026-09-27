@@ -116,6 +116,15 @@ func (ag *Agent) runSandboxFileTool(ctx context.Context, run *Run, cfg Config, n
 	return "", fmt.Errorf("unknown sandbox tool %q", name)
 }
 
+// noPath words a manager's not-found for a path the model named (its own
+// hint is about sandboxes).
+func noPath(p string, err error) error {
+	if sbxRefusal(err) == "not-found" {
+		return &sbxError{Refusal: "not-found", Msg: p + " doesn't exist in the sandbox"}
+	}
+	return err
+}
+
 // looksBinary: a NUL, or bytes that aren't UTF-8, near the start.
 func looksBinary(b []byte) bool {
 	if len(b) > 8192 {
@@ -128,7 +137,8 @@ func looksBinary(b []byte) bool {
 }
 
 func binaryHint(p string, size int64) string {
-	return fmt.Sprintf("%s is a binary file (%s) — not readable as text; bash can inspect it (file, xxd … | head)", p, humanBytes(int(size)))
+	return fmt.Sprintf("%s is a binary file (%s) — not readable as text; bash can inspect it (file, xxd … | head), sandbox_download brings it into the session files (file_view shows an image)",
+		p, humanBytes(int(size)))
 }
 
 // --- read -------------------------------------------------------------------------
@@ -140,7 +150,7 @@ func sbxRead(ctx context.Context, use *sbxUse, args map[string]any) (string, err
 	}
 	st, err := use.Conn.Stat(ctx, use.ID, p)
 	if err != nil {
-		return "", err
+		return "", noPath(p, err)
 	}
 	if st.Type == "dir" {
 		return "", fmt.Errorf("%s is a directory — ls lists it", p)
@@ -242,7 +252,7 @@ func sbxEdit(ctx context.Context, use *sbxUse, args map[string]any) (string, err
 	for attempt := 0; ; attempt++ {
 		st, err := use.Conn.Stat(ctx, use.ID, p)
 		if err != nil {
-			return "", err
+			return "", noPath(p, err)
 		}
 		switch {
 		case st.Type == "dir":
@@ -299,7 +309,7 @@ func sbxLs(ctx context.Context, use *sbxUse, args map[string]any) (string, error
 	}
 	l, err := use.Conn.ListDir(ctx, use.ID, p, lsMax)
 	if err != nil {
-		return "", err
+		return "", noPath(p, err)
 	}
 	if len(l.Entries) == 0 {
 		return p + ": (empty)", nil
