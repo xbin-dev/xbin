@@ -154,7 +154,35 @@ func (e *echoTracker) close() {
 	}
 }
 
-func (s *Session) attach(conn *websocket.Conn) {
+// hello is the session control frame, the first message on every attach
+// (docs/protocol.md §/ws/term). deployment is the session's echoed target
+// (Manager.echoOf). It, the targetNote, and api:false when the target
+// choice's last fallback took the tile API away (P24), are present only for
+// a session that has a target to state: every other session's frame is
+// today's.
+func (s *Session) hello(deployment string) []byte {
+	h := map[string]any{
+		"op": "session", "id": s.ID, "net": s.Net, "baseOutdated": s.baseOld,
+		"label": s.Label, "scopes": s.Scopes, "netNote": s.NetNote,
+		"vm":      s.vm,
+		"echoAck": true, // this xbind acks input and answers pings (D70)
+	}
+	if deployment != "" {
+		h["deployment"] = deployment
+	}
+	if s.target.apiOff {
+		h["api"] = false
+	}
+	if s.target.note != "" {
+		h["targetNote"] = s.target.note
+	}
+	b, _ := json.Marshal(h)
+	return b
+}
+
+// attach serves one WebSocket client of the session; deployment is what
+// its session frame echoes (hello).
+func (s *Session) attach(conn *websocket.Conn, deployment string) {
 	c := &client{conn: conn, send: make(chan frame, 64)}
 	c.echo = newEchoTracker(func(n uint64) {
 		s.enqueue(c, textFrame(map[string]any{"op": "ack", "n": n}))
@@ -187,13 +215,7 @@ func (s *Session) attach(conn *websocket.Conn) {
 	// order), then the live stream — PTY bytes and control frames in the
 	// order they were queued.
 	go func() {
-		hello, _ := json.Marshal(map[string]any{
-			"op": "session", "id": s.ID, "net": s.Net, "baseOutdated": s.baseOld,
-			"label": s.Label, "scopes": s.Scopes, "netNote": s.NetNote,
-			"vm":      s.vm,
-			"echoAck": true, // this xbind acks input and answers pings (D70)
-		})
-		_ = conn.WriteMessage(websocket.TextMessage, hello)
+		_ = conn.WriteMessage(websocket.TextMessage, s.hello(deployment))
 		if len(sb) > 0 {
 			if err := conn.WriteMessage(websocket.BinaryMessage, sb); err != nil {
 				return

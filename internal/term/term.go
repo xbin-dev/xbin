@@ -65,8 +65,9 @@ type Session struct {
 	name    string // the tab's name, per session (sessions.go); guarded by mu
 	kind    string // KindShell (a PTY) or KindAgent (agent.go: no PTY, an ACP driver over pipes)
 	agent   *agentState
-	pgid    bool // the process leads its own group (the non-isolated agent host): kill the group
-	vm      bool // a VM sandbox (vm.go)
+	pgid    bool          // the process leads its own group (the non-isolated agent host): kill the group
+	vm      bool          // a VM sandbox (vm.go)
+	target  sessionTarget // the target deployment, fixed at start (target.go)
 
 	mu         sync.Mutex
 	scrollback []byte
@@ -103,7 +104,8 @@ type Manager struct {
 
 	// Tokens mints/revokes the per-session terminal tokens that scope a
 	// shell's XBIN_TOKEN to its tile (wired to *auth.Auth by main). nil ⇒
-	// sessions get no XBIN_TOKEN at all — never the owner token.
+	// sessions get no XBIN_TOKEN at all — never the owner token. A named
+	// target needs auth's MintTerminalTarget too (targetMinter, target.go).
 	Tokens interface {
 		MintTerminal(component, userID string) string
 		RevokeTerminal(token string)
@@ -238,6 +240,10 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 		}
 		o := m.openOptsFor(p, rel, cwd, netMode, gpuMode, apiAccess)
 		o.vm = wantVM
+		if code, err := m.pickTarget(p, &o, rel, r.URL.Query().Get("deployment")); err != nil {
+			http.Error(w, err.Error(), code)
+			return
+		}
 		s, err = m.create(o)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -251,7 +257,7 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	s.attach(conn)
+	s.attach(conn, m.echoOf(s))
 }
 
 // List returns session metadata for the status API, ordered by creation time
@@ -260,13 +266,17 @@ func (m *Manager) List() []map[string]any {
 	out := []map[string]any{}
 	for _, s := range m.sorted() {
 		s.mu.Lock()
-		out = append(out, map[string]any{
+		row := map[string]any{
 			"id": s.ID, "cwd": s.Cwd, "net": s.Net, "clients": len(s.clients),
 			"user": s.homeKey, "kind": s.kind, "vm": s.vm,
 			"created": s.born.UTC().Format(time.RFC3339),
 			"label":   s.Label, "scopes": s.Scopes, "name": s.name,
-		})
+		}
 		s.mu.Unlock()
+		if d := m.echoOf(s); d != "" { // the session's target (target.go)
+			row["deployment"] = d
+		}
+		out = append(out, row)
 	}
 	return out
 }
@@ -292,6 +302,7 @@ type openOpts struct {
 	kind       string            // KindShell (default) or KindAgent: the sandbox entry (agent.go)
 	vm         bool              // a VM sandbox (vm.go)
 	launch     *sbxLaunch        // what the setup learnt (sbx.go; set by create/createAgent)
+	target     sessionTarget     // the target deployment (pickTarget, target.go)
 }
 
 // prepare is the part of opening a session that both kinds share: the cwd,
@@ -341,7 +352,7 @@ func (m *Manager) prepare(o openOpts) (dir, rel, homeDir, token string, revokeTo
 	// tile's element principal (plans/terminal-tokens.md), not the owner.
 	// Withheld entirely for a code-only terminal (api=0) — no token, no API.
 	if m.Tokens != nil && o.api {
-		token = m.Tokens.MintTerminal(rel, o.userID)
+		token = m.mintTerminal(rel, o) // bound to the session's target (target.go)
 	}
 	revokeTok = func() {
 		if token != "" {
@@ -390,7 +401,7 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 		ID: id, Cwd: rel, Net: o.net, cmd: cmd, pty: f, kind: KindShell, vm: o.vm,
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
-		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api,
+		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api, target: o.target,
 		born: time.Now(), clients: map[*client]struct{}{}, lastActive: time.Now(),
 	}
 	m.mu.Lock()
@@ -464,6 +475,7 @@ func (m *Manager) shellCmd(dir, rel, homeDir, token string, o openOpts) (*exec.C
 		cmd.Env = append(cmd.Env, e)
 	}
 	cmd.Env = append(cmd.Env, "TERM=xterm-256color", "COLORTERM=truecolor", "XBIN_COMPONENT="+rel)
+	cmd.Env = append(cmd.Env, o.deploymentEnv()...) // XBIN_DEPLOYMENT, next to it (target.go)
 	if os.Getenv("LANG") == "" {
 		cmd.Env = append(cmd.Env, "LANG=C.UTF-8")
 	}
@@ -567,7 +579,7 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 			_ = os.RemoveAll(viewDir)
 		}
 	}
-	env := m.sandboxEnv(rel, !o.netHost && o.net != NetNone, homeDir, token)
+	env := m.sessionEnv(rel, !o.netHost && o.net != NetNone, homeDir, token, o)
 	// Owner-plane GPU access for the dev sandbox (?gpu=all|<index>).
 	if o.gpu != "" && o.gpu != "none" {
 		if gb, genv := gpu.Binds(gpu.Resolve([]string{"gpu:" + o.gpu})); len(gb) > 0 {

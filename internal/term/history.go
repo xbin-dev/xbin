@@ -9,6 +9,9 @@ package term
 // resume:<id> → session/load). Retention keeps the newest historyKeep per
 // tile; a resumed session supersedes the entry it reopened. A session that
 // never took a prompt (an eager-created tab closed unused) is not kept.
+// History stays per tile, whichever deployment a session targeted: it is a
+// conversation about the tile's one work tree. Each entry names its
+// session's target deployment, when it had one, in `deployment`.
 
 import (
 	"encoding/json"
@@ -39,6 +42,7 @@ type HistoryMeta struct {
 	Preview      string `json:"preview,omitempty"`      // the first prompt, one line
 	ACPSessionID string `json:"acpSessionId,omitempty"` // the agent's own id for it
 	Loadable     bool   `json:"loadable"`               // the agent can reopen it (resume)
+	Deployment   string `json:"deployment,omitempty"`   // the session's named target (P24); absent: it followed the primary
 }
 
 type historyFile struct {
@@ -75,6 +79,7 @@ func (m *Manager) saveHistory(s *Session) {
 		ID: s.ID, Cwd: s.Cwd, Provider: prov, Mode: mode, Name: name,
 		Created: born.UTC().Format(time.RFC3339), Ended: time.Now().UTC().Format(time.RFC3339),
 		Turns: turns, Preview: firstPrompt(evs), ACPSessionID: acpID, Loadable: loadable && acpID != "",
+		Deployment: s.target.Deployment,
 	}, Events: evs}
 	dir := m.historyDir(s.homeKey, s.Cwd)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
