@@ -168,6 +168,9 @@ func (m *Manager) build(ctx context.Context, im Image, mode string) (out *builtI
 	if h := info.Defaults.Env["HOME"]; h != "" {
 		tpl.Home = h
 	}
+	if info.Defaults.UID != nil && info.Defaults.GID != nil {
+		tpl.UID, tpl.GID = *info.Defaults.UID, *info.Defaults.GID
+	}
 	tpl.Runtime = b.Runtime
 	if _, err := be.Start(ctx, b.Runtime, m.waitMax(ctx)); err != nil {
 		return nil, err

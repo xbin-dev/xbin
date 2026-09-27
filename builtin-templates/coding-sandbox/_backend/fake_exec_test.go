@@ -105,7 +105,11 @@ func (b *fkBox) command(q fkCmd) (*exec.Cmd, error) {
 		return nil, fkErr(http.StatusBadRequest, "invalid", "cmd or argv is required")
 	}
 	cwd := b.info.Defaults.Cwd
-	if q.Cwd != "" {
+	switch q.Cwd {
+	case "":
+	case "/":
+		cwd = b.dir // the sandbox's own root
+	default:
 		p, err := b.pathFollow(q.Cwd)
 		if err != nil {
 			return nil, err

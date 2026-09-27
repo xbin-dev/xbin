@@ -44,6 +44,14 @@ func serveManager(t *testing.T, db string, fb *fakeBackend) *testManager {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if cfg, err := st.config(); err == nil && cfg.Layout.UID == 1000 {
+		// a user no host runs the tests as: the fake places the layout (its
+		// own user), and the manager must take what it placed
+		cfg.Layout.UID, cfg.Layout.GID = 4242, 4242
+		if err := st.putConfig(cfg); err != nil {
+			t.Fatal(err)
+		}
+	}
 	m, err := newManager(st, fb)
 	if err != nil {
 		t.Fatal(err)

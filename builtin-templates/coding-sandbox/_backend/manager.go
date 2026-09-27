@@ -1,8 +1,9 @@
 // manager.go — the contract layer's core: who is asking, what they may see,
 // the errors, hello, and the sandbox resource as each caller sees it
-// (docs/sandbox-manager.md). The routes are in sandboxes.go (definitions and
-// lifecycle), commands.go (run, execs, terminals) and files.go (files, trees,
-// snapshots); the operators' own routes in operator.go.
+// (docs/sandbox-manager.md). The routes are in sandboxes.go (list, get,
+// PATCH, DELETE), create.go, lifecycle.go (start, stop, ready), commands.go
+// (run, execs, terminals) and files.go (files, trees, snapshots); the
+// operators' own routes in operator.go.
 package main
 
 import (

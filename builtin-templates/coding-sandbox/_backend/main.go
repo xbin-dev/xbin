@@ -7,10 +7,11 @@
 // See API.md.
 //
 // Layout: backend.go is the seam (Fleet + Box, the SDK's shapes);
-// manager.go, sandboxes.go, commands.go and files.go are the contract layer
-// (partitions, people, ids, versions, clientIds, egress words); images.go
-// builds images; quotas.go bounds consumers and people; operator.go is the
-// operators' own API; store.go the sqlite table.
+// manager.go, sandboxes.go, create.go, lifecycle.go, commands.go and
+// files.go are the contract layer (partitions, people, ids, versions,
+// clientIds, egress words); images.go builds images; quotas.go bounds
+// consumers and people; config.go is what operators set and operator.go
+// their API; store.go the sqlite table.
 package main
 
 import (

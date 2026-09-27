@@ -377,11 +377,11 @@ func (f *fakeBackend) Create(ctx context.Context, spec xbin.SandboxSpec) (*xbin.
 }
 
 // fkDefaults is the fixed layout — work and home in the sandbox's
-// directory, /bin/sh — with the rest of what was asked.
+// directory, /bin/sh, the host's own user — with the environment asked.
 func fkDefaults(dir string, d *xbin.SandboxDefaults) xbin.SandboxDefaults {
-	out := xbin.SandboxDefaults{Cwd: filepath.Join(dir, "work"), Shell: "/bin/sh", Env: map[string]string{}}
+	uid, gid := os.Getuid(), os.Getgid() // (the host's user: every "sandbox" user is)
+	out := xbin.SandboxDefaults{Cwd: filepath.Join(dir, "work"), Shell: "/bin/sh", Env: map[string]string{}, UID: &uid, GID: &gid}
 	if d != nil {
-		out.UID, out.GID = d.UID, d.GID
 		for k, v := range d.Env {
 			out.Env[k] = v
 		}
