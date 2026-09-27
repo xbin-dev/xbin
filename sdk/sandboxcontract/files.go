@@ -149,10 +149,16 @@ var fileChecks = []check{
 		sb := a.Create(map[string]any{"name": "paths"})
 		id, wd := sb.ID, sb.Workdir
 		for _, p := range []string{"", "work/x", "./x"} { // paths are absolute
+			under := func(n string) string { // a path under p: none under "" ("/n" would be absolute)
+				if p == "" {
+					return ""
+				}
+				return p + "/" + n
+			}
 			a.Refused("GET", "/sandboxes/"+id+"/files/stat?path="+q(p), nil, 400, "invalid")
 			a.Refused("GET", "/sandboxes/"+id+"/files/list?path="+q(p), nil, 400, "invalid")
-			a.Refused("PUT", "/sandboxes/"+id+"/files/content?path="+q(p+"/f"), []byte("x"), 400, "invalid")
-			a.Refused("POST", "/sandboxes/"+id+"/files/mkdir", map[string]any{"path": p + "/d"}, 400, "invalid")
+			a.Refused("PUT", "/sandboxes/"+id+"/files/content?path="+q(under("f")), []byte("x"), 400, "invalid")
+			a.Refused("POST", "/sandboxes/"+id+"/files/mkdir", map[string]any{"path": under("d")}, 400, "invalid")
 		}
 		a.Put(id, wd+"/f", "x", "")
 		a.Refused("POST", "/sandboxes/"+id+"/files/move", map[string]any{"from": wd + "/f", "to": "f2"}, 400, "invalid")

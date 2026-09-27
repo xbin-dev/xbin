@@ -166,7 +166,9 @@ answers `unsupported`. `limits.sandboxes` 0 means no fixed limit.
 - `egressNext` — the egress a `PATCH` set that applies at the sandbox's next
   start; present only while it differs from `egress`. A `PATCH` of a
   running sandbox's egress sets it (`restartNeeded`); of a stopped or
-  archived one, it applies at once. In a state between (`starting`,
+  archived one, it applies at once. A stop may keep a pending one pending
+  or apply it (`egress` becomes it) — the next start takes it either way.
+  In a state between (`starting`,
   `stopping`, `thawing`) the manager picks either, as long as `egress`
   never claims less than the sandbox can reach. A consumer that enforces a
   firewall on egress checks the **less restrictive** of `egress` and

@@ -12,6 +12,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-28
 
+- **Sandbox-manager contract: a stop may apply a pending `egress`**
+  ([sandbox-manager.md](sandbox-manager.md) §Sandboxes). A `PATCH` of a
+  running sandbox's `egress` stays `egressNext` until the next start; a
+  manager may now also apply it at the stop (`egress` becomes it, as a
+  `PATCH` of a stopped sandbox does), since a substrate need keep no
+  running egress past a stop — xbind's runtime doesn't. The next start
+  takes it either way. Nothing to change: a consumer enforcing a firewall
+  already checks the less restrictive of `egress` and `egressNext`.
 - **Binding a tile's `http` slot no longer restarts the provider**
   ([overview/11-interfaces.md](overview/11-interfaces.md) §Rebinding
   restarts). Binding, rebinding or unbinding a consumer's `http` slot used

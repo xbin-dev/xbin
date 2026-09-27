@@ -167,9 +167,11 @@ func egressChanges(t *testing.T, a Caller, sb Sandbox, was, other string, do fun
 	if p := do("PATCH", "", map[string]any{"egress": was}); p.Egress != was || p.EgressNext != "" || p.RestartNeeded {
 		t.Fatalf("egress set back to what it has: %+v", p)
 	}
-	// pending across a stop; a start applies it
+	// a stop keeps it pending — or applies it, as a PATCH of a stopped
+	// sandbox does (a substrate may keep no running egress past the stop);
+	// either way the start takes it
 	do("PATCH", "", map[string]any{"egress": other})
-	if p := do("POST", "/stop?wait=5", nil); p.Egress != was || p.EgressNext != other {
+	if p := do("POST", "/stop?wait=5", nil); !(p.Egress == was && p.EgressNext == other) && !(p.Egress == other && p.EgressNext == "") {
 		t.Fatalf("a pending egress on a stopped sandbox: %+v", p)
 	}
 	if p := do("POST", "/start?wait=5", nil); p.Egress != other || p.EgressNext != "" {
