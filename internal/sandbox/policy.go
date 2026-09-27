@@ -163,6 +163,64 @@ func hostMatch(pat, name string) bool {
 // Empty reports whether the policy grants no egress (default-deny → empty netns).
 func (p EgressPolicy) Empty() bool { return len(p.Rules) == 0 }
 
+// The reach vocabulary: what a sandbox may reach, in the sandbox-manager
+// contract's words (docs/sandbox-manager.md, `egress`), ordered
+// none < internet < open.
+const (
+	ReachNone     = "none"     // nothing: no network at all
+	ReachInternet = "internet" // the public internet only
+	ReachOpen     = "open"     // more than that: a LAN, a private range
+)
+
+// Reach summarises the policy in the contract's vocabulary: ReachNone when it
+// grants nothing; ReachInternet when every rule stays on the public internet
+// (an internet rule; a host rule, whose DNS pins are public-only; a prefix
+// that is wholly public); ReachOpen otherwise. It never claims less than
+// Allow admits: a prefix counts as public only when every address in it
+// passes the same test net:internet uses.
+func (p EgressPolicy) Reach() string {
+	if p.Empty() {
+		return ReachNone
+	}
+	for _, r := range p.Rules {
+		if r.Internet || r.Host != "" || !r.Net.IsValid() {
+			continue
+		}
+		if !publicPrefix(r.Net) {
+			return ReachOpen
+		}
+	}
+	return ReachInternet
+}
+
+// nonPublic is every range isPublic refuses: unspecified, RFC1918 and ULA,
+// loopback, link-local, multicast — and, since isPublic unmaps, the same
+// IPv4 ranges IPv4-mapped.
+var nonPublic = func() []netip.Prefix {
+	v4 := []string{"0.0.0.0/32", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+		"127.0.0.0/8", "169.254.0.0/16", "224.0.0.0/4"}
+	var out []netip.Prefix
+	for _, s := range v4 {
+		p := netip.MustParsePrefix(s)
+		out = append(out, p, netip.PrefixFrom(netip.AddrFrom16(p.Addr().As16()), p.Bits()+96))
+	}
+	for _, s := range []string{"::/128", "::1/128", "fc00::/7", "fe80::/10", "ff00::/8"} {
+		out = append(out, netip.MustParsePrefix(s))
+	}
+	return out
+}()
+
+// publicPrefix reports whether every address in pfx is public.
+func publicPrefix(pfx netip.Prefix) bool {
+	pfx = pfx.Masked()
+	for _, np := range nonPublic {
+		if pfx.Overlaps(np) {
+			return false
+		}
+	}
+	return true
+}
+
 // HasHostRules reports whether any rule matches by hostname — the signal to
 // enable the relay's DNS pinning (D35).
 func (p EgressPolicy) HasHostRules() bool {
@@ -208,7 +266,10 @@ func (p EgressPolicy) Strings() []string {
 
 // isPublic is the "internet" test: a routable public address, explicitly NOT
 // RFC1918/ULA/loopback/link-local — so net:internet never reaches the LAN.
+// An IPv4-mapped address is judged as the IPv4 address it names (netip's
+// IsUnspecified alone doesn't unmap, and ::ffff:0.0.0.0 dials the host).
 func isPublic(ip netip.Addr) bool {
+	ip = ip.Unmap()
 	return ip.IsValid() && !ip.IsPrivate() && !ip.IsLoopback() &&
 		!ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast() &&
 		!ip.IsMulticast() && !ip.IsUnspecified()

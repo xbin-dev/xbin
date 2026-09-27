@@ -683,7 +683,8 @@ slot of a new kind** that the manager declares and an approver binds:
   ```go
   relay.Config{TunFD: fd, Allow: pol.Allow /* never nil */,
       Resolver: HostResolver() /* "" when pol.Empty() */, DNSRefuse: pol.Empty(),
-      Gateway: 10.0.2.2 /* no HostFwd: a dead end */, Deny: relay.HostDeny(xbindListen)}
+      Gateway: 10.0.2.2 /* no HostFwd: a dead end */, Deny: relay.HostDeny(xbindListen),
+      Processors: 1 /* §14 */}
   ```
 
   plus `AllowHost` only when the policy has host rules. There is no
@@ -1419,6 +1420,46 @@ next to its vforking `os.StartProcess`.
   - a table test for `Reach`;
   - the existing relay and pin tests stay green.
 - **Parallel:** fully.
+- **As built** (branch `p2/relay-net`):
+  - `relay.Deny` is `func(netip.Addr) bool`, checked first in `handleTCP`
+    (before the gateway forwards and the hairpin, so a relay with `Deny` has
+    neither), in `permitted` (so UDP and pinned hosts) and in ICMP. The
+    relay's own DNS service isn't a flow to the queried address: `:53` is
+    answered (`DNSRefuse`) or forwarded to `Resolver` before `Deny`.
+  - `HostDeny(listen ...netip.AddrPort)` denies whole addresses (listen
+    ports are ignored). It reads the host's addresses from the **local
+    routing table** (Linux: every interface address plus AnyIP ranges;
+    elsewhere `net.InterfaceAddrs`) and **re-reads them at most every 5 s**
+    instead of once at start, so a VPN or bridge that comes up later is
+    denied too. Until a read succeeds, it denies everything. IPv4-mapped
+    destinations are judged unmapped.
+  - `DNSRefuse` answers every UDP `:53` query REFUSED locally (question
+    echoed), records the flow as denied, and caps the answerers at 64.
+  - `relay.Config.Processors` sets gVisor's packet processors (0 = one per
+    CPU, today's default for every existing relay). §14's saving is opt-in:
+    tile sandboxes pass `Processors: 1` (added to §4's config).
+  - `EgressPolicy.Reach()` returns `sandbox.ReachNone|ReachInternet|
+    ReachOpen`. A prefix is "wholly public" when it overlaps none of the
+    ranges `isPublic` refuses (tested /16 by /16 against it).
+  - Found on the way and fixed:
+    - `isPublic`/`publicAddr` didn't unmap before `IsUnspecified`, so the
+      `net:internet` policy admitted `::ffff:0.0.0.0` (a dial to it reaches
+      the host). gVisor drops IPv4-mapped destinations, so it wasn't
+      reachable: defense in depth, no changelog entry. `Reach` needs the
+      policy to be exact anyway.
+    - `Relay.Close` never stopped the TUN's reader and its per-CPU
+      processors. They leaked until the TUN died and could read whatever
+      file reused the fd number. `Close` now stops them before it returns
+      and is idempotent, and a ping reply that lands after it no longer
+      writes to the closed fd's number.
+    - The forwarders are installed before the NIC starts reading: a packet
+      already queued on the TUN raced them.
+  - Tests: `relay/hardening_linux_test.go` drives a real gVisor stack over a
+    SEQPACKET socketpair with vetted dials (no privileges);
+    `sandbox/relay_linux_test.go` (integration) runs a namespace sandbox
+    behind an allow-all relay: without `Deny` it reaches the host's address
+    and the gateway forward, with `HostDeny` + `DNSRefuse` both are reset
+    and a lookup fails at once.
 
 ### WP-11 — The `sandbox-net` interface kind (Track C · M · after WP-10)
 

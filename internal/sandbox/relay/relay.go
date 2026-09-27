@@ -51,8 +51,13 @@ const udpIdleTimeout = 30 * time.Second
 // TUN carries it like any other packet, no setns and no extra privilege.
 type Relay struct {
 	stack     *stack.Stack
+	link      stack.LinkEndpoint // the TUN's fdbased endpoint
+	closeOnce sync.Once
 	dial      net.Dialer
 	allow     Allow
+	deny      Deny           // checked before everything else (nil = none)
+	dnsRefuse bool           // answer every :53 query REFUSED
+	refuseSem chan struct{}  // bounds the REFUSED answerers
 	gateway   netip.Addr     // virtual gateway IP that host-forwards apply to
 	hostFwd   map[int]string // gateway port → host dial addr (e.g. xbind)
 	hostDial  func(dst string) (net.Conn, error)
@@ -123,10 +128,16 @@ func (r *Relay) finish(f *Flow, tx, rx int64) {
 
 func nowMS() int64 { return time.Now().UnixMilli() }
 
-// permitted is the full egress decision: the static IP policy, or — when
-// host rules are configured — a DNS pin naming this address whose hostname
-// the policy allows at this port (D35).
+// blocked is Config.Deny's verdict: true = never, whatever the policy says.
+func (r *Relay) blocked(ip netip.Addr) bool { return r.deny != nil && r.deny(ip) }
+
+// permitted is the full egress decision: never what Deny names; otherwise the
+// static IP policy, or — when host rules are configured — a DNS pin naming
+// this address whose hostname the policy allows at this port (D35).
 func (r *Relay) permitted(ip netip.Addr, port int) bool {
+	if r.blocked(ip) {
+		return false
+	}
 	if r.allow != nil && r.allow(ip, port) {
 		return true
 	}
@@ -199,8 +210,10 @@ func (r *Relay) pin(name string, addr netip.Addr, ttl uint32) {
 }
 
 // publicAddr mirrors the sandbox policy's "internet" test (kept local — the
-// parent package imports us).
+// parent package imports us). An IPv4-mapped address is judged as the IPv4
+// address it names (::ffff:0.0.0.0 is the unspecified address).
 func publicAddr(ip netip.Addr) bool {
+	ip = ip.Unmap()
 	return ip.IsValid() && !ip.IsPrivate() && !ip.IsLoopback() &&
 		!ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast() &&
 		!ip.IsMulticast() && !ip.IsUnspecified()
@@ -209,7 +222,13 @@ func publicAddr(ip netip.Addr) bool {
 // Start attaches a stack to a TUN (opened inside the target netns and passed to
 // us) and begins forwarding under cfg.
 func Start(cfg Config) (*Relay, error) {
-	ep, err := fdbased.New(&fdbased.Options{FDs: []int{cfg.TunFD}, MTU: 1500})
+	return start(cfg, net.Dialer{Timeout: 15 * time.Second})
+}
+
+// start is Start with the dialer for host-side flows (tests vet dials).
+func start(cfg Config, dial net.Dialer) (*Relay, error) {
+	ep, err := fdbased.New(&fdbased.Options{FDs: []int{cfg.TunFD}, MTU: 1500,
+		ProcessorsPerChannel: max(cfg.Processors, 0)})
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +238,8 @@ func Start(cfg Config) (*Relay, error) {
 	})
 
 	r := &Relay{
-		stack: s, allow: cfg.Allow, dial: net.Dialer{Timeout: 15 * time.Second},
+		stack: s, link: ep, dial: dial, allow: cfg.Allow, deny: cfg.Deny,
+		dnsRefuse: cfg.DNSRefuse, refuseSem: make(chan struct{}, dnsRefuseMax),
 		gateway: cfg.Gateway, hostFwd: cfg.HostFwd, hostDial: cfg.HostDial,
 		tileIP: cfg.TileIP, hairDial: cfg.HairpinDial, allowHost: cfg.AllowHost,
 	}
@@ -232,6 +252,13 @@ func Start(cfg Config) (*Relay, error) {
 	if cfg.Published != nil && cfg.HairpinDial != nil {
 		r.hairpin = netip.MustParseAddr(HairpinIP)
 	}
+
+	// The forwarders go in before the NIC exists: the NIC starts reading the
+	// TUN at once, and a packet already queued there must find them.
+	tcpFwd := tcp.NewForwarder(s, 0, 2048, r.handleTCP)
+	s.SetTransportProtocolHandler(tcp.ProtocolNumber, tcpFwd.HandlePacket)
+	udpFwd := udp.NewForwarder(s, r.udpHandler(cfg))
+	s.SetTransportProtocolHandler(udp.ProtocolNumber, udpFwd.HandlePacket)
 
 	// Interpose an ICMP-echo forwarder at the link layer so `ping` works
 	// (gVisor has no ICMP forwarder). Best-effort — on failure we just lack ping.
@@ -254,24 +281,37 @@ func Start(cfg Config) (*Relay, error) {
 		{Destination: header.IPv6EmptySubnet, NIC: nicID},
 	})
 
-	tcpFwd := tcp.NewForwarder(s, 0, 2048, r.handleTCP)
-	s.SetTransportProtocolHandler(tcp.ProtocolNumber, tcpFwd.HandlePacket)
-	udpFwd := udp.NewForwarder(s, r.udpHandler(cfg))
-	s.SetTransportProtocolHandler(udp.ProtocolNumber, udpFwd.HandlePacket)
 	return r, nil
 }
 
+// Close tears the relay down. The TUN's readers have stopped when it returns,
+// so the caller may close the fd: a reader left running would leak with its
+// per-CPU processors and go on reading whatever file later takes the fd's
+// number. They stop first, holding no stack lock — a one-processor reader
+// delivers packets inline, and delivery can take the stack's locks.
 func (r *Relay) Close() {
-	r.stack.Close()
-	if r.icmp != nil {
-		r.icmp.close()
-	}
+	r.closeOnce.Do(func() {
+		r.link.Attach(nil)
+		r.stack.Close()
+		_ = r.stack.RemoveNIC(nicID)
+		if r.icmp != nil {
+			r.icmp.close()
+		}
+	})
 }
 
 func (r *Relay) handleTCP(req *tcp.ForwarderRequest) {
 	id := req.ID()
 	ip, ok := addr(id.LocalAddress)
 	port := int(id.LocalPort)
+
+	// Deny comes first: before the gateway forwards and the hairpin, which
+	// are policy-exempt, so a relay with Deny serves neither.
+	if !ok || r.blocked(ip) {
+		r.record("tcp", ip, port, false) // RST
+		req.Complete(true)
+		return
+	}
 
 	// Gateway host-forward: flows to the virtual gateway IP on a mapped port go
 	// to a host service (e.g. xbind), policy-exempt — that's how a netns-isolated
@@ -303,7 +343,7 @@ func (r *Relay) handleTCP(req *tcp.ForwarderRequest) {
 		return
 	}
 
-	if !ok || !r.permitted(ip, port) {
+	if !r.permitted(ip, port) {
 		r.record("tcp", ip, port, false) // RST — denied
 		req.Complete(true)
 		return
@@ -369,16 +409,21 @@ func (r *Relay) DialIn(ctx context.Context, proto string, port int) (net.Conn, e
 	return gonet.DialTCPWithBind(ctx, r.stack, local, remote, ipv4.ProtocolNumber)
 }
 
-// udpHandler forwards UDP flows: DNS (:53) is relayed to the configured host
-// resolver (so name resolution works for net:internet) — with published
-// hostnames answered locally (split horizon) when configured; other UDP is
-// subject to the same allow check as TCP.
+// udpHandler forwards UDP flows: DNS (:53) is answered REFUSED (DNSRefuse)
+// or relayed to the configured host resolver (so name resolution works for
+// net:internet) — with published hostnames answered locally (split horizon)
+// when configured; other UDP is subject to the same checks as TCP (permitted
+// asks Deny first).
 func (r *Relay) udpHandler(cfg Config) func(*udp.ForwarderRequest) bool {
 	resolver := cfg.Resolver
 	return func(req *udp.ForwarderRequest) bool {
 		id := req.ID()
 		ip, ok := addr(id.LocalAddress)
 		port := int(id.LocalPort)
+		if port == 53 && r.dnsRefuse {
+			r.refuseDNS(req, ip)
+			return true
+		}
 		dst := net.JoinHostPort(ip.String(), strconv.Itoa(port))
 		dns := port == 53 && resolver != ""
 		if dns {
@@ -412,6 +457,48 @@ func (r *Relay) udpHandler(cfg Config) func(*udp.ForwarderRequest) bool {
 		go func() { tx, rx := spliceUDPIdle(in, out, udpIdleTimeout); r.finish(f, tx, rx) }()
 		return true
 	}
+}
+
+// dnsRefuseMax bounds the concurrent REFUSED answerers (one per client
+// socket); a query past it is dropped. dnsRefuseIdle ends an answerer after
+// that much silence.
+const (
+	dnsRefuseMax  = 64
+	dnsRefuseIdle = 5 * time.Second
+)
+
+// refuseDNS answers the queries of one DNS flow with REFUSED, locally and at
+// once: nothing is forwarded and nothing waits on a timeout.
+func (r *Relay) refuseDNS(req *udp.ForwarderRequest, ip netip.Addr) {
+	select {
+	case r.refuseSem <- struct{}{}:
+	default:
+		return // saturated — dropped; the client retries
+	}
+	var wq waiter.Queue
+	gep, e := req.CreateEndpoint(&wq)
+	if e != nil {
+		<-r.refuseSem
+		return
+	}
+	in := gonet.NewUDPConn(&wq, gep)
+	r.record("udp", ip, 53, false)
+	go func() {
+		defer func() { in.Close(); <-r.refuseSem }()
+		buf := make([]byte, 4096)
+		for {
+			_ = in.SetReadDeadline(time.Now().Add(dnsRefuseIdle))
+			n, err := in.Read(buf)
+			if n > 0 {
+				if resp := refusal(buf[:n]); resp != nil {
+					_, _ = in.Write(resp)
+				}
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
 }
 
 // splice copies bidirectionally and returns (a→b, b→a) byte counts.
