@@ -41,6 +41,13 @@ import (
 // only tokens that could have been minted before this boot, see
 // legacyFrameWindow — and renews into a bound token tied to the user's
 // current generation, so pages open across the upgrade keep working.
+//
+// Deployment claim (P12; 11-contract §7.2; deployment.go): a token of a
+// deployment other than main carries its name as a sixth field before the
+// HMAC, …|exp|gen|base64url(deployment)|hmac. Main never has one (one
+// spelling per meaning): 4- and 5-field tokens mean main, keeping today's
+// bytes, and a sixth field naming main is refused. An older verifier accepts
+// only 4 or 5 fields, so it refuses a claim rather than dropping it.
 
 // genState is the live-generation bookkeeping (guarded by Auth.mu; path is
 // fixed at Load).
@@ -207,27 +214,38 @@ func validGen(g string) bool {
 // is ""). Callers holding the request principal use MintFrameTokenFor, which
 // binds to the principal's own login.
 func (a *Auth) MintFrameToken(component, userID string, ttl time.Duration) string {
-	return a.mintFrame(component, userID, a.defaultGen(userID), ttl)
+	return a.mintFrame(component, userID, a.defaultGen(userID), "", ttl)
 }
 
 // MintFrameTokenFor mints a frame token for component on behalf of p: the
 // token names p's user and is bound to p's credential generation — the
 // session p signed in with, or (a frame principal renewing) the generation
 // its own token carried. A principal without one (a legacy token, a
-// terminal, a backend) binds to its user's current generation.
+// terminal, a backend) binds to its user's current generation. A tile
+// principal renewing its own tile's token keeps its deployment claim, as it
+// keeps its generation (renewalClaim, deployment.go).
 func (a *Auth) MintFrameTokenFor(p Principal, component string, ttl time.Duration) string {
-	gen := p.Gen
-	if !validGen(gen) {
-		gen = a.defaultGen(p.UserID)
-	}
-	return a.mintFrame(component, p.UserID, gen, ttl)
+	return a.mintFrame(component, p.UserID, a.frameGenFor(p), renewalClaim(p, component), ttl)
 }
 
-func (a *Auth) mintFrame(component, userID, gen string, ttl time.Duration) string {
+// frameGenFor is the generation a token minted on behalf of p binds to.
+func (a *Auth) frameGenFor(p Principal) string {
+	if validGen(p.Gen) {
+		return p.Gen
+	}
+	return a.defaultGen(p.UserID)
+}
+
+// mintFrame signs a token; claim is the deployment claim, already under the
+// name rule ("" for main: today's five fields).
+func (a *Auth) mintFrame(component, userID, gen, claim string, ttl time.Duration) string {
 	exp := time.Now().Add(ttl).Unix()
 	payload := fmt.Sprintf("%s|%s|%d|%s",
 		base64.RawURLEncoding.EncodeToString([]byte(component)),
 		base64.RawURLEncoding.EncodeToString([]byte(userID)), exp, gen)
+	if claim != "" {
+		payload += "|" + base64.RawURLEncoding.EncodeToString([]byte(claim))
+	}
 	return payload + "|" + a.sign(payload)
 }
 
@@ -247,12 +265,21 @@ func (a *Auth) VerifyFrameToken(tok string) (component, userID string, ok bool) 
 type frameClaims struct {
 	component, userID, gen string
 	impersonator           string // the view-as admin behind an s. generation
+	deployment             string // the claim: "" = main (deployment.go)
 }
 
 func (a *Auth) verifyFrame(tok string) (frameClaims, bool) {
 	parts := strings.Split(tok, "|")
-	var payload, sig, gen string
+	var payload, sig, gen, dep string
 	switch len(parts) {
+	case 6: // a deployment other than main: the claim is inside the HMAC
+		gen = parts[3]
+		d, err := base64.RawURLEncoding.DecodeString(parts[4])
+		if claim, ok := claimName(string(d)); err != nil || !ok || claim == "" || !validGen(gen) {
+			return frameClaims{}, false
+		}
+		dep = string(d)
+		payload, sig = strings.Join(parts[:5], "|"), parts[5]
 	case 5:
 		gen = parts[3]
 		if !validGen(gen) {
@@ -282,7 +309,7 @@ func (a *Auth) verifyFrame(tok string) (frameClaims, bool) {
 	if err != nil {
 		return frameClaims{}, false
 	}
-	ft := frameClaims{component: string(comp), userID: string(uid), gen: gen}
+	ft := frameClaims{component: string(comp), userID: string(uid), gen: gen, deployment: dep}
 	if gen != "" {
 		imp, live := a.genLive(gen, ft.userID)
 		if !live {
@@ -306,7 +333,8 @@ func (a *Auth) framePrincipal(tok string) (Principal, bool) {
 	if !ok {
 		return Principal{}, false
 	}
-	p := Principal{Component: ft.component, UserID: ft.userID, Via: "frame", Gen: ft.gen, Impersonator: ft.impersonator}
+	p := Principal{Component: ft.component, UserID: ft.userID, Via: "frame", Gen: ft.gen, Impersonator: ft.impersonator,
+		Deployment: ft.deployment}
 	if ft.userID != "" {
 		if _, found := a.userSnapshot(ft.userID); !found {
 			return Principal{}, false

@@ -82,10 +82,12 @@ type Principal struct {
 	// every write while it is set (ReadOnly).
 	Impersonator string
 	// Deployment names the tile deployment this principal acts in; "" =
-	// main. Tile principals: set from the credential, never from a header.
-	// Cron and bus principals: the registration's deployment. Humans: always
-	// "" (a person names a deployment by URL, not by credential). From()
-	// stays the tile path, and authority stays the tile's (P11).
+	// main. Tile principals: set from the credential, never from a header
+	// (deployment.go); a terminal or agent session's is its target: a name,
+	// main included, or "" when it follows the primary. Cron and bus
+	// principals: the registration's deployment. Humans: always "" (a
+	// person names a deployment by URL, not by credential). From() stays
+	// the tile path, and authority stays the tile's (P11).
 	Deployment string
 }
 
@@ -222,8 +224,8 @@ type Auth struct {
 	sessionAbsTTL  time.Duration // hard cap since login regardless of activity
 
 	mu        sync.RWMutex
-	instances map[string]string     // instance token → component path
-	terminals map[string]termID     // terminal token → (component, user)
+	instances map[string]instanceID // instance token → (component path, deployment) (deployment.go)
+	terminals map[string]termID     // terminal token → (component, user, target)
 	sessions  map[string]*session   // session id → session (sessions.go)
 	tickets   map[string]*impTicket // one-shot impersonation tickets (impersonate.go)
 	warm      map[string]time.Time  // client IP → last successful auth (the /c/ gate)
@@ -246,8 +248,9 @@ type Auth struct {
 // termID scopes a terminal-session token (plans/terminal-tokens.md): the tile
 // the terminal is opened on, plus the human who opened it (attribution).
 type termID struct {
-	component string
-	userID    string // "" for the bootstrap-token principal
+	component  string
+	userID     string // "" for the bootstrap-token principal
+	deployment string // the session's target; "" follows the primary (deployment.go)
 }
 
 // Session lifetime defaults (override with XBIN_SESSION_IDLE_TTL /
@@ -279,7 +282,7 @@ func Load(workspaceRoot string, noAuth bool) (*Auth, error) {
 		secret:         []byte(sec),
 		sessionIdleTTL: envDuration("XBIN_SESSION_IDLE_TTL", defaultSessionIdleTTL),
 		sessionAbsTTL:  envDuration("XBIN_SESSION_MAX_TTL", defaultSessionAbsTTL),
-		instances:      map[string]string{},
+		instances:      map[string]instanceID{},
 		terminals:      map[string]termID{},
 		sessions:       map[string]*session{},
 		tickets:        map[string]*impTicket{},
@@ -446,25 +449,13 @@ func loadOrCreate(path string) (string, error) {
 
 func (a *Auth) NoAuth() bool { return a.noAuth }
 
-// --- element instance tokens (minted by the runner per generation) ---
-
-func (a *Auth) RegisterInstance(token, component string) {
-	a.mu.Lock()
-	a.instances[token] = component
-	a.mu.Unlock()
-}
+// --- element instance tokens (minted by the runner per generation;
+// registered by deployment.go) ---
 
 func (a *Auth) RevokeInstance(token string) {
 	a.mu.Lock()
 	delete(a.instances, token)
 	a.mu.Unlock()
-}
-
-func (a *Auth) lookupInstance(token string) (string, bool) {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	c, ok := a.instances[token]
-	return c, ok
 }
 
 // --- terminal tokens (minted per terminal session; plans/terminal-tokens.md) ---
@@ -473,13 +464,10 @@ func (a *Auth) lookupInstance(token string) (string, bool) {
 // opened on. The returned bearer resolves to that tile's ELEMENT principal —
 // the tile acting as itself (self-admin + its approved grants/bindings), never
 // inheriting the driving user's privilege — exactly the frame-token model, for
-// shells. userID rides along for attribution and session binding.
+// shells. userID rides along for attribution and session binding. The
+// session follows the primary (MintTerminalTarget, deployment.go).
 func (a *Auth) MintTerminal(component, userID string) string {
-	tok := util.RandomToken(24)
-	a.mu.Lock()
-	a.terminals[tok] = termID{component: component, userID: userID}
-	a.mu.Unlock()
-	return tok
+	return a.MintTerminalTarget(component, userID, "")
 }
 
 // RevokeTerminal drops a terminal token (the session ended).
@@ -502,7 +490,7 @@ func (a *Auth) lookupTerminal(token string) (termID, bool) {
 // The user's Access rides along so per-tile gates beyond the terminal's own
 // tile follow the DRIVING human, not a blanket element pass.
 func (a *Auth) terminalPrincipal(id termID) (Principal, bool) {
-	p := Principal{Component: id.component, UserID: id.userID, Via: "terminal"}
+	p := Principal{Component: id.component, UserID: id.userID, Via: "terminal", Deployment: id.deployment}
 	if id.userID != "" {
 		if _, found := a.userSnapshot(id.userID); !found {
 			return Principal{}, false
@@ -574,8 +562,8 @@ func (a *Auth) fromRequest(r *http.Request) (Principal, bool) {
 		// exercises the same RBAC the deployed workspace enforces.
 		if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 			tok := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
-			if comp, ok := a.lookupInstance(tok); ok {
-				return Principal{Component: comp, Via: "instance"}, true
+			if id, ok := a.lookupInstance(tok); ok {
+				return id.principal(), true
 			}
 			if id, ok := a.lookupTerminal(tok); ok {
 				return a.terminalPrincipal(id)
@@ -592,8 +580,8 @@ func (a *Auth) fromRequest(r *http.Request) (Principal, bool) {
 		if a.IsOwnerToken(tok) {
 			return Principal{Owner: true, Via: "bearer", Gen: a.ownerGen()}, true
 		}
-		if comp, ok := a.lookupInstance(tok); ok {
-			return Principal{Component: comp, Via: "instance"}, true
+		if id, ok := a.lookupInstance(tok); ok {
+			return id.principal(), true
 		}
 		if id, ok := a.lookupTerminal(tok); ok {
 			return a.terminalPrincipal(id)
