@@ -11,8 +11,11 @@ package broker
 //     role (09-fabric §4.1), and the single evaluation point of the edge
 //     policy (§5.3), whose verdict on a non-primary caller edgepolicy.go
 //     supplies (edgeVerdict);
-//   - resKeys, the key function for per-deployment data (08-data §3.2): the
-//     one place, with this file, that builds a resource's physical keys.
+//   - resKeys and scopeKeys, the key function for per-deployment data
+//     (08-data §3.2): the one place in the broker that builds a resource's
+//     physical keys; the namespace kv files (kvDB); the tile-keyed files of
+//     a deployment beyond main, and DropDeploymentFiles, which a new
+//     deployment starts from.
 //
 // Every answer gives a tile without a deployment record exactly what the
 // broker answered before tile deployments (F1) (P5): its one deployment is
@@ -23,7 +26,13 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
+	"path"
+	"path/filepath"
 	"strings"
+	"time"
+
+	bolt "go.etcd.io/bbolt"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/registry"
@@ -301,6 +310,91 @@ func (b *Broker) resolveTarget(caller, callerDep, target string) Decision {
 }
 
 // ---- the key function for per-deployment data ----
+//
+// Every physical key of a resource is computed here and nowhere else in the
+// broker (TestNoAdHocResourceKeys): a scope's data key, its kv bucket and
+// labels, its encrypted volumes and mounts, its disk-quota key (08-data §2,
+// §3.2) (P6). main's keys are today's, byte for byte, whether or not main is
+// the primary. Every other deployment's live under a ".deployments" level
+// inside today's roots, keyed by escS, an injective encoding of the scope
+// path, and the deployment name. No scope key starts with ".", so no path
+// today's or an older xbind computes can reach that level (08-data §3.3).
+
+// String is the resource's id, res:<scope>/<name> ("workspace" for the
+// workspace scope): its grant target, its kv bucket in every namespace, its
+// bus topic prefix.
+func (rt resTarget) String() string {
+	s := rt.Scope
+	if s == "" {
+		s = "workspace"
+	}
+	return "res:" + s + "/" + rt.Name
+}
+
+// deploymentsLevel is the directory level, inside data/resources-enc and
+// .xbin/resenc, that holds every namespace but main's.
+const deploymentsLevel = ".deployments"
+
+// maxEscS bounds an encoded scope: a scope whose escS is longer can't have
+// deployments beyond main (08-data §3.2).
+const maxEscS = 200
+
+// escS is the injective encoding of a scope path for the keys of namespaces
+// beyond main (08-data §3.3): "%" becomes "%25", then "~" becomes "%7E",
+// then "/" becomes "~". util.ScopeKey maps apps~cal and apps/cal to one key;
+// escS maps them to apps%7Ecal and apps~cal. Afterwards "%" appears only as
+// %25 or %7E and "~" only for "/", so the scope is recoverable (unescS),
+// and the result is one path segment.
+func escS(scope string) string { return escSReplacer.Replace(scope) }
+
+var (
+	escSReplacer   = strings.NewReplacer("%", "%25", "~", "%7E", "/", "~")
+	unescSReplacer = strings.NewReplacer("~", "/", "%7E", "~", "%25", "%")
+)
+
+// unescS recovers the scope path escS encoded into seg; false when seg is
+// no encoding escS produces (a directory the key function never made).
+func unescS(seg string) (string, bool) {
+	scope := unescSReplacer.Replace(seg)
+	return scope, seg != "" && escS(scope) == seg
+}
+
+// nsKeys are the keys of one scope's data namespace in one deployment, which
+// all its resources share (08-data §2, §3.1). Paths are slash-separated and
+// relative to the workspace root.
+type nsKeys struct {
+	NS     string // "" for main | ".deployments/<escS>/<d>"
+	DirKey string // resenc's scopeKey argument: ScopeKey(S) | NS+"/fs"
+	Quota  string // the disk-quota key: ScopeKey(S) | NS
+	Plain  string // main's plaintext resource dir, data/resources/<ScopeKey(S)>; "" beyond main, which has none
+	Enc    string // what the quota measures besides Plain: data/resources-enc/<ScopeKey(S)> | data/resources-enc/<NS>, its kv file included
+}
+
+// scopeKeys computes scope's namespace keys in deployment dep ("" is main).
+// main's are today's and never an error. Beyond main: dep must be a
+// deployment name, the workspace scope is never split (its resources are
+// reached as an edge, 08-data §4.2), the scope must be a workspace path, and
+// its encoding at most maxEscS bytes.
+func scopeKeys(scope, dep string) (nsKeys, error) {
+	if dep == "" || dep == util.MainDeployment {
+		sk := util.ScopeKey(scope)
+		return nsKeys{DirKey: sk, Quota: sk, Plain: "data/resources/" + sk, Enc: "data/resources-enc/" + sk}, nil
+	}
+	switch {
+	case !util.DeploymentNameOK(dep):
+		return nsKeys{}, fmt.Errorf("%q is not a deployment name", dep)
+	case scope == "":
+		return nsKeys{}, fmt.Errorf("the workspace's resources have one namespace: deployment %q reaches res:workspace/* as an edge, never a copy of its own", dep)
+	case !util.ComponentPathOK(scope):
+		return nsKeys{}, fmt.Errorf("scope %q is not a workspace path", scope)
+	}
+	e := escS(scope)
+	if len(e) > maxEscS {
+		return nsKeys{}, fmt.Errorf("scope %s is too long for deployments beyond main: its data key would be %d bytes, over %d", scope, len(e), maxEscS)
+	}
+	ns := deploymentsLevel + "/" + e + "/" + dep
+	return nsKeys{NS: ns, DirKey: ns + "/fs", Quota: ns, Enc: "data/resources-enc/" + ns}, nil
+}
 
 // resKeys is every physical key of one resource in one data namespace
 // (08-data §3.2). main's are today's; another deployment's are the
@@ -315,26 +409,40 @@ type resKeys struct {
 	KVLabel string // "kv:"+Bucket | "kv:"+NS+"/"+Bucket
 }
 
+// quotaKey is the disk-quota key of k's namespace (nsKeys.Quota).
+func (k resKeys) quotaKey() string { return cmp.Or(k.NS, k.DirKey) }
+
 // resKeys computes rt's keys in deployment dep's namespace ("" is main).
 // main's are today's, byte for byte, refusing only a resource name with a
-// ".." segment or a NUL, which would leave data/resources-enc. Every other
-// namespace is refused until per-deployment data is built: no deployment
-// beyond main has data yet.
+// ".." segment or a NUL, which would leave data/resources-enc. Beyond main
+// scopeKeys's rules apply, and a name must also be non-empty, with no
+// leading "/" and no "." or empty segment: such names alias today (./x and
+// x are one directory), and a new namespace doesn't inherit that (NP-08-11).
+// The registry refuses more before a name gets here (D118's charset); this
+// is the last line wherever a name comes from.
 func (b *Broker) resKeys(rt resTarget, dep string) (resKeys, error) {
-	if dep != "" && dep != util.MainDeployment {
-		return resKeys{}, fmt.Errorf("%s: deployment %q has no data namespace in this xbind", rt, dep)
+	ns, err := scopeKeys(rt.Scope, dep)
+	if err != nil {
+		return resKeys{}, fmt.Errorf("%s: %w", rt, err)
 	}
-	if !mainResNameOK(rt.Name) {
+	if !mainResNameOK(rt.Name) || ns.NS != "" && !nsResNameOK(rt.Name) {
 		where := "the workspace's xbin.json"
 		if rt.Scope != "" {
 			where = rt.Scope + "/scope.json"
 		}
 		return resKeys{}, fmt.Errorf("resource name %q in %s is not a plain relative path", rt.Name, where)
 	}
-	sk := util.ScopeKey(rt.Scope)
 	bucket := rt.String()
-	return resKeys{DirKey: sk, Name: rt.Name, FSLabel: resLabel(sk, rt.Name), Bucket: bucket, KVLabel: "kv:" + bucket}, nil
+	if ns.NS == "" {
+		return resKeys{DirKey: ns.DirKey, Name: rt.Name, FSLabel: resLabel(ns.DirKey, rt.Name),
+			Bucket: bucket, KVLabel: "kv:" + bucket}, nil
+	}
+	return resKeys{NS: ns.NS, DirKey: ns.DirKey, Name: rt.Name, FSLabel: ns.DirKey + "/" + rt.Name,
+		KVFile: nsKVFile(ns.NS), Bucket: bucket, KVLabel: "kv:" + ns.NS + "/" + bucket}, nil
 }
+
+// nsKVFile is the kv file of namespace ns (an nsKeys.NS beyond main).
+func nsKVFile(ns string) string { return "data/resources-enc/" + ns + "/kv.db" }
 
 // mainResNameOK reports whether name may name a resource in main's
 // namespace: no ".." segment, no NUL. Every name that works today and stays
@@ -349,4 +457,205 @@ func mainResNameOK(name string) bool {
 		}
 	}
 	return true
+}
+
+// nsResNameOK is the rest of the name rule beyond main: non-empty, no
+// leading "/", no "." or empty segment.
+func nsResNameOK(name string) bool {
+	if name == "" || strings.HasPrefix(name, "/") {
+		return false
+	}
+	for _, seg := range strings.Split(name, "/") {
+		if seg == "" || seg == "." {
+			return false
+		}
+	}
+	return true
+}
+
+// ---- the namespace kv files ----
+
+// kvDB is the bbolt file holding k's bucket: data/kv.db for main, the
+// namespace's own file beyond it (08-data §2), so a namespace's writes never
+// take kv.db's writer lock, a reset frees its disk, and an older xbind never
+// sees it. create opens a namespace file that doesn't exist yet, making it;
+// without create a missing file answers nil, nil: a namespace nothing wrote
+// to reads as empty, and a read creates nothing (08-data §3.7). nil, nil
+// also for a broker without kv (unit fixtures).
+func (b *Broker) kvDB(k resKeys, create bool) (*bolt.DB, error) {
+	switch {
+	case b.kv == nil && create:
+		return nil, errors.New("the kv store isn't open")
+	case b.kv == nil:
+		return nil, nil
+	case k.KVFile == "":
+		return b.kv.db, nil
+	}
+	return b.kv.nsFile(k.KVFile, create)
+}
+
+// scopeKV is the kv file of scope's namespace in dep, the one kvDB answers
+// for each of its resources.
+func (b *Broker) scopeKV(scope, dep string, create bool) (*bolt.DB, error) {
+	ns, err := scopeKeys(scope, dep)
+	if err != nil {
+		return nil, err
+	}
+	k := resKeys{NS: ns.NS}
+	if ns.NS != "" {
+		k.KVFile = nsKVFile(ns.NS)
+	}
+	return b.kvDB(k, create)
+}
+
+// kvView runs fn in a read transaction of db; a nil db, a namespace nothing
+// wrote to, has no buckets.
+func kvView(db *bolt.DB, fn func(*bolt.Tx) error) error {
+	if db == nil {
+		return nil
+	}
+	return db.View(fn)
+}
+
+// nsFile opens (once) the namespace kv file at rel, relative to the
+// workspace root.
+func (s *kvStore) nsFile(rel string, create bool) (*bolt.DB, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if db := s.ns[rel]; db != nil {
+		return db, nil
+	}
+	p := filepath.Join(s.root, filepath.FromSlash(rel)) // data/ is xbind's own: no sandbox sees it
+	if !create {
+		if _, err := os.Lstat(p); errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		} else if err != nil {
+			return nil, err
+		}
+	} else if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		return nil, err
+	}
+	db, err := bolt.Open(p, 0o600, &bolt.Options{Timeout: 5 * time.Second})
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", rel, err)
+	}
+	if s.ns == nil {
+		s.ns = map[string]*bolt.DB{}
+	}
+	s.ns[rel] = db
+	return db, nil
+}
+
+// closeNamespace closes namespace ns's kv file, if open, so it can be
+// removed (a reset or a removal, 08-data §9); the next use opens it again.
+func (s *kvStore) closeNamespace(ns string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rel := nsKVFile(ns)
+	db := s.ns[rel]
+	if db == nil {
+		return nil
+	}
+	delete(s.ns, rel)
+	return db.Close()
+}
+
+// close closes kv.db and every namespace file.
+func (s *kvStore) close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for rel, db := range s.ns {
+		_ = db.Close()
+		delete(s.ns, rel)
+	}
+	if s.db != nil {
+		_ = s.db.Close()
+	}
+}
+
+// ---- the tile-keyed files of a deployment ----
+
+// depFiles are the files of one deployment beyond main that belong to its
+// tile rather than to a (scope, name) namespace (08-data §2, §3.3): each
+// keyed by the tile's TileKey, never CompKey, whose 32 bits can be ground,
+// so a tile at a colliding path shares none of them (P29). Paths are
+// slash-separated and relative to the workspace root. main has none here:
+// its files keep today's keys.
+type depFiles struct {
+	Vault   string // data/vault/.deployments/<TK>/<d>.json
+	Prefs   string // inside each user's data/prefs/<CompKey(user)>/: .deployments/<TK>/<d>.json
+	Records string // data/deployments/<TK>/<d>: its registration files, which the plane writes
+	Derived string // .xbin/deploy/<TK>/d/<d>: its backend log, and D113 sandbox state
+}
+
+// deploymentFiles computes deployment dep of tile's files: dep must be a
+// deployment name other than main.
+func deploymentFiles(tile, dep string) (depFiles, error) {
+	if dep == util.MainDeployment || !util.DeploymentNameOK(dep) {
+		return depFiles{}, fmt.Errorf("%s: deployment %q keeps no files of its own (main's keep today's keys)", tile, dep)
+	}
+	tk := util.TileKey(tile)
+	return depFiles{
+		Vault:   "data/vault/" + deploymentsLevel + "/" + tk + "/" + dep + ".json",
+		Prefs:   deploymentsLevel + "/" + tk + "/" + dep + ".json",
+		Records: "data/deployments/" + tk + "/" + dep,
+		Derived: ".xbin/deploy/" + tk + "/d/" + dep,
+	}, nil
+}
+
+// registrationFileNames are the registration files a deployment beyond main
+// keeps under depFiles.Records (11-contract §10.2), which the plane validates
+// again.
+var registrationFileNames = []string{"cron.json", "bus-subscriptions.json", "iface-instances.json",
+	"ingress-hosts.json", "backup-schedule.json", "sandboxes.json"}
+
+// DropDeploymentFiles deletes deployment dep of tile's own files: its vault,
+// every user's prefs for it, its registration files (through the plane,
+// under its records lock) and its derived-state directory (08-data §3.3,
+// §9.2). Adding a deployment calls it first, so nothing an earlier
+// deployment of the same name left applies (P29) and the new vault starts
+// with placeholders only (P14); removing one calls it once the deployment
+// is stopped. It never touches main, the tile's other deployments, or the
+// (scope, name) data namespace, which the scope's siblings may share
+// (§6.4). Files already gone are no error.
+func (b *Broker) DropDeploymentFiles(tile, dep string) error {
+	f, err := deploymentFiles(tile, dep)
+	if err != nil {
+		return err
+	}
+	root := b.Reg.Root
+	at := func(rel string) string { return filepath.Join(root, filepath.FromSlash(rel)) }
+	var errs []error
+	remove := func(rel string, prune ...string) {
+		if err := os.Remove(at(rel)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			errs = append(errs, err)
+		}
+		for _, dir := range prune { // parents, innermost first, each only once empty
+			if os.Remove(at(dir)) != nil {
+				break
+			}
+		}
+	}
+	vaultDir := path.Dir(f.Vault)
+	remove(f.Vault, vaultDir, path.Dir(vaultDir))
+	if homes, err := os.ReadDir(at("data/prefs")); err == nil { // walk-ok: data/ is xbind's own; no sandbox sees it
+		for _, h := range homes {
+			if h.IsDir() {
+				p := "data/prefs/" + h.Name() + "/" + f.Prefs
+				remove(p, path.Dir(p), path.Dir(path.Dir(p)))
+			}
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		errs = append(errs, err)
+	}
+	for _, name := range registrationFileNames {
+		if err := b.removeDeploymentFile(tile, dep, name); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if err := os.RemoveAll(at(f.Derived)); err != nil { // unlinks, never follows a link out
+		errs = append(errs, err)
+	}
+	_ = os.Remove(at(path.Dir(f.Derived))) // d/, once no deployment of the tile has state there
+	return errors.Join(errs...)
 }

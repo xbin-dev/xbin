@@ -12,7 +12,6 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/server"
-	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Disk containment (plans/isolation.md): a clumsy tile can't fill the shared
@@ -234,13 +233,14 @@ func (b *Broker) apiAlerts(w http.ResponseWriter, r *http.Request) {
 	server.WriteJSON(w, http.StatusOK, map[string]any{"alerts": out})
 }
 
-// quotaOK gates a resource *write* on the scope's disk state: over quota or a
-// low-disk offender → 507 with the reason. Reads and non-writer access pass.
-func (b *Broker) quotaOK(w http.ResponseWriter, scope, want string) bool {
+// quotaOK gates a resource *write* on its namespace's disk state (quotaKey:
+// resKeys.quotaKey, the scope's data key in main): over quota or a low-disk
+// offender → 507 with the reason. Reads and non-writer access pass.
+func (b *Broker) quotaOK(w http.ResponseWriter, quotaKey, want string) bool {
 	if want != "writer" {
 		return true
 	}
-	if reason, blocked := b.disk.Blocked(util.ScopeKey(scope)); blocked {
+	if reason, blocked := b.disk.Blocked(quotaKey); blocked {
 		server.WriteError(w, http.StatusInsufficientStorage, "disk write blocked: "+reason, "/docs/isolation.md")
 		return false
 	}

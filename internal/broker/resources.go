@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	bolt "go.etcd.io/bbolt"
 
@@ -39,9 +40,13 @@ import (
 // here removes data.
 func (b *Broker) Provision() {
 	do := func(scope string, resources map[string]registry.Resource) {
-		scopeKey := util.ScopeKey(scope)
-		dir := filepath.Join(b.Reg.Root, "data", "resources", scopeKey)
+		sk, _ := scopeKeys(scope, util.MainDeployment) // main's keys: never an error
+		dir := filepath.Join(b.Reg.Root, filepath.FromSlash(sk.Plain))
 		for name, res := range resources {
+			if _, err := b.resKeys(resTarget{Scope: scope, Name: name}, util.MainDeployment); err != nil {
+				slog.Warn("provision: not provisioned", "err", err) // a refused name (NP-08-11)
+				continue
+			}
 			switch res.Type {
 			case "cron":
 				if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -88,11 +93,15 @@ func (b *Broker) EnvFor(c *registry.Component) []string {
 			// A rw directory the backend owns — XBIN_RES_<N> is the DIR path
 			// (put a db, files, a cache… anything). xbind binds it rw. When
 			// encrypted this is the decrypted gocryptfs mount (resenc).
-			env = append(env, key+"="+b.fsResPath(rt.Scope, rt.Name, false))
+			if p := b.fsResPath(rt.Scope, rt.Name, false); p != "" {
+				env = append(env, key+"="+p)
+			}
 		case res.Type == "sqlite" && rt.Scope == c.Scope:
 			// Convenience over `filesystem`: XBIN_RES_<N> points at a .sqlite
 			// FILE in that dir (the dir is still what's bound rw).
-			env = append(env, key+"="+b.fsResPath(rt.Scope, rt.Name, true))
+			if p := b.fsResPath(rt.Scope, rt.Name, true); p != "" {
+				env = append(env, key+"="+p)
+			}
 		case res.Type == "filesystem" || res.Type == "sqlite":
 			// Cross-scope direct filesystem is deliberately not shared; the
 			// owning scope should expose an API (docs/resources.md).
@@ -158,7 +167,16 @@ func envName(s string) string {
 
 // --- kv ------------------------------------------------------------------
 
-type kvStore struct{ db *bolt.DB }
+// kvStore is the kv plane's bbolt files: data/kv.db, holding main's buckets
+// of every scope, and each other data namespace's own file, opened on first
+// use (kvDB, deploydata.go).
+type kvStore struct {
+	db   *bolt.DB
+	root string // the workspace root
+
+	mu sync.Mutex
+	ns map[string]*bolt.DB // resKeys.KVFile → the open namespace file
+}
 
 func openKV(root string) (*kvStore, error) {
 	dir := filepath.Join(root, "data")
@@ -169,16 +187,17 @@ func openKV(root string) (*kvStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &kvStore{db: db}, nil
+	return &kvStore{db: db, root: root}, nil
 }
 
-// kvAccess parses /kv/{res-target}/{key...} and authorizes.
+// kvAccess parses /kv/{res-target}/{key...} and authorizes, answering the
+// resource's keys (its bucket, file and label).
 // URL form: /api/xbin/kv/res:<scope>/<name>/<key…>
-func (b *Broker) kvAccess(w http.ResponseWriter, r *http.Request, want string) (bucket, key string, ok bool) {
+func (b *Broker) kvAccess(w http.ResponseWriter, r *http.Request, want string) (k resKeys, key string, ok bool) {
 	rest := strings.Trim(r.PathValue("rest"), "/")
 	if !strings.HasPrefix(rest, "res:") {
 		server.WriteError(w, http.StatusBadRequest, "kv paths are /api/xbin/kv/res:<scope>/<name>/<key>", "/docs/resources.md")
-		return "", "", false
+		return resKeys{}, "", false
 	}
 	// Find the declared resource by longest prefix.
 	probe := rest
@@ -188,12 +207,17 @@ func (b *Broker) kvAccess(w http.ResponseWriter, r *http.Request, want string) (
 			key = strings.TrimPrefix(key, "/")
 			if err := b.allowRes(auth.PrincipalOf(r), rt.String(), want); err != nil {
 				server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/auth.md")
-				return "", "", false
+				return resKeys{}, "", false
 			}
-			if !b.quotaOK(w, rt.Scope, want) {
-				return "", "", false
+			k, err := b.resKeys(rt, util.MainDeployment)
+			if err != nil {
+				server.WriteError(w, http.StatusNotFound, err.Error(), "/docs/resources.md")
+				return resKeys{}, "", false
 			}
-			return rt.String(), key, true
+			if !b.quotaOK(w, k.quotaKey(), want) {
+				return resKeys{}, "", false
+			}
+			return k, key, true
 		}
 		i := strings.LastIndex(probe, "/")
 		if i < 0 {
@@ -202,19 +226,24 @@ func (b *Broker) kvAccess(w http.ResponseWriter, r *http.Request, want string) (
 		probe = probe[:i]
 	}
 	server.WriteError(w, http.StatusNotFound, "no such kv resource", "/docs/resources.md")
-	return "", "", false
+	return resKeys{}, "", false
 }
 
 func (b *Broker) apiKVGet(w http.ResponseWriter, r *http.Request) {
-	bucket, key, ok := b.kvAccess(w, r, "reader")
+	k, key, ok := b.kvAccess(w, r, "reader")
 	if !ok {
+		return
+	}
+	db, err := b.kvDB(k, false) // nil: a namespace nothing wrote to reads as empty
+	if err != nil {
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if key == "" { // list keys, optional ?prefix=
 		prefix := []byte(r.URL.Query().Get("prefix"))
 		var keys []string
-		_ = b.kv.db.View(func(tx *bolt.Tx) error {
-			bk := tx.Bucket([]byte(bucket))
+		_ = kvView(db, func(tx *bolt.Tx) error {
+			bk := tx.Bucket([]byte(k.Bucket))
 			if bk == nil {
 				return nil
 			}
@@ -229,8 +258,8 @@ func (b *Broker) apiKVGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var val []byte
-	_ = b.kv.db.View(func(tx *bolt.Tx) error {
-		if bk := tx.Bucket([]byte(bucket)); bk != nil {
+	_ = kvView(db, func(tx *bolt.Tx) error {
+		if bk := tx.Bucket([]byte(k.Bucket)); bk != nil {
 			if v := bk.Get([]byte(key)); v != nil {
 				val = append([]byte{}, v...)
 			}
@@ -241,7 +270,7 @@ func (b *Broker) apiKVGet(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusNotFound, "no such key")
 		return
 	}
-	plain, err := b.decodeKV(bucket, val)
+	plain, err := b.decodeKV(k.KVLabel, val)
 	if err != nil {
 		server.WriteError(w, http.StatusServiceUnavailable, "vault sealed — unseal to read encrypted resource data", "/docs/auth.md")
 		return
@@ -251,7 +280,7 @@ func (b *Broker) apiKVGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *Broker) apiKVPut(w http.ResponseWriter, r *http.Request) {
-	bucket, key, ok := b.kvAccess(w, r, "writer")
+	k, key, ok := b.kvAccess(w, r, "writer")
 	if !ok {
 		return
 	}
@@ -264,13 +293,18 @@ func (b *Broker) apiKVPut(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	stored, err := b.encodeKV(bucket, val)
+	stored, err := b.encodeKV(k.KVLabel, val)
 	if err != nil {
 		server.WriteError(w, http.StatusServiceUnavailable, "vault sealed — unseal to write encrypted resource data", "/docs/auth.md")
 		return
 	}
-	err = b.kv.db.Update(func(tx *bolt.Tx) error {
-		bk, err := tx.CreateBucketIfNotExists([]byte(bucket))
+	db, err := b.kvDB(k, true)
+	if err != nil {
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		bk, err := tx.CreateBucketIfNotExists([]byte(k.Bucket))
 		if err != nil {
 			return err
 		}
@@ -284,16 +318,19 @@ func (b *Broker) apiKVPut(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *Broker) apiKVDelete(w http.ResponseWriter, r *http.Request) {
-	bucket, key, ok := b.kvAccess(w, r, "writer")
+	k, key, ok := b.kvAccess(w, r, "writer")
 	if !ok {
 		return
 	}
-	err := b.kv.db.Update(func(tx *bolt.Tx) error {
-		if bk := tx.Bucket([]byte(bucket)); bk != nil {
-			return bk.Delete([]byte(key))
-		}
-		return nil
-	})
+	db, err := b.kvDB(k, false)
+	if err == nil && db != nil { // a namespace nothing wrote to has nothing to delete
+		err = db.Update(func(tx *bolt.Tx) error {
+			if bk := tx.Bucket([]byte(k.Bucket)); bk != nil {
+				return bk.Delete([]byte(key))
+			}
+			return nil
+		})
+	}
 	if err != nil {
 		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -313,17 +350,22 @@ func (b *Broker) blobAccess(w http.ResponseWriter, r *http.Request, want string)
 				server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/auth.md")
 				return "", "", false
 			}
-			if !b.quotaOK(w, rt.Scope, want) {
+			k, err := b.resKeys(rt, util.MainDeployment)
+			if err != nil {
+				server.WriteError(w, http.StatusNotFound, err.Error(), "/docs/resources.md")
+				return "", "", false
+			}
+			if !b.quotaOK(w, k.quotaKey(), want) {
 				return "", "", false
 			}
 			// blob is always an encrypted gocryptfs mount; refuse until it's up
 			// (vault sealed / gocryptfs missing) so we never read or write plaintext
 			// into the bare mountpoint.
-			if !b.fsReady(util.ScopeKey(rt.Scope), rt.Name) {
+			if !b.fsReady(k) {
 				server.WriteError(w, http.StatusServiceUnavailable, "resource unavailable — vault sealed or encryption not ready", "/docs/auth.md")
 				return "", "", false
 			}
-			base := b.fsResPath(rt.Scope, rt.Name, false) // decrypted gocryptfs mount
+			base := b.resMount(k, false) // decrypted gocryptfs mount
 			full, _, err := util.SafeJoin(base, rel)
 			if err != nil {
 				server.WriteError(w, http.StatusBadRequest, "bad path")
