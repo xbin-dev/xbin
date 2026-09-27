@@ -1591,12 +1591,17 @@ tiles (the runtime's books).
 the runtime proper and waits on its inputs. Wave 3 closes phase 2 and opens
 phase 3.
 
-**Where it stands (2026-09-27).** On `sandbox-runtime`: WP-0 (`p2/vmfix`),
-WP-2, WP-5 … WP-14 and phase 3's groundwork (`p3/prep`: `sdk/ws`, so
-`DialTTY` is wired). WP-1 is built on `p2/agentcore`, waiting to merge.
-WP-3 and WP-4 haven't started. The review of waves 2–3 and wave 1's
-handoffs added the **follow-ups** (WP-2b … WP-14b, after WP-14 below): each
-changes code wave 1 already built, so most can start now.
+**Where it stands (2026-09-27, integration).** Wave 1 (WP-0 … WP-14), its
+follow-ups (WP-2b … WP-14b) and phase 3's groundwork (`p3/prep`: `sdk/ws`)
+are on `sandbox-runtime`, with WP-15a, WP-15b, WP-19 and WP-2b. WP-16 (VM
+mode), WP-17 (commands, TTY) and WP-18 (files, tar, copy) are merged onto
+it on `p2/integ` with the cross-WP glue their handoffs asked for — WP-15b's
+`acquire`/holds/`touch` under every command and file route, VM mode
+through the exec and file suites (KVM and emulated), one mechanism for
+starts a stop over a set overtakes, and the robustness notes (each WP's
+*Integrated* note below): the runtime core is complete and coherent.
+Next: WP-20 (snapshots, clones), then WP-21 (the fixture, end to end:
+phase 3's gate); WP-22 later. The graph below is the original order.
 
 ```
 Track A  exec core:  WP-1 (built, p2/agentcore) → WP-3 → WP-3b ;  WP-1 → WP-4
@@ -3544,6 +3549,14 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     wait) — `TestLive/*/a wedged root still stops`. An orphan left when
     xbind dies with a wedged root is swept at the next boot only where
     there are cgroups.
+  - *Integrated (`p2/integ`).* Both verifier notes are closed and pinned:
+    a stop that timed out is retried by a second stop (WP-15b's `end`
+    kills on every ask, kept through WP-16's `ask`/kill split —
+    `TestSecondStopKillsAgain`, `TestVMSecondStopKillsAgain`); the agent
+    client's `Exec`, `Signal` and `Resize` sends are bounded (WP-17's
+    `sendWithin`, `TestControlSendsBounded`). `make integration` runs the
+    VM cases again under `XBIN_VM_ACCEL=emulate` (WP-16's `TestLiveVM`,
+    and the exec and file suites' `vm` cases).
 
 ### WP-15b — Lifecycle policy: admission, idle, auto-start, reset, restart semantics (wave 2 · M · after WP-15a)
 
@@ -3713,6 +3726,20 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     (`TestPolicyOffDuringStart`, 503); `admit` read the tile's book for
     its refusal message after unlocking it, a data race with a release
     (`TestAdmissionRefusalUnderLock`, `-race`).
+  - *Integrated (`p2/integ`).* The helpers are the only way in: exec,
+    `run`, the TTY start and every file, tar and copy call take their
+    sandbox through `acquire` (`waitMaxSec`; WP-17's `ensureRunning` and
+    `activity.go`, WP-18's `opRun` and `box.inflight` are gone) and hold
+    the run's idle stop off to their end — a TTY exec from its start on
+    through its attached clients (each hub's `OnClients` → `ttyClients`);
+    exec output, stdin and terminal keystrokes `touch` the run; exec ids
+    are `bootID-n` (`execLost` answers another boot's in the gate and in
+    `execFor`). `TestFileOpHoldsIdle` and `TestIdleHeldThroughTheRoutes`
+    drive the real timer on a fake clock through the routes. The teardown
+    keeps the run's last activity as `lastActive` (an idle stop's is
+    `idleStopMin` before it — the verifier's note; `TestIdleStop`). The
+    switch-off race is now one case of WP-19's in-flight-start mechanism
+    (its step-8 re-check stays).
 
 ### WP-16 — VM mode (wave 2 · M · after WP-4, WP-6, WP-15a)
 
@@ -3855,6 +3882,23 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     quote drops C1 controls too (U+009B, the 8-bit CSI), not only C0/DEL.
     Not pinned outside the delegated live run: the leaf taking the run's
     accel (an emulated VM given 192 MiB of overhead passes the unit tests).
+  - *Integrated (`p2/integ`).* `end` is `ask` plus a kill on **every**
+    ask (WP-15b's retry of a stop that timed out); the VM stop's own
+    SIGHUP path is unchanged. The gate's second check, when a flip lands
+    mid-start, answers 503 `unavailable` and is recorded as a refusal,
+    like the first (the verifier's inconsistency). Admission books a VM
+    leaf with the accel `vmMode()` reports now (`ops.leaf` takes it). The
+    open items are closed: `Exec.NoSync` is set on every exec (`execOf`;
+    `TestVMStartStop` pins that a `run` through the routes doesn't flush
+    the guest); a VM's `diskBytes` are its disks' allocated blocks,
+    snapshots included, and a low disk leaves it running
+    (`TestVMDiskBytesAndLowDisk`); a `res` mount whose `path` names a file
+    works — `vm.exports` states what the jail binds, `Src` or `Sub`
+    beneath it resolved without symlinks (`sandbox.SubMode`, `openSub`'s
+    walk; `TestExportsFromBinds`, and `TestLiveVM` mounts one both ways);
+    `checkAt`'s masked list holds `sandbox.VMDir`. The live exec and file
+    suites run in VM mode (`newLiveVMEnv`, factored out of `TestLiveVM`),
+    under KVM and emulated.
 
 ### WP-17 — Execs, run, output, TTY (wave 2 · M · after WP-12, WP-15a)
 
@@ -4029,6 +4073,22 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     without a delegated cgroup). The unit tests now also pin the idle
     seams: a running non-tty exec holds `inflight` until it ends, a tty
     exec never does.
+  - *Integrated (`p2/integ`).* WP-15b's helpers replace the seams (see
+    WP-15b's note); `SandboxInfo.lastActive` is `lastActiveLocked`. The
+    verifier's notes are closed: D88's `noTerminal` taking effect by any
+    path — every users event (a demotion by the users API, an org role,
+    SSO) also runs `cutNoTerminal` from `OnUsersChange`, killing the
+    running tty execs claimed for or attached by such a user (a
+    `users.json` hand edit isn't read while xbind runs, so no sandbox
+    outlives it; `TestTTYNoTerminalOnUsersEvent`); `execRec.users` is
+    bounded — at most 64 distinct attach `forUser`s, a new one past them
+    429 before the upgrade (`TestTTYAttachUsersBounded`); an agent
+    `error` at an exec's start that is the sandbox's own exhaustion
+    (EAGAIN at `pids.max`, ENOMEM, EMFILE, ENFILE) is 429 `limit`, not 400
+    (`TestExecStartErrors`). `testLiveExecs` runs with `ModeVM`, KVM and
+    emulated. Still open: an abandoned session the agent spawns late
+    runs untracked until the sandbox stops; resize ordering is best
+    effort; WP-21 runs the routes through the gateway.
 
 ### WP-18 — Files, tar, copy (wave 2 · S/M · after WP-15a)
 
@@ -4151,6 +4211,16 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     enforces `Max`, and every frame and line is bounded, so xbind's memory
     isn't at stake — so a compromised agent can stream past
     `fileMax`/`tarMax` to a manager that keeps reading.
+  - *Integrated (`p2/integ`).* `opRun` and `box.inflight` are replaced by
+    `acquire` and the run's hold (so a stopping sandbox without
+    `autoStart` answers 409 at once, as a command does, and one with it
+    is waited out and started again, within `waitMaxSec`);
+    `TestFileOpHoldsIdle` drives the real timer. `liveFileModes` holds
+    `ModeVM` (KVM and emulated; the rootfs variant): the suite reads what
+    landed through the sandbox, not an upper, three 512 MiB VMs fit the
+    tile sub-budget, and the tar of `/` excludes the rootfs's other
+    top-level dirs (a rootfs is past `tarMax`). The files tests' decode
+    helper is `decodeRec` (WP-17's is `decodeAs`).
 
 ### WP-19 — Workspace integration (wave 2 · M · after WP-5, WP-9, WP-15b)
 
@@ -4313,6 +4383,25 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     sealed") — `TestSealDuringStart`. A measurement a delete overtook (the
     du fails on the dir renamed into `.trash`) no longer logs a warning —
     `TestMeasureOvertakenByDelete`.
+  - *Integrated (`p2/integ`).* In-flight starts, one mechanism for a
+    revoke, a disable, a removal, the seal, low disk and the kill switch:
+    a start registers before its gates (the box is `starting`, under
+    `m.mu`), and `StopWhere` — so `StopTile`, `StopAll`, the seal's and
+    the low disk's stops — picks starting sandboxes as well as running
+    ones: it marks them (`box.stopAsk`), ends a marked one's process at
+    once, and returns only once each ended. A marked start ends before it
+    comes up (checked when it gets its process and, under `m.mu`, at its
+    switch to `running`) and answers 503, `stopped`, the reason in
+    `stateDetail`. Every start asks `tileReach` (removed, disabled,
+    `cap:sandboxes`; shared with the reconcile) after it registered; the
+    reconcile walks the tiles with a sandbox running or starting, and
+    `lowDiskTiles` counts starting namespace sandboxes
+    (`TestStopsSeeStartsInFlight`, mutation-checked; `TestSealDuringStart`
+    checks the seal's stop waits for the start). The cost: such a stop
+    waits for the start's current step — seconds, but a first VM start on
+    a new base builds its image inside the flight (bounded at 15 min;
+    `StopAll` keeps its 15 s). The VM cases WP-19 left are pinned
+    (`TestVMDiskBytesAndLowDisk`).
 
 ### WP-20 — Snapshots and clones (wave 3 · M · after WP-8b, WP-15b, WP-16)
 
@@ -4407,9 +4496,9 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
 - **Tags and environment.**
   - Integration files are `//go:build linux && integration`, with a
     `TestMain` that dispatches `sandbox.InitArg` to `RunInit`.
-  - The rootfs comes from `XBIN_ROOTFS` (the `internal/vm` convention) or
-    `../../.rootfs`. VM assets come from `bin/`, or from the `XBIN_*`
-    variables.
+  - The rootfs comes from `XBIN_ROOTFS` (the `internal/vm` convention;
+    tilesbx's live tests read `XBIN_TEST_ROOTFS`) or `../../.rootfs`. VM
+    assets come from `bin/`, or from the `XBIN_*` variables.
   - `XBIN_VM_ACCEL=emulate` forces QEMU.
   - Tests that need neither the rootfs nor VM assets use a minimal lower with
     static helpers, so CI (userns on, no `.rootfs`) runs them.
