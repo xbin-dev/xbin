@@ -626,9 +626,13 @@ creation (clone, workspace-template instantiate) additionally requires
   nothing prunes these when a tile's directory disappears: workspace grant
   rows naming the path on either side, interface bindings / instances /
   ingress hosts, its vault, another owner's entry, other users' exact
-  per-tile entries, org shares, or an exact `defaultTiles` entry. The
-  refusal lists them; pick another path or have an admin clear them.
-  Re-creating a path you already own is fine.
+  per-tile entries, org shares, an exact `defaultTiles` entry, or its
+  deployment state (a deployment record, a checkpoint store:
+  [tile-deployments.md](tile-deployments.md)). The refusal lists them; pick
+  another path or have an admin clear them. Re-creating a path you already
+  own is fine. Whoever creates the tile, admins included, the path's
+  deployment record is dropped first, so the new tile starts with plain live
+  reload; a checkpoint store left there stays on disk, unread.
 
 Nesting is refused for everyone (not inside an existing tile, not above
 one). Workspace admins bypass the rule — workspace-owned creation is an
