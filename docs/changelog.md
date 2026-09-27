@@ -12,6 +12,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-27
 
+- **Go backends in a VM start again, and a VM backend that never listens
+  leaves a dump** ([isolation.md](isolation.md) §VM sandboxes). A backend
+  whose program is served into the VM — a Go backend (`"vm": true` with
+  `"runtime": "go"`) above all — could hang before it ever ran, until the
+  60 s health timeout: always on a 1-vCPU VM (`"vcpus": 1`, or a policy of
+  1), rarely on more. The guest agent carried the VM's file traffic in the
+  same process that starts the backend; that traffic now has a process of
+  its own. node and python
+  backends and VM terminals weren't affected. When a VM backend does miss
+  its health check, its log (`bx logs <tile>`) now ends with a VM dump: file
+  requests the guest still waits on, every guest process's kernel stack,
+  the guest agent's goroutines, and the guest console.
+
 - **A contract for sandbox managers** ([sandbox-manager.md](sandbox-manager.md),
   D115). Tiles that run coding sandboxes for other tiles provide the http
   service `sandbox-manager` (protocol 1); tiles that use them — the agent

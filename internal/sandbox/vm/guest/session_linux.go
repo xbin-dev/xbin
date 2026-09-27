@@ -32,8 +32,11 @@ type session struct {
 	arrived chan struct{} // closed once every expected stream is attached
 }
 
-func (s *session) expected() []string {
-	if s.ex.TTY {
+func (s *session) expected() []string { return streamsOf(s.ex) }
+
+// streamsOf names the streams a session's process needs attached.
+func streamsOf(ex proto.Exec) []string {
+	if ex.TTY {
 		return []string{"pty"}
 	}
 	return []string{"stdin", "stdout", "stderr"}

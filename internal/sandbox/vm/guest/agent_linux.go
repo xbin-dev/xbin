@@ -27,6 +27,10 @@ import (
 
 // Main runs the agent; it never returns.
 func Main() {
+	if len(os.Args) > 1 && os.Args[1] == relayArg {
+		relayMain() // relay_linux.go: the FUSE relay's own process
+		return
+	}
 	if os.Getpid() != 1 {
 		fmt.Fprintln(os.Stderr, "xbin-vmagent: must run as PID 1 inside a VM sandbox")
 		os.Exit(2)
@@ -36,6 +40,9 @@ func Main() {
 	}
 	a := &agent{sessions: map[int]*session{}, waiting: map[int]chan unix.WaitStatus{}}
 	go a.reap()
+	if err := a.startRelay(); err != nil {
+		fatal("FUSE relay: %v", err)
+	}
 	ln, err := listenVsock(proto.AgentPort)
 	if err != nil {
 		fatal("vsock listen: %v", err)
@@ -62,6 +69,7 @@ type agent struct {
 	configured bool
 	sessions   map[int]*session
 	ctl        *proto.Conn // the live control connection (events go here)
+	relay      *relay      // the FUSE relay process (relay_linux.go)
 
 	// reaper bookkeeping: PID 1 owns every wait. spawn registers a session's
 	// pid while holding wmu, so the reaper can't collect it unannounced;
@@ -135,6 +143,10 @@ func (a *agent) control(c *proto.Conn) {
 			}
 			unix.Sync()
 			a.send(proto.Msg{Op: "synced"})
+		case "dump":
+			// the host is about to give up on this guest (a backend's health
+			// timeout): say what everything is doing (dump_linux.go)
+			go func() { a.send(proto.Msg{Op: "dump", Dump: a.dump(dumpBudget)}) }()
 		}
 	}
 }

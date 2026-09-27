@@ -31,7 +31,8 @@ sandbox.Launch(Spec{VM: …})    userns+mntns+pidns+netns = the rootless jail
      └─ vsock bridges: PTY/pipes, signals, resize, the backend's sockets
           guest: vmlinux + initramfs (xbin-vmagent = PID 1)
             root = overlay(erofs rootfs image, tmpfs | the ext4 VM disk)
-            the binds mounted (FUSE) at their host paths; eth0 10.0.2.15/32
+            the binds mounted (FUSE) at their host paths, pumped by the
+              agent's relay process (xbin-fuse-relay); eth0 10.0.2.15/32
 ```
 
 Firecracker's jailer needs root, so the namespace sandbox takes its place.
@@ -65,8 +66,14 @@ workload; the kernel attack surface is what shrinks.
   and DNS work as ever.
   - Refused: `host` networking, provider splices, lan-ingress legs.
 - **Files:** Firecracker has no virtio-fs. The guest mounts each bind as a
-  FUSE filesystem; the agent pumps `/dev/fuse` over a vsock stream (messages
-  framed by their own length field).
+  FUSE filesystem; the agent's **relay process** pumps `/dev/fuse` over a
+  vsock stream (messages framed by their own length field).
+  - The agent mounts each export and hands its `/dev/fuse` fd and vsock
+    stream to the relay (SCM_RIGHTS on a socketpair) before the next,
+    nested, mount looks inside it. The relay is the agent binary again
+    (`/proc/self/exe`, from the initramfs), OOM-exempt, and never forks.
+  - Never in the agent's own process — see §VM backends that never
+    listened.
   - The server (`internal/sandbox/vm/fusefs`, a go-fuse `RawFileSystem`) runs
     inside the jail, reading whole requests from a SOCK_SEQPACKET socketpair
     as it would from `/dev/fuse`. Its view *is* the bind set: read-only binds
@@ -121,6 +128,18 @@ workload; the kernel attack surface is what shrinks.
     untouched.
   - Health timeout 60 s. Two generations share the tile's cgroup leaf,
     capped for two VMs.
+  - On a health timeout xbind sends the shim SIGQUIT (it no longer reaches
+    the guest process), and the shim writes a **dump** to the backend's log
+    before quitting (131): its phase and for how long, each export's
+    requests still in flight (operation, path, guest pid, age) and when the
+    guest last asked anything, the agent's report (`dump` on the control
+    connection: sessions and whether their socket accepts, every guest
+    process and thread with its state, wait channel and kernel stack, the
+    agent's goroutines) or that the agent didn't answer within 3 s (×6
+    emulated), the shim's goroutines when a request is stuck on the host,
+    and the console tail. The agent builds its report off the control loop
+    with a 2 s budget (a `/proc` read of a task inside execve can block) and
+    sends what it has.
   - VM tiles with file-backed resources stop before the next generation:
     two guests' caches aren't coherent (a sqlite WAL).
   - `setup` + `vm` is refused.
@@ -200,6 +219,54 @@ QEMU's software emulation (TCG) instead:
   a bash loop 18× slower than a namespace terminal, 300 fork+exec 6×. The
   isolation argument is unchanged (a separate guest kernel); the VMM is a
   bigger program than Firecracker, inside the same jail.
+
+## VM backends that never listened (fixed 2026-09-27)
+
+Symptom: a Go backend in a VM (`"vm": true`, examples/counter-go) booted, the
+guest configured, and the backend never listened — the 60 s health timeout.
+VM terminals worked. `TestVMBackendListens` (internal/vm, the matrix: a
+static Go and a static C program, served as the single-file export
+`/run/backend` and from a directory export, 1 and 2 vCPUs, KVM and
+emulated) reproduced it: every 1-vCPU case hung (Go and C, both exports,
+KVM and emulated); 2 vCPUs passed. Live, counter-go under an isolated xbind
+failed its health check (502 after 70 s) with a policy of 1 vCPU, and
+started in 8 s with 2 on this box.
+
+Cause: the agent starts sessions with `os.StartProcess`, which on Linux is a
+`CLONE_VM|CLONE_VFORK` clone. The calling thread stays in that raw syscall —
+holding its scheduler P, signals blocked, not preemptible — until the child
+execs, and the child's execve of a program on a FUSE mount needs FUSE
+requests (GETATTR, READ of the ELF headers) answered. The relay goroutines
+that carry them to the host ran in the agent's own runtime:
+
+- one vCPU (GOMAXPROCS=1): the forking thread holds the only P, so the relay
+  goroutine whose `/dev/fuse` read returned never gets one back;
+- any vCPU count: a garbage collection whose stop-the-world falls into the
+  window waits for the forking thread's P forever, with every other
+  goroutine — the relay's — already stopped. A test agent that runs
+  `runtime.GC()` in a loop hung every 2-vCPU case too.
+
+Evidence: a second P (GOMAXPROCS=2 on 1 vCPU) or exec'ing through `/bin/sh`
+(the vfork's exec then only reads the erofs root; the shell execs the FUSE
+binary outside the window) each made the 1-vCPU cases pass; the GC loop in
+the agent broke 2 vCPUs, and the same loop with the `/bin/sh` detour
+passed. The dump of a hung start shows it: the shim still "starting session
+1" (no `started`), the export's last request (INIT) long ago with nothing in
+flight, and the agent not answering. Why terminals worked: bash lives on the
+erofs root, not on FUSE. node/python backends too: their interpreter is on
+the root, the script is read after the exec.
+
+Fix: the relay moved to its own process (above). Its runtime is separate and
+it never forks, so nothing the agent does — a vfork, a stop-the-world —
+stops it. Rejected: a GOMAXPROCS floor (fixes one vCPU, not the GC case);
+an exec trampoline (the vfork execs the initramfs agent, which then chdirs
+and execs the target — it works, but leaves the relay inside a runtime
+that other raw syscalls or future code can wedge again; the chdir into a
+FUSE cwd in the vfork window is a second, rarer instance); forking without
+`CLONE_VFORK` (not available through `os/exec` short of `CLONE_NEWUSER`).
+The host shim has no such coupling: its FUSE server serves the guest's
+kernel, not its own, and its only children (the VMM, vhost-device-vsock) are
+started before the guest mounts anything, from host binds.
 
 ## Not yet
 

@@ -395,6 +395,11 @@ Differences to design around:
 - Host networking, provider links and GPUs are refused.
 - Without the admin's switch, or where VMs can't run at all, the backend
   fails with the reason — it never falls back to the namespace sandbox.
+- A VM backend that never listens fails its health check after 60 s (180 s
+  emulated) like any other, and its log (`bx logs <tile>`) then ends with a
+  **VM dump**: what the guest was doing — file requests still
+  waiting on the host, every guest process with its kernel stack, the guest
+  agent's goroutines (or that it didn't answer) and the guest console.
 
 **Files** reach the guest as FUSE filesystems over vsock, and the guest
 caches them hard: repeated work (`git status`, `find`, a rebuild, re-reading

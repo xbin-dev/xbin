@@ -111,8 +111,9 @@ type Exec struct {
 
 // Msg is one control message. Host → guest ops: "config", "exec",
 // "resize", "signal", "sync" (the VM is about to be killed: hang up session
-// Session and flush the disks). Guest → host ops: "ready" (answers config),
-// "started", "listening", "exited", "synced", "error".
+// Session and flush the disks), "dump" (describe what the guest is doing).
+// Guest → host ops: "ready" (answers config), "started", "listening",
+// "exited", "synced", "dump" (answers dump, in Dump), "error".
 type Msg struct {
 	Op      string  `json:"op"`
 	Config  *Config `json:"config,omitempty"`
@@ -123,6 +124,7 @@ type Msg struct {
 	Signal  int     `json:"signal,omitempty"`
 	Code    int     `json:"code,omitempty"` // exited: the exit status (128+sig when killed)
 	Error   string  `json:"error,omitempty"`
+	Dump    string  `json:"dump,omitempty"` // dump: the guest's report, plain text
 }
 
 // Conn is a line-delimited JSON channel over one connection (a unix socket

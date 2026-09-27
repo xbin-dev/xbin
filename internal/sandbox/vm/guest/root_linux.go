@@ -63,7 +63,7 @@ func (a *agent) configure(c proto.Config) error {
 		return err
 	}
 	for _, m := range c.Mounts {
-		if err := mountFiles(m); err != nil { // fuse_linux.go
+		if err := mountFiles(m, a.relay); err != nil { // fuse_linux.go
 			return fmt.Errorf("mount %s: %w", m.Path, err)
 		}
 	}

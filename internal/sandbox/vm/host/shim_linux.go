@@ -60,12 +60,23 @@ type shim struct {
 	vsockd     *exec.Cmd
 	vsockdDone chan struct{}
 	ctl        *proto.Conn
-	pending    chan ctlMsg // a control read in flight (recvUntil)
+	in         chan ctlMsg // control messages, read by readCtl
+	dumps      chan string // the agent's answers to "dump" (dump_linux.go)
 	tty        bool
 	raw        *term.State
+
+	started time.Time
+	mu      sync.Mutex
+	phase   string       // where the shim is, for a dump
+	phaseAt time.Time    // since when
+	files   []*fusefs.FS // the exports being served, for a dump
+	agent   *proto.Conn  // the control connection, once up, for a dump
 }
 
 func (s *shim) run() int {
+	s.started = time.Now()
+	s.setPhase("booting the VM")
+	s.watchQuit() // SIGQUIT: dump, then quit (dump_linux.go)
 	if err := os.MkdirAll(s.hs.RunDir, 0o700); err != nil {
 		return fail(s, "run dir: %v", err)
 	}
@@ -82,7 +93,7 @@ func (s *shim) run() int {
 		return fail(s, "ready socket: %v", err)
 	}
 	defer ready.Close()
-	started := time.Now()
+	started := s.started
 	if s.hs.Emulated() {
 		err = s.startQEMU()
 	} else {
@@ -93,6 +104,7 @@ func (s *shim) run() int {
 		return fail(s, "start the VM: %v", err)
 	}
 
+	s.setPhase("waiting for the guest agent")
 	if err := s.waitReady(ready, s.slow(20*time.Second)); err != nil {
 		return fail(s, "guest agent: %v", err)
 	}
@@ -101,6 +113,12 @@ func (s *shim) run() int {
 		return fail(s, "guest agent: %v", err)
 	}
 	s.ctl = proto.NewConn(ctl, nil)
+	s.in, s.dumps = make(chan ctlMsg), make(chan string, 1)
+	go s.readCtl()
+	s.mu.Lock()
+	s.agent = s.ctl
+	s.mu.Unlock()
+	s.setPhase("configuring the guest")
 	if s.hs.Debug {
 		fmt.Fprintf(os.Stderr, "[vm] agent up after %s\r\n", time.Since(started).Round(time.Millisecond))
 	}
@@ -126,6 +144,7 @@ func (s *shim) run() int {
 	if s.hs.Debug {
 		fmt.Fprintf(os.Stderr, "[vm] guest configured after %s\r\n", time.Since(started).Round(time.Millisecond))
 	}
+	s.setPhase("starting session 1")
 	return s.session()
 }
 
@@ -180,10 +199,11 @@ func (s *shim) session() int {
 
 	// SIGWINCH resizes the guest PTY; SIGHUP is xbind ending the session (a
 	// closed terminal): the guest syncs its disks before the VM is killed;
-	// other signals go to the guest process (SIGTERM: a backend's drain).
+	// other signals go to the guest process (SIGTERM: a backend's drain) —
+	// but SIGQUIT, which is xbind giving up on the VM (dump_linux.go).
 	sigs := make(chan os.Signal, 8)
 	hup := make(chan struct{}) // closed once, on the first SIGHUP
-	signal.Notify(sigs, unix.SIGWINCH, unix.SIGTERM, unix.SIGINT, unix.SIGHUP, unix.SIGQUIT)
+	signal.Notify(sigs, unix.SIGWINCH, unix.SIGTERM, unix.SIGINT, unix.SIGHUP)
 	go func() {
 		for sig := range sigs {
 			switch sig {
@@ -223,7 +243,14 @@ func (s *shim) session() int {
 			return fail(s, "guest: %v", err)
 		}
 		switch m.Op {
+		case "started":
+			if s.hs.Listen != "" {
+				s.setPhase("session 1 started; its socket isn't listening yet")
+			} else {
+				s.setPhase("session 1 running")
+			}
 		case "listening":
+			s.setPhase("session 1 listening")
 			if s.hs.Listen != "" {
 				if err := s.serveListen(); err != nil {
 					return fail(s, "listen socket: %v", err)
@@ -281,18 +308,8 @@ var (
 // errDeadline when deadline fires (nil channels never do). A message read
 // after such a return is delivered by the next call.
 func (s *shim) recvUntil(hangup <-chan struct{}, deadline <-chan time.Time) (proto.Msg, error) {
-	if s.pending == nil {
-		ch := make(chan ctlMsg, 1)
-		s.pending = ch
-		go func() {
-			var m proto.Msg
-			err := s.ctl.Recv(&m)
-			ch <- ctlMsg{m, err}
-		}()
-	}
 	select {
-	case r := <-s.pending:
-		s.pending = nil
+	case r := <-s.in:
 		return r.m, r.err
 	case <-s.vmmDone:
 		return proto.Msg{}, errors.New("the VM exited")
@@ -306,6 +323,33 @@ func (s *shim) recvUntil(hangup <-chan struct{}, deadline <-chan time.Time) (pro
 type ctlMsg struct {
 	m   proto.Msg
 	err error
+}
+
+// readCtl reads the control connection for good: the agent's dumps go to
+// the dump (which runs beside whatever the shim is doing), the rest to
+// recvUntil; a read error is delivered, then the reader stops.
+func (s *shim) readCtl() {
+	for {
+		var m proto.Msg
+		err := s.ctl.Recv(&m)
+		if err == nil && m.Op == "dump" {
+			select {
+			case s.dumps <- m.Dump:
+			default:
+			}
+			continue
+		}
+		s.in <- ctlMsg{m, err}
+		if err != nil {
+			return
+		}
+	}
+}
+
+func (s *shim) setPhase(p string) {
+	s.mu.Lock()
+	s.phase, s.phaseAt = p, time.Now()
+	s.mu.Unlock()
 }
 
 // waitReady waits for the agent's call on ReadyPort: it listens from then
@@ -401,6 +445,9 @@ func (s *shim) serveMount(c net.Conn) {
 		c.Close()
 		return
 	}
+	s.mu.Lock()
+	s.files = append(s.files, fs)
+	s.mu.Unlock()
 	_ = fusefs.Serve(c, fs)
 }
 
