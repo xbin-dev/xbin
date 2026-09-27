@@ -43,8 +43,15 @@ reachable through `<bx-frame>`), `/vendor/bx-agent.js` (the pop-up's Agent
 tab, D74) with `/vendor/bx-md.js` (its hardened markdown renderer) and
 `/vendor/frame-titlebar.js` (the pop-up's title bar), `/vendor/term-predict.js`
 (the terminal's prediction engine, D70), `/vendor/term-sessions.js` (the
-frame's view of the terminal session directory, D73), and the shell's own
-siblings under
+frame's view of the terminal session directory, D73),
+`/vendor/frame-deploy.js` (the terminal window's live reload controls: the
+`⇈` entry, the chip and its menu, Reload now, the launcher's banner, the
+`📌 pinned` chip over a tile, the grey lines in open terminals —
+[tile-deployments.md](/docs/tile-deployments.md)) with
+`/vendor/deploy-state.js` (its pure view model: which chip, menu items and
+tile API select entries a tile's state and a viewer's permissions yield, and
+every string they show, from `GET /api/xbin/deployments`; imports nothing),
+and the shell's own siblings under
 `shell/`. They are served, and they will keep being served, but their
 shapes follow the shell.
 

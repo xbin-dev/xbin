@@ -225,7 +225,17 @@ An admin opening a terminal on a low-trust tile does not lend it their power;
 the tile acts as itself. The token is minted per session and revoked the moment
 the session dies. `bx`/`curl`/`git` inside the terminal use it: xbind rewrites
 `http://xbin/…` to the reachable `XBIN_URL` and attaches the bearer pinned to
-that URL, so a template instance's `template` git remote can fetch.
+that URL, so a template instance's `template` git remote can fetch. Those are
+two `GIT_CONFIG_*` pairs in the session's env, never the tile's `.git/config`.
+While a tile has a deployment record (its live reload is paused), a session
+opened on it gets two more, `GIT_CONFIG_COUNT` becoming 4: a fetch-only
+`xbin-deploy` remote. `git fetch xbin-deploy` brings `deploy/<name>` for
+every pinned deployment — the git view of the checkpoint it runs, ignored
+files left out — so `git checkout --no-track -b hotfix deploy/main` branches
+from exactly what `main` runs ([/docs/tile-deployments.md](/docs/tile-deployments.md)).
+A session opened before the record existed doesn't have it (a session's env
+is fixed at spawn): open a new one, or fetch by URL
+(`git fetch http://xbin/api/xbin/checkpoints/<tile>.git '+refs/heads/deploy/*:refs/deploy/*'`).
 
 Two user flags gate what the token can do (D17 b/c; clamped, never rejected, so
 an ungranted user still gets a working shell):

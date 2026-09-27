@@ -270,6 +270,15 @@ GET  /c/<component-path>/[file]  component static files; HTML gets the
                                  tile, reached without any symlink (a symlink
                                  leaving the tile → 404). docs/auth.md §Tile
                                  asset gating.
+                                 While the tile's live reload is paused
+                                 (docs/tile-deployments.md) this serves the
+                                 pinned checkpoint, in every mode, opened
+                                 beneath it; saves don't show. A symlink in
+                                 it that leaves the checkpoint → 404; a
+                                 deps/<name>/… path is served as the /c/
+                                 path of the tile the checkpoint's
+                                 deps/<name> link names, under that tile's
+                                 own access rules
 GET  /c/<component-path>/?native=1
                                  the tile's native runtime document
                                  (docs/elements.md §Native app UI), generated
@@ -296,7 +305,9 @@ GET  /c/<component-path>/?native=1
                                  served; the slashless URL
                                  301s keeping the query; any other
                                  directory URL 404s. ?native=1 on a file
-                                 URL is an ordinary request
+                                 URL is an ordinary request. While live
+                                 reload is paused it is generated from the
+                                 pinned checkpoint's native entry
 GET  /c/~<asset-token>/<component-path>/<file>
                                  tokens mode only: the asset-token plane the
                                  injected <base> points at (docs/elements.md
@@ -446,7 +457,8 @@ GET    /runtime                    admin. full runtime visibility →
                                    heapMB,uptimeSec,isolate,rootfs,scopeUids,
                                    protections:{seccomp,landlock,landlockAbi}},
                                    backends:[{path,runtime,state,isolated,
-                                   sandbox,vm?:{memMiB,vcpus,emulated?},pid,gen,
+                                   sandbox,vm?:{memMiB,vcpus,emulated?},
+                                   checkpoint?,pid,gen,
                                    uptimeSec,restarts,activeConns,rssKb,threads,fds,
                                    cpuSec,namespaces:{<ns>:{id,isolated}},egress:[…],
                                    netRef?,net?,netSource?,netNote?,
@@ -479,7 +491,11 @@ GET    /runtime                    admin. full runtime visibility →
                                    backend pid, namespaces, rssKb, threads and
                                    fds describe its host-side jail (the shim,
                                    whose child VMM holds guest memory) — read
-                                   cgroup for what the VM uses
+                                   cgroup for what the VM uses. checkpoint:
+                                   the full tree id of the checkpoint the
+                                   running generation runs (live reload
+                                   paused); absent while it runs the work
+                                   tree
                                    (reserved) backends[] keeps one row per tile,
                                    the primary's, which gains deployment on a
                                    tile with deployments; the others' rows (the
@@ -583,8 +599,13 @@ GET    /logs?component=<p>         admin, the tile itself, or a user with
                                    generations). ?tail=<bytes> (default 64K,
                                    max 1M) sizes it; ?follow=1 keeps streaming
                                    appended bytes (chunked) until the client
-                                   goes away. The HTTP twin of `bx logs [-f]`;
-                                   the terminal window's read-only logs tab.
+                                   goes away. The HTTP twin of `bx logs [-f]`
+                                   (which streams it in an isolated terminal,
+                                   where .xbin is masked); the terminal
+                                   window's read-only logs tab. A failed
+                                   deploy of a checkpoint appends
+                                   "--- deploy of c:<id> failed <time> ---"
+                                   and the compiler output.
                                    (reserved) &deployment=<name>: one
                                    deployment's log (default: the caller's bound
                                    deployment, else the primary; a tile's frames
@@ -621,12 +642,16 @@ GET    /components                 any. [{path, scope, runtime, hasIndex,
                                    server sends there, with allow-same-origin
                                    and no credentialless, and talks to it with
                                    that postMessage origin)}]
-                                   (reserved) The entry of a tile with
-                                   deployments gains deployments: {primary,
-                                   pinned, protected}, the same for every caller
-                                   who sees it; runtime, hasIndex, native, chrome
-                                   and template then describe the primary's code.
-                                   Deployments are never rows
+                                   The entry of a tile with deployments (its
+                                   live reload paused) gains deployments:
+                                   {primary, pinned, protected}, the same for
+                                   every caller who sees it (pinned: its
+                                   primary doesn't follow the work tree);
+                                   runtime, hasIndex, native, chrome and
+                                   template then describe the primary's code
+                                   (its checkpoint while pinned), roles,
+                                   uses, deps and manifestError the work
+                                   tree. Deployments are never rows
 GET    /components/<path>          any. {component, apiDoc: <API.md text>}
                                    (component as above, native included)
 GET    /tile-assets                any (read-filtered); ?component=<p> for one.
@@ -1315,7 +1340,12 @@ POST   /owner                     transfer (D24/D39): {tile, to}. GIVE:
                                    ceiling-dead binding slots are UNBOUND,
                                    affected backends restart, and the
                                    response carries the executed report
-                                   (+unbound)
+                                   (+unbound). The tile's deployments move
+                                   with it: its deployment record's owner
+                                   ref is rewritten in the same step, so a
+                                   paused primary stays pinned; a record
+                                   that can't be written answers 500 and
+                                   nothing moves
 GET    /access?tile=<path>        ws-admin, the tile's USER-OWNER, or an
                                    owning-org admin. {tile, owner, entries:
                                    [{kind:user|org, id, level, source:
@@ -1468,7 +1498,11 @@ POST   /create                     owner/admin, a user creating a tile
                                    owner doesn't own, or still carries
                                    leftovers of a removed tile (grant
                                    rows, bindings, vault, others' access
-                                   entries — listed in the error); D82,
+                                   entries, a deployment record or
+                                   checkpoint store — listed in the error);
+                                   creation by anyone drops a deployment
+                                   record left at the path, so the new
+                                   tile starts with plain live reload; D82,
                                    docs/auth.md §Creating tiles. Default:
                                    the human creator becomes
                                    user-owner, admin/automation →
@@ -1864,6 +1898,12 @@ POST   /backup                     admin. body {component} — build a self-
                                    describing tar (source + scope data + terminal
                                    env; NOT vault/env-layer) and stream it to the
                                    component's bound @archive provider. {ok, version}
+                                   A tile with deployments adds deployments/
+                                   (its record and checkpoint store) right
+                                   after backup.json, and a deployments
+                                   section {record, checkpoints} in the
+                                   manifest (schema still 1); a tile without
+                                   one gets today's archive
 GET    /backups?component=…         admin. the archiver's version list passed
                                    through: {versions:[{version,time,size}]}
 POST   /restore                    admin. body {component, version?, file?}.
@@ -1875,16 +1915,26 @@ POST   /restore                    admin. body {component, version?, file?}.
                                    local metadata needed (docs/overview/14-lifecycle.md).
                                    The archiver is chosen by the @archive binding:
                                    bindings["<comp>"] override, else bindings["*"]
-                                   default (set via POST /bindings).
+                                   default (set via POST /bindings). An archive
+                                   whose deployment state belongs to another
+                                   tile is refused before anything is written;
+                                   this xbind leaves an archive's deployment
+                                   record and checkpoint store out (logged):
+                                   a tile restored where none stood comes
+                                   back with plain live reload
 GET    /backup-schedule            admin. {schedules:[{component,schedule,retention}]}
 POST   /backup-schedule            admin. body {component, schedule, retention} —
                                    owner-scheduled backup on the cron engine;
                                    retention prunes to N newest versions per run.
 DELETE /backup-schedule?component= admin. remove a component's schedule
 
-Tile deployments: pausing live reload, a tile's deployments, promotion. The
-routes of this group are RESERVED: a row marked (reserved: 501) answers 501
-({"error","docs"}) until this xbind builds it; an older xbind answers a plain
+Tile deployments: pausing live reload, a tile's deployments, promotion
+(docs/tile-deployments.md; conventions and texts: §Tile deployments below
+this block). This xbind builds pausing live reload onto main — the state,
+the deploy log, the diff, pause, resume, reload now, deploy (restart
+included) and rollback — and the checkpoint remote: features lists
+live-reload/1. A row still marked (reserved: 501) answers 501
+({"error","docs"}) until an xbind builds it; an older xbind answers a plain
 404 or 405, which is how a client detects the feature. Bodies are JSON,
 decoded strictly; each names `tile`, a tile ref (apps/crm, or apps/crm+dev for
 one deployment; a body's deployment and the ref's qualifier must agree), and
@@ -1899,21 +1949,23 @@ code move names the checkpoint its actor reviewed (checkpoint or expect, plus
 seq), else 400.
 
 GET    /deployments?tile=<tile-ref>
-                                   (reserved: 501) read on the tile, or the
-                                   tile itself (readers get the primary
-                                   only). → State in the caller's view: full
-                                   (the tile's writers), deployment (a
-                                   non-primary deployment's own credentials:
-                                   the primary and that deployment) or
-                                   reader (facts about the primary only — no
-                                   other deployment's name, no count).
+                                   read on the tile, or the tile itself
+                                   (readers get the primary only). → State
+                                   in the caller's view: full (the tile's
+                                   writers), deployment (a non-primary
+                                   deployment's own credentials: the
+                                   primary and that deployment) or reader
+                                   (facts about the primary only — no other
+                                   deployment's name, no count).
                                    record:false for a tile without
                                    deployments, and nothing is written.
                                    features lists what this xbind speaks
+                                   (live-reload/1; none while
+                                   --tile-deployments=off)
 GET    /deployments/log?tile=<tile-ref>&deployment=<name>&limit=<n>&before=<id>
-                                   (reserved: 501) write on the tile, or its
-                                   terminal/agent sessions. → {tile,
-                                   entries:[DeployEntry], more}: every
+                                   write on the tile, or its terminal/agent
+                                   sessions. → {tile, entries:[DeployEntry],
+                                   more}: every
                                    finished attempt, newest first, failed
                                    ones included (limit default 50, max
                                    200); ?id=<id>&wait=<s> one attempt,
@@ -1921,9 +1973,9 @@ GET    /deployments/log?tile=<tile-ref>&deployment=<name>&limit=<n>&before=<id>
                                    {entry}. A non-primary deployment's own
                                    credentials see its entries only
 GET    /deployments/diff?tile=<tile-ref>&from=<spec>&to=<spec>&path=<file>&stat=1
-                                   (reserved: 501) write on the tile, or its
-                                   terminal/agent sessions; a work-tree side
-                                   captures a checkpoint and needs terminal
+                                   write on the tile, or its terminal/agent
+                                   sessions; a work-tree side captures a
+                                   checkpoint and needs terminal
                                    level. spec: c:<id> | deployment:<name> |
                                    work-tree (default: the primary → the
                                    work tree). → text/x-diff with
@@ -1935,18 +1987,18 @@ GET    /deployments/diff?tile=<tile-ref>&from=<spec>&to=<spec>&path=<file>&stat=
                                    captured), 429 while one diff runs and
                                    one waits for the tile, 504 past 30 s
 POST   /deployments/live-reload/pause
-                                   (reserved: 501) terminal-level on the tile
-                                   (its own terminal/agent tokens count).
-                                   {tile} → {state, deploy?}: saves stop
+                                   terminal-level on the tile (its own
+                                   terminal/agent tokens count). {tile} →
+                                   {state, deploy?}: saves stop
                                    reaching the live reload target, which
                                    keeps a fresh checkpoint of the work
                                    tree. The opt-in that creates a tile's
                                    record. Idempotent. 409 for a backend
                                    tile without --isolate
 POST   /deployments/live-reload/resume
-                                   (reserved: 501) terminal-level on the
-                                   tile. {tile, deployment?} → {state,
-                                   deploy}: deployment (default: where live
+                                   terminal-level on the tile. {tile,
+                                   deployment?} → {state, deploy}:
+                                   deployment (default: where live
                                    reload last was) follows the work tree
                                    again. Onto main, while it is the only
                                    deployment and every setting is at its
@@ -1954,9 +2006,9 @@ POST   /deployments/live-reload/resume
                                    (record:false). 409 onto a protected
                                    primary
 POST   /deployments/live-reload/now
-                                   (reserved: 501) terminal-level on the
-                                   tile. {tile, expect?} → {state, deploy?}:
-                                   checkpoint the work tree and deploy it
+                                   terminal-level on the tile. {tile,
+                                   expect?} → {state, deploy?}: checkpoint
+                                   the work tree and deploy it
                                    once where live reload last was, which
                                    stays pinned (unchanged:true when nothing
                                    moved)
@@ -1985,23 +2037,23 @@ POST   /deployments/remove         (reserved: 501) terminal-level on the tile.
                                    logs, registrations, build products, and
                                    its data when this tile is the last to
                                    claim them. 409 for main or the primary
-POST   /deployments/deploy         (reserved: 501) terminal-level on the tile.
-                                   {tile, deployment, checkpoint? | expect?
-                                   | restart?} → {state, deploy?}: puts the
+POST   /deployments/deploy         terminal-level on the tile. {tile,
+                                   deployment, checkpoint? | expect? |
+                                   restart?} → {state, deploy?}: puts the
                                    checkpoint (default: a fresh one of the
                                    work tree, equal to expect when given) on
                                    deployment; live reload attached to it
                                    pauses. restart:true starts a new
-                                   generation of its current code
+                                   generation of its current code and clears
+                                   the crash breaker
 POST   /deployments/promote        (reserved: 501) as deploy, for the target.
                                    {tile, from, to, expect?} → {state,
                                    deploy?}: to receives from's current
                                    code; data stays
-POST   /deployments/rollback       (reserved: 501) as deploy. {tile,
-                                   deployment, checkpoint?} → {state,
-                                   deploy?}: default the newest ok entry of
-                                   its deploy log with other code; data
-                                   stays
+POST   /deployments/rollback       as deploy. {tile, deployment,
+                                   checkpoint?} → {state, deploy?}: default
+                                   the newest ok entry of its deploy log
+                                   with other code; data stays
 POST   /deployments/primary        (reserved: 501) tile manager in a person's
                                    own session (the tile's owner, its org's
                                    admins, a workspace admin). {tile,
@@ -2065,10 +2117,10 @@ POST   /deployments/run-now        (reserved: 501) terminal-level on the tile.
                                    waits for it (≤ 2 min). 409 for the
                                    primary
 GET    /checkpoints/<tile>.git/<path>
-                                   (reserved: 501) the tile's terminal/agent
-                                   sessions, or write on the tile. Read-only
-                                   dumb HTTP git (git fetch xbin-deploy):
-                                   the tile's view repository —
+                                   the tile's terminal/agent sessions, or
+                                   write on the tile. Read-only dumb HTTP
+                                   git (git fetch xbin-deploy): the tile's
+                                   view repository —
                                    refs/heads/deploy/<name> per pinned
                                    deployment and HEAD naming the primary's,
                                    nothing else. path: HEAD, info/refs,
@@ -2456,6 +2508,138 @@ relay/README.md): xbind fetches its challenge (`GET
 waits for it — and registers with it; a relay that asks for more answers
 502 with a hint to get a key from its operator.
 
+### Tile deployments (`/deployments`, `/checkpoints`)
+
+The builder's view is [tile-deployments.md](/docs/tile-deployments.md);
+this is the wire's. Only `main` exists in this release, and it is always the
+primary.
+
+**The state** (`GET /deployments`) depends only on who asks, never on how
+many deployments exist. `view` is `full` for the tile's write audience
+(admins, people with write, and the tile's own terminal and agent sessions
+while their user has write), `reader` for everyone else who may read the
+tile — the primary's facts only: `liveReload` reads the primary's name while
+it follows the work tree and `""` otherwise, and `seq`, `lastLiveReload`,
+`liveReloadSince`, `workTree`, `allowed` and the deploy entries' `id`,
+`how` and `session` are left out — and `deployment` for a non-primary
+deployment's own credentials (none exist yet). A zero-state answer
+(`record: false`) is the same for every view, and reading it writes nothing.
+`features` lists what this xbind speaks (`live-reload/1`; none while
+`--tile-deployments=off`). Every `can` and `allowed` entry is a `{ok, why?,
+kind?}` judged by the same policy that judges the request (kind
+`authority`, `policy` or `state`); an act whose route answers 501 reads
+`not built in this xbind yet` (kind `policy`). While paused, `workTree`
+`{changed, since}` counts the files that differ from the checkpoint live
+reload was paused at. This xbind's answers leave out `caps`, `edges`,
+`origin` and the per-deployment data, vault, limits and registration fields
+of later releases.
+
+**Tile refs in a query string** send `+` as `%2B`, as `URLSearchParams`
+and Go's `url.Values` do: a bare `+` decodes to a space and names no tile.
+`limit` above 200 and `wait` above 25 are clamped, not refused.
+
+**The operations** this xbind builds:
+- **`live-reload/pause`** pins `main` to a fresh checkpoint of the work tree
+  at request time; a backend's swap onto it follows as a queued deploy
+  (`how: "pause"`), normally of identical code; for a static tile the commit
+  is the whole deploy. A failed build or start leaves live reload paused and
+  `main` pinned to the attempted checkpoint (its state `failed`): every
+  restart runs it, and Reload now retries it. Pinning a `go`, `node` or
+  `python` tile without `--isolate` answers 409 (kind `policy`); static
+  tiles pause everywhere; resuming never needs isolation.
+- **`live-reload/now`** answers `unchanged: true` when the work tree equals
+  `main`'s checkpoint and nothing is queued; `expect` must be a prefix of the
+  fresh capture, else 409 `the code changed since you reviewed <expect> (now
+  <actual>)`.
+- **`live-reload/resume`** onto `main` with nothing else set removes the
+  record, the deploy journal and the view repository (`record: false`); the
+  checkpoint store and its deploy log stay, unread, until the next opt-in,
+  whose deploy ids keep counting.
+- **`deploy`** without `deployment` names the primary; `checkpoint` and
+  `expect` together are 400; `restart: true` starts a new generation of the
+  current code, clears the crash breaker and moves nothing (with
+  `checkpoint` or `expect`: 400 `restart runs main's current code: send no
+  checkpoint or expect with it`). A checkpoint `main` already runs answers
+  `unchanged: true`, unless its last move failed, which is retried.
+- **`rollback`** without `checkpoint` takes the newest `ok` entry whose
+  checkpoint differs from the current one, else 409 `main has no earlier
+  checkpoint in its deploy log`.
+- **Queueing.** One deploy in flight per deployment and up to eight
+  waiting; a request whose checkpoint equals the tail of the queue is merged
+  into it (the answer carries that entry); a ninth answers 409 `main already
+  has 8 deploys waiting; try again when one finishes`.
+- **The journal.** Every accepted attempt is journaled in
+  `data/deployments/<key>/pending.json` until its deploy-log entry is
+  written; after a crash, the next boot logs it: queued as `cancelled`,
+  swapped as `ok`, running as `failed` with `interrupted: xbind restarted
+  mid-deploy; main runs <code>`.
+- **Checkpoints** are refused past their caps (409, `checkpoint of <tile>
+  refused: …`, naming the largest paths) and rate-limited per tile (429,
+  `<tile> was checkpointed too often; retry in <n>s`). `by` is
+  `user:<id>` or `owner`; `via` is the acting credential's kind.
+
+**A deploy of a checkpoint** reports on the `deployments` event, never
+`build-*`: a failed one paints no overlay, the previous generation keeps
+serving, and the compiler output goes to the tile's log (`.xbin/log/<key>.log`)
+under `--- deploy of c:<id> failed <time> ---`. One bare `reload` follows a
+swap that changed the code the primary serves (reload now, deploy, roll
+back, resume); pausing and restarts reload nothing. A crash-looping pinned
+backend says `deploy a fixed checkpoint or restart it`: a save doesn't reach
+it. A pinned backend needs isolation: on an xbind restarted without
+`--isolate` it is held (its `/api/` answers `pinning a backend to a
+checkpoint needs isolation (--isolate)`, the pages keep serving the
+checkpoint; a restart that goes through a build fails it with a longer text
+that also names `--isolate`), and it never runs the work tree instead.
+
+**Texts** beyond the refusals the routes above name:
+
+| Status | `error` |
+|---|---|
+| 400 | `need ?tile= (a tile ref: apps/crm, or apps/crm+dev)` |
+| 400 | `the tile ref names <a>, deployment names <b>` |
+| 400 | `id and before are deploy ids; wait, seconds (at most 25); limit, 1 to 200` |
+| 400 | `bad spec "<spec>": c:<id> \| deployment:<name> \| work-tree` |
+| 400 | `path is one clean tile-relative file; stat is 1 or absent` |
+| 403 | `deployments of <tile> need read access` (the state, outside the reader audience) |
+| 403 | `<act> needs terminal-level access on <tile>` (`<act>`: "pausing live reload", "deploying", …); for any tile credential but the tile's own terminal and agent sessions (a frame, a backend, another tile's) it adds ` — only people and the tile's own terminal and agent sessions operate its deployments` |
+| 404 | `no such tile: <tile>` · `<tile> has no deploy <id>` |
+| 409 | `<tile> has no deployments yet: pause live reload or add a deployment first` — a tile without a record, for any operation but an opt-in and for the log; the checkpoint remote answers it as a 404 |
+| 409 | `<tile> has no deployments: its work tree is what runs, so there is nothing to diff` |
+| 409 | `the deployments of <tile> changed (seq <n>); reload and retry` |
+| 409 | `pinning a backend to a checkpoint needs isolation (--isolate)` |
+| 409 | `<act> is turned off on this xbind (--tile-deployments=off): it would create or extend deployment state; resuming live reload onto main, removing a deployment, resetting its data and unprotecting still work` |
+| 429 | `<tile> already has a diff running and one waiting; retry shortly` |
+| 504 | `the diff of <tile> took longer than 30 s (narrow it with path or stat)` |
+
+A view-as session's POSTs are refused 403 read-only by the usual
+middleware.
+
+**The deploy log** holds every finished attempt: one confined commit per
+attempt on the deployment's chain in the checkpoint store. An attempt that
+made no checkpoint names the empty tree; `error` keeps the failure's first
+line, at most 500 bytes (the whole text is in the tile's log). Reading it
+needs write on the tile.
+
+**The diff** runs confined (one per tile at a time with one waiting, two
+across xbind). `path` is literal, not a pattern. A `work-tree` side is a
+capture and spends the capture rate. The `stat=1` answer carries the
+`X-XBin-Checkpoint-From` and `-To` headers too. `workTree.changed` and the
+diff count added, changed and removed files, never a nested component's.
+
+**The checkpoint remote** (`GET /checkpoints/<tile>.git/<path>`) serves the
+tile's view repository by dumb HTTP: `HEAD`, `info/refs`,
+`objects/info/packs`, `objects/pack/pack-<hex>.pack|.idx` and loose objects,
+with git's content types; GET and HEAD only; everything else 404, and
+`?service=` is ignored, so git uses the dumb protocol. `deploy/<name>`
+exists only while `<name>` is pinned, and `HEAD` names `deploy/<primary>` —
+dangling while the primary follows the work tree. View commits are
+parentless and carry `Xbin-Checkpoint` and `Xbin-Work-Tree-Head` trailers
+(the latter the base for `git rebase --onto`). A fetch racing a refresh can
+fail once and succeeds on retry. Terminal and agent sessions opened while
+the tile has a record carry it as the `xbin-deploy` remote, in two more
+`GIT_CONFIG_*` pairs (`GIT_CONFIG_COUNT` 4); sessions without a record keep
+today's two.
+
 ## WebSockets
 
 ### `/ws/term` — terminals (admins + users with a terminal-level tile)
@@ -2614,7 +2798,33 @@ required). JSON text frames:
          "pending":1,"questions":0,"turn":3}}        // its summary, inline — no re-list needed
 {"type":"session","topic":"session.<id>","component":"apps/thing", // an agent session event (D74):
  "data":{"seq":7,"ts":1789…,"type":"message.delta","data":{…},"user":"…","id":"<id>"}}
+{"type":"deployments","component":"apps/thing",      // the tile's deployment record changed (paused,
+ "data":{"op":"record","seq":19,"by":"user:ana",     //   resumed, …): what names the fields
+         "what":["liveReload","deployments"]}}
+{"type":"deployments","component":"apps/thing",      // a deploy attempt's result or phase
+ "data":{"op":"deploy","id":43,"deployment":"main","how":"reload-now","checkpoint":"c:3f2a1c9",
+         "result":"running","phase":"build","by":"user:ana","session":"<id>"}}
+{"type":"deployments","component":"apps/thing",      // while live reload is paused: files the work
+ "data":{"op":"work-tree","changed":3}}               //   tree differs in from the checkpoint
 ```
+
+**Tile deployments** ([tile-deployments.md](/docs/tile-deployments.md)).
+Today's types speak only of a tile's primary (`main`), with the bare path.
+A save in a tile whose live reload is paused publishes no `reload` and
+rebuilds nothing; op `work-tree` reports, at most once every 2 s per tile
+and only when the number changed, how many files the work tree differs in
+from the checkpoint live reload was paused at (the state's
+`workTree.changed`). A deploy of a checkpoint — reload now, deploy, roll
+back, the pin a pause takes — rides op `deploy` on each phase (`checkpoint`,
+`materialize`, `build`, `start`, `swap`) and result (`queued`, `running`,
+`ok`, `failed`, `cancelled`), never `build-*`, and never carries compiler
+output; one bare `reload` follows a swap that changed the code the primary
+serves. A resume onto the primary builds the work tree with today's
+`build-*`. `session` names the terminal or agent session that acted, so its
+own window can skip the line it would print. A tile's status also clears
+when a deploy swaps the code its primary runs (a deploy emits no
+`build-start`); a failed deploy leaves it. Old clients ignore the unknown
+type.
 
 Non-bus events go to every subscriber, except `term` and `session` events
 (D97), which reach the session's owner (`data.user`) — their signed-in browsers,
@@ -2634,7 +2844,18 @@ session's log; `GET /term/sessions/<id>` has the requests themselves. Older
 clients that re-list on every `term` event keep working (one more re-list
 per change). `bus` events
 are delivered only to
-the owner and to elements holding a reader grant on the resource. `status`
+the owner and to elements holding a reader grant on the resource.
+`deployments` events are filtered by the tile and the deployment they name,
+at your current level on each delivery. A fact about the tile's primary
+reaches everyone who may read the tile: ops `record` and `deploy` (onto the
+primary) in their full form only to its write audience (admins, people with
+write, the tile's own terminal and agent sessions while their user has
+write), in a reader form everyone else (`record` with only the reader
+view's fields in `what`, sent only when one changed; `deploy` without `id`,
+`how`, `from` and `session`). Op `work-tree` reaches the write audience.
+Anything naming another deployment reaches only the write audience and that
+deployment's own frame and backend tokens — never the primary's frame
+token, never another tile. `status`
 events broadcast like the build events (the shell renders each only for tiles
 it shows; the `GET /tile-report` snapshot below is read-filtered per caller).
 Slow consumers are disconnected; reconnect with backoff (the bundled clients
@@ -2725,7 +2946,13 @@ a time, sub-paths traversal-stripped. The native runtime document
   alone reloads its views without a swap — docs/elements.md §Native app
   UI), SIGTERMed with a 30 s drain, idle-reaped
   after ~30 min, and crash-loop-broken after 3 fast exits.
-- stdout/stderr → `.xbin/log/<compkey>.log` (`bx logs`).
+- While the tile's live reload is paused (docs/tile-deployments.md) you run
+  a pinned checkpoint instead of the work tree — read-only at the tile's own
+  path, restarted from its kept build on every restart — and a save doesn't
+  reach you: a crash loop clears with a deploy or a restart. Your env is the
+  same.
+- stdout/stderr → `.xbin/log/<compkey>.log` (`bx logs`), where a failed
+  deploy of a checkpoint also writes its compiler output.
 - Env: `XBIN_SOCKET`, `XBIN_COMPONENT`, `XBIN_GATEWAY`, `XBIN_TOKEN`
   (per-generation), `XBIN_RES_*` (grants), `XBIN_IFACE_<slot>_URL`
   (http interfaces). Ingress wiring (docs/ingress.md):
@@ -2742,12 +2969,32 @@ a time, sub-paths traversal-stripped. The native runtime document
                       (machine-managed on grant changes — comments don't survive)
   */scope.json        scope marker: resources, importMap overrides
   */xbin.json        component manifests (JSONC, yours to edit)
-  .xbin/             derived state — safe to delete when xbind is stopped:
-    token, secret     owner token, frame-token HMAC key
-    run/              unix sockets (short tmp dir + symlink for deep paths)
-    log/  build/  cache/  uids.json
+  .xbin/             xbind's local state (never a tile's):
+    run/  log/  build/  cache/  env/  deploy/  docs/  restore/
+                      derived — rebuilt on demand, safe to delete while
+                      xbind is stopped: sockets (short tmp dir + symlink for
+                      deep paths), backend logs, build output (and the
+                      builds kept per checkpoint,
+                      build/<key>/c/<tree>/{bin,build.json}), caches, env
+                      layers, extracted checkpoints (deploy/<tile-key>/
+                      <tree>/, read-only files in writable directories, so
+                      rm -rf works), the docs copy, a restore's transient
+                      staging
+    token, secret     owner token, frame-token HMAC key (regenerated when
+                      missing: the old owner token and every frame token
+                      stop working)
+    term/  uids.json  builtins.json  vm/policy.json  …
+                      everything else is kept state, not derived: the
+                      terminal dev layers (hand-installed, not
+                      reproducible), the tier-2 uid map, builtin
+                      provenance, the VM policy — deleting it loses what
+                      it records
   data/               resource state: resources/, vault/, kv.db, cron-jobs.json,
-                      bus-subscriptions.json
+                      bus-subscriptions.json; deployments/ (a tile's
+                      deployment record, its deploy journal) and
+                      checkpoints/ (its checkpoint store and the view
+                      repository the fetch remote serves) — xbind's, masked
+                      from terminals, created at a tile's first pause
                       (backup unit; gitignored)
   homes/<user>/       terminal $HOME per user (dotfiles, persists across
                       upgrades; the root token uses homes/owner)
@@ -2755,4 +3002,8 @@ a time, sub-paths traversal-stripped. The native runtime document
 ```
 
 Component keys in `.xbin` paths: `<path with / → ~, truncated>-<8-hex hash>`
-(keeps unix socket paths under the 108-byte limit).
+(keeps unix socket paths under the 108-byte limit). The tile-deployments
+stores — `data/deployments/`, `data/checkpoints/`, `.xbin/deploy/` — are
+keyed by a tile key instead, 32 hex digits of a hash of the tile path, and
+each records the full path it belongs to. Their layout is not a builder
+contract (docs/compat.md); an older xbind never reads them.

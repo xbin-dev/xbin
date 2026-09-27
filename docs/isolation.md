@@ -19,7 +19,7 @@ A running backend sees a minimal, purpose-built filesystem:
 |-------|--------|------------|
 | base rootfs | read-only | Go / node / python toolchains + core tools |
 | env layer | read-only | your `setup` deps, prebuilt into an overlay lower |
-| your component dir | **read-only** | your source (editing is the terminal's job) |
+| your component dir | **read-only** | your source (editing is the terminal's job) — while the tile's live reload is paused, the pinned checkpoint instead, at the same path (§Pinned backends) |
 | granted resource dirs | **read-write** | `filesystem`/`sqlite` resources you were granted |
 
 It does **not** see other components' source, other elements' vaults, the
@@ -70,6 +70,52 @@ helpers included) no longer applies to it.
 Workspaces without isolation have no sandbox to use: their backends and
 terminals already run as the xbind user, and these tools run directly, with
 system/global git config and repo hooks switched off.
+
+**Checkpoints** of a tile ([tile-deployments.md](/docs/tile-deployments.md))
+are confined too: git runs over a private bare repository,
+`data/checkpoints/<key>.git`, with the tile bound read-only. The tile's own
+`.git` and git config are never read, and no in-tree `.gitattributes` driver
+runs. A directory holding its own repository is captured as plain files only
+under isolation; without it the checkpoint is refused, naming the directory.
+The store is xbind's: masked from every terminal, and only confined tools
+open it. Extracting a checkpoint, the deploy log, the diff and the fetch
+remote's view repository run the same way.
+
+**A run that shows another path at its working directory** — a pinned
+tile's build sees its checkpoint at the tile's own path — needs
+`--isolate`: without it the run is refused (`this job shows another path at
+its destination and needs --isolate`) and never falls back to the work
+tree. In every sandbox, a bind that lands inside another bind's tree gets
+its mount point without following symlinks: a symlink or a file in the way
+fails the start and names the path.
+
+## Pinned backends (live reload paused)
+
+While a tile's live reload is paused its backend runs a **checkpoint**, not
+the work tree ([tile-deployments.md](/docs/tile-deployments.md)):
+
+- **It needs `--isolate`.** Pinning a `go`, `node` or `python` backend is
+  refused without it (`pinning a backend to a checkpoint needs isolation
+  (--isolate)`); static tiles pause everywhere. An xbind restarted without
+  `--isolate` over a pinned backend holds it — its `/api/` answers that text,
+  its pages keep serving the checkpoint — and never runs the work tree in its
+  place. (A restart that goes through a build fails it with a longer text
+  that also names `--isolate`.) Resume live reload on such tiles before
+  restarting without isolation.
+- **What the sandbox sees.** The checkpoint, extracted read-only under
+  `.xbin/deploy/<key>/<tree>/`, is bound read-only at the tile's own path,
+  so the backend, its `setup` and its build find their files where they
+  always were. Components nested in the tile are bound back from their own
+  code. Env layers are shared by `setup` hash and kept while referenced.
+- **The Go build** runs confined like any other, with the checkpoint at the
+  tile's path and every `go.work` module of another tile built against that
+  tile's primary (its pinned checkpoint, or its work tree while it follows
+  it). The artifact is kept per checkpoint under
+  `.xbin/build/<key>/c/<tree>/` with a `build.json` recording its inputs
+  (toolchain, Go settings, each module's code, `go.sum`'s pins), reused on
+  every restart and rebuilt only after `.xbin/` is lost. Rebuilding is
+  reproducible up to what the artifact also embedded: other tiles' code as
+  their primaries stood, `go.sum`'s modules and the host toolchain.
 
 ## Terminal isolation (owner/editing plane)
 

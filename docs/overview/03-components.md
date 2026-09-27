@@ -231,6 +231,27 @@ The background rebuild plus blue/green is the whole editing experience: save
 a Go file, and about a second later the running backend has been rebuilt,
 health-checked, and swapped — or the frame shows the compiler output.
 
+### When live reload is paused
+
+The pipeline above drives a tile's **live reload target** — `main`, the
+tile's one deployment, unless its developers paused live reload
+([/docs/tile-deployments.md](/docs/tile-deployments.md)). Pausing pins `main`
+to a **checkpoint**, an immutable capture of the tile's files taken by
+confined git into an xbind-owned store. From then on a save in that tile
+publishes no `reload` and rebuilds nothing: the watcher only counts, at most
+every 2 s, how many files the work tree differs in from the checkpoint (a
+`deployments` event the terminal window shows). Code moves only by an
+explicit act — Reload now, a deploy, a roll back, resuming — each going
+through the same blue/green path: the checkpoint is extracted read-only,
+built confined at the tile's path (a kept artifact per checkpoint, so
+restarts never recompile), health-checked and swapped, with one `reload`
+after a swap that changed the code. A failed deploy leaves the previous
+generation serving and paints no overlay. Every restart path — crash, idle
+reap, grant change, alwaysOn, xbind restart — runs the code the tile's
+record names, never the work tree, which is why pinned backends need
+`--isolate`. A tile that never pauses takes the pipeline above byte for
+byte.
+
 ## Dependencies & source visibility
 
 - **`deps/` symlinks.** Manifest `deps` entries are materialized as

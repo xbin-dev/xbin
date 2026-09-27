@@ -112,7 +112,9 @@ and embedded panel:
 - **Live reload, precisely targeted.** On a `reload` event the *most
   specific* mounted frame wins — a change in `apps/cal/widgets/x` reloads
   the widget's frame, not the whole calendar (longest-`src`-prefix over the
-  registry of mounted frames).
+  registry of mounted frames). A tile whose live reload is paused sends no
+  `reload` on saves, only one after a deploy that changed its code
+  ([/docs/tile-deployments.md](/docs/tile-deployments.md)).
 - **Build errors as an overlay** — compiler output rendered over the tile on
   `build-error`, cleared on `build-ok` ([03-components.md](03-components.md)).
 - **Grant changes reload the frame**, so a frontend that was 403ing retries

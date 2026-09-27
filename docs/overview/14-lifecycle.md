@@ -30,8 +30,11 @@ enabled component carries no entry at all.
 |---|:---:|---|---|---|
 | `enabled` (default) | ✓ | local | local | — |
 | `disabled` | ✗ | local | local | compute |
-| `offloaded` | ✗ | **archived + removed** | local | disk (data) |
-| `offloaded-full` | ✗ | **archived + removed** | **archived + removed** (a manifest stub stays) | disk (nearly all) |
+| `offloaded` | ✗ | **archived + removed**¹ | local | disk (data) |
+| `offloaded-full` | ✗ | **archived + removed**¹ | **archived + removed** (a manifest stub stays) | disk (nearly all) |
+
+¹ Encrypted file resources are archived, but their `data/resources-enc/`
+volumes stay on disk (§Offload).
 
 The state is enforced at every path that could start a backend, not just the
 friendly one:
@@ -60,6 +63,11 @@ state}`, `bx enable|disable|offload|restore`). Enable⇄disable is a pure
 state flip; the heavy transitions run their work *before* the state flips,
 so a failure leaves the component untouched.
 
+Pausing a tile's **live reload** is not a lifecycle state: such a tile stays
+`enabled` and keeps serving, from a checkpoint
+([/docs/tile-deployments.md](/docs/tile-deployments.md)). Disabling it stops
+its backend as for any tile.
+
 ### The offload safety gate — `lifecycleAt`
 
 Alongside the state, `WorkspaceManifest.LifecycleAt` records **when the
@@ -87,6 +95,7 @@ recovery wants.
 | `data/…` — the scope's resources, **only when the component roots its scope** | kv as `data/kv.json` (values base64), sqlite/filesystem/blob as whole directory trees |
 | `term/…` — the terminal dev layer | hand-installed (`apt` in the shell), *not* reproducible, so it travels ([09-terminals.md](09-terminals.md)) |
 | cron jobs (in the manifest) | re-registered on restore |
+| `deployments/…` — the deployment record and checkpoint store, **only for a tile that left the zero state** | what the tile runs while its live reload is paused, and its deploy log ([/docs/tile-deployments.md](/docs/tile-deployments.md)) |
 
 | deliberately excluded | why |
 |---|---|
@@ -97,6 +106,14 @@ recovery wants.
 A component that *doesn't* root a scope backs up source + terminal layer
 only; its data belongs to the scope root's backup (the manifest records
 which ancestor scope that is).
+
+A tile with **tile deployments** — its live reload paused — adds its
+deployment state to every backup: its deployment record and its checkpoint
+store, under `deployments/` in the archive right after `backup.json`, and a
+`deployments` section in the manifest (`{record, checkpoints}`; the schema
+stays 1). A tile without one gets exactly today's archive — one that opted
+out and kept its old store included — and an older xbind restores such an
+archive as a tile without deployments, skipping the prefix.
 
 Two honesty notes. **Backups are plaintext tars**: xbind reads resources
 through the decrypted view and re-encrypts on restore, so backing up (and
@@ -175,13 +192,23 @@ Compatibility is guarded by the tar's schema number: an archive written by a
 *newer* format refuses to restore ("upgrade to restore") rather than
 half-applying.
 
+**Deployment state in a restore.** A restore refuses an archive whose
+deployment state — by its manifest or its record — belongs to another tile,
+before it writes anything. An archived store's config, hooks, info and
+alternates are never restored. This release doesn't put deployment state
+back yet: the record and the store are left out, which the daemon logs
+(archived objects pass through `.xbin/restore/`, a restore's transient
+staging area), so a tile restored where none stood comes back with plain
+live reload.
+
 ## Offload — the same path, plus deletion
 
 Offload composes what's above: **stop → back up → verify → remove**. Nothing
 is deleted until the archiver has confirmed the PUT (`archive before offload
 failed (nothing removed)` is a real error string, and the invariant it
 states is the design). `offloaded` removes the scope's resource data (files
-and kv buckets); `offloaded-full` also removes the terminal layer and the
+and kv buckets — encrypted file resources are archived but their
+`data/resources-enc/` volumes stay on disk); `offloaded-full` also removes the terminal layer and the
 source subtree — keeping just `xbin.json`/`scope.json` so the tile stays
 listed, renders its "offloaded — restore to use" placeholder, and remains
 restorable from the admin tile. Re-enabling an offloaded component *is* a
