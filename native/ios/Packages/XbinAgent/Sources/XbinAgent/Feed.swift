@@ -7,7 +7,8 @@ import Foundation
 // a seq is skipped, a stream drops, or the app returns to the foreground.
 // The screen observes `updates()`; the actions answer through the client and
 // then catch up at once (the web does the same), so the answer shows even
-// before the live stream carries it.
+// before the live stream carries it. `followStates()` says whether the live
+// stream is open, so a screen can say so when it isn't.
 
 public actor AgentSessionFeed {
     public nonisolated let client: AgentClient
@@ -29,14 +30,37 @@ public actor AgentSessionFeed {
         public var after: UInt64
     }
 
-    private var subscribers: [Int: AsyncStream<AgentTranscript>.Continuation] = [:]
-    private var nextSub = 0
-    private let sleep: @Sendable (Duration) async throws -> Void
+    /// The live stream (`run()`), as a screen shows it.
+    public enum FollowState: Sendable, Hashable {
+        /// Opening it (the first time, or again after it ended).
+        case connecting
+        /// Open: events arrive as the agent logs them.
+        case live
+        /// It can't be opened (retrying with backoff): why. Also when an
+        /// attempt has had no answer for `stallAfter`.
+        case failing(String)
+        /// The session is gone: nothing more to follow.
+        case ended
+    }
 
-    /// `sleep` is injectable for tests (reconnect backoff).
-    public init(client: AgentClient, sessionID: String, sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+    /// The live stream's state now.
+    public private(set) var followState = FollowState.connecting
+
+    private var subscribers: [Int: AsyncStream<AgentTranscript>.Continuation] = [:]
+    private var followSubscribers: [Int: AsyncStream<FollowState>.Continuation] = [:]
+    private var nextSub = 0
+    private var attempt = 0
+    private let sleep: @Sendable (Duration) async throws -> Void
+    private let stallAfter: Duration
+
+    /// `sleep` is injectable for tests (reconnect backoff); `stallAfter` is
+    /// how long an attempt to open the stream may go unanswered before it
+    /// counts as failing (it keeps waiting).
+    public init(client: AgentClient, sessionID: String, stallAfter: Duration = .seconds(10),
+                sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
         self.client = client
         self.sessionID = sessionID
+        self.stallAfter = stallAfter
         self.sleep = sleep
     }
 
@@ -54,6 +78,33 @@ public actor AgentSessionFeed {
     }
 
     private func unsubscribe(_ k: Int) { subscribers[k] = nil }
+
+    /// The live stream's state now and after every change.
+    public func followStates() -> AsyncStream<FollowState> {
+        let (stream, cont) = AsyncStream<FollowState>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let k = nextSub
+        nextSub += 1
+        followSubscribers[k] = cont
+        cont.yield(followState)
+        cont.onTermination = { [weak self] _ in
+            Task { await self?.unfollow(k) }
+        }
+        return stream
+    }
+
+    private func unfollow(_ k: Int) { followSubscribers[k] = nil }
+
+    private func setFollow(_ s: FollowState) {
+        guard s != followState else { return }
+        followState = s
+        for c in followSubscribers.values { c.yield(s) }
+    }
+
+    /// An attempt still unanswered after `stallAfter` counts as failing.
+    private func stalled(_ n: Int) {
+        guard n == attempt, followState == .connecting else { return }
+        setFollow(.failing("no answer from the server"))
+    }
 
     private func publish() {
         for c in subscribers.values { c.yield(transcript) }
@@ -91,11 +142,33 @@ public actor AgentSessionFeed {
     /// Follows the log until the session ends or the task is cancelled:
     /// replay from the cursor, stream, and on a drop re-read and reconnect
     /// with backoff (0.5 s doubling to 15 s; reset once events flow).
+    ///
+    /// It asks from one event before the cursor: the answer then starts with
+    /// an event it already has (skipped by seq), so the stream opens at once
+    /// even on a session with nothing new to say — xbind before 2026-09-27
+    /// sent a follow's response head only with its first event, and a client
+    /// waiting for it hung until its request timed out.
     public func run() async {
         var backoff = Duration.milliseconds(500)
         while !Task.isCancelled, !ended {
+            if case .failing = followState {} else { setFollow(.connecting) }
+            let stream: AsyncThrowingStream<AgentEvent, any Error>
             do {
-                let stream = try await client.follow(sessionID, since: transcript.lastSeq)
+                stream = try await open()
+            } catch let e as AgentAPIError where e.isNotFound {
+                markEnded()
+                publish()
+                return
+            } catch {
+                if Task.isCancelled { return }
+                // Not opened: the screen says why while it retries.
+                setFollow(.failing((error as? AgentAPIError)?.description ?? error.localizedDescription))
+                try? await sleep(backoff)
+                backoff = min(backoff * 2, .seconds(15))
+                continue
+            }
+            setFollow(.live)
+            do {
                 for try await e in stream {
                     backoff = .milliseconds(500)
                     if case .refetch = transcript.receiveStream(e) {
@@ -107,11 +180,10 @@ public actor AgentSessionFeed {
                 // the server ends the stream when the session goes; a proxy may cut it too
                 await catchUp()
                 if transcript.state.isEnded { markEnded(); publish() }
-            } catch let e as AgentAPIError where e.isNotFound {
-                markEnded()
-                publish()
-                return
             } catch {
+                // A drop (an idle stream timing out included): reconnect
+                // quietly — the stream was open, and the next one replays
+                // from the cursor.
                 if Task.isCancelled { return }
             }
             if ended || Task.isCancelled { return }
@@ -120,15 +192,32 @@ public actor AgentSessionFeed {
         }
     }
 
+    /// Opens the stream from one event before the cursor. An attempt with no
+    /// answer after `stallAfter` counts as failing while it keeps waiting.
+    private func open() async throws -> AsyncThrowingStream<AgentEvent, any Error> {
+        attempt += 1
+        let n = attempt, stallAfter = self.stallAfter
+        let watchdog = Task { [weak self] in
+            try? await Task.sleep(for: stallAfter)
+            if Task.isCancelled { return }
+            await self?.stalled(n)
+        }
+        defer { watchdog.cancel() }
+        let last = transcript.lastSeq
+        return try await client.follow(sessionID, since: last > 0 ? last - 1 : 0)
+    }
+
     /// Loads a past session (read-only; nothing to follow).
     public func load(history: HistoryTranscript) {
         transcript = AgentTranscript(events: history.events)
         ended = true
+        setFollow(.ended)
         publish()
     }
 
     private func markEnded() {
         ended = true
+        setFollow(.ended)
         if let f = followUp { // not lost: back to the composer
             followUp = nil
             returnedDraft = f.text

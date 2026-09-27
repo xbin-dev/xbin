@@ -146,48 +146,96 @@ struct AgentSessionTransport: AgentTransport {
         let (stream, cont) = AsyncThrowingStream<Data, any Error>.makeStream()
         let state = StreamHead()
         let transport = self.transport
-        return try await withCheckedThrowingContinuation { (head: CheckedContinuation<AsyncThrowingStream<Data, any Error>, any Error>) in
-            let load = transport.stream(urlRequest, allowRedirect: { _ in false }, onResponse: { h in
-                if (200..<300).contains(h.statusCode) {
-                    if state.claim() { head.resume(returning: stream) }
-                } else {
-                    state.fail(h)
+        // Cancelled while it waits for the head (the screen went away), the
+        // request goes too: left alone it held a connection of the app's
+        // session until the server answered or 60 s passed.
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (head: CheckedContinuation<AsyncThrowingStream<Data, any Error>, any Error>) in
+                guard state.waitForHead(head) else {
+                    head.resume(throwing: CancellationError())
+                    return
                 }
-            }, onData: { d in
-                if !state.append(d) { cont.yield(d) }
-            }, onDone: { err in
-                if let (h, body) = state.failure() {
-                    if state.claim() {
-                        head.resume(throwing: AgentAPIError(HTTPResponse(status: h.statusCode, headers: AppTransport.headers(h), body: body)))
+                let load = transport.stream(urlRequest, allowRedirect: { _ in false }, onResponse: { h in
+                    if (200..<300).contains(h.statusCode) {
+                        state.resumeHead { $0.resume(returning: stream) }
+                    } else {
+                        state.fail(h)
                     }
-                    cont.finish()
-                } else if state.claim() {
-                    head.resume(throwing: err ?? URLError(.badServerResponse))
-                    cont.finish()
-                } else if let err {
-                    cont.finish(throwing: err)
-                } else {
-                    cont.finish()
-                }
-            })
-            cont.onTermination = { _ in load.cancel() }
+                }, onData: { d in
+                    if !state.append(d) { cont.yield(d) }
+                }, onDone: { err in
+                    if let (h, body) = state.failure() {
+                        state.resumeHead {
+                            $0.resume(throwing: AgentAPIError(HTTPResponse(status: h.statusCode, headers: AppTransport.headers(h), body: body)))
+                        }
+                        cont.finish()
+                    } else if state.resumeHead({ $0.resume(throwing: err ?? URLError(.badServerResponse)) }) {
+                        cont.finish()
+                    } else if let err {
+                        cont.finish(throwing: err)
+                    } else {
+                        cont.finish()
+                    }
+                })
+                state.started(load)
+                cont.onTermination = { _ in load.cancel() }
+            }
+        } onCancel: {
+            state.cancel()
+            cont.finish(throwing: CancellationError())
         }
     }
 }
 
-/// The head of a streamed response, shared by URLSession's callbacks.
+/// The head of a streamed response, shared by URLSession's callbacks and
+/// the waiting task's cancellation.
 private final class StreamHead: @unchecked Sendable {
+    typealias Head = CheckedContinuation<AsyncThrowingStream<Data, any Error>, any Error>
     private let lock = NSLock()
+    private var head: Head?
     private var resumed = false
+    private var cancelled = false
+    private var load: StreamingLoad?
     private var errorHead: HTTPURLResponse?
     private var errorBody = Data()
 
-    /// True the first time only (resume the waiter once).
-    func claim() -> Bool {
+    /// Keeps the waiter; false when the task was cancelled first (don't start).
+    func waitForHead(_ h: Head) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        if resumed { return false }
-        resumed = true
+        if cancelled { resumed = true; return false }
+        head = h
         return true
+    }
+
+    /// The request, once started (a cancellation that came first stops it).
+    func started(_ l: StreamingLoad) {
+        lock.lock()
+        let stop = cancelled
+        if !stop { load = l }
+        lock.unlock()
+        if stop { l.cancel() }
+    }
+
+    /// Resumes the waiter the first time only; true when this call did.
+    @discardableResult
+    func resumeHead(_ f: (Head) -> Void) -> Bool {
+        lock.lock()
+        guard !resumed, let h = head else { lock.unlock(); return false }
+        resumed = true
+        head = nil
+        lock.unlock()
+        f(h)
+        return true
+    }
+
+    /// The waiting task was cancelled: the waiter throws, the request stops.
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        let l = load
+        lock.unlock()
+        resumeHead { $0.resume(throwing: CancellationError()) }
+        l?.cancel()
     }
 
     func fail(_ h: HTTPURLResponse) { lock.lock(); errorHead = h; lock.unlock() }

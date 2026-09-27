@@ -19,6 +19,9 @@ final class AgentScreenModel {
     var providers: [AgentProvider] = []
     var history: [HistoryEntry] = []
     var error: String?
+    /// The session's live events can't be followed (their stream won't
+    /// open): why, shown over the composer while the feed retries.
+    var streamProblem: String?
     var draft = ""
     var starting = false
     var openTools: Set<String> = []
@@ -100,6 +103,16 @@ final class AgentScreenModel {
                 self.signInCommand = t.state.signIn(provider: self.provider, lastError: nil)
             }
         })
+        tasks.append(Task { [weak self] in
+            for await s in await f.followStates() {
+                guard let self else { return }
+                switch s {
+                case .failing(let why): self.streamProblem = "Can't follow the session (\(why)) — retrying"
+                case .live, .ended: self.streamProblem = nil
+                case .connecting: break
+                }
+            }
+        })
     }
 
     func stop() {
@@ -112,7 +125,14 @@ final class AgentScreenModel {
     func send() async {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let files = attachments
-        guard !text.isEmpty || !files.isEmpty, let feed else { return }
+        guard !text.isEmpty || !files.isEmpty else { return }
+        // Not attached yet (the session still loading, or it failed to):
+        // say so and keep the draft — never a Send that does nothing.
+        guard let feed else {
+            error = sessionID == nil ? "No session to send to yet" : "Still connecting to the session — try again in a moment"
+            Haptics.failed()
+            return
+        }
         draft = ""
         attachments = []
         do {
@@ -266,6 +286,10 @@ struct AgentScreen: View {
                     ForEach(t.items) { item in AgentItemView(model: m, item: item) }
                     if let a = AgentChat.activity(t.activity(ended: m.ended)) { ActivityView(activity: a) }
                 }
+            }
+            if let p = m.streamProblem {
+                Label { Text(verbatim: p) } icon: { Image(systemName: "exclamationmark.triangle") }
+                    .font(.footnote).foregroundStyle(.orange).padding(.horizontal)
             }
             if let e = m.error {
                 Text(verbatim: e).font(.footnote).foregroundStyle(.red).padding(.horizontal).onTapGesture { m.error = nil }
