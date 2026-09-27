@@ -1172,7 +1172,9 @@ the calls); the web draws it in `sandboxes.js`, the native view in
   `sandbox` toolset: no sandbox, then This conversation (what it has
   attached or bound) · Yours · Shared · Team, then ＋ New sandbox… and
   Manage sandboxes…. One you may not use, or that the class does not allow
-  (its manager, its egress), is listed disabled with the reason. A pick
+  (its manager, its egress — the less restrictive of `egress` and
+  `egressNext` — or, for a class that reaches outside, the internal data it
+  has held), is listed disabled with the reason. A pick
   binds it (`PATCH /runs/{root} {sandbox: {ref}}`, from the next turn); at
   home it goes with the new chat (`POST /ask {sandbox}`) while the ask's
   class has the toolset.
@@ -1183,7 +1185,8 @@ the calls); the web draws it in `sandboxes.js`, the native view in
   workdir), makes another attached sandbox the active one, detaches the
   active one (`{detach}`) and opens Manage.
 - **The Sandboxes dialog** (`#sbxdlg`): every sandbox you may see, yours
-  first — state, manager, image, size, egress, owner, private/team, when it
+  first — state, manager, image, size, egress (and the one it takes at its
+  next start, when a change waits for it), owner, private/team, when it
   was last active, how many conversations have it — with **Use here** (or
   for a new chat), Start / Stop / Thaw (who may use or manage it; one bound
   to the open conversation that you may not use goes through

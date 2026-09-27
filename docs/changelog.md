@@ -139,6 +139,22 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   draw it — in the xbin app a Sandbox picker in the toolbar beside the
   model's, the ▣ in the conversation's subtitle with ⋯ → Sandbox for the
   directory, the attached ones and Detach, and pushed Sandboxes screens.
+- **Fixes from the phase-1 review: sandbox access and the firewall** (D115,
+  D116). The contract's sandbox gains `egressNext` (additive): `egress` is
+  what a sandbox has now, and an egress `PATCH`ed on a running one waits in
+  `egressNext` for its next start (on a stopped one it applies at once);
+  a firewall checks the less restrictive of the two, a missing or unknown
+  egress counting as `open` — the reference manager and its conformance
+  suite follow. The agent checks egress that way when binding and on every
+  tool call (a lowered egress is no longer trusted before the restart, nor
+  a sandbox whose manager doesn't say). A detach — or a rebind by someone
+  else — reaches subagents' copies of the binding at once. A sandbox
+  another consumer shared with the agent is usable only by the people its
+  share names. Binding a sandbox to a conversation with internal reach
+  labels it `xbin.agent/internal`, and a class that reaches outside without
+  internal reach may then neither bind it nor keep working in it. Re-picking
+  an attached sandbox keeps its working directory, and `sandbox_create`'s
+  grant card says when the sandbox will be the team's.
 
 - **Admin console: runtime → sandboxes, and the sandbox in the component
   list** (D112, [isolation.md](isolation.md) §VM sandboxes). A new tab lists

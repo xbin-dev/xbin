@@ -49,6 +49,36 @@ const managerAllowed = (set, provider) => set == null || set === 'all'
   || (Array.isArray(set) && (set.includes(provider) || set.includes(tileOf(provider))));
 const egressOf = (cls) => (cls && Array.isArray(cls.sandboxEgress) && cls.sandboxEgress.length ? cls.sandboxEgress : ['none']);
 
+// firewallEgress: a sandbox's network as the class check counts it
+// (_backend effectiveEgress): the less restrictive of what it has now
+// (egress) and what it takes at its next start (egressNext) — a missing or
+// unknown one is open.
+const rank = (e) => (e === 'none' ? 0 : e === 'internet' ? 1 : 2);
+export function firewallEgress(s) {
+  let e = (s && s.egress) || '';
+  const next = (s && s.egressNext) || '';
+  if (next && rank(next) > rank(e)) e = next;
+  return rank(e) === 2 ? 'open' : e;
+}
+
+// egressWords: a sandbox's network in words, with one waiting for its next start.
+export function egressWords(s) {
+  const e = (s && s.egress) || '';
+  const next = (s && s.egressNext) || '';
+  const w = EGRESS[e] || e;
+  return next && next !== e ? `${w || '?'} → ${EGRESS[next] || next} at the next start` : w;
+}
+
+// A sandbox a conversation with internal reach has worked in carries this
+// label; a class that reaches outside with no internal reach may not use it
+// (_backend taintRefusal).
+export const INTERNAL_LABEL = 'xbin.agent/internal';
+const reachesOut = (cls) => !!cls && ((cls.toolsets || []).includes('web') || (hasSandbox(cls) && egressOf(cls).some((e) => e !== 'none')));
+export function taintWhy(cls, s) {
+  if (!s || !s.labels || !s.labels[INTERNAL_LABEL] || !reachesOut(cls) || (cls.toolsets || []).includes('internal')) return '';
+  return `it has held data from an internal-reach conversation — the ${clsName(cls)} class reaches outside`;
+}
+
 // classAllows: '' when a conversation of cls may bind a sandbox of provider
 // with egress, else why not (as _backend/sandbox_bind.go sandboxClassAllows
 // says it). An empty provider or egress skips that check.
@@ -81,7 +111,10 @@ const recent = (a, b) => (b.lastActive || 0) - (a.lastActive || 0) || nameOf(a).
 // its manager no longer has it.
 export function brokenWhy(b, cls, list) {
   if (cls) {
-    const why = classAllows(cls, splitRef(b.ref).provider, b.egress, b.manager);
+    const s = find(list, b.ref);
+    const provider = splitRef(b.ref).provider;
+    const why = classAllows(cls, provider, b.egress, b.manager) || (s && classAllows(cls, provider, firewallEgress(s), b.manager))
+      || taintWhy(cls, s);
     if (why) return `not allowed: ${why}`;
   }
   if (!list || !list.loaded) return '';
@@ -93,7 +126,7 @@ export function brokenWhy(b, cls, list) {
   return '';
 }
 
-const detailOf = (s) => [s.manager, STATES[s.state] || s.state, EGRESS[s.egress] || s.egress].filter(Boolean).join(' · ');
+const detailOf = (s) => [s.manager, STATES[s.state] || s.state, egressWords(s)].filter(Boolean).join(' · ');
 
 // sandboxPicker: the composer's sandbox — the open conversation's (a pick
 // binds it from its next turn) or, at home, the next new chat's
@@ -112,7 +145,7 @@ export function sandboxPicker(list, conv, me, opts = {}) {
   // else bound works on for everyone, but only they can make it active again
   const row = (s) => {
     const why = !s.canUse && s.ref !== value ? 'someone else bound it — you may not use it yourself'
-      : classAllows(cls, s.provider || splitRef(s.ref).provider, s.egress, s.manager);
+      : classAllows(cls, s.provider || splitRef(s.ref).provider, firewallEgress(s), s.manager) || taintWhy(cls, s);
     return { value: s.ref, name: nameOf(s), label: `${nameOf(s)} · ${STATES[s.state] || s.state || '?'}`, detail: detailOf(s),
       state: s.state || '', egress: s.egress || '', on: s.ref === value, disabled: !!why, why };
   };
@@ -233,7 +266,8 @@ export function sandboxRows(list, me, opts = {}) {
     const name = nameOf(s);
     const acts = [];
     const on = !!(active && active.ref === s.ref);
-    if (hasSandbox(cls) && s.canUse && !on && talks(conv) && !classAllows(cls, s.provider || splitRef(s.ref).provider, s.egress)) {
+    if (hasSandbox(cls) && s.canUse && !on && talks(conv) && !classAllows(cls, s.provider || splitRef(s.ref).provider, firewallEgress(s))
+      && !taintWhy(cls, s)) {
       acts.push({ id: 'use', label: conv ? 'Use here' : 'Use for a new chat' });
     }
     if (use && st === 'stopped') acts.push({ id: 'start', label: 'Start' });
@@ -251,7 +285,7 @@ export function sandboxRows(list, me, opts = {}) {
     return {
       ref: s.ref, name, id: s.id || splitRef(s.ref).id, state: st, stateLabel: STATES[st] || st || '?',
       stateDetail: s.stateDetail || '', busy: /…$/.test(STATES[st] || ''),
-      manager: s.manager || s.provider || '', egress: s.egress || '', egressLabel: EGRESS[s.egress] || s.egress || '',
+      manager: s.manager || s.provider || '', egress: s.egress || '', egressLabel: egressWords(s),
       image: (s.image && (s.image.title || s.image.id)) || '', size: sizeWords(s.size),
       owner: s.mine || (owner && owner === user) ? 'you' : owner || 'the agent', mine: !!s.mine,
       visibility: s.visibility === 'team' ? 'team' : 'private', visLabel: s.visibility === 'team' ? 'team' : 'private',
