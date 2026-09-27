@@ -88,7 +88,7 @@ Three ideas carry everything else:
 - **Building your first tile:** 01 → 03 → 04 → 16, then /docs/getting-started.md.
 - **Wiring tiles together:** 06 → 11 → 10 (and 12/13 when the network is involved).
 - **Security review:** 01 (§honesty) → 05 → 06 → 08 → 09 → 07 → 12 → 13; then /docs/auth.md and /docs/isolation.md for the reference detail.
-- **Operating a deployment:** 15 → 14 → 10 (§vault) → 13 (§ops); then /docs/getting-started.md §deployment.
+- **Operating a deployment** (the xbin install; a tile's own deployments are tile deployments, /docs/tile-deployments.md): 15 → 14 → 10 (§vault) → 13 (§ops); then /docs/getting-started.md §deployment.
 - **Understanding an agent's world** (what a shell inside a tile can touch): 09 → 05 → 06 → 02.
 
 ## Reference docs (the field-level truth)
