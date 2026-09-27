@@ -62,10 +62,14 @@ func (w *walk) close() {
 	}
 }
 
-// blocked is a refusal of a mount point, with the spec's hint.
-func (w *walk) blocked(format string, a ...any) error {
+// blocked is a refusal of a mount point met in dir, with the spec's hint
+// when dir is on the root's own filesystem — the layers the hint names. One
+// in a mount the walk crossed (a bind of a host dir: the workspace's own
+// symlinks) isn't the layer's, and the hint's reset wouldn't clear it.
+func (w *walk) blocked(dir int, format string, a ...any) error {
 	msg := fmt.Sprintf(format, a...)
-	if w.hint != "" {
+	var r, d unix.Stat_t
+	if w.hint != "" && (dir == w.root || unix.Fstat(w.root, &r) == nil && unix.Fstat(dir, &d) == nil && r.Dev == d.Dev) {
 		msg += " (" + w.hint + ")"
 	}
 	return errors.New(msg)
@@ -93,9 +97,9 @@ func (w *walk) point(dst string, isDir, create, anyLink bool) (int, error) {
 		case err != nil || next == nil:
 			return fd, err
 		case hops == maxHops:
-			return -1, w.blocked("mount point %s: too many symlinks", dst)
+			return -1, w.blocked(w.root, "mount point %s: too many symlinks", dst)
 		case len(next) == 0:
-			return -1, w.blocked("mount point %s: a symlink on its path leads to the root", dst)
+			return -1, w.blocked(w.root, "mount point %s: a symlink on its path leads to the root", dst)
 		}
 		comps = next
 	}
@@ -134,13 +138,13 @@ func (w *walk) try(comps []string, isDir, create, anyLink bool) (int, []string, 
 				if anyLink || w.shipped(at, target) {
 					return -1, follow(at, target, comps[i+1:]), nil
 				}
-				return -1, nil, w.blocked("nested mount point %s: a symlink is in the way", at)
+				return -1, nil, w.blocked(dir, "nested mount point %s: a symlink is in the way", at)
 			}
 			switch {
 			case errors.Is(err, unix.ENOTDIR):
-				return -1, nil, w.blocked("nested mount point %s: not a directory", at)
+				return -1, nil, w.blocked(dir, "nested mount point %s: not a directory", at)
 			case errors.Is(err, unix.ELOOP), errors.Is(err, unix.EXDEV):
-				return -1, nil, w.blocked("nested mount point %s: a symlink is in the way", at)
+				return -1, nil, w.blocked(dir, "nested mount point %s: a symlink is in the way", at)
 			}
 			return -1, nil, must(err, "open "+at)
 		}

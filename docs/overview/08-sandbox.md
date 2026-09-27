@@ -102,9 +102,10 @@ workspace `homes/`/`data/`/`.xbin/`, and the host filesystem are simply absent
 — not permission-denied, *not there*. Every mount point is found from the
 sandbox's root without following a symlink (`Spec.NoFollow`): one the env
 layer holds where a mount goes fails the start with the path named, and only
-the base rootfs's own links are followed, inside the sandbox (`FollowBase`). The gateway socket is the one door: it
-is not IP egress, is never network-blocked, and carries the backend's
-instance-token identity to xbind ([05-identity.md](05-identity.md)).
+the base rootfs's own links are followed, inside the sandbox (`FollowBase`).
+The gateway socket is the one door: it is not IP egress, is never
+network-blocked, and carries the backend's instance-token identity to xbind
+([05-identity.md](05-identity.md)).
 
 ## UID mapping: single-uid vs a delegated range
 

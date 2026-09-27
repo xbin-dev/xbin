@@ -2611,7 +2611,10 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     environment layer holds it: its setup script made it". The message is
     `sandbox-init: nested mount point /opt: a symlink is in the way (…)`
     (exit 127): the terminal shows it, the log and `GET /sandboxes`'
-    failures carry it.
+    failures carry it. The hint is added only when the entry in the way is
+    on the root's own filesystem (the layers; `st_dev` of its directory):
+    one in a bind of a host dir (the workspace's own `homes → …`) is
+    refused without it, since a reset wouldn't clear it (verifier's fix).
   - **Files.** The walk moved out of `agentfd_linux.go` (now 131 lines)
     into new `mountpoint_linux.go` (`walk`, `openWalk`, `point`/`try`,
     `shipped`, `follow`, `mountAt`, `mountBindsNoFollow(w, …)`, `oldroot`,
@@ -2645,7 +2648,8 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     through them, the upper re-planting the image's link is fine, planted or
     retargeted `/var/run`, `/lib`, `/proc`, `/ws` fail with the hint in
     well under a second (no wedge), a backend-style env lower's `/var/run`
-    too, and a masked symlinked `data/` stays hidden.
+    too, a masked symlinked `data/` stays hidden, and a symlinked `homes/`
+    in the bound workspace on a bind's path is refused without the hint.
     `internal/term/mountpoints_linux_test.go` (`TestTermMountPoints`, the
     real rootfs, added to `make integration`'s term line): a live terminal
     reads the SDK at `/opt/xbin/sdk` and through `/var/run → /run`; a
@@ -2667,8 +2671,11 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     read the SDK, and the backend moved to a VM served. `internal/vm`
     (KVM) is green.
   - **Left open:** a host symlink *inside a bind* on another bind's path
-    is still refused (a workspace whose `homes/` is a symlink now fails its
-    terminals' start, where `$HOME` used to dangle); and a bind's *source*
+    is still refused: a workspace whose `homes/` is a symlink now fails its
+    terminals' start. With a link out of the workspace `$HOME` used to
+    dangle; with one inside it (`homes → .homes`) the old path-based init
+    followed it in the root and terminals worked, so that setup regresses
+    (the owner decides whether it must keep working). And a bind's *source*
     is still resolved on the host through symlinks: a parent tile's
     terminal can swap a nested tile's dir for a symlink, which a D40 view
     binds as a readable tile until the rescan drops it (the mount point is

@@ -161,4 +161,16 @@ func testFollowBase(t *testing.T) {
 	if ents, _ := os.ReadDir(outside); len(ents) != 0 {
 		t.Errorf("made %v where a symlink points", ents)
 	}
+
+	// a symlink in a bound host dir on another bind's path (the workspace's
+	// own homes/ → another dir) is refused too, but without the hint: the
+	// layer doesn't hold it, and a reset wouldn't clear it
+	mkdir(t, filepath.Join(ws, ".homes-real", "u"))
+	link(".homes-real", filepath.Join(ws, "homes"))
+	s = spec()
+	s.Binds = append(s.Binds, Bind{Src: sdk, Dst: "/ws/homes/u"})
+	if _, out, err := runProbe(t, s); err == nil || !strings.Contains(out, "nested mount point /ws/homes: a symlink is in the way") ||
+		strings.Contains(out, "reset it") {
+		t.Errorf("a symlink in the bound workspace: %v, want the refusal without the layer's hint in\n%s", err, out)
+	}
 }
