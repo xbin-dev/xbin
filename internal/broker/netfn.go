@@ -349,7 +349,7 @@ func (b *Broker) HTTPSlots(comp string) map[string]ResolvedIface {
 			url := "/api/" + prov
 			switch {
 			case inst != "":
-				path, ok := ws.IfaceInstances[prov][inst]
+				path, ok := b.activeInstances(ws.IfaceInstances, prov)[inst]
 				if !ok || !def.Instances {
 					continue
 				}
@@ -543,7 +543,7 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 	})
 	server.WriteJSON(w, http.StatusOK, map[string]any{
 		"bindings":   bindings,
-		"instances":  b.Reg.Workspace().IfaceInstances,
+		"instances":  b.activeInstanceMap(b.Reg.Workspace().IfaceInstances),
 		"components": comps,
 		"pending":    pending,
 		"exposes":    exposes,
@@ -678,7 +678,7 @@ func (b *Broker) bindOptions(comp string, req registry.Iface, wsAdmin bool) []bi
 				// Each registered instance is a first-class bind option — a
 				// non-instance-aware requester connects to one like any provider.
 				ids := make([]string, 0)
-				for id := range b.Reg.Workspace().IfaceInstances[p.Path] {
+				for id := range b.activeInstances(b.Reg.Workspace().IfaceInstances, p.Path) {
 					ids = append(ids, id)
 				}
 				sort.Strings(ids)
@@ -987,7 +987,7 @@ func (b *Broker) validateBinding(comp, slot string, binding registry.Binding) er
 			case pd.Instances && inst == "":
 				return fmt.Errorf("%s exposes instances — bind a specific one (%s#<instance>)", prov, prov)
 			case pd.Instances:
-				if _, ok := b.Reg.Workspace().IfaceInstances[prov][inst]; !ok {
+				if _, ok := b.activeInstances(b.Reg.Workspace().IfaceInstances, prov)[inst]; !ok {
 					return fmt.Errorf("unknown instance %s", ref)
 				}
 			case inst != "":
@@ -1085,17 +1085,18 @@ func (b *Broker) apiIfaceInstancesSet(w http.ResponseWriter, r *http.Request) {
 			body.Instances[id] = trimmed // consumers append "/sub" — avoid "//"
 		}
 	}
-	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
-		if len(body.Instances) == 0 {
-			delete(ws.IfaceInstances, comp)
-			return
-		}
-		if ws.IfaceInstances == nil {
-			ws.IfaceInstances = map[string]map[string]string{}
-		}
-		ws.IfaceInstances[comp] = body.Instances
-	}); err != nil {
-		server.WriteError(w, http.StatusInternalServerError, err.Error())
+	// The deployment's own table (P13); only the primary's routes: another's
+	// is stored dormant, with no grants event and no consumer restarts.
+	dep, dormant, ok := b.routeTarget(w, p, comp)
+	if !ok {
+		return
+	}
+	if err := b.storeInstances(comp, dep, body.Instances); err != nil {
+		writeRegErr(w, err)
+		return
+	}
+	if dormant {
+		writeRouteOK(w, map[string]any{"component": comp, "instances": len(body.Instances)}, true)
 		return
 	}
 	// Requesters bound to this provider get their URLs re-injected.
