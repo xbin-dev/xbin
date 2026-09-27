@@ -10,6 +10,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/sandbox"
+	"github.com/xbin-dev/xbin/internal/sbx"
 	"github.com/xbin-dev/xbin/internal/vm"
 )
 
@@ -26,9 +27,11 @@ const vmHealthTimeout = 60 * time.Second
 
 // vmRes is what a VM generation holds until it exits.
 type vmRes struct {
-	release  func()
-	leafMiB  int
-	stopping bool
+	release       func()
+	leafMiB       int
+	memMiB, vcpus int
+	emulated      bool
+	stopping      bool
 }
 
 type vmState struct {
@@ -55,14 +58,14 @@ func (r *Runner) healthFor(c *registry.Component) time.Duration {
 // workspace policy (sizes clamped to it) and reserves its memory.
 func (r *Runner) vmApply(c *registry.Component, spec *sandbox.Spec, dir, sock, gw string) error {
 	if r.VM == nil {
-		return errors.New(`this tile asks for a VM ("vm" in xbin.json), but VM sandboxes need isolation and KVM`)
+		return sbx.Refuse(errors.New(`this tile asks for a VM ("vm" in xbin.json), but VM sandboxes need isolation and KVM`))
 	}
 	p := r.VM.Policy()
 	if !p.Backends {
-		return errors.New(`this tile asks for a VM ("vm" in xbin.json), but an admin hasn't enabled VM backends (PUT /api/xbin/vm/policy)`)
+		return sbx.Refuse(errors.New(`this tile asks for a VM ("vm" in xbin.json), but an admin hasn't enabled VM backends (PUT /api/xbin/vm/policy)`))
 	}
 	if st := r.VM.Status(); !st.Available {
-		return errors.New("this tile asks for a VM, but VM sandboxes can't run here: " + st.Reason)
+		return sbx.Refuse(errors.New("this tile asks for a VM, but VM sandboxes can't run here: " + st.Reason))
 	}
 	if c.Manifest.Setup != "" {
 		return errors.New(`"vm" can't be combined with "setup" yet — install the dependencies at start inside the VM (it is root), or drop "vm"`)
@@ -74,7 +77,7 @@ func (r *Runner) vmApply(c *registry.Component, spec *sandbox.Spec, dir, sock, g
 	if o := c.Manifest.VM; o.VCPUs > 0 && o.VCPUs < cpus {
 		cpus = o.VCPUs
 	}
-	release, err := r.VM.Reserve(mem)
+	release, err := r.VM.Reserve(c.Path, mem)
 	if err != nil {
 		return err
 	}
@@ -91,7 +94,8 @@ func (r *Runner) vmApply(c *registry.Component, spec *sandbox.Spec, dir, sock, g
 	if r.vms.res == nil {
 		r.vms.res = map[string]vmRes{}
 	}
-	r.vms.res[sock] = vmRes{release: release, leafMiB: mem + r.VM.OverheadMiB()}
+	emulated := spec.VM != nil && spec.VM.QEMU != "" // the VMM Apply chose
+	r.vms.res[sock] = vmRes{release: release, leafMiB: mem + r.VM.OverheadMiB(), memMiB: mem, vcpus: cpus, emulated: emulated}
 	r.vms.mu.Unlock()
 	return nil
 }

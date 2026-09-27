@@ -80,18 +80,7 @@ func FindAssets(bx string) (Assets, error) {
 			a.PVH = p
 		}
 	}
-	var missing []string
-	for _, m := range []struct{ path, what string }{
-		{a.Kernel, "the guest kernel vmlinux (hack/build-vmkernel.sh or XBIN_VM_KERNEL)"},
-		{a.Agent, "xbin-vmagent (make build or XBIN_VM_AGENT)"},
-		{a.Mkfs, "mkfs.erofs (hack/build-mkfs-erofs.sh or XBIN_MKFS_EROFS)"},
-		{a.Bx, "the bx CLI (XBIN_BIN)"},
-	} {
-		if m.path == "" {
-			missing = append(missing, m.what)
-		}
-	}
-	if len(missing) > 0 {
+	if missing := a.missing(); len(missing) > 0 {
 		return a, fmt.Errorf("missing %v", missing)
 	}
 	for _, p := range []string{a.Bx, a.Agent} {
@@ -100,6 +89,23 @@ func FindAssets(bx string) (Assets, error) {
 		}
 	}
 	return a, nil
+}
+
+// missing names the pieces both VMMs need that weren't found, and how to
+// get each.
+func (a Assets) missing() []string {
+	var out []string
+	for _, m := range []struct{ path, what string }{
+		{a.Kernel, "the guest kernel vmlinux (hack/build-vmkernel.sh or XBIN_VM_KERNEL)"},
+		{a.Agent, "xbin-vmagent (make build or XBIN_VM_AGENT)"},
+		{a.Mkfs, "mkfs.erofs (hack/build-mkfs-erofs.sh or XBIN_MKFS_EROFS)"},
+		{a.Bx, "the bx CLI (XBIN_BIN)"},
+	} {
+		if m.path == "" {
+			out = append(out, m.what)
+		}
+	}
+	return out
 }
 
 // kvm says what Firecracker's side lacks ("" = nothing).

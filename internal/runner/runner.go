@@ -35,6 +35,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/sandbox/relay"
+	"github.com/xbin-dev/xbin/internal/sbx"
 	"github.com/xbin-dev/xbin/internal/util"
 	"github.com/xbin-dev/xbin/internal/vm"
 )
@@ -150,6 +151,8 @@ type Runner struct {
 	Cgroup *cgroup.Manager
 	VM     *vm.Manager // "vm" backends (vm.go); nil = none
 	vms    vmState
+	// Sandboxes lists every running generation (sbx.go, D112; nil-safe).
+	Sandboxes *sbx.Registry
 
 	mu     sync.Mutex
 	states map[string]*state
@@ -309,7 +312,10 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state) error {
 		r.Hub.Publish(events.Event{Type: "build-error", Component: c.Path, Text: err.Error()})
 		return err
 	}
-	if err := waitHealthy(inst.sock, r.healthFor(c)); err != nil {
+	if err := waitHealthy(inst.sock, inst.waitCh, r.healthFor(c)); err != nil {
+		if !errors.Is(err, errExited) && r.wantsVM(c) {
+			r.sbxFail(c, sbx.Health, fmt.Errorf("the VM backend never listened: %w", err))
+		}
 		r.stop(inst, 2*time.Second)
 		err = fmt.Errorf("backend did not become healthy: %w", err)
 		r.Hub.Publish(events.Event{Type: "build-error", Component: c.Path, Text: err.Error()})
@@ -440,6 +446,7 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 		cmd, sb, err = r.sandboxCmd(c, bin, dir, sock, env, pol, envLower)
 		if err != nil {
 			r.vmRelease(sock)
+			r.sbxFail(c, sbx.Start, err)
 			return nil, fmt.Errorf("sandbox: %w", err)
 		}
 		cleanup = sb.Cleanup
@@ -474,8 +481,10 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 		logf.Close()
 		cleanup()
 		r.vmRelease(sock)
+		r.sbxFail(c, sbx.Start, err)
 		return nil, fmt.Errorf("start backend: %w", err)
 	}
+	mode, unlist := r.modeOf(c, sock), r.sbxAdd(c, gen, sock, cmd.Process.Pid)
 	r.Auth.RegisterInstance(token, c.Path)
 	if b, ok := r.vmLeafBytes(sock); ok && r.Cgroup != nil {
 		r.Cgroup.AddMem(util.CompKey(c.Path), cmd.Process.Pid, b)
@@ -590,6 +599,8 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 
 	go func() {
 		_ = cmd.Wait()
+		unlist()
+		r.sbxExited(c, mode, cmd.ProcessState, inst.started)
 		if inst.relay != nil {
 			inst.relay.Close()
 		}
@@ -817,17 +828,4 @@ func (r *Runner) reaper() {
 			s.mu.Unlock()
 		}
 	}
-}
-
-func waitHealthy(sock string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("unix", sock, 200*time.Millisecond)
-		if err == nil {
-			conn.Close()
-			return nil
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	return errors.New("timeout dialing backend socket")
 }

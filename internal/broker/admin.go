@@ -90,6 +90,13 @@ func (b *Broker) apiResources(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET /auth-overview — one call powering the admin overview tab.
+// vmIntent is a manifest's "vm" as the admin overview shows it (0 = the
+// workspace policy's size).
+type vmIntent struct {
+	MemMiB int `json:"memMiB,omitempty"`
+	VCPUs  int `json:"vcpus,omitempty"`
+}
+
 func (b *Broker) apiAuthOverview(w http.ResponseWriter, r *http.Request) {
 	if !b.requireAdmin(w, r) {
 		return
@@ -107,12 +114,18 @@ func (b *Broker) apiAuthOverview(w http.ResponseWriter, r *http.Request) {
 		StateAt  string            `json:"stateAt,omitempty"` // when state last changed (RFC3339)
 		Manifest string            `json:"manifestError,omitempty"`
 		Warnings []string          `json:"warnings,omitempty"` // unresolved uses, etc.
+		// VM: the manifest asks for a VM backend ({} = the policy's sizes),
+		// so an idle tile shows how it will run (D112).
+		VM *vmIntent `json:"vm,omitempty"`
 	}
 	comps := []comp{}
 	exposed := 0
 	for _, c := range b.Reg.Components() {
 		ci := comp{Path: c.Path, Runtime: c.Manifest.Runtime, Scope: c.Scope,
 			Uses: c.Manifest.Uses, Manifest: c.ManifestErr, Warnings: b.unresolvedUses(c.Path)}
+		if v := c.Manifest.VM; v.Enabled() {
+			ci.VM = &vmIntent{MemMiB: v.MemMiB, VCPUs: v.VCPUs}
+		}
 		if s := b.Reg.LifecycleState(c.Path); s != registry.StateEnabled {
 			ci.State = s
 			ci.StateAt = ws.LifecycleAt[c.Path]

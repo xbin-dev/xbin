@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/xbin-dev/xbin/internal/sbx"
 )
 
 // Policy is the workspace admin's switch and sizing for VM sandboxes
@@ -71,8 +73,14 @@ func (m *Manager) policyPath() string { return filepath.Join(m.Root, ".xbin", "v
 
 // Policy returns the effective policy (defaults filled).
 func (m *Manager) Policy() Policy {
+	return m.StoredPolicy().withDefaults()
+}
+
+// StoredPolicy is the policy as the admin set it: a zero size means "the
+// default", so an editor that saves it back keeps following the defaults.
+func (m *Manager) StoredPolicy() Policy {
 	if m == nil {
-		return Policy{}.withDefaults()
+		return Policy{}
 	}
 	m.pmu.Lock()
 	defer m.pmu.Unlock()
@@ -82,7 +90,7 @@ func (m *Manager) Policy() Policy {
 		}
 		m.ploaded = true
 	}
-	return m.policy.withDefaults()
+	return m.policy
 }
 
 // SetPolicy stores p (the zero sizes mean "default").
@@ -116,29 +124,61 @@ type Usage struct {
 	MemMiB int `json:"memMiB"`
 }
 
-// Reserve admits one VM of memMiB under the policy's count and budget; the
-// returned release gives it back when the VM ends.
-func (m *Manager) Reserve(memMiB int) (release func(), err error) {
+// Reserve admits one VM of memMiB under the policy's count and budget,
+// charged to owner (the tile it runs for: a backend's component, a
+// session's tile); the returned release gives it back when the VM ends.
+// A refusal is marked sbx.ErrRefused. (Per-tile quotas, for the sandboxes
+// tiles manage themselves, would be checked here against UsedBy.)
+func (m *Manager) Reserve(owner string, memMiB int) (release func(), err error) {
 	p := m.Policy()
 	m.umu.Lock()
 	defer m.umu.Unlock()
 	if m.used.VMs+1 > p.MaxVMs {
-		return nil, fmt.Errorf("the workspace's VM limit (%d running) is reached — close a VM terminal or ask an admin to raise it", p.MaxVMs)
+		return nil, sbx.Refuse(fmt.Errorf("the workspace's VM limit (%d running) is reached — close a VM terminal or ask an admin to raise it", p.MaxVMs))
 	}
 	if m.used.MemMiB+memMiB > p.BudgetMiB {
-		return nil, fmt.Errorf("the workspace's VM memory budget (%d MiB) is spent — close a VM terminal or ask an admin to raise it", p.BudgetMiB)
+		return nil, sbx.Refuse(fmt.Errorf("the workspace's VM memory budget (%d MiB) is spent — close a VM terminal or ask an admin to raise it", p.BudgetMiB))
 	}
 	m.used.VMs++
 	m.used.MemMiB += memMiB
+	if m.byOwner == nil {
+		m.byOwner = map[string]Usage{}
+	}
+	u := m.byOwner[owner]
+	u.VMs++
+	u.MemMiB += memMiB
+	m.byOwner[owner] = u
 	var once sync.Once
 	return func() {
 		once.Do(func() {
 			m.umu.Lock()
 			m.used.VMs--
 			m.used.MemMiB -= memMiB
+			u := m.byOwner[owner]
+			u.VMs--
+			u.MemMiB -= memMiB
+			if u.VMs <= 0 {
+				delete(m.byOwner, owner)
+			} else {
+				m.byOwner[owner] = u
+			}
 			m.umu.Unlock()
 		})
 	}, nil
+}
+
+// UsedBy is what running VMs hold, by the tile they are charged to.
+func (m *Manager) UsedBy() map[string]Usage {
+	out := map[string]Usage{}
+	if m == nil {
+		return out
+	}
+	m.umu.Lock()
+	defer m.umu.Unlock()
+	for k, v := range m.byOwner {
+		out[k] = v
+	}
+	return out
 }
 
 // Used reports what running VMs hold.

@@ -33,6 +33,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/gpu"
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/sandbox/relay"
+	"github.com/xbin-dev/xbin/internal/sbx"
 	"github.com/xbin-dev/xbin/internal/util"
 	"github.com/xbin-dev/xbin/internal/vm"
 )
@@ -154,6 +155,8 @@ type Manager struct {
 
 	// VM runs ?vm=1 sessions as Firecracker microVMs (vm.go); nil = none.
 	VM *vm.Manager
+	// Sandboxes lists every live session (sbx.go, D112; nil-safe).
+	Sandboxes *sbx.Registry
 
 	mu       sync.Mutex
 	sessions map[string]*Session
@@ -253,7 +256,7 @@ func (m *Manager) List() []map[string]any {
 		s.mu.Lock()
 		out = append(out, map[string]any{
 			"id": s.ID, "cwd": s.Cwd, "net": s.Net, "clients": len(s.clients),
-			"user":    s.homeKey,
+			"user": s.homeKey, "kind": s.kind, "vm": s.vm,
 			"created": s.born.UTC().Format(time.RFC3339),
 			"label":   s.Label, "scopes": s.Scopes, "name": s.name,
 		})
@@ -282,6 +285,7 @@ type openOpts struct {
 	rootFiles  map[string][]byte // allow-list view: staged root-file contents (D40)
 	kind       string            // KindShell (default) or KindAgent: the sandbox entry (agent.go)
 	vm         bool              // a VM sandbox (vm.go)
+	launch     *sbxLaunch        // what the setup learnt (sbx.go; set by create/createAgent)
 }
 
 // prepare is the part of opening a session that both kinds share: the cwd,
@@ -346,14 +350,17 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
+	o.launch = &sbxLaunch{}
 	cmd, cleanup, postStart, envKey, _, err := m.shellCmd(dir, rel, homeDir, token, o)
 	if err != nil {
 		revokeTok()
+		m.sbxFail(o, rel, err)
 		return nil, err
 	}
 
 	f, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 120, Rows: 32})
 	if err != nil {
+		m.sbxFail(o, rel, err)
 		cleanup()
 		revokeTok()
 		if envKey != "" {
@@ -365,12 +372,7 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 		return nil, fmt.Errorf("spawn shell: %w", err)
 	}
 	id := util.RandomToken(8)
-	// A VM joins its own leaf before it can touch guest memory (vm.go);
-	// a restricted session's leaf is added below.
-	vmLeaf := o.vm && m.Cgroup != nil && cmd.Process != nil
-	if vmLeaf {
-		m.Cgroup.AddMem("term-"+id, cmd.Process.Pid, m.vmLeafBytes())
-	}
+	leaf := m.startLeaf(o, id, cmd.Process) // sbx.go: a VM's before it touches guest memory
 	// The egress relay can only start once init has created the TUN in its netns
 	// (post-fork), so wire it up after StartWithSize.
 	var rl *relay.Relay
@@ -389,25 +391,21 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 	m.sessions[s.ID] = s
 	m.mu.Unlock()
 	m.changed("open", s)
-
-	// A restricted session's sandbox goes into its own resource-limited cgroup
-	// leaf (D17d) — children (the shell, builds) follow the leader in.
-	limited := o.restricted && m.Cgroup != nil && cmd.Process != nil && !vmLeaf
-	if limited {
-		m.Cgroup.Add("term-"+s.ID, cmd.Process.Pid)
-	}
-	limited = limited || vmLeaf
+	unlist := m.register(s, o, leaf)
 
 	go s.pump(func() {
+		unlist()
+		s.mu.Lock()
+		tail := scrollTail(s.scrollback, 2048)
+		s.mu.Unlock()
+		m.sbxExited(s, o.vm, tail)
 		m.remove(s.ID)
 		m.changed("close", s)
 		revokeTok() // the session's API credential dies with it
 		if envKey != "" {
 			m.releaseEnv(envKey)
 		}
-		if limited {
-			m.Cgroup.Remove("term-" + s.ID)
-		}
+		m.dropLeaf(leaf)
 	})
 	slog.Info("terminal session created", "id", s.ID, "cwd", filepath.ToSlash(rel), "net", o.net, "restricted", o.restricted, "vm", o.vm)
 	return s, nil

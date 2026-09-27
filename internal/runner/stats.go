@@ -31,6 +31,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/sbx"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -69,26 +70,27 @@ type statsRaw struct {
 
 type statsState struct {
 	mu     sync.Mutex
-	series map[string][]StatsPoint
+	series map[string][]StatsPoint // by tile path; sandboxKey(id) for terminals and agents
 	prev   map[string]statsRaw
 	poll   atomic.Int64 // unix nano of the last snapshot request
 	once   sync.Once
 }
 
+// sandboxKey is where a registry sandbox that isn't a backend (a terminal,
+// an agent) keeps its series beside the tiles'.
+func sandboxKey(id string) string { return "sbx:" + id }
+
+func isSandboxKey(k string) bool { return strings.HasPrefix(k, "sbx:") }
+
 // StatsSnapshot returns the current stats for every live tile, starting the
 // sampler on first use. Sorted by path; series oldest-first.
 func (r *Runner) StatsSnapshot() map[string]any {
-	r.stats.poll.Store(time.Now().UnixNano())
-	r.stats.once.Do(func() {
-		r.statsSample() // prime immediately so the first paint has data
-		go r.statsLoop()
-	})
-
+	r.statsWanted()
 	r.stats.mu.Lock()
 	defer r.stats.mu.Unlock()
 	tiles := make([]TileStats, 0, len(r.stats.series))
 	for comp, ser := range r.stats.series {
-		if len(ser) == 0 {
+		if len(ser) == 0 || isSandboxKey(comp) {
 			continue
 		}
 		ts := TileStats{Path: comp, Cur: ser[len(ser)-1]}
@@ -101,6 +103,37 @@ func (r *Runner) StatsSnapshot() map[string]any {
 		"intervalSec": statsInterval.Seconds(),
 		"tiles":       tiles,
 	}
+}
+
+// statsWanted marks the sampler as watched, starting it on first use.
+func (r *Runner) statsWanted() {
+	r.stats.poll.Store(time.Now().UnixNano())
+	r.stats.once.Do(func() {
+		r.statsSample() // prime immediately so the first paint has data
+		go r.statsLoop()
+	})
+}
+
+// SandboxStats is the latest point of every sandbox the sampler follows:
+// terminals and agents by registry id, backends by tile (a tile's
+// generations share its leaf, so blue/green is counted once). Like
+// StatsSnapshot it keeps the sampler running while someone asks.
+func (r *Runner) SandboxStats() (bySandbox, byTile map[string]StatsPoint, cgroup bool) {
+	r.statsWanted()
+	r.stats.mu.Lock()
+	defer r.stats.mu.Unlock()
+	bySandbox, byTile = map[string]StatsPoint{}, map[string]StatsPoint{}
+	for k, ser := range r.stats.series {
+		if len(ser) == 0 {
+			continue
+		}
+		if isSandboxKey(k) {
+			bySandbox[strings.TrimPrefix(k, "sbx:")] = ser[len(ser)-1]
+		} else {
+			byTile[k] = ser[len(ser)-1]
+		}
+	}
+	return bySandbox, byTile, r.Cgroup.Enabled()
 }
 
 func (r *Runner) statsLoop() {
@@ -121,18 +154,42 @@ func (r *Runner) statsSample() {
 	// Which pids belong to which tile? cgroup membership (whole tree, any
 	// uid) when delegated; the backend's /proc descendant tree in dev.
 	targets := map[string][]int{}
+	leaves := map[string]string{} // target → its cgroup leaf ("" = sum /proc)
 	cg := r.Cgroup != nil && r.Cgroup.Enabled()
+	var children map[int][]int // one /proc scan per sample, when needed
+	tree := func(root int) []int {
+		if children == nil {
+			children = procChildren()
+		}
+		return procDescendants(children, root)
+	}
 	if cg {
 		for _, c := range r.Reg.Components() {
 			if pids, ok := r.Cgroup.Procs(util.CompKey(c.Path)); ok && len(pids) > 0 {
-				targets[c.Path] = pids
+				targets[c.Path], leaves[c.Path] = pids, util.CompKey(c.Path)
 			}
 		}
-	} else if roots := r.backendPids(); len(roots) > 0 {
-		// Dev fallback: one /proc scan, then each backend's descendant tree.
-		children := procChildren()
-		for comp, root := range roots {
-			targets[comp] = procDescendants(children, root)
+	} else {
+		// Dev fallback: each backend's descendant tree.
+		for comp, root := range r.backendPids() {
+			targets[comp] = tree(root)
+		}
+	}
+	// Terminals and agents (the registry's other sandboxes): their own leaf
+	// (a VM's, a restricted user's), else their process tree.
+	for _, e := range r.Sandboxes.List(sbx.Filter{}) {
+		if e.Kind == sbx.Backend {
+			continue // counted by their tile above
+		}
+		k := sandboxKey(e.ID)
+		if cg && e.Leaf != "" {
+			if pids, ok := r.Cgroup.Procs(e.Leaf); ok && len(pids) > 0 {
+				targets[k], leaves[k] = pids, e.Leaf
+				continue
+			}
+		}
+		if e.PID > 0 {
+			targets[k] = tree(e.PID)
 		}
 	}
 
@@ -157,8 +214,8 @@ func (r *Runner) statsSample() {
 		// CPU/mem/pids: from the cgroup leaf when available (exact,
 		// uid-agnostic), else summed from the /proc tree.
 		var mem, pidsN int64
-		if cg {
-			if u, ok := r.Cgroup.Usage(util.CompKey(comp)); ok {
+		if leaf := leaves[comp]; leaf != "" {
+			if u, ok := r.Cgroup.Usage(leaf); ok {
 				raw.cpuUsec = u.CPUUsec
 				mem = u.MemCurrent
 				pidsN = u.PidsCurrent

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/sandbox"
+	"github.com/xbin-dev/xbin/internal/sbx"
 	"github.com/xbin-dev/xbin/internal/vm"
 )
 
@@ -70,7 +71,7 @@ func (m *Manager) noVMOnHost(o openOpts) error {
 	if why == "" {
 		why = "VM sandboxes need isolation (xbind --isolate)"
 	}
-	return errors.New(why)
+	return sbx.Refuse(errors.New(why))
 }
 
 // applyVM turns spec into a VM sandbox under the workspace policy and
@@ -78,10 +79,10 @@ func (m *Manager) noVMOnHost(o openOpts) error {
 // ends. disk is the session's persistent disk image ("" = a fresh guest).
 func (m *Manager) applyVM(spec *sandbox.Spec, rel string, o openOpts, disk string) (release func(), err error) {
 	if why := m.vmRefusal(o); why != "" {
-		return nil, errors.New(why)
+		return nil, sbx.Refuse(errors.New(why))
 	}
 	p := m.VM.Policy()
-	release, err = m.VM.Reserve(p.MemMiB)
+	release, err = m.VM.Reserve(rel, p.MemMiB)
 	if err != nil {
 		return nil, err
 	}
@@ -96,6 +97,9 @@ func (m *Manager) applyVM(spec *sandbox.Spec, rel string, o openOpts, disk strin
 	}); err != nil {
 		release()
 		return nil, err
+	}
+	if o.launch != nil { // sbx.go: the registry entry and the leaf's size
+		*o.launch = sbxLaunch{memMiB: p.MemMiB, vcpus: p.VCPUs, emulated: spec.VM != nil && spec.VM.QEMU != "", disk: disk}
 	}
 	return release, nil
 }
@@ -112,11 +116,6 @@ func (m *Manager) vmDisk(layer string) string {
 		return ""
 	}
 	return disk
-}
-
-// vmLeafBytes is a VM session's cgroup leaf cap: guest memory + overhead.
-func (m *Manager) vmLeafBytes() int64 {
-	return int64(m.VM.Policy().MemMiB+m.VM.OverheadMiB()) << 20
 }
 
 // hangupVM ends a VM session gracefully: SIGHUP makes the shim have the

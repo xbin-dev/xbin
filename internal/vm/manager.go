@@ -10,9 +10,11 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/sandbox/vm/proto"
+	"github.com/xbin-dev/xbin/internal/sbx"
 )
 
 // Manager prepares VM sandboxes for one workspace.
@@ -36,6 +38,10 @@ type Manager struct {
 	ploaded bool
 	umu     sync.Mutex
 	used    Usage
+	byOwner map[string]Usage
+
+	prmu sync.Mutex
+	pr   *probe // the last probe, reused for statusTTL
 }
 
 // Status is whether VM sandboxes can start here, and if not, why.
@@ -49,7 +55,8 @@ type Status struct {
 	Note     string `json:"note,omitempty"`
 }
 
-// Status probes KVM and the assets (cheap: an open, an ioctl, a few stats).
+// Status probes KVM and the assets (cheap: an open, an ioctl, a few stats —
+// and reused for a few seconds, so an admin page polling it costs nothing).
 func (m *Manager) Status() Status {
 	if m == nil {
 		return Status{Reason: "VM sandboxes need isolation (--isolate)"}
@@ -58,22 +65,92 @@ func (m *Manager) Status() Status {
 	return st
 }
 
+// statusTTL is how long a probe is reused: short enough that an admin who
+// fixes /dev/kvm's group or drops in Firecracker sees it without a restart.
+var statusTTL = 5 * time.Second
+
+// kvmProbe is kvmUsable (a seam for tests).
+var kvmProbe = kvmUsable
+
+// probe is one look at what VM sandboxes need here.
+type probe struct {
+	at       time.Time
+	assets   Assets
+	status   Status
+	missing  []string // the pieces both VMMs need that aren't here
+	kvm, emu error    // what each VMM lacks (nil = nothing)
+}
+
 // backend decides how a VM runs here: under Firecracker when KVM is usable,
 // else under QEMU's emulation when its pieces are shipped (small cloud VMs
 // rarely offer nested virtualization). XBIN_VM_ACCEL=kvm or =emulate forces
 // one.
 func (m *Manager) backend() (Assets, Status) {
+	p := m.look()
+	return p.assets, p.status
+}
+
+func (m *Manager) look() probe {
+	m.prmu.Lock()
+	defer m.prmu.Unlock()
+	if m.pr != nil && time.Since(m.pr.at) < statusTTL {
+		return *m.pr
+	}
+	p := probe{at: time.Now()}
 	a, err := m.findAssets()
+	p.assets = a
 	if err != nil {
-		return a, Status{Reason: err.Error()}
-	}
-	kvm := func() error {
-		if err := kvmUsable(); err != nil {
-			return err
+		p.status, p.missing = Status{Reason: err.Error()}, a.missing()
+	} else {
+		if p.kvm = kvmProbe(); p.kvm == nil {
+			p.kvm = a.kvm()
 		}
-		return a.kvm()
+		p.emu = a.emulation()
+		p.status = decide(os.Getenv("XBIN_VM_ACCEL"), func() error { return p.kvm }, func() error { return p.emu })
 	}
-	return a, decide(os.Getenv("XBIN_VM_ACCEL"), kvm, a.emulation)
+	m.pr = &p
+	return p
+}
+
+// Health is Status with what an admin needs to act on it: which VMM runs,
+// what each one lacks here, and where the pieces were found.
+type Health struct {
+	Status
+	Accel     string            `json:"accel,omitempty"`     // kvm | emulate, when VMs can start
+	Forced    string            `json:"forced,omitempty"`    // XBIN_VM_ACCEL
+	Assets    map[string]string `json:"assets,omitempty"`    // piece → host path, for those found
+	Missing   []string          `json:"missing,omitempty"`   // pieces both VMMs need
+	KVM       string            `json:"kvm,omitempty"`       // why Firecracker on KVM can't run ("" = it can)
+	Emulation string            `json:"emulation,omitempty"` // why QEMU emulation can't run ("" = it can)
+}
+
+// Health reports the (cached) probe in full.
+func (m *Manager) Health() Health {
+	if m == nil {
+		return Health{Status: m.Status()}
+	}
+	p := m.look()
+	h := Health{Status: p.status, Forced: os.Getenv("XBIN_VM_ACCEL"), Missing: p.missing, Assets: map[string]string{}}
+	if p.status.Available {
+		h.Accel = "kvm"
+		if p.status.Emulated {
+			h.Accel = "emulate"
+		}
+	}
+	if p.kvm != nil {
+		h.KVM = p.kvm.Error()
+	}
+	if p.emu != nil {
+		h.Emulation = p.emu.Error()
+	}
+	a := p.assets
+	for k, v := range map[string]string{"firecracker": a.Firecracker, "qemu": a.QEMU, "vhostVsock": a.VsockDev,
+		"qemuBios": a.BIOS, "qemuPvh": a.PVH, "kernel": a.Kernel, "agent": a.Agent, "mkfsErofs": a.Mkfs, "bx": a.Bx} {
+		if v != "" {
+			h.Assets[k] = v
+		}
+	}
+	return h
 }
 
 // decide picks the VMM from what KVM and emulation lack (nil = nothing).
@@ -163,7 +240,7 @@ var (
 func (m *Manager) Apply(ctx context.Context, spec *sandbox.Spec, o Options) error {
 	a, st := m.backend()
 	if !st.Available {
-		return fmt.Errorf("%w: %s", ErrUnavailable, st.Reason)
+		return sbx.Refuse(fmt.Errorf("%w: %s", ErrUnavailable, st.Reason))
 	}
 	switch {
 	case spec.HostNet:

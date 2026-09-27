@@ -228,3 +228,9 @@ A VM backend can't nest VMs (no nested KVM). Backend-managed sub-sandboxes
 will be host-side siblings that xbind starts through the same `Launch` +
 `vm.Apply` path (D82: tiles never nest). Their memory is carved from the
 parent's budget, and exec into them uses the session-id'd protocol.
+
+The hooks exist since D112: the sandbox registry (`internal/sbx`) lists every
+live sandbox with its owner tile, and has a reserved kind `tile` with a
+`parent` for exactly these; `vm.Manager.Reserve(owner, …)` charges each VM
+to a tile, which per-tile quotas carve from. The design for the API tiles
+will use is plans/tile-sandboxes.md.

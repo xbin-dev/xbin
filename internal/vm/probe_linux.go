@@ -4,6 +4,8 @@ package vm
 
 import (
 	"fmt"
+	"os"
+	"syscall"
 
 	"golang.org/x/sys/unix"
 )
@@ -30,4 +32,12 @@ func kvmUsable() error {
 		return fmt.Errorf("/dev/kvm: unexpected KVM API version %d", v)
 	}
 	return nil
+}
+
+// allocated is what a file takes on disk (a sparse file: less than its size).
+func allocated(fi os.FileInfo) int64 {
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+		return st.Blocks * 512
+	}
+	return fi.Size()
 }

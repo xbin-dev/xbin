@@ -3350,3 +3350,39 @@ Deviations and refinements made while implementing; all deliberate:
     layout sandboxes bind from.
   - Flipping xbind's own default: that would change every non-installer
     deployment's security surface without an admin in the loop.
+
+- **D112 — A sandbox registry: one live list of every sandbox xbind runs,
+  VM reservations charged to a tile, and a bounded ring of what the sandbox
+  layer refused or failed at (2026-09-27).** `internal/sbx`;
+  docs/protocol.md §xbind API (`/runtime`, `/sandboxes`); docs/isolation.md
+  §VM sandboxes.
+  - **Why.** VM state was spread over a two-number budget counter, a runner
+    map keyed by socket, a `vm bool` per terminal session and an id-less
+    sandbox handle: nobody could say which sandboxes run, whose they are,
+    how they're isolated or what they are charged against — neither an
+    admin nor the tile-managed sandboxes coming next
+    (plans/tile-sandboxes.md).
+  - **Chosen.** An in-memory registry rebuilt from lifecycle edges: whoever
+    starts a sandbox adds the entry, and removes it when the process ends.
+    Backends are listed per generation (blue/green shows two, sharing one
+    cgroup leaf — stats count the leaf once); terminals and agents by
+    session id (an agent restart unlists before it relists). Entries carry
+    kind, owner tile, user, mode (vm | namespace | host), accel (kvm |
+    emulate, from the VMM Apply chose), reserved memory/vCPUs, pid, cgroup
+    leaf, disk, net — and `parent`, reserved with kind `tile` for sandboxes
+    a tile manages. `vm.Manager.Reserve(owner, mem)` keeps the global limits
+    and messages unchanged and books each VM to its tile (`UsedBy`). The
+    failure ring (64, identical failures coalesced within 10 min) records
+    what the sandbox layer decided or failed at: refusals (policy, budget,
+    availability — `sbx.Refuse`), setup/spawn errors, the VM shim's exit
+    125 and the init's 127 at start, a VM backend that never listened. A
+    backend's own crashes and build errors are not the sandbox's: they stay
+    in its state and log. The VM probe is cached 5 s (an admin page polls
+    it). The failed cgroup alert wiring found on the way is fixed.
+  - **Not chosen:** deriving the list from the cgroup tree (admin terminals,
+    dev and host mode have no leaf); joining runner state and sessions in
+    the handler (no single place to attribute a VM, and tile sandboxes would
+    be a third join); registering confine's tool sandboxes (per-call churn;
+    their failures surface where they run); a push event stream (the admin
+    tab polls like the runtime tab); persisting failures across restarts.
+

@@ -28,6 +28,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/runner"
 	"github.com/xbin-dev/xbin/internal/sandbox"
+	"github.com/xbin-dev/xbin/internal/sbx"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/term"
 	"github.com/xbin-dev/xbin/internal/users"
@@ -55,6 +56,7 @@ type State struct {
 	Proxy   *proxy.Proxy
 	Server  *server.Server
 	VM      *vm.Manager   // VM sandboxes (vm.go); nil without isolation
+	Sbx     *sbx.Registry // every live sandbox and what the sandbox layer failed at (D112)
 	Push    *push.Service // the push plane (push.go)
 	Started time.Time
 
@@ -99,11 +101,11 @@ var Steps = []Step{
 	{"terminals", (*State).stepTerminals},
 	{"assets", (*State).stepAssets},
 	{"broker", (*State).stepBroker},
-	{"limit-alerts", (*State).stepLimitAlerts},
 	{"vault", (*State).stepVault},
 	{"proxy", (*State).stepProxy},
 	{"ingress", (*State).stepIngress},
 	{"cgroup", (*State).stepCgroup},
+	{"limit-alerts", (*State).stepLimitAlerts},
 	{"isolation", (*State).stepIsolation},
 	{"vm", (*State).stepVM},
 	{"server", (*State).stepServer},
@@ -238,6 +240,8 @@ func (st *State) stepRegistry() error {
 	st.Reg = reg
 	st.Hub = events.NewHub()
 	st.Run = runner.New(st.WS, st.Auth, st.Hub, reg)
+	st.Sbx = sbx.New()
+	st.Run.Sandboxes = st.Sbx
 	// Materialize deps/ symlinks and the generated go.work (phase 3).
 	for _, p := range deps.Reconcile(reg) {
 		slog.Warn("deps", "problem", p)
@@ -321,6 +325,7 @@ func (st *State) stepTerminals() error {
 		return readable, files
 	}
 	st.Term = tm
+	tm.Sandboxes = st.Sbx
 	return nil
 }
 
@@ -420,13 +425,17 @@ func (st *State) stepBroker() error {
 
 // Fold cgroup at-limit events into the workspace alerts: a tile that keeps
 // hitting its memory or pids cap surfaces in the admin console / shell.
-// Delta-tracked so a one-off blip clears once the tile settles.
+// Delta-tracked so a one-off blip clears once the tile settles. It runs after
+// the cgroup step (before, run.Cgroup was always nil and nothing was ever
+// installed). Sessions with a leaf of their own — a VM's, a restricted
+// user's — are watched too.
 func (st *State) stepLimitAlerts() error {
 	run, reg, brk := st.Run, st.Reg, st.Broker
 	if run.Cgroup != nil && run.Cgroup.Enabled() {
 		lastMem, lastPids := map[string]int64{}, map[string]int64{}
+		sessMem, sessPids := map[string]int64{}, map[string]int64{}
 		brk.SetLimitAlerts(func() []broker.Alert {
-			var out []broker.Alert
+			out := sessionLimitAlerts(run.Cgroup, st.Sbx, sessMem, sessPids)
 			for _, c := range reg.Components() {
 				key := util.CompKey(c.Path)
 				mem, pids, ok := run.Cgroup.AtLimit(key)

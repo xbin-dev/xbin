@@ -423,7 +423,8 @@ failures carry compiler output in `detail`).
 ### xbind API (`/api/xbin/…`)
 
 ```
-GET    /status                     admin. terminals, component count, host
+GET    /status                     admin. terminals ({id,cwd,net,kind,vm,user,
+                                   …}), component count, host
                                    {cpuBusy,cpuTotal,memTotal,memAvail,
                                    diskTotal,diskFree}, traffic
                                    {reqs,bytesOut,uptimeSec} (cumulative —
@@ -434,7 +435,8 @@ GET    /runtime                    admin. full runtime visibility →
                                    {host:{version,kernel,pid,uid,numCPU,goroutines,
                                    heapMB,uptimeSec,isolate,rootfs,scopeUids,
                                    protections:{seccomp,landlock,landlockAbi}},
-                                   backends:[{path,runtime,state,isolated,pid,gen,
+                                   backends:[{path,runtime,state,isolated,
+                                   sandbox,vm?:{memMiB,vcpus,emulated?},pid,gen,
                                    uptimeSec,restarts,activeConns,rssKb,threads,fds,
                                    cpuSec,namespaces:{<ns>:{id,isolated}},egress:[…],
                                    netRef?,net?,netSource?,netNote?,
@@ -459,7 +461,15 @@ GET    /runtime                    admin. full runtime visibility →
                                    effective mode host|relay|splice|none,
                                    netSource = "org:<id> (<sets>)" for org
                                    reach, netNote = why a stored binding is
-                                   inert (D54)
+                                   inert (D54). sandbox = how the backend is
+                                   isolated, vm | namespace | host (a running
+                                   generation's, else how it would start;
+                                   D112); vm = a VM generation's guest size
+                                   and whether it is emulated. For a VM
+                                   backend pid, namespaces, rssKb, threads and
+                                   fds describe its host-side jail (the shim,
+                                   whose child VMM holds guest memory) — read
+                                   cgroup for what the VM uses
 GET    /gpus                       admin. host NVIDIA GPUs for gpu:* grants and
                                    the terminal picker → {gpus:[{index,uuid,
                                    name,node}]}
@@ -488,7 +498,7 @@ PUT    /vm/policy                  admin. body {terminals,backends,memMiB,vcpus,
                                    generations; running ones keep going. 400
                                    on out-of-range sizes, 409 without --isolate
 GET    /tile-status?component=<p>  self or admin. one tile's runtime metrics —
-                                   backend {state,gen,cpuSec,cgroup:{mem,pids},
+                                   backend {state,gen,sandbox,vm?,cpuSec,cgroup:{mem,pids},
                                    rssKb,fds,activeConns,egress}, disk {usage,
                                    quota,blocked}, alerts[], net {netRef, net,
                                    netRules, netSource, netNote} (the effective
@@ -519,8 +529,10 @@ GET    /logs?component=<p>         admin, the tile itself, or a user with
                                    appended bytes (chunked) until the client
                                    goes away. The HTTP twin of `bx logs [-f]`;
                                    the terminal window's read-only logs tab.
-GET    /auth-overview              admin. components(+roles/uses/vault), grants,
-                                   pending, counts — powers the admin console
+GET    /auth-overview              admin. components(+roles/uses/vault, vm?:
+                                   {memMiB?,vcpus?} when the manifest asks for
+                                   a VM), grants, pending, counts — powers the
+                                   admin console
 GET    /vaults                     admin. [{component, keys}] across all vaults
 GET    /resources                  admin. declared resources [{id,scope,name,type}]
 GET    /components                 any. [{path, scope, runtime, hasIndex,

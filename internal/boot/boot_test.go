@@ -61,6 +61,8 @@ func TestStepsOrder(t *testing.T) {
 		{"proxy", "ingress"},
 		{"ingress", "server"},
 		{"server", "watch"},
+		{"cgroup", "limit-alerts"}, // the alerts read run.Cgroup, which the cgroup step sets
+		{"broker", "limit-alerts"},
 	} {
 		if idx(e[0]) >= idx(e[1]) {
 			t.Errorf("step %q must run before %q", e[0], e[1])

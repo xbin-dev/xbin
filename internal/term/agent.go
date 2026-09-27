@@ -244,9 +244,11 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	if err != nil {
 		return nil, err
 	}
+	o.launch = &sbxLaunch{}
 	cmd, cleanup, postStart, envKey, env, err := m.shellCmd(dir, rel, homeDir, token, o)
 	if err != nil {
 		revokeTok()
+		m.sbxFail(o, rel, err)
 		return nil, err
 	}
 	// A prompt's files (agent/host/attach.go): in a sandbox they go to its
@@ -285,13 +287,11 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		return fail(err)
 	}
 	if err := cmd.Start(); err != nil {
+		m.sbxFail(o, rel, err)
 		return fail(fmt.Errorf("spawn agent host: %w", err))
 	}
 	id := util.RandomToken(8)
-	vmLeaf := o.vm && m.Cgroup != nil && cmd.Process != nil // before the guest touches memory
-	if vmLeaf {
-		m.Cgroup.AddMem("term-"+id, cmd.Process.Pid, m.vmLeafBytes())
-	}
+	leaf := m.startLeaf(o, id, cmd.Process) // sbx.go: a VM's before the guest touches memory
 	var rl *relay.Relay
 	if postStart != nil {
 		rl = postStart()
@@ -313,11 +313,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	m.sessions[s.ID] = s
 	m.mu.Unlock()
 	m.changed("open", s)
-	limited := o.restricted && m.Cgroup != nil && cmd.Process != nil && !vmLeaf
-	if limited {
-		m.Cgroup.Add("term-"+s.ID, cmd.Process.Pid)
-	}
-	limited = limited || vmLeaf
+	unlist := m.register(s, o, leaf)
 
 	// The agent's env: the sandbox env (with the per-user $HOME the CLI reads
 	// its login from) plus the provider's own non-secret knobs. No API keys —
@@ -336,15 +332,18 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	cfg := agent.Config{Provider: prov, Mode: mode, Options: options, ResumeID: resumeID, Cwd: dir, Env: agentEnv, Argv: prov.Argv, Spawn: spawn,
 		Perms: st.perms, Version: Version, Log: st.logf, Meta: map[string]string{"tile": rel}}
 	go s.agentPump(m, func() {
+		unlist()
+		st.mu.Lock()
+		tail := string(st.text)
+		st.mu.Unlock()
+		m.sbxExited(s, o.vm, tail)
 		m.remove(s.ID)
 		m.changed("close", s)
 		revokeTok()
 		if envKey != "" {
 			m.releaseEnv(envKey)
 		}
-		if limited {
-			m.Cgroup.Remove("term-" + s.ID)
-		}
+		m.dropLeaf(leaf)
 	})
 	go func() {
 		err := drv.Start(context.Background(), cfg)

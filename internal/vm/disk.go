@@ -36,3 +36,27 @@ func (m *Manager) EnsureDisk(layer string) (string, error) {
 	}
 	return p, nil
 }
+
+// Disk is one VM terminal disk image on the host.
+type Disk struct {
+	Key            string `json:"key"` // the tile's layer key (util.CompKey)
+	Path           string `json:"path"`
+	ApparentBytes  int64  `json:"apparentBytes"`  // its size to the guest
+	AllocatedBytes int64  `json:"allocatedBytes"` // what it takes on the host (sparse)
+}
+
+// ListDisks finds the VM disk images under root's terminal layers. It only
+// stats them (never follows a symlink, never reads what the guest wrote).
+func ListDisks(root string) []Disk {
+	paths, _ := filepath.Glob(filepath.Join(root, ".xbin", "term", "*", "vm", "disk.img"))
+	out := []Disk{}
+	for _, p := range paths {
+		fi, err := os.Lstat(p)
+		if err != nil || !fi.Mode().IsRegular() {
+			continue
+		}
+		key := filepath.Base(filepath.Dir(filepath.Dir(p)))
+		out = append(out, Disk{Key: key, Path: p, ApparentBytes: fi.Size(), AllocatedBytes: allocated(fi)})
+	}
+	return out
+}

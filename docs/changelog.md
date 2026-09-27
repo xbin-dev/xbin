@@ -12,6 +12,20 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-27
 
+- **Sandboxes you can see: VM or namespace per backend, terminal kinds, a
+  faster failed VM boot** (D112, [isolation.md](isolation.md) §VM
+  sandboxes). `GET /api/xbin/runtime` backends say how each is isolated —
+  `sandbox: vm | namespace | host` (a running generation's, else how it
+  would start) — and a VM generation its size (`vm: {memMiB, vcpus,
+  emulated}`); for a VM, `pid`/`namespaces`/`rssKb` are its host-side jail's
+  and `cgroup` covers the guest. `/tile-status` carries the same.
+  `/auth-overview` components carry the manifest's `vm` ask, `/status`
+  terminals their `kind` and `vm`. A backend that exits before it listens
+  (a VM that dies at boot) now fails at once instead of after the 60 s
+  (emulated: 180 s) health timeout. The cgroup memory/pids alerts
+  (`GET /alerts` kinds `oom`/`pids`) now actually fire — they were never
+  installed — and cover VM and restricted-user terminals too.
+
 - **xbin app: web tiles laid out for the phone** ([native.md](native.md)
   §Fallback). A tile page without a `<meta name="viewport">` — nearly every
   tile, since a frame ignores one — was laid out 980 px wide and shrunk to

@@ -24,10 +24,16 @@ type NS struct {
 
 // Backend is the full runtime picture of one component's backend.
 type Backend struct {
-	Path        string        `json:"path"`
-	Runtime     string        `json:"runtime"`
-	State       string        `json:"state"`
-	Isolated    bool          `json:"isolated"`
+	Path     string `json:"path"`
+	Runtime  string `json:"runtime"`
+	State    string `json:"state"`
+	Isolated bool   `json:"isolated"`
+	// Sandbox is how it is isolated — "vm", "namespace" or "host": a running
+	// generation's, else how it would start. For a VM, PID, Namespaces, RSS,
+	// Threads and FDs describe its host-side jail (the shim, whose child VMM
+	// holds the guest's memory); Cgroup covers both.
+	Sandbox     string        `json:"sandbox"`
+	VM          *BackendVM    `json:"vm,omitempty"`
 	PID         int           `json:"pid,omitempty"`
 	Gen         int           `json:"gen"`
 	Restarts    int           `json:"restarts"`
@@ -70,9 +76,11 @@ func (r *Runner) Inspect() []Backend {
 			Path: s.comp, State: stateName(s), Gen: s.gen, Restarts: len(s.crashes),
 			ActiveConns: s.active,
 		}
-		if c, ok := r.Reg.Component(s.comp); ok {
+		c, known := r.Reg.Component(s.comp)
+		if known {
 			b.Runtime = c.Manifest.Runtime
 			b.Isolated = r.Isolate && sandboxable(c.Manifest.Runtime)
+			b.Sandbox = string(r.intendedMode(c))
 		}
 		if s.lastErr != nil {
 			b.Error = s.lastErr.Error()
@@ -86,6 +94,12 @@ func (r *Runner) Inspect() []Backend {
 		s.mu.Unlock()
 
 		if inst != nil {
+			if known {
+				b.Sandbox = string(r.modeOf(c, inst.sock))
+			}
+			if v, ok := r.vmInfo(inst.sock); ok {
+				b.VM = &v
+			}
 			b.UptimeSec = int64(time.Since(inst.started).Seconds())
 			b.Egress = inst.egress
 			if inst.relay != nil {
