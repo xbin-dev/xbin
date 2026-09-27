@@ -6,6 +6,7 @@ package boot
 // the sessions with a cgroup leaf of their own.
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -223,8 +224,20 @@ func sessionLimitAlerts(cg *cgroup.Manager, reg *sbx.Registry, lastMem, lastPids
 	return out
 }
 
-// sessionWhat names a session for an alert: "a VM terminal of alice on apps/x".
+// sessionWhat names a session for an alert: "a VM terminal of alice on apps/x",
+// or a tile's own sandbox: `the tile sandbox "build" of apps/x`.
 func sessionWhat(e sbx.Entry) string {
+	if e.Kind == sbx.Tile {
+		s := "the tile sandbox"
+		if e.Mode == sbx.VM {
+			s = "the VM tile sandbox"
+		}
+		// its registry id is tile:<CK>:<name> (tile+<d>:… off main)
+		if i := strings.LastIndexByte(e.ID, ':'); i >= 0 && i+1 < len(e.ID) {
+			s += fmt.Sprintf(" %q", e.ID[i+1:])
+		}
+		return s + " of " + e.Tile
+	}
 	kind := "terminal"
 	if e.Kind == sbx.Agent {
 		kind = "agent session"
@@ -233,6 +246,9 @@ func sessionWhat(e sbx.Entry) string {
 		kind = "VM " + kind
 	}
 	s := "a " + kind
+	if strings.HasPrefix(kind, "agent") {
+		s = "an " + kind
+	}
 	if e.User != "" {
 		s += " of " + e.User
 	}

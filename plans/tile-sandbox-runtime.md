@@ -1487,6 +1487,57 @@ next to its vforking `os.StartProcess`.
     char whiteout and a 0600 file, and `rm -rf` it. This box is single-uid;
     range mode is verified on the QA box.
 - **Parallel:** fully. Rebase with dl/confine-dirfrom.
+- **Landed (branch `p2/cg-backup`) — notes and deviations:**
+  - **`cgroup`** (new `leaf_linux.go`): `AddWith(name, pid, Limits) (leaf
+    string, err error)` returns the registry's `Leaf` (`""` without
+    delegation, no error). `Limits` gains `CPUMax` (µs per 100 ms period,
+    so `vcpus × 100000`) and `MemHigh` (0 = ⅞ of `MemMax`, <0 = none, the
+    VM row). A leaf of the same name is `rmdir`'d first — EBUSY while an
+    orphan populates it fails the start, and a fresh leaf means no stale
+    limits carry over. `Kill` writes `cgroup.kill`, else SIGKILLs every
+    listed pid each round, and **waits** (≤ 5 s) until `populated 0`, so a
+    stop's `Remove` follows directly. `Populated(name) bool`.
+    `Sweep(prefix) ([]string, error)` refuses an empty prefix. Names are
+    one path segment. `AddMem` is now `MemHigh: -1` (same writes).
+  - **Real cgroupfs** (`leaf_integration_test.go`, `linux && integration`):
+    a populated leaf's rmdir is EBUSY, `cgroup.kill` empties a tree, and
+    an unreaped zombie doesn't hold `populated`. It needs a delegated
+    cgroup holding only the test binary, so it isn't in `make
+    integration` (the `go` tool shares its cgroup and it would skip): build
+    with `go test -c` and run under `systemd-run --user --scope -p
+    Delegate=yes` (recipe in the file).
+  - **`sandbox.Spec.FileCaps`** (with `Unprivileged`; wins over `NetAdmin`
+    and `Containers`) in `filecaps_linux.go`: the six caps, the VM jail's
+    block-list (`vmDeny`: backend minus `mknodat`), and nested user
+    namespaces pinned to zero like the VM jail (`setUserNSLimits`).
+  - **`confine`**: `Cmd.FSCaps`, plus the helpers the §8.3 bullets need, in
+    `tree.go`: `DiskUsage(ctx, dir)` (`du -skx`, allocated bytes),
+    `RemoveAll(ctx, dir)` (a confined `find dir -xdev -mindepth 1 -delete`,
+    then xbind `rmdir`s the empty dir — a bind's root can't be removed from
+    inside) and `CopyTree(ctx, src, dst)` (`cp -a --reflink=auto -- src/.
+    dst/`, src bound read-only; plain `-a` in a direct run). Paths are
+    absolute, clean, not `/`, and xbind-created in every component (the
+    bind follows a link there; dl/confine-dirfrom's fd binds can tighten
+    this).
+  - **The integration test** (`confine/tree_linux_test.go`) copies,
+    measures and removes a whiteout, a 0600 and a 0000 file and a sealed
+    dir, plus — where the host delegates a sub-uid range, as this box now
+    does — a 0700 dir and 0600 file `chown`ed to sub-uid 1000, which xbind
+    itself can't read; the copy keeps that owner. The capability-less
+    profile fails the same `cp -a` (the whiteout's `mknodat`, the locked
+    modes) and `find -delete`; `mount`, `mknod c 1 3` and `unshare -U`
+    still fail under the file caps.
+  - **Found, not fixed:** this box has a sub-uid range now, and
+    `internal/sandbox`'s own integration tests `TestSandboxIsolation`
+    (hangs) and `TestSandboxServesUnixSocket` (fails) never call
+    `SetupUserns`, so a range-mode init waits for its maps. Same on the
+    parent commit; the package isn't in `make integration`.
+  - **`sessionWhat`** names `the tile sandbox "<name>" of <tile>` from the
+    registry id (`Entry.Name` is WP-15a's); also fixes "a agent session".
+  - **Not done here:** the term layer's existing `os.RemoveAll` calls
+    (WP-9's restore swap, `ResetEnv`, offload-full) still run as xbind;
+    `confine.RemoveAll` can take them over. No docs or changelog: nothing
+    builder-visible uses the profile until WP-15b/WP-20.
 
 ### WP-9 — Backup and restore never follow planted symlinks (Track B · M) — *an existing D78 gap*
 
@@ -1514,6 +1565,46 @@ next to its vforking `os.StartProcess`.
   code; the first test proves or disproves it.
 - **Parallel:** fully. Conflicts with dev-lifecycle's `backup.go` edits;
   whichever lands second rebases.
+- **Landed (branch `p2/cg-backup`) — notes and deviations:**
+  - **Proved.** Written first, against the old code: `restore` wrote
+    through a symlinked dir planted in `source/`, `term/upper` and a
+    resource mount (all three wrote outside the tree), and `Tree` read a
+    file, and a directory's file, swapped for a symlink between the listing
+    and the open (`TestTreeNeverFollowsASwappedSymlink`, racing inside the
+    `skip` callback). A symlink *at a file's path* was already replaced
+    (`Remove` then `Create`), barring a race between the two.
+  - **`Tree`** lists each directory from its fd and opens every entry with
+    `openat(O_NOFOLLOW)` relative to it (a swapped entry is skipped); only
+    the walk's top goes through `fsutil.OpenIn`. **`TreeIn(prefix, root,
+    sub)`** is new: the tile's source dir is reached without symlinks (a
+    nested tile lives in its parent's writable tree), and a link there fails
+    the backup. `TestTreeBytesUnchanged` pins the bytes against the old
+    `WalkDir` walk.
+  - **Restore** writes through `os.Root`, but **replaces** a symlink met on
+    the way (a dir's or a file's path) instead of following it in-tree as a
+    bare `os.Root` would; `os.Root` still bounds a link swapped in
+    mid-restore. The tile's dir is made and opened without symlinks — new
+    `fsutil.MkdirAllIn` / `fsutil.OpenRootIn`.
+  - **The term staging dir is `.xbin/restore/<CK>-*`**, not under
+    `.xbin/term/` (every dir there is read as a layer by `CheckBaseImages`,
+    `pinnedBases`, `vm.ListDisks`). The swap runs under the new
+    `Broker.HoldTermEnv` → `term.Manager.HoldEnv` (kill the sessions, wait,
+    hold the layer; a hold that times out fails the restore and leaves the
+    layer alone), keeps the old layer's `vm/`, ignores `term/vm/…` entries,
+    and removes the old layer with `os.RemoveAll` (never follows; WP-8's
+    confined remove can take it over for sub-uid-owned uppers). Leftovers
+    older than a day are swept on the next term restore. The layer is now
+    **replaced**, not merged.
+  - **Extra, cheap hardening:** the manifest's `Component` must equal the
+    component being restored (it named the host path to write); resource
+    data only for a scope-root archive (`Scope == Component`); resource
+    names are one path segment; offload-full's `removeSourceBulk` clears
+    through `OpenRootIn` (a symlinked tile dir used to aim `RemoveAll` at the
+    link's target).
+  - **Files, for the size budget:** the restore half of
+    `internal/broker/backup.go` moved to `internal/broker/restore.go`, and
+    `HoldEnv` lives in `internal/term/holdenv.go` (dev-lifecycle's
+    `backup.go` edits rebase onto the split).
 
 ### WP-10 — Relay hardening (Track C · S)
 

@@ -15,6 +15,8 @@ type Limits struct {
 	MemMax    int64
 	PidsMax   int64
 	CPUWeight int64
+	MemHigh   int64
+	CPUMax    int64
 }
 
 // Manager is a no-op off Linux.
@@ -29,3 +31,8 @@ func (m *Manager) Usage(string) (Usage, bool)          { return Usage{}, false }
 func (m *Manager) AtLimit(string) (int64, int64, bool) { return 0, 0, false }
 func (m *Manager) Procs(string) ([]int, bool)          { return nil, false }
 func (m *Manager) Remove(string)                       {}
+
+func (m *Manager) AddWith(string, int, Limits) (string, error) { return "", nil }
+func (m *Manager) Kill(string) error                           { return nil }
+func (m *Manager) Populated(string) bool                       { return false }
+func (m *Manager) Sweep(string) ([]string, error)              { return nil, nil }

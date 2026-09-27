@@ -23,6 +23,10 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
+	"syscall"
+
+	"github.com/xbin-dev/xbin/internal/fsutil"
 )
 
 // Schema is bumped when the layout changes incompatibly.
@@ -100,45 +104,91 @@ func (w *Writer) Stream(name string, mode, size int64, r io.Reader) error {
 
 // Tree walks an on-disk directory and writes its regular files under prefix.
 // skip(rel) drops a relative path (and, for a dir, its subtree). Missing dir is
-// not an error (nothing to add).
+// not an error (nothing to add). osDir itself is trusted (it may be reached
+// through symlinks); see TreeIn for one that is not.
+//
+// What the walk meets below osDir was typically written by a sandbox, and
+// xbind reads it: nothing is followed. Each directory is listed and each
+// entry opened relative to its parent's fd with O_NOFOLLOW, so a symlink —
+// even one swapped in for a file or a directory the walk already listed — is
+// skipped, never read through. Symlinks, sockets and FIFOs are skipped as
+// they always were; the order (lexical, depth-first) and the bytes are what
+// a filepath.WalkDir walk wrote.
 func (w *Writer) Tree(prefix, osDir string, skip func(rel string) bool) error {
-	info, err := os.Stat(osDir)
-	if err != nil || !info.IsDir() {
+	return w.TreeIn(prefix, osDir, "", skip)
+}
+
+// TreeIn is Tree(root/sub) for a sub-directory that is itself untrusted — a
+// tile's source dir, which may sit in another tile's writable tree: sub must
+// be reached from root without any symlink (fsutil.OpenIn), else the walk
+// fails with fsutil.ErrEscapes rather than archive wherever the link points.
+func (w *Writer) TreeIn(prefix, root, sub string, skip func(rel string) bool) error {
+	d, err := fsutil.OpenIn(root, sub, "")
+	switch {
+	case errors.Is(err, fs.ErrNotExist), errors.Is(err, syscall.ENOTDIR), errors.Is(err, fsutil.ErrNotRegular):
+		return nil // nothing to add
+	case err != nil:
+		return err
+	}
+	defer d.Close()
+	if fi, err := d.Stat(); err != nil {
+		return err
+	} else if !fi.IsDir() {
 		return nil
 	}
-	return filepath.WalkDir(osDir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, _ := filepath.Rel(osDir, p)
-		rel = filepath.ToSlash(rel)
-		if rel == "." {
-			return nil
-		}
-		if skip != nil && skip(rel) {
-			if d.IsDir() {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		if d.IsDir() {
-			return nil // directories are implied by their files
-		}
-		if !d.Type().IsRegular() {
-			return nil // skip symlinks/sockets — restore recreates them (env) or ignores
-		}
-		f, err := os.Open(p)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		fi, err := f.Stat()
-		if err != nil {
-			return err
-		}
-		return w.Stream(prefix+rel, int64(fi.Mode().Perm()), fi.Size(), f)
-	})
+	return w.walk(prefix, "", d, skip)
 }
+
+// walk writes dir's subtree (rel is its path below the walk's root).
+func (w *Writer) walk(prefix, rel string, dir *os.File, skip func(string) bool) error {
+	ents, err := dir.ReadDir(-1)
+	if err != nil {
+		return err
+	}
+	sort.Slice(ents, func(i, j int) bool { return ents[i].Name() < ents[j].Name() })
+	for _, e := range ents {
+		r := e.Name()
+		if rel != "" {
+			r = rel + "/" + r
+		}
+		if skip != nil && skip(r) {
+			continue // a skipped directory drops its whole subtree
+		}
+		t := e.Type()
+		if !t.IsDir() && !t.IsRegular() {
+			continue // skip symlinks/sockets — restore recreates them (env) or ignores
+		}
+		f, err := openNoFollow(dir, e.Name(), t.IsDir())
+		if errors.Is(err, errGone) {
+			continue // swapped (for a link, a file, nothing) since the listing
+		}
+		if err != nil {
+			return err
+		}
+		if t.IsDir() {
+			err = w.walk(prefix, r, f, skip)
+		} else {
+			err = w.streamFile(prefix+r, f)
+		}
+		f.Close()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (w *Writer) streamFile(name string, f *os.File) error {
+	fi, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	return w.Stream(name, int64(fi.Mode().Perm()), fi.Size(), f)
+}
+
+// errGone marks an entry that is no longer what the listing said: a symlink,
+// something else, or nothing at all. The walk skips it.
+var errGone = errors.New("entry changed since the listing")
 
 func (w *Writer) Close() error { return w.tw.Close() }
 

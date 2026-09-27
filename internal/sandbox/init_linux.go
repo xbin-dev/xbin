@@ -293,7 +293,14 @@ func runInit(specPath string) error {
 	// network-admin caps it needs to build its dataplane — everything else is
 	// still dropped and the same seccomp block-list still applies.
 	if s.Unprivileged {
-		if s.Containers {
+		if s.FileCaps {
+			// xbind's confined file tools on sandbox-written trees
+			// (filecaps_linux.go): the file caps, nothing else.
+			if err := fileCapsLockdown(); err != nil {
+				return must(err, "file-caps lockdown")
+			}
+			dbg(s.Debug, "file-caps profile (file caps kept, backend seccomp minus mknodat)")
+		} else if s.Containers {
 			// Container-host tile (cap:containers): keep the userns caps rootless
 			// podman needs for nested namespaces + mounts, and install only the
 			// minimal seccomp floor (host-damaging syscalls). The mount family,

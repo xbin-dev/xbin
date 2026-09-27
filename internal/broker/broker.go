@@ -105,6 +105,11 @@ type Broker struct {
 	// WakeBackends, if set, starts the always-on backends that can run now
 	// (after an unseal or an enable; runner.WakeAlwaysOn).
 	WakeBackends func()
+	// HoldTermEnv, if set, takes a component's persistent terminal layer out
+	// of use — its sessions killed, the layer held so none mounts it — until
+	// release; a restore swaps a rebuilt layer in meanwhile. Wired to
+	// term.Manager.HoldEnv by boot.
+	HoldTermEnv func(component string) (release func(), err error)
 
 	// ProxyHandler is the element proxy, used to call an archiver tile's API
 	// internally (as the owner) for backup/restore (plans/lifecycle.md). Set by

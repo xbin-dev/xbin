@@ -98,6 +98,13 @@ A component that *doesn't* root a scope backs up source + terminal layer
 only; its data belongs to the scope root's backup (the manifest records
 which ancestor scope that is).
 
+The trees a backup reads were written by sandboxes, so xbind reads them
+without following anything: symlinks, sockets and FIFOs are left out (as
+they always were), and a file or directory swapped for a symlink while the
+backup runs is left out too, never read through. A tile whose own directory
+has turned into a symlink (a nested tile its parent replaced) fails the
+backup instead of archiving wherever the link points.
+
 Two honesty notes. **Backups are plaintext tars**: xbind reads resources
 through the decrypted view and re-encrypts on restore, so backing up (and
 restoring) **requires the vault to be unsealed** when encrypted resources
@@ -160,12 +167,21 @@ immediately.
 fully **archive-driven**: the tar's manifest says where everything goes.
 
 - **Whole version** (version defaults to `latest`): stop the backend, unpack
-  — source and terminal layer into place, file resources through freshly
-  mounted encrypted views (re-encrypted under the *current* vault), kv
-  re-encoded key by key, cron jobs re-registered — then mark the component
-  enabled, rescan, and reprovision. Tar entry names are traversal-proofed
-  (a hostile `../../` clamps inside the target), and a restore overwrites
-  wholesale.
+  — source into place, file resources through freshly mounted encrypted
+  views (re-encrypted under the *current* vault), kv re-encoded key by key,
+  cron jobs re-registered — then mark the component enabled, rescan, and
+  reprovision. The **terminal layer** is rebuilt apart and swapped in whole:
+  the tile's terminal sessions are closed first, the layer becomes exactly
+  what the archive holds, and a VM terminal's disk (never in a backup) stays.
+  A restore overwrites wholesale.
+- **Nothing in the archive or on disk redirects a write.** The archive must
+  be the component's own (its manifest names the component being restored),
+  and resource data comes back only for the scope the component roots. Tar
+  entry names are traversal-proofed (a hostile `../../` clamps inside the
+  target). A symlink met on the way to a restored file — one a sandbox
+  planted in the source, the terminal layer or a resource — is replaced by
+  the real directory or file, never followed, and a tile directory reached
+  through a symlink refuses the restore.
 - **Single file** (`file` set): the archiver streams one member back and
   xbind hands you the bytes — a download for recovering a clobbered config
   or database *without* rolling the whole component back. It does not write
