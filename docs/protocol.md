@@ -2126,6 +2126,12 @@ POST   /deployments/run-now        (reserved: 501) terminal-level on the tile.
                                    once as xbin/cron, dormant or not, and
                                    waits for it (≤ 2 min). 409 for the
                                    primary
+POST   /deployments/purge          tile manager (as above). {tile,
+                                   checkpoint:"c:<id>"} → {state, purged,
+                                   entries}: removes a checkpoint no
+                                   deployment runs from every deploy log
+                                   and prunes its objects now; archives
+                                   keep it. 409 while a deployment runs it
 GET    /checkpoints/<tile>.git/<path>
                                    the tile's terminal/agent sessions, or
                                    write on the tile. Read-only dumb HTTP

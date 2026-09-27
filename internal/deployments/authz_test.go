@@ -189,7 +189,7 @@ func TestRecheckJudgesTheRecordAtCommit(t *testing.T) {
 func TestShipDarkClosesOnlyGrowth(t *testing.T) {
 	open, shut := azPlane(), azPlane()
 	shut.OptInClosed = true
-	stays := map[Op]bool{OpRemove: true, OpReset: true, OpUnprotect: true, OpRestart: true, OpRunNow: true}
+	stays := map[Op]bool{OpRemove: true, OpReset: true, OpUnprotect: true, OpRestart: true, OpRunNow: true, OpPurge: true}
 
 	for _, op := range MutatingActs() {
 		s := Subject{Tile: "apps/crm", Deployment: "dev", Record: true, Seq: 1}
@@ -255,7 +255,8 @@ func TestShipDarkClosesOnlyGrowth(t *testing.T) {
 // kind state, after authority is judged, and a read is never refused for it.
 func TestZeroStateAcceptsOnlyOptIns(t *testing.T) {
 	pl := azPlane()
-	optIn := map[Op]bool{OpPause: true, OpAdd: true, OpProtect: true, OpUnprotect: true}
+	// purging a checkpoint too: the store outlives an opt-out (05-model §2)
+	optIn := map[Op]bool{OpPause: true, OpAdd: true, OpProtect: true, OpUnprotect: true, OpPurge: true}
 	zero := Subject{Tile: "apps/crm", Deployment: "main"}
 	for _, op := range MutatingActs() {
 		_, err := pl.Authorize(azAda, op, zero)

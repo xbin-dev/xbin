@@ -73,6 +73,7 @@ const (
 	OpRestore        Op = "restore"
 	OpBackupSchedule Op = "backup-schedule"
 	OpRunNow         Op = "run-now"
+	OpPurge          Op = "purge" // a checkpoint no deployment runs (ops_purge.go)
 )
 
 // rule is a row of the authority table: who may do an act.
@@ -150,6 +151,7 @@ var acts = map[Op]act{
 	OpRestore:        {what: "restoring a deployment's data", rule: ruleAdmin, post: true, grows: true},
 	OpBackupSchedule: {what: "scheduling a deployment's backups", rule: ruleAdmin, post: true, grows: true},
 	OpRunNow:         {what: "running a job now", rule: ruleTerminal, post: true},
+	OpPurge:          {what: "purging a checkpoint", rule: ruleManager, post: true, optIn: true},
 }
 
 // refinements lists the Ops a route may be judged as instead of its own,
@@ -762,15 +764,6 @@ func (p *Plane) limitOK(o *op, y, k string, v *int64) error {
 		return badRequest(fmt.Sprintf("%s can't exceed the tile's ceiling (%d)", k, ceiling))
 	}
 	return nil
-}
-
-// claimantGate judges g's act on each other claimant tile of dep's shared
-// namespace (P28; 08-data §6.3), for the data plane: its own row there.
-func (p *Plane) claimantGate(g Grant, dep string) func(string) error {
-	return func(tile string) error {
-		_, err := p.Authorize(g.P, g.Op, Subject{Tile: tile, Deployment: dep, Primary: p.Primary(tile), Record: true})
-		return err
-	}
 }
 
 // NestedProtection is a component nested in a tile being protected, whose

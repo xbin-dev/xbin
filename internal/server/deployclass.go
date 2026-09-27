@@ -149,7 +149,8 @@ var routeClasses = map[string]RouteClass{
 	"POST /deployments/restore":            DeploymentScoped,
 	"POST /deployments/backup-schedule":    DeploymentScoped,
 	"POST /deployments/run-now":            DeploymentScoped,
-	"GET /checkpoints/{rest...}":           Neutral, // the fetch remote: refused for instance and frame principals by its handler
+	"POST /deployments/purge":              DeploymentScoped, // a tile manager's act, judged by the plane
+	"GET /checkpoints/{rest...}":           Neutral,          // the fetch remote: refused for instance and frame principals by its handler
 
 	// ---- code: the work tree has no deployment dimension; another tile's
 	// code is reached through the edge policy ----

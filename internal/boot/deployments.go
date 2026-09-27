@@ -102,6 +102,8 @@ func mountDeploymentsAPI(m apiMounter, a *deploymentsAPI) {
 	m.RegisterAPI("POST /deployments/backup-schedule", a.post(deployments.OpBackupSchedule))
 	// Run a deployment's cron job now.
 	m.RegisterAPI("POST /deployments/run-now", a.post(deployments.OpRunNow))
+	// Purge a checkpoint no deployment runs (a tile manager's act).
+	m.RegisterAPI("POST /deployments/purge", a.post(deployments.OpPurge))
 	// The checkpoint remote: read-only dumb HTTP git over the tile's view
 	// repository (<tile>.git/<git path>).
 	m.RegisterAPI("GET /checkpoints/{rest...}", a.getFetch)

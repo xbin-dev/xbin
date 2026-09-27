@@ -143,3 +143,12 @@ func runRunNow(ctx context.Context, p *Plane, g Grant, r *RunNowRequest) (any, e
 	}
 	return RunNowAnswer{Delivery: d}, nil
 }
+
+// claimantGate judges g's act on each other claimant tile of dep's shared
+// namespace (P28; 08-data §6.3), for the data plane: its own row there.
+func (p *Plane) claimantGate(g Grant, dep string) func(string) error {
+	return func(tile string) error {
+		_, err := p.Authorize(g.P, g.Op, Subject{Tile: tile, Deployment: dep, Primary: p.Primary(tile), Record: true})
+		return err
+	}
+}

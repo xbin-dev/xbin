@@ -556,6 +556,9 @@ func endpoints() []ep {
 			"A non-primary deployment's data on a schedule; \"\" removes it.", nil, deployBody("schedule", oapi{"deployment": str(""), "schedule": str("5-field cron, or \"\""), "retention": oapi{"type": "integer", "description": "versions kept (default 3)"}}, "deployment", "schedule"), "{state}"},
 		{"POST", "/deployments/run-now", "Deployments", "Run a deployment's cron job now", capDeployTerminal,
 			"Delivers job once to deployment as xbin/cron, dormant or not, and waits for the handler (at most 2 min; one run per job at a time). 409 for the primary, whose jobs fire on schedule.", nil, deployBody("run now", oapi{"deployment": str(""), "job": str("")}, "deployment", "job"), "{state, delivery:{status, ms}}"},
+		{"POST", "/deployments/purge", "Deployments", "Purge a checkpoint", capDeployManager,
+			"Removes checkpoint from every deploy log of the tile (those entries then name no checkpoint) and prunes its objects, its git view and its materialized tree at once; archives made earlier keep it. Accepted on a tile without deployments, whose store outlives the opt-out. 409 while any deployment runs it (the record points at it, a deploy of it hasn't finished, a running generation binds it); 404 for a checkpoint the tile doesn't have.", nil,
+			deployBody("purge", oapi{"checkpoint": str("c:<id>")}, "checkpoint"), "{state, purged, entries}"},
 		{"GET", "/checkpoints/{tile}.git/{path}", "Deployments", "A tile's deployed checkpoints over git (dumb HTTP)", capDeployFetch,
 			"git fetch from the tile's view repository: refs/heads/deploy/<name> for each pinned deployment (its checkpoint's git view) and HEAD naming the primary's, nothing else. Read-only: HEAD, info/refs, objects/info/packs, packs and loose objects; any other path 404. Frame and instance tokens and code: grants are refused.", []oapi{pathParam("tile", "tile path"), pathParam("path", "git path")}, nil, "the git file"},
 

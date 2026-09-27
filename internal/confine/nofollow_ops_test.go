@@ -27,6 +27,7 @@ func init() {
 		confine.NofollowOperation{Name: "checkpoint materialize and GC", Run: nofollowMaterializeGC},
 		confine.NofollowOperation{Name: "checkpoint drift count", Run: nofollowDrift},
 		confine.NofollowOperation{Name: "backup of a checkpoint store", Run: nofollowStoreBackup},
+		confine.NofollowOperation{Name: "checkpoint purge", Run: nofollowPurge},
 	)
 }
 
@@ -113,6 +114,38 @@ func nofollowMaterializeGC(t *testing.T, fifo string) {
 	}
 	if _, err := os.Lstat(stale); !os.IsNotExist(err) {
 		t.Fatalf("GC kept a stale tree nothing keeps (%v)", err)
+	}
+}
+
+// covers P16 T20 — rule C5 for the purge (the case of internal/checkpoint's
+// TestPurgeNoFollowingHostWalk): a checkpoint whose manifest, a source file
+// and a dependency link to the FIFO (and its directory) is materialized,
+// then purged, which removes the materialized tree and its links without
+// opening anything through them.
+func nofollowPurge(t *testing.T, fifo string) {
+	needStoreTools(t)
+	root := filepath.Join(t.TempDir(), "ws")
+	src := hostileTile(t, root, "apps/links", map[string]string{
+		"xbin.json":    fifo,
+		"lib/index.js": fifo,
+		"deps/other":   filepath.Dir(fifo),
+	})
+	s := checkpoint.New(root)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	res, err := s.Capture(ctx, checkpoint.CaptureRequest{Source: src, By: "user:ana", Create: true})
+	if err != nil {
+		t.Fatalf("capture: %v", err)
+	}
+	tree, err := s.Materialize(src.Tile, res.Hash)
+	if err != nil {
+		t.Fatalf("materialize: %v", err)
+	}
+	if _, err := s.Purge(ctx, src.Tile, res.Hash, nil); err != nil {
+		t.Fatalf("purge: %v", err)
+	}
+	if _, err := os.Lstat(tree); !os.IsNotExist(err) {
+		t.Fatalf("the purge kept the materialized tree (%v)", err)
 	}
 }
 

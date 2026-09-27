@@ -22,10 +22,6 @@ package deployments
 // operation holds the tile's lock throughout, so no operation can deploy it
 // meanwhile. A dry run is judged and refused exactly as for real, and
 // changes nothing.
-//
-// The route, its openapi and protocol rows and the act's row are the
-// contract amendment for R-4 (14-implementation §0.2): until it lands, this
-// file's operation is registered nowhere and the route doesn't exist.
 
 import (
 	"context"
@@ -39,6 +35,10 @@ import (
 	"github.com/xbin-dev/xbin/internal/checkpoint"
 	"github.com/xbin-dev/xbin/internal/util"
 )
+
+func init() {
+	register(OpPurge, Handler[PurgeRequest]{Subject: purgeSubject, Run: runPurge})
+}
 
 // PurgeRequest is POST /deployments/purge's body.
 type PurgeRequest struct {

@@ -322,6 +322,7 @@ func TestDeployAuthzMatrix(t *testing.T) {
 				{op: deployments.OpPrimary, dep: "dev"}, {op: deployments.OpProtect}, {op: deployments.OpUnprotect, protected: true},
 				{op: deployments.OpEdge}, {op: deployments.OpDeliveries, dep: "dev"}, {op: deployments.OpAlwaysOn, dep: "dev"},
 				{op: deployments.OpLimits, dep: "dev"}, {op: deployments.OpSeed, dep: "dev"}, {op: deployments.OpVaultCopy, dep: "dev"},
+				{op: deployments.OpPurge}, {op: deployments.OpPurge, protected: true},
 			},
 			want: map[string]string{azGAdminWS: azOK, azGManager: azOK, azGTerm: azManager, azGToken: azSession,
 				azGPerson: azManager, azGOwnLow: azSession, azGCred: azSession, azGViewAs: azReadOnly},
@@ -564,7 +565,7 @@ func TestOwnRuntimePrincipalsCannotOperate(t *testing.T) {
 		for _, op := range []deployments.Op{deployments.OpPrimary, deployments.OpProtect, deployments.OpUnprotect,
 			deployments.OpEdge, deployments.OpDeliveries, deployments.OpAlwaysOn, deployments.OpLimits,
 			deployments.OpSeed, deployments.OpVaultCopy, deployments.OpBackup, deployments.OpRestore,
-			deployments.OpBackupSchedule} {
+			deployments.OpBackupSchedule, deployments.OpPurge} {
 			refused[op] = true
 		}
 		for _, op := range deployments.MutatingActs() {
