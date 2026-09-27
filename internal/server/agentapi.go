@@ -470,6 +470,13 @@ func (s *Server) apiAgentEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	fl, _ := w.(http.Flusher)
+	// The head goes out now, not with the first event: a client that
+	// follows an idle session from its last seq (a reconnect) otherwise
+	// waits for its response — fetch, URLSession, Go's http.Client — until
+	// the agent next logs something.
+	if fl != nil {
+		fl.Flush()
+	}
 	enc := json.NewEncoder(w)
 	cursor := since
 	ctx := r.Context()

@@ -47,6 +47,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   as set, the budget in use per tile) and the newest things the sandbox
   layer refused or failed at.
 
+- **Agent sessions: a `?follow=1` event stream answers at once**
+  ([protocol.md](protocol.md) `GET /term/sessions/<id>/events`). xbind sent
+  the stream's response head only with its first event, so a client that
+  followed an idle session from its last seq — a reconnect — waited for the
+  head until the agent next logged something, or its own request timeout
+  (the iOS app's: 60 s, holding a connection). The head now goes out first.
+  Clients that must also work with older xbinds can follow from one event
+  before their cursor (they already have that event; skip it by `seq`).
+
 - **xbin app: web tiles laid out for the phone** ([native.md](native.md)
   §Fallback). A tile page without a `<meta name="viewport">` — nearly every
   tile, since a frame ignores one — was laid out 980 px wide and shrunk to

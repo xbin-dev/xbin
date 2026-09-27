@@ -790,7 +790,8 @@ POST   /term/sessions/<id>/elicitations/<eid>
 GET    /term/sessions/<id>/events creator or admin. ?since=<seq> → {events,
                                    next, truncated}; ?follow=1 streams NDJSON
                                    from the cursor until the client or the
-                                   session goes (§Agent session events)
+                                   session goes (§Agent session events); its
+                                   head is sent at once, before any event
 POST   /term/sessions/<id>/options
                                    creator or admin. {id, value}: change a
                                    setting the agent advertised (model,
