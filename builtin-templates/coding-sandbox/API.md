@@ -88,7 +88,12 @@ trusts its consumers.
 - **Starting.** A stopped sandbox starts on a command, a file operation or a
   terminal, as the contract says; the manager starts it itself first, so the
   start counts against the quotas (`429 limit` when over). The first start
-  makes the workdir and home.
+  makes the workdir and home, and makes the layout's user the image's
+  account of its uid, as `usermod -l` would: the uid's entry renamed (its
+  home and shell the layout's; else one added), its group and group
+  memberships following. So `id -un`, the prompt and a tool reading the
+  home from the account database (OpenSSH's `~/.ssh`) agree with `USER`
+  and `HOME`. A name the image gives another uid stays the image's.
 - **Inside.** Every command runs as the layout's user (uid/gid) with `HOME`,
   `USER`, `IN_SANDBOX=1`, `SANDBOX_ID` and `SANDBOX_NAME`; `cmd` runs in the
   layout's shell. On a substrate that runs everything as root (the runtime's
@@ -339,7 +344,8 @@ notes have the commands):
    the runtime's reason.
 5. The first start makes the workdir and home as root (the runtime must let
    a tile sandbox run uid 0); a command runs as 1000:1000 with `HOME`
-   `/home/dev`, and a file written through the contract is 1000's.
+   `/home/dev`, `id -un` is `dev` (`getent passwd 1000`: `/home/dev`,
+   `/bin/bash`), and a file written through the contract is 1000's.
    Nothing of xbin's is inside: no `XBIN_*` variable, no `xbin` host.
 6. Commands: `run`'s result, an output long poll answering when output
    comes, stdin, a signal to the group, the exec list; files with etags

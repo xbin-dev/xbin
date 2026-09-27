@@ -13,13 +13,14 @@ import (
 	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
-// prepare makes the workdir and home, owned by the sandbox's user: a run as
-// root (mkdir, chown), which holds on any substrate.
+// prepare makes the workdir and home, owned by the sandbox's user, and
+// makes that user the image's account of its uid: a run as root (mkdir,
+// chown, awk), which holds on any substrate.
 func (m *Manager) prepare(ctx context.Context, rec record) error {
 	root := 0
 	owner := strconv.Itoa(rec.UID) + ":" + strconv.Itoa(rec.GID)
 	res, err := m.backend().Sandbox(rec.Runtime).Run(ctx, xbin.RunRequest{Argv: []string{"sh", "-c", prepareScript, "prepare",
-		rec.Workdir, rec.Home, owner}, Cwd: "/", UID: &root, GID: &root, TimeoutMs: 60000, Merge: true})
+		rec.Workdir, rec.Home, owner, rec.User, rec.Shell}, Cwd: "/", UID: &root, GID: &root, TimeoutMs: 60000, Merge: true})
 	if err != nil {
 		return err
 	}
@@ -34,12 +35,60 @@ func (m *Manager) prepare(ctx context.Context, rec record) error {
 }
 
 // prepareScript makes the workdir ($1) and home ($2), owned by the user
-// ($3, uid:gid) — as root, so it holds on any substrate.
+// ($3, uid:gid) — as root, so it holds on any substrate. Then the layout's
+// user ($4, its shell $5) becomes the image's account of that uid, as
+// usermod -l / groupmod -n (or useradd) would leave /etc: the uid's entry
+// renamed, with the layout's gid, home and shell (else one added), the
+// gid's group renamed (else added), the old name replaced in the groups'
+// member lists, shadow and gshadow following. So `id -un`, the prompt and
+// getpwuid's home (OpenSSH's ~/.ssh) agree with USER and HOME. A name
+// another uid (or gid) already has is the image's and stays; so does root.
+// Running it again changes nothing.
 const prepareScript = `set -e
 for d in "$1" "$2"; do
 	mkdir -p -- "$d"
 	[ "$(stat -c %u:%g -- "$d")" = "$3" ] || chown -- "$3" "$d"
-done`
+done
+etc=/etc
+home=$2 user=$4 shell=$5 uid=${3%:*} gid=${3#*:}
+[ -n "$user" ] && [ "$uid" != 0 ] && [ -f "$etc/passwd" ] || exit 0
+# rewrite FILE AWK-ARGS…: FILE through awk, in place (its mode and owner kept)
+rewrite() {
+	f=$1; shift
+	[ -f "$f" ] || return 0
+	awk "$@" "$f" > "$f.xbin-new" && cat "$f.xbin-new" > "$f" && rm -f "$f.xbin-new"
+}
+# other FILE NAME ID: FILE has an entry NAME whose id isn't ID
+other() { [ -f "$1" ] && awk -F: -v n="$2" -v i="$3" '$1 == n && $3 != i { f = 1 } END { exit !f }' "$1"; }
+# named FILE NAME: FILE has an entry NAME
+named() { [ -f "$1" ] && awk -F: -v n="$2" '$1 == n { f = 1 } END { exit !f }' "$1"; }
+# of FILE ID: the name of FILE's first entry of id ID
+of() { [ -f "$1" ] && awk -F: -v i="$2" '$3 == i { print $1; exit }' "$1" || true; }
+other "$etc/passwd" "$user" "$uid" && exit 0
+old=$(of "$etc/passwd" "$uid")
+if [ -n "$old" ]; then
+	rewrite "$etc/passwd" -F: -v OFS=: -v u="$uid" -v n="$user" -v g="$gid" -v h="$home" -v s="$shell" \
+		'$3 == u && !done { $1 = n; $4 = g; $6 = h; $7 = s; done = 1 } { print }'
+else
+	printf '%s:x:%s:%s::%s:%s\n' "$user" "$uid" "$gid" "$home" "$shell" >> "$etc/passwd"
+fi
+gold= gnew=
+if ! other "$etc/group" "$user" "$gid"; then
+	gnew=$user gold=$(of "$etc/group" "$gid")
+	[ -n "$gold" ] || ! [ -f "$etc/group" ] || printf '%s:x:%s:\n' "$user" "$gid" >> "$etc/group"
+	if [ -z "$gold" ] && [ -f "$etc/gshadow" ] && ! named "$etc/gshadow" "$user"; then
+		printf '%s:!::\n' "$user" >> "$etc/gshadow"
+	fi
+fi
+members='function mem(s,  a, k, i, out) { k = split(s, a, ","); out = ""; for (i = 1; i <= k; i++) { if (o != "" && a[i] == o) a[i] = n; out = out (i > 1 ? "," : "") a[i] }; return out }'
+rewrite "$etc/group" -F: -v OFS=: -v o="$old" -v n="$user" -v go="$gold" -v gn="$gnew" \
+	"$members"' go != "" && $1 == go { $1 = gn } NF >= 4 { $4 = mem($4) } { print }'
+rewrite "$etc/gshadow" -F: -v OFS=: -v o="$old" -v n="$user" -v go="$gold" -v gn="$gnew" \
+	"$members"' go != "" && $1 == go { $1 = gn } NF >= 4 { $3 = mem($3); $4 = mem($4) } { print }'
+rewrite "$etc/shadow" -F: -v OFS=: -v o="$old" -v n="$user" 'o != "" && $1 == o { $1 = n } { print }'
+if [ -f "$etc/shadow" ] && ! named "$etc/shadow" "$user"; then
+	printf '%s:!:1::::::\n' "$user" >> "$etc/shadow"
+fi`
 
 // ready makes rec usable for a command or a file operation: started (within
 // the quotas) and prepared. A sandbox seen running within LiveTTL is taken

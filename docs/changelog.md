@@ -12,6 +12,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-28
 
+- **coding-sandbox: the layout's user is a real account.** A sandbox's
+  commands ran as uid 1000 with `USER=dev` and `HOME=/home/dev`, but the
+  image names uid 1000 `ubuntu` (home `/home/ubuntu`): `id -un`, `whoami`
+  and the prompt said `ubuntu`, and a tool taking the home from the account
+  database (OpenSSH's `~/.ssh`) used `/home/ubuntu`. A sandbox's first
+  start now makes the layout's user the image's account of its uid, as
+  `usermod -l` would — the entry renamed with the layout's home and shell
+  (else one added), its group and memberships following; the template's
+  API.md, "What it adds to the contract". A sandbox started before keeps
+  its image's account. Nothing to change.
 - **A tile held for its encrypted state says so.** A call to the backend
   of a tile xbind holds because a resource it uses can't be decrypted — the
   vault sealed, gocryptfs missing, or the resource's mount refused (on

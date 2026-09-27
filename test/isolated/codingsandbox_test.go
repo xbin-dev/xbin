@@ -409,10 +409,10 @@ func runCS(t *testing.T, e *csEnv, mode string, slow time.Duration) {
 		if main.Isolation != mode || main.Egress != "internet" || main.State != "running" || main.Workdir != "/work" || main.Home != "/home/dev" {
 			t.Errorf("main: %+v", main)
 		}
-		// the first start made the workdir and home (as root); commands run
-		// as the layout's user
-		out := c.Sh(main.ID, `id -u; id -g; echo "$HOME $USER $IN_SANDBOX $SANDBOX_ID $SANDBOX_NAME"; pwd; stat -c %u:%g /work /home/dev`)
-		if want := "1000\n1000\n/home/dev dev 1 " + main.ID + " main\n/work\n1000:1000\n1000:1000\n"; out != want {
+		// the first start made the workdir and home (as root) and the
+		// layout's user the image's account of its uid; commands run as it
+		out := c.Sh(main.ID, `id -u; id -g; echo "$HOME $USER $IN_SANDBOX $SANDBOX_ID $SANDBOX_NAME"; pwd; stat -c %u:%g /work /home/dev; id -un; id -gn; getent passwd 1000 | cut -d: -f1,6,7`)
+		if want := "1000\n1000\n/home/dev dev 1 " + main.ID + " main\n/work\n1000:1000\n1000:1000\ndev\ndev\ndev:/home/dev:/bin/bash\n"; out != want {
 			t.Errorf("inside: %q, want %q", out, want)
 		}
 		// no xbin identity inside (plan §8): no XBIN_ variable, so none of
