@@ -77,6 +77,13 @@ func (b *Broker) isSandboxNetSlot(comp, slot string) bool {
 	return ok && c.Manifest.Interfaces[slot].Kind == registry.KindSandboxNet
 }
 
+// isHTTPSlot reports whether comp's interface slot is an http one (a
+// consumer's slot bound to providers it calls).
+func (b *Broker) isHTTPSlot(comp, slot string) bool {
+	c, ok := b.Reg.Component(comp)
+	return ok && c.Manifest.Interfaces[slot].Kind == "http"
+}
+
 // hasSandboxNet reports whether comp declares any sandbox-net slot.
 func (b *Broker) hasSandboxNet(comp string) bool {
 	c, ok := b.Reg.Component(comp)

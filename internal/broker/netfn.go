@@ -727,7 +727,10 @@ func provideRole(def registry.Iface) string {
 // fields carry an exposed endpoint's config (plans/ingress.md ING-1/ING-2) —
 // binding IS the publish action, so they ride the same owner-gated call.
 // Restarts the component (its wiring changed) and, for a net provider, the
-// provider (its roster changed).
+// provider (its roster changed). An http slot's provider isn't restarted:
+// nothing of its spawn depends on who binds it (the binding's grant is
+// checked per call), and a restart would cut every other consumer's calls
+// in flight — a sandbox manager's relayed terminals and long polls.
 func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
 	var body struct {
@@ -836,7 +839,9 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 	if b.OnGrantChange != nil {
 		b.OnGrantChange(body.Component)
 		notify := []string{oldProvider}
-		if !del {
+		if b.isHTTPSlot(body.Component, body.Slot) {
+			notify = nil // neither its net provider's roster nor the http provider's spawn changed
+		} else if !del {
 			for _, e := range delta {
 				prov, _ := splitRef(e.Ref)
 				notify = append(notify, prov)

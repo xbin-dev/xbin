@@ -12,6 +12,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-28
 
+- **Binding a tile's `http` slot no longer restarts the provider**
+  ([overview/11-interfaces.md](overview/11-interfaces.md) §Rebinding
+  restarts). Binding, rebinding or unbinding a consumer's `http` slot used
+  to restart the provider it named (and the consumer's `net` provider),
+  cutting every other consumer's calls in flight — a sandbox manager's
+  relayed terminals and output long polls broke whenever a new consumer was
+  bound to it. Nothing of a provider's spawn depends on who binds its
+  `http` service (the binding's grant is checked per call), so only the
+  consumer restarts now; a `net` or `lan-ingress` binding still restarts
+  its providers. Nothing to change.
 - **Fix: Go tiles build under `--isolate` when the workspace needs new
   checksums** ([isolation.md](isolation.md) §Confined tool runs).
   A confined build sees the workspace read-only, so the checksums `go`

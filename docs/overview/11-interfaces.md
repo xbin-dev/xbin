@@ -221,7 +221,10 @@ evaluation, so a hand-edited manifest can't out-run policy):
 **Rebinding restarts.** Interface wiring is materialized at spawn (env vars, TUNs,
 splices), so a bind/unbind/rebind restarts the requester's backend (except a
 `sandbox-net` class, which the requester's backend never uses) — and the old and new
-*providers* too when their client roster changed. Instance re-registration likewise
+*providers* too when their client roster changed (a `net` or `lan-ingress` slot). An
+`http` slot's provider is never restarted: nothing of its spawn depends on who binds
+it, so its other consumers' calls in flight — relayed terminals, long polls — carry
+on. Instance re-registration likewise
 restarts bound requesters. This is deliberate: wiring changes are loud, atomic events,
 not something a running backend half-observes.
 
