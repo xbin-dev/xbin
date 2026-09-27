@@ -26,6 +26,7 @@
 //	             write hello.txt "hi from the agent" → "Wrote it."
 //	sandbox edit edit hello.txt hi → hello → "Edited it."
 //	sandbox find glob **/*.txt → "Found: <its first line>"
+//	sandbox cat  bash "cat hello.txt" → "Ran: <its first line>" (what write/edit left)
 //	sandbox long bash "sleep 3; echo slow done" with timeout_s 1 → it becomes a
 //	             job → bash_output {job, wait_s 20} → "Job: <its first line>"
 //	sandbox restart
@@ -253,6 +254,8 @@ func script(conv []turn, system string) plan {
 		return plan{Calls: []call{{"write", map[string]any{"path": "hello.txt", "content": "hi from the agent\n", "summary": "Write hello.txt"}}}}
 	case strings.Contains(lastUser, "sandbox edit"):
 		return plan{Calls: []call{{"edit", map[string]any{"path": "hello.txt", "old_string": "hi", "new_string": "hello", "summary": "Edit hello.txt"}}}}
+	case strings.Contains(lastUser, "sandbox cat"):
+		return plan{Calls: []call{{"bash", map[string]any{"command": "cat hello.txt", "summary": "Show hello.txt"}}}}
 	case strings.Contains(lastUser, "sandbox find"):
 		return plan{Calls: []call{{"glob", map[string]any{"pattern": "**/*.txt", "summary": "Find text files"}}}}
 	case strings.Contains(lastUser, "sandbox long"):
