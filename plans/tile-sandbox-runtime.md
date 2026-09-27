@@ -2641,7 +2641,10 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     checks the scores over both overlay flavours. `internal/vm`'s
     `TestResidentVM` reads `500` for an exec and `0` for the guest's agent
     (KVM and emulated). Mutation-checked: without the `Register`, without
-    `-f`, and without the write, the tests fail.
+    `-f`, and without the write, the tests fail. The namespace score checks
+    first lower the test's own score to 0 (`lowerOwnOOMScore`): a CI runner
+    may start its jobs at 500, where they would otherwise skip.
+    `TestFuseWatchNeedsAgent` pins Launch's refusal.
 
 #### WP-7b — State layout: `<name>.<uid>/cur/`, snapshot stamps, pins with errors (B · S · now; before WP-15a)
 

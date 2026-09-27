@@ -14,6 +14,14 @@ import (
 	"github.com/xbin-dev/xbin/internal/sandbox/vm/proto"
 )
 
+// covers WP-3b — FuseWatch needs an Agent: no other entry would hear its
+// fuse-overlayfs die, so Launch refuses the spec before it makes anything.
+func TestFuseWatchNeedsAgent(t *testing.T) {
+	if _, _, err := Launch(&Spec{Entry: "/e", FuseWatch: true}); err == nil || !strings.Contains(err.Error(), "FuseWatch needs an Agent") {
+		t.Errorf("Launch(FuseWatch, no Agent): %v", err)
+	}
+}
+
 func TestEntryArgv(t *testing.T) {
 	for _, c := range []struct {
 		s    Spec

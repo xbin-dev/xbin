@@ -20,6 +20,7 @@ import (
 // session 1 (a backend's, a terminal's) and the agent keep what they had,
 // and a session gone before the write logs nothing.
 func TestSessionOOMScoreAdj(t *testing.T) {
+	lowerOwnOOMScore()
 	b, err := os.ReadFile("/proc/self/oom_score_adj")
 	if err != nil {
 		t.Skip(err)
@@ -80,5 +81,18 @@ func TestSessionOOMScoreAdj(t *testing.T) {
 	h = newHarness(t, nil)
 	if got := score(h, 2); got != strconv.Itoa(own) {
 		t.Errorf("session 2 with no SessionOOMScoreAdj: %s, want %d", got, own)
+	}
+}
+
+// lowerOwnOOMScore brings this process's oom_score_adj down to 0 when it is
+// higher — before the agent under test inherits it — so the scores are
+// checked on a CI runner that starts its jobs at 500 too. An unprivileged
+// process may lower its own score down to the floor a privileged writer set;
+// where that floor is higher, the write fails and the checks skip.
+func lowerOwnOOMScore() {
+	if b, err := os.ReadFile("/proc/self/oom_score_adj"); err == nil {
+		if n, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil && n > 0 {
+			_ = os.WriteFile("/proc/self/oom_score_adj", []byte("0"), 0)
+		}
 	}
 }

@@ -204,6 +204,7 @@ func launchNamespaceAgent(t *testing.T, bin, rootfs string, mod ...func(*sandbox
 	for _, m := range mod {
 		m(spec)
 	}
+	lowerOwnOOMScore() // the agent inherits it: testOOMScores needs it below 500
 	cmd, h, err := sandbox.Launch(spec)
 	if err != nil {
 		t.Fatal(err)
