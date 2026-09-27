@@ -484,6 +484,11 @@ re-wrap with the bundled binary; 06's read-only mount against a WAL reader's
   WP-39 merges (M2 exit criterion 4 repeats it). If it doesn't match, use a
   non-dot level name that no existing key function can produce (08 §3.5).
 - *Blocks:* WP-39.
+- *Status (wave 2.1):* not yet run. The integrator's probe on the QA box (a
+  gocryptfs mount under `.xbin/resenc/.deployments/…` next to a control
+  mount under `.xbin/resenc/`, with the kernel log checked for denials) was
+  refused by its tool permissions, so WP-39 is held; its trial merge onto
+  the wave 2.1 head is clean. The owner runs it, or allows it.
 
 **Q11 — The checkpoint purge route.** The review settled R-4 as yes, in M2
 (NP-06-16), but 11-contract has no route for it.

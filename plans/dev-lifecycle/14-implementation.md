@@ -1127,6 +1127,32 @@ Every card includes these; a card states only what differs.
   calls `AtLimitTile`, keys its counters by leaf name, and sends a
   non-primary deployment's hit, naming it, to admins only (`Tile` empty,
   08-data §4.4): fill the nested-leaf walk and set `LimitHit.Deployment`.
+- **From wave 2.1.** WP-S2's API: the leaf is
+  `cgroup.DeploymentLeaf(util.CompKey(tile), dep)` (the flat CompKey while
+  `main` runs alone; `_, ok := Cgroup.Usage(cgroup.TileNode(key))` says the
+  tile already has the parent); limits are `LimitsFor(tile, dep)` with
+  `NodeWeight = cgroup.DeploymentWeight(dep == primary)`; start with
+  `AddWith`, or `AddMemWith(leaf, pid, l, 2×guest)` for a VM, keep the leaf
+  on the instance and `Remove(inst.leaf)` on exit; stats from
+  `TileProcs`/`TileUsage` (MemMax is -1 for a tile with the parent: v1 caps
+  no node); `AtLimitTile` loops `TileLeaves(key)` into `LimitHit{Leaf,
+  Deployment}` (the flat leaf's Deployment is empty).
+- **From wave 2.1.** WP-S3's options: `vmApply` passes `vm.NonPrimary(<the
+  primary's guest MiB>)` (0 when the primary runs no VM) for a non-primary
+  deployment and `vm.PrimaryFirst(cb)` for the primary. `cb` stops the
+  tile's non-primary guests synchronously (`r.stop` waits on `waitCh`) and
+  holds neither `r.vms.mu` nor any lock a stopping generation's exit takes;
+  `Reserve` calls it unlocked and retries once.
+- **From wave 2.1.** Left in this card's files by WP-33 and WP-35: `vm.go`'s
+  `restorePrevious` still calls `resolveGen` and `spawn` (the primary's
+  view): use `resolveGenFor(c, dep, code)` and `spawnFor(view, dep, …)`;
+  `stopFirst` should bind `r.dataBinds(c, env)`, not `resourceBinds`
+  (08-data §5 item 3); `stats.go`'s `backendPids` keys by tile; the crash
+  watch calls `afterExit` and the reaper exempts only the primary; every
+  deployment still spawns into the flat leaf; the relay-time `NetRoster`
+  registration in `start` must skip non-primary views (`launchSpecWith`
+  already leaves their `NetClients` empty). The integrator runs WP-33's,
+  WP-S2's, WP-S3's and this card's suites at the merge (§3.3's seam pairs).
 
 #### WP-35 launch-spec · M · wave 2.1 · after WP-30
 - **Scope** (07-runtime §10.4; 08-data §5; 06-security T17, T18, NP-06-6,
@@ -1156,6 +1182,11 @@ Every card includes these; a card states only what differs.
   plus three roll-back targets per deployment), which `envKeep` reads for
   those checkpoints' `setup`. The field (in a WP-33 file) and its `boot.go`
   line are integrator amendments: ask.
+- **From wave 2.1.** Merged with A1 wired (the `Retained` hook, answered by
+  `Plane.RetainedTrees`; the env-layer GC keeps retained checkpoints' layers
+  and every deployment's running one). A2, the protected primary's build
+  products, is dormant until the protect op and is handed to WP-53a's note;
+  A3, the build limiter around the plane's materializations, to WP-52's.
 
 #### WP-36 deployment-urls · L · wave 2.2 · after WP-31, WP-32
 - **Scope** (11-contract §2.3, §2.5–§2.7, §7.2; 07-runtime §4.3–§4.6;
@@ -1181,6 +1212,25 @@ Every card includes these; a card states only what differs.
   of 5 runs in WP-30's worktree (the `deps/` re-dispatch answered 404) and
   passed every run at the integrator's (25 alone, and in each `make check`):
   if it fails again in your worktree, report it with an A/B.
+- **From wave 2.1.** WP-31's `(*registry.Registry).ResolveRef(p, d
+  DeploymentLookup)` takes the record questions as a
+  `registry.DeploymentLookup` (`HasRecord`, `HasDeployment`, `Primary`; nil:
+  no records). `*deployments.Plane` satisfies it and `brokerPolicy` lacks
+  `HasRecord`: declare a `Deployments registry.DeploymentLookup` field on
+  the server; the `boot.go` line (`srv.Deployments = st.Deployments`) is the
+  integrator's, at the merge. With `ErrNoDeployment` and `ErrNestedTile`,
+  `c` and `dep` still name the tile and the qualifier, so §2.3's gate picks
+  403 or 404 first.
+- **From wave 2.1.** WP-32: the D4 injection mints a named deployment's
+  token with `MintFrameTokenForDeployment` or `MintFrameTokenDeployment`;
+  for a session that follows the primary (`Deployment` empty) resolve it
+  through `Plane.Addressed` first, since `MintFrameTokenFor` writes `main`'s
+  form. `TestPinnedServingUsesOpenBeneath/tokens` failed in WP-32's and
+  WP-33's first `make check`, and 4 of 4 runs of `-run
+  'TestPinnedServing|TestDeploy|TestServe'` at 14c1323b in WP-55's worktree;
+  at the wave 2.1 integration head it passed both `make check` runs and 3 of
+  3 with that filter. It is flaky, not order-bound; `deployserve_test.go` is
+  this card's.
 
 #### WP-37 proxy-routing · M · wave 2.2 · after WP-31, WP-32, WP-33
 - **Scope** (11-contract §2.3, §4; 09-fabric §4; P12). `ResolveRef` in the
@@ -1205,6 +1255,14 @@ Every card includes these; a card states only what differs.
   *registry.Component, q string) proxy.Decision { return
   proxy.Decision(brk.Route(p, c, q)) }` in `stepProxy`) is the integrator's,
   at your merge.
+- **From wave 2.1.** `ResolveRef` as in WP-36's note: a `Deployments
+  registry.DeploymentLookup` field on the proxy, installed by the
+  integrator's `px.Deployments = st.Deployments` beside the `Route` line.
+  WP-49's tick and delivery principals carry the owner deployment (Route
+  rule 1); until this card converts the proxy a non-main tick would reach
+  the primary, which nothing can trigger before WP-53a opens deliveries and
+  run now. WP-59's SDK reads `X-XBin-Deployment` (`CallerInfo.Deployment`):
+  inject it for a non-primary caller.
 
 #### WP-38 origins-mode · L · wave 2.3 · after WP-36
 - **Scope** (05-model §7; 11-contract §2.6, §7.5; NP-12-4, NP-11-18).
@@ -1235,6 +1293,16 @@ Every card includes these; a card states only what differs.
   `..` or NUL refused, other namespaces refused until this WP builds them;
   nothing calls it yet. Route and `resolveTarget` live in the same file
   (owned by this WP in 2.1): leave them as they are.
+- **From wave 2.1.** Held at the wave 2.1 merge: Q10's live probe (a
+  gocryptfs mount under `.xbin/resenc/.deployments/…` on the Ubuntu QA box)
+  was refused by the integrator's tool permissions, and Q10 blocks this
+  card. A trial merge onto the wave 2.1 head (after WP-49) is clean, and `go
+  build`, `go vet` and the broker suite, `TestNoAdHocResourceKeys` over
+  WP-49's `dormant.go` included, are green on it. Merge it once Q10 holds,
+  with its amendment: `Plane.DropDeploymentFiles func(tile, dep string)
+  error` and the `stepBroker` line `dp.DropDeploymentFiles =
+  brk.DropDeploymentFiles`. The workspace-scope restore refusal it adds
+  needs a 12-compat §1.3/§10.1 entry and a changelog line at that merge.
 
 #### WP-40 data-access · L · wave 2.2 · after WP-39
 - **Scope** (08-data §3.6, §4–§6; 09-fabric §5.10; P22). `EnvFor(view,
@@ -1256,6 +1324,21 @@ Every card includes these; a card states only what differs.
   `TestMultiTileScopeDeclarationSource`.
 - **Links.** Fills the `EnvFor` remap WP-05 declared, which WP-35's binds
   consume. PO-2, PO-3.
+- **From wave 2.1.** This card branches after WP-39 merges (held on Q10: its
+  note). WP-39's signature changes: `quotaOK` takes the quota key
+  (`k.quotaKey()`), `fsReady` and `resMount` take `resKeys`, `kvAccess`
+  returns `resKeys`, `kvUsage` takes a `resTarget`; `kvDB(k, create)` opens
+  a namespace's file. D118's `plainSegment` in `resenc.Ensure` refuses
+  `resKeys.DirKey` beyond `main` (`.deployments/<escS>/<d>/fs`): accept
+  exactly that shape. WP-49: `apiBusPublish` should call
+  `b.bus.publishIn(rt.String(), <the publisher's namespace>, …)`; until then
+  a non-primary own-scope subscription receives nothing. WP-35's remap
+  contract: keys are canonical directories (a filesystem resource's value, a
+  sqlite resource's directory) and `Src` an absolute, mounted directory
+  outside `main`'s namespace; `Plane.EnvFor` answers a nil remap for
+  whichever deployment is primary and the runner treats nil as empty beyond
+  `main`, so a reassigned non-main primary with file resources fails closed
+  until `EnvFor` answers its remap.
 
 #### WP-41 data-namespaces · M · wave 2.2 · after WP-39
 - **Scope** (08-data §6.3–§6.4, §8.2's holds, §9; NP-08-7, NP-08-14,
@@ -1415,6 +1498,11 @@ Every card includes these; a card states only what differs.
   set a non-primary caller is refused). The stored overrides come through
   `DeploymentAnswers.DeploymentEdges`. If `Route` itself must change, ask:
   the integrator adds `deploydata.go` to this card's Owns in wave 2.2.
+- **From wave 2.1.** Branches after WP-39 (held on Q10). WP-49 stores a
+  non-primary registration on a foreign resource dormant under `read` and
+  refuses it under `block`; with `edgeVerdict` still nil every such
+  registration is refused ("no edge policy"). WP-49's tests install a
+  temporary verdict.
 
 #### WP-48 route-classes-events · M · wave 2.3 · after WP-32, WP-33
 - **Scope** (P26; 09-fabric §6's enforcement; NP-09-4, NP-06-1, NP-04-8,
@@ -1508,6 +1596,11 @@ Every card includes these; a card states only what differs.
   `TileDeployments`, `ChooseTarget` (11-contract §7.4's three steps),
   `Entries` and `DeploymentEnv`. Fill `term.go` with them rather than
   declaring your own.
+- **From wave 2.1.** WP-32's `(*auth.Auth).MintTerminalTarget(component,
+  user, target)` keeps a named target by name (`main` included) and `""` for
+  a session that follows the primary; an invalid name mints nothing. Add it
+  to `term.Tokens`. WP-58's `bx agent run --deployment` checks that `POST
+  /term/sessions` echoes `deployment` for a named target.
 
 #### WP-52 plane-code-ops · L · wave 2.2 · after WP-30, WP-33
 - **Scope** (05-model §5, §10; 11-contract §1.4–§1.6; 07-runtime §8.6;
@@ -1528,6 +1621,17 @@ Every card includes these; a card states only what differs.
   and `placeholders` (0726331f). 07-runtime §2.8's GC on deployment removal
   (WP-67's A5): call `p.retain(tile)` (`retention.go`) after a removal
   commits, one call in this card's files.
+- **From wave 2.1.** The remove op calls `p.DropRegistrations(tile, dep)`
+  (WP-49's, installed at wave 2.1) at 08-data §9.2 step 2. Once WP-39
+  merges, add calls `p.DropDeploymentFiles(tile, dep)` before its record
+  commits and remove at §9.2 step 2, both outside `index.dmu` (it calls back
+  into `RemoveDeploymentFile`, whose prune takes that lock). Hold
+  `runner.NonPrimaryBuildTurn()` around the plane's materialization of a
+  non-primary deployment's checkpoint (WP-35's A3). WP-33:
+  `EnsureDeployment` and `StopDeployment` act on any deployment the record
+  holds, and stopping a non-primary one drops its state and run dir; the
+  runner enforces the admission caps at start (`runner.MaxNonPrimary*`,
+  which `m2types.go` now aliases).
 
 #### WP-53a plane-governance · L · wave 2.3 · after WP-34, WP-44b, WP-47, WP-49, WP-52
 - **Scope** (05-model §5, §10; 11-contract §1.7–§1.9; 09-fabric §8;
@@ -1558,6 +1662,25 @@ Every card includes these; a card states only what differs.
   off.
 - **From wave 2.0.** Use `m2types.go`'s request types and `Impact`'s
   `placeholders` (0726331f).
+- **From wave 2.1.** Call WP-33's `Runner.Reassign(ctx, c, from, to)` after
+  committing the new primary and re-running `Rescan`, with the rescanned
+  component. Run now is `p.RunNow` (WP-49's, installed); the deliveries
+  switch is this card's op, gated by `MayManageDeployments`. bx sends
+  `checkpoint` or `expect`, and `seq`, in dry runs onto a protected primary
+  (WP-58).
+- **From wave 2.1** (WP-35's A2). The protected primary's build products are
+  built but not wired. Before this card branches the integrator adds to
+  `runner.DeploymentHooks` `Protected func(tile string) bool`,
+  `ProtectedBuild func(tile string) []byte` and `SaveProtectedBuild
+  func(tile string, rec []byte) error` (the plane's copy at
+  `data/deployments/<TileKey>/protected-build.json`, through `idx.writeIn`),
+  their plane methods and `boot.go` lines, and the call sites in
+  `deployworker.go`'s `deployBuild` (`prepareProtected` before `resolveGen`)
+  and `inspect.go`'s `resolveGen` (`protectedArtifact`, then
+  `rebuildLostProtected`); WP-35's follow-ups are `protectedPrimary`
+  (`buildprotected.go`) and `protectedLayer` in `ensureEnvLayer`. The
+  protect op follows its commit with `Runner.Restart` of the primary
+  (07-runtime §3.4).
 
 #### WP-53b tile-life · M · wave 2.3 · after WP-23b, WP-33
 - **Scope** (05-model §11). Lifecycle reaching every deployment (disabling,
@@ -1594,6 +1717,19 @@ Every card includes these; a card states only what differs.
   `m2types.go`. The integrator proposes this card renders them in
   `internal/boot/{deployments,deployreads}.go` (§3.3), in wave 2.3 when
   every source plane has merged.
+- **From wave 2.1.** WP-33: `Runner.StatusDeployments` and
+  `InspectDeployments` give `/backends`' deployments and `/runtime`'s
+  `deploymentBackends` (`Backend.Deployment` is set only on those rows).
+  WP-49: `Deployment.registrations` comes from
+  `brk.DeploymentRegistrations(tile, dep)` through a deployReads source
+  (WP-50 adds the interface-instance and ingress-host rows). WP-32:
+  `apiFrameToken` must resolve a following session's deployment through
+  `Plane.Addressed` and mint with `MintFrameTokenForDeployment`
+  (13-surfaces' "no change" is not enough); `?deployment=` mints with
+  `MintFrameTokenDeployment`. WP-58's bx reads `/tile-status`' `deployment`
+  and its `deployments` summary (`primary`, `liveReload`, `items[{name,
+  state, gen, checkpoint}]`), and `X-XBin-Deployment` on `/logs`'
+  non-primary answers (with WP-50).
 
 #### WP-55 panel · L · wave 2.1 · after WP-24
 - **Scope** (10-ux §3–§6.1, §12, §14.1; NP-10-4). `web/bx-deploy.js` defines
@@ -1619,6 +1755,14 @@ Every card includes these; a card states only what differs.
 - **Owns.** `web/{bx-frame,frame-titlebar,frame-deploy,frame-testapi,bx-terminal}.js`.
 - **Tests.** Harness `agentTab` (six buttons); `livereload` unchanged.
 - **Links.** PO-10; the session's echoed target is what the bar shows.
+- **From wave 2.1.** Mount WP-55's `<bx-deployments component=…
+  .frame=${this}>`: the panel reads tab targets from `tab.deployment` and
+  `tab.api` and uses only the frame's `_ask`, `_menu`, `_sessions` and
+  `_active`. At wave 2.1 the integrator split the panel's view out of
+  `web/deploy-state.js` (now 740 lines) into `web/deploy-panel.js`, with
+  tests in `hack/deploy-state.test.mjs` and `hack/deploy-panel.test.mjs`
+  over `hack/deploy-fixtures.mjs`. This card also owns those five files in
+  wave 2.2, for its frame entries (§3.3); WP-56b asks.
 
 #### WP-56b deployment-aware-components · M · wave 2.2, merged after WP-56a · after WP-55
 - **Scope** (10-ux §6, §14; 11-contract §2.5). bx-logs' `deployment`;
@@ -1630,6 +1774,13 @@ Every card includes these; a card states only what differs.
 - **Tests.** Harness `deployments` (steps 1–8).
 - **Links.** PO-10; the echo rule (a component shows the deployment the
   server echoed, never the one it asked for).
+- **From wave 2.1.** WP-55's action ids for `testApi().act()`: the header's
+  `pause`, `resume`, `resume/<name>`, `reloadNow`, `attach/<name>`, `undo`;
+  `add`; a deployment's `deploy`, `promote`, `remove`, `seed`, `reset`,
+  `vaultCopy`, `deliveries`, `alwaysOn`, `limits`, `open`; the tile-wide
+  `reassign`, `protect`, `unprotect`, `blockEdges`; the deploy log's
+  `rollback/<checkpoint>` and `diff/<checkpoint>`; and `confirm`. The
+  panel's non-primary logs tab relies on this card's echo check in bx-logs.
 
 #### WP-57 scaffold · M · wave 2.3 · after WP-54
 - **Scope** (13-surfaces §4.17). The admin runtime tab nests non-primary rows
@@ -1663,6 +1814,11 @@ Every card includes these; a card states only what differs.
 - **From wave 2.0.** The M2 request types are in
   `internal/deployments/m2types.go` (WP-30); bx keeps its own client types
   but matches those field names (the bodies are decoded strictly).
+- **From wave 2.1.** No card owns six subcommands 11-contract §9.2 lists:
+  `bx deployment restart`, `fetch`, `backup`, `backups`, `restore` and
+  `backup-schedule`; the integrator assigns them before wave 2.3 (the backup
+  four beside WP-44a's routes). `cmd/bx/deployclient.go` is 786 of 800 lines
+  and `status.go` 767: new bx work goes in new files.
 
 #### WP-59 sdk · S · wave 2.1 · after WP-30
 - **Scope** (11-contract §6). `xbin.Deployment()`, `CallerInfo.Deployment`.
@@ -1713,6 +1869,14 @@ Every card includes these; a card states only what differs.
   failed in both wave 2.0 WPs' runs and in WP-67's A/B at the base (2 of
   8): a request 13–22 µs after the pause answer got `backend error: EOF` or
   a reset from the python generation. go, node and static passed.
+- **From wave 2.1.** The same python failure at the wave 2.1 gate: `make
+  integration`'s `./test` step failed on it in its first two runs at the
+  integration head (a request 16–19 µs after the pause answer got `backend
+  error: EOF` or a reset from the old python generation's socket), then
+  passed twice. In an interleaved A/B of the full `./test` package the wave
+  2.0 base and the head each passed 2 of 2, and
+  `TestLiveReloadPauseRace/backends` alone passed 5 of 5 at each. It shows
+  only under load; go, node and static passed every run.
 
 #### WP-62 itest-fabric · L · wave 2.4 · after every M2 feature WP
 - **Owns.** `test/{edges,flowc}_test.go`.
@@ -1845,8 +2009,8 @@ rather than letting D113 build a second layout.
   `/` is a path under the base; parents made with `subtree_control` before
   their leaf, removed bottom-up once empty; `ProcsTree`; hierarchical usage
   and limit readers; a boot sweep of empty `tile-*` subtrees; weights (tile
-  100; primary 100, non-primary 50); `memory.low` on the primary's node;
-  stubs in `cgroup_other.go`.
+  100; primary 100, non-primary 50), and no memory value on any node (no
+  `memory.low` in v1: NP-06-14, resolved by P25); stubs in `cgroup_other.go`.
 - **Owns.** `internal/cgroup/{cgroup_linux,cgroup_other}.go`,
   `parent_linux_test.go`.
 - **Tests.** `TestNonPrimaryCgroupSubtree`, `TestPrimaryLeafKeepsCaps`;
@@ -1880,6 +2044,12 @@ rather than letting D113 build a second layout.
   `TestRegistryRowsPerDeployment`), `TestSandboxesDeploymentRows`; harness
   `sandboxes`.
 - **Links.** PO-11: `main`'s rows stay byte-identical.
+- **From wave 2.1.** WP-33: `sbxAdd`'s `backend:<CompKey>:g<gen>` IDs
+  collide across deployments that reach the same generation number;
+  `inst.dep` and the name from `startFor` are there for §0.3's
+  `backend+<name>:<CompKey>:g<gen>`. WP-S2: a D113 sandbox leaf is
+  `cgroup.DeploymentNode(key, dep) + "/sbx-<name>"`, through `AddWith` with
+  `NodeWeight` 0.
 
 #### WP-S5 tile-sandboxes-per-deployment · M · wave 2.4, or in D113's project
 
@@ -2029,7 +2199,8 @@ which proves that no two WPs in one wave own the same file.
 | `web/bx-frame.js` | 0.1 WP-00 · 1.2 WP-25 · 2.2 WP-56a |
 | `web/frame-testapi.js` | 0.1 WP-00 · 0.3 WP-08 · 1.2 WP-25 · 2.2 WP-56a |
 | `web/{frame-titlebar,frame-deploy,bx-terminal}.js` | 1.2 WP-25 · 2.2 WP-56a |
-| `web/deploy-state.js`, `hack/deploy-state.test.mjs` | 1.1 WP-24 · 2.1 WP-55 |
+| `web/deploy-state.js`, `hack/deploy-state.test.mjs` | 1.1 WP-24 · 2.1 WP-55 · 2.2 WP-56a |
+| `web/deploy-panel.js`, `hack/deploy-panel.test.mjs`, `hack/deploy-fixtures.mjs` | 2.1 WP-55 (the integrator's split) · 2.2 WP-56a |
 | `hack/ui-harness/passes/livereload.js` | 0.3 WP-08 · 1.2 WP-25 |
 | `hack/ui-harness/passes/deployments.js` | 0.3 WP-08 · 2.2 WP-56b |
 | `hack/ui-harness/passes/sandboxes.js`, admin `tabs/sandboxes.js` | 0.2 WP-S0 · 2.2 WP-S4 |
