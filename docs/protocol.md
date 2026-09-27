@@ -2560,7 +2560,12 @@ and Go's `url.Values` do: a bare `+` decodes to a space and names no tile.
   current code, clears the crash breaker and moves nothing (with
   `checkpoint` or `expect`: 400 `restart runs main's current code: send no
   checkpoint or expect with it`). A checkpoint `main` already runs answers
-  `unchanged: true`, unless its last move failed, which is retried.
+  `unchanged: true` while its backend is healthy or being built; when the
+  backend is crash-looping, failed or not running, or its last move failed,
+  the deploy starts a new generation from the kept build (`how: "restart"`)
+  and clears the crash breaker. The same holds for `rollback` naming the
+  running checkpoint; `live-reload/now` of an identical work tree always
+  answers `unchanged: true`.
 - **`rollback`** without `checkpoint` takes the newest `ok` entry whose
   checkpoint differs from the current one, else 409 `main has no earlier
   checkpoint in its deploy log`.

@@ -181,7 +181,10 @@ bx rollback --to main --checkpoint c:1e9d0aa
   {"tile": "<tile>", "deployment": "main", "restart": true}` starts a new
   generation of the current code, even while it is healthy, and clears the
   crash breaker. Deploying the checkpoint `main` already runs changes nothing
-  (`unchanged: true`), unless its last deploy failed: then it is tried again.
+  (`unchanged: true`) while its backend is healthy. When the backend is
+  crash-looping, failed or not running, or its last deploy failed, the same
+  deploy starts it again from the kept build (logged as `restart`) and
+  clears the crash breaker.
 - **Deploys are asynchronous.** One runs per deployment and up to eight wait
   behind it; a request for the checkpoint already last in line joins that
   entry; a ninth answers 409 `main already has 8 deploys waiting; try again
@@ -196,7 +199,8 @@ bx rollback --to main --checkpoint c:1e9d0aa
   on it), live reload stays paused and `main` stays pinned to the attempted
   checkpoint: every restart runs it, and Reload now retries it.
 - A pinned backend that crash-loops says `deploy a fixed checkpoint or
-  restart it`: a save doesn't reach it.
+  restart it`: a save doesn't reach it, while a deploy of the checkpoint it
+  runs, or a restart, brings it back.
 - Frames reload once after a swap that changed the code a deployment serves
   (reload now, deploy, roll back, resume). Pausing and restarts don't reload
   anything.
