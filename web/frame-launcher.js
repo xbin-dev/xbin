@@ -16,7 +16,7 @@
  */
 import { html, css, nothing } from 'lit';
 import { uid, makeStore } from '/vendor/term-sessions.js';
-import { loadDeployIfShown, launchBanner } from '/vendor/frame-deploy.js';
+import { loadDeployIfShown, launchBanner, launchTarget, targetQuery, targetRefused } from '/vendor/frame-deploy.js';
 
 const prefs = makeStore();
 
@@ -95,7 +95,9 @@ export function resumeHistory(f, row, replaceKey) {
 // turns PENDING (new key, no id) at once, so a listing arriving meanwhile
 // absorbs the new row into it (term-sessions.js) instead of a ghost tab;
 // its <bx-agent> shows "restarting" and creates nothing (bx-frame withholds
-// the provider). Resolves false when declined (the picker snaps back).
+// the provider). A tab whose target changed restarts onto it (?deployment=);
+// one the server doesn't echo ends (targetRefused, 11-contract §7.4).
+// Resolves false when declined (the picker snaps back).
 export async function restartAgent(f, i, patch, what) {
   const cur = f._sessions[i];
   if (!cur?.id || cur.ended) return false;
@@ -108,13 +110,15 @@ export async function restartAgent(f, i, patch, what) {
   f._setActive(i);
   const want = { ...cur, ...patch };
   try {
-    const r = await fetch(`/api/xbin/term/sessions/${encodeURIComponent(cur.id)}/restart`, {
+    const r = await fetch(`/api/xbin/term/sessions/${encodeURIComponent(cur.id)}/restart${targetQuery(want)}`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ net: want.net || undefined, api: want.api !== false, gpu: want.gpu || 'none', vm: !!want.vm }),
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || `restart failed (${r.status})`);
     const s = j.session;
+    const refused = targetRefused(f, want, s);
+    if (refused) throw new Error(refused);
     f._sessions = f._sessions
       .filter((t) => t.id !== s.id || t.key === key) // a listing may already have shown the new row
       .map((t) => (t.key === key ? { ...t, id: s.id, restarting: false, net: t.net ?? s.net ?? null, scopes: s.scopes ?? t.scopes, label: s.label || '' } : t));
@@ -159,6 +163,7 @@ export function launcher(f) {
   const card = (label, sub, onClick) => html`<button class="lcard" @click=${onClick}>
     <span class="lname">${label}</span>${sub ? html`<span class="lsub">${sub}</span>` : nothing}</button>`;
   const recent = (f._history || []).slice(0, 8);
+  const target = launchTarget(f) ? ` ${launchTarget(f)}` : ''; // what a new session calls (10-ux §2.7); '' in the zero state
   return html`<div class="launcher">
     <div class="lhead">Start a session in ${f.src}</div>
     ${f._envOld ? html`<div class="lbase">
@@ -169,9 +174,9 @@ export function launcher(f) {
     ${launchBanner(f)}
     ${vmSwitch(f, vm)}
     <div class="lcards">
-      ${card('Bash', vm ? 'a shell in a VM sandbox' : 'a shell in the sandbox', () => f._startKind('shell'))}
+      ${card('Bash', (vm ? 'a shell in a VM sandbox' : 'a shell in the sandbox') + target, () => f._startKind('shell'))}
       ${provs.length
-        ? provs.map((p) => card(p.name, vm ? 'coding agent, in a VM' : 'coding agent', () => f._startKind('agent', p.id)))
+        ? provs.map((p) => card(p.name, (vm ? 'coding agent, in a VM' : 'coding agent') + target, () => f._startKind('agent', p.id)))
         : html`<span class="lsub">loading agents…</span>`}
     </div>
     ${recent.length ? html`<div class="lrecent">
