@@ -8,9 +8,10 @@
  * where that decision is made. Renders nothing when there is nothing to wire,
  * so it can sit permanently in the root page next to <bx-grants>.
  */
-import { LitElement, html, css, nothing } from 'lit';
+import { LitElement, html, css, nothing, repeat } from 'lit';
 import '/vendor/bx-multiselect.js';
 import { onEvent } from '/vendor/events-socket.js';
+import { bindPreselect, blockedTitle } from '/vendor/bx-netrules.js';
 
 export class BxBindings extends LitElement {
   static properties = {
@@ -134,7 +135,8 @@ export class BxBindings extends LitElement {
       if (sel.length === 0) return;
       body.providers = sel;
     } else {
-      body.provider = picked ?? p.options.find((o) => !o.blocked)?.id;
+      // what the picker shows: a sandbox-net class starts on none (bx-netrules)
+      body.provider = picked ?? bindPreselect(p);
       if (!body.provider) return;
     }
     if (p.expose) {
@@ -198,8 +200,11 @@ export class BxBindings extends LitElement {
     return html`<div class="panel">
       ${this._pending.length > 0 ? html`
         <h4>interfaces to bind</h4>
-        ${this._pending.map((p) => {
+        ${repeat(this._pending, (p) => this._key(p), (p) => {
+          // keyed: a row's <select> is never reused for another slot's row,
+          // so what it shows is what its bind submits
           const key = this._key(p);
+          const cur = this._pick[key] ?? bindPreselect(p);
           const rt = this._routeFor(p);
           // Publishing an EXPOSED endpoint carries route config in the same
           // bind (docs/ingress.md) — without it the server 400s, so the row
@@ -229,10 +234,12 @@ export class BxBindings extends LitElement {
                 @change=${(e) => { this._pick = { ...this._pick, [key]: e.detail.selected }; }}></bx-multiselect>
               <button @click=${() => this._bind(p)}>bind</button>` : html`
               <select @change=${(e) => { this._pick = { ...this._pick, [key]: e.target.value }; }}>
-                ${p.options.map((o) => html`<option value=${o.id} ?disabled=${!!o.blocked} title=${o.blocked ? 'refused by the owning org\'s network sets' : ''}>${o.label}</option>`)}
+                ${cur ? nothing : html`<option value="" disabled selected>pick one…</option>`}
+                ${p.options.map((o) => html`<option value=${o.id} ?disabled=${!!o.blocked} ?selected=${o.id === cur}
+                  title=${o.blocked ? blockedTitle(o) : ''}>${o.label}</option>`)}
               </select>
               ${routeEd}
-              <button ?disabled=${!this._routeReady(p)}
+              <button ?disabled=${!cur || !this._routeReady(p)}
                 @click=${() => this._bind(p)}>${p.expose ? 'publish' : 'bind'}</button>`}
           </div>
           ${this._errs[key] ? html`<div class="rerr">${this._errs[key]}</div>` : nothing}`;

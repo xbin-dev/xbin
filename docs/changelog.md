@@ -102,9 +102,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   personal default. Binding a class restarts nothing, and the tile's own `net`
   slot is unaffected. `GET /bindings` adds `sandboxNetOptions` (the option
   list per component) and lists inert classes in `inert`. The admin console's
-  binding tab, the tile popover and `bx doctor` show the classes. Also: a tile
-  that declares two `net` slots now resolves the name-sorted first every time,
-  instead of whichever map order gave.
+  binding tab, the tile popover and `bx doctor` show the classes, and the
+  shell's bind prompt starts a pending class on `none`, so clicking through
+  it grants no network (a set that says `host` is greyed: "a sandbox class
+  can't reach the host"). Also: a tile that declares two `net` slots now
+  resolves the name-sorted first every time, instead of whichever map order
+  gave.
 - **Terminals: a slow connection no longer reads as "shell ended"**
   ([protocol.md](protocol.md) §`/ws/term`). A socket that fell too far
   behind a terminal's output got `{"op":"exit"}` before it was closed, so

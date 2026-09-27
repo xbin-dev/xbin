@@ -347,7 +347,8 @@ tiles, the same ceiling: every ref inside the org's network sets (D54).
   When `org` or `personal` resolves to rules that include `host`, the class
   keeps the other rules and says so.
 - **Unbound is `none`.** A class has no org or personal default: it never
-  quietly gets the org's network.
+  quietly gets the org's network. The shell's bind prompt starts a class on
+  `none` too, so an approver who clicks through grants nothing.
 - A sandbox selects `none` or `class:<slot>`; the class is resolved again
   at each start, through the same relay as a backend's egress. A class
   whose binding resolves to nothing (a set deleted or narrowed, a
