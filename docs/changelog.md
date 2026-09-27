@@ -55,9 +55,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   triggers; channel policies gain `privateClass`/`webClass`); `toolset:
   "private"|"web"` keeps working and names the built-ins, and
   `config.toolset` still says the lane. A conversation's class is fixed; the
-  view carries it as `class` (with `mixed`). The owner's grants became a
-  registry: the pending ask carries `pendingState.grantAsk` and each live
-  grant `{ask, chip}`.
+  view carries it as `class` (with `mixed`). `PUT /classes` refuses (400,
+  naming the channel) an edit that would take a class a channel runs
+  strangers in — its policy's `webClass`, or the built-in `web` for a
+  channel that names none — out of the web lane, or delete it. The owner's
+  grants became a registry: the pending ask carries
+  `pendingState.grantAsk` and each live grant `{ask, chip}`.
 
 - **Agent template: classes in the UI** (D116). The composer's 🔒/🌐 toggle
   is a class picker — icon and name, each class's description in its menu,
@@ -71,8 +74,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   first. "New chat with options" picks a class. The native view has the
   same (a Class picker in the home toolbar, the subtitle, Settings →
   Classes). `GET /classes` marks each class `stored` and lists the
-  built-ins first. The channel rules form keeps a policy's
-  `privateClass`/`webClass`.
+  built-ins first. On the Automations page, schedules, watchers and
+  triggers pick a class instead of the tool mode (they send `class`, and
+  its lane as `toolset`) and their cards and details say it; the trigger
+  form also refuses public data for a class that can move internal data
+  out. A channel's rules pick everyone else's class (web-lane classes
+  only) and, with the private lane, trusted people's (`webClass`,
+  `privateClass`), and a save sends the whole policy back — fields the
+  form doesn't show (such as `groups.scope`) are no longer dropped.
 - **Agent template: sandbox managers, and a sandbox per conversation**
   (D115; the template's API.md §Coding sandboxes). A new `sandboxes`
   interface slot (`http`, service `sandbox-manager`, multi) binds the agent

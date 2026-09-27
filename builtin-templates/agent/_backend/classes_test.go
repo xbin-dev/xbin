@@ -467,3 +467,76 @@ func TestClassManagersInstances(t *testing.T) {
 		}
 	}
 }
+
+// A class a channel runs strangers in (its webClass; unset: web) stays in the
+// web lane and can't be deleted while a channel names it.
+func TestClassesWebClassGuard(t *testing.T) {
+	ag, mux := chanFixture(t)
+	t.Cleanup(func() { classStore.Store(nil) })
+	put := func(want int, classes ...map[string]any) string {
+		t.Helper()
+		list := []any{}
+		for _, c := range classes {
+			list = append(list, c)
+		}
+		w := callAs(t, mux, asMgr, "PUT", "/classes", map[string]any{"classes": list, "confirmMixed": true})
+		if w.Code != want {
+			t.Fatalf("PUT /classes %v: %d %s", classes, w.Code, w.Body)
+		}
+		var out struct{ Error string }
+		_ = json.Unmarshal(w.Body.Bytes(), &out)
+		return out.Error
+	}
+	research := map[string]any{"id": "research", "name": "Research", "toolsets": []string{"web", "files"}}
+	with := func(c map[string]any, k string, v any) map[string]any {
+		out := map[string]any{}
+		for kk, vv := range c {
+			out[kk] = vv
+		}
+		out[k] = v
+		return out
+	}
+	put(200, research)
+	ch := helloAs(t, mux, "apps/slack", "T1")
+	claim(t, mux, ch, map[string]any{"webClass": "research"})
+
+	put(200, with(research, "description", "reads the web")) // still web-lane: fine
+	for name, c := range map[string]map[string]any{
+		"gains internal reach": with(research, "toolsets", []string{"web", "internal"}),
+		"loses its egress":     with(research, "toolsets", []string{"files"}),
+	} {
+		if out := put(400, c); !strings.Contains(out, "class research is everyone else's class (webClass) on channel \"Slack · Acme\"") {
+			t.Errorf("%s: %s", name, out)
+		}
+	}
+	if out := put(400); !strings.Contains(out, "before deleting it") {
+		t.Errorf("deleting it: %s", out)
+	}
+	// the built-in web is every channel's that names none — an announced one's too
+	helloAs(t, mux, "apps/slack2", "T2")
+	webIn := map[string]any{"id": "web", "name": "Web", "toolsets": []string{"web", "internal"}}
+	if out := put(400, research, webIn); !strings.Contains(out, "class web is everyone else's class") {
+		t.Errorf("web with internal reach: %s", out)
+	}
+	put(200, research, map[string]any{"id": "web", "name": "Www", "toolsets": []string{"web"}})
+	put(200, research) // a built-in left out comes back as its default: still web-lane
+
+	// once no channel names it, it may go
+	if w := callAs(t, mux, asMgr, "PUT", fmt.Sprintf("/channels/%d", ch), map[string]any{"policy": map[string]any{"webClass": "coding"}}); w.Code != 200 {
+		t.Fatalf("the channel's rules: %d %s", w.Code, w.Body)
+	}
+	put(200)
+	put(200, with(research, "toolsets", []string{"web", "internal"}))
+	if out := put(400, map[string]any{"id": "coding", "name": "Coding", "toolsets": []string{"files"}}); !strings.Contains(out, "class coding") {
+		t.Errorf("coding is named now: %s", out)
+	}
+	// a name gone stale (or a class that already isn't one) holds nothing up
+	if _, err := ag.db.q.Exec(`UPDATE channels SET policy=? WHERE id=?`, `{"webClass":"research"}`, ch); err != nil {
+		t.Fatal(err)
+	}
+	put(200, with(research, "toolsets", []string{"internal"}))
+	if _, err := ag.db.q.Exec(`UPDATE channels SET policy=? WHERE id=?`, `{"webClass":"gone"}`, ch); err != nil {
+		t.Fatal(err)
+	}
+	put(200)
+}

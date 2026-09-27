@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -519,7 +520,7 @@ func handleGetClasses(w http.ResponseWriter, r *http.Request) {
 //
 // A class that mixes internal reach with egress is refused (409, naming them
 // in mixed) unless confirmMixed is true. A built-in left out comes back as its
-// default.
+// default. A class a channel runs strangers in stays one (webClassGuard, 400).
 func handlePutClasses(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Classes      []agentClass `json:"classes"`
@@ -551,6 +552,11 @@ func handlePutClasses(w http.ResponseWriter, r *http.Request) {
 			mixed = append(mixed, c.ID)
 		}
 	}
+	next := newClassState(classSettings{Classes: body.Classes})
+	if msg := webClassGuard(loadClasses(agent.db), next, agent.db.listChannels()); msg != "" {
+		xbin.WriteError(w, 400, msg)
+		return
+	}
 	if len(mixed) > 0 && !body.ConfirmMixed {
 		xbin.WriteJSON(w, http.StatusConflict, map[string]any{
 			"error": "these classes hold internal reach together with egress, so their conversations can move internal data out: " +
@@ -560,8 +566,8 @@ func handlePutClasses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Default = strings.TrimSpace(body.Default)
-	if st := newClassState(classSettings{Classes: body.Classes}); body.Default != "" {
-		if _, ok := st.find(body.Default); !ok {
+	if body.Default != "" {
+		if _, ok := next.find(body.Default); !ok {
 			xbin.WriteError(w, 400, "default: one of the classes")
 			return
 		}
@@ -573,4 +579,41 @@ func handlePutClasses(w http.ResponseWriter, r *http.Request) {
 	}
 	loadClasses(agent.db)
 	handleGetClasses(w, r)
+}
+
+// webClassGuard keeps what the channels run strangers in: a class a
+// channel's policy names as everyone else's (webClass; unset: the built-in
+// web) must stay in the web lane — reaching outside, with no internal reach —
+// and can't be deleted while it is named (a built-in left out comes back as
+// its default, which is). cur is the set in force, next the one being saved;
+// "" = fine. A class not in force as a web-lane class now (a name gone stale,
+// or one already moved) holds nothing up: the channel falls back to web.
+func webClassGuard(cur, next *classState, chans []*Channel) string {
+	var ids []string
+	users := map[string][]string{}
+	for _, ch := range chans {
+		id := orStr(ch.Policy.WebClass, classWeb)
+		if _, ok := users[id]; !ok {
+			ids = append(ids, id)
+		}
+		users[id] = append(users[id], strconv.Quote(ch.title()))
+	}
+	for _, id := range ids {
+		if was, ok := cur.find(id); !ok || was.lane() != "web" {
+			continue
+		}
+		on := "channel " + users[id][0]
+		if n := len(users[id]); n > 1 {
+			on = fmt.Sprintf("channels %s and %d more", users[id][0], n-1)
+		}
+		now, ok := next.find(id)
+		switch {
+		case !ok:
+			return fmt.Sprintf("class %s is everyone else's class (webClass) on %s: pick another in its rules before deleting it", id, on)
+		case now.lane() != "web":
+			return fmt.Sprintf("class %s is everyone else's class (webClass) on %s, so it must keep reaching outside with no internal reach "+
+				"(a reply is an egress) — pick another in its rules first", id, on)
+		}
+	}
+	return ""
 }

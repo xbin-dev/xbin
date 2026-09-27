@@ -1,7 +1,7 @@
 // model/auto-channels.js — chat channels on the Automations page (D86), the
 // state and the actions: a channel appears when an adapter tile bound to this
 // agent (a messaging bridge) says hello; a manager claims it; its owner
-// decides who may talk (pairing codes, allowlists), which lane its
+// decides who may talk (pairing codes, allowlists), which lane and class its
 // conversations run in, and sees its sessions and the replies that could not
 // be delivered. auto-channels.js draws it on the web. The adapter side is
 // /docs/agent-inbox.md.
@@ -26,7 +26,9 @@ export async function open(id, page) {
   if (!st.draft) st.draft = draftOf(it);
 }
 
-// The rules form edits a flat draft of the policy (docs/agent-inbox.md).
+// The rules form edits a flat draft of the policy (docs/agent-inbox.md);
+// orig is the policy as it was — PUT replaces the whole policy, so what the
+// form does not show goes back as it was.
 export function draftOf(it) {
   const pol = (it.config || {}).policy || {};
   const dm = pol.dm || {}, g = pol.groups || {};
@@ -37,30 +39,37 @@ export function draftOf(it) {
     requireMention: g.requireMention !== false, followThreads: g.followThreads !== false, groupThreads: g.threads || '',
     linkedOnly: !!g.linkedOnly, trustLinked: !!pol.trustLinked,
     privateLane: !!pol.privateLane, trustedGroups: (pol.trustedGroups || []).join(', '),
-    // the classes its conversations get (D116) — not on the form yet; kept
+    // the classes its conversations get (D116): '' = the lane's built-in
     privateClass: pol.privateClass || '', webClass: pol.webClass || '',
     reset: pol.reset || '', system: pol.system || '', ratePerMin: pol.ratePerMin || '',
     deny: pol.deny ? pol.deny.join(', ') : null, // null: the default list
+    orig: pol,
   };
 }
 
+// policyOf: the policy a save sends — the one it was, with the form's fields.
 export function policyOf(d) {
   const list = (s) => s.split(/[\s,]+/).filter(Boolean);
+  const o = d.orig || {};
   const p = {
-    dm: { policy: d.dmPolicy },
-    groups: { policy: d.groupPolicy, allow: list(d.allow), requireMention: d.requireMention, followThreads: d.followThreads },
+    ...o,
+    dm: { ...(o.dm || {}), policy: d.dmPolicy },
+    groups: { ...(o.groups || {}), policy: d.groupPolicy, allow: list(d.allow), requireMention: d.requireMention, followThreads: d.followThreads },
   };
-  if (d.dmScope) p.dm.scope = d.dmScope;
-  if (d.groupThreads) p.groups.threads = d.groupThreads;
-  if (d.linkedOnly) p.groups.linkedOnly = true;
-  if (d.trustLinked) p.trustLinked = true;
-  if (d.privateLane) { p.privateLane = true; p.trustedGroups = list(d.trustedGroups); }
-  if (d.privateClass) p.privateClass = d.privateClass;
-  if (d.webClass) p.webClass = d.webClass;
-  if (d.reset) p.reset = d.reset;
-  if (d.system.trim()) p.system = d.system.trim();
-  if (+d.ratePerMin > 0) p.ratePerMin = +d.ratePerMin;
-  if (d.deny != null) p.deny = list(d.deny);
+  // a field the form cleared goes (the backend's default)
+  const put = (obj, k, v) => { if (v) obj[k] = v; else delete obj[k]; };
+  put(p.dm, 'scope', d.dmScope);
+  put(p.groups, 'threads', d.groupThreads);
+  put(p.groups, 'linkedOnly', !!d.linkedOnly);
+  put(p, 'trustLinked', !!d.trustLinked);
+  put(p, 'privateLane', !!d.privateLane);
+  put(p, 'trustedGroups', d.privateLane ? list(d.trustedGroups) : null);
+  put(p, 'privateClass', d.privateClass);
+  put(p, 'webClass', d.webClass);
+  put(p, 'reset', d.reset);
+  put(p, 'system', d.system.trim());
+  put(p, 'ratePerMin', +d.ratePerMin > 0 ? +d.ratePerMin : 0);
+  put(p, 'deny', d.deny != null ? list(d.deny) : null);
   return p;
 }
 

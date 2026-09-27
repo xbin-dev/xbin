@@ -120,7 +120,7 @@ export function STUB(seed) {
     ['POST', /\/schedules$/, (m, o) => {
       const b = JSON.parse(o.body);
       const it = { kind: b.watcher ? 'watcher' : 'schedule', id: 99, name: b.name, access: 'owner', enabled: true, mode: b.mode,
-        visibility: b.visibility, config: { cron: b.cron, goal: b.goal }, runs: 0, unread: 0 };
+        visibility: b.visibility, config: { cron: b.cron, goal: b.goal, class: b.class || '', toolset: b.toolset || 'private' }, runs: 0, unread: 0 };
       (seed.automations = seed.automations || []).push(it);
       return json({ id: 99, watcher: !!b.watcher, ...b });
     }],

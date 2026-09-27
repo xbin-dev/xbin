@@ -61,6 +61,21 @@ function pickerTpl(p, open, act, place) {
 export const classOptionsTpl = (app, value) => html`${C.pickerRows(app.classes, value).map((r) =>
   html`<option value=${r.value} ?selected=${r.on} title=${r.description}>${r.label}${r.mixed ? ` — ⚠ ${C.MIXED}` : ''}</option>`)}`;
 
+// classFieldTpl: an automation form's class select (model/classes.js choices
+// rows; name tags it data-cls) with what the picked class is for under it.
+export function classFieldTpl(label, rows, pick, { disabled = false, name = 'class', title = '' } = {}) {
+  const cur = rows.find((r) => r.on);
+  return html`<div class="field"><label>${label}</label>
+    <select data-cls=${name} ?disabled=${disabled} title=${title} @change=${(e) => pick(e.target.value)}>
+      ${rows.map((r) => html`<option value=${r.value} ?selected=${r.on} title=${r.description}>${r.label}</option>`)}</select>
+    ${cur && (cur.description || cur.mixed) ? html`<div class="muted small">${cur.description}
+      ${cur.mixed ? html`<span class="badge clswarn" title=${C.MIXED_WHY}>⚠ ${C.MIXED}</span>` : nothing}</div>` : nothing}</div>`;
+}
+
+// clsBadgeTpl: an automation's class on its card and detail (model/classes.js ofAutomation).
+export const clsBadgeTpl = (c) => html`<span class="badge" data-cls=${c.id} title=${c.known ? `runs in the ${c.name} class` : `runs in ${c.id} (${c.lane} lane)`}>${c.label}</span>${
+  c.mixed ? html` <span class="badge clswarn" title=${C.MIXED_WHY}>${c.warn}</span>` : nothing}`;
+
 // --- ⚙ Classes (managers) --------------------------------------------------------------
 
 /**

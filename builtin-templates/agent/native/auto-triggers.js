@@ -1,14 +1,16 @@
 // native/auto-triggers.js — event triggers on the Automations screens (D87):
 // an automation that starts work when something happens — an event on a bus
 // this agent may read, or a push from a tile bound to it (the webhooks
-// tile). Its row and detail (what it takes, where each event goes, what it
-// still needs wired, its recent events), the form (the lane/data-class
-// firewall refuses a clash), test fire, and pushes no trigger took yet. The
+// tile). Its row and detail (its class, what it takes, where each event
+// goes, what it still needs wired, its recent events), the form (the
+// class/data-class firewall refuses a clash), test fire, and pushes no trigger took yet. The
 // state and the actions are model/auto-triggers.js — the web's
 // auto-triggers.js draws the same.
 import { html, repeat, nothing } from '/vendor/xb-native.js';
 import { ago } from '../model/auto.js';
 import { st, self, startForm, closeForm, firewall, save, toggle, test, reset, del, triggerCan, status, wiring, REASONS, MODES } from '../model/auto-triggers.js';
+import { choices, ofAutomation } from '../model/classes.js';
+import { classRow, classPicker } from './classes.js';
 
 // The page's `custom` while the trigger form is open (the web puts its form
 // template there; here it only says which screen to push).
@@ -19,7 +21,8 @@ export function triggerRow(p, it) {
   const k = status(it);
   const badge = k === 'grant' ? ['needs a grant', 'danger'] : k === 'error' ? ['error', 'danger'] : it.unread ? [`${it.unread} new`, 'accent'] : !it.enabled ? ['off', 'muted'] : null;
   const whose = it.access === 'oversee' ? `${it.owner}'s · ` : it.access !== 'owner' && it.owner ? `by ${it.owner} · ` : '';
-  return html`<row title=${it.name} subtitle=${`${whose}when ${it.summary}${it.lastRunAt ? ` · last ${ago(it.lastRunAt)}` : ''}${it.runs ? ` · ${it.runs} run${it.runs === 1 ? '' : 's'}` : ''}`}
+  const cls = it.config ? `${ofAutomation(p.classes(), it.config).label} · ` : '';
+  return html`<row title=${it.name} subtitle=${`${whose}${cls}when ${it.summary}${it.lastRunAt ? ` · last ${ago(it.lastRunAt)}` : ''}${it.runs ? ` · ${it.runs} run${it.runs === 1 ? '' : 's'}` : ''}`}
     icon="bolt" badge=${badge ? badge[0] : nothing} tone=${badge ? badge[1] : nothing} nav @tap=${() => p.show('trigger', it.id)}/>`;
 }
 
@@ -47,7 +50,8 @@ export function triggerDetail(p, it) {
   if (can.oversee) return html`<section><text tone="muted">${it.summary}</text></section>${head}`;
   const w = wiring(it);
   return html`<section>
-      <row title=${`when ${it.summary}`} subtitle=${`${c.toolset === 'web' ? 'web lane' : 'internal lane'} · takes ${c.dataClass} data${c.deliver ? ` · announces to ${c.deliver}` : ''}`}/>
+      <row title=${`when ${it.summary}`} subtitle=${`takes ${c.dataClass} data${c.deliver ? ` · announces to ${c.deliver}` : ''}`}/>
+      ${classRow(ofAutomation(p.classes(), c))}
       ${c.mode === 'conversation' && c.targetRun ? html`<row title="Its conversation" icon="chat" nav @tap=${() => p.on.select(c.targetRun)}/>` : nothing}
       ${st.note ? html`<notice tone="ok" text=${st.note}/>` : nothing}
       ${w === 'grant' ? html`<notice tone="warn" title=${`This agent may not read ${c.sourceRef} yet`}
@@ -69,14 +73,14 @@ export function triggerForm(p) {
   const f = st.form;
   if (!f) return html`<screen title="Trigger"/>`;
   const set = (k, paint = false) => (e) => { f[k] = e.value; if (paint) p.changed(); };
-  const { clash } = firewall(f);
+  const { clash, why } = firewall(f, p.classes());
   const sessions = [{ value: '', label: 'nobody — read them here' }, ...st.sessions.map((s) => ({ value: s.key, label: s.label })),
     ...(f.deliver && !st.sessions.some((s) => s.key === f.deliver) ? [{ value: f.deliver, label: f.deliver }] : [])];
   const modes = O([['isolated', MODES.isolated], ['persistent', MODES.persistent], ...(f.mode === 'conversation' ? [['conversation', MODES.conversation]] : [])]);
   return html`<screen title=${f.id ? 'Edit trigger' : 'New trigger'} style="form">
     <toolbar><button role="primary" ?disabled=${clash} @tap=${() => save(p)}>${f.id ? 'Save' : 'Create'}</button></toolbar>
     ${p.err ? html`<section><notice tone="danger" text=${p.err}/></section>` : nothing}
-    ${clash ? html`<section><notice tone="danger" title="Save is held" text="The web lane and announcing to a chat both reach outside the workspace, so this trigger must take public data only — or use internal systems and read its answers here."/></section>` : nothing}
+    ${clash ? html`<section><notice tone="danger" title="Save is held" text=${why}/></section>` : nothing}
     <section>
       <field label="Name" placeholder="deploys" value=${f.name} @input=${set('name')}/>
       <picker label="When" style="menu" value=${f.source} @change=${set('source', true)}
@@ -91,8 +95,7 @@ export function triggerForm(p) {
     <section>
       <picker label="Where each event goes" style="menu" value=${f.mode} options=${modes} @change=${set('mode', true)}/>
       <field label="At most, per hour" kind="number" value=${String(f.maxPerHour)} @input=${set('maxPerHour')}/>
-      <picker label="Tool mode" style="menu" value=${f.toolset} @change=${set('toolset', true)}
-        options=${O([['private', 'internal systems, no web'], ['web', 'web, no internal systems']])}/>
+      ${classPicker('Class', choices(p.classes(), f.class), f.class, (v) => { f.class = v; p.changed(); })}
       ${f.source === 'bus' ? html`<row title="The data it takes" detail="private (from inside the workspace)"/>`
         : html`<picker label="The data it takes" style="menu" value=${f.dataClass} @change=${set('dataClass', true)}
           options=${O([['private', 'private (from inside the workspace)'], ['public', 'public (e.g. webhooks from outside)']])}/>`}

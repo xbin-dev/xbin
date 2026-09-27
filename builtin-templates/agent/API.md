@@ -401,7 +401,7 @@ class is refused (400).
 | Method & path | Body | Purpose |
 |---|---|---|
 | `GET /classes` | — | `{classes: [class…], default}` — the classes the caller may start conversations in (a manager sees every one): the built-ins first, then the others as saved, each with `builtin`, `stored` (it is in the saved set — a built-in that is not is its default), `lane` (`private`\|`web`), `egress` and `mixed`; `default` is the class a new conversation of theirs gets when it names none |
-| `PUT /classes` | `{classes: [class…], default?, confirmMixed?}` | managers: replace the classes. A built-in left out comes back as its default (old conversations and APIs name it). **409** `{error, mixed: [id…]}` when a class mixes internal reach with egress and `confirmMixed` isn't set; **400** for a bad id (`a–z 0–9 -`, a letter first, ≤ 32), an unknown toolset or egress, a repeated id, an unknown `default`, or a `who` other than `everyone`/`managers`. Answers as `GET /classes` does |
+| `PUT /classes` | `{classes: [class…], default?, confirmMixed?}` | managers: replace the classes. A built-in left out comes back as its default (old conversations and APIs name it). **409** `{error, mixed: [id…]}` when a class mixes internal reach with egress and `confirmMixed` isn't set; **400** for a bad id (`a–z 0–9 -`, a letter first, ≤ 32), an unknown toolset or egress, a repeated id, an unknown `default`, or a `who` other than `everyone`/`managers`; **400** too for an edit that would take a class a channel runs strangers in — a channel policy's `webClass`, and the built-in `web` for every channel that names none — out of the web lane (losing its egress or gaining internal reach), or delete it (a built-in left out is fine: its default is web-lane); the error names the channel. Answers as `GET /classes` does |
 
 **In the tile.** The composer's class picker (at home, where a new chat
 starts) shows the classes you may use — icon and name, each one's
@@ -420,6 +420,20 @@ stays at its default); **Delete** on a built-in is **Reset to default**;
 saving a mixed class asks first, then sends `confirmMixed`. The native view
 has the same: a Class picker in the home toolbar, the class in the
 conversation's subtitle, Settings → Classes.
+
+**Automations.** The schedule/watcher and trigger forms pick a class the same
+way — the classes you may use; a new schedule starts in `GET /classes`'
+`default`, a new trigger in `internal` (what the backend gives either when
+it names none) — and send `class` with its lane beside it as `toolset`. A
+schedule's class is fixed once it is made, so its edit form only shows it.
+Cards and details say each automation's class (`config.class` in `GET
+/automations`; one from before classes: its lane's built-in; one you may not
+use: its id), with the warning of a mixed one. The trigger form holds Save
+on a clash — private data into a web-lane class or a chat, public data into a
+mixed class. A channel's rules pick everyone else's class (`webClass`: only
+web-lane classes) and, with the private lane open, trusted people's
+(`privateClass`); `PUT /channels/{id}` replaces the whole policy, so the form
+sends back every field, the ones it does not show included.
 
 The web tools go straight out, not through the gateway, so they need the `net`
 interface bound (`bx bind <this component> net=internet`); unbound, they return
@@ -601,8 +615,9 @@ the agent decides everything else — which conversation a message joins (a
 session per DM, per thread), who may talk (pairing codes, allowlists,
 mentions), the lane (web by default: a reply is an egress) and its class
 (policy `webClass` for everyone, default `web` — a class that reaches outside
-and has no internal reach; `privateClass` for trusted people when
-`privateLane` is on, default `internal`) and the tools (`deny`). The adapter contract, the session keys, the chat commands (`/new`,
+and has no internal reach, which `PUT /classes` keeps so while a channel
+names it; `privateClass` for trusted people when `privateLane` is on,
+default `internal`) and the tools (`deny`). The adapter contract, the session keys, the chat commands (`/new`,
 `/status`, `/stop`, …) and the policy fields are in `/docs/agent-inbox.md`.
 
 A channel appears (kind `channel` in `GET /automations`, `access: "claim"`
@@ -1204,7 +1219,7 @@ the same model.
 | `auto.js`, `auto-channels.js`, `auto-triggers.js` | the Automations page's state, its kinds (`registerKind`), and each kind's actions |
 | `home.js` | `HOME` — the home view's words — and what "Needs you" says |
 | `features.js` | `FEATURES`: every feature of the UI by key, and the intended differences between views |
-| `classes.js` | agent classes (D116): the composer's picker and your pick, the conversation's badge, the managers' editor (a class as a form, its checks, what a save sends) |
+| `classes.js` | agent classes (D116): the composer's picker and your pick, the conversation's badge, the managers' editor (a class as a form, its checks, what a save sends), an automation's class (its forms' choices, what its card says, a channel's two classes) |
 | `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the ▣ badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form; `app.sbx` — the list, the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, the run events that carry a binding |
 
 `createApp({deltas, page})` are the native view's options: drafts arrive as
@@ -1222,7 +1237,7 @@ home sends the draft (`POST /ask {draft, files}`).
 | `native/chat.js` | the conversation: `fold()` blocks as the chat family (`message`, `thinking`, `toolcard` with a subagent's transcript inside, `step`, `activity`, `approval`, `question`), the composer (attachments the app uploads to `PUT /runs/{id}/upload`, or at home into the new ask's draft, `PUT /ask/upload?draft=`), the top bar as the toolbar's menu |
 | `native/home.js`, `native/convs.js`, `native/share.js` | home and Needs you; the conversations drawer (a `sheet edge="leading"`), new chat with options, rename; the share sheet |
 | `native/tools.js`, `native/settings.js` | memory, files (+ editor, share/export), skills, the workflow tree, one call in full, the render preview (a `canvas html=` island, `native/render-doc.js` — the web's CSP); settings for managers |
-| `native/classes.js` | agent classes: the Class picker in the home toolbar, the new-chat sheet's class, Settings → Classes (the list, one class's form) |
+| `native/classes.js` | agent classes: the Class picker in the home toolbar, the new-chat sheet's class, Settings → Classes (the list, one class's form), an automation's class row and picker |
 | `native/sandboxes.js` | coding sandboxes: the Sandbox picker in the chat and home toolbars, the ▣ in the subtitle and the broken-binding notice, the Sandbox screen (⋯ → Sandbox), the Sandboxes screen and the create form |
 | `native/auto.js`, `native/auto-channels.js`, `native/auto-triggers.js` | the Automations screens for all four kinds |
 | `native-features.js` | `IMPLEMENTS`: what the native view implements, by feature key (as `web-features.js` for the web) |

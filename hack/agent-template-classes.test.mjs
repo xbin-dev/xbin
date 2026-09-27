@@ -15,6 +15,8 @@ registerHooks({ resolve: (spec, ctx, next) => (spec === '/vendor/bx-kit.js' ? { 
 
 const C = await import(new URL('model/classes.js', TPL).href);
 const ch = await import(new URL('model/auto-channels.js', TPL).href);
+const trig = await import(new URL('model/auto-triggers.js', TPL).href);
+const auto = await import(new URL('model/auto.js', TPL).href);
 
 // GET /classes as a manager sees it (the backend's classView + stored).
 const listed = () => ({
@@ -184,6 +186,89 @@ test('the channel rules form keeps the classes it does not show (D116)', () => {
   const p = ch.policyOf(d);
   assert.deepEqual([p.privateClass, p.webClass], ['ops', 'web']);
   assert.equal('privateClass' in ch.policyOf(ch.draftOf({ name: 'c', config: { policy: {} } })), false);
+});
+
+test('the channel rules form sends the whole policy back: what it does not show, what it cleared', () => {
+  const pol = { dm: { policy: 'pairing', scope: 'main' }, groups: { policy: 'allowlist', allow: ['C1'], scope: 'per-user', linkedOnly: true },
+    privateLane: true, trustedGroups: ['G1'], webClass: 'coding', reset: 'idle:3600', future: { x: 1 } };
+  const d = ch.draftOf({ name: 'c', config: { policy: pol } });
+  let p = ch.policyOf(d);
+  assert.deepEqual([p.groups.scope, p.future, p.webClass, p.dm.scope, p.groups.linkedOnly], ['per-user', { x: 1 }, 'coding', 'main', true],
+    'fields the form does not show ride along');
+  Object.assign(d, { privateLane: false, dmScope: '', linkedOnly: false, reset: '', webClass: '', privateClass: 'bridge' });
+  p = ch.policyOf(d);
+  for (const k of ['privateLane', 'trustedGroups', 'reset', 'webClass']) assert.equal(k in p, false, `${k} cleared`);
+  assert.equal('scope' in p.dm, false);
+  assert.equal('linkedOnly' in p.groups, false);
+  assert.equal(p.privateClass, 'bridge', 'a trusted class is kept even while the private lane is shut');
+  assert.equal(pol.privateLane, true, 'the policy it came from is untouched');
+});
+
+// --- automations: the class they run in ------------------------------------------------
+
+test('an automation\'s class: the forms\' choices, what cards say, the lane sent beside it', () => {
+  const st = C.listOf(listed());
+  assert.deepEqual(C.choices(st, 'web').map((r) => [r.value, r.lane, r.on]),
+    [['internal', 'private', false], ['web', 'web', true], ['coding', 'web', false], ['bridge', 'private', false], ['ops', 'private', false]]);
+  assert.match(C.choices(st, 'bridge').find((r) => r.on).label, /⚠ can move internal data out$/);
+  const gone = C.choices(st, 'old-one');
+  assert.deepEqual([gone.length, gone.at(-1).value, gone.at(-1).gone, gone.at(-1).on], [6, 'old-one', true, true], 'the one it has stays listed');
+  assert.deepEqual(C.choices(st, 'web', 'web').map((r) => r.value), ['web', 'coding'], 'one lane only');
+  assert.deepEqual([C.laneFor(st, 'coding'), C.laneFor(st, 'bridge'), C.laneFor(st, 'gone', 'web'), C.laneFor(st, 'gone')], ['web', 'private', 'web', 'private']);
+  let a = C.ofAutomation(st, { class: 'bridge', toolset: 'private' });
+  assert.deepEqual([a.label, a.lane, a.mixed, a.warn], ['🌉 Bridge', 'private', true, '⚠ can move internal data out']);
+  a = C.ofAutomation(st, { toolset: 'web' });
+  assert.deepEqual([a.id, a.label, a.nativeIcon], ['web', '🌐 Web', 'globe'], 'from before classes: its lane\'s built-in');
+  a = C.ofAutomation(st, { class: 'secret', toolset: 'web' });
+  assert.deepEqual([a.known, a.label, a.lane], [false, 'secret', 'web'], 'one you may not see: its id, its lane');
+  const cc = C.channelClasses(st, { privateClass: '', webClass: '' });
+  assert.deepEqual([cc.web.value, cc.web.rows.map((r) => r.value), cc.private.value, cc.private.rows.length], ['web', ['web', 'coding'], 'internal', 5]);
+  assert.equal(C.channelClasses(st, { webClass: 'bridge' }).web.rows.at(-1).gone, true, 'a stored webClass that no longer fits still shows');
+});
+
+test('the schedule form: your default class, fixed on edit, the class and its lane sent', async () => {
+  const calls = [];
+  const fake = async (url, opt = {}) => {
+    calls.push({ url: String(url), method: opt.method || 'GET', body: opt.body });
+    return new Response(JSON.stringify(String(url).endsWith('/schedules') ? { id: 9 } : { items: [] }), { headers: { 'Content-Type': 'application/json' } });
+  };
+  globalThis.window = globalThis;
+  globalThis.xbin = { self: 'apps/agent', fetch: fake };
+  globalThis.fetch = fake;
+  const st = C.listOf({ ...listed(), default: 'coding' });
+  const page = new auto.AutoPage({ classes: () => st });
+  page.newSchedule();
+  assert.deepEqual([page.form.class, page.form.toolset], ['coding', 'web'], 'a new one: the class a new one of yours gets');
+  Object.assign(page.form, { goal: 'look', class: 'bridge' });
+  await page.save();
+  const body = JSON.parse(calls.find((c) => c.method === 'POST').body);
+  assert.deepEqual([body.class, body.toolset], ['bridge', 'private']);
+  page.editSchedule({ id: 4, kind: 'schedule', name: 'old', config: { cron: '@daily', goal: 'g', toolset: 'web' } });
+  assert.deepEqual([page.form.class, page.form.toolset], ['web', 'web'], 'from before classes: its lane\'s built-in');
+  assert.deepEqual(new auto.AutoPage({}).classes().classes.map((c) => c.id), ['internal', 'web'], 'before GET /classes: the lanes');
+});
+
+test('the trigger form: a class; the firewall holds private data outward and public data from a mixed class', () => {
+  const st = C.listOf(listed());
+  const page = { classes: () => st, changed() {}, items: [] };
+  trig.startForm(page, null);
+  assert.deepEqual([trig.st.form.class, trig.st.form.toolset], ['internal', 'private'], 'a new one: internal, as the backend gives');
+  const f = trig.st.form;
+  assert.deepEqual(trig.firewall(f, st), { clash: false, why: '' });
+  f.class = 'coding';
+  assert.equal(trig.firewall(f, st).why, trig.OUTWARD, 'a web-lane class takes public data only');
+  f.dataClass = 'public';
+  assert.equal(trig.firewall(f, st).clash, false);
+  f.class = 'bridge';
+  assert.match(trig.firewall(f, st).why, /^The Bridge class can move internal data out/);
+  f.class = 'internal';
+  f.deliver = 'chan:8:dm:U2';
+  f.dataClass = 'private';
+  assert.equal(trig.firewall(f, st).clash, true, 'announcing to a chat is outward too');
+  assert.equal(trig.firewall({ toolset: 'web', dataClass: 'private' }).clash, true, 'no classes: the legacy toolset says the lane');
+  trig.startForm(page, { id: 3, config: { name: 't', toolset: 'web', dataClass: 'public' } });
+  assert.deepEqual([trig.st.form.class, trig.st.form.toolset], ['web', 'web'], 'from before classes');
+  trig.closeForm(page);
 });
 
 // --- the app: your pick is remembered, a save refreshes the picker -----------------

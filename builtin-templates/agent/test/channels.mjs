@@ -1,7 +1,8 @@
 // channels.mjs — chat channels on the Automations page (D86): an announced
 // channel to claim (with its rules), the pairing queue (approve by code), the
 // people it knows, its sessions, the replies it could not deliver, and the
-// rules form; the page refreshes on the stream's `automation` events.
+// rules form — with the classes its conversations run in (D116), sending the
+// whole policy back; the page refreshes on the stream's `automation` events.
 //
 //   node test/channels.mjs        (needs playwright + a chromium build)
 import { ORIGIN, STUB, serveTile, launch, checker } from './backend.mjs';
@@ -15,8 +16,9 @@ const seed = {
       summary: 'Slack · Acme via apps/slack', config: { adapter: 'apps/slack', platform: 'slack', state: 'unclaimed', lastSeen: now / 1000 - 30 } },
     { kind: 'channel', id: 8, name: 'Support bot', owner: 'admin', access: 'owner', attention: 2, enabled: true, visibility: 'private', runs: 3,
       summary: 'Slack · Beta via apps/slack2', config: { adapter: 'apps/slack2', platform: 'slack', state: 'active', botName: 'helper',
-        policy: { dm: { policy: 'pairing' }, groups: { policy: 'allowlist', allow: ['C1'] } }, pendingPeers: 1, failedDeliveries: 1 } },
+        policy: { dm: { policy: 'pairing' }, groups: { policy: 'allowlist', allow: ['C1'], scope: 'per-user' } }, pendingPeers: 1, failedDeliveries: 1 } },
   ],
+  classes: { classes: [{ id: 'bridge', name: 'Bridge', icon: '🌉', toolsets: ['internal', 'web'] }], default: '' },
 };
 
 const browser = await launch();
@@ -92,14 +94,21 @@ ok('a failed reply can be retried', true);
 
 // rules: open the private lane; people become trustable
 ok('no trust without the private lane', !(await page.$('.chrow[data-peer="U2"] .chk')));
+const webOpts = await page.$$eval('.autos-page select[data-cls="webClass"] option', (els) => els.map((e) => e.value));
+ok('everyone else\'s class: only classes that reach outside with no internal reach', webOpts.join() === 'web,coding', webOpts.join());
+ok('…the built-in web until one is picked', (await page.inputValue('.autos-page select[data-cls="webClass"]')) === 'web');
+ok('no trusted class without the private lane', !(await page.$('.autos-page select[data-cls="privateClass"]')));
+await page.selectOption('.autos-page select[data-cls="webClass"]', 'coding');
 await page.check('.autos-page label:has-text("private lane") input');
 await page.waitForSelector('.chrow[data-peer="U2"] .chk');
 ok('with it, people can be trusted', true);
+await page.selectOption('.autos-page select[data-cls="privateClass"]', 'bridge');
 await page.click('.autos-page button:has-text("Save rules")');
 await page.waitForFunction(() => window.__calls.some((c) => c.method === 'PUT' && c.url.endsWith('/channels/8')));
 const put = JSON.parse((await called('PUT', '/channels/8'))[0]);
-ok('saving sends the whole policy', put.policy.privateLane === true && put.policy.groups.allow[0] === 'C1' && put.policy.dm.policy === 'pairing',
-  JSON.stringify(put));
+ok('saving sends the whole policy', put.policy.privateLane === true && put.policy.groups.allow[0] === 'C1' && put.policy.dm.policy === 'pairing'
+  && put.policy.groups.scope === 'per-user', JSON.stringify(put));
+ok('…with its classes', put.policy.webClass === 'coding' && put.policy.privateClass === 'bridge', JSON.stringify(put.policy));
 
 // a channel change on the stream refreshes the page
 const before = await page.evaluate(() => window.__calls.filter((c) => c.url.endsWith('/automations')).length);

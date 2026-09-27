@@ -253,3 +253,59 @@ export function editorRows(state) {
 
 // confirmWords: what the person confirms before a mixed class is saved.
 export const confirmWords = (f) => `Save “${f.name.trim() || f.id.trim()}”? It ${MIXED}: ${MIXED_WHY}`;
+
+// --- automations: schedules, watchers, triggers, channels ---------------------------
+
+// laneClass: the built-in a legacy toolset names (as _backend/classes.go).
+export const laneClass = (toolset) => (toolset === 'web' ? 'web' : 'internal');
+
+// laneFor: the lane an automation's class runs in — sent beside `class` as
+// the legacy toolset. A class the list does not have keeps the toolset it had.
+export function laneFor(state, id, toolset = '') {
+  const c = find(state, id);
+  return c ? laneOf(c) : toolset === 'web' ? 'web' : 'private';
+}
+
+// ofAutomation: an automation's class as its card and detail say it, from
+// its config (GET /automations: `class`, else the built-in its legacy
+// `toolset` names). One you may not use, or one since deleted, is said by
+// its id, in the lane its toolset keeps.
+export function ofAutomation(state, cfg) {
+  const id = (cfg && cfg.class) || laneClass(cfg && cfg.toolset);
+  const c = find(state, id);
+  const lane = c ? laneOf(c) : (cfg && cfg.toolset) === 'web' ? 'web' : 'private';
+  return {
+    id, known: !!c, lane, mixed: !!(c && c.mixed), label: c ? label(c) : id, name: c ? c.name || c.id : id,
+    nativeIcon: c ? nativeIcon(c) : lane === 'web' ? 'globe' : 'lock',
+    warn: c && c.mixed ? `⚠ ${MIXED}` : '',
+  };
+}
+
+// choices: an automation form's class select — the classes you may use
+// (lane: only that lane's), each with its lane and warning. The one it has
+// stays listed (gone) even when you may not pick it now.
+export function choices(state, cur, lane = '') {
+  const rows = ((state && state.classes) || []).filter((c) => !lane || laneOf(c) === lane).map((c) => ({
+    value: c.id, label: label(c) + (c.mixed ? ` — ⚠ ${MIXED}` : ''), name: c.name || c.id, description: c.description || '',
+    lane: laneOf(c), mixed: !!c.mixed, nativeIcon: nativeIcon(c), on: c.id === cur, gone: false,
+  }));
+  if (cur && !rows.some((r) => r.on)) {
+    rows.push({ value: cur, label: `${cur} (not one you may pick)`, name: cur, description: '', lane: '', mixed: false,
+      nativeIcon: 'tag', on: true, gone: true });
+  }
+  return rows;
+}
+
+// channelClasses: a channel's two class selects (D116, its rules) — trusted
+// people's (privateClass, when the private lane is open: any class; default
+// internal) and everyone else's (webClass: a class that reaches outside and
+// has no internal reach, as a reply is an egress; default web). An unset one
+// shows its default and stays unset until picked.
+export function channelClasses(state, d) {
+  const priv = d.privateClass || 'internal';
+  const web = d.webClass || 'web';
+  return {
+    private: { value: priv, rows: choices(state, priv) },
+    web: { value: web, rows: choices(state, web, 'web') },
+  };
+}
