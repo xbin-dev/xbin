@@ -448,6 +448,7 @@ final class WorkspaceModel: Identifiable {
             try? await WKWebsiteDataStore.remove(forIdentifier: uuid)
         }
         NativeStateFile.removeAll(workspace: id)
+        NativeRuntimePool.shared.forget(workspace: id)
         tileMeta.removeAll()
     }
 }

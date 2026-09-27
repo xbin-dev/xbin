@@ -72,6 +72,12 @@ struct TerminalKeyboardSettingsView: View {
     var body: some View { EmptyView() }
 }
 
+// Tiles/Widgets/RuntimePool.swift
+@MainActor final class NativeRuntimePool {
+    static let shared = NativeRuntimePool()
+    func forget(workspace id: String) {}
+}
+
 // Tiles/TileSchemeHandler.swift
 @MainActor final class TileSchemeHandler {
     init(workspace: WorkspaceModel) {}
