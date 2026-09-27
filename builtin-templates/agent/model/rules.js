@@ -48,11 +48,17 @@ export function topBar(v, row, me) {
 
 // --- grants (D111) ----------------------------------------------------------------
 
-// What a grant lets the agent do, in words: the ask and the chip.
+// What a grant lets the agent do, in words: the ask and the chip. The backend's
+// registry (_backend/grants.go grantDefs) sends them with the pending ask
+// (pendingState.grantAsk) and each live grant ({ask, chip}); this table is the
+// fallback for an older backend.
 export const GRANTS = {
   threads: { ask: 'read your other conversations and automations', chip: 'reads your threads' },
 };
-const grantWords = (cap) => GRANTS[cap] || { ask: `use “${cap}”`, chip: cap };
+const grantWords = (cap, sent = {}) => {
+  const w = GRANTS[cap] || { ask: `use “${cap}”`, chip: cap };
+  return { ask: sent.ask || w.ask, chip: sent.chip || w.chip };
+};
 
 // grantAsk: a parked call that needs the owner's grant — what it asks, and
 // whether you may allow it (only the conversation's owner, whose threads
@@ -64,7 +70,7 @@ export function grantAsk(run, me) {
   const canAllow = !!(me && me.kind === 'user' && !me.viewedBy && owner && me.user === owner);
   return {
     cap: ps.grant,
-    lead: `The agent asks to ${grantWords(ps.grant).ask}`,
+    lead: `The agent asks to ${grantWords(ps.grant, { ask: ps.grantAsk }).ask}`,
     canAllow,
     note: canAllow ? 'Allow it once, or in this conversation for an hour.' : `Only ${owner || 'its owner'} can allow this — you may deny it.`,
   };
@@ -81,7 +87,7 @@ export function grantChips(v, me, now = Date.now()) {
   const r = v.run;
   const { own } = access(v);
   return (r.grants || []).filter((g) => g.expiresMs > now).map((g) => {
-    const w = grantWords(g.cap);
+    const w = grantWords(g.cap, g);
     return {
       cap: g.cap,
       label: `🔓 ${w.chip} · until ${clock(g.expiresMs)}`,

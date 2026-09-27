@@ -361,6 +361,12 @@ test('rules: a grant asked for, and the grants in force', () => {
   assert.equal(rules.grantChips(v('participant', g), alice, now)[0].revoke, false, 'only the owner revokes');
   assert.deepEqual(rules.grantChips(v('owner', undefined), alice, now), []);
   assert.equal(rules.topBar(v('owner', g), null, alice).grants.length, rules.grantChips(v('owner', g), alice).length);
+  // a capability this table doesn't know takes the backend registry's words
+  const sent = rules.grantAsk(run({ pendingState: { kind: 'approval', grant: 'widgets', grantAsk: 'turn the widgets', toolCalls: [] } }), alice);
+  assert.equal(sent.lead, 'The agent asks to turn the widgets');
+  const sc = rules.grantChips(v('owner', [{ cap: 'widgets', ask: 'turn the widgets', chip: 'turns widgets', expiresMs: now + 60e3 }]), alice, now);
+  assert.match(sc[0].label, /^🔓 turns widgets · until/);
+  assert.match(sc[0].title, /let the agent turn the widgets in this conversation/);
 });
 
 test('rules: who may do what', () => {

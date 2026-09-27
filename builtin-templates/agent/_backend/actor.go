@@ -28,9 +28,11 @@ type pendingState struct {
 	Kind      string     `json:"kind"`                // approval | await | deps
 	ToolCalls []toolCall `json:"toolCalls,omitempty"` // approval: the parked calls
 	// Grant, on an approval, is the capability the calls need from the
-	// conversation's owner (grants.go): only they may allow it.
-	Grant string      `json:"grant,omitempty"`
-	Waits []waitEntry `json:"waits,omitempty"` // await: subagent_wait calls
+	// conversation's owner (grants.go): only they may allow it. GrantAsk is
+	// the registry's words for it, filled in when read (never stored).
+	Grant    string      `json:"grant,omitempty"`
+	GrantAsk string      `json:"grantAsk,omitempty"`
+	Waits    []waitEntry `json:"waits,omitempty"` // await: subagent_wait calls
 }
 
 // waitEntry is one subagent_wait call the run is parked on.
@@ -45,6 +47,9 @@ func parsePending(s string) pendingState {
 	var p pendingState
 	if s != "" {
 		_ = json.Unmarshal([]byte(s), &p)
+	}
+	if p.Grant != "" {
+		p.GrantAsk = grantOf(p.Grant).Ask
 	}
 	return p
 }
@@ -333,8 +338,8 @@ func (e *Engine) turn(a *actor, run *Run, approval *InboxRow) {
 		if !approval.Body.Approve {
 			_ = e.fenced(func(t *DB) error { t.consume(approval.ID, 0); return nil })
 			denied := "(denied by user)"
-			if p.Grant == capThreads {
-				denied = "(denied: the owner did not allow reading their other conversations — scope mine still works)"
+			if d := grantOf(p.Grant).Denied; p.Grant != "" && d != "" {
+				denied = d
 			}
 			if !e.denyParked(run, p, denied) {
 				return
