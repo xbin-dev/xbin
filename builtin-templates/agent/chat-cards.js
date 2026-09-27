@@ -89,7 +89,8 @@ function toolTpl(b, ui) {
   return html`<div class=${classMap({ tcard: true, on: open, [st]: true })} data-fam=${b.fam} data-tool=${b.name}>
     <div class="tch" @click=${() => ui.toggle(b.id, false)} title=${b.name}>
       <span class="ic">${ICON[b.fam] || '•'}</span>
-      <span class="hl">${b.headline}</span>
+      <span class="hl">${b.headline}${b.sub ? html`<span class="sub">${b.sub}</span>` : nothing}</span>
+      ${b.outcome ? html`<span class="oc ${b.outcome.tone}">${b.outcome.text}</span>` : nothing}
       ${st === 'running' || st === 'writing' ? html`<span class="spin"></span>` : nothing}
       ${STATE_LABEL[st] ? html`<span class="st">${STATE_LABEL[st]}</span>` : nothing}
       <span class="tw">${open ? '▾' : '▸'}</span>

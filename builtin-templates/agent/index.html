@@ -129,6 +129,30 @@
     .clsform .field .chk input { width: 15px; }
     .clsmixed { margin: 8px 0; padding: 7px 10px; border-radius: 6px; font-size: 12px;
                 background: color-mix(in srgb, var(--bx-yellow, #d9a441) 12%, transparent); border: 1px solid color-mix(in srgb, var(--bx-yellow, #d9a441) 45%, var(--bx-border)); }
+    /* coding sandboxes (sandboxes.js, model/sandboxes.js): the composer's #ssel, the top bar's ▣ and its popover, the dialog */
+    .ssel[hidden] { display: none; }
+    .sbxwrap { position: relative; display: inline-flex; }
+    .badge.sbxbadge { cursor: pointer; text-transform: none; letter-spacing: 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--bx-mono); }
+    .badge.sbxbadge.broken { color: var(--bx-red); border-color: color-mix(in srgb, var(--bx-red) 50%, var(--bx-border)); }
+    .sbxpop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 31; width: min(340px, 86vw); padding: 10px 12px; display: grid; gap: 8px;
+              background: var(--bx-panel); border: 1px solid var(--bx-border); border-radius: 6px; box-shadow: 0 6px 24px rgba(0,0,0,.35); font-size: 12px; }
+    .sbxhd { display: flex; flex-direction: column; gap: 1px; }
+    .sbxcwd { display: flex; gap: 6px; }
+    .sbxcwd input { flex: 1; min-width: 0; }
+    .sbxatt { padding: 3px 6px; border-radius: 5px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sbxatt:hover, .sbxatt.on { background: var(--bx-panel-2); }
+    .sbxacts { display: flex; gap: 6px; align-items: center; }
+    .sbxdlg { width: min(640px, 94vw); }
+    .sbxdhd { display: flex; align-items: center; gap: 6px; }
+    .sbxrow { padding: 7px 0; border-top: 1px solid var(--bx-border); }
+    .sbxrow.on .nm { color: var(--bx-accent); }
+    .sbxrow .l1 { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    .sbxrow .l2 { font-size: 11.5px; margin-top: 2px; }
+    .badge.sbxst.running { color: var(--bx-green); }
+    .badge.sbxst.error { color: var(--bx-red); }
+    .badge.sbxon { color: var(--bx-accent); border-color: var(--bx-accent); }
+    .sbxform { border-top: 1px solid var(--bx-border); padding-top: 8px; }
+    .sbxform .field { margin-bottom: 8px; }
     /* the top bar's sharing status (model/rules.js shareStatus) */
     .sharepill.on { color: var(--bx-accent); border-color: color-mix(in srgb, var(--bx-accent) 50%, var(--bx-border)); }
     .sharepill.in { color: var(--bx-text); }
@@ -328,6 +352,12 @@
     .tch .ic, .ach .ic { flex: none; width: 18px; text-align: center; color: var(--bx-muted); font-family: var(--bx-mono); font-size: 11px; }
     .tch .hl, .ach .hl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .tch .st, .ach .st { flex: none; font-size: 10.5px; color: var(--bx-muted); }
+    /* a sandbox call (model/tool-heads.js subline, outcome): its command, what it came to */
+    .tch .sub { margin-left: 8px; color: var(--bx-muted); font-family: var(--bx-mono); font-size: 11px; }
+    .tch .oc { flex: none; font-size: 10.5px; font-family: var(--bx-mono); color: var(--bx-muted); }
+    .tch .oc.ok { color: var(--bx-green); }
+    .tch .oc.bad { color: var(--bx-red); }
+    .tch .oc.run { color: var(--bx-accent); }
     .tcard.error { border-color: color-mix(in srgb, var(--bx-red) 45%, var(--bx-border)); }
     .tcard.error .st { color: var(--bx-red); }
     .tcard.approval, .acard.approval { border-color: color-mix(in srgb, var(--bx-yellow, #d9a441) 55%, var(--bx-border)); }
@@ -512,6 +542,7 @@
       <div class="composer">
         <span class="clspick" id="cpick" hidden></span>
         <select class="msel" id="msel" title="the model" hidden></select>
+        <select class="msel ssel" id="ssel" title="the coding sandbox" hidden></select>
         <button class="btn ghost" id="clip" title="Attach files (or drop / paste them) — they land in the run's session files">📎</button>
         <input type="file" id="clipin" multiple hidden>
         <textarea id="msg" rows="1" placeholder="ask anything…" autocomplete="off"></textarea>
@@ -549,6 +580,9 @@
       <div class="dlg-ft"><button class="btn ghost" value="cancel">Cancel</button><button class="btn" id="n-create" value="ok">Start</button></div>
     </form>
   </dialog>
+
+  <!-- the Sandboxes dialog (sandboxes.js draws it) -->
+  <dialog id="sbxdlg" class="sbxdlg"></dialog>
 
   <script type="module" src="agent.js"></script>
 </body>

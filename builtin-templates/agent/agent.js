@@ -27,6 +27,7 @@ import './auto-channels.js'; // draws the Channels kind on that page
 import './auto-triggers.js'; // …and Triggers
 import { openShare } from './share.js';
 import { makeClassPicker, classOptionsTpl, tabClasses } from './classes.js';
+import { makeSandboxUI } from './sandboxes.js';
 import { createApp } from './model/app.js';
 import { HOME } from './model/home.js';
 import * as rules from './model/rules.js';
@@ -59,6 +60,8 @@ const { session, convs, autos } = app;
 // localStorage: tile frames are sandboxed opaque origins with no localStorage
 // at all, and touching it throws — at module scope that kills the whole tile.
 const classPicker = makeClassPicker(app, $('cpick'));
+// The coding sandbox (D115): #ssel beside the model, the top bar's ▣, the Sandboxes dialog.
+const sbxUI = makeSandboxUI(app, { sel: $('ssel'), dlg: $('sbxdlg'), repaint: () => paint() });
 let models = [];         // model references from GET /models ({data:[{ref, id, provider}]})
 let cfgCache = null;     // last GET /config
 let settingsOpen = false;
@@ -157,6 +160,7 @@ function topTpl(v) {
     <span class="title" title=${r.title || ''}>${t.title}</span>
     <span class="badge clsbadge" title=${t.cls.title}>${t.cls.label}</span>
     ${t.cls.warn ? html`<span class="badge clswarn" title=${t.cls.warnTitle}>${t.cls.warn}</span>` : nothing}
+    ${sbxUI.badgeTpl(v)}
     ${t.model ? html`<span class="badge" title="the model this conversation was switched to (the composer's picker)">✦ ${t.model}</span>` : nothing}
     <span class="badge ${r.status}">${r.status}</span>
     ${t.viewOnly ? html`<span class="badge" title="shared with you to read">view only</span>` : nothing}
@@ -191,6 +195,7 @@ function paint() {
   const c = rules.composer(v, HOME);
   classPicker.paint(v);
   syncModelPicker(v);
+  sbxUI.paint();
   $('stop').hidden = !c.stop;
   $('msg').disabled = c.disabled;
   $('msg').placeholder = c.placeholder;
@@ -634,8 +639,9 @@ $('prev-src').onclick = () => {
   openSettings('files');
 };
 document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape' || $('newdlg').open || settingsOpen) return;
+  if (e.key !== 'Escape' || $('newdlg').open || $('sbxdlg').open || settingsOpen) return;
   if (classPicker.open) { classPicker.close(); return; }
+  if (sbxUI.closePop()) return;
   if (preview) { prevDismissed = prevSeen; closePreview(); return; }
   if (wfOpen) closeWorkflow();
 });

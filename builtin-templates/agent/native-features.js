@@ -69,6 +69,10 @@ export const IMPLEMENTS = {
   'composer.placeholder': 'native/chat.js — composerTpl (model/rules.js composer)',
   'composer.disabled': 'native/chat.js — composerTpl (model/rules.js composer)',
   'composer.class': 'native/classes.js classPickerTpl — the Class picker in the home toolbar (the app\'s composer holds buttons only)',
+  // Coding sandboxes (D115): composer.sandbox, top.sandbox, tools.sandboxes
+  // and tools.sandboxes.create are a TEMPORARY gap (model/features.js
+  // DIFFERENCES.native) until this view draws app.sbx (model/sandbox-store.js,
+  // model/sandboxes.js) — then list them here and drop those four entries.
   'composer.model': 'native/chat.js modelPickerTpl — the Model picker in the chat and home toolbars (the app\'s composer holds buttons only)',
   'composer.attach': 'native/chat.js — composer upload (the app picks and uploads)',
   'composer.heldAsk': 'native/chat.js — at home the composer uploads into the new ask\'s draft (app.uploadTarget: PUT /ask/upload?draft=); model/app.js — send sends the draft (POST /ask {draft, files})',

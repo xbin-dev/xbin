@@ -99,6 +99,24 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   another attached sandbox. Its system prompt gains a `# Sandbox` section;
   in Approve mode the tools that change a sandbox park only when it has
   egress.
+- **Agent template: coding sandboxes in the UI** (D115; the template's
+  API.md §Coding sandboxes → "In the UI"). Where the conversation's class
+  (or the new chat's) has the `sandbox` toolset, the composer has a sandbox
+  picker beside the model — This conversation · Yours · Shared · Team, the
+  ones you may not use or the class does not allow disabled with the reason,
+  ＋ New and Manage… — and a pick binds it from the next turn (at home the
+  new chat starts in it). The top bar's ▣ badge shows the sandbox and its
+  working directory, or why the binding no longer resolves (gone, its
+  manager unbound or down, its class no longer allows it); it sets the
+  directory, switches among the attached sandboxes and detaches. The
+  Sandboxes dialog starts, stops, archives, thaws, shares with the team and
+  deletes them as your rights allow, and creates one (manager, image, size,
+  the network the class allows, private or team) — in a conversation, bound
+  there. The coding tools' cards (a ▣ family) show the command under the
+  model's summary and what it came to: bash's `exit 1 · 14s · job 3` or
+  `still running · job 3`, match and file counts, sizes. The model is
+  `model/sandboxes.js` and `app.sbx` (`model/sandbox-store.js`); the web
+  view draws it now, the native view in the next change.
 
 - **Admin console: runtime → sandboxes, and the sandbox in the component
   list** (D112, [isolation.md](isolation.md) §VM sandboxes). A new tab lists
