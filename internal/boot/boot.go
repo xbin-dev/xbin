@@ -340,7 +340,8 @@ func (st *State) stepTerminals() error {
 	}
 	st.Term = tm
 	tm.Sandboxes = st.Sbx
-	tm.HasDeploymentRecord = st.Deployments.HasRecord // the checkpoint fetch remote in sessions
+	tm.HasDeploymentRecord = st.Deployments.HasRecord   // the checkpoint fetch remote in sessions
+	tm.TileDeployments = st.Deployments.TileDeployments // a session's target deployment (P24)
 	return nil
 }
 

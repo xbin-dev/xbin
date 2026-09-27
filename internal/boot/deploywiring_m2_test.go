@@ -27,7 +27,7 @@ func TestDeploymentsWiringM2(t *testing.T) {
 		"broker.AddressedDeployment": a.AddressedDeployment != nil, "broker.RegistrationsActive": a.RegistrationsActive != nil,
 		"broker.DeploymentEdges": a.DeploymentEdges != nil, "broker.ReadDeploymentFile": a.ReadDeploymentFile != nil,
 		"broker.WriteDeploymentFile": a.WriteDeploymentFile != nil, "broker.RemoveDeploymentFile": a.RemoveDeploymentFile != nil,
-		"runner.LimitsFor": st.Run.LimitsFor != nil,
+		"runner.LimitsFor": st.Run.LimitsFor != nil, "term.TileDeployments": st.Term.TileDeployments != nil,
 	} {
 		if !set {
 			t.Errorf("the hook %s is not installed", name)

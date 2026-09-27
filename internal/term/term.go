@@ -160,6 +160,9 @@ type Manager struct {
 	// (wired to the deployments plane by main); nil ⇒ no tile has one, and
 	// sessions get today's env.
 	HasDeploymentRecord func(tile string) bool
+	// TileDeployments answers what a session's target choice needs to know
+	// of a tile (P24, target.go); nil: the zero state for every tile.
+	TileDeployments TileDeploymentsFunc
 
 	mu       sync.Mutex
 	sessions map[string]*Session
