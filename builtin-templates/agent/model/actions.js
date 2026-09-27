@@ -8,16 +8,35 @@
 // dialogs — a view asks "are you sure?" itself, then calls these. The
 // Session (session.js) keeps the calls that act on the open conversation's
 // own state (send, stop, take back a queued message, approve).
-import { selfApi as api, jbody } from '/vendor/bx-kit.js';
+import { selfApi as api, jbody, sandboxed } from '/vendor/bx-kit.js';
+
+// refusing: the kit's selfApi() with the refusal kept — e.status, and a
+// sandbox manager's e.refusal (API.md "Coding sandboxes") beside e.message.
+async function refusing(path, opts) {
+  const x = globalThis.xbin;
+  const f = sandboxed() && x && x.fetch ? x.fetch : fetch;
+  const r = await f(`/api/${x?.self ?? ''}${path}`, opts);
+  const text = await r.text();
+  let data;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!r.ok) {
+    const e = new Error((data && typeof data === 'object' && data.error) || `error ${r.status}`);
+    e.status = r.status;
+    if (data && typeof data === 'object' && data.refusal) e.refusal = data.refusal;
+    throw e;
+  }
+  return data;
+}
 
 // --- asking --------------------------------------------------------------
 
-// ask starts a conversation: {text, class, toolset, title?, system?, hold?} —
-// class wins over the legacy toolset (the lane); hold creates it without a
-// message or a drive (attachments upload into it first).
+// ask starts a conversation: {text, class, toolset, title?, system?, hold?,
+// sandbox?} — class wins over the legacy toolset (the lane); hold creates it
+// without a message or a drive (attachments upload into it first).
 // {draft, files} sends the draft the app uploaded into at home instead
-// (PUT /ask/upload?draft=<key>, API.md "Attachments").
-export const ask = (body) => api('/ask', jbody(body, 'POST'));
+// (PUT /ask/upload?draft=<key>, API.md "Attachments"). A refusal carries
+// e.status (and e.refusal when the sandbox's manager refused).
+export const ask = (body) => refusing('/ask', jbody(body, 'POST'));
 
 // draftKey names a new ask's draft: where the app uploads what is picked at
 // home before there is a conversation (8–64 of A–Z a–z 0–9 _ -).

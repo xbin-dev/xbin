@@ -1026,7 +1026,9 @@ the view).
 leaves the conversation with no active sandbox (the attached stay);
 `detach` takes one off (applied first when both are sent). `POST /ask` also
 takes `{sandbox: {ref, cwd?}}`: the new conversation starts bound (the
-caller must be able to use it; its class must allow it).
+caller must be able to use it; its class must allow it) — refused as the
+sandbox routes refuse (a manager's `refusal` with its status: 404 gone or
+unbound, 403 not allowed, 502 its manager down), and nothing is created.
 
 | Route | Body / query | Result |
 |---|---|---|
@@ -1144,9 +1146,16 @@ the calls); the web draws it in `sandboxes.js`, the native view in
   attached or bound) · Yours · Shared · Team, then ＋ New sandbox… and
   Manage sandboxes…. One you may not use, or that the class does not allow
   (its manager, its egress), is listed disabled with the reason. A pick
-  binds it (`PATCH /runs/{root} {sandbox: {ref}}`, from the next turn); at
-  home it goes with the new chat (`POST /ask {sandbox}`) while the ask's
-  class has the toolset.
+  binds it (`PATCH /runs/{root} {sandbox: {ref}}`, from the next turn) — one
+  the conversation has attached is sent with the `cwd` it had there; a
+  private one going into a conversation other people are in (shared with
+  the team or with people) is confirmed first: they will be able to work in
+  it. At home it goes with the new chat (`POST /ask {sandbox}`) while the
+  ask's class has the toolset; once the list is read, a pick it no longer
+  has says why (gone, its manager unbound or down). An ask refused for its
+  sandbox keeps the typed message, drops the pick and says why — the next
+  new chat goes without one until another is picked. New sandbox is not
+  offered in a conversation you may only read.
 - **The ▣ badge** in the top bar: the active sandbox and its `cwd` — or,
   marked, why the binding no longer resolves (its class no longer allows it,
   its manager is unbound or unavailable, its manager no longer has it). Its
@@ -1156,19 +1165,27 @@ the calls); the web draws it in `sandboxes.js`, the native view in
 - **The Sandboxes dialog** (`#sbxdlg`): every sandbox you may see, yours
   first — state, manager, image, size, egress, owner, private/team, when it
   was last active, how many conversations have it — with **Use here** (or
-  for a new chat), Start / Stop / Thaw (who may use or manage it; one bound
-  to the open conversation that you may not use goes through
-  `?conversation=`), Archive (who may manage it, where its manager
-  archives), Share with the team / Make private (its owner) and Delete (who
-  may manage it, confirmed). **New sandbox**: the manager, a name, its image
-  and size, the network (the class's `sandboxEgress` only), who may use it,
-  a working directory — in a conversation it is made for it and bound there
-  (`POST /sandboxes {conversation}`), at home it becomes the new chat's.
-  Opening a terminal onto one comes with the `sandbox-terminal` tile.
+  for a new chat; confirmed as the picker confirms it), Start / Stop / Thaw
+  (who may use or manage it — and, for one the open conversation holds that
+  you may neither use nor manage, anyone who may talk in it: through the
+  conversation, `?conversation=`, as the one who bound it), Archive (who
+  may manage it, where its manager archives), Share with the team / Make
+  private (its owner) and Delete (who may manage it, confirmed). The rows
+  keep their order while it is open (a Start doesn't move one under the
+  cursor); new ones come after. **New sandbox**: the manager, a name, its
+  image and size, the network (the class's `sandboxEgress` only), who may
+  use it, a working directory — in a conversation it is made for it and
+  bound there (`POST /sandboxes {conversation}`; not offered when you may
+  only read it), at home it becomes the new chat's. Opening a terminal onto
+  one comes with the `sandbox-terminal` tile.
 - **Keeping current.** After a change the conversation's binding is read
   again (`GET /runs/{id}/view?limit=1` → `config`); a `run` event that
   carries `sandbox` (and `attached`, a count) updates it at once, and a
-  changed count reads the binding again.
+  changed count reads the binding again. When the classes change (a
+  manager's save here, or `GET /classes` read afresh) the open
+  conversation's `class` is read again too — its badge, the mixed warning
+  and what its sandboxes may be follow the edit, as the backend applies it
+  from the conversation's next step.
 - **Tool cards**: the coding tools are the ▣ family. A card shows the call's
   own words (the command, `old → new`, the pattern) under the model's
   summary, and what it came to, read from the result: bash's footer
@@ -1179,7 +1196,8 @@ the calls); the web draws it in `sandboxes.js`, the native view in
 - **In the native view** the picker is a Sandbox picker in the chat and
   home toolbars, beside the model's, with short labels (a picker cannot
   disable an option: one you may not use is marked, and picking it says
-  why). The ▣ badge is in the conversation's subtitle, a notice in the
+  why; a private one into a conversation other people are in asks in a
+  sheet first). The ▣ badge is in the conversation's subtitle, a notice in the
   transcript says why a binding no longer resolves, and ⋯ → Sandbox pushes
   the popover's screen (working directory, the attached ones, Detach,
   Manage sandboxes…). The Sandboxes screen puts each row's actions behind

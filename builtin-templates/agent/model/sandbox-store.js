@@ -51,10 +51,16 @@ export function createSandboxStore(app) {
     ensure() { if (!loadedAt && !inflight) sbx.load().catch(() => {}); },
     refresh() { if (Date.now() - loadedAt > 15e3) sbx.load().catch(() => {}); },
 
-    // What the views draw (model/sandboxes.js), for where you are.
+    // What the views draw (model/sandboxes.js), for where you are. rows:
+    // order — the refs as the view shows them (kept while its list is open).
     picker() { return S.sandboxPicker(sbx.list, conv(), app.me, { cls: classes.find(app.classes, app.classId), pick: sbx.pick }); },
     badge(v = conv()) { return S.sandboxBadge(v, sbx.list); },
-    rows() { const v = conv(); return S.sandboxRows(sbx.list, app.me, { conv: v, cls: sbx.cls(), pick: sbx.pick }); },
+    rows(order) { const v = conv(); return S.sandboxRows(sbx.list, app.me, { conv: v, cls: sbx.cls(), pick: sbx.pick, order }); },
+    // createWhy: why New sandbox can't be offered here ('' = it can).
+    createWhy() { return S.createWhy(sbx.list, conv()); },
+    // confirmBind: what a view confirms before choose(ref) ('' = nothing) —
+    // a private sandbox into a conversation other people are in.
+    confirmBind(ref) { return S.bindConfirm(sbx.list, conv(), ref); },
     // form: the create form for f so far — for the open conversation's class
     // (a team conversation's sandbox is a team one), or the next new chat's.
     form(f = {}) {
@@ -69,16 +75,19 @@ export function createSandboxStore(app) {
     },
 
     // choose is the picker: in an open conversation it binds ref from the next
-    // turn ('' = no active sandbox; the attached stay); at home it is the next
-    // new chat's.
+    // turn ('' = no active sandbox; the attached stay) — one it has attached
+    // keeps the working directory it had there, unless cwd names another; at
+    // home it is the next new chat's.
     async choose(ref, cwd = '') {
-      if (!conv()) {
+      const v = conv();
+      if (!v) {
         const s = find(ref);
         sbx.pick = ref ? { ref, cwd, name: s ? s.name : S.splitRef(ref).id } : null;
         emit();
         return;
       }
-      await sbx.bind(ref ? { ref, ...(cwd ? { cwd } : {}) } : null);
+      const dir = cwd || (ref ? (S.attachedOf(v).find((a) => a.ref === ref) || {}).cwd || '' : '');
+      await sbx.bind(ref ? { ref, ...(dir ? { cwd: dir } : {}) } : null);
     },
     // bind: {ref, cwd?} | null on the open conversation (its root).
     async bind(pick) {
@@ -87,13 +96,15 @@ export function createSandboxStore(app) {
       await actions.setRunSandbox(id, { sandbox: pick });
       await sbx.reread(id);
     },
-    // setCwd: the active sandbox's working directory ('' = its workdir).
+    // setCwd: the active sandbox's working directory ('' = its workdir: named
+    // when the list knows it, as a rebind that names none keeps the one it had).
     async setCwd(cwd) {
       const b = S.bindingOf(conv());
       if (!b) return;
       const why = S.cwdCheck(cwd);
       if (why) throw new Error(why);
-      await sbx.bind({ ref: b.ref, cwd: String(cwd || '').trim() });
+      const dir = String(cwd || '').trim() || (find(b.ref) || {}).workdir || '';
+      await sbx.bind({ ref: b.ref, cwd: dir });
     },
     // detach takes one off the open conversation (the active one too).
     async detach(ref) {
@@ -108,6 +119,8 @@ export function createSandboxStore(app) {
     // new chat's pick (unless bind is false).
     async create(f, { bind = true } = {}) {
       const v = conv();
+      const why = S.createWhy(null, v);
+      if (why) throw new Error(S.sentence(why));
       const body = S.createBody(f, { conversation: v ? rootOf(v) : undefined, bind, clientId: cid() });
       const s = await actions.createSandbox(body);
       put(s);
@@ -116,12 +129,11 @@ export function createSandboxStore(app) {
       emit();
       return s;
     },
-    // act: start | stop | archive | thaw. One bound to the open conversation
-    // that you may neither use nor manage goes through it (as its binder).
+    // act: start | stop | archive | thaw. One the open conversation holds
+    // that you may neither use nor manage goes through it (as its binder;
+    // model/sandboxes.js viaConv).
     async act(ref, action) {
-      const v = conv();
-      const s = find(ref);
-      const via = v && s && !(s.canUse || s.canManage) && (s.boundTo || []).includes(rootOf(v)) ? rootOf(v) : undefined;
+      const via = action === 'archive' ? undefined : S.viaConv(find(ref), conv());
       const r = await actions.sandboxAction(ref, action, { conversation: via });
       put(r);
       emit();
@@ -158,6 +170,27 @@ export function createSandboxStore(app) {
       const v = conv();
       if (v && S.attachedOf(v).some((b) => b.ref === ref)) await sbx.reread(rootOf(v)).catch(() => {});
       emit();
+    },
+
+    // refused: an ask that named the next new chat's pick failed (e): when
+    // it was refused for that sandbox (model/sandboxes.js askRefusal) the
+    // pick is dropped — the next ask goes without one — and e says so.
+    // True when it was.
+    refused(e) {
+      const why = S.askRefusal(e);
+      if (!why || !sbx.pick) return false;
+      const name = sbx.pick.name || S.splitRef(sbx.pick.ref).id;
+      sbx.pick = null;
+      e.message = `The sandbox ${name} can't be used: ${why}. Your next new chat starts without one — pick another, or send again.`;
+      emit();
+      return true;
+    },
+    // classesChanged: the classes were saved or read afresh — the open
+    // conversation's class (its badge, the mixed warning, what its sandboxes
+    // may be) is read again, as the backend applies an edit from its next step.
+    async classesChanged() {
+      const ids = new Set([app.sel, app.root].filter((id) => id != null && app.session.views.has(id)));
+      await Promise.all([...ids].map((id) => sbx.reread(id).catch(() => {})));
     },
 
     // reread takes a conversation's stored config (and class) afresh.

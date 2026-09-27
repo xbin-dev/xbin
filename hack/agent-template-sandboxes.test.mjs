@@ -89,6 +89,50 @@ test('the picker: only where the class has the sandbox toolset; grouped; the rea
   const down = S.sandboxPicker(list([], [{ provider: MGR, title: 'Coding sandboxes', ok: false, error: 'unreachable' }]), null, {}, { cls: coding });
   assert.deepEqual(down.notes, ['Coding sandboxes: unreachable']);
   assert.equal(down.actions[0].disabled, true, 'nothing to create at');
+  assert.equal(cold.stale, '', 'not read yet: nothing to say about the pick');
+  assert.equal(cold.groups[0].rows[0].why, '');
+  // a pick the loaded list no longer has says why (review: a stale new-chat pick)
+  const gone = S.sandboxPicker(L, null, {}, { cls: coding, pick: { ref: `${MGR}|x`, name: 'x' } });
+  assert.match(gone.stale, /^gone/);
+  assert.deepEqual(gone.groups[0].rows.map((r) => [r.value, r.on, r.label]), [[`${MGR}|x`, true, 'x · unavailable']]);
+  assert.match(gone.groups[0].rows[0].why, /^gone/);
+  assert.match(gone.notes[0], /^x: gone .* — pick another$/);
+  const unbound = S.sandboxPicker(list([], []), null, {}, { cls: coding, pick: { ref: `${MGR}|x`, name: 'x' } });
+  assert.match(unbound.stale, /its manager \(apps\/coding-sandbox\) is no longer bound/);
+  // a viewer's New says why (review: a viewer was offered New "for this conversation")
+  const ro = S.sandboxPicker(L, { ...v, access: 'viewer' }, {});
+  assert.deepEqual([ro.actions[0].disabled, ro.actions[0].why], [true, S.VIEW_ONLY]);
+});
+
+test('who may make one here; binding a private one into a shared conversation; what an ask refused', () => {
+  const L = list([sb('priv'), sb('team', { visibility: 'team' }), sb('held', { boundTo: [5] })]);
+  assert.equal(S.createWhy(L, conv({})), '');
+  assert.equal(S.createWhy(L, null), '');
+  assert.equal(S.createWhy(L, conv({}, { access: 'viewer' })), S.VIEW_ONLY, 'a viewer: a sandbox made here is made for it');
+  assert.equal(S.createWhy(S.listOf(null), null), 'the sandboxes are still being read');
+  assert.equal(S.createWhy(list([], []), null), 'no sandbox manager is bound');
+  assert.equal(S.createWhy(list([], [{ provider: MGR, ok: false }]), null), 'no sandbox manager is available right now');
+  // a conversation other people are in: a private one asks first
+  const team = conv({}, { run: { id: 5, rootId: 5, status: 'idle', visibility: 'team' } });
+  assert.equal(S.sharedConv(team), true);
+  assert.equal(S.sharedConv(conv({}, { acl: { visibility: 'private', members: [{ user: 'bob', role: 'participant' }] } })), true, 'shared with people');
+  assert.equal(S.sharedConv(conv({})), false);
+  assert.match(S.bindConfirm(L, team, `${MGR}|priv`), /^“priv” is private — people in this conversation will be able to work in it/);
+  assert.equal(S.bindConfirm(L, team, `${MGR}|team`), '', 'a team one: nothing to ask');
+  assert.equal(S.bindConfirm(L, team, `${MGR}|held`), '', 'one it already holds: nothing to ask');
+  assert.equal(S.bindConfirm(L, conv({}), `${MGR}|priv`), '', 'a private conversation: nothing to ask');
+  assert.equal(S.bindConfirm(L, null, `${MGR}|priv`), '', 'at home: nothing to ask');
+  // an ask refused for its sandbox, or for something else
+  const err = (status, message, refusal) => Object.assign(new Error(message), { status }, refusal ? { refusal } : {});
+  assert.equal(S.askRefusal(err(404, 'no sandbox web', 'not-found')), 'no sandbox web');
+  assert.equal(S.askRefusal(err(502, 'the manager is down', 'unavailable')), 'the manager is down');
+  assert.equal(S.askRefusal(err(403, 'this conversation\'s class (Coding) doesn\'t allow a sandbox with egress "open"')), 'this conversation\'s class (Coding) doesn\'t allow a sandbox with egress "open"');
+  assert.equal(S.askRefusal(err(403, 'you may not use this sandbox (web) — its owner can add you as a member')), 'you may not use this sandbox (web) — its owner can add you as a member');
+  assert.equal(S.askRefusal(err(429, 'too many', 'limit')), '', 'a limit is not the pick\'s fault');
+  assert.equal(S.askRefusal(err(400, 'need {text}')), '', 'not about the sandbox');
+  assert.equal(S.askRefusal(err(403, 'the Sandbox class is for the agent\'s managers')), '', 'a class\'s refusal, whatever its name');
+  assert.equal(S.askRefusal(err(400, 'sandbox.cwd: /nope doesn\'t exist in the sandbox')), 'sandbox.cwd: /nope doesn\'t exist in the sandbox');
+  assert.equal(S.askRefusal(new Error('offline')), '', 'no status: not a refusal');
 });
 
 test('the badge: name · cwd, the attached ones, and why a binding no longer resolves', () => {
@@ -141,6 +185,31 @@ test('the dialog\'s rows: state, owner, the actions your rights allow', () => {
   const home = S.sandboxRows(L, {}, { cls: coding, pick: { ref: `${MGR}|stop` } });
   assert.deepEqual(home.filter((r) => r.where).map((r) => [r.name, r.where, r.active]), [['stop', 'next new chat', true]], 'at home: the pick is the next new chat\'s');
   assert.ok(!S.sandboxRows(L, {}, { conv: conv({}, { access: 'viewer' }) }).some((r) => r.actions.some((a) => a.id === 'use')), 'view only: no "use"');
+
+  // one bound here you may neither use nor manage: start/stop/thaw through the
+  // conversation, never archive (review: ?conversation= was never offered)
+  const bobs = { mine: false, owner: { user: 'bob' }, canUse: false, canManage: false, canEdit: false, boundTo: [5] };
+  const T = list([sb('b-stopped', { ...bobs, state: 'stopped' }), sb('b-running', { ...bobs }), sb('b-archived', { ...bobs, state: 'archived' }),
+    sb('b-elsewhere', { ...bobs, state: 'stopped', boundTo: [6] })]);
+  const through = Object.fromEntries(S.sandboxRows(T, { user: 'carol' }, { conv: conv({ sandbox: bind('b-running') }) }).map((r) => [r.name, r.actions]));
+  assert.deepEqual(through['b-stopped'].map((a) => [a.id, a.via]), [['start', true]]);
+  assert.deepEqual(through['b-running'].map((a) => [a.id, a.via]), [['stop', true]]);
+  assert.deepEqual(through['b-archived'].map((a) => [a.id, a.via]), [['thaw', true]]);
+  assert.deepEqual(through['b-elsewhere'], [], 'bound to another conversation: nothing');
+  assert.ok(S.sandboxRows(T, {}, { conv: conv({ sandbox: bind('b-running') }, { access: 'viewer' }) }).every((r) => !r.actions.length), 'a viewer: nothing through it');
+  assert.equal(S.viaConv(T.sandboxes[0], conv({})), 5);
+  assert.equal(S.viaConv(sb('mine'), conv({})), undefined, 'one you may use: as yourself');
+
+  // "Use here" of a private one in a conversation other people are in asks first
+  const team = conv({ sandbox: bind('run') }, { run: { id: 5, rootId: 5, status: 'idle', visibility: 'team' } });
+  const tr = Object.fromEntries(S.sandboxRows(L, {}, { conv: team }).map((r) => [r.name, r.actions.find((a) => a.id === 'use')]));
+  assert.match(tr.stop.confirm, /^“stop” is private — people in this conversation will be able to work in it/);
+  assert.equal(tr.theirs.confirm, undefined, 'a team one: no question');
+
+  // the order a view shows them in is kept; the ones it hasn't shown come after
+  const shown = ['noarch', 'run', 'theirs'].map((n) => `${MGR}|${n}`);
+  const kept = S.sandboxRows(L, {}, { conv: conv({ sandbox: bind('run') }), order: shown }).map((r) => r.name);
+  assert.deepEqual(kept, ['noarch', 'run', 'theirs', 'arch', 'stop'], 'shown first as shown, new ones after in their own order');
 });
 
 test('the create form: the class filters managers and egress; defaults; checks; the body', () => {
@@ -218,13 +287,20 @@ test('the store: pick at home, bind, cwd, detach, create, lifecycle, run events'
   const calls = [];
   const cfgs = { 5: { sandbox: bind('api'), attached: [bind('api')] } };
   const json = (v, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json' } });
-  const L = { sandboxes: [sb('api'), sb('web', { boundTo: [] }), sb('theirs', { mine: false, canUse: false, canManage: false, boundTo: [5] })], managers: managers() };
+  const L = { sandboxes: [sb('api'), sb('web', { boundTo: [], workdir: '/work' }), sb('theirs', { mine: false, canUse: false, canManage: false, canEdit: false, state: 'stopped', boundTo: [5] }),
+    sb('wide', { egress: 'open' })], managers: managers() };
+  let viewClass = coding; // the conversation's class as the backend resolves it now (by id)
   const fake = async (url, opt = {}) => {
     const method = opt.method || 'GET';
     const u = String(url);
     calls.push({ method, url: u, body: opt.body });
     if (u.endsWith('/prefs/class')) return json('coding');
     if (/\/prefs\//.test(u)) return json({}, 404);
+    if (u.endsWith('/classes') && method === 'PUT') {
+      const b = JSON.parse(opt.body);
+      viewClass = b.classes.find((c) => c.id === 'coding');
+      return json({ default: 'internal', classes: [internal, viewClass] });
+    }
     if (u.endsWith('/classes')) return json({ default: 'internal', classes: [internal, coding] });
     if (/\/sandboxes(\?fresh=1)?$/.test(u) && method === 'GET') return json(L);
     if (u.endsWith('/sandboxes') && method === 'POST') {
@@ -247,9 +323,13 @@ test('the store: pick at home, bind, cwd, detach, create, lifecycle, run events'
       return json({ id: +run[1] });
     }
     const vw = /\/runs\/(\d+)\/view(\?limit=1)?$/.exec(u);
-    if (vw) return json({ cursor: 'g.1', run: { id: +vw[1], rootId: +vw[1], status: 'idle', visibility: 'team' }, access: 'owner', class: coding,
+    if (vw) return json({ cursor: 'g.1', run: { id: +vw[1], rootId: +vw[1], status: 'idle', visibility: 'team' }, access: 'owner', class: viewClass,
       config: JSON.parse(JSON.stringify(cfgs[vw[1]] || {})), messages: [], steps: [], links: [], queued: [], drafts: [], chain: [], files: [], memory: {} });
-    if (u.endsWith('/ask')) return json({ id: 9, title: 'x', status: 'running', rootId: 9 });
+    if (u.endsWith('/ask')) {
+      const b = JSON.parse(opt.body);
+      if (b.sandbox && b.sandbox.ref.endsWith('|gone')) return json({ error: 'sandbox gone: no such sandbox', refusal: 'not-found' }, 404);
+      return json({ id: 9, title: 'x', status: 'running', rootId: 9 });
+    }
     if (u.includes('/stream')) return new Response(new ReadableStream({ start() {} }), { headers: { 'Content-Type': 'text/event-stream' } });
     return json({});
   };
@@ -294,8 +374,25 @@ test('the store: pick at home, bind, cwd, detach, create, lifecycle, run events'
   await assert.rejects(app.sbx.setCwd('rel'), /absolute path/);
   await assert.rejects(app.sbx.setCwd('/nope'), /doesn't exist/);
   await app.sbx.setCwd(' /work/web ');
-  assert.deepEqual(JSON.parse(calls.filter((c) => c.method === 'PATCH').pop().body), { sandbox: { ref: `${MGR}|web`, cwd: '/work/web' } });
+  const lastPatch = () => JSON.parse(calls.filter((c) => c.method === 'PATCH').pop().body);
+  assert.deepEqual(lastPatch(), { sandbox: { ref: `${MGR}|web`, cwd: '/work/web' } });
   assert.equal(app.sbx.badge().label, '▣ web · /work/web');
+  // re-picking an attached one keeps its working directory — from the picker
+  // and from "Use here" (review: both reset it to the workdir)
+  await app.sbx.choose(`${MGR}|api`);
+  await app.sbx.choose(`${MGR}|web`);
+  assert.deepEqual(lastPatch(), { sandbox: { ref: `${MGR}|web`, cwd: '/work/web' } }, 'the picker sends its stored cwd');
+  assert.equal(app.sbx.badge().label, '▣ web · /work/web');
+  await app.sbx.perform(`${MGR}|api`, 'use');
+  await app.sbx.perform(`${MGR}|web`, 'use');
+  assert.deepEqual(lastPatch(), { sandbox: { ref: `${MGR}|web`, cwd: '/work/web' } }, '"Use here" too');
+  await app.sbx.choose(`${MGR}|api`, '/srv');
+  assert.deepEqual(lastPatch(), { sandbox: { ref: `${MGR}|api`, cwd: '/srv' } }, 'a cwd named wins');
+  await app.sbx.choose(`${MGR}|web`);
+  // an empty directory is the sandbox's workdir, named when the list knows it
+  await app.sbx.setCwd('');
+  assert.deepEqual(lastPatch(), { sandbox: { ref: `${MGR}|web`, cwd: '/work' } });
+  await app.sbx.setCwd('/work/web');
   // detach; no sandbox
   await app.sbx.detach(`${MGR}|web`);
   assert.deepEqual(JSON.parse(calls.filter((c) => c.method === 'PATCH').pop().body), { detach: `${MGR}|web` });
@@ -314,11 +411,14 @@ test('the store: pick at home, bind, cwd, detach, create, lifecycle, run events'
   assert.equal(app.sbx.badge().name, 'fresh');
   assert.ok(app.sbx.list.sandboxes.some((s) => s.ref === `${MGR}|fresh`), 'in the list at once');
 
-  // lifecycle: as yourself, or through the conversation for one bound here you may not use
+  // lifecycle: as yourself, or through the conversation for one bound here
+  // you may not use — as the dialog's row offers it
   await app.sbx.act(`${MGR}|api`, 'stop');
   let life = calls.filter((c) => /\/(stop|start)\?/.test(c.url)).pop();
   assert.equal(life.url, '/api/apps/agent/sandboxes/apps/coding-sandbox%7Capi/stop?wait=20', 'slashes as they are, | encoded');
-  await app.sbx.act(`${MGR}|theirs`, 'start');
+  const theirs = app.sbx.rows().find((r) => r.name === 'theirs');
+  assert.deepEqual(theirs.actions.map((a) => [a.id, a.via]), [['start', true]], 'the row offers Start through the conversation');
+  await app.sbx.perform(theirs.ref, theirs.actions[0].id, theirs.name);
   life = calls.filter((c) => /\/(stop|start)\?/.test(c.url)).pop();
   assert.match(life.url, /theirs\/start\?wait=20&conversation=5$/);
 
@@ -334,5 +434,42 @@ test('the store: pick at home, bind, cwd, detach, create, lifecycle, run events'
   app.event({ type: 'run', run: 5, root: 5, data: { id: 5, status: 'running' } });
   assert.equal(reads(), before + 1, 'an event without a binding changes nothing');
   assert.ok(heard > 5);
+
+  // a class edit reaches the open conversation's class: its warning, and
+  // what its sandboxes may be (review: they stayed as the view was loaded)
+  const wideWhy = () => app.sbx.picker().groups.flatMap((g) => g.rows).find((r) => r.name === 'wide').why;
+  assert.match(wideWhy(), /doesn't allow a sandbox with open network/);
+  const edited = { ...coding, toolsets: [...coding.toolsets, 'internal'], sandboxEgress: ['none', 'internet', 'open'], mixed: true };
+  await app.saveClasses({ classes: [edited], default: 'internal', confirmMixed: true });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(app.session.current().class.mixed, true, 'the view\'s class is read again');
+  assert.equal(wideWhy(), '', 'an open-network sandbox is allowed now');
+
+  // a view-only conversation: no sandbox is made for it (review: New was offered, then refused)
+  app.session.views.get(5).access = 'viewer';
+  const posts = calls.filter((c) => c.method === 'POST' && c.url.endsWith('/sandboxes')).length;
+  assert.equal(app.sbx.createWhy(), S.VIEW_ONLY);
+  await assert.rejects(app.sbx.create({ name: 'nope', provider: MGR, egress: 'none', visibility: 'private' }), /You may only read this conversation/);
+  assert.equal(calls.filter((c) => c.method === 'POST' && c.url.endsWith('/sandboxes')).length, posts, 'nothing sent');
+  app.session.views.get(5).access = 'owner';
+
+  // a stale new-chat pick: the ask is refused for it — the typed message
+  // stays, the pick is dropped and says why; the next ask goes without it
+  // (review: every new chat failed, and the first message was thrown away)
+  app.home();
+  await app.sbx.choose(`${MGR}|gone`);
+  assert.equal(app.sbx.pick.ref, `${MGR}|gone`);
+  assert.match(app.sbx.picker().stale, /^gone/, 'the loaded list says why before it is sent');
+  let failed = null;
+  app.on('error', (e) => { failed = e; });
+  let cleared = 0;
+  await app.send('a long first message', () => { cleared++; });
+  assert.equal(cleared, 0, 'the composer keeps the text');
+  assert.equal(app.sbx.pick, null, 'the pick is dropped');
+  assert.match(failed.message, /^The sandbox gone can't be used: sandbox gone: no such sandbox\. Your next new chat starts without one/);
+  await app.send('a long first message', () => { cleared++; });
+  ask = JSON.parse(calls.filter((c) => c.url.endsWith('/ask')).pop().body);
+  assert.equal(ask.sandbox, undefined, 'the next ask names none');
+  assert.equal(cleared, 1, 'sent: the composer empties');
   await new Promise((r) => setTimeout(r, 20));
 });

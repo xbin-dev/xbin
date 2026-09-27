@@ -26,7 +26,8 @@ export function openSandboxes({ create = false } = {}) {
 // sandboxPickerTpl: the open conversation's sandbox from its next turn, or at
 // home the next new chat's (model/sandboxes.js sandboxPicker). A picker
 // cannot disable an option: one you may not use is marked, and picking it
-// says why instead of binding it.
+// says why instead of binding it; a private one into a conversation other
+// people are in is confirmed first (sandboxAskSheet).
 export function sandboxPickerTpl() {
   const app = ctx.app;
   const p = app.sbx.picker();
@@ -37,7 +38,8 @@ export function sandboxPickerTpl() {
     label: r.name + (r.state && r.state !== 'running' ? ` (${S.STATES[r.state] || r.state})` : '') + (GROUP[g.id] || '') })));
   const options = [
     { value: '', label: p.none.label, icon: 'minus' },
-    ...rows.map((r) => ({ value: r.value, label: r.disabled ? `${r.label} — unavailable` : r.label, icon: r.disabled ? 'lock' : 'box' })),
+    ...rows.map((r) => ({ value: r.value, label: r.disabled || r.why ? `${r.label} — unavailable` : r.label,
+      icon: r.disabled ? 'lock' : r.why ? 'warning' : 'box' })),
     ...p.actions.map((a) => ({ value: a.id === 'new' ? NEW : MANAGE, label: a.label, icon: a.id === 'new' ? 'plus' : 'list' })),
   ];
   const change = (e) => {
@@ -49,9 +51,27 @@ export function sandboxPickerTpl() {
     }
     const r = rows.find((x) => x.value === to);
     if (r && r.disabled) return fail(`${r.name}: ${r.why}`);
+    const ask = app.sbx.confirmBind(to);
+    if (ask) { ui.sbxAsk = { ref: to, name: r ? r.name : S.splitRef(to).id, text: ask }; return ctx.paint(); }
     return guard(() => app.sbx.choose(to))();
   };
   return html`<picker label="Sandbox" style="menu" value=${p.value} options=${options} @change=${change}/>`;
+}
+
+// sandboxAskSheet: the picker's confirmation — a private sandbox into a
+// conversation other people are in (model/sandboxes.js bindConfirm; the
+// web's confirm()). Use it here binds it; dismissing it binds nothing.
+export function sandboxAskSheet() {
+  const a = ui.sbxAsk;
+  if (!a) return nothing;
+  const done = () => { ui.sbxAsk = null; ctx.paint(); };
+  const use = guard(async () => { ui.sbxAsk = null; await ctx.app.sbx.choose(a.ref); });
+  return html`<sheet open title=${`Use “${a.name}” here?`} detents="medium" @dismiss=${done}>
+    <screen title=${`Use “${a.name}” here?`} style="form">
+      <toolbar><button role="plain" @tap=${done}>Cancel</button><button role="primary" @tap=${use}>Use it here</button></toolbar>
+      <section><notice tone="warn" text=${a.text}/></section>
+    </screen>
+  </sheet>`;
 }
 
 // badgeWords: the open conversation's ▣ for its header's subtitle ('' = none).
@@ -130,8 +150,10 @@ function listTpl(s) {
   const app = ctx.app;
   load(s, () => app.sbx.load(true));
   const L = app.sbx.list;
-  const rows = app.sbx.rows();
-  const usable = L.managers.some((m) => m.ok !== false);
+  // the rows keep the order they were first shown in while the screen is open
+  const rows = app.sbx.rows(s.order);
+  s.order = rows.map((r) => r.ref);
+  const cant = app.sbx.createWhy();
   const act = (r, a) => async () => {
     s.busy = r.ref; s.err = ''; s.msg = '';
     ctx.paint();
@@ -141,8 +163,9 @@ function listTpl(s) {
   };
   return html`<screen title="Sandboxes" subtitle=${app.session.current() ? 'for this conversation' : 'for your next new chat'} style="list"
       refreshable @refresh=${() => { s.loaded = false; ctx.paint(); }}>
-    <toolbar><button icon="plus" ?disabled=${!usable} @tap=${() => push({ kind: 'sandboxNew', f: {}, bind: true })}>New sandbox</button></toolbar>
+    <toolbar><button icon="plus" ?disabled=${!!cant} @tap=${() => push({ kind: 'sandboxNew', f: {}, bind: true })}>New sandbox</button></toolbar>
     ${app.sbx.error ? html`<section><notice tone="danger" text=${app.sbx.error}/></section>` : nothing}
+    ${cant === S.VIEW_ONLY ? html`<section><notice tone="info" text=${S.sentence(cant)}/></section>` : nothing}
     ${repeat(L.managers.filter((m) => m.ok === false), (m) => m.provider, (m) => html`<section><notice tone="warn"
       title=${m.title || m.provider} text=${m.error || 'unavailable'}/></section>`)}
     ${L.loaded && !L.managers.length ? html`<section><notice tone="info" title="No sandbox manager is bound"

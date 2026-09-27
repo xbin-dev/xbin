@@ -26,6 +26,7 @@ import { chatScreens } from './native/chat.js';
 import { homeScreen } from './native/home.js';
 import { drawerSheet, newChatSheet, renameSheet } from './native/convs.js';
 import { shareSheet } from './native/share.js';
+import { sandboxAskSheet } from './native/sandboxes.js';
 import { toolScreens, treeDirty, openRender } from './native/tools.js';
 import { autoScreens } from './native/auto.js';
 
@@ -62,7 +63,7 @@ function draw() {
     ...toolScreens(),
   ];
   render(html`<nav @pop=${pop}>${repeat(screens, (s) => s.key, (s) => s.tpl())}</nav>
-    ${drawerSheet()}${newChatSheet()}${renameSheet()}${shareSheet()}`);
+    ${drawerSheet()}${newChatSheet()}${renameSheet()}${shareSheet()}${sandboxAskSheet()}`);
   // the tile's title and badge in the app's navigator and switcher
   const v = app.session.current();
   const m = { title: v ? app.rules.topBar(v).title : app.HOME.title, badge: app.needs.length ? String(app.needs.length) : null };
