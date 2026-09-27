@@ -113,10 +113,22 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// The bare URL serves the owner's primary: its work tree below, as
+	// always, or its pinned checkpoint (deployserve.go); nothing when that
+	// code can't be served.
+	root, pinned, ok := s.primaryRoot(owner)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
 	// A native runtime document (?native=1 on a tile's directory URL) is
 	// generated, not a file — authorized above exactly like index.html, in
 	// every asset mode.
 	if nativeRuntimeRequest(r) && s.serveNativeRoute(w, r, cleaned) {
+		return
+	}
+	if pinned {
+		s.servePinnedStatic(w, r, cleaned, owner, root)
 		return
 	}
 	if s.strictAssets() {

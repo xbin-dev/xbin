@@ -162,6 +162,12 @@ type componentInfo struct {
 	// allow-same-origin and without credentialless. Absent in other modes
 	// and for chrome.
 	Origin string `json:"origin,omitempty"`
+	// Deployments is the primary summary of a tile with a deployment record
+	// ({primary, pinned, protected}, deployserve.go): the same for every
+	// caller who sees the row. runtime, hasIndex, native, chrome and template
+	// above describe the primary's code; manifestError, roles, uses and deps
+	// the work tree. Deployments are never rows.
+	Deployments *deploymentsSummary `json:"deployments,omitempty"`
 }
 
 func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
@@ -191,12 +197,13 @@ func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
 		if st := s.Reg.LifecycleState(c.Path); st != registry.StateEnabled {
 			ci.State = st
 		}
-		if c.Manifest.Expose != nil {
-			ci.Roles = c.Manifest.Expose.Roles
+		if wt := c.WorkTreeManifest(); wt.Expose != nil { // the roles its authors are writing
+			ci.Roles = wt.Expose.Roles
 		}
 		if len(c.Manifest.Uses) > 0 {
 			ci.Uses = c.Manifest.Uses
 		}
+		ci.Deployments = s.primarySummary(c.Path)
 		out = append(out, ci)
 	}
 	WriteJSON(w, http.StatusOK, out)
@@ -221,12 +228,13 @@ func (s *Server) apiComponent(w http.ResponseWriter, r *http.Request) {
 		ci.Sandbox = s.sandboxExtras(c.Path)
 		ci.Origin = s.tileOriginURL(c.Path)
 	}
-	if c.Manifest.Expose != nil {
-		ci.Roles = c.Manifest.Expose.Roles
+	if wt := c.WorkTreeManifest(); wt.Expose != nil {
+		ci.Roles = wt.Expose.Roles
 	}
 	if len(c.Manifest.Uses) > 0 {
 		ci.Uses = c.Manifest.Uses
 	}
+	ci.Deployments = s.primarySummary(c.Path)
 	apiMD := ""
 	if b, err := os.ReadFile(filepath.Join(c.Dir, "API.md")); err == nil {
 		apiMD = string(b)
