@@ -305,9 +305,8 @@ func (s *Server) serveAssetToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "documents never load through an asset token — link to them with a relative URL (xbin-client navigates it) or xbin.url()", http.StatusForbidden)
 		return
 	}
-	f, fi, err := s.openStrict(owner, cleaned)
-	if err != nil {
-		http.NotFound(w, r)
+	f, fi, done := s.openAssetFile(w, r, owner, cleaned) // the primary's code (deployserve.go)
+	if done {
 		return
 	}
 	defer f.Close()
