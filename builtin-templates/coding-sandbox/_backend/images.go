@@ -130,6 +130,9 @@ func (m *Manager) build(ctx context.Context, im Image, mode string) (out *builtI
 			gone = append(gone, old.Runtime)
 		}
 		if err != nil {
+			// what a failed build says reaches consumers (their sandbox's
+			// stateDetail): never with the build sandbox's runtime name
+			err = hideName(err, b.Runtime, "image:"+im.ID)
 			b.State, b.Detail = "error", errText(err)
 			m.saveImage(b)
 			m.logf("image %s: %v", im.ID, err)

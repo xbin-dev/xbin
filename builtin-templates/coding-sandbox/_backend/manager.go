@@ -323,6 +323,20 @@ func errf(status int, refusal, format string, a ...any) *xbin.SandboxError {
 	return &xbin.SandboxError{Status: status, Refusal: refusal, Message: fmt.Sprintf(format, a...)}
 }
 
+// hideName is err with a runtime name in its message replaced by with (a
+// refusal keeps its status and refusal word).
+func hideName(err error, name, with string) error {
+	if err == nil || name == "" || !strings.Contains(err.Error(), name) {
+		return err
+	}
+	if se, ok := err.(*xbin.SandboxError); ok {
+		e := *se
+		e.Message = strings.ReplaceAll(e.Message, name, with)
+		return &e
+	}
+	return errors.New(strings.ReplaceAll(err.Error(), name, with))
+}
+
 // writeErr answers err in the contract's shape: a backend's refusal as it
 // came (its runtime name replaced by the contract id), anything else 503
 // unavailable.

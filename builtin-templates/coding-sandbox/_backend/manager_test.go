@@ -265,6 +265,31 @@ func TestRuntimeNamesStayInside(t *testing.T) {
 	a.Refused("POST", "/sandboxes/"+sb.ID+"/run", map[string]any{"cmd": "true"}, 503, "unavailable")
 }
 
+// An image's build sandbox has a runtime name too: a failed build's detail
+// (the substrate's refusal, the script's last lines) never shows it.
+func TestImageBuildNamesStayInside(t *testing.T) {
+	t.Parallel()
+	tm := newTestManager(t, "")
+	tm.setConfig(t, func(c *Config) {
+		c.Images = append(c.Images, Image{ID: "leaky", Setup: `pwd; echo "on $SANDBOX_ID"; exit 3`})
+	})
+	a := tm.tg.As(t, "apps/in-a")
+	var bad sandboxcontract.Sandbox
+	a.Call("POST", "/sandboxes?wait=30", map[string]any{"name": "bad", "image": "leaky"}, 201, &bad)
+	tm.m.mu.Lock()
+	built := *tm.m.imgs["leaky"]
+	tm.m.mu.Unlock()
+	if bad.State != "error" || !strings.Contains(bad.StateDetail, "exited 3") || !strings.Contains(bad.StateDetail, "on image:leaky") {
+		t.Fatalf("a sandbox of a broken image: %+v", bad)
+	}
+	if built.Runtime == "" || strings.Contains(bad.StateDetail, built.Runtime) || strings.Contains(built.Detail, built.Runtime) {
+		t.Fatalf("the build sandbox's name %s shows: %q (image: %q)", built.Runtime, bad.StateDetail, built.Detail)
+	}
+	if !strings.Contains(built.Log, built.Runtime) { // the operators' log is the script's own output
+		t.Fatalf("the build log: %q", built.Log)
+	}
+}
+
 func TestExecClientIDsPerConsumer(t *testing.T) {
 	t.Parallel()
 	tm := newTestManager(t, "")
