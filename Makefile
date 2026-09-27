@@ -111,7 +111,7 @@ integration:
 	go test -tags=integration -count=1 -v ./test/...
 	# the confined tool runs (D78) and the sandbox init in real sandboxes: skip
 	# without .rootfs/userns (TestIntegrationPackagesListed keeps this list whole)
-	go test -tags=integration -count=1 -v ./internal/confine/ ./internal/runner/ ./internal/sandbox/
+	go test -tags=integration -count=1 -v ./internal/confine/ ./internal/runner/ ./internal/sandbox/ ./internal/checkpoint/
 	# VM sandboxes (D89): skip without /dev/kvm or the vm-assets; then again
 	# under QEMU's emulation (skips without its assets)
 	go test -tags=integration -count=1 -v ./internal/vm/
