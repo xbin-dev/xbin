@@ -331,6 +331,8 @@ type DryRunAnswer struct {
 type Impact struct {
 	Code             *CodeImpact `json:"code"`
 	Data             string      `json:"data"`
+	Joins            *Joins      `json:"joins,omitempty"`        // add: the existing namespace joined (m2types.go)
+	Placeholders     []string    `json:"placeholders,omitempty"` // a new primary's vault keys with no value (P14)
 	PausesLiveReload bool        `json:"pausesLiveReload"`
 	Stops            []string    `json:"stops"`
 	Affects          string      `json:"affects"`
