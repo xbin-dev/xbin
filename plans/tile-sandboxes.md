@@ -1,7 +1,8 @@
 # Tile-managed sandboxes
 
-> Status: **live** (D113) — being built from
-> [tile-sandbox-runtime.md](tile-sandbox-runtime.md) (D120), whose §0 lists
+> Status: **live** (D113) — built from
+> [tile-sandbox-runtime.md](tile-sandbox-runtime.md) (D120; archive and
+> thaw, its WP-22, remain), whose §0 lists
 > what it changes here: the factory transport, routes that mirror the
 > contract, relay-only terminals, `sandbox-net` egress classes, xbind-owned
 > definitions, removal keeping state. **Revised by D115**: only *sandbox

@@ -3,7 +3,9 @@
 > Status: **live** (D120) — the implementation plan for phase 2 of
 > [sandbox-managers.md](sandbox-managers.md): xbind's tile-sandbox runtime,
 > building [tile-sandboxes.md](tile-sandboxes.md) (D113) as revised by D115
-> and D120. Being built on branch `sandbox-runtime`; §12 is the work list.
+> and D120. Built through WP-21 (branch `sandbox-runtime` → `p3/live`),
+> phase 3's gate met (2026-09-28); WP-22 (archive and thaw) remains. §12 is
+> the work list and says where it stands.
 > The builtin `coding-sandbox` manager (phase 3) serves
 > [docs/sandbox-manager.md](../docs/sandbox-manager.md) by driving this
 > runtime through the SDK (§10, §11).
@@ -1591,17 +1593,24 @@ tiles (the runtime's books).
 the runtime proper and waits on its inputs. Wave 3 closes phase 2 and opens
 phase 3.
 
-**Where it stands (2026-09-27, integration).** Wave 1 (WP-0 … WP-14), its
-follow-ups (WP-2b … WP-14b) and phase 3's groundwork (`p3/prep`: `sdk/ws`)
-are on `sandbox-runtime`, with WP-15a, WP-15b, WP-19 and WP-2b. WP-16 (VM
-mode), WP-17 (commands, TTY) and WP-18 (files, tar, copy) are merged onto
-it on `p2/integ` with the cross-WP glue their handoffs asked for — WP-15b's
-`acquire`/holds/`touch` under every command and file route, VM mode
-through the exec and file suites (KVM and emulated), one mechanism for
-starts a stop over a set overtakes, and the robustness notes (each WP's
-*Integrated* note below): the runtime core is complete and coherent.
-Next: WP-20 (snapshots, clones), then WP-21 (the fixture, end to end:
-phase 3's gate); WP-22 later. The graph below is the original order.
+**Where it stands (2026-09-28).** Phase 2 is built. Wave 1 (WP-0 …
+WP-14) and its follow-ups (WP-2b … WP-14b), wave 2 (WP-15a … WP-19, with
+the cross-WP glue: WP-15b's `acquire`/holds/`touch` under every command and
+file route, VM mode through the exec and file suites, one mechanism for
+starts a stop over a set overtakes), WP-20 (snapshots, clones) and WP-21
+(the fixture and the end to end) are on `sandbox-runtime` → `p3/live`.
+**Phase 3's gate is met** (WP-21's *As built* notes; §13 has every
+command): part A's example passes in namespace (range-uid) and VM mode
+here and on the QA box; the builtin manager, coding-sandbox, passes its
+API.md walk and `sandboxcontract.Run` live — namespace (range) and KVM
+here, namespace and Firecracker on KVM on the QA box with owner auth on,
+no `Target.Skip`; and its consumers, the agent template and
+sandbox-terminal (SSH on a loopback-bound stream expose), drive it end to
+end the same ways. **Remaining:** WP-22 (archive and thaw — coding-sandbox's `archive`
+answers 501 until then); emulated VMs stalling on large guest→host
+transfers (§14, a third-party bug: the emulated contract run is out of the
+gate); the first CI run of `make integration`'s `./test/isolated/`. The
+graph below is the original order.
 
 ```
 Track A  exec core:  WP-1 (built, p2/agentcore) → WP-3 → WP-3b ;  WP-1 → WP-4
@@ -4738,9 +4747,10 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
   mode against a local `--no-auth` stand-in (VM under the QA budget,
   `-parallel 1`). The QA box: part A's `TestNamespace` (range mode) and
   `TestVM` (Firecracker on KVM) pass there through the tunnel; coding-sandbox
-  is blocked — the test instance can't mount the template's encrypted
-  `db` without an AppArmor rule for its workspace (§13), so the manager is
-  held and never starts. The emulated contract run is a known issue (§14).
+  was blocked then — the test instance couldn't mount the template's
+  encrypted `db` without an AppArmor rule for its workspace (§13), so the
+  manager was held — until the owner added the rule (part C). The emulated
+  contract run is a known issue (§14).
   - **Found and fixed by the live runs:** (1) a timeout's KILL missed a
     member that outlived its leader (the contract's `run/timeout`): the
     KILL stays armed, and the agent signals an ended session's group for
@@ -4759,6 +4769,73 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     sandbox-manager.md). (6) A tile held for its encrypted state answered
     "component … is not enabled": it names the resource and the cause now
     (`TestEncryptionHoldReason`, `TestEnsureSaysWhyHeld`).
+
+- **As built, part C** (branch `p3/live`): the QA box's coding-sandbox runs
+  (the owner added the AppArmor rule for the test instance's workspace)
+  and coding-sandbox's consumers, live.
+  - `test/isolated/consumers_test.go`: `TestCodingSandboxConsumers[VM]` is
+    `setupCS` plus llm-gw (`net: host`) in front of hack/fakeopenai on the
+    host's loopback, and the agent template bound to llm-gw and to the
+    manager, `fake/fake-chat` its model. **The agent:** its manager listed
+    with `tty`; a private sandbox made in it (alice's at the manager, in
+    the runtime's mode); a coding conversation bound to it — `sandbox pwd`
+    answers `/work` and the manager's exec carries
+    `agent:<conversation>:<call>`; `write` and `edit`, read back at the
+    manager; a command past its timeout goes on as a job, followed to its
+    end; **Open terminal** (the manager's `tty` through the proxy with the
+    page's frame token, a gorilla client: the layout's user by name; End
+    kills and forgets the exec, which ends the terminal; bob's page is
+    refused); a team conversation's sandbox bob works in (he can't bind
+    alice's private one to it); `sandbox_create` parking for the owner's
+    grant (bob may not allow it, alice allows it once; the new sandbox is
+    the team's, attached beside the active one). **sandbox-terminal**,
+    bound to the manager: the agent shares alice's sandbox with it for
+    her (bob lists nothing); a browser terminal; SSH on a stream expose
+    bound to a `127.0.0.1` port (the host's `/proc/net/tcp*` show no other
+    listener on it): a pty session (`stty size` the requested one, the
+    exit status), exec mode (stdout and stderr together, the exit code,
+    stdin), and access removed (the live connection cut, the next login
+    `access revoked` exit 1, the key kept inactive).
+  - **Remote with people.** `SBXTEST_AUTH=1 qa-sbxtest.sh deploy` runs the
+    test instance with owner auth on; `Connect` reads its owner token
+    (`.xbin/token` through `XBIN_E2E_SH`), `AddUser` replaces an earlier
+    run's account and deletes it when the test ends, the operator's write
+    access names the per-run manager, fakeopenai is uploaded to the box and
+    killed by its PID, and `Forward` (`XBIN_E2E_FORWARD`, an `ssh -L`)
+    reaches the SSH expose. So nothing is skipped there any more.
+  - **Results.** Here: the four coding-sandbox tests and both consumer
+    tests, namespace (range) and KVM (walk 109 s, contract 16 s,
+    consumers 73/79 s). The QA box with owner auth on, all six:
+    Firecracker on KVM — `TestCodingSandboxVM` 240 s,
+    `TestCodingSandboxContractVM` 65 s (`-parallel 1`), and
+    `TestCodingSandboxConsumersVM` 249 s — and namespace —
+    `TestCodingSandbox` 162 s, `TestCodingSandboxContract` 61 s,
+    `TestCodingSandboxConsumers` 234 s; no `Target.Skip` (only the
+    capability skips `tty/unsupported` and `lifecycle/archive`). Before
+    that, `--no-auth`, the VM contract passed with its four people checks
+    skipped. Only sshd listened publicly on the box throughout (the SSH
+    exposes on `127.0.0.1:3xxxx`, owned by the test xbind).
+  - **Found and fixed:** (1) the layout's user wasn't an account: uid 1000
+    is the rootfs's `ubuntu`, so `id -un`, the prompt and getpwuid's home
+    (OpenSSH's `~/.ssh`) disagreed with `USER=dev` and `HOME=/home/dev`.
+    The first start's prepare now makes the layout's user the account of
+    its uid, as `usermod -l`/`groupmod -n` would, in awk on any substrate
+    (`TestPrepareScriptAccounts`; the walk checks `id -un` and `getent
+    passwd 1000`). (2) The walk's host check took the QA box's public IP
+    for the host's: it is its provider's 1:1 NAT, so a flow there leaves
+    the box and comes back as any internet client's — the relay can't and
+    needn't refuse it. The check now refuses every address `ip addr` gives
+    the host, and docs/isolation.md says what a NAT'd public address is.
+    (3) `qa-sbxtest.sh deploy` chowned the workspace before stopping the
+    instance, whose gocryptfs views refuse root: it stops first. (4) The
+    interrupted run's consumer test expected an exec to outlive its
+    `DELETE` (the contract forgets it), the agent's mark in the exec's
+    label (it is the `clientId`) and `write` without its newline.
+  - Docs checked against the live runs: docs/sandbox-manager.md (the
+    people's terminals — now saying `--listen 127.0.0.1:2222` keeps
+    sandbox-terminal's SSH on loopback —, the builtin manager, "On xbin"),
+    coding-sandbox's and sandbox-terminal's `API.md`,
+    workspace-template/AGENTS.md (now naming both tiles).
 
 ### WP-22 — Archive and thaw *(later; split when scheduled)*
 
@@ -4816,53 +4893,79 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     would release unpinned `.rootfs-*` siblings of the shared main
     checkout's rootfs, so use a copied rootfs (WP-21's `test/isolated/`).
   - Kill only the PIDs you started; stop the harness with `run.sh --stop`.
-- **coding-sandbox live (WP-21 part B).** `test/isolated/codingsandbox_test.go`
-  instantiates the template as `apps/cs` on an xbind with owner auth on
-  (people are accounts: alice, bob, carol, zoe, mallory; wanda with write
-  access to the tile; nora with `noTerminal`), approves `cap:sandboxes`,
-  binds its `internet` class and a consumer, and drives everything
-  through the proxy. Here (Bash sandbox off):
+- **coding-sandbox live (WP-21 parts B and C).**
+  `test/isolated/codingsandbox_test.go` instantiates the template as
+  `apps/cs` on an xbind with owner auth on (people are accounts: alice,
+  bob, carol, zoe, mallory; wanda with write access to the tile; nora with
+  `noTerminal`), approves `cap:sandboxes`, binds its `internet` class and a
+  consumer, and drives everything through the proxy.
+  `test/isolated/consumers_test.go` (part C) adds its consumers on top: the
+  agent template (`apps/agent`, its `llm` slot on llm-gw → hack/fakeopenai
+  on the host's loopback, its `sandboxes` slot on the manager) and
+  sandbox-terminal (its SSH a stream expose on a loopback port). Here (Bash
+  sandbox off):
 
       export GOMODCACHE=… XBIN_TEST_ROOTFS=/home/magik6k/buxon/.rootfs
       go test -tags=integration -count=1 -v -run '^TestCodingSandbox$' ./test/isolated/          # API.md's plan, namespace (range mode)
       go test -tags=integration -count=1 -v -run '^TestCodingSandboxVM$' ./test/isolated/        # the same, auto → VM (KVM)
       go test -tags=integration -count=1 -v -run '^TestCodingSandboxContract$' ./test/isolated/  # sandboxcontract.Run, namespace
       go test -tags=integration -count=1 -v -run '^TestCodingSandboxContractVM$' ./test/isolated/ # the same, VM (KVM)
+      go test -tags=integration -count=1 -v -run '^TestCodingSandboxConsumers(VM)?$' ./test/isolated/ # the agent and sandbox-terminal, both modes
 
   `XBIN_VM_ACCEL=emulate` runs the VM ones emulated: the contract hangs
   there (§14, known issue). **A remote xbind** — the QA box's test
-  instance (`qa-sbxtest.sh deploy <worktree>`, then `qa-sbxtest.sh tunnel
-  18650`) — runs the same tests with `XBIN_E2E_URL` (test/xbindtest
-  `remote.go`): tiles are named per run (`apps/cs-<MMDD-hhmmss>`),
-  consumers are written through `XBIN_E2E_SH`, `RequireVM` sets a small
-  budget (`XBIN_E2E_VM_MIB` 2048, `XBIN_E2E_VMS` 4; the plan's walk keeps
-  at most three sandboxes running, one of them 1 GiB), and the instance
-  runs `--no-auth`, so the four contract checks that act as verified
-  people are skipped (said so) and the walk's people parts use an
-  asserted person or the owner:
+  instance — runs the same tests with `XBIN_E2E_URL` (test/xbindtest
+  `remote.go`). Deploy it with owner auth on, so people are accounts there
+  too (`SBXTEST_AUTH=1 qa-sbxtest.sh deploy <worktree>`: no `--no-auth`;
+  `Connect` reads the owner token from `$XBIN_E2E_WS/.xbin/token` through
+  `XBIN_E2E_SH`), then `qa-sbxtest.sh tunnel 18650`. Tiles are named per
+  run (`apps/cs-<MMDD-hhmmss>`, `apps/agent-<run>`, …), accounts of an
+  earlier run are replaced (and deleted when the test ends), consumers are
+  written through `XBIN_E2E_SH`, fakeopenai is built for linux/amd64,
+  uploaded and run on a free `127.0.0.1` port of the box (killed by its
+  PID at the end), sandbox-terminal's SSH binds a free `127.0.0.1` port of
+  the box and is reached through `XBIN_E2E_FORWARD` (an `ssh -L`), and
+  `RequireVM` sets a small budget (`XBIN_E2E_VM_MIB` 2048, `XBIN_E2E_VMS`
+  4; the walk keeps at most three sandboxes running, one of them 1 GiB).
+  On a `--no-auth` instance the four contract checks that act as verified
+  people are skipped (said so), the walk's people parts use an asserted
+  person or the owner, and the consumers skip.
 
       export XBIN_E2E_URL=http://127.0.0.1:18650 XBIN_E2E_WS=/opt/xbin-sbxtest/workspace \
         XBIN_E2E_SH="qa-sbxtest.sh sh 'sudo -u xbin sh -s'" \
         XBIN_E2E_RESTART="qa-sbxtest.sh sh 'sudo systemctl restart xbin-sbxtest'" \
-        XBIN_E2E_LOGS="qa-sbxtest.sh logs 80" XBIN_E2E_HOST_TCP=84.239.100.188:22
+        XBIN_E2E_LOGS="qa-sbxtest.sh logs 80" XBIN_E2E_HOST_TCP=84.239.100.188:22 \
+        XBIN_E2E_FORWARD="ssh -o BatchMode=yes -o ExitOnForwardFailure=yes -N -L {local}:{remote} ubuntu@84.239.100.188"
       go test -tags=integration -count=1 -v -run '^TestCodingSandboxVM$' ./test/isolated/
       go test -tags=integration -count=1 -v -parallel 1 -run '^TestCodingSandboxContractVM$' ./test/isolated/
+      go test -tags=integration -count=1 -v -run '^TestCodingSandboxConsumersVM$' ./test/isolated/
+      # namespace (range) mode there: setupCS turns the VM policy's tiles off first (NoVM;
+      # RequireVM turns them on again), so the manager's `auto` gives namespaces
+      go test -tags=integration -count=1 -v -parallel 1 -run '^TestCodingSandbox$|^TestCodingSandboxContract$|^TestCodingSandboxConsumers$' ./test/isolated/
       # part A's example (1 GiB sandboxes, three at most):
       XBIN_E2E_VM_MIB=3072 XBIN_E2E_VMS=3 go test -tags=integration -count=1 -v -parallel 1 -run '^TestNamespace$|^TestVM$' ./test/isolated/
 
-  `XBIN_E2E_HOST_TCP` is the box's sshd on its public address: `internet`
-  must not reach the host's own addresses. Nothing the tests do listens on
-  the box (xbind stays on 127.0.0.1; check with `qa-sbxtest.sh sh 'sudo ss
-  -ltnp | grep -v 127.0.0'`). The test instance's unit needs Go on its
-  `PATH` (`/usr/local/go/bin`, as `xbin.service` has; `qa-sbxtest.sh
-  deploy` now sets it), or no Go tile builds ("go toolchain: exec: go: not
-  found"). **It also needs FUSE mounts under
-  its workspace**: vault encryption at rest is on there, and AppArmor's
-  fusermount3 profile allows gocryptfs only under the paths the installer
-  added (`/opt/xbin/workspace/.xbin/resenc/**/`), so the template's
-  encrypted `db` resource fails to mount (xbind logs the fix: the same two
-  rules for `/opt/xbin-sbxtest/workspace/.xbin/resenc/**/` in
-  `/etc/apparmor.d/local/fusermount3`) and the manager never starts.
+  `XBIN_E2E_HOST_TCP`'s port is one the host listens on at every address
+  (its sshd): `internet` must reach it at none of the host's own addresses
+  (`ip addr` on the host, through `XBIN_E2E_SH`). The QA box's public
+  address isn't one: it is its provider's 1:1 NAT onto `10.128.0.112`, so
+  a flow there leaves the box and comes back as any internet client's —
+  logged, not refused (docs/isolation.md). Nothing the tests do listens
+  publicly on the box (xbind, fakeopenai and the SSH expose stay on
+  127.0.0.1; the test reads the box's `/proc/net/tcp*` after binding, and
+  `qa-sbxtest.sh sh 'sudo ss -ltnp | grep -v 127.0.0'` shows only sshd).
+  The test instance's unit needs Go on its `PATH` (`/usr/local/go/bin`, as
+  `xbin.service` has; `qa-sbxtest.sh deploy` sets it), or no Go tile
+  builds ("go toolchain: exec: go: not found"), and FUSE mounts under its
+  workspace: vault encryption at rest is on there, and AppArmor's
+  fusermount3 profile allows gocryptfs only where
+  `/etc/apparmor.d/local/fusermount3` says — the installer adds
+  `/opt/xbin/workspace/.xbin/resenc/**/`, and the owner added the same two
+  rules for `/opt/xbin-sbxtest/workspace/.xbin/resenc/**/` (2026-09-28);
+  without them the template's encrypted `db` fails to mount and the
+  manager is held (xbind logs the fix). `qa-sbxtest.sh deploy` stops the
+  instance before it chowns the workspace (a running xbind's gocryptfs
+  views refuse root).
 - **Harness.** The passes `sandboxes`, `sandboxNet`, the bindings rows, and
   the `predict`/`termrun` passes (termwire). They are the only JS regression
   tests. Two failures predate phase 2 (reproduced on 783c50de): `predict`'s
@@ -4921,6 +5024,16 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
   streams in ≤ 32 KiB chunks. Until then the emulated contract run is out
   of the gate (emulation is local-only anyway); `TestVM` emulated (small
   transfers) still passes.
+- **A host's public address behind a NAT (WP-21 part C).** The relay
+  refuses every address the host delivers locally, decided per flow by a
+  route lookup. A cloud VM's public IP that its provider maps 1:1 onto a
+  private one (the QA box: `84.239.100.188` → `10.128.0.112`) isn't one:
+  the flow leaves the host and comes back as any internet client's, so a
+  sandbox with `internet` reaches what the host serves publicly there
+  (xbind too, if it listens publicly — with no identity, as any client),
+  never loopback or the host's own addresses. Refusing it would need the
+  host's public addresses from the operator (a policy knob); not planned:
+  what is served there is public anyway. docs/isolation.md says so.
 - **fuse-overlayfs** is slower than a kernel overlay for build-heavy work.
   The flavour stamp keeps it consistent; measuring the difference is a
   WP-21 note, not a blocker.

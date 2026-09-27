@@ -1,9 +1,10 @@
 # Sandbox managers, agent classes, and agents in coding sandboxes
 
 > Status: **live** (D115, D116, D120) — phase 1 is built (merged in
-> 9b1bb95); phase 2's implementation plan is
-> [tile-sandbox-runtime.md](tile-sandbox-runtime.md) (D120); phase 3 is
-> designed below.
+> 9b1bb95); phase 2 is built from
+> [tile-sandbox-runtime.md](tile-sandbox-runtime.md) (D120) but for its
+> WP-22 (archive and thaw); phase 3's tiles are built (D121, D122) and
+> pass live end to end on it (WP-21, 2026-09-28).
 
 ## Why
 
@@ -181,6 +182,15 @@ per-person class grants beyond `who: everyone|managers` (later, if asked).
 > the contract onto the runtime, and work packages WP-1…WP-22. Where it and
 > this summary differ, the plan wins.
 
+**Status (2026-09-28): built**, WP-0 … WP-21 (`sandbox-runtime` →
+`p3/live`): the runtime, its API and SDK, VM mode, snapshots and clones,
+the example manager and the live end to end, here and on the QA box
+(tile-sandbox-runtime.md §12, §13). **Remaining:** archive and thaw
+(WP-22: streaming archive I/O, s3 multipart, a sparse-aware disk archive,
+the `archiving`/`archived`/`thawing` states); emulated VMs stalling on
+large guest→host transfers (its §14: a vhost-device-vsock bug, out of the
+gate — KVM is unaffected); the first CI run of `./test/isolated/`.
+
 Only a manager tile — holding the admin-approved `cap:sandboxes` — calls
 `/api/xbin/sandboxes`; per-consumer and per-person isolation and quotas are
 the manager's, xbind books everything to the manager (registry entries carry
@@ -276,9 +286,14 @@ In order:
    change from the page needs the person's write access to the tile
    (readers get a read-only view), operators run lifecycle but never
    change who may use a sandbox, a failed rebuild keeps the previous good
-   build, and a clone's errors never name its source. Open: the live end
-   to end on an `--isolate` xbind (the runtime's WP-21; the template's
-   API.md §Testing on xbind is its plan), archive/thaw (WP-22).
+   build, and a clone's errors never name its source. *Live* (the
+   runtime's WP-21, parts B and C): its API.md walk and
+   `sandboxcontract.Run` pass on an `--isolate` xbind with owner auth on —
+   namespace (range) and KVM here, namespace and Firecracker on the QA
+   box — and its
+   consumers drive it end to end (below). The live runs fixed a clone of a
+   running sandbox (a snapshot first) and made the layout's user the
+   image's account of its uid. Open: archive/thaw (WP-22).
 4. **`builtin-tiles/sandbox-terminal`**: browser terminals straight to the
    manager (the page's verified user), SSH ingress (a `stream` expose, keys
    registered per person, the user name is the sandbox) bridged to the
@@ -292,6 +307,13 @@ In order:
    difference), the agent's "Share with a terminal tile…", and the UI
    harness's `sandboxTerminal` pass (share from the agent, a browser
    terminal, reattach, a key through the page, OpenSSH through the relay).
+   *Live* on coding-sandbox (WP-21 part C, `TestCodingSandboxConsumers[VM]`,
+   here and on the QA box): the agent — a coding conversation in a sandbox
+   it made, bash, write, edit, a job, Open terminal, a team conversation's
+   sandbox, `sandbox_create` through the owner's grant — shares a sandbox
+   with it; a browser terminal; SSH on an expose bound to `127.0.0.1` (a
+   pty session, exec mode with its exit code, access removal cutting a live
+   connection).
 
 ## Open questions (asked at the phase 2 and 3 kickoffs)
 
