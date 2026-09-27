@@ -5,7 +5,8 @@
  * and per-commit diffs (with change counts) for review, and an **Analysis** tab
  * charting commit activity over time (upstream too, when tracked). Read-only —
  * editing is the terminal's job. It live-refreshes when the component's files
- * change on disk (agent/terminal edits) via the shared /ws/events socket.
+ * change on disk (agent/terminal edits) via the shared /ws/events socket,
+ * live reload paused or not.
  * Backed by the grant-gated /api/xbin/code/* + /git/* endpoints
  * (docs/protocol.md); uses a raw fetch so the caller is the signed-in user
  * (admin or a code:<tile> grant), matching the admin console's code viewer.
@@ -264,8 +265,15 @@ export class BxCode extends LitElement {
   }
 
   // --- live refresh on file changes -------------------------------------
+  // A save reloads the tile (reload, build-ok) — or, while its live reload
+  // is paused or attached to another tile deployment, only the tile's
+  // `deployments` event says so: op work-tree (the changed count moved) or
+  // that deployment's op reload and op build ok. The work tree changed all
+  // the same.
   _ext(e) {
-    if ((e.type !== 'reload' && e.type !== 'build-ok') || !e.component) return;
+    const d = e.type === 'deployments' ? e.data || {} : null;
+    const saved = e.type === 'reload' || e.type === 'build-ok' || d?.op === 'work-tree' || d?.op === 'reload' || (d?.op === 'build' && d.phase === 'ok');
+    if (!saved || !e.component) return;
     if (!(e.component === this.src || e.component.startsWith(this.src + '/'))) return;
     clearTimeout(this._refreshT);
     this._refreshT = setTimeout(() => this._refresh(), 250);

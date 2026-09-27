@@ -21,6 +21,15 @@ export const uid = () => Math.random().toString(36).slice(2, 9);
 
 const JSON_HDR = { 'Content-Type': 'application/json' };
 
+// Layouts the window pref never records: the Deployments layout
+// (<bx-deployments>) is saved as the terminal layout in its place, so a
+// window never reopens onto it by itself, and an xbind without tile
+// deployments, which has no such layout, never restores one into an empty
+// window body.
+const UNSAVED_LAYOUTS = { deployments: 'term' };
+// windowPref(w) → the window state as the pref stores it.
+export const windowPref = (w) => (w && Object.hasOwn(UNSAVED_LAYOUTS, w.layout) ? { ...w, layout: UNSAVED_LAYOUTS[w.layout] } : w);
+
 // makeStore({fetch, storage}) → the calls <bx-frame> makes.
 export function makeStore({ fetch: f = globalThis.fetch, storage = globalThis.localStorage } = {}) {
   const json = async (url, init) => {
@@ -35,7 +44,7 @@ export function makeStore({ fetch: f = globalThis.fetch, storage = globalThis.lo
     rename: (id, name) => f(`/api/xbin/term/sessions/${encodeURIComponent(id)}`, { method: 'PATCH', headers: JSON_HDR, body: JSON.stringify({ name }) }).catch(() => {}),
     // the window: {open, active, pop} per user (null = never saved)
     loadWindow: (cwd) => json(`/api/xbin/prefs/${encodeURIComponent(prefKey(cwd))}`).then((w) => (w && typeof w === 'object' ? w : null)).catch(() => null),
-    saveWindow: (cwd, w) => f(`/api/xbin/prefs/${encodeURIComponent(prefKey(cwd))}`, w ? { method: 'PUT', headers: JSON_HDR, body: JSON.stringify(w) } : { method: 'DELETE' }).catch(() => {}),
+    saveWindow: (cwd, w) => f(`/api/xbin/prefs/${encodeURIComponent(prefKey(cwd))}`, w ? { method: 'PUT', headers: JSON_HDR, body: JSON.stringify(windowPref(w)) } : { method: 'DELETE' }).catch(() => {}),
     // whether new sessions on this tile start in a VM sandbox (per user;
     // off = no pref at all)
     loadVM: (cwd) => json(`/api/xbin/prefs/${encodeURIComponent(vmPrefKey(cwd))}`).then((v) => v === true).catch(() => false),
