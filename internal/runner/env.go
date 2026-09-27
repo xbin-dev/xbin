@@ -65,11 +65,27 @@ func (r *Runner) setupHash(setup string) string {
 // returns the read-only lowerdir to stack under the backend ("" = no layer).
 // Called single-flight from start(), so its cost is paid on first build / on a
 // setup change, surfaced through the normal build events. A layer it builds
-// then collects the tile's unreferenced ones (envKeep).
+// then collects the tile's unreferenced ones (collectEnvLayers).
 func (r *Runner) ensureEnvLayer(c *registry.Component) (string, error) {
 	return r.buildEnvLayer(c, r.envLayers(c.Path), func(built string) {
-		r.gcEnvLayers(c, r.envKeep(c, built))
+		r.collectEnvLayers(c, built)
 	})
+}
+
+// collectEnvLayers collects c's tile's env layers once built was built:
+// every one envKeep doesn't name, the layers of the tile's retained
+// checkpoints (the Retained hook, as the deployments plane keeps their
+// artifacts) among the kept. A retained list that can't be read collects
+// nothing.
+func (r *Runner) collectEnvLayers(c *registry.Component, built string) {
+	var trees []string
+	if f := r.Retained; f != nil {
+		var ok bool
+		if trees, ok = f(c.Path); !ok {
+			return
+		}
+	}
+	r.gcEnvLayers(c, r.envKeep(c, built, trees...))
 }
 
 // buildEnvLayer is ensureEnvLayer beneath layers, with gc called on the
@@ -190,20 +206,17 @@ func (r *Runner) envSetupSpec(c *registry.Component, upper, work string) *sandbo
 }
 
 // envKeep is the set of c's tile's env-layer hashes still referenced: the
-// layer just built, the one its running generation stacks, and those of the
-// primary's current code (the registry's component: its checkpoint's setup
-// while pinned), of the work tree, the live reload target's, and of each of
-// retained, the tile's retained checkpoints (each deployment's current one
-// and its roll-back targets, as the deployments plane keeps their
-// artifacts), whose setup their views give. A pinned deployment's restart,
+// layer just built, the ones its deployments' running generations stack,
+// and those of the primary's current code (the registry's component: its
+// checkpoint's setup while pinned), of the work tree, the live reload
+// target's, and of each of retained, the tile's retained checkpoints (each
+// deployment's current one and its roll-back targets, as the deployments
+// plane keeps their artifacts), whose setup their views give. A pinned deployment's restart,
 // or a roll back, then finds its layer (06-security T17; SC-ROLLBACK). nil
 // when a retained checkpoint's setup can't be read: nothing is collected.
 func (r *Runner) envKeep(c *registry.Component, built string, retained ...string) map[string]bool {
 	keep := map[string]bool{built: true}
-	r.mu.Lock()
-	s := r.states[c.Path]
-	r.mu.Unlock()
-	if s != nil {
+	for _, s := range r.allStates(c.Path) {
 		s.mu.Lock()
 		if s.cur != nil && s.cur.envHash != "" {
 			keep[s.cur.envHash] = true
