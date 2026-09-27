@@ -177,7 +177,24 @@ per-person class grants beyond `who: everyone|managers` (later, if asked).
 Only a manager tile — holding the admin-approved `cap:sandboxes` — calls
 `/api/xbin/sandboxes`; per-consumer and per-person isolation and quotas are
 the manager's, xbind books everything to the manager (registry entries carry
-the manager's claims `For`/`ForUser`, shown as claims). In order:
+the manager's claims `For`/`ForUser`, shown as claims).
+
+**Tile deployments** (the dev-lifecycle design, `plans/dev-lifecycle/` on
+its own branch; agreed with that work 2026-09-27): tile sandboxes belong to
+the manager tile's *deployment*. A non-primary deployment's backend gets its
+own sandbox set, keyed per deployment (state under `.xbin/sbx/<key>/<deployment>/…`
+for non-`main`); `{source:true}` mounts that deployment's code and resource
+mounts resolve in its data namespace; `cap:sandboxes`, the sandboxes policy
+and quotas stay the tile's; VM reservations are booked to the tile
+(`Reserve(owner = tile)`, their WP-S3); registry rows carry the deployment
+(their WP-S0 `Deployment` field, set only off `main`). That work's WP-S5
+("sandboxes follow the deployment") is built here, not there. Whoever lands
+first on `internal/sbx`, `internal/cgroup` or `internal/vm` rebases the
+other. Known v1 limitation of theirs: a non-primary deployment of the agent
+tile can't reach its sandbox managers (the `consumer` role can't be clamped
+read-only under their edge policy P23).
+
+In order:
 
 1. **VM backends first**: a Go backend in a VM never listens on this box
    (the guest configures and never reports `listening`). Test the paths no
