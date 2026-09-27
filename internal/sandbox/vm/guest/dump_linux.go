@@ -75,35 +75,23 @@ func (a *agent) dump(budget time.Duration) string {
 }
 
 func (a *agent) dumpSessions(w func(string, ...any), at func(string)) {
-	a.mu.Lock()
-	ids := make([]int, 0, len(a.sessions))
-	for id := range a.sessions {
-		ids = append(ids, id)
-	}
-	a.mu.Unlock()
-	sort.Ints(ids)
-	for _, id := range ids {
-		s := a.session(id)
-		if s == nil {
-			continue
-		}
-		s.mu.Lock()
-		ex, proc, attached := s.ex, s.proc, len(s.streams)
-		s.mu.Unlock()
+	for _, s := range a.core.Sessions() {
 		state := "not started"
-		if proc != nil {
-			state = "pid " + strconv.Itoa(proc.Pid)
-		} else if ex.Session != 0 {
-			state = fmt.Sprintf("not started (%d/%d streams attached)", attached, len(streamsOf(ex)))
+		if s.Pid != 0 {
+			state = "pid " + strconv.Itoa(s.Pid)
+		} else if s.Exec {
+			state = fmt.Sprintf("not started (%d/%d streams attached)", s.Attached, s.Expected)
+		} else {
+			state = fmt.Sprintf("no exec yet (%d streams attached)", s.Attached)
 		}
-		w("session %d: %s, argv %q\n", id, state, ex.Argv)
-		if ex.Listen != "" {
-			at("session " + strconv.Itoa(id) + "'s socket")
-			if c, err := net.DialTimeout("unix", ex.Listen, 200*time.Millisecond); err == nil {
+		w("session %d: %s, argv %q\n", s.ID, state, s.Argv)
+		if s.Listen != "" {
+			at("session " + strconv.Itoa(s.ID) + "'s socket")
+			if c, err := net.DialTimeout("unix", s.Listen, 200*time.Millisecond); err == nil {
 				c.Close()
-				w("  %s: accepting\n", ex.Listen)
+				w("  %s: accepting\n", s.Listen)
 			} else {
-				w("  %s: not accepting (%v)\n", ex.Listen, err)
+				w("  %s: not accepting (%v)\n", s.Listen, err)
 			}
 		}
 	}
@@ -127,15 +115,11 @@ func (a *agent) dumpProcs(w func(string, ...any), at func(string)) {
 	if a.relay != nil {
 		role[a.relay.pid] = " (FUSE relay)"
 	}
-	a.mu.Lock()
-	for id, s := range a.sessions {
-		s.mu.Lock()
-		if s.proc != nil {
-			role[s.proc.Pid] = fmt.Sprintf(" (session %d)", id)
+	for _, s := range a.core.Sessions() {
+		if s.Pid != 0 {
+			role[s.Pid] = fmt.Sprintf(" (session %d)", s.ID)
 		}
-		s.mu.Unlock()
 	}
-	a.mu.Unlock()
 	w("processes:\n")
 	for _, pid := range pids {
 		dir := "/proc/" + strconv.Itoa(pid)

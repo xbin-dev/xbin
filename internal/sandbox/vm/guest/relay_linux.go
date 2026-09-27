@@ -50,7 +50,7 @@ func (a *agent) startRelay() error {
 	}
 	child := os.NewFile(uintptr(fds[1]), "relay")
 	defer child.Close()
-	p, done, err := a.spawn("/proc/self/exe", []string{"xbin-vmagent", relayArg}, &os.ProcAttr{
+	p, done, err := a.spawn.Start("/proc/self/exe", []string{"xbin-vmagent", relayArg}, &os.ProcAttr{
 		Files: []*os.File{os.Stdin, os.Stdout, os.Stderr, child}, // fd 3: the control socket
 	})
 	if err != nil {

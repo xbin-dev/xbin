@@ -1196,6 +1196,26 @@ next to its vforking `os.StartProcess`.
 - **Size:** each agentcore file ≤ 500 lines. `proto.go` 220 → ~300. The guest
   package shrinks by ~300 lines.
 - **Parallel:** with WP-2 (no shared files) and with all of Tracks B–D.
+- **As built** (branch `p2/agentcore`):
+  - Past the list above, agentcore also has `Options.Gateway` (serves
+    `Exec.Gateway`; nil refuses it) and `Options.Dump` (answers `dump`; nil
+    ignores it), `Core.Sessions()` (the guest's dump) and `Splice`. With
+    `Configure: nil`, every `ctl` gets `ready` at once and a `config` is an
+    error.
+  - `PID1Spawner` also remembers the last 64 statuses nobody registered, so
+    a `Register` after the exit still answers. It owns SIGCHLD: call it once
+    per process.
+  - The guest's `StreamWait` is 60 s, because the shim dials each stream in
+    turn, which is slow when emulated. The default is 15 s.
+  - proto also has `Conn.Reader`/`Writer` (the frames after a line),
+    `FrameReader`/`FrameWriter`, the bounds `MaxHello`, `MaxEvent`,
+    `MaxCommand` and `MaxResult` (2 MiB, for a `FileResult` line; a
+    listing stops at 1 MiB of entries and says `truncated`), and the
+    `Refuse*` constants.
+  - `HostSpec.Resident`/`AgentFD` stay with WP-4.
+  - The files are split further to keep each under 500 lines:
+    `filesmut_linux.go` (write, mkdir, remove, move), `procattr_linux.go`
+    (cwd, uid/gid, PATH) and `streams.go` (listen bridging, `Splice`).
 
 ### WP-2 — Launch plumbing: factory, `AgentFD`, lock, `Bind.Sub` (Track A · M)
 

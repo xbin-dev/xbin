@@ -3,20 +3,20 @@
 package guest
 
 import (
-	"io"
 	"net"
 	"os"
 	"path/filepath"
-	"time"
 
 	"golang.org/x/sys/unix"
 
+	"github.com/xbin-dev/xbin/internal/sandbox/agentcore"
 	"github.com/xbin-dev/xbin/internal/sandbox/vm/proto"
 )
 
 // Backends (plans/vm-sandbox.md): their sockets live on guest-local dirs at
 // the host paths (Config.Local), and the agent bridges them to the host —
-// xbind's gateway into the guest, the backend's listen socket out of it.
+// xbind's gateway into the guest (here), the backend's listen socket out of
+// it (agentcore: Exec.Listen and "listen" connections).
 
 // mountLocal makes each local dir a tmpfs inside the new root.
 func mountLocal(dirs []string) error {
@@ -48,60 +48,9 @@ func serveGateway(path string) error {
 					c.Close()
 					return
 				}
-				splice(c, os.NewFile(uintptr(fd), "gateway"))
+				agentcore.Splice(c, os.NewFile(uintptr(fd), "gateway"))
 			}()
 		}
 	}()
 	return nil
-}
-
-// awaitListen polls until path accepts connections (the backend is up),
-// then reports "listening" — the host exposes its side only then, so xbind's
-// health check means what it says. Gives up when stop closes.
-func (a *agent) awaitListen(session int, path string, stop <-chan struct{}) {
-	for {
-		if c, err := net.DialTimeout("unix", path, time.Second); err == nil {
-			c.Close()
-			a.send(proto.Msg{Op: "listening", Session: session})
-			return
-		}
-		select {
-		case <-stop:
-			return
-		case <-time.After(20 * time.Millisecond):
-		}
-	}
-}
-
-// bridgeListen connects a host "listen" connection to the session's socket.
-func (a *agent) bridgeListen(h proto.Hello, c io.ReadWriteCloser) {
-	s := a.session(h.Session)
-	if s == nil || s.ex.Listen == "" {
-		c.Close()
-		return
-	}
-	g, err := net.Dial("unix", s.ex.Listen)
-	if err != nil {
-		c.Close()
-		return
-	}
-	splice(g, c)
-}
-
-// splice copies both ways until either side ends, then closes both.
-func splice(a, b io.ReadWriteCloser) {
-	done := make(chan struct{}, 2)
-	cp := func(dst, src io.ReadWriteCloser) {
-		_, _ = io.Copy(dst, src)
-		if cw, ok := dst.(interface{ CloseWrite() error }); ok {
-			_ = cw.CloseWrite()
-		}
-		done <- struct{}{}
-	}
-	go cp(a, b)
-	go cp(b, a)
-	<-done
-	<-done
-	a.Close()
-	b.Close()
 }

@@ -13,9 +13,16 @@
 // Every connection to the agent starts with one JSON Hello line. A "ctl"
 // connection then carries JSON Msg lines in both directions; a "stream"
 // connection carries one session's raw bytes (a PTY, or one of stdin/
-// stdout/stderr). Sessions are numbered by the shim from 1, so one VM can run
-// more than one process — the terminal is session 1 today; exec into a
-// running VM (more tabs, backend-managed sub-sandboxes) reuses the same shape.
+// stdout/stderr); a "file" connection carries one file operation (file.go).
+// Sessions are numbered by the shim from 1, so one VM can run more than one
+// process — the terminal is session 1 today; a tile sandbox's execs are
+// sessions 2 and up (plans/tile-sandbox-runtime.md §2).
+//
+// The same wire serves a namespace-mode tile sandbox, whose agent (the same
+// exec core, internal/sandbox/agentcore) xbind reaches through a connection
+// factory instead of vsock. Every field added since the first version is
+// omitempty and ignored by an older peer, so backends and terminals, which
+// send none of them, behave as they always have.
 package proto
 
 import (
@@ -41,11 +48,25 @@ const (
 	ReadyPort = 1026
 )
 
+// Line bounds (plans/tile-sandbox-runtime.md §2.6): nobody on either side of
+// the wire trusts the other to keep its lines short.
+const (
+	MaxHello   = 4 << 10  // a Hello line, every connection's first
+	MaxEvent   = 64 << 10 // an event line from the agent (but "dump", which only a shim asks for)
+	MaxCommand = 1 << 20  // a control line to the agent ("exec" carries argv and env)
+	MaxResult  = 2 << 20  // a FileResult line (a listing's entries)
+)
+
+// ErrLineTooLong is RecvMax's and ReadHelloMax's answer to a line past its
+// bound; the connection is not usable after it.
+var ErrLineTooLong = errors.New("proto: line too long")
+
 // Hello opens every connection to the agent.
 type Hello struct {
-	Kind    string `json:"kind"`              // "ctl" | "stream" | "listen" (a connection for Exec.Listen)
-	Session int    `json:"session,omitempty"` // stream: the session it belongs to
-	Stream  string `json:"stream,omitempty"`  // stream: "pty" | "stdin" | "stdout" | "stderr"
+	Kind    string  `json:"kind"`              // "ctl" | "stream" | "listen" (a connection for Exec.Listen) | "file"
+	Session int     `json:"session,omitempty"` // stream: the session it belongs to
+	Stream  string  `json:"stream,omitempty"`  // stream: "pty" | "stdin" | "stdout" | "stderr"
+	File    *FileOp `json:"file,omitempty"`    // file: the operation (file.go)
 }
 
 // Config turns a booted (or template-restored) guest into this sandbox. The
@@ -107,13 +128,34 @@ type Exec struct {
 	// Gateway, if set, is a unix socket path the agent serves inside the guest
 	// and bridges to the host's GatewayPort (backends: XBIN_GATEWAY).
 	Gateway string `json:"gateway,omitempty"`
+
+	// CwdStrict makes a missing (or non-directory) Cwd an error; without
+	// it the session falls back to "/".
+	CwdStrict bool `json:"cwdStrict,omitempty"`
+	// UID and GID run the session as that user and group, with no
+	// supplementary groups; one left nil keeps the agent's own. An id the
+	// sandbox doesn't map is an error.
+	UID *uint32 `json:"uid,omitempty"`
+	GID *uint32 `json:"gid,omitempty"`
+	// Merge sends stderr to the stdout stream: one combined stream, and no
+	// "stderr" stream expected.
+	Merge bool `json:"merge,omitempty"`
+	// NoStdin gives the process /dev/null; no "stdin" stream is expected.
+	NoStdin bool `json:"noStdin,omitempty"`
+	// NoSync skips the flush before "exited" (a resident sandbox isn't
+	// killed when a session ends).
+	NoSync bool `json:"noSync,omitempty"`
 }
 
 // Msg is one control message. Host → guest ops: "config", "exec",
-// "resize", "signal", "sync" (the VM is about to be killed: hang up session
-// Session and flush the disks), "dump" (describe what the guest is doing).
-// Guest → host ops: "ready" (answers config), "started", "listening",
-// "exited", "synced", "dump" (answers dump, in Dump), "error".
+// "resize", "signal" (Group: the session's whole process group), "sync"
+// (the VM is about to be killed: hang up session Session — none for 0 —
+// and flush the disks), "dump" (describe what the guest is doing).
+// Guest → host ops: "ready" (answers config; an agent that takes no config
+// sends it as soon as a ctl connects), "started" (Pid), "listening",
+// "exited" (Code, and Signal when a signal ended it), "synced", "dump"
+// (answers dump, in Dump), "error" (Session names the session it ended,
+// 0 for none).
 type Msg struct {
 	Op      string  `json:"op"`
 	Config  *Config `json:"config,omitempty"`
@@ -125,6 +167,13 @@ type Msg struct {
 	Code    int     `json:"code,omitempty"` // exited: the exit status (128+sig when killed)
 	Error   string  `json:"error,omitempty"`
 	Dump    string  `json:"dump,omitempty"` // dump: the guest's report, plain text
+	// Group makes "signal" kill(-pgid): every session leads its own
+	// process group (setsid), so the group is its pid's.
+	Group bool `json:"group,omitempty"`
+	// Pid is "started"'s process id, in the sandbox's pid namespace.
+	Pid int `json:"pid,omitempty"`
+	// On "exited", Signal > 0 names the signal that ended the session
+	// (Code still says 128+Signal, for older readers).
 }
 
 // Conn is a line-delimited JSON channel over one connection (a unix socket
@@ -153,17 +202,36 @@ func (c *Conn) Send(v any) error {
 	return err
 }
 
-// Recv reads one message line into v.
+// Recv reads one message line into v, however long.
 func (c *Conn) Recv(v any) error {
-	line, err := c.r.ReadBytes('\n')
+	line, err := readLine(c.r, 0)
 	if err != nil {
-		if errors.Is(err, io.EOF) && len(line) > 0 {
-			return io.ErrUnexpectedEOF
-		}
 		return err
 	}
 	return json.Unmarshal(line, v)
 }
+
+// RecvMax is Recv with the line bounded to max bytes: past it the
+// connection is closed (nothing after a cut line can be trusted to be in
+// step) and ErrLineTooLong returned.
+func (c *Conn) RecvMax(v any, max int) error {
+	line, err := readLine(c.r, max)
+	if err == ErrLineTooLong {
+		c.c.Close()
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(line, v)
+}
+
+// Reader is the connection's buffered reader: what follows a line read by
+// Recv (a file operation's data frames) is read from it.
+func (c *Conn) Reader() *bufio.Reader { return c.r }
+
+// Writer is the raw connection, for what follows a line sent by Send.
+func (c *Conn) Writer() io.Writer { return c.c }
 
 // Close closes the connection.
 func (c *Conn) Close() error { return c.c.Close() }
@@ -171,9 +239,15 @@ func (c *Conn) Close() error { return c.c.Close() }
 // ReadHello reads the first line of an accepted agent connection. The reader
 // it returns holds anything buffered past the line.
 func ReadHello(c io.Reader) (Hello, *bufio.Reader, error) {
+	return ReadHelloMax(c, 0)
+}
+
+// ReadHelloMax is ReadHello with the line bounded to max bytes (0: no
+// bound); past it, ErrLineTooLong (the caller drops the connection).
+func ReadHelloMax(c io.Reader, max int) (Hello, *bufio.Reader, error) {
 	r := bufio.NewReader(c)
 	var h Hello
-	line, err := r.ReadBytes('\n')
+	line, err := readLine(r, max)
 	if err != nil {
 		return h, nil, err
 	}
@@ -181,6 +255,29 @@ func ReadHello(c io.Reader) (Hello, *bufio.Reader, error) {
 		return h, nil, fmt.Errorf("bad hello: %w", err)
 	}
 	return h, r, nil
+}
+
+// readLine reads up to and including '\n', holding at most max bytes (0: no
+// bound). A line cut short by EOF is io.ErrUnexpectedEOF.
+func readLine(r *bufio.Reader, max int) ([]byte, error) {
+	var line []byte
+	for {
+		frag, err := r.ReadSlice('\n')
+		if max > 0 && len(line)+len(frag) > max {
+			return nil, ErrLineTooLong
+		}
+		line = append(line, frag...)
+		switch {
+		case err == nil:
+			return line, nil
+		case err == bufio.ErrBufferFull:
+			continue
+		case errors.Is(err, io.EOF) && len(line) > 0:
+			return nil, io.ErrUnexpectedEOF
+		default:
+			return nil, err
+		}
+	}
 }
 
 // DialVsock opens a host-initiated connection to a guest vsock port through
