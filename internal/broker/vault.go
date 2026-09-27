@@ -64,16 +64,43 @@ func (b *Broker) vaultRead(comp string) (map[string]string, error) {
 	// Sniff the format: an object with an "enc" field is an encrypted envelope.
 	var env vaultEnvelope
 	if json.Unmarshal(bts, &env) == nil && env.Enc > 0 {
-		if b.barrier == nil || b.barrier.Sealed() {
-			return nil, vault.ErrSealed
-		}
-		pt, err := b.barrier.Decrypt(env.Data)
-		if err != nil {
-			return nil, fmt.Errorf("vault decrypt %s: %w", comp, err)
-		}
-		return out, json.Unmarshal(pt, &out)
+		return b.vaultOpen(comp, env.Data)
 	}
 	return out, json.Unmarshal(bts, &out)
+}
+
+// vaultOpen decrypts a sealed vault map; what names the vault in errors.
+func (b *Broker) vaultOpen(what string, data []byte) (map[string]string, error) {
+	if b.barrier == nil || b.barrier.Sealed() {
+		return nil, vault.ErrSealed
+	}
+	pt, err := b.barrier.Decrypt(data)
+	if err != nil {
+		return nil, fmt.Errorf("vault decrypt %s: %w", what, err)
+	}
+	out := map[string]string{}
+	return out, json.Unmarshal(pt, &out)
+}
+
+// vaultSeal is how a vault map is kept at rest: sealed with the barrier
+// whenever one is initialized (the ciphertext), in plain (nil) only when
+// explicitly allowed (dev / --insecure-vault); otherwise refused, so
+// production can never persist secrets in the clear.
+func (b *Broker) vaultSeal(m map[string]string) ([]byte, error) {
+	switch {
+	case b.barrier != nil && b.barrier.Initialized():
+		if b.barrier.Sealed() {
+			return nil, vault.ErrSealed
+		}
+		plain, err := json.Marshal(m)
+		if err != nil {
+			return nil, err
+		}
+		return b.barrier.Encrypt(plain)
+	case b.AllowInsecureVault:
+		return nil, nil
+	}
+	return nil, errVaultUnconfigured
 }
 
 func (b *Broker) vaultWrite(comp string, m map[string]string) error {
@@ -81,31 +108,18 @@ func (b *Broker) vaultWrite(comp string, m map[string]string) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return err
 	}
-	plain, err := json.Marshal(m)
+	ct, err := b.vaultSeal(m)
 	if err != nil {
 		return err
 	}
 	var bts []byte
-	// Encrypt whenever a barrier is available and unsealed. Without a barrier,
-	// only write plaintext when explicitly allowed (dev / --insecure-vault);
-	// otherwise refuse, so production can never persist secrets in the clear.
-	if b.barrier != nil && b.barrier.Initialized() {
-		if b.barrier.Sealed() {
-			return vault.ErrSealed
-		}
-		ct, err := b.barrier.Encrypt(plain)
-		if err != nil {
-			return err
-		}
-		if bts, err = json.MarshalIndent(vaultEnvelope{Enc: 1, Data: ct}, "", "  "); err != nil {
-			return err
-		}
-	} else if b.AllowInsecureVault {
-		if bts, err = json.MarshalIndent(m, "", "  "); err != nil {
-			return err
-		}
+	if ct != nil {
+		bts, err = json.MarshalIndent(vaultEnvelope{Enc: 1, Data: ct}, "", "  ")
 	} else {
-		return errVaultUnconfigured
+		bts, err = json.MarshalIndent(m, "", "  ")
+	}
+	if err != nil {
+		return err
 	}
 	return fsutil.WriteFileAtomic(p, bts, 0o600)
 }
@@ -144,16 +158,20 @@ func (b *Broker) migrateVaults() {
 			slog.Info("vault: migrated legacy plaintext to encrypted", "file", e.Name())
 		}
 	}
+	b.migrateDeploymentVaults() // the vaults beyond main, below data/vault/.deployments (deployvault.go)
 }
 
 // vaultAccess parses {rest...} into (component, key) using the component
 // registry for the split, and authorizes: owner always, element only itself.
-func (b *Broker) vaultAccess(w http.ResponseWriter, r *http.Request) (comp, key string, ok bool) {
+// The deployment whose vault the call reaches is the one the caller
+// addresses (vaultDeployment, deployvault.go): for a tile without deployments,
+// always main, today's file.
+func (b *Broker) vaultAccess(w http.ResponseWriter, r *http.Request) (vaultCall, bool) {
 	rest := strings.Trim(r.PathValue("rest"), "/")
 	c, remainder, found := b.Reg.Resolve(rest)
 	if !found {
 		server.WriteError(w, http.StatusNotFound, "no such component", "/docs/auth.md")
-		return "", "", false
+		return vaultCall{}, false
 	}
 	p := auth.PrincipalOf(r)
 	// Who reaches a vault at all (D30): the element's own BACKEND (instance
@@ -166,17 +184,17 @@ func (b *Broker) vaultAccess(w http.ResponseWriter, r *http.Request) (comp, key 
 	// use through the backend.
 	if p.Via == "frame" {
 		server.WriteError(w, http.StatusForbidden, "the vault API is not reachable from a tile frontend — secrets are handled by the tile's backend (D30)", "/docs/auth.md")
-		return "", "", false
+		return vaultCall{}, false
 	}
-	if p.Component != c.Path && !b.IsAdmin(p) {
-		server.WriteError(w, http.StatusForbidden, "vaults are private to their element; cross-vault access needs xbin:admin", "/docs/auth.md")
-		return "", "", false
+	dep, named, ok := b.vaultDeployment(w, r, p, c.Path)
+	if !ok {
+		return vaultCall{}, false
 	}
-	return c.Path, remainder, true
+	return vaultCall{comp: c.Path, dep: dep, key: remainder, named: named}, true
 }
 
 func (b *Broker) apiVaultGet(w http.ResponseWriter, r *http.Request) {
-	comp, key, ok := b.vaultAccess(w, r)
+	c, ok := b.vaultAccess(w, r)
 	if !ok {
 		return
 	}
@@ -185,42 +203,53 @@ func (b *Broker) apiVaultGet(w http.ResponseWriter, r *http.Request) {
 	// everyone else can list keys and set/rotate secrets (write-only
 	// management), but never exfiltrate values. This holds the line even
 	// when org membership confers terminal on a credential-bearing tile.
-	if p := auth.PrincipalOf(r); key != "" && (p.Component != comp || p.Via != "instance") {
+	// Per deployment: only the backend of the deployment whose vault it is.
+	if p := auth.PrincipalOf(r); c.key != "" && valueRefused(p, c) {
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{
 			"error": "a secret's value is readable only by the tile's backend; admins and tile terminals can list and set secrets, not read them (D30)",
 			"docs":  "/docs/auth.md",
 		})
 		return
 	}
-	m, err := b.vaultRead(comp)
+	m, err := b.vaultReadIn(c.comp, c.dep)
 	if err != nil {
 		b.vaultError(w, err)
 		return
 	}
-	if key == "" { // list
+	if c.key == "" { // list
 		keys := make([]string, 0, len(m))
 		for k := range m {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
-		server.WriteJSON(w, http.StatusOK, map[string]any{"keys": keys})
+		out := map[string]any{"keys": keys}
+		if !b.isPrimary(c.comp, c.dep) { // the primary's key names with no value here (P14)
+			if out["placeholders"], err = b.vaultPlaceholders(c.comp, c.dep, m); err != nil {
+				b.vaultError(w, err)
+				return
+			}
+		}
+		vaultAnswer(w, c, out)
 		return
 	}
-	v, found := m[key]
+	v, found := m[c.key]
 	if !found {
-		server.WriteError(w, http.StatusNotFound, "no such key")
+		b.placeholderRead(w, c)
 		return
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]string{"value": v})
+	vaultAnswer(w, c, map[string]any{"value": v})
 }
 
 func (b *Broker) apiVaultPut(w http.ResponseWriter, r *http.Request) {
-	comp, key, ok := b.vaultAccess(w, r)
+	c, ok := b.vaultAccess(w, r)
 	if !ok {
 		return
 	}
-	if key == "" {
+	if c.key == "" {
 		server.WriteError(w, http.StatusBadRequest, "missing key")
+		return
+	}
+	if !b.vaultWritable(w, auth.PrincipalOf(r), c) {
 		return
 	}
 	var body struct {
@@ -230,33 +259,36 @@ func (b *Broker) apiVaultPut(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, "need {\"value\": …}")
 		return
 	}
-	m, err := b.vaultRead(comp)
+	m, err := b.vaultReadIn(c.comp, c.dep)
 	if err == nil {
-		m[key] = body.Value
-		err = b.vaultWrite(comp, m)
+		m[c.key] = body.Value
+		err = b.vaultWriteIn(c.comp, c.dep, m)
 	}
 	if err != nil {
 		b.vaultError(w, err)
 		return
 	}
-	server.WriteOK(w)
+	vaultOK(w, c)
 }
 
 func (b *Broker) apiVaultDelete(w http.ResponseWriter, r *http.Request) {
-	comp, key, ok := b.vaultAccess(w, r)
+	c, ok := b.vaultAccess(w, r)
 	if !ok {
 		return
 	}
-	m, err := b.vaultRead(comp)
+	if !b.vaultWritable(w, auth.PrincipalOf(r), c) {
+		return
+	}
+	m, err := b.vaultReadIn(c.comp, c.dep)
 	if err == nil {
-		delete(m, key)
-		err = b.vaultWrite(comp, m)
+		delete(m, c.key)
+		err = b.vaultWriteIn(c.comp, c.dep, m)
 	}
 	if err != nil {
 		b.vaultError(w, err)
 		return
 	}
-	server.WriteOK(w)
+	vaultOK(w, c)
 }
 
 // vaultError maps a sealed barrier to 503 (retry after unseal) and anything
