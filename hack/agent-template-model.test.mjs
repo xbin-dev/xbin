@@ -32,7 +32,13 @@ const view = (id, extra = {}) => ({ cursor: 'g.' + seq, run: { id, title: 'run '
   messages: [], steps: [], links: [], queued: [], drafts: [], chain: [], files: [], memory: {}, config: {}, messageFiles: {}, ...extra });
 const state = { uploadFails: false, draftGone: false };
 const routes = [
+  // no class picked yet: the lane picked before classes (D116) says which
   ['GET', /\/api\/xbin\/prefs\/toolset$/, () => json('web')],
+  ['GET', /\/api\/xbin\/prefs\/class$/, () => json({}, 404)],
+  ['GET', /\/classes$/, () => json({ default: 'internal', classes: [
+    { id: 'internal', name: 'Internal', icon: '🔒', toolsets: ['internal'], lane: 'private' },
+    { id: 'web', name: 'Web', icon: '🌐', toolsets: ['web'], lane: 'web', egress: true },
+    { id: 'coding', name: 'Coding', icon: '▣', toolsets: ['sandbox', 'web'], lane: 'web', egress: true }] })],
   ['GET', /\/me$/, () => json({ kind: 'user', user: 'alice', manager: true, epochMs: 0 })],
   ['GET', /\/halt$/, () => json({ on: false })],
   ['GET', /\/needs$/, () => json({ items: [{ reason: 'question', run: { id: 2, title: 'q' } }] })],
@@ -140,11 +146,14 @@ test('the app: start, a conversation, the stream, send, stop, home, addresses', 
   app.start();
   await until(() => app.convs.items.length === 2 && seen.includes('me') && seen.includes('needs') && seen.includes('toolset'));
   assert.ok(['me', 'needs', 'toolset', 'list'].every((t) => heard.has(t)), `'*' hears every event with its type (${[...heard]})`);
-  assert.equal(app.toolset, 'web', 'the tool mode comes from the per-person prefs');
+  assert.equal(app.classId, 'web', 'with no class picked, the lane picked before classes names the class');
+  assert.equal(app.toolset, 'web', '…and the lane follows it');
   assert.equal(app.me.user, 'alice');
   assert.equal(app.needs.length, 1);
   assert.equal(app.autos.summary.unread, 2);
-  assert.ok(calls[0].url.endsWith('/api/xbin/prefs/toolset'), 'the prefs are read first, as the web always did');
+  assert.deepEqual(calls.slice(0, 2).map((c) => c.url).sort(), ['/api/apps/agent/classes', '/api/xbin/prefs/class'],
+    'the classes and your pick are read first, as the lane always was');
+  assert.ok(calls.some((c) => c.url.endsWith('/api/xbin/prefs/toolset')), 'no pick yet: the old lane is read');
   await until(() => streams.size === 1);
 
   // a conversation
@@ -213,7 +222,7 @@ test('the app: start, a conversation, the stream, send, stop, home, addresses', 
   const cleared = [];
   await app.send('see attached', () => cleared.push(1));
   const ask = JSON.parse(called('POST', '/ask').pop().body);
-  assert.deepEqual(ask, { text: 'see attached', toolset: 'web', hold: true });
+  assert.deepEqual(ask, { text: 'see attached', class: 'web', toolset: 'web', hold: true });
   assert.equal(called('PUT', '/runs/9/upload').length, 1);
   assert.deepEqual(JSON.parse(called('POST', '/runs/9/message').pop().body), { text: 'see attached', files: ['a.txt'] });
   assert.equal(app.attach.items.length, 0);
@@ -329,7 +338,8 @@ test('a native app\'s uploads: chips stay where they were picked; at home Send s
   const draft = app.draft;
   await app.send('what is this?');
   const ask = called('POST', '/ask').pop();
-  assert.deepEqual(JSON.parse(ask.body), { text: 'what is this?', toolset: 'private', draft, files: ['c.png'] });
+  // no classes read in this app (it never started): no class — the backend gives the caller's default
+  assert.deepEqual(JSON.parse(ask.body), { text: 'what is this?', draft, files: ['c.png'] });
   assert.equal(app.sel, 9, 'the new conversation opens');
   assert.deepEqual(app.attach.items, []);
   assert.notEqual(app.draft, draft);

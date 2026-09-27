@@ -40,6 +40,21 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   registry: the pending ask carries `pendingState.grantAsk` and each live
   grant `{ask, chip}`.
 
+- **Agent template: classes in the UI** (D116). The composer's 🔒/🌐 toggle
+  is a class picker — icon and name, each class's description in its menu,
+  only the classes you may use — at home, where a new chat starts; your
+  last pick is remembered (`/api/xbin/prefs/class`; with none yet, the lane
+  you picked before). The open conversation's top bar shows its class, and
+  a class that can move internal data out says so. Managers edit the
+  classes under ⚙ → **Classes** (toolsets, MCP servers, sandbox managers
+  and egress, model, system addendum, who may use it, the default for new
+  chats); a built-in resets to its default, and saving a mixed class asks
+  first. "New chat with options" picks a class. The native view has the
+  same (a Class picker in the home toolbar, the subtitle, Settings →
+  Classes). `GET /classes` marks each class `stored` and lists the
+  built-ins first. The channel rules form keeps a policy's
+  `privateClass`/`webClass`.
+
 - **Admin console: runtime → sandboxes, and the sandbox in the component
   list** (D112, [isolation.md](isolation.md) §VM sandboxes). A new tab lists
   every sandbox xbind runs — backend generations, terminals, agent sessions

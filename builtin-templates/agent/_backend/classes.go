@@ -236,11 +236,12 @@ type classSettings struct {
 	Default string       `json:"default,omitempty"` // a new conversation's class when none is named
 }
 
-// classState is the classes in force: the stored ones, with a missing
-// built-in back as its default.
+// classState is the classes in force: the built-ins first, in their order
+// (each as stored, or its default), then the others as stored.
 type classState struct {
-	list []agentClass
-	def  string
+	list   []agentClass
+	def    string
+	stored map[string]bool // the ids in the stored settings (a missing built-in is not)
 }
 
 var (
@@ -249,21 +250,27 @@ var (
 )
 
 func newClassState(s classSettings) *classState {
-	st := &classState{def: s.Default}
-	seen := map[string]bool{}
+	st := &classState{def: s.Default, stored: map[string]bool{}}
+	edited := map[string]agentClass{}
+	var custom []agentClass
 	for _, c := range s.Classes {
-		if c.ID != "" && !seen[c.ID] {
-			seen[c.ID] = true
-			st.list = append(st.list, c)
+		if c.ID == "" || st.stored[c.ID] {
+			continue
+		}
+		st.stored[c.ID] = true
+		if isBuiltinClass(c.ID) {
+			edited[c.ID] = c
+		} else {
+			custom = append(custom, c)
 		}
 	}
-	var missing []agentClass
 	for _, b := range builtinClasses() {
-		if !seen[b.ID] {
-			missing = append(missing, b)
+		if c, ok := edited[b.ID]; ok {
+			b = c
 		}
+		st.list = append(st.list, b)
 	}
-	st.list = append(missing, st.list...)
+	st.list = append(st.list, custom...)
 	if _, ok := st.find(st.def); !ok {
 		st.def = classInternal
 	}
@@ -484,15 +491,20 @@ func (c *agentClass) normalize() string {
 
 // handleGetClasses lists the classes the caller may start conversations in
 // (a manager sees them all) and the one a new conversation of theirs gets.
+// stored says a class is in the saved set — a built-in that is not is its
+// default (the editor sends back only the stored ones, so a built-in nobody
+// edited keeps following the template's default).
 //
-//	GET /classes → {classes: [classView…], default: "<id>"}
+//	GET /classes → {classes: [classView… + stored], default: "<id>"}
 func handleGetClasses(w http.ResponseWriter, r *http.Request) {
 	c := callerOf(r)
 	st := loadClasses(agent.db) // fresh: another process may have saved
 	out := []map[string]any{}
 	for _, cls := range st.list {
 		if cls.usableBy(c) {
-			out = append(out, classView(cls))
+			v := classView(cls)
+			v["stored"] = st.stored[cls.ID]
+			out = append(out, v)
 		}
 	}
 	xbin.WriteJSON(w, 200, map[string]any{"classes": out, "default": st.defaultFor(c).ID})

@@ -232,9 +232,10 @@ func TestClassesRoutes(t *testing.T) {
 	}
 	type listed struct {
 		Classes []struct {
-			ID    string
-			Mixed bool
-			Who   string
+			ID     string
+			Mixed  bool
+			Who    string
+			Stored bool
 		}
 		Default string
 	}
@@ -275,6 +276,17 @@ func TestClassesRoutes(t *testing.T) {
 	l := get(asMgr)
 	if ids(l) != "internal,web,coding,bridge,ops" || l.Default != "ops" || !l.Classes[3].Mixed || l.Classes[4].Who != "managers" {
 		t.Fatalf("a manager sees: %+v", l)
+	}
+	if l.Classes[0].Stored || !l.Classes[3].Stored || !l.Classes[4].Stored {
+		t.Fatalf("stored: only the saved classes, not a built-in left at its default: %+v", l)
+	}
+	// an edited built-in keeps its place: the built-ins first, in their order
+	web := map[string]any{"id": "web", "name": "Web", "toolsets": []string{"web"}}
+	if code, out := put(asMgr, map[string]any{"classes": []any{bridge, web, ops}, "confirmMixed": true, "default": "ops"}); code != 200 {
+		t.Fatalf("edit web: %d %v", code, out)
+	}
+	if l := get(asMgr); ids(l) != "internal,web,coding,bridge,ops" || !l.Classes[1].Stored || l.Classes[2].Stored {
+		t.Fatalf("the order after editing a built-in: %+v", l)
 	}
 	if w := callAs(t, mux, asAlice, "POST", "/ask", map[string]any{"text": "hi", "hold": true, "class": "ops"}); w.Code != 403 {
 		t.Fatalf("alice started a managers' class: %d", w.Code)

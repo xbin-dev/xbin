@@ -1,8 +1,8 @@
 // model/app.js — the agent tile's model in one object, and the one place its
 // parts are wired together: the open conversation (Session), your
 // conversation list (ConvList), the Automations page (AutoPage), who you are
-// (GET /me), the tool mode for new asks, what needs you, the halt switch, the
-// composer's attachments and sending, and where you are — home, a
+// (GET /me), the class for new asks (D116), what needs you, the halt switch,
+// the composer's attachments and sending, and where you are — home, a
 // conversation, the Automations page — all kept current by the one live
 // stream. Both views drive it: agent.js on the web (lit) and a native view;
 // neither keeps model state of its own. No lit, no DOM, no dialogs.
@@ -16,7 +16,8 @@
 //   runs      the run list changed          list    the conversation list changed
 //   autos     the Automations page changed  needs   GET /needs landed
 //   me        GET /me landed                halt    the halt switch changed
-//   toolset   the tool mode changed         attach  an attachment chip changed
+//   class     the classes or your class for new asks changed (toolset: its lane, too)
+//   toolset   the lane of your class        attach  an attachment chip changed
 //   model     the model pick or the model list changed
 //   sending   a send started or settled (app.sending)
 //   select(id)   a conversation is being opened (before it loads)
@@ -33,6 +34,7 @@ import * as actions from './actions.js';
 import * as rules from './rules.js';
 import * as router from './router.js';
 import { HOME } from './home.js';
+import * as classes from './classes.js';
 
 /**
  * createApp builds the model.
@@ -60,7 +62,8 @@ export function createApp(opts = {}) {
   const app = {
     base, actions, rules, router, HOME,
     me: { manager: true }, // an older backend has no /me: everything, as before
-    toolset: 'private',    // for NEW asks; a run keeps its own
+    classes: null,         // GET /classes ({classes, default}, model/classes.js listOf): what you may start a chat in
+    classId: '',           // the class for NEW asks: your last pick, else the tile's default; a run keeps its own
     model: '',             // the model for NEW asks ('' = the agent's default): your last pick
     catalog: null,         // GET /models: the bound providers' models (the pickers)
     needs: [],
@@ -82,6 +85,9 @@ export function createApp(opts = {}) {
     get root() { const c = app.session.current(); return c ? (c.run.rootId || c.run.id) : null; },
     // place: where the composer is — the open run, or 'home' (a new ask).
     get place() { return app.sel == null ? 'home' : app.sel; },
+    // toolset: the lane of your class for new asks ('private' | 'web') — what
+    // the tool mode was before classes, and what older code reads.
+    get toolset() { return classes.laneOf(classes.find(app.classes, app.classId)); },
 
     // uploadTarget is where an app that uploads a picked file itself puts it
     // ({method, path}, {name} its name): into the open run, or at home into
@@ -94,7 +100,7 @@ export function createApp(opts = {}) {
 
     // start loads what the tile shows first and opens the stream.
     start() {
-      app.loadToolset();
+      app.loadClasses();
       app.loadModelPref();
       app.loadModels();
       app.session.start().catch(() => {});
@@ -122,14 +128,39 @@ export function createApp(opts = {}) {
       app.halted = on;
       emit('halt');
     },
-    async loadToolset() {
-      try { if ((await actions.loadToolset()) === 'web') { app.toolset = 'web'; emit('toolset'); } } catch { /* keep default */ }
+    // loadClasses reads the classes you may start a chat in and your pick for
+    // new ones (model/classes.js resolvePick: your pick, the lane you picked
+    // before classes, the tile's default). Again after a manager saves them.
+    async loadClasses() {
+      const [list, pref] = await Promise.all([actions.classes().catch(() => null), actions.loadClassPref().catch(() => '')]);
+      const legacy = pref ? '' : await actions.loadToolset().catch(() => '');
+      app.setClasses(list, pref || app.classId, legacy);
     },
-    toggleToolset() {
-      app.toolset = app.toolset === 'private' ? 'web' : 'private';
-      actions.saveToolset(app.toolset).catch(() => {});
+    // setClasses takes GET (or PUT) /classes' answer; your pick stays while you may use it.
+    setClasses(list, pref = app.classId, legacy = '') {
+      app.classes = classes.listOf(list);
+      app.classId = classes.resolvePick(app.classes, pref, legacy);
+      emit('class');
       emit('toolset');
     },
+    // pickClass: the class for your next new chats — remembered as your default.
+    pickClass(id) {
+      if (!classes.find(app.classes, id)) return;
+      app.classId = id;
+      actions.saveClassPref(id).catch(() => {});
+      emit('class');
+      emit('toolset');
+    },
+    // saveClasses: a manager's PUT /classes (model/classes.js savePlan); the
+    // picker follows. Throws as actions.saveClasses does (e.status, e.mixed).
+    async saveClasses(body) {
+      const r = await actions.saveClasses(body);
+      app.setClasses(r);
+      return app.classes;
+    },
+    // toggleToolset: the old 🔒/🌐 toggle, kept for instances that call it —
+    // it picks the internal or the web class.
+    toggleToolset() { app.pickClass(app.toolset === 'web' ? 'internal' : 'web'); },
     async loadModelPref() {
       try { app.model = await actions.loadModelPref(); emit('model'); } catch { /* keep the default */ }
     },
@@ -205,9 +236,11 @@ export function createApp(opts = {}) {
     // --- talking ----------------------------------------------------------------------
 
     // ask starts a conversation from the "new chat with options" form
-    // ({text, title, system, toolset}) and opens it. Throws on failure.
+    // ({text, title, system, class}) and opens it — a legacy {toolset} alone
+    // still names its lane. Throws on failure.
     async ask(body) {
-      const run = await actions.ask({ ...picked(), ...body });
+      const cls = body.class != null || body.toolset == null ? classOf(body.class || undefined) : {};
+      const run = await actions.ask({ ...cls, ...picked(), ...body });
       app.session.runs.set(run.id, run);
       await app.select(run.id);
       return run;
@@ -234,7 +267,7 @@ export function createApp(opts = {}) {
           // the app uploaded them into the draft already: send it
           let run;
           try {
-            run = await actions.ask({ text: t, toolset: app.toolset, ...picked(), draft: app.draft, files: items.map((a) => a.path) });
+            run = await actions.ask({ text: t, ...classOf(), ...picked(), draft: app.draft, files: items.map((a) => a.path) });
           } catch (e) {
             // the draft is gone (sent from elsewhere, or expired): those chips can't go
             if (/attach them again/.test(e.message)) { att.clear('home'); app.draft = actions.draftKey(); emit('attach'); }
@@ -249,7 +282,7 @@ export function createApp(opts = {}) {
         if (app.sel == null) {
           if (!items.length) {
             clear();
-            const run = await actions.ask({ text: t, toolset: app.toolset, ...picked() });
+            const run = await actions.ask({ text: t, ...classOf(), ...picked() });
             app.session.runs.set(run.id, run);
             await app.select(run.id);
             return;
@@ -257,7 +290,7 @@ export function createApp(opts = {}) {
           // With attachments there is no run to upload into yet: create it held
           // (no message, no drive), upload, then send the message into it.
           const title = t || items.map((a) => a.name).join(', ');
-          const run = await actions.ask({ text: title, toolset: app.toolset, ...picked(), hold: true });
+          const run = await actions.ask({ text: title, ...classOf(), ...picked(), hold: true });
           try {
             const files = await att.upload(base, run.id, place);
             await actions.message(run.id, { text: t, files });
@@ -322,6 +355,13 @@ export function createApp(opts = {}) {
   }, { deltas: opts.deltas, page: opts.page });
   // picked: a new ask's model field — only when you picked one (none = the agent's default)
   const picked = () => (app.model ? { model: app.model } : {});
+  // classOf: a new ask's class (yours, unless the form named one) and, beside
+  // it, its lane as the legacy toolset; nothing before the classes are read
+  // (the backend then gives the caller's default).
+  const classOf = (id = app.classId) => {
+    const c = classes.find(app.classes, id);
+    return c ? { class: c.id, toolset: classes.laneOf(c) } : {};
+  };
   app.convs = new ConvList({ change: () => emit('list'), epoch: () => app.me.epochMs || 0 });
   // The Automations page; its route() keeps the address of what is open there.
   app.autos = new A({

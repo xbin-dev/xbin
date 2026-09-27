@@ -1,7 +1,7 @@
 // native/chat.js — an open conversation, full screen: the transcript drawn
 // from the model's blocks (model/fold.js → the chat family: message,
 // thinking, toolcard with a subagent's own transcript inside, step, notice,
-// activity, approval, question), the composer (tool mode, attachments the app
+// activity, approval, question), the composer (attachments the app
 // uploads itself, Stop giving queued text back, queued messages as chips you
 // take back, a placeholder by state) and the toolbar's menu (retry, rename,
 // compact, learn, memory, files, the tree, share, delete). Who may do what is
@@ -205,7 +205,7 @@ export function chatScreen(v) {
   const ps = r.pendingState || {};
   const chain = (v.chain || []).map((c) => c.title || '#' + c.id);
   // a shared conversation says so in its header, as the web's top bar does
-  const subtitle = [chain.length ? 'in ' + chain.join(' › ') : '', r.status, t.laneLabel, t.viewOnly ? 'view only' : '',
+  const subtitle = [chain.length ? 'in ' + chain.join(' › ') : '', r.status, t.cls.label, t.cls.warn, t.viewOnly ? 'view only' : '',
     t.share.tone ? `${t.share.icon} ${t.share.label}` : '', t.model ? `✦ ${t.model}` : '', ...t.grants.map((g) => g.label)].filter(Boolean).join(' · ');
   return html`<screen title=${t.title} subtitle=${subtitle} style="scroll">
     <toolbar>
@@ -285,7 +285,6 @@ export function composerTpl(v, t) {
     ...(a.state === 'up' ? { progress: 0 } : {}),
   }));
   const queued = v ? app.session.queued() : [];
-  const web = app.toolset === 'web';
   return html`<composer value=${ui.draft} placeholder=${c.placeholder} ?busy=${c.busy} ?disabled=${c.disabled}
       attachments=${att}
       upload=${talk ? app.uploadTarget() : nothing}
@@ -294,7 +293,6 @@ export function composerTpl(v, t) {
       @stop=${stop}
       @uploaded=${uploaded(place)}
       @remove=${(e) => app.attach.remove(+e.id)}>
-    <button icon=${web ? 'globe' : 'lock'} @tap=${() => app.toggleToolset()}>${web ? 'web' : 'internal'}</button>
     ${t && t.retry ? html`<button icon="refresh" role="primary" @tap=${guard(() => app.actions.control(v.run.id, 'resume'))}>Retry</button>` : nothing}
     ${repeat(queued, (q) => q.id, (q) => html`<button icon="xmark"
       @tap=${guard(() => app.session.removeQueued(q.id))}>${'queued: ' + clip(q.text || '(files)', 40)}</button>`)}

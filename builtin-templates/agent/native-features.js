@@ -13,7 +13,7 @@ export const IMPLEMENTS = {
 
   // Conversations
   'conv.new': 'native/convs.js — the drawer\'s New chat row',
-  'conv.newOptions': 'native/convs.js — newChatSheet',
+  'conv.newOptions': 'native/convs.js — newChatSheet (the class: native/classes.js classSectionTpl)',
   'conv.search': 'native/convs.js — the drawer screen\'s search → ConvList.search',
   'conv.search.snippets': 'native/convs.js — rowTpl subtitle (r.match.snippet)',
   'conv.search.join': 'native/convs.js — search → app.join',
@@ -68,7 +68,7 @@ export const IMPLEMENTS = {
   'composer.text': 'native/chat.js — composer',
   'composer.placeholder': 'native/chat.js — composerTpl (model/rules.js composer)',
   'composer.disabled': 'native/chat.js — composerTpl (model/rules.js composer)',
-  'composer.toolMode': 'native/chat.js — the lock/globe chip (app.toolset)',
+  'composer.class': 'native/classes.js classPickerTpl — the Class picker in the home toolbar (the app\'s composer holds buttons only)',
   'composer.model': 'native/chat.js modelPickerTpl — the Model picker in the chat and home toolbars (the app\'s composer holds buttons only)',
   'composer.attach': 'native/chat.js — composer upload (the app picks and uploads)',
   'composer.heldAsk': 'native/chat.js — at home the composer uploads into the new ask\'s draft (app.uploadTarget: PUT /ask/upload?draft=); model/app.js — send sends the draft (POST /ask {draft, files})',
@@ -83,7 +83,7 @@ export const IMPLEMENTS = {
   // Top bar
   'top.crumb': 'native/chat.js — runMenu: Its automation',
   'top.title': 'native/chat.js — the screen\'s title',
-  'top.toolMode': 'native/chat.js — the subtitle (laneLabel)',
+  'top.class': 'native/chat.js — the subtitle (rules.topBar cls: its class, and ⚠ when it can move internal data out)',
   'top.model': 'native/chat.js — ✦ in the subtitle',
   'top.status': 'native/chat.js — the subtitle',
   'top.viewOnly': 'native/chat.js — the subtitle',
@@ -152,6 +152,7 @@ export const IMPLEMENTS = {
   'manage.config': 'native/settings.js — configTpl',
   'manage.features': 'native/settings.js — featuresTpl',
   'manage.mcp': 'native/settings.js — mcpTpl',
+  'manage.classes': 'native/classes.js — classesTpl, classFormTpl (native/settings.js — the Classes row)',
   'manage.halt': 'native/home.js — mainMenu (home and the drawer); native/settings.js — the brake (confirmed)',
 
   // States

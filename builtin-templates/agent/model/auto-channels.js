@@ -37,6 +37,8 @@ export function draftOf(it) {
     requireMention: g.requireMention !== false, followThreads: g.followThreads !== false, groupThreads: g.threads || '',
     linkedOnly: !!g.linkedOnly, trustLinked: !!pol.trustLinked,
     privateLane: !!pol.privateLane, trustedGroups: (pol.trustedGroups || []).join(', '),
+    // the classes its conversations get (D116) — not on the form yet; kept
+    privateClass: pol.privateClass || '', webClass: pol.webClass || '',
     reset: pol.reset || '', system: pol.system || '', ratePerMin: pol.ratePerMin || '',
     deny: pol.deny ? pol.deny.join(', ') : null, // null: the default list
   };
@@ -53,6 +55,8 @@ export function policyOf(d) {
   if (d.linkedOnly) p.groups.linkedOnly = true;
   if (d.trustLinked) p.trustLinked = true;
   if (d.privateLane) { p.privateLane = true; p.trustedGroups = list(d.trustedGroups); }
+  if (d.privateClass) p.privateClass = d.privateClass;
+  if (d.webClass) p.webClass = d.webClass;
   if (d.reset) p.reset = d.reset;
   if (d.system.trim()) p.system = d.system.trim();
   if (+d.ratePerMin > 0) p.ratePerMin = +d.ratePerMin;

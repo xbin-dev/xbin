@@ -4,6 +4,7 @@
 // the backend sends (a run's view, GET /me, conversation rows), so both views
 // show the same controls to the same person in the same state.
 import { busy } from './fold.js';
+import { badge } from './classes.js';
 
 // access: what you may do in a conversation (its view's `access`: owner |
 // system | participant | viewer; absent from an older backend = everything).
@@ -27,6 +28,9 @@ export function topBar(v, row, me) {
     // the tool mode — not who may see it (that is Share)
     lane: web ? 'web' : 'private',
     laneLabel: web ? '🌐 web' : '🔒 internal',
+    // its class (D116, fixed for its life): icon + name, and the warning of
+    // a class that can move internal data out (model/classes.js badge)
+    cls: badge(v),
     viewOnly: !talk,
     talk, own,
     retry: talk && (r.status === 'error' || r.status === 'canceled'),

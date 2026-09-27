@@ -10,7 +10,7 @@ export const ui = {
   draft: '',        // the composer's text (a controlled prop: the app reports each keystroke)
   drawer: false,    // the conversations drawer is open
   q: '',            // the drawer's search field
-  newChat: null,    // the "new chat with options" sheet: {text, title, system, toolset}
+  newChat: null,    // the "new chat with options" sheet: {text, title, system, class}
   rename: null,     // the rename sheet: {id, title}
   share: null,      // the share sheet: {run: {id, title}, data, link, err, user, role, linkRole, linkExp}
   stack: [],        // screens pushed over the conversation or home: {kind, …} (native/tools.js)

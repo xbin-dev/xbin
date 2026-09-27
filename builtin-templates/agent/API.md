@@ -176,9 +176,10 @@ visibility, so nothing disappears.
 
 Runs carry a `kind`: `""` for a task, `"quick"` for a quick ask — kept for
 compatibility; both are conversations. The tile opens on a home view: the
-composer starts a new conversation (in the lane chosen with its 🔒/🌐 toggle,
-remembered per user through `/api/xbin/prefs` — tile frames have no
-`localStorage`), and **Needs you** lists what waits for you (`GET /needs`).
+composer starts a new conversation (in the class chosen with its picker —
+"Agent classes" below — remembered per user through `/api/xbin/prefs` —
+tile frames have no `localStorage`), and **Needs you** lists what waits for
+you (`GET /needs`).
 The sidebar is your conversation list (`GET /conversations`): Pinned, then
 Today / Yesterday / Previous 7 days / Previous 30 days / Older by last
 activity, unread in bold, a search box, and a row menu (right-click or ⋯) to
@@ -189,7 +190,7 @@ read or write; how many people; from whom). The open conversation's top bar
 says who can see it (private · team can read/write · shared with N · from
 its owner) and opens the share dialog. **New chat** goes
 home; **⋯** opens "New chat with options" (a title, instructions that
-replace the system prompt, the tool mode). A link to a conversation is the
+replace the system prompt, the class). A link to a conversation is the
 tile's URL with `#c=<id>`. Automation runs (schedules, watchers) are not in
 this list.
 
@@ -399,11 +400,26 @@ class is refused (400).
 
 | Method & path | Body | Purpose |
 |---|---|---|
-| `GET /classes` | — | `{classes: [class…], default}` — the classes the caller may start conversations in (a manager sees every one), each with `builtin`, `lane` (`private`\|`web`), `egress` and `mixed`; `default` is the class a new conversation of theirs gets when it names none |
+| `GET /classes` | — | `{classes: [class…], default}` — the classes the caller may start conversations in (a manager sees every one): the built-ins first, then the others as saved, each with `builtin`, `stored` (it is in the saved set — a built-in that is not is its default), `lane` (`private`\|`web`), `egress` and `mixed`; `default` is the class a new conversation of theirs gets when it names none |
 | `PUT /classes` | `{classes: [class…], default?, confirmMixed?}` | managers: replace the classes. A built-in left out comes back as its default (old conversations and APIs name it). **409** `{error, mixed: [id…]}` when a class mixes internal reach with egress and `confirmMixed` isn't set; **400** for a bad id (`a–z 0–9 -`, a letter first, ≤ 32), an unknown toolset or egress, a repeated id, an unknown `default`, or a `who` other than `everyone`/`managers`. Answers as `GET /classes` does |
 
-The tile remembers each person's pick for new conversations through
-`/api/xbin/prefs` (as it did the lane).
+**In the tile.** The composer's class picker (at home, where a new chat
+starts) shows the classes you may use — icon and name, each one's
+description in its menu, a ⚠ on one that can move internal data out; the
+open conversation's top bar shows its class, with the same warning (a
+conversation's class is fixed, so there is no picker there). Your last pick
+is your default for new chats, kept per person at `/api/xbin/prefs/class`;
+with no pick yet, the lane picked before classes (`/api/xbin/prefs/toolset`:
+`web` → `web`, else `internal`), then `GET /classes`' `default`. A new ask
+sends `class` and, beside it, its lane as `toolset`. Managers edit the
+classes under ⚙ → **Classes**: name, icon, description, toolsets, the MCP
+servers and sandbox managers (all, or a list), a sandbox's egress, model,
+system addendum and who may use them, and the default for new chats. A save
+sends the saved classes back with the one edited (a built-in nobody edited
+stays at its default); **Delete** on a built-in is **Reset to default**;
+saving a mixed class asks first, then sends `confirmMixed`. The native view
+has the same: a Class picker in the home toolbar, the class in the
+conversation's subtitle, Settings → Classes.
 
 The web tools go straight out, not through the gateway, so they need the `net`
 interface bound (`bx bind <this component> net=internet`); unbound, they return
@@ -914,24 +930,26 @@ write the agent made in between comes back as a 409 instead of being lost.
 The tile's state and behaviour live in **`model/`** — plain ES modules with no
 lit and no DOM — and each way of showing the tile is a thin view over it. The
 web view is the files you know (`agent.js`, `chat-cards.js`, `sidebar.js`,
-`home.js`, `share.js`, `automations.js`, `auto-*.js`, `index.html`); the
+`home.js`, `share.js`, `classes.js`, `automations.js`, `auto-*.js`,
+`index.html`); the
 **native view** is `native.js` and `native/` — what the xbin app draws with
 platform controls (`/vendor/xb-native.js`, docs/frontend-kit.md). Both draw
 the same model.
 
 | `model/` | What it holds |
 |---|---|
-| `app.js` | `createApp()`: the model in one object — where you are (`sel`, `page`), who you are (`me`), the tool mode for new asks, what needs you, the halt switch, the composer's attachments and sending — wired to the one live stream; views subscribe with `app.on(event, fn)` |
+| `app.js` | `createApp()`: the model in one object — where you are (`sel`, `page`), who you are (`me`), the class for new asks (`classes`, `classId`, `pickClass`; `toolset` is its lane), what needs you, the halt switch, the composer's attachments and sending — wired to the one live stream; views subscribe with `app.on(event, fn)` |
 | `session.js` | the open conversation: its views, the model calls in flight, `shown()` (what the chat draws), `blocks(id)` (a held run folded through its cache) |
 | `fold.js`, `tool-heads.js` | a run's view → chat blocks (with a `FoldCache`, only the blocks whose message, result, step, link or subagent changed are rebuilt; the rest come back as the same objects); a tool call's headline, family and state |
 | `conv-list.js`, `conv-groups.js` | the conversation list: paging, search, pins, read state, live updates; date groups |
 | `stream.js` | the live connection (`GET /stream`, resumable) |
-| `actions.js` | the calls a view makes: ask, send, attachments, control, halt, the tool mode, row actions, sharing, joining, and the settings (config, models, features), a run's memory and files, the skill library |
+| `actions.js` | the calls a view makes: ask, send, attachments, control, halt, the class pick, row actions, sharing, joining, and the settings (config, models, features, classes), a run's memory and files, the skill library |
 | `rules.js` | who may do what and what the controls say: the top bar, the composer's state, the halt switch, a row's menu, the share dialog |
 | `router.js` | addresses: `#c=<id>`, `#auto[=kind:id]`, `#join=<token>` |
 | `auto.js`, `auto-channels.js`, `auto-triggers.js` | the Automations page's state, its kinds (`registerKind`), and each kind's actions |
 | `home.js` | `HOME` — the home view's words — and what "Needs you" says |
 | `features.js` | `FEATURES`: every feature of the UI by key, and the intended differences between views |
+| `classes.js` | agent classes (D116): the composer's picker and your pick, the conversation's badge, the managers' editor (a class as a form, its checks, what a save sends) |
 
 `createApp({deltas, page})` are the native view's options: drafts arrive as
 deltas (`/stream?deltas=1`, "Deltas" above) and the open conversation is read
@@ -948,6 +966,7 @@ home sends the draft (`POST /ask {draft, files}`).
 | `native/chat.js` | the conversation: `fold()` blocks as the chat family (`message`, `thinking`, `toolcard` with a subagent's transcript inside, `step`, `activity`, `approval`, `question`), the composer (attachments the app uploads to `PUT /runs/{id}/upload`, or at home into the new ask's draft, `PUT /ask/upload?draft=`), the top bar as the toolbar's menu |
 | `native/home.js`, `native/convs.js`, `native/share.js` | home and Needs you; the conversations drawer (a `sheet edge="leading"`), new chat with options, rename; the share sheet |
 | `native/tools.js`, `native/settings.js` | memory, files (+ editor, share/export), skills, the workflow tree, one call in full, the render preview (a `canvas html=` island, `native/render-doc.js` — the web's CSP); settings for managers |
+| `native/classes.js` | agent classes: the Class picker in the home toolbar, the new-chat sheet's class, Settings → Classes (the list, one class's form) |
 | `native/auto.js`, `native/auto-channels.js`, `native/auto-triggers.js` | the Automations screens for all four kinds |
 | `native-features.js` | `IMPLEMENTS`: what the native view implements, by feature key (as `web-features.js` for the web) |
 
