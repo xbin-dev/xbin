@@ -16,6 +16,7 @@
 #                       every pass, or just the named ones (node shots.js --list)
 #   ./run.sh --stop     stop xbind
 #   TILE_ASSETS=tokens|origins ./run.sh …   the same under strict tile asset gating
+#   HARNESS_ISOLATE=1 ./run.sh …   xbind with --isolate on $XBIN_TEST_ROOTFS
 set -euo pipefail
 H="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$H/../.." && pwd)"
@@ -36,6 +37,18 @@ else
   export URL="http://127.0.0.1:$PORT"
   asset_flags=(--tile-assets "$TILE_ASSETS")
 fi
+# HARNESS_ISOLATE=1: xbind runs backends in per-component sandboxes
+# (--isolate) on XBIN_TEST_ROOTFS, an unpacked rootfs (make rootfs; a worktree
+# borrows the main checkout's). Passes read it: without it a backend half
+# asserts the isolation refusal and prints SKIP needs HARNESS_ISOLATE. Needs
+# user namespaces; XBIN_FUSE_OVERLAYFS reaches xbind from the environment.
+isolate_flags=()
+if [[ "${HARNESS_ISOLATE:-}" == 1 ]]; then
+  isolate_flags=(--isolate --rootfs "${XBIN_TEST_ROOTFS:-}")
+else
+  HARNESS_ISOLATE=""
+fi
+export HARNESS_ISOLATE
 export OUT="$HARNESS_DIR/out"
 export REPO
 # the scripted OpenAI-compatible upstream the agentTemplate pass talks to
@@ -47,6 +60,10 @@ mkdir -p "$OUT"
 mode="${1:-}"
 [[ $# -gt 0 ]] && shift
 passes=("$@")   # --shots [pass…]
+# a mode that starts xbind needs the rootfs before it builds or wipes anything
+if [[ -n "$HARNESS_ISOLATE" && "$mode" != --stop && "$mode" != --shots && ! -d "${XBIN_TEST_ROOTFS:-}" ]]; then
+  echo "HARNESS_ISOLATE=1 needs XBIN_TEST_ROOTFS, an unpacked rootfs directory (make rootfs)" >&2; exit 1
+fi
 
 # The [x] keeps pkill from matching this script's own command line. Also
 # stop a harness instance from another HARNESS_DIR still holding the port.
@@ -72,7 +89,7 @@ start() {
   # against this checkout's sdk/.
   (cd "$REPO" && nohup bin/fakeopenai -addr "$FAKEOPENAI_ADDR" > "$HARNESS_DIR/fakeopenai.log" 2>&1 < /dev/null &)
   (cd "$REPO" && XBIN_AGENT_FAKE="$REPO/bin/fakeacp" XBIN_BIN="$REPO/bin" XBIN_SDK_PATH="$REPO/sdk" nohup bin/xbind --dev --dev-overlay "$REPO/workspace-template" --workspace "$WS" --listen "127.0.0.1:$PORT" \
-      --ingress-listen "$INGRESS_ADDR" --external-url "$URL" "${asset_flags[@]}" > "$HARNESS_DIR/xbind.log" 2>&1 < /dev/null &)
+      --ingress-listen "$INGRESS_ADDR" --external-url "$URL" "${asset_flags[@]}" "${isolate_flags[@]}" > "$HARNESS_DIR/xbind.log" 2>&1 < /dev/null &)
   for _ in $(seq 1 60); do curl -sf -o /dev/null "$URL/login" && return 0; sleep 0.25; done
   echo "xbind did not come up; see $H/xbind.log" >&2; exit 1
 }
