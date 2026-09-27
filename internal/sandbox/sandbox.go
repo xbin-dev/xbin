@@ -26,6 +26,8 @@ type Handle struct {
 	cleanup func()
 	ctrl    *os.File     // parent end of the fd-passing socketpair (nil = no relay)
 	setup   func() error // range uid/gid mapping + release the init (nil = single-uid)
+	own     []*os.File   // Launch's own child-side files (ctrl's child end, the sync pipe's read end)
+	given   []*os.File   // the caller's child-side files (Spec.Agent, Spec.Lock)
 }
 
 // NeedsRelay reports whether the init will hand back a TUN fd for an egress relay.
@@ -42,7 +44,29 @@ func (h *Handle) SetupUserns() error {
 	return h.setup()
 }
 
-// Cleanup releases the spec temp file and the control socket.
+// Started closes the parent's copies of the files the sandbox inherited, once
+// cmd.Start has succeeded: Launch's own (the control socket's child end, the
+// sync pipe's read end) and the caller's Spec.Agent and Spec.Lock. The
+// sandbox holds its own copies from then on: a factory whose child end only
+// the sandbox holds reports the sandbox's death to Dial, and a lock whose
+// only other holder was xbind lives exactly as long as the sandbox does (a
+// flock belongs to the open file description; xbind closes its fd, never
+// LOCK_UN, which would release it for the sandbox too). Nil-safe; a second
+// call does nothing.
+func (h *Handle) Started() {
+	if h == nil {
+		return
+	}
+	for _, f := range append(h.own, h.given...) {
+		f.Close()
+	}
+	h.own, h.given = nil, nil
+}
+
+// Cleanup releases the spec temp file and the control socket, and Launch's
+// own child-side files if Started never ran. The caller's Spec.Agent and
+// Spec.Lock stay the caller's until Started: when cmd.Start fails, the
+// caller closes them.
 func (h *Handle) Cleanup() {
 	if h == nil {
 		return
@@ -53,6 +77,10 @@ func (h *Handle) Cleanup() {
 	if h.ctrl != nil {
 		h.ctrl.Close()
 	}
+	for _, f := range h.own {
+		f.Close()
+	}
+	h.own = nil
 }
 
 // HostResolver is the upstream DNS a relay forwards :53 queries to: the host's
@@ -106,8 +134,16 @@ type NetLink struct {
 // in and their NAMES remain visible in mountinfo; their contents are still
 // masked (see mountMask). Hiding the names needs resenc storage OUTSIDE the
 // workspace tree — a separate change. (docs/isolation.md; plans/DECISIONS.md.)
+//
+// Sub, when set, is a relative path beneath Src — a trusted root, such as a
+// resource's — that the init resolves one component at a time without
+// following a symlink (openat2 RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS), then
+// binds through /proc/self/fd: Src's own tree may be written by others, and a
+// symlink planted anywhere in the sub-path fails the start rather than show
+// another host path at Dst.
 type Bind struct {
 	Src  string `json:"src"`            // host path (as seen before pivot_root); unused when Mask
+	Sub  string `json:"sub,omitempty"`  // relative path beneath Src, resolved without symlinks
 	Dst  string `json:"dst"`            // absolute path inside the new root
 	RO   bool   `json:"ro"`             // remount read-only after binding (seal, if Mask)
 	Mask bool   `json:"mask,omitempty"` // cover Dst with an empty tmpfs instead of binding Src
@@ -147,6 +183,35 @@ type Spec struct {
 	Argv  []string `json:"argv"`  // full argv (Argv[0] is the program name)
 	Env   []string `json:"env"`
 	Cwd   string   `json:"cwd,omitempty"` // default "/"
+
+	// Hostname, when set, is the sandbox's own hostname (its UTS namespace).
+	Hostname string `json:"hostname,omitempty"`
+
+	// Agent, when set, is the child end of a connection factory (NewFactory):
+	// how xbind reaches an agent running as the entry. Launch passes it after
+	// the control socket and the sync pipe and records its number in AgentFD.
+	// The init keeps it from everything it starts (fuse-overlayfs) and hands
+	// it to the entry alone: a namespace-mode entry gets `--fd N` (and
+	// `--lock M`, below) appended to its argv, never an environment variable.
+	// Lock, when set, is an O_RDONLY fd of the sandbox's state lock that xbind
+	// has already flocked; Launch passes it after Agent (LockFD), and the init
+	// leaves it inheritable, so the init — then the entry — and fuse-overlayfs
+	// all hold the lock. Both stay the caller's until Handle.Started, which
+	// closes xbind's copies; Launch never closes them, even when it fails.
+	Agent *os.File `json:"-"`
+	Lock  *os.File `json:"-"`
+
+	// NoFollow marks a root that untrusted code writes and keeps (a tile
+	// sandbox's persistent upper): every mount point the init makes in it —
+	// /proc, /tmp, /dev, each bind's and mask's Dst, the pivot's .oldroot — is
+	// walked from the root one component at a time without following a
+	// symlink, and made where missing, so a symlink planted in the upper can
+	// neither redirect a mount nor make a directory or file on the host (before
+	// pivot_root an absolute symlink resolves against the host's root). A
+	// symlink or a file in the way fails the start, naming the path. Off, the
+	// init keeps its old path-based mounts: a terminal's or backend's bind may
+	// legitimately pass a symlink the rootfs ships.
+	NoFollow bool `json:"noFollow,omitempty"`
 
 	// Rootless single-uid mapping: container uid/gid 0 → these host ids.
 	HostUID int `json:"hostUid"`
@@ -253,6 +318,10 @@ type Spec struct {
 	SyncFD int `json:"syncFd,omitempty"`
 	// CtrlFD is the fd of the relay TUN fd-passing socket (0 = no relay).
 	CtrlFD int `json:"ctrlFd,omitempty"`
+	// AgentFD and LockFD are Agent's and Lock's numbers in the init (0 =
+	// none).
+	AgentFD int `json:"agentFd,omitempty"`
+	LockFD  int `json:"lockFd,omitempty"`
 	// FuseOverlay, when non-empty, is the path to a fuse-overlayfs binary the
 	// init mounts the root with (supports redirect_dir/metacopy that unprivileged
 	// kernel overlayfs forbids, so `apt install` etc. work). "" = kernel overlay.

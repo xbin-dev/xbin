@@ -5,8 +5,6 @@ package sandbox
 import (
 	"fmt"
 	"net"
-	"os"
-	"path/filepath"
 	"unsafe"
 
 	"github.com/vishvananda/netlink"
@@ -49,9 +47,9 @@ func setupEgress(newroot string, s *Spec) error {
 	if s.Net == "splice" {
 		ns = "1.1.1.1"
 	}
-	_ = os.MkdirAll(filepath.Join(newroot, "etc"), 0o755)
-	_ = os.WriteFile(filepath.Join(newroot, "etc", "resolv.conf"),
-		[]byte("nameserver "+ns+"\noptions single-request\n"), 0o644)
+	// Never through a symlink: before pivot_root an absolute one resolves on
+	// the host, and the root may be a persistent upper the sandbox wrote.
+	_ = writeInRoot(newroot, "/etc/resolv.conf", []byte("nameserver "+ns+"\noptions single-request\n"))
 
 	if err := sendFD(s.CtrlFD, tunFD); err != nil {
 		return fmt.Errorf("hand tun fd to xbind: %w", err)

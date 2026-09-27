@@ -70,6 +70,11 @@ func runInit(specPath string) error {
 	os.Remove(specPath) // consume the spec (final stage, or single-uid mode)
 	dbg(s.Debug, "init pid=%d uid=%d net=%q hostnet=%v restricted=%v unpriv=%v",
 		os.Getpid(), os.Getuid(), s.Net, s.HostNet, s.Restricted, s.Unprivileged)
+	// fd hygiene before anything is started (agentfd_linux.go), the hostname
+	if err := initFDs(&s); err != nil {
+		return err
+	}
+	dbg(s.Debug, "fds: agent=%d lock=%d ctrl=%d hostname=%q nofollow=%v", s.AgentFD, s.LockFD, s.CtrlFD, s.Hostname, s.NoFollow)
 
 	// Detach mount propagation so nothing we do leaks to the host.
 	if err := unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
@@ -107,7 +112,12 @@ func runInit(specPath string) error {
 	// BEFORE the binds so that binds whose paths fall under /tmp (the run dir /
 	// gateway socket use a /tmp fallback for the 108-byte unix-socket limit, and
 	// the workspace itself may live under /tmp) land on top rather than being
-	// shadowed.
+	// shadowed. A NoFollow root (a sandbox-written upper) never has a mount
+	// point followed through a symlink.
+	mountAt := mountAt
+	if s.NoFollow {
+		mountAt = mountAtNoFollow
+	}
 	if err := mountAt(newroot, "proc", "proc", "proc", unix.MS_NOSUID|unix.MS_NODEV|unix.MS_NOEXEC, ""); err != nil {
 		return err
 	}
@@ -166,10 +176,16 @@ func runInit(specPath string) error {
 	// Extra binds: component dir (ro), resource files (rw), gateway socket, …
 	// Mounted ancestors-first (sortBinds) so overlapping binds nest instead of
 	// a later broad mount shadowing an earlier deeper one.
-	for _, b := range sortBinds(s.Binds) {
-		dbg(s.Debug, "bind %q -> %q (ro=%v mask=%v)", b.Src, b.Dst, b.RO, b.Mask)
-		if err := mountBind(newroot, b); err != nil {
+	if s.NoFollow {
+		if err := mountBindsNoFollow(newroot, s.Binds, s.Debug); err != nil {
 			return err
+		}
+	} else {
+		for _, b := range sortBinds(s.Binds) {
+			dbg(s.Debug, "bind %q -> %q (ro=%v mask=%v)", b.Src, b.Dst, b.RO, b.Mask)
+			if err := mountBind(newroot, b); err != nil {
+				return err
+			}
 		}
 	}
 	dbg(s.Debug, "binds done (%d)", len(s.Binds))
@@ -204,7 +220,11 @@ func runInit(specPath string) error {
 
 	// pivot_root into the assembled tree.
 	oldroot := filepath.Join(newroot, ".oldroot")
-	if err := os.MkdirAll(oldroot, 0o700); err != nil {
+	if s.NoFollow {
+		if err := oldrootNoFollow(newroot); err != nil {
+			return err
+		}
+	} else if err := os.MkdirAll(oldroot, 0o700); err != nil {
 		return must(err, "mkdir .oldroot")
 	}
 	if err := unix.PivotRoot(newroot, oldroot); err != nil {
@@ -327,11 +347,11 @@ func runInit(specPath string) error {
 		// Non-fatal: fall back to / so a bad Cwd doesn't wedge the backend.
 		_ = unix.Chdir("/")
 	}
-	argv := s.Argv
-	if len(argv) == 0 {
-		argv = []string{s.Entry}
-	}
+	argv := entryArgv(&s)
 	dbg(s.Debug, "guards on, exec %s (cwd=%s)", s.Entry, cwd)
+	if err := handAgentFD(&s); err != nil {
+		return err
+	}
 	if err := unix.Exec(s.Entry, argv, s.Env); err != nil {
 		return must(err, "exec "+s.Entry)
 	}
@@ -393,11 +413,12 @@ func mountBind(newroot string, b Bind) error {
 	if b.Mask {
 		return mountMask(dst, b.RO)
 	}
-	fi, err := os.Lstat(b.Src)
+	src, isDir, release, err := bindSource(b) // Sub: resolved without symlinks
 	if err != nil {
-		return must(err, "bind src "+b.Src)
+		return err
 	}
-	if fi.IsDir() {
+	defer release()
+	if isDir {
 		if err := os.MkdirAll(dst, 0o755); err != nil {
 			return must(err, "mkdir "+dst)
 		}
@@ -411,7 +432,7 @@ func mountBind(newroot string, b Bind) error {
 	}
 	// Always recursive: a non-recursive bind of a subtree with locked children
 	// (resenc, in a rootless userns) is rejected with EINVAL — see Bind's doc.
-	if err := unix.Mount(b.Src, dst, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
+	if err := unix.Mount(src, dst, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
 		return must(err, "bind "+b.Src+" -> "+b.Dst)
 	}
 	if b.RO {
@@ -511,15 +532,14 @@ func mountAt(newroot, rel, source, fstype string, flags uintptr, data string) er
 
 // copyHostFile copies a host config file (following symlinks, e.g. a
 // systemd-resolved stub) into newroot at the same path — used to seed DNS for
-// host-network sandboxes.
+// host-network sandboxes. The write never follows a symlink in newroot
+// (writeInRoot): the root may be a persistent upper the sandbox wrote.
 func copyHostFile(newroot, p string) {
 	data, err := os.ReadFile(p) // reads through symlinks; we're pre-pivot on host root
 	if err != nil {
 		return
 	}
-	dst := filepath.Join(newroot, p)
-	_ = os.MkdirAll(filepath.Dir(dst), 0o755)
-	_ = os.WriteFile(dst, data, 0o644)
+	_ = writeInRoot(newroot, p, data)
 }
 
 // upLoopback sets lo UP via an ioctl on an AF_INET socket (no external tools).

@@ -2,7 +2,11 @@
 
 package sandbox
 
-import "os/exec"
+import (
+	"net"
+	"os"
+	"os/exec"
+)
 
 // Launch is unsupported off Linux.
 func Launch(*Spec) (*exec.Cmd, *Handle, error) { return nil, &Handle{}, ErrUnsupported }
@@ -22,3 +26,18 @@ func IDMapStatus(int, int) (bool, string) { return false, "user namespaces are L
 
 // DetectProtections reports no terminal-hardening off Linux.
 func DetectProtections() Protections { return Protections{} }
+
+// Factory is a sandbox agent's connection factory; Linux-only.
+type Factory struct{}
+
+// NewFactory is unsupported off Linux.
+func NewFactory() (*Factory, *os.File, error) { return nil, nil, ErrUnsupported }
+
+// Dial is unsupported off Linux.
+func (*Factory) Dial() (net.Conn, error) { return nil, ErrUnsupported }
+
+// Close is a no-op off Linux.
+func (*Factory) Close() error { return nil }
+
+// AcceptFrom is unsupported off Linux.
+func AcceptFrom(*os.File) (net.Conn, error) { return nil, ErrUnsupported }
