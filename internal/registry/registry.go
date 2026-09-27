@@ -451,16 +451,19 @@ func (c *Component) WorkTreeManifest() Manifest {
 
 // PinnedCode is what a pinned primary's checkpoint declares, read from its
 // materialized tree without following a symlink and parsed as Rescan parses a
-// work tree. A manifest that doesn't parse is the zero manifest (no backend,
-// no exposes, no chrome) with ManifestErr set; file contents never appear in
-// it.
+// work tree (ReadCheckpoint, deployview.go). A manifest that doesn't parse is
+// the zero manifest (no backend, no exposes, no chrome) with ManifestErr set;
+// file contents never appear in it.
 type PinnedCode struct {
 	Manifest    Manifest
 	ManifestErr string
 	HasIndex    bool
 	Native      string
 	NativeErr   string
-	Scope       *ScopeManifest // the checkpoint's scope.json when the tile roots its scope; nil otherwise
+	// Scope is the checkpoint's scope.json, its resource names checked; nil
+	// when the checkpoint has none. Rescan composes it into the tile's scope
+	// while the tile roots one (P22).
+	Scope *ScopeManifest
 }
 
 // IsTemplate reports whether the component is a template blueprint (not
@@ -489,12 +492,10 @@ type Registry struct {
 	// the deployment-level fields follow the primary's code (P9). An O(1)
 	// lookup that answers false for every other path; nil means today's scan.
 	PinnedPrimary func(rel string) (*PinnedCode, bool)
-	// ScopeResources, set by the deployments plane at boot, answers the
-	// resources a scope root declares when they don't come from the work
-	// tree's scope.json: a scope rooted by a tile whose primary is pinned
-	// declares what its checkpoint's scope.json does (P22). Whether a
-	// directory roots a scope stays the work tree's. false, or nil, means
-	// today's map, read from the work tree.
+	// ScopeResources is never called: a pinned primary's scope declarations
+	// arrive through PinnedPrimary, as PinnedCode.Scope, which Rescan
+	// composes with the checkpoint's importMap. It goes, with its wiring in
+	// boot and the plane.
 	ScopeResources func(scope string) (map[string]Resource, bool)
 
 	mu         sync.RWMutex
@@ -503,6 +504,7 @@ type Registry struct {
 	workspace  WorkspaceManifest
 	keys       scopeKeys // who holds each scope data key (scopekeys.go)
 	wsBadRes   string    // invalid workspace resource names last warned about (resnames.go)
+	views      viewCache // deployment views and the checkpoints they read (deployview.go)
 }
 
 func Open(root string) (*Registry, error) {
@@ -518,6 +520,7 @@ func Open(root string) (*Registry, error) {
 func (r *Registry) Rescan() error {
 	comps := map[string]*Component{}
 	scopes := map[string]*ScopeManifest{}
+	pinned := map[string]*PinnedCode{} // tiles whose primary is pinned (deployview.go)
 
 	err := filepath.WalkDir(r.Root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -550,11 +553,13 @@ func (r *Registry) Rescan() error {
 		}
 
 		c := &Component{Path: rel, Dir: p}
-		hasManifest := false
+		hasManifest, parsed := false, false
 		if b, err := os.ReadFile(filepath.Join(p, "xbin.json")); err == nil {
 			hasManifest = true
-			if err := jsonc.Unmarshal(b, &c.Manifest); err != nil {
-				c.ManifestErr = err.Error()
+			perr := jsonc.Unmarshal(b, &c.Manifest)
+			parsed = perr == nil
+			if perr != nil {
+				c.ManifestErr = perr.Error()
 			} else if err := ValidateRuntime(c.Manifest); err != nil {
 				// A removed runtime: files still serve, the backend never runs.
 				c.ManifestErr = err.Error()
@@ -571,11 +576,17 @@ func (r *Registry) Rescan() error {
 			c.Native, c.NativeErr = c.resolveNative()
 			comps[rel] = c
 		}
+		if pc, ok := r.pinnedPrimary(rel); ok {
+			// The primary is pinned: the component is its code, kept while the
+			// work tree has no valid manifest (P9).
+			comps[rel], pinned[rel] = composePinned(c, pc, parsed || !hasManifest && c.HasIndex), pc
+		}
 		return nil
 	})
 	if err != nil {
 		return err
 	}
+	composePinnedScopes(scopes, comps, pinned)
 
 	ws := WorkspaceManifest{Schema: 1}
 	if b, err := os.ReadFile(filepath.Join(r.Root, "xbin.json")); err == nil {

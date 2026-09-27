@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/xbin-dev/xbin/internal/fsutil"
 )
 
 // NativeConvention is the native-app UI entry a tile opts in with by simply
@@ -136,7 +138,9 @@ func (c *Component) backendEntryFile() string {
 // declared file if the manifest names a usable one that exists, else the
 // native.js convention when that file exists (unless the manifest opts out
 // or the file is the backend's own entry). problem explains a declared
-// entry that could not be used — surfaced, never a manifest error.
+// entry that could not be used — surfaced, never a manifest error. The file
+// is looked for in the component's code: its code root when it has one (a
+// materialized checkpoint), else its directory.
 func (c *Component) resolveNative() (entry, problem string) {
 	n := c.Manifest.Native
 	if n != nil && n.Invalid != "" {
@@ -149,19 +153,42 @@ func (c *Component) resolveNative() (entry, problem string) {
 			return "", err.Error()
 		case p == c.backendEntryFile():
 			return "", fmt.Sprintf("native entry %q is the backend entry", n.Entry)
-		case !regularFile(filepath.Join(c.Dir, filepath.FromSlash(p))):
+		case !c.codeFile(p):
 			return "", fmt.Sprintf("native entry %q: no such file", n.Entry)
 		}
 		return p, ""
 	}
 	name := c.NativeEntryName()
-	if name == "" || name == c.backendEntryFile() || !regularFile(filepath.Join(c.Dir, name)) {
+	if name == "" || name == c.backendEntryFile() || !c.codeFile(name) {
 		return "", problem
 	}
 	return name, problem
 }
 
+// codeFile reports whether rel (clean, tile-relative) is a regular file of
+// the component's code. A code root is a materialized checkpoint: its files
+// are opened beneath it, never through a symlink that leaves it (P16). The
+// work tree is stat'ed as it always was.
+func (c *Component) codeFile(rel string) bool {
+	if c.CodeRoot != "" {
+		return regularBeneath(c.CodeRoot, rel)
+	}
+	return regularFile(filepath.Join(c.Dir, filepath.FromSlash(rel)))
+}
+
 func regularFile(p string) bool {
 	fi, err := os.Stat(p)
+	return err == nil && fi.Mode().IsRegular()
+}
+
+// regularBeneath reports whether root/rel is a regular file reached without
+// leaving root.
+func regularBeneath(root, rel string) bool {
+	f, err := fsutil.OpenBeneath(root, rel)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	fi, err := f.Stat()
 	return err == nil && fi.Mode().IsRegular()
 }
