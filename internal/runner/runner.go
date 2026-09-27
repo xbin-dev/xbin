@@ -483,8 +483,10 @@ func (r *Runner) startDeployment(c *registry.Component, dep, bin string, gen int
 		r.sbxFail(c, sbx.Start, err)
 		return nil, fmt.Errorf("start backend: %w", err)
 	}
-	leaf := r.chooseLeaf(c.Path, dep) // limits.go: flat while main runs alone
-	mode, unlist := r.modeOf(c, sock), r.sbxAdd(c, gen, sock, cmd.Process.Pid)
+	// limits.go: flat while main runs alone; the registry lists the leaf the
+	// generation is placed in
+	leaf := r.chooseLeaf(c.Path, dep)
+	mode, unlist := r.modeOf(c, sock), r.sbxAddLeaf(c, gen, sock, cmd.Process.Pid, r.listedLeaf(leaf))
 	r.registerInstance(token, c.Path, dep)
 	r.joinLeaf(c.Path, dep, leaf, sock, cmd.Process.Pid)
 	// Range-uid sandbox: map the child's uids and release its init (which is

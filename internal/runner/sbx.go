@@ -62,7 +62,8 @@ func (r *Runner) modeOf(c *registry.Component, sock string) sbx.Mode {
 }
 
 // sbxAdd lists a started generation until the returned remove, in the
-// cgroup leaf its deployment's generation starts in (genLeaf).
+// cgroup leaf its deployment's generation starts in (genLeaf). start lists
+// its generation with sbxAddLeaf and the leaf it placed it in.
 func (r *Runner) sbxAdd(c *registry.Component, gen int, sock string, pid int) func() {
 	return r.sbxAddLeaf(c, gen, sock, pid, r.genLeaf(c, r.viewDeployment(c)))
 }
@@ -109,14 +110,19 @@ func sbxID(tile, dep string, gen int) string {
 }
 
 // genLeaf is the cgroup leaf a new generation of deployment dep of c starts
-// in (07-runtime §10.3); "" without cgroup accounting.
+// in (07-runtime §10.3), as the registry lists it: chooseLeaf's (limits.go),
+// "" without cgroup accounting.
 func (r *Runner) genLeaf(c *registry.Component, dep string) string {
-	if !r.Cgroup.Enabled() {
+	return r.listedLeaf(r.chooseLeaf(c.Path, dep))
+}
+
+// listedLeaf is leaf as a registry entry records it: "" without cgroup
+// accounting, where no generation is placed in one.
+func (r *Runner) listedLeaf(leaf string) string {
+	if cg := r.cgroups(); cg == nil || !cg.Enabled() {
 		return ""
 	}
-	key := util.CompKey(c.Path)
-	_, nested := r.Cgroup.Usage(cgroup.TileNode(key))
-	return leafFor(key, dep, nested)
+	return leaf
 }
 
 // leafFor is the leaf rule: the flat <CompKey> while main runs alone, so

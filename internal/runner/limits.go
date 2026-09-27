@@ -51,17 +51,11 @@ func (r *Runner) cgroups() cgroupOps {
 // its old one drains in the flat leaf. No live process ever moves, and a
 // tile whose parent emptied starts main flat again.
 func (r *Runner) chooseLeaf(tile, dep string) string {
-	key := util.CompKey(tile)
-	if dep == util.MainDeployment {
-		cg := r.cgroups()
-		if cg == nil {
-			return key
-		}
-		if _, nested := cg.Usage(cgroup.TileNode(key)); !nested {
-			return key
-		}
+	key, nested := util.CompKey(tile), false
+	if cg := r.cgroups(); cg != nil && dep == util.MainDeployment {
+		_, nested = cg.Usage(cgroup.TileNode(key))
 	}
-	return cgroup.DeploymentLeaf(key, dep)
+	return leafFor(key, dep, nested) // sbx.go: the one leaf rule
 }
 
 // joinLeaf puts pid, of generation sock of deployment dep of tile, into leaf
