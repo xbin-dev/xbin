@@ -527,7 +527,9 @@ func handleGetClasses(w http.ResponseWriter, r *http.Request) {
 //
 // A class that mixes internal reach with egress is refused (409, naming them
 // in mixed) unless confirmMixed is true. A built-in left out comes back as its
-// default. A class a channel runs strangers in stays one (webClassGuard, 400).
+// default. A class a channel runs strangers in stays one (webClassGuard, 400);
+// a class a trigger or a channel names isn't deleted, and one a public-data
+// trigger runs in isn't made mixed (classUseGuard, 400).
 func handlePutClasses(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Classes      []agentClass `json:"classes"`
@@ -560,7 +562,12 @@ func handlePutClasses(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	next := newClassState(classSettings{Classes: body.Classes})
-	if msg := webClassGuard(loadClasses(agent.db), next, agent.db.listChannels()); msg != "" {
+	cur, chans := loadClasses(agent.db), agent.db.listChannels()
+	msg := webClassGuard(cur, next, chans)
+	if msg == "" {
+		msg = classUseGuard(cur, next, chans, agent.db.listTriggers(``))
+	}
+	if msg != "" {
 		xbin.WriteError(w, 400, msg)
 		return
 	}
@@ -621,6 +628,67 @@ func webClassGuard(cur, next *classState, chans []*Channel) string {
 			return fmt.Sprintf("class %s is everyone else's class (webClass) on %s, so it must keep reaching outside with no internal reach "+
 				"(a reply is an egress) — pick another in its rules first", id, on)
 		}
+	}
+	return ""
+}
+
+// classUseGuard keeps the classes automations name whole: one a trigger or
+// a channel's policy (privateClass, webClass) names can't be deleted while
+// it is named, and one a public-data trigger runs in can't be made mixed —
+// data from outside must not steer a class that can move internal data out,
+// and no confirmation changes that. cur is the set in force, next the one
+// being saved; "" = fine. Schedules and conversations hold nothing up: a
+// deleted class's fall back to their lane's built-in.
+func classUseGuard(cur, next *classState, chans []*Channel, trigs []*Trigger) string {
+	var ids []string
+	users := map[string][]string{}
+	use := func(id, what string) {
+		if id == "" {
+			return
+		}
+		if _, ok := users[id]; !ok {
+			ids = append(ids, id)
+		}
+		users[id] = append(users[id], what)
+	}
+	on := func(list []string) string {
+		if len(list) == 1 {
+			return list[0]
+		}
+		return fmt.Sprintf("%s and %d more", list[0], len(list)-1)
+	}
+	var steered []string
+	steers := map[string][]string{}
+	for _, tr := range trigs {
+		use(tr.Class, "trigger "+strconv.Quote(tr.Name))
+		if tr.DataClass != "public" {
+			continue
+		}
+		lane := Config{Class: tr.Class, Toolset: tr.Toolset}
+		if !cur.classOf(lane).mixed() && next.classOf(lane).mixed() {
+			if _, ok := steers[tr.Class]; !ok {
+				steered = append(steered, tr.Class)
+			}
+			steers[tr.Class] = append(steers[tr.Class], strconv.Quote(tr.Name))
+		}
+	}
+	for _, ch := range chans {
+		use(ch.Policy.PrivateClass, "channel "+strconv.Quote(ch.title())+" (privateClass)")
+		use(ch.Policy.WebClass, "channel "+strconv.Quote(ch.title())+" (webClass)")
+	}
+	for _, id := range ids {
+		if _, was := cur.find(id); !was {
+			continue // a name gone stale holds nothing up
+		}
+		if _, ok := next.find(id); !ok {
+			return fmt.Sprintf("class %s is used by %s: pick another class there before deleting it", id, on(users[id]))
+		}
+	}
+	if len(steered) > 0 {
+		id := steered[0]
+		return fmt.Sprintf("class %s takes data from outside (dataClass public) through trigger %s, so it can't hold internal reach "+
+			"together with egress — data from outside must not steer a class that can move internal data out: "+
+			"move the trigger to another class, or make it take private data, first", id, on(steers[id]))
 	}
 	return ""
 }

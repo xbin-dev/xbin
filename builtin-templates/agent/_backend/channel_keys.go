@@ -80,7 +80,10 @@ func (p channelPolicy) deny() []string {
 }
 
 // validate refuses combinations that open the private lane to strangers.
-func (p channelPolicy) validate() string {
+// prev is the policy it replaces: a class it names is checked only when it
+// changes — a save that leaves them be never fails on a class edited or
+// deleted since (classFor falls back to the lane's built-in).
+func (p channelPolicy) validate(prev channelPolicy) string {
 	switch p.dmPolicy() {
 	case "pairing", "linked", "allowlist", "open", "disabled":
 	default:
@@ -101,12 +104,12 @@ func (p channelPolicy) validate() string {
 		return "reset is idle:<seconds> or daily:<hour>"
 	}
 	st := currentClasses()
-	if p.PrivateClass != "" {
+	if p.PrivateClass != "" && p.PrivateClass != prev.PrivateClass {
 		if _, ok := st.find(p.PrivateClass); !ok {
 			return "privateClass: no class " + strconv.Quote(p.PrivateClass)
 		}
 	}
-	if p.WebClass != "" {
+	if p.WebClass != "" && p.WebClass != prev.WebClass {
 		c, ok := st.find(p.WebClass)
 		switch {
 		case !ok:

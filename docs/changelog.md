@@ -140,6 +140,23 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   model's, the ▣ in the conversation's subtitle with ⋯ → Sandbox for the
   directory, the attached ones and Detach, and pushed Sandboxes screens.
 
+- **Agent template: fixes from the phase-1 review — approvals and class
+  rules** (the template's API.md). An approval answers its own ask: every
+  park has an id (`pendingState.park`), `POST /runs/{id}/approve` takes an
+  optional `park` (409 when that ask is gone; without it, the one pending
+  now), and a verdict queued for one ask is dropped rather than spent on the
+  next — a participant's second click can no longer allow the owner-only
+  sandboxes or threads grant. `PUT /classes` refuses (400, naming them) to
+  make mixed a class a public-data trigger runs in, or to delete a class a
+  trigger or a channel's `privateClass`/`webClass` names; a public event
+  into a class that is mixed now is refused (`reason: "class-mixed"`). A
+  trigger's `{enabled}` switch is never refused over its class, edits
+  re-check the class rules only when the class, data class or delivery
+  change, and its lane stays the one it was saved in; a channel's rules
+  save while a class they name is gone. A conversation or schedule from
+  before the lanes stays in the private lane whatever the built-in
+  `internal` is edited into.
+
 - **Admin console: runtime → sandboxes, and the sandbox in the component
   list** (D112, [isolation.md](isolation.md) §VM sandboxes). A new tab lists
   every sandbox xbind runs — backend generations, terminals, agent sessions
