@@ -593,15 +593,15 @@ func (p *Plane) ResetDeploymentState(path string) error {
 
 // dropDerived removes what a record carries with it once the record is gone
 // — its journal, its view repository, its prepared code — and forgets the
-// tile's attempts. The checkpoint store and its deploy log stay.
+// tile's attempts. The checkpoint store and its deploy log stay. Its callers
+// hold a booted index (a record was there).
 func (p *Plane) dropDerived(tile string) error {
 	p.prep.drop(tile)
 	p.forget(tile)
 	if err := os.Remove(filepath.Join(journalDir(p.Root, tile), journalFile)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("%s: removing the deploy journal: %w", tile, err)
 	}
-	_ = os.Remove(journalDir(p.Root, tile)) // only when empty
-	_ = os.Remove(recordDir(p.Root))        // only when empty
+	p.idx.prune(journalDir(p.Root, tile), recordDir(p.Root)) // each only when empty, never under a write
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	if err := p.store().RemoveView(ctx, tile); err != nil {
