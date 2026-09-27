@@ -489,6 +489,18 @@ re-wrap with the bundled binary; 06's read-only mount against a WAL reader's
   mount under `.xbin/resenc/`, with the kernel log checked for denials) was
   refused by its tool permissions, so WP-39 is held; its trial merge onto
   the wave 2.1 head is clean. The owner runs it, or allows it.
+- *Status (wave 2.1b):* **RESOLVED: yes, it matches.** AppArmor's documented
+  glob semantics (<https://apparmor.net/reference/profiles-quick-reference/>):
+  "`**` — match 0 or more characters over multiple directory levels. This
+  will match dot files (file names starting with `.`), excepting `.` and
+  `..`, if it is placed immediately after the directory `/`, e.g.
+  `/dir/**`". The installer's `fusermount3` rule is `<ws>/.xbin/resenc/**/`
+  (D110; `deploy/install.sh`, `aa_fuse_block`), so `**` follows a `/` and
+  matches `.xbin/resenc/.deployments/<escS>/<d>/fs/<name>/`. The
+  `.deployments` level stays; 08 §3.5's fallback isn't needed. WP-39 merges
+  at wave 2.1b. The live mount stays a check for the owner in the M2 exit's
+  manual checklist (15-test-plan §10.3 item 10; M2 exit criterion 4), since
+  the swarm has no remote shell.
 
 **Q11 — The checkpoint purge route.** The review settled R-4 as yes, in M2
 (NP-06-16), but 11-contract has no route for it.

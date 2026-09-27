@@ -1150,6 +1150,12 @@ terminal-level non-manager, a reader and a manager). Stop it by PID.
    stays responsive.
 9. **After release,** the QA box (`deploy/qa/`) repeats 1 and 2 on the
    shipped build.
+10. **AppArmor (M2, the owner).** On the Ubuntu QA box, with the installer's
+    `fusermount3` block, a non-`main` volume mounts under
+    `.xbin/resenc/.deployments/<escS>/<d>/fs/<name>/`, next to a control
+    mount of `main`'s under `.xbin/resenc/`, and the kernel log shows no
+    AppArmor denial (16-open-questions Q10, settled from AppArmor's documented
+    `**` semantics; 08-data §3.5, §14.2; M2 exit criterion 4).
 
 ## 11. Traceability
 
