@@ -16,12 +16,6 @@ import (
 	"github.com/xbin-dev/xbin/internal/registry"
 )
 
-// reaperAsksKeptUp says whether states.go's reapOnce exempts every
-// deployment with effective alwaysOn (keptUp) rather than an alwaysOn
-// primary alone. It is states.go's seam, outside this work package's files:
-// amendment A1 of WP-34's report flips it.
-const reaperAsksKeptUp = false
-
 // alwaysOnDev is apps/x with main on the work tree, whose code isn't
 // alwaysOn, and dev pinned to c1, whose checkpoint's manifest is; dev's
 // alwaysOn switch is on while the returned flag is set.
@@ -99,9 +93,6 @@ func TestDeploymentEdgeSeamRows(t *testing.T) {
 		}
 		f.advance(31 * time.Minute)
 		t.Run("the reaper spares the switched-on deployment", func(t *testing.T) {
-			if !reaperAsksKeptUp {
-				t.Skip("amendment A1 pending: states.go's reapOnce exempts an alwaysOn primary alone; it must ask keptUp(s.comp, s.dep)")
-			}
 			f.r.reapOnce()
 			f.settle()
 			if got, want := f.takeLog(), []string{"stop apps/x main g1"}; !equalStrings(got, want) {

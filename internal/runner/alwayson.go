@@ -177,9 +177,6 @@ func nextBackoff(prev time.Duration, upFor time.Duration) time.Duration {
 	return prev * 2
 }
 
-// afterExit is afterExitOf c's primary.
-func (r *Runner) afterExit(c *registry.Component) { r.afterExitOf(c, r.primary(c.Path)) }
-
 // afterExitOf is the crash watch's hook: a generation of deployment dep of c
 // with effective alwaysOn that exited (not replaced, not stopped, not
 // crash-looping) comes back after its deployment's backoff.
