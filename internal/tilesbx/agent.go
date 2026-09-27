@@ -169,6 +169,30 @@ func (a *agentClient) send(m proto.Msg) error {
 	return nil
 }
 
+// ctlSendWait bounds a control line's send (an exec, a signal, a resize);
+// a variable for the tests.
+var ctlSendWait = 10 * time.Second
+
+// sendWithin is send, bounded by d: the agent runs a sync inline in its
+// control loop, so over a wedged root it stops reading, and a line past the
+// socket's buffer (an exec's argv and env) would block the request for
+// good. Past d it is unavailable; the send left behind ends when the
+// teardown closes the connection.
+func (a *agentClient) sendWithin(m proto.Msg, d time.Duration) error {
+	sent := make(chan error, 1)
+	go func() { sent <- a.send(m) }()
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case err := <-sent:
+		return err
+	case <-a.gone:
+		return &Error{Refusal: RefUnavailable, Msg: "the sandbox's agent closed its control connection", RetryAfter: time.Second}
+	case <-t.C:
+		return &Error{Refusal: RefUnavailable, Msg: fmt.Sprintf("the sandbox's agent isn't reading its control connection (%s)", d), RetryAfter: 5 * time.Second}
+	}
+}
+
 // Sync asks the agent to flush the sandbox's filesystem and waits for its
 // "synced", at most d. A fuse-overlayfs a session stopped can wedge the
 // flush (WP-3's note): a stop gives up after d and kills the sandbox anyway.
@@ -276,20 +300,27 @@ func (a *agentClient) Exec(ex proto.Exec) (*agentSession, map[string]net.Conn, e
 		}
 		streams[name] = c
 	}
-	if err := a.send(proto.Msg{Op: "exec", Exec: &ex}); err != nil {
+	if err := a.sendWithin(proto.Msg{Op: "exec", Exec: &ex}, ctlSendWait); err != nil {
 		return fail(err)
 	}
 	return s, streams, nil
 }
 
-// Signal signals a session (group: its whole process group).
-func (a *agentClient) Signal(session, sig int, group bool) error {
-	return a.send(proto.Msg{Op: "signal", Session: session, Signal: sig, Group: group})
+// abandon gives a session up (its "started" never came): it ends with why,
+// and whatever the agent says of it later is dropped.
+func (a *agentClient) abandon(s *agentSession, why string) {
+	s.finish(a, SessionExit{Error: why, Code: -1})
 }
 
-// Resize resizes a tty session's terminal.
+// Signal signals a session (group: its whole process group). Bounded, as
+// every control line but a sync is (sendWithin).
+func (a *agentClient) Signal(session, sig int, group bool) error {
+	return a.sendWithin(proto.Msg{Op: "signal", Session: session, Signal: sig, Group: group}, ctlSendWait)
+}
+
+// Resize resizes a tty session's terminal (bounded).
 func (a *agentClient) Resize(session int, rows, cols uint16) error {
-	return a.send(proto.Msg{Op: "resize", Session: session, Rows: rows, Cols: cols})
+	return a.sendWithin(proto.Msg{Op: "resize", Session: session, Rows: rows, Cols: cols}, ctlSendWait)
 }
 
 // File opens one file operation's connection (proto/file.go's framing

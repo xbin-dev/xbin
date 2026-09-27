@@ -530,6 +530,7 @@ func (m *Manager) Delete(k Key, name string) error {
 		return err
 	}
 	delete(m.live[k], name)
+	b.execs.forgetAll() // their rings go back to the tile's budget
 	if to != "" {
 		m.trash.putSized(to, b.diskBytes)
 	}

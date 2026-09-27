@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"sync"
 	"syscall"
 	"time"
@@ -116,15 +115,30 @@ type nsProc struct {
 	h    *sandbox.Handle
 	inCg bool
 
+	// hmu serializes SetupUserns and Cleanup: an init that dies at once is
+	// torn down (Cleanup, by the watcher) while its start may still be in
+	// SetupUserns, and both touch the handle's sync pipe.
+	hmu sync.Mutex
+
 	mu     sync.Mutex
 	waited bool // Wait returned: the init is reaped, its pid may be anyone's
 }
 
-func (p *nsProc) Pid() int           { return p.cmd.Process.Pid }
-func (p *nsProc) InCgroup() bool     { return p.inCg }
-func (p *nsProc) SetupUserns() error { return p.h.SetupUserns() }
-func (p *nsProc) Started()           { p.h.Started() }
-func (p *nsProc) Cleanup()           { p.h.Cleanup() }
+func (p *nsProc) Pid() int       { return p.cmd.Process.Pid }
+func (p *nsProc) InCgroup() bool { return p.inCg }
+func (p *nsProc) Started()       { p.h.Started() }
+
+func (p *nsProc) SetupUserns() error {
+	p.hmu.Lock()
+	defer p.hmu.Unlock()
+	return p.h.SetupUserns()
+}
+
+func (p *nsProc) Cleanup() {
+	p.hmu.Lock()
+	defer p.hmu.Unlock()
+	p.h.Cleanup()
+}
 
 // Kill SIGKILLs the init and every process under it: its PID 1 can't die
 // while one of its threads waits on a wedged FUSE root (killtree.go). The
@@ -184,7 +198,7 @@ func overlayFlavour() string {
 // and fuse-overlayfs watched (FuseWatch), its own hostname, the relay, the
 // factory and the lock, the agent bound read-only as the entry. Its
 // environment is the agent's own; a session never inherits it — each exec
-// carries sessionEnv.
+// carries its own environment (sessionEnv, exec.go).
 func (m *Manager) nsSpec(d *Def, lower, cur string, binds []sandbox.Bind, agent, lock *os.File) *sandbox.Spec {
 	return &sandbox.Spec{
 		Lower: []string{lower},
@@ -199,26 +213,6 @@ func (m *Manager) nsSpec(d *Def, lower, cur string, binds []sandbox.Bind, agent,
 		Restricted: true, MountGuard: true, NoFollow: true, FuseWatch: true,
 		Agent: agent, Lock: lock,
 	}
-}
-
-// sessionEnv is what every command in the sandbox gets (WP-17 adds an
-// exec's own env over it): IN_SANDBOX=1, a PATH, and the definition's
-// defaults.env — never an XBIN_* variable (validate.go refuses them; this
-// drops one that got past, §8.3).
-func sessionEnv(d *Def) []string {
-	env := map[string]string{"PATH": defaultPATH}
-	for k, v := range d.Defaults.Env {
-		if checkEnv(map[string]string{k: v}, "") == nil {
-			env[k] = v
-		}
-	}
-	env["IN_SANDBOX"] = "1"
-	out := make([]string, 0, len(env))
-	for k, v := range env {
-		out = append(out, k+"="+v)
-	}
-	sort.Strings(out)
-	return out
 }
 
 // binds resolves a definition's mounts against the tile's reach now (§5):

@@ -142,8 +142,9 @@ func (b *Sandbox) Execs(ctx context.Context) ([]ExecInfo, error) {
 	return out.Execs, nil
 }
 
-// GetExec is one exec. One from before xbind restarted, or that was running
-// when its sandbox stopped, is ErrSandboxLost.
+// GetExec is one exec. One from before xbind restarted is ErrSandboxLost;
+// one that was running when its sandbox stopped is killed (signal KILL),
+// its output kept.
 func (b *Sandbox) GetExec(ctx context.Context, id string) (*ExecInfo, error) {
 	path, err := b.execRoute(id, "")
 	if err != nil {

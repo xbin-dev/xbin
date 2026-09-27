@@ -51,6 +51,8 @@ func (st *State) stepTileSandboxes() error {
 	brk := st.Broker
 	brk.OnSandboxNetChange = st.TileSbx.OnSandboxNetChange
 	brk.OnCapChange = tileSandboxCapHook(st.TileSbx.StopTile)
+	// Switching a user's noTerminal on kills the tty execs claimed for them (D88).
+	brk.OnNoTerminal = st.TileSbx.OnNoTerminal
 	brk.SetTileSandboxes(tileSbxHooks{st.TileSbx})
 	if prev := brk.OnStructureChange; prev != nil {
 		brk.OnStructureChange = func() { prev(); st.TileSbx.Reconcile() }
@@ -183,7 +185,7 @@ func (s sandboxUsers) NoTerminal(user string) bool {
 		return false
 	}
 	u, ok := s.st.Users.Get(user)
-	return ok && u.NoTerminal
+	return ok && u.NoTerminal && !u.IsAdmin() // admins never have it (users.Access.NoTerminal)
 }
 
 // tileDiskLow is diskmon, for tile sandboxes (§6.3): its low-disk verdict

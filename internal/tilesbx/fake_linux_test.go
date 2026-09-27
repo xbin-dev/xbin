@@ -162,9 +162,15 @@ func (p *fakeProc) Cleanup() {
 }
 
 // die ends the "sandbox" with st: its agent's copies of the factory and
-// the lock go, and so does its side of the TUN.
+// the lock go, and so does its side of the TUN — and, as when a pid
+// namespace's init dies, every session's process group.
 func (p *fakeProc) die(st ExitStatus) {
 	p.once.Do(func() {
+		for _, s := range p.core.Sessions() {
+			if s.Pid > 0 {
+				_ = syscall.Kill(-s.Pid, syscall.SIGKILL)
+			}
+		}
 		p.agent.Close()
 		p.lock.Close()
 		p.mu.Lock()
@@ -273,7 +279,7 @@ func (fe *fakeEnv) waitState(name, state string) Info {
 // agent client, its combined output and how it ended.
 func execRun(t *testing.T, r *run, argv []string) (string, SessionExit) {
 	t.Helper()
-	s, streams, err := r.client().Exec(proto.Exec{Argv: argv, Env: sessionEnv(r.def), Merge: true, NoStdin: true, CwdStrict: false})
+	s, streams, err := r.client().Exec(proto.Exec{Argv: argv, Env: sessionEnv(r.def, nil, nil), Merge: true, NoStdin: true, CwdStrict: false})
 	if err != nil {
 		t.Fatalf("exec %q: %v", argv, err)
 	}

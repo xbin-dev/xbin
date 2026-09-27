@@ -12,9 +12,11 @@
 // (registry.go) and the confined removal of what is deleted (trash.go) —
 // and the lifecycle policy: admission (admission.go), the idle stop
 // (idle.go), auto-start (autostart.go), reset and rebase (reset.go), and
-// the boot's sweep (sweep.go). What it needs from the rest of xbind comes
-// in through Deps, small interfaces a test fakes. Execs, files and
-// snapshots answer `unsupported` until they are built
+// the boot's sweep (sweep.go) — and the commands a sandbox runs: execs and
+// their output rings (exec.go, ring.go), run (run.go) and the TTY WebSocket
+// (tty.go). What it needs from the rest of xbind comes in through Deps,
+// small interfaces a test fakes. Files and snapshots answer `unsupported`
+// until they are built
 // (plans/tile-sandbox-runtime.md §12).
 package tilesbx
 
@@ -22,6 +24,7 @@ import (
 	"context"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/cgroup"
@@ -205,6 +208,13 @@ type Manager struct {
 	defs   *defStore
 	policy *policyStore
 	live   map[Key]map[string]*box
+
+	// Execs (exec.go): their ids are <bootID>-<n>, so an id from before a
+	// restart is told apart (410 lost); a tile's output rings share one
+	// budget (ring.go).
+	execSeq atomic.Int64
+	ringsMu sync.Mutex
+	rings   map[string]*ringBudget // by tile
 }
 
 // New builds the runtime over a workspace and loads its definitions. An
@@ -215,7 +225,7 @@ func New(o Options) *Manager {
 		rootfs: o.Rootfs, bxPath: o.BxPath, launcher: o.Deps.Launcher,
 		modes: map[string]*modeOps{ModeNamespace: nsOps, ModeVM: vmOps},
 		net:   &netState{budget: relay.NewBudget(flowBudgetSize()), listen: o.Deps.Listen},
-		live:  map[Key]map[string]*box{}}
+		live:  map[Key]map[string]*box{}, rings: map[string]*ringBudget{}}
 	if m.now == nil {
 		m.now = time.Now
 	}
@@ -263,22 +273,25 @@ type box struct {
 	flight *sync.Mutex
 	log    *logRing // its first process's output, across runs
 
-	state        string // creating | stopped | starting | running | stopping | error
-	detail       string // why: a failed start, a stop the runtime made
-	accel        string // a running VM's
-	started      int64  // unix ms
-	lastActive   int64  // unix ms
-	launched     *Def   // the definition the running sandbox started with
-	reach        string // the running relay's reach
-	egressNext   bool   // its class's rules widened since it started: they apply at the next start
-	run          *run   // the run up now (nil: none)
-	execsRunning int
-	diskBytes    int64 // allocated, snapshots included: measured at each stop and while it runs (usage.go)
-	measured     int64 // when diskBytes was measured (unix ms; 0 = not since xbind started)
-	snapshots    int
+	state      string // creating | stopped | starting | running | stopping | error
+	detail     string // why: a failed start, a stop the runtime made
+	accel      string // a running VM's
+	started    int64  // unix ms
+	lastActive int64  // unix ms
+	launched   *Def   // the definition the running sandbox started with
+	reach      string // the running relay's reach
+	egressNext bool   // its class's rules widened since it started: they apply at the next start
+	run        *run   // the run up now (nil: none)
+	diskBytes  int64  // allocated, snapshots included: measured at each stop and while it runs (usage.go)
+	measured   int64  // when diskBytes was measured (unix ms; 0 = not since xbind started)
+	snapshots  int
+
+	execs *execTable // its execs, across its runs (exec.go)
 }
 
-func newBox() *box { return &box{flight: &sync.Mutex{}, log: &logRing{}, state: StateStopped} }
+func newBox() *box {
+	return &box{flight: &sync.Mutex{}, log: &logRing{}, state: StateStopped, execs: newExecTable()}
+}
 
 // States a sandbox is in. StateCreating is a clone whose copy still runs
 // (Def.Pending "clone"): every call but GET, list and DELETE answers 409

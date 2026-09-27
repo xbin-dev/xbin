@@ -277,10 +277,16 @@ func TestPathHygiene(t *testing.T) {
 	if lookups.Load() != base {
 		t.Fatal("lookups counted outside the refused requests")
 	}
-	// Well-formed ids pass the gates (to routes not built yet: 501).
+	// Well-formed ids pass the gates: an exec id of another boot is lost;
+	// the snapshot routes aren't built yet (501).
+	e.m.bootID = "123456"
 	for _, r := range []struct{ method, path string }{
-		{"GET", "/sandboxes/x/execs/" + e.m.bootID + "-1"},
-		{"GET", "/sandboxes/x/execs/" + e.m.bootID + "-123456789012/output"},
+		{"GET", "/sandboxes/x/execs/0a1b2c-1"},
+		{"GET", "/sandboxes/x/execs/ffffff-123456789012/output"},
+	} {
+		e.want(e.do(mgr, r.method, r.path, "{}"), http.StatusGone, RefLost)
+	}
+	for _, r := range []struct{ method, path string }{
 		{"POST", "/sandboxes/x/snapshots/s-1/restore"},
 		{"DELETE", "/sandboxes/x/snapshots/s-123456789012"},
 	} {

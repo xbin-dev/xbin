@@ -542,6 +542,12 @@ and defines and drives them through `/api/xbin/sandboxes/…`
 - **Mounts** are the manager's own `filesystem` resources, declared in its
   `uses` (a reader's read-only), and its code, read-only. Paths in file calls resolve inside
   the sandbox, never on the host.
+- **Commands** run as sessions of xbind's agent in the sandbox, each in
+  its own process group, with an environment xbind builds (`IN_SANDBOX`,
+  `SANDBOX_ID`, `SANDBOX_NAME`, `HOME`, the definition's `defaults.env`) —
+  never the agent's or xbind's own. A terminal on one reaches a person
+  only through the manager, and D88's `noTerminal` holds for the person
+  the manager names.
 - **Definitions are xbind's** (`data/sandboxes.json`), validated again at
   every start; the policy (`.xbin/sandboxes/policy.json`, admins) caps what
   each tile holds. Every start is booked against those caps and the

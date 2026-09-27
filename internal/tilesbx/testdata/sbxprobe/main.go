@@ -4,13 +4,17 @@
 package main
 
 import (
+	"bufio"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -84,6 +88,38 @@ func main() {
 	case "sleep":
 		d, _ := time.ParseDuration(a[0])
 		time.Sleep(d)
+	case "echo": // words: printed, one line
+		fmt.Println(strings.Join(a, " "))
+	case "env":
+		for _, e := range os.Environ() {
+			fmt.Println(e)
+		}
+	case "copy": // stdin to stdout
+		_, _ = io.Copy(os.Stdout, os.Stdin)
+	case "tree": // dur [pidfile]: a child in its process group, sleeping dur; its pid printed (and written)
+		child := exec.Command(os.Args[0], "sleep", a[0]) // exec-ok: the test probe, run inside a sandbox
+		if err := child.Start(); err != nil {
+			fail(err.Error())
+		}
+		fmt.Printf("child %d\n", child.Process.Pid)
+		if len(a) > 1 {
+			_ = os.WriteFile(a[1], []byte(strconv.Itoa(child.Process.Pid)), 0o644)
+		}
+		d, _ := time.ParseDuration(a[0])
+		time.Sleep(d)
+	case "alive": // pid: alive, or gone (a zombie is gone)
+		b, err := os.ReadFile("/proc/" + a[0] + "/stat")
+		if i := strings.LastIndexByte(string(b), ')'); err != nil || i < 0 || strings.HasPrefix(strings.TrimSpace(string(b[i+1:])), "Z") {
+			fmt.Println("gone")
+			return
+		}
+		fmt.Println("alive")
+	case "readexit": // a line from stdin: "got <it>", then exit with it as the code
+		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		line = strings.TrimSpace(line)
+		fmt.Printf("got %s\n", line)
+		n, _ := strconv.Atoi(line)
+		os.Exit(n)
 	default:
 		fail("unknown op " + os.Args[1])
 	}
