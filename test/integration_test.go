@@ -206,6 +206,28 @@ func TestGoBackendLifecycle(t *testing.T) {
 	}, 60*time.Second) {
 		t.Fatal("hot swap never became visible")
 	}
+	// The sandbox registry (D112) lists the running generation — the newest
+	// once the swap is done — and says how it runs (no --isolate here: host).
+	if !waitFor(func() bool {
+		_, body := get(t, "/api/xbin/sandboxes?tile=apps/counter")
+		var out struct {
+			Sandboxes []struct {
+				Kind, Tile, Mode string
+				Gen              int
+			}
+		}
+		if json.Unmarshal([]byte(body), &out) != nil || len(out.Sandboxes) != 1 {
+			return false
+		}
+		sb := out.Sandboxes[0]
+		return sb.Kind == "backend" && sb.Tile == "apps/counter" && sb.Mode == "host" && sb.Gen >= 2
+	}, 10*time.Second) {
+		_, body := get(t, "/api/xbin/sandboxes?tile=apps/counter")
+		t.Fatalf("the sandbox registry doesn't list the swapped generation: %s", body)
+	}
+	if _, body := get(t, "/api/xbin/runtime"); !strings.Contains(body, `"sandbox":"host"`) {
+		t.Fatalf("/runtime backends don't say how they run: %s", body)
+	}
 
 	// Broken build: old generation keeps serving, error lands in status.
 	if err := os.WriteFile(src, append(b, []byte("\nBROKEN!")...), 0o644); err != nil {
@@ -416,7 +438,7 @@ func TestAdminCapability(t *testing.T) {
 	plainTok, _ := frameToken(t, "apps/plain")
 
 	for _, ep := range []string{"/api/xbin/auth-overview", "/api/xbin/vaults",
-		"/api/xbin/resources", "/api/xbin/grants", "/api/xbin/backends"} {
+		"/api/xbin/resources", "/api/xbin/grants", "/api/xbin/backends", "/api/xbin/sandboxes"} {
 		if code := getFramed(t, ep, adminTok); code != 200 {
 			t.Errorf("admin tile %s: got %d, want 200", ep, code)
 		}

@@ -497,6 +497,34 @@ PUT    /vm/policy                  admin. body {terminals,backends,memMiB,vcpus,
                                    shrunk). Turning backends off stops new VM
                                    generations; running ones keep going. 400
                                    on out-of-range sizes, 409 without --isolate
+GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
+                                   {sandboxes:[{id,kind (backend|terminal|
+                                   agent),tile,parent?,user?,label?,mode
+                                   (vm|namespace|host),accel? (kvm|emulate),
+                                   memMiB?,vcpus?,pid,gen?,started,leaf?,
+                                   disk?,net?,restricted?,owner?,name?,
+                                   status?,uptimeSec,stats?:{cpu,mem,pids,
+                                   scope}}], disks:[{key,path,tile?,
+                                   apparentBytes,allocatedBytes,inUse}],
+                                   failures:[{time,kind,tile,user?,mode,stage
+                                   (refused|start|health|exit),error,count}],
+                                   failureCounts:{<stage>:n}, cgroup,
+                                   intervalSec, health:{isolation:{tier,
+                                   isolate,rootfs,scopeUids,protections,
+                                   cgroup,uidRange?,uidRangeNote?},vm:{
+                                   available,reason?,emulated?,note?,accel?,
+                                   forced?,assets:{piece:path},missing?:[…],
+                                   kvm?,emulation?,policy,stored,used,
+                                   usedBy:{<tile>:{vms,memMiB}}}}}. A backend
+                                   is listed per generation (blue/green shows
+                                   two; stats scope "tile" is the tile's
+                                   shared leaf — count it once), a session
+                                   by its id; stats are the live sampler's
+                                   (demand-driven, like /runtime). stored is
+                                   the VM policy as set (0 = default) — what
+                                   an editor PUTs back. failures: the newest
+                                   64, identical ones within 10 min
+                                   coalesced (count). ?tile= narrows
 GET    /tile-status?component=<p>  self or admin. one tile's runtime metrics —
                                    backend {state,gen,sandbox,vm?,cpuSec,cgroup:{mem,pids},
                                    rssKb,fds,activeConns,egress}, disk {usage,

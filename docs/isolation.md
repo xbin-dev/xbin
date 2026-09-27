@@ -363,7 +363,8 @@ The namespace sandbox is still there, as the VM's jail (Firecracker runs
 inside it with a bare root and five file capabilities). A VM escape lands
 in a rootless sandbox that holds only the binds. xbind keeps VMs **off**
 until the workspace has a VM policy: an admin turns them on for terminals
-and/or backends with `PUT /api/xbin/vm/policy` (or the admin console), which
+and/or backends in the admin console's **runtime → sandboxes** tab (or
+with `PUT /api/xbin/vm/policy`), which
 also sets the size per VM (default 2 GiB, 2 vCPUs), the number of VMs and a
 memory budget. **The installer** (`deploy/install.sh`, fresh installs and
 upgrades) **writes an "on" policy for a workspace that has none** — terminals,
@@ -426,6 +427,19 @@ KVM. `XBIN_VM_ACCEL=kvm` never emulates. The bundle's
 `qemu-system-x86_64` (with `qemu-bios-microvm.bin` and `qemu-pvh.bin` beside
 it) and `vhost-device-vsock` are the extra pieces; x86_64 hosts only.
 Decision: D90.
+
+**Seeing them.** xbind keeps one list of every sandbox it runs — each
+backend generation, terminal and agent session — with its tile, user, how
+it is isolated (VM, namespace sandbox, or none without `--isolate`), the
+VMM a VM got (KVM or emulated), its reserved memory and vCPUs, its cgroup
+and its VM disk, and a short history of what the sandbox layer refused or
+failed at (a policy switch, the VM budget, missing pieces, a VM that died at
+boot). The admin console's **runtime → sandboxes** tab shows it with the
+host's health (isolation tier, guards, whether VMs can run and what is
+missing), the VM budget in use per tile and the VM policy editor;
+`GET /api/xbin/sandboxes` is the same for scripts (admin). A VM backend's
+pid, namespaces and RSS in the runtime views are its host-side jail's: read
+its cgroup line for what the VM uses. Decision: D112.
 
 ## Resource limits (blast-radius containment)
 

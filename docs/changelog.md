@@ -25,6 +25,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   (emulated: 180 s) health timeout. The cgroup memory/pids alerts
   (`GET /alerts` kinds `oom`/`pids`) now actually fire — they were never
   installed — and cover VM and restricted-user terminals too.
+  `GET /api/xbin/sandboxes` (admin) lists every sandbox xbind runs — each
+  backend generation, terminal and agent session with its tile, user, mode,
+  VMM, reserved size, cgroup, VM disk and live stats — plus the VM disks on
+  the host, the host's isolation and VM health (what is missing, the policy
+  as set, the budget in use per tile) and the newest things the sandbox
+  layer refused or failed at.
 
 - **xbin app: web tiles laid out for the phone** ([native.md](native.md)
   §Fallback). A tile page without a `<meta name="viewport">` — nearly every

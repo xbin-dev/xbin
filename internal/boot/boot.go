@@ -71,6 +71,8 @@ type State struct {
 	watcher          *watch.Watcher
 	priv             Privileges
 	rootfs           string // --isolate's rootfs, absolute (stepConfine)
+	uidRange         bool   // sandboxes map a delegated sub-id range (stepIsolation)
+	uidRangeNote     string // why not
 }
 
 // Step is one named stage of a boot. Steps run in list order; the order is
@@ -647,7 +649,9 @@ func (st *State) stepIsolation() error {
 	// mapped), where those chowns fail with EINVAL and heavier package
 	// installs break midway (systemd, dbus, …) while simple ones still work.
 	// Warn loudly — the failure is otherwise a cryptic dpkg error.
-	if rangeOK, reason := sandbox.IDMapStatus(os.Getuid(), os.Getgid()); rangeOK {
+	rangeOK, reason := sandbox.IDMapStatus(os.Getuid(), os.Getgid())
+	st.uidRange, st.uidRangeNote = rangeOK, reason
+	if rangeOK {
 		slog.Info("sandbox uid mapping: full sub-id range (apt/dpkg system-user installs work)")
 	} else {
 		slog.Warn("sandbox uid mapping: SINGLE-UID fallback — apt/dpkg installs that create system users (systemd, dbus, …) will fail with chown \"Invalid argument\"; delegate a sub-id range to this user and install the uidmap package (deploy/install.sh does both), then restart xbind",
@@ -691,6 +695,7 @@ func (st *State) stepServer() error {
 	st.Broker.Register(srv)
 	st.registerRuntimeAPI(srv)
 	st.registerVMAPI(srv)
+	st.registerSandboxAPI(srv)
 	if err := st.setupPush(srv); err != nil {
 		return err
 	}

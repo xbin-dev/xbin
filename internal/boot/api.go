@@ -9,7 +9,6 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/runner"
-	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/term"
 )
@@ -35,13 +34,14 @@ func (st *State) registerRuntimeAPI(srv *server.Server) {
 		}
 		var ms goruntime.MemStats
 		goruntime.ReadMemStats(&ms)
-		host := map[string]any{
+		host := st.isolationInfo() // isolate, rootfs, scopeUids, protections (sandboxes.go)
+		for k, v := range map[string]any{
 			"version": st.Cfg.Version, "pid": os.Getpid(), "uid": os.Geteuid(),
 			"kernel": kernelRelease(), "numCPU": goruntime.NumCPU(),
 			"goroutines": goruntime.NumGoroutine(), "heapMB": float64(ms.HeapAlloc) / 1e6,
 			"uptimeSec": int64(time.Since(st.Started).Seconds()),
-			"isolate":   run.Isolate, "rootfs": run.Rootfs, "scopeUids": st.Cfg.ScopeUIDs && st.priv.Euid() == 0,
-			"protections": sandbox.DetectProtections(), // terminal mount/read guard availability
+		} {
+			host[k] = v
 		}
 		// Live per-tile stats (cpu/mem/io series) with tile owners attached
 		// so the console can group by org.
