@@ -42,12 +42,17 @@ import (
 	"github.com/xbin-dev/xbin/internal/sbx"
 )
 
-// TestMain doubles as the sandbox's re-exec init.
+// TestMain doubles as the sandbox's re-exec init; the binaries the live
+// tests built go with the run.
 func TestMain(m *testing.M) {
 	if len(os.Args) > 2 && os.Args[1] == sandbox.InitArg {
 		sandbox.RunInit(os.Args[2]) // never returns
 	}
-	os.Exit(m.Run())
+	code := m.Run()
+	if liveBin != "" {
+		_ = os.RemoveAll(liveBin) // this run's own temp dir: bx, the probe, the guest agent
+	}
+	os.Exit(code)
 }
 
 var (
