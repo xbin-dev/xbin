@@ -226,6 +226,30 @@ func TestAssignLoginsUnique(t *testing.T) {
 	}
 }
 
+// Every login the list gives picks its own sandbox — a generated `web~1`
+// too, beside a sandbox whose own name is `web-1` (what `web~1` spells
+// loosely).
+func TestPickEveryLogin(t *testing.T) {
+	t.Parallel()
+	for _, names := range [][]string{
+		{"web", "web", "web-1"},
+		{"web", "web", "Web 1", "web.1", "api"},
+		{"a", "A", "a-2", "a.2", "", ""},
+	} {
+		es := make([]entry, len(names))
+		for i, n := range names {
+			es[i].SB = sandbox{ID: fmt.Sprintf("sb-%d", i), Name: n}
+		}
+		assignLogins(es)
+		for i, e := range es {
+			got, err := pick(es, nil, e.Login)
+			if err != nil || got.SB.ID != e.SB.ID {
+				t.Errorf("%v: logging in as %q (sandbox %d, %q): %v %v", names, e.Login, i, names[i], got, err)
+			}
+		}
+	}
+}
+
 // Only sandboxes shared with this tile for the person — then their own, a
 // member's, or a team one — are theirs to log into.
 func TestSSHAccess(t *testing.T) {

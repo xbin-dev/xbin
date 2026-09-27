@@ -20,8 +20,8 @@
 //   - dev1 taken off the tile (PUT /access none): their key registered at the
 //     start logs nobody in — OpenSSH hears "access revoked" — and it is kept,
 //     marked inactive, in everyone's keys (the tile asks xbind's GET
-//     /api/xbin/access/<user> at every login; it keeps an answer 30 s, which
-//     the steps between outlast).
+//     /api/xbin/access/<user> at every login; it keeps an answer 30 s — the
+//     page's own requests too — so the pass waits that out after the PUT).
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { URL, fs, log, settle, shot, checker, noGocryptfs, login, sleep } = require('../lib');
@@ -55,12 +55,14 @@ async function openTerminalTile(ctx) {
   return { page, errors };
 }
 
-// sshAs runs `ssh -i key login@host cmd` (OpenSSH, no agent): what it
-// printed on stdout and stderr, and its status.
+// sshAs runs `ssh -i key login@host cmd` (OpenSSH, no agent, a connection
+// of its own — never a ControlMaster the user's ssh config keeps, which
+// would skip the login): what it printed on stdout and stderr, and its status.
 function sshAs(keyFile, login_, host, port, cmd) {
   try {
     const out = execFileSync('ssh', ['-i', keyFile, '-p', port, '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null',
       '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'LogLevel=ERROR', '-o', 'ConnectTimeout=15',
+      '-o', 'ControlMaster=no', '-o', 'ControlPath=none',
       `${login_}@${host}`, cmd], { encoding: 'utf8', timeout: 45000, env: { ...process.env, SSH_AUTH_SOCK: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
     return { out, status: 0 };
   } catch (e) { return { out: `${e.stdout || ''}${e.stderr || ''}`, status: e.status }; }
@@ -85,7 +87,7 @@ async function sandboxTerminal(browser) {
   // ---- 0. dev1 (read access to the tile) registers a key: step 7 takes
   // them off the tile and tries it ----
   const dev1Key = newKeyFile('sbxterm-dev1-key');
-  let dev1KeyAt = 0, dev1KeyId = '';
+  let dev1KeyId = '';
   {
     const { ctx: dctx } = await login(browser, 'dev1', 'devpass123', { viewport: { width: 1200, height: 800 } });
     const D = await openTerminalTile(dctx);
@@ -93,7 +95,6 @@ async function sandboxTerminal(browser) {
     await D.page.click('#key-add');
     await D.page.waitForSelector('#keys .key[data-key-id]', { timeout: 15000 }).catch(() => {});
     dev1KeyId = await D.page.$eval('#keys .key[data-key-id]', (e) => e.dataset.keyId).catch(() => '');
-    dev1KeyAt = Date.now();
     check(!!dev1KeyId, 'dev1 (read access) registers a key on the page');
     await dctx.close();
   }
@@ -277,8 +278,11 @@ async function sandboxTerminal(browser) {
     try {
       const put = await access('none');
       check(put.ok(), `admin takes dev1 off ${TILE} (PUT /access none: ${put.status()})`);
-      const wait = 31000 - (Date.now() - dev1KeyAt); // past the answer the tile kept at the registration
-      if (wait > 0) { log(`sandboxTerminal: waiting ${Math.ceil(wait / 1000)} s for the tile's cached answer to lapse`); await sleep(wait); }
+      // past every answer the tile kept before the PUT: its own asks, and
+      // dev1's page requests (step 6 — a request's level is xbind's answer
+      // too, kept the same 30 s)
+      log('sandboxTerminal: waiting 31 s for the tile\'s cached answer to lapse');
+      await sleep(31000);
       const r = sshAs(dev1Key.keyFile, 'anything', host, port, 'echo in');
       log(`sandboxTerminal: dev1's ssh said ${JSON.stringify(r)}`);
       check(r.status === 1 && /access revoked: you no longer have access/.test(r.out) && !/^in$/m.test(r.out),

@@ -3762,7 +3762,9 @@ Deviations and refinements made while implementing; all deliberate:
       person instead of a bare "Permission denied". The disambiguator is
       `~` because a login never has one (the name's other characters become
       `-`): with `.<n>`, a sandbox named `web.1` and the first of two `web`s
-      were both `web.1`.
+      were both `web.1`. A login or id that matches exactly wins over the
+      loose match of a name (`web~1` spells `web-1` loosely, and a sandbox
+      named `web-1` beside two `web`s must not make it ambiguous).
     - **Access at every login.** A key outlives the page call that
       registered it, so the tile asks xbind what its person may do on it
       now: `GET /api/xbin/access/<user>` (`xbin.AccessOf`), a route for a
@@ -3851,8 +3853,9 @@ Deviations and refinements made while implementing; all deliberate:
     - A session already running when a share is withdrawn runs on until it
       ends (the person's access to the tile is re-checked; a share is the
       manager's and isn't).
-    - A person's removal reaches a live connection within 30 s, and a
-      re-grant reaches a refused login within 30 s (the cache) — at once
+    - A person's removal reaches a live connection within a minute (a
+      check every 30 s, of an answer kept up to 30 s), and a new login
+      within 30 s; a re-grant reaches a refused login within 30 s — at once
       when they open the tile's page (its request's level is xbind's
       answer, and replaces the cached one).
   - **The page, the native view and the agent's share (part 2).**

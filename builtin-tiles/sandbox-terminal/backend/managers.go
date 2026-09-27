@@ -418,14 +418,23 @@ type errNoSandbox struct{ msg string }
 func (e *errNoSandbox) Error() string { return e.msg }
 
 // pick resolves an SSH user name to one of the person's sandboxes: its
-// login, its id, or its name's base — exactly one of them, else an error
-// that lists the choices.
+// login or its id, else (none is) its name's base — exactly one of them,
+// else an error that lists the choices. Exact first: `web~1` spells `web-1`
+// loosely, and must still be the first of two "web"s beside a sandbox
+// named "web-1".
 func pick(es []entry, views []managerView, login string) (*entry, error) {
 	var hits []int
 	for i := range es {
-		base := loginBase(es[i].SB.Name)
-		if es[i].Login == login || es[i].SB.ID == login || (base != "" && base == loginBase(login)) {
+		if es[i].Login == login || es[i].SB.ID == login {
 			hits = append(hits, i)
+		}
+	}
+	if len(hits) == 0 {
+		lb := loginBase(login)
+		for i := range es {
+			if base := loginBase(es[i].SB.Name); base != "" && base == lb {
+				hits = append(hits, i)
+			}
 		}
 	}
 	if len(hits) == 1 {
