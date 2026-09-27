@@ -69,8 +69,18 @@ untouched.
 | Deploy log | (tile, deployment) | in the store, one entry per deploy | the deployments API |
 | Deployment data | (scope, deployment name) | `main`: today's paths and keys; others: a dot-level namespace no existing key can produce (the exact scheme is in `08-data.md`) | the resource broker |
 | Built artifact | (tile, checkpoint) | `.xbin/build/<CompKey>/…`, one per checkpoint while referenced; the live reload target keeps today's single `bin` | the runner (confined builds) |
-| Dormant registration | (tile, deployment, name) | the existing cron / bus-subscription / iface-instance / ingress-host stores, with a deployment field that is absent for `main` | the self-scoped APIs |
+| Dormant registration | (tile, deployment, name) | per-deployment files beside the deployment record (e.g. `data/deployments/<CompKey>/cron.json`), **never** extra rows in today's `data/cron-jobs.json` / `data/bus-subscriptions.json` / root `xbin.json` maps. An older xbind would load such rows as `main`'s and fire them. `main`'s registrations stay exactly where they are today. | the self-scoped APIs |
 | Edge policy | (tile, edge) | the deployment record | the deployments API |
+
+**Checkpoints are fetchable, read-only, by the tile's own sessions.** The
+store is exposed to the tile's terminal and agent sessions as a fetch-only git
+remote, with one ref per deployment (`deploy/<name>`). It works like the
+`template` remote: static dumb-HTTP files, refreshed by a confined
+`update-server-info` after each checkpoint, reached through the terminal's
+injected `GIT_CONFIG_COUNT` rewrite. Git users can then branch from exactly
+what a deployment runs (flow H). Nothing is ever pushed through this remote;
+pushing is the separate deploy-remote rung. Reading a tile's checkpoints needs
+exactly what reading its work tree needs.
 
 **Why the deployment record isn't in the root `xbin.json`:**
 - Older binaries re-marshal that file through a struct and drop keys they
@@ -241,9 +251,12 @@ primary. Adding a deployment adds no inbound path.
   unless its deliveries switch is on, and never active in routing: ingress and
   interface instances belong to the primary only. Registration succeeds, so a
   backend that registers at start keeps working in dev.
-- **Registrations don't collide.** Rows without a deployment field belong to
-  `main`, exactly as today. Rows keyed by (tile, deployment, name) can't
-  overwrite `main`'s.
+- **Registrations don't collide.** `main`'s registrations stay in today's
+  stores, byte-for-byte. Every other deployment's registrations live in its
+  own per-deployment files (§3). They can't overwrite `main`'s rows, and an
+  older xbind never loads them as `main`'s (`12-compat.md`). Which set is
+  *active* follows the primary role: only the primary's fire, plus any
+  non-primary deployment with deliveries on.
 - **Notifications are never pushed.** A notification from a non-primary
   deployment is shown to the developers in the deployments panel, as "would
   notify …".
@@ -461,6 +474,23 @@ These are the flows every other document must support. The UX of each is in
 
    This is the case `match` will improve: `match` would route to
    `apps/shop+dev`.
+
+**H — A hotfix while dev holds unfinished work.**
+1. `main` is pinned to `c:3f2a1c9`. Live reload is on `dev`, and the work tree
+   holds unpromoted work.
+2. A production bug needs a fix now. In the tile's terminal:
+   - `git fetch xbin-deploy` (the read-only checkpoint remote);
+   - commit or stash the unfinished work on a branch;
+   - `git checkout -b hotfix deploy/main`;
+   - fix and commit.
+3. The work tree now holds `main`'s code plus the fix. `dev`, which follows the
+   work tree, runs it too, so the fix is exercised there first.
+4. **Deploy to main** ships it.
+5. The developer checks out the unfinished branch again (and rebases it on the
+   hotfix), and `dev` follows.
+6. Nothing in xbind merged anything. Git did the combining in the work tree,
+   and deployments only moved checkpoints (the "promotion is not a merge"
+   rule).
 
 ## 15. Deliberately not in this model
 
