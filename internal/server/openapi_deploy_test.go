@@ -100,16 +100,22 @@ func TestOpenAPIDeploymentRows(t *testing.T) {
 		}
 	}
 
-	// The ?deployment= existing routes gain: optional, reserved, and a query
-	// parameter, never a new field of a body an older xbind decodes strictly.
+	// The ?deployment= existing routes gain: optional, a query parameter,
+	// never a new field of a body an older xbind decodes strictly; reserved
+	// until this xbind reads it, and no longer once it does (§4.3 step 5).
 	withParam := [][2]string{
 		{"GET", "/tile-status"}, {"GET", "/logs"}, {"GET", "/frame-token"},
-		{"POST", "/term/sessions"}, {"POST", "/term/sessions/{id}/restart"},
 		{"GET", "/sandboxes"},
 		{"GET", "/cron/jobs"}, {"PUT", "/cron/jobs"}, {"DELETE", "/cron/jobs/{name}"},
 		{"GET", "/bus/subscriptions"}, {"PUT", "/bus/subscriptions"}, {"DELETE", "/bus/subscriptions/{name}"},
 		{"GET", "/vault/{component}"}, {"GET", "/vault/{component}/{key}"},
 		{"PUT", "/vault/{component}/{key}"}, {"DELETE", "/vault/{component}/{key}"},
+	}
+	builtParam := map[[2]string]bool{
+		{"POST", "/term/sessions"}: true, {"POST", "/term/sessions/{id}/restart"}: true,
+	}
+	for r := range builtParam {
+		withParam = append(withParam, r)
 	}
 	for _, r := range withParam {
 		o := op(r[0], r[1])
@@ -126,8 +132,8 @@ func TestOpenAPIDeploymentRows(t *testing.T) {
 		switch {
 		case found == nil:
 			t.Errorf("%s %s has no ?deployment= parameter", r[0], r[1])
-		case found["in"] != "query" || found["required"] != false || found["x-xbin-reserved"] != true:
-			t.Errorf("%s %s ?deployment= = %v, want an optional reserved query parameter", r[0], r[1], found)
+		case found["in"] != "query" || found["required"] != false || (found["x-xbin-reserved"] == true) == builtParam[r]:
+			t.Errorf("%s %s ?deployment= = %v, want an optional query parameter, reserved %v", r[0], r[1], found, !builtParam[r])
 		}
 		if body, _ := o["requestBody"].(oapi); body != nil {
 			schema, _ := body["content"].(oapi)["application/json"].(oapi)["schema"].(oapi)
@@ -138,17 +144,23 @@ func TestOpenAPIDeploymentRows(t *testing.T) {
 	}
 
 	// The fields existing answers gain are noted, marked reserved (on
-	// /tile-status, /logs and /frame-token the parameter carries the note).
+	// /tile-status, /logs and /frame-token the parameter carries the note)
+	// until this xbind sets them; then the note is plain prose.
 	note := strings.TrimSpace(reservedField)
 	for _, r := range [][2]string{
 		{"GET", "/backends"}, {"GET", "/runtime"},
-		{"GET", "/whoami"}, {"GET", "/term/sessions"}, {"GET", "/status"}, {"GET", "/sandboxes"},
+		{"GET", "/whoami"}, {"GET", "/sandboxes"},
 		{"GET", "/cron/jobs"}, {"PUT", "/cron/jobs"}, {"GET", "/bus/subscriptions"}, {"PUT", "/bus/subscriptions"},
 		{"POST", "/tile-report"}, {"POST", "/notify"}, {"PUT", "/iface-instances"},
 		{"PUT", "/ingress-hosts"}, {"POST", "/grants"},
 	} {
 		if o := op(r[0], r[1]); o != nil && !strings.Contains(o["description"].(string), note) {
 			t.Errorf("%s %s: no reserved field note", r[0], r[1])
+		}
+	}
+	for _, r := range [][2]string{{"GET", "/term/sessions"}, {"GET", "/status"}, {"GET", "/agent/history"}} {
+		if o := op(r[0], r[1]); o != nil && (strings.Contains(o["description"].(string), note) || !strings.Contains(o["description"].(string), "deployment")) {
+			t.Errorf("%s %s: its deployment field is built: noted in plain prose, not as reserved", r[0], r[1])
 		}
 	}
 }
