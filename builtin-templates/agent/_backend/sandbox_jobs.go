@@ -5,7 +5,15 @@
 // numbered per root). bash follows the exec with the output long-poll; at its
 // timeout the command goes on as a job the model follows with bash_output
 // and stops with bash_kill. The exec is named after the tool call (clientId
-// agent:<run>:<call>), so starting it twice finds the one command.
+// agent:<run>:<call>), so starting it twice finds the one command — the same
+// request, while it hasn't ended; anything else under the same call id is a
+// job of its own, with a clientId of its own (agent:<root>:job-<n>).
+//
+// A start the manager never answered (a timeout, a lost connection) may have
+// started all the same: the job stays, and bash_output finds its exec by its
+// clientId. Detaching a sandbox (or deleting it) KILLs the conversation's
+// jobs in it; a job whose sandbox the conversation can no longer use for good
+// is lost, and counts no more.
 //
 // When a turn is interrupted or cancelled, the command's process group gets
 // TERM, then KILL. When the backend hands over to a successor (a restart), it
@@ -62,8 +70,13 @@ CREATE INDEX IF NOT EXISTS idx_sandbox_jobs_call ON sandbox_jobs(run_id, tool_ca
 `
 
 func (d *DB) addSandboxJobSchema() error {
-	_, err := d.q.Exec(sandboxJobSchemaSQL)
-	return err
+	if _, err := d.q.Exec(sandboxJobSchemaSQL); err != nil {
+		return err
+	}
+	// added after the table: a job's clientId when it isn't its call's ('' =
+	// the call's, as before)
+	_, _ = d.q.Exec(`ALTER TABLE sandbox_jobs ADD COLUMN client_id TEXT NOT NULL DEFAULT ''`)
+	return nil
 }
 
 // sbxJob is one command a conversation ran in a sandbox.
@@ -82,26 +95,38 @@ type sbxJob struct {
 	FG      bool  // its bash call followed it to the end (false: it went on as a job)
 	Created int64 // unix ms
 	Ended   int64
+	// ClientID names its exec when the call's name was taken by an earlier
+	// job of the same call ("" = the call's).
+	ClientID string
 }
 
 func (j *sbxJob) running() bool { return j.State == "starting" || j.State == "running" }
 
 // clientID names the exec after its tool call.
 func (j *sbxJob) clientID() string {
-	if j.Call == "" {
+	switch {
+	case j.ClientID != "":
+		return j.ClientID
+	case j.Call == "":
 		return fmt.Sprintf("agent:%d:job-%d", j.Root, j.Job)
 	}
 	return fmt.Sprintf("agent:%d:%s", j.Run, j.Call)
 }
 
-const jobCols = `root_id, job, run_id, tool_call_id, ref, exec_id, command, cwd, state, exit_code, read_off, fg, created_ms, ended_ms`
+// sameRequest: a bash call asking for what j is, in the sandbox it runs in,
+// while it hasn't ended — only then is a call's earlier job its answer.
+func (j *sbxJob) sameRequest(ref, command, cwd string) bool {
+	return j.running() && j.Ref == ref && j.Command == command && j.Cwd == cwd
+}
+
+const jobCols = `root_id, job, run_id, tool_call_id, ref, exec_id, command, cwd, state, exit_code, read_off, fg, created_ms, ended_ms, client_id`
 
 func scanJob(sc interface{ Scan(...any) error }) (*sbxJob, error) {
 	j := &sbxJob{}
 	var exit sql.NullInt64
 	var fg int
 	if err := sc.Scan(&j.Root, &j.Job, &j.Run, &j.Call, &j.Ref, &j.Exec, &j.Command, &j.Cwd, &j.State, &exit,
-		&j.ReadOff, &fg, &j.Created, &j.Ended); err != nil {
+		&j.ReadOff, &fg, &j.Created, &j.Ended, &j.ClientID); err != nil {
 		return nil, err
 	}
 	if exit.Valid {
@@ -152,11 +177,17 @@ func (d *DB) jobList(root int64, onlyRunning bool, limit int) []*sbxJob {
 	return out
 }
 
+// newJob numbers a new job. The first job of a call names its exec after the
+// call; a later one of the same call (another request) after its number —
+// the manager keeps a clientId for one request.
 func (d *DB) newJob(j *sbxJob) error {
 	j.State = "starting"
-	return d.q.QueryRow(`INSERT INTO sandbox_jobs (root_id, job, run_id, tool_call_id, ref, command, cwd, state, fg, created_ms)
-		SELECT ?1, COALESCE(MAX(job), 0) + 1, ?2, ?3, ?4, ?5, ?6, 'starting', ?7, ?8 FROM sandbox_jobs WHERE root_id=?1
-		RETURNING job`, j.Root, j.Run, j.Call, j.Ref, j.Command, j.Cwd, b2i(j.FG), j.Created).Scan(&j.Job)
+	return d.q.QueryRow(`INSERT INTO sandbox_jobs (root_id, job, run_id, tool_call_id, ref, command, cwd, state, fg, created_ms, client_id)
+		SELECT ?1, COALESCE(MAX(job), 0) + 1, ?2, ?3, ?4, ?5, ?6, 'starting', ?7, ?8,
+			CASE WHEN ?3 <> '' AND EXISTS (SELECT 1 FROM sandbox_jobs WHERE run_id=?2 AND tool_call_id=?3)
+				THEN 'agent:' || ?1 || ':job-' || (COALESCE(MAX(job), 0) + 1) ELSE '' END
+		FROM sandbox_jobs WHERE root_id=?1
+		RETURNING job, client_id`, j.Root, j.Run, j.Call, j.Ref, j.Command, j.Cwd, b2i(j.FG), j.Created).Scan(&j.Job, &j.ClientID)
 }
 
 func (d *DB) dropJob(j *sbxJob) {
@@ -236,11 +267,14 @@ func (ag *Agent) toolBash(ctx context.Context, run *Run, cfg Config, args map[st
 	wait = min(wait, bashMaxWait)
 	bg := args["background"] == true
 
+	// the call's earlier job is its answer only for the same request still
+	// going (a call re-issued); anything else is a job of its own
 	j := ag.db.jobByCall(run.ID, toolCallOf(ctx))
-	if j != nil && j.Ref != use.Binding.Ref {
-		j = nil // the conversation moved to another sandbox since
+	if j != nil && !j.sameRequest(use.Binding.Ref, command, cwd) {
+		j = nil
 	}
-	if j == nil {
+	fresh := j == nil
+	if fresh {
 		if err := ag.jobRoom(ctx, root, cfg); err != nil {
 			return "", err
 		}
@@ -252,16 +286,27 @@ func (ag *Agent) toolBash(ctx context.Context, run *Run, cfg Config, args map[st
 	ex, err := use.Conn.ExecStart(ctx, use.ID, sbxExecReq{Cmd: j.Command, Cwd: j.Cwd, Env: bashEnv,
 		Label: fmt.Sprintf("agent · job %d", j.Job), ClientID: j.clientID()})
 	if err != nil {
+		cause := context.Cause(ctx)
 		switch {
-		case ctx.Err() == nil:
-			ag.db.dropJob(j) // it never started
+		case ctx.Err() != nil && cause == errHandoff:
+			return "", cause // it may have started: the successor finds it by its clientId
+		case ctx.Err() == nil && managerRefused(err):
+			if fresh {
+				ag.db.dropJob(j) // the manager said no: it never started
+			}
 			return "", err
-		case context.Cause(ctx) == errHandoff:
-			return "", context.Cause(ctx) // it may have started: the successor finds it by its clientId
+		case ctx.Err() == nil || errors.Is(cause, context.DeadlineExceeded):
+			// no answer — a timeout, a lost connection, the tool's own
+			// deadline: it may have started all the same, and is followed as
+			// a job (resolveExec finds it by its clientId, or calls it lost)
+			ag.db.jobBackground(j)
+			return fmt.Sprintf("job %d: the sandbox manager didn't answer when starting it (%v) — the command may be running all the same. "+
+				"Don't run it again: bash_output {\"job\": %d} says whether it started and follows it; bash_kill {\"job\": %d} stops it.",
+				j.Job, err, j.Job, j.Job), nil
 		}
-		// stopped while starting: it may have started all the same
+		// interrupted or cancelled while starting: it may have started all the same
 		go ag.stopStarting(use, j, killGrace)
-		return "", context.Cause(ctx)
+		return "", cause
 	}
 	ag.db.jobStarted(j, ex.ID)
 	if bg {
@@ -340,6 +385,32 @@ func (ag *Agent) stopStarting(use *sbxUse, j *sbxJob, grace time.Duration) {
 func gone(err error) bool {
 	r := sbxRefusal(err)
 	return r == "lost" || r == "not-found"
+}
+
+// managerRefused: the manager answered a start and said no — nothing
+// started. No answer at all, one that didn't read (a 2xx), or a gateway's
+// 502/504 without the manager's own refusal may hide a command that started.
+func managerRefused(err error) bool {
+	var se *sbxError
+	switch {
+	case !errors.As(err, &se) || se.Status < 400:
+		return false
+	case (se.Status == 502 || se.Status == 504) && se.Refusal == "unavailable":
+		return false
+	}
+	return true
+}
+
+// unusableForGood: sandboxUse refused a sandbox the conversation can't use
+// again as it is bound — detached, deleted, its manager unbound, or no longer
+// allowed (the class, the binder's right). Its jobs are over for the
+// conversation.
+func unusableForGood(err error) bool {
+	switch sbxRefusal(err) {
+	case "not-attached", "not-found", "unbound", "not-allowed":
+		return true
+	}
+	return false
 }
 
 // --- reading output ------------------------------------------------------------------
@@ -450,7 +521,9 @@ func (ag *Agent) resolveExec(ctx context.Context, use *sbxUse, j *sbxJob) error 
 			return nil
 		}
 	}
-	if time.Since(time.UnixMilli(j.Created)) > sbxCallTimeout {
+	// not there a call's timeout after it was started: it never did — unless
+	// the sandbox itself is still coming up (a start may wait for that)
+	if b := use.Box; time.Since(time.UnixMilli(j.Created)) > sbxCallTimeout && (b == nil || b.State != "creating" && b.State != "starting") {
 		ag.db.jobEnded(j, "lost", nil)
 	}
 	return nil
@@ -459,30 +532,64 @@ func (ag *Agent) resolveExec(ctx context.Context, use *sbxUse, j *sbxJob) error 
 // --- bash_output, bash_kill -------------------------------------------------------
 
 // jobUse is a job and the sandbox it runs in, checked as every tool call is.
-func (ag *Agent) jobUse(ctx context.Context, run *Run, cfg Config, args map[string]any) (*sbxJob, *sbxUse, error) {
+// A job whose sandbox the conversation can no longer use for good comes back
+// with no use — recorded lost if it still counted as running — and why: its
+// answer is what is known of it (jobGoneText).
+func (ag *Agent) jobUse(ctx context.Context, run *Run, cfg Config, args map[string]any) (j *sbxJob, use *sbxUse, why, err error) {
 	root := rootOf(run)
-	j, err := ag.db.job(root, toInt(args["job"]))
-	if err != nil {
-		return nil, nil, err
+	if j, err = ag.db.job(root, toInt(args["job"])); err != nil {
+		return nil, nil, nil, err
 	}
-	use, err := ag.sandboxUse(ctx, root, cfg, j.Ref)
-	if err != nil {
-		return nil, nil, fmt.Errorf("job %d ran in %s: %w", j.Job, j.Ref, err)
+	if use, err = ag.jobSandbox(ctx, root, cfg, j); err != nil {
+		if unusableForGood(err) {
+			return j, nil, err, nil
+		}
+		return nil, nil, nil, fmt.Errorf("job %d ran in %s: %w", j.Job, j.Ref, err)
 	}
 	if err := ag.resolveExec(ctx, use, j); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return j, use, nil
+	return j, use, nil, nil
+}
+
+// jobSandbox is the sandbox a job ran in, for the calling run (cfg). When
+// the caller can't use it for good, the run that started the job decides — a
+// subagent's bindings are its own copy — and when that one can't either, the
+// job is lost to the conversation (an end already recorded stays).
+func (ag *Agent) jobSandbox(ctx context.Context, root int64, cfg Config, j *sbxJob) (*sbxUse, error) {
+	use, err := ag.sandboxUse(ctx, root, cfg, j.Ref)
+	if err == nil || !unusableForGood(err) {
+		return use, err
+	}
+	if c := sbxCallOf(ctx).run; c != 0 && c != j.Run {
+		if own, cerr := ag.db.runConfig(j.Run); cerr == nil {
+			if _, oerr := ag.sandboxUse(ctx, root, own, j.Ref); oerr == nil || !unusableForGood(oerr) {
+				return nil, &sbxError{Refusal: "unavailable", Msg: fmt.Sprintf("it is another run's, in a sandbox this one can't use (%v)", err)}
+			}
+		}
+	}
+	ag.db.jobEnded(j, "lost", nil)
+	return nil, err
+}
+
+// jobGoneText answers bash_output and bash_kill for a job whose sandbox the
+// conversation can no longer use: what is known of it.
+func jobGoneText(j *sbxJob, why error) string {
+	return fmt.Sprintf("job %d (%s) ran in %s, which this conversation can no longer use (%v) — it ended: %s. Nothing more can be read or stopped there.",
+		j.Job, clip(j.Command, 80), j.Ref, why, endWords(j.State, j.Exit, ""))
 }
 
 func (ag *Agent) toolBashOutput(ctx context.Context, run *Run, cfg Config, args map[string]any) (string, error) {
-	j, use, err := ag.jobUse(ctx, run, cfg, args)
+	j, use, why, err := ag.jobUse(ctx, run, cfg, args)
 	if err != nil {
 		return "", err
 	}
+	if use == nil {
+		return jobGoneText(j, why), nil
+	}
 	if j.Exec == "" {
 		if j.State == "lost" {
-			return fmt.Sprintf("job %d never started (the backend restarted before it did) — run it again with bash", j.Job), nil
+			return fmt.Sprintf("job %d never started (the backend restarted, or the sandbox manager didn't answer, before it did) — run it again with bash", j.Job), nil
 		}
 		return fmt.Sprintf("job %d is still starting — ask again in a moment", j.Job), nil
 	}
@@ -520,9 +627,12 @@ func (ag *Agent) toolBashKill(ctx context.Context, run *Run, cfg Config, args ma
 	default:
 		return "", fmt.Errorf("signal is INT, TERM, KILL or HUP")
 	}
-	j, use, err := ag.jobUse(ctx, run, cfg, args)
+	j, use, why, err := ag.jobUse(ctx, run, cfg, args)
 	if err != nil {
 		return "", err
+	}
+	if use == nil {
+		return jobGoneText(j, why), nil
 	}
 	if !j.running() || j.Exec == "" {
 		return fmt.Sprintf("job %d isn't running (%s)", j.Job, endWords(j.State, j.Exit, "")), nil
@@ -542,9 +652,10 @@ func (ag *Agent) toolBashKill(ctx context.Context, run *Run, cfg Config, args ma
 
 // jobRoom refuses a new command while the conversation already runs its
 // limit — after asking the manager about the ones the table still thinks
-// are running.
+// are running (one in a sandbox the conversation can no longer use counts no
+// more: refreshJobs calls it lost).
 func (ag *Agent) jobRoom(ctx context.Context, root int64, cfg Config) error {
-	running := ag.db.jobList(root, true, maxRunningJobs+1)
+	running := ag.db.jobList(root, true, 4*maxRunningJobs)
 	if len(running) < maxRunningJobs {
 		return nil
 	}
@@ -562,18 +673,32 @@ func (ag *Agent) jobRoom(ctx context.Context, root int64, cfg Config) error {
 		len(still), strings.Join(still, ", "))
 }
 
-// refreshJobs asks the managers where running jobs stand.
+// refreshJobs asks the managers where running jobs stand; one whose sandbox
+// the conversation can no longer use for good is lost.
 func (ag *Agent) refreshJobs(ctx context.Context, root int64, cfg Config, jobs []*sbxJob) {
-	uses := map[string]*sbxUse{}
+	type key struct {
+		run int64
+		ref string
+	}
+	type found struct {
+		use *sbxUse
+		err error
+	}
+	seen := map[key]found{}
 	for _, j := range jobs {
 		if !j.running() {
 			continue
 		}
-		use, ok := uses[j.Ref]
-		if !ok {
-			use, _ = ag.sandboxUse(ctx, root, cfg, j.Ref)
-			uses[j.Ref] = use
+		k := key{j.Run, j.Ref}
+		f, ok := seen[k]
+		switch {
+		case !ok:
+			f.use, f.err = ag.jobSandbox(ctx, root, cfg, j)
+			seen[k] = f
+		case f.use == nil && unusableForGood(f.err):
+			ag.db.jobEnded(j, "lost", nil)
 		}
+		use := f.use
 		if use == nil || ag.resolveExec(ctx, use, j) != nil || j.Exec == "" {
 			continue
 		}
@@ -585,6 +710,56 @@ func (ag *Agent) refreshJobs(ctx context.Context, root int64, cfg Config, jobs [
 			ag.db.jobEnded(j, ex.State, ex.ExitCode)
 		}
 	}
+}
+
+// --- a detached sandbox's jobs ----------------------------------------------------------
+
+// stopDetachedJobs, inside the transaction that stores root's bindings
+// (storeBinding): the conversation's jobs still running in a sandbox it no
+// longer has — detached, or deleted everywhere — are recorded killed, and
+// once the change commits each gets a KILL to its process group, best effort
+// and in the background (killJobs): the change never waits for a manager.
+func (d *DB) stopDetachedJobs(root int64, before, after Config) {
+	var left []leftJob
+	for _, b := range bindingsOf(before) {
+		if _, still := after.sandboxBinding(b.Ref); still {
+			continue
+		}
+		for _, j := range d.jobsIn(root, b.Ref) {
+			d.jobEnded(j, "killed", nil)
+			left = append(left, leftJob{j, sbxUserOf(binderWho(b.By))})
+		}
+	}
+	if len(left) > 0 {
+		d.AfterCommit(func() { go killJobs(left) })
+	}
+}
+
+// bindingsOf is every sandbox cfg has: the attached ones, and the active one.
+func bindingsOf(c Config) []SandboxBinding {
+	out := append([]SandboxBinding(nil), c.Attached...)
+	if c.Sandbox != nil {
+		if _, ok := attachedRef(c, c.Sandbox.Ref); !ok {
+			out = append(out, *c.Sandbox)
+		}
+	}
+	return out
+}
+
+// jobsIn is a conversation's jobs still running in one sandbox.
+func (d *DB) jobsIn(root int64, ref string) []*sbxJob {
+	rows, err := d.q.Query(`SELECT `+jobCols+` FROM sandbox_jobs WHERE root_id=? AND ref=? AND state IN ('starting','running') ORDER BY job`, root, ref)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []*sbxJob
+	for rows.Next() {
+		if j, err := scanJob(rows); err == nil {
+			out = append(out, j)
+		}
+	}
+	return out
 }
 
 // --- a deleted conversation's jobs ----------------------------------------------------
@@ -620,10 +795,11 @@ func (ag *Agent) jobsLeftBy(ids []int64) []leftJob {
 	return out
 }
 
-// killJobs ends the commands a deleted conversation left running: KILL to
-// each one's process group, best effort and bounded — it runs after the
-// delete has answered, and nothing is left to record how they ended.
-// (Archiving a conversation leaves them running.)
+// killJobs ends the commands a deleted conversation (or a detached sandbox)
+// left running: KILL to each one's process group, best effort and bounded —
+// it runs after the change has answered, and how they ended is already
+// recorded (or nothing is left to record it in). Archiving a conversation
+// leaves them running.
 func killJobs(jobs []leftJob) {
 	ctx, cancel := context.WithTimeout(context.Background(), killJobsTimeout)
 	defer cancel()
@@ -637,7 +813,9 @@ func killJobs(jobs []leftJob) {
 		if eid == "" { // its start was cut short: find it by its clientId
 			execs, err := conn.ExecList(ctx, id)
 			if err != nil {
-				logf("job %d of deleted #%d: %v", j.Job, j.Root, err)
+				if !gone(err) {
+					logf("job %d of #%d: %v", j.Job, j.Root, err)
+				}
 				continue
 			}
 			for _, ex := range execs {
@@ -650,7 +828,7 @@ func killJobs(jobs []leftJob) {
 			}
 		}
 		if err := conn.ExecSignal(ctx, id, eid, "KILL", true); err != nil && !gone(err) {
-			logf("job %d of deleted #%d: KILL: %v", j.Job, j.Root, err)
+			logf("job %d of #%d: KILL: %v", j.Job, j.Root, err)
 		}
 	}
 }

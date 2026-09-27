@@ -119,6 +119,22 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   running (archiving doesn't). A sandbox whose egress changed since it was
   bound updates the binding, and in Approve mode a call it would now park
   is refused once and parks when called again.
+- **Agent template: fixes from the phase-1 review — the sandbox job engine
+  and the coding tools** (the template's API.md §The coding tools). A
+  provider that repeats or omits tool call ids no longer makes `bash` hand
+  back an earlier turn's job instead of running the new command: generated
+  call ids are unique within the run, and a call's earlier job answers it
+  only for the same request still running. Detaching a sandbox — or
+  deleting it — KILLs the conversation's jobs in it (in the background) and
+  records them; a job whose sandbox the conversation can no longer use is
+  lost and no longer counts toward the 8, so leftover rows can't block
+  `bash` for good, and `bash_output`/`bash_kill` on it say what is known. A
+  start the manager doesn't answer keeps its job (named in the result, found
+  by its clientId) instead of being forgotten and run twice. `sandbox_create`
+  asks the owner for exactly what it will make — resolved against the
+  manager first, the name quoted — and makes that or refuses; its `cwd` is
+  made even when the manager answers before the sandbox runs. `read` and
+  `edit` follow a symlink to its file (`write` still replaces the path).
 - **Agent template: coding sandboxes in the UI** (D115; the template's
   API.md §Coding sandboxes → "In the UI"). Where the conversation's class
   (or the new chat's) has the `sandbox` toolset, the composer has a sandbox

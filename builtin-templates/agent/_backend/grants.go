@@ -187,6 +187,27 @@ func grantedOnce(ctx context.Context, capName string) bool {
 	return c != "" && c == capName
 }
 
+// The ask the owner answered (pendingState.GrantAsk) also travels with the
+// parked calls it let run, once or for the hour: a call that would now do
+// something else than it said can refuse (sandbox_create).
+type grantAskedKey struct{}
+
+type grantAsked struct{ cap, ask string }
+
+func withGrantAsked(ctx context.Context, capName, ask string) context.Context {
+	return context.WithValue(ctx, grantAskedKey{}, grantAsked{capName, ask})
+}
+
+// grantAskOf is the ask the owner allowed for capName ("", false: these
+// calls weren't parked for it).
+func grantAskOf(ctx context.Context, capName string) (string, bool) {
+	g, ok := ctx.Value(grantAskedKey{}).(grantAsked)
+	if !ok || g.cap != capName {
+		return "", false
+	}
+	return g.ask, true
+}
+
 // grantOwner: may this caller answer a grant on root? Only the person who
 // owns the conversation — whose threads they are. Not a manager, not the
 // owner token, not an admin viewing as them.

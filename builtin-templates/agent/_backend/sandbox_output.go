@@ -153,7 +153,7 @@ func endWords(state string, code *int, signal string) string {
 	case state == "killed":
 		return "killed"
 	case state == "lost":
-		return "lost (its sandbox restarted)"
+		return "lost (its sandbox restarted, or went away)"
 	}
 	return state
 }

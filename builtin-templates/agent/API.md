@@ -1066,12 +1066,12 @@ changes on a rebind only (the prompt's cached prefix stays valid).
 
 | Tool | Arguments | What it does |
 |---|---|---|
-| `bash` | `{command, cwd?, timeout_s? (120), background?}` | runs `command` with the sandbox user's login shell (an exec named `agent:<run>:<tool call>`, so starting it twice finds the one command), no TTY, no stdin, `TERM=dumb NO_COLOR=1 PAGER=cat GIT_TERMINAL_PROMPT=0`, and follows its combined output. The result is at most 12 KiB — a short head and a long tail with `… N bytes elided …` between, escapes and `\r` redraws cleaned — and a footer: `[exit 1 · 14s · job 3]`. At `timeout_s` (or just before the tool's own `toolTimeout`) the command **goes on as a job**: the footer says `still running after 2m00s · job 3` and how to follow it. `background: true` starts it as a job at once |
-| `bash_output` | `{job, wait_s? (0, ≤ 600), offset?}` | a job's output since it was last read (or from byte `offset`), waiting up to `wait_s` for it to end; the footer says it still runs (and up to which byte it was read) or how it ended |
+| `bash` | `{command, cwd?, timeout_s? (120), background?}` | runs `command` with the sandbox user's login shell (an exec named `agent:<run>:<tool call>`, so the same call re-issued — the same command, cwd and sandbox, while it hasn't ended — finds the one command; anything else under that call id is a job of its own, `agent:<root>:job-<n>`), no TTY, no stdin, `TERM=dumb NO_COLOR=1 PAGER=cat GIT_TERMINAL_PROMPT=0`, and follows its combined output. The result is at most 12 KiB — a short head and a long tail with `… N bytes elided …` between, escapes and `\r` redraws cleaned — and a footer: `[exit 1 · 14s · job 3]`. At `timeout_s` (or just before the tool's own `toolTimeout`) the command **goes on as a job**: the footer says `still running after 2m00s · job 3` and how to follow it. `background: true` starts it as a job at once. A start the manager doesn't answer (a timeout, a lost connection, the tool's own timeout) may have started all the same: the job stays, and the result names it — `bash_output` finds its command by its clientId (or says it never started); only the manager's refusal drops it |
+| `bash_output` | `{job, wait_s? (0, ≤ 600), offset?}` | a job's output since it was last read (or from byte `offset`), waiting up to `wait_s` for it to end; the footer says it still runs (and up to which byte it was read) or how it ended. A job in a sandbox the conversation can no longer use (below) answers what is known of it |
 | `bash_kill` | `{job, signal?}` | signals the job's whole process group: `INT`, `TERM`, `KILL` or `HUP`; by default TERM, then KILL if it hasn't ended 3 s later |
-| `read` | `{path, offset?, limit? (2000)}` | numbered lines (`cat -n` style), within ~14 KiB, saying what it left out; a file up to 256 KiB is read whole and sliced, a larger one ranged with `sed -n`; a binary file (a NUL or non-UTF-8 near its start) gets a hint instead |
-| `write` | `{path, content}` | replaces the file atomically (the contract's `PUT …/files/content`), creating missing directories |
-| `edit` | `{path, old_string, new_string, replace_all?}` | `file_edit`'s exact-string replacement (the same rules, one shared implementation) on a sandbox file of up to 4 MiB, written back with `ifMatch` = the etag it read; a `precondition` refusal (the file changed meanwhile) is retried once from a fresh read. The result shows the changed lines, numbered |
+| `read` | `{path, offset?, limit? (2000)}` | numbered lines (`cat -n` style), within ~14 KiB, saying what it left out; a file up to 256 KiB is read whole and sliced, a larger one ranged with `sed -n`; a binary file (a NUL or non-UTF-8 near its start) gets a hint instead. A symlink is followed to its file (a relative target against the link's directory; at most 40 links) |
+| `write` | `{path, content}` | replaces the file atomically (the contract's `PUT …/files/content`), creating missing directories. It replaces what is at `path`: a symlink there becomes the file (write the target to write through it) |
+| `edit` | `{path, old_string, new_string, replace_all?}` | `file_edit`'s exact-string replacement (the same rules, one shared implementation) on a sandbox file of up to 4 MiB, written back with `ifMatch` = the etag it read; a `precondition` refusal (the file changed meanwhile) is retried once from a fresh read. A symlink is followed as `read` follows it: the target is edited, the link stays. The result shows the changed lines, numbered |
 | `ls` | `{path?}` | a directory (≤ 500 entries): subdirectories first, with `/`; files with their size; symlinks with their target |
 | `glob` | `{pattern, path?}` | files by name, relative to the working directory, sorted, at most 200: `**` spans directories, a pattern without `/` matches names at any depth, `{a,b}` alternates. The listing is the sandbox's own `rg --files` (which honours `.gitignore`) or `find` (skipping `.git` and `node_modules`) — at most 20 000 files — matched here |
 | `grep` | `{pattern, path?, glob?, ignore_case?}` | `path:line: text` lines, at most 100 (then how many more), text clipped at 300 characters: `rg` where the sandbox has it (its regex syntax), else `grep -rE`; skips `.git` and binary files |
@@ -1087,8 +1087,9 @@ manager, **with or without** a sandbox bound, and not to a chat channel's
 conversation. It takes the conversation **owner's grant** `sandboxes`
 (§Threads, schedules and grants): the step parks — `pendingState: {kind:
 "approval", grant: "sandboxes", grantAsk, toolCalls}`, where `grantAsk` says
-what will be made (`create the coding sandbox “api-dev” at Coding sandboxes
-— image base, size small, egress none`) — and only the owner may allow it,
+exactly what will be made (`create the coding sandbox "api-dev" at Coding
+sandboxes — image base, size small, egress none`: the manager asked first,
+its defaults resolved; the name quoted) — and only the owner may allow it,
 once or for an hour (`POST /runs/{id}/approve {approve: true, grant:
 "once"|"hour"}`; `DELETE /runs/{id}/grants/sandboxes` takes an hour's grant
 back); anyone who may steer the conversation may deny it.
@@ -1097,7 +1098,14 @@ back); anyone who may steer the conversation may deny it.
   provider, as `GET /sandboxes` names it); `egress` — the first the class
   allows that the manager offers, `none` first; `image` and `size` — the
   manager's defaults; `cwd` — the sandbox's workdir (a relative one is
-  under it; a missing one is made).
+  under it; a missing one is made — once the sandbox runs: a create the
+  manager answers while it is still starting waits for it, up to 2 min).
+- **As asked**: the call is resolved against its manager before it parks,
+  and the parked calls the owner allows — once or for the hour — make
+  exactly what `grantAsk` said, or refuse (saying what changed) when the
+  manager's offer changed meanwhile. A call whose manager doesn't answer
+  isn't parked on a guess: it runs and says why. `name` is 1–64 characters
+  on one line, with no control or format characters.
 - **What is made**: the sandbox is created for the owner — `Sbx-User` is the
   owner, who approved it — as `POST /sandboxes {conversation}` makes one (a
   team conversation's is `team`, its participants are members, it is
@@ -1108,8 +1116,9 @@ back); anyone who may steer the conversation may deny it.
 - **Refused, never parked**: in a subagent, in a chat channel's
   conversation, in a conversation no person owns, after **4** creates in one
   conversation, and when the class doesn't allow the manager or the egress.
-  An image, size or egress the manager doesn't offer is refused once
-  allowed; a binding that can't be made deletes the new sandbox again.
+  An image, size or egress the manager doesn't offer is refused before
+  anyone is asked; a binding that can't be made deletes the new sandbox
+  again.
 - **Idempotent**: each create is numbered per conversation
   (`sandbox_creates`) and sent with `clientId` `agent:<root>:name:<n>`. A
   call a restart cut off leaves its number pending; the next call with the
@@ -1120,8 +1129,16 @@ back); anyone who may steer the conversation may deny it.
 **Jobs** are numbered per conversation (subagents share their root's
 numbers) and kept in the `sandbox_jobs` table (`root_id, job, run_id,
 tool_call_id, ref, exec_id, command, cwd, state, exit_code, read_off, fg,
-created_ms, ended_ms`); a conversation runs at most **8** at once (asked of
-the manager before a start is refused). **Interrupting or cancelling** the
+created_ms, ended_ms, client_id` — `client_id` set when it isn't
+`agent:<run>:<call>`); a conversation runs at most **8** at once (asked of
+the manager before a start is refused). **Detaching a sandbox** (`PATCH
+/runs/{id} {detach}`, or deleting it, which detaches it everywhere) KILLs
+the process group of every job the conversation still runs in it — best
+effort, in the background, so the change doesn't wait for a manager — and
+records them `killed`. A job whose sandbox the conversation can no longer
+use at all (detached, deleted, its manager unbound, no longer allowed) is
+`lost` and doesn't count toward the 8; `bash_output` and `bash_kill` on it
+say what is known of it. **Interrupting or cancelling** the
 turn stops the command bash is following — TERM to its process group, KILL
 if it is still there 3 s later — while background jobs keep running. **A
 backend restart** (a handoff to the next process) leaves it running: the
