@@ -282,8 +282,9 @@ fails the start with the path named, and nothing is made where it points: a
 terminal's reset clears it, and a backend's `setup` has to stop making it.
 The base rootfs's own links (`/lib → usr/lib`, `/var/run → /run`) are
 followed, inside the sandbox, and so are the workspace root's own (an
-operator's `homes/` → another disk: no sandbox writes the workspace root; a
-link in a tile's directory is refused). A link the layer holds at a *file*
+operator's `homes/` → `.homes`, or → another disk in a namespace terminal
+only: no sandbox writes the workspace root; a link in a tile's directory is
+refused). A link the layer holds at a *file*
 mount point — an apt-installed `/usr/bin/nvidia-smi` (a Debian alternatives
 link) under a GPU terminal — is covered by the mount, not followed: the
 sandbox sees the host's file there, and the layer keeps its link. A symlink

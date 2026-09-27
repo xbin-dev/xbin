@@ -279,7 +279,7 @@ needs `terminal` level on the tile; resetting the (disabled) root layer is
 admin-only. It is also what clears a symlink the layer holds where a mount
 point goes (`/opt`, `/proc`, …): the terminal refuses to start over one,
 naming the path, instead of following it (D78; the base rootfs's own links,
-and the workspace root's — an operator's `homes/` → another disk — are
+and the workspace root's — an operator's `homes/` → `.homes` — are
 followed, inside the sandbox, and one at a file mount point, like an
 apt-installed `nvidia-smi` under a GPU terminal, is covered by the mount —
 [isolation.md](/docs/isolation.md) §The dev layer).

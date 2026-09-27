@@ -2672,8 +2672,10 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     (KVM) is green.
   - **Left open:** a host symlink *inside a bind* on another bind's path
     is still refused: a workspace whose `homes/` is a symlink now fails its
-    terminals' start. With a link out of the workspace `$HOME` used to
-    dangle; with one inside it (`homes → .homes`) the old path-based init
+    terminals' start. With a link out of the workspace the terminal
+    failed before too (the path-based `homes` mask followed it on the host
+    and hid the home: `bind src …: lstat …: no such file`, checked on
+    master); with one inside it (`homes → .homes`) the old path-based init
     followed it in the root and terminals worked, so that setup regresses
     (the owner decides whether it must keep working) — *closed on
     `p2/regress`, below.* And a bind's *source*
@@ -2697,8 +2699,14 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
       tile for a link — is another directory, and its links are still
       refused (without the hint). A link to another disk now lands its
       target path inside the sandbox's root (made in the layer, or in `/tmp`'s
-      tmpfs), so `$HOME` works where it used to dangle. The runner needs no
-      Layout: no backend bind nests under a host-layout bind.
+      tmpfs), so `$HOME` works in a namespace terminal, where before WP-2b
+      the start failed too (the path-based mask hid the home on the host). A
+      VM terminal still fails over such a link (the guest's mount of
+      `<ws>/homes/<key>`: `configure guest: config: mount …: no such file
+      or directory`), as it did before WP-2b (host-side, then); `homes → .homes` works there
+      (`TestVMSandboxFilesAndExit` writes `$HOME` through it, KVM and
+      emulated; it fails without the Layout). The runner needs no Layout:
+      no backend bind nests under a host-layout bind.
     - *A GPU terminal whose layer has an apt-installed `nvidia-smi`*
       (`/usr/bin/nvidia-smi` → `/etc/alternatives/…`) was refused at the gpu
       bind's mount point. A *file* mount point whose last component is a

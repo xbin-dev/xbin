@@ -92,18 +92,21 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 - **Fix: terminals start again in a workspace whose `homes/` is a symlink,
   and over a layer's apt-installed `nvidia-smi`** ([isolation.md](isolation.md)
   §The dev layer). The mount-point change above refused two setups that
-  worked before: a workspace whose `homes/` is the operator's symlink (into
-  the workspace, or to another disk) failed every tile terminal's start at
+  worked before: a workspace whose `homes/` is the operator's symlink into
+  the workspace (`homes → .homes`) failed tile terminals' start at
   `…/homes`, and a GPU terminal (`?gpu=`) whose layer had `nvidia-smi`
   installed with apt (`/usr/bin/nvidia-smi` is a Debian alternatives link)
   failed at that path. A symlink directly in the workspace root, which only
   xbind and the operator write, is now followed inside the sandbox, so
-  `$HOME` is the user's home on the host again (with a link to another disk
-  too, where it used to point nowhere); one in a tile's directory is still
-  refused. A symlink a terminal's layer or a backend's `setup` left at a
-  file mount point (`nvidia-smi`, a GPU library, `/run/backend`) is covered
-  by the mount instead: the sandbox sees the host's file there, and the
-  layer keeps its link. Nothing to change.
+  `$HOME` is the user's home on the host again; one in a tile's directory
+  is still refused. A `homes/` link to another disk, which failed a tile
+  terminal's start before too (the `homes/` mask followed it on the host
+  and hid the home), now works in a namespace terminal; a VM terminal
+  still fails to start over it. A symlink a terminal's layer or a
+  backend's `setup` left at a file mount point (`nvidia-smi`, a GPU
+  library, `/run/backend`) is covered by the mount instead: the sandbox
+  sees the host's file there, and the layer keeps its link. Nothing to
+  change.
 - **`cap:sandboxes`: the grant a sandbox manager needs for xbind's tile
   sandboxes** (D120, [auth.md](auth.md)). A tile that serves
   [sandbox-manager.md](sandbox-manager.md) on xbind's own sandboxes declares

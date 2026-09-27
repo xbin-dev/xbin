@@ -120,19 +120,29 @@ func TestVMSandboxFilesAndExit(t *testing.T) {
 	}
 	os.WriteFile(filepath.Join(tile, "in.txt"), []byte("from host"), 0o644)
 	os.WriteFile(filepath.Join(secret, "token"), []byte("s3cret"), 0o600)
+	// a terminal's $HOME through the operator's homes → .homes (a Layout
+	// bind's own symlink: the host walk follows it inside the root)
+	home := filepath.Join(ws, "homes", "u")
+	os.MkdirAll(filepath.Join(ws, ".homes", "u"), 0o755)
+	if err := os.Symlink(".homes", filepath.Join(ws, "homes")); err != nil {
+		t.Fatal(err)
+	}
 
 	script := fmt.Sprintf(`set -u
 cat %[1]s/in.txt; echo
 echo from-guest > %[1]s/out.txt
 echo nope > %[2]s/x 2>/dev/null && echo WROTE-RO
 ls -A %[3]s | wc -l | sed 's/^/secret-entries=/'
+echo in-home > %[4]s/f
 uname -r; id -u
-exit 3`, tile, other, secret)
+exit 3`, tile, other, secret, home)
 	spec := &sandbox.Spec{
 		Lower: []string{m.Rootfs},
 		Binds: []sandbox.Bind{
-			{Src: ws, Dst: ws, RO: true},
+			{Src: ws, Dst: ws, RO: true, Layout: true},
 			{Dst: secret, Mask: true, RO: true},
+			{Dst: filepath.Join(ws, "homes"), Mask: true},
+			{Src: home, Dst: home},
 			{Src: tile, Dst: tile},
 		},
 		Entry:   "/bin/bash",
@@ -142,6 +152,7 @@ exit 3`, tile, other, secret)
 		HostUID: os.Getuid(),
 		HostGID: os.Getgid(),
 	}
+	spec.NoFollow = true // as a terminal's
 	if err := m.Apply(context.Background(), spec, Options{MemMiB: 512}); err != nil {
 		t.Fatal(err)
 	}
@@ -162,6 +173,9 @@ exit 3`, tile, other, secret)
 	}
 	if !strings.Contains(out, "secret-entries=0") {
 		t.Errorf("masked dir is not empty in the guest")
+	}
+	if b, _ := os.ReadFile(filepath.Join(ws, ".homes", "u", "f")); string(b) != "in-home\n" {
+		t.Errorf("host sees %q from the guest's $HOME write (homes → .homes)", b)
 	}
 	if !strings.Contains(out, "\n0\n") {
 		t.Errorf("guest workload is not root")
