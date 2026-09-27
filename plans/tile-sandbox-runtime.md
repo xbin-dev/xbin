@@ -824,8 +824,9 @@ admin view.
      terminals, this never gates xbind's boot.
 4. Resolve the mounts and the egress class.
 5. Build the `Spec`: `Lower: [base]`, `Upper`/`Work` (namespace mode),
-   `Restricted`, `MountGuard`, `Hostname: name`, `Net: "relay"`, `Agent`,
-   `Lock`, binds, and `Entry: /opt/xbin/bin/bx`.
+   `Restricted`, `MountGuard`, `NoFollow` (§5: mount points in the upper
+   are never followed; it is opt-in, WP-2), `Hostname: name`, `Net:
+   "relay"`, `Agent`, `Lock`, binds, and `Entry: /opt/xbin/bin/bx`.
    - In VM mode, `vm.Apply(…, Resident)` also runs, along with `Reserve` and
      `EnsureDiskAt`.
 6. `Launch`, `cmd.Start`, `cgroup.AddWith`, `SetupUserns`, `RecvTUN`,
@@ -1231,6 +1232,46 @@ next to its vforking `os.StartProcess`.
   so the logic goes in `agentfd_linux.go` (≤ 300).
 - **Parallel:** with WP-1. Rebase with dl/confine-dirfrom, whichever lands
   second.
+- **As built (notes and deviations):**
+  - *No-follow is opt-in:* `Spec.NoFollow`, which tilesbx sets. Terminals
+    and backends keep their path-based mounts, because a bind of theirs may
+    legitimately pass a symlink the rootfs ships (never break users). Under
+    `NoFollow` the no-follow walk covers every mount point the init makes in
+    the new root, not just binds and masks: `/proc`, `/tmp`, `/dev` and the
+    pivot's `.oldroot` too, since each is a D78 hole otherwise. A bind nested
+    in a read-only bind gets its read-only remount after the nesting, as on
+    dl/confine-dirfrom.
+  - *dl/confine-dirfrom's helpers* (`openNoFollow`, `nestedPoint`, `fdPath`,
+    `beneath`) are copied verbatim into `nofollow_linux.go`. Whichever
+    branch lands second deletes that file. The existing integration tests
+    gained dl's `SetupUserns` hunk byte for byte, so they no longer hang in
+    range mode.
+  - *The fd numbers travel in argv, appended by the init.* Launch picks the
+    numbers after the caller built the spec, so the init appends
+    `--fd N [--lock M]` to a namespace-mode entry's argv. It leaves a VM
+    shim's argv alone: WP-4 carries the fd in `HostSpec`.
+  - *The CLOEXEC dance runs in the init's final stage*, not right after the
+    first read of the spec. A range-mode stage 1 re-execs, and that re-exec
+    has to keep the fds.
+  - *Ownership:* `Handle.Started` closes the caller's `Agent` and `Lock`
+    along with Launch's own child-side files. Launch and `Cleanup` never
+    close the caller's files. So if `cmd.Start` fails, the caller closes
+    them.
+  - *A pre-existing D78 hole, closed for every sandbox:* the egress setup's
+    `/etc/resolv.conf` write, and a host-network terminal's
+    `resolv.conf`/`hosts` copies, followed symlinks in the new root before
+    pivot_root. A terminal user could plant `/etc/resolv.conf → <host
+    path>` in their persistent layer, and the next start overwrote that host
+    file as xbind (`TestResolvConfNeverFollowed` reproduces it on the old
+    code). `writeInRoot` now replaces a symlink there with a regular file,
+    whatever `NoFollow` says.
+  - *Still open, outside tile sandboxes:* a terminal's or backend's
+    path-based mount points still follow a symlink in a persistent upper.
+    That can make empty directories and files on the host (the old code
+    made `xbin/` where a planted `/opt` pointed), though it can't overwrite
+    anything. A planted `/proc` symlink also wedged that old path, with the
+    init and fuse-overlayfs both stuck in a FUSE wait. Turning `NoFollow` on
+    for them needs a survey of rootfs symlinks first.
 
 ### WP-3 — `bx __sbx-agent` (Track A · S · after WP-1, WP-2)
 
@@ -1557,7 +1598,9 @@ next to its vforking `os.StartProcess`.
     - create → start → exec `true` → stop → start: the upper persists;
     - egress `none`: TCP to 1.1.1.1 is reset, DNS REFUSED, both under
       100 ms;
-    - a read-only mount refuses writes; a `Sub` symlink is refused;
+    - a read-only mount refuses writes; a `Sub` symlink is refused; a
+      symlink planted in the upper at a mount point is refused (the Spec
+      sets `NoFollow`);
     - leaf limits written; the registry row added and removed;
     - `unshare -U` fails inside.
   - Add `./internal/tilesbx/` to `make integration`, twice (KVM, then

@@ -10,6 +10,16 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-28
+
+- **A sandbox's `/etc/resolv.conf` is written in place, never through a
+  symlink.** When a terminal or backend with egress starts, xbind writes the
+  relay's resolver into the sandbox's `/etc/resolv.conf`; a host-network
+  terminal gets copies of the host's `resolv.conf` and `hosts`. A symlink
+  left there (a terminal's persistent layer keeps one) used to be followed —
+  an absolute one outside the sandbox — and is now replaced by a regular file
+  with the same content the sandbox always got. Nothing to change.
+
 ## 2026-09-27
 
 - **Go backends in a VM start again, and a VM backend that never listens

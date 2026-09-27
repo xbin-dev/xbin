@@ -64,11 +64,13 @@ func Launch(s *Spec) (*exec.Cmd, *Handle, error) {
 		s.VM.Debug = true // the shim echoes the guest console and its timings
 	}
 
-	// ExtraFiles land at fd 3, 4, … in the init, in append order.
+	// ExtraFiles land at fd 3, 4, … in the init, in append order: ctrl,
+	// sync, agent, lock. Launch closes only what it made itself (h.own) on
+	// failure; the caller's Agent and Lock stay the caller's.
 	var extra []*os.File
 	nextFD := 3
 	fail := func(err error) (*exec.Cmd, *Handle, error) {
-		for _, f := range extra {
+		for _, f := range h.own {
 			f.Close()
 		}
 		if h.ctrl != nil {
@@ -83,6 +85,7 @@ func Launch(s *Spec) (*exec.Cmd, *Handle, error) {
 			return fail(err)
 		}
 		extra = append(extra, child)
+		h.own = append(h.own, child)
 		s.CtrlFD = nextFD
 		nextFD++
 		h.ctrl = parent
@@ -97,9 +100,24 @@ func Launch(s *Spec) (*exec.Cmd, *Handle, error) {
 			return fail(err)
 		}
 		extra = append(extra, r)
+		h.own = append(h.own, r)
 		s.SyncFD = nextFD
 		nextFD++
 		syncW = w
+	}
+
+	// The agent's connection factory and the state lock (tile sandboxes).
+	s.AgentFD, s.LockFD = 0, 0
+	for _, g := range []struct {
+		f  *os.File
+		fd *int
+	}{{s.Agent, &s.AgentFD}, {s.Lock, &s.LockFD}} {
+		if g.f != nil {
+			extra = append(extra, g.f)
+			h.given = append(h.given, g.f)
+			*g.fd = nextFD
+			nextFD++
+		}
 	}
 
 	f, err := os.CreateTemp("", "bx-spec-*.json")
