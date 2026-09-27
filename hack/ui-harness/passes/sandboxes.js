@@ -39,7 +39,7 @@ function fixture() {
     disks: [
       { key: 'apps~dev-2', path: '/ws/.xbin/term/apps~dev-2/vm/disk.img', tile: 'apps/dev', apparentBytes: 20 * 2 ** 30, allocatedBytes: 700 * MiB, inUse: true },
       { key: 'apps~gone-3', path: '/ws/.xbin/term/apps~gone-3/vm/disk.img', apparentBytes: 20 * 2 ** 30, allocatedBytes: MiB, inUse: false },
-      { kind: 'tile', key: 'apps~web-1', sandbox: 'box-1', path: '/ws/.xbin/sbx/apps~web-1/box-1/vm/disk.img', tile: 'apps/web',
+      { kind: 'tile', key: 'apps~web-1', sandbox: 'box-1', sandboxUid: '0123456789ab', path: '/ws/.xbin/sbx/apps~web-1/box-1.0123456789ab/cur/vm/disk.img', tile: 'apps/web',
         apparentBytes: 10 * 2 ** 30, allocatedBytes: 300 * MiB, inUse: false },
     ],
     failures: [
@@ -132,6 +132,7 @@ async function sandboxes(browser) {
   check(/×3/.test(await q.locator('tr[data-sbx-failure][data-stage="refused"]').first().textContent()), 'a repeated failure shows its count');
   check(await q.locator('[data-sbx-disk="apps~gone-3"]').count() === 1, 'a disk no tile holds is listed');
   check(await q.locator('[data-sbx-disk="apps~web-1"] [data-sbx-disk-sandbox="box-1"]').count() === 1, "a tile sandbox's disk names its sandbox");
+  check(/uid 0123456789ab/.test(await q.locator('[data-sbx-disk-sandbox="box-1"]').getAttribute('title')), "a tile sandbox disk's uid shows on hover");
   check(await q.locator('.sbx-piece.no[data-piece="firecracker"]').count() === 1, 'the missing firecracker is marked');
   await shot(q, 'admin-sandboxes-vm');
   await q.locator('[data-edit-policy]').click();

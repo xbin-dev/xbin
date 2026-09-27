@@ -359,10 +359,12 @@ for terminals):
 - **GC at boot** releases preserved bases that nothing pins anymore — the
   cleanup side, so old bases don't accumulate once every layer has upgraded.
   The pins are the union of the terminal layers' stamps (`.xbin/term/*`), the
-  tile sandboxes' and their snapshots' stamps (`.xbin/sbx/*/*`), and the base
-  of every tile-sandbox definition. The VM images built from bases
-  (`.xbin/vm/images`) follow the same pins. If any pin can't be read, nothing is
-  released that boot.
+  tile sandboxes' stamps (`.xbin/sbx/<CK>/<name>.<uid>/cur/`) and their
+  snapshots' (`…/snapshots/<sid>/`; what `.xbin/sbx/<CK>/.trash` holds pins
+  nothing), and the base of every tile-sandbox definition. The VM images
+  built from bases (`.xbin/vm/images`) follow the same pins. If any pin
+  can't be read (a stamp, or the definitions file), nothing is released that
+  boot.
 
 A terminal whose layer's base is older than the current rootfs reports
 `baseOutdated` on attach, so the UI can offer a reset-to-upgrade.

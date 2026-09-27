@@ -29,9 +29,12 @@ func resolveBase(rootfs, version string) (string, bool) { return layers.ResolveB
 
 // ensureLayerBase stamps a terminal layer with its base version on first use and
 // returns it: a brand-new layer gets the current base; a pre-existing unstamped
-// layer is the legacy base ("v0"). Idempotent.
+// layer is the legacy base ("v0"). Idempotent. A readable base stamp is kept
+// whatever the overlay stamp beside it holds: Read returns the base it read
+// with the overlay's error, and a bad overlay stamp must not discard (and
+// re-stamp over) the base the layer's upper was built on.
 func (m *Manager) ensureLayerBase(layer string) string {
-	if s, err := layers.Read(layer); err == nil && s.Base != "" {
+	if s, _ := layers.Read(layer); s.Base != "" {
 		return s.Base
 	}
 	ver := layers.BaseVersion(m.Rootfs) // brand-new layer → the current base

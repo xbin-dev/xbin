@@ -11,25 +11,51 @@ import (
 
 // The trees of layers under a workspace:
 //
-//	.xbin/term/<key>/                      a tile's terminal layer (and VM disk)
-//	.xbin/sbx/<CK>/<name>/                 a tile sandbox's state
-//	.xbin/sbx/<CK>/<name>/snapshots/<sid>/ one of its snapshots
+//	.xbin/term/<key>/                             a tile's terminal layer (and VM disk)
+//	.xbin/sbx/<CK>/<name>.<uid>/cur/              a tile sandbox's state (its stamps)
+//	.xbin/sbx/<CK>/<name>.<uid>/snapshots/<sid>/  one of its snapshots
 //
-// A snapshot is a layer of its own: it keeps the base it was taken on after
-// its sandbox is reset or rebased, and a clone or restore needs that base.
-// (A non-main deployment's `.xbin/deploy/<TK>/d/<d>/sbx/` joins here when
-// its keys exist; plans/tile-sandbox-runtime.md §1.4.)
+// A tile sandbox's state dir is named by its name and its uid (its identity:
+// a re-created name gets a new one), and everything that is its state —
+// stamps, upper or disk — sits in cur/, which a restore swaps whole
+// (plans/tile-sandbox-runtime.md §1.3). A snapshot is a layer of its own: it
+// keeps the base it was taken on after its sandbox is reset or rebased, and a
+// clone or restore needs that base. `.xbin/sbx/<CK>/.trash` (what a delete,
+// reset or restore put aside) and anything else not named `<name>.<uid>`
+// isn't a layer and pins nothing. (A non-main deployment's
+// `.xbin/deploy/<TK>/d/<d>/sbx/` joins here when its keys exist; §1.4.)
 const (
 	TreeTerm = "term"
 	TreeSbx  = "sbx"
 )
 
+// CurDir is the dir in a tile sandbox's state dir that holds its state and
+// stamps (what Pin and Stamp take).
+const CurDir = "cur"
+
+// SplitStateDir splits a tile sandbox's state dir name, `<name>.<uid>`, at
+// its last "." into the sandbox's name and uid (12 lowercase hex). ok=false
+// for anything else — `.trash`, a hidden or staging entry, a dir without a
+// uid — which isn't a sandbox's state.
+func SplitStateDir(dir string) (name, uid string, ok bool) {
+	i := strings.LastIndexByte(dir, '.')
+	if i <= 0 || strings.HasPrefix(dir, ".") {
+		return "", "", false
+	}
+	name, uid = dir[:i], dir[i+1:]
+	if len(uid) != 12 || strings.Trim(uid, "0123456789abcdef") != "" {
+		return "", "", false
+	}
+	return name, uid, true
+}
+
 // Layer is one layer dir and what it pins.
 type Layer struct {
 	Tree     string `json:"tree"`               // TreeTerm | TreeSbx
-	Dir      string `json:"dir"`                // absolute
+	Dir      string `json:"dir"`                // the dir holding its stamps (a sandbox's cur/), absolute
 	Key      string `json:"key"`                // the terminal key, or the tile's CK
 	Sandbox  string `json:"sandbox,omitempty"`  // TreeSbx: the sandbox's name
+	UID      string `json:"uid,omitempty"`      // TreeSbx: the sandbox's uid
 	Snapshot string `json:"snapshot,omitempty"` // TreeSbx: a snapshot's id
 	// Stamps.Base is the effective pin: a terminal layer without a stamp
 	// predates them and pins Legacy; an unstamped sandbox dir hasn't
@@ -74,14 +100,26 @@ func List(ws string) ([]Layer, error) {
 			errs = append(errs, err)
 		}
 		for _, n := range names {
+			name, uid, ok := SplitStateDir(n)
+			if !ok {
+				continue // .trash, or not a sandbox's state: pins nothing
+			}
 			dir := filepath.Join(sbx, ck, n)
-			out = append(out, read(Layer{Tree: TreeSbx, Dir: dir, Key: ck, Sandbox: n}))
+			l := Layer{Tree: TreeSbx, Dir: filepath.Join(dir, CurDir), Key: ck, Sandbox: name, UID: uid}
+			// cur/ is xbind's: a missing one (never started) pins nothing,
+			// and one swapped for a link or a file is refused, not followed.
+			if err := dirOrNone(l.Dir); err != nil {
+				l.Err = err.Error()
+			} else {
+				l = read(l)
+			}
+			out = append(out, l)
 			snaps, err := subdirs(filepath.Join(dir, "snapshots"))
 			if err != nil {
 				errs = append(errs, err)
 			}
 			for _, sid := range snaps {
-				out = append(out, read(Layer{Tree: TreeSbx, Dir: filepath.Join(dir, "snapshots", sid), Key: ck, Sandbox: n, Snapshot: sid}))
+				out = append(out, read(Layer{Tree: TreeSbx, Dir: filepath.Join(dir, "snapshots", sid), Key: ck, Sandbox: name, UID: uid, Snapshot: sid}))
 			}
 		}
 	}
@@ -97,21 +135,31 @@ func read(l Layer) Layer {
 	return l
 }
 
+// dirOrNone: dir is a directory (not a symlink to one) or doesn't exist.
+func dirOrNone(dir string) error {
+	fi, err := os.Lstat(dir)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return nil
+	case err != nil:
+		return err
+	case !fi.IsDir():
+		return fmt.Errorf("%s: not a directory", dir)
+	}
+	return nil
+}
+
 // subdirs lists dir's sub-directories (not symlinks to one); a missing dir
 // has none. dir itself must not be a symlink: these are xbind's own dirs,
 // and one swapped for a link is refused rather than walked.
 func subdirs(dir string) ([]string, error) {
-	fi, err := os.Lstat(dir)
+	if err := dirOrNone(dir); err != nil {
+		return nil, err
+	}
+	ents, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
-	if err != nil {
-		return nil, err
-	}
-	if !fi.IsDir() {
-		return nil, fmt.Errorf("%s: not a directory", dir)
-	}
-	ents, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -144,11 +192,13 @@ func Check(ws, rootfs string) ([]Layer, error) {
 }
 
 // Pinned is the union of every base version still pinned under ws: the
-// terminal layers' stamps, the tile sandboxes' and their snapshots' stamps,
-// and extra's — the base of every tile-sandbox definition, archived ones
-// included (nil until the runtime has definitions). An error means a pin
-// couldn't be read: the set may be short, so nothing may be released on it.
-func Pinned(ws string, extra func() []string) (map[string]bool, error) {
+// terminal layers' stamps, the tile sandboxes' (cur/) and their snapshots'
+// stamps, and extra's — the base of every tile-sandbox definition, archived
+// ones included (nil until the runtime has definitions). An error means a
+// pin couldn't be read (a stamp, a tree, or extra's source: an unreadable
+// definitions file), so the set may be short and nothing may be released on
+// it.
+func Pinned(ws string, extra func() ([]string, error)) (map[string]bool, error) {
 	ls, err := List(ws)
 	pins := map[string]bool{}
 	var bad []string
@@ -161,10 +211,14 @@ func Pinned(ws string, extra func() []string) (map[string]bool, error) {
 		}
 	}
 	if extra != nil {
-		for _, v := range extra() {
+		vs, xerr := extra()
+		for _, v := range vs {
 			if v != "" {
 				pins[v] = true
 			}
+		}
+		if xerr != nil {
+			err = errors.Join(err, fmt.Errorf("the tile-sandbox definitions' bases: %w", xerr))
 		}
 	}
 	if len(bad) > 0 {
