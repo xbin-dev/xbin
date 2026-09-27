@@ -1,9 +1,3 @@
-//go:build ignore
-
-// WIRE ON MERGE (WP-14): see sandbox_dialtty.go — delete the build line
-// above and the blank line after it once sdk/ws (branch p3/prep) is on this
-// branch.
-
 package xbin
 
 import (

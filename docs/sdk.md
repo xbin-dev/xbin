@@ -267,7 +267,10 @@ snaps, err := sb.Snapshots(ctx)                                             // S
   so your backend needs no WebSocket code and the consumer speaks the
   `/ws/term` wire end to end. `SessionID` and `SandboxID` put your own ids
   in the session frame; `ForUser` is the verified person, refused by xbind
-  when they have no terminal access.
+  when they have no terminal access. A manager that drives a terminal
+  itself (an SSH bridge) dials it with `sb.DialTTY(ctx, eid,
+  xbin.TTYOptions{…})`, which returns an `sdk/ws` connection speaking the
+  same wire.
 - **Compatibility.** Request structs omit empty fields and answers decode
   leniently, so a newer SDK works against an older xbind.
 - **Never hand your token to a sandbox.** A sandbox has no xbin identity:
