@@ -127,6 +127,7 @@ type Plane struct {
 	// §9.2): the broker's. Call it outside index.dmu, since it removes the
 	// registration files through RemoveDeploymentFile, whose prune takes it.
 	DropDeploymentFiles func(tile, dep string) error
+	DataHooks           // the broker's data namespace acts (datahooks.go)
 	// TileLimits are a tile's cgroup caps, today's per-component ones: the
 	// ceiling of every deployment's limits (P22), in LimitsFor. Zero without
 	// cgroup delegation.
