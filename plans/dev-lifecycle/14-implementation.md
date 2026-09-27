@@ -1732,6 +1732,18 @@ which proves that no two WPs in one wave own the same file.
 | `docs/protocol.md` | 0.3 WP-07 (API-fence rows) · 1.3 WP-29 · 2.4 WP-64 |
 | `docs/{elements,isolation,bx,frontend-kit,compat,maintenance}.md`, `docs/overview/{09-terminals,14-lifecycle,15-operations}.md`, `workspace-template/AGENTS.md`, `docs/tile-deployments.md` | 1.3 WP-29 · 2.4 WP-65 |
 
+**The C5 guard after wave 0.2.** `internal/confine/nofollow_test.go`
+(WP-04) has one owner per wave like any file here, but its behavioural half
+must drive operations that land in several WPs of one wave: capture (WP-10),
+materialize and GC (WP-11), diff and drift (WP-12), restore (WP-23,
+WP-44a) and purge (WP-66). After wave 0.2 the file is the integrator's. Each
+of those WPs writes its hostile-tree case in a test file of its own package
+and names it in its report's **Tests:**; the integrator wires it into
+`TestNoFollowingHostWalks` at the merge (an exported hook in a
+`confine_test` file, since package `confine` cannot import the packages that
+use it). The static half needs no edit: its scope already lists every
+package, and an entry that doesn't exist yet is skipped.
+
 **Seams where a clean merge proves nothing.** After merging the second WP of
 each pair, run both WPs' suites: WP-16a and WP-16b (`CodeFor` through the
 deploy worker), WP-16a and WP-17 (`Code` through `build`), WP-14a and WP-14b
@@ -1857,6 +1869,12 @@ export XBIN_FUSE_OVERLAYFS=/home/magik6k/buxon/bin/fuse-overlayfs
   the pipe open; read the out files. Stop a hand-started xbind by PID, since a
   `pkill -f` pattern can match the calling shell. A read-only Go module cache
   needs `GOMODCACHE` pointed at a writable directory.
+- **Copies of an example in the shared daemon's workspace.** An integration
+  test that copies a Go example into `test/`'s shared workspace gives the copy
+  a module path of its own: `go.work` refuses two `module counter` lines, and
+  every Go build in that workspace then fails (seen in WP-03 and WP-04;
+  `TestGoBackendLifecycle`'s copy keeps `counter`). WP-28, WP-61 and WP-62
+  follow this.
 - **A WP that finds the design wrong stops and reports.** It doesn't
   improvise another design, raise a budget, or edit outside its Owns list.
 
@@ -1945,7 +1963,7 @@ the test that verifies it.
 | §4.16 web | `bx-frame.js` WP-00, 25, 56a · `frame-testapi.js` WP-00, 08, 25, 56a · `frame-titlebar.js`, `frame-deploy.js`, `bx-terminal.js` WP-25, 56a · `frame-launcher.js` WP-25 · `bx-logs.js`, `frame-info.js`, `term-sessions.js`, `xbin-client.js`, `bx-code.js` WP-56b · `events-socket.js`, `native/ios/…`: no change (WP-60's tests) |
 | §4.17 workspace template | `tabs/runtime.js`, `shell/menus.js`, `shell/bx-tile-admin.js`, `manager/index.html`, the optional chips in `shell/{bx-canvas,bx-side,shell-kit}.js` WP-57 · `tabs/sandboxes.js` WP-S0, S4 · `AGENTS.md` WP-29, 65 · `bx-shell.js`, `admin.js`, `welcome/notes.js`: not edited |
 | §4.18 docs | `protocol.md` WP-07, 29, 64 · `sdk.md`, `resources.md`, `auth.md` WP-64 · `elements.md`, `isolation.md`, `bx.md`, `frontend-kit.md`, `compat.md`, `maintenance.md`, `tile-deployments.md` WP-29, 65 · `overview/01`, `03`, `04`, `index.md`, `getting-started.md` WP-29 · `overview/05`, `06`, `08`, `10`, `13`, `16` WP-65 · `overview/09`, `14`, `15` WP-29, 65 · `config.md` WP-06 · `changelog.md`, `changes/`: the integrator |
-| §4.19 tests, harness, CI | goldens WP-01a, 01b, 02, 03, 05 · seam tests WP-01a · `liveroute_test.go` WP-20 · checkpoint tests WP-10, 11, 12 · `resourcebinds_test.go` WP-35 · `runner/sbx_test.go` WP-S4 · `sbx/sbx_test.go` WP-S0 · broker fixture WP-30 · `gates_test.go` WP-51 · `test/deployments_test.go` WP-28, 61 · legacy fixtures: untouched (WP-03 adds files) · `shots.js`, `seed.sh`, `run.sh`, `passes/agenttab.js` WP-08 · `passes/livereload.js` WP-08, 25 · `passes/deployments.js` WP-08, 56b · `hack/deploy-state.test.mjs` WP-24, 55 · `Makefile`, `ci.yml`: the integrator |
+| §4.19 tests, harness, CI | goldens WP-01a, 01b, 02, 03, 05 · seam tests WP-01a · `liveroute_test.go` WP-20 · checkpoint tests WP-10, 11, 12 · `resourcebinds_test.go` WP-35 · `runner/sbx_test.go` WP-S4 · `sbx/filter_deploy_test.go` WP-S0 · `sbx/deploy_test.go` WP-03 · broker fixture WP-30 · `gates_test.go` WP-51 · `test/deployments_test.go` WP-28, 61 · legacy fixtures: untouched (WP-03 adds files) · `shots.js`, `seed.sh`, `run.sh`, `passes/agenttab.js` WP-08 · `passes/livereload.js` WP-08, 25 · `passes/deployments.js` WP-08, 56b · `hack/deploy-state.test.mjs` WP-24, 55 · `Makefile`, `ci.yml`: the integrator |
 
 ### 7.2 Every test has an owner
 
