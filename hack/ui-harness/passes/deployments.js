@@ -115,7 +115,12 @@ const waitPanel = (page, fn, arg, label, timeout = 20000) => waitFor(page, (t, a
   const p = t.frameFor(a.tile)?.testApi().deploy.panel();
   return !!p && new Function('p', 'arg', `return (${a.fn})(p, arg)`)(p, a.arg);
 }, { tile: TILE, fn: fn.toString(), arg: arg ?? null }, { timeout, label });
-const act = (page, id) => pn(page, (p, i) => { p.act(i); return true; }, id);
+// act waits for the panel to be idle first: its actions drop while a
+// previous one still awaits its answer (the panel's busy flag).
+const act = async (page, id) => {
+  await waitPanel(page, (p) => !p.busy, null, `the panel is idle before ${id}`);
+  return pn(page, (p, i) => { p.act(i); return true; }, id);
+};
 const waitDialog = (page, label) => waitFor(page, (t, a) => !!t.frameFor(a)?.testApi().dialog, TILE, { timeout: 15000, label });
 const dialog = (page) => fr(page, TILE, (f) => f.dialog);
 const answer = (page, button, values) => fr(page, TILE, (f, t, a) => { f.answerDialog(a.button, a.values || {}); return true; }, { button, values: values || {} });
