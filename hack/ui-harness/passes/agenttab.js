@@ -235,8 +235,11 @@ async function agentTab(browser) {
   // ---- an agent tab has the layout switcher (code / logs / PRs beside it) ----
   const bar = A.page.locator(`bx-frame[src="${TILE}"] ${PICKERS}`);
   const host = A.page.locator(`bx-frame[src="${TILE}"] .term-host`);
-  check(await bar.locator('.lyt button').count() === 5 && await bar.locator('select.scope').count() >= 2,
-    "the agent tab has the shell's bar: the layout switcher and the net/API pickers");
+  // one switcher button per layout the frame offers (testApi().layouts), not a magic number
+  const layouts = (await fr(A.page, TILE, (f) => f.layouts)) || [];
+  const lytButtons = await bar.locator('.lyt button').count();
+  check(['term', 'code', 'split'].every((l) => layouts.includes(l)) && lytButtons === layouts.length && await bar.locator('select.scope').count() >= 2,
+    `the agent tab has the shell's bar: the layout switcher (${lytButtons} buttons for ${layouts.join(', ')}) and the net/API pickers`);
   await bar.locator('.lyt button[title="code browser + review"]').click();
   await waitSel(A.page, `bx-frame[src="${TILE}"] bx-code`, { timeout: 10000 });
   check(await fr(A.page, TILE, (f) => f.layout) === 'code' && await host.evaluate((el) => el.style.display) === 'none', 'the code layout shows the code panel instead of the agent');
