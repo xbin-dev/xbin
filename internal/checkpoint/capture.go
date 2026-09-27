@@ -178,12 +178,12 @@ func quarantine(dir string) (string, error) {
 
 func (s *Store) capture(ctx context.Context, dir, q string, req CaptureRequest, c Caps) (Result, error) {
 	head := workTreeHead(req.WorkTree)
-	p, err := s.pass(ctx, dir, q, req.Source, nil, nil)
+	p, err := s.settledPass(ctx, dir, q, req.Source, nil, nil)
 	if err != nil && indexBroken(err) {
 		// a corrupt index, or one naming objects a killed run never
 		// stored: re-hash everything, once
 		_ = os.Remove(filepath.Join(dir, "index"))
-		p, err = s.pass(ctx, dir, q, req.Source, nil, nil)
+		p, err = s.settledPass(ctx, dir, q, req.Source, nil, nil)
 	}
 	if err != nil {
 		return Result{}, fmt.Errorf("checkpoint of %s: %w", req.Tile, err)
@@ -202,7 +202,7 @@ func (s *Store) capture(ctx context.Context, dir, q string, req CaptureRequest, 
 		if err != nil {
 			return Result{}, err
 		}
-		if p, err = s.pass(ctx, dir, q, req.Source, links, masks); err != nil {
+		if p, err = s.settledPass(ctx, dir, q, req.Source, links, masks); err != nil {
 			return Result{}, fmt.Errorf("checkpoint of %s: %w", req.Tile, err)
 		}
 	}
@@ -283,6 +283,38 @@ type scanned struct {
 	git  bool   // a .git entry (else a special file)
 	typ  byte   // find's %y: d, f, l, p, s, b, c
 	path string // tile-relative
+}
+
+// vanishRetries bounds how often run 1 runs again after files vanished
+// under git as it read the work tree. An editor saves by writing a
+// temporary file and renaming it over the real one; git lists a directory
+// before it stats and opens each entry, and meets the temporary file gone:
+// a fatal "unable to stat", or "open(…)" and "unable to index file" under
+// --ignore-errors. The work tree was being saved to, not unreadable, and
+// the next run sees it settled; after the last one the failure stands.
+const vanishRetries = 3
+
+// settledPass is pass, run again while files vanish under it.
+func (s *Store) settledPass(ctx context.Context, dir, q string, src Source, drop []string, masks []sandbox.Bind) (*pass, error) {
+	for i := 0; ; i++ {
+		p, err := s.pass(ctx, dir, q, src, drop, masks)
+		if i == vanishRetries || !vanished(p, err) || ctx.Err() != nil {
+			return p, err
+		}
+		time.Sleep(time.Duration(10*(i+1)) * time.Millisecond)
+	}
+}
+
+// vanished reports a run 1 that met a file deleted while git read the work
+// tree: git's ENOENT (strerror's capitalization, never Go's) in the add
+// stage's failure or in the errors --ignore-errors let it pass.
+func vanished(p *pass, err error) bool {
+	const enoent = "No such file or directory"
+	if err != nil {
+		code, ok := confine.ExitCode(err)
+		return ok && code == 92 && strings.Contains(err.Error(), enoent)
+	}
+	return p != nil && strings.Contains(p.addErr, enoent)
 }
 
 // pass runs run 1: drop is the gitlinks to re-add as files, masks cover
