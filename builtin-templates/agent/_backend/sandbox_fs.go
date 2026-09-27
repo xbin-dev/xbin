@@ -47,8 +47,9 @@ func sandboxFileSpecs() []toolSpec {
 			}),
 		}},
 		{Type: "function", Function: funcDef{
-			Name:        "write",
-			Description: "Create or replace a file in the coding sandbox — not a session file (file_write writes those). Missing directories are created.",
+			Name: "write",
+			Description: "Create or replace a file in the coding sandbox — not a session file (file_write writes those). Missing directories are created. " +
+				"A symlink at path is replaced by the file (read and edit follow symlinks; to write through one, write its target).",
 			Parameters: obj([]string{"path", "content"}, map[string]any{
 				"path":    strProp("the file: absolute, relative to the working directory, or ~/…"),
 				"content": strProp("the whole new content"),
@@ -148,9 +149,9 @@ func sbxRead(ctx context.Context, use *sbxUse, args map[string]any) (string, err
 	if err != nil {
 		return "", err
 	}
-	st, err := use.Conn.Stat(ctx, use.ID, p)
+	at, st, err := statFollow(ctx, use, p)
 	if err != nil {
-		return "", noPath(p, err)
+		return "", err
 	}
 	if st.Type == "dir" {
 		return "", fmt.Errorf("%s is a directory — ls lists it", p)
@@ -163,7 +164,7 @@ func sbxRead(ctx context.Context, use *sbxUse, args map[string]any) (string, err
 		limit = readLines
 	}
 	if st.Size <= readWhole {
-		data, _, err := use.Conn.ReadFile(ctx, use.ID, p, 0, 0, 2*readWhole)
+		data, _, err := use.Conn.ReadFile(ctx, use.ID, at, 0, 0, 2*readWhole)
 		if err != nil {
 			return "", err
 		}
@@ -178,14 +179,14 @@ func sbxRead(ctx context.Context, use *sbxUse, args map[string]any) (string, err
 		return numbered(lines[offset-1:end], offset, len(lines)), nil
 	}
 	// a large file: a ranged read says whether it is text, sed cuts the lines
-	head, _, err := use.Conn.ReadFile(ctx, use.ID, p, 0, 8192, 8192)
+	head, _, err := use.Conn.ReadFile(ctx, use.ID, at, 0, 8192, 8192)
 	if err != nil {
 		return "", err
 	}
 	if looksBinary(head) {
 		return binaryHint(p, st.Size), nil
 	}
-	res, err := use.Conn.Run(ctx, use.ID, sbxRunReq{Argv: []string{"sed", "-n", fmt.Sprintf("%d,%dp", offset, offset+limit-1), p},
+	res, err := use.Conn.Run(ctx, use.ID, sbxRunReq{Argv: []string{"sed", "-n", fmt.Sprintf("%d,%dp", offset, offset+limit-1), at},
 		TimeoutMs: runTimeout, MaxOutput: runOutMax})
 	if err != nil {
 		return "", err
@@ -222,6 +223,38 @@ func numbered(lines []string, first, total int) string {
 	return strings.TrimSuffix(b.String(), "\n")
 }
 
+// maxLinks bounds a chain of symlinks read and edit follow (the kernel's
+// ELOOP bound).
+const maxLinks = 40
+
+// statFollow stats p, following a final symlink — and the chain of them —
+// inside the sandbox: files/stat describes a link itself (lstat), so read and
+// edit resolve it here, each target against its link's directory. It is the
+// path the content is at, and its stat.
+func statFollow(ctx context.Context, use *sbxUse, p string) (string, *sbxStat, error) {
+	at := p
+	for hops := 0; ; hops++ {
+		st, err := use.Conn.Stat(ctx, use.ID, at)
+		switch {
+		case err != nil && at != p && sbxRefusal(err) == "not-found":
+			return "", nil, &sbxError{Refusal: "not-found", Msg: fmt.Sprintf("%s is a symlink to %s, which doesn't exist in the sandbox", p, at)}
+		case err != nil:
+			return "", nil, noPath(p, err)
+		case st.Type != "symlink":
+			return at, st, nil
+		case hops == maxLinks:
+			return "", nil, fmt.Errorf("%s: too many levels of symbolic links", p)
+		case st.Target == "":
+			return "", nil, fmt.Errorf("%s is a symlink whose target the sandbox doesn't say", at)
+		}
+		t := st.Target
+		if !strings.HasPrefix(t, "/") {
+			t = path.Join(path.Dir(at), t)
+		}
+		at = path.Clean(t)
+	}
+}
+
 // --- write, edit ---------------------------------------------------------------------
 
 func sbxWriteTool(ctx context.Context, use *sbxUse, args map[string]any) (string, error) {
@@ -250,9 +283,11 @@ func sbxEdit(ctx context.Context, use *sbxUse, args map[string]any) (string, err
 	}
 	all, _ := args["replace_all"].(bool)
 	for attempt := 0; ; attempt++ {
-		st, err := use.Conn.Stat(ctx, use.ID, p)
+		// a symlink is edited where it points: the link stays a link, and the
+		// write's precondition is the etag of the content that was read
+		at, st, err := statFollow(ctx, use, p)
 		if err != nil {
-			return "", noPath(p, err)
+			return "", err
 		}
 		switch {
 		case st.Type == "dir":
@@ -260,7 +295,7 @@ func sbxEdit(ctx context.Context, use *sbxUse, args map[string]any) (string, err
 		case st.Size > editMax:
 			return "", fmt.Errorf("%s is %s — too large to edit here; use bash (sed -i) or write", p, humanBytes(int(st.Size)))
 		}
-		data, etag, err := use.Conn.ReadFile(ctx, use.ID, p, 0, 0, editMax)
+		data, etag, err := use.Conn.ReadFile(ctx, use.ID, at, 0, 0, editMax)
 		if err != nil {
 			return "", err
 		}
@@ -272,7 +307,7 @@ func sbxEdit(ctx context.Context, use *sbxUse, args map[string]any) (string, err
 		if err != nil {
 			return "", err
 		}
-		_, err = use.Conn.WriteFile(ctx, use.ID, p, strings.NewReader(updated), sbxWrite{IfMatch: orStr(etag, st.ETag)})
+		_, err = use.Conn.WriteFile(ctx, use.ID, at, strings.NewReader(updated), sbxWrite{IfMatch: orStr(etag, st.ETag)})
 		if sbxRefusal(err) == "precondition" && attempt == 0 {
 			continue // it changed between the read and the write: once more, from the top
 		}
@@ -283,8 +318,11 @@ func sbxEdit(ctx context.Context, use *sbxUse, args map[string]any) (string, err
 		if all && n > 1 {
 			what = fmt.Sprintf("%d replacements", n)
 		}
-		at := strings.Index(content, oldS)
-		return fmt.Sprintf("edited %s (%s)\n%s", p, what, editSnippet(updated, at, newS)), nil
+		where := p
+		if at != p {
+			where = p + " → " + at
+		}
+		return fmt.Sprintf("edited %s (%s)\n%s", where, what, editSnippet(updated, strings.Index(content, oldS), newS)), nil
 	}
 }
 

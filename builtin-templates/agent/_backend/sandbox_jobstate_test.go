@@ -2,8 +2,8 @@ package main
 
 // Regression tests from the phase-1 review of the sandbox job engine and the
 // coding tools: which job a bash call is, jobs in a sandbox the conversation
-// no longer has, a start the manager never answered, and what sandbox_create
-// asks for and makes.
+// no longer has, a start the manager never answered, what sandbox_create asks
+// for and makes, and files behind a symlink.
 
 import (
 	"bytes"
@@ -13,6 +13,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -411,5 +413,59 @@ func TestSandboxCreateCwdOfAStartingSandbox(t *testing.T) {
 	c, _ := sbxDial("apps/cs", "")
 	if st, err := c.Stat(context.Background(), strings.SplitN(act.Ref, "|", 2)[1], act.Cwd); err != nil || st.Type != "dir" {
 		t.Fatalf("the cwd was not made: %v", err)
+	}
+}
+
+// read and edit follow a symlink to its file; write replaces the path given.
+func TestSandboxSymlinks(t *testing.T) {
+	ag := newTestAgent(t, newTestDB(t))
+	bindSbx(t, "apps/cs")
+	r, cfg, box := sbxRun(t, ag, "links", "none")
+	target := put(t, box, "target.txt", "hello world\n")
+	if err := os.Symlink("target.txt", filepath.Join(box.Workdir, "link.txt")); err != nil {
+		t.Fatal(err)
+	}
+	put(t, box, "logs/big.log", lines(40000, "entry number %06d"))
+	if err := os.Symlink("logs/big.log", filepath.Join(box.Workdir, "biglink")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("sub/../loop2", filepath.Join(box.Workdir, "loop1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("loop1", filepath.Join(box.Workdir, "loop2")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("nowhere.txt", filepath.Join(box.Workdir, "dangling")); err != nil {
+		t.Fatal(err)
+	}
+	out := mustTool(t, ag, r, cfg, "e", "edit", map[string]any{"path": "link.txt", "old_string": "hello", "new_string": "bye"})
+	if !strings.HasPrefix(out, "edited ") || !strings.Contains(out, "target.txt") {
+		t.Fatalf("edit through a link: %q", out)
+	}
+	if got, _ := os.ReadFile(target); string(got) != "bye world\n" {
+		t.Fatalf("the target: %q", got)
+	}
+	if fi, err := os.Lstat(filepath.Join(box.Workdir, "link.txt")); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the link is no longer a link: %v", err)
+	}
+	if out := mustTool(t, ag, r, cfg, "r", "read", map[string]any{"path": "biglink", "offset": 100, "limit": 3}); !strings.HasPrefix(out, "   100\tentry number 000100\n   101\t") {
+		t.Fatalf("a large file through a link: %q", out)
+	}
+	if out := mustTool(t, ag, r, cfg, "r", "read", map[string]any{"path": "link.txt"}); out != "     1\tbye world" {
+		t.Fatalf("read through a link: %q", out)
+	}
+	if _, err := tool(t, ag, r, cfg, "r", "read", map[string]any{"path": "loop1"}); err == nil || !strings.Contains(err.Error(), "symbolic links") {
+		t.Fatalf("a loop: %v", err)
+	}
+	if _, err := tool(t, ag, r, cfg, "r", "read", map[string]any{"path": "dangling"}); err == nil || !strings.Contains(err.Error(), "nowhere.txt") {
+		t.Fatalf("a dangling link: %v", err)
+	}
+	// write replaces what is at the path: the link becomes a file
+	mustTool(t, ag, r, cfg, "w", "write", map[string]any{"path": "link.txt", "content": "own\n"})
+	if fi, err := os.Lstat(filepath.Join(box.Workdir, "link.txt")); err != nil || fi.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("write kept the link: %v", err)
+	}
+	if got, _ := os.ReadFile(target); string(got) != "bye world\n" {
+		t.Fatalf("write went through the link: %q", got)
 	}
 }
