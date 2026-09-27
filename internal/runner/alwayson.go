@@ -8,8 +8,10 @@ package runner
 // rescan), skip it in the idle reaper, and after an exit restart it once a
 // backoff has passed — 1 s doubling to 5 min, back to 1 s after 10 healthy
 // minutes. The crash-loop breaker still wins: a backend that keeps dying
-// stays down until a save. Every start is event-driven (a one-shot timer
-// after an exit); nothing polls.
+// stays down until a save (a pinned one: until a deploy or restart). Every
+// start is event-driven (a one-shot timer after an exit); nothing polls.
+// The flag is the deployment's own code's (its view): a pinned primary's
+// checkpoint decides, never a work-tree edit.
 
 import (
 	"context"
@@ -35,16 +37,34 @@ type alwaysOn struct {
 	sem     chan struct{}
 }
 
+// isAlwaysOn: comp's primary stays up (the reaper's exemption).
 func (r *Runner) isAlwaysOn(comp string) bool {
 	c, ok := r.Reg.Component(comp)
-	return ok && c.Manifest.AlwaysOn
+	return ok && r.alwaysOnView(c, r.primary(comp)) != nil
+}
+
+// alwaysOnView is the deployment view of deployment dep of c when its own
+// code says "alwaysOn" (a pinned deployment's checkpoint manifest, the work
+// tree's while it follows it; 07-runtime §11), nil otherwise. A deployment
+// that can't start — no such name, a held record, a pinned backend without
+// isolation (C7) — isn't kept up either.
+func (r *Runner) alwaysOnView(c *registry.Component, dep string) *registry.Component {
+	code, err := r.codeFor(c.Path, dep)
+	if err != nil {
+		return nil
+	}
+	v, err := r.view(c, code)
+	if err != nil || !v.Manifest.AlwaysOn {
+		return nil
+	}
+	return v
 }
 
 // WakeAlwaysOn starts every alwaysOn backend that may run and isn't running.
 // Idempotent; call it whenever something may have made one runnable.
 func (r *Runner) WakeAlwaysOn() {
 	for _, c := range r.Reg.Components() {
-		if !c.Manifest.AlwaysOn || !c.HasBackend() {
+		if v := r.alwaysOnView(c, r.primary(c.Path)); v == nil || !v.HasBackend() {
 			continue
 		}
 		if r.ShouldRun != nil && !r.ShouldRun(c.Path) {
@@ -98,7 +118,7 @@ func nextBackoff(prev time.Duration, upFor time.Duration) time.Duration {
 // afterExit is the crash watch's hook: an alwaysOn backend that exited (not
 // replaced, not stopped, not crash-looping) comes back after its backoff.
 func (r *Runner) afterExit(c *registry.Component) {
-	if !c.Manifest.AlwaysOn {
+	if r.alwaysOnView(c, r.primary(c.Path)) == nil {
 		return
 	}
 	r.ao.mu.Lock()
@@ -123,7 +143,7 @@ func (r *Runner) afterExit(c *registry.Component) {
 		delete(r.ao.pending, c.Path)
 		r.ao.mu.Unlock()
 		cur, ok := r.Reg.Component(c.Path)
-		if !ok || !cur.Manifest.AlwaysOn || (r.ShouldRun != nil && !r.ShouldRun(c.Path)) {
+		if !ok || r.alwaysOnView(cur, r.primary(c.Path)) == nil || (r.ShouldRun != nil && !r.ShouldRun(c.Path)) {
 			return
 		}
 		s := r.state(c.Path)
