@@ -29,7 +29,8 @@ await ctx.addInitScript(STUB, seed);
 await ctx.addInitScript((t) => {
   window.__route('GET', /\/triggers\/3\/events$/, () => window.__json({ events: [
     { eventId: 'bus:a', topic: 'events/created', accepted: true, runId: 40, at: t / 1000 - 60 },
-    { eventId: 'bus:b', topic: 'events/moved', accepted: false, reason: 'rate', at: t / 1000 - 30 }] }));
+    { eventId: 'bus:b', topic: 'events/moved', accepted: false, reason: 'rate', at: t / 1000 - 30 },
+    { eventId: 'push:c', topic: 'events/pushed', accepted: false, reason: 'class-mixed', at: t / 1000 - 20 }] }));
   window.__route('GET', /\/triggers\/unmatched$/, () => window.__json({ items: [{ from: 'apps/webhooks', name: 'deploy', count: 2, at: t / 1000 }] }));
   window.__route('POST', /\/triggers\/3\/test$/, () => window.__json({ trigger: 'calendar changes', accepted: true, runId: 41 }));
   window.__route('POST', /\/triggers$/, (m, o) => window.__json({ id: 9, ...JSON.parse(o.body) }));
@@ -50,6 +51,7 @@ await page.waitForSelector('.autos-page .agoal');
 const detail = await page.textContent('.autos-page');
 ok('the detail names the grant it needs', detail.includes('{ "target": "res:apps/cal/bus", "role": "reader" }'), detail.slice(0, 300));
 ok('its events say why one didn\'t run', detail.includes('over its hourly cap') && detail.includes('ran #40'));
+ok('…public data into a mixed class, in words', detail.includes('can move internal data out') && !detail.includes('class-mixed'));
 ok('its detail says its class', (await page.textContent('.autos-page [data-cls]')) === '🔒 Internal');
 await page.click('.autos-page button:has-text("Test")');
 await page.waitForSelector('.autos-page .said');
