@@ -4177,7 +4177,12 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
   does it through a file operation, and a live terminal on `.rootfs`
   hung (fuse-overlayfs in `lgetxattr`) before the fix and answers after it.
   Left: `killtree.go`'s case (a request the server took, then it stopped)
-  no longer has a deterministic trigger in the tests.
+  no longer has a deterministic trigger in the tests. Now reachable, and
+  documented (docs/isolation.md, verifier): in a terminal, the Landlock
+  read guard grants what exists outside the workspace when the session
+  starts, so a file made in `/` mid-session reads back `EACCES` until the
+  next session. The fifo/socket setattr and directory setxattr fallbacks
+  (host paths) fail with ENOENT, as they did before the fix.
 - **The relay per sandbox** costs about 2.5 MiB on a 192-CPU host (its
   goroutine count follows `GOMAXPROCS`). Setting `ProcessorsPerChannel: 1`
   halves it (WP-10). Its flows are capped per sandbox and across sandboxes

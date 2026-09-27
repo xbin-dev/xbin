@@ -18,7 +18,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `/` hung the command, as with `echo hi > /x` in a terminal or a backend
   writing `/x`. From then on, anything else that touched the sandbox's
   files hung too. fuse-overlayfs now runs with a root of its own instead
-  of the one it serves. Nothing to change.
+  of the one it serves. Nothing to change. In a terminal, a file created
+  (or moved) directly into `/` during a session reads back as "Permission
+  denied" until the next session: the read guard only lets a session read
+  what already existed outside the workspace when it started
+  ([isolation](isolation.md)). Keep such files under `$HOME`, the tile's
+  dir or `/tmp`.
 - **Restores keep file permissions, and terminal layers are removed whole.**
   A restore (re-enabling an offloaded tile, `bx restore`) gives each file
   the permission bits it was archived with, so an executable — a script in
