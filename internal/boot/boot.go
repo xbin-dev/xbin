@@ -343,6 +343,7 @@ func (st *State) stepTerminals() error {
 	tm.Sandboxes = st.Sbx
 	tm.HasDeploymentRecord = st.Deployments.HasRecord   // the checkpoint fetch remote in sessions
 	tm.TileDeployments = st.Deployments.TileDeployments // a session's target deployment (P24)
+	wireDeploymentSessions(st.Deployments, tm)          // protect and reassignment move sessions (deploywire.go)
 	return nil
 }
 
@@ -458,7 +459,8 @@ func (st *State) stepBroker() error {
 	// sets; the broker knows ownership + sets, the term manager asks.
 	st.Term.TermNet = brk.TermNetFor
 	brk.ExternalURL = st.externalURL
-	brk.SweepNamespaces() // crashed data acts become partial, unclaimed namespaces orphaned (08-data §9.3)
+	brk.SweepNamespaces()               // crashed data acts become partial, unclaimed namespaces orphaned (08-data §9.3)
+	brk.LoadDeploymentBackupSchedules() // each deployment's own backup schedule (08-data §11.3)
 	st.Broker = brk
 	return nil
 }
