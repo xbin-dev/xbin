@@ -1,7 +1,9 @@
 /**
  * <bx-admin-sandboxes> — the admin console's runtime → sandboxes tab (D112):
  * every sandbox xbind runs — each backend generation, terminal and agent
- * session; later the sandboxes a tile manages itself, nested under it — with
+ * session; later the sandboxes a tile manages itself, nested under it —
+ * grouped by tile, and within a tile by deployment (main's rows first, then
+ * each other deployment's under its name), with
  * how it is isolated (⧉ VM, 🔒 namespace sandbox, or none on a host without
  * isolation), the host's health (isolation tier, guards, whether VMs can
  * start and what is missing), the VM budget in use per tile and the VM
@@ -23,6 +25,9 @@ const MODE_TITLE = {
   host: 'no sandbox: xbind runs without --isolate',
 };
 const KINDS = ['backend', 'terminal', 'agent', 'tile'];
+// what a shared stat measures; a tile that runs no other deployment keeps one title
+const scopeTitle = (s, split) => (s.scope === 'deployment' ? "this deployment's cgroup: every generation in it"
+  : s.scope !== 'tile' ? '' : split ? "main's cgroup: every generation in it" : "the tile's cgroup: every generation");
 const STAGE_TITLE = {
   refused: 'refused by policy: switched off, the VM budget or count, VMs unavailable here',
   start: "the sandbox or VM couldn't be set up or spawned",
@@ -48,8 +53,18 @@ const ago = (t) => fmtDur((Date.now() - Date.parse(t)) / 1000) + ' ago';
 // (tile, deployment): each deployment has its own current generation.
 const depOf = (e) => e.deployment ?? '';
 // Stats of a leaf every generation of one deployment shares: "tile" on main's
-// backends, "deployment" on another deployment's. Counted and shown once.
+// backends, "deployment" on another deployment's. Counted once per leaf (main's
+// next generation moves to its own leaf once the tile runs another deployment,
+// while the old one drains in the flat one), shown on that leaf's newest row.
 const shared = (s) => s.scope === 'tile' || s.scope === 'deployment';
+const statKey = (e) => (shared(e.stats) ? `${e.stats.scope}:${depOf(e)}:${e.leaf || ''}` : e.id);
+// A tile's rows, main's (and every sandbox bound to no deployment) first, then
+// each other deployment's in name order.
+const byDeployment = (es) => {
+  const m = new Map([['', []]]);
+  for (const e of es) (m.get(depOf(e)) || m.set(depOf(e), []).get(depOf(e))).push(e);
+  return [...m].sort(([a], [b]) => (a === b ? 0 : a === '' ? -1 : b === '' ? 1 : a < b ? -1 : 1));
+};
 
 export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
   static properties = {
@@ -201,7 +216,7 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
     const all = d.sandboxes || [];
     const kinds = KINDS.filter((k) => all.some((e) => e.kind === k));
     const rows = all.filter((e) => this._catActive(e.kind) && (!this._mode || e.mode === this._mode) &&
-      this._match(e.tile, e.user, e.id, e.name, e.label));
+      this._match(e.tile, e.user, e.id, e.name, e.label, e.deployment));
     const groups = new Map();
     for (const e of rows) (groups.get(e.tile) || groups.set(e.tile, []).get(e.tile)).push(e);
     return html`<h4>sandboxes <span class="muted" style="font-weight:400">(${all.length})</span></h4>
@@ -216,25 +231,35 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
   }
 
   _group(tile, es) {
-    // a deployment's backend generations share its cgroup leaf: count it once
-    const scopes = new Map();
+    // a deployment's backend generations share its cgroup leaf: count each
+    // leaf once, and show its stats on its newest generation
+    const leaves = new Map();
     let reserved = 0;
     for (const e of es) {
       reserved += e.memMiB || 0;
-      if (e.stats) scopes.set(shared(e.stats) ? `${e.stats.scope}:${depOf(e)}` : e.id, e.stats);
+      if (!e.stats) continue;
+      const k = statKey(e), had = leaves.get(k);
+      if (!had || (e.gen || 0) >= (had.gen || 0)) leaves.set(k, e);
     }
-    const mem = [...scopes.values()].reduce((n, s) => n + (s.mem || 0), 0);
+    const mem = [...leaves.values()].reduce((n, e) => n + (e.stats.mem || 0), 0);
+    const statsOn = new Set([...leaves.values()].map((e) => e.id));
     // each deployment's highest generation is its current one
     const gens = new Map();
     for (const e of es) if (e.kind === 'backend') gens.set(depOf(e), Math.max(gens.get(depOf(e)) || 0, e.gen || 0));
     const curGen = (e) => gens.get(depOf(e)) || 0;
-    // nest a sandbox under the entry it belongs to (parent); the rest at the top
+    // nest a sandbox under the entry it belongs to (parent); the rest at the
+    // top, main's first, then each other deployment's under its name
     const ids = new Set(es.map((e) => e.id));
     const kids = new Map();
     for (const e of es) if (e.parent && ids.has(e.parent)) (kids.get(e.parent) || kids.set(e.parent, []).get(e.parent)).push(e);
     const out = [];
-    const walk = (e, depth) => { out.push(this._row(e, depth, curGen)); for (const k of kids.get(e.id) || []) walk(k, depth + 1); };
-    for (const e of es) if (!e.parent || !ids.has(e.parent)) walk(e, 0);
+    const split = es.some((e) => depOf(e));
+    const at = { curGen, statsOn, split };
+    const walk = (e, depth) => { out.push(this._row(e, depth, at)); for (const k of kids.get(e.id) || []) walk(k, depth + 1); };
+    for (const [dep, top] of byDeployment(es.filter((e) => !e.parent || !ids.has(e.parent)))) {
+      if (dep) out.push(this._depHead(tile, dep, top));
+      for (const e of top) walk(e, 0);
+    }
     const owner = es.find((e) => e.owner)?.owner;
     return html`<tr class="sbx-tile" data-sbx-tile=${tile}><td colspan="9">
         <span class="mono">${tile}</span>${owner ? html` <span class="muted">· ${owner}</span>` : nothing}
@@ -242,20 +267,32 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
       </td></tr>${out}`;
   }
 
-  _row(e, depth, curGen) {
-    const s = e.stats, cur = e.gen === curGen(e);
-    // a backend's stats are its deployment's leaf (every generation): shown on the current one
-    const showStats = s && (!shared(s) || cur);
-    const kind = e.kind === 'backend' ? html`backend <span class="muted">g${e.gen}${cur ? '' : ' · draining'}</span>`
+  // a deployment beyond main: its name over its rows
+  _depHead(tile, dep, top) {
+    const gens = top.filter((e) => e.kind === 'backend').length;
+    return html`<tr class="sbx-dep" data-sbx-tile=${tile} data-sbx-deployment=${dep}><td colspan="9" style="padding-left:14px;font-size:11px">
+        <span class="muted">deployment</span> <span class="pill mono">${dep}</span>
+        <span class="muted"> · ${gens} generation${gens === 1 ? '' : 's'}${top.length > gens ? ` · ${top.length - gens} other` : ''}</span>
+      </td></tr>`;
+  }
+
+  // at: {curGen, statsOn: the rows that show a shared leaf's stats, split: the tile runs a deployment beyond main}
+  _row(e, depth, at) {
+    const s = e.stats, cur = e.gen === at.curGen(e), dep = depOf(e);
+    // a backend's stats are its deployment's leaf (every generation there): shown on the newest
+    const showStats = s && (!shared(s) || at.statsOn.has(e.id));
+    const named = dep || (at.split ? 'main' : '');
+    const kind = e.kind === 'backend' ? html`backend <span class="muted">${named ? `${named} · ` : ''}g${e.gen}${cur ? '' : ' · draining'}</span>`
       : e.kind === 'agent' ? html`agent <span class="muted">${e.label || ''}${e.name ? ' · ' + e.name : ''}${e.status ? ' · ' + e.status : ''}</span>`
       : html`${e.kind} <span class="muted">${e.name || ''}</span>`;
-    return html`<tr data-sbx-id=${e.id} data-sbx-kind=${e.kind} data-sbx-mode=${e.mode} data-depth=${depth}>
+    return html`<tr data-sbx-id=${e.id} data-sbx-kind=${e.kind} data-sbx-mode=${e.mode} data-depth=${depth}
+      data-sbx-deployment=${dep || nothing}>
       <td style="padding-left:${depth * 18}px">${depth ? html`<span class="muted">↳ </span>` : nothing}${kind}</td>
       <td><span class="sbx-mode ${e.mode}" title=${MODE_TITLE[e.mode] || ''}>${MODE[e.mode] || e.mode}</span>${e.accel === 'emulate' ? html` <span class="pill" title="QEMU's software emulation: no KVM here">emulated</span>` : nothing}${e.restricted ? html` <span class="pill" title="a restricted user's session: the D17d limits">limited</span>` : nothing}</td>
       <td class="mono">${e.user || '—'}</td>
       <td class="mono">${e.memMiB ? `${mib(e.memMiB)} · ${e.vcpus} vCPU` : '—'}</td>
       <td class="num">${showStats ? s.cpu.toFixed(1) + '%' : ''}</td>
-      <td class="num" title=${showStats && s.scope === 'tile' ? "the tile's cgroup: every generation" : ''}>${showStats ? fmtBytes(s.mem) : ''}</td>
+      <td class="num" title=${showStats ? scopeTitle(s, at.split) : ''}>${showStats ? fmtBytes(s.mem) : ''}</td>
       <td class="num">${showStats ? s.pids : ''}</td>
       <td class="mono">${fmtDur(e.uptimeSec)}</td>
       <td class="mono muted" title=${e.disk ? 'disk ' + e.disk : ''}>${e.pid || '—'}${e.leaf ? ' · ' + e.leaf : ''}${e.disk ? ' · 💾' : ''}</td>
@@ -290,7 +327,7 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
         ${fs.map((f, i) => html`<tr data-sbx-failure data-stage=${f.stage} style="cursor:pointer" @click=${() => toggle(i)}>
           <td class="mono">${ago(f.time)}${f.count > 1 ? html` <b title="the same failure, again">×${f.count}</b>` : nothing}</td>
           <td><span class="sbx-stage ${f.stage}" title=${STAGE_TITLE[f.stage] || ''}>${f.stage}</span></td>
-          <td class="mono">${f.tile}${f.user ? html` <span class="muted">· ${f.user}</span>` : nothing}</td>
+          <td class="mono">${f.tile}${f.deployment ? html` <span class="pill" data-sbx-failure-deployment=${f.deployment}>${f.deployment}</span>` : nothing}${f.user ? html` <span class="muted">· ${f.user}</span>` : nothing}</td>
           <td>${f.kind}</td>
           <td>${MODE[f.mode] || f.mode}</td>
           <td class="sbx-err">${this._openFail.has(i) || f.error.length <= 140 ? f.error : f.error.slice(0, 140) + '…'}</td>
