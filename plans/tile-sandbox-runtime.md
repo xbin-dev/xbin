@@ -1349,6 +1349,13 @@ next to its vforking `os.StartProcess`.
     host's lower and upper directories. That process is out of reach too,
     because its capabilities aren't a subset of an exec's
     (`cap_ptrace_access_check`).
+  - *Non-root sessions.* When the sandbox maps uid 1000 (range mode), the
+    attack probe also runs as uid 1000, then as root again. A spawn with
+    `UID`/`GID` calls setuid in Go's vfork child, which shares the agent's
+    memory. So the kernel resets the agent's dumpable to `fs.suid_dumpable`.
+    With 0 or 2 (the kernel's and systemd's defaults) the agent stays
+    closed. A host set to 1 would open it to root sessions: this is not
+    mitigated.
 
 ### WP-4 — The resident shim (Track A · M · after WP-0, WP-1, WP-2)
 

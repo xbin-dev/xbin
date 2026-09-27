@@ -43,9 +43,9 @@ func TestMain(m *testing.M) {
 // a clean environment and no inherited fds, strict cwd, stdio streams, a
 // group signal, a tty with a resize, file operations and tar that land in
 // the upper and stay in the sandbox; the agent survives every signal and
-// every attempt on it its execs can make; closing the factory empties the
-// pid namespace and frees the lock, even with fuse-overlayfs stopped by a
-// session.
+// every attempt on it its execs can make, as root or a mapped non-root uid;
+// closing the factory empties the pid namespace and frees the lock, even
+// with fuse-overlayfs stopped by a session.
 func TestNamespaceAgent(t *testing.T) {
 	if !sandbox.Available() {
 		t.Skip("unprivileged user namespaces unavailable")
@@ -439,42 +439,65 @@ func testNamespaceAgent(t *testing.T, bin, rootfs string) {
 
 	t.Run("the agent holds", func(t *testing.T) {
 		sb.t = t
-		var r struct {
-			Peers        []string          `json:"peers"`
-			Readlinked   []string          `json:"readlinked"`
-			Opened       []string          `json:"opened"`
-			Proc         []string          `json:"proc"`
-			PidfdGetfd   []string          `json:"pidfdGetfd"`
-			Ptraced      []string          `json:"ptraced"`
-			UnshareUser  string            `json:"unshareUser"`
-			UnshareMount string            `json:"unshareMount"`
-			Signals      map[string]string `json:"signals"`
-		}
-		out := sb.probe("attack")
-		if err := json.Unmarshal([]byte(out), &r); err != nil {
-			t.Fatalf("attack report: %v\n%s", err, out)
-		}
-		t.Logf("attack: %s", out)
-		if got := strings.Join(r.Peers, " "); !strings.HasPrefix(got, "1=bx") || sb.spec.FuseOverlay != "" && !strings.Contains(got, "=fuse-overlayfs") {
-			t.Errorf("the other processes an exec sees: %q", got)
-		}
-		for what, got := range map[string][]string{"readlink a descriptor": r.Readlinked, "open a descriptor": r.Opened,
-			"reach a root, cwd, environ or mem": r.Proc, "pidfd_getfd a descriptor": r.PidfdGetfd, "ptrace": r.Ptraced} {
-			if len(got) != 0 {
-				t.Errorf("an exec could %s of the agent or fuse-overlayfs: %q", what, got)
+		attack := func(ex proto.Exec) {
+			t.Helper()
+			var r struct {
+				Peers        []string          `json:"peers"`
+				Readlinked   []string          `json:"readlinked"`
+				Opened       []string          `json:"opened"`
+				Proc         []string          `json:"proc"`
+				PidfdGetfd   []string          `json:"pidfdGetfd"`
+				Ptraced      []string          `json:"ptraced"`
+				UnshareUser  string            `json:"unshareUser"`
+				UnshareMount string            `json:"unshareMount"`
+				Signals      map[string]string `json:"signals"`
+			}
+			who := "root"
+			if ex.UID != nil {
+				who = "uid " + strconv.Itoa(int(*ex.UID))
+			}
+			ex.Argv = []string{"/probe", "attack"}
+			out, m := sb.run(ex)
+			if m.Op != "exited" || m.Code != 0 {
+				t.Fatalf("attack as %s: %+v\n%s", who, m, out)
+			}
+			if err := json.Unmarshal([]byte(out), &r); err != nil {
+				t.Fatalf("attack report: %v\n%s", err, out)
+			}
+			t.Logf("attack as %s: %s", who, out)
+			if got := strings.Join(r.Peers, " "); !strings.HasPrefix(got, "1=bx") || sb.spec.FuseOverlay != "" && !strings.Contains(got, "=fuse-overlayfs") {
+				t.Errorf("the other processes an exec sees: %q", got)
+			}
+			for what, got := range map[string][]string{"readlink a descriptor": r.Readlinked, "open a descriptor": r.Opened,
+				"reach a root, cwd, environ or mem": r.Proc, "pidfd_getfd a descriptor": r.PidfdGetfd, "ptrace": r.Ptraced} {
+				if len(got) != 0 {
+					t.Errorf("an exec as %s could %s of the agent or fuse-overlayfs: %q", who, what, got)
+				}
+			}
+			for what, got := range map[string]string{"a user namespace": r.UnshareUser, "a mount namespace": r.UnshareMount} {
+				if got == "ok" {
+					t.Errorf("an exec as %s made %s", who, what)
+				}
+			}
+			if len(r.Signals) < 10 {
+				t.Errorf("signals sent: %v", r.Signals)
+			}
+			// still here: a new exec runs
+			if out := sb.probe("echo", "still", "here"); out != "still here\n" {
+				t.Errorf("after the attack: %q", out)
 			}
 		}
-		for what, got := range map[string]string{"a user namespace": r.UnshareUser, "a mount namespace": r.UnshareMount} {
-			if got == "ok" {
-				t.Errorf("an exec made %s", what)
-			}
-		}
-		if len(r.Signals) < 10 {
-			t.Errorf("signals sent: %v", r.Signals)
-		}
-		// still here: a new exec runs
-		if out := sb.probe("echo", "still", "here"); out != "still here\n" {
-			t.Errorf("after the attack: %q", out)
+		attack(proto.Exec{})
+		// A session as a mapped non-root user reaches nothing either. Its
+		// setuid runs in a vfork child that shares the agent's memory, which
+		// resets the agent's dumpable to fs.suid_dumpable: a root session
+		// after it must still find the agent closed.
+		if uid := uint32(1000); idMapped(filepath.Join("/proc", strconv.Itoa(sb.cmd.Process.Pid), "uid_map"), uid) &&
+			idMapped(filepath.Join("/proc", strconv.Itoa(sb.cmd.Process.Pid), "gid_map"), uid) {
+			attack(proto.Exec{UID: &uid, GID: &uid})
+			attack(proto.Exec{})
+		} else {
+			t.Log("uid 1000 isn't mapped (a single-id sandbox): no non-root session")
 		}
 		if rootfs != "" {
 			out, _ := sb.run(proto.Exec{Argv: []string{"sh", "-c", "unshare -U true; echo rc=$?"}})
