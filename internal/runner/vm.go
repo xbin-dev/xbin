@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path"
 	"strings"
 	"sync"
@@ -39,7 +40,8 @@ type vmState struct {
 	res map[string]vmRes // by the generation's listen socket
 }
 
-// wantsVM reports whether c's backend runs in a VM here.
+// wantsVM reports whether c's backend runs in a VM here. Given a deployment
+// view, its own code's "vm" decides.
 func (r *Runner) wantsVM(c *registry.Component) bool {
 	return r.Isolate && c.Manifest.VM.Enabled() && sandboxable(c.Manifest.Runtime)
 }
@@ -124,12 +126,24 @@ func (r *Runner) vmRelease(sock string) {
 // stopFirst reports whether c's old generation must stop before the new one
 // starts: a VM backend with file-backed resources (sqlite, filesystem) sees
 // them through the VM file server, where two guests' caches — a WAL's shared memory above all —
-// are not coherent with each other.
+// are not coherent with each other. c is the deployment view the new
+// generation spawns from, so its own code decides "vm", and its deployment's
+// env the resources.
 func (r *Runner) stopFirst(c *registry.Component) bool {
-	if !r.wantsVM(c) || r.EnvForComponent == nil {
+	if !r.wantsVM(c) {
 		return false
 	}
-	return len(resourceBinds(r.EnvForComponent(c), r.Root)) > 0
+	env, _ := r.envFor(c, r.viewDeployment(c))
+	return len(resourceBinds(env, r.Root)) > 0
+}
+
+// viewDeployment names the deployment a view describes: its Deployment, or
+// the primary's for the registry's own component and the primary's views.
+func (r *Runner) viewDeployment(c *registry.Component) string {
+	if c.Deployment != "" {
+		return c.Deployment
+	}
+	return r.primary(c.Path)
 }
 
 // hostname names a VM after its tile: lowercase letters, digits, dashes.
@@ -151,4 +165,51 @@ func hostname(comp string) string {
 		h = h[:63]
 	}
 	return h
+}
+
+// restorePrevious restarts the checkpoint a deployment ran before a deploy
+// that stopped it first (a VM with file resources) and then failed, from its
+// kept artifact: "keeps running its previous code" holds as "restarts its
+// previous code" (§8.4). A generation of the work tree has no checkpoint to
+// go back to: the deployment stays down with the error until a deploy
+// succeeds.
+func (r *Runner) restorePrevious(c *registry.Component, s *state, dep string, old *instance) {
+	if old.code.Tree == "" {
+		return
+	}
+	r.emit(c.Path, dep, "build-start", "")
+	code := old.served()
+	view, err := r.view(c, code)
+	if err == nil && view.CodeRoot == "" {
+		v := *view // views are shared: never written
+		v.CodeRoot = old.root
+		view = &v
+	}
+	bin := old.artifact
+	if err == nil && bin == "" {
+		bin, err = r.buildGen(view)
+	}
+	var inst *instance
+	if err == nil {
+		s.mu.Lock()
+		s.gen++
+		gen := s.gen
+		s.mu.Unlock()
+		inst, err = r.spawn(view, bin, gen)
+	}
+	if err != nil {
+		err = fmt.Errorf("restarting its previous checkpoint %s failed too: %w", codeName(code), err)
+		s.mu.Lock()
+		s.lastErr = err
+		s.mu.Unlock()
+		r.emit(c.Path, dep, "build-error", err.Error())
+		return
+	}
+	inst.code, inst.root, inst.artifact = code, old.root, bin
+	s.mu.Lock()
+	s.cur = inst
+	s.lastReq = r.now()
+	s.mu.Unlock()
+	r.watchGen(c, s, dep, inst)
+	r.emit(c.Path, dep, "build-ok", "")
 }
