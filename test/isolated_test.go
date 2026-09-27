@@ -345,9 +345,16 @@ func TestIsolatedProbeSmoke(t *testing.T) {
 		}
 	}
 
+	// A generation that answered /v may still be replacing an earlier one
+	// (a rescan or grant restart right after the first start), and the old
+	// one is listed until it drains: wait for the list to settle on one.
 	var sbs struct{ Sandboxes []struct{ Kind, Mode string } }
-	if decode(must200("GET", "/api/xbin/sandboxes?tile="+tile, ""), &sbs); len(sbs.Sandboxes) != 1 ||
-		sbs.Sandboxes[0].Kind != "backend" || sbs.Sandboxes[0].Mode != "namespace" {
+	waitFor(func() bool {
+		sbs.Sandboxes = nil
+		decode(must200("GET", "/api/xbin/sandboxes?tile="+tile, ""), &sbs)
+		return len(sbs.Sandboxes) == 1
+	}, 30*time.Second)
+	if len(sbs.Sandboxes) != 1 || sbs.Sandboxes[0].Kind != "backend" || sbs.Sandboxes[0].Mode != "namespace" {
 		t.Fatalf("the probe doesn't run in a namespace sandbox: %+v", sbs)
 	}
 	if b := must200("GET", api+"/file", ""); b != "m1" {
