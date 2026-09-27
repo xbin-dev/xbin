@@ -348,7 +348,10 @@ paint();
 - **Keep it cheap.** The app may run your runtime just for the card while
   the tile is closed, and stop it when the card scrolls away; it shows the
   last widget it received meanwhile. Render the widget from state you
-  already have, at once.
+  already have, at once: a tile that has sent no widget a few seconds
+  after its first render is taken to have none — its card is the standard
+  one, and the app doesn't start the tile just for its card again for a
+  day (opening the tile looks again).
 
 Check it without a phone: `bx native tree <tile> --widget [--size wide]`,
 `bx preview --native <tile> --widget [--size wide]` (a picture of the card),
