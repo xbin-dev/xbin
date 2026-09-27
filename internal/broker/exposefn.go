@@ -137,7 +137,7 @@ func (b *Broker) exposeRouteConflict(comp, slot string, br registry.BindRef) err
 		}
 	}
 	if br.Host != "" {
-		for other, hosts := range ws.IngressHosts {
+		for other, hosts := range b.activeHostMap(ws.IngressHosts) { // each tile's primary's hosts (WP-50)
 			if other == comp {
 				continue
 			}
