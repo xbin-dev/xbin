@@ -222,9 +222,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   (409 `state` on start). The admin's `GET /sandboxes` lists running tile
   sandboxes as `kind: "tile"` rows with `name`, `for` and `forUser`, and
   `health.tileSandboxes` reports the relays' shared connection budget and
-  why the sandboxes run without cgroup limits, if they do. VM mode,
-  commands, files and snapshots still answer as before. Nothing changes for
-  a workspace without a manager tile.
+  why the sandboxes run without cgroup limits, if they do. Commands, files
+  and snapshots still answer as before. Nothing changes for a workspace
+  without a manager tile.
 - **Tile sandboxes: quotas, the idle stop, reset and rebase** (D120,
   [protocol.md](protocol.md) §Tile sandboxes). A start is booked against
   the sandboxes policy — the tile's `perTile.running`, `perTile.memMiB`,
@@ -277,6 +277,24 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   for its removal) and `total.pids`, and `tileSandboxes` rows gain `uid` and
   `stateDetail`. A backup of a tile without sandboxes is byte for byte what
   it was, and nothing changes for a workspace without a manager tile.
+- **Tile sandboxes run in VMs** (D120, [protocol.md](protocol.md) §Tile
+  sandboxes, [isolation.md](isolation.md) §VM sandboxes). A sandbox
+  created with `mode: "vm"` now starts: a microVM with its own kernel,
+  booted from the same base image, its state on its own sparse disk
+  (`diskGiB`; a `PATCH` that grows it applies at the next start), its
+  mounts served into the guest and its network through the same relay as
+  a namespace sandbox's. VM mode is offered while the VM policy's `tiles`
+  is on and, where VMs run emulated (`accel: "emulate"`), `tilesEmulated`
+  too; otherwise `runtime.unavailable` says why and a start answers 503
+  with the reason. Each VM counts against the workspace's VM count and
+  budget and against `tilesBudgetMiB` (429 `limit` past either). Where
+  cgroups are delegated it gets its memory plus the VMM's (192 MiB, 512
+  emulated), 512 processes and one CPU more than its `vcpus`. A stop
+  flushes the guest's disks before the VM goes. A VM whose VMM dies ends
+  `stopped` with "the VM exited: " and the last lines of its console in
+  `stateDetail`. `PUT /vm/policy` turning `tiles` off stops the running VM
+  sandboxes, and turning `tilesEmulated` off stops the emulated ones; their
+  state is kept. Nothing changes for a workspace without a manager tile.
 - **Go SDK: tile sandboxes** ([sdk.md](sdk.md) §Tile sandboxes).
   `xbin.SandboxAPI()` has a call for each of a manager tile's
   `/api/xbin/sandboxes/…` routes: definitions and lifecycle, `Run`, execs

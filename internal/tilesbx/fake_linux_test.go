@@ -32,6 +32,9 @@ type fakeLauncher struct {
 	procs []*fakeProc
 	fail  error                    // Start fails with this
 	mod   func(*agentcore.Options) // tweaks the next Core
+	// onSignal is how its processes take a signal other than SIGKILL (nil:
+	// they ignore it) — a VM's shim exits 129 on SIGHUP.
+	onSignal func(p *fakeProc, s os.Signal)
 }
 
 func (f *fakeLauncher) Start(spec *sandbox.Spec, o LaunchOpts) (Proc, error) {
@@ -47,7 +50,7 @@ func (f *fakeLauncher) Start(spec *sandbox.Spec, o LaunchOpts) (Proc, error) {
 		}
 		return os.NewFile(uintptr(fd), fl.Name())
 	}
-	p := &fakeProc{spec: spec, log: o.Log, agent: dup(spec.Agent), lock: dup(spec.Lock), tunFD: -1,
+	p := &fakeProc{spec: spec, log: o.Log, agent: dup(spec.Agent), lock: dup(spec.Lock), tunFD: -1, onSignal: f.onSignal,
 		exit: make(chan ExitStatus, 1), dead: make(chan struct{}), pid: 100000 + len(f.procs)}
 	opts := agentcore.Options{Spawn: agentcore.ProcSpawner(), Root: f.t.TempDir(), StreamWait: 3 * time.Second}
 	if f.mod != nil {
@@ -84,11 +87,13 @@ type fakeProc struct {
 	lock  *os.File // its copy of the lock: the flock lives while it is open
 	pid   int
 
-	mu      sync.Mutex
-	tunFD   int      // what RecvTUN handed out
-	tunPeer *os.File // the sandbox's side of the TUN
-	started bool
-	cleaned bool
+	mu       sync.Mutex
+	tunFD    int      // what RecvTUN handed out
+	tunPeer  *os.File // the sandbox's side of the TUN
+	started  bool
+	cleaned  bool
+	signals  []os.Signal // what it was sent besides SIGKILL
+	onSignal func(p *fakeProc, s os.Signal)
 
 	once sync.Once
 	exit chan ExitStatus
@@ -139,6 +144,13 @@ func (p *fakeProc) Kill() error {
 func (p *fakeProc) Signal(s os.Signal) error {
 	if s == syscall.SIGKILL {
 		return p.Kill()
+	}
+	p.mu.Lock()
+	p.signals = append(p.signals, s)
+	h := p.onSignal
+	p.mu.Unlock()
+	if h != nil {
+		h(p, s)
 	}
 	return nil
 }

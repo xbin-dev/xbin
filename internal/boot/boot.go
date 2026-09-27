@@ -71,6 +71,7 @@ type State struct {
 	streams          *ingressPkg.Streams
 	forwards         *ingressPkg.Forwards
 	reconcileIngress func()
+	onVMPolicy       func(old, cur vm.Policy) // a VM policy change, for the tile-sandbox runtime (stepTileSandboxes)
 	watcher          *watch.Watcher
 	priv             Privileges
 	rootfs           string // --isolate's rootfs, absolute (stepConfine)

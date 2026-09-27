@@ -528,8 +528,12 @@ and defines and drives them through `/api/xbin/sandboxes/…`
 
 - **Two modes, the manager's choice per sandbox.** `namespace` is the
   terminals' restricted sandbox: `apt` works, nested containers don't.
-  `vm` is a microVM with its own kernel, where docker works. A VM that
-  can't start never falls back to a namespace.
+  `vm` is a microVM with its own kernel, where docker works, its state on
+  its own sparse disk (`diskGiB`). It runs while the VM policy's `tiles`
+  is on (and, where VMs are emulated, `tilesEmulated`; §VM sandboxes), and
+  its VM counts against the VM budget and `tilesBudgetMiB`. A VM that
+  can't start never falls back to a namespace; one whose VMM dies ends
+  with the tail of its console in `stateDetail`.
 - **No xbin identity inside.** A tile sandbox gets no token, no gateway
   socket and no route to xbind; `XBIN_*` variables are refused in its
   definition. Its network is `none` unless the manager gives it one of its
@@ -550,9 +554,11 @@ and defines and drives them through `/api/xbin/sandboxes/…`
   cgroup (its memory + 128 MiB, no swap; its pids; its vCPUs as a hard
   cap) inside one cgroup for every tile sandbox, capped by the policy's
   `total`; its relay caps its connections, and all the relays share one
-  budget, so no sandbox spends xbind's descriptors. Its state is written
-  only by the sandbox and measured and removed only by a confined tool,
-  never walked by xbind. xbind's death ends every tile sandbox; each ends
+  budget, so no sandbox spends xbind's descriptors. A VM sandbox's cgroup
+  holds its guest memory plus the VMM's (192 MiB, 512 emulated), 512
+  processes and one CPU more than its `vcpus`. Its state is written only by
+  the sandbox and measured and removed only by a confined tool, never
+  walked by xbind. xbind's death ends every tile sandbox; each ends
   `stopped`, with why in `stateDetail`.
 - **They follow the workspace.** A running tile sandbox is stopped, state
   kept, when its manager tile is disabled, offloaded or removed, loses

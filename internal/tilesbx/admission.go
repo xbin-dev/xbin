@@ -72,7 +72,11 @@ func (m *Manager) admit(k Key, d *Def) (func(), error) {
 	}
 	leafMiB := d.MemMiB
 	if ops != nil && ops.leaf != nil {
-		if mx := ops.leaf(d, lim).MemMax; mx > 0 {
+		accel := "" // a VM's as it would run now (vm.Apply decides; the gate just asked)
+		if d.Mode == ModeVM {
+			accel, _ = m.vmMode()
+		}
+		if mx := ops.leaf(d, lim, accel).MemMax; mx > 0 {
 			leafMiB = int(mx >> 20) // what its leaf may take: the sandbox and its overhead
 		}
 	}

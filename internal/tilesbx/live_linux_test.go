@@ -42,12 +42,17 @@ import (
 	"github.com/xbin-dev/xbin/internal/sbx"
 )
 
-// TestMain doubles as the sandbox's re-exec init.
+// TestMain doubles as the sandbox's re-exec init; the binaries the live
+// tests built go with the run.
 func TestMain(m *testing.M) {
 	if len(os.Args) > 2 && os.Args[1] == sandbox.InitArg {
 		sandbox.RunInit(os.Args[2]) // never returns
 	}
-	os.Exit(m.Run())
+	code := m.Run()
+	if liveBin != "" {
+		_ = os.RemoveAll(liveBin) // this run's own temp dir: bx, the probe, the guest agent
+	}
+	os.Exit(code)
 }
 
 var (
@@ -145,7 +150,7 @@ type liveEnv struct {
 	bookMu    sync.Mutex
 }
 
-func newLiveEnv(t *testing.T, bin, rootfs string) *liveEnv {
+func newLiveEnv(t *testing.T, bin, rootfs string, mut ...func(*Options)) *liveEnv {
 	t.Helper()
 	root := t.TempDir()
 	tile := filepath.Join(root, "apps", "mgr")
@@ -178,6 +183,9 @@ func newLiveEnv(t *testing.T, bin, rootfs string) *liveEnv {
 			"apps/mgr res:apps/mgr/ro":   {Src: le.ro, Role: "reader", Kind: "filesystem", Ready: true},
 		}
 		o.Deps.Sbx, o.Deps.Cgroup = le.sbx, liveCgroup
+		for _, f := range mut {
+			f(o)
+		}
 	})
 	admit := le.m.reserve // the real admission, counted
 	le.m.reserve = func(k Key, d *Def) (func(), error) {

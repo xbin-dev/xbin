@@ -515,8 +515,11 @@ PUT    /vm/policy                  admin. body: any of {terminals,backends,
                                    also count against tilesBudgetMiB (0 =
                                    half the budget; at most budgetMiB);
                                    tilesEmulated also allows it where VMs run
-                                   emulated. Turning either off stops running
-                                   tile VM sandboxes (state kept). 400 on
+                                   emulated. Turning tiles off stops the
+                                   running tile VM sandboxes, and
+                                   tilesEmulated off those running emulated
+                                   (state kept; a start answers 503 with the
+                                   reason until it is back on). 400 on
                                    unknown fields or out-of-range sizes, 409
                                    without --isolate
 GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
@@ -2269,7 +2272,7 @@ sandboxes).
   says `isolation: false`.
 - **In this xbind** the definition routes work — runtime, policy, list,
   create, get, patch, delete — and so do start, stop, reset and rebase,
-  for namespace mode (VM mode is unavailable). The command, terminal,
+  in both modes. The command, terminal,
   file, tar and snapshot routes are registered and answer 501
   `unsupported`; `runtime.caps` lists the contract capabilities served
   (none yet).
@@ -2435,6 +2438,20 @@ running sandbox has its own cgroup — `memory.max` its `memMiB` + 128 MiB
 the policy's `total`; its commands are what the OOM killer takes first, so
 a command over the memory cap is killed and the sandbox runs on.
 
+In **VM mode** the sandbox is a microVM with its own kernel, where it is
+root (docker works), booted from the same base image. `runtime.modes`
+offers it while the VM policy's `tiles` switch is on (`GET /vm`) and,
+where VMs run emulated (`accel: "emulate"`, several times slower), its
+`tilesEmulated` too; `runtime.unavailable` says why not. Its state is its
+own disk (sparse, `diskGiB`; a `PATCH` that grows it applies at the next
+start), its mounts are served into the guest at the same places, and its
+network goes through the same relay. Its VM counts against the
+workspace's VM count and memory budget and against `tilesBudgetMiB`: a
+start past any of them is 429 `limit`. Where cgroups are delegated its
+cgroup holds its `memMiB` plus what the VMM needs (192 MiB, 512 emulated),
+512 processes and `vcpus` + 1 CPUs. A stop flushes the guest's disks
+before the VM goes.
+
 A start answers the sandbox as it stands: `running`, or `stopped` with
 the failure in `stateDetail` (the sandbox's own start-up error, quoted). It
 is refused 409 `state` when the sandbox is in `error` — its state went
@@ -2443,15 +2460,16 @@ by the other overlay flavour (`stateDetail` says which; a reset repairs
 it, and a rebase repairs a missing base) — or while an earlier run's
 processes still hold its state (a start waits up to 5 s for them first);
 503 `unavailable` while the sandboxes policy is off or its file can't be
-read, the workspace disk is low, or the vault is sealed (a resource
-mount); 400 `invalid` when a mount or the egress class is no longer the
-tile's to use. A start of a running sandbox changes nothing.
+read, the workspace disk is low, the vault is sealed (a resource mount) or
+VM mode is unavailable (a VM sandbox: the reason said); 400 `invalid` when
+a mount or the egress class is no longer the tile's to use. A start of a running sandbox changes nothing.
 
 **Admission.** Every start is booked against the tile's quotas — with it,
 at most `perTile.running` sandboxes running, their `memMiB` summed within
 `perTile.memMiB` and their `vcpus` within `perTile.vcpus` — and against the
-workspace's `total.memMiB` (each running sandbox counts its `memMiB` +
-128 MiB, what its cgroup may take); over any of them is 429 `limit`,
+workspace's `total.memMiB` (each running sandbox counts what its cgroup
+may take: its `memMiB` + 128 MiB, a VM's `memMiB` + its VMM's 192 MiB, 512
+emulated); over any of them is 429 `limit`,
 naming the cap. So is a tile whose sandboxes' bytes on disk, snapshots
 included, pass `perTile.diskGiB`; those bytes never count against the
 tile's resource-write quota. The booking is atomic: ten starts at once
@@ -2501,7 +2519,10 @@ However a run ends, the sandbox is `stopped` and `stateDetail` says why:
 sandbox's agent exited (code N)" or "(killed by SIGKILL)"; "the sandbox's
 root filesystem (fuse-overlayfs) died"; "out of memory: N processes were
 killed"; "the sandbox's agent stopped answering (its control connection
-closed)"; "its network (class:<slot>) narrowed…" when the class's new
+closed)"; "the VM exited: <the last lines of its console>" (a VM whose
+VMM died); "an admin switched VM tile sandboxes off (vm policy:
+tiles)…" (or `tilesEmulated`, for one running emulated); "its network
+(class:<slot>) narrowed…" when the class's new
 rules don't cover the running ones (a class that widens shows in
 `egressNext` and applies at the next start, `restartNeeded`). A stop's
 `stateDetail` is kept until the next start. xbind stops its tile sandboxes,

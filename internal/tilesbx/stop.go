@@ -95,8 +95,14 @@ func (m *Manager) running(pred func(Key, *Def) bool) []*run {
 // its key and definition as launched), and returns once they all ended.
 // Each stop is idempotent; why is the stateDetail they are left with.
 func (m *Manager) StopWhere(pred func(Key, *Def) bool, why string) {
+	m.stopRuns(m.running(pred), why)
+}
+
+// stopRuns stops the sandboxes of runs in parallel, and returns once they
+// all ended.
+func (m *Manager) stopRuns(runs []*run, why string) {
 	var wg sync.WaitGroup
-	for _, r := range m.running(pred) {
+	for _, r := range runs {
 		wg.Add(1)
 		go func(r *run) {
 			defer wg.Done()

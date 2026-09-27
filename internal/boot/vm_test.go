@@ -107,3 +107,35 @@ func TestVMPolicyPutMerges(t *testing.T) {
 		t.Fatalf("no isolation: %d", w.Code)
 	}
 }
+
+// PUT /vm/policy is the one place the VM policy changes, so it hands the
+// tile-sandbox runtime the stored policy it replaced and the new one: tiles
+// or tilesEmulated switched off stops the VM sandboxes they allowed
+// (tilesbx.OnVMPolicy, wired by stepTileSandboxes). A refused body tells it
+// nothing.
+func TestVMPolicyPutTellsTheTileSandboxes(t *testing.T) {
+	quiet(t)
+	st := &State{VM: &vm.Manager{Root: t.TempDir()}}
+	type change struct{ old, cur vm.Policy }
+	var got []change
+	st.onVMPolicy = func(old, cur vm.Policy) { got = append(got, change{old, cur}) }
+	owner := auth.Principal{Owner: true}
+	put := func(body string) int {
+		t.Helper()
+		r := httptest.NewRequest("PUT", "/api/xbin/vm/policy", strings.NewReader(body))
+		r = r.WithContext(auth.WithPrincipal(r.Context(), owner))
+		w := httptest.NewRecorder()
+		st.putVMPolicy(w, r)
+		return w.Code
+	}
+	if put(`{"tiles":true,"tilesEmulated":true}`) != 200 || put(`{"tiles":false}`) != 200 || put(`{"tiles":true,"nope":1}`) != 400 {
+		t.Fatal("PUTs")
+	}
+	want := []change{
+		{vm.Policy{}, vm.Policy{Tiles: true, TilesEmulated: true}},
+		{vm.Policy{Tiles: true, TilesEmulated: true}, vm.Policy{TilesEmulated: true}},
+	}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("the runtime was told %+v, want %+v", got, want)
+	}
+}

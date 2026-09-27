@@ -57,7 +57,10 @@ var vmPolicyMu sync.Mutex
 
 // putVMPolicy decodes the body onto the stored policy: a field the body
 // leaves out keeps its value, so an admin console from before a field
-// existed (tiles, tilesBudgetMiB, tilesEmulated) can't zero it (D120).
+// existed (tiles, tilesBudgetMiB, tilesEmulated) can't zero it (D120). It
+// is the one place the VM policy changes, so it tells the tile-sandbox
+// runtime what changed (onVMPolicy): tiles, or tilesEmulated while VMs are
+// emulated, switched off stops the VM sandboxes it no longer allows.
 func (st *State) putVMPolicy(w http.ResponseWriter, r *http.Request) {
 	if !st.Broker.IsAdmin(auth.PrincipalOf(r)) {
 		http.Error(w, "admin only", http.StatusForbidden)
@@ -69,7 +72,8 @@ func (st *State) putVMPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	vmPolicyMu.Lock()
 	defer vmPolicyMu.Unlock()
-	p := st.VM.StoredPolicy()
+	old := st.VM.StoredPolicy()
+	p := old
 	if err := server.DecodeJSON(r, &p); err != nil {
 		http.Error(w, "bad policy: "+err.Error(), http.StatusBadRequest)
 		return
@@ -77,6 +81,9 @@ func (st *State) putVMPolicy(w http.ResponseWriter, r *http.Request) {
 	if err := st.VM.SetPolicy(p); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	if st.onVMPolicy != nil {
+		st.onVMPolicy(old, p) // returns at once; the stops run on
 	}
 	slog.Info("VM sandbox policy changed", "terminals", p.Terminals, "backends", p.Backends, "tiles", p.Tiles, "tilesEmulated", p.TilesEmulated)
 	server.WriteJSON(w, http.StatusOK, map[string]any{"status": st.VM.Status(), "policy": st.VM.Policy(), "stored": p})

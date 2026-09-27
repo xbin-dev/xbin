@@ -138,7 +138,7 @@ func TestAdmissionRefusalUnderLock(t *testing.T) {
 func TestAdmissionPerMode(t *testing.T) {
 	fe := newFakeEnv(t)
 	vm := *nsOps
-	vm.leaf = func(d *Def, lim Limits) cgroup.Limits {
+	vm.leaf = func(d *Def, lim Limits, _ string) cgroup.Limits {
 		l := leafLimits(d, lim)
 		l.MemMax = int64(d.MemMiB+512) << 20
 		return l
