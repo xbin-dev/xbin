@@ -259,8 +259,11 @@ func main() {
 	if c, _ := pub("site.test", "/"); c != 200 {
 		t.Fatalf("the remaining hostname stopped: %d", c)
 	}
-	if err := echoVia(echoAddr); err != nil {
-		t.Fatalf("the remaining host port stopped: %v", err)
+	// Removing the bindings restarts the backend (a new generation): a
+	// connection made during the swap can land on the old one as it goes
+	// (raw TCP isn't drained), so give the remaining port the swap's time.
+	if !waitFor(func() bool { return echoVia(echoAddr) == nil }, 10*time.Second) {
+		t.Fatalf("the remaining host port stopped: %v", echoVia(echoAddr))
 	}
 
 	// Unpublish both: the host 404s and the port closes.
