@@ -2674,6 +2674,58 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
   mode (this box has a sub-uid range now) where a layer holding a file
   `chown`ed to sub-uid 1000 is fully removed by `ResetEnv`; offload-full
   with a live session kills it first; a restored `0755` file is `0755`.
+- **Landed (branch `p2/wp9b`) — notes and deviations:**
+  - **One remover per side:** `Broker.removeTree` and `term.Manager.removeLayer`
+    call `confine.RemoveAll` (a direct `find -delete` without isolation, as
+    before in effect); an unexported `rmTree` field stands in for it in
+    tests. The call sites: the restore swap's old layer, each day-old
+    `.xbin/restore` entry (`sweepRestoreLeftovers` is now a method),
+    `ResetEnv` and offload-full's `.xbin/term/<CK>`.
+  - **The swap removes after releasing.** `finish` = `swapIn` (hold, swap,
+    release) then the confined removal of `<staging>.old`, so no session
+    waits on it; a failed removal is logged and left to the day-old sweep.
+    `close()`'s removal of an unfinished staging dir stays `os.RemoveAll`:
+    it holds only what the restore wrote as xbind (and at most the VM disk
+    image xbind made, if a failed swap couldn't hand it back).
+  - **`ResetEnv` holds the layer** (it moved to `holdenv.go`, which keeps
+    `term.go` under its size budget): `HoldEnv` (kill, wait, hold), the
+    confined removal, release. Before, it waited 5 s and removed the layer
+    even if a session still had it mounted, and nothing stopped a new
+    session mounting it mid-removal (a confined removal takes longer than
+    `os.RemoveAll` did). Now a session that won't let go fails the reset
+    (500) with the layer untouched — documented in `docs/protocol.md`.
+  - **Offload-full** takes the hold right after the archive, before
+    `removeScopeData`, so a hold that times out removes nothing (502,
+    "archived, but its terminal layer is still in use (nothing removed)").
+    A confined removal that fails is logged and the offload goes on (as
+    `os.RemoveAll`'s error was ignored before): failing there would leave
+    the tile `enabled` with its data gone, and the restore replaces a
+    leftover layer whole anyway.
+  - **Staged views stay xbind's.** A `view-*` dir can't hold sandbox-written
+    files: it is bound read-only, only into restricted sessions (no
+    `CAP_SYS_ADMIN` to remount it; `MountGuard`), and a VM's FUSE export of
+    a read-only bind refuses writes. So `dropView` and the boot's `view-*`
+    sweep keep `os.RemoveAll`; `stageView`'s comment says why.
+  - **Permission bits:** `backup.Reader.Perm()` is the last entry's
+    `mode & 0o777`; `destTree.write` creates `0600` and `fchmod`s to it
+    after the copy (exact whatever the umask). Every xbind archive already
+    recorded `fi.Mode().Perm()`, so old archives restore with their real
+    bits. A restored `0444` git object is now `0444` (was `0644`).
+  - **Tests:** unit — `TestResetEnvHoldsThenRemovesConfined` (term),
+    `TestRestoreRemovesOldLayersConfined`,
+    `TestOffloadFullHoldsThenRemovesConfined`,
+    `TestRestoreKeepsPermissionBits` (broker; `TestOffloadFullThenRestore`
+    now counts two holds). Integration (`linux && integration`, real
+    isolated sessions over `/ws/term`, range mode here):
+    `term.TestConfinedResetEnv` and `broker.TestConfinedOffloadFull` — a
+    live terminal writes `/opt/owned` `chown`ed to uid 1000 into its upper
+    (xbind's own unlink fails: checked), then the reset / offload-full
+    kills the session and the whole layer goes; both fail with
+    `rmTree = os.RemoveAll`. `make integration` runs them with
+    `-run '^TestConfined' ./internal/term/ ./internal/broker/` (the
+    sandbox init is dispatched from an `init()` in the tagged file; term's
+    `TestMain` builds binaries first). They pass with fuse-overlayfs and
+    with the kernel overlay.
 
 #### WP-10b — Relay: flow caps, per-flow locality, the strict public predicate (C · S/M · now; before WP-15a)
 

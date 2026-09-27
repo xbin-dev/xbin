@@ -195,8 +195,9 @@ func (w *Writer) Close() error { return w.tw.Close() }
 // Reader reads a backup tar. The Manifest is parsed up front; Next yields the
 // remaining entries in order.
 type Reader struct {
-	tr *tar.Reader
-	M  Manifest
+	tr  *tar.Reader
+	hdr *tar.Header // the entry Next returned last
+	M   Manifest
 }
 
 func NewReader(r io.Reader) (*Reader, error) {
@@ -225,7 +226,18 @@ func (r *Reader) Next() (string, io.Reader, error) {
 	if err != nil {
 		return "", nil, err
 	}
+	r.hdr = h
 	return h.Name, r.tr, nil
+}
+
+// Perm is the permission bits the entry Next returned last was archived with
+// (Tree records each file's): its mode & 0o777 — never setuid, setgid or
+// sticky, whatever the archive says. 0 before the first Next.
+func (r *Reader) Perm() fs.FileMode {
+	if r.hdr == nil {
+		return 0
+	}
+	return fs.FileMode(r.hdr.Mode) & fs.ModePerm
 }
 
 // SafeJoin joins a tar entry name onto a base dir, guaranteed to stay within

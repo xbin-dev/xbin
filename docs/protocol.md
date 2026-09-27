@@ -1827,7 +1827,9 @@ POST   /lifecycle                  admin, the tile's user-owner, or an
                                    returns 409 + an X-XBin-Lifecycle header);
                                    disabling stops a running backend now. Offload
                                    archives then frees local bytes (data, or +
-                                   source/term-env for -full); enabling an
+                                   source/term-env for -full, which ends the
+                                   tile's terminal sessions first — 502, nothing
+                                   removed, if one won't end); enabling an
                                    offloaded component restores it. State is in the
                                    overview's component list (state field).
 
@@ -2503,7 +2505,8 @@ used by the UI to restart under a new scope); `204` on success, `404` unknown.
 `DELETE /ws/term/env?cwd=<component-path>` (terminal level on that tile; the
 root layer — `cwd` empty — admin-only) wipes that component's
 **persistent terminal layer** (installed packages / system changes) back to the
-base rootfs, killing any live session on it first; `204` on success. Each
+base rootfs, killing any live session on it first; `204` on success, `500`
+with the layer untouched when a session doesn't end within 5 s. Each
 component's terminal has its own persistent overlay layer (`.xbin/term/<key>/`)
 so system-level changes survive across sessions — a resettable dev sandbox
 (`docs/isolation.md` §The dev layer). Workspace files and `$HOME` persist independently.

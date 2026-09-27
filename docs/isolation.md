@@ -255,7 +255,11 @@ don't touch the base rootfs (read-only) and aren't lost at exit. They're
 captured in a **persistent per-component layer** at `.xbin/term/<component>/`
 (the overlay's upper dir), which **survives across sessions and restarts**. Each
 component effectively gets its own long-lived dev sandbox; the ⟲ button in the
-terminal UI resets it back to a clean base.
+terminal UI resets it back to a clean base (ending the session on it first).
+xbind removes a layer — on a reset, an `offloaded-full`, or when a restore
+replaces it — in a confined run (§Confined tool runs, above) with only the
+file capabilities, so files an `apt install` left owned by other users
+inside the sandbox go too.
 
 Keep two "layers" straight — they are deliberately separate:
 

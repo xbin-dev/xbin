@@ -160,7 +160,8 @@ type Manager struct {
 
 	mu       sync.Mutex
 	sessions map[string]*Session
-	envHeld  map[string]bool // component key → a live session holds its persistent layer
+	envHeld  map[string]bool        // component key → a live session holds its persistent layer
+	rmTree   func(dir string) error // tests: stands in for removeLayer's confined removal
 }
 
 func NewManager(root string, env func() []string) *Manager {
@@ -495,36 +496,6 @@ func (m *Manager) releaseEnv(key string) {
 	m.mu.Lock()
 	delete(m.envHeld, key)
 	m.mu.Unlock()
-}
-
-// ResetEnv wipes a component's persistent terminal layer back to the base rootfs.
-// Any live session holding it is killed first (its overlay must be unmounted
-// before the upperdir can be removed).
-func (m *Manager) ResetEnv(rel string) error {
-	key := termKey(rel)
-	m.mu.Lock()
-	var victims []*Session
-	for _, s := range m.sessions {
-		if s.envKey == key {
-			victims = append(victims, s)
-		}
-	}
-	m.mu.Unlock()
-	for _, s := range victims {
-		s.kill()
-	}
-	// Wait for the killed session(s) to fully tear down (pump → cleanup unmounts
-	// the sandbox) so the upperdir is free before we remove it.
-	for i := 0; i < 50; i++ {
-		m.mu.Lock()
-		held := m.envHeld[key]
-		m.mu.Unlock()
-		if !held {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return os.RemoveAll(filepath.Join(m.Root, ".xbin", "term", key))
 }
 
 // sandboxShell runs the shell in a rootfs sandbox (RT-4): the base rootfs, the

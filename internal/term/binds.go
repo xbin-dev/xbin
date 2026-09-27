@@ -80,7 +80,10 @@ func pathIsDir(p string) bool { fi, err := os.Stat(p); return err == nil && fi.I
 // present, an empty .xbin/ (bx locates the workspace by xbin.json + .xbin),
 // and a pre-created mountpoint dir for every nested bind — the view is bound
 // READ-ONLY at the workspace root, so mountpoints can't be created later.
-// Caller removes the dir when the session ends.
+// Caller removes the dir when the session ends — as xbind (os.RemoveAll), as
+// the boot's view-* sweep does: nothing in it is sandbox-written (WP-9b
+// checked). It is bound read-only, into restricted sessions only, which have
+// no CAP_SYS_ADMIN to remount it; a VM's export of it refuses writes.
 func (m *Manager) stageView(rel, homeKey string, readable []string, rootFiles map[string][]byte) (string, error) {
 	dir := filepath.Join(m.Root, ".xbin", "term", "view-"+util.RandomToken(8))
 	if err := os.MkdirAll(dir, 0o700); err != nil {

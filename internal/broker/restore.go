@@ -1,12 +1,14 @@
 package broker
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path"
 	"path/filepath"
@@ -17,6 +19,7 @@ import (
 	bolt "go.etcd.io/bbolt"
 
 	"github.com/xbin-dev/xbin/internal/backup"
+	"github.com/xbin-dev/xbin/internal/confine"
 	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -113,7 +116,7 @@ func (b *Broker) restore(r io.Reader, comp string) (backup.Manifest, error) {
 		default:
 			continue
 		}
-		if err := tree.write(rel, rd); err != nil {
+		if err := tree.write(rel, br.Perm(), rd); err != nil {
 			return m, fmt.Errorf("restore %s: %w", name, err)
 		}
 	}
@@ -213,7 +216,7 @@ func (d *restoreDst) term() (*destTree, error) {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return nil, err
 		}
-		sweepRestoreLeftovers(dir)
+		d.b.sweepRestoreLeftovers(dir)
 		staging, err := os.MkdirTemp(dir, util.CompKey(d.comp)+"-")
 		if err != nil {
 			return nil, err
@@ -229,44 +232,77 @@ func (d *restoreDst) term() (*destTree, error) {
 }
 
 // sweepRestoreLeftovers drops what a restore that died mid-way (xbind was
-// killed) left in .xbin/restore/: anything a day old — no restore runs that long.
-func sweepRestoreLeftovers(dir string) {
+// killed) left in .xbin/restore/: anything a day old — no restore runs that
+// long. An old layer a swap moved aside is among them, so each goes through
+// removeTree.
+func (b *Broker) sweepRestoreLeftovers(dir string) {
 	ents, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
 	for _, e := range ents {
 		if fi, err := e.Info(); err == nil && time.Since(fi.ModTime()) > 24*time.Hour {
-			_ = os.RemoveAll(filepath.Join(dir, e.Name()))
+			if err := b.removeTree(filepath.Join(dir, e.Name())); err != nil {
+				slog.Warn("restore: sweeping a leftover", "dir", filepath.Join(dir, e.Name()), "err", err)
+			}
 		}
 	}
 }
 
-// finish swaps a rebuilt terminal layer in: the sessions holding the old one
-// are killed and the layer held (HoldTermEnv) so none mounts it meanwhile; the
-// old layer is renamed aside — keeping a VM terminal's disk (vm/, never in a
-// backup) — the new one renamed into place, and the old one removed.
+// removeTree removes a tree a sandbox wrote — a terminal layer, whose upper
+// holds files other sub-uids own in range mode, which xbind can't unlink —
+// in a confined run with the file capabilities (confine.RemoveAll; WP-9b,
+// plans/tile-sandbox-runtime.md §8.3). dir must be one xbind made, in a dir
+// no sandbox writes.
+func (b *Broker) removeTree(dir string) error {
+	if b.rmTree != nil {
+		return b.rmTree(dir)
+	}
+	return confine.RemoveAll(context.Background(), dir)
+}
+
+// finish swaps a rebuilt terminal layer in (swapIn), then removes the old
+// one — a tree the sandbox wrote, so in a confined run (removeTree), once the
+// new layer is in use. A removal that fails leaves it in .xbin/restore, for
+// the sweep a day later.
 func (d *restoreDst) finish() error {
 	if d.stage == nil {
 		return nil
 	}
 	d.stage.r.Close()
 	d.stage = nil
+	old, err := d.swapIn()
+	if err != nil {
+		return err
+	}
+	if old != "" {
+		if err := d.b.removeTree(old); err != nil {
+			slog.Warn("restore: removing the old terminal layer", "dir", old, "err", err)
+		}
+	}
+	return nil
+}
+
+// swapIn puts the staged layer in place: the sessions holding the old one are
+// killed and the layer held (HoldTermEnv) so none mounts it meanwhile; the old
+// layer is renamed aside — keeping a VM terminal's disk (vm/, never in a
+// backup) — and the new one renamed into place. old is where the old layer
+// went ("" when there was none).
+func (d *restoreDst) swapIn() (old string, err error) {
 	if b := d.b; b.HoldTermEnv != nil {
 		release, err := b.HoldTermEnv(d.comp)
 		if err != nil {
-			return fmt.Errorf("restore the terminal layer: %w", err)
+			return "", fmt.Errorf("restore the terminal layer: %w", err)
 		}
 		defer release()
 	}
 	if err := os.Chmod(d.staging, 0o755); err != nil { // a layer dir's mode (term.ensureLayerBase)
-		return err
+		return "", err
 	}
 	layer := d.b.termDir(d.comp)
 	if err := os.MkdirAll(filepath.Dir(layer), 0o755); err != nil {
-		return err
+		return "", err
 	}
-	old := ""
 	if _, err := os.Lstat(layer); err == nil {
 		old = d.staging + ".old"
 		// Stamp it fresh first: a long-lived layer's mtime is old, and
@@ -275,11 +311,11 @@ func (d *restoreDst) finish() error {
 		now := time.Now()
 		_ = os.Chtimes(layer, now, now)
 		if err := os.Rename(layer, old); err != nil {
-			return err
+			return "", err
 		}
 		if err := os.Rename(filepath.Join(old, "vm"), filepath.Join(d.staging, "vm")); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			_ = os.Rename(old, layer)
-			return err
+			return "", err
 		}
 	}
 	if err := os.Rename(d.staging, layer); err != nil {
@@ -287,17 +323,16 @@ func (d *restoreDst) finish() error {
 			_ = os.Rename(filepath.Join(d.staging, "vm"), filepath.Join(old, "vm"))
 			_ = os.Rename(old, layer)
 		}
-		return err
+		return "", err
 	}
 	d.staging = ""
-	if old != "" {
-		// os.RemoveAll never follows a symlink in the tree it removes.
-		_ = os.RemoveAll(old)
-	}
-	return nil
+	return old, nil
 }
 
-// close releases the roots and drops an unfinished staging dir.
+// close releases the roots and drops an unfinished staging dir. That one holds
+// only what this restore wrote as xbind (and, if a failed swap couldn't hand
+// it back, the disk image xbind made for a VM terminal), so xbind removes it
+// itself.
 func (d *restoreDst) close() {
 	if d.src != nil {
 		d.src.r.Close()
@@ -322,11 +357,12 @@ type destTree struct {
 func newDestTree(r *os.Root) *destTree { return &destTree{r: r, made: map[string]bool{}} }
 
 // write writes one restored file at rel (clean, relative, not "") beneath the
-// tree's top. A restore overwrites wholesale, and nothing on the way is
-// followed: a symlink where a directory belongs is replaced by the
+// tree's top, with perm — the bits it was archived with (backup.Reader.Perm),
+// so an executable stays one. A restore overwrites wholesale, and nothing on
+// the way is followed: a symlink where a directory belongs is replaced by the
 // directory, one at the file's own path by the file (its target untouched),
 // and os.Root keeps even a link swapped in mid-restore from leading out.
-func (t *destTree) write(rel string, rd io.Reader) error {
+func (t *destTree) write(rel string, perm fs.FileMode, rd io.Reader) error {
 	r := t.r
 	if dir := path.Dir(rel); dir != "." {
 		if err := t.mkdirAll(dir); err != nil {
@@ -336,11 +372,14 @@ func (t *destTree) write(rel string, rd io.Reader) error {
 	// Remove first even when the existing file is read-only — git objects
 	// (.git/objects) are 0444 and can't be reopened for writing.
 	_ = r.Remove(rel)
-	f, err := r.OpenFile(rel, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
+	f, err := r.OpenFile(rel, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
 	}
 	_, err = io.Copy(f, rd)
+	if err == nil {
+		err = f.Chmod(perm & fs.ModePerm) // exactly, whatever the umask; never setuid, setgid or sticky
+	}
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
