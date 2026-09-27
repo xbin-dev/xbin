@@ -12,6 +12,24 @@ import (
 
 const readFlags = unix.O_RDONLY | unix.O_NONBLOCK | unix.O_NOCTTY | unix.O_CLOEXEC
 
+// openat2Tries bounds openat2's retries on EAGAIN.
+const openat2Tries = 16
+
+// openat2 is unix.Openat2, tried again while it answers EAGAIN: under
+// RESOLVE_BENEATH the kernel gives up on a ".." step that races a rename
+// anywhere on the host and asks the caller to retry (openat2(2)). Without
+// the retry a legitimate in-tree "../x" fails as a plain error on a busy
+// host, and a link that climbs out (a checkpoint's deps/) is never seen as
+// ErrEscapes. Past openat2Tries the EAGAIN is the answer.
+func openat2(dirfd int, path string, how *unix.OpenHow) (fd int, err error) {
+	for try := 0; ; try++ {
+		fd, err = unix.Openat2(dirfd, path, how)
+		if !errors.Is(err, unix.EAGAIN) || try+1 >= openat2Tries {
+			return fd, err
+		}
+	}
+}
+
 func openIn(root, sub, rel string) (*os.File, error) {
 	rfd, err := unix.Open(root, unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
@@ -21,7 +39,7 @@ func openIn(root, sub, rel string) (*os.File, error) {
 	dfd, name := rfd, root
 	if sub != "" && sub != "." {
 		name = filepath.Join(root, filepath.FromSlash(sub))
-		sfd, err := unix.Openat2(rfd, filepath.FromSlash(sub), &unix.OpenHow{
+		sfd, err := openat2(rfd, filepath.FromSlash(sub), &unix.OpenHow{
 			Flags:   unix.O_PATH | unix.O_DIRECTORY | unix.O_CLOEXEC,
 			Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
 		})
@@ -40,7 +58,7 @@ func openIn(root, sub, rel string) (*os.File, error) {
 		rel = "."
 	}
 	full := filepath.Join(name, filepath.FromSlash(rel))
-	fd, err := unix.Openat2(dfd, filepath.FromSlash(rel), &unix.OpenHow{
+	fd, err := openat2(dfd, filepath.FromSlash(rel), &unix.OpenHow{
 		Flags:   readFlags,
 		Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_MAGICLINKS,
 	})
@@ -65,7 +83,7 @@ func openResolved(root, rel string, allow func(string) bool) (*os.File, string, 
 		return nil, "", &os.PathError{Op: "open", Path: base, Err: err}
 	}
 	defer unix.Close(bfd)
-	fd, err := unix.Openat2(bfd, filepath.FromSlash(r), &unix.OpenHow{
+	fd, err := openat2(bfd, filepath.FromSlash(r), &unix.OpenHow{
 		Flags:   readFlags,
 		Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
 	})
