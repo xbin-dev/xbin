@@ -337,9 +337,18 @@ func grandchild(t *testing.T, fe *fakeEnv) (Exec, int) {
 func TestExecSignalGroupDefault(t *testing.T) {
 	fe := startedEnv(t)
 	x, pid := grandchild(t, fe)
+	b := fe.box("sb-1")
+	if n := b.act.inflight.Load(); n != 1 { // a running non-tty exec holds the idle stop off (§7)
+		t.Fatalf("a running exec's hold: %d", n)
+	}
 	fe.want(fe.do(mgr, "POST", "/sandboxes/sb-1/execs/"+x.ID+"/signal", `{"signal":"INT"}`), http.StatusNoContent, "")
 	waitGone(t, pid, 5*time.Second)
 	fe.waitEnded("sb-1", x.ID)
+	for deadline := time.Now().Add(5 * time.Second); b.act.inflight.Load() != 0; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("an ended exec still holds the idle stop: %d", b.act.inflight.Load())
+		}
+	}
 
 	y, pid2 := grandchild(t, fe)
 	fe.want(fe.do(mgr, "POST", "/sandboxes/sb-1/execs/"+y.ID+"/signal", `{"signal":"TERM","group":false}`), http.StatusNoContent, "")

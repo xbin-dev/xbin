@@ -115,6 +115,9 @@ func TestTTY(t *testing.T) {
 	if n := b.act.clients.Load(); n != 1 {
 		t.Fatalf("clients attached: %d", n)
 	}
+	if n := b.act.inflight.Load(); n != 0 { // a TTY's hold is its clients, not its run
+		t.Fatalf("a tty exec in flight: %d", n)
+	}
 	tc.send("7") // echoed, then acked while it still runs
 	for tc.hasCtl("ack") == nil {
 		tc.next(10 * time.Second)

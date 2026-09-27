@@ -3678,6 +3678,13 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     with `ModeVM` (the probe is a static binary on a `{source:true}`
     mount). New probe ops: `echo`, `env`, `copy`, `tree`, `alive`,
     `readexit`.
+  - *Verifier.* Under `systemd-run --user --scope -p Delegate=yes` (the
+    live file's header) `testLiveExecs` also runs an exec and a `run`
+    past `memory.max` through the routes: each ends `killed`/`KILL`
+    (`exitCode` null) and the sandbox runs on (namespace mode; it skips
+    without a delegated cgroup). The unit tests now also pin the idle
+    seams: a running non-tty exec holds `inflight` until it ends, a tty
+    exec never does.
 
 ### WP-18 — Files, tar, copy (wave 2 · S/M · after WP-15a)
 

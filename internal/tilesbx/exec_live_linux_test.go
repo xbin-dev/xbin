@@ -334,6 +334,25 @@ func testLiveExecs(t *testing.T, le *liveEnv, mode string, hasShell bool) {
 		}
 	})
 
+	t.Run("a command past memory.max ends killed by KILL; its sandbox runs on", func(t *testing.T) {
+		le.t = t
+		if mode != ModeNamespace || le.m.cg == nil {
+			t.Skip("no delegated cgroup (see live_linux_test.go's header)")
+		}
+		le.create(map[string]any{"name": "ex-oom", "mode": mode, "memMiB": 256, "mounts": []any{probeMount}})
+		x := le.liveExec("ex-oom", map[string]any{"argv": []string{probeBin, "alloc", "1024"}})
+		if x := le.liveEnded("ex-oom", x.ID); x.State != ExecKilled || x.Signal != "KILL" || x.ExitCode != nil {
+			t.Fatalf("an exec past memory.max: %+v", x)
+		}
+		if r := le.liveRun("ex-oom", map[string]any{"argv": []string{probeBin, "alloc", "1024"}}); r.Signal != "KILL" || r.ExitCode != nil || r.TimedOut {
+			t.Fatalf("a run past memory.max: %+v", r)
+		}
+		if in, _ := le.m.infoOf(le.k, "ex-oom"); in.State != StateRunning || in.ExecsRunning != 0 {
+			t.Fatalf("the sandbox after the OOM kills: %+v", in)
+		}
+		le.stop("ex-oom")
+	})
+
 	t.Run("an exec running when its sandbox stops is killed; after a restart it is lost", func(t *testing.T) {
 		le.t = t
 		x := le.liveExec("ex-1", map[string]any{"argv": []string{probeBin, "tree", "100s"}})
