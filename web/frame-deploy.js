@@ -324,12 +324,14 @@ export function setTarget(f, i, value) {
 // loaded afresh (the tab `refusing` meanwhile, which listings keep): an
 // xbind without tile deployments, or a primary other than the name asked
 // for, ends the session and says so (11-contract §7.4); a primary of that
-// name is the answer (the session follows it).
+// name is the answer (the session follows it). A session the server says
+// has no tile API (api:false: the user holds no terminal tile-API grant)
+// has no target to echo, and stays.
 export function sessionEcho(f, ev, key) {
   const d = ev?.detail || {}, out = {};
   if (typeof d.api === 'boolean') out.api = d.api;
   if (typeof d.deployment === 'string') out.deployment = d.deployment;
-  if (d.asked && !d.deployment) {
+  if (d.asked && !d.deployment && d.api !== false) {
     const el = ev.target;
     out.refusing = true;
     loadDeploy(f).then((s) => {
@@ -347,7 +349,7 @@ export function sessionEcho(f, ev, key) {
 // the echo (that session is ended), or ''.
 export const targetQuery = (want) => (want?.api !== false && want?.deployment ? `?deployment=${encodeURIComponent(want.deployment)}` : '');
 export function targetRefused(f, want, s) {
-  if (!targetQuery(want) || s?.deployment === want.deployment) return '';
+  if (!targetQuery(want) || s?.deployment === want.deployment || s?.api === false) return ''; // no tile API: no target to echo
   const st = per.get(f)?.state;
   if ((st?.features || []).includes('deployments/1') && st.primary === want.deployment) return '';
   if (s?.id) fetch(`/api/xbin/term/sessions/${encodeURIComponent(s.id)}`, { method: 'DELETE' }).catch(() => { });
