@@ -2,7 +2,7 @@
 
 > Status: live — raw findings behind [../README.md](../README.md), kept so the
 > design documents and the implementation swarm can check every "today" claim
-> against the code. Facts as of master 59687bf..926046d (2026-09-27). The
+> against the code. Facts as of master 59687bf..926046d (2026-09-27); the design branch is rebased onto `sandbox-visibility` (D112/D113), so re-verify line numbers against it. The
 > research was read-only; file:line references drift, so re-check before
 > relying on one.
 
@@ -31,4 +31,5 @@
 | [prior-art.md](prior-art.md) | 27 platforms: artifact vs pointer, follow/pause, promotion, data seeding, secrets, bindings per environment, inbound routing, UX, permissions, pitfalls |
 | [terminology-census.md](terminology-census.md) | Every candidate word's existing meanings with verdicts (FREE / SAFE-EXTEND / TAKEN), and the qualifier syntax that is still free |
 | [delivery-infra.md](delivery-infra.md) | Test infrastructure, guards a large change trips, how past features were staged (the native swarm precedent), conflict hotspots, the work-package template |
+| [sandbox-visibility.md](sandbox-visibility.md) | The `sandbox-visibility` branch this design is based on: the D112 sandbox registry, owner-charged VM reservations, D113 tile-managed sandboxes (designed), and the shared sandbox mechanics the dev lifecycle changes (the owner's direction: not built on tile sandboxes) |
 | [side-findings.md](side-findings.md) | Defects and doc drift found along the way (including a cgi sandbox escape); not part of the design |

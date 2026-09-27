@@ -382,5 +382,9 @@ deployment concept would contradict existing docs.
 - **build**, **generation**, **swap**: runner mechanics. A deploy triggers a
   build and a generation swap.
 - **edge**: the authorization overview's sense, extended to outbound edges.
+- **sandbox**: every meaning stays as is — a backend's, terminal's or agent's
+  sandbox, the D112 registry's entries, and D113's tile-managed sandboxes. A
+  deployment is **not** a sandbox. Its backend generations run in sandboxes,
+  listed in the registry under the tile with their deployment named.
 - **rollback / roll back**: free, and compatible with backup restore's
   "without a full rollback".

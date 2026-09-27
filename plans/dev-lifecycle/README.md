@@ -51,6 +51,12 @@ Tiles that never opt in change in no way at all (P5).
 - **Vocabulary:** [01-glossary.md](01-glossary.md) is normative. The banned
   words (identity, instance, environment, "pause the tile", …) are banned in
   normative text.
+- **Baseline:** master plus the `sandbox-visibility` branch (D112's sandbox
+  registry is landed; D113's tile-managed sandboxes are designed). That branch
+  is expected to merge first, and this set is written against it
+  ([research/sandbox-visibility.md](research/sandbox-visibility.md)).
+  Deployments are not built on tile-managed sandboxes. They change the shared
+  sandbox mechanics one layer up.
 - **Facts about today** carry `file:line` references and point at the
   research file they came from. Line numbers drift, so re-check them before
   editing code.

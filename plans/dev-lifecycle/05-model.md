@@ -383,6 +383,43 @@ non-primary deployments but not operate them.
   - Each deployment gets its own cgroup leaf.
   - `07-runtime.md` sets the numbers.
 
+**Sandbox mechanics: the shared layer.** This design is based on the
+`sandbox-visibility` branch: D112's registry is landed and D113's tile-managed
+sandboxes are designed ([research/sandbox-visibility.md](research/sandbox-visibility.md)).
+
+Tile deployments are **not** built on D113's tile-managed sandboxes (the
+owner's direction, 2026-09-27). A deployment's backend is a runner backend,
+with its blue/green, health check, reaper, alwaysOn, env layer and ingress
+plumbing. A tile sandbox is an exec box driven by its tile, with no serving
+lifecycle.
+
+The dev lifecycle does change the mechanics **one layer up**, which backends,
+terminals and tile sandboxes all share:
+- **The D112 registry** gains a deployment dimension on backend entries.
+  `main`'s entries keep today's ID and shape, and new fields are added on
+  rows, never as new keys.
+- **Budgets:** VM reservations of every deployment are charged to the tile
+  (`Reserve(owner = tile)`). A deployment is never its own budget owner.
+- **A per-tile cgroup parent** holds a leaf per deployment. This is the
+  "nested per-tile cgroup" D113 defers: both projects need it, so it is built
+  once, in the shared layer.
+- **Backend launch-spec binds:**
+  - the checkpoint is bound at the canonical path;
+  - the deployment's data namespace is bound at the primary's resource paths,
+    so `XBIN_RES_*` stays identical;
+  - the live reload target keeps today's work-tree bind.
+- **confine** gains an explicit bind destination, so confined builds can see a
+  checkpoint at the tile's canonical path.
+- **Streaming (M3):** a streaming confined run, for the deploy remote's
+  `receive-pack`, follows D113's exec-protocol precedent.
+
+When D113 is built, **tile-managed sandboxes belong to the deployment**:
+- a non-primary deployment's backend addresses its own sandbox set (keyed per
+  deployment, like dormant registrations), never the primary's;
+- `{"source":true}` mounts that deployment's code;
+- resource mounts resolve in its data namespace;
+- per-tile caps and `cap:sandboxes` stay the tile's.
+
 ## 13. Invariants (the proposed decisions)
 
 | # | Invariant | Status |
