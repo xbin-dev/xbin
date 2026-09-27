@@ -6,6 +6,7 @@ package deployments
 
 import (
 	"context"
+	"net/http"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/checkpoint"
@@ -91,6 +92,14 @@ func (a storeAdapter) RemoveView(ctx context.Context, tile string) error {
 
 func (a storeAdapter) Drift(ctx context.Context, src checkpoint.Source, tree string) (int, error) {
 	return a.s.Drift(ctx, src, tree)
+}
+
+func (a storeAdapter) Diff(ctx context.Context, req checkpoint.DiffRequest) (checkpoint.DiffResult, error) {
+	return a.s.Diff(ctx, req)
+}
+
+func (a storeAdapter) ServeFetch(w http.ResponseWriter, r *http.Request, tile, rel string) error {
+	return a.s.ServeFetch(w, r, tile, rel)
 }
 
 // Checkpoint answers the facts of tile's checkpoint with full tree id tree

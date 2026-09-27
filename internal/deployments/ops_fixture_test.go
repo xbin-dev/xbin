@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -479,6 +480,21 @@ func (s *fakeStore) RemoveView(ctx context.Context, tile string) error {
 	defer s.mu.Unlock()
 	delete(s.views, tile)
 	return os.RemoveAll(viewDir(s.root, tile))
+}
+
+// Diff and ServeFetch are the real store's, for the unit-git tests.
+func (s *fakeStore) Diff(ctx context.Context, req checkpoint.DiffRequest) (checkpoint.DiffResult, error) {
+	if s.real == nil {
+		return checkpoint.DiffResult{}, errNotBuilt("the fake store's diff")
+	}
+	return s.real.Diff(ctx, req)
+}
+
+func (s *fakeStore) ServeFetch(w http.ResponseWriter, r *http.Request, tile, rel string) error {
+	if s.real == nil {
+		return checkpoint.ErrNotFetchable
+	}
+	return s.real.ServeFetch(w, r, tile, rel)
 }
 
 // Drift counts nothing: the drift count's own tests fake it (worktree_test.go).

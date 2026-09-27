@@ -34,6 +34,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -231,6 +232,9 @@ type checkpoints interface {
 	// Drift counts the files src's work tree differs in from checkpoint
 	// tree, changing nothing durable (worktree.go).
 	Drift(ctx context.Context, src checkpoint.Source, tree string) (int, error)
+	// Diff and ServeFetch are the API's diff and checkpoint remote (reads.go).
+	Diff(ctx context.Context, req checkpoint.DiffRequest) (checkpoint.DiffResult, error)
+	ServeFetch(w http.ResponseWriter, r *http.Request, tile, rel string) error
 }
 
 // store is the plane's checkpoint store, built from Root on first use.
