@@ -1473,6 +1473,27 @@ next to its vforking `os.StartProcess`.
   - Harness: predict.js, termrun.js, termsessions.js and vmtoggle.js pass.
 - **Parallel:** fully. `hack/size-budget.txt` conflicts with dev-lifecycle's
   term.go line; whichever lands second rebases.
+- **As built** (branch `p2/termwire`):
+  - The API: `NewHub(maxTail)`; `Terminal{Write func([]byte) error,
+    Resize func(cols, rows uint16)}` (resizes outside 1..65535 never reach
+    it); `Exit{Code *int, Signal string}` with `ExitCode(n)`/`ExitSignal(s)`
+    (the zero `Exit` is a bare `{"op":"exit"}`); `Attach(conn, hello
+    map[string]any, t)` sets `op` and `echoAck` itself; `Upgrade(w, r, hdr,
+    readLimit)` with `ReadLimit` (1 MiB) for tile sockets. **Added:**
+    `Touch()`, since an agent session's events move its activity clock and it
+    has no output.
+  - `/ws/term` keeps no read limit (0): a paste over 1 MiB was always one
+    frame there, and bounding it now would break it. Its shells still send a
+    bare exit at PTY EOF, before the reap, so a VM's 3 s hang-up grace doesn't
+    hold the pane open. A tile TTY passes the code or signal.
+  - A dropped client's socket is closed at once (off the lock), not drained.
+  - The session frame now goes first on an already-ended session too (before
+    the replay and the exit), as the contract states.
+  - `OnClients` calls are serialized and read the count as they run, so the
+    last one is always current.
+  - Extra test: `internal/term/attach_test.go` drives `/ws/term` over a real
+    PTY (a host shell, isolation off): the session frame, the echo ack, a
+    reattach that replays, and the exit.
 
 ### WP-13 — `tilesbx` skeleton + the whole route surface (Track D · M)
 
