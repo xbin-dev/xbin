@@ -763,7 +763,7 @@ func (st *State) stepServer() error {
 	st.registerRuntimeAPI(srv)
 	st.registerVMAPI(srv)
 	st.registerSandboxAPI(srv)
-	registerDeploymentsAPI(srv, st.Deployments)
+	registerDeploymentsAPI(srv, st.Deployments, st.Broker) // the broker answers the state's vault, registrations, edges, disk
 	if err := st.setupPush(srv); err != nil {
 		return err
 	}

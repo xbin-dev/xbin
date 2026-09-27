@@ -57,7 +57,7 @@ func registerDeploymentsAPI(srv *server.Server, dp *deployments.Plane, facts ...
 	for _, f := range facts {
 		reads.from(f)
 	}
-	mountDeploymentsAPI(srv, &deploymentsAPI{dp: dp, owner: owner,
+	mountDeploymentsAPI(srv, &deploymentsAPI{dp: dp, owner: owner, origin: srv.DeploymentOrigin,
 		ops:   opRegistry{deployments.Registered, deployments.NewRequest, dp.Do},
 		reads: reads})
 }
@@ -116,10 +116,11 @@ func reservedRoute(w http.ResponseWriter, r *http.Request) {
 
 // deploymentsAPI is what the handlers ask of xbind.
 type deploymentsAPI struct {
-	dp    *deployments.Plane
-	owner func(tile string) string // the tile's owner ref, as /components reports it
-	ops   opRegistry
-	reads deployReads
+	dp     *deployments.Plane
+	owner  func(tile string) string      // the tile's owner ref, as /components reports it
+	origin func(tile, dep string) string // a deployment's own origin in origins mode; "" otherwise
+	ops    opRegistry
+	reads  deployReads
 }
 
 // opRegistry is the plane's operation registry; a test substitutes its own.
@@ -415,6 +416,11 @@ func (a *deploymentsAPI) row(ctx context.Context, pr auth.Principal, t tileRef, 
 	row["url"] = "/c/" + ref + "/"
 	if t.c.HasBackend() {
 		row["api"] = "/api/" + ref + "/"
+	}
+	if a.origin != nil { // origins mode: each deployment's own origin (11-contract §2.6)
+		if o := a.origin(tile, name); o != "" {
+			row["origin"] = o
+		}
 	}
 	if a.reads.lastDeploy != nil {
 		if e, err := a.reads.lastDeploy(ctx, tile, name); err == nil && e != nil {

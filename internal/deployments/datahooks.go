@@ -60,4 +60,9 @@ type DataHooks struct {
 	RestoreData       func(tile, by string, req RestoreRequest, authorize func(tile string) error, stop func(tile, dep string)) (RestoreAnswer, []string, error)
 	SetBackupSchedule func(tile, dep string, schedule *string, retention *int, dryRun bool) error
 	BackupScheduleOf  func(tile, dep string) *BackupSchedule
+
+	// WouldNotify is Deployment.wouldNotify: the push plane's held
+	// notifications of a non-primary deployment, oldest first (09-fabric
+	// §6), installed with POST /notify; nil: none held.
+	WouldNotify func(tile, dep string) []WouldNotify
 }

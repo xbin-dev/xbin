@@ -133,6 +133,20 @@ func planeFacts(dp *deployments.Plane) factReads {
 		limits:   dp.LimitsFor,
 		declared: func(c *registry.Component, dep string) (bool, bool) { return declaredAlwaysOn(dp, c, dep) },
 		caps:     dp.CapsOf,
+		// the broker's schedule and the push plane's held notifications,
+		// installed on the plane after the API's sources: read per call
+		backup: func(tile, dep string) *deployments.BackupSchedule {
+			if dp.BackupScheduleOf == nil {
+				return nil
+			}
+			return dp.BackupScheduleOf(tile, dep)
+		},
+		wouldNotify: func(tile, dep string) []deployments.WouldNotify {
+			if dp.WouldNotify == nil {
+				return nil
+			}
+			return dp.WouldNotify(tile, dep)
+		},
 	}
 }
 
