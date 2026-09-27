@@ -4,11 +4,13 @@
 // bar's ▣ badge (#sbxbadge) with its popover (#sbxpop: the working
 // directory, switching among the attached sandboxes, Detach, Manage…), and
 // the Sandboxes dialog (#sbxdlg: every sandbox you may see, with the
-// lifecycle actions your rights allow, and the create form). What they say
+// lifecycle actions your rights allow, and the create form), and a terminal
+// pane (#sbxterm: <bx-terminal src> on the sandbox's manager, opened from
+// the popover or a dialog row where the manager offers `tty`). What they say
 // is model/sandboxes.js, what they do model/sandbox-store.js (app.sbx); the
-// native view draws the same. "Open terminal" waits for phase 3 (a
-// bx-terminal src): not offered.
-import { html, render, nothing } from '/vendor/lit-all.min.js';
+// native view draws the same, the terminal aside (a D96 difference:
+// model/features.js).
+import { html, render, nothing, keyed } from '/vendor/lit-all.min.js';
 import * as S from './model/sandboxes.js';
 
 const NEW = '+new';
@@ -24,6 +26,14 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
   const pop = { open: false, ref: '', cwd: '', err: '' }; // cwd: the field, for the sandbox ref
   const dl = { form: null, err: '', msg: '', busy: '', bind: true, order: null }; // order: the rows as shown, kept while open
   const draw = () => { if (dlg.open) render(dlgTpl(), dlg); };
+  // The terminals: the page dials the managers itself (its frame token — the
+  // manager sees the verified person), at the endpoints its `sandboxes` slot
+  // has (multi: {endpoints}).
+  const slot = globalThis.xbin && globalThis.xbin.iface ? globalThis.xbin.iface('sandboxes') : null;
+  app.sbx.tty = (slot && slot.endpoints) || [];
+  const termEl = document.getElementById('sbxterm') || document.body.appendChild(Object.assign(document.createElement('div'), { id: 'sbxterm' }));
+  let term = null; // the open terminal: {t: app.sbx.terminal(…), key, session, ended, max}
+  let termKey = 0;
   app.on('sandboxes', () => { repaint(); draw(); });
   app.on('class', () => paint()); // the class for new chats: the picker follows it at home
 
@@ -84,6 +94,7 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
   const setCwd = (b) => run(() => app.sbx.setCwd(pop.cwd).then(() => { pop.cwd = S.bindingOf(app.session.current())?.cwd || pop.cwd; }));
 
   function popTpl(b) {
+    const tt = app.sbx.terminal(b.ref, b.cwd);
     return html`<div class="mback" @click=${closePop}></div>
       <div class="sbxpop" id="sbxpop" role="dialog" aria-label="This conversation's sandbox">
         <div class="sbxhd"><b>${S.ICON} ${b.name}</b><span class="muted">${b.detail}</span></div>
@@ -98,9 +109,13 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
               @click=${() => { if (!a.on && b.canChange) run(() => app.sbx.choose(a.ref, a.cwd)); }}>
             ${a.on ? '●' : '○'} ${a.name}${a.cwd ? html` <span class="mono muted">${a.cwd}</span>` : nothing}${a.broken ? ' ⚠' : ''}</div>`)}</div>` : nothing}
         ${pop.err ? html`<div class="err" id="sbx-err">${pop.err}</div>` : nothing}
+        ${tt.shown && tt.why ? html`<div class="hint" id="sbx-term-why">No terminal: ${tt.why}.</div>` : nothing}
         <div class="sbxacts">
           <button class="btn rm btnsm" id="sbx-detach" ?disabled=${!b.canChange} title="Take it off this conversation (the sandbox stays)"
             @click=${() => run(() => app.sbx.detach(b.ref), true)}>Detach</button>
+          ${tt.shown ? html`<button class="btn btnsm" id="sbx-term" ?disabled=${!!tt.why}
+            title=${tt.why || `a shell in ${b.name} at ${b.cwd || 'its workdir'}, as you`}
+            @click=${() => { pop.open = false; repaint(); openTerm(tt); }}>Open terminal</button>` : nothing}
           <span style="flex:1"></span>
           <button class="btn ghost btnsm" id="sbx-manage" @click=${() => { pop.open = false; open(); }}>Manage…</button>
         </div>
@@ -121,6 +136,7 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
   }
 
   async function act(r, a) {
+    if (a.id === 'terminal') { dlg.close(); openTerm(app.sbx.terminal(r.ref, a.cwd)); return; }
     if (a.confirm && !confirm(a.confirm)) return;
     dl.busy = r.ref; dl.err = ''; dl.msg = '';
     draw();
@@ -217,7 +233,54 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
     </div>`;
   }
 
-  return { paint, badgeTpl, closePop, open, get popOpen() { return pop.open; } };
+  // --- the terminal pane -------------------------------------------------------------
+
+  // openTerm shows a terminal for t (app.sbx.terminal(): its src) — one at a
+  // time: another one's shell is ended first.
+  async function openTerm(t) {
+    if (!t || !t.src) return;
+    if (term) closeTerm();
+    await import('/vendor/bx-terminal.js');
+    term = { t, key: ++termKey, session: '', ended: '', max: false };
+    drawTerm();
+  }
+  // closeTerm takes the pane away and ends its shell at the manager (a
+  // terminal left by a page that closed runs on until the manager ends it).
+  function closeTerm() {
+    const cur = term;
+    term = null;
+    drawTerm();
+    if (cur && cur.session && !cur.ended) app.sbx.endTerminal(cur.t, cur.session).catch(() => {});
+  }
+  const drawTerm = () => render(termTpl(), termEl);
+
+  function termTpl() {
+    if (!term) return nothing;
+    const { t } = term;
+    const again = () => { const n = app.sbx.terminal(t.ref, t.cwd); if (n.src) { term = { ...term, t: n, key: ++termKey, session: '', ended: '' }; drawTerm(); } };
+    // docked just under the top bar (it wraps on a narrow window), clear of
+    // the composer. Escape belongs to the program in the terminal (vim,
+    // less): the page's own Escape handling (a popover, the preview) must
+    // not see it — so a fixed pane, not a modal <dialog> (which closes on it).
+    const top = Math.round((document.getElementById('top')?.getBoundingClientRect().bottom || 40) + 6);
+    return html`<div class="sbxterm ${term.max ? 'max' : ''}" id="sbxterm-pane" role="dialog" aria-label=${`Terminal in ${t.name}`}
+        style=${term.max ? '' : `top:${top}px`}
+        @keydown=${(e) => { if (e.key === 'Escape') e.stopPropagation(); }}>
+      <div class="sbxthd"><b>${S.ICON} ${t.name}</b><span class="mono muted" title="the working directory">${t.cwd || 'its workdir'}</span>
+        <span class="muted">${t.manager}</span>
+        ${term.ended ? html`<span class="badge" id="sbxterm-ended">${term.ended}</span>` : nothing}
+        <span style="flex:1"></span>
+        ${term.ended ? html`<button class="btn ghost btnsm" id="sbxterm-again" title="Start another shell here" @click=${again}>New shell</button>` : nothing}
+        <button class="btn ghost btnsm" id="sbxterm-max" title=${term.max ? 'Smaller' : 'Larger'}
+          @click=${() => { term.max = !term.max; drawTerm(); }}>${term.max ? '⤡' : '⤢'}</button>
+        <button class="btn ghost btnsm" id="sbxterm-close" title="Close — ends the shell" @click=${closeTerm}>✕</button></div>
+      <div class="sbxtbody">${keyed(term.key, html`<bx-terminal src=${t.src} style="flex:1 1 0; min-width:0; height:auto"
+        @bx-session=${(e) => { if (term) term.session = e.detail.id; }}
+        @bx-exit=${() => { if (term) { term.ended = 'ended'; drawTerm(); } }}></bx-terminal>`)}</div>
+    </div>`;
+  }
+
+  return { paint, badgeTpl, closePop, open, openTerm, closeTerm, get popOpen() { return pop.open; }, get termOpen() { return !!term; } };
 }
 
 // optionsTpl: the picker's <option>s — none, the groups, then the actions.

@@ -14,7 +14,12 @@
 //   - sandbox_create parks for the conversation owner's grant: the owner may
 //     allow it, a participant may only deny;
 //   - people (D83): dev1 doesn't see admin's private sandbox; in a
-//     team-shared conversation dev1 works in its team sandbox.
+//     team-shared conversation dev1 works in its team sandbox;
+//   - a terminal (phase 3: <bx-terminal src> on the manager's tty, the page's
+//     frame token): Open terminal in the ▣ popover dials the fake's …/tty at
+//     the binding's working directory; typed input is echoed, `pwd` is that
+//     directory, Larger resizes the PTY (`stty size`), Close kills the shell
+//     at the manager; the manager refuses dev1 admin's private sandbox.
 // Driven as the tile's own document (/c/apps/agent/), like agentTemplate.
 const path = require('path');
 const { login, fs, log, settle, shot, dumpSelects, checker, noGocryptfs } = require('../lib');
@@ -116,6 +121,67 @@ const lastCard = (page, tool) => page.$$eval(`#timeline .tcard[data-tool="${tool
 });
 const badge = (page) => page.$eval('#sbxbadge', (e) => e.textContent.trim()).catch(() => '');
 
+const reQuote = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// the open terminal pane's buffer as text; its grid; wait for a line in it
+const termText = (page) => page.$eval('#sbxterm-pane bx-terminal', (t) => t.testApi().text()).catch(() => '');
+const termSize = (page) => page.$eval('#sbxterm-pane bx-terminal', (t) => t.testApi().size);
+const termLine = (page, re, timeout = 15000) => until(page, (src) => new RegExp(src, 'm')
+  .test(document.querySelector('#sbxterm-pane bx-terminal')?.testApi().text() || ''), re.source, timeout);
+// a manager call from the page as its person (xbin.fetch: the frame token)
+const mgr = (page, p, opt) => page.evaluate(async ([p, opt]) => {
+  const r = await xbin.fetch(`/api/apps/fakesbx/sbx${p}`, opt || {});
+  let body = null;
+  try { body = await r.json(); } catch { /* none */ }
+  return { status: r.status, body };
+}, [p, opt]);
+
+// terminal: the ▣ popover's Open terminal on the bound sandbox (id) at cwd —
+// echo, pwd, a resize the PTY sees, Close ending the shell at the manager.
+async function terminal(a, check, id, cwd) {
+  const dialled = [];
+  a.on('websocket', (w) => { if (w.url().includes('/sbx/')) dialled.push(w.url()); });
+  await a.click('#sbxbadge');
+  await a.waitForSelector('#sbxpop');
+  const offer = await a.$('#sbx-term');
+  check(!!offer && !(await offer.isDisabled()), `the popover offers Open terminal: the fake's hello says tty (${offer ? 'shown' : 'not shown'}${
+    (await a.$('#sbx-term-why')) ? ': ' + (await a.textContent('#sbx-term-why')) : ''})`);
+  if (!offer) return;
+  await offer.click();
+  await a.waitForSelector('#sbxterm-pane bx-terminal');
+  await until(a, () => document.querySelector('#sbxterm-pane bx-terminal').testApi().open, null, 15000);
+  const url = dialled.at(-1) || '';
+  check(url.includes(`/api/apps/fakesbx/sbx/sandboxes/${id}/tty?cwd=${encodeURIComponent(cwd)}&frame=`),
+    `it dials the manager's tty through xbind with the page's frame token, at the binding's cwd (${url.replace(/frame=[^&]+/, 'frame=…')})`);
+  await termLine(a, /[$#] ?$/);
+  await a.click('#sbxterm-pane bx-terminal');
+  await a.keyboard.type('echo hi-from-tty');
+  await a.keyboard.press('Enter');
+  await termLine(a, /^hi-from-tty\s*$/);
+  check(/echo hi-from-tty/.test(await termText(a)), 'typed `echo hi-from-tty`: the shell echoes the command and prints hi-from-tty');
+  await a.keyboard.type('pwd');
+  await a.keyboard.press('Enter');
+  await termLine(a, new RegExp(`^${reQuote(cwd)}\\s*$`));
+  check(true, `pwd in the terminal is the binding's working directory (${cwd})`);
+  await shot(a, 'agent-sandbox-terminal', { fullPage: false });
+  const before = await termSize(a);
+  await a.click('#sbxterm-max');
+  await until(a, (b) => { const s = document.querySelector('#sbxterm-pane bx-terminal').testApi().size; return s.cols > b.cols && s.rows > b.rows; }, before, 10000);
+  const after = await termSize(a);
+  await a.click('#sbxterm-pane bx-terminal'); // the keys go to the terminal again, not the ⤢ button
+  await a.keyboard.type('stty size');
+  await a.keyboard.press('Enter');
+  await termLine(a, new RegExp(`^${after.rows} ${after.cols}\\s*$`));
+  check(true, `Larger: the PTY follows the pane (${before.cols}×${before.rows} → ${after.cols}×${after.rows}, stty size agrees)`);
+  await shot(a, 'agent-sandbox-terminal-max', { fullPage: false });
+  const running = async () => ((await mgr(a, `/sandboxes/${id}/execs`)).body?.execs || []).filter((e) => e.tty && e.state === 'running');
+  check((await running()).length === 1, `the manager lists the terminal's exec, running (${JSON.stringify((await mgr(a, `/sandboxes/${id}/execs`)).body).slice(0, 200)})`);
+  await a.click('#sbxterm-close');
+  await until(a, () => !document.getElementById('sbxterm-pane'));
+  let left = [];
+  for (let i = 0; i < 40; i++) { left = await running(); if (!left.length) break; await a.waitForTimeout(250); }
+  check(left.length === 0, `Close ends the shell at the manager (${left.length} tty exec(s) still running)`);
+}
+
 async function agentSandbox(browser) {
   const { check, skip, done } = checker('agent-sandbox');
   if (noGocryptfs()) { skip(`apps/agent is held: ${noGocryptfs()}`); return done(); }
@@ -192,6 +258,9 @@ async function agentSandbox(browser) {
     const ran2 = await turn(a, 'sandbox pwd again', 'Ran: ');
     check(ran2 === `Ran: ${home}`, `the next turn works at the new cwd (${ran2})`);
 
+    // a terminal in it, at that working directory
+    await terminal(a, check, boxRef.split('|').pop(), home);
+
     // write, edit, and what the file says now
     check((await turn(a, 'sandbox write', 'Wrote it.')) !== '', '"sandbox write": the agent wrote hello.txt');
     const wcard = await lastCard(a, 'write');
@@ -252,6 +321,17 @@ async function agentSandbox(browser) {
     check(!drows.includes(boxRef) && drows.includes(teamRef), `dev1's Sandboxes dialog: ${TEAM}, not ${BOX}`);
     await shot(d, 'agent-sandbox-dev1-dialog', { fullPage: false });
     await closeDialog(d);
+    // the manager itself refuses dev1 admin's private sandbox: a page's call carries its verified person
+    const boxId = boxRef.split('|').pop();
+    const peek = await mgr(d, `/sandboxes/${boxId}`);
+    check([403, 404].includes(peek.status), `the manager refuses dev1's page admin's private ${BOX} (${peek.status} ${JSON.stringify(peek.body).slice(0, 120)})`);
+    const sock = await d.evaluate((id) => new Promise((res) => {
+      const w = xbin.ws(`/api/apps/fakesbx/sbx/sandboxes/${id}/tty`);
+      w.onopen = () => { w.close(); res('opened'); };
+      w.onclose = () => res('refused');
+      setTimeout(() => res('timeout'), 10000);
+    }), boxId);
+    check(sock === 'refused', `…and a terminal onto it (${sock})`);
 
     await d.goto(`${URL}/c/apps/agent/#c=${teamId}`);
     await d.waitForSelector('#msg', { timeout: 30000 });

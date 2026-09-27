@@ -7,7 +7,9 @@
 // Manage…), and the pushed Sandboxes screens: the list with the lifecycle
 // actions your rights allow, and the create form. What they say is
 // model/sandboxes.js, what they do app.sbx (model/sandbox-store.js); the web
-// draws the same from sandboxes.js. "Open terminal" waits for phase 3.
+// draws the same from sandboxes.js — and a terminal, which this view leaves
+// out (app.sbx.tty stays null: the app's terminal dials only the tile's own
+// routes; model/features.js DIFFERENCES.native).
 import { html, repeat, nothing } from '/vendor/xb-native.js';
 import * as S from '../model/sandboxes.js';
 import { ctx, fail, guard, push, ui } from './ui.js';

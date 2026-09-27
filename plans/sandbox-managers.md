@@ -232,7 +232,17 @@ In order:
 ## Phase 3 — the tiles
 
 1. `<bx-terminal src>`: aimed at a manager's `tty` with the page's frame
-   token; the terminal wire documented as reusable.
+   token; the terminal wire documented as reusable. *Landed*: `src` on the
+   element (`web/term-src.js`: a same-host path through `xbin.ws`, a drop
+   reattaching to the same exec on a manager's route, an `exit` frame or a
+   clean close ending it, as the app's terminal does), docs/protocol.md
+   §The terminal wire, and the agent template's **Open terminal** (the ▣
+   popover and a Sandboxes row; ✕ DELETEs the exec at the manager). The
+   page dials the manager itself, so the manager checks the verified
+   person. The native view has none: the app's `terminal` dials only the
+   tile's own routes, and relaying through the agent's backend would make
+   the person asserted (a D96 difference; an app release that takes a
+   bound interface's URL would close it).
 2. A conformance suite any manager can run (`sdk/sandboxcontract`; the
    fakesandbox suite moves there). *Landed*, with its groundwork: `sdk/ws`
    (a standard-library WebSocket in the SDK, checked against gorilla both

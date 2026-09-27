@@ -36,6 +36,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
   A sandbox manager's `tty`, the xbin app's `terminal` and
   `<bx-terminal src>` all use it.
+- **Agent template: a terminal in a coding sandbox.** Where the sandbox's
+  manager offers `tty`, the ▣ popover has **Open terminal** (at the
+  conversation's working directory) and a Sandboxes row has **Terminal**.
+  It opens a pane with `<bx-terminal src>` on the manager's route, dialled
+  by the page itself, so the manager applies its own per-person rules to
+  you.
+  - It is offered only for a sandbox you may use yourself that runs or can
+    start; for an archived one it says to thaw it first.
+  - **⤢** makes the pane larger. When the shell exits, the pane offers
+    **New shell**.
+  - **✕** ends the shell (`DELETE …/execs/{id}` at the manager).
+  - Web only: the app's `terminal` dials only a tile's own routes. This is
+    a listed parity difference (D96).
 - **SDK: WebSocket on the standard library (`sdk/ws`,
   [sdk.md](sdk.md)).** A client and server — `ws.Dial` and `ws.Upgrade` —
   with text and binary messages, fragments reassembled, pings answered,

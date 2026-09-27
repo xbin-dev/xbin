@@ -3,8 +3,9 @@
 // chat's — only where the class has the sandbox toolset), the ▣ badge (the
 // active sandbox and its working directory, and why a binding no longer
 // resolves), the Sandboxes dialog's rows (state, manager, egress, owner, the
-// actions your rights allow) and the create form (a manager's images, sizes
-// and egress, as the class allows them). Pure functions of GET /sandboxes, a
+// actions your rights allow), a terminal onto one (its manager's `tty`, the
+// web view only) and the create form (a manager's images, sizes and egress,
+// as the class allows them). Pure functions of GET /sandboxes, a
 // class (GET /classes, or a run view's `class`) and a run's view: no lit, no
 // DOM, no calls — model/sandbox-store.js keeps the state and makes the calls
 // (API.md "Coding sandboxes").
@@ -309,6 +310,57 @@ export function viaConv(s, conv) {
   return s && !(s.canUse || s.canManage) && talks(conv) && heldHere(conv, s) ? rootOf(conv) : undefined;
 }
 
+// --- terminals: a manager's `tty` (docs/sandbox-manager.md) --------------------------
+
+// endpointOf: the page's endpoint for a manager (provider: <tile>[#inst]),
+// from its `sandboxes` slot (xbin.iface('sandboxes').endpoints: {provider,
+// instance?, url}), or null.
+export function endpointOf(eps, provider) {
+  return (eps || []).find((e) => e && e.url && (e.instance ? `${e.provider}#${e.instance}` : e.provider) === provider) || null;
+}
+
+// A terminal opens in a sandbox that runs or can start (a stopped one starts
+// on it; an archived one is thawed first).
+const TTY_STATES = new Set(['running', 'stopped', 'starting']);
+
+// terminalSrc: the manager route that starts a terminal (the login shell) in
+// sandbox id at cwd ('' = its workdir) — what <bx-terminal src> dials.
+export function terminalSrc(ep, id, cwd = '') {
+  const c = String(cwd || '').trim();
+  return `${String(ep.url).replace(/\/+$/, '')}/sbx/sandboxes/${encodeURIComponent(id)}/tty${c ? '?cwd=' + encodeURIComponent(c) : ''}`;
+}
+// execSrc: that manager's route for one exec of the sandbox (DELETE ends it).
+export const execSrc = (ep, id, eid) => `${String(ep.url).replace(/\/+$/, '')}/sbx/sandboxes/${encodeURIComponent(id)}/execs/${encodeURIComponent(eid)}`;
+
+// terminal: "Open terminal" for the sandbox ref at cwd — {shown, why, src,
+// base (the manager's url), id, name, cwd, manager, label}. eps: the page's
+// endpoints for its `sandboxes` slot; a view that draws no terminal passes
+// none (null: not shown). Shown where its manager's hello offers `tty` (and
+// the sandbox does not leave it out); offered ('' why) when the page is
+// bound to that manager, you may use the sandbox yourself — the page dials
+// the manager as you, so the manager applies its per-person rules, and
+// acting through a conversation doesn't reach it — and it runs or can start.
+export function terminal(list, ref, eps, cwd = '') {
+  const L = list || listOf(null);
+  const { provider, id } = splitRef(ref);
+  const s = find(L, ref);
+  const m = L.managers.find((x) => x.provider === ((s && s.provider) || provider));
+  const tty = !!m && (m.caps || []).includes('tty') && !(s && Array.isArray(s.caps) && !s.caps.includes('tty'));
+  const name = nameOf(s) || id;
+  const out = { shown: !!eps && tty, why: '', src: '', base: '', ref, id: (s && s.id) || id, name, cwd: String(cwd || '').trim(),
+    manager: (s && s.manager) || (m && m.title) || provider, label: 'Open terminal' };
+  if (!out.shown) return { ...out, why: !eps ? 'this view opens no terminals' : `its manager (${out.manager}) offers no terminals` };
+  const ep = endpointOf(eps, (s && s.provider) || provider);
+  const why = !s ? 'gone — its manager no longer has it'
+    : m.ok === false ? `its manager (${out.manager}) is unavailable`
+    : !ep ? 'this page is not bound to its manager — reload it'
+    : !s.canUse ? 'you may not use it yourself'
+    : !TTY_STATES.has(s.state || '') ? `it is ${STATES[s.state] || s.state || 'not ready'}${s.state === 'archived' ? ' — thaw it first' : ''}`
+    : '';
+  if (why) return { ...out, why };
+  return { ...out, src: terminalSrc(ep, out.id, out.cwd), base: ep.url };
+}
+
 // sandboxRows: the Sandboxes dialog — every sandbox you may see, yours
 // first, then by when it was last active; each with the actions your rights
 // allow: start/stop/thaw (who may use or manage it — or, for one the open
@@ -319,8 +371,10 @@ export function viaConv(s, conv) {
 // private one goes into a conversation other people are in); opts.cls at
 // home: "Use for a new chat". opts.order: the refs in the order a view shows
 // them — kept while it is open (a row never moves under the cursor), the
-// ones it hasn't shown yet after them. "Open terminal" waits for phase 3 (a
-// bx-terminal src): not offered.
+// ones it hasn't shown yet after them. opts.tty: the page's endpoints for
+// its `sandboxes` slot — "Terminal" where terminal() offers one (at the
+// working directory the open conversation has it at; else its workdir); a
+// view without terminals passes none.
 export function sandboxRows(list, me, opts = {}) {
   const conv = opts.conv || null;
   const cls = conv ? conv.class : opts.cls;
@@ -349,6 +403,11 @@ export function sandboxRows(list, me, opts = {}) {
     if (use && st === 'archived') acts.push({ id: 'thaw', label: 'Thaw', ...through });
     if (s.canManage && (st === 'running' || st === 'stopped') && capsOf(s, L).includes('archive')) {
       acts.push({ id: 'archive', label: 'Archive', confirm: `Archive the sandbox “${name}”? It stops, and thawing it takes a while.` });
+    }
+    if (opts.tty) {
+      const cwd = (conv && attachedOf(conv).find((a) => a.ref === s.ref) || {}).cwd || '';
+      const t = terminal(L, s.ref, opts.tty, cwd);
+      if (t.shown && !t.why) acts.push({ id: 'terminal', label: 'Terminal', cwd: t.cwd });
     }
     if (s.canEdit) acts.push(s.visibility === 'team' ? { id: 'private', label: 'Make private' } : { id: 'team', label: 'Share with the team' });
     if (s.canManage) {
