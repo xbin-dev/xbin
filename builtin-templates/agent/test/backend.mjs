@@ -140,7 +140,13 @@ export function STUB(seed) {
     }), { headers: { 'Content-Type': 'text/event-stream' } })],
     ['POST', /\/runs\/(\d+)\/message$/, () => json({ ok: 'true', inboxId: 1, queued: false })],
     ['POST', /\/runs\/(\d+)\/interrupt$/, () => json({ ok: 'true', returned: [] })],
-    ['POST', /\/runs\/(\d+)\/approve$/, () => json({ ok: 'true' })],
+    // as _backend/inbox.go: a verdict naming an ask that is no longer pending is refused
+    ['POST', /\/runs\/(\d+)\/approve$/, (m, o) => {
+      const b = JSON.parse((o && o.body) || '{}');
+      const now = ((window.__views[+m[1]] || {}).run || window.__runs.find((r) => r.id === +m[1]) || {}).pendingState?.park;
+      if (b.park && now && b.park !== now) return json({ error: 'that approval is no longer pending — the agent is asking something else now' }, 409);
+      return json({ ok: 'true' });
+    }],
     ['DELETE', /\/runs\/(\d+)\/inbox\/(\d+)$/, () => json({ ok: 'true' })],
     ['GET', /\/halt$/, () => json({ on: false })],
     ['GET', /\/me$/, () => json(seed.me || { kind: 'user', user: 'admin', level: 'terminal', manager: true, halted: false })],

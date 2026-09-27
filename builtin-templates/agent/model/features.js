@@ -79,7 +79,7 @@ export const FEATURES = {
   'chat.queue.takeBack': 'take a queued message back',
 
   // Asking
-  'ask.approval': 'an approval card: the calls it wants to run, approve or deny',
+  'ask.approval': 'an approval card: the calls it wants to run, approve or deny; a verdict refused because the ask is gone (409) says so',
   'ask.grant': 'a grant card (D111): the agent asks to read your other conversations — its owner allows it once or here for an hour; others may only deny',
   'ask.question': 'the agent\'s question, answered by your next message',
 

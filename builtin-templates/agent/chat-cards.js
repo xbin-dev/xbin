@@ -132,6 +132,7 @@ function agentTpl(b, ui, depth) {
       <span class="tw">${open ? '▾' : '▸'}</span>
     </div>
     ${b.pendingApproval ? approvalTpl(b.pendingApproval, (yes) => ui.act.approve(b.childId, yes), 'The subagent wants to run') : nothing}
+    ${approveNoteTpl(ui, b.childId)}
     ${open ? html`<div class="acb">
       ${b.task ? html`<div class="task ${ui.isOpen(b.id + ':task', false) ? 'on' : ''}" @click=${() => ui.toggle(b.id + ':task', false)}>
         <span class="k">task</span> ${b.task}</div>` : nothing}
@@ -177,6 +178,13 @@ export function approvalTpl(calls, decide, lead = 'The agent wants to run', gran
   </div>`;
 }
 
+// approveNoteTpl says why a verdict on runId's ask was refused (its ask is
+// gone — Session.noteApprove), for a few seconds.
+function approveNoteTpl(ui, runId) {
+  const note = runId != null && ui.approveNote ? ui.approveNote(runId) : '';
+  return note ? html`<div class="anote muted small" role="status">⚠ ${note}</div>` : nothing;
+}
+
 // sessionTpl is the whole chat of the selected run.
 export function sessionTpl(s, ui) {
   const r = s.run || {};
@@ -188,6 +196,7 @@ export function sessionTpl(s, ui) {
     ${blocksTpl(s.blocks, ui)}
     ${r.status === 'waiting_input' && ps.kind === 'approval'
       ? approvalTpl(ps.toolCalls, (yes, how) => ui.act.approve(r.id, yes, how, ps.park), undefined, grantAsk(r, ui.who ? ui.who() : null)) : nothing}
+    ${approveNoteTpl(ui, r.id)}
     ${r.status === 'waiting_input' && ps.kind !== 'approval' && r.result
       ? html`<div class="ask"><b>The agent is asking:</b><div class="md">${unsafeHTML(md(r.result))}</div>
           <div class="muted small">answer below to continue</div></div>` : nothing}

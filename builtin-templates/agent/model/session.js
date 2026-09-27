@@ -48,7 +48,10 @@ export class Session {
     };
     this.ui.act.loadChild = (id) => this.loadChild(id);
     this.ui.file = (msgId, f) => this.fileState(msgId, f);
-    this.ui.act.approve = (id, yes, grant, park) => this.approve(id, yes, grant, park);
+    // a refused verdict (the ask is gone: 409) is said by the card, never thrown at the page
+    this.ui.act.approve = (id, yes, grant, park) => this.approve(id, yes, grant, park).catch((e) => this.noteApprove(id, e));
+    this.approveNotes = new Map(); // run id → why its last verdict was refused ({text, timer})
+    this.ui.approveNote = (id) => this.approveNotes.get(id)?.text || '';
     this.ui.who = () => null; // the page's GET /me (the app sets it): who may allow a grant
     this.pending = false;
   }
@@ -318,11 +321,32 @@ export class Session {
   // agent has moved on to another ask, the server refuses (409) rather than
   // spend the click on that one.
   async approve(runId, yes, grant, park) {
+    this.clearApproveNote(runId);
     park = park || this.views.get(runId)?.run?.pendingState?.park;
     const body = { approve: yes };
     if (grant) body.grant = grant;
     if (park) body.park = park;
     await api(`/runs/${runId}/approve`, jbody(body, 'POST'));
+  }
+
+  // noteApprove keeps why a verdict was refused — typically a 409: the ask
+  // it answered is gone (answered by someone else, or the agent moved on) —
+  // for the view to say beside the card for a few seconds; the run event
+  // that follows redraws the card itself.
+  noteApprove(runId, e) {
+    this.clearApproveNote(runId, false);
+    const text = String((e && e.message) || e || 'the verdict was not sent');
+    const timer = setTimeout(() => this.clearApproveNote(runId), 8000);
+    this.approveNotes.set(runId, { text: text.charAt(0).toUpperCase() + text.slice(1), timer });
+    this.changed();
+  }
+
+  clearApproveNote(runId, repaint = true) {
+    const n = this.approveNotes.get(runId);
+    if (!n) return;
+    clearTimeout(n.timer);
+    this.approveNotes.delete(runId);
+    if (repaint) this.changed();
   }
 
   // revokeGrant takes a grant back before it expires; the run event that

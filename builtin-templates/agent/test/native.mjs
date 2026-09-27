@@ -164,6 +164,10 @@ await view.locator('xb-sheet xb-row:has-text("send the invoices") .row-main').cl
 ok('the approval card', await shown('xb-approval:has-text("mcp:mail:send")'));
 await view.locator('xb-approval button:has-text("Approve")').click();
 ok('Approve is sent, naming the ask', await page.waitForFunction(() => window.__calls.some((c) => c.url.endsWith('/runs/3/approve') && JSON.parse(c.body).approve === true && JSON.parse(c.body).park === 'p3')).then(() => true, () => false));
+// the ask is gone before its event came: the refusal (409) is a notice, not an error
+await page.evaluate(() => { const r = window.__views[3].run; r.pendingState = { ...r.pendingState, park: 'p4' }; });
+await view.locator('xb-approval button:has-text("Approve")').click();
+ok('a refused verdict says why', await shown('xb-notice:has-text("no longer pending")'));
 
 // a coding sandbox (D115): ▣ in the subtitle, the card's outcome, the toolbar's picker, ⋯ → Sandbox, Manage
 const subtitle = () => page.evaluate(() => window.navOf().c[window.navOf().c.length - 1].p.subtitle || '');

@@ -188,7 +188,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   optional `park` (409 when that ask is gone; without it, the one pending
   now), and a verdict queued for one ask is dropped rather than spent on the
   next — a participant's second click can no longer allow the owner-only
-  sandboxes or threads grant. `PUT /classes` refuses (400, naming them) to
+  sandboxes or threads grant. A click on an ask that is gone says so beside
+  the card (the web threw it as an unhandled error). `PUT /classes` refuses (400, naming them) to
   make mixed a class a public-data trigger runs in, or to delete a class a
   trigger or a channel's `privateClass`/`webClass` names; a public event
   into a class that is mixed now is refused (`reason: "class-mixed"`). A

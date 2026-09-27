@@ -72,6 +72,13 @@ await page.click('.ask.approve.grant .btn:has-text("Deny")');
 await page.waitForFunction(() => window.__calls.some((c) => c.method === 'POST' && c.url.endsWith('/runs/1/approve')));
 ok('deny is a plain verdict', await page.evaluate(() => window.__calls.find((c) => c.url.endsWith('/runs/1/approve')).body) === JSON.stringify({ approve: false, park: 'p1' }));
 
+// a click on an ask that is gone (the agent moved on before its event came):
+// the 409 is said beside the card, never an unhandled rejection
+await page.evaluate(() => { window.__views[1].run.pendingState = { ...window.__views[1].run.pendingState, park: 'p2' }; });
+await page.click('.ask.approve.grant .btn:has-text("Deny")');
+await page.waitForSelector('.anote');
+ok('a refused verdict says why, inline', (await page.textContent('.anote')).includes('That approval is no longer pending'), await page.textContent('.anote'));
+
 ok('no page errors', errors.length === 0, errors.join(' | '));
 await browser.close();
 done('grant');
