@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -84,6 +85,10 @@ type goBuild struct {
 	out     string         // the binary (-o)
 	outDir  string         // the one directory of .xbin/build the build may write
 	extra   []sandbox.Bind // after the standard binds: other components' code, a go.work, masks
+	// gocache and modcache are the build's Go caches; "" = the tile's own
+	// (goCaches), shared by its deployments. A protected primary's build
+	// has its own (07-runtime §3.4).
+	gocache, modcache string
 }
 
 // buildConfined compiles c's work tree in a throwaway sandbox (runGoBuild).
@@ -117,19 +122,42 @@ func (r *Runner) buildConfined(c *registry.Component, entry, out string) error {
 // tree at the tile's path (g.dirFrom, confine's DirFrom), which only a
 // sandbox can: a direct run refuses it (confine.ErrNeedsIsolation).
 func (r *Runner) runGoBuild(c *registry.Component, entry string, g goBuild) error {
-	tc, err := hostToolchain()
+	cmd, dirs, err := r.goBuildCmd(c, entry, g)
 	if err != nil {
-		return &BuildError{Output: "go toolchain: " + err.Error()}
-	}
-	gocache, modcache := goCaches(r.Root, c.Path)
-	dirs := []string{gocache, modcache}
-	if g.dirFrom == "" {
-		dirs = append(dirs, g.outDir) // a checkpoint build's is made beneath its artifacts dir
+		return err
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err
 		}
+	}
+	release := buildTurn(c) // a non-primary deployment's build waits its turn
+	defer release()
+	res, err := confine.Run(context.Background(), cmd)
+	if err != nil {
+		if _, ok := confine.ExitCode(err); ok || strings.Contains(err.Error(), "timed out") {
+			return &BuildError{Output: strings.TrimSpace(string(res.Stdout) + string(res.Stderr) + "\n" + timeoutNote(err))}
+		}
+		return fmt.Errorf("build sandbox: %w", err)
+	}
+	return nil
+}
+
+// goBuildCmd is runGoBuild's confined run, and the directories it writes
+// that must exist before it starts. It is pure: it reads the toolchain and
+// the host paths it binds, and makes and runs nothing.
+func (r *Runner) goBuildCmd(c *registry.Component, entry string, g goBuild) (confine.Cmd, []string, error) {
+	tc, err := hostToolchain()
+	if err != nil {
+		return confine.Cmd{}, nil, &BuildError{Output: "go toolchain: " + err.Error()}
+	}
+	gocache, modcache := goCaches(r.Root, c.Path)
+	if g.gocache != "" {
+		gocache, modcache = g.gocache, g.modcache
+	}
+	dirs := []string{gocache, modcache}
+	if g.dirFrom == "" {
+		dirs = append(dirs, g.outDir) // a checkpoint build's is made beneath its artifacts dir
 	}
 	binds := []sandbox.Bind{
 		confine.RO(tc.goroot),
@@ -166,18 +194,11 @@ func (r *Runner) runGoBuild(c *registry.Component, entry string, g goBuild) erro
 	if os.Getenv("XBIN_BUILD_NET") == "host" {
 		net = confine.NetHost
 	}
-	res, err := confine.Run(context.Background(), confine.Cmd{
+	return confine.Cmd{
 		Argv: []string{tc.gobin, "build", "-buildvcs=false", "-o", g.out, entry},
 		Dir:  c.Dir, DirFrom: g.dirFrom, ReadOnlyDir: true, Binds: binds, Env: env, Net: net,
 		Timeout: 20 * time.Minute, MaxOutput: 1 << 20,
-	})
-	if err != nil {
-		if _, ok := confine.ExitCode(err); ok || strings.Contains(err.Error(), "timed out") {
-			return &BuildError{Output: strings.TrimSpace(string(res.Stdout) + string(res.Stderr) + "\n" + timeoutNote(err))}
-		}
-		return fmt.Errorf("build sandbox: %w", err)
-	}
-	return nil
+	}, dirs, nil
 }
 
 // goCaches are a tile's own Go build and module caches, shared by its
@@ -200,6 +221,34 @@ func timeoutNote(err error) string {
 // sandbox when set in xbind's environment (GOFLAGS too, extended above).
 var passGoEnv = []string{"GOPRIVATE", "GONOPROXY", "GONOSUMDB", "GONOSUMCHECK", "GOSUMDB",
 	"GOINSECURE", "GOVCS", "GOTOOLCHAIN", "GOAUTH", "GOAMD64", "GOARM64", "GOEXPERIMENT"}
+
+// nonPrimaryBuilds is the one build limiter (07-runtime §10.3; P25;
+// 06-security T10 item 4): at most max(1, NumCPU/4) builds for non-primary
+// deployments at once, workspace-wide, shared by every tile: Go builds and
+// env-layer setups. A primary's build never waits for it: it builds as
+// every build does today, so the zero state keeps its timing and the
+// primary always goes first.
+var nonPrimaryBuilds = make(chan struct{}, max(1, runtime.NumCPU()/4))
+
+// buildTurn waits for a turn of the build limiter for a build of view c,
+// and returns its release. A build for the primary (c.Deployment empty)
+// takes no turn.
+func buildTurn(c *registry.Component) func() {
+	if c.Deployment == "" {
+		return func() {}
+	}
+	return NonPrimaryBuildTurn()
+}
+
+// NonPrimaryBuildTurn waits for a turn of the build limiter and returns its
+// idempotent release, for work on a non-primary deployment's code that
+// counts as a build outside the runner: the deployments plane's
+// materialization of its checkpoint (07-runtime §10.3).
+func NonPrimaryBuildTurn() func() {
+	nonPrimaryBuilds <- struct{}{}
+	var once sync.Once
+	return func() { once.Do(func() { <-nonPrimaryBuilds }) }
+}
 
 // realDir reports whether p is a directory, not a symlink to one.
 func realDir(p string) bool {

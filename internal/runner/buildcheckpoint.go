@@ -102,9 +102,17 @@ func fullTree(s string) bool {
 // c/<tree>/ with its build.json once the build succeeds, so a crash never
 // leaves a partial artifact that looks valid.
 func (r *Runner) buildCheckpointGo(c *registry.Component, tree, root string) (string, error) {
-	base := filepath.Join(r.Root, ".xbin", "build", util.CompKey(c.Path))
-	final := filepath.Join(base, "c", tree, "bin")
-	old, usable := artifactRecord(base, tree)
+	return r.buildCheckpointGoIn(c, tree, root, r.sharedProducts(c.Path))
+}
+
+// buildCheckpointGoIn is buildCheckpointGo with the products in pr: the
+// tile's shared namespace, or its protected primary's (07-runtime §3.4),
+// whose artifact reuses only an artifact of that namespace and whose build
+// writes only its own directories and caches.
+func (r *Runner) buildCheckpointGoIn(c *registry.Component, tree, root string, pr products) (string, error) {
+	base := pr.base
+	final := filepath.Join(base, pr.arts, tree, "bin")
+	old, usable := artifactRecordIn(base, pr.arts, tree)
 	if old != nil && old.Tile != c.Path {
 		old, usable = nil, false // another tile's under a colliding CompKey: rebuilt, nothing to compare
 	}
@@ -115,7 +123,7 @@ func (r *Runner) buildCheckpointGo(c *registry.Component, tree, root string) (st
 	if err != nil {
 		return "", err
 	}
-	cfd, err := artifactsDir(base)
+	cfd, err := openArtifacts(base, pr.arts)
 	if err != nil {
 		return "", fmt.Errorf("checkpoint artifacts: %w", err)
 	}
@@ -124,7 +132,7 @@ func (r *Runner) buildCheckpointGo(c *registry.Component, tree, root string) (st
 	if err := unix.Mkdirat(cfd, tmpName, 0o755); err != nil {
 		return "", fmt.Errorf("checkpoint artifacts: %w", err)
 	}
-	tmp := filepath.Join(base, "c", tmpName)
+	tmp := filepath.Join(base, pr.arts, tmpName)
 	placed := false
 	defer func() {
 		if !placed {
@@ -138,10 +146,10 @@ func (r *Runner) buildCheckpointGo(c *registry.Component, tree, root string) (st
 			return "", fmt.Errorf("checkpoint build's go.work: %w", err)
 		}
 		defer unix.Unlinkat(cfd, name, 0)
-		extra = append(extra, confine.At(filepath.Join(base, "c", name), filepath.Join(r.Root, "go.work"), true))
+		extra = append(extra, confine.At(filepath.Join(base, pr.arts, name), filepath.Join(r.Root, "go.work"), true))
 	}
 	start := time.Now()
-	err = r.runGoBuild(c, goEntry(c.Manifest), goBuild{dirFrom: root, out: filepath.Join(tmp, "bin"), outDir: tmp, extra: extra})
+	err = r.runGoBuild(c, goEntry(c.Manifest), goBuild{dirFrom: root, out: filepath.Join(tmp, "bin"), outDir: tmp, extra: extra, gocache: pr.gocache, modcache: pr.modcache})
 	if err != nil {
 		return "", err
 	}
@@ -155,10 +163,10 @@ func (r *Runner) buildCheckpointGo(c *registry.Component, tree, root string) (st
 	if err := unix.Renameat(cfd, tmpName, cfd, tree); err != nil {
 		// c/<tree> is taken: by a concurrent build of the same tree that
 		// placed its artifact first (use it), or by a stale one (replace it)
-		if again, ok := artifactRecord(base, tree); ok && again.Tile == c.Path {
+		if again, ok := artifactRecordIn(base, pr.arts, tree); ok && again.Tile == c.Path {
 			return final, nil
 		}
-		if err := os.RemoveAll(filepath.Join(base, "c", tree)); err != nil {
+		if err := os.RemoveAll(filepath.Join(base, pr.arts, tree)); err != nil {
 			return "", err
 		}
 		if err := unix.Renameat(cfd, tmpName, cfd, tree); err != nil {
@@ -173,7 +181,12 @@ func (r *Runner) buildCheckpointGo(c *registry.Component, tree, root string) (st
 // missing, without following a symlink: base (.xbin/build/<CompKey>) is
 // bound read-write into the tile's work-tree builds, so whatever else sits
 // at c was left by one and is removed.
-func artifactsDir(base string) (int, error) {
+func artifactsDir(base string) (int, error) { return openArtifacts(base, "c") }
+
+// openArtifacts opens the artifacts directory name beneath base as
+// artifactsDir opens c/: made when missing, never followed, and replaced
+// when something else sits there.
+func openArtifacts(base, name string) (int, error) {
 	if err := os.MkdirAll(base, 0o755); err != nil {
 		return -1, err
 	}
@@ -183,23 +196,23 @@ func artifactsDir(base string) (int, error) {
 	}
 	defer unix.Close(bfd)
 	for try := 0; try < 3; try++ {
-		fd, err := unix.Openat(bfd, "c", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		fd, err := unix.Openat(bfd, name, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 		switch {
 		case err == nil:
 			return fd, nil
 		case errors.Is(err, unix.ENOENT):
-			if err := unix.Mkdirat(bfd, "c", 0o755); err != nil && !errors.Is(err, unix.EEXIST) {
+			if err := unix.Mkdirat(bfd, name, 0o755); err != nil && !errors.Is(err, unix.EEXIST) {
 				return -1, err
 			}
 		case errors.Is(err, unix.ELOOP), errors.Is(err, unix.ENOTDIR):
-			if err := os.RemoveAll(filepath.Join(base, "c")); err != nil {
+			if err := os.RemoveAll(filepath.Join(base, name)); err != nil {
 				return -1, err
 			}
 		default:
 			return -1, err
 		}
 	}
-	return -1, errors.New("c/ keeps changing under the build")
+	return -1, errors.New(name + "/ keeps changing under the build")
 }
 
 // writeAt creates name beneath dirfd with data, never through a symlink.
@@ -246,7 +259,13 @@ const buildRecordMax = 1 << 20
 // under base, nil when there is none; usable says its binary is in place.
 // Nothing on the way is followed: c/ and c/<tree> must be directories.
 func artifactRecord(base, tree string) (rec *buildRecord, usable bool) {
-	f, err := fsutil.OpenIn(base, "c/"+tree, "build.json")
+	return artifactRecordIn(base, "c", tree)
+}
+
+// artifactRecordIn is artifactRecord for the artifacts directory arts
+// beneath base.
+func artifactRecordIn(base, arts, tree string) (rec *buildRecord, usable bool) {
+	f, err := fsutil.OpenIn(base, arts+"/"+tree, "build.json")
 	if err != nil {
 		return nil, false
 	}
@@ -256,7 +275,7 @@ func artifactRecord(base, tree string) (rec *buildRecord, usable bool) {
 	if err != nil || len(b) > buildRecordMax || json.Unmarshal(b, rec) != nil || rec.Tree != tree {
 		return nil, false
 	}
-	fi, err := os.Lstat(filepath.Join(base, "c", tree, "bin"))
+	fi, err := os.Lstat(filepath.Join(base, arts, tree, "bin"))
 	return rec, err == nil && fi.Mode().IsRegular()
 }
 
@@ -312,9 +331,16 @@ func (b *buildRecord) changedFrom(old *buildRecord) []string {
 	for _, m := range old.Modules {
 		was[m.Use] = m.Code
 	}
+	now := map[string]bool{}
 	for _, m := range b.Modules {
+		now[m.Use] = true
 		if was[m.Use] != m.Code {
 			d = append(d, fmt.Sprintf("module %s: %s → %s", m.Use, was[m.Use], m.Code))
+		}
+	}
+	for _, m := range old.Modules { // a protected restart matches every recorded input (07-runtime §3.4)
+		if !now[m.Use] {
+			d = append(d, fmt.Sprintf("module %s: %s → gone", m.Use, m.Code))
 		}
 	}
 	if !slices.Equal(old.Sum, b.Sum) {
