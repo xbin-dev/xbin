@@ -565,21 +565,30 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	if rest == "xbin" || strings.HasPrefix(rest, "xbin/") {
 		r2 := r.Clone(r.Context())
 		r2.URL.Path = "/" + strings.TrimPrefix(strings.TrimPrefix(rest, "xbin"), "/")
+		var h http.Handler = s.apiMux
+		dep, deny := s.classGate(r2) // non-primary principals: default-deny (deployclass.go)
+		if deny != nil {
+			h = deny
+		}
 		if auditable(r.Method, r2.URL.Path) {
 			aw := &auditWriter{ResponseWriter: w, status: http.StatusOK}
-			s.apiMux.ServeHTTP(aw, r2)
+			h.ServeHTTP(aw, r2)
 			// Who changed workspace governance, and did it take. Data-plane
 			// writes (prefs/kv) are excluded as noise; see auditable. A
-			// view-as session names the admin behind it too.
+			// view-as session names the admin behind it too, and a tile
+			// credential the deployment it acts in, when that isn't main.
 			p := auth.PrincipalOf(r)
 			args := []any{"who", p.From(), "method", r.Method, "path", r2.URL.Path, "status", aw.status}
 			if p.Impersonator != "" {
 				args = append(args, "impersonator", p.Impersonator)
 			}
+			if dep != "" {
+				args = append(args, "deployment", dep)
+			}
 			slog.Info("audit", args...)
 			return
 		}
-		s.apiMux.ServeHTTP(w, r2)
+		h.ServeHTTP(w, r2)
 		return
 	}
 	if s.ComponentAPI == nil {
