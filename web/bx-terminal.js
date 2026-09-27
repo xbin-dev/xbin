@@ -742,7 +742,7 @@ export class BxTerminal extends HTMLElement {
         if (!this.#ranInit) {
           const run = this.getAttribute('run');
           // binary, as typed input is: a text frame is control JSON, and
-          // anything else in one is dropped (internal/term/attach.go)
+          // anything else in one is dropped (internal/termwire)
           if (run) { this.#ranInit = true; try { this.#ws?.send(enc.encode(run + '\n')); } catch { } }
         }
         if (ctl.net) { this.#serverNet = ctl.net; this.setAttribute('net', ctl.net); }

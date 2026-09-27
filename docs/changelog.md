@@ -82,6 +82,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   binding tab, the tile popover and `bx doctor` show the classes. Also: a tile
   that declares two `net` slots now resolves the name-sorted first every time,
   instead of whichever map order gave.
+- **Terminals: a slow connection no longer reads as "shell ended"**
+  ([protocol.md](protocol.md) §`/ws/term`). A socket that fell too far
+  behind a terminal's output got `{"op":"exit"}` before it was closed, so
+  the pane closed as if the shell had ended while it ran on. Now it is closed
+  without one, and the terminal reattaches and replays the scrollback. The
+  exit frame comes only when the process ends and may carry `code` (or
+  `code: null` with `signal`); the session frame comes first on every
+  socket, also on a session that already ended, and may carry `sandbox`.
+  The same wire serves tile sandboxes' terminals, so a client of your own
+  should ignore fields it doesn't know.
 
 ## 2026-09-27
 

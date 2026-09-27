@@ -2274,12 +2274,22 @@ The frames are [the terminal wire](#the-terminal-wire) (below), with
 - **Text frames**: JSON control.
   - server → client: `{"op":"session","id":"…","net":"org","label":"org network
     (devs-net)","scopes":[{"id":"org","label":"…","desc":"…"},…],"netNote":"…",
-    "baseOutdated":false,"vm":false}` (first message; `vm` = a VM sandbox; `scopes` = what this caller may
+    "baseOutdated":false,"vm":false}` (first message — on every socket,
+    including one attached to a session that has already ended, where the
+    scrollback and the exit follow it; `vm` = a VM sandbox; `scopes` = what this caller may
     pick on this tile, `label` names the effective scope, `netNote` explains a
     clamp; `baseOutdated:true` ⇒ this terminal's persistent layer was built on
     an older base image — reset it via `/ws/term/env` to rebuild on the
     current base; `echoAck:true` ⇒ this xbind sends the `ack` and `pong`
-    frames below), `{"op":"exit"}` (shell ended), `{"op":"ack","n":N}` —
+    frames below; a tile sandbox's TTY, which speaks this wire too, adds
+    `sandbox` — the sandbox's id — so ignore fields you don't know),
+    `{"op":"exit"}` — the process ended (here, the shell), and the socket
+    closes after it. It may carry `"code":N`, or `"code":null` with
+    `"signal":"KILL"` when a signal ended the process (a tile TTY does; a
+    shell's exit here is bare). It is sent **only** when the process ended: a
+    socket that falls too far behind the output is closed **without** one —
+    the session lives on, so reattach (`?session=`) and the scrollback
+    replays. `{"op":"ack","n":N}` —
     the client's Nth **binary** frame on this socket reached the PTY at least
     50 ms ago, so whatever the application printed in answer precedes this
     frame (one ack covers every earlier frame; mosh's echo ack, the basis of

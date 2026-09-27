@@ -12,7 +12,7 @@ mount picture and the guards that hold it up.
 (who can see which tile) · [12-egress.md](12-egress.md) · reference:
 [/docs/isolation.md](/docs/isolation.md), [/docs/protocol.md](/docs/protocol.md)
 (`/ws/term` wire protocol — including the per-frame echo acks and the
-ping/pong the browser's predictive echo runs on, `internal/term/attach.go`,
+ping/pong the browser's predictive echo runs on, `internal/termwire`,
 D70) · design records in the xbin repo: `terminal-tokens`, `runtime`,
 `component-env`; decisions D6/D16/D17/D17a/D18/D70.
 
