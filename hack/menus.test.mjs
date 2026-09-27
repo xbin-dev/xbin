@@ -31,6 +31,27 @@ const spy = (over = {}) => {
 };
 const labels = (items) => items.map((it) => (it.kind ? `<${it.kind}>` : it.label));
 const byLabel = (items, l) => items.find((it) => it.label === l);
+// Label-based lookups for the tile menu, so a line or square added elsewhere
+// in it doesn't shift what an assertion reads: the grid by kind, a square by
+// its label, a header's section by the header's label.
+const grid = (items) => items.find((it) => it.kind === 'grid');
+const cell = (items, l) => grid(items)?.cells.find((c) => c.label === l);
+const section = (items, header) => { // the lines under a header, up to the next separator or header; null without it
+  const at = items.findIndex((it) => it.kind === 'header' && it.label === header);
+  if (at < 0) return null;
+  const end = items.findIndex((it, i) => i > at && (it.kind === 'sep' || it.kind === 'header'));
+  return labels(items.slice(at + 1, end < 0 ? items.length : end));
+};
+// `want`'s labels all appear in `items`, in this order; other lines may sit between them
+const assertInOrder = (items, want, msg) => {
+  const got = labels(items);
+  let at = -1;
+  for (const l of want) {
+    const i = got.indexOf(l, at + 1);
+    assert.ok(i > at, `${msg}: "${l}" missing or out of order in ${JSON.stringify(got)}`);
+    at = i;
+  }
+};
 
 test('lifecycle predicates', () => {
   assert.equal(offloaded({ state: 'offloaded-full' }), true);
@@ -106,11 +127,14 @@ test('open-tile submenu: find box, recents, the rest sorted, open ones disabled'
 test('tile menu: panels, open/closed lines, view mode', () => {
   const { a, calls } = spy();
   const open = tileMenuItems('apps/a', state(), a);
-  assert.equal(open[0].kind, 'grid');
-  assert.deepEqual(open[0].cells.map((c) => c.label), ['terminal', 'logs', 'source', 'proposals']);
-  assert.equal(open[0].cells[3].badge, 2);
-  assert.deepEqual(labels(open).slice(1), ['<sep>', 'Close on this screen', 'Unpin into a window', 'Open full page'], 'no admin block without canAdminTile');
-  open[0].cells[0].action();
+  assert.equal(open[0].kind, 'grid', 'the squares lead the menu');
+  // exactly four squares: the phone sheet's grid is four columns (web/bx-menu.js), so a fifth would wrap
+  assert.deepEqual(grid(open).cells.map((c) => c.label), ['terminal', 'logs', 'source', 'proposals']);
+  assert.equal(cell(open, 'proposals').badge, 2);
+  assertInOrder(open, ['Close on this screen', 'Unpin into a window', 'Open full page'], 'an open tile\'s lines');
+  assert.equal(section(open, 'admin'), null, 'no admin block without canAdminTile');
+  assert.equal(byLabel(open, 'Disable'), undefined);
+  cell(open, 'terminal').action();
   byLabel(open, 'Close on this screen').action();
   byLabel(open, 'Unpin into a window').action();
   byLabel(open, 'Open full page').action();
@@ -132,8 +156,9 @@ test('tile menu: the admin block per lifecycle state', () => {
   const admin = { canAdminTile: () => true };
   const { a, calls } = spy();
   const enabled = tileMenuItems('apps/a', state(admin), a);
-  assert.deepEqual(labels(enabled).slice(5), ['<sep>', '<header>', 'Disable', 'Hide',
+  assert.deepEqual(section(enabled, 'admin'), ['Disable', 'Hide',
     'Access…', 'Runtime…', 'Vault…', 'Roles & grants…', 'Interfaces…', 'Backup…', 'Cron…']);
+  assertInOrder(enabled, ['Open full page', '<sep>', '<header>', 'Disable'], 'the admin block follows the tile\'s lines');
   assert.equal(byLabel(enabled, 'Disable').danger, true);
   byLabel(enabled, 'Disable').action();
   byLabel(enabled, 'Hide').action();
