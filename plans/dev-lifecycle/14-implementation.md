@@ -542,7 +542,12 @@ Every card includes these; a card states only what differs.
   `TestDeployLogConfined`, `TestDriftCountChangesNothingDurable`; confined
   `TestCheckpointFetchRemoteFlowH` (the branch carries no ignored file).
 - **Links.** `Log`, `AppendLog`, `Diff`, `Drift`, `ServeFetch` → WP-14b,
-  WP-15, WP-20. Nothing is written to a tile's repository (NP-12-7).
+  WP-15, WP-20. Nothing is written to a tile's repository (NP-12-7). WP-10's
+  store keeps no `refs/heads/deploy/*` (07-runtime §2.3): those live only in
+  the view repository. `Store` carries the shared pieces (`acquire`,
+  `script`, `forget`, `ViewDir`, `TreesDir`, `Caps`); the package doc lists
+  the methods WP-11's and WP-12's own files add. `capture.go` is 665 of 800:
+  add files, don't grow it.
 
 #### WP-13 plane-record · M · wave 1.1 · after WP-06
 - **Scope** (11-contract §10.1; 05-model §3, §4; 06-security T11, C10;
@@ -597,6 +602,34 @@ Every card includes these; a card states only what differs.
 - **Links.** Ops → WP-15. PO-7, PO-15. The plane has no store field and
   boot builds no store: WP-14b builds WP-10's lazy `Store` inside the plane
   from `Plane.Root`, since `boot.go` is closed (NP-14-2).
+- **From wave 1.1.**
+  - WP-13 took `TestRecordInvariantsRandomized` for the record half: the
+    plane half is a subtest of it or a function of another name.
+  - The record: `p.idx.commit(tile, expect, change)` and
+    `p.idx.remove(tile, expect)`, `expect < 0` meaning no compare-and-set
+    (the zero state has seq 0); `ErrRecordHeld`, `ErrRecordInert`,
+    `ErrStaleSeq` (with §1.14's stale-seq text). WP-13 built the plane side
+    of the three tile-life hooks.
+  - `PinnedPrimary` answers "not prepared" for every pinned primary until
+    WP-14b prepares checkpoint code in `Boot` with
+    `registry.ReadCheckpoint(materializedRoot)`; a read error fails the tile
+    closed (a zero `&registry.PinnedCode{}`, the error in its status), and a
+    `ManifestErr` means the checkpoint can't start, so a deploy of it is
+    refused before commit. The `View` hook calls
+    `p.Reg.View(c, registry.ViewCode{Deployment, Tree, Root})`, the
+    deployment named explicitly (WP-18).
+  - The store: `checkpoint.New(p.Root)`, lazily; `Source{Tile, WorkTree,
+    Nested}`; `Capture` with `Create` only on a committed opt-in; dry runs
+    use `Estimate` and `Estimate.Check(tile, store.Caps)`; errors
+    `ErrRefused` (`*Refusal`), `ErrRateLimited` (429,
+    `*RateLimited.RetryAfter`), `ErrNoStore`, `ErrBadID`,
+    `ErrUnknownCheckpoint`, `ErrAmbiguousID` (WP-10).
+  - Ops register from `init` with `register(op, Handler[R]{Subject, Run})`;
+    `Run` calls `p.Recheck(g, subjectNow)` where it commits and returns
+    `*Error` for refusals (WP-14a).
+  - `deployments` events: a reader form is exactly record `{op, what}` or
+    deploy `{op, deployment, checkpoint, result, phase, by}`; any other key
+    makes it a full form, which only the write audience receives (WP-21).
 
 #### WP-15 plane-api · M · wave 1.2, merged after WP-14b · after WP-07
 - **Scope** (11-contract §1). Generic handlers: decode a route's body into its
@@ -611,7 +644,19 @@ Every card includes these; a card states only what differs.
 - **Tests.** `TestDeploymentStateReadIsPure` (with the reader rows),
   `TestFetchRemoteReadGate`, `TestDiffCaptureNeedsTerminalLevel`, a handler
   test per route.
-- **Links.** Protocol prose for WP-29. PO-7, PO-14.
+- **Links.** Protocol prose for WP-29. PO-7, PO-14. From wave 1.1: an op
+  that isn't `deployments.Registered(op)` answers `reservedRoute`; otherwise
+  `NewRequest(op)`, `server.DecodeJSON`, `dp.Do(ctx, auth.PrincipalOf(r),
+  op, req)`, and a `*deployments.Error` answers `server.WriteError(w,
+  e.Status, e.Msg, e.Docs())`. Reads use `dp.Authorize` with `OpState`,
+  `OpLog`, `OpDiff`, `OpDiffWorkTree` or `OpFetch`, and `dp.Audience` picks
+  the full, deployment or reader view; `caller.can`, `allowed` and
+  `caller.manager` come from `dp.Can`, `dp.Allowed`, `dp.Manager`
+  (WP-14a); `Plane.Lookup` gives `Found{State, Record, Err}` (WP-13).
+  `TestOperationsNameTheRoutes` compares `deployments.go`'s POST literals
+  with WP-14a's acts table. The terminal's `xbin-deploy` remote escapes each
+  tile-path segment with `url.PathEscape` (WP-22), so the `{rest...}`
+  handler splits the decoded `PathValue`, never `RawPath`.
 
 #### WP-16a runtime-codefor · L · wave 1.2 · after WP-01a, WP-05
 - **Scope** (07-runtime §1, §7, §9). Every restart path builds from
@@ -620,7 +665,10 @@ Every card includes these; a card states only what differs.
 - **Owns.** `internal/runner/{runner,inspect}.go`, `pinned_test.go`.
 - **Tests.** Seam rows 16–22 and 30, `TestArtifactPerCheckpoint`.
 - **Links.** `Artifact`, `RootsInUse` → WP-11, WP-16b. PO-3, PO-11, PO-12;
-  rows 1–15 unchanged.
+  rows 1–15 unchanged. `Registry.View` takes the deployment explicitly,
+  `registry.ViewCode{Deployment, Tree, Root}`, since `runner.Code` names
+  none; views and cached checkpoints are shared pointers, never mutated
+  (WP-18).
 
 #### WP-16b runtime-deploy · L · wave 1.2 · after WP-01a, WP-05
 - **Scope** (07-runtime §8.1–§8.7, §11, §12). `Runner.Deploy` on the build
@@ -654,7 +702,13 @@ Every card includes these; a card states only what differs.
   checkpoint case); confined `TestConfinedBuildOfCheckpointAtCanonicalPath`,
   `TestPinnedBackendSeesCheckpoint` (code half, with a VM variant that skips
   without KVM), `TestNestedComponentBoundAfterCheckpoint`.
-- **Links.** PO-11: the live reload target's spec equals the golden.
+- **Links.** PO-11: the live reload target's spec equals the golden. From
+  WP-S1: `At` binds go in `Cmd.Binds`; a mount point missing under a
+  read-only checkpoint is made inside the materialized tree (07 §10.4's
+  footprint); a symlink or file on the path fails the start and names it.
+  `internal/sandbox/init_linux.go` is 752 of 800 after WP-S1: a verbatim
+  split of `mountBinds` into `nested_linux.go` is the integrator's if room
+  is needed.
 
 #### WP-18 registry-view · L · wave 1.1 · after WP-05
 - **Scope** (07-runtime §5; 05-model §6). `View` parses the checkpoint's
@@ -710,7 +764,9 @@ Every card includes these; a card states only what differs.
   `TestProxyRuntimeFromDeployment` (a work-tree `runtime` edit never changes
   what pinned code runs as);
   `TestLegacyInjectionUnchanged` unchanged.
-- **Links.** PO-1, PO-10, PO-14.
+- **Links.** PO-1, PO-10, PO-14. `/components` reads roles from
+  `c.WorkTreeManifest().Expose` (WP-18); every other reader follows the
+  primary's code with no edit (NP-14-14).
 
 #### WP-20 watch-gate · M · wave 1.2 · after WP-06, WP-12, WP-13
 - **Scope** (07-runtime §6; NP-13-12). The pure `liveTargets` in
@@ -724,9 +780,11 @@ Every card includes these; a card states only what differs.
   count, its debounce and the op go behind it.
 - **Owns.** `internal/boot/{serve,liveroute}.go`, `liveroute_test.go`,
   `internal/deployments/worktree.go`. WP-06 left a no-op `WorkTreeMoved` in
-  `plane.go`, which is WP-14b's file in this wave. At the wave's start the
-  integrator moves that method verbatim into `worktree.go`, and WP-20 fills
-  it there.
+  `plane.go`, which is WP-14b's file in this wave. The integrator moved
+  that method verbatim into `worktree.go` at the wave's start, and WP-20
+  fills it there. A held tile answers `LiveReload` ("", false), so it never
+  reaches `WorkTreeMoved`; `p.Lookup(tile).State == RecordHeld` tells it
+  apart (WP-13).
 - **Tests.** `TestReloadPlan`, `TestWatchLoopZeroStateNoStoreIO`,
   `TestPendingCountAfterDroppedBatch`, a 1 000-path batch benchmark within 5 %
   of today (07-runtime §13.1).
@@ -793,7 +851,18 @@ Every card includes these; a card states only what differs.
   - `pathLeftovers` (`internal/broker/policy.go:218`) lists the record and
     the store, the path's owner exempt, as today.
 - **Owns.** `internal/broker/{transfer,create,policy}.go` (seams),
+  `internal/broker/orgsapi.go` (one seam before `SetOwner`),
   `internal/broker/deploy_life_m1_test.go`.
+- **From wave 1.1.** WP-13's index compares the record's owner ref with the
+  owner store on every lookup (Q1's default), so the rewrite must run
+  before `st.SetOwner` (`internal/broker/orgsapi.go:492`):
+  `executeTransferEffects` runs after it, and a rewrite there finds the
+  record inert and the pinned primary loses its pin. WP-23b either calls
+  `b.rewriteDeploymentOwner(tile, to)` just before `SetOwner` in
+  `orgsapi.go`, or moves the `SetOwner` call into `transfer.go`. WP-13
+  built the plane side: `RewriteDeploymentOwner`, `ResetDeploymentState`
+  (removes the record and the view repository, keeps the store),
+  `DeploymentLeftovers` (the record, and the store by `Lstat`).
 - **Tests.** `TestDeploymentsAcrossTileLife` (the M1 half of its transfer
   row: a pinned primary stays pinned), `TestPathLeftoversIncludeDeploymentState`
   (the M1 half: the record and the store, and a tile re-created at the path
@@ -821,7 +890,10 @@ Every card includes these; a card states only what differs.
 - **Tests.** Harness `livereload` (parts 0–6), `viewAs`; `agentTab`,
   `reloadFocus`, `windows` unchanged; `js-check`, `theme-check`.
 - **Links.** PO-10; the window pref never persists an unknown layout
-  (NP-12-3).
+  (NP-12-3). From WP-24: 10-ux's zero-state entry (the ⇈ layout button and
+  the panel) is M2's, so `entry()` answers the ⇈ control on every tile of
+  an xbind with the feature and `chipItems()` answers the zero state (Pause
+  live reload); where it sits in the bar is WP-25's call.
 
 #### WP-26 bx-live-reload · L · wave 1.2, merged after WP-15 · after WP-07
 - **Scope** (11-contract §9; 10-ux §8; 12-compat §4.2). `bx live-reload`;
@@ -857,7 +929,11 @@ Every card includes these; a card states only what differs.
   `TestAgentBxLiveReload`, `TestDeploymentStateBootsTwice`,
   `TestDeploymentStateBootsTwiceInProcess`, `TestOptOutReturnsToZeroState`
   (integration), `TestLatencyLifecycleOps` (M1 rows).
-- **Links.** `TestFailedDeployInvisible`'s event tape → WP-60.
+- **Links.** `TestFailedDeployInvisible`'s event tape → WP-60. WP-27's
+  helpers: `startIsolatedDaemon(t, isoOpts{Auth, Ingress, Args, Env})`,
+  `d.do`, `d.stop`, `d.start`, `d.restart`, `d.Bin`; `writeProbe`,
+  `waitProbe`, `writeIfChanged`, `probeFile`. `TestAgentBxLiveReload`
+  builds `bx` itself and passes `isoOpts{Env: []string{"XBIN_BIN=<dir>"}}`.
 
 #### WP-29 docs-m1 · L · wave 1.3, drafting from 1.2 · after every M1 feature WP
 - **Scope** (13-surfaces §4.18's M1 rows; 12-compat §8, §9; 10-ux §10.2).
@@ -1192,8 +1268,10 @@ Every card includes these; a card states only what differs.
   event filter's non-primary rows, now that principals carry their bound
   deployment; non-main bus events reach admins and principals of that
   namespace only.
-- **Owns.** `internal/server/{server,deployclass}.go`,
+- **Owns.** `internal/server/{server,deployclass,deployaudience}.go`,
   `internal/apicheck/deployclass_test.go`, `internal/server/deployevents_test.go`.
+  WP-21 put the event filter in `deployaudience.go` (`server.go` is 697 of
+  800); its non-primary rows key on `Principal.Deployment`.
 - **Tests.** 09-fabric §10's `TestDeploymentRouteClasses`,
   `TestNonPrimaryUsesNewEventTypes`, `TestDeploymentEventsFiltered`
   (non-primary rows, the primary's frame token among the refused),
@@ -1214,7 +1292,9 @@ Every card includes these; a card states only what differs.
   `TestNonPrimaryCronDormant`, `TestNonPrimaryBusSubDormant`),
   `TestDeliveriesSwitch` (= `TestDeliveriesSwitchManagerOnly`), `TestRunNow`,
   `TestOlderBinaryIgnoresDeploymentFiles` (12-compat PO-9's unit test).
-- **Links.** The active set → WP-50, WP-53a. PO-9.
+- **Links.** The active set → WP-50, WP-53a. PO-9. `brokerPolicy`
+  implements `server.PrimaryPolicy` (`Primary(tile) string`, the plane's
+  `Primary`): until then WP-21's event filter treats `main` as the primary.
 
 #### WP-50 dormant-rest-obs · L · wave 2.3 · after WP-47, WP-49
 - **Scope** (09-fabric §6's rows, §4.2, NP-09-12, NP-09-13; 11-contract §3.3,
@@ -1233,7 +1313,9 @@ Every card includes these; a card states only what differs.
   `TestNonPrimaryStatusNamespaced`), `TestLogsPerDeployment`, 09-fabric §10's
   `TestIfaceInstanceFollowsPrimary`, 08-data §14's
   `TestNonPrimaryLogsAudience`.
-- **Links.** PO-5, PO-9; old shells never see non-primary status.
+- **Links.** PO-5, PO-9; old shells never see non-primary status. WP-21's
+  `primarySwap` in `status.go` assumes `main` is the primary until the obs
+  plane has WP-30's deployment input.
 
 #### WP-51 term-target · L · wave 2.2 · after WP-32
 - **Scope** (P24; 05-model §7; 11-contract §7.4's wire). A session's target,
@@ -1409,6 +1491,9 @@ Every card includes these; a card states only what differs.
   `TestPromoteAndRollBack`, `TestRollBackBound` (every deployment),
   `TestRegistrationsAtStartStayDormant`, `TestSelfCallsStayInDeployment`,
   `TestMultiTileScope`.
+- **Links.** WP-27's probe registers no cron job or bus subscription at
+  start: `TestRegistrationsAtStartStayDormant` brings its own start-time
+  registration.
 
 #### WP-62 itest-fabric · L · wave 2.4 · after every M2 feature WP
 - **Owns.** `test/{edges,flowc}_test.go`.
@@ -1732,6 +1817,7 @@ which proves that no two WPs in one wave own the same file.
 | `internal/server/{static,tileassets,native,deployserve}.go` | 1.2 WP-19 · 2.2 WP-36 |
 | `internal/server/api.go` | 1.2 WP-19 · 2.3 WP-54 |
 | `internal/server/server.go` | 1.1 WP-21 · 2.3 WP-48 |
+| `internal/server/deployaudience.go` | 1.1 WP-21 · 2.3 WP-48 |
 | `internal/server/deployevents_test.go` | 0.2 WP-02 · 2.3 WP-48 |
 | `internal/proxy/proxy.go` | 1.2 WP-19 · 2.2 WP-37 |
 | `internal/proxy/deploy_test.go` | 0.2 WP-02 · 2.2 WP-37 |
@@ -2003,7 +2089,7 @@ the test that verifies it.
 | §4.7 proxy | `proxy.go` WP-19, 37 · `ingress.go` WP-37 |
 | §4.8 auth | `auth.go` WP-05, 32 · `frametoken.go` WP-32 · `assettoken.go`, `tilebinding.go` WP-38 |
 | §4.9(a) broker | `resources.go` WP-18, 39, 40 · `resenc_wire.go`, `resenc/resenc.go` WP-39, 40, 45 · `vault.go` WP-43 · `cron.go`, `bussubs.go` WP-49 · `netfn.go` WP-47, 50 · `ingressfn.go` WP-50 · `exposefn.go`, `delegated.go`, `admin.go`, `templates.go`: no change, since the registry entry carries the primary's inbound surface (`TestManifestFieldSplit`) · 08-data §14's `deployns.go` WP-41, `deployseed.go` WP-42, `deployvault.go` WP-43, `backup_deploy.go` WP-23, 44a |
-| §4.9(b) broker | `broker.go` WP-05, 30, 39, 47 · `policy.go` WP-23b, 46 · `lifecycle.go` WP-53b · `transfer.go` WP-23b, 53b · `backup.go` WP-23, 39, 44a, 45 · `backup_cron.go` WP-44a · `backup/backup.go` WP-23, 44a, 45 · `whoami.go` WP-54 · `diskmon.go`, `resusage.go` WP-39, 44b · `orgsapi.go`: no change, the manager gate wraps it from `deployhooks.go` (`TestDeployAuthzMatrix`) |
+| §4.9(b) broker | `broker.go` WP-05, 30, 39, 47 · `policy.go` WP-23b, 46 · `lifecycle.go` WP-53b · `transfer.go` WP-23b, 53b · `backup.go` WP-23, 39, 44a, 45 · `backup_cron.go` WP-44a · `backup/backup.go` WP-23, 44a, 45 · `whoami.go` WP-54 · `diskmon.go`, `resusage.go` WP-39, 44b · `orgsapi.go` WP-23b (the transfer's seam before `SetOwner`); the manager gate wraps it from `deployhooks.go` (`TestDeployAuthzMatrix`) |
 | §4.9(c) broker | `create.go` WP-23b, 49, 46 · `prs.go`, `tiles.go`, `updates.go`, `templates.go`, `templaterepo.go`, `clone.go`, `gitimport.go`, `code.go`: no change (`TestWorkTreeWritersReachOnlyLiveTarget`, `TestDeploymentsAcrossTileLife`, `TestPathLeftoversIncludeDeploymentState`) |
 | §4.10 obs | `status.go` WP-21, 50 · `logs.go`, `prefs.go` WP-50 · `obs.go` WP-30 |
 | §4.11 term | `term.go` WP-00, 05, 51 · `sandboxenv.go` WP-00, 22, 51 · `target.go` WP-30, 51 · `attach.go`, `sessions.go`, `agent.go`, `history.go` WP-51 · `binds.go`, `vm.go`: no change (`TestTerminalMasksDeploymentState`) |
