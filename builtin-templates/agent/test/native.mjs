@@ -148,7 +148,9 @@ ok('it draws the file', await page.waitForFunction(() => {
   const f = window.xbnPreview.view.shadowRoot.querySelector('xb-canvas iframe');
   return f && f.contentDocument === null && f.srcdoc.includes('Q3 plan');
 }).then(() => true, () => false));
-const doc = await page.evaluate(() => window.xbnPreview.view.shadowRoot.querySelector('xb-canvas iframe').srcdoc);
+const island = await page.evaluate(() => window.xbnPreview.view.shadowRoot.querySelector('xb-canvas iframe').srcdoc);
+// the renderer wraps an island in the app's own document (CanvasDocument.wrap, web/xb canvasDocument): ours is its body
+const doc = /^<!doctype html><html><head><meta charset="utf-8">.*?<\/head><body>(<!doctype html>[\s\S]*)<\/body><\/html>$/.exec(island)?.[1] || island;
 ok('with the CSP first (DOMParser, as in WebKit)', /^<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none';/.test(doc), doc.slice(0, 120));
 ok('the refresh is gone', !/http-equiv="refresh"/i.test(doc));
 ok('it says what it blocked', await shown('xb-notice:has-text("2 external resources blocked")'));
