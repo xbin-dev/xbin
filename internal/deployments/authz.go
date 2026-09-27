@@ -8,10 +8,15 @@ package deployments
 // and nowhere else. Beside it, what the tile itself may do (Allowed: P19,
 // the admission caps), the refusals of a new deployment and the manager gate
 // on joining seeded data (ops_code.go's add), and who learns of a record
-// change (the record event's reader form).
+// change (the record event's reader form). Last, governance's judgements
+// (ops_gov.go): the reviewed code a move onto a protected primary names
+// (P21), the scope a reassignment may not split (P28), each claimant of a
+// shared namespace, the nested components protection lists (NP-06-8), and
+// what --no-auth leaves unenforced.
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -280,6 +285,11 @@ func (p *Plane) Allowed(op Op, s Subject) Can {
 	}
 	if op == OpAdd {
 		if e := p.mayAdd(s.Tile); e != nil {
+			return e.Can()
+		}
+	}
+	if c, ok := p.component(s.Tile); ok && op == OpPrimary {
+		if e := p.splitsScope(c); e != nil {
 			return e.Can()
 		}
 	}
@@ -661,4 +671,130 @@ func readerChange(before, after *Record) []string {
 		out = append(out, "deployments")
 	}
 	return out
+}
+
+// ---- governance's judgements (ops_gov.go) ----
+
+// NotEnforced is what protection says under --no-auth (06-security T12),
+// where every caller without a credential is the owner.
+const NotEnforced = "not enforced: authentication is off"
+
+// Unenforced is NotEnforced for a request no credential authenticated (the
+// owner --no-auth makes of it, Via "dev"), "" for any other.
+func Unenforced(pr auth.Principal) string {
+	if pr.Owner && pr.Via == "dev" {
+		return NotEnforced
+	}
+	return ""
+}
+
+// guardReviewed makes op, a code move ops.go registered, refuse a request
+// onto a protected primary that doesn't name its reviewed code and seq
+// (P21; 11-contract §1.2): 400 before anything is captured, dry runs too.
+// It panics when op isn't registered yet, which the first test run shows.
+func guardReviewed[R any](op Op, field string, named func(*R) bool) {
+	e, ok := ops[op]
+	if !ok {
+		panic("deployments: guarding " + string(op) + " before it is registered")
+	}
+	run := e.run
+	e.run = func(ctx context.Context, p *Plane, g Grant, req any) (any, error) {
+		if r, ok := req.(*R); ok && g.Op == op && g.Subject.onProtectedPrimary() && !named(r) {
+			return nil, unreviewed(g.Subject.Tile, field)
+		}
+		return run(ctx, p, g, req)
+	}
+	ops[op] = e
+}
+
+func unreviewed(tile, field string) error {
+	return badRequest("the primary of " + tile + " is protected: name the checkpoint you reviewed (send " + field + " and seq)")
+}
+
+// splitsScope refuses reassigning c's primary where that would split a
+// scope's primary data (P28; 08-data §6.5): in v1 only a tile in the
+// workspace scope, or alone in the scope it roots, changes its primary.
+func (p *Plane) splitsScope(c *registry.Component) *Error {
+	alone := c.Scope == c.Path
+	for _, o := range p.Reg.Components() {
+		alone = alone && (o.Path == c.Path || o.Scope != c.Scope)
+	}
+	if alone || c.Scope == "" {
+		return nil
+	}
+	return &Error{Status: http.StatusConflict, Kind: KindPolicy, Msg: "reassigning the primary of " + c.Path + " would split " +
+		c.Scope + "'s data: only a tile alone in its scope, or in the workspace scope, can change its primary in this release"}
+}
+
+// healthy refuses y as the new primary unless it is healthy (09-fabric §8):
+// its last move didn't fail and, for a backend, the runner has it up.
+func (p *Plane) healthy(o *op, y string, d *DeploymentRecord) error {
+	state := map[bool]string{true: "failed"}[d.State == "failed"]
+	if s, ok := p.Run.(statuser); ok && state == "" && o.c.HasBackend() && s.DeploymentStatus(o.tile, y).State != "healthy" {
+		state = s.DeploymentStatus(o.tile, y).State
+	}
+	if state == "" {
+		return nil
+	}
+	return &Error{Status: http.StatusConflict, Kind: KindState, Msg: y + " isn't healthy (" + state + "); only a healthy deployment can become the primary"}
+}
+
+// limitOK judges one of y's limits (P22): diskGiB only on the tile that
+// roots its scope, whose (scope, y) namespace it measures (08-data §12); a
+// positive integer at most the tile's ceiling, which 0 leaves unbounded.
+func (p *Plane) limitOK(o *op, y, k string, v *int64) error {
+	if s := o.c.Scope; k == LimitDiskGiB && s != o.tile {
+		return &Error{Status: http.StatusConflict, Kind: KindPolicy, Msg: map[bool]string{false: fmt.Sprintf("the quota of %s's %q data is set on %s", s, y, s),
+			true: o.tile + " keeps its data in the workspace scope, which has no namespace per deployment: diskGiB is a scope's"}[s == ""]}
+	}
+	ceiling := map[string]int64{LimitMemMiB: p.TileLimits.MemMax >> 20, LimitPids: p.TileLimits.PidsMax}[k]
+	switch dc := p.gov().DiskCeiling; {
+	case v == nil:
+		return nil
+	case *v <= 0:
+		return badRequest(k + " takes a positive integer, or null to remove the override")
+	case k == LimitDiskGiB && dc == nil:
+		return notBuilt("a deployment's disk limit", "the disk quota isn't wired")
+	case k == LimitDiskGiB:
+		ceiling = dc() >> 30
+	}
+	if ceiling > 0 && *v > ceiling {
+		return badRequest(fmt.Sprintf("%s can't exceed the tile's ceiling (%d)", k, ceiling))
+	}
+	return nil
+}
+
+// claimantGate judges g's act on each other claimant tile of dep's shared
+// namespace (P28; 08-data §6.3), for the data plane: its own row there.
+func (p *Plane) claimantGate(g Grant, dep string) func(string) error {
+	return func(tile string) error {
+		_, err := p.Authorize(g.P, g.Op, Subject{Tile: tile, Deployment: dep, Primary: p.Primary(tile), Record: true})
+		return err
+	}
+}
+
+// NestedProtection is a component nested in a tile being protected, whose
+// code the parent's writers change: protecting the parent leaves it open.
+type NestedProtection struct {
+	Tile      string `json:"tile"`
+	Protected bool   `json:"protected"` // its own primary is protected
+	Manager   bool   `json:"manager"`   // the caller manages it, so may protect it too, on its own tile
+}
+
+// protectNotes lists tile's nested components for pr's protection, warning
+// for each whose primary isn't protected, and --no-auth's warning.
+func (p *Plane) protectNotes(pr auth.Principal, tile string) (nested []NestedProtection, warnings []string) {
+	for _, rel := range p.nested(tile) {
+		child := tile + "/" + rel
+		rec, _ := p.record(child)
+		n := NestedProtection{Tile: child, Protected: rec != nil && rec.ProtectedPrimary, Manager: p.Manager(pr, child)}
+		if !n.Protected {
+			warnings = append(warnings, child+" is nested in "+tile+", whose writers change its code and whose pages serve it, but isn't protected: protect it too")
+		}
+		nested = append(nested, n)
+	}
+	if w := Unenforced(pr); w != "" {
+		warnings = append(warnings, w)
+	}
+	return nested, warnings
 }
