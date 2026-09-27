@@ -339,7 +339,10 @@ func testLiveExecs(t *testing.T, le *liveEnv, mode string, hasShell bool) {
 
 	t.Run("a command past memory.max ends killed by KILL; its sandbox runs on", func(t *testing.T) {
 		le.t = t
-		if mode != ModeNamespace || le.m.cg == nil {
+		if mode != ModeNamespace {
+			t.Skip("namespace mode only: a VM's memory.max bounds its VMM, not the command")
+		}
+		if le.m.cg == nil {
 			t.Skip("no delegated cgroup (see live_linux_test.go's header)")
 		}
 		le.create(map[string]any{"name": "ex-oom", "mode": mode, "memMiB": 256, "mounts": []any{probeMount}})
