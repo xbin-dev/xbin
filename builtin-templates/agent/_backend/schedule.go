@@ -25,6 +25,9 @@ type Schedule struct {
 	System  string `json:"system"`  // optional system prompt override
 	Watcher bool   `json:"watcher"` // re-drive one persistent run; discard no-change rounds
 	Toolset string `json:"toolset"` // capability lane for fired runs: private (default) | web
+	// Class is the fired runs' agent class (D116); a legacy row's resolves
+	// from Toolset. Fixed at creation, like Toolset.
+	Class   string `json:"class"`
 	Enabled bool   `json:"enabled"`
 	RunID   int64  `json:"runId"` // watcher's persistent run (0 = none yet)
 	LastRun int64  `json:"lastRun"`
@@ -92,15 +95,20 @@ func (s *Schedule) stamp() runStamp {
 	return st
 }
 
+// class is the class its runs start in (a deleted one's lane's built-in).
+func (s *Schedule) class() agentClass {
+	return classOf(Config{Class: s.Class, Toolset: s.Toolset})
+}
+
 // --- storage -------------------------------------------------------------
 
 func (d *DB) createSchedule(s *Schedule) (int64, error) {
 	res, err := d.q.Exec(
 		`INSERT INTO schedules (name, cron, goal, system, watcher, toolset, enabled, created,
-		   owner, visibility, mode, target_run, created_by_run)
-		 VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+		   owner, visibility, mode, target_run, created_by_run, class)
+		 VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
 		s.Name, s.Cron, s.Goal, s.System, b2i(s.Watcher), s.Toolset, now(),
-		s.Owner, orStr(s.Visibility, visTeam), s.Mode, s.TargetRun, s.CreatedByRun)
+		s.Owner, orStr(s.Visibility, visTeam), s.Mode, s.TargetRun, s.CreatedByRun, s.Class)
 	if err != nil {
 		return 0, err
 	}
@@ -111,14 +119,17 @@ func scanSchedule(scan func(dest ...any) error) (*Schedule, error) {
 	s := &Schedule{}
 	var watcher, enabled int
 	if err := scan(&s.ID, &s.Name, &s.Cron, &s.Goal, &s.System, &watcher, &s.Toolset, &enabled, &s.RunID, &s.LastRun, &s.Created,
-		&s.Owner, &s.Visibility, &s.Mode, &s.TargetRun, &s.CreatedByRun, &s.LastRunID, &s.LastStatus); err != nil {
+		&s.Owner, &s.Visibility, &s.Mode, &s.TargetRun, &s.CreatedByRun, &s.LastRunID, &s.LastStatus, &s.Class); err != nil {
 		return nil, err
 	}
 	s.Watcher, s.Enabled = watcher != 0, enabled != 0
+	if s.Class == "" { // from before classes: the built-in its lane names
+		s.Class = laneClass(s.Toolset)
+	}
 	return s, nil
 }
 
-const scheduleCols = `id, name, cron, goal, system, watcher, toolset, enabled, run_id, last_run, created, owner, visibility, mode, target_run, created_by_run, last_run_id, last_status`
+const scheduleCols = `id, name, cron, goal, system, watcher, toolset, enabled, run_id, last_run, created, owner, visibility, mode, target_run, created_by_run, last_run_id, last_status, class`
 
 func (d *DB) getSchedule(id int64) (*Schedule, error) {
 	return scanSchedule(d.q.QueryRow(`SELECT `+scheduleCols+` FROM schedules WHERE id=?`, id).Scan)
@@ -228,10 +239,10 @@ func (ag *Agent) fireSchedule(s *Schedule) {
 		return
 	}
 	cfg := parseConfig(ag.db.getSetting("config"))
-	cfg.Toolset = s.Toolset // fired runs carry the schedule's capability lane
 	if s.System != "" {
 		cfg.System = s.System
 	}
+	cfg.setClass(s.class(), s.System != "") // fired runs carry the schedule's class
 	title := s.Name
 	if title == "" {
 		title = clip(s.Goal, 60)
@@ -300,12 +311,12 @@ func (ag *Agent) fireWatcher(s *Schedule) {
 	runID := s.RunID
 	if _, err := ag.db.getRun(runID); runID == 0 || err != nil {
 		cfg := parseConfig(ag.db.getSetting("config"))
-		cfg.Toolset = s.Toolset
 		sys := watcherSystem(s.Goal)
 		if s.System != "" {
 			sys = s.System + "\n\n" + sys
 		}
 		cfg.System = sys
+		cfg.setClass(s.class(), s.System != "")
 		title := s.Name
 		if title == "" {
 			title = clip(s.Goal, 60)
@@ -365,9 +376,15 @@ func handleNewSchedule(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 400, "need {cron, goal}")
 		return
 	}
-	s.Toolset = normalizeToolset(s.Toolset) // human-created: either lane, validated
 	// Whose it is comes from the caller, never the body.
 	w0 := callerOf(r)
+	// human-created: any class the caller may use (D116), or a legacy lane
+	cls, err := requestedClass(w0, s.Class, s.Toolset)
+	if err != nil {
+		writeClassErr(w, err)
+		return
+	}
+	s.Class, s.Toolset = cls.ID, cls.lane()
 	st := w0.stamp("schedule")
 	s.Owner, s.CreatedByRun, s.LastRunID, s.LastStatus = st.Owner, 0, 0, ""
 	switch s.Mode {
@@ -424,6 +441,8 @@ func handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	cur.ID, cur.Owner, cur.CreatedByRun, cur.LastRunID, cur.LastStatus, cur.RunID, cur.Created, cur.LastRun =
 		id, keep.Owner, keep.CreatedByRun, keep.LastRunID, keep.LastStatus, keep.RunID, keep.Created, keep.LastRun
+	// its class and lane are fixed at creation (D116)
+	cur.Class, cur.Toolset = keep.Class, keep.Toolset
 	if lv < lvOwner { // a manager overseeing someone else's: on/off only
 		enabled := cur.Enabled
 		*cur = keep

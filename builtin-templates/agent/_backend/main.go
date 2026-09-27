@@ -61,6 +61,7 @@ func main() {
 		b, _ := json.Marshal(defaultConfig())
 		_ = db.putSetting("config", string(b))
 	}
+	loadClasses(db)
 	eng := newEngine(db, agent, newGatewayLLM(), dbPath+".engine")
 	eng.hold.open = openSelfHold
 	eng.Start()

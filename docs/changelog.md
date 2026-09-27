@@ -23,6 +23,23 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   person, a backend names the person it acts for in `Sbx-User`. Managers can
   be built on xbind's own sandboxes or on a cloud's API and ssh.
 
+- **Agent template: agent classes** (D116, the template's API.md §Agent
+  classes). A conversation's 🔒/🌐 lane becomes a class: a named set of
+  toolsets (`files`, `repl`, `web`, `internal`, `sandbox`, `subagents`,
+  `schedule`, `threads`, `skills`), with the MCP servers, sandbox managers
+  and sandbox egress it may use, and optionally a model and a system
+  addendum. Built in: `internal` (the old private lane), `web` (the old web
+  lane) and `coding` (sandbox + web). The tile's managers edit them (`GET`/
+  `PUT /classes`); a class that holds internal reach together with egress
+  takes `confirmMixed` to save and its conversations say so. `class` is
+  accepted wherever `toolset` was (`POST /ask`, `POST /runs`, schedules,
+  triggers; channel policies gain `privateClass`/`webClass`); `toolset:
+  "private"|"web"` keeps working and names the built-ins, and
+  `config.toolset` still says the lane. A conversation's class is fixed; the
+  view carries it as `class` (with `mixed`). The owner's grants became a
+  registry: the pending ask carries `pendingState.grantAsk` and each live
+  grant `{ask, chip}`.
+
 - **Admin console: runtime → sandboxes, and the sandbox in the component
   list** (D112, [isolation.md](isolation.md) §VM sandboxes). A new tab lists
   every sandbox xbind runs — backend generations, terminals, agent sessions

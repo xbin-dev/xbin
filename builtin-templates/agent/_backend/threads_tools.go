@@ -407,7 +407,7 @@ func (ag *Agent) toolScheduleInspect(tc *threadCtx, args map[string]any) (string
 		state = "disabled"
 	}
 	fmt.Fprintf(&b, "schedule #%d %q — %s\n", s.ID, orStr(s.Name, flat(s.Goal, 40)), state)
-	fmt.Fprintf(&b, "cron: %s · toolset %s · owner %s · %s\n", s.Cron, orStr(s.Toolset, "private"), orStr(s.Owner, "(none)"), orStr(s.Visibility, visTeam))
+	fmt.Fprintf(&b, "cron: %s · toolset %s · class %s · owner %s · %s\n", s.Cron, orStr(s.Toolset, "private"), s.Class, orStr(s.Owner, "(none)"), orStr(s.Visibility, visTeam))
 	fmt.Fprintf(&b, "delivers: %s\n", ag.delivery(s, tc.root.ID))
 	made := "by a person"
 	switch {

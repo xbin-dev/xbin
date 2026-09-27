@@ -139,14 +139,20 @@ func (ag *Agent) startRunTx(t *DB, o runOpts) (int64, error) {
 func handleNewRun(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Title, Goal, System, Toolset string
+		Class                        string // D116; else Toolset's built-in, else the caller's default
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	if body.Goal == "" {
 		xbin.WriteError(w, 400, "need {goal}")
 		return
 	}
+	cls, err := requestedClass(callerOf(r), body.Class, body.Toolset)
+	if err != nil {
+		writeClassErr(w, err)
+		return
+	}
 	cfg := parseConfig(agent.db.getSetting("config"))
-	cfg.Toolset = normalizeToolset(body.Toolset)
+	cfg.setClass(cls, body.System != "")
 	if body.System != "" {
 		cfg.System = body.System
 	}
@@ -193,7 +199,7 @@ func handleGetRun(w http.ResponseWriter, r *http.Request) {
 	}
 	active, limit, _ := agent.eng.gate.stats()
 	xbin.WriteJSON(w, 200, map[string]any{"run": run, "messages": legacyMessages(msgs), "steps": steps, "memory": mem,
-		"config": cfg.forView(), "files": files, "messageFiles": agent.db.messageFiles(id), "draft": agent.eng.getDraft(id),
+		"config": cfg.forView(), "class": classView(classOf(cfg)), "files": files, "messageFiles": agent.db.messageFiles(id), "draft": agent.eng.getDraft(id),
 		"queued": agent.db.queuedView(id), "slots": map[string]int{"active": active, "limit": limit}})
 }
 

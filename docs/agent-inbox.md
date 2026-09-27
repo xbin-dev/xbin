@@ -317,6 +317,12 @@ agent's **web lane**, which has no internal reach.
 
 - With `privateLane: true` the private lane opens to trusted DM peers
   (with `trustLinked`, also to linked people) and to `trustedGroups`. Combining it with open DMs is refused.
+- Each lane runs in an agent class (D116; the agent's API.md, **Agent
+  classes**): `webClass` for everyone (default `web`; it must reach
+  outside and have no internal reach) and `privateClass` for the trusted
+  (default `internal`). A class only the agent's managers may use can be
+  named only by one of them. Changing a conversation's class starts a new
+  one on the next message, as revoking trust does.
 - Revoking trust moves the conversation to a new web-lane run on the
   next message.
 - `deny` lists tools a channel session never gets. The default is

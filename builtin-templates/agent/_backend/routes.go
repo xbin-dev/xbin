@@ -88,6 +88,8 @@ func routeTable() []routeDef {
 		{"PUT /config", needManager, handlePutConfig},
 		{"GET /features", needAny, handleFeatures},
 		{"GET /models", needAny, handleModels},
+		{"GET /classes", needAny, handleGetClasses},
+		{"PUT /classes", needManager, handlePutClasses},
 		{"GET /schedules", needAny, handleListSchedules},
 		{"POST /schedules", needStart, handleNewSchedule},
 		{"PUT /schedules/{id}", needAutomation, handleUpdateSchedule},

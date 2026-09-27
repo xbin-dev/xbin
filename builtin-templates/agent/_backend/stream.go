@@ -129,7 +129,7 @@ func (e *Engine) runViewPage(id int64, pg *viewPage) (map[string]any, error) {
 	v := map[string]any{
 		"cursor": cursor, "run": sum, "messages": tp.messages, "steps": tp.steps, "links": tp.links,
 		"queued": e.db.queuedView(id), "drafts": e.draftsOf(rootOf(run)), "chain": chain,
-		"files": files, "messageFiles": tp.files, "memory": mem, "config": cfg.forView(),
+		"files": files, "messageFiles": tp.files, "memory": mem, "config": cfg.forView(), "class": classView(classOf(cfg)),
 		"halted": e.halted(), "slots": map[string]int{"active": active, "limit": limit, "waiting": waiting},
 	}
 	for k, x := range tp.extra {

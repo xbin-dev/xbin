@@ -47,8 +47,12 @@ CREATE INDEX IF NOT EXISTS idx_trigev_time ON trigger_events(trigger_id, created
 `
 
 func (d *DB) addTriggerSchema() error {
-	_, err := d.q.Exec(triggerSchemaSQL)
-	return err
+	if _, err := d.q.Exec(triggerSchemaSQL); err != nil {
+		return err
+	}
+	// D116: the class its runs start in ('' = the built-in its toolset names)
+	_, _ = d.q.Exec(`ALTER TABLE triggers ADD COLUMN class TEXT NOT NULL DEFAULT ''`)
+	return nil
 }
 
 // Trigger is one event trigger.
@@ -63,6 +67,7 @@ type Trigger struct {
 	Mode       string `json:"mode"` // isolated | persistent | conversation
 	TargetRun  int64  `json:"targetRun,omitempty"`
 	Toolset    string `json:"toolset"`
+	Class      string `json:"class"`             // its runs' agent class (D116); a legacy one's resolves from Toolset
 	DataClass  string `json:"dataClass"`         // public | private: the data it takes
 	Deliver    string `json:"deliver,omitempty"` // a channel session its answers are announced to
 	Owner      string `json:"owner"`
@@ -75,14 +80,17 @@ type Trigger struct {
 	LastRunID  int64  `json:"lastRunId,omitempty"`
 }
 
-const trigCols = `id, name, source, source_ref, match, goal, system, mode, target_run, toolset, data_class, deliver, owner, visibility, enabled, status, max_per_hour, created, last_event, last_run_id`
+const trigCols = `id, name, source, source_ref, match, goal, system, mode, target_run, toolset, data_class, deliver, owner, visibility, enabled, status, max_per_hour, created, last_event, last_run_id, class`
 
 func scanTrigger(scan func(dest ...any) error) (*Trigger, error) {
 	tr := &Trigger{}
 	var enabled int
 	err := scan(&tr.ID, &tr.Name, &tr.Source, &tr.SourceRef, &tr.Match, &tr.Goal, &tr.System, &tr.Mode, &tr.TargetRun, &tr.Toolset,
-		&tr.DataClass, &tr.Deliver, &tr.Owner, &tr.Visibility, &enabled, &tr.Status, &tr.MaxPerHour, &tr.Created, &tr.LastEvent, &tr.LastRunID)
+		&tr.DataClass, &tr.Deliver, &tr.Owner, &tr.Visibility, &enabled, &tr.Status, &tr.MaxPerHour, &tr.Created, &tr.LastEvent, &tr.LastRunID, &tr.Class)
 	tr.Enabled = enabled != 0
+	if tr.Class == "" {
+		tr.Class = laneClass(tr.Toolset)
+	}
 	return tr, err
 }
 
@@ -108,14 +116,14 @@ func (d *DB) listTriggers(where string, args ...any) []*Trigger {
 func (d *DB) saveTrigger(tr *Trigger) error {
 	if tr.ID == 0 {
 		return d.q.QueryRow(`INSERT INTO triggers (name, source, source_ref, match, goal, system, mode, target_run, toolset, data_class,
-			deliver, owner, visibility, enabled, max_per_hour, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+			deliver, owner, visibility, enabled, max_per_hour, created, class) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
 			tr.Name, tr.Source, tr.SourceRef, tr.Match, tr.Goal, tr.System, tr.Mode, tr.TargetRun, tr.Toolset, tr.DataClass,
-			tr.Deliver, tr.Owner, tr.Visibility, b2i(tr.Enabled), tr.MaxPerHour, now()).Scan(&tr.ID)
+			tr.Deliver, tr.Owner, tr.Visibility, b2i(tr.Enabled), tr.MaxPerHour, now(), tr.Class).Scan(&tr.ID)
 	}
 	_, err := d.q.Exec(`UPDATE triggers SET name=?, source=?, source_ref=?, match=?, goal=?, system=?, mode=?, target_run=?, toolset=?,
-		data_class=?, deliver=?, visibility=?, enabled=?, max_per_hour=? WHERE id=?`,
+		data_class=?, deliver=?, visibility=?, enabled=?, max_per_hour=?, class=? WHERE id=?`,
 		tr.Name, tr.Source, tr.SourceRef, tr.Match, tr.Goal, tr.System, tr.Mode, tr.TargetRun, tr.Toolset, tr.DataClass,
-		tr.Deliver, tr.Visibility, b2i(tr.Enabled), tr.MaxPerHour, tr.ID)
+		tr.Deliver, tr.Visibility, b2i(tr.Enabled), tr.MaxPerHour, tr.Class, tr.ID)
 	return err
 }
 
@@ -151,10 +159,20 @@ func (tr *Trigger) stamp() runStamp {
 
 func trigKey(id int64) string { return "trig:" + strconv.FormatInt(id, 10) }
 
-// validate checks a trigger before it is saved; "" = fine.
+// validate checks a trigger before it is saved; "" = fine. Its class (D116)
+// is the one it names, else the built-in its legacy toolset names; Toolset
+// becomes that class's lane.
 func (tr *Trigger) validate() string {
 	tr.Name, tr.Goal = strings.TrimSpace(tr.Name), strings.TrimSpace(tr.Goal)
-	tr.Toolset, tr.Mode = normalizeToolset(tr.Toolset), orStr(tr.Mode, "isolated")
+	tr.Mode = orStr(tr.Mode, "isolated")
+	if tr.Class = strings.TrimSpace(tr.Class); tr.Class == "" {
+		tr.Class = laneClass(tr.Toolset)
+	}
+	cls, ok := currentClasses().find(tr.Class)
+	if !ok {
+		return fmt.Sprintf("class: no class %q (GET /classes lists them)", tr.Class)
+	}
+	tr.Toolset = cls.lane()
 	if tr.MaxPerHour <= 0 {
 		tr.MaxPerHour = 30
 	}
@@ -184,6 +202,8 @@ func (tr *Trigger) validate() string {
 		return "bus data is private: a bus trigger takes private data"
 	case tr.DataClass == "private" && tr.Toolset == "web":
 		return "the web lane reaches outside, so it takes public data only — use the private lane, or dataClass public"
+	case tr.DataClass == "public" && cls.mixed():
+		return "the " + cls.Name + " class can move internal data out, so data from outside must not steer it — use another class, or dataClass private"
 	case tr.DataClass == "private" && tr.Deliver != "":
 		return "announcing to a chat channel sends data outside, so it takes public data only"
 	case tr.Deliver != "" && !strings.HasPrefix(tr.Deliver, "chan:"):
@@ -276,10 +296,11 @@ func (ag *Agent) fireTrigger(tr *Trigger, ev trigEvent) (v trigVerdict, err erro
 			return refuse("rate")
 		}
 		cfg := parseConfig(t.getSetting("config"))
-		cfg.Toolset, cfg.Channel = tr.Toolset, tr.Deliver != ""
+		cfg.Channel = tr.Deliver != ""
 		if tr.System != "" {
 			cfg.System = tr.System
 		}
+		cfg.setClass(classOf(Config{Class: tr.Class, Toolset: tr.Toolset}), tr.System != "")
 		if tr.DataClass == "public" { // outside data: nothing it does may outlive the run
 			cfg.Deny = append([]string(nil), defaultChannelDeny...)
 		}
