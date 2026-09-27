@@ -435,6 +435,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   invalid` before anything is sent, so a consumer's id can never reach
   another route or sandbox. `Runtime`'s limits carry `Flows` (each
   sandbox's cap on concurrent network flows). Additive.
+- **New example: `examples/sandbox-go`, the smallest sandbox manager** (in
+  the xbin repository, with its `API.md`; [sdk.md](sdk.md) §Tile
+  sandboxes). A Go backend on
+  `xbin.SandboxAPI()` with `cap:sandboxes` and an `internet` `sandbox-net`
+  slot: create, lifecycle, `run`, execs with their output, stdin and
+  signals through `Forward`, files and tar, relayed terminals and
+  snapshots, each sandbox its creator's alone (a label, checked on every
+  route). It is the tile-sandbox runtime's end-to-end fixture
+  (`test/isolated`, in `make integration`), and a starting point: import
+  it, approve its grant, `bx bind <tile> internet=internet`.
 - **The `sandbox-terminal` builtin tile: terminals onto coding sandboxes,
   for people — in the browser and over SSH** (`bx tile import
   sandbox-terminal`; [sandbox-manager.md](sandbox-manager.md) §People's

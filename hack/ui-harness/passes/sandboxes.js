@@ -22,7 +22,12 @@
 //      (never the overrides) and warns that off stops what runs.
 //   C. components: an idle tile that asks for a VM shows it (routed
 //      /runtime + /auth-overview: isolation on, the tile not running).
-const { URL, login, closeCtx, settle, gotoTab, shot, checker, sleep } = require('../lib');
+//   L. under ISOLATE=1 (run.sh; instead of A): a live tile sandbox —
+//      examples/sandbox-go imported, its cap approved, a sandbox started
+//      through it; the admin sees it running under its manager, stops it
+//      (why says so) and deletes it.
+const path = require('path');
+const { URL, fs, login, closeCtx, settle, gotoTab, shot, checker, sleep } = require('../lib');
 
 const TILE = 'apps/crawler';
 
@@ -94,7 +99,70 @@ function fixture() {
 async function sandboxes(browser) {
   const { check, done } = checker('sandboxes');
 
-  // ---- A: live, no --isolate ----
+  if (process.env.HARNESS_ISOLATE) await liveTileSandbox(browser, check);
+  else await liveUnisolated(browser, check);
+  await routedVMHost(browser, check);
+  await idleVMTile(browser, check);
+  done();
+}
+
+// L: a live tile sandbox, under ISOLATE=1.
+async function liveTileSandbox(browser, check) {
+  const MGR = 'apps/sbxgo';
+  const L = await login(browser, 'admin', 'admin', { viewport: { width: 1400, height: 1000 } });
+  const call = async (method, p, data) => {
+    const r = await L.ctx.request.fetch(`${URL}${p}`, { method, data, failOnStatusCode: false });
+    let body = null;
+    try { body = await r.json(); } catch { /* 204, or not JSON */ }
+    return { status: r.status(), body };
+  };
+  const until = async (what, ms, fn) => {
+    for (const end = Date.now() + ms; Date.now() < end; await sleep(500)) if (await fn()) return true;
+    check(false, `${what} (not within ${ms / 1000} s)`);
+    return false;
+  };
+  // import the example (its files, as an import leaves them), approve its
+  // grant, bind its sandboxes' network
+  fs.cpSync(path.join(process.env.REPO, 'examples', 'sandbox-go'), path.join(process.env.WS, MGR), { recursive: true });
+  await until(`${MGR} registered`, 30000, async () => (await call('GET', `/api/xbin/components/${MGR}`)).status === 200);
+  check((await call('POST', '/api/xbin/grants', { from: MGR, target: 'cap:sandboxes', role: 'writer' })).status === 200, 'cap:sandboxes approved');
+  check((await call('POST', '/api/xbin/bindings', { component: MGR, slot: 'internet', provider: 'internet' })).status === 200, 'its internet class bound');
+  let last = null;
+  if (!await until("the manager's backend answers", 300000, async () => (last = await call('GET', `/api/${MGR}/runtime`)).status === 200)) {
+    check(false, `its last answer: ${last.status} ${JSON.stringify(last.body)?.slice(0, 300)}`);
+    return closeCtx(L.ctx, L.page);
+  }
+  const made = await call('POST', `/api/${MGR}/sandboxes`, { name: 'live-1', egress: 'internet', start: true });
+  check(made.status === 201 && made.body?.state === 'running', `a sandbox started through the manager (${made.status} ${JSON.stringify(made.body)?.slice(0, 200)})`);
+  const ran = await call('POST', `/api/${MGR}/sandboxes/live-1/run`, { cmd: 'echo live-$((20+22))' });
+  check(ran.body?.stdout?.head === 'live-42\n', `a command ran in it (${JSON.stringify(ran.body)?.slice(0, 200)})`);
+
+  await gotoTab(L.page, 'sandboxes', 'sandboxes');
+  const p = L.page, T = p.locator('bx-admin-tile-sandboxes');
+  const row = T.locator(`tr[data-tsbx-row="${MGR}:live-1"]`);
+  await row.waitFor({ timeout: 15000 }).catch(() => {});
+  check(await row.count() === 1, 'the tile sandboxes list the live one');
+  check(await row.locator('[data-tsbx-stop]').count() === 1, 'it runs: the admin may stop it');
+  await until('the registry lists the running sandbox under its manager', 15000,
+    async () => await p.locator(`tr[data-sbx-kind="tile"][data-sbx-id^="tile:apps~sbxgo"][data-depth="1"]`).count() === 1);
+  await shot(p, 'admin-sandboxes-live');
+
+  await row.locator('[data-tsbx-stop]').click();
+  await until('the admin stop took', 20000, async () => (await call('GET', `/api/${MGR}/sandboxes/live-1`)).body?.state === 'stopped');
+  const got = await call('GET', `/api/${MGR}/sandboxes/live-1`);
+  check(/stopped by a workspace admin/.test(got.body?.stateDetail || ''), `the manager sees why (${got.body?.stateDetail})`);
+  await until('the list shows it stopped, with why', 15000,
+    async () => /workspace admin/.test(await row.locator('[data-tsbx-detail]').textContent().catch(() => '')) && await row.locator('[data-tsbx-stop]').count() === 0);
+  await shot(p, 'admin-sandboxes-live-stopped');
+  p.once('dialog', (dl) => dl.accept());
+  await row.locator('[data-tsbx-delete]').click();
+  await until('the admin delete took', 20000, async () => (await call('GET', `/api/${MGR}/sandboxes/live-1`)).status === 404);
+  await until('the list drops it', 15000, async () => await row.count() === 0);
+  await closeCtx(L.ctx, L.page);
+}
+
+// A: live, no --isolate.
+async function liveUnisolated(browser, check) {
   const A = await login(browser, 'admin', 'admin', { viewport: { width: 1400, height: 950 } });
   await A.ctx.request.get(`${URL}/api/${TILE}/`); // spawns the node backend
   const vmAsk = await A.ctx.request.get(`${URL}/ws/term?cwd=${encodeURIComponent(TILE)}&vm=1`);
@@ -133,8 +201,10 @@ async function sandboxes(browser) {
   check(await crow.locator('[data-sbx-cell="host"]').count() === 1, 'components: the tile runs on the host here');
   if (sid) await A.ctx.request.delete(`${URL}/ws/term?session=${encodeURIComponent(sid)}`);
   await closeCtx(A.ctx, A.page);
+}
 
-  // ---- B: a VM-capable host (routed) ----
+// B: a VM-capable host (routed).
+async function routedVMHost(browser, check) {
   const B = await login(browser, 'admin', 'admin', { viewport: { width: 1400, height: 1100 } });
   const fx = fixture();
   let put = null, sbxPut = null;
@@ -228,8 +298,10 @@ async function sandboxes(browser) {
     memMiB: 1024, vcpus: 0, maxVMs: 0, budgetMiB: 4096, diskGiB: 0, tilesBudgetMiB: 0 }),
   `the policy sent is what the admin set plus the edits (${JSON.stringify(put)})`);
   await closeCtx(B.ctx, B.page);
+}
 
-  // ---- C: an idle tile that asks for a VM ----
+// C: an idle tile that asks for a VM.
+async function idleVMTile(browser, check) {
   const C = await login(browser, 'admin', 'admin', { viewport: { width: 1400, height: 950 } });
   await C.page.route('**/api/xbin/runtime', async (route) => {
     const r = await route.fetch();
@@ -250,7 +322,6 @@ async function sandboxes(browser) {
   check(await irow.locator('[data-sbx-cell="vm"].idle').count() === 1, 'components: an idle tile asking for a VM shows ⧉ VM, muted');
   await shot(C.page, 'admin-components-vm');
   await closeCtx(C.ctx, C.page);
-  done();
 }
 
 module.exports = { sandboxes };

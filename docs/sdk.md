@@ -252,11 +252,13 @@ A **manager tile** serves the sandbox-manager contract
 xbind run its sandboxes (D120). Its backend needs **`cap:sandboxes`**, a
 grant only a workspace admin approves, and an xbind running with
 `--isolate`. The routes are in [protocol.md](protocol.md) §Tile sandboxes;
-the SDK has one call per route:
+the SDK has one call per route. The xbin repository's
+`examples/sandbox-go` is the smallest manager built on it — each of its
+routes a few lines (its `API.md`):
 
 ```go
 sbx := xbin.SandboxAPI()
-rt, err := sbx.Runtime(ctx) // modes, egress classes, limits, and rt.Caps: what this xbind serves
+rt, err := sbx.Runtime(ctx) // modes, egress classes, limits (rt.Limits.Flows too), and rt.Caps: what this xbind serves
 info, err := sbx.Create(ctx, xbin.SandboxSpec{Name: "sb-7f3a", Mode: "vm",
 	Net: &xbin.SandboxNet{Egress: "class:internet"}, ClientID: reqID})
 info, err = sbx.Start(ctx, "sb-7f3a", 30*time.Second) // Stop, Reset, Rebase alike; List, Get, Patch, Delete, Copy
@@ -302,7 +304,11 @@ snaps, err := sb.Snapshots(ctx)                                             // S
   against the grammar and escapes it itself, so a consumer's id (one with a
   `/`, `..`, `%2F`, `?` or `#`) can only fail — Forward answers `400
   invalid` and sends nothing — and never reaches another route or
-  sandbox. Forward streams both bodies and copies the status and headers
+  sandbox. (A consumer's `%2F` never gets that far through xbind: its
+  proxy hands your backend the path decoded, so your router sees the route
+  a crafted path names and your own checks apply to that — the builders
+  guard an id from a body, a query or a router that keeps encodings.)
+  Forward streams both bodies and copies the status and headers
   (but not `Set-Cookie`). It sends only the query `q` you chose, never the
   consumer's raw query. It drops the inbound `Cookie`, `Authorization`,
   `Sbx-User`, `X-XBin-*` and `Sec-WebSocket-Extensions`: the call carries

@@ -411,7 +411,12 @@ ANY  /api/xbin/<p>              → xbind's own API (below)
 ```
 
 `/api/<component>` resolution is longest-prefix over registered components;
-the remainder is the backend path. Responses stream (SSE/chunked flush
+the remainder is the backend path, decoded: an encoded `/` (`%2F`) is a
+separator there, and `.` and `..` segments are resolved (xbind's router
+redirects a plain dot segment first). So a backend routes — and checks — the
+path a request names: a caller can't smuggle a `/` into one segment's value
+(the `/api/xbin` routes below keep an encoded `/` in its segment instead).
+Responses stream (SSE/chunked flush
 immediately) and WebSocket upgrades pass through; a `?frame=` query
 credential is accepted for browser WS attribution and is consumed by xbind
 (stripped before forwarding). Backends with active streams are exempt from
@@ -2472,7 +2477,8 @@ before the VM goes.
 
 A start answers the sandbox as it stands: `running`, or `stopped` with
 the failure in `stateDetail` (the sandbox's own start-up error, quoted). It
-is refused 409 `state` when the sandbox is in `error` — its state went
+is refused 409 `state` when the sandbox is in `error`, or its start finds
+it so (the sandbox reads `stopped` until a start looks) — its state went
 missing, its base image is no longer installed, or its upper was written
 by the other overlay flavour (`stateDetail` says which; a reset repairs
 it, and a rebase repairs a missing base) — or while an earlier run's

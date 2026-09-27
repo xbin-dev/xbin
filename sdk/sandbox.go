@@ -298,7 +298,8 @@ func decodeAnswer(resp *http.Response, out any) error {
 	return nil
 }
 
-// waitQuery is ?wait=<seconds>, rounded up (none for 0).
+// waitQuery is ?wait=<seconds>, rounded up (none for 0: the runtime's
+// default, limits.waitMaxSec).
 func waitQuery(wait time.Duration) url.Values {
 	if wait <= 0 {
 		return nil
@@ -565,8 +566,9 @@ func (s *Sandboxes) Delete(ctx context.Context, name string) error {
 	return s.call(ctx, http.MethodDelete, path, nil, nil, nil)
 }
 
-// Start starts a sandbox; wait > 0 returns once it runs (or the wait, at
-// most limits.waitMaxSec, runs out) — the answer says where it stands.
+// Start starts a sandbox and answers once it runs, or once wait (rounded up
+// to seconds, at most limits.waitMaxSec; 0 = limits.waitMaxSec) runs out —
+// the answer says where it stands. Stop, Reset and Rebase wait alike.
 func (s *Sandboxes) Start(ctx context.Context, name string, wait time.Duration) (*SandboxInfo, error) {
 	return s.Sandbox(name).info(ctx, http.MethodPost, "start", waitQuery(wait), nil)
 }

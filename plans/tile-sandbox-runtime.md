@@ -4650,6 +4650,75 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
   - the QA box runs the example in range-uid mode;
   - `docs/protocol.md`, `docs/sdk.md` and `docs/sandbox-manager.md` "On xbin"
     are reviewed against the code.
+- **As built, part A** (branch `p2/wp21`):
+  - `examples/sandbox-go` (in go.work): `cap:sandboxes`, an `internet`
+    `sandbox-net` slot, roles reader/writer; routes `/runtime`,
+    `/sandboxes[/{id}]`, lifecycle (start, stop, reset, rebase), `run`,
+    execs (typed calls to start, list and get; `Forward` to `ExecRoute`,
+    `ExecOutput`, `ExecStdin`, `ExecSignal`, `ExecResize`), terminals
+    (`RelayNewTTY`, `RelayTTY`), `files/{op}` and `tar` (`Forward` to
+    `FilesRoute`/`TarRoute`, a picked query), snapshots. Each sandbox is its
+    creator's alone: a `sandbox-go.home` label (`X-XBin-From`), checked on
+    every route (another's is 404); an exec id failing `IsExecID` is 404
+    there too. `forUser` is always the verified person. Its `API.md` is the
+    doc.
+  - `test/xbindtest` (linux, no tag, so `go vet` compiles it): the reusable
+    isolated-xbind helpers — `Main` (the confined runs' init),
+    `Require` (skips without userns or a rootfs; builds xbind, bx and
+    xbin-vmagent from the tree once), `Start`/`Stop`/`Restart`/`Kill` (a
+    process group of its own, every process of its tree checked gone, the
+    tile sandboxes deleted and the workspace removed — confined where
+    sub-uids own it), `Call`/`Must`/`Dial` (paths sent as written; no
+    redirects followed; gorilla), `CopyTile`/`WriteTile`/`Grant`/`Bind`/
+    `FrameToken` (a second consumer under `--no-auth`)/`RequireVM` (turns
+    the VM policy's tiles on)/`TileSandboxes`, `CopyRootfs`/`TempRoot`
+    (`XBIN_ITEST_DIR`), `Eventually`.
+  - `test/isolated` (linux && integration): `TestNamespace` and `TestVM`
+    run one suite — runtime, create, `run` (`id -G` is `0`), output through
+    `Forward` to the end, stdin, a forwarded TERM, files and tar both ways,
+    a new and an attached terminal through the relay (gorilla; the session
+    frame's ids, resize, the exec outliving its client), the consumer's
+    page's terminal (`?frame=`), snapshots and a restore, partitions
+    against crafted ids (`..%2F`, `%252F`, `%2f`, plain and `%2E%2E` dot
+    segments, in the sandbox, exec, file-op and snapshot segments, GET/
+    DELETE/POST and a WebSocket attach, both directions: never a 2xx, never
+    the other's bytes, the other's exec untouched), `egress: none` refused
+    at once, an xbind restart (exec `lost` also through `Forward`, sandboxes
+    `stopped`, state kept, a file read auto-starting it). Namespace mode
+    adds range mode when `users` is `any`: a uid-1000 file owned by a
+    sub-uid on the host and unreadable to xbind's user, measured (after the
+    stop: asynchronous), snapshotted and restored exactly (owner, mode,
+    symlink), and its state dir gone with the delete. `TestBaseGC` runs
+    three boots over a rootfs copy whose stamp moves A → B → C (preserved
+    bases as stamp-only stubs): a base only a snapshot pins and one only a
+    definition pins (its `cur/` removed by hand: the missing-state error,
+    found by the next start) stay, an unpinned one goes, and both go once
+    released. Timings here: namespace 15 s, VM 19 s (KVM) / 31 s
+    (emulated), GC 27 s. `make integration` runs `./test/` (was
+    `./test/...`), then `./test/isolated/` and its `TestVM` emulated.
+  - **Found and fixed by the live runs:** (1) a namespace sandbox's
+    commands kept xbind's user's supplementary groups (unmapped, `id -G`
+    showed seven 65534s): the agent drops them at start where setgroups
+    is allowed (`TestDropGroups`; `testLiveExecs` asks the probe's
+    `groups`). (2) The SDK's `SandboxLimits` had no `Flows`, so `Runtime`
+    dropped `limits.flows`; `TestSDKShapes` now holds every SDK type to
+    the runtime's JSON both ways. (3) Under `--isolate` every Go tile build
+    failed ("go: updating go.sum: … read-only file system") in a workspace
+    whose modules together need a `go.work.sum` entry — the agent template
+    beside sandbox-terminal (the seeded harness) — or with a tile module
+    lacking a `go.sum` entry: a confined build now gets a copy of the
+    generated `go.work` with a `go.work.sum` of its own
+    (`runner.tileGoWork`, `deps.AbsGoWork`; `TestConfinedGoBuildWorkSum`).
+  - Docs: protocol.md (the proxy hands a backend the decoded, cleaned
+    path; no supplementary groups; `error` found by a start), sdk.md (the
+    example, `Flows`, what the proxy does to a `%2F`), sandbox-manager.md
+    "On xbin" (xbind's restarts, the idle stop, disk wording),
+    isolation.md (the per-tile `go.work.sum`).
+  - The harness: `ISOLATE=1 [ROOTFS=…] run.sh … sandboxes` runs xbind
+    with `--isolate`; the `sandboxes` pass then drives a live tile sandbox
+    (part L, instead of the unisolated part A): the example imported, a
+    sandbox started through it, listed running under its manager, stopped
+    and deleted by the admin.
 
 ### WP-22 — Archive and thaw *(later; split when scheduled)*
 

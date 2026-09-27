@@ -108,7 +108,7 @@ test:
 	go test ./sdk/... ./relay/...
 
 integration:
-	go test -tags=integration -count=1 -v ./test/...
+	go test -tags=integration -count=1 -v ./test/
 	# the confined tool runs (D78), the sandbox init and a tile sandbox's
 	# `bx __sbx-agent` (a minimal lower built in the test) in real sandboxes,
 	# and the relay's per-flow host locality in a netns of its own: skip
@@ -131,6 +131,16 @@ integration:
 	# under QEMU's emulation (skips without its assets)
 	go test -tags=integration -count=1 -v ./internal/vm/
 	XBIN_VM_ACCEL=emulate go test -tags=integration -count=1 -v ./internal/vm/
+	# tile sandboxes end to end (WP-21, test/isolated over test/xbindtest):
+	# examples/sandbox-go on an `xbind --isolate` built from this tree, driven
+	# through the proxy by two consumers — commands, Forward routes, relayed
+	# terminals, files, snapshots, crafted ids, an xbind restart, range mode
+	# where a sub-uid range is delegated, and the boot's base GC over a copy of
+	# the rootfs (XBIN_ITEST_DIR: a dir on the rootfs's filesystem, for
+	# reflinks) — then VM mode (KVM) and again emulated. Skips without
+	# .rootfs/userns (VM mode: without the vm-assets)
+	go test -tags=integration -count=1 -v ./test/isolated/
+	XBIN_VM_ACCEL=emulate go test -tags=integration -count=1 -v -run '^TestVM$$' ./test/isolated/
 
 vet:
 	go vet ./...

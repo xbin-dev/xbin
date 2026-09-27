@@ -413,11 +413,22 @@ manager of its own (its `API.md` has everything):
 ## On xbin
 
 A manager that runs its sandboxes on xbind's own runtime
-(docs/protocol.md §Tile sandboxes) hands them to the workspace too, which
-may stop one under it — synced, state kept, the reason in its
-`stateDetail`. Show that reason to the consumer, and start the sandbox again
-(or let `autoStart` do it) once the cause is gone:
+(docs/protocol.md §Tile sandboxes; the Go SDK's `xbin.SandboxAPI()`,
+docs/sdk.md; the xbin repository's `examples/sandbox-go` is the smallest
+one) hands them to the workspace too, which may stop one under it —
+synced, state kept, the reason in its `stateDetail`. Show that reason to
+the consumer, and start the sandbox again (or let `autoStart` do it) once
+the cause is gone:
 
+- **xbind itself.** Running work dies with xbind: after a restart every
+  sandbox is `stopped`, state kept, and an exec id from before it answers
+  `lost` (410) — the contract's `lost`, which a manager whose exec ids are
+  the runtime's passes on as it is. Its execs' output goes with them.
+- **Idle.** A sandbox with no activity for its `idleStopMin` (the
+  runtime's policy, 30 minutes by default) is stopped; a command or file
+  call starts it again with `autoStart`. Reading its `SandboxInfo` isn't
+  activity; a running non-terminal command, a file or tar call and an
+  attached terminal hold it off however long they take.
 - **Its tile.** Disabling, hiding, offloading or removing the manager tile
   stops its sandboxes, and so does losing `cap:sandboxes`. A removed
   manager's sandboxes stay, definitions and state, until a workspace admin
@@ -426,10 +437,12 @@ may stop one under it — synced, state kept, the reason in its
   now holds only as a reader, stops the sandbox; so does sealing the vault,
   for every sandbox with a resource mounted (its start answers 503 until
   the vault is unsealed). A narrowed `sandbox-net` class does the same.
-- **Disk.** Each sandbox's bytes are measured (`diskBytes`). Past the
-  tile's `perTile.diskGiB`, its largest running sandbox is stopped and
+- **Disk.** Each sandbox's bytes are measured (`diskBytes`, after each
+  stop and every few minutes while it runs). Past the tile's
+  `perTile.diskGiB`, its largest running namespace sandbox is stopped and
   starts answer 429; while the workspace disk is low, starts answer 503 and
-  the tiles holding most are stopped first.
+  the namespace sandboxes of the tiles holding most are stopped first (a
+  VM's disk is bounded: it runs on).
 - **Backups.** A backup of the manager tile carries its sandbox
   definitions, never their state; a restore brings them back by `uid`,
   stopped. State moves only through snapshots and clones — so offloading a
