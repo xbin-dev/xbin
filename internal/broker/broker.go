@@ -121,6 +121,7 @@ type Broker struct {
 	// false, vault writes without a barrier are refused rather than written
 	// in the clear.
 	AllowInsecureVault bool
+	DeploymentHooks    // installed by the deployments plane; nil-safe (deployhooks.go)
 }
 
 // Close releases what a boot holds open for the daemon's lifetime — the KV
