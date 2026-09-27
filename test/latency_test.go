@@ -12,7 +12,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -482,4 +484,281 @@ func (e *eventTap) describe(from int) string {
 		parts = append(parts, s)
 	}
 	return strings.Join(parts, "; ")
+}
+
+// ---- the lifecycle operations (SC-LATENCY-OPS, M1 rows; WP-28) ----
+
+// opsBudget is one row of SC-LATENCY-OPS for one reference tile: the p95
+// target and the hard bound (0: none but the wait).
+type opsBudget struct{ p95, bound time.Duration }
+
+// opsRef is a reference tile for TestLatencyLifecycleOps.
+type opsRef struct {
+	name, tile string
+	install    func(t *testing.T, ws string) // puts the tile at ws/tile
+	edit       func(t *testing.T, k int)     // a save making code k
+	serving    func(a dlAPI) int             // the k whose code answers now, -1 when unknown
+	budgets    map[string]opsBudget          // by operation
+}
+
+// covers SC-LATENCY-OPS — the M1 rows, from the request to the first
+// request served by the new code with every open frame of the deployment
+// reloaded (the bare reload), on R-static (a daemon of the shared daemon's
+// flavour on its own workspace, which may hold deployment state), R-go and
+// R-node (an isolated daemon): a checkpoint (a dry run's capture of an
+// edited work tree; the materialization is inside the other rows), pausing
+// live reload, reload now, rolling back to a kept checkpoint, and resume.
+// One cold cycle is discarded, then five warm ones: every sample meets the
+// hard bound and the median meets the p95 target; XBIN_TEST_FULL=1 takes 30
+// and checks the p95. No baseline applies: an older xbind has none of these
+// operations.
+func TestLatencyLifecycleOps(t *testing.T) {
+	n := latencyFastSamples
+	if os.Getenv("XBIN_TEST_FULL") == "1" {
+		n = latencyFullSamples
+	}
+	t.Run("R-static", func(t *testing.T) {
+		a, pws := startPlainDaemon(t)
+		runOpsLatency(t, a, pws, opsStatic(), n)
+	})
+	t.Run("backends", func(t *testing.T) {
+		d := startIsolatedDaemon(t, isoOpts{})
+		t.Run("R-go", func(t *testing.T) { runOpsLatency(t, d.dl(), d.WS, opsGo(), n) })
+		t.Run("R-node", func(t *testing.T) { runOpsLatency(t, d.dl(), d.WS, opsNode(), n) })
+	})
+}
+
+// opsMarker is code k's marker, as each reference tile embeds it; no tile
+// path can hold one, so an injected <meta> never reads as a marker.
+func opsMarker(k int) string { return fmt.Sprintf("@lat%06d@", k) }
+
+var opsMarkerRe = regexp.MustCompile(`@lat(\d{6})@`)
+
+// opsSeen finds the marker in a body: its k, or -1.
+func opsSeen(body string) int {
+	m := opsMarkerRe.FindStringSubmatch(body)
+	if m == nil {
+		return -1
+	}
+	k, _ := strconv.Atoi(m[1])
+	return k
+}
+
+// opsAgentCopy installs the agent template's files (R-static's size) at dir
+// with manifest, as a tile of its own.
+func opsAgentCopy(t *testing.T, dir, manifest string) {
+	copyLatencyTile(t, filepath.Join(repo, "builtin-templates", "agent"), dir)
+	if err := os.Remove(filepath.Join(dir, "scope.json")); err != nil {
+		t.Fatal(err)
+	}
+	must(t, os.WriteFile(filepath.Join(dir, "xbin.json"), []byte(manifest), 0o644))
+}
+
+func opsStatic() *opsRef {
+	r := &opsRef{name: "R-static", tile: "apps/lat-ops-static", budgets: map[string]opsBudget{
+		"checkpoint": {500 * time.Millisecond, 5 * time.Second},
+		"pause":      {time.Second, 5 * time.Second},
+		"reload now": {1500 * time.Millisecond, 5 * time.Second},
+		"roll back":  {time.Second, 10 * time.Second},
+		"resume":     {1500 * time.Millisecond, 5 * time.Second},
+	}}
+	var dir string
+	var index []byte
+	r.install = func(t *testing.T, ws string) {
+		dir = filepath.Join(ws, r.tile)
+		opsAgentCopy(t, dir, `{"runtime":"static"}`+"\n")
+		var err error
+		index, err = os.ReadFile(filepath.Join(dir, "index.html"))
+		must(t, err)
+	}
+	r.edit = func(t *testing.T, k int) {
+		must(t, saveIfChanged(filepath.Join(dir, "index.html"), string(index)+"<!-- "+opsMarker(k)+" -->\n"))
+	}
+	r.serving = func(a dlAPI) int {
+		c, b := a.do("GET", "/c/"+r.tile+"/", "")
+		if c != 200 {
+			return -1
+		}
+		return opsSeen(b)
+	}
+	return r
+}
+
+func opsGo() *opsRef {
+	r := &opsRef{name: "R-go", tile: "apps/lat-ops-go", budgets: map[string]opsBudget{
+		"checkpoint": {500 * time.Millisecond, 5 * time.Second},
+		"pause":      {3500 * time.Millisecond, 0}, // bound: the confined build's timeout
+		"reload now": {3 * time.Second, 0},
+		"roll back":  {2 * time.Second, 10 * time.Second},
+		"resume":     {3 * time.Second, 0},
+	}}
+	var dir, src string
+	const shape = `"count":%d`
+	r.install = func(t *testing.T, ws string) {
+		dir = filepath.Join(ws, r.tile)
+		copyLatencyTile(t, filepath.Join(repo, "examples", "counter-go"), dir)
+		mod, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+		must(t, err)
+		renamed := strings.Replace(string(mod), "module counter\n", "module latopsgo\n", 1)
+		if renamed == string(mod) {
+			t.Fatal("examples/counter-go's go.mod no longer says `module counter`: update this test's rename")
+		}
+		must(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte(renamed), 0o644))
+		b, err := os.ReadFile(filepath.Join(dir, "backend", "main.go"))
+		must(t, err)
+		if src = string(b); !strings.Contains(src, shape) {
+			t.Fatalf("examples/counter-go's GET /count no longer prints %s: update this test's edit", shape)
+		}
+	}
+	r.edit = func(t *testing.T, k int) {
+		must(t, saveIfChanged(filepath.Join(dir, "backend", "main.go"),
+			strings.Replace(src, shape, shape+`,"lat":"`+opsMarker(k)+`"`, 1)))
+	}
+	r.serving = func(a dlAPI) int {
+		c, b := a.do("GET", "/api/"+r.tile+"/count", "")
+		if c != 200 {
+			return -1
+		}
+		return opsSeen(b)
+	}
+	return r
+}
+
+func opsNode() *opsRef {
+	r := &opsRef{name: "R-node", tile: "apps/lat-ops-node", budgets: map[string]opsBudget{
+		"checkpoint": {500 * time.Millisecond, 5 * time.Second},
+		"pause":      {1500 * time.Millisecond, 10 * time.Second},
+		"reload now": {2 * time.Second, 10 * time.Second},
+		"roll back":  {2 * time.Second, 10 * time.Second},
+		"resume":     {2 * time.Second, 10 * time.Second},
+	}}
+	var dir string
+	r.install = func(t *testing.T, ws string) {
+		dir = filepath.Join(ws, r.tile)
+		opsAgentCopy(t, dir, `{"runtime":"node"}`+"\n")
+	}
+	r.edit = func(t *testing.T, k int) {
+		must(t, saveIfChanged(filepath.Join(dir, "backend", "server.js"),
+			strings.NewReplacer("__MARKER__", strconv.Quote(opsMarker(k)), "__FAULT__", `""`, "__FILE__", strconv.Quote(probeFile)).Replace(rtNodeSource)))
+	}
+	r.serving = func(a dlAPI) int {
+		c, b := a.do("GET", "/api/"+r.tile+"/v", "")
+		if c != 200 {
+			return -1
+		}
+		return opsSeen(b)
+	}
+	return r
+}
+
+// runOpsLatency takes n warm samples of every operation on r (after one
+// cold cycle, discarded) and checks each row's budget.
+func runOpsLatency(t *testing.T, a dlAPI, ws string, r *opsRef, n int) {
+	r.install(t, ws)
+	k := 0
+	r.edit(t, k)
+	if !waitFor(func() bool { return r.serving(a) == k }, 3*time.Minute) {
+		t.Fatalf("%s never served its first code", r.name)
+	}
+	a.waitTile(t, r.tile)
+	tape := a.tape(t)
+	samples := map[string][]time.Duration{}
+	for cycle := 0; cycle <= n; cycle++ {
+		got := opsCycle(t, a, tape, r, &k)
+		for op, d := range got {
+			if cycle == 0 {
+				t.Logf("%s %s, cold (discarded): %v", r.name, op, d.Round(time.Millisecond))
+				continue
+			}
+			samples[op] = append(samples[op], d)
+			if b := r.budgets[op]; b.bound > 0 && d > b.bound {
+				t.Errorf("%s %s: a sample took %v, past the %v bound", r.name, op, d.Round(time.Millisecond), b.bound)
+			}
+		}
+	}
+	full := n >= latencyFullSamples
+	for _, op := range []string{"checkpoint", "pause", "reload now", "roll back", "resume"} {
+		med, p95, worst := latencyStats(samples[op])
+		b := r.budgets[op]
+		t.Logf("%s %s: %d warm samples — median %v, p95 %v, max %v; target p95 %v, bound %v", r.name, op, len(samples[op]),
+			med.Round(time.Millisecond), p95.Round(time.Millisecond), worst.Round(time.Millisecond), b.p95, b.bound)
+		switch {
+		case !full && med > b.p95:
+			t.Errorf("%s %s: the median of %d warm samples, %v, misses the %v target", r.name, op, len(samples[op]), med.Round(time.Millisecond), b.p95)
+		case full && p95 > b.p95:
+			t.Errorf("%s %s: p95 over %d samples, %v, misses the %v target", r.name, op, len(samples[op]), p95.Round(time.Millisecond), b.p95)
+		}
+	}
+}
+
+// opsCycle is one sample of each operation, in the order a person meets
+// them: pause (the tile follows its work tree), an edit's checkpoint (a dry
+// run), reload now, a rollback to the pause's checkpoint, resume after one
+// more edit. *k is the newest code's number, advanced by the edits.
+func opsCycle(t *testing.T, a dlAPI, tape *dlTape, r *opsRef, k *int) map[string]time.Duration {
+	t.Helper()
+	out := map[string]time.Duration{}
+	// measure sends route and times it from the request (the one the
+	// capture rate let through) to r serving code want, with the bare reload
+	// when reload is set, and logs the breakdown.
+	measure := func(op string, want int, reload bool, route, body string) dlAnswer {
+		t.Helper()
+		m := tape.mark()
+		code, ans, raw, t0 := a.postPaced(t, route, body)
+		if code != 200 {
+			t.Fatalf("%s %s: %d %s", r.name, op, code, raw)
+		}
+		answered := time.Since(t0)
+		var entry time.Duration
+		if ans.Deploy != nil && !ans.Deploy.final() {
+			a.settle(t, r.tile, ans)
+			entry = time.Since(t0)
+		}
+		for deadline := t0.Add(3 * time.Minute); r.serving(a) != want; time.Sleep(latencyPoll) {
+			if time.Now().After(deadline) {
+				t.Fatalf("%s %s: code %d never served: %s", r.name, op, want, tape.describe(m, r.tile))
+			}
+		}
+		served := time.Since(t0)
+		took := served
+		note := "no reload expected"
+		if reload {
+			ev, ok := tape.wait(m, isEvent("reload", r.tile), time.Minute)
+			if !ok {
+				t.Fatalf("%s %s: no frame reload: %s", r.name, op, tape.describe(m, r.tile))
+			}
+			note = fmt.Sprintf("reload %v", ev.at.Sub(t0).Round(time.Millisecond))
+			took = max(took, ev.at.Sub(t0))
+		}
+		out[op] = took
+		t.Logf("%s %s: %v = answer %v · deploy done %v · served %v · %s", r.name, op, took.Round(time.Millisecond),
+			answered.Round(time.Millisecond), entry.Round(time.Millisecond), served.Round(time.Millisecond), note)
+		return ans
+	}
+	if a.hasRecord(r.tile) {
+		t.Fatalf("%s: a cycle starts in the zero state", r.name)
+	}
+	cp := *k
+	ans := measure("pause", cp, false, "live-reload/pause", dlBody(r.tile))
+	if ans.Deploy == nil {
+		t.Fatalf("%s: the pause shipped nothing: %+v", r.name, ans)
+	}
+	paused := ans.Deploy.Checkpoint
+
+	*k++
+	r.edit(t, *k)
+	code, dry, raw, t0 := a.postPaced(t, "live-reload/now", dlBody(r.tile, "dryRun", true))
+	out["checkpoint"] = time.Since(t0)
+	if code != 200 || dry.Deploy != nil {
+		t.Fatalf("%s: a dry run of reload now: %d %s", r.name, code, raw)
+	}
+	t.Logf("%s checkpoint (a dry run's capture): %v", r.name, out["checkpoint"].Round(time.Millisecond))
+
+	measure("reload now", *k, true, "live-reload/now", dlBody(r.tile))
+	measure("roll back", cp, true, "rollback", dlBody(r.tile, "deployment", "main", "checkpoint", paused))
+	*k++
+	r.edit(t, *k)
+	time.Sleep(2 * latencyDebounce) // negative: the edit reaches nothing while paused
+	measure("resume", *k, true, "live-reload/resume", dlBody(r.tile))
+	return out
 }

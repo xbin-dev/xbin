@@ -1,9 +1,11 @@
 package boot
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -13,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/confine"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -240,5 +243,119 @@ func TestZeroStateCreatesNoDeploymentFiles(t *testing.T) {
 	}
 	if bad := append(zsDeploymentState(t, ws, keys), zsRunDirState(t, d.st.Run.RunDir, keys)...); len(bad) > 0 {
 		t.Errorf("a zero-state workspace gained deployment state:\n  %s", strings.Join(bad, "\n  "))
+	}
+}
+
+// covers P15 T11 PO-7 — the in-process twin of TestDeploymentStateBootsTwice
+// (test/deploystate_boot_test.go; 15-test-plan §6): on a fresh workspace the
+// feature itself pauses live reload on a static tile and the work tree moves
+// on; two boots then change nothing outside derived trees (.xbin/deploy/):
+// the record, the checkpoint store, the view repository and every tile
+// work tree and repository stay byte-identical. It reuses this package's
+// snapshot, changed and bootOnce, and needs host git and GNU find, as the
+// store's tools run directly here.
+func TestDeploymentStateBootsTwiceInProcess(t *testing.T) {
+	if testing.Short() {
+		t.Skip("boots a workspace")
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git on this host")
+	}
+	if out, err := exec.Command("find", "--version").CombinedOutput(); err != nil || !strings.Contains(string(out), "GNU") {
+		t.Skip("no GNU find on this host")
+	}
+	if confine.Isolated() {
+		t.Skip("confinement is on: the store's tools run directly here")
+	}
+	quiet(t)
+	ws := filepath.Join(t.TempDir(), "ws")
+	if err := InitWorkspace(ws); err != nil {
+		t.Fatal(err)
+	}
+	const tile = "apps/ds-paused"
+	write := func(rel, body string) {
+		t.Helper()
+		p := filepath.Join(ws, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(tile+"/xbin.json", `{"title":"paused"}`)
+	write(tile+"/index.html", "<!doctype html><html><head></head><body>v1</body></html>\n")
+	dsServe(t, ws, func(url string) {
+		var code int
+		for deadline := time.Now().Add(30 * time.Second); code != http.StatusOK && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+			if r, err := http.Get(url + "/api/xbin/deployments?tile=" + tile); err == nil {
+				code = r.StatusCode
+				r.Body.Close()
+			}
+		}
+		r, err := http.Post(url+"/api/xbin/deployments/live-reload/pause", "application/json", strings.NewReader(`{"tile":"`+tile+`"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(r.Body)
+		r.Body.Close()
+		var ans struct {
+			State  struct{ Record bool }
+			Deploy struct{ Result string }
+		}
+		if r.StatusCode != http.StatusOK || json.Unmarshal(b, &ans) != nil || !ans.State.Record || ans.Deploy.Result != "ok" {
+			t.Fatalf("pausing live reload: %d %s", r.StatusCode, b)
+		}
+		write(tile+"/index.html", "<!doctype html><html><head></head><body>v2</body></html>\n")
+	})
+	k := util.TileKey(tile)
+	before := snapshot(t, ws)
+	for _, rel := range []string{"data/deployments/" + k + ".json", "data/checkpoints/" + k + ".git/HEAD",
+		"data/checkpoints/" + k + ".view.git/HEAD", tile + "/.git/HEAD", tile + "/.git/config"} {
+		if _, ok := before[rel]; !ok {
+			t.Fatalf("the fixture's snapshot has no %s", rel)
+		}
+	}
+	prev := before
+	for boot := 1; boot <= 2; boot++ {
+		bootOnce(t, ws)
+		now := snapshot(t, ws)
+		for _, rel := range changed(prev, now) {
+			if !strings.HasPrefix(rel, ".xbin/deploy/") {
+				t.Errorf("boot %d changed %s, outside derived trees", boot, rel)
+			}
+		}
+		prev = now
+	}
+}
+
+// dsServe runs the daemon in process on ws, hands fn its URL, then stops it.
+func dsServe(t *testing.T, ws string, fn func(url string)) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig(ws, ln)
+	ready := make(chan string, 1)
+	cfg.Ready = func(addr string) { ready <- addr }
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- Run(ctx, cfg) }()
+	defer func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(30 * time.Second):
+			t.Error("the daemon did not stop")
+		}
+	}()
+	select {
+	case addr := <-ready:
+		fn("http://" + addr)
+	case err := <-done:
+		t.Fatalf("boot ended before serving: %v", err)
+	case <-time.After(30 * time.Second):
+		t.Fatal("boot never served")
 	}
 }
