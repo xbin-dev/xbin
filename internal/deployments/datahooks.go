@@ -1,12 +1,14 @@
 package deployments
 
 // datahooks.go — the broker's data acts the plane's operations call
-// (08-data §6, §8, §9), installed by boot's stepBroker. Plane embeds them;
+// (08-data §6, §8–§10), installed by boot's stepBroker. Plane embeds them;
 // each is nil until installed, and a caller treats nil as "no data plane":
-// nothing joined, nothing dropped, no data state.
+// nothing joined, nothing dropped, no data state, no vault to copy.
+
+import "github.com/xbin-dev/xbin/internal/auth"
 
 // DataHooks are the broker's answers about a deployment's (scope, name)
-// data namespace.
+// data namespace and its vault.
 type DataHooks struct {
 	// ResetData empties the namespace deployment dep of tile claims (08-data
 	// §9.1; 11-contract §1.8) for the reset op, which judged tile itself:
@@ -31,4 +33,14 @@ type DataHooks struct {
 	// partial data with a 403; the plane passes true and judges the actor
 	// itself (joinGate).
 	JoinData func(tile, dep string, manager bool) (*Joins, error)
+	// VaultCopy copies the named vault keys, or all, from the primary into a
+	// non-primary deployment, never the other way (08-data §10): the
+	// vault-copy op's run passes the grant's principal and the decoded
+	// request, and the broker judges the manager gate again itself. Errors
+	// are *Error; the audit names keys, never values.
+	VaultCopy func(p auth.Principal, req VaultCopyRequest) (VaultCopyAnswer, error)
+	// VaultPlaceholders lists deployment dep of tile's placeholders, the
+	// primary's key names dep has no value for (none for the primary): a
+	// reassignment's dry run shows its target's as Impact.placeholders.
+	VaultPlaceholders func(tile, dep string) ([]string, error)
 }

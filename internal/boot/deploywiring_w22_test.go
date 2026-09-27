@@ -6,12 +6,12 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers P5 P14 P22 PO-2 PO-8 — boot installs the hooks wave 2.2's work
+// covers P5 P14 P22 PO-2 PO-3 PO-8 — boot installs the hooks wave 2.2's work
 // packages reach xbind through: the runner's alwaysOn switch, per-deployment
-// env and spawn hold, and the plane's data namespace acts. Through them a
-// zero-state workspace answers today's: no switch is on, each tile's main
-// spawns under the tile's own gate with today's env and no remap, and main's
-// data is original.
+// env and spawn hold, and the plane's data namespace and vault acts. Through
+// them a zero-state workspace answers today's: no switch is on, each tile's
+// main spawns under the tile's own gate with today's env and no remap, main's
+// data is original, and the primary has no placeholders.
 func TestDeploymentsWiringWave22(t *testing.T) {
 	if testing.Short() {
 		t.Skip("boots a workspace")
@@ -23,6 +23,7 @@ func TestDeploymentsWiringWave22(t *testing.T) {
 		"runner.ShouldRunDeployment": run.ShouldRunDeployment != nil,
 		"plane.ResetData":            dp.ResetData != nil, "plane.DropData": dp.DropData != nil,
 		"plane.DataOf": dp.DataOf != nil, "plane.JoinData": dp.JoinData != nil,
+		"plane.VaultCopy": dp.VaultCopy != nil, "plane.VaultPlaceholders": dp.VaultPlaceholders != nil,
 	} {
 		if !set {
 			t.Errorf("the hook %s is not installed", name)
@@ -44,6 +45,9 @@ func TestDeploymentsWiringWave22(t *testing.T) {
 		}
 		if d := dp.DataOf(c.Path, util.MainDeployment); d == nil || d.State != "original" || d.Busy != "" {
 			t.Errorf("%s: main's data %+v; want original", c.Path, d)
+		}
+		if ph, err := dp.VaultPlaceholders(c.Path, util.MainDeployment); len(ph) != 0 || err != nil {
+			t.Errorf("%s: the primary's placeholders %v, %v", c.Path, ph, err)
 		}
 	}
 }

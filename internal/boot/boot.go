@@ -388,6 +388,7 @@ func (st *State) stepBroker() error {
 	dp.DropDeploymentFiles = brk.DropDeploymentFiles
 	dp.ResetData, dp.DropData = brk.ResetDeploymentData, brk.DropDeploymentData // (scope, name) namespaces
 	dp.DataOf, dp.JoinData = brk.DeploymentData, brk.JoinDeploymentData
+	dp.VaultCopy, dp.VaultPlaceholders = brk.VaultCopy, brk.VaultPlaceholders // a vault per deployment
 	// Embedded optional tile catalog (plans/tile-sharing.md).
 	if set, err := builtins.Load(xbin.BuiltinTilesFS()); err != nil {
 		slog.Warn("builtin tiles", "err", err)
