@@ -43,6 +43,13 @@ const PIECES = [
 
 export const mib = (n) => (n >= 1024 ? `${+(n / 1024).toFixed(1)} GiB` : `${n || 0} MiB`);
 const ago = (t) => fmtDur((Date.now() - Date.parse(t)) / 1000) + ' ago';
+// The tile deployment an entry runs for: '' for main, whose rows carry none.
+// Generations count per deployment, so a tile's backends are keyed by
+// (tile, deployment): each deployment has its own current generation.
+const depOf = (e) => e.deployment ?? '';
+// Stats of a leaf every generation of one deployment shares: "tile" on main's
+// backends, "deployment" on another deployment's. Counted and shown once.
+const shared = (s) => s.scope === 'tile' || s.scope === 'deployment';
 
 export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
   static properties = {
@@ -209,15 +216,18 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
   }
 
   _group(tile, es) {
-    // a tile's backend generations share its cgroup leaf: count it once
+    // a deployment's backend generations share its cgroup leaf: count it once
     const scopes = new Map();
     let reserved = 0;
     for (const e of es) {
       reserved += e.memMiB || 0;
-      if (e.stats) scopes.set(e.stats.scope === 'tile' ? 'tile' : e.id, e.stats);
+      if (e.stats) scopes.set(shared(e.stats) ? `${e.stats.scope}:${depOf(e)}` : e.id, e.stats);
     }
     const mem = [...scopes.values()].reduce((n, s) => n + (s.mem || 0), 0);
-    const curGen = Math.max(0, ...es.filter((e) => e.kind === 'backend').map((e) => e.gen || 0));
+    // each deployment's highest generation is its current one
+    const gens = new Map();
+    for (const e of es) if (e.kind === 'backend') gens.set(depOf(e), Math.max(gens.get(depOf(e)) || 0, e.gen || 0));
+    const curGen = (e) => gens.get(depOf(e)) || 0;
     // nest a sandbox under the entry it belongs to (parent); the rest at the top
     const ids = new Set(es.map((e) => e.id));
     const kids = new Map();
@@ -233,10 +243,10 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
   }
 
   _row(e, depth, curGen) {
-    const s = e.stats;
-    // a backend's stats are its tile's (every generation): shown on the current one
-    const showStats = s && (s.scope !== 'tile' || e.gen === curGen);
-    const kind = e.kind === 'backend' ? html`backend <span class="muted">g${e.gen}${e.gen === curGen ? '' : ' · draining'}</span>`
+    const s = e.stats, cur = e.gen === curGen(e);
+    // a backend's stats are its deployment's leaf (every generation): shown on the current one
+    const showStats = s && (!shared(s) || cur);
+    const kind = e.kind === 'backend' ? html`backend <span class="muted">g${e.gen}${cur ? '' : ' · draining'}</span>`
       : e.kind === 'agent' ? html`agent <span class="muted">${e.label || ''}${e.name ? ' · ' + e.name : ''}${e.status ? ' · ' + e.status : ''}</span>`
       : html`${e.kind} <span class="muted">${e.name || ''}</span>`;
     return html`<tr data-sbx-id=${e.id} data-sbx-kind=${e.kind} data-sbx-mode=${e.mode} data-depth=${depth}>
