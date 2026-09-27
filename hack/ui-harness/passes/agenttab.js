@@ -36,6 +36,9 @@ async function agentTab(browser) {
     await openShell(page);
     await usePersonalScreen(page);
     await openTile(page, TILE);
+    // the home screen's default tiles can push the card (and its window,
+    // anchored to it) below the fold: bring it to the top so clicks land
+    await page.locator(`.card[data-path="${TILE}"]`).evaluate((el) => el.scrollIntoView({ block: 'start' }));
     await fr(page, TILE, (f) => f.open('term'));
     await showPickers(page, TILE); // the bar's pickers, wherever this host's bar puts them (lib.js)
   };
