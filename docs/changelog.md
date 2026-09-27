@@ -228,6 +228,33 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `total`, the memory booked of the policy's total) say so. An exec id
   from before an xbind restart answers 410 `lost`. Nothing changes for a
   workspace without a manager tile.
+- **Tile sandboxes follow the workspace** (D120, [protocol.md](protocol.md)
+  §Tile sandboxes, "The workspace around them";
+  [overview/14-lifecycle.md](overview/14-lifecycle.md)). A running tile
+  sandbox is now stopped — synced, state kept, why in `stateDetail` — when
+  its manager tile is disabled, hidden, offloaded or removed; when the tile
+  loses `cap:sandboxes` (at once on a revoke, at the next rescan after a
+  hand edit of `xbin.json`); when it no longer holds a mount, or holds a
+  read-write one only as a reader; when the vault is sealed (before the
+  decrypted views go; its start answers 503 until the vault is unsealed);
+  and when disk runs short. `diskBytes` is measured at each stop and every
+  2 minutes while a sandbox runs; a tile past `perTile.diskGiB` has its
+  largest running sandbox stopped, and while the workspace disk is low the
+  running namespace sandboxes of the tiles above the fair share are
+  stopped, largest first. Sandbox bytes count for the workspace's disk
+  pressure, never against a scope's write quota. A manager tile's backup
+  carries its sandbox definitions, never their state; a restore merges them
+  back by `uid`, stopped, and answers what it left out in
+  `sandboxesSkipped`. Offloading a manager whose sandboxes hold state is
+  refused (409, nothing archived); a removed manager's sandboxes stay as
+  leftovers of its path, which a non-admin can't create a tile over. The
+  admin console's runtime → sandboxes tab lists every tile sandbox
+  definition under its manager — stopped ones and a removed tile's too —
+  with stop and delete, the sandboxes policy editor and the runtime's
+  health; `health.tileSandboxes` gains `lowDisk`, `trash` (state waiting
+  for its removal) and `total.pids`, and `tileSandboxes` rows gain `uid` and
+  `stateDetail`. A backup of a tile without sandboxes is byte for byte what
+  it was, and nothing changes for a workspace without a manager tile.
 - **Go SDK: tile sandboxes** ([sdk.md](sdk.md) §Tile sandboxes).
   `xbin.SandboxAPI()` has a call for each of a manager tile's
   `/api/xbin/sandboxes/…` routes: definitions and lifecycle, `Run`, execs

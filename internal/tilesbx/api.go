@@ -531,7 +531,7 @@ func (m *Manager) Delete(k Key, name string) error {
 	}
 	delete(m.live[k], name)
 	if to != "" {
-		m.trash.put(to)
+		m.trash.putSized(to, b.diskBytes)
 	}
 	return nil
 }

@@ -7,6 +7,7 @@ package boot
 // (sandboxes.go), which hands a manager call over.
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net"
 	"net/netip"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/broker"
 	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/tilesbx"
@@ -41,9 +43,18 @@ func (st *State) stepTileSandboxes() error {
 		slog.Error("tile sandboxes: definitions unreadable", "err", err)
 	}
 	// A bind, an unbind or a network-set change re-resolves the running
-	// sandboxes' classes: a narrowed one stops them (§4). So does a users
-	// event: a D20 policy-row edit fires no OnSandboxNetChange.
-	st.Broker.OnSandboxNetChange = st.TileSbx.OnSandboxNetChange
+	// sandboxes' classes: a narrowed one stops them (§4). A users event and
+	// a registry rescan reconcile every running sandbox with its tile: gone,
+	// disabled, the cap lost (a hand edit fires no hook), its mounts, its
+	// egress (a D20 policy-row edit fires no OnSandboxNetChange). Rescans
+	// by the watcher reconcile too (stepWatch).
+	brk := st.Broker
+	brk.OnSandboxNetChange = st.TileSbx.OnSandboxNetChange
+	brk.OnCapChange = tileSandboxCapHook(st.TileSbx.StopTile)
+	brk.SetTileSandboxes(tileSbxHooks{st.TileSbx})
+	if prev := brk.OnStructureChange; prev != nil {
+		brk.OnStructureChange = func() { prev(); st.TileSbx.Reconcile() }
+	}
 	if st.Cfg.Isolate {
 		go st.onUsersEvents(st.TileSbx.OnUsersChange)
 	}
@@ -169,11 +180,59 @@ func (s sandboxUsers) NoTerminal(user string) bool {
 	return ok && u.NoTerminal
 }
 
-// tileDiskLow is diskmon's last low-disk verdict: no tile sandbox starts
-// meanwhile (their bytes never count against a scope's write quota).
+// tileDiskLow is diskmon, for tile sandboxes (§6.3): its low-disk verdict
+// and rule (no tile sandbox starts meanwhile) and its fair share (the
+// running namespace sandboxes of a tile above it stop). Their bytes never
+// count against a scope's write quota.
 type tileDiskLow struct{ b *broker.Broker }
 
-func (s tileDiskLow) Low() bool { return s.b.DiskLow() }
+func (s tileDiskLow) Low() bool                    { return s.b.DiskLow() }
+func (s tileDiskLow) LowAt(free, total int64) bool { return s.b.DiskLowAt(free, total) }
+func (s tileDiskLow) FairShare() int64             { return s.b.DiskFairShare() }
+
+// tileSandboxCapHook is the broker's OnCapChange for tile sandboxes (§7):
+// a tile that lost cap:sandboxes has its sandboxes stopped, state kept. The
+// hook fires on the request goroutine, on approves too (held: the state
+// after the change), and again from capSweep on every users event — so it
+// is filtered, never blocks (the stop runs on its own goroutine), and is
+// idempotent (a tile with nothing running stops nothing).
+func tileSandboxCapHook(stopTile func(tile, why string)) func(tile, capTarget string, held bool) {
+	return func(tile, capTarget string, held bool) {
+		if capTarget == broker.SandboxesCap && !held {
+			go stopTile(tile, "cap:sandboxes was revoked: stopped, state kept")
+		}
+	}
+}
+
+// tileSbxHooks is the runtime as the broker drives it (backups, offload,
+// leftovers, the seal, grant changes, disk pressure).
+type tileSbxHooks struct{ m *tilesbx.Manager }
+
+func (h tileSbxHooks) Defs(tile string) []json.RawMessage { return h.m.Defs(tile) }
+func (h tileSbxHooks) RestoreDefs(tile string, defs []json.RawMessage) []string {
+	return h.m.RestoreDefs(tile, defs)
+}
+func (h tileSbxHooks) StopTile(tile, why string)          { h.m.StopTile(tile, why) }
+func (h tileSbxHooks) HasState(tile string) (int, int64)  { return h.m.HasState(tile) }
+func (h tileSbxHooks) Leftovers(path string) (int, int64) { return h.m.Leftovers(path) }
+func (h tileSbxHooks) Usage() map[string]int64            { return h.m.Usage() }
+func (h tileSbxHooks) OnResourceChange(tile string)       { h.m.OnResourceChange(tile) }
+func (h tileSbxHooks) OnLowDisk()                         { h.m.OnLowDisk() }
+func (h tileSbxHooks) StopWhere(pred func(broker.TileSandbox) bool, why string) {
+	h.m.StopWhere(func(k tilesbx.Key, d *tilesbx.Def) bool { return pred(tileSandboxOf(k, d)) }, why)
+}
+
+// tileSandboxOf is a running sandbox as the broker's predicates see it:
+// its tile, its name, its resource mounts.
+func tileSandboxOf(k tilesbx.Key, d *tilesbx.Def) broker.TileSandbox {
+	s := broker.TileSandbox{Tile: k.Tile, Name: d.Name}
+	for _, mt := range d.Mounts {
+		if mt.Res != "" {
+			s.Res = append(s.Res, mt.Res)
+		}
+	}
+	return s
+}
 
 // onUsersEvents calls f on every users event on the hub (a users-plane
 // change that can move a policy ceiling), for as long as xbind runs; a
@@ -206,6 +265,11 @@ type sandboxTiles struct{ st *State }
 func (s sandboxTiles) Exists(tile string) bool {
 	_, ok := s.st.Reg.Component(tile)
 	return ok
+}
+
+// Enabled: neither disabled, hidden nor offloaded (plans/lifecycle.md).
+func (s sandboxTiles) Enabled(tile string) bool {
+	return s.st.Reg.LifecycleState(tile) == registry.StateEnabled
 }
 
 // registerTileSandboxAPI mounts the tile-sandbox routes (docs/protocol.md

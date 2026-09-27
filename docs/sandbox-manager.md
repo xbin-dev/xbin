@@ -410,6 +410,31 @@ manager of its own (its `API.md` has everything):
   Go file; its `AGENTS.md` says how, and how to run the conformance suite
   against it.
 
+## On xbin
+
+A manager that runs its sandboxes on xbind's own runtime
+(docs/protocol.md §Tile sandboxes) hands them to the workspace too, which
+may stop one under it — synced, state kept, the reason in its
+`stateDetail`. Show that reason to the consumer, and start the sandbox again
+(or let `autoStart` do it) once the cause is gone:
+
+- **Its tile.** Disabling, hiding, offloading or removing the manager tile
+  stops its sandboxes, and so does losing `cap:sandboxes`. A removed
+  manager's sandboxes stay, definitions and state, until a workspace admin
+  deletes them.
+- **Its grants.** A mount the tile no longer holds, or a read-write one it
+  now holds only as a reader, stops the sandbox; so does sealing the vault,
+  for every sandbox with a resource mounted (its start answers 503 until
+  the vault is unsealed). A narrowed `sandbox-net` class does the same.
+- **Disk.** Each sandbox's bytes are measured (`diskBytes`). Past the
+  tile's `perTile.diskGiB`, its largest running sandbox is stopped and
+  starts answer 429; while the workspace disk is low, starts answer 503 and
+  the tiles holding most are stopped first.
+- **Backups.** A backup of the manager tile carries its sandbox
+  definitions, never their state; a restore brings them back by `uid`,
+  stopped. State moves only through snapshots and clones — so offloading a
+  manager whose sandboxes hold state is refused.
+
 ## Building a manager
 
 **On a cloud.** Every operation maps onto an instance API and ssh:

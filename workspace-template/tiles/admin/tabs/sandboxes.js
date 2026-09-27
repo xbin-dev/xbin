@@ -1,12 +1,15 @@
 /**
  * <bx-admin-sandboxes> — the admin console's runtime → sandboxes tab (D112):
  * every sandbox xbind runs — each backend generation, terminal and agent
- * session; later the sandboxes a tile manages itself, nested under it — with
+ * session, and the sandboxes a manager tile runs (D120), nested under its
+ * backend — with
  * how it is isolated (⧉ VM, 🔒 namespace sandbox, or none on a host without
  * isolation), the host's health (isolation tier, guards, whether VMs can
  * start and what is missing), the VM budget in use per tile (and the tile
  * sandboxes' sub-budget, D120) and the VM policy editor, the VM disks on the
- * host, and what the sandbox layer refused or failed at. Polls GET
+ * host, the tile sandboxes' definitions, health and policy
+ * (<bx-admin-tile-sandboxes>, tilesbx.js), and what the sandbox layer
+ * refused or failed at. Polls GET
  * /sandboxes every 2 s; the editor saves through PUT /vm/policy what the
  * admin set (zero = the default), never the effective values — the server
  * merges it onto the stored policy. Reports through bx-admin-err /
@@ -16,6 +19,7 @@ import { LitElement, html, nothing } from 'lit';
 import { xbinApi as api, jbody } from '/vendor/bx-kit.js';
 import { base, runtimeCss, sandboxesCss } from '../admin-css.js';
 import { fmtBytes, fmtDur, WithFilter, WithRouter } from '../shared.js';
+import './tilesbx.js';
 
 const MODE = { vm: '⧉ VM', namespace: '🔒 ns', host: 'host' };
 const MODE_TITLE = {
@@ -87,6 +91,8 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
       ${h.isolation?.isolate ? this._budget(h.vm) : nothing}
       ${this._policy(h)}
       ${this._list(d)}
+      ${h.isolation?.isolate || (d.tileSandboxes || []).length
+        ? html`<bx-admin-tile-sandboxes .data=${d} .reload=${() => this.load()}></bx-admin-tile-sandboxes>` : nothing}
       ${this._disks(d.disks)}
       ${this._failures(d)}`;
   }
@@ -233,13 +239,20 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
     }
     const mem = [...scopes.values()].reduce((n, s) => n + (s.mem || 0), 0);
     const curGen = Math.max(0, ...es.filter((e) => e.kind === 'backend').map((e) => e.gen || 0));
-    // nest a sandbox under the entry it belongs to (parent); the rest at the top
+    // nest a sandbox under the entry it belongs to (parent) — a manager
+    // tile's own sandboxes under its current backend generation (D120);
+    // the rest at the top
     const ids = new Set(es.map((e) => e.id));
+    const cur = es.find((e) => e.kind === 'backend' && e.gen === curGen)?.id;
+    const parentOf = (e) => e.parent || (e.kind === 'tile' ? cur : undefined);
     const kids = new Map();
-    for (const e of es) if (e.parent && ids.has(e.parent)) (kids.get(e.parent) || kids.set(e.parent, []).get(e.parent)).push(e);
+    for (const e of es) {
+      const p = parentOf(e);
+      if (p && ids.has(p)) (kids.get(p) || kids.set(p, []).get(p)).push(e);
+    }
     const out = [];
     const walk = (e, depth) => { out.push(this._row(e, depth, curGen)); for (const k of kids.get(e.id) || []) walk(k, depth + 1); };
-    for (const e of es) if (!e.parent || !ids.has(e.parent)) walk(e, 0);
+    for (const e of es) if (!parentOf(e) || !ids.has(parentOf(e))) walk(e, 0);
     const owner = es.find((e) => e.owner)?.owner;
     return html`<tr class="sbx-tile" data-sbx-tile=${tile}><td colspan="9">
         <span class="mono">${tile}</span>${owner ? html` <span class="muted">· ${owner}</span>` : nothing}
@@ -253,6 +266,7 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
     const showStats = s && (s.scope !== 'tile' || e.gen === curGen);
     const kind = e.kind === 'backend' ? html`backend <span class="muted">g${e.gen}${e.gen === curGen ? '' : ' · draining'}</span>`
       : e.kind === 'agent' ? html`agent <span class="muted">${e.label || ''}${e.name ? ' · ' + e.name : ''}${e.status ? ' · ' + e.status : ''}</span>`
+      : e.kind === 'tile' ? html`tile sandbox <span class="muted">${e.name || ''}${e.for ? ' · for ' + e.for : ''}${e.forUser ? ' · ' + e.forUser : ''}</span>`
       : html`${e.kind} <span class="muted">${e.name || ''}</span>`;
     return html`<tr data-sbx-id=${e.id} data-sbx-kind=${e.kind} data-sbx-mode=${e.mode} data-depth=${depth}>
       <td style="padding-left:${depth * 18}px">${depth ? html`<span class="muted">↳ </span>` : nothing}${kind}</td>

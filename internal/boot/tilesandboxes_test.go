@@ -3,7 +3,9 @@ package boot
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/broker"
@@ -56,5 +58,41 @@ func TestSandboxScopeOf(t *testing.T) {
 		if _, ok := st.sandboxScopeOf(p, nil); ok {
 			t.Fatalf("%+v sees sandboxes", p)
 		}
+	}
+}
+
+// OnCapChange stops a tile's sandboxes only when it lost cap:sandboxes —
+// never on an approve (it fires then too), never for another cap — and
+// never on the broker's goroutine: the hook returns while the stop runs.
+func TestTileSandboxCapHook(t *testing.T) {
+	stops := make(chan string, 8)
+	block := make(chan struct{})
+	defer close(block)
+	hook := tileSandboxCapHook(func(tile, why string) { stops <- tile + ": " + why; <-block })
+	hook("apps/a", broker.SandboxesCap, true) // an approve
+	hook("apps/a", "cap:containers", false)   // another cap
+	hook("apps/b", broker.SandboxesCap, false)
+	select {
+	case s := <-stops:
+		if s != "apps/b: cap:sandboxes was revoked: stopped, state kept" {
+			t.Fatalf("stopped %q", s)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a revoke stopped nothing")
+	}
+	select {
+	case s := <-stops:
+		t.Fatalf("stopped %q too", s)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// The broker's predicates see a running sandbox's resource mounts (the
+// seal, a cap:containers flip), not its source mount.
+func TestTileSandboxOf(t *testing.T) {
+	s := tileSandboxOf(tilesbx.Key{Tile: "apps/mgr"}, &tilesbx.Def{Name: "a", Mounts: []tilesbx.Mount{
+		{Res: "res:apps/mgr/work", At: "/w"}, {Source: true, At: "/src"}, {Res: "res:apps/mgr/ro", At: "/r"}}})
+	if s.Tile != "apps/mgr" || s.Name != "a" || strings.Join(s.Res, " ") != "res:apps/mgr/work res:apps/mgr/ro" {
+		t.Fatalf("%+v", s)
 	}
 }

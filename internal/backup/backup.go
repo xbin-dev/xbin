@@ -58,6 +58,11 @@ type Manifest struct {
 	CronJobs    []json.RawMessage `json:"cronJobs,omitempty"`
 	BusSubs     []json.RawMessage `json:"busSubscriptions,omitempty"`
 	WithVault   bool              `json:"withVault,omitempty"`
+	// Sandboxes are the tile sandbox definitions of a manager tile (D120):
+	// definitions only, never their state (plans/tile-sandbox-runtime.md
+	// §9). A restore merges them by uid. Absent for a tile with none, so
+	// its archive is what it always was, byte for byte.
+	Sandboxes []json.RawMessage `json:"sandboxes,omitempty"`
 }
 
 func (m Manifest) Has(part string) bool {

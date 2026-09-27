@@ -137,6 +137,7 @@ model itself.
 | `.xbin/cache/` | shared build caches (`go-build`) |
 | `.xbin/env/<comp~key>/<hash>/` | built `setup` environment layers, keyed by script+rootfs hash |
 | `.xbin/term/<key>/` | persistent per-tile terminal dev layers (overlay upper + base-image pin). Keyed by tile, **not** by user — shared across every user's terminals on that tile ([09-terminals.md](09-terminals.md) §How tiles and terminals share the filesystem) |
+| `.xbin/sbx/<key>/<name>.<uid>/` | a tile sandbox's state (D120): its upper or VM disk under `cur/`, its snapshots — sandbox-written, so xbind only measures, copies and removes it in a throwaway confined sandbox. `.xbin/sbx/<key>/.trash/` is deleted or reset state waiting for that removal |
 | `.xbin/resenc/<scope~key>/<name>` | **decrypted** gocryptfs mountpoints for encrypted resources |
 | `.xbin/restore/` | a restore rebuilds a terminal layer here, then swaps it into `.xbin/term/<key>/`; a leftover (xbind died mid-restore) is safe to delete, and goes by itself after a day |
 | `.xbin/docs/` | the builder docs extracted to disk so terminals read them as files (`$XBIN_DOCS`) |
@@ -152,7 +153,11 @@ socket paths under the kernel's 108-byte limit.
 
 Most of `.xbin/` is safely deletable derived state — the exceptions are
 `token`/`secret` (identity: deleting them mints new ones and logs everyone
-out) and `term/` (users' installed dev environments).
+out), `term/` (users' installed dev environments) and `sbx/` (the state of
+the sandboxes manager tiles run: a backup carries only their definitions,
+so this is the only copy — delete a sandbox through its manager or the
+admin console instead). A removed tile's sandboxes are kept, state and
+all, until an admin deletes them.
 
 ## `homes/<user>/` — per-user terminal homes
 

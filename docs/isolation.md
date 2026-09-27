@@ -500,7 +500,9 @@ failed at (a policy switch, the VM budget, missing pieces, a VM that died at
 boot). The admin console's **runtime → sandboxes** tab shows it with the
 host's health (isolation tier, guards, whether VMs can run and what is
 missing), the VM budget in use per tile (and the tile sandboxes' share of
-it) and the VM policy editor;
+it) and the VM policy editor, and every tile sandbox definition under its
+manager tile — stopped ones and a removed tile's too — with stop, delete
+and the sandboxes policy editor;
 `GET /api/xbin/sandboxes` is the same for scripts (admin). A VM backend's
 pid, namespaces and RSS in the runtime views are its host-side jail's: read
 its cgroup line for what the VM uses. Decision: D112.
@@ -538,9 +540,17 @@ and defines and drives them through `/api/xbin/sandboxes/…`
   cap) inside one cgroup for every tile sandbox, capped by the policy's
   `total`; its relay caps its connections, and all the relays share one
   budget, so no sandbox spends xbind's descriptors. Its state is written
-  only by the sandbox and removed only by a confined tool, never walked by
-  xbind. xbind's death ends every tile sandbox; each ends `stopped`, with
-  why in `stateDetail`.
+  only by the sandbox and measured and removed only by a confined tool,
+  never walked by xbind. xbind's death ends every tile sandbox; each ends
+  `stopped`, with why in `stateDetail`.
+- **They follow the workspace.** A running tile sandbox is stopped, state
+  kept, when its manager tile is disabled, offloaded or removed, loses
+  `cap:sandboxes`, or no longer holds a mount as it was bound, and before
+  the vault's decrypted views go at a seal. Its disk is measured: a tile
+  past `perTile.diskGiB` has its largest running sandbox stopped, and while
+  the workspace disk is low starts are refused and the tiles holding most
+  are stopped first. Those bytes count for the disk pressure below, never
+  against a scope's quota. Backups carry the definitions only.
 
 ## Resource limits (blast-radius containment)
 
@@ -564,7 +574,10 @@ backend is capped so it degrades *itself*, not the box:
   **10 % free**, the biggest users are write-blocked too, to hold the reserve.
   Directly-mounted resources (sqlite/filesystem) can't be write-blocked at the
   API — they count toward the quota and raise an alert, but stopping them is the
-  admin's call.
+  admin's call. Tile sandboxes' state counts toward the pressure (who holds more
+  than a fair share) but never toward a scope's quota; under low disk their
+  starts are refused and the biggest tiles' running namespace sandboxes are
+  stopped (see above).
 - **Terminals** — 32 per user (64 global), so one person can't exhaust the pool.
 
 Limits are tunable via `XBIN_LIMIT_MEM` / `XBIN_LIMIT_DISK`.

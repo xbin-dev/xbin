@@ -32,19 +32,31 @@ type trashQueue struct {
 	remove func(ctx context.Context, dir string) error // confine.RemoveAll
 
 	mu      sync.Mutex
-	queue   []string
+	queue   []trashEntry
+	cur     trashEntry // being removed (dir "" = none)
 	working bool
 	idle    chan struct{} // closed when the worker finds the queue empty (tests)
 }
 
+// trashEntry is one dir waiting for the remover, with its bytes as last
+// measured (0 = not known: a reset's cur/, what a restart left).
+type trashEntry struct {
+	dir   string
+	bytes int64
+}
+
 // put queues dirs for removal.
 func (q *trashQueue) put(dirs ...string) {
-	if len(dirs) == 0 {
-		return
+	for _, d := range dirs {
+		q.putSized(d, 0)
 	}
+}
+
+// putSized queues dir for removal, bytes as last measured.
+func (q *trashQueue) putSized(dir string, bytes int64) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.queue = append(q.queue, dirs...)
+	q.queue = append(q.queue, trashEntry{dir: dir, bytes: bytes})
 	if !q.working {
 		q.working = true
 		q.idle = make(chan struct{})
@@ -52,17 +64,33 @@ func (q *trashQueue) put(dirs ...string) {
 	}
 }
 
+// backlog is what waits for the remover, the entry being removed included:
+// how many, and their bytes as last measured (the admin's health).
+func (q *trashQueue) backlog() (n int, bytes int64) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for _, e := range append([]trashEntry{q.cur}, q.queue...) {
+		if e.dir != "" {
+			n++
+			bytes += e.bytes
+		}
+	}
+	return n, bytes
+}
+
 func (q *trashQueue) work() {
 	for {
 		q.mu.Lock()
+		q.cur = trashEntry{}
 		if len(q.queue) == 0 {
 			q.working = false
 			close(q.idle)
 			q.mu.Unlock()
 			return
 		}
-		dir := q.queue[0]
+		q.cur = q.queue[0]
 		q.queue = q.queue[1:]
+		dir := q.cur.dir
 		q.mu.Unlock()
 		ctx, cancel := context.WithTimeout(context.Background(), trashTimeout)
 		if err := q.remove(ctx, dir); err != nil {
@@ -72,6 +100,11 @@ func (q *trashQueue) work() {
 		cancel()
 	}
 }
+
+// TrashBacklog is the state put aside that the confined remover hasn't
+// removed yet: entries, and their bytes as last measured (the admin's
+// health; a slow removal shows here).
+func (m *Manager) TrashBacklog() (entries int, bytes int64) { return m.trash.backlog() }
 
 // wait waits until the queue is empty (tests).
 func (q *trashQueue) wait() {

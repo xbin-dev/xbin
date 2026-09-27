@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/confine"
 	"github.com/xbin-dev/xbin/internal/sbx"
 )
 
@@ -50,6 +51,23 @@ func testLivePolicy(t *testing.T, le *liveEnv) {
 				t.Fatalf("the old state is still in .trash: %s", e.Name())
 			}
 		}
+	})
+
+	t.Run("a stop measures the upper, confined", func(t *testing.T) {
+		le.t = t
+		if !confine.Isolated() {
+			t.Skip("the confined du needs the rootfs (a direct du can't read a sub-uid's 0700 dir)")
+		}
+		le.probeOK("sb-r", "fill", "/work/private/big", "8") // owned by the sandbox's root: a sub-uid in range mode
+		le.stop("sb-r")
+		le.m.waitUsage()
+		if in, _ := le.m.infoOf(le.k, "sb-r"); in.DiskBytes < 8<<20 {
+			t.Fatalf("measured %d bytes after writing 8 MiB", in.DiskBytes)
+		}
+		if n, bytes := le.m.HasState("apps/mgr"); n < 1 || bytes < 8<<20 {
+			t.Fatalf("HasState %d, %d", n, bytes)
+		}
+		le.start("sb-r")
 	})
 
 	t.Run("an exec on a stopped sandbox starts it", func(t *testing.T) {

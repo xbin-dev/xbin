@@ -535,7 +535,9 @@ GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
                                    kvm?,emulation?,policy,stored,used,
                                    usedTiles,usedBy:{<tile>:{vms,memMiB}}},
                                    tileSandboxes:{cgroup,flows:{used,cap},
-                                   total:{memMiB:{used,cap}},policyError}}}.
+                                   total:{memMiB:{used,cap},pids:{used,cap}},
+                                   policyError,lowDisk,trash:{entries,
+                                   bytes}}}}.
                                    A backend
                                    is listed per generation (blue/green shows
                                    two; stats scope "tile" is the tile's
@@ -558,17 +560,25 @@ GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
                                    concurrent connections (flows), the
                                    memory the running ones may take of the
                                    policy's total (total.memMiB, MiB; cap 0 =
-                                   none), and why the sandboxes policy file
+                                   none) and the processes they hold of it
+                                   (total.pids; used -1 = unknown, no
+                                   cgroup), why the sandboxes policy file
                                    can't be read (policyError; "" = it can —
-                                   tile sandboxes are off while it can't).
+                                   tile sandboxes are off while it can't),
+                                   whether starts are held for a low disk
+                                   (lowDisk), and the state deleted or reset
+                                   that waits for its confined removal
+                                   (trash: entries, bytes as last measured).
                                    failures: the newest 64, identical ones
                                    within 10 min coalesced (count). ?tile=
                                    narrows.
-                                   tileSandboxes:[{tile,name,state,mode,accel?,
-                                   memMiB,vcpus,diskGiB,diskBytes,for?,forUser?,
+                                   tileSandboxes:[{tile,name,uid,state,
+                                   stateDetail?,mode,accel?,memMiB,vcpus,
+                                   diskGiB,diskBytes,for?,forUser?,
                                    lastActive?,tileExists}] — every tile
                                    sandbox definition (D120), stopped ones
-                                   and those of removed tiles too. A manager
+                                   and those of removed tiles too (an admin
+                                   stops or deletes one with ?tile=). A manager
                                    tile's backend gets its own tile sandboxes
                                    instead (§Tile sandboxes)
 GET    /tile-status?component=<p>  self or admin. one tile's runtime metrics —
@@ -1849,11 +1859,18 @@ POST   /lifecycle                  admin, the tile's user-owner, or an
                                    removed, if one won't end); enabling an
                                    offloaded component restores it. State is in the
                                    overview's component list (state field).
+                                   Every state but enabled also stops the tile
+                                   sandboxes the tile manages (state kept), and
+                                   an offload is refused 409 — nothing archived
+                                   — while any of them holds state (an upper, a
+                                   disk, a snapshot): offload can't carry it yet.
 
 POST   /backup                     admin. body {component} — build a self-
                                    describing tar (source + scope data + terminal
-                                   env; NOT vault/env-layer) and stream it to the
-                                   component's bound @archive provider. {ok, version}
+                                   env + a manager tile's sandbox definitions,
+                                   never their state; NOT vault/env-layer) and
+                                   stream it to the component's bound @archive
+                                   provider. {ok, version}
 GET    /backups?component=…         admin. the archiver's version list passed
                                    through: {versions:[{version,time,size}]}
 POST   /restore                    admin. body {component, version?, file?}.
@@ -1863,6 +1880,11 @@ POST   /restore                    admin. body {component, version?, file?}.
                                    → stream one member back (recover without a full
                                    rollback). Restore is fully archive-driven — no
                                    local metadata needed (docs/overview/14-lifecycle.md).
+                                   {ok, component, restored:[parts],
+                                   sandboxesSkipped?:[…]} — a manager's sandbox
+                                   definitions come back by uid, stopped (§Tile
+                                   sandboxes, "The workspace around them"); the
+                                   ones left out, and why, are listed.
                                    The archiver is chosen by the @archive binding:
                                    bindings["<comp>"] override, else bindings["*"]
                                    default (set via POST /bindings).
@@ -2480,7 +2502,47 @@ synced, when it exits, and they die with it when it dies: after a restart
 every sandbox is `stopped`, its state kept, and an exec id of the old boot
 answers 410 `lost`. A users-plane change (a policy row, a network set) is
 checked against the running sandboxes' classes too: one whose class
-narrowed is stopped as above.
+narrowed is stopped as above. So are the workspace's own reasons, below.
+
+**The workspace around them.** A running sandbox follows its tile's reach,
+not only its next start — each of these stops it, synced, state kept, with
+the reason in `stateDetail`:
+
+- its tile is removed, disabled, hidden or offloaded, or loses
+  `cap:sandboxes` — a revoke at once, a hand edit of `xbin.json` at the
+  next rescan;
+- a mount the tile no longer holds (the grant revoked, the resource
+  dropped from its manifest or deleted), or a read-write mount the tile
+  now holds only as a reader — `stateDetail` names the mount; a role that
+  widened waits for the next start;
+- the vault sealed ("the vault was sealed…"), for every sandbox with a
+  resource mounted, before the decrypted views go; its next start answers
+  503 until the vault is unsealed. A `cap:containers` change of the scope
+  (its resources remount) stops the scope's mounted sandboxes too;
+- the disk (below).
+
+`diskBytes` is measured — a namespace sandbox's upper and snapshots at
+each stop and every 2 minutes while it runs, a VM's disks by their
+allocated blocks. A tile whose sandboxes pass `perTile.diskGiB` while one
+runs has its largest running namespace sandbox stopped ("the tile's
+sandboxes use X GiB, over its N GiB (sandboxes policy: perTile.diskGiB)");
+further starts are 429 until something is deleted. While the workspace
+disk is low (the partition below diskmon's reserve), starts are 503 and the
+running namespace sandboxes of every tile whose sandboxes hold more than
+the fair share are stopped, largest tile first ("the workspace disk is
+low…"); VM sandboxes, whose disks are bounded, run on. Sandbox bytes count
+for the workspace's disk pressure, never against a scope's resource-write
+quota.
+
+A tile's backup carries its sandbox definitions, never their state. A
+restore brings them back **by uid**, `stopped`: the same sandbox is
+replaced and keeps its state; a name another sandbox holds now is left out
+(listed in the restore's `sandboxesSkipped`); one that had state which is
+gone comes back `error` ("restored without state — reset it…"). A tile's
+offload is refused while its sandboxes hold state. A removed tile's
+sandboxes stay — definitions and state — as leftovers of its path: a
+non-admin can't create a tile there, and an admin deletes them with
+`DELETE /sandboxes/<name>?tile=<path>`.
 
 **SandboxInfo:** `{name, uid, state (creating | stopped | starting |
 running | stopping | error), stateDetail, mode, accel?, memMiB, vcpus,

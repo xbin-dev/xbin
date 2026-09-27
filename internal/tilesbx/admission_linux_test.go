@@ -207,12 +207,19 @@ func TestCreateMaxConcurrent(t *testing.T) {
 	}
 }
 
+// fakeDisk is diskmon: its verdict, its reserve rule (10 % free, as
+// diskmon's) and its fair share.
 type fakeDisk struct {
-	mu  sync.Mutex
-	low bool
+	mu   sync.Mutex
+	low  bool
+	fair int64
 }
 
 func (f *fakeDisk) Low() bool { f.mu.Lock(); defer f.mu.Unlock(); return f.low }
+
+func (f *fakeDisk) LowAt(free, total int64) bool { return total > 0 && free*10 < total }
+
+func (f *fakeDisk) FairShare() int64 { f.mu.Lock(); defer f.mu.Unlock(); return f.fair }
 
 // A low workspace disk holds every start (503); a tile whose sandboxes'
 // bytes pass perTile.diskGiB is refused (429) — sandbox bytes count against

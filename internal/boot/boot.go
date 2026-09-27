@@ -748,7 +748,12 @@ func (st *State) stepWatch() error {
 		return err
 	}
 	st.watcher = w
-	go watchLoop(w, st.Reg, st.Hub, st.Run, st.Broker, st.reconcileIngress)
+	go watchLoop(w, st.Reg, st.Hub, st.Run, st.Broker, func() {
+		st.reconcileIngress()
+		if st.TileSbx != nil {
+			st.TileSbx.Reconcile() // a tile gone, its cap or a resource dropped by hand (§7)
+		}
+	})
 	return nil
 }
 

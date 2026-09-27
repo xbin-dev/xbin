@@ -54,6 +54,12 @@ friendly one:
 - The grants panel skips offloaded components' `uses` (they make no live
   requests), and a component held by encryption (below) is treated like
   disabled at spawn.
+- **A manager tile's sandboxes stop too** (D120): disabling, hiding or
+  offloading a tile that runs tile sandboxes stops them, their state kept.
+  Removing the tile altogether stops them the same way at the next rescan
+  — and keeps their definitions and state as leftovers of its path, which a
+  non-admin can't create a tile over; a workspace admin deletes them in the
+  admin console (runtime → sandboxes).
 
 Transitions are **admin-only** (`POST /api/xbin/lifecycle {component,
 state}`, `bx enable|disable|offload|restore`). Enable⇄disable is a pure
@@ -87,6 +93,7 @@ recovery wants.
 | `data/…` — the scope's resources, **only when the component roots its scope** | kv as `data/kv.json` (values base64), sqlite/filesystem/blob as whole directory trees |
 | `term/…` — the terminal dev layer | hand-installed (`apt` in the shell), *not* reproducible, so it travels ([09-terminals.md](09-terminals.md)) |
 | cron jobs (in the manifest) | re-registered on restore |
+| a manager tile's sandbox definitions (in the manifest) | merged back on restore, by the sandbox's uid (below); **not** their state — an upper or a VM disk is large, sandbox-written, and moves only through the sandbox's snapshots and clones |
 
 | deliberately excluded | why |
 |---|---|
@@ -176,6 +183,15 @@ fully **archive-driven**: the tar's manifest says where everything goes.
   A restore overwrites wholesale. Each file gets back the permission bits it
   was archived with — an executable stays executable — but never a setuid,
   setgid or sticky bit.
+- **Tile sandboxes** (a manager tile's, D120) are stopped first, and their
+  definitions come back **by uid**, `stopped`: a definition of the same
+  sandbox replaces the live one, which keeps its state; one whose name a
+  *different* sandbox holds now is left out, and the restore's answer lists
+  it — the live sandbox is never displaced, and a backup never adopts
+  another sandbox's state; one that had state which is gone comes back in
+  `error` ("restored without state — reset it"), never as a blank sandbox
+  that would quietly start from nothing. A restore never touches their
+  state on disk.
 - **Nothing in the archive or on disk redirects a write.** The archive must
   be the component's own (its manifest names the component being restored),
   and resource data comes back only for the scope the component roots. Tar
@@ -198,7 +214,10 @@ half-applying.
 Offload composes what's above: **stop → back up → verify → remove**. Nothing
 is deleted until the archiver has confirmed the PUT (`archive before offload
 failed (nothing removed)` is a real error string, and the invariant it
-states is the design). `offloaded` removes the scope's resource data (files
+states is the design). A manager tile whose sandboxes hold state (an
+upper, a disk or a snapshot) can't be offloaded yet — **409**, nothing
+archived: a backup doesn't carry that state, and offload never drops it.
+Delete the sandboxes first (their manager, or the admin console). `offloaded` removes the scope's resource data (files
 and kv buckets); `offloaded-full` also removes the terminal layer — its
 live sessions are ended first, and one that won't end fails the offload
 after the archive, with nothing removed — and the source subtree — keeping

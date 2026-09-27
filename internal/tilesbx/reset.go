@@ -74,6 +74,9 @@ func (m *Manager) restage(k Key, name string, rebase bool) error {
 	if err != nil {
 		return err
 	}
+	if !rebase {
+		m.measureSoon(k, d) // its old cur/ no longer counts against the tile's disk
+	}
 	if restart {
 		return m.startLocked(k, name, b)
 	}

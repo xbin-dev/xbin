@@ -42,3 +42,4 @@ func (m *Manager) Kill(string) error                                { return nil
 func (m *Manager) Populated(string) bool                            { return false }
 func (m *Manager) OOMKills(string) int64                            { return 0 }
 func (m *Manager) Sweep(string) ([]string, error)                   { return nil, nil }
+func (m *Manager) Pids() (int64, bool)                              { return 0, false }

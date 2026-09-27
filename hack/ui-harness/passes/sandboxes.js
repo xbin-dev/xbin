@@ -13,6 +13,13 @@
 //      never the effective values — the tiles switches and sub-budget
 //      included, and warns that tiles on while VMs are emulated needs
 //      tilesEmulated too.
+//      Tile sandboxes (D120, WP-19): a manager's running sandbox nests
+//      under its current backend; every definition is listed under its
+//      manager tile — a stopped one with why, a removed tile's as
+//      leftovers — with the admin's stop and delete (sent with ?tile=);
+//      the health line (a low-disk hold, the removal backlog, the books);
+//      the sandboxes policy editor sends what the admin set plus the edits
+//      (never the overrides) and warns that off stops what runs.
 //   C. components: an idle tile that asks for a VM shows it (routed
 //      /runtime + /auth-overview: isolation on, the tile not running).
 const { URL, login, closeCtx, settle, gotoTab, shot, checker, sleep } = require('../lib');
@@ -35,6 +42,18 @@ function fixture() {
         stats: { cpu: 3.2, mem: 700 * MiB, pids: 14, scope: 'sandbox' } },
       { id: 'a1', kind: 'agent', tile: 'apps/dev', user: 'bob', label: 'claude', name: 'fixer', status: 'running', mode: 'namespace',
         pid: 5100, started: ago(60), uptimeSec: 60 },
+      // a manager's own sandbox: no parent — it nests under the current generation
+      { id: 'tile:apps~web-1:box-a', kind: 'tile', tile: 'apps/web', name: 'box-a', for: 'apps/agent', forUser: 'alice', mode: 'namespace',
+        memMiB: 2048, vcpus: 2, pid: 4400, started: ago(60), uptimeSec: 60, leaf: 'sbx-apps~web-1-box-a',
+        stats: { cpu: 0.5, mem: 30 * MiB, pids: 3, scope: 'sandbox' } },
+    ],
+    tileSandboxes: [
+      { tile: 'apps/web', name: 'box-a', uid: 'aaaaaaaaaaaa', state: 'running', mode: 'namespace', memMiB: 2048, vcpus: 2, diskGiB: 20,
+        diskBytes: 3 * 2 ** 30, for: 'apps/agent', forUser: 'alice', lastActive: Date.now() - 60000, tileExists: true },
+      { tile: 'apps/web', name: 'box-b', uid: 'bbbbbbbbbbbb', state: 'stopped', stateDetail: 'idle for 30 minutes: stopped, state kept (idleStopMin)',
+        mode: 'namespace', memMiB: 2048, vcpus: 2, diskGiB: 20, diskBytes: 2 ** 30, lastActive: Date.now() - 3600000, tileExists: true },
+      { tile: 'apps/gone', name: 'old', uid: 'cccccccccccc', state: 'stopped', mode: 'namespace', memMiB: 2048, vcpus: 2, diskGiB: 20,
+        stateDetail: 'its tile was removed: stopped, state kept (a workspace admin can delete it)', diskBytes: 5 * 2 ** 30, tileExists: false },
     ],
     disks: [
       { key: 'apps~dev-2', path: '/ws/.xbin/term/apps~dev-2/vm/disk.img', tile: 'apps/dev', apparentBytes: 20 * 2 ** 30, allocatedBytes: 700 * MiB, inUse: true },
@@ -50,6 +69,8 @@ function fixture() {
     ],
     failureCounts: { refused: 3, exit: 1 }, cgroup: true, intervalSec: 2,
     health: {
+      tileSandboxes: { cgroup: '', flows: { used: 12, cap: 16384 }, policyError: '', lowDisk: true,
+        total: { memMiB: { used: 2176, cap: 24576 }, pids: { used: 31, cap: 32768 } }, trash: { entries: 2, bytes: 7 * 2 ** 30 } },
       isolation: { tier: 3, isolate: true, rootfs: '/opt/xbin/rootfs', scopeUids: false, cgroup: true, uidRange: true,
         protections: { seccomp: true, landlock: true, landlockAbi: 5 } },
       vm: {
@@ -95,6 +116,11 @@ async function sandboxes(browser) {
   check(await p.locator('[data-vm-avail="no"]').count() === 1, 'VMs are unavailable here, and it says so');
   check(/isolation/.test(await p.locator('[data-vm-reason]').textContent().catch(() => '')), 'the reason names isolation');
   check(await p.locator('[data-vm-policy="off"]').count() === 1, "the VM policy can't be edited without isolation");
+  const live = await (await A.ctx.request.get(`${URL}/api/xbin/sandboxes`)).json();
+  const th = live.health?.tileSandboxes || {};
+  check(Array.isArray(live.tileSandboxes) && 'lowDisk' in th && 'trash' in th && 'pids' in (th.total || {}) && 'policyError' in th,
+    `GET /sandboxes has the tile sandboxes and their health (${JSON.stringify(th)})`);
+  check(await p.locator('bx-admin-tile-sandboxes').count() === 0, 'no tile sandboxes section without isolation or definitions');
   check(await p.locator('tr[data-sbx-kind="backend"][data-sbx-mode="host"][data-sbx-id^="backend:apps~crawler"]').count() >= 1,
     `the running ${TILE} backend is listed, on the host`);
   if (sid) check(await p.locator(`tr[data-sbx-id="${sid}"][data-sbx-kind="terminal"][data-sbx-mode="host"]`).count() === 1, 'the shell is listed as a terminal');
@@ -111,8 +137,23 @@ async function sandboxes(browser) {
   // ---- B: a VM-capable host (routed) ----
   const B = await login(browser, 'admin', 'admin', { viewport: { width: 1400, height: 1100 } });
   const fx = fixture();
-  let put = null;
+  let put = null, sbxPut = null;
+  const sbxCalls = [];
+  const sbxPolicy = { policy: { enabled: true, perTile: { max: 16, running: 4, memMiB: 8192, vcpus: 8, diskGiB: 100 },
+    perSandbox: { memMiB: 2048, vcpus: 2, diskGiB: 20, maxMemMiB: 8192, maxVCPUs: 8, maxDiskGiB: 200, pids: 4096 },
+    total: { memMiB: 0, pids: 32768 }, idleStopMin: 30, outputRingMiB: 1, outputBudgetMiB: 64,
+    overrides: { 'apps/web': { perTile: { max: 32 } } } },
+  stored: { perTile: { max: 16 }, total: {}, overrides: { 'apps/web': { perTile: { max: 32 } } } } };
   await B.page.route('**/api/xbin/sandboxes*', (route) => route.fulfill({ json: fx }));
+  await B.page.route('**/api/xbin/sandboxes/**', (route) => {
+    const req = route.request(), u = new globalThis.URL(req.url()); // lib's URL is the base URL
+    if (u.pathname.endsWith('/sandboxes/policy')) {
+      if (req.method() === 'PUT') sbxPut = JSON.parse(req.postData() || '{}');
+      return route.fulfill({ json: sbxPolicy });
+    }
+    sbxCalls.push(`${req.method()} ${u.pathname}${u.search}`);
+    return route.fulfill(req.method() === 'DELETE' ? { status: 204, body: '' } : { json: { name: 'box-a', state: 'stopped' } });
+  });
   await B.page.route('**/api/xbin/vm/policy', (route) => {
     put = JSON.parse(route.request().postData() || '{}');
     return route.fulfill({ json: { status: { available: true, emulated: true }, policy: fx.health.vm.policy } });
@@ -127,14 +168,49 @@ async function sandboxes(browser) {
   check(/tile sandboxes ✓ \(emulated ✗\)/.test(view) && /\(tiles 2 GiB\)/.test(view), `the policy line shows the tiles switches and budget (${view.trim()})`);
   check(await q.locator('tr[data-sbx-id="tile-child"][data-depth="1"]').count() === 1, "a tile's own sandbox nests under its parent");
   const head = await q.locator('tr.sbx-tile[data-sbx-tile="apps/web"]').textContent();
-  check(/120\.0M in use/.test(head), `the tile leaf's memory is counted once for its two generations (${head.replace(/\s+/g, ' ').trim()})`);
+  check(/150\.0M in use/.test(head), `the tile leaf's memory is counted once for its two generations (100M, plus its sandboxes' 20M and 30M) (${head.replace(/\s+/g, ' ').trim()})`);
   check(/draining/.test(await q.locator('tr[data-sbx-id="backend:apps~web-1:g3"]').textContent()), 'the older generation is draining');
   check(/×3/.test(await q.locator('tr[data-sbx-failure][data-stage="refused"]').first().textContent()), 'a repeated failure shows its count');
   check(await q.locator('[data-sbx-disk="apps~gone-3"]').count() === 1, 'a disk no tile holds is listed');
   check(await q.locator('[data-sbx-disk="apps~web-1"] [data-sbx-disk-sandbox="box-1"]').count() === 1, "a tile sandbox's disk names its sandbox");
   check(/uid 0123456789ab/.test(await q.locator('[data-sbx-disk-sandbox="box-1"]').getAttribute('title')), "a tile sandbox disk's uid shows on hover");
   check(await q.locator('.sbx-piece.no[data-piece="firecracker"]').count() === 1, 'the missing firecracker is marked');
+  // tile sandboxes (D120): nested under the manager, every definition listed, the admin's actions
+  check(await q.locator('tr[data-sbx-id="tile:apps~web-1:box-a"][data-sbx-kind="tile"][data-depth="1"]').count() === 1,
+    "a manager's running sandbox nests under its current backend generation");
+  check(/for apps\/agent · alice/.test(await q.locator('tr[data-sbx-id="tile:apps~web-1:box-a"]').textContent()), "the tile sandbox row shows the manager's claims");
+  const T = q.locator('bx-admin-tile-sandboxes');
+  await T.locator('[data-tsbx-table]').waitFor({ timeout: 10000 });
+  check(await T.locator('tr[data-tsbx-row]').count() === 3, 'every tile sandbox definition is listed, stopped ones too');
+  check(await T.locator('tr[data-tsbx-tile="apps/gone"] [data-tsbx-orphan]').count() === 1, "a removed tile's sandboxes are marked leftovers");
+  check(await T.locator('tr[data-tsbx-tile="apps/web"] [data-tsbx-orphan]').count() === 0, "a live manager's aren't");
+  check(/idle for 30 minutes/.test(await T.locator('tr[data-tsbx-row="apps/web:box-b"] [data-tsbx-detail]').textContent()), 'a stopped sandbox says why');
+  check(await T.locator('tr[data-tsbx-row="apps/web:box-a"] [data-tsbx-stop]').count() === 1 &&
+    await T.locator('tr[data-tsbx-row="apps/web:box-b"] [data-tsbx-stop]').count() === 0, 'only a running sandbox has stop');
+  check(await T.locator('[data-tsbx-low-disk]').count() === 1, 'the low-disk hold shows');
+  const health = (await T.locator('[data-tsbx-health]').textContent()).replace(/\s+/g, ' ');
+  check(/memory 2\.1 GiB of 24 GiB/.test(health) && /processes 31 of 32768/.test(health) && /relay flows 12 of 16384/.test(health) &&
+    /removal backlog 2 \(7\.0G\)/.test(health), `the health line: the books, the flows, the removal backlog (${health.trim()})`);
+  check(/1 tile override/.test(await T.locator('[data-tsbx-policy="view"]').textContent()), 'the policy line counts the overrides');
   await shot(q, 'admin-sandboxes-vm');
+  await T.locator('tr[data-tsbx-row="apps/web:box-a"] [data-tsbx-stop]').click();
+  q.once('dialog', (dl) => dl.accept());
+  await T.locator('tr[data-tsbx-row="apps/gone:old"] [data-tsbx-delete]').click();
+  for (let i = 0; i < 40 && sbxCalls.length < 2; i++) await sleep(100);
+  check(sbxCalls.join(' | ') === 'POST /api/xbin/sandboxes/box-a/stop?tile=apps%2Fweb | DELETE /api/xbin/sandboxes/old?tile=apps%2Fgone',
+    `stop and delete are the admin's, with ?tile= (${sbxCalls.join(' | ')})`);
+  await T.locator('[data-tsbx-edit-policy]').click();
+  await settle(q);
+  await T.locator('[data-tsbx-policy="edit"] input[name="enabled"]').uncheck();
+  await T.locator('[data-tsbx-policy="edit"] input[name="total.memMiB"]').fill('16384');
+  await settle(q);
+  check(/stops every running one now/.test(await T.locator('[data-tsbx-policy="edit"]').textContent()), 'the editor warns: off stops what runs');
+  await shot(q, 'admin-sandboxes-tile-policy');
+  await T.locator('[data-tsbx-save-policy]').click();
+  for (let i = 0; i < 40 && !sbxPut; i++) await sleep(100);
+  check(sbxPut && sbxPut.enabled === false && sbxPut.total?.memMiB === 16384 && sbxPut.total?.pids === 0 &&
+    sbxPut.perTile?.max === 16 && sbxPut.perTile?.running === 0 && sbxPut.idleStopMin === 0 && !('overrides' in sbxPut),
+  `the sandboxes policy sent is what the admin set plus the edits, overrides left alone (${JSON.stringify(sbxPut)})`);
   await q.locator('[data-edit-policy]').click();
   await settle(q);
   const editor = () => q.locator('[data-vm-policy="edit"]').textContent();

@@ -52,6 +52,7 @@ type Broker struct {
 	updater   *builtins.Updater     // builtin update tracking (nil = none)
 	Users     *users.Store          // human users (nil = single-user/root-only)
 	disk      *diskMon              // per-scope disk quota + low-disk write-blocking + alerts
+	tileSbx   tileSbxSlot           // the tile-sandbox runtime's hooks (tilesbx_hooks.go)
 
 	obs *obs.Plane // tile status, prefs, logs (internal/obs)
 
@@ -192,6 +193,7 @@ func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, erro
 	b.cron = newCronRunner(b)
 	b.bus = newBusSubs(b)
 	b.disk = newDiskMon(reg.Root, envQuota(), b.scopeDiskUsage)
+	b.disk.sbxUsage, b.disk.onLow = b.sandboxUsage, b.sandboxesLowDisk // disk pressure only (tilesbx_hooks.go)
 	go b.disk.run()
 	b.Provision()
 	return b, nil
@@ -671,6 +673,7 @@ func (b *Broker) apiGrantsRevoke(w http.ResponseWriter, r *http.Request) {
 // Every cap: change is also reported to OnCapChange (caps.go).
 func (b *Broker) grantRestart(g registry.Grant) {
 	b.capChanged(g.From, g.Target)
+	b.sandboxGrantChanged(g) // a res: grant: the tile's running sandbox mounts are re-checked
 	if b.OnGrantChange == nil {
 		return
 	}
@@ -689,6 +692,7 @@ func (b *Broker) grantRestart(g registry.Grant) {
 	// single-tenant mounts — remount now that the backend is stopped, so the
 	// mode change doesn't wait for the next unseal/provision (resenc_wire.go).
 	if g.Target == ContainersCap {
+		b.stopScopeMounts(g.From) // tile sandboxes' binds hold the old view (tilesbx_hooks.go)
 		b.MountEncrypted()
 	}
 }

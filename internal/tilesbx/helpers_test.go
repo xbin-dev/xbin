@@ -2,6 +2,7 @@ package tilesbx
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -64,7 +65,8 @@ func (f fakeModes) VM() (string, string) { return f.accel, f.reason }
 
 type fakeTiles map[string]bool
 
-func (f fakeTiles) Exists(tile string) bool { return f[tile] }
+func (f fakeTiles) Exists(tile string) bool  { _, ok := f[tile]; return ok }
+func (f fakeTiles) Enabled(tile string) bool { return f[tile] } // false: it exists, disabled
 
 // testDeps: apps/mgr holds the cap, declares an internet class, holds a
 // writer filesystem resource and a sqlite one; VM mode runs on KVM.
@@ -95,7 +97,9 @@ type testEnv struct {
 func newEnv(t *testing.T, mut ...func(*Options)) *testEnv {
 	t.Helper()
 	o := Options{Root: t.TempDir(), Isolated: true, UIDRange: true, Deps: testDeps(),
-		Now: func() time.Time { return time.UnixMilli(1790000000000) }}
+		Now:       func() time.Time { return time.UnixMilli(1790000000000) },
+		DiskUsage: func(context.Context, string) (int64, error) { return 0, nil }, // no du runs in the unit tests
+	}
 	for _, f := range mut {
 		f(&o)
 	}

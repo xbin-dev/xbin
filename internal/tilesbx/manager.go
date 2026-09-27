@@ -19,6 +19,7 @@
 package tilesbx
 
 import (
+	"context"
 	"net/netip"
 	"sync"
 	"time"
@@ -87,11 +88,19 @@ type Users interface {
 	NoTerminal(user string) bool
 }
 
-// Disk says whether the workspace disk is low (diskmon's last verdict):
-// meanwhile no tile sandbox starts (§6.3). Sandbox bytes never count
+// Disk is diskmon, as tile sandboxes see it (§6.3): while the workspace
+// disk is low no tile sandbox starts, and the running namespace sandboxes
+// of the tiles above the fair share are stopped. Sandbox bytes never count
 // against a scope's resource-write quota, so that isn't asked.
 type Disk interface {
+	// Low is diskmon's last verdict (its 45 s scan).
 	Low() bool
+	// LowAt is the same rule over a statfs of the workspace partition
+	// taken now (free and total bytes): the runtime's own 5 s watch.
+	LowAt(free, total int64) bool
+	// FairShare is diskmon's fair share (bytes; sandbox bytes included):
+	// under low disk, a tile whose sandboxes hold more is stopped.
+	FairShare() int64
 }
 
 // Modes says whether VM mode may run tile sandboxes now: its acceleration
@@ -100,9 +109,12 @@ type Modes interface {
 	VM() (accel, reason string)
 }
 
-// Tiles says whether a tile exists (an admin's leftovers view).
+// Tiles says whether a tile exists (an admin's leftovers view; a tile that
+// vanished has its sandboxes stopped, state kept) and whether it is
+// enabled (a disabled, hidden or offloaded tile's sandboxes don't run).
 type Tiles interface {
 	Exists(tile string) bool
+	Enabled(tile string) bool
 }
 
 // Deps is what the runtime needs from the rest of xbind. A nil member
@@ -145,6 +157,11 @@ type Options struct {
 	BxPath string
 	Deps   Deps
 	Now    func() time.Time // tests
+	// DiskUsage measures a sandbox's state dir (nil: confine.DiskUsage, a
+	// confined du); Statfs is the workspace partition's free and total
+	// bytes (nil: statfs(2)). Tests stand in for both.
+	DiskUsage func(ctx context.Context, dir string) (int64, error)
+	Statfs    func(dir string) (free, total int64)
 }
 
 // Manager is the runtime: definitions, policy, live state, handlers.
@@ -174,7 +191,8 @@ type Manager struct {
 	// bootID is this xbind start's exec-id prefix: <bootID>-<n>. An id
 	// with another is an exec of an earlier boot — lost (410).
 	bootID string
-	recon  reconcileState // the users-event reconcile (stop.go)
+	recon  reconcileState // the rescan and users-event reconcile (reconcile.go)
+	usage  usageState     // the disk measurements and the low-disk watch (usage.go)
 	// endWait and lockWait are lifecycle.go's (tests shorten them).
 	endWait, lockWait time.Duration
 
@@ -207,13 +225,21 @@ func New(o Options) *Manager {
 	m.bootID = newBootID()
 	m.endWait, m.lockWait = endWait, lockWait
 	m.trash.remove = confine.RemoveAll
+	m.usage.du, m.usage.statfs = o.DiskUsage, o.Statfs
+	if m.usage.du == nil {
+		m.usage.du = confine.DiskUsage
+	}
+	if m.usage.statfs == nil {
+		m.usage.statfs = statfs
+	}
 	m.defs = loadDefs(m.defsPath())
 	m.defs.flush() // uids given to definitions written before uids existed
 	m.policy = &policyStore{path: m.policyPath()}
 	m.policy.get() // loaded now: an unreadable file is logged at boot (and fails closed)
 	if o.Isolated {
 		m.initCgroup(o.Deps.Cgroup)
-		m.bootSweep() // what a previous xbind left: its leaves, its trash, its staging
+		m.bootSweep()  // what a previous xbind left: its leaves, its trash, its staging
+		m.measureAll() // every sandbox's disk, once: nothing was measured since the restart
 	}
 	return m
 }
@@ -242,7 +268,8 @@ type box struct {
 	egressNext   bool   // its class's rules widened since it started: they apply at the next start
 	run          *run   // the run up now (nil: none)
 	execsRunning int
-	diskBytes    int64 // allocated, measured at each stop
+	diskBytes    int64 // allocated, snapshots included: measured at each stop and while it runs (usage.go)
+	measured     int64 // when diskBytes was measured (unix ms; 0 = not since xbind started)
 	snapshots    int
 }
 

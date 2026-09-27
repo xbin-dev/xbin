@@ -3,13 +3,13 @@ package tilesbx
 // stop.go — how runs end when asked (plans/tile-sandbox-runtime.md §7): a
 // stop of one sandbox, stops over a set (StopWhere, StopTile, StopAll: the
 // hooks' — a revoke, a seal, a shutdown, the kill switch), and the egress
-// reconcile a sandbox-net change or a users event triggers (§4). Each goes
-// through the sandbox's flight and ends in the one teardown (lifecycle.go).
+// reconcile a sandbox-net change triggers (§4; a rescan and a users event
+// run it too, reconcile.go). Each goes through the sandbox's flight and
+// ends in the one teardown (lifecycle.go).
 
 import (
 	"fmt"
 	"log/slog"
-	"sort"
 	"sync"
 	"time"
 )
@@ -117,6 +117,7 @@ func (m *Manager) StopTile(tile, why string) {
 // StopAll stops every tile sandbox, synced, within endWait in all: xbind is
 // shutting down (its exit would kill them anyway, unsynced).
 func (m *Manager) StopAll(why string) {
+	m.closeUsage() // no confined du starts while xbind exits
 	done := make(chan struct{})
 	go func() { m.StopWhere(nil, why); close(done) }()
 	select {
@@ -153,57 +154,6 @@ func (m *Manager) reconcileEgress(tile string) {
 			m.mu.Unlock()
 		}
 	}
-}
-
-// reconcileState coalesces the users-event reconciles: one runs at a time,
-// and events that arrive during it run it once more after.
-type reconcileState struct {
-	mu      sync.Mutex
-	running bool
-	again   bool
-}
-
-// OnUsersChange is the hub's users events (a policy row, a permission,
-// org or personal set, an owner transfer changed): the egress of every
-// running sandbox is resolved again, as a sandbox-net change would — a D20
-// policy-row edit fires no OnSandboxNetChange (§4). It returns at once.
-func (m *Manager) OnUsersChange() {
-	m.recon.mu.Lock()
-	defer m.recon.mu.Unlock()
-	if m.recon.running {
-		m.recon.again = true
-		return
-	}
-	m.recon.running = true
-	go func() {
-		for {
-			for _, tile := range m.runningTiles() {
-				m.reconcileEgress(tile)
-			}
-			m.recon.mu.Lock()
-			if !m.recon.again {
-				m.recon.running = false
-				m.recon.mu.Unlock()
-				return
-			}
-			m.recon.again = false
-			m.recon.mu.Unlock()
-		}
-	}()
-}
-
-// runningTiles are the tiles with a sandbox running, sorted.
-func (m *Manager) runningTiles() []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, r := range m.running(nil) {
-		if !seen[r.k.Tile] {
-			seen[r.k.Tile] = true
-			out = append(out, r.k.Tile)
-		}
-	}
-	sort.Strings(out)
-	return out
 }
 
 // switchedOff stops every running tile sandbox, state kept: the policy's

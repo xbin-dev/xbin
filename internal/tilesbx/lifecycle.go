@@ -47,9 +47,10 @@ type run struct {
 	class    EgressClass
 	pol      sandbox.EgressPolicy
 	ops      *modeOps
-	release  func() // the book (reserve)
-	modeUndo func() // what the mode's spec took (a VM reservation)
-	unlist   func() // the registry row
+	mounts   []runMount // its res mounts as bound: re-checked when the tile's hold on them changes (§5)
+	release  func()     // the book (reserve)
+	modeUndo func()     // what the mode's spec took (a VM reservation)
+	unlist   func()     // the registry row
 	log      *logRing
 	logMark  int64 // where its own output starts in log
 	started  time.Time
@@ -196,6 +197,7 @@ func (m *Manager) teardown(r *run) {
 				m.failed(r.k, r.def, sbx.Exit, errors.New(detail))
 			}
 		}
+		m.measureSoon(r.k, r.def) // §6.3: measured at each stop (queued before it reads stopped)
 		m.mu.Lock()
 		if r.b.run == r {
 			b := r.b
@@ -434,7 +436,7 @@ func (m *Manager) launch(k Key, d *Def, b *box, lim Limits, ops *modeOps) (err e
 	}
 	undo = nil // the run owns it all from here: its teardown undoes it
 	proc.Started()
-	r := &run{k: k, def: d, b: b, proc: proc, fac: fac, tunFD: -1, leaf: leaf, class: class, pol: pol, ops: ops,
+	r := &run{k: k, def: d, b: b, proc: proc, fac: fac, tunFD: -1, leaf: leaf, class: class, pol: pol, ops: ops, mounts: resMounts(d, binds),
 		release: release, modeUndo: modeUndo, log: b.log, logMark: logMark, started: m.now(), exited: make(chan struct{}), done: make(chan struct{})}
 	m.mu.Lock()
 	b.run = r
@@ -519,6 +521,10 @@ func (m *Manager) launch(k Key, d *Def, b *box, lim Limits, ops *modeOps) (err e
 		m.armIdleLocked(r, 0) // the idle stop (idle.go)
 	}
 	m.mu.Unlock()
+	m.kickUsage() // measured while it runs (usage.go)
+	if d.Mode == ModeNamespace {
+		m.watchDisk() // an upper has no cap: the partition is watched while one runs
+	}
 	return nil
 }
 

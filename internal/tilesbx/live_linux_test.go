@@ -172,6 +172,7 @@ func newLiveEnv(t *testing.T, bin, rootfs string) *liveEnv {
 	rangeOK, _ := sandbox.IDMapStatus(os.Getuid(), os.Getgid())
 	le.testEnv = newEnv(t, func(o *Options) {
 		o.Root, o.UIDRange, o.Rootfs, o.BxPath = root, rangeOK, rootfs, filepath.Join(bin, "bx")
+		o.DiskUsage = confine.DiskUsage // the real measurement (newEnv's is a fake)
 		o.Deps.Mounts = fakeMounts{
 			"apps/mgr res:apps/mgr/work": {Src: le.work, Role: "writer", Kind: "filesystem", Ready: true},
 			"apps/mgr res:apps/mgr/ro":   {Src: le.ro, Role: "reader", Kind: "filesystem", Ready: true},

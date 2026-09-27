@@ -276,14 +276,22 @@ func sessionWhat(e sbx.Entry) string {
 // tileSandboxHealth is the tile sandboxes' part of the health (§3.10): why
 // they run without cgroup limits (cgroup: "" = they have them, or nothing
 // does), the relays' shared flow budget, the total book (the memory every
-// running tile sandbox may take, of the policy's total) and why the
-// policy file can't be read (policyError: tile sandboxes are off meanwhile).
+// running tile sandbox may take, and the processes they hold, of the
+// policy's total; pids used -1 = unknown), why the policy file can't be
+// read (policyError: tile sandboxes are off meanwhile), whether starts are
+// held for a low disk, and what waits for the confined remover (trash).
 func (st *State) tileSandboxHealth() map[string]any {
 	if st.TileSbx == nil {
 		return nil
 	}
-	used, cap := st.TileSbx.FlowBudget()
-	memUsed, memCap := st.TileSbx.TotalBook()
-	return map[string]any{"cgroup": st.TileSbx.CgroupNote(), "flows": map[string]int{"used": used, "cap": cap},
-		"total": map[string]any{"memMiB": map[string]int{"used": memUsed, "cap": memCap}}, "policyError": st.TileSbx.PolicyError()}
+	m := st.TileSbx
+	used, cap := m.FlowBudget()
+	memUsed, memCap := m.TotalBook()
+	pidsUsed, pidsCap := m.TotalPids()
+	trashN, trashBytes := m.TrashBacklog()
+	return map[string]any{"cgroup": m.CgroupNote(), "flows": map[string]int{"used": used, "cap": cap},
+		"total": map[string]any{"memMiB": map[string]int{"used": memUsed, "cap": memCap},
+			"pids": map[string]int64{"used": pidsUsed, "cap": pidsCap}},
+		"policyError": m.PolicyError(), "lowDisk": m.Isolated() && m.DiskLow(),
+		"trash": map[string]int64{"entries": int64(trashN), "bytes": trashBytes}}
 }

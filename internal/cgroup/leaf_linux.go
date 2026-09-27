@@ -154,6 +154,21 @@ func (m *Manager) OOMKills(name string) int64 {
 	return eventCount(filepath.Join(m.leaf(name), "memory.events"), "oom_kill")
 }
 
+// Pids is how many processes this Manager's own cgroup holds, its leaves
+// included (pids.current) — a Parent's: every tile sandbox together, of its
+// pids.max. ok=false when cgroups are off or the controller isn't there.
+func (m *Manager) Pids() (n int64, ok bool) {
+	if !m.Enabled() {
+		return 0, false
+	}
+	s := strings.TrimSpace(readStr(filepath.Join(m.base, "pids.current")))
+	if s == "" {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	return n, err == nil
+}
+
 // Kill kills every process in a leaf and waits, at most killWait, until the
 // leaf is empty. It writes cgroup.kill where the kernel has it (5.14+), which
 // also catches a fork in flight; elsewhere it SIGKILLs each listed pid, again

@@ -64,7 +64,7 @@ func (m *Manager) admit(k Key, d *Def) (func(), error) {
 	disk := m.tileDiskBytesLocked(k.Tile)
 	ops := m.modes[d.Mode]
 	m.mu.Unlock()
-	if m.deps.Disk != nil && m.deps.Disk.Low() {
+	if m.DiskLow() {
 		return nil, &Error{Refusal: RefUnavailable, Msg: "the workspace disk is low: tile sandboxes don't start until space is freed", RetryAfter: time.Minute}
 	}
 	if capB := int64(lim.PerTile.DiskGiB) << 30; disk > capB {
@@ -162,6 +162,21 @@ func (m *Manager) TotalBook() (usedMiB, capMiB int) {
 	m.books.totalMu.Lock()
 	defer m.books.totalMu.Unlock()
 	return m.books.totalMiB, capMiB
+}
+
+// TotalPids is how many processes every tile sandbox holds together (the
+// comp-tilesbx parent's pids.current; -1 without a parent), of the
+// policy's total.pids — a kernel ceiling, not a booking (the admin's
+// health view).
+func (m *Manager) TotalPids() (used, capPids int64) {
+	m.mu.Lock()
+	capPids = int64(m.policy.get().Effective().Total.Pids)
+	m.mu.Unlock()
+	used = -1
+	if n, ok := m.cg.Pids(); ok {
+		used = n
+	}
+	return used, capPids
 }
 
 // booked is tile's book now (tests).

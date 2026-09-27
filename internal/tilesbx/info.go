@@ -236,19 +236,21 @@ func (m *Manager) runtime(k Key) Runtime {
 // (tileSandboxes): stopped ones and those of removed tiles too, so they
 // can be cleaned up.
 type AdminRow struct {
-	Tile       string `json:"tile"`
-	Name       string `json:"name"`
-	State      string `json:"state"`
-	Mode       string `json:"mode"`
-	Accel      string `json:"accel,omitempty"`
-	MemMiB     int    `json:"memMiB"`
-	VCPUs      int    `json:"vcpus"`
-	DiskGiB    int    `json:"diskGiB"`
-	DiskBytes  int64  `json:"diskBytes"`
-	For        string `json:"for,omitempty"`
-	ForUser    string `json:"forUser,omitempty"`
-	LastActive int64  `json:"lastActive,omitempty"`
-	TileExists bool   `json:"tileExists"`
+	Tile        string `json:"tile"`
+	Name        string `json:"name"`
+	UID         string `json:"uid"`
+	State       string `json:"state"`
+	StateDetail string `json:"stateDetail,omitempty"` // why it stopped, or is in error
+	Mode        string `json:"mode"`
+	Accel       string `json:"accel,omitempty"`
+	MemMiB      int    `json:"memMiB"`
+	VCPUs       int    `json:"vcpus"`
+	DiskGiB     int    `json:"diskGiB"`
+	DiskBytes   int64  `json:"diskBytes"`
+	For         string `json:"for,omitempty"`
+	ForUser     string `json:"forUser,omitempty"`
+	LastActive  int64  `json:"lastActive,omitempty"`
+	TileExists  bool   `json:"tileExists"`
 }
 
 // AdminList is every tile sandbox definition (one tile's, when tile isn't "").
@@ -264,7 +266,7 @@ func (m *Manager) AdminList(tile string) []AdminRow {
 		exists := m.deps.Tiles != nil && m.deps.Tiles.Exists(t)
 		for _, d := range m.defs.list(k) {
 			in := m.info(k, d)
-			out = append(out, AdminRow{Tile: t, Name: d.Name, State: in.State, Mode: d.Mode, Accel: in.Accel,
+			out = append(out, AdminRow{Tile: t, Name: d.Name, UID: d.UID, State: in.State, StateDetail: in.StateDetail, Mode: d.Mode, Accel: in.Accel,
 				MemMiB: in.MemMiB, VCPUs: in.VCPUs, DiskGiB: in.DiskGiB, DiskBytes: in.DiskBytes,
 				For: d.For, ForUser: d.ForUser, LastActive: in.LastActive, TileExists: exists})
 		}

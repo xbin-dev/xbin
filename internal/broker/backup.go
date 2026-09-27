@@ -86,6 +86,12 @@ func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component) error {
 			m.BusSubs = append(m.BusSubs, raw)
 		}
 	}
+	// A manager tile's sandbox definitions — never their state (§9).
+	if h := b.tileSandboxes(); h != nil {
+		if m.Sandboxes = h.Defs(c.Path); len(m.Sandboxes) > 0 {
+			includes = append(includes, "sandboxes")
+		}
+	}
 	m.Includes = includes
 	if err := bw.Manifest(m); err != nil {
 		return err
@@ -265,25 +271,52 @@ func (b *Broker) doBackup(comp string) (string, error) {
 	return out.Version, nil
 }
 
+// restored is what a restore brought back: the archive's manifest, and the
+// tile sandbox definitions it left out (by name and why).
+type restored struct {
+	backup.Manifest
+	SandboxesSkipped []string
+}
+
 // doRestore fetches a version's tar from the archiver and unpacks it. version ""
-// means the latest.
-func (b *Broker) doRestore(comp, version string) (backup.Manifest, error) {
+// means the latest. The tile's backend and its tile sandboxes are stopped
+// first (their state is kept: a restore never touches it).
+func (b *Broker) doRestore(comp, version string) (restored, error) {
 	provider := b.archiveProvider(comp)
 	if provider == "" {
-		return backup.Manifest{}, fmt.Errorf("no archiver bound for %q", comp)
+		return restored{}, fmt.Errorf("no archiver bound for %q", comp)
 	}
 	if version == "" {
 		version = "latest"
 	}
 	code, body, err := b.archiveDo("GET", provider, "/archive/"+backupKey(comp)+"/versions/"+version, nil)
 	if err != nil {
-		return backup.Manifest{}, err
+		return restored{}, err
 	}
 	if code >= 400 {
-		return backup.Manifest{}, fmt.Errorf("archiver %s: %s", provider, firstLine(string(body)))
+		return restored{}, fmt.Errorf("archiver %s: %s", provider, firstLine(string(body)))
 	}
 	b.StopBackendSafe(comp)
-	return b.restore(bytes.NewReader(body), comp)
+	b.stopTileSandboxes(comp, "its tile was restored from a backup: stopped, state kept")
+	m, err := b.restore(bytes.NewReader(body), comp)
+	if err != nil {
+		return restored{Manifest: m}, err
+	}
+	return restored{Manifest: m, SandboxesSkipped: b.restoreSandboxes(m)}, nil
+}
+
+// restoreSandboxes merges a restored tile's sandbox definitions by uid
+// (§9); what it skipped is logged and answered.
+func (b *Broker) restoreSandboxes(m backup.Manifest) []string {
+	h := b.tileSandboxes()
+	if h == nil || len(m.Sandboxes) == 0 {
+		return nil
+	}
+	skipped := h.RestoreDefs(m.Component, m.Sandboxes)
+	for _, s := range skipped {
+		slog.Warn("restore: a tile sandbox definition was left out", "component", m.Component, "sandbox", s)
+	}
+	return skipped
 }
 
 func (b *Broker) StopBackendSafe(comp string) {
@@ -304,6 +337,9 @@ func (b *Broker) StopBackendSafe(comp string) {
 // nothing removed — then removes it in a confined run (removeTree, WP-9b). A
 // layer that removal leaves behind is replaced whole by the restore.
 func (b *Broker) offload(comp string, full bool) error {
+	if err := b.sandboxOffloadCheck(comp); err != nil {
+		return err // nothing archived, nothing stopped (tilesbx_hooks.go)
+	}
 	b.StopBackendSafe(comp)
 	if _, err := b.doBackup(comp); err != nil {
 		return fmt.Errorf("archive before offload failed (nothing removed): %w", err)
@@ -459,5 +495,9 @@ func (b *Broker) apiRestore(w http.ResponseWriter, r *http.Request) {
 	if b.OnStructureChange != nil {
 		b.OnStructureChange()
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "component": m.Component, "restored": m.Includes})
+	out := map[string]any{"ok": true, "component": m.Component, "restored": m.Includes}
+	if len(m.SandboxesSkipped) > 0 {
+		out["sandboxesSkipped"] = m.SandboxesSkipped
+	}
+	server.WriteJSON(w, http.StatusOK, out)
 }

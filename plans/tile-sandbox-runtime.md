@@ -3758,6 +3758,82 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
   - The harness pass: the admin tab shows tile rows and stops or deletes
     one.
 - **Parallel:** with WP-16, WP-17 and WP-18.
+- **As built** (branch `p2/wp15b`, on WP-15b):
+  - *Files.* `tilesbx`: new `usage.go` (the measuring worker, the statfs
+    watch, the low-disk and over-cap stops, `Usage`, `DiskLow`),
+    `reconcile.go` (`Reconcile`, coalesced — `OnUsersChange` is it now —
+    `OnResourceChange`, the users-event coalescing moved out of `stop.go`)
+    and `workspace.go` (`Defs`, `RestoreDefs`, `HasState`, `Leftovers`);
+    `broker`: new `tilesbx_hooks.go` (`TileSandboxHooks`,
+    `SetTileSandboxes`, the seal/grant/offload/leftover helpers); boot's
+    adapter `tileSbxHooks` and `tileSandboxCapHook` in
+    `boot/tilesandboxes.go`. The admin tab's tile part is its own module,
+    `workspace-template/tiles/admin/tabs/tilesbx.js`
+    (`<bx-admin-tile-sandboxes>`).
+  - *The hooks.* `TileSandboxHooks` has no `StopAll` (serve.go calls the
+    runtime's at shutdown) and gains `OnLowDisk`. `StopWhere`'s predicate
+    sees a `broker.TileSandbox{Tile, Name, Res}` (the broker never imports
+    tilesbx; boot converts). They are held in an `atomic.Pointer`: diskmon's
+    goroutine reads them from `broker.New` on.
+  - *Reconcile* (rescans: the watcher's `watchLoop` and the broker's
+    `OnStructureChange`; users events) also stops a tile that exists but
+    isn't enabled — a hand edit of `lifecycle` — through a new
+    `Tiles.Enabled`. The cap check fails closed without `Deps.Caps`.
+    Stops are `go`: a reconcile never waits for one.
+  - *Mounts.* A run records its res mounts as bound (`run.mounts`: read-write
+    or not); `OnResourceChange` resolves each again: an error or a
+    non-filesystem stops it, a read-write mount now held as reader stops
+    it, a widened role or a view that is merely down doesn't (the seal stops
+    those itself). The seal's `stateDetail`: "the vault was sealed:
+    stopped, state kept — start it again once the vault is unsealed"; the
+    `cap:containers` flip's names the remount.
+  - *Disk.* A measurement is the whole state dir (`<name>.<uid>/`: `cur/`,
+    snapshots, staging) by `confine.DiskUsage` (VM: `cur/vm/disk.img` and
+    each snapshot's by allocated blocks, lstat'ed). Measured at each stop
+    (queued before the sandbox reads `stopped`), after a reset and a
+    restore, once at boot for every sandbox with a state dir, and while
+    running at most every 2 minutes; `StopAll` ends the measuring (no
+    confined `du` outlives xbind). The over-`perTile.diskGiB` stop fires on
+    a *running* sandbox's measurement only — a stop's own measurement stops
+    nothing — so a tile over its cap loses a writer per rotation, not all at
+    once. `Deps.Disk` gains `LowAt(free, total)` (diskmon's reserve rule,
+    `broker.DiskLowAt`) and `FairShare()`; starts are held while diskmon's
+    last verdict **or** a statfs taken now says low. diskmon's statfs is
+    injectable (`diskMon.free`) and it stores its fair share.
+  - *Restore.* Definitions are merged by uid as specified, re-validated
+    for shape (the start re-checks reach), their sizes resolved under the
+    caps now, `perTile.max` enforced (skipped and reported), `version`
+    bumped past the live one's and `snapSeq` never lowered; a replaced
+    sandbox keeps its live `base` when its `cur/` is there. **"Restored
+    without state" is `error` only for a definition that pinned a base**
+    (`Def.base` set): one that never ran, or was reset, has nothing to lose
+    and comes back `stopped`. A definition restored with `pending` is
+    `error` ("delete it"). `doRestore` answers a `restored{Manifest,
+    SandboxesSkipped}`; `POST /restore` adds `sandboxesSkipped`.
+  - *Offload* checks `HasState` first — it reads `.xbin/sbx/<CK>/` on disk,
+    so an unreadable definitions file hides nothing — and answers 409
+    (`offloadStatus`) with nothing stopped or archived.
+  - *Health and the admin rows.* `health.tileSandboxes` gains `lowDisk`,
+    `trash {entries, bytes}` (bytes are known for a delete; a reset's
+    `cur/` and a boot re-queue count 0) and `total.pids {used, cap}` (new
+    `cgroup.Manager.Pids()`, `-1` without a parent). `AdminRow` gains `uid`
+    and `stateDetail`. A running tile row nests under its manager's current
+    backend generation in the tab (no `Parent` set server-side).
+  - *Tests.* Unit (`workspace_linux_test.go`, fake launcher): the
+    reconcile (removed, disabled, cap lost), repeated `StopTile`, mounts
+    narrowed and widened, the seal's stop and its 503, the over-cap stop,
+    the low-disk order and 503 on a fake statfs and clock, `HasState`,
+    `Leftovers`, `RestoreDefs`, the trash backlog; broker
+    (`tilesbx_hooks_test.go`, fake hooks): byte-identical backup,
+    definitions round-trip and `sandboxesSkipped`, offload 409, disable and
+    hide stop, the seal waits for its stops, `res:` and `cap:containers`
+    grants, leftovers, diskmon's quota vs fair share and its low-disk call;
+    boot: the cap hook's filter, the predicate's view. Mutation-checked (ten
+    mutations, each killed). Integration: `TestLive/*/a stop measures the
+    upper, confined` (8 MiB in a 0700 sub-uid-owned dir; the probe gained
+    `fill`). The harness `sandboxes` pass (41 PASS) was run against an
+    xbind started and stopped by PID, not `run.sh`, whose `--stop` kills by
+    pattern.
 
 ### WP-20 — Snapshots and clones (wave 3 · M · after WP-8b, WP-15b, WP-16)
 

@@ -146,11 +146,14 @@ func (b *Broker) MountEncrypted() {
 
 // SealResources stops the components that depend on file resources and unmounts
 // every decrypted view, so a sealed vault leaves only ciphertext on disk. Called
-// from the seal API after the barrier is sealed.
+// from the seal API after the barrier is sealed. The tile sandboxes with a
+// resource mounted are stopped too, and waited for, before the views go: a
+// sandbox's bind would keep one alive (tilesbx_hooks.go).
 func (b *Broker) SealResources() {
 	if b.resenc == nil {
 		return
 	}
+	b.sealSandboxes()
 	if b.StopBackend != nil {
 		for _, c := range b.Reg.Components() {
 			if b.componentUsesFileRes(c) {

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -22,6 +23,15 @@ func main() {
 	switch os.Args[1] {
 	case "write": // path content
 		if err := os.WriteFile(a[0], []byte(a[1]), 0o644); err != nil {
+			fail(err.Error())
+		}
+		fmt.Println("ok")
+	case "fill": // path MiB: that many MiB of data (allocated, not sparse), in a dir only its owner reads (0700)
+		n, _ := strconv.Atoi(a[1])
+		if err := os.MkdirAll(filepath.Dir(a[0]), 0o700); err != nil {
+			fail(err.Error())
+		}
+		if err := os.WriteFile(a[0], make([]byte, n<<20), 0o600); err != nil {
 			fail(err.Error())
 		}
 		fmt.Println("ok")
