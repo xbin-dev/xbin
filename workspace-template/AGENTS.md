@@ -107,6 +107,8 @@ runtimes: `node`, `python`, `cgi`. Never overwrites existing files.
 **Install a bundled optional tile:** `bx tile ls` lists builtin tiles
 (e.g. `llm-gw` an OpenAI-compatible gateway, `chat` a streaming chat UI,
 `webhooks` feeding agents made from the agent template — docs/agent-inbox.md;
+coding sandboxes for agents and people come from tiles implementing
+docs/sandbox-manager.md;
 for a chat platform, instantiate the `agent-messaging-bridge` template and
 have a coding agent add the platform);
 `bx tile import <name> [as <path>]` copies one in (or use the Tile Manager's

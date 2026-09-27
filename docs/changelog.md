@@ -12,6 +12,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-27
 
+- **A contract for sandbox managers** ([sandbox-manager.md](sandbox-manager.md),
+  D115). Tiles that run coding sandboxes for other tiles provide the http
+  service `sandbox-manager` (protocol 1); tiles that use them — the agent
+  template next — multi-bind it. It covers sandboxes and their lifecycle,
+  running commands (a blocking `run`, background execs read by byte offset
+  with a long-poll), terminals on the `/ws/term` wire, files and tar, and
+  optional snapshots, clones and archives. Each consumer tile sees its own
+  sandboxes and those shared with it; a page's calls carry the verified
+  person, a backend names the person it acts for in `Sbx-User`. Managers can
+  be built on xbind's own sandboxes or on a cloud's API and ssh.
+
 - **Admin console: runtime → sandboxes, and the sandbox in the component
   list** (D112, [isolation.md](isolation.md) §VM sandboxes). A new tab lists
   every sandbox xbind runs — backend generations, terminals, agent sessions

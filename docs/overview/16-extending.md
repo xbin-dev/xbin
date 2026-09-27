@@ -139,7 +139,10 @@ examples, each demonstrating one seam:
 publishing `/hook/*` through ingress and turning each delivery into a trigger
 event. The `agent-messaging-bridge` *template* is the other side of the same
 contract: an `alwaysOn` adapter whose chat platform a coding agent adds
-([agent-inbox.md](../agent-inbox.md)).) The pattern generalizes: a WireGuard
+([agent-inbox.md](../agent-inbox.md)). The agent template also consumes
+`sandbox-manager`: any tile that implements that contract — over xbind's own
+sandboxes, or a cloud's API and ssh — gives agents coding sandboxes
+([sandbox-manager.md](../sandbox-manager.md)).) The pattern generalizes: a WireGuard
 tile is `provides {net, lan-ingress}`; a mail gateway is an `http` service
 with per-account `instances`; a WAF is an ingress terminator.
 
