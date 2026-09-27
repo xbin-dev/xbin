@@ -35,6 +35,8 @@ type SandboxBinding struct {
 	Egress  string `json:"egress,omitempty"`  // none | internet | open, when bound
 	By      string `json:"by,omitempty"`      // who bound it: a user id, "el:<component>", "" = the tile itself
 	At      int64  `json:"at,omitempty"`      // when (unix ms)
+
+	held bool // (not stored) it holds internal data: binding it sets the conversation's HeldInternal
 }
 
 // maxAttached bounds a conversation's attached sandboxes.
@@ -77,6 +79,9 @@ func (c Config) sandboxBinding(ref string) (SandboxBinding, bool) {
 // attachSandbox makes b the active sandbox, attaching it (or updating its
 // attachment: a new cwd).
 func attachSandbox(cfg *Config, b SandboxBinding) error {
+	if b.held {
+		cfg.HeldInternal = true
+	}
 	for i := range cfg.Attached {
 		if cfg.Attached[i].Ref == b.Ref {
 			cfg.Attached[i] = b
@@ -211,8 +216,12 @@ func sandboxClassAllows(cfg Config, provider, egress string) string {
 // class, and returns the binding (not yet stored). The caller has checked
 // w's access to the conversation. No cwd keeps the one the conversation has
 // the sandbox attached at (a re-pick), else it is the sandbox's workdir. A
-// class with internal reach marks the sandbox (markInternal) before it is
-// bound; one that reaches outside may not bind a sandbox so marked.
+// class with internal reach — or a conversation that has held internal data
+// (cfg.HeldInternal) — marks the sandbox (markInternal) before it is bound;
+// one that reaches outside may not bind a sandbox so marked. Binding a
+// marked one into a conversation that hasn't held internal data yet marks
+// every sandbox it has attached (markAttached), and the binding sets its
+// HeldInternal when stored.
 func prepareBinding(ctx context.Context, w who, cfg Config, pick sandboxPick) (SandboxBinding, error) {
 	provider, id, ok := splitSandboxRef(pick.Ref)
 	if !ok {
@@ -267,15 +276,22 @@ func prepareBinding(ctx context.Context, w who, cfg Config, pick sandboxPick) (S
 			return SandboxBinding{}, refuse(400, "sandbox.cwd: %s isn't a directory", cwd)
 		}
 	}
-	if cl.has(tsInternal) {
+	if !box.marked() && (cl.has(tsInternal) || cfg.HeldInternal) {
+		why := "this conversation's class has internal reach"
+		if !cl.has(tsInternal) {
+			why = "this conversation has had a sandbox holding internal data"
+		}
 		if err := markInternal(ctx, conn, id, box); err != nil {
 			return SandboxBinding{}, refuse(sbxStatus(sbxRefusal(err)),
-				"this conversation's class has internal reach, so the sandbox must be marked as holding internal data (label %s) before it is bound, and marking it failed: %v",
-				sbxInternalLabel, err)
+				"%s, so the sandbox must be marked as holding internal data (label %s) before it is bound, and marking it failed: %v",
+				why, sbxInternalLabel, err)
 		}
 	}
+	if box.marked() && !cfg.HeldInternal && !cl.has(tsInternal) {
+		markAttached(ctx, cfg, pick.Ref) // what it holds could reach any of them from here
+	}
 	return SandboxBinding{Ref: pick.Ref, Cwd: cwd, Name: box.Name, Manager: hello.title(provider),
-		Image: box.Image.ID, Egress: egress, By: w.tag(), At: nowMs()}, nil
+		Image: box.Image.ID, Egress: egress, By: w.tag(), At: nowMs(), held: box.marked()}, nil
 }
 
 // storeBinding applies a change to root's stored config inside t. A sandbox
@@ -404,5 +420,6 @@ func askSandbox(w http.ResponseWriter, r *http.Request, cfg *Config) bool {
 		return false
 	}
 	cfg.Sandbox, cfg.Attached = &b, []SandboxBinding{b}
+	cfg.HeldInternal = cfg.HeldInternal || b.held
 	return true
 }

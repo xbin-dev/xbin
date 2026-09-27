@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -339,6 +341,155 @@ func TestSandboxInternalTaint(t *testing.T) {
 	}
 	if b, _ := theManager(t).Box(blank.ID); b.Labels[sbxInternalLabel] != "1" || b.Labels["k"] != "v" {
 		t.Fatalf("marked over a blank label: %+v", b.Labels)
+	}
+}
+
+// The mark spreads within a conversation (review): a class with a sandbox
+// but neither internal reach nor egress could otherwise carry what a marked
+// sandbox holds into a clean one — sandbox_copy, or a read then a write, or
+// through the session files after a detach — and a web-lane conversation
+// could then bind that one.
+func TestSandboxMarkSpreads(t *testing.T) {
+	ag, mux := accessFixture(t)
+	bindSbx(t, "apps/cs")
+	useClasses(t, intSbxClass, mixedSbxClass, quietSbxClass)
+	marked := func(box *sbxSandbox) bool {
+		t.Helper()
+		b, _ := theManager(t).Box(box.ID)
+		return b.Labels[sbxInternalLabel] != ""
+	}
+	held := func(run int64) bool {
+		t.Helper()
+		cfg, err := ag.db.runConfig(run)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cfg.HeldInternal
+	}
+	mk := func(name string, labels map[string]string) (*sbxSandbox, string) {
+		box := mkSandbox(t, "apps/cs", "alice", sbxCreate{Name: name, Labels: labels})
+		return box, sandboxRef("apps/cs", box.ID)
+	}
+	webRefuses := func(ref string) {
+		t.Helper()
+		w := callAs(t, mux, asAlice, "PATCH", fmt.Sprintf("/runs/%d", codingRunAs(t, ag, alicePrivate, false)), map[string]any{"sandbox": map[string]string{"ref": ref}})
+		if w.Code != 403 || !strings.Contains(w.Body.String(), "held data from an internal-reach conversation") {
+			t.Fatalf("a web-lane conversation binding %s: %d %s", ref, w.Code, w.Body)
+		}
+	}
+
+	// binding a marked sandbox marks what the conversation has attached
+	s, refS := mk("s", map[string]string{sbxInternalLabel: "1"})
+	tt, refT := mk("t", nil)
+	quiet := classRunAs(t, ag, "quiet", alicePrivate)
+	if got := bindTo(t, mux, asAlice, quiet, refT, ""); got != 200 || marked(tt) || held(quiet) {
+		t.Fatalf("a clean one into a quiet conversation: %d marked %v", got, marked(tt))
+	}
+	if got := bindTo(t, mux, asAlice, quiet, refS, ""); got != 200 {
+		t.Fatal(got)
+	}
+	if !marked(tt) || !held(quiet) {
+		t.Fatalf("after the marked one: t marked %v, held %v", marked(tt), held(quiet))
+	}
+	webRefuses(refT)
+	// …and whatever it binds after — even once the marked one is detached
+	if w := callAs(t, mux, asAlice, "PATCH", fmt.Sprintf("/runs/%d", quiet), map[string]any{"detach": refS}); w.Code != 200 {
+		t.Fatalf("detach: %d %s", w.Code, w.Body)
+	}
+	u, refU := mk("u", nil)
+	if got := bindTo(t, mux, asAlice, quiet, refU, ""); got != 200 || !marked(u) {
+		t.Fatalf("bound after the detach: %d marked %v", got, marked(u))
+	}
+	webRefuses(refU)
+	_ = s
+
+	// a sandbox marked after it was bound: working in it marks the rest
+	a, refA := mk("a", nil)
+	b, refB := mk("b", nil)
+	late := classRunAs(t, ag, "quiet", alicePrivate)
+	for _, ref := range []string{refB, refA} {
+		if got := bindTo(t, mux, asAlice, late, ref, ""); got != 200 {
+			t.Fatal(got)
+		}
+	}
+	setBox(t, a.ID, func(x *fsbBox) { x.Labels = map[string]string{sbxInternalLabel: "1"} })
+	if err := useOf(t, ag, late, refA); err != nil {
+		t.Fatal(err)
+	}
+	if !marked(b) || !held(late) {
+		t.Fatalf("after working in a: b marked %v, held %v", marked(b), held(late))
+	}
+	// a mark lost at the manager is made again before the conversation works there
+	setBox(t, b.ID, func(x *fsbBox) { x.Labels = nil })
+	if err := useOf(t, ag, late, refB); err != nil || !marked(b) {
+		t.Fatalf("working in b: %v, marked %v", err, marked(b))
+	}
+
+	// sandbox_copy from a marked source marks the target first
+	c, refC := mk("c", nil)
+	d, refD := mk("d", nil)
+	cp := classRunAs(t, ag, "quiet", alicePrivate)
+	for _, ref := range []string{refD, refC} {
+		if got := bindTo(t, mux, asAlice, cp, ref, ""); got != 200 {
+			t.Fatal(got)
+		}
+	}
+	put(t, c, "secret.txt", "internal\n")
+	setBox(t, c.ID, func(x *fsbBox) { x.Labels = map[string]string{sbxInternalLabel: "1"} })
+	run, _ := ag.db.getRun(cp)
+	cfg, _ := ag.db.runConfig(cp)
+	mustTool(t, ag, run, cfg, "cp", "sandbox_copy", map[string]any{"from": map[string]any{"path": "secret.txt"}, "to": map[string]any{"sandbox": refD, "path": "x.txt"}})
+	if !marked(d) {
+		t.Fatal("the copy's target is not marked")
+	}
+	webRefuses(refD)
+
+	// an internal-reach conversation: every sandbox it binds is marked, as before
+	e, refE := mk("e", nil)
+	if got := bindTo(t, mux, asAlice, classRunAs(t, ag, "intsbx", alicePrivate), refE, ""); got != 200 || !marked(e) {
+		t.Fatalf("internal: %d marked %v", got, marked(e))
+	}
+	// a web-lane conversation never holds it: a clean sandbox stays clean there
+	f, refF := mk("f", nil)
+	coding := codingRunAs(t, ag, alicePrivate, false)
+	if got := bindTo(t, mux, asAlice, coding, refF, ""); got != 200 || useOf(t, ag, coding, "") != nil || marked(f) || held(coding) {
+		t.Fatalf("web lane: %d marked %v held %v", got, marked(f), held(coding))
+	}
+}
+
+// A relabel racing a mark (review): PATCH /sandboxes/{ref} {labels} goes
+// with the version it merged against, so a mark set between its read and
+// its write fails it — read again, merged, and the mark stays.
+func TestSandboxRelabelRacesTheMark(t *testing.T) {
+	_, mux := accessFixture(t)
+	bindSbx(t, "apps/cs")
+	box := mkSandbox(t, "apps/cs", "alice", sbxCreate{Name: "r", Labels: map[string]string{"k": "v"}})
+	ref := sandboxRef("apps/cs", box.ID)
+	var patches atomic.Int32
+	sbxTransport(t, func(r *http.Request, next http.RoundTripper) (*http.Response, error) {
+		if r.Method == "PATCH" && patches.Add(1) == 1 { // an internal conversation marks it just now
+			setBox(t, box.ID, func(x *fsbBox) {
+				x.Labels = map[string]string{"k": "v", sbxInternalLabel: "1"}
+				x.Version++
+			})
+		}
+		return next.RoundTrip(r)
+	})
+	w := callAs(t, mux, asAlice, "PATCH", "/sandboxes/"+url.PathEscape(ref), map[string]any{"labels": map[string]string{"k": "w"}})
+	if w.Code != 200 {
+		t.Fatalf("relabel: %d %s", w.Code, w.Body)
+	}
+	if b, _ := theManager(t).Box(box.ID); b.Labels[sbxInternalLabel] != "1" || b.Labels["k"] != "w" || patches.Load() != 2 {
+		t.Fatalf("after the race: %+v (%d patches)", b.Labels, patches.Load())
+	}
+	// the caller's own version is theirs: a stale one is refused, not retried
+	w = callAs(t, mux, asAlice, "PATCH", "/sandboxes/"+url.PathEscape(ref), map[string]any{"labels": map[string]string{"k": "x"}, "version": 1})
+	if w.Code != 412 || patches.Load() != 3 {
+		t.Fatalf("a stale version of the caller's: %d %s (%d patches)", w.Code, w.Body, patches.Load())
+	}
+	// a change that doesn't touch the labels sends no version of ours
+	if w := callAs(t, mux, asAlice, "PATCH", "/sandboxes/"+url.PathEscape(ref), map[string]any{"name": "renamed"}); w.Code != 200 {
+		t.Fatalf("rename: %d %s", w.Code, w.Body)
 	}
 }
 

@@ -24,7 +24,10 @@
 // The class firewall (D116) reaches across a sandbox that conversations
 // share: one whose class has internal reach marks the sandbox it works in
 // (sbxInternalLabel), and a class that reaches outside with no internal
-// reach may not bind or work in a sandbox so marked.
+// reach may not bind or work in a sandbox so marked. The mark spreads within
+// a conversation: one that has had a marked sandbox (Config.HeldInternal)
+// could carry what it read there into any other it has, so every sandbox it
+// has attached is marked then, and every one it binds or works in after.
 package main
 
 import (
@@ -130,8 +133,10 @@ func taintRefusal(cl agentClass, b *sbxSandbox) string {
 
 // markInternal records on b, through conn, that a conversation with
 // internal reach works in it: sbxInternalLabel merged into its labels (a
-// lost update retried), and checked — the manager must keep it.
+// lost update retried), and checked — the manager must keep it. b takes
+// the labels (and version) the manager answered with.
 func markInternal(ctx context.Context, conn *sbxConn, id string, b *sbxSandbox) error {
+	orig := b
 	for attempt := 0; ; attempt++ {
 		if b.Labels[sbxInternalLabel] != "" {
 			return nil
@@ -150,6 +155,7 @@ func markInternal(ctx context.Context, conn *sbxConn, id string, b *sbxSandbox) 
 		case err == nil && nb.Labels[sbxInternalLabel] == "":
 			return errors.New("its manager didn't keep the label")
 		case err == nil:
+			orig.Labels, orig.Version = nb.Labels, nb.Version
 			invalidateSandboxCatalog()
 			return nil
 		case sbxRefusal(err) != "precondition" || attempt >= 2:
@@ -157,6 +163,33 @@ func markInternal(ctx context.Context, conn *sbxConn, id string, b *sbxSandbox) 
 		}
 		if b, err = conn.Get(ctx, id); err != nil {
 			return err
+		}
+	}
+}
+
+// marked: b holds (or may hold) internal data.
+func (b *sbxSandbox) marked() bool { return b != nil && b.Labels[sbxInternalLabel] != "" }
+
+// markAttached marks every sandbox cfg has but ref — a conversation that has
+// just had a marked sandbox could move its data into any of them (a copy, or
+// a read and a write). Each is asked for through its own binder, best
+// effort: one that can't be marked now is marked before the conversation
+// next works in it (sandboxUse, on Config.HeldInternal).
+func markAttached(ctx context.Context, cfg Config, ref string) {
+	for _, a := range bindingsOf(cfg) {
+		provider, id, ok := splitSandboxRef(a.Ref)
+		if a.Ref == ref || !ok {
+			continue
+		}
+		conn, err := sbxDial(provider, sbxUserOf(binderWho(a.By)))
+		if err == nil {
+			var box *sbxSandbox
+			if box, err = conn.Get(ctx, id); err == nil {
+				err = markInternal(ctx, conn, id, box)
+			}
+		}
+		if err != nil && sbxRefusal(err) != "not-found" {
+			logf("sandbox %s: marking it as holding internal data: %v", a.Ref, err)
 		}
 	}
 }

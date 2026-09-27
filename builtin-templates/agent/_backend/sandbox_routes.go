@@ -156,7 +156,10 @@ func handleSandbox(w http.ResponseWriter, r *http.Request) {
 }
 
 // handlePatchSandbox changes a sandbox at its manager — its owner's call.
-// New labels keep sbxInternalLabel when the sandbox has it.
+// New labels keep sbxInternalLabel when the sandbox has it: they go with
+// the version they were merged against (unless the caller sent one), so a
+// mark set meanwhile (markInternal) fails the PATCH rather than being
+// overwritten — read again and merged, once.
 //
 //	PATCH /sandboxes/{ref} {name?, visibility?, members?, shares?, labels?,
 //	egress?, size?, autoStopMin?, version?}
@@ -187,23 +190,53 @@ func handlePatchSandbox(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 403, "only the sandbox's owner can change it")
 		return
 	}
-	if mark := rs.entry.Box.Labels[sbxInternalLabel]; mark != "" && p.Labels != nil && (*p.Labels)[sbxInternalLabel] == "" {
-		labels := map[string]string{sbxInternalLabel: mark} // what it has held stays marked
-		for k, v := range *p.Labels {
-			if k != sbxInternalLabel {
-				labels[k] = v
+	box := rs.entry.Box
+	for attempt := 0; ; attempt++ {
+		q := p
+		if p.Labels != nil {
+			labels := keepMark(box, *p.Labels)
+			q.Labels = &labels
+			if v := box.Version; p.Version == nil && v > 0 {
+				q.Version = &v
 			}
 		}
-		p.Labels = &labels
-	}
-	box, err := rs.conn.Patch(r.Context(), rs.id, p)
-	if err != nil {
-		writeSbxErr(w, err)
-		return
+		nb, err := rs.conn.Patch(r.Context(), rs.id, q)
+		if err == nil {
+			box = nb
+			break
+		}
+		if p.Labels == nil || p.Version != nil || attempt > 0 || sbxRefusal(err) != "precondition" {
+			writeSbxErr(w, err)
+			return
+		}
+		if box, err = rs.conn.Get(r.Context(), rs.id); err != nil {
+			writeSbxErr(w, err)
+			return
+		}
+		if !sandboxAccess(callerOf(r), box).Edit {
+			xbin.WriteError(w, 403, "only the sandbox's owner can change it")
+			return
+		}
 	}
 	invalidateSandboxCatalog()
 	rs.entry.Box, rs.access = box, sandboxAccess(callerOf(r), box)
 	xbin.WriteJSON(w, http.StatusOK, rs.item())
+}
+
+// keepMark is labels, with box's sbxInternalLabel kept: what it has held
+// stays marked.
+func keepMark(box *sbxSandbox, labels map[string]string) map[string]string {
+	mark := box.Labels[sbxInternalLabel]
+	if mark == "" || labels[sbxInternalLabel] != "" {
+		return labels
+	}
+	out := map[string]string{sbxInternalLabel: mark}
+	for k, v := range labels {
+		if k != sbxInternalLabel {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // handleDeleteSandbox deletes a sandbox at its manager — its owner's or a

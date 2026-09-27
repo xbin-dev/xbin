@@ -34,7 +34,9 @@ type sbxUse struct {
 //     mode may refuse the call once: egressChanged, sandbox_turn.go,
 //   - the class firewall across conversations: a class that reaches outside
 //     may not work in a sandbox that has held internal data, and one with
-//     internal reach marks the sandbox it works in (sandbox_access.go),
+//     internal reach marks the sandbox it works in (sandbox_access.go) — as
+//     does a conversation that has held internal data (the root's
+//     HeldInternal), which working in a marked sandbox makes it,
 //   - whoever bound it may still use it, and still takes part in the
 //     conversation (anyone who may steer a conversation works in what it
 //     has bound — under the binder's right, which is re-checked here).
@@ -110,7 +112,20 @@ func (ag *Agent) sandboxUse(ctx context.Context, root int64, cfg Config, ref str
 				Msg: fmt.Sprintf("%s, who bound the sandbox %q, no longer takes part in this conversation — ask the user to bind it again", byName(b.By), box.Name)}
 		}
 	}
-	if cl.has(tsInternal) {
+	held := cfg.HeldInternal
+	if !held && !cl.has(tsInternal) {
+		rc, err := ag.db.runConfig(root) // the root's, now: an earlier call may have set it
+		if err != nil {
+			return nil, err
+		}
+		held = rc.HeldInternal
+		if !held && box.marked() {
+			if err := ag.holdInternal(ctx, root, b.Ref); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if !box.marked() && (cl.has(tsInternal) || held) {
 		if err := markInternal(ctx, conn, id, box); err != nil {
 			return nil, &sbxError{Provider: provider, Refusal: orStr(sbxRefusal(err), "unavailable"),
 				Msg: fmt.Sprintf("the sandbox %q must be marked as holding internal data before this conversation works in it, and marking it failed: %v", box.Name, err)}
@@ -127,6 +142,25 @@ func (ag *Agent) sandboxUse(ctx context.Context, root int64, cfg Config, ref str
 		cwd = box.Workdir
 	}
 	return &sbxUse{Conn: conn, ID: id, Binding: b, Box: box, Hello: hello, Cwd: cwd}, nil
+}
+
+// holdInternal: the conversation root works in a marked sandbox (ref), so
+// it has held internal data from now on — recorded on the root (every tool
+// call of it and its subagents marks the sandbox it works in first), and
+// every other sandbox it has attached is marked now (markAttached).
+func (ag *Agent) holdInternal(ctx context.Context, root int64, ref string) error {
+	var cfg Config
+	err := ag.db.Tx(func(t *DB) error {
+		return storeBinding(t, root, func(c *Config) error {
+			c.HeldInternal, cfg = true, *c
+			return nil
+		})
+	})
+	if err != nil {
+		return fmt.Errorf("recording that this conversation has worked in a sandbox holding internal data: %w", err)
+	}
+	markAttached(ctx, cfg, ref)
+	return nil
 }
 
 // byName is a binding's By for people to read.

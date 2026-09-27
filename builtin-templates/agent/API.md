@@ -1036,10 +1036,20 @@ the view).
   class that reaches outside (`web`, or a sandbox egress other than `none`)
   with no internal reach may then neither bind it nor keep working in it —
   `this sandbox has held data from an internal-reach conversation` — even
-  where it was bound first. A confirmed mixed class may. A tool call of an
-  internal-reach conversation re-labels a sandbox that lost the label, and
-  `PATCH /sandboxes/{ref}` keeps it when it replaces the labels. The only
-  way back is a new sandbox.
+  where it was bound first. A confirmed mixed class may. The mark spreads
+  within a conversation, whatever its class: once a conversation has had a
+  marked sandbox — bound it, or worked in one that was marked since — it has
+  held internal data (`config.heldInternal`, kept for good), every sandbox
+  it has attached is labeled then, and every one it binds or works in after
+  is labeled first (a detach doesn't undo it: the data may be in its session
+  files or its context); `sandbox_copy` from a marked sandbox so labels its
+  target before it writes. So a class with a sandbox but neither internal
+  reach nor egress can't launder data into a clean sandbox for a web-lane
+  conversation. A tool call of an internal-reach conversation (or one that
+  has held internal data) re-labels a sandbox that lost the label, and
+  `PATCH /sandboxes/{ref}` keeps it when it replaces the labels — against a
+  concurrent label too (it sends the sandbox's `version`, and re-reads once
+  on a 412). The only way back is a new sandbox.
 - **A changed egress** (its owner changed the sandbox's network access since
   it was bound, and the class still allows it): the tool call that finds it
   records the live value in the conversation's bindings (and the calling
@@ -1072,7 +1082,7 @@ unbound, 403 not allowed, 502 its manager down), and nothing is created.
 | `GET /sandboxes` | `?fresh=1` skips the cache | `{sandboxes: [{ref, provider, manager, …the contract's sandbox…, mine, canUse, canManage, canEdit, boundTo?}], managers: [{provider, title, ok, error?, refusal?, caps, egress, images, sizes, limits}]}` — every sandbox the caller may see across the bound managers, and those bound to a conversation the caller sees (`boundTo`: its ids). Merged, cached 15 s (the agent's own changes show at once); `manager` is the manager's title. Anyone who can use the tile |
 | `POST /sandboxes` | `{name, provider?, image?, size?, egress?, visibility?, members?, conversation?, bind?, cwd?, clientId?, start?}` | **201** + the sandbox (as below), with `binding` when it was bound. Created at `provider` (optional while one manager is bound), owned by the caller. With `conversation` (the caller takes part in it): made for it (above) and bound there unless `bind: false` — refused up front when its class wouldn't allow it, and deleted again if the binding fails. `clientId` makes a retry return the same sandbox (per person) |
 | `GET /sandboxes/{ref}` | | one sandbox, fresh from its manager, as `GET /sandboxes` lists it |
-| `PATCH /sandboxes/{ref}` | `{name?, visibility?, members?, shares?, labels?, egress?, size?, autoStopMin?, version?}` | the sandbox — its owner's (the contract's `PATCH`; `restartNeeded` when a change waits for the next start, and `egressNext` while an egress does). New `labels` keep `xbin.agent/internal` |
+| `PATCH /sandboxes/{ref}` | `{name?, visibility?, members?, shares?, labels?, egress?, size?, autoStopMin?, version?}` | the sandbox — its owner's (the contract's `PATCH`; `restartNeeded` when a change waits for the next start, and `egressNext` while an egress does). New `labels` keep `xbin.agent/internal` (sent with the sandbox's `version` unless you send one: a label set meanwhile is read again and kept) |
 | `DELETE /sandboxes/{ref}` | | `{ok, detached}` — its owner's or a tile manager's; it is detached from every conversation that had it |
 | `POST /sandboxes/{ref}/{start\|stop\|archive\|thaw}` | `?wait=<s>` (≤ 120), `?conversation=<id>`; `{start?}` on thaw | the sandbox. Start, stop and thaw: who may use or manage it — or, with `conversation`, a participant of a conversation it is bound to (as the binder). Archive: its owner or a tile manager |
 

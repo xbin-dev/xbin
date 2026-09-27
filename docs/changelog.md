@@ -168,7 +168,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   another consumer shared with the agent is usable only by the people its
   share names. Binding a sandbox to a conversation with internal reach
   labels it `xbin.agent/internal`, and a class that reaches outside without
-  internal reach may then neither bind it nor keep working in it. Re-picking
+  internal reach may then neither bind it nor keep working in it. The label
+  spreads within a conversation: one that has had a labeled sandbox
+  (`config.heldInternal`) labels every sandbox it has attached and every one
+  it binds or works in after, and `sandbox_copy` from a labeled sandbox
+  labels its target first — a class with neither internal reach nor egress
+  can no longer carry internal data into a clean sandbox for a web-lane
+  conversation. `PATCH /sandboxes/{ref}` with `labels` sends the sandbox's
+  `version` (re-reading once on a 412), so it never overwrites a label set
+  meanwhile. Re-picking
   an attached sandbox keeps its working directory, and `sandbox_create`'s
   grant card says when the sandbox will be the team's.
 

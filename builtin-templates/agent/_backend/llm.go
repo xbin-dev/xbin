@@ -111,6 +111,11 @@ type Config struct {
 	// (childConfig); the global defaults never hold either (PUT /config).
 	Sandbox  *SandboxBinding  `json:"sandbox,omitempty"`
 	Attached []SandboxBinding `json:"attached,omitempty"`
+	// HeldInternal: the conversation has had a sandbox holding internal data
+	// (sbxInternalLabel) bound, or worked in one — from then on every sandbox
+	// it binds or works in is marked too (sandbox_access.go: the mark spreads
+	// within a conversation). Kept on the root, never cleared.
+	HeldInternal bool `json:"heldInternal,omitempty"`
 }
 
 // featureKeys are the toggleable capabilities shown in the tile's Features menu.

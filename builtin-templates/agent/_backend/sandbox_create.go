@@ -424,6 +424,7 @@ func (ag *Agent) toolSandboxCreate(ctx context.Context, run *Run, cfg Config, ar
 	if err != nil {
 		return "", err
 	}
+	cfg.HeldInternal = cfg.HeldInternal || stored.HeldInternal // an earlier call of this turn may have set it
 	// the same name made here before and still attached: a repeated call
 	if prev := ag.db.createRow(root, p.Name, "made"); prev != nil {
 		if b, ok := stored.sandboxBinding(prev.Ref); ok {
@@ -586,6 +587,9 @@ func awaitStarted(ctx context.Context, conn *sbxConn, box *sbxSandbox) error {
 // addSandbox binds b into cfg: the active sandbox when none is active (or it
 // already was), else attached beside it. Says whether it is the active one.
 func addSandbox(cfg *Config, b SandboxBinding) (bool, error) {
+	if b.held {
+		cfg.HeldInternal = true
+	}
 	if cfg.Sandbox == nil || cfg.Sandbox.Ref == b.Ref {
 		return true, attachSandbox(cfg, b)
 	}
