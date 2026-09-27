@@ -48,6 +48,11 @@ func Main(specPath string) int {
 		log.SetOutput(io.Discard) // go-fuse notes a closed connection there; it'd land in the terminal
 	}
 	s := &shim{hs: hs, serial: newRing(64 << 10)}
+	if hs.Resident { // before the VMM starts: it must never inherit the factory
+		if s.factory, err = adoptFactory(hs.AgentFD); err != nil {
+			return fail(nil, "connection factory: %v", err)
+		}
+	}
 	return s.run()
 }
 
@@ -71,6 +76,7 @@ type shim struct {
 	phaseAt time.Time    // since when
 	files   []*fusefs.FS // the exports being served, for a dump
 	agent   *proto.Conn  // the control connection, once up, for a dump
+	factory *os.File     // a resident VM's connection factory (resident_linux.go)
 }
 
 func (s *shim) run() int {
@@ -143,6 +149,10 @@ func (s *shim) run() int {
 	}
 	if s.hs.Debug {
 		fmt.Fprintf(os.Stderr, "[vm] guest configured after %s\r\n", time.Since(started).Round(time.Millisecond))
+	}
+	if s.hs.Resident {
+		s.setPhase("resident: routing xbind's connections")
+		return s.resident()
 	}
 	s.setPhase("starting session 1")
 	return s.session()
@@ -327,11 +337,17 @@ type ctlMsg struct {
 
 // readCtl reads the control connection for good: the agent's dumps go to
 // the dump (which runs beside whatever the shim is doing), the rest to
-// recvUntil; a read error is delivered, then the reader stops.
+// recvUntil; a read error is delivered, then the reader stops. A resident
+// VM's lines are bounded (it never asks for a dump, which can outgrow them).
 func (s *shim) readCtl() {
 	for {
 		var m proto.Msg
-		err := s.ctl.Recv(&m)
+		var err error
+		if s.hs.Resident {
+			err = s.ctl.RecvMax(&m, proto.MaxEvent)
+		} else {
+			err = s.ctl.Recv(&m)
+		}
 		if err == nil && m.Op == "dump" {
 			select {
 			case s.dumps <- m.Dump:

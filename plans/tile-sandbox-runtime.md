@@ -1385,6 +1385,61 @@ next to its vforking `os.StartProcess`.
     - factory close → the VMM is gone within 3 s (18 s emulated).
 - **Size:** `resident_linux.go` ≤ 450.
 - **Parallel:** with WP-3.
+- **As built** (branch `p2/wp4`):
+  - *The factory's fd.* `writeVMSpec` copies `Spec.AgentFD` into
+    `HostSpec.AgentFD`; `handAgentFD` keeps it open across the exec and the
+    VM lockdown closes nothing. The shim moves it to an `F_DUPFD_CLOEXEC`
+    copy and checks that it is a `SOCK_SEQPACKET` socket before it starts
+    the VMM, so Firecracker and QEMU never hold it (the integration test
+    reads the VMM's `/proc/<pid>/fd` to check). The lock fd stays
+    inheritable, so the shim and the VMM both hold the lock.
+  - *`vm.Options.Resident`* needs `spec.Agent` and refuses `Listen`,
+    `Gateway` and `TTY`. It leaves `hs.Guest` empty and keeps `spec.Agent`
+    and `spec.Lock`. The guest's hostname falls back to `spec.Hostname`,
+    which no other caller sets. A VM that isn't resident refuses
+    `spec.Agent`: no shim would take the factory, and the VMM would inherit
+    it.
+  - *What goes to the guest is rebuilt.* The shim rebuilds each command
+    from the fields its op uses and never forwards the raw line. It also
+    re-marshals each Hello, so unknown fields don't pass. What it refuses
+    gets an `error` event: an exec, resize or signal for a session below 2
+    (named in the event), an exec with `Listen` or `Gateway`, a sync for
+    session 1, and any other op (`config`, `dump`, …) with session 0. A
+    refused exec never reaches the guest. A stream for a session below 2,
+    a `listen` and an unknown kind are closed. A Hello must arrive within
+    30 s.
+  - *An upstream that stops reading loses its ctl.* Each event line to
+    xbind has a 10 s write deadline; past it the shim closes that ctl, so a
+    wedged reader can't hold the shim's loop, or its SIGHUP. A guest event
+    is re-encoded on its way up, which can grow it (a raw `<` becomes
+    `\u003c`); one that would pass `MaxEvent` is dropped, so xbind's
+    `RecvMax(MaxEvent)` never cuts its ctl over what the guest sent.
+  - *Hangup.* SIGHUP, SIGTERM and SIGINT exit 128+signal; the factory's EOF
+    exits 129. Each sends the flush-only sync. The shim counts the syncs in
+    flight, xbind's own included, and exits on the answer to its own (the
+    guest answers them in order) or after 2 s (6× emulated). A guest line
+    over `MaxEvent`, or the guest closing its ctl, exits 125: nothing can
+    be routed after that.
+  - *SIGQUIT's dump* on a resident VM still reports the shim, the exports
+    and the console, but never asks the guest, whose answer can outgrow
+    `MaxEvent`.
+  - *Tests.* `host/resident_linux_test.go` drives the router over a real
+    factory against a fake guest. `internal/vm/resident_linux_test.go` does
+    two boots per accelerator. The first runs at 1 vCPU and covers exec,
+    stdin EOF through vsock, `Merge`/`NoStdin`, the single-file FUSE
+    export, strict cwd, 20 concurrent execs, tty + resize, a group signal
+    reaching a grandchild, file ops on the disk and through a mount, and a
+    tar round trip. Its factory close then ends it in ~40 ms (129) and
+    frees the lock. The second boots on the same disk: a file the first
+    wrote with `NoSync` survived the close's flush, and SIGHUP exits 129.
+    The flush and fd checks were mutation-tested.
+  - *For WP-15a/16.* xbind sets `Exec.NoSync` on resident execs; the shim
+    doesn't force it. xbind can dial its ctl right after `Start`: the
+    connection waits in the factory, and `ready` answers it once the guest
+    is configured, which is the boot time. The factory's queue is
+    `net.unix.max_dgram_qlen` deep: 512 under systemd, 10 on a bare
+    kernel. A burst of dials past that is `EAGAIN` (WP-2's `Dial`), so the
+    runtime should retry briefly, as the test client does.
 
 ### WP-5 — `cap:sandboxes` (Track B · S)
 

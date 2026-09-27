@@ -327,7 +327,7 @@ func (x *extract) entry(h *tar.Header, body io.Reader) error {
 	var err error
 	switch h.Typeflag {
 	case tar.TypeDir:
-		err = x.root.MkdirAll(name, 0o755)
+		err = x.mkdirAll(name)
 		if err == nil {
 			_ = x.root.Chmod(name, perm) // (no umask)
 			x.chown(name)
@@ -364,7 +364,7 @@ func (x *extract) entry(h *tar.Header, body io.Reader) error {
 // writes through — is gone. A directory there is an error.
 func (x *extract) clear(name string) error {
 	if dir := path.Dir(name); dir != "." {
-		if err := x.root.MkdirAll(dir, 0o755); err != nil {
+		if err := x.mkdirAll(dir); err != nil {
 			return err
 		}
 	}
@@ -379,6 +379,19 @@ func (x *extract) clear(name string) error {
 		return fmt.Errorf("%s: %w", name, syscall.EISDIR)
 	}
 	return x.root.Remove(name)
+}
+
+// mkdirAll is Root.MkdirAll, but a symlink leading out of the target is an
+// escape on every toolchain: Go 1.26's answers EEXIST for one (1.27's, the
+// escape), which would fail the whole put instead of skipping the entry.
+func (x *extract) mkdirAll(name string) error {
+	err := x.root.MkdirAll(name, 0o755)
+	if errors.Is(err, syscall.EEXIST) {
+		if _, serr := x.root.Stat(name); escaped(serr) {
+			return serr
+		}
+	}
+	return err
 }
 
 func (x *extract) file(name string, perm os.FileMode, body io.Reader, mt time.Time) error {
