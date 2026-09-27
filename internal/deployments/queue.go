@@ -23,7 +23,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/runner"
 	"github.com/xbin-dev/xbin/internal/util"
@@ -205,7 +204,7 @@ func (p *Plane) writeJournalLocked(tile string, t *tileAttempts) error {
 	if err != nil {
 		return err
 	}
-	if err := fsutil.WriteFileAtomicIn(filepath.Join(journalDir(p.Root, tile), journalFile), append(data, '\n'), 0o600); err != nil {
+	if err := p.idx.writeIn(filepath.Join(journalDir(p.Root, tile), journalFile), append(data, '\n')); err != nil {
 		return fmt.Errorf("%s: writing the deploy journal: %w", tile, err)
 	}
 	return nil
