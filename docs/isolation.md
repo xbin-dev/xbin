@@ -362,15 +362,16 @@ VM. Everything around it stays the same:
 The namespace sandbox is still there, as the VM's jail (Firecracker runs
 inside it with a bare root and five file capabilities). A VM escape lands
 in a rootless sandbox that holds only the binds. xbind keeps VMs **off**
-until the workspace has a VM policy: an admin turns them on for terminals
-and/or backends in the admin console's **runtime → sandboxes** tab (or
-with `PUT /api/xbin/vm/policy`), which
+until the workspace has a VM policy: an admin turns them on for terminals,
+backends and/or tile sandboxes in the admin console's **runtime →
+sandboxes** tab (or with `PUT /api/xbin/vm/policy`), which
 also sets the size per VM (default 2 GiB, 2 vCPUs), the number of VMs and a
 memory budget. **The installer** (`deploy/install.sh`, fresh installs and
 upgrades) **writes an "on" policy for a workspace that has none** — terminals,
-plus backends where KVM is usable; where VMs would run emulated (below) only
-terminals, since a backend's `"vm"` shouldn't silently get a several-times
-slower VM — and never changes a policy an admin set, "off" included (D110).
+plus backends and tile sandboxes where KVM is usable; where VMs would run
+emulated (below) only terminals, since a backend's `"vm"` shouldn't silently
+get a several-times slower VM — and never changes a policy an admin set,
+"off" included (D110).
 `GET /api/xbin/vm` says whether this host can run them and why not.
 
 **Terminals.** The **⧉ VM** toggle in the terminal title bar restarts the
@@ -428,6 +429,22 @@ KVM. `XBIN_VM_ACCEL=kvm` never emulates. The bundle's
 it) and `vhost-device-vsock` are the extra pieces; x86_64 hosts only.
 Decision: D90.
 
+**Tile sandboxes.** A manager tile (one a workspace admin granted
+`cap:sandboxes`, [auth.md](/docs/auth.md)) may run its sandboxes in VMs
+when the policy's **`tiles`** switch is on. Their VMs count against the
+workspace's VM count and budget like any other, and also against
+**`tilesBudgetMiB`** (default: half the budget; at most the budget), so
+tile sandboxes can't starve people's VM terminals. Where VMs would run
+emulated, a tile's VM sandbox also needs **`tilesEmulated`**; without it VM
+mode is reported unavailable with the reason, and never replaced by a
+namespace sandbox. Turning `tiles` off, or `tilesEmulated` off while VMs
+are emulated, stops the running ones (their disks are kept). The installer's
+fresh policy turns `tiles` on where KVM is usable; a workspace whose policy
+was written earlier keeps tile VMs off until an admin turns them on.
+`PUT /api/xbin/vm/policy` merges its body onto the stored policy, so a
+script or an older admin console that leaves a field out never resets it.
+Decision: D120.
+
 **Seeing them.** xbind keeps one list of every sandbox it runs — each
 backend generation, terminal and agent session — with its tile, user, how
 it is isolated (VM, namespace sandbox, or none without `--isolate`), the
@@ -436,7 +453,8 @@ and its VM disk, and a short history of what the sandbox layer refused or
 failed at (a policy switch, the VM budget, missing pieces, a VM that died at
 boot). The admin console's **runtime → sandboxes** tab shows it with the
 host's health (isolation tier, guards, whether VMs can run and what is
-missing), the VM budget in use per tile and the VM policy editor;
+missing), the VM budget in use per tile (and the tile sandboxes' share of
+it) and the VM policy editor;
 `GET /api/xbin/sandboxes` is the same for scripts (admin). A VM backend's
 pid, namespaces and RSS in the runtime views are its host-side jail's: read
 its cgroup line for what the VM uses. Decision: D112.

@@ -39,6 +39,8 @@ type Manager struct {
 	umu     sync.Mutex
 	used    Usage
 	byOwner map[string]Usage
+	// usedTiles is the part of used that tile sandboxes hold (reserve.go).
+	usedTiles Usage
 
 	prmu sync.Mutex
 	pr   *probe // the last probe, reused for statusTTL

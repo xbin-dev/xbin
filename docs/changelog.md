@@ -23,6 +23,21 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   and keeps their state. It gates the backend alone: the tile's frames,
   terminals and signed-in users never gain anything from it.
 
+- **The VM policy gains `tiles`, `tilesBudgetMiB` and `tilesEmulated`,
+  and `PUT /api/xbin/vm/policy` merges** (D120,
+  [isolation.md](isolation.md) §VM sandboxes). `tiles` lets a manager tile's
+  sandboxes run in VMs. It is off unless an admin turns it on; the
+  installer's fresh policy turns it on where KVM is usable, and an existing
+  policy file is never touched. Their VMs count against the workspace's VM
+  budget and also against `tilesBudgetMiB` (0 = half the budget, at most
+  the budget), so they can't starve VM terminals. Where VMs run emulated
+  they also need `tilesEmulated`. `PUT /vm/policy` now merges its body onto
+  the stored policy: a field left out keeps its value instead of resetting
+  to off or the default, and a body with every field works as before. It
+  answers `stored` too. `GET /vm` and `GET /sandboxes` show admins
+  `usedTiles`, and the admin console's runtime → sandboxes tab edits the
+  three fields and shows the sub-budget.
+
 ## 2026-09-27
 
 - **A contract for sandbox managers** ([sandbox-manager.md](sandbox-manager.md),

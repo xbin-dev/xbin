@@ -7,9 +7,11 @@
 //   B. a VM-capable host, faked by routing GET /sandboxes: emulated, over
 //      the budget, a blue/green pair on one tile leaf (its memory counted
 //      once), a VM terminal with its disk, a tile-owned sandbox nested under
-//      its parent, a failure counted ×3; the policy editor sends what the
-//      admin set (zero = the default) plus the edit — never the effective
-//      values.
+//      its parent, a failure counted ×3; tile sandboxes' VM sub-budget
+//      (D120) next to the budget; the policy editor sends what the admin set
+//      (zero = the default) plus the edit — never the effective values —
+//      the tiles switches and sub-budget included, and warns that tiles on
+//      while VMs are emulated needs tilesEmulated too.
 //   C. components: an idle tile that asks for a VM shows it (routed
 //      /runtime + /auth-overview: isolation on, the tile not running).
 const { URL, login, closeCtx, settle, gotoTab, shot, checker, sleep } = require('../lib');
@@ -54,9 +56,11 @@ function fixture() {
         assets: { kernel: '/opt/xbin/bin/vmlinux', agent: '/opt/xbin/bin/xbin-vmagent', mkfsErofs: '/opt/xbin/bin/mkfs.erofs',
           bx: '/opt/xbin/bin/bx', qemu: '/opt/xbin/bin/qemu-system-x86_64', qemuBios: '/opt/xbin/bin/qemu-bios-microvm.bin',
           qemuPvh: '/opt/xbin/bin/qemu-pvh.bin', vhostVsock: '/opt/xbin/bin/vhost-device-vsock' },
-        policy: { terminals: true, backends: true, memMiB: 2048, vcpus: 2, maxVMs: 8, budgetMiB: 4096, diskGiB: 20 },
-        stored: { terminals: true, backends: true, budgetMiB: 4096 },
+        policy: { terminals: true, backends: true, memMiB: 2048, vcpus: 2, maxVMs: 8, budgetMiB: 4096, diskGiB: 20,
+          tiles: true, tilesBudgetMiB: 2048, tilesEmulated: false },
+        stored: { terminals: true, backends: true, budgetMiB: 4096, tiles: true, tilesBudgetMiB: 0, tilesEmulated: false },
         used: { vms: 3, memMiB: 5120 },
+        usedTiles: { vms: 1, memMiB: 1024 },
         usedBy: { 'apps/web': { vms: 2, memMiB: 2048 }, 'apps/dev': { vms: 1, memMiB: 3072 } },
       },
     },
@@ -114,6 +118,10 @@ async function sandboxes(browser) {
   const q = B.page;
   check(await q.locator('[data-vm-avail="emulated"]').count() === 1, 'emulated VMs are said so');
   check(await q.locator('.sbx-budget[data-over]').count() === 1, 'over the budget (lowered while VMs run) shows');
+  const tilesUsed = await q.locator('[data-vm-tiles-used]').textContent().catch(() => '');
+  check(/tile sandboxes\s+1 GiB of 2 GiB · 1 VM\b/.test(tilesUsed.replace(/\s+/g, ' ')), `the tile sandboxes' sub-budget shows (${tilesUsed.replace(/\s+/g, ' ').trim()})`);
+  const view = (await q.locator('[data-vm-policy="view"]').textContent()).replace(/\s+/g, ' ');
+  check(/tile sandboxes ✓ \(emulated ✗\)/.test(view) && /\(tiles 2 GiB\)/.test(view), `the policy line shows the tiles switches and budget (${view.trim()})`);
   check(await q.locator('tr[data-sbx-id="tile-child"][data-depth="1"]').count() === 1, "a tile's own sandbox nests under its parent");
   const head = await q.locator('tr.sbx-tile[data-sbx-tile="apps/web"]').textContent();
   check(/120\.0M in use/.test(head), `the tile leaf's memory is counted once for its two generations (${head.replace(/\s+/g, ' ').trim()})`);
@@ -124,12 +132,20 @@ async function sandboxes(browser) {
   await shot(q, 'admin-sandboxes-vm');
   await q.locator('[data-edit-policy]').click();
   await settle(q);
-  check(/emulated here/.test(await q.locator('[data-vm-policy="edit"]').textContent()), 'the editor warns: backends on while emulated');
+  const editor = () => q.locator('[data-vm-policy="edit"]').textContent();
+  check(/a backend in a VM is several times slower/.test(await editor()), 'the editor warns: backends on while emulated');
+  check(/tile sandboxes can't use VM mode until emulation is allowed/.test(await editor()), 'the editor warns: tiles on while emulated needs tilesEmulated');
   await q.locator('[data-vm-policy="edit"] input[name="memMiB"]').fill('1024');
+  await q.locator('[data-vm-policy="edit"] input[name="tilesEmulated"]').check();
+  await settle(q);
+  check(!/until emulation is allowed/.test(await editor()) && /Emulated tile VMs are several times slower/.test(await editor()),
+    'allowing emulation for tiles swaps the warning');
+  await shot(q, 'admin-sandboxes-vm-policy');
   await q.locator('[data-save-policy]').click();
   for (let i = 0; i < 40 && !put; i++) await sleep(100);
-  check(JSON.stringify(put) === JSON.stringify({ terminals: true, backends: true, memMiB: 1024, vcpus: 0, maxVMs: 0, budgetMiB: 4096, diskGiB: 0 }),
-    `the policy sent is what the admin set plus the edit (${JSON.stringify(put)})`);
+  check(JSON.stringify(put) === JSON.stringify({ terminals: true, backends: true, tiles: true, tilesEmulated: true,
+    memMiB: 1024, vcpus: 0, maxVMs: 0, budgetMiB: 4096, diskGiB: 0, tilesBudgetMiB: 0 }),
+  `the policy sent is what the admin set plus the edits (${JSON.stringify(put)})`);
   await closeCtx(B.ctx, B.page);
 
   // ---- C: an idle tile that asks for a VM ----

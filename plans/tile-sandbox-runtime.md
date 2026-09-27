@@ -1349,6 +1349,33 @@ next to its vforking `os.StartProcess`.
   - `make shellcheck`, and the installer's policy test if one covers
     `vm_policy_json`.
 - **Parallel:** fully.
+- **As built** (branch `p2/cap-vmpol`):
+  - `Reserve(owner, memMiB, opts ...ReserveOption)` stays in `policy.go`
+    with dev-lifecycle's exact signature, and `reserve.go` is its file plus
+    one field (`reserveOptions{tile}`), `TileSandbox()` and `UsedTiles()`.
+    Rebasing is the union of the option fields and checks. `usedTiles` is a
+    `Manager` field in `manager.go` (Go declares fields with the struct).
+    The checks run in order: count, tile sub-budget, global budget.
+  - `TilesBudgetMiB`: `Validate` refuses one above the effective
+    `budgetMiB` (so lowering the budget below a set sub-budget is a 400
+    naming it); `withDefaults` clamps a hand-edited file.
+  - **Added:** `(*vm.Manager).TileVMs() (st Status, reason string)`: the one
+    place `tiles` and `tilesEmulated` are read. `reason` is `""` when VM mode
+    is available to tile sandboxes, else §3.2's text ("an admin hasn't
+    enabled VM tile sandboxes (vm policy: tiles)", the host's reason, or the
+    `tilesEmulated` one). WP-13's `runtime` and WP-16's gate should call it;
+    `st.Emulated` is the report.
+  - `PUT /vm/policy` is `State.putVMPolicy`: under a mutex it decodes onto
+    `StoredPolicy()` (strict decode unchanged: unknown fields are 400) and
+    answers `{status, policy, stored}`. It is the one place the policy
+    changes, so WP-16's flip wiring (`tiles → false`, `tilesEmulated →
+    false` while emulated) hooks there, with the old stored policy in hand.
+  - `GET /vm` (admins) and `GET /sandboxes` `health.vm` gain `usedTiles`
+    (`boot/sandboxes.go` `vmView`, +1 field: a small WP-7 collision).
+  - The installer's `vm_policy_json BACKENDS TILES`; both are "KVM usable".
+    The admin tab sends every switch and size (`POLICY_SWITCHES`,
+    `POLICY_FIELDS`), shows the sub-budget line (`data-vm-tiles-used`) and
+    warns about emulation and flips.
 
 ### WP-7 — Layers, disks and GC across both trees (Track B · M)
 

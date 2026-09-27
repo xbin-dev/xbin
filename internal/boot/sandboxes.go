@@ -69,13 +69,15 @@ type sandboxStats struct {
 }
 
 // vmView is the VM half of the health: what the probe found, the policy as
-// effective and as stored (zero = default), and what running VMs hold.
+// effective and as stored (zero = default), and what running VMs hold — in
+// all, the part tile sandboxes hold (their sub-budget), and per tile.
 type vmView struct {
 	vm.Health
-	Policy vm.Policy           `json:"policy"`
-	Stored vm.Policy           `json:"stored"`
-	Used   vm.Usage            `json:"used"`
-	UsedBy map[string]vm.Usage `json:"usedBy"`
+	Policy    vm.Policy           `json:"policy"`
+	Stored    vm.Policy           `json:"stored"`
+	Used      vm.Usage            `json:"used"`
+	UsedTiles vm.Usage            `json:"usedTiles"`
+	UsedBy    map[string]vm.Usage `json:"usedBy"`
 }
 
 // sandboxDisk is a VM terminal disk on the host.
@@ -149,7 +151,7 @@ func (st *State) sandboxesView(sc sandboxScope) map[string]any {
 		out["health"] = map[string]any{
 			"isolation": st.isolationHealth(),
 			"vm": vmView{Health: st.VM.Health(), Policy: st.VM.Policy(), Stored: st.VM.StoredPolicy(),
-				Used: st.VM.Used(), UsedBy: st.VM.UsedBy()},
+				Used: st.VM.Used(), UsedTiles: st.VM.UsedTiles(), UsedBy: st.VM.UsedBy()},
 		}
 	}
 	return out
