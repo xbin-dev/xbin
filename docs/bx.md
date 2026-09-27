@@ -92,6 +92,22 @@ bx access <tile> [set|rm user:…|org:…=level | request [level] | approve <use
                                        it (D36; pending requests show in the
                                        plain listing)
 bx logs [-f] <component>               backend logs (tail -f style with -f)
+bx live-reload [<tile>] [--json]       where saves go: live reload's target or
+                                       paused (by whom, when), what each
+                                       deployment runs (docs/tile-deployments.md)
+bx live-reload pause|now|resume [<tile>] [--to <name>]
+                                       keep the tile on the code it runs while
+                                       you edit · ship the work tree once ·
+                                       follow every save again
+bx live-reload attach [<tile>] --to <name>
+                                       reserved (named deployments)
+bx deploy [<tile>] --to <name> [--checkpoint c:<id>]
+                                       put a fresh checkpoint of the work tree
+                                       (or c:<id>) on it
+bx rollback [<tile>] --to <name> [--checkpoint c:<id>]
+                                       back to the previous checkpoint in its
+                                       deploy log; changing commands take
+                                       --dry-run, --yes, --json, --no-wait
 bx code prs [<component>|--from] [--all|--state=S]
                                        change proposals ("code PRs"): a tile's
                                        inbox (defaults to this terminal's tile),
@@ -139,6 +155,7 @@ bx agent resume <past-id> ["<prompt>"] reopen one: the agent replays the
                                        earlier turns, then continues
 bx cron ls                             scheduled jobs
 bx enable | disable <component>        lifecycle: pause/resume a tile (docs/overview/14-lifecycle.md)
+                                       — not live reload: see bx live-reload
 bx hide | unhide <component>           hidden = disabled + out of sidebars (D42)
 bx offload <component> [--full]        archive + free local bytes (--full incl. source)
 bx backup <component>                  snapshot to the bound @archive provider
@@ -380,8 +397,69 @@ bx preview --native apps/counter --dark --out /tmp/counter.png
 bx preview --native apps/counter --data fixtures/busy.json --out /tmp/busy.png
 ```
 
-**`bx logs`** — reads `.xbin/log/<compkey>.log` directly; each backend
-generation is delimited by a `--- gen N start …` line.
+**`bx logs`** — reads `.xbin/log/<compkey>.log` directly where it can see
+it; in an isolated terminal, where `.xbin` is masked, it streams `GET
+/api/xbin/logs` instead (the whole log up to 1 MiB; `-f` the last 64 KiB,
+then everything appended). Each backend generation is delimited by a
+`--- gen N start …` line, and a failed deploy of a checkpoint by
+`--- deploy of c:<id> failed <time> ---` followed by the compiler output.
+That file is `main`'s log.
+
+## Live reload, deploy, roll back
+
+The commands of [tile-deployments.md](/docs/tile-deployments.md): pausing a
+tile's live reload, Reload now, resuming, deploying a checkpoint and rolling
+back. In this release a tile has one deployment, `main`.
+
+```sh
+bx live-reload                      # where this tile's saves go
+bx live-reload pause                # main keeps the code it runs; saves stop reaching it
+bx live-reload now                  # ship the work tree to main once; it stays pinned
+bx live-reload resume               # main follows every save again (the zero state)
+bx deploy --to main                 # a fresh checkpoint of the work tree onto main
+bx rollback --to main               # main's previous checkpoint from its deploy log
+bx rollback apps/crm --to main --checkpoint c:1e9d0aa
+```
+
+- **Which tile.** The tile is the first positional only when the command has
+  its full count of positionals; otherwise it is `$XBIN_COMPONENT`, the
+  terminal's own. A positional containing `/` or `+` is always a tile ref, and
+  `<tile>+<name>` also fills a missing `--to`. With neither, bx asks
+  `which tile?` and exits 2.
+- **A code move never takes its target from a variable:** `deploy` and
+  `rollback` need `--to` (or the qualifier).
+- **Before acting**, every changing command reads the tile's state; if the
+  operation isn't allowed it prints why and exits without sending anything.
+  Then it sends a dry run of the exact request and prints the report —
+  `Code`, `Data`, `Pauses`, `Affects` — naming the checkpoint it will ship.
+  The request that follows carries that checkpoint, so what the report showed
+  is what ships (a changed work tree answers 409 instead).
+- **Confirmation.** A command that moves code onto the primary — `deploy`
+  and `rollback` to `main`, and `live-reload now` or `resume` when they
+  change what `main` runs — asks the operation's question (`Deploy the work
+  tree to main? [y/N]`) on a terminal. Without a terminal it needs `--yes`,
+  else it prints the report and exits 4: `--yes` is an agent's statement that
+  the user asked. Pausing needs no confirmation: it moves nothing a save
+  wasn't about to move. `--dry-run` prints the report and changes nothing.
+- **Waiting.** A code move waits for the deploy's result, printing each phase
+  to stderr (`apps/crm: deploy 42 main c:7b19e02 … build … start … swap …
+  ok (38s)`), for at most 20 minutes; `--no-wait` returns once the request is
+  accepted. Commands that move live reload end by saying where saves go.
+- **`--json`** prints the route's answer verbatim — the operation's `{state,
+  deploy}` as soon as it arrives — as the only thing on stdout; the report,
+  the phases and the result go to stderr, and the outcome is the exit code.
+
+| Exit | Meaning | An agent reads it as |
+|---|---|---|
+| 0 | done: the deploy finished `ok`, nothing needed doing, a dry run, or `--no-wait` and the request was accepted | — |
+| 1 | failed: a deploy that ran and failed (the tile keeps its previous code), an invalid state, a network error, any other refusal (a reserved route's 501 included) | read the message, fix, retry |
+| 2 | usage | fix the command |
+| 3 | refused by authority or policy (HTTP 403, or a permission the state says is off) | not yours to do: tell the user who can |
+| 4 | not confirmed: declined, or no terminal and no `--yes` | ask the user |
+| 5 | still running when bx stopped waiting | check later with `bx live-reload` |
+| 6 | this xbind has no tile deployments (`this xbind has no tile deployments (no /api/xbin/deployments); upgrade xbind`) | don't retry here |
+
+Every other command keeps exiting 1 on any error and 2 on usage.
 
 ## Unknown flags
 
@@ -400,6 +478,7 @@ needs a value and is last on the line is `--x needs a value`, never a crash.
 | `XBIN_URL` | `http://127.0.0.1:8642` | xbind address |
 | `XBIN_TOKEN` | (set in terminals) | bearer token — tile-scoped in terminals; the owner token on the host (`.xbin/token`) |
 | `XBIN_WORKSPACE` | walk up from cwd to a dir with `xbin.json` + `.xbin` | workspace root |
+| `XBIN_COMPONENT` | (set in terminals) | the terminal's tile: the default tile of `bx status`, `bx live-reload`, `bx deploy`, `bx rollback` |
 
 **On the host** (a root/operator shell — not a xbin terminal) nothing is
 injected, so `bx` reads the workspace **owner token** from `.xbin/token` — which

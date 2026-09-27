@@ -144,10 +144,44 @@ between them only grows:
   tests; its internals and its pictures change freely (its URLs stay served,
   rule 3).
 
+## Tile deployments and paused live reload
+
+Pausing a tile's live reload ([tile-deployments.md](/docs/tile-deployments.md))
+is opt-in per tile, so the rules above hold for every tile that never opts
+in, byte for byte: saves reload live, there is no deploy step, and no
+existing route's answer, event, header, env variable, token, backup archive
+or file differs.
+
+- **No manifest key and no boot migration.** A tile's deployment state lives
+  in new files under `data/` and `.xbin/` that only the new routes write,
+  starting at the first pause; nothing is written for a tile before that
+  (rules 1, 7, 9).
+- **Additive wire.** New routes (`/api/xbin/deployments…`,
+  `/api/xbin/checkpoints/…`), a new event type (`deployments`) and new
+  optional fields (`deployments` on a `/components` entry that left the zero
+  state, `checkpoint` on a `/runtime` backend row); no existing request body
+  gains a field (rule 2). Existing event types keep their shapes and speak
+  only of the tile's primary: a deploy of a checkpoint reports on
+  `deployments`, never `build-*`, and one `reload` follows a swap that
+  changed the code the tile serves.
+- **Old clients.** An old shell, admin tile or app sees a tile with live
+  reload paused as a tile that serves and doesn't reload; nothing new is
+  required of it. New clients detect the feature from
+  `GET /api/xbin/deployments`: a plain 404 or 405 means an older xbind.
+- **Downgrading** loses no state: an older xbind ignores every deployment
+  record and checkpoint store, and serves every tile's work tree with live
+  reload again. Align each pinned tile's work tree with what it runs first
+  ([tile-deployments.md](/docs/tile-deployments.md), *A tile's life,
+  backups and downgrades*).
+
 ## What this does *not* promise
 
 - Undocumented internals: `.xbin/` contents, the on-disk shape of
   `data/`, and the names of temporary files may change between releases.
+  That includes the tile-deployments state — `data/deployments/`,
+  `data/checkpoints/`, `.xbin/deploy/` and the per-checkpoint builds under
+  `.xbin/build/` — whose layout is not a builder contract; an older xbind
+  started on the workspace never reads it.
 - Behaviour that `docs/changelog.md` marks **BREAKING** with a linked
   migration note under `/docs/changes/` — that note is the one place a
   workspace has to act after an upgrade.

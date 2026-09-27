@@ -83,7 +83,9 @@ EOF
 ```
 
 Save and the card live-reloads. That's the whole loop: **create → edit → save →
-see it**. The layout around everything is itself a component (`shell/`) with the
+see it** — no deploy step (unless you pause live reload on the tile to edit
+without shipping each save: [tile-deployments.md](/docs/tile-deployments.md)).
+The layout around everything is itself a component (`shell/`) with the
 theme in `/vendor/theme.css` — edit either (from its own card's terminal) and
 watch the whole workspace restyle. Drag any card by its title bar to rearrange
 it — a card in the way is pushed aside (a dashed outline shows where it will

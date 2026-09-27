@@ -9,7 +9,7 @@ by the daemon; fetch any of them with:
 
 ```sh
 curl -s -H "Authorization: Bearer $XBIN_TOKEN" "$XBIN_URL/docs/index.md?raw=1"
-# also: getting-started.md elements.md auth.md resources.md sdk.md native.md protocol.md bx.md changelog.md
+# also: getting-started.md elements.md auth.md resources.md sdk.md native.md protocol.md bx.md tile-deployments.md changelog.md
 ```
 
 **After an xbind upgrade** (or when a previously-working API starts failing),
@@ -32,7 +32,8 @@ Terminals (you) are root; running components are least-privileged tenants
 bare `cp -r`: clone also rewrites old-path references (manifest `res:` uses +
 hardcoded strings in code) and registers the copy as its own component.
 Saving any file live-reloads the frontend and rebuilds/swaps the backend.
-There is no deploy step and **no JS build step — ever** (plain ES modules +
+There is no deploy step — unless the tile has paused live reload (see
+§Tile deployments) — and **no JS build step — ever** (plain ES modules +
 import maps).
 
 ## Terminal environment
@@ -153,6 +154,7 @@ operations (docs/protocol.md, docs/auth.md).
 curl -s -H "Authorization: Bearer $XBIN_TOKEN" $XBIN_URL/api/apps/thing/hello
 bx status                 # backend states: building | healthy | failed (+error)
 bx logs -f apps/thing     # backend stdout/stderr, per generation
+bx live-reload            # where saves go (paused live reload: tile deployments)
 bx doctor                 # manifest errors, missing API.md, dangling deps, …
 bx ls                     # all components
 ```
@@ -176,6 +178,50 @@ scaffolded/imported/instantiated; you just commit into it. Its `.xbin/`, `data/`
 (and `node_modules/`) are runtime, not source — leave those to xbind and the
 backup system. History/diffs are in the Admin tile's component **code & history**
 drill-in (click a component in the overview).
+
+## Tile deployments: when a save doesn't reach everyone
+
+Most tiles have none: every save reaches everyone (live reload). A tile's
+developers can change that per tile:
+
+- **Live reload paused:** saves change the files and nothing else. The tile
+  keeps running a pinned checkpoint (`c:3f2a1c9`) until someone presses
+  Reload now or resumes live reload. Its one deployment, `main`, is the
+  **primary**: what everyone and everything else reaches.
+
+Check before you test or debug:
+
+```sh
+bx live-reload        # where saves go ("main — every save reaches everyone (no deployments)" = nothing paused)
+```
+
+- While it says `paused`, your saves reach nobody: a fix that "didn't work"
+  may simply not be running.
+- **Committing never deploys.** Keep committing often (the commit policy
+  above); a commit changes nothing anyone runs.
+- **Shipping is a deliberate act.** `bx live-reload now`, `bx live-reload
+  resume`, `bx deploy --to main` and `bx rollback --to main` ship to
+  everyone using the tile: run them only when the user asked you to ship —
+  never as part of committing, testing or tidying up. Without a terminal bx
+  prints what will change and stops (exit 4); `--yes` says the user asked.
+- **Don't `bx deploy --to` the live reload target**: saves already reach it,
+  and a deploy onto it pauses live reload.
+- **A large change:** pause live reload (`bx live-reload pause`), build and
+  test in the terminal, and resume when done. Resuming, like
+  `bx live-reload now`, ships the work tree, so do it only when the user
+  asked. Leave paused live reload that someone else paused (`bx live-reload`
+  says who) unless the user asked.
+- **A refusal is not yours to work around** (exit 3). Stop and tell the user
+  who can (bx says who); never look for another way in.
+- To fix what `main` runs while the work tree holds unfinished work:
+  `git fetch xbin-deploy`, `git checkout --no-track -b hotfix deploy/main`,
+  fix, commit, and `bx deploy --to main` once the user says ship. If
+  `git fetch xbin-deploy` fails, the terminal predates the pause: open a new
+  one.
+- "3 fast crashes ⇒ failed" and "status resets on restart" still hold. A
+  pinned backend recovers through a deploy or a restart, not a save.
+
+Details: `/docs/tile-deployments.md`.
 
 ## Component anatomy & manifest
 
@@ -475,7 +521,8 @@ these (`/docs/changes/2026-09-27-cgi-removed.md`).
 
 Lifecycle facts you must design around:
 
-- **A save = a new process.** Keep state in resources (kv/sqlite), not RAM.
+- **A save = a new process** (a deploy, while live reload is paused). Keep
+  state in resources (kv/sqlite), not RAM.
 - Lazy start; idle-reaped after ~30 min (next request revives, ~200 ms).
   Periodic work ⇒ `cron` resource, never a sleeping loop. A backend that
   must hold an outbound connection (a chat bot's socket) sets `"alwaysOn":
@@ -486,7 +533,8 @@ Lifecycle facts you must design around:
   Not with `setup` (install at start instead). Docs: /docs/isolation.md.
 - Blue/green swap: in-flight requests finish; long-lived WS/SSE die at the
   30 s drain — clients must reconnect.
-- 3 fast crashes ⇒ marked failed until you save a change. `bx logs` first.
+- 3 fast crashes ⇒ marked failed until you save a change (until the next
+  deploy, while live reload is paused). `bx logs` first.
 - Handle SIGTERM (the SDKs/skeletons do).
 
 ## Status & notifications — tell the workspace how you're doing

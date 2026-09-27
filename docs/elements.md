@@ -3,7 +3,9 @@
 A **component** is a directory. It becomes visible to xbin when it contains
 an `index.html` (a view), a `xbin.json` (a manifest), or both. Its
 workspace-relative path *is* its identity — `mv` renames it, `cp -r` forks
-it, `rm -r` deletes it. There is no registry beyond the filesystem.
+it, `rm -r` deletes it. There is no registry beyond the filesystem. A tile's
+deployments ([tile-deployments.md](/docs/tile-deployments.md)) share its
+path and its principal; they are never components of their own.
 
 ```
 apps/thing/
@@ -358,9 +360,23 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   hand.
 - **Live reload**: the most specific mounted frame for a changed path
   reloads — editing `apps/cal/widgets/month` reloads that frame, not the
-  whole `apps/cal` frame, when both are mounted.
+  whole `apps/cal` frame, when both are mounted. While a tile's live reload
+  is paused its frames don't reload on saves; they reload once when a deploy
+  changes the code the tile serves (§Live reload and tile deployments).
 - **Build errors** render as an overlay with compiler output; cleared by the
-  next successful build.
+  next successful build. A failed deploy of a checkpoint paints none: the
+  tile keeps serving its previous code.
+- **Live reload controls**: the terminal window's bar shows the tile's live
+  reload state. In the zero state that is one entry, `⇈`, whose menu offers
+  Pause live reload; while live reload is paused, a chip (`📌 Live reload
+  paused · 3`, the files changed since; `📌 3` on the narrow bar) and a
+  `⇡ Reload now` offer, the chip's menu holding Reload now and Resume live
+  reload on ▸. Every operation confirms from a dry run of the exact request.
+  The launcher shows a banner while live reload is paused; people with
+  terminal access see a `📌 pinned` chip over the tile (a click opens its
+  window); open terminals print a grey line when live reload pauses or
+  resumes, or code moves or fails to. An xbind without tile deployments
+  draws today's window.
 
 Frames nest. The root page is itself a component full of frames; you can
 frame the root inside the root if you enjoy that sort of thing.
@@ -535,7 +551,8 @@ Lifecycle facts that matter when writing backends:
   connection (a chat adapter) sets `"alwaysOn": true` instead: it starts at
   boot, is never reaped, and is restarted after an exit.
 - **Crash loops**: 3 quick exits → marked failed (overlay + `bx status`)
-  until you save a change. Logs: `bx logs -f <component>`,
+  until you save a change — or, while live reload is paused, until a deploy
+  or a restart (a save doesn't reach it). Logs: `bx logs -f <component>`,
   or `tail -f $XBIN_WORKSPACE/.xbin/log/<key>.log`.
 - **Graceful stop**: handle SIGTERM ([sdk.md](/docs/sdk.md) `xbin.Serve`
   does).
@@ -554,6 +571,36 @@ the rootfs `PATH` and only the locale (`LANG`, `LC_*`), `TZ` and proxy
 (`HTTP(S)_PROXY`, `NO_PROXY`, `ALL_PROXY`) variables of the daemon. Put
 configuration a backend needs in its manifest, a resource or the vault, not in
 xbind's environment.
+
+## Live reload and tile deployments
+
+A save reaches everyone — unless the tile's developers paused its live
+reload. Every tile that never does keeps exactly today's behaviour: saves
+reload live, there is no deploy step, and no manifest key or file of yours
+is involved (the state lives in xbind's `data/`, never in the tile).
+
+- **Pausing live reload** (`bx live-reload pause`, or the terminal window's
+  `⇈` → Pause live reload) pins the tile's one deployment, `main`, to a
+  checkpoint of the work tree. Saves then change the files and nothing else:
+  frames don't reload, the backend doesn't rebuild. **Reload now** ships the
+  work tree once and stays paused; **resuming** follows every save again and
+  returns the tile to the zero state.
+- **What runs while paused is the checkpoint**: the pages under `/c/<tile>/`,
+  the backend (at every restart), and the manifest fields that say how the
+  tile runs and what it offers — `runtime`, `entry`, `setup`, `alwaysOn`,
+  `vm`, `inject`, `native`, `exposes`, `expose`, `provides`, `template`,
+  `chrome`, and `scope.json`'s resources and import map. `uses`,
+  `interfaces` and `deps` stay the work tree's, so declaring a new `uses`
+  works as always.
+- **Backends need `--isolate`** to be pinned; static tiles pause everywhere.
+- **Before you test or debug, run `bx live-reload`**: while it says
+  `paused`, your saves reach nobody. Resuming, Reload now and `bx deploy`
+  ship to everyone using the tile — do them when the user asked, not as part
+  of committing. Committing never deploys.
+
+The whole story — the deploy log, roll back, the diff, `git fetch
+xbin-deploy`, backups, limits — is
+[tile-deployments.md](/docs/tile-deployments.md).
 
 ## Scopes
 
