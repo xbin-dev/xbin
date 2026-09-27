@@ -107,14 +107,15 @@ say "a scripted sandbox manager: apps/fakesbx (the agentSandbox pass)"
 # hack/fakesandbox as a Go tile — the sandbox-manager contract (D115,
 # docs/sandbox-manager.md "Wiring") with every sandbox a directory under its
 # own `boxes` filesystem resource and every command a HOST process (a test
-# fixture: nothing is isolated). Its source is copied (stdlib only: the tile
-# builds without the SDK). Bound to the agent's `sandboxes` slot below, once
-# the agent exists.
+# fixture: nothing is isolated), terminals host PTYs. Its source is copied;
+# it needs the SDK's sdk/ws (the workspace go.work resolves the sdk to this
+# checkout: run.sh's XBIN_SDK_PATH). Bound to the agent's `sandboxes` slot
+# below, once the agent exists.
 api POST /create '{"path":"apps/fakesbx","runtime":"go","title":"fake sandboxes"}' | head -c 200; echo
 FSB="$WS/apps/fakesbx"
 mkdir -p "$FSB/backend"
 cp "$REPO/hack/fakesandbox/fsb.go" "$REPO/hack/fakesandbox/main.go" "$FSB/backend/"
-printf 'module fakesbx\n\ngo 1.24\n' > "$FSB/go.mod"
+printf 'module fakesbx\n\ngo 1.24\n\nrequire github.com/xbin-dev/xbin/sdk v0.0.0\n' > "$FSB/go.mod"
 printf '{\n  "resources": { "boxes": { "type": "filesystem" } }\n}\n' > "$FSB/scope.json"
 cat > "$FSB/xbin.json" <<'EOF'
 {

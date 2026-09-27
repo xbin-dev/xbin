@@ -134,6 +134,14 @@ mux.HandleFunc("GET /stream", func(w http.ResponseWriter, r *http.Request) {
   spent). `Close` / `CloseWith(code, reason)` do the close handshake,
   waiting up to 2 s for the peer's answer.
 
+### Testing a sandbox manager — `sdk/sandboxcontract`
+
+A tile that runs sandboxes for other tiles ([sandbox-manager.md](sandbox-manager.md))
+checks itself with the contract's conformance suite:
+`sandboxcontract.Run(t, sandboxcontract.Target{URL: srv.URL})` runs every
+section of the contract against it as subtests. How to aim it, and its
+knobs: [sandbox-manager.md](sandbox-manager.md) §Building a manager.
+
 ### Resources, vault, bus
 
 ```go

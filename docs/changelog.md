@@ -20,6 +20,23 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   gorilla/websocket both ways. `ws.Dial` sends its handshake through an
   `http.Client`, so `xbin.Client()` reaches another tile through the
   gateway with the instance's credential. The SDK stays dependency-free.
+- **The sandbox-manager conformance suite is an SDK package
+  (`sdk/sandboxcontract`, [sandbox-manager.md](sandbox-manager.md)
+  §Building a manager).** `sandboxcontract.Run(t, Target{URL: …})` checks
+  any manager, section by section, now including terminals; `Target` says
+  how to call it as a consumer or a person, which capabilities hello must
+  offer, fields for its sandboxes, a fresh manager with small limits, and
+  the checks it is known to fail (reported as skipped). The reference
+  manager (`hack/fakesandbox`) runs it, and now has terminals: `tty` execs
+  on host pseudo-terminals, `…/resize`, and both terminal routes.
+- **Sandbox-manager terminals, spelled out** ([sandbox-manager.md](sandbox-manager.md)
+  §Terminals). A `ping` is always answered with a `pong`; the `exit` frame
+  comes once the output is out (`code` null and `signal` set when a signal
+  ended the command), then a close; a resize reaches the terminal before
+  the keystrokes after it; the session's `id` is a `tty` exec that
+  outlives its client and can be attached again; a request that isn't a
+  WebSocket is `invalid`, and refusals come before the upgrade, as JSON.
+
 - **A contract for sandbox managers** ([sandbox-manager.md](sandbox-manager.md),
   D115). Tiles that run coding sandboxes for other tiles provide the http
   service `sandbox-manager` (protocol 1); tiles that use them — the agent

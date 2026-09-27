@@ -12,7 +12,9 @@ package main
 // (_backend/fsb_fake_test.go; mirror_test.go keeps them equal) — every
 // identifier here starts with fsb so it can live in their package main.
 //
-// No `tty` capability: terminals come with the real manager.
+// Terminals (`tty`) are host pseudo-terminals opened with the standard
+// library (Linux: /dev/ptmx); their WebSocket is the SDK's sdk/ws, speaking
+// the /ws/term framing. Where the host has none, hello leaves `tty` out.
 
 import (
 	"archive/tar"
@@ -29,6 +31,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -37,13 +40,16 @@ import (
 	"syscall"
 	"time"
 	"unicode/utf8"
+	"unsafe"
+
+	fsbws "github.com/xbin-dev/xbin/sdk/ws"
 )
 
 // fsbManager serves the contract under /sbx/.
 type fsbManager struct {
 	Root        string        // sandboxes live in <Root>/<id>/, snapshots in <Root>/.snaps/
 	DefaultFrom string        // the consumer when X-XBin-From is missing (a test calling directly)
-	Caps        []string      // the capabilities hello offers (nil = all but tty)
+	Caps        []string      // the capabilities hello offers (nil = all; tty where the host has terminals)
 	Grace       time.Duration // TERM → KILL on a timeout (0 = 5 s)
 	Ring        int           // an exec's output ring (0 = 1 MiB); it keeps between Ring and 2×Ring bytes
 	FileMax     int64         // limits.fileMax (0 = 64 MiB)
@@ -203,14 +209,16 @@ type fsbExec struct {
 	Total    int64    `json:"total"`
 	ClientID string   `json:"clientId,omitempty"`
 
-	ring   *fsbRing
-	cmd    *exec.Cmd
-	pid    int // the process group, once started (m.mu); 0 before
-	seq    int
-	stdin  io.WriteCloser
-	eof    bool          // stdin was closed (m.mu)
-	done   chan struct{} // closed once the exec has ended (or never started)
-	killed bool
+	ring    *fsbRing
+	cmd     *exec.Cmd
+	pid     int // the process group, once started (m.mu); 0 before
+	seq     int
+	stdin   io.WriteCloser
+	eof     bool          // stdin was closed (m.mu)
+	done    chan struct{} // closed once the exec has ended (or never started)
+	killed  bool
+	pty     *os.File      // a tty exec's terminal (master), once started (m.mu)
+	ptyDone chan struct{} // closed when its output has all reached the ring
 }
 
 var fsbImages = []map[string]any{{"id": "base", "title": "the host's tools (a test fixture)", "default": true, "tools": []string{"git"}}}
@@ -230,8 +238,9 @@ func fsbNow() int64 { return time.Now().UnixMilli() }
 
 // FailNext makes the next request of op (hello, list, create, get, patch,
 // delete, action, run, exec, execs, exec-get, exec-delete, output, stdin,
-// signal, stat, read, write, list-dir, mkdir, remove, move, tar-get, tar-put,
-// snapshot, snapshots, restore, snapshot-delete) answer this refusal.
+// signal, resize, tty, stat, read, write, list-dir, mkdir, remove, move,
+// tar-get, tar-put, snapshot, snapshots, restore, snapshot-delete) answer
+// this refusal.
 func (m *fsbManager) FailNext(op string, status int, refusal, msg string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -367,6 +376,9 @@ func (m *fsbManager) caps() []string {
 	if m.Caps != nil {
 		return m.Caps
 	}
+	if fsbHasPTY() {
+		return []string{"exec", "files", "tar", "tty", "snapshots", "clone", "archive"}
+	}
 	return []string{"exec", "files", "tar", "snapshots", "clone", "archive"}
 }
 
@@ -441,9 +453,9 @@ func (m *fsbManager) routes() {
 	x.HandleFunc("GET /sbx/sandboxes/{id}/execs/{eid}/output", m.execOutput)
 	x.HandleFunc("POST /sbx/sandboxes/{id}/execs/{eid}/stdin", m.execStdin)
 	x.HandleFunc("POST /sbx/sandboxes/{id}/execs/{eid}/signal", m.execSignal)
-	x.HandleFunc("POST /sbx/sandboxes/{id}/execs/{eid}/resize", m.unsupported)
-	x.HandleFunc("GET /sbx/sandboxes/{id}/execs/{eid}/tty", m.unsupported)
-	x.HandleFunc("GET /sbx/sandboxes/{id}/tty", m.unsupported)
+	x.HandleFunc("POST /sbx/sandboxes/{id}/execs/{eid}/resize", m.execResize)
+	x.HandleFunc("GET /sbx/sandboxes/{id}/execs/{eid}/tty", m.ttyAttach)
+	x.HandleFunc("GET /sbx/sandboxes/{id}/tty", m.ttyStart)
 	x.HandleFunc("GET /sbx/sandboxes/{id}/files/stat", m.fileStat)
 	x.HandleFunc("GET /sbx/sandboxes/{id}/files/content", m.fileRead)
 	x.HandleFunc("PUT /sbx/sandboxes/{id}/files/content", m.fileWrite)
@@ -463,8 +475,13 @@ func (m *fsbManager) routes() {
 	m.mux = x
 }
 
-func (m *fsbManager) unsupported(w http.ResponseWriter, _ *http.Request) {
+// noTTY answers a terminal route of a manager without the tty capability.
+func (m *fsbManager) noTTY(w http.ResponseWriter) bool {
+	if m.hasCap("tty") {
+		return false
+	}
 	fsbFail(w, http.StatusNotImplemented, "unsupported", "this manager has no terminals (tty)")
+	return true
 }
 
 // --- access ------------------------------------------------------------------
@@ -1043,6 +1060,8 @@ type fsbCmdReq struct {
 	MaxOutput int               `json:"maxOutput"`
 	Merge     bool              `json:"merge"`
 	TTY       bool              `json:"tty"`
+	Rows      int               `json:"rows"`
+	Cols      int               `json:"cols"`
 	Label     string            `json:"label"`
 	ClientID  string            `json:"clientId"`
 }
@@ -1072,6 +1091,9 @@ func (m *fsbManager) command(b *fsbBox, q fsbCmdReq) (*exec.Cmd, error) {
 	c.Dir = cwd
 	c.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + b.Home, "PWD=" + cwd, "LANG=C.UTF-8",
 		"IN_SANDBOX=1", "SANDBOX_ID=" + b.ID, "SANDBOX_NAME=" + b.Name}
+	if q.TTY {
+		c.Env = append(c.Env, "TERM=xterm-256color")
+	}
 	keys := make([]string, 0, len(q.Env))
 	for k := range q.Env {
 		keys = append(keys, k)
@@ -1081,6 +1103,9 @@ func (m *fsbManager) command(b *fsbBox, q fsbCmdReq) (*exec.Cmd, error) {
 		c.Env = append(c.Env, k+"="+q.Env[k])
 	}
 	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if q.TTY { // a session of its own (its group too), the terminal its controlling one (Ctty 0: its stdin)
+		c.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true}
+	}
 	return c, nil
 }
 
@@ -1187,6 +1212,7 @@ func (m *fsbManager) run(w http.ResponseWriter, r *http.Request) {
 		fsbFail(w, http.StatusBadRequest, "invalid", "bad body: "+err.Error())
 		return
 	}
+	q.TTY = false // a run has no terminal
 	b, _, ok := m.box(w, r)
 	if !ok {
 		return
@@ -1342,6 +1368,13 @@ func (m *fsbManager) execView(e *fsbExec) fsbExec {
 	return v
 }
 
+// ended: the stream is over and since has read all of it.
+func (r *fsbRing) ended(since int64) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.closed && since >= r.total
+}
+
 func (r *fsbRing) totalNow() int64 {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -1357,9 +1390,21 @@ func (m *fsbManager) execStart(w http.ResponseWriter, r *http.Request) {
 		fsbFail(w, http.StatusBadRequest, "invalid", "bad body: "+err.Error())
 		return
 	}
-	if q.TTY {
-		fsbFail(w, http.StatusNotImplemented, "unsupported", "this manager has no terminals (tty)")
+	e, status := m.launch(w, r, q)
+	if e == nil {
 		return
+	}
+	m.mu.Lock()
+	v := m.execView(e)
+	m.mu.Unlock()
+	fsbJSON(w, status, v)
+}
+
+// launch starts a background exec of {id} — 201, or 200 for a repeated
+// clientId — or answers the refusal itself (nil).
+func (m *fsbManager) launch(w http.ResponseWriter, r *http.Request, q fsbCmdReq) (*fsbExec, int) {
+	if q.TTY && m.noTTY(w) {
+		return nil, 0
 	}
 	var wantStdin bool
 	if len(q.Stdin) > 0 {
@@ -1367,7 +1412,7 @@ func (m *fsbManager) execStart(w http.ResponseWriter, r *http.Request) {
 	}
 	b, c, ok := m.box(w, r)
 	if !ok {
-		return
+		return nil, 0
 	}
 	ikey := c.from + "\x00exec\x00" + b.ID + "\x00" + q.ClientID
 	if q.ClientID != "" {
@@ -1376,13 +1421,11 @@ func (m *fsbManager) execStart(w http.ResponseWriter, r *http.Request) {
 			if prev.hash != fsbHash(q) {
 				m.mu.Unlock()
 				fsbFail(w, http.StatusConflict, "exists", "clientId "+q.ClientID+" was used for a different command")
-				return
+				return nil, 0
 			}
 			if e != nil {
-				v := m.execView(e)
 				m.mu.Unlock()
-				fsbJSON(w, http.StatusOK, v)
-				return
+				return e, http.StatusOK
 			}
 		}
 	}
@@ -1390,17 +1433,17 @@ func (m *fsbManager) execStart(w http.ResponseWriter, r *http.Request) {
 		st := b.State
 		m.mu.Unlock()
 		fsbStateErr(w, err, st)
-		return
+		return nil, 0
 	}
 	cmd, err := m.command(b, q)
 	if err != nil {
 		m.mu.Unlock()
 		fsbFail(w, http.StatusBadRequest, "invalid", err.Error())
-		return
+		return nil, 0
 	}
 	gate := m.gate
 	b.eseq++
-	e := &fsbExec{ID: fmt.Sprintf("e%d", b.eseq), seq: b.eseq, Label: q.Label, Cmd: q.Cmd, Argv: q.Argv, Cwd: cmd.Dir,
+	e := &fsbExec{ID: fmt.Sprintf("e%d", b.eseq), seq: b.eseq, Label: q.Label, Cmd: q.Cmd, Argv: q.Argv, Cwd: cmd.Dir, TTY: q.TTY,
 		State: "running", Started: fsbNow(), ClientID: q.ClientID, ring: newFsbRing(m.ringSize()), cmd: cmd, done: make(chan struct{})}
 	b.execs[e.ID] = e
 	if q.ClientID != "" {
@@ -1416,7 +1459,7 @@ func (m *fsbManager) execStart(w http.ResponseWriter, r *http.Request) {
 			delete(b.execs, e.ID)
 			m.mu.Unlock()
 			m.unstarted(e, "killed")
-			return
+			return nil, 0
 		}
 	}
 	// Killed (a stop, a DELETE, Close) while it was held: it never starts.
@@ -1425,31 +1468,55 @@ func (m *fsbManager) execStart(w http.ResponseWriter, r *http.Request) {
 	m.mu.Unlock()
 	if gone {
 		m.unstarted(e, "killed")
-		m.mu.Lock()
-		v := m.execView(e)
-		m.mu.Unlock()
-		fsbJSON(w, http.StatusCreated, v)
-		return
+		return e, http.StatusCreated
 	}
 	var in io.WriteCloser
-	if wantStdin {
+	var master, slave *os.File
+	if q.TTY { // the terminal is its stdin, stdout and stderr; its output reaches the ring through us
+		if master, slave, err = fsbOpenPTY(q.Rows, q.Cols); err != nil {
+			m.mu.Lock()
+			delete(b.execs, e.ID)
+			m.mu.Unlock()
+			m.unstarted(e, "exited")
+			fsbFail(w, http.StatusServiceUnavailable, "unavailable", "a terminal: "+err.Error())
+			return nil, 0
+		}
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
+		if wantStdin {
+			in = fsbTTYIn{master}
+		}
+	} else if wantStdin {
 		in, _ = cmd.StdinPipe()
 	}
-	if err := cmd.Start(); err != nil { // (Start closes the pipe)
+	err = cmd.Start() // (Start closes the pipe)
+	if slave != nil {
+		slave.Close() // the command's now: the terminal ends when the last of it lets go
+	}
+	if err != nil {
+		if master != nil {
+			master.Close()
+		}
 		m.mu.Lock()
 		delete(b.execs, e.ID)
 		m.mu.Unlock()
 		m.unstarted(e, "exited")
 		fsbFail(w, http.StatusBadRequest, "invalid", err.Error())
-		return
+		return nil, 0
 	}
 	m.mu.Lock()
-	e.pid, e.stdin = cmd.Process.Pid, in
+	e.pid, e.stdin, e.pty = cmd.Process.Pid, in, master
 	// A kill that came between the check above and now saw no pid: deliver it.
 	late := e.killed || m.closed || m.boxes[b.ID] != b || b.execs[e.ID] != e
 	m.mu.Unlock()
 	if late {
 		fsbKill(e.pid, syscall.SIGKILL)
+	}
+	if master != nil {
+		e.ptyDone = make(chan struct{})
+		go func() {
+			_, _ = io.Copy(e.ring, master) // until the terminal hangs up (EIO) or reap closes it
+			close(e.ptyDone)
+		}()
 	}
 	go m.reap(e)
 	if q.TimeoutMs > 0 {
@@ -1469,11 +1536,15 @@ func (m *fsbManager) execStart(w http.ResponseWriter, r *http.Request) {
 			}
 		}()
 	}
-	m.mu.Lock()
-	v := m.execView(e)
-	m.mu.Unlock()
-	fsbJSON(w, http.StatusCreated, v)
+	return e, http.StatusCreated
 }
+
+// fsbTTYIn is a tty exec's stdin (with stdin: true): the terminal's input,
+// where end-of-file is the terminal's ^D.
+type fsbTTYIn struct{ f *os.File }
+
+func (t fsbTTYIn) Write(p []byte) (int, error) { return t.f.Write(p) }
+func (t fsbTTYIn) Close() error                { _, err := t.f.Write([]byte{4}); return err }
 
 // unstarted ends an exec that never ran.
 func (m *fsbManager) unstarted(e *fsbExec, state string) {
@@ -1486,6 +1557,16 @@ func (m *fsbManager) unstarted(e *fsbExec, state string) {
 
 func (m *fsbManager) reap(e *fsbExec) {
 	_ = e.cmd.Wait()
+	if e.ptyDone != nil {
+		// The terminal's last output drains — unless something the command
+		// left behind still holds the terminal open: then it's cut.
+		select {
+		case <-e.ptyDone:
+		case <-time.After(500 * time.Millisecond):
+		}
+		_ = e.pty.Close()
+		<-e.ptyDone
+	}
 	code, sig := fsbSigName(e.cmd.ProcessState)
 	m.mu.Lock()
 	e.State = "exited"
@@ -1682,6 +1763,247 @@ func (m *fsbManager) execSignal(w http.ResponseWriter, r *http.Request) {
 	}
 	m.mu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- terminals (tty) -----------------------------------------------------------------
+
+func (m *fsbManager) execResize(w http.ResponseWriter, r *http.Request) {
+	if m.faulted(w, "resize") || m.noTTY(w) {
+		return
+	}
+	var q struct {
+		Rows int `json:"rows"`
+		Cols int `json:"cols"`
+	}
+	if err := fsbDecode(r, &q); err != nil || q.Rows <= 0 || q.Cols <= 0 {
+		fsbFail(w, http.StatusBadRequest, "invalid", "rows and cols are positive")
+		return
+	}
+	e, ok := m.exec(w, r)
+	if !ok {
+		return
+	}
+	tty, st, pty := e.TTY, e.State, e.pty
+	m.mu.Unlock()
+	switch {
+	case !tty:
+		fsbFail(w, http.StatusBadRequest, "invalid", "this exec has no terminal (started without tty)")
+	case st != "running" || pty == nil:
+		fsbStateErr(w, errors.New("the exec has ended"), st)
+	case fsbSetSize(pty, q.Rows, q.Cols) != nil:
+		fsbStateErr(w, errors.New("the exec has ended"), "exited")
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// ttyAttach: GET /sbx/sandboxes/{id}/execs/{eid}/tty — a tty exec's
+// terminal, over a WebSocket.
+func (m *fsbManager) ttyAttach(w http.ResponseWriter, r *http.Request) {
+	if m.faulted(w, "tty") || m.noTTY(w) {
+		return
+	}
+	e, ok := m.exec(w, r)
+	if !ok {
+		return
+	}
+	tty := e.TTY
+	m.mu.Unlock()
+	if !tty {
+		fsbFail(w, http.StatusBadRequest, "invalid", "this exec has no terminal (started without tty)")
+		return
+	}
+	m.ttyServe(w, r, r.PathValue("id"), e)
+}
+
+// ttyStart: GET /sbx/sandboxes/{id}/tty?cwd=&cmd=&rows=&cols= — a tty exec
+// (the login shell unless cmd), attached.
+func (m *fsbManager) ttyStart(w http.ResponseWriter, r *http.Request) {
+	if m.faulted(w, "tty") || m.noTTY(w) {
+		return
+	}
+	if !fsbws.IsUpgrade(r) { // before anything starts
+		fsbFail(w, http.StatusBadRequest, "invalid", "a terminal is a WebSocket upgrade")
+		return
+	}
+	qs := r.URL.Query()
+	q := fsbCmdReq{Cmd: qs.Get("cmd"), Cwd: qs.Get("cwd"), TTY: true, Label: "terminal"}
+	q.Rows, _ = strconv.Atoi(qs.Get("rows"))
+	q.Cols, _ = strconv.Atoi(qs.Get("cols"))
+	if q.Cmd == "" {
+		q.Argv = []string{"/bin/sh", "-l"} // the sandbox's shell (its `shell`), a login one
+	}
+	e, _ := m.launch(w, r, q)
+	if e == nil {
+		return
+	}
+	m.ttyServe(w, r, r.PathValue("id"), e)
+}
+
+// ttyServe speaks the /ws/term framing (docs/protocol.md §/ws/term) for a
+// tty exec: the session frame, the ring from its oldest byte and then live
+// output as binary frames, the exit frame when the command has ended and
+// all its output is out. From the client: keystrokes (binary), resize and
+// ping. A client that leaves doesn't end the command; another can attach.
+func (m *fsbManager) ttyServe(w http.ResponseWriter, r *http.Request, sandbox string, e *fsbExec) {
+	c, err := fsbws.Upgrade(w, r, &fsbws.UpgradeOptions{MaxMessageSize: 1 << 20,
+		Error: func(w http.ResponseWriter, _ *http.Request, status int, reason string) {
+			fsbFail(w, status, "invalid", reason)
+		}})
+	if err != nil {
+		return
+	}
+	defer c.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// the terminal while the command runs (m.mu: a gated exec gets it late)
+	term := func() *os.File {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if e.State != "running" {
+			return nil
+		}
+		return e.pty
+	}
+	hello, _ := json.Marshal(map[string]any{"op": "session", "id": e.ID, "sandbox": sandbox, "echoAck": false})
+	if c.WriteMessage(fsbws.TextMessage, hello) != nil {
+		return
+	}
+	go func() {
+		defer cancel()
+		for {
+			typ, data, err := c.ReadMessage()
+			if err != nil {
+				return
+			}
+			if typ == fsbws.BinaryMessage {
+				if f := term(); f != nil {
+					_, _ = f.Write(data)
+				}
+				continue
+			}
+			var ctl struct {
+				Op   string          `json:"op"`
+				Cols int             `json:"cols"`
+				Rows int             `json:"rows"`
+				T    json.RawMessage `json:"t"`
+			}
+			if json.Unmarshal(data, &ctl) != nil {
+				continue
+			}
+			switch ctl.Op { // anything else is ignored
+			case "resize":
+				if f := term(); f != nil && ctl.Cols > 0 && ctl.Rows > 0 {
+					_ = fsbSetSize(f, ctl.Rows, ctl.Cols)
+				}
+			case "ping":
+				pong, _ := json.Marshal(map[string]any{"op": "pong", "t": ctl.T})
+				_ = c.WriteMessage(fsbws.TextMessage, pong)
+			}
+		}
+	}()
+	for since := int64(0); !e.ring.ended(since); {
+		_, end, _, _, data := e.ring.read(ctx, since, 64<<10, 30*time.Second)
+		if ctx.Err() != nil {
+			return // the client left; the command runs on
+		}
+		if len(data) > 0 && c.WriteMessage(fsbws.BinaryMessage, data) != nil {
+			return
+		}
+		since = end
+	}
+	m.mu.Lock()
+	exit := map[string]any{"op": "exit", "code": e.ExitCode} // null when a signal ended it
+	if e.Signal != "" {
+		exit["signal"] = e.Signal
+	}
+	m.mu.Unlock()
+	b, _ := json.Marshal(exit)
+	_ = c.WriteMessage(fsbws.TextMessage, b)
+}
+
+// Linux's terminal ioctls (the generic numbers: amd64, arm64, 386, arm,
+// riscv64, loong64) — literal, so the file still builds elsewhere.
+const (
+	fsbTIOCGPTN   = 0x80045430
+	fsbTIOCSPTLCK = 0x40045431
+	fsbTIOCSWINSZ = 0x5414
+)
+
+// fsbHasPTY: the host gives the fake terminals.
+var fsbHasPTY = sync.OnceValue(func() bool {
+	switch runtime.GOARCH {
+	case "amd64", "arm64", "386", "arm", "riscv64", "loong64":
+	default:
+		return false
+	}
+	master, slave, err := fsbOpenPTY(24, 80)
+	if err != nil {
+		return false
+	}
+	master.Close()
+	slave.Close()
+	return true
+})
+
+// fsbOpenPTY opens a pseudo-terminal: its master (ours: pollable, so a Close
+// ends a blocked read) and its slave (the command's), rows × cols.
+func fsbOpenPTY(rows, cols int) (master, slave *os.File, err error) {
+	if runtime.GOOS != "linux" {
+		return nil, nil, errors.New("terminals need Linux")
+	}
+	if master, err = os.OpenFile("/dev/ptmx", os.O_RDWR|syscall.O_NOCTTY, 0); err != nil {
+		return nil, nil, err
+	}
+	var unlock int32
+	var n uint32
+	if err = fsbIoctl(master, fsbTIOCSPTLCK, unsafe.Pointer(&unlock)); err == nil {
+		err = fsbIoctl(master, fsbTIOCGPTN, unsafe.Pointer(&n))
+	}
+	if err == nil {
+		slave, err = os.OpenFile("/dev/pts/"+strconv.FormatUint(uint64(n), 10), os.O_RDWR|syscall.O_NOCTTY, 0)
+	}
+	if err == nil {
+		err = fsbSetSize(master, rows, cols)
+	}
+	if err != nil {
+		master.Close()
+		if slave != nil {
+			slave.Close()
+		}
+		return nil, nil, err
+	}
+	return master, slave, nil
+}
+
+// fsbSetSize sets a terminal's window (0: 24 × 80); the command gets SIGWINCH.
+func fsbSetSize(f *os.File, rows, cols int) error {
+	if rows <= 0 {
+		rows = 24
+	}
+	if cols <= 0 {
+		cols = 80
+	}
+	ws := struct{ row, col, x, y uint16 }{uint16(min(rows, 0xffff)), uint16(min(cols, 0xffff)), 0, 0}
+	return fsbIoctl(f, fsbTIOCSWINSZ, unsafe.Pointer(&ws))
+}
+
+// fsbIoctl without f.Fd(), which would make the file blocking.
+func fsbIoctl(f *os.File, req uintptr, arg unsafe.Pointer) error {
+	rc, err := f.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var errno syscall.Errno
+	if err := rc.Control(func(fd uintptr) {
+		_, _, errno = syscall.Syscall(syscall.SYS_IOCTL, fd, req, uintptr(arg))
+	}); err != nil {
+		return err
+	}
+	if errno != 0 {
+		return errno
+	}
+	return nil
 }
 
 // --- files ------------------------------------------------------------------------
