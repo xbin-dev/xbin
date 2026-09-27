@@ -166,6 +166,7 @@ func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
 			}),
 		}})
 	}
+	specs = append(specs, sandboxToolSpecs(cfg, depth)...)
 	specs = append(specs, subagentToolSpecs(cfg, depth)...)
 	specs = append(specs, mcp...)
 	if len(cfg.Deny) == 0 {
@@ -181,16 +182,17 @@ func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
 }
 
 // sideEffect reports whether a tool mutates the world (gated by approval mode).
-// The file and sandbox tools are deliberately NOT here: despite writing to
+// The file and REPL tools are deliberately NOT here: despite writing to
 // sqlite, they touch only this run's private rows — no egress, no other
 // component, nothing outside the run — so pausing a turn for approval would be
-// pure friction.
-func sideEffect(name string) bool {
+// pure friction. The coding tools that change a sandbox are, when it has
+// egress (sandbox_tools.go).
+func sideEffect(name string, cfg Config) bool {
 	switch name {
 	case "xbin_call":
 		return true
 	}
-	return strings.HasPrefix(name, "mcp:")
+	return strings.HasPrefix(name, "mcp:") || sandboxSideEffect(name, cfg)
 }
 
 // runTool executes a non-control tool and returns its textual result.
@@ -352,6 +354,9 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 
 	if threadToolNames[name] {
 		return ag.runThreadTool(ctx, run, cfg, name, args)
+	}
+	if sandboxToolNames[name] {
+		return ag.runSandboxTool(ctx, run, cfg, name, args)
 	}
 	if fileToolNames[name] {
 		return ag.runFileTool(ctx, run, cfg, name, args)

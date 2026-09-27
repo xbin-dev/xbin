@@ -38,7 +38,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   {sandbox}` — participant access, the right to use the sandbox, and a class
   with the `sandbox` toolset — read every turn and inherited by subagents.
   The agent names the person it acts for in `Sbx-User` and enforces the
-  owner / members / team rules itself.
+  owner / members / team rules itself. A bound conversation gets the coding
+  tools (§The coding tools): `bash` (at its timeout the command goes on as a
+  numbered job; interrupting the turn TERMs, then KILLs, its process group;
+  after a backend restart the call's result names the job), `bash_output`
+  and `bash_kill`; its system prompt gains a `# Sandbox` section; in Approve
+  mode `bash` parks only when the sandbox has egress.
 
 - **Admin console: runtime → sandboxes, and the sandbox in the component
   list** (D112, [isolation.md](isolation.md) §VM sandboxes). A new tab lists

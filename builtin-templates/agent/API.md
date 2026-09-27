@@ -938,6 +938,42 @@ with the status the contract gives it (a manager that is down or
 unreachable: 502). A route's sandbox the caller may neither see nor find
 bound to a conversation of theirs is 404.
 
+### The coding tools
+
+A conversation whose class has the `sandbox` toolset **and** has a sandbox
+bound gets these tools (subagents too — they work in their root's sandbox);
+otherwise they are absent, and a call that names one anyway is refused. Every
+call re-runs the binding check above. Paths are absolute, relative to the
+binding's `cwd` (else the sandbox's workdir), or `~/…` (the sandbox user's
+home). The session files (`file_*`) are a different store: nothing moves
+between the two unless a tool below moves it. The system prompt carries a
+`# Sandbox` section — the active sandbox's name, manager, image, egress and
+`cwd`, and the other attached ones — built from the binding alone, so it
+changes on a rebind only (the prompt's cached prefix stays valid).
+
+| Tool | Arguments | What it does |
+|---|---|---|
+| `bash` | `{command, cwd?, timeout_s? (120), background?}` | runs `command` with the sandbox user's login shell (an exec named `agent:<run>:<tool call>`, so starting it twice finds the one command), no TTY, no stdin, `TERM=dumb NO_COLOR=1 PAGER=cat GIT_TERMINAL_PROMPT=0`, and follows its combined output. The result is at most 12 KiB — a short head and a long tail with `… N bytes elided …` between, escapes and `\r` redraws cleaned — and a footer: `[exit 1 · 14s · job 3]`. At `timeout_s` (or just before the tool's own `toolTimeout`) the command **goes on as a job**: the footer says `still running after 2m00s · job 3` and how to follow it. `background: true` starts it as a job at once |
+| `bash_output` | `{job, wait_s? (0, ≤ 600), offset?}` | a job's output since it was last read (or from byte `offset`), waiting up to `wait_s` for it to end; the footer says it still runs (and up to which byte it was read) or how it ended |
+| `bash_kill` | `{job, signal?}` | signals the job's whole process group: `INT`, `TERM`, `KILL` or `HUP`; by default TERM, then KILL if it hasn't ended 3 s later |
+
+**Jobs** are numbered per conversation (subagents share their root's
+numbers) and kept in the `sandbox_jobs` table (`root_id, job, run_id,
+tool_call_id, ref, exec_id, command, cwd, state, exit_code, read_off, fg,
+created_ms, ended_ms`); a conversation runs at most **8** at once (asked of
+the manager before a start is refused). **Interrupting or cancelling** the
+turn stops the command bash is following — TERM to its process group, KILL
+if it is still there 3 s later — while background jobs keep running. **A
+backend restart** (a handoff to the next process) leaves it running: the
+call's result becomes `(no result: the backend restarted while this command
+ran. It went on in the sandbox as job 3 — bash_output {"job": 3} shows its
+output from the start …)` instead of the generic lost-result text, and the
+job's output resumes by offset.
+
+**Approve mode.** `bash` is a side-effecting tool — the step parks for
+approval — only when the bound sandbox has egress other than `none`; a
+sandbox with no network is private scratch.
+
 ## The frontend: one model, thin views
 
 The tile's state and behaviour live in **`model/`** — plain ES modules with no
