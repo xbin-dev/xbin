@@ -640,7 +640,9 @@ Every card includes these; a card states only what differs.
   `X-XBin-Checkpoint-*`); `GET /checkpoints/{rest...}` → `ServeFetch`, open
   to the tile's own terminal and agent sessions and to humans with ≥ `write`
   at their current level, checked per request.
-- **Owns.** `internal/boot/deployments.go`, `internal/boot/deployments_test.go`.
+- **Owns.** `internal/boot/deployments.go`, `internal/boot/deployreads.go`
+  (the log, diff and remote handlers: the card's scope doesn't fit one file
+  under the 800-line cap), `internal/boot/deployments_test.go`.
 - **Tests.** `TestDeploymentStateReadIsPure` (with the reader rows),
   `TestFetchRemoteReadGate`, `TestDiffCaptureNeedsTerminalLevel`, a handler
   test per route.
@@ -934,6 +936,23 @@ Every card includes these; a card states only what differs.
   `d.do`, `d.stop`, `d.start`, `d.restart`, `d.Bin`; `writeProbe`,
   `waitProbe`, `writeIfChanged`, `probeFile`. `TestAgentBxLiveReload`
   builds `bx` itself and passes `isoOpts{Env: []string{"XBIN_BIN=<dir>"}}`.
+- **From wave 1.2.**
+  - Every M1 route answers in the daemon: the state, pause, resume, reload
+    now, deploy (restart:true), rollback, the log (`id`, `wait`), the diff
+    and the checkpoint remote; `TestDeploymentReadsLive`
+    (`internal/boot/deployreads_live_test.go`) drives them once through a
+    real daemon, and the harness `livereload` pass under `HARNESS_ISOLATE`
+    runs pause, Reload now and resume on a node backend. `bx` has run only
+    against unit fakes and 501s: `TestAgentBxLiveReload` is its first real
+    run.
+  - Not wired yet, so not testable: checkpoint GC (`Store.GC` after a
+    deploy, keep = the record's pointers + `Runner.RootsInUse`), the boot
+    `.tmp-*` sweep (`Store.Sweep`), artifact pruning
+    (`Runner.PruneArtifacts`), and a restore's put-back of deployment state
+    (WP-23's A1–A4: a restore checks the archive and leaves the record and
+    store out, with a warning). Retention and restore rows wait for them.
+  - A dry run's `impact.code` carries `files`, `added`, `removed` from a
+    stat diff through the store.
 
 #### WP-29 docs-m1 · L · wave 1.3, drafting from 1.2 · after every M1 feature WP
 - **Scope** (13-surfaces §4.18's M1 rows; 12-compat §8, §9; 10-ux §10.2).
@@ -953,6 +972,16 @@ Every card includes these; a card states only what differs.
 - **Tests.** `TestDeploymentWording`, `TestRelativeLinksResolve`,
   `TestDecisionIDsResolve`, `TestEmbeddedAssets`.
 - **Links.** "No deploy step" stays true for tiles that never opt in.
+- **From wave 1.2.** The docs hand-offs are in the WP commits' bodies
+  (`git log dev-lifecycle --grep='^Docs:'`) and the merge commits of
+  wave 1.2. Three texts refuse a pinned backend without isolation: the
+  deployments API's 409 and `runner.ErrNeedsIsolation` use 11-contract
+  §1.14's, while a restart through `Ensure` fails its build with
+  `resolveGen`'s longer text (both name `--isolate`). The diff's `stat=1`
+  answer also carries the `X-XBin-Checkpoint-*` headers. `/runtime` rows
+  gain `checkpoint`. protocol.md keeps its "(reserved)" markers on every
+  route built in 1.2 until this WP drops them; openapi.go dropped them at
+  the merges.
 
 ### 2.4 M2 — tile deployments
 
@@ -975,6 +1004,12 @@ Every card includes these; a card states only what differs.
   `internal/term/target.go`, `internal/deployments/{plane,m2types}.go`,
   `internal/runner/limits.go`, `internal/boot/boot.go`.
 - **Tests.** 09-fabric §10's `TestZeroStateRoute`; every golden unchanged.
+- **From wave 1.2.** `plane.go` is 726 of 800. The plane grew three files
+  outside any card: `storeadapter.go` (the checkpoints interface's adapter
+  over `*checkpoint.Store`, moved out of `plane.go`), `reads.go`
+  (`Plane.Diff`, `Plane.ServeFetch`) and `summary.go`
+  (`Plane.PrimarySummary`); the interface gained `RemoveView`, `Drift`,
+  `Diff` and `ServeFetch`. `ops.go` is 768 of 800.
 
 #### WP-31 qualifier · S · wave 2.1 · after WP-30
 - **Scope** (11-contract §2.1, §2.2, §2.4; NP-12-1). `ResolveRef`: a `+`-free
@@ -1017,6 +1052,13 @@ Every card includes these; a card states only what differs.
   `TestDrainAuthority`.
 - **Links.** Per-deployment state → WP-34, WP-37, WP-52, WP-53b, WP-54,
   WP-S4. PO-2, PO-3, PO-5, PO-11.
+- **From wave 1.2.** `deploy.go` is 739 of 800 and `runner.go` 615 of 639:
+  split the deploy worker verbatim before growing it. A deploy resolves its
+  generation through `resolveGen` (inspect.go), as `Ensure`'s `runCurrent`
+  does; `inst.artifact` is the artifact's directory; `watchGen` takes the
+  generation's release. `isTreeID` (runner), `fullTree` (build.go) and the
+  plane's `fullTreeID` are one predicate three times, and the isolation
+  refusal has three texts (WP-29's note).
 
 #### WP-34 runner-edges · L · wave 2.2 · after WP-33, WP-S2, WP-S3
 - **Scope** (07-runtime §10.2, §10.3, §11, §12; 09-fabric §5.7–§5.8;
@@ -1053,6 +1095,9 @@ Every card includes these; a card states only what differs.
   `TestProtectedPrimaryLayerNotShared`, `TestVMBackendNamespaceBinds`;
   confined `TestPinnedBackendSeesCheckpoint` (data half).
 - **Links.** PO-11: `main`'s binds keep `Src == Dst`.
+- **From wave 1.2.** `build.go` is 753 of 800 (WP-17): its checkpoint half
+  moves verbatim into a file of its own before the protected namespace
+  lands.
 
 #### WP-36 deployment-urls · L · wave 2.2 · after WP-31, WP-32
 - **Scope** (11-contract §2.3, §2.5–§2.7, §7.2; 07-runtime §4.3–§4.6;
@@ -1220,6 +1265,15 @@ Every card includes these; a card states only what differs.
   `TestPlusReservedInNewTilePaths` (the narrow refusal, and a warning with no
   refusal for any other `+` name); `TestNewTilePathRule` unchanged.
 - **Links.** The warning's text to the changelog hand-off. PO-1.
+- **From wave 1.2.** WP-23b's `internal/broker/deploy_life_m1_test.go`
+  holds `TestDeploymentsAcrossTileLife` and
+  `TestPathLeftoversIncludeDeploymentState`: extend them there, or name the
+  M2 halves otherwise. WP-23b's open finding: clone, git import, builtin
+  install and template instantiation call `assignOwner` after their first
+  `Rescan` (clone.go, gitimport.go, tiles.go, templates.go), so an owner
+  re-creating their own removed, paused tile by one of those paths runs its
+  leftover pinned record until the next rescan; `resetDeploymentState`
+  belongs before those rescans.
 
 #### WP-47 edge-policy · L · wave 2.2 · after WP-30, WP-39
 - **Scope** (09-fabric §5, NP-09-1 to NP-09-6, NP-09-10; 08-data §7; P3,
@@ -1386,6 +1440,12 @@ Every card includes these; a card states only what differs.
 - **Owns.** `internal/broker/{lifecycle,transfer}.go`, tests.
 - **Tests.** `TestDeploymentsAcrossTileLife`.
 - **Links.** D39. PO-15.
+- **From wave 1.2.** WP-23b's `moveOwner` (transfer.go) rewrites the
+  record's owner ref before `SetOwner`, under one mutex. Owner changes
+  outside a transfer (deleting a user, which makes their tiles
+  workspace-owned) rewrite no record, so those records go inert and paused
+  primaries run their work trees again: 05-model §11 names only the
+  transfer (a design gap for the owner).
 
 #### WP-54 api-shapes · M · wave 2.3 · after WP-33, WP-52
 - **Scope** (11-contract §8; NP-13-4; 06-security T7 item 2). `/backends`
@@ -1462,6 +1522,11 @@ Every card includes these; a card states only what differs.
 - **Tests.** `TestParseDeploymentArgs`, `TestBxSaysWhereSavesGo` (M2),
   `TestBxHonoursXBINDeployment`, `TestBxRefusalMessages`.
 - **Links.** PO-13: `TestBxTodayInvocationsUnchanged` unchanged.
+- **From wave 1.2.** `cmd/bx/main.go` is 961 lines, the 90% floor of its
+  1068 budget: an edit that removes a line trips the ratchet. A dry run of a
+  deploy or rollback onto a protected primary must name its checkpoint, but
+  bx learns the capture to name from that dry run (WP-26's finding):
+  resolve it before WP-53a, e.g. through a diff's `X-XBin-Checkpoint-To`.
 
 #### WP-59 sdk · S · wave 2.1 · after WP-30
 - **Scope** (11-contract §6). `xbin.Deployment()`, `CallerInfo.Deployment`.
@@ -1813,6 +1878,7 @@ which proves that no two WPs in one wave own the same file.
 | `internal/boot/boot.go` | 0.3 WP-07 (one line) · 0.4 WP-06 · 2.0 WP-30 |
 | `internal/boot/serve.go` | 0.4 WP-06 · 1.2 WP-20 |
 | `internal/boot/deployments.go` | 0.3 WP-07 · 0.4 WP-06 · 1.2 WP-15 |
+| `internal/boot/deployreads.go` | 1.2 WP-15 |
 | `internal/boot/deploystate_test.go` | 0.2 WP-02 · 1.3 WP-28 |
 | `internal/server/{static,tileassets,native,deployserve}.go` | 1.2 WP-19 · 2.2 WP-36 |
 | `internal/server/api.go` | 1.2 WP-19 · 2.3 WP-54 |
