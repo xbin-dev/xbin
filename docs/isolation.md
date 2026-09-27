@@ -57,7 +57,7 @@ What that means when you build a **Go backend** (`--isolate` workspaces):
 |---|---|
 | toolchain | the host's Go, the same version as before, read-only |
 | sees | the workspace read-only (so `go.work` and every module it `use`s resolve as always) with `.xbin/`, `data/` and `homes/` masked; the xbin SDK |
-| writes | only your tile's own: its build output and its **own** build and module caches under `.xbin/cache/tile/` (a shared cache would let one tile's build plant code in another's). The first build after this change compiles the standard library once per tile |
+| writes | only your tile's own: its build output and its **own** build and module caches under `.xbin/cache/tile/` (a shared cache would let one tile's build plant code in another's). The first build after this change compiles the standard library once per tile. The checksums a build adds for the workspace (what `go` writes to `go.work.sum`: a module your `go.mod` names without a `go.sum` entry, or one the workspace's modules together select) go to a `go.work.sum` of your tile's own there, seeded from the workspace's, beside a copy of the generated `go.work` — a hand-managed `go.work` is used as it is |
 | modules | whatever the host's module cache already holds is served from it read-only, offline; new modules are downloaded — **public addresses only** (the operator sets `XBIN_BUILD_NET=host` for a GOPROXY or private modules on the LAN) |
 | not honoured | a `replace` to a path outside the workspace and the SDK (it isn't there); VCS stamping (`-buildvcs=false` — nothing your repo's config says runs, even inside the box) |
 

@@ -12,6 +12,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-28
 
+- **Fix: Go tiles build under `--isolate` when the workspace needs new
+  checksums** ([isolation.md](isolation.md) §Confined tool runs).
+  A confined build sees the workspace read-only, so the checksums `go`
+  adds to the workspace's `go.work.sum` — for a module a tile's `go.mod`
+  names without a `go.sum` entry (a client library just added), or for
+  one the workspace's modules select together (the agent template beside
+  the `sandbox-terminal` tile) — failed every Go build of that workspace
+  with "go: updating go.sum: … read-only file system". Each tile's build
+  now writes a `go.work.sum` of its own under `.xbin/cache/tile/`, seeded
+  from the workspace's, beside a copy of the generated `go.work`; a
+  hand-managed `go.work` (without xbind's first line) is used as it is.
+  Nothing to change.
 - **A file created directly in `/` no longer hangs a terminal or a
   backend.** Where the sandbox's root is served by fuse-overlayfs (the
   default wherever xbind ships it), creating a regular file directly in
