@@ -415,6 +415,11 @@ func runCS(t *testing.T, e *csEnv, mode string, slow time.Duration) {
 		if want := "1000\n1000\n/home/dev dev 1 " + main.ID + " main\n/work\n1000:1000\n1000:1000\n"; out != want {
 			t.Errorf("inside: %q, want %q", out, want)
 		}
+		// no xbin identity inside (plan §8): no XBIN_ variable, so none of
+		// the manager's token, and no `xbin` host to call
+		if env := c.Sh(main.ID, `env; getent hosts xbin || echo no-xbin-host`); strings.Contains(env, "XBIN_") || !strings.Contains(env, "no-xbin-host") {
+			t.Errorf("xbin's identity inside a sandbox:\n%s", env)
+		}
 		st := e.state(t)
 		for _, s := range st.Sandboxes {
 			if s.ID == main.ID && (s.Consumer != csCons || s.Mode != mode || s.Runtime == "" || s.Runtime == main.ID) {

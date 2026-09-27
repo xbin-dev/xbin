@@ -340,6 +340,7 @@ notes have the commands):
 5. The first start makes the workdir and home as root (the runtime must let
    a tile sandbox run uid 0); a command runs as 1000:1000 with `HOME`
    `/home/dev`, and a file written through the contract is 1000's.
+   Nothing of xbin's is inside: no `XBIN_*` variable, no `xbin` host.
 6. Commands: `run`'s result, an output long poll answering when output
    comes, stdin, a signal to the group, the exec list; files with etags
    (`ifMatch`), move and list; tar both ways.
