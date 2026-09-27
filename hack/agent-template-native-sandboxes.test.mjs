@@ -3,7 +3,8 @@
 // what the phase-1 review found — a re-pick keeps its working directory, a
 // private sandbox into a team conversation asks first (a sheet), the
 // Sandboxes screen keeps its order while open, Start through the
-// conversation, and a viewer makes no sandbox for it. Rendered in node with
+// conversation, and a viewer makes no sandbox for it — and sharing one with
+// a terminal tile (D121). Rendered in node with
 // hack/xbn/node.mjs against the web tests' fake backend, as the other file
 // does. Run by `make js-test`.
 import { test } from 'node:test';
@@ -113,4 +114,54 @@ test('coding sandboxes (D115): a viewer makes no sandbox for the conversation', 
   assert.equal(list.p.title, 'Sandboxes');
   assert.equal(find(list, { t: 'button', p: { label: 'New sandbox' } }).p.disabled, true, 'review: New was offered, then refused');
   assert.match(find(list, { t: 'notice', p: { tone: 'info' } }).p.text, /^You may only read this conversation/);
+});
+
+test('coding sandboxes (D121): Share with a terminal tile… pushes its screen; Share PATCHes the shares; Stop sharing takes one away', async () => {
+  const view = { run: { title: 'build', status: 'idle' }, class: CODING, config: { sandbox: bound('api'), attached: [bound('api')] } };
+  const sandboxes = [sb('api', { boundTo: [9], shares: [{ consumer: 'apps/old-term', users: ['admin'] }] }), sb('team-box', { visibility: 'team', shares: [] }),
+    sb('theirs', { mine: false, owner: { user: 'carol' }, canEdit: false, canManage: false, visibility: 'team' })];
+  const row = (name) => ({ t: 'row', p: { title: name }, in: { t: 'screen', p: { title: 'Sandboxes' } } });
+  const shareScreen = { t: 'screen', p: { title: 'Share with a terminal tile' } };
+  const r = await run(oneSeed(view, { sandboxes }), [
+    { wait: 50 },
+    { tap: { t: 'button', p: { label: 'Sandbox: api' } } },
+    { tap: { t: 'row', p: { title: 'Manage sandboxes…' } } },
+    { wait: 50 },
+    { snapshot: 'list' },
+    { tap: { t: 'button', p: { label: 'Share with a terminal tile…' }, in: row('api') } },
+    { wait: 20 },
+    { snapshot: 'form' },
+    { event: [{ t: 'field', p: { label: 'The terminal tile\'s path' }, in: shareScreen }, 'input', { value: 'apps/agent' }] },
+    { snapshot: 'self' },
+    { event: [{ t: 'field', p: { label: 'The terminal tile\'s path' }, in: shareScreen }, 'input', { value: 'apps/sandbox-terminal' }] },
+    { tap: { t: 'button', p: { label: 'Share' }, in: shareScreen } },
+    { wait: 20 },
+    { snapshot: 'shared' },
+    { tap: { t: 'button', p: { label: 'Share with a terminal tile…' }, in: row('api') } },
+    { wait: 20 },
+    { tap: { t: 'button', p: { label: 'Stop sharing' }, in: { t: 'row', p: { title: 'apps/old-term' } } } },
+    { wait: 20 },
+    { snapshot: 'stopped' },
+  ], { state: { hash: 'c=9' } });
+  const labels = (tree, name) => all(find(tree, row(name)), { t: 'button' }).map((b) => b.p.label);
+  assert.ok(labels(r.snapshots.list, 'api').includes('Share with a terminal tile…'));
+  assert.ok(labels(r.snapshots.list, 'team-box').includes('Share with a terminal tile…'));
+  assert.ok(!labels(r.snapshots.list, 'theirs').includes('Share with a terminal tile…'), 'not yours: not offered');
+  assert.match(find(r.snapshots.list, row('api')).p.subtitle, /shared with apps\/old-term/);
+  const form = topScreen(r.snapshots.form);
+  assert.equal(form.p.title, 'Share with a terminal tile');
+  assert.equal(find(form, { t: 'field' }).p.value, 'apps/sandbox-terminal', 'the builtin\'s path by default');
+  assert.equal(find(form, { t: 'row', p: { title: 'For' } }).p.detail, 'you');
+  assert.deepEqual(all(form, { t: 'row', in: { t: 'section', p: { title: 'Shared with now' } } }).map((x) => x.p.title), ['apps/old-term']);
+  const self = topScreen(r.snapshots.self);
+  assert.match(find(self, { t: 'notice', p: { tone: 'danger' } }).p.text, /That is this agent/);
+  assert.equal(find(self, { t: 'button', p: { label: 'Share' } }).p.disabled, true);
+  const patches = bodies(r, 'PATCH', /\/sandboxes\/apps\/coding-sandbox%7Capi$/);
+  assert.deepEqual(patches[0], { shares: [{ consumer: 'apps/old-term', users: ['admin'] }, { consumer: 'apps/sandbox-terminal', users: ['admin'] }] });
+  const back = topScreen(r.snapshots.shared);
+  assert.equal(back.p.title, 'Sandboxes', 'Share pops back to the list');
+  assert.match(find(back, { t: 'notice', p: { tone: 'ok' } }).p.text, /^api is shared with apps\/sandbox-terminal/);
+  assert.deepEqual(patches[1], { shares: [{ consumer: 'apps/sandbox-terminal', users: ['admin'] }] }, 'Stop sharing keeps the others');
+  assert.deepEqual(all(topScreen(r.snapshots.stopped), { t: 'row', in: { t: 'section', p: { title: 'Shared with now' } } }).map((x) => x.p.title),
+    ['apps/sandbox-terminal']);
 });

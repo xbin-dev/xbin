@@ -138,6 +138,7 @@ export const FEATURES = {
   'tools.sandboxes': 'the Sandboxes screen (D115): every sandbox you may see — state, manager, image, egress, owner, private/team, last active, where it is bound — with start, stop, archive, thaw, share with the team / make private and delete (confirmed) as your rights allow, and "Use here"',
   'tools.sandboxes.terminal': 'a terminal in a sandbox whose manager offers one (tty): Open terminal in the ▣ popover (the active sandbox, at its working directory) and Terminal on a Sandboxes row — the page dials the manager as you (its per-person rules apply); closing it ends the shell',
   'tools.sandboxes.create': 'create a sandbox: manager, name, image, size, network (what the class allows), private or team, a working directory; made in a conversation it is bound there (a team conversation\'s is a team one), at home the next new chat starts in it',
+  'tools.sandboxes.shareTerminal': 'share a sandbox of yours (this agent its home) with a terminal tile — the builtin sandbox-terminal (D121): its path (apps/sandbox-terminal by default), for you, or everyone who may use it when it is a team one; the shares it has now, each stopped (confirmed)',
 
   // Sharing
   'share.visibility': 'who can see it: only invited people, the team to read, the team to write',

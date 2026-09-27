@@ -3,8 +3,9 @@
 A **sandbox manager** is a tile that creates and runs sandboxes — boxes with
 a shell, a filesystem and the tools of a job — for other tiles. A
 **consumer** is a tile that uses them: the agent template (an agent
-conversation works in a sandbox), a terminal tile (people open shells in
-them), anything else. The split (D115):
+conversation works in a sandbox), the `sandbox-terminal` tile (people open
+shells in them, in the browser and over SSH; see below), anything else.
+The split (D115):
 
 - **The manager knows the substrate:** VMs, containers, a cloud's API and
   ssh, disks, images, quotas, what a sandbox may reach.
@@ -281,9 +282,11 @@ wire), so `<bx-terminal src>` (docs/elements.md) works against it:
 
 The session's `id` is a `tty` exec's: it is listed under `execs`, its
 output (`…/output`) is the terminal's stream, `…/resize` resizes it and
-`…/execs/{id}/tty` attaches to it again. A client that leaves doesn't end
-the command; attaching to one that has ended replays its ring, then says
-`exit`. A request that isn't a WebSocket upgrade is `invalid`, and refusals
+`…/execs/{id}/tty` attaches to it again. Label that exec `terminal`: a
+consumer that offers running terminals to attach (the `sandbox-terminal`
+tile) looks for tty execs labelled `terminal`, or not labelled. A client
+that leaves doesn't end the command; attaching to one that has ended
+replays its ring, then says `exit`. A request that isn't a WebSocket upgrade is `invalid`, and refusals
 come before the upgrade, as JSON like any other route's.
 
 A page connects with its frame token (`xbin.ws(url)`, or `<bx-terminal
@@ -343,6 +346,37 @@ it still does, and `thaw` brings it back (stopped, or running with
   `SANDBOX_ID` and `SANDBOX_NAME`.
 - **No xbin identity, ever**: no token, no gateway, no route to xbind or the
   workspace's tiles. What a sandbox reaches is its `egress`, nothing more.
+
+## People's terminals: the `sandbox-terminal` tile
+
+The builtin **`sandbox-terminal`** tile (`bx tile import sandbox-terminal`,
+D121) is a consumer that gives people terminals onto sandboxes and creates
+none. Bind it to managers (`bx bind apps/sandbox-terminal
+sandboxes=apps/<manager>`, `--add` for more); a sandbox shows up there once
+it is **shared** with it — `{"shares": [{"consumer": "apps/sandbox-terminal",
+"users": "*"}]}` by its home consumer (the agent template's **Share with a
+terminal tile…** on a sandbox's row: for its owner, or `"*"` for a team
+sandbox), or the manager's operators. The person rules above decide who
+opens which:
+
+- **In the browser** its page dials your `tty` route with its frame token,
+  so you see the **verified** person. It lists a sandbox's execs (`GET
+  …/execs`, as that person) to offer the running terminals — tty execs
+  labelled `terminal` or not labelled (§Terminals) — for attaching again
+  (`…/execs/{id}/tty`) and ending (`DELETE …/execs/{id}`).
+- **Over SSH** (`ssh <sandbox>@host -p 2222`, after an admin runs `bx expose
+  apps/sandbox-terminal ssh=runtime --listen :2222`) a key registered on its
+  page names the person, and its backend calls you as an **asserted** one
+  (`Sbx-User`): `GET /sbx/sandboxes` to find the sandbox, then your `tty`
+  route for a session with a terminal, or a background exec with `stdin` for
+  one without (`ssh host cmd`: stdout and stderr arrive together). A client
+  that leaves gets its command a `HUP`, then a `DELETE` if it still runs.
+  The SSH user name is the sandbox's name in lower case (runs of other
+  characters `-`), `<name>.<n>` when several share it, or its id.
+  No port or agent forwarding, no X11, no sftp in v1.
+
+What it offers people and its page, route by route, is its `API.md`
+(`apps/sandbox-terminal/API.md` once imported).
 
 ## Building a manager
 

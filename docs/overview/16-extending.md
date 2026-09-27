@@ -142,7 +142,9 @@ contract: an `alwaysOn` adapter whose chat platform a coding agent adds
 ([agent-inbox.md](../agent-inbox.md)). The agent template also consumes
 `sandbox-manager`: any tile that implements that contract — over xbind's own
 sandboxes, or a cloud's API and ssh — gives agents coding sandboxes
-([sandbox-manager.md](../sandbox-manager.md)).) The pattern generalizes: a WireGuard
+([sandbox-manager.md](../sandbox-manager.md)), and the `sandbox-terminal`
+tile consumes the same contract to give people browser terminals and SSH
+onto the sandboxes shared with it.) The pattern generalizes: a WireGuard
 tile is `provides {net, lan-ingress}`; a mail gateway is an `http` service
 with per-account `instances`; a WAF is an ingress terminator.
 

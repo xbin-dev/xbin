@@ -414,4 +414,5 @@ async function agentSandbox(browser) {
   done();
 }
 
-module.exports = { agentSandbox };
+// the helpers the sandboxTerminal pass drives the same dialog with
+module.exports = { agentSandbox, openAgent, classRows, pickClass, openDialog, closeDialog, dialogRows, createInDialog };

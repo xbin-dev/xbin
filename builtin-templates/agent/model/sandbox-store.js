@@ -3,11 +3,11 @@
 // first needs it, again when asked), the next new chat's pick, and what a
 // view does — pick or bind a sandbox, change the working directory, detach,
 // create one (for the open conversation: bound there), start, stop,
-// archive, thaw, share with the team, delete — and a terminal onto one (its
-// manager's `tty`, where a view sets tty: the web's). The open conversation's
-// binding lives in its view's config: a `run` event that carries `sandbox`
-// updates it at once, and after a change of ours it is re-read. What the
-// controls show is model/sandboxes.js. No lit, no DOM, no dialogs: a view
+// archive, thaw, share with the team or a terminal tile, delete — and a
+// terminal onto one (its manager's `tty`, where a view sets tty: the web's).
+// The open conversation's binding lives in its view's config: a `run` event
+// that carries `sandbox` updates it at once, and after a change of ours it
+// is re-read. What the controls show is model/sandboxes.js. No lit, no DOM, no dialogs: a view
 // confirms a delete itself, then calls remove().
 //
 // Every change emits 'sandboxes' on the app. Calls throw as the backend
@@ -170,6 +170,24 @@ export function createSandboxStore(app) {
     // share: 'team' | 'private' (its owner).
     async share(ref, visibility) {
       put(await actions.patchSandbox(ref, { visibility }));
+      emit();
+    },
+    // shareForm: "Share with a terminal tile…" for ref (model/sandboxes.js
+    // shareForm) — f: what was entered so far ({tile}).
+    shareForm(ref, f = {}) { return S.shareForm(find(ref), app.me, f, (globalThis.xbin && globalThis.xbin.self) || ''); },
+    // shareTerminal shares ref with the terminal tile f.tile (its owner; the
+    // contract's PATCH {shares}), and says so.
+    async shareTerminal(ref, f = {}) {
+      const vm = sbx.shareForm(ref, f);
+      if (!vm.ok) throw new Error(S.sentence(vm.error));
+      put(await actions.patchSandbox(ref, vm.body));
+      emit();
+      const s = find(ref);
+      return `${(s && s.name) || S.splitRef(ref).id} is shared with ${vm.tile} — ${vm.users === '*' ? 'everyone who may use it' : 'you'} can open terminals onto it there ✓`;
+    },
+    // unshare takes consumer's share of ref away.
+    async unshare(ref, consumer) {
+      put(await actions.patchSandbox(ref, S.unshareBody(find(ref), consumer)));
       emit();
     },
     // perform: a Sandboxes row's action (model/sandboxes.js sandboxRows'

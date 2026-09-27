@@ -117,6 +117,53 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   manager's own request through: both bodies stream, a terminal WebSocket
   is tunnelled byte for byte, and the consumer's credentials and `X-XBin-*`
   headers are dropped. So most contract routes take one line. Additive.
+- **The `sandbox-terminal` builtin tile: terminals onto coding sandboxes,
+  for people — in the browser and over SSH** (`bx tile import
+  sandbox-terminal`; [sandbox-manager.md](sandbox-manager.md) §People's
+  terminals, and the tile's `API.md`). It is a consumer of the
+  sandbox-manager contract that creates no sandboxes. Bind it to one or more
+  managers (`bx bind apps/sandbox-terminal sandboxes=apps/<manager>`); a
+  sandbox shows up once it is shared with it (a share naming
+  `apps/sandbox-terminal`, for `"*"` or a list of people), and a person may
+  open it when they own it, are a member, or it is team.
+  - **Its page** lists the sandboxes you may use, grouped by manager, and
+    opens terminals onto them as tabs: the page dials the manager's `tty`
+    route itself (`<bx-terminal src>`, its frame token), so the manager
+    checks the verified person. Closing a tab leaves the shell running;
+    after a reload (or from another browser) the sandbox lists its running
+    terminals — the manager's tty execs labelled `terminal` — to attach
+    (the screen replays) or end (`DELETE` the exec). Its SSH panel: your
+    keys (add, remove, fingerprints), each sandbox's `ssh` command once SSH
+    is published, the host key; the tile's managers set the address people
+    type and see and revoke everyone's keys. Empty states say how a sandbox
+    gets there.
+  - **The native view** (the xbin app) lists the sandboxes, ends running
+    terminals and manages keys, but opens no terminal — the app's
+    `terminal` primitive dials only the tile's own routes — so it says so
+    and offers **Open in the browser** (the link is copied when the tile
+    holds no `cap:open-links`).
+  - **The agent template shares one**: its Sandboxes dialog (and the
+    app's Sandboxes screen) has **Share with a terminal tile…** on a
+    sandbox you own whose home is the agent — the tile's path
+    (`apps/sandbox-terminal` by default), for you, or for everyone who may
+    use it when it is a team sandbox (`PATCH /sandboxes/{ref} {shares}`);
+    the shares it has are listed there, each with Stop sharing.
+  - **SSH.** An admin publishes the port (`bx expose apps/sandbox-terminal
+    ssh=runtime --listen :2222`). People register their public keys with
+    the tile (`POST /keys` from its page; the tile's managers list and
+    revoke anyone's, and a revoke ends the key's live connections). Then
+    `ssh <sandbox>@host -p 2222`: the user name is the sandbox's name in
+    lower case (`<name>.<n>` when several share it, or its id), and an
+    unknown or ambiguous one lists the choices.
+  - **How a session runs.** With a terminal it is the manager's `tty`
+    route, with resize and the exit status. Without one (`ssh host cmd`) it
+    is an exec with stdin, where stdout and stderr arrive together. A
+    stopped sandbox starts; a client that leaves ends its command (`HUP`,
+    then a kill).
+  - **Not in v1:** port or agent forwarding, X11, sftp.
+  - Failed keys are rate-limited. The host key is kept in the tile's vault,
+    and `GET /me` shows its fingerprint.
+  - `bx tile import devbox`'s 410 now points at this tile.
 
 ## 2026-09-27
 

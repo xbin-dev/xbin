@@ -4,12 +4,12 @@
 // bar's ▣ badge (#sbxbadge) with its popover (#sbxpop: the working
 // directory, switching among the attached sandboxes, Detach, Manage…), and
 // the Sandboxes dialog (#sbxdlg: every sandbox you may see, with the
-// lifecycle actions your rights allow, and the create form), and a terminal
-// pane (#sbxterm: <bx-terminal src> on the sandbox's manager, opened from
-// the popover or a dialog row where the manager offers `tty`). What they say
-// is model/sandboxes.js, what they do model/sandbox-store.js (app.sbx); the
-// native view draws the same, the terminal aside (a D96 difference:
-// model/features.js).
+// lifecycle actions your rights allow, the create form, and sharing one with
+// a terminal tile: #sbx-share), and a terminal pane (#sbxterm: <bx-terminal
+// src> on the sandbox's manager, opened from the popover or a dialog row
+// where the manager offers `tty`). What they say is model/sandboxes.js,
+// what they do model/sandbox-store.js (app.sbx); the native view draws the
+// same, the terminal aside (a D96 difference: model/features.js).
 import { html, render, nothing, keyed } from '/vendor/lit-all.min.js';
 import * as S from './model/sandboxes.js';
 
@@ -24,7 +24,7 @@ const MANAGE = '+manage';
  */
 export function makeSandboxUI(app, { sel, dlg, repaint }) {
   const pop = { open: false, ref: '', cwd: '', err: '' }; // cwd: the field, for the sandbox ref
-  const dl = { form: null, err: '', msg: '', busy: '', bind: true, order: null }; // order: the rows as shown, kept while open
+  const dl = { form: null, share: null, err: '', msg: '', busy: '', bind: true, order: null }; // order: the rows as shown, kept while open; share: {ref, f}
   const draw = () => { if (dlg.open) render(dlgTpl(), dlg); };
   // The terminals: the page dials the managers itself (its frame token — the
   // manager sees the verified person), at the endpoints its `sandboxes` slot
@@ -128,6 +128,7 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
   // the list afresh from the managers.
   function open({ create = false } = {}) {
     dl.form = create ? {} : null;
+    dl.share = null;
     dl.err = ''; dl.msg = ''; dl.busy = ''; dl.bind = true;
     if (!dlg.open) { dl.order = null; dlg.showModal(); } // its rows sorted afresh when it opens, then kept
     draw();
@@ -137,6 +138,7 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
 
   async function act(r, a) {
     if (a.id === 'terminal') { dlg.close(); openTerm(app.sbx.terminal(r.ref, a.cwd)); return; }
+    if (a.id === 'shareTerm') { dl.share = { ref: r.ref, f: {} }; dl.form = null; dl.err = ''; dl.msg = ''; draw(); return; }
     if (a.confirm && !confirm(a.confirm)) return;
     dl.busy = r.ref; dl.err = ''; dl.msg = '';
     draw();
@@ -177,8 +179,8 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
         <div class="sbxlist" id="sbx-list">${rows.map((r) => rowTpl(r))}</div>
         ${L.loaded && !rows.length ? html`<div class="muted" id="sbx-empty">No sandboxes yet.</div>` : nothing}
         ${dl.msg ? html`<div class="muted" id="sbx-msg">${dl.msg}</div>` : nothing}
-        ${dl.err && !dl.form ? html`<div class="err" id="sbx-err">${dl.err}</div>` : nothing}
-        ${dl.form ? formTpl() : html`<div><button class="btn btnsm" id="sbx-new" ?disabled=${!!cant} title=${cant}
+        ${dl.err && !dl.form && !dl.share ? html`<div class="err" id="sbx-err">${dl.err}</div>` : nothing}
+        ${dl.share ? shareTpl() : dl.form ? formTpl() : html`<div><button class="btn btnsm" id="sbx-new" ?disabled=${!!cant} title=${cant}
           @click=${() => { dl.form = {}; dl.err = ''; dl.msg = ''; draw(); }}>＋ New sandbox</button>
           ${cant === S.VIEW_ONLY ? html`<span class="hint" id="sbx-new-why">${S.sentence(cant)}</span>` : nothing}</div>`}
       </div>`;
@@ -186,7 +188,8 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
 
   function rowTpl(r) {
     const facts = [r.manager, r.image, r.size, r.egressLabel, `owner: ${r.owner}`, r.lastLabel && `active ${r.lastLabel}`,
-      r.bound ? `in ${r.bound} conversation${r.bound === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
+      r.bound ? `in ${r.bound} conversation${r.bound === 1 ? '' : 's'}` : '', r.sharedWith.length ? `shared with ${r.sharedWith.join(', ')}` : '']
+      .filter(Boolean).join(' · ');
     // the name and its badges on the left; the actions one group on the
     // right, wrapping within itself (under it on a phone); the facts below
     return html`<div class="sbxrow ${r.active ? 'on' : ''}" data-ref=${r.ref}>
@@ -230,6 +233,40 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
       ${dl.err ? html`<div class="err" id="sbxf-err">${dl.err}</div>` : nothing}
       <div><button class="btn" id="sbxf-create" ?disabled=${dl.busy === 'create'} @click=${create}>${dl.busy === 'create' ? 'Creating…' : 'Create'}</button>
         <button class="btn ghost" id="sbxf-cancel" @click=${() => { dl.form = null; dl.err = ''; draw(); }}>Cancel</button></div>
+    </div>`;
+  }
+
+  // "Share with a terminal tile…": the tile's path, who it is for, the shares
+  // it has now (each can be stopped) — model/sandboxes.js shareForm.
+  function shareTpl() {
+    const { ref } = dl.share;
+    const row = app.sbx.list.sandboxes.find((x) => x.ref === ref);
+    const vm = app.sbx.shareForm(ref, dl.share.f);
+    const go = async () => {
+      dl.busy = 'share'; dl.err = ''; draw();
+      try { dl.msg = await app.sbx.shareTerminal(ref, dl.share.f); dl.share = null; } catch (e) { dl.err = e.message; }
+      dl.busy = ''; draw();
+    };
+    const stop = async (c) => {
+      if (!confirm(`Stop sharing “${(row && row.name) || ref}” with ${c.consumer}? Its terminals there can't be opened again.`)) return;
+      dl.busy = 'share'; dl.err = ''; draw();
+      try { await app.sbx.unshare(ref, c.consumer); } catch (e) { dl.err = e.message; }
+      dl.busy = ''; draw();
+    };
+    return html`<div class="sec sbxform" id="sbx-share" data-ref=${ref}><h4>Share “${(row && row.name) || S.splitRef(ref).id}” with a terminal tile</h4>
+      <div class="hint">A terminal tile — the builtin <span class="mono">sandbox-terminal</span> — gives people terminals onto it in the
+        browser and over SSH. It checks who may use the sandbox as well: a share never widens that.</div>
+      <div class="row2">
+        <div class="field"><label>The terminal tile's path</label><input id="sbxs-tile" class="mono" .value=${vm.tile}
+          placeholder=${S.TERMINAL_TILE} @input=${(e) => { dl.share.f = { tile: e.target.value }; draw(); }}></div>
+        <div class="field"><label>For</label><div class="muted" id="sbxs-who">${vm.usersLabel}</div></div>
+      </div>
+      ${vm.current.length ? html`<div class="field"><label>Shared with now</label>${vm.current.map((c) => html`<div class="sbxshr" data-consumer=${c.consumer}>
+        <span class="mono">${c.consumer}</span> <span class="muted">${c.usersLabel}</span>
+        <button class="btn ghost btnsm rm" data-unshare=${c.consumer} ?disabled=${!!dl.busy} @click=${() => stop(c)}>Stop sharing</button></div>`)}</div>` : nothing}
+      ${dl.err || (vm.error && vm.tile) ? html`<div class="err" id="sbxs-err">${dl.err || vm.error}</div>` : nothing}
+      <div><button class="btn" id="sbxs-share" ?disabled=${!vm.ok || !!dl.busy} @click=${go}>${dl.busy === 'share' ? 'Sharing…' : 'Share'}</button>
+        <button class="btn ghost" id="sbxs-cancel" @click=${() => { dl.share = null; dl.err = ''; draw(); }}>Cancel</button></div>
     </div>`;
   }
 

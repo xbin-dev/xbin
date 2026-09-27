@@ -115,6 +115,7 @@ export const IMPLEMENTS = {
   'tools.render.source': 'native/tools.js — renderTpl Source',
   'tools.sandboxes': 'native/sandboxes.js — listTpl: a row per sandbox, its actions (sandboxRows) behind swipe and ⋯, archive and delete confirmed',
   'tools.sandboxes.create': 'native/sandboxes.js — newTpl (createForm → app.sbx.create)',
+  'tools.sandboxes.shareTerminal': 'native/sandboxes.js — a row\'s Share with a terminal tile… (swipe or ⋯) pushes shareTpl: the path field, For, Share in the toolbar, Stop sharing behind a shared row\'s swipe (confirmed)',
 
   // Sharing
   'share.visibility': 'native/share.js',

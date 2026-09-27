@@ -176,6 +176,21 @@ api POST /bindings '{"component":"apps/webhooks","slot":"agents","provider":"app
 api POST /bindings '{"component":"apps/webhooks","slot":"hooks","provider":"runtime","host":"hooks.test"}'
 api PUT /access '{"tile":"apps/bridge","kind":"user","id":"dev1","level":"read"}'
 
+SSHA=${SBXTERM_SSH_ADDR:-127.0.0.1:8699}
+say "sandbox-terminal → apps/fakesbx, SSH on $SSHA (the sandboxTerminal pass)"
+# the builtin people's-terminals tile (D121): bound to the fake manager (the
+# binding grants it the manager's consumer role), its SSH expose published on
+# a host port, and the address people type set by its owner (the tile can't
+# see xbind's port binding). Without --isolate its backend listens on the
+# host's :2222 (the manifest's port) behind the relay.
+api POST /builtins/import '{"name":"sandbox-terminal"}' | head -c 300; echo
+api POST /bindings '{"component":"apps/sandbox-terminal","slot":"sandboxes","providers":["apps/fakesbx"]}'
+api POST /bindings "{\"component\":\"apps/sandbox-terminal\",\"slot\":\"ssh\",\"provider\":\"runtime\",\"listen\":\"$SSHA\"}"
+for _ in $(seq 1 180); do gw GET sandbox-terminal/me | grep '"listening":true' >/dev/null && break; sleep 1; done
+gw PUT sandbox-terminal/settings "{\"sshAddress\":\"$SSHA\"}"
+# dev1 may open it (read): nothing is shared with dev1 — the empty state
+api PUT /access '{"tile":"apps/sandbox-terminal","kind":"user","id":"dev1","level":"read"}'
+
 say "state"
 api GET /orgs | python3 -c 'import json,sys
 for o in json.load(sys.stdin)["orgs"]: print(o["id"], o.get("netSets"), o.get("resolvedNet"), "host" if o.get("netHost") else "")'

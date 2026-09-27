@@ -197,9 +197,9 @@ test('the dialog\'s rows: state, owner, the actions your rights allow', () => {
   const by = Object.fromEntries(rows.map((r) => [r.name, r]));
   const acts = (n) => by[n].actions.map((a) => a.id);
   assert.deepEqual(rows.map((r) => r.name).slice(-1), ['theirs'], 'yours first');
-  assert.deepEqual(acts('run'), ['stop', 'archive', 'team', 'delete'], 'the active one: no "use"');
-  assert.deepEqual(acts('stop'), ['use', 'start', 'archive', 'team', 'delete']);
-  assert.deepEqual(acts('arch'), ['use', 'thaw', 'team', 'delete']);
+  assert.deepEqual(acts('run'), ['stop', 'archive', 'team', 'shareTerm', 'delete'], 'the active one: no "use"');
+  assert.deepEqual(acts('stop'), ['use', 'start', 'archive', 'team', 'shareTerm', 'delete']);
+  assert.deepEqual(acts('arch'), ['use', 'thaw', 'team', 'shareTerm', 'delete']);
   assert.deepEqual(acts('theirs'), ['use', 'stop'], 'a team one: use it, start/stop it — not delete or share');
   assert.ok(!acts('noarch').includes('archive'), 'no archive capability: no archive');
   assert.equal(by.run.active, true);
@@ -580,4 +580,78 @@ test('the store: terminals only where a view set tty; ending one DELETEs its exe
   await app.sbx.endTerminal(t, '');
   await app.sbx.endTerminal({ ...t, base: '' }, 'e5');
   assert.equal(calls.filter((c) => c.method === 'DELETE').length, 3, 'nothing to end without an exec or a manager');
+});
+
+test('sharing with a terminal tile (D121): who may, for whom, the body; stop sharing', () => {
+  const mine = sb('mine', { shares: [{ consumer: 'apps/other', users: '*' }] });
+  const team = sb('team', { visibility: 'team', shares: [] });
+  const theirs = sb('theirs', { mine: false, owner: { user: 'bob' }, canEdit: false });
+  const passed = sb('passed', { shared: true }); // another consumer shared it with this agent
+  assert.deepEqual([mine, team, theirs, passed].map(S.canShareOut), [true, true, false, false]);
+  const acts = (s) => S.sandboxRows(list([s]), { user: 'alice' }, {})[0].actions.map((a) => a.id);
+  assert.ok(acts(mine).includes('shareTerm') && !acts(theirs).includes('shareTerm') && !acts(passed).includes('shareTerm'),
+    'offered only where you own it and this agent is its home');
+  assert.deepEqual(S.sandboxRows(list([mine]), { user: 'alice' }, {})[0].sharedWith, ['apps/other']);
+
+  // a private one: for you; the default tile path; the other shares kept
+  let vm = S.shareForm(mine, { user: 'alice' }, {}, 'apps/agent');
+  assert.deepEqual([vm.tile, vm.users, vm.usersLabel, vm.ok], [S.TERMINAL_TILE, ['alice'], 'you', true]);
+  assert.deepEqual(vm.body, { shares: [{ consumer: 'apps/other', users: '*' }, { consumer: 'apps/sandbox-terminal', users: ['alice'] }] });
+  assert.deepEqual(vm.current, [{ consumer: 'apps/other', users: '*', usersLabel: 'everyone who may use it' }]);
+  // one already shared with that tile for others: you join them; "*" stays "*"
+  const had = sb('had', { shares: [{ consumer: 'apps/sandbox-terminal', users: ['bob'] }] });
+  assert.deepEqual(S.shareForm(had, { user: 'alice' }).body.shares, [{ consumer: 'apps/sandbox-terminal', users: ['bob', 'alice'] }]);
+  assert.equal(S.shareForm(had, { user: 'alice' }).current[0].usersLabel, 'bob');
+  assert.equal(S.shareForm(sb('star', { shares: [{ consumer: 'apps/term', users: '*' }] }), { user: 'alice' }, { tile: 'apps/term' }).users, '*');
+  // a team one: everyone who may use it
+  vm = S.shareForm(team, { user: 'alice' }, { tile: ' apps/term/ ' });
+  assert.deepEqual([vm.tile, vm.users, vm.usersLabel], ['apps/term', '*', 'everyone who may use it (a team sandbox)']);
+  assert.deepEqual(vm.body, { shares: [{ consumer: 'apps/term', users: '*' }] });
+  // what is wrong
+  assert.match(S.shareForm(mine, { user: 'alice' }, { tile: '' }).error, /Name the terminal tile/);
+  assert.match(S.shareForm(mine, { user: 'alice' }, { tile: 'apps/../x' }).error, /path is like apps\/sandbox-terminal/);
+  assert.match(S.shareForm(mine, { user: 'alice' }, { tile: 'apps/x y' }).error, /path is like/);
+  assert.match(S.shareForm(mine, { user: 'alice' }, { tile: 'apps/agent' }, 'apps/agent').error, /That is this agent/);
+  assert.match(S.shareForm(theirs, { user: 'alice' }).error, /only its owner/);
+  assert.match(S.shareForm(passed, { user: 'alice' }).error, /only its home can share it on/);
+  assert.match(S.shareForm(null, { user: 'alice' }).error, /^gone/);
+  assert.match(S.shareForm(mine, {}).error, /Who you are/);
+  assert.deepEqual(S.unshareBody(mine, 'apps/other'), { shares: [] });
+  assert.deepEqual(S.unshareBody(sb('none'), 'apps/other'), { shares: [] });
+});
+
+test('the store: sharing with a terminal tile PATCHes the sandbox\'s shares (its owner)', async () => {
+  const calls = [];
+  const json = (v, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json' } });
+  let box = sb('api', { shares: [] });
+  const fake = async (url, opt = {}) => {
+    const u = String(url);
+    const method = opt.method || 'GET';
+    calls.push({ method, url: u, body: opt.body });
+    if (/\/sandboxes(\?fresh=1)?$/.test(u)) return json({ sandboxes: [box], managers: managers() });
+    if (method === 'PATCH' && u.includes('/sandboxes/')) { box = { ...box, ...JSON.parse(opt.body) }; return json(box); }
+    if (u.endsWith('/me')) return json({ kind: 'user', user: 'alice', manager: false });
+    if (u.endsWith('/classes')) return json({ default: 'coding', classes: [coding] });
+    if (u.includes('/stream')) return new Response(new ReadableStream({ start() {} }), { headers: { 'Content-Type': 'text/event-stream' } });
+    return json({});
+  };
+  globalThis.window = globalThis;
+  globalThis.xbin = { self: 'apps/agent', fetch: fake };
+  globalThis.fetch = fake;
+  const { createApp } = await import(new URL('model/app.js', TPL).href + '?share');
+  const app = createApp({ frame: (fn) => setTimeout(fn, 0) });
+  app.me = { user: 'alice' };
+  await app.sbx.load();
+  const ref = `${MGR}|api`;
+  assert.match(app.sbx.shareForm(ref, { tile: 'apps/agent' }).error, /That is this agent/, 'the agent knows its own path');
+  const said = await app.sbx.shareTerminal(ref, {});
+  assert.match(said, /^api is shared with apps\/sandbox-terminal — you can open terminals onto it there/);
+  const patch = calls.filter((c) => c.method === 'PATCH');
+  assert.deepEqual(patch.map((c) => [c.url, JSON.parse(c.body)]),
+    [[`/api/apps/agent/sandboxes/apps/coding-sandbox%7Capi`, { shares: [{ consumer: 'apps/sandbox-terminal', users: ['alice'] }] }]]);
+  assert.deepEqual(app.sbx.rows()[0].sharedWith, ['apps/sandbox-terminal'], 'the answer lands in the list');
+  await assert.rejects(app.sbx.shareTerminal(ref, { tile: '' }), /^Error: Name the terminal tile/);
+  await app.sbx.unshare(ref, 'apps/sandbox-terminal');
+  assert.deepEqual(JSON.parse(calls.filter((c) => c.method === 'PATCH').pop().body), { shares: [] });
+  assert.deepEqual(app.sbx.rows()[0].sharedWith, []);
 });
