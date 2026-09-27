@@ -12,6 +12,21 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-28
 
+- **New builtin template `coding-sandbox`: the sandbox manager's core**
+  (D122, [sandbox-manager.md](sandbox-manager.md); the template's `API.md`).
+  An instance serves the sandbox-manager contract, protocol 1, to the tiles
+  bound to it (`bx bind apps/agent sandboxes+=apps/coding-sandbox`). Each
+  consumer sees its own sandboxes and those shared with it, and people are
+  checked as the contract says. Images are the substrate's base plus a setup
+  script, built once and cloned; sizes and per-consumer and per-person quotas
+  are the operators' to set, and hello's limits say the effective ones. Its
+  sandboxes reach what its `internet` and `open` `sandbox-net` classes are
+  bound to, and `none` until then. Operators (the owner and people with
+  write access) get `/ops/*`: every sandbox's metadata, lifecycle, sharing
+  and the config, never a sandbox's contents. It passes the conformance
+  suite, `sdk/sandboxcontract`. Its backend on xbind's own runtime and its
+  pages come next: until then an instance answers `503 unavailable`, saying
+  that no backend is in its build.
 - **A sandbox's `/etc/resolv.conf` is written in place, never through a
   symlink.** When a terminal or backend with egress starts, xbind writes the
   relay's resolver into the sandbox's `/etc/resolv.conf`; a host-network

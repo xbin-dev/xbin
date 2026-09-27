@@ -262,6 +262,12 @@ In order:
    per-consumer and per-person access and quotas; a UI (sandboxes, create,
    lifecycle, snapshots, archive/thaw, files, a terminal, shares); a native
    view; `AGENTS.md` on adding a cloud/ssh backend; live isolated tests.
+   *Part 1 landed* (D122): the template, the contract layer (every route but
+   archive), the `Backend` seam in the SDK's shapes, the `fake` backend
+   (tests only), the sqlite table, images, quotas, hello, the operators'
+   `/ops/*`, and the conformance suite passing in its tests
+   (`hack/tile-check.sh coding-sandbox`). Next: the `xbin` backend, the UI
+   (web and native) and `AGENTS.md`.
 4. **`builtin-tiles/sandbox-terminal`**: browser terminals straight to the
    manager (the page's verified user), SSH ingress (a `stream` expose, keys
    registered per person, the user name is the sandbox) bridged to the

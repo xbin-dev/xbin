@@ -1,0 +1,80 @@
+<!doctype html>
+<!-- coding-sandbox: the manager's page — for its operators, the state of the
+     backend, what consumers are offered, and every sandbox's metadata (never
+     their contents). API.md is the whole API. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>coding sandboxes</title>
+  <link rel="stylesheet" href="/vendor/theme.css">
+  <style>
+    body { margin: 0; font: 13px/1.45 system-ui, sans-serif; color: var(--bx-text); background: var(--bx-bg, #1b1e24); }
+    main { max-width: 960px; margin: 0 auto; padding: 14px 16px 28px; }
+    h3 { margin: 0 0 6px; font-size: 15px; }
+    h4 { margin: 18px 0 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--bx-muted); }
+    .muted { color: var(--bx-muted); }
+    .err { color: var(--bx-red); margin: 6px 0; }
+    .note { margin: 6px 0; padding: 6px 10px; border-left: 3px solid var(--bx-accent); background: var(--bx-panel-2); }
+    code, .mono { font-family: var(--bx-mono, monospace); font-size: 12px; }
+    table { border-collapse: collapse; width: 100%; font-size: 12px; }
+    th { text-align: left; font-weight: 600; color: var(--bx-muted); padding: 3px 8px 3px 0; }
+    td { padding: 3px 8px 3px 0; border-top: 1px solid var(--bx-border); vertical-align: top; }
+  </style>
+</head>
+<body class="bx">
+<main id="app"></main>
+<script type="module">
+import { html, render, nothing } from 'lit';
+import { selfApi as api } from '/vendor/bx-kit.js';
+
+const app = document.getElementById('app');
+const mb = (n) => (n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(1)} GiB` : `${Math.round(n / (1 << 20))} MiB`);
+
+function view(me, st, err) {
+  if (err) return html`<h3>Coding sandboxes</h3><div class="err">${err}</div>`;
+  if (!me.operator) {
+    return html`<h3>Coding sandboxes</h3>
+      <p class="muted">A sandbox manager: tiles bound to it (the agent, sandbox-terminal) run their
+      sandboxes here. Its operators — people with write access to this tile — see its state.</p>`;
+  }
+  const o = st.offer;
+  return html`<h3>Coding sandboxes</h3>
+    <div class="muted">backend <code>${st.backend.name}</code>
+      ${st.backend.error ? html` — <span class="err">${st.backend.error}</span>` : nothing}</div>
+    ${st.runtimeError ? html`<div class="err">${st.runtimeError}</div>` : nothing}
+    ${o ? html`<h4>Offered to consumers</h4>
+      <div>caps <code>${o.caps.join(' ')}</code> · egress <code>${o.egress.join(' ')}</code>
+        · images <code>${o.images.join(' ')}</code> · sizes <code>${o.sizes.join(' ')}</code></div>
+      ${(o.notes || []).map((n) => html`<div class="note">${n}</div>`)}` : nothing}
+    <h4>Sandboxes (${st.sandboxes.length})</h4>
+    ${st.sandboxes.length ? html`<table>
+      <tr><th>id</th><th>name</th><th>consumer</th><th>owner</th><th>state</th><th>image</th><th>size</th><th>egress</th><th>disk</th></tr>
+      ${st.sandboxes.map((s) => html`<tr>
+        <td class="mono">${s.id}</td><td>${s.name}</td><td class="mono">${s.consumer}</td>
+        <td>${s.owner.user || html`<span class="muted">—</span>`}${s.owner.asserted ? html` <span class="muted">(asserted)</span>` : nothing}</td>
+        <td>${s.state}${s.stateDetail ? html`<div class="muted">${s.stateDetail}</div>` : nothing}</td>
+        <td>${s.image.id}</td><td>${s.size.id}</td><td>${s.egress}${s.egressNext ? ` → ${s.egressNext}` : ''}</td>
+        <td>${s.diskBytes ? mb(s.diskBytes) : ''}</td></tr>`)}
+    </table>` : html`<div class="muted">none yet — bind a consumer: <code>bx bind apps/agent sandboxes+=${me.self}</code></div>`}
+    ${st.images.length ? html`<h4>Built images</h4><table>
+      <tr><th>image</th><th>state</th><th>detail</th></tr>
+      ${st.images.map((i) => html`<tr><td>${i.id}</td><td>${i.state}</td><td class="muted">${i.detail || ''}</td></tr>`)}
+    </table>` : nothing}
+    ${st.orphans.length ? html`<h4>Orphans</h4><div class="muted">substrate sandboxes this manager doesn't know:
+      ${st.orphans.map((x) => html` <code>${x.name}</code>`)}</div>` : nothing}`;
+}
+
+async function load() {
+  try {
+    const me = await api('/me');
+    const st = me.operator ? await api('/ops/state') : null;
+    render(view(me, st), app);
+  } catch (e) {
+    render(view(null, null, String(e.message || e)), app);
+  }
+}
+load();
+setInterval(load, 10000);
+</script>
+</body>
+</html>
