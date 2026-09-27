@@ -7,17 +7,18 @@
  * never in the element.
  */
 import { launcherItems, openHistory, resumeHistory } from '/vendor/frame-launcher.js';
-import { deployTestApi } from '/vendor/frame-deploy.js';
+import { deployTestApi, hasLayout } from '/vendor/frame-deploy.js';
 
 // The layouts the window's layout switcher offers, in bar order: the values
 // open(layout) takes, one `.lyt` button each (frame-titlebar.js layoutGroup).
 // A pass compares the bar against this instead of a magic number; the change
-// that adds a layout button adds its name here.
+// that adds a layout button adds its name here. 'deployments' (⇈) is there
+// once the tile's deployments state has loaded (frame-deploy.js hasLayout).
 const LAYOUTS = ['term', 'code', 'split', 'logs', 'prs'];
 
 export function testApi(f) {
   return {
-    get layouts() { return [...LAYOUTS]; },
+    get layouts() { return hasLayout(f) ? [...LAYOUTS, 'deployments'] : [...LAYOUTS]; },
     get iframe() { return f._iframe; },
     get hovered() { return f.hovered; },
     setHover(v) { f._hover = !!v; },
@@ -33,7 +34,7 @@ export function testApi(f) {
     setPop(box) { f._setPopBox(box); f.requestUpdate(); f._popChanged(); },
     popElement: () => f.renderRoot.querySelector('.pop'),
     focusTerminal() { f.renderRoot.querySelector('bx-terminal')?.shadowRoot?.querySelector('textarea')?.focus(); },
-    get tabs() { return f._sessions.map((s) => ({ kind: s.kind || 'shell', id: s.id, name: s.name, provider: s.provider, status: s.status, ended: !!s.ended, history: s.history || null, resume: s.resume || null, net: s.net, api: s.api !== false, gpu: s.gpu, vm: !!s.vm, run: s.run || null })); },
+    get tabs() { return f._sessions.map((s) => ({ kind: s.kind || 'shell', id: s.id, name: s.name, provider: s.provider, status: s.status, ended: !!s.ended, history: s.history || null, resume: s.resume || null, net: s.net, api: s.api !== false, deployment: s.deployment || '', gpu: s.gpu, vm: !!s.vm, run: s.run || null })); },
     get history() { return f._history || []; }, openHistory(id) { const r = (f._history || []).find((x) => x.id === id); if (r) openHistory(f, r); }, resumeHistory(id) { const r = (f._history || []).find((x) => x.id === id); if (r) resumeHistory(f, r); },
     get activeTab() { return f._active; },
     setActiveTab(i) { f._setActive(i | 0); },

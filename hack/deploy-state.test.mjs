@@ -621,9 +621,9 @@ test('strings use the glossary\'s words', () => {
 // adding one is fine, renaming or dropping one breaks web/frame-deploy.js.
 test('the exports', () => {
   assert.deepEqual(Object.keys(ds).sort(), [
-    'GLYPH', 'LABEL', 'PANEL_OPS', 'REASON', 'ago', 'apiOptions', 'applyEvent', 'chip', 'chipItems', 'confirmation',
-    'conflict', 'control', 'defaultTarget', 'deployText', 'entry', 'frameChip', 'launcher', 'notice', 'offer',
-    'refusal', 'result', 'shared', 'toMenu', 'viewModel', 'who',
+    'GLYPH', 'LABEL', 'PANEL_OPS', 'REASON', 'ago', 'apiOptions', 'apiTitle', 'applyEvent', 'chip', 'chipItems', 'confirmation',
+    'conflict', 'control', 'defaultTarget', 'deployText', 'deploymentFrame', 'entry', 'frameChip', 'keepTargets', 'launcher',
+    'noTarget', 'notice', 'offer', 'refusal', 'result', 'sessionTarget', 'shared', 'targetChange', 'toMenu', 'viewModel', 'who',
   ]);
   assert.equal(entry(null), null);
 });
