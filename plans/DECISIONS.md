@@ -3592,6 +3592,7 @@ Deviations and refinements made while implementing; all deliberate:
     with no hint why or what to do.
   - Refusing to load the tile at all: its frontend and files are harmless
     and its owner needs them to port it.
+
 - **D118 — Hardening: trust never comes from a file a sandbox can write
   (2026-09-27).** Three defects a design review found
   (the dev-lifecycle threat model, 06-security.md §5.2 and its side
