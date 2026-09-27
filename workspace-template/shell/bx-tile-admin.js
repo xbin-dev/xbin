@@ -347,7 +347,8 @@ export class BxTileAdmin extends LitElement {
     const instances = d.instances ?? {};
     // Options: same kind/service/own filter as the admin Interfaces tab. Net
     // builtins are not a fixed list — the owning org's network sets decide
-    // (org / none / "not covered"), via bx-netrules (D54).
+    // (org / none / "not covered"), via bx-netrules (D54); sandbox-net
+    // classes take the server's sandboxNetOptions the same way.
     const org = (this._orgs ?? []).find((o) => (o.ownedTiles ?? []).includes(this.path)) ?? null;
     const optsFor = (def) => {
       const out = [];
@@ -395,22 +396,27 @@ export class BxTileAdmin extends LitElement {
         ${slots.map(([slot, def]) => {
           const bound = boundOf(slot);
           const opts = optsFor(def);
-          if (def.kind === 'net' && !def.multi) {
+          if ((def.kind === 'net' || def.kind === 'sandbox-net') && !def.multi) {
+            // a sandbox-net slot: a network class for this tile's sandboxes
+            // (not its own egress) — no host, no provider tiles, unbound = none
+            const sandbox = def.kind === 'sandbox-net';
             const pend = (d.pending ?? []).find((p) => p.component === this.path && p.slot === slot);
-            const nopts = netOptions({ org, providers: opts, pending: pend, options: d.netOptions?.[this.path] });
+            const nopts = sandbox
+              ? netOptions({ org, pending: pend, options: d.sandboxNetOptions?.[this.path], sandbox })
+              : netOptions({ org, providers: opts, pending: pend, options: d.netOptions?.[this.path] });
             const cur = bound[0] ?? '';
             const known = nopts.some((o) => o.id === cur);
             const inert = d.inert?.[this.path]?.[slot];
             if (!mayBind) {
               const shown = nopts.find((o) => o.id === cur);
-              return html`<tr>
-                <td class="ref" title=${slot}>${slot} <span class="pill">net</span>
+              return html`<tr data-kind=${def.kind}>
+                <td class="ref" title=${slot}>${slot} <span class="pill">${def.kind}</span>
                   ${inert ? html`<span class="pill off" title=${inert}>inert</span>` : nothing}</td>
                 <td class="ctl" style="width:62%"><span class="mono" title=${shown?.title ?? cur}>${shown?.label ?? cur ?? '— unbound —'}</span>
                   ${inert ? html`<div class="err" style="font-size:10.5px">${inert}</div>` : nothing}</td></tr>`;
             }
-            return html`<tr>
-              <td class="ref" title=${slot}>${slot} <span class="pill">net</span>
+            return html`<tr data-kind=${def.kind}>
+              <td class="ref" title=${slot}>${slot} <span class="pill">${def.kind}</span>
                 ${inert ? html`<span class="pill off" title=${inert}>inert</span>` : nothing}</td>
               <td class="ctl" style="width:62%">
                 <select title=${cur || 'unbound'} @change=${(e) => {

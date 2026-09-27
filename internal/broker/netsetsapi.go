@@ -2,7 +2,9 @@ package broker
 
 import (
 	"log/slog"
+	"maps"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -116,17 +118,23 @@ func (b *Broker) apiNetSetDelete(w http.ResponseWriter, r *http.Request) {
 // personal tiles of every user holding it (all of them when the personal
 // defaults do), and holders names more directly — "user:<id>" or
 // "personal-defaults" — after an attachment change.
+//
+// Sandbox network classes (§4 of plans/tile-sandbox-runtime.md) follow the
+// same sets but restart nothing: the tiles with a class bound to the set,
+// or owned by an attached org or a holder, get OnSandboxNetChange instead.
 func (b *Broker) netSetsChanged(set string, orgs []string, holders ...string) {
 	if b.Users == nil {
 		return
 	}
 	tiles := map[string]bool{}
 	providers := map[string]bool{}
+	sbx := map[string]bool{} // tiles with sandbox-net classes to re-resolve
 	note := func(tile string) {
 		c, ok := b.Reg.Component(tile)
 		if !ok {
 			return
 		}
+		sbx[tile] = sbx[tile] || len(sandboxNetSlots(c)) > 0
 		for slot, req := range c.Manifest.Interfaces {
 			if req.Kind != "net" {
 				continue
@@ -141,8 +149,12 @@ func (b *Broker) netSetsChanged(set string, orgs []string, holders ...string) {
 		}
 	}
 	if set != "" {
-		for _, tile := range b.netSetBoundTiles(set) {
+		net, classes := b.netSetBoundBy(set)
+		for _, tile := range net {
 			note(tile)
+		}
+		for _, tile := range classes {
+			sbx[tile] = true
 		}
 	}
 	for _, org := range orgs {
@@ -183,6 +195,15 @@ func (b *Broker) netSetsChanged(set string, orgs []string, holders ...string) {
 		}
 		b.Hub.Publish(events.Event{Type: "grants", Component: t})
 	}
+	for _, t := range slices.Sorted(maps.Keys(sbx)) {
+		if !sbx[t] {
+			continue
+		}
+		b.sandboxNetChanged(t)
+		if !slices.Contains(all, t) {
+			b.Hub.Publish(events.Event{Type: "grants", Component: t})
+		}
+	}
 }
 
 // NetLabel describes a component's effective network for the console and
@@ -196,14 +217,17 @@ type NetLabel struct {
 	Note      string   `json:"netNote,omitempty"`   // inert reason
 }
 
-// netIfaceSlot returns the component's net interface slot name, if any.
+// netIfaceSlot returns the component's net interface slot name, if any —
+// the name-sorted first when a manifest declares several, so every resolution
+// (egress, labels, inert notes) picks the same one. It used to be map order.
 func netIfaceSlot(c *registry.Component) (string, bool) {
+	best, found := "", false
 	for slot, req := range c.Manifest.Interfaces {
-		if req.Kind == "net" {
-			return slot, true
+		if req.Kind == "net" && (!found || slot < best) {
+			best, found = slot, true
 		}
 	}
-	return "", false
+	return best, found
 }
 
 func (b *Broker) NetLabel(comp string) NetLabel {

@@ -683,7 +683,8 @@ slot of a new kind** that the manager declares and an approver binds:
   ```go
   relay.Config{TunFD: fd, Allow: pol.Allow /* never nil */,
       Resolver: HostResolver() /* "" when pol.Empty() */, DNSRefuse: pol.Empty(),
-      Gateway: 10.0.2.2 /* no HostFwd: a dead end */, Deny: relay.HostDeny(xbindListen)}
+      Gateway: 10.0.2.2 /* no HostFwd: a dead end */, Deny: relay.HostDeny(xbindListen),
+      Processors: 1 /* §14 */}
   ```
 
   plus `AllowHost` only when the policy has host rules. There is no
@@ -1624,6 +1625,46 @@ next to its vforking `os.StartProcess`.
   - a table test for `Reach`;
   - the existing relay and pin tests stay green.
 - **Parallel:** fully.
+- **As built** (branch `p2/relay-net`):
+  - `relay.Deny` is `func(netip.Addr) bool`, checked first in `handleTCP`
+    (before the gateway forwards and the hairpin, so a relay with `Deny` has
+    neither), in `permitted` (so UDP and pinned hosts) and in ICMP. The
+    relay's own DNS service isn't a flow to the queried address: `:53` is
+    answered (`DNSRefuse`) or forwarded to `Resolver` before `Deny`.
+  - `HostDeny(listen ...netip.AddrPort)` denies whole addresses (listen
+    ports are ignored). It reads the host's addresses from the **local
+    routing table** (Linux: every interface address plus AnyIP ranges;
+    elsewhere `net.InterfaceAddrs`) and **re-reads them at most every 5 s**
+    instead of once at start, so a VPN or bridge that comes up later is
+    denied too. Until a read succeeds, it denies everything. IPv4-mapped
+    destinations are judged unmapped.
+  - `DNSRefuse` answers every UDP `:53` query REFUSED locally (question
+    echoed), records the flow as denied, and caps the answerers at 64.
+  - `relay.Config.Processors` sets gVisor's packet processors (0 = one per
+    CPU, today's default for every existing relay). §14's saving is opt-in:
+    tile sandboxes pass `Processors: 1` (added to §4's config).
+  - `EgressPolicy.Reach()` returns `sandbox.ReachNone|ReachInternet|
+    ReachOpen`. A prefix is "wholly public" when it overlaps none of the
+    ranges `isPublic` refuses (tested /16 by /16 against it).
+  - Found on the way and fixed:
+    - `isPublic`/`publicAddr` didn't unmap before `IsUnspecified`, so the
+      `net:internet` policy admitted `::ffff:0.0.0.0` (a dial to it reaches
+      the host). gVisor drops IPv4-mapped destinations, so it wasn't
+      reachable: defense in depth, no changelog entry. `Reach` needs the
+      policy to be exact anyway.
+    - `Relay.Close` never stopped the TUN's reader and its per-CPU
+      processors. They leaked until the TUN died and could read whatever
+      file reused the fd number. `Close` now stops them before it returns
+      and is idempotent, and a ping reply that lands after it no longer
+      writes to the closed fd's number.
+    - The forwarders are installed before the NIC starts reading: a packet
+      already queued on the TUN raced them.
+  - Tests: `relay/hardening_linux_test.go` drives a real gVisor stack over a
+    SEQPACKET socketpair with vetted dials (no privileges);
+    `sandbox/relay_linux_test.go` (integration) runs a namespace sandbox
+    behind an allow-all relay: without `Deny` it reaches the host's address
+    and the gateway forward, with `HostDeny` + `DNSRefuse` both are reset
+    and a lookup fails at once.
 
 ### WP-11 — The `sandbox-net` interface kind (Track C · M · after WP-10)
 
@@ -1653,6 +1694,46 @@ next to its vforking `os.StartProcess`.
     deterministic `net` pick.
   - Harness: the bindings pass renders a sandbox-net row.
 - **Parallel:** with WP-12.
+- **As built** (branch `p2/relay-net`):
+  - `registry.KindSandboxNet`, `ValidSandboxNetSlot` and `ValidateInterfaces`
+    (at load, after `ValidateExposes`): a sandbox-net slot is request-side,
+    takes no `multi`/`service`/`role`/`instances`, and is named
+    `[a-z0-9][a-z0-9_-]{0,31}` (it is spelled `class:<slot>`). A bad one is a
+    `ManifestErr`, is no class, and refuses binding.
+  - `broker/sandboxnet.go`: `SandboxNet{Class, Slot, Ref, Reach, Rules, Note,
+    Policy}`, `SandboxNetClasses(tile)` (none first, then slots by name),
+    `SandboxEgress(tile, "" | "none" | "class:<slot>")` (an error when the
+    selector names no class of the tile), `OnSandboxNetChange` (a `Broker`
+    field; boot wiring waits for the runtime, WP-15). The net case of
+    `validateBinding` moved into `validateNetRef`, shared by both kinds with
+    net's messages unchanged, so `netfn.go` shrank (1131 → 1099; its budget
+    line is left alone to spare merges).
+  - **Host inside a network.** Binding a set that says host is refused (as
+    planned). An `org` or `personal` network whose rules include host is
+    allowed: the class gets the other rules and a `note` says so (a host-only
+    one is inert). The picker labels them.
+  - Inert classes show in the bindings answer's `inert` by slot; `bx doctor`
+    words them as sandbox classes.
+  - `OnSandboxNetChange` fires on bind/unbind (which then skips every
+    `OnGrantChange`), on a set edit (tiles with a class bound to it), on an
+    org attachment (the org's tiles with classes), on a personal holder change
+    (personal defaults included) and on a transfer. A D20 policy-row edit fires
+    nothing, as for net slots: the runtime resolves at every start (WP-15b may
+    also reconcile on the hub's `users` events).
+  - **Added for WP-15b:** `sandbox.EgressPolicy.Covers(q)` is §4's superset
+    test: each rule of the old policy inside one rule of the new (an internet
+    rule covers host rules and wholly public prefixes; ports must match). It
+    is conservative, and a randomized test checks it against `Allow`.
+  - UI: `netOptions({…, sandbox: true})` in `web/bx-netrules.js` (unbound =
+    "no network", no host, no providers, a set that says host greyed) feeds
+    `_netBindRow` and the tile popover (`tr[data-kind=sandbox-net]`);
+    `hack/netrules.test.mjs` pins it. The harness pass `sandboxNet`
+    (`passes/sandboxnet.js`) creates its own manager tile, so the seed is
+    unchanged, and leaves both classes bound to `none`.
+  - Docs also cover `docs/overview/11-interfaces.md` and `12-egress.md`. The
+    runtime-side sentences there and in `isolation.md` (a narrowed class stops
+    the sandbox, a widened one waits for the next start, the relay config)
+    describe WP-15a/15b.
 
 ### WP-12 — `internal/termwire` (Track C · M)
 

@@ -330,6 +330,34 @@ authorization — a component can never self-bind). Providers include:
   egress, so binding one to another **chains** them
   (client → firewall → VPN → internet) purely from the binding graph, no code.
 
+**Networks for a manager's sandboxes (`sandbox-net`).** A tile that runs
+sandboxes for others (a sandbox manager, [sandbox-manager.md](/docs/sandbox-manager.md))
+shouldn't need the internet on its own backend just because its sandboxes
+do. So it declares one request-side slot per *class* of network its
+sandboxes may use — `"interfaces": {"internet": {"kind": "sandbox-net"}}` —
+and an approver binds each class like a `net` slot, with the same rights
+(workspace admin; an org admin within the org's allowance, D26; a personal
+tile's owner within theirs, D88), the same deny row (D20) and, on org-owned
+tiles, the same ceiling: every ref inside the org's network sets (D54).
+
+- A class takes `none`, `internet`, `internet:<host|ip|cidr>[:port][,…]`,
+  `lan:<cidr>`, `org`, `personal` or `set:<name>` (a workspace-admin act,
+  D65). Never `host`, a provider tile, or a set that says `host`: a sandbox
+  gets no host networking and has no route to the host or to xbind at all.
+  When `org` or `personal` resolves to rules that include `host`, the class
+  keeps the other rules and says so.
+- **Unbound is `none`.** A class has no org or personal default: it never
+  quietly gets the org's network.
+- A sandbox selects `none` or `class:<slot>`; the class is resolved again
+  at each start, through the same relay as a backend's egress. A class
+  whose binding resolves to nothing (a set deleted or narrowed, a
+  transfer) is listed as inert in `GET /api/xbin/bindings`, like a `net`
+  slot.
+- A class is **not the tile's own egress**: its `net` slot stays separate,
+  and binding, unbinding or re-binding a class restarts nothing. A running
+  sandbox whose class narrows is stopped with its state kept; one whose
+  class widens gets the wider network at its next start.
+
 The full interface model (request / provide / bind, plus `http` service
 contracts and the `@archive` slot used by backups) lives in
 [protocol.md](/docs/protocol.md); the design rationale is in

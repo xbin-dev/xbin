@@ -156,7 +156,7 @@ func (b *Broker) personalNetDefault(comp string) bool {
 // personalDeadReason: a `personal` net binding means nothing once the tile
 // moves to an owner without a personal network (transfer preview, D39).
 func (b *Broker) personalDeadReason(c *registry.Component, slot string, binding registry.Binding, to string) string {
-	if iface, ok := c.Manifest.Interfaces[slot]; !ok || iface.Kind != "net" || binding.First() != NetRefPersonal {
+	if iface, ok := c.Manifest.Interfaces[slot]; !ok || !netKind(iface.Kind) || binding.First() != NetRefPersonal {
 		return ""
 	}
 	if id, isUser := strings.CutPrefix(to, users.OwnerKindUser+":"); isUser {

@@ -221,6 +221,31 @@ the console warns; keep it for an infra org). Set or attachment edits restart th
 affected org tiles. Personal and workspace tiles are untouched; `deny net` still
 wins. Details: [docs/auth.md §Network sets](/docs/auth.md).
 
+## Sandbox network classes (`sandbox-net`, D120)
+
+A sandbox manager ([/docs/sandbox-manager.md](/docs/sandbox-manager.md)) runs
+sandboxes for other tiles; they need networks its own backend shouldn't hold. So the
+manager declares request-side `sandbox-net` slots — one per **class** of network —
+and an approver binds each one like `net`: D20's deny row, D26 org admins within the
+allowance, D54's org-set ceiling, D65 (`set:<name>` is a workspace-admin act) and D88
+owner self-approval all apply, and a class that resolves to nothing is **inert** with
+the reason, like a `net` slot.
+
+- **Relay builtins only**: `none`, `internet`, `internet:<spec>[,…]`, `lan:<cidr>`,
+  `org`, `personal`, `set:<name>`. No `host`, no provider tiles, no set that says
+  `host`: a sandbox never shares the host netns, splices through a tile, or reaches
+  the host itself (its relay denies the host's addresses outright). An `org` or
+  `personal` network whose rules include `host` gives the class the other rules.
+- **Unbound is `none`** — no D54/D88 default, so a class never quietly gets the org's
+  reach. Under `none` the relay answers DNS with REFUSED and resets TCP at once.
+- **A sandbox selects** `none` or `class:<slot>`; its relay runs under the class's
+  policy, resolved at each start. The class's **reach** — `none`, `internet` (every
+  rule on the public internet) or `open` — is what a manager reports to its
+  consumers.
+- **No restarts**: (un)binding a class, or editing a network set it resolves through,
+  restarts nothing. A running sandbox whose class narrows is stopped (its state
+  kept); one whose class widens takes the wider network at its next start.
+
 ## Where you see it
 
 | surface | shows |

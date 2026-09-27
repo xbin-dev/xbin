@@ -1625,7 +1625,10 @@ GET    /bindings                   admin; signed-in users get a scoped view
                                                         listen?}],
                                               options: [{id, label}]}],
                                     inert: {comp: {slot: reason}},
-                                    approvable: {comp: true}}.
+                                    approvable: {comp: true},
+                                    netOptions: {comp: [{id, label, blocked?}]},
+                                    sandboxNetOptions: {comp: [{id, label,
+                                                                blocked?}]}}.
                                    `exposes` is every exposed endpoint in
                                    view, bound or not, with ALL its routes —
                                    an endpoint takes many (D79) — and the
@@ -1672,7 +1675,18 @@ GET    /bindings                   admin; signed-in users get a scoped view
                                    say "not covered". `netOptions` maps
                                    every visible net slot's component to
                                    its full option list, bound or not (the
-                                   re-bind pickers read it)
+                                   re-bind pickers read it).
+                                   `sandboxNetOptions` does the same for
+                                   components with sandbox-net slots — a
+                                   sandbox manager's network classes
+                                   (docs/isolation.md §Network egress):
+                                   one list per component (every class of
+                                   a tile offers the same), never host or
+                                   a provider tile; a set that says host
+                                   is blocked. Their pending rows carry no
+                                   default (an unbound class is none), and
+                                   a class whose binding resolves to no
+                                   network is listed in `inert` by slot
 POST   /bindings                   admin; an org admin within D26 (their
                                    org owns the component; targets
                                    intra-org or allowance-covered — the
@@ -1708,6 +1722,15 @@ POST   /bindings                   admin; an org admin within D26 (their
                                    Owner-only (agents can't self-bind).
                                    Restarts the component (+ a net provider whose
                                    roster changed) so wiring takes effect at once.
+                                   A sandbox-net slot (a sandbox manager's
+                                   network class) takes one of none,
+                                   internet, internet:<spec>, lan:<cidr>,
+                                   org, personal, set:<name> — host, a
+                                   provider tile, a set that says host and
+                                   #instance are 400 — under the same
+                                   approval rules and ceilings as net; its
+                                   (un)binding restarts nothing (the running
+                                   sandboxes of that class re-resolve it).
                                    For an EXPOSED endpoint slot (docs/ingress.md)
                                    the body also carries the route config:
                                    {host} or {zone} (http; source "runtime" or a

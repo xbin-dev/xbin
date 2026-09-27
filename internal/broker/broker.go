@@ -85,6 +85,12 @@ type Broker struct {
 	// cap:sandboxes (D120). Called on the request goroutine and possibly
 	// repeated — return promptly and be idempotent.
 	OnCapChange func(tile, capTarget string, held bool)
+	// OnSandboxNetChange, if set, is called with a tile whose sandbox-net
+	// classes may resolve differently now — a bind or unbind of one, a
+	// network-set edit or attachment, a transfer (sandboxnet.go). The tile
+	// sandbox runtime re-resolves each running sandbox's class; the tile's
+	// own backend is never restarted for it.
+	OnSandboxNetChange func(tile string)
 
 	// OnUserSignedOut, if set, is called after a user was signed out
 	// everywhere — by an admin, by disabling the account, or by deleting it

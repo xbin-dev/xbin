@@ -8,6 +8,15 @@ import (
 // Allow decides whether a flow to (ip, port) may leave. Called per new flow.
 type Allow func(ip netip.Addr, port int) bool
 
+// Deny names destinations a sandbox may never reach, whatever Allow or a DNS
+// pin says: the host itself (HostDeny). The relay checks it before any other
+// decision — TCP (the gateway forwards and the hairpin included), UDP, ICMP
+// and flows to DNS-pinned hosts — so a relay with Deny has no gateway
+// services. The relay's own DNS service is not a flow to the address a query
+// was sent to (it answers locally or forwards to Config.Resolver), so Deny
+// doesn't apply to it.
+type Deny func(ip netip.Addr) bool
+
 // HairpinIP is the virtual address split-horizon DNS answers for PUBLISHED
 // hostnames (plans/ingress.md ING-6): a tile that hardcodes its public name
 // connects here, and the relay short-circuits the flow to the ingress path —
@@ -18,7 +27,19 @@ const HairpinIP = "10.0.2.4"
 // Config configures a relay (see Start).
 type Config struct {
 	TunFD int
-	Allow Allow // egress policy for IP destinations
+	Allow Allow // egress policy for IP destinations; nil = none
+	// Deny is checked before everything else (see Deny); nil = nothing is
+	// denied beyond what Allow refuses.
+	Deny Deny
+	// DNSRefuse answers every DNS query (UDP :53) with REFUSED at once
+	// instead of forwarding it to Resolver: for a policy that grants
+	// nothing, so a lookup fails fast and DNS is no exfiltration channel.
+	DNSRefuse bool
+	// Processors is how many goroutines process the TUN's inbound packets;
+	// 0 = gVisor's default, one per CPU. Every relay pays for them, so a
+	// relay per sandbox passes 1.
+	Processors int
+
 	// AllowHost enables DNS-pinned HOSTNAME egress (D35): when set, the
 	// relay inspects the DNS responses it forwards and records name→address
 	// pins; a flow to a pinned PUBLIC address is admitted when AllowHost
@@ -27,7 +48,7 @@ type Config struct {
 	// pinned (a hostname rule is internet-class, so DNS rebinding can't
 	// steer a tile into the LAN).
 	AllowHost func(name string, port int) bool
-	Resolver  string         // host DNS server for :53 ("" = no DNS forwarding)
+	Resolver  string         // host DNS server for :53 ("" = no DNS forwarding; DNSRefuse wins)
 	Gateway   netip.Addr     // virtual gateway IP (10.0.2.2); host-forwards apply here
 	HostFwd   map[int]string // gateway port → host dial address, policy-exempt
 	// HostDial, when set, dials HostFwd targets (so values may be "unix:<path>"

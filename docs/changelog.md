@@ -68,6 +68,20 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   after the tile's terminal sessions are closed (it used to be merged into
   the live layer); a VM terminal's disk stays. Archives are unchanged, byte
   for byte.
+- **Network classes for a sandbox manager's sandboxes: the `sandbox-net`
+  interface kind** ([isolation.md §Network egress](isolation.md), D120). A tile
+  declares `"interfaces": {"<class>": {"kind": "sandbox-net"}}`, one request-side
+  slot per class of network its sandboxes may use, and an approver binds each
+  like a `net` slot, under the same rights and ceilings (D20, D26, D54, D65,
+  D88), to `none`, `internet`, `internet:<spec>`, `lan:<cidr>`, `org`,
+  `personal` or `set:<name>`. `host`, provider tiles, sets that say `host` and
+  `#instance` are refused. An unbound class is `none`: there is no org or
+  personal default. Binding a class restarts nothing, and the tile's own `net`
+  slot is unaffected. `GET /bindings` adds `sandboxNetOptions` (the option
+  list per component) and lists inert classes in `inert`. The admin console's
+  binding tab, the tile popover and `bx doctor` show the classes. Also: a tile
+  that declares two `net` slots now resolves the name-sorted first every time,
+  instead of whichever map order gave.
 
 ## 2026-09-27
 

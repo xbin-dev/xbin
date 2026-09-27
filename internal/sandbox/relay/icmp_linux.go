@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"sync"
 	"time"
 
 	"golang.org/x/net/icmp"
@@ -38,6 +39,9 @@ type icmpTap struct {
 	disp stack.NetworkDispatcher
 	wfd  int // dup of the TUN fd, for writing echo replies toward the guest
 	sem  chan struct{}
+
+	wmu    sync.Mutex // orders reply writes against close
+	closed bool       // wfd is closed: a late reply must not write to its reused number
 }
 
 func newICMPTap(inner stack.LinkEndpoint, tunFD int, r *Relay) (*icmpTap, error) {
@@ -48,7 +52,23 @@ func newICMPTap(inner stack.LinkEndpoint, tunFD int, r *Relay) (*icmpTap, error)
 	return &icmpTap{LinkEndpoint: inner, r: r, wfd: wfd, sem: make(chan struct{}, icmpInFlight)}, nil
 }
 
-func (t *icmpTap) close() { unix.Close(t.wfd) }
+func (t *icmpTap) close() {
+	t.wmu.Lock()
+	defer t.wmu.Unlock()
+	if !t.closed {
+		t.closed = true
+		unix.Close(t.wfd)
+	}
+}
+
+// reply writes an echo reply toward the guest, unless the relay has closed.
+func (t *icmpTap) reply(pkt []byte) {
+	t.wmu.Lock()
+	defer t.wmu.Unlock()
+	if !t.closed {
+		_, _ = unix.Write(t.wfd, pkt)
+	}
+}
 
 // Attach interposes ourselves as the dispatcher so we see inbound packets.
 func (t *icmpTap) Attach(disp stack.NetworkDispatcher) {
@@ -95,7 +115,7 @@ func (t *icmpTap) forwardEcho(ip header.IPv4, ic header.ICMPv4) {
 	id, seq, ttl := ic.Ident(), ic.Sequence(), ip.TTL()
 	payload := append([]byte(nil), ic.Payload()...)
 
-	if !t.r.allow(dst, 0) {
+	if t.r.blocked(dst) || t.r.allow == nil || !t.r.allow(dst, 0) {
 		t.r.record("icmp", dst, 0, false)
 		return
 	}
@@ -109,7 +129,7 @@ func (t *icmpTap) forwardEcho(ip header.IPv4, ic header.ICMPv4) {
 		defer func() { <-t.sem }()
 		ok := hostPing(dst, payload, ttl)
 		if ok {
-			_, _ = unix.Write(t.wfd, buildEchoReply(dst, src, id, seq, payload))
+			t.reply(buildEchoReply(dst, src, id, seq, payload))
 			t.r.finish(f, int64(len(payload)), int64(len(payload)))
 		} else {
 			t.r.finish(f, int64(len(payload)), 0)

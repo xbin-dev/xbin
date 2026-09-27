@@ -70,6 +70,7 @@ It gets its own chapter: [13-ingress.md](13-ingress.md).
 | `http`        | request + provide | a service URL injected into the requester; the binding is also the call grant | below |
 | `stream`      | request         | a raw TCP address for a sibling's exposed port | below |
 | `lan-ingress` | request + provide | an inbound link leg into a router tile's subnet (**ING-6**) | below + [13-ingress.md](13-ingress.md) |
+| `sandbox-net` | request         | a class of network for the sandboxes a manager tile runs — not its own egress | below + [12-egress.md](12-egress.md) |
 | `ingress`     | provide only    | marks a tile as an HTTP ingress terminator | [13-ingress.md](13-ingress.md) |
 | `gpu`, `resource` | — | declared in the model, still delivered as `gpu:*` / `res:*` **grants** today (**IFACE-4/5**); they fold into bindings later | [06-authorization.md](06-authorization.md), [10-resources.md](10-resources.md) |
 
@@ -163,6 +164,22 @@ provider terminates (a VPN, say) routes straight to the tile. It is an L3 link �
 provider can reach *all* of the tile's ports and is trusted to filter. Details ride
 with the ingress plane: [13-ingress.md](13-ingress.md).
 
+### `sandbox-net` — networks for a manager's sandboxes
+
+```jsonc
+"interfaces": { "internet": { "kind": "sandbox-net" },   // bx bind apps/mgr internet=internet
+                "lab":      { "kind": "sandbox-net" } }  // an operator binds lan:<cidr> / set:<name>
+```
+
+A sandbox manager's sandboxes need networks its own backend shouldn't hold (D120).
+Each `sandbox-net` slot is one **class**; a sandbox selects `none` or `class:<slot>`.
+It binds like `net` — same approvers, same D20/D54 ceilings — but only to the
+builtins that go through the relay: `none`, `internet[:<spec>]`, `lan:<cidr>`, `org`,
+`personal`, `set:<name>`. `host`, provider tiles and sets that say `host` are refused.
+Unbound is `none` (no org or personal default), and (re)binding restarts nothing: the
+runtime re-resolves the class for the running sandboxes. Details:
+[12-egress.md](12-egress.md).
+
 ## Binding mechanics
 
 **Storage.** Bindings live in the workspace `xbin.json` (machine-managed, owner-plane):
@@ -196,11 +213,13 @@ evaluation, so a hand-edited manifest can't out-run policy):
 | provider must offer a matching provide (`net` ⇒ provides net or a builtin id; `http` ⇒ same `service`; `lan-ingress` ⇒ provides lan-ingress) | by kind |
 | `#instance` refs only against instances-provides with that id registered; bare refs rejected where the provide declares instances; `net`/`lan-ingress` take no `#instance` | http/stream |
 | `stream` refs must name `provider#expose-slot`, target tcp; policy `mayCall` must cover the provider | stream |
-| policy ceiling: a `net` deny refuses net/lan-ingress binds; an `ingress` deny refuses expose binds — with the blocking row named | net, exposes |
+| policy ceiling: a `net` deny refuses net/lan-ingress/sandbox-net binds; an `ingress` deny refuses expose binds — with the blocking row named | net, exposes |
+| `sandbox-net` refs are relay builtins only — no `host`, provider tile, host-bearing set or `#instance` | sandbox-net |
 | expose slots: hostname authority, listen address, and conflict rules | [13-ingress.md](13-ingress.md) |
 
 **Rebinding restarts.** Interface wiring is materialized at spawn (env vars, TUNs,
-splices), so a bind/unbind/rebind restarts the requester's backend — and the old and new
+splices), so a bind/unbind/rebind restarts the requester's backend (except a
+`sandbox-net` class, which the requester's backend never uses) — and the old and new
 *providers* too when their client roster changed. Instance re-registration likewise
 restarts bound requesters. This is deliberate: wiring changes are loud, atomic events,
 not something a running backend half-observes.
