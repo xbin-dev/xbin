@@ -238,7 +238,11 @@ runtime (docs/protocol.md §Tile sandboxes): `*xbin.Sandboxes` and
 - **terminals**: relayed byte for byte (`RelayTTY` / `RelayNewTTY`) with
   `forUser` = the person and the session frame's ids = the contract's; a
   refusal before the upgrade comes back with the runtime's name for the
-  sandbox replaced by its id. The consumer's headers never travel.
+  sandbox replaced by its id. The consumer's headers never travel;
+- **ids**: exec and snapshot ids are the runtime's, as they are. One its
+  grammar can't hold (`xbin.IsExecID`, `xbin.IsSnapshotID`) is `not-found`
+  here and never reaches the runtime, so a consumer's id can't name
+  another route or sandbox.
 
 It needs **`cap:sandboxes`**, which only a workspace admin approves: until
 then every call is refused and the page says who approves it. On an xbind

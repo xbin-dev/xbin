@@ -139,7 +139,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `ErrSandboxState`. `Forward`, `RelayTTY` and `RelayNewTTY` pass a
   manager's own request through: both bodies stream, a terminal WebSocket
   is tunnelled byte for byte, and the consumer's credentials and `X-XBin-*`
-  headers are dropped. So most contract routes take one line. Additive.
+  headers are dropped. So most contract routes take one line. `Forward`
+  takes a typed route — `xbin.ExecOutput(eid)`, `ExecRoute`, `ExecStdin`,
+  `ExecSignal`, `ExecResize`, `ExecTTY`, `FilesRoute(xbin.FilesContent)`,
+  `TarRoute()` — never a free-form path. Every call and route that takes an
+  exec or snapshot id checks it against the runtime's grammar
+  (`xbin.IsExecID`, `xbin.IsSnapshotID`) and refuses a bad one with `400
+  invalid` before anything is sent, so a consumer's id can never reach
+  another route or sandbox. Additive.
 - **The `sandbox-terminal` builtin tile: terminals onto coding sandboxes,
   for people — in the browser and over SSH** (`bx tile import
   sandbox-terminal`; [sandbox-manager.md](sandbox-manager.md) §People's

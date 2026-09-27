@@ -20,7 +20,7 @@ func wsEcho(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer c.Close()
-	_ = c.WriteMessage(ws.TextMessage, []byte(`{"op":"session","id":"e1","sandbox":"sb-1","echoAck":true}`))
+	_ = c.WriteMessage(ws.TextMessage, []byte(`{"op":"session","id":"ab12cd-1","sandbox":"sb-1","echoAck":true}`))
 	for {
 		typ, msg, err := c.ReadMessage()
 		if err != nil {
@@ -36,7 +36,7 @@ func TestSandboxDialTTY(t *testing.T) {
 	seen := make(chan *http.Request, 2)
 	sbx := fakeGateway(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen <- r
-		if strings.Contains(r.URL.Path, "/nope/") {
+		if strings.Contains(r.URL.Path, "/ab12cd-9/") {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(403)
 			io.WriteString(w, `{"error":"alice may not use a terminal","refusal":"not-allowed"}`)
@@ -46,13 +46,13 @@ func TestSandboxDialTTY(t *testing.T) {
 	}))
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	c, err := sbx.Sandbox("sb-1").DialTTY(ctx, "e1", TTYOptions{SessionID: "s-1", ForUser: "alice"})
+	c, err := sbx.Sandbox("sb-1").DialTTY(ctx, "ab12cd-1", TTYOptions{SessionID: "s-1", ForUser: "alice"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer c.Close()
 	r := <-seen
-	if r.URL.Path != "/api/xbin/sandboxes/sb-1/execs/e1/tty" || r.URL.RawQuery != "forUser=alice&sessionId=s-1" || r.Header.Get("Authorization") != "Bearer tok" {
+	if r.URL.Path != "/api/xbin/sandboxes/sb-1/execs/ab12cd-1/tty" || r.URL.RawQuery != "forUser=alice&sessionId=s-1" || r.Header.Get("Authorization") != "Bearer tok" {
 		t.Fatalf("dialled %s (%s)", r.RequestURI, r.Header.Get("Authorization"))
 	}
 	if typ, msg, err := c.ReadMessage(); err != nil || typ != ws.TextMessage || !strings.Contains(string(msg), `"op":"session"`) {
@@ -65,12 +65,21 @@ func TestSandboxDialTTY(t *testing.T) {
 		t.Fatalf("echo %d %q %v", typ, msg, err)
 	}
 
-	_, err = sbx.Sandbox("sb-1").DialTTY(ctx, "nope", TTYOptions{})
+	_, err = sbx.Sandbox("sb-1").DialTTY(ctx, "ab12cd-9", TTYOptions{})
 	var se *SandboxError
 	if !errors.As(err, &se) || se.Status != 403 || se.Refusal != "not-allowed" {
 		t.Fatalf("refused attach: %#v", err)
 	}
 	<-seen
+	// an id that fails the grammar is refused before anything is dialled
+	if _, err := sbx.Sandbox("sb-1").DialTTY(ctx, "../x", TTYOptions{}); !isInvalid(err) {
+		t.Fatalf("a bad id: %v", err)
+	}
+	select {
+	case r := <-seen:
+		t.Fatalf("dialled %s", r.RequestURI)
+	default:
+	}
 }
 
 // Forward of a WebSocket upgrade end to end, sdk/ws on both ends: a
@@ -85,7 +94,7 @@ func TestSandboxForwardWebSocket(t *testing.T) {
 	}))
 	sb := sbx.Sandbox("sb-1")
 	mgr := fakeManager(t, func(w http.ResponseWriter, r *http.Request) {
-		sb.RelayTTY(w, r, "e1", TTYOptions{SessionID: "s-1"})
+		sb.RelayTTY(w, r, "ab12cd-1", TTYOptions{SessionID: "s-1"})
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -157,14 +158,58 @@ func invalidf(format string, a ...any) *SandboxError {
 
 // --- plumbing ----------------------------------------------------------------
 
-// segment escapes one path segment of a route: a sandbox name, an exec or a
-// snapshot id. One that would change the route (empty, ".", "..", or with a
-// "/") is refused before anything is sent.
+// segment escapes one path segment of a route: a sandbox name. One that
+// would change the route (empty, ".", "..", or with a "/") is refused
+// before anything is sent.
 func segment(what, s string) (string, error) {
 	if s == "" || s == "." || s == ".." || strings.Contains(s, "/") {
-		return "", invalidf("%s %q isn't one", what, s)
+		return "", invalidf("%s %s isn't one", what, quoteID(s))
 	}
 	return url.PathEscape(s), nil
+}
+
+// The runtime's id grammars (docs/protocol.md §Tile sandboxes). An id that
+// doesn't fit names nothing there, and it holds no character a path would
+// read (no "/", ".", "%", "?" or "#"), so a typed call or a SandboxRoute
+// refuses it (400 invalid) before anything is sent: a consumer's id in a
+// manager's route can only fail its grammar, never reach another route.
+var (
+	execIDRE     = regexp.MustCompile(`^[0-9a-f]{6}-[0-9]{1,12}$`)
+	snapshotIDRE = regexp.MustCompile(`^s-[0-9]{1,12}$`)
+)
+
+// IsExecID reports whether id fits the runtime's exec id grammar,
+// ^[0-9a-f]{6}-[0-9]{1,12}$ (like "ab12cd-7"). A manager that uses the
+// runtime's exec ids as its own answers one that doesn't fit with the
+// contract's not-found: it names no exec.
+func IsExecID(id string) bool { return execIDRE.MatchString(id) }
+
+// IsSnapshotID reports whether id fits the runtime's snapshot id grammar,
+// ^s-[0-9]{1,12}$ (like "s-3").
+func IsSnapshotID(id string) bool { return snapshotIDRE.MatchString(id) }
+
+// execIDSeg is id as a route segment (the grammar leaves nothing to escape).
+func execIDSeg(id string) (string, error) {
+	if !IsExecID(id) {
+		return "", invalidf("exec id %s isn't one (the runtime's are like ab12cd-7)", quoteID(id))
+	}
+	return id, nil
+}
+
+// snapshotIDSeg is id as a route segment.
+func snapshotIDSeg(id string) (string, error) {
+	if !IsSnapshotID(id) {
+		return "", invalidf("snapshot id %s isn't one (the runtime's are like s-3)", quoteID(id))
+	}
+	return id, nil
+}
+
+// quoteID quotes an id for a refusal, cut short: it may be a consumer's.
+func quoteID(s string) string {
+	if len(s) > 64 {
+		return strconv.Quote(s[:64]) + "…"
+	}
+	return strconv.Quote(s)
 }
 
 // route is the path below sandboxesURL of this sandbox's sub-route; sub
@@ -186,14 +231,11 @@ func (b *Sandbox) route(sub string) (string, error) {
 
 // execRoute is the route of one of this sandbox's execs, plus tail.
 func (b *Sandbox) execRoute(id, tail string) (string, error) {
-	e, err := segment("exec id", id)
-	if err != nil {
-		return "", err
+	rt := execSub(id, tail)
+	if rt.err != nil {
+		return "", rt.err
 	}
-	if tail != "" {
-		tail = "/" + tail
-	}
-	return b.route("execs/" + e + tail)
+	return b.route(rt.sub)
 }
 
 // open sends one call and hands back a 2xx answer, whose body the caller
@@ -608,7 +650,7 @@ func (b *Sandbox) Snapshot(ctx context.Context, name, clientID string) (*Snapsho
 // RestoreSnapshot puts the sandbox's state back to snapshot id; its execs
 // are killed.
 func (b *Sandbox) RestoreSnapshot(ctx context.Context, id string) (*SandboxInfo, error) {
-	sid, err := segment("snapshot id", id)
+	sid, err := snapshotIDSeg(id)
 	if err != nil {
 		return nil, err
 	}
@@ -617,7 +659,7 @@ func (b *Sandbox) RestoreSnapshot(ctx context.Context, id string) (*SandboxInfo,
 
 // DeleteSnapshot removes snapshot id.
 func (b *Sandbox) DeleteSnapshot(ctx context.Context, id string) error {
-	sid, err := segment("snapshot id", id)
+	sid, err := snapshotIDSeg(id)
 	if err != nil {
 		return err
 	}

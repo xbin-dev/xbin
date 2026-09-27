@@ -1,8 +1,10 @@
 // backend_xbin.go — the `xbin` backend, the default: xbind's own tile-sandbox
 // runtime (docs/protocol.md §Tile sandboxes, D120), through the Go SDK
 // (sdk/sandbox*.go). It is the SDK itself — *xbin.Sandboxes is the Fleet and
-// *xbin.Sandbox each Box — so every Backend method is one runtime route, and
-// the contract layer's requests map onto them as D120 and D122 lay out:
+// *xbin.Sandbox each Box, with one translation (xbinBox: an id the runtime's
+// grammar can't hold names nothing) — so every Backend method is one runtime
+// route, and the contract layer's requests map onto them as D120 and D122
+// lay out:
 //
 //	hello                       GET  /sandboxes/runtime       Runtime: caps, modes, egress classes, limits
 //	list · get                  GET  /sandboxes[/{name}]      List · Get (merged with the manager's record)
@@ -29,7 +31,14 @@
 // unavailable, saying so.
 package main
 
-import xbin "github.com/xbin-dev/xbin/sdk"
+import (
+	"context"
+	"io"
+	"net/http"
+	"strconv"
+
+	xbin "github.com/xbin-dev/xbin/sdk"
+)
 
 func init() {
 	registerBackend("xbin", func(BackendEnv) (Backend, error) { return xbinBackend{xbin.SandboxAPI()}, nil })
@@ -40,4 +49,85 @@ func init() {
 type xbinBackend struct{ *xbin.Sandboxes }
 
 // Sandbox is one of them, by runtime name.
-func (b xbinBackend) Sandbox(name string) Box { return b.Sandboxes.Sandbox(name) }
+func (b xbinBackend) Sandbox(name string) Box { return xbinBox{b.Sandboxes.Sandbox(name)} }
+
+// xbinBox is one runtime sandbox: the SDK's own, but for one translation.
+// Our exec and snapshot ids are the runtime's, and one that its grammar
+// can't hold (xbin.IsExecID, xbin.IsSnapshotID) names no exec or snapshot:
+// the contract's not-found. The SDK refuses such an id as invalid before
+// anything is sent (so a consumer's "..%2F…" never reaches another route),
+// and the runtime would too — so it's answered here, as the contract asks.
+type xbinBox struct{ *xbin.Sandbox }
+
+// unknown is the not-found for an id the grammar can't hold (what is
+// "exec" or "snapshot").
+func unknown(what, id string) error {
+	if len(id) > 64 {
+		id = id[:64] + "…"
+	}
+	return &xbin.SandboxError{Status: http.StatusNotFound, Refusal: "not-found", Message: "no " + what + " " + strconv.Quote(id)}
+}
+
+func (b xbinBox) GetExec(ctx context.Context, id string) (*xbin.ExecInfo, error) {
+	if !xbin.IsExecID(id) {
+		return nil, unknown("exec", id)
+	}
+	return b.Sandbox.GetExec(ctx, id)
+}
+
+func (b xbinBox) Output(ctx context.Context, id string, q xbin.OutputQuery) (*xbin.OutputChunk, error) {
+	if !xbin.IsExecID(id) {
+		return nil, unknown("exec", id)
+	}
+	return b.Sandbox.Output(ctx, id, q)
+}
+
+func (b xbinBox) Stdin(ctx context.Context, id string, r io.Reader, eof bool) error {
+	if !xbin.IsExecID(id) {
+		return unknown("exec", id)
+	}
+	return b.Sandbox.Stdin(ctx, id, r, eof)
+}
+
+func (b xbinBox) Signal(ctx context.Context, id, sig string, group bool) error {
+	if !xbin.IsExecID(id) {
+		return unknown("exec", id)
+	}
+	return b.Sandbox.Signal(ctx, id, sig, group)
+}
+
+func (b xbinBox) Resize(ctx context.Context, id string, rows, cols int) error {
+	if !xbin.IsExecID(id) {
+		return unknown("exec", id)
+	}
+	return b.Sandbox.Resize(ctx, id, rows, cols)
+}
+
+func (b xbinBox) Kill(ctx context.Context, id string) error {
+	if !xbin.IsExecID(id) {
+		return unknown("exec", id)
+	}
+	return b.Sandbox.Kill(ctx, id)
+}
+
+func (b xbinBox) RelayTTY(w http.ResponseWriter, r *http.Request, execID string, o xbin.TTYOptions) {
+	if !xbin.IsExecID(execID) {
+		xbin.WriteSandboxError(w, unknown("exec", execID))
+		return
+	}
+	b.Sandbox.RelayTTY(w, r, execID, o)
+}
+
+func (b xbinBox) RestoreSnapshot(ctx context.Context, id string) (*xbin.SandboxInfo, error) {
+	if !xbin.IsSnapshotID(id) {
+		return nil, unknown("snapshot", id)
+	}
+	return b.Sandbox.RestoreSnapshot(ctx, id)
+}
+
+func (b xbinBox) DeleteSnapshot(ctx context.Context, id string) error {
+	if !xbin.IsSnapshotID(id) {
+		return unknown("snapshot", id)
+	}
+	return b.Sandbox.DeleteSnapshot(ctx, id)
+}

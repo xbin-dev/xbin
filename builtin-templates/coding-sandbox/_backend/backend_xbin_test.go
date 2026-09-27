@@ -566,3 +566,65 @@ func TestXbinBackendTerminal(t *testing.T) {
 		t.Fatalf("an attach: %v → %d %s", q, code, body)
 	}
 }
+
+// An exec or snapshot id the runtime's grammar can't hold names nothing:
+// the contract's not-found, as the fake answers "nope" — though the SDK
+// refuses it as invalid — and nothing reaches the runtime, so a consumer's
+// "..%2F" can't reach another sandbox or route (the SDK's typed routes).
+func TestXbinBackendUnknownIDs(t *testing.T) {
+	rt := newRuntime("vm")
+	m, srv, tg := xbinManager(t, rt, nil)
+	a := tg.As(t, "apps/agent").Verified("alice")
+	sb := a.Create(map[string]any{"name": "ids"})
+	rec := m.recCopy(sb.ID)
+	rt.mu.Lock()
+	before := len(rt.seen)
+	rt.mu.Unlock()
+	p := "/sandboxes/" + sb.ID
+	for _, eid := range []string{"nope", "e1", "..%2F" + rec.Runtime, "b00001-1%2F..%2F..%2Fsb-x", "B00001-1", "b00001-"} {
+		a.Refused("GET", p+"/execs/"+eid, nil, 404, "not-found")
+		a.Refused("DELETE", p+"/execs/"+eid, nil, 404, "not-found")
+		a.Refused("GET", p+"/execs/"+eid+"/output?since=0", nil, 404, "not-found")
+		a.Refused("POST", p+"/execs/"+eid+"/stdin", []byte("x"), 404, "not-found")
+		a.Refused("POST", p+"/execs/"+eid+"/signal", map[string]any{"signal": "TERM"}, 404, "not-found")
+		a.Refused("POST", p+"/execs/"+eid+"/resize", map[string]any{"rows": 5, "cols": 5}, 404, "not-found")
+		req, _ := http.NewRequest("GET", srv.URL+"/sbx"+p+"/execs/"+eid+"/tty", nil)
+		req.Header.Set("X-XBin-From", "apps/agent")
+		req.Header.Set("X-XBin-Role", "consumer")
+		req.Header.Set("X-XBin-User", "alice")
+		req.Header.Set("Connection", "Upgrade")
+		req.Header.Set("Upgrade", "websocket")
+		req.Header.Set("Sec-WebSocket-Version", "13")
+		req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != 404 || !strings.Contains(string(b), `"refusal":"not-found"`) {
+			t.Fatalf("a terminal on exec %s: %d %s", eid, resp.StatusCode, b)
+		}
+	}
+	for _, sid := range []string{"s1", "nope", "s-1%2F..", "..%2F..%2F" + rec.Runtime} {
+		a.Refused("POST", p+"/snapshots/"+sid+"/restore", nil, 404, "not-found")
+		a.Refused("DELETE", p+"/snapshots/"+sid, nil, 404, "not-found")
+	}
+	rt.mu.Lock()
+	var reached []string
+	for _, c := range rt.seen[before:] {
+		if strings.Contains(c.Path, "/execs/") || strings.Contains(c.Path, "/snapshots/") || strings.HasSuffix(c.Path, "/tty") {
+			reached = append(reached, c.Method+" "+c.Path)
+		}
+	}
+	rt.mu.Unlock()
+	if len(reached) != 0 {
+		t.Fatalf("ids that name nothing reached the runtime: %v", reached)
+	}
+	// a real one still goes through
+	x := a.Exec(sb.ID, map[string]any{"cmd": "true"})
+	a.Call("GET", p+"/execs/"+x.ID, nil, 200, nil)
+	if len(rt.calls("GET", "/execs/"+x.ID)) != 1 {
+		t.Fatal("a real exec id reaches the runtime")
+	}
+}
