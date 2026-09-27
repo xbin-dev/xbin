@@ -19,6 +19,56 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
+// build produces a runnable entry. For go it compiles; for node/python it
+// just validates the entry file exists (the interpreter is the "binary").
+func (r *Runner) build(c *registry.Component) (string, error) {
+	switch c.Manifest.Runtime {
+	case "go":
+		entry := c.Manifest.Entry
+		if entry == "" {
+			entry = "./backend"
+		}
+		out := filepath.Join(r.Root, ".xbin", "build", util.CompKey(c.Path), "bin")
+		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+			return "", err
+		}
+		if r.Isolate {
+			// in a sandbox, never as xbind (D78, build.go); fully static
+			// (CGO_ENABLED=0) so the backend runs on any sandbox rootfs,
+			// independent of the base image's glibc (plans/isolation-impl.md)
+			if err := r.buildConfined(c, entry, out); err != nil {
+				return "", err
+			}
+			return out, nil
+		}
+		cmd := exec.Command("go", "build", "-o", out, entry) // exec-ok: isolation off — no sandbox exists; backends run as xbind too
+		cmd.Dir = c.Dir
+		cmd.Env = append(os.Environ(),
+			"GOCACHE="+filepath.Join(r.Root, ".xbin", "cache", "go-build"),
+		)
+		if outp, err := cmd.CombinedOutput(); err != nil {
+			return "", &BuildError{Output: string(outp)}
+		}
+		return out, nil
+	case "node", "python":
+		entry := c.Manifest.Entry
+		if entry == "" {
+			if c.Manifest.Runtime == "node" {
+				entry = "backend/server.js"
+			} else {
+				entry = "backend/server.py"
+			}
+		}
+		p := filepath.Join(c.Dir, filepath.FromSlash(entry))
+		if _, err := os.Stat(p); err != nil {
+			return "", &BuildError{Output: fmt.Sprintf("entry %s not found (set \"entry\" in xbin.json)", entry)}
+		}
+		return p, nil
+	default:
+		return "", fmt.Errorf("unknown runtime %q", c.Manifest.Runtime)
+	}
+}
+
 // buildConfined compiles a Go backend inside a throwaway sandbox (D78).
 // `go build` reads the tile's content as configuration — VCS stamping runs
 // git with the tile's .git/config (whose core.fsmonitor runs anything),
