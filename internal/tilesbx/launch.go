@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"sync"
 	"syscall"
 	"time"
 
@@ -67,7 +68,8 @@ type Proc interface {
 	Started()
 	// Wait waits for the process to end (called once, by the watcher).
 	Wait() ExitStatus
-	// Kill SIGKILLs it; Signal sends another signal (a VM's shim: SIGHUP).
+	// Kill SIGKILLs it and every process under it; Signal sends another
+	// signal (a VM's shim: SIGHUP).
 	Kill() error
 	Signal(os.Signal) error
 	// Cleanup releases what the launch left on the host (the spec file).
@@ -113,6 +115,9 @@ type nsProc struct {
 	cmd  *exec.Cmd
 	h    *sandbox.Handle
 	inCg bool
+
+	mu     sync.Mutex
+	waited bool // Wait returned: the init is reaped, its pid may be anyone's
 }
 
 func (p *nsProc) Pid() int           { return p.cmd.Process.Pid }
@@ -120,7 +125,20 @@ func (p *nsProc) InCgroup() bool     { return p.inCg }
 func (p *nsProc) SetupUserns() error { return p.h.SetupUserns() }
 func (p *nsProc) Started()           { p.h.Started() }
 func (p *nsProc) Cleanup()           { p.h.Cleanup() }
-func (p *nsProc) Kill() error        { return p.cmd.Process.Kill() }
+
+// Kill SIGKILLs the init and every process under it: its PID 1 can't die
+// while one of its threads waits on a wedged FUSE root (killtree.go). The
+// tree is walked only while the init is still unreaped — Signal(0) goes
+// through its pidfd, and Wait marks it — so its pid names no other process.
+func (p *nsProc) Kill() error {
+	err := p.cmd.Process.Kill()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.waited && p.cmd.Process.Signal(syscall.Signal(0)) == nil {
+		killTree(p.cmd.Process.Pid)
+	}
+	return err
+}
 
 func (p *nsProc) Signal(s os.Signal) error { return p.cmd.Process.Signal(s) }
 
@@ -133,6 +151,9 @@ func (p *nsProc) RecvTUN() (int, error) {
 
 func (p *nsProc) Wait() ExitStatus {
 	err := p.cmd.Wait()
+	p.mu.Lock()
+	p.waited = true
+	p.mu.Unlock()
 	ps := p.cmd.ProcessState
 	if ps == nil {
 		return ExitStatus{Code: -1, Err: err}

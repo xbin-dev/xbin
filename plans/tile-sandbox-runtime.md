@@ -3397,7 +3397,18 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     `-o threaded=1` and longer entry timeouts don't help). Files in a
     subdir are fine. The tests write under `/work`. A fix wants
     fuse-overlayfs's root off its own mount without handing it the host's
-    tree (see the open issue).
+    tree (see the open issue). **What WP-15a does about it:** a file
+    operation (WP-18's path) creating in `/` leaves a thread of the agent
+    itself waiting on a request fuse-overlayfs already took, so SIGKILL
+    can't end PID 1 and the pid namespace is never torn down — the stop
+    answered 503 after 15 s and the sandbox stayed `stopping`, its
+    processes alive (mutation-checked). So `Proc.Kill` also SIGKILLs every
+    descendant of the init while it is unreaped (`killtree.go`; the cgroup
+    leaf's `cgroup.kill` does the same where there is one): killing the
+    FUSE server wakes every waiter, and the stop ends in ~5 s (its sync
+    wait) — `TestLive/*/a wedged root still stops`. An orphan left when
+    xbind dies with a wedged root is swept at the next boot only where
+    there are cgroups.
 
 ### WP-15b — Lifecycle policy: admission, idle, auto-start, reset, restart semantics (wave 2 · M · after WP-15a)
 

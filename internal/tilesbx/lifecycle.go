@@ -107,8 +107,10 @@ func (m *Manager) end(r *run, why string) bool {
 }
 
 // kill SIGKILLs the sandbox's first process — PID 1 of its pid namespace,
-// so the kernel ends the rest — and empties its leaf, which also aborts a
-// FUSE root a stopped fuse-overlayfs wedged (WP-3's note).
+// so the kernel ends the rest — and every process of the sandbox besides
+// (Proc.Kill: its descendants; cgroup.kill: its leaf). A PID 1 stuck on a
+// FUSE request of a wedged fuse-overlayfs (WP-3's note; the root-dir create
+// deadlock) can't die before its server does (killtree.go).
 func (m *Manager) kill(r *run) {
 	_ = r.proc.Kill()
 	if r.leaf != "" {

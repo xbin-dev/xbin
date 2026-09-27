@@ -38,6 +38,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/confine"
 	"github.com/xbin-dev/xbin/internal/layers"
 	"github.com/xbin-dev/xbin/internal/sandbox"
+	"github.com/xbin-dev/xbin/internal/sandbox/vm/proto"
 	"github.com/xbin-dev/xbin/internal/sbx"
 )
 
@@ -513,6 +514,41 @@ func testLive(t *testing.T, bin, rootfs string) {
 		}
 		t.Logf("stopped %s after fuse-overlayfs was killed", time.Since(start))
 		le.assertGone(r)
+	})
+
+	t.Run("a wedged root still stops", func(t *testing.T) {
+		le.t = t
+		le.start("sb-1")
+		r := le.runOf("sb-1")
+		if !usesFuse(r) {
+			le.stop("sb-1")
+			t.Skip("the kernel overlay: nothing to wedge")
+		}
+		// A file created directly in / wedges fuse-overlayfs (a pre-existing
+		// bug, see the WP-15a notes). Created by a file operation, the
+		// thread stuck on it is the agent's own: PID 1 can't die, so the
+		// pid namespace isn't torn down, until fuse-overlayfs is killed —
+		// the stop must still end it all.
+		c, err := r.client().File(proto.FileOp{Op: "write", Path: "/wedge"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer c.Close()
+		_ = proto.WriteFrame(c.Writer(), []byte("x"))
+		_ = proto.WriteFrame(c.Writer(), nil)
+		answered := make(chan error, 1)
+		go func() {
+			var res proto.FileResult
+			answered <- c.RecvMax(&res, proto.MaxResult)
+		}()
+		select {
+		case err := <-answered:
+			t.Logf("the write answered (%v): fuse-overlayfs no longer wedges here", err)
+		case <-time.After(time.Second):
+		}
+		start := time.Now()
+		le.stop("sb-1")
+		t.Logf("stopped %s after the stop was asked", time.Since(start))
 	})
 
 	t.Run("20 start/stop cycles leave no descriptor behind", func(t *testing.T) {
