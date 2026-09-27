@@ -64,7 +64,7 @@ agent work. Every card also carries the standard clauses of §2.1.
 | R-1 | **Ruled** by rule C2 ([05-model.md](05-model.md) §8): non-primary activity travels only in the `deployments` type | nothing | C2 (§0.3) |
 | R-2 | **Ruled** by P24 (owner, 2026-09-27): the terminal's API dropdown picks the target, defaulting to the primary, never offering a protected primary, then falling to the live reload target, then to "API off" | nothing | P24 (§0.3) |
 | R-3 | The offload fix as a P5 exception ([08-data.md](08-data.md) §9.4, its Divergence 8) | WP-45 | not built |
-| R-4 | The checkpoint purge route. The spine makes purging a tile manager's act ([05-model.md](05-model.md) §2, §10), but [11-contract.md](11-contract.md) defines no route for it | WP-66 | not built; T20's purge tests wait |
+| R-4 | **Settled** by NP-06-16 (purging is a tile manager's act, [05-model.md](05-model.md) §2, §10), with [16-open-questions.md](16-open-questions.md) Q11's default route, built at wave 2.3: `POST /deployments/purge` ([11-contract.md](11-contract.md) §1.9a), accepted on a tile without a record | nothing | built (WP-66 and the integrator's amendment) |
 | R-5 | **Ruled for v1** by P3 and P23: no edge-policy value widens a non-primary deployment past the read clamp, so a `full` value for roles that mean spend ([09-fabric.md](09-fabric.md) NP-09-14) is a later rung | nothing in v1 | not built; the docs say non-primary deployments lose LLM completions |
 | R-6 | **Ruled** by [05-model.md](05-model.md) §7: in origins mode (D95) each deployment has its own origin label, keyed by name; `main` keeps today's | nothing | WP-38 builds it in M2 |
 | R-7 | A git-bearing rootfs in CI (NP-15-1), and the previous release's binary for downgrade tests (NP-15-4) | confined tests in CI from M1; the M2 exit | the integrator adds both to `ci.yml`, in M0 and in M2 |
@@ -1468,6 +1468,16 @@ Every card includes these; a card states only what differs.
   `internal/backup/backup.go`, tests.
 - **Tests.** 08-data §14's offload and restore rows.
 - **Links.** A deliberate P5 exception: ships only if ratified.
+- **From wave 2.3.** WP-44a's offload archives every namespace of the tile's
+  own deployments under exclusive write gates and frees only their kv files:
+  non-main volumes stay until this card's lossy detection. Its restore code
+  is in `internal/broker/backup_restore.go` (WP-44a's, ratified): a row here
+  if this card needs it. Deployment archives' headers stay name/mode/size
+  (mtime and lossy are this card's). offloaded-full keeps the checkpoint
+  store and view repository while 16 Q24 is unruled (`Store.Restore` not
+  built). `backup_deploy.go:360`'s staging `os.OpenFile` (O_EXCL under
+  `.xbin/restore`, WP-23) is outside C5's static guard, which covers the
+  seed's files and `backup_restore.go` since this wave.
 
 #### WP-46 leftovers-plus · M · wave 2.3 · after WP-39, WP-49, WP-23b
 - **Scope** (05-model §7, §11; 08-data §9.3; 12-compat §7). `pathLeftovers`
@@ -1963,12 +1973,37 @@ Every card includes these; a card states only what differs.
   2.0 base and the head each passed 2 of 2, and
   `TestLiveReloadPauseRace/backends` alone passed 5 of 5 at each. It shows
   only under load; go, node and static passed every run.
+- **From wave 2.3.** Every `/deployments` route is built (seed, reset,
+  vault-copy, backup, restore, backup-schedule, run-now, purge,
+  `GET /deployments/backups`), and add takes `data:"seed"`: extend
+  `TestDeploymentStateBootsTwice`'s 501 rows. WP-42's seed passed over real
+  gocryptfs (online sqlite from a WAL primary, the non-interactive
+  `gocryptfs -passwd` re-wrap); a single-tenant seed through the whole path
+  needs `user_allow_other` in `/etc/fuse.conf`, which this box lacks. A
+  failed seed leaves `partial`, which keeps the deployment from starting.
+  WP-48's `TestNonPrimaryBuildErrorNotBroadcast` covers only the server
+  side; an isolated end-to-end row of a non-primary backend's build belongs
+  here or in WP-62. A tape from a non-primary run can be replayed by WP-60's
+  fresh-tape rows (`XBIN_DEPLOY_TAPE`: one JSON frame per line under one
+  top-level ancestor).
 
 #### WP-62 itest-fabric · L · wave 2.4 · after every M2 feature WP
 - **Owns.** `test/{edges,flowc}_test.go`.
 - **Tests.** `TestInboundEdgesReachOnlyPrimary`, `TestOutboundEdgePolicy`,
   `TestReassignPrimaryFlowF`, `TestAgentFlowCWithBxOnly`,
   `TestPrimaryFirstUnderPressure`.
+- **From wave 2.3.** Reassignment (WP-53a) answers once routing moved and
+  restarts both generations after it, the new primary first; it is refused
+  unless the tile is in the workspace scope or alone in the scope it roots.
+  Boot now installs the edge check and restarts, diskGiB's ceiling and the
+  sessions hook (deploywire.go). WP-50: only the primary's interface
+  instances and ingress hosts route; a non-primary terminator reads
+  `{"routes":[]}`. WP-44b's low-disk order blocks non-primary namespaces
+  first (`TestPrimaryFirstUnderPressure`). Open: the runner refuses
+  non-primary stream dials itself, so the edge panel's refused count stays 0
+  (WP-47's A8); WP-53a's `inactiveHosts` is always empty although WP-50's
+  dormant hosts now exist (`depIngressHosts`, `ingressHostConflict`): a
+  GovHooks field is owed.
 
 #### WP-63 itest-downgrade-latency · M · wave 2.4 · after every M2 feature WP
 - **Owns.** `test/{downgrade,latency}_test.go`.
@@ -1991,6 +2026,21 @@ Every card includes these; a card states only what differs.
   the accident boundary of P20).
 - **Owns.** Those four files. **Tests.** The docscheck guards,
   `TestDeploymentWording`.
+- **From wave 2.3.** protocol.md's "(reserved)" markers to drop: every
+  `/deployments` route (purge's row is new, after run-now), `GET /logs`,
+  `/tile-status` and `/frame-token`'s `?deployment=`, the fields of
+  `/backends`, `/runtime`, `/whoami`, `POST /tile-report`, `POST /notify`,
+  `PUT /iface-instances` and `/ingress-hosts`; openapi.go already says them
+  plainly. The creation routes answer `warnings?` and the 403 for `<P>+<N>`
+  (their fence rows are updated). 11-contract §1.14 gained the primary-only
+  and PR-decision refusals (WP-48) and purge's 409; §1.7 protect's `nested`
+  and `warnings`; §1.9a purge. The wave's reports' **Docs:** hand-offs: WP-38
+  (origins mode per deployment, x2/c2), WP-42 (the seed), WP-44a (backups and
+  restore), WP-44b (alerts' and `/runtime`'s `deployment`), WP-46 (leftovers,
+  the `+` rules), WP-48 (route classes, the audit line), WP-50 (dormant
+  registrations, held notifications, per-deployment status, logs, prefs),
+  WP-53a (governance), WP-53b (lifecycle, transfer), WP-54 (the listings),
+  WP-66 (purge).
 
 #### WP-65 docs-m2-guides · L · wave 2.4 · after every M2 feature WP
 - **Scope.** [/docs/elements.md](/docs/elements.md),
@@ -2007,6 +2057,13 @@ Every card includes these; a card states only what differs.
   WP-29). `docs/config.md`'s `XBIN_BIN` row ("put on terminals' PATH") is
   generated from `internal/boot/config.go`'s doc tag, which now says so (an
   integrator amendment at the M1 exit gate).
+- **From wave 2.3.** The **Docs:** hand-offs of WP-44b (isolation.md §disk:
+  per-deployment quota buckets, the 10 GiB per-tile quota), WP-53b
+  (overview 14-lifecycle), WP-44a (overview 14-lifecycle's backups; its
+  restore paragraphs wait for 16 Q24), WP-57 (tile-deployments.md's "In the
+  shell"), WP-60 (optional: compat.md rule 10 names the old-client
+  tests). WP-60 found the card's `web/events-socket.js:40-49` stale: it is
+  `:49-63` now.
 
 #### WP-66 checkpoint-purge · M · wave 2.3 · after WP-11, WP-12 and a route amendment · gated by R-4
 - **Scope** (05-model §2, §10; 06-security T20, NP-06-16). A tile manager,
@@ -2211,6 +2268,49 @@ the order listed, then runs the gate.
 | 2.4 | | WP-61, WP-62, WP-63, WP-45, WP-S5, WP-64, WP-65 | the M2 exit |
 | 3.1 | | WP-S6, WP-70, WP-72, WP-73, WP-74 | `make check`, `make integration` |
 | 3.2 | | WP-71, WP-75 | the M3 exit |
+
+**Open after wave 2.3, with no card yet** (for the owner to place before the
+M2 exit):
+- **A protected primary's build products are built but not wired** (WP-35's
+  A2, owed since wave 2.1): `runner.DeploymentHooks` `Protected`,
+  `ProtectedBuild` and `SaveProtectedBuild`, their plane methods (a new file:
+  `ops_gov.go` and `authz.go` are near their cap), the boot lines, and the
+  call sites in `deployworker.go`'s `deployBuild` (`prepareProtected` before
+  `resolveGen`) and `inspect.go`'s `resolveGen` (`protectedArtifact`, then
+  `rebuildLostProtected`). Until then a protected primary's Go artifacts,
+  caches and env layers live in the tile's shared namespace (07-runtime
+  §3.4, T16/T17 not yet enforced). Runner code under confinement: an L card
+  of its own, with `make integration`.
+- The store-room hook (WP-44b's A2): captures and materializations should
+  ask `brk.DeployStoreRoom(tile)` and refuse with its 507 after a GC.
+- `bx deployment backup|backups|restore|backup-schedule` and
+  `bx deployment purge` (WP-58's files).
+- WP-53a's follow-ups: the deployments pass's step 8 acts while the panel is
+  busy (`passes/deployments.js` `stepRestore` should wait for `!p.busy`);
+  `queue.go` marks only `pause` attempts identical, so a protect pin
+  announces one needless reload; `cron.go`'s RunNow in-flight text differs
+  from §1.14's; the state doesn't show `Unenforced(pr)`; T5 item 5's alwaysOn
+  duplicate-connection warning needs vault-copy provenance.
+- WP-53b's findings: an owner change outside a transfer (a deleted user)
+  rewrites no record, so those records go inert (a design gap, 05-model
+  §11); the transfer's seq bump publishes no `record` event, so a reviewed
+  operation holding the old seq meets a 409; `transferPreview` reads only
+  the primary's manifest for dead slots; a lazy build in flight when a tile
+  is disabled still installs (runner, as today for main).
+- WP-46's follow-ups: refuse "at or under" `<P>+<N>`, not only the exact
+  path (a tile under it shadows the deployment URL); the plane's
+  `DeploymentLeftovers` lists the record and store for the exact path only,
+  where 08-data §9.3 says at or under.
+- For the owner: WP-44a built 11-contract §1.8's admin rule for backup and
+  restore, where 08-data §11.4 and 15's matrix say tile manager. WP-42 found
+  that `Impact` has no fields for 08-data §8.1's seed facts (bytes,
+  resources, mode, downtime; NP-10-10); its seed runs `rsync -aHX --no-D`
+  (confine's seccomp refuses `mknodat`) and binds the primary's volume
+  read-write for SQLite's `-shm`, so 06-security L10 and L11 should read so.
+  WP-44b's `/runtime` gains rows per namespace beyond main (08-data §12 item
+  5), where 11-contract's compat table says "fields, never rows". WP-50 keeps
+  non-primary statuses in obs's map under `<tile>\x00<name>`, never listed
+  (08-data §2 says "never in obs's statuses map").
 
 ### 3.2 Dependency graph
 

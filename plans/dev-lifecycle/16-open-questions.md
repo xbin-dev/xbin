@@ -508,6 +508,11 @@ re-wrap with the bundled binary; 06's read-only mount against a WAL reader's
   (14 §4.4): a manager act in a human session naming the checkpoint, refused
   while any deployment runs it.
 - *Blocks:* WP-66 only (gated; never holds M2).
+- *Built* (wave 2.3): the default, as `POST /deployments/purge`
+  (11 §1.9a), with one call beyond it: a tile without a record accepts it
+  (its store outlives the opt-out, 05 §2), so 11 §1.2's opt-in list names
+  it. If the owner would rather refuse it there, its act row's `optIn`
+  goes false and nothing else changes.
 
 **Q12 — One edge policy per multi slot.** The agent's `mcp` slot binds
 several providers (`builtin-templates/agent/xbin.json:49`).

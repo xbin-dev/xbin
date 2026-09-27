@@ -374,6 +374,8 @@ field of this block that names a non-primary deployment.
   create no store: `impact.code` is `null`, and the report says the code is
   the work tree as it is when the request commits. Pausing live reload moves
   nothing a save wasn't about to move (05-model §5), so it takes no `expect`.
+  It also accepts `purge` (§1.9a), which creates nothing: the checkpoint store
+  outlives an opt-out, and a tile manager may purge its checkpoints (§10.5).
   Every other POST on such a tile answers 409 (§1.14). The checkpoint store
   is created by the first committed opt-in, never before (05-model §5).
 - **Answer:** `200 {"state": State, "deploy"?: DeployEntry, …}` once the
@@ -613,7 +615,9 @@ errors     400 missing confirm · 400 protected without expect or seq · 403 · 
 ```
 POST /api/xbin/deployments/protect
 body       {"tile": "apps/crm", "on": true, "expect"?: "c:<id>", "seq"?: 18}
-200        {"state": State, "deploy"?: DeployEntry}
+200        {"state": State, "deploy"?: DeployEntry, "nested"?: [{"tile", "protected", "manager"}], "warnings"?: [string]}
+           nested: the components nested in the tile, whose code its writers change (NP-06-8); warnings: one per
+           unprotected nested component, and "not enforced: authentication is off" under --no-auth (T12)
 effect     on: while live reload is on the primary, the primary is pinned in place to a fresh checkpoint of
            the work tree (how "protect"), equal to expect when given; bx and the panel always send the dry
            run's impact.code.to. Sessions following the primary restart onto P24's default (§7.4). On a tile
@@ -757,6 +761,22 @@ errors     403 · 404 no such deployment or job · 409 Y is the primary (its job
            · 409 a run of this job is in flight · 502 Y's backend can't start (the proxy's shape, with detail)
 ```
 
+### 1.9a Purge a checkpoint
+
+R-4 as 16-open-questions Q11's default builds it (NP-06-16).
+
+```
+POST /api/xbin/deployments/purge
+body       {"tile": "apps/crm", "checkpoint": "c:<id>", "seq"?: 18}
+200        {"state": State, "purged": "<full tree id>", "entries": 3}   entries: deploy-log entries rewritten
+effect     Every deploy-log entry of the tile naming the checkpoint is rewritten to name none (its attempt,
+           who, when, result and subject stay); the checkpoint's refs, its git view and its materialized tree
+           go, and its objects are pruned at once. Content other checkpoints share stays. Archives made
+           earlier keep it. No confirm token: the id names what goes.
+authority  tile manager (§0.5); accepted on a tile without a record (§1.2)
+errors     400 malformed id · 403 · 404 a checkpoint the tile doesn't have · 409 in use
+```
+
 ### 1.10 The deploy log
 
 ```
@@ -884,6 +904,7 @@ errors     403 · 404 no such tile, a tile without a record, or a path outside t
 | Resource limits of Y | `POST /deployments/limits` | `bx deployment set [<tile>] <name> --mem\|--pids\|--disk <n>\|default` |
 | Set edge policy | `POST /deployments/edge` | `bx deployment edge [<tile>] <edge> read\|block\|inherit\|default` |
 | Run now | `POST /deployments/run-now` | `bx deployment run-now [<tile>] <name> <job>` |
+| Purge a checkpoint | `POST /deployments/purge` | none yet (`bx deployment purge [<tile>] c:<id>`, a follow-up) |
 | Back up Y's data | `POST /deployments/backup` | `bx deployment backup [<tile>] <name>` |
 | (read) Y's archives | `GET /deployments/backups` | `bx deployment backups [<tile>] <name>` |
 | Restore Y's data | `POST /deployments/restore` | `bx deployment restore [<tile>] <name>` |
@@ -927,6 +948,8 @@ does (`internal/proxy/proxy.go:304-317`).
 | joining seeded data | 403 | `<scope>'s "<name>" data was <seeded\|restored> by <by> <when>: joining it is a tile manager's act` |
 | cross-deployment self write | 403 | `a tile's own credentials act only on their own deployment (<bound>)` |
 | unclassified route | 403 | `this route isn't available to a non-primary deployment's credentials yet (<deployment>)` |
+| primary-only route | 403 | `this route is the primary's alone: a non-primary deployment's credentials can't use it (<deployment>)` |
+| PR decision from a non-primary backend | 403 | `deciding a PR is the primary's act: a non-primary deployment's backend can't do it (<deployment>)` |
 | no record | 409 | `<tile> has no deployments yet: pause live reload or add a deployment first` |
 | diff without a record | 409 | `<tile> has no deployments: its work tree is what runs, so there is nothing to diff` |
 | name taken, `main` | 409 | `<tile> already has a deployment "<name>"` |
@@ -947,6 +970,7 @@ does (`internal/proxy/proxy.go:304-317`).
 | data busy | 409 | `<name>'s data is being <seeded\|reset\|restored>` |
 | deploy queue full | 409 | `<name> already has 8 deploys waiting; try again when one finishes` |
 | run in flight | 409 | `<job> is already running on <name>` |
+| checkpoint in use (purge) | 409 | `<tile>: checkpoint <id> is in use — <why>; only a checkpoint no deployment runs can be purged` |
 | disk limit off the scope root | 409 | `the quota of <scope>'s "<name>" data is set on <root tile>` |
 | newer record | 409 | `<tile>'s deployment record was written by a newer xbind (schema <n>)` |
 | xbin grant with deployments | 409 | `<tile> has non-primary deployments: remove them before granting it <target> (P19)` |
