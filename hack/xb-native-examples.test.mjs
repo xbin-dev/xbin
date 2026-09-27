@@ -7,7 +7,8 @@
 // canned stand-in in hack/xbn/testdata/chat/ holding the design's sample
 // conversation (the real engine, builtin-tiles/chat/chat-core.js, runs in the
 // native/fixtures/tile-chat fixture). The shipped native.js of each of the
-// eight tiles is checked by native/fixtures/tile-*.
+// eight tiles is checked by native/fixtures/tile-* (devbox's, retired, as a
+// frozen copy).
 //
 // Deviations from the printed trees, each said in the design's own words:
 //   devbox      "sheets closed and trimmed from the tree for brevity" — the

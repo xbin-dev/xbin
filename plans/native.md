@@ -1180,6 +1180,10 @@ renderer lays the sheet over the navigation stack.)
 
 ### 18.6 devbox — tabs, swipe actions, a detail screen
 
+> 2026-09-27: the devbox tile is retired (plans/sandbox-managers.md). The
+> example stands as a design example; its shipped `native.js` is kept, frozen,
+> as the `native/fixtures/tile-devbox` fixture.
+
 ```js
 // builtin-tiles/devbox/native.js
 import { html, render, repeat, nothing } from '/vendor/xb-native.js';

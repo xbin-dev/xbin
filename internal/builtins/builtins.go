@@ -255,7 +255,7 @@ func textFile(rel string) bool {
 func (s *Set) Import(workspaceRoot, name, targetPath string) (string, []string, error) {
 	m, ok := s.tiles[name]
 	if !ok {
-		return "", nil, fmt.Errorf("no builtin tile %q", name)
+		return "", nil, noSuchTile(name)
 	}
 	targetPath = strings.Trim(strings.TrimSpace(targetPath), "/")
 	if targetPath == "" {
