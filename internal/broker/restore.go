@@ -269,6 +269,11 @@ func (d *restoreDst) finish() error {
 	old := ""
 	if _, err := os.Lstat(layer); err == nil {
 		old = d.staging + ".old"
+		// Stamp it fresh first: a long-lived layer's mtime is old, and
+		// another tile's restore sweeping .xbin/restore meanwhile must not
+		// take it while its vm/ is still on the way to the new layer.
+		now := time.Now()
+		_ = os.Chtimes(layer, now, now)
 		if err := os.Rename(layer, old); err != nil {
 			return err
 		}

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/backup"
 	"github.com/xbin-dev/xbin/internal/registry"
@@ -444,5 +445,75 @@ func TestOffloadFullThenRestore(t *testing.T) {
 	}
 	if holds != 1 {
 		t.Fatalf("the layer was held %d times", holds)
+	}
+}
+
+// .xbin/restore/ is swept of what a restore that died mid-way left — only
+// what is a day old. The old layer a swap moves aside there is stamped fresh
+// first: a long-lived layer's own mtime is old, and a restore of another
+// tile sweeping in that moment must not take it (a VM terminal's disk is
+// still inside, on its way to the new layer).
+func TestRestoreSweepsOnlyStaleLeftovers(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root removes a locked dir: the old layer can't be made to stay")
+	}
+	const comp = "apps/calendar"
+	b := testBroker(t)
+	dir := filepath.Join(b.Reg.Root, ".xbin", "restore")
+	layer := b.termDir(comp)
+	dayAgo := time.Now().Add(-48 * time.Hour)
+	for _, d := range []string{filepath.Join(dir, "stale-1"), filepath.Join(dir, "fresh-2"), filepath.Join(layer, "upper", "locked")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A file the old layer's removal can't unlink, so the moved-aside layer
+	// stays behind to be looked at.
+	if err := os.WriteFile(filepath.Join(layer, "upper", "locked", "f"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(layer, "upper", "locked"), 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+			if d != nil && d.IsDir() {
+				_ = os.Chmod(p, 0o755)
+			}
+			return nil
+		})
+	})
+	for _, p := range []string{filepath.Join(dir, "stale-1"), layer} {
+		if err := os.Chtimes(p, dayAgo, dayAgo); err != nil {
+			t.Fatal(err)
+		}
+	}
+	man := backup.Manifest{Component: comp, Scope: comp, ScopeRoot: true, Includes: []string{"term-env"}}
+	if _, err := b.restore(safetyArchive(t, man, archiveEntry{"term/upper/new", "n"}), comp); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if got := readRegular(t, filepath.Join(layer, "upper", "new")); got != "n" {
+		t.Fatalf("upper/new = %q", got)
+	}
+	var old string
+	ents, _ := os.ReadDir(dir)
+	names := map[string]bool{}
+	for _, e := range ents {
+		names[e.Name()] = true
+		if strings.HasSuffix(e.Name(), ".old") {
+			old = filepath.Join(dir, e.Name())
+		}
+	}
+	if names["stale-1"] || !names["fresh-2"] || old == "" {
+		t.Fatalf(".xbin/restore holds %v: want the stale leftover swept, the fresh one and the old layer kept", names)
+	}
+	// Another tile's restore sweeping now leaves the moved-aside layer alone
+	// (unlocked, so a sweep could remove it).
+	if err := os.Chmod(filepath.Join(old, "upper", "locked"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sweepRestoreLeftovers(dir)
+	if _, err := os.Lstat(old); err != nil {
+		t.Fatalf("a sweep took the layer a swap had just moved aside: %v", err)
 	}
 }
