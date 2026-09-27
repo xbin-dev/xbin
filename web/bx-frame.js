@@ -6,7 +6,9 @@
  * the component's source directory) plus a code browser / git-review panel
  * (bx-code) that can share the window with the terminal (layout: terminal /
  * code / split), a read-only backend log view (bx-logs), and the
- * change-proposal panel (bx-prs — cross-tile "code PRs").
+ * change-proposal panel (bx-prs — cross-tile "code PRs"). The tile's live
+ * reload state (frame-deploy.js) shows on the window's bar and, while the
+ * tile's primary is pinned, as a chip over the tile.
  *
  * Attributes:
  *   src     — component path (workspace-relative)
@@ -50,6 +52,7 @@ import '/vendor/bx-dialog.js';
 import '/vendor/bx-menu.js';
 import { infoFor, refreshFrameInfo, sandboxAttr, frameSource } from '/vendor/frame-info.js';
 import { testApi } from '/vendor/frame-testapi.js';
+import { deployCss, deployMount, onDeployEvent, frameChip } from '/vendor/frame-deploy.js';
 
 // Shared z-order for all terminal windows on the page.
 let zTop = 2000;
@@ -110,7 +113,7 @@ export class BxFrame extends LitElement {
     popBounds: { attribute: false },
   };
 
-  static styles = [titlebarCss, launcherCss, css`
+  static styles = [titlebarCss, launcherCss, deployCss, css`
     :host { display: block; position: relative; }
     /* height:100% is what lets a fixed-height embedder (the shell grid tiles /
        floating windows pin the host with position:absolute; inset:0) flow a
@@ -196,6 +199,7 @@ export class BxFrame extends LitElement {
     document.addEventListener('visibilitychange', this._onVisible);
     this._restoreTerm();
     this._prepareFrame();
+    deployMount(this); // the live reload state, when the tile's primary is pinned (frame-deploy.js)
   }
 
   // Resolve how this frame must load (sandboxed? credentialless? its own
@@ -393,6 +397,7 @@ export class BxFrame extends LitElement {
       case 'term': // the session directory changed for this tile (D73); a status op carries its own row data
         if (e.component === this.src && e.data?.op !== 'status') this._relist();
         break;
+      case 'deployments': onDeployEvent(this, e); break; // live reload and deploys (frame-deploy.js)
     }
   }
 
@@ -789,6 +794,7 @@ export class BxFrame extends LitElement {
           <pre class="overlay"><b>build failed — ${this.src}</b>\n\n${this._buildError}</pre>` : nothing}
         ${this.hasAttribute('no-edit') ? nothing : html`
           <button class="edit" title="edit ${this.src}" @click=${this._toggleTerm}></button>`}
+        ${frameChip(this)}
       </div>
       ${this._termOpen ? (({ x, y, w, h }) => html`
         <div class="pop ${this._narrow ? 'narrow' : ''}"

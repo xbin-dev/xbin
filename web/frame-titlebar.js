@@ -17,11 +17,16 @@
  * bar's width depends on the host (a GPU picker, the VM toggle) and the
  * tab, so it is measured, never assumed. `+` opens a launcher menu
  * (Bash, or a coding agent). An ended agent tab (its session gone,
- * transcript kept) is greyed and dismissed with its ✕.
+ * transcript kept) is greyed and dismissed with its ✕. The tile's live
+ * reload controls (frame-deploy.js) sit among the settings, before the layer
+ * buttons: the chip and the Reload now offer on the full bar, the zero
+ * state's one entry point wherever the settings are; on the degraded bar the
+ * compact chip stays in the title row, so the state never hides behind ⋯.
  */
 import { html, css, nothing, live } from 'lit';
 import { scopeIcon } from '/vendor/bx-netrules.js';
 import { rememberVM } from '/vendor/frame-launcher.js';
+import { barDeploy, titleChip, deployKey } from '/vendor/frame-deploy.js';
 
 export function titlebar(f) {
   return html`
@@ -40,7 +45,7 @@ export function titlebar(f) {
       </span>
       <button class="mknew" title="new session (Bash, or a coding agent)" @click=${(e) => f._openLauncher(e)}>+</button>
       ${f._narrow
-        ? html`<button class="more ${f._tools ? 'on' : ''}" title="layout and session settings"
+        ? html`${titleChip(f)}<button class="more ${f._tools ? 'on' : ''}" title="layout and session settings"
                   @click=${() => { f._tools = !f._tools; }}>⋯</button>`
         : html`${layoutGroup(f)}<span class="spacer"></span>${settings(f)}`}
       <button class="winx" title="close (session keeps running)"
@@ -59,7 +64,7 @@ function scrollTabs(e) {
 // barKey: what the full bar's width depends on. When it changes, the width
 // the bar last needed (f._barNeed) is stale and fitBar measures again.
 export const barKey = (f) => JSON.stringify([f._active, f._gpus.length, !!f._vmStatus, !!f._envOld, f._prCount || 0,
-  f._sessions.map((s) => [s.kind, s.name, s.provider, !!s.ended, !!s.history, !!s.vm, s.net, !!s.baseOutdated])]);
+  f._sessions.map((s) => [s.kind, s.name, s.provider, !!s.ended, !!s.history, !!s.vm, s.net, !!s.baseOutdated]), deployKey(f)]);
 
 // fitBar(f, pop, sheet): whether the bar must degrade (the new f._narrow).
 // Under 640 px or on the phone sheet it always does. Otherwise the full bar
@@ -202,9 +207,10 @@ function vmToggle(f, restarts) {
 
 // The tile's persistent terminal layer — shared by its shells and agents:
 // rebuild it on a newer base image (offered when it is outdated), or reset it.
+// The live reload controls come first: both settings branches end here.
 function layerButtons(f) {
   const cur = f._sessions[f._active];
-  return html`
+  return html`${barDeploy(f)}
     ${cur?.baseOutdated || f._envOld ? html`
       <button class="upgrade" title="a newer base image is installed — rebuild this tile's terminals on it (installed packages are wiped; your files & $HOME are kept)"
               @click=${() => f._resetEnv(true)}>⬆ base update</button>` : nothing}

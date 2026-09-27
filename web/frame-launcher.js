@@ -10,10 +10,13 @@
  * the agent session so its model/mode pickers load before the first prompt
  * (bx-agent). Where VM sandboxes can run, the chooser also sets whether new
  * sessions on the tile start in one — a per-user, per-tile choice
- * (wantVM) that the title bar's ⧉ VM toggle updates too.
+ * (wantVM) that the title bar's ⧉ VM toggle updates too. The tile-wide live
+ * reload state (frame-deploy.js) loads with the rest of the tile state, and
+ * the chooser leads with its banner while live reload is paused.
  */
 import { html, css, nothing } from 'lit';
 import { uid, makeStore } from '/vendor/term-sessions.js';
+import { loadDeployIfShown, launchBanner } from '/vendor/frame-deploy.js';
 
 const prefs = makeStore();
 
@@ -37,6 +40,7 @@ export function loadTileState(f) {
   // vm: whether a VM terminal can open here, and why not (the title bar's toggle)
   envStatus(f.src).then((s) => { if (f.isConnected) { f._vmStatus = s.vm || null; f._envOld = !!s.baseOutdated; f.requestUpdate(); } });
   prefs.loadVM(f.src).then((on) => { if (f.isConnected) { f._vmPref = on; f.requestUpdate(); } });
+  loadDeployIfShown(f); // the live reload state: the chip, the offer, the banner below
 }
 
 // wantVM: whether a new session on this tile starts in a VM sandbox — the
@@ -162,6 +166,7 @@ export function launcher(f) {
       <button class="lupdate" title="rebuild this tile's terminal layer on the newer base (installed packages are wiped; your files & $HOME are kept)"
               @click=${() => f._resetEnv(true)}>⬆ base update</button>
     </div>` : nothing}
+    ${launchBanner(f)}
     ${vmSwitch(f, vm)}
     <div class="lcards">
       ${card('Bash', vm ? 'a shell in a VM sandbox' : 'a shell in the sandbox', () => f._startKind('shell'))}
