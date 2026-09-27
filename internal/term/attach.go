@@ -157,8 +157,9 @@ func (e *echoTracker) close() {
 // hello is the session control frame, the first message on every attach
 // (docs/protocol.md §/ws/term). deployment is the session's echoed target
 // (Manager.echoOf). It, the targetNote, and api:false when the target
-// choice's last fallback took the tile API away (P24), are present only for
-// a session that has a target to state: every other session's frame is
+// choice's last fallback took the tile API away (P24) or a session that
+// asked for a target has no tile API (a D17 clamp), are present only for a
+// session that has a target to state: every other session's frame is
 // today's.
 func (s *Session) hello(deployment string) []byte {
 	h := map[string]any{
