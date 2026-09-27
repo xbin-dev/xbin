@@ -9,10 +9,13 @@ import (
 	"testing"
 )
 
-// TestPrepareScriptAccounts runs prepareScript itself (sh, awk) over a fake
-// /etc: the layout's user becomes the account of its uid as usermod -l and
-// groupmod -n would leave it, an image's other names stay, and a second
-// run changes nothing. The uid is the test's own, so the chown is a no-op.
+// TestPrepareScriptAccounts runs prepareScript itself (sh, awk) in a fake
+// sandbox root (the directory the run starts in) with its own etc: the
+// layout's user becomes the account of its uid as usermod -l and groupmod
+// -n would leave it, an image's other names stay, and a second run changes
+// nothing; a root without etc (the fake backend's host directory) is left
+// alone — the host's /etc is never the one edited. The uid is the test's
+// own, so the chown is a no-op.
 func TestPrepareScriptAccounts(t *testing.T) {
 	for _, tool := range []string{"sh", "awk", "stat"} {
 		if _, err := exec.LookPath(tool); err != nil {
@@ -44,14 +47,11 @@ func TestPrepareScriptAccounts(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		script := strings.Replace(prepareScript, "\netc=/etc\n", "\netc="+etc+"\n", 1)
-		if script == prepareScript {
-			t.Fatal("prepareScript no longer sets etc=/etc")
-		}
 		out := files{}
 		for pass := 1; pass <= 2; pass++ {
-			cmd := exec.Command("sh", "-c", script, "prepare", filepath.Join(dir, "work"), filepath.Join(dir, "home/dev"),
+			cmd := exec.Command("sh", "-c", prepareScript, "prepare", filepath.Join(dir, "work"), filepath.Join(dir, "home/dev"),
 				u+":"+g, user, "/bin/bash")
+			cmd.Dir = dir // the sandbox's root: its etc is the one edited
 			if b, err := cmd.CombinedOutput(); err != nil {
 				t.Fatalf("pass %d: %v\n%s", pass, err, b)
 			}
@@ -93,6 +93,23 @@ func TestPrepareScriptAccounts(t *testing.T) {
 		}
 	}
 
+	t.Run("a root without etc: nothing edited, the host's /etc untouched", func(t *testing.T) {
+		dir := t.TempDir()
+		cmd := exec.Command("sh", "-c", prepareScript, "prepare", filepath.Join(dir, "work"), filepath.Join(dir, "home/dev"),
+			u+":"+g, "dev", "/bin/bash")
+		cmd.Dir = dir
+		if b, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v\n%s", err, b)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "etc")); !os.IsNotExist(err) {
+			t.Errorf("an etc appeared in the root: %v", err)
+		}
+		for _, d := range []string{"work", "home/dev"} {
+			if fi, err := os.Stat(filepath.Join(dir, d)); err != nil || !fi.IsDir() {
+				t.Errorf("%s wasn't made: %v", d, err)
+			}
+		}
+	})
 	t.Run("an image's user of that uid is renamed", func(t *testing.T) {
 		got := run(t, files{
 			"passwd":  "root:x:0:0:root:/root:/bin/bash\nubuntu:x:{U}:{G}:Ubuntu:/home/ubuntu:/bin/sh\n",

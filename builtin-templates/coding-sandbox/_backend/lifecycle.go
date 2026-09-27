@@ -43,13 +43,17 @@ func (m *Manager) prepare(ctx context.Context, rec record) error {
 // member lists, shadow and gshadow following. So `id -un`, the prompt and
 // getpwuid's home (OpenSSH's ~/.ssh) agree with USER and HOME. A name
 // another uid (or gid) already has is the image's and stays; so does root.
-// Running it again changes nothing.
+// Running it again changes nothing. The /etc it edits is the one under the
+// directory the run starts in — the sandbox's root (Cwd "/"), so a
+// substrate standing a host directory in for a sandbox (the tests' fake)
+// never has the host's /etc edited: that directory has none.
 const prepareScript = `set -e
 for d in "$1" "$2"; do
 	mkdir -p -- "$d"
 	[ "$(stat -c %u:%g -- "$d")" = "$3" ] || chown -- "$3" "$d"
 done
-etc=/etc
+root=$(pwd -P)
+etc=${root%/}/etc
 home=$2 user=$4 shell=$5 uid=${3%:*} gid=${3#*:}
 [ -n "$user" ] && [ "$uid" != 0 ] && [ -f "$etc/passwd" ] || exit 0
 # rewrite FILE AWK-ARGS…: FILE through awk, in place (its mode and owner kept)
