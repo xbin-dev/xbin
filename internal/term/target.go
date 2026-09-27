@@ -148,7 +148,7 @@ type sessionTarget struct {
 	askedPrimary bool           // the client named the primary: the answers echo its name (11-contract §8)
 	env          string         // XBIN_DEPLOYMENT; "" leaves the variable out
 	note         string         // the session frame's targetNote, "" for none (bx-terminal prints it like netNote)
-	apiOff       bool           // the last fallback took the tile API away (P24): the frame echoes api:false
+	apiOff       bool           // a target was asked for or chosen but the session has no tile API (P24's last fallback, or a D17 clamp): the frame echoes api:false
 	opener       auth.Principal // who opened it: a governance restart reopens an agent session as them
 }
 
@@ -177,6 +177,8 @@ func (m *Manager) pickTarget(p auth.Principal, o *openOpts, rel, requested strin
 	st := sessionTarget{Target: t, env: t.DeploymentEnv(d), opener: p,
 		askedPrimary: requested != "" && t == (Target{})}
 	switch {
+	case !o.api && requested != "": // the tile API is off (a D17 clamp): no target to echo, and the frame says why
+		st.apiOff = true
 	case t.NoAPI && o.api: // the last fallback: a protected primary with live reload paused
 		o.api, st.apiOff = false, true
 		st.note = "tile API off: " + d.Primary + " is protected and live reload is paused"
