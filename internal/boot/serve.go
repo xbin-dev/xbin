@@ -149,7 +149,7 @@ func (st *State) serve(ctx context.Context) error {
 		_ = iSrv.Close()
 	}
 	_ = st.watcher.Close()
-	brk.Close() // the KV database's file lock, the cron scheduler, the disk monitor
+	brk.Close() // the KV database's file lock, the cron scheduler, the disk monitor, the resources' decrypted views
 	// Open tiles keep their login binding across the restart (auth/framegens.go).
 	st.Auth.FlushGens()
 	if st.Push != nil {

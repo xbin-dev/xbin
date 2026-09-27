@@ -153,9 +153,15 @@ type Broker struct {
 
 // Close releases what a boot holds open for the daemon's lifetime — the KV
 // database (its file lock would block the next open of the same
-// workspace), the cron scheduler and the disk monitor — so a process can
-// boot the same workspace again (the in-process boot tests do).
+// workspace), the cron scheduler, the disk monitor and the resources'
+// decrypted views (their gocryptfs mounts; called once the backends and
+// sandboxes using them are stopped) — so a process can boot the same
+// workspace again (the in-process boot tests do), and nothing decrypted
+// outlives the daemon.
 func (b *Broker) Close() {
+	if b.resenc != nil {
+		b.resenc.Close()
+	}
 	if b.cron != nil && b.cron.sched != nil {
 		b.cron.sched.Stop()
 	}
