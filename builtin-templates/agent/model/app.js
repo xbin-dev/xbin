@@ -19,6 +19,7 @@
 //   class     the classes or your class for new asks changed (toolset: its lane, too)
 //   toolset   the lane of your class        attach  an attachment chip changed
 //   model     the model pick or the model list changed
+//   sandboxes the sandbox list, the new chat's sandbox or a conversation's binding changed (app.sbx)
 //   sending   a send started or settled (app.sending)
 //   select(id)   a conversation is being opened (before it loads)
 //   selected(id) …and is open
@@ -35,6 +36,7 @@ import * as rules from './rules.js';
 import * as router from './router.js';
 import { HOME } from './home.js';
 import * as classes from './classes.js';
+import { createSandboxStore } from './sandbox-store.js';
 
 /**
  * createApp builds the model.
@@ -240,7 +242,7 @@ export function createApp(opts = {}) {
     // still names its lane. Throws on failure.
     async ask(body) {
       const cls = body.class != null || body.toolset == null ? classOf(body.class || undefined) : {};
-      const run = await actions.ask({ ...cls, ...picked(), ...body });
+      const run = await actions.ask({ ...cls, ...picked(cls.class || ''), ...body });
       app.session.runs.set(run.id, run);
       await app.select(run.id);
       return run;
@@ -327,6 +329,7 @@ export function createApp(opts = {}) {
     // conversation you are looking at stays read.
     event(ev) {
       app.convs.apply(ev);
+      if (ev.type === 'run') app.sbx.fromEvent(ev);
       if (ev.type === 'revoked' && ev.run === app.root) {
         app.home();
         globalThis.xbin?.notify?.('info', 'That conversation is no longer shared with you.');
@@ -353,8 +356,10 @@ export function createApp(opts = {}) {
     reset: () => { app.convs.load().catch(() => {}); app.loadNeeds(); },
     frame: opts.frame,
   }, { deltas: opts.deltas, page: opts.page });
-  // picked: a new ask's model field — only when you picked one (none = the agent's default)
-  const picked = () => (app.model ? { model: app.model } : {});
+  // picked: a new ask's model — only when you picked one (none = the agent's
+  // default) — and its sandbox, while the ask's class has the sandbox toolset
+  // (D115; app.sbx.pick). No class read yet: no sandbox.
+  const picked = (cls = app.classId) => ({ ...(app.model ? { model: app.model } : {}), ...(cls ? app.sbx.askPart(cls) : {}) });
   // classOf: a new ask's class (yours, unless the form named one) and, beside
   // it, its lane as the legacy toolset; nothing before the classes are read
   // (the backend then gives the caller's default).
@@ -371,6 +376,8 @@ export function createApp(opts = {}) {
     route: (kind, id) => { if (app.page === 'automations') route(router.autoHash(kind, id)); },
   });
   app.attach = new actions.Attachments({ change: () => emit('attach') });
+  // the coding sandboxes (D115): the list, the new chat's pick, binding (model/sandbox-store.js)
+  app.sbx = createSandboxStore(app);
   app.session.ui.act.select = (id) => app.select(id);
   app.session.ui.me = () => app.me.user;
   app.session.ui.who = () => app.me;

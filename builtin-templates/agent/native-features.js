@@ -69,6 +69,7 @@ export const IMPLEMENTS = {
   'composer.placeholder': 'native/chat.js — composerTpl (model/rules.js composer)',
   'composer.disabled': 'native/chat.js — composerTpl (model/rules.js composer)',
   'composer.class': 'native/classes.js classPickerTpl — the Class picker in the home toolbar (the app\'s composer holds buttons only)',
+  'composer.sandbox': 'native/sandboxes.js sandboxPickerTpl — the Sandbox picker in the chat and home toolbars, beside the model (a row you may not use is marked, and picking it says why; ＋ New and Manage… push the Sandboxes screens)',
   'composer.model': 'native/chat.js modelPickerTpl — the Model picker in the chat and home toolbars (the app\'s composer holds buttons only)',
   'composer.attach': 'native/chat.js — composer upload (the app picks and uploads)',
   'composer.heldAsk': 'native/chat.js — at home the composer uploads into the new ask\'s draft (app.uploadTarget: PUT /ask/upload?draft=); model/app.js — send sends the draft (POST /ask {draft, files})',
@@ -85,6 +86,7 @@ export const IMPLEMENTS = {
   'top.title': 'native/chat.js — the screen\'s title',
   'top.class': 'native/chat.js — the subtitle (rules.topBar cls: its class, and ⚠ when it can move internal data out)',
   'top.model': 'native/chat.js — ✦ in the subtitle',
+  'top.sandbox': 'native/chat.js — ▣ in the subtitle (badgeWords), a notice when the binding no longer resolves (brokenTpl), runMenu → native/sandboxes.js boxTpl: the working directory, the attached ones, Detach, Manage…',
   'top.status': 'native/chat.js — the subtitle',
   'top.viewOnly': 'native/chat.js — the subtitle',
   'top.retry': 'native/chat.js — runMenu and the composer\'s Retry chip',
@@ -111,6 +113,8 @@ export const IMPLEMENTS = {
   'tools.render.blocked': 'native/tools.js — renderTpl',
   'tools.render.maximize': 'native/tools.js — renderTpl (a screen of its own)',
   'tools.render.source': 'native/tools.js — renderTpl Source',
+  'tools.sandboxes': 'native/sandboxes.js — listTpl: a row per sandbox, its actions (sandboxRows) behind swipe and ⋯, archive and delete confirmed',
+  'tools.sandboxes.create': 'native/sandboxes.js — newTpl (createForm → app.sbx.create)',
 
   // Sharing
   'share.visibility': 'native/share.js',

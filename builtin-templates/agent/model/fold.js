@@ -19,7 +19,7 @@
 // the rest: a streamed token re-folds a 1k-message conversation without
 // re-deriving a thousand headlines, and a view (the native bridge) can skip
 // what is identical. The output is exactly what fold() without a cache makes.
-import { headline, family, isSpawn, parseArgs, resultState } from './tool-heads.js';
+import { headline, family, isSpawn, parseArgs, resultState, subline, outcome } from './tool-heads.js';
 
 // Engine-written user messages that are not the owner speaking.
 const NOTICE = /^\[(subagent results|results of the runs|message from your parent)/;
@@ -196,6 +196,8 @@ export function fold(v, childView = () => null, depth = 0, cache = null) {
         return {
           id: 'c' + c.id, callId: c.id, name, args: raw, headline: headline(name, raw), fam: family(name),
           state: resultState(content), result: content, resultId: res ? res.id : 0, created: m.created,
+          // a sandbox call (D115): its command under a summary, and what it came to
+          sub: subline(name, raw), outcome: outcome(name, content),
         };
       };
       if (isSpawn(name)) {
@@ -229,7 +231,7 @@ export function fold(v, childView = () => null, depth = 0, cache = null) {
     if (d.text) out.push({ k: 'draft', id: 'draft-text', text: d.text });
     for (const t of Object.values(d.tools || {}).sort((a, b) => a.index - b.index)) {
       out.push({ k: 'tool', id: 'draft-tool-' + t.index, callId: t.id, name: t.name || '', args: t.args || '',
-        headline: headline(t.name, t.args), fam: family(t.name), state: 'writing', result: '' });
+        headline: headline(t.name, t.args), fam: family(t.name), state: 'writing', result: '', sub: subline(t.name, t.args), outcome: null });
     }
   }
   if (!cache) return out;

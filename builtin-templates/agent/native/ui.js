@@ -60,7 +60,7 @@ export const when = (ms) => (ms ? new Date(ms).toLocaleString([], { dateStyle: '
 // The icon of a tool family (model/tool-heads.js) — the web draws glyphs.
 export const FAMILY_ICON = {
   net: 'network', web: 'globe', file: 'file', code: 'code', mem: 'database', note: 'pencil', skill: 'star',
-  time: 'clock', agent: 'branch', done: 'check', ask: 'question', mcp: 'gear', other: 'wrench',
+  time: 'clock', agent: 'branch', done: 'check', ask: 'question', mcp: 'gear', box: 'terminal', other: 'wrench',
 };
 
 // A tool card's state (model/fold.js) as the chat family says it, and the

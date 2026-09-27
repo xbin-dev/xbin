@@ -90,6 +90,7 @@ export const FEATURES = {
   'composer.disabled': 'disabled in a conversation you may only read',
   'composer.class': 'the class for new chats (D116): icon and name, each one\'s description in its menu, only the classes you may use (GET /classes); your last pick is your default',
   'composer.model': 'the model: any bound provider\'s, grouped by provider — the open conversation\'s from its next turn, or the next new chat\'s; your last pick is your default',
+  'composer.sandbox': 'the coding sandbox (D115), beside the model — only where the class (the conversation\'s, or the new chat\'s) has the sandbox toolset: grouped This conversation · Yours · Shared · Team, ones you may not use or the class does not allow disabled with the reason, ＋ New and Manage…; a pick binds it from the next turn (at home: the new chat starts in it)',
   'composer.attach': 'attach files (a picker)',
   'composer.attach.paste': 'paste an image to attach it',
   'composer.attach.drop': 'drop files on the chat to attach them',
@@ -107,6 +108,7 @@ export const FEATURES = {
   'top.title': 'the conversation\'s title',
   'top.class': 'its class, fixed for its life (icon and name); a class that can move internal data out says so',
   'top.model': 'the model it was switched to, when one was picked',
+  'top.sandbox': '▣ its sandbox and working directory, and why a binding no longer resolves (gone, its manager unbound or down, its class no longer allows it); opens the working directory, switching among the attached ones, Detach, Manage…',
   'top.status': 'its status',
   'top.viewOnly': 'view only, when shared with you to read',
   'top.retry': 'Retry, when the run failed or was cancelled',
@@ -133,6 +135,8 @@ export const FEATURES = {
   'tools.render.blocked': 'says how many external resources it blocked, and when it shows a newer version',
   'tools.render.maximize': 'maximize the preview',
   'tools.render.source': 'open the rendered file in Files',
+  'tools.sandboxes': 'the Sandboxes screen (D115): every sandbox you may see — state, manager, image, egress, owner, private/team, last active, where it is bound — with start, stop, archive, thaw, share with the team / make private and delete (confirmed) as your rights allow, and "Use here"',
+  'tools.sandboxes.create': 'create a sandbox: manager, name, image, size, network (what the class allows), private or team, a working directory; made in a conversation it is bound there (a team conversation\'s is a team one), at home the next new chat starts in it',
 
   // Sharing
   'share.visibility': 'who can see it: only invited people, the team to read, the team to write',

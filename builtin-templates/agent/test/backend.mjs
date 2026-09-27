@@ -7,7 +7,9 @@
 // window.xbin whose fetch answers the routes the tile uses — the run list,
 // run views, messages, the queue, interrupts, approvals, the classes (D116:
 // the three built-ins, or seed.classes; PUT refuses a mixed class it was not
-// told to confirm) — and a live stream
+// told to confirm), the coding sandboxes (D115: seed.sandboxes and
+// seed.sbxManagers — GET/POST/PATCH/DELETE /sandboxes, their lifecycle, and
+// PATCH /runs {sandbox, detach} into the view's config) — and a live stream
 // the test drives with window.__push(event) (the same SSE the real backend
 // writes). Tests add or override routes with window.__route(method, regexp,
 // fn) from their own init script, and read what the tile sent from
@@ -96,6 +98,10 @@ export function STUB(seed) {
     ['PATCH', /\/runs\/(\d+)$/, (m, o) => {
       const r = window.__runs.find((x) => x.id === +m[1]) || {};
       const b = JSON.parse(o.body);
+      if ('sandbox' in b || 'detach' in b) {
+        const why = bindRun(+m[1], b);
+        if (why) return json({ error: why }, 403);
+      }
       if ('pinned' in b) r.pinnedAt = b.pinned ? Date.now() : 0;
       if ('archived' in b) r.archivedAt = b.archived ? Date.now() : 0;
       if (b.title) r.title = b.title;
@@ -174,6 +180,66 @@ export function STUB(seed) {
     const def = mine.some((c) => c.id === st.default) ? st.default : mine.some((c) => c.id === 'internal') ? 'internal' : (mine[0] || {}).id;
     return { classes: mine, default: def };
   };
+  // The coding sandboxes (D115), as _backend/sandbox_routes.go answers them:
+  // window.__sbx = {sandboxes, managers}; a sandbox in a route's path is
+  // percent-encoded (| → %7C) with its slashes as they are.
+  const MGR = { provider: 'apps/coding-sandbox', title: 'Coding sandboxes', ok: true, caps: ['exec', 'files', 'tar', 'archive'],
+    egress: ['none', 'internet', 'open'], images: [{ id: 'base', title: 'Debian', default: true }, { id: 'go', title: 'Go' }],
+    sizes: [{ id: 'small', memMiB: 2048, vcpus: 2, diskGiB: 20, default: true }], limits: {} };
+  window.__sbx = { sandboxes: seed.sandboxes || [], managers: seed.sbxManagers || [MGR] };
+  const box = (ref) => window.__sbx.sandboxes.find((x) => x.ref === ref);
+  const refOf = (enc) => decodeURIComponent(enc);
+  const binding = (s, cwd) => ({ ref: s.ref, cwd: cwd || s.workdir || '/work', name: s.name, manager: s.manager, image: (s.image || {}).id || '',
+    egress: s.egress, by: (seed.me || {}).user || 'admin', at: Date.now() });
+  const bindRun = (id, b) => {
+    const v = window.__views[id] || (window.__views[id] = {});
+    const cfg = v.config || (v.config = {});
+    if (b.detach) {
+      cfg.attached = (cfg.attached || []).filter((a) => a.ref !== b.detach);
+      if (cfg.sandbox && cfg.sandbox.ref === b.detach) delete cfg.sandbox;
+    }
+    if (b.sandbox === null) delete cfg.sandbox;
+    else if (b.sandbox) {
+      const s = box(b.sandbox.ref);
+      if (!s) return 'no such sandbox';
+      if (b.sandbox.cwd && !b.sandbox.cwd.startsWith('/')) return 'sandbox.cwd: an absolute path in the sandbox';
+      cfg.sandbox = binding(s, b.sandbox.cwd);
+      cfg.attached = [...(cfg.attached || []).filter((a) => a.ref !== s.ref), cfg.sandbox];
+      s.boundTo = [...new Set([...(s.boundTo || []), id])];
+    }
+    return '';
+  };
+  base.push(
+    ['GET', /\/sandboxes(\?fresh=1)?$/, () => json(window.__sbx)],
+    ['POST', /\/sandboxes$/, (m, o) => {
+      const b = JSON.parse(o.body);
+      const s = { ref: `${b.provider || MGR.provider}|sb-${b.name}`, provider: b.provider || MGR.provider, manager: MGR.title, id: 'sb-' + b.name,
+        name: b.name, state: 'running', egress: b.egress || 'none', visibility: b.visibility || 'private', image: { id: b.image || 'base' },
+        owner: { user: (seed.me || {}).user || 'admin' }, mine: true, canUse: true, canManage: true, canEdit: true, workdir: '/work',
+        caps: MGR.caps, lastActive: Date.now() };
+      window.__sbx.sandboxes.unshift(s);
+      if (b.conversation && b.bind !== false) { bindRun(b.conversation, { sandbox: { ref: s.ref, cwd: b.cwd } }); s.binding = window.__views[b.conversation].config.sandbox; }
+      return json(s, 201);
+    }],
+    ['POST', /\/sandboxes\/(.+)\/(start|stop|archive|thaw)\?/, (m) => {
+      const s = box(refOf(m[1]));
+      if (!s) return json({ error: 'no such sandbox' }, 404);
+      s.state = { start: 'running', stop: 'stopped', archive: 'archived', thaw: 'stopped' }[m[2]];
+      return json(s);
+    }],
+    ['PATCH', /\/sandboxes\/(.+)$/, (m, o) => {
+      const s = box(refOf(m[1]));
+      if (!s) return json({ error: 'no such sandbox' }, 404);
+      Object.assign(s, JSON.parse(o.body));
+      return json(s);
+    }],
+    ['DELETE', /\/sandboxes\/(.+)$/, (m) => {
+      const ref = refOf(m[1]);
+      window.__sbx.sandboxes = window.__sbx.sandboxes.filter((x) => x.ref !== ref);
+      for (const [id, v] of Object.entries(window.__views)) if (JSON.stringify(v.config || {}).includes(ref)) bindRun(+id, { detach: ref });
+      return json({ ok: true, detached: 0 });
+    }],
+  );
   window.xbin = {
     self: 'apps/agent',
     fetch: async (url, opt = {}) => {

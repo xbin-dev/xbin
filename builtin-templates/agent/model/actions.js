@@ -161,6 +161,31 @@ export async function setFeature(key, on) {
   return c;
 }
 
+// --- coding sandboxes (D115, API.md "Coding sandboxes") -------------------------------
+
+// A sandbox reference (<provider>[#inst]|<id>) in a route's path: its
+// slashes as they are, the rest percent-encoded (# and | never go raw).
+export const sbxPath = (ref) => '/sandboxes/' + String(ref).split('/').map(encodeURIComponent).join('/');
+// sandboxes: {sandboxes, managers} — what you may see across the bound managers.
+export const sandboxes = (fresh) => api('/sandboxes' + (fresh ? '?fresh=1' : ''));
+// createSandbox: {name, provider?, image?, size?, egress?, visibility?,
+// conversation?, bind?, cwd?, clientId?} → the sandbox (+ binding).
+export const createSandbox = (body) => api('/sandboxes', jbody(body, 'POST'));
+export const patchSandbox = (ref, body) => api(sbxPath(ref), jbody(body, 'PATCH'));
+export const deleteSandbox = (ref) => api(sbxPath(ref), { method: 'DELETE' });
+// sandboxAction: start | stop | archive | thaw, waiting up to `wait` s for it
+// to settle; `conversation`: acting as a participant of one it is bound to.
+export const sandboxAction = (ref, action, { wait = 20, conversation } = {}) =>
+  api(`${sbxPath(ref)}/${action}?wait=${wait}${conversation != null ? `&conversation=${conversation}` : ''}`, jbody({}, 'POST'));
+// setRunSandbox: a conversation's binding — {sandbox: {ref, cwd?} | null, detach?: <ref>}.
+export const setRunSandbox = (id, body) => api(`/runs/${id}`, jbody(body, 'PATCH'));
+// runConfig: a conversation's stored config and class, re-read (its view's
+// newest page of one message: cheap).
+export async function runConfig(id) {
+  const v = await api(`/runs/${id}/view?limit=1`);
+  return { config: (v && v.config) || {}, class: v && v.class };
+}
+
 // --- a run's memory blocks and session files ----------------------------------------------
 
 // memory: a run's memory blocks, {key: value}.

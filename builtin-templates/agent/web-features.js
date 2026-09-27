@@ -70,6 +70,7 @@ export const IMPLEMENTS = {
   'composer.disabled': 'agent.js — paint() (model/rules.js composer)',
   'composer.class': 'classes.js — makeClassPicker: #tset opens .clsmenu (model/classes.js classPicker → app.pickClass)',
   'composer.model': 'agent.js — #msel (rules.modelPicker → app.pickModel)',
+  'composer.sandbox': 'sandboxes.js — makeSandboxUI: #ssel (model/sandboxes.js sandboxPicker → app.sbx.choose; ＋ New / Manage… open #sbxdlg)',
   'composer.attach': 'agent.js — #clip',
   'composer.attach.paste': 'agent.js — paste',
   'composer.attach.drop': 'agent.js — drop on #main',
@@ -85,6 +86,7 @@ export const IMPLEMENTS = {
   'top.title': 'agent.js — topTpl',
   'top.class': 'agent.js — topTpl .clsbadge, .clswarn (model/classes.js badge)',
   'top.model': 'agent.js — topTpl ✦ badge',
+  'top.sandbox': 'sandboxes.js — badgeTpl #sbxbadge and its popover #sbxpop: #sbx-cwd, .sbxatt, #sbx-detach, #sbx-manage (model/sandboxes.js sandboxBadge)',
   'top.status': 'agent.js — topTpl',
   'top.viewOnly': 'agent.js — topTpl',
   'top.retry': 'agent.js — topTpl',
@@ -111,6 +113,8 @@ export const IMPLEMENTS = {
   'tools.render.blocked': 'agent.js — paintPreview',
   'tools.render.maximize': 'agent.js — #prev-max',
   'tools.render.source': 'agent.js — #prev-src',
+  'tools.sandboxes': 'sandboxes.js — the #sbxdlg dialog: .sbxrow [data-act] (model/sandboxes.js sandboxRows → app.sbx.act, share, remove, choose)',
+  'tools.sandboxes.create': 'sandboxes.js — #sbx-form (model/sandboxes.js createForm → app.sbx.create)',
 
   // Sharing
   'share.visibility': 'share.js',

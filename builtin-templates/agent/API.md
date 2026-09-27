@@ -1116,6 +1116,63 @@ side-effecting tools — the step parks for approval — only when the bound
 sandbox has egress other than `none` (`sandbox_copy`: when any attached one
 has); a sandbox with no network is private scratch.
 
+### In the UI
+
+The model is `model/sandboxes.js` (pure: what the controls say) and
+`app.sbx` (`model/sandbox-store.js`: the list, the next new chat's pick and
+the calls); the web draws it in `sandboxes.js`, the native view in
+`native/sandboxes.js`.
+
+- **The composer's picker** (`#ssel`, beside the model's) shows where the
+  class — the open conversation's, or at home the next new chat's — has the
+  `sandbox` toolset: no sandbox, then This conversation (what it has
+  attached or bound) · Yours · Shared · Team, then ＋ New sandbox… and
+  Manage sandboxes…. One you may not use, or that the class does not allow
+  (its manager, its egress), is listed disabled with the reason. A pick
+  binds it (`PATCH /runs/{root} {sandbox: {ref}}`, from the next turn); at
+  home it goes with the new chat (`POST /ask {sandbox}`) while the ask's
+  class has the toolset.
+- **The ▣ badge** in the top bar: the active sandbox and its `cwd` — or,
+  marked, why the binding no longer resolves (its class no longer allows it,
+  its manager is unbound or unavailable, its manager no longer has it). Its
+  popover sets the working directory (absolute; empty is the sandbox's
+  workdir), makes another attached sandbox the active one, detaches the
+  active one (`{detach}`) and opens Manage.
+- **The Sandboxes dialog** (`#sbxdlg`): every sandbox you may see, yours
+  first — state, manager, image, size, egress, owner, private/team, when it
+  was last active, how many conversations have it — with **Use here** (or
+  for a new chat), Start / Stop / Thaw (who may use or manage it; one bound
+  to the open conversation that you may not use goes through
+  `?conversation=`), Archive (who may manage it, where its manager
+  archives), Share with the team / Make private (its owner) and Delete (who
+  may manage it, confirmed). **New sandbox**: the manager, a name, its image
+  and size, the network (the class's `sandboxEgress` only), who may use it,
+  a working directory — in a conversation it is made for it and bound there
+  (`POST /sandboxes {conversation}`), at home it becomes the new chat's.
+  Opening a terminal onto one comes with the `sandbox-terminal` tile.
+- **Keeping current.** After a change the conversation's binding is read
+  again (`GET /runs/{id}/view?limit=1` → `config`); a `run` event that
+  carries `sandbox` (and `attached`, a count) updates it at once, and a
+  changed count reads the binding again.
+- **Tool cards**: the coding tools are the ▣ family. A card shows the call's
+  own words (the command, `old → new`, the pattern) under the model's
+  summary, and what it came to, read from the result: bash's footer
+  (`exit 1 · 14s · job 3`, `still running · 2m00s · job 3`, `job 3
+  started`), match, file and entry counts, lines read, sizes
+  (`model/tool-heads.js` `subline`, `outcome`; the fold's blocks carry them
+  as `sub` and `outcome`).
+- **In the native view** the picker is a Sandbox picker in the chat and
+  home toolbars, beside the model's, with short labels (a picker cannot
+  disable an option: one you may not use is marked, and picking it says
+  why). The ▣ badge is in the conversation's subtitle, a notice in the
+  transcript says why a binding no longer resolves, and ⋯ → Sandbox pushes
+  the popover's screen (working directory, the attached ones, Detach,
+  Manage sandboxes…). The Sandboxes screen puts each row's actions behind
+  its swipe and ⋯ (Archive and Delete confirmed), and New sandbox pushes
+  the create form. A ▣ tool card is a `terminal` icon; what the call came to
+  is a chip (`exit 1 · 14s · job 3` in red), its command the card's first
+  line.
+
 **Subagents on another sandbox.** `subagent_spawn` also takes `{sandbox?,
 cwd?}` where a sandbox is bound: `sandbox` names one of the conversation's
 attached sandboxes (a ref or a unique name; any other is refused), which
@@ -1128,8 +1185,8 @@ list, and the root's binding is unchanged.
 The tile's state and behaviour live in **`model/`** — plain ES modules with no
 lit and no DOM — and each way of showing the tile is a thin view over it. The
 web view is the files you know (`agent.js`, `chat-cards.js`, `sidebar.js`,
-`home.js`, `share.js`, `classes.js`, `automations.js`, `auto-*.js`,
-`index.html`); the
+`home.js`, `share.js`, `classes.js`, `sandboxes.js`, `automations.js`,
+`auto-*.js`, `index.html`); the
 **native view** is `native.js` and `native/` — what the xbin app draws with
 platform controls (`/vendor/xb-native.js`, docs/frontend-kit.md). Both draw
 the same model.
@@ -1148,6 +1205,7 @@ the same model.
 | `home.js` | `HOME` — the home view's words — and what "Needs you" says |
 | `features.js` | `FEATURES`: every feature of the UI by key, and the intended differences between views |
 | `classes.js` | agent classes (D116): the composer's picker and your pick, the conversation's badge, the managers' editor (a class as a form, its checks, what a save sends) |
+| `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the ▣ badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form; `app.sbx` — the list, the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, the run events that carry a binding |
 
 `createApp({deltas, page})` are the native view's options: drafts arrive as
 deltas (`/stream?deltas=1`, "Deltas" above) and the open conversation is read
@@ -1165,6 +1223,7 @@ home sends the draft (`POST /ask {draft, files}`).
 | `native/home.js`, `native/convs.js`, `native/share.js` | home and Needs you; the conversations drawer (a `sheet edge="leading"`), new chat with options, rename; the share sheet |
 | `native/tools.js`, `native/settings.js` | memory, files (+ editor, share/export), skills, the workflow tree, one call in full, the render preview (a `canvas html=` island, `native/render-doc.js` — the web's CSP); settings for managers |
 | `native/classes.js` | agent classes: the Class picker in the home toolbar, the new-chat sheet's class, Settings → Classes (the list, one class's form) |
+| `native/sandboxes.js` | coding sandboxes: the Sandbox picker in the chat and home toolbars, the ▣ in the subtitle and the broken-binding notice, the Sandbox screen (⋯ → Sandbox), the Sandboxes screen and the create form |
 | `native/auto.js`, `native/auto-channels.js`, `native/auto-triggers.js` | the Automations screens for all four kinds |
 | `native-features.js` | `IMPLEMENTS`: what the native view implements, by feature key (as `web-features.js` for the web) |
 

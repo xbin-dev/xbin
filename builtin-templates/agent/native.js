@@ -7,7 +7,8 @@
 //   home ─ or ─ a conversation (a subagent's parents under it: back goes up)
 //     ├─ the Automations screens (the page, one automation, a form)
 //     └─ pushed tools: memory, files (+ editor), skills, the workflow tree,
-//        settings, one tool call in full, the render preview
+//        settings, one tool call in full, the render preview, the coding
+//        sandboxes (native/sandboxes.js)
 //   + the conversations drawer (a sheet from the leading edge), and the
 //     sheets: new chat with options, rename, share
 //
