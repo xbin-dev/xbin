@@ -25,7 +25,9 @@
 // (their requests, answers and runs); queue.go the deploys (one in flight
 // per deployment, the journal that keeps attempts through a crash, the
 // deploy log's reads); events.go what clients see (the deployments event,
-// the State); worktree.go the drift count while live reload is paused.
+// the State); worktree.go the drift count while live reload is paused;
+// m2types.go the declarations for deployments beyond main and the answers
+// to their hooks.
 package deployments
 
 import (
@@ -43,6 +45,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/cgroup"
 	"github.com/xbin-dev/xbin/internal/checkpoint"
 	"github.com/xbin-dev/xbin/internal/confine"
 	"github.com/xbin-dev/xbin/internal/events"
@@ -114,6 +117,10 @@ type Plane struct {
 	// ReconcileIngress re-derives the ingress listeners and doors from the
 	// registry and the bindings.
 	ReconcileIngress func()
+	// TileLimits are a tile's cgroup caps, today's per-component ones: the
+	// ceiling of every deployment's limits (P22), in LimitsFor. Zero without
+	// cgroup delegation.
+	TileLimits cgroup.Limits
 
 	// OptInClosed is the ship-dark switch turned off (--tile-deployments=off):
 	// operations that create or extend deployment state are refused, those
