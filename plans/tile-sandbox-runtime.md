@@ -1566,8 +1566,10 @@ next to its vforking `os.StartProcess`.
     `sdk/sandbox_dialtty.go` and `sdk/sandbox_dialtty_test.go`, both behind
     `//go:build ignore` with a "WIRE ON MERGE" note. They pass in a scratch
     copy of the module with `p3/prep`'s `sdk/ws`. Once both branches are
-    merged, the integrator deletes the two build lines and adds `DialTTY` to
-    docs/sdk.md. The compiled `RelayTTY` test drives the upgrade with a raw
+    merged, the integrator deletes the first two lines of each file (the
+    build line and the blank line after it: deleting only the build line
+    leaves a file gofmt rejects) and adds `DialTTY` to docs/sdk.md. The
+    compiled `RelayTTY` test drives the upgrade with a raw
     handshake (a browser's masked frame through, raw bytes back), which is
     what "byte for byte" means anyway.
   - **Small additions to §10:** `WriteSandboxError(w, err)` answers a

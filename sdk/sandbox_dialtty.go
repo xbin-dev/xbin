@@ -2,8 +2,10 @@
 
 // WIRE ON MERGE (WP-14): DialTTY needs the SDK's WebSocket package, sdk/ws,
 // which lands with branch p3/prep. Once sdk/ws is on this branch, delete the
-// `//go:build ignore` line above (and the one in sandbox_dialtty_test.go),
-// add DialTTY to docs/sdk.md §Tile sandboxes, and run `go test ./sdk/...`.
+// first two lines of this file and of sandbox_dialtty_test.go — the
+// `//go:build ignore` line and the blank line after it (gofmt refuses a
+// file that starts blank) — add DialTTY to docs/sdk.md §Tile sandboxes, and
+// run `gofmt -l sdk` and `go test ./sdk/...`.
 // Everything else about tile sandboxes works without it: a relay needs no
 // WebSocket code (Forward, RelayTTY).
 
