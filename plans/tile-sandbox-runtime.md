@@ -4734,10 +4734,13 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
   verified person a frame token their session minted — no `Target.Skip`.
   `xbindtest` gained a remote mode (`remote.go`, `StartOrConnect`,
   `XBIN_E2E_*`) so the same tests drive the QA box's test instance (§13).
-  Here: all four pass (namespace in range mode; VM on KVM). The QA box:
-  blocked — the test instance can't mount the template's encrypted `db`
-  (§13), so its manager never starts; the emulated contract run is a known
-  issue (§14).
+  Here: all four pass (namespace in range mode; VM on KVM), and in remote
+  mode against a local `--no-auth` stand-in (VM under the QA budget,
+  `-parallel 1`). The QA box: part A's `TestNamespace` (range mode) and
+  `TestVM` (Firecracker on KVM) pass there through the tunnel; coding-sandbox
+  is blocked — the test instance can't mount the template's encrypted
+  `db` without an AppArmor rule for its workspace (§13), so the manager is
+  held and never starts. The emulated contract run is a known issue (§14).
   - **Found and fixed by the live runs:** (1) a timeout's KILL missed a
     member that outlived its leader (the contract's `run/timeout`): the
     KILL stays armed, and the agent signals an ended session's group for
@@ -4844,11 +4847,16 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
         XBIN_E2E_LOGS="qa-sbxtest.sh logs 80" XBIN_E2E_HOST_TCP=84.239.100.188:22
       go test -tags=integration -count=1 -v -run '^TestCodingSandboxVM$' ./test/isolated/
       go test -tags=integration -count=1 -v -parallel 1 -run '^TestCodingSandboxContractVM$' ./test/isolated/
+      # part A's example (1 GiB sandboxes, three at most):
+      XBIN_E2E_VM_MIB=3072 XBIN_E2E_VMS=3 go test -tags=integration -count=1 -v -parallel 1 -run '^TestNamespace$|^TestVM$' ./test/isolated/
 
   `XBIN_E2E_HOST_TCP` is the box's sshd on its public address: `internet`
   must not reach the host's own addresses. Nothing the tests do listens on
   the box (xbind stays on 127.0.0.1; check with `qa-sbxtest.sh sh 'sudo ss
-  -ltnp | grep -v 127.0.0'`). **The test instance needs FUSE mounts under
+  -ltnp | grep -v 127.0.0'`). The test instance's unit needs Go on its
+  `PATH` (`/usr/local/go/bin`, as `xbin.service` has; `qa-sbxtest.sh
+  deploy` now sets it), or no Go tile builds ("go toolchain: exec: go: not
+  found"). **It also needs FUSE mounts under
   its workspace**: vault encryption at rest is on there, and AppArmor's
   fusermount3 profile allows gocryptfs only under the paths the installer
   added (`/opt/xbin/workspace/.xbin/resenc/**/`), so the template's
