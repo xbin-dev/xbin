@@ -181,10 +181,12 @@ func (r *Runner) idle(s *state) bool {
 // buildAndStart's is of its own: a generation that exits without being
 // replaced leaves the state dirty, so the next request restarts the code the
 // record names; crashLimit exits inside the window trip the breaker, which
-// a deploy or restart clears (§7 row 3).
-func (r *Runner) watchGen(c *registry.Component, s *state, dep string, inst *instance) {
+// a deploy or restart clears (§7 row 3). release drops what the generation
+// holds in RootsInUse once it exits.
+func (r *Runner) watchGen(c *registry.Component, s *state, dep string, inst *instance, release func()) {
 	go func() {
 		<-inst.waitCh
+		release()
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if s.cur != inst {

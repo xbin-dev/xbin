@@ -53,8 +53,13 @@ func (r *Runner) alwaysOnView(c *registry.Component, dep string) *registry.Compo
 	if err != nil {
 		return nil
 	}
-	v, err := r.view(c, code)
-	if err != nil || !v.Manifest.AlwaysOn {
+	v := c // the work tree's view is c itself: a zero-state tile asks no checkpoint question (P5)
+	if !code.WorkTree {
+		if v, err = r.view(c, code); err != nil {
+			return nil
+		}
+	}
+	if !v.Manifest.AlwaysOn {
 		return nil
 	}
 	return v

@@ -169,33 +169,26 @@ func hostname(comp string) string {
 
 // restorePrevious restarts the checkpoint a deployment ran before a deploy
 // that stopped it first (a VM with file resources) and then failed, from its
-// kept artifact: "keeps running its previous code" holds as "restarts its
-// previous code" (§8.4). A generation of the work tree has no checkpoint to
-// go back to: the deployment stays down with the error until a deploy
-// succeeds.
+// kept artifact (resolveGen, inspect.go): "keeps running its previous code"
+// holds as "restarts its previous code" (§8.4). A generation of the work tree
+// has no checkpoint to go back to: the deployment stays down with the error
+// until a deploy succeeds.
 func (r *Runner) restorePrevious(c *registry.Component, s *state, dep string, old *instance) {
 	if old.code.Tree == "" {
 		return
 	}
 	r.emit(c.Path, dep, "build-start", "")
 	code := old.served()
-	view, err := r.view(c, code)
-	if err == nil && view.CodeRoot == "" {
-		v := *view // views are shared: never written
-		v.CodeRoot = old.root
-		view = &v
-	}
-	bin := old.artifact
-	if err == nil && bin == "" {
-		bin, err = r.buildGen(view)
-	}
+	g, err := r.resolveGen(c, code)
 	var inst *instance
 	if err == nil {
 		s.mu.Lock()
 		s.gen++
 		gen := s.gen
 		s.mu.Unlock()
-		inst, err = r.spawn(view, bin, gen)
+		if inst, err = r.spawn(g.view, g.bin, gen); err != nil {
+			g.release()
+		}
 	}
 	if err != nil {
 		err = fmt.Errorf("restarting its previous checkpoint %s failed too: %w", codeName(code), err)
@@ -205,11 +198,11 @@ func (r *Runner) restorePrevious(c *registry.Component, s *state, dep string, ol
 		r.emit(c.Path, dep, "build-error", err.Error())
 		return
 	}
-	inst.code, inst.root, inst.artifact = code, old.root, bin
+	inst.code, inst.root, inst.artifact = code, g.root, g.artifact
 	s.mu.Lock()
 	s.cur = inst
 	s.lastReq = r.now()
 	s.mu.Unlock()
-	r.watchGen(c, s, dep, inst)
+	r.watchGen(c, s, dep, inst, g.release)
 	r.emit(c.Path, dep, "build-ok", "")
 }

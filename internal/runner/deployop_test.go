@@ -114,7 +114,7 @@ func (g *deployRig) buildCheckpoint(c *registry.Component) (string, error) {
 		f.log = append(f.log, entry)
 		f.mu.Unlock()
 		<-h
-		return bin, nil
+		return bin, g.leaveArtifact(c)
 	}
 	defer f.mu.Unlock()
 	if f.failing("build " + c.Path + " main") {
@@ -122,7 +122,22 @@ func (g *deployRig) buildCheckpoint(c *registry.Component) (string, error) {
 		return "", &BuildError{Output: "fake compile error in " + name}
 	}
 	f.log = append(f.log, entry)
-	return bin, nil
+	return bin, g.leaveArtifact(c)
+}
+
+// leaveArtifact leaves the artifact a checkpoint build keeps, in the
+// layout Artifact reads (.xbin/build/<CompKey>/c/<tree>/{bin,build.json}),
+// so the next start of that checkpoint reuses it (07-runtime §8.7).
+func (g *deployRig) leaveArtifact(c *registry.Component) error {
+	tree := filepath.Base(c.CodeRoot)
+	dir := filepath.Join(g.f.root, ".xbin", "build", util.CompKey(c.Path), "c", tree)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bin"), []byte("fake binary"), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "build.json"), []byte(fmt.Sprintf(`{"tile":%q,"tree":%q}`, c.Path, tree)), 0o644)
 }
 
 // root is where a checkpoint is materialized, as the plane would put it.
@@ -424,7 +439,14 @@ func TestDeploySeamRows(t *testing.T) {
 		g.settle()
 		g.takeAll()
 		g.f.crash(g.c.Path, "main")
-		g.settle()
+		// Not settle: the crash leaves the state dirty with the failed
+		// pause's error on it, which the next request (below) rebuilds.
+		waitFor(t, "the crash watch", func() bool {
+			s := g.r.existingState(g.c.Path)
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			return s.cur == nil && s.dirty
+		})
 		if a := g.ensure(); !strings.HasPrefix(a, "error: ") {
 			t.Errorf("ensure after the crash = %s, want c1's build error", a)
 		}
@@ -587,6 +609,33 @@ func TestDeployQueueCoalesces(t *testing.T) {
 	}
 }
 
+// covers P9 T18 — a generation a deploy starts holds its materialized tree
+// in RootsInUse (checkpoint GC's keep set) until it exits, as one Ensure
+// starts does: deployed c1 is held, c2's swap moves the hold, a stop drops it.
+func TestDeployHoldsRootsInUse(t *testing.T) {
+	g := newDeployRig(t, goMan)
+	g.ensure()
+	if got := g.r.RootsInUse(); len(got) != 0 {
+		t.Fatalf("the work tree holds %q", got)
+	}
+	if err := g.pause("c1"); err != nil {
+		t.Fatal(err)
+	}
+	g.settle()
+	if got := g.r.RootsInUse(); !equalStrings(got, []string{g.root(tree("c1"))}) {
+		t.Fatalf("after the pause RootsInUse = %q, want c1's tree", got)
+	}
+	if err := g.deployPinned("c2"); err != nil {
+		t.Fatal(err)
+	}
+	g.settle()
+	waitFor(t, "c1's generation to exit", func() bool {
+		return equalStrings(g.r.RootsInUse(), []string{g.root(tree("c2"))})
+	})
+	g.r.Stop(g.c.Path)
+	waitFor(t, "the stop", func() bool { return len(g.r.RootsInUse()) == 0 })
+}
+
 // covers P9 NP-07-2 — restart is a deploy of the same checkpoint (07-runtime
 // §8.7, 11-contract §1.6): a no-op while healthy; a new generation, clearing
 // the breaker, while crash-looping; Restart forces one either way, reported
@@ -635,7 +684,7 @@ func TestDeployRestartIsSameCheckpoint(t *testing.T) {
 			t.Fatal(err)
 		}
 		g.settle()
-		g.expect([]string{c1b, st(3)}, nil, deployOK)
+		g.expect([]string{st(3)}, nil, deployOK) // from c1's kept artifact: no compile (§8.7)
 		if got, a := g.served(), g.ensure(); got != "healthy g3 c1" || a != "g3" {
 			t.Errorf("served %s, ensure %s; want the breaker cleared, g3 on c1", got, a)
 		}
@@ -653,7 +702,7 @@ func TestDeployRestartIsSameCheckpoint(t *testing.T) {
 			t.Fatal(err)
 		}
 		g.settle()
-		g.expect([]string{c1b, st(3), sp(2)}, []string{bs, bo}, deployOK)
+		g.expect([]string{st(3), sp(2)}, []string{bs, bo}, deployOK) // c1's kept artifact (§8.7)
 	})
 
 	t.Run("Restart of the work tree rebuilds it", func(t *testing.T) {

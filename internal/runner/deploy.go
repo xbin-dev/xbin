@@ -546,12 +546,14 @@ func (r *Runner) deployStatic(c *registry.Component, s *state, p *deployPlan, co
 func (r *Runner) deployIdle(c *registry.Component, s *state, p *deployPlan, commit func() error, rep *deployReport, changed bool) error {
 	rep.step(PhaseBuild)
 	if !p.code.WorkTree {
-		if _, err := r.deployBuild(p); err != nil {
+		g, err := r.deployBuild(c, p)
+		if err != nil {
 			// Nothing runs, and what the record names still starts on the
 			// next request: the failure is the actor's and the log's alone.
 			r.logDeployFailure(c.Path, p.dep, p.code, err)
 			return rep.failed(err)
 		}
+		g.release() // prepared, not run: the next request's start holds it again
 	}
 	if err := commit(); err != nil {
 		return rep.failed(err)
@@ -576,7 +578,7 @@ func (r *Runner) deploySwap(c *registry.Component, s *state, p *deployPlan, comm
 		r.emit(tile, dep, "build-start", "")
 	}
 	rep.step(PhaseBuild)
-	bin, err := r.deployBuild(p)
+	g, err := r.deployBuild(c, p)
 	if err != nil {
 		return r.deployFailed(c, s, p, err, rep)
 	}
@@ -598,16 +600,17 @@ func (r *Runner) deploySwap(c *registry.Component, s *state, p *deployPlan, comm
 	if !r.shouldRun(tile, dep) { // disabled while it built
 		err = fmt.Errorf("component %s is not enabled", tile)
 	} else {
-		inst, err = r.spawn(p.view, bin, gen)
+		inst, err = r.spawn(g.view, g.bin, gen)
 	}
 	if err != nil {
+		g.release()
 		err = r.deployFailed(c, s, p, err, rep)
 		if first {
 			r.restorePrevious(c, s, dep, old)
 		}
 		return err
 	}
-	inst.code, inst.root, inst.artifact = p.code, p.root, bin
+	inst.code, inst.root, inst.artifact = p.code, g.root, g.artifact
 
 	rep.step(PhaseSwap)
 	s.mu.Lock()
@@ -628,6 +631,7 @@ func (r *Runner) deploySwap(c *registry.Component, s *state, p *deployPlan, comm
 		}
 		s.mu.Unlock()
 		r.stopGen(inst, 2*time.Second)
+		g.release()
 		return r.deployFailed(c, s, p, err, rep)
 	}
 	s.mu.Lock()
@@ -636,7 +640,7 @@ func (r *Runner) deploySwap(c *registry.Component, s *state, p *deployPlan, comm
 	if old != nil && !first {
 		go r.stopGen(old, drainDeadline)
 	}
-	r.watchGen(c, s, dep, inst)
+	r.watchGen(c, s, dep, inst, g.release)
 	if p.loud() {
 		r.emit(tile, dep, "build-ok", "")
 	}
@@ -674,15 +678,17 @@ func alive(inst *instance) bool {
 	}
 }
 
-// deployBuild produces what a generation of the plan's code starts from: the
-// work tree's build, or the checkpoint's, from its materialized tree (the
-// view's CodeRoot). A node or python checkpoint's entry is looked for in that
-// tree, never in the work tree.
-func (r *Runner) deployBuild(p *deployPlan) (string, error) {
+// deployBuild produces what a generation of the plan's code starts from,
+// through resolveGen (inspect.go) as every restart does: the work tree's
+// build, or the checkpoint's kept artifact, built from its materialized tree
+// (the view's CodeRoot) only when none is kept (§8.7), its tree and artifact
+// held from here until the generation exits (RootsInUse). A node or python
+// checkpoint's entry is looked for in that tree, never in the work tree.
+func (r *Runner) deployBuild(c *registry.Component, p *deployPlan) (genPlan, error) {
 	if err := checkpointEntry(p.view); err != nil {
-		return "", err
+		return genPlan{}, err
 	}
-	return r.buildGen(p.view)
+	return r.resolveGen(c, p.code)
 }
 
 // checkpointEntry checks that an interpreted checkpoint has its entry file,
