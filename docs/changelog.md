@@ -20,7 +20,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   tile was enabled. It now names the resource and the cause
   ([resources.md](resources.md) §Encryption at rest). Nothing to change.
 - **Sandbox-manager contract: a stop may apply a pending `egress`**
-  ([sandbox-manager.md](sandbox-manager.md) §Sandboxes). A `PATCH` of a
+  ([sandbox-manager.md](sandbox-manager.md) §The sandbox). A `PATCH` of a
   running sandbox's `egress` stays `egressNext` until the next start; a
   manager may now also apply it at the stop (`egress` becomes it, as a
   `PATCH` of a stopped sandbox does), since a substrate need keep no
@@ -28,8 +28,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   takes it either way. Nothing to change: a consumer enforcing a firewall
   already checks the less restrictive of `egress` and `egressNext`.
 - **Binding a tile's `http` slot no longer restarts the provider**
-  ([overview/11-interfaces.md](overview/11-interfaces.md) §Rebinding
-  restarts). Binding, rebinding or unbinding a consumer's `http` slot used
+  ([overview/11-interfaces.md](overview/11-interfaces.md), "Rebinding
+  restarts"). Binding, rebinding or unbinding a consumer's `http` slot used
   to restart the provider it named (and the consumer's `net` provider),
   cutting every other consumer's calls in flight — a sandbox manager's
   relayed terminals and output long polls broke whenever a new consumer was
