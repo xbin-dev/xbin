@@ -2234,9 +2234,11 @@ GET    /sandboxes/runtime          manager. what this tile may use now → {enab
                                    perSandbox:{memMiB,vcpus,diskGiB,maxMemMiB,
                                    maxVCPUs,maxDiskGiB,pids},idleStopMin,
                                    runTimeoutMaxMs,runOutputMax,execsRunning,
-                                   outputRing,stdinMax,fileMax,tarMax,waitMaxSec},
+                                   outputRing,stdinMax,fileMax,tarMax,waitMaxSec,
+                                   flows:{tcp,udp}},
                                    used:{sandboxes,running,memMiB,vcpus,diskBytes}}
-GET    /sandboxes/policy           admin. → {policy (effective), stored (0 = default)}
+GET    /sandboxes/policy           admin. → {policy (effective), stored (0 = default),
+                                   error? (why the policy file can't be read)}
 PUT    /sandboxes/policy           admin. a partial policy, merged onto the stored
                                    one → {policy, stored}; 400 invalid when out of range
 GET    /sandboxes                  manager. → {sandboxes:[SandboxInfo]} (an admin's
@@ -2301,7 +2303,12 @@ are JSON decoded leniently — unknown fields are ignored, so a newer SDK
 works against an older xbind — and capped: 64 KiB for a definition, a PATCH
 and the policy (413 `too-large` past it). Times are unix ms, sizes bytes
 unless named. Names match `[a-z0-9][a-z0-9-]{0,31}`; `runtime`, `policy`
-and `copy` are reserved. The data plane — `run`, starting an exec, stdin,
+and `copy` are reserved. Exec ids match `[0-9a-f]{6}-[0-9]{1,12}` and
+snapshot ids `s-[0-9]{1,12}`. A path with a `.` or `..` segment, or an
+encoded `/`, `.` or `\` (`%2F`, `%2E`, `%5C`) in any segment, and a
+`<name>`, `<id>` or `<sid>` that fails its grammar, are 400 `invalid`
+before anything is looked up, so an id a manager forwards can never
+address another route or sandbox. The data plane — `run`, starting an exec, stdin,
 signals, resizes, file writes, tar uploads and copies — isn't audit-logged;
 definitions, lifecycle, snapshots and the policy are.
 
@@ -2331,11 +2338,14 @@ definitions, lifecycle, snapshots and the policy are.
   manager's manifest declares (`interfaces: {"internet": {"kind":
   "sandbox-net"}}`); `runtime.egress` lists them with what each reaches.
 - A `res` mount is a `filesystem` resource of the manager's own scope that
-  it holds (`uses`); a reader's is read-only. `path` is a clean relative
-  sub-path of the resource. `source: true` mounts the tile's own code,
-  read-only. `at` is absolute and clean, not `/`, and not under `/proc`,
-  `/sys`, `/dev`, `/run/xbin` or `/opt/xbin`. `sqlite` and other kinds are
-  `invalid`.
+  it holds the way its backend's `XBIN_RES_*` variables need: declared in
+  its `uses` **and** granted (a same-scope `uses` entry is its own grant).
+  A grant left over after the manifest dropped its `uses` entry mounts
+  nothing ("declare it in uses"). A reader's mount is read-only. `path` is
+  a clean relative sub-path of the resource. `source: true` mounts the
+  tile's own code, read-only. `at` is absolute and clean, not `/`, and not
+  under `/proc`, `/sys`, `/dev`, `/run/xbin` or `/opt/xbin`. `sqlite` and
+  other kinds are `invalid`.
 - `defaults.env` keys `XBIN_*` are `invalid`: a sandbox never gets an xbin
   identity. `uid`/`gid` must be runnable (`users: root` — a namespace host
   mapping a single uid — allows only 0). `labels` are opaque, ≤ 1 KiB in
@@ -2349,12 +2359,17 @@ definitions, lifecycle, snapshots and the policy are.
   that fails leaves it `stopped`, the failure in `stateDetail`. `from`
   clones (the `clone` capability; `unsupported` until served).
 
-**SandboxInfo:** `{name, state (stopped | starting | running | stopping |
-error), stateDetail, mode, accel?, memMiB, vcpus, diskGiB, net:{egress,
-reach, egressNext, note}, mounts, defaults, labels, for?, forUser?,
-idleStopMin, autoStart, base:{version, outdated}, users, diskBytes,
-snapshots, execsRunning, created, started?, lastActive?, version,
-clientId?, restartNeeded}` — `reach` is what the egress reaches (`none`,
+**SandboxInfo:** `{name, uid, state (creating | stopped | starting |
+running | stopping | error), stateDetail, mode, accel?, memMiB, vcpus,
+diskGiB, net:{egress, reach, egressNext, note}, mounts, defaults, labels,
+for?, forUser?, idleStopMin, autoStart, base:{version, outdated}, users,
+diskBytes, snapshots, execsRunning, created, started?, lastActive?,
+version, clientId?, restartNeeded}` — `uid` is the sandbox's identity (12 hex,
+fixed at create; its name is only its address): a sandbox deleted and
+created again under the same name gets another `uid`, and never the old
+one's state. `creating` is a clone whose copy still runs: until it ends
+`stopped` (or `running`, or `error`), every call but `GET`, the list and
+`DELETE` answers 409 `state`. `reach` is what the egress reaches (`none`,
 `internet` or `open`, the contract's words), `egressNext` an egress a
 `PATCH` set that waits for the next start.
 
@@ -2362,9 +2377,13 @@ clientId?, restartNeeded}` — `reach` is what the egress reaches (`none`,
 keeps the fields it doesn't name): `{enabled (true), perTile:{max 8,
 running 4, memMiB 8192, vcpus 8, diskGiB 100}, perSandbox:{memMiB 2048,
 vcpus 2, diskGiB 20, maxMemMiB 8192, maxVCPUs 8, maxDiskGiB 200, pids
-4096}, idleStopMin 30 (≤ 1440), outputRingMiB 1 (≤ 8), outputBudgetMiB 64,
-overrides:{"<tile>": {perTile, perSandbox, …}}}` — an override replaces
-that tile's previous one, `null` removes it.
+4096}, total:{memMiB 0, pids 32768}, idleStopMin 30 (≤ 1440), outputRingMiB
+1 (≤ 8), outputBudgetMiB 64, overrides:{"<tile>": {perTile, perSandbox,
+…}}}` — `total` caps every tile sandbox together (`memMiB` 0 = ¾ of the
+host's RAM) and has no per-tile override; an override replaces that tile's
+previous one, `null` removes it. `runtime.limits.flows` is each sandbox's
+cap on concurrent network connections (TCP and UDP flows through its relay);
+past it a new one is refused at once.
 
 **The TTY routes** are WebSockets on exactly the `/ws/term` wire (below):
 binary frames both ways (the ring's tail replays first), `{"op":

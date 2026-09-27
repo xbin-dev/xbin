@@ -2773,6 +2773,52 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
   looked up; a create stores a uid, a delete + re-create of the same name
   gets another; an old-shape file loads and gains uids; `ResourceMount`
   refuses a granted same-scope resource with no `uses` entry.
+- **As built (notes):**
+  - **`keyOf` and the guard.** `deploymentOf(p any)` reads a `Deployment`
+    field of any struct (index cached per type in a `sync.Map`), so the
+    test proves the reflection on a stand-in type (`auth.Principal`
+    embedded + `Deployment`); a field that isn't a string reads as
+    non-main whenever it is set (fails closed). `keyOf` reads it through
+    a package variable, `principalDeployment`, which `keys_test.go`
+    points at the stand-in to drive every manager route to 501 (and sets
+    the real field by reflection once it exists). Gate order: hygiene
+    (400) → who (403) → isolation (501) → `keyOf` (501); `ServeRuntime`
+    and the policy routes run hygiene too.
+  - **Hygiene sees the path as sent.** Behind `server.handleAPI` the
+    inner mux routes a *decoded* path: handleAPI resets `URL.Path` and
+    leaves `RawPath` stale, so `/api/xbin/sandboxes/x%2Fstop` reaches the
+    stop route for `x`, and `%2E%2E` is cleaned into a redirect before any
+    handler. The gate checks `RawPath` (stale: the original), `EscapedPath`
+    and `Path`, so the first is 400 too; the test drives both the plain mux
+    and a handleAPI-shaped request. handleAPI itself is unchanged (it
+    serves every `/api/xbin` route). On the plain mux the grammars catch
+    most encoded values a second time.
+  - **uids.** A definition loaded without one gets one, and the load
+    writes them back at once (best effort; never over an unreadable or
+    newer file) rather than at the next write, so a uid can't change
+    across a restart before WP-15a's first start creates `<name>.<uid>/`.
+    A malformed `uid` drops the entry (no create made it, like a bad
+    name); a uid another sandbox of the tile already has is replaced
+    (name order). `StateDir`/`CurDir` refuse a definition whose name or
+    uid fails its grammar. `removeState(k, *Def)`.
+  - **`StateCreating`** is the constant and the documented rule; nothing
+    sets it and the 409 isn't enforced yet — WP-20 does both where it
+    sets the state.
+  - **`GET /sandboxes/policy`'s `error`** is filled already from the
+    store's existing unreadable-file error (the defaults still apply
+    meanwhile); WP-15b makes it fail closed. `total.memMiB` 0 stays 0 in
+    the effective policy (¾ of the host's RAM is WP-15a's cgroup parent's
+    to resolve); `total` is range-checked only, and an override's `total`
+    is ignored (lenient decode).
+  - **`ResourceMount`'s refusals:** no `uses` entry → "…: declare it in
+    uses"; a `uses` entry without the grant (a ceiling) → "declared in
+    uses but not granted (or the workspace policy refuses it)".
+  - **Beyond the file list:** `sdk/sandbox.go`'s `SandboxInfo` gains `UID`
+    (one line; WP-14b edits the same file elsewhere), so a manager can
+    read it; `docs/isolation.md`'s mounts line says `uses`;
+    `openapi_sandboxes.go` adds one more package-level helper, `sbxSnap`
+    (§14's clash note). Existing tests now use well-formed exec ids, and a
+    malformed name is 400 where it was 404.
 
 #### WP-14b — Typed routes for `Forward` (D · S · now; before WP-21 and phase 3's manager)
 

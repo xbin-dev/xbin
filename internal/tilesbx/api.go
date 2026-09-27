@@ -13,6 +13,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
@@ -35,10 +36,55 @@ func (m *Manager) Manages(p auth.Principal) bool {
 
 func (m *Manager) isAdmin(p auth.Principal) bool { return m.deps.Admin != nil && m.deps.Admin(p) }
 
-// manager gates a manager route: 403 for anyone else, 501 without
-// isolation. The key is the caller's own: a manager only names its own
-// sandboxes.
+// The id grammars (§3.1), checked on every route before any lookup: exec
+// ids are <boot prefix>-<n>, snapshot ids s-<n>.
+var (
+	execIDRE = regexp.MustCompile(`^[0-9a-f]{6}-[0-9]{1,12}$`)
+	snapIDRE = regexp.MustCompile(`^s-[0-9]{1,12}$`)
+)
+
+// hygiene refuses (400 invalid) a request whose path could address
+// something other than what its segments say, before anything is looked
+// up — the caller included: a "." or ".." segment, an encoded "/", "." or
+// "\" (or a bare "\") in any segment, or a {name}, {id} or {sid} that fails
+// its grammar. Go's mux redirects a plain "..", but an encoded one would
+// arrive as one segment's value, and a manager forwarding a consumer's id
+// must never be steered to another route (§8.3). Every form of the path is
+// checked: RawPath (what the client sent, when it isn't the default
+// encoding), EscapedPath and the decoded Path.
+func hygiene(r *http.Request) error {
+	for _, p := range []string{r.URL.RawPath, r.URL.EscapedPath(), r.URL.Path} {
+		for _, seg := range strings.Split(p, "/") {
+			up := strings.ToUpper(seg)
+			if seg == "." || seg == ".." || strings.Contains(seg, `\`) ||
+				strings.Contains(up, "%2F") || strings.Contains(up, "%2E") || strings.Contains(up, "%5C") {
+				return refuse(RefInvalid, "the path has a dot segment or an encoded /, . or \\ in a segment")
+			}
+		}
+	}
+	if n := r.PathValue("name"); n != "" {
+		if err := validName(n); err != nil {
+			return err
+		}
+	}
+	if id := r.PathValue("id"); id != "" && !execIDRE.MatchString(id) {
+		return refuse(RefInvalid, "exec id %q must match %s", id, execIDRE)
+	}
+	if sid := r.PathValue("sid"); sid != "" && !snapIDRE.MatchString(sid) {
+		return refuse(RefInvalid, "snapshot id %q must match %s", sid, snapIDRE)
+	}
+	return nil
+}
+
+// manager gates a manager route: 400 for a path that fails hygiene, 403
+// for anyone but a manager, 501 without isolation or for a non-main
+// deployment. The key is the caller's own (keyOf): a manager only names
+// its own sandboxes.
 func (m *Manager) manager(w http.ResponseWriter, r *http.Request) (Key, bool) {
+	if err := hygiene(r); err != nil {
+		writeErr(w, err)
+		return Key{}, false
+	}
 	p := auth.PrincipalOf(r)
 	if !m.Manages(p) {
 		writeErr(w, refuse(RefNotAllowed, msgNotManager))
@@ -48,20 +94,34 @@ func (m *Manager) manager(w http.ResponseWriter, r *http.Request) (Key, bool) {
 		writeErr(w, refuse(RefUnsupported, msgIsolation))
 		return Key{}, false
 	}
-	return KeyOf(p), true
+	k, err := keyOf(p)
+	if err != nil {
+		writeErr(w, err)
+		return Key{}, false
+	}
+	return k, true
 }
 
 // managerOrAdmin gates stop and delete: a manager on its own sandboxes, or
 // a workspace admin naming the tile (?tile=, &deployment= for a
 // deployment's). An admin never creates, execs, reads files or attaches.
 func (m *Manager) managerOrAdmin(w http.ResponseWriter, r *http.Request) (Key, bool) {
+	if err := hygiene(r); err != nil {
+		writeErr(w, err)
+		return Key{}, false
+	}
 	p := auth.PrincipalOf(r)
 	if m.Manages(p) {
 		if !m.isolated {
 			writeErr(w, refuse(RefUnsupported, msgIsolation))
 			return Key{}, false
 		}
-		return KeyOf(p), true
+		k, err := keyOf(p)
+		if err != nil {
+			writeErr(w, err)
+			return Key{}, false
+		}
+		return k, true
 	}
 	if !m.isAdmin(p) {
 		writeErr(w, refuse(RefNotAllowed, msgNotManager))
@@ -92,7 +152,8 @@ func (m *Manager) lookup(w http.ResponseWriter, k Key, name string) (*Def, bool)
 	return d, ok
 }
 
-// managed gates a manager route on one sandbox and finds it.
+// managed gates a manager route on one sandbox and finds it: {name}, and
+// any {id} or {sid}, have passed their grammars (hygiene) first.
 func (m *Manager) managed(w http.ResponseWriter, r *http.Request) (Key, *Def, bool) {
 	k, ok := m.manager(w, r)
 	if !ok {
@@ -139,27 +200,53 @@ func decode(w http.ResponseWriter, r *http.Request, max int64, v any) error {
 // ServeRuntime answers GET /sandboxes/runtime: what the calling manager may
 // use now. It answers without isolation too (isolation: false).
 func (m *Manager) ServeRuntime(w http.ResponseWriter, r *http.Request) {
+	if err := hygiene(r); err != nil {
+		writeErr(w, err)
+		return
+	}
 	p := auth.PrincipalOf(r)
 	if !m.Manages(p) {
 		writeErr(w, refuse(RefNotAllowed, msgNotManager))
 		return
 	}
+	k, err := keyOf(p)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
 	m.mu.Lock()
-	rt := m.runtime(KeyOf(p))
+	rt := m.runtime(k)
 	m.mu.Unlock()
 	writeJSON(w, http.StatusOK, rt)
 }
 
-// policyView is the policy routes' answer: effective and as stored.
+// policyView is the policy routes' answer: effective and as stored, and
+// why the policy file can't be read (error), when it can't.
 func (m *Manager) policyView() map[string]any {
 	st := m.policy.get()
-	return map[string]any{"policy": st.Effective(), "stored": st}
+	v := map[string]any{"policy": st.Effective(), "stored": st}
+	if m.policy.err != nil {
+		v["error"] = m.policy.err.Error()
+	}
+	return v
+}
+
+// adminGate gates the policy routes: hygiene, then admins only.
+func (m *Manager) adminGate(w http.ResponseWriter, r *http.Request) bool {
+	if err := hygiene(r); err != nil {
+		writeErr(w, err)
+		return false
+	}
+	if !m.isAdmin(auth.PrincipalOf(r)) {
+		writeErr(w, refuse(RefNotAllowed, "admin only"))
+		return false
+	}
+	return true
 }
 
 // ServePolicy answers GET /sandboxes/policy (admins).
 func (m *Manager) ServePolicy(w http.ResponseWriter, r *http.Request) {
-	if !m.isAdmin(auth.PrincipalOf(r)) {
-		writeErr(w, refuse(RefNotAllowed, "admin only"))
+	if !m.adminGate(w, r) {
 		return
 	}
 	m.mu.Lock()
@@ -171,8 +258,7 @@ func (m *Manager) ServePolicy(w http.ResponseWriter, r *http.Request) {
 // ServeSetPolicy answers PUT /sandboxes/policy (admins): a partial policy
 // merged onto the stored one, then validated.
 func (m *Manager) ServeSetPolicy(w http.ResponseWriter, r *http.Request) {
-	if !m.isAdmin(auth.PrincipalOf(r)) {
-		writeErr(w, refuse(RefNotAllowed, "admin only"))
+	if !m.adminGate(w, r) {
 		return
 	}
 	body, err := readBody(w, r, defBodyMax)
@@ -276,7 +362,7 @@ func (m *Manager) create(k Key, req *CreateRequest) (Info, int, error) {
 	if err := m.vmDisks(k, d, lim); err != nil {
 		return Info{}, 0, err
 	}
-	d.Created, d.Version = m.now().UnixMilli(), 1
+	d.UID, d.Created, d.Version = newUID(), m.now().UnixMilli(), 1
 	if req.ClientID != "" {
 		d.ClientID, d.ReqHash = req.ClientID, hash
 	}
@@ -361,13 +447,14 @@ func (m *Manager) ServeDelete(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.defs.get(k, name); !ok {
+	d, ok := m.defs.get(k, name)
+	if !ok {
 		writeErr(w, refuse(RefNotFound, "no sandbox %q", name))
 		return
 	}
 	err := m.stop(k, name, "deleted")
 	if err == nil {
-		err = m.removeState(k, name)
+		err = m.removeState(k, d)
 	}
 	if err == nil {
 		err = m.defs.del(k, name)

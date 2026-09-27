@@ -9,13 +9,14 @@ const (
 	capManager        = "manager tile (cap:sandboxes)"
 	capManagerOrAdmin = "manager tile (cap:sandboxes), or admin (?tile=)"
 	sbxTag            = "Tile sandboxes"
-	sbxErrors         = " Errors are the sandbox-manager contract's {error, refusal, state?, etag?, retryAfterMs?} (docs/sandbox-manager.md). Without --isolate every manager route but runtime answers 501 unsupported; a route this xbind doesn't serve yet answers 501 unsupported (runtime's caps lists what it serves)."
+	sbxErrors         = " Errors are the sandbox-manager contract's {error, refusal, state?, etag?, retryAfterMs?} (docs/sandbox-manager.md). A path with a . or .. segment, or an encoded /, . or \\ in a segment, and a name or id failing its grammar are 400 invalid before anything is looked up. Without --isolate every manager route but runtime answers 501 unsupported; a route this xbind doesn't serve yet answers 501 unsupported (runtime's caps lists what it serves)."
 )
 
 func integer() oapi         { return oapi{"type": "integer"} }
 func object(d string) oapi  { return oapi{"type": "object", "description": d} }
 func sbxName() oapi         { return pathParam("name", "sandbox name, [a-z0-9][a-z0-9-]{0,31}") }
-func sbxExec() []oapi       { return []oapi{sbxName(), pathParam("id", "exec id (<boot>-<n>)")} }
+func sbxExec() []oapi       { return []oapi{sbxName(), pathParam("id", "exec id, [0-9a-f]{6}-[0-9]{1,12}")} }
+func sbxSnap() oapi         { return pathParam("sid", "snapshot id, s-[0-9]{1,12}") }
 func sbxPath(q string) oapi { return queryParam("path", q, true) }
 func sbxWait() oapi {
 	return queryParam("wait", "seconds to wait for the transition (≤ limits.waitMaxSec)", false)
@@ -52,20 +53,20 @@ func sandboxEndpoints() []ep {
 	return []ep{
 		// runtime and policy
 		{"GET", "/sandboxes/runtime", sbxTag, "What this manager tile may use", capManager,
-			"{enabled, isolation, modes:[{mode, accel?}], unavailable:[{mode, reason}], users (any | root: a single-uid namespace host), egress:[{class, slot?, ref?, reach, rules?, note?}] (none, then each sandbox-net slot of the tile), caps (the contract capabilities served), limits {sandboxes, running, memMiB, vcpus, diskGiB, perSandbox, idleStopMin, runTimeoutMaxMs, runOutputMax, execsRunning, outputRing, stdinMax, fileMax, tarMax, waitMaxSec}, used {sandboxes, running, memMiB, vcpus, diskBytes}}. Answers without --isolate too (isolation: false)." + sbxErrors,
+			"{enabled, isolation, modes:[{mode, accel?}], unavailable:[{mode, reason}], users (any | root: a single-uid namespace host), egress:[{class, slot?, ref?, reach, rules?, note?}] (none, then each sandbox-net slot of the tile), caps (the contract capabilities served), limits {sandboxes, running, memMiB, vcpus, diskGiB, perSandbox, idleStopMin, runTimeoutMaxMs, runOutputMax, execsRunning, outputRing, stdinMax, fileMax, tarMax, waitMaxSec, flows {tcp, udp}: a sandbox's concurrent connections}, used {sandboxes, running, memMiB, vcpus, diskBytes}}. Answers without --isolate too (isolation: false)." + sbxErrors,
 			nil, nil, "Runtime"},
 		{"GET", "/sandboxes/policy", sbxTag, "The sandboxes policy", "admin",
-			"{policy (effective), stored (zero = default)}: {enabled, perTile {max, running, memMiB, vcpus, diskGiB}, perSandbox {memMiB, vcpus, diskGiB, maxMemMiB, maxVCPUs, maxDiskGiB, pids}, idleStopMin, outputRingMiB, outputBudgetMiB, overrides {<tile>: {perTile, perSandbox, …}}}.",
+			"{policy (effective), stored (zero = default), error? (why the policy file can't be read)}: {enabled, perTile {max, running, memMiB, vcpus, diskGiB}, perSandbox {memMiB, vcpus, diskGiB, maxMemMiB, maxVCPUs, maxDiskGiB, pids}, total {memMiB (0 = ¾ of the host's RAM), pids}: every tile sandbox together, no per-tile override, idleStopMin, outputRingMiB, outputBudgetMiB, overrides {<tile>: {perTile, perSandbox, …}}}.",
 			nil, nil, "{policy, stored}"},
 		{"PUT", "/sandboxes/policy", sbxTag, "Set the sandboxes policy", "admin",
 			"A partial policy merged onto the stored one (absent fields stay; an override replaces that tile's, null removes it), then validated (400 invalid).",
-			nil, jsonBody("a partial policy", oapi{"enabled": boolean(), "perTile": object(""), "perSandbox": object(""), "idleStopMin": integer(), "outputRingMiB": integer(), "outputBudgetMiB": integer(), "overrides": object("by tile path")}), "{policy, stored}"},
+			nil, jsonBody("a partial policy", oapi{"enabled": boolean(), "perTile": object(""), "perSandbox": object(""), "total": object("{memMiB, pids}"), "idleStopMin": integer(), "outputRingMiB": integer(), "outputBudgetMiB": integer(), "overrides": object("by tile path")}), "{policy, stored}"},
 		// definitions
 		{"POST", "/sandboxes", sbxTag, "Define a tile sandbox", capManager,
-			"201 SandboxInfo (200 when clientId repeats the same request). Sizes: 0 = the policy default, clamped to the caps (the answer says what applied). mode is required and must be available now; net names none or a sandbox-net slot of the tile; a res mount is a filesystem resource of the tile's own scope that it holds (a reader's is read-only at start); source mounts the tile's code read-only; at is absolute, not / and not under /proc, /sys, /dev, /run/xbin or /opt/xbin. 409 exists: the name, or a clientId used for another request; 429 limit: perTile.max, or VM disks over perTile.diskGiB." + sbxErrors,
+			"201 SandboxInfo (200 when clientId repeats the same request). Sizes: 0 = the policy default, clamped to the caps (the answer says what applied). mode is required and must be available now; net names none or a sandbox-net slot of the tile; a res mount is a filesystem resource of the tile's own scope that it declares in uses and holds (a reader's is read-only at start); source mounts the tile's code read-only; at is absolute, not / and not under /proc, /sys, /dev, /run/xbin or /opt/xbin. 409 exists: the name, or a clientId used for another request; 429 limit: perTile.max, or VM disks over perTile.diskGiB." + sbxErrors,
 			nil, sandboxDef(true), "SandboxInfo"},
 		{"GET", "/sandboxes/{name}", sbxTag, "One tile sandbox", capManager,
-			"SandboxInfo {name, state (stopped | starting | running | stopping | error), stateDetail, mode, accel?, memMiB, vcpus, diskGiB, net {egress, reach, egressNext, note}, mounts, defaults, labels, for, forUser, idleStopMin, autoStart, base {version, outdated}, users, diskBytes, snapshots, execsRunning, created, started?, lastActive?, version, clientId?, restartNeeded}." + sbxErrors,
+			"SandboxInfo {name, uid (its identity: a name deleted and created again gets another), state (creating | stopped | starting | running | stopping | error), stateDetail, mode, accel?, memMiB, vcpus, diskGiB, net {egress, reach, egressNext, note}, mounts, defaults, labels, for, forUser, idleStopMin, autoStart, base {version, outdated}, users, diskBytes, snapshots, execsRunning, created, started?, lastActive?, version, clientId?, restartNeeded}." + sbxErrors,
 			name, nil, "SandboxInfo"},
 		{"PATCH", "/sandboxes/{name}", sbxTag, "Change a tile sandbox", capManager,
 			"The fields present change (defaults and labels as a whole); name, mode and from can't (400). version guards a lost update (412 precondition). A VM disk only grows. The answer has restartNeeded when a change waits for the next start (egressNext for an egress)." + sbxErrors,
@@ -154,8 +155,8 @@ func sandboxEndpoints() []ep {
 			name, jsonBody("the snapshot", oapi{"name": str(""), "clientId": str("")}), "the snapshot"},
 		{"POST", "/sandboxes/{name}/snapshots/{sid}/restore", sbxTag, "Restore a snapshot", capManager,
 			"SandboxInfo; its execs are killed. A snapshot of another base or mode is 400 invalid." + sbxErrors,
-			[]oapi{sbxName(), pathParam("sid", "snapshot id")}, nil, "SandboxInfo"},
+			[]oapi{sbxName(), sbxSnap()}, nil, "SandboxInfo"},
 		{"DELETE", "/sandboxes/{name}/snapshots/{sid}", sbxTag, "Delete a snapshot", capManager,
-			"204." + sbxErrors, []oapi{sbxName(), pathParam("sid", "snapshot id")}, nil, "204"},
+			"204." + sbxErrors, []oapi{sbxName(), sbxSnap()}, nil, "204"},
 	}
 }

@@ -6,6 +6,7 @@ package tilesbx
 // Info is one sandbox as the runtime answers it (SandboxInfo).
 type Info struct {
 	Name          string            `json:"name"`
+	UID           string            `json:"uid"` // the sandbox's identity: a re-created name gets another
 	State         string            `json:"state"`
 	StateDetail   string            `json:"stateDetail"`
 	Mode          string            `json:"mode"`
@@ -81,7 +82,7 @@ func (m *Manager) info(k Key, d *Def) Info {
 	lim := m.limitsFor(k.Tile)
 	mem, vcpus, disk := clamp(d, lim)
 	in := Info{
-		Name: d.Name, State: b.state, StateDetail: b.detail, Mode: d.Mode,
+		Name: d.Name, UID: d.UID, State: b.state, StateDetail: b.detail, Mode: d.Mode,
 		MemMiB: mem, VCPUs: vcpus, DiskGiB: disk,
 		Net:      NetInfo{Egress: d.Net.Egress},
 		Mounts:   d.Mounts,
@@ -166,6 +167,15 @@ type RuntimeLimits struct {
 	FileMax         int        `json:"fileMax"`
 	TarMax          int        `json:"tarMax"`
 	WaitMaxSec      int        `json:"waitMaxSec"`
+	Flows           Flows      `json:"flows"`
+}
+
+// Flows caps one sandbox's concurrent relay flows (§4): past them a new
+// connection is reset at once. Fixed until the relay's caps are
+// configurable; the workspace-wide cap is the admin's.
+type Flows struct {
+	TCP int `json:"tcp"`
+	UDP int `json:"udp"`
 }
 
 // Used is what the tile holds now.
@@ -197,6 +207,7 @@ func (m *Manager) runtime(k Key) Runtime {
 			IdleStopMin: lim.IdleStopMin, RunTimeoutMaxMs: runTimeoutMaxMs, RunOutputMax: runOutputMax,
 			ExecsRunning: execsRunningMax, OutputRing: lim.OutputRingMiB << 20, StdinMax: stdinMax,
 			FileMax: fileMax, TarMax: tarMax, WaitMaxSec: waitMaxSec,
+			Flows: Flows{TCP: flowsTCP, UDP: flowsUDP},
 		},
 	}
 	if m.isolated {

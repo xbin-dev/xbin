@@ -424,7 +424,8 @@ type SandboxPatch struct {
 // SandboxInfo is a sandbox as the runtime has it.
 type SandboxInfo struct {
 	Name          string            `json:"name"`
-	State         string            `json:"state"` // stopped | starting | running | stopping | error
+	UID           string            `json:"uid"`   // its identity: a name deleted and created again gets another
+	State         string            `json:"state"` // creating | stopped | starting | running | stopping | error
 	StateDetail   string            `json:"stateDetail"`
 	Mode          string            `json:"mode"`
 	Accel         string            `json:"accel,omitempty"`

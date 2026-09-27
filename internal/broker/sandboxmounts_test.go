@@ -24,7 +24,8 @@ func TestResourceMount(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("xbin.json", `{"schema":1,"grants":[{"from":"apps/other","target":"res:apps/mgr/work","role":"writer"}]}`)
+	write("xbin.json", `{"schema":1,"grants":[{"from":"apps/other","target":"res:apps/mgr/work","role":"writer"},
+		{"from":"apps/mgr/left","target":"res:apps/mgr/work","role":"writer"}]}`)
 	write("apps/mgr/scope.json", `{"resources":{"work":{"type":"filesystem"},"cache":{"type":"filesystem"},
 		"db":{"type":"sqlite"},"kv":{"type":"kv"}}}`)
 	write("apps/mgr/xbin.json", `{"runtime":"go","uses":[
@@ -33,6 +34,7 @@ func TestResourceMount(t *testing.T) {
 		{"target":"res:apps/mgr/db","role":"writer"},
 		{"target":"res:apps/mgr/kv","role":"writer"}]}`)
 	write("apps/mgr/other/xbin.json", `{"runtime":"go"}`)
+	write("apps/mgr/left/xbin.json", `{"runtime":"go"}`) // a grant left over after its uses entry went
 	write("apps/other/xbin.json", `{"runtime":"go","uses":[{"target":"res:apps/mgr/work","role":"writer"}]}`)
 	reg, err := registry.Open(root)
 	if err != nil {
@@ -59,7 +61,8 @@ func TestResourceMount(t *testing.T) {
 		{"apps/mgr", "res:apps/mgr/kv", "only filesystem"},
 		{"apps/mgr", "res:apps/mgr/nope", "not a declared resource"},
 		{"apps/mgr", "apps/mgr", "not a declared resource"},
-		{"apps/mgr/other", "res:apps/mgr/work", "doesn't hold"},               // same scope, not declared
+		{"apps/mgr/other", "res:apps/mgr/work", "declare it in uses"},         // same scope, not declared
+		{"apps/mgr/left", "res:apps/mgr/work", "declare it in uses"},          // same scope, granted, not declared
 		{"apps/other", "res:apps/mgr/work", "another scope"},                  // granted, but another scope's
 		{"apps/gone", "res:apps/mgr/work", "no tile"},                         // no such tile
 		{"apps/mgr", "res:workspace/x", "not a declared resource"},            // no workspace resource

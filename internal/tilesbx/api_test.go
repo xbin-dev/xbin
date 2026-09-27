@@ -27,8 +27,8 @@ func TestGates(t *testing.T) {
 		{"POST", "/sandboxes/sb-1/reset"},
 		{"POST", "/sandboxes/sb-1/run"},
 		{"POST", "/sandboxes/sb-1/execs"},
-		{"GET", "/sandboxes/sb-1/execs/abc-1/output"},
-		{"GET", "/sandboxes/sb-1/execs/abc-1/tty"},
+		{"GET", "/sandboxes/sb-1/execs/abc123-1/output"},
+		{"GET", "/sandboxes/sb-1/execs/abc123-1/tty"},
 		{"GET", "/sandboxes/sb-1/tty"},
 		{"GET", "/sandboxes/sb-1/files/stat?path=/"},
 		{"PUT", "/sandboxes/sb-1/files/content?path=/x"},
@@ -163,7 +163,9 @@ func TestNames(t *testing.T) {
 		e.create(ns(n))
 	}
 	e.want(e.do(mgr, "GET", "/sandboxes/nope", nil), http.StatusNotFound, RefNotFound)
-	e.want(e.do(mgr, "GET", "/sandboxes/BAD", nil), http.StatusNotFound, RefNotFound)
+	// A name no create could make is refused before any lookup.
+	e.want(e.do(mgr, "GET", "/sandboxes/BAD", nil), http.StatusBadRequest, RefInvalid)
+	e.want(e.do(mgr, "DELETE", "/sandboxes/policy", nil), http.StatusBadRequest, RefInvalid)
 	e.want(e.do(mgr, "PATCH", "/sandboxes/nope", "{}"), http.StatusNotFound, RefNotFound)
 }
 
@@ -201,10 +203,10 @@ func TestNotBuilt(t *testing.T) {
 	for _, r := range [][2]string{
 		{"POST", "/sandboxes/sb-1/start"}, {"POST", "/sandboxes/sb-1/stop"}, {"POST", "/sandboxes/sb-1/reset"},
 		{"POST", "/sandboxes/sb-1/rebase"}, {"POST", "/sandboxes/sb-1/run"}, {"GET", "/sandboxes/sb-1/execs"},
-		{"POST", "/sandboxes/sb-1/execs"}, {"GET", "/sandboxes/sb-1/execs/a-1"}, {"DELETE", "/sandboxes/sb-1/execs/a-1"},
-		{"GET", "/sandboxes/sb-1/execs/a-1/output"}, {"POST", "/sandboxes/sb-1/execs/a-1/stdin"},
-		{"POST", "/sandboxes/sb-1/execs/a-1/signal"}, {"POST", "/sandboxes/sb-1/execs/a-1/resize"},
-		{"GET", "/sandboxes/sb-1/execs/a-1/tty"}, {"GET", "/sandboxes/sb-1/tty"},
+		{"POST", "/sandboxes/sb-1/execs"}, {"GET", "/sandboxes/sb-1/execs/abc123-1"}, {"DELETE", "/sandboxes/sb-1/execs/abc123-1"},
+		{"GET", "/sandboxes/sb-1/execs/abc123-1/output"}, {"POST", "/sandboxes/sb-1/execs/abc123-1/stdin"},
+		{"POST", "/sandboxes/sb-1/execs/abc123-1/signal"}, {"POST", "/sandboxes/sb-1/execs/abc123-1/resize"},
+		{"GET", "/sandboxes/sb-1/execs/abc123-1/tty"}, {"GET", "/sandboxes/sb-1/tty"},
 		{"GET", "/sandboxes/sb-1/files/stat"}, {"GET", "/sandboxes/sb-1/files/content"}, {"PUT", "/sandboxes/sb-1/files/content"},
 		{"GET", "/sandboxes/sb-1/files/list"}, {"POST", "/sandboxes/sb-1/files/mkdir"}, {"POST", "/sandboxes/sb-1/files/remove"},
 		{"POST", "/sandboxes/sb-1/files/move"}, {"GET", "/sandboxes/sb-1/tar"}, {"PUT", "/sandboxes/sb-1/tar"},

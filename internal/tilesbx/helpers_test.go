@@ -94,7 +94,15 @@ func newEnv(t *testing.T, mut ...func(*Options)) *testEnv {
 // is handed to ServeList by the registry view's route).
 func routes(m *Manager) *http.ServeMux {
 	mux := http.NewServeMux()
-	for pat, h := range map[string]http.HandlerFunc{
+	for pat, h := range routeTable(m) {
+		mux.HandleFunc(pat, h)
+	}
+	return mux
+}
+
+// routeTable is every route's pattern and handler.
+func routeTable(m *Manager) map[string]http.HandlerFunc {
+	return map[string]http.HandlerFunc{
 		"GET /sandboxes":                                 m.ServeList,
 		"GET /sandboxes/runtime":                         m.ServeRuntime,
 		"GET /sandboxes/policy":                          m.ServePolicy,
@@ -132,10 +140,7 @@ func routes(m *Manager) *http.ServeMux {
 		"POST /sandboxes/{name}/snapshots":               m.ServeSnapshot,
 		"POST /sandboxes/{name}/snapshots/{sid}/restore": m.ServeRestore,
 		"DELETE /sandboxes/{name}/snapshots/{sid}":       m.ServeDeleteSnapshot,
-	} {
-		mux.HandleFunc(pat, h)
 	}
-	return mux
 }
 
 // do calls the runtime as p; body is JSON-encoded unless it is a string.

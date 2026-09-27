@@ -7,9 +7,12 @@ package tilesbx
 // at every start.
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
 
 	"github.com/xbin-dev/xbin/internal/fsutil"
@@ -49,9 +52,17 @@ type From struct {
 }
 
 // Def is one sandbox's definition, as stored: the validated request, with
-// its sizes resolved (defaults filled, clamped to the caps at create).
+// its sizes resolved (defaults filled, clamped to the caps at create), and
+// the runtime's bookkeeping.
+//
+// UID is the sandbox's identity; its name is only its address. It is 12
+// random hex, set at create and never changed, and keys what outlives a
+// request (the state dir <name>.<uid>, .trash entries, a backup's match,
+// the archive key), so a sandbox re-created under an old name never meets
+// the old one's state.
 type Def struct {
 	Name        string            `json:"name"`
+	UID         string            `json:"uid"`
 	Mode        string            `json:"mode"` // namespace | vm
 	MemMiB      int               `json:"memMiB"`
 	VCPUs       int               `json:"vcpus"`
@@ -69,9 +80,25 @@ type Def struct {
 	Base        string            `json:"base,omitempty"`
 	ClientID    string            `json:"clientId,omitempty"`
 	ReqHash     string            `json:"reqHash,omitempty"` // the create request's, for a clientId repeat
+	SnapSeq     int64             `json:"snapSeq"`           // the last snapshot number handed out (s-<n>)
+	Pending     string            `json:"pending,omitempty"` // "clone" while a clone's copy runs
 }
 
-// clone deep-copies d.
+// uidRE is a sandbox uid's grammar: what newUID makes.
+var uidRE = regexp.MustCompile(`^[0-9a-f]{12}$`)
+
+func validUID(u string) bool { return uidRE.MatchString(u) }
+
+// newUID is a fresh sandbox uid: 12 random hex characters.
+func newUID() string {
+	var b [6]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic("tilesbx: no randomness for a sandbox uid: " + err.Error())
+	}
+	return hex.EncodeToString(b[:])
+}
+
+// clone deep-copies d (its uid, snapSeq and pending included).
 func (d *Def) clone() *Def {
 	c := *d
 	c.Mounts = append([]Mount(nil), d.Mounts...)
@@ -114,9 +141,10 @@ const defsVersion = 1
 // defStore holds the definitions in memory and writes them through,
 // atomically (a temp file, fsync, rename), mode 0600. Callers hold m.mu.
 type defStore struct {
-	path string
-	file defsFile
-	err  error // unreadable or from a newer xbind: nothing is written over it
+	path  string
+	file  defsFile
+	err   error // unreadable or from a newer xbind: nothing is written over it
+	dirty bool  // the load changed something (gave uids) not written yet
 }
 
 func loadDefs(path string) *defStore {
@@ -146,13 +174,49 @@ func loadDefs(path string) *defStore {
 			continue
 		}
 		for name, d := range td.Sandboxes {
-			if d == nil || d.Name != name || validName(name) != nil {
+			if d == nil || d.Name != name || validName(name) != nil || (d.UID != "" && !validUID(d.UID)) {
 				delete(td.Sandboxes, name) // never serve an entry no create could have made
 			}
+		}
+		if s.assignUIDs(td) {
+			s.dirty = true
+		}
+		if len(td.Sandboxes) == 0 {
+			delete(f.Tiles, tile)
 		}
 	}
 	s.file = f
 	return s
+}
+
+// assignUIDs gives each definition of a tile without a uid one (only
+// definitions written before uids existed lack one), and a fresh one to
+// every later holder of a uid another of the tile's sandboxes already has
+// (a hand-copied entry), so a uid names one sandbox. It reports a change.
+func (s *defStore) assignUIDs(td *tileDefs) bool {
+	names := make([]string, 0, len(td.Sandboxes))
+	for name := range td.Sandboxes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	seen, changed := map[string]bool{}, false
+	for _, name := range names {
+		d := td.Sandboxes[name]
+		if d.UID == "" || seen[d.UID] {
+			d.UID, changed = newUID(), true
+		}
+		seen[d.UID] = true
+	}
+	return changed
+}
+
+// flush writes a load's repairs (uids given to old definitions) back, so
+// a uid survives the next restart even if nothing else is written first.
+// Best effort: a failed write leaves them for the next one.
+func (s *defStore) flush() {
+	if s.dirty && s.err == nil {
+		_ = s.save()
+	}
 }
 
 // list is the key's definitions, by name (copies).
@@ -268,5 +332,9 @@ func (s *defStore) save() error {
 	if err != nil {
 		return err
 	}
-	return fsutil.WriteFileAtomicIn(s.path, append(b, '\n'), 0o600)
+	if err := fsutil.WriteFileAtomicIn(s.path, append(b, '\n'), 0o600); err != nil {
+		return err
+	}
+	s.dirty = false
+	return nil
 }
