@@ -1312,6 +1312,43 @@ next to its vforking `os.StartProcess`.
   - `unshare -U` fails.
   - Add the package to `make integration`.
 - **Parallel:** with WP-4 once both deps are in.
+- **As built** (branch `p2/wp3`):
+  - `RunNamespace(agentFD, lockFD) int` is the exit code: 0 on the
+    factory's EOF, 1 for a setup or transport failure, 2 when it isn't PID 1.
+    It refuses a factory fd that isn't a `SOCK_SEQPACKET` socket, and past
+    the two dups it marks every other fd above stdio close-on-exec
+    (`close_range`).
+  - *Signals are caught, not ignored.* `signal.Ignore` would set `SIG_IGN`,
+    which survives exec: every session would start with TERM, INT and HUP
+    ignored. `signal.Notify` plus a drain keeps a handler, which the child
+    resets to the default. The list adds ABRT, SEGV, BUS, FPE, ILL, TRAP,
+    SYS and STKFLT: Go dies of any of them sent by `kill`. SIGKILL and
+    SIGSTOP need nothing, since the kernel drops them for a pid namespace's
+    init. A fault signal forged with `rt_sigqueueinfo` still crashes the
+    runtime. That only stops the sandbox itself, and xbind trusts nothing
+    from the agent anyway (§2.6).
+  - *Sessions never inherit the agent's environment.* A nil `Exec.Env` used
+    to inherit it through `os.StartProcess`. A session now gets exactly its
+    exec's `Env`, plus the terminals' `PATH` when that names none. This
+    applies to the VM guest too, where every existing caller already sends a
+    `PATH`. So the contract's `IN_SANDBOX`, `SANDBOX_ID`, `SANDBOX_NAME` and
+    `HOME` are WP-17's to send.
+  - *The final sync is bounded.* fuse-overlayfs is a process of the sandbox,
+    so a session can SIGSTOP it. The agent's `syncfs` then hung and kept the
+    sandbox and its lock alive after the factory closed. On EOF the agent now
+    sends SIGCONT to the whole namespace, then syncs. If the sync is still
+    waiting after 5 s, it SIGKILLs the namespace, which aborts the FUSE
+    connection, and exits.
+    - **For WP-15a:** while the sandbox runs, a stopped fuse-overlayfs
+      still wedges a session's per-exit sync and the `sync` op. xbind's
+      stop must bound its wait for `synced`, then close the factory.
+  - *The integration test* is `agentcore/ns_linux_test.go`, with the probe
+    in `testdata/nsprobe`. It runs over a minimal lower with the kernel
+    overlay, and again over the rootfs with fuse-overlayfs when they are
+    present. Its attack probe also covers fuse-overlayfs, which holds the
+    host's lower and upper directories. That process is out of reach too,
+    because its capabilities aren't a subset of an exec's
+    (`cap_ptrace_access_check`).
 
 ### WP-4 — The resident shim (Track A · M · after WP-0, WP-1, WP-2)
 

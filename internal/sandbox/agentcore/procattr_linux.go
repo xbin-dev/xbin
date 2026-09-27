@@ -89,16 +89,32 @@ func idMapped(file string, id uint32) bool {
 	return false
 }
 
-// lookPath resolves argv0 against the session's PATH (the agent's own
-// environment has none).
+// defaultPATH is a session's PATH when its exec names none: the rootfs
+// toolchains first, as terminals and backends have it.
+const defaultPATH = "/usr/local/go/bin:/usr/local/node/bin:/usr/local/bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+// sessionEnv is the environment a session starts with: exactly the exec's,
+// plus defaultPATH when it names no PATH — never the agent's own (a nil
+// os.ProcAttr.Env would inherit it).
+func sessionEnv(env []string) []string {
+	for _, e := range env {
+		if strings.HasPrefix(e, "PATH=") {
+			return append([]string{}, env...)
+		}
+	}
+	return append([]string{"PATH=" + defaultPATH}, env...)
+}
+
+// lookPath resolves argv0 against the session's PATH (the first in env).
 func lookPath(argv0 string, env []string) (string, error) {
 	if strings.Contains(argv0, "/") {
 		return argv0, nil
 	}
-	path := "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	path := defaultPATH
 	for _, e := range env {
 		if v, ok := strings.CutPrefix(e, "PATH="); ok {
 			path = v
+			break
 		}
 	}
 	for _, dir := range filepath.SplitList(path) {

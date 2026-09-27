@@ -109,9 +109,10 @@ test:
 
 integration:
 	go test -tags=integration -count=1 -v ./test/...
-	# the confined tool runs (D78) and the sandbox init (a minimal lower built
-	# in the test) in real sandboxes: skip without .rootfs/userns
-	go test -tags=integration -count=1 -v ./internal/confine/ ./internal/runner/ ./internal/sandbox/
+	# the confined tool runs (D78), the sandbox init and a tile sandbox's
+	# `bx __sbx-agent` (a minimal lower built in the test) in real sandboxes:
+	# skip without .rootfs/userns
+	go test -tags=integration -count=1 -v ./internal/confine/ ./internal/runner/ ./internal/sandbox/ ./internal/sandbox/agentcore/
 	# VM sandboxes (D89): skip without /dev/kvm or the vm-assets; then again
 	# under QEMU's emulation (skips without its assets)
 	go test -tags=integration -count=1 -v ./internal/vm/

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -34,6 +35,12 @@ type harness struct {
 	events  []proto.Msg
 	more    chan struct{}
 	ctlGone chan struct{} // the event reader's ctl ended
+
+	// open makes one connection to the agent: a socketpair handed to
+	// core.Handle, or a Dial over a sandbox's factory (ns_linux_test.go).
+	open func() *net.UnixConn
+	// env is an exec's Env when it names none (nil: sent as nil).
+	env []string
 }
 
 func newHarness(t *testing.T, mod func(*Options)) *harness {
@@ -44,6 +51,21 @@ func newHarness(t *testing.T, mod func(*Options)) *harness {
 		mod(&o)
 	}
 	h.core = New(o)
+	h.env = []string{"PATH=" + os.Getenv("PATH")}
+	h.open = func() *net.UnixConn {
+		a, b := pair(h.t)
+		go h.core.Handle(b)
+		return a
+	}
+	h.start()
+	return h
+}
+
+// start opens the control connection, reads its events, and waits for
+// "ready".
+func (h *harness) start() {
+	t := h.t
+	t.Helper()
 	h.ctl = proto.NewConn(h.dial(proto.Hello{Kind: "ctl"}), nil)
 	go func() {
 		defer close(h.ctlGone)
@@ -64,7 +86,6 @@ func newHarness(t *testing.T, mod func(*Options)) *harness {
 	if m := h.wait(0, "ready"); m.Op != "ready" {
 		t.Fatalf("first event %+v, want ready", m)
 	}
-	return h
 }
 
 // pair is a connected pair of unix stream sockets.
@@ -91,8 +112,7 @@ func pair(t *testing.T) (*net.UnixConn, *net.UnixConn) {
 // dial opens a connection to the core and sends its Hello.
 func (h *harness) dial(hello proto.Hello) *net.UnixConn {
 	h.t.Helper()
-	a, b := pair(h.t)
-	go h.core.Handle(b)
+	a := h.open()
 	if err := proto.NewConn(a, nil).Send(hello); err != nil {
 		h.t.Fatal(err)
 	}
@@ -140,7 +160,7 @@ func (h *harness) send(m proto.Msg) {
 func (h *harness) exec(ex proto.Exec) map[string]*net.UnixConn {
 	h.t.Helper()
 	if ex.Env == nil {
-		ex.Env = []string{"PATH=" + os.Getenv("PATH")}
+		ex.Env = h.env
 	}
 	ss := map[string]*net.UnixConn{}
 	for _, name := range streamsOf(ex) {
@@ -507,5 +527,42 @@ func TestConfigureFirst(t *testing.T) {
 	_ = ctl.Send(proto.Msg{Op: "config", Config: &proto.Config{}})
 	if err := ctl.RecvMax(&m, proto.MaxEvent); err != nil || m.Op != "error" || !strings.Contains(m.Error, "already") {
 		t.Fatalf("a second config: %+v %v", m, err)
+	}
+}
+
+// A session's environment is its exec's, plus the default PATH when that
+// names none — never the agent's own (os.StartProcess inherits it for a nil
+// Env).
+func TestSessionEnvClean(t *testing.T) {
+	t.Setenv("AGENTCORE_AGENT_ONLY", "leaked")
+	envBin, err := exec.LookPath("env")
+	if err != nil {
+		t.Skip("no env(1)")
+	}
+	h := newHarness(t, nil)
+	h.env = nil
+	for i, c := range []struct {
+		env  []string
+		want string
+	}{
+		{nil, "PATH=" + defaultPATH + "\n"},
+		{[]string{"FOO=1"}, "PATH=" + defaultPATH + "\nFOO=1\n"},
+		{[]string{"FOO=1", "PATH=/nowhere"}, "FOO=1\nPATH=/nowhere\n"},
+	} {
+		session := 2 + i
+		ss := h.exec(proto.Exec{Session: session, Path: envBin, Argv: []string{"env"}, Env: c.env, Merge: true, NoStdin: true})
+		if out := readAll(t, ss["stdout"]); out != c.want {
+			t.Errorf("env %q: the session saw %q, want %q", c.env, out, c.want)
+		}
+		h.wait(session, "exited")
+	}
+	// a bare name resolves against the default PATH, not the agent's
+	t.Setenv("PATH", "/nowhere")
+	ss := h.exec(proto.Exec{Session: 9, Argv: []string{"env"}, Merge: true, NoStdin: true})
+	if out := readAll(t, ss["stdout"]); out != "PATH="+defaultPATH+"\n" {
+		t.Errorf("a bare env(1): %q", out)
+	}
+	if m := h.wait(9, "exited", "error"); m.Op != "exited" || m.Code != 0 {
+		t.Errorf("a bare env(1): %+v", m)
 	}
 }

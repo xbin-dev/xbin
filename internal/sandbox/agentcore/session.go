@@ -234,7 +234,8 @@ func (s *session) run() error {
 	if prog == "" {
 		prog = ex.Argv[0]
 	}
-	argv0, err := lookPath(prog, ex.Env)
+	env := sessionEnv(ex.Env)
+	argv0, err := lookPath(prog, env)
 	if err != nil {
 		return err
 	}
@@ -263,7 +264,7 @@ func (s *session) run() error {
 		}
 	}
 	sys := &syscall.SysProcAttr{Setsid: true, Credential: cred} // pgid = pid: Group signals
-	attr := &os.ProcAttr{Dir: cwd, Env: ex.Env, Sys: sys}
+	attr := &os.ProcAttr{Dir: cwd, Env: env, Sys: sys}
 	pipes, err := s.stdio(ex, attr, st)
 	if err != nil {
 		return err
