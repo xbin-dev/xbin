@@ -4,10 +4,12 @@
 // pure over a state view + an actions object, so every branch the shell
 // can show is a fixture here: org-screen draft lines, what "Open tile"
 // lists/disables, the create-tile variants by owner count, the admin block
-// per lifecycle state, and which action each line fires.
+// per lifecycle state, which action each line fires, and the optional
+// tile deployments line (absent in the zero state).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { canvasMenuItems, openTileItems, tileMenuItems, offloaded, hidden } from '../workspace-template/shell/menus.js';
+import { canvasMenuItems, openTileItems, tileMenuItems, offloaded, hidden,
+  useDeployLookup, deploySummary, deployHint, deployCheckpoint, deployFailed } from '../workspace-template/shell/menus.js';
 
 const comps = [
   { path: 'root' },
@@ -174,4 +176,108 @@ test('tile menu: the admin block per lifecycle state', () => {
   const declined = spy({ confirm: () => false });
   byLabel(tileMenuItems('apps/a', state(admin), declined.a), 'Disable').action();
   assert.deepEqual(declined.calls, [], 'a declined confirm fires nothing');
+});
+
+// ---- tile deployments: the tile menu's optional ⇈ line ----
+// A tile with a deployment record carries the primary summary on its
+// /components row; the viewer's view comes from its deployments state
+// (GET /api/xbin/deployments), which the state view's deployState answers.
+const DEP = 'Deployments…';
+const withSummary = (sum) => comps.map((c) => (c.path === 'apps/a' ? { ...c, deployments: sum } : c));
+const pinnedSum = { primary: 'main', pinned: true, protected: false };
+const liveSum = { primary: 'main', pinned: false, protected: false };
+// a deployments state in the viewer's view (11-contract §1.1, §1.3)
+const depState = ({ view = 'full', level = 'terminal', pinned = true, record = true, failed = false } = {}) => ({
+  tile: 'apps/a', record, view, primary: 'main', liveReload: pinned ? '' : 'main', protectedPrimary: false,
+  deployments: record ? [{ name: 'main', primary: true, liveReload: !pinned,
+    checkpoint: pinned ? { id: 'c:3f2a1c9', hash: '3f2a1c9e' } : null,
+    lastDeploy: { result: failed ? 'failed' : 'ok' } }] : [],
+  caller: { level },
+});
+
+// covers P5 — a tile without a deployment record (no summary on its row)
+// gets exactly today's tile menu, whatever the lookup answers: the
+// Deployments line needs the summary an older xbind never sends.
+test('tile menu: no deployments line in the zero state', () => {
+  const { a } = spy();
+  const today = labels(tileMenuItems('apps/a', state(), a));
+  assert.ok(!today.includes(DEP));
+  for (const deployState of [() => undefined, () => null, () => ({ tile: 'apps/a', record: false })]) {
+    assert.deepEqual(labels(tileMenuItems('apps/a', state({ deployState }), a)), today, 'no summary: today\'s lines');
+  }
+  const admin = { canAdminTile: () => true };
+  assert.deepEqual(labels(tileMenuItems('apps/a', state({ ...admin, deployState: () => undefined }), a)),
+    labels(tileMenuItems('apps/a', state(admin), a)), 'the admin block is today\'s too');
+});
+
+// covers 10-ux §7 — the summary alone (the state not loaded yet) offers one
+// line after "Open full page", never a fifth square, hinting at the
+// primary's state; it opens the terminal window's Deployments layout, and
+// the menu asks the lookup for the tile's state so it loads.
+test('tile menu: the deployments line from the summary', () => {
+  const { a, calls } = spy();
+  const asked = [];
+  const deployState = (p, c) => { asked.push([p, c?.deployments]); return undefined; };
+  const items = tileMenuItems('apps/a', state({ components: withSummary(pinnedSum), deployState }), a);
+  assert.deepEqual(asked, [['apps/a', pinnedSum]], 'the lookup gets the path and the row');
+  assert.deepEqual(grid(items).cells.map((c) => c.label), ['terminal', 'logs', 'source', 'proposals'], 'still four squares');
+  assertInOrder(items, ['Open full page', DEP], 'the line follows Open full page');
+  const line = byLabel(items, DEP);
+  assert.equal(line.icon, '⇈');
+  assert.equal(line.hint, 'main pinned');
+  line.action();
+  assert.deepEqual(calls, [['frameOpen', 'apps/a', 'deployments']]);
+  const live = byLabel(tileMenuItems('apps/a', state({ components: withSummary(liveSum), deployState: () => undefined }), a), DEP);
+  assert.equal(live.hint, 'main follows the work tree');
+  const admin = tileMenuItems('apps/a', state({ components: withSummary(pinnedSum), deployState: () => undefined, canAdminTile: () => true }), a);
+  assertInOrder(admin, ['Open full page', DEP, '<sep>', '<header>', 'Disable'], 'before the admin block');
+  assert.deepEqual(section(admin, 'admin'), ['Disable', 'Hide', 'Access…', 'Runtime…', 'Vault…', 'Roles & grants…', 'Interfaces…', 'Backup…', 'Cron…']);
+});
+
+// covers 10-ux §7 — once the state is loaded it decides: the checkpoint in
+// the hint, no line for a viewer with read access only (the reader view:
+// nothing to operate), none for a tile that opted out since the row was
+// fetched, and the row's summary again when this xbind couldn't answer.
+test('tile menu: the deployments line from the state', () => {
+  const { a } = spy();
+  const menu = (st, sum = pinnedSum) => tileMenuItems('apps/a', state({ components: withSummary(sum), deployState: () => st }), a);
+  assert.equal(byLabel(menu(depState()), DEP).hint, 'main pinned to c:3f2a1c9');
+  assert.equal(byLabel(menu(depState({ level: 'write' })), DEP).hint, 'main pinned to c:3f2a1c9');
+  assert.equal(byLabel(menu(depState({ pinned: true }), liveSum), DEP).hint, 'main pinned to c:3f2a1c9', 'the state is fresher than the row');
+  assert.equal(byLabel(menu(depState({ pinned: false }), pinnedSum), DEP).hint, 'main follows the work tree');
+  assert.equal(byLabel(menu(depState({ view: 'reader', level: 'read' })), DEP), undefined, 'a reader has nothing to operate');
+  assert.equal(byLabel(menu(depState({ level: 'read' })), DEP), undefined);
+  assert.equal(byLabel(menu(depState({ record: false })), DEP), undefined, 'opted out since: the zero state');
+  assert.equal(byLabel(menu(null), DEP).hint, 'main pinned', 'no answer: the row decides');
+});
+
+// covers 10-ux §7 — without a deployState in the view (the shell's own
+// _menuState has none) the lookup shell-kit.js installs answers.
+test('tile menu: the installed deployments lookup', () => {
+  const { a } = spy();
+  try {
+    useDeployLookup((p) => (p === 'apps/a' ? depState() : undefined));
+    assert.equal(byLabel(tileMenuItems('apps/a', state({ components: withSummary(pinnedSum) }), a), DEP).hint, 'main pinned to c:3f2a1c9');
+    useDeployLookup(() => depState({ view: 'reader', level: 'read' }));
+    assert.equal(byLabel(tileMenuItems('apps/a', state({ components: withSummary(pinnedSum) }), a), DEP), undefined);
+  } finally { useDeployLookup(() => undefined); }
+});
+
+// covers P5 — the summary helpers the ⇈ badges share: the row's summary
+// until a state is loaded, none for a tile without a record, the primary's
+// checkpoint and a failed last deploy onto it.
+test('deployments summary helpers', () => {
+  assert.equal(deploySummary({ path: 'apps/a' }, undefined), null);
+  assert.equal(deploySummary({ path: 'apps/a' }, null), null);
+  assert.deepEqual(deploySummary({ deployments: liveSum }, undefined), liveSum);
+  assert.deepEqual(deploySummary({ deployments: liveSum }, depState()), pinnedSum);
+  assert.equal(deploySummary({ deployments: pinnedSum }, depState({ record: false })), null);
+  assert.deepEqual(deploySummary(null, { ...depState(), primary: 'dev', protectedPrimary: true,
+    deployments: [{ name: 'dev', liveReload: false, checkpoint: { id: 'c:77aa01b' } }] }), { primary: 'dev', pinned: true, protected: true });
+  assert.equal(deployCheckpoint(depState()), 'c:3f2a1c9');
+  assert.equal(deployCheckpoint(depState({ pinned: false })), '');
+  assert.equal(deployCheckpoint(undefined), '');
+  assert.equal(deployFailed(depState({ failed: true })), true);
+  assert.equal(deployFailed(depState()), false);
+  assert.equal(deployHint({ primary: 'dev', pinned: true }, undefined), 'dev pinned');
 });

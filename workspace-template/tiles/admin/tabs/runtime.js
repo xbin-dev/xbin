@@ -3,7 +3,8 @@
  * runtime group. components: the tile roster (manifest/principal view from
  * /auth-overview merged with live backend state), filterable and
  * category-chipped, each row expanding into who-can-reach-it and the
- * backend's process/namespaces/egress detail, with lifecycle links and a
+ * backend's process/namespaces/egress detail, a tile's non-primary
+ * deployments indented under its row, with lifecycle links and a
  * code & history drill-in (files, commits, diffs). resources: host health,
  * workspace totals, the live per-tile stats table (CPU / memory / I/O
  * sampled by xbind) and the brokered resources by type. One element for
@@ -338,6 +339,16 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
     for (const b of (this._rt?.backends ?? [])) m[b.path] = b;
     return m;
   }
+  // Tile deployments (docs/tile-deployments.md): backends[] keeps one row per
+  // tile, its primary's; the other deployments' backends come in
+  // deploymentBackends[] (the same shape plus `deployment`), absent from an
+  // xbind without them. Keyed by tile, in name order.
+  _depByPath() {
+    const m = {};
+    for (const d of (this._rt?.deploymentBackends ?? [])) if (d?.deployment) (m[d.path] ??= []).push(d);
+    for (const l of Object.values(m)) l.sort((a, b) => a.deployment.localeCompare(b.deployment));
+    return m;
+  }
   _toggleComp(path) {
     const s = new Set(this._rtOpen); s.has(path) ? s.delete(path) : s.add(path); this._rtOpen = s;
     if (s.has(path) && this._access[path] === undefined) this._loadAccess(path);
@@ -353,7 +364,7 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
   _componentsView() {
     const ov = this.ov; if (!ov) return html`<span class="muted">loading…</span>`;
     const c = ov.counts;
-    const bk = this._bkByPath();
+    const bk = this._bkByPath(), deps = this._depByPath();
     const all = ov.components ?? [];
     const cats = [...new Set(all.map((k) => this._catOf(k.path)))].sort();
     const rows = all.filter((k) => this._catActive(this._catOf(k.path)) &&
@@ -375,7 +386,7 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
           @change=${(e) => { this._emit('bx-admin-show-hidden', e.target.checked); }}> show hidden (${hiddenN})</label>` : nothing}
       <table>
         <tr><th></th><th>component</th><th>runtime</th><th>state</th><th>sandbox</th><th>exposes</th><th>uses</th><th>vault</th><th>lifecycle</th></tr>
-        ${live.map((k) => this._compRow(k, bk[k.path]))}
+        ${live.map((k) => html`${this._compRow(k, bk[k.path])}${(deps[k.path] ?? []).map((d) => this._depRow(k, d))}`)}
         ${live.length === 0 ? html`<tr><td></td><td class="muted" colspan="8">no matching components</td></tr>` : nothing}
       </table>
       ${off.length ? html`<h4>offloaded <span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0">— archived, not running</span></h4>
@@ -396,7 +407,7 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
     return html`
       <tr>
         <td><span class="caret ${open ? 'o' : ''}" style="cursor:pointer" @click=${() => this._toggleComp(k.path)}>▶</span></td>
-        <td class="mono"><a class="link" @click=${() => this._openCode(k.path)} title="view code & history">${k.path}</a>${k.manifestError ? html` <span class="st-failed" title=${k.manifestError}>⚠</span>` : nothing}</td>
+        <td class="mono"><a class="link" @click=${() => this._openCode(k.path)} title="view code & history">${k.path}</a>${k.manifestError ? html` <span class="st-failed" title=${k.manifestError}>⚠</span>` : nothing}${b?.deployment ? html` <span class="muted" title="the primary, the deployment ${k.path} serves">· ${b.deployment}</span>` : nothing}</td>
         <td class="muted">${k.runtime || 'static'}</td>
         <td>${state}</td>
         <td>${this._sbxCell(k, b)}</td>
@@ -406,6 +417,23 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
         <td>${this._lifecycleCell(k)}</td>
       </tr>
       ${open ? html`<tr><td></td><td colspan="8">${this._compDetail(k, b)}</td></tr>` : nothing}`;
+  }
+
+  // One non-primary deployment's backend, indented under its tile's row:
+  // name, state, sandbox, gen and the code it runs; it expands into the same
+  // process detail as the primary's.
+  _depRow(k, d) {
+    const key = `${k.path}+${d.deployment}`, openKey = `\n${key}`, open = this._rtOpen.has(openKey); // never a tile path
+    return html`
+      <tr data-deployment=${key}>
+        <td><span class="caret ${open ? 'o' : ''}" style="cursor:pointer" @click=${() => this._toggleBk(openKey)}>▶</span></td>
+        <td class="mono" style="padding-left:18px" title="a tile deployment of ${k.path}, at /c/${key}/">└ ${d.deployment}</td>
+        <td class="muted">${d.runtime || 'static'}</td>
+        <td><span class="state ${d.state}">${d.state}</span></td>
+        <td>${this._sbxCell(k, d)}</td>
+        <td class="mono muted" colspan="4">gen ${d.gen} · ${d.checkpoint ? `pinned to c:${d.checkpoint.slice(0, 7)}` : '● work tree'}</td>
+      </tr>
+      ${open ? html`<tr><td></td><td colspan="8">${this._bkDetail(d)}</td></tr>` : nothing}`;
   }
 
   // _sbxCell: how the backend is isolated (D112) — ⧉ VM, 🔒 the namespace
