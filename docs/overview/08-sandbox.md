@@ -169,7 +169,7 @@ is untouched.
 ## Network namespace modes
 
 The netns is chosen per backend by its `net` interface binding (resolved in
-`internal/runner/runner.go`; details in [12-egress.md](12-egress.md) /
+`internal/runner/sandboxcmd.go`; details in [12-egress.md](12-egress.md) /
 [13-ingress.md](13-ingress.md)):
 
 | Mode | Meaning |
