@@ -31,6 +31,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/cgroup"
 	"github.com/xbin-dev/xbin/internal/sbx"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -155,6 +156,7 @@ func (r *Runner) statsSample() {
 	// uid) when delegated; the backend's /proc descendant tree in dev.
 	targets := map[string][]int{}
 	leaves := map[string]string{} // target → its cgroup leaf ("" = sum /proc)
+	tileLeaf := map[string]bool{} // … which lives in the tile sandboxes' parent
 	cg := r.Cgroup != nil && r.Cgroup.Enabled()
 	var children map[int][]int // one /proc scan per sample, when needed
 	tree := func(root int) []int {
@@ -182,9 +184,9 @@ func (r *Runner) statsSample() {
 			continue // counted by their tile above
 		}
 		k := sandboxKey(e.ID)
-		if cg && e.Leaf != "" {
-			if pids, ok := r.Cgroup.Procs(e.Leaf); ok && len(pids) > 0 {
-				targets[k], leaves[k] = pids, e.Leaf
+		if cgm := r.LeafCgroup(e); cgm.Enabled() && e.Leaf != "" {
+			if pids, ok := cgm.Procs(e.Leaf); ok && len(pids) > 0 {
+				targets[k], leaves[k], tileLeaf[k] = pids, e.Leaf, e.Kind == sbx.Tile
 				continue
 			}
 		}
@@ -215,7 +217,11 @@ func (r *Runner) statsSample() {
 		// uid-agnostic), else summed from the /proc tree.
 		var mem, pidsN int64
 		if leaf := leaves[comp]; leaf != "" {
-			if u, ok := r.Cgroup.Usage(leaf); ok {
+			cgm := r.Cgroup
+			if tileLeaf[comp] {
+				cgm = r.TileCgroup
+			}
+			if u, ok := cgm.Usage(leaf); ok {
 				raw.cpuUsec = u.CPUUsec
 				mem = u.MemCurrent
 				pidsN = u.PidsCurrent
@@ -372,4 +378,13 @@ func procDescendants(children map[int][]int, root int) []int {
 		out = append(out, children[out[i]]...)
 	}
 	return out
+}
+
+// LeafCgroup is where a registry row's leaf lives: a tile sandbox's in the
+// tile sandboxes' parent (TileCgroup), every other in Cgroup.
+func (r *Runner) LeafCgroup(e sbx.Entry) *cgroup.Manager {
+	if e.Kind == sbx.Tile {
+		return r.TileCgroup
+	}
+	return r.Cgroup
 }

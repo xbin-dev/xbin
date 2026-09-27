@@ -8,8 +8,13 @@ package boot
 
 import (
 	"log/slog"
+	"net"
+	"net/netip"
+	"path/filepath"
+	"strconv"
 
 	"github.com/xbin-dev/xbin/internal/broker"
+	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/tilesbx"
 	"github.com/xbin-dev/xbin/internal/vm"
@@ -19,15 +24,26 @@ import (
 // with or without isolation (so an admin can see and clean them up), and
 // its manager routes answer unsupported without it.
 func (st *State) stepTileSandboxes() error {
+	bx := ""
+	if st.bxDir != "" {
+		bx = filepath.Join(st.bxDir, "bx") // the static bx: a namespace sandbox's agent
+	}
 	st.TileSbx = tilesbx.New(tilesbx.Options{
 		Root:     st.WS,
 		Isolated: st.Cfg.Isolate,
 		UIDRange: st.uidRange,
+		Rootfs:   st.rootfs,
+		BxPath:   bx,
 		Deps:     st.tileSandboxDeps(),
 	})
 	if err := st.TileSbx.Health(); err != nil {
 		slog.Error("tile sandboxes: definitions unreadable", "err", err)
 	}
+	// A bind, an unbind or a network-set change re-resolves the running
+	// sandboxes' classes: a narrowed one stops them (§4).
+	st.Broker.OnSandboxNetChange = st.TileSbx.OnSandboxNetChange
+	// The runner's sampler reads a tile sandbox's leaf inside the parent.
+	st.Run.TileCgroup = st.TileSbx.Cgroup()
 	return nil
 }
 
@@ -44,8 +60,74 @@ func (st *State) tileSandboxDeps() tilesbx.Deps {
 		Disk:   tileDiskQuota{brk},
 		Modes:  sandboxModes{st.VM},
 		Tiles:  sandboxTiles{st},
+		Net:    sandboxNet{brk},
+		Listen: st.listenAddrs(),
+		Cgroup: st.Run.Cgroup,
+		Sbx:    st.Sbx,
 	}
 	return d
+}
+
+// sandboxNet is the broker's sandbox-net classes (§4): strict policies,
+// resolved at every call.
+type sandboxNet struct{ b *broker.Broker }
+
+func egressClass(c broker.SandboxNet) tilesbx.EgressClass {
+	return tilesbx.EgressClass{Class: c.Class, Slot: c.Slot, Ref: c.Ref, Reach: c.Reach, Rules: c.Rules, Note: c.Note}
+}
+
+func (s sandboxNet) Classes(tile string) []tilesbx.EgressClass {
+	var out []tilesbx.EgressClass
+	for _, c := range s.b.SandboxNetClasses(tile) {
+		if c.Class != broker.SandboxClassNone { // the runtime lists none itself
+			out = append(out, egressClass(c))
+		}
+	}
+	return out
+}
+
+func (s sandboxNet) Egress(tile, class string) (tilesbx.EgressClass, sandbox.EgressPolicy, error) {
+	c, err := s.b.SandboxEgress(tile, class)
+	if err != nil {
+		return tilesbx.EgressClass{}, sandbox.EgressPolicy{}, err
+	}
+	return egressClass(c), c.Policy, nil
+}
+
+// listenAddrs is every address xbind listens on — the console, the ingress
+// listener, an injected listener's — which a tile sandbox's relay denies
+// beside every local address (§4). A name is resolved now; a wildcard is
+// covered by the relay's locality check anyway.
+func (st *State) listenAddrs() []netip.AddrPort {
+	var out []netip.AddrPort
+	add := func(hostport string) {
+		host, port, err := net.SplitHostPort(hostport)
+		if err != nil {
+			return
+		}
+		p, _ := strconv.Atoi(port)
+		if host == "" {
+			host = "0.0.0.0"
+		}
+		if a, err := netip.ParseAddr(host); err == nil {
+			out = append(out, netip.AddrPortFrom(a.Unmap(), uint16(p)))
+			return
+		}
+		ips, _ := net.LookupIP(host)
+		for _, ip := range ips {
+			if a, ok := netip.AddrFromSlice(ip); ok {
+				out = append(out, netip.AddrPortFrom(a.Unmap(), uint16(p)))
+			}
+		}
+	}
+	add(st.Cfg.Listen)
+	if st.Cfg.IngressListen != "" {
+		add(st.Cfg.IngressListen)
+	}
+	if st.Cfg.Listener != nil {
+		add(st.Cfg.Listener.Addr().String())
+	}
+	return out
 }
 
 // sandboxesCap is the broker's cap:sandboxes check. Until the broker has

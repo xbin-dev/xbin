@@ -40,6 +40,10 @@ type Limits struct {
 	// a tile sandbox is held to the vCPUs it was sized with
 	// (plans/tile-sandbox-runtime.md §6.2).
 	CPUMax int64
+	// NoSwap writes memory.swap.max 0: MemMax is then all the memory the
+	// leaf gets — a tile sandbox's memMiB is a cap, not a floor under the
+	// host's swap (plans/tile-sandbox-runtime.md §6.2).
+	NoSwap bool
 }
 
 // cpuPeriod is cpu.max's period, µs.
@@ -166,6 +170,9 @@ func writeLimits(leaf string, l Limits) {
 	}
 	if l.CPUMax > 0 {
 		set("cpu.max", strconv.FormatInt(l.CPUMax, 10)+" "+strconv.Itoa(cpuPeriod))
+	}
+	if l.NoSwap {
+		set("memory.swap.max", "0")
 	}
 }
 

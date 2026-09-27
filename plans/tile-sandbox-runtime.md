@@ -3285,6 +3285,119 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
 - **Size:** each file ≤ 600 lines.
 - **Depends on:** WP-2, WP-3, WP-3b, WP-7, WP-7b, WP-8, WP-8b, WP-10,
   WP-10b, WP-11 (it can start with `none` only), WP-13, WP-13b.
+- **As built** (branch `p2/wp15a`):
+  - *Files.* `launch.go` (the `Launcher`/`Proc` seam, `nsLauncher`,
+    `nsSpec`, `binds`, `sessionEnv`, `modeOps` + `nsOps`), `netcfg.go`,
+    `agent.go`, `lifecycle.go` (runs, start, `teardown`), `stop.go` (stop,
+    `StopWhere`/`StopTile`/`StopAll`, the egress reconcile), `state.go`
+    (the lock, the pin), `cgroup.go` (+ `cgroupfd_linux.go`/`_other.go`),
+    `trash.go`, `registry.go`, `logring.go`. `lifecycle.go` came out at 720
+    lines and was split to stay under 600.
+  - *The seams later WPs fill.* `Manager.reserve` (a field; a no-op book
+    now, WP-15b's admission replaces it; its release is made idempotent and
+    runs at the unwind or the teardown). `m.modes[ModeVM]` is WP-16's
+    `modeOps{spec, leaf, readyWait, stop, exitReason}`: `spec` returns an
+    `undo` (the `vm.Reserve` release, run at the unwind or the teardown),
+    `stop` replaces the sync-then-SIGKILL (the shim's SIGHUP), `exitReason`
+    maps the shim's 125; `r.accel` is set by it. The agent client
+    (`Exec`, `Signal`, `Resize`, `Sync`, `File`) is WP-17's and WP-18's
+    transport: session ids from 2, never reused in a run, streams dialled
+    before the exec; a teardown ends every open session `Killed` (WP-17's
+    `killed`, signal KILL). `sessionEnv(d)` is every exec's base
+    environment (`IN_SANDBOX=1`, a `PATH`, `defaults.env`, no `XBIN_*`).
+    Callers that hold a sandbox's flight (reset, rebase, snapshots) use
+    `startLocked`/`stopLocked`; `trash.put` takes what they put aside.
+  - *`Handle.Started` right after `cmd.Start`* (not after `relay.Start`):
+    xbind never holds the child-side files past a start, whatever fails
+    after it. A failure after the start ends the run (`end(r, why)`) and
+    waits for its teardown; before it, the steps done are undone in
+    reverse (the book, the lock, the factory, the leaf).
+  - *Races with the watcher.* A process can die while its start is still
+    attaching its TUN, relay, agent client or registry row: each is
+    attached under the run's mutex unless the teardown began (`attach`),
+    else the start closes it itself. `-race` clean (the unit tests, ×3).
+  - *One host `Deny` per runtime*, not per relay: `HostDeny`'s netlink
+    socket (one per call, closed only by a GC cleanup) would otherwise be
+    one more fd per start until a GC. The TUN is closed by the runtime
+    after `Relay.Close` (not `CloseTUN`).
+  - *The leaf's memory (a deviation from §6.2's table).* A namespace leaf
+    has `memory.max` = `memMiB` + 128 MiB, **`memory.swap.max` 0** (new
+    `cgroup.Limits.NoSwap`) and **no `memory.high`**. With the host's swap,
+    a 4 GiB allocation in a 2 GiB sandbox simply swapped (no cap at all);
+    with no swap and `memory.high` at ⅞, anonymous memory over it can't be
+    reclaimed and a 1 GiB allocation in a 384 MiB leaf was still throttled
+    after 60 s instead of being killed. Now it is OOM-killed in ~25 ms, the
+    session (oom_score_adj 500) and not the agent, and the sandbox runs on.
+  - *What WP-15b's list had that the start needed anyway:* the lock wait
+    (5 s, then 409 `state` naming an earlier run; the orphan leaf's
+    `populated` wait is still WP-15b's); the pin's `error` state (a missing
+    `cur/` with `Def.base` set, a base no longer installed, another overlay
+    flavour: 409 `state`, `state: "error"`, kept until a reset); the kill
+    switch (`enabled: false` → 503; the fail-closed file is WP-15b's); the
+    parent's `Sweep("sbx-")` when it is made, and the boot's re-queue of
+    `.trash` and of every `tmp/` entry (moved into `.trash/<uid>.<rand>`).
+  - *Answers.* A start answers the SandboxInfo: `running`, or `stopped`
+    with the failure (quoting the init's last log line) in `stateDetail`;
+    refusals answer as refusals. A stop answers the SandboxInfo; an admin's
+    leaves "stopped by a workspace admin". `DELETE` stops, renames the
+    state dir to `.trash/<uid>` (renamed back if forgetting the definition
+    fails), forgets, answers 204 and queues the confined removal.
+  - *Registry and observers.* `sbx.Entry` gains `Name`, `For`,
+    `ForUser`; `sessionWhat` reads `Name`. The runner's sampler and the
+    boot's limit alerts read a tile row's leaf through the tilesbx parent
+    (`Runner.TileCgroup`, `Runner.LeafCgroup(e)`) — WP-8b's note. Start
+    failures are `sbx.Fail`ed (`start`; limit/unavailable as `refused`), and
+    so are ends of a sandbox's own and a lost control connection (`exit`).
+    `GET /sandboxes` `health.tileSandboxes` is `{cgroup, flows:{used,
+    cap}}` (WP-19 adds the rest of §3.10's health): `cgroup` says why the
+    sandboxes run without limits when the parent couldn't be made — they
+    run on, without limits, as without delegation.
+  - *OnSandboxNetChange* returns at once and re-resolves off the broker's
+    goroutine (`reconcileEgress`): not covered → a synced stop, state kept,
+    "its network (class:x) narrowed…" (or "…is gone…" when the class no
+    longer resolves); wider → `egressNext` (+ `restartNeeded`).
+  - *Boot.* `stepWorkspace` sets `sandboxBasePins` to `tilesbx.DefBases`
+    (edge `workspace` → `isolation` in the order test);
+    `TestDefinitionPinsSurviveTheBootGC` runs the GC stepIsolation runs.
+    `serve.go` runs `StopAll("xbind shut down")` after `run.StopAll()`.
+    `Deps.Listen` is the console's, the ingress listener's and an injected
+    listener's address.
+  - *`make integration` runs `./internal/tilesbx/` once*, not twice: VM
+    mode is WP-16's, which adds the `XBIN_VM_ACCEL=emulate` run with its VM
+    tests.
+  - *Tests.* Unit (`lifecycle_linux_test.go`, a fake launcher whose
+    "sandbox" is an in-process agentcore over the real factory, with a
+    socketpair TUN the real relay runs on): start/stop and the spec, a
+    failed launch, a never-ready agent and an agent dying while starting
+    all unwind (the book back, the lock free, no row), each end reason,
+    teardown once under a racing stop (×20), narrowing/widening, delete
+    stops, unsolicited events dropped, `EAGAIN` retried then
+    `unavailable`, the pin's errors; `defs_test.go`: delete answers 204
+    with the remover blocked and a re-create gets a new uid and dir, the
+    boot re-queue, `DefBases`. Integration (`live_linux_test.go`, through
+    the routes as `apps/mgr` holding the cap; a minimal lower with the
+    kernel overlay, again with fuse-overlayfs, and over `.rootfs`): the
+    upper persists across a stop; `none` resets TCP to 1.1.1.1 and
+    REFUSES DNS in < 100 ms, and the gateway is a dead end; `unshare -U`
+    fails; a reader's mount refuses writes; a symlinked sub-path and a
+    symlink planted at a mount point fail the start and make nothing on
+    the host; SIGKILL of the agent and of fuse-overlayfs end it with their
+    reasons (fuse: ~40 ms) and nothing left (process, book, row, leaf,
+    flows, factory); 20 cycles leave the fd count where it was; delete
+    removes the state. Under `systemd-run --user --scope -p Delegate=yes`
+    (the file's header) also: started into its leaf by `UseCgroupFD`, the
+    leaf's limits, and the OOM kill of a session with the sandbox running.
+  - *Found, not fixed (pre-existing; reproduced with the daemonizing
+    mount too, `FuseWatch` off, so terminals and backends on
+    fuse-overlayfs likely share it):* a regular file created **directly in
+    `/`** wedges fuse-overlayfs for good. After `pivot_root` its root is its own FUSE
+    mount, and for a create in the root dir it `lgetxattr()`s
+    `/proc/self/fd/<upper fd>/<name>` — a path walked through that mount,
+    whose one thread is the one waiting (seen in `/proc/<pid>/syscall`;
+    `-o threaded=1` and longer entry timeouts don't help). Files in a
+    subdir are fine. The tests write under `/work`. A fix wants
+    fuse-overlayfs's root off its own mount without handing it the host's
+    tree (see the open issue).
 
 ### WP-15b — Lifecycle policy: admission, idle, auto-start, reset, restart semantics (wave 2 · M · after WP-15a)
 

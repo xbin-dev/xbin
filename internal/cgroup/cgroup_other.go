@@ -19,6 +19,7 @@ type Limits struct {
 	CPUWeight int64
 	MemHigh   int64
 	CPUMax    int64
+	NoSwap    bool
 }
 
 // Manager is a no-op off Linux.

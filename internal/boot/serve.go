@@ -141,6 +141,9 @@ func (st *State) serve(ctx context.Context) error {
 		st.Term.FlushAgents() // open agent conversations become history, not losses (term/history.go)
 	}
 	run.StopAll()
+	if st.TileSbx != nil {
+		st.TileSbx.StopAll("xbind shut down") // synced, 15 s in all; its exit would end them unsynced
+	}
 	_ = gwSrv.Close()
 	if iSrv != nil {
 		_ = iSrv.Close()

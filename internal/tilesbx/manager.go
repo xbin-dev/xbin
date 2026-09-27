@@ -5,17 +5,27 @@
 // (docs/sandbox-manager.md), so a manager forwards most calls unchanged.
 //
 // This package holds the definitions store (data/sandboxes.json, xbind-only),
-// the sandboxes policy (.xbin/sandboxes/policy.json), the gates and the
-// route handlers. What it needs from the rest of xbind comes in through Deps,
-// small interfaces a test fakes. The runtime proper — launch, the agent
-// client, execs, files, snapshots — fills the handlers that answer
-// `unsupported` until it is built (plans/tile-sandbox-runtime.md §12).
+// the sandboxes policy (.xbin/sandboxes/policy.json), the gates, the route
+// handlers and the runtime core: the launch (launch.go), the agent client
+// (agent.go), each sandbox's runs and their one teardown (lifecycle.go),
+// its relay (netcfg.go), its cgroup leaf (cgroup.go), its registry row
+// (registry.go) and the confined removal of what is deleted (trash.go).
+// What it needs from the rest of xbind comes in through Deps, small
+// interfaces a test fakes. Execs, files, snapshots and the lifecycle policy
+// (admission, idle) answer `unsupported` or do nothing until they are
+// built (plans/tile-sandbox-runtime.md §12).
 package tilesbx
 
 import (
-	"os"
+	"net/netip"
 	"sync"
 	"time"
+
+	"github.com/xbin-dev/xbin/internal/cgroup"
+	"github.com/xbin-dev/xbin/internal/confine"
+	"github.com/xbin-dev/xbin/internal/sandbox"
+	"github.com/xbin-dev/xbin/internal/sandbox/relay"
+	"github.com/xbin-dev/xbin/internal/sbx"
 )
 
 // Caps answers cap:sandboxes: whether a tile may drive tile sandboxes.
@@ -28,6 +38,12 @@ type Caps interface {
 // is bound to and reaches. An unbound class reaches nothing.
 type Net interface {
 	Classes(tile string) []EgressClass
+	// Egress resolves one of the tile's egress selectors ("none" |
+	// "class:<slot>") into its class and the policy a sandbox runs under
+	// now — strict (sandbox.EgressPolicy.Strict, §4). An error means it names
+	// no class of the tile (any longer). The runtime calls it at every start
+	// and when the broker says the tile's classes changed.
+	Egress(tile, class string) (EgressClass, sandbox.EgressPolicy, error)
 }
 
 // EgressClass is one egress a sandbox may be given: "none", or a
@@ -85,7 +101,8 @@ type Tiles interface {
 }
 
 // Deps is what the runtime needs from the rest of xbind. A nil member
-// answers conservatively: no cap, no classes, no mounts, VM unavailable.
+// answers conservatively: no cap, no classes, no mounts, VM unavailable, no
+// cgroup limits, no registry rows.
 type Deps struct {
 	Caps   Caps
 	Admin  AdminFunc // workspace admins (broker.IsAdmin)
@@ -96,6 +113,17 @@ type Deps struct {
 	Disk   Disk
 	Modes  Modes
 	Tiles  Tiles
+	// Launcher starts a sandbox's first process (nil: sandbox.Launch).
+	Launcher Launcher
+	// Listen is every address xbind listens on: a sandbox's relay denies
+	// them, beside every address the host delivers locally (§4).
+	Listen []netip.AddrPort
+	// Cgroup is xbind's delegated cgroup: the tile sandboxes' parent is made
+	// in it (§6.2). nil or disabled: they run without limits.
+	Cgroup *cgroup.Manager
+	// Sbx is the sandbox registry: a row per running sandbox, and what
+	// failed (D112).
+	Sbx *sbx.Registry
 }
 
 // Options configure a Manager.
@@ -105,8 +133,13 @@ type Options struct {
 	// UIDRange: namespace sandboxes map a delegated sub-id range, so they
 	// run as any user; otherwise only as root ("users": "root").
 	UIDRange bool
-	Deps     Deps
-	Now      func() time.Time // tests
+	// Rootfs is --isolate's base rootfs (absolute): the base a sandbox's
+	// state pins (internal/layers). BxPath is the static bx bound in as a
+	// namespace sandbox's agent.
+	Rootfs string
+	BxPath string
+	Deps   Deps
+	Now    func() time.Time // tests
 }
 
 // Manager is the runtime: definitions, policy, live state, handlers.
@@ -116,6 +149,18 @@ type Manager struct {
 	uidRange bool
 	deps     Deps
 	now      func() time.Time
+
+	rootfs   string
+	bxPath   string
+	launcher Launcher
+	modes    map[string]*modeOps // how each mode starts and stops (VM: WP-16)
+	net      *netState           // the relays' shared flow budget and host Deny
+	cg       *cgroup.Manager     // the tile sandboxes' parent (nil: no limits)
+	cgNote   string              // why there is no parent though xbind's cgroup is delegated
+	// reserve books a start against the tile's quotas (§6.1) and returns
+	// its idempotent release — WP-15b's admission; a no-op book until then.
+	reserve func(k Key, d *Def) (release func(), err error)
+	trash   trashQueue // what waits for the confined remover (trash.go)
 
 	mu     sync.Mutex // defs, live and the policy file
 	defs   *defStore
@@ -128,13 +173,25 @@ type Manager struct {
 // see nothing and writes are refused, so the file is never clobbered.
 func New(o Options) *Manager {
 	m := &Manager{root: o.Root, isolated: o.Isolated, uidRange: o.UIDRange, deps: o.Deps, now: o.Now,
-		live: map[Key]map[string]*box{}}
+		rootfs: o.Rootfs, bxPath: o.BxPath, launcher: o.Deps.Launcher,
+		modes: map[string]*modeOps{ModeNamespace: nsOps},
+		net:   &netState{budget: relay.NewBudget(flowBudgetSize()), listen: o.Deps.Listen},
+		live:  map[Key]map[string]*box{}}
 	if m.now == nil {
 		m.now = time.Now
 	}
+	if m.launcher == nil {
+		m.launcher = nsLauncher{}
+	}
+	m.reserve = func(Key, *Def) (func(), error) { return func() {}, nil }
+	m.trash.remove = confine.RemoveAll
 	m.defs = loadDefs(m.defsPath())
 	m.defs.flush() // uids given to definitions written before uids existed
 	m.policy = &policyStore{path: m.policyPath()}
+	if o.Isolated {
+		m.initCgroup(o.Deps.Cgroup)
+		m.requeueTrash() // what a previous xbind put aside, and every staging dir
+	}
 	return m
 }
 
@@ -144,9 +201,14 @@ func (m *Manager) Health() error { return m.defs.err }
 // Isolated reports whether tile sandboxes can run here at all.
 func (m *Manager) Isolated() bool { return m.isolated }
 
-// box is one sandbox's live state. The skeleton knows only "stopped"; the
-// lifecycle fills the rest.
+// box is one sandbox's live state, kept while xbind runs (a sandbox with
+// none is stopped). Its fields are read and written under m.mu; flight is
+// its single flight: every transition (start, stop, delete) holds it, and
+// takes m.mu only for moments inside it.
 type box struct {
+	flight *sync.Mutex
+	log    *logRing // its first process's output, across runs
+
 	state        string // creating | stopped | starting | running | stopping | error
 	detail       string // why: a failed start, a stop the runtime made
 	accel        string // a running VM's
@@ -154,10 +216,14 @@ type box struct {
 	lastActive   int64  // unix ms
 	launched     *Def   // the definition the running sandbox started with
 	reach        string // the running relay's reach
+	egressNext   bool   // its class's rules widened since it started: they apply at the next start
+	run          *run   // the run up now (nil: none)
 	execsRunning int
 	diskBytes    int64 // allocated, measured at each stop
 	snapshots    int
 }
+
+func newBox() *box { return &box{flight: &sync.Mutex{}, log: &logRing{}, state: StateStopped} }
 
 // States a sandbox is in. StateCreating is a clone whose copy still runs
 // (Def.Pending "clone"): every call but GET, list and DELETE answers 409
@@ -178,49 +244,4 @@ func (m *Manager) boxOf(k Key, name string) box {
 		return *b
 	}
 	return box{state: StateStopped}
-}
-
-// setDetail records why a stopped sandbox is stopped (a failed start).
-// Callers hold m.mu.
-func (m *Manager) setDetail(k Key, name, detail string) {
-	b := m.live[k][name]
-	if b == nil {
-		b = &box{state: StateStopped}
-		if m.live[k] == nil {
-			m.live[k] = map[string]*box{}
-		}
-		m.live[k][name] = b
-	}
-	b.detail = detail
-}
-
-// The lifecycle hooks the runtime core fills: until it is built nothing
-// starts, so nothing runs and there is nothing to stop.
-
-// start brings a stopped sandbox up. Callers hold m.mu.
-func (m *Manager) start(k Key, name string) error {
-	_, _ = k, name
-	return notBuilt("starting tile sandboxes")
-}
-
-// stop brings a sandbox down, keeping its state (sync, then kill; its
-// execs end killed). Callers hold m.mu.
-func (m *Manager) stop(k Key, name, why string) error {
-	_, _, _ = k, name, why
-	return nil
-}
-
-// removeState deletes a stopped sandbox's state directory. The state is
-// sandbox-written, so only a confined remove may touch it (D78); until the
-// runtime brings one, state that exists is refused rather than walked as
-// xbind — and the definition is kept, so nothing is orphaned silently.
-func (m *Manager) removeState(k Key, d *Def) error {
-	dir, err := m.StateDir(k, d)
-	if err != nil {
-		return err
-	}
-	if _, err := os.Lstat(dir); os.IsNotExist(err) {
-		return nil
-	}
-	return refuse(RefUnsupported, "sandbox %q has state on disk, and this xbind can't remove sandbox state yet", d.Name)
 }

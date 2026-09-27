@@ -129,6 +129,11 @@ func (st *State) sandboxesView(sc sandboxScope) map[string]any {
 			disksInUse[e.Disk] = true
 		}
 		switch e.Kind {
+		case sbx.Tile: // a tile sandbox (D120): its name, its own leaf's sample
+			row.Name = e.Name
+			if p, ok := bySandbox[e.ID]; ok {
+				row.Stats = &sandboxStats{CPU: p.CPU, Mem: p.Mem, Pids: p.Pids, Scope: "sandbox"}
+			}
 		case sbx.Backend:
 			row.Net = st.Broker.NetLabel(e.Tile).Effective
 			if p, ok := byTile[e.Tile]; ok {
@@ -166,7 +171,8 @@ func (st *State) sandboxesView(sc sandboxScope) map[string]any {
 	}
 	if sc.all {
 		out["health"] = map[string]any{
-			"isolation": st.isolationHealth(),
+			"isolation":     st.isolationHealth(),
+			"tileSandboxes": st.tileSandboxHealth(),
 			"vm": vmView{Health: st.VM.Health(), Policy: st.VM.Policy(), Stored: st.VM.StoredPolicy(),
 				Used: st.VM.Used(), UsedTiles: st.VM.UsedTiles(), UsedBy: st.VM.UsedBy()},
 		}
@@ -206,7 +212,7 @@ func (st *State) isolationInfo() map[string]any {
 // sessionLimitAlerts is the at-limit alerts of the sessions with a cgroup
 // leaf of their own (a VM's, a restricted user's; D112) — delta-tracked per
 // leaf like the tiles', and forgotten once the session is gone.
-func sessionLimitAlerts(cg *cgroup.Manager, reg *sbx.Registry, lastMem, lastPids map[string]int64) []broker.Alert {
+func sessionLimitAlerts(cgFor func(sbx.Entry) *cgroup.Manager, reg *sbx.Registry, lastMem, lastPids map[string]int64) []broker.Alert {
 	var out []broker.Alert
 	seen := map[string]bool{}
 	for _, e := range reg.List(sbx.Filter{}) {
@@ -214,7 +220,7 @@ func sessionLimitAlerts(cg *cgroup.Manager, reg *sbx.Registry, lastMem, lastPids
 			continue // a backend is its tile's (the caller's loop)
 		}
 		seen[e.Leaf] = true
-		mem, pids, ok := cg.AtLimit(e.Leaf)
+		mem, pids, ok := cgFor(e).AtLimit(e.Leaf) // a tile sandbox's leaf is in its parent
 		if !ok {
 			continue
 		}
@@ -245,9 +251,8 @@ func sessionWhat(e sbx.Entry) string {
 		if e.Mode == sbx.VM {
 			s = "the VM tile sandbox"
 		}
-		// its registry id is tile:<CK>:<name> (tile+<d>:… off main)
-		if i := strings.LastIndexByte(e.ID, ':'); i >= 0 && i+1 < len(e.ID) {
-			s += fmt.Sprintf(" %q", e.ID[i+1:])
+		if e.Name != "" {
+			s += fmt.Sprintf(" %q", e.Name)
 		}
 		return s + " of " + e.Tile
 	}
@@ -266,4 +271,15 @@ func sessionWhat(e sbx.Entry) string {
 		s += " of " + e.User
 	}
 	return s + " on " + e.Tile
+}
+
+// tileSandboxHealth is the tile sandboxes' part of the health (§3.10): why
+// they run without cgroup limits (cgroup: "" = they have them, or nothing
+// does) and the relays' shared flow budget.
+func (st *State) tileSandboxHealth() map[string]any {
+	if st.TileSbx == nil {
+		return nil
+	}
+	used, cap := st.TileSbx.FlowBudget()
+	return map[string]any{"cgroup": st.TileSbx.CgroupNote(), "flows": map[string]int{"used": used, "cap": cap}}
 }

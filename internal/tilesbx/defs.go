@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 
@@ -337,4 +338,39 @@ func (s *defStore) save() error {
 	}
 	s.dirty = false
 	return nil
+}
+
+// DefBases is the base every tile-sandbox definition in the workspace pins
+// (Def.base, archived ones included): one of the boot's base-image pin
+// sources (plans/tile-sandbox-runtime.md §9). It reads data/sandboxes.json
+// itself, so it answers before the runtime is built — the boot's GC runs
+// first. An unreadable file is an error: the pins are unknown, and the GC
+// releases nothing. No file is no pins.
+func DefBases(ws string) ([]string, error) {
+	b, err := os.ReadFile(filepath.Join(ws, "data", "sandboxes.json"))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var f defsFile
+	if err := json.Unmarshal(b, &f); err != nil {
+		return nil, fmt.Errorf("data/sandboxes.json: %w", err)
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, td := range f.Tiles {
+		if td == nil {
+			continue
+		}
+		for _, d := range td.Sandboxes {
+			if d != nil && d.Base != "" && !seen[d.Base] {
+				seen[d.Base] = true
+				out = append(out, d.Base)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out, nil
 }

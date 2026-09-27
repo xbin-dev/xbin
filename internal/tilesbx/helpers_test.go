@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/sandbox"
 )
 
 // The principals the gates tell apart.
@@ -31,6 +32,18 @@ func (f fakeCaps) SandboxesFor(tile string) bool { return f[tile] }
 type fakeNet map[string][]EgressClass
 
 func (f fakeNet) Classes(tile string) []EgressClass { return f[tile] }
+
+// Egress resolves a class from the table: its rules parsed into a strict
+// policy, as the broker's SandboxEgress answers.
+func (f fakeNet) Egress(tile, class string) (EgressClass, sandbox.EgressPolicy, error) {
+	for _, c := range f[tile] {
+		if c.Class == class {
+			pol, err := sandbox.Parse(c.Rules)
+			return c, pol.Strict(), err
+		}
+	}
+	return EgressClass{}, sandbox.EgressPolicy{}, errors.New("the tile declares no sandbox-net slot " + class)
+}
 
 // fakeMounts answers ResourceMount from a table; a missing entry is "not held".
 type fakeMounts map[string]MountSource

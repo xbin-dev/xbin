@@ -306,6 +306,11 @@ func runHelper(name string, args ...string) error {
 	return nil
 }
 
+// FuseOverlayfs is the fuse-overlayfs binary Launch mounts a sandbox's root
+// with, or "" when it mounts a kernel overlay: what a persistent upper's
+// overlay-flavour stamp names (internal/layers; tile sandboxes).
+func FuseOverlayfs() string { return fuseOverlayfsPath() }
+
 // fuseOverlayfsPath finds a fuse-overlayfs binary to mount the sandbox root
 // with: $XBIN_FUSE_OVERLAYFS, a copy bundled next to the xbind executable
 // (single-artifact distribution), then $PATH. "" ⇒ fall back to kernel overlay.

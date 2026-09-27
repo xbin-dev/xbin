@@ -80,8 +80,8 @@ type State struct {
 	// ones included (plans/tile-sandbox-runtime.md §9) — one of the pin
 	// sources the boot's base-image GC passes keep (pinnedBases). An error
 	// (the definitions file can't be read) makes the pins unknown, so
-	// nothing is released. nil until the tile-sandbox runtime is wired; it
-	// must answer by stepIsolation.
+	// nothing is released. stepWorkspace sets it (tilesbx.DefBases), so it
+	// answers by stepIsolation.
 	sandboxBasePins func() ([]string, error)
 }
 
@@ -106,6 +106,8 @@ type Step struct {
 //   - isolation and vm before tile-sandboxes: the runtime reads the uid
 //     mapping and the VM manager; tile-sandboxes before server, which
 //     mounts its routes.
+//   - workspace before isolation: the tile-sandbox definitions' base pins
+//     (sandboxBasePins) must answer before isolation's base-image GC.
 var Steps = []Step{
 	{"workspace", (*State).stepWorkspace},
 	{"privileges", (*State).stepPrivileges},
@@ -176,6 +178,10 @@ func (st *State) stepWorkspace() error {
 	if _, err := os.Lstat(filepath.Join(ws, "CLAUDE.md")); err != nil {
 		_ = os.Symlink("AGENTS.md", filepath.Join(ws, "CLAUDE.md"))
 	}
+	// Every tile-sandbox definition pins its base (§9): the GC passes of
+	// stepIsolation and stepVM keep them. It reads data/sandboxes.json
+	// itself, before the runtime exists; an unreadable file releases nothing.
+	st.sandboxBasePins = func() ([]string, error) { return tilesbx.DefBases(ws) }
 	return nil
 }
 
@@ -452,7 +458,7 @@ func (st *State) stepLimitAlerts() error {
 		lastMem, lastPids := map[string]int64{}, map[string]int64{}
 		sessMem, sessPids := map[string]int64{}, map[string]int64{}
 		brk.SetLimitAlerts(func() []broker.Alert {
-			out := sessionLimitAlerts(run.Cgroup, st.Sbx, sessMem, sessPids)
+			out := sessionLimitAlerts(run.LeafCgroup, st.Sbx, sessMem, sessPids)
 			for _, c := range reg.Components() {
 				key := util.CompKey(c.Path)
 				mem, pids, ok := run.Cgroup.AtLimit(key)

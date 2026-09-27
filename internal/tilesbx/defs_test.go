@@ -1,6 +1,7 @@
 package tilesbx
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -52,20 +53,90 @@ func TestDefsLoadDropsForgeries(t *testing.T) {
 	}
 }
 
-// Deleting a sandbox whose state exists on disk is refused until the
-// runtime can remove it confined — and the definition stays.
-func TestDeleteKeepsDefinitionWithState(t *testing.T) {
+// Deleting a sandbox puts its state aside — a rename into its key's
+// .trash — and answers at once; the confined remover empties it later, one
+// entry at a time. The same name created again gets another uid and dir.
+func TestDeleteTrashesState(t *testing.T) {
 	e := newEnv(t)
+	gate, removed := make(chan struct{}), make(chan string, 4)
+	e.m.trash.remove = func(_ context.Context, dir string) error {
+		<-gate
+		removed <- dir
+		return os.RemoveAll(dir)
+	}
+	k := Key{Tile: "apps/mgr"}
 	e.create(ns("sb-1"))
-	d, _ := e.m.defs.get(Key{Tile: "apps/mgr"}, "sb-1")
-	dir, _ := e.m.StateDir(Key{Tile: "apps/mgr"}, d)
-	if err := os.MkdirAll(filepath.Join(dir, "upper"), 0o700); err != nil {
+	d, _ := e.m.defs.get(k, "sb-1")
+	dir, _ := e.m.StateDir(k, d)
+	if err := os.MkdirAll(filepath.Join(dir, "cur", "upper"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	e.want(e.do(mgr, "DELETE", "/sandboxes/sb-1", nil), http.StatusNotImplemented, RefUnsupported)
-	e.want(e.do(mgr, "GET", "/sandboxes/sb-1", nil), http.StatusOK, "")
-	if _, err := os.Stat(filepath.Join(dir, "upper")); err != nil {
-		t.Fatalf("state touched: %v", err)
+	e.want(e.do(mgr, "DELETE", "/sandboxes/sb-1", nil), http.StatusNoContent, "") // the remover is blocked
+	e.want(e.do(mgr, "GET", "/sandboxes/sb-1", nil), http.StatusNotFound, RefNotFound)
+	trash, _ := e.m.TrashDir(k)
+	if _, err := os.Stat(filepath.Join(trash, d.UID, "cur", "upper")); err != nil {
+		t.Fatalf("the state isn't in .trash/<uid>: %v", err)
+	}
+	if _, err := os.Lstat(dir); !os.IsNotExist(err) {
+		t.Fatalf("the state dir is still there: %v", err)
+	}
+	in := e.create(ns("sb-1"))
+	nd, _ := e.m.defs.get(k, "sb-1")
+	ndir, _ := e.m.StateDir(k, nd)
+	if in.UID == d.UID || ndir == dir {
+		t.Fatalf("the re-created sandbox has the old identity: %s %s", in.UID, ndir)
+	}
+	close(gate)
+	if got := <-removed; got != filepath.Join(trash, d.UID) {
+		t.Fatalf("removed %s", got)
+	}
+	e.m.trash.wait()
+	if _, err := os.Lstat(filepath.Join(trash, d.UID)); !os.IsNotExist(err) {
+		t.Fatalf("the trash entry is still there: %v", err)
+	}
+	// A sandbox with no state on disk deletes the same way.
+	e.want(e.do(mgr, "DELETE", "/sandboxes/sb-1", nil), http.StatusNoContent, "")
+}
+
+// The boot queues what .trash holds again, and every staging dir (tmp/)
+// goes there first.
+func TestBootRequeuesTrash(t *testing.T) {
+	root := t.TempDir()
+	base := filepath.Join(root, ".xbin", "sbx", "apps~mgr-1")
+	for _, d := range []string{filepath.Join(base, ".trash", "0123456789ab", "cur"),
+		filepath.Join(base, "sb-1.aaaaaaaaaaaa", "tmp", "x1", "upper")} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e := newEnv(t, func(o *Options) { o.Root = root })
+	e.m.trash.wait()
+	ents, _ := os.ReadDir(filepath.Join(base, ".trash"))
+	if len(ents) != 0 {
+		t.Fatalf(".trash after the boot: %v", ents)
+	}
+	if ents, _ := os.ReadDir(filepath.Join(base, "sb-1.aaaaaaaaaaaa", "tmp")); len(ents) != 0 {
+		t.Fatalf("tmp/ after the boot: %v", ents)
+	}
+}
+
+// DefBases is every definition's base, for the boot's GC — and an error
+// for a file it can't read, so the GC releases nothing.
+func TestDefBases(t *testing.T) {
+	ws := t.TempDir()
+	if b, err := DefBases(ws); err != nil || b != nil {
+		t.Fatalf("no file: %v %v", b, err)
+	}
+	os.MkdirAll(filepath.Join(ws, "data"), 0o700)
+	os.WriteFile(filepath.Join(ws, "data", "sandboxes.json"), []byte(`{"version":1,"tiles":{
+		"apps/a":{"sandboxes":{"x":{"name":"x","base":"b-old"},"y":{"name":"y"}}},
+		"apps/b":{"sandboxes":{"z":{"name":"z","base":"b-new"},"w":{"name":"w","base":"b-old"}}}}}`), 0o600)
+	if b, err := DefBases(ws); err != nil || strings.Join(b, ",") != "b-new,b-old" {
+		t.Fatalf("bases %v %v", b, err)
+	}
+	os.WriteFile(filepath.Join(ws, "data", "sandboxes.json"), []byte(`{"version":1,"til`), 0o600)
+	if _, err := DefBases(ws); err == nil {
+		t.Fatal("an unreadable file must be an error")
 	}
 }
 

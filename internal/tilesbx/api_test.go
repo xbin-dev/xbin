@@ -61,9 +61,9 @@ func TestGates(t *testing.T) {
 			t.Errorf("manager %s %s: 403 %s", r.method, r.path, w.Body)
 		}
 	}
-	// An admin stops (not built: 501, past the gate) and deletes with ?tile=.
+	// An admin stops (a stopped sandbox stays stopped) and deletes with ?tile=.
 	e.want(e.do(admin, "POST", "/sandboxes/sb-1/stop", nil), http.StatusBadRequest, RefInvalid)
-	e.want(e.do(admin, "POST", "/sandboxes/sb-1/stop?tile=apps/mgr", nil), http.StatusNotImplemented, RefUnsupported)
+	e.want(e.do(admin, "POST", "/sandboxes/sb-1/stop?tile=apps/mgr", nil), http.StatusOK, "")
 	e.want(e.do(admin, "POST", "/sandboxes/sb-9/stop?tile=apps/mgr", nil), http.StatusNotFound, RefNotFound)
 	e.want(e.do(admin, "GET", "/sandboxes/policy", nil), http.StatusOK, "")
 	e.want(e.do(admin, "DELETE", "/sandboxes/sb-1?tile=apps/mgr", nil), http.StatusNoContent, "")
@@ -201,7 +201,7 @@ func TestNotBuilt(t *testing.T) {
 	e := newEnv(t)
 	e.create(ns("sb-1"))
 	for _, r := range [][2]string{
-		{"POST", "/sandboxes/sb-1/start"}, {"POST", "/sandboxes/sb-1/stop"}, {"POST", "/sandboxes/sb-1/reset"},
+		{"POST", "/sandboxes/sb-1/reset"},
 		{"POST", "/sandboxes/sb-1/rebase"}, {"POST", "/sandboxes/sb-1/run"}, {"GET", "/sandboxes/sb-1/execs"},
 		{"POST", "/sandboxes/sb-1/execs"}, {"GET", "/sandboxes/sb-1/execs/abc123-1"}, {"DELETE", "/sandboxes/sb-1/execs/abc123-1"},
 		{"GET", "/sandboxes/sb-1/execs/abc123-1/output"}, {"POST", "/sandboxes/sb-1/execs/abc123-1/stdin"},
@@ -218,13 +218,16 @@ func TestNotBuilt(t *testing.T) {
 			e.want(e.do(mgr, r[0], strings.Replace(r[1], "sb-1", "sb-9", 1), nil), http.StatusNotFound, RefNotFound)
 		}
 	}
-	// A clone is unsupported too; a start on create leaves it stopped, and says why.
+	// A clone is unsupported too; a start on create that fails leaves it
+	// stopped, and says why (this runtime has no base rootfs).
 	e.want(e.do(mgr, "POST", "/sandboxes", map[string]any{"name": "sb-2", "mode": "namespace", "from": map[string]any{"sandbox": "sb-1"}}),
 		http.StatusNotImplemented, RefUnsupported)
 	in := e.create(map[string]any{"name": "sb-3", "mode": "namespace", "start": true})
-	if in.State != StateStopped || !contains(in.StateDetail, "starting tile sandboxes") {
+	if in.State != StateStopped || !contains(in.StateDetail, "base rootfs") {
 		t.Fatalf("start on create: %+v", in)
 	}
+	e.want(e.do(mgr, "POST", "/sandboxes/sb-9/start", nil), http.StatusNotFound, RefNotFound)
+	e.want(e.do(mgr, "POST", "/sandboxes/sb-9/stop", nil), http.StatusNotFound, RefNotFound)
 }
 
 func TestRuntime(t *testing.T) {

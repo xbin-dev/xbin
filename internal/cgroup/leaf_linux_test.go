@@ -52,14 +52,14 @@ func TestAddWithWritesTheLimits(t *testing.T) {
 	m.SetLimits(Limits{MemMax: 2 << 30, PidsMax: 512, CPUWeight: 100})
 
 	// namespace mode: memMiB 1024 + 128, ⅞ high, the sandbox's pids, 2 vCPUs
-	leaf, err := m.AddWith("sbx-apps~x-1234-build", 4242, Limits{MemMax: 1152 << 20, PidsMax: 4096, CPUWeight: 100, CPUMax: 2 * cpuPeriod})
+	leaf, err := m.AddWith("sbx-apps~x-1234-build", 4242, Limits{MemMax: 1152 << 20, PidsMax: 4096, CPUWeight: 100, CPUMax: 2 * cpuPeriod, NoSwap: true})
 	if err != nil || leaf != "sbx-apps~x-1234-build" {
 		t.Fatalf("AddWith = %q, %v", leaf, err)
 	}
 	dir := filepath.Join(base, "comp-sbx-apps~x-1234-build")
 	for f, want := range map[string]string{
 		"memory.max": "1207959552", "memory.high": "1056964608", "pids.max": "4096",
-		"cpu.weight": "100", "cpu.max": "200000 100000", "cgroup.procs": "4242",
+		"cpu.weight": "100", "cpu.max": "200000 100000", "cgroup.procs": "4242", "memory.swap.max": "0",
 	} {
 		if got := read(t, filepath.Join(dir, f)); got != want {
 			t.Errorf("%s = %q, want %q", f, got, want)

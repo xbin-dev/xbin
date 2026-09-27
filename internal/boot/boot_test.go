@@ -67,6 +67,7 @@ func TestStepsOrder(t *testing.T) {
 		{"vm", "tile-sandboxes"},        // and the VM manager
 		{"broker", "tile-sandboxes"},
 		{"tile-sandboxes", "server"}, // which mounts its routes
+		{"workspace", "isolation"},   // the definitions pin their bases before isolation's GC
 	} {
 		if idx(e[0]) >= idx(e[1]) {
 			t.Errorf("step %q must run before %q", e[0], e[1])

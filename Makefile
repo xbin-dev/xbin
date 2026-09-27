@@ -114,6 +114,10 @@ integration:
 	# and the relay's per-flow host locality in a netns of its own: skip
 	# without .rootfs/userns
 	go test -tags=integration -count=1 -v ./internal/confine/ ./internal/runner/ ./internal/sandbox/ ./internal/sandbox/agentcore/ ./internal/sandbox/relay/
+	# tile sandboxes (D120) started, driven and ended through the runtime's
+	# routes: over a minimal lower (kernel overlay, then fuse-overlayfs when
+	# bin/ has it) and over .rootfs when present; skip without userns
+	go test -tags=integration -count=1 -v ./internal/tilesbx/
 	# a live terminal's layer — a sub-uid's files in it, in range mode — goes
 	# whole on a reset and an offload-full (WP-9b): only the TestConfined*
 	# tests of these unit-heavy packages; skip without .rootfs/userns

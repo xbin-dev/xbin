@@ -167,10 +167,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   declares in `uses` (a grant alone mounts nothing), `none` egress or a
   sandbox-net slot, no `XBIN_*` variables). Each sandbox has a `uid`, its
   identity: a name deleted and created again gets another, so a manager
-  can tell the two apart. Every other route of the contract — start and
-  stop, `run`, execs and their output, the TTY WebSocket, files, tar,
-  copy and snapshots — is registered and answers 501 `unsupported` for
-  now; `runtime.caps` lists what is served. Errors use the
+  can tell the two apart. Start and stop run sandboxes (next bullet); every
+  other route of the contract — reset and rebase, `run`, execs and their
+  output, the TTY WebSocket, files, tar, copy and snapshots — is registered
+  and answers 501 `unsupported` for now; `runtime.caps` lists what is
+  served. Errors use the
   sandbox-manager contract's `{error, refusal}` shape. A path with a `.`
   or `..` segment or an encoded `/`, `.` or `\`, or a name, exec id
   (`[0-9a-f]{6}-<n>`) or snapshot id (`s-<n>`) that fails its grammar, is
@@ -179,6 +180,29 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   together, and `error` when the policy file can't be read), stop and
   delete with `?tile=`, and a `tileSandboxes` list in `GET /sandboxes`.
   Nothing changes for a workspace without a manager tile.
+- **Tile sandboxes run: start, stop and delete** (D120,
+  [protocol.md](protocol.md) §Tile sandboxes, [isolation.md](isolation.md)
+  §Tile sandboxes). A manager tile's `POST /sandboxes/<name>/start` now
+  runs a namespace-mode sandbox — the terminals' restricted lockdown, its
+  own hostname, a persistent upper pinned to the base image it first ran
+  on, its mounts, and its egress class through a relay with no route to
+  the host or to xbind (under `none` connections are reset and DNS answers
+  REFUSED at once), capped at `runtime.limits.flows` connections — and
+  answers it `running`. Where xbind's cgroup is delegated each running
+  sandbox gets its own cgroup (its memory + 128 MiB with no swap, its
+  pids, its vCPUs), so a command over the memory cap is killed and the
+  sandbox runs on. `POST …/stop` syncs and stops it, keeping its state;
+  `DELETE` stops it and puts its state aside for a confined removal.
+  However a sandbox ends — a stop, its agent exiting, its root filesystem
+  dying, the OOM killer, a narrowed `sandbox-net` class, xbind shutting
+  down — it is `stopped` with why in `stateDetail`; a failed start says
+  what failed, and a sandbox whose state or base image is gone is `error`
+  (409 `state` on start). The admin's `GET /sandboxes` lists running tile
+  sandboxes as `kind: "tile"` rows with `name`, `for` and `forUser`, and
+  `health.tileSandboxes` reports the relays' shared connection budget and
+  why the sandboxes run without cgroup limits, if they do. VM mode, reset,
+  rebase, commands, files and snapshots still answer as before. Nothing
+  changes for a workspace without a manager tile.
 - **Go SDK: tile sandboxes** ([sdk.md](sdk.md) §Tile sandboxes).
   `xbin.SandboxAPI()` has a call for each of a manager tile's
   `/api/xbin/sandboxes/…` routes: definitions and lifecycle, `Run`, execs

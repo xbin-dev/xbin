@@ -108,9 +108,11 @@ func (m *Manager) info(k Key, d *Def) Info {
 		in.Net.Egress, in.Net.Reach = ld.Net.Egress, b.reach
 		if d.Net.Egress != ld.Net.Egress {
 			in.Net.EgressNext = d.Net.Egress
+		} else if b.egressNext { // its class's rules widened: they apply at the next start
+			in.Net.EgressNext = d.Net.Egress
 		}
 		in.RestartNeeded = mem != ld.MemMiB || vcpus != ld.VCPUs || disk != ld.DiskGiB ||
-			d.Net.Egress != ld.Net.Egress || !sameMounts(d.Mounts, ld.Mounts)
+			d.Net.Egress != ld.Net.Egress || b.egressNext || !sameMounts(d.Mounts, ld.Mounts)
 		return in
 	}
 	in.Net.Reach, in.Net.Note = m.reachOf(k, d.Net.Egress)

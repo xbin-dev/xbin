@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
@@ -267,17 +268,21 @@ func (m *Manager) ServeSetPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	p, err := mergePolicy(m.policy.get(), body)
 	if err != nil {
+		m.mu.Unlock()
 		writeErr(w, refuse(RefInvalid, "bad policy: %v", err))
 		return
 	}
 	if err := m.policy.set(p); err != nil {
+		m.mu.Unlock()
 		writeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, m.policyView())
+	v := m.policyView()
+	m.mu.Unlock()
+	m.applyTotal() // the cgroup parent's caps follow policy.total
+	writeJSON(w, http.StatusOK, v)
 }
 
 // ServeList answers a manager's GET /sandboxes: its own sandboxes. (An
@@ -297,7 +302,8 @@ func (m *Manager) ServeList(w http.ResponseWriter, r *http.Request) {
 }
 
 // ServeCreate answers POST /sandboxes: 201 and the new sandbox, or 200 and
-// the existing one when clientId repeats the same request.
+// the existing one when clientId repeats the same request. With start, the
+// new sandbox is started (outside the definitions mutex, in its flight).
 func (m *Manager) ServeCreate(w http.ResponseWriter, r *http.Request) {
 	k, ok := m.manager(w, r)
 	if !ok {
@@ -309,8 +315,8 @@ func (m *Manager) ServeCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	in, status, err := m.create(k, &req)
+	m.mu.Unlock()
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -318,13 +324,27 @@ func (m *Manager) ServeCreate(w http.ResponseWriter, r *http.Request) {
 	if status == http.StatusCreated && req.Start {
 		// A start that fails leaves the sandbox stopped, the failure in
 		// stateDetail — the create itself stands.
-		if err := m.start(k, req.Name); err != nil {
-			m.setDetail(k, req.Name, err.Error())
+		if err := m.Start(k, req.Name); err != nil {
+			m.mu.Lock()
+			if b := m.live[k][req.Name]; b != nil && b.run == nil && b.detail == "" {
+				b.detail = err.Error()
+			}
+			m.mu.Unlock()
 		}
-		d, _ := m.defs.get(k, req.Name)
-		in = m.info(k, d)
+		in, _ = m.infoOf(k, req.Name)
 	}
 	writeJSON(w, status, in)
+}
+
+// infoOf is k's sandbox's SandboxInfo now.
+func (m *Manager) infoOf(k Key, name string) (Info, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	d, ok := m.defs.get(k, name)
+	if !ok {
+		return Info{}, false
+	}
+	return m.info(k, d), true
 }
 
 // reqHash identifies a create request, for a clientId repeat.
@@ -438,31 +458,51 @@ func (m *Manager) ServePatch(w http.ResponseWriter, r *http.Request) {
 }
 
 // ServeDelete answers DELETE /sandboxes/{name} (the manager, or an admin
-// with ?tile=): stop it, remove its state (confined), forget it. 204.
+// with ?tile=): stop it, put its state aside for the confined remover
+// (trash.go), forget it. 204 — the removal goes on in the background.
 func (m *Manager) ServeDelete(w http.ResponseWriter, r *http.Request) {
 	k, ok := m.managerOrAdmin(w, r)
 	if !ok {
 		return
 	}
-	name := r.PathValue("name")
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	d, ok := m.defs.get(k, name)
-	if !ok {
-		writeErr(w, refuse(RefNotFound, "no sandbox %q", name))
-		return
-	}
-	err := m.stop(k, name, "deleted")
-	if err == nil {
-		err = m.removeState(k, d)
-	}
-	if err == nil {
-		err = m.defs.del(k, name)
-	}
-	if err != nil {
+	if err := m.Delete(k, r.PathValue("name")); err != nil {
 		writeErr(w, err)
 		return
 	}
-	delete(m.live[k], name)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// Delete stops k's sandbox, puts its state aside and forgets it, in its
+// flight: a start waiting for the flight then finds no sandbox.
+func (m *Manager) Delete(k Key, name string) error {
+	b, err := m.boxFor(k, name)
+	if err != nil {
+		return err
+	}
+	b.flight.Lock()
+	defer b.flight.Unlock()
+	if err := m.stopLocked(b, "deleted"); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	d, ok := m.defs.get(k, name)
+	if !ok || m.live[k][name] != b {
+		return refuse(RefNotFound, "no sandbox %q", name)
+	}
+	to, undo, err := m.trashState(k, d)
+	if err != nil {
+		return err
+	}
+	if err := m.defs.del(k, name); err != nil {
+		if uerr := undo(); uerr != nil {
+			slog.Error("tile sandbox: a failed delete couldn't put its state back", "tile", k.Tile, "sandbox", name, "at", to, "err", uerr)
+		}
+		return err
+	}
+	delete(m.live[k], name)
+	if to != "" {
+		m.trash.put(to)
+	}
+	return nil
 }

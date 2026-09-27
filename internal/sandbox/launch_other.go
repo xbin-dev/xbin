@@ -11,6 +11,9 @@ import (
 // Launch is unsupported off Linux.
 func Launch(*Spec) (*exec.Cmd, *Handle, error) { return nil, &Handle{}, ErrUnsupported }
 
+// FuseOverlayfs is "" off Linux: no sandbox root is mounted here.
+func FuseOverlayfs() string { return "" }
+
 // RecvTUN is unsupported off Linux.
 func (h *Handle) RecvTUN() (int, error) { return -1, ErrUnsupported }
 

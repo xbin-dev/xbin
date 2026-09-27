@@ -529,6 +529,14 @@ and defines and drives them through `/api/xbin/sandboxes/…`
   every start; the policy (`.xbin/sandboxes/policy.json`, admins) caps what
   each tile holds. The admin console lists every tile sandbox, and an
   admin may stop or delete one — never exec into it.
+- **Contained like the rest.** A running namespace sandbox has its own
+  cgroup (its memory + 128 MiB, no swap; its pids; its vCPUs as a hard
+  cap) inside one cgroup for every tile sandbox, capped by the policy's
+  `total`; its relay caps its connections, and all the relays share one
+  budget, so no sandbox spends xbind's descriptors. Its state is written
+  only by the sandbox and removed only by a confined tool, never walked by
+  xbind. xbind's death ends every tile sandbox; each ends `stopped`, with
+  why in `stateDetail`.
 
 ## Resource limits (blast-radius containment)
 
