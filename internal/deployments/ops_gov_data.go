@@ -7,14 +7,19 @@ package deployments
 
 import (
 	"context"
+	"strings"
 
 	"github.com/xbin-dev/xbin/internal/events"
 )
 
 // runSeed fills y's namespace from the primary's (08-data §8; 11-contract
-// §1.8), confirmed: a copy of data that may be personal.
+// §1.8), confirmed: a copy of data that may be personal. The copy runs on
+// after the answer; its completion is op data, which the broker publishes. A
+// dry run's stops are the seed's own: in the stopped mode the primary's too.
 func runSeed(ctx context.Context, p *Plane, g Grant, r *SeedRequest) (any, error) {
-	return p.dataAct(ctx, g, r.Seq, r.DryRun, "seed", func(o *op, y string) ([]string, error) {
+	var tile string
+	var facts SeedFacts
+	ans, err := p.dataAct(ctx, g, r.Seq, r.DryRun, "seed", func(o *op, y string) ([]string, error) {
 		if err := confirmed(r.Confirm, ConfirmCopyData, "seeding "+y+" copies "+o.rec.Primary+"'s data, which may be personal"); err != nil {
 			return nil, err
 		}
@@ -22,8 +27,20 @@ func runSeed(ctx context.Context, p *Plane, g Grant, r *SeedRequest) (any, error
 		if seed == nil {
 			return nil, notBuilt("seeding a deployment's data", "keep it empty, or give it test data from its own terminal")
 		}
-		return seed(o.tile, y, o.by, r.Stop, r.DryRun, p.claimantGate(g, y), p.stopDeployment)
+		req := *r
+		req.Tile, req.Deployment, tile = o.tile, y, o.tile
+		f, err := seed(g.P, req, p.claimantGate(g, y), p.stopDeployment)
+		facts = f
+		return f.Claimants, err
 	})
+	if d, ok := ans.(DryRunAnswer); ok && err == nil && facts.Stops != nil {
+		d.Impact.Stops = make([]string, 0, len(facts.Stops))
+		for _, s := range facts.Stops { // the tile's own deployments by name, as dataAct names them
+			d.Impact.Stops = append(d.Impact.Stops, strings.TrimPrefix(s, tile+"+"))
+		}
+		ans = d
+	}
+	return ans, err
 }
 
 // runReset empties y's namespace (08-data §9.1), vault:true its vault too.

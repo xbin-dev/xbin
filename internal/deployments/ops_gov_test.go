@@ -107,8 +107,16 @@ func (f *govFx) hooks(p *Plane) {
 		}
 		h.EdgeRestarts = func(tile, edge string) bool { return edge == "slot:net" }
 		h.DiskCeiling = func() int64 { return 50 << 30 }
-		h.SeedData = func(tile, dep, by string, stopped, dry bool, authorize func(string) error, stop func(string, string)) ([]string, error) {
-			return f.dataHook("seed", tile, dep, by, stopped, dry, authorize, stop, f.seedErr)
+		h.SeedData = func(pr auth.Principal, req SeedRequest, authorize func(string) error, stop func(string, string)) (SeedFacts, error) {
+			claimants, err := f.dataHook("seed", req.Tile, req.Deployment, actor(pr), req.Stop, req.DryRun, authorize, stop, f.seedErr)
+			facts := SeedFacts{Claimants: claimants}
+			for _, t := range claimants {
+				facts.Stops = append(facts.Stops, t+"+"+req.Deployment)
+				if req.Stop {
+					facts.Stops = append(facts.Stops, t+"+main")
+				}
+			}
+			return facts, err
 		}
 	})
 	p.ResetData = func(tile, dep, by string, vault, dry bool, authorize func(string) error, stop func(string, string)) ([]string, error) {
@@ -322,6 +330,11 @@ func TestDeployPlaneOperationsGov(t *testing.T) {
 		if evs := f.evs.take(); len(evs) != 1 || !reflect.DeepEqual(evs[0].Data, dataEvent{Op: "data", Deployment: "dev", State: "empty"}) {
 			t.Errorf("events = %+v", evs)
 		}
+		stopped := &SeedRequest{Tile: opSite, Deployment: "dev", Confirm: ConfirmCopyData, Stop: true, DryRun: true}
+		if im := f.dry(ownerP, OpSeed, stopped); !slices.Equal(im.Stops, []string{"dev", "main"}) {
+			t.Errorf("a stopped seed's dry run stops %q, want dev and the primary", im.Stops)
+		}
+		f.took()
 		g := newGovFx(t, false)
 		g.add(ownerP, &AddRequest{Tile: opSite, Deployment: "dev"})
 		g.p.SetGovHooks(func(h *GovHooks) { h.SeedData = nil })

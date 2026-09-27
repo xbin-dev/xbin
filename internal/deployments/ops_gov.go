@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/runner"
 	"github.com/xbin-dev/xbin/internal/util"
@@ -64,10 +65,13 @@ type GovHooks struct {
 	EdgeRestarts func(tile, edge string) bool
 	// DiskCeiling is the per-scope disk quota in bytes, diskGiB's ceiling.
 	DiskCeiling func() int64
-	// SeedData fills dep of tile's namespace from the primary's (08-data §8)
-	// as DataHooks.ResetData empties it; stopped: the point-in-time mode.
-	SeedData func(tile, dep, by string, stopped, dryRun bool, authorize func(tile string) error,
-		stop func(tile, dep string)) ([]string, error)
+	// SeedData fills req's deployment's namespace from the primary's
+	// (08-data §8), the broker's SeedDeploymentData: it judges the manager
+	// gate again with p (a person's own session, no view-as), authorize
+	// judges every other claimant and stop stops one deployment; req.Stop
+	// is the point-in-time mode. It answers the facts it judged.
+	SeedData func(p auth.Principal, req SeedRequest, authorize func(tile string) error,
+		stop func(tile, dep string)) (SeedFacts, error)
 }
 
 // govByPlane holds each plane's GovHooks, installed before the daemon
