@@ -17,6 +17,20 @@ import XbinCore
         #expect(Set((v["features"]?.arrayValue ?? []).compactMap(\.stringValue)) == Set(XbinVocabulary.features))
     }
 
+    /// Widgets (tree.md §13): the caps feature the app sends, the card
+    /// sizes, and primitives this renderer draws.
+    @Test func widgets() throws {
+        let w = try #require(try vocabJSON()["widget"])
+        #expect(w["feature"]?.stringValue == NativeCaps.widgetFeature)
+        #expect((w["sizes"]?.arrayValue ?? []).compactMap(\.stringValue) == CardSize.allCases.map(\.rawValue))
+        for p in (w["prims"]?.arrayValue ?? []).compactMap(\.stringValue) {
+            #expect(XbinVocabulary.primitives[p] != nil, "widget primitive \(p)")
+        }
+        // A wire feature, not a vocabulary one: the app adds it to the caps.
+        #expect(!XbinVocabulary.features.contains(NativeCaps.widgetFeature))
+        #expect(XbinVocabulary.caps(app: "1").withWidget(size: .wide).supports("widget"))
+    }
+
     @Test func reports() throws {
         let prims = try #require(try vocabJSON()["prims"]?.objectValue)
         var spec: [String: [String: XbinVocabulary.Report]] = [:]
