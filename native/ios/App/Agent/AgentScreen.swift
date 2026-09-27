@@ -93,6 +93,13 @@ final class AgentScreenModel {
         stop()
         let f = AgentSessionFeed(client: client, sessionID: id)
         feed = f
+        // A build chooser started this session with its first message: send
+        // it now (the server waits for the agent's handshake); a failure
+        // leaves it in the composer.
+        if let first = workspace.takePendingPrompt(id) {
+            draft = first
+            Task { await send() }
+        }
         tasks.append(Task { await f.run() })
         tasks.append(workspace.events.deliver(to: f)) // /ws/events session frames, catch-up after a gap
         tasks.append(LiveActivities.shared.follow(f, in: workspace)) // the turn's Live Activity (push.md §7)

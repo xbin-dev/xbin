@@ -1671,5 +1671,22 @@
     "none": true
    }
   }
+ },
+ "widget": {
+  "feature": "widget",
+  "sizes": [
+   "small",
+   "wide"
+  ],
+  "prims": [
+   "stack",
+   "text",
+   "icon",
+   "badge",
+   "chart",
+   "progress",
+   "button",
+   "row"
+  ]
  }
 }

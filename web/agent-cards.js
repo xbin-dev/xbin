@@ -8,11 +8,16 @@
  * markdown, raw JSON only behind a toggle, terminal output as output, and a
  * plan approval as the plan itself with the agent's choices — never a
  * generic "Permission" card with "allow for the session" semantics.
+ *
+ * Long transcripts (D124): what a card derives — markdown, diffs, stripped
+ * output — is memoized on its block (cached(), per version), and a folded
+ * card's body renders only once the reader opens it (a._isOpen/_toggled).
  */
 import { html, css, nothing } from 'lit';
 import { md } from '/vendor/bx-md.js';
 import { diffHTML, diffStats } from '/vendor/bx-code.js';
 import { headline, commandOf, isPlanApproval, planText, stripAnsi, rawText, unifiedDiff, filesStat, formFields, formContent } from '/vendor/agent-tools.js';
+import { cached } from '/vendor/agent-fold.js';
 
 export const KIND_ICON = { read: '📖', edit: '✏️', delete: '🗑️', move: '↪', search: '🔎', execute: '⚙', think: '💭', fetch: '🌐', switch_mode: '⇄', other: '•' };
 
@@ -22,9 +27,9 @@ const running = (t) => t.status === 'pending' || t.status === 'in_progress';
 // text content is markdown when it looks like it (the adapters fence command
 // output and file reads); plain prose/output stays verbatim
 const looksMarkdown = (s) => /```|^#{1,6}\s|^\s*[-*]\s|\*\*|\[[^\]]+\]\([^)]+\)/m.test(s);
-function textBlock(s) {
+function textBlock(s, owner, slot) {
   const t = String(s ?? '');
-  return looksMarkdown(t) ? html`<div class="md" .innerHTML=${md(t)}></div>` : html`<pre>${t}</pre>`;
+  return looksMarkdown(t) ? html`<div class="md" .innerHTML=${cached(owner, slot, () => md(t))}></div>` : html`<pre>${t}</pre>`;
 }
 
 // +added/-removed across a tool's diff content and its snapshot diff
@@ -41,33 +46,34 @@ const FSTATUS = { added: 'A', modified: 'M', deleted: 'D', renamed: 'R', typecha
 
 // a snapshot diff (files.changed: what a call or a turn changed on disk,
 // from git trees — so a shell write shows as the real change): the files,
-// then git's own patch
-export function filesBlock(f, label) {
+// then git's own patch (highlighted once opened); owner is the block it hangs on
+export function filesBlock(a, owner, f, label) {
   const st = filesStat(f);
-  return html`<details class="files">
+  const open = a._isOpen(owner, 'files');
+  return html`<details class="files" @toggle=${(e) => a._toggled(e, owner, 'files', false)}>
     <summary>${label || 'Changed'} ${st.n} file${st.n === 1 ? '' : 's'} <span class="fadd">+${st.add}</span> <span class="fdel">−${st.del}</span></summary>
     <ul class="flist">${(f.changes || []).map((c) => html`<li><span class="fs ${c.status}" title=${c.status}>${FSTATUS[c.status] || '?'}</span>
       <span class="fp">${c.oldPath ? `${c.oldPath} → ` : ''}${c.path}</span>${c.binary ? html` <span class="muted">binary</span>` : html` <span class="fadd">+${c.add}</span> <span class="fdel">−${c.del}</span>`}</li>`)}</ul>
-    ${f.patch && f.patch.text ? html`<pre class="diff" .innerHTML=${diffHTML(f.patch.text)}></pre>` : nothing}
+    ${open && f.patch && f.patch.text ? html`<pre class="diff" .innerHTML=${cached(owner, 'patch', () => diffHTML(f.patch.text))}></pre>` : nothing}
     ${f.patch && f.patch.truncated ? html`<div class="muted">… the rest of the patch is too large to show</div>` : nothing}
   </details>`;
 }
 
 // what a whole turn changed, after its last card
-export function changesCard(b) {
-  return html`<div class="turn-changes">${filesBlock(b, 'This turn changed')}</div>`;
+export function changesCard(a, b) {
+  return html`<div class="turn-changes">${filesBlock(a, b, b, 'This turn changed')}</div>`;
 }
 
 const hasContent = (t) => Array.isArray(t.content) && t.content.length > 0;
 
 function contentItems(t, skipText) {
   const items = Array.isArray(t.content) ? t.content : [];
-  return items.map((it) => {
-    if (it.type === 'diff') return html`<pre class="diff" .innerHTML=${diffHTML(unifiedDiff(it.path, it.oldText, it.newText))}></pre>`;
+  return items.map((it, i) => {
+    if (it.type === 'diff') return html`<pre class="diff" .innerHTML=${cached(t, 'diff' + i, () => diffHTML(unifiedDiff(it.path, it.oldText, it.newText)))}></pre>`;
     if (it.type === 'terminal') return t.output ? nothing : html`<div class="muted">${running(t) ? 'running…' : '(no output)'}</div>`;
     const text = it.content?.text ?? it.text ?? '';
     if (!String(text).trim() || text === skipText) return nothing;
-    return textBlock(text);
+    return textBlock(text, t, 'txt' + i);
   });
 }
 
@@ -81,8 +87,8 @@ function commandBlock(cmd) {
     <div class="cmdwrap"><pre class="cmd">${cmd}</pre>${copy}</div></details>`;
 }
 
-function outputBlock(out) {
-  const s = stripAnsi(out);
+function outputBlock(t) {
+  const s = cached(t, 'out', () => stripAnsi(t.output));
   if (!s.trim()) return nothing;
   if (s.length <= OUT_CAP) return html`<pre class="out">${s}</pre>`;
   return html`<details class="outx"><summary class="muted">… ${s.length - OUT_CAP} earlier characters — show all</summary><pre class="out">${s}</pre></details>
@@ -95,22 +101,24 @@ function rawInputBlock(t) {
   return txt ? html`<details class="raw"><summary>raw input</summary><pre>${txt}</pre></details>` : nothing;
 }
 
-// the card for one tool call
+// the card for one tool call (its body renders once opened)
 export function toolCard(a, t) {
+  if (t.children) return subagentCard(a, t);
   const exec = t.tk === 'execute';
   const plan = isPlanApproval(t);
   const title = plan ? (t.title || 'Plan') : headline(t);
-  const body = exec
-    ? [commandOf(t) ? commandBlock(commandOf(t)) : nothing, t.output ? outputBlock(t.output) : hasContent(t) ? contentItems(t, t.label) : nothing, t.files ? filesBlock(t.files) : nothing]
-    : plan
-      ? [planText(t) ? html`<div class="md plan-md" .innerHTML=${md(planText(t))}></div>` : nothing]
-      : [hasContent(t) ? contentItems(t) : nothing, t.output ? outputBlock(t.output) : nothing, t.files ? filesBlock(t.files) : nothing, rawInputBlock(t)];
-  if (t.children) return subagentCard(a, t);
-  return html`<details class="tool ${exec ? 'exec' : ''}" ?open=${t.status === 'failed'}>
+  const dflt = t.status === 'failed';
+  const body = !(dflt || a._isOpen(t, 'body')) ? []
+    : exec
+      ? [commandOf(t) ? commandBlock(commandOf(t)) : nothing, t.output ? outputBlock(t) : hasContent(t) ? contentItems(t, t.label) : nothing, t.files ? filesBlock(a, t, t.files) : nothing]
+      : plan
+        ? [planText(t) ? html`<div class="md plan-md" .innerHTML=${cached(t, 'plan', () => md(planText(t)))}></div>` : nothing]
+        : [hasContent(t) ? contentItems(t) : nothing, t.output ? outputBlock(t) : nothing, t.files ? filesBlock(a, t, t.files) : nothing, rawInputBlock(t)];
+  return html`<details class="tool ${exec ? 'exec' : ''}" ?open=${dflt} @toggle=${(e) => a._toggled(e, t, 'body', dflt)}>
     <summary><span class="ic">${KIND_ICON[t.tk] || KIND_ICON.other}</span>
       <span class="title" title=${exec ? commandOf(t) : t.title || ''}>${title}</span>
       ${t.exitCode != null && t.exitCode !== 0 ? html`<span class="chip failed">exit ${t.exitCode}</span>` : nothing}
-      <span class="chip ${t.status}">${String(t.status).replace('_', ' ')}${diffStat(t)}</span></summary>
+      <span class="chip ${t.status}">${String(t.status).replace('_', ' ')}${cached(t, 'stat', () => diffStat(t))}</span></summary>
     ${body.some((x) => x !== nothing) ? html`<div class="body">${body}</div>` : nothing}
   </details>`;
 }
@@ -123,16 +131,17 @@ function subagentCard(a, t) {
   const prompt = t.rawInput && typeof t.rawInput.prompt === 'string' ? t.rawInput.prompt : '';
   const kind = t.rawInput && typeof t.rawInput.subagent_type === 'string' ? t.rawInput.subagent_type : '';
   const steps = t.children.filter((c) => c.kind === 'tool').length;
-  return html`<details class="tool sub" ?open=${live || t.status === 'failed'}>
+  const dflt = live || t.status === 'failed';
+  return html`<details class="tool sub" ?open=${dflt} @toggle=${(e) => a._toggled(e, t, 'body', dflt)}>
     <summary><span class="ic">⧉</span>
       <span class="title" title=${prompt}>${kind ? html`<span class="muted">${kind}</span> ` : nothing}${headline(t)}</span>
       ${steps ? html`<span class="chip">${steps} step${steps === 1 ? '' : 's'}</span>` : nothing}
       <span class="chip ${t.status}">${String(t.status).replace('_', ' ')}</span></summary>
-    <div class="body">
-      ${prompt ? html`<details class="raw"><summary>prompt</summary><div class="md" .innerHTML=${md(prompt)}></div></details>` : nothing}
+    ${dflt || a._isOpen(t, 'body') ? html`<div class="body">
+      ${prompt ? html`<details class="raw"><summary>prompt</summary><div class="md" .innerHTML=${cached(t, 'prompt', () => md(prompt))}></div></details>` : nothing}
       <div class="children">${t.children.map((c) => a._block(c))}</div>
       ${!live && hasContent(t) ? html`<div class="answer">${contentItems(t)}</div>` : nothing}
-    </div>
+    </div>` : nothing}
   </details>`;
 }
 
@@ -147,7 +156,7 @@ export function askCard(a, b) {
   if (b.action) {
     const c = b.content || {};
     const verb = b.action === 'accept' ? 'answered' : b.action === 'decline' ? 'skipped' : 'cancelled';
-    return html`<div class="perm ask settled-card"><div class="q md" .innerHTML=${md(b.message || 'A question')}></div>
+    return html`<div class="perm ask settled-card"><div class="q md" .innerHTML=${cached(b, 'q', () => md(b.message || 'A question'))}></div>
       ${b.action === 'accept' ? html`<ul class="answers">${fields.map((f) => answerLine(f, c))}</ul>` : nothing}
       <div class="settled">${verb} by ${who}</div></div>`;
   }
@@ -238,7 +247,7 @@ function planCard(a, b) {
   const path = tc.rawInput && typeof tc.rawInput.planFilePath === 'string' ? tc.rawInput.planFilePath : '';
   const heading = (b.meta && b.meta.title) || tc.title || 'Approve the plan?';
   const opts = b.options || [];
-  const planMd = html`<div class="md plan-md" .innerHTML=${md(text || '*(the agent sent no plan text)*')}></div>`;
+  const planMd = html`<div class="md plan-md" .innerHTML=${cached(b, 'plan', () => md(text || '*(the agent sent no plan text)*'))}></div>`;
   if (b.by) {
     const opt = opts.find((o) => o.optionId === b.optionId);
     const kept = b.by === 'cancel' || !opt || /reject/.test(opt.kind || '');

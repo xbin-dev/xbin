@@ -341,15 +341,21 @@ func runtimeFindings(r *probeResult) []lintFinding {
 		}
 		return out
 	}
+	of := func(target string) string { // a finding about the widget says so
+		if target != "" {
+			return target + " "
+		}
+		return ""
+	}
 	for _, e := range r.Errors {
-		add("error", e.Where, "%s: %s", e.Kind, e.Message)
+		add("error", e.Where, "%s%s: %s", of(e.Target), e.Kind, e.Message)
 	}
 	for _, d := range r.Diagnostics {
 		lvl := d.Level
 		if lvl != "error" && lvl != "warn" {
 			lvl = "info"
 		}
-		add(lvl, d.Where, "%s: %s", d.Code, d.Message)
+		add(lvl, d.Where, "%s%s: %s", of(d.Target), d.Code, d.Message)
 	}
 	for _, e := range r.PageErrors {
 		add("error", stackWhere(e), "uncaught: %s", firstLine(e))
@@ -396,6 +402,9 @@ func runtimeFindings(r *probeResult) []lintFinding {
 	}
 	s := r.Stats
 	add("ok", "", "rendered: first tree in %s ms; %d nodes, depth %d, %s", ms, s.Nodes, s.Depth, humanBytes(s.Bytes))
+	if w := r.WidgetStats; w != nil {
+		add("ok", "", "widget: %d nodes, depth %d, %s", w.Nodes, w.Depth, humanBytes(w.Bytes))
+	}
 	if len(r.Needs) > 0 {
 		names := make([]string, 0, len(r.Needs))
 		for k := range r.Needs {

@@ -35,7 +35,14 @@ public enum BridgeMessage: Sendable, Equatable {
     /// something (copy, share, open, …); answer with
     /// ``RuntimeCall/resolve(id:value:error:)``.
     case call(BridgeCall)
+    /// A tree message (``mount(version:root:n:)`` or ``patch(_:n:)``) for
+    /// the tile's **widget** tree: `{"op":"mount"|"patch","target":"widget",…}`.
+    /// The runtime sends these only to an app whose caps list the `widget`
+    /// feature (``NativeCaps/widgetFeature``); the widget tree has its own
+    /// keys and its own `n`.
+    indirect case widget(BridgeMessage)
     /// An op this version doesn't know — ignored (the bridge only grows).
+    /// A tree message for a target this version doesn't know lands here too.
     case unknown(op: String, body: JSONValue)
 
     /// The wire `op`.
@@ -48,9 +55,24 @@ public enum BridgeMessage: Sendable, Equatable {
         case .diag: return "diag"
         case .state: return "state"
         case .call: return "call"
+        case .widget(let m): return m.op
         case .unknown(let op, _): return op
         }
     }
+
+    /// The tree a mount or patch is for (`target`; main when absent).
+    public var target: TreeTarget {
+        if case .widget = self { return .widget }
+        return .main
+    }
+}
+
+/// Which of a tile's trees a tree message or an event is for
+/// (native/spec/tree.md `target`): the tile's own UI, or the small widget
+/// a phone screen draws for it.
+public enum TreeTarget: String, Sendable, CaseIterable {
+    case main
+    case widget
 }
 
 /// Why a bridge message could not be decoded.
@@ -65,6 +87,20 @@ extension BridgeMessage {
     public init(json: JSONValue) throws {
         guard case .object(let o) = json else { throw BridgeDecodingError("expected an object, got \(json.kindName)") }
         guard case .string(let op)? = o["op"] else { throw BridgeDecodingError("op must be a string") }
+        if op == "mount" || op == "patch", let raw = o["target"], !raw.isNull {
+            guard case .string(let t) = raw else { throw BridgeDecodingError("\(op): target must be a string") }
+            switch TreeTarget(rawValue: t) {
+            case .main?: break
+            case .widget?:
+                var inner = o
+                inner["target"] = nil
+                self = .widget(try BridgeMessage(json: .object(inner)))
+                return
+            case nil:
+                self = .unknown(op: op, body: json) // a later target: not ours to draw
+                return
+            }
+        }
         switch op {
         case "mount":
             var v = 1
@@ -154,6 +190,10 @@ extension BridgeMessage {
             return .object(o)
         case .state(let st): return ["op": "state", "state": st]
         case .call(let c): return ["op": "call", "id": c.id, "what": .string(c.what), "args": c.args]
+        case .widget(let m):
+            guard case .object(var o) = m.json else { return m.json }
+            o["target"] = .string(TreeTarget.widget.rawValue)
+            return .object(o)
         case .unknown(_, let body): return body
         }
     }
@@ -224,6 +264,11 @@ public struct RuntimeError: Sendable, Equatable {
 
     public var isFatal: Bool { Self.fatalKinds.contains(kind) }
     public var message: String { fields["message"]?.stringValue ?? "" }
+    /// The tree whose render or handler failed (`target`; main when absent):
+    /// a widget's failure fails only the widget.
+    public var target: TreeTarget {
+        fields["target"]?.stringValue.flatMap(TreeTarget.init(rawValue:)) ?? .main
+    }
     /// Where it happened (a template location, a module URL); objects are
     /// rendered as JSON.
     public var location: String? {
@@ -310,12 +355,14 @@ public enum RuntimeVisibility: String, Sendable, CaseIterable {
 /// literal (``JSONValue/jsLiteral(htmlSafe:)``), so no string the tile or the
 /// user controls can escape its argument.
 public enum RuntimeCall: Sendable, Equatable {
-    /// `xbn.event(k, type, payload, n?)` — a user action on node `key`. `n`
-    /// is the last tree message (``TreeStore/treeSequence``) the renderer had
-    /// applied when the user acted, so the runtime can tell a stale report
-    /// of a controlled value from a fresh one (``TreeStore/event(_:_:payload:)``
-    /// fills it in).
-    case event(key: String, type: String, payload: JSONValue, n: Int? = nil)
+    /// `xbn.event(k, type, payload, n?, target?)` — a user action on node
+    /// `key`. `n` is the last tree message (``TreeStore/treeSequence``) the
+    /// renderer had applied when the user acted, so the runtime can tell a
+    /// stale report of a controlled value from a fresh one
+    /// (``TreeStore/event(_:_:payload:)`` fills it in); `target` the tree
+    /// the node is in (a widget's node: `"widget"`; the main tree's calls
+    /// omit it, as every runtime understands).
+    case event(key: String, type: String, payload: JSONValue, n: Int? = nil, target: TreeTarget = .main)
     /// `xbn.visibility(state)` — the tile went on or off screen.
     case visibility(RuntimeVisibility)
     /// `xbn.resolve(id, value, error?)` — the answer to a ``BridgeCall``; a
@@ -324,13 +371,24 @@ public enum RuntimeCall: Sendable, Equatable {
     /// `xbn.frame()` — a tick of the renderer's frame clock (flushes a
     /// pending render at once).
     case frame
+    /// `xbn.widgetSize(size)` — the widget's card changed size (the first
+    /// size travels in the caps, ``NativeCaps/widgetSize``). A runtime
+    /// without widgets has no such function: the call does nothing there.
+    case widgetSize(CardSize)
+    /// `xbn.remount(target?)` — the app lost its copy of a tree (a patch it
+    /// could not apply): the runtime sends it whole again as a mount.
+    case remount(TreeTarget = .main)
 
     /// The call expression, e.g. `xbn.event("r.0.1","tap",{})`.
     public var javaScript: String {
         switch self {
-        case .event(let k, let t, let p, let n):
-            let args = [JSONValue.string(k).jsLiteral(), JSONValue.string(t).jsLiteral(), p.jsLiteral()]
-                + (n.map { [String($0)] } ?? [])
+        case .event(let k, let t, let p, let n, let target):
+            var args = [JSONValue.string(k).jsLiteral(), JSONValue.string(t).jsLiteral(), p.jsLiteral()]
+            if target != .main {
+                args += [n.map { String($0) } ?? "null", JSONValue.string(target.rawValue).jsLiteral()]
+            } else if let n {
+                args.append(String(n))
+            }
             return "xbn.event(\(args.joined(separator: ",")))"
         case .visibility(let s):
             return "xbn.visibility(\(JSONValue.string(s.rawValue).jsLiteral()))"
@@ -339,6 +397,11 @@ public enum RuntimeCall: Sendable, Equatable {
             return "xbn.resolve(\(id.jsLiteral()),\(v.jsLiteral()))"
         case .frame:
             return "xbn.frame()"
+        case .widgetSize(let size):
+            return "xbn.widgetSize?.(\(JSONValue.string(size.rawValue).jsLiteral()))"
+        case .remount(let target):
+            if target == .main { return "xbn.remount()" }
+            return "xbn.remount(\(JSONValue.string(target.rawValue).jsLiteral()))"
         }
     }
 
@@ -383,25 +446,49 @@ public struct NativeCaps: Sendable, Equatable {
     public var app: String
     /// Primitive name → revision (additive props bump it).
     public var prims: [String: Int]
-    /// Feature flags (`chart.area`, `markdown.tables`, …).
+    /// Feature flags (`chart.area`, `markdown.tables`, …) — and what the
+    /// app does with the tile beyond drawing its UI (``widgetFeature``).
     public var features: [String]
+    /// The size of the card the widget is drawn in (`small`/`wide`) when
+    /// the app draws widgets; later changes go through
+    /// ``RuntimeCall/widgetSize(_:)``.
+    public var widgetSize: CardSize?
 
-    public init(v: Int = 1, renderer: String, app: String, prims: [String: Int], features: [String] = []) {
+    /// The feature that asks the runtime for the tile's widget tree
+    /// (`target:"widget"` messages). Without it the runtime sends none.
+    public static let widgetFeature = "widget"
+
+    public init(v: Int = 1, renderer: String, app: String, prims: [String: Int], features: [String] = [],
+                widgetSize: CardSize? = nil) {
         self.v = v
         self.renderer = renderer
         self.app = app
         self.prims = prims
         self.features = features
+        self.widgetSize = widgetSize
     }
 
+    /// These caps asking for the tile's widget, drawn at `size`.
+    public func withWidget(size: CardSize) -> NativeCaps {
+        var c = self
+        if !c.features.contains(Self.widgetFeature) { c.features.append(Self.widgetFeature) }
+        c.widgetSize = size
+        return c
+    }
+
+    /// Whether these caps ask for the widget tree.
+    public var drawsWidgets: Bool { features.contains(Self.widgetFeature) }
+
     public var json: JSONValue {
-        [
+        var o: [String: JSONValue] = [
             "v": .int(Int64(v)),
             "renderer": .string(renderer),
             "app": .string(app),
             "prims": .object(prims.mapValues { .int(Int64($0)) }),
             "features": .array(features.sorted().map(JSONValue.string)),
         ]
+        if let widgetSize { o["widgetSize"] = .string(widgetSize.rawValue) }
+        return .object(o)
     }
 
     public init(json: JSONValue) throws {
@@ -415,6 +502,7 @@ public struct NativeCaps: Sendable, Equatable {
         }
         prims = p
         features = (o["features"]?.arrayValue ?? []).compactMap(\.stringValue)
+        widgetSize = o["widgetSize"]?.stringValue.flatMap(CardSize.init(rawValue:))
     }
 
     /// `xbin.native.supports(name[, rev])`, app side (revisions start at 1).

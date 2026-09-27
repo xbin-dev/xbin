@@ -386,6 +386,11 @@ resized tile performs on its neighbours (D66) — lit-free, tested in
 `hack/grid-layout.test.mjs`; `shell-kit.js` re-exports the constants and
 holds the rest of what the shell and its children share: `RUNTIME_COLOR`,
 the `LongPress` gesture, `selectedText()` and the `prBadge()` template.
+`layout-sync.js` is how an open shell follows a layout another client (the
+app, another tab) saved: `follow(shell, event, key)` on a `prefs` event —
+skip our own writes (`X-Prefs-Writer`), hold the reload while `editing()`
+— tested in `hack/layout-sync.test.mjs`, end to end by the harness's
+`layoutSync` pass.
 
 The first child element is `bx-canvas.js` — the snappable grid of cards
 and the floating windows, with every pointer gesture on them (grid
@@ -480,6 +485,14 @@ Rules that keep it cheap to maintain:
   screenshots and the checker; a new pass is a function added to
   `PASSES` in `shots.js` — as its own module under `passes/<name>.js`
   (`shots.js` is at its size budget; `passes/users.js` is the model).
+- **Headless Chromium hides scrollbars** (`--hide-scrollbars`): every
+  scroller measures 0px wide and screenshots show no bars. A pass about
+  them launches its own browser without the flag — `scrollbars` (D123: the
+  6px bars, the focused-scroll tint across the shell and a tile document).
+  `agentLong` (D124) streams the fake agent's `long N` script (hack/fakeacp)
+  and pins the Agent tab's window: what is rendered, pages loading at the
+  top without moving the row being read, a reload and a past session
+  opening windowed at the bottom.
 
 On this box: `PLAYWRIGHT_DIR=~/lcad-wasm` (Playwright + its Chromium) and
 `HARNESS_DIR` somewhere outside the repo.

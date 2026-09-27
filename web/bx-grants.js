@@ -5,6 +5,7 @@
  * there is nothing to decide, so it can sit permanently in the root page.
  */
 import { LitElement, html, css, nothing } from 'lit';
+import { scrollCss } from '/vendor/scroll-css.js';
 import { onEvent } from '/vendor/events-socket.js';
 import { capInfo } from '/vendor/bx-allow.js';
 import { grantArrow } from '/vendor/bx-grant-row.js';
@@ -22,7 +23,7 @@ export class BxGrants extends LitElement {
     _err: { state: true },     // last approve/revoke failure
   };
 
-  static styles = css`
+  static styles = [scrollCss, css`
     :host {
       display: block;
       font: var(--bx-font, 13px/1.45 system-ui, sans-serif);
@@ -66,7 +67,7 @@ export class BxGrants extends LitElement {
     .ask { color: var(--bx-muted, #868f9a); font-size: 11.5px; white-space: nowrap; }
     .by { color: var(--bx-muted, #868f9a); font-size: 11px; white-space: nowrap; }
     .err { color: var(--bx-red, #ef5350); font-size: 12px; padding: 2px 0; }
-  `;
+  `];
 
   constructor() {
     super();

@@ -150,16 +150,21 @@ bx fix assets [<tile>] [--write] [--dir PATH]
                                        to relative ones (strict tile asset
                                        gating); dry run unless --write
 bx native tree <tile> [--data d.json] [--steps s.json]
+           [--widget [--size small|wide]]
                                        the tile's rendered native UI as tree
-                                       JSON (cheapest, diffable)
+                                       JSON (cheapest, diffable); --widget:
+                                       its widget's tree
 bx lint --native [tile…] [--static] [--json]
-                                       check native UIs: static checks + a
-                                       headless run; no tile = the whole
+                                       check native UIs (the screen and the
+                                       widget at both sizes): static checks +
+                                       a headless run; no tile = the whole
                                        workspace, with its native coverage
 bx preview --native <tile> [--dark] [--size 390x844] [--large-text]
            [--data d.json] [--steps s.json] [--full] [--out shot.png]
+           [--widget [--size small|wide]]
                                        a picture of the native UI, drawn by
-                                       the reference renderer
+                                       the reference renderer; --widget: of
+                                       its widget's card
 ```
 
 ## Notes per command
@@ -307,7 +312,12 @@ the tile's own code, identity and frame token, against its **live backend**
 draw; `preview` screenshots the reference renderer at 390×844 points @2x
 (`--dark`, `--large-text`, `--size WxH`; `--full` grows the picture to the
 content; without `--out` it writes a PNG in `$TMPDIR` and prints the path —
-look at it); `lint` adds static checks and reports:
+look at it). With `--widget` both play an app that shows widgets
+([native.md §Widgets](/docs/native.md)): `tree` prints the widget's tree
+and `preview` pictures its card, at the size class `--size small|wide`
+names (default small; `--size small|wide` alone implies `--widget`, and
+`preview` still takes `--size WxH` for the page). `lint` adds static checks
+and reports:
 
 - the entry exists (a broken `native` declaration in `xbin.json` is an
   error);
@@ -318,7 +328,10 @@ look at it); `lint` adds static checks and reports:
 - raw colours (`tone="#f00"`, `rgb(…)`, a `'#ff3b30'` literal in the entry)
   where the vocabulary takes tokens;
 - the runtime's errors and diagnostics (unknown primitives or props, bad
-  tokens, uncaught exceptions, a module that fails to load), page errors;
+  tokens, uncaught exceptions, a module that fails to load), page errors —
+  the widget's included: lint renders it small, then wide, and a finding
+  about it starts with `widget` (`widget-tag`: a primitive a widget may not
+  use);
 - how long the first tree took (the app falls back to the web page after
   5 s without one), the tree's size, and which app revision each primitive
   and feature flag needs.
@@ -345,7 +358,9 @@ also match `/api/<tile>/…`; an unanswered call gets a 404 and is reported.
 `--steps` (or the data's own `steps`) then drives it, naming nodes by the
 keys `bx native tree` prints: `{"tap": key}`, `{"input": [key, value]}`,
 `{"event": [key, type, payload]}`, `{"wait": ms}`, `{"visibility": …}`,
-`{"resolve": [id, value]}` (a `bus` step is skipped with a warning). Steps
+`{"resolve": [id, value]}`, `{"widgetSize": "wide"}` (a `bus` step is
+skipped with a warning); `"target": "widget"` on a `tap`/`input`/`event`
+step acts on the widget's tree. Steps
 work without `--data` too, and against the live backend they are real
 actions — a tap on "+1" increments the counter. Credentials: bx lends its own (the terminal's `XBIN_TOKEN`, or the
 owner token on the host) only to the tile's document and files; the tile's
@@ -363,6 +378,8 @@ bx lint --native                          # the workspace: problems + coverage
 bx native tree apps/counter               # what the app would draw
 bx preview --native apps/counter --dark --out /tmp/counter.png
 bx preview --native apps/counter --data fixtures/busy.json --out /tmp/busy.png
+bx native tree apps/counter --widget --size wide   # the widget, wide
+bx preview --native apps/counter --widget --out /tmp/counter-card.png
 ```
 
 **`bx logs`** — reads `.xbin/log/<compkey>.log` directly; each backend

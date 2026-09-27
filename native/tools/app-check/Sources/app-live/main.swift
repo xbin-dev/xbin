@@ -203,14 +203,22 @@ let tokens = FrameTokenCache { comp in
     guard let t = FrameTokenRoute.token(from: j) else { throw URLError(.cannotParseResponse) }
     return t
 }
-let shellToken = try await tokens.token(for: "shell")
-let layoutResp = try await transport.send(APIRequest("GET", "/api/xbin/prefs/layout",
-                                                     headers: [TileScheme.frameTokenHeader: shellToken]), to: origin)
-check(layoutResp.status == 200 || layoutResp.status == 404, "the shell's layout pref via a shell frame token (\(layoutResp.status))")
+// The shell's layout pref lives in the root bucket: the device session
+// (no frame token) reads it; the pre-D125 app looked in `shell`'s (a
+// frame token for shell), which the shell never wrote.
+let layoutResp = try await auth.send(APIRequest("GET", LayoutPref.path))
+check(layoutResp.status == 200 || layoutResp.status == 404, "the shell's layout pref in the root bucket (\(layoutResp.status))")
+let shellToken = try await tokens.token(for: LayoutPref.legacyComponent)
+let legacy = try await transport.send(APIRequest("GET", LayoutPref.path, headers: [TileScheme.frameTokenHeader: shellToken]), to: origin)
+check(legacy.status == 200 || legacy.status == 404, "the old place, the shell bucket, still reads (\(legacy.status))")
 let shared = SharedScreens(json: try await auth.json(APIRequest("GET", "/api/xbin/screens")))
-let nav = NavigatorModel(catalog: catalog, layout: PersonalLayout(json: layoutResp.status == 200 ? try layoutResp.json() : nil),
-                         shared: shared, user: who.userID)
+let layout = PersonalLayout(json: layoutResp.status == 200 ? try layoutResp.json() : nil)
+let nav = NavigatorModel(catalog: catalog, layout: layout, shared: shared, user: who.userID)
 check(nav.sections.last?.id == "all", "navigator sections: \(nav.sections.map(\.title))")
+let home = HomeModel(catalog: catalog, layout: layout, shared: shared, whoami: who)
+check(home.screens.allSatisfy { home.screen($0.id) != nil }, "Home: \(home.sections.map { "\($0.title) \($0.screens.map(\.name))" })")
+let tileReport = TileStatuses(json: try await auth.json(APIRequest("GET", TileStatuses.path)))
+check(true, "tile statuses: \(tileReport.byTile.count)")
 
 // 2b. The app's events socket (App/Model/WorkspaceEvents.swift) with this
 // device session as its bearer: native/tools/events-live.mjs opens

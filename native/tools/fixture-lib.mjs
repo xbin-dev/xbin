@@ -18,8 +18,8 @@ const own = (o, k) => o != null && Object.prototype.hasOwnProperty.call(o, k);
 // data.json keys: what the runner (hack/xbn/node.mjs) takes, plus the
 // fixture's own. Anything else is a typo and an error.
 const RUN_KEYS = ['self', 'now', 'tz', 'locale', 'iface', 'routes', 'calls', 'dialog'];
-const OWN_KEYS = ['about', 'caps', 'state', 'interactions', 'allowDiagnostics'];
-const STEP_KEYS = ['after', 'k', 'select', 'type', 'payload', 'n', 'bus', 'visibility', 'resolve', 'note'];
+const OWN_KEYS = ['about', 'caps', 'state', 'widget', 'interactions', 'allowDiagnostics'];
+const STEP_KEYS = ['after', 'k', 'select', 'type', 'payload', 'n', 'target', 'bus', 'visibility', 'resolve', 'widgetSize', 'note'];
 
 export function listFixtures(dir = FIXTURES) {
   if (!existsSync(dir)) return [];
@@ -51,11 +51,16 @@ export function toRun(entry, data, name = 'fixture') {
   if (!Number.isFinite(run.now)) throw new Error(`${name}: data.json "now" is not a time: ${JSON.stringify(now)}`);
   run.tz = data.tz ?? DEFAULT_TZ;
   run.locale = data.locale ?? DEFAULT_LOCALE;
-  return { entry, data: run, steps: toSteps(data.interactions ?? [], name), caps: data.caps ?? undefined, state: data.state ?? null };
+  // widget: "small" | "wide" — the fixture is the tile's WIDGET tree
+  // (tree.md §13), rendered by an app that shows widgets at that size
+  if (own(data, 'widget') && data.widget !== 'small' && data.widget !== 'wide') throw new Error(`${name}: data.json "widget" is "small" or "wide"`);
+  return { entry, data: run, steps: toSteps(data.interactions ?? [], name), caps: data.caps ?? undefined, state: data.state ?? null, widget: data.widget ?? false };
 }
 
 // toSteps(interactions) → runNative steps. An interaction:
-//   {after?: ms, k?|select?, type?, payload?, n?, bus?, visibility?, resolve?, note?}
+//   {after?: ms, k?|select?, type?, payload?, n?, target?, bus?, visibility?, resolve?, widgetSize?, note?}
+// (target "widget": the event is on the widget tree; widgetSize: the app
+// resizes the widget)
 // `after` moves the virtual clock first; then at most one action: an event on
 // a node (k or select + type), a bus event ([topic, data] or {topic, data}),
 // a visibility change, or answering a call ([id, value]). Only `after`: a wait.
@@ -69,7 +74,7 @@ export function toSteps(list, name = 'fixture') {
     const after = Number(it.after ?? 0);
     if (!Number.isFinite(after) || after < 0) throw new Error(`${at}.after must be a non-negative number of ms`);
     if (after > 0) steps.push({ wait: after });
-    const acts = ['k', 'select', 'bus', 'visibility', 'resolve'].filter((k) => own(it, k));
+    const acts = ['k', 'select', 'bus', 'visibility', 'resolve', 'widgetSize'].filter((k) => own(it, k));
     if (acts.includes('k') && acts.includes('select')) throw new Error(`${at}: give k or select, not both`);
     const kinds = acts.filter((k) => k !== 'select' || !acts.includes('k'));
     if (kinds.length > 1) throw new Error(`${at}: one action per interaction (got ${kinds.join(', ')})`);
@@ -78,6 +83,7 @@ export function toSteps(list, name = 'fixture') {
       const ev = { type: it.type, payload: it.payload ?? {} };
       if (own(it, 'k')) ev.k = String(it.k); else ev.select = it.select;
       if (own(it, 'n')) ev.n = it.n;
+      if (own(it, 'target')) ev.target = it.target;
       steps.push({ event: ev });
     } else if (own(it, 'bus')) {
       const b = it.bus;
@@ -87,6 +93,8 @@ export function toSteps(list, name = 'fixture') {
     } else if (own(it, 'visibility')) {
       if (it.visibility !== 'hidden' && it.visibility !== 'visible') throw new Error(`${at}.visibility is "hidden" or "visible"`);
       steps.push({ visibility: it.visibility });
+    } else if (own(it, 'widgetSize')) {
+      steps.push({ widgetSize: it.widgetSize });
     } else if (own(it, 'resolve')) {
       if (!Array.isArray(it.resolve)) throw new Error(`${at}.resolve is [callId, value]`);
       steps.push({ resolve: it.resolve });

@@ -1,0 +1,16 @@
+{
+  "about": "examples/counter-go/native.js's widget, small: the count and a +1 tapped on the card itself — posts, reloads, shows 42",
+  "self": "apps/counter-go",
+  "widget": "small",
+  "routes": {
+    "GET /api/apps/counter-go/count": [
+      {"json": {"count": 41}},
+      {"json": {"count": 42}}
+    ],
+    "POST /api/apps/counter-go/count": {"json": {"count": 42}, "delay": 150}
+  },
+  "interactions": [
+    {"select": "button[label=\"+1\"]", "type": "tap", "target": "widget", "note": "the widget's own +1, not the screen's"},
+    {"after": 200}
+  ]
+}

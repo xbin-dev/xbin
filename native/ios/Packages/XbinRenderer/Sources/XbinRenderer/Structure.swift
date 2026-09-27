@@ -162,6 +162,7 @@ struct CardGroup: View {
 /// `stack`: `VStack`/`HStack` with a gap token, or a wrapping flow.
 struct StackView: View {
     let node: XbinNode
+    @Environment(\.xbinCompact) private var compact
 
     var body: some View {
         let p = node.props
@@ -172,11 +173,25 @@ struct StackView: View {
             if horizontal && p.bool("wrap") {
                 FlowLayout(spacing: gap) { ForEach(node.children) { NodeView(node: $0) } }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .environment(\.xbinInHStack, true)
             } else if horizontal {
-                HStack(alignment: Self.vertical(align), spacing: gap) { ForEach(node.children) { NodeView(node: $0) } }
+                // On a widget's card a chart is the line's filler: the rest
+                // is laid out first, the chart gets what's left (a spark's
+                // worth at least).
+                HStack(alignment: Self.vertical(align), spacing: gap) {
+                    ForEach(node.children) { c in
+                        if compact != nil && c.type == "chart" {
+                            NodeView(node: c).frame(minWidth: 64).layoutPriority(-1)
+                        } else {
+                            NodeView(node: c)
+                        }
+                    }
+                }
+                .environment(\.xbinInHStack, true)
             } else {
                 VStack(alignment: Self.horizontal(align), spacing: gap) { ForEach(node.children) { NodeView(node: $0) } }
                     .frame(maxWidth: .infinity, alignment: Self.frame(align))
+                    .environment(\.xbinInHStack, false)
             }
         }
         .environment(\.xbinPlacement, .free)

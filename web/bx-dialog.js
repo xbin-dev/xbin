@@ -21,6 +21,7 @@
  * The host (shell or tile) removes the element on resolve.
  */
 import { LitElement, html, css, nothing } from 'lit';
+import { scrollCss } from '/vendor/scroll-css.js';
 
 export class BxDialog extends LitElement {
   static properties = {
@@ -30,7 +31,7 @@ export class BxDialog extends LitElement {
                             // so a tile can't pass its modal off as system chrome
   };
 
-  static styles = css`
+  static styles = [scrollCss, css`
     :host { position: fixed; inset: 0; z-index: 4000; display: none; }
     :host([open]) { display: block; }
     .backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, .45); }
@@ -70,7 +71,7 @@ export class BxDialog extends LitElement {
     button:hover { background: var(--bx-panel-2, #2b3038); }
     button.primary { background: var(--bx-accent, #f5a623); border-color: transparent; color: #23272e; font-weight: 600; }
     button.danger { color: var(--bx-red, #ef5350); border-color: color-mix(in srgb, var(--bx-red, #ef5350) 45%, transparent); }
-  `;
+  `];
 
   #onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); this.#resolve(null); } };
 

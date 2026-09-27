@@ -177,7 +177,7 @@ test('complete examples render without errors or warnings', async () => {
     for (const [i, b] of complete.entries()) {
       const entry = join(dir, `ex${i}.js`);
       writeFileSync(entry, b.code);
-      const r = await runNative({ entry, data: {} });
+      const r = await runNative({ entry, data: {}, widget: /\bwidget\(/.test(b.code) }); // an app that shows widgets checks the widget too
       const noisy = r.diagnostics.filter((d) => d.level !== 'info').map((d) => `${d.code}: ${d.message}`);
       assert.deepEqual([...r.errors.map((e) => `${e.kind}: ${e.message}`), ...noisy], [], `example at line ${b.line}`);
       assert.ok(r.tree?.root, `example at line ${b.line} rendered no tree`);

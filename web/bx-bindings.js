@@ -9,6 +9,7 @@
  * so it can sit permanently in the root page next to <bx-grants>.
  */
 import { LitElement, html, css, nothing, repeat } from 'lit';
+import { scrollCss } from '/vendor/scroll-css.js';
 import '/vendor/bx-multiselect.js';
 import { onEvent } from '/vendor/events-socket.js';
 import { bindPreselect, blockedTitle } from '/vendor/bx-netrules.js';
@@ -23,7 +24,7 @@ export class BxBindings extends LitElement {
     _showAll: { state: true },
   };
 
-  static styles = css`
+  static styles = [scrollCss, css`
     :host {
       display: block;
       font: var(--bx-font, 13px/1.45 system-ui, sans-serif);
@@ -72,7 +73,7 @@ export class BxBindings extends LitElement {
     }
     select.mode { flex: none; width: auto; }
     .rerr { color: var(--bx-red, #ef5350); font-size: 11.5px; padding: 0 0 3px 2px; }
-  `;
+  `];
 
   constructor() {
     super();

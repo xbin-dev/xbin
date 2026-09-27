@@ -20,6 +20,9 @@ enum HandoffActivity {
         let home: (title: String, page: URL?, link: DeepLink) = (w.title, HandoffLink.shell(origin: o), .workspace(o.authority))
         guard let s = surface else { return home }
         switch s {
+        case .build(let path):
+            return (w.tile(path)?.title ?? TileInfo.humanize(path), HandoffLink.tilePage(origin: o, tile: path),
+                    HandoffLink.tile(origin: o, tile: path))
         case .tile(let path, let sub, let fragment):
             return (w.tile(path)?.title ?? TileInfo.humanize(path),
                     HandoffLink.tilePage(origin: o, tile: path, subpath: sub, fragment: fragment),

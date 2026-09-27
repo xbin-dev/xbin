@@ -19,21 +19,37 @@
  *     xb/tile-resource.js): the tile's own /c/<self>/ and /api/<self>/
  *     paths only — never another tile's, a nested tile's, xbind's API or
  *     another site — and uploads by PUT, POST or PATCH only.
- * Query: &theme=light|dark, &text=large.
+ * Query: &theme=light|dark, &text=large, &widget=small|wide — play an app
+ * that shows widgets (caps list the "widget" feature, tree.md §13): the
+ * tile's widget tree is drawn as a card of that size class instead of its
+ * screen (whose tree still runs, hidden).
  *
- * window.xbnPreview = {view, messages, errors, diagnostics, ready, tree()}:
+ * window.xbnPreview = {view, widgetView, messages, errors, diagnostics,
+ * ready, tree(), widgetTree()}:
  * `ready` settles after the first tree is drawn, or with the first error
  * that stops the tile (a module failure, an exception before any tree).
  */
 import { attach } from '/vendor/xb-native.js';
 import '/vendor/xb/render.js';
+import { VOCAB, fullCaps } from '/vendor/xb/vocab.js';
 import { apiPath, assetPath, uploadMethod } from '/vendor/xb/tile-resource.js';
 
 const G = globalThis;
 const on = typeof document === 'object' && document.querySelector('meta[name="xbin-native-preview"]');
 
+// Card sizes of the widget size classes, in points (the app's screen grid:
+// two 170 pt columns with a 16 pt gutter on a 390 pt phone).
+const WIDGET_BOX = { small: [170, 170], wide: [356, 170] };
+
 function start() {
   const q = new URLSearchParams(location.search);
+  const wsize = VOCAB.widget.sizes.includes(q.get('widget')) ? q.get('widget') : '';
+  // before the runtime starts (its first render or frame): the caps it reads
+  const inj = G.xbin && typeof G.xbin.native === 'object' ? G.xbin.native : null;
+  if (wsize && inj && Object.isExtensible(inj) && !inj.caps) {
+    const c = fullCaps();
+    inj.caps = { ...c, features: [...c.features, VOCAB.widget.feature], widgetSize: wsize };
+  }
   const style = document.createElement('style');
   style.textContent = `html, body { margin: 0; height: 100%; background: #f6f7f9; }
     @media (prefers-color-scheme: dark) { html:not(.light), html:not(.light) body { background: #1b1e24; } }
@@ -41,7 +57,11 @@ function start() {
     xb-view { position: fixed; inset: 0; }
     #xbn-strip { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; max-height: 30%; overflow: auto;
       font: 12px/1.4 ui-monospace, monospace; color: #fff; background: rgba(198, 40, 40, 0.94); padding: 6px 10px; white-space: pre-wrap; }
-    #xbn-strip:empty { display: none; }`;
+    #xbn-strip:empty { display: none; }
+    .xbn-widget { position: fixed; left: 16px; top: 24px; border-radius: 20px; overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 6px 20px rgba(0, 0, 0, 0.08); }
+    .xbn-widget xb-view { position: absolute; inset: 0; }
+    xb-view.xbn-hidden { visibility: hidden; }`;
   document.head.append(style);
   const theme = q.get('theme');
   if (theme === 'light' || theme === 'dark') document.documentElement.classList.add(theme);
@@ -52,6 +72,21 @@ function start() {
   const strip = document.createElement('div');
   strip.id = 'xbn-strip';
   document.body.append(view, strip);
+  let widgetView = null;
+  if (wsize) {
+    const box = document.createElement('div');
+    box.className = 'xbn-widget';
+    [box.style.width, box.style.height] = WIDGET_BOX[wsize].map((x) => `${x}px`);
+    widgetView = document.createElement('xb-view');
+    widgetView.theme = view.theme;
+    widgetView.text = view.text;
+    widgetView.compact = true;
+    box.append(widgetView);
+    document.body.insertBefore(box, strip);
+    view.classList.add('xbn-hidden');
+    widgetView.onevent = (k, type, payload, n) => G.xbn?.event(k, type, payload, n, 'widget');
+    widgetView.addEventListener('xb-remount', () => G.xbn?.remount('widget'));
+  }
 
   const messages = [];
   const errors = [];
@@ -121,6 +156,8 @@ function start() {
     if (messages.length > 2000) messages.shift();
     switch (m.op) {
       case 'mount': case 'patch':
+        if (m.target === 'widget') { widgetView?.apply(m); break; }
+        if (m.target) break; // a tree this host does not draw
         view.apply(m);
         if (!drawn) { drawn = true; view.updateComplete.then(() => settle({ ok: true })); }
         break;
@@ -141,7 +178,7 @@ function start() {
 
   const tick = () => { if (!document.hidden) G.xbn?.frame(); requestAnimationFrame(tick); };
   requestAnimationFrame(tick);
-  G.xbnPreview = { view, messages, errors, diagnostics, ready, tree: () => view.tree };
+  G.xbnPreview = { view, widgetView, messages, errors, diagnostics, ready, tree: () => view.tree, widgetTree: () => widgetView?.tree ?? null };
 }
 
 if (on) start();

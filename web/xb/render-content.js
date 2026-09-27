@@ -231,6 +231,7 @@ export const CONTENT_CSS = css`
   .pg-fill { height: 100%; border-radius: 2px; background: var(--xb-accent); }
 
   xb-chart { display: block; min-width: 0; }
+  xb-stack.h > xb-chart { flex: 1 1 0; } /* sized by the row, not its own SVG (a ResizeObserver loop otherwise) */
 
   xb-code { display: flex; align-items: center; gap: 4px; min-width: 0; }
   xb-code.box { border-radius: 10px; background: var(--xb-surface2); }

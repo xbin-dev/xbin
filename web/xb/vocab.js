@@ -230,7 +230,17 @@ const P = {
     props: { src: S, html: S, height: tok('height') }, events: {}, children: NONE },
 };
 
-export const VOCAB = { v: 1, tokens: TOKENS, icons: ICONS, features: FEATURES, prims: P };
+// Widgets (tree.md §13): a second, small tree a tile renders with widget()
+// for a card on the app's screens — sent only to an app whose caps list the
+// `feature` (a wire feature, not one of FEATURES: it is about the messages,
+// not a primitive), drawn at a size class, from these primitives only.
+export const WIDGET = {
+  feature: 'widget',
+  sizes: ['small', 'wide'],
+  prims: ['stack', 'text', 'icon', 'badge', 'chart', 'progress', 'button', 'row'],
+};
+
+export const VOCAB = { v: 1, tokens: TOKENS, icons: ICONS, features: FEATURES, prims: P, widget: WIDGET };
 
 // The caps an app that supports everything in this vocabulary would send —
 // the runtime's default when the app injected none (previews, node tests).

@@ -35,24 +35,60 @@ public struct XbinTreeView: View {
     }
 
     public var body: some View {
-        RootView(model: context.model)
+        RootView(model: context.model, compact: context.options.compact)
             .environment(\.xbin, context)
+            .environment(\.xbinCompact, context.options.compact)
             .environment(\.xbinImages, context.images)
             .modifier(ConfirmHostModifier())
             .tint(XbinColor.tint)
     }
 }
 
+extension View {
+    /// A tile's widget inside its card (D125): the card's inset around an
+    /// ``XbinTreeView`` drawn with ``XbinRenderOptions/compact``, filling
+    /// what's left. The card itself — frame, background, shape, the tap
+    /// that opens the tile — is the screen grid's (``xbinWidgetCard()``
+    /// draws one for snapshots and previews).
+    public func xbinWidgetInset() -> some View {
+        padding(XbinWidgetMetrics.inset)
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// A tile's widget as a phone screen's card, as the app's grid draws
+    /// one: its inset, the card's height and background, clipped to the
+    /// card's rounded shape. The width is the grid's (one column, or both).
+    public func xbinWidgetCard() -> some View {
+        let shape = RoundedRectangle(cornerRadius: XbinWidgetMetrics.cornerRadius, style: .continuous)
+        return xbinWidgetInset()
+            .frame(height: XbinWidgetMetrics.cardHeight)
+            .background(XbinColor.surface, in: shape)
+            .clipShape(shape)
+            .contentShape(shape)
+    }
+}
+
 /// The root: full-screen primitives lay themselves out; anything else gets
-/// a scrolling body with margins (the reference renderer's "loose" root).
+/// a scrolling body with margins (the reference renderer's "loose" root). A
+/// widget (compact) fills its card from the top, clipped, and never scrolls.
 private struct RootView: View {
     let model: XbinTreeModel
+    let compact: CardSize?
 
     static let fullScreen: Set<String> = ["screen", "nav", "fragment", "split", "tabs", "sheet", "transcript"]
 
     var body: some View {
         if let root = model.root {
-            if Self.fullScreen.contains(root.type) {
+            if compact != nil {
+                // A widget with several top-level nodes comes as a fragment
+                // root: they stack, as a vertical `stack` would.
+                let top = root.type == "fragment" ? root.children : [root]
+                // (Minimum 0 too: a frame with only a maximum grows to a
+                // taller child, which the card would then center.)
+                VStack(alignment: .leading, spacing: 8) { ForEach(top) { NodeView(node: $0) } }
+                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
+                    .clipped()
+            } else if Self.fullScreen.contains(root.type) {
                 NodeView(node: root)
             } else {
                 ScrollView {
@@ -63,7 +99,12 @@ private struct RootView: View {
                 .background(XbinColor.background)
             }
         } else if model.failure != nil {
-            ContentUnavailableView("Native view unavailable", systemImage: "exclamationmark.triangle")
+            if compact != nil {
+                Image(systemName: "exclamationmark.triangle").foregroundStyle(XbinColor.muted)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ContentUnavailableView("Native view unavailable", systemImage: "exclamationmark.triangle")
+            }
         } else {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         }

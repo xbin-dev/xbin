@@ -30,6 +30,7 @@
  * `bx-menu-select` {item} for items without an action.
  */
 import { LitElement, html, css, nothing } from 'lit';
+import { scrollCss } from '/vendor/scroll-css.js';
 import { deepActive } from '/vendor/bx-kit.js';
 
 const isItem = (it) => !it.kind || it.kind === 'item';
@@ -51,7 +52,7 @@ export class BxMenu extends LitElement {
     _subQ: { state: true },         // the flyout's — each input filters its own level only
   };
 
-  static styles = css`
+  static styles = [scrollCss, css`
     :host { position: fixed; inset: 0; z-index: var(--bx-menu-z, 3800); display: none;
       font: var(--bx-font, 13px/1.45 -apple-system, system-ui, sans-serif); color: var(--bx-text, #d4d9e0); }
     :host([open]) { display: block; }
@@ -147,7 +148,7 @@ export class BxMenu extends LitElement {
     .sheet .cell .lb { font-size: 11px; }
     .sheet .q { font-size: 14px; padding: 8px 10px; }
     .sheet .hd { padding-top: 10px; }
-  `;
+  `];
 
   constructor() {
     super();
