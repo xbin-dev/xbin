@@ -248,8 +248,9 @@ func same(a, b *httptest.ResponseRecorder) bool {
 // missing slash redirects as today. The document carries its deployment and
 // keeps its self-imports in it, in legacy and tokens mode, whose asset
 // token serves the deployment's files to a user who writes the tile only;
-// ?native=1 is generated from the deployment's code; origins mode answers
-// 404 with the reason.
+// ?native=1 is generated from the deployment's code; origins mode sends a
+// document navigation to the deployment's own origin
+// (TestOriginLabelPerDeployment).
 func TestQualifiedURLRouting(t *testing.T) {
 	w := newDepWS(t, TileAssetsLegacy)
 	wes := w.session("wes")
@@ -413,8 +414,8 @@ func TestQualifiedURLRouting(t *testing.T) {
 
 	t.Run("origins", func(t *testing.T) {
 		w := newDepWS(t, TileAssetsOrigins)
-		if rec := w.do("/c/apps/a+dev/", w.session("wes")); rec.Code != 404 || !strings.Contains(rec.Body.String(), "--tile-assets=origins") {
-			t.Errorf("a deployment URL in origins mode: %d %q", rec.Code, rec.Body.String())
+		if rec := w.do("/c/apps/a+dev/", append(shellNav, w.session("wes"))...); rec.Code != http.StatusFound || !strings.HasPrefix(rec.Header().Get("Location"), "http://"+w.a.TileHostIDDeployment("apps/a", "dev")+".xbin.localhost:9260/c/apps/a+dev/?") {
+			t.Errorf("a deployment URL in origins mode goes to its own origin: %d %q", rec.Code, rec.Header().Get("Location"))
 		}
 		if rec := w.do("/c/apps/a+dev/", w.session("ana")); rec.Code != 403 {
 			t.Errorf("a deployment URL in origins mode, as a reader: %d", rec.Code)

@@ -659,10 +659,6 @@ func (s *Server) serveQualified(w http.ResponseWriter, r *http.Request, cleaned 
 		http.Error(w, q.err.Error(), http.StatusNotFound)
 		return true
 	}
-	if s.assetMode() == TileAssetsOrigins {
-		http.Error(w, originsRefusal(owner, q.dep), http.StatusNotFound)
-		return true
-	}
 	root, pinned, ok := s.codeRoot(q.c, q.dep)
 	if !ok {
 		http.NotFound(w, r)
@@ -703,15 +699,6 @@ func (s *Server) deploymentView(c *registry.Component, dep, root string, pinned 
 		code.Tree, code.Root = filepath.Base(root), root
 	}
 	return s.Reg.View(c, code)
-}
-
-// originsRefusal is a deployment URL's answer under --tile-assets=origins
-// until deployments have origins of their own (11-contract §2.6, 07-runtime
-// §4.6): a deployment's documents are served only on its own origin, never
-// on the tile's, so none is served.
-func originsRefusal(tile, dep string) string {
-	return fmt.Sprintf("/c/%s+%s/ isn't served under --tile-assets=origins: a deployment's documents run only on an origin "+
-		"of its own, which this xbind doesn't give deployments yet — open it with --tile-assets=legacy or tokens", tile, dep)
 }
 
 // assetDeploymentRefused applies a deployment URL's gate on the asset-token
