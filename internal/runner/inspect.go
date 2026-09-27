@@ -68,18 +68,32 @@ type Backend struct {
 	// Checkpoint is the full tree id of the checkpoint the running
 	// generation runs; absent while it runs the work tree (P9).
 	Checkpoint string `json:"checkpoint,omitempty"`
+	// Deployment names the deployment of a row InspectDeployments gives;
+	// Inspect's rows, the primaries', leave it empty.
+	Deployment string `json:"deployment,omitempty"`
 }
 
-// Inspect returns the runtime picture of every known component backend.
+// Inspect returns the runtime picture of every known component backend: one
+// row per tile, its primary's (11-contract §8).
 func (r *Runner) Inspect() []Backend {
-	self := selfNS()
+	return r.inspect(true)
+}
 
-	r.mu.Lock()
-	states := make([]*state, 0, len(r.states))
-	for _, s := range r.states {
-		states = append(states, s)
+// InspectDeployments returns the runtime picture of every deployment's
+// backend that isn't its tile's primary, each row naming its deployment;
+// empty while no tile runs one.
+func (r *Runner) InspectDeployments() []Backend {
+	return r.inspect(false)
+}
+
+func (r *Runner) inspect(primaries bool) []Backend {
+	self := selfNS()
+	var states []*state
+	for _, s := range r.allStates("") {
+		if (s.dep == r.primary(s.comp)) == primaries {
+			states = append(states, s)
+		}
 	}
-	r.mu.Unlock()
 
 	out := make([]Backend, 0, len(states))
 	for _, s := range states {
@@ -87,6 +101,9 @@ func (r *Runner) Inspect() []Backend {
 		b := Backend{
 			Path: s.comp, State: stateName(s), Gen: s.gen, Restarts: len(s.crashes),
 			ActiveConns: s.active,
+		}
+		if !primaries {
+			b.Deployment = s.dep
 		}
 		c, known := r.Reg.Component(s.comp)
 		if known {
@@ -124,7 +141,11 @@ func (r *Runner) Inspect() []Backend {
 				fillProc(&b, self)
 			}
 			if r.Cgroup != nil {
-				if u, ok := r.Cgroup.Usage(util.CompKey(b.Path)); ok {
+				leaf := inst.leaf
+				if leaf == "" {
+					leaf = util.CompKey(b.Path) // the flat leaf (07-runtime §10.3)
+				}
+				if u, ok := r.Cgroup.Usage(leaf); ok {
 					b.Cgroup = &u
 				}
 			}
@@ -133,7 +154,12 @@ func (r *Runner) Inspect() []Backend {
 	}
 	// Stable order (r.states is a map) so the admin runtime view doesn't reshuffle
 	// between polls.
-	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Path != out[j].Path {
+			return out[i].Path < out[j].Path
+		}
+		return out[i].Deployment < out[j].Deployment
+	})
 	return out
 }
 
@@ -234,19 +260,33 @@ type genPlan struct {
 	release  func()              // drops root and artifact from what generations use; idempotent
 }
 
-// resolveGen resolves what a generation of c running code starts from. The
-// work tree: c itself and a build of it, exactly as before tile deployments,
-// with no hook but CodeFor asked (P5, P8). A checkpoint: its materialized
-// tree, its deployment view (whose CodeRoot is that tree, never a mutated
-// copy: views are shared), and for Go its artifact, kept per checkpoint and
+// resolveGen is resolveGenFor c's primary.
+func (r *Runner) resolveGen(c *registry.Component, code Code) (genPlan, error) {
+	return r.resolveGenFor(c, r.primary(c.Path), code)
+}
+
+// resolveGenFor resolves what a generation of deployment dep of c running
+// code starts from. The primary's work tree: c itself and a build of it,
+// exactly as before tile deployments, with no hook but CodeFor asked (P5,
+// P8); another deployment's work tree: its view of it, built the same way. A
+// checkpoint: its materialized tree, the deployment's view of it (whose
+// CodeRoot is that tree, never a mutated copy: views are shared), and for Go
+// its artifact, kept per (tile, checkpoint) whichever deployment runs it and
 // built only when none is (a restart never compiles). Nothing falls back to
 // the work tree (06-security C7): a checkpoint that can't be materialized,
 // viewed or built fails the start, and without isolation nothing can show
 // it at c.Dir, so it never starts (07-runtime §12).
-func (r *Runner) resolveGen(c *registry.Component, code Code) (genPlan, error) {
+func (r *Runner) resolveGenFor(c *registry.Component, dep string, code Code) (genPlan, error) {
 	if code.WorkTree {
-		bin, err := r.buildGen(c)
-		return genPlan{view: c, bin: bin, release: func() {}}, err
+		v := c
+		if dep != r.primary(c.Path) {
+			var err error
+			if v, err = r.viewOf(c, dep, code, ""); err != nil {
+				return genPlan{}, err
+			}
+		}
+		bin, err := r.buildGen(v)
+		return genPlan{view: v, bin: bin, release: func() {}}, err
 	}
 	switch {
 	case !isTreeID(code.Tree):
@@ -261,7 +301,7 @@ func (r *Runner) resolveGen(c *registry.Component, code Code) (genPlan, error) {
 	// Held from here, so checkpoint GC can't take the tree before it is bound.
 	g := genPlan{root: root, release: r.inUse.hold(&r.inUse.roots, root)}
 	fail := func(err error) (genPlan, error) { g.release(); return genPlan{}, err }
-	v, err := r.view(c, code)
+	v, err := r.viewOf(c, dep, code, root)
 	switch {
 	case err != nil:
 		return fail(err)

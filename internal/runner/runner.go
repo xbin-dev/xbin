@@ -66,6 +66,7 @@ type instance struct {
 	waitCh       chan struct{}    // closed when the process exits
 	// Per deployment (deploy.go); zero values mean today's generation: the
 	// work tree bound at c.Dir, the tile's one bin, its flat CompKey leaf.
+	dep      string // its deployment's name
 	code     Code   // what it runs
 	root     string // the host directory bound at c.Dir
 	artifact string // its built artifact
@@ -75,7 +76,9 @@ type instance struct {
 
 type state struct {
 	mu        sync.Mutex
-	comp      string
+	comp      string // the tile's path
+	dep       string // the deployment's name (deployments.go)
+	gone      bool   // the deployment was removed: nothing installs here again
 	gen       int
 	cur       *instance
 	building  bool
@@ -182,21 +185,19 @@ func New(root string, a *auth.Auth, hub *events.Hub, reg *registry.Registry) *Ru
 	return r
 }
 
-func (r *Runner) state(comp string) *state {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	s, ok := r.states[comp]
-	if !ok {
-		s = &state{comp: comp, dirty: true}
-		r.states[comp] = s
-	}
-	return s
+// state is comp's primary's runner state, created dirty when missing.
+func (r *Runner) state(comp string) *state { return r.stateOf(comp, r.primary(comp)) }
+
+// Ensure returns the unix socket of a healthy backend for c's primary,
+// (re)building first if needed. Blocks concurrent callers during builds
+// (single-flight) so a save under load never surfaces connection-refused.
+func (r *Runner) Ensure(ctx context.Context, c *registry.Component) (string, error) {
+	return r.ensurePrimary(ctx, c, r.primary(c.Path))
 }
 
-// Ensure returns the unix socket of a healthy backend for c, (re)building
-// first if needed. Blocks concurrent callers during builds (single-flight)
-// so a save under load never surfaces connection-refused.
-func (r *Runner) Ensure(ctx context.Context, c *registry.Component) (string, error) {
+// ensurePrimary is Ensure for deployment dep, c's primary, whose code the
+// registry's component describes (07-runtime §5.1).
+func (r *Runner) ensurePrimary(ctx context.Context, c *registry.Component, dep string) (string, error) {
 	if err := registry.ValidateRuntime(c.Manifest); err != nil {
 		return "", fmt.Errorf("component %s: %w", c.Path, err) // runtime "cgi" (D117): never runs
 	}
@@ -209,8 +210,13 @@ func (r *Runner) Ensure(ctx context.Context, c *registry.Component) (string, err
 	if r.ShouldRun != nil && !r.ShouldRun(c.Path) {
 		return "", fmt.Errorf("component %s is not enabled", c.Path)
 	}
-	s := r.state(c.Path)
+	return r.ensureState(ctx, c, r.stateOf(c.Path, dep))
+}
 
+// ensureState is the single flight on one deployment's state s: its healthy
+// generation, its sticky error until a change, or the build this caller
+// takes (runCurrent), re-checked after every build.
+func (r *Runner) ensureState(ctx context.Context, c *registry.Component, s *state) (string, error) {
 	for {
 		s.mu.Lock()
 		s.lastReq = r.now()
@@ -255,8 +261,10 @@ func (r *Runner) Ensure(ctx context.Context, c *registry.Component) (string, err
 // returned release must be called when it ends. Long-lived streams (SSE,
 // WebSocket) hold this for their whole lifetime, which keeps the idle
 // reaper away from backends that are quietly serving them.
-func (r *Runner) Track(comp string) func() {
-	s := r.state(comp)
+func (r *Runner) Track(comp string) func() { return r.track(r.state(comp)) }
+
+// track marks one in-flight connection to s's deployment until the release.
+func (r *Runner) track(s *state) func() {
 	s.mu.Lock()
 	s.active++
 	s.lastReq = r.now()
@@ -295,33 +303,31 @@ func (r *Runner) Changed(c *registry.Component) {
 	}
 }
 
-// runCurrent runs one generation transition of c's primary onto the code its
-// record names now (P9): every restart path — a lazy start, a crash, a reap,
-// a grant, alwaysOn, an xbind restart — reaches a build through here, so a
-// pinned deployment never runs its work tree. A record that can't answer
-// fails the start (06-security C7).
+// runCurrent runs one generation transition of s's deployment of c onto the
+// code its record names now (P9): every restart path — a lazy start, a
+// crash, a reap, a grant, alwaysOn, an xbind restart — reaches a build
+// through here, so a pinned deployment never runs its work tree. A record
+// that can't answer fails the start (06-security C7). Without a plane there
+// is no record, and the primary follows the work tree.
 func (r *Runner) runCurrent(c *registry.Component, s *state) error {
-	code := Code{WorkTree: true} // no plane: no record, so the primary follows the work tree
-	if r.CodeFor != nil {
-		dep := r.primary(c.Path)
-		var err error
-		if code, err = r.CodeFor(c.Path, dep); err != nil {
-			r.emit(c.Path, dep, "build-start", "")
-			r.emit(c.Path, dep, "build-error", err.Error())
-			return err
-		}
+	code, err := r.recordCode(c.Path, s.dep)
+	if err != nil {
+		r.emit(c.Path, s.dep, "build-start", "")
+		r.emit(c.Path, s.dep, "build-error", err.Error())
+		return err
 	}
 	return r.buildAndStart(c, s, code)
 }
 
-// buildAndStart runs one generation transition onto code. Called single-flight
-// per state. The generation spawns from code's view (c itself for the work
-// tree) and its artifact, kept per checkpoint (resolveGen, inspect.go).
+// buildAndStart runs one generation transition of s's deployment onto code.
+// Called single-flight per state. The generation spawns from code's view (c
+// itself for the primary's work tree) and its artifact, kept per checkpoint
+// (resolveGenFor, inspect.go).
 func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error {
-	dep := r.primary(c.Path) // the state's: runner state is the primary's
+	dep := s.dep
 	r.emit(c.Path, dep, "build-start", "")
 
-	g, err := r.resolveGen(c, code)
+	g, err := r.resolveGenFor(c, dep, code)
 	if err != nil {
 		r.emit(c.Path, dep, "build-error", err.Error())
 		return err
@@ -342,7 +348,7 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error
 		old = nil
 	}
 
-	inst, err := r.startGen(v, bin, gen)
+	inst, err := r.startFor(v, dep, bin, gen)
 	if err != nil {
 		g.release()
 		r.emit(c.Path, dep, "build-error", err.Error())
@@ -360,9 +366,10 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error
 		return err
 	}
 
-	s.mu.Lock()
-	s.cur = inst
-	s.mu.Unlock()
+	if !r.install(s, inst, false) {
+		g.release()
+		return util.NoDeployment(c.Path, dep) // removed while it built
+	}
 	if old != nil {
 		go r.stopGen(old, drainDeadline)
 	}
@@ -390,7 +397,10 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error
 			r.emit(c.Path, dep, "build-error", s.lastErr.Error())
 		} else {
 			s.dirty = true // transparent restart on next request
-			go r.afterExit(c)
+			// alwaysOn is the primary's (alwayson.go)
+			if dep == r.primary(c.Path) {
+				go r.afterExit(c)
+			}
 		}
 	}()
 
@@ -399,25 +409,20 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error
 	return nil
 }
 
+// start starts generation gen of the deployment view c names (the engine's
+// startGen falls back to it).
 func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, error) {
-	dir := filepath.Join(r.RunDir, util.CompKey(c.Path))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	return r.startDeployment(c, r.viewDeployment(c), bin, gen)
+}
+
+// startDeployment starts generation gen of deployment dep from bin, its view
+// c: with its own run dir, log, env and instance token (spawnSetup).
+func (r *Runner) startDeployment(c *registry.Component, dep, bin string, gen int) (*instance, error) {
+	sp, err := r.spawnSetup(c, dep, gen)
+	if err != nil {
 		return nil, err
 	}
-	sock := filepath.Join(dir, fmt.Sprintf("g%d.sock", gen))
-	_ = os.Remove(sock)
-
-	token := util.RandomToken(24)
-
-	env := append(backendEnv(r.Isolate && sandboxable(c.Manifest.Runtime)),
-		"XBIN_SOCKET="+sock,
-		"XBIN_COMPONENT="+c.Path,
-		"XBIN_GATEWAY="+filepath.Join(r.RunDir, "gateway.sock"),
-		"XBIN_TOKEN="+token,
-	)
-	if r.EnvForComponent != nil {
-		env = append(env, r.EnvForComponent(c)...)
-	}
+	dir, sock, token, env := sp.dir, sp.sock, sp.token, sp.env
 
 	var cmd *exec.Cmd
 	var sb *sandbox.Handle
@@ -443,6 +448,9 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 		if c.CodeRoot != "" { // no mount namespace shows a checkpoint at c.Dir (P18)
 			return nil, fmt.Errorf("%s: a checkpoint runs only in a sandbox (--isolate)", c.Path)
 		}
+		if dep != util.MainDeployment || c.Deployment != "" { // nor binds its own data at its paths (P18)
+			return nil, fmt.Errorf("%s: deployment %s runs only in a sandbox (--isolate)", c.Path, dep)
+		}
 		switch c.Manifest.Runtime { // exec-ok (all three): isolation off — the workspace has no sandbox; SpawnUser may drop to a scope uid
 		case "go":
 			cmd = exec.Command(bin) // exec-ok: see above
@@ -460,9 +468,7 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 		}
 	}
 
-	logf, err := os.OpenFile(
-		filepath.Join(r.Root, ".xbin", "log", util.CompKey(c.Path)+".log"),
-		os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	logf, err := os.OpenFile(sp.log, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return nil, err
 	}
@@ -477,7 +483,7 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 		return nil, fmt.Errorf("start backend: %w", err)
 	}
 	mode, unlist := r.modeOf(c, sock), r.sbxAdd(c, gen, sock, cmd.Process.Pid)
-	r.Auth.RegisterInstance(token, c.Path)
+	r.registerInstance(token, c.Path, dep)
 	if b, ok := r.vmLeafBytes(sock); ok && r.Cgroup != nil {
 		r.Cgroup.AddMem(util.CompKey(c.Path), cmd.Process.Pid, b)
 	} else if r.Cgroup != nil {

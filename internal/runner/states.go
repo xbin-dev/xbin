@@ -33,23 +33,17 @@ func (r *Runner) stop(inst *instance, deadline time.Duration) {
 	_ = os.Remove(inst.sock)
 }
 
-// Stop terminates a single component's running backend, if any (e.g. when the
-// owner disables/offloads it). A subsequent request re-spawns it (unless the
-// caller has since gated it). No-op if it isn't running.
+// Stop terminates a component's running backends, every deployment's, if any
+// (e.g. when the owner disables/offloads it: the lifecycle is the tile's). A
+// subsequent request re-spawns one (unless the caller has since gated it).
+// No-op if none is running.
 func (r *Runner) Stop(comp string) {
-	r.mu.Lock()
-	s := r.states[comp]
-	r.mu.Unlock()
-	if s == nil {
-		return
+	var wg sync.WaitGroup
+	for _, s := range r.allStates(comp) {
+		wg.Add(1)
+		go func() { defer wg.Done(); r.stopState(s) }()
 	}
-	s.mu.Lock()
-	inst := s.cur
-	s.cur = nil
-	s.mu.Unlock()
-	if inst != nil {
-		r.stopGen(inst, 5*time.Second)
-	}
+	wg.Wait()
 }
 
 // StopAll terminates all backends (xbind shutdown).
@@ -74,30 +68,44 @@ func (r *Runner) StopAll() {
 	wg.Wait()
 }
 
-// Status reports per-component backend state for /api/xbin/status.
+// Status reports per-component backend state for /api/xbin/status: one row
+// per tile, its primary's (11-contract §8); StatusDeployments has the others.
 func (r *Runner) Status() map[string]any {
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	out := map[string]any{}
-	for path, s := range r.states {
-		s.mu.Lock()
-		st := "idle"
-		switch {
-		case s.building:
-			st = "building"
-		case s.cur != nil:
-			st = "healthy"
-		case s.lastErr != nil:
-			st = "failed"
+	for _, s := range r.allStates("") {
+		if s.dep == r.primary(s.comp) {
+			out[s.comp] = statusRow(s)
 		}
-		e := map[string]any{"state": st, "gen": s.gen}
-		if s.lastErr != nil {
-			e["error"] = s.lastErr.Error()
-		}
-		out[path] = e
-		s.mu.Unlock()
 	}
 	return out
+}
+
+// StatusDeployments reports the backend state of every deployment that isn't
+// its tile's primary: tile → deployment → the row Status gives a primary.
+// Empty while no tile runs one (every zero-state tile).
+func (r *Runner) StatusDeployments() map[string]map[string]any {
+	out := map[string]map[string]any{}
+	for _, s := range r.allStates("") {
+		if s.dep == r.primary(s.comp) {
+			continue
+		}
+		if out[s.comp] == nil {
+			out[s.comp] = map[string]any{}
+		}
+		out[s.comp][s.dep] = statusRow(s)
+	}
+	return out
+}
+
+// statusRow is s's {state, gen, error?}.
+func statusRow(s *state) map[string]any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e := map[string]any{"state": stateName(s), "gen": s.gen}
+	if s.lastErr != nil {
+		e["error"] = s.lastErr.Error()
+	}
+	return e
 }
 
 // DeploymentState is one deployment's backend as the runner sees it: beside
@@ -111,10 +119,11 @@ type DeploymentState struct {
 	Error   string
 }
 
-// DeploymentStatus is deployment dep of tile's DeploymentState.
+// DeploymentStatus is deployment dep of tile's DeploymentState: idle
+// without runner state.
 func (r *Runner) DeploymentStatus(tile, dep string) DeploymentState {
-	s := r.existingState(tile)
-	if s == nil || dep != r.primary(tile) {
+	s := r.existingStateOf(tile, dep)
+	if s == nil {
 		return DeploymentState{State: "idle"}
 	}
 	s.mu.Lock()
@@ -139,22 +148,17 @@ func (r *Runner) reaper() {
 }
 
 // reapOnce stops every backend that has served nothing for idleReap: no
-// in-flight connection, not alwaysOn (its own code's, alwayson.go). The next
-// request restarts it lazily. The alwaysOn question may resolve a deployment
-// view, so it is asked outside the state's lock, and the idleness checked
-// again under it.
+// in-flight connection, not alwaysOn (its own code's, alwayson.go; only a
+// primary's exempts it, until non-primary deployments' switches, 07-runtime
+// §11). The next request restarts it lazily. The alwaysOn question may
+// resolve a deployment view, so it is asked outside the state's lock, and
+// the idleness checked again under it.
 func (r *Runner) reapOnce() {
-	r.mu.Lock()
-	states := make([]*state, 0, len(r.states))
-	for _, s := range r.states {
-		states = append(states, s)
-	}
-	r.mu.Unlock()
-	for _, s := range states {
+	for _, s := range r.allStates("") {
 		s.mu.Lock()
 		comp, idle := s.comp, r.idle(s)
 		s.mu.Unlock()
-		if !idle || r.isAlwaysOn(comp) {
+		if !idle || s.dep == r.primary(comp) && r.isAlwaysOn(comp) {
 			continue
 		}
 		s.mu.Lock()
@@ -166,7 +170,7 @@ func (r *Runner) reapOnce() {
 		s.cur = nil
 		s.dirty = true // next request restarts lazily
 		s.mu.Unlock()
-		slog.Info("reaping idle backend", "component", comp)
+		slog.Info("reaping idle backend", "component", comp, "deployment", s.dep)
 		go r.stopGen(inst, 5*time.Second)
 	}
 }
@@ -205,7 +209,10 @@ func (r *Runner) watchGen(c *registry.Component, s *state, dep string, inst *ins
 			r.emit(c.Path, dep, "build-error", s.lastErr.Error())
 		} else {
 			s.dirty = true // transparent restart on the next request
-			go r.afterExit(c)
+			// alwaysOn is the primary's (alwayson.go)
+			if dep == r.primary(c.Path) {
+				go r.afterExit(c)
+			}
 		}
 	}()
 }
