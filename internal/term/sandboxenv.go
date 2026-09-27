@@ -3,11 +3,13 @@ package term
 // sandboxenv.go — a sandboxed terminal session's environment: the rootfs
 // PATH, the user's HOME, the session's tile-scoped token, an XBIN_URL the
 // session can reach from its own netns, and, while the tile has a
-// deployment record, the checkpoint fetch remote.
+// deployment record, the checkpoint fetch remote; and XBIN_DEPLOYMENT when
+// the session's target isn't the primary (sessionEnv).
 
 import (
 	"net"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -96,6 +98,19 @@ func (m *Manager) sandboxEnv(rel string, relayNet bool, homeDir, termTok string)
 		env = append(env, remote...)
 	}
 	return env
+}
+
+// sessionEnv is a sandboxed session's env: sandboxEnv, with the session's
+// XBIN_DEPLOYMENT right after XBIN_COMPONENT when its target isn't the
+// primary at session start (11-contract §5); otherwise exactly sandboxEnv.
+func (m *Manager) sessionEnv(rel string, relayNet bool, homeDir, termTok string, o openOpts) []string {
+	env := m.sandboxEnv(rel, relayNet, homeDir, termTok)
+	dep := o.deploymentEnv()
+	if dep == nil {
+		return env
+	}
+	at := slices.IndexFunc(env, func(e string) bool { return strings.HasPrefix(e, "XBIN_COMPONENT=") }) + 1
+	return slices.Insert(env, at, dep...)
 }
 
 // deployRemote is the checkpoint fetch remote, `xbin-deploy`, as the two

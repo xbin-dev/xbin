@@ -1,6 +1,7 @@
 package term
 
 import (
+	"errors"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -248,5 +249,79 @@ func TestServeWSNoVMWithoutIsolation(t *testing.T) {
 	}
 	if n := len(m.List()); n != 0 {
 		t.Fatalf("a session started anyway (%d)", n)
+	}
+}
+
+// covers T9 P24 — choosing a session's target needs terminal level on the
+// tile, and view-as and noTerminal accounts are refused (TestServeWSGates'
+// matrix, with ?deployment=; 11-contract §7.4): for a shell on /ws/term and
+// an agent session alike, before anything spawns. A terminal-level user's
+// request is checked too: an unknown deployment is a 404, a string that is
+// no deployment name a 400, and a protected primary a 403.
+func TestTargetGates(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "apps", "mine"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager(root, nil)
+	m.BxPath = "/nonexistent/bx" // past the agent API's 503: every case below is refused before a spawn
+	protected := false
+	m.TileDeployments = func(tile string) TileDeployments {
+		return TileDeployments{Record: true, Primary: "main", Protected: protected, LiveReload: "dev", Names: []string{"main", "dev"}}
+	}
+	shell := func(q string, p auth.Principal) (int, string) {
+		r := httptest.NewRequest("GET", "/ws/term?cwd=apps/mine&"+q, nil)
+		r = r.WithContext(auth.WithPrincipal(r.Context(), p))
+		w := httptest.NewRecorder()
+		m.ServeWS(w, r)
+		return w.Code, w.Body.String()
+	}
+	agentOpen := func(dep string, p auth.Principal) (int, error) {
+		_, code, err := m.OpenAgentWith(p, AgentOpen{Cwd: "apps/mine", Provider: "fake", Deployment: dep})
+		return code, err
+	}
+	user := func(id string, level string, noTerminal bool) *users.User {
+		return &users.User{ID: id, Role: "user", NoTerminal: noTerminal, TermAPI: true, Tiles: map[string]string{"apps/mine": level}}
+	}
+	alice := auth.Principal{UserID: "alice", Via: "session", User: user("alice", users.LevelTerminal, false)}
+	writer := auth.Principal{UserID: "bob", Via: "session", User: user("bob", users.LevelWrite, false)}
+	capped := auth.Principal{UserID: "carol", Via: "session", User: user("carol", users.LevelTerminal, true)}
+	viewAs := alice
+	viewAs.Impersonator = "owner"
+
+	for _, c := range []struct {
+		name string
+		p    auth.Principal
+		dep  string
+		want int
+		body string
+	}{
+		{"write level", writer, "dev", 403, "terminal access"},
+		{"noTerminal account", capped, "dev", 403, "terminal access"},
+		{"view-as, naming dev", viewAs, "dev", 403, "read-only"},
+		{"view-as, the default", viewAs, "", 403, "read-only"},
+		{"terminal level, unknown", alice, "nope", 404, `apps/mine has no deployment "nope"`},
+		{"terminal level, not a name", alice, "Dev_1", 400, "deployment names are lowercase"},
+	} {
+		q := "api=1"
+		if c.dep != "" {
+			q += "&deployment=" + c.dep
+		}
+		if code, body := shell(q, c.p); code != c.want || !strings.Contains(body, c.body) {
+			t.Errorf("shell, %s: %d %q, want %d %q", c.name, code, body, c.want, c.body)
+		}
+		if code, err := agentOpen(c.dep, c.p); code != c.want || err == nil || !strings.Contains(err.Error(), c.body) {
+			t.Errorf("agent, %s: %d %v, want %d %q", c.name, code, err, c.want, c.body)
+		}
+	}
+	protected = true
+	if code, body := shell("deployment=main", alice); code != 403 || !strings.Contains(body, "is protected") {
+		t.Errorf("shell, the protected primary: %d %q", code, body)
+	}
+	if code, err := agentOpen("main", alice); code != 403 || !errors.Is(err, ErrTargetProtected) {
+		t.Errorf("agent, the protected primary: %d %v", code, err)
+	}
+	if n := len(m.List()); n != 0 {
+		t.Fatalf("a refused open started %d sessions", n)
 	}
 }
