@@ -1486,8 +1486,9 @@ rather than letting D113 build a second layout.
 - **Scope** (07-runtime §10.5; NP-07-10). `confine.Cmd.DirFrom`,
   `confine.At(src, dst, ro)`, `ErrNeedsIsolation`; `binds()`
   (`internal/confine/confine.go:218-224`) binds `DirFrom` at `Dir`; a direct
-  run (`:140-143`) with `DirFrom ≠ Dir`, or any non-mask bind with `Src ≠
-  Dst`, returns `ErrNeedsIsolation` and never runs. In the sandbox init,
+  run (`:140-143`) with `DirFrom ≠ Dir`, or with a bind made by `At`, returns
+  `ErrNeedsIsolation` and never runs; binds callers build by hand keep
+  today's direct-run behaviour (16-open-questions Q22). In the sandbox init,
   `mountBind` (`internal/sandbox/init_linux.go:391`, today `os.MkdirAll` at
   `:401` and `:405`) creates a mountpoint that lies under another bind's
   destination with openat2 and `RESOLVE_NO_SYMLINKS | RESOLVE_BENEATH`, so a

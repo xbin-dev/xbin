@@ -1723,8 +1723,11 @@ var ErrNeedsIsolation = errors.New("confined run: this job shows another path at
 - **Isolated runs.** `binds()` uses `{Src: DirFrom, Dst: Dir, RO: ReadOnlyDir}`
   when `DirFrom` is set, and the working directory stays `Dir` (`:153`).
 - **Direct runs.** A direct run whose `DirFrom` differs from `Dir`, or that
-  has any non-mask bind with `Src ≠ Dst`, returns `ErrNeedsIsolation` and
-  never runs.
+  carries a bind made by `At`, returns `ErrNeedsIsolation` and never runs. A
+  bind a caller builds by hand keeps today's direct-run behaviour whatever
+  its `Src` and `Dst` (the git import's `~/.ssh` at `/root/.ssh`,
+  `internal/broker/gitimport.go:63-67`), so a user without `--isolate` loses
+  nothing (16-open-questions Q22).
 - **Users.** Checkpoint builds (§3.1), plus the `go.work` file bind and the
   nested-component binds through `At`.
 - **Tests.**

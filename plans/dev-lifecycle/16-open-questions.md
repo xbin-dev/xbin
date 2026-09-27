@@ -9,7 +9,7 @@ This file is the set's ledger. Precedence, highest first:
 4. every other document of the set.
 
 A work package that meets an open question here builds the question's
-**Built meanwhile** default and cites the question's id (O1–O6, Q1–Q21,
+**Built meanwhile** default and cites the question's id (O1–O6, Q1–Q22,
 L1–L3). It waits only when the question's **Blocks** line names it.
 
 Shorthand:
@@ -564,6 +564,24 @@ workspace-wide or per tile.
 - *Default:* no in v1. A builder-declared health path is a later manifest
   contract.
 - *Blocks:* nothing.
+
+**Q22 — Which binds make a direct confined run refuse** (WP-03's report,
+wave 0.2). 07 §10.5 and WP-S1's card refused a direct run (no `--isolate`)
+with "any non-mask bind with `Src ≠ Dst`". Today's git import already binds
+the daemon's `~/.ssh` at `/root/.ssh` (`internal/broker/gitimport.go:63-67`),
+and a direct run ignores binds, so an ssh import works without isolation;
+under that rule it would fail for every user who runs without `--isolate`.
+`TestConfineBindDestinationDefault` (WP-03) pins that this shape still runs
+directly.
+- *Default:* a direct run returns `ErrNeedsIsolation` only when `DirFrom`
+  differs from `Dir` or when a bind made by `confine.At` is present. A bind
+  a caller builds by hand keeps today's direct-run behaviour, whatever its
+  `Src` and `Dst`: the direct run already sees the host's own files where
+  the sandbox would show them. How `At`'s binds are told apart (a field of
+  their own on `Cmd`, for example) is WP-S1's choice; the golden stays
+  unchanged.
+- *Blocks:* nothing; WP-S1 (wave 1.1) builds the default. 07 §10.5 and the
+  card follow.
 
 ### 5.2 Divergences still open in the documents
 
