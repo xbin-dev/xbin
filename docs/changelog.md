@@ -104,7 +104,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   names what will be made — then creates the sandbox for them and binds it
   (active when none is), and the tools work in it from the next step; at
   most 4 per conversation, never from a subagent, a chat channel's
-  conversation or an unowned one.
+  conversation or an unowned one. `run` events (and the view's `run`) carry
+  the active binding as `sandbox: {ref, name, cwd, egress, manager} | null`
+  with the `attached` count. Deleting a conversation kills the jobs it left
+  running (archiving doesn't). A sandbox whose egress changed since it was
+  bound updates the binding, and in Approve mode a call it would now park
+  is refused once and parks when called again.
 
 - **Admin console: runtime → sandboxes, and the sandbox in the component
   list** (D112, [isolation.md](isolation.md) §VM sandboxes). A new tab lists

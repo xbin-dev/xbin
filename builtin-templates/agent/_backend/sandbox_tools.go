@@ -130,6 +130,7 @@ func (ag *Agent) runSandboxTool(ctx context.Context, run *Run, cfg Config, name 
 	if !classOf(cfg).has("sandbox") {
 		return "", fmt.Errorf("%s is not available: this conversation's class has no sandbox toolset", name)
 	}
+	ctx = withSbxCall(ctx, sbxCall{run: run.ID, name: name, approve: cfg.Approve})
 	switch name {
 	case "sandbox_create":
 		return ag.toolSandboxCreate(ctx, run, cfg, args)

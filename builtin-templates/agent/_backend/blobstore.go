@@ -225,16 +225,22 @@ func (ag *Agent) dropBlobs(paths []string) {
 
 // deleteRunTree deletes a run and everything it spawned, then drops the blob
 // objects their files owned — after the rows are gone, so a failed blob delete
-// can only orphan an object, never leave a row pointing at nothing.
+// can only orphan an object, never leave a row pointing at nothing. A
+// conversation's jobs still running in sandboxes are killed in the
+// background (killJobs): the delete doesn't wait for managers.
 func (ag *Agent) deleteRunTree(id int64) error {
 	ids := []int64{id}
 	if kids, err := ag.db.descendants(id); err == nil {
 		ids = append(ids, kids...)
 	}
 	blobs := ag.db.runBlobs(ids)
+	jobs := ag.jobsLeftBy(ids)
 	if err := ag.db.deleteRun(id); err != nil {
 		return err
 	}
 	ag.dropBlobs(blobs)
+	if len(jobs) > 0 {
+		go killJobs(jobs)
+	}
 	return nil
 }

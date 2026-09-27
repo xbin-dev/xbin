@@ -4,7 +4,7 @@
 // at a manager FOR the owner — Sbx-User is the owner, who approved it — and
 // binds it into the conversation: the active sandbox when none is, else
 // attached. The coding tools see it from the next step of the same turn
-// (sbxTurn, below).
+// (sbxTurn, sandbox_turn.go).
 //
 // Only the top-level conversation creates, never in a chat channel's
 // conversation or one no person owns (nobody there could approve it), at
@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"path"
 	"strings"
-	"sync"
 	"unicode/utf8"
 )
 
@@ -526,64 +525,4 @@ func createdText(b SandboxBinding, workdir string, active bool, cfg Config) stri
 		fmt.Fprintf(&s, "It is attached; the active sandbox is still %q. sandbox_copy moves files to it, and subagent_spawn {\"sandbox\": %q} puts a subagent in it.", name, b.Ref)
 	}
 	return s.String()
-}
-
-// --- the turn sees it ---------------------------------------------------------------
-
-// sbxTurn carries what a step's sandbox tools changed in the conversation's
-// bindings back to its turn (turnState.sbx): execTools applies it to the
-// turn's config after the step's calls, so the next step's tools and prompt
-// already have it — while a rebind from outside still waits for the next
-// turn.
-type sbxTurn struct {
-	mu    sync.Mutex
-	added []sbxAdded
-}
-
-type sbxAdded struct {
-	b      SandboxBinding
-	active bool
-}
-
-type sbxTurnKey struct{}
-
-func withSbxTurn(ctx context.Context, n *sbxTurn) context.Context {
-	if n == nil {
-		return ctx
-	}
-	return context.WithValue(ctx, sbxTurnKey{}, n)
-}
-
-func sbxTurnOf(ctx context.Context) *sbxTurn {
-	n, _ := ctx.Value(sbxTurnKey{}).(*sbxTurn)
-	return n
-}
-
-// noteSandbox: b was bound into the conversation (active, or attached).
-func noteSandbox(ctx context.Context, b SandboxBinding, active bool) {
-	if n := sbxTurnOf(ctx); n != nil {
-		n.mu.Lock()
-		n.added = append(n.added, sbxAdded{b, active})
-		n.mu.Unlock()
-	}
-}
-
-// apply brings what the step changed into cfg (and forgets it).
-func (n *sbxTurn) apply(cfg *Config) {
-	if n == nil {
-		return
-	}
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	if len(n.added) > 0 {
-		cfg.Sandbox, cfg.Attached = copySandboxes(*cfg) // never write through to a copy another run holds
-	}
-	for _, a := range n.added {
-		if a.active {
-			_ = attachSandbox(cfg, a.b)
-		} else if _, err := addSandbox(cfg, a.b); err != nil {
-			logf("sandbox %s: not in this turn's config: %v", a.b.Ref, err)
-		}
-	}
-	n.added = nil
 }

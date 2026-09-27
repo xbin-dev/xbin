@@ -586,3 +586,71 @@ func (ag *Agent) refreshJobs(ctx context.Context, root int64, cfg Config, jobs [
 		}
 	}
 }
+
+// --- a deleted conversation's jobs ----------------------------------------------------
+
+// killJobsTimeout bounds stopping what a deleted conversation left running.
+var killJobsTimeout = 30 * time.Second
+
+// leftJob is a job a delete leaves running, and the person its kill is sent
+// for (who bound its sandbox; "" = the tile itself).
+type leftJob struct {
+	job  *sbxJob
+	user string
+}
+
+// jobsLeftBy is what deleting runs would leave running in sandboxes: the
+// running jobs of those that are conversations (jobs are numbered per root).
+func (ag *Agent) jobsLeftBy(ids []int64) []leftJob {
+	var out []leftJob
+	for _, id := range ids {
+		jobs := ag.db.jobList(id, true, 1000)
+		if len(jobs) == 0 {
+			continue
+		}
+		cfg, _ := ag.db.runConfig(id)
+		for _, j := range jobs {
+			user := ""
+			if b, ok := cfg.sandboxBinding(j.Ref); ok {
+				user = sbxUserOf(binderWho(b.By))
+			}
+			out = append(out, leftJob{j, user})
+		}
+	}
+	return out
+}
+
+// killJobs ends the commands a deleted conversation left running: KILL to
+// each one's process group, best effort and bounded — it runs after the
+// delete has answered, and nothing is left to record how they ended.
+// (Archiving a conversation leaves them running.)
+func killJobs(jobs []leftJob) {
+	ctx, cancel := context.WithTimeout(context.Background(), killJobsTimeout)
+	defer cancel()
+	for _, l := range jobs {
+		j := l.job
+		conn, id, err := sbxDialRef(j.Ref, l.user)
+		if err != nil {
+			continue
+		}
+		eid := j.Exec
+		if eid == "" { // its start was cut short: find it by its clientId
+			execs, err := conn.ExecList(ctx, id)
+			if err != nil {
+				logf("job %d of deleted #%d: %v", j.Job, j.Root, err)
+				continue
+			}
+			for _, ex := range execs {
+				if ex.ClientID == j.clientID() && ex.State == "running" {
+					eid = ex.ID
+				}
+			}
+			if eid == "" {
+				continue
+			}
+		}
+		if err := conn.ExecSignal(ctx, id, eid, "KILL", true); err != nil && !gone(err) {
+			logf("job %d of deleted #%d: KILL: %v", j.Job, j.Root, err)
+		}
+	}
+}

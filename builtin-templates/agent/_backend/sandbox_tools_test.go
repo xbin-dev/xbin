@@ -362,6 +362,7 @@ func TestBashRebindAppliesNextTurn(t *testing.T) {
 	})
 	send(t, ag, r.ID, "where")
 	waitFor(t, "the first turn", func() bool { return strings.Contains(transcript(ag.db, r.ID), "A:ok") })
+	waitQuiet(t, ag) // over: a message sent before it ends joins it, with its config
 	if err := storeBinding(ag.db, r.ID, func(c *Config) error { return attachSandbox(c, sbxBindingOf(second)) }); err != nil {
 		t.Fatal(err)
 	}

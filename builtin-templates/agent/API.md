@@ -137,7 +137,7 @@ llm-gw's logs. Give team members `read` on the tile.
 | `GET /runs/{id}` | — | run detail: `{run, messages, steps, memory, config, class, files, draft, messageFiles, slots, queued}` (`class`: the conversation's class, see **Agent classes**) (`draft` = live streaming text; `files` is session-file METADATA only; `messageFiles` = `{msgId: [path…]}`, the files each user message carried; `slots` = `{active, limit}` model calls in flight; `queued` = messages not yet delivered) |
 | `GET /runs/{id}/view` | — | the run as the chat draws it, plus a stream cursor — see **The live view**. `?limit=&before=` pages it, newest first — see **Paging the view** |
 | `GET /stream?run=&since=` · `GET /runs/{id}/stream?since=` | — | SSE: run-list changes plus the whole tree of `run` — see **The live view**. `&deltas=1`: draft text and tool-call arguments as appended pieces |
-| `DELETE /runs/{id}` | — | delete a run, its history, and every subagent run below it |
+| `DELETE /runs/{id}` | — | delete a run, its history, and every subagent run below it. A conversation's sandbox jobs still running are killed in the background (§The coding tools); its sandboxes stay |
 | `POST /runs/{id}/message` | `{text, files?, clientId?}` | send a user message → `{inboxId, queued}`. An idle, finished or failed run starts a new turn; a working run gets it at its next step (`queued:true`). A retried post with the same `clientId` is stored once. `files` names session files (normally just uploaded) the message carries — each must exist, or **400** and nothing is written. `text` may be empty when `files` is not |
 | `DELETE /runs/{id}/inbox/{iid}` | — | take back a queued message; **409** once the agent has it |
 | `POST /runs/{id}/answer` | `{text}` | answer an `ask_user` (alias of message) |
@@ -205,7 +205,7 @@ The stream is Server-Sent Events, `data:` a JSON `{type, run, root, seq, data}`:
 
 | type | data |
 |---|---|
-| `run` | a run's summary changed (or `{deleted:true}`); top-level runs arrive whatever run is followed — the sidebar |
+| `run` | a run's summary changed (or `{deleted:true}`); top-level runs arrive whatever run is followed — the sidebar. It carries the run's coding sandbox: `sandbox` — the active binding's `{ref, name, cwd, egress, manager}` or `null` — and `attached` (how many), as does the view's `run` (§Coding sandboxes) |
 | `message` | a message added or rewritten (a settled tool result); upsert by `id` |
 | `step` | a journal step |
 | `inbox` | `{queued}` — the run's undelivered messages |
@@ -978,7 +978,11 @@ between them). Each is a binding:
 Both live in the conversation's stored config (the view's `config`) like
 its model pick: read every turn — a rebind applies from the next one — and
 copied into subagents and workflows, which work in their root's sandbox.
-The global defaults (`PUT /config`) never hold either.
+The global defaults (`PUT /config`) never hold either. `run` events and the
+view's `run` carry the active one in short — `sandbox: {ref, name, cwd,
+egress, manager} | null` — and `attached` (how many), so a view follows a
+rebind without reading the view again (a tile that predates them re-reads
+the view).
 
 - **Binding** takes participant access to the conversation **and** the
   right to use the sandbox; the conversation's class must have the `sandbox`
@@ -989,6 +993,14 @@ The global defaults (`PUT /config`) never hold either.
   still allows it, the manager is still bound, the sandbox still exists, and
   the binder may still use it and still takes part in the conversation.
   Otherwise the tool says why and the conversation needs a new binding.
+- **A changed egress** (its owner changed the sandbox's network access since
+  it was bound, and the class still allows it): the tool call that finds it
+  records the live value in the conversation's bindings (and the calling
+  subagent's copy), which the turn's next step already uses. In Approve
+  mode, a call that would park under the new egress is refused once — `the
+  sandbox's network access changed from none to internet; call the tool
+  again to ask for approval` — and parks when called again, so a side effect
+  never runs on an egress nobody approved it for.
 - A **sandbox created for a conversation** (`POST /sandboxes
   {conversation}`) follows it: a team conversation's is `team`; the
   conversation's owner and participants are its members; it is labeled
@@ -1093,7 +1105,11 @@ backend restart** (a handoff to the next process) leaves it running: the
 call's result becomes `(no result: the backend restarted while this command
 ran. It went on in the sandbox as job 3 — bash_output {"job": 3} shows its
 output from the start …)` instead of the generic lost-result text, and the
-job's output resumes by offset.
+job's output resumes by offset. **Deleting the conversation** (`DELETE
+/runs/{id}`) KILLs the process group of every job it still has running —
+best effort, in the background, so the delete doesn't wait for a manager
+(the sandboxes themselves stay; they are their owners'). **Archiving** it
+leaves them running.
 
 **Approve mode.** `bash`, `write`, `edit` and `sandbox_upload` are
 side-effecting tools — the step parks for approval — only when the bound
