@@ -1,7 +1,9 @@
 # Sandbox managers, agent classes, and agents in coding sandboxes
 
-> Status: **live** (D115, D116) — phase 1 is being built; phases 2 and 3
-> are designed below and get their own kickoff.
+> Status: **live** (D115, D116, D120) — phase 1 is built (merged in
+> 9b1bb95); phase 2's implementation plan is
+> [tile-sandbox-runtime.md](tile-sandbox-runtime.md) (D120); phase 3 is
+> designed below.
 
 ## Why
 
@@ -174,6 +176,11 @@ per-person class grants beyond `who: everyone|managers` (later, if asked).
 
 ## Phase 2 — xbind's tile-sandbox runtime (D113, revised)
 
+> **Implementation plan: [tile-sandbox-runtime.md](tile-sandbox-runtime.md)
+> (D120)** — the owner's kickoff decisions, the API, the SDK, the mapping of
+> the contract onto the runtime, and work packages WP-1…WP-22. Where it and
+> this summary differ, the plan wins.
+
 Only a manager tile — holding the admin-approved `cap:sandboxes` — calls
 `/api/xbin/sandboxes`; per-consumer and per-person isolation and quotas are
 the manager's, xbind books everything to the manager (registry entries carry
@@ -182,8 +189,9 @@ the manager's claims `For`/`ForUser`, shown as claims).
 **Tile deployments** (the dev-lifecycle design, `plans/dev-lifecycle/` on
 its own branch; agreed with that work 2026-09-27): tile sandboxes belong to
 the manager tile's *deployment*. A non-primary deployment's backend gets its
-own sandbox set, keyed per deployment (state under `.xbin/sbx/<key>/<deployment>/…`
-for non-`main`); `{source:true}` mounts that deployment's code and resource
+own sandbox set, keyed per deployment (state under
+`.xbin/deploy/<TK>/d/<deployment>/sbx/` for non-`main` — a deployment segment
+under `.xbin/sbx/<key>/` would collide with sandbox names); `{source:true}` mounts that deployment's code and resource
 mounts resolve in its data namespace; `cap:sandboxes`, the sandboxes policy
 and quotas stay the tile's; VM reservations are booked to the tile
 (`Reserve(owner = tile)`, their WP-S3); registry rows carry the deployment

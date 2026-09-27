@@ -1,11 +1,12 @@
 # Tile-managed sandboxes
 
-> Status: **live** (D113) — designed, not built: the design the next project
-> builds and edits as it goes. **Revised by D115** (plans/sandbox-managers.md):
-> the agent no longer calls this API — a *sandbox manager* tile does, and
-> only managers hold `cap:sandboxes`; consumers (the agent, sandbox-terminal)
-> reach sandboxes through the `sandbox-manager` contract. §3's routes stay
-> the manager-facing API (phase 2 there); §7 is superseded.
+> Status: **live** (D113) — being built from
+> [tile-sandbox-runtime.md](tile-sandbox-runtime.md) (D120), whose §0 lists
+> what it changes here: the factory transport, routes that mirror the
+> contract, relay-only terminals, `sandbox-net` egress classes, xbind-owned
+> definitions, removal keeping state. **Revised by D115**: only *sandbox
+> manager* tiles call this API and hold `cap:sandboxes`; consumers reach
+> sandboxes through the `sandbox-manager` contract. §7 is superseded.
 
 The substrate landed with D112: the sandbox registry (`internal/sbx`, kind `tile` with a `parent` reserved for
 these) and VM reservations charged to a tile (`vm.Manager.Reserve(owner, …)`).

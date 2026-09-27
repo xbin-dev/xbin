@@ -3601,3 +3601,132 @@ Deviations and refinements made while implementing; all deliberate:
     about the class being saved when it mixes; other stored mixed classes
     ride along confirmed — they were confirmed when saved.
 
+- **D120 — Phase 2 of coding sandboxes: xbind's tile-sandbox runtime.
+  Only manager tiles drive it (`cap:sandboxes`). Terminals reach people
+  only through the manager's relay. Its routes mirror the sandbox-manager
+  contract (2026-09-27, owner's kickoff).**
+  plans/tile-sandbox-runtime.md (the implementation plan, WP-1…WP-22).
+  Revises D113 as recorded there (§0).
+  - **The owner's decisions.**
+    1. **`cap:sandboxes`** is held only by manager tiles and approved only by
+       workspace admins, like `cap:containers`. It is never auto-granted. A
+       revoke stops the tile's sandboxes and keeps their state.
+    2. **Terminals: relay only.** The TTY WebSocket (the `/ws/term` wire)
+       answers only the manager's instance token; the manager relays it to
+       consumer pages. There are no xbind tickets in v1. Admins may list,
+       stop and delete any tile's sandboxes, but never exec into one or
+       attach.
+    3. **D88's `noTerminal`.** xbind refuses a tty exec whose `forUser`
+       claim names a user with `noTerminal`. Non-tty execs aren't restricted
+       by it, and the docs say so.
+    4. **Storage.** Definitions are xbind-owned: a tile never writes them,
+       and everything read back is re-validated against the tile's current
+       reach. Component backups carry definitions, not state; state moves by
+       snapshot or archive. Running execs die with xbind: they answer `lost`,
+       and sandboxes come back `stopped`.
+    5. **Modes.** Namespace mode is the `Restricted` terminal lockdown: apt
+       works, nested containers don't. Docker needs VM mode. Emulated VMs are
+       allowed where the VM policy allows emulation, and are reported as
+       such. A VM that can't start never falls back to namespace mode; the
+       manager picks the mode for each sandbox.
+    6. **No xbin identity inside.** A sandbox never gets an xbin token, the
+       gateway socket or a route to xbind. The manager proxies everything.
+    7. **Mounts in v1.** The manager's own `filesystem` resources, limited by
+       role, and `{source:true}` read-only. `sqlite` is refused. `code:`
+       mounts and scratch volumes come later.
+    8. **Egress.** `none` by default, or a network the manager binds for its
+       sandboxes through its own interface slots, so its own backend needn't
+       hold it. There is no private sandbox-to-sandbox network and no port
+       previews in v1.
+    9. **Base images.** Each sandbox pins its base. A changed base never
+       applies implicitly: restart and thaw keep the pin, and reset or rebase
+       is an explicit call. GC keeps every base a sandbox references,
+       archived ones included.
+    10. **Offload** of a manager tile stops its sandboxes and carries their
+        state into the archive. Until archive/thaw is built, offload refuses
+        while any of them has state. It never drops state silently.
+    11. **Defaults** are D113 §6's: 8 sandboxes per tile, 4 running, 8 GiB,
+        8 vCPUs and 100 GiB; per sandbox 2 GiB, 2 vCPUs and 20 GiB, capped
+        at 8 GiB, 8 and 200; idle stop after 30 min; auto-start on exec and
+        file operations. The VM policy gains `tiles` and `tilesBudgetMiB`
+        (default half the budget). xbind's own default for `tiles` is false.
+        The installer's fresh policy sets it true where KVM is usable, like
+        `backends`, and never touches an existing file.
+    12. **Deployments.** Sandboxes belong to the manager tile's deployment.
+        The key layout gives a non-main deployment its own set, leaving the
+        deployment plumbing a seam (dev-lifecycle's handed-over WP-S5).
+    13. **The VM-backend "never listens" fix** is a dependency, fixed on
+        another branch.
+    14. **Phase 3's needs.** A zero-dependency SDK surface that the
+        coding-sandbox manager's `xbin` Backend uses to serve the contract
+        almost one for one.
+  - **Chosen in the plan (the designer's calls).**
+    - **Transport: a `SOCK_SEQPACKET` connection factory.** It is passed as
+      an inherited fd. D113's listening socket is dropped: the factory
+      needs no path, leaves no stale socket and has no 108-byte limit. Its
+      EOF also kills the sandbox when xbind dies.
+    - **The runtime API mirrors the contract**: byte-offset output with a
+      long-poll, `run`'s head and tail, the files and tar routes, the error
+      enum and the TTY wire. So the manager forwards most calls unchanged
+      (`sdk` `Forward`). D113's NDJSON is dropped.
+    - **Egress uses a new request-side interface kind, `sandbox-net`.**
+      Selectors are `none | class:<slot>`. An unbound class is `none`, with
+      no org or personal auto-default. Binding reuses D20, D26, D54, D65 and
+      D88.
+      - The relay gets `Deny`, which covers the host's own addresses and
+        xbind's listen addresses, and answers DNS with REFUSED under `none`.
+      - A class change that narrows reach stops the running sandboxes of
+        that class. A change that widens it waits for the next start.
+      - There is no `inherit` and no rule-list subset (see below).
+    - **`cap:sandboxes` has a floor like `xbin`'s**: no allowance delegates
+      it, not even `cap:*`. Its ceiling class is `xbin-caps`.
+    - **The VM policy also gains `tilesEmulated`** (default false). A tile VM
+      runs under emulation only when an admin allows it. Otherwise VM mode is
+      reported unavailable, never replaced.
+    - **Removing a tile** stops its sandboxes and keeps their state. The
+      state is listed as a leftover, and an admin cleans it up. This revises
+      D113 §1's "deleting the tile deletes its sandboxes".
+    - **Definitions live in `<ws>/data/sandboxes.json`**, keyed by tile
+      (dev-lifecycle's layout). State lives in `.xbin/sbx/<CK>/<name>/`, and
+      a non-main deployment's in `.xbin/deploy/<TK>/d/<d>/sbx/`.
+    - **Ids and presentation.** Exec ids carry a per-boot prefix, so ids
+      from before a restart answer `lost`. The TTY session frame takes the
+      manager's ids (`sessionId`, `sandboxId`), so a byte relay satisfies the
+      contract.
+    - **Snapshots and clones are in phase 2**: the manager's images are
+      clones. Archive and thaw are a later work package.
+    - **Other v1 choices.**
+      - `rebase` is an explicit call that keeps the upper.
+      - Execs take a `uid`/`gid`; a single-uid namespace host reports
+        `users: root`.
+      - A missing pinned base puts that sandbox in `error`. It never gates
+        xbind's boot.
+      - A namespace upper records its overlay flavour.
+      - File streams are framed and commit only after their terminator.
+      - The data plane isn't audit-logged.
+      - `PUT /vm/policy` and `PUT /sandboxes/policy` merge onto the stored
+        policy, so an older admin console can't zero a new field.
+      - termwire sends `exit` only when the process ends, never to a client
+        dropped for being slow.
+    - **The existing backup restore follows planted symlinks as xbind.** It
+      is fixed first (WP-9), as phase 2 step 6 asked.
+  - **Not chosen:**
+    - xbind tickets for human attach: the owner's relay-only decision.
+    - `inherit` egress: it makes the manager's backend hold the network,
+      which is exactly what the `sandbox-net` kind avoids.
+    - D113's rule-list subsets: the relay ORs IP and host rules, so an
+      intersection needs a new predicate, and classes cover the need.
+    - A second `net`-kind slot for sandboxes: map-order resolution, D54/D88
+      auto-defaults, and every net surface is per component.
+    - Policy-level egress classes: a second reach grammar that skips the
+      binding approvals.
+    - A listening socket in `.xbin/run/sbx/`.
+    - NDJSON output with sequence numbers.
+    - Namespace uppers in component backups.
+    - A namespace fallback where VMs can't run.
+    - Sandboxes surviving an xbind restart: the relay lives in xbind; a relay
+      out of process is a later option.
+    - Definitions in the tile's own data: a backend could forge mounts,
+      egress or mode.
+    - A deployment segment under `.xbin/sbx/<key>/`: it would collide with
+      sandbox names.
