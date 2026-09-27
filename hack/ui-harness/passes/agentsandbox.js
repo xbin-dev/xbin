@@ -282,7 +282,8 @@ async function agentSandbox(browser) {
     await a.click('#sbxbadge');
     await a.waitForSelector('#sbxpop');
     const att = await text(a, '#sbxpop .sbxatt');
-    check(att.length === 2 && att.some((t) => t.includes(TEAM) && t.startsWith('●')) && att.some((t) => t.includes('scratch') && t.startsWith('○')),
+    check(att.length === 2 && att.some((t) => t.includes(TEAM) && t.startsWith('●')) && att.some((t) => t.includes('scratch') && t.startsWith('○'))
+      && !att.some((t) => t.includes('⚠')), // the new one isn't "gone": the list is read again for it
       `the popover lists it attached beside the active ${TEAM} (${JSON.stringify(att)})`);
     const spill = await a.$eval('#sbxpop', (p) => {
       const edge = p.getBoundingClientRect().right + 0.5;
