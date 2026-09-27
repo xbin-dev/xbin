@@ -69,7 +69,10 @@ func testFollowBase(t *testing.T) {
 	link(".data-real", filepath.Join(ws, "data")) // the workspace's own: an operator's
 	link("/elsewhere", filepath.Join(ws, "data2"))
 	layers := 0
-	fresh := func() { // a new persistent layer: an earlier start made mount points in the last
+	// fresh is a new persistent layer, for every start after the first: an
+	// earlier start made mount points in the last, and a kernel overlay's
+	// upper stays busy (EBUSY) a moment after its sandbox exits
+	fresh := func() {
 		t.Helper()
 		layers++
 		upper, work = filepath.Join(dir, fmt.Sprintf("upper%d", layers)), filepath.Join(dir, fmt.Sprintf("work%d", layers))
@@ -109,6 +112,7 @@ func testFollowBase(t *testing.T) {
 	ok(spec(ops...))
 
 	// without FollowBase (a tile sandbox) the image's own link is refused
+	fresh()
 	strict := spec()
 	strict.FollowBase = false
 	if _, out, err := runProbe(t, strict); err == nil || !strings.Contains(out, "nested mount point /lib: a symlink is in the way") {
@@ -155,6 +159,7 @@ func testFollowBase(t *testing.T) {
 		t.Errorf("an env layer's /var/run: %v\n%s", err, out)
 	}
 	link("/run", filepath.Join(env, "var", "run")) // the image's own, re-planted as it is
+	fresh()
 	s = spec(ops...)
 	s.Lower = []string{env, lower}
 	ok(s)
@@ -188,6 +193,7 @@ func testFollowBase(t *testing.T) {
 			t.Fatalf("homes → %s: made %v on the host", target, ents)
 		}
 	}
+	fresh()
 	s = layoutSpec()
 	s.Binds[2].Layout = false
 	if _, out, err := runProbe(t, s); err == nil || !strings.Contains(out, "nested mount point /ws/homes: a symlink is in the way") ||
@@ -197,6 +203,7 @@ func testFollowBase(t *testing.T) {
 	// deeper in the Layout bind — a tile's directory, which sandboxes write —
 	// a link is refused, the same way
 	link("../.data-real", filepath.Join(ws, "tiles", "child"))
+	fresh()
 	s = layoutSpec()
 	s.Binds = append(s.Binds, Bind{Src: sdk, Dst: "/ws/tiles/child/x"})
 	if _, out, err := runProbe(t, s); err == nil || !strings.Contains(out, "nested mount point /ws/tiles/child: a symlink is in the way") ||
