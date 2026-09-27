@@ -52,6 +52,14 @@ const HEADER_OPS = new Set(['pause', 'resume', 'reloadNow', 'attach', 'undo']);
 const NO_DEPLOYMENT = new Set(['pause', 'reloadNow', 'promote', 'protect', 'unprotect', 'edge']);
 const TABS = [['overview', 'overview'], ['log', 'deploy log'], ['logs', 'logs'], ['registrations', 'registrations'], ['view', 'view']];
 
+// dryConfirm(op, body): the confirm token of a data-guarded operation
+// (11-contract §1.2's table), which its dry run is judged with; {} otherwise.
+const CONFIRM = { remove: 'erase', reset: 'erase-data', seed: 'copy-data', primary: 'data-stays' };
+const dryConfirm = (op, body) => {
+  const t = op === 'add' ? (body.data === 'seed' ? 'copy-data' : '') : CONFIRM[op];
+  return t ? { confirm: t } : {};
+};
+
 async function post(path, body) {
   try {
     const r = await fetch(`/api/xbin/deployments/${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -295,7 +303,9 @@ export class BxDeployments extends LitElement {
         const s = this._state, body = this._body(op, x), seq = (st) => { if (op !== 'runNow' && Number.isInteger(st?.seq)) body.seq = st.seq; };
         seq(s);
         if (!x.quiet) {
-          const dry = await post(ROUTE[op], { ...body, ...(op === 'vaultCopy' ? { all: true } : {}), dryRun: true });
+          // judged as for real (11-contract §1.2): a guarded op's dry run
+          // carries the confirm token its confirmed request will send
+          const dry = await post(ROUTE[op], { ...body, ...(op === 'vaultCopy' ? { all: true } : {}), ...dryConfirm(op, body), dryRun: true });
           if (dry.error) {
             if (ds.conflict(dry.status, dry.error) === 'seq' && attempt < 2) { await this._load(); continue; }
             return this._refused(op, dry.error, x, dry.status);
