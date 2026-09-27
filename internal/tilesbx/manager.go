@@ -307,6 +307,7 @@ type box struct {
 	pendingSnap *snapMeta      // the snapshot being taken (listed pending)
 	copying     *copyJob       // the snapshot or restore running (busy)
 	readers     map[string]int // snapshot id → clones copying it: it isn't deleted meanwhile
+	copyBytes   int64          // what a snapshot or a clone copying into it will add: booked against perTile.diskGiB until it ends
 	clone       *copyJob       // a creating clone's copy (state creating)
 	cloneCancel func()         // ends that copy (a delete while it is creating)
 

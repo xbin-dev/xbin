@@ -2696,7 +2696,8 @@ where the filesystem can. xbind never reads either.
   other's), are 400 `invalid`; so is a snapshot whose base image is no
   longer installed. A snapshot or clone whose bytes (the snapshot's, or the
   source's last measured) would take the tile's sandboxes past
-  `perTile.diskGiB` is 429 `limit`. Snapshots count toward `diskBytes`.
+  `perTile.diskGiB` — copies still running counted — is 429 `limit`.
+  Snapshots count toward `diskBytes`.
 - **Copies run off the request**, and are made whole or not at all: a
   crash or a restart leaves the old state, no half snapshot, and a clone
   it cut short in `error`. `?wait=<seconds>` (absent: `waitMaxSec`) bounds
@@ -2714,7 +2715,8 @@ where the filesystem can. xbind never reads either.
   deleted meanwhile (409 `state`). The workspace's own reasons (a revoke,
   a seal, the policy switched off) find the sandbox stopped for its copy,
   and its start after the copy is refused as any start would be; xbind's
-  shutdown ends the copy, and what it staged is removed.
+  shutdown ends the copy, leaves the sandbox stopped, and what it staged
+  is removed.
 - **A clone that fails** — its copy failed, or an xbind restart cut it
   short — is `error`, and answers 409 `state` to everything but `GET`, the
   list and `DELETE`.

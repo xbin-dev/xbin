@@ -117,7 +117,7 @@ func (m *Manager) cloneSource(k Key, from *From, d *Def) (*cloneSource, error) {
 // Callers hold m.mu; d is stored.
 func (m *Manager) beginClone(k Key, d *Def, src *cloneSource, start bool) {
 	b := m.boxLocked(k, d.Name)
-	b.state, b.snapsLoaded = StateCreating, true
+	b.state, b.snapsLoaded, b.copyBytes = StateCreating, true, src.bytes // booked until the copy ends
 	b.detail = fmt.Sprintf("copying the state of %q", src.def.Name)
 	if src.sid != "" {
 		b.detail = fmt.Sprintf("copying snapshot %s of %q", src.sid, src.def.Name)
@@ -178,6 +178,7 @@ func (m *Manager) cloneCopy(ctx context.Context, k Key, d *Def, b *box, src *clo
 		m.mu.Unlock()
 		return // deleted meanwhile: its state went to .trash
 	}
+	b.copyBytes = 0
 	if err == nil {
 		cd.Pending = ""
 		err = m.defs.put(k, cd)
@@ -188,7 +189,7 @@ func (m *Manager) cloneCopy(ctx context.Context, k Key, d *Def, b *box, src *clo
 		slog.Warn("tile sandbox: a clone failed", "tile", k.Tile, "sandbox", d.Name, "from", src.def.Name, "snapshot", src.sid, "err", err)
 		return
 	}
-	b.state, b.detail = StateStopped, ""
+	b.state, b.detail, b.diskBytes = StateStopped, "", src.bytes // until it is measured
 	m.mu.Unlock()
 	slog.Info("tile sandbox: cloned", "tile", k.Tile, "sandbox", d.Name, "from", src.def.Name, "snapshot", src.sid)
 	m.measureSoon(k, d)

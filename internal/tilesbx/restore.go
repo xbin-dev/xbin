@@ -13,6 +13,7 @@ package tilesbx
 // installed is refused, as `invalid`.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -74,12 +75,13 @@ func (m *Manager) Restore(k Key, name, sid string) (*copyJob, error) {
 	}
 	job := newJob()
 	b.busy, b.copying = "busy: restoring snapshot "+sid, job
-	go m.restoreSnapshot(k, d, b, *sm, job)
+	go m.restoreSnapshot(m.copies.get(), k, d, b, *sm, job)
 	return job, nil
 }
 
-// restoreSnapshot is a restore's job, in the sandbox's flight.
-func (m *Manager) restoreSnapshot(k Key, d *Def, b *box, sm snapMeta, job *copyJob) {
+// restoreSnapshot is a restore's job, in the sandbox's flight (ctx: the
+// copies' as the restore was asked; StopAll cancels it).
+func (m *Manager) restoreSnapshot(ctx context.Context, k Key, d *Def, b *box, sm snapMeta, job *copyJob) {
 	var err error
 	b.flight.Lock()
 	defer b.flight.Unlock()
@@ -88,7 +90,7 @@ func (m *Manager) restoreSnapshot(k Key, d *Def, b *box, sm snapMeta, job *copyJ
 	if restart, err = m.stopForCopy(k, d, b); err != nil {
 		return
 	}
-	err = m.restoreState(k, d, sm)
+	err = m.restoreState(ctx, k, d, sm)
 	m.mu.Lock()
 	if err == nil && m.live[k][d.Name] == b && b.run == nil {
 		b.state, b.detail = StateStopped, "" // repaired, if it was in error
@@ -100,16 +102,12 @@ func (m *Manager) restoreSnapshot(k Key, d *Def, b *box, sm snapMeta, job *copyJ
 		slog.Info("tile sandbox: snapshot restored", "tile", k.Tile, "sandbox", d.Name, "snapshot", sm.ID)
 		m.measureSoon(k, d) // its old cur/ no longer counts
 	}
-	if restart {
-		if serr := m.startLocked(k, d.Name, b); serr != nil {
-			slog.Info("tile sandbox: starting again after a copy", "tile", k.Tile, "sandbox", d.Name, "err", serr)
-		}
-	}
+	m.restartAfterCopy(ctx, k, d, b, restart)
 }
 
 // restoreState stages snapshot sm as a new cur and swaps it in, under the
 // sandbox's lock; the old cur/ goes to .trash.
-func (m *Manager) restoreState(k Key, d *Def, sm snapMeta) error {
+func (m *Manager) restoreState(ctx context.Context, k Key, d *Def, sm snapMeta) error {
 	dir, err := m.StateDir(k, d)
 	if err != nil {
 		return err
@@ -129,7 +127,7 @@ func (m *Manager) restoreState(k Key, d *Def, sm snapMeta) error {
 			m.discard(k, d, tmp)
 		}
 	}()
-	if err := m.copyLayer(m.copies.get(), d.Mode, filepath.Join(dir, "snapshots", sm.ID), tmp, layers.Stamps{Base: sm.Base, Overlay: sm.Overlay}); err != nil {
+	if err := m.copyLayer(ctx, d.Mode, filepath.Join(dir, "snapshots", sm.ID), tmp, layers.Stamps{Base: sm.Base, Overlay: sm.Overlay}); err != nil {
 		return err
 	}
 	cur := filepath.Join(dir, layers.CurDir)

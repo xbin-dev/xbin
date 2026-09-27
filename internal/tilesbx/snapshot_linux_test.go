@@ -351,6 +351,88 @@ func TestCopiesAgainstTheCaps(t *testing.T) {
 	fe.want(fe.do(mgr, "POST", "/sandboxes", map[string]any{"name": "c-3", "mode": "namespace", "from": map[string]any{"sandbox": "sb-1"}}), http.StatusTooManyRequests, RefLimit)
 }
 
+// Copies running at once each count the others': what a snapshot or a
+// clone is copying is booked against perTile.diskGiB until it ends, so
+// concurrent copies can't together pass the cap each alone stays within.
+func TestCopiesBookTheirBytes(t *testing.T) {
+	fe := newFakeEnv(t, func(o *Options) {
+		o.DiskUsage = func(context.Context, string) (int64, error) { return 3 << 30, nil } // every state, and every copy
+	})
+	fe.want(fe.do(admin, "PUT", "/sandboxes/policy", `{"overrides":{"apps/mgr":{"perTile":{"max":8,"diskGiB":10}}}}`), http.StatusOK, "")
+	for _, n := range []string{"sb-1", "sb-2"} {
+		fe.create(ns(n))
+		fe.want(fe.do(mgr, "POST", "/sandboxes/"+n+"/start", nil), http.StatusOK, "")
+		fe.want(fe.do(mgr, "POST", "/sandboxes/"+n+"/stop", nil), http.StatusOK, "")
+	}
+	fe.m.waitUsage() // 6 GiB in all
+	g := newGate(fe.m.copyTree)
+	fe.m.copyTree = g.copyTree
+	// two snapshots at once: 6 + 3 fits, 6 + 3 + 3 doesn't
+	fe.want(fe.do(mgr, "POST", "/sandboxes/sb-1/snapshots?wait=0", map[string]any{"name": "a"}), http.StatusAccepted, "")
+	<-g.entered
+	fe.want(fe.do(mgr, "POST", "/sandboxes/sb-2/snapshots?wait=0", map[string]any{"name": "b"}), http.StatusTooManyRequests, RefLimit)
+	close(g.release)
+	fe.waitSettled("sb-1")
+	fe.m.waitUsage()
+	fe.want(fe.do(mgr, "DELETE", "/sandboxes/sb-2", nil), http.StatusNoContent, "") // 3 GiB: sb-1 and its s-1, as measured
+	// clones of s-1 (3 GiB) at once: 3 + 3 + 3 fits, a third one's 3 more doesn't
+	g2 := newGate(g.next)
+	fe.m.copyTree = g2.copyTree
+	for _, n := range []string{"c-1", "c-2"} {
+		w := fe.do(mgr, "POST", "/sandboxes?wait=0", map[string]any{"name": n, "mode": "namespace", "from": map[string]any{"sandbox": "sb-1", "snapshot": "s-1"}})
+		fe.want(w, http.StatusCreated, "")
+		<-g2.entered
+	}
+	fe.want(fe.do(mgr, "POST", "/sandboxes?wait=0", map[string]any{"name": "c-3", "mode": "namespace", "from": map[string]any{"sandbox": "sb-1", "snapshot": "s-1"}}),
+		http.StatusTooManyRequests, RefLimit)
+	close(g2.release)
+	fe.waitState("c-1", StateStopped)
+	fe.waitState("c-2", StateStopped)
+	fe.m.waitUsage()
+	fe.want(fe.do(mgr, "POST", "/sandboxes?wait=0", map[string]any{"name": "c-3", "mode": "namespace", "from": map[string]any{"sandbox": "sb-1", "snapshot": "s-1"}}),
+		http.StatusTooManyRequests, RefLimit) // made, they count as measured
+}
+
+// waitSettled waits until no copy keeps the sandbox busy.
+func (fe *fakeEnv) waitSettled(name string) Info {
+	fe.t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		in := fe.get(name)
+		if !strings.HasPrefix(in.StateDetail, "busy:") {
+			return in
+		}
+		if time.Now().After(deadline) {
+			fe.t.Fatalf("sandbox %q is still %s", name, in.StateDetail)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// xbind shutting down mid-copy (StopAll) cancels the copy, and the
+// sandbox it stopped for it isn't started again: StopAll's own stop found
+// it stopped and waits for nothing after the copy.
+func TestStopAllMidCopyStartsNothing(t *testing.T) {
+	fe := newFakeEnv(t)
+	g := newGate(fe.m.copyTree)
+	fe.m.copyTree = g.copyTree
+	for _, n := range []string{"sb-1", "sb-2"} {
+		fe.create(ns(n))
+		fe.want(fe.do(mgr, "POST", "/sandboxes/"+n+"/start", nil), http.StatusOK, "")
+		fe.want(fe.do(mgr, "POST", "/sandboxes/"+n+"/snapshots?wait=0", map[string]any{"name": "s"}), http.StatusAccepted, "")
+		<-g.entered
+	}
+	fe.m.StopAll("xbind is shutting down")
+	for _, n := range []string{"sb-1", "sb-2"} {
+		if in := fe.waitSettled(n); in.State != StateStopped || fe.runOf(n) != nil {
+			t.Fatalf("%s after StopAll cut its copy short: %+v", n, in)
+		}
+		if l := fe.snapshots(n); len(l) != 0 {
+			t.Fatalf("%s: a snapshot cut short is listed: %+v", n, l)
+		}
+	}
+}
+
 // gate is a copyTree that blocks until released, then copies (next): a
 // copy that takes a while.
 type gate struct {

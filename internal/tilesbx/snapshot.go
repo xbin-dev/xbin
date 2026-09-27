@@ -19,6 +19,7 @@ package tilesbx
 // exactly), disks by fsutil.CloneSparse.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -258,7 +259,8 @@ func (m *Manager) Snapshot(k Key, name string, req SnapshotRequest) (sn Snapshot
 	if _, err := os.Lstat(cur); errors.Is(err, fs.ErrNotExist) {
 		return SnapshotInfo{}, nil, false, &Error{Refusal: RefState, State: b.state, Msg: fmt.Sprintf("sandbox %q has no state yet: it never ran (start it once first)", name)}
 	}
-	if err := m.diskRoom(k.Tile, curBytes(b)); err != nil {
+	booked := curBytes(b)
+	if err := m.diskRoom(k.Tile, booked); err != nil {
 		return SnapshotInfo{}, nil, false, err
 	}
 	d.SnapSeq++ // handed out now: never again within this uid, whatever becomes of the copy
@@ -267,8 +269,8 @@ func (m *Manager) Snapshot(k Key, name string, req SnapshotRequest) (sn Snapshot
 	}
 	sm := &snapMeta{ID: fmt.Sprintf("s-%d", d.SnapSeq), Name: req.Name, Created: m.now().UnixMilli(), Mode: d.Mode, ClientID: req.ClientID}
 	job = newJob()
-	b.busy, b.pendingSnap, b.copying = "busy: taking snapshot "+sm.ID, sm, job
-	go m.takeSnapshot(k, d, b, *sm, job)
+	b.busy, b.pendingSnap, b.copying, b.copyBytes = "busy: taking snapshot "+sm.ID, sm, job, booked
+	go m.takeSnapshot(m.copies.get(), k, d, b, *sm, job)
 	in := sm.info()
 	in.Pending = true
 	return in, job, false, nil
@@ -278,7 +280,7 @@ func (m *Manager) Snapshot(k Key, name string, req SnapshotRequest) (sn Snapshot
 func (m *Manager) endCopy(b *box, job *copyJob, err error) {
 	m.mu.Lock()
 	if b.copying == job {
-		b.busy, b.pendingSnap, b.copying = "", nil, nil
+		b.busy, b.pendingSnap, b.copying, b.copyBytes = "", nil, nil, 0
 	}
 	m.mu.Unlock()
 	job.err = err
@@ -286,8 +288,9 @@ func (m *Manager) endCopy(b *box, job *copyJob, err error) {
 }
 
 // takeSnapshot is a snapshot's job, in the sandbox's flight: stop it if it
-// runs, copy its cur/, start it again if it ran.
-func (m *Manager) takeSnapshot(k Key, d *Def, b *box, sm snapMeta, job *copyJob) {
+// runs, copy its cur/, start it again if it ran. ctx is the copies' as the
+// snapshot was asked (StopAll cancels it).
+func (m *Manager) takeSnapshot(ctx context.Context, k Key, d *Def, b *box, sm snapMeta, job *copyJob) {
 	var err error
 	b.flight.Lock()
 	defer b.flight.Unlock()
@@ -296,19 +299,29 @@ func (m *Manager) takeSnapshot(k Key, d *Def, b *box, sm snapMeta, job *copyJob)
 	if restart, err = m.stopForCopy(k, d, b); err != nil {
 		return
 	}
-	if sm, err = m.snapshotState(k, d, sm); err == nil {
+	if sm, err = m.snapshotState(ctx, k, d, sm); err == nil {
 		m.mu.Lock()
 		b.snaps = append(b.snaps, sm)
+		b.diskBytes += sm.Bytes // until it is measured again
 		m.mu.Unlock()
 		slog.Info("tile sandbox: snapshot taken", "tile", k.Tile, "sandbox", d.Name, "snapshot", sm.ID, "bytes", sm.Bytes)
 	} else {
 		slog.Warn("tile sandbox: a snapshot failed", "tile", k.Tile, "sandbox", d.Name, "snapshot", sm.ID, "err", err)
 	}
 	m.measureSoon(k, d)
-	if restart {
-		if serr := m.startLocked(k, d.Name, b); serr != nil {
-			slog.Info("tile sandbox: starting again after a copy", "tile", k.Tile, "sandbox", d.Name, "err", serr)
-		}
+	m.restartAfterCopy(ctx, k, d, b, restart)
+}
+
+// restartAfterCopy starts k's sandbox again after a copy (in its flight)
+// when it ran before — unless xbind is shutting down (StopAll cancelled
+// the copy's ctx): its stop found this sandbox stopped for the copy and
+// doesn't wait for a start after it.
+func (m *Manager) restartAfterCopy(ctx context.Context, k Key, d *Def, b *box, restart bool) {
+	if !restart || ctx.Err() != nil {
+		return
+	}
+	if err := m.startLocked(k, d.Name, b); err != nil {
+		slog.Info("tile sandbox: starting again after a copy", "tile", k.Tile, "sandbox", d.Name, "err", err)
 	}
 }
 
@@ -336,7 +349,7 @@ func (m *Manager) stopForCopy(k Key, d *Def, b *box) (restart bool, err error) {
 // snapshotState copies d's cur/ into a staged snapshot and renames it into
 // place, under the sandbox's lock (an orphan's processes gone first): sm
 // as written, its stamps and size filled in.
-func (m *Manager) snapshotState(k Key, d *Def, sm snapMeta) (snapMeta, error) {
+func (m *Manager) snapshotState(ctx context.Context, k Key, d *Def, sm snapMeta) (snapMeta, error) {
 	dir, err := m.StateDir(k, d)
 	if err != nil {
 		return sm, err
@@ -361,7 +374,6 @@ func (m *Manager) snapshotState(k Key, d *Def, sm snapMeta) (snapMeta, error) {
 			m.discard(k, d, tmp)
 		}
 	}()
-	ctx := m.copies.get()
 	if err := m.copyLayer(ctx, d.Mode, cur, tmp, st); err != nil {
 		return sm, err
 	}

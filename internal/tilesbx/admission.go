@@ -142,7 +142,8 @@ func (m *Manager) totalMemMiBLocked() int {
 
 // tileDiskBytesLocked is what the tile's sandboxes were last measured to
 // hold on disk, snapshots included (diskBytes; measured by the usage
-// worker). Callers hold m.mu.
+// worker), and what the copies running into them will add (copyBytes:
+// concurrent copies each count the others'). Callers hold m.mu.
 func (m *Manager) tileDiskBytesLocked(tile string) int64 {
 	var n int64
 	for k, boxes := range m.live {
@@ -150,7 +151,7 @@ func (m *Manager) tileDiskBytesLocked(tile string) int64 {
 			continue
 		}
 		for _, b := range boxes {
-			n += b.diskBytes
+			n += b.diskBytes + b.copyBytes
 		}
 	}
 	return n

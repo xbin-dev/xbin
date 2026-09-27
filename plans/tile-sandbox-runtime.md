@@ -4610,6 +4610,16 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     fixing it (`,userxattr` where the kernel has it, ≥ 5.11) changes every
     kernel-overlay sandbox's mount, so it wants its own change. The live
     test logs it and checks the opaque case on fuse-overlayfs and in VMs.
+  - *Verified* (review of `p2/wp20`): two fixes, each with a test that
+    fails without it. **Copies in flight are booked** (`box.copyBytes`,
+    counted by `tileDiskBytesLocked`): a snapshot books its cur bytes and a
+    clone its source's until the copy ends, so copies running at once
+    can't together pass `perTile.diskGiB` each alone stays within
+    (`TestCopiesBookTheirBytes`). **A copy StopAll cut short starts
+    nothing**: the job's ctx is the copies' as the call was asked, and a
+    cancelled one skips the restart — StopWhere had found the sandbox
+    stopped for its copy and didn't wait for it
+    (`TestStopAllMidCopyStartsNothing`).
 
 ### WP-21 — Fixture, end to end, phase 3 gate (wave 3 · M · after WP-14b, WP-20)
 

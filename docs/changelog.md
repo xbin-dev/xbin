@@ -389,7 +389,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   stopped source's state (a running one is 409 `state`: stop it, or clone
   a snapshot). Another mode, another overlay flavour or a base image no
   longer installed is 400 `invalid`; a copy that would take the tile past
-  `perTile.diskGiB` is 429 `limit`, and a clone counts against
+  `perTile.diskGiB` (copies still running counted) is 429 `limit`, and a
+  clone counts against
   `perTile.max` at once. Copies are made whole or not at all, off the
   request: `?wait=<seconds>` (absent: `waitMaxSec`) bounds the wait, and
   one still copying answers as it stands — a snapshot 202 with `pending:
