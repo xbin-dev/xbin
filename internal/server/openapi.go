@@ -427,7 +427,7 @@ func endpoints() []ep {
 
 		// --- grants ---
 		{"GET", "/grants", "Grants", "Grant table + pending", "admin", "", nil, nil, "{grants:[{from,target,role}], pending:[…]}"},
-		{"POST", "/grants", "Grants", "Approve / add a grant", "admin", "Approves a pending request or adds a grant. Targets are component paths, res:… resources, gpu:… devices, or reserved capabilities (cap:net-admin, cap:containers, cap:open-links — the last widens the tile's frontend sandbox so links open in new tabs, ND11). (Network egress is not a grant — it's a `net` interface binding; see /bindings.)", nil,
+		{"POST", "/grants", "Grants", "Approve / add a grant", "admin", "Approves a pending request or adds a grant. Targets are component paths, res:… resources, gpu:… devices, or reserved capabilities (cap:net-admin, cap:containers, cap:open-links — which widens the tile's frontend sandbox so links open in new tabs, ND11 — and cap:sandboxes, a sandbox manager's backend driving xbind's tile sandboxes: a workspace admin approves it, no allowance delegates it, D120). (Network egress is not a grant — it's a `net` interface binding; see /bindings.)", nil,
 			jsonBody("grant", oapi{"from": str("apps/x"), "target": str("apps/y | res:… | gpu:0 | cap:open-links"), "role": str("reader|writer|admin|egress|…")}, "from", "target", "role"), "ok"},
 		{"DELETE", "/grants", "Grants", "Revoke a grant", "admin", "", nil,
 			jsonBody("grant to revoke", oapi{"from": str(""), "target": str(""), "role": str("")}, "from", "target", "role"), "ok"},

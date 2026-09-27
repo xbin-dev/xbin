@@ -1587,7 +1587,8 @@ POST   /grants                     admin — any. An org admin may approve on
                                    owner approves on it (D88): targets they
                                    own themselves or their personal
                                    allowance covers. Ceilings still apply;
-                                   xbin/xbin:* never delegable. body
+                                   xbin/xbin:* and cap:sandboxes never
+                                   delegable (D120). body
                                    {from,target,role} — approve/add; the
                                    stored row records approvedBy/approvedAt.
                                    Approving a res:* / gpu:* grant restarts the

@@ -1155,8 +1155,8 @@ element granted `xbin@admin` *is* a workspace admin, so delegating it would
 make org admins ws-admins transitively (rejected at write, ignored at
 evaluation). **`cap:sandboxes`** has the same floor (D120): a workspace
 admin chooses the sandbox managers, so no entry covers it — `cap:*`
-included — and an entry naming it is refused. Grants wholly inside one org's owned tiles (intra-org wiring)
-need no allowance. Every approval still runs the ceiling check and is
+included — and an entry naming it is refused. Grants wholly inside one
+org's owned tiles (intra-org wiring) need no allowance. Every approval still runs the ceiling check and is
 recorded with the actual approver (`approvedBy`/`approvedAt` on the grant
 row + the audit log); revokes/unbinds are always allowed for the owning
 org's admins. Element principals never approve — tiles request, humans
