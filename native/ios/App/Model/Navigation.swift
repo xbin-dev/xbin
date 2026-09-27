@@ -129,7 +129,14 @@ final class WorkspaceNav {
     private(set) var depth = 1
     /// Windows pushed over the current tile (`xbin.window`).
     var windows: [PushedWindow] = []
+    /// Runs a change of panels — the window's PanelStack animates it (a
+    /// panel slides in or out). Unset: at once.
+    @ObservationIgnored var animate: ((() -> Void) -> Void)?
     @ObservationIgnored private var serial = 0
+
+    private func animated(_ change: () -> Void) {
+        if let animate { animate(change) } else { change() }
+    }
 
     init(workspaceID: String) {
         self.workspaceID = workspaceID
@@ -185,24 +192,24 @@ final class WorkspaceNav {
     /// goes is the caller's to know (WorkspaceModel: the screen the tile
     /// sits on, `screenFor`).
     func open(_ s: Surface, on screen: String?) {
-        show((screen.map { [Panel.screen($0)] } ?? []) + [.surface(s)])
+        animated { show((screen.map { [Panel.screen($0)] } ?? []) + [.surface(s)]) }
     }
 
     /// Opens `s` over the screen shown now (or under the surface shown).
     func open(_ s: Surface) { open(s, on: screenID) }
 
     /// Shows screen `id` (level 1).
-    func openScreen(_ id: String) { show([.screen(id)]) }
+    func openScreen(_ id: String) { animated { show([.screen(id)]) } }
 
     /// Home, as new navigation (a link to the workspace itself).
-    func goHome() { show([]) }
+    func goHome() { animated { show([]) } }
 
     /// Back one panel; what it left is the forward memory.
     @discardableResult
     func back() -> Bool {
         guard depth > 1 else { return false }
         if surface != nil { windows = [] }
-        depth -= 1
+        animated { depth -= 1 }
         return true
     }
 
@@ -210,7 +217,7 @@ final class WorkspaceNav {
     @discardableResult
     func forward() -> Bool {
         guard canGoForward else { return false }
-        depth += 1
+        animated { depth += 1 }
         return true
     }
 
@@ -218,8 +225,10 @@ final class WorkspaceNav {
     /// over to the agent it started): same panel, no forward memory.
     func replace(with s: Surface) {
         guard surface != nil else { open(s); return }
-        entries[depth - 1].panel = .surface(s)
-        entries.removeSubrange(depth...)
+        animated {
+            entries[depth - 1].panel = .surface(s)
+            entries.removeSubrange(depth...)
+        }
         windows = []
     }
 

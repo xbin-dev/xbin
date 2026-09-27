@@ -114,14 +114,11 @@ struct SettingsView: View {
                         Text("Shows a QR code the new device scans; it gets its own key and signs in with Face ID.")
                     }
 
-                    Section {
-                        Button("Open in Safari", systemImage: "safari") { Task { await w.openInSafari(path: "/") } }
-                        if let gate = NativeRuntimeGate.workspace(nativeRuntime: w.whoami?.nativeRuntime, loaded: w.whoami != nil) {
+                    if let gate = NativeRuntimeGate.workspace(nativeRuntime: w.whoami?.nativeRuntime, loaded: w.whoami != nil) {
+                        Section {
                             Label { Text(verbatim: gate.explanation) } icon: { Image(systemName: "globe") }
                                 .font(.footnote).foregroundStyle(.secondary)
-                        }
-                    } header: { Text("This workspace on the web") } footer: {
-                        Text("Opens as you where the workspace supports it — tap “Continue as …” once; otherwise the browser asks you to sign in.")
+                        } header: { Text("Native views") }
                     }
 
                     Section {

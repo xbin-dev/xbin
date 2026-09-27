@@ -120,9 +120,9 @@ private struct WorkspaceShortcuts: View {
     }
 }
 
-/// One workspace in one window: its current surface full screen, or the
-/// navigator as home. The window's navigation is in the environment for
-/// the screens under it (`@Environment(WorkspaceNav.self)`).
+/// One workspace in one window: its panels (PanelStack) — Home, a screen,
+/// a tile, terminal or agent full screen. The window's navigation is in
+/// the environment for the screens under it (`@Environment(WorkspaceNav.self)`).
 struct WorkspaceView: View {
     let workspace: WorkspaceModel
     @Bindable var nav: WorkspaceNav
@@ -130,45 +130,25 @@ struct WorkspaceView: View {
     @Environment(SceneModel.self) private var scene
 
     var body: some View {
-        NavigationStack(path: $nav.windows) {
-            Group {
-                if let s = nav.surface {
+        PanelStack(nav: nav, enabled: !scene.showSwitcher && !app.locked) { panel in
+            switch panel {
+            case .home:
+                NavigationStack {
+                    HomeView(workspace: workspace).modifier(PanelBar(workspace: workspace, level: 0))
+                }
+            case .screen(let id):
+                NavigationStack {
+                    ScreenView(workspace: workspace, screenID: id).modifier(PanelBar(workspace: workspace, level: 1))
+                }
+            case .surface(let s):
+                NavigationStack(path: $nav.windows) {
                     surface(s)
-                } else {
-                    NavigatorView(workspace: workspace)
+                        .modifier(PanelBar(workspace: workspace, level: 2))
+                        .navigationDestination(for: PushedWindow.self) { w in WindowScreen(workspace: workspace, window: w) }
                 }
             }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { withAnimation { scene.showSwitcher = true } } label: {
-                        HStack(spacing: 6) {
-                            BrandIcon(workspace: workspace, size: 22)
-                            Text(verbatim: workspace.title).font(.headline).lineLimit(1)
-                            if app.needsYouCount > 0 {
-                                Text(verbatim: "\(app.needsYouCount)").font(.caption2.bold())
-                                    .padding(.horizontal, 5).padding(.vertical, 1)
-                                    .background(Color.xbinAmber, in: Capsule()).foregroundStyle(.black)
-                            }
-                        }
-                    }
-                    .accessibilityLabel("Workspaces")
-                }
-                if nav.surface != nil {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button { nav.showNavigator = true } label: { Image(systemName: "square.grid.2x2") }
-                            .accessibilityLabel("Tiles")
-                    }
-                }
-            }
-            .navigationDestination(for: PushedWindow.self) { w in WindowScreen(workspace: workspace, window: w) }
         }
         .environment(nav)
-        .sheet(isPresented: $nav.showNavigator) {
-            NavigationStack { NavigatorView(workspace: workspace, overlay: true) }
-                .presentationDetents([.medium, .large])
-                .environment(nav)
-                .environment(scene)
-        }
         .overlay(alignment: .bottom) {
             if let p = workspace.signInProblem {
                 SignInProblemBar(workspace: workspace, problem: p)
@@ -191,7 +171,66 @@ struct WorkspaceView: View {
         case .agent(let cwd, let session):
             AgentScreen(workspace: workspace, cwd: cwd, sessionID: session)
                 .id("agent|" + (cwd ?? "") + "|" + (session ?? ""))
+        case .build(let tile):
+            BuildChooser(workspace: workspace, tile: tile)
+                .id("build|" + tile)
         }
+    }
+}
+
+/// A panel's bar, leading side (D117): the workspace switcher — small, with
+/// what needs you — then the way back: ▦ Home on a screen, ‹ the screen's
+/// name on a tile. The title and the trailing items are the panel's own.
+struct PanelBar: ViewModifier {
+    let workspace: WorkspaceModel
+    let level: Int
+    @Environment(AppModel.self) private var app
+    @Environment(SceneModel.self) private var scene
+    @Environment(WorkspaceNav.self) private var nav
+
+    func body(content: Content) -> some View {
+        content
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { withAnimation { scene.showSwitcher = true } } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "arrow.left.arrow.right").font(.footnote.weight(.semibold))
+                            if app.needsYouCount > 0 {
+                                Text(verbatim: "\(app.needsYouCount)").font(.caption2.bold())
+                                    .padding(.horizontal, 5).padding(.vertical, 1)
+                                    .background(Color.xbinAmber, in: Capsule()).foregroundStyle(.black)
+                            }
+                        }
+                    }
+                    .accessibilityLabel("Workspaces")
+                    .accessibilityValue(app.needsYouCount > 0 ? Text("\(app.needsYouCount) need you") : Text(verbatim: workspace.title))
+                }
+                if level == 1 {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button { nav.back() } label: { Image(systemName: "square.grid.2x2") }
+                            .accessibilityLabel("Home")
+                            .accessibilityIdentifier("panel-home")
+                    }
+                } else if level == 2 {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button { nav.back() } label: {
+                            HStack(spacing: 2) {
+                                Image(systemName: "chevron.backward").font(.body.weight(.semibold))
+                                Text(verbatim: backTitle).lineLimit(1)
+                            }
+                        }
+                        .accessibilityLabel(Text(verbatim: backTitle))
+                        .accessibilityIdentifier("panel-back")
+                    }
+                }
+            }
+    }
+
+    /// Where back goes: the screen under the surface, or Home.
+    private var backTitle: String {
+        if case .screen(let id)? = nav.below { return workspace.home.screen(id)?.name ?? "Screen" }
+        return "Home"
     }
 }
 

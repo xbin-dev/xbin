@@ -40,6 +40,10 @@ public enum AppEvent: Sendable, Equatable {
     case session(id: String, component: String, frame: String)
     /// A tile reported its condition (`status`).
     case tileStatus(component: String, level: String, message: String, transient: Bool = false)
+    /// One of the user's pref buckets changed (`prefs`, D117): the bucket
+    /// (`root` for the shell's), the key, and the writer the request named
+    /// (`X-Prefs-Writer`; "" when none) — a client skips its own.
+    case prefs(component: String, key: String, writer: String)
     /// Anything else (`bus`, `pr`, future types): ignored by the app.
     case other(type: String)
 
@@ -72,6 +76,9 @@ public enum AppEvent: Sendable, Equatable {
             if id.isEmpty, topic.hasPrefix("session.") { id = String(topic.dropFirst("session.".count)) }
             guard !id.isEmpty else { return .other(type: type) }
             return .session(id: id, component: component, frame: text)
+        case "prefs":
+            let d = j["data"]
+            return .prefs(component: component, key: d?["key"]?.stringValue ?? "", writer: d?["writer"]?.stringValue ?? "")
         case "status":
             let d = j["data"]
             return .tileStatus(component: component, level: d?["level"]?.stringValue ?? "",

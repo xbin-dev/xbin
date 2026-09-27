@@ -3,12 +3,13 @@
 # Xcode can build (SwiftUI, UIKit, WebKit, PhotosUI, SwiftTerm's view) on
 # Linux, against stubs of the SDK, in Swift 6 mode (README.md):
 #
-#   - every App/Model and App/Shell file (the shell: windows, the events
-#     socket, the kill switch, Handoff, haptics, settings, onboarding) but
-#     the three that need Apple-only frameworks (AppTransport, DeviceKeys,
-#     ScannerAndSSO);
+#   - every App/Model and App/Shell file (the shell: windows, the panels,
+#     Home and the screens, the events socket, the kill switch, Handoff,
+#     haptics, settings, onboarding) but the three that need Apple-only
+#     frameworks (AppTransport, DeviceKeys, ScannerAndSSO);
 #   - FILES below: a native tile's hatches (terminal, canvas, attach; the
-#     key row's bar they share with the shell's terminal) and the Agent tab.
+#     key row's bar they share with the shell's terminal), a screen's
+#     TileCard and the Agent tab.
 #
 # The stubs are layered: swiftui-stubcheck's (the renderer's SwiftUI and
 # UIKit), term-stubcheck's (the terminal's UIKit and SwiftUI, SwiftTerm's
@@ -32,7 +33,7 @@ out=${1:-${TMPDIR:-/tmp}/xbin-app-stubcheck}
 app=$repo/native/ios/App
 term=$repo/native/tools/term-stubcheck/Stubs
 FILES="Tiles/TileAttach.swift Tiles/TileTerminal.swift Tiles/TileCanvas.swift Tiles/TileHatches.swift
-Terminal/KeyRow.swift Agent/AgentAttachments.swift Agent/AgentChat.swift Agent/AgentScreen.swift"
+Tiles/Widgets/TileCard.swift Terminal/KeyRow.swift Agent/AgentAttachments.swift Agent/AgentChat.swift Agent/AgentScreen.swift"
 
 # The renderer's stubs and checkable sources.
 "$repo/native/tools/swiftui-stubcheck/run.sh" --sources-only "$out/renderer"
@@ -70,7 +71,7 @@ copy() {
 import XbinRendererModel/' "$1"
   } >"$out/Sources/AppCheck/$(basename "$1")"
 }
-for f in "$app"/Model/*.swift "$app"/Shell/*.swift; do
+for f in "$app"/Model/*.swift "$app"/Shell/*.swift "$app"/Shell/Screens/*.swift; do
   case "$(basename "$f")" in AppTransport.swift|DeviceKeys.swift|ScannerAndSSO.swift) continue ;; esac
   copy "$f"
 done

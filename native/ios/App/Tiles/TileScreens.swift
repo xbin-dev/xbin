@@ -3,8 +3,8 @@ import UIKit
 import WebKit
 import XbinCore
 
-/// A tile, full screen: its native view, its web page, or — for trusted
-/// chrome — a hand-off to Safari (§6.3).
+/// A tile, full screen: its native view or its web page — for trusted
+/// chrome, its page on the workspace's origin, signed in (§6.3).
 struct TileScreen: View {
     let workspace: WorkspaceModel
     let path: String
@@ -20,8 +20,6 @@ struct TileScreen: View {
             NativeTileScreen(workspace: workspace, tile: info) { reason in forcedWeb = reason }
         case .web:
             WebTileScreen(workspace: workspace, tile: info, subpath: subpath, fragment: fragment, banner: forcedWeb)
-        case .safari:
-            SafariHandoff(workspace: workspace, tile: info)
         }
     }
 }
@@ -34,7 +32,7 @@ struct WebViewHost: UIViewRepresentable {
 }
 
 /// A tile page with its native chrome (§6.3): progress, errors with retry,
-/// pull to refresh, dialogs, downloads, "open in Safari".
+/// pull to refresh, dialogs, downloads, the page's own back.
 struct WebTileScreen: View {
     let workspace: WorkspaceModel
     let tile: TileInfo
@@ -49,6 +47,10 @@ struct WebTileScreen: View {
     @State private var controller: WebTileController?
     /// This window's navigation (the tile's menu and its `xbin.window`).
     @Environment(WorkspaceNav.self) private var nav
+    /// The panel is in front (PanelStack): a page kept aside for forward is
+    /// out of VoiceOver's reach (SwiftUI's accessibilityHidden stops at the
+    /// UIKit view).
+    @Environment(\.panelActive) private var panelActive
     @Environment(\.scenePhase) private var phase
     @Environment(\.openURL) private var openURL
 
@@ -90,11 +92,12 @@ struct WebTileScreen: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                if controller?.canGoBack == true {
+                    Button { controller?.goBack() } label: { Image(systemName: "arrow.uturn.backward") }
+                        .accessibilityLabel("Page back")
+                }
                 Menu {
                     Button("Reload", systemImage: "arrow.clockwise") { controller?.reload() }
-                    Button("Open in Safari", systemImage: "safari") {
-                        Task { await workspace.openInSafari(path: "/c/\(URLComponent.encodePath(tile.path))/") }
-                    }
                     if tile.opensNatively {
                         Button("Show native view", systemImage: "rectangle.stack") {
                             AppSettings.setForcesWeb(workspace.id, tile.path, false)
@@ -114,10 +117,13 @@ struct WebTileScreen: View {
         }
         .onAppear {
             if controller == nil {
-                let c = WebTileController(workspace: workspace, tile: tile.path, canOpenLinks: tile.canOpenLinks,
-                                          subpath: subpath, fragment: fragment)
+                let c = tile.chrome
+                    ? WebTileController(chromeTile: tile, workspace: workspace, subpath: subpath)
+                    : WebTileController(workspace: workspace, tile: tile.path, canOpenLinks: tile.canOpenLinks,
+                                        subpath: subpath, fragment: fragment)
                 c.nav = nav
                 controller = c
+                c.webView.accessibilityElementsHidden = !panelActive
                 c.load()
             } else {
                 controller?.reopen() // (after a close that wasn't the end: load afresh)
@@ -126,6 +132,7 @@ struct WebTileScreen: View {
         // Covered by a window pushed over it (its own xbin.window) it shows
         // again on the pop — keep the page; gone: close it.
         .onDisappear { if !nav.stillStacked(window: window) { controller?.close() } }
+        .onChange(of: panelActive) { _, active in controller?.webView.accessibilityElementsHidden = !active }
         // Live reload (§7.7): the tile's source changed — reload the page.
         .task(id: tile.path) { await workspace.events.onReload(of: tile.path) { controller?.reload() } }
         .onChange(of: phase) { _, p in
@@ -265,27 +272,6 @@ struct WindowScreen: View {
             .navigationBarTitleDisplayMode(.inline)
             // closed once popped — not while another window covers it
             .onDisappear { if !nav.stillStacked(window: window.replyID) { WindowReplies.shared.closed(window.replyID) } }
-    }
-}
-
-/// Chrome tiles act as the human: they open in Safari, never under a
-/// frame token (§6.3).
-struct SafariHandoff: View {
-    let workspace: WorkspaceModel
-    let tile: TileInfo
-    @Environment(\.openURL) private var openURL
-
-    var body: some View {
-        ContentUnavailableView {
-            Label(tile.title, systemImage: "safari")
-        } description: {
-            Text("This tile is part of the workspace's own chrome — it acts as you, so it opens in Safari.")
-        } actions: {
-            Button("Open in Safari") {
-                Task { await workspace.openInSafari(path: "/c/\(URLComponent.encodePath(tile.path))/") }
-            }
-            .buttonStyle(.borderedProminent)
-        }
     }
 }
 

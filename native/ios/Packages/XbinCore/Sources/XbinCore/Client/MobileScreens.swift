@@ -133,6 +133,25 @@ public enum LayoutPref {
     /// Where builds before D117 looked: the `shell` bucket (a frame token
     /// for `shell`). Read only when `root` has none.
     public static let legacyComponent = "shell"
+    /// The bucket the shell and the app share.
+    public static let component = "root"
+    /// Names who writes a pref (≤ 64 characters); xbind echoes it in the
+    /// `prefs` event, so a client skips its own writes.
+    public static let writerHeader = "X-Prefs-Writer"
+
+    /// Whether a `prefs` event is another client's write of a pref Home
+    /// shows (`layout`, `mobile-screens` in the shared bucket).
+    public static func concernsHome(component: String, key: String, writer: String, me: String) -> Bool {
+        (component == Self.component || component.isEmpty) && (key == "layout" || key == MobileScreens.key)
+            && (writer.isEmpty || writer != me)
+    }
+
+    /// A write of `value` to pref `path`, naming its writer.
+    public static func put(_ path: String, _ value: JSONValue, writer: String) -> APIRequest {
+        var r = APIRequest.json("PUT", path, value)
+        r.headers[writerHeader] = String(writer.prefix(64))
+        return r
+    }
 
     /// The web's default new-tile size (grid-layout.js `DEF_W`, `DEF_H`).
     public static let tileWidth = 576.0

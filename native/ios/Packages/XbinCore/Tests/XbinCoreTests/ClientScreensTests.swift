@@ -218,4 +218,20 @@ import Testing
         #expect(AppEvent.parse(#"{"type":"status","component":"apps/x","data":{"level":"info","message":"m","transient":true}}"#)
             == .tileStatus(component: "apps/x", level: "info", message: "m", transient: true))
     }
+
+    /// Another client wrote `layout` or `mobile-screens` (the `prefs`
+    /// event): Home reloads — never for this app's own writes, another
+    /// bucket or another key.
+    @Test func prefsEvents() throws {
+        let e = AppEvent.parse(#"{"type":"prefs","component":"root","data":{"key":"layout","writer":"app-1"}}"#)
+        #expect(e == .prefs(component: "root", key: "layout", writer: "app-1"))
+        #expect(AppEvent.parse(#"{"type":"prefs","component":"root","data":{"key":"layout"}}"#) == .prefs(component: "root", key: "layout", writer: ""))
+        #expect(LayoutPref.concernsHome(component: "root", key: "layout", writer: "web", me: "app-1"))
+        #expect(LayoutPref.concernsHome(component: "root", key: "mobile-screens", writer: "", me: "app-1"))
+        #expect(!LayoutPref.concernsHome(component: "root", key: "layout", writer: "app-1", me: "app-1"))
+        #expect(!LayoutPref.concernsHome(component: "apps/x", key: "layout", writer: "web", me: "app-1"))
+        #expect(!LayoutPref.concernsHome(component: "root", key: "settings", writer: "web", me: "app-1"))
+        let put = LayoutPref.put(MobileScreens.path, ["v": 1], writer: String(repeating: "w", count: 80))
+        #expect(put.method == "PUT" && put.header("X-Prefs-Writer")?.count == 64 && put.header("Content-Type") == "application/json")
+    }
 }
