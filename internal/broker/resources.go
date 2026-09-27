@@ -215,13 +215,14 @@ func openKV(root string) (*kvStore, error) {
 
 // kvAccess parses /kv/{res-target}/{key...} and authorizes, answering the
 // resource's keys (its bucket, file and label) in the data namespace the
-// caller reaches (reachRes).
+// caller reaches (reachRes), past that namespace's hold and, for a writer,
+// its write gate until release (nsEnter).
 // URL form: /api/xbin/kv/res:<scope>/<name>/<key…>
-func (b *Broker) kvAccess(w http.ResponseWriter, r *http.Request, want string) (k resKeys, key string, ok bool) {
+func (b *Broker) kvAccess(w http.ResponseWriter, r *http.Request, want string) (k resKeys, key string, release func(), ok bool) {
 	rest := strings.Trim(r.PathValue("rest"), "/")
 	if !strings.HasPrefix(rest, "res:") {
 		server.WriteError(w, http.StatusBadRequest, "kv paths are /api/xbin/kv/res:<scope>/<name>/<key>", "/docs/resources.md")
-		return resKeys{}, "", false
+		return resKeys{}, "", nil, false
 	}
 	p := auth.PrincipalOf(r)
 	// Find the declared resource by longest prefix.
@@ -230,24 +231,25 @@ func (b *Broker) kvAccess(w http.ResponseWriter, r *http.Request, want string) (
 		ra, found, err := b.reachRes(p, probe)
 		if err != nil {
 			writeNamespaceRefusal(w, err)
-			return resKeys{}, "", false
+			return resKeys{}, "", nil, false
 		}
 		if found && ra.res.Type == "kv" {
 			key = strings.TrimPrefix(rest, probe)
 			key = strings.TrimPrefix(key, "/")
 			if err := b.allowAt(p, ra, want); err != nil {
 				server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/auth.md")
-				return resKeys{}, "", false
+				return resKeys{}, "", nil, false
 			}
 			k, err := b.resKeys(ra.rt, ra.dep)
 			if err != nil {
 				server.WriteError(w, http.StatusNotFound, err.Error(), "/docs/resources.md")
-				return resKeys{}, "", false
+				return resKeys{}, "", nil, false
 			}
 			if !b.quotaOK(w, k.quotaKey(), want) {
-				return resKeys{}, "", false
+				return resKeys{}, "", nil, false
 			}
-			return k, key, true
+			release, ok := b.nsEnter(w, ra.rt.Scope, ra.dep, want)
+			return k, key, release, ok
 		}
 		i := strings.LastIndex(probe, "/")
 		if i < 0 {
@@ -256,14 +258,15 @@ func (b *Broker) kvAccess(w http.ResponseWriter, r *http.Request, want string) (
 		probe = probe[:i]
 	}
 	server.WriteError(w, http.StatusNotFound, "no such kv resource", "/docs/resources.md")
-	return resKeys{}, "", false
+	return resKeys{}, "", nil, false
 }
 
 func (b *Broker) apiKVGet(w http.ResponseWriter, r *http.Request) {
-	k, key, ok := b.kvAccess(w, r, "reader")
+	k, key, release, ok := b.kvAccess(w, r, "reader")
 	if !ok {
 		return
 	}
+	defer release()
 	db, err := b.kvDB(k, false) // nil: a namespace nothing wrote to reads as empty
 	if err != nil {
 		server.WriteError(w, http.StatusInternalServerError, err.Error())
@@ -310,10 +313,11 @@ func (b *Broker) apiKVGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *Broker) apiKVPut(w http.ResponseWriter, r *http.Request) {
-	k, key, ok := b.kvAccess(w, r, "writer")
+	k, key, release, ok := b.kvAccess(w, r, "writer")
 	if !ok {
 		return
 	}
+	defer release()
 	if key == "" {
 		server.WriteError(w, http.StatusBadRequest, "missing key")
 		return
@@ -348,10 +352,11 @@ func (b *Broker) apiKVPut(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *Broker) apiKVDelete(w http.ResponseWriter, r *http.Request) {
-	k, key, ok := b.kvAccess(w, r, "writer")
+	k, key, release, ok := b.kvAccess(w, r, "writer")
 	if !ok {
 		return
 	}
+	defer release()
 	db, err := b.kvDB(k, false)
 	if err == nil && db != nil { // a namespace nothing wrote to has nothing to delete
 		err = db.Update(func(tx *bolt.Tx) error {
@@ -374,8 +379,10 @@ func (b *Broker) apiKVDelete(w http.ResponseWriter, r *http.Request) {
 // the file's path in the decrypted volume of the data namespace the caller
 // reaches (reachRes). A volume beyond main mounts on its first use; one
 // nothing ever wrote answers "" for every request but a PUT, which reads as
-// empty and creates nothing (08-data §3.6, §3.7).
-func (b *Broker) blobAccess(w http.ResponseWriter, r *http.Request, want string) (dir, rel string, ok bool) {
+// empty and creates nothing (08-data §3.6, §3.7). A held namespace answers
+// 503 before anything mounts; a writer holds its write gate until release
+// (nsEnter).
+func (b *Broker) blobAccess(w http.ResponseWriter, r *http.Request, want string) (dir, rel string, release func(), ok bool) {
 	rest := strings.Trim(r.PathValue("rest"), "/")
 	p := auth.PrincipalOf(r)
 	probe := rest
@@ -383,25 +390,25 @@ func (b *Broker) blobAccess(w http.ResponseWriter, r *http.Request, want string)
 		ra, found, err := b.reachRes(p, probe)
 		if err != nil {
 			writeNamespaceRefusal(w, err)
-			return "", "", false
+			return "", "", nil, false
 		}
 		if found && ra.res.Type == "blob" {
 			rel = strings.TrimPrefix(strings.TrimPrefix(rest, probe), "/")
 			if err := b.allowAt(p, ra, want); err != nil {
 				server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/auth.md")
-				return "", "", false
+				return "", "", nil, false
 			}
 			k, err := b.resKeys(ra.rt, ra.dep)
 			if err != nil {
 				server.WriteError(w, http.StatusNotFound, err.Error(), "/docs/resources.md")
-				return "", "", false
+				return "", "", nil, false
 			}
-			if !b.quotaOK(w, k.quotaKey(), want) {
-				return "", "", false
+			if !b.quotaOK(w, k.quotaKey(), want) || !b.nsAvailable(w, ra.rt.Scope, ra.dep) {
+				return "", "", nil, false
 			}
 			if k.NS != "" && b.encryptionReady() {
 				if !b.resenc.Encrypted(k.DirKey, k.Name) && r.Method != http.MethodPut {
-					return "", rel, true // never written: reads as empty, creates nothing
+					return "", rel, func() {}, true // never written: reads as empty, creates nothing
 				}
 				b.ensureVolume(k, ra.rt.Scope, ra.res.Type)
 			}
@@ -410,15 +417,16 @@ func (b *Broker) blobAccess(w http.ResponseWriter, r *http.Request, want string)
 			// into the bare mountpoint.
 			if !b.fsReady(k) {
 				server.WriteError(w, http.StatusServiceUnavailable, "resource unavailable — vault sealed or encryption not ready", "/docs/auth.md")
-				return "", "", false
+				return "", "", nil, false
 			}
 			base := b.resMount(k, false) // decrypted gocryptfs mount
 			full, _, err := util.SafeJoin(base, rel)
 			if err != nil {
 				server.WriteError(w, http.StatusBadRequest, "bad path")
-				return "", "", false
+				return "", "", nil, false
 			}
-			return full, rel, true
+			release, ok := b.nsEnter(w, ra.rt.Scope, ra.dep, want)
+			return full, rel, release, ok
 		}
 		i := strings.LastIndex(probe, "/")
 		if i < 0 {
@@ -427,11 +435,14 @@ func (b *Broker) blobAccess(w http.ResponseWriter, r *http.Request, want string)
 		probe = probe[:i]
 	}
 	server.WriteError(w, http.StatusNotFound, "no such blob resource", "/docs/resources.md")
-	return "", "", false
+	return "", "", nil, false
 }
 
 func (b *Broker) apiBlobGet(w http.ResponseWriter, r *http.Request) {
-	full, rel, ok := b.blobAccess(w, r, "reader")
+	full, rel, release, ok := b.blobAccess(w, r, "reader")
+	if ok {
+		defer release()
+	}
 	switch {
 	case !ok:
 		return
@@ -464,10 +475,11 @@ func (b *Broker) apiBlobGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *Broker) apiBlobPut(w http.ResponseWriter, r *http.Request) {
-	full, rel, ok := b.blobAccess(w, r, "writer")
+	full, rel, release, ok := b.blobAccess(w, r, "writer")
 	if !ok {
 		return
 	}
+	defer release()
 	if rel == "" {
 		server.WriteError(w, http.StatusBadRequest, "missing blob path")
 		return
@@ -490,10 +502,11 @@ func (b *Broker) apiBlobPut(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *Broker) apiBlobDelete(w http.ResponseWriter, r *http.Request) {
-	full, rel, ok := b.blobAccess(w, r, "writer")
+	full, rel, release, ok := b.blobAccess(w, r, "writer")
 	if !ok {
 		return
 	}
+	defer release()
 	if rel == "" {
 		server.WriteError(w, http.StatusBadRequest, "missing blob path")
 		return
@@ -533,6 +546,9 @@ func (b *Broker) apiBusPublish(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := b.allowAt(p, ra, "writer"); err != nil {
 		server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/auth.md")
+		return
+	}
+	if !b.nsAvailable(w, ra.rt.Scope, ra.dep) {
 		return
 	}
 	// The event is in the namespace the publisher reaches: its own scope's

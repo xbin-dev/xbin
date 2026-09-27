@@ -173,6 +173,9 @@ func (b *Broker) DeploymentEncryptionHold(tile, dep string) bool {
 		return false
 	}
 	dep = cmp.Or(dep, util.MainDeployment)
+	if b.nsHeld(tile, c.Scope, dep) {
+		return true // a data act holds dep's own namespace, or left it partial: nothing mounts
+	}
 	sealedVault := b.barrier != nil && b.barrier.Initialized() && b.barrier.Sealed()
 	for _, u := range c.Manifest.Uses {
 		rt, res, ok := b.envTarget(c, dep, u.Target)
