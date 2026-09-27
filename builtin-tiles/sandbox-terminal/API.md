@@ -78,7 +78,8 @@ both draw from it).
 
 `native.js` shows the same list, a detail screen per sandbox (its `ssh`
 command, the terminals running in it — **End** behind the swipe), and a
-keys screen (add, remove, the host key; a manager sets the address). It
+keys screen (add, remove, the host key, your live SSH sessions; a manager
+sets the address, and sees and revokes everyone's keys). It
 opens **no terminal** — a difference from the page (D96): the app's
 `terminal` primitive dials only this tile's own routes, and a sandbox's
 terminal is its manager's; relaying it through this tile's backend would

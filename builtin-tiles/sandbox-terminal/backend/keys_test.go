@@ -203,3 +203,41 @@ func TestLoginBase(t *testing.T) {
 		}
 	}
 }
+
+// The person rules, on what a manager answers: a sandbox is this tile's own
+// only when its home is this tile — one naming no home needs a share too.
+func TestMayUse(t *testing.T) {
+	t.Parallel()
+	tile := newTile(self, &memKV{}, nil, nil, func() []manager { return nil }, nil)
+	sb := func(via string, shared bool, users string, vis string, members ...string) *sandbox {
+		s := &sandbox{Visibility: vis, Members: members, Shared: shared}
+		s.Owner.User, s.Owner.Via = "bob", via
+		if users != "" {
+			s.Shares = []share{{Consumer: self, Users: json.RawMessage(users)}}
+		}
+		return s
+	}
+	for name, c := range map[string]struct {
+		sb   *sandbox
+		want bool
+	}{
+		"its own, team":              {sb(self, false, "", "team"), true},
+		"its own, private":           {sb(self, false, "", "private"), false},
+		"its own, a member":          {sb(self, false, "", "private", "alice"), true},
+		"shared *, team":             {sb("apps/agent", true, `"*"`, "team"), true},
+		"shared for bob, team":       {sb("apps/agent", true, `["bob"]`, "team"), false},
+		"shared for alice, private":  {sb("apps/agent", true, `["alice"]`, "private"), false},
+		"shared for alice, member":   {sb("apps/agent", true, `["alice"]`, "private", "alice"), true},
+		"another home, no share":     {sb("apps/agent", false, "", "team"), false},
+		"no home named, no share":    {sb("", false, "", "team"), false},
+		"no home named, shared *":    {sb("", false, `"*"`, "team"), true},
+		"shared, a share of garbage": {sb("apps/agent", true, `{"x":1}`, "team"), false},
+	} {
+		if got := tile.mayUse("alice", c.sb); got != c.want {
+			t.Errorf("%s: mayUse = %v, want %v", name, got, c.want)
+		}
+	}
+	if tile.mayUse("", sb(self, false, "", "team")) {
+		t.Error("nobody may use anything")
+	}
+}

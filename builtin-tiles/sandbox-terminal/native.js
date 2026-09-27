@@ -3,8 +3,9 @@
 // /keys; PUT /settings; the managers' …/execs, read and ended as you) and the
 // same words (./sbxterm.js): the sandboxes grouped by manager with a detail
 // screen each (its ssh command, the terminals running in it — End ends one),
-// and a keys screen (add, remove, the host key; a tile manager sets the
-// address people use).
+// and a keys screen (add, remove, the host key, your live SSH sessions; a
+// tile manager sets the address people use, and sees and revokes everyone's
+// keys).
 //
 // The one difference from the page (D96; sbxterm.js TERMINAL_GAP): no
 // terminal opens here. The app's `terminal` primitive dials only this tile's
@@ -26,6 +27,7 @@ const wsOrigin = document.querySelector('meta[name="xbin-ws-origin"]')?.getAttri
 const link = T.browserURL(wsOrigin, globalThis.location && location.href);
 
 let me = null, list = null, keys = null, err = '', note = '', busy = '';
+let sessions = [], everyone = null;   // the keys screen's: your live SSH sessions; everyone's keys (a tile manager)
 let open = null, screen = '';   // open: the detail screen's sandbox key; screen: 'keys' when pushed
 const execs = {};
 const draft = { key: '', name: '', keyErr: '', addr: null };
@@ -80,7 +82,18 @@ async function addKey() {
 const removeKey = (k) => act(async () => {
   await selfApi(`/keys/${encodeURIComponent(k.id)}`, { method: 'DELETE' });
   keys = (await selfApi('/keys')).keys || [];
+  if (everyone) everyone = (await selfApi('/keys?all=1')).keys || [];
 });
+// openKeys pushes the keys screen, then reads what only it shows: your live
+// SSH sessions and — for a manager of the tile — everyone's keys.
+const openKeys = () => {
+  screen = 'keys';
+  paint();
+  return act(async () => {
+    sessions = (await selfApi('/sessions')).sessions || [];
+    if (me && me.manager && !me.viewedBy) everyone = (await selfApi('/keys?all=1')).keys || [];
+  });
+};
 const saveAddr = () => act(async () => {
   await selfApi('/settings', jbody({ sshAddress: (draft.addr || '').trim() }, 'PUT'));
   me = await selfApi('/me');
@@ -115,7 +128,7 @@ const main = () => {
     <section title="SSH">
       <notice tone=${st.ready ? 'ok' : st.tone} title=${st.title} text=${st.text}/>
       ${!st.ready && me && me.ssh && me.ssh.listening ? html`<code copy text=${st.expose}/>` : nothing}
-      <row title="Your keys" icon="key" nav detail=${keys ? String(keys.length) : '…'} @tap=${() => { screen = 'keys'; paint(); }}/>
+      <row title="Your keys" icon="key" nav detail=${keys ? String(keys.length) : '…'} @tap=${openKeys}/>
     </section>
   </screen>`;
 };
@@ -169,9 +182,19 @@ const keysTpl = () => {
     ${hk ? html`<section title="Host key" footer="What ssh shows the first time you connect.">
       <row title=${hk.type} detail=${hk.fingerprint} mono="detail"/>${kh ? html`<code copy text=${kh}/>` : nothing}
     </section>` : nothing}
+    ${sessions.length ? html`<section title="Your SSH sessions">${sessions.map((x) => html`
+      <row title=${x.name || x.login} subtitle=${`${x.kind} · from ${x.remote} · since ${T.ago(x.started)}`} icon="terminal"/>`)}</section>` : nothing}
     ${me && me.manager && !ro ? html`<section title="Address people use" footer="host or host:port — where the SSH port is published; the ssh commands show it.">
       <field label="Address" placeholder="sbx.example.com:2222" value=${draft.addr ?? ''} @input=${(e) => { draft.addr = e.value; paint(); }}/>
       <button @tap=${saveAddr}>Save</button>
+    </section>` : nothing}
+    ${me && me.manager && !ro && everyone ? html`<section title="Everyone's keys" footer="You manage this tile: revoking a key ends its SSH connections at once.">
+      ${everyone.length ? repeat(T.keyRows(everyone), (k) => k.id, (k) => html`
+        <row title=${k.user} subtitle=${`${k.name} · ${k.fingerprint}`} detail=${k.lastUsed} icon="person">
+          <actions><button role="destructive" icon="trash"
+            confirm=${{ title: `Revoke ${k.user}'s key “${k.name}”?`, message: 'Its SSH connections end now.', label: 'Revoke', destructive: true }}
+            @tap=${() => removeKey(k)}>Revoke</button></actions>
+        </row>`) : html`<empty icon="key" text="nobody has registered a key"/>`}
     </section>` : nothing}
   </screen>`;
 };

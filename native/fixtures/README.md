@@ -179,6 +179,7 @@ the fixtures, `expected.json` and the renderers in one change
 | `tile-prometheus-viewer` | the shipped `builtin-tiles/prometheus-viewer/native.js` (§18.7, with the page's `prom.js`): two sources after three scrapes — disclosures per metric, rates, sparklines, a failing source |
 | `tile-chat` | the shipped `builtin-tiles/chat/native.js` (§18.8, with the page's `chat-core.js`): a question answered with an MCP tool call — the toolcard, timed thinking, streamed markdown |
 | `tile-sandbox-terminal` | the shipped `builtin-tiles/sandbox-terminal/native.js` (D121, with the page's `sbxterm.js`): sandboxes grouped by manager, a pushed detail screen with its ssh command and a running terminal (End behind the swipe, confirmed), and "Open in the browser" copying the link when the app may not open it — the view opens no terminal (a D96 difference) |
+| `tile-sandbox-terminal-keys` | the same `native.js`, its keys screen as a manager of the tile sees it: your keys, the host key, your live SSH sessions, the address people use, and everyone's keys — one revoked behind the swipe (confirmed), the list read again |
 
 The `tile-*` fixtures import the shipped tile's `native.js` instead of holding
 a copy, so a change to one of those tiles shows up here as a fixture diff —

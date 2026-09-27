@@ -249,12 +249,14 @@ func (t *Tile) hello(ctx context.Context, m manager) (*hello, error) {
 // mayUse is the contract's person rule, which this tile enforces for the
 // people it acts for (the manager doesn't, on a backend's call): a sandbox
 // shared with this tile only as far as its share names the person, then its
-// owner, a member, or anyone when it is team.
+// owner, a member, or anyone when it is team. Only a sandbox whose home
+// (owner.via) is this tile is its own: one that names no home — a manager
+// off the contract — needs a share like any other.
 func (t *Tile) mayUse(person string, sb *sandbox) bool {
 	if person == "" || sb == nil {
 		return false
 	}
-	if sb.Shared || (sb.Owner.Via != "" && sb.Owner.Via != t.self) {
+	if sb.Shared || sb.Owner.Via != t.self {
 		if !shareAllows(sb.Shares, t.self, person) {
 			return false
 		}
