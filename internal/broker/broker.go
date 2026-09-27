@@ -122,6 +122,7 @@ type Broker struct {
 	// in the clear.
 	AllowInsecureVault bool
 	DeploymentHooks    // installed by the deployments plane; nil-safe (deployhooks.go)
+	DeploymentAnswers  // the same, for deployments beyond main (deploydata.go)
 }
 
 // Close releases what a boot holds open for the daemon's lifetime — the KV
@@ -290,7 +291,8 @@ func (b *Broker) Register(srv *server.Server) {
 	b.registerUsers(srv)
 	b.registerScreens(srv)
 	b.obs = &obs.Plane{Root: b.Reg.Root, Hub: b.Hub, IsAdmin: b.IsAdmin,
-		HasComponent: func(p string) bool { _, ok := b.Reg.Component(p); return ok }}
+		HasComponent: func(p string) bool { _, ok := b.Reg.Component(p); return ok },
+		Primary:      b.primaryOf, Addressed: b.addressed}
 	b.obs.Register(srv)
 	srv.InstallPolicy(brokerPolicy{b})
 }
