@@ -416,10 +416,20 @@ export class BxFrame extends LitElement {
     // re-minting the bootstrap token when credentialless (the old one may
     // have expired); in origins mode the workspace URL again (the server
     // sends it on to the tile origin with a fresh ticket).
-    if (this._frame?.credentialless) { this._prepareFrame(); return; }
+    if (this._frame?.credentialless) { this._renavigate(); return; }
     if (this._frame?.sandboxed) { const f = this._iframe; if (f) f.src = this._url(); return; }
     try { this._iframe?.contentWindow?.location.reload(); }
     catch { if (this._iframe) this._iframe.src = this._url(); }
+  }
+
+  // A credentialless reload loads a freshly minted bootstrap URL. Tokens
+  // minted within one second are identical, and an unchanged src binding
+  // never navigates, so a second reload that soon (a save right after a
+  // deploy's reload) would be lost: that URL is navigated to directly.
+  async _renavigate() {
+    const before = this._frame?.url;
+    await this._prepareFrame();
+    if (this._frame?.url === before && this._iframe) this._iframe.src = before;
   }
 
   // A reload must not mess with focus or z-order. A reloaded document that
