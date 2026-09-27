@@ -12,6 +12,30 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-27
 
+- **`<bx-terminal src>`: a terminal on any endpoint speaking the terminal
+  wire** ([elements.md](elements.md) §`<bx-terminal>`). A tile's page can
+  now embed `/vendor/bx-terminal.js` and point `src` at a sandbox
+  manager's `…/sbx/sandboxes/{id}/tty?cwd=` through its bound interface (or
+  its own pty route): a path on this host is dialled with the page's frame
+  token (`xbin.ws`), so the callee sees the verified person. Same features
+  as the shell's terminal — predictive echo where the server acks, resize,
+  themes. A drop reconnects with backoff (to the same exec on a manager's
+  route); an `exit` frame or a clean close prints how it ended and fires
+  `bx-exit` with `{code, signal}`; changing `src` starts over. The existing
+  `/ws/term` attributes are unchanged. In a sandboxed tile, where
+  `localStorage` throws, the terminal falls back to its default settings.
+- **The terminal wire, documented for reuse** ([protocol.md](protocol.md)
+  §The terminal wire). This is `/ws/term`'s framing, stated for any
+  endpoint:
+  - binary frames carry keystrokes and output;
+  - the first text frame is `session`, with an `id` to reattach to and an
+    optional `echoAck`;
+  - `pong` answers every `ping`;
+  - `exit` (with `code` or `signal`) comes before a clean close;
+  - the client sends `resize` first on every connect.
+
+  A sandbox manager's `tty`, the xbin app's `terminal` and
+  `<bx-terminal src>` all use it.
 - **SDK: WebSocket on the standard library (`sdk/ws`,
   [sdk.md](sdk.md)).** A client and server — `ws.Dial` and `ws.Upgrade` —
   with text and binary messages, fragments reassembled, pings answered,

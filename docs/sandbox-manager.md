@@ -265,8 +265,8 @@ across its own restarts, too.
 `GET /sbx/sandboxes/{id}/execs/{eid}/tty` attaches to a `tty` exec, and
 `GET /sbx/sandboxes/{id}/tty?cwd=&cmd=&rows=&cols=` starts one (the login
 shell unless `cmd`) and attaches — both are WebSocket upgrades speaking
-exactly the terminal framing of `/ws/term` (docs/protocol.md §`/ws/term`),
-so `<bx-terminal>` and the xbin app's `terminal` work against it:
+exactly the terminal wire of `/ws/term` (docs/protocol.md §The terminal
+wire), so `<bx-terminal src>` (docs/elements.md) works against it:
 
 - **Binary frames** both ways: raw terminal bytes. The ring's tail replays
   first.
@@ -286,9 +286,12 @@ the command; attaching to one that has ended replays its ring, then says
 `exit`. A request that isn't a WebSocket upgrade is `invalid`, and refusals
 come before the upgrade, as JSON like any other route's.
 
-A page connects with its frame token (`xbin.ws(url)`), so the manager sees
-the verified person. A Go backend dials with the SDK's `sdk/ws`
-(docs/sdk.md) through `xbin.Client()`.
+A page connects with its frame token (`xbin.ws(url)`, or `<bx-terminal
+src="<url>/sbx/sandboxes/{id}/tty?cwd=…">`, which does it for you and
+reattaches to the same exec after a drop), so the manager sees the verified
+person. A Go backend dials with the SDK's `sdk/ws` (docs/sdk.md) through
+`xbin.Client()`. The xbin app's `terminal` primitive dials only a tile's own
+routes, so it can't reach a manager's.
 
 ## Files (`files`) and trees (`tar`)
 

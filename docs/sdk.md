@@ -355,7 +355,7 @@ automatic.
 ```html
 <script type="module">
   import '/vendor/bx-frame.js';     // <bx-frame src="…">
-  import '/vendor/bx-terminal.js';  // <bx-terminal cwd="…"> (bx-frame uses it)
+  import '/vendor/bx-terminal.js';  // <bx-terminal src="…"> (a terminal-wire endpoint; bx-frame uses its cwd="…" mode)
   import '/vendor/bx-grants.js';    // <bx-grants> owner approval panel
   import '/vendor/bx-dialog.js';    // <bx-dialog> modal (xbin.dialog fallback)
   import { xbinApi, jbody } from '/vendor/bx-kit.js'; // the helper kit
