@@ -21,7 +21,8 @@ import (
 //
 // Bucket = data/prefs/<user>/<component>.json, where user is the human's id
 // (or "root" for the root token / single-user) and component is the calling
-// tile ("root" for the shell / main page).
+// tile ("root" for the shell / main page). A tile deployment beyond main
+// keeps its own buckets (deployprefs.go).
 
 func (o *Plane) registerPrefs(srv *server.Server) {
 	srv.RegisterAPI("GET /prefs", o.apiPrefsAll)
@@ -42,14 +43,22 @@ func prefsKeys(p auth.Principal) (user, comp string) {
 	return
 }
 
-func (o *Plane) prefsPath(p auth.Principal) string {
+func (o *Plane) prefsPath(p auth.Principal) (string, error) {
 	user, comp := prefsKeys(p)
-	return filepath.Join(o.Root, "data", "prefs", util.CompKey(user), util.CompKey(comp)+".json")
+	dir := filepath.Join(o.Root, "data", "prefs", util.CompKey(user))
+	if rel, err := o.prefsDeploymentFile(p); rel != "" || err != nil {
+		return filepath.Join(dir, rel), err
+	}
+	return filepath.Join(dir, util.CompKey(comp)+".json"), nil
 }
 
 func (o *Plane) prefsRead(p auth.Principal) (map[string]json.RawMessage, error) {
 	out := map[string]json.RawMessage{}
-	bts, err := os.ReadFile(o.prefsPath(p))
+	path, err := o.prefsPath(p)
+	if err != nil {
+		return nil, err
+	}
+	bts, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return out, nil
 	}
@@ -60,7 +69,10 @@ func (o *Plane) prefsRead(p auth.Principal) (map[string]json.RawMessage, error) 
 }
 
 func (o *Plane) prefsWrite(p auth.Principal, m map[string]json.RawMessage) error {
-	path := o.prefsPath(p)
+	path, err := o.prefsPath(p)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -74,7 +86,7 @@ func (o *Plane) prefsWrite(p auth.Principal, m map[string]json.RawMessage) error
 func (o *Plane) apiPrefsAll(w http.ResponseWriter, r *http.Request) {
 	m, err := o.prefsRead(auth.PrincipalOf(r))
 	if err != nil {
-		server.WriteError(w, http.StatusInternalServerError, err.Error())
+		writePrefsErr(w, err)
 		return
 	}
 	server.WriteJSON(w, http.StatusOK, m)
@@ -83,7 +95,7 @@ func (o *Plane) apiPrefsAll(w http.ResponseWriter, r *http.Request) {
 func (o *Plane) apiPrefsGet(w http.ResponseWriter, r *http.Request) {
 	m, err := o.prefsRead(auth.PrincipalOf(r))
 	if err != nil {
-		server.WriteError(w, http.StatusInternalServerError, err.Error())
+		writePrefsErr(w, err)
 		return
 	}
 	v, ok := m[r.PathValue("key")]
@@ -108,7 +120,7 @@ func (o *Plane) apiPrefsPut(w http.ResponseWriter, r *http.Request) {
 		err = o.prefsWrite(p, m)
 	}
 	if err != nil {
-		server.WriteError(w, http.StatusInternalServerError, err.Error())
+		writePrefsErr(w, err)
 		return
 	}
 	server.WriteOK(w)
@@ -122,7 +134,7 @@ func (o *Plane) apiPrefsDelete(w http.ResponseWriter, r *http.Request) {
 		err = o.prefsWrite(p, m)
 	}
 	if err != nil {
-		server.WriteError(w, http.StatusInternalServerError, err.Error())
+		writePrefsErr(w, err)
 		return
 	}
 	server.WriteOK(w)
