@@ -386,8 +386,11 @@ func loginBase(name string) string {
 }
 
 // assignLogins gives every entry its login: the name's base when it is the
-// only one with it, else base.<n> (n from 1 in the listing's order); a
-// sandbox whose name gives nothing logs in by its id.
+// only one with it, else base~<n> (n from 1 in the listing's order); a
+// sandbox whose name gives nothing logs in by its id. A base never has a
+// '~' (loginBase turns one into '-'), so a disambiguated login can't be
+// another sandbox's own: `web~1` is the first of two "web"s, and a sandbox
+// named "web.1" keeps `web.1`.
 func assignLogins(es []entry) {
 	groups := map[string][]int{}
 	for i := range es {
@@ -403,7 +406,7 @@ func assignLogins(es []entry) {
 			continue
 		}
 		for n, i := range idx {
-			es[i].Login = fmt.Sprintf("%s.%d", base, n+1)
+			es[i].Login = fmt.Sprintf("%s~%d", base, n+1)
 		}
 	}
 }

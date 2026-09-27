@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -154,26 +155,28 @@ func TestSSHRefusedKey(t *testing.T) {
 }
 
 // The user name picks the sandbox: unknown names list the person's; one
-// name on two sandboxes asks for <name>.<n> or an id.
+// name on two sandboxes asks for <name>~<n> or an id — never a login another
+// sandbox's own name gives (a sandbox named "web.1" is web.1).
 func TestSSHPickSandbox(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.sandbox("alice", "api-dev", shared("*"))
 	w1 := r.sandbox("alice", "Web", shared("*"))
 	w2 := r.sandbox("alice", "web", shared("*"))
+	dot := r.sandbox("alice", "web.1", shared("*"))
 	key := r.register("alice")
 
 	c := r.mustDial("nope", key)
 	_, errOut, code := run(t, c, "true", false, "")
-	if code != 1 || !strings.Contains(errOut, `no sandbox "nope"`) || !strings.Contains(errOut, "api-dev") || !strings.Contains(errOut, "web.1") {
+	if code != 1 || !strings.Contains(errOut, `no sandbox "nope"`) || !strings.Contains(errOut, "api-dev") || !strings.Contains(errOut, "web~1") {
 		t.Fatalf("an unknown name: %d %q", code, errOut)
 	}
 	c = r.mustDial("web", key)
 	_, errOut, code = run(t, c, "true", false, "")
-	if code != 1 || !strings.Contains(errOut, "names 2 sandboxes") || !strings.Contains(errOut, "web.1") || !strings.Contains(errOut, w2.ID) {
+	if code != 1 || !strings.Contains(errOut, "names 2 sandboxes") || !strings.Contains(errOut, "web~1") || !strings.Contains(errOut, w2.ID) {
 		t.Fatalf("an ambiguous name: %d %q", code, errOut)
 	}
-	for login, want := range map[string]string{"web.1": w1.ID, "web.2": w2.ID, w2.ID: w2.ID, "API-Dev": ""} {
+	for login, want := range map[string]string{"web~1": w1.ID, "web~2": w2.ID, "web.1": dot.ID, w2.ID: w2.ID, "API-Dev": ""} {
 		c := r.mustDial(login, key)
 		out, errOut, code := run(t, c, "echo $SANDBOX_ID", false, "")
 		if code != 0 || (want != "" && out != want+"\n") {
@@ -181,20 +184,45 @@ func TestSSHPickSandbox(t *testing.T) {
 		}
 	}
 
-	// the page's list carries the logins
+	// the page's list carries the logins, each one once
 	st, b := r.do("GET", "/sandboxes", "alice", "read", nil)
 	var l struct {
 		Sandboxes []sandboxView `json:"sandboxes"`
 	}
-	if st != 200 || json.Unmarshal(b, &l) != nil || len(l.Sandboxes) != 3 {
+	if st != 200 || json.Unmarshal(b, &l) != nil || len(l.Sandboxes) != 4 {
 		t.Fatalf("GET /sandboxes: %d %s", st, b)
 	}
 	logins := map[string]string{}
 	for _, s := range l.Sandboxes {
+		if logins[s.Login] != "" {
+			t.Fatalf("two sandboxes log in as %s: %v", s.Login, l.Sandboxes)
+		}
 		logins[s.Login] = s.ID
 	}
-	if logins["web.1"] != w1.ID || logins["web.2"] != w2.ID || logins["api-dev"] == "" {
+	if logins["web~1"] != w1.ID || logins["web~2"] != w2.ID || logins["web.1"] != dot.ID || logins["api-dev"] == "" {
 		t.Fatalf("logins: %v", logins)
+	}
+}
+
+// Generated logins never collide with a name's own, whatever the names.
+func TestAssignLoginsUnique(t *testing.T) {
+	t.Parallel()
+	names := []string{"web", "web", "web.1", "web~1", "web-1", "Web 1", "", "", "sb-x", "a", "A", "a~2", "a.2"}
+	es := make([]entry, len(names))
+	for i, n := range names {
+		es[i].SB = sandbox{ID: fmt.Sprintf("sb-%d", i), Name: n}
+	}
+	es[8].SB.ID = "sb-y"
+	assignLogins(es)
+	seen := map[string]int{}
+	for i, e := range es {
+		if j, dup := seen[e.Login]; dup {
+			t.Fatalf("%q (%q) and %q (%q) both log in as %q", names[j], es[j].SB.ID, names[i], e.SB.ID, e.Login)
+		}
+		seen[e.Login] = i
+	}
+	if es[0].Login != "web~1" || es[1].Login != "web~2" || es[2].Login != "web.1" || es[6].Login != "sb-6" {
+		t.Fatalf("%+v", es)
 	}
 }
 

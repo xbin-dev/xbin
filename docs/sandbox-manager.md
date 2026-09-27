@@ -366,13 +366,15 @@ opens which:
   (`…/execs/{id}/tty`) and ending (`DELETE …/execs/{id}`).
 - **Over SSH** (`ssh <sandbox>@host -p 2222`, after an admin runs `bx expose
   apps/sandbox-terminal ssh=runtime --listen :2222`) a key registered on its
-  page names the person, and its backend calls you as an **asserted** one
-  (`Sbx-User`): `GET /sbx/sandboxes` to find the sandbox, then your `tty`
-  route for a session with a terminal, or a background exec with `stdin` for
-  one without (`ssh host cmd`: stdout and stderr arrive together). A client
-  that leaves gets its command a `HUP`, then a `DELETE` if it still runs.
+  page names the person — only while xbind says they may still use the
+  tile, asked at every login — and its backend calls you as an
+  **asserted** one (`Sbx-User`): `GET /sbx/sandboxes` to find the sandbox,
+  then your `tty` route for a session with a terminal, or a background exec
+  with `stdin` for one without (`ssh host cmd`: stdout and stderr arrive
+  together). A client that leaves gets its command a `HUP`, then a
+  `DELETE` if it still runs.
   The SSH user name is the sandbox's name in lower case (runs of other
-  characters `-`), `<name>.<n>` when several share it, or its id.
+  characters `-`), `<name>~<n>` when several share it, or its id.
   No port or agent forwarding, no X11, no sftp in v1.
 
 What it offers people and its page, route by route, is its `API.md`

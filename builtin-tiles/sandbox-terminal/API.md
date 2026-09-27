@@ -64,7 +64,8 @@ with this tile doesn't exist here.
   tile has set the address people type) — the host key's fingerprint and
   `known_hosts` line, **your keys** (add one by pasting its `.pub`;
   remove), and your live SSH sessions. A manager of the tile also sets the
-  address, and sees and revokes **everyone's keys**.
+  address, and sees and revokes **everyone's keys** — a key whose person
+  lost access to the tile says `inactive`.
 - **Empty states** say how sandboxes get here: bind a manager, then share
   a sandbox with this tile (the agent's Sandboxes → Share with a terminal
   tile…, or the manager's own page).
@@ -99,14 +100,26 @@ ssh -t api-dev@sbx.example.com -p 2222 htop  # a command, in a terminal
 - **The user name picks the sandbox**: its *login* — its name in lower case
   with every run of characters other than `a-z 0-9 . _ -` turned into one
   `-` (`API dev` → `api-dev`) — or its id. When a name gives several
-  sandboxes you may use, they are `<name>.1`, `<name>.2`, … (in the managers'
+  sandboxes you may use, they are `<name>~1`, `<name>~2`, … (in the managers'
   order, then by age), and logging in as the bare name lists them with their
-  ids. An unknown name lists the sandboxes you may use. `GET /sandboxes`
+  ids. A name never gives a `~`, so these can't be another sandbox's own
+  login (a sandbox named `web.1` is `web.1`, the second of two `web`s is
+  `web~2`). An unknown name lists the sandboxes you may use. `GET /sandboxes`
   gives every sandbox's login.
 - **The key** is one you registered on the tile's page (below): an ed25519,
   ECDSA, security-key (`sk-…`) or RSA (2048 bits or more) public key.
   Certificates and `authorized_keys` options aren't taken. A key belongs to
-  one person.
+  one person, and logs them in only while they may use this tile (below).
+- **Access is checked at every login** — and for every session a
+  connection opens, and every 30 s while it lives: xbind says what the
+  key's person may do on this tile now (`GET /api/xbin/access/<user>`,
+  kept 30 s). Someone removed from the workspace, disabled, or taken off
+  this tile is told `access revoked` (exit 1) and nothing runs; a
+  connection they have open is cut, its sessions told why. Their keys are
+  **kept, marked inactive** — access may come back, and the next login
+  (or visit to the page) that finds it marks them active again. When xbind
+  doesn't answer, logins fail closed (`can't be checked right now`); a
+  live connection isn't cut over a check that failed.
 - **With a terminal** (a login shell, or `ssh -t`) the session is the
   manager's `tty` route: the login shell, or the command, in a
   pseudo-terminal of the requested size; resizing follows the window; the
@@ -127,39 +140,47 @@ ssh -t api-dev@sbx.example.com -p 2222 htop  # a command, in a terminal
   `sftp` (and so today's `scp`), environment variables from the client.
 - **The host key** is an ed25519 key made on first start and kept in the
   tile's vault; `GET /me` shows its fingerprint and `known_hosts` line.
-- **Limits.** Failed key attempts are rate-limited per source address (a
-  burst of 20, then one every 2 s; an attempt over the rate is answered
-  2 s late — a good key is never slowed), at most 32 logins in flight, 30 s
-  to authenticate, 6 attempts a connection, 10 sessions a connection.
-  xbind's port relay presents one source address inside the sandbox, so
-  behind it the rate is shared.
+- **Limits.** 10 s to authenticate, 6 attempts a connection, 10 sessions
+  a connection. At most 32 connections in their handshake at once; a new
+  one over that drops a **random older** one still in its handshake
+  (randomized early drop) rather than being refused, so connections that
+  never finish can't keep people out. Failed key attempts are rate-limited
+  per source address **and user name** (a burst of 20, then one every 2 s;
+  an attempt over the rate is answered 2 s late — a tarpit, never a
+  lockout: a good key is never slowed). xbind's port relay presents one
+  source address inside the sandbox, so keyed by the name too, a flood of
+  bad keys against one name doesn't slow anyone else's.
 - **Revoking a key** (the person, or a manager of the tile) ends that key's
-  live connections too. A person who loses access to the tile keeps their
-  keys until they or a manager remove them — xbind has no way for a tile to
-  ask whether someone still has access to it.
+  live connections too.
 
 ## Routes (the tile's own page, with its frame token)
 
 Every route answers the tile's own page (the verified person, with their
 access level to the tile) and the owner token. A **manager** of the tile is a
 person with write or terminal access to it, or the owner. An admin viewing
-the workspace as someone (D64) reads, and changes nothing.
+the workspace as someone (D64) reads, and changes nothing. A person whose
+access to the tile is gone (a frame token outlives it a while: xbind sends
+no level) reads `GET /me` and their own keys, removes them, and gets 403
+everywhere else.
 
 | Method & path | Body | Result |
 |---|---|---|
 | `GET /me` | — | `{user, level, manager, viewedBy, self, managers: [provider…], keys: n, ssh}` — `ssh` is `{port, address, listening, error?, hostKey: {type, fingerprint, publicKey}}` |
 | `GET /keys` | — | `{keys: [key…]}` — the caller's own |
-| `GET /keys?all=1` | — | everyone's (managers) |
-| `POST /keys` | `{publicKey, name?}` | **201** + the key (**200** when the caller already registered it); `name` defaults to the key's comment. 400 for anything but one plain public key, 409 for a key someone else registered or past 20 keys a person |
+| `GET /keys?all=1` | — | everyone's (managers) — each person's access asked of xbind first (cached), so `inactive` is current |
+| `POST /keys` | `{publicKey, name?}` | **201** + the key (**200** when the caller already registered it); `name` defaults to the key's comment. 400 for anything but one plain public key, 409 for a key someone else registered or past 20 keys a person, 403 when xbind says the caller may no longer use the tile, 503 when it didn't answer |
 | `DELETE /keys/{id}` | — | **204** — the caller's own, or anyone's for a manager; ends the key's live SSH connections |
 | `GET /sandboxes` | — | `{managers: [{provider, title, tty, error?}], sandboxes: [sandbox…], ssh}` — the sandboxes the caller may use, on every bound manager |
 | `GET /sessions` | — | `{sessions: [{user, login, provider, sandbox, name, kind: terminal\|command\|starting, remote, started, key}]}` — the caller's live SSH sessions; `?all=1` everyone's (managers) |
 | `PUT /settings` | `{sshAddress}` | the settings (managers) — `sshAddress` is `host` or `host:port`, what people type |
 
 A **key** is `{id, user, name, type, fingerprint, publicKey, added,
-lastUsed?}`: `id` is the key's SHA-256 in base64url (the route's `{id}`),
-`fingerprint` is `SHA256:…` as `ssh-keygen -l` prints it, times are unix
-milliseconds (`lastUsed` is updated at most every ten minutes).
+lastUsed?, inactive?}`: `id` is the key's SHA-256 in base64url (the route's
+`{id}`), `fingerprint` is `SHA256:…` as `ssh-keygen -l` prints it, times are
+unix milliseconds (`lastUsed` is updated at most every ten minutes).
+`inactive` is when xbind last said the key's person may no longer use this
+tile: the key logs nobody in while that holds, and loses the mark once a
+check finds their access back.
 
 A **sandbox** in `GET /sandboxes` is `{provider, id, name, login, state,
 owner, via, visibility, members, shared, egress, isolation, image, workdir,
@@ -173,4 +194,4 @@ open (the manager and the sandbox offer `tty`).
 `res:apps/sandbox-terminal/state` (kv): `keys` (the registered keys) and
 `settings`. The SSH host key is the vault's `ssh-host-key`. What a manager
 says is never stored: hellos are cached for a minute, sandbox lists not at
-all.
+all. What xbind says of a person's access is kept 30 s, in memory.

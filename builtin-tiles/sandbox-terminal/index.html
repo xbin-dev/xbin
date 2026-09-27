@@ -298,6 +298,7 @@ function sshTpl() {
     <h5>Your keys</h5>
     <div class="card" id="keys">${keys && keys.length ? repeat(T.keyRows(keys), (k) => k.id, (k) => html`<div class="key" data-key-id=${k.id}>
         <b>${k.name}</b><code>${k.fingerprint}</code><span class="muted">${k.type} · added ${k.added} · ${k.lastUsed === 'never used' ? k.lastUsed : `used ${k.lastUsed}`}</span>
+        ${k.inactive ? html`<span class="err small" data-inactive>${k.inactive}</span>` : nothing}
         <span class="grow"></span><button class="rm" data-act="rm-key" ?disabled=${ro} @click=${() => removeKey(k)}>Remove</button></div>`)
       : html`<div class="muted small" id="keys-empty">No keys yet — add your public key to log in over SSH.</div>`}</div>
     ${ro ? nothing : html`<div class="card" id="key-form">
@@ -315,6 +316,7 @@ function sshTpl() {
       <summary>Everyone's keys — you manage this tile</summary>
       <div class="card">${everyone === null ? html`<div class="muted small">loading…</div>` : everyone.length ? repeat(T.keyRows(everyone), (k) => k.id, (k) => html`<div class="key" data-key-id=${k.id}>
         <b>${k.user}</b><span>${k.name}</span><code>${k.fingerprint}</code><span class="muted">added ${k.added} · ${k.lastUsed}</span>
+        ${k.inactive ? html`<span class="err small" data-inactive>${k.inactive}</span>` : nothing}
         <span class="grow"></span><button class="rm" @click=${() => removeKey(k, true)}>Revoke</button></div>`)
         : html`<div class="muted small">nobody has registered a key</div>`}</div></details>` : nothing}`;
 }

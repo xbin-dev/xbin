@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -34,6 +35,10 @@ type Tile struct {
 	hupGrace    time.Duration    // HUP → DELETE for a command whose client left
 	loginGrace  time.Duration    // a connection's time to authenticate
 	listenRetry time.Duration    // the first wait before binding the SSH port again
+	accessEvery time.Duration    // how often a live connection's person is checked again
+	// accessOf asks xbind what a person may do on this tile (xbin.AccessOf;
+	// access.go caches it)
+	accessOf func(ctx context.Context, user string) (xbin.UserAccess, error)
 
 	mu         sync.Mutex
 	keys       []keyRec
@@ -45,7 +50,10 @@ type Tile struct {
 	conns      map[*liveConn]struct{}
 	hellos     helloCache
 	limit      *limiter
-	preauth    chan struct{}
+	preauth    *pending
+
+	accMu    sync.Mutex
+	accCache map[string]accessEntry // person → what xbind said (access.go)
 }
 
 // settings are the managers' knobs.
@@ -59,8 +67,9 @@ type settings struct {
 func newTile(self string, kv store, secret func(string) (string, error), setSecret func(string, string) error,
 	managers func() []manager, hc *http.Client) *Tile {
 	return &Tile{self: self, kv: kv, secret: secret, setSecret: setSecret, managers: managers, hc: hc,
-		sshPort: 2222, hupGrace: 2 * time.Second, loginGrace: 30 * time.Second, listenRetry: 500 * time.Millisecond,
-		conns: map[*liveConn]struct{}{}, limit: newLimiter(), preauth: make(chan struct{}, maxPreauth)}
+		sshPort: 2222, hupGrace: 2 * time.Second, loginGrace: 10 * time.Second, listenRetry: 500 * time.Millisecond,
+		accessEvery: accessTTL, accessOf: xbin.AccessOf, accCache: map[string]accessEntry{},
+		conns: map[*liveConn]struct{}{}, limit: newLimiter(), preauth: &pending{max: maxPreauth}}
 }
 
 // load reads the keys and settings, retrying while the kv doesn't answer
@@ -86,7 +95,7 @@ func (t *Tile) load() {
 
 type who struct {
 	user     string // a person (through the tile's page or a terminal)
-	level    string // their access to this tile: read | write | terminal
+	level    string // their access to this tile now: none | read | write | terminal
 	viewedBy string // an admin viewing the workspace as user (D64): reads only
 	system   bool   // the owner token, or the tile itself
 }
@@ -97,9 +106,11 @@ func (t *Tile) principal(r *http.Request) who {
 	case c.Owner:
 		return who{system: true}
 	case c.User != "" && (c.From == t.self || strings.HasPrefix(c.From, "user:")):
+		// xbind omits the level when the person has none on this tile any
+		// more (a frame token outlives their access for a while)
 		lvl := c.UserLevel
 		if lvl == "" {
-			lvl = "read"
+			lvl = "none"
 		}
 		return who{user: c.User, level: lvl, viewedBy: c.ViewedBy}
 	case c.From != "" && c.From == t.self:
@@ -114,6 +125,27 @@ func (t *Tile) principal(r *http.Request) who {
 func (w who) manager() bool { return w.system || w.level == "write" || w.level == "terminal" }
 
 func (w who) anyone() bool { return w.system || w.user != "" }
+
+// member: the owner token, or a person who may use this tile now.
+func (w who) member() bool { return w.system || (w.user != "" && w.level != "none") }
+
+// errNoAccess: a person whose access to this tile is gone.
+const errNoAccess = "you no longer have access to this tile — ask its owner for access again"
+
+// seen notes what the page's request says of its person's access — the
+// level xbind put on it is its answer now, as GET /api/xbin/access would
+// give it: kept like one (a person given access back logs in at once), and
+// keys marked inactive come back (access.go). An admin viewing as them
+// (D64) changes nothing.
+func (t *Tile) seen(p who) {
+	if p.user == "" || p.viewedBy != "" {
+		return
+	}
+	t.accMu.Lock()
+	t.accCache[p.user] = accessEntry{a: xbin.UserAccess{User: p.user, Level: p.level, Active: true}, at: time.Now()}
+	t.accMu.Unlock()
+	t.noteAccess(p.user, p.level != "none")
+}
 
 // --- routes ---------------------------------------------------------------------------
 
@@ -162,6 +194,7 @@ func (t *Tile) handleMe(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, http.StatusForbidden, "this tile answers its own page and the owner")
 		return
 	}
+	t.seen(p)
 	ms := []string{}
 	for _, m := range t.managers() {
 		ms = append(ms, m.Provider)
@@ -181,6 +214,8 @@ func (t *Tile) handleKeys(w http.ResponseWriter, r *http.Request) {
 			xbin.WriteError(w, http.StatusForbidden, "everyone's keys are for the tile's managers (write access to it)")
 			return
 		}
+		// whose access is gone shows: each person asked (cached, bounded)
+		t.recheck(r.Context(), t.keysOf(""))
 		xbin.WriteJSON(w, http.StatusOK, map[string]any{"keys": t.keysOf("")})
 		return
 	}
@@ -188,6 +223,7 @@ func (t *Tile) handleKeys(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteJSON(w, http.StatusOK, map[string]any{"keys": []keyRec{}})
 		return
 	}
+	t.seen(p)
 	xbin.WriteJSON(w, http.StatusOK, map[string]any{"keys": t.keysOf(p.user)})
 }
 
@@ -200,6 +236,9 @@ func (t *Tile) handleAddKey(w http.ResponseWriter, r *http.Request) {
 	case p.viewedBy != "":
 		xbin.WriteError(w, http.StatusForbidden, "viewing as someone registers nothing for them")
 		return
+	case !p.member():
+		xbin.WriteError(w, http.StatusForbidden, errNoAccess)
+		return
 	}
 	var in struct {
 		PublicKey string `json:"publicKey"`
@@ -207,6 +246,15 @@ func (t *Tile) handleAddKey(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&in); err != nil {
 		xbin.WriteError(w, http.StatusBadRequest, "a JSON body {publicKey, name?}")
+		return
+	}
+	// xbind confirms it too (the key will log them in only while it does)
+	switch a, err := t.access(r.Context(), p.user); {
+	case err != nil:
+		xbin.WriteError(w, http.StatusServiceUnavailable, "your access to this tile can't be checked right now — try again in a moment")
+		return
+	case !a.CanRead():
+		xbin.WriteError(w, http.StatusForbidden, errNoAccess)
 		return
 	}
 	k, status, err := t.addKey(p.user, in.PublicKey, in.Name)
@@ -256,6 +304,10 @@ func (t *Tile) handleSandboxes(w http.ResponseWriter, r *http.Request) {
 	p := t.principal(r)
 	if p.user == "" {
 		xbin.WriteError(w, http.StatusForbidden, "sandboxes are listed for a person: call from the tile's page, signed in")
+		return
+	}
+	if !p.member() {
+		xbin.WriteError(w, http.StatusForbidden, errNoAccess)
 		return
 	}
 	es, views := t.usable(r.Context(), p.user)

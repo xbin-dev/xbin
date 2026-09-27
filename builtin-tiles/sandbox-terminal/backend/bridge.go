@@ -193,9 +193,19 @@ func (s *session) run(ctx context.Context, cmd string) {
 
 func one(n int) exitInfo { return exitInfo{code: &n} }
 
-// bridge runs the session's command in its sandbox.
+// bridge runs the session's command in its sandbox — once its person may
+// still use this tile (access.go: asked at the login, and again for every
+// session a connection opens).
 func (s *session) bridge(ctx context.Context, cmd string) exitInfo {
 	t, person := s.t, s.lc.user
+	why := s.lc.denied
+	if why == "" {
+		why = refusedWhy(t.access(ctx, person))
+	}
+	if why != "" {
+		s.say("%s", why)
+		return one(1)
+	}
 	es, views := t.usable(ctx, person)
 	e, err := pick(es, views, s.lc.login)
 	if err != nil {

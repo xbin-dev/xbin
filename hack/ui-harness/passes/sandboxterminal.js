@@ -4,8 +4,8 @@
 // its SSH on $SBXTERM_SSH_ADDR (the address people type set by its owner).
 // It pins:
 //   - the agent's Sandboxes dialog shares a sandbox of admin's with
-//     apps/sandbox-terminal ("Share with a terminal tile…": PATCH {shares},
-//     for admin); one it doesn't share stays out of the terminal tile;
+//     apps/sandbox-terminal ("Share with a terminal tile…": PATCH {shares,
+//     version}, for admin); one it doesn't share stays out of the terminal tile;
 //   - the terminal tile lists the shared one under its manager, with its ssh
 //     command; Open terminal dials the manager's tty with the page's frame
 //     token and `echo hi-term` answers;
@@ -16,10 +16,15 @@
 //     <login>@127.0.0.1 echo hi-ssh` prints hi-ssh;
 //   - the tile's native.js boots in its page document and draws the sandbox;
 //   - dev1 (read access to the tile, nothing shared with them) gets the
-//     empty state that says how sandboxes get here, and no manager controls.
+//     empty state that says how sandboxes get here, and no manager controls;
+//   - dev1 taken off the tile (PUT /access none): their key registered at the
+//     start logs nobody in — OpenSSH hears "access revoked" — and it is kept,
+//     marked inactive, in everyone's keys (the tile asks xbind's GET
+//     /api/xbin/access/<user> at every login; it keeps an answer 30 s, which
+//     the steps between outlast).
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { URL, fs, log, settle, shot, checker, noGocryptfs, login } = require('../lib');
+const { URL, fs, log, settle, shot, checker, noGocryptfs, login, sleep } = require('../lib');
 const { openAgent, classRows, pickClass, openDialog, closeDialog, createInDialog } = require('./agentsandbox');
 
 const until = (page, fn, arg, timeout = 20000) => page.waitForFunction(fn, arg ?? null, { timeout, polling: 100 });
@@ -50,12 +55,48 @@ async function openTerminalTile(ctx) {
   return { page, errors };
 }
 
+// sshAs runs `ssh -i key login@host cmd` (OpenSSH, no agent): what it
+// printed on stdout and stderr, and its status.
+function sshAs(keyFile, login_, host, port, cmd) {
+  try {
+    const out = execFileSync('ssh', ['-i', keyFile, '-p', port, '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null',
+      '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'LogLevel=ERROR', '-o', 'ConnectTimeout=15',
+      `${login_}@${host}`, cmd], { encoding: 'utf8', timeout: 45000, env: { ...process.env, SSH_AUTH_SOCK: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    return { out, status: 0 };
+  } catch (e) { return { out: `${e.stdout || ''}${e.stderr || ''}`, status: e.status }; }
+}
+
+// newKeyFile makes an ed25519 key pair under $HARNESS_DIR: its path and .pub line.
+function newKeyFile(name) {
+  const keyFile = path.join(HDIR, name);
+  fs.rmSync(keyFile, { force: true });
+  fs.rmSync(`${keyFile}.pub`, { force: true });
+  execFileSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', `harness@${name}`, '-f', keyFile]);
+  return { keyFile, pub: fs.readFileSync(`${keyFile}.pub`, 'utf8').trim() };
+}
+
 async function sandboxTerminal(browser) {
   const { check, skip, done } = checker('sandbox-terminal');
   if (noGocryptfs()) { skip(`apps/agent and apps/fakesbx are held: ${noGocryptfs()}`); return done(); }
   const stamp = Date.now().toString(36);
   const BOX = `term-box-${stamp}`, OTHER = `unshared-${stamp}`;
   const [host, port] = SSH_ADDR.split(':');
+
+  // ---- 0. dev1 (read access to the tile) registers a key: step 7 takes
+  // them off the tile and tries it ----
+  const dev1Key = newKeyFile('sbxterm-dev1-key');
+  let dev1KeyAt = 0, dev1KeyId = '';
+  {
+    const { ctx: dctx } = await login(browser, 'dev1', 'devpass123', { viewport: { width: 1200, height: 800 } });
+    const D = await openTerminalTile(dctx);
+    await D.page.fill('#key-text', dev1Key.pub);
+    await D.page.click('#key-add');
+    await D.page.waitForSelector('#keys .key[data-key-id]', { timeout: 15000 }).catch(() => {});
+    dev1KeyId = await D.page.$eval('#keys .key[data-key-id]', (e) => e.dataset.keyId).catch(() => '');
+    dev1KeyAt = Date.now();
+    check(!!dev1KeyId, 'dev1 (read access) registers a key on the page');
+    await dctx.close();
+  }
 
   // ---- 1. the agent shares a sandbox with the terminal tile ----
   const A = await openAgent(browser, 'admin', 'admin');
@@ -78,8 +119,8 @@ async function sandboxTerminal(browser) {
     await a.click('#sbxs-share');
     const resp = await patched;
     const sent = JSON.parse(resp.request().postData() || '{}');
-    check(resp.status() === 200 && JSON.stringify(sent) === JSON.stringify({ shares: [{ consumer: TILE, users: ['admin'] }] }),
-      `Share: PATCH {shares: [{consumer: ${TILE}, users: [admin]}]} through the agent to the manager (${resp.status()} ${JSON.stringify(sent)})`);
+    check(resp.status() === 200 && JSON.stringify(sent.shares) === JSON.stringify([{ consumer: TILE, users: ['admin'] }]) && Number.isInteger(sent.version),
+      `Share: PATCH {shares: [{consumer: ${TILE}, users: [admin]}], version} through the agent to the manager (${resp.status()} ${JSON.stringify(sent)})`);
     const kept = (await resp.json().catch(() => ({}))).shares || [];
     check(kept.some((s) => s.consumer === TILE), `the manager keeps the share (${JSON.stringify(kept)})`);
     await a.waitForSelector('#sbx-msg');
@@ -227,6 +268,31 @@ async function sandboxTerminal(browser) {
     await shot(d, 'sandbox-terminal-empty');
     check(D.errors.length === 0, `no page errors for dev1 (${D.errors.join(' | ')})`);
     await dctx.close();
+  }
+
+  // ---- 7. dev1 taken off the tile: their key logs nobody in ----
+  if (dev1KeyId) {
+    const { ctx: actx } = await login(browser, 'admin', 'admin', { viewport: { width: 1200, height: 800 } });
+    const access = (level) => actx.request.put(`${URL}/api/xbin/access`, { data: { tile: TILE, kind: 'user', id: 'dev1', level } });
+    try {
+      const put = await access('none');
+      check(put.ok(), `admin takes dev1 off ${TILE} (PUT /access none: ${put.status()})`);
+      const wait = 31000 - (Date.now() - dev1KeyAt); // past the answer the tile kept at the registration
+      if (wait > 0) { log(`sandboxTerminal: waiting ${Math.ceil(wait / 1000)} s for the tile's cached answer to lapse`); await sleep(wait); }
+      const r = sshAs(dev1Key.keyFile, 'anything', host, port, 'echo in');
+      log(`sandboxTerminal: dev1's ssh said ${JSON.stringify(r)}`);
+      check(r.status === 1 && /access revoked: you no longer have access/.test(r.out) && !/^in$/m.test(r.out),
+        `dev1's key after their access went: "access revoked", exit 1 (${JSON.stringify(r.out.slice(0, 200))} · ${r.status})`);
+      const T2 = await openTerminalTile(actx);
+      const all = await T2.page.evaluate(async () => (await (await xbin.fetch('/api/apps/sandbox-terminal/keys?all=1')).json()).keys || []);
+      const k = all.find((x) => x.id === dev1KeyId);
+      check(!!k && k.inactive > 0, `…their key is kept, marked inactive, in everyone's keys (${JSON.stringify(k || null)})`);
+      await T2.page.evaluate(async (id) => { await xbin.fetch(`/api/apps/sandbox-terminal/keys/${encodeURIComponent(id)}`, { method: 'DELETE' }); }, dev1KeyId);
+    } finally {
+      const back = await access('read');
+      if (!back.ok()) log(`sandboxTerminal: restoring dev1's read access: ${back.status()}`);
+      await actx.close();
+    }
   }
   done();
 }
