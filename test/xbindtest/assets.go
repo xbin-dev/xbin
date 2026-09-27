@@ -29,6 +29,11 @@
 // built from this tree, once per test binary. XBIN_VM_ACCEL=emulate in the
 // test's environment reaches the daemons (QEMU's emulation).
 //
+// Options.Auth boots it with owner auth on (people are accounts: AddUser,
+// Login). StartOrConnect drives an xbind elsewhere instead when
+// XBIN_E2E_URL names one — the QA box's test instance through an ssh
+// tunnel (remote.go has the variables).
+//
 // Run the tests with the Bash sandbox disabled on a dev box: the sandboxes'
 // /proc/self/exe re-exec gets EPERM inside it.
 package xbindtest

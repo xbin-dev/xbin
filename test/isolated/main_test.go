@@ -10,6 +10,11 @@
 //	go test -tags=integration -count=1 -v ./test/isolated/
 //	XBIN_VM_ACCEL=emulate go test -tags=integration -count=1 -v -run '^TestVM' ./test/isolated/
 //
+// codingsandbox_test.go does the same for the builtin manager,
+// coding-sandbox, with owner auth on; with XBIN_E2E_URL (test/xbindtest
+// remote.go) it drives another xbind — the QA box's test instance —
+// instead (plans/tile-sandbox-runtime.md §13 has the commands).
+//
 // Skips without user namespaces or the rootfs; the VM tests without VM
 // assets (make vm-assets). On a dev box run it with the Bash sandbox
 // disabled. The base-GC test copies the rootfs: set XBIN_ITEST_DIR to a dir

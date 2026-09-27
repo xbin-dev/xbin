@@ -308,35 +308,62 @@ else should.
 ## Testing on xbind
 
 `_backend/backend_xbin_test.go` checks the `xbin` backend against a double of
-the runtime's routes. The live end to end belongs to the runtime's
-fixture (D120's end-to-end work package), with this template as a
-second manager next to `examples/sandbox-go`:
+the runtime's routes, and `_backend/contract_test.go` runs the conformance
+suite over the fake backend. The live end to end is
+`test/isolated/codingsandbox_test.go` in xbind's repo (D120's WP-21, beside
+`examples/sandbox-go`): `TestCodingSandbox[VM]` walks this plan,
+`TestCodingSandboxContract[VM]` runs the suite, on an `--isolate` xbind of
+the test's own, or on another through `XBIN_E2E_URL`
+(plans/tile-sandbox-runtime.md §13 has the commands):
 
-1. An `--isolate` xbind (range-uid, then KVM and emulated VMs):
+1. An `--isolate` xbind (range-uid; KVM VMs; emulated VMs are a known
+   issue: plans/tile-sandbox-runtime.md §14) with owner auth on, so
+   people are accounts:
    `bx template new coding-sandbox as apps/cs`, approve `cap:sandboxes`,
-   `bx bind apps/cs internet=internet`.
+   `bx bind apps/cs internet=internet`, and a consumer tile whose
+   `sandboxes` slot is bound to it (`bx bind apps/csc sandboxes=apps/cs`).
+   Binding another consumer doesn't restart the manager: calls in flight
+   (relayed terminals, long polls) carry on.
 2. Hello: `caps` are the runtime's (`exec files tar tty snapshots
    clone`), `egress` `none internet`, no `notes` but the missing ones.
-3. The conformance suite through xbind: a consumer tile bound to `apps/cs`
-   whose backend runs `sandboxcontract.Run` against its bound URL with its
-   instance client (`Target.Client`), `Target.Consumer` setting nothing
-   (xbind sets `X-XBin-From`: one consumer, so the checks that need a second
-   one go in `Target.Skip`, saying so) and `Target.Asserted` setting
-   `Sbx-User`; every section but `archive`.
+3. The conformance suite through xbind's proxy, every section but
+   `archive`: each consumer the suite names (`apps/ct-…`) is a tile bound
+   to `apps/cs`, calling with its page's frame token (xbind sets
+   `X-XBin-From`); a verified person is that token minted by the person's
+   session (xbind sets `X-XBin-User`); an asserted one is `Sbx-User`. On a
+   `--no-auth` xbind there are no verified people: the checks that act as
+   them (`people/visibility`, `people/owners`, `partitions/shares`,
+   `tty/refusals`) go in `Target.Skip`, saying so.
 4. `mode`: `auto` gives `vm` with KVM (the sandbox's `isolation` `vm`),
    `namespace` without; `vm` on a host without VMs refuses the create with
    the runtime's reason.
 5. The first start makes the workdir and home as root (the runtime must let
    a tile sandbox run uid 0); a command runs as 1000:1000 with `HOME`
-   `/home/dev`.
-6. Images: a setup script builds once (a template sandbox, snapshotted),
-   the next sandbox of it is a clone (`from`), a changed script rebuilds.
-7. Terminals through the page (`<bx-terminal src>`) and through a consumer:
-   `forUser` reaches the runtime; a `noTerminal` person is refused (D88).
-8. Egress: `internet` reaches the internet and not the LAN; an unbound
-   `open` isn't offered; a PATCH of a running sandbox's egress sets
-   `egressNext`.
-9. A restart of xbind: execs `lost`, sandboxes `stopped`, state kept; a
-   restart of the manager finishes creations and deletions it left.
-10. `idleStopMin` stops an idle sandbox; the next command starts it again
+   `/home/dev`, and a file written through the contract is 1000's.
+6. Commands: `run`'s result, an output long poll answering when output
+   comes, stdin, a signal to the group, the exec list; files with etags
+   (`ifMatch`), move and list; tar both ways.
+7. Snapshots, a restore, a clone of a snapshot and of the running sandbox
+   (made of a snapshot taken for it and deleted after: the source's
+   snapshots are as they were).
+8. Images: a setup script builds once, as root, with `IMAGE_ID` and the
+   layout in its environment (a template sandbox, snapshotted); the next
+   sandbox of it is a clone (`from`), a changed script rebuilds.
+9. Terminals through a consumer and through the page (`<bx-terminal
+   src>`), with a gorilla client through the proxy as a page's `xbin.ws`:
+   the session frame carries the contract's ids, a tty exec outlives its
+   client; `forUser` reaches the runtime: a `noTerminal` person is refused
+   (D88); people with read access to the tile may look and never change.
+10. Quotas, per person (verified or asserted) and per consumer: a create
+    or a start over one is `429 limit`; the operators' usage counts them.
+11. The operators' views: every consumer's sandboxes with their consumer
+    and owner, lifecycle and labels, never who may use a sandbox.
+12. Egress: `internet` reaches the internet and not the LAN nor the host's
+    own addresses (on a server, its public one); `none` reaches nothing;
+    an unbound `open` isn't offered; a PATCH of a running sandbox's egress
+    sets `egressNext`.
+13. `idleStopMin` stops an idle sandbox; the next command starts it again
     within the quotas.
+14. A restart of xbind: execs `lost`, sandboxes `stopped`, state kept (a
+    read starts one again); a creation the restart cut (an image build) is
+    finished by the manager.

@@ -4721,6 +4721,42 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     sandbox started through it, listed running under its manager, stopped
     and deleted by the admin.
 
+- **As built, part B** (branch `p3/live`): coding-sandbox (D122) live on
+  the runtime. `test/isolated/codingsandbox_test.go`: `setupCS` boots an
+  isolated xbind with owner auth on (`xbindtest.Options.Auth`: people are
+  accounts — `AddUser`, `Login`; `Call`/`Dial` send the owner token),
+  instantiates the template (`POST /templates/new`), approves
+  `cap:sandboxes`, binds its `internet` class and `apps/csc`'s `sandboxes`
+  slot, raises the runtime's per-tile limits and sets two small sizes.
+  `TestCodingSandbox[VM]` walks API.md's "Testing on xbind" (rewritten to
+  match); `TestCodingSandboxContract[VM]` runs `sandboxcontract.Run`
+  through the proxy with every consumer a bound tile of its own and every
+  verified person a frame token their session minted — no `Target.Skip`.
+  `xbindtest` gained a remote mode (`remote.go`, `StartOrConnect`,
+  `XBIN_E2E_*`) so the same tests drive the QA box's test instance (§13).
+  Here: all four pass (namespace in range mode; VM on KVM). The QA box:
+  blocked — the test instance can't mount the template's encrypted `db`
+  (§13), so its manager never starts; the emulated contract run is a known
+  issue (§14).
+  - **Found and fixed by the live runs:** (1) a timeout's KILL missed a
+    member that outlived its leader (the contract's `run/timeout`): the
+    KILL stays armed, and the agent signals an ended session's group for
+    15 s, never a live session's (`TestGroupSignalAfterExit`, the live
+    `orphan` subtest). (2) Binding a consumer's `http` slot restarted the
+    provider, cutting its other consumers' relayed terminals and long
+    polls mid-suite: only the consumer restarts now
+    (`TestHTTPBindingRestartsOnlyTheConsumer`). (3) gocryptfs views
+    outlived xbind: `Broker.Close` unmounts them (`TestCloseUnmountsAll`).
+    (4) A clone of a running sandbox was the runtime's `409 state`: the
+    manager clones a snapshot it takes for it and deletes after
+    (`TestXbinBackendCopies`; the fake backend refuses as the runtime
+    does). (5) The suite's own `files/paths` built `/f` from the empty
+    path, and its egress check required a pending egress to survive a
+    stop, which the runtime applies (the contract now allows either;
+    sandbox-manager.md). (6) A tile held for its encrypted state answered
+    "component … is not enabled": it names the resource and the cause now
+    (`TestEncryptionHoldReason`, `TestEnsureSaysWhyHeld`).
+
 ### WP-22 — Archive and thaw *(later; split when scheduled)*
 
 - **22a:** streaming archiver I/O. `archiveStream` uses a pipe-backed
@@ -4777,6 +4813,48 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     would release unpinned `.rootfs-*` siblings of the shared main
     checkout's rootfs, so use a copied rootfs (WP-21's `test/isolated/`).
   - Kill only the PIDs you started; stop the harness with `run.sh --stop`.
+- **coding-sandbox live (WP-21 part B).** `test/isolated/codingsandbox_test.go`
+  instantiates the template as `apps/cs` on an xbind with owner auth on
+  (people are accounts: alice, bob, carol, zoe, mallory; wanda with write
+  access to the tile; nora with `noTerminal`), approves `cap:sandboxes`,
+  binds its `internet` class and a consumer, and drives everything
+  through the proxy. Here (Bash sandbox off):
+
+      export GOMODCACHE=… XBIN_TEST_ROOTFS=/home/magik6k/buxon/.rootfs
+      go test -tags=integration -count=1 -v -run '^TestCodingSandbox$' ./test/isolated/          # API.md's plan, namespace (range mode)
+      go test -tags=integration -count=1 -v -run '^TestCodingSandboxVM$' ./test/isolated/        # the same, auto → VM (KVM)
+      go test -tags=integration -count=1 -v -run '^TestCodingSandboxContract$' ./test/isolated/  # sandboxcontract.Run, namespace
+      go test -tags=integration -count=1 -v -run '^TestCodingSandboxContractVM$' ./test/isolated/ # the same, VM (KVM)
+
+  `XBIN_VM_ACCEL=emulate` runs the VM ones emulated: the contract hangs
+  there (§14, known issue). **A remote xbind** — the QA box's test
+  instance (`qa-sbxtest.sh deploy <worktree>`, then `qa-sbxtest.sh tunnel
+  18650`) — runs the same tests with `XBIN_E2E_URL` (test/xbindtest
+  `remote.go`): tiles are named per run (`apps/cs-<MMDD-hhmmss>`),
+  consumers are written through `XBIN_E2E_SH`, `RequireVM` sets a small
+  budget (`XBIN_E2E_VM_MIB` 2048, `XBIN_E2E_VMS` 4; the plan's walk keeps
+  at most three sandboxes running, one of them 1 GiB), and the instance
+  runs `--no-auth`, so the four contract checks that act as verified
+  people are skipped (said so) and the walk's people parts use an
+  asserted person or the owner:
+
+      export XBIN_E2E_URL=http://127.0.0.1:18650 XBIN_E2E_WS=/opt/xbin-sbxtest/workspace \
+        XBIN_E2E_SH="qa-sbxtest.sh sh 'sudo -u xbin sh -s'" \
+        XBIN_E2E_RESTART="qa-sbxtest.sh sh 'sudo systemctl restart xbin-sbxtest'" \
+        XBIN_E2E_LOGS="qa-sbxtest.sh logs 80" XBIN_E2E_HOST_TCP=84.239.100.188:22
+      go test -tags=integration -count=1 -v -run '^TestCodingSandboxVM$' ./test/isolated/
+      go test -tags=integration -count=1 -v -parallel 1 -run '^TestCodingSandboxContractVM$' ./test/isolated/
+
+  `XBIN_E2E_HOST_TCP` is the box's sshd on its public address: `internet`
+  must not reach the host's own addresses. Nothing the tests do listens on
+  the box (xbind stays on 127.0.0.1; check with `qa-sbxtest.sh sh 'sudo ss
+  -ltnp | grep -v 127.0.0'`). **The test instance needs FUSE mounts under
+  its workspace**: vault encryption at rest is on there, and AppArmor's
+  fusermount3 profile allows gocryptfs only under the paths the installer
+  added (`/opt/xbin/workspace/.xbin/resenc/**/`), so the template's
+  encrypted `db` resource fails to mount (xbind logs the fix: the same two
+  rules for `/opt/xbin-sbxtest/workspace/.xbin/resenc/**/` in
+  `/etc/apparmor.d/local/fusermount3`) and the manager never starts.
 - **Harness.** The passes `sandboxes`, `sandboxNet`, the bindings rows, and
   the `predict`/`termrun` passes (termwire). They are the only JS regression
   tests. Two failures predate phase 2 (reproduced on 783c50de): `predict`'s
@@ -4813,6 +4891,28 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
   `hack/size-budget.txt` still allows `netfn.go` 1170 lines (it is 1099).
 - **Emulated VMs** are 5–20× slower. Stream attach and ready timeouts are
   stretched (×3 or ×6), and xbind opens streams before it sends `exec`.
+- **Known issue: emulated VMs stall on large guest→host transfers
+  (WP-21 part B).** `TestCodingSandboxContractVM` with
+  `XBIN_VM_ACCEL=emulate` (QEMU + vhost-device-vsock) hangs in
+  `files/too-large`'s ranged read of a multi-MiB file, and a manual
+  `GET …/files/content` of a large file on an emulated sandbox never
+  answers (the proxy's 2-minute cut, then the manager's 15 s retries,
+  every one hanging; small reads on the same sandbox answer at once). The
+  same checks pass on KVM (Firecracker's own vsock). *Likely cause* (third-party, not chased further): rust-vmm
+  vhost-device issue #934, "vsock: issue with large TX packets from Linux
+  6.17" (open since 2026-01-26): since kernel commit 6693731487a8 (6.17)
+  the guest's virtio-vsock may split a large transmit across descriptors,
+  which the `virtio-vsock` crate vhost-device-vsock builds on doesn't
+  handle; the issue's reproducer stalls at once past 32 KiB writes from
+  the guest. Our guest kernel is 6.18.54 (`hack/build-vmkernel.sh`), and
+  the pinned vhost-device-vsock is 0.3.0 (`hack/build-vhost-vsock.sh`),
+  which is also the newest release on crates.io (2025-08-06): **bumping
+  the pin can't help until a release carries the crate's fix**; then bump
+  `VHOST_VSOCK_VERSION` (or build from the fixing commit). An untested
+  workaround in our code would be the guest agent writing its vsock
+  streams in ≤ 32 KiB chunks. Until then the emulated contract run is out
+  of the gate (emulation is local-only anyway); `TestVM` emulated (small
+  transfers) still passes.
 - **fuse-overlayfs** is slower than a kernel overlay for build-heavy work.
   The flavour stamp keeps it consistent; measuring the difference is a
   WP-21 note, not a blocker.

@@ -27,6 +27,10 @@ type Options struct {
 	Rootfs string   // "" = the assets' (a GC test passes a copy: CopyRootfs)
 	Env    []string // added to the daemon's environment (after the defaults)
 	Args   []string // added to its command line
+	// Auth boots it with owner auth on (no --no-auth): people are real
+	// accounts (AddUser, Login), and Call and Dial send the owner token
+	// unless a request carries a credential of its own.
+	Auth bool
 	// Ready bounds the boot (healthz answering); 0 = 60 s.
 	Ready time.Duration
 }
@@ -39,6 +43,9 @@ type Daemon struct {
 	A    *Assets
 	o    Options
 	own  bool // the workspace is the helper's: removed at the end
+
+	token string  // the owner token (Options.Auth; XBIN_E2E_TOKEN)
+	rem   *remote // a daemon the test doesn't run (Connect)
 
 	mu    sync.Mutex
 	cmd   *exec.Cmd
@@ -98,7 +105,10 @@ func (d *Daemon) start(t testing.TB) {
 	}
 	d.boots++
 	fmt.Fprintf(d.log, "\n===== xbindtest: boot %d =====\n", d.boots)
-	args := []string{"--dev", "--no-auth", "--isolate", "--rootfs", d.Rootfs(), "--workspace", d.WS, "--listen", d.Addr}
+	args := []string{"--dev", "--isolate", "--rootfs", d.Rootfs(), "--workspace", d.WS, "--listen", d.Addr}
+	if !d.o.Auth {
+		args = append(args, "--no-auth")
+	}
 	cmd := exec.Command(filepath.Join(d.A.Bin, "xbind"), append(args, d.o.Args...)...)
 	cmd.Dir = d.A.Repo // --dev serves web/ and docs/ from here
 	env := append(os.Environ(),
@@ -127,6 +137,13 @@ func (d *Daemon) start(t testing.TB) {
 		if r, err := http.Get(d.URL + "/healthz"); err == nil {
 			r.Body.Close()
 			if r.StatusCode == 200 {
+				if d.o.Auth {
+					b, err := os.ReadFile(filepath.Join(d.WS, ".xbin", "token"))
+					if err != nil {
+						t.Fatalf("the owner token: %v", err)
+					}
+					d.token = strings.TrimSpace(string(b))
+				}
 				return
 			}
 		}
@@ -165,6 +182,9 @@ func (d *Daemon) PID() int {
 // killed by its pid and fails the test.
 func (d *Daemon) Stop(t testing.TB) {
 	t.Helper()
+	if d.rem != nil {
+		t.Fatal("xbindtest: a remote xbind isn't the test's to stop")
+	}
 	d.mu.Lock()
 	cmd, done := d.cmd, d.done
 	d.cmd = nil
@@ -186,9 +206,13 @@ func (d *Daemon) Stop(t testing.TB) {
 }
 
 // Restart stops xbind and boots it again on the same workspace and
-// address.
+// address (a remote one: XBIN_E2E_RESTART).
 func (d *Daemon) Restart(t testing.TB) {
 	t.Helper()
+	if d.rem != nil {
+		d.restartRemote(t)
+		return
+	}
 	d.Stop(t)
 	d.start(t)
 }
@@ -197,6 +221,9 @@ func (d *Daemon) Restart(t testing.TB) {
 // with it or is killed by the reaper check.
 func (d *Daemon) Kill(t testing.TB) {
 	t.Helper()
+	if d.rem != nil {
+		t.Fatal("xbindtest: a remote xbind isn't the test's to kill")
+	}
 	d.mu.Lock()
 	cmd, done := d.cmd, d.done
 	d.cmd = nil
@@ -321,6 +348,15 @@ func (d *Daemon) LogPath() string {
 // and removes a workspace the helper made, and the log unless the test
 // failed.
 func (d *Daemon) cleanup(t testing.TB) {
+	if d.rem != nil {
+		if err := d.deleteTileSandboxes(5 * time.Minute); err != nil {
+			t.Logf("xbindtest: deleting the tile sandboxes: %v", err)
+		}
+		if t.Failed() {
+			t.Logf("xbindtest: the remote xbind's log:\n%s", d.remoteLogs())
+		}
+		return
+	}
 	if d.PID() != 0 {
 		if err := d.deleteTileSandboxes(2 * time.Minute); err != nil {
 			t.Logf("xbindtest: deleting the tile sandboxes: %v", err)

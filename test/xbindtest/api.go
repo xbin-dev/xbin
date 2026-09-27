@@ -104,6 +104,7 @@ func (d *Daemon) doH(method, path string, body any, hdrs []Header) (int, []byte,
 	for _, h := range hdrs {
 		req.Header.Set(h.K, h.V)
 	}
+	d.owner(req.Header)
 	resp, err := noRedirects.Do(req)
 	if err != nil {
 		return 0, nil, nil, err
@@ -140,6 +141,9 @@ func (d *Daemon) Dial(t testing.TB, path string, hdrs ...Header) (*websocket.Con
 	for _, x := range hdrs {
 		h.Set(x.K, x.V)
 	}
+	if !strings.Contains(path, "frame=") {
+		d.owner(h)
+	}
 	c, resp, err := websocket.DefaultDialer.Dial("ws://"+d.Addr+path, h)
 	var r Resp
 	if resp != nil {
@@ -150,6 +154,47 @@ func (d *Daemon) Dial(t testing.TB, path string, hdrs ...Header) (*websocket.Con
 		}
 	}
 	return c, r, err
+}
+
+// owner makes a request the owner's (Options.Auth: the owner token as a
+// bearer) unless it carries a credential of its own.
+func (d *Daemon) owner(h http.Header) {
+	if d.token != "" && h.Get("Authorization") == "" && h.Get("X-XBin-Frame-Token") == "" {
+		h.Set("Authorization", "Bearer "+d.token)
+	}
+}
+
+// AddUser makes an account (Options.Auth; POST /api/xbin/users): role
+// "user" or "admin", tiles its access entries (a path or a `prefix/*`
+// pattern → read, write or terminal). extra fields (noTerminal, …) are
+// merged into the request.
+func (d *Daemon) AddUser(t testing.TB, id, password, role string, tiles map[string]string, extra ...map[string]any) {
+	t.Helper()
+	body := map[string]any{"id": id, "name": id, "role": role, "password": password, "tiles": tiles}
+	for _, e := range extra {
+		for k, v := range e {
+			body[k] = v
+		}
+	}
+	d.Must(t, http.MethodPost, "/api/xbin/users", body, 200)
+}
+
+// Login signs a person in with their password (POST /api/xbin/login, the
+// app's sign-in) and returns their session's bearer token.
+func (d *Daemon) Login(t testing.TB, id, password string) string {
+	t.Helper()
+	b, _ := json.Marshal(map[string]string{"username": id, "password": password})
+	resp, err := http.Post(d.URL+"/api/xbin/login", "application/json", bytes.NewReader(b)) // no credential: a sign-in
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	var out struct{ Token string }
+	if resp.StatusCode != 200 || json.Unmarshal(body, &out) != nil || out.Token == "" {
+		t.Fatalf("signing %s in: %d %s", id, resp.StatusCode, cut(body))
+	}
+	return out.Token
 }
 
 // Eventually polls cond every 100 ms until it holds, failing the test with
@@ -175,6 +220,17 @@ func Eventually(t testing.TB, timeout time.Duration, what string, cond func() (b
 // workspace at tile, as an import does, and waits for xbind to register it.
 func (d *Daemon) CopyTile(t testing.TB, src, tile string) {
 	t.Helper()
+	if d.rem != nil {
+		files, err := dirFiles(src)
+		if err == nil {
+			err = d.writeRemote(tile, files)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		d.WaitComponent(t, tile)
+		return
+	}
 	dst := d.WS + "/" + tile
 	if err := os.MkdirAll(dst, 0o755); err != nil {
 		t.Fatal(err)
@@ -189,16 +245,33 @@ func (d *Daemon) CopyTile(t testing.TB, src, tile string) {
 // into the workspace at tile and waits for xbind to register it.
 func (d *Daemon) WriteTile(t testing.TB, tile string, files map[string]string) {
 	t.Helper()
+	if err := d.WriteFiles(tile, files); err != nil {
+		t.Fatal(err)
+	}
+	d.WaitComponent(t, tile)
+}
+
+// WriteFiles writes files (relative path → contents) under the workspace's
+// tile — a remote daemon's through XBIN_E2E_SH — without waiting or
+// failing a test (a hook on another goroutine may call it).
+func (d *Daemon) WriteFiles(tile string, files map[string]string) error {
+	if d.rem != nil {
+		raw := map[string][]byte{}
+		for rel, content := range files {
+			raw[rel] = []byte(content)
+		}
+		return d.writeRemote(tile, raw)
+	}
 	for rel, content := range files {
 		p := d.WS + "/" + tile + "/" + rel
 		if err := os.MkdirAll(p[:strings.LastIndexByte(p, '/')], 0o755); err != nil {
-			t.Fatal(err)
+			return err
 		}
 		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
-			t.Fatal(err)
+			return err
 		}
 	}
-	d.WaitComponent(t, tile)
+	return nil
 }
 
 // WaitComponent waits for xbind's registry to list tile.
@@ -268,9 +341,12 @@ func (d *Daemon) RequireVM(t testing.TB) string {
 	if !out.Status.Available {
 		t.Skipf("VM sandboxes unavailable here: %s", out.Status.Reason)
 	}
-	d.Must(t, http.MethodPut, "/api/xbin/vm/policy", map[string]any{
-		"tiles": true, "tilesEmulated": out.Status.Emulated, "budgetMiB": 8192, "tilesBudgetMiB": 4096,
-	}, 200)
+	pol := map[string]any{"tiles": true, "tilesEmulated": out.Status.Emulated, "budgetMiB": 8192, "tilesBudgetMiB": 4096}
+	if d.rem != nil { // a shared host: its own budget (XBIN_E2E_VM_MIB, XBIN_E2E_VMS)
+		mib, vms := d.vmBudget()
+		pol["budgetMiB"], pol["tilesBudgetMiB"], pol["maxVMs"] = mib, mib, vms
+	}
+	d.Must(t, http.MethodPut, "/api/xbin/vm/policy", pol, 200)
 	if out.Status.Emulated {
 		t.Logf("VMs run emulated: %s", out.Status.Note)
 		return "emulate"
@@ -299,3 +375,6 @@ func (d *Daemon) TileSandboxes(t testing.TB) []TileSandbox {
 	d.Must(t, http.MethodGet, "/api/xbin/sandboxes", nil, 200).Decode(t, &out)
 	return out.TileSandboxes
 }
+
+// Token is the owner token a request needs ("" under --no-auth).
+func (d *Daemon) Token() string { return d.token }
