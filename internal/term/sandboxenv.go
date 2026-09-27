@@ -1,11 +1,14 @@
 package term
 
 // sandboxenv.go — a sandboxed terminal session's environment: the rootfs
-// PATH, the user's HOME, the session's tile-scoped token, and an XBIN_URL
-// the session can reach from its own netns.
+// PATH, the user's HOME, the session's tile-scoped token, an XBIN_URL the
+// session can reach from its own netns, and, while the tile has a
+// deployment record, the checkpoint fetch remote.
 
 import (
 	"net"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/xbin-dev/xbin/internal/sandbox"
@@ -84,11 +87,46 @@ func (m *Manager) sandboxEnv(rel string, relayNet bool, homeDir, termTok string)
 	// token never goes anywhere else. This is what lets a template instance's
 	// `template` remote fetch (plans/agent-v2.md); `curl http://xbin/…` works too.
 	if effURL != "" && token != "" {
+		remote := m.deployRemote(rel)
 		env = append(env,
-			"GIT_CONFIG_COUNT=2",
+			"GIT_CONFIG_COUNT="+strconv.Itoa(2+len(remote)/2),
 			"GIT_CONFIG_KEY_0=url."+effURL+"/.insteadOf", "GIT_CONFIG_VALUE_0=http://xbin/",
 			"GIT_CONFIG_KEY_1=http."+effURL+"/.extraHeader", "GIT_CONFIG_VALUE_1=Authorization: Bearer "+token,
 		)
+		env = append(env, remote...)
 	}
 	return env
+}
+
+// deployRemote is the checkpoint fetch remote, `xbin-deploy`, as the two
+// GIT_CONFIG_* pairs that follow today's two (P16): only for a session on a
+// tile that has a deployment record when the session spawns. The remote
+// lives in the session's env and never in the tile's .git/config, so a clone
+// of the tile, an opt-out or a downgrade leaves nothing behind. Its URL is on
+// the SDK's gateway host, so the insteadOf rewrite and the session's bearer
+// above carry the fetch; after `git fetch xbin-deploy`, `deploy/<name>`
+// resolves in the tile's repository. Nil for a root session, for a tile
+// without a record (a store kept after an opt-out included: only the record
+// counts) and when no hook is wired, so a zero-state session keeps exactly
+// today's two pairs (P5).
+func (m *Manager) deployRemote(tile string) []string {
+	if tile == "" || m.HasDeploymentRecord == nil || !m.HasDeploymentRecord(tile) {
+		return nil
+	}
+	return []string{
+		"GIT_CONFIG_KEY_2=remote.xbin-deploy.url", "GIT_CONFIG_VALUE_2=" + checkpointRemoteURL(tile),
+		"GIT_CONFIG_KEY_3=remote.xbin-deploy.fetch", "GIT_CONFIG_VALUE_3=+refs/heads/deploy/*:refs/deploy/*",
+	}
+}
+
+// checkpointRemoteURL is the checkpoint remote of a tile on the gateway
+// host: http://xbin/api/xbin/checkpoints/<tile>.git. Each path segment is
+// escaped, so a tile path holding a space, '#', '?' or '%' still names that
+// tile (the route decodes it back); an ordinary path is unchanged.
+func checkpointRemoteURL(tile string) string {
+	segs := strings.Split(tile, "/")
+	for i, s := range segs {
+		segs[i] = url.PathEscape(s)
+	}
+	return "http://xbin/api/xbin/checkpoints/" + strings.Join(segs, "/") + ".git"
 }
