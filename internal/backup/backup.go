@@ -12,6 +12,12 @@
 //	data/sqlite/<name>.sqlite        each sqlite resource, checkpointed
 //	data/blob/<name>/…               each blob resource's files
 //	term/…                           the component's terminal dev layer
+//
+// A tile with a deployment record adds its deployment state, right after
+// backup.json (see Deployments):
+//
+//	deployments/record.json          the deployment record, verbatim
+//	deployments/checkpoints/…        its checkpoint store's git data: packed-refs, refs/…, objects/…
 package backup
 
 import (
@@ -23,6 +29,10 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
+	"syscall"
+
+	"github.com/xbin-dev/xbin/internal/fsutil"
 )
 
 // Schema is bumped when the layout changes incompatibly.
@@ -40,6 +50,16 @@ const (
 	TermPrefix   = "term/"
 )
 
+// A tile's deployment state, in the main archive of a tile with a
+// deployment record only. Every entry is a regular file, so an older
+// xbind's restore — which has no arm for the prefix — skips them, and
+// restores the archive as a tile in the zero state.
+const (
+	DeploymentsPrefix = "deployments/"
+	RecordName        = "deployments/record.json"  // the tile's deployment record, verbatim
+	CheckpointsPrefix = "deployments/checkpoints/" // its checkpoint store, by its path in the bare repository
+)
+
 // Manifest is the self-describing header. Everything needed to place the tar's
 // files back without consulting local state lives here.
 type Manifest struct {
@@ -54,6 +74,22 @@ type Manifest struct {
 	CronJobs    []json.RawMessage `json:"cronJobs,omitempty"`
 	BusSubs     []json.RawMessage `json:"busSubscriptions,omitempty"`
 	WithVault   bool              `json:"withVault,omitempty"`
+	// Deployments is present only in the main archive of a tile with a
+	// deployment record, so a tile without one — one that opted out and
+	// kept its checkpoint store included — gets today's manifest.
+	Deployments *Deployments `json:"deployments,omitempty"`
+}
+
+// Deployments is the manifest's deployment section: what of the tile's
+// deployment state the archive holds. It belongs to the manifest's
+// Component, and a restore into any other tile refuses the archive before
+// it writes anything.
+type Deployments struct {
+	Record      bool `json:"record"`      // RecordName is in the archive
+	Checkpoints bool `json:"checkpoints"` // so is the checkpoint store, under CheckpointsPrefix
+	// Archives lists the deployment archives the same backup wrote, by
+	// deployment name: their versions, restored with this one.
+	Archives map[string]string `json:"archives,omitempty"`
 }
 
 func (m Manifest) Has(part string) bool {
@@ -138,6 +174,84 @@ func (w *Writer) Tree(prefix, osDir string, skip func(rel string) bool) error {
 		}
 		return w.Stream(prefix+rel, int64(fi.Mode().Perm()), fi.Size(), f)
 	})
+}
+
+// TreeBeneath writes the regular files beneath dir under prefix, as Tree
+// does, but never follows a symlink out of dir, and never opens a FIFO or a
+// device: each directory and file is opened through fsutil.OpenBeneath, and
+// symlinks and special files are skipped by their own type. An entry
+// swapped for a symlink between the listing and the open is read from
+// inside dir or skipped; one that vanishes is skipped. Entries go in name
+// order; keep(rel, isDir) selects them (nil keeps all), and a directory it
+// drops is not descended into. A missing dir adds nothing.
+func (w *Writer) TreeBeneath(prefix, dir string, keep func(rel string, isDir bool) bool) error {
+	return w.treeBeneath(prefix, dir, "", keep)
+}
+
+func (w *Writer) treeBeneath(prefix, dir, rel string, keep func(string, bool) bool) error {
+	d, err := fsutil.OpenBeneath(dir, rel)
+	if err != nil {
+		if gone(err) {
+			return nil
+		}
+		return err
+	}
+	fi, err := d.Stat()
+	if err != nil || !fi.IsDir() {
+		d.Close()
+		return err
+	}
+	ents, err := d.ReadDir(-1)
+	d.Close()
+	if err != nil {
+		return err
+	}
+	sort.Slice(ents, func(i, j int) bool { return ents[i].Name() < ents[j].Name() })
+	for _, e := range ents {
+		child := path.Join(rel, e.Name())
+		switch t := e.Type(); {
+		case t.IsDir():
+			if keep == nil || keep(child, true) {
+				if err := w.treeBeneath(prefix, dir, child, keep); err != nil {
+					return err
+				}
+			}
+		case t.IsRegular():
+			if keep == nil || keep(child, false) {
+				if err := w.fileBeneath(prefix, dir, child); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (w *Writer) fileBeneath(prefix, dir, rel string) error {
+	f, err := fsutil.OpenBeneath(dir, rel)
+	if err != nil {
+		if gone(err) {
+			return nil
+		}
+		return err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil // a directory swapped in mid-walk
+	}
+	// the size the header promises, whatever the file does meanwhile
+	return w.Stream(prefix+rel, int64(fi.Mode().Perm()), fi.Size(), io.LimitReader(f, fi.Size()))
+}
+
+// gone reports an entry TreeBeneath skips: it vanished, left dir (or
+// became a symlink loop), or isn't a regular file or a directory.
+func gone(err error) bool {
+	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, fsutil.ErrEscapes) || errors.Is(err, fsutil.ErrNotRegular) ||
+		errors.Is(err, syscall.ELOOP)
 }
 
 func (w *Writer) Close() error { return w.tw.Close() }

@@ -85,7 +85,12 @@ func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component) error {
 		}
 	}
 	m.Includes = includes
+	dep := b.deploymentBackupFor(c.Path) // nil in the zero state (backup_deploy.go)
+	dep.section(&m)
 	if err := bw.Manifest(m); err != nil {
+		return err
+	}
+	if err := dep.write(bw); err != nil {
 		return err
 	}
 
@@ -216,12 +221,20 @@ func (b *Broker) cronJobsFor(comp string) []json.RawMessage {
 
 // restore unpacks a backup tar, reconstructing the component at the path recorded
 // in the manifest. Placement is purely manifest-driven (self-describing).
-func (b *Broker) restore(r io.Reader) (backup.Manifest, error) {
+// tile is the component the archive was fetched for: an archive carrying
+// deployment state is refused unless it is tile's, and that state is
+// settled through put before anything is written (backup_deploy.go).
+func (b *Broker) restore(tile string, r io.Reader, put deploymentRestorer) (backup.Manifest, error) {
 	br, err := backup.NewReader(r)
 	if err != nil {
 		return backup.Manifest{}, err
 	}
 	m := br.M
+	dep, err := newDeploymentRestore(b.Reg.Root, tile, m, put)
+	if err != nil {
+		return m, err
+	}
+	defer dep.close()
 	root := b.Reg.Root
 	srcRoot := filepath.Join(root, filepath.FromSlash(m.Component))
 	termRoot := b.termDir(m.Component)
@@ -237,6 +250,15 @@ func (b *Broker) restore(r io.Reader) (backup.Manifest, error) {
 			break
 		}
 		if err != nil {
+			return m, err
+		}
+		if dep.takes(name) {
+			if err := dep.entry(name, rd); err != nil {
+				return m, err
+			}
+			continue
+		}
+		if err := dep.settle(); err != nil {
 			return m, err
 		}
 		switch {
@@ -278,6 +300,9 @@ func (b *Broker) restore(r io.Reader) (backup.Manifest, error) {
 				return m, err
 			}
 		}
+	}
+	if err := dep.settle(); err != nil { // an archive of nothing else
+		return m, err
 	}
 	// Restore this component's cron jobs.
 	for _, raw := range m.CronJobs {
@@ -453,7 +478,7 @@ func (b *Broker) doRestore(comp, version string) (backup.Manifest, error) {
 		return backup.Manifest{}, fmt.Errorf("archiver %s: %s", provider, firstLine(string(body)))
 	}
 	b.StopBackendSafe(comp)
-	return b.restore(bytes.NewReader(body))
+	return b.restore(comp, bytes.NewReader(body), b.deploymentStateRestorer())
 }
 
 func (b *Broker) StopBackendSafe(comp string) {
