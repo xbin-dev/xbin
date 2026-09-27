@@ -12,7 +12,7 @@ internal/term/term.go 950
 cmd/xbind/main.go 85
 internal/broker/netfn.go 1170
 cmd/bx/main.go 1150
-internal/runner/runner.go 850
+internal/runner/runner.go 756
 internal/auth/auth.go 732
 internal/broker/usersapi.go 789
 internal/builtins/updates.go 850
