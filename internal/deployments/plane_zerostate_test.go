@@ -97,12 +97,9 @@ func TestPlaneZeroState(t *testing.T) {
 			t.Errorf("EnvFor(dev) = %v, %v; want no env and an empty remap (nothing of main's bound)", e, remap)
 		}
 
-		// The registry's hooks: nothing is pinned, every scope is the work tree's.
+		// The registry's hook: nothing is pinned, every scope is the work tree's.
 		if pc, ok := p.PinnedPrimary(c.Path); pc != nil || ok {
 			t.Errorf("PinnedPrimary = %v, %v; want nothing", pc, ok)
-		}
-		if res, ok := p.ScopeResources(c.Path); res != nil || ok {
-			t.Errorf("ScopeResources = %v, %v; want the work tree's", res, ok)
 		}
 
 		// The broker's tile-life hooks: nothing to rewrite, reset or list.

@@ -392,7 +392,8 @@ Every card includes these; a card states only what differs.
   - `events.Event.Deployment`, `auth.Principal.Deployment`;
   - the registry's deployment fields (`WorkTree`, `Kept`), its
     `PinnedPrimary` hook (07-runtime §5.1; nil = today's scan) and its
-    `ScopeResources` hook (nil = today's `scope.json` map);
+    `ScopeResources` hook (nil = today's `scope.json` map; wave 1.1 deleted
+    it: WP-18 carries the checkpoint's `scope.json` in `PinnedCode.Scope`);
   - the terminal manager's has-record hook;
   - 07-runtime §1.2's runner hooks and helpers in
     `internal/runner/deploy.go` (`CodeFor`, `EnvFor` with its `ResBind`
@@ -426,7 +427,7 @@ Every card includes these; a card states only what differs.
   with every method boot, the runner, the broker, the server and the terminal
   manager call, answering the zero state. `boot.go` installs the hooks
   (the broker's tile-life hooks and the registry's `ScopeResources`
-  included), points `OnGrantChange` at `run.ChangedTile`
+  included; wave 1.1 deleted that hook with WP-18), points `OnGrantChange` at `run.ChangedTile`
   (`internal/boot/boot.go:508-512`), and hands the plane to `watchLoop` and
   `registerDeploymentsAPI`. The ship-dark switch (NP-14-5), a tagged `Config`
   field on the `--tile-assets` precedent (`internal/boot/config.go:50`), with
@@ -667,16 +668,18 @@ Every card includes these; a card states only what differs.
   follows the primary's code without an edit of its own; the work tree's
   values still feed the manifest error. `Rescan` keeps a record-bearing tile
   whose work-tree manifest is missing or broken, with the primary
-  checkpoint's tile-level fields and the error surfaced. P22 in M1: the
-  `ScopeResources` hook answers a pinned scope root's declarations from its
-  checkpoint's `scope.json`, read through `OpenBeneath` and validated (the
+  checkpoint's tile-level fields and the error surfaced. P22 in M1:
+  `PinnedCode.Scope` (07-runtime §5.1) carries a pinned scope root's
+  declarations (resources and importMap) from its checkpoint's
+  `scope.json`, read through `OpenBeneath` and validated (the
   resource-name charset), where the registry reads the work tree's today
   (`internal/registry/registry.go:447`); `Provision`
   (`internal/broker/resources.go:36`, called at `internal/boot/serve.go:172`)
-  provisions through the hook and keeps resources no longer declared.
-  WP-05 declared the checkpoint's `scope.json` in two places, as the design
-  gives it: `PinnedCode.Scope` (07-runtime §5.1) and the `ScopeResources`
-  hook. WP-18 wires one of them and deletes the other.
+  provisions from the registry's scopes and keeps resources no longer
+  declared. WP-05 declared the checkpoint's `scope.json` in two places, as
+  the design gave it: `PinnedCode.Scope` and a `ScopeResources` hook. WP-18
+  wired `PinnedCode.Scope`, since only it carries the importMap (Q4); the
+  integrator deleted the hook (wave 1.1 amendment).
 - **Owns.** `internal/registry/{deployview,native,registry}.go`,
   `internal/broker/resources.go` (`Provision`), unit tests.
 - **Tests.** `TestManifestFieldSplit` (the three field kinds, the inbound

@@ -11,8 +11,8 @@ import (
 
 // covers P5 PO-7 PO-8 NP-14-2 — boot builds the deployments plane and
 // installs its methods as every deployment hook M1 reads: the registry's
-// (PinnedPrimary, ScopeResources), the runner's (CodeFor, Primary, View,
-// Materialize, EnvFor), the broker's tile-life hooks and the server's three
+// PinnedPrimary, the runner's (CodeFor, Primary, View, Materialize,
+// EnvFor), the broker's tile-life hooks and the server's three
 // questions, and the terminal manager's has-record hook; the plane gets each
 // input it asks the rest of xbind for. Through the installed hooks a
 // zero-state workspace answers today's (main runs the work tree with the
@@ -48,7 +48,6 @@ func TestDeploymentsWiring(t *testing.T) {
 
 	for name, set := range map[string]bool{
 		"registry.PinnedPrimary":           st.Reg.PinnedPrimary != nil,
-		"registry.ScopeResources":          st.Reg.ScopeResources != nil,
 		"runner.CodeFor":                   st.Run.CodeFor != nil,
 		"runner.Primary":                   st.Run.Primary != nil,
 		"runner.View":                      st.Run.View != nil,
@@ -186,7 +185,7 @@ func TestTileDeploymentsSwitch(t *testing.T) {
 		if st.Deployments.OptInClosed != c.closed {
 			t.Errorf("--tile-deployments=%q: plane OptInClosed = %v, want %v", c.value, st.Deployments.OptInClosed, c.closed)
 		}
-		if st.Reg.PinnedPrimary == nil || st.Reg.ScopeResources == nil {
+		if st.Reg.PinnedPrimary == nil {
 			t.Errorf("--tile-deployments=%q: the registry hooks are not installed before the first Provision", c.value)
 		}
 	}

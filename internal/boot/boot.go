@@ -252,7 +252,7 @@ func (st *State) stepRegistry() error {
 	// (broker.New), so a pinned primary's code is what the registry composes.
 	dp := &deployments.Plane{Root: st.WS, Reg: reg, Hub: st.Hub, Run: st.Run,
 		OwnerRef: st.Users.Owner, OptInClosed: st.Cfg.tileDeploysClosed()}
-	reg.PinnedPrimary, reg.ScopeResources = dp.PinnedPrimary, dp.ScopeResources
+	reg.PinnedPrimary = dp.PinnedPrimary
 	if err := dp.Boot(); err != nil {
 		return fmt.Errorf("deployments: %w", err)
 	}

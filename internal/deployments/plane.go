@@ -222,13 +222,6 @@ func (p *Plane) PinnedPrimary(rel string) (*registry.PinnedCode, bool) {
 		rel, rec.Primary, *d.Checkpoint)}, true
 }
 
-// ScopeResources answers the resources a scope root declares when they don't
-// come from the work tree's scope.json (a pinned primary's checkpoint, P22).
-// Every scope declares what its work tree does.
-func (p *Plane) ScopeResources(scope string) (map[string]registry.Resource, bool) {
-	return nil, false
-}
-
 // ---- the broker's hooks (broker.DeploymentHooks) ----
 
 // RewriteDeploymentOwner rewrites the owner ref of tile's record in the same
