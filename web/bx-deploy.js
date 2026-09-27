@@ -72,7 +72,7 @@ async function post(path, body) {
 
 async function getJSON(url) {
   try {
-    const r = await fetch(url);
+    const r = await fetch(url, { cache: 'no-store' });
     const j = await r.json().catch(() => null);
     return r.ok ? { body: j } : { status: r.status, error: j?.error || '' };
   } catch (e) {
