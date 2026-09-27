@@ -689,7 +689,10 @@ arrives within 10 s of `load`), the layout grows to the content's width, up
 to 1280 px, fitted to the screen, and pinch zoom reads the detail. The app
 does it by appending a `<meta name="viewport">` to such a page from its own
 script, so the page sees one. To choose for yourself, set your own — for
-a page made for phones, `width=device-width, initial-scale=1`.
+a page made for phones, `width=device-width, initial-scale=1`. The page
+starts right under the app's toolbar, and its background color (the
+`<html>`/`<body>` background, else white) runs up behind the toolbar and the
+status bar: a dark page gets a dark top, not a white strip.
 
 ## Performance
 

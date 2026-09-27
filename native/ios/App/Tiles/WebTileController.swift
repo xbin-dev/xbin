@@ -34,6 +34,10 @@ final class WebTileController: NSObject {
     var isLoading = true
     var loadError: String?
     var pageTitle: String = ""
+    /// The color WebKit draws behind the page (its html/body background,
+    /// else the web view's white): the screen paints it behind the bars,
+    /// so the page's own color runs up under the toolbar.
+    var pageBackground: UIColor?
     var jsDialog: JSDialog?
     var tileDialog: TileDialog?
     var shareItems: [Any]?
@@ -85,6 +89,9 @@ final class WebTileController: NSObject {
             },
             webView.observe(\.title) { [weak self] wv, _ in
                 MainActor.assumeIsolated { self?.pageTitle = wv.title ?? "" }
+            },
+            webView.observe(\.underPageBackgroundColor) { [weak self] wv, _ in
+                MainActor.assumeIsolated { self?.pageBackground = wv.underPageBackgroundColor }
             },
         ]
     }

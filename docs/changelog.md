@@ -47,6 +47,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   as set, the budget in use per tile) and the newest things the sandbox
   layer refused or failed at.
 
+- **xbin app: web tiles start right under the toolbar** ([native.md](native.md)
+  §Fallback). An empty title area left a ~60 pt white band between the
+  app's toolbar and a tile's page; the page now starts under the toolbar,
+  and its background color runs up behind the bar.
+
 - **Agent sessions: a `?follow=1` event stream answers at once**
   ([protocol.md](protocol.md) `GET /term/sessions/<id>/events`). xbind sent
   the stream's response head only with its first event, so a client that

@@ -80,6 +80,14 @@ struct WebTileScreen: View {
                     .transition(.opacity)
             }
         }
+        // The page starts right under the toolbar: an inline bar (the
+        // navigator's large title would leave its empty title area as a
+        // band over the page), with the page's own background color
+        // behind the bar, as the terminal's black runs under its bar.
+        .navigationBarTitleDisplayMode(.inline)
+        .background {
+            if let bg = controller?.pageBackground { Color(uiColor: bg).ignoresSafeArea() }
+        }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Menu {

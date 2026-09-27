@@ -46,6 +46,11 @@ final class XbinE2ETests: XCTestCase {
         e.shot("02-web-tile")
         XCTAssertTrue(readable, "the 13 px heading at about 1:1 (\(heading.frame) in a \(width) pt window)")
         XCTAssertTrue(heading.frame.minX >= 0 && heading.frame.maxX <= width, "on screen: \(heading.frame)")
+        // The page starts right under the toolbar: no band between them (the
+        // navigator's large-title area, empty, once stood there, ~60 pt).
+        let bar = e.app.buttons["Workspaces"].frame
+        print("xbin-e2e: web view \(web.frame), toolbar button \(bar)")
+        XCTAssertTrue(web.frame.minY - bar.maxY < 24, "the page right under the toolbar: \(web.frame), toolbar \(bar)")
     }
 
     /// The native counter: its native.js draws natively, +1 reaches the
