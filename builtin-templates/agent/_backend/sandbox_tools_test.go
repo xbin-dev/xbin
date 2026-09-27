@@ -85,7 +85,7 @@ func TestSandboxToolsNeedClassAndBinding(t *testing.T) {
 			depth = 1
 		}
 		names := specNames(c.cfg, depth)
-		for _, n := range []string{"bash", "bash_output", "bash_kill"} {
+		for _, n := range []string{"bash", "bash_output", "bash_kill", "read", "write", "edit", "ls", "glob", "grep"} {
 			if strings.Contains(names, " "+n+" ") != c.want {
 				t.Errorf("%s: %s offered = %v", c.name, n, !c.want)
 			}
@@ -113,8 +113,11 @@ func TestSandboxToolsNeedClassAndBinding(t *testing.T) {
 	}
 	net := b
 	net.Egress = "internet"
-	if !sideEffect("bash", Config{Class: "coding", Sandbox: &net}) || sideEffect("bash_output", Config{Class: "coding", Sandbox: &net}) {
-		t.Fatal("bash with egress parks; reading output never does")
+	netCfg := Config{Class: "coding", Sandbox: &net}
+	for name, parks := range map[string]bool{"bash": true, "write": true, "edit": true, "bash_output": false, "bash_kill": false, "read": false, "ls": false, "glob": false, "grep": false} {
+		if sideEffect(name, netCfg) != parks || sideEffect(name, coding) {
+			t.Errorf("%s: parks with egress %v, without %v", name, sideEffect(name, netCfg), sideEffect(name, coding))
+		}
 	}
 	if !sideEffect("xbin_call", Config{}) || sideEffect("file_write", Config{}) {
 		t.Fatal("the other tools keep their rule")

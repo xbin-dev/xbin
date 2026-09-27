@@ -133,11 +133,8 @@ func (ag *Agent) fileEdit(runID int64, args map[string]any) (string, error) {
 		return "", err
 	}
 	oldS, newS := str(args["old_string"]), str(args["new_string"])
-	if oldS == "" {
-		return "", fmt.Errorf("old_string is required (use file_write to create or replace a whole file)")
-	}
-	if oldS == newS {
-		return "", fmt.Errorf("old_string and new_string are identical — nothing to do")
+	if err := checkEdit(oldS, newS, "file_write"); err != nil {
+		return "", err
 	}
 	f, err := ag.db.replFile(runID, path)
 	if err != nil {
@@ -147,25 +144,9 @@ func (ag *Agent) fileEdit(runID int64, args map[string]any) (string, error) {
 		return "", fmt.Errorf("%s is a binary attachment (%s) and cannot be edited as text", path, f.Mime)
 	}
 	all, _ := args["replace_all"].(bool)
-	n := strings.Count(f.Content, oldS)
-	switch {
-	case n == 0:
-		hint := ""
-		// A near-miss is almost always whitespace, so point at it rather than
-		// letting the model guess: it can then file_read and retry precisely.
-		if squeeze := strings.Join(strings.Fields(oldS), " "); squeeze != "" &&
-			strings.Contains(strings.Join(strings.Fields(f.Content), " "), squeeze) {
-			hint = " — the text is present but the whitespace differs; file_read it and copy exactly"
-		}
-		return "", fmt.Errorf("old_string not found in %s%s", path, hint)
-	case n > 1 && !all:
-		return "", fmt.Errorf("old_string appears %d times in %s — add surrounding lines to make it unique, or set replace_all", n, path)
-	}
-	updated := f.Content
-	if all {
-		updated = strings.ReplaceAll(updated, oldS, newS)
-	} else {
-		updated = strings.Replace(updated, oldS, newS, 1)
+	updated, n, err := applyEdit(f.Content, oldS, newS, all, path, "file_read")
+	if err != nil {
+		return "", err
 	}
 	nf, err := ag.db.replPutFile(runID, path, updated, 0)
 	if err != nil {
@@ -177,6 +158,43 @@ func (ag *Agent) fileEdit(runID int64, args map[string]any) (string, error) {
 	}
 	return fmt.Sprintf("edited %s (%s, %s, v%d)\n\n%s",
 		nf.Path, what, humanBytes(nf.Bytes), nf.Version, ag.db.replFileIndex(runID)), nil
+}
+
+// checkEdit refuses an edit that can't mean anything; writeTool is the tool
+// that replaces a whole file.
+func checkEdit(oldS, newS, writeTool string) error {
+	if oldS == "" {
+		return fmt.Errorf("old_string is required (use %s to create or replace a whole file)", writeTool)
+	}
+	if oldS == newS {
+		return fmt.Errorf("old_string and new_string are identical — nothing to do")
+	}
+	return nil
+}
+
+// applyEdit is an exact-string replacement, refusing to guess: oldS must
+// appear exactly once in content, or all replaces every one. n is how many
+// it found. readTool is the tool the model re-reads the file with (file_edit
+// and the sandbox's edit share this).
+func applyEdit(content, oldS, newS string, all bool, path, readTool string) (updated string, n int, err error) {
+	n = strings.Count(content, oldS)
+	switch {
+	case n == 0:
+		hint := ""
+		// A near-miss is almost always whitespace, so point at it rather than
+		// letting the model guess: it can then re-read and retry precisely.
+		if squeeze := strings.Join(strings.Fields(oldS), " "); squeeze != "" &&
+			strings.Contains(strings.Join(strings.Fields(content), " "), squeeze) {
+			hint = " — the text is present but the whitespace differs; " + readTool + " it and copy exactly"
+		}
+		return "", 0, fmt.Errorf("old_string not found in %s%s", path, hint)
+	case n > 1 && !all:
+		return "", n, fmt.Errorf("old_string appears %d times in %s — add surrounding lines to make it unique, or set replace_all", n, path)
+	}
+	if all {
+		return strings.ReplaceAll(content, oldS, newS), n, nil
+	}
+	return strings.Replace(content, oldS, newS, 1), n, nil
 }
 
 // renderHTML journals a render step; the tile picks it up from the run's step

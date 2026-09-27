@@ -2,6 +2,7 @@
 // the sandbox bound to it (sandbox_bind.go).
 //
 //	bash, bash_output, bash_kill   commands, and the jobs they become (sandbox_jobs.go)
+//	read, write, edit, ls, glob, grep   files (sandbox_fs.go)
 //
 // The tools exist only when the conversation's class has the `sandbox`
 // toolset AND a sandbox is bound; every call re-runs sandboxUse (the class,
@@ -39,13 +40,14 @@ func sandboxToolsOn(cfg Config) bool {
 
 var sandboxToolNames = map[string]bool{
 	"bash": true, "bash_output": true, "bash_kill": true,
+	"read": true, "write": true, "edit": true, "ls": true, "glob": true, "grep": true,
 }
 
 // sandboxChanges are the tools that change a sandbox: side effects (Approve
 // mode parks them) only when the sandbox can reach out — one with no egress
 // is private scratch.
 var sandboxChanges = map[string]bool{
-	"bash": true,
+	"bash": true, "write": true, "edit": true,
 }
 
 // sandboxSideEffect: name changes the bound sandbox, and it has egress.
@@ -62,7 +64,7 @@ func sandboxToolSpecs(cfg Config, depth int) []toolSpec {
 	}
 	_ = depth // subagents work in their root's sandbox too (or the one they were spawned onto)
 	jobProp := intProp("the job number (bash's footer says it; sandbox_info lists them)")
-	return []toolSpec{
+	specs := []toolSpec{
 		{Type: "function", Function: funcDef{
 			Name: "bash",
 			Description: "Run a shell command in this conversation's coding sandbox (a separate machine — not the session files, which the file_* tools hold). " +
@@ -96,6 +98,7 @@ func sandboxToolSpecs(cfg Config, depth int) []toolSpec {
 			}),
 		}},
 	}
+	return append(specs, sandboxFileSpecs()...)
 }
 
 // runSandboxTool dispatches the coding tools. Called from runTool.
@@ -110,6 +113,9 @@ func (ag *Agent) runSandboxTool(ctx context.Context, run *Run, cfg Config, name 
 		return ag.toolBashOutput(ctx, run, cfg, args)
 	case "bash_kill":
 		return ag.toolBashKill(ctx, run, cfg, args)
+	}
+	if sandboxFileTools[name] {
+		return ag.runSandboxFileTool(ctx, run, cfg, name, args)
 	}
 	return "", fmt.Errorf("unknown sandbox tool %q", name)
 }

@@ -42,8 +42,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   tools (§The coding tools): `bash` (at its timeout the command goes on as a
   numbered job; interrupting the turn TERMs, then KILLs, its process group;
   after a backend restart the call's result names the job), `bash_output`
-  and `bash_kill`; its system prompt gains a `# Sandbox` section; in Approve
-  mode `bash` parks only when the sandbox has egress.
+  and `bash_kill`, and `read`, `write`, `edit` (etag-guarded), `ls`, `glob`
+  and `grep` for its files; its system prompt gains a `# Sandbox` section;
+  in Approve mode `bash`, `write` and `edit` park only when the sandbox has
+  egress.
 
 - **Admin console: runtime → sandboxes, and the sandbox in the component
   list** (D112, [isolation.md](isolation.md) §VM sandboxes). A new tab lists

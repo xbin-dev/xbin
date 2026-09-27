@@ -956,6 +956,12 @@ changes on a rebind only (the prompt's cached prefix stays valid).
 | `bash` | `{command, cwd?, timeout_s? (120), background?}` | runs `command` with the sandbox user's login shell (an exec named `agent:<run>:<tool call>`, so starting it twice finds the one command), no TTY, no stdin, `TERM=dumb NO_COLOR=1 PAGER=cat GIT_TERMINAL_PROMPT=0`, and follows its combined output. The result is at most 12 KiB — a short head and a long tail with `… N bytes elided …` between, escapes and `\r` redraws cleaned — and a footer: `[exit 1 · 14s · job 3]`. At `timeout_s` (or just before the tool's own `toolTimeout`) the command **goes on as a job**: the footer says `still running after 2m00s · job 3` and how to follow it. `background: true` starts it as a job at once |
 | `bash_output` | `{job, wait_s? (0, ≤ 600), offset?}` | a job's output since it was last read (or from byte `offset`), waiting up to `wait_s` for it to end; the footer says it still runs (and up to which byte it was read) or how it ended |
 | `bash_kill` | `{job, signal?}` | signals the job's whole process group: `INT`, `TERM`, `KILL` or `HUP`; by default TERM, then KILL if it hasn't ended 3 s later |
+| `read` | `{path, offset?, limit? (2000)}` | numbered lines (`cat -n` style), within ~14 KiB, saying what it left out; a file up to 256 KiB is read whole and sliced, a larger one ranged with `sed -n`; a binary file (a NUL or non-UTF-8 near its start) gets a hint instead |
+| `write` | `{path, content}` | replaces the file atomically (the contract's `PUT …/files/content`), creating missing directories |
+| `edit` | `{path, old_string, new_string, replace_all?}` | `file_edit`'s exact-string replacement (the same rules, one shared implementation) on a sandbox file of up to 4 MiB, written back with `ifMatch` = the etag it read; a `precondition` refusal (the file changed meanwhile) is retried once from a fresh read. The result shows the changed lines, numbered |
+| `ls` | `{path?}` | a directory (≤ 500 entries): subdirectories first, with `/`; files with their size; symlinks with their target |
+| `glob` | `{pattern, path?}` | files by name, relative to the working directory, sorted, at most 200: `**` spans directories, a pattern without `/` matches names at any depth, `{a,b}` alternates. The listing is the sandbox's own `rg --files` (which honours `.gitignore`) or `find` (skipping `.git` and `node_modules`) — at most 20 000 files — matched here |
+| `grep` | `{pattern, path?, glob?, ignore_case?}` | `path:line: text` lines, at most 100 (then how many more), text clipped at 300 characters: `rg` where the sandbox has it (its regex syntax), else `grep -rE`; skips `.git` and binary files |
 
 **Jobs** are numbered per conversation (subagents share their root's
 numbers) and kept in the `sandbox_jobs` table (`root_id, job, run_id,
@@ -970,9 +976,9 @@ ran. It went on in the sandbox as job 3 — bash_output {"job": 3} shows its
 output from the start …)` instead of the generic lost-result text, and the
 job's output resumes by offset.
 
-**Approve mode.** `bash` is a side-effecting tool — the step parks for
-approval — only when the bound sandbox has egress other than `none`; a
-sandbox with no network is private scratch.
+**Approve mode.** `bash`, `write` and `edit` are side-effecting tools —
+the step parks for approval — only when the bound sandbox has egress other
+than `none`; a sandbox with no network is private scratch.
 
 ## The frontend: one model, thin views
 
