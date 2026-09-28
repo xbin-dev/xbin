@@ -12,7 +12,8 @@ test or a Makefile target next to the thing that needs remembering.
 ## Definition of done
 
 ```
-make check              # fmt-check vet js-check js-test native-check theme-check shellcheck pins-offline test
+make check              # fmt-check vet js-check js-test native-check theme-check shellcheck pins-offline large-files test
+make integration-deps   # once, and after a pull: the helpers (prebuilt), Firecracker, xbind/bx/xbin-vmagent, .rootfs if missing
 make integration        # when the runner / sandbox / broker path changed
 make hooks              # once per clone: the sub-second subset runs pre-commit
 ```
@@ -34,10 +35,11 @@ target, so a red line names the guard that failed.
 | gofmt over `GOFMT_DIRS` | `fmt-check` | formatting drift (CI's gofmt must match go.mod's minor — the pins check enforces that) |
 | `go vet ./...` | `vet` | the usual |
 | `node --check` over every shipped script and inline module block — a `.js` written as an ES module is checked as one (node's detection on a plain `.js` is lenient); named imports resolved against the exports of the relative / `/vendor/` module they name | `js-check` | a syntax error in a tile's inline `<script type="module">` or an unbalanced template expression in a module, or an import of a renamed or mislocated export — none is parsed by anything else before a user's browser (the trees include `website/`, so the landing page's inline module and its `js/` are covered) |
-| `node --test hack/*.test.mjs` — unit tests for pure frontend modules, and for the installer's host-editing helpers (`hack/install-sh.test.mjs`: functions cut out of `deploy/install.sh` by name, run by bash against temp files) | `js-test` | the installer's AppArmor block in `/etc/apparmor.d/local/fusermount3` (replaced in place, never duplicated, other lines kept, a hand-broken file left alone) and the VM policy it writes (xbind's field names, never over an existing file); the shell's context-menu builders (`shell/menus.js`), revisioned-draft helpers (`shell/rev-draft.js`), grid math (`shell/grid-layout.js` — the push a drag performs) the terminal's prediction engine (`web/term-predict.js` — what a keystroke predicts, what an ack confirms) and the frame's view of the session directory (`web/term-sessions.js` — how a listing becomes the tab bar, how the legacy browser record is adopted): every branch a menu can show, how a stale save is classified, where a pushed tile lands, which predictions survive, which tabs a listing yields — without a browser |
+| `node --test hack/*.test.mjs` — unit tests for pure frontend modules, and for the installer's host-editing helpers (`hack/install-sh.test.mjs`: functions cut out of `deploy/install.sh` by name, run by bash against temp files), and for the prebuilt-helpers scripts and the large-files guard (`hack/helpers.test.mjs`: throwaway repos with fake build scripts, `python3 -m http.server` as the public bucket, `rclone serve s3` as the signed side when installed) | `js-test` | the helper keys, the manifest's syntax, a sha256 mismatch refused with nothing installed, the source-build fallback and its CI warning, publish's refusals and its upload round trip; the installer's AppArmor block in `/etc/apparmor.d/local/fusermount3` (replaced in place, never duplicated, other lines kept, a hand-broken file left alone) and the VM policy it writes (xbind's field names, never over an existing file); the shell's context-menu builders (`shell/menus.js`), revisioned-draft helpers (`shell/rev-draft.js`), grid math (`shell/grid-layout.js` — the push a drag performs) the terminal's prediction engine (`web/term-predict.js` — what a keystroke predicts, what an ack confirms) and the frame's view of the session directory (`web/term-sessions.js` — how a listing becomes the tab bar, how the legacy browser record is adopted): every branch a menu can show, how a stale save is classified, where a pushed tile lands, which predictions survive, which tabs a listing yields — without a browser |
 | the native client's contract: xb-native's own tests, the fixture runner's, and every `native/fixtures/<name>` rendered in node and compared with its `expected.json`, plus the vocabulary coverage gate | `native-check` | the tree a tile's `native.js` renders — what the app's renderer and the reference renderer draw — drifting unreviewed, and a vocabulary item no fixture exercises (native/fixtures/README.md) |
 | shellcheck at warning level over `deploy/`, `hack/`, `.githooks/`, the site's `website/install.sh` bootstrap and the iOS CI scripts in `native/ios/scripts/` | `shellcheck` | the installer and release scripts (1,600 lines of bash; only the installer's host-editing helpers have unit tests, above); the iOS CI scripts, which only a macOS runner executes |
-| vendor checksums, Go-version agreement, alpine pins | `pins-offline` | pins drifting apart between the files that state one |
+| vendor checksums, Go-version agreement, alpine pins, the helpers manifest (well-formed; each group's current key published — a warning, never a failure) | `pins-offline` | pins drifting apart between the files that state one; build inputs changed without a published helper set (see "Prebuilt helpers") |
+| nothing in the index over 1 MiB, no ELF / Mach-O / PE binary, unless `hack/large-files.allow` names it with a reason (`hack/check-large-files.sh`; also in the pre-commit hook) | `large-files` | a built binary or a big blob committed by accident — history keeps it forever; helpers live in the bucket, bundles on release tags |
 | unit tests incl. the embed guard, route inventory, docs check, the exec and cgi guards | `test` | see the sections below |
 
 Not in `check`: `make swift-test` runs the native client's Swift packages
@@ -445,8 +447,8 @@ passes that write `PASS`/`FAIL` lines under `$HARNESS_DIR/out/<pass>.txt`
 and exit 1 on any FAIL. A part the environment cannot exercise writes a
 `SKIP <reason>` line instead (`checker().skip`, echoed at the end of
 `run.sh`) — never a timeout, never a silent pass: without a `gocryptfs`
-binary (a fresh worktree has no `bin/gocryptfs`: `make gocryptfs`, or
-`XBIN_GOCRYPTFS`) the seeded agent tiles are held, so `agentTemplate`,
+binary (a fresh worktree has no `bin/gocryptfs`: `make helpers`, `make
+gocryptfs`, or `XBIN_GOCRYPTFS`) the seeded agent tiles are held, so `agentTemplate`,
 `agentConvs`, `agentSandbox` and `channels` skip; a harness xbind that can
 run VM sandboxes skips `vmToggle`'s disabled-toggle half.
 
@@ -567,9 +569,101 @@ is merged on top and every line must survive `olddefconfig`), and
 VMs (D90) `hack/build-qemu.sh` (QEMU version + tarball sha256; the device
 set is in the script) and `hack/build-vhost-vsock.sh` (crate version,
 `--locked`). Bump Firecracker and the config tag together — `make pins` warns
-when they differ. CI builds them (cached on those files), turns on KVM for
-the runner, and boots the VM integration tests on a small exported ubuntu
-image twice: on KVM, then with `XBIN_VM_ACCEL=emulate`.
+when they differ. CI gets them with `make helpers` (next section) and the
+Firecracker fetch, turns on KVM for the runner, and boots the VM
+integration tests on a small exported ubuntu image twice: on KVM, then with
+`XBIN_VM_ACCEL=emulate`.
+
+## Prebuilt helpers (`make helpers`, D126)
+
+xbind runs native helpers it doesn't compile: the **containerfs** group
+(patched static `gocryptfs`, static `fuse-overlayfs`) and the **vm** group
+(the guest `vmlinux`, static `mkfs.erofs`, the TCG-only
+`qemu-system-x86_64` with `qemu-bios-microvm.bin` + `qemu-pvh.bin`,
+`vhost-device-vsock`; amd64 only). Every one is built from source by its
+`hack/build-*.sh` (docker, pinned, above) — that stays the source of
+truth. The prebuilt sets are a verified cache of those builds, so CI and
+developers don't compile a kernel and QEMU on every cold cache.
+
+- **Key.** Each group's key (`hack/helpers-lib.sh`) is the first 12 hex of
+  a sha256 over its build scripts (their pinned versions and checksums live
+  inside them), its patches (`hack/gocryptfs-patches/`,
+  `hack/gofuse-patches/`) or `hack/vmkernel/xbin.config`, and its file
+  list. Any input change is a new key. `hack/fetch-helpers.sh --status`
+  prints the keys.
+- **Manifest.** `hack/helpers.sha256` (committed) pins every published
+  set: `<group> <key> <arch> <file> <sha256>`, where `<file>` is
+  `<arch>.tar.zst` (the bucket object) or a file inside it. Only
+  `make helpers-publish` writes it.
+- **Where they're served.** Any plain-HTTPS origin laid out as
+  `<url>/<prefix><group>/<key>/<arch>.tar.zst`. `make helpers` reads only
+  that URL and prefix — `HELPERS_URL_DEFAULT` / `HELPERS_PREFIX_DEFAULT` in
+  `hack/helpers-lib.sh`, overridden by `XBIN_HELPERS_URL` /
+  `XBIN_HELPERS_S3_PREFIX`; no credentials. **For now it's the website:**
+  `https://xbin.dev/static/helpers` (static files, deployed with the site);
+  an S3-compatible public bucket (`make helpers-publish`, `s3secret.env`)
+  can replace it later by changing those two defaults. Helper binaries
+  never go on GitHub (only release tags carry binaries there) and never
+  into git (`make large-files`).
+- **Publishing to the website** (maintainers): `hack/publish-helpers.sh
+  --stage-only DIR` (build + pack from a clean tree), then
+  `hack/helpers-static.sh DIR` (checks each staged tarball, copies it to
+  the gitignored `website/static-helpers/`, merges the entries into
+  `hack/helpers.sha256`), `make website` (→ `website/dist/static/helpers/`),
+  deploy the site by hand, then commit the manifest. Until the site serves a
+  set, `make helpers` falls back to building it from source; `make pins`
+  (online, and so a release) fails on a pinned set the URL doesn't serve —
+  deploy first.
+
+**Developers and users.** `make helpers` (or `make integration-deps`, which
+adds Firecracker, xbind/bx/xbin-vmagent from the tree, and `.rootfs` when
+missing) does, per group, for this arch (`PLATFORM`'s, else the host's):
+`bin/.helpers-<group>` names the current key → nothing to do; the manifest
+pins the current key → download, check the object's sha256 and every
+file's (a mismatch is fatal and installs nothing), install; otherwise → build
+from source with the group's scripts, saying why. The source build also
+happens when a download fails (with a warning) and when a version override
+the scripts read (`QEMU_VERSION`, `NATIVE=1`, …) is set. `HELPERS=vm`
+narrows it to one group. To rebuild everything from source regardless:
+`make helpers-build` (the Makefile's own `make gocryptfs fuse-overlayfs
+vm-assets` targets still work too). A published key with no URL configured
+fails with what to set.
+
+**CI.** The test job runs `make helpers HELPERS=containerfs` before `make
+check` and `make helpers HELPERS=vm` before the VM suite, under one
+`actions/cache` of `bin/` keyed on the manifest and every build input — a
+repeat run neither downloads nor builds. A PR that changes a group's inputs
+builds that group from source and carries a `::warning` annotation to
+publish it; `make check`'s pins-offline says the same. Neither blocks: a
+maintainer publishes, the manifest commit makes CI fetch again.
+
+**Maintainers: publishing.** On a machine with docker and the publisher's
+credentials, never in CI:
+
+1. `cp s3secret.env.example s3secret.env` (gitignored), fill it in,
+   `chmod 600`; `hack/check-s3.sh` proves it (signed put, anonymous public
+   get, signed delete).
+2. On a clean tree (the key must describe committed inputs):
+   `make helpers-publish` [`HELPERS=vm`] — builds each group whose current
+   key the manifest lacks, packs `<arch>.tar.zst`, uploads it with curl
+   `--aws-sigv4` (credentials on curl's stdin, never a command line),
+   downloads it back from the public URL to compare, and rewrites
+   `hack/helpers.sha256`. An object already at that key is never
+   overwritten (builds aren't byte-reproducible; a committed manifest may pin
+   it): its entries are taken from it instead.
+3. Commit `hack/helpers.sha256`.
+
+`hack/publish-helpers.sh --stage-only DIR` builds and packs into a
+bucket-shaped `DIR` without uploading; `--staged DIR` uploads that later.
+It refuses when `s3secret.env`'s URL/prefix differ from the lib's defaults
+(`make helpers` would look elsewhere), and notes while the defaults are
+still empty.
+
+**Releases** keep building every helper from source
+(`deploy/publish-release.sh` → `make build`/`vm-assets`), so a bundle never
+depends on the bucket. An unpublished key doesn't block a release — it only
+means CI builds from source — and `make pins` (run by every release) warns
+about it, and fails when a published set's object isn't served.
 
 ## gofmt scope
 
@@ -581,8 +675,11 @@ add it there. `make fmt` rewrites in place.
 
 ## Build output that must not be committed
 
-`bin/`, `dist/` (release bundles), the root `bx`, `website/dist/`, and
-`*/backend/backend` / `*/_backend/_backend` build leftovers are ignored.
+`bin/`, `dist/` (release bundles), the root `bx`, `website/dist/`, packed
+helper sets (`*.tar.zst`), and `*/backend/backend` / `*/_backend/_backend`
+build leftovers are ignored; `make large-files` (in `check` and the
+pre-commit hook) fails on anything over 1 MiB or any native binary that gets
+into the index anyway.
 `git status` after a build should be clean; if it is not, the fix goes in
 `.gitignore` (and in `assets_test.go` when the path is under an embedded
 tree), not in a commit.

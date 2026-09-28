@@ -4425,3 +4425,37 @@ Deviations and refinements made while implementing; all deliberate:
     unless an edit is in progress (existing workspaces: `bx builtin
     update`).
 
+
+- **D126 — Native helpers come prebuilt from an S3 bucket, pinned by a
+  committed manifest, and stay rebuildable from source (2026-09-28).**
+  hack/helpers-lib.sh, hack/fetch-helpers.sh, hack/publish-helpers.sh,
+  hack/s3-lib.sh, hack/helpers.sha256, hack/check-large-files.sh; Makefile
+  `helpers`, `helpers-build`, `helpers-publish`, `integration-deps`,
+  `large-files`; .github/workflows/ci.yml; docs/maintenance.md → "Prebuilt
+  helpers". The owner: CI should use binaries, users must be able to
+  rebuild; big binaries go on GitHub only on real release tags.
+  - **Groups keyed by their build inputs**, not by version or commit:
+    containerfs (gocryptfs, fuse-overlayfs) and vm (vmlinux, mkfs.erofs,
+    QEMU + its two blobs, vhost-device-vsock). The key hashes the build
+    scripts (the pins live in them), the patches / kernel fragment and the
+    file list, so a set is never used for inputs it wasn't built from, and
+    an unrelated commit doesn't invalidate it. Firecracker stays a pinned
+    upstream download.
+  - **The committed manifest is the trust root**: every object's and every
+    file's sha256. The bucket is only transport; a mismatch is fatal and
+    installs nothing. An object is never overwritten — builds aren't
+    byte-reproducible and a committed manifest may pin it.
+  - **Fallback, not failure**: an unpublished key (a PR that changed the
+    inputs), a failed download or a version override builds from source
+    with the same scripts. CI warns (annotation, pins-offline) rather than
+    fails, so such a PR still lands; a maintainer publishes after.
+  - **S3, public read, curl only**: fetching needs no credentials; the
+    publisher's live in the gitignored s3secret.env, parsed never sourced,
+    and reach curl (`--aws-sigv4`) on stdin. No aws CLI dependency. Never
+    from CI.
+  - **Releases keep building from source** (deploy/publish-release.sh
+    unchanged): a bundle never depends on the bucket, and an unpublished
+    key only warns.
+  - **No big or native binaries in git** (`make large-files`, in `check`
+    and the pre-commit hook): > 1 MiB or ELF / Mach-O / PE fails unless
+    hack/large-files.allow names it with a reason.

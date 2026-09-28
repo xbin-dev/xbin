@@ -12,7 +12,12 @@ go.work.sum
 # `git add -A` as well.
 dist/
 /bx
+# Packed helper sets (make helpers-publish stages them outside the tree;
+# they live in the helpers bucket, never in git — hack/check-large-files.sh).
+*.tar.zst
 website/dist/
+# the prebuilt helpers served from the site (hack/helpers-static.sh) — binaries, never tracked
+website/static-helpers/
 builtin-tiles/*/backend/backend
 builtin-templates/*/_backend/_backend
 examples/*/backend/backend
@@ -28,4 +33,8 @@ dotclaude-bak*/
 *.key
 .credentials.json
 *.credentials.json
+# S3 credentials for publishing prebuilt helpers (hack/check-s3.sh,
+# make helpers-publish); the template s3secret.env.example is tracked
+s3secret.env
+*.secret.env
 /backend

@@ -72,6 +72,8 @@ public struct XbinFixturePreview: View {
 #Preview("tile-egress-approver") { XbinFixturePreview("tile-egress-approver") }
 #Preview("tile-prometheus-viewer") { XbinFixturePreview("tile-prometheus-viewer") }
 #Preview("tile-s3-archiver") { XbinFixturePreview("tile-s3-archiver") }
+#Preview("tile-sandbox-terminal") { XbinFixturePreview("tile-sandbox-terminal") }
+#Preview("tile-sandbox-terminal-keys") { XbinFixturePreview("tile-sandbox-terminal-keys") }
 #Preview("tile-webhooks") { XbinFixturePreview("tile-webhooks") }
 #Preview("widget-counter") { XbinFixturePreview("widget-counter") }
 #Preview("widget-wide") { XbinFixturePreview("widget-wide") }

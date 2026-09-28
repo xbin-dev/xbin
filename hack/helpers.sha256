@@ -1,0 +1,16 @@
+# Prebuilt native helpers (docs/maintenance.md → "Prebuilt helpers"):
+#   <group> <key> <arch> <file> <sha256>
+# <file> is <arch>.tar.zst (the bucket object <group>/<key>/<arch>.tar.zst)
+# or a file inside it. Written by `make helpers-publish` — don't edit by
+# hand; `make helpers` refuses anything that doesn't match. A group whose
+# current key (hack/helpers-lib.sh) has no entry is built from source.
+containerfs 6c5f1b874d49 amd64 amd64.tar.zst 55e8b3cec640e02d031e756c388bce1f6978db5a2208b95f522f6f27c5b4c636
+containerfs 6c5f1b874d49 amd64 gocryptfs 2556aa9dc5fe5ca5c5a010dc21ac02d078ece36ff0a540ca7e7be1c4f1862a18
+containerfs 6c5f1b874d49 amd64 fuse-overlayfs d7f76a2d24caf2cb3aa72b65c11896e2d34e15fc8f4cf35add634d5ae8bfe729
+vm 8dabfd34a9fb amd64 amd64.tar.zst 1717ad0fff524ed2b65fc48f627f5a621757e231d745cbfd2f422031e70e0872
+vm 8dabfd34a9fb amd64 vmlinux 6be61fdba8dccc7c9609204bbf505ab7886cef8dc64ac26a851e09e1ca1013d4
+vm 8dabfd34a9fb amd64 mkfs.erofs 25a4d9acc4adb91296af1f32ec2e4418da46ac484ff7133b3ef76343f6637e82
+vm 8dabfd34a9fb amd64 qemu-system-x86_64 df30b0bcb0210c1af63d2874130e0b912c19e028881c818d6033f42c9ec8867b
+vm 8dabfd34a9fb amd64 qemu-bios-microvm.bin d226177d125aaf1b91e507738f4e9a0ade9474169b211751f78be08008cb394c
+vm 8dabfd34a9fb amd64 qemu-pvh.bin 918ff03a118615c2f4611a5df2d9496aabe099b5cfaaf69e544ebf973305d59d
+vm 8dabfd34a9fb amd64 vhost-device-vsock 9030d78f3f4d207c764637e90e35e943af482f05c4ad17a017aa295d0940103b

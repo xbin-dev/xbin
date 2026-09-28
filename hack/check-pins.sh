@@ -18,14 +18,19 @@
 #      (docker/rootfs.Dockerfile) satisfies every go.mod.tile / sdk / example
 #      `go` directive, since terminals build tiles with it
 #   3. alpine pins agree across hack/build-*.sh and deploy/install.sh
+#   4. prebuilt helpers: hack/helpers.sha256 is well-formed, and each helper
+#      group's current key is published for amd64 (the CI arch) — WARN when
+#      not: CI and `make helpers` build that group from source until a
+#      maintainer runs `make helpers-publish`; never blocks a PR or release
 # Online:
-#   4. currency — pinned distro releases vs the endoflife.date API:
+#   5. currency — pinned distro releases vs the endoflife.date API:
 #      FAIL past EOL, WARN within 60 days (API unreachable = warn, not fail)
-#   5. reachability — Alpine APKINDEX (both arches), the pinned Go tarballs,
+#   6. reachability — Alpine APKINDEX (both arches), the pinned Go tarballs,
 #      the Firecracker release + guest kernel tarball + its guest config (D89),
 #      the QEMU tarball + vhost-device-vsock crate of emulated VMs
 #      (installer + rootfs-baked toolchain), the traefik release tarball the
-#      builtin tile's setup script downloads
+#      builtin tile's setup script downloads, and each published helper
+#      set's object in the helpers bucket
 # (golang:alpine, the gocryptfs builder image, floats with upstream — no
 # version to rot, nothing to check.)
 #
@@ -38,7 +43,7 @@ for a in "$@"; do
   case "$a" in
     --strict) STRICT=1 ;;
     --offline) OFFLINE=1 ;;
-    -h|--help) sed -n '2,29p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,34p' "$0"; exit 0 ;;
     *) echo "unknown flag: $a" >&2; exit 2 ;;
   esac
 done
@@ -141,6 +146,26 @@ if [ "$(printf '%s\n' "$pins" | grep -c .)" -gt 1 ]; then
 else
   ok "alpine pin agreed: ${pins:-none}"
 fi
+
+# --- 4. prebuilt helpers ---------------------------------------------------
+echo "== prebuilt helpers (hack/helpers.sha256)"
+# shellcheck source=hack/helpers-lib.sh
+. "$repo/hack/helpers-lib.sh"
+helpers_live=""   # "<group> <key>" of the published amd64 sets, for the online check
+if probs=$(helpers_manifest_check); then
+  for g in $HELPERS_GROUPS; do
+    k=$(helpers_key "$g")
+    if helpers_published "$g" "$k" amd64; then
+      ok "$g helpers: key $k published (amd64)"
+      helpers_live="$helpers_live$g $k
+"
+    else
+      warn "$g helpers: key $k (amd64) is not published — CI and \`make helpers\` build them from source until a maintainer runs \`make helpers-publish\`"
+    fi
+  done
+else
+  fail "hack/helpers.sha256 is malformed: $(echo "$probs" | tr '\n' ' ')"
+fi
 alp="${pins##*:}"
 ub=$(sed -n 's|^FROM docker.io/library/ubuntu:\([0-9.]*\).*|\1|p' "$repo/docker/rootfs.Dockerfile" | head -1)
 traefik=$(grep -oE 'V=[0-9]+\.[0-9]+\.[0-9]+' "$repo/builtin-tiles/traefik/xbin.json" | head -1 | cut -d= -f2)
@@ -148,7 +173,7 @@ traefik=$(grep -oE 'V=[0-9]+\.[0-9]+\.[0-9]+' "$repo/builtin-tiles/traefik/xbin.
 if [ "$OFFLINE" = 1 ]; then
   echo "  (offline: skipping EOL and reachability checks)"
 else
-  # --- 4. currency ---------------------------------------------------------
+  # --- 5. currency ---------------------------------------------------------
   if [ -z "$alp" ]; then
     warn "no alpine pin found (grep came up empty — did the scripts move?)"
   else
@@ -160,7 +185,7 @@ else
   fi
   if [ -n "$ub" ]; then check_eol ubuntu "$ub" "Ubuntu (rootfs base)"; else warn "no ubuntu pin found in docker/rootfs.Dockerfile"; fi
 
-  # --- 5. reachability -----------------------------------------------------
+  # --- 6. reachability -----------------------------------------------------
   for v in $(printf '%s\n%s\n' "$inst_go" "$rootfs_go" | sort -u | grep . || true); do
     for a in amd64 arm64; do
       url="https://go.dev/dl/go${v}.linux-${a}.tar.gz"
@@ -210,6 +235,17 @@ else
   else
     warn "no vhost-device-vsock pin found in hack/build-vhost-vsock.sh"
   fi
+  # the published helper sets `make helpers` downloads
+  hbase=$(helpers_base_url)
+  while read -r g k; do
+    [ -n "$g" ] || continue
+    if [ -z "$hbase" ]; then
+      warn "$g helpers $k are published but no helpers URL is configured (HELPERS_URL_DEFAULT in hack/helpers-lib.sh) — make helpers can't fetch them"
+      continue
+    fi
+    url="$hbase/$(helpers_prefix)$(helpers_object "$g" "$k" amd64)"
+    if head_ok "$url"; then ok "$g helpers served: $k"; else fail "$g helpers unreachable: $url"; fi
+  done <<< "$helpers_live"
 fi
 
 echo
