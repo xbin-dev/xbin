@@ -92,6 +92,16 @@ func (a *attempt) finished() bool {
 	return a.Result != resultQueued && a.Result != resultRunning
 }
 
+// identical reports whether a ships the files its deployment already served,
+// so its swap announces no reload (07-runtime §8.5; 11-contract §3.5): a
+// pause, or a pin in place, attach's (pinAttempt: the old live reload
+// target) or protect's (a primary that followed the work tree), each a
+// capture of the work tree the deployment followed. A forced protect
+// rebuild restarts the code already running.
+func (a *attempt) identical() bool {
+	return a.How == "pause" || a.How == "attach" || a.How == "protect"
+}
+
 // queue is the plane's deploys. The zero value is ready.
 type queue struct {
 	mu    sync.Mutex
@@ -355,9 +365,7 @@ func (p *Plane) runAttempt(a *attempt) {
 	if rs, ok := p.Run.(restarter); ok && a.forced {
 		err = rs.Restart(context.Background(), c, a.Deployment, progress)
 	} else {
-		// A pause ships a capture of the work tree the deployment served:
-		// the same files, so its swap announces no reload (07-runtime §8.5).
-		code := runner.Code{Tree: a.Tree, Identical: a.How == "pause"}
+		code := runner.Code{Tree: a.Tree, Identical: a.identical()}
 		err = p.Run.Deploy(context.Background(), c, a.Deployment, code, commit, progress)
 	}
 	if err != nil {
@@ -522,7 +530,7 @@ func (p *Plane) startAttempt(o *op, a *attempt) {
 		return
 	}
 	p.finish(a, resultOK, nil)
-	if a.How != "pause" && a.Previous != a.Tree { // pausing ships the code already served
+	if !a.identical() && a.Previous != a.Tree { // a pause or a pin ships the code already served
 		p.publishReload(o.tile, a.Deployment)
 	}
 }
