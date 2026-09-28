@@ -64,7 +64,10 @@ still see the tile path in `X-XBin-From`, plus `X-XBin-Deployment: <name>`
 when the caller is a non-primary deployment; the primary's calls carry
 nothing new. The deployments plane's manager acts (seeding data, reassigning
 or protecting the primary, edge policies) need a person's own session: no
-element principal passes, whatever grants its tile holds.
+element principal passes, whatever grants its tile holds — except the admin
+tile's frame, which stands in for the person who opened it for protection,
+reassigning the primary, deliveries and alwaysOn, and is judged as that
+person ([/docs/auth.md](/docs/auth.md) §Tile deployments).
 
 ## Owner: the root token
 

@@ -520,7 +520,8 @@ Contract: plain HTTP server on the unix socket `$XBIN_SOCKET`. xbind
 routes `ANY /api/<your-path>/<p>` to you with the prefix stripped. Backend
 process env: `XBIN_SOCKET`, `XBIN_COMPONENT`, `XBIN_GATEWAY` +
 `XBIN_TOKEN` (this generation's credential for outbound calls),
-`XBIN_RES_<NAME>` per granted resource.
+`XBIN_RES_<NAME>` per granted resource, and `XBIN_DEPLOYMENT` only in a
+non-primary tile deployment (its name; unset = the primary).
 
 Go (SDK `github.com/xbin-dev/xbin/sdk`, resolved by the generated
 `go.work` — just `require` it, no replace needed):

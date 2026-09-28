@@ -376,9 +376,10 @@ stay byte for byte what it was.
   closes opting in, enforced in the plane's one authorize function: a
   release that must ship before the feature is ready carries it off, and
   the next release turns it on with a changelog line. Off never unpins
-  anything, and resuming live reload onto `main`, removing a deployment,
-  resetting its data and unprotecting stay allowed, so every tile can return
-  to the zero state without a downgrade. `Plane{}` in a test is
+  anything, and resuming live reload onto `main`, restarting, removing a
+  deployment, resetting its data, unprotecting, run now and purging stay
+  allowed (the acts `grows` doesn't mark, in `authz.go`), so every tile can
+  return to the zero state without a downgrade. `Plane{}` in a test is
   open.
 
 ## Builtin tiles and templates

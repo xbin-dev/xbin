@@ -162,7 +162,8 @@ header, env variable, token, backup archive or file differs.
 - **Additive wire.** New routes (`/api/xbin/deployments…`,
   `/api/xbin/checkpoints/…`), a new event type (`deployments`), new optional
   query parameters (`?deployment=` on the logs, tile-status, frame-token,
-  vault, sandboxes and terminal routes) and new fields that are absent for a
+  vault, cron, bus-subscription, sandboxes, terminal and agent-session
+  routes) and new fields that are absent for a
   tile without deployments; no existing request body gains a field (rule 2).
   Where an older xbind would silently ignore a new parameter, the answer
   echoes it, and new clients check the echo. Existing event types keep their

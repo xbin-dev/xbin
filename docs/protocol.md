@@ -899,8 +899,17 @@ GET    /frame-token?component=<p>  a principal that may use the tile: humans
                                    isn't main); a session that follows the
                                    primary gets the current primary's. The
                                    answer echoes deployment when one was
-                                   named; 400/403/404 as /tile-status'
-                                   (component=tile+name included)
+                                   named. 400 a malformed name, and a
+                                   component= that names a deployment as
+                                   tile+name (D127j); 403 "deployment URLs
+                                   need write access on <tile>" for a
+                                   non-primary deployment and a caller
+                                   without write, whether or not it exists
+                                   (a frame bound beyond the primary whose
+                                   user no longer writes the tile
+                                   included), and "a tile's own credentials
+                                   act only on their own deployment
+                                   (<bound>)"; 404 unknown
 
 GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    tile?,message,system}]} — disk quota / low
@@ -2316,9 +2325,10 @@ tile ref (apps/crm, or apps/crm+dev for one deployment; a body's deployment
 and the ref's qualifier must agree). The GET rows take `tile` as a query
 parameter: a tile's path, never a ref — a deployment is named with
 `deployment=` (D127j; §Tile deployments, *Tile refs in a query string*). Each
-body takes seq (the record's sequence
-the caller acted on: 409 when it moved) and dryRun:true (judged as for
-real, refusals included, nothing changes → {state, impact}). confirm tokens
+body takes dryRun:true (judged as for real, refusals included, nothing
+changes → {state, impact}) and seq (the record's sequence the caller acted
+on: 409 when it moved) — but backup, restore and run-now take no seq (400
+if sent). confirm tokens
 guard data: remove "erase", reset and a restore into data "erase-data", seed
 and add with data:"seed" "copy-data", primary "data-stays" — a missing one
 is 400 naming it. An operation answers {state, deploy?, …} (each row names
@@ -2338,8 +2348,10 @@ and always-on, a frame of a tile holding the `xbin` admin capability (the
 admin console, `tiles/admin`) whose token was minted under a person's own
 login — a session or the root token, not a view-as session, not a token a
 terminal or agent session minted — stands in for that person, and the person
-is judged as a tile manager. That frame also reads GET /deployments in the
-full view for a tile its person manages. Every other manager route, and
+is judged as a tile manager. For a tile its person manages that frame is
+also the write audience of the reads: GET /deployments in the full view,
+the log, and a diff without a work-tree side (not `deployments` events,
+which it gets as any frame does). Every other manager route, and
 every code move, refuses it like any tile credential (docs/auth.md §Tile
 deployments).
 
@@ -2362,7 +2374,8 @@ GET    /deployments?tile=<tile>&deployment=<name>
                                    deployment is 403 for a caller outside
                                    its audience, whether or not it exists,
                                    and 404 (no such deployment) for the
-                                   rest when it doesn't exist. tile= is a
+                                   rest when it doesn't exist; a malformed
+                                   name is 400. tile= is a
                                    tile's path: a '+' in it that names no
                                    tile, escaped or read as a space, is
                                    400 (D127j)
@@ -2370,9 +2383,10 @@ GET    /deployments/log?tile=<tile>&deployment=<name>&limit=<n>&before=<id>
                                    write on the tile, or its terminal/agent
                                    sessions. → {tile, entries:[DeployEntry],
                                    more}: every
-                                   finished attempt, newest first, failed
-                                   ones included (limit default 50, max
-                                   200); without deployment every
+                                   attempt, newest first — queued and
+                                   running ones included, and failed ones
+                                   (limit default 50, max 200); without
+                                   deployment every
                                    deployment's entries, by id;
                                    ?id=<id>&wait=<s> one attempt,
                                    held until it finishes (wait ≤ 25) →
@@ -3594,7 +3608,9 @@ that also names `--isolate`), and it never runs the work tree instead.
 | 400 | `bad spec "<spec>": c:<id> \| deployment:<name> \| work-tree` |
 | 400 | `path is one clean tile-relative file; stat is 1 or absent` |
 | 403 | `deployments of <tile> need read access` (the state, outside the reader audience) |
-| 403 | `deployments of <tile> need write access` (a non-primary deployment, outside its audience) |
+| 403 | `deployments of <tile> need write access` (the log, the diff and the checkpoint remote, outside the write audience) |
+| 403 | `deployment URLs need write access on <tile>` (the state naming a non-primary deployment with `deployment=`, outside its audience, whether or not it exists) |
+| 403 | `a tile's own credentials act only on their own deployment (<bound>)` (the log, from a non-primary deployment's credentials naming another) |
 | 403 | `<act> needs terminal-level access on <tile>` (`<act>`: "pausing live reload", "deploying", …); for any tile credential but the tile's own terminal and agent sessions (a frame, a backend, another tile's) it adds ` — only people and the tile's own terminal and agent sessions operate its deployments` |
 | 403 | `<act> is a tile manager's act: the tile's owner, its org's admins, or a workspace admin` |
 | 403 | `<act> is a tile manager's act, done in a person's own session: terminal, agent and tile credentials can't do it` |

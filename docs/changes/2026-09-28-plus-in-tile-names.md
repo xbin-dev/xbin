@@ -1,4 +1,4 @@
-# 2026-09-28 — `+` is refused in new tile names
+# 2026-09-28 — `+` is refused in new tile names (D127)
 
 ## What changed
 
@@ -25,11 +25,12 @@ keeps serving, building and answering as before. It can't get deployments
 With it, a query string never carries a `tile+name` ref: `+` there decodes
 to a space. A query names the tile and the deployment apart —
 `GET /api/xbin/deployments?tile=apps/crm&deployment=dev` — and `tile=` (or
-`component=` on `/frame-token`, `/logs` and `/tile-status`) holding a `+`
-that names no tile is answered 400 `a deployment is named with deployment=,
-not tile+name (a '+' in a query string reads as a space)`. Paths and JSON
-bodies keep `<tile>+<name>` ([protocol.md](/docs/protocol.md) §Tile
-deployments).
+`component=` on `/frame-token`, `/logs` and `/tile-status`) that reads as
+`<tile>+<name>` is answered 400 `a deployment is named with deployment=, not
+tile+name (a '+' in a query string reads as a space)`: an escaped `+` (`%2B`)
+that names no tile, or an unescaped one, which arrives as a space after a
+tile's path. Paths and JSON bodies keep `<tile>+<name>`
+([protocol.md](/docs/protocol.md) §Tile deployments).
 
 ## Who's affected
 
@@ -50,7 +51,9 @@ deployments).
 - A tile named with `+` that should get deployments: clone it to a path
   without `+` (`POST /api/xbin/clone {"from":"notes+ideas","to":"notes-ideas"}`,
   or the manager tile), move what points at the old path (grants, bindings,
-  frames), then remove the old directory.
+  frames), then remove the old directory. A clone copies the code, not the
+  resource data or vault secrets: carry those over before removing the old
+  tile.
 - In a query, send the tile's path as `tile=` and the deployment as
   `deployment=`; `bx` does this for a ref you give it. A tile whose own name
   holds `+` is still named in a query by its path, with the `+` escaped as
@@ -64,7 +67,7 @@ and every reader — xbind, the shell, `bx`, a person reading a link — had to
 ask which. Refusing `+` in new names removes the question going forward;
 existing directories keep the exact-match rule so no workspace breaks. This
 follows D82, which refused `:` in new tile names at once (it separates grant
-targets and identities).
+targets and identities), though for everyone but admins.
 
 `:` was considered as the qualifier instead, and rejected: in a relative URL,
 `notes:dev/` parses as a scheme (JavaScript's `new URL`, Go's `url.Parse`),

@@ -626,8 +626,8 @@ the primary, edge policies, deliveries, alwaysOn, limits, seeding data,
 copying vault values and purging a checkpoint are a **tile manager's** acts:
 the tile's owner, its org's admins, or a workspace admin (D24/D33), and only
 in their own browser or app session — or with the root token, which is a
-person's credential: `bx deployment protect|primary|deliveries|…` on the
-host with the owner token passes. No terminal, agent, backend, cron or bus
+person's credential: `bx deployment protect|primary|set|…` on the host
+with the owner token passes. No terminal, agent, backend, cron or bus
 credential passes, whatever grants its tile holds (`xbin`, `xbin:users`
 included), and a terminal session is refused even when the person driving it
 is a manager, because agents share its token.
@@ -815,7 +815,7 @@ creation (clone, workspace-template instantiate) additionally requires
   ingress hosts, its vault, another owner's entry, other users' exact
   per-tile entries, org shares, an exact `defaultTiles` entry, or its
   deployment state (a deployment record, a checkpoint store:
-  [tile-deployments.md](tile-deployments.md)) — and, at the path and under
+  [tile-deployments.md](/docs/tile-deployments.md)) — and, at the path and under
   it, what its deployments beyond `main` left: their vaults,
   registrations and data. The refusal lists them; pick another path or have
   an admin clear them. Re-creating a path you already own is fine (the

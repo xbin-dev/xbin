@@ -35,17 +35,25 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   and its notifications are never pushed. The switch is `--tile-deployments` /
   `XBIN_TILE_DEPLOYMENTS` (on by default).
   **`+` in tile names** is refused from now on: the BREAKING entry below.
-  **Admin consoles:** until you take the admin tile's update
-  (`bx builtin update`), its sandboxes tab labels `main`'s generation
-  "draining" while another deployment runs.
+  **Existing workspaces:** the terminal window's chip and panel come with
+  xbind; the shell's `⇈ Deployments…` tile-menu line, badges and tile-admin
+  section come with `bx builtin update scaffold:shell`. Until you take the
+  admin tile's update (`bx builtin update scaffold:tiles/admin`), its
+  sandboxes tab labels `main`'s generation "draining" while another
+  deployment runs.
   **Downgrade note:** an older xbind serves every tile's work tree with
   `main`'s data. Before downgrading, reassign primaries to `main` and check
-  out each pinned primary's checkpoint
-  (`git checkout -b pre-downgrade deploy/<primary>`). After upgrading again,
-  run `bx doctor`. Restarting xbind without `--isolate` stops pinned and
-  non-primary backends: attach live reload to those tiles' primaries first.
+  out each pinned primary's checkpoint in its work tree (`git fetch
+  xbin-deploy`, then `git checkout --no-track -b pre-downgrade deploy/main`).
+  After upgrading again, a pinned tile returns to its checkpoint; if you
+  skipped the checkout, deploy the work tree at once (`bx deploy <tile> --to
+  main`). Restarting xbind without `--isolate` holds pinned backends and
+  keeps non-primary ones down: first move live reload back onto those tiles'
+  primaries (unprotecting them) and remove backend tiles' non-primary
+  deployments ([tile-deployments.md](tile-deployments.md) §A tile's life,
+  backups and downgrades).
 - **BREAKING — `+` is refused in new tile names**
-  ([changes/2026-09-28-plus-in-tile-names.md](changes/2026-09-28-plus-in-tile-names.md)).
+  (D127, [migration](changes/2026-09-28-plus-in-tile-names.md)).
   `<tile>+<name>` is a tile deployment's URL, so creating a tile whose path
   holds `+` in any segment is refused (403), for every creator, admins
   included, on every creation path: `bx new`, create, clone, template
@@ -67,12 +75,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   Deployments panel's own loud confirmation), deliveries and alwaysOn per
   non-primary deployment, and ⇈ to the tile's Deployments panel for
   everything else. The admin tile is scaffold: an existing workspace gets
-  the tab with `bx builtin update`. Its acts run as the person who opened
-  it: xbind lets a frame of a tile holding `xbin` admin, minted under that
-  person's own login, stand in for them on exactly those acts, and judges
-  the person as a tile manager — the tile's grant alone manages nothing, a
-  view-as session is refused, and the admin tile's terminal and agent
-  tokens (and any frame token they mint) are refused like any tile's.
+  the tab with `bx builtin update scaffold:tiles/admin`. Its acts run as the
+  person who opened it: xbind lets a frame of a tile holding `xbin` admin,
+  minted under that person's own login, stand in for them on exactly those
+  acts, and judges the person as a tile manager — the tile's grant alone
+  manages nothing, a view-as session is refused, and the admin tile's
+  terminal and agent tokens (and any frame token they mint) are refused like
+  any tile's.
   `bx deployment protect|primary|set …` on the host with the owner token
   passes, as the owner's credential; from a tile terminal it never does.
   New tile → shell message `xbin:open-deployments {tile}`

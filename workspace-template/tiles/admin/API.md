@@ -70,6 +70,6 @@ and the admin tile's terminal and agent sessions are refused like any
 tile's. Every other deployment act (code moves, edges, data, vault copy,
 limits) is in the tile's Deployments panel, which the tab's ⇈ opens
 (the `xbin:open-deployments` message, docs/protocol.md). New in an existing
-workspace after `bx builtin update`.
+workspace after `bx builtin update scaffold:tiles/admin`.
 
 Revoke the grant to disarm it. Nothing here works for an unprivileged tile.

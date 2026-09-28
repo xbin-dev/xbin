@@ -3,8 +3,9 @@ package main
 // agentdeploy.go — `bx agent run --deployment <name>` (11-contract §9.3,
 // §7.4): an agent session whose token, calls and bx commands reach that
 // deployment of the tile, fixed for the session's life. `--tile
-// <tile>+<name>` asks for the same; bx sends the ref unresolved to GET
-// /deployments, and a tile whose own path holds the + stays that tile. The
+// <tile>+<name>` asks for the same; bx resolves the ref through GET
+// /deployments (the tile and deployment= apart, deployref.go), and a tile
+// whose own path holds the + stays that tile. The
 // target rides POST /term/sessions?deployment= (the body is unchanged), and
 // the answer must echo it: an xbind that ignores the parameter would have
 // opened a session on the primary, so bx ends it and says so. Every other
