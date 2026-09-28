@@ -205,8 +205,14 @@ func TestBusSubsDelivery(t *testing.T) {
 	b.bus.persist()
 	publish("events/z")
 	waitUntil(t, func() bool { return len(b.bus.forComponent("apps/gone")) == 0 })
-	bts, _ := os.ReadFile(filepath.Join(b.Reg.Root, "data", "bus-subscriptions.json"))
-	if strings.Contains(string(bts), "apps/gone") {
+	// the file follows the memory a moment later (the prune persists after
+	// it drops the subscription)
+	file := filepath.Join(b.Reg.Root, "data", "bus-subscriptions.json")
+	gone := func() bool { bts, _ := os.ReadFile(file); return !strings.Contains(string(bts), "apps/gone") }
+	for end := time.Now().Add(2 * time.Second); !gone() && time.Now().Before(end); {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if bts, _ := os.ReadFile(file); strings.Contains(string(bts), "apps/gone") {
 		t.Fatalf("pruned subscription persisted: %s", bts)
 	}
 }
