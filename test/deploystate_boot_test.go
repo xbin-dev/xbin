@@ -23,9 +23,10 @@ import (
 // .xbin/deploy/ may be rebuilt): the record, the checkpoint store, the view
 // repository's refs and every tile work tree stay byte-identical, and each
 // tile's repository (refs, HEAD, config) is compared explicitly. The paused
-// tile still serves its checkpoint afterwards. The fixture's M2 parts (a
-// static dev deployment, an edge policy, a dormant job of dev's) wait for
-// M2: this build answers them 501, logged.
+// tile still serves its checkpoint afterwards. The fixture also adds a
+// static dev deployment and an edge policy, logging the answers;
+// TestDeploymentStateBootsTwiceWithDeployments (deployments_test.go) asserts
+// those M2 parts, with a dormant job of dev's, across two boots.
 func TestDeploymentStateBootsTwice(t *testing.T) {
 	ws := filepath.Join(t.TempDir(), "ws")
 	if out, err := exec.Command(xbindBin, "init", ws).CombinedOutput(); err != nil {
@@ -47,7 +48,7 @@ func TestDeploymentStateBootsTwice(t *testing.T) {
 			"edge": dlBody(tile, "edge", "slot:net", "policy", "block"),
 		} {
 			c, _, b := a.post(t, route, body)
-			t.Logf("M2's part of the fixture, %s: %d %.120s", route, c, b)
+			t.Logf("the fixture's %s: %d %.120s", route, c, b)
 		}
 	})
 	for _, p := range []string{record, store, view} {

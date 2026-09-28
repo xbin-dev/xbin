@@ -84,6 +84,7 @@ func startIsolatedDaemon(t *testing.T, opts isoOpts) *isoDaemon {
 		if err := d.halt(); err != nil {
 			t.Errorf("stopping the isolated xbind: %v", err)
 		}
+		releaseFuseMounts(t, d.WS)
 		if t.Failed() {
 			t.Logf("isolated xbind (%s):\n%s", d.WS, d.logTails())
 		}
@@ -216,10 +217,12 @@ func (d *isoDaemon) restart(t *testing.T) {
 	d.start(t)
 }
 
-// halt sends SIGTERM (xbind stops its backends and unmounts encrypted
-// resources on the way out), waits a bounded time, then kills the process
-// group: xbind if it is still there, and every straggler (a build, a
-// sandbox) either way.
+// halt sends SIGTERM (xbind stops its backends on the way out), waits a
+// bounded time, then kills the process group: xbind if it is still there,
+// and every straggler (a build, a sandbox) either way. xbind leaves its
+// encrypted resources' gocryptfs mounts up on exit (the next start's
+// RecoverStale clears them), so the cleanup releases them after the kill
+// (releaseFuseMounts).
 func (d *isoDaemon) halt() error {
 	if d.cmd == nil {
 		return nil
@@ -242,6 +245,33 @@ func (d *isoDaemon) halt() error {
 	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	<-done
 	return err
+}
+
+// releaseFuseMounts lazily unmounts every FUSE mount under ws (a halted
+// daemon's gocryptfs mounts), so the workspace can be removed.
+func releaseFuseMounts(t *testing.T, ws string) {
+	t.Helper()
+	b, err := os.ReadFile("/proc/self/mounts")
+	if err != nil {
+		return
+	}
+	fm, fmErr := exec.LookPath("fusermount3")
+	if fmErr != nil {
+		fm, fmErr = exec.LookPath("fusermount")
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 3 || !strings.HasPrefix(f[2], "fuse") || !strings.HasPrefix(f[1], ws+"/") {
+			continue
+		}
+		if fmErr != nil {
+			t.Errorf("no fusermount to release %s: %v", f[1], fmErr)
+			continue
+		}
+		if out, err := exec.Command(fm, "-u", "-z", f[1]).CombinedOutput(); err != nil {
+			t.Errorf("releasing %s: %v %s", f[1], err, out)
+		}
+	}
 }
 
 // do sends a request to the daemon with the root token when auth is on. A
