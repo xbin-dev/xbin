@@ -4909,7 +4909,10 @@ Deviations and refinements made while implementing; all deliberate:
     grid's cards are 132 pt tall (170 before), with 12 pt margins, a
     10 pt inset and a 28 pt icon: a widget's own box is about 157 × 112 on
     a 390 pt phone. Existing widgets stay valid — the size classes, the
-    vocabulary and clipping are unchanged; only the box is smaller.
+    vocabulary and clipping are unchanged; only the box is smaller: the
+    counter's fits at the default text size, the dense `widget-wide`
+    fixture (five rows) now clips its last row, and at xxxLarge text the
+    counter's +1 is cut (the renderer snapshots show both).
   - **Terminals and Agents leave Home**: sessions are reached through their
     tile and the inbox. "Needs you" stays, a row with its count.
   - **Sessions on tiles**: a row, a standard card and a widget card show
