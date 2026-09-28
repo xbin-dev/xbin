@@ -4949,7 +4949,7 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
         XBIN_E2E_SH="qa-sbxtest.sh sh 'sudo -u xbin sh -s'" \
         XBIN_E2E_RESTART="qa-sbxtest.sh sh 'sudo systemctl restart xbin-sbxtest'" \
         XBIN_E2E_LOGS="qa-sbxtest.sh logs 80" XBIN_E2E_HOST_TCP=84.239.100.188:22 \
-        XBIN_E2E_FORWARD="ssh -o BatchMode=yes -o ExitOnForwardFailure=yes -N -L {local}:{remote} ubuntu@84.239.100.188"
+        XBIN_E2E_FORWARD="ssh -o BatchMode=yes -o ControlPath=none -o ExitOnForwardFailure=yes -N -L {local}:{remote} ubuntu@84.239.100.188"
       go test -tags=integration -count=1 -v -run '^TestCodingSandboxVM$' ./test/isolated/
       go test -tags=integration -count=1 -v -parallel 1 -run '^TestCodingSandboxContractVM$' ./test/isolated/
       go test -tags=integration -count=1 -v -run '^TestCodingSandboxConsumersVM$' ./test/isolated/
@@ -4959,6 +4959,13 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
       # part A's example (1 GiB sandboxes, three at most):
       XBIN_E2E_VM_MIB=3072 XBIN_E2E_VMS=3 go test -tags=integration -count=1 -v -parallel 1 -run '^TestNamespace$|^TestVM$' ./test/isolated/
 
+  `ControlPath=none` matters where `~/.ssh/config` multiplexes (this box:
+  `ControlMaster auto`, `ControlPersist`): a forward asked through a
+  running master belongs to the master, so killing the `ssh` that asked
+  leaves it listening (and `qa-sbxtest.sh tunnel`'s PID exits at once when
+  the master already holds its port) — remove such a forward with `ssh -O
+  cancel -L <the same spec> ubuntu@84.239.100.188`, never by killing the
+  master.
   `XBIN_E2E_HOST_TCP`'s port is one the host listens on at every address
   (its sshd): `internet` must reach it at none of the host's own addresses
   (`ip addr` on the host, through `XBIN_E2E_SH`). The QA box's public

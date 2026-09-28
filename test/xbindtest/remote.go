@@ -22,8 +22,10 @@ package xbindtest
 //	XBIN_E2E_FORWARD  a command forwarding a local port to one on xbind's
 //	                  host's loopback until it is killed (Forward), {local}
 //	                  and {remote} its addresses, e.g. "ssh -o BatchMode=yes
-//	                  -o ExitOnForwardFailure=yes -N -L {local}:{remote}
-//	                  ubuntu@84.239.100.188"
+//	                  -o ControlPath=none -o ExitOnForwardFailure=yes -N -L
+//	                  {local}:{remote} ubuntu@84.239.100.188" — ControlPath
+//	                  none, or an ssh ControlMaster keeps the forward after
+//	                  the command is killed
 //
 // The commands run under sh -c on this host. Its workspace outlives the
 // test: tiles a test writes stay (name them per run), its tile sandboxes
