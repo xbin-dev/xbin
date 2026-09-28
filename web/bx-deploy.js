@@ -403,7 +403,7 @@ export class BxDeployments extends LitElement {
   async _reassign() {
     const s = this._state;
     if (!this.frame?._ask) return null;
-    const ys = (s.deployments || []).filter((d) => !d.primary && d.can?.primary?.ok && d.status?.state === 'healthy').map((d) => d.name);
+    const ys = dsPanel.reassignable(s);
     let Y = ys[0];
     if (ys.length > 1) {
       const a = await this._ask({ title: 'Reassign the primary…', fields: [{ name: 'to', label: 'Deployment', type: 'select', value: Y, options: ys }],

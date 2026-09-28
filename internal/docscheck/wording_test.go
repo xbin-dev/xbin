@@ -31,6 +31,7 @@ var wordingSources = []string{
 	"web/deploy-panel.js",
 	"web/frame-deploy.js",
 	"web/bx-deploy.js",
+	"workspace-template/tiles/admin/tabs/deployments.js",
 	"cmd/bx/livereload.go",
 	"cmd/bx/deploy.go",
 	"cmd/bx/deployclient.go",

@@ -349,3 +349,21 @@ export const sandboxesCss = css`
     .sbx-stage.start, .sbx-stage.exit, .sbx-stage.health { color: var(--bx-red, #ef5350); }
     .sbx-err { font-size: 11px; word-break: break-word; }
 `;
+
+// runtime → deployments (tabs/deployments.js; P21, extended 2026-09-28)
+export const deploymentsCss = css`
+    .dep-note { font-size: 11.5px; margin: 0 0 10px; max-width: 820px; }
+    .dcard { border: 1px solid var(--bx-border, #363c45); border-radius: 7px; padding: 8px 10px; margin-bottom: 8px; }
+    .dhead { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
+    .dpath { font-size: 12.5px; font-weight: 600; margin-right: 4px; }
+    .pill.prot { color: var(--bx-accent, #f5a623); border-color: color-mix(in srgb, var(--bx-accent, #f5a623) 55%, transparent); }
+    .pill.lr { font-size: 11px; }
+    .dlast { font-size: 11px; margin: 2px 0 4px; }
+    table.dtab { margin: 4px 0 6px; }
+    table.dtab td { padding: 3px 10px 3px 0; }
+    .dsw { display: inline-flex; gap: 4px; align-items: center; margin-right: 10px; font-size: 11.5px; cursor: pointer; }
+    .dsw input { margin: 0; }
+    .dacts { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .dacts button[disabled] { opacity: .5; cursor: not-allowed; }
+    .dwhy { font-size: 11px; }
+`;

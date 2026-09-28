@@ -672,4 +672,4 @@ async function deployments(browser) {
   c.done();
 }
 
-module.exports = { deployments };
+module.exports = { deployments, resetDeploys, stateOf, post };

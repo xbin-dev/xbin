@@ -76,6 +76,9 @@ test('the panel: actions follow the server\'s can, a protected primary included'
   assert.deepEqual(ids(panelActions(m2({ caller: mgr(), deployments: [mainM2(), devM2({ can: depCan({ primary: yes }) })] }), '', opts)), ['reassign', 'protect', 'blockEdges']);
   const sick = m2({ caller: mgr(), deployments: [mainM2(), devM2({ status: { state: 'failed' }, can: depCan({ primary: yes }) })] });
   assert.equal(panelActions(sick, '', opts)[0].why, 'dev isn\'t healthy — deploy working code to it first.');
+  // a static tile's deployment runs no backend: its "static" is healthy (the server's rule), so it can become the primary
+  const still = m2({ caller: mgr(), deployments: [mainM2(), devM2({ status: { state: 'static' }, can: depCan({ primary: yes }) })] });
+  assert.deepEqual([panelActions(still, '', opts)[0].enabled, dsPanel.reassignable(still), dsPanel.reassignable(sick)], [true, ['dev'], []]);
   const prot = m2({ protectedPrimary: true, deployments: [mainM2({ can: depCan({ deploy: no(PROTECTED), promoteTo: no(PROTECTED) }) }), devM2()] });
   const pa = panelActions(prot, 'dev', opts);
   assert.deepEqual([pa[1].why, pa[0].enabled], [PROTECTED, true], 'promote onto main refused; deploy to dev stays');
@@ -220,6 +223,6 @@ test('the panel\'s results, M2 terminal lines, and its words', () => {
 test('the panel module\'s exports', () => {
   assert.deepEqual(Object.keys(dsPanel).sort(), [
     'addDialog', 'asksToRun', 'diffLine', 'edgeRows', 'logRows', 'overview', 'panelActions', 'panelHeader', 'panelRows',
-    'registrationRows', 'widens', 'wouldNotifyRows', 'zeroPanel',
+    'reassignable', 'registrationRows', 'widens', 'wouldNotifyRows', 'zeroPanel',
   ]);
 });
