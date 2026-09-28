@@ -8,7 +8,8 @@ package main
 // from their own files: livereload.go (bx live-reload, and the words for where
 // saves go), deploy.go (bx deploy, bx promote, bx rollback, and the impact
 // report), deployment.go (the bx deployment family), agentdeploy.go (bx agent
-// run --deployment); status.go reads a named deployment's status and log.
+// run --deployment); status.go reads a named deployment's status and log;
+// deployref.go reads the state for a tile ref and splits refs for queries.
 
 import (
 	"bufio"
@@ -20,7 +21,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -494,87 +494,6 @@ func decodeAnswer(b []byte, out any) error {
 		return &dcError{code: exitFailed, msg: "unexpected answer from xbind: " + err.Error()}
 	}
 	return nil
-}
-
-// getDeployState reads GET /deployments for a tile ref. A query string never
-// carries the qualifier (P17: a '+' there reads as a space), so a ref ending
-// in "+<name>" asks for its tile with deployment=<name>. When that names no
-// deployment of a tile with a record, the ref is a tile's own name holding
-// '+' (an exact match wins: no new name may hold one, but older directories
-// keep resolving), asked for as it is; failing that, the first answer
-// stands.
-func getDeployState(ref string) (*deployState, []byte, error) {
-	tile, dep := splitRef(ref)
-	st, b, err := readDeployState(tile, dep)
-	var old *dcError
-	if dep == "" || err == nil && st.Record || errors.As(err, &old) && old.code == exitNoDeployments {
-		return st, b, err
-	}
-	if st2, b2, err2 := readDeployState(ref, ""); err2 == nil {
-		return st2, b2, nil
-	}
-	return st, b, err
-}
-
-func readDeployState(tile, dep string) (*deployState, []byte, error) {
-	q := url.Values{"tile": {tile}}
-	if dep != "" {
-		q.Set("deployment", dep)
-	}
-	b, err := dcCall("GET", "/api/xbin/deployments?"+q.Encode(), nil)
-	if err != nil {
-		return nil, nil, err
-	}
-	st := &deployState{}
-	if err := decodeAnswer(b, st); err != nil {
-		return nil, nil, err
-	}
-	return st, b, nil
-}
-
-// splitRef splits a tile ref "<tile>+<name>" at its last segment's last '+'
-// when a deployment name follows; any other ref is a tile with no name.
-func splitRef(ref string) (tile, dep string) {
-	i := strings.LastIndexByte(ref, '+')
-	if i < 1 || ref[i-1] == '/' || strings.Contains(ref[i:], "/") || !dcNameRe.MatchString(ref[i+1:]) {
-		return ref, ""
-	}
-	return ref[:i], ref[i+1:]
-}
-
-// queryTile is the tile and the deployment a query names for ref (P17):
-// splitRef's, resolved through the state when the ref has a qualifier, since
-// a '+' may also be part of a tile's own name.
-func queryTile(ref string) (tile, dep string, err error) {
-	if _, d := splitRef(ref); d == "" {
-		return ref, "", nil
-	}
-	st, _, err := getDeployState(ref)
-	if err != nil {
-		return "", "", err
-	}
-	return st.Tile, st.Selected, nil
-}
-
-// readRef is a read command's positional tile ref (bx status, bx logs):
-// "<tile>+<name>" names that deployment of its tile, as a path would, and
-// goes out as the tile and deployment= (P17) — unless something in the
-// workspace sits at the whole ref (a tile named with '+' before the rule:
-// the exact match wins, with no request), or xbind knows no such
-// deployment. dep "": the ref is a tile's own path.
-func readRef(ref string) (tile, dep string) {
-	if _, d := splitRef(ref); d == "" {
-		return ref, ""
-	}
-	if ws := workspaceRoot(); ws != "" {
-		if _, err := os.Lstat(filepath.Join(ws, filepath.FromSlash(ref))); err == nil {
-			return ref, ""
-		}
-	}
-	if st, _, err := getDeployState(ref); err == nil && st.Selected != "" {
-		return st.Tile, st.Selected
-	}
-	return ref, ""
 }
 
 // --- running a changing command ---
