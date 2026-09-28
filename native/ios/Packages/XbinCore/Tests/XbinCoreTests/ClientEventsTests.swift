@@ -186,7 +186,7 @@ import Testing
                 switch f.event {
                 case .reload, .build:
                     Issue.record("\(tile): \(f.event) after the pause")
-                case .tileStatus(_, _, let message):
+                case .tileStatus(_, _, let message, _):
                     #expect(message == "watching the deploys", "\(tile): the primary's own report only")
                 default:
                     if f.json["data"]?["op"]?.stringValue == "deploy", f.json["data"]?["result"]?.stringValue == "failed",

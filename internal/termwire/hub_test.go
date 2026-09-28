@@ -412,7 +412,10 @@ func TestReadLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
-	_, _, err := c.ReadMessage()
+	var err error
+	for err == nil { // an echo ack for the first message may come first
+		_, _, err = c.ReadMessage()
+	}
 	if !websocket.IsCloseError(err, websocket.CloseMessageTooBig) {
 		t.Fatalf("past the limit: %v, want close 1009", err)
 	}
