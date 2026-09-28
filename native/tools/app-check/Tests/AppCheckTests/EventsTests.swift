@@ -176,6 +176,30 @@ struct NoKeys: DeviceKeyStore {
         await until("unsubscribed") { events.followedTiles.isEmpty }
     }
 
+    /// A reload first forgets the tile's frame token (the component and the
+    /// open tile it reloads), then reloads: after the tile's primary
+    /// deployment is reassigned the page must not reload with a token bound
+    /// to the old one. A component nothing has open is forgotten too.
+    @Test func reloadForgetsTheFrameTokenFirst() async {
+        let (events, _, _, _) = await makeEvents()
+        var log: [String] = []
+        events.onCodeChange = { tile in log.append("forget \(tile)") }
+        let stream = events.reloads(of: "apps/crm")
+        let follower = Task { @MainActor in for await _ in stream { log.append("reload apps/crm") } }
+        await until("following") { events.followedTiles.count == 1 }
+        events.receive(#"{"type":"reload","component":"apps/crm"}"#)
+        await until("reloaded") { log.contains("reload apps/crm") }
+        #expect(log == ["forget apps/crm", "reload apps/crm"])
+        log = []
+        events.receive(#"{"type":"reload","component":"apps/crm/backend"}"#)
+        await until("reloaded again") { log.contains("reload apps/crm") }
+        #expect(log == ["forget apps/crm", "forget apps/crm/backend", "reload apps/crm"])
+        log = []
+        events.receive(#"{"type":"reload","component":"apps/other"}"#)
+        await until("forgotten") { log == ["forget apps/other"] }
+        follower.cancel()
+    }
+
     @Test func termEventsOfThisUserOnly() async {
         let (events, _, _, _) = await makeEvents()
         var seen: [TermEvent] = []

@@ -70,6 +70,12 @@ final class WorkspaceEvents {
     var onNativeSwitch: (() -> Void)?
     /// A socket reopened after a gap: re-list what may have changed.
     var onResync: (() -> Void)?
+    /// A tile's code changed (a `reload` names it): drop what was minted for
+    /// it before anything reloads. A frame token is bound to the deployment
+    /// that was primary when it was minted (tile deployments), so after the
+    /// primary is reassigned a cached one would reach the old primary's
+    /// backend (a writer) or be refused (a reader) until it aged out.
+    var onCodeChange: ((String) async -> Void)?
     /// Every parsed event (diagnostics and tests).
     var onEvent: ((AppEvent) -> Void)?
     /// The user whose term events count (an admin's socket carries everyone's).
@@ -241,8 +247,18 @@ final class WorkspaceEvents {
         onEvent?(e)
         switch e {
         case .reload(let component):
-            guard let target = ReloadTargets.target(for: component, open: reloadSubs.values.map(\.tile)) else { return }
-            for sub in reloadSubs.values where sub.tile == target { sub.cont.yield(()) }
+            let target = ReloadTargets.target(for: component, open: reloadSubs.values.map(\.tile))
+            let subs = reloadSubs.values.filter { $0.tile == target }
+            guard let forget = onCodeChange else {
+                for sub in subs { sub.cont.yield(()) }
+                return
+            }
+            // The component and the open tile it reloads, forgotten first.
+            let tiles = Set([component, target].compactMap { $0 }.map(ReloadTargets.trimmed))
+            Task { @MainActor in
+                for tile in tiles.sorted() { await forget(tile) }
+                for sub in subs { sub.cont.yield(()) }
+            }
         case .grants(let component?):
             // A grant on this very tile changed: reload it so a page that
             // was refused retries (the web shell does the same).

@@ -270,6 +270,8 @@ final class WorkspaceModel: Identifiable {
         })
         e.userID = { [weak self] in self?.whoami?.userID ?? self?.record.user.id ?? "" }
         e.onTerm = { [weak self] t in self?.apply(t) }
+        let tokens = frameTokens
+        e.onCodeChange = { tile in await tokens.invalidate(tile) }
         e.onEvent = { [weak self] ev in
             switch ev {
             case .tileStatus(let tile, let level, let message, let transient):
