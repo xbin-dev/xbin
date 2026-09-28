@@ -33,9 +33,10 @@ func (f *govFx) captureNow(tile string) checkpoint.Result {
 // moves the primary in memory at once (Primary, PinnedPrimary composing the
 // tile from its code, the active registrations: the old primary's go dormant,
 // the new one's activate), announces it to readers too, moves the sessions
-// named after either, and restarts the new primary first, then the old one,
-// through the runner, then wakes alwaysOn; no data act runs, and neither the
-// root xbin.json nor the tile's files are written. Again is unchanged; back
+// named after either, hands the broker the moved registrations (its
+// consumers and ingress), and restarts the new primary first, then the old
+// one, through the runner, then wakes alwaysOn; no data act runs, and neither
+// the root xbin.json nor the tile's files are written. Again is unchanged; back
 // to main follows the work tree. Refused: a target that isn't healthy
 // (the runner's state, or a failed move), and a tile that isn't alone in the
 // scope it roots or in the workspace scope, which the state's allowed says.
@@ -82,8 +83,8 @@ func TestReassignPrimaryAtomic(t *testing.T) {
 		t.Errorf("events = %+v", evs)
 	}
 	calls := f.waitCall("wake")
-	if !slices.Equal(calls, []string{"sessions-reassigned apps/site main→dev", "reassign apps/site main→dev", "wake"}) {
-		t.Errorf("calls = %q (sessions, then y first then x through the runner, then alwaysOn)", calls)
+	if !slices.Equal(calls, []string{"sessions-reassigned apps/site main→dev", "routes-reassigned apps/site main→dev", "reassign apps/site main→dev", "wake"}) {
+		t.Errorf("calls = %q (sessions, routes, then y first then x through the runner, then alwaysOn)", calls)
 	}
 	if b, _ := os.ReadFile(filepath.Join(f.root, "xbin.json")); !bytes.Equal(b, root) || treeHash(t, filepath.Join(f.root, opSite)) != files {
 		t.Error("the reassignment wrote the root xbin.json or the tile's files")
@@ -202,7 +203,7 @@ func TestReassignPinsReviewedCheckpoint(t *testing.T) {
 	if e := f.wait(opSite, ans.Deploy.ID); e.Result != resultOK {
 		t.Errorf("the pin's attempt = %+v", e)
 	}
-	if calls := f.waitCall("wake"); !slices.Equal(calls, []string{"sessions-reassigned apps/site main→dev", "reassign apps/site main→dev", "wake"}) {
+	if calls := f.waitCall("wake"); !slices.Equal(calls, []string{"sessions-reassigned apps/site main→dev", "routes-reassigned apps/site main→dev", "reassign apps/site main→dev", "wake"}) {
 		t.Errorf("calls = %q", calls)
 	}
 	if evs := f.evs.take(); len(evs) == 0 || !slices.Contains(evs[0].Data.(recordEvent).What, "liveReload") {
