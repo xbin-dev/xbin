@@ -484,7 +484,12 @@ func TestRelayAnswers(t *testing.T) {
 	r.relay.answer(codes(503, 429)...)
 	r.call(cal, "POST", "/notify", map[string]any{"user": "alice", "title": "one"})
 	r.relay.waitPushes(2)
+	// The relay has both pushes; the sender counts each once its answer is
+	// read, a moment later.
 	st := r.s.snd.stats()
+	for until := time.Now().Add(2 * time.Second); st.Sent < 2 && time.Now().Before(until); st = r.s.snd.stats() {
+		time.Sleep(5 * time.Millisecond)
+	}
 	if st.Retried != 2 || st.Sent != 2 {
 		t.Fatalf("stats after retries: %+v", st)
 	}
