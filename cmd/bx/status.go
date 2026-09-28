@@ -41,6 +41,11 @@ func cmdStatus(args []string) error {
 			comp = a
 		}
 	}
+	if !given && !all { // <tile>+<name>: that deployment, asked with deployment= (P17)
+		if t, d := readRef(comp); d != "" {
+			comp, dep, given = t, d, true
+		}
+	}
 	if env := os.Getenv("XBIN_COMPONENT"); !given && !all && comp != "" && comp == env {
 		dep = os.Getenv("XBIN_DEPLOYMENT") // a read command's default (DR3)
 	}
@@ -334,6 +339,11 @@ func cmdLogs(args []string) error {
 			follow = true
 		} else {
 			comp = a
+		}
+	}
+	if !given { // <tile>+<name>: that deployment, asked with deployment= (P17)
+		if t, d := readRef(comp); d != "" {
+			comp, dep, given = t, d, true
 		}
 	}
 	if env := os.Getenv("XBIN_COMPONENT"); given && comp == "" || !given && comp != "" && comp == env {

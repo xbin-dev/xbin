@@ -72,3 +72,35 @@ func TestNoDeployment(t *testing.T) {
 		t.Error("a look-alike error matches ErrNoDeployment")
 	}
 }
+
+// covers P17 — no new tile name holds '+', in any segment; the refusal names
+// the path.
+func TestPlusNameRefusal(t *testing.T) {
+	for _, p := range []string{"apps/x", "notes", "apps/c-d", "apps/x:y"} {
+		if msg := PlusNameRefusal(p); msg != "" {
+			t.Errorf("PlusNameRefusal(%q) = %q, want none", p, msg)
+		}
+	}
+	for _, p := range []string{"apps/x+dev", "a+b", "apps+x/y", "/apps/c++/", "x+"} {
+		if msg := PlusNameRefusal(p); !strings.Contains(msg, "can't create "+strings.Trim(p, "/")+": '+' isn't allowed in tile names") {
+			t.Errorf("PlusNameRefusal(%q) = %q", p, msg)
+		}
+	}
+}
+
+// covers P17 — a query parameter naming a tile is its path: a '+' that names
+// no tile, or the space an unescaped '+' decoded to, reads as a qualified
+// ref; a tile whose own name holds '+' passes.
+func TestQueryTileQualified(t *testing.T) {
+	tiles := map[string]bool{"apps/x": true, "legacy/a+b": true, "my app": true}
+	isTile := func(s string) bool { return tiles[s] }
+	for v, want := range map[string]bool{
+		"apps/x": false, "legacy/a+b": false, "my app": false, "apps/y": false,
+		"apps/x+dev": true, "apps/y+dev": true, "apps/c++": true, "legacy/a+b+dev": true,
+		"apps/x dev": true, "apps/x Dev": false, "apps/y dev": false, "some thing": false,
+	} {
+		if got := QueryTileQualified(v, isTile); got != want {
+			t.Errorf("QueryTileQualified(%q) = %v, want %v", v, got, want)
+		}
+	}
+}

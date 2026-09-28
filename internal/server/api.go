@@ -257,6 +257,10 @@ func (s *Server) apiComponent(w http.ResponseWriter, r *http.Request) {
 // is for is frameTokenOf's; ?deployment= is echoed (11-contract §7.2, §8).
 func (s *Server) apiFrameToken(w http.ResponseWriter, r *http.Request) {
 	comp := r.URL.Query().Get("component")
+	if util.QueryTileQualified(comp, func(c string) bool { _, ok := s.Reg.Component(c); return ok }) {
+		WriteError(w, http.StatusBadRequest, util.QueryRefMsg, "/docs/protocol.md") // the deployment rides deployment= (P17)
+		return
+	}
 	p := auth.PrincipalOf(r)
 	ok := comp != "" && !backendPrincipal(p) && (p.Component == comp || (p.Component == "" && p.CanReadTile(comp)))
 	if !ok {

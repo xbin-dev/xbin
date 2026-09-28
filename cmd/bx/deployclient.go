@@ -8,7 +8,8 @@ package main
 // from their own files: livereload.go (bx live-reload, and the words for where
 // saves go), deploy.go (bx deploy, bx promote, bx rollback, and the impact
 // report), deployment.go (the bx deployment family), agentdeploy.go (bx agent
-// run --deployment); status.go reads a named deployment's status and log.
+// run --deployment); status.go reads a named deployment's status and log;
+// deployref.go reads the state for a tile ref and splits refs for queries.
 
 import (
 	"bufio"
@@ -493,20 +494,6 @@ func decodeAnswer(b []byte, out any) error {
 		return &dcError{code: exitFailed, msg: "unexpected answer from xbind: " + err.Error()}
 	}
 	return nil
-}
-
-// getDeployState reads GET /deployments for a tile ref, sent unresolved: the
-// server resolves it (11-contract §2.2).
-func getDeployState(ref string) (*deployState, []byte, error) {
-	b, err := dcCall("GET", "/api/xbin/deployments?tile="+url.QueryEscape(ref), nil)
-	if err != nil {
-		return nil, nil, err
-	}
-	st := &deployState{}
-	if err := decodeAnswer(b, st); err != nil {
-		return nil, nil, err
-	}
-	return st, b, nil
 }
 
 // --- running a changing command ---

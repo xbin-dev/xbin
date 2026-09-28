@@ -92,6 +92,12 @@ func TestFrameTokenRenewalPerDeployment(t *testing.T) {
 	check("a reader, a zero-state tile", "component=apps/b&deployment=dev", ana, want{403, "deployment URLs need write access on apps/b", false})
 	check("the owner, a zero-state tile", "component=apps/b&deployment=dev", w.zsOwner(), want{404, `apps/b has no deployment "dev"`, false})
 	check("the owner, a zero-state tile", "component=apps/b&deployment=main", w.zsOwner(), want{200, "main", true})
+	// P17: a query names the deployment beside the tile, never as tile+name
+	// (escaped, or unescaped and read as a space).
+	const qualified = "a deployment is named with deployment=, not tile+name"
+	check("a writer, a qualified component", "component=apps/a%2Bdev", wes, want{400, qualified, false})
+	check("a writer, an unescaped qualified component", "component=apps/a+dev", wes, want{400, qualified, false})
+	check("the owner, a qualified component", "component=apps/a%2Bdev&deployment=dev", w.zsOwner(), want{400, qualified, false})
 
 	// The tile's own credentials.
 	check("dev's frame", "component=apps/a", w.devFrame("wes"), want{200, "dev", false})

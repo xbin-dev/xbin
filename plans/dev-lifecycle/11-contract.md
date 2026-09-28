@@ -414,10 +414,11 @@ field of this block that names a non-primary deployment.
 ### 1.3 Reading the state
 
 ```
-GET /api/xbin/deployments?tile=<tile-ref>
-200        State, in the caller's view (below)
+GET /api/xbin/deployments?tile=<tile>[&deployment=<name>]
+200        State, in the caller's view (below); deployment= is echoed as selected
 authority  the tile's reader audience (§0.5)
-errors     400 need ?tile= · 403 can't read the tile · 403 a qualified ref naming a non-primary deployment, for
+errors     400 need ?tile= · 400 tile= names a deployment as tile+name (§2.1, P17) · 403 can't read the tile ·
+           403 deployment= naming a non-primary deployment, for
            a caller outside that deployment's audience (whether or not it exists) · 404 no such tile, or no
            such deployment (callers in the audience) · 409 the record's schema is newer than this xbind (§10.1)
 notes      The zero state answers record:false and writes nothing (P5). A plain 404 or 405 (Go's mux,
@@ -975,7 +976,9 @@ does (`internal/proxy/proxy.go:304-317`).
 | diff without a record | 409 | `<tile> has no deployments: its work tree is what runs, so there is nothing to diff` |
 | name taken, `main` | 409 | `<tile> already has a deployment "<name>"` |
 | component at `<tile>+<name>` | 409 | `a tile exists at <tile>+<name>; pick another name` |
-| creating a tile at a deployment URL | 403 | `can't create <P>+<N>: <P> has a deployment "<N>", and that is its URL — pick another path` |
+| creating a tile whose path holds `+` (every creator, every path; P17) | 403 | `can't create <path>: '+' isn't allowed in tile names (it names a tile deployment in URLs, /c/<tile>+<name>/) — pick another path` |
+| adding a deployment to a tile whose own name holds `+` | 409 | `<tile>'s name holds '+', which names a tile deployment in URLs: it can't get deployments — clone it to a path without '+' (POST /api/xbin/clone) to give it some` |
+| a query tile parameter naming a deployment as `tile+name` | 400 | `a deployment is named with deployment=, not tile+name (a '+' in a query string reads as a space)` |
 | cap | 409 | `<tile> has <n> non-primary deployments, the most allowed here` |
 | tile can't have deployments | 409 | `<tile> can't have non-primary deployments: <reason>` |
 | isolation | 409 | `pinning a backend to a checkpoint needs isolation (--isolate)` |
@@ -1041,30 +1044,47 @@ never in a segment of its own. A separate segment would read as a tile
 sub-path, a nested tile or an `xbin.window` path, and would trip prefix-based
 frame reloads ([research/terminology-census.md](research/terminology-census.md)).
 
-Two narrow refusals keep the URL unambiguous, for **every** creator, admins
-and `xbin:writer` elements included:
-- **No tile at `<P>+<N>` while `P` has deployment `N`.** Every tile creation
-  path (create, template instantiation, import, clone, builtin import)
-  goes through `canCreateAt`, which checks it before its admin early return
-  (`internal/broker/policy.go:106-108`), beside the `:` refusal of
-  `newTilePathOK` (`internal/broker/policy.go:162-166`). The refusal is the
-  creation routes' usual 403 (`internal/broker/create.go:54-56`), with
-  §1.14's text naming the deployment.
+Refusals keep the URL unambiguous, for **every** creator, admins and
+`xbin:writer` elements included (P17, decided 2026-09-28; this replaces the
+two narrow refusals and the one-release `warnings` entry first designed
+here):
+- **No new tile name holds `+`**, in any segment. Every tile creation path
+  (create, template instantiation, git import, clone, builtin import) goes
+  through `canCreateAt`, which checks `util.PlusNameRefusal` before its admin
+  early return (`internal/broker/policy.go`), beside the `:` refusal of
+  `newTilePathOK`, which binds non-admins only; `bx new`'s local write checks
+  it in `scaffold.Create`. The refusal is the creation routes' usual 403:
+  `can't create <path>: '+' isn't allowed in tile names (it names a tile
+  deployment in URLs, /c/<tile>+<name>/) — pick another path`. Refused at
+  once, as D82 refused `:`: the owner's ruling, overriding the warn-first
+  plan of 12-compat §7.1 and §10.2.
+- **A tile whose own name holds `+`** (created before the rule, or by hand)
+  keeps resolving as an exact match (§2.2) but gets no deployments: `add`
+  answers 409 `<tile>'s name holds '+', which names a tile deployment in
+  URLs: it can't get deployments — …`. `bx doctor` flags it.
 - **No deployment `N` on `P` while a component exists at `<P>+<N>`:** `add`
   answers 409 (§1.5).
 
-Any other new tile name containing `+` is created as today, and its answer
-gains a `warnings` entry for one release, the D82 way:
-`"+" in tile names is reserved for deployment URLs (/c/<tile>+<name>/); a tile
-named <path> may be hard to tell from one`. It is never refused. A directory
-created outside the API at `<P>+<N>` wins resolution (§2.2) and shadows the
-deployment URL; the deployments panel reports the clash
+A directory created outside the API at `<P>+<N>` wins resolution (§2.2) and
+shadows the deployment URL; the deployments panel reports the clash
 ([12-compat.md](12-compat.md) §7.3).
+
+**The qualifier lives in paths and JSON bodies only.** A query string never
+carries it: `+` decodes to a space there. A query parameter naming a tile
+(`tile=`, `component=`) takes the tile's path, and the deployment rides
+`deployment=` (`GET /deployments` gains it, echoed as `selected`). The
+deployments reads, `/frame-token`, `/logs` and `/tile-status` answer 400 `a
+deployment is named with deployment=, not tile+name (a '+' in a query string
+reads as a space)` for a tile parameter that holds a `+` and names no tile, or
+that an unescaped `+` split with a space into a tile and a deployment name
+(`util.QueryTileQualified`). Clients (web, `bx`) never put a ref in a query:
+they send the tile and `deployment=`.
 
 ### 2.2 Resolution
 
 One resolver serves `/c/`, `/api/`, the asset-token plane, tile origins and the
-`/deployments` routes' `tile` field. It runs before today's per-plane logic:
+`/deployments` routes' JSON `tile` field (their query `tile=` takes the exact
+path, §2.1). It runs before today's per-plane logic:
 before `owningComponent` in the static handler (`internal/server/static.go:105`)
 and in place of `Reg.Resolve` in the proxy (`internal/proxy/proxy.go:130`).
 A qualified URL resolves only for tiles with a record, and only when today's
@@ -1121,7 +1141,8 @@ func ResolveRef(p string) (c *Component, dep string, qualified bool, rest string
   the checkpoint answers 404 ([07-runtime.md](07-runtime.md) §4.1).
 - Every URL that resolves today resolves identically: a zero-state tile never
   splits, and a component or on-disk path at the full candidate always wins.
-  A `+` in a query string is never the qualifier.
+  A `+` in a query string is never the qualifier (§2.1: a 400 where a tile
+  parameter would read as one).
 
 ### 2.3 Who may use which URL
 
@@ -2124,7 +2145,7 @@ d/<name>/           a non-main deployment's derived state: its backend log (d/<n
 |---|---|---|
 | The zero state is unchanged on every surface (§0.1); dry runs and diffs create nothing on it (§1.2, §1.11) | 1, 2, 9: nothing written at boot, the root `xbin.json` untouched | [/docs/compat.md](/docs/compat.md), [/docs/elements.md](/docs/elements.md) |
 | The `/deployments` routes, per-deployment backups and the checkpoint remote (§1) | 2: new routes only; existing bodies unchanged | [/docs/protocol.md](/docs/protocol.md) (+ openapi.go rows) |
-| Qualified URLs; the two narrow `+` refusals, and a one-release warning for other `+` names (§2) | 2, 3, 11: existing URLs keep resolving; an exact component wins; nothing that works today becomes an error without a warning | [/docs/protocol.md](/docs/protocol.md) `/c/` and `/api/`, [/docs/elements.md](/docs/elements.md), [/docs/auth.md](/docs/auth.md) |
+| Qualified URLs; `+` refused in every new tile name, and never a qualified ref in a query string (§2; P17, decided 2026-09-28) | 2, 3, 11: existing URLs keep resolving; an exact component wins; the `+` refusal is rule 11's naming exception, BREAKING with a migration note | [/docs/protocol.md](/docs/protocol.md) `/c/` and `/api/`, [/docs/elements.md](/docs/elements.md), [/docs/auth.md](/docs/auth.md) |
 | `<bx-frame src="<tile>+<name>">`, `xbin.window` inside a deployment (§2.5) | 3: no vendor URL moves; old shells keep working | [/docs/elements.md](/docs/elements.md) §bx-frame, [/docs/frontend-kit.md](/docs/frontend-kit.md) |
 | Origins-mode labels per deployment (§2.6) | 2: `main`'s label and cookies unchanged | [/docs/auth.md](/docs/auth.md) §Tile asset gating, [/docs/elements.md](/docs/elements.md) §Asset URLs |
 | The inbound surface and `/components`' deployment-level fields follow the primary's code (§2.7, §2.8, §8) | 10: the shipped app's `native` always matches what `?native=1` serves | [/docs/elements.md](/docs/elements.md) (deployment-level, inbound-surface and tile-level fields, model §6) |

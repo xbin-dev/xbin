@@ -21,11 +21,10 @@ func TestDeploymentBackupsRead(t *testing.T) {
 	}
 	for _, c := range []struct{ target, want, dep string }{
 		{"/deployments/backups?tile=apps/crm", "apps/crm/main", "main"}, // the primary
-		{"/deployments/backups?tile=apps/crm%2Bdev", "apps/crm/dev", "dev"},
+		{"/deployments/backups?tile=apps/crm&deployment=dev", "apps/crm/dev", "dev"},
 		{"/deployments/backups?tile=apps/crm&deployment=gone", "apps/crm/gone", "gone"},
 		{"/deployments/backups?tile=apps/pin", "apps/pin/main", "main"},
 		{"/deployments/backups?tile=apps/zs&deployment=main", "apps/zs/main", "main"},
-		{"/deployments/backups?tile=apps/crm%2Bdev&deployment=dev", "apps/crm/dev", "dev"},
 	} {
 		asked = nil
 		if got := f.get(t, dplAdmin, c.target, 200); got["deployment"] != c.dep || len(asked) != 1 || asked[0] != c.want {
@@ -37,7 +36,8 @@ func TestDeploymentBackupsRead(t *testing.T) {
 		target string
 		code   int
 	}{
-		{"/deployments/backups?tile=apps/crm%2Bdev&deployment=main", 400},
+		{"/deployments/backups?tile=apps/crm%2Bdev", 400}, // P17: never tile+name in a query
+		{"/deployments/backups?tile=apps/crm+dev&deployment=main", 400},
 		{"/deployments/backups?tile=apps/crm&deployment=Bad", 400},
 		{"/deployments/backups?tile=apps/nope", 404},
 	} {

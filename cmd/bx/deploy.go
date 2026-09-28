@@ -432,7 +432,16 @@ func depLog(cmd string, a dcArgs) error {
 			return err
 		}
 	}
-	q := url.Values{"tile": {ref}}
+	tile, qdep, err := queryTile(ref) // the query names the deployment beside the tile (P17)
+	switch {
+	case err != nil:
+		return err
+	case qdep != "" && name != "" && qdep != name:
+		return usageError(cmd, "%s names %s, the argument %s: name one", ref, qdep, name)
+	case qdep != "":
+		name = qdep
+	}
+	q := url.Values{"tile": {tile}}
 	if name != "" {
 		q.Set("deployment", name)
 	}
@@ -504,7 +513,11 @@ func depDiff(cmd string, a dcArgs) error {
 	case ref == "":
 		return usageError(cmd, "which tile? name it, or run bx in the tile's terminal")
 	}
-	q := url.Values{"tile": {ref}}
+	tile, _, err := queryTile(ref) // a query takes the tile alone (P17)
+	if err != nil {
+		return err
+	}
+	q := url.Values{"tile": {tile}}
 	for i, side := range []string{"from", "to"} {
 		if i >= len(pos) {
 			break

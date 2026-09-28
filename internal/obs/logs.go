@@ -10,6 +10,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Backend log serving — the HTTP twin of `bx logs [-f]`, and what the
@@ -51,6 +52,10 @@ func (o *Plane) canReadLogs(p auth.Principal, comp string) bool {
 // Plain text; follow streams chunked until the client goes away.
 func (o *Plane) apiLogs(w http.ResponseWriter, r *http.Request) {
 	comp := strings.Trim(r.URL.Query().Get("component"), "/")
+	if util.QueryTileQualified(comp, o.HasComponent) { // component=apps/x+dev: the deployment rides deployment= (P17)
+		server.WriteError(w, http.StatusBadRequest, util.QueryRefMsg, "/docs/protocol.md")
+		return
+	}
 	if !o.HasComponent(comp) {
 		server.WriteError(w, http.StatusNotFound, "no such component: "+comp)
 		return

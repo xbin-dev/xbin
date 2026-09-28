@@ -186,3 +186,37 @@ type noDeployment struct{ tile, name string }
 
 func (e noDeployment) Error() string        { return e.tile + " has no deployment " + strconv.Quote(e.name) }
 func (e noDeployment) Is(target error) bool { return target == ErrNoDeployment }
+
+// PlusNameRefusal is the name rule every NEW tile meets, whoever creates it,
+// admins included, on every creation path (P17): no '+' in any segment of
+// its path, since "<tile>+<name>" is a tile deployment's URL. "" = allowed.
+// A directory whose name already holds '+' keeps resolving (an exact match
+// wins) but can't get deployments.
+func PlusNameRefusal(path string) string {
+	path = strings.Trim(path, "/")
+	if !strings.Contains(path, "+") {
+		return ""
+	}
+	return "can't create " + path + `: '+' isn't allowed in tile names (it names a tile deployment in URLs, /c/<tile>+<name>/) — pick another path`
+}
+
+// QueryRefMsg is the 400 of a query parameter that names a tile by a
+// qualified ref (P17).
+const QueryRefMsg = "a deployment is named with deployment=, not tile+name (a '+' in a query string reads as a space)"
+
+// QueryTileQualified reports whether v, a query parameter that names a tile
+// (tile=, component=), is a qualified ref instead of a tile's path (P17): a
+// '+' in it that doesn't name a tile (isTile), or a space the client's
+// unescaped '+' decoded to, splitting it into a tile and a deployment name.
+// A query string never carries the qualifier: its callers answer 400
+// QueryRefMsg, and a tile whose own name holds '+' passes (isTile).
+func QueryTileQualified(v string, isTile func(string) bool) bool {
+	if !strings.ContainsAny(v, "+ ") || isTile(v) {
+		return false
+	}
+	if strings.Contains(v, "+") {
+		return true
+	}
+	i := strings.LastIndexByte(v, ' ')
+	return i > 0 && DeploymentNameOK(v[i+1:]) && isTile(v[:i])
+}

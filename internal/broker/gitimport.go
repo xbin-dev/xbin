@@ -229,9 +229,6 @@ func (b *Broker) apiGitImport(w http.ResponseWriter, r *http.Request) {
 	}
 	b.assignOwner(path, owner) // D24: creator-owned (workspace-owned for admins) unless requested
 	out := map[string]any{"path": path, "remote": url, "ref": body.Ref, "pendingGrants": pending}
-	if ws := plusNameWarnings(path); ws != nil { // a '+' in the name, for one release (P17)
-		out["warnings"] = ws
-	}
 	server.WriteJSON(w, http.StatusOK, out)
 }
 

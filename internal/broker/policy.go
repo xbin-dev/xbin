@@ -3,7 +3,6 @@ package broker
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os"
 	pathpkg "path"
 	"path/filepath"
@@ -109,18 +108,14 @@ func (b *Broker) ceilingAllows(from, target string) bool {
 // driver couldn't create themselves. Unattributed automation (instance
 // tokens, the bootstrap owner) keeps plain capability semantics.
 //
-// Ahead of all of it, for every creator, admins included: no tile at a
-// deployment URL (deploymentURLRefusal) (P17). A creation it allows whose
-// name holds a '+' is logged with its creator (logPlusName).
+// Ahead of all of it, for every creator, admins included: no '+' in a new
+// tile's name (util.PlusNameRefusal), since "<tile>+<name>" is a tile
+// deployment's URL (P17). Unlike ':' below, which binds non-admins only,
+// it holds on every creation path for everyone.
 func (b *Broker) canCreateAt(p auth.Principal, path, ownerRef string) (ok bool, msg string) {
-	if why := b.deploymentURLRefusal(strings.Trim(path, "/")); why != "" {
+	if why := util.PlusNameRefusal(path); why != "" {
 		return false, why
 	}
-	defer func() {
-		if ok {
-			logPlusName(p, path)
-		}
-	}()
 	if b.IsAdmin(p) {
 		return true, ""
 	}
@@ -351,46 +346,6 @@ func (b *Broker) deploymentDataLeftovers(path string, under func(string) bool) [
 func dataDir(dir string) []os.DirEntry {
 	entries, _ := os.ReadDir(dir) // walk-ok: data/ is xbind's own; no sandbox sees it
 	return entries
-}
-
-// deploymentURLRefusal is the narrow refusal of P17 (11-contract §2.1): no
-// tile at <P>+<N> while P has deployment N, whoever creates it, since that
-// URL is P's deployment N for P's writers and an exact match would take it.
-// Only a tile with a deployment record can meet it, so nothing a workspace
-// without deployments does is refused (12-compat §7.1(a)). "" = no refusal.
-func (b *Broker) deploymentURLRefusal(path string) string {
-	dir, last := pathpkg.Split(path)
-	j := strings.LastIndexByte(last, '+')
-	if j < 1 {
-		return ""
-	}
-	tile, name := dir+last[:j], last[j+1:]
-	if !util.DeploymentNameOK(name) || !b.hasDeploymentRecord(tile) || !b.hasDeployment(tile, name) {
-		return ""
-	}
-	return fmt.Sprintf("can't create %s: %s has a deployment %q, and that is its URL — pick another path", path, tile, name)
-}
-
-// plusNameWarnings is the answer's warnings entry, for one release, of a new
-// tile whose name holds a '+' that deploymentURLRefusal didn't refuse
-// (11-contract §2.1; 12-compat §7.1(b)): such a name is created as today and
-// never refused. None for any other name, whose answer is today's.
-func plusNameWarnings(path string) []string {
-	path = strings.Trim(path, "/")
-	if !strings.Contains(path, "+") {
-		return nil
-	}
-	return []string{`"+" in tile names is reserved for deployment URLs (/c/<tile>+<name>/); a tile named ` + path +
-		` may be hard to tell from one`}
-}
-
-// logPlusName logs the creator of a tile whose name holds a '+' (12-compat
-// §7.1(b)), once canCreateAt has allowed it.
-func logPlusName(p auth.Principal, path string) {
-	if path = strings.Trim(path, "/"); strings.Contains(path, "+") {
-		slog.Warn("a new tile's name holds '+', which selects a tile deployment in URLs (<tile>+<name>); the path keeps working",
-			"tile", path, "creator", p.From(), "user", p.UserID)
-	}
 }
 
 // attributedCanRead is the matching source-side clamp for copy-shaped

@@ -142,12 +142,18 @@ func TestStaticDeploymentURLAndData(t *testing.T) {
 		t.Errorf("the write user's GET /deployments: %d, want the full view naming dev: %.300s", c, body)
 	}
 	for _, name := range []string{"dev", "nope"} { // whether or not it exists
-		if c, _ := reader.get("/api/xbin/deployments?tile=" + url.QueryEscape(tile+"+"+name)); c != 403 {
-			t.Errorf("the read user's GET /deployments?tile=%s+%s: %d, want 403", tile, name, c)
+		if c, _ := reader.get("/api/xbin/deployments?tile=" + url.QueryEscape(tile) + "&deployment=" + name); c != 403 {
+			t.Errorf("the read user's GET /deployments?tile=%s&deployment=%s: %d, want 403", tile, name, c)
 		}
 	}
-	if c, body := writer.get("/api/xbin/deployments?tile=" + url.QueryEscape(tile+"+dev")); c != 200 || !strings.Contains(body, `"selected":"dev"`) {
-		t.Errorf("the write user's GET /deployments?tile=%s+dev: %d %.200s", tile, c, body)
+	if c, body := writer.get("/api/xbin/deployments?tile=" + url.QueryEscape(tile) + "&deployment=dev"); c != 200 || !strings.Contains(body, `"selected":"dev"`) {
+		t.Errorf("the write user's GET /deployments?tile=%s&deployment=dev: %d %.200s", tile, c, body)
+	}
+	// P17: a query never carries tile+name, escaped or not (a '+' there reads as a space)
+	for _, q := range []string{url.QueryEscape(tile + "+dev"), tile + "+dev"} {
+		if c, body := writer.get("/api/xbin/deployments?tile=" + q); c != 400 || !strings.Contains(body, "a deployment is named with deployment=") {
+			t.Errorf("the write user's GET /deployments?tile=%s: %d %.200s, want 400", q, c, body)
+		}
 	}
 
 	// Frame tokens: each document's token is bound to its deployment.

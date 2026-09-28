@@ -77,7 +77,10 @@ migrations is checked against it.
     become an error, it warns for one release first — except a security
     hole, which closes in the release that finds it, with a changelog entry
     and a migration note (e.g. D118: `chrome: true` needs an admin's
-    approval).
+    approval) — and a character refused in **new** tile names, which is
+    refused at once and never touches an existing tile, also with a
+    changelog entry and a migration note (D82's `:`; `+`, *Tile
+    deployments* below).
 
 ## Tile asset URLs (strict tile asset gating)
 
@@ -171,11 +174,19 @@ header, env variable, token, backup archive or file differs.
 - **A new URL form; the old ones stay (rule 3).** `/c/<tile>+<name>/` and
   `/api/<tile>+<name>/…` resolve only for a tile with deployments, and only
   when nothing answers the path today: an existing directory whose name holds
-  `+` keeps resolving.
-- **`+` in new tile names warns first (rule 11).** Creating `<P>+<N>` while
-  tile `P` has a deployment `N` is refused, for admins too — that path is the
-  deployment's URL. Any other new name containing `+` is created as before,
-  with a `warnings` entry in the creation answer for one release.
+  `+` keeps resolving. The form lives in paths and JSON bodies only: a query
+  string names the tile and `deployment=` apart (a `+` there reads as a
+  space), and the routes that take a deployment answer a `tile+name` query
+  parameter with 400.
+- **`+` is refused in new tile names — the naming exception to rule 11,
+  as D82's `:` was.** Creating a tile whose path holds `+` in any segment is
+  refused at once, for admins too, on every creation path (`bx new`, create,
+  clone, template instantiate, builtin and git import): `<tile>+<name>` is a
+  deployment's URL. Existing tiles are untouched: a directory whose name
+  holds `+` keeps resolving as an exact match and serving as before; it
+  can't get deployments, and `bx doctor` flags it. The changelog marks it
+  **BREAKING**, with
+  [changes/2026-09-28-plus-in-tile-names.md](/docs/changes/2026-09-28-plus-in-tile-names.md).
 - **The SDK changes only permissively (rule 8).** `xbin.Deployment()`,
   `CallerInfo.Deployment`, `xbin.deployment`, `XBIN_DEPLOYMENT`,
   `X-XBin-Deployment` and `<meta name="xbin-deployment">` are absent for the

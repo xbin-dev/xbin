@@ -156,9 +156,6 @@ func (b *Broker) apiClone(w http.ResponseWriter, r *http.Request) {
 	}
 	b.assignOwner(to, owner) // D24: creator-owned (workspace-owned for admins) unless requested
 	out := map[string]any{"path": to, "from": from, "rewritten": rewritten, "pendingGrants": pending}
-	if ws := plusNameWarnings(to); ws != nil { // a '+' in the name, for one release (P17)
-		out["warnings"] = ws
-	}
 	server.WriteJSON(w, http.StatusOK, out)
 }
 

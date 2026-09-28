@@ -2,14 +2,17 @@ package broker
 
 import (
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/builtins"
 	"github.com/xbin-dev/xbin/internal/deployments"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -201,19 +204,15 @@ func TestPathLeftoversIncludeDeploymentStateM2(t *testing.T) {
 	})
 }
 
-// covers P17 T3 — the `+` rules of new tile names (11-contract §2.1;
-// 12-compat §7.1, §7.2). The narrow refusal holds for every creator, admins,
-// the root token, the tile's own owner and an element holding xbin
-// included, ahead of the admin early return: no tile at <P>+<N> while P has
-// deployment N, the primary's name included, with §1.14's text, and a
-// refused creation writes nothing. Any other new name holding a '+' (a name
-// the tile doesn't have, a tile without a record, a name outside the
-// grammar, a '+' elsewhere in the path) is created as today, never refused,
-// and its answer carries the one-release warnings entry while xbind logs
-// the creator; a name without '+' answers exactly as before, with no
-// warnings key. An exact match keeps resolving: the created tile wins its
-// path, and the refused deployment URL still names the deployment. Without
-// deployment records nothing is refused.
+// covers P17 T3 — no new tile name holds '+' (11-contract §2.1; 12-compat
+// §7.1): every creator is refused, admins, the root token, the tile's own
+// owner and an element holding xbin included, ahead of the admin early
+// return, with util.PlusNameRefusal's text, on every creation path (create,
+// clone, template instantiate, builtin import, git import), whether or not
+// any tile has deployments, and a refused creation writes nothing. A name
+// without '+' answers exactly as before. A directory whose name already
+// holds '+' keeps resolving (an exact match wins) and gets no deployments;
+// the qualified URL still names the deployment.
 func TestPlusReservedInNewTilePaths(t *testing.T) {
 	b := deployBroker(t)
 	root := b.Reg.Root
@@ -223,7 +222,6 @@ func TestPlusReservedInNewTilePaths(t *testing.T) {
 	vaultRecord(t, root, fxCalendar, "user:"+fxWriter, util.MainDeployment, false) // main (primary) and dev
 	vaultRecord(t, root, fxShop, "", "dev", false)                                 // dev (primary) and main
 	dp := lifeM2Plane(t, b)
-	logs := captureLog(t)
 
 	ana, tom, wes := deployPerson(t, b, fxAdmin), deployPerson(t, b, fxTerm), deployPerson(t, b, fxWriter)
 	creators := []struct {
@@ -238,102 +236,96 @@ func TestPlusReservedInNewTilePaths(t *testing.T) {
 		{"an element holding xbin", auth.Principal{Component: fxConsole, Via: "instance"}, ""},
 		{"an admin driving an element holding xbin", auth.Principal{Component: fxConsole, Via: "frame", UserID: fxAdmin}, ""},
 	}
-	refusal := func(p, tile, name string) string {
-		return "can't create " + p + ": " + tile + ` has a deployment "` + name + `", and that is its URL — pick another path`
+	plus := []string{
+		"apps/calendar+dev",  // a deployment's URL
+		"apps/calendar+main", // the primary's alias
+		"/apps/shop+dev/",
+		"apps/calendar+nope", // a name the tile doesn't have
+		"apps/email+dev",     // a tile without a record
+		"apps/calendar+Dev",  // a name outside the grammar
+		"apps/shop+", "apps/+dev", "tools+x/lint", "apps/a+b+c",
 	}
 
-	t.Run("the narrow refusal, for every creator", func(t *testing.T) {
+	t.Run("every creator is refused", func(t *testing.T) {
 		for _, c := range creators {
-			for _, tc := range []struct{ path, want string }{
-				{"apps/calendar+dev", refusal("apps/calendar+dev", fxCalendar, "dev")},
-				{"apps/calendar+main", refusal("apps/calendar+main", fxCalendar, "main")},
-				{"/apps/calendar+dev/", refusal("apps/calendar+dev", fxCalendar, "dev")},
-				{"apps/shop+dev", refusal("apps/shop+dev", fxShop, "dev")},
-				{"apps/shop+main", refusal("apps/shop+main", fxShop, "main")},
-			} {
-				if ok, msg := b.canCreateAt(c.p, tc.path, c.owner); ok || msg != tc.want {
-					t.Errorf("%s at %s: %v %q, want %q", c.name, tc.path, ok, msg, tc.want)
+			for _, path := range plus {
+				want := util.PlusNameRefusal(path)
+				if ok, msg := b.canCreateAt(c.p, path, c.owner); ok || msg != want || want == "" {
+					t.Errorf("%s at %s: %v %q, want %q", c.name, path, ok, msg, want)
 				}
 			}
-		}
-		for _, p := range []auth.Principal{ana, tom} {
-			w := call(t, b.apiCreate, p, "POST", "/create", `{"path":"apps/calendar+dev"}`, nil)
-			var got struct {
-				Error string `json:"error"`
-			}
-			_ = json.Unmarshal(w.Body.Bytes(), &got)
-			if w.Code != 403 || got.Error != refusal("apps/calendar+dev", fxCalendar, "dev") {
-				t.Errorf("%s's create: %d %s", p.From(), w.Code, w.Body.String())
-			}
-		}
-		lifeAbsent(t, "a refused creation's directory", filepath.Join(root, "apps", "calendar+dev"))
-		if strings.Contains(logs.String(), "calendar+dev") || strings.Contains(logs.String(), "shop+") {
-			t.Errorf("a refused creation was logged as one that holds a '+':\n%s", logs.String())
 		}
 	})
 
-	warning := func(p string) []any {
-		return []any{`"+" in tile names is reserved for deployment URLs (/c/<tile>+<name>/); a tile named ` + p + ` may be hard to tell from one`}
-	}
-	create := func(t *testing.T, p auth.Principal, path string) map[string]any {
-		t.Helper()
-		w := call(t, b.apiCreate, p, "POST", "/create", `{"path":"`+path+`"}`, nil)
-		if w.Code != 200 {
-			t.Fatalf("%s creating %s: %d %s", p.From(), path, w.Code, w.Body.String())
-		}
-		var m map[string]any
-		if err := json.Unmarshal(w.Body.Bytes(), &m); err != nil {
+	// A workspace template and a builtin to instantiate, on disk and embedded.
+	for rel, content := range map[string]string{
+		"templates/tpl/xbin.json":  `{"template":{"title":"Tpl"}}`,
+		"templates/tpl/index.html": "<html>tpl</html>",
+	} {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if _, ok := b.Reg.Component(path); !ok {
-			t.Errorf("%s isn't registered", path)
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
 		}
-		return m
 	}
+	if err := b.Reg.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	set, err := builtins.Load(fstest.MapFS{
+		"hello/tile.json": {Data: []byte(`{"name":"hello"}`)},
+		"hello/xbin.json": {Data: []byte(`{}`)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.SetBuiltins(set)
 
-	t.Run("any other '+' warns, never refuses", func(t *testing.T) {
-		for _, tc := range []struct {
-			why, path string
-			p         auth.Principal
-		}{
-			{"a name the tile doesn't have", "apps/calendar+nope", tom},
-			{"a tile without a record", "apps/email+dev", ana},
-			{"a name outside the grammar", "apps/calendar+Dev", tom},
-			{"a '+' ending the name", "apps/shop+", wes},
-			{"a '+' opening the name", "apps/+dev", tom},
-			{"a '+' in a parent segment", "tools+x/lint", tom},
-			{"several '+'", "apps/a+b+c", tom},
-			{"an element creating", "apps/tool+x", auth.Principal{Component: fxConsole, Via: "instance"}},
-		} {
-			t.Run(tc.why, func(t *testing.T) {
-				if ok, msg := b.canCreateAt(tc.p, tc.path, lifeCreateOwner(t, b, tc.p)); !ok {
-					t.Fatalf("canCreateAt(%s) refused: %s", tc.path, msg)
+	routes := []struct {
+		name string
+		h    http.HandlerFunc
+		url  string
+		body func(path string) string
+	}{
+		{"create", b.apiCreate, "/create", func(p string) string { return `{"path":"` + p + `"}` }},
+		{"clone", b.apiClone, "/clone", func(p string) string { return `{"from":"` + fxCalendar + `","to":"` + p + `"}` }},
+		{"template instantiate", b.apiTemplatesNew, "/templates/new", func(p string) string { return `{"source":"templates/tpl","path":"` + p + `"}` }},
+		{"builtin import", b.apiBuiltinsImport, "/builtins/import", func(p string) string { return `{"name":"hello","path":"` + p + `"}` }},
+		{"git import", b.apiGitImport, "/git/import", func(p string) string { return `{"url":"https://example.invalid/x.git","path":"` + p + `"}` }},
+	}
+	t.Run("every creation path refuses, writing nothing", func(t *testing.T) {
+		for _, rt := range routes {
+			for _, p := range []auth.Principal{ana, {Owner: true}, tom} {
+				for _, path := range []string{"apps/new+x", "apps/calendar+dev", "tools+y/lint"} {
+					w := call(t, rt.h, p, "POST", rt.url, rt.body(path), nil)
+					var got struct {
+						Error string `json:"error"`
+					}
+					_ = json.Unmarshal(w.Body.Bytes(), &got)
+					if w.Code != 403 || got.Error != util.PlusNameRefusal(path) {
+						t.Errorf("%s by %s at %s: %d %s", rt.name, p.From(), path, w.Code, w.Body.String())
+					}
 				}
-				m := create(t, tc.p, tc.path)
-				if !reflect.DeepEqual(m["warnings"], warning(tc.path)) {
-					t.Errorf("warnings = %#v, want %#v", m["warnings"], warning(tc.path))
-				}
-				if line := "tile=" + tc.path + " creator=" + tc.p.From(); !strings.Contains(logs.String(), line) {
-					t.Errorf("the log doesn't name the creator (%s):\n%s", line, logs.String())
-				}
-			})
+			}
+		}
+		for _, rel := range []string{"apps/new+x", "apps/calendar+dev", "tools+y"} {
+			lifeAbsent(t, "a refused creation's directory", filepath.Join(root, filepath.FromSlash(rel)))
 		}
 	})
 
 	t.Run("a name without '+' answers as before", func(t *testing.T) {
-		m := create(t, tom, "apps/plain-two")
-		if _, ok := m["warnings"]; ok {
-			t.Errorf("a name without '+' answered warnings %v", m["warnings"])
+		w := call(t, b.apiCreate, tom, "POST", "/create", `{"path":"apps/plain-two"}`, nil)
+		var m map[string]any
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &m) != nil {
+			t.Fatalf("create: %d %s", w.Code, w.Body.String())
 		}
 		if want := []string{"files", "owner", "path"}; !reflect.DeepEqual(lifeKeys(m), want) {
 			t.Errorf("answer keys %q, want today's %q", lifeKeys(m), want)
 		}
-		if strings.Contains(logs.String(), "apps/plain-two") {
-			t.Errorf("a name without '+' was logged:\n%s", logs.String())
-		}
 	})
 
-	t.Run("clone warns too, and resets before its first Rescan", func(t *testing.T) {
+	t.Run("clone resets before its first Rescan", func(t *testing.T) {
 		reset := b.ResetDeploymentState
 		first := map[string]bool{} // path → registered at its first reset
 		b.ResetDeploymentState = func(path string) error {
@@ -343,36 +335,33 @@ func TestPlusReservedInNewTilePaths(t *testing.T) {
 			return reset(path)
 		}
 		defer func() { b.ResetDeploymentState = reset }()
-		clone := func(to string) map[string]any {
-			t.Helper()
-			w := call(t, b.apiClone, ana, "POST", "/clone", `{"from":"apps/plain-two","to":"`+to+`"}`, nil)
-			if w.Code != 200 {
-				t.Fatalf("cloning to %s: %d %s", to, w.Code, w.Body.String())
-			}
-			var m map[string]any
-			if err := json.Unmarshal(w.Body.Bytes(), &m); err != nil {
-				t.Fatal(err)
-			}
-			return m
+		w := call(t, b.apiClone, ana, "POST", "/clone", `{"from":"apps/plain-two","to":"apps/plain-three"}`, nil)
+		var m map[string]any
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &m) != nil {
+			t.Fatalf("clone: %d %s", w.Code, w.Body.String())
 		}
-		if m := clone("apps/plain+copy"); !reflect.DeepEqual(m["warnings"], warning("apps/plain+copy")) {
-			t.Errorf("clone's warnings = %#v, want %#v", m["warnings"], warning("apps/plain+copy"))
-		}
-		m := clone("apps/plain-three")
 		if want := []string{"from", "path", "pendingGrants", "rewritten"}; !reflect.DeepEqual(lifeKeys(m), want) {
 			t.Errorf("clone's answer keys %q, want today's %q", lifeKeys(m), want)
 		}
-		for _, to := range []string{"apps/plain+copy", "apps/plain-three"} {
-			if registered, reset := first[to]; !reset || registered {
-				t.Errorf("%s: reset %v, already registered at its first reset %v; want a reset before the tree exists", to, reset, registered)
-			}
+		if registered, reset := first["apps/plain-three"]; !reset || registered {
+			t.Errorf("reset %v, already registered at its first reset %v; want a reset before the tree exists", reset, registered)
 		}
 	})
 
-	t.Run("exact matches keep resolving", func(t *testing.T) {
-		c, dep, qualified, rest, err := b.Reg.ResolveRef("apps/calendar+nope/index.html", dp)
-		if err != nil || c == nil || c.Path != "apps/calendar+nope" || qualified || rest != "index.html" {
-			t.Errorf("apps/calendar+nope/index.html resolves to %v %q %v %q (%v), want the tile created there", c, dep, qualified, rest, err)
+	t.Run("an existing '+' directory keeps resolving; the qualified URL names the deployment", func(t *testing.T) {
+		legacy := filepath.Join(root, "apps", "calendar+old") // made before the rule, or by hand
+		if err := os.MkdirAll(legacy, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(legacy, "xbin.json"), []byte(`{}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := b.Reg.Rescan(); err != nil {
+			t.Fatal(err)
+		}
+		c, dep, qualified, rest, err := b.Reg.ResolveRef("apps/calendar+old/index.html", dp)
+		if err != nil || c == nil || c.Path != "apps/calendar+old" || qualified || rest != "index.html" {
+			t.Errorf("apps/calendar+old/index.html resolves to %v %q %v %q (%v), want the tile there", c, dep, qualified, rest, err)
 		}
 		c, dep, qualified, _, err = b.Reg.ResolveRef("apps/calendar+dev/", dp)
 		if err != nil || c == nil || c.Path != fxCalendar || dep != "dev" || !qualified {
@@ -380,17 +369,14 @@ func TestPlusReservedInNewTilePaths(t *testing.T) {
 		}
 	})
 
-	t.Run("without deployment records nothing is refused", func(t *testing.T) {
+	t.Run("without deployment records '+' is refused too", func(t *testing.T) {
 		b := deployBroker(t)
 		lifeM2Plane(t, b)
-		for _, path := range []string{"apps/calendar+dev", "apps/calendar+main", "apps/shop+dev"} {
-			if ok, msg := b.canCreateAt(deployPerson(t, b, fxAdmin), path, ""); !ok {
-				t.Errorf("canCreateAt(%s) without a record: %s", path, msg)
-			}
-		}
 		b.DeploymentHooks, b.DeploymentAnswers = DeploymentHooks{}, DeploymentAnswers{} // no plane at all
-		if ok, msg := b.canCreateAt(deployPerson(t, b, fxAdmin), "apps/calendar+main", ""); !ok {
-			t.Errorf("canCreateAt without the plane: %s", msg)
+		for _, path := range []string{"apps/calendar+dev", "apps/calendar+main", "apps/x+y"} {
+			if ok, msg := b.canCreateAt(deployPerson(t, b, fxAdmin), path, ""); ok || msg != util.PlusNameRefusal(path) {
+				t.Errorf("canCreateAt(%s) without the plane: %v %q", path, ok, msg)
+			}
 		}
 	})
 }

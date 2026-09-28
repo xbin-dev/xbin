@@ -32,7 +32,7 @@
  */
 import { html, css, nothing, live } from 'lit';
 import * as events from '/vendor/events-socket.js';
-import { infoFor } from '/vendor/frame-info.js';
+import { infoFor, qualifiedSrc } from '/vendor/frame-info.js';
 import {
   viewModel, chipItems, toMenu, confirmation, refusal, conflict, applyEvent, notice,
   frameChip as chipOverTile, apiOptions, apiTitle, sessionTarget, targetChange, noTarget, deploymentFrame, keepTargets,
@@ -82,9 +82,13 @@ export async function loadDeploy(f) {
   const gen = ++r.gen;
   let s = null;
   try {
-    const res = await fetch(`/api/xbin/deployments?tile=${encodeURIComponent(f.src)}`, { cache: 'no-store' });
-    const j = res.ok ? await res.json() : null;
-    if (j && typeof j === 'object' && j.tile === f.src) s = j;
+    // a deployment's frame (apps/crm+dev) keeps today's window, and its ref
+    // never goes into a query (P17)
+    if (!(await qualifiedSrc(f.src))) {
+      const res = await fetch(`/api/xbin/deployments?tile=${encodeURIComponent(f.src)}`, { cache: 'no-store' });
+      const j = res.ok ? await res.json() : null;
+      if (j && typeof j === 'object' && j.tile === f.src) s = j;
+    }
   } catch { /* no state: today's window */ }
   if (gen !== r.gen) return r.state;
   r.state = s;

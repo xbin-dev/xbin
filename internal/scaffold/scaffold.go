@@ -5,6 +5,7 @@
 package scaffold
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -37,6 +38,9 @@ func Create(root string, o Options) ([]string, error) {
 	}
 	if !util.ComponentPathOK(o.Path) {
 		return nil, fmt.Errorf("invalid component path %q (relative, no reserved names, no dot-dirs)", o.Path)
+	}
+	if why := util.PlusNameRefusal(o.Path); why != "" { // bx new's local write too, not only /create (P17)
+		return nil, errors.New(why)
 	}
 	dir, _, err := util.SafeJoin(root, o.Path)
 	if err != nil {

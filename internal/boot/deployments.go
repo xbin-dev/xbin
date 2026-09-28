@@ -207,9 +207,10 @@ type tileRef struct {
 	qualified bool
 }
 
-// resolve maps a tile ref to its tile (11-contract §2.2): a component at the
-// whole ref wins, as does anything on disk there; only then does
-// "<tile>+<name>" name a deployment, of a tile with a record (P5).
+// resolve maps a tile ref from a JSON body to its tile (11-contract §2.2): a
+// component at the whole ref wins, as does anything on disk there; only then
+// does "<tile>+<name>" name a deployment, of a tile with a record (P5). A
+// query string's tile= takes resolveQuery instead (P17).
 func (a *deploymentsAPI) resolve(ref string) (tileRef, *dpe) {
 	ref = strings.Trim(ref, "/")
 	if ref == "" {
@@ -227,6 +228,28 @@ func (a *deploymentsAPI) resolve(ref string) (tileRef, *dpe) {
 		if ok && util.DeploymentNameOK(ref[j+1:]) && a.dp.HasRecord(c.Path) && onDisk != nil {
 			return a.ref(c, ref[j+1:], true), nil
 		}
+	}
+	return tileRef{}, noTile(ref)
+}
+
+// resolveQuery maps a query's tile= to its tile (P17): the registered tile
+// at that exact path, never a qualified ref. A '+' in a query string decodes
+// to a space, so a query names a deployment with its own parameter
+// (deployment=): a tile= that reads as a ref is a 400 (util.QueryTileQualified),
+// while a tile whose own name holds '+' resolves.
+func (a *deploymentsAPI) resolveQuery(v string) (tileRef, *dpe) {
+	ref := strings.Trim(v, "/")
+	if ref == "" {
+		return tileRef{}, &dpe{Status: http.StatusBadRequest, Msg: "need ?tile= (a tile's path: apps/crm; name a deployment with deployment=)"}
+	}
+	if !cleanRel(ref) {
+		return tileRef{}, noTile(ref)
+	}
+	if c, ok := a.dp.Reg.Component(ref); ok {
+		return a.ref(c, "", false), nil
+	}
+	if util.QueryTileQualified(ref, func(p string) bool { _, ok := a.dp.Reg.Component(p); return ok }) {
+		return tileRef{}, &dpe{Status: http.StatusBadRequest, Msg: util.QueryRefMsg}
 	}
 	return tileRef{}, noTile(ref)
 }
@@ -294,9 +317,18 @@ func bound(pr auth.Principal) string {
 
 // ---- GET /deployments ----
 
+// getState answers the state of ?tile=, selecting ?deployment= when named
+// (P17: a query names the deployment beside the tile, never as tile+name);
+// selected echoes it, judged as a qualified ref's was.
 func (a *deploymentsAPI) getState(w http.ResponseWriter, r *http.Request) {
-	pr := auth.PrincipalOf(r)
-	t, e := a.resolve(r.URL.Query().Get("tile"))
+	pr, q := auth.PrincipalOf(r), r.URL.Query()
+	t, e := a.resolveQuery(q.Get("tile"))
+	if dep := q.Get("deployment"); e == nil && dep != "" {
+		if !util.DeploymentNameOK(dep) {
+			e = &dpe{Status: http.StatusBadRequest, Msg: badDeploymentName}
+		}
+		t.dep, t.qualified = dep, true
+	}
 	if e == nil {
 		e = a.readGate(pr, t, deployments.OpState)
 	}

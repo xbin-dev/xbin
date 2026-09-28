@@ -752,7 +752,10 @@ GET    /tile-status?component=<p>  self or admin. one tile's runtime metrics —
                                    &deployment=<name>: the deployment reported
                                    (default: the caller's bound deployment —
                                    a tile credential's — else the primary).
-                                   400 a malformed name; 403 "a tile's own
+                                   400 a malformed name, and a component=
+                                   that names a deployment as tile+name
+                                   (P17: "a deployment is named with
+                                   deployment=, …"); 403 "a tile's own
                                    credentials act only on their own
                                    deployment (<bound>)" (a tile's frames and
                                    backends read their own only); 403
@@ -808,7 +811,9 @@ GET    /logs?component=<p>         admin, the tile itself, or a user with
                                    their own deployment (<bound>)"); the
                                    tile's terminal/agent tokens, people with
                                    terminal level and admins read any. 404
-                                   unknown, 400 malformed. X-XBin-Deployment:
+                                   unknown, 400 malformed, and 400 for a
+                                   component= that names a deployment as
+                                   tile+name (P17). X-XBin-Deployment:
                                    <name> on a non-primary answer and on every
                                    answer to a request that named a
                                    deployment (the echo of a text/plain
@@ -895,6 +900,7 @@ GET    /frame-token?component=<p>  a principal that may use the tile: humans
                                    primary gets the current primary's. The
                                    answer echoes deployment when one was
                                    named; 400/403/404 as /tile-status'
+                                   (component=tile+name included)
 
 GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    tile?,message,system}]} — disk quota / low
@@ -1749,7 +1755,7 @@ POST   /create                     owner/admin, a user creating a tile
                                    target "xbin" at role writer (workspace
                                    management). body {path, runtime?,
                                    title?, expose?, owner?} → {path, files,
-                                   owner?, warnings?}. owner: "org:<id>" creates the
+                                   owner?}. owner: "org:<id>" creates the
                                    tile OWNED by that org — gated by the
                                    org's Create knob / org admin (elements
                                    still need the xbin:writer capability).
@@ -1786,25 +1792,22 @@ POST   /create                     owner/admin, a user creating a tile
                                    ("/" → "~") another scope has — e.g.
                                    apps~x beside apps/x, or workspace
                                    (D118, docs/resources.md). Every
-                                   creator, every creation route: 403 "can't
-                                   create <P>+<N>: <P> has a deployment
-                                   "<N>", and that is its URL — pick
-                                   another path" while tile P has a
-                                   deployment N (only tiles with a
-                                   deployment record meet it); any other
-                                   name holding '+' is created as before,
-                                   and for one release the 200 answer
-                                   carries warnings: ["\"+\" in tile names
-                                   is reserved for deployment URLs
-                                   (/c/<tile>+<name>/); a tile named <path>
-                                   may be hard to tell from one"].
+                                   creator, admins included, every
+                                   creation route (and `bx new`'s local
+                                   write): 403 "can't create <path>: '+'
+                                   isn't allowed in tile names (it names
+                                   a tile deployment in URLs,
+                                   /c/<tile>+<name>/) — pick another
+                                   path" for a '+' in any segment (P17).
+                                   A directory already named with '+'
+                                   keeps resolving (an exact match wins)
+                                   but can't get deployments.
 POST   /clone                      same authority as /create (the
                                    ownership path rule; the deputy clamp applies)
                                    + the human must have READ on `from`
                                    (copying is reading). body {from, to,
                                    owner?}
-                                   → {path, from, rewritten, pendingGrants,
-                                   warnings?}.
+                                   → {path, from, rewritten, pendingGrants}.
                                    Forks a component: copies it (git history
                                    included), rewrites old-path references
                                    across its files, registers it fresh.
@@ -1815,7 +1818,7 @@ GET    /builtins                   any. optional tile catalog
 POST   /builtins/import            same authority as /create, checked on
                                    the resolved target (path? or the tile's
                                    defaultPath). body {name, path?, owner?}
-                                   → {path, files, pendingGrants, warnings?}
+                                   → {path, files, pendingGrants}
                                    — installs an
                                    embedded tile (docs/overview/14-lifecycle.md §Getting code in).
                                    A retired tile (`devbox`) → 410 {error}
@@ -1845,7 +1848,7 @@ POST   /templates/new               same authority as /create on the
                                    resolved target; a workspace-template
                                    source also needs READ. body {source,
                                    path?, owner?} → {path,
-                                   files, pendingGrants, warnings?} — instantiates a template
+                                   files, pendingGrants} — instantiates a template
                                    into a named copy (docs/overview/03-components.md §Templates). A
                                    builtin-template instance gets a read-only
                                    `template` git remote (below), and its repo
@@ -1899,7 +1902,7 @@ POST   /git/import                 same authority as /create on the
                                    any git URL); path defaults to apps/<repo>, ref
                                    = a tag/branch. Its origin remote is kept (so
                                    it's updatable). → {path, remote, ref,
-                                   pendingGrants, warnings?}. Rejects local/file:// URLs and
+                                   pendingGrants}. Rejects local/file:// URLs and
                                    repos with no xbin.json/index.html.
 
 Cross-tile change proposals ("code PRs", docs/bx.md §code pr). READ visibility
@@ -2310,7 +2313,10 @@ and deployments/1 (every other row). An older xbind answers a plain 404 or
 can't do answers 501 ({"error","docs"}), and its Can reads "not built in
 this xbind yet". Bodies are JSON, decoded strictly; each names `tile`, a
 tile ref (apps/crm, or apps/crm+dev for one deployment; a body's deployment
-and the ref's qualifier must agree), and takes seq (the record's sequence
+and the ref's qualifier must agree). The GET rows take `tile` as a query
+parameter: a tile's path, never a ref — a deployment is named with
+`deployment=` (P17; §Tile deployments, *Tile refs in a query string*). Each
+body takes seq (the record's sequence
 the caller acted on: 409 when it moved) and dryRun:true (judged as for
 real, refusals included, nothing changes → {state, impact}). confirm tokens
 guard data: remove "erase", reset and a restore into data "erase-data", seed
@@ -2337,7 +2343,7 @@ full view for a tile its person manages. Every other manager route, and
 every code move, refuses it like any tile credential (docs/auth.md §Tile
 deployments).
 
-GET    /deployments?tile=<tile-ref>
+GET    /deployments?tile=<tile>&deployment=<name>
                                    read on the tile, or the tile itself
                                    (readers get the primary only). → State
                                    in the caller's view: full (the tile's
@@ -2350,14 +2356,17 @@ GET    /deployments?tile=<tile-ref>
                                    deployments, and nothing is written.
                                    features lists what this xbind speaks
                                    (live-reload/1, deployments/1; none
-                                   while --tile-deployments=off). A
-                                   qualified ref is echoed as selected; one
-                                   naming a non-primary deployment is 403
-                                   for a caller outside its audience,
-                                   whether or not it exists, and 404 (no
-                                   such deployment) for the rest when it
-                                   doesn't exist
-GET    /deployments/log?tile=<tile-ref>&deployment=<name>&limit=<n>&before=<id>
+                                   while --tile-deployments=off).
+                                   deployment= selects one, echoed as
+                                   selected; one naming a non-primary
+                                   deployment is 403 for a caller outside
+                                   its audience, whether or not it exists,
+                                   and 404 (no such deployment) for the
+                                   rest when it doesn't exist. tile= is a
+                                   tile's path: a '+' in it that names no
+                                   tile, escaped or read as a space, is
+                                   400 (P17)
+GET    /deployments/log?tile=<tile>&deployment=<name>&limit=<n>&before=<id>
                                    write on the tile, or its terminal/agent
                                    sessions. → {tile, entries:[DeployEntry],
                                    more}: every
@@ -2371,7 +2380,7 @@ GET    /deployments/log?tile=<tile-ref>&deployment=<name>&limit=<n>&before=<id>
                                    credentials see its entries only;
                                    readers and the primary's frame and
                                    backend tokens are refused
-GET    /deployments/diff?tile=<tile-ref>&from=<spec>&to=<spec>&path=<file>&stat=1
+GET    /deployments/diff?tile=<tile>&from=<spec>&to=<spec>&path=<file>&stat=1
                                    write on the tile, or its terminal/agent
                                    sessions; a work-tree side captures a
                                    checkpoint and needs terminal
@@ -2452,7 +2461,11 @@ POST   /deployments/add            terminal-level on the tile.
                                    first, at most 24; not main. 409 "<tile>
                                    already has a deployment "<name>"", "a
                                    tile exists at <tile>+<name>; pick another
-                                   name", "<tile> has <n> non-primary
+                                   name", "<tile>'s name holds '+', which
+                                   names a tile deployment in URLs: it can't
+                                   get deployments — clone it to a path
+                                   without '+' (POST /api/xbin/clone) to give
+                                   it some" (P17), "<tile> has <n> non-primary
                                    deployments, the most allowed here", "the
                                    workspace has <n> non-primary deployments,
                                    the most allowed here", "<tile> can't
@@ -2633,9 +2646,8 @@ GET    /deployments/backups?tile=<p>&deployment=<name>
                                    versions:[{version, time, size}],
                                    archiver}: empty versions without an
                                    archiver, as GET /backups. deployment
-                                   defaults to the ref's qualifier, then the
-                                   primary; a removed deployment's archives
-                                   are still listed
+                                   defaults to the primary; a removed
+                                   deployment's archives are still listed
 POST   /deployments/restore        admin (as above), and the reset level on
                                    every tile claiming the target's data.
                                    {tile, deployment, version?, into?,
@@ -3186,9 +3198,32 @@ non-primary deployment's schedule), `registrations` (its cron jobs, bus
 subscriptions, interface instances and ingress hosts, each with `dormant`)
 and `wouldNotify` (its last 20 held notifications).
 
-**Tile refs in a query string** send `+` as `%2B`, as `URLSearchParams`
-and Go's `url.Values` do: a bare `+` decodes to a space and names no tile.
+**Tile refs in a query string.** A query string never carries the
+qualifier: a `+` there decodes to a space (P17). A query parameter that
+names a tile (`tile=`, `component=`) takes the tile's path, and the
+deployment rides its own parameter, `deployment=` —
+`/deployments?tile=apps/crm&deployment=dev`, never `?tile=apps/crm+dev`.
+- The GET rows above, `/frame-token`, `/logs` and `/tile-status` answer 400
+  `a deployment is named with deployment=, not tile+name (a '+' in a query
+  string reads as a space)` for a tile parameter that holds a `+` and names
+  no tile, and for one whose `+` a client sent unescaped: a space splitting
+  it into a tile and a deployment name.
+- A tile whose own name holds `+` (one created before the name rule) is an
+  exact match and resolves: send its `+` as `%2B`, as `URLSearchParams` and
+  Go's `url.Values` do.
+- JSON bodies (`tile` of the POST rows) and URL paths (`/c/`, `/api/`) keep
+  the `<tile>+<name>` ref: a path keeps its `+`.
+
 `limit` above 200 and `wait` above 25 are clamped, not refused.
+
+**Tile names never hold `+`.** Creating a tile whose path holds `+` in any
+segment is refused (403) for every creator, admins included, on every
+creation route (`/create`, `/clone`, `/templates/new`, `/builtins/import`,
+`/git/import`) and by `bx new`'s local write: `<tile>+<name>` is a
+deployment's URL. A directory named so before the rule keeps resolving, as
+an exact match, but can't get deployments (`/deployments/add` answers 409
+`<tile>'s name holds '+', which names a tile deployment in URLs: it can't get
+deployments — …`); `bx doctor` flags it.
 
 **Deployment URLs.** `/c/<tile>+<name>/…` and `/api/<tile>+<name>/…` reach
 deployment `<name>`; the qualifier sits in the tile path's last segment.
@@ -3196,7 +3231,7 @@ deployment `<name>`; the qualifier sits in the tile path's last segment.
   answers the path today: a tile, or anything on disk, at `<tile>+<name>`
   wins, so a directory whose name holds `+` keeps working, and for a tile
   without deployments `+<name>` means nothing. A `+` in a query string is
-  never the qualifier.
+  never the qualifier (above).
 - `<tile>+<primary>` is the bare URL, for people and the tile's own
   credentials. An unknown name answers 404 `<tile> has no deployment
   "<name>"` to those who may open deployment URLs, and 403 to everyone else.
@@ -3549,8 +3584,9 @@ that also names `--isolate`), and it never runs the work tree instead.
 
 | Status | `error` |
 |---|---|
-| 400 | `need ?tile= (a tile ref: apps/crm, or apps/crm+dev)` |
-| 400 | `the tile ref names <a>, deployment names <b>` |
+| 400 | `need ?tile= (a tile's path: apps/crm; name a deployment with deployment=)` |
+| 400 | `a deployment is named with deployment=, not tile+name (a '+' in a query string reads as a space)` |
+| 400 | `the tile ref names deployment "<a>" and the body "<b>": send one` |
 | 400 | `deployment names are lowercase letters, digits and "-", start with a letter, at most 24 characters` |
 | 400 | `<consequence>: send confirm:"<token>" to proceed` |
 | 400 | `the primary of <tile> is protected: name the checkpoint you reviewed (send <checkpoint\|expect> and seq)` |

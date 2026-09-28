@@ -506,8 +506,8 @@ or be shadowed by, deployment `dev` of `apps/crm`.
   early return):
   - creating a tile at `<P>+<N>` while `P` has deployment `N`;
   - adding deployment `N` to `P` while a component exists at `<P>+<N>`.
-- Other new tile names containing `+` get a one-release warning, the D82 way
-  ([/docs/compat.md](/docs/compat.md) rule 11), never a refusal.
+- Every other new tile name containing `+` is refused too, at once, the D82
+  way ([/docs/compat.md](/docs/compat.md) rule 11's naming exception) (P17, decided 2026-09-28).
 
 Whichever of the two paths exists first blocks the other, so neither can
 shadow the other.
@@ -537,8 +537,9 @@ humans and the tile's own principals; other tiles use the bare URL.
 - `TestTerminalTokenCannotMintProtectedPrimaryToken`.
 - `TestDeploymentURLRefusesOtherTiles`.
 - `TestIngressNeverReachesNonPrimary`.
-- `TestPlusReservedInNewTilePaths` (the two refusals for every creator,
-  admins included; a warning, never a refusal, for any other `+`).
+- `TestPlusReservedInNewTilePaths` (`+` refused in every new tile name, for
+  every creator, admins included, on every creation path; existing
+  directories keep resolving) (P17, decided 2026-09-28).
 - `TestOriginLabelPerDeployment` (origins mode).
 
 ### T4 — Data mutation or exfiltration via outbound edges

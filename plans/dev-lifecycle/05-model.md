@@ -361,10 +361,14 @@ a deployment adds no inbound path.
   - A qualified URL resolves only for tiles with a record, and only after
     today's resolution fails. `<tile>+<primary name>` is for humans and the
     tile's own principals; other tiles use the bare URL.
-  - Two narrow refusals, for every creator, keep it unambiguous: no tile at
-    `<P>+<N>` while `P` has deployment `N`, and no deployment `N` on `P` while
-    a component exists at `<P>+<N>`. Other new tile names containing `+` get a
-    one-release warning, never a refusal.
+  - Refusals, for every creator, keep it unambiguous (P17, decided
+    2026-09-28): no new tile name holds `+` in any segment, on any creation
+    path; no deployment `N` on `P` while a component exists at `<P>+<N>`;
+    and a tile whose own name holds `+` (created before the rule) keeps
+    resolving as an exact match but gets no deployments.
+  - The qualifier is a path and JSON-body form only: query strings name the
+    tile and `deployment=` apart, since a `+` there decodes to a space, and a
+    query tile parameter that holds a `+` naming no tile is a 400.
   - In the legacy asset mode, subresources stay authorized by path: they are
     code, which the tile's readers may already read (§3). Documents and
     `/api/` are write-gated in every mode.
@@ -777,7 +781,7 @@ When D113 is built, **tile-managed sandboxes belong to the deployment**:
 | P14 | Non-primary data and vault start empty. Seeding is optional; seeding and vault copy are tile-manager acts. | proposed |
 | P15 | Deployment state is xbind-owned (`data/`), never in the root `xbin.json` or the work tree. | proposed |
 | P16 | Every git or tool run touching tile code happens in confine. The checkpoint store is confine-only. Materialized trees are served with containment and never followed out through symlinks. | proposed |
-| P17 | Deployment URL qualifier `+`, resolved only for tiles with a record and only after today's resolution fails; the bare URL is the primary. Two naming rules. Signals (`X-XBin-Deployment`, backend `XBIN_DEPLOYMENT`, meta, whoami) are absent for the primary, and a reassignment restarts both primaries so they stay true. Credentials and stored state (frame-token claim, origin labels, sandbox IDs, storage keys) are absent for `main`. | proposed |
+| P17 | Deployment URL qualifier `+`, resolved only for tiles with a record and only after today's resolution fails; the bare URL is the primary. Two naming rules. Signals (`X-XBin-Deployment`, backend `XBIN_DEPLOYMENT`, meta, whoami) are absent for the primary, and a reassignment restarts both primaries so they stay true. Credentials and stored state (frame-token claim, origin labels, sandbox IDs, storage keys) are absent for `main`. The qualifier lives in paths and JSON bodies, never in a query string (queries name `deployment=` apart; `tile+name` there is a 400), and no new tile name holds `+`, for any creator on any path (existing ones keep resolving and get no deployments). | decided 2026-09-28 (the `+` hardening; `:` rejected, 16-open-questions) |
 | P18 | Pinned or non-primary backends need isolation: non-isolated mode is unsupported for them. Static tiles pause live reload everywhere. cgi no longer exists. | owner-confirmed 2026-09-27 |
 | P19 | Chrome tiles and xbin-capable tiles may pause live reload, but can't have non-primary deployments. Approving an `xbin`/`xbin:*` grant is refused while non-primary deployments exist, and a non-primary principal never satisfies governance checks. | owner-confirmed 2026-09-27 |
 | P20 | A non-primary deployment is an accident boundary, not a trust boundary. | proposed |

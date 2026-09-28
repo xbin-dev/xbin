@@ -121,9 +121,6 @@ func (b *Broker) apiBuiltinsImport(w http.ResponseWriter, r *http.Request) {
 	}
 	b.assignOwner(installed, owner) // D24: creator-owned (workspace-owned for admins) unless requested
 	out := map[string]any{"path": installed, "files": files, "pendingGrants": pending}
-	if ws := plusNameWarnings(installed); ws != nil { // a '+' in the name, for one release (P17)
-		out["warnings"] = ws
-	}
 	server.WriteJSON(w, http.StatusOK, out)
 }
 

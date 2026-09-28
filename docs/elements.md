@@ -21,6 +21,15 @@ Reserved names you cannot use: component id `xbin`; top-level dirs
 `vendor`, `data`, `home`, `.xbin`. Dirs named `deps`, `node_modules`,
 `.git`, or starting with `.` are never scanned or watched.
 
+A tile's name never holds `+`: `<tile>+<name>` is a tile deployment's URL
+(`/c/apps/crm+dev/`), so creating a tile with `+` in any segment of its path
+is refused, admins included, by `bx new` and every creation route. A
+directory named so before 2026-09-28 keeps working (an exact match wins),
+but it can't get deployments, and `bx doctor` flags it
+([changes/2026-09-28-plus-in-tile-names.md](/docs/changes/2026-09-28-plus-in-tile-names.md)).
+Tile paths don't hold `:` either for non-admins (it separates grant targets
+and identities, [auth.md](/docs/auth.md) §Creating tiles).
+
 ## Manifest — `xbin.json`
 
 JSONC (comments and trailing commas allowed). Everything is optional.

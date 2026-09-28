@@ -104,7 +104,8 @@ func TestBxTodayInvocationsUnchanged(t *testing.T) {
 	defer srv.Close()
 	ws := t.TempDir()
 	for rel, body := range map[string]string{
-		"xbin.json": `{}`,
+		"xbin.json":             `{}`,
+		"notes+ideas/xbin.json": `{}`, // a tile named with '+' before the rule: on disk, an exact match (P17)
 		".xbin/log/" + util.CompKey("notes+ideas") + ".log": "--- gen 1 start ---\nnotes+ideas listening\n",
 		"apps/x/xbin.json":  `{"runtime":"node"}`,
 		"0001-fix.patch":    "From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] fix\n\n---\n",
@@ -1589,7 +1590,7 @@ func TestBxNamesReviewedCode(t *testing.T) {
 		reqs := f.take()
 		want := []string{"GET /api/xbin/deployments?tile=" + url.QueryEscape(r.st["tile"].(string))}
 		if strings.Contains(r.args[len(r.args)-1], "+") {
-			want[0] = "GET /api/xbin/deployments?tile=apps%2Fx%2Bdev"
+			want[0] = "GET /api/xbin/deployments?deployment=dev&tile=apps%2Fx" // never tile+name in a query (P17)
 		}
 		want = append(append(want, r.pre...), "POST /api/xbin/deployments/"+r.route+" "+r.dry, "POST /api/xbin/deployments/"+r.route+" "+r.real)
 		if got.code != 0 || strings.Join(reqs, "\n") != strings.Join(want, "\n") {
@@ -1760,6 +1761,20 @@ func TestBxHonoursXBINDeployment(t *testing.T) {
 		{name: "another tile keeps today's request", env: inDev, args: []string{"status", "apps/other"},
 			fake: func(f *dlFake) { f.on("GET /api/xbin/tile-status", 200, `{"component":"apps/other"}`) },
 			reqs: []string{"GET /api/xbin/tile-status?component=apps%2Fother"}, out: []string{"apps/other\n  backend    not running\n"}},
+		// P17: <tile>+<name> goes out as the tile and deployment=, never as tile+name in a query
+		{name: "status <tile>+<name>", args: []string{"status", "apps/x+dev"},
+			fake: func(f *dlFake) {
+				f.on(dlGet, 200, dlDevState().with("selected", "dev").json()).on("GET /api/xbin/tile-status", 200, ts("dev"))
+			},
+			reqs: []string{"GET /api/xbin/deployments?deployment=dev&tile=apps%2Fx", stateGET, "GET /api/xbin/tile-status?component=apps%2Fx&deployment=dev"},
+			out:  []string{"apps/x+dev\n"}},
+		{name: "logs <tile>+<name>", args: []string{"logs", "apps/x+dev"},
+			fake: func(f *dlFake) {
+				f.on(dlGet, 200, dlDevState().with("selected", "dev").json()).
+					onH("GET /api/xbin/logs", 200, "dev listening\n", map[string]string{"X-XBin-Deployment": "dev"})
+			},
+			reqs: []string{"GET /api/xbin/deployments?deployment=dev&tile=apps%2Fx", stateGET, "GET /api/xbin/logs?component=apps%2Fx&deployment=dev&tail=1048576"},
+			out:  []string{"dev listening\n"}},
 		{name: "logs default", env: inDev, args: []string{"logs", "apps/x"}, fake: logs("dev", "dev listening\n"),
 			reqs: []string{stateGET, "GET /api/xbin/logs?component=apps%2Fx&deployment=dev&tail=1048576"},
 			out:  []string{"dev listening\n"}, err: []string{"apps/x+dev: backend log\n"}},
@@ -1774,8 +1789,12 @@ func TestBxHonoursXBINDeployment(t *testing.T) {
 			fake: func(f *dlFake) { f.on(dlLog, 200, logAns) },
 			reqs: []string{"GET /api/xbin/deployments/log?deployment=main&limit=3&tile=apps%2Fx"}},
 		{name: "deployment log, qualified", env: inDev, args: []string{"deployment", "log", "apps/x+dev"},
-			fake: func(f *dlFake) { f.on(dlLog, 200, logAns) },
-			reqs: []string{"GET /api/xbin/deployments/log?tile=apps%2Fx%2Bdev"}},
+			fake: func(f *dlFake) { f.on(dlGet, 200, dlDevState().with("selected", "dev").json()).on(dlLog, 200, logAns) },
+			reqs: []string{"GET /api/xbin/deployments?deployment=dev&tile=apps%2Fx", "GET /api/xbin/deployments/log?deployment=dev&tile=apps%2Fx"},
+			out:  []string{"apps/x+dev: deploy log\n"}},
+		{name: "deployment log, qualified and named apart", env: inDev, args: []string{"deployment", "log", "apps/x+dev", "main"},
+			fake: func(f *dlFake) { f.on(dlGet, 200, dlDevState().with("selected", "dev").json()) },
+			reqs: []string{"GET /api/xbin/deployments?deployment=dev&tile=apps%2Fx"}, code: exitUsage, err: []string{"apps/x+dev names dev, the argument main: name one"}},
 		{name: "status: no echo", env: inDev, args: []string{"status"},
 			fake: func(f *dlFake) { f.on(dlGet, 200, state).on("GET /api/xbin/tile-status", 200, ts("")) },
 			code: exitNoDeployments, quiet: true, err: []string{"bx: this xbind's /tile-status doesn't know deployments: it answered for the primary of apps/x, not dev; upgrade xbind\n"}},
@@ -1948,7 +1967,7 @@ func TestBxDeploymentRequests(t *testing.T) {
 			reqs: []string{get, post("remove", `{"confirm":"erase","deployment":"dev","dryRun":true,"tile":"apps/x"}`), post("remove", `{"confirm":"erase","deployment":"dev","seq":4,"tile":"apps/x"}`)},
 			out:  []string{"Remove deployment dev\n  Data     dev stops. Its data, secrets, logs, cron jobs and subscriptions are deleted", "Removed dev.\n"}},
 		{name: "rm, a qualified ref", args: []string{"deployment", "rm", "apps/x+dev", "--yes"}, fake: ok("remove", dev.with("selected", "dev"), mainOnly),
-			reqs: []string{"GET /api/xbin/deployments?tile=apps%2Fx%2Bdev", post("remove", `{"confirm":"erase","dryRun":true,"tile":"apps/x+dev"}`), post("remove", `{"confirm":"erase","seq":4,"tile":"apps/x+dev"}`)},
+			reqs: []string{"GET /api/xbin/deployments?deployment=dev&tile=apps%2Fx", post("remove", `{"confirm":"erase","dryRun":true,"tile":"apps/x+dev"}`), post("remove", `{"confirm":"erase","seq":4,"tile":"apps/x+dev"}`)},
 			out:  []string{"Removed dev.\n"}},
 		{name: "rm, no terminal, no --yes", args: []string{"deployment", "rm", "apps/x", "dev"}, fake: ok("remove", dev, mainOnly), code: exitNotConfirmed,
 			err: []string{"bx: not confirmed: this deletes dev's data, secrets and logs — without a terminal, add --yes"}},
@@ -2076,14 +2095,15 @@ func TestBxDeploymentRequests(t *testing.T) {
 				f.on(dlGet, 200, dev.with("selected", "dev").json()).
 					on("POST /api/xbin/term/sessions", 200, `{"id":"s9","provider":"claude","mode":"plan","cwd":"apps/x","deployment":"dev"}`)
 			},
-			reqs: []string{"GET /api/xbin/deployments?tile=apps%2Fx%2Bdev", "POST /api/xbin/term/sessions?deployment=dev " + session,
+			reqs: []string{"GET /api/xbin/deployments?deployment=dev&tile=apps%2Fx", "POST /api/xbin/term/sessions?deployment=dev " + session,
 				`POST /api/xbin/term/sessions/s9/prompt {"text":"fix"}`}},
 		{name: "agent run --tile, a tile whose path holds the +", args: []string{"agent", "run", "--tile", "notes+ideas", "hi"}, code: -1,
 			fake: func(f *dlFake) {
 				f.on(dlGet, 200, dlZero().with("tile", "notes+ideas").json()).
 					on("POST /api/xbin/term/sessions", 200, `{"id":"s9","provider":"claude","mode":"plan","cwd":"notes+ideas"}`)
 			},
-			reqs: []string{"GET /api/xbin/deployments?tile=notes%2Bideas",
+			// the qualified reading first (P17: tile= and deployment=), then, finding no record, the tile's own name
+			reqs: []string{"GET /api/xbin/deployments?deployment=ideas&tile=notes", "GET /api/xbin/deployments?tile=notes%2Bideas",
 				`POST /api/xbin/term/sessions {"cwd":"notes+ideas","kind":"agent","mode":"","name":"","net":"","provider":"claude","vm":false}`,
 				`POST /api/xbin/term/sessions/s9/prompt {"text":"hi"}`}},
 		{name: "agent run --deployment, no echo", args: []string{"agent", "run", "--tile", "apps/x", "--deployment", "dev", "fix"},
