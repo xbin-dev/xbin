@@ -37,9 +37,10 @@ import { apiPath, assetPath, uploadMethod } from '/vendor/xb/tile-resource.js';
 const G = globalThis;
 const on = typeof document === 'object' && document.querySelector('meta[name="xbin-native-preview"]');
 
-// Card sizes of the widget size classes, in points (the app's screen grid:
-// two 170 pt columns with a 16 pt gutter on a 390 pt phone).
-const WIDGET_BOX = { small: [170, 170], wide: [356, 170] };
+// Card sizes of the widget size classes, in points (the app's screen grid,
+// XbinWidgetMetrics: two 177 pt columns, 12 pt margins and gap, 132 pt tall
+// on a 390 pt phone — D128).
+const WIDGET_BOX = { small: [177, 132], wide: [366, 132] };
 
 function start() {
   const q = new URLSearchParams(location.search);
@@ -58,7 +59,7 @@ function start() {
     #xbn-strip { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; max-height: 30%; overflow: auto;
       font: 12px/1.4 ui-monospace, monospace; color: #fff; background: rgba(198, 40, 40, 0.94); padding: 6px 10px; white-space: pre-wrap; }
     #xbn-strip:empty { display: none; }
-    .xbn-widget { position: fixed; left: 16px; top: 24px; border-radius: 20px; overflow: hidden;
+    .xbn-widget { position: fixed; left: 12px; top: 24px; border-radius: 18px; overflow: hidden;
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 6px 20px rgba(0, 0, 0, 0.08); }
     .xbn-widget xb-view { position: absolute; inset: 0; }
     xb-view.xbn-hidden { visibility: hidden; }`;

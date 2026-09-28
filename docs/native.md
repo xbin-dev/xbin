@@ -331,8 +331,9 @@ native.on('widgetsize', paint);   // the user made the card wide or small
 paint();
 ```
 
-- **Sizes.** `small` is one column of the grid (about 170 × 170 pt), `wide`
-  both (about 356 × 170 pt). `xbin.native.widgetSize` is the current one;
+- **Sizes.** `small` is one column of the grid (about 177 × 132 pt, the
+  widget's own box about 157 × 112), `wide` both (about 366 × 132 pt).
+  `xbin.native.widgetSize` is the current one;
   `xbin.native.on('widgetsize', fn)` tells you when it changes. The card is
   drawn at that fixed size, clipped — no scrolling, no screen chrome — so
   keep it to a few lines.

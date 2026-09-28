@@ -106,7 +106,7 @@ const BASE_CSS = css`
   .loose { overflow: auto; padding: 16px var(--xb-margin) 32px; display: flex; flex-direction: column; gap: 12px; }
   .loose > * { flex-shrink: 0; }
   /* compact: a widget's card (tree.md §13) — a fixed size, tight margins, no scrolling */
-  :host([compact]) .loose { overflow: hidden; padding: 12px; gap: 8px; }
+  :host([compact]) .loose { overflow: hidden; padding: 10px; gap: 8px; }
   pre { tab-size: 4; }
   button { font: inherit; color: inherit; letter-spacing: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; }
   button:disabled { cursor: default; }

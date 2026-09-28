@@ -195,13 +195,14 @@ import XbinCore
 
 @Suite struct WidgetMetricsTests {
     @Test func twoColumnsOnAPhone() {
-        // A 390-point iPhone: two 173-point cards, or one 358 across.
-        #expect(XbinWidgetMetrics.cardWidth(.small, screenWidth: 390) == 173)
-        #expect(XbinWidgetMetrics.cardWidth(.wide, screenWidth: 390) == 358)
+        // A 390-point iPhone: two 177-point cards, or one 366 across,
+        // 132 tall (D128's compact grid).
+        #expect(XbinWidgetMetrics.cardWidth(.small, screenWidth: 390) == 177)
+        #expect(XbinWidgetMetrics.cardWidth(.wide, screenWidth: 390) == 366)
         #expect(2 * XbinWidgetMetrics.cardWidth(.small, screenWidth: 390) + XbinWidgetMetrics.spacing
                 == XbinWidgetMetrics.cardWidth(.wide, screenWidth: 390))
         let c = XbinWidgetMetrics.contentSize(.small, screenWidth: 390)
-        #expect(c.width == 145 && c.height == 142)
+        #expect(c.width == 157 && c.height == 112)
         #expect(XbinWidgetMetrics.cardWidth(.small, screenWidth: 10) == 0)
     }
 }

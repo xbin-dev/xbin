@@ -412,7 +412,8 @@ or counter differs. An app without widget support draws a standard card.
   never means the tile's screen falls back — the app shows the standard card.
 
 **Size classes.** `small` — one column of the screen's two-column grid (on a
-390 pt phone: 170 × 170 pt); `wide` — both columns (356 × 170 pt). The app
+390 pt phone: 177 × 132 pt, the widget itself 157 × 112 inside the card's
+10 pt inset); `wide` — both columns (366 × 132 pt). The app
 tells the runtime the first size in `caps.widgetSize` and every change with
 `xbn.widgetSize(size)`; the tile reads `xbin.native.widgetSize` and hears
 changes with `xbin.native.on('widgetsize', fn)`, re-rendering its widget. The

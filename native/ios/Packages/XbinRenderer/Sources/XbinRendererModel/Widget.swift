@@ -6,16 +6,16 @@ import XbinCore
 /// widget is drawn inside the card's inset (``XbinRenderOptions/compact``
 /// in the renderer); the standard card uses the same box. The app's screen
 /// grid (App/Shell/Screens/ScreenView) lays cards out with these numbers —
-/// on a 390-point phone a small card is 173 × 170, a wide one 358 × 170
-/// (native/spec/tree.md §13).
+/// on a 390-point phone a small card is 177 × 132, a wide one 366 × 132
+/// (native/spec/tree.md §13; D128 made the grid compact, from 173 × 170).
 public enum XbinWidgetMetrics {
     /// A card's height (points), whatever its size — rows of cards line up.
-    public static let cardHeight: Double = 170
+    public static let cardHeight: Double = 132
     /// The card's margin around the widget.
-    public static let inset: Double = 14
-    public static let cornerRadius: Double = 22
+    public static let inset: Double = 10
+    public static let cornerRadius: Double = 18
     /// The screen's side margin.
-    public static let margin: Double = 16
+    public static let margin: Double = 12
     /// The gap between cards, across and down.
     public static let spacing: Double = 12
 

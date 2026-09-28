@@ -18,8 +18,10 @@ struct ScreenView: View {
     @State private var editor: ScreenEditor?
     @State private var problem: String?
 
-    /// A card's height; a wide one is as tall, twice as wide.
+    /// A card's height; a wide one is as tall, twice as wide (D128: compact).
     static let cardHeight: CGFloat = XbinWidgetMetrics.cardHeight
+    static let spacing: CGFloat = XbinWidgetMetrics.spacing
+    static let corner: CGFloat = XbinWidgetMetrics.cornerRadius
 
     private var screen: ScreenInfo? { workspace.home.screen(screenID) }
 
@@ -87,16 +89,16 @@ struct ScreenView: View {
                 }
                 .padding(.top, 60)
             }
-            LazyVStack(spacing: 12) {
+            LazyVStack(spacing: Self.spacing) {
                 ForEach(Self.rows(cards)) { row in
-                    HStack(spacing: 12) {
+                    HStack(spacing: Self.spacing) {
                         ForEach(row.cards) { c in card(c) }
                         if row.cards.count == 1, row.cards[0].size == .small { Color.clear.frame(maxWidth: .infinity) }
                     }
                     .frame(height: Self.cardHeight)
                 }
             }
-            .padding(16)
+            .padding(XbinWidgetMetrics.margin)
         }
         .background(Color(uiColor: .systemGroupedBackground))
         .refreshable { await workspace.refresh() }
@@ -106,9 +108,9 @@ struct ScreenView: View {
         let tile = workspace.tile(c.path) ?? TileInfo(path: c.path)
         TileCard(tile: tile, size: c.size, workspace: workspace)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
             .onTapGesture { workspace.open(.tile(c.path), in: nav) }
             .contextMenu { TileMenu(workspace: workspace, tile: tile) { workspace.open($0, in: nav) } }
             .accessibilityElement(children: .contain)
