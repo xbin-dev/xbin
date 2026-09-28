@@ -501,6 +501,7 @@ type dataProbe struct {
 	Resources map[string]string // the scope.json it roots (name → type); nil: no scope.json of its own
 	Uses      []string          // the targets it uses, each at writer ("res:<scope>/<name>" or a tile path)
 	AtStart   bool              // at every start: a cron job and a bus subscription registered, a notification sent
+	Instances bool              // provides inst (http, instances) and registers instance a at /i/<marker> at every start
 }
 
 // writeDataProbe writes (or turns into p) the data probe at ws/tile:
@@ -533,7 +534,7 @@ type dataProbe struct {
 //   - PUT /guarded?res=&k=: a kv write behind xbin.RoleFunc("writer");
 //   - GET /caller, POST <any other path> (a delivery, recorded) and GET
 //     /seen, as the probe does; GET /boot: what the start-time
-//     registrations answered.
+//     registrations answered (cron, sub, notify; iface for Instances).
 //
 // Every relayed call answers xbind's status and body verbatim; a transport
 // failure is 502 with the error.
@@ -561,11 +562,16 @@ func writeDataProbe(t *testing.T, ws, tile string, p dataProbe) {
 		}()})
 		files = append(files, [2]string{"scope.json", string(b) + "\n"})
 	}
+	provides := ""
+	if p.Instances {
+		provides = `,"expose":{"roles":{"reader":"read the probe","writer":"change the probe"}}` +
+			`,"provides":{"inst":{"kind":"http","service":"inst","role":"reader","instances":true}}`
+	}
 	files = append(files,
 		[2]string{"backend/main.go", strings.NewReplacer("__MARKER__", strconv.Quote(p.Marker),
-			"__ATSTART__", strconv.FormatBool(p.AtStart)).Replace(dataProbeSource)},
+			"__ATSTART__", strconv.FormatBool(p.AtStart), "__INSTANCES__", strconv.FormatBool(p.Instances)).Replace(dataProbeSource)},
 		[2]string{probeFile, p.Marker},
-		[2]string{"xbin.json", `{"runtime":"go","uses":[` + strings.Join(uses, ",") + `]}` + "\n"})
+		[2]string{"xbin.json", `{"runtime":"go","uses":[` + strings.Join(uses, ",") + `]` + provides + `}` + "\n"})
 	for _, f := range files {
 		must(t, saveIfChanged(filepath.Join(dir, filepath.FromSlash(f[0])), f[1]))
 	}
@@ -591,7 +597,7 @@ import (
 	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
-const marker, atStart = __MARKER__, __ATSTART__
+const marker, atStart, instances = __MARKER__, __ATSTART__, __INSTANCES__
 
 var (
 	mu   sync.Mutex
@@ -656,6 +662,13 @@ func jsonBody(v any) []byte { b, _ := json.Marshal(v); return b }
 
 func register() map[string]string {
 	out := map[string]string{}
+	if instances {
+		code, b, _ := call("PUT", "/api/xbin/iface-instances", jsonBody(map[string]any{"instances": map[string]string{"a": "/i/" + marker}}))
+		out["iface"] = http.StatusText(code) + " " + string(b)
+	}
+	if !atStart {
+		return out
+	}
 	code, b, _ := call("PUT", "/api/xbin/cron/jobs", jsonBody(map[string]string{"name": "boot-tick",
 		"resource": xbin.Resource("cron"), "schedule": "@every 1s", "path": "/tick", "role": "writer"}))
 	out["cron"] = http.StatusText(code) + " " + string(b)
@@ -668,14 +681,15 @@ func register() map[string]string {
 }
 
 func main() {
-	if atStart { // the SDK's documented pattern: register at every start
+	if atStart || instances { // the SDK's documented pattern: register at every start
 		go func() {
 			for i := 0; i < 50; i++ {
 				got := register()
 				mu.Lock()
 				boot = got
 				mu.Unlock()
-				if strings.HasPrefix(got["cron"], "OK") && strings.HasPrefix(got["sub"], "OK") {
+				ok := func(k string) bool { return strings.HasPrefix(got[k], "OK") }
+				if (!atStart || ok("cron") && ok("sub")) && (!instances || ok("iface")) {
 					return
 				}
 				time.Sleep(200 * time.Millisecond)
@@ -1260,20 +1274,23 @@ func TestPromoteAndRollBack(t *testing.T) {
 // notification, the SDK's documented pattern, runs on main and on dev
 // (added with live reload attached, then saved to m2): main's job ticks
 // main and a publish in main's namespace reaches main's subscription;
-// dev's registrations are accepted (the SDK keeps working) as dormant,
-// listed on dev's state as dormant, and while dev's deliveries are off dev
-// gets no tick and no bus delivery, not even of its own namespace's
-// publish, which main doesn't get either; main's registration stores
+// dev's registrations are accepted active for dev (P13, revised
+// 2026-09-28): answered and listed on dev's state without dormant, dev's
+// deliveries on by default; dev's job ticks dev, and dev's own publish
+// (dev's namespace) reaches dev's subscription, never main's, while
+// main's publish never reaches dev's; main's registration stores
 // (data/cron-jobs.json, data/bus-subscriptions.json) are byte-identical
 // after dev starts; dev's notification is suppressed (never pushed) and
 // listed as would-notify, reaching the event stream only as a deployments
-// op notify. A manager turning dev's deliveries on makes its job tick dev,
-// main's stores still untouched.
-func TestRegistrationsAtStartStayDormant(t *testing.T) {
+// op notify. A manager switching dev's deliveries off silences it: its
+// registrations are listed dormant, no tick and no bus delivery reach dev;
+// switched back on, its job ticks dev again; main's stores stay untouched.
+// Interface instances stay dormant: TestRouteRegistrationsAtStartStayDormant.
+func TestRegistrationsAtStartActiveOnDeployment(t *testing.T) {
 	t.Parallel()
 	d := startIsolatedDaemon(t, isoOpts{})
 	a := d.dl()
-	const tile = "apps/dormant"
+	const tile = "apps/active-regs"
 	probe := dataProbe{Marker: "m1", AtStart: true,
 		Resources: map[string]string{"bus": "bus", "cron": "cron"},
 		Uses:      []string{"res:" + tile + "/bus", "res:" + tile + "/cron"}}
@@ -1286,6 +1303,23 @@ func TestRegistrationsAtStartStayDormant(t *testing.T) {
 		if c, b := a.do("POST", "/api/xbin/bus/publish", `{"resource":"res:`+tile+`/bus","topic":"`+topic+`","data":1}`); c != 200 {
 			t.Fatalf("publishing %s: %d %s", topic, c, b)
 		}
+	}
+	devPublish := func(topic string) {
+		t.Helper()
+		if c, b := a.api("POST", tile+"+dev", "/publish?res=env:bus&topic="+topic, "2"); c != 200 {
+			t.Fatalf("dev's own publish %s: %d %s", topic, c, b)
+		}
+	}
+	devTicks := func() int {
+		return seenWhere(a.probeSeen(t, tile+"+dev"), map[string]string{"path": "/tick", "from": "xbin/cron"})
+	}
+	regsOf := func() (map[string]bool, dlDepM2) {
+		dev := a.depM2(t, tile, "dev")
+		regs := map[string]bool{}
+		for _, r := range dev.Registrations {
+			regs[r.Kind+"/"+r.Name] = r.Dormant
+		}
+		return regs, dev
 	}
 	// main's start-time registrations work: its job ticks, its
 	// subscription delivers.
@@ -1325,26 +1359,21 @@ func TestRegistrationsAtStartStayDormant(t *testing.T) {
 		t.Fatalf("dev's start-time registrations: %+v", boot)
 	}
 	for _, k := range []string{"cron", "sub"} {
-		if !strings.Contains(boot[k], `"dormant":true`) {
-			t.Errorf("dev's %s registration wasn't answered dormant: %s", k, boot[k])
+		if strings.Contains(boot[k], `"dormant"`) {
+			t.Errorf("dev's %s registration was answered dormant: %s", k, boot[k])
 		}
 	}
 	if !strings.Contains(boot["notify"], `"suppressed":true`) {
 		t.Errorf("dev's notification wasn't suppressed: %s", boot["notify"])
 	}
-	dev := a.depM2(t, tile, "dev")
-	regs := map[string]bool{}
-	for _, r := range dev.Registrations {
-		regs[r.Kind+"/"+r.Name] = r.Dormant
+	regs, dev := regsOf()
+	for _, k := range []string{"cron/boot-tick", "bus/boot-sub"} {
+		if dorm, ok := regs[k]; !ok || dorm {
+			t.Errorf("dev's state doesn't list its %s active: %+v", k, dev.Registrations)
+		}
 	}
-	if dorm, ok := regs["cron/boot-tick"]; !ok || !dorm {
-		t.Errorf("dev's state doesn't list its cron job as dormant: %+v", dev.Registrations)
-	}
-	if dorm, ok := regs["bus/boot-sub"]; !ok || !dorm {
-		t.Errorf("dev's state doesn't list its subscription as dormant: %+v", dev.Registrations)
-	}
-	if dev.Deliveries {
-		t.Errorf("dev's deliveries are on by default")
+	if !dev.Deliveries {
+		t.Errorf("dev's deliveries are off by default")
 	}
 	held := false
 	for _, n := range dev.WouldNotify {
@@ -1359,24 +1388,29 @@ func TestRegistrationsAtStartStayDormant(t *testing.T) {
 		t.Errorf("dev's held notification published no deployments op notify: %s", tape.describe(m, tile))
 	}
 
-	// Deliveries off: nothing reaches dev. A publish in main's namespace
-	// reaches main; dev's own publish reaches nobody.
-	devSeen0 := len(a.probeSeen(t, tile+"+dev"))
-	publish("while-dormant")
-	if c, b := a.api("POST", tile+"+dev", "/publish?res=env:bus&topic=from-dev", "2"); c != 200 {
-		t.Fatalf("dev's own publish: %d %s", c, b)
+	// Active for dev: its job ticks dev; its own publish reaches its own
+	// subscription, never main's; main's publish never reaches dev's.
+	if !waitFor(func() bool { return devTicks() > 0 }, time.Minute) {
+		t.Errorf("dev's start-time job never ticked dev: %+v", a.probeSeen(t, tile+"+dev"))
 	}
 	if !waitFor(func() bool {
-		return seenWhere(a.probeSeen(t, tile), map[string]string{"path": "/on", "topic": "while-dormant"}) > 0
+		devPublish("from-dev")
+		return seenWhere(a.probeSeen(t, tile+"+dev"), map[string]string{"path": "/on", "subscription": "boot-sub", "topic": "from-dev"}) > 0
+	}, time.Minute) {
+		t.Errorf("dev's own publish never reached dev's subscription: %+v", a.probeSeen(t, tile+"+dev"))
+	}
+	publish("main-only")
+	if !waitFor(func() bool {
+		return seenWhere(a.probeSeen(t, tile), map[string]string{"path": "/on", "topic": "main-only"}) > 0
 	}, 30*time.Second) {
 		t.Errorf("main's subscription missed a publish in its namespace: %+v", a.probeSeen(t, tile))
 	}
-	time.Sleep(4 * time.Second) // negative: four of dev's every-second ticks would have fired
-	if seen := a.probeSeen(t, tile+"+dev"); len(seen) != devSeen0 || devSeen0 != 0 {
-		t.Errorf("dev got deliveries while its deliveries are off: %+v", seen)
-	}
+	time.Sleep(2 * time.Second) // negative: the namespaces are apart
 	if n := seenWhere(a.probeSeen(t, tile), map[string]string{"topic": "from-dev"}); n != 0 {
-		t.Errorf("dev's publish reached main's subscription")
+		t.Errorf("dev's publish reached main's subscription %d times", n)
+	}
+	if n := seenWhere(a.probeSeen(t, tile+"+dev"), map[string]string{"topic": "main-only"}); n != 0 {
+		t.Errorf("main's publish reached dev's subscription %d times", n)
 	}
 	for _, ev := range tape.since(m) {
 		if ev.Type == "notify" || ev.Component == tile && dlOldTypes[ev.Type] && strings.Contains(ev.raw, "m2") {
@@ -1390,20 +1424,102 @@ func TestRegistrationsAtStartStayDormant(t *testing.T) {
 		t.Errorf("dev's start rewrote main's subscription store:\n%s\nwas\n%s", got, subsBefore)
 	}
 
-	// Deliveries on (a manager's act): dev's own job now ticks dev.
-	if ans := a.mustPost(t, "deliveries", dlBody(tile, "deployment", "dev", "on", true)); ans.State.Tile != tile {
+	// Deliveries off (a manager's act): dev is silenced, its registrations
+	// listed dormant.
+	if ans := a.mustPost(t, "deliveries", dlBody(tile, "deployment", "dev", "on", false)); ans.State.Tile != tile {
 		t.Fatalf("the deliveries switch: %+v", ans)
 	}
-	if !waitFor(func() bool {
-		return seenWhere(a.probeSeen(t, tile+"+dev"), map[string]string{"path": "/tick", "from": "xbin/cron"}) > 0
-	}, 30*time.Second) {
-		t.Errorf("with deliveries on, dev's job never ticked dev: %+v", a.probeSeen(t, tile+"+dev"))
+	regs, dev = regsOf()
+	if dev.Deliveries || !regs["cron/boot-tick"] || !regs["bus/boot-sub"] {
+		t.Errorf("with deliveries off dev's state: deliveries %v, registrations %+v", dev.Deliveries, dev.Registrations)
+	}
+	time.Sleep(1500 * time.Millisecond) // a tick in flight at the switch lands
+	ticks, seen0 := devTicks(), len(a.probeSeen(t, tile+"+dev"))
+	devPublish("while-off")
+	time.Sleep(4 * time.Second) // negative: four of dev's every-second ticks would have fired
+	if n := devTicks(); n != ticks {
+		t.Errorf("with its deliveries off dev's job ticked %d times", n-ticks)
+	}
+	if seen := a.probeSeen(t, tile+"+dev"); len(seen) != seen0 {
+		t.Errorf("dev got deliveries while its deliveries are off: %+v", seen[seen0:])
+	}
+
+	// Back on: dev's own job ticks dev again.
+	a.mustPost(t, "deliveries", dlBody(tile, "deployment", "dev", "on", true))
+	if !waitFor(func() bool { return devTicks() > ticks }, 30*time.Second) {
+		t.Errorf("with deliveries back on, dev's job never ticked dev: %+v", a.probeSeen(t, tile+"+dev"))
 	}
 	if got := fileBytes(t, cronFile); got != cronBefore {
 		t.Errorf("dev's deliveries rewrote main's cron store")
 	}
 	if got := fileBytes(t, subsFile); got != subsBefore {
 		t.Errorf("dev's deliveries rewrote main's subscription store")
+	}
+}
+
+// covers SC-DORMANT P13 P7 — a probe that registers instance a of its
+// instances-capable provide at every start (the SDK's documented pattern)
+// runs on main and on dev (added with live reload attached, then saved to
+// r2): main's registration is answered active and listed active; dev's is
+// accepted (the SDK keeps working), answered dormant and listed dormant on
+// dev's state, because routes reach the primary only (P7); dev's
+// deliveries switch, off or on, never activates it; the root xbin.json
+// keeps main's instance table alone. Ingress hosts follow the same rule
+// (TestDormantRegistrationsRouting); cron jobs and bus subscriptions don't
+// (TestRegistrationsAtStartActiveOnDeployment).
+func TestRouteRegistrationsAtStartStayDormant(t *testing.T) {
+	t.Parallel()
+	d := startIsolatedDaemon(t, isoOpts{})
+	a := d.dl()
+	const tile = "apps/dormant-routes"
+	probe := dataProbe{Marker: "r1", Instances: true}
+	writeDataProbe(t, d.WS, tile, probe)
+	a.waitAPI(t, tile, "/v", "r1", 3*time.Minute)
+	a.waitTile(t, tile)
+	bootOf := func(ref string) string {
+		t.Helper()
+		var got map[string]string
+		if !waitFor(func() bool {
+			got = nil
+			_, b := a.api("GET", ref, "/boot", "")
+			return json.Unmarshal([]byte(b), &got) == nil && strings.HasPrefix(got["iface"], "OK")
+		}, time.Minute) {
+			t.Fatalf("%s's start-time instance registration: %+v", ref, got)
+		}
+		return got["iface"]
+	}
+	ifaceOf := func(dep string) (dormant, listed bool) {
+		for _, r := range a.depM2(t, tile, dep).Registrations {
+			if r.Kind == "iface-instance" && r.Name == "a" {
+				return r.Dormant, true
+			}
+		}
+		return false, false
+	}
+	if b := bootOf(tile); strings.Contains(b, `"dormant"`) {
+		t.Errorf("main's instance was answered dormant: %s", b)
+	}
+
+	if _, e := a.op(t, "add", tile, "deployment", "dev", "attach", true); e.Result != "ok" {
+		t.Fatalf("adding dev: %+v", e)
+	}
+	probe.Marker = "r2"
+	writeDataProbe(t, d.WS, tile, probe)
+	a.waitAPI(t, tile+"+dev", "/v", "r2", 3*time.Minute)
+	if b := bootOf(tile + "+dev"); !strings.Contains(b, `"dormant":true`) {
+		t.Errorf("dev's instance wasn't answered dormant: %s", b)
+	}
+	if dormant, listed := ifaceOf("main"); !listed || dormant {
+		t.Errorf("main's instance: listed %v, dormant %v, want listed active", listed, dormant)
+	}
+	for _, on := range []bool{true, false, true} {
+		a.mustPost(t, "deliveries", dlBody(tile, "deployment", "dev", "on", on))
+		if dormant, listed := ifaceOf("dev"); !listed || !dormant {
+			t.Errorf("with deliveries %v dev's instance: listed %v, dormant %v, want listed dormant", on, listed, dormant)
+		}
+	}
+	if ws := fileBytes(t, filepath.Join(d.WS, "xbin.json")); !strings.Contains(ws, `"/i/r1"`) || strings.Contains(ws, `"/i/r2"`) {
+		t.Errorf("the root xbin.json's instance table isn't main's alone:\n%s", ws)
 	}
 }
 
@@ -1416,10 +1532,11 @@ func TestRegistrationsAtStartStayDormant(t *testing.T) {
 //   - the env: every XBIN_RES_* value both declare is equal in main and
 //     dev; dev alone has XBIN_DEPLOYMENT=dev;
 //   - before a seed dev sees empty namespaces and placeholder vault keys;
-//     its writes land in its own namespace and vault; its cron job and bus
-//     subscription are dormant; its publishes never reach main's
-//     subscription; main still reads its own data, and main's data and
-//     vault are byte-identical;
+//     its writes land in its own namespace and vault; its cron jobs and bus
+//     subscriptions are accepted active for dev (P13, revised): its
+//     publishes reach its own subscriptions, never main's, and main's
+//     never reach dev's; main still reads its own data, and main's data
+//     and vault are byte-identical;
 //   - a resource declared only in dev's checkpoint exists only in dev's
 //     namespace: main can neither write nor read it (P22);
 //   - after a seed (a manager's act) dev sees the copy of main's data, the
@@ -1667,14 +1784,14 @@ func TestDataSeparation(t *testing.T) {
 	}
 	for i, id := range ids("cron") {
 		code, body = a.api("PUT", dev, fmt.Sprintf("/cron?res=%s&name=dev-job-%d&schedule=%s", q(id), i, q("@every 1h")), "")
-		if code != 200 || !strings.Contains(body, `"dormant":true`) {
-			t.Errorf("dev's cron job through %s: %d %s, want accepted dormant", id, code, body)
+		if code != 200 || strings.Contains(body, `"dormant"`) {
+			t.Errorf("dev's cron job through %s: %d %s, want accepted active", id, code, body)
 		}
 	}
 	for i, id := range ids("bus") {
 		code, body = a.api("PUT", dev, fmt.Sprintf("/sub?res=%s&name=dev-sub-%d&prefix=", q(id), i), "")
-		if code != 200 || !strings.Contains(body, `"dormant":true`) {
-			t.Errorf("dev's subscription through %s: %d %s, want accepted dormant", id, code, body)
+		if code != 200 || strings.Contains(body, `"dormant"`) {
+			t.Errorf("dev's subscription through %s: %d %s, want accepted active", id, code, body)
 		}
 		code, body = a.api("POST", dev, fmt.Sprintf("/publish?res=%s&topic=dev-%d", q(id), i), `"x"`)
 		mustOK("dev's publish through "+id, code, body)
@@ -1690,8 +1807,16 @@ func TestDataSeparation(t *testing.T) {
 			t.Errorf("dev's publish reached main's subscription: %+v", s)
 		}
 	}
-	if seen := a.probeSeen(t, dev); len(seen) != 0 {
-		t.Errorf("dev's dormant subscriptions delivered: %+v", seen)
+	for i := range ids("bus") {
+		topic := fmt.Sprintf("dev-%d", i)
+		if !waitFor(func() bool {
+			return seenWhere(a.probeSeen(t, dev), map[string]string{"path": "/on", "topic": topic}) > 0
+		}, 30*time.Second) {
+			t.Errorf("dev's publish %s never reached dev's own subscriptions: %+v", topic, a.probeSeen(t, dev))
+		}
+	}
+	if n := seenWhere(a.probeSeen(t, dev), map[string]string{"topic": "main-control"}); n != 0 {
+		t.Errorf("main's publish reached dev's subscriptions %d times", n)
 	}
 	code, body = a.api("PUT", dev, "/secret?k=API_KEY", "dev-secret")
 	mustOK("dev's vault write", code, body)
@@ -2060,14 +2185,16 @@ func TestMultiTileScope(t *testing.T) {
 // covers P15 T11 PO-7 — TestDeploymentStateBootsTwice's M2 parts (15-test-plan
 // §6), which that test logs as not built: on a fresh workspace, a static
 // tile gets a dev deployment with live reload attached (main pinned), an
-// edge policy (block on its call grant) and a dormant cron job of dev's,
+// edge policy (block on its call grant), dev's deliveries switched off and
+// so a dormant cron job of dev's,
 // and the work tree moves on. Two boots of the real binary then change
 // nothing outside derived trees (.xbin/deploy/): the record, the
 // checkpoint store, the view repository, dev's registration file and every
 // tile work tree stay byte-identical, and so does each tile's repository
 // (refs, HEAD, config). Afterwards the bare URL still serves main's
 // checkpoint and dev's URL the work tree, live reload is still on dev, the
-// edge still blocked, and dev's job still listed, dormant.
+// edge still blocked, dev's deliveries still off and its job still listed,
+// dormant.
 func TestDeploymentStateBootsTwiceWithDeployments(t *testing.T) {
 	ws := filepath.Join(t.TempDir(), "ws")
 	if out, err := exec.Command(xbindBin, "init", ws).CombinedOutput(); err != nil {
@@ -2114,6 +2241,7 @@ func TestDeploymentStateBootsTwiceWithDeployments(t *testing.T) {
 		}
 		edge, _ := edgeOf(a)
 		a.mustPost(t, "edge", dlBody(tile, "edge", edge, "policy", "block"))
+		a.mustPost(t, "deliveries", dlBody(tile, "deployment", "dev", "on", false))
 		c, b := a.do("PUT", "/api/xbin/cron/jobs?deployment=dev", `{"name":"nightly","resource":"res:`+tile+`/cron",`+
 			`"schedule":"@every 1h","path":"/tick","role":"writer","component":"`+tile+`"}`)
 		if c != 200 || !strings.Contains(b, `"dormant":true`) {
@@ -2180,8 +2308,8 @@ func TestDeploymentStateBootsTwiceWithDeployments(t *testing.T) {
 		for _, r := range a.depM2(t, tile, "dev").Registrations {
 			dormant = dormant || r.Kind == "cron" && r.Name == "nightly" && r.Dormant
 		}
-		if !dormant {
-			t.Errorf("after the boots dev's job isn't listed dormant: %+v", a.depM2(t, tile, "dev").Registrations)
+		if !dormant || a.depM2(t, tile, "dev").Deliveries {
+			t.Errorf("after the boots dev's deliveries aren't off, or its job isn't listed dormant: %+v", a.depM2(t, tile, "dev"))
 		}
 	})
 }

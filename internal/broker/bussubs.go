@@ -82,7 +82,8 @@ type busSubStats struct {
 	LastError string `json:"lastError,omitempty"`
 	LastAt    int64  `json:"lastAt,omitempty"` // unix ms of the last attempt
 	// DormantEvents counts events that reached no delivery because the
-	// subscription's deployment isn't in the active set (dormant.go).
+	// subscription's deployment isn't in the active set: its deliveries are
+	// switched off (dormant.go).
 	DormantEvents int64 `json:"dormantEvents,omitempty"`
 }
 

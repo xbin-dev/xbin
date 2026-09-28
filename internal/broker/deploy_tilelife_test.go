@@ -34,10 +34,10 @@ import (
 const lifeTree2 = "9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d"
 
 // emailLifeRecord is apps/email's record, made for owner: main the primary,
-// pinned to lifeTree; live reload on dev, with its deliveries and alwaysOn
-// switches on and a lowered limit; qa pinned to lifeTree2 after a failed
-// move; two edge overrides; and a field and a deployment field only a newer
-// xbind knows.
+// pinned to lifeTree; live reload on dev, with its deliveries (stored on,
+// as an M2 build wrote it) and alwaysOn switches on and a lowered limit; qa
+// pinned to lifeTree2 after a failed move, its deliveries off; two edge
+// overrides; and a field and a deployment field only a newer xbind knows.
 func emailLifeRecord(owner string) map[string]any {
 	return map[string]any{
 		"schema": 1, "tile": "apps/email", "owner": owner, "created": "2026-09-27T10:12:03Z", "seq": 7,
@@ -48,7 +48,7 @@ func emailLifeRecord(owner string) map[string]any {
 			"main": map[string]any{"checkpoint": lifeTree, "created": "2026-09-27T10:12:03Z", "by": "user:carol"},
 			"dev": map[string]any{"checkpoint": nil, "deliveries": true, "alwaysOn": true, "limits": map[string]any{"memMiB": 512},
 				"created": "2026-09-27T10:13:00Z", "by": "user:carol", "futureDeploymentField": "kept"},
-			"qa": map[string]any{"checkpoint": lifeTree2, "state": "failed", "created": "2026-09-27T10:14:00Z", "by": "user:carol"},
+			"qa": map[string]any{"checkpoint": lifeTree2, "state": "failed", "deliveries": false, "created": "2026-09-27T10:14:00Z", "by": "user:carol"},
 		},
 		"futureField": map[string]any{"kept": true},
 	}
@@ -346,7 +346,7 @@ func TestDeploymentsAcrossTileLifeM2(t *testing.T) {
 	rootP := auth.Principal{Owner: true}
 	emailView := "active primary=main reached=main [main=3f2a1c9 fires=true routes=true; dev=worktree fires=true routes=false; " +
 		"qa=9e8d7c6 fires=false routes=false] edges=map[grant:apps/calendar:read slot:llm:block]"
-	notesView := "active primary=dev reached=dev [main=9e8d7c6 fires=false routes=false; dev=3f2a1c9 fires=true routes=true] edges=map[]"
+	notesView := "active primary=dev reached=dev [main=9e8d7c6 fires=true routes=false; dev=3f2a1c9 fires=true routes=true] edges=map[]"
 	if got := f.view("apps/email"); got != emailView {
 		t.Fatalf("fixture: apps/email is\n  %s\nwant\n  %s", got, emailView)
 	}

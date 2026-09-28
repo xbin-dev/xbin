@@ -8,6 +8,7 @@ package broker
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -56,7 +57,9 @@ var (
 )
 
 // dormantRecord writes tile's deployment record: main and dev, primary
-// following the work tree and the other pinned; deliveries sets dev's switch.
+// following the work tree and the other pinned; deliveries is the other's
+// switch: true leaves it at its default, on, and false stores it off, as a
+// tile manager switches it (P13, revised).
 func dormantRecord(t *testing.T, root, tile, primary string, deliveries bool) {
 	t.Helper()
 	other := map[string]string{util.MainDeployment: "dev", "dev": util.MainDeployment}[primary]
@@ -64,8 +67,8 @@ func dormantRecord(t *testing.T, root, tile, primary string, deliveries bool) {
 		primary: map[string]any{"checkpoint": nil, "created": "2026-09-27T10:12:03Z", "by": "user:ana"},
 		other:   map[string]any{"checkpoint": lifeTree, "created": "2026-09-27T10:12:03Z", "by": "user:ana"},
 	}
-	if deliveries {
-		deps["dev"].(map[string]any)["deliveries"] = true
+	if !deliveries {
+		deps[other].(map[string]any)["deliveries"] = false
 	}
 	data, err := json.Marshal(map[string]any{
 		"schema": 1, "tile": tile, "owner": "", "created": "2026-09-27T10:12:03Z", "seq": 2,
@@ -262,7 +265,9 @@ func edgeAs(t *testing.T, v string) {
 
 // covers P13 T6 PO-9 SC-DORMANT — dormant registrations
 // (TestNonPrimaryCronDormant and TestNonPrimaryBusSubDormant are the cron
-// and bus subtests): a non-primary deployment's cron job and bus
+// and bus subtests): a non-primary deployment whose deliveries a tile
+// manager switched off (TestRegistrationsActiveByDefault has the default):
+// its cron job and bus
 // subscription, named like main's, register with 200 and dormant into
 // data/deployments/<TileKey>/dev/ in today's row shapes without component,
 // while data/cron-jobs.json, data/bus-subscriptions.json and the root
@@ -531,13 +536,116 @@ func TestDormantRegistrations(t *testing.T) {
 	})
 }
 
-// covers P13 T6 SC-DORMANT — the deliveries switch
+// covers P13 (revised 2026-09-28) SC-DORMANT — a non-primary deployment's
+// cron jobs and bus push subscriptions are active by default and reach it
+// alone: dev's job and subscription register with 200 and no dormant, list
+// without it (the state's registrations too), a tick reaches dev's handler
+// as dev (Route sends it there) beside main's to main, and a publish in
+// dev's namespace reaches dev's subscription alone, one in main's main's
+// alone. Another scope's bus is read through the edge policy, asked again
+// at every delivery: under read apps/email's dev gets apps/calendar's
+// primary's events; under block the delivery fails and never reaches it.
+// Interface instances and ingress hosts stay dormant
+// (TestDormantRegistrationsRouting).
+func TestRegistrationsActiveByDefault(t *testing.T) {
+	f := newDormantFx(t, true)
+	dormantRecord(t, f.root, fxEmail, util.MainDeployment, true)
+	b := reopenBroker(t, f)
+	f.b = b
+
+	job := map[string]any{"name": "tick", "resource": "res:apps/calendar/ticks", "schedule": "@every 1h", "path": "/tick"}
+	mustCode(t, regCall(t, b.apiCronPut, calMain, "PUT", "/cron/jobs", "", job), 200, "main's job")
+	job["path"] = "/dev-tick"
+	if out := mustCode(t, regCall(t, b.apiCronPut, calDev, "PUT", "/cron/jobs", "", job), 200, "dev's job"); out["dormant"] != nil || out["ok"] != "true" {
+		t.Errorf("dev's job answered %v, want ok and active", out)
+	}
+	if rec := regCall(t, b.apiCronList, calDev, "GET", "/cron/jobs", "", nil); strings.Contains(rec.Body.String(), "dormant") ||
+		!strings.Contains(rec.Body.String(), `"deployment":"dev"`) {
+		t.Errorf("dev's list: %s", rec.Body)
+	}
+	tickAll(b)
+	calls := f.ticked()
+	got := map[string]string{}
+	for _, c := range calls {
+		got[c.path] = c.p.Deployment
+		if d := b.Route(c.p, mustComp(t, b, fxCalendar), ""); d.Deny != nil || d.Deployment != cmp.Or(c.p.Deployment, util.MainDeployment) {
+			t.Errorf("%s's tick routes to %+v", c.path, d)
+		}
+	}
+	if len(calls) != 2 || got["/tick"] != "" || got["/dev-tick"] != "dev" {
+		t.Errorf("ticks dispatched %+v, want main's /tick to main and dev's /dev-tick to dev", calls)
+	}
+
+	sub := map[string]any{"name": "s1", "resource": "res:apps/calendar/bus", "path": "/on"}
+	mustCode(t, busAPI(t, b.apiBusSubsPut, calMain, "PUT", "/bus/subscriptions", sub), 200, "main's subscription")
+	sub["path"] = "/dev-on"
+	if out := mustCode(t, busAPI(t, b.apiBusSubsPut, calDev, "PUT", "/bus/subscriptions", sub), 200, "dev's subscription"); out["dormant"] != nil {
+		t.Errorf("dev's subscription answered %v, want active", out)
+	}
+	b.bus.publishIn("res:apps/calendar/bus", "dev", "x", 1)
+	if c := recv(t, f.bus); c.path != "/dev-on" || c.p != (auth.Principal{Component: BusPrincipal, Via: "bus", Role: "writer", Deployment: "dev"}) {
+		t.Errorf("a publish in dev's namespace delivered %+v, want dev's /dev-on to dev", c)
+	}
+	quiet(t, f.bus)
+	b.bus.publish("res:apps/calendar/bus", "x", 2)
+	if c := recv(t, f.bus); c.path != "/on" || c.p.Deployment != "" {
+		t.Errorf("a publish in main's namespace delivered %+v, want main's /on", c)
+	}
+	quiet(t, f.bus)
+	for _, r := range b.DeploymentRegistrations(fxCalendar, "dev") {
+		if r.Dormant {
+			t.Errorf("dev's state lists %s %s dormant", r.Kind, r.Name)
+		}
+	}
+
+	// another scope's bus, through the edge policy at every delivery
+	edgeAs(t, "read")
+	foreign := map[string]any{"name": "cal", "resource": "res:apps/calendar/bus", "path": "/cal"}
+	if out := mustCode(t, busAPI(t, b.apiBusSubsPut, emailDev, "PUT", "/bus/subscriptions", foreign), 200, "under read"); out["dormant"] != nil {
+		t.Errorf("a foreign subscription under read: %v, want active", out)
+	}
+	b.bus.publish("res:apps/calendar/bus", "x", 3)
+	seen := map[string]string{}
+	for range 2 {
+		c := recv(t, f.bus)
+		seen[c.comp+c.path] = c.p.Deployment
+	}
+	quiet(t, f.bus)
+	if len(seen) != 2 || seen[fxCalendar+"/on"] != "" || seen[fxEmail+"/cal"] != "dev" {
+		t.Errorf("under read the primary's publish delivered %v, want main's /on and email dev's /cal", seen)
+	}
+	b.bus.publishIn("res:apps/calendar/bus", "dev", "x", 4) // calendar dev's namespace: never a foreign reader's
+	if c := recv(t, f.bus); c.comp != fxCalendar || c.path != "/dev-on" {
+		t.Errorf("a publish in calendar dev's namespace delivered %+v", c)
+	}
+	quiet(t, f.bus)
+	edgeAs(t, "block")
+	b.bus.publish("res:apps/calendar/bus", "x", 5)
+	if c := recv(t, f.bus); c.comp != fxCalendar || c.path != "/on" {
+		t.Errorf("under block delivered %+v, want main's /on alone", c)
+	}
+	quiet(t, f.bus)
+	var stats busSubStats
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		b.bus.mu.Lock()
+		stats = b.bus.dep[depKey(fxEmail, "dev", "cal")].stats
+		b.bus.mu.Unlock()
+		if stats.Failed > 0 {
+			break
+		}
+	}
+	if stats.Delivered != 1 || stats.Failed != 1 || !strings.Contains(stats.LastError, "block") {
+		t.Errorf("email dev's counters %+v, want 1 delivered and the block's failure", stats)
+	}
+}
+
+// covers P13 T6 SC-DORMANT — the deliveries switch, an off switch
 // (TestDeliveriesSwitchManagerOnly): with deliveries on, a non-primary
 // deployment's cron ticks and bus deliveries reach it (their principals name
 // it, and Route sends them there), while its interface instances and ingress
 // hosts still don't route; switching applies at once, an event queued
-// before the switch went off counts as dormant, and a record written with
-// the switch on fires after a restart. The switch is a tile manager's act in
+// before the switch went off counts as dormant, and a record without the
+// switch (its default, on) fires after a restart. The switch is a tile manager's act in
 // a person's own session: MayManageDeployments passes an admin and refuses a
 // terminal-level user, the tile's terminal token driven by an admin, its
 // instance, cron and bus principals, and an element granted xbin admin.

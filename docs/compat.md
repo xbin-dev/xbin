@@ -184,8 +184,9 @@ header, env variable, token, backup archive or file differs.
   there some calls behave differently by design: writes to other tiles are
   read-clamped, edges that can't be clamped are blocked, a tile whose net
   shares the host's gives it no egress, notifications are held, and
-  registrations are stored dormant — they still answer success, so start-up
-  code keeps working. `xbin.self`, `Self()` and resource ids stay the tile
+  interface instances and ingress hosts are stored dormant — they still
+  answer success, so start-up code keeps working (its cron jobs and bus
+  subscriptions fire for it). `xbin.self`, `Self()` and resource ids stay the tile
   path in every deployment.
 - **Old clients.** An old shell, admin tile, `bx` or app sees a tile with
   deployments as its primary: one row, one card, one status, and a tile with

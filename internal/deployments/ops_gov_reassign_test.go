@@ -72,7 +72,7 @@ func TestReassignPrimaryAtomic(t *testing.T) {
 	if pc, ok := f.p.PinnedPrimary(opSite); !ok || pc == nil || pc.ManifestErr != "" || f.p.Primary(opSite) != "dev" {
 		t.Errorf("the tile isn't composed from dev's code: %+v %v", pc, ok)
 	}
-	for dep, want := range map[string][2]bool{"dev": {true, true}, "main": {false, false}} {
+	for dep, want := range map[string][2]bool{"dev": {true, true}, "main": {true, false}} { // main's cron and bus keep firing for main (P13)
 		if fires, routes := f.p.RegistrationsActive(opSite, dep); fires != want[0] || routes != want[1] {
 			t.Errorf("%s's registrations: fires %v routes %v, want %v", dep, fires, routes, want)
 		}

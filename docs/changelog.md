@@ -12,6 +12,22 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-28
 
+- **Tile deployments: a non-primary deployment's cron jobs and bus
+  subscriptions fire for it.** They were dormant until a tile manager turned
+  its deliveries on; now they are active from the first registration and
+  deliver to the deployment that registered them — its backend, its data —
+  never to the primary. A subscription on another scope's bus reads that
+  scope's primary's, like a read binding: the edge policy's `read` allows it,
+  `block` refuses it, re-checked at every delivery; publishing is unchanged.
+  Interface instances and ingress hosts of a non-primary deployment stay
+  dormant, and its notifications are still held. `deliveries` becomes a tile
+  manager's off switch, on by default (`bx deployment set dev --deliveries
+  off`, or the panel's switch): off keeps the jobs and subscriptions
+  registered, answered and listed `dormant`. The state and routes keep their
+  shape. In the record, an absent `deliveries` is on and `false` is off; the
+  earlier build never stored `false`, so no record changes. The
+  per-deployment registration files stay separate, so an older xbind still
+  never loads them as `main`'s ([tile-deployments.md](/docs/tile-deployments.md)).
 - **coding-sandbox: the layout's user is a real account.** A sandbox's
   commands ran as uid 1000 with `USER=dev` and `HOME=/home/dev`, but the
   image names uid 1000 `ubuntu` (home `/home/ubuntu`): `id -un`, `whoami`

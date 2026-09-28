@@ -511,6 +511,7 @@ type lsState struct {
 		} `json:"status"`
 		Data          *dataState   `json:"data"`
 		LastDeploy    *deployEntry `json:"lastDeploy"`
+		Deliveries    *bool        `json:"deliveries"`
 		Registrations []struct {
 			Kind, Name, Schedule, Prefix string
 			Dormant                      bool
@@ -664,10 +665,17 @@ func printDeployments(raw []byte) error {
 			if r.Schedule != "" {
 				reg += " (" + r.Schedule + ")"
 			}
-			if r.Dormant {
-				reg += " dormant"
+			switch {
+			case !r.Dormant:
+			case r.Kind == "cron" || r.Kind == "bus":
+				reg += " dormant (deliveries off)"
+			default:
+				reg += " dormant (routes reach the primary only)"
 			}
 			regs = append(regs, reg)
+		}
+		if !d.Primary && d.Deliveries != nil && !*d.Deliveries {
+			notes = append(notes, d.Name+": deliveries off — its cron jobs and bus subscriptions don't fire")
 		}
 		if len(regs) > 0 {
 			notes = append(notes, d.Name+": "+strings.Join(regs, " · "))

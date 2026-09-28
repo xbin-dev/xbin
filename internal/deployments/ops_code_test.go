@@ -471,7 +471,8 @@ func TestPromoteMovesCodeOnly(t *testing.T) {
 		m := r.Deployments["main"]
 		m.Limits = map[string]int64{LimitPids: 64}
 		e := r.Deployments["exp"]
-		e.Deliveries, e.AlwaysOn, e.Limits = true, true, map[string]int64{LimitMemMiB: 256}
+		off := false
+		e.Deliveries, e.AlwaysOn, e.Limits = &off, true, map[string]int64{LimitMemMiB: 256}
 		return nil
 	}); err != nil {
 		t.Fatal(err)

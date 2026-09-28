@@ -190,9 +190,10 @@ An edge that can't be narrowed to `reader` — a custom role whose `implies`
 doesn't reach it, a stream or lan-ingress interface slot, a net bound to a
 provider — takes `block` only. An unknown value reads as `block`, and when
 several edges authorize one call, any `block` refuses it. Inbound, nothing
-changes: other tiles' calls, grants, bindings, cron and bus deliveries reach
-only the primary, and a non-primary deployment is reachable only by people
-with write on the tile and by the tile's own sessions.
+changes: other tiles' calls, grants, bindings and ingress reach only the
+primary (a deployment's own cron jobs and bus subscriptions deliver to it),
+and a non-primary deployment is reachable only by people with write on the
+tile and by the tile's own sessions.
 
 xbind's own API is default-deny for a non-primary deployment's credentials:
 every `/api/xbin/*` route is classified deployment-scoped, primary-only or

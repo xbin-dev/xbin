@@ -1,7 +1,8 @@
 package broker
 
 // dormant.go — the cron jobs and bus push subscriptions of a tile's
-// deployments beyond main (P13) (09-fabric §6, §7; 11-contract §8, §10.2).
+// deployments beyond main (P13, revised 2026-09-28) (09-fabric §6, §7;
+// 11-contract §8, §10.2).
 //
 // Where they live. A non-main deployment's registrations are kept in its own
 // files, data/deployments/<TileKey>/<name>/cron.json and
@@ -14,18 +15,29 @@ package broker
 // them in memory (scheduled jobs, subscription queues), loaded when boot
 // installs the dispatch and set again from the file at every change.
 //
-// The active set. Only the primary's registrations fire, plus those of each
-// non-primary deployment whose deliveries switch a tile manager turned on
-// (registrationsActive). It is asked at every tick, publish and delivery and
-// never cached, so a switch, a reassignment or a removal applies at the next
-// tick or event without the broker being told: a dormant job stays
-// scheduled and its tick returns early; a publish queues nothing for a
-// dormant subscription and counts the event as dormant, not dropped. A
-// delivery reaches the registration's own deployment: its principal names
-// the owner (Route's rule 1).
+// The active set. Every deployment's registrations fire, each for its own
+// deployment, except those of a non-primary deployment whose deliveries a
+// tile manager switched off, which are dormant (registrationsActive; the
+// switch is an off switch, default on, never the primary's). It is asked at
+// every tick, publish and delivery and never cached, so a switch, a
+// reassignment or a removal applies at the next tick or event without the
+// broker being told: a dormant job stays scheduled and its tick returns
+// early; a publish queues nothing for a dormant subscription and counts the
+// event as dormant, not dropped. A delivery reaches the registration's own
+// deployment, never the primary: its principal names the owner (Route's
+// rule 1), which runs it with its own data. A subscription reads its own
+// scope's bus in its own (scope, name) namespace, and another scope's (its
+// primary's namespace) through the edge policy, asked again at every
+// delivery (busOwnerMayRead): read reads, block refuses. Publishing is
+// unchanged: into the publisher's own namespace. Interface instances and
+// ingress hosts stay the primary's alone (dormantroutes.go), and a
+// non-primary's notifications are still held (P13).
 //
 // Run now delivers one job of a non-primary deployment once, whatever its
 // switch says; the plane judges who may ask (terminal level).
+//
+// The files stay separate from main's stores whatever the switch says, so an
+// older binary, which never reads them, still never fires them as main's.
 
 import (
 	"cmp"
@@ -197,7 +209,7 @@ func (b *Broker) listDeployment(r *http.Request, p auth.Principal) (string, int,
 }
 
 // firing reports whether deployment dep ("" is main) of tile's cron jobs and
-// bus subscriptions take effect now: the primary's, or deliveries on.
+// bus subscriptions take effect now: unless its deliveries are switched off.
 func (b *Broker) firing(tile, dep string) bool {
 	fires, _ := b.registrationsActive(tile, cmp.Or(dep, util.MainDeployment))
 	return fires
@@ -207,8 +219,9 @@ func (b *Broker) firing(tile, dep string) bool {
 // deployment dep of tile, at registration and, for a bus subscription, at
 // every delivery (09-fabric §7; NP-09-18). The primary meets none, and
 // neither does an own-scope resource, which is deployment data, not an edge.
-// Otherwise the edge's block refuses it (08-data §7), and its read clamp
-// doesn't apply: a registration only ever reaches dep itself.
+// Otherwise the edge's block refuses it (08-data §7), and read lets it
+// subscribe, like a read bind: a registration only ever reaches dep itself,
+// and a subscription only reads.
 func (b *Broker) depEdge(tile, dep, res string) error {
 	if b.isPrimary(tile, dep) {
 		return nil
@@ -462,7 +475,7 @@ func (b *Broker) cronList(r *http.Request, dep string, jobs []cronJob) map[strin
 }
 
 // putDepCron is PUT /cron/jobs for a deployment beyond main: stored in its
-// cron.json, dormant unless its registrations fire.
+// cron.json, active for it unless its deliveries are off.
 func (b *Broker) putDepCron(w http.ResponseWriter, r *http.Request, dep string, j cronJob, rt resTarget) {
 	tile := j.Component
 	if err := b.depResAllowed(tile, dep, rt, "writer"); err != nil {
@@ -604,7 +617,7 @@ func (b *Broker) busList(r *http.Request, dep string, rows []busSubView) map[str
 
 // putDepSub is PUT /bus/subscriptions for a deployment beyond main: stored
 // in its bus-subscriptions.json, at most busSubsPerComp per (tile,
-// deployment) (NP-09-16), dormant unless its registrations fire.
+// deployment) (NP-09-16), active for it unless its deliveries are off.
 func (b *Broker) putDepSub(w http.ResponseWriter, r *http.Request, dep string, s busSub, rt resTarget) {
 	tile := s.Component
 	if err := b.depResAllowed(tile, dep, rt, "reader"); err != nil {
@@ -659,8 +672,8 @@ func (b *Broker) pruneDepSub(tile, dep, name string) {
 // DeploymentRegistrations lists deployment dep of tile's cron jobs and bus
 // push subscriptions, for the state's Deployment.registrations (11-contract
 // §1.1): main's from today's stores, another's from its files, each dormant
-// unless its registrations fire now. Interface instances and ingress hosts
-// are their own planes'.
+// only while its deployment's deliveries are off. Interface instances and
+// ingress hosts are their own planes', dormant beyond the primary.
 func (b *Broker) DeploymentRegistrations(tile, dep string) []deployments.Registration {
 	dep = cmp.Or(dep, util.MainDeployment)
 	mine := func(t string) bool { return t == tile }

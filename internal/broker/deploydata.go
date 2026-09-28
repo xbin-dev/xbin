@@ -60,8 +60,9 @@ type DeploymentAnswers struct {
 	AddressedDeployment func(p auth.Principal, tile string) (string, error)
 	// RegistrationsActive reports whether deployment dep of tile's
 	// registrations take effect (09-fabric §7) (P13): fires for its cron
-	// jobs and bus subscriptions (the primary, or deliveries on), routes for
-	// its interface instances and ingress hosts (the primary only).
+	// jobs and bus subscriptions (unless its deliveries are switched off,
+	// never the primary's), routes for its interface instances and ingress
+	// hosts (the primary only).
 	RegistrationsActive func(tile, dep string) (fires, routes bool)
 	// DeploymentEdges is tile's stored edge policy for its non-primary
 	// deployments, edge id → value: the overrides only. An absent id takes

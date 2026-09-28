@@ -309,7 +309,7 @@ func (s *termSession) installBx(t *testing.T, bxDir string) string {
 // goes and this session's target; (2) bx status and bx logs show dev's
 // build and log, the log through GET /logs; (3) curl reaches dev's API as
 // $XBIN_URL/api/$XBIN_COMPONENT/, answered by dev; (4) bx deployment run-now
-// delivers dev's dormant cron job once, to dev; (5) bx deployment diff shows
+// delivers dev's cron job (nightly, active for dev) once, to dev; (5) bx deployment diff shows
 // what a promotion would change against main's checkpoint; (6) bx promote
 // dev → main ships dev's code at parity (without --yes and a terminal it
 // exits 4 and changes nothing), and bx rollback puts main's back; (7) with
@@ -331,10 +331,11 @@ func TestAgentFlowCWithBxOnly(t *testing.T) {
 	fabWait(t, a, tile+"+dev", "m2")
 	fabWait(t, a, tile, "m1")
 	mainCP := a.state(t, tile).pinned("main")
-	// dev's own code registers a job: stored dormant (P13).
+	// dev's own code registers a job: active for dev (P13), nightly, so no
+	// tick lands during the test.
 	if r := fabHTTP(t, a, tile+"+dev", "PUT", "/api/xbin/cron/jobs", fabJSON(map[string]string{"name": "nightly",
 		"resource": "res:" + tile + "/cron", "schedule": "0 3 * * *", "path": "/nightly", "role": "writer"})); r.Status != 200 ||
-		!strings.Contains(r.Body, `"dormant":true`) {
+		strings.Contains(r.Body, `"dormant"`) {
 		t.Fatalf("dev registering its job: %+v", r)
 	}
 
@@ -384,7 +385,7 @@ func TestAgentFlowCWithBxOnly(t *testing.T) {
 		!strings.Contains(strings.ToLower(out), "x-xbin-deployment: dev") {
 		t.Errorf("curl of $XBIN_URL/api/$XBIN_COMPONENT/v: exit %d\n%s\nwant dev's m2, answered by dev", rc, out)
 	}
-	// 4. Run now: dev's dormant job, delivered once, to dev.
+	// 4. Run now: dev's job, delivered once, to dev.
 	step("run now", "deployment run-now dev nightly", 0)
 	hits := fabHits(t, a, tile+"+dev")
 	if n := fabCount(hits, func(h fabHit) bool { return h.Path == "/nightly" && h.From == "xbin/cron" }); n != 1 {

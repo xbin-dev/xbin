@@ -211,10 +211,12 @@ primary.
 - **Side effects are held.** `NotifyUser` answers success but nothing is sent
   (the developers see "would notify" in the Deployments panel); `Status` and
   `Notify` show only in that panel.
-- **Registrations are dormant.** `Subscribe` and a cron registration succeed
+- **Registrations are the deployment's own.** `Subscribe` and a cron
+  registration fire for the deployment that made them, never the primary,
+  unless a tile manager switched its deliveries off (the answer then says
+  `dormant`). An interface instance or ingress host registration succeeds
   (the answer says `dormant`), so start-up code doesn't crash, but nothing
-  arrives until a tile manager turns the deployment's deliveries on, or it
-  becomes the primary.
+  routes to it until the deployment becomes the primary.
 - **Callers can tell.** A call from another tile's non-primary deployment
   carries `Caller(r).Deployment`; a provider that must refuse test traffic
   checks it.

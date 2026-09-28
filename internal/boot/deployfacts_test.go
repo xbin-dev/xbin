@@ -75,7 +75,8 @@ func rowOf(s map[string]any, name string) map[string]any {
 // them that names its deployment, and removing the non-primary deployment
 // leaves each reader's answer byte-identical. The write audience gets every
 // fact on every deployment (deliveries always on and alwaysOn the code's
-// for the primary, never its backup schedule or held notifications) and
+// for the primary, deliveries on by default beside it (P13, revised), never
+// the primary's backup schedule or held notifications) and
 // caps and edges; a non-primary deployment's own principals get them on
 // the primary and their own deployment only, without caps or edges; the
 // zero state gets none. The state's status of a deployment beyond the
@@ -104,7 +105,7 @@ func TestReaderSeesPrimaryOnly(t *testing.T) {
 	if main["backup"] != nil || main["wouldNotify"] != nil {
 		t.Errorf("the primary carries a backup schedule or held notifications: %s", dplJSON(main))
 	}
-	if main["deliveries"] != true || dev["deliveries"] != false || main["alwaysOn"] != false || dev["alwaysOnDeclared"] != true {
+	if main["deliveries"] != true || dev["deliveries"] != true || main["alwaysOn"] != false || dev["alwaysOnDeclared"] != true {
 		t.Errorf("switches: main %v/%v, dev %v/%v", main["deliveries"], main["alwaysOn"], dev["deliveries"], dev["alwaysOnDeclared"])
 	}
 	if got := dplJSON(dev["limits"]); got != `{"diskGiB":50,"memMiB":2048,"pids":512}` {

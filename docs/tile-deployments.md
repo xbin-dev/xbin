@@ -27,7 +27,7 @@ exactly what runs with `git fetch xbin-deploy`.
 | **work tree** | the tile's directory as terminals, agents and your editor change it |
 | **tile deployment** (here: **deployment**) | a named runtime of one tile — `main`, `dev`, … — with its own code, data, secrets, backend, logs and URL. It shares the tile's path, grants and bindings; it is not a new tile |
 | **`main`** | every tile's first deployment. It keeps the storage the tile has always used, and can't be removed |
-| **primary** | the deployment that receives everything from outside: the bare URLs `/c/<tile>/` and `/api/<tile>/`, other tiles' calls, grants, bindings, cron, bus deliveries, ingress, notifications. `main`, unless a tile manager reassigns it |
+| **primary** | the deployment that receives everything from outside: the bare URLs `/c/<tile>/` and `/api/<tile>/`, other tiles' calls, grants, bindings, interface instances, ingress, notifications. `main`, unless a tile manager reassigns it. (Cron jobs and bus subscriptions are each deployment's own: they deliver to the deployment that registered them.) |
 | **non-primary deployment** | any other deployment: reachable only at its **deployment URL** `/c/<tile>+<name>/`, by people who write the tile and by the tile's own terminals and agents |
 | **live reload** | a save in the work tree reloads frames and rebuilds the backend — today's behaviour. It follows one deployment, the **live reload target**, or none |
 | **paused** (live reload) | live reload follows no deployment: saves change the files and nothing else |
@@ -41,8 +41,8 @@ exactly what runs with `git fetch xbin-deploy`.
 | **deploy log** | a deployment's history of attempts: who, when, how, which checkpoint, failed ones included |
 | **target** (of a terminal) | the deployment a terminal or agent session's API calls and `bx` reads reach: the primary, unless someone picked another in the terminal's tile API select |
 | **deployment data** | a deployment's own resources (kv, sqlite, blob, filesystem, bus) and vault. `main` has the tile's; every other deployment starts empty |
-| **dormant** | a cron job, bus subscription, interface instance or ingress host that a non-primary deployment registered: stored and answered with success, never fired or routed |
-| **deliveries** | a per-deployment switch: while it is on, a non-primary deployment's cron jobs and bus subscriptions fire for it |
+| **dormant** | an interface instance or ingress host that a non-primary deployment registered (stored and answered with success, never routed), or a cron job or bus subscription of a deployment whose deliveries are off (stored, never fired) |
+| **deliveries** | a per-deployment off switch, on by default: while it is on, a non-primary deployment's cron jobs and bus subscriptions fire for it; a tile manager can turn it off |
 | **edge policy** | per edge of the tile (a call grant, an interface binding, the net, a capability), what its non-primary deployments may use: `read`, `inherit` or `block` |
 | **protected** (primary) | only tile managers change the primary's code, from their own browser session, naming the checkpoint they reviewed |
 | **tile managers** | the tile's owner, its org's admins and workspace admins — as for every other tile setting |
@@ -216,8 +216,8 @@ bx deployment add apps/crm+dev            # the same as the first, naming the ti
 
 - **What a new deployment gets.** Its code (default: a fresh checkpoint of
   the work tree), **empty data**, a vault holding only the primary's secret
-  **names** (placeholders, no values), deliveries and alwaysOn off, and the
-  tile's resource limits. Its backend is built in the background and starts
+  **names** (placeholders, no values), deliveries on (its cron jobs and bus
+  subscriptions fire for it), alwaysOn off, and the tile's resource limits. Its backend is built in the background and starts
   on its first request. With `--attach` live reload follows the new
   deployment, and the deployment it leaves is pinned. `--seed` also copies
   the primary's data into it (a tile manager's act, below).
@@ -302,7 +302,7 @@ today's two entries).
 bx deployment rm dev
 ```
 
-Stops `dev` and deletes its vault, logs, dormant registrations and builds,
+Stops `dev` and deletes its vault, logs, registrations and builds,
 and its data — unless another tile of the same scope still has a `dev`
 (below). `main` and the primary can't be removed. If live reload followed
 `dev`, it is paused and its default target becomes the primary. The
@@ -576,18 +576,27 @@ tile's code. It is not a trust boundary.
 
 ## Registrations, deliveries and background work
 
-- **Registrations are dormant.** A cron job, bus push subscription,
-  interface instance or ingress host that a non-primary deployment registers
-  is stored under that deployment and answered as usual (with `dormant:
-  true`), so start-up code keeps working — but nothing fires or routes.
-  Registrations never collide with `main`'s, which stay where they were.
-- **Deliveries** (a tile manager's switch per deployment: `bx deployment set
-  dev --deliveries on`) make `dev`'s cron jobs and bus subscriptions fire for
-  `dev`. Interface instances and ingress hosts never activate on a
-  non-primary deployment: they belong to the primary. A push subscription on
-  the tile's own bus receives only events published in its deployment's
-  data; one on another scope's bus receives that scope's primary's, under the
-  edge policy.
+- **Cron jobs and bus subscriptions are the deployment's own.** A cron job
+  or bus push subscription that a non-primary deployment registers is stored
+  under that deployment and fires for it — its backend, its data — never for
+  the primary. Registrations never collide with `main`'s, which stay where
+  they were. A push subscription on the tile's own bus receives only events
+  published in its deployment's data; one on another scope's bus receives
+  that scope's primary's, like a read binding: the edge policy's `read`
+  allows it and `block` refuses it, checked at registration and again at
+  every delivery. Publishing is unchanged: a deployment publishes into its
+  own data only. What a job or delivery does is real: it runs with the
+  deployment's data and the tile's network, so anything it sends (email,
+  webhooks) is sent.
+- **Interface instances and ingress hosts are dormant.** A non-primary
+  deployment's are stored under it and answered as usual (with `dormant:
+  true`), so start-up code keeps working — but nothing routes to them: they
+  belong to the primary.
+- **Deliveries** is a tile manager's off switch per deployment, on by
+  default: `bx deployment set dev --deliveries off` silences a noisy `dev`'s
+  cron jobs and bus subscriptions (they stay registered and are listed and
+  answered `dormant: true`); `--deliveries on` restores them. The primary's
+  always deliver.
 - **Run now** (`bx deployment run-now dev nightly`, or the panel's
   registrations tab) delivers one of `dev`'s cron jobs once, as `xbin/cron`
   with the job's role, whatever its deliveries switch says: terminal level,
@@ -610,7 +619,7 @@ tile's code. It is not a trust boundary.
 
 **Reassigning** (`bx deployment primary --to dev`, or Reassign the primary…)
 sends everything from outside to `dev`: the bare URLs, other tiles' calls,
-bindings, cron, bus deliveries, ingress. **Data doesn't move** — `dev`
+bindings, interface instances, ingress. **Data doesn't move** — `dev`
 serves its own data, and `main`'s stays behind; the confirmation says so.
 
 - A tile manager's act, in their own browser session, onto a healthy
@@ -618,9 +627,10 @@ serves its own data, and `main`'s stays behind; the confirmation says so.
   workspace scope, can change its primary (a multi-tile scope's primary data
   would split).
 - `dev` starts as the primary first; then the old primary restarts, its
-  long-lived connections cut. Its registrations go dormant and `dev`'s
-  activate; an ingress host of `dev`'s that conflicts stays inactive and is
-  listed. Sessions targeting either deployment restart.
+  long-lived connections cut. Its interface instances and ingress hosts go
+  dormant and `dev`'s activate; an ingress host of `dev`'s that conflicts
+  stays inactive and is listed. Each deployment's cron jobs and bus
+  subscriptions keep firing for it (unless its deliveries are off). Sessions targeting either deployment restart.
 - `main` remains, pinned, and can become the primary again.
 
 **Protecting** (`bx deployment protect on`, or Protect the primary) makes
@@ -684,7 +694,9 @@ protected), **+ Add deployment…** — and a pane for the selected row:
   deployment, and the actions: Deploy to, Promote, Remove, Seed, Reset, Copy
   vault values, Set limits;
 - **deploy log**, with Roll back on its entries;
-- **logs**; **registrations** (dormant or active, Run now, "would notify");
+- **logs**; **registrations** (cron jobs and bus subscriptions active, or
+  dormant while deliveries are off; interface instances and ingress hosts
+  dormant off the primary; Run now; "would notify");
 - **view**: a non-primary deployment's frontend, embedded.
 
 The tile-wide page holds the primary (Reassign the primary…, Protect) and the
@@ -796,7 +808,7 @@ The rules for an agent working on a tile, beyond the workspace `AGENTS.md`:
 - **Removing and re-creating.** A tile created at a path never inherits a
   removed tile's deployments: creation drops the path's deployment record, so
   the new tile starts in the zero state. The old checkpoint store, and a
-  removed tile's non-`main` vaults, dormant registrations and data, stay as
+  removed tile's non-`main` vaults, registrations and data, stay as
   leftovers like a removed tile's grants: a non-admin can't create over them
   ([auth.md](/docs/auth.md), *Creating tiles*).
 - **`+` in tile names.** Nobody, admins included, can create a tile at

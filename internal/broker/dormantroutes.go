@@ -16,8 +16,9 @@ package broker
 // read each tile's primary's hosts, and a conflict check meets only other
 // tiles' active hosts. A registration by any other deployment is stored and
 // dormant: it sends no grants event, restarts no consumer, triggers no
-// ingress reconcile and takes no part in conflict checks; deliveries never
-// activate it. Nothing is cached: a reassignment of the primary applies at
+// ingress reconcile and takes no part in conflict checks; the deliveries
+// switch never touches it (unlike cron jobs and bus subscriptions, active
+// for their own deployment, dormant.go). Nothing is cached: a reassignment of the primary applies at
 // the next lookup, and a removed deployment's files are gone with it.
 //
 // Zero state: every tile's primary is main, so each answer below is the root
