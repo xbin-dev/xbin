@@ -135,7 +135,104 @@ final class XbinSessionsTests: XCTestCase {
     }
 }
 
+extension XbinSessionsTests {
+    /// Tools → Code on apps/counter opens a file (xbin.json, monospaced);
+    /// Tools → Logs shows its backend's log (the generation's start line);
+    /// Tools → PRs lists a proposal the test files through the API, opens
+    /// it, and rejects it with a note through the confirmation.
+    @MainActor
+    func test03CodeLogsAndPRs() async throws {
+        let e = try E2E(self)
+        let tile = "apps/counter"
+        let n = try await e.server.openProposal(target: tile, title: "e2e: a comment in xbin.json")
+        e.launch()
+        e.ensureWorkspace()
+        e.openLauncher(tile)
+        XCTAssertTrue(e.launcherBox("Terminal").waitForExistence(timeout: 30), "the launcher")
+
+        e.openTool("Code")
+        let file = e.app.buttons.matching(identifier: "code-file:xbin.json").firstMatch
+        XCTAssertTrue(file.waitForExistence(timeout: 30), "xbin.json in the tree")
+        e.shot("sessions-09-code")
+        file.tap()
+        XCTAssertTrue(e.containing("\"runtime\": \"go\"").waitForExistence(timeout: 20), "the file's text")
+        e.shot("sessions-10-code-file")
+        e.app.buttons["Done"].tap()
+
+        e.openTool("Logs")
+        XCTAssertTrue(e.containing("--- gen ").waitForExistence(timeout: 30), "a line of the backend's log")
+        e.shot("sessions-11-logs")
+
+        e.openTool("PRs")
+        let row = e.app.buttons.matching(identifier: "pr:\(n)").firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 30), "proposal #\(n) listed")
+        e.shot("sessions-12-prs")
+        row.tap()
+        XCTAssertTrue(e.containing("bx code pr fetch \(n)").waitForExistence(timeout: 20), "the command that applies it")
+        XCTAssertTrue(e.containing("+// e2e").waitForExistence(timeout: 20), "the series")
+        e.shot("sessions-13-pr")
+        let reject = e.app.buttons["Reject"]
+        XCTAssertTrue(reject.waitForExistence(timeout: 10), "Reject")
+        reject.tap()
+        let confirm = e.app.alerts.buttons["Reject"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10), "the confirmation with its note")
+        e.shot("sessions-14-pr-reject")
+        confirm.tap()
+        await e.eventually("proposal #\(n) rejected", timeout: 30) {
+            try await e.server.proposalState(target: tile, n: n) == "rejected"
+        }
+    }
+}
+
+extension E2E {
+    /// The sessions screen's tools menu → `title` (Code, Logs, PRs, …).
+    func openTool(_ title: String, file: StaticString = #filePath, line: UInt = #line) {
+        let tools = app.buttons.matching(identifier: "sessions-tools").firstMatch
+        XCTAssertTrue(tools.waitForExistence(timeout: 10), "the tools menu", file: file, line: line)
+        tools.tap()
+        let item = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 10), "\(title) in the tools menu", file: file, line: line)
+        item.tap()
+    }
+}
+
 extension E2EServer {
+    /// Files a change proposal (POST /api/xbin/code/prs): a one-line
+    /// comment added to xbin.json, as `git format-patch` writes it. Its number.
+    func openProposal(target: String, title: String) async throws -> Int {
+        let series = """
+        From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+        From: E2E <e2e@example.com>
+        Date: Mon, 28 Sep 2026 12:00:00 +0000
+        Subject: [PATCH] \(title)
+
+        ---
+         xbin.json | 1 +
+         1 file changed, 1 insertion(+)
+
+        diff --git a/xbin.json b/xbin.json
+        --- a/xbin.json
+        +++ b/xbin.json
+        @@ -1,2 +1,3 @@
+         {
+        +// e2e
+           // A minimal Go-backend component: one counter, reader/writer roles.
+        --\u{20}
+        2.40.0
+
+        """
+        let d = try await send("POST", "/api/xbin/code/prs", json: ["target": target, "title": title, "series": series])
+        let j = try JSONSerialization.jsonObject(with: d) as? [String: Any]
+        return j?["number"] as? Int ?? 0
+    }
+
+    /// A proposal's state (GET /api/xbin/code/pr).
+    func proposalState(target: String, n: Int) async throws -> String {
+        let q = target.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? target
+        let j = try JSONSerialization.jsonObject(with: await send("GET", "/api/xbin/code/pr?target=\(q)&n=\(n)")) as? [String: Any]
+        return j?["state"] as? String ?? ""
+    }
+
     /// `GET /api/xbin/deployments?tile=` (docs/protocol.md §Tile deployments).
     func deployments(_ tile: String) async throws -> [String: Any] {
         let q = tile.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? tile

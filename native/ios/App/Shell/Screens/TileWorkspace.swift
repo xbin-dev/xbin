@@ -38,8 +38,8 @@ enum SessionsTool: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Built in this version of the app (code and logs, PRs come later).
-    var available: Bool { self == .deployments }
+    /// Built in this version of the app.
+    var available: Bool { true }
 }
 
 /// What the sessions screen shows under its tab strip.
@@ -73,6 +73,10 @@ final class TileWorkspaceModel: SessionTabHost {
     /// The deployments state and its live updates (the Deployments tool,
     /// the launcher's banner); nil state on an xbind without them.
     let deploy: DeploymentsModel
+    /// The Code, Logs and PRs tools (their state lives as long as the screen).
+    let code: CodeToolModel
+    let logs: LogsToolModel
+    let prs: ProposalsModel
     /// The tab last in front: its session's target is the Dev API tag.
     private(set) var lastTab: String?
 
@@ -88,6 +92,9 @@ final class TileWorkspaceModel: SessionTabHost {
         self.tile = tile
         self.focus = focus
         deploy = DeploymentsModel(workspace: workspace, tile: tile)
+        code = CodeToolModel(workspace: workspace, tile: tile)
+        logs = LogsToolModel(workspace: workspace, tile: tile)
+        prs = ProposalsModel(workspace: workspace, tile: tile)
         tabs.sync(workspace.sessions, cwd: tile)
         apply(focus)
     }
@@ -102,14 +109,15 @@ final class TileWorkspaceModel: SessionTabHost {
         switch focus {
         case .session: apply(focus)
         case .first: if pane == .launcher { apply(focus) }
-        case .launcher, .deployments: break
+        case .launcher, .deployments, .prs: break
         }
         async let p: [AgentProvider] = (try? await workspace.agents.providers()) ?? []
         async let h: [HistoryEntry] = (try? await workspace.agents.history(cwd: tile)) ?? []
         async let e: TermEnvState? = loadEnv()
         async let v: Bool = loadVMPref()
         async let d: Void = deploy.load()
-        (providers, history, env, vmPref, _) = await (p, h, e, v, d)
+        async let r: Void = prs.load()
+        (providers, history, env, vmPref, _, _) = await (p, h, e, v, d, r)
     }
 
     private func loadEnv() async -> TermEnvState? {
@@ -156,12 +164,26 @@ final class TileWorkspaceModel: SessionTabHost {
             pane = .launcher
         case .deployments:
             pane = .tool(.deployments)
+        case .prs:
+            pane = .tool(.prs)
         case .session(let id):
             let row = workspace.sessions.first { $0.id == id }
             guard row == nil || row?.cwd == tile else { return }
             select(tabs.open(session: id, kind: row?.kind == .agent ? .agent : .shell, provider: row?.provider ?? "",
                              name: row?.name ?? ""))
         }
+    }
+
+    /// A deployment's log (the Deployments tool's Logs link).
+    func showLogs(deployment: String) {
+        logs.deployment = deployment == deploy.state?.primary ? "" : deployment
+        pane = .tool(.logs)
+    }
+
+    /// The tile's deployments, primary first ([] without any).
+    var deploymentNames: [String] {
+        guard let s = deploy.state, s.record else { return [] }
+        return DeployView.rows(s).map(\.name)
     }
 
     /// Another way in to the same screen (the long press, New session…).
@@ -339,10 +361,13 @@ struct TileWorkspaceScreen: View {
         }
         .onChange(of: focus) { _, f in model?.show(f) }
         .onChange(of: workspace.sessions) { _, _ in model?.sync() }
-        // The tile's `deployments` events keep its state live.
+        // The tile's `deployments` and `pr` events keep its tools live.
         .task(id: model == nil) {
             guard let m = model else { return }
-            await m.deploy.follow()
+            await withTaskGroup(of: Void.self) { g in
+                g.addTask { await m.deploy.follow() }
+                g.addTask { await m.prs.follow() }
+            }
         }
     }
 }
@@ -410,8 +435,12 @@ private struct TileWorkspaceBody: View {
         switch t {
         case .deployments:
             DeploymentsToolView(model: model.deploy, sessions: model)
-        case .code, .logs, .prs:
-            ContentUnavailableView(t.title, systemImage: t.symbol, description: Text("Coming to the app — open the tile's terminal window on the web meanwhile."))
+        case .code:
+            CodeToolView(model: model.code)
+        case .logs:
+            LogsToolView(model: model.logs, deployments: model.deploymentNames)
+        case .prs:
+            ProposalsToolView(model: model.prs)
         }
     }
 }
@@ -449,13 +478,21 @@ private struct SessionStrip: View {
                             model.pane = .tool(t)
                         } label: {
                             Label(t.title, systemImage: t.symbol)
-                            if !t.available { Text("Coming") }
+                            if t == .prs, model.prs.openCount > 0 { Text(verbatim: "\(model.prs.openCount) open") }
                         }
-                        .disabled(!t.available)
                     }
                 }
             } label: {
                 stripButton("wrench.and.screwdriver", on: { if case .tool = model.pane { return true } else { return false } }())
+                    .overlay(alignment: .topTrailing) {
+                        // Open proposals, as the web window's ⇄ counts them.
+                        if model.prs.openCount > 0 {
+                            Text(verbatim: "\(model.prs.openCount)").font(.caption2.bold().monospacedDigit())
+                                .padding(.horizontal, 4).padding(.vertical, 1)
+                                .background(Color.xbinAmber, in: Capsule()).foregroundStyle(.black)
+                                .offset(x: 4, y: -4)
+                        }
+                    }
             }
             .accessibilityLabel("Tools")
             .accessibilityIdentifier("sessions-tools")
@@ -518,6 +555,12 @@ private struct SessionStrip: View {
         HStack(spacing: 5) {
             Image(systemName: tool.symbol).font(.caption.weight(.semibold))
             Text(verbatim: tool.chip).font(.subheadline.weight(.semibold))
+            if tool == .prs, model.prs.openCount > 0 {
+                Text(verbatim: "\(model.prs.openCount)").font(.caption.bold().monospacedDigit())
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Color.xbinAmber, in: Capsule()).foregroundStyle(.black)
+                    .accessibilityLabel(Text("\(model.prs.openCount) open"))
+            }
             Button {
                 model.pane = model.tabs.tabs.first.map { .tab($0.key) } ?? .launcher
             } label: {

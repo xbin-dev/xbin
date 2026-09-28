@@ -22,7 +22,8 @@ import Testing
         #expect(AppEvent.parse(#"{"type":"bus","topic":"res:a/b/c","data":1}"#) == .other(type: "bus"))
         #expect(AppEvent.parse(#"{"type":"status","component":"apps/x","data":{"level":"error","message":"down","ts":1}}"#)
             == .tileStatus(component: "apps/x", level: "error", message: "down"))
-        #expect(AppEvent.parse(#"{"type":"pr","component":"apps/x"}"#) == .other(type: "pr"))
+        #expect(AppEvent.parse(#"{"type":"pr","component":"apps/x","data":{"n":3,"action":"comment"}}"#) == .pr(component: "apps/x", n: 3))
+        #expect(AppEvent.parse(#"{"type":"pr","data":{"n":3}}"#) == .other(type: "pr"))
         #expect(AppEvent.parse(#"{"type":"something-new","x":[1,2]}"#) == .other(type: "something-new"))
         // As xbind writes them (encoding/json: a newline after each frame).
         #expect(AppEvent.parse("{\"type\":\"reload\",\"component\":\"apps/welcome\"}\n") == .reload(component: "apps/welcome"))

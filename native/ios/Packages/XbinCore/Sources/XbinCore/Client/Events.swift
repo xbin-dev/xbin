@@ -16,7 +16,7 @@ import Foundation
 //   (`native.runtime`), so an admin turning native views off reaches every
 //   open app at once (plans/native.md §23);
 // - `deployments` (D127, D131) → a tile's sessions screen keeps its live
-//   reload and deployments state current (D132).
+//   reload and deployments state current (D132), and `pr` its PRs tool.
 //
 // This file is the pure half: parsing frames, picking the reload target and
 // the reconnect policy. The socket (URLSessionWebSocketTask) is app code.
@@ -49,6 +49,9 @@ public enum AppEvent: Sendable, Equatable {
     /// A tile's live reload or deployments changed (`deployments`, D127):
     /// the tile's path and the event's op and facts.
     case deployments(DeploymentsEvent)
+    /// A change proposal to a tile opened, got a comment or was decided
+    /// (`pr`, D48): the target tile's path, the proposal's number.
+    case pr(component: String, n: Int)
     /// Anything else (`bus`, `pr`, future types): ignored by the app.
     case other(type: String)
 
@@ -87,6 +90,9 @@ public enum AppEvent: Sendable, Equatable {
         case "deployments":
             guard !component.isEmpty, let d = j["data"], let op = d["op"]?.stringValue else { return .other(type: type) }
             return .deployments(DeploymentsEvent(component: component, op: op, data: d))
+        case "pr":
+            guard !component.isEmpty else { return .other(type: type) }
+            return .pr(component: component, n: Int(j["data"]?["n"]?.intValue ?? 0))
         case "status":
             let d = j["data"]
             return .tileStatus(component: component, level: d?["level"]?.stringValue ?? "",

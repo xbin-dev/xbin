@@ -62,6 +62,8 @@ enum SessionsFocus: Hashable, Codable {
     case session(String)
     /// A tool: live reload and deployments.
     case deployments
+    /// A tool: the change proposals to the tile.
+    case prs
 }
 
 /// One panel of a window's stack.

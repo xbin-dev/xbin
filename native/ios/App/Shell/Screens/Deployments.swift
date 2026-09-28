@@ -463,6 +463,12 @@ struct DeploymentsToolView: View {
                 }
                 .disabled(!a.enabled || model.busy)
             }
+            Button {
+                sessions.showLogs(deployment: name)
+            } label: {
+                Label("Logs", systemImage: "list.bullet.rectangle")
+            }
+            .accessibilityIdentifier("deployment-logs")
             if let row {
                 Button {
                     // The deployment's own URL, signed in, in the app's web view (D125).

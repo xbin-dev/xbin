@@ -88,6 +88,8 @@ final class WorkspaceEvents {
     private var termSubs: [UUID: AsyncStream<TermEvent>.Continuation] = [:]
     private struct DeploySub { let tile: String; let cont: AsyncStream<DeploymentsEvent?>.Continuation }
     private var deploySubs: [UUID: DeploySub] = [:]
+    private struct TileSub { let tile: String; let cont: AsyncStream<Void>.Continuation }
+    private var prSubs: [UUID: TileSub] = [:]
 
     init(auth: WorkspaceAuth, makeSocket: @escaping EventSocketFactory,
          sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) },
@@ -181,6 +183,20 @@ final class WorkspaceEvents {
         return stream
     }
 
+    /// One element per `pr` event about `tile` (a proposal to it opened,
+    /// got a comment or was decided), and one after a reconnect (re-read):
+    /// for the sessions screen's PRs tool (D132). Ends when the iterating
+    /// task is cancelled.
+    func proposals(of tile: String) -> AsyncStream<Void> {
+        let (stream, cont) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let key = UUID()
+        prSubs[key] = TileSub(tile: ReloadTargets.trimmed(tile), cont: cont)
+        cont.onTermination = { [weak self] _ in
+            Task { @MainActor in self?.prSubs[key] = nil }
+        }
+        return stream
+    }
+
     /// Open tiles that follow reloads (tests, diagnostics).
     var followedTiles: [String] { reloadSubs.values.map(\.tile) }
 
@@ -247,6 +263,7 @@ final class WorkspaceEvents {
                 onResync?()
                 for sub in sessionSubs.values { sub.cont.yield(.resync) }
                 for sub in deploySubs.values { sub.cont.yield(nil) }
+                for sub in prSubs.values { sub.cont.yield(()) }
             }
         case .text(let text):
             receive(text)
@@ -297,6 +314,9 @@ final class WorkspaceEvents {
         case .deployments(let d):
             let tile = ReloadTargets.trimmed(d.component)
             for sub in deploySubs.values where sub.tile == tile { sub.cont.yield(d) }
+        case .pr(let component, _):
+            let tile = ReloadTargets.trimmed(component)
+            for sub in prSubs.values where sub.tile == tile { sub.cont.yield(()) }
         default:
             break
         }
