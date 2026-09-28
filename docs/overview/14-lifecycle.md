@@ -65,8 +65,16 @@ so a failure leaves the component untouched.
 
 Pausing a tile's **live reload** is not a lifecycle state: such a tile stays
 `enabled` and keeps serving, from a checkpoint
-([/docs/tile-deployments.md](/docs/tile-deployments.md)). Disabling it stops
-its backend as for any tile.
+([/docs/tile-deployments.md](/docs/tile-deployments.md)). Lifecycle is the
+tile's, whatever **tile deployments** it has: disabling, hiding or
+offloading it stops every deployment; enabling starts the primary (an
+`alwaysOn` primary at once), and a deployment beyond it by its own alwaysOn
+switch or on its next request to its deployment URL. A change emits the bare
+`reload` as today and, for each deployment that isn't the primary, a
+`deployments` event `{"op": "reload", "deployment": "<name>"}`; a qualified
+name has no lifecycle of its own (404). A transfer (`bx owner --transfer`)
+keeps every deployment, its settings and edge policies, and restarts each
+running one under the new owner's ceilings.
 
 ### The offload safety gate — `lifecycleAt`
 
@@ -107,13 +115,26 @@ A component that *doesn't* root a scope backs up source + terminal layer
 only; its data belongs to the scope root's backup (the manifest records
 which ancestor scope that is).
 
-A tile with **tile deployments** — its live reload paused — adds its
-deployment state to every backup: its deployment record and its checkpoint
-store, under `deployments/` in the archive right after `backup.json`, and a
-`deployments` section in the manifest (`{record, checkpoints}`; the schema
-stays 1). A tile without one gets exactly today's archive — one that opted
-out and kept its old store included — and an older xbind restores such an
-archive as a tile without deployments, skipping the prefix.
+A tile with **tile deployments** — its live reload paused, or named
+deployments — adds its deployment state to every backup: its deployment
+record and its checkpoint store, under `deployments/` in the archive right
+after `backup.json`, and a `deployments` section in the manifest (`{record,
+checkpoints}`; the schema stays 1). A tile without one gets exactly today's
+archive — one that opted out and kept its old store included — and an older
+xbind restores such an archive as a tile without deployments, skipping the
+prefix.
+
+The archive's `data/…` is always `main`'s. When a tile's primary isn't
+`main`, every backup also archives the primary's data, first, in a
+**deployment archive** of its own (`.deployments.<tile-key>.<name>`), which
+the tile's archive lists; restoring the tile's archive restores both. Other
+deployments' data is archived only when an admin asks
+(`POST /api/xbin/deployments/backup`, or a deployment's own schedule), under
+its own key, so it never uses the tile's retention. A deployment archive has
+schema 2, which older xbinds refuse. Restoring into a deployment beyond
+`main` (`POST /api/xbin/deployments/restore`) replaces its data: each
+archived resource is emptied first, and resources the target doesn't
+declare are skipped and listed.
 
 Two honesty notes. **Backups are plaintext tars**: xbind reads resources
 through the decrypted view and re-encrypts on restore, so backing up (and
@@ -199,7 +220,9 @@ alternates are never restored. This release doesn't put deployment state
 back yet: the record and the store are left out, which the daemon logs
 (archived objects pass through `.xbin/restore/`, a restore's transient
 staging area), so a tile restored where none stood comes back with plain
-live reload.
+live reload. When the archive lists deployment archives, the restore puts
+their data back too, and its answer names them (`"deployments":
+{"restored": [...], "skipped": ["<name>: <why>"]}`).
 
 ## Offload — the same path, plus deletion
 
@@ -213,6 +236,9 @@ source subtree — keeping just `xbin.json`/`scope.json` so the tile stays
 listed, renders its "offloaded — restore to use" placeholder, and remains
 restorable from the admin tile. Re-enabling an offloaded component *is* a
 restore of the latest version (LC-4: one archive path for everything).
+Offloading a tile with tile deployments archives every deployment's data
+before removing anything; beyond `main` it frees the kv data, and file
+resources stay on disk.
 
 ## Scheduled backups (LC-5)
 
@@ -222,7 +248,10 @@ five-field cron or `@every 24h` syntax (`bx backup-schedule apps/crm --every
 24h --keep 7`). Each tick runs the standard backup, then prunes the
 archiver's version list down to the retention count (the list is
 newest-first; everything past `keep` is deleted through the same contract).
-Retention `0` keeps everything.
+Retention `0` keeps everything. A tile deployment beyond the primary has
+schedules of its own (`POST /api/xbin/deployments/backup-schedule`, admin,
+stored with the deployment's files under `data/deployments/`), keeping the
+last 3 archives unless told.
 
 ## Encryption interplay
 

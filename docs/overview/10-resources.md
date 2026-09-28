@@ -100,9 +100,15 @@ Where the bytes actually live (`<scope-key>` is the scope path with `/`→`~`,
 | per-element vaults | `data/vault/<comp-key>.json` |
 | barrier keyfile (wrapped key only) | `data/vault/.barrier.json` |
 | per-user UI prefs | `data/prefs/<user-key>/<comp-key>.json` |
+| a tile deployment beyond `main`: its kv and file-backed data | `data/resources-enc/.deployments/<scope-key>/<name>/` (`kv.db`, `fs/<res>/`) |
+| its decrypted views | `.xbin/resenc/.deployments/<scope-key>/<name>/fs/<res>/` |
+| its cron jobs, bus subscriptions and other registrations | `data/deployments/<tile-key>/<name>/` |
+| its vault | `data/vault/.deployments/<tile-key>/<name>.json` |
+| its per-user prefs | `data/prefs/<user-key>/.deployments/<tile-key>/<name>.json` |
 
 Everything under `data/` is xbind-owned, gitignored, and masked out of
-terminals ([09-terminals.md](09-terminals.md)).
+terminals ([09-terminals.md](09-terminals.md)). `main`'s rows are the ones
+above them, forever: giving a tile deployments migrates nothing (below).
 
 ## Delivery: env paths vs the API
 
@@ -279,12 +285,60 @@ rescans each scope's resource footprint and the partition every ~45s:
   `bx status`) reports one tile's usage/quota/blocked state; the admin
   runtime view lists every resource with its footprint.
 
+## Tile deployments: data per deployment
+
+A tile deployment ([/docs/tile-deployments.md](/docs/tile-deployments.md))
+has its own data, keyed by **(scope, deployment name)**:
+
+- **`main` keeps today's keys and paths**, whichever deployment is the
+  primary. Every other deployment gets a namespace no existing key can
+  produce (the `.deployments` rows above), which starts **empty**. Resource
+  ids and `XBIN_RES_*` values are the same in every deployment: the broker
+  picks the namespace from the caller's credential, and the runner binds the
+  deployment's own volumes at the paths `main`'s use.
+- **Each deployment provisions what its own code declares** — its
+  checkpoint's `scope.json`, or the work tree's for the live reload target —
+  at most 64 resources beyond `main`; volumes beyond `main` mount on first
+  use. A resource the primary's code doesn't declare exists only in the
+  deployments that do.
+- **Scopes share namespaces.** Same-named deployments of a scope's tiles
+  share its namespace for that name, as `main`s share today's; a tile
+  without that deployment uses the primary's. Other scopes' data and
+  `res:workspace/*` are read-only to non-primary deployments (`<tile>+<name>
+  may not write <res>: non-primary deployments reach other scopes read-only
+  (edge policy "read")`).
+- **Seed, reset, restore** replace or empty a non-primary namespace: seeding
+  from the primary is a tile manager's act, resetting is terminal level
+  (`main`'s, while it isn't the primary, a tile manager's), and each needs
+  its level on every tile of the scope that has the deployment. While one
+  runs the namespace's kv, blob and bus requests answer `503` with
+  `Retry-After`; one cut short leaves it partial, and its deployments refuse
+  to start until a reset or a new seed. A namespace is deleted with the
+  scope's last tile that has that deployment; one no tile claims any more is
+  kept 14 days, listed to admins, then deleted.
+- **Registrations** of a non-primary deployment — cron jobs, bus push
+  subscriptions, interface instances, ingress hosts — go to its own files,
+  never `main`'s stores, and are dormant: registering answers success (with
+  `dormant: true`), and nothing fires until a tile manager turns its
+  deliveries on (cron and bus only) or it becomes the primary. A tick or a
+  delivery reaches the deployment that registered it; a subscription on the
+  tile's own bus hears only its namespace's events. Bus events published in a
+  namespace beyond `main` carry `deployment`, and reach admins and that
+  namespace's own principals only.
+- **The vault is per deployment**: a new one holds the primary's key names
+  as placeholders, values are copied in by a tile manager (vault copy), and
+  a backend reads only its own deployment's values.
+- **Disk.** Each namespace beyond `main` is its own quota bucket, at the
+  scope's quota or a lower per-deployment limit, and non-primary data is
+  write-blocked first under low disk.
+
 ## Prefs — tiny, non-secret UI state
 
 `/api/xbin/prefs` is a small per-**(user × component)** JSON store (the
 shell keeps its screen layout there; any tile can keep per-user UI state the
 same way). The bucket is keyed by the *verified* principal on both axes, so
-there is nothing to spoof and no cross-user or cross-tile access. Not for
+there is nothing to spoof and no cross-user or cross-tile access. A tile
+deployment beyond `main` keeps a bucket of its own. Not for
 secrets (that's the vault) and not a resource — no declaration or grant
 needed.
 

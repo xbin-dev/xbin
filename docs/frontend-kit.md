@@ -21,7 +21,7 @@ import '/vendor/bx-frame.js';
 | Module | What it is |
 |---|---|
 | `/vendor/bx-kit.js` | the helper kit: `api(url, opts)` (JSON out, throws the server's `error`; in a sandboxed tile the request carries the frame token — your tile's identity — in chrome the session cookie, i.e. the signed-in human), `xbinApi('/grants')`, `selfApi('/runs')` (your own backend), `jbody(value, method?)`, `esc(text)` (HTML-escapes `&<>"'`: safe in text and in attribute position), `deepActive()`, `pathHas(event, selector)`, `clampBox(box, {minW, minH, margin})`, `anchorBox(rect, {dx, dy, w, h}, bounds?)` / `anchorOffsets(rect, box)` (a window anchored to an element, as a viewport box and back; `bounds` fences its top-left), `followBox(target, box, alive)` (the animation-frame loop that keeps such a window on its anchor), `dragPointer({cursor, onMove, onUp})` (a window-level pointer drag with the iframe shield), `dragWindow(ev, el, {bounds, onMove, onUp})` (a title-bar drag of a fixed window, fenced by `bounds`), `dragShield(cursor)`, `sandboxed()` |
-| `/vendor/bx-frame.js` | `<bx-frame src="apps/x">` — embed another tile (with its terminal pop-up); exports `clampBox` for compatibility |
+| `/vendor/bx-frame.js` | `<bx-frame src="apps/x">` — embed another tile (with its terminal pop-up); exports `clampBox` for compatibility. `src` may name a tile deployment, `apps/x+dev`: the frame loads `/c/apps/x+dev/` with a frame token for that deployment, never as chrome, and reloads and paints its build overlay from the tile's `deployments` events ([tile-deployments.md](/docs/tile-deployments.md)). `open(layout)` also takes `'deployments'`, the window's Deployments panel (a layout never restored after a reload: the window comes back on the terminal) |
 | `/vendor/bx-dialog.js` | `<bx-dialog>` — a modal; `xbin.dialog()` falls back to it outside the shell |
 | `/vendor/bx-grants.js`, `/vendor/bx-bindings.js` | the owner's grant-approval and interface-binding panels |
 | `/vendor/bx-multiselect.js` | `<bx-multiselect>` — a compact multi-pick control |
@@ -32,14 +32,17 @@ import '/vendor/bx-frame.js';
 | `/vendor/events-socket.js` | `onEvent(cb)` — every `/ws/events` frame goes to `cb(e)` over the one shared socket; returns an unsubscribe. Filter on `e.type` yourself |
 | `/vendor/theme.css` | the design tokens (`--bx-bg`, `--bx-panel`, `--bx-text`, …) plus opt-in `.bx` control styles. Link it to take the theme; it is **never injected** into your document |
 | `/vendor/xb-native.js` | a tile's **native UI** for the xbin mobile app: `html`, `render`, `repeat`, `nothing` (lit-shaped) over the native vocabulary (`/vendor/xb/vocab.js`: `screen`, `section`, `row`, `field`, `button`, …). A tile's `native.js` imports it; the app runs that file in a hidden document with the tile's own identity and draws what it renders with platform UI, re-rendering by patches. Also exports `native` — in the app the same object as `xbin.native` (`caps`, `supports()`, `meta()`, `copy()`, `share()`, `open()`, `state`, `saveState()`). Outside the app nothing loads `native.js`; browsers keep showing `index.html`. The reference — templates, every primitive, the rules — is [native.md](/docs/native.md). Worked examples: `examples/counter-go/native.js` (one round trip) and `examples/calendar/native.js` (a list, a form, a bus refresh); the builtin chat, egress-approver, prometheus-viewer, s3-archiver and webhooks tiles ship one too — logic a page and its native view share lives in a plain module both import (chat's `chat-core.js`, the viewer's `prom.js`) |
-| `/vendor/xbin-client.js` | injected into every tile document by xbind — do not import it yourself |
+| `/vendor/xbin-client.js` | injected into every tile document by xbind — do not import it yourself. Besides `xbin.self` (the tile path in every deployment) it sets `xbin.deployment` only in a document of a tile deployment other than the primary (`/c/<tile>+<name>/`): its name; absent means the primary |
 
 ## Shell-only modules
 
 `/vendor/bx-menu.js` (the shell's context menus — action closures, not a
 tile API; tiles use `xbin.dialog` / `xbin.window`), `/vendor/bx-terminal.js`,
 `/vendor/bx-logs.js`, `/vendor/bx-prs.js` (the terminal pop-up's panels —
-reachable through `<bx-frame>`), `/vendor/bx-agent.js` (the pop-up's Agent
+reachable through `<bx-frame>`; `<bx-logs deployment="<name>">` shows a
+non-primary tile deployment's log, and nothing unless the server echoes it,
+and `<bx-terminal deployment="<name>">` opens sessions targeting one —
+the server's echo is what it shows), `/vendor/bx-agent.js` (the pop-up's Agent
 tab, D74) with `/vendor/bx-md.js` (its hardened markdown renderer) and
 `/vendor/frame-titlebar.js` (the pop-up's title bar), `/vendor/term-predict.js`
 (the terminal's prediction engine, D70), `/vendor/term-sessions.js` (the
@@ -51,7 +54,13 @@ frame's view of the terminal session directory, D73),
 `/vendor/deploy-state.js` (its pure view model: which chip, menu items and
 tile API select entries a tile's state and a viewer's permissions yield, and
 every string they show, from `GET /api/xbin/deployments`; imports nothing),
-and the shell's own siblings under
+`/vendor/bx-deploy.js` (defines `<bx-deployments component="<tile>">`, the
+terminal window's Deployments panel: live reload, a tile's deployments,
+promotion with the diff first, the deploy log, data, vault, deliveries,
+edges and dormant registrations; its host frame, the `frame` property, asks
+every question) with `/vendor/deploy-panel.js` (the panel's pure view
+model, beside `deploy-state.js`), `/vendor/frame-testapi.js` (`<bx-frame>`'s
+test surface for the UI harness), and the shell's own siblings under
 `shell/`. They are served, and they will keep being served, but their
 shapes follow the shell.
 

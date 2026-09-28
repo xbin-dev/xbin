@@ -32,9 +32,9 @@ Terminals (you) are root; running components are least-privileged tenants
 bare `cp -r`: clone also rewrites old-path references (manifest `res:` uses +
 hardcoded strings in code) and registers the copy as its own component.
 Saving any file live-reloads the frontend and rebuilds/swaps the backend.
-There is no deploy step — unless the tile has paused live reload (see
-§Tile deployments) — and **no JS build step — ever** (plain ES modules +
-import maps).
+There is no deploy step — unless the tile has paused live reload or has
+tile deployments (see §Tile deployments) — and **no JS build step — ever**
+(plain ES modules + import maps).
 
 ## Terminal environment
 
@@ -44,6 +44,7 @@ import maps).
 | `XBIN_COMPONENT` | component this terminal was opened on |
 | `XBIN_URL` | xbind, e.g. `http://127.0.0.1:8642` |
 | `XBIN_TOKEN` | this terminal's **tile-scoped** token — acts as THIS component, never the owner; `bx` and curl use it |
+| `XBIN_DEPLOYMENT` | set only when this terminal targets a non-primary tile deployment (e.g. `dev`): your API calls and per-deployment `bx` reads reach it; unset = the primary |
 | `HOME` | `<workspace>/homes/<user>` — per-user, contained, persistent; seeded `.zshrc`/`.bashrc` (not the host home) |
 
 Your API identity is **this component** (docs/overview/09-terminals.md):
@@ -156,7 +157,8 @@ operations (docs/protocol.md, docs/auth.md).
 curl -s -H "Authorization: Bearer $XBIN_TOKEN" $XBIN_URL/api/apps/thing/hello
 bx status                 # backend states: building | healthy | failed (+error)
 bx logs -f apps/thing     # backend stdout/stderr, per generation
-bx live-reload            # where saves go (paused live reload: tile deployments)
+bx live-reload            # where saves go (tile deployments)
+bx deployment ls          # the tile's deployments; "← this terminal" is where your calls go
 bx doctor                 # manifest errors, missing API.md, dangling deps, …
 bx ls                     # all components
 ```
@@ -188,40 +190,65 @@ developers can change that per tile:
 
 - **Live reload paused:** saves change the files and nothing else. The tile
   keeps running a pinned checkpoint (`c:3f2a1c9`) until someone presses
-  Reload now or resumes live reload. Its one deployment, `main`, is the
-  **primary**: what everyone and everything else reaches.
+  Reload now or resumes live reload.
+- **Tile deployments** (`main`, `dev`, …): named runtimes of one tile, each
+  with its own code, data and secrets. Live reload follows at most one of
+  them; the others run pinned checkpoints. The **primary** (usually `main`)
+  is what everyone and everything else reaches; the others are only at
+  `/c/<tile>+<name>/`.
 
 Check before you test or debug:
 
 ```sh
-bx live-reload        # where saves go ("main — every save reaches everyone (no deployments)" = nothing paused)
+bx live-reload        # where saves go ("main — every save reaches everyone (no deployments)" = none)
+bx deployment ls      # names, primary ("(protected)"), code, status; "← this terminal" is your target
 ```
 
-- While it says `paused`, your saves reach nobody: a fix that "didn't work"
-  may simply not be running.
+- Saves reach the **live reload target** (or nothing while paused). Your API
+  calls and `bx status`/`bx logs` reach **your target**, which is the primary
+  unless the user picked another in the terminal's tile API select. They can
+  differ: check both before deciding a fix "didn't work".
+- **You can't switch your own target.** To call a non-primary deployment, ask
+  the user to pick it in the tile API select (the session restarts; an agent
+  resumes its conversation). Reads work without switching: `bx status
+  <tile>+dev`, `bx logs <tile>+dev`. If bx answers "unauthorized", this
+  terminal's tile API is off.
 - **Committing never deploys.** Keep committing often (the commit policy
   above); a commit changes nothing anyone runs.
-- **Shipping is a deliberate act.** `bx live-reload now`, `bx live-reload
-  resume`, `bx deploy --to main` and `bx rollback --to main` ship to
-  everyone using the tile: run them only when the user asked you to ship —
-  never as part of committing, testing or tidying up. Without a terminal bx
-  prints what will change and stops (exit 4); `--yes` says the user asked.
 - **Don't `bx deploy --to` the live reload target**: saves already reach it,
   and a deploy onto it pauses live reload.
-- **A large change:** pause live reload (`bx live-reload pause`), build and
-  test in the terminal, and resume when done. Resuming, like
-  `bx live-reload now`, ships the work tree, so do it only when the user
-  asked. Leave paused live reload that someone else paused (`bx live-reload`
-  says who) unless the user asked.
-- **A refusal is not yours to work around** (exit 3). Stop and tell the user
-  who can (bx says who); never look for another way in.
-- To fix what `main` runs while the work tree holds unfinished work:
+- **Shipping to the primary is a deliberate act.** Run `bx deploy --to main`,
+  `bx promote <tile> dev main`, `bx rollback --to main`, or `bx live-reload
+  now` while live reload last followed the primary, only when the user asked
+  you to ship — never as part of committing, testing or tidying up. Try the
+  change on a non-primary deployment first. Without a terminal bx prints what
+  will change and stops (exit 4); `--yes` says the user asked.
+- **A large change on a tile that has no non-primary deployment:** pause live
+  reload (`bx live-reload pause`), build and test in the terminal, and resume
+  when done. Resuming, like `bx live-reload now`, ships the work tree to
+  whoever live reload followed, so do it only when the user asked. Leave
+  paused live reload that someone else paused (`bx live-reload` says who)
+  unless the user asked.
+- **A refusal is not yours to work around** (exit 3) — for example "the
+  primary of apps/crm (main) is protected: only tile managers change its
+  code". Stop and tell the user who can (bx says who); never look for another
+  way in.
+- **A new deployment starts with empty data** and secret names only. Fill it
+  with synthetic data through its own API, from a session that targets it.
+  Copying the primary's data or secret values into it is a tile manager's act.
+- **Non-primary deployments read other tiles' primaries and never write to
+  them.** Writer roles are clamped to reader, so, for example, LLM turns
+  through `apps/llm-gw` are refused there. Edges that can't be limited to
+  reading are blocked: an agent tile's sandbox managers are unreachable from
+  its non-primary deployments, so test sandbox work from the primary.
+- To fix the primary while the work tree holds unfinished work:
   `git fetch xbin-deploy`, `git checkout --no-track -b hotfix deploy/main`,
   fix, commit, and `bx deploy --to main` once the user says ship. If
-  `git fetch xbin-deploy` fails, the terminal predates the pause: open a new
-  one.
-- "3 fast crashes ⇒ failed" and "status resets on restart" still hold. A
-  pinned backend recovers through a deploy or a restart, not a save.
+  `git fetch xbin-deploy` fails, the terminal predates the tile's
+  deployments: open a new one.
+- "3 fast crashes ⇒ failed" and "status resets on restart" hold per
+  deployment. A pinned deployment recovers through a deploy or a restart, not
+  a save.
 
 Details: `/docs/tile-deployments.md`.
 
@@ -523,7 +550,7 @@ these (`/docs/changes/2026-09-27-cgi-removed.md`).
 
 Lifecycle facts you must design around:
 
-- **A save = a new process** (a deploy, while live reload is paused). Keep
+- **A save = a new process** (for a pinned tile deployment, a deploy). Keep
   state in resources (kv/sqlite), not RAM.
 - Lazy start; idle-reaped after ~30 min (next request revives, ~200 ms).
   Periodic work ⇒ `cron` resource, never a sleeping loop. A backend that
@@ -536,7 +563,7 @@ Lifecycle facts you must design around:
 - Blue/green swap: in-flight requests finish; long-lived WS/SSE die at the
   30 s drain — clients must reconnect.
 - 3 fast crashes ⇒ marked failed until you save a change (until the next
-  deploy, while live reload is paused). `bx logs` first.
+  deploy or restart, for a pinned tile deployment). `bx logs` first.
 - Handle SIGTERM (the SDKs/skeletons do).
 
 ## Status & notifications — tell the workspace how you're doing

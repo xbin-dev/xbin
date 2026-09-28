@@ -23,7 +23,8 @@ everything as environment:
 | Env | Meaning |
 |---|---|
 | `XBIN_SOCKET` | where to listen (per-generation unix socket) |
-| `XBIN_COMPONENT` | own path — the component's identity |
+| `XBIN_COMPONENT` | own path — the component's identity, the same in every tile deployment |
+| `XBIN_DEPLOYMENT` | only in a tile deployment that isn't the tile's primary: its name ([/docs/tile-deployments.md](/docs/tile-deployments.md)); absent for the primary, and set for a process's whole life (a reassignment of the primary restarts both) |
 | `XBIN_GATEWAY` + `XBIN_TOKEN` | how to call *out*: the gateway unix socket + this generation's instance credential (RBAC'd, works with zero net egress) |
 | `XBIN_RES_<NAME>` | each granted resource — a dsn string, or a file/dir path for same-scope sqlite/filesystem ([10-resources.md](10-resources.md)) |
 | `XBIN_IFACE_<slot>_URL` / `_ADDR` / `_IP` | resolved interface bindings: http endpoint URLs, stream dial addresses, lan-ingress own-addresses ([11-interfaces.md](11-interfaces.md), [13-ingress.md](13-ingress.md)) |
@@ -31,7 +32,12 @@ everything as environment:
 Inbound requests arrive with the `/api/<component>` prefix stripped and two
 trustworthy headers — `X-XBin-From` and `X-XBin-Role` (xbind deletes inbound
 `X-XBin-*` before injecting verified values; public ingress traffic arrives
-as `From: ingress` plus `X-XBin-Ingress-Host`).
+as `From: ingress` plus `X-XBin-Ingress-Host`). A call from a tile's
+non-primary deployment adds `X-XBin-Deployment: <name>` (`From` stays the
+tile's path, and toward other tiles its role is clamped to `reader` by
+default); the SDK reads
+it as `CallerInfo.Deployment`, and `xbin.Deployment()` names your own
+backend's deployment.
 
 What the runner promises in return ([03-components.md](03-components.md)):
 lazy start on first request, socket-connect health check (5 s), blue/green
@@ -98,6 +104,7 @@ Anything bx does, curl can do. Grouped by plane:
 | Plane | Commands |
 |---|---|
 | scaffold & inspect | `ls` · `new` · `status [--all]` · `logs [-f]` · `api` · `doctor` |
+| live reload & tile deployments | `live-reload [pause\|now\|resume\|attach]` · `deploy` · `promote` · `rollback` · `deployment ls\|add\|rm\|primary\|protect\|seed\|reset\|vault-copy\|set\|edge\|run-now\|log\|diff` |
 | authorization | `grants` · `grant [--revoke]` · `user` · `org` (+ `org policy`) · `team` · `access` |
 | wiring | `iface` · `bind` (`slot=p`, `slot+=p[#i]`, `slot-=p`, `--unset`) · `expose` / `unexpose` · `ingress [routes]` |
 | data & secrets | `vault status\|unseal\|seal\|rekey` · `vault ls\|get\|set\|rm` · `cron ls` |

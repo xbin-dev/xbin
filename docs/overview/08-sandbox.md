@@ -91,10 +91,10 @@ running backend scribbling on itself.
 | Bind | Access | Why |
 |------|--------|-----|
 | base rootfs (+ env layer) | ro (overlay lowers) | the userland; your `setup` deps |
-| component dir | **ro** | your source — read but never write at runtime |
+| component dir | **ro** | your source — read but never write at runtime; for a pinned tile deployment, its checkpoint at the same path |
 | run dir (`.xbin/run/…` → tmpfs) | rw | where the backend's listen socket lands; must be tmpfs, never host disk |
 | `gateway.sock` | rw (socket) | the single egress for calling xbind + other tiles |
-| granted resource dirs | rw | `filesystem`/`sqlite` resources you hold ([10-resources.md](10-resources.md)) |
+| granted resource dirs | rw | `filesystem`/`sqlite` resources you hold ([10-resources.md](10-resources.md)); for a tile deployment other than `main`, its own data, bound at the same paths |
 | GPU device nodes + driver libs | ro/dev | only when a `gpu:*` grant is approved |
 
 Nothing else is mounted. Other components' source, other tiles' vaults, the
@@ -102,6 +102,19 @@ workspace `homes/`/`data/`/`.xbin/`, and the host filesystem are simply absent
 — not permission-denied, *not there*. The gateway socket is the one door: it
 is not IP egress, is never network-blocked, and carries the backend's
 instance-token identity to xbind ([05-identity.md](05-identity.md)).
+
+**Tile deployments** ([/docs/tile-deployments.md](/docs/tile-deployments.md))
+change what is bound, never where: a pinned deployment's checkpoint,
+extracted read-only under `.xbin/deploy/`, is bound at the tile's canonical
+path, and a non-`main` deployment's data namespace at the paths `main`'s
+resources use, so `XBIN_RES_*` is identical in every deployment. The live
+reload target keeps today's work-tree bind. Pinned and non-primary backends
+need tier 3 (`--isolate`): without a sandbox there is no way to show a
+checkpoint at the tile's path, and xbind refuses rather than run the work
+tree. A non-primary deployment's network is narrower too: no host
+networking, provider splice, lan-ingress leg or stream dial, and its relay
+egress follows the tile's edge policy
+([06-authorization.md](06-authorization.md)).
 
 ## UID mapping: single-uid vs a delegated range
 
@@ -208,6 +221,14 @@ each backend joins a per-component cgroup leaf (`internal/cgroup`):
 - **CPU** — `cpu.weight` (fair share): equal slices under contention, but an
   idle box lets any tile burst to all cores (no hard `cpu.max`).
 
+A tile that runs a tile deployment beyond `main` gets a per-tile parent
+instead of its flat `comp-<key>` leaf: `tile-<key>/d-<deployment>/backend`.
+The tile node keeps one leaf's CPU weight, so deployments never enlarge the
+tile's share; inside it the primary weighs 100 and every other deployment
+50, and each deployment's leaf carries its own memory and pids caps (the
+tile's, unless a tile manager lowered them). `main` moves at its next
+generation.
+
 Limits are tunable (`XBIN_LIMIT_MEM`). At-limit events (OOM, pids ceiling)
 surface as workspace alerts (`GET /api/xbin/alerts`) so an operator sees a
 degrading tile before it breaks. Disk is capped per *scope*
@@ -230,7 +251,9 @@ The backend runs as root in the guest's own kernel. Its binds appear at the
 same paths (FUSE over vsock), and its run dir is guest-local, with `XBIN_SOCKET` and
 `XBIN_GATEWAY` bridged over vsock. A kernel exploit now has to get through
 the guest kernel, Firecracker and then this sandbox. What it could reach
-after that is still only the bind set. [isolation.md](/docs/isolation.md)
+after that is still only the bind set. Each tile deployment runs its own
+guest, charged to the tile's VM budget, and a non-primary one never takes
+the room the primary's next guest needs. [isolation.md](/docs/isolation.md)
 §VM sandboxes.
 
 ## Threat model: what a compromised backend can and cannot do
