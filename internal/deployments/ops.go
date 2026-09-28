@@ -543,7 +543,7 @@ func runResume(ctx context.Context, p *Plane, g Grant, r *ResumeRequest) (any, e
 func optOut(r *Record, y string) bool {
 	d := r.Deployments[util.MainDeployment]
 	return y == util.MainDeployment && len(r.Deployments) == 1 && r.Primary == util.MainDeployment &&
-		!r.ProtectedPrimary && len(r.Edges) == 0 && d != nil && !d.Deliveries && !d.AlwaysOn && len(d.Limits) == 0
+		!r.ProtectedPrimary && len(r.Edges) == 0 && d != nil && d.Deliveries == nil && !d.AlwaysOn && len(d.Limits) == 0
 }
 
 // ---- reload now ----

@@ -91,7 +91,7 @@ denial of service. Existing stores keep their keys.
 | Deploy log | (tile, deployment) | in the store: one commit chain per deployment (`refs/xbin/log/<name>`), one entry per finished attempt, failed ones included; `how` names the operation (`deploy`, `promote`, `rollback`, `reload-now`, `resume`, `pause`, `attach`, …; `11-contract.md` owns the list) | confined git, run by the deployments API |
 | Deployment data | (scope, deployment name) | `main`: today's paths and keys; others: a dot-level namespace no existing key can produce (the exact scheme is in `08-data.md`) | the resource broker |
 | Built artifact | (tile, checkpoint) | `.xbin/build/<CompKey>/…`, one per checkpoint while referenced; the live reload target keeps today's single `bin` | the runner (confined builds) |
-| Dormant registration | (tile, deployment, name) | one directory per deployment beside the record (e.g. `data/deployments/<TileKey>/<name>/cron.json`), **never** extra rows in today's `data/cron-jobs.json` / `data/bus-subscriptions.json` / root `xbin.json` maps. An older xbind would load such rows as `main`'s and fire them. `main`'s registrations stay exactly where they are today. | the self-scoped APIs |
+| Registration beyond `main` (cron, bus, interface instance, ingress host) | (tile, deployment, name) | one directory per deployment beside the record (e.g. `data/deployments/<TileKey>/<name>/cron.json`), **never** extra rows in today's `data/cron-jobs.json` / `data/bus-subscriptions.json` / root `xbin.json` maps. An older xbind would load such rows as `main`'s and fire them. `main`'s registrations stay exactly where they are today. | the self-scoped APIs |
 | Edge policy | (tile, edge) | the deployment record | the deployments API |
 
 **Checkpoints are fetchable, read-only, by the tile's own sessions.** While a
@@ -155,7 +155,8 @@ Illustrative shape; `11-contract.md` owns the wire.
   "edges": {"slot:llm": "read", "grant:apps/calendar": "block", "slot:net": "inherit"},  // non-primary only
   "deployments": {
     "main": {"checkpoint": "c:3f2a1c9…", "created": "…", "by": "user:ana"},
-    "dev":  {"checkpoint": null, "deliveries": false, "alwaysOn": false,
+    "dev":  {"checkpoint": null, "alwaysOn": false,
+             // "deliveries": false only once a tile manager switched them off; absent = on (P13)
              "limits": {},              // empty = the tile's limits (P22)
              "created": "…", "by": "user:ana"}
   }
@@ -203,20 +204,20 @@ Authority is set out in §10; events in §8.
 | **Resume live reload** (onto X, default: the last target) | paused; X not a protected primary | `liveReload = X`. X deploys from the work tree. Its code tracks every save again. |
 | **Reload now** | paused | Checkpoint the work tree and deploy it to the last target (`lastLiveReload`). It stays pinned. |
 | **Attach live reload to Y** | live reload on X, X ≠ Y; Y not a protected primary | Checkpoint the work tree and pin X to it. Y deploys from the work tree and follows it. |
-| **Add deployment Y** | the name is free; no component exists at `<tile>+<Y>`; within the per-tile cap | Create Y, with code from the work tree (fresh checkpoint), the primary's checkpoint, or a named checkpoint. Data: empty (default) or seeded (manager only). Vault: key names only. Deliveries and alwaysOn off. Optionally attach live reload to Y, which pins the previous target. |
+| **Add deployment Y** | the name is free; no component exists at `<tile>+<Y>`; within the per-tile cap | Create Y, with code from the work tree (fresh checkpoint), the primary's checkpoint, or a named checkpoint. Data: empty (default) or seeded (manager only). Vault: key names only. Deliveries on (the default: its cron jobs and bus subscriptions fire for it); alwaysOn off. Optionally attach live reload to Y, which pins the previous target. |
 | **Deploy to X** | — | Put a checkpoint on X (default: a fresh checkpoint of the work tree). If X was the live reload target, live reload pauses. |
 | **Promote A → B** | A ≠ B | B receives A's current code: A's checkpoint, or a fresh checkpoint of the work tree if A follows it. Only code moves. If B was the live reload target, live reload pauses. When A follows the work tree, the diff or dry run the actor reviews names the checkpoint it captured, and the promote deploys exactly that checkpoint (`expect`; a 409 if the work tree moved since). Onto a protected primary `expect` is mandatory (*Reviewed operations*, below). |
 | **Roll back X to C** | C is in X's deploy log (or any checkpoint of the tile) | Deploy C to X. It pauses live reload if X was the target. |
-| **Remove deployment Y** | Y ≠ `main`; Y not primary | Stop Y. Delete its vault, logs, dormant registrations and artifacts. Its (scope, name) data namespace is deleted only when no other tile of the scope still has a deployment of that name (§9); an orphaned namespace is listed to admins and deleted after a grace period. Its checkpoints remain until GC. Detach live reload if Y held it. |
+| **Remove deployment Y** | Y ≠ `main`; Y not primary | Stop Y. Delete its vault, logs, registrations and artifacts. Its (scope, name) data namespace is deleted only when no other tile of the scope still has a deployment of that name (§9); an orphaned namespace is listed to admins and deleted after a grace period. Its checkpoints remain until GC. Detach live reload if Y held it. |
 | **Reassign primary to Y** | (M2) Y exists and is healthy. Tile managers only, with a loud confirmation that names whose data the new primary serves and says the old primary's data stays behind. In v1, the tile is in the workspace scope or is the only member of the scope it roots, because reassigning one member would split the scope's primary data. | Routing only (§7). Data does not move, and the root `xbin.json` is never written. Role-dependent wiring is captured at spawn (net edge, lan-ingress legs, rosters, `XBIN_DEPLOYMENT`), so Y starts as primary first, then the old primary is restarted or stopped. The old primary's long-lived streams are cut. `reload` is emitted for the bare component. The old primary's registrations become dormant and Y's activate. Y's dormant ingress hosts are re-validated: a conflicting host stays inactive and is reported. |
 | **Protect / unprotect primary** | — | While protected, only tile managers change the primary's code, and live reload cannot attach to the primary. Protecting detaches it if attached (the primary is pinned in place). Protecting restarts the sessions that target the primary onto P24's default, or ends them. While protected, the primary's env layers, build caches and artifacts come only from manager-initiated operations (§9). A protected primary never follows a tracked branch and takes no deploy-remote push (M3). |
 | **Seed Y** | Y non-primary; Y stopped for the copy | Copy the primary's deployment data into Y's namespace, consistently, re-keying encrypted stores (`08-data.md`). This is a PII-bearing act, so the UI warns. Seeding is optional: most non-primary deployments run on empty or synthetic data that their own code creates. In a shared namespace, every sibling's same-named deployment stops for the copy, and the actor needs the act's authority on each of those tiles. |
 | **Reset Y** | Y non-primary | Empty Y's data namespace; in a shared namespace, with the same rules as seeding. The vault is kept unless asked (`vault: true`). Resetting `main`'s data while `main` isn't primary is a tile manager's act, because `main` holds today's keys. |
 | **Vault copy to Y** | Y non-primary | Copy the selected keys' values from the primary into Y's vault. |
-| **Deliveries on/off for Y** | Y non-primary | Activate or deactivate Y's dormant registrations for Y. |
+| **Deliveries off/on for Y** | Y non-primary | Silence Y's cron jobs and bus push subscriptions (they stay registered, dormant), or make them fire for Y again. On by default (P13, revised 2026-09-28); interface instances and ingress hosts stay dormant either way. |
 | **alwaysOn on/off for Y** | Y non-primary; the manifest (Y's checkpoint) says `alwaysOn` | Honour D84 for Y. It is never implied for non-primary deployments. |
 | **Set edge policy** | the edge exists on the tile | `read` \| `block` for edges that can be read-clamped; `inherit` \| `block` for the net slot and capability grants (`inherit` never reaches host networking or a provider splice, §7); `block` only for edges that cannot be read-clamped (P23). Applies to all of the tile's non-primary deployments; later also `match`. |
-| **Run now** (a dormant cron job of Y) | the job is dormant on Y; `terminal` level; one run in flight per job | Deliver that job once to Y, as a manual trigger (the Netlify precedent). |
+| **Run now** (a cron job of Y) | Y non-primary; `terminal` level; one run in flight per job; whatever Y's deliveries switch says | Deliver that job once to Y, as a manual trigger (the Netlify precedent). |
 
 **Reviewed operations onto a protected primary.** Each names the checkpoint
 its actor reviewed: `checkpoint` on deploy and roll back; `expect` on promote,
@@ -328,8 +329,12 @@ resolves `(tile) → primary`. That covers:
 - consumers' interface bindings and grants to call the tile;
 - ingress routes and terminator forwards;
 - stream and lan-ingress links, and net-provider splices;
-- cron ticks, bus push deliveries, event triggers and alwaysOn;
+- event triggers and alwaysOn;
 - archiver calls, notify links, and the native app.
+
+A cron tick or bus push delivery reaches the deployment that registered it,
+the primary's included: a deployment's own registrations aren't an inbound
+edge from others (P13, revised 2026-09-28).
 
 Every runner map keyed by path today gains the deployment: generation state
 and the current generation, the run dir and its sockets, net-link keys, the
@@ -437,19 +442,30 @@ a deployment adds no inbound path.
   as `block`, so a later `match` fails closed on an older binary. When several
   edges authorize one call, any `block` among them refuses it (P27).
 
-**Registrations and side effects from non-primary deployments (P13).**
-- **Registrations are stored and dormant.** Cron jobs, bus push
-  subscriptions, interface instances and ingress hosts registered by a
-  non-primary deployment are stored under that deployment. They are dormant
-  unless its deliveries switch is on, and never active in routing: ingress and
-  interface instances belong to the primary only. Registration succeeds, so a
-  backend that registers at start keeps working on a non-primary deployment.
+**Registrations and side effects from non-primary deployments (P13, revised
+by the owner 2026-09-28).**
+- **Cron and bus are active for the deployment.** Cron jobs and bus push
+  subscriptions registered by a non-primary deployment are stored under that
+  deployment and fire for it — its backend, its data — never for the
+  primary. A subscription on the tile's own bus reads the deployment's own
+  (scope, name) namespace; one on another scope's bus reads that scope's
+  primary's, like a read binding: the edge policy's `read` allows it, `block`
+  refuses it, re-checked at every delivery. Publishing is unchanged: into the
+  deployment's own namespace only (a cross-scope publish needs writer, which
+  the read clamp removes). A tile manager's **deliveries** switch (on by
+  default) turns them off, leaving them dormant.
+- **Interface instances and ingress hosts are dormant.** Registered by a
+  non-primary deployment, they are stored under it and never active in
+  routing, deliveries on or not: they belong to the primary only (P7).
+  Registration succeeds, so a backend that registers at start keeps working
+  on a non-primary deployment.
 - **Registrations don't collide.** `main`'s registrations stay in today's
   stores, byte-for-byte. Every other deployment's registrations live in its
   own per-deployment files (§3). They can't overwrite `main`'s rows, and an
-  older xbind never loads them as `main`'s (`12-compat.md`). Which set is
-  *active* follows the primary role: only the primary's fire, plus any
-  non-primary deployment with deliveries on.
+  older xbind never loads them as `main`'s (`12-compat.md`). Which routes
+  are *active* follows the primary role: only the primary's interface
+  instances and ingress hosts route. Every deployment's cron jobs and bus
+  subscriptions fire, for it, unless its deliveries are off.
 - **Notifications are never pushed.** A notification from a non-primary
   deployment is shown to the developers in the deployments panel, as "would
   notify …".
@@ -566,9 +582,9 @@ Authority is the tile's, and a deployment never widens it (P11). Who may
 |---|---|
 | Open or call a non-primary deployment (its URL, UI, API) | humans with ≥ `write` on the tile, checked per request against their current level; the tile's own terminal/agent sessions (via target) |
 | Pause / resume live reload / reload now; attach live reload to a non-primary deployment | `terminal` level (and the tile's terminal/agent tokens), the same power as editing code today. While the primary is protected, resuming onto it is refused, and reload now onto it follows the **primary** row below |
-| Add, remove, deploy to, promote to, or roll back a **non-primary** deployment; reset its data; set its target in a terminal; run now on its dormant jobs | `terminal` level (and the tile's terminal/agent tokens) |
+| Add, remove, deploy to, promote to, or roll back a **non-primary** deployment; reset its data; set its target in a terminal; run now on its jobs | `terminal` level (and the tile's terminal/agent tokens) |
 | Deploy, promote or roll back onto the **primary** | `terminal` level and their agents: **parity** with saving today (P4). While the primary is protected: tile managers only, in a human session, naming the reviewed checkpoint (§5). Terminal and agent tokens cannot deploy, promote, roll back, reload now or resume onto it, and it is never a session's target (P24). |
-| Seed data, copy vault values, deliveries or alwaysOn for non-primary, set edge policies, reassign the primary, protect or unprotect it; reset `main`'s data while it isn't primary; set a deployment's resource limits (P22, defaulting to the tile's and never above the tile's own ceilings); purge a checkpoint | tile managers (user-owner, owning-org admins, workspace admins: the D24/D33 gate) |
+| Seed data, copy vault values, deliveries (an off switch, on by default) or alwaysOn for non-primary, set edge policies, reassign the primary, protect or unprotect it; reset `main`'s data while it isn't primary; set a deployment's resource limits (P22, defaulting to the tile's and never above the tile's own ceilings); purge a checkpoint | tile managers (user-owner, owning-org admins, workspace admins: the D24/D33 gate) |
 | Any of the above from a view-as session (D64) | refused (read-only) |
 
 **Operating is checked per request.**
@@ -729,7 +745,7 @@ terminals and tile sandboxes all share:
 
 When D113 is built, **tile-managed sandboxes belong to the deployment**:
 - a non-primary deployment's backend addresses its own sandbox set (keyed per
-  deployment, like dormant registrations), never the primary's;
+  deployment, like its registrations), never the primary's;
 - `{"source":true}` mounts that deployment's code;
 - resource mounts resolve in its data namespace;
 - per-tile caps and `cap:sandboxes` stay the tile's.
@@ -750,7 +766,7 @@ When D113 is built, **tile-managed sandboxes belong to the deployment**:
 | P10 | Promotion moves code only. Data, vault, config and routing are late-bound to the target. | proposed |
 | P11 | Authority stays per tile. A deployment is not a principal, and non-primary deployments are narrowed by edge policy. | proposed |
 | P12 | Self-calls stay inside the caller's deployment. Tile principals can't call another deployment of their own tile. | proposed |
-| P13 | Non-primary registrations are dormant. Notifications aren't pushed. Non-primary status and build activity travel only in the `deployments` event, delivered by access. | proposed |
+| P13 | A non-primary deployment's cron jobs and bus push subscriptions are active and deliver to it (other scopes' buses read under the edge policy, like read binds; publishing unchanged); `deliveries` is a tile manager's off switch, on by default. Its interface instances and ingress hosts are dormant. Notifications aren't pushed. Non-primary status and build activity travel only in the `deployments` event, delivered by access. | revised by the owner 2026-09-28 |
 | P14 | Non-primary data and vault start empty. Seeding is optional; seeding and vault copy are tile-manager acts. | proposed |
 | P15 | Deployment state is xbind-owned (`data/`), never in the root `xbin.json` or the work tree. | proposed |
 | P16 | Every git or tool run touching tile code happens in confine. The checkpoint store is confine-only. Materialized trees are served with containment and never followed out through symlinks. | proposed |
@@ -825,8 +841,10 @@ concepts).
    alone). `dev` starts as the primary first, then `main` restarts. Every
    inbound edge now reaches `dev`, and `dev`'s data.
 3. A loud confirmation says the old primary's data does not follow.
-4. `main` remains, pinned. Its registrations are dormant. It can become the
-   primary again.
+4. `main` remains, pinned. Its interface instances and ingress hosts are
+   dormant; its cron jobs and bus subscriptions keep firing for `main`
+   unless a manager switches its deliveries off. It can become the primary
+   again.
 
 **G — A multi-tile scope.**
 1. `apps/shop` and `apps/shop-admin` share a scope. Both get a `dev`

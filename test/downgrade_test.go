@@ -19,9 +19,10 @@ import (
 // The downgrade simulation (15-test-plan §5.6; 12-compat §5): the new xbind
 // leaves deployment state in a workspace, the previous release's xbind
 // (XBIN_DOWNGRADE_BIN) runs on it, then the new one again. An older xbind
-// loses no state and activates nothing the new one kept dormant: it serves
-// every tile's work tree, fires only main's registrations, and never opens
-// the stores it doesn't know.
+// loses no state and never fires a deployment's registrations as main's: it
+// serves every tile's work tree, fires only main's registrations, and never
+// opens the stores it doesn't know (a non-primary deployment's cron jobs,
+// active for it under the new binary, P13, live in files of their own).
 //
 // XBIN_DOWNGRADE_BIN is the previous release's xbind: CI downloads it from the
 // release assets; locally, build it from the tag, e.g.
@@ -32,7 +33,7 @@ import (
 
 const (
 	dgStaticTile = "apps/dg-static" // tile A: static, live reload paused, the work tree past the checkpoint
-	dgProbeTile  = "apps/dg-probe"  // tile B: the probe, with a dev deployment and a dormant cron job
+	dgProbeTile  = "apps/dg-probe"  // tile B: the probe, with a dev deployment and a cron job of dev's own
 )
 
 // covers T11 12-compat — 15-test-plan §5.6 on a daemon of the shared daemon's
@@ -58,13 +59,13 @@ func TestDowngradeStatic(t *testing.T) {
 // covers T11 SC-DORMANT PO-9 12-compat — 15-test-plan §5.6 on an isolated daemon
 // (a non-primary backend needs isolation, P18): tile A as in
 // TestDowngradeStatic, and probe tile B with a main cron job /tick and a dev
-// deployment whose cron job /dev-tick is dormant. Under the previous release
-// A serves m2; B's main serves its work tree and ticks, and its /seen never
-// shows /dev-tick across two main ticks; B+dev isn't served; the root
-// xbin.json and data/cron-jobs.json are byte-identical and data/deployments/
-// and data/checkpoints/ untouched. The new binary again: A serves c1, and
-// B's dev job is still dormant (listed dormant, never delivered across two
-// main ticks while dev runs).
+// deployment whose cron job /dev-tick is active for dev (P13, revised): it
+// ticks dev, never main. Under the previous release A serves m2; B's main
+// serves its work tree and ticks, and its /seen never shows /dev-tick
+// across two main ticks; B+dev isn't served; the root xbin.json and
+// data/cron-jobs.json are byte-identical and data/deployments/ and
+// data/checkpoints/ untouched. The new binary again: A serves c1, and B's
+// dev job is still dev's (listed active for dev, ticking dev, never main).
 func TestDowngradeDormantRegistrations(t *testing.T) {
 	old := downgradeBinOrSkip(t)
 	d := startIsolatedDaemon(t, isoOpts{})
@@ -255,8 +256,8 @@ func dgStaticSetup(t *testing.T, h *dgHost) string {
 
 // dgProbeSetup makes tile B: the probe at m1 with a main cron job /tick
 // every second, a dev deployment (a checkpoint of the work tree), and dev's
-// cron job /dev-tick every second, stored dormant; main ticks, dev's job
-// never fires.
+// cron job /dev-tick every second, active for dev; main's job ticks main,
+// dev's ticks dev.
 func dgProbeSetup(t *testing.T, h *dgHost) {
 	t.Helper()
 	writeProbe(t, h.ws, dgProbeTile, "m1")
@@ -268,11 +269,11 @@ func dgProbeSetup(t *testing.T, h *dgHost) {
 	}
 	dgWaitV(t, h, "dev", "m1", 3*time.Minute)
 	dgPutJob(t, h, "dev", "dev-tick", "/dev-tick")
-	dgNoDevTick(t, h, "the new binary")
+	dgDevTicksDev(t, h, "the new binary")
 }
 
 // dgPutJob registers an every-second cron job of B's deployment dep ("" for
-// main) as the owner; dev's is stored dormant.
+// main) as the owner; dev's is stored active, for dev.
 func dgPutJob(t *testing.T, h *dgHost, dep, name, path string) {
 	t.Helper()
 	route := "/api/xbin/cron/jobs"
@@ -289,8 +290,8 @@ func dgPutJob(t *testing.T, h *dgHost, dep, name, path string) {
 	if code != 200 || json.Unmarshal([]byte(raw), &ans) != nil {
 		t.Fatalf("PUT %s %s: %d %s", route, name, code, raw)
 	}
-	if dep != "" && (!ans.Dormant || ans.Deployment != dep) {
-		t.Fatalf("%s's job %s: %s, want it stored dormant for %s", dep, name, raw, dep)
+	if dep != "" && (ans.Dormant || ans.Deployment != dep) {
+		t.Fatalf("%s's job %s: %s, want it stored active for %s", dep, name, raw, dep)
 	}
 }
 
@@ -415,8 +416,8 @@ func dgStaticAfter(t *testing.T, h *dgHost, c1 string) {
 	}
 }
 
-// dgProbeAfter: B's dev job is listed dormant, and while dev runs it is
-// never delivered across two main ticks.
+// dgProbeAfter: B's dev job is listed active for dev, and it ticks dev,
+// never main.
 func dgProbeAfter(t *testing.T, h *dgHost) {
 	t.Helper()
 	code, raw := h.a.do("GET", "/api/xbin/cron/jobs?deployment=dev", "")
@@ -433,8 +434,8 @@ func dgProbeAfter(t *testing.T, h *dgHost) {
 	for _, j := range jobs.Jobs {
 		if j.Component == dgProbeTile && j.Name == "dev-tick" {
 			found = true
-			if !j.Dormant || j.Deployment != "dev" {
-				t.Errorf("after the upgrade dev's job: %+v, want it dormant for dev", j)
+			if j.Dormant || j.Deployment != "dev" {
+				t.Errorf("after the upgrade dev's job: %+v, want it active for dev", j)
 			}
 		}
 	}
@@ -443,7 +444,7 @@ func dgProbeAfter(t *testing.T, h *dgHost) {
 	}
 	dgWaitV(t, h, "", "m1", 3*time.Minute)
 	dgWaitV(t, h, "dev", "m1", 3*time.Minute)
-	dgNoDevTick(t, h, "the new binary, after the upgrade")
+	dgDevTicksDev(t, h, "the new binary, after the upgrade")
 }
 
 // ---- the probe's deliveries ----
@@ -512,7 +513,7 @@ func dgNoDevTick(t *testing.T, h *dgHost, who string) {
 		t.Fatalf("under %s main's /tick was delivered %d times in 30 s, want 2 more than %d: %+v", who, dgTicks(seen, "/tick"), start, seen)
 	}
 	if n := dgTicks(seen, "/dev-tick"); n > 0 {
-		t.Errorf("under %s main's probe got dev's dormant /dev-tick %d times: %+v", who, n, seen)
+		t.Errorf("under %s main's probe got dev's /dev-tick %d times: %+v", who, n, seen)
 	}
 	for _, s := range seen {
 		if s.Path == "/tick" && s.From != "xbin/cron" {
@@ -521,7 +522,29 @@ func dgNoDevTick(t *testing.T, h *dgHost, who string) {
 	}
 	if devRouted {
 		if dev := dgSeen(t, h, "dev"); dgTicks(dev, "/dev-tick") > 0 {
-			t.Errorf("under %s dev's dormant job fired: %+v", who, dev)
+			t.Errorf("under %s dev's job fired: %+v", who, dev)
 		}
+	}
+}
+
+// dgDevTicksDev is the new binary's check: main's /tick is delivered twice
+// more (dgNoDevTick's wait, never /dev-tick to main), and dev's own job
+// ticks dev (a bounded 30 s), never with main's /tick.
+func dgDevTicksDev(t *testing.T, h *dgHost, who string) {
+	t.Helper()
+	var dev []dgDelivery
+	if !waitFor(func() bool { dev = dgSeen(t, h, "dev"); return dgTicks(dev, "/dev-tick") > 0 }, 30*time.Second) {
+		t.Errorf("under %s dev's job never ticked dev: %+v", who, dev)
+	}
+	start := dgTicks(dgSeen(t, h, ""), "/tick")
+	var seen []dgDelivery
+	if !waitFor(func() bool { seen = dgSeen(t, h, ""); return dgTicks(seen, "/tick") >= start+2 }, 30*time.Second) {
+		t.Fatalf("under %s main's /tick was delivered %d times in 30 s, want 2 more than %d: %+v", who, dgTicks(seen, "/tick"), start, seen)
+	}
+	if n := dgTicks(seen, "/dev-tick"); n > 0 {
+		t.Errorf("under %s main's probe got dev's /dev-tick %d times: %+v", who, n, seen)
+	}
+	if n := dgTicks(dgSeen(t, h, "dev"), "/tick"); n > 0 {
+		t.Errorf("under %s dev's probe got main's /tick %d times", who, n)
 	}
 }

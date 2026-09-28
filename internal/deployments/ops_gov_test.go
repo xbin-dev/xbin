@@ -203,8 +203,9 @@ func answerOf(t *testing.T) func(res any, err error) Answer {
 // literal of the plane's inputs, no broker: an edge's policy (501 until the
 // broker's edge check is installed; 404 and 400 as the broker judges; set,
 // unchanged, default; a change that applies at a spawn restarts the tile's
-// running non-primary deployments, never the primary); the deliveries switch
-// (never on the primary, which reaches RegistrationsActive at once); limits
+// running non-primary deployments, never the primary); the deliveries switch,
+// an off switch whose default is on (never on the primary; off stores false,
+// on clears it, and RegistrationsActive follows at once) (P13, revised); limits
 // (LimitsFor for that deployment alone); seed, reset, vault copy and run now
 // delegating to their planes (confirm tokens first, the primary refused, the
 // claimants stopped and told with op data, dry runs changing nothing). Each
@@ -273,25 +274,32 @@ func TestDeployPlaneOperationsGov(t *testing.T) {
 	})
 
 	t.Run("deliveries", func(t *testing.T) {
-		if fires, _ := f.p.RegistrationsActive(opSite, "dev"); fires {
-			t.Fatal("dev fires before its switch")
+		if fires, routes := f.p.RegistrationsActive(opSite, "dev"); !fires || routes || f.rec(opSite).Deployments["dev"].Deliveries != nil {
+			t.Fatalf("a new dev: fires %v routes %v, want its cron jobs and subscriptions active by default", fires, routes)
 		}
-		_, err := do(OpDeliveries, &SwitchRequest{Tile: opSite, Deployment: "main", On: ptr(true)})
+		_, err := do(OpDeliveries, &SwitchRequest{Tile: opSite, Deployment: "main", On: ptr(false)})
 		wantErr(t, "the primary", err, http.StatusConflict, "main is the primary of apps/site — its cron jobs")
 		_, err = do(OpDeliveries, &SwitchRequest{Tile: opSite, Deployment: "dev"})
 		wantErr(t, "no on", err, http.StatusBadRequest, "bad request body: on is required")
 		_, err = do(OpDeliveries, &SwitchRequest{Tile: opSite, Deployment: "nope", On: ptr(true)})
 		wantErr(t, "no such deployment", err, http.StatusNotFound, `apps/site has no deployment "nope"`)
-		answerOf(t)(do(OpDeliveries, &SwitchRequest{Tile: opSite, Deployment: "dev", On: ptr(true)}))
-		if fires, routes := f.p.RegistrationsActive(opSite, "dev"); !fires || routes || !f.rec(opSite).Deployments["dev"].Deliveries {
-			t.Errorf("deliveries on: fires %v routes %v", fires, routes)
+		if a := answerOf(t)(do(OpDeliveries, &SwitchRequest{Tile: opSite, Deployment: "dev", On: ptr(true)})); !a.Unchanged {
+			t.Error("turning on the default changed something")
+		}
+		f.evs.take()
+		answerOf(t)(do(OpDeliveries, &SwitchRequest{Tile: opSite, Deployment: "dev", On: ptr(false)}))
+		if d := f.rec(opSite).Deployments["dev"].Deliveries; d == nil || *d {
+			t.Errorf("deliveries off stored %v, want false", d)
+		}
+		if fires, routes := f.p.RegistrationsActive(opSite, "dev"); fires || routes {
+			t.Errorf("deliveries off: fires %v routes %v", fires, routes)
 		}
 		if evs := f.evs.take(); len(evs) != 1 || evs[0].Data.(recordEvent).What[0] != "deliveries" {
 			t.Errorf("events = %+v", evs)
 		}
-		answerOf(t)(do(OpDeliveries, &SwitchRequest{Tile: opSite, Deployment: "dev", On: ptr(false)}))
-		if fires, _ := f.p.RegistrationsActive(opSite, "dev"); fires {
-			t.Error("deliveries off still fire")
+		answerOf(t)(do(OpDeliveries, &SwitchRequest{Tile: opSite, Deployment: "dev", On: ptr(true)}))
+		if fires, _ := f.p.RegistrationsActive(opSite, "dev"); !fires || f.rec(opSite).Deployments["dev"].Deliveries != nil {
+			t.Error("deliveries back on don't fire, or left the key stored")
 		}
 		f.evs.take()
 	})

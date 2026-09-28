@@ -258,7 +258,8 @@ func (p *Plane) discardAll(as []*attempt) {
 // runAdd adds deployment y (05-model §5): its code from the work tree (a
 // fresh checkpoint), the primary's code or a named checkpoint; empty data in
 // its own (scope, y) namespace, which joins a sibling's when one claims it;
-// a vault of placeholders; deliveries, alwaysOn and limit overrides off. Any
+// a vault of placeholders; deliveries on (their default: its cron jobs and
+// bus subscriptions fire for it, P13); alwaysOn and limit overrides off. Any
 // file an earlier deployment of the name left is dropped before the record
 // commits (P29, P14). With attach, y follows the work tree and the former
 // live reload target is pinned where it stands. On a tile without a record

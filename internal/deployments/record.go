@@ -63,8 +63,14 @@ type DeploymentRecord struct {
 	Checkpoint *string `json:"checkpoint"`
 	// State is "" or "failed": the checkpoint is the attempted one of a
 	// failed move off the work tree, which restarts retry (P9).
-	State      string           `json:"state,omitempty"`
-	Deliveries bool             `json:"deliveries,omitempty"`
+	State string `json:"state,omitempty"`
+	// Deliveries is the off switch of a non-primary deployment's cron jobs
+	// and bus push subscriptions (P13, revised 2026-09-28): absent (nil) is
+	// on, the default; false is off, set by a tile manager; true, which an
+	// M2 build stored when a manager turned them on, reads as on. An M2
+	// build never stored false (it omitted its default off), so no record
+	// needs migrating. DeliveriesOn reads it.
+	Deliveries *bool            `json:"deliveries,omitempty"`
 	AlwaysOn   bool             `json:"alwaysOn,omitempty"`
 	Limits     map[string]int64 `json:"limits,omitempty"`
 	Created    string           `json:"created,omitempty"`
@@ -72,6 +78,11 @@ type DeploymentRecord struct {
 
 	extra map[string]json.RawMessage
 }
+
+// DeliveriesOn reports whether the deployment's cron jobs and bus push
+// subscriptions deliver while it isn't the primary: unless a tile manager
+// switched them off.
+func (d *DeploymentRecord) DeliveriesOn() bool { return d.Deliveries == nil || *d.Deliveries }
 
 // FollowsWorkTree reports whether the deployment runs the work tree.
 func (d *DeploymentRecord) FollowsWorkTree() bool { return d.Checkpoint == nil }
@@ -271,7 +282,7 @@ func (d *DeploymentRecord) fields() []field {
 	return []field{
 		{"checkpoint", &d.Checkpoint, false},
 		{"state", &d.State, d.State == ""},
-		{"deliveries", &d.Deliveries, !d.Deliveries},
+		{"deliveries", &d.Deliveries, d.Deliveries == nil},
 		{"alwaysOn", &d.AlwaysOn, !d.AlwaysOn},
 		{"limits", &d.Limits, len(d.Limits) == 0},
 		{"created", &d.Created, d.Created == ""},

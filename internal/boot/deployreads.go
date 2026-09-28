@@ -239,7 +239,7 @@ func (a *deploymentsAPI) deploymentFacts(row map[string]any, t tileRef, name str
 		}
 		row["limits"] = limitsView(r.limits(tile, name), quota, dr.Limits)
 	}
-	row["deliveries"] = primary || dr.Deliveries
+	row["deliveries"] = primary || dr.DeliveriesOn()
 	declared, known := false, false
 	if r.declared != nil {
 		declared, known = r.declared(t.c, name)

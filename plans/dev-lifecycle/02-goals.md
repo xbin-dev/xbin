@@ -217,7 +217,7 @@ token acts as the tile's element principal with the driving human attributed
   it, whatever `xbin` or `xbin:users` grants its tile holds
   ([05-model.md](05-model.md) §10). Ownership rights already never ride an
   element principal (`internal/broker/orgsapi.go:71-78`). So an agent can
-  never seed, copy vault values, turn on deliveries or alwaysOn, set edge
+  never seed, copy vault values, switch deliveries or turn on alwaysOn, set edge
   policies or resource limits, or reassign or protect the primary. With
   protection on it never changes the primary's code, and the primary is
   never its target (P21, P24).
@@ -230,7 +230,7 @@ token acts as the tile's element principal with the driving human attributed
 workspace admins (D24; `mayManageTile`,
 `internal/broker/orgsapi.go:425-442`).
 - *Needs:* control over the primary and over where its data goes.
-- *Gets:* seed, vault copy, deliveries and alwaysOn for non-primary
+- *Gets:* seed, vault copy, the deliveries off switch and alwaysOn for non-primary
   deployments; edge policies; per-deployment resource limits, which default
   to the tile's and never exceed its ceilings (P22); reassigning and
   protecting the primary; resetting `main`'s data while it isn't primary;
@@ -414,9 +414,10 @@ confirmation says three things:
   (NG-4).
 
 `dev` starts as the primary first; then `main` restarts. Every inbound edge
-— consumers, ingress, cron ticks, bus deliveries — now reaches `dev`. `main`
-remains, pinned, with its registrations dormant, and it can become the
-primary again. Had the primary been protected, her request would also have
+— consumers, ingress, interface instances — now reaches `dev`. `main`
+remains, pinned, with its routes dormant (its own cron jobs and bus
+subscriptions keep firing for `main` unless a manager switches its deliveries
+off), and it can become the primary again. Had the primary been protected, her request would also have
 named the checkpoint of `dev` she reviewed (`expect`), and a `dev` that had
 moved since would have answered 409.
 
@@ -460,8 +461,9 @@ task list, and goes home. The primary is protected, as in S-2.
   through `$XBIN_URL/api/$XBIN_COMPONENT/…`, which its session routes to
   `dev` (P12).
 - The tile's nightly report is a cron job registered by `dev`'s backend at
-  start. It is dormant and fires nowhere. The agent triggers it once with
-  **run now** and reads the output.
+  start. It fires for `dev`, on `dev`'s data, never into the primary (P13,
+  revised 2026-09-28). The agent also triggers it once with **run now** and
+  reads the output.
 - `dev`'s notifications appear in the deployments panel as "would notify …"
   instead of paging anyone.
 
@@ -919,21 +921,23 @@ does. The design's budget for it is **1 s**, capture plus materialization.
 ### SC-INBOUND — no inbound edge reaches a non-primary deployment
 
 - **Criterion.** With a non-primary deployment present (live reload attached
-  to it, deliveries off), every inbound edge of the tile reaches the primary
+  to it), every inbound edge of the tile reaches the primary
   ([research/inbound-edges.md](research/inbound-edges.md) E1–E16):
   - the bare `/c/` and `/api/` URLs and the native document;
   - consumers' interface bindings and grant calls;
   - ingress HTTP and L4 streams, stream interfaces, lan-ingress and
     net-provider splices;
-  - cron ticks, bus push deliveries, event triggers, alwaysOn;
+  - the cron ticks and bus push deliveries of the primary's registrations,
+    event triggers, alwaysOn;
   - archiver calls, notify links, and backups of record.
 
   A non-primary deployment is reached only through:
   - its deployment URL, by humans with at least `write`;
   - the tile's own sessions, through their target;
   - its own self-calls;
-  - its own registrations, once a manager turns deliveries on;
-  - run now on one of its dormant cron jobs (terminal level).
+  - its own cron jobs and bus subscriptions, unless a manager switched its
+    deliveries off (they are its own, not inbound edges from others);
+  - run now on one of its cron jobs (terminal level).
 - **Measured by:**
   - a matrix test with a backend that reports which deployment answered;
   - a static inventory guard, in the pattern of `TestNoDirectExec`
@@ -1005,11 +1009,14 @@ does. The design's budget for it is **1 s**, capture plus materialization.
   is present on every non-primary call and absent on every primary call.
 - **Milestone:** M2.
 
-### SC-DORMANT — non-primary background work stays dormant
+### SC-DORMANT — non-primary background work stays in its deployment
 
 - **Criterion.** Cron jobs, bus push subscriptions, interface instances and
-  ingress hosts registered by a non-primary deployment (P13):
-  - never fire or route while deliveries are off;
+  ingress hosts registered by a non-primary deployment (P13, revised
+  2026-09-28):
+  - cron jobs and bus subscriptions fire only for that deployment, never for
+    the primary, and not at all while a manager has its deliveries off;
+  - interface instances and ingress hosts never route;
   - never overwrite or delete the primary's registrations;
   - are never loaded as `main`'s by an older xbind.
 
@@ -1019,6 +1026,7 @@ does. The design's budget for it is **1 s**, capture plus materialization.
     on both `main` and `dev`, with deliveries counted;
   - a downgrade run with the previous release's binary.
 - **Passes when:**
+  - `dev`'s job and subscription deliver to `dev` and never to `main`;
   - `dev` gets no deliveries while its deliveries are off;
   - `main`'s registration stores are byte-identical after `dev` starts;
   - no notification is pushed;
@@ -1090,7 +1098,7 @@ does. The design's budget for it is **1 s**, capture plus materialization.
      (`cmd/bx/main.go:511`), and `.xbin` is masked in tile terminals
      (`internal/term/binds.go:50`).
   3. Call `dev`'s API as `$XBIN_URL/api/$XBIN_COMPONENT/…`.
-  4. Trigger one of `dev`'s dormant cron jobs with run now (terminal level).
+  4. Trigger one of `dev`'s cron jobs with run now (terminal level).
   5. See what a promotion would change: `bx deployment diff`, or
      `git fetch xbin-deploy` and a git diff against `deploy/main`.
   6. Promote `dev → main` at parity, and roll `main` back.

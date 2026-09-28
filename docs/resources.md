@@ -190,11 +190,12 @@ PUT /api/xbin/bus/subscriptions
   `xbin.Subscribe` / `xbin.Unsubscribe` / `xbin.BusEvent`.
 - They persist, ride along in the component's backup, and pause while the
   component is disabled; a subscriber that no longer exists loses them.
-- In a tile deployment that isn't the primary they are dormant until its
-  deliveries are on (§Tile deployments below): the subscription answers 200
-  with `"dormant": true` and receives nothing. A subscription on the tile's
-  own bus receives only events published in its deployment's data; one on
-  another scope's bus receives that scope's primary's.
+- In a tile deployment that isn't the primary they deliver to that
+  deployment (§Tile deployments below), unless a tile manager switched its
+  deliveries off: then the subscription answers 200 with `"dormant": true`
+  and receives nothing. A subscription on the tile's own bus receives only
+  events published in its deployment's data; one on another scope's bus
+  receives that scope's primary's, under the edge policy.
 
 Document your topics in your `API.md` — they're part of your contract.
 
@@ -218,9 +219,10 @@ Schedules: standard 5-field cron or `@every 30s` / `@hourly`. List:
 `bx cron ls` or `GET /api/xbin/cron/jobs`. Delete:
 `DELETE /api/xbin/cron/jobs/<name>`. Failures are logged (xbind log +
 component log); there are no retries — make handlers idempotent and let the
-next tick catch up. In a tile deployment that isn't the primary a job is
-dormant — registered (`"dormant": true`), never ticking — until its
-deliveries are on (§Tile deployments below).
+next tick catch up. In a tile deployment that isn't the primary a job ticks
+that deployment (§Tile deployments below); while a tile manager has its
+deliveries off it is dormant — registered (`"dormant": true`), never
+ticking.
 
 ## filesystem — a persistent read-write directory
 
@@ -329,20 +331,23 @@ own, so testing against it never touches what everyone else sees.
   read-only to non-primary deployments: a write answers 403 `<tile>+<name>
   may not write <res>: non-primary deployments reach other scopes read-only
   (edge policy "read")`.
-- **Registrations are dormant.** A deployment beyond `main` registers cron
-  jobs and bus push subscriptions into its own store, never `main`'s. While a
-  deployment isn't the primary (`main` beside another primary included), its
-  registrations are dormant (registering still answers 200, with `"dormant":
-  true`) until it becomes the primary or a tile manager turns its deliveries
-  on. A dormant job doesn't tick and a dormant
-  subscription receives nothing; a tick or delivery always reaches the
-  deployment that registered it. A tile's credential lists its own
+- **Registrations are the deployment's own.** A deployment beyond `main`
+  registers cron jobs and bus push subscriptions into its own store, never
+  `main`'s, and they fire for it: a tick or delivery always reaches the
+  deployment that registered it, never the primary. A tile manager can
+  switch a non-primary deployment's deliveries off (`main` beside another
+  primary included; on by default): its registrations are then dormant
+  (registering still answers 200, with `"dormant": true`) — a dormant job
+  doesn't tick and a dormant subscription receives nothing — until they are
+  switched on again or it becomes the primary. A tile's credential lists its own
   deployment's jobs and subscriptions: rows carry `deployment` (absent for
   `main`) and `dormant` (absent while active), and bus rows count
   `dormantEvents`. Admins pass `?deployment=<name>` to list, register or
   delete another deployment's, and the answer echoes it. A registration on
   another scope's resource is refused while its edge is `block`, and stored
-  dormant under `read`. Each deployment may hold 64 push subscriptions. `bx
+  under `read` (a subscription then reads that scope's primary's bus, its
+  edge re-checked at every delivery). Each deployment may hold 64 push
+  subscriptions. `bx
   deployment run-now` delivers one job of a non-primary deployment once, as
   `xbin/cron` with the job's role, whatever its deliveries switch says (one
   run of a job at a time).

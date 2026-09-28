@@ -318,9 +318,10 @@ has its own data, keyed by **(scope, deployment name)**:
   kept 14 days, listed to admins, then deleted.
 - **Registrations** of a non-primary deployment — cron jobs, bus push
   subscriptions, interface instances, ingress hosts — go to its own files,
-  never `main`'s stores, and are dormant: registering answers success (with
-  `dormant: true`), and nothing fires until a tile manager turns its
-  deliveries on (cron and bus only) or it becomes the primary. A tick or a
+  never `main`'s stores. Its cron jobs and bus subscriptions fire for it
+  unless a tile manager switched its deliveries off; its interface instances
+  and ingress hosts are dormant (registering answers success, with `dormant:
+  true`) until it becomes the primary. A tick or a
   delivery reaches the deployment that registered it; a subscription on the
   tile's own bus hears only its namespace's events. Bus events published in a
   namespace beyond `main` carry `deployment`, and reach admins and that

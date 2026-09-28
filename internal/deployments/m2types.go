@@ -504,10 +504,12 @@ func (p *Plane) Addressed(pr auth.Principal, tile string) (string, error) {
 }
 
 // RegistrationsActive answers whether deployment dep of tile's registrations
-// take effect (09-fabric §7) (P13): its cron jobs and bus subscriptions fire
-// while it is the primary or has deliveries on; its interface instances and
-// ingress hosts route only while it is the primary. Without a record, main's
-// do, as today, and no other deployment exists. "" names main.
+// take effect (09-fabric §7) (P13, revised 2026-09-28): its cron jobs and
+// bus subscriptions fire for it, wherever it stands, unless a tile manager
+// switched its deliveries off (never the primary's); its interface
+// instances and ingress hosts route only while it is the primary. Without a
+// record, main's do, as today, and no other deployment exists. "" names
+// main.
 func (p *Plane) RegistrationsActive(tile, dep string) (fires, routes bool) {
 	dep = cmp.Or(dep, util.MainDeployment)
 	rec, _ := p.record(tile)
@@ -518,7 +520,7 @@ func (p *Plane) RegistrationsActive(tile, dep string) (fires, routes bool) {
 		return true, true
 	}
 	d := rec.Deployments[dep]
-	return d != nil && d.Deliveries, false
+	return d != nil && d.DeliveriesOn(), false
 }
 
 // EdgePolicies is tile's stored edge policy for its non-primary deployments,

@@ -119,7 +119,7 @@ type Plane struct {
 	ReconcileIngress func()
 	// RunNow delivers one cron job of a deployment once, whatever its
 	// deliveries switch says; DropRegistrations removes a deployment's
-	// dormant cron jobs and bus subscriptions. Both are the broker's.
+	// cron jobs and bus subscriptions. Both are the broker's.
 	RunNow            func(ctx context.Context, tile, dep, job string) (Delivery, error)
 	DropRegistrations func(tile, dep string) error
 	// DropDeploymentFiles deletes a deployment beyond main's own tile-keyed

@@ -276,11 +276,14 @@ func setupFabInbound(t *testing.T, d *isoDaemon, T, C string) fabInbound {
 // and answered by A while dev sees nothing: the bare /api/ and /c/ URLs
 // and the native document; the ingress listener's Host route; a consumer's
 // call through its slot URL and through its grant (and its refused calls to
-// <tile>+dev and <tile>+main); cron (main's job ticks main, dev's never
-// fires, run now fires it once to dev); a bus publish (main's subscription
-// only); alwaysOn (an xbind restart starts main, never dev, whose own
-// checkpoint declares it too). With dev's deliveries on, dev's own job and
-// its own publish reach dev, and still nothing of main's. L4 streams,
+// <tile>+dev and <tile>+main); cron (main's job ticks main alone); a bus
+// publish into the tile's bus (main's subscription only); alwaysOn (an
+// xbind restart starts main, never dev, whose own checkpoint declares it
+// too). dev's own registrations aren't inbound edges from others (P13,
+// revised): its job, active by default, ticks dev alone, never main; with
+// its deliveries off it stays quiet and run now fires it once to dev; back
+// on, its job ticks dev again and its own publish (dev's namespace) reaches
+// its own subscription, never main's. L4 streams,
 // lan-ingress, net-provider splices, the archiver and notify links have no
 // end-to-end step (their unit tests are §5.5's).
 func TestInboundEdgesReachOnlyPrimary(t *testing.T) {
@@ -326,8 +329,8 @@ func TestInboundEdgesReachOnlyPrimary(t *testing.T) {
 		}
 	}
 
-	// Cron: each deployment's backend registers a job; main's ticks main,
-	// dev's is stored dormant and never fires; run now fires it once, to dev.
+	// Cron: each deployment's backend registers a job, active for its own
+	// deployment (P13): main's ticks main alone, dev's ticks dev alone.
 	cronJob := func(ref, name, path string) {
 		t.Helper()
 		r := fabHTTP(t, a, ref, "PUT", "/api/xbin/cron/jobs", fabJSON(map[string]string{
@@ -335,8 +338,8 @@ func TestInboundEdgesReachOnlyPrimary(t *testing.T) {
 		if r.Status != 200 {
 			t.Fatalf("%s registering cron job %s: %+v", ref, name, r)
 		}
-		if dormant := strings.Contains(r.Body, `"dormant":true`); dormant != (ref != T) {
-			t.Errorf("%s registering cron job %s: %s, want dormant exactly for dev", ref, name, r.Body)
+		if strings.Contains(r.Body, `"dormant"`) {
+			t.Errorf("%s registering cron job %s: %s, want it active", ref, name, r.Body)
 		}
 	}
 	cronJob(T, "main-tick", "/tick")
@@ -344,30 +347,19 @@ func TestInboundEdgesReachOnlyPrimary(t *testing.T) {
 	if !waitFor(func() bool { return fabCount(fabHits(t, a, T), fabPath("/tick")) >= 3 }, time.Minute) {
 		t.Fatalf("main's job never ticked main three times: %+v", fabHits(t, a, T))
 	}
-	if n := fabCount(fabHits(t, a, T+"+dev"), fabPath("/dev-tick")); n != 0 {
-		t.Errorf("dev's dormant job fired %d times while main's ticked", n)
-	}
-	var rn struct {
-		Delivery struct {
-			Status int `json:"status"`
-		} `json:"delivery"`
-	}
-	if c, _, raw := a.post(t, "run-now", dlBody(T, "deployment", "dev", "job", "dev-tick")); c != 200 ||
-		json.Unmarshal([]byte(raw), &rn) != nil || rn.Delivery.Status != 200 {
-		t.Fatalf("run now of dev's dev-tick: %d %s", c, raw)
-	}
-	devHits := fabHits(t, a, T+"+dev")
-	if n := fabCount(devHits, func(h fabHit) bool {
-		return h.Path == "/dev-tick" && h.From == "xbin/cron" && h.Deployment == ""
-	}); n != 1 {
-		t.Errorf("run now reached dev %d times as xbin/cron, want once: %+v", n, devHits)
+	if !waitFor(func() bool { return fabCount(fabHits(t, a, T+"+dev"), fabPath("/dev-tick")) >= 1 }, time.Minute) {
+		t.Errorf("dev's job never ticked dev: %+v", fabHits(t, a, T+"+dev"))
 	}
 	if n := fabCount(fabHits(t, a, T), fabPath("/dev-tick")); n != 0 {
-		t.Errorf("run now of dev's job reached main %d times", n)
+		t.Errorf("dev's job reached main %d times", n)
+	}
+	if n := fabCount(fabHits(t, a, T+"+dev"), fabPath("/tick")); n != 0 {
+		t.Errorf("main's job reached dev %d times", n)
 	}
 
 	// Bus: a subscription of each deployment; a publish into the tile's bus
-	// (main's namespace) delivers to main alone.
+	// (main's namespace) delivers to main alone: dev's own-scope
+	// subscription reads dev's namespace.
 	subscribe := func(ref, name, path string) {
 		t.Helper()
 		r := fabHTTP(t, a, ref, "PUT", "/api/xbin/bus/subscriptions", fabJSON(map[string]string{
@@ -384,14 +376,42 @@ func TestInboundEdgesReachOnlyPrimary(t *testing.T) {
 	}, 30*time.Second) {
 		t.Fatalf("the publish never reached main's subscription: %+v", fabHits(t, a, T))
 	}
-	time.Sleep(2 * time.Second) // negative: a dormant subscription queues nothing
+	time.Sleep(2 * time.Second) // negative: main's namespace isn't dev's
 	if n := fabCount(fabHits(t, a, T+"+dev"), fabPath("/dev-on")); n != 0 {
-		t.Errorf("a publish reached dev's dormant subscription %d times", n)
+		t.Errorf("a publish in main's namespace reached dev's subscription %d times", n)
 	}
 
-	// Nothing but the test itself and the run now reached dev.
+	// dev's deliveries off (a manager's act): its job goes quiet; run now
+	// fires it once, to dev.
+	a.mustPost(t, "deliveries", dlBody(T, "deployment", "dev", "on", false))
+	time.Sleep(1500 * time.Millisecond) // a tick in flight at the switch lands
+	quietFrom := fabCount(fabHits(t, a, T+"+dev"), fabPath("/dev-tick"))
+	time.Sleep(3 * time.Second) // negative: three of dev's every-second ticks would have fired
+	if n := fabCount(fabHits(t, a, T+"+dev"), fabPath("/dev-tick")); n != quietFrom {
+		t.Errorf("with its deliveries off dev's job fired %d times", n-quietFrom)
+	}
+	var rn struct {
+		Delivery struct {
+			Status int `json:"status"`
+		} `json:"delivery"`
+	}
+	if c, _, raw := a.post(t, "run-now", dlBody(T, "deployment", "dev", "job", "dev-tick")); c != 200 ||
+		json.Unmarshal([]byte(raw), &rn) != nil || rn.Delivery.Status != 200 {
+		t.Fatalf("run now of dev's dev-tick: %d %s", c, raw)
+	}
+	devHits := fabHits(t, a, T+"+dev")
+	if n := fabCount(devHits, func(h fabHit) bool {
+		return h.Path == "/dev-tick" && h.From == "xbin/cron" && h.Deployment == ""
+	}); n != quietFrom+1 {
+		t.Errorf("run now reached dev %d times as xbin/cron, want once: %+v", n-quietFrom, devHits)
+	}
+	if n := fabCount(fabHits(t, a, T), fabPath("/dev-tick")); n != 0 {
+		t.Errorf("run now of dev's job reached main %d times", n)
+	}
+
+	// Nothing but the test itself and dev's own registrations reached dev.
 	for _, h := range fabHits(t, a, T+"+dev") {
-		if fabForeign(h) && !(h.Path == "/dev-tick" && h.From == "xbin/cron") {
+		if fabForeign(h) && !(h.Path == "/dev-tick" && h.From == "xbin/cron") && !(h.Path == "/dev-on" && h.From == "xbin/bus") {
 			t.Errorf("dev received an inbound call: %+v", h)
 		}
 	}
@@ -403,7 +423,7 @@ func TestInboundEdgesReachOnlyPrimary(t *testing.T) {
 
 	// alwaysOn: both codes declare it; dev is pinned to its checkpoint of
 	// B; an xbind restart starts main, never dev (its alwaysOn switch is
-	// off), and no dormant job of dev's does.
+	// off), and dev's job, its deliveries off, doesn't either.
 	if _, e := a.op(t, "deploy", T, "deployment", "dev"); e.Result != "ok" {
 		t.Fatalf("pinning dev to its work tree: %+v", e)
 	}
@@ -431,8 +451,8 @@ func TestInboundEdgesReachOnlyPrimary(t *testing.T) {
 		t.Errorf("bare /api/%s/v after the restart: %d %q, want m1", T, c, b)
 	}
 
-	// Deliveries on: dev's own job ticks dev, and its own publish (dev's
-	// namespace) reaches its own subscription, never main's.
+	// Deliveries back on: dev's own job ticks dev, and its own publish
+	// (dev's namespace) reaches its own subscription, never main's.
 	a.mustPost(t, "deliveries", dlBody(T, "deployment", "dev", "on", true))
 	if !waitFor(func() bool { return fabCount(fabHits(t, a, T+"+dev"), fabPath("/dev-tick")) >= 1 }, time.Minute) {
 		t.Errorf("with deliveries on, dev's job never ticked dev: %+v", fabHits(t, a, T+"+dev"))
@@ -501,11 +521,13 @@ func fabEnvHas(t *testing.T, a dlAPI, ref, want string) {
 // manager's act, confirmed "data-stays", refused without it) moves every
 // inbound edge to dev and dev's data: the bare URLs, the native document,
 // ingress, the consumer's slot and grant calls, a prov#inst consumer (dev's
-// instance table, the consumer re-wired), cron ticks (dev's job fires,
-// main's is dormant) and bus deliveries (a publish lands in dev's namespace,
-// for dev's subscription); both deployments restart with the wiring their
-// new role gives (XBIN_DEPLOYMENT); main stays pinned to A, with its data
-// and its registrations dormant. Reassigning back restores all of it.
+// instance table, the consumer re-wired) and bus deliveries (a publish into
+// the tile's bus lands in dev's namespace, for dev's subscription); both
+// deployments restart with the wiring their new role gives
+// (XBIN_DEPLOYMENT); main stays pinned to A, with its data, its instance
+// dormant, and its cron job and subscription its own: each deployment's job
+// ticks it alone whichever is the primary (P13, revised). Reassigning back
+// restores all of it.
 func TestReassignPrimaryFlowF(t *testing.T) {
 	t.Parallel()
 	d := startIsolatedDaemon(t, isoOpts{Ingress: true})
@@ -596,23 +618,28 @@ func TestReassignPrimaryFlowF(t *testing.T) {
 		if r := fabHTTP(t, a, oref, "GET", kvURL, ""); r.Status != 200 || r.Body != other {
 			t.Errorf("[%s primary] %s reads its own kv: %+v, want %s's", primary, other, r, other)
 		}
-		// Registrations: the primary's are active, the other's dormant.
+		// Registrations: cron jobs and subscriptions active for each
+		// deployment; the instance the primary's alone, the other's dormant.
 		regs := fabRegs(t, a, T)
 		for dep, want := range map[string]bool{primary: false, other: true} {
-			for _, k := range []string{"cron:" + dep + "-tick", "bus:" + dep + "-on", "iface-instance:a"} {
-				if dormant, ok := regs[dep][k]; !ok || dormant != want {
-					t.Errorf("[%s primary] %s's %s: listed %v, dormant %v, want dormant %v", primary, dep, k, ok, dormant, want)
+			for k, dormant := range map[string]bool{"cron:" + dep + "-tick": false, "bus:" + dep + "-on": false, "iface-instance:a": want} {
+				if got, ok := regs[dep][k]; !ok || got != dormant {
+					t.Errorf("[%s primary] %s's %s: listed %v, dormant %v, want dormant %v", primary, dep, k, ok, got, dormant)
 				}
 			}
 		}
-		// Cron: the primary's job ticks the primary, the other's never fires.
-		base := fabCount(fabHits(t, a, oref), fabPath("/"+other+"-tick"))
-		start := fabCount(fabHits(t, a, T), fabPath("/"+primary+"-tick"))
-		if !waitFor(func() bool { return fabCount(fabHits(t, a, T), fabPath("/"+primary+"-tick")) >= start+3 }, time.Minute) {
-			t.Errorf("[%s primary] %s's job never ticked it three times: %+v", primary, primary, fabHits(t, a, T))
+		// Cron: each deployment's job ticks it alone.
+		for ref, dep := range map[string]string{T: primary, oref: other} {
+			start := fabCount(fabHits(t, a, ref), fabPath("/"+dep+"-tick"))
+			if !waitFor(func() bool { return fabCount(fabHits(t, a, ref), fabPath("/"+dep+"-tick")) >= start+3 }, time.Minute) {
+				t.Errorf("[%s primary] %s's job never ticked it three times: %+v", primary, dep, fabHits(t, a, ref))
+			}
 		}
-		if n := fabCount(fabHits(t, a, oref), fabPath("/"+other+"-tick")); n != base {
-			t.Errorf("[%s primary] %s's dormant job fired %d times", primary, other, n-base)
+		if n := fabCount(fabHits(t, a, T), fabPath("/"+other+"-tick")); n != 0 {
+			t.Errorf("[%s primary] %s's job reached the primary %d times", primary, other, n)
+		}
+		if n := fabCount(fabHits(t, a, oref), fabPath("/"+primary+"-tick")); n != 0 {
+			t.Errorf("[%s primary] the primary's job reached %s %d times", primary, other, n)
 		}
 		// Bus: a publish into the tile's bus lands in the primary's namespace.
 		topic := "ev/" + primary
@@ -622,7 +649,7 @@ func TestReassignPrimaryFlowF(t *testing.T) {
 		}, 30*time.Second) {
 			t.Errorf("[%s primary] the publish never reached %s's subscription: %+v", primary, primary, fabHits(t, a, T))
 		}
-		time.Sleep(2 * time.Second) // negative: the other's subscription is dormant
+		time.Sleep(2 * time.Second) // negative: the other's subscription reads its own namespace
 		if n := fabCount(fabHits(t, a, oref), func(h fabHit) bool { return h.Topic == topic }); n != 0 {
 			t.Errorf("[%s primary] the publish reached %s %d times", primary, other, n)
 		}
@@ -719,8 +746,10 @@ func fabBlockOnly(t *testing.T, a dlAPI, tile, id, why string, try ...string) {
 // bus) no write from dev succeeds: the provider's writer-guarded route
 // (llm-gw's shape) refuses it and its reader route answers, the provider's
 // primary sees reader and X-XBin-Deployment: dev, xbind's kv refuses the
-// write, the publish is refused and the subscription is stored dormant.
-// block on an edge fails the call closed naming the policy, and the edge
+// write, the publish is refused, and the subscription, like a read bind,
+// reads the provider's primary: a publish there reaches dev (P13, revised).
+// block on an edge fails the call closed naming the policy (a bus
+// subscription at its next delivery, a new one at once), and the edge
 // counts its clamps and refusals. Edges nothing narrows (a custom role with
 // no path to reader, a stream slot, a lan-ingress slot, a net-provider
 // splice) take block alone, refuse any override, and a stream dial from dev
@@ -854,8 +883,8 @@ func TestOutboundEdgePolicy(t *testing.T) {
 	if r := fabHTTP(t, a, dev, "GET", kvURL, ""); r.Status != 200 || r.Body != "from-main" {
 		t.Errorf("dev's read of %s's kv: %+v, want main's value", P, r)
 	}
-	// Another scope's bus: no publish from dev; its subscription is stored,
-	// dormant.
+	// Another scope's bus: no publish from dev; its subscription reads the
+	// provider's primary, like a read bind: main's publish reaches dev.
 	pub := `{"resource":"res:` + P + `/bus","topic":"ev/x","data":{}}`
 	if r := fabHTTP(t, a, C, "POST", "/api/xbin/bus/publish", pub); r.Status != 200 {
 		t.Errorf("main's publish on %s's bus: %+v", P, r)
@@ -864,8 +893,15 @@ func TestOutboundEdgePolicy(t *testing.T) {
 		t.Errorf("dev's publish on %s's bus: %+v, want 403", P, r)
 	}
 	sub := fabJSON(map[string]string{"name": "prov-ev", "resource": "res:" + P + "/bus", "prefix": "ev/", "path": "/on"})
-	if r := fabHTTP(t, a, dev, "PUT", "/api/xbin/bus/subscriptions", sub); r.Status != 200 || !strings.Contains(r.Body, `"dormant":true`) {
-		t.Errorf("dev subscribing to %s's bus: %+v, want it stored dormant", P, r)
+	if r := fabHTTP(t, a, dev, "PUT", "/api/xbin/bus/subscriptions", sub); r.Status != 200 || strings.Contains(r.Body, `"dormant"`) {
+		t.Errorf("dev subscribing to %s's bus: %+v, want it active", P, r)
+	}
+	busTo := func(topic string) int {
+		return fabCount(fabHits(t, a, dev), func(h fabHit) bool { return h.Path == "/on" && h.From == "xbin/bus" && h.Topic == topic })
+	}
+	fabMust200(t, a, "POST", "/api/xbin/bus/publish", `{"resource":"res:`+P+`/bus","topic":"ev/y","data":{}}`)
+	if !waitFor(func() bool { return busTo("ev/y") == 1 }, 30*time.Second) {
+		t.Errorf("a publish on %s's bus never reached dev's subscription: %+v", P, fabHits(t, a, dev))
 	}
 	if e := fabEdges(t, a, C)["slot:svc"]; e.Clamped == 0 || e.Policy != "read" {
 		t.Errorf("slot:svc after dev's clamped calls: %+v, want read with clamps counted", e)
@@ -886,6 +922,11 @@ func TestOutboundEdgePolicy(t *testing.T) {
 	sub2 := fabJSON(map[string]string{"name": "prov-ev2", "resource": "res:" + P + "/bus", "prefix": "ev/", "path": "/on"})
 	if r := fabHTTP(t, a, dev, "PUT", "/api/xbin/bus/subscriptions", sub2); r.Status != 403 {
 		t.Errorf("dev subscribing to %s's bus at block: %+v, want 403", P, r)
+	}
+	fabMust200(t, a, "POST", "/api/xbin/bus/publish", `{"resource":"res:`+P+`/bus","topic":"ev/z","data":{}}`)
+	time.Sleep(2 * time.Second) // negative: the delivery asks the edge again
+	if n := busTo("ev/z"); n != 0 {
+		t.Errorf("at block a publish on %s's bus reached dev's subscription %d times", P, n)
 	}
 	for _, id := range []string{"grant:" + G, "grant:res:" + P + "/bus"} {
 		a.mustPost(t, "edge", dlBody(C, "edge", id, "policy", "default"))

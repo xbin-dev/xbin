@@ -695,7 +695,7 @@ const ROWS = {
     const data = seed ? `seeded from ${P}: its data, which may be personal — see below` : j ? `joins ${j.scope}'s "${X}" data (${j.state}${j.by ? ` by ${who(j.by)}` : ''}${j.at ? ` ${ago(j.at, o.now)}` : ''})` : 'starts empty';
     return { title: `Add deployment ${X} to ${s.tile}?`, ok: 'Add deployment', fields: seed?.fields.filter((b) => b.name !== 'stop'), required: seed?.required, send: sendAs('confirm', seed && 'copy-data'),
       lines: [`Code: ${X} runs ${code}.${lr}`, `Data: ${data}; secrets start as names only.`, `Edges: it uses ${s.tile}'s grants and bindings, reading other tiles' primaries as reader.`,
-        `Affects: nobody now. It is reachable at /c/${s.tile}+${X}/ by people with write on ${s.tile} and by this tile's terminals. Its cron jobs, bus deliveries and alwaysOn stay off.`, ...(seed?.lines || [])] };
+        `Affects: nobody now. It is reachable at /c/${s.tile}+${X}/ by people with write on ${s.tile} and by this tile's terminals. Its cron jobs and bus subscriptions fire for ${X}, with ${X}'s data: anything they send is real. Its interface instances and ingress hosts stay with the primary, and alwaysOn stays off.`, ...(seed?.lines || [])] };
   },
   deploy(s, im, X, x) {
     const c = im?.code, named = x.checkpoint, st = against(c);
@@ -727,8 +727,8 @@ const ROWS = {
     return { title: `Make ${Y} the primary of ${s.tile}?`, ok: 'Reassign the primary', danger: true, required: miss.length ? ['ok', 'secrets'] : ['ok'],
       fields: [box('ok', `I understand ${P}'s data does not move to ${Y}`), ...(miss.length ? [box('secrets', `I understand ${Y} has no value for ${miss.join(', ')}`)] : [])],
       send: () => ({ confirm: 'data-stays', ...(s.protectedPrimary && im?.code?.to ? { expect: im.code.to } : {}) }),
-      lines: [`Everything that reaches ${s.tile} moves to ${Y} at once: its URL, other tiles' bindings and grants, ingress, cron jobs, bus deliveries, notifications and the app.`,
-        `Data: the primary will serve ${Y}'s data${data ? ` (${data})` : ''}. ${P}'s data does not move: ${P} keeps it, keeps running ${serving(s, P)}, and its cron jobs and subscriptions become dormant. Per-user settings saved while ${P} was primary stay with ${P}.`,
+      lines: [`Everything that reaches ${s.tile} moves to ${Y} at once: its URL, other tiles' bindings and grants, ingress, interface instances, notifications and the app. Cron jobs and bus subscriptions stay with the deployment that registered them.`,
+        `Data: the primary will serve ${Y}'s data${data ? ` (${data})` : ''}. ${P}'s data does not move: ${P} keeps it, keeps running ${serving(s, P)}, and its cron jobs and subscriptions keep firing for ${P}; its ingress hosts and interface instances become dormant. Per-user settings saved while ${P} was primary stay with ${P}.`,
         miss.length ? `Secrets: ${Y} has no value for ${plural(miss.length, 'secret', 'secrets')} ${P} uses (${miss.slice(0, 3).join(', ')}${miss.length > 3 ? ', …' : ''}): copy or set them first.` : '',
         s.liveReload === Y && !s.protectedPrimary ? `Live reload is attached to ${Y}: from now on every save reaches everyone using ${s.tile}. Pause live reload first to keep ${Y} pinned.` : '',
         s.protectedPrimary ? `The primary is protected: ${Y} becomes protected, live reload leaves it, and ${Y} is pinned to ${im?.code?.to || cp(s, Y) || 'its current code'}.` : '',
@@ -766,8 +766,8 @@ const ROWS = {
   },
   deliveries(s, im, Y, x, f) {
     const r = dep(s, Y)?.registrations || [], n = (k) => r.filter((g) => g.kind === k).length;
-    return { title: `Turn on deliveries for ${Y}?`, ok: 'Turn on deliveries',
-      lines: [`${Y}'s cron jobs (${n('cron')}) and bus subscriptions (${n('bus')}) start firing for ${Y}, alongside ${f.primary}'s. Their side effects are real: they run with ${Y}'s data, ${s.tile}'s grants (reading other tiles' primaries) and ${s.tile}'s network, so anything they send (email, webhooks) is real.`] };
+    return { title: `Turn ${Y}'s deliveries back on?`, ok: 'Turn on deliveries',
+      lines: [`${Y}'s cron jobs (${n('cron')}) and bus subscriptions (${n('bus')}) fire for ${Y} again, alongside ${f.primary}'s. Their side effects are real: they run with ${Y}'s data, ${s.tile}'s grants (reading other tiles' primaries) and ${s.tile}'s network, so anything they send (email, webhooks) is real.`] };
   },
   alwaysOn: (s, im, Y, x, f) => ({ title: `Keep ${Y} running?`, ok: 'Turn on alwaysOn', lines: [`${Y} starts now, is never idle-stopped and restarts after exits, like ${f.primary}. It uses memory while it runs.`] }),
   edge(s, im, X, x) {

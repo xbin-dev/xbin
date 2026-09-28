@@ -123,7 +123,7 @@ of one tile. It has:
 - a **code pointer**: either live reload (it runs the work tree) or a
   checkpoint (it is *pinned*);
 - its own **deployment data** (scope resources and vault), backend
-  process(es), frontend URL, logs, status and **dormant registrations**.
+  process(es), frontend URL, logs, status and **registrations**.
 
 A deployment has **no authority of its own**. It acts with its tile's grants,
 bindings and capabilities, narrowed for non-primary deployments by the edge
@@ -139,8 +139,12 @@ cannot be deleted.
 `main`). The primary is the only deployment that receives **inbound edges**:
 - the bare URLs `/c/<tile>/` and `/api/<tile>/`;
 - consumers' interface bindings, grants to call the tile, and ingress routes;
-- cron ticks, bus push deliveries, event triggers and alwaysOn;
+- event triggers and alwaysOn;
 - notify links, the native app, and backups of record.
+
+Cron ticks and bus push deliveries reach the deployment that registered
+them, the primary's included: a deployment's own registrations aren't an
+inbound edge from others (P13, revised 2026-09-28).
 
 The role can be **reassigned**. That is a routing change: each deployment
 keeps its data. The word was free in the census (only UI button roles use
@@ -152,8 +156,9 @@ reachable only at its **deployment URL**, by:
 - the tile's own terminals and agent sessions that target it;
 - its own self-calls.
 
-It receives no inbound edges. Its registrations are dormant unless
-**deliveries** are on.
+It receives no inbound edges. Its own cron jobs and bus push subscriptions
+deliver to it unless a tile manager switched its **deliveries** off; its
+interface instances and ingress hosts are dormant.
 
 **Deployment name.** The key of a deployment within its tile. It is lowercase
 letters, digits and `-`, starts with a letter, and has at most 24 characters.
@@ -231,7 +236,7 @@ rule).
 
 **Promote.** Deploy deployment A's current code to deployment B. If A is the
 live reload target, a fresh checkpoint of the work tree is taken first. A
-promotion moves **code only**. B keeps its data, vault, dormant registrations
+promotion moves **code only**. B keeps its data, vault, registrations
 and routing. Everything bound late (resource env, interface URLs, secrets) is
 resolved for B when B starts.
 
@@ -273,18 +278,23 @@ non-primary deployment's vault. This is explicit and gated to tile managers.
 A new deployment's vault starts with the primary's key **names** only, as
 placeholders.
 
-**Dormant registration.** A cron job, bus push subscription, interface
-instance or ingress host registered by a non-primary deployment. It is stored
-under that deployment and **not active**: nothing fires or routes. Registering
-still succeeds, so tiles that register at startup keep working. The
-deployment panel lists dormant registrations, with a manual **run now** for
-scheduled handlers.
+**Dormant registration.** An interface instance or ingress host registered
+by a non-primary deployment, or a cron job or bus push subscription of a
+non-primary deployment whose deliveries are off. It is stored under that
+deployment and **not active**: nothing routes or fires. Registering still
+succeeds, so tiles that register at startup keep working. The deployment
+panel lists registrations, active or dormant, with a manual **run now** for
+scheduled handlers (P13, revised 2026-09-28).
 
-**Deliveries** (a per-deployment switch). When on for a non-primary
-deployment, its dormant registrations become active for that deployment:
-cron ticks and bus deliveries reach it. It is off by default and gated to tile
-managers. "Deliveries" is D85's term for cron and bus POSTs. alwaysOn is a
-separate per-deployment switch, also off for non-primary deployments.
+**Deliveries** (a per-deployment off switch). On by default: a non-primary
+deployment's cron jobs and bus push subscriptions are active for that
+deployment — cron ticks and bus deliveries reach it, never the primary; a
+subscription on another scope's bus reads that scope's primary's, like a read
+binding, under the edge policy. A tile manager can switch them off (to
+silence a noisy dev deployment), which leaves them dormant. Interface
+instances and ingress hosts never activate off the primary, whatever it says.
+"Deliveries" is D85's term for cron and bus POSTs. alwaysOn is a separate
+per-deployment switch, off for non-primary deployments.
 
 ### The outbound fabric
 
@@ -335,7 +345,8 @@ with its future `match` value, is the seam that adds it later.
 **Tile managers.** Unchanged (D24/D33): the tile's user-owner, the owning
 org's admins, and workspace admins. They alone may:
 - seed data and copy vault values;
-- turn on deliveries or alwaysOn for a non-primary deployment;
+- switch deliveries off (or back on) or alwaysOn on for a non-primary
+  deployment;
 - reassign the primary, and protect it;
 - set edge policies and per-deployment resource limits;
 - reset `main`'s data while it isn't primary, and purge checkpoints.
@@ -380,7 +391,7 @@ need separate principals, and is out of scope.
 | deployment data | "Data: original" (main) / "started empty" / "seeded from main · <when>" | `bx deployment seed\|reset` | | |
 | dormant registrations | "dormant" | | `dormant: true` | |
 | run now | "Run now" | `bx deployment run-now <tile> <name> <job>` | | terminal level |
-| deliveries | "Deliveries: off" | `--deliveries on\|off` | `deliveries: bool` | |
+| deliveries | "Deliveries: on" (the default) / "Deliveries: off" | `--deliveries on\|off` | `deliveries: bool` (absent in the record = on) | |
 | edge policy | "Non-primary access: read / block / inherit" | `bx deployment edge <tile> <edge> read\|block\|inherit\|default` | `edges: {"<edge>": "read"\|"block"\|"inherit"}` | |
 | protected primary | "Protected" | `bx deployment protect <tile> on\|off` | `protectedPrimary: bool` | |
 

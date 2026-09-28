@@ -1762,7 +1762,7 @@ POST   /create                     owner/admin, a user creating a tile
                                    rows, bindings, vault, others' access
                                    entries, a deployment record or
                                    checkpoint store; and, at the path or
-                                   under it, a deployment's vault, dormant
+                                   under it, a deployment's vault,
                                    registrations or data — listed in the
                                    error; the path's owner is exempt);
                                    creation by anyone drops a deployment
@@ -2425,7 +2425,7 @@ POST   /deployments/add            terminal-level on the tile.
                                    already seeded, restored or partly so are
                                    a tile manager's acts), a vault holding
                                    the primary's key names without values,
-                                   deliveries and alwaysOn off, limits at
+                                   deliveries on, alwaysOn off, limits at
                                    the tile's. Its code is built in the
                                    background and its process starts on its
                                    first request. attach:true (from
@@ -2495,9 +2495,12 @@ POST   /deployments/primary        tile manager. {tile, deployment,
                                    {state, deploy?, inactiveHosts?}: the
                                    bare URL moves to deployment; data and
                                    xbin.json don't, limits stay with each
-                                   deployment. The old primary's
-                                   registrations go dormant at once and the
-                                   new one's activate; the answer returns
+                                   deployment. The old primary's interface
+                                   instances and ingress hosts go dormant
+                                   at once and the new one's activate (cron
+                                   jobs and bus subscriptions stay with the
+                                   deployment that registered them); the
+                                   answer returns
                                    once routing moved, and both
                                    generations restart after it, the new
                                    primary first; sessions named after
@@ -2546,10 +2549,14 @@ POST   /deployments/edge           tile manager. {tile, edge:
                                    but stays block (effective + why).
                                    Idempotent
 POST   /deployments/deliveries     tile manager. {tile, deployment, on} →
-                                   {state}: its dormant cron jobs and bus
-                                   push subscriptions become active for it
-                                   (interface instances and ingress hosts
-                                   never do). 409 for the primary, whose
+                                   {state}: the off switch of its cron jobs
+                                   and bus push subscriptions, on by
+                                   default. on:false keeps them registered
+                                   but dormant (no tick, no delivery);
+                                   on:true makes them fire for it again.
+                                   Interface instances and ingress hosts
+                                   never activate off the primary either
+                                   way. 409 for the primary, whose
                                    registrations are always active
 POST   /deployments/always-on      tile manager. {tile, deployment, on} →
                                    {state}: it is kept up — restarted after
@@ -3122,8 +3129,9 @@ waits for it — and registers with it; a relay that asks for more answers
 
 The builder's view is [tile-deployments.md](/docs/tile-deployments.md);
 this is the wire's. Every tile has one deployment, `main`, which starts as
-its **primary**: what the bare URLs, grants, bindings, cron, bus deliveries,
-ingress and every other tile reach. A tile's developers can pause live
+its **primary**: what the bare URLs, grants, bindings, interface instances,
+ingress and every other tile reach (a cron job or bus subscription reaches
+the deployment that registered it). A tile's developers can pause live
 reload, add deployments (`dev`, …) with their own URL, data, vault and deploy
 log, promote code between them, and a tile manager can make another
 deployment the primary or protect the primary. A tile that never opts in has
@@ -3163,10 +3171,11 @@ workspace's non-primary deployments against their caps (*Runtime* below);
 policy*). Each deployment carries `url` and `api` (the qualified forms below;
 the primary's are the bare ones), `origin` (origins mode), `data`, `vault`
 (`{keys, placeholders}`), `limits` (`{memMiB, pids, diskGiB, overrides}`),
-`deliveries`, `alwaysOn`, `alwaysOnDeclared`, `backup` (a non-primary
-deployment's schedule), `registrations` (its cron jobs, bus subscriptions,
-interface instances and ingress hosts, each with `dormant`) and `wouldNotify`
-(its last 20 held notifications).
+`deliveries` (true for the primary, and for any other deployment unless a
+tile manager switched it off), `alwaysOn`, `alwaysOnDeclared`, `backup` (a
+non-primary deployment's schedule), `registrations` (its cron jobs, bus
+subscriptions, interface instances and ingress hosts, each with `dormant`)
+and `wouldNotify` (its last 20 held notifications).
 
 **Tile refs in a query string** send `+` as `%2B`, as `URLSearchParams`
 and Go's `url.Values` do: a bare `+` decodes to a space and names no tile.
@@ -3311,22 +3320,25 @@ the primary.
   primary moves.
 
 **Registrations of a deployment that isn't the primary** (`main` beside
-another primary included) are stored for that deployment and dormant, and
-registering still answers 200, now with `"dormant": true`, so a backend that
-registers at start keeps working.
-- A dormant cron job doesn't tick; a dormant bus subscription receives
-  nothing (its events count as `dormantEvents`). Dormant interface instances
-  and ingress hosts never route: no grants event, no re-wiring, no
-  reconcile, and ingress hosts are zone-validated but meet no conflict check.
-- A tile manager's deliveries switch makes a deployment's cron jobs and bus
-  subscriptions active for it; interface instances and ingress hosts stay
-  dormant while it isn't the primary, deliveries on or not. `run-now`
-  delivers one job once, whatever the switch says. A tick or delivery always
-  reaches the deployment that registered it. Otherwise only the primary's
-  registrations are active, and a reassignment changes which set is at once.
+another primary included) are stored for that deployment.
+- Its cron jobs and bus push subscriptions are active: a tick or delivery
+  reaches the deployment that registered it (its backend, its data), never
+  the primary. A tile manager's deliveries switch (on by default) turns them
+  off: they stay registered and dormant — a dormant job doesn't tick, a
+  dormant subscription receives nothing (its events count as
+  `dormantEvents`) — and registering answers 200 with `"dormant": true`.
+  `run-now` delivers one job once, whatever the switch says.
+- Its interface instances and ingress hosts are dormant, deliveries on or
+  not: registering answers 200 with `"dormant": true`, so a backend that
+  registers at start keeps working, and they never route: no grants event,
+  no re-wiring, no reconcile, and ingress hosts are zone-validated but meet
+  no conflict check. Only the primary's route, and a reassignment changes
+  which set does at once.
 - A registration on another scope's resource is refused while its edge is
   `block`, and stored under `read`: a job only ever calls its own
-  deployment's handler.
+  deployment's handler, and a subscription reads the scope's primary's bus,
+  like a read binding, its edge re-checked at every delivery. Publishing is
+  unchanged: into the deployment's own data only.
 - `main`'s registrations stay in the stores they always used, whether or not
   `main` is the primary; another deployment's live in files of its own
   (§Filesystem contract), which an older xbind never loads.
@@ -4640,8 +4652,9 @@ a time, sub-paths traversal-stripped. The native runtime document
   alwaysOn switch on; and it receives only its own requests: no other tile's
   calls, no ingress, no lan-ingress legs, no stream interface dials, no host
   networking or provider splice. Its calls to other tiles follow the tile's
-  edge policy (§Tile deployments), its cron jobs and bus subscriptions are
-  dormant until its deliveries are on, and its notifications are held.
+  edge policy (§Tile deployments), its cron jobs and bus subscriptions fire
+  for it unless a tile manager switched its deliveries off, and its
+  notifications are held.
 - stdout/stderr → `.xbin/log/<compkey>.log` (`bx logs`), where a failed
   deploy of a checkpoint also writes its compiler output; a deployment
   beyond `main` logs to `.xbin/deploy/<tile-key>/d/<name>/backend.log`

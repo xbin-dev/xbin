@@ -595,7 +595,8 @@ func runEdge(ctx context.Context, p *Plane, g Grant, r *EdgeRequest) (any, error
 }
 
 // runSwitch sets a non-primary deployment's deliveries or alwaysOn switch
-// (09-fabric §7; 11-contract §1.7): the broker asks deliveries at each tick;
+// (09-fabric §7; 11-contract §1.7): the broker asks deliveries at each tick,
+// and on is their default, so on clears the stored off (P13, revised);
 // alwaysOn needs y's own code to say it, and wakes it.
 func runSwitch(ctx context.Context, p *Plane, g Grant, r *SwitchRequest) (any, error) {
 	if r.On == nil {
@@ -621,12 +622,16 @@ func runSwitch(ctx context.Context, p *Plane, g Grant, r *SwitchRequest) (any, e
 		if d == nil || y == rec.Primary {
 			return false, moved(o.tile)
 		}
-		v := &d.Deliveries
-		if always {
-			v = &d.AlwaysOn
+		if !always {
+			changed := d.DeliveriesOn() != on
+			d.Deliveries = nil
+			if !on {
+				d.Deliveries = &on
+			}
+			return changed, nil
 		}
-		changed := *v != on
-		*v = on
+		changed := d.AlwaysOn != on
+		d.AlwaysOn = on
 		return changed, nil
 	})
 	if w, ok := p.Run.(alwaysOnWaker); ok && rec != nil && always && on {

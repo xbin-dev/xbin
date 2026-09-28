@@ -547,7 +547,7 @@ still denies principals without the grant.
 
 A tile can run several deployments of its code
 ([tile-deployments.md](/docs/tile-deployments.md)): its **primary**, which
-the bare URLs, grants, bindings, cron, bus deliveries and ingress reach, and
+the bare URLs, grants, bindings and ingress reach, and
 others (`dev`, …) its developers open at `/c/<tile>+<name>/`. Nothing below
 changes a tile that has only its primary. The wire is
 [protocol.md](/docs/protocol.md) §Tile deployments.
@@ -796,7 +796,7 @@ creation (clone, workspace-template instantiate) additionally requires
   per-tile entries, org shares, an exact `defaultTiles` entry, or its
   deployment state (a deployment record, a checkpoint store:
   [tile-deployments.md](tile-deployments.md)) — and, at the path and under
-  it, what its deployments beyond `main` left: their vaults, dormant
+  it, what its deployments beyond `main` left: their vaults,
   registrations and data. The refusal lists them; pick another path or have
   an admin clear them. Re-creating a path you already own is fine (the
   path's owner is exempt). Whoever creates the tile, admins included, the

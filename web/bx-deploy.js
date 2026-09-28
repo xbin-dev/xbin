@@ -5,7 +5,9 @@
  * its actions (and Undo after a code move onto the live reload target); a
  * side list ("tile-wide", one row per deployment, "+ Add deployment…"); a
  * main pane for the selected row — overview, deploy log, logs, registrations
- * (with Run now and "would notify"), and the view tab, which embeds a
+ * (a non-primary's cron jobs and bus subscriptions fire for it unless its
+ * deliveries switch is off; its interface instances and ingress hosts stay
+ * dormant; Run now and "would notify"), and the view tab, which embeds a
  * non-primary deployment's frontend as <bx-frame src="<tile>+<name>">; the
  * tile-wide page holds the primary (reassign, protect) and the outbound
  * edges with their per-edge refusal and clamp counts. A zero-state tile gets
@@ -587,8 +589,8 @@ export class BxDeployments extends LitElement {
 
   _registrations(s, o, name) {
     if (s.view === 'reader') return html`<div class="muted">${ds.REASON.needsWrite(s.tile)}</div>`;
-    const regs = ds.registrationRows(s, name, o), wn = ds.wouldNotifyRows(s, name, o);
-    return html`${regs.length ? html`<div class="tbl" style="--cols: 90px minmax(0, 1.5fr) minmax(0, 1.4fr) 90px">${regs.map((r) => html`<div class="tr">
+    const regs = ds.registrationRows(s, name, o), wn = ds.wouldNotifyRows(s, name, o), note = ds.registrationsNote(s, name);
+    return html`${note ? html`<div class="muted" style="margin-bottom:6px">${note}</div>` : nothing}${regs.length ? html`<div class="tbl" style="--cols: 90px minmax(0, 1.5fr) minmax(0, 1.4fr) 90px">${regs.map((r) => html`<div class="tr">
         <span class="muted">${r.kind}</span><span>${r.label}</span><span class="pill">${r.pill}</span>
         <span>${r.runNow ? this._button({ id: 'run', label: 'Run now', ...r.runNow }, () => this._runNow(r.name)) : nothing}</span></div>`)}</div>` : nothing}
       ${dep(s, name)?.primary ? nothing : html`<h4>${ds.REASON.wouldNotify}</h4>${wn.map((t) => html`<div>${t}</div>`)}`}`;

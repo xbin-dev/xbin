@@ -37,7 +37,7 @@ Tiles that never opt in change in no way at all (P5).
 | 4 | [06-security.md](06-security.md) | Threat model and mitigations. |
 | 5 | [07-runtime.md](07-runtime.md) | Runner, watcher, builds, checkpoints, serving, restart paths. |
 | 6 | [08-data.md](08-data.md) | Data namespaces, seeding, reset, vault, backup, quotas. |
-| 7 | [09-fabric.md](09-fabric.md) | Inbound edges, outbound edge policy, self-calls, dormant registrations. |
+| 7 | [09-fabric.md](09-fabric.md) | Inbound edges, outbound edge policy, self-calls, non-primary registrations and deliveries. |
 | 8 | [10-ux.md](10-ux.md) | Terminal window, shell, `bx`, agent guidance, wording. |
 | 9 | [11-contract.md](11-contract.md) | Exact wire: endpoints, events, env, headers, tokens, CLI. |
 | 10 | [12-compat.md](12-compat.md) | Compatibility proof obligations, downgrade, fixtures. |

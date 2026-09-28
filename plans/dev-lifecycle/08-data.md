@@ -11,7 +11,7 @@ This document is the storage half of [05-model.md](05-model.md) (§3, §6, §9,
   namespace, with per-deployment limits that default to the tile's;
 - **P28**: a (scope, name) namespace is shared by the scope's same-named
   deployments;
-- the storage side of **P13** (dormant registrations; non-primary status only
+- the storage side of **P13** (per-deployment registrations; non-primary status only
   in the `deployments` event), of **P18** (a pinned or non-primary backend
   reaches its files only through sandbox binds) and of **P26** (the classes of
   the data routes, §4.4).
@@ -276,7 +276,7 @@ A guard test in the style of `TestNoDirectExec` must refuse new
 | non-`main` vaults | Live under `data/vault/.deployments/`. `migrateVaults` skips directories (`vault.go:122`), and `vaultPath` never yields them. |
 | prefs | In a dot-level subdirectory that old code never computes. |
 | logs, D113 state | Under `.xbin/deploy/`, which old code never computes. |
-| dormant registrations, non-primary backup schedules | In files under `data/deployments/`. They are never rows in `cron-jobs.json`, `bus-subscriptions.json`, the root `xbin.json` or `backup-schedule.json`. |
+| non-primary registrations, non-primary backup schedules | In files under `data/deployments/`. They are never rows in `cron-jobs.json`, `bus-subscriptions.json`, the root `xbin.json` or `backup-schedule.json`. |
 | main archives of a tile with a record | Stay schema 1. The new manifest field is additive (old readers decode the manifest without refusing unknown fields, `internal/backup/backup.go:161-164`), and new tar prefixes are skipped by old `restore`, whose switch has no default case (`internal/broker/backup.go:242-280`). A zero-state tile's archive is today's, byte for byte. |
 | deployment archives | Schema 2. Old readers refuse them with "upgrade to restore" (`internal/backup/backup.go:165-167`). |
 | quotas | The old disk monitor measures only `ScopeKey` directories, so non-`main` usage goes unaccounted while downgraded. |
@@ -454,7 +454,7 @@ document changes:
 | `/vault/{rest…}` | deployment-scoped | its own deployment's vault (§10); `?deployment=` naming another is 403 |
 | `/prefs`, `/prefs/{key}` | deployment-scoped | its own prefs file |
 | `GET /logs`, `GET /tile-status` | deployment-scoped | its own log, backend and namespace |
-| `/cron/jobs`, `/bus/subscriptions`, `PUT /iface-instances`, `PUT /ingress-hosts` | deployment-scoped | its own registration files, dormant (`09-fabric.md` §6) |
+| `/cron/jobs`, `/bus/subscriptions`, `PUT /iface-instances`, `PUT /ingress-hosts` | deployment-scoped | its own registration files: cron and bus fire for it unless its deliveries are off, interface instances and ingress hosts dormant (`09-fabric.md` §6) |
 | `POST /backup`, `GET /backups`, `POST /restore`, `/backup-schedule`, `GET /vaults`, `GET /resources`, `POST /vault-seal`, `POST /vault-unseal`, `POST /vault-rekey` | primary-only (admin gates, `internal/broker/admin.go:25-31`) | refused: a non-primary principal never satisfies `IsAdmin` (P19) |
 | the data acts under `/api/xbin/deployments/…` (seed, reset, vault copy, per-deployment backup, restore and schedule) | the deployments plane | refused for instance, frame, cron and bus principals (05-model §10); reset alone admits the tile's terminal and agent tokens (§9.1) |
 
@@ -668,7 +668,7 @@ Under `read`, a non-primary deployment reaches the provider's primary data
 | blob `PUT` / `DELETE` | 403 | 403 |
 | bus WebSocket subscription (`reader`, `subscriber`) | allowed; events from `(R, P(R))` only (§4.3) | none delivered |
 | bus publish (`writer`, `publisher`) | 403 | 403 |
-| bus push subscription, cron job on a foreign resource | stored dormant; whether activation re-checks the clamp is `09-fabric.md`'s | refused |
+| bus push subscription, cron job on a foreign resource | stored; a subscription receives from `(R, P(R))`, its edge re-checked at every delivery (`09-fabric.md` §7) | refused |
 | cross-scope `filesystem`/`sqlite` | no env path, no bind (unchanged: `resources.go:92-94`) | same |
 | workspace-level `filesystem` / `sqlite` (workspace-scope tile) | not offered: this edge is `block` only (§5 item 6, P23) | no bind |
 
@@ -753,8 +753,8 @@ seed:
      primary's outage is always a stated choice.
 2. **Hold `(S, d)`.** Write `ns.json` state `seeding` with by, at and
    `from: P(S)`. Stop every backend, and every D113 sandbox, addressing
-   `(S, d)`. Requests to `(S, d)` get 503 with `Retry-After`. With deliveries
-   on, cron and bus deliveries fail meanwhile, at most once.
+   `(S, d)`. Requests to `(S, d)` get 503 with `Retry-After`. Unless its
+   deliveries are off, cron and bus deliveries fail meanwhile, at most once.
 3. **Stopped mode only: hold `(S, P(S))` too.** Stop the primary's backends.
    Data-plane writes into it wait on its write gate (below). The primary's API
    answers 503 until step 7.

@@ -16,7 +16,7 @@ Other documents own the rest:
 - data namespaces, seeding, backups and which `scope.json` declares a shared
   namespace's resources: [08-data.md](08-data.md);
 - who may reach which deployment, the edge policy, route classification and
-  dormant registrations: [09-fabric.md](09-fabric.md);
+  non-primary registrations: [09-fabric.md](09-fabric.md);
 - the threat model and the git hardening this document obeys:
   [06-security.md](06-security.md);
 - package and file names, budgets: [13-surfaces.md](13-surfaces.md).

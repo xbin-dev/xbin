@@ -103,8 +103,9 @@ func TestM2HooksZeroState(t *testing.T) {
 }
 
 // m2Record is a record for tile beyond main: main the primary, pinned and
-// protected; dev followed by live reload, deliveries on, limits lowered;
-// qa pinned; one edge policy stored.
+// protected; dev followed by live reload, deliveries stored on (as an M2
+// build wrote it), limits lowered; qa pinned, deliveries switched off; one
+// edge policy stored.
 func m2Record(tile string) map[string]any {
 	doc := recordDoc(tile, "")
 	doc["liveReload"], doc["lastLiveReload"], doc["protectedPrimary"] = "dev", "dev", true
@@ -113,7 +114,7 @@ func m2Record(tile string) map[string]any {
 		"main": map[string]any{"checkpoint": treeA},
 		"dev": map[string]any{"checkpoint": nil, "deliveries": true,
 			"limits": map[string]any{"memMiB": 512, "pids": 100}},
-		"qa": map[string]any{"checkpoint": treeB, "limits": map[string]any{"memMiB": 1 << 20}},
+		"qa": map[string]any{"checkpoint": treeB, "deliveries": false, "limits": map[string]any{"memMiB": 1 << 20}},
 	}
 	return doc
 }
@@ -122,8 +123,8 @@ func m2Record(tile string) map[string]any {
 // deployments main first; each principal of the tile reaches its bound
 // deployment (a removed one is a 404, a session following a protected
 // primary or naming it is refused), anyone else the primary; cron and bus
-// fire for the primary and for a deployment with deliveries on, while only
-// the primary routes; the stored edge policy comes back as a copy; limits
+// fire for every deployment but one whose deliveries a manager switched off
+// (a stored true reads as on), while only the primary routes; the stored edge policy comes back as a copy; limits
 // are lowered, never raised past the tile's; the target choice learns the
 // record; and registration files live beside the record, only for
 // deployments that exist, never for main.

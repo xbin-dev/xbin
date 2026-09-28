@@ -348,7 +348,7 @@ func depAdd(cmd string, a dcArgs) error {
 		r.add("Data", data+"; secrets start as names only")
 		r.add("Edges", "it uses "+st.Tile+"'s grants and bindings, reading other tiles' primaries as reader")
 		r.add("Pauses", stopsLine(imp))
-		r.add("Affects", fmt.Sprintf("nobody now. It is reachable at /c/%s+%s/ by people with write on %s and by its terminals; its cron jobs, bus deliveries and alwaysOn stay off", st.Tile, x, st.Tile))
+		r.add("Affects", fmt.Sprintf("nobody now. It is reachable at /c/%s+%s/ by people with write on %s and by its terminals; its cron jobs and bus subscriptions fire for it, with its data (anything they send is real); its ingress hosts and interface instances stay with the primary; alwaysOn stays off", st.Tile, x, st.Tile))
 		return r
 	}
 	op.result = func(b []byte, _, after *deployState, x string) string {
@@ -408,7 +408,7 @@ func depPrimary(cmd string, a dcArgs) error {
 		if d := st.deployment(x); d != nil && d.Data != nil {
 			served += " (" + dataWords(d.Data, false) + ")"
 		}
-		r.add("Data", fmt.Sprintf("the primary will serve %s. %s's data does not move: %s keeps it, keeps running its code, and its cron jobs and subscriptions become dormant", served, p, p))
+		r.add("Data", fmt.Sprintf("the primary will serve %s. %s's data does not move: %s keeps it, keeps running its code, and its cron jobs and subscriptions keep firing for it; its ingress hosts and interface instances become dormant", served, p, p))
 		if n := len(imp.Placeholders); n > 0 {
 			r.add("Secrets", fmt.Sprintf("%s has no value for %d secret(s) %s uses (%s): copy or set them first", x, n, p, strings.Join(imp.Placeholders, ", ")))
 		}
@@ -417,7 +417,7 @@ func depPrimary(cmd string, a dcArgs) error {
 			pauses += "; live reload is attached to " + x + ": from now on every save reaches everyone using " + st.Tile
 		}
 		r.add("Pauses", pauses)
-		r.add("Affects", "everyone using "+st.Tile+": its URL, other tiles' bindings and grants, ingress, cron jobs, bus deliveries, notifications and the app move to "+x+" at once")
+		r.add("Affects", "everyone using "+st.Tile+": its URL, other tiles' bindings and grants, ingress, interface instances, notifications and the app move to "+x+" at once; cron jobs and bus subscriptions stay with the deployment that registered them")
 		return r
 	}
 	op.result = func(b []byte, _, _ *deployState, x string) string {
@@ -655,11 +655,11 @@ func switchReport(route string, on bool, st *deployState, x string) deployReport
 	var r deployReport
 	switch {
 	case route == "deliveries" && on:
-		r.question = "Turn on deliveries for " + x
-		r.add("Data", fmt.Sprintf("%s's cron jobs and bus subscriptions start firing for %s, alongside %s's. Their side effects are real: they run with %s's data, %s's grants (reading other tiles' primaries) and %s's network, so anything they send (email, webhooks) is real", x, x, st.primary(), x, st.Tile, st.Tile))
+		r.question = "Turn " + x + "'s deliveries back on"
+		r.add("Data", fmt.Sprintf("%s's cron jobs and bus subscriptions fire for %s again, alongside %s's. Their side effects are real: they run with %s's data, %s's grants (reading other tiles' primaries) and %s's network, so anything they send (email, webhooks) is real", x, x, st.primary(), x, st.Tile, st.Tile))
 	case route == "deliveries":
 		r.question = "Turn off deliveries for " + x
-		r.add("Data", x+"'s cron jobs and bus subscriptions go dormant again")
+		r.add("Data", x+"'s cron jobs and bus subscriptions stop firing and are listed dormant until a tile manager turns them back on; run now still delivers a job once")
 	case on:
 		r.question = "Keep " + x + " running"
 		r.add("Data", x+" starts now, is never idle-stopped and restarts after exits, like "+st.primary()+"; it uses memory while it runs")

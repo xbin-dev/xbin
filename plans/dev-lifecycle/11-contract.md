@@ -253,7 +253,7 @@ checkpoint-id = "c:" 7*64 lowercase hex  ; a unique prefix of the checkpoint's t
   "vault": {"keys": 4, "placeholders": 1},   // placeholders: key names with no value yet (P14)
   "limits": {"memMiB": 1024, "pids": 512, "diskGiB": 50, "overrides": ["memMiB"]},
                                       // effective resource limits (P22, §1.7); overrides: the ones a manager lowered
-  "deliveries": false,                // the primary: always true, not a switch
+  "deliveries": true,                 // on unless a tile manager switched it off (P13); the primary: always true, not a switch
   "alwaysOn": false,                  // the primary: the manifest's value, not a switch
   "alwaysOnDeclared": true,           // this deployment's code declares "alwaysOn"
   "backup": {"schedule": "0 3 * * *", "retention": 3},   // non-primary only; absent without a schedule (§1.8)
@@ -269,9 +269,11 @@ checkpoint-id = "c:" 7*64 lowercase hex  ; a unique prefix of the checkpoint's t
 // Checkpoint
 {"id": "c:3f2a1c9", "hash": "<full tree object id>", "feed": "work-tree", "at": "…", "by": "user:ana"}
 
-// Registration: a cron job, bus push subscription, interface instance or ingress host of ONE deployment
-{"kind": "cron", "name": "nightly", "schedule": "0 3 * * *", "path": "/tick", "dormant": true}
-{"kind": "bus", "name": "trig-12", "resource": "res:apps/crm/events", "prefix": "orders/", "path": "/trigger/bus/12", "dormant": true}
+// Registration: a cron job, bus push subscription, interface instance or ingress host of ONE deployment.
+// dormant: cron and bus, while the deployment's deliveries are off; iface-instance and ingress-host, while
+// the deployment isn't the primary (P13)
+{"kind": "cron", "name": "nightly", "schedule": "0 3 * * *", "path": "/tick", "dormant": false}
+{"kind": "bus", "name": "trig-12", "resource": "res:apps/crm/events", "prefix": "orders/", "path": "/trigger/bus/12", "dormant": false}
 {"kind": "iface-instance", "name": "acme", "prefix": "/t/acme", "dormant": true}
 {"kind": "ingress-host", "name": "crm.example.com", "dormant": true}
 
@@ -517,7 +519,7 @@ body       {"tile": "apps/crm", "deployment": "dev",
             "seq"?: 18}
 200        {"state": State, "deploy": DeployEntry, "joins"?: {…}}   how: "add" (and "attach" entries when attach:true)
 effect     Creates the deployment with its code, a data namespace, a vault holding the primary's key names as
-           placeholders, deliveries and alwaysOn off, limits at the tile's (model §5). The namespace is
+           placeholders, deliveries on, alwaysOn off, limits at the tile's (model §5). The namespace is
            (scope, name) (08-data.md §6): when a sibling tile of the scope already claims it, the new
            deployment joins it, and the answer's joins names its state and who seeded or restored it.
            On a tile without a record this is an opt-in (§1.2).
@@ -600,7 +602,8 @@ body       {"tile": "apps/crm", "deployment": "dev", "confirm": "data-stays", "e
 200        {"state": State, "deploy"?: DeployEntry, "inactiveHosts"?: ["crm.example.com"]}
 effect     Routing moves (model §5, §7). Data does not move, and the root xbin.json is never written. Y starts
            as the primary first; then the old primary is restarted or stopped, its long-lived streams cut.
-           The old primary's registrations become dormant and Y's activate; Y's dormant ingress hosts are
+           The old primary's interface instances and ingress hosts become dormant and Y's activate (each
+           deployment's cron jobs and bus subscriptions keep firing for it); Y's dormant ingress hosts are
            re-validated, and any that conflict stay inactive and are listed in inactiveHosts. Sessions named
            after either deployment restart (§7.4). When Y follows the work tree and the primary is protected,
            Y is pinned to exactly expect first (how "reassign"). Limits follow the deployment: Y keeps its own
@@ -649,8 +652,10 @@ POST /api/xbin/deployments/deliveries
 POST /api/xbin/deployments/always-on
 body       {"tile": "apps/crm", "deployment": "dev", "on": true, "seq"?: 18}
 200        {"state": State}
-effect     deliveries: Y's dormant cron jobs and bus push subscriptions become active for Y (interface
-           instances and ingress hosts never do). always-on: honours D84 for Y.
+effect     deliveries: the off switch of Y's cron jobs and bus push subscriptions, on by default (P13,
+           revised 2026-09-28). on:false leaves them registered and dormant; on:true makes them fire for
+           Y again and clears the record's key (absent = on, false = off). Interface instances and
+           ingress hosts never activate off the primary, either way. always-on: honours D84 for Y.
 authority  tile manager
 idempotent yes
 errors     403 · 404 · 409 Y is the primary (its registrations are always active)
@@ -754,7 +759,8 @@ errors     400 missing confirm · 403 · 404 no such deployment, or no archive �
 POST /api/xbin/deployments/run-now
 body       {"tile": "apps/crm", "deployment": "dev", "job": "nightly"}
 200        {"state": State, "delivery": {"status": 200, "ms": 812}}   status: what the handler answered
-effect     Delivers Y's cron job once to Y, as xbin/cron with the job's role, dormant or not, through the
+effect     Delivers Y's cron job once to Y, as xbin/cron with the job's role, whatever Y's deliveries
+           switch says, through the
            same dispatch a tick uses. Waits for the handler, at most 2 minutes. One run in flight per job.
 authority  terminal level
 errors     403 · 404 no such deployment or job · 409 Y is the primary (its jobs fire on schedule)
@@ -899,7 +905,7 @@ errors     403 · 404 no such tile, a tile without a record, or a path outside t
 | Seed Y | `POST /deployments/seed` | `bx deployment seed [<tile>] <name>` |
 | Reset Y | `POST /deployments/reset` | `bx deployment reset [<tile>] <name>` |
 | Vault copy to Y | `POST /deployments/vault-copy` | `bx deployment vault-copy [<tile>] <name> --keys <k1,k2>\|--all` |
-| Deliveries on/off for Y | `POST /deployments/deliveries` | `bx deployment set [<tile>] <name> --deliveries on\|off` |
+| Deliveries off/on for Y | `POST /deployments/deliveries` | `bx deployment set [<tile>] <name> --deliveries on\|off` |
 | alwaysOn on/off for Y | `POST /deployments/always-on` | `bx deployment set [<tile>] <name> --always-on on\|off` |
 | Resource limits of Y | `POST /deployments/limits` | `bx deployment set [<tile>] <name> --mem\|--pids\|--disk <n>\|default` |
 | Set edge policy | `POST /deployments/edge` | `bx deployment edge [<tile>] <edge> read\|block\|inherit\|default` |
@@ -1624,7 +1630,7 @@ deployment (§2.6).
 | `GET /sandboxes` (`internal/boot/sandboxes.go:42-49`) | Follows the D112 registry, name rule. `main`'s rows are byte-identical to today's, even when the tile has a record: id `backend:<CompKey>:g<gen>` (`internal/runner/sbx.go:63`), no `deployment` field; only their `leaf` changes, once the tile runs a non-main deployment ([07-runtime.md](07-runtime.md) §10.3). Every other deployment's backend rows have the id `backend+<name>:<CompKey>:g<gen>`, carry `Entry.Deployment` as `deployment`, and have `stats.scope` `"deployment"` (`sandboxes.go:62-69`). `?deployment=<name>` narrows. VM `usedBy` stays per tile (D112: every deployment is charged to the tile). D113 `tile` rows, once built, carry their deployment when it isn't `main`. | The admin tab groups by tile and counts one `"tile"` scope per tile (`workspace-template/tiles/admin/tabs/sandboxes.js:211-233`). |
 | `GET /tile-report` | Unchanged: it never lists non-primary status. | §3.2 |
 | `POST /tile-report`, `POST /notify` from a non-primary principal | Stored per deployment or suppressed. Answers are unchanged, plus `suppressed: true` on notify. Published as `deployments` op `status` or `notify`. | P13 |
-| `GET`/`PUT`/`DELETE /cron/jobs`, `/bus/subscriptions` | A non-primary principal lists and writes its own deployment's files (§10.2). Rows gain `deployment` and `dormant`. `?deployment=<name>` is for admins. A PUT answer gains `dormant: true`. | The SDK subscribes at every start and must keep succeeding (compat rule 8). |
+| `GET`/`PUT`/`DELETE /cron/jobs`, `/bus/subscriptions` | A non-primary principal lists and writes its own deployment's files (§10.2). Rows gain `deployment` and `dormant`. `?deployment=<name>` is for admins. A PUT answer gains `dormant: true` while the deployment's deliveries are off; otherwise it fires for that deployment (P13). | The SDK subscribes at every start and must keep succeeding (compat rule 8). |
 | `PUT /iface-instances`, `/ingress-hosts` from a non-primary principal | Stored, dormant, never routed. No `grants` event, no restart, no reconcile. The answer gains `dormant: true`. | These PUTs replace the whole map today (`docs/protocol.md:1707`, `:1721`). |
 | `/vault/<component>` routes | DR1: a tile principal acts on its bound deployment's vault. Tile managers and admins use `?deployment=<name>`. | Vault URLs are built from `Self()` (`sdk/xbin.go:82`). |
 | kv, blob, bus publish | No wire change: calls resolve in the caller's namespace (08-data.md). | |
@@ -1863,6 +1869,8 @@ load whose path doesn't match (06-security C10).
     "main": {"checkpoint": "<full tree id>", "created": "…", "by": "user:ana"},
     "dev":  {"checkpoint": null, "deliveries": false, "alwaysOn": false, "limits": {"memMiB": 1024},
              "created": "…", "by": "user:ana"},
+                                        // deliveries: absent = on (the default); false = a tile manager
+                                        // switched them off; true (the M2 build's on) reads as on (P13)
     "exp":  {"checkpoint": "<full tree id>", "state": "failed", "created": "…", "by": "user:ana"}
                                         // state "failed": the attempted checkpoint of a failed move off the work tree
   }
@@ -1934,7 +1942,9 @@ sandboxes.json          (D113, once built) the deployment's sandbox definitions,
   `main` is the primary.
 - An older xbind never loads these files, so it can't fire them as `main`'s
   (P13).
-- Which set is active follows the primary role, plus deliveries (model §7).
+- Cron jobs and bus subscriptions in these files fire for their deployment
+  unless its deliveries are off; interface instances and ingress hosts are
+  active only while it is the primary (model §7, P13).
 - Vault files, data namespaces, logs and built artifacts are keyed by
   [08-data.md](08-data.md) and [07-runtime.md](07-runtime.md).
 
@@ -2111,7 +2121,7 @@ d/<name>/           a non-main deployment's derived state: its backend log (d/<n
 | Session targets in the tile-API dropdown, echoed (§7.4) | 2: query parameters and response fields only; old clients get the primary | [/docs/protocol.md](/docs/protocol.md) §/ws/term, [/docs/overview/09-terminals.md](/docs/overview/09-terminals.md) |
 | whoami `deployment` (§7.7) | 2 | [/docs/protocol.md](/docs/protocol.md) |
 | `/backends`, `/runtime`, `/tile-status`, `/logs`, `/components`, `/sandboxes`, `/term/sessions` fields (§8) | 2: fields on rows, never new keys or rows; `main`'s registry rows byte-identical | [/docs/protocol.md](/docs/protocol.md) |
-| Dormant registrations behind the same routes (§8, §10.2) | 8: a call that succeeds today keeps succeeding | [/docs/resources.md](/docs/resources.md), [/docs/protocol.md](/docs/protocol.md) |
+| Non-primary registrations behind the same routes (§8, §10.2) | 8: a call that succeeds today keeps succeeding | [/docs/resources.md](/docs/resources.md), [/docs/protocol.md](/docs/protocol.md) |
 | The `bx` commands, exit codes 3–6, new flags on `status`/`logs`/`agent run` (§9) | 6: a superset; existing invocations and exit codes unchanged | [/docs/bx.md](/docs/bx.md) + usage strings |
 | No manifest key (§0.1) | 7 | [/docs/elements.md](/docs/elements.md) |
 | On-disk formats (§10) | not promised; old binaries must not misread them | [/docs/protocol.md](/docs/protocol.md) §Filesystem contract, [/docs/overview/14-lifecycle.md](/docs/overview/14-lifecycle.md) (backups) |

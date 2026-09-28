@@ -186,8 +186,9 @@ func (cr *cronRunner) fire(j cronJob) {
 		return
 	}
 	// main's jobs fire while main's registrations are active: always without
-	// a deployment record; with one, while main is the primary or has
-	// deliveries on (the active set, dormant.go) (P13).
+	// a deployment record; with one, unless main isn't the primary and a
+	// tile manager switched its deliveries off (the active set, dormant.go)
+	// (P13).
 	if !cr.b.firing(j.Component, "") {
 		return
 	}
@@ -283,8 +284,8 @@ func (b *Broker) apiCronPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Unclamped: a job only schedules its own handler, so main while it isn't
-	// the primary stores a foreign one dormant under read (NP-09-18); block
-	// is depEdge's.
+	// the primary stores a foreign one under read (NP-09-18); block is
+	// depEdge's.
 	if err := b.allowResUnclamped(p, rt.String(), "writer"); err != nil {
 		server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/auth.md")
 		return

@@ -61,7 +61,7 @@ func TestDeployAuthzMatrixGov(t *testing.T) {
 		{"protect", false, OpProtect, &ProtectRequest{Tile: opSite, On: ptr(true)}, manager},
 		{"unprotect", true, OpProtect, &ProtectRequest{Tile: opSite, On: ptr(false)}, manager},
 		{"edge policy", false, OpEdge, &EdgeRequest{Tile: opSite, Edge: "grant:apps/leads", Policy: EdgeBlock}, manager},
-		{"deliveries", false, OpDeliveries, &SwitchRequest{Tile: opSite, Deployment: "dev", On: ptr(true)}, manager},
+		{"deliveries", false, OpDeliveries, &SwitchRequest{Tile: opSite, Deployment: "dev", On: ptr(false)}, manager},
 		{"alwaysOn", false, OpAlwaysOn, &SwitchRequest{Tile: opSite, Deployment: "dev", On: ptr(true)}, manager},
 		{"limits", false, OpLimits, &LimitsRequest{Tile: opSite, Deployment: "dev", Limits: LimitsPatch{Pids: Override{Set: true, Value: ptr(int64(64))}}}, manager},
 		{"seed", false, OpSeed, &SeedRequest{Tile: opSite, Deployment: "dev", Confirm: ConfirmCopyData}, manager},

@@ -691,9 +691,10 @@ manifest key or file of yours is involved (the state lives in xbind's
 - **What a non-primary deployment doesn't do:** it starts with empty data;
   its calls to other tiles reach their primary as `reader` (so, for example,
   LLM turns through llm-gw are refused), and edges that can't be limited to
-  reading are blocked; its cron jobs, bus subscriptions, interface instances
-  and ingress hosts are registered dormant (the call succeeds, nothing
-  fires); its notifications are held; its status shows only in the
+  reading are blocked; its interface instances and ingress hosts are
+  registered dormant (the call succeeds, nothing routes), while its cron jobs
+  and bus subscriptions fire for it unless a tile manager switched its
+  deliveries off; its notifications are held; its status shows only in the
   Deployments panel.
 - **What runs from a checkpoint**: the pages, the backend (at every
   restart), and the manifest fields that say how the deployment runs —

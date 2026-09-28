@@ -13,7 +13,7 @@ import {
 const ds = { ...dsState, ...dsPanel };
 const {
   who, ago, entry, confirmation, result, notice,
-  REASON, PANEL_OPS, panelRows, panelHeader, overview, panelActions, zeroPanel, edgeRows, widens, registrationRows, asksToRun,
+  REASON, PANEL_OPS, panelRows, panelHeader, overview, panelActions, zeroPanel, edgeRows, widens, registrationRows, registrationsNote, asksToRun,
   wouldNotifyRows, logRows, diffLine, addDialog,
 } = ds;
 
@@ -29,9 +29,9 @@ const EDGES = [
 ];
 const devM2 = (over = {}) => devLive({
   status: { state: 'healthy', gen: 3, serving: 'work-tree' }, data: { state: 'seeded', from: 'main', at: at(60 * 48), by: 'user:ana' }, vault: { keys: 4, placeholders: 1 },
-  limits: { memMiB: 256, pids: 512, diskGiB: 50, overrides: ['memMiB'] }, deliveries: false, alwaysOn: false, alwaysOnDeclared: true,
-  wouldNotify: [{ at: at(3), to: 'user:ana', title: 'Deploy v2.3?' }], registrations: [{ kind: 'cron', name: 'nightly', schedule: '0 3 * * *', path: '/tick', dormant: true },
-    { kind: 'bus', name: 'trig-12', resource: 'res:apps/crm/events', prefix: 'orders/', dormant: true }, { kind: 'ingress-host', name: 'crm.example.com', dormant: true }],
+  limits: { memMiB: 256, pids: 512, diskGiB: 50, overrides: ['memMiB'] }, deliveries: true, alwaysOn: false, alwaysOnDeclared: true,
+  wouldNotify: [{ at: at(3), to: 'user:ana', title: 'Deploy v2.3?' }], registrations: [{ kind: 'cron', name: 'nightly', schedule: '0 3 * * *', path: '/tick', dormant: false },
+    { kind: 'bus', name: 'trig-12', resource: 'res:apps/crm/events', prefix: 'orders/', dormant: false }, { kind: 'ingress-host', name: 'crm.example.com', dormant: true }],
   can: depCan({ remove: yes, reset: yes, runNow: yes, seed: no(MANAGER), vaultCopy: no(MANAGER), deliveries: no(MANAGER), alwaysOn: no(MANAGER), limits: no(MANAGER), primary: no(MANAGER) }), ...over,
 });
 const mainM2 = (over = {}) => mainPinned({ data: { state: 'original' }, limits: { memMiB: 512, pids: 512, diskGiB: 50 }, deliveries: true,
@@ -45,12 +45,12 @@ const ids = (list) => list.map((a) => `${a.id}${a.enabled ? '' : '✗'}`);
 test('the panel: rows, header and overview', () => {
   const s = m2();
   assert.deepEqual(panelRows(s, { ...opts, target: 'dev' }).map((r) => [r.name, r.primary, r.code, r.status, r.data, r.deliveries, r.target]), [
-    ['main', true, '📌 c:3f2a1c9', 'static', 'original', 'deliveries: active', false], ['dev', false, '● work tree', 'healthy', 'seeded from main · 2d ago', 'deliveries: off', true]]);
+    ['main', true, '📌 c:3f2a1c9', 'static', 'original', 'deliveries: active', false], ['dev', false, '● work tree', 'healthy', 'seeded from main · 2d ago', 'deliveries: on', true]]);
   const h = panelHeader(s, opts);
   assert.equal(h.text, 'Live reload: dev — saves reach apps/crm+dev. The primary, main, is pinned to c:3f2a1c9.');
   assert.deepEqual([h.actions.map((a) => a.id), h.actions[1].items.map((i) => i.id)], [['pause', 'attach'], ['attach/main']]);
   assert.deepEqual(overview(s, 'dev', opts).lines, [['code', '● work tree'], ['status', 'healthy'], ['data', 'seeded from main · 2d ago'],
-    ['limits', 'memory: 256 MiB (set by a tile manager) · disk: the tile\'s default (50 GiB)'], ['vault', '4 secrets · 1 is a placeholder'], ['deliveries', 'deliveries: off'], ['alwaysOn', 'alwaysOn: off']]);
+    ['limits', 'memory: 256 MiB (set by a tile manager) · disk: the tile\'s default (50 GiB)'], ['vault', '4 secrets · 1 is a placeholder'], ['deliveries', 'deliveries: on'], ['alwaysOn', 'alwaysOn: off']]);
   const mo = overview(s, 'main', { ...opts, entry: { deployment: 'main', how: 'promote', from: 'dev', by: 'user:ana', finishedAt: at(120), result: 'ok' } });
   assert.deepEqual(mo.lines.slice(0, 2), [['primary', 'primary — everything from outside reaches it'], ['code', '📌 c:3f2a1c9 · promoted from dev by ana, 2h ago']]);
   assert.deepEqual([mo.gitLine, mo.url, overview(s, 'dev', opts).gitLine], ['git: deploy/main — git fetch xbin-deploy', '/c/apps/crm/', null]);
@@ -114,12 +114,21 @@ test('the panel: the outbound-edges table', () => {
   assert.deepEqual([widens(s, 'grant:apps/leads', 'read'), widens(s, 'grant:apps/leads', 'default'), widens(s, 'slot:llm', 'block')], [true, true, false]);
 });
 
-// covers P13 P9 — registrations and their pills, Run now (and when it asks),
+// covers P13 P9 — registrations and their pills (a non-primary's cron jobs
+// and bus subscriptions active for it, dormant only with deliveries off; its
+// ingress hosts dormant), the tab's note, Run now (and when it asks),
 // "would notify", the deploy log with its running entry and Roll back.
 test('the panel: registrations, Run now, would notify and the deploy log', () => {
   const s = m2();
-  assert.deepEqual(registrationRows(s, 'dev').map((r) => [r.label, r.pill, !!r.runNow?.enabled]), [['nightly · 0 3 * * *', 'dormant', true],
-    ['trig-12 · res:apps/crm/events orders/', 'dormant', false], ['crm.example.com', 'dormant — routes reach the primary only', false]]);
+  assert.deepEqual(registrationRows(s, 'dev').map((r) => [r.label, r.pill, !!r.runNow?.enabled]), [['nightly · 0 3 * * *', 'active', true],
+    ['trig-12 · res:apps/crm/events orders/', 'active', false], ['crm.example.com', 'dormant — routes reach the primary only', false]]);
+  const off = m2({ deployments: [mainM2(), devM2({ deliveries: false, registrations: devM2().registrations.map((r) => ({ ...r, dormant: true })) })] });
+  assert.deepEqual(registrationRows(off, 'dev').map((r) => r.pill), ['dormant — deliveries off', 'dormant — deliveries off', 'dormant — routes reach the primary only']);
+  assert.deepEqual([panelRows(off, opts)[1].deliveries, panelActions(off, 'dev', opts).find((a) => a.id === 'deliveries').on, panelActions(s, 'dev', opts).find((a) => a.id === 'deliveries').on],
+    ['deliveries: off', false, true]);
+  assert.deepEqual([registrationsNote(s, 'dev'), registrationsNote(off, 'dev'), registrationsNote(s, 'main')], [
+    'dev\'s cron jobs and bus subscriptions fire for dev, with its own data. Its interface instances and ingress hosts stay dormant: routes reach the primary, main, only.',
+    'dev\'s cron jobs and bus subscriptions are silenced: a tile manager switched its deliveries off. Its interface instances and ingress hosts stay dormant: routes reach the primary, main, only.', '']);
   assert.deepEqual([asksToRun(s, 'dev'), asksToRun(m2({ deployments: [mainM2(), devM2({ data: { state: 'empty' } })] }), 'dev'), wouldNotifyRows(s, 'dev', opts)],
     [true, false, ['would notify ana · "Deploy v2.3?" · 3m ago']]);
   const log = logRows(s, 'main', [
@@ -153,7 +162,7 @@ test('the panel\'s confirmations render the dry run and send what it showed', ()
   const s = m2(), C = (op, ctx) => confirmation(op, { state: s, ...ctx }, opts), line = (c, i) => c.message.split('\n')[i];
   const add = C('add', { deployment: 'qa', add: { from: 'work-tree', attach: true }, impact: { code: { to: 'c:7b19e02' }, affects: 'nobody' } });
   assert.deepEqual([add.title, line(add, 0), line(add, 3), add.send({}), add.required], ['Add deployment qa to apps/crm?', 'Code: qa runs a fresh checkpoint of the work tree, c:7b19e02. Live reload moves to qa; dev is pinned to c:7b19e02.',
-    'Affects: nobody now. It is reachable at /c/apps/crm+qa/ by people with write on apps/crm and by this tile\'s terminals. Its cron jobs, bus deliveries and alwaysOn stay off.', {}, []]);
+    'Affects: nobody now. It is reachable at /c/apps/crm+qa/ by people with write on apps/crm and by this tile\'s terminals. Its cron jobs and bus subscriptions fire for qa, with qa\'s data: anything they send is real. Its interface instances and ingress hosts stay with the primary, and alwaysOn stays off.', {}, []]);
   const seed = C('add', { deployment: 'qa', add: { from: 'primary', data: 'seed' }, impact: {} });
   assert.deepEqual([line(seed, 0), seed.spec.fields.map((f) => f.name), seed.send({ ok: true })], ['Code: qa runs main\'s code.', ['ok'], { confirm: 'copy-data' }]);
   assert.match(C('add', { deployment: 'dev', add: {}, impact: { joins: { scope: 'apps/shop', state: 'seeded', by: 'user:ana', at: at(2880) } } }).message, /Data: joins apps\/shop's "dev" data \(seeded by ana 2d ago\); secrets/);
@@ -180,7 +189,9 @@ test('the panel\'s confirmations render the dry run and send what it showed', ()
   const vc = C('vaultCopy', { deployment: 'dev', keys: ['STRIPE_KEY', 'SMTP_PASS'] });
   assert.deepEqual([vc.spec.fields.map((f) => f.label), vc.send({ 'key:SMTP_PASS': true }), vc.send({}), C('vaultCopy', { deployment: 'dev' }).send({ all: true })],
     [['STRIPE_KEY', 'SMTP_PASS'], { keys: ['SMTP_PASS'] }, null, { all: true }]);
-  assert.match(C('deliveries', { deployment: 'dev' }).message, /^dev's cron jobs \(1\) and bus subscriptions \(1\) start firing for dev, alongside main's\./);
+  assert.deepEqual([C('deliveries', { deployment: 'dev' }).title, /^dev's cron jobs \(1\) and bus subscriptions \(1\) fire for dev again, alongside main's\./.test(C('deliveries', { deployment: 'dev' }).message)],
+    ['Turn dev\'s deliveries back on?', true]);
+  assert.match(pr.message, /grants, ingress, interface instances, notifications and the app\. Cron jobs and bus subscriptions stay with the deployment that registered them\.\nData: .*its cron jobs and subscriptions keep firing for main; its ingress hosts and interface instances become dormant\./);
   assert.deepEqual([C('alwaysOn', { deployment: 'dev' }).title, C('edge', { edge: 'slot:net', policy: 'inherit' }).title, C('edge', { edge: 'grant:apps/leads', policy: 'read' }).message],
     ['Keep dev running?', 'Let non-primary deployments use apps/crm\'s network?', 'apps/crm\'s non-primary deployments (dev) may call apps/leads\'s primary, as reader. They never write to it.']);
   assert.equal(C('runNow', { deployment: 'dev', job: 'nightly' }).message, 'Runs nightly once on dev, with dev\'s data seeded from main: real people\'s data and apps/crm\'s network: anything it sends (email, webhooks) is real.');
@@ -198,7 +209,7 @@ test('the panel\'s confirmations render the dry run and send what it showed', ()
 test('the panel\'s results, M2 terminal lines, and its words', () => {
   const s = m2(), R = (op, a = {}, d = 'dev') => result(op, { state: s, ...a }, { deployment: d }), rec = (what) => ({ op: 'record', by: 'user:ana', what });
   assert.deepEqual([R('add', { deploy: { result: 'queued' } }), R('remove'), R('seed'), R('reset'), R('deliveries'), R('limits'), R('vaultCopy', { copied: ['A', 'B'] }), R('runNow', { delivery: { status: 200, ms: 812 } })],
-    ['Added dev at /c/apps/crm+dev/.', 'Removed dev.', 'dev seeded from main.', 'dev\'s data was reset.', 'Deliveries off for dev.', 'dev\'s limits set: 256 MiB, 50 GiB.', 'Copied 2 secrets to dev.', 'delivered · 200 · 812 ms']);
+    ['Added dev at /c/apps/crm+dev/.', 'Removed dev.', 'dev seeded from main.', 'dev\'s data was reset.', 'Deliveries on for dev.', 'dev\'s limits set: 256 MiB, 50 GiB.', 'Copied 2 secrets to dev.', 'delivered · 200 · 812 ms']);
   assert.deepEqual([result('primary', { state: m2({ primary: 'dev' }) }), R('protect'), R('deploy', { unchanged: true })], ['dev is now the primary — it serves dev\'s data.', 'main is protected.', 'dev already runs this code.']);
   assert.deepEqual([notice(s, m2({ primary: 'dev' }), rec(['primary'])), notice(s, m2({ protectedPrimary: true }), rec(['protectedPrimary', 'liveReload'])),
     notice(s, attachedMain(), rec(['deployments']), { target: 'dev' }), notice(s, attachedMain(), rec(['deployments']), { target: 'primary' })],
@@ -206,7 +217,7 @@ test('the panel\'s results, M2 terminal lines, and its words', () => {
     'deployment dev was removed by ana — this terminal\'s API calls fail until you switch it in the tile API select', null]);
   const out = [], walk = (v) => (typeof v === 'string' ? out.push(v) : v && typeof v === 'object' && Object.values(v).forEach(walk)), m = m2({ caller: mgr() });
   walk([panelRows(m, opts), panelHeader(m, opts), ...['dev', 'main', ''].map((n) => panelActions(m, n, opts)), overview(m, 'main', opts), overview(m, 'dev', opts), edgeRows(m, opts),
-    registrationRows(m, 'dev', opts).map((r) => r.label + r.pill), wouldNotifyRows(m, 'dev', opts), zeroPanel(zero(), opts), addDialog(m), Object.values(REASON).map((r) => (typeof r === 'function' ? r('apps/crm') : r))]);
+    registrationRows(m, 'dev', opts).map((r) => r.label + r.pill), registrationsNote(m, 'dev'), wouldNotifyRows(m, 'dev', opts), zeroPanel(zero(), opts), addDialog(m), Object.values(REASON).map((r) => (typeof r === 'function' ? r('apps/crm') : r))]);
   for (const op of PANEL_OPS) walk(confirmation(op, { state: m, deployment: 'dev', from: 'dev', to: 'main', checkpoint: 'c:1e9d0aa', edge: 'grant:apps/leads', policy: 'read', job: 'nightly', add: { data: 'seed', attach: true }, keys: ['K'], impact: { code: CODE, affects: 'everyone', pausesLiveReload: true, placeholders: ['K'] } }, opts).spec);
   for (const t of out.filter((x) => /\s/.test(x))) { // prose, not ids
     assert.doesNotMatch(t, /\b(identity|principal|environments?|env|stag(e|ing)|versions?|revisions?|releases?|snapshots?|generations?|layers?|previews?|channels?|lanes?|freeze|frozen|source|fork|clone|publish|prod|production|origins?|automations?)\b|[⏸⟲⟳🔒▶▣⧉]/iu, t);
@@ -220,6 +231,6 @@ test('the panel\'s results, M2 terminal lines, and its words', () => {
 test('the panel module\'s exports', () => {
   assert.deepEqual(Object.keys(dsPanel).sort(), [
     'addDialog', 'asksToRun', 'diffLine', 'edgeRows', 'logRows', 'overview', 'panelActions', 'panelHeader', 'panelRows',
-    'registrationRows', 'widens', 'wouldNotifyRows', 'zeroPanel',
+    'registrationRows', 'registrationsNote', 'widens', 'wouldNotifyRows', 'zeroPanel',
   ]);
 });

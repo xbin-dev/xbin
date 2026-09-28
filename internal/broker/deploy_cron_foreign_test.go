@@ -9,8 +9,9 @@ import (
 // covers P13 NP-09-18 SC-DORMANT — main beside a primary that isn't main
 // registers a cron job on a foreign resource its tile holds writer on: the
 // edge policy's read clamp doesn't refuse it, since a job only ever
-// schedules the deployment's own handler (09-fabric §6); it is stored
-// dormant, like any non-primary deployment's registration.
+// schedules the deployment's own handler (09-fabric §6); it is stored, and
+// dormant here only because main's deliveries are switched off (the
+// fixture's), like any such deployment's registration.
 func TestMainBesideAPrimaryStoresForeignCronDormant(t *testing.T) {
 	f := newDormantFx(t, false)
 	b := f.b

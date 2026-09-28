@@ -1416,7 +1416,7 @@ func TestBxSaysWhereSavesGo(t *testing.T) {
 		}, []string{"deployment", "add", "apps/x", "dev", "--attach"}, []string{
 			"Add deployment dev to apps/x\n",
 			"  Code     dev runs a fresh checkpoint of the work tree, c:7b19e02; live reload moves to dev and main is pinned where it stands\n",
-			"  Affects  nobody now. It is reachable at /c/apps/x+dev/ by people with write on apps/x and by its terminals; its cron jobs, bus deliveries and alwaysOn stay off\n",
+			"  Affects  nobody now. It is reachable at /c/apps/x+dev/ by people with write on apps/x and by its terminals; its cron jobs and bus subscriptions fire for it, with its data (anything they send is real); its ingress hosts and interface instances stay with the primary; alwaysOn stays off\n",
 			"Added dev at /c/apps/x+dev/.\n",
 			"Live reload: dev — saves reach apps/x+dev; main is pinned to c:7b19e02.\n",
 		}},
@@ -1973,7 +1973,7 @@ func TestBxDeploymentRequests(t *testing.T) {
 			},
 			reqs: []string{get, post("deliveries", `{"deployment":"dev","dryRun":true,"on":true,"tile":"apps/x"}`), post("deliveries", `{"deployment":"dev","on":true,"tile":"apps/x"}`),
 				get, post("limits", `{"deployment":"dev","dryRun":true,"limits":{"memMiB":256,"pids":null},"tile":"apps/x"}`), post("limits", `{"deployment":"dev","limits":{"memMiB":256,"pids":null},"tile":"apps/x"}`)},
-			out: []string{"Turn on deliveries for dev\n", "Deliveries on for dev.\n", "dev's limits set: memory 256 MiB, pids the tile's default.\n"}},
+			out: []string{"Turn dev's deliveries back on\n", "Deliveries on for dev.\n", "dev's limits set: memory 256 MiB, pids the tile's default.\n"}},
 		{name: "set --json prints the last answer", args: []string{"deployment", "set", "apps/x", "dev", "--always-on", "off", "--disk", "20", "--json"},
 			fake: func(f *dlFake) {
 				ok("always-on", dev, dev)(f)
@@ -2015,7 +2015,9 @@ func TestBxDeploymentRequests(t *testing.T) {
 		{name: "ls", args: []string{"deployment", "ls", "apps/x"},
 			fake: func(f *dlFake) {
 				d := mapWith(dlDevDep(""), "data", map[string]any{"state": "seeded", "from": "main", "at": "2026-09-27T10:00:00Z", "by": "user:ana"})
-				d["registrations"] = []any{map[string]any{"kind": "cron", "name": "nightly", "schedule": "0 3 * * *", "path": "/tick", "dormant": true}}
+				d["deliveries"] = false
+				d["registrations"] = []any{map[string]any{"kind": "cron", "name": "nightly", "schedule": "0 3 * * *", "path": "/tick", "dormant": true},
+					map[string]any{"kind": "ingress-host", "name": "dev.example.com", "dormant": true}}
 				d["wouldNotify"] = []any{map[string]any{"at": "", "to": "user:bob", "title": "Order shipped"}}
 				d["status"] = map[string]any{"state": "building", "gen": 0}
 				f.on(dlGet, 200, dev.with("caller", map[string]any{"level": "terminal", "bound": "dev"},
@@ -2025,7 +2027,9 @@ func TestBxDeploymentRequests(t *testing.T) {
 				"  NAME  ROLE     CODE               STATUS      DATA\n",
 				"  main  primary  pinned c:3f2a1c9   healthy g3  original\n",
 				"  dev   -        follows work tree  building    seeded from main 2026-09-27  ← this terminal\n",
-				"  dev: cron nightly (0 3 * * *) dormant\n", "  dev: would notify bob · \"Order shipped\"\n"}},
+				"  dev: deliveries off — its cron jobs and bus subscriptions don't fire\n",
+				"  dev: cron nightly (0 3 * * *) dormant (deliveries off) · ingress-host dev.example.com dormant (routes reach the primary only)\n",
+				"  dev: would notify bob · \"Order shipped\"\n"}},
 		{name: "ls, every tile", args: []string{"deployment", "ls"},
 			fake: func(f *dlFake) {
 				f.on(dlGet, 400, `{"error":"need ?tile=","docs":"/docs/protocol.md"}`).on(dlGet, 200, st).
