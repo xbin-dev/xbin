@@ -14,13 +14,21 @@ struct TileScreen: View {
     @State private var forcedWeb: String?
 
     var body: some View {
-        let info = workspace.tile(path) ?? TileInfo(path: path)
+        let info = Self.info(workspace, path)
         switch forcedWeb != nil ? TileSurface.web : workspace.surfaceKind(for: info) {
         case .native:
             NativeTileScreen(workspace: workspace, tile: info) { reason in forcedWeb = reason }
         case .web:
             WebTileScreen(workspace: workspace, tile: info, subpath: subpath, fragment: fragment, banner: forcedWeb)
         }
+    }
+
+    /// The tile at `path`; a deployment's URL (`<tile>+<name>`) and the web
+    /// shell open signed in, as chrome does (D132).
+    static func info(_ workspace: WorkspaceModel, _ path: String) -> TileInfo {
+        var info = workspace.tile(path) ?? TileInfo(path: path)
+        if !info.chrome, DeploymentsRoute.opensSignedIn(path, known: { workspace.tile($0) != nil }) { info.chrome = true }
+        return info
     }
 }
 

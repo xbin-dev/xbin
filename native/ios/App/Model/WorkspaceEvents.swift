@@ -86,6 +86,8 @@ final class WorkspaceEvents {
     private var reloadSubs: [UUID: ReloadSub] = [:]
     private var sessionSubs: [UUID: SessionSub] = [:]
     private var termSubs: [UUID: AsyncStream<TermEvent>.Continuation] = [:]
+    private struct DeploySub { let tile: String; let cont: AsyncStream<DeploymentsEvent?>.Continuation }
+    private var deploySubs: [UUID: DeploySub] = [:]
 
     init(auth: WorkspaceAuth, makeSocket: @escaping EventSocketFactory,
          sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) },
@@ -165,6 +167,20 @@ final class WorkspaceEvents {
         return stream
     }
 
+    /// `tile`'s `deployments` events (D127, D131) as they come, and nil
+    /// after the socket reconnected (a gap may have hidden some: re-read the
+    /// state) — for a tile's sessions screen (D132). Ends when the
+    /// iterating task is cancelled.
+    func deployments(of tile: String) -> AsyncStream<DeploymentsEvent?> {
+        let (stream, cont) = AsyncStream<DeploymentsEvent?>.makeStream(bufferingPolicy: .bufferingNewest(32))
+        let key = UUID()
+        deploySubs[key] = DeploySub(tile: ReloadTargets.trimmed(tile), cont: cont)
+        cont.onTermination = { [weak self] _ in
+            Task { @MainActor in self?.deploySubs[key] = nil }
+        }
+        return stream
+    }
+
     /// Open tiles that follow reloads (tests, diagnostics).
     var followedTiles: [String] { reloadSubs.values.map(\.tile) }
 
@@ -230,6 +246,7 @@ final class WorkspaceEvents {
             if policy.opened() {
                 onResync?()
                 for sub in sessionSubs.values { sub.cont.yield(.resync) }
+                for sub in deploySubs.values { sub.cont.yield(nil) }
             }
         case .text(let text):
             receive(text)
@@ -277,6 +294,9 @@ final class WorkspaceEvents {
             let subs = sessionSubs.values.filter { $0.id == id }
             guard !subs.isEmpty, let j = try? XbinAgent.JSONValue.parse(frame), let hub = SessionHubEvent(json: j) else { return }
             for sub in subs { sub.cont.yield(.event(hub)) }
+        case .deployments(let d):
+            let tile = ReloadTargets.trimmed(d.component)
+            for sub in deploySubs.values where sub.tile == tile { sub.cont.yield(d) }
         default:
             break
         }

@@ -66,4 +66,98 @@ final class XbinSessionsTests: XCTestCase {
         }
         for s in try await e.server.sessions(cwd: "apps/welcome") { await e.server.end(s.id) }
     }
+
+    /// Tools → Live reload & deployments on apps/wide (a static tile: the
+    /// e2e xbind runs without --isolate, which a backend tile's deployments
+    /// need): the state, the deployments with their tags, then — dev
+    /// assigned a branch the work tree isn't on, live reload paused by the
+    /// server's hand — the offer "Keep dev on main this time", confirmed
+    /// from the dry run's impact, reaches the server as the override.
+    @MainActor
+    func test02LiveReloadAndDeployments() async throws {
+        let e = try E2E(self)
+        let tile = "apps/wide"
+        try await e.server.resetDeployments(tile)
+        try await e.server.deploy("add", ["tile": tile, "deployment": "dev"])
+        e.launch()
+        e.ensureWorkspace()
+        e.openLauncher(tile)
+        XCTAssertTrue(e.launcherBox("Terminal").waitForExistence(timeout: 30), "the launcher")
+        let tools = e.app.buttons.matching(identifier: "sessions-tools").firstMatch
+        XCTAssertTrue(tools.waitForExistence(timeout: 10), "the tools menu")
+        tools.tap()
+        let item = e.app.buttons["Live reload & deployments"]
+        XCTAssertTrue(item.waitForExistence(timeout: 10), "Live reload & deployments in the tools menu")
+        item.tap()
+        let header = e.app.descendants(matching: .any).matching(identifier: "live-reload-header").firstMatch
+        XCTAssertTrue(header.waitForExistence(timeout: 30), "live reload's sentence")
+        XCTAssertTrue(e.until(10) { header.label.hasPrefix("Live reload: main (primary)") }, "live reload on main: \(header.label)")
+        let dev = e.app.buttons.matching(identifier: "deployment:dev").firstMatch
+        XCTAssertTrue(dev.waitForExistence(timeout: 10), "dev's row")
+        XCTAssertTrue(e.app.buttons.matching(identifier: "deployment:main").firstMatch.exists, "main's row")
+        e.shot("sessions-05-deployments")
+
+        // The server moves: live reload onto dev, dev assigned a branch the
+        // work tree isn't on, then paused — the screen follows the events.
+        let state = try await e.server.deployments(tile)
+        let features = state["features"] as? [String] ?? []
+        guard features.contains("branches/1") else {
+            print("xbin-e2e: this xbind has no branches/1: the branch offer is skipped")
+            try await e.server.resetDeployments(tile)
+            return
+        }
+        let wt = ((state["workTree"] as? [String: Any])?["branch"] as? String) ?? ""
+        XCTAssertFalse(wt.isEmpty, "the work tree's branch (apps/wide is a git repository)")
+        try await e.server.deploy("live-reload/attach", ["tile": tile, "deployment": "dev"])
+        try await e.server.deploy("branch", ["tile": tile, "deployment": "dev", "branch": "feature/e2e"])
+        try await e.server.deploy("live-reload/pause", ["tile": tile])
+        let keep = e.app.buttons["Keep dev on \(wt) this time"]
+        XCTAssertTrue(keep.waitForExistence(timeout: 30), "the offer to keep dev on \(wt) this time")
+        XCTAssertTrue(e.app.buttons["Add a deployment for \(wt)…"].exists, "the offer to add a deployment for \(wt)")
+        e.shot("sessions-06-branch-offer")
+        keep.tap()
+        let ok = e.app.alerts.buttons["Resume live reload"]
+        XCTAssertTrue(ok.waitForExistence(timeout: 20), "the confirmation, from the dry run")
+        XCTAssertTrue(e.containing("takes the work tree's \(wt) this time").exists, "its Branch line")
+        e.shot("sessions-07-confirm")
+        ok.tap()
+        await e.eventually("live reload on dev, taking \(wt) this time", timeout: 30) {
+            let s = try await e.server.deployments(tile)
+            let d = (s["deployments"] as? [[String: Any]])?.first { $0["name"] as? String == "dev" }
+            return s["liveReload"] as? String == "dev" && d?["branchOverride"] as? String == wt
+        }
+        dev.tap()
+        let branchRow = e.app.descendants(matching: .any).matching(identifier: "branch-row").firstMatch
+        XCTAssertTrue(branchRow.waitForExistence(timeout: 10), "dev's Branch row")
+        XCTAssertTrue(e.until(10) { branchRow.label.contains("feature/e2e · takes \(wt) this time") }, "the Branch row: \(branchRow.label)")
+        e.shot("sessions-08-branch-row")
+        try await e.server.resetDeployments(tile)
+    }
+}
+
+extension E2EServer {
+    /// `GET /api/xbin/deployments?tile=` (docs/protocol.md §Tile deployments).
+    func deployments(_ tile: String) async throws -> [String: Any] {
+        let q = tile.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? tile
+        return try JSONSerialization.jsonObject(with: await send("GET", "/api/xbin/deployments?tile=\(q)")) as? [String: Any] ?? [:]
+    }
+
+    /// `POST /api/xbin/deployments/<op>`.
+    func deploy(_ op: String, _ body: [String: Any]) async throws {
+        _ = try await send("POST", "/api/xbin/deployments/\(op)", json: body)
+    }
+
+    /// Back to the zero state: every deployment but main removed, live
+    /// reload on main.
+    func resetDeployments(_ tile: String) async throws {
+        let s = try await deployments(tile)
+        for d in s["deployments"] as? [[String: Any]] ?? [] {
+            guard let name = d["name"] as? String, name != "main" else { continue }
+            _ = try? await send("POST", "/api/xbin/deployments/remove", json: ["tile": tile, "deployment": name, "confirm": "erase"])
+        }
+        let now = try await deployments(tile)
+        if now["record"] as? Bool == true, (now["liveReload"] as? String ?? "") != "main" {
+            _ = try? await send("POST", "/api/xbin/deployments/live-reload/resume", json: ["tile": tile, "deployment": "main"])
+        }
+    }
 }

@@ -131,9 +131,11 @@ import Testing
 
     /// covers D127h PO-5 — the `deployments` type in every documented form
     /// (full and reader forms, each op, naming `dev` and `main`) parses to
-    /// `.other`, which the app ignores, so none reaches reload targeting; a
-    /// `bus` event of a non-main namespace stays `.other(type: "bus")`.
-    @Test func deploymentsEventsAreIgnored() {
+    /// `.deployments` — the sessions screen's state follows it (D132) — and
+    /// never to a reload, a build or a status, so none reaches reload
+    /// targeting; a `bus` event of a non-main namespace stays
+    /// `.other(type: "bus")`.
+    @Test func deploymentsEventsNeverReload() {
         let data = [
             #"{"op":"record","seq":19,"by":"user:ana","session":"s1","what":["liveReload","primary","protectedPrimary","edges","deployments","deliveries","alwaysOn","limits"]}"#,
             #"{"op":"deploy","id":43,"deployment":"main","how":"promote","from":"dev","checkpoint":"c:3f2a1c9","result":"running","phase":"build","by":"user:ana","session":"s1"}"#,
@@ -152,10 +154,22 @@ import Testing
         for d in data {
             for component in ["apps/crm", "apps/crm/widgets"] {
                 let f = #"{"type":"deployments","component":"\#(component)","data":\#(d)}"#
-                #expect(AppEvent.parse(f) == .other(type: "deployments"), "\(f)")
+                guard case .deployments(let e)? = AppEvent.parse(f) else {
+                    Issue.record("not a deployments event: \(f)")
+                    continue
+                }
+                #expect(e.component == component && e.op == (try? JSONValue(parsing: d))?["op"]?.stringValue, "\(f)")
             }
         }
         #expect(AppEvent.parse(#"{"type":"bus","topic":"res:apps/crm/events/orders","deployment":"dev","data":1}"#) == .other(type: "bus"))
+        // The facts the sessions screen reads.
+        #expect(AppEvent.parse(#"{"type":"deployments","component":"apps/crm","data":{"op":"work-tree","changed":3}}"#)
+                == .deployments(DeploymentsEvent(component: "apps/crm", op: "work-tree", changed: 3)))
+        #expect(AppEvent.parse(#"{"type":"deployments","component":"apps/crm","data":{"op":"branch","deployment":"dev","assigned":"feature","workTree":"main","related":"","paused":true}}"#)
+                == .deployments(DeploymentsEvent(component: "apps/crm", op: "branch", deployment: "dev", assigned: "feature", workTree: "main", paused: true)))
+        // No component, or no op: not one the app can use.
+        #expect(AppEvent.parse(#"{"type":"deployments","data":{"op":"record"}}"#) == .other(type: "deployments"))
+        #expect(AppEvent.parse(#"{"type":"deployments","component":"apps/crm","data":{}}"#) == .other(type: "deployments"))
     }
 
     /// covers D127h PO-5 — TestFailedDeployInvisible's tape
@@ -302,7 +316,7 @@ extension ClientEventsTests {
     /// parser and reload targeting (WorkspaceEvents.receive): every
     /// component is a bare tile path; no frame the app acts on as `reload`,
     /// `build` or `status` carries a `deployment`, at the top or in `data`;
-    /// `deployments` frames are `.other`; and every reload lands on its own
+    /// `deployments` frames are `.deployments`; and every reload lands on its own
     /// tile's view with the tiles and a common ancestor open, or on the
     /// ancestor alone, as today.
     static func replay(_ name: String, _ lines: [String]) throws -> [TapeFrame] {
@@ -322,7 +336,9 @@ extension ClientEventsTests {
             default:
                 break
             }
-            if f.type == "deployments" { #expect(event == .other(type: "deployments"), "\(at): \(event)") }
+            if f.type == "deployments" {
+                if case .deployments = event {} else { Issue.record("\(at): \(event)") }
+            }
             out.append(f)
         }
         let tiles = Set(out.map(\.component).filter { !$0.isEmpty }).sorted()

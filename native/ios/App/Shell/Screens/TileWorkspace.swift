@@ -38,8 +38,8 @@ enum SessionsTool: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Built in this version of the app (the rest come later).
-    var available: Bool { false }
+    /// Built in this version of the app (code and logs, PRs come later).
+    var available: Bool { self == .deployments }
 }
 
 /// What the sessions screen shows under its tab strip.
@@ -70,6 +70,11 @@ final class TileWorkspaceModel: SessionTabHost {
     private(set) var vmPref = false
     var starting = false
     var problem: String?
+    /// The deployments state and its live updates (the Deployments tool,
+    /// the launcher's banner); nil state on an xbind without them.
+    let deploy: DeploymentsModel
+    /// The tab last in front: its session's target is the Dev API tag.
+    private(set) var lastTab: String?
 
     @ObservationIgnored private var links: [String: SessionTabLink] = [:]
     /// A new shell's options, until its tab learns its session.
@@ -82,6 +87,7 @@ final class TileWorkspaceModel: SessionTabHost {
         self.workspace = workspace
         self.tile = tile
         self.focus = focus
+        deploy = DeploymentsModel(workspace: workspace, tile: tile)
         tabs.sync(workspace.sessions, cwd: tile)
         apply(focus)
     }
@@ -102,7 +108,8 @@ final class TileWorkspaceModel: SessionTabHost {
         async let h: [HistoryEntry] = (try? await workspace.agents.history(cwd: tile)) ?? []
         async let e: TermEnvState? = loadEnv()
         async let v: Bool = loadVMPref()
-        (providers, history, env, vmPref) = await (p, h, e, v)
+        async let d: Void = deploy.load()
+        (providers, history, env, vmPref, _) = await (p, h, e, v, d)
     }
 
     private func loadEnv() async -> TermEnvState? {
@@ -168,6 +175,14 @@ final class TileWorkspaceModel: SessionTabHost {
     func select(_ key: String) {
         mounted.insert(key)
         pane = .tab(key)
+        lastTab = key
+    }
+
+    /// What the last tab's session calls (deploy-state.js `sessionTarget`:
+    /// "primary", a deployment, "off"): the Deployments tool's Dev API tag.
+    var devAPITarget: String? {
+        guard let k = lastTab, let id = tabs.tab(k)?.session, let e = workspace.sessions.first(where: { $0.id == id }) else { return nil }
+        return DeployView.sessionTarget(api: e.api, deployment: e.deployment)
     }
 
     /// The tab after or before the one in front (a swipe on the strip).
@@ -222,7 +237,7 @@ final class TileWorkspaceModel: SessionTabHost {
                          TileLauncher.Past(id: $0.id, provider: $0.provider, name: $0.name, preview: $0.preview, turns: $0.turns,
                                            ended: $0.ended, loadable: $0.loadable)
                      },
-                     vmStatus: env?.vm, vmPref: vmPref)
+                     vmStatus: env?.vm, vmPref: vmPref, target: deploy.launcherInfo?.subtitle ?? "")
     }
 
     /// Bash: a tab whose terminal opens the session.
@@ -324,6 +339,11 @@ struct TileWorkspaceScreen: View {
         }
         .onChange(of: focus) { _, f in model?.show(f) }
         .onChange(of: workspace.sessions) { _, _ in model?.sync() }
+        // The tile's `deployments` events keep its state live.
+        .task(id: model == nil) {
+            guard let m = model else { return }
+            await m.deploy.follow()
+        }
     }
 }
 
@@ -366,6 +386,7 @@ private struct TileWorkspaceBody: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle(Text(verbatim: model.title))
+        .modifier(DeploymentsAlerts(model: model.deploy))
         .alert("Rename session", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("Name", text: $newName)
             Button("Cancel", role: .cancel) { renaming = nil }
@@ -386,7 +407,12 @@ private struct TileWorkspaceBody: View {
     }
 
     @ViewBuilder private func toolView(_ t: SessionsTool) -> some View {
-        ContentUnavailableView(t.title, systemImage: t.symbol, description: Text("Coming to the app — open the tile's terminal window on the web meanwhile."))
+        switch t {
+        case .deployments:
+            DeploymentsToolView(model: model.deploy, sessions: model)
+        case .code, .logs, .prs:
+            ContentUnavailableView(t.title, systemImage: t.symbol, description: Text("Coming to the app — open the tile's terminal window on the web meanwhile."))
+        }
     }
 }
 
@@ -521,6 +547,9 @@ private struct SessionLauncherView: View {
             VStack(alignment: .leading, spacing: 16) {
                 Text(verbatim: l.heading).font(.footnote.monospaced()).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .center)
+                if let b = model.deploy.launcherInfo?.banner {
+                    DeployBannerView(banner: b, model: model.deploy)
+                }
                 if let vm = l.vm {
                     Toggle(isOn: Binding(get: { vm.on }, set: { model.setVM($0) })) {
                         VStack(alignment: .leading, spacing: 2) {
@@ -557,6 +586,9 @@ private struct SessionLauncherView: View {
                 }
                 if l.loadingAgents {
                     Text("loading agents…").font(.caption).foregroundStyle(.secondary)
+                }
+                if let note = model.deploy.launcherInfo?.note {
+                    Text(verbatim: note).font(.caption).foregroundStyle(.secondary)
                 }
                 if let p = model.problem {
                     Label { Text(verbatim: p) } icon: { Image(systemName: "exclamationmark.triangle") }

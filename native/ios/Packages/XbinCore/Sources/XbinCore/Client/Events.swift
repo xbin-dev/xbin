@@ -14,7 +14,9 @@ import Foundation
 // - `branding` → re-read the workspace's title and icon;
 // - `native` → the workspace's native-runtime switch changed: re-read whoami
 //   (`native.runtime`), so an admin turning native views off reaches every
-//   open app at once (plans/native.md §23).
+//   open app at once (plans/native.md §23);
+// - `deployments` (D127, D131) → a tile's sessions screen keeps its live
+//   reload and deployments state current (D132).
 //
 // This file is the pure half: parsing frames, picking the reload target and
 // the reconnect policy. The socket (URLSessionWebSocketTask) is app code.
@@ -44,6 +46,9 @@ public enum AppEvent: Sendable, Equatable {
     /// (`root` for the shell's), the key, and the writer the request named
     /// (`X-Prefs-Writer`; "" when none) — a client skips its own.
     case prefs(component: String, key: String, writer: String)
+    /// A tile's live reload or deployments changed (`deployments`, D127):
+    /// the tile's path and the event's op and facts.
+    case deployments(DeploymentsEvent)
     /// Anything else (`bus`, `pr`, future types): ignored by the app.
     case other(type: String)
 
@@ -79,6 +84,9 @@ public enum AppEvent: Sendable, Equatable {
         case "prefs":
             let d = j["data"]
             return .prefs(component: component, key: d?["key"]?.stringValue ?? "", writer: d?["writer"]?.stringValue ?? "")
+        case "deployments":
+            guard !component.isEmpty, let d = j["data"], let op = d["op"]?.stringValue else { return .other(type: type) }
+            return .deployments(DeploymentsEvent(component: component, op: op, data: d))
         case "status":
             let d = j["data"]
             return .tileStatus(component: component, level: d?["level"]?.stringValue ?? "",
@@ -320,5 +328,43 @@ public struct EventSocketPolicy: Sendable, Equatable {
         connecting = false
         parked = true
         return .none
+    }
+}
+
+/// A `deployments` event (docs/protocol.md §Tile deployments): `op` is
+/// record | deploy | work-tree | branch | reload | build | data | status |
+/// notify; the facts the app reads ride along.
+public struct DeploymentsEvent: Sendable, Equatable {
+    /// The tile's path (never a qualified ref).
+    public var component: String
+    public var op: String
+    /// The deployment it names ("" for the tile, or the primary).
+    public var deployment: String
+    /// op work-tree: files changed since the checkpoint live reload was
+    /// paused at.
+    public var changed: Int?
+    /// op branch (D131): the target's assigned branch, the work tree's, the
+    /// deployment assigned the work tree's branch, and whether live reload
+    /// paused.
+    public var assigned: String
+    public var workTree: String
+    public var related: String
+    public var paused: Bool
+    /// op deploy: the result and the checkpoint.
+    public var result: String
+    public var checkpoint: String
+
+    public init(component: String, op: String, deployment: String = "", changed: Int? = nil, assigned: String = "", workTree: String = "",
+                related: String = "", paused: Bool = false, result: String = "", checkpoint: String = "") {
+        self.component = component; self.op = op; self.deployment = deployment; self.changed = changed; self.assigned = assigned
+        self.workTree = workTree; self.related = related; self.paused = paused; self.result = result; self.checkpoint = checkpoint
+    }
+
+    init(component: String, op: String, data d: JSONValue) {
+        self.init(component: component, op: op, deployment: d["deployment"]?.stringValue ?? "",
+                  changed: d["changed"]?.intValue.map { Int($0) }, assigned: d["assigned"]?.stringValue ?? "",
+                  workTree: d["workTree"]?.stringValue ?? "", related: d["related"]?.stringValue ?? "",
+                  paused: d["paused"]?.boolValue == true, result: d["result"]?.stringValue ?? "",
+                  checkpoint: d["checkpoint"]?.stringValue ?? "")
     }
 }
