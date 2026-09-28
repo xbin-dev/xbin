@@ -248,6 +248,10 @@ struct NoKeys: DeviceKeyStore {
         #expect(logged.count > 4)
         let agent = ScriptedAgent()
         let feed = AgentSessionFeed(client: AgentClient(transport: agent), sessionID: id)
+        // A feed takes hub frames once its first read opened it (D130); the
+        // scripted answer has no `hasOlder`, so it reads as an older
+        // xbind's whole (empty) log.
+        await feed.openTail()
         let delivery = events.deliver(to: feed)
         try? await Task.sleep(nanoseconds: 10_000_000)
         for e in logged.prefix(4) {
@@ -259,7 +263,7 @@ struct NoKeys: DeviceKeyStore {
         events.receive(#"{"type":"session","topic":"session.zzz","data":{"seq":99,"ts":1,"type":"status","data":{"status":"idle"},"id":"zzz"}}"#)
         var last: UInt64 = 0
         for _ in 0..<500 {
-            last = await feed.transcript.lastSeq
+            last = await feed.window.lastSeq
             if last == 4 { break }
             try? await Task.sleep(nanoseconds: 2_000_000)
         }
