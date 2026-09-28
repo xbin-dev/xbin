@@ -91,6 +91,12 @@ func TestFuseRootCreateInRoot(t *testing.T) {
 			if b, err := os.ReadFile(filepath.Join(upper, "x")); err != nil || string(b) != "w" {
 				t.Errorf("the upper's x: %q %v", b, err)
 			}
+			// Daemonized, the fuse-overlayfs found above may have been the
+			// foreground one, which exits once the mount is up (the init waits
+			// for it before the agent runs): the server is the one left now.
+			if f := childNamed(t, cmd.Process.Pid, "fuse-overlayfs"); f != 0 {
+				fuse = f
+			}
 
 			var st unix.Statfs_t
 			proc := func(pid int, p string) string { return filepath.Join("/proc", strconv.Itoa(pid), p) }
