@@ -2269,7 +2269,7 @@ the order listed, then runs the gate.
 | 3.1 | | WP-S6, WP-70, WP-72, WP-73, WP-74 | `make check`, `make integration` |
 | 3.2 | | WP-71, WP-75 | the M3 exit |
 
-**Open after wave 2.3, with no card yet** (for the owner to place before the
+**Open after wave 2.4, with no card yet** (for the owner to place before the
 M2 exit):
 - **A protected primary's build products are built but not wired** (WP-35's
   A2, owed since wave 2.1): `runner.DeploymentHooks` `Protected`,
@@ -2285,10 +2285,11 @@ M2 exit):
   ask `brk.DeployStoreRoom(tile)` and refuse with its 507 after a GC.
 - `bx deployment backup|backups|restore|backup-schedule` and
   `bx deployment purge` (WP-58's files).
-- WP-53a's follow-ups: `queue.go` marks only `pause` attempts identical, so a protect pin
-  announces one needless reload; `cron.go`'s RunNow in-flight text differs
+- WP-53a's follow-ups: `cron.go`'s RunNow in-flight text differs
   from §1.14's; the state doesn't show `Unenforced(pr)`; T5 item 5's alwaysOn
-  duplicate-connection warning needs vault-copy provenance.
+  duplicate-connection warning needs vault-copy provenance; `inactiveHosts`
+  is always empty although WP-50's dormant hosts exist (a GovHooks field is
+  owed). (Every pin in place is identical code since the wave 2.4 gate.)
 - WP-53b's findings: an owner change outside a transfer (a deleted user)
   rewrites no record, so those records go inert (a design gap, 05-model
   §11); the transfer's seq bump publishes no `record` event, so a reviewed
@@ -2318,6 +2319,40 @@ M2 exit):
   up with step 3, and left step 5's edge override in place, which keeps the
   record through step 8's resume (WP-56b). frame-info.js's origin read and
   the shell's badge store (WP-57) still fetch the state through the cache.
+- Found at the wave 2.4 gate, fixed: a reassignment re-bound no consumer of
+  the tile's interface instances (09-fabric §8 steps 3-4; WP-62's flow F):
+  `GovHooks.RoutesReassigned`, answered by the broker's `PrimaryReassigned`
+  (an integrator amendment), called by `runPrimary` (WP-53a); every pin in
+  place (attach's, protect's) announced a reload of unchanged files, a bare
+  one for main at an add with attach (11-contract §3.5; WP-61): now
+  identical code like a pause (WP-53a), and WP-61's event test asserts it.
+  The isolated daemon's cleanup releases its gocryptfs mounts (xbind
+  unmounts them only when the vault seals; the next start's RecoverStale
+  clears them).
+- Found at the wave 2.4 gate, open:
+  - A non-primary deployment without egress gets no relay:
+    `launchSpecWith` gives the ingress-only relay to the primary alone, as
+    WP-34's and WP-35's tests pin, so its stream dial fails at connect and is
+    never logged, where 09-fabric §5.7 keeps the forward and logs each
+    refused dial (with relay egress it does). The panel's stream edge
+    refused count stays 0 either way (WP-47's A8). The docs say what is
+    built; the owner decides whether the relay should exist.
+  - `TestLatencyLifecycleOps` under `XBIN_TEST_FULL=1`: its M2 rows pass
+    every run, but the M1 row R-node pause missed its 1.5 s target in two
+    of three whole runs at the wave's head (p95 1.92 s, 1.57 s, then
+    1.39 s; medians 1.29–1.30 s), with R-node checkpoint at its 500 ms
+    target, while an A/B at WP-63's branch (the wave 2.3 base) passed once
+    (median 1.30 s, p95 1.41 s) and R-node alone at the head passed (p95
+    1.24 s). Those rows run before any code the wave changed: the box's
+    tail decides. The margin is ~0.2 s since the deploy log's trim runs
+    after every deploy past 50 entries (~0.3 s each, WP-63's decision
+    note): the owner's call between retention that trims in batches and a
+    target with room.
+  - master has moved 25 commits since the last sync (thin scrollbars, the
+    windowed Agent tab, per-bucket prefs locks, the app's screens and
+    widgets): the sync is owed before the records.
+  - WP-64's proposal: a guard failing when protocol.md keeps a
+    "(reserved" marker on a route openapi.go no longer marks (risk K15).
 
 ### 3.2 Dependency graph
 
