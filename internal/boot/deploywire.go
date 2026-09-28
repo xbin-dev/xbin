@@ -25,9 +25,11 @@ func wireDeploymentData(dp *deployments.Plane, brk *broker.Broker) {
 	dp.SetBackupSchedule, dp.BackupScheduleOf = brk.SetDeploymentBackupSchedule, brk.DeploymentBackupSchedule
 	dp.DataBackups = func(tile, dep string) (any, error) { return brk.DeploymentBackups(tile, dep) }
 	// The governance acts' broker half (ops_gov.go): the edge check and the
-	// restarts an edge change needs, diskGiB's ceiling, and the seed.
+	// restarts an edge change needs, a reassignment's consumer and ingress
+	// fan-out, diskGiB's ceiling, and the seed.
 	dp.SetGovHooks(func(h *deployments.GovHooks) {
 		h.ValidateEdge, h.EdgeRestarts = brk.ValidateEdgePolicy, brk.EdgeChangeRestarts
+		h.RoutesReassigned = brk.PrimaryReassigned
 		h.DiskCeiling = brk.DiskQuota
 		h.SeedData = func(p auth.Principal, req deployments.SeedRequest, authorize func(string) error, stop func(string, string)) (deployments.SeedFacts, error) {
 			f, err := brk.SeedDeploymentData(p, req, authorize, stop)

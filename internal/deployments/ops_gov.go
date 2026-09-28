@@ -59,6 +59,11 @@ type GovHooks struct {
 	// outside the plane's locks; without them a moved session's calls fail.
 	SessionsProtected  func(tile string) (restarted, ended int)
 	SessionsReassigned func(tile, from, to string) (restarted, ended int)
+	// RoutesReassigned is the broker's PrimaryReassigned (09-fabric §8 steps
+	// 3-4), called after the commit, outside the plane's locks: the tile's
+	// consumers re-bound when its active interface instances changed, and
+	// the ingress reconciled when its active hosts did.
+	RoutesReassigned func(tile, from, to string)
 	// ValidateEdge and EdgeRestarts are the broker's ValidateEdgePolicy (404
 	// no such edge, 400 a value it doesn't take) and EdgeChangeRestarts.
 	ValidateEdge func(tile, edge, policy string) error
