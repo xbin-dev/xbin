@@ -749,8 +749,8 @@ no terminal, agent, frame or instance token passes.
   Resolved by 05-model §8 (rule C2) and P13.
 - **NP-13-6 — Filter the new event traffic.** Resolved by the event-audience
   rule (05-model §8).
-- **NP-13-7 — Reserve `+`.** Resolved by the glossary's two narrow refusals
-  and one-release warning (05-model §7).
+- **NP-13-7 — Reserve `+`.** Resolved by the glossary's refusals (05-model
+  §7): `+` is refused in every new tile name (P17, decided 2026-09-28).
 - **NP-13-8 — The fetch-only checkpoint remote is session config.** Resolved
   by 05-model §3.
 - **NP-13-9 — M3 streaming is a confine change.** Resolved by 05-model §12.

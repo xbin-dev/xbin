@@ -1486,11 +1486,14 @@ Every card includes these; a card states only what differs.
   (`internal/broker/policy.go:156`) refuses a tile at `<P>+<N>` while `P` has
   deployment `N`, for every creator, before the admin early return; any
   other new tile name containing `+` is created as today, with a
-  one-release warning, and is never refused.
+  one-release warning, and is never refused (superseded 2026-09-28, P17:
+  every new tile name containing `+` is refused, WP-71r).
 - **Owns.** `internal/broker/{policy,create}.go`, `deploy_life_test.go`.
 - **Tests.** `TestPathLeftoversIncludeDeploymentState` (M2 half),
-  `TestPlusReservedInNewTilePaths` (the narrow refusal, and a warning with no
-  refusal for any other `+` name); `TestNewTilePathRule` unchanged.
+  `TestPlusReservedInNewTilePaths` (`+` refused in every new tile name, on
+  every creation path, for every creator — P17, decided 2026-09-28, replacing
+  the narrow refusal and warning first planned); `TestNewTilePathRule`
+  unchanged.
 - **Links.** The warning's text to the changelog hand-off. PO-1.
 - **From wave 1.2.** WP-23b's `internal/broker/deploy_life_m1_test.go`
   holds `TestDeploymentsAcrossTileLife` and

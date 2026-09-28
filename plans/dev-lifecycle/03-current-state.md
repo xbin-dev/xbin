@@ -144,8 +144,8 @@ Evidence: [research/serving-fabric.md](research/serving-fabric.md) §A,
   (`util.go:97-114`; `internal/broker/policy.go:156-174`). A create request
   is accepted or refused; there is no warning channel (`newTilePathOK`
   returns a verdict and a reason). The model uses `+` as the deployment
-  qualifier with two narrow refusals and a one-release warning for other new
-  names containing it ([05-model.md](05-model.md) §7).
+  qualifier and refuses it in every new tile name ([05-model.md](05-model.md)
+  §7; P17, decided 2026-09-28).
 - **`deps/` links are followed on disk.** Legacy mode opens through
   `fsutil.OpenResolved`, which follows symlinks anywhere and accepts the
   result only if the fully resolved path stays inside the workspace root and

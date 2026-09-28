@@ -132,8 +132,8 @@ the glossary's. Resolution follows [12-compat.md](12-compat.md)'s NP-12-1 and
    - no deployment `N` is added to `P` while a component exists at
      `<P>+<N>`.
 
-   Any other new tile name containing `+` gets a one-release warning, never
-   a refusal.
+   No other new tile name may contain `+` either: refused for every creator
+   (P17, decided 2026-09-28; 11-contract §2.1).
 2. **The split is tried only when that fails, and only for a tile with a
    deployment record.** For a zero-state tile, every `+<name>` URL behaves
    exactly as today, `+main` included (P5).

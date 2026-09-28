@@ -860,8 +860,8 @@ on:
   `+` of a segment has one reading. Two narrow refusals, for every creator,
   keep the two spaces apart (05-model §7): no tile is created at `<P>+<N>`
   while `P` has deployment `N`, and no deployment `N` is added to `P` while a
-  component exists at `<P>+<N>`. Any other new tile name containing `+` gets
-  a one-release warning, never a refusal (11-contract §2.1 owns the text).
+  component exists at `<P>+<N>`. No other new tile name may contain `+`
+  either (P17, decided 2026-09-28; 11-contract §2.1 owns the text).
 - **Unknown names and nested tiles.** An unknown name on a tile with a record
   is a 404, never a fallback to a parent tile's file. A qualified URL never
   enters a nested component (11-contract §2.4), which matches checkpoint

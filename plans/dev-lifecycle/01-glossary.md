@@ -167,13 +167,20 @@ It is the one punctuation character the census found free in grammar and URL
 positions. It resolves only for tiles that have a deployment record, and only
 after today's resolution fails, so every existing path resolves exactly as
 today, including a directory whose name contains `+` and `<tile>+main` on a
-zero-state tile. Two refusals, for every creator:
-- creating a tile at `<P>+<N>` while `P` has deployment `N`;
+zero-state tile. Refusals, for every creator (P17, decided 2026-09-28):
+- creating a tile whose path holds `+` in any segment, on every creation
+  path (`bx new`, create, clone, template instantiate, builtin and git
+  import), admins included — refused at once, the D82 way (`:`); a
+  directory named so before the rule keeps resolving as an exact match,
+  `bx doctor` flags it, and it can't get deployments;
 - adding deployment `N` to `P` while a component exists at `<P>+<N>`.
 
-`+` in other new tile names is warned about for one release, the D82 way. The
-bare URL always means the primary. `<tile>+<primary name>` also works, for
-humans and the tile's own principals; other tiles use the bare URL.
+The qualifier lives in URL paths and JSON bodies only. A query string never
+carries it (`+` decodes to a space there): a query names the tile and
+`deployment=` apart, and a query `tile`/`component` holding a `+` that names
+no tile is a 400. The bare URL always means the primary.
+`<tile>+<primary name>` also works, for humans and the tile's own
+principals; other tiles use the bare URL.
 
 **Target deployment.** The deployment that a terminal or agent session's own
 calls and `bx` commands address. It is chosen in the terminal window's API

@@ -1297,9 +1297,10 @@ and is reverted, never waived.
 - Two narrow refusals, for every creator: no tile at `<P>+<N>` while `P` has
   deployment `N`, and no deployment `N` on `P` while a component exists at
   `<P>+<N>`. They arise only once a tile has deployments. Other new tile
-  names containing `+` get a one-release warning, never a refusal, the D82
-  way (the precedent for `:` is `internal/broker/policy.go:162-165`), with a
-  changelog line.
+  names containing `+` were to get a one-release warning, never a refusal;
+  the owner decided on 2026-09-28 (P17) that every new tile name holding `+`
+  is refused at once, for every creator, the D82 way (the precedent for `:`),
+  BREAKING with a migration note.
 - A per-tile cgroup parent exists for tiles that run a non-`main` deployment
   (Z8).
 

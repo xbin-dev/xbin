@@ -27,11 +27,15 @@ run that tab (§3.6). The evidence base is:
 - [research/sandbox-visibility.md](research/sandbox-visibility.md): the D112 wire.
 
 **Conclusions.**
-- Nothing in the design is BREAKING (§10). No migration note is needed.
-- Nothing becomes an error for a workspace that never opts in. `+` in new tile
-  names gets a warning for one release and is never refused. The only
-  exceptions are two narrow collisions, and both need a deployment record to
-  exist first (§7).
+- One change is BREAKING, by the owner's ruling of 2026-09-28 (P17; §10):
+  `+` is refused in new tile names, for every creator, with a migration note.
+  Nothing else in the design is.
+- Nothing else becomes an error for a workspace that never opts in. This
+  document first designed `+` in new tile names as a one-release warning,
+  never a refusal; the owner ruled it refused at once, the D82 way, and a
+  query string never carries the qualifier (§7.1). Existing tiles named with
+  `+` keep working. The other refusal, adding a deployment over an existing
+  `<P>+<N>`, needs a deployment record to exist first (§7).
 - Downgrade is supported in the sense that matters: an older xbind loses
   nothing and activates nothing it shouldn't. It does serve every tile's work
   tree with `main`'s data, so operators get a checklist (§5). Restarting the
@@ -100,7 +104,7 @@ at once, with no restart and no lingering behaviour.
 |---|---|
 | New routes: the deployments family under `/api/xbin/deployments`, including per-deployment backup, restore and seed. One new event type, `deployments`, emitted only for tiles with a record. New optional response fields, absent for zero-state tiles; `/components` entries gain only a primary summary | Compat rule 2 permits additive API. No existing request or event changes. |
 | The binary-served terminal window shows the opt-in controls (pause live reload, the deployments panel) to users at `terminal` level | It is where one opts in. The controls act only when pressed, and viewers of the tile see nothing new. The API dropdown keeps exactly today's two options for a tile with no record or only `main` (PO-10). |
-| Creating a tile whose name contains `+` answers with a `warnings` entry, for one release | Additive field; the creation succeeds as today (§7.1). |
+| Creating a tile whose name contains `+` is refused, for every creator (P17, the owner's ruling of 2026-09-28) | Not a silent violation: the one tripwire of §10.2 crossed on purpose, marked **BREAKING** with a migration note (§7.1, §10). Existing tiles named with `+` keep resolving and working. |
 | `/docs/`, `bx` usage text and the changelog grow | Documentation, not behaviour. |
 | A restore refuses resource data that an archive files under the workspace scope (manifest scope `""`), and fails with the reason (WP-39; 08-data §14.3 closure 3) | A security closure, with a changelog line. xbind never writes such an archive: a tile's backup holds only the scope that tile roots, never the workspace, so no archive xbind made restores differently. Before it, a crafted archive could write the workspace-level volumes and kv buckets that D118's guard exists to protect. |
 
@@ -113,7 +117,7 @@ today's code.
 
 | # | Area | Obligation | Discharged by |
 |---|---|---|---|
-| PO-1 | URLs | Every URL that resolves today resolves identically. The qualifier split (`<tile>+<name>`) is tried only for a tile with a deployment record. It is tried only after today's resolution fails: a component at least as deep, or anything on disk at the full candidate, wins (model §7, P17; [11-contract.md](11-contract.md) §2.2). In the zero state `/c/<tile>+main/` behaves exactly as today. A `+` in a query string is never read as the qualifier. | `TestResolveDeploymentQualifier` (`internal/registry/qualifier_test.go`, [15-test-plan.md](15-test-plan.md) §3.1) gains rows: an on-disk `a+b` directory that is not a component; a qualified path on a zero-state tile; `+main` in the zero state; nested `apps/shop/admin+dev`; names like `c++`. `TestZeroStateDocumentUnchanged` (`internal/server/zerostate_test.go`) is built like `TestLegacyInjectionUnchanged` (`internal/server/tileassets_test.go:187`). It gains a matrix of `/c/` and `/api/` URLs with and without `+`, byte-compared on a zero-state workspace. |
+| PO-1 | URLs | Every URL that resolves today resolves identically. The qualifier split (`<tile>+<name>`) is tried only for a tile with a deployment record. It is tried only after today's resolution fails: a component at least as deep, or anything on disk at the full candidate, wins (model §7, P17; [11-contract.md](11-contract.md) §2.2). In the zero state `/c/<tile>+main/` behaves exactly as today. A `+` in a query string is never read as the qualifier: a query names `deployment=` apart, and a tile parameter that reads as `tile+name` is a 400 (§7.1(c)). | `TestResolveDeploymentQualifier` (`internal/registry/qualifier_test.go`, [15-test-plan.md](15-test-plan.md) §3.1) gains rows: an on-disk `a+b` directory that is not a component; a qualified path on a zero-state tile; `+main` in the zero state; nested `apps/shop/admin+dev`; names like `c++`. `TestZeroStateDocumentUnchanged` (`internal/server/zerostate_test.go`) is built like `TestLegacyInjectionUnchanged` (`internal/server/tileassets_test.go:187`). It gains a matrix of `/c/` and `/api/` URLs with and without `+`, byte-compared on a zero-state workspace. |
 | PO-2 | Storage keys | Every existing key function returns today's value for `main`. For every other deployment it returns a value that no path can produce under today's or any older key function. That covers `util.CompKey` and `util.ScopeKey` (`internal/util/util.go:127-144`) and the `res:<scope>/<name>` buckets (`internal/broker/backup.go:332`). A dot-prefixed path level does this, because no component or scope segment may start with `.` (`util.go:108-110`). So does a bucket name outside `res:`. The new stores (`data/deployments`, `data/checkpoints`, `.xbin/deploy`) are keyed by `<TileKey>`, a 128-bit hash of the path, which no older binary computes (model §3). | `TestZeroStateKeys` (15-test-plan §2.7) for `main`. `TestDeploymentKeysDisjoint` is a property test over adversarial paths: `<t>+<n>`, `<t>~<n>`, `<t>.<n>`, `<t>/<n>`, and 24-character truncation collisions. `TestResourceBinds` (`internal/runner/resourcebinds_test.go:9`) and the `EnvFor` joined-string tests (`internal/broker/ingressfn_test.go:120`) gain `main` rows equal to today's strings. |
 | PO-3 | Env | A zero-state backend's env equals today's set (`internal/runner/runner.go:423-431`, `internal/broker/resources.go:71-144`): no `XBIN_DEPLOYMENT`, and the same `XBIN_RES_*`, `XBIN_IFACE_*` and `XBIN_SOCKET` values. A zero-state terminal's env equals today's (`internal/term/term.go:737-795`): no `XBIN_DEPLOYMENT`, and `GIT_CONFIG_COUNT=2` with today's two keys. The fetch remote is injected only while the tile has a record (model §3). | `TestZeroStateBackendEnv` and `TestSessionEnvZeroState` (`internal/term/deploy_test.go`), both in 15-test-plan §2.7. |
 | PO-4 | Headers | For a primary's calls, `identify` (`internal/proxy/proxy.go:275-305`) injects exactly today's headers. `X-XBin-Deployment` appears only on calls from a non-primary deployment. An inbound `X-XBin-Deployment` is stripped like every `X-Xbin-*` header (`proxy.go:276-280`). xbind adds no response header to zero-state responses. | `TestIdentifyZeroState` (`internal/proxy/deploy_test.go`, 15-test-plan §2.7), with added cases for element, human, view-as and ingress principals and a forged inbound header. |
@@ -479,7 +483,7 @@ An old bx meets a new server in two ways.
 | `bx cron …`, `bx vault …` | self-scoped routes, with the terminal token | The target's cron set (dormant when non-primary) and vault (model §7, §9) |
 | `bx enable\|disable\|hide\|unhide\|offload\|backup\|restore` | lifecycle and backup routes | Unchanged: these belong to the tile (model §11) |
 | `bx code pr …`, `bx builtin …`, `bx template …` | work-tree operations | Unchanged. The result reaches only the live reload target (model §11) |
-| Creating a tile whose name contains `+` | creation routes | §7. Refused only for the narrow collision, which needs a deployment record. Otherwise it succeeds as today, with a `warnings` entry that old bx ignores |
+| Creating a tile whose name contains `+` | creation routes | §7. Refused for every creator, on every path (P17, decided 2026-09-28; BREAKING, with a migration note). Old bx prints the 403 like any refusal |
 | `bx deploy`, `bx promote`, `bx rollback`, `bx deployment`, `bx live-reload` | unknown command: usage on stderr, exit 2 (`cmd/bx/agent.go:44`, `cmd/bx/main.go:175`) | The terminal window and a current bx are the way in |
 
 Old bx ignores `XBIN_DEPLOYMENT`, and nothing depends on bx reading it (C1).
@@ -1007,24 +1011,31 @@ refusal covers only a state that can't exist before this release.
   close at once with a changelog entry (`AGENTS.md:112-113`), although
   nothing previously accepted is refused here.
 
-**(b) Any other `+` in a new tile name gets a warning for one release, and is
-never refused.**
-- In the release that ships tile deployments, creation succeeds as today. The
-  response carries an additive `warnings` entry (precedent:
-  `internal/broker/admin.go:116`), and xbind logs the creator. The text: "'+'
-  in a tile name selects a tile deployment in URLs (`<tile>+<name>`); this
-  path keeps working."
-- Nothing is refused, in that release or any later one. A tile whose name
-  contains `+` stays unambiguous for as long as no deployment's qualified URL
-  equals it. Part (a) and exact-match-wins guarantee that.
-- The warning reaches new clients only. Old shells and old bx ignore unknown
-  fields; the changelog carries it for everyone else.
+**(b) Decided 2026-09-28 (P17): every other `+` in a new tile name is
+refused too, at once.** This section first designed a one-release warning
+and no refusal ever, reasoning that part (a), the mirror rule and
+exact-match-wins already cover every collision. The owner overrode it: base
+tile names are assumed not to hold `+`, and D82's immediate refusal of `:` is
+the precedent. So:
+- Creating a tile whose path holds `+` in any segment is refused (403), for
+  every creator, admins included, on every creation path: create, clone,
+  template instantiate, builtin import, git import and `bx new`'s local
+  write (`util.PlusNameRefusal`, in `canCreateAt` before its admin early
+  return and in `scaffold.Create`). It subsumes the first refusal of (a).
+  The `warnings` entry and the creator log are gone.
 - Existing directories keep resolving: exact match wins, and a tile without a
-  record never splits (PO-1).
+  record never splits (PO-1). Such a tile can't get deployments (`add`
+  answers 409), and `bx doctor` flags it.
+- This crosses the §10.2 tripwire on purpose: the changelog entry is
+  **BREAKING** and links `docs/changes/2026-09-28-plus-in-tile-names.md`.
 
-A general refusal later would turn an act that works today into an error in
-workspaces that never opt in, and it would buy nothing. Part (a), the mirror
-rule and exact-match-wins already cover every collision.
+**(c) No qualified ref in a query string** (decided with (b)). A `+` in a
+query string decodes to a space, so the qualifier lives in paths and JSON
+bodies only: a query names the tile (`tile=`, `component=`) and
+`deployment=` apart. A tile parameter that holds a `+` naming no tile, or
+that an unescaped `+` split into a tile and a deployment name, is a 400 on
+the deployments reads, `/frame-token`, `/logs` and `/tile-status`
+([11-contract.md](11-contract.md) §2.1). Clients never send one.
 
 ### 7.2 Admin creation of names containing `+`
 
@@ -1032,7 +1043,7 @@ rule and exact-match-wins already cover every collision.
   (a) applies to them too, through the API. An admin who needs the name
   removes the deployment first. Deployment names are immutable, so the
   deployment can't be renamed.
-- Admins get the warning (b) like everyone else.
+- Admins are refused by (b) like everyone else.
 - Anyone with a terminal can still `mkdir`. `Registry.Rescan` registers any
   directory holding `xbin.json` or `index.html`
   (`internal/registry/registry.go:456-474`). See §7.3.
@@ -1060,10 +1071,11 @@ Every refusal the design introduces requires an opt-in first:
   name its `checkpoint` or `expect` (P21);
 - blocked edges for non-primary deployments (P23), and the default-deny API
   for non-primary principals (P26);
-- the two narrow `+` refusals (§7.1(a));
+- the narrow `+` refusal on `add` (§7.1(a));
 - per-tile and per-workspace caps.
 
-A user of zero-state tiles meets one change: the `+` warning of §7.1(b).
+A user of zero-state tiles meets one change: a new tile's name may not hold
+`+` (§7.1(b), decided 2026-09-28, BREAKING with a migration note).
 
 ## 8. Vocabulary updates to existing docs
 
@@ -1137,7 +1149,7 @@ save reloads live is stated in the places that
 
 ## 10. Is anything BREAKING?
 
-### 10.1 Verdict: no
+### 10.1 Verdict: one, by the owner's ruling (2026-09-28)
 
 The repo's `AGENTS.md` calls a change BREAKING when "existing tiles/providers
 must change code or config, or a wire/persisted format changes incompatibly"
@@ -1150,14 +1162,19 @@ must change code or config, or a wire/persisted format changes incompatibly"
   non-`main` documents' tokens (PO-6).
 - **No persisted format changes.** Today's stores keep today's rows; new state
   lives in new files (§5.3).
-- **The only new refusals**, §7.1(a), apply to states that need a deployment
-  record. Nothing that works today is refused. Every other `+` gets only a
-  warning. The one refusal reaching zero-state tiles is a security closure
-  (§1.3): a restore of resource data filed under the workspace scope, which
-  no archive xbind writes holds.
+- **The new refusals**, §7.1(a), apply to states that need a deployment
+  record. The one refusal reaching zero-state tiles by design was a security
+  closure (§1.3): a restore of resource data filed under the workspace
+  scope, which no archive xbind writes holds.
+- **Except `+` in new tile names** (§7.1(b)): the owner ruled on 2026-09-28
+  that it is refused at once, for every creator, crossing the tripwire of
+  §10.2. Creating a tile that works today (`apps/c++`) becomes an error, so
+  that entry is **BREAKING**, with
+  `docs/changes/2026-09-28-plus-in-tile-names.md`. Existing tiles are
+  untouched.
 
-No migration note is required, and the changelog entry is not marked
-BREAKING.
+The feature's own changelog entry is not marked BREAKING; the `+` rule has
+its own.
 
 ### 10.2 Tripwires
 
@@ -1176,7 +1193,7 @@ migration note:
 | Non-`main` rows in today's registration stores or backup manifests | Older binaries fire them (§5.3) | PO-9 |
 | Changing the frame-token format for `main`'s documents | Pages open across the upgrade stop verifying | PO-6 |
 | A new field in an existing request body | Strict decoding makes it a 400 for old servers or old clients (`internal/server/api.go:67-76`) | PO-14, NC-3 |
-| Refusing `+` in new tile names beyond the two narrow collisions | It turns an act that works today into an error in workspaces that never opt in (compat rule 11) | §7.1 |
+| Refusing `+` in new tile names beyond the two narrow collisions | It turns an act that works today into an error in workspaces that never opt in (compat rule 11) | §7.1 — **crossed on purpose, by the owner's ruling of 2026-09-28 (P17)**: BREAKING, with a migration note (§10.3) |
 | A lifecycle `state` value for paused live reload | Old shells offer "Enable" (`workspace-template/shell/menus.js:111-116`), and the proxy answers 409 (`internal/proxy/proxy.go:145-158`) | PO-14 |
 
 ### 10.3 If a tripwire must be crossed
@@ -1213,10 +1230,8 @@ existing precedent (`docs/changelog.md:1741-1742`).
   Existing event types describe only a tile's primary. Bus events published
   in a non-primary deployment's data carry `deployment` and reach only
   subscribers of that data.
-  **`+` in new tile names:** a tile named `<tile>+<name>` is refused while
-  `<tile>` has a deployment `<name>`, and such a deployment can't be added
-  while that tile exists. Any other `+` gets a warning in this release and
-  keeps working, and existing directories keep working.
+  **`+` in new tile names** has its own BREAKING entry (§10.1): no new tile
+  name may hold `+`; existing directories keep working.
   **Admin consoles:** until you take the admin tile's update, its sandboxes
   tab labels `main`'s generation "draining" while another deployment runs.
   **Downgrade note:** an older xbind serves every tile's work tree with
