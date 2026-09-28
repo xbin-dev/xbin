@@ -12,6 +12,21 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-28
 
+- **The terminal window's panels: full width, or beside the terminal at a
+  width you drag** (D129, [elements.md](elements.md) `<bx-frame>`). The
+  Deployments panel opens full width — a window without sessions no longer
+  shows the launcher beside it. `⇋`, now the last layout button and a
+  toggle, puts the terminal beside whichever panel shows (code, logs,
+  proposals, deployments; from `>_` it is code, the old split); the divider
+  drags, moves with ←/→ once focused, resets on a double-click, and its
+  width is kept per window. In the Deployments panel the row tag "target of
+  this terminal" is now **`Dev API`** — the same meaning: the deployment
+  the active tab's API calls and `bx` commands reach — on one line with a
+  tooltip, and it follows tab switches; a `● live reload` tag marks where
+  saves go ([tile-deployments.md](tile-deployments.md) §The Deployments
+  panel). A narrow panel shows its list and the selected row one at a time.
+  `open(layout)` is unchanged (`'split'` is code beside the terminal), and a
+  saved window restores as before. Nothing to change.
 - **VM tile sandboxes and VM-only coding sandboxes by default.** A VM
   policy saved before tile sandboxes existed (no `tiles` field — the
   installer's policies until v0.3.60) now reads `tiles` as following

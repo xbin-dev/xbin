@@ -380,6 +380,16 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   (docs/overview/09-terminals.md §Agent sessions). A tab whose session
   ended keeps its transcript, greyed, until you dismiss it. A long transcript
   shows its recent part; scrolling up loads earlier entries in place (D124).
+- **Panels** (D129): the layout switcher shows the terminal alone (`>_`) or
+  a panel — code `{ }`, backend logs `▤`, change proposals `⇄`, the
+  Deployments panel `⇈` — full width; `⇋` (the last button, a toggle) puts
+  the terminal beside whichever panel shows, split by a divider you drag
+  (or move with ←/→ once focused; a double-click resets it). The width is
+  one per window and kept in your window pref; the panel keeps its place
+  beside the terminal while you switch panels, and `>_` puts the terminal
+  back alone. A window without sessions shows the launcher only where the
+  terminal would be. `open(layout)` shows the panel full width; `'split'`
+  still means code beside the terminal.
 - **The bar degrades, never clips**: when the window is narrow (below
   ~640 px, or the phone sheet) or the full bar measures wider than the
   window (it varies by host and tab: a GPU picker, the VM toggle, long tab
@@ -414,7 +424,8 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   over the page: in the shell the tile's window head carries `⇈`); open
   terminals print a grey line when live reload pauses or
   resumes, or code moves or fails to. The layout switcher's `⇈` opens the
-  **Deployments panel**, and once a tile has more than an unprotected
+  **Deployments panel** (its rows tag the active tab's target `Dev API`
+  and the live reload target `● live reload`), and once a tile has more than an unprotected
   `main` the tile API select picks the session's target deployment
   (`🔌 target: dev`; switching restarts the session). An xbind without tile
   deployments draws today's window.

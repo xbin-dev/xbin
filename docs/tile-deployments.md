@@ -715,10 +715,15 @@ manage protection in three places, all of them a person's credential:
 ## The Deployments panel
 
 The terminal window's `⇈` layout (the button counts the deployments you may
-see, `⇈ 2`). A header with the live reload sentence and its buttons (and
+see, `⇈ 2`). It opens full width; the window's `⇋` puts the terminal
+beside it, split by a divider you drag, and a narrow panel shows its side
+list and the selected row's page one at a time. A header with the live reload sentence and its buttons (and
 **Undo** after a code move that paused live reload); a side list —
 **tile-wide**, one row per deployment (the primary first, `🛡` when
-protected), **+ Add deployment…** — and a pane for the selected row:
+protected; **`Dev API`** on the deployment the active tab's API calls and
+`bx` commands reach — its target, `$XBIN_DEPLOYMENT` when non-primary —
+and **`● live reload`** on the one saves reach), **+ Add deployment…** —
+and a pane for the selected row:
 
 - **overview**: code, status, data, resources, limits, vault, deliveries,
   alwaysOn, the URL, the `git fetch xbin-deploy` line of a pinned

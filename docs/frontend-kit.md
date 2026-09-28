@@ -61,8 +61,11 @@ every string they show, from `GET /api/xbin/deployments`; imports nothing),
 terminal window's Deployments panel: live reload, a tile's deployments,
 promotion with the diff first, the deploy log, data, vault, deliveries,
 edges and registrations; its host frame, the `frame` property, asks
-every question) with `/vendor/deploy-panel.js` (the panel's pure view
-model, beside `deploy-state.js`), `/vendor/frame-testapi.js` (`<bx-frame>`'s
+every question; `target` — `primary`, a deployment's name or `off` — is the
+active tab's, whose row it tags `Dev API`) with `/vendor/deploy-panel.js` (the panel's pure view
+model, beside `deploy-state.js`), `/vendor/frame-panels.js` (the terminal
+window's body: which panel shows, the terminal beside it, the divider —
+D129), `/vendor/frame-testapi.js` (`<bx-frame>`'s
 test surface for the UI harness), and the shell's own siblings under
 `shell/`. They are served, and they will keep being served, but their
 shapes follow the shell.

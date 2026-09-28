@@ -27,12 +27,26 @@ function statusText(d) {
   return [st.state === 'crash-looping' ? 'failed' : st.state, moving].filter(Boolean).join(' · ');
 }
 
-// panelRows(state, opts) → the side list, primary first; opts.target: the active tab's target.
+// The side list's two tags (D129): "Dev API" on the deployment the active
+// tab's API calls and bx commands reach (its target: XBIN_DEPLOYMENT when
+// non-primary), and "● live reload" on the one saves reach. Each is one
+// compact line; the tooltip says what it means.
+export const TAG = Object.freeze({
+  devApi: 'Dev API',
+  devApiTitle: (s, name) => `Dev API: this tab's API calls and bx commands reach ${name === (s?.primary || 'main') ? `${name}, the primary (XBIN_DEPLOYMENT is unset)` : `${s?.tile}+${name} (XBIN_DEPLOYMENT=${name})`}. The tile API select switches it; switching restarts the session.`,
+  liveReload: '● live reload',
+  liveReloadTitle: (s, name) => `Live reload: saves reach ${name === (s?.primary || 'main') ? `${s?.tile} (${name}, the primary)` : `${s?.tile}+${name}`}.`,
+});
+
+// panelRows(state, opts) → the side list, primary first; opts.target: the
+// active tab's target (its row carries the Dev API tag); the live reload
+// target's row carries liveReload.
 export function panelRows(s, opts = {}) {
   const P = s?.primary || 'main', t = opts.target === 'primary' ? P : opts.target;
   return [...(s?.deployments || [])].sort((a, b) => (b.name === P) - (a.name === P) || a.name.localeCompare(b.name)).map((d) => ({
     name: d.name, primary: d.name === P, protected: d.name === P && !!s.protectedPrimary, code: pointer(d), status: statusText(d),
-    data: dataText(d, opts), deliveries: deliveriesText(d), target: !!t && t === d.name, lastDeployFailed: d.lastDeploy?.result === 'failed',
+    data: dataText(d, opts), deliveries: deliveriesText(d), target: !!t && t === d.name, liveReload: !!s.record && !!s.liveReload && s.liveReload === d.name,
+    lastDeployFailed: d.lastDeploy?.result === 'failed',
   }));
 }
 

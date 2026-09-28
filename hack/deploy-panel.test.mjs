@@ -65,6 +65,25 @@ test('the panel: rows, header and overview', () => {
   assert.deepEqual([panelHeader(zero(), opts).text, panelHeader(zero(), opts).actions.map((a) => a.id)], ['Live reload: main — every save reaches everyone using apps/crm.', ['pause']]);
 });
 
+// covers D129 — the side list's tags: "Dev API" on the active tab's target
+// (the primary's row for 'primary', none for 'off' or no tab), "● live
+// reload" on the live reload target's row (none while paused, none in the
+// zero state); each tooltip says what it means.
+test('the panel: the Dev API and live reload tags', () => {
+  const s = m2(); // live reload on dev
+  const tags = (st, target) => panelRows(st, { ...opts, target }).map((r) => `${r.name}:${r.target ? 'api' : ''}${r.liveReload ? 'lr' : ''}`);
+  assert.deepEqual(tags(s, 'primary'), ['main:api', 'dev:lr']);
+  assert.deepEqual(tags(s, 'dev'), ['main:', 'dev:apilr']);
+  assert.deepEqual([tags(s, 'off'), tags(s, undefined)], [['main:', 'dev:lr'], ['main:', 'dev:lr']]);
+  assert.deepEqual(tags(attachedMain(), 'primary'), ['main:apilr']);
+  assert.deepEqual(tags(paused(), 'primary'), ['main:api'], 'paused: saves reach nobody');
+  assert.equal(ds.TAG.devApi, 'Dev API');
+  assert.equal(ds.TAG.liveReload, '● live reload');
+  assert.equal(ds.TAG.devApiTitle(s, 'dev'), "Dev API: this tab's API calls and bx commands reach apps/crm+dev (XBIN_DEPLOYMENT=dev). The tile API select switches it; switching restarts the session.");
+  assert.match(ds.TAG.devApiTitle(s, 'main'), /reach main, the primary \(XBIN_DEPLOYMENT is unset\)/);
+  assert.deepEqual([ds.TAG.liveReloadTitle(s, 'dev'), ds.TAG.liveReloadTitle(s, 'main')], ['Live reload: saves reach apps/crm+dev.', 'Live reload: saves reach apps/crm (main, the primary).']);
+});
+
 // covers D127b D127m D127n — actions follow the server's can: a terminal-level
 // caller, a tile manager, an unhealthy reassignment target, a protected primary.
 test('the panel: actions follow the server\'s can, a protected primary included', () => {
@@ -233,7 +252,7 @@ test('the panel\'s results, M2 terminal lines, and its words', () => {
 // adding one is fine, renaming or dropping one breaks the panel.
 test('the panel module\'s exports', () => {
   assert.deepEqual(Object.keys(dsPanel).sort(), [
-    'addDialog', 'asksToRun', 'diffLine', 'edgeRows', 'logRows', 'overview', 'panelActions', 'panelHeader', 'panelRows',
+    'TAG', 'addDialog', 'asksToRun', 'diffLine', 'edgeRows', 'logRows', 'overview', 'panelActions', 'panelHeader', 'panelRows',
     'reassignable', 'registrationRows', 'registrationsNote', 'widens', 'wouldNotifyRows', 'zeroPanel',
   ]);
 });

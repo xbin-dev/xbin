@@ -45,7 +45,7 @@ import * as dsPanel from '/vendor/deploy-panel.js';
 
 const ds = { ...dsState, ...dsPanel };
 
-const SHEET = typeof matchMedia === 'function' ? matchMedia('(max-width: 820px)') : { matches: false, addEventListener() {} };
+const SHEET = typeof matchMedia === 'function' ? matchMedia('(max-width: 820px)') : { matches: false }; // the phone sheet: menus open as sheets
 const ROUTE = {
   pause: 'live-reload/pause', resume: 'live-reload/resume', reloadNow: 'live-reload/now', attach: 'live-reload/attach',
   add: 'add', remove: 'remove', deploy: 'deploy', promote: 'promote', rollback: 'rollback', undo: 'rollback',
@@ -94,6 +94,10 @@ export class BxDeployments extends LitElement {
   static properties = {
     component: { type: String },
     frame: { attribute: false }, // the host <bx-frame>: its dialog asks every question
+    // the active tab's target — 'primary', a deployment's name, 'off', or
+    // null (no tab): its row carries the Dev API tag. bx-frame sets it on
+    // every render, so it follows tab switches; unset, it is read off the frame.
+    target: { type: String },
     _state: { state: true },
     _loaded: { state: true },
     _loadError: { state: true },
@@ -105,7 +109,7 @@ export class BxDeployments extends LitElement {
     _busy: { state: true },
     _error: { state: true },  // the inline refusal
     _said: { state: true },   // the last result, in the polite live region
-    _drill: { state: true },  // phones: the main pane is shown instead of the side list
+    _drill: { state: true },  // narrow: the main pane is shown instead of the side list
   };
 
   static styles = [scrollCss, css`
@@ -123,21 +127,28 @@ export class BxDeployments extends LitElement {
     .why { color: var(--bx-muted, #868f9a); font-size: 10.5px; }
     .said { color: var(--bx-muted, #868f9a); font-size: 11px; min-height: 0; }
     .err { color: var(--bx-red, #ef5350); white-space: pre-wrap; }
-    .body { flex: 1; display: flex; min-height: 0; }
+    /* the panel's own width decides the narrow layouts (container queries,
+       below), so it works in a pane beside the terminal as on a phone */
+    .body { flex: 1; display: flex; min-height: 0; container: dbody / inline-size; }
     .side { width: 230px; flex: none; display: flex; flex-direction: column; overflow: auto; border-right: 1px solid var(--bx-border, #363c45); }
     .row { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 5px 8px;
       border-bottom: 1px solid color-mix(in srgb, var(--bx-border, #363c45) 40%, transparent); }
     .row:hover { background: var(--bx-panel-2, #2b3038); }
     .row.on { background: color-mix(in srgb, var(--bx-accent, #f5a623) 22%, transparent); }
-    .row .t { display: flex; gap: 6px; align-items: baseline; }
+    /* a row's name and tags: each tag one compact line; a tag that doesn't
+       fit moves to the next line whole */
+    .row .t { display: flex; flex-wrap: wrap; gap: 2px 6px; align-items: baseline; }
+    .row .t .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .row .m { color: var(--bx-muted, #868f9a); font-size: 10.5px; display: block; }
     .row.add { color: var(--bx-accent, #f5a623); }
-    .pill { font-size: 9.5px; letter-spacing: .04em; padding: 0 5px; border-radius: 3px; border: 1px solid var(--bx-border, #363c45); color: var(--bx-muted, #868f9a); }
+    .pill { font-size: 9.5px; letter-spacing: .04em; padding: 0 5px; border-radius: 3px; border: 1px solid var(--bx-border, #363c45); color: var(--bx-muted, #868f9a);
+      white-space: nowrap; flex: none; }
     .pill.primary { color: var(--bx-accent, #f5a623); }
     .pill.target { color: var(--bx-green, #4caf50); }
+    .pill.lr { color: var(--bx-text, #d4d9e0); }
     .bad { color: var(--bx-red, #ef5350); }
     .st-healthy { color: var(--bx-green, #4caf50); } .st-building { color: var(--bx-accent, #f5a623); } .st-failed { color: var(--bx-red, #ef5350); }
-    .main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+    .main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; container: dmain / inline-size; }
     .title { padding: 7px 12px 0; font-weight: 600; display: flex; gap: 8px; align-items: baseline; }
     .tabs { display: flex; flex: none; border-bottom: 1px solid var(--bx-border, #363c45); padding: 0 8px; overflow-x: auto; }
     .tabs button { background: none; border: 0; color: var(--bx-muted, #868f9a); padding: 6px 8px; border-bottom: 2px solid transparent; white-space: nowrap; }
@@ -156,7 +167,9 @@ export class BxDeployments extends LitElement {
     select { font: inherit; color: inherit; background: var(--bx-panel-2, #2b3038); border: 1px solid var(--bx-border, #363c45); border-radius: 4px; padding: 2px 4px; max-width: 100%; }
     h4 { margin: 12px 0 4px; font-size: 11px; color: var(--bx-muted, #868f9a); font-weight: 600; }
     .actions { flex: none; position: sticky; bottom: 0; padding: 7px 12px; border-top: 1px solid var(--bx-border, #363c45);
-      background: var(--bx-panel, #23272e); display: flex; flex-direction: column; gap: 4px; }
+      background: var(--bx-panel, #23272e); display: flex; flex-direction: column; gap: 4px;
+      /* a short or narrow pane: the buttons and their reasons scroll, never cover the title and tabs */
+      max-height: 45%; overflow: auto; }
     .zero { padding: 12px 16px; display: flex; flex-direction: column; gap: 12px; max-width: 640px; }
     .zero b { color: var(--bx-text, #d4d9e0); }
     .view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -169,14 +182,20 @@ export class BxDeployments extends LitElement {
     .diff .a { color: #e06c75; display: block; background: color-mix(in srgb, #e06c75 10%, transparent); }
     .diff .ctx { display: block; color: #abb2bf; }
     .back { display: none; }
-    @media (max-width: 820px) {
+    /* narrow (a phone, a pane beside the terminal): the side list, or the
+       selected row's page with a way back */
+    @container dbody (max-width: 720px) {
       .side { width: auto; flex: 1; border-right: 0; }
       .body.drill .side, .body:not(.drill) .main { display: none; }
       .back { display: block; }
-      .btn, .row, .tabs button, select { min-height: 44px; }
+    }
+    @container dmain (max-width: 560px) {
       .tr { grid-template-columns: 1fr; gap: 2px; }
       .tr.hd { display: none; }
       .tr .lb { display: block; }
+    }
+    @media (max-width: 820px) {
+      .btn, .row, .tabs button, select { min-height: 44px; }
     }
     @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
   `];
@@ -186,19 +205,16 @@ export class BxDeployments extends LitElement {
     this._state = null; this._loaded = false; this._loadError = ''; this._sel = undefined; this._tab = 'overview';
     this._log = null; this._undo = null; this._review = null; this._busy = false; this._error = ''; this._said = ''; this._drill = false;
     this._gen = 0; this._rgen = 0; this._viewing = undefined;
-    this._onSheet = () => this.requestUpdate();
   }
 
   connectedCallback() {
     super.connectedCallback();
     this._offEvents = onEvent((e) => this._event(e));
     this._offReconnect = onReconnect?.(() => this._load());
-    SHEET.addEventListener?.('change', this._onSheet);
     if (this.component) this._load();
   }
   disconnectedCallback() {
     this._offEvents?.(); this._offReconnect?.(); clearTimeout(this._timer);
-    SHEET.removeEventListener?.('change', this._onSheet);
     super.disconnectedCallback();
   }
   updated(ch) {
@@ -212,7 +228,7 @@ export class BxDeployments extends LitElement {
 
   _opts() {
     const f = this.frame, t = f?._sessions?.[f._active];
-    const target = !t ? undefined : t.api === false ? 'off' : t.deployment || 'primary';
+    const target = this.target !== undefined ? this.target || undefined : !t ? undefined : t.api === false ? 'off' : t.deployment || 'primary';
     return { now: Date.now(), viewing: this._viewing || '', target, undo: this._undo, entry: this._log?.find((e) => e.result === 'ok') };
   }
 
@@ -530,8 +546,9 @@ export class BxDeployments extends LitElement {
     return html`<nav class="side" aria-label="Deployments">
       <button class=${'row' + (this._sel === '' ? ' on' : '')} @click=${() => this._select('')}><span class="t">tile-wide</span></button>
       ${ds.panelRows(s, o).map((r) => html`<button class=${'row' + (this._sel === r.name ? ' on' : '')} @click=${() => this._select(r.name)}>
-        <span class="t">${r.name}${r.primary ? html`<span class="pill primary">primary</span>` : nothing}${r.protected ? html`<span aria-label="protected">🛡</span>` : nothing}
-          ${r.target ? html`<span class="pill target">target of this terminal</span>` : nothing}</span>
+        <span class="t"><span class="nm">${r.name}</span>${r.primary ? html`<span class="pill primary">primary</span>` : nothing}${r.protected ? html`<span aria-label="protected">🛡</span>` : nothing}
+          ${r.target ? html`<span class="pill target" title=${ds.TAG.devApiTitle(s, r.name)}>${ds.TAG.devApi}</span>` : nothing}
+          ${r.liveReload ? html`<span class="pill lr" title=${ds.TAG.liveReloadTitle(s, r.name)}>${ds.TAG.liveReload}</span>` : nothing}</span>
         <span class="m">${glyphed(r.code)} · <span class=${'st-' + r.status.split(' ')[0]}>${r.status}</span>${r.lastDeployFailed ? html` · <span class="bad">last deploy failed</span>` : nothing}</span>
         ${r.data || r.deliveries ? html`<span class="m">${[r.data, r.deliveries].filter(Boolean).join(' · ')}</span>` : nothing}
       </button>`)}
@@ -641,7 +658,7 @@ export class BxDeployments extends LitElement {
     const s = this._state, o = this._opts();
     if (!s) return html`<div class="pane muted">${this._loaded ? this._loadError : '…'}</div>`;
     if (!s.record) return html`${this._header(s, o)}${this._zero(s, o)}`;
-    const drill = SHEET.matches && this._drill;
+    const drill = this._drill; // the drill-down applies only while the panel is narrow (@container dbody)
     return html`${this._header(s, o)}
       <div class=${'body' + (drill ? ' drill' : '')}>
         ${this._side(s, o)}
