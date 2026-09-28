@@ -1,6 +1,6 @@
 # 12 — Compatibility: zero change, old clients, downgrade
 
-> Status: live — the compatibility proof for tile deployments: the zero-change guarantee and the tests that discharge it, docs/compat.md rule by rule, old and new clients, the downgrade story, fixture expectations and the breaking-change verdict (part of [plans/dev-lifecycle](README.md))
+> Status: implemented (D119, D127; M3 designed, not built) — the compatibility proof for tile deployments: the zero-change guarantee and the tests that discharge it, docs/compat.md rule by rule, old and new clients, the downgrade story, fixture expectations and the breaking-change verdict (part of [plans/dev-lifecycle](README.md))
 
 This document owns one claim and its proof: **tile deployments and pausing
 live reload break no one.** Vocabulary is [01-glossary.md](01-glossary.md),

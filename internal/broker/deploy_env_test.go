@@ -150,7 +150,7 @@ func zeroDataCall(t *testing.T, h func(http.ResponseWriter, *http.Request), meth
 	return w
 }
 
-// covers P5 SC-ZERO PO-3 — a zero-state backend's resource and interface env
+// covers D119c SC-ZERO PO-3 — a zero-state backend's resource and interface env
 // is today's, as a joined string, for every branch EnvFor has: same-scope kv,
 // bus, blob, cron (a res: id), sqlite and filesystem (a path under the
 // decrypted mount), a granted workspace-level resource, cross-scope kv (an
@@ -208,7 +208,7 @@ func TestZeroStateBackendEnv(t *testing.T) {
 	}
 }
 
-// covers P5 P6 SC-ZERO Z6 PO-2 — main's storage names, as today, for every
+// covers D119c D127c SC-ZERO Z6 PO-2 — main's storage names, as today, for every
 // store the broker keys (08-data §2's "today" column): the path keys, kv
 // buckets and their encryption labels, the resenc cipher and mount dirs and
 // their password labels, the plaintext cron dir, the vault file and its
@@ -723,7 +723,7 @@ func nsEnv(env []string) map[string]string {
 	return m
 }
 
-// covers P6 P7 P17 P22 P23 SC-DATA PO-11 — EnvFor per deployment: main's env,
+// covers D127c D127d D127j D127n D127o SC-DATA PO-11 — EnvFor per deployment: main's env,
 // with a record, is today's, and its remap nil (every path at itself);
 // dev's view gets the same XBIN_RES_* value for every resource both declare
 // (the canonical path, main's mount, or the canonical id) and the same
@@ -731,7 +731,7 @@ func nsEnv(env []string) map[string]string {
 // declares, and no XBIN_DEPLOYMENT (spawnSetup adds it). dev's remap binds its
 // own volumes at the canonical directories, each mounted on its first use and
 // none in main's data; a workspace-level filesystem of a workspace-scope tile
-// keeps its variable and binds nothing (block, P23); a volume that can't be
+// keeps its variable and binds nothing (block, D127o); a volume that can't be
 // mounted has no entry, so the runner fails the start closed.
 func TestEnvForPerDeployment(t *testing.T) {
 	b, f := newNSBroker(t)
@@ -816,7 +816,7 @@ func TestEnvForPerDeployment(t *testing.T) {
 	}
 }
 
-// covers P6 P14 SC-DATA — kv per deployment: a put with dev's credential is
+// covers D127c D127i SC-DATA — kv per deployment: a put with dev's credential is
 // invisible to main and the reverse; dev starts empty, and reading it creates
 // nothing; a kv only dev's code declares exists for dev alone; a terminal
 // session reaches the deployment it targets, or the primary it follows; a
@@ -882,7 +882,7 @@ func TestKVNamespacePerDeployment(t *testing.T) {
 	want("a deployment that's gone", c, body, 404, "")
 }
 
-// covers P3 P6 P28 — flow G: apps/shop+dev and apps/shop/admin+dev share the
+// covers D127a D127c D127t — flow G: apps/shop+dev and apps/shop/admin+dev share the
 // scope's dev namespace; a sibling without dev (apps/shop/admin's main, and
 // apps/shop/stats, which has no record) uses the primary namespace; the
 // scope's declarations for dev are the scope root's dev code; apps/shop/admin+dev
@@ -938,7 +938,7 @@ func TestMultiTileScopeNamespaces(t *testing.T) {
 	}
 }
 
-// covers P13 T4 = TestNonPrimaryBusPublishIsolated — an own-scope publish
+// covers D127h T4 = TestNonPrimaryBusPublishIsolated — an own-scope publish
 // lands in the publisher's namespace: the event names dev, counted apart; a
 // main publish carries no deployment; another scope's bus, and its kv, are
 // read-only to a non-primary deployment whatever the tile holds, while the
@@ -1002,7 +1002,7 @@ func TestBusPublishStaysInNamespace(t *testing.T) {
 	}
 }
 
-// covers P13 T4 — delivery compares namespaces, not only topics (09-fabric
+// covers D127h T4 — delivery compares namespaces, not only topics (09-fabric
 // §5.10): a WebSocket subscriber gets an event only from the namespace it
 // reaches for the resource (its own deployment's in its own scope, the scope
 // primary's elsewhere), a frame in an admin's browser included; a push
@@ -1060,7 +1060,7 @@ func TestBusNamespaceMatch(t *testing.T) {
 	}
 }
 
-// covers P22 T2 — TestProvisionFollowsCode's non-primary rows (the primary's
+// covers D127n T2 — TestProvisionFollowsCode's non-primary rows (the primary's
 // are deploy_provision_test.go's): a dev checkpoint declaring a new kv gets
 // it in dev's namespace only; a dev checkpoint whose scope.json names a
 // resource outside the rule, or is a symlink leaving the checkpoint, declares
@@ -1138,7 +1138,7 @@ func TestProvisionFollowsCodeNonPrimary(t *testing.T) {
 
 // covers T10 — a namespace beyond main declares at most 64 resources, the
 // first in name order; the rest are skipped with an error naming them, and
-// answer as undeclared. main keeps no cap (P5).
+// answer as undeclared. main keeps no cap (D119c).
 func TestDeclaredResourceCap(t *testing.T) {
 	b, f := newNSBroker(t)
 	var decl []string
@@ -1160,7 +1160,7 @@ func TestDeclaredResourceCap(t *testing.T) {
 	}
 }
 
-// covers P22 P9 — a save provisions only the namespace whose declarations
+// covers D127n D119e — a save provisions only the namespace whose declarations
 // the work tree owns, the live reload target's: with main pinned and dev
 // following the work tree, a resource added in the work tree reaches dev's
 // declarations and none of main's (no mount, no kv); while live reload is
@@ -1237,7 +1237,7 @@ func TestLiveTargetSaveProvisionsOnlyItsNamespace(t *testing.T) {
 	}
 }
 
-// covers P22 P28 — 08-data §6.7's table, row by row: the workspace scope
+// covers D127n D127t — 08-data §6.7's table, row by row: the workspace scope
 // declares the root xbin.json's resources for every deployment; a scope root
 // without a record, its work tree; with deployment d, d's code (the work
 // tree while it is the live reload target, its checkpoint otherwise); a
@@ -1276,7 +1276,7 @@ func TestMultiTileScopeDeclarationSource(t *testing.T) {
 	eq("a plain-directory scope, dev", names("apps/suite", "dev"), "jobs")
 }
 
-// covers P18 P22 SC-FAIL-CLOSED — the volumes of a namespace beyond main:
+// covers D119h D127n SC-FAIL-CLOSED — the volumes of a namespace beyond main:
 // resenc takes exactly their directory key and no other below the
 // deployments level; the spawn hold mounts dev's on its first use and holds
 // dev when they can't mount, or while the vault is sealed, and the primary's
@@ -1391,7 +1391,7 @@ func TestNamespaceVolumes(t *testing.T) {
 	}
 }
 
-// covers P6 P18 SC-DATA 08-data §3.5 — with a real gocryptfs over FUSE
+// covers D127c D119h SC-DATA 08-data §3.5 — with a real gocryptfs over FUSE
 // (XBIN_GOCRYPTFS; skipped without it): dev's volume mounts on its first use
 // under .xbin/resenc/.deployments/, what dev writes there lands encrypted in
 // its own namespace's ciphertext, never in main's volume or in plaintext, and

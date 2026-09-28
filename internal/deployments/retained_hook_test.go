@@ -7,7 +7,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers P9 SC-ROLLBACK — the runner's Retained hook, which the env-layer GC
+// covers D119e SC-ROLLBACK — the runner's Retained hook, which the env-layer GC
 // reads (WP-67's A4): a tile no record governs retains nothing and answers
 // ok; once a record governs it, RetainedTrees answers exactly what the
 // artifact pruning keeps, each deployment's current checkpoint and its three

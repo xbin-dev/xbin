@@ -10,7 +10,7 @@ package deployments
 // reports (11-contract §1.1, §3.3). The count is always recomputed from the
 // work tree, never summed from batches: the watcher drops batches under
 // load. A tile without a record, or whose live reload is attached, or whose
-// record holds it, costs nothing here (P8): no count, no state, no timer.
+// record holds it, costs nothing here (D119d): no count, no state, no timer.
 
 import (
 	"cmp"

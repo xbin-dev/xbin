@@ -15,7 +15,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/confine"
 )
 
-// covers P15 P16 P18 SC-AUDIT — the deployments API's reads wired to the
+// covers D119f D119g D119h SC-AUDIT — the deployments API's reads wired to the
 // plane in the running daemon (auth on, the owner's bearer): a backend tile
 // without --isolate reads its pause refused (kind policy); after live reload of
 // a static tile pauses, the state names the paused checkpoint and the last
@@ -66,7 +66,7 @@ func TestDeploymentReadsLive(t *testing.T) {
 	}
 
 	// Without --isolate a backend tile can't be paused: the caller's can
-	// and the tile's allowed say so, as the request would be judged (P18).
+	// and the tile's allowed say so, as the request would be judged (D119h).
 	code, _, b := req("GET", "/api/xbin/deployments?tile=apps/zsnode", "")
 	nodeState := obj("the node tile's state", code, b)
 	caller, _ := nodeState["caller"].(map[string]any)

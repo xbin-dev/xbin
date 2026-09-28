@@ -224,7 +224,7 @@ func TestEventBytesZeroState(t *testing.T) {
 	expect("a status cleared", `{"type":"status","component":"apps/ev","data":{"level":"ok","message":"","ts":<ts>}}`+"\n")
 }
 
-// ---- non-primary deployments' events (P13, P26; 11-contract §3) ----
+// ---- non-primary deployments' events (D127h, D127r; 11-contract §3) ----
 
 // evFrame is one /ws/events frame as a subscriber receives it.
 type evFrame struct {
@@ -549,7 +549,7 @@ type crmRunnerEvent struct {
 	Text       string `json:"text,omitempty"`
 }
 
-// covers T7 P13 SC-EVENTS PO-5 — TestDeploymentEventsFiltered's non-primary
+// covers T7 D127h SC-EVENTS PO-5 — TestDeploymentEventsFiltered's non-primary
 // rows, with the principals auth builds from real credentials (the claims of
 // 11-contract §7): over /ws/events, anything naming dev (the runner's reload
 // and build, the plane's deploy, status and notify) reaches only the write
@@ -615,7 +615,7 @@ func TestDeploymentEventsFilteredCredentials(t *testing.T) {
 	}
 }
 
-// covers T7 P13 SC-EVENTS — a non-primary deployment's failing build is not
+// covers T7 D127h SC-EVENTS — a non-primary deployment's failing build is not
 // broadcast: the compiler output, in the data the runner publishes for it
 // (a deployments event, op build, phase error, the bare tile), reaches the
 // write audience and dev's own principals byte for byte, and nothing of it
@@ -734,7 +734,7 @@ func dlSave(t *testing.T, ws, rel, body string) {
 // (11-contract §3.2).
 var oldTypes = []string{"reload", "build-start", "build-ok", "build-error", "status"}
 
-// covers P13 P17 SC-EVENTS PO-5 — non-primary activity rides only the
+// covers D127h D127j SC-EVENTS PO-5 — non-primary activity rides only the
 // deployments type (rule C2, 11-contract §3.2), on a nested tile
 // (apps/shop/admin, under apps/shop) in a running daemon: pausing live
 // reload, a save while paused, adding canary with live reload attached, a
@@ -984,7 +984,7 @@ func frameTokenOf(t *testing.T, addr, owner, path string) string {
 	return html.UnescapeString(tok)
 }
 
-// covers P26 T9 — TestDeploymentRouteClasses in a running daemon, where the
+// covers D127r T9 — TestDeploymentRouteClasses in a running daemon, where the
 // broker names the deployment a credential binds from the tile's record:
 // the frame token injected into dev's document (/c/apps/crm+dev/) is refused
 // on primary-only routes, reads included (the user list, tile creation,

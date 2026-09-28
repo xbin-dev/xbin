@@ -9,7 +9,7 @@ package deployments
 // tree) and whether it is protected; ok only while an active record governs
 // the tile. A tile in the zero state, or one its record holds, gains nothing
 // (its entry is today's). The same for every caller who sees the row: no
-// non-primary name, no count (P20). An in-memory lookup.
+// non-primary name, no count (D127l). An in-memory lookup.
 func (p *Plane) PrimarySummary(tile string) (primary string, pinned, protected, ok bool) {
 	rec, _ := p.record(tile)
 	if rec == nil {

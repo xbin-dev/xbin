@@ -1,6 +1,6 @@
 package main
 
-// deployref.go — a tile ref on the wire (P17): "<tile>+<name>" rides URL
+// deployref.go — a tile ref on the wire (D127j): "<tile>+<name>" rides URL
 // paths and JSON bodies as it is, and a query string as the tile and
 // deployment= apart, since a '+' in a query string reads as a space. Reading
 // the state (GET /deployments) for a ref, and the refs the read commands
@@ -15,7 +15,7 @@ import (
 )
 
 // getDeployState reads GET /deployments for a tile ref. A query string never
-// carries the qualifier (P17: a '+' there reads as a space), so a ref ending
+// carries the qualifier (D127j: a '+' there reads as a space), so a ref ending
 // in "+<name>" asks for its tile with deployment=<name>. When that names no
 // deployment of a tile with a record, the ref is a tile's own name holding
 // '+' (an exact match wins: no new name may hold one, but older directories
@@ -60,7 +60,7 @@ func splitRef(ref string) (tile, dep string) {
 	return ref[:i], ref[i+1:]
 }
 
-// queryTile is the tile and the deployment a query names for ref (P17):
+// queryTile is the tile and the deployment a query names for ref (D127j):
 // splitRef's, resolved through the state when the ref has a qualifier, since
 // a '+' may also be part of a tile's own name.
 func queryTile(ref string) (tile, dep string, err error) {
@@ -76,7 +76,7 @@ func queryTile(ref string) (tile, dep string, err error) {
 
 // readRef is a read command's positional tile ref (bx status, bx logs):
 // "<tile>+<name>" names that deployment of its tile, as a path would, and
-// goes out as the tile and deployment= (P17) — unless something in the
+// goes out as the tile and deployment= (D127j) — unless something in the
 // workspace sits at the whole ref (a tile named with '+' before the rule:
 // the exact match wins, with no request), or xbind knows no such
 // deployment. dep "": the ref is a tile's own path.

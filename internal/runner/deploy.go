@@ -6,7 +6,7 @@ package runner
 // nil answers as a tile without a deployment record, whose one deployment is
 // main, the primary, following the work tree. Ensure, Track, Changed and Stop
 // keep meaning the primary, so every existing caller keeps today's behaviour
-// (P7).
+// (D127d).
 
 import (
 	"context"
@@ -83,7 +83,7 @@ type DeploymentHooks struct {
 	// (every path bound at itself, which only main may use).
 	EnvFor func(c *registry.Component, dep string) (env []string, remap map[string]ResBind)
 	// LimitsFor answers deployment dep's cgroup caps: the tile's unless a
-	// tile manager set lower ones, never above the tile's ceilings (P22).
+	// tile manager set lower ones, never above the tile's ceilings (D127n).
 	// nil: the caps installed on Cgroup, today's.
 	LimitsFor func(tile, dep string) cgroup.Limits
 	// Retained lists tile's retained checkpoint trees: each deployment's
@@ -106,7 +106,7 @@ func (r *Runner) primary(tile string) string {
 }
 
 // codeFor is the code a backend generation of deployment dep of tile starts
-// from. A checkpoint starts only under isolation (P18): without it the
+// from. A checkpoint starts only under isolation (D119h): without it the
 // deployment is held with the reason, never started from its work tree in
 // the checkpoint's place (06-security C7), so every restart path that builds
 // from codeFor holds too.
@@ -135,7 +135,7 @@ func (r *Runner) recordCode(tile, dep string) (Code, error) {
 }
 
 // ErrNeedsIsolation refuses or holds a backend pinned to a checkpoint on an
-// xbind without isolation (P18): nothing can show the checkpoint at the
+// xbind without isolation (D119h): nothing can show the checkpoint at the
 // tile's path there, and the work tree never runs in its place (C7).
 var ErrNeedsIsolation = errors.New("pinning a backend to a checkpoint needs isolation (--isolate)")
 

@@ -1,6 +1,6 @@
 package runner
 
-// covers P7 P23 T4 SC-INBOUND — the network half of the runner's deployment
+// covers D127d D127o T4 SC-INBOUND — the network half of the runner's deployment
 // edges (07-runtime §10.4; 09-fabric §1, §5.7, §5.8):
 // TestNonPrimaryNeverJoinsProviderRoster, TestNonPrimaryNetVerdictAtSpawn,
 // and 09-fabric §10's TestTerminatorDoorPrimaryOnly, TestEdgeStreamDial and
@@ -58,7 +58,7 @@ func wiredRunner(t *testing.T, door string) (*Runner, *registry.Component) {
 	return r, c
 }
 
-// covers P23 T4 — TestNonPrimaryNeverJoinsProviderRoster (06-security T4;
+// covers D127o T4 — TestNonPrimaryNeverJoinsProviderRoster (06-security T4;
 // 09-fabric §5.7–§5.8): whatever the hooks answer, a non-primary generation
 // registers no net-provider roster, splices to no provider and takes no
 // lan-ingress leg, and its launch spec asks for none of them, no host
@@ -83,7 +83,7 @@ func TestNonPrimaryNeverJoinsProviderRoster(t *testing.T) {
 	}
 }
 
-// covers P23 T4 — the net verdict applied at spawn (09-fabric §5.8): a
+// covers D127o T4 — the net verdict applied at spawn (09-fabric §5.8): a
 // non-primary generation of a tile whose net shares the host, or is spliced
 // through a provider tile, gets no egress at all, even when the Egress hook
 // answers a policy, and its log says why; otherwise it inherits the hook's
@@ -118,7 +118,7 @@ func TestNonPrimaryNetVerdictAtSpawn(t *testing.T) {
 	}
 }
 
-// covers P7 — 09-fabric §10's TestTerminatorDoorPrimaryOnly (§1): only the
+// covers D127d — 09-fabric §10's TestTerminatorDoorPrimaryOnly (§1): only the
 // terminator's primary gets its forward door in its relay; a non-primary
 // generation's relay keeps only its stream-slot forwards, a door dial from
 // it is refused with one line in its log, and a generation that stopped
@@ -198,7 +198,7 @@ func activeOf(r *Runner, tile, dep string) int {
 	return s.active
 }
 
-// covers P23 T4 — 09-fabric §10's TestEdgeStreamDial (§5.7): a stream slot's
+// covers D127o T4 — 09-fabric §10's TestEdgeStreamDial (§5.7): a stream slot's
 // dial from the primary's relay reaches the provider's primary, through
 // DialInto; the same dial from a non-primary generation's relay closes at
 // once, with one line in that deployment's log naming the slot, and never
@@ -238,7 +238,7 @@ func TestEdgeStreamDial(t *testing.T) {
 	}
 }
 
-// covers P7 SC-INBOUND — 09-fabric §10's TestDialIntoPrimary (§1, F3):
+// covers D127d SC-INBOUND — 09-fabric §10's TestDialIntoPrimary (§1, F3):
 // DialInto resolves the tile's primary once, ensures, tracks and dials that
 // deployment's generation, and never touches another deployment's; after a
 // reassignment it reaches the new primary.

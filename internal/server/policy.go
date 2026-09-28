@@ -49,7 +49,7 @@ type Policy interface {
 	// follows the work tree, which every tile without a deployment record
 	// does; its materialized checkpoint, pinned true, otherwise. A pinned
 	// root is opened beneath itself, never through a symlink that leaves it
-	// (P16). An error (util.ErrNoDeployment, a tree that can't be prepared)
+	// (D119g). An error (util.ErrNoDeployment, a tree that can't be prepared)
 	// means there is nothing to serve: never fall back to the work tree.
 	CodeRoot(c *registry.Component, dep string) (root string, pinned bool, err error)
 	// HasDeployment reports whether a registered tile has a deployment

@@ -11,7 +11,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// Status per deployment (P13) (11-contract §3.2, §3.3; 08-data §2).
+// Status per deployment (D127h) (11-contract §3.2, §3.3; 08-data §2).
 //
 // The bare <tile> entry of statuses holds the primary's status, whichever
 // deployment is the primary, and is what GET /tile-report lists and the

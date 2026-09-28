@@ -199,13 +199,13 @@ func answerOf(t *testing.T) func(res any, err error) Answer {
 	}
 }
 
-// covers 05-model §5 P13 P14 P22 P28 T6 — the governance and data acts on a
+// covers 05-model §5 D127h D127i D127n D127t T6 — the governance and data acts on a
 // literal of the plane's inputs, no broker: an edge's policy (501 until the
 // broker's edge check is installed; 404 and 400 as the broker judges; set,
 // unchanged, default; a change that applies at a spawn restarts the tile's
 // running non-primary deployments, never the primary); the deliveries switch,
 // an off switch whose default is on (never on the primary; off stores false,
-// on clears it, and RegistrationsActive follows at once) (P13, revised); limits
+// on clears it, and RegistrationsActive follows at once) (D127h, revised); limits
 // (LimitsFor for that deployment alone); seed, reset, vault copy and run now
 // delegating to their planes (confirm tokens first, the primary refused, the
 // claimants stopped and told with op data, dry runs changing nothing). Each

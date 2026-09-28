@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// covers P5 P13 SC-ZERO Z8 PO-11 — the sandbox registry's wire shape for a
+// covers D119c D127h SC-ZERO Z8 PO-11 — the sandbox registry's wire shape for a
 // zero-state tile, pinned byte for byte before tile deployments exist: an
 // entry that names no deployment marshals exactly as today (no "deployment"
 // key, whatever field joins Entry later), and so does a failure row, which

@@ -55,7 +55,7 @@ func (l nsLayout) remap() map[string]ResBind {
 	return map[string]ResBind{l.mainFiles: {Src: l.devFiles}, l.mainDB: {Src: l.devDB}}
 }
 
-// covers P6 P17 PO-2 T18 — TestResourceBinds' remap rows (07-runtime
+// covers D127c D127j PO-2 T18 — TestResourceBinds' remap rows (07-runtime
 // §10.4): main unchanged; dev remapped at the canonical paths, an Omit entry
 // unbound; a missing entry, an entry in main's data namespace or
 // overlapping the canonical path, a relative one and one not mounted each
@@ -195,7 +195,7 @@ func (l nsLayout) view(t *testing.T, dep, manifest string) *registry.Component {
 	return c
 }
 
-// covers P6 P14 T18 SC-DATA — a non-primary deployment's data dirs are bound
+// covers D127c D127i T18 SC-DATA — a non-primary deployment's data dirs are bound
 // at the primary's paths (Src ≠ Dst): its XBIN_RES_* values are main's, and
 // no bind of its launch spec has a Src in main's data namespace (08-data §5
 // item 3); main's spec is today's, whatever hooks are wired, and main's
@@ -260,7 +260,7 @@ func TestNonPrimaryResourceBindsNeverPrimary(t *testing.T) {
 	}
 }
 
-// covers T18 P6 — a VM backend of a non-primary deployment gets its data the
+// covers T18 D127c — a VM backend of a non-primary deployment gets its data the
 // same way: the launch spec a VM sandbox is made from binds dev's volumes at
 // the canonical paths, and VM exports hand the guest each bind by its
 // destination (internal/vm), so the guest sees dev's data where main's
@@ -301,7 +301,7 @@ func TestVMBackendNamespaceBinds(t *testing.T) {
 	}
 }
 
-// covers P23 T18 PO-11 — whatever the spawn-time hooks answer, a non-primary
+// covers D127o T18 PO-11 — whatever the spawn-time hooks answer, a non-primary
 // generation's launch spec never takes the primary-only wiring (07-runtime
 // §10.4): no provider roster, no lan-ingress legs, no host network (the
 // host-sharing tile), no splice and no ingress plumbing; the relay under

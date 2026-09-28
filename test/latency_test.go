@@ -48,7 +48,7 @@ const (
 	latencyQuiet       = 2 * latencyDebounce    // no event this long: the previous batch is over
 )
 
-// covers SC-LATENCY-DEFAULT P8 — static save → frame reload < 500 ms: the
+// covers SC-LATENCY-DEFAULT D119d — static save → frame reload < 500 ms: the
 // file write to the tile's `reload` on /ws/events, the watcher's debounce
 // inside the budget. The reference tile is R-static: the agent template's
 // files (the largest shipped tile) as a static tile. Then (M2) the same
@@ -73,12 +73,12 @@ func TestLatencyStaticSaveToReload(t *testing.T) {
 	})
 }
 
-// covers SC-LATENCY-DEFAULT P8 — Go save → new backend serving < 2 s with a
+// covers SC-LATENCY-DEFAULT D119d — Go save → new backend serving < 2 s with a
 // warm cache: the write to the first 200 carrying the new body, polled every
 // 20 ms. The reference tile is R-go: examples/counter-go, copied in. Then
 // (M2) the same budget with live reload attached to a non-primary
 // deployment `dev`, on an isolated daemon (a non-primary backend needs
-// isolation, P18): the write to the first 200 from /api/<tile>+dev/ with the
+// isolation, D119h): the write to the first 200 from /api/<tile>+dev/ with the
 // new body, broken down by dev's `deployments` ops `reload` and `build`,
 // while the pinned primary keeps its code. The full tier's baseline for it is
 // the baseline binary's zero-state save on an isolated daemon.

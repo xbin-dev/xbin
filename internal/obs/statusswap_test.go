@@ -12,7 +12,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/events"
 )
 
-// covers P13 P9 — the primary's stored status clears at the swap of a deploy
+// covers D127h D119e — the primary's stored status clears at the swap of a deploy
 // that puts a checkpoint on it, never at its start, since such a deploy emits
 // no build-start (11-contract §3.1, 07-runtime §8.1): the deploy's earlier
 // phases and a failed deploy leave it, so the old generation keeps serving

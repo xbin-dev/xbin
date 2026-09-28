@@ -125,7 +125,7 @@ type AgentOpen struct {
 	NoAPI                                       bool // a code-only sandbox: no terminal token (api=0 on a shell)
 	VM                                          bool // a VM sandbox (vm.go)
 	Options                                     map[string]string
-	// Deployment is the requested target (P24), from ?deployment=: a deployment
+	// Deployment is the requested target (D127p), from ?deployment=: a deployment
 	// of the tile, "" for the default (target.go). A resumed session doesn't
 	// take its history entry's: the client names it again.
 	Deployment string

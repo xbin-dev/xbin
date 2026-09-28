@@ -24,7 +24,7 @@
  *              root in its own kernel; D89). Changing it
  *              restarts the session, like net/gpu/api.
  *   deployment — the tile deployment a new session calls (its target);
- *              omit it for the server's default (the primary, P24).
+ *              omit it for the server's default (the primary, D127p).
  *              Changing it restarts the session; the server's echo is
  *              mirrored back without a restart, as net's is.
  *
@@ -514,7 +514,7 @@ export class BxTerminal extends HTMLElement {
     // An absent target is the primary: its appearing or going is a change.
     if (name === 'deployment' ? (oldV || '') === (newV || '') : oldV === null || oldV === newV) return;
     // The server reports the EFFECTIVE scope, target and API in its session
-    // frame (it may clamp what was asked — D54 — or fall back — P24);
+    // frame (it may clamp what was asked — D54 — or fall back — D127p);
     // mirroring that into the attribute must not respawn the shell we just got.
     if (name === 'net' && newV === this.#serverNet) return;
     if (name === 'deployment' && (newV || '') === this.#serverDep) return;
@@ -731,7 +731,7 @@ export class BxTerminal extends HTMLElement {
         // tile (the org network on org-owned tiles, D54).
         (this.getAttribute('net') ? `&net=${encodeURIComponent(this.getAttribute('net'))}` : '') +
         `&gpu=${encodeURIComponent(this.getAttribute('gpu') || 'none')}` +
-        // the target is sent only when chosen; absent = the server's default (P24)
+        // the target is sent only when chosen; absent = the server's default (D127p)
         (this.#asked ? `&deployment=${encodeURIComponent(this.#asked)}` : '') +
         `&api=${this.getAttribute('api') === '0' ? '0' : '1'}` +
         (this.getAttribute('vm') === '1' ? '&vm=1' : '');

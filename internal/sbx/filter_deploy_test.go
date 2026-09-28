@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// covers P5 P13 — the registry's deployment dimension: a Filter narrows by
+// covers D119c D127h — the registry's deployment dimension: a Filter narrows by
 // deployment, reading an entry without one as main, while its zero value and
 // a tile filter still list every deployment's entries under the tile; a
 // non-main failure never coalesces with main's; and an entry or failure

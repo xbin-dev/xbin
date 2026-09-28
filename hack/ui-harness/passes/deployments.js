@@ -1,10 +1,10 @@
-// hack/ui-harness/passes/deployments.js — covers P20 P21 P24 T9 T16 PO-10
+// hack/ui-harness/passes/deployments.js — covers D127l D127m D127p T9 T16 PO-10
 // SC-PROTECT (15-test-plan §7.3, 10-ux §14.3) — tile deployments from the
 // terminal window's Deployments layout (<bx-deployments>, web/bx-deploy.js),
 // on apps/deployy:
 //   1. dev1 adds `dev` (data empty, live reload attached): the rows (main
 //      pinned, dev following the work tree), the chip, the launcher's line,
-//      the tile API select's entries and P24's default; a session switched to
+//      the tile API select's entries and D127p's default; a session switched to
 //      dev says XBIN_DEPLOYMENT=dev, and switching restarts it;
 //   2. a save reloads the view tab (<bx-frame src="apps/deployy+dev">), not
 //      the tile's pinned frame; /c/apps/deployy+dev/ serves the work tree;
@@ -74,7 +74,7 @@ async function until(ctx, pred, tries = 75) {
 // resetDeploys: the fixture back in the zero state through the API, as a
 // manager (10-ux §14.4): unprotect, main primary again, every edge back to
 // its default, every other deployment removed, live reload resumed on main;
-// then the record is gone (P5's opt-out doubles as the check). A route this
+// then the record is gone (D119c's opt-out doubles as the check). A route this
 // xbind doesn't build (501) is never needed. Returns the last state.
 async function resetDeploys(ctx) {
   let s = await stateOf(ctx);
@@ -284,12 +284,12 @@ async function stepAdd(X) {
   await settle(P);
   const launcher = (await P.locator(`${sel} .launcher`).innerText().catch(() => '')).replace(/\s+/g, ' ');
   check(launcher.includes('· target: main'), `the launcher's line reads · target: main (${launcher.slice(0, 160)})`);
-  // a new tab: the tile API select's entries, P24's default
+  // a new tab: the tile API select's entries, D127p's default
   const i = await newShell(P);
   const opts = await fr(P, TILE, (f, t, idx) => f.deploy.apiOptions(idx).map((o) => [o.value, o.label]), i);
   check(JSON.stringify(opts) === JSON.stringify([['primary', '🔌 target: main (primary)'], [DEV, `🔌 target: ${DEV}`], ['off', '⛔ no API']]),
     `the tile API select offers main (primary), dev and no API (${JSON.stringify(opts)})`);
-  check(await fr(P, TILE, (f, t, idx) => f.deploy.target(idx), i) === 'primary', "the new tab calls the primary (P24's default)");
+  check(await fr(P, TILE, (f, t, idx) => f.deploy.target(idx), i) === 'primary', "the new tab calls the primary (D127p's default)");
   check(await envDeployment(P, i) === '', 'its shell has no XBIN_DEPLOYMENT (it follows the primary)');
   // switching the entry restarts the session onto dev, and back
   for (const [to, env] of [[DEV, DEV], ['primary', '']]) {
@@ -606,7 +606,7 @@ async function run(X) {
   const st = await stateOf(M.ctx);
   if (st.status !== 200) { skip(`GET /api/xbin/deployments answers ${st.status} here (${st.error || 'no JSON state'}): this xbind has no tile deployments, so steps 1–8 can't run`); return; }
   check((await resetDeploys(M.ctx)).body.record === false, `${TILE} starts in the zero state`);
-  // session targets are a tile-API choice (P24): dev1 needs the terminal
+  // session targets are a tile-API choice (D127p): dev1 needs the terminal
   // tile-API grant (D17) for its tab to call dev; the seed leaves it off
   X.devTermApi = !!users.find((u) => u.id === 'dev1')?.termApi;
   if (!X.devTermApi) {

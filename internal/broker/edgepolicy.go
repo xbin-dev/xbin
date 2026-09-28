@@ -1,7 +1,7 @@
 package broker
 
 // edgepolicy.go — the outbound edge policy of a tile's non-primary
-// deployments (09-fabric §5) (P3) (P11) (P23) (P27): the tile's edges with
+// deployments (09-fabric §5) (D127a) (D127f) (D127o) (D127s): the tile's edges with
 // their kinds, values and defaults (EdgesOf) and the check a write passes
 // (ValidateEdgePolicy); the verdict resolveTarget asks for a non-primary
 // caller (the read clamp, block, inherit; block wins), each refusal naming
@@ -10,7 +10,7 @@ package broker
 // approving an xbin grant); and the edges applied at spawn (the net edge,
 // capability grants, stream dials). The primary never reaches any of it:
 // resolveTarget answers it, and every tile without a record, grantedRole's
-// role first (F1) (P5).
+// role first (F1) (D119c).
 
 import (
 	"errors"
@@ -47,7 +47,7 @@ const (
 
 // The value sets a kind takes (09-fabric §5.1): read|block where the role
 // can be read-clamped, inherit|block for the role-less net slot and
-// capability grants, block alone where nothing narrows the edge (P23).
+// capability grants, block alone where nothing narrows the edge (D127o).
 var (
 	clampValues   = []string{deployments.EdgeRead, deployments.EdgeBlock}
 	inheritValues = []string{deployments.EdgeInherit, deployments.EdgeBlock}
@@ -59,7 +59,7 @@ var (
 type edgeLeg struct {
 	to   string // the provider tile, or the grant's target (res:…, code, gpu:0, …)
 	role string // "" for a role-less edge (stream, lan-ingress, net, capability)
-	why  string // why the read clamp can't narrow this leg (P23); "" when it can
+	why  string // why the read clamp can't narrow this leg (D127o); "" when it can
 }
 
 // outEdge is one outbound edge of a tile (09-fabric §5.1).
@@ -68,7 +68,7 @@ type outEdge struct {
 	legs     []edgeLeg
 	values   []string // what a tile manager may store; block always among them
 	def      string   // what an absent override reads as
-	why      string   // why the edge takes block alone (P23), or is forced to it
+	why      string   // why the edge takes block alone (D127o), or is forced to it
 	forced   bool     // block whatever is stored: a net that shares the host's (§5.8)
 	// custom names the custom role of a block-alone http or grant edge, whose
 	// refusal asks the provider to declare what it implies (§5.5).
@@ -81,7 +81,7 @@ type outEdge struct {
 // stream and lan-ingress slots, its net slot, its explicit grant rows (call,
 // resource, code and capability grants) and its same-scope uses of sibling
 // tiles. Governance grants are no edge: non-primary principals never hold
-// them (P19). Own-scope resources are the deployment's own data (P14), and
+// them (D127k). Own-scope resources are the deployment's own data (D127i), and
 // net:* rows no longer grant anything.
 func (b *Broker) tileEdges(c *registry.Component) []outEdge {
 	var out []outEdge
@@ -248,7 +248,7 @@ func (b *Broker) httpSlotsTo(from, target string) []edgeLeg {
 
 // clampLeg is a leg to target at role, with why the read clamp can't narrow
 // it: a role that doesn't imply reader through the blessed order, the bus
-// aliases or the provider primary's expose.implies (F8) (P23). A provider
+// aliases or the provider primary's expose.implies (F8) (D127o). A provider
 // merely declaring a reader role doesn't make another role clampable.
 func (b *Broker) clampLeg(target, role string) edgeLeg {
 	l := edgeLeg{to: target, role: role}
@@ -282,7 +282,7 @@ func clampEdge(e outEdge) outEdge {
 }
 
 // blockedSlotEdge is a stream or lan-ingress slot: raw L4/L3 into the
-// provider's primary, which no clamp narrows (§5.7) (P23).
+// provider's primary, which no clamp narrows (§5.7) (D127o).
 func blockedSlotEdge(slot, kind string, refs []string) outEdge {
 	e := outEdge{id: "slot:" + slot, kind: kind, values: blockValues, def: deployments.EdgeBlock}
 	for _, ref := range refs {
@@ -321,7 +321,7 @@ func (b *Broker) netEdge(c *registry.Component, slot string) outEdge {
 // stored overrides: policy is the stored value, or the default when none is
 // (set says which); eff is what applies, with why when it differs from
 // policy: a forced edge is block, and so is a value this xbind doesn't know
-// or one e doesn't take now (P27).
+// or one e doesn't take now (D127s).
 func (e outEdge) effective(stored map[string]string) (policy, eff, why string, set bool) {
 	v, set := stored[e.id]
 	policy = e.def
@@ -345,9 +345,9 @@ func (e outEdge) effective(stored map[string]string) (policy, eff, why string, s
 // caller's primary, makes to target, where caller holds role (09-fabric
 // §5.4–§5.9). An own-scope resource is the deployment's own data and no
 // edge. Otherwise every edge authorizing the call is read: any block among
-// them refuses it, naming that edge (P27); a role-less inherit passes role;
+// them refuses it, naming that edge (D127s); a role-less inherit passes role;
 // read passes reader, the clamp, where every leg's role and the tile's own
-// imply reader, and refuses any leg that doesn't (P11) (P23).
+// imply reader, and refuses any leg that doesn't (D127f) (D127o).
 func (b *Broker) applyEdgePolicy(d Decision, caller, callerDep, target, role string) Decision {
 	c, ok := b.Reg.Component(caller)
 	if !ok {
@@ -382,7 +382,7 @@ func (b *Broker) applyEdgePolicy(d Decision, caller, callerDep, target, role str
 		d.Role = role
 		return d
 	}
-	if l := b.clampLeg(target, role); l.why != "" { // the tile's own role must imply reader too (P11)
+	if l := b.clampLeg(target, role); l.why != "" { // the tile's own role must imply reader too (D127f)
 		return b.refuse(d, caller, callerDep, edges[0], blockedText(caller, callerDep, edges[0], l.why, role))
 	}
 	d.Role, d.Clamped = clampedRole(role), clampedRole(role) != role
@@ -412,7 +412,7 @@ func (b *Broker) refuse(d Decision, caller, callerDep string, e outEdge, msg str
 
 // blockText is a refusal by e's value (§5.6): stored, its default, or read
 // as block. An edge nothing unblocks says so instead of sending the reader
-// to the panel (P23).
+// to the panel (D127o).
 func blockText(caller, dep, target string, e outEdge, policy, why string) string {
 	if slices.Equal(e.values, blockValues) || e.forced {
 		return blockedText(caller, dep, e, e.why, e.custom)
@@ -430,7 +430,7 @@ func blockText(caller, dep, target string, e outEdge, policy, why string) string
 }
 
 // blockedText is a refusal by an edge nothing unblocks in this release
-// (§5.5, §5.6) (P23): a custom role the provider could make clampable by
+// (§5.5, §5.6) (D127o): a custom role the provider could make clampable by
 // declaring what it implies, or anything else that works from the primary.
 func blockedText(caller, dep string, e outEdge, why, custom string) string {
 	if custom != "" && e.kind != edgeCapability {
@@ -462,7 +462,7 @@ func (b *Broker) nonPrimary(p auth.Principal) (dep string, yes bool, err error) 
 	return dep, !b.isPrimary(p.Component, dep), nil
 }
 
-// actsInPrimary is Policy's self rule (P12): Policy reaches the tile's
+// actsInPrimary is Policy's self rule (D127g): Policy reaches the tile's
 // primary, so a principal of the tile is admin there unless it is a
 // non-primary one, whose self-calls are Route's.
 func (b *Broker) actsInPrimary(p auth.Principal) bool {
@@ -520,7 +520,7 @@ func (b *Broker) allowResUnclamped(p auth.Principal, target, want string) error 
 // codeReadAllowed is codeGrantAllows for principal p (09-fabric §5.1's code
 // edges): today's answer for anyone but a non-primary principal; for one,
 // grant:code and grant:code:<target> through the edge policy, where either
-// at block refuses the read though the other would allow it (P27).
+// at block refuses the read though the other would allow it (D127s).
 func (b *Broker) codeReadAllowed(p auth.Principal, target string) bool {
 	dep, np, err := b.nonPrimary(p)
 	switch {
@@ -547,7 +547,7 @@ func (b *Broker) codeReadAllowed(p auth.Principal, target string) bool {
 // governanceRole is the role p's tile holds on a governance target (xbin,
 // xbin:*) for the gates that read one: none for a non-primary principal, or
 // one whose deployment is gone, whatever the grant table says (06-security
-// T14) (P19).
+// T14) (D127k).
 func (b *Broker) governanceRole(p auth.Principal, target string) (string, bool) {
 	if _, np, err := b.nonPrimary(p); err != nil || np {
 		return "", false
@@ -556,7 +556,7 @@ func (b *Broker) governanceRole(p auth.Principal, target string) (string, bool) 
 }
 
 // xbinGrantRefusal refuses approving a governance grant for a tile that has
-// non-primary deployments (06-security T14 item 2) (P19): such a tile stays
+// non-primary deployments (06-security T14 item 2) (D127k): such a tile stays
 // single-deployment. A tile with only main, live reload paused or not, may
 // hold one.
 func (b *Broker) xbinGrantRefusal(g registry.Grant) error {
@@ -621,7 +621,7 @@ func (b *Broker) NetEdge(tile string) (value, why string) {
 // StreamDialAllowed is the check at each dial through a stream slot's
 // gateway forward, for the generation view c describes (§5.7): nil for the
 // primary; a non-primary deployment is refused, counted, naming the edge,
-// since stream edges are blocked with no override (P23). The runner closes
+// since stream edges are blocked with no override (D127o). The runner closes
 // the dial and writes the error to that deployment's log.
 func (b *Broker) StreamDialAllowed(c *registry.Component, slot string) error {
 	if c.Deployment == "" {
@@ -734,7 +734,7 @@ func legsOf(legs []edgeLeg) (to, role string) {
 // tile now, and the value one it takes; default removes an override, also
 // one whose edge is gone. It is a *deployments.Error: 404 for an edge the
 // tile doesn't have, 400 for a value the edge doesn't take (an edge nothing
-// narrows takes block alone: no override, P23). Who may write is the
+// narrows takes block alone: no override, D127o). Who may write is the
 // deployments plane's (a tile manager in a human session).
 func (b *Broker) ValidateEdgePolicy(tile, edge, policy string) error {
 	c, ok := b.Reg.Component(tile)

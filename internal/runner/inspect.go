@@ -66,7 +66,7 @@ type Backend struct {
 	NetSource string `json:"netSource,omitempty"`
 	NetNote   string `json:"netNote,omitempty"`
 	// Checkpoint is the full tree id of the checkpoint the running
-	// generation runs; absent while it runs the work tree (P9).
+	// generation runs; absent while it runs the work tree (D119e).
 	Checkpoint string `json:"checkpoint,omitempty"`
 	// Deployment names the deployment of a row InspectDeployments gives;
 	// Inspect's rows, the primaries', leave it empty.
@@ -249,7 +249,7 @@ func statFields(s string) []string {
 	return append(out, strings.Fields(s[close+1:])...)
 }
 
-// ---- what a generation runs (P9, 07-runtime §1, §7, §9) ----
+// ---- what a generation runs (D119e, 07-runtime §1, §7, §9) ----
 
 // genPlan is what one generation starts from.
 type genPlan struct {
@@ -267,8 +267,8 @@ func (r *Runner) resolveGen(c *registry.Component, code Code) (genPlan, error) {
 
 // resolveGenFor resolves what a generation of deployment dep of c running
 // code starts from. The primary's work tree: c itself and a build of it,
-// exactly as before tile deployments, with no hook but CodeFor asked (P5,
-// P8); another deployment's work tree: its view of it, built the same way. A
+// exactly as before tile deployments, with no hook but CodeFor asked (D119c,
+// D119d); another deployment's work tree: its view of it, built the same way. A
 // checkpoint: its materialized tree, the deployment's view of it (whose
 // CodeRoot is that tree, never a mutated copy: views are shared), and for Go
 // its artifact, kept per (tile, checkpoint) whichever deployment runs it and

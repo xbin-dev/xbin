@@ -29,13 +29,13 @@ const RecordSchema = 1
 const maxRecordBytes = 1 << 20
 
 // Record is a tile's deployment record. A tile without one is in the zero
-// state (P5); ZeroRecord synthesizes what such a tile answers, and nothing
+// state (D119c); ZeroRecord synthesizes what such a tile answers, and nothing
 // writes it. Records the index hands out are shared and read-only: a change
 // goes through the index's commit, on a Clone.
 type Record struct {
 	Schema           int                          `json:"schema"`
-	Tile             string                       `json:"tile"`    // the full tile path; must equal the path it is read for (P29)
-	Owner            string                       `json:"owner"`   // the tile's owner ref ("" = workspace-owned); must equal the tile's current one (P29)
+	Tile             string                       `json:"tile"`    // the full tile path; must equal the path it is read for (D119i)
+	Owner            string                       `json:"owner"`   // the tile's owner ref ("" = workspace-owned); must equal the tile's current one (D119i)
 	Created          string                       `json:"created"` // RFC 3339; kept for display and an admin's adopt-or-clear, not compared
 	Seq              int64                        `json:"seq"`     // +1 on every committed change; reviewed operations compare-and-set on it
 	LiveReload       string                       `json:"liveReload"`
@@ -43,7 +43,7 @@ type Record struct {
 	LiveReloadSince  *Stamp                       `json:"liveReloadSince,omitempty"`
 	Primary          string                       `json:"primary"`
 	ProtectedPrimary bool                         `json:"protectedPrimary"`
-	Edges            map[string]string            `json:"edges,omitempty"` // non-primary edge policy overrides; a value this xbind doesn't know reads as block (P27)
+	Edges            map[string]string            `json:"edges,omitempty"` // non-primary edge policy overrides; a value this xbind doesn't know reads as block (D127s)
 	NextDeploy       int64                        `json:"nextDeploy"`
 	Deployments      map[string]*DeploymentRecord `json:"deployments"`
 
@@ -62,10 +62,10 @@ type DeploymentRecord struct {
 	// nil exactly while live reload drives it (it follows the work tree).
 	Checkpoint *string `json:"checkpoint"`
 	// State is "" or "failed": the checkpoint is the attempted one of a
-	// failed move off the work tree, which restarts retry (P9).
+	// failed move off the work tree, which restarts retry (D119e).
 	State string `json:"state,omitempty"`
 	// Deliveries is the off switch of a non-primary deployment's cron jobs
-	// and bus push subscriptions (P13, revised 2026-09-28): absent (nil) is
+	// and bus push subscriptions (D127h, revised 2026-09-28): absent (nil) is
 	// on, the default; false is off, set by a tile manager; true, which an
 	// M2 build stored when a manager turned them on, reads as on. An M2
 	// build never stored false (it omitted its default off), so no record
@@ -88,7 +88,7 @@ func (d *DeploymentRecord) DeliveriesOn() bool { return d.Deliveries == nil || *
 func (d *DeploymentRecord) FollowsWorkTree() bool { return d.Checkpoint == nil }
 
 // ZeroRecord is the record a tile without one answers with: main, the
-// primary, with live reload attached to it (P5). Schema and seq are 0, as
+// primary, with live reload attached to it (D119c). Schema and seq are 0, as
 // the zero state reports them (11-contract §1.1). It is synthesized per
 // call and never written.
 func ZeroRecord(tile string) *Record {
@@ -227,7 +227,7 @@ func (r *Record) validate() error {
 	case r.Deployments[r.Primary] == nil:
 		return fmt.Errorf("the primary %q doesn't exist", r.Primary)
 	case r.ProtectedPrimary && r.LiveReload == r.Primary:
-		return fmt.Errorf("live reload drives the protected primary %s", r.Primary) // P21
+		return fmt.Errorf("live reload drives the protected primary %s", r.Primary) // D127m
 	}
 	return nil
 }

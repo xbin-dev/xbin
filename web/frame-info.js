@@ -121,7 +121,7 @@ export async function infoFor(src) {
 // qualifiedSrc(src) → whether a frame src names a deployment (apps/crm+dev)
 // rather than a tile (a tile whose own name holds "+" is one). Such a ref
 // never goes into a query string, where "+" reads as a space: a query names
-// the tile and the deployment apart (P17).
+// the tile and the deployment apart (D127j).
 export async function qualifiedSrc(src) {
   return String(src).includes('+') && !!(await infoFor(src))?.deployment;
 }

@@ -59,7 +59,7 @@ var (
 // dormantRecord writes tile's deployment record: main and dev, primary
 // following the work tree and the other pinned; deliveries is the other's
 // switch: true leaves it at its default, on, and false stores it off, as a
-// tile manager switches it (P13, revised).
+// tile manager switches it (D127h, revised).
 func dormantRecord(t *testing.T, root, tile, primary string, deliveries bool) {
 	t.Helper()
 	other := map[string]string{util.MainDeployment: "dev", "dev": util.MainDeployment}[primary]
@@ -263,7 +263,7 @@ func edgeAs(t *testing.T, v string) {
 	t.Cleanup(func() { edgeVerdict = old })
 }
 
-// covers P13 T6 PO-9 SC-DORMANT — dormant registrations
+// covers D127h T6 PO-9 SC-DORMANT — dormant registrations
 // (TestNonPrimaryCronDormant and TestNonPrimaryBusSubDormant are the cron
 // and bus subtests): a non-primary deployment whose deliveries a tile
 // manager switched off (TestRegistrationsActiveByDefault has the default):
@@ -536,7 +536,7 @@ func TestDormantRegistrations(t *testing.T) {
 	})
 }
 
-// covers P13 (revised 2026-09-28) SC-DORMANT — a non-primary deployment's
+// covers D127h (revised 2026-09-28) SC-DORMANT — a non-primary deployment's
 // cron jobs and bus push subscriptions are active by default and reach it
 // alone: dev's job and subscription register with 200 and no dormant, list
 // without it (the state's registrations too), a tick reaches dev's handler
@@ -639,7 +639,7 @@ func TestRegistrationsActiveByDefault(t *testing.T) {
 	}
 }
 
-// covers P13 T6 SC-DORMANT — the deliveries switch, an off switch
+// covers D127h T6 SC-DORMANT — the deliveries switch, an off switch
 // (TestDeliveriesSwitchManagerOnly): with deliveries on, a non-primary
 // deployment's cron ticks and bus deliveries reach it (their principals name
 // it, and Route sends them there), while its interface instances and ingress
@@ -775,7 +775,7 @@ func reopenBroker(t *testing.T, f *dormantFx) *Broker {
 	return b
 }
 
-// covers P13 T6 — run now (NP-09-9): one delivery of a non-primary
+// covers D127h T6 — run now (NP-09-9): one delivery of a non-primary
 // deployment's job to it, as xbin/cron with the job's role, whatever its
 // switch says, answering the handler's status (an error status included);
 // 404 for an unknown deployment or job, 409 for the primary's jobs, a

@@ -128,7 +128,7 @@ type runtimeRunner interface {
 // shells and consoles count them or match them by path (12-compat C3); the
 // rows of other deployments go in new fields, only to the principals who may
 // learn of those deployments (06-security C9). A tile without a deployment
-// record answers exactly as before tile deployments (P5).
+// record answers exactly as before tile deployments (D119c).
 type runtimeReads struct {
 	run     runtimeRunner
 	dp      *deployments.Plane
@@ -273,7 +273,7 @@ func (rd runtimeReads) tileStatus(w http.ResponseWriter, r *http.Request) {
 	p, q := auth.PrincipalOf(r), r.URL.Query()
 	comp := strings.Trim(q.Get("component"), "/")
 	if rd.dp != nil && util.QueryTileQualified(comp, func(c string) bool { _, ok := rd.dp.Reg.Component(c); return ok }) {
-		writeDeployError(w, &dpe{Status: http.StatusBadRequest, Msg: util.QueryRefMsg}) // the deployment rides deployment= (P17)
+		writeDeployError(w, &dpe{Status: http.StatusBadRequest, Msg: util.QueryRefMsg}) // the deployment rides deployment= (D127j)
 		return
 	}
 	if comp == "" {

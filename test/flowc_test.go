@@ -300,7 +300,7 @@ func (s *termSession) installBx(t *testing.T, bxDir string) string {
 	return dst
 }
 
-// covers P4 P21 P24 SC-AGENT-BX SC-PROTECT — flow C with the real bx, inside
+// covers D127b D127m D127p SC-AGENT-BX SC-PROTECT — flow C with the real bx, inside
 // an isolated terminal session over /ws/term whose target is dev (the
 // tile-API select's dev entry, echoed by the session frame), on an auth-on
 // daemon: .xbin is masked, and bx reaches xbind with the session's own
@@ -331,7 +331,7 @@ func TestAgentFlowCWithBxOnly(t *testing.T) {
 	fabWait(t, a, tile+"+dev", "m2")
 	fabWait(t, a, tile, "m1")
 	mainCP := a.state(t, tile).pinned("main")
-	// dev's own code registers a job: active for dev (P13), nightly, so no
+	// dev's own code registers a job: active for dev (D127h), nightly, so no
 	// tick lands during the test.
 	if r := fabHTTP(t, a, tile+"+dev", "PUT", "/api/xbin/cron/jobs", fabJSON(map[string]string{"name": "nightly",
 		"resource": "res:" + tile + "/cron", "schedule": "0 3 * * *", "path": "/nightly", "role": "writer"})); r.Status != 200 ||
@@ -431,7 +431,7 @@ func TestAgentFlowCWithBxOnly(t *testing.T) {
 	fabWait(t, a, tile, "m1")
 }
 
-// ---- primary first (P25) ----
+// ---- primary first (D127q) ----
 
 // pfCgroupBase is the cgroup directory xbind delegates its tiles' leaves
 // under (its own, which it left for an "init" leaf), "" while d's cgroup
@@ -552,7 +552,7 @@ func pfLimits(t *testing.T, a dlAPI, tile string) map[string]struct{ MemMiB, Pid
 	return out
 }
 
-// covers P25 SC-PRIMARY-FIRST — a dev deployment never starves its primary.
+// covers D127q SC-PRIMARY-FIRST — a dev deployment never starves its primary.
 // Memory: dev's limit lowered to 64 MiB by a tile manager, each deployment
 // in a leaf of its own (the primary's node at the higher CPU weight), dev's
 // backend allocates past its cap and hits it, while main answers every

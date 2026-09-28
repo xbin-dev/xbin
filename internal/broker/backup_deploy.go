@@ -9,7 +9,7 @@ package broker
 // keeps schema 1 and gains only its deployment section, the other members
 // are today's, and POST /restore's body is today's. A tile without a record
 // — one that opted out and kept its store included — gets today's archive,
-// byte for byte (P5); an older xbind's restore skips the new sections and
+// byte for byte (D119c); an older xbind's restore skips the new sections and
 // restores the tile in the zero state.
 //
 // A restore refuses an archive whose deployment section belongs to another
@@ -111,9 +111,9 @@ type regFile struct {
 
 // deploymentBackupFor reads tile's deployment state for its backup: the
 // record file at the tile's key, when it names the tile and its current
-// owner ref — the record the tile answers to (P29), whether or not it
+// owner ref — the record the tile answers to (D119i), whether or not it
 // validates, which the restore checks — and the checkpoint store beside it.
-// No record, or one that isn't the tile's: nil, today's archive (P5).
+// No record, or one that isn't the tile's: nil, today's archive (D119c).
 func (b *Broker) deploymentBackupFor(tile string) *deploymentBackup {
 	root := b.Reg.Root
 	data, err := readBeneathCapped(filepath.Join(root, "data", "deployments"), util.TileKey(tile)+".json", maxArchivedRecord)

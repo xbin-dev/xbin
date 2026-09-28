@@ -15,10 +15,10 @@ package registry
 // hook answers for a tile, Rescan composes its component from the pinned
 // checkpoint (composePinned) and its scope from the checkpoint's scope.json
 // (composePinnedScopes), so every reader of the registry follows the
-// primary's code without an edit of its own (P9). View gives a generation the
+// primary's code without an edit of its own (D119e). View gives a generation the
 // component of the code it runs. A checkpoint is read from its materialized
-// tree through fsutil.OpenBeneath only (ReadCheckpoint, P16). A tile the hook
-// doesn't answer for is scanned exactly as before tile deployments (P5).
+// tree through fsutil.OpenBeneath only (ReadCheckpoint, D119g). A tile the hook
+// doesn't answer for is scanned exactly as before tile deployments (D119c).
 
 import (
 	"crypto/sha256"
@@ -49,7 +49,7 @@ var errAbsent = errors.New("absent")
 // its xbin.json, parsed as Rescan parses a work tree's, index.html's
 // presence, its native UI entry, and its scope.json with every resource name
 // checked. Every file is opened beneath root, so a symlink that leaves the
-// checkpoint is never followed (P16). An xbin.json that doesn't parse is the
+// checkpoint is never followed (D119g). An xbin.json that doesn't parse is the
 // zero manifest with ManifestErr set; a scope.json that doesn't parse or
 // names a resource outside the rule, or a file that can't be read, is an
 // error, and nothing of the checkpoint may be provisioned or started. No
@@ -170,7 +170,7 @@ func composeManifest(tile, inbound, code Manifest) Manifest {
 
 // nonPrimaryInbound is the inbound surface a non-primary deployment's view
 // carries: the tile's, which is the primary's, since no inbound edge reaches
-// any other deployment (P7) — except chrome: a non-primary deployment's
+// any other deployment (D127d) — except chrome: a non-primary deployment's
 // documents are never chrome.
 func nonPrimaryInbound(primary Manifest) Manifest {
 	primary.Chrome = false
@@ -236,7 +236,7 @@ func composePinned(wt *Component, pc *PinnedCode, valid bool) *Component {
 
 // composePinnedScopes gives each scope a pinned primary's tile roots the
 // declarations of its checkpoint's scope.json, resources and importMap
-// (P22; the importMap as 16-open-questions Q4's default). Whether the
+// (D127n; the importMap as 16-open-questions Q4's default). Whether the
 // directory roots a scope stays the work tree's; a Kept tile, whose work
 // tree has no valid manifest, takes that from its checkpoint as well, as
 // every other tile-level field. The work tree's refusals (Err) stay on the

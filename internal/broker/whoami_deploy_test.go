@@ -13,7 +13,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers P17 P12 P5 — whoami reports deployment for one of a tile's own
+// covers D127j D127g D119c — whoami reports deployment for one of a tile's own
 // credentials bound to a deployment other than the tile's primary (the
 // role rule): a frame token's claim, an instance token's deployment, a
 // terminal session's named target, main's credentials once another

@@ -29,7 +29,7 @@ const HeaderIngressHost = "X-XBin-Ingress-Host"
 // passes true (the terminator already stamped them and its RemoteAddr is a
 // meaningless unix peer).
 //
-// Public traffic reaches only the tile's primary (P7): rt.Component is an
+// Public traffic reaches only the tile's primary (D127d): rt.Component is an
 // exact tile path, looked up as it is (a '+' in it is never a deployment
 // qualifier), and Ensure and Track resolve the primary at the runner's
 // funnel (09-fabric F3), so a tile's non-primary deployments receive no

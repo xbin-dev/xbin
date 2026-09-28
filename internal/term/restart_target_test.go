@@ -8,7 +8,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 )
 
-// covers P24 — an agent restart takes a requested target (11-contract
+// covers D127p — an agent restart takes a requested target (11-contract
 // §7.4): onto dev it echoes dev; a refused target (404 unknown, 400 not a
 // name, 403 a protected primary) answers before the session ends, which
 // keeps running; a restart that names nothing takes the default and echoes

@@ -22,7 +22,7 @@ import (
 )
 
 // The isolated daemon (15-test-plan §5.1). Pinned and non-primary backends
-// need isolation (P18), so every backend property of the dev lifecycle runs
+// need isolation (D119h), so every backend property of the dev lifecycle runs
 // on an xbind of its own started with --isolate, while the suite's shared
 // daemon stays non-isolated.
 

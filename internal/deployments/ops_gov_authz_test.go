@@ -27,7 +27,7 @@ func govMatrixFx(t *testing.T, protected bool) *govFx {
 	return f
 }
 
-// covers P4 P11 P21 P26 T9 C4 — the authority matrix of the governance and
+// covers D127b D127f D127m D127r T9 C4 — the authority matrix of the governance and
 // data acts through the dispatcher and the acts themselves, one subtest per
 // cell: reassigning and protecting the primary, unprotecting it, an edge's
 // policy, deliveries, alwaysOn, limits, seeding and copying vault values

@@ -13,7 +13,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers P5 P7 SC-ZERO — with no deployment hook installed, the runner's
+// covers D119c D127d SC-ZERO — with no deployment hook installed, the runner's
 // deployment helpers answer as today: every tile's one deployment is main,
 // its primary, following the work tree; its view is the registry's own
 // component; no checkpoint materializes; its env is EnvForComponent's with no
@@ -73,7 +73,7 @@ func TestDeploymentHooksZeroState(t *testing.T) {
 	}
 }
 
-// covers P7 PO-5 Z3 — emit: the primary's runner events keep today's types,
+// covers D127d PO-5 Z3 — emit: the primary's runner events keep today's types,
 // bare component and bytes; a non-primary deployment's never ride an old
 // type, only a "deployments" event naming it in data (rule C2).
 func TestEmitRuleC2(t *testing.T) {
@@ -137,7 +137,7 @@ func TestEmitRuleC2(t *testing.T) {
 	}
 }
 
-// covers P7 SC-ZERO PO-12 — the per-deployment names beside Ensure, Track,
+// covers D127d SC-ZERO PO-12 — the per-deployment names beside Ensure, Track,
 // Changed and Stop mean the primary exactly as the old names do, and refuse
 // or ignore every other name without creating state; Deploy is refused
 // without touching the running generation; no checkpoint tree is in use.

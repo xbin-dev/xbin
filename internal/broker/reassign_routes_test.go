@@ -7,7 +7,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers P7 P13 09-fabric-§8 — a reassignment's registrations step
+// covers D127d D127h 09-fabric-§8 — a reassignment's registrations step
 // (reassignroutes.go): once the plane moved a provider's primary, its
 // consumers get the grants event and restart when the active interface
 // instances changed, so a consumer bound to prov#inst is re-injected with

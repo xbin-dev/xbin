@@ -40,7 +40,7 @@ func inventory(t *testing.T) map[string]string {
 	return out
 }
 
-// covers P26 T9 NP-09-4 NP-06-1 NP-04-8 NP-13-11 — TestDeploymentRouteClasses,
+// covers D127r T9 NP-09-4 NP-06-1 NP-04-8 NP-13-11 — TestDeploymentRouteClasses,
 // the guard (09-fabric §6's enforcement): every /api/xbin route xbind mounts
 // has a class in internal/server/deployclass.go (deployment-scoped,
 // primary-only or neutral), and every row of the table names a route that
@@ -111,7 +111,7 @@ const probePattern = "/zz-unclassified-probe"
 // classRefusals mounts every inventory route on a server of its own, each
 // answering which pattern ran unless the server's own core API already
 // holds it, plus two routes without a class, and calls each with the
-// credentials of apps/crm's deployments (P26):
+// credentials of apps/crm's deployments (D127r):
 //   - dev's instance, frame (its xbin.window documents' too) and terminal
 //     tokens, and an instance token of a removed deployment, are refused on
 //     every primary-only route and on the unclassified ones, reads included,

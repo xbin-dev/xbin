@@ -21,7 +21,7 @@ import {
   T, NOW, at, opts, yes, no, PROTECTED, ISOLATE, NEEDS_TERMINAL, TODAY, terminalCaller, depCan, mainLive, mainPinned, devLive, zero, paused, attachedMain, onDev, reader, labels, byLabel, summary, CODE,
 } from './deploy-fixtures.mjs';
 
-// covers P5 PO-10 — the zero-state row: no chip, no offer, no launcher line,
+// covers D119c PO-10 — the zero-state row: no chip, no offer, no launcher line,
 // no frame chip, today's two tile API options byte for byte, and exactly one
 // entry point (⇈), whose menu offers Pause live reload; an xbind without tile
 // deployments (state null) draws nothing at all.
@@ -64,7 +64,7 @@ test('the zero state: one entry point, today\'s API select, nothing else', () =>
   assert.equal(chip(zero({ view: 'reader', caller: reader().caller })), null);
 });
 
-// covers P5 PO-10 — on a zero-state tile a dry run captures nothing, so the
+// covers D119c PO-10 — on a zero-state tile a dry run captures nothing, so the
 // pause confirmation names no checkpoint id, and says so.
 test('the zero state: pausing confirms from a dry run that captured nothing', () => {
   const c = confirmation('pause', { state: zero(), impact: { code: null, data: 'none', pausesLiveReload: true, stops: [], affects: 'nobody', reloads: [] } });
@@ -79,7 +79,7 @@ test('the zero state: pausing confirms from a dry run that captured nothing', ()
   assert.equal(c.expect, undefined, 'pausing takes no expect');
 });
 
-// covers P18 — a tile that may not pause (a backend without isolation)
+// covers D119h — a tile that may not pause (a backend without isolation)
 // keeps the control, disabled, with the state's allowed.why.
 test('the zero state: a tile that can\'t pause shows why', () => {
   const s = zero({ allowed: { pause: no(ISOLATE, 'policy'), deployments: no(ISOLATE, 'policy') } });
@@ -90,7 +90,7 @@ test('the zero state: a tile that can\'t pause shows why', () => {
   assert.deepEqual(control(s, 'add'), { enabled: false, why: ISOLATE, kind: 'policy' });
 });
 
-// covers P2 — live reload paused with files changed: the chip and its
+// covers D119b — live reload paused with files changed: the chip and its
 // count, the offer, the menu (Reload now first, Resume on ▸ with the last
 // target), the launcher's amber banner.
 test('paused, 3 files changed: chip, pending count, offer, menu, launcher', () => {
@@ -132,7 +132,7 @@ test('paused, 3 files changed: chip, pending count, offer, menu, launcher', () =
   assert.match(chip(agent, opts).title, /^Live reload paused by ana \(agent\) 3h ago — /);
 });
 
-// covers P2 — paused with nothing changed: no count, no offer, and Reload
+// covers D119b — paused with nothing changed: no count, no offer, and Reload
 // now disabled with the one reason that isn't a refusal.
 test('paused, nothing changed: no count, no offer, Reload now says why', () => {
   const s = paused({ workTree: { changed: 0, since: 'c:3f2a1c9' } });
@@ -147,7 +147,7 @@ test('paused, nothing changed: no count, no offer, Reload now says why', () => {
   assert.deepEqual(launcher(s, opts).banner, { text: 'Live reload is paused: no changes since c:3f2a1c9.', tone: 'paused', reloadNow: false });
 });
 
-// covers P2 P9 — a failed deploy: the chip adds "deploy failed" (and ! on
+// covers D119b D119e — a failed deploy: the chip adds "deploy failed" (and ! on
 // the degraded bar), the tooltip names the deployment and what it keeps
 // running, and Reload now retries even with nothing changed.
 test('a failed deploy: the chip says so, and Reload now retries', () => {
@@ -173,7 +173,7 @@ test('a failed deploy: the chip says so, and Reload now retries', () => {
   assert.match(chip(f, opts).title, /The last deploy to main failed; main keeps running its current code\. Reload now retries\.$/);
 });
 
-// covers P2 P21 — why live reload is paused: by protection (the manager
+// covers D119b D127m — why live reload is paused: by protection (the manager
 // reason on Reload now, the protected primary never offered to resume onto)
 // and by a code move (the header of that move).
 test('paused by protection or by a code move', () => {
@@ -209,7 +209,7 @@ test('paused by protection or by a code move', () => {
   assert.match(chip(now, opts).title, /^Live reload paused by ana 12m ago — /, 'a later Reload now doesn\'t change the cause');
 });
 
-// covers P2 — attached to the primary with a record: the chip names it;
+// covers D119b — attached to the primary with a record: the chip names it;
 // Pause is the menu's action; no banner.
 test('attached to the primary, with a record', () => {
   const s = attachedMain();
@@ -226,9 +226,9 @@ test('attached to the primary, with a record', () => {
   assert.equal(vm.barKey, 'main|0||1|0|0');
 });
 
-// covers P2 P24 — attached to a non-primary deployment: the chip, the
+// covers D119b D127p — attached to a non-primary deployment: the chip, the
 // launcher's plain line, Attach ▸, and the tile API select's target entries
-// with P24's default (the primary) and the saves/calls note.
+// with D127p's default (the primary) and the saves/calls note.
 test('attached to a non-primary deployment: chip, launcher, targets', () => {
   const s = onDev();
   const vm = viewModel(s, opts);
@@ -270,7 +270,7 @@ test('attached to a non-primary deployment: chip, launcher, targets', () => {
   assert.deepEqual(apiOptions(hidden).options.map((o) => o.value), ['primary', 'off']);
 });
 
-// covers P21 P24 — a protected primary is never a target: the default
+// covers D127m D127p — a protected primary is never a target: the default
 // falls to the live reload target, then to "API off".
 test('a protected primary is never a target', () => {
   const s = onDev({ protectedPrimary: true });
@@ -292,7 +292,7 @@ test('a protected primary is never a target', () => {
   assert.equal(defaultTarget(onDev()), 'primary');
 });
 
-// covers P5 P24 — the reader's primary-only state: the reader row, the
+// covers D119c D127p — the reader's primary-only state: the reader row, the
 // menu's header and sentence only, no launcher, no frame chip, no offer,
 // today's API options, nothing that names or counts another deployment.
 test('a reader sees the primary only', () => {
@@ -319,7 +319,7 @@ test('a reader sees the primary only', () => {
   assert.equal(chip(bad, opts).title, 'main is pinned to c:3f2a1c9: saves in the work tree don\'t reach it. The last deploy to main failed; main keeps running c:3f2a1c9.');
 });
 
-// covers P4 — a write-level caller (a noTerminal account): every operation
+// covers D127b — a write-level caller (a noTerminal account): every operation
 // disabled with the server's reason, no offer, no Reload now in the
 // launcher, no frame chip.
 test('a write-level caller may operate nothing', () => {
@@ -359,7 +359,7 @@ test('view-as renders every action disabled', () => {
   assert.ok(menu.every((m) => m.kind || m.disabled));
 });
 
-// covers P2 — the frame chip: only while the primary is pinned, only for
+// covers D119b — the frame chip: only while the primary is pinned, only for
 // terminal level, "📌 pinned" at rest, the sentence on hover.
 test('the frame chip', () => {
   assert.deepEqual(frameChip(summary(), paused()), { text: '📌 pinned', title: 'main pinned to c:3f2a1c9 · live reload paused' });
@@ -370,7 +370,7 @@ test('the frame chip', () => {
   assert.equal(frameChip(summary(), attachedMain()), null, 'never while live reload is on the primary');
 });
 
-// covers P2 — toMenu hands <bx-menu> its items: actions only on enabled
+// covers D119b — toMenu hands <bx-menu> its items: actions only on enabled
 // lines, reasons as hints, submenus converted.
 test('toMenu builds bx-menu items', () => {
   const calls = [];
@@ -391,7 +391,7 @@ test('toMenu builds bx-menu items', () => {
 });
 
 
-// covers P2 P5 — the confirmations of pause, resume, Reload now and attach,
+// covers D119b D119c — the confirmations of pause, resume, Reload now and attach,
 // rendered from the dry run: exact titles, lines and verbs; the reviewed
 // checkpoint Reload now then sends as expect.
 test('confirmations render the dry run', () => {
@@ -458,7 +458,7 @@ test('confirmations render the dry run', () => {
   assert.throws(() => confirmation('constructor', { state: paused(), impact: {} }), /no confirmation for constructor/);
 });
 
-// covers P2 — a refused bar action shows the server's text verbatim; a 409
+// covers D119b — a refused bar action shows the server's text verbatim; a 409
 // says whether the record or the reviewed code moved.
 test('refusals and conflicts', () => {
   assert.deepEqual(refusal('reloadNow', PROTECTED), { title: 'Reload now was refused', message: PROTECTED, ok: 'OK' });
@@ -470,7 +470,7 @@ test('refusals and conflicts', () => {
   assert.equal(conflict(403, 'the deployments of apps/crm changed (seq 4); reload and retry'), null);
 });
 
-// covers P2 P9 — result lines, from an operation's answer or a deploy entry.
+// covers D119b D119e — result lines, from an operation's answer or a deploy entry.
 test('results', () => {
   assert.equal(result('pause', { state: paused(), deploy: { id: 2, deployment: 'main', how: 'pause', result: 'running' } }), 'Live reload paused — main is pinned to c:3f2a1c9.');
   assert.equal(result('resume', { state: zero() }), 'Live reload: main — saves reach main again.');
@@ -489,7 +489,7 @@ test('results', () => {
   assert.equal(deployText(null), null);
 });
 
-// covers P2 — the grey terminal lines of §9, M1's rows: paused (and the
+// covers D119b — the grey terminal lines of §9, M1's rows: paused (and the
 // first record's remote), resumed, attached elsewhere, code moved, failed;
 // op work-tree and the rest print nothing.
 test('terminal lines', () => {
@@ -518,7 +518,7 @@ test('terminal lines', () => {
   assert.equal(notice(paused(), paused(), null), null);
 });
 
-// covers P2 — op work-tree moves the pending count in place (no request
+// covers D119b — op work-tree moves the pending count in place (no request
 // per save); record, deploy and data refetch.
 test('applyEvent', () => {
   const s = paused();
@@ -537,7 +537,7 @@ test('applyEvent', () => {
   assert.deepEqual(applyEvent(null, { op: 'record' }), { state: null, refetch: false });
 });
 
-// covers P2 — attribution and times read as the wording table spells them.
+// covers D119b — attribution and times read as the wording table spells them.
 test('who and ago', () => {
   assert.equal(who('user:ana'), 'ana');
   assert.equal(who('owner'), 'the owner');
@@ -586,7 +586,7 @@ function everyString() {
   return out.filter((s) => !/^(user:|c:|\/c\/|apps\/)/.test(s) && !['ok', 'reload-now', 'rollback', 'promote', 'deploy', 'pause', 'resume', 'reloadNow', 'attach', 'deployments', 'primary', 'off', 'on', 'paused', 'plain', 'state', 'authority', 'policy', 'static', 'healthy', 'failed', 'work-tree', 'main', 'dev', 'header', 'sep'].includes(s));
 }
 
-// covers P2 — the glossary's spellings: no word the feature must not use,
+// covers D119b — the glossary's spellings: no word the feature must not use,
 // "live" only in "live reload", "pause" only about live reload, none of
 // the glyphs other features own.
 test('strings use the glossary\'s words', () => {

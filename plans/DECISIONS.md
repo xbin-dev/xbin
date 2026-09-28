@@ -3751,6 +3751,67 @@ Deviations and refinements made while implementing; all deliberate:
       easier to reason about. Existing names with spaces or other
       characters need renaming (migration note).
 
+- **D119 — Pause live reload: a tile can run a checkpoint instead of its work
+  tree, and the zero state stays today, byte for byte (2026-09-28).**
+  docs/tile-deployments.md; docs/bx.md (`bx live-reload`, `bx rollback`);
+  plans/dev-lifecycle/ (05-model §13, 14-implementation M1, 16-open-questions
+  §1.1 P1, P2, P5, P8, P9, P15, P16, P18, P29). The owner ratified P1–P2 and
+  confirmed P18 on 2026-09-27; the rest are recorded as built, at the owner's
+  direction, on 2026-09-28.
+  - **(a) Deployments are pointers over an xbind-owned checkpoint store**
+    (P1). A checkpoint is every file of the work tree but `.git` and nested
+    components, captured by xbind; a deployment names one. The work tree is
+    the default feed; tracked branches and a deploy remote are later feeds on
+    the same core (M3).
+  - **(b) The term is *tile deployment*** (P2); "identity" stays reserved for
+    principals.
+  - **(c) The zero state is the absence of a deployment record** (P5), and it
+    is today byte for byte: the flat cgroup leaf, the D112 registry rows,
+    storage keys, events and `/components`. Opting out removes the record;
+    the checkpoint store may remain, inert. No manifest key. Zero-state
+    goldens pin it.
+  - **(d) Live reload attaches to at most one deployment** (P8), which runs
+    the work tree directly; the default path adds no per-save cost. Paused:
+    saves change the work tree and nothing else; **Reload now** checkpoints
+    and deploys with the usual blue/green swap.
+  - **(e) Pinned means pinned** (P9). Every restart path (crash, grant
+    change, xbind restart, loss of `.xbin`, alwaysOn backoff) runs the
+    record's checkpoint (after a failed move off the work tree, the attempted
+    one); built artifacts are kept per checkpoint; the inbound surface
+    (`template`, `exposes`, `provides`, `chrome`) follows the primary's code.
+    A failed deploy is invisible to viewers: the pinned code keeps serving,
+    and the failure reaches only the actor (the answer, the deploy log, a
+    `deployments` event, `bx` exit 1).
+  - **(f) Deployment state is xbind-owned** (P15): `data/deployments`,
+    `data/checkpoints` and `.xbin/deploy`, keyed by a 128-bit hash of the
+    tile path; never the root `xbin.json` or the work tree.
+  - **(g) Every git or tool run touching tile code happens in confine**
+    (P16, D78); the checkpoint store is confine-only; materialized trees
+    (directories 0755, files 0444/0555) are served with containment and never
+    followed out through symlinks (`TestNoFollowingHostWalks`). A
+    read-only fetch remote (`git fetch xbin-deploy`) serves each pinned
+    deployment's git view from a separate view repository.
+  - **(h) Pinned or non-primary backends need isolation** (P18): without
+    `--isolate` they are unsupported; static tiles pause live reload
+    everywhere. (cgi no longer exists, D117.)
+  - **(i) Deployment state belongs to the tile it was created for** (P29):
+    collision-free path keys and a record that carries and verifies path,
+    owner ref and creation stamp; a tile re-created at the path starts in the
+    zero state.
+  - **Why.** A busy tile had no way to try a risky change without every
+    viewer running it on the next save; pausing is the smallest step that
+    fixes that, and building it as pointers over checkpoints makes the later
+    rungs (named deployments, D127) the same mechanism rather than a second
+    one. Never breaking a tile that doesn't opt in is the hard rule, so the
+    zero state is defined as "no record" and pinned by goldens.
+  - **Not chosen:** building a candidate on each save while paused (NP-04-6:
+    it contradicts "paused changes nothing", costs a build per save, and adds
+    activation-by-hash state); a per-tile checkpoint exclude list (NP-04-4:
+    excluded paths would vanish silently from pinned code; over-size captures
+    are refused instead, naming the largest directories); a manifest key for
+    opting in (compat rule 7); deployment state inside the work tree or
+    `xbin.json`, which every terminal on the tile can write.
+
 - **D120 — Phase 2 of coding sandboxes: xbind's tile-sandbox runtime.
   Only manager tiles drive it (`cap:sandboxes`). Terminals reach people
   only through the manager's relay. Its routes mirror the sandbox-manager
@@ -4467,3 +4528,123 @@ Deviations and refinements made while implementing; all deliberate:
   - **No big or native binaries in git** (`make large-files`, in `check`
     and the pre-commit hook): > 1 MiB or ELF / Mach-O / PE fails unless
     hack/large-files.allow names it with a reason.
+
+- **D127 — Tile deployments: named deployments of one tile, each with its
+  own URL, data and vault, one of them the primary (2026-09-28).**
+  docs/tile-deployments.md; docs/bx.md (`bx deployment`, `bx promote`);
+  docs/protocol.md (`/api/xbin/deployments`, the `deployments` event,
+  `/c/<tile>+<name>/`); plans/dev-lifecycle/ (05-model §13, 14-implementation
+  M2, 16-open-questions §1.1). The owner ratified P3–P4 and confirmed P7,
+  P19 and P22–P24 on 2026-09-27, and on 2026-09-28 revised P13, decided P17
+  and extended P21 (below); the rest are recorded as built, at the owner's
+  direction, on 2026-09-28. Built on D119.
+  - **(a) Non-primary outbound calls go to the provider's primary,
+    read-clamped, with a per-edge `block`** (P3). `match` (routing to the
+    provider's same-named deployment) comes later, on the same per-edge
+    record.
+  - **(b) Parity** (P4): terminal-level users and their agents deploy to the
+    primary as saving does today; tile managers can protect the primary (m).
+  - **(c) Storage follows the deployment** (P6); `main` owns today's keys
+    forever, and non-main state lives at a `.deployments` level no older
+    binary lists.
+  - **(d) The primary is a role** (P7). Every inbound edge resolves through
+    one resolver that returns the primary for every v1 edge-policy value.
+    Reassignment (tile managers only, a loud confirmation) moves routing, not
+    data.
+  - **(e) Promotion moves code only** (P10); data, vault, config and routing
+    are late-bound to the target. Promote shows the diff and deploys exactly
+    the checkpoint it showed (409 if the work tree moved since).
+  - **(f) Authority stays per tile** (P11). A deployment is not a principal;
+    non-primary deployments are narrowed by edge policy.
+  - **(g) Self-calls stay inside the caller's deployment** (P12); tile
+    principals can't call another deployment of their own tile.
+  - **(h) Non-primary cron jobs and bus subscriptions are active; interface
+    instances and ingress hosts are dormant** (P13, revised by the owner
+    2026-09-28: "allowing cron for non-primary deployments is fine; bus is
+    trickier but subscribe-only would be ok — like read binds"). A
+    non-primary deployment's cron fires and its bus subscriptions deliver to
+    that deployment (its backend, its data), never the primary; reading
+    another scope's bus goes through the edge policy (`read` allows, `block`
+    refuses), re-checked at every delivery; publishing stays in its own
+    namespace. A per-deployment `deliveries` switch, on by default and
+    manager-only, silences a noisy one. Notifications from a non-primary
+    deployment are never pushed, and its status and build activity travel
+    only in the `deployments` event, delivered by access (rules C2 and the
+    event audience).
+  - **(i) Non-primary data and vault start empty** (P14); seeding is
+    optional, and seeding and vault copy are tile-manager acts.
+  - **(j) The `+` qualifier** (P17, decided by the owner 2026-09-28).
+    `/c/<tile>+<name>/` resolves only for tiles with a record and only after
+    today's resolution fails; the bare URL is the primary. Signals
+    (`X-XBin-Deployment`, `XBIN_DEPLOYMENT`, whoami) are absent for the
+    primary; credentials and stored state are absent for `main`. `+` is kept
+    because URL paths keep it; no query string ever carries a qualified ref
+    (queries take `tile` and `deployment` separately, and a query `tile`
+    with a `+` that names no tile is a 400, since `+` reads as a space
+    there); and `+` is refused in every new tile name, for every creator
+    (BREAKING, docs/changes/2026-09-28-plus-in-tile-names.md; existing
+    directories keep resolving, and `bx doctor` flags them).
+  - **(k) Chrome and xbin-capable tiles may pause live reload but can't have
+    non-primary deployments** (P19); approving an `xbin`/`xbin:*` grant is
+    refused while non-primary deployments exist, and a non-primary principal
+    never satisfies a governance check.
+  - **(l) A non-primary deployment is an accident boundary, not a trust
+    boundary** (P20).
+  - **(m) A protected primary** (P21, extended by the owner 2026-09-28) is
+    never the live reload target or a session's target. Every change to its
+    code is a tile-manager act naming the reviewed checkpoint
+    (`checkpoint`/`expect`, a compare-and-set on the record's `seq`); its
+    build products come only from manager operations. Managers act from a
+    human session, from the host with the owner's root token (`bx
+    deployment …`), or through the admin tile's Deployments tab: a frame of
+    an `xbin`-capable tile minted under a person's own login stands in for
+    that person, who must pass the manager gate, for protect, unprotect,
+    reassign, deliveries and alwaysOn only. Terminal, agent, instance, cron
+    and bus tokens never do, nor any frame token they mint.
+  - **(n) Resource declarations are deployment-level** (P22): each
+    deployment provisions what its own code declares, in its own namespace;
+    a pinned primary provisions from its checkpoint's `scope.json`, read
+    beneath and validated; per-deployment limits default to the tile's, are
+    set by managers, never above the tile's ceilings.
+  - **(o) Edges that can't be read-clamped are blocked for non-primary
+    deployments in v1, with no override** (P23): custom roles (so the
+    agent's sandbox managers), stream interfaces, lan-ingress links,
+    net-provider splices, and host-shared networking.
+  - **(p) The terminal's API select picks a session's target** (P24),
+    defaulting to the primary; a protected primary is not offered, and the
+    default then falls to the live reload target, else "API off"; fixed for
+    the session's life.
+  - **(q) Primary first** (P25): a non-primary deployment never takes the VM
+    budget, CPU weight, disk quota or per-tile caps the primary needs;
+    separate cgroups per deployment.
+  - **(r) xbind's API is default-deny for non-primary principals** (P26):
+    every `/api/xbin/*` route is classified deployment-scoped, primary-only
+    or neutral, and a guard test (`TestDeploymentRouteClasses`) keeps the
+    list complete.
+  - **(s) Edge-policy values fail closed** (P27): an unknown or invalid value
+    reads as `block`, and any `block` among several authorizing edges refuses
+    the call.
+  - **(t) A (scope, name) namespace is shared by the scope's same-named
+    deployments** (P28); seeding, resetting or restoring it needs authority
+    on every claimant and stops all of them; it is deleted with its last
+    claimant; no v1 reassignment splits a scope's primary data.
+  - **Why.** Pausing (D119) protects viewers but leaves one runtime; a
+    developer, or an agent, needs a second copy of a busy tile with its own
+    data to try things on, and a way to ship exactly what was reviewed. Doing
+    it per tile, with the primary as a role and everything else narrowed by
+    edge policy, keeps authority and routing where they are today.
+  - **Not chosen:** events with a qualified `component` or non-primary
+    activity on `reload`/`build-*`/`status` (old shells and the app would
+    reload ancestors and toast; rule C2 instead); a separate target picker,
+    or sessions defaulting to the live reload target (P24); `:` as the
+    qualifier (`notes:dev/` parses as a scheme in a relative URL, and `:`
+    separates the grant grammar's class); only the two narrow `+` refusals
+    with a warning otherwise (the owner chose the full refusal); a `full`
+    edge that lifts the read clamp (O3, still open: non-primary deployments
+    lose LLM completions meanwhile); dormant cron and bus registrations (the
+    original P13, revised); element principals passing the manager gate by
+    their tile's grants alone (only the admin tile's frame, for a manager).
+    Still open with their defaults built: O1 (offload of `main`'s encrypted
+    volumes), O3, O5 (protection covers code, not the vault). The opt-in switch
+    (`--tile-deployments`, `XBIN_TILE_DEPLOYMENTS`) defaults on (O4's
+    recommended answer).

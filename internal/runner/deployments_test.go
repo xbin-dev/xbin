@@ -1,6 +1,6 @@
 package runner
 
-// covers P7 P8 P12 P13 P17 P25 SC-INBOUND T3 T18 — runner state keyed by
+// covers D127d D119d D127g D127h D127j D127q SC-INBOUND T3 T18 — runner state keyed by
 // (tile, deployment) (07-runtime §1.2, §8.5, §8.8, §9, §10.3): seam rows
 // 31–34 and 37 of 15-test-plan §2.5, TestBackendEnvPerDeployment,
 // TestInstanceTokenRegisteredWithDeployment, TestLogPathsPerDeployment,
@@ -418,7 +418,7 @@ func withDev(t *testing.T) (*depFake, *tape) {
 	return f, tp
 }
 
-// covers P8 P13 P7 P17 SC-INBOUND — 15-test-plan §2.5 rows 31–34 and 37: a
+// covers D119d D127h D127d D127j SC-INBOUND — 15-test-plan §2.5 rows 31–34 and 37: a
 // save or a crash reaches only its own deployment, and its activity rides
 // only the deployments type (rule C2); Ensure means the primary; Stop stops
 // every deployment; a reassignment restarts the new primary first, then the
@@ -622,7 +622,7 @@ func TestDeploymentSeamRows(t *testing.T) {
 
 // ---- the admission caps ----
 
-// covers P25 T10 — TestNonPrimaryAdmissionCaps (07-runtime §10.3,
+// covers D127q T10 — TestNonPrimaryAdmissionCaps (07-runtime §10.3,
 // NP-07-7): a non-primary deployment's start is refused, as an sbx refusal
 // reported on its deployments build event and in the failure ring, past 3
 // running per tile, 12 running per workspace, or 24 running or building per
@@ -720,7 +720,7 @@ func nonPrimary(c *registry.Component, dep string) *registry.Component {
 	return &v
 }
 
-// covers P17 — TestBackendEnvPerDeployment (15-test-plan §3.2):
+// covers D127j — TestBackendEnvPerDeployment (15-test-plan §3.2):
 // XBIN_DEPLOYMENT is set only for a backend that isn't the primary when it
 // spawns (the role rule, 11-contract §5), with its name; XBIN_COMPONENT stays
 // the bare tile path; the host-env allow-list and every other variable are
@@ -793,7 +793,7 @@ func TestBackendEnvPerDeployment(t *testing.T) {
 	})
 }
 
-// covers P6 P17 — TestLogPathsPerDeployment (15-test-plan §3.2): main keeps
+// covers D127c D127j — TestLogPathsPerDeployment (15-test-plan §3.2): main keeps
 // .xbin/log/<CompKey>.log; any other deployment writes
 // .xbin/deploy/<TileKey>/d/<name>/backend.log, created for it; the crash
 // loop's words and a failed deploy's output name and reach the deployment's
@@ -838,7 +838,7 @@ func TestLogPathsPerDeployment(t *testing.T) {
 	})
 }
 
-// covers T18 P6 — TestRunDirPerDeployment (06-security T18): a non-primary
+// covers T18 D127c — TestRunDirPerDeployment (06-security T18): a non-primary
 // deployment's socket dir is its own sibling of main's, never inside it, so
 // its sandbox binds neither main's dir nor main's socket; main's is today's
 // <RunDir>/<CompKey>; removing the deployment removes its dir alone.
@@ -881,7 +881,7 @@ func TestRunDirPerDeployment(t *testing.T) {
 	}
 }
 
-// covers P12 T3 — TestInstanceTokenRegisteredWithDeployment (15-test-plan
+// covers D127g T3 — TestInstanceTokenRegisteredWithDeployment (15-test-plan
 // §3.2, 06-security T3c): a generation's instance token is registered with
 // its tile and deployment, from the runner's state, and authenticates as
 // that tile's principal bound to it (main is ""); until auth can bind a
@@ -942,7 +942,7 @@ func TestInstanceTokenRegisteredWithDeployment(t *testing.T) {
 	})
 }
 
-// covers P12 T3 — 09-fabric §10's TestDrainAuthority (§3.7): a draining
+// covers D127g T3 — 09-fabric §10's TestDrainAuthority (§3.7): a draining
 // generation acts only as its own deployment. Its instance token stays bound
 // to the deployment it was spawned for through a blue/green drain and
 // through a reassignment of the primary, until its process exits, and a
@@ -1106,7 +1106,7 @@ const (
 	depHelperDrain = "RUNNER_DEPLOYMENTS_DRAIN"  // milliseconds it lingers after SIGTERM
 )
 
-// covers P12 — no test of its own: the backend's main when hostWorld runs
+// covers D127g — no test of its own: the backend's main when hostWorld runs
 // this test binary as apps/x's Go backend. It writes its env to
 // g<gen>.env, listens on XBIN_SOCKET, and exits a drain delay after SIGTERM
 // (a minute at most).
@@ -1158,7 +1158,7 @@ var ensureCallers = map[string]bool{
 	"internal/runner/runner.go Changed":        true, // Changed's background rebuild of the primary
 }
 
-// covers P7 SC-INBOUND — TestEnsureCallSitesPassPrimary (15-test-plan
+// covers D127d SC-INBOUND — TestEnsureCallSitesPassPrimary (15-test-plan
 // §3.13): every call of Runner.Ensure (a method Ensure with two arguments)
 // in xbind's code is one of ensureCallers, which mean the primary, and
 // every EnsureDeployment call carries a "deployment:" comment on its line or

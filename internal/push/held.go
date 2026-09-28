@@ -15,7 +15,7 @@ import (
 )
 
 // Notifications from a tile deployment that isn't its tile's primary are
-// never pushed (P13) (09-fabric §6; 11-contract §3.3, §8). POST /notify
+// never pushed (D127h) (09-fabric §6; 11-contract §3.3, §8). POST /notify
 // answers such a call as it answers any other, 202, plus suppressed:true,
 // after the same validation, and then:
 //   - sends nothing and spends none of the tile's or the person's budget, so

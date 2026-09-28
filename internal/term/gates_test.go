@@ -252,7 +252,7 @@ func TestServeWSNoVMWithoutIsolation(t *testing.T) {
 	}
 }
 
-// covers T9 P24 — choosing a session's target needs terminal level on the
+// covers T9 D127p — choosing a session's target needs terminal level on the
 // tile, and view-as and noTerminal accounts are refused (TestServeWSGates'
 // matrix, with ?deployment=; 11-contract §7.4): for a shell on /ws/term and
 // an agent session alike, before anything spawns. A terminal-level user's

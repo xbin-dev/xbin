@@ -13,7 +13,7 @@ import (
 	"testing"
 )
 
-// covers P9 P16 T18 — a Bind whose Src differs from its Dst: the sandbox sees
+// covers D119e D119g T18 — a Bind whose Src differs from its Dst: the sandbox sees
 // Src's content at Dst (a directory and a single file), read-only when RO —
 // nothing written reaches the source — and read-write otherwise. Order
 // follows sortBinds, not the list: a broad read-only bind listed after a
@@ -92,7 +92,7 @@ func TestBindSrcNotDst(t *testing.T) {
 	}
 }
 
-// covers T18 P16 — a bind that lands inside another bind's tree never
+// covers T18 D119g — a bind that lands inside another bind's tree never
 // follows a symlink to its mount point (a checkpoint can hold one where a
 // nested component goes): an absolute or relative symlink above the mount
 // point, or at it, fails the start naming the path, and nothing is made

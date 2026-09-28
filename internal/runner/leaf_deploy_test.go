@@ -1,6 +1,6 @@
 package runner
 
-// covers P5 P22 P25 T10 PO-11 — the cgroup half of the runner's deployment
+// covers D119c D127n D127q T10 PO-11 — the cgroup half of the runner's deployment
 // edges (07-runtime §10.3): TestCgroupLeafPerDeployment
 // (= TestLeafPerDeployment), TestLimitAlertsNestedLeaves and
 // TestStatsCountEveryDeployment, over fakeCgroup, a model of the cgroup
@@ -240,7 +240,7 @@ func curOf(t *testing.T, r *Runner, tile, dep string) *instance {
 // tileCaps are the caps a manager installs: today's per-component ones.
 var tileCaps = cgroup.Limits{MemMax: 2 << 30, PidsMax: 512}
 
-// covers P5 P22 P25 T10 PO-11 — TestCgroupLeafPerDeployment
+// covers D119c D127n D127q T10 PO-11 — TestCgroupLeafPerDeployment
 // (= TestLeafPerDeployment, 15-test-plan §3.2): a zero-state tile's
 // generations join today's flat leaf with the installed caps, and a record
 // alone changes nothing; the first non-main deployment creates
@@ -345,7 +345,7 @@ func TestCgroupLeafPerDeployment(t *testing.T) {
 	}
 }
 
-// covers P5 P25 T10 — TestLimitAlertsNestedLeaves (15-test-plan §3.2):
+// covers D119c D127q T10 — TestLimitAlertsNestedLeaves (15-test-plan §3.2):
 // AtLimitTile checks the flat leaf of a zero-state or main-only tile
 // exactly as Cgroup.AtLimit(CompKey) does, keyed by that leaf and naming no
 // deployment; a tile running non-main deployments answers every leaf, the
@@ -390,7 +390,7 @@ func TestLimitAlertsNestedLeaves(t *testing.T) {
 	}
 }
 
-// covers P25 T10 — TestStatsCountEveryDeployment: a tile's stats are its
+// covers D127q T10 — TestStatsCountEveryDeployment: a tile's stats are its
 // whole tree's, its flat leaf and every leaf beneath its per-tile parent
 // (TileProcs, TileUsage), with the per-tile totals of 07-runtime §10.3; a
 // non-main deployment's backend row in the sandbox registry is sampled by

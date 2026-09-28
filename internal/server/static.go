@@ -557,7 +557,7 @@ func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPa
 // writer of a nested component only (per-path RBAC) never gets its
 // parent's or a sibling's token. Across trees it stays refused.
 //
-// The token never crosses deployments (11-contract §7.2) (P12), for every
+// The token never crosses deployments (11-contract §7.2) (D127g), for every
 // document, bare or at a deployment URL: a person mints only for a
 // deployment they may open (read for the primary, write for any other), the
 // tile's own principal only for the deployment it is bound to

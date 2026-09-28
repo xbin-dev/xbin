@@ -195,7 +195,7 @@ func wantErr(t *testing.T, err error, status int, text string) {
 	}
 }
 
-// covers P14 P28 — reset empties only its target and removal deletes the
+// covers D127i D127t — reset empties only its target and removal deletes the
 // namespace only with its last claimant, never main's; an orphaned one is
 // listed to admins (15-test-plan §3.7; 08-data §9.1–§9.3). The per-tile half
 // of a removal — vault, prefs, registrations, logs — is DropDeploymentFiles
@@ -243,7 +243,7 @@ func TestResetAndRemoveScope(t *testing.T) {
 	if m.State != nsEmpty || !m.Reset || m.By != "user:ana" || m.Busy != "" || len(m.History) != 1 || m.History[0].Op != "reset" {
 		t.Errorf("ns.json after the reset: %+v", m)
 	}
-	for _, tile := range []string{fxShop, fxShopAdmin} { // the state is the namespace's, shared (P28)
+	for _, tile := range []string{fxShop, fxShopAdmin} { // the state is the namespace's, shared (D127t)
 		if d := f.b.DeploymentData(tile, "dev"); d.State != nsEmpty || !d.Reset || d.By != "user:ana" {
 			t.Errorf("%s's dev data: %+v", tile, d)
 		}
@@ -336,7 +336,7 @@ func TestResetAndRemoveScope(t *testing.T) {
 	}
 }
 
-// covers P28 T8 — resetting a shared (scope, name) namespace needs the reset
+// covers D127t T8 — resetting a shared (scope, name) namespace needs the reset
 // level on every claimant, the refusal names the tile that blocks it, and
 // nothing stops or changes until every claimant allows it (08-data §6.3,
 // §14; 11-contract §1.14). The judgement is the deployments plane's own
@@ -402,7 +402,7 @@ func TestSharedScopeResetNeedsEveryTile(t *testing.T) {
 	}
 }
 
-// covers P28 T8 NP-08-4 — joining a (scope, name) namespace that holds data
+// covers D127t T8 NP-08-4 — joining a (scope, name) namespace that holds data
 // (seeded, restored or partial) is a tile manager's act in a person's own
 // session; joining an empty one, or none, is anyone's who may add, and the
 // answer says whose data it joins (08-data §6.2; 11-contract §1.5, §1.14).
@@ -452,7 +452,7 @@ func TestJoinSeededNamespaceManagerOnly(t *testing.T) {
 	}
 }
 
-// covers P5 PO-7 — the broker's half of every dry run (add's join, reset,
+// covers D119c PO-7 — the broker's half of every dry run (add's join, reset,
 // removal) and every read of a namespace's state creates nothing: no
 // .deployments level, ns.json, kv file or mount directory, on a zero-state
 // workspace and on one whose tile has deployments nothing wrote to yet; a
@@ -512,7 +512,7 @@ func TestDataDryRunCreatesNothing(t *testing.T) {
 	}
 }
 
-// covers P14 K9 — a reset aborts when a volume stays mounted after its
+// covers D127i K9 — a reset aborts when a volume stays mounted after its
 // unmount (EBUSY): nothing is removed through the mount, the data and
 // ns.json stay as they were, and the hold lifts (08-data §9.1 step 2, §14).
 func TestResetAbortsWhileMounted(t *testing.T) {
@@ -567,7 +567,7 @@ func TestResetAbortsWhileMounted(t *testing.T) {
 	}
 }
 
-// covers NP-08-14 P28 — the sweep: a scope.json gone for a while orphans its
+// covers NP-08-14 D127t — the sweep: a scope.json gone for a while orphans its
 // namespaces and deletes nothing inside the grace period; a returning
 // claimant clears the mark; past 14 days the orphan goes. An act a crash cut
 // short becomes partial, and backends addressing it refuse to start; main's
@@ -677,7 +677,7 @@ func TestNamespaceGCGrace(t *testing.T) {
 	}
 }
 
-// covers P28 NP-08-6 — the hold and the write gate (08-data §8.2): a held
+// covers D127t NP-08-6 — the hold and the write gate (08-data §8.2): a held
 // namespace answers data-plane requests 503 with Retry-After, refuses starts
 // and other acts (409 data busy) and reports busy in the state; API writes
 // wait on the gate while an act holds it exclusively, and answer 503 past

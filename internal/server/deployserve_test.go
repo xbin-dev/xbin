@@ -179,7 +179,7 @@ func pinnedApps(t *testing.T, mode string) (*pinned, string) {
 	return w, root
 }
 
-// covers P9 — while main is pinned, the bare URL serves the checkpoint in
+// covers D119e — while main is pinned, the bare URL serves the checkpoint in
 // every asset mode: its documents (with today's injection, for the tile the
 // URL names), files and directory indexes; work-tree edits — changed,
 // added or removed files, index.html and inject included — don't show
@@ -280,7 +280,7 @@ func TestPinnedPrimaryServesCheckpoint(t *testing.T) {
 	}
 }
 
-// covers P16 T2 — containment in all three asset modes: a pinned
+// covers D119g T2 — containment in all three asset modes: a pinned
 // checkpoint's files open beneath its materialized tree. An in-tree link
 // works; every other link leaving the tree (/etc/passwd, into another
 // tile, xbind's secret, a chain, a directory link) answers 404 and is never
@@ -413,7 +413,7 @@ func TestPinnedServingUsesOpenBeneath(t *testing.T) {
 	}
 }
 
-// covers P7 E15 — ?native=1 is generated from the primary's code, its
+// covers D127d E15 — ?native=1 is generated from the primary's code, its
 // checkpoint while pinned: the entry the checkpoint declares or holds,
 // whatever the work tree now says, loaded from the checkpoint; no native UI
 // when the checkpoint has none, though the work tree added one; an entry
@@ -473,7 +473,7 @@ func TestNativeDocumentFollowsPrimary(t *testing.T) {
 	}
 }
 
-// covers P5 C7 — which opener a /c/ request of a tile uses: today's for a
+// covers D119c C7 — which opener a /c/ request of a tile uses: today's for a
 // zero-state tile and for a path no component owns; the checkpoint's root
 // for a pinned primary; none (a 404) for one that can't be served. Without
 // a PrimarySummaryPolicy no /components entry gains a summary.

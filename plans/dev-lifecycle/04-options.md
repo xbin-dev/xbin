@@ -1,6 +1,6 @@
 # 04 — The tradeoff surface
 
-> Status: live — every design axis of the tile dev lifecycle, its real options, how each option scores, and which choice the model makes and why (part of [plans/dev-lifecycle](README.md))
+> Status: historical (the input to D119 and D127) — every design axis of the tile dev lifecycle, its real options, how each option scores, and which choice the model makes and why (part of [plans/dev-lifecycle](README.md))
 
 This document argues each choice in [05-model.md](05-model.md) against the
 alternatives. It does not restate the model. Every recommendation names the

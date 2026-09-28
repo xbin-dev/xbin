@@ -10,7 +10,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/users"
 )
 
-// covers T5 P13 05-model-§5 — alwaysOn for a non-primary deployment is a
+// covers T5 D127h 05-model-§5 — alwaysOn for a non-primary deployment is a
 // tile manager's switch in a person's own session, off by default: a
 // terminal-level person, the tile's terminal tokens (a manager's included)
 // and its frame are refused, changing nothing; never on the primary, whose
@@ -69,7 +69,7 @@ func TestAlwaysOnNonPrimaryManagerOnly(t *testing.T) {
 	}
 }
 
-// covers P22 P25 T10 — a deployment's limits default to the tile's (its
+// covers D127n D127q T10 — a deployment's limits default to the tile's (its
 // cgroup caps, LimitsFor, every deployment alike); a manager's override
 // lowers one for that deployment alone, and null removes it; a value above
 // the tile's ceiling, or not a positive integer, is refused with 400; the
@@ -77,7 +77,7 @@ func TestAlwaysOnNonPrimaryManagerOnly(t *testing.T) {
 // element principals are refused). diskGiB is its (scope, name)
 // namespace's quota: set on the tile that roots the scope, never above the
 // per-scope quota; 501 until the quota is wired. The primary keeps the
-// higher CPU weight (P25).
+// higher CPU weight (D127q).
 func TestDeploymentLimitsDefaultToTile(t *testing.T) {
 	f := newGovFx(t, false)
 	f.p.TileLimits = cgroup.Limits{MemMax: 2 << 30, PidsMax: 512}

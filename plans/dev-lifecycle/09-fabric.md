@@ -1,6 +1,6 @@
 # 09 — The fabric: inbound edges, outbound edge policy, self-calls
 
-> Status: live — how every call into, out of and within a tile with deployments is routed and authorized: inbound edges, the deployment URL, principals, self-calls, the outbound edge policy, self-scoped APIs, deliveries, primary reassignment and the later parallel fabric (part of [plans/dev-lifecycle](README.md))
+> Status: implemented (D119, D127; M3 designed, not built) — how every call into, out of and within a tile with deployments is routed and authorized: inbound edges, the deployment URL, principals, self-calls, the outbound edge policy, self-scoped APIs, deliveries, primary reassignment and the later parallel fabric (part of [plans/dev-lifecycle](README.md))
 
 Terms are [01-glossary.md](01-glossary.md)'s, used verbatim. This document
 elaborates [05-model.md](05-model.md) §7 (routing), §8 (events) and §10

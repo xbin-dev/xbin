@@ -2,7 +2,7 @@ package boot
 
 // deployfacts_test.go — the state's facts beyond the record (11-contract
 // §1.1) in each view (§1.3), and what a reader of a tile with deployments
-// sees (P20; 06-security T7 item 3).
+// sees (D127l; 06-security T7 item 3).
 
 import (
 	"bytes"
@@ -68,14 +68,14 @@ func rowOf(s map[string]any, name string) map[string]any {
 	return nil
 }
 
-// covers P20 T7 P13 P14 P22 PO-14 — a reader of a tile with deployments sees
+// covers D127l T7 D127h D127i D127n PO-14 — a reader of a tile with deployments sees
 // primary-scoped facts only: GET /deployments answers a person with read,
 // the primary's frame token and the tile's instance token the reader view
 // with none of the facts beyond the record, even with a source for each of
 // them that names its deployment, and removing the non-primary deployment
 // leaves each reader's answer byte-identical. The write audience gets every
 // fact on every deployment (deliveries always on and alwaysOn the code's
-// for the primary, deliveries on by default beside it (P13, revised), never
+// for the primary, deliveries on by default beside it (D127h, revised), never
 // the primary's backup schedule or held notifications) and
 // caps and edges; a non-primary deployment's own principals get them on
 // the primary and their own deployment only, without caps or edges; the

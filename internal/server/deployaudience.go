@@ -10,7 +10,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// Who receives a "deployments" event (P13). Non-primary activity rides only
+// Who receives a "deployments" event (D127h). Non-primary activity rides only
 // that type, so its audience is decided here, like pr's in eventFilter: a
 // fact about a tile's primary reaches the tile's readers, as today's events
 // do; a fact naming another deployment reaches only the tile's write

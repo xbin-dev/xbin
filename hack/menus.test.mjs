@@ -195,7 +195,7 @@ const depState = ({ view = 'full', level = 'terminal', pinned = true, record = t
   caller: { level },
 });
 
-// covers P5 — a tile without a deployment record (no summary on its row)
+// covers D119c — a tile without a deployment record (no summary on its row)
 // gets exactly today's tile menu, whatever the lookup answers: the
 // Deployments line needs the summary an older xbind never sends.
 test('tile menu: no deployments line in the zero state', () => {
@@ -263,7 +263,7 @@ test('tile menu: the installed deployments lookup', () => {
   } finally { useDeployLookup(() => undefined); }
 });
 
-// covers P5 — the summary helpers the ⇈ badges share: the row's summary
+// covers D119c — the summary helpers the ⇈ badges share: the row's summary
 // until a state is loaded, none for a tile without a record, the primary's
 // checkpoint and a failed last deploy onto it.
 test('deployments summary helpers', () => {

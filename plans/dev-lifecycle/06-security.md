@@ -1,6 +1,6 @@
 # 06 — Security: threat model and mitigations
 
-> Status: live — the threat model for pause live reload, tile deployments and promotion: assets, actors, trust assumptions, every threat with its normative mitigation, enforcement point and test, the D78 ledger and residual risks (part of [plans/dev-lifecycle](README.md))
+> Status: implemented (D119, D127; M3 designed, not built) — the threat model for pause live reload, tile deployments and promotion: assets, actors, trust assumptions, every threat with its normative mitigation, enforcement point and test, the D78 ledger and residual risks (part of [plans/dev-lifecycle](README.md))
 
 This document is normative for the implementation swarm. Vocabulary is
 [01-glossary.md](01-glossary.md); the objects, operations and invariants

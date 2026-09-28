@@ -121,7 +121,7 @@ func minus(a, b []string) []string {
 	return out
 }
 
-// covers T7 P13 SC-EVENTS PO-5 — the deployments event reaches the audience
+// covers T7 D127h SC-EVENTS PO-5 — the deployments event reaches the audience
 // 11-contract §3.4 gives each form, on the pr precedent: a fact about the
 // primary reaches the tile's readers (a reader form only those the full form
 // misses); the full forms of record and deploy, and work-tree, reach the
@@ -221,7 +221,7 @@ func (reassigned) Primary(tile string) string {
 	return ""
 }
 
-// covers T7 P13 P17 — the filter keys on the tile's primary as the Policy
+// covers T7 D127h D127j — the filter keys on the tile's primary as the Policy
 // names it (PrimaryPolicy), not on the name main: once blue is the primary,
 // a reader form of a deploy onto blue reaches readers, and a fact about main
 // reaches only the write audience and main's own principals, the claimless

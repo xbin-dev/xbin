@@ -15,8 +15,8 @@ import (
 )
 
 // The fabric (09-fabric) end to end, on the isolated daemon: every inbound
-// edge of a tile reaches its primary (P7), a non-primary deployment's
-// outbound calls meet the edge policy (P3) (P23), and a reassignment moves
+// edge of a tile reaches its primary (D127d), a non-primary deployment's
+// outbound calls meet the edge policy (D127a) (D127o), and a reassignment moves
 // every inbound edge at once (flow F). Each tile here runs the fabric probe
 // (fabSource): a backend that records every request it is sent, with who
 // sent it, and acts on the gateway on request, so a test can say both what
@@ -270,7 +270,7 @@ func setupFabInbound(t *testing.T, d *isoDaemon, T, C string) fabInbound {
 
 // ---- TestInboundEdgesReachOnlyPrimary ----
 
-// covers P7 P13 T6 SC-INBOUND — every inbound edge of 15-test-plan §5.5
+// covers D127d D127h T6 SC-INBOUND — every inbound edge of 15-test-plan §5.5
 // that can run end to end, on 09-fabric §1's fixture (main primary pinned
 // to A, answering m1; dev the live reload target, answering m2), each fired
 // and answered by A while dev sees nothing: the bare /api/ and /c/ URLs
@@ -279,7 +279,7 @@ func setupFabInbound(t *testing.T, d *isoDaemon, T, C string) fabInbound {
 // <tile>+dev and <tile>+main); cron (main's job ticks main alone); a bus
 // publish into the tile's bus (main's subscription only); alwaysOn (an
 // xbind restart starts main, never dev, whose own checkpoint declares it
-// too). dev's own registrations aren't inbound edges from others (P13,
+// too). dev's own registrations aren't inbound edges from others (D127h,
 // revised): its job, active by default, ticks dev alone, never main; with
 // its deliveries off it stays quiet and run now fires it once to dev; back
 // on, its job ticks dev again and its own publish (dev's namespace) reaches
@@ -330,7 +330,7 @@ func TestInboundEdgesReachOnlyPrimary(t *testing.T) {
 	}
 
 	// Cron: each deployment's backend registers a job, active for its own
-	// deployment (P13): main's ticks main alone, dev's ticks dev alone.
+	// deployment (D127h): main's ticks main alone, dev's ticks dev alone.
 	cronJob := func(ref, name, path string) {
 		t.Helper()
 		r := fabHTTP(t, a, ref, "PUT", "/api/xbin/cron/jobs", fabJSON(map[string]string{
@@ -503,7 +503,7 @@ func fabRegs(t *testing.T, a dlAPI, tile string) map[string]map[string]bool {
 
 // fabEnvHas waits until the probe at ref runs with XBIN_DEPLOYMENT set to
 // want ("" = unset): the generation spawned with the wiring its role
-// gives it (a reassignment restarts both deployments, P17).
+// gives it (a reassignment restarts both deployments, D127j).
 func fabEnvHas(t *testing.T, a dlAPI, ref, want string) {
 	t.Helper()
 	var env map[string]string
@@ -516,7 +516,7 @@ func fabEnvHas(t *testing.T, a dlAPI, ref, want string) {
 	}
 }
 
-// covers P7 — flow F on 09-fabric §1's fixture, the registrations and the
+// covers D127d — flow F on 09-fabric §1's fixture, the registrations and the
 // data of each deployment in place: reassigning the primary to dev (a
 // manager's act, confirmed "data-stays", refused without it) moves every
 // inbound edge to dev and dev's data: the bare URLs, the native document,
@@ -526,7 +526,7 @@ func fabEnvHas(t *testing.T, a dlAPI, ref, want string) {
 // deployments restart with the wiring their new role gives
 // (XBIN_DEPLOYMENT); main stays pinned to A, with its data, its instance
 // dormant, and its cron job and subscription its own: each deployment's job
-// ticks it alone whichever is the primary (P13, revised). Reassigning back
+// ticks it alone whichever is the primary (D127h, revised). Reassigning back
 // restores all of it.
 func TestReassignPrimaryFlowF(t *testing.T) {
 	t.Parallel()
@@ -718,7 +718,7 @@ func fabEdges(t *testing.T, a dlAPI, tile string) map[string]fabEdge {
 }
 
 // fabBlockOnly checks that tile's edge id takes block alone, by default,
-// with the reason named (P23), and that a tile manager can't set any other
+// with the reason named (D127o), and that a tile manager can't set any other
 // value on it: 400, naming the edge.
 func fabBlockOnly(t *testing.T, a dlAPI, tile, id, why string, try ...string) {
 	t.Helper()
@@ -734,12 +734,12 @@ func fabBlockOnly(t *testing.T, a dlAPI, tile, id, why string, try ...string) {
 	}
 	for _, v := range try {
 		if c, _, raw := a.post(t, "edge", dlBody(tile, "edge", id, "policy", v)); c != 400 || !strings.Contains(raw, id+" takes block") {
-			t.Errorf("setting %s's %s to %s: %d %s, want 400 (no override, P23)", tile, id, v, c, raw)
+			t.Errorf("setting %s's %s to %s: %d %s, want 400 (no override, D127o)", tile, id, v, c, raw)
 		}
 	}
 }
 
-// covers P3 P11 P23 T4 SC-CLAMP — a dev consumer's outbound calls under the
+// covers D127a D127f D127o T4 SC-CLAMP — a dev consumer's outbound calls under the
 // edge policy, each tried from dev and from main. Over each clampable edge
 // kind (an http interface binding at writer, a grant call at writer, a
 // cross-scope res: grant at writer, a bus subscription on another scope's
@@ -747,7 +747,7 @@ func fabBlockOnly(t *testing.T, a dlAPI, tile, id, why string, try ...string) {
 // (llm-gw's shape) refuses it and its reader route answers, the provider's
 // primary sees reader and X-XBin-Deployment: dev, xbind's kv refuses the
 // write, the publish is refused, and the subscription, like a read bind,
-// reads the provider's primary: a publish there reaches dev (P13, revised).
+// reads the provider's primary: a publish there reaches dev (D127h, revised).
 // block on an edge fails the call closed naming the policy (a bus
 // subscription at its next delivery, a new one at once), and the edge
 // counts its clamps and refusals. Edges nothing narrows (a custom role with

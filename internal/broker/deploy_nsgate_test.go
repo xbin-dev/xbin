@@ -8,7 +8,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers P14 P28 PO-2 — the data plane honours a namespace's hold and write
+// covers D127i D127t PO-2 — the data plane honours a namespace's hold and write
 // gate (08-data §8.2, §8.5): while an act holds apps/calendar's dev
 // namespace, dev's kv reads and writes, blob requests and bus publishes
 // answer 503 with Retry-After, and dev may not start, while main's

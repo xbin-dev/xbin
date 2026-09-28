@@ -88,7 +88,7 @@ func (x *zsXbind) take() []string {
 	return out
 }
 
-// covers PO-13 P5 SC-ZERO — every bx invocation docs/bx.md documents today
+// covers PO-13 D119c SC-ZERO — every bx invocation docs/bx.md documents today
 // sends the same requests: a table of invocations, each run as bx against
 // a recording xbind, compared with the requests (method, URI, body) and the
 // exit code it produces today. A tile whose own path holds + stays one
@@ -105,7 +105,7 @@ func TestBxTodayInvocationsUnchanged(t *testing.T) {
 	ws := t.TempDir()
 	for rel, body := range map[string]string{
 		"xbin.json":             `{}`,
-		"notes+ideas/xbin.json": `{}`, // a tile named with '+' before the rule: on disk, an exact match (P17)
+		"notes+ideas/xbin.json": `{}`, // a tile named with '+' before the rule: on disk, an exact match (D127j)
 		".xbin/log/" + util.CompKey("notes+ideas") + ".log": "--- gen 1 start ---\nnotes+ideas listening\n",
 		"apps/x/xbin.json":  `{"runtime":"node"}`,
 		"0001-fix.patch":    "From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] fix\n\n---\n",
@@ -1497,7 +1497,7 @@ func TestBxSaysWhereSavesGo(t *testing.T) {
 	}
 }
 
-// covers P21 SC-SAFE-DEPLOY SC-PROTECT — what a code move sends names what
+// covers D127m SC-SAFE-DEPLOY SC-PROTECT — what a code move sends names what
 // its report showed (11-contract §9.1): a deploy from the work tree sends the
 // dry run's capture as expect, a roll back its checkpoint, reload now and
 // promote their expect; guarded commands send the state's seq; pausing names
@@ -1590,7 +1590,7 @@ func TestBxNamesReviewedCode(t *testing.T) {
 		reqs := f.take()
 		want := []string{"GET /api/xbin/deployments?tile=" + url.QueryEscape(r.st["tile"].(string))}
 		if strings.Contains(r.args[len(r.args)-1], "+") {
-			want[0] = "GET /api/xbin/deployments?deployment=dev&tile=apps%2Fx" // never tile+name in a query (P17)
+			want[0] = "GET /api/xbin/deployments?deployment=dev&tile=apps%2Fx" // never tile+name in a query (D127j)
 		}
 		want = append(append(want, r.pre...), "POST /api/xbin/deployments/"+r.route+" "+r.dry, "POST /api/xbin/deployments/"+r.route+" "+r.real)
 		if got.code != 0 || strings.Join(reqs, "\n") != strings.Join(want, "\n") {
@@ -1715,7 +1715,7 @@ func (c dlCase) check(t *testing.T, exec bool) {
 	}
 }
 
-// covers P12 DR3 SC-AGENT-BX NC-2 — $XBIN_DEPLOYMENT is the default of the
+// covers D127g DR3 SC-AGENT-BX NC-2 — $XBIN_DEPLOYMENT is the default of the
 // read commands when the tile is $XBIN_COMPONENT: bx status, bx logs and bx
 // deployment log name it (status and logs resolve it through GET
 // /deployments and check the answer's echo), and their output says which
@@ -1761,7 +1761,7 @@ func TestBxHonoursXBINDeployment(t *testing.T) {
 		{name: "another tile keeps today's request", env: inDev, args: []string{"status", "apps/other"},
 			fake: func(f *dlFake) { f.on("GET /api/xbin/tile-status", 200, `{"component":"apps/other"}`) },
 			reqs: []string{"GET /api/xbin/tile-status?component=apps%2Fother"}, out: []string{"apps/other\n  backend    not running\n"}},
-		// P17: <tile>+<name> goes out as the tile and deployment=, never as tile+name in a query
+		// D127j: <tile>+<name> goes out as the tile and deployment=, never as tile+name in a query
 		{name: "status <tile>+<name>", args: []string{"status", "apps/x+dev"},
 			fake: func(f *dlFake) {
 				f.on(dlGet, 200, dlDevState().with("selected", "dev").json()).on("GET /api/xbin/tile-status", 200, ts("dev"))
@@ -1818,7 +1818,7 @@ func TestBxHonoursXBINDeployment(t *testing.T) {
 	}
 }
 
-// covers P21 SC-PROTECT SC-AGENT-BX T16 — a refusal prints the server's text
+// covers D127m SC-PROTECT SC-AGENT-BX T16 — a refusal prints the server's text
 // verbatim and exits 3 when it is authority or policy: a protected primary's
 // (flow C step 7: the Can bx refuses on before sending anything, or the
 // server's 403) names the tile managers and adds where it can be done, and so
@@ -1922,7 +1922,7 @@ func mapWith(m map[string]any, k string, v any) map[string]any {
 	return c
 }
 
-// covers P10 P14 P24 NP-11-5 SC-AGENT-BX — what each command of the family
+// covers D127e D127i D127p NP-11-5 SC-AGENT-BX — what each command of the family
 // sends (11-contract §1.5–§1.9, §7.4, §9.2): the dry run first, then the
 // request; a guarded command sends the route's confirm token (in the dry run
 // too, which changes nothing) and seq once --yes or the person says yes, and
@@ -2102,7 +2102,7 @@ func TestBxDeploymentRequests(t *testing.T) {
 				f.on(dlGet, 200, dlZero().with("tile", "notes+ideas").json()).
 					on("POST /api/xbin/term/sessions", 200, `{"id":"s9","provider":"claude","mode":"plan","cwd":"notes+ideas"}`)
 			},
-			// the qualified reading first (P17: tile= and deployment=), then, finding no record, the tile's own name
+			// the qualified reading first (D127j: tile= and deployment=), then, finding no record, the tile's own name
 			reqs: []string{"GET /api/xbin/deployments?deployment=ideas&tile=notes", "GET /api/xbin/deployments?tile=notes%2Bideas",
 				`POST /api/xbin/term/sessions {"cwd":"notes+ideas","kind":"agent","mode":"","name":"","net":"","provider":"claude","vm":false}`,
 				`POST /api/xbin/term/sessions/s9/prompt {"text":"hi"}`}},

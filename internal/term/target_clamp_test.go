@@ -9,7 +9,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 )
 
-// covers P24 — a session whose tile API is off though it asked for a target
+// covers D127p — a session whose tile API is off though it asked for a target
 // (a user without the terminal tile-API grant, D17) has no target to echo,
 // and its session frame says api:false, so a client never reads the missing
 // echo as an xbind that can't target deployments (11-contract §7.4). A

@@ -112,7 +112,7 @@ func findAlert(as []Alert, match func(Alert) bool) *Alert {
 	return nil
 }
 
-// covers P22 P25 T10 SC-PRIMARY-FIRST — deployment data counts against the
+// covers D127n D127q T10 SC-PRIMARY-FIRST — deployment data counts against the
 // disk quota without ever blocking the primary: a namespace beyond main is a
 // bucket of its own, measured as its root (its kv file included), blocked
 // over the tile's ceiling or its manager's lower limit with 507 on its own
@@ -393,7 +393,7 @@ func TestDiskQuotaCountsDeploymentData(t *testing.T) {
 	})
 }
 
-// covers P22 P28 — a shared (scope, name) namespace takes the lowest disk
+// covers D127n D127t — a shared (scope, name) namespace takes the lowest disk
 // limit among its claimants' deployments of that name, never above the
 // tile's ceiling; a claimant without one doesn't raise it, a non-claimant's
 // doesn't count, and main's namespace keeps its own. The limit is set on the
@@ -466,7 +466,7 @@ func TestNamespaceLimitIsClaimantsMinimum(t *testing.T) {
 	}
 }
 
-// covers P5 P22 — /runtime's resources per deployment (08-data §12 item 5):
+// covers D119c D127n — /runtime's resources per deployment (08-data §12 item 5):
 // a scope with deployments lists main's namespace with what main's own code
 // declares and each namespace beyond main with what its deployment's code
 // declares (storage types only), each row naming its deployment, main's
@@ -551,7 +551,7 @@ func TestResourceUsagePerDeployment(t *testing.T) {
 	}
 }
 
-// covers P22 — the tile's disk ceiling the plane's limits op reads is the
+// covers D127n — the tile's disk ceiling the plane's limits op reads is the
 // scope quota: XBIN_LIMIT_DISK's, or the default without a disk monitor.
 func TestDiskQuotaIsTheCeiling(t *testing.T) {
 	if got := (&Broker{}).DiskQuota(); got != defaultQuotaBytes {

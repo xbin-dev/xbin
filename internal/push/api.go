@@ -348,7 +348,7 @@ func (s *Service) notify(w http.ResponseWriter, r *http.Request, h *Holder) {
 		fail(w, http.StatusForbidden, "a tile's frontend can notify only the person using it; notify others from the tile's backend")
 		return
 	}
-	// a deployment that isn't the tile's primary never pushes (P13)
+	// a deployment that isn't the tile's primary never pushes (D127h)
 	if dep, err := h.held(p, tile); err != nil {
 		writeHeldErr(w, err)
 		return

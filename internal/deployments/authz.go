@@ -5,12 +5,12 @@ package deployments
 // principal: Authorize before an operation runs (the dispatcher calls it,
 // dispatch.go), Recheck at its commit, Can for the permissions the state
 // reports. The ship-dark switch (Plane.OptInClosed, NP-14-5) is read here
-// and nowhere else. Beside it, what the tile itself may do (Allowed: P19,
+// and nowhere else. Beside it, what the tile itself may do (Allowed: D127k,
 // the admission caps), the refusals of a new deployment and the manager gate
 // on joining seeded data (ops_code.go's add), and who learns of a record
 // change (the record event's reader form). Last, governance's judgements
 // (ops_gov.go): the reviewed code a move onto a protected primary names
-// (P21), the scope a reassignment may not split (P28), each claimant of a
+// (D127m), the scope a reassignment may not split (D127t), each claimant of a
 // shared namespace, the nested components protection lists (NP-06-8), and
 // what --no-auth leaves unenforced.
 
@@ -92,10 +92,10 @@ const (
 	// own terminal and agent sessions while their user holds it.
 	ruleTerminal
 	// ruleCode: a code move. ruleTerminal, and onto a protected primary
-	// also a tile manager in a person's own session (P21); never a token.
+	// also a tile manager in a person's own session (D127m); never a token.
 	ruleCode
 	// ruleLive: live reload onto a deployment. ruleTerminal, and never onto
-	// a protected primary, for anyone (P21).
+	// a protected primary, for anyone (D127m).
 	ruleLive
 	// ruleReset: ruleTerminal; resetting main's data while main isn't the
 	// primary is a tile manager's act.
@@ -116,7 +116,7 @@ type act struct {
 	grows bool // creates or extends deployment state: closed by the ship-dark switch (NP-14-5)
 	optIn bool // accepted on a tile without a record: the opt-ins
 	// frame: a ruleManager act the admin tile's frame may do for its person
-	// (P21, extended by the owner 2026-09-28: Plane.AdminFrameDriver) — the
+	// (D127m, extended by the owner 2026-09-28: Plane.AdminFrameDriver) — the
 	// acts its deployments tab offers. Every other manager act stays a
 	// person's own session's.
 	frame bool
@@ -181,9 +181,9 @@ type Subject struct {
 	Deployment string
 	// Primary is the tile's primary; "" means main.
 	Primary string
-	// Protected: the tile's primary is protected (P21).
+	// Protected: the tile's primary is protected (D127m).
 	Protected bool
-	// Record: the tile has a deployment record; false is the zero state (P5).
+	// Record: the tile has a deployment record; false is the zero state (D119c).
 	Record bool
 	// Seq is the record's sequence number when this was read (0 without a
 	// record).
@@ -286,7 +286,7 @@ func (p *Plane) Can(pr auth.Principal, op Op, s Subject) Can {
 // entries. While the ship-dark switch is off, every act that creates or
 // extends deployment state is refused with kind policy (NP-14-5). Adding a
 // deployment is refused, kind policy, for a tile that must keep one
-// deployment (P19) and at the admission caps (P25), as mayAdd judges it.
+// deployment (D127k) and at the admission caps (D127q), as mayAdd judges it.
 func (p *Plane) Allowed(op Op, s Subject) Can {
 	if a, ok := acts[op]; ok && p.OptInClosed && grows(op, a, s) {
 		return closed(a.what).Can()
@@ -305,8 +305,8 @@ func (p *Plane) Allowed(op Op, s Subject) Can {
 }
 
 // mayAdd is what refuses a new deployment on tile whoever asks, from what
-// the plane holds in memory: a tile that must keep one deployment (P19),
-// then the admission caps (P25). The add judges it again at its request,
+// the plane holds in memory: a tile that must keep one deployment (D127k),
+// then the admission caps (D127q). The add judges it again at its request,
 // its deployments' checkpoints read as well (ops_code.go).
 func (p *Plane) mayAdd(tile string) *Error {
 	if why := p.singleDeployment(tile); why != "" {
@@ -324,7 +324,7 @@ func (p *Plane) mayAdd(tile string) *Error {
 	return nil
 }
 
-// singleDeployment says why tile can't have non-primary deployments (P19;
+// singleDeployment says why tile can't have non-primary deployments (D127k;
 // 06-security T14), "" when it can: it is workspace chrome — root or shell,
 // or its code asks for chrome, the primary's or its work tree's (the flag is
 // tile-editable, so asking is enough) — or it holds an xbin or xbin:* grant,
@@ -347,7 +347,7 @@ func (p *Plane) singleDeployment(tile string) string {
 	return ""
 }
 
-// chromeWhy is P19's reason for a tile whose code asks for chrome.
+// chromeWhy is D127k's reason for a tile whose code asks for chrome.
 const chromeWhy = "its code asks to be workspace chrome"
 
 func cantHaveDeployments(tile, why string) *Error {
@@ -374,7 +374,7 @@ func (p *Plane) CapsOf(tile string) Caps {
 
 // Audience answers who pr is to s.Tile. A view-as session answers as the
 // viewed user, since reads do. The admin tile's frame is the write audience
-// of the tiles its person manages (P21 extended), and a reader of the rest.
+// of the tiles its person manages (D127m extended), and a reader of the rest.
 func (p *Plane) Audience(pr auth.Principal, s Subject) Audience {
 	tile := s.Tile
 	switch {
@@ -534,10 +534,10 @@ func closed(what string) *Error {
 
 // addable refuses a new deployment y on o's tile before anything is read or
 // captured: a name the tile has (main always), a tile whose own name holds
-// '+' (P17: no new name may, and one that predates the rule keeps main
-// alone), a component at <tile>+<y> (P17), a tile that must keep one
+// '+' (D127j: no new name may, and one that predates the rule keeps main
+// alone), a component at <tile>+<y> (D127j), a tile that must keep one
 // deployment and the caps (mayAdd), and a backend tile without isolation
-// (P18).
+// (D119h).
 func (p *Plane) addable(o *op, y string) error {
 	if y == util.MainDeployment || o.rec.Deployments[y] != nil {
 		return &Error{Status: http.StatusConflict, Kind: KindState, Msg: fmt.Sprintf("%s already has a deployment %q", o.tile, y)}
@@ -555,7 +555,7 @@ func (p *Plane) addable(o *op, y string) error {
 	return p.needsIsolation(o.c)
 }
 
-// chromeCode is P19 read from the code itself, at the request (06-security
+// chromeCode is D127k read from the code itself, at the request (06-security
 // T14 item 5): the tile counts as chrome when any of its deployments' code
 // asks for it — the primary's and the work tree's are the registry's
 // (mayAdd), each non-primary checkpoint is read here — or the new
@@ -679,7 +679,7 @@ func Unenforced(pr auth.Principal) string {
 
 // guardReviewed makes op, a code move ops.go registered, refuse a request
 // onto a protected primary that doesn't name its reviewed code and seq
-// (P21; 11-contract §1.2): 400 before anything is captured, dry runs too.
+// (D127m; 11-contract §1.2): 400 before anything is captured, dry runs too.
 // It panics when op isn't registered yet, which the first test run shows.
 func guardReviewed[R any](op Op, field string, named func(*R) bool) {
 	e, ok := ops[op]
@@ -701,7 +701,7 @@ func unreviewed(tile, field string) error {
 }
 
 // splitsScope refuses reassigning c's primary where that would split a
-// scope's primary data (P28; 08-data §6.5): in v1 only a tile in the
+// scope's primary data (D127t; 08-data §6.5): in v1 only a tile in the
 // workspace scope, or alone in the scope it roots, changes its primary.
 func (p *Plane) splitsScope(c *registry.Component) *Error {
 	alone := c.Scope == c.Path
@@ -728,7 +728,7 @@ func (p *Plane) healthy(o *op, y string, d *DeploymentRecord) error {
 	return &Error{Status: http.StatusConflict, Kind: KindState, Msg: y + " isn't healthy (" + state + "); only a healthy deployment can become the primary"}
 }
 
-// limitOK judges one of y's limits (P22): diskGiB only on the tile that
+// limitOK judges one of y's limits (D127n): diskGiB only on the tile that
 // roots its scope, whose (scope, y) namespace it measures (08-data §12); a
 // positive integer at most the tile's ceiling, which 0 leaves unbounded.
 func (p *Plane) limitOK(o *op, y, k string, v *int64) error {

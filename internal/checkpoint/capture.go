@@ -72,7 +72,7 @@ type CaptureRequest struct {
 	By string // who acts: the principal's From(), the Xbin-By trailer
 	// Create lets the capture create the tile's store: a committed opt-in
 	// (pausing live reload, adding a deployment) sets it; nothing else may,
-	// so a tile without a store gets ErrNoStore (P5).
+	// so a tile without a store gets ErrNoStore (D119c).
 	Create bool
 }
 

@@ -55,7 +55,7 @@ func notifyHeld(r *rig, p auth.Principal, body map[string]any) (int, string) {
 	return rec.Code, strings.TrimSpace(rec.Body.String())
 }
 
-// covers P13 T6 SC-DORMANT — notifications from a non-primary deployment
+// covers D127h T6 SC-DORMANT — notifications from a non-primary deployment
 // are never pushed (TestNonPrimaryNotifyNeverPushed): after today's
 // validation they answer 202 with suppressed:true, reach no device and
 // spend none of the tile's budget, whoever they name; each is kept as

@@ -29,7 +29,7 @@ import (
 
 // errPinnedNeedsIsolation refuses pinned backend code without isolation:
 // only a sandbox shows a checkpoint at the tile's canonical path, and a
-// direct build or start would run the work tree instead (P18, D78).
+// direct build or start would run the work tree instead (D119h, D78).
 var errPinnedNeedsIsolation = errors.New("pinning a backend to a checkpoint needs isolation (--isolate)")
 
 // buildCode produces the runnable entry of code, what one generation of a
@@ -38,7 +38,7 @@ var errPinnedNeedsIsolation = errors.New("pinning a backend to a checkpoint need
 // its materialized checkpoint. The work tree builds as ever (build). A
 // checkpoint builds only under isolation, from its tree shown at the tile's
 // canonical path (07-runtime §3): Go into an artifact per (tile, tree),
-// reused while its build.json records the same tile (P9); node and python
+// reused while its build.json records the same tile (D119e); node and python
 // check their entry beneath the tree and answer its canonical path, where
 // the backend's sandbox binds the tree.
 func (r *Runner) buildCode(c *registry.Component, code Code) (string, error) {
@@ -93,7 +93,7 @@ func fullTree(s string) bool {
 }
 
 // buildCheckpointGo compiles tile c's checkpoint tree, materialized at root,
-// unless an earlier build left its artifact (P9). It is buildConfined's
+// unless an earlier build left its artifact (D119e). It is buildConfined's
 // build with the tree shown at the tile's canonical path, so go.work's
 // `use ./<tile>` and relative replace lines resolve unchanged; the components
 // nested in it and every go.work module of a tile whose primary is pinned

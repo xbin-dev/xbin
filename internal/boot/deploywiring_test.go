@@ -9,7 +9,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers P5 PO-7 PO-8 NP-14-2 — boot builds the deployments plane and
+// covers D119c PO-7 PO-8 NP-14-2 — boot builds the deployments plane and
 // installs its methods as every deployment hook M1 reads: the registry's
 // PinnedPrimary, the runner's (CodeFor, Primary, View, Materialize,
 // EnvFor), the broker's tile-life hooks and the server's three

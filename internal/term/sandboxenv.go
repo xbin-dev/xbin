@@ -114,7 +114,7 @@ func (m *Manager) sessionEnv(rel string, relayNet bool, homeDir, termTok string,
 }
 
 // deployRemote is the checkpoint fetch remote, `xbin-deploy`, as the two
-// GIT_CONFIG_* pairs that follow today's two (P16): only for a session on a
+// GIT_CONFIG_* pairs that follow today's two (D119g): only for a session on a
 // tile that has a deployment record when the session spawns. The remote
 // lives in the session's env and never in the tile's .git/config, so a clone
 // of the tile, an opt-out or a downgrade leaves nothing behind. Its URL is on
@@ -123,7 +123,7 @@ func (m *Manager) sessionEnv(rel string, relayNet bool, homeDir, termTok string,
 // resolves in the tile's repository. Nil for a root session, for a tile
 // without a record (a store kept after an opt-out included: only the record
 // counts) and when no hook is wired, so a zero-state session keeps exactly
-// today's two pairs (P5).
+// today's two pairs (D119c).
 func (m *Manager) deployRemote(tile string) []string {
 	if tile == "" || m.HasDeploymentRecord == nil || !m.HasDeploymentRecord(tile) {
 		return nil

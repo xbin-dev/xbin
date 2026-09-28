@@ -13,7 +13,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/checkpoint"
 )
 
-// covers P9 P15 SC-AUDIT — the plane over the real checkpoint store
+// covers D119e D119f SC-AUDIT — the plane over the real checkpoint store
 // (storeAdapter): each finished attempt is written to the deploy log and
 // dropped from the journal, the log reads back as the attempts it was
 // written from, a save while paused is counted by the store's drift count,

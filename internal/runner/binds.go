@@ -63,7 +63,7 @@ func resourceBinds(env []string, root string) []sandbox.Bind {
 // passes its remap, never nil, and each XBIN_RES_* path under root is bound
 // at its canonical directory from the host directory that backs it for dep,
 // {Src: remap[d].Src, Dst: d}, so the env values stay identical across
-// deployments (P17). The remap is keyed by that canonical directory: a
+// deployments (D127j). The remap is keyed by that canonical directory: a
 // filesystem resource's value, or the directory of a sqlite resource's value
 // (its file). Nothing at a canonical path is stat'ed: it is main's data.
 //

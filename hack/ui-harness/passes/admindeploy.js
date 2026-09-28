@@ -1,4 +1,4 @@
-// hack/ui-harness/passes/admindeploy.js — covers P21 (extended by the owner
+// hack/ui-harness/passes/admindeploy.js — covers D127m (extended by the owner
 // 2026-09-28) T9 — the admin console's runtime → deployments tab
 // (workspace-template/tiles/admin/tabs/deployments.js), the admin tile
 // framed in the shell as admin (a workspace admin: every tile's manager), on

@@ -63,12 +63,12 @@ func (r *Runner) launchSpec(c *registry.Component, bin, dir string, env []string
 // per-component namespace set over an overlay of r.Rootfs. The component's
 // code is read-only at its own path — the work tree, or for pinned code its
 // materialized checkpoint (c.CodeRoot) with each nested component's code
-// bound after it (nested, from nestedBinds; P9) — its run dir and its
+// bound after it (nested, from nestedBinds; D119e) — its run dir and its
 // deployment's resource files (data, from dataBinds) are read-write, the
 // gateway socket is the one door out, and the netns is empty (default-deny
 // egress) unless the tile's grants and bindings wire a relay, a splice or
 // the host network. A non-primary view never gets the primary-only wiring,
-// whatever a hook answers (07-runtime §10.4; P23): no provider roster, no
+// whatever a hook answers (07-runtime §10.4; D127o): no provider roster, no
 // lan-ingress legs, no splice, no host network and no ingress plumbing; the
 // relay under its egress policy, capabilities and GPUs stay the hooks'. It
 // is pure: it reads the runner's hooks and the host paths it binds, and
@@ -143,7 +143,7 @@ func (r *Runner) launchSpecWith(c *registry.Component, bin, dir string, env []st
 		spec.Containers = true // container-host tile (cap:containers): keep caps, minimal seccomp
 	}
 	switch {
-	case !primary: // never the host network or a provider's splice (P23)
+	case !primary: // never the host network or a provider's splice (D127o)
 	case r.NetHost != nil && r.NetHost(c):
 		spec.HostNet = true // net → host builtin (share the host network)
 	case r.NetTarget != nil:

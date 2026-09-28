@@ -83,7 +83,7 @@ func runBackup(ctx context.Context, p *Plane, g Grant, r *BackupRequest) (any, e
 }
 
 // runRestore restores an archive into y by replace, never the work tree:
-// every other claimant of y's namespace is judged at the reset level (P28),
+// every other claimant of y's namespace is judged at the reset level (D127t),
 // and each claimant's deployment of the name stops and hears op data.
 func runRestore(ctx context.Context, p *Plane, g Grant, r *RestoreRequest) (any, error) {
 	o, err := p.start(g, r.DryRun, false, nil, true, false, "")

@@ -1,6 +1,6 @@
 package runner
 
-// covers P25 T10 SC-PRIMARY-FIRST — the VM books of the runner's deployment
+// covers D127q T10 SC-PRIMARY-FIRST — the VM books of the runner's deployment
 // edges (07-runtime §10.2, §12): TestVMReserveOwnerIsTile and
 // TestPrimaryFirstStopsNonPrimaryGuests. The runner books every guest to
 // its tile, passes the headroom option for a non-primary view and the
@@ -48,7 +48,7 @@ func setVM(t *testing.T, f *depFake, on bool) {
 	}
 }
 
-// covers T10 P25 — TestVMReserveOwnerIsTile (15-test-plan §3.2): every
+// covers T10 D127q — TestVMReserveOwnerIsTile (15-test-plan §3.2): every
 // deployment's VM backend reserves with the owner set to the tile, so
 // UsedBy()[tile] sums them and no "<tile>+<name>" owner ever appears; a
 // non-primary reservation leaves the primary's next guest free while the
@@ -100,7 +100,7 @@ func TestVMReserveOwnerIsTile(t *testing.T) {
 	}
 }
 
-// covers P25 T10 SC-PRIMARY-FIRST — when the VM budget can't admit the
+// covers D127q T10 SC-PRIMARY-FIRST — when the VM budget can't admit the
 // primary's next guest, the runner's primary-first callback stops the same
 // tile's non-primary guests, which give their reservations back before the
 // stop returns, and the primary's guest is admitted; a non-primary start is

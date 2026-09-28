@@ -236,7 +236,7 @@ func tok(tile, via string, pr auth.Principal) auth.Principal {
 	return p
 }
 
-// covers P5 PO-7 Z1 Z10 P20 T7 — reading deployment state is pure, and a
+// covers D119c PO-7 Z1 Z10 D127l T7 — reading deployment state is pure, and a
 // reader gets primary-scoped facts only. GET /deployments by every kind of
 // caller, on zero-state tiles and on tiles with records, bare and
 // qualified, leaves every file of the workspace byte-identical and creates
@@ -379,7 +379,7 @@ func dplSnapshot(t *testing.T, ws string) []string {
 	return out
 }
 
-// covers P16 T15 — the checkpoint remote's read gate, judged on every
+// covers D119g T15 — the checkpoint remote's read gate, judged on every
 // request: the tile's own terminal and agent sessions while their user
 // holds write, and people with write at their current level (admins and
 // the owner included), fetch; a reader, a writer demoted to read, the
@@ -448,7 +448,7 @@ func TestFetchRemoteReadGate(t *testing.T) {
 	wantError(t, "without a view repository", code, body, 501, "reserved for tile deployments")
 }
 
-// covers T10 P16 P5 — a diff with a work-tree side captures a checkpoint, so
+// covers T10 D119g D119c — a diff with a work-tree side captures a checkpoint, so
 // it needs terminal level; between checkpoints the write audience may diff.
 // A deployment that follows the work tree counts as the work tree. The
 // primary's frame token and the tile's instance token never diff; a
@@ -544,7 +544,7 @@ func TestDiffCaptureNeedsTerminalLevel(t *testing.T) {
 	wantError(t, "without a diff", code, body, 501, "reserved for tile deployments")
 }
 
-// covers P20 P5 P21 NP-14-4 NP-14-5 T7 — GET /deployments answers the State
+// covers D127l D119c D127m NP-14-4 NP-14-5 T7 — GET /deployments answers the State
 // in the caller's view. The zero state is synthesized (record:false, main
 // following the work tree) and the same for every view but the caller's
 // own permissions; a tile with a record answers from it, with the store's
@@ -559,7 +559,7 @@ func TestDeploymentsStateHandler(t *testing.T) {
 	f := newDplFix(t)
 
 	// Resolution and refusals. A query names a deployment with deployment=,
-	// never as tile+name (P17): an escaped '+' that names no tile, and an
+	// never as tile+name (D127j): an escaped '+' that names no tile, and an
 	// unescaped one read as a space, are both a 400.
 	const qualifiedInQuery = "a deployment is named with deployment=, not tile+name (a '+' in a query string reads as a space)"
 	for _, c := range []struct {
@@ -790,7 +790,7 @@ func dplJSON(v any) string {
 	return string(b)
 }
 
-// covers T7 P20 — GET /deployments/log: the write audience reads every
+// covers T7 D127l — GET /deployments/log: the write audience reads every
 // entry; a non-primary deployment's own principals read only theirs;
 // readers, the primary's frame token and the tile's instance token are
 // refused; a tile without a record answers 409; limit (default 50, at most
@@ -834,7 +834,7 @@ func TestDeploymentsLogHandler(t *testing.T) {
 		{"dev's own token, main's entries", "apps/crm&deployment=main", own, 403, "a tile's own credentials act only on their own deployment (dev)", nil},
 		{"dev's own token, main's attempt", "apps/crm&id=2", own, 404, "apps/crm has no deploy 2", nil},
 		{"an unknown attempt", "apps/pin&id=5", dplWriter, 404, "apps/pin has no deploy 5", nil},
-		{"a qualified ref (P17)", "apps/crm%2Bdev", dplWriter, 400, "a deployment is named with deployment=, not tile+name", nil},
+		{"a qualified ref (D127j)", "apps/crm%2Bdev", dplWriter, 400, "a deployment is named with deployment=, not tile+name", nil},
 		{"an unescaped qualified ref", "apps/crm+dev&deployment=main", dplWriter, 400, "a deployment is named with deployment=, not tile+name", nil},
 		{"an unknown deployment", "apps/pin&deployment=dev", dplWriter, 404, `apps/pin has no deployment "dev"`, nil},
 		{"a reader", "apps/pin", dplReader, 403, "deployments of apps/pin need write access", nil},
@@ -1105,7 +1105,7 @@ func (dplRunner) StopDeployment(string, string)                 {}
 func (dplRunner) RootsInUse() []string                          { return nil }
 func (r dplRunner) Status() map[string]any                      { return r.status }
 
-// covers P9 — the state's status reads the runner xbind hands the plane:
+// covers D119e — the state's status reads the runner xbind hands the plane:
 // its generations are the primary's (keyed by tile path), so another
 // deployment is idle; a tile without a backend is static; a runner that
 // can't say is idle.

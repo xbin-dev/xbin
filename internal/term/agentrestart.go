@@ -19,12 +19,12 @@ import (
 // tile, provider, current mode, current settings (model, effort, …) and name
 // carry over. Only the session's creator may: the new one mounts the
 // caller's $HOME and resumes from the caller's history. resumed reports
-// which it was. The new session takes the default target (P24).
+// which it was. The new session takes the default target (D127p).
 func (m *Manager) RestartAgent(p auth.Principal, id, net, gpu string, api bool, vm *bool) (SessionInfo, bool, int, error) {
 	return m.RestartAgentOnto(p, id, net, gpu, api, vm, "")
 }
 
-// RestartAgentOnto is RestartAgent onto a requested target (P24):
+// RestartAgentOnto is RestartAgent onto a requested target (D127p):
 // deployment names a deployment of the tile, "" takes the default
 // (11-contract §7.4). The target is chosen before the session ends, so a
 // refused one (403 a protected primary, 404 unknown, 400 not a name) leaves

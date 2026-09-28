@@ -31,7 +31,7 @@ func TestSingleUIDMap(t *testing.T) {
 	}
 }
 
-// covers P17 — bx doctor flags a tile whose name holds '+' (no new name may
+// covers D127j — bx doctor flags a tile whose name holds '+' (no new name may
 // since 2026-09-28; one that predates the rule keeps working but can't get
 // deployments), and only that tile.
 func TestDoctorFlagsPlusNames(t *testing.T) {

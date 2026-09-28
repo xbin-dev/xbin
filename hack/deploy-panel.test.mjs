@@ -39,7 +39,7 @@ const mainM2 = (over = {}) => mainPinned({ data: { state: 'original' }, limits: 
 const m2 = (over = {}) => onDev({ edges: EDGES, caps: { tile: 3, tileUsed: 1, workspace: 24, workspaceUsed: 7 }, deployments: [mainM2(), devM2()], ...over });
 const ids = (list) => list.map((a) => `${a.id}${a.enabled ? '' : '✗'}`);
 
-// covers P2 P9 P13 P14 P24 — the side list, the header and the overview of a
+// covers D119b D119e D127h D127i D127p — the side list, the header and the overview of a
 // tile whose live reload is on dev: code pointers, status, data, limits,
 // vault, deliveries, the git line of a pinned deployment; Undo after a roll back.
 test('the panel: rows, header and overview', () => {
@@ -65,7 +65,7 @@ test('the panel: rows, header and overview', () => {
   assert.deepEqual([panelHeader(zero(), opts).text, panelHeader(zero(), opts).actions.map((a) => a.id)], ['Live reload: main — every save reaches everyone using apps/crm.', ['pause']]);
 });
 
-// covers P4 P21 P22 — actions follow the server's can: a terminal-level
+// covers D127b D127m D127n — actions follow the server's can: a terminal-level
 // caller, a tile manager, an unhealthy reassignment target, a protected primary.
 test('the panel: actions follow the server\'s can, a protected primary included', () => {
   const s = m2();
@@ -86,7 +86,7 @@ test('the panel: actions follow the server\'s can, a protected primary included'
     ['Unprotect the primary', true, 'primary — everything from outside reaches it · 🛡 protected', []]);
 });
 
-// covers P5 P4 D64 — a reader's filtered view names and counts no other
+// covers D119c D127b D64 — a reader's filtered view names and counts no other
 // deployment; a write-level caller operates nothing; view-as disables all.
 test('the panel: a reader sees the primary only; write and view-as operate nothing', () => {
   const r = reader();
@@ -103,7 +103,7 @@ test('the panel: a reader sees the primary only; write and view-as operate nothi
   assert.deepEqual([va.every((a) => !a.enabled), va[0].why], [true, 'dev1 may do this — you are viewing as dev1 (read-only).']);
 });
 
-// covers P3 P23 P27 — the outbound-edges table: the read clamp, a stored
+// covers D127a D127o D127s — the outbound-edges table: the read clamp, a stored
 // override, an edge fixed at block with its reason, host networking; only
 // widening confirms.
 test('the panel: the outbound-edges table', () => {
@@ -117,7 +117,7 @@ test('the panel: the outbound-edges table', () => {
   assert.deepEqual([widens(s, 'grant:apps/leads', 'read'), widens(s, 'grant:apps/leads', 'default'), widens(s, 'slot:llm', 'block')], [true, true, false]);
 });
 
-// covers P13 P9 — registrations and their pills (a non-primary's cron jobs
+// covers D127h D119e — registrations and their pills (a non-primary's cron jobs
 // and bus subscriptions active for it, dormant only with deliveries off; its
 // ingress hosts dormant), the tab's note, Run now (and when it asks),
 // "would notify", the deploy log with its running entry and Roll back.
@@ -145,7 +145,7 @@ test('the panel: registrations, Run now, would notify and the deploy log', () =>
   assert.equal(diffLine('c:3f2a1c9', 'c:7b19e02', { files: 3, add: 40, del: 12 }), 'c:3f2a1c9 → c:7b19e02 · 3 files, +40 −12');
 });
 
-// covers P5 P18 — the zero state's one entry point, and the add form.
+// covers D119c D119h — the zero state's one entry point, and the add form.
 test('the panel: the zero state\'s entry point, and the add form', () => {
   const z = zeroPanel(zero(), opts);
   assert.deepEqual([...z.map((p) => [p.id, p.lead, p.enabled]), z[2].text], [[undefined, 'Live reload: main', undefined], ['pause', 'Pause live reload', true], ['add', 'Add deployment…', true],
@@ -158,7 +158,7 @@ test('the panel: the zero state\'s entry point, and the add form', () => {
   assert.deepEqual([f.fields[2].options.map((o) => o.value), addDialog(m2({ caller: mgr() })).fields[2].options.map((o) => o.value)], [['empty'], ['empty', 'seed']]);
 });
 
-// covers P5 P10 P14 P21 P22 — the panel's confirmations render the dry run
+// covers D119c D127e D127i D127m D127n — the panel's confirmations render the dry run
 // (a fact it lacks is left out) and send what they showed: the reviewed
 // checkpoint, the confirm token of a required box, the chosen fields.
 test('the panel\'s confirmations render the dry run and send what it showed', () => {
@@ -206,7 +206,7 @@ test('the panel\'s confirmations render the dry run and send what it showed', ()
     ['Restart this terminal calling dev?', 'Its shell and anything running in it end, and the scrollback is lost.', true, false]);
 });
 
-// covers P2 P13 P21 — the panel's result lines, and the terminal lines M2
+// covers D119b D127h D127m — the panel's result lines, and the terminal lines M2
 // adds: a reassigned primary, protection, the tab's target removed; and the
 // glossary's words over every string the panel shows.
 test('the panel\'s results, M2 terminal lines, and its words', () => {

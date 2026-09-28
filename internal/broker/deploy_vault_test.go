@@ -167,7 +167,7 @@ var (
 	consoleAdmin  = auth.Principal{Component: fxConsole, Via: "instance"} // holds xbin at admin
 )
 
-// covers P14 T5 PO-2 PO-3 P12 P7 SC-DATA — one vault per deployment (08-data
+// covers D127i T5 PO-2 PO-3 D127g D127d SC-DATA — one vault per deployment (08-data
 // §10): main keeps today's file and format; dev's is its own file under
 // data/vault/.deployments/<TileKey>/, which names its tile, and starts with
 // the primary's key names only, as placeholders computed at each request
@@ -341,7 +341,7 @@ func TestVaultPerDeployment(t *testing.T) {
 		}
 		vwant(t, f.vcall(t, "GET", ana, fxCalendar, "deployment=nope", ""), 404, "an unknown deployment")
 		vwant(t, f.vcall(t, "GET", ana, fxCalendar, "deployment=Dev", ""), 400, "a bad name")
-		// another tile's admin credentials: the primary's vault as today, never dev's (P7)
+		// another tile's admin credentials: the primary's vault as today, never dev's (D127d)
 		f.list(t, consoleAdmin, fxCalendar, "")
 		vwant(t, f.vcall(t, "GET", consoleAdmin, fxCalendar, "deployment=dev", ""), 403, "another tile's admin names dev")
 		f.put(t, consoleAdmin, fxCalendar, "ADMIN_SET", "a", "", 200)
@@ -460,7 +460,7 @@ func captureLog(t *testing.T) *lockedBuffer {
 	return buf
 }
 
-// covers P14 T5 — the vault copy (08-data §10; 11-contract §1.8) is a tile
+// covers D127i T5 — the vault copy (08-data §10; 11-contract §1.8) is a tile
 // manager's act in a person's own session: terminal and agent tokens (a
 // manager's own included), the tile's backends, other tiles' admin
 // credentials, view-as sessions and people who don't manage the tile are
@@ -579,7 +579,7 @@ func TestVaultCopyManagerOnly(t *testing.T) {
 	refused(ana, req(nil, true), 503, "vault is sealed")
 }
 
-// covers P24 T5 NP-06-9 — a protected primary's vault writes are tile
+// covers D127p T5 NP-06-9 — a protected primary's vault writes are tile
 // managers' acts (06-security T5.4; 16-open-questions O5): its own backend
 // and admins in their own session write it; the tile's terminal and agent
 // sessions never reach it (a session that follows the primary is refused,
@@ -650,7 +650,7 @@ func TestProtectedPrimaryVaultWritesManagerOnly(t *testing.T) {
 	vwant(t, u.vcall(t, "DELETE", consoleAdmin, fxCalendar+"/SMTP", "", ""), 200, "unprotected: another tile's admin deletes")
 }
 
-// covers P6 P12 SC-DATA NP-02-13 — synthetic data, the vault half: a terminal
+// covers D127c D127g SC-DATA NP-02-13 — synthetic data, the vault half: a terminal
 // or agent token whose session targets dev writes vault values (bx vault set
 // sends PUT /vault/<self>/<key> with it) only into dev's vault, and lists
 // dev's keys; the same user's session that follows the primary writes the

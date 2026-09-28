@@ -15,7 +15,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/sandbox"
 )
 
-// covers P16 P9 T18 — confine's bind destination in a real sandbox. A job
+// covers D119g D119e T18 — confine's bind destination in a real sandbox. A job
 // whose DirFrom is a checkpoint's tree runs at Dir, the canonical path, and
 // sees the checkpoint there, never the work tree; read-only with
 // ReadOnlyDir, so nothing it writes reaches either tree. The .xbin, data and

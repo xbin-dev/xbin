@@ -41,7 +41,7 @@ func (p namesPolicy) DeploymentsOf(tile string) (string, []string) {
 
 // newOriginWS is depWS in origins mode with every deployment named, and
 // GET /api/xbin/whoami echoing the request's principal (a neutral route,
-// so a non-primary deployment's credentials reach it; P26).
+// so a non-primary deployment's credentials reach it; D127r).
 func newOriginWS(t *testing.T) *depWS {
 	t.Helper()
 	w := newDepWS(t, TileAssetsOrigins)
@@ -101,7 +101,7 @@ func (w *depWS) ticketFor(h, dep, uid, p string) *url.URL {
 
 var docNav = []reqOpt{hdr("Sec-Fetch-Mode", "navigate"), hdr("Sec-Fetch-Dest", "document"), hdr("Sec-Fetch-Site", "none")}
 
-// covers P17 T3 — each deployment of a tile has an origin of its own in
+// covers D127j T3 — each deployment of a tile has an origin of its own in
 // origins mode, and a credential of one deployment's origin never acts on
 // another's. main keeps today's label, x1 ticket and c1 cookie; dev's origin
 // is labelled by name and trades an x2 for a c2, only for a user who writes

@@ -26,7 +26,7 @@ func (f *govFx) captureNow(tile string) checkpoint.Result {
 	return res
 }
 
-// covers P7 P28 T6 09-fabric-§8 — TestReassignMovesActiveRegistrations:
+// covers D127d D127t T6 09-fabric-§8 — TestReassignMovesActiveRegistrations:
 // reassigning the primary is a tile manager's act with the loud
 // confirmation, routing only. The dry run shows the primary's code moving
 // and the vault keys the new primary lacks, changing nothing; the commit
@@ -72,7 +72,7 @@ func TestReassignPrimaryAtomic(t *testing.T) {
 	if pc, ok := f.p.PinnedPrimary(opSite); !ok || pc == nil || pc.ManifestErr != "" || f.p.Primary(opSite) != "dev" {
 		t.Errorf("the tile isn't composed from dev's code: %+v %v", pc, ok)
 	}
-	for dep, want := range map[string][2]bool{"dev": {true, true}, "main": {true, false}} { // main's cron and bus keep firing for main (P13)
+	for dep, want := range map[string][2]bool{"dev": {true, true}, "main": {true, false}} { // main's cron and bus keep firing for main (D127h)
 		if fires, routes := f.p.RegistrationsActive(opSite, dep); fires != want[0] || routes != want[1] {
 			t.Errorf("%s's registrations: fires %v routes %v, want %v", dep, fires, routes, want)
 		}
@@ -149,7 +149,7 @@ func TestReassignPrimaryAtomic(t *testing.T) {
 	})
 }
 
-// covers P21 T16 06-security-T16 — reassigning a protected primary names the
+// covers D127m T16 06-security-T16 — reassigning a protected primary names the
 // checkpoint its manager reviewed, with seq: without either it is refused
 // with 400 before anything is captured; a target that follows the work tree
 // is pinned to exactly the reviewed capture in the same commit (how

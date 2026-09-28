@@ -6,7 +6,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/sbx"
 )
 
-// covers P5 PO-11 — the sandbox registry lists a backend generation in the
+// covers D119c PO-11 — the sandbox registry lists a backend generation in the
 // leaf its start placed it in (WP-34's chooseLeaf, WP-S4's rows): main's
 // zero-state generation in the flat leaf, and once the tile has its
 // parent, main's next generation in its nested leaf; without cgroup

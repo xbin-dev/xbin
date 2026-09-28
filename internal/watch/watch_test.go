@@ -16,7 +16,7 @@ func dropped(rel string) bool {
 	return ignoreDir(filepath.Dir(rel)) || ignoreFile(rel)
 }
 
-// covers P8 P15 PO-12 — the watcher never reports xbind's own stores
+// covers D119d D119f PO-12 — the watcher never reports xbind's own stores
 // (.xbin/deploy, data/checkpoints, data/deployments, all under reserved
 // top-level directories), any .git, node_modules or deps tree, or editor
 // droppings; ordinary tile files, dot files included, are reported. So
@@ -122,7 +122,7 @@ func TestIgnoreRules(t *testing.T) {
 	}
 }
 
-// covers P8 P15 PO-12 — end to end through fsnotify: writes into the stores
+// covers D119d D119f PO-12 — end to end through fsnotify: writes into the stores
 // of a running workspace (whose .xbin and data exist, as boot leaves them)
 // never reach a batch; a tile edit made after them does, alone.
 func TestWatcherDropsStoreWrites(t *testing.T) {

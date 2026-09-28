@@ -1,11 +1,11 @@
 package auth
 
-// deployment.go — the deployment a tile principal is bound to (P12)
+// deployment.go — the deployment a tile principal is bound to (D127g)
 // (11-contract §7.1–§7.4). Every credential that yields one of a tile's own
 // principals names, beside the tile path, the deployment of that tile it
 // acts in, and Principal.Deployment carries it. From() stays the tile path:
 // grants, bindings, ceilings and ownership keep keying on the path, and the
-// deployment travels beside it, never inside it (P11). The deployment always
+// deployment travels beside it, never inside it (D127f). The deployment always
 // comes from xbind-held state (the instance map, the terminal map) or from a
 // signed claim, never from a header, a query parameter or the environment.
 //
@@ -67,7 +67,7 @@ func (a *Auth) RegisterInstance(token, component string) {
 }
 
 // RegisterInstanceDeployment registers the instance token of one backend
-// generation of deployment of component (P12): the runner calls it at spawn
+// generation of deployment of component (D127g): the runner calls it at spawn
 // with the deployment it is starting, from its own state. main, or "",
 // registers main. A token is minted per generation, so two deployments'
 // generations never share a map entry, and RevokeInstance drops it at
@@ -94,7 +94,7 @@ func (a *Auth) lookupInstance(token string) (instanceID, bool) {
 // --- terminal and agent tokens: the session's target ---
 
 // MintTerminalTarget registers a terminal or agent session's token on
-// component, bound to the session's target (P24; 11-contract §7.4): target
+// component, bound to the session's target (D127p; 11-contract §7.4): target
 // names a deployment of the tile, main included, or is "" for a session
 // that follows the primary. The target is fixed for the token's life;
 // changing it means a new session with a new token. The caller has already
@@ -158,7 +158,7 @@ func (a *Auth) MintFrameTokenDeployment(component, userID, deployment string, tt
 // reassigned document; renewal naming a deployment): MintFrameTokenFor with
 // the claim named explicitly (none for main). One of component's own
 // principals whose credential names its deployment gets a token only for
-// that deployment, never another deployment of its own tile (P12); "" then,
+// that deployment, never another deployment of its own tile (D127g); "" then,
 // as for a string that is not a deployment name. Who may mint at all, the
 // level a human needs, and the deployment a session that follows the
 // primary is bound to are the caller's decisions (mayMintFrameToken,

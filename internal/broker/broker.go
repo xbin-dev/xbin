@@ -504,7 +504,7 @@ func (b *Broker) IsAdmin(p auth.Principal) bool {
 	if p.Component == "" {
 		return false
 	}
-	role, ok := b.governanceRole(p, "xbin") // never a non-primary principal (P19)
+	role, ok := b.governanceRole(p, "xbin") // never a non-primary principal (D127k)
 	return ok && roleSatisfies(role, "admin", nil)
 }
 
@@ -514,14 +514,14 @@ func (b *Broker) Policy(p auth.Principal, target *registry.Component) (string, b
 		return "admin", true
 	}
 	if p.Component == target.Path {
-		return "admin", b.actsInPrimary(p) // element is admin of itself, in its own deployment (P12)
+		return "admin", b.actsInPrimary(p) // element is admin of itself, in its own deployment (D127g)
 	}
 	if p.Component == CronPrincipal || p.Component == BusPrincipal {
 		// role bound at registration, always self-targeted (cron.go, bussubs.go);
 		// Policy reaches the primary, so another deployment's delivery is Route's
 		return p.Role, b.isPrimary(target.Path, p.Deployment)
 	}
-	return b.policyRole(p, target.Path) // a non-primary caller through the edge policy (P3)
+	return b.policyRole(p, target.Path) // a non-primary caller through the edge policy (D127a)
 }
 
 // allowRes authorizes principal p on a resource target at want role.
@@ -540,7 +540,7 @@ func (b *Broker) allowRes(p auth.Principal, target string, want string) error {
 	if !ok || !roleSatisfies(role, want, nil) {
 		return fmt.Errorf("%s needs role %q on %s — declare it in \"uses\" and approve with bx grant", p.Component, want, rt)
 	}
-	return b.resEdge(p, rt.String(), want) // a non-primary principal: the read clamp (P3)
+	return b.resEdge(p, rt.String(), want) // a non-primary principal: the read clamp (D127a)
 }
 
 // PendingGrant is one unsatisfied `uses` declaration. Blocked, when set,
@@ -738,7 +738,7 @@ func (b *Broker) grantMutation(w http.ResponseWriter, r *http.Request, apply fun
 			server.WriteError(w, http.StatusBadRequest, msg)
 			return registry.Grant{}, false
 		}
-		if err := b.xbinGrantRefusal(g); err != nil { // P19
+		if err := b.xbinGrantRefusal(g); err != nil { // D127k
 			server.WriteError(w, http.StatusConflict, err.Error())
 			return registry.Grant{}, false
 		}

@@ -69,7 +69,7 @@ func lifeDevState(t *testing.T, b *Broker, tile string) {
 	}
 }
 
-// covers P29 T11 — the M2 half of the leftovers row (08-data §9.3): after a
+// covers D119i T11 — the M2 half of the leftovers row (08-data §9.3): after a
 // tile's removal, what its deployments beyond main left is on D82's refusal
 // list beside the record and the checkpoint store (the M1 half, in
 // deploy_life_m1_test.go): their vault files, their registration
@@ -204,7 +204,7 @@ func TestPathLeftoversIncludeDeploymentStateM2(t *testing.T) {
 	})
 }
 
-// covers P17 T3 — no new tile name holds '+' (11-contract §2.1; 12-compat
+// covers D127j T3 — no new tile name holds '+' (11-contract §2.1; 12-compat
 // §7.1): every creator is refused, admins, the root token, the tile's own
 // owner and an element holding xbin included, ahead of the admin early
 // return, with util.PlusNameRefusal's text, on every creation path (create,

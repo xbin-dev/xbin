@@ -11,10 +11,10 @@
 // layout (07-runtime §10.3):
 //
 //	tile-<CompKey>/          the tile's share of the box (TileWeight); no process
-//	  d-<deployment>/        primary first (DeploymentWeight, P25); no process
-//	    backend              that deployment's generations, with its own caps (P22)
+//	  d-<deployment>/        primary first (DeploymentWeight, D127q); no process
+//	    backend              that deployment's generations, with its own caps (D127n)
 //
-// Zero-state and main-only tiles keep the flat leaf, byte for byte (P5).
+// Zero-state and main-only tiles keep the flat leaf, byte for byte (D119c).
 // Tile sandboxes, every deployment's, have their leaves in a sibling subtree
 // of their own, comp-tilesbx-<ws8> (Parent, leaf_linux.go;
 // plans/tile-sandbox-runtime.md §6.2): the sandboxes policy sizes it, and
@@ -65,7 +65,7 @@ type Limits struct {
 	NoSwap bool
 
 	// NodeWeight is the cpu.weight written on a nested leaf's parent, the
-	// deployment node d-<name>: DeploymentWeight(primary) (P25). 0 leaves
+	// deployment node d-<name>: DeploymentWeight(primary) (D127q). 0 leaves
 	// that node's weight as it is (a new node starts at the kernel's 100). A
 	// flat leaf has no such node and ignores it.
 	NodeWeight int64
@@ -73,7 +73,7 @@ type Limits struct {
 
 // The per-tile layout's CPU weights (07-runtime §10.3). There is no memory or
 // pids cap above the leaves: no cap is shared by the primary and a
-// non-primary deployment (P25).
+// non-primary deployment (D127q).
 const (
 	// TileWeight is tile-<CompKey>'s: one flat leaf's share, so a tile's
 	// deployments never enlarge its share of the box.
@@ -107,7 +107,7 @@ func DeploymentNode(compKey, dep string) string {
 // its generations (blue/green) share it.
 func DeploymentLeaf(compKey, dep string) string { return DeploymentNode(compKey, dep) + "/backend" }
 
-// DeploymentWeight is a deployment node's cpu.weight: primary first (P25).
+// DeploymentWeight is a deployment node's cpu.weight: primary first (D127q).
 func DeploymentWeight(primary bool) int64 {
 	if primary {
 		return PrimaryWeight
@@ -250,7 +250,7 @@ func osWrite(path, val string) error { return os.WriteFile(path, []byte(val), 0o
 func (m *Manager) Add(name string, pid int) { m.AddLimited(name, pid, m.limits) }
 
 // AddLimited is Add with l as the leaf's caps instead of the installed ones:
-// a deployment's own limits, which default to the tile's (P22). Like Add, it
+// a deployment's own limits, which default to the tile's (D127n). Like Add, it
 // joins a leaf that exists (a deployment's generations share theirs), where
 // AddWith, for a tile sandbox's leaf of its own, refuses a leftover one. A
 // nested name's parents are made first, each enabling the controllers for
@@ -519,7 +519,7 @@ func (m *Manager) TileUsage(compKey string) (Usage, bool) {
 // TileLeaves lists the leaves of the tile whose CompKey is compKey: its flat
 // leaf when that exists, then each leaf beneath its per-tile parent, sorted,
 // with the deployment whose node holds it. Each leaf keeps its own limit
-// counters, so an at-limit hit names its deployment (P25). Nil when the tile
+// counters, so an at-limit hit names its deployment (D127q). Nil when the tile
 // has none.
 func (m *Manager) TileLeaves(compKey string) []Leaf {
 	if !m.Enabled() {

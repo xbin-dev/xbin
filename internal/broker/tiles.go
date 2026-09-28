@@ -86,7 +86,7 @@ func (b *Broker) apiBuiltinsImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A removed tile's deployment state at the path goes before the tree is
-	// written, so the first Rescan composes the new tile in the zero state (P29).
+	// written, so the first Rescan composes the new tile in the zero state (D119i).
 	if err := b.resetDeploymentState(target); err != nil {
 		slog.Error("a removed tile's deployment record couldn't be reset for the new tile", "tile", target, "err", err)
 	}
@@ -131,7 +131,7 @@ func (b *Broker) requireWriter(w http.ResponseWriter, r *http.Request) bool {
 	if b.IsAdmin(p) {
 		return true
 	}
-	role, ok := b.governanceRole(p, "xbin") // never a non-primary deployment's (P19)
+	role, ok := b.governanceRole(p, "xbin") // never a non-primary deployment's (D127k)
 	if p.Component != "" && ok && roleSatisfies(role, "writer", nil) {
 		return true
 	}

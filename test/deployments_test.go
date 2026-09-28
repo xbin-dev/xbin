@@ -30,7 +30,7 @@ import (
 // separation, promotion and rollback, dormant start-time registrations,
 // self-calls, and a multi-tile scope.
 
-// covers SC-ROLLBACK SC-WORKTREE P9 — rolling every deployment back to each
+// covers SC-ROLLBACK SC-WORKTREE D119e — rolling every deployment back to each
 // of its previous three deploy-log entries, on R-go (examples/counter-go)
 // and R-static (the agent template's files as a static tile), with the
 // daemon restarted without go on its PATH (no build can run) and each work
@@ -1016,7 +1016,7 @@ func gocryptfsAvailable() bool {
 	return err == nil
 }
 
-// covers P12 T3 — self-calls stay inside the caller's deployment, through
+// covers D127g T3 — self-calls stay inside the caller's deployment, through
 // the gateway, on the probe: dev's call to its own bare /api/<self>/ is
 // answered by dev (its code, and the answer names dev), as is its call to
 // <self>+dev; its call to <self>+main is refused 403. main's bare call and
@@ -1120,7 +1120,7 @@ func (a dlAPI) doH(method, path string) (int, string, http.Header) {
 	return r.StatusCode, string(b), r.Header
 }
 
-// covers P10 SC-WORKTREE SC-AUDIT — flows B and D on the probe: main holds
+// covers D127e SC-WORKTREE SC-AUDIT — flows B and D on the probe: main holds
 // its own kv data and a vault key; dev is added with live reload attached
 // (main pinned) and runs the next save, and writes kv of its own. The diff
 // from main to dev shows the change and names the capture it reviewed;
@@ -1269,12 +1269,12 @@ func TestPromoteAndRollBack(t *testing.T) {
 	}
 }
 
-// covers SC-DORMANT P13 T6 — a probe that registers a cron job (every
+// covers SC-DORMANT D127h T6 — a probe that registers a cron job (every
 // second) and a bus push subscription at every start, and sends its user a
 // notification, the SDK's documented pattern, runs on main and on dev
 // (added with live reload attached, then saved to m2): main's job ticks
 // main and a publish in main's namespace reaches main's subscription;
-// dev's registrations are accepted active for dev (P13, revised
+// dev's registrations are accepted active for dev (D127h, revised
 // 2026-09-28): answered and listed on dev's state without dormant, dev's
 // deliveries on by default; dev's job ticks dev, and dev's own publish
 // (dev's namespace) reaches dev's subscription, never main's, while
@@ -1457,12 +1457,12 @@ func TestRegistrationsAtStartActiveOnDeployment(t *testing.T) {
 	}
 }
 
-// covers SC-DORMANT P13 P7 — a probe that registers instance a of its
+// covers SC-DORMANT D127h D127d — a probe that registers instance a of its
 // instances-capable provide at every start (the SDK's documented pattern)
 // runs on main and on dev (added with live reload attached, then saved to
 // r2): main's registration is answered active and listed active; dev's is
 // accepted (the SDK keeps working), answered dormant and listed dormant on
-// dev's state, because routes reach the primary only (P7); dev's
+// dev's state, because routes reach the primary only (D127d); dev's
 // deliveries switch, off or on, never activates it; the root xbin.json
 // keeps main's instance table alone. Ingress hosts follow the same rule
 // (TestDormantRegistrationsRouting); cron jobs and bus subscriptions don't
@@ -1523,7 +1523,7 @@ func TestRouteRegistrationsAtStartStayDormant(t *testing.T) {
 	}
 }
 
-// covers P6 P14 P22 T8 SC-DATA — a dev data probe exercises every resource
+// covers D127c D127i D127n T8 SC-DATA — a dev data probe exercises every resource
 // kind (kv, blob, filesystem, sqlite, bus, cron) through every addressing
 // path it has (XBIN_RES_* as delivered, the canonical res: id, the id
 // hand-built from Self(); for the file-backed kinds the delivered path) and
@@ -1533,12 +1533,12 @@ func TestRouteRegistrationsAtStartStayDormant(t *testing.T) {
 //     dev; dev alone has XBIN_DEPLOYMENT=dev;
 //   - before a seed dev sees empty namespaces and placeholder vault keys;
 //     its writes land in its own namespace and vault; its cron jobs and bus
-//     subscriptions are accepted active for dev (P13, revised): its
+//     subscriptions are accepted active for dev (D127h, revised): its
 //     publishes reach its own subscriptions, never main's, and main's
 //     never reach dev's; main still reads its own data, and main's data
 //     and vault are byte-identical;
 //   - a resource declared only in dev's checkpoint exists only in dev's
-//     namespace: main can neither write nor read it (P22);
+//     namespace: main can neither write nor read it (D127n);
 //   - after a seed (a manager's act) dev sees the copy of main's data, the
 //     dev-only resource starts empty, and main is unchanged by the seed and
 //     by dev's writes that follow; a vault copy gives dev a value, main's
@@ -1821,7 +1821,7 @@ func TestDataSeparation(t *testing.T) {
 	code, body = a.api("PUT", dev, "/secret?k=API_KEY", "dev-secret")
 	mustOK("dev's vault write", code, body)
 
-	// P22: extra exists in dev's namespace only.
+	// D127n: extra exists in dev's namespace only.
 	code, body = kv(dev, "PUT", "res:"+tile+"/extra", "x", "dev-extra")
 	mustOK("dev's write of its own resource", code, body)
 	if c, b := kv(dev, "GET", "env:extra", "x", ""); c != 200 || b != "dev-extra" {
@@ -1965,7 +1965,7 @@ func releaseMountsAtEnd(t *testing.T, d *isoDaemon) {
 	})
 }
 
-// covers P3 P6 P28 — flow G end to end on an auth-on isolated daemon.
+// covers D127a D127c D127t — flow G end to end on an auth-on isolated daemon.
 // apps/shop roots a scope (orders: kv, events: bus) that its nested tiles
 // apps/shop/admin (which may call apps/shop, granted writer) and
 // apps/shop/stats share. apps/shop and apps/shop/admin each get a dev
@@ -2182,7 +2182,7 @@ func TestMultiTileScope(t *testing.T) {
 	}
 }
 
-// covers P15 T11 PO-7 — TestDeploymentStateBootsTwice's M2 parts (15-test-plan
+// covers D119f T11 PO-7 — TestDeploymentStateBootsTwice's M2 parts (15-test-plan
 // §6), which that test logs as not built: on a fresh workspace, a static
 // tile gets a dev deployment with live reload attached (main pinned), an
 // edge policy (block on its call grant), dev's deliveries switched off and
@@ -2349,7 +2349,7 @@ func dialTape(t *testing.T, wsURL string, hdr http.Header) *dlTape {
 	return e
 }
 
-// covers SC-EVENTS P13 T7 — end to end on an auth-on isolated daemon, the
+// covers SC-EVENTS D127h T7 — end to end on an auth-on isolated daemon, the
 // server-side rows of TestNonPrimaryBuildErrorNotBroadcast and
 // TestDeploymentEventsFiltered through real subscribers: while dev (live
 // reload attached) builds, reports a status, notifies, fails a build and

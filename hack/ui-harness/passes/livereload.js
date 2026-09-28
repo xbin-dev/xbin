@@ -1,4 +1,4 @@
-// hack/ui-harness/passes/livereload.js — covers P5 P9 PO-10 T12 SC-ZERO
+// hack/ui-harness/passes/livereload.js — covers D119c D119e PO-10 T12 SC-ZERO
 // SC-LIVE-RELOAD-PAUSE (15-test-plan §7.2, 10-ux §14.3) — pausing live reload
 // from the terminal window, which is binary-served (web/frame-deploy.js):
 //   0. the zero state: at most one entry point (⇈) in the bar or the tools

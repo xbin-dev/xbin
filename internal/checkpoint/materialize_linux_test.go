@@ -76,7 +76,7 @@ func emptyDir(t *testing.T, dir, what string) {
 	}
 }
 
-// covers T2 P16 — a checkpoint of a tree with escaping symlinks (→ /etc,
+// covers T2 D119g — a checkpoint of a tree with escaping symlinks (→ /etc,
 // → ../../.xbin/secret, → a directory outside), a chain ending at a FIFO
 // outside, a FIFO, a socket and (where the box allows) a device node
 // materializes through the sandbox with directories 0755 and files 0444 or
@@ -207,7 +207,7 @@ func TestMaterializeSymlinkEscape(t *testing.T) {
 	}
 }
 
-// covers P9 P16 T18 — sandboxes get a materialized tree read-only by the
+// covers D119e D119g T18 — sandboxes get a materialized tree read-only by the
 // bind flag, not by host modes (07-runtime §2.6): bound read-only, a
 // confined run can't create, remove, append to or chmod anything in it,
 // though its directories are 0755 on the host; bound read-write (the

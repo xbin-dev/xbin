@@ -78,7 +78,7 @@ func sessionEnv(srv, token, tile string) []string {
 	}
 }
 
-// covers P16 T15, flow H — flow H literally, confined: main is pinned (its
+// covers D119g T15, flow H — flow H literally, confined: main is pinned (its
 // checkpoint taken from a clean work tree with gitignored files), exp is
 // pinned to a later checkpoint, dev follows the work tree. A confined git
 // client with the terminal's four GIT_CONFIG_* pairs runs `git fetch
@@ -226,7 +226,7 @@ func (s *Store) mustList(t *testing.T, tile string) string {
 	return list[0].Hash
 }
 
-// covers T1 T15 P16 — the view repository stays private under confinement,
+// covers T1 T15 D119g — the view repository stays private under confinement,
 // built from a hostile tile's checkpoints: git's files only (HEAD, config,
 // refs, objects, info/refs, objects/info/packs), the constant config, no
 // hooks, description, exclude file or alternates; its objects pass git fsck

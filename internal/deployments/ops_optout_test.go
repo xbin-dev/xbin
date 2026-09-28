@@ -11,7 +11,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers P5 PO-15 SC-OPT-OUT Z12 — the plane half of
+// covers D119c PO-15 SC-OPT-OUT Z12 — the plane half of
 // TestOptOutReturnsToZeroState: pausing live reload, reloading now and
 // resuming on a main-only tile removes the record, the deploy journal and
 // the view repository; the checkpoint store and its deploy log are the only

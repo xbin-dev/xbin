@@ -54,7 +54,7 @@ const (
 const oldXbindMsg = "this xbind has no tile deployments (no /api/xbin/deployments); upgrade xbind"
 
 // protectedHint is added to a refusal a terminal or agent credential can't
-// get past: only a tile manager in a person's own session may (P21).
+// get past: only a tile manager in a person's own session may (D127m).
 const protectedHint = " — deploy from the terminal window's deployments panel as a tile manager, or with bx on the host"
 
 // The command's surroundings, which the tests replace.

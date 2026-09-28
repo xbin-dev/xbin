@@ -87,7 +87,7 @@ type Principal struct {
 	// main included, or "" when it follows the primary. Cron and bus
 	// principals: the registration's deployment. Humans: always "" (a
 	// person names a deployment by URL, not by credential). From() stays
-	// the tile path, and authority stays the tile's (P11).
+	// the tile path, and authority stays the tile's (D127f).
 	Deployment string
 }
 
@@ -101,7 +101,7 @@ func (p Principal) ReadOnly() bool { return p.Impersonator != "" }
 // its own tile carries its user's generation ("u.") or the terminal owner
 // generation ("t.", frameGenFor), so a tile's shell never passes for its
 // frame here. The one gate that reads it is the admin tile's manager acts
-// on tile deployments (P21, extended by the owner 2026-09-28), where the
+// on tile deployments (D127m, extended by the owner 2026-09-28), where the
 // frame stands in for its person, never for its tile's own grants.
 func (p Principal) LoginFrame() bool {
 	return p.Via == "frame" && p.Component != "" && !p.ReadOnly() &&

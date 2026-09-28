@@ -1,6 +1,6 @@
 # 01 — Glossary: the words of the dev lifecycle
 
-> Status: live — the vocabulary every document in
+> Status: implemented (D119, D127; M3 designed, not built) — the vocabulary every document in
 > [plans/dev-lifecycle/](README.md) uses verbatim, and that UI copy, `bx`, the
 > wire protocol and builder docs inherit. Proposed decision P2 (tile
 > deployment) was ratified by the owner on 2026-09-27. Evidence for every

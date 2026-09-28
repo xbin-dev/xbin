@@ -7,7 +7,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers P5 P14 P22 PO-2 PO-3 PO-8 — boot installs the hooks wave 2.2's work
+// covers D119c D127i D127n PO-2 PO-3 PO-8 — boot installs the hooks wave 2.2's work
 // packages reach xbind through: the runner's alwaysOn switch, per-deployment
 // env and spawn hold, the plane's data namespace and vault acts, and the
 // proxy's Route and deployment lookup. Through them a zero-state workspace

@@ -59,7 +59,7 @@ func (s *Server) withoutTileInitiatedCookies(r *http.Request) *http.Request {
 // mint the ticket; all it can answer is a redirect to that tile's origin
 // with a ticket for this browser's own session, bound to a state only this
 // browser's tile origin cookie holds — nothing another page can read or
-// plant. A deployment URL's document is its deployment's (P17): always
+// plant. A deployment URL's document is its deployment's (D127j): always
 // sandboxed unless it is the alias of the primary, which is the tile's.
 func (s *Server) exchangeReturn(r *http.Request) bool {
 	if !strings.HasPrefix(r.URL.Path, "/c/") || !hasQueryKey(r.URL.RawQuery, stateParam) {
@@ -137,7 +137,7 @@ func (s *Server) setDocCSP(w http.ResponseWriter, r *http.Request, policy string
 // Anything else is refused: no tile document runs on the workspace origin
 // in origins mode.
 //
-// The origin is the served deployment's (P17; 11-contract §2.6): the
+// The origin is the served deployment's (D127j; 11-contract §2.6): the
 // primary's for the bare URL, the named deployment's for a deployment URL,
 // whose gate has already run; its ticket names that deployment (x2), main's
 // keeps today's x1.

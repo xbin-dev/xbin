@@ -69,7 +69,7 @@ func (b *Broker) cachedUsage(id string, compute func() (int64, string)) (int64, 
 // for the admin runtime view: main's namespace of each scope with what main's
 // own code declares (the registry's, the primary's code, while main is the
 // primary), and every namespace beyond main that the scope's tiles claim,
-// with what that deployment's code declares (P22).
+// with what that deployment's code declares (D127n).
 func (b *Broker) ResourceUsage() []ResourceInfo {
 	var out []ResourceInfo
 	add := func(scope, dep, label string, m map[string]registry.Resource) {

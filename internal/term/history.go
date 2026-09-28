@@ -42,7 +42,7 @@ type HistoryMeta struct {
 	Preview      string `json:"preview,omitempty"`      // the first prompt, one line
 	ACPSessionID string `json:"acpSessionId,omitempty"` // the agent's own id for it
 	Loadable     bool   `json:"loadable"`               // the agent can reopen it (resume)
-	Deployment   string `json:"deployment,omitempty"`   // the session's named target (P24); absent: it followed the primary
+	Deployment   string `json:"deployment,omitempty"`   // the session's named target (D127p); absent: it followed the primary
 }
 
 type historyFile struct {

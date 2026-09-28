@@ -22,7 +22,7 @@ import (
 // loses no state and never fires a deployment's registrations as main's: it
 // serves every tile's work tree, fires only main's registrations, and never
 // opens the stores it doesn't know (a non-primary deployment's cron jobs,
-// active for it under the new binary, P13, live in files of their own).
+// active for it under the new binary, D127h, live in files of their own).
 //
 // XBIN_DOWNGRADE_BIN is the previous release's xbind: CI downloads it from the
 // release assets; locally, build it from the tag, e.g.
@@ -57,9 +57,9 @@ func TestDowngradeStatic(t *testing.T) {
 }
 
 // covers T11 SC-DORMANT PO-9 12-compat — 15-test-plan §5.6 on an isolated daemon
-// (a non-primary backend needs isolation, P18): tile A as in
+// (a non-primary backend needs isolation, D119h): tile A as in
 // TestDowngradeStatic, and probe tile B with a main cron job /tick and a dev
-// deployment whose cron job /dev-tick is active for dev (P13, revised): it
+// deployment whose cron job /dev-tick is active for dev (D127h, revised): it
 // ticks dev, never main. Under the previous release A serves m2; B's main
 // serves its work tree and ticks, and its /seen never shows /dev-tick
 // across two main ticks; B+dev isn't served; the root xbin.json and

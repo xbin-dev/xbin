@@ -6,10 +6,10 @@ package runner
 // at. A backend's own crashes and build errors aren't the sandbox's: they
 // stay in its state and log.
 //
-// Entries and failures follow the name rule (P17): main's are exactly what
+// Entries and failures follow the name rule (D127j): main's are exactly what
 // they were before tile deployments, even on a tile with a record; every
 // other deployment's carry its name in their ID and in Deployment, under
-// the tile's path (P13).
+// the tile's path (D127h).
 
 import (
 	"errors"
@@ -89,7 +89,7 @@ func (r *Runner) sbxAddLeaf(c *registry.Component, gen int, sock string, pid int
 
 // sbxDeployment is what an entry or failure for the deployment view c
 // describes records as its Deployment: the name, except main's, which is
-// never recorded (P5, P17).
+// never recorded (D119c, D127j).
 func (r *Runner) sbxDeployment(c *registry.Component) string {
 	if dep := r.viewDeployment(c); dep != util.MainDeployment {
 		return dep
@@ -126,7 +126,7 @@ func (r *Runner) listedLeaf(leaf string) string {
 }
 
 // leafFor is the leaf rule: the flat <CompKey> while main runs alone, so
-// zero-state and main-only tiles keep today's leaf (P5); dep's backend leaf
+// zero-state and main-only tiles keep today's leaf (D119c); dep's backend leaf
 // under the tile's parent for every other deployment, and for main once the
 // tile has the parent (nested), from its next generation on.
 func leafFor(key, dep string, nested bool) string {

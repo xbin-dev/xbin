@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// covers P14 P28 T8 — add with data:"seed" adds the deployment and then
+// covers D127i D127t T8 — add with data:"seed" adds the deployment and then
 // seeds its data through the broker's seed, judged at the seed's row on the
 // other claimants: a dry run says the data is seeded and seeds nothing; a
 // workspace-scope tile, or an xbind without the seed, is refused before

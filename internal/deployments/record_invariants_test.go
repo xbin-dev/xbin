@@ -26,7 +26,7 @@ var invNameRE = regexp.MustCompile(`^[a-z][a-z0-9-]{0,23}$`)
 
 // checkInvariants is 05-model §4, written out again without validate: the
 // record's binding, seq, main and the primary existing, the grammar, live
-// reload driving exactly its one unpinned deployment, full ids, states, P21.
+// reload driving exactly its one unpinned deployment, full ids, states, D127m.
 func checkInvariants(r *Record, tile, owner, created string) error {
 	switch {
 	case r.Schema != 1 || r.Tile != tile || r.Owner != owner || r.Created != created:
@@ -154,14 +154,14 @@ func invChange(rng *rand.Rand) (string, func(*Record) error) {
 	}
 }
 
-// covers P8 P15 T11 — the record half of 05-model §4 under random change
+// covers D119d D119f T11 — the record half of 05-model §4 under random change
 // sequences through the index's commit: every commit either leaves the file
 // and the index exactly as they were (a change breaking an invariant, a
 // change that fails, an edit of the binding or seq, a stale compare-and-set)
 // or writes the next seq; the invariants hold after every step, checked
 // independently of validate (live reload "" or exactly one deployment with a
 // null checkpoint, the primary exists, main exists and can't be removed,
-// the grammar, full ids, P21); a fresh load of the file equals the index's
+// the grammar, full ids, D127m); a fresh load of the file equals the index's
 // record; and fields this xbind doesn't know, at the top level and on main,
 // survive every rewrite.
 func TestRecordInvariantsRandomized(t *testing.T) {

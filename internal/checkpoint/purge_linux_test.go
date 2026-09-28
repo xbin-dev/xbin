@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// covers T20 P16 D78 — the purge's one run inside a real sandbox (the test
+// covers T20 D119g D78 — the purge's one run inside a real sandbox (the test
 // rootfs's git, sed and rm, the store the only thing bound): a checkpoint a
 // deploy log names is rewritten out of it, its refs and its unique content
 // go, its materialized tree goes, and the kept checkpoint stays whole.

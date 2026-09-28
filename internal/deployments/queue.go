@@ -393,7 +393,7 @@ func (p *Plane) progress(a *attempt, phase, result string) {
 // finish ends an attempt: its result in the journal, the event, the waiters
 // released, then its entry in the deploy log (off the critical path), after
 // which the journal drops it. A failed move off the work tree marks the
-// record's pointer failed (P9): restarts retry that checkpoint.
+// record's pointer failed (D119e): restarts retry that checkpoint.
 func (p *Plane) finish(a *attempt, result string, err error) {
 	p.q.mu.Lock()
 	done := a.finished()
@@ -440,7 +440,7 @@ func (p *Plane) finish(a *attempt, result string, err error) {
 
 // markFailed sets the failed state on the record's pointer when it still
 // names a's checkpoint: the attempted code of a failed move off the work
-// tree, which every restart runs (P9).
+// tree, which every restart runs (D119e).
 func (p *Plane) markFailed(a *attempt) {
 	if p.idx == nil {
 		return

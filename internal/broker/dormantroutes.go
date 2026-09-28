@@ -1,7 +1,7 @@
 package broker
 
 // dormantroutes.go — the interface instances and ingress hosts of a tile's
-// deployments (P13) (09-fabric §6, §8; 11-contract §8, §10.2; NP-09-12,
+// deployments (D127h) (09-fabric §6, §8; 11-contract §8, §10.2; NP-09-12,
 // NP-09-13).
 //
 // Where they live. main's stay in the root xbin.json maps ifaceInstances and
@@ -138,7 +138,7 @@ func (b *Broker) activeInstanceMap(root map[string]map[string]string) map[string
 	return out
 }
 
-// storeInstances writes comp's instances as deployment dep's (P13): main's
+// storeInstances writes comp's instances as deployment dep's (D127h): main's
 // into the root xbin.json map, as today, any other's into its own file; an
 // empty map clears them.
 func (b *Broker) storeInstances(comp, dep string, inst map[string]string) error {

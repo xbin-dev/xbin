@@ -64,7 +64,7 @@ func ckMain(body string) string {
 	return "package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(" + body + ") }\n"
 }
 
-// covers P9 P16 T1 NP-07-4 L8 — a checkpoint's Go build, confined (15-test-plan
+// covers D119e D119g T1 NP-07-4 L8 — a checkpoint's Go build, confined (15-test-plan
 // §4; with TestConfinedGoBuild's checkpoint case, 07-runtime §10.5): the
 // work tree's main.go prints `worktree` and the checkpoint's `checkpoint`;
 // the build binds the materialized checkpoint at the tile's canonical path
@@ -177,7 +177,7 @@ func TestConfinedBuildOfCheckpointAtCanonicalPath(t *testing.T) {
 		t.Errorf("the nested mount point in the checkpoint: %v %v", ents, err)
 	}
 
-	// reused, not rebuilt (P9)
+	// reused, not rebuilt (D119e)
 	before, _ := os.Lstat(bin)
 	if again := mustBuild(treeX, "checkpoint sub-worktree y-checkpoint"); again != bin {
 		t.Fatalf("reuse gave %s", again)

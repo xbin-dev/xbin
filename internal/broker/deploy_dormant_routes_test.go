@@ -136,7 +136,7 @@ func mailerURL(b *Broker) string {
 	return eps[0].URL
 }
 
-// covers P13 T6 PO-9 SC-DORMANT — TestDormantRegistrations's
+// covers D127h T6 PO-9 SC-DORMANT — TestDormantRegistrations's
 // interface-instance and ingress-host subtests
 // (TestNonPrimaryIfaceInstancesNeverRouted,
 // TestNonPrimaryIngressHostsNeverRouted): a non-primary deployment's
@@ -319,7 +319,7 @@ func TestDormantRegistrationsRouting(t *testing.T) {
 	})
 }
 
-// covers P7 P13 — prov#inst resolves against the provider primary's active
+// covers D127d D127h — prov#inst resolves against the provider primary's active
 // interface instance table (09-fabric §1, §8): main's root map while main is
 // the primary, the primary's own file once another deployment is, and main's
 // rows then lie dormant in the root map; the primary's registration, main

@@ -300,7 +300,7 @@ func timeoutNote(err error) string {
 var passGoEnv = []string{"GOPRIVATE", "GONOPROXY", "GONOSUMDB", "GONOSUMCHECK", "GOSUMDB",
 	"GOINSECURE", "GOVCS", "GOTOOLCHAIN", "GOAUTH", "GOAMD64", "GOARM64", "GOEXPERIMENT"}
 
-// nonPrimaryBuilds is the one build limiter (07-runtime §10.3; P25;
+// nonPrimaryBuilds is the one build limiter (07-runtime §10.3; D127q;
 // 06-security T10 item 4): at most max(1, NumCPU/4) builds for non-primary
 // deployments at once, workspace-wide, shared by every tile: Go builds and
 // env-layer setups. A primary's build never waits for it: it builds as

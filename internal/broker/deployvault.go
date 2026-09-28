@@ -1,6 +1,6 @@
 package broker
 
-// deployvault.go — the vault of tile deployments (08-data §10) (P14): one
+// deployvault.go — the vault of tile deployments (08-data §10) (D127i): one
 // file per deployment, reached by the deployment a request addresses; the
 // placeholders a non-primary deployment lists, computed from the primary's
 // key names and never stored; the vault copy, a tile manager's act; the
@@ -10,7 +10,7 @@ package broker
 // main's vault is today's file, data/vault/<CompKey>.json, in today's
 // format, whether or not main is the primary (PO-2, PO-3). A tile without a
 // deployment record has main alone, its primary, and every vault route
-// answers it exactly as before tile deployments (P5).
+// answers it exactly as before tile deployments (D119c).
 
 import (
 	"cmp"
@@ -141,11 +141,11 @@ func (b *Broker) vaultWriteIn(comp, dep string, m map[string]string) error {
 // §0.4, §8):
 //   - the tile's own principals reach their bound deployment's vault (DR1),
 //     and naming another is refused; a session that follows a protected
-//     primary reaches none (P24);
+//     primary reaches none (D127p);
 //   - anyone else reaches ?deployment=<name>, or the primary: its vault as
 //     today, admins only; a non-primary deployment's only for a person in
 //     their own session who is an admin or manages the tile, since other
-//     tiles' credentials never reach a non-primary deployment (P7).
+//     tiles' credentials never reach a non-primary deployment (D127d).
 //
 // Frame principals were refused before this (D30). A tile without a record
 // answers every request that names no deployment exactly as today.
@@ -221,7 +221,7 @@ func (b *Broker) primaryProtected(tile string) bool {
 
 // vaultWritable refuses a write to a protected primary's vault by anyone
 // but its own backend and tile managers in their own session (06-security
-// T5.4). The tile's terminal and agent sessions never reach it (P24); this
+// T5.4). The tile's terminal and agent sessions never reach it (D127p); this
 // also keeps out other tiles' admin credentials, since no element principal
 // passes the manager gate. Every other write passes as it did.
 func (b *Broker) vaultWritable(w http.ResponseWriter, p auth.Principal, c vaultCall) bool {
@@ -265,7 +265,7 @@ func valueRefused(p auth.Principal, c vaultCall) bool {
 		cmp.Or(p.Deployment, util.MainDeployment) != cmp.Or(c.dep, util.MainDeployment)
 }
 
-// ---- placeholders (P14) ----
+// ---- placeholders (D127i) ----
 
 // vaultPlaceholders lists the key names the primary's vault holds that m,
 // deployment dep's, has no value for, sorted: none for the primary itself.
@@ -319,7 +319,7 @@ func (b *Broker) VaultPlaceholders(tile, dep string) ([]string, error) {
 
 // DeploymentVault is Deployment.vault in the deployments state: how many key
 // names deployment dep of tile shows, its values and its placeholders
-// together, and how many of them are placeholders (P14).
+// together, and how many of them are placeholders (D127i).
 func (b *Broker) DeploymentVault(tile, dep string) (deployments.VaultSummary, error) {
 	m, err := b.vaultReadIn(tile, dep)
 	if err != nil {
@@ -358,7 +358,7 @@ func (b *Broker) EmptyDeploymentVault(tile, dep string) error {
 const vaultCopyWhat = "copying vault values"
 
 // VaultCopy copies values from tile's primary's vault into deployment
-// req.Deployment's (08-data §10) (P14): the named keys, or all the primary
+// req.Deployment's (08-data §10) (D127i): the named keys, or all the primary
 // holds, overwriting the deployment's own, never toward the primary. It is a
 // tile manager's act in a person's own session (05-model §10), judged here
 // again whatever the caller judged. It reads and writes through vaultReadIn

@@ -34,7 +34,7 @@ func (a *zeroDataArchiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(`{"version":"v1"}`))
 }
 
-// covers P5 SC-ZERO Z6 PO-2 PO-9 — a zero-state tile's backup is today's
+// covers D119c SC-ZERO Z6 PO-2 PO-9 — a zero-state tile's backup is today's
 // archive: sent to the archiver under the archive key CompKey(tile), with
 // today's members in today's order and headers, and today's manifest — its
 // own cron jobs and bus subscriptions, no deployment field, schema 1 — for a

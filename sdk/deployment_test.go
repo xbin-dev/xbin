@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// covers P17 — Deployment() is XBIN_DEPLOYMENT: the deployment's name for a
+// covers D127j — Deployment() is XBIN_DEPLOYMENT: the deployment's name for a
 // backend that is not its tile's primary, "" when the variable is absent (the
 // primary, and every backend of an xbind without tile deployments). Self()
 // stays the bare tile path in both.
@@ -35,7 +35,7 @@ func TestDeploymentFromEnv(t *testing.T) {
 	}
 }
 
-// covers P17 — CallerInfo.Deployment is read from X-XBin-Deployment, which
+// covers D127j — CallerInfo.Deployment is read from X-XBin-Deployment, which
 // xbind sets only for callers bound to a non-primary deployment; without the
 // header every field reads exactly as before (the zero state), and the header
 // changes no other field. The module keeps zero dependencies (compat rule 8):

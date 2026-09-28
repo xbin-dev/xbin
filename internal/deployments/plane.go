@@ -11,7 +11,7 @@
 // registry's, runner's, broker's and terminal manager's deployment hooks.
 // Tests build it from a literal of those fields, with no broker.
 //
-// A tile without a deployment record is in the zero state (P5): every method
+// A tile without a deployment record is in the zero state (D119c): every method
 // answers exactly as xbind did before tile deployments, with no file read or
 // written; its one deployment is main, the primary, following the work tree.
 // A tile with one answers from it (record.go), through the in-memory index
@@ -56,7 +56,7 @@ import (
 
 // Runner is what the plane asks of the runner: *runner.Runner in xbind, a
 // fake in tests. Ensure, Track, Changed and Stop keep meaning the primary;
-// the plane names the deployment it acts on (P7).
+// the plane names the deployment it acts on (D127d).
 type Runner interface {
 	// Deploy puts code on deployment dep of c through blue/green; commit runs
 	// after the swap and before the result is reported.
@@ -101,7 +101,7 @@ type Plane struct {
 	Run  Runner             // generations: deploy, restart, stop
 
 	// OwnerRef is a tile's current owner ref ("" = workspace-owned), which a
-	// record must match to apply to the tile (P29).
+	// record must match to apply to the tile (D119i).
 	OwnerRef func(tile string) string
 	// IsAdmin answers the broker's admin question (an element principal whose
 	// tile holds xbin admin passes it; the manager gate never relies on it).
@@ -110,7 +110,7 @@ type Plane struct {
 	// workspace admin or manages the tile. No element principal passes.
 	MayManage func(p auth.Principal, tile string) bool
 	// AdminFrameDriver is the person behind the frame of a tile holding xbin
-	// admin (the admin tile), minted under their own login (P21, extended by
+	// admin (the admin tile), minted under their own login (D127m, extended by
 	// the owner 2026-09-28): the broker's. That frame does the acts marked
 	// frame in the authority table when the person passes MayManage; nil,
 	// or false, and no frame does any manager act.
@@ -135,7 +135,7 @@ type Plane struct {
 	DropDeploymentFiles func(tile, dep string) error
 	DataHooks           // the broker's data namespace acts (datahooks.go)
 	// TileLimits are a tile's cgroup caps, today's per-component ones: the
-	// ceiling of every deployment's limits (P22), in LimitsFor. Zero without
+	// ceiling of every deployment's limits (D127n), in LimitsFor. Zero without
 	// cgroup delegation.
 	TileLimits cgroup.Limits
 
@@ -151,11 +151,11 @@ type Plane struct {
 	idx *index
 
 	// cps is the checkpoint store: built from Root on first use (store), a
-	// fake in tests. Building it creates nothing on disk (P5).
+	// fake in tests. Building it creates nothing on disk (D119c).
 	cps     checkpoints
 	cpsOnce sync.Once
 	// isolated answers whether tools and backends run sandboxed:
-	// confine.Isolated in xbind (P18); tests set it.
+	// confine.Isolated in xbind (D119h); tests set it.
 	isolated func() bool
 	// now is the clock stamps read; nil is time.Now.
 	now func() time.Time
@@ -179,7 +179,7 @@ type Plane struct {
 // queue.go) and prepares the pinned primary's code — its checkpoint
 // materialized and read (registry.ReadCheckpoint) — so the registry's
 // rescan composes the tile from the code it runs before anything serves or
-// starts (P9). A checkpoint that can't be prepared fails its tile closed,
+// starts (D119e). A checkpoint that can't be prepared fails its tile closed,
 // alone.
 func (p *Plane) Boot() error {
 	if p.Root == "" {
@@ -293,7 +293,7 @@ func (p *Plane) store() checkpoints {
 	return p.cps
 }
 
-// isIsolated reports whether backends and tools run sandboxed (P18).
+// isIsolated reports whether backends and tools run sandboxed (D119h).
 func (p *Plane) isIsolated() bool {
 	if p.isolated != nil {
 		return p.isolated()
@@ -430,7 +430,7 @@ func (p *Plane) readCode(tile, tree string) (*registry.PinnedCode, error) {
 // overlay marks the tiles whose live reload an operation is detaching:
 // between the request and its commit, saves drive nothing (07-runtime §8.6),
 // so the checkpoint the operation takes is the code that ships. n makes the
-// per-save question one atomic load while no operation is detaching (P8).
+// per-save question one atomic load while no operation is detaching (D119d).
 type overlay struct {
 	n     atomic.Int32
 	mu    sync.Mutex
@@ -471,7 +471,7 @@ func (o *overlay) has(tile string) bool {
 // ---- the runner's hooks (runner.DeploymentHooks) ----
 
 // CodeFor answers what deployment dep of tile runs: its record's checkpoint,
-// or the work tree while live reload drives it (P9); util.ErrNoDeployment for
+// or the work tree while live reload drives it (D119e); util.ErrNoDeployment for
 // a name the tile doesn't have; a *HeldError while its record holds it, so
 // nothing starts. Without a record: the work tree for main.
 func (p *Plane) CodeFor(tile, dep string) (runner.Code, error) {
@@ -591,7 +591,7 @@ func (p *Plane) PinnedPrimary(rel string) (*registry.PinnedCode, bool) {
 // ---- the broker's hooks (broker.DeploymentHooks) ----
 
 // RewriteDeploymentOwner rewrites the owner ref of tile's record in the same
-// step as a transfer (P29), and must run before the owner store moves: until
+// step as a transfer (D119i), and must run before the owner store moves: until
 // the store reports ownerRef, the record keeps answering to the former owner,
 // so the tile never reads as inert in between. Only a record bound to the
 // tile follows it. No record: nothing to rewrite.
@@ -604,7 +604,7 @@ func (p *Plane) RewriteDeploymentOwner(tile, ownerRef string) error {
 
 // ResetDeploymentState drops path's record, whatever it holds, its journal
 // and its view repository before a creation path assigns the new tile's
-// owner (P29), so the new tile starts in the zero state. The checkpoint
+// owner (D119i), so the new tile starts in the zero state. The checkpoint
 // store stays, a leftover. No record: nothing to reset.
 func (p *Plane) ResetDeploymentState(path string) error {
 	if p.idx == nil {
@@ -717,7 +717,7 @@ func (p *Plane) HasRecord(tile string) bool {
 // (dep, true) while live reload is attached to dep, ("", false) while it is
 // paused, while an operation is detaching it (the checkpoint that operation
 // takes is what ships), and while the tile's record holds it (nothing may
-// follow its work tree then). In-memory lookups, called on every save (P8);
+// follow its work tree then). In-memory lookups, called on every save (D119d);
 // without a record: main, attached.
 func (p *Plane) LiveReload(tile string) (dep string, attached bool) {
 	if p.pausing.has(tile) {

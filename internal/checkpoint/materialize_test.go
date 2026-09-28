@@ -102,7 +102,7 @@ func materializeRuns(rec *recorder) int {
 	return n
 }
 
-// covers P9 P16 — a checkpoint materializes at
+// covers D119e D119g — a checkpoint materializes at
 // .xbin/deploy/<TileKey>/<full tree hash>/, byte-exact (in-tree
 // .gitattributes don't apply), with directories 0755, files 0444 or 0555
 // (the exec bit kept) and symlinks as symlinks; a present tree is returned
@@ -328,7 +328,7 @@ func TestMaterializeAtomicReadOnly(t *testing.T) {
 	})
 }
 
-// covers P16 T2 — rule C5 for materialization and GC, behaviourally: a
+// covers D119g T2 — rule C5 for materialization and GC, behaviourally: a
 // checkpoint whose manifest, a source file, a dependency link and a chain
 // of links point at a FIFO outside it materializes, is found present, and
 // is evicted by GC without xbind (or the tools) opening any of them. The

@@ -42,7 +42,7 @@ import (
 // legacyFrameWindow — and renews into a bound token tied to the user's
 // current generation, so pages open across the upgrade keep working.
 //
-// Deployment claim (P12; 11-contract §7.2; deployment.go): a token of a
+// Deployment claim (D127g; 11-contract §7.2; deployment.go): a token of a
 // deployment other than main carries its name as a sixth field before the
 // HMAC, …|exp|gen|base64url(deployment)|hmac. Main never has one (one
 // spelling per meaning): 4- and 5-field tokens mean main, keeping today's
@@ -231,7 +231,7 @@ func (a *Auth) MintFrameTokenFor(p Principal, component string, ttl time.Duratio
 }
 
 // frameGenFor is the generation a token minted on behalf of p binds to.
-// Hardening (P21 extended): a frame token that an owner-driven terminal or
+// Hardening (D127m extended): a frame token that an owner-driven terminal or
 // agent session mints for its own tile gets terminalOwnerGen instead of the
 // root token's login generation, so that frame can never pass LoginFrame —
 // a tile's shell must not launder its token into a login frame. (A

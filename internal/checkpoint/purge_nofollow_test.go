@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// covers P16 T20 — rule C5 for the purge, behaviourally: a checkpoint whose
+// covers D119g T20 — rule C5 for the purge, behaviourally: a checkpoint whose
 // files, manifest and a directory are symlinks to a FIFO (and its directory)
 // outside the workspace is materialized, then purged; the purge removes the
 // materialized tree, whose symlinks point at the FIFO, without xbind (or the

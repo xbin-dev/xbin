@@ -319,7 +319,7 @@ func opReload(tile, dep string) string {
 	return `{"type":"deployments","component":"` + tile + `","data":{"op":"reload","deployment":"` + dep + `"}}`
 }
 
-// covers P29 P5 C2 PO-15 — the M2 half of the tile-life row (05-model §11):
+// covers D119i D119c C2 PO-15 — the M2 half of the tile-life row (05-model §11):
 //   - a transfer (D39) moves every deployment with the tile: the record
 //     keeps every deployment, its code, its switches and limits, the edge
 //     policy and the fields only a newer xbind knows, and changes its owner

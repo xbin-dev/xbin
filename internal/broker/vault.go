@@ -223,7 +223,7 @@ func (b *Broker) apiVaultGet(w http.ResponseWriter, r *http.Request) {
 		}
 		sort.Strings(keys)
 		out := map[string]any{"keys": keys}
-		if !b.isPrimary(c.comp, c.dep) { // the primary's key names with no value here (P14)
+		if !b.isPrimary(c.comp, c.dep) { // the primary's key names with no value here (D127i)
 			if out["placeholders"], err = b.vaultPlaceholders(c.comp, c.dep, m); err != nil {
 				b.vaultError(w, err)
 				return

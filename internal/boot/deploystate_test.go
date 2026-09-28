@@ -129,7 +129,7 @@ func zsRunDirState(t *testing.T, runDir string, compKeys map[string]bool) []stri
 	return bad
 }
 
-// covers PO-7 Z1 Z10 P15 SC-ZERO — boot, a save-and-swap cycle (a static
+// covers PO-7 Z1 Z10 D119f SC-ZERO — boot, a save-and-swap cycle (a static
 // tile's save, a node backend rebuilt and swapped to its next generation,
 // a failing build), a disable and enable, and reads of the tiles'
 // deployment state leave a zero-state workspace with no deployment state:
@@ -246,7 +246,7 @@ func TestZeroStateCreatesNoDeploymentFiles(t *testing.T) {
 	}
 }
 
-// covers P15 T11 PO-7 — the in-process twin of TestDeploymentStateBootsTwice
+// covers D119f T11 PO-7 — the in-process twin of TestDeploymentStateBootsTwice
 // (test/deploystate_boot_test.go; 15-test-plan §6): on a fresh workspace the
 // feature itself pauses live reload on a static tile and the work tree moves
 // on; two boots then change nothing outside derived trees (.xbin/deploy/):

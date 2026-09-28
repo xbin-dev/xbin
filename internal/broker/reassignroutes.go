@@ -1,7 +1,7 @@
 package broker
 
 // reassignroutes.go — the broker's half of a reassignment of a tile's
-// primary (09-fabric §8 steps 3-4; P7, P13). The lookups need nothing: each
+// primary (09-fabric §8 steps 3-4; D127d, D127h). The lookups need nothing: each
 // reads the primary's table at its next call (dormantroutes.go). What is
 // captured at spawn does: a consumer bound to <tile>#<inst> holds the old
 // primary's instance URL in its env until it restarts, and the ingress

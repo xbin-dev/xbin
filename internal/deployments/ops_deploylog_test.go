@@ -13,7 +13,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers SC-AUDIT P1 T9.5 — an operation × principal matrix: every change to
+// covers SC-AUDIT D119a T9.5 — an operation × principal matrix: every change to
 // what main runs (pause, reload now, deploy, roll back, restart, resume)
 // has exactly one deploy-log entry naming who (user:<id> or owner), the
 // credential's kind (via), when it was requested and finished, the feed,

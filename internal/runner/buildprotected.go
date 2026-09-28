@@ -1,7 +1,7 @@
 package runner
 
 // buildprotected.go — a protected primary's build products (07-runtime §3.4;
-// P21; 06-security T16, T17). While a tile's primary is protected, what it
+// D127m; 06-security T16, T17). While a tile's primary is protected, what it
 // runs changes only by a tile manager's act, and its Go artifacts, Go caches
 // and env layers are part of what it runs, so they live apart, under
 // .xbin/deploy/<TileKey>/protected/: artifacts at build/<tree>/, caches at

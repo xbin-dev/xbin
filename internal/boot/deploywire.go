@@ -18,7 +18,7 @@ import (
 func wireDeploymentData(dp *deployments.Plane, brk *broker.Broker) {
 	// The disk monitor measures each namespace beyond main as its own quota
 	// bucket, at its claimants' lowest limit, and each tile's deployment
-	// state against the per-tile quota (08-data §12; P22, P25).
+	// state against the per-tile quota (08-data §12; D127n, D127q).
 	brk.SetDeploymentQuota(dp.Lookup)
 	// Per-deployment backups (08-data §11): the ops in ops_backup.go.
 	dp.BackupData, dp.RestoreData = brk.BackupDeploymentData, brk.RestoreDeploymentData
@@ -39,7 +39,7 @@ func wireDeploymentData(dp *deployments.Plane, brk *broker.Broker) {
 }
 
 // wireDeploymentSessions installs the terminal manager's half of protect and
-// reassignment (P24): the sessions targeting the primary restart onto their
+// reassignment (D127p): the sessions targeting the primary restart onto their
 // new default, or end (stepTerminals).
 func wireDeploymentSessions(dp *deployments.Plane, tm *term.Manager) {
 	dp.SetGovHooks(func(h *deployments.GovHooks) {

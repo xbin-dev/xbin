@@ -241,7 +241,7 @@ func (b *Broker) apiOwnerPreview(w http.ResponseWriter, r *http.Request) {
 var ownerMoves sync.Mutex
 
 // moveOwner is the transfer's move: tile's owner becomes to, and its
-// deployment record's owner ref follows in the same step (P29), so a pinned
+// deployment record's owner ref follows in the same step (D119i), so a pinned
 // primary stays pinned across the restart executeTransferEffects makes.
 // The record is rewritten before st.SetOwner: the deployments index compares
 // a record's owner ref with the owner store on every lookup and accepts the
@@ -281,7 +281,7 @@ func (b *Broker) moveOwner(st *users.Store, tile, to string) (int, error) {
 // SetOwner: unbind hard-dead slots, restart what re-materializes at spawn,
 // publish events. Returns the unbound slot names.
 //
-// The tile's deployments moved with it (05-model §11) (P29): moveOwner
+// The tile's deployments moved with it (05-model §11) (D119i): moveOwner
 // rewrote its record's owner ref before the owner store moved, so each keeps
 // its code, its settings and its edge policy, and the restart below — the
 // runner's ChangedTile behind OnGrantChange — reaches every deployment with

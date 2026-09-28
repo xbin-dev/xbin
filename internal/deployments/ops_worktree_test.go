@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-// covers SC-WORKTREE P16 — every M1 operation (pausing and resuming live
+// covers SC-WORKTREE D119g — every M1 operation (pausing and resuming live
 // reload, reload now, deploy, roll back, restart, and their dry runs) leaves
 // the tile's directory byte-identical by hash, its own git repository (the
 // index, HEAD, refs, config) included, on a static tile and on a Go tile:

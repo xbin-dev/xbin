@@ -8,7 +8,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers P5 P25 — a tile's at-limit leaves: none without cgroup accounting;
+// covers D119c D127q — a tile's at-limit leaves: none without cgroup accounting;
 // with it, the flat leaf alone, exactly as Cgroup.AtLimit answers for
 // util.CompKey(tile), which the limit alerts asked before and keep keying
 // their counters by.

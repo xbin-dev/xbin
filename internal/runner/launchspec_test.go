@@ -155,7 +155,7 @@ type lsCase struct {
 	golden   string
 }
 
-// covers P5 PO-11 Z8 SC-ZERO — a zero-state tile's backend launch spec
+// covers D119c PO-11 Z8 SC-ZERO — a zero-state tile's backend launch spec
 // (binds, argv, env, overlay lowers, egress and capability wiring) is exactly
 // today's, for every runtime and every wiring the hooks can answer.
 func TestZeroStateLaunchSpec(t *testing.T) {
@@ -290,7 +290,7 @@ func TestZeroStateLaunchSpec(t *testing.T) {
 	}
 }
 
-// covers P5 PO-11 — granted GPUs add gpu.Binds' binds after the code, run
+// covers D119c PO-11 — granted GPUs add gpu.Binds' binds after the code, run
 // dir, gateway, resource and binary binds, and its env after the input env;
 // with nothing to bind, neither changes.
 func TestZeroStateLaunchSpecGPU(t *testing.T) {
@@ -320,7 +320,7 @@ func TestZeroStateLaunchSpecGPU(t *testing.T) {
 	}
 }
 
-// covers P5 — launchSpec is pure: it creates nothing, leaves its env input's
+// covers D119c — launchSpec is pure: it creates nothing, leaves its env input's
 // backing array alone, and gives the same spec twice.
 func TestLaunchSpecIsPure(t *testing.T) {
 	f := newLaunchFixture(t)

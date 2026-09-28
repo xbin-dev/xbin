@@ -1,6 +1,6 @@
 # 11 — Contract: the exact wire
 
-> Status: live — the authoritative wire spec for tile deployments and paused live reload: routes, URL routing, events, headers, env, SDK, tokens, `bx` and on-disk formats (part of [plans/dev-lifecycle](README.md))
+> Status: implemented (D119, D127; M3 designed, not built) — the authoritative wire spec for tile deployments and paused live reload: routes, URL routing, events, headers, env, SDK, tokens, `bx` and on-disk formats (part of [plans/dev-lifecycle](README.md))
 
 This document turns [05-model.md](05-model.md) into bytes. It fixes every
 route, field, header, env var, token field, event, `bx` command and file that

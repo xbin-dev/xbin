@@ -11,7 +11,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers P18 T12 SC-FAIL-CLOSED — the plane half of
+// covers D119h T12 SC-FAIL-CLOSED — the plane half of
 // TestNonIsolatedRefusesBackendDeployments: without isolation, pausing live
 // reload on a go, node or python tile, and deploying, reloading now or
 // rolling back onto its pinned primary, is refused with 409 naming

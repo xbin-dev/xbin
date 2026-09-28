@@ -194,7 +194,7 @@ func (f *opsFx) current(tile, dep string) string {
 
 // ---- the tests ----
 
-// covers P9 T10 T18 — the store's GC runs after every successful deploy of a
+// covers D119e T10 T18 — the store's GC runs after every successful deploy of a
 // tile, a static tile's (inside the operation) and a backend's (in the
 // deploy's own goroutine, before the attempt's waiters are released), and
 // then the artifact pruning: GC is handed the trees running generations
@@ -291,7 +291,7 @@ func TestCheckpointGCAfterDeploy(t *testing.T) {
 	}
 }
 
-// covers P9 T10 — the same through xbind's own checkpoint store (unit-git:
+// covers D119e T10 — the same through xbind's own checkpoint store (unit-git:
 // confined git run directly): a static tile's pause collects before it
 // answers, evicting a materialized tree nothing keeps and keeping the one the
 // record pins.
@@ -347,7 +347,7 @@ func retention(events []string) []string {
 	return out
 }
 
-// covers P9 SC-ROLLBACK NP-02-3 T18 — after each successful deploy the
+// covers D119e SC-ROLLBACK NP-02-3 T18 — after each successful deploy the
 // runner's pruning keeps a deployment's current checkpoint and the
 // checkpoints of its previous three successful deploy-log entries, so a
 // roll back to one of them compiles nothing; a failed attempt is no roll-back
@@ -455,7 +455,7 @@ func sortedTrees(trees []string) []string {
 	return out
 }
 
-// covers P5 P16 T10 — at boot, once a record governs a tile, the store's
+// covers D119c D119g T10 — at boot, once a record governs a tile, the store's
 // sweep removes the .tmp-* extractions killed runs left under .xbin/deploy
 // before anything materializes (the pinned primary's preparation comes
 // after it), leaving materialized trees and per-deployment state; a
@@ -572,7 +572,7 @@ func (s *restoreStore) restores() []string {
 	return slices.Clone(s.calls)
 }
 
-// covers T11 P29 P9 P5 — the broker's restore hook puts a tile's deployment
+// covers T11 D119i D119e D119c — the broker's restore hook puts a tile's deployment
 // state back: an archive naming another tile (its record's path), a ref
 // outside the restore-only namespace or an id that isn't one is refused
 // before anything is written; otherwise the store is rebuilt from the staged

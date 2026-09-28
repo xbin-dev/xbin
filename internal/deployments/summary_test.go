@@ -2,7 +2,7 @@ package deployments
 
 import "testing"
 
-// covers P7 P20 — the primary summary of /components (11-contract §8): a
+// covers D127d D127l — the primary summary of /components (11-contract §8): a
 // paused tile says its primary is pinned, a protected one says so too; a tile
 // in the zero state, one whose record holds it, and one whose record isn't
 // its (another owner's) gain nothing.

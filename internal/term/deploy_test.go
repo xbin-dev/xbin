@@ -225,7 +225,7 @@ func frameKeys(t *testing.T, b []byte) (string, map[string]any) {
 // without one to state keeps exactly it.
 const todaysFrame = "baseOutdated,echoAck,id,label,net,netNote,op,scopes,vm"
 
-// covers P24 P17 P12 PO-3 SC-ZERO — a session's target (11-contract §7.4,
+// covers D127p D127j D127g PO-3 SC-ZERO — a session's target (11-contract §7.4,
 // §5, §8), for both kinds: the default is the primary; with the primary
 // protected, the live reload target, named; with live reload paused too,
 // "API off": no token, and the session frame echoes api:false with a note.
@@ -483,12 +483,12 @@ func TestSessionTarget(t *testing.T) {
 	})
 }
 
-// covers P21 P24 T16 — a protected primary is never a session's target
+// covers D127m D127p T16 — a protected primary is never a session's target
 // (11-contract §7.4) (= TestProtectedPrimaryRefusesTerminalTokens): a
 // shell or agent session naming it is refused with 403 and the catalogue's
 // text before anything spawns; protecting the primary (PrimaryProtected,
 // which the protect operation calls after its record commits) restarts
-// the agent sessions that followed it onto the default (P24), the live
+// the agent sessions that followed it onto the default (D127p), the live
 // reload target, resuming as …/restart does, and ends the shells; when the
 // default is "API off" it ends every such session. Sessions with a named
 // target elsewhere or without the API stay. A reassignment

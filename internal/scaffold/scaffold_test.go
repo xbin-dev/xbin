@@ -29,7 +29,7 @@ func TestCreateRefusesCGI(t *testing.T) {
 	}
 }
 
-// covers P17 — `bx new` writes locally through Create, so Create refuses a
+// covers D127j — `bx new` writes locally through Create, so Create refuses a
 // '+' in any segment of a new tile's path, as /create does, before anything
 // is written: "<tile>+<name>" is a tile deployment's URL.
 func TestCreateRefusesPlus(t *testing.T) {

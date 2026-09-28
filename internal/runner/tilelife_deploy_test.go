@@ -1,6 +1,6 @@
 package runner
 
-// covers P29 P9 C2 — the runtime half of TestDeploymentsAcrossTileLife
+// covers D119i D119e C2 — the runtime half of TestDeploymentsAcrossTileLife
 // (05-model §11; 07-runtime §7 rows 5, 7 and 13, §11): the tile's lifecycle
 // and a transfer reach every deployment it has, over depFake
 // (deployments_test.go). The broker's half, which drives these through
@@ -69,7 +69,7 @@ func (f *depFake) lifeStates(deps ...string) []string {
 	return out
 }
 
-// covers P29 P9 C2 — lifecycle is the tile's (05-model §11): disabling stops
+// covers D119i D119e C2 — lifecycle is the tile's (05-model §11): disabling stops
 // every deployment (Stop, the broker's StopBackend) and none of them starts
 // again while the tile isn't enabled — not by a request, a save, a grant or
 // transfer restart, nor alwaysOn; enabling starts the primary (alwaysOn), a

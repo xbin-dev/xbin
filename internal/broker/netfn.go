@@ -193,7 +193,7 @@ func (b *Broker) netClientsOf(provider string) []string {
 // or to "org" where the org's network sets grant host networking (D54).
 func (b *Broker) NetHostShare(c *registry.Component) bool {
 	switch nb := b.netBinding(c.Path); {
-	case c.Deployment != "": // a non-primary view: never the host's network (P23)
+	case c.Deployment != "": // a non-primary view: never the host's network (D127o)
 		return false
 	case nb == "host":
 		return true
@@ -1058,7 +1058,7 @@ func (b *Broker) apiIfaceInstancesSet(w http.ResponseWriter, r *http.Request) {
 			body.Instances[id] = trimmed // consumers append "/sub" — avoid "//"
 		}
 	}
-	// The deployment's own table (P13); only the primary's routes: another's
+	// The deployment's own table (D127h); only the primary's routes: another's
 	// is stored dormant, with no grants event and no consumer restarts.
 	dep, dormant, ok := b.routeTarget(w, p, comp)
 	if !ok {

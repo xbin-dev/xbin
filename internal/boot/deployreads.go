@@ -97,11 +97,11 @@ func planeReads(dp *deployments.Plane) deployReads {
 type factReads struct {
 	data          func(tile, dep string) *deployments.DataState
 	vault         func(tile, dep string) (deployments.VaultSummary, error)
-	limits        func(tile, dep string) cgroup.Limits // effective, the tile's caps lowered (P22)
+	limits        func(tile, dep string) cgroup.Limits // effective, the tile's caps lowered (D127n)
 	diskQuota     func(tile string) int64              // the tile's disk quota in bytes; 0: none
 	declared      func(c *registry.Component, dep string) (alwaysOn, known bool)
 	registrations func(tile, dep string) []deployments.Registration
-	wouldNotify   func(tile, dep string) []deployments.WouldNotify   // held notifications, newest last (P13)
+	wouldNotify   func(tile, dep string) []deployments.WouldNotify   // held notifications, newest last (D127h)
 	backup        func(tile, dep string) *deployments.BackupSchedule // nil: no schedule
 	caps          func(tile string) deployments.Caps
 	edges         func(tile string) []deployments.Edge
@@ -164,7 +164,7 @@ func (r *factReads) from(b brokerFacts) {
 // composed from the primary's code; another's is its work tree's manifest
 // while it follows the work tree, its checkpoint's while pinned, read from
 // the checkpoint's materialized tree when one is there. A read never
-// extracts a checkpoint (P5; reading the state is pure): known is false
+// extracts a checkpoint (D119c; reading the state is pure): known is false
 // then.
 func declaredAlwaysOn(dp *deployments.Plane, c *registry.Component, dep string) (alwaysOn, known bool) {
 	if dep == dp.Primary(c.Path) {
@@ -264,7 +264,7 @@ func (a *deploymentsAPI) deploymentFacts(row map[string]any, t tileRef, name str
 	}
 }
 
-// limitsView is Deployment.limits (P22): the effective memory and pids caps
+// limitsView is Deployment.limits (D127n): the effective memory and pids caps
 // (0: none), the disk quota — the tile's, lowered by the deployment's
 // override — and the limits a tile manager lowered for it.
 func limitsView(l cgroup.Limits, quota int64, set map[string]int64) deployments.LimitsView {
@@ -434,7 +434,7 @@ func (a *deploymentsAPI) getDiff(w http.ResponseWriter, r *http.Request) {
 		}
 		e = a.readGate(pr, t, o)
 	}
-	if e == nil && !t.active() { // nothing to diff, nothing captured, no store (P5)
+	if e == nil && !t.active() { // nothing to diff, nothing captured, no store (D119c)
 		e = &dpe{Status: http.StatusConflict, Kind: deployments.KindState,
 			Msg: t.c.Path + " has no deployments: its work tree is what runs, so there is nothing to diff"}
 	}

@@ -1,6 +1,6 @@
 # 08 — Data: namespaces, seeding, secrets, backup
 
-> Status: live — how every tile store is keyed per deployment, which data a request reaches, which resources each deployment's namespace has, and how deployment data is seeded, reset, deleted, vaulted, quota'd and backed up (part of [plans/dev-lifecycle](README.md))
+> Status: implemented (D119, D127; M3 designed, not built) — how every tile store is keyed per deployment, which data a request reaches, which resources each deployment's namespace has, and how deployment data is seeded, reset, deleted, vaulted, quota'd and backed up (part of [plans/dev-lifecycle](README.md))
 
 This document is the storage half of [05-model.md](05-model.md) (§3, §6, §9,
 §11, §12). It implements:

@@ -319,7 +319,7 @@ func (r *Runner) Changed(c *registry.Component) {
 }
 
 // runCurrent runs one generation transition of s's deployment of c onto the
-// code its record names now (P9): every restart path — a lazy start, a
+// code its record names now (D119e): every restart path — a lazy start, a
 // crash, a reap, a grant, alwaysOn, an xbind restart — reaches a build
 // through here, so a pinned deployment never runs its work tree. A record
 // that can't answer fails the start (06-security C7). Without a plane there
@@ -457,10 +457,10 @@ func (r *Runner) startDeployment(c *registry.Component, dep, bin string, gen int
 		}
 		cleanup = sb.Cleanup
 	} else {
-		if c.CodeRoot != "" { // no mount namespace shows a checkpoint at c.Dir (P18)
+		if c.CodeRoot != "" { // no mount namespace shows a checkpoint at c.Dir (D119h)
 			return nil, fmt.Errorf("%s: a checkpoint runs only in a sandbox (--isolate)", c.Path)
 		}
-		if dep != util.MainDeployment || c.Deployment != "" { // nor binds its own data at its paths (P18)
+		if dep != util.MainDeployment || c.Deployment != "" { // nor binds its own data at its paths (D119h)
 			return nil, fmt.Errorf("%s: deployment %s runs only in a sandbox (--isolate)", c.Path, dep)
 		}
 		switch c.Manifest.Runtime { // exec-ok (all three): isolation off — the workspace has no sandbox; SpawnUser may drop to a scope uid
@@ -514,7 +514,7 @@ func (r *Runner) startDeployment(c *registry.Component, dep, bin string, gen int
 	// egress is either spliced to a provider tile (this component is a client of
 	// it) or run through the userspace relay.
 	if sb.NeedsRelay() {
-		np := r.netPlanFor(c, dep, logf) // netmux.go: a non-primary view gets no primary-only wiring (P23)
+		np := r.netPlanFor(c, dep, logf) // netmux.go: a non-primary view gets no primary-only wiring (D127o)
 		if fd, err := sb.RecvTUN(); err != nil {
 			fmt.Fprintf(logf, "egress tun: %v (egress disabled)\n", err)
 		} else if np.spliced {

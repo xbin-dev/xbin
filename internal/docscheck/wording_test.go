@@ -90,7 +90,7 @@ var wordingBanned = []struct {
 	{regexp.MustCompile(`[⟲⟳]`), "⟲ resets the terminal layer and ⟳ refetches: Reload now is ⇡"},
 }
 
-// covers P2 NP-15-9 — the feature's words: the terminal window's strings,
+// covers D119b NP-15-9 — the feature's words: the terminal window's strings,
 // bx's, the builder page and the docs sections about live reload and tile
 // deployments use none of the glossary's banned words; the builder page
 // exists and is linked from docs/index.md and docs/elements.md; and the

@@ -15,8 +15,7 @@ would read as one. The refusal holds:
 
 The answer is 403 `can't create <path>: '+' isn't allowed in tile names (it
 names a tile deployment in URLs, /c/<tile>+<name>/) — pick another path`.
-Before, such a name was created, and the tile deployments release warned in
-the creation answer (`warnings`), which is gone.
+Before, such a name was created like any other.
 
 Existing tiles are untouched. A directory whose name already holds `+`
 keeps resolving — an exact match wins over the deployment reading — and

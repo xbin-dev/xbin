@@ -150,7 +150,7 @@ func logTrees(s *fakeStore, tile string) []string {
 	return out
 }
 
-// covers T20 T9 C4 NP-06-16 P11 — purging a checkpoint is a tile manager's
+// covers T20 T9 C4 NP-06-16 D127f — purging a checkpoint is a tile manager's
 // act in a person's own session (05-model §10): the tile's owner or org
 // admins (the manager gate) and workspace admins may; terminal level, a
 // reader, the manager's own terminal token, the tile's terminal, frame and
@@ -273,7 +273,7 @@ func TestPurgeManagerOnly(t *testing.T) {
 	}
 }
 
-// covers T20 P9 T18 NP-06-16 — a purge is refused (409, nothing reaches the
+// covers T20 D119e T18 NP-06-16 — a purge is refused (409, nothing reaches the
 // store) while any deployment runs the checkpoint: the record points at it,
 // main's or a non-primary deployment's; a deploy of it is queued or
 // running; a running generation still binds its tree. Once nothing does,

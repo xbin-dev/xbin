@@ -229,7 +229,7 @@ func (f *seedFx) gatedPut(scope, dep, name, key, val string) bool {
 	return true
 }
 
-// covers P14 T8 T9 — seeding is a tile manager's act in a person's own
+// covers D127i T8 T9 — seeding is a tile manager's act in a person's own
 // session, carrying the copy-data confirmation (08-data §8.1; 11-contract
 // §1.8): terminal and agent tokens (a manager's own included), the tile's
 // backends, an element holding xbin:users, view-as sessions and people who
@@ -316,7 +316,7 @@ func TestSeedManagerOnly(t *testing.T) {
 	}
 }
 
-// covers P14 PO-2 T8 SC-DATA — a seed only reads the primary's namespace
+// covers D127i PO-2 T8 SC-DATA — a seed only reads the primary's namespace
 // (08-data §8.5): main's ciphertext, its mounted views, its kv pairs and
 // kv.db itself (no write transaction for a non-main target) are unchanged,
 // and no ns.json is made for main; what dev gets is re-keyed: the stored
@@ -491,7 +491,7 @@ func TestSeedCopyConfinedNoFollow(t *testing.T) {
 	}
 }
 
-// covers P28 T8 — a shared (scope, name) namespace (08-data §6.3): seeding
+// covers D127t T8 — a shared (scope, name) namespace (08-data §6.3): seeding
 // apps/shop's dev needs the manager gate on every claimant, and the 403
 // names the tile that blocks it, the broker's own gate and the plane's
 // judgement alike; a seed stops every claimant's dev, not a sibling
@@ -555,7 +555,7 @@ func TestSharedScopeSeedNeedsEveryTile(t *testing.T) {
 	}
 }
 
-// covers P22 08-data §6.7 — a seed across divergent declarations copies the
+// covers D127n 08-data §6.7 — a seed across divergent declarations copies the
 // resources both codes declare with one type; those only dev declares start
 // empty (whatever the namespace held before is replaced); those only main
 // declares, or with another type, are skipped and listed, in the answer and
@@ -604,7 +604,7 @@ func TestSeedWithDivergentDeclarations(t *testing.T) {
 	})
 }
 
-// covers P14 08-data §8.2 §8.3 — kv is copied consistently under the
+// covers D127i 08-data §8.2 §8.3 — kv is copied consistently under the
 // primary's write gate: with writers adding to two buckets in turn through
 // the gate while the seed runs (and read transactions of 7 keys), dev gets
 // both buckets at one moment — log's keys a prefix of events', at most one
@@ -702,7 +702,7 @@ func TestSeedKVBoundedTransactions(t *testing.T) {
 	}
 }
 
-// covers P14 08-data §8.5 — any failure leaves the namespace partial, naming
+// covers D127i 08-data §8.5 — any failure leaves the namespace partial, naming
 // the act and the step, and dev refuses to start until a reset or another
 // seed: a kv value that doesn't decode (the error is never swallowed into
 // a short copy), rsync failing (its exit 24, files vanished, is only a
@@ -779,7 +779,7 @@ func TestSeedFailureLeavesPartial(t *testing.T) {
 	}
 }
 
-// covers P14 08-data §8.4 NP-08-6 — online is the default; stop:true takes
+// covers D127i 08-data §8.4 NP-08-6 — online is the default; stop:true takes
 // the stopped mode: the primary's deployments stop too, its namespace is
 // held (data requests answer 503 with Retry-After, its write gate is taken)
 // while the copy runs, and ns.json records the mode. A single-tenant volume
@@ -857,7 +857,7 @@ func TestSeedStoppedMode(t *testing.T) {
 	}
 }
 
-// covers P14 P18 08-data §8.2 §12 — what a seed refuses before it holds
+// covers D127i D119h 08-data §8.2 §12 — what a seed refuses before it holds
 // anything: a workspace-scope tile (its resources have one namespace), the
 // primary as the target, an unknown deployment, a namespace another act
 // holds (409 data busy, for the primary's too), a sealed vault, a primary

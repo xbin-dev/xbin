@@ -40,7 +40,7 @@ func sbxJSON(t *testing.T, v any) string {
 	return string(b)
 }
 
-// covers P13 P17 PO-11 T18 — TestSandboxEntriesPerDeployment (=
+// covers D127h D127j PO-11 T18 — TestSandboxEntriesPerDeployment (=
 // TestRegistryRowsPerDeployment, 15-test-plan): main's registry rows keep
 // backend:<CompKey>:g<gen> with no deployment field, byte for byte, even on
 // a tile with a record whose main runs a checkpoint; another deployment's
@@ -166,7 +166,7 @@ func TestSandboxEntriesPerDeployment(t *testing.T) {
 	}
 }
 
-// covers P13 T18 — GenUsage reads a deployment's generations as one group:
+// covers D127h T18 — GenUsage reads a deployment's generations as one group:
 // the leaf they share once where it has accounting, else the sum of each
 // generation's process tree; a group nothing answers is absent.
 func TestGenUsageGroups(t *testing.T) {

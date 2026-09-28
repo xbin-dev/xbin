@@ -42,7 +42,7 @@ func prefsCall(t *testing.T, o *depRig, p auth.Principal, method, key, body stri
 	return w
 }
 
-// covers P6 P17 — prefs per deployment (05-model §9, 08-data §2): a tile's
+// covers D127c D127j — prefs per deployment (05-model §9, 08-data §2): a tile's
 // frame principal bound to dev keeps its prefs in
 // data/prefs/<CompKey(user)>/.deployments/<TileKey>/dev.json, apart from
 // main's, which stay in today's file whether or not main is the primary; a
@@ -128,7 +128,7 @@ func TestPrefsPerDeployment(t *testing.T) {
 	}
 }
 
-// covers P6 with D125's bucket lock and `prefs` event: writes to a
+// covers D127c with D125's bucket lock and `prefs` event: writes to a
 // deployment's bucket beyond main are serialised like any other bucket's,
 // and its event reaches only the principals whose GET /prefs reads that
 // bucket — dev's frame, a session targeting dev, a session following a dev

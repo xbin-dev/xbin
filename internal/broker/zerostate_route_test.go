@@ -18,7 +18,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers F1 P5 P11 SC-ZERO — for tiles without a deployment record, the
+// covers F1 D119c D127f SC-ZERO — for tiles without a deployment record, the
 // fabric's new functions take today's code path (09-fabric §10): Route
 // answers what Policy answered, its refusal in the proxy's words; the single
 // evaluation point resolveTarget gives grantedRole's role; allowRes and

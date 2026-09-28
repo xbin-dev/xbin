@@ -13,7 +13,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers NP-14-4 PO-14 P5 — registerDeploymentsAPI mounts every route of the
+// covers NP-14-4 PO-14 D119c — registerDeploymentsAPI mounts every route of the
 // tile-deployments contract (docs/protocol.md, "Tile deployments"), once; and
 // through the real daemon (auth on), every operation the OpenAPI document
 // marks reserved answers 501 in the {"error","docs"} shape of every API error

@@ -12,7 +12,7 @@ import "github.com/xbin-dev/xbin/internal/auth"
 type DataHooks struct {
 	// ResetData empties the namespace deployment dep of tile claims (08-data
 	// §9.1; 11-contract §1.8) for the reset op, which judged tile itself:
-	// authorize judges every other claimant of the scope (P28), and stop
+	// authorize judges every other claimant of the scope (D127t), and stop
 	// stops each claimant's dep before the wipe. vault also empties dep's
 	// vault; a dry run changes nothing. It answers the claimants. Errors are
 	// *Error (403 naming the claimant that blocks, 409 while an act runs or

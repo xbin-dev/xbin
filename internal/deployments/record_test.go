@@ -165,7 +165,7 @@ func pinMain(tree string) func(*Record) error {
 	}
 }
 
-// covers P15 P5 P29 PO-7 PO-8 — the record lives only at
+// covers D119f D119c D119i PO-7 PO-8 — the record lives only at
 // data/deployments/<TileKey>.json (mode 0600), never in the root xbin.json or
 // the work tree: a committed opt-in adds that one file and its directory and
 // changes nothing else; the zero state is synthesized (schema 0, seq 0, main

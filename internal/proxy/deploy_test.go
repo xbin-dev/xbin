@@ -429,7 +429,7 @@ func dlAnswer(t *testing.T, label string, rec *httptest.ResponseRecorder, code i
 // of tile (dlFake refuses the start, naming it).
 func reached(tile, dep string) string { return "reached " + tile + " deployment " + dep }
 
-// covers P17 P7 P12 — /api/<tile>+<name>/… reaches EnsureDeployment for that
+// covers D127j D127d D127g — /api/<tile>+<name>/… reaches EnsureDeployment for that
 // deployment (11-contract §2.2, §2.3; 09-fabric §4.1): the proxy resolves
 // the path with ResolveRef, asks the broker's Route (installed as boot
 // installs it) and hands the runner exactly the deployment Route returned.
@@ -526,7 +526,7 @@ func TestProxyQualifiedTarget(t *testing.T) {
 	})
 }
 
-// covers P17 T3 T4 SC-CLAMP — TestIdentifyDeploymentHeader (=
+// covers D127j T3 T4 SC-CLAMP — TestIdentifyDeploymentHeader (=
 // TestDeploymentHeaderOnlyFromXbind, 11-contract §4, NP-11-12): a request
 // from one of a tile's own principals bound to a non-primary deployment
 // carries X-XBin-Deployment naming it, on its self-calls and on its calls
@@ -650,7 +650,7 @@ func TestIdentifyDeploymentHeader(t *testing.T) {
 	}
 }
 
-// covers P7 T3 — TestIngressForwardPrimaryOnly (=
+// covers D127d T3 — TestIngressForwardPrimaryOnly (=
 // TestIngressNeverReachesNonPrimary; 09-fabric §1, §2.5): public ingress
 // reaches only the routed tile's primary. With main primary the runner is
 // asked for main and never for dev; a route naming "apps/t+dev" is an
@@ -692,7 +692,7 @@ func TestIngressForwardPrimaryOnly(t *testing.T) {
 	}
 }
 
-// covers P12 T3 — TestCrossDeploymentRefused (09-fabric §4.2, §4.3), the
+// covers D127g T3 — TestCrossDeploymentRefused (09-fabric §4.2, §4.3), the
 // rows the /api/ proxy holds, in both directions: every kind of tile
 // credential bound to dev (backend, frame, a session targeting dev) that
 // names main, or a name the tile doesn't have, is refused with §4.3's 403

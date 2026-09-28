@@ -483,7 +483,7 @@ func TestNonPrimaryCgroupSubtree(t *testing.T) {
 	})
 }
 
-// covers P25 T10 SC-PRIMARY-FIRST — the primary's leaf keeps its caps
+// covers D127q T10 SC-PRIMARY-FIRST — the primary's leaf keeps its caps
 // whatever its non-primary siblings use. A main-only tile's flat leaf gets
 // exactly today's writes: the installed per-component caps, then the pid (a
 // VM's with its guest cap instead of the memory pair). In the per-tile layout
@@ -499,7 +499,7 @@ func TestPrimaryLeafKeepsCaps(t *testing.T) {
 	mainLeaf, devLeaf := DeploymentLeaf(key, "main"), DeploymentLeaf(key, "dev")
 	m, f := newFakeCgroupfs(t, caps)
 
-	// Main alone, flat: today's writes, byte for byte (P5).
+	// Main alone, flat: today's writes, byte for byte (D119c).
 	m.Add(key, 100)
 	flat := "comp-" + key + "/"
 	if got, want := f.writesUnder(key), []string{

@@ -4,7 +4,7 @@ package boot
 // loop maps each batch to its changed components (changedComponents), then
 // asks the deployments plane where each one's live reload points. A tile
 // without a deployment record drives main, the primary, with exactly
-// today's reload event and rebuild (P5, P8). A tile whose live reload is
+// today's reload event and rebuild (D119c, D119d). A tile whose live reload is
 // attached to another deployment reloads and rebuilds only that one, and no
 // event of today's types names it (rule C2). A tile whose live reload is
 // paused drives nothing: its pinned deployments never reload on a save, and
@@ -30,7 +30,7 @@ type liveTarget struct {
 // for a tile without a record; ("", false) while its live reload is paused,
 // and while its record holds it. Such a tile yields no target; it is listed
 // in paused instead, for the plane's work-tree notice. Pure: one in-memory
-// lookup per changed component (P8).
+// lookup per changed component (D119d).
 func liveTargets(reload map[string]*registry.Component, restart map[string]bool,
 	lr func(tile string) (dep string, attached bool), primary func(tile string) string) (targets []liveTarget, paused []string) {
 	targets = make([]liveTarget, 0, len(reload))
@@ -80,7 +80,7 @@ func routeBatch(reload map[string]*registry.Component, restart map[string]bool, 
 	targets, paused := liveTargets(reload, restart, gate.LiveReload, gate.Primary)
 	for _, t := range targets {
 		if t.primary {
-			slog.Debug("changed", "component", t.c.Path) // today's line: the save path allocates as it did (P8)
+			slog.Debug("changed", "component", t.c.Path) // today's line: the save path allocates as it did (D119d)
 		} else {
 			slog.Debug("changed", "component", t.c.Path, "deployment", t.dep)
 		}

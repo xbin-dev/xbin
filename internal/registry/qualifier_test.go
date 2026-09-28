@@ -155,7 +155,7 @@ var qualifierRows = []qualifierRow{
 	{path: "apps/crm+main/widgets/", comp: "apps/crm", dep: "main", errIs: ErrNestedTile},
 }
 
-// covers P17 P5 PO-1 — ResolveRef, the deployment URL qualifier (11-contract
+// covers D127j D119c PO-1 — ResolveRef, the deployment URL qualifier (11-contract
 // §2.1, §2.2, §2.4). Today's resolution runs first and wins: a path without
 // '+', a '+' in a file name, a registered component (even one whose
 // directory went before the next rescan) or anything on disk (a directory, a
@@ -205,7 +205,7 @@ func TestResolveDeploymentQualifier(t *testing.T) {
 	}
 }
 
-// covers P5 PO-1 — in the zero state nothing splits: with no lookup, or one
+// covers D119c PO-1 — in the zero state nothing splits: with no lookup, or one
 // that knows no record, every row resolves exactly as Resolve does, main the
 // primary, and a '+'-free path never asks about records at all (the fast
 // path).

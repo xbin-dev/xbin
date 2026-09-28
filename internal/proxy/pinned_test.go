@@ -14,7 +14,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/runner"
 )
 
-// covers P9 T16 — the runtime a request is served with comes from the
+// covers D119e T16 — the runtime a request is served with comes from the
 // primary's own code: while apps/t's primary is pinned, a work-tree edit of
 // runtime (node → static, → go, → the removed cgi) or template never
 // changes what /api/apps/t/ runs as or whether it answers — the gates read

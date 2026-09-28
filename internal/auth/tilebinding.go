@@ -237,7 +237,7 @@ func (a *Auth) MintTileTicket(tile, uid, binding, state string) string {
 }
 
 // MintTileTicketDeployment is MintTileTicket for the origin of deployment
-// dep of tile (P17; 11-contract §7.5): main's ("" or "main") is today's x1,
+// dep of tile (D127j; 11-contract §7.5): main's ("" or "main") is today's x1,
 // byte for byte; any other deployment's an x2, which carries the deployment
 // inside its MAC. "" for a string that isn't a deployment name.
 func (a *Auth) MintTileTicketDeployment(tile, dep, uid, binding, state string) string {
@@ -307,7 +307,7 @@ func (a *Auth) MintTileCookie(tile, uid, binding string, ttl time.Duration) stri
 }
 
 // MintTileCookieDeployment is MintTileCookie for the origin of deployment
-// dep of tile (P17; 11-contract §7.5): main's ("" or "main") is today's c1,
+// dep of tile (D127j; 11-contract §7.5): main's ("" or "main") is today's c1,
 // byte for byte; any other deployment's a c2,
 // c2.b64(tile).b64(user).exp.b64(gen).b64(deployment).mac. "" for a string
 // that isn't a deployment name.

@@ -17,8 +17,8 @@ import (
 	"github.com/xbin-dev/xbin/internal/users"
 )
 
-// covers P21 T9 — protection is managed from the admin tile and with the
-// root token (P21, extended by the owner 2026-09-28), end to end in the
+// covers D127m T9 — protection is managed from the admin tile and with the
+// root token (D127m, extended by the owner 2026-09-28), end to end in the
 // running daemon with auth on. The root token's bx protects, unprotects and
 // reassigns the primary: a human credential. The admin tile's frame, its
 // token minted by the frame-token route under a person's own login, stands

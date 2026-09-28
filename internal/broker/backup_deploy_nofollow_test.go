@@ -51,7 +51,7 @@ func newBackupTripwire(t *testing.T) *backupTripwire {
 	return w
 }
 
-// covers P16 T2 T11 — rule C5 for a tile's backup of its deployment state,
+// covers D119g T2 T11 — rule C5 for a tile's backup of its deployment state,
 // behaviourally: a checkpoint store whose packed-refs, a ref, a loose
 // object and the pack directory are symlinks out of it (to the FIFO, to a
 // directory holding a pack), and whose deploy-log ref is a FIFO of its own,

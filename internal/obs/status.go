@@ -51,7 +51,7 @@ func (o *Plane) apiStatusList(w http.ResponseWriter, r *http.Request) {
 	out := map[string]statusRec{}
 	o.statusMu.Lock()
 	for comp, rec := range o.statuses {
-		if isDepKey(comp) { // a non-primary deployment's: never listed (P13)
+		if isDepKey(comp) { // a non-primary deployment's: never listed (D127h)
 			continue
 		}
 		if admin || p.CanReadTile(comp) {
@@ -108,7 +108,7 @@ func (o *Plane) apiStatusSet(w http.ResponseWriter, r *http.Request) {
 	}
 	rec := statusRec{Level: level, Message: msg, TS: time.Now().Unix()}
 	// the deployment reporting: a non-primary one's status rides only the
-	// deployments event (P13)
+	// deployments event (D127h)
 	dep, code, err := o.reportDeployment(p, comp)
 	if err != nil {
 		server.WriteError(w, code, err.Error(), docsFor(code))
@@ -149,7 +149,7 @@ func (o *Plane) publishStatus(comp string, rec statusRec, transient bool) {
 // (re)starts, so a problem reported before a crash/restart doesn't linger — the
 // fresh process re-asserts its own status. The primary's restarts are today's
 // build-start; a non-primary deployment's, the deployments event's op build,
-// which clears only its own status (P13). A deploy that puts a checkpoint on a
+// which clears only its own status (D127h). A deploy that puts a checkpoint on a
 // deployment emits neither, so its status clears at that deploy's swap
 // instead, never at its start: a failed deploy leaves the old generation
 // serving with its status. A record change that moved the primary moves the

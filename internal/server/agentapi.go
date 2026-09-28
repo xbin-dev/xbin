@@ -59,7 +59,7 @@ func (s *Server) apiAgentProviders(w http.ResponseWriter, r *http.Request) {
 
 // apiAgentCreate opens an agent session: {cwd, kind:"agent", provider,
 // mode?, net?, api?, gpu?, vm?, name?, resume?} → SessionInfo (status starting).
-// ?deployment= is the session's target (P24) — the body never gains a field:
+// ?deployment= is the session's target (D127p) — the body never gains a field:
 // a deployment of the tile, echoed in the SessionInfo; absent, the default.
 // net/api/gpu/vm are the sandbox pickers a shell's socket takes (api false = a
 // code-only sandbox, no terminal token; vm true = a VM sandbox). resume names a past session of the
@@ -112,7 +112,7 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 // new one opens on the same tile with the same provider, mode, settings and
 // name — resuming the conversation where the agent can reopen its own
 // session. Creator only (the new session is the caller's). ?deployment=
-// names the new session's target (P24), echoed in SessionInfo; a refused
+// names the new session's target (D127p), echoed in SessionInfo; a refused
 // one leaves the session running. → {session, resumed}.
 func (s *Server) apiAgentRestart(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.driveOther(w, r)
@@ -128,7 +128,7 @@ func (s *Server) apiAgentRestart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	info, resumed, code, err := s.Term.RestartAgentOnto(auth.PrincipalOf(r), id, body.Net, body.GPU, body.API == nil || *body.API, body.VM,
-		r.URL.Query().Get("deployment")) // the new target (P24); "" the default
+		r.URL.Query().Get("deployment")) // the new target (D127p); "" the default
 	if err != nil {
 		agentOpenErr(w, code, err)
 		return

@@ -166,7 +166,7 @@ func (st *State) serve(ctx context.Context) error {
 // (rescan, provisioning, pending grants, ingress, deps, go.work), then a
 // reload and a rebuild per changed tile's live reload target (liveroute.go).
 // dp is the deployments plane, which answers which deployment a save drives
-// (LiveReload, Primary); a tile without a record drives main, as today (P8),
+// (LiveReload, Primary); a tile without a record drives main, as today (D119d),
 // and a tile whose live reload is paused drives nothing (WorkTreeMoved).
 func watchLoop(w *watch.Watcher, reg *registry.Registry, hub *events.Hub, run *runner.Runner, brk *broker.Broker, dp *deployments.Plane, reconcileIngress func()) {
 	for ev := range w.C {

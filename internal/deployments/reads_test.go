@@ -12,7 +12,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/checkpoint"
 )
 
-// covers P5 P15 T10 — the diff and the checkpoint remote over the real
+// covers D119c D119f T10 — the diff and the checkpoint remote over the real
 // store (reads.go): while main is paused, the diff from its checkpoint to the
 // work tree names the edit (patch and stat), and the remote serves the view
 // repository's HEAD and nothing off its allow-list; a tile no record governs

@@ -14,7 +14,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/sandbox"
 )
 
-// covers P5 P16 SC-ZERO Z8 PO-11 — every confined run xbind makes today keeps
+// covers D119c D119g SC-ZERO Z8 PO-11 — every confined run xbind makes today keeps
 // its bind list: the working directory bound at itself, first, read-only
 // exactly when the caller says ReadOnlyDir, and the caller's binds after it,
 // verbatim and in order. The rows are the shapes today's users build (the
@@ -135,7 +135,7 @@ func TestConfineBindDestinationDefault(t *testing.T) {
 	}
 }
 
-// covers P18 T12 P16 PO-11 — direct mode (isolation off) never runs a job on
+// covers D119h T12 D119g PO-11 — direct mode (isolation off) never runs a job on
 // the work tree when it asked for another path at its destination: a Cmd
 // whose DirFrom names another directory than Dir, or that carries a bind
 // made by At (even one whose source and destination are one path), returns

@@ -103,7 +103,7 @@ import Testing
 
     // MARK: Old apps and tile deployments
 
-    /// covers P13 PO-5 — why xbind never sends a non-primary deployment's
+    /// covers D127h PO-5 — why xbind never sends a non-primary deployment's
     /// activity as `reload` (the server's rule: old event types carry only
     /// the primary, with the bare component). `ReloadTargets.covers` as it
     /// ships: `apps/x+dev` isn't covered by `apps/x` (`+` is no path
@@ -129,7 +129,7 @@ import Testing
         }
     }
 
-    /// covers P13 PO-5 — the `deployments` type in every documented form
+    /// covers D127h PO-5 — the `deployments` type in every documented form
     /// (full and reader forms, each op, naming `dev` and `main`) parses to
     /// `.other`, which the app ignores, so none reaches reload targeting; a
     /// `bus` event of a non-main namespace stays `.other(type: "bus")`.
@@ -158,7 +158,7 @@ import Testing
         #expect(AppEvent.parse(#"{"type":"bus","topic":"res:apps/crm/events/orders","deployment":"dev","data":1}"#) == .other(type: "bus"))
     }
 
-    /// covers P13 PO-5 — TestFailedDeployInvisible's tape
+    /// covers D127h PO-5 — TestFailedDeployInvisible's tape
     /// (test/deployments_test.go): go, node and python tiles written, their
     /// live reload paused, then a broken build, a crash at start and a health
     /// timeout each shipped by reload now, a deploy and a rollback, every one
@@ -200,7 +200,7 @@ import Testing
         }
     }
 
-    /// covers P13 PO-5 — a fresh tape: with XBIN_DEPLOY_TAPE naming the file
+    /// covers D127h PO-5 — a fresh tape: with XBIN_DEPLOY_TAPE naming the file
     /// an integration run of TestFailedDeployInvisible wrote, it replays the
     /// same way.
     @Test(.enabled(if: ProcessInfo.processInfo.environment["XBIN_DEPLOY_TAPE"] != nil, "XBIN_DEPLOY_TAPE is not set"))

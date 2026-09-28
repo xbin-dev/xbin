@@ -44,7 +44,7 @@ func (r zsRunner) RootsInUse() []string {
 	return nil
 }
 
-// covers P5 PO-7 PO-12 NP-14-5 — every hook the plane answers for the
+// covers D119c PO-7 PO-12 NP-14-5 — every hook the plane answers for the
 // registry, the runner, the broker, the server, the terminal manager and the
 // watcher gives today's answer for a tile without a record, the same whether
 // the ship-dark switch is on or off (the zero-state path never reads it); the
@@ -151,7 +151,7 @@ func TestPlaneZeroState(t *testing.T) {
 	}
 }
 
-// covers P5 — a plane with no inputs (a literal, as registerDeploymentsAPI's
+// covers D119c — a plane with no inputs (a literal, as registerDeploymentsAPI's
 // route test builds it) answers the primary's env as the runner's own
 // fallback does without EnvForComponent: none, and no remap.
 func TestPlaneZeroStateNoInputs(t *testing.T) {

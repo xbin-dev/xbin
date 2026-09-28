@@ -50,7 +50,7 @@ var nofollowScope = []string{
 // of the two above (for example, an xbind-owned file under data/deployments).
 var walkOK = regexp.MustCompile(`walk-ok:\s*\S`)
 
-// covers P16 T2 — rule C5 in Go code: no host-side following open, stat,
+// covers D119g T2 — rule C5 in Go code: no host-side following open, stat,
 // chmod, chown or walk inside a work tree, a resource mount, a materialized
 // tree or a quarantine.
 //

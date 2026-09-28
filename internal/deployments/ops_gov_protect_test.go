@@ -23,11 +23,11 @@ func protectOf(t *testing.T) func(res any, err error) ProtectAnswer {
 	}
 }
 
-// covers P21 P24 T16 — protecting the primary: on a tile without a record
+// covers D127m D127p T16 — protecting the primary: on a tile without a record
 // it is the opt-in (its dry run captures nothing, creates no store); the
 // primary, following the work tree, is pinned in place to a capture (how
 // protect) and live reload detaches; the sessions that targeted it are moved
-// (P24's default), and no session can target it any more. Resuming or
+// (D127p's default), and no session can target it any more. Resuming or
 // attaching live reload onto it is refused for everyone, managers included;
 // only a tile manager in a person's own session changes its code (a
 // terminal-level person's and the tile's terminal token's deploy, promote,
@@ -131,7 +131,7 @@ func TestProtectedPrimary(t *testing.T) {
 	})
 }
 
-// covers P21 T16 06-security-T16 — onto a protected primary every code move
+// covers D127m T16 06-security-T16 — onto a protected primary every code move
 // names what its manager reviewed: deploy and roll back a checkpoint, reload
 // now, promotion and reassignment an expect, each with seq; without them the
 // answer is 400 before anything is captured, dry runs included, while a

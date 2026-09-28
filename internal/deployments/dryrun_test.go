@@ -8,11 +8,11 @@ import (
 	"testing"
 )
 
-// covers P5 PO-7 T10 L20 — dry runs never create a checkpoint store on a
+// covers D119c PO-7 T10 L20 — dry runs never create a checkpoint store on a
 // zero-state tile (05-model §5, 07-runtime §2.11): a dry run of pausing live
 // reload computes the impact from a stat-only walk (impact.code null, the
 // caps checked) and captures nothing; one refused by the caps, by isolation
-// (P18) or by authority is judged exactly as for real; the operations that
+// (D119h) or by authority is judged exactly as for real; the operations that
 // aren't opt-ins answer 409 on such a tile. Afterwards the workspace has no
 // data/checkpoints, data/deployments or .xbin/deploy. The store appears
 // only with a committed opt-in; a dry run on a tile with a record takes its

@@ -19,7 +19,7 @@ import (
 // hg (the hardened prefix): "git" as a command word.
 var bareGit = regexp.MustCompile(`(^|[\s;|&(!])git(\s|$)`)
 
-// covers P16 T1 — every tool run of the store goes through confine (the
+// covers D119g T1 — every tool run of the store goes through confine (the
 // Store's run hook, a recorder here, in direct mode): git only through the
 // hardened prefix, with the store as its repository, never -C and never the
 // tile's .git; the store bound read-write and the work tree read-only, no

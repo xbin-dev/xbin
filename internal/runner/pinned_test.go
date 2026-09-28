@@ -1,6 +1,6 @@
 package runner
 
-// covers P9 P8 P5 T11 T18 C7 P18 SC-ROLLBACK — seam rows 16–22 and 30 of
+// covers D119e D119d D119c T11 T18 C7 D119h SC-ROLLBACK — seam rows 16–22 and 30 of
 // 15-test-plan §2.5, and TestArtifactPerCheckpoint (§3.2): every restart
 // path of a pinned primary starts the checkpoint its record names, from the
 // artifact kept for it, never the work tree; a zero-state tile asks no
@@ -366,7 +366,7 @@ var pinRows = []pinRow{
 		tape:   []string{bs, "build-error apps/x: apps/x: the deployment record can't be used"},
 		ensure: []string{"error: apps/x: the deployment record can't be used"},
 		status: "failed g2 · apps/x: the deployment record can't be used"},
-	{id: "P18 without isolation a pinned backend is refused, never run as the work tree",
+	{id: "D119h without isolation a pinned backend is refused, never run as the work tree",
 		steps:  []string{"restart-without-isolate", "ensure"},
 		log:    []string{sp(2)},
 		tape:   []string{bs, "build-error apps/x: " + noIsolate},
@@ -382,7 +382,7 @@ var pinRows = []pinRow{
 
 const noIsolate = "apps/x is pinned to checkpoint c:c100000, and a pinned backend runs only with --isolate: it isn't started, and its work tree never runs in its place"
 
-// covers P9 P8 P5 T11 C7 P18 — 15-test-plan §2.5 rows 16–22 and 30: every
+// covers D119e D119d D119c T11 C7 D119h — 15-test-plan §2.5 rows 16–22 and 30: every
 // restart path runs the record's checkpoint, from its kept artifact.
 func TestPinnedSeamRows(t *testing.T) {
 	for _, row := range pinRows {
@@ -481,7 +481,7 @@ func checkZeroStateAsksNothing(t *testing.T, w *pinWorld) {
 	}
 }
 
-// covers P9 SC-ROLLBACK T18 — artifacts are kept per checkpoint while
+// covers D119e SC-ROLLBACK T18 — artifacts are kept per checkpoint while
 // referenced: Artifact finds a checkpoint's retained binary only where its
 // build left it for this tile; PruneArtifacts keeps what the plane names (a
 // deployment's current checkpoint and its previous three deploy-log entries,

@@ -173,7 +173,7 @@ func (r *Runner) ingressFwd(c *registry.Component) map[int]string {
 // primary's dials are hostDial's. Any other deployment's are refused at
 // once, with one line in log, its backend log: a stream slot reaches into
 // another tile's primary as raw L4 traffic the read clamp can't narrow, so
-// v1 blocks it with no override (P23), and a forward door is the primary's.
+// v1 blocks it with no override (D127o), and a forward door is the primary's.
 // A generation that stopped being the primary loses its forwards the same
 // way until it restarts.
 func (r *Runner) hostDialFor(tile, dep string, log io.Writer) func(dst string) (net.Conn, error) {

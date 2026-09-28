@@ -31,7 +31,7 @@ func init() {
 	)
 }
 
-// covers P16 T2 — rule C5 for the checkpoint estimate and capture (the case
+// covers D119g T2 — rule C5 for the checkpoint estimate and capture (the case
 // of internal/checkpoint's TestCaptureNoFollowingHostWalk): a work tree whose
 // manifest, a source file, .git/HEAD and a dependency link point at the FIFO
 // outside it, and one whose .git/HEAD and a file are FIFOs, are estimated
@@ -67,7 +67,7 @@ func nofollowCapture(t *testing.T, fifo string) {
 	}
 }
 
-// covers P9 P16 T2 — rule C5 for materializing a checkpoint and its GC (the
+// covers D119e D119g T2 — rule C5 for materializing a checkpoint and its GC (the
 // case of internal/checkpoint's TestMaterializeNoFollowingHostWalk): a
 // checkpoint holding links to the FIFO (xbin.json, a source file, a
 // dependency, a chain c1 → c2) is materialized twice, and GC then runs over
@@ -117,7 +117,7 @@ func nofollowMaterializeGC(t *testing.T, fifo string) {
 	}
 }
 
-// covers P16 T20 — rule C5 for the purge (the case of internal/checkpoint's
+// covers D119g T20 — rule C5 for the purge (the case of internal/checkpoint's
 // TestPurgeNoFollowingHostWalk): a checkpoint whose manifest, a source file
 // and a dependency link to the FIFO (and its directory) is materialized,
 // then purged, which removes the materialized tree and its links without
@@ -149,7 +149,7 @@ func nofollowPurge(t *testing.T, fifo string) {
 	}
 }
 
-// covers P16 T2 — rule C5 for the drift count (the hostile half of
+// covers D119g T2 — rule C5 for the drift count (the hostile half of
 // internal/checkpoint's TestDriftCountChangesNothingDurable): after a
 // capture, the work tree's a.txt, xbin.json and .git/HEAD become links to
 // the FIFO and pipe.js a FIFO, and the count runs without opening them.
@@ -179,7 +179,7 @@ func nofollowDrift(t *testing.T, fifo string) {
 	}
 }
 
-// covers P16 T2 T11 — rule C5 for a tile's backup of its deployment state
+// covers D119g T2 T11 — rule C5 for a tile's backup of its deployment state
 // (the store half of internal/broker's TestBackupDeploymentsNoFollow): the
 // archive walk (backup.Writer.TreeBeneath) over a checkpoint store whose
 // packed-refs, a ref and a loose object link to the FIFO, whose pack

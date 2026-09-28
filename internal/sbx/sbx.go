@@ -55,7 +55,7 @@ type Entry struct {
 	Kind Kind   `json:"kind"`
 	Tile string `json:"tile"` // the component it belongs to (workspace-relative)
 	// Deployment is the tile deployment it runs for, set only when that isn't
-	// main, so main's entries stay as they were before deployments (P5).
+	// main, so main's entries stay as they were before deployments (D119c).
 	// Tile is the tile's path whatever the deployment.
 	Deployment string `json:"deployment,omitempty"`
 	// Parent is the entry a sub-sandbox belongs to (reserved for tile-managed

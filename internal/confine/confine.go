@@ -128,7 +128,7 @@ var ErrUnavailable = errors.New("confined run: the sandbox could not start")
 // path at another destination — DirFrom other than Dir, or a bind made by At.
 // Without a mount namespace the tool would run on what lies at the
 // destination on the host (the work tree, not the checkpoint), so the run is
-// refused before anything starts: D78 never degrades to the host (P18).
+// refused before anything starts: D78 never degrades to the host (D119h).
 var ErrNeedsIsolation = errors.New("confined run: this job shows another path at its destination and needs --isolate")
 
 const sandboxPATH = "/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -264,7 +264,7 @@ func (c Cmd) binds() []sandbox.Bind {
 }
 
 // directOK refuses a direct run that asks for another path at a destination
-// (P18): DirFrom naming anything but Dir, or a bind made by At. A bind the
+// (D119h): DirFrom naming anything but Dir, or a bind made by At. A bind the
 // caller builds by hand keeps today's direct behaviour whatever its Src and
 // Dst (the git import's ~/.ssh at /root/.ssh): the direct run already sees
 // the host's own files where the sandbox would show them.

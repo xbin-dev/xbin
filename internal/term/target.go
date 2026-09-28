@@ -1,12 +1,12 @@
 package term
 
-// target.go — a session's target deployment (P24) (11-contract §7.4): the
+// target.go — a session's target deployment (D127p) (11-contract §7.4): the
 // deployment of its tile a terminal or agent session's token is bound to,
 // chosen when the session starts and fixed for its life (changing it
 // restarts the session, as today's API switch does). The deployments plane
 // tells the manager what the choice needs to know of a tile
 // (TileDeployments), through a hook boot installs; ChooseTarget applies the
-// rule to it (P24). A tile without a deployment record has main alone, unprotected and
+// rule to it (D127p). A tile without a deployment record has main alone, unprotected and
 // followed by live reload, so every session follows the primary and the API
 // dropdown keeps today's two entries (tile API, no API).
 //
@@ -46,7 +46,7 @@ const badTargetMsg = `deployment names are lowercase letters, digits and "-", st
 type TileDeployments struct {
 	Record     bool     // a deployment record governs the tile; false: the zero state
 	Primary    string   // the primary's name: main without a record
-	Protected  bool     // the primary is protected: never a session's target (P21)
+	Protected  bool     // the primary is protected: never a session's target (D127m)
 	LiveReload string   // the live reload target; "" while live reload is paused
 	Names      []string // every deployment of the tile, main first
 }
@@ -118,7 +118,7 @@ func ChooseTarget(tile string, d TileDeployments, api bool, requested string) (T
 
 // Entries lists the deployments a terminal-level user's API dropdown offers
 // for the tile, before "no API": every deployment but a protected primary
-// (P24). Without a record, or with only an unprotected main, that is main
+// (D127p). Without a record, or with only an unprotected main, that is main
 // alone: today's "tile API" entry.
 func Entries(d TileDeployments) []string {
 	out := make([]string, 0, len(d.Names))
@@ -141,20 +141,20 @@ func (t Target) DeploymentEnv(d TileDeployments) string {
 }
 
 // sessionTarget is what a session keeps of its target, all of it fixed when
-// the session starts (P24). The zero value is today's session: it follows
+// the session starts (D127p). The zero value is today's session: it follows
 // the primary, names nothing, and its env and session frame are unchanged.
 type sessionTarget struct {
 	Target
 	askedPrimary bool           // the client named the primary: the answers echo its name (11-contract §8)
 	env          string         // XBIN_DEPLOYMENT; "" leaves the variable out
 	note         string         // the session frame's targetNote, "" for none (bx-terminal prints it like netNote)
-	apiOff       bool           // a target was asked for or chosen but the session has no tile API (P24's last fallback, or a D17 clamp): the frame echoes api:false
+	apiOff       bool           // a target was asked for or chosen but the session has no tile API (D127p's last fallback, or a D17 clamp): the frame echoes api:false
 	opener       auth.Principal // who opened it: a governance restart reopens an agent session as them
 }
 
 // pickTarget chooses a new session's target for p on tile rel (both kinds;
 // the caller has passed the terminal-level gate) and keeps it in o, from
-// which the token is minted and the env built (P24). requested is the
+// which the token is minted and the env built (D127p). requested is the
 // client's ?deployment=, "" for the default. The int is the HTTP status of
 // a refusal: 403 for a view-as session (a session is a write, whatever the
 // verb) or a protected primary, 404 for an unknown deployment, 400 for a
@@ -258,9 +258,9 @@ func (m *Manager) row(s *Session) SessionInfo {
 }
 
 // PrimaryProtected moves the sessions on tile that target its primary,
-// which a tile manager just protected (11-contract §7.4) (P21): until then
+// which a tile manager just protected (11-contract §7.4) (D127m): until then
 // their tokens are bound to nothing (§7.1). The target is chosen again by
-// the default (P24): an agent session restarts as …/restart does, resuming
+// the default (D127p): an agent session restarts as …/restart does, resuming
 // its conversation, onto the live reload target; a shell ends, and its
 // window says why (the `deployments` event). When the default is "API off" (live
 // reload is paused too), every such session ends. Returns how many

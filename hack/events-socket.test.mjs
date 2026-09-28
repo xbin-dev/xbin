@@ -1,4 +1,4 @@
-// hack/events-socket.test.mjs — covers P13 PO-5 — old clients as fixtures:
+// hack/events-socket.test.mjs — covers D127h PO-5 — old clients as fixtures:
 // the web shell's live-reload targeting (web/events-socket.js
 // isReloadTarget) exactly as it ships, run by `make js-test` under node (the
 // module imports nothing and opens no socket until onEvent is called). A
@@ -74,7 +74,7 @@ test('isReloadTarget as it ships: the most specific mounted frame, ancestors inc
   mountedFrames.clear();
 });
 
-// covers P13 PO-5 — why rule C2 keeps non-primary activity off `reload`: an
+// covers D127h PO-5 — why rule C2 keeps non-primary activity off `reload`: an
 // open ancestor claims a qualified component. `apps/a/b+dev` reloads a
 // mounted `apps/a` even while `apps/a/b`'s own frame is mounted (its src
 // never covers the qualified string, so the ancestor is the most specific
@@ -100,7 +100,7 @@ test('a qualified component is claimed by a mounted ancestor, never by the tile\
   mountedFrames.clear();
 });
 
-// covers P13 PO-5 — a `deployments` event never reloads a frame through
+// covers D127h PO-5 — a `deployments` event never reloads a frame through
 // isReloadTarget: in web/ only bx-frame calls it, and only under its
 // `case 'reload':`. Every documented `deployments` form (the contract's
 // full and reader forms, each op, naming `dev` and `main`) and a `bus` event
@@ -183,7 +183,7 @@ function checkTape(name, lines) {
   return frames;
 }
 
-// covers P13 PO-5 — TestFailedDeployInvisible's tape (test/deployments_test.go):
+// covers D127h PO-5 — TestFailedDeployInvisible's tape (test/deployments_test.go):
 // go, node and python tiles written, their live reload paused, then a
 // broken build, a crash at start and a health timeout each shipped by
 // reload now, a deploy and a rollback, every one failing, with a
@@ -211,7 +211,7 @@ test('TestFailedDeployInvisible\'s tape replays through old frames', () => {
   mountedFrames.clear();
 });
 
-// covers P13 PO-5 — a fresh tape: with XBIN_DEPLOY_TAPE naming the file an
+// covers D127h PO-5 — a fresh tape: with XBIN_DEPLOY_TAPE naming the file an
 // integration run of TestFailedDeployInvisible wrote, it replays the same
 // way (skipped otherwise, with the reason).
 test('a fresh tape from XBIN_DEPLOY_TAPE replays through old frames', (t) => {

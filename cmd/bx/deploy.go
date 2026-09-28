@@ -65,7 +65,7 @@ func codeMove(how string, args []string) error {
 	return runDeployOp(op, a)
 }
 
-// cmdPromote gives <to> exactly <from>'s current code (P10): its
+// cmdPromote gives <to> exactly <from>'s current code (D127e): its
 // checkpoint, or a fresh checkpoint of the work tree when it follows it, the
 // one the dry run reported (sent as expect). Data stays. Both deployments
 // are named: promote never takes one from the env or a qualifier.
@@ -98,7 +98,7 @@ func cmdPromote(args []string) error {
 
 // reviewedCode names the code a move onto a protected primary ships before
 // its dry run, since the server refuses one that names none, dry runs
-// included (P21) (11-contract §1.2): a work-tree capture through a diff's
+// included (D127m) (11-contract §1.2): a work-tree capture through a diff's
 // X-XBin-Checkpoint-To, a pinned deployment's checkpoint, a roll back's
 // target from the deploy log. They go in the dry run and the request, with
 // seq. Nothing for any other move: the dry run reports its code.
@@ -432,7 +432,7 @@ func depLog(cmd string, a dcArgs) error {
 			return err
 		}
 	}
-	tile, qdep, err := queryTile(ref) // the query names the deployment beside the tile (P17)
+	tile, qdep, err := queryTile(ref) // the query names the deployment beside the tile (D127j)
 	switch {
 	case err != nil:
 		return err
@@ -513,7 +513,7 @@ func depDiff(cmd string, a dcArgs) error {
 	case ref == "":
 		return usageError(cmd, "which tile? name it, or run bx in the tile's terminal")
 	}
-	tile, _, err := queryTile(ref) // a query takes the tile alone (P17)
+	tile, _, err := queryTile(ref) // a query takes the tile alone (D127j)
 	if err != nil {
 		return err
 	}

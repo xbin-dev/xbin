@@ -11,7 +11,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers T9 P21 06-security-T9.4 — authority is judged again where an
+// covers T9 D127m 06-security-T9.4 — authority is judged again where an
 // operation commits, against the record it changes: a terminal-level
 // person's resume whose record is protected while it captures is refused
 // at its commit (409, live reload never attaches to a protected primary)
@@ -73,7 +73,7 @@ func TestAuthorizationRecheckedAtCommit(t *testing.T) {
 		}
 
 		// The owner, a manager, commits onto the protected primary, naming
-		// the checkpoint it reviewed and the seq it read (P21).
+		// the checkpoint it reviewed and the seq it read (D127m).
 		f.run.set(func(r *fakeRunner) { r.before, r.started = nil, nil })
 		f.write(opAPI+"/main.go", "package main // v3\n")
 		c, _ := f.p.component(opAPI)

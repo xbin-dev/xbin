@@ -416,7 +416,7 @@ func (bs *busSubs) drain(st *busSubState) {
 
 // deliver POSTs one queued event to sub, which belongs to deployment owner
 // ("" is main), re-checking at delivery that owner's registrations are
-// active and that it can still read the bus (P13).
+// active and that it can still read the bus (D127h).
 func (bs *busSubs) deliver(dispatch BusDispatch, owner string, sub busSub, d busDelivery) (outcome, errText string) {
 	b := bs.b
 	if _, ok := b.Reg.Component(sub.Component); !ok {

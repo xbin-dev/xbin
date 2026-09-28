@@ -40,7 +40,7 @@ func (f *govFx) backupHooks() {
 	}
 }
 
-// covers P6 P13 P28 T9 — the per-deployment backup acts delegate to the
+// covers D127c D127h D127t T9 — the per-deployment backup acts delegate to the
 // broker's data plane: backup names the primary by default, a dry run writes
 // nothing; restore goes into its target (into, else the archive's own
 // deployment, else the primary), passes the broker a judgement of every

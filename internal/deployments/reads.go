@@ -5,7 +5,7 @@ package deployments
 // the checkpoint remote. The handler judges the caller first (boot's
 // deployreads.go); these answer only for a tile an active record governs,
 // so an inert store (an opt-out keeps it) is never read, and none is
-// created (P5).
+// created (D119c).
 
 import (
 	"context"

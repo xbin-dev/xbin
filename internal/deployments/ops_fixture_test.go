@@ -51,7 +51,7 @@ type opsFx struct {
 }
 
 // newOpsFx builds the workspace and boots a plane over it; isolated says
-// whether backends may be pinned (P18).
+// whether backends may be pinned (D119h).
 func newOpsFx(t *testing.T, isolated bool) *opsFx {
 	t.Helper()
 	root := t.TempDir()

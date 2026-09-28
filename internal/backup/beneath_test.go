@@ -82,7 +82,7 @@ func TestTreeBeneathNeverFollows(t *testing.T) {
 	}
 }
 
-// covers P5 — a manifest without a deployment section marshals as today's,
+// covers D119c — a manifest without a deployment section marshals as today's,
 // with no deployments key; one with it names what the archive holds, and
 // the section reads back.
 func TestManifestDeploymentSection(t *testing.T) {

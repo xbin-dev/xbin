@@ -104,7 +104,7 @@ func TestViewAsRefusedEveryOp(t *testing.T) {
 	}
 }
 
-// covers T9 P21 — the ops call Recheck at commit (06-security T9.4): it
+// covers T9 D127m — the ops call Recheck at commit (06-security T9.4): it
 // judges the grant again against the record as it stands. A code move onto
 // the primary authorized for a terminal-level user is refused once
 // protection was turned on meanwhile, while a manager's commits; a record
@@ -178,7 +178,7 @@ func TestRecheckJudgesTheRecordAtCommit(t *testing.T) {
 	}
 }
 
-// covers NP-14-5 P5 P9 PO-15 — the ship-dark switch (14 §6.3), read as
+// covers NP-14-5 D119c D119e PO-15 — the ship-dark switch (14 §6.3), read as
 // Plane.OptInClosed: while off, every operation that creates or extends
 // deployment state answers 409 with kind policy, a zero-state opt-in
 // included, after authority is judged; resuming live reload onto main,
@@ -249,7 +249,7 @@ func TestShipDarkClosesOnlyGrowth(t *testing.T) {
 	}
 }
 
-// covers P5 T9 — on a tile without a record only the opt-ins are accepted
+// covers D119c T9 — on a tile without a record only the opt-ins are accepted
 // (11-contract §1.2): pausing live reload, adding a deployment, protecting
 // (and unprotecting, a no-op there); every other operation answers 409 with
 // kind state, after authority is judged, and a read is never refused for it.

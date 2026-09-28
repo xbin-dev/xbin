@@ -1,7 +1,7 @@
 // hack/deploy-target.test.mjs — unit tests for the terminal window's session
 // targets and deployment frames (web/deploy-state.js), run by `make js-test`:
 // node's built-in runner, no dependencies. What the tile API select shows
-// and restarts (a session's target, P24), how a session listing keeps each
+// and restarts (a session's target, D127p), how a session listing keeps each
 // tab's echoed target, and what a frame of a deployment
 // (<bx-frame src="<tile>+<name>">) does for a `deployments` event. The
 // states come from hack/deploy-fixtures.mjs.
@@ -14,7 +14,7 @@ import { T, TODAY, depCan, no, mainPinned, devLive, zero, paused, onDev } from '
 
 const RESTARTS = 'switching restarts the terminal';
 
-// covers P24 PO-10 — a tab's target is its session's echo, never what it
+// covers D127p PO-10 — a tab's target is its session's echo, never what it
 // asked for: no API, a named deployment, or the primary it follows.
 test('a tab\'s target is its echo', () => {
   assert.equal(sessionTarget(null), null);
@@ -24,7 +24,7 @@ test('a tab\'s target is its echo', () => {
   assert.equal(sessionTarget({ api: false, deployment: 'dev' }), 'off', 'no API wins');
 });
 
-// covers P24 PO-10 — the select marks the echoed target, and a named target
+// covers D127p PO-10 — the select marks the echoed target, and a named target
 // the list lacks (removed, or no longer the viewer's to open) is still shown
 // rather than guessed; the zero state keeps today's two options.
 test('the tile API select shows the echo', () => {
@@ -43,7 +43,7 @@ test('the tile API select shows the echo', () => {
   assert.deepEqual(apiOptions(paused(), { api: false }).options, TODAY, 'main alone, unprotected: today\'s two');
 });
 
-// covers P24 — the select's tooltip says what the entry decides and what
+// covers D127p — the select's tooltip says what the entry decides and what
 // "off" stops, then the notes: a protected primary, saves and calls apart.
 test('the tile API select\'s tooltip', () => {
   const a = apiOptions(onDev(), { api: true, deployment: '' });
@@ -56,7 +56,7 @@ test('the tile API select\'s tooltip', () => {
     'main is protected: terminals and agents can\'t call it.'].join('\n'));
 });
 
-// covers P24 PO-10 — choosing an entry restarts the session onto it: the
+// covers D127p PO-10 — choosing an entry restarts the session onto it: the
 // primary's entry requests no deployment (the session follows the
 // primary), a deployment's names it, "off" drops the API; the confirmation
 // is §5.2 row 18; today's two entries restart exactly as before.
@@ -91,7 +91,7 @@ test('switching the target', () => {
   assert.equal(targetChange(null, { api: true }, 'on'), null, 'an xbind without tile deployments');
 });
 
-// covers P24 PO-10 — a listing (tabsFrom) carries no target: a shell keeps
+// covers D127p PO-10 — a listing (tabsFrom) carries no target: a shell keeps
 // what its own session frame echoed, since a changed attribute would restart
 // it; an agent and a tab first seen take the directory's row; a spawning tab
 // keeps its own; a shell ended for want of an echo stays until dismissed.
@@ -128,7 +128,7 @@ test('a listing keeps each tab\'s target', () => {
   assert.match(noTarget('dev'), /^this xbind can't target deployments: the session that asked for dev was ended/);
 });
 
-// covers C2 P24 PO-10 — a frame of a deployment hears its deployment's
+// covers C2 D127p PO-10 — a frame of a deployment hears its deployment's
 // reloads and builds on the tile's `deployments` events, matched exactly: a
 // frame of the primary or of an ancestor tile never reacts, and today's
 // event types never speak of a non-primary deployment.
@@ -150,7 +150,7 @@ test('a frame of a deployment', () => {
   assert.equal(deploymentFrame(`${T}+dev`, null), null);
 });
 
-// covers P2 — the new strings use the glossary's words.
+// covers D119b — the new strings use the glossary's words.
 test('target strings use the glossary\'s words', () => {
   const s = onDev();
   const strings = [

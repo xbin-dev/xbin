@@ -131,7 +131,7 @@ func cp(r *Record, dep string) string {
 	return ""
 }
 
-// covers 05-model §5 P5 P8 P9 P13 P14 P29 — the code operations
+// covers 05-model §5 D119c D119d D119e D127h D127i D119i — the code operations
 // beyond main on a literal of the plane's inputs, no broker: adding a
 // deployment (a dry run on a tile without a record captures nothing and
 // creates no store; the add is that tile's opt-in: the record, main still on
@@ -455,7 +455,7 @@ func TestDeployPlaneOperationsCode(t *testing.T) {
 
 func itoa(n int64) string { b, _ := json.Marshal(n); return string(b) }
 
-// covers P10 — promotion moves code only: B's switches, limits, the tile's
+// covers D127e — promotion moves code only: B's switches, limits, the tile's
 // edges and primary and every other deployment stay as they were, nothing
 // of B's data, vault or registrations is dropped, and only B's pointer
 // moves. From a deployment that follows the work tree the promotion deploys
@@ -515,12 +515,12 @@ func TestPromoteMovesCodeOnly(t *testing.T) {
 	}
 }
 
-// covers P17 T3 — the + rule on the deployment side, for every creator
+// covers D127j T3 — the + rule on the deployment side, for every creator
 // (admins included): no deployment b on apps/site while a component exists
 // at apps/site+b (409, nothing written); other names are free, and main and
 // taken names are refused. A request naming apps/site+b acts on that tile,
 // today's resolution, and that tile, its own name holding '+', gets no
-// deployments (P17, decided 2026-09-28), dry or not; it may still pause live
+// deployments (D127j, decided 2026-09-28), dry or not; it may still pause live
 // reload.
 func TestAddDeploymentNameCollision(t *testing.T) {
 	f := newCodeFx(t, false)
@@ -555,7 +555,7 @@ func TestAddDeploymentNameCollision(t *testing.T) {
 	}
 }
 
-// covers T10 P25 — the admission caps on non-primary deployments
+// covers T10 D127q — the admission caps on non-primary deployments
 // (07-runtime §10.3): three per tile, twenty-four per workspace, each a 409
 // of kind policy that changes nothing, which the state's allowed entry
 // reports before anyone asks; removing one frees a place.
@@ -614,7 +614,7 @@ func errorsAs(err error, e **Error) bool {
 	return ok
 }
 
-// covers P19 T14 — chrome and xbin-capable tiles may pause live reload but
+// covers D127k T14 — chrome and xbin-capable tiles may pause live reload but
 // can't have a non-primary deployment (409, kind policy, nothing written):
 // a tile whose work tree asks for chrome, one whose pinned primary's code
 // asks for it after the work tree stopped asking, one granted xbin:users,
@@ -687,7 +687,7 @@ func TestP19RefusesChromeAndXbinTiles(t *testing.T) {
 	f.add(ownerP, &AddRequest{Tile: "apps/sneak", Deployment: "exp"}) // the work tree's own code doesn't ask
 }
 
-// covers T16 P8 P9 — what lands in the work tree (a builtin update in any
+// covers T16 D119d D119e — what lands in the work tree (a builtin update in any
 // mode, an applied PR: both write files there) reaches only the live reload
 // target: with live reload attached to dev, a save drives dev alone, dev
 // serves and runs the work tree, and main keeps serving and running its

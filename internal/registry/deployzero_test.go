@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// covers P5 PO-12 SC-ZERO — a scan with no deployment hook installed leaves
+// covers D119c PO-12 SC-ZERO — a scan with no deployment hook installed leaves
 // every component's deployment fields zero: it describes the primary (no
 // Deployment), its code is its directory (no CodeRoot), nothing is kept for a
 // pinned primary, and WorkTreeManifest is its own manifest. A broken or
@@ -49,7 +49,7 @@ func TestDeploymentFieldsZeroState(t *testing.T) {
 	}
 }
 
-// covers P9 — WorkTreeManifest reads the work tree's scan once the primary
+// covers D119e — WorkTreeManifest reads the work tree's scan once the primary
 // is pinned: the authors' roles, not the pinned code's.
 func TestWorkTreeManifest(t *testing.T) {
 	c := &Component{

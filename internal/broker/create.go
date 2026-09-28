@@ -27,7 +27,7 @@ import (
 // becomes the user-owner; admin/automation creations are workspace-owned.
 //
 // A path holding a '+' is refused for everyone, admins included
-// (canCreateAt): "<tile>+<name>" is a tile deployment's URL (P17).
+// (canCreateAt): "<tile>+<name>" is a tile deployment's URL (D127j).
 func (b *Broker) apiCreate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		scaffold.Options
@@ -190,7 +190,7 @@ func (b *Broker) defaultOrgOwner(userID, why string) (ref, msg string) {
 // registers its own (D85). Those of its deployments beyond main go too,
 // files and all (dormant.go).
 //
-// Then it resets the path's deployment state (P29), whoever creates the
+// Then it resets the path's deployment state (D119i), whoever creates the
 // tile: a deployment record and view repository a removed tile left there
 // never apply to the new one, which starts in the zero state. The
 // checkpoint store stays, a leftover (pathLeftovers).

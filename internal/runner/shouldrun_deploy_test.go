@@ -2,7 +2,7 @@ package runner
 
 import "testing"
 
-// covers P22 PO-2 — a deployment's spawn is gated by its own namespaces'
+// covers D127n PO-2 — a deployment's spawn is gated by its own namespaces'
 // encryption hold once boot installs ShouldRunDeployment (08-data §3.6):
 // the hook answers per deployment, whatever the tile's ShouldRun says;
 // without it every deployment takes the tile's gate, today's.

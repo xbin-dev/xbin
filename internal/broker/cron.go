@@ -188,7 +188,7 @@ func (cr *cronRunner) fire(j cronJob) {
 	// main's jobs fire while main's registrations are active: always without
 	// a deployment record; with one, unless main isn't the primary and a
 	// tile manager switched its deliveries off (the active set, dormant.go)
-	// (P13).
+	// (D127h).
 	if !cr.b.firing(j.Component, "") {
 		return
 	}
@@ -332,7 +332,7 @@ func (b *Broker) apiCronDelete(w http.ResponseWriter, r *http.Request) {
 const runNowWait = 2 * time.Minute
 
 // RunNow delivers deployment dep of tile's cron job once (11-contract §1.9)
-// (P13): as xbin/cron with the job's role, to dep, through the dispatch a
+// (D127h): as xbin/cron with the job's role, to dep, through the dispatch a
 // tick uses, whether its deliveries are on or not. It waits for the answer
 // at most two minutes, and one run of a job is in flight at a time. The
 // plane judges who may ask (terminal level). Errors are *deployments.Error:

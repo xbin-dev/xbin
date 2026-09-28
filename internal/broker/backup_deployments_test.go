@@ -277,7 +277,7 @@ func restoreReq(dep, into string, confirm bool) deployments.RestoreRequest {
 	return r
 }
 
-// covers 05-model §11 P6 P13 PO-9 SC-AUDIT T11 — (M2) TestBackupCoversDeployments'
+// covers 05-model §11 D127c D127h PO-9 SC-AUDIT T11 — (M2) TestBackupCoversDeployments'
 // deployment half: while main is the primary a tile's backup writes its main
 // archive alone, with main's data only and the registration files of its
 // other deployments under deployments/registrations/; with the primary
@@ -425,7 +425,7 @@ func TestBackupCoversDeploymentsM2(t *testing.T) {
 
 func ptr[T any](v T) *T { return &v }
 
-// covers P5 SC-ZERO PO-9 Z6 — (08-data §14) a zero-state tile's main
+// covers D119c SC-ZERO PO-9 Z6 — (08-data §14) a zero-state tile's main
 // archive is today's, byte for byte, modulo the manifest's creation time:
 // with and without a leftover checkpoint store, as a tar of exactly its
 // members with today's headers (name, mode, size, regular file) — no mode
@@ -513,7 +513,7 @@ func TestZeroStateBackupBytes(t *testing.T) {
 	}
 }
 
-// covers T11 P13 PO-9 — (06-security T11.5; 08-data §11.4) a main
+// covers T11 D127h PO-9 — (06-security T11.5; 08-data §11.4) a main
 // archive's registration files come back only into the deployments that
 // exist, row by row through the checks their routes make: a job on an
 // undeclared resource, one with a bad schedule and a subscription with a
@@ -599,7 +599,7 @@ func TestRestoreRevalidatesRegistrations(t *testing.T) {
 	}
 }
 
-// covers P6 P14 P28 T11 — (08-data §11.4, §14's restore rows; 11-contract
+// covers D127c D127i D127t T11 — (08-data §11.4, §14's restore rows; 11-contract
 // §1.8) POST /deployments/restore's act: beyond main it replaces (a key the
 // archive doesn't hold goes) and re-seals every value under the target's
 // labels, so an archive restores into another deployment too; main merges
@@ -717,7 +717,7 @@ func TestDeploymentRestoreReplaces(t *testing.T) {
 	}
 }
 
-// covers 05-model §11 P5 — (08-data §11.5, §14's offload rows) offloading
+// covers 05-model §11 D119c — (08-data §11.5, §14's offload rows) offloading
 // a tile archives every namespace of its deployments first, then its main
 // archive, which lists them; only after every PUT is confirmed does it
 // remove main's data, as today, and each other namespace's kv file. A
@@ -766,7 +766,7 @@ func TestOffloadCoversNamespaces(t *testing.T) {
 	}
 }
 
-// covers P6 — (08-data §11.3; 11-contract §1.8) a deployment's own backup
+// covers D127c — (08-data §11.3; 11-contract §1.8) a deployment's own backup
 // schedule lives in its registration directory, through the plane's file
 // hooks, with retention 3 unless told; "" removes it; main's is today's
 // row in data/backup-schedule.json. A bad schedule or retention is a 400,
@@ -829,7 +829,7 @@ func TestDeploymentBackupSchedule(t *testing.T) {
 	}
 }
 
-// covers P16 T2 T11 — (08-data §11.6) rule C5 for a deployment archive and
+// covers D119g T2 T11 — (08-data §11.6) rule C5 for a deployment archive and
 // its restore, behaviourally: dev's filesystem volume holding a symlink to
 // the FIFO, a FIFO of its own and a symlinked directory is archived without
 // anything opening them — only its regular files go in, their modes kept —
@@ -908,7 +908,7 @@ func TestDeploymentArchiveNoFollow(t *testing.T) {
 	}
 }
 
-// covers P5 PO-7 — (08-data §14's dry-run row, for this card's acts) on a
+// covers D119c PO-7 — (08-data §14's dry-run row, for this card's acts) on a
 // zero-state tile, dry runs of the per-deployment backup, restore and
 // schedule acts write nothing: no archive, no namespace, no ns.json, no
 // schedule file or row.

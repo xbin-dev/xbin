@@ -201,7 +201,7 @@ func (b *Broker) apiBackupScheduleDelete(w http.ResponseWriter, r *http.Request)
 
 // mainDeclared is scope sm of root tile with main's declarations: the
 // registry's while main is the primary (every tile without a record), else
-// main's own code's (P22), so a backup never applies another deployment's
+// main's own code's (D127n), so a backup never applies another deployment's
 // declarations to main's keys. The registry's when main's code can't be
 // read.
 func (b *Broker) mainDeclared(root string, sm *registry.ScopeManifest) *registry.ScopeManifest {
@@ -420,7 +420,7 @@ func (b *Broker) DeploymentBackups(tile, dep string) (DeploymentBackupList, erro
 // archive ("" is the primary; main: the tile's main archive, its data only)
 // restored into req.Into (default the archive's own deployment), never the
 // work tree. authorize judges every other claimant of the target namespace
-// at the reset level (P28) and stop stops each claimant's deployment
+// at the reset level (D127t) and stop stops each claimant's deployment
 // addressing it. It also answers those claimants: a dry run's stops.
 func (b *Broker) RestoreDeploymentData(tile, by string, req deployments.RestoreRequest,
 	authorize func(tile string) error, stop func(tile, dep string)) (deployments.RestoreAnswer, []string, error) {

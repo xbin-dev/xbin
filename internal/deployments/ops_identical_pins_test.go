@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// covers P13 SC-EVENTS — a pin in place ships the files the deployment
+// covers D127h SC-EVENTS — a pin in place ships the files the deployment
 // served, like a pause (runner.Code.Identical, 07-runtime §8.5; 11-contract
 // §3.5: a swap reloads the primary only when its code changed): adding a
 // deployment with live reload attached pins main where it stands, attaching

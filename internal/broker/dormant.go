@@ -1,7 +1,7 @@
 package broker
 
 // dormant.go — the cron jobs and bus push subscriptions of a tile's
-// deployments beyond main (P13, revised 2026-09-28) (09-fabric §6, §7;
+// deployments beyond main (D127h, revised 2026-09-28) (09-fabric §6, §7;
 // 11-contract §8, §10.2).
 //
 // Where they live. A non-main deployment's registrations are kept in its own
@@ -31,7 +31,7 @@ package broker
 // delivery (busOwnerMayRead): read reads, block refuses. Publishing is
 // unchanged: into the publisher's own namespace. Interface instances and
 // ingress hosts stay the primary's alone (dormantroutes.go), and a
-// non-primary's notifications are still held (P13).
+// non-primary's notifications are still held (D127h).
 //
 // Run now delivers one job of a non-primary deployment once, whatever its
 // switch says; the plane judges who may ask (terminal level).
@@ -233,7 +233,7 @@ func (b *Broker) depEdge(tile, dep, res string) error {
 }
 
 // depResAllowed is what a non-main deployment registers on rt with: the
-// tile's authority at want (a deployment never widens it, P11; an admin
+// tile's authority at want (a deployment never widens it, D127f; an admin
 // registering for a tile doesn't lend it theirs), then the edge.
 func (b *Broker) depResAllowed(tile, dep string, rt resTarget, want string) error {
 	if err := b.allowRes(auth.Principal{Component: tile}, rt.String(), want); err != nil {
@@ -728,7 +728,7 @@ func (b *Broker) DropDeploymentRegistrations(tile, dep string) error {
 }
 
 // dropDormantAt drops the registrations of path's deployments beyond main,
-// and of the paths under it, before a new tile is created there (P29;
+// and of the paths under it, before a new tile is created there (D119i;
 // 06-security T6): what the broker holds, and every registration file of
 // each deployment directory path keeps (a record an older owner left inert
 // was never loaded) or the broker held, so the new tile starts with none

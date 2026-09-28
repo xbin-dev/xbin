@@ -5,21 +5,21 @@ package server
 //
 // A bare /c/<tile>/ URL serves the tile's primary: its work tree while live
 // reload drives it — every tile without a deployment record, served exactly
-// as before tile deployments (P5) — and its materialized checkpoint while it
-// is pinned (P9). The Policy's CodeRoot says which. What a document is
+// as before tile deployments (D119c) — and its materialized checkpoint while it
+// is pinned (D119e). The Policy's CodeRoot says which. What a document is
 // served with — inject, chrome, the native entry, the import map — is the
 // registry's component, which the registry already composes from the
 // primary's code.
 //
-// A deployment URL, /c/<tile>+<name>/… (P17), serves deployment <name>'s
+// A deployment URL, /c/<tile>+<name>/… (D127j), serves deployment <name>'s
 // code. It resolves (registry.ResolveRef) only for a tile with a deployment
 // record, and only when today's resolution finds nothing at the full
 // candidate, so every URL that resolves today resolves identically. Who may
 // open it is 11-contract §2.3's table (deploymentURLGate): the alias
 // <tile>+<primary> as the bare URL, for people and the tile's own
 // principals; any other deployment for people with write on the tile at
-// their current level, and for the tile's own principals bound to it (P7,
-// P12, P20). Its documents are served as the deployment's registry view,
+// their current level, and for the tile's own principals bound to it (D127d,
+// D127g, D127l). Its documents are served as the deployment's registry view,
 // never as chrome, carry the deployment in the D4 injection, and get a
 // frame token only for a principal that may open that very deployment
 // (mayMintFrameToken).
@@ -27,7 +27,7 @@ package server
 // A checkpoint is opened beneath its materialized tree only
 // (fsutil.OpenBeneath), in every asset mode: an in-tree symlink resolves,
 // one that leaves the tree is never followed on the host, and neither the
-// dev overlay nor the legacy plane's cross-tile resolution applies (P16).
+// dev overlay nor the legacy plane's cross-tile resolution applies (D119g).
 // The one way out is a deps/<name> link, which is re-dispatched by path to
 // the tile it names, so that tile's primary answers under its own gate.
 
@@ -240,9 +240,9 @@ type depsHopsKey struct{}
 // resolved, authorized and served exactly as a direct request for that URL
 // by the same principal, on the same plane (the workspace origin, a tile
 // origin, the asset-token plane) — so the other tile's primary answers
-// under the other tile's gate (P16). The target comes from the checkpoint,
+// under the other tile's gate (D119g). The target comes from the checkpoint,
 // never from the work tree's manifest or deps/ links, so a work-tree edit
-// can't re-point what a pinned deployment imports (P9). It reports whether
+// can't re-point what a pinned deployment imports (D119e). It reports whether
 // it answered; false leaves the 404 (ErrEscapes) to the caller.
 func (s *Server) redispatchDeps(w http.ResponseWriter, r *http.Request, root, owner, cleaned string, err error) bool {
 	hops, _ := r.Context().Value(depsHopsKey{}).(int)
@@ -338,7 +338,7 @@ type PrimarySummaryPolicy interface {
 
 // deploymentsSummary is the deployments object of a /components entry: the
 // same for every caller who sees the row, with no non-primary name and no
-// count (P20).
+// count (D127l).
 type deploymentsSummary struct {
 	Primary   string `json:"primary"`
 	Pinned    bool   `json:"pinned"`
@@ -460,7 +460,7 @@ func withoutServed(r *http.Request) *http.Request {
 // claim names the served deployment under the name rule: none for main, so
 // every zero-state document's token keeps today's form; the primary's name
 // when the primary is another deployment, whether a terminal session that
-// follows it or a person opened the bare URL (P12, P17).
+// follows it or a person opened the bare URL (D127g, D127j).
 func (s *Server) documentToken(r *http.Request, p auth.Principal, compPath string) string {
 	if dep := s.servedDeployment(r, compPath).dep; dep != util.MainDeployment {
 		return s.Auth.MintFrameTokenForDeployment(p, compPath, dep, frameTokenTTL)
@@ -572,8 +572,8 @@ func (l policyLookup) HasDeployment(tile, name string) bool {
 }
 func (l policyLookup) Primary(tile string) string { return l.s.primaryOf(tile) }
 
-// deploymentURLGate is 11-contract §2.3's gate on /c/<tile>+<name>/… (P7,
-// P12, P20); 0 admits, otherwise the status and text of the refusal.
+// deploymentURLGate is 11-contract §2.3's gate on /c/<tile>+<name>/… (D127d,
+// D127g, D127l); 0 admits, otherwise the status and text of the refusal.
 //   - Other tiles' principals are refused on every deployment URL, the
 //     alias included, so no tile hard-codes a name a reassignment would
 //     break: they use the bare URL.
@@ -644,7 +644,7 @@ func (s *Server) serveQualified(w http.ResponseWriter, r *http.Request, cleaned 
 		return false
 	}
 	owner, p := q.c.Path, auth.PrincipalOf(r)
-	if isChrome(owner) { // workspace chrome has no deployments (P19)
+	if isChrome(owner) { // workspace chrome has no deployments (D127k)
 		http.NotFound(w, r)
 		return true
 	}

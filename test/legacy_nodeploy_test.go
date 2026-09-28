@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-// covers P5 P15 SC-ZERO PO-7 PO-8 — 12-compat §6.1 on the aged workspace,
+// covers D119c D119f SC-ZERO PO-7 PO-8 — 12-compat §6.1 on the aged workspace,
 // with the real binary: booting it twice creates no tile-deployment state
 // (no data/deployments, data/checkpoints or .xbin/deploy, no dot-level
 // namespace root), leaves the cron and bus-subscription stores byte-equal

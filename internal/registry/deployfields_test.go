@@ -55,7 +55,7 @@ func exposeNames(m Manifest) []string {
 	return out
 }
 
-// covers P9 P11 P22 T14 T16 — the three field kinds of 05-model §6. Every
+// covers D119e D127f D127n T14 T16 — the three field kinds of 05-model §6. Every
 // Manifest field has exactly one kind. While a tile's primary is pinned, the
 // registry's component takes the inbound surface (template, exposes,
 // expose.roles, provides, chrome) and the deployment-level fields (runtime,

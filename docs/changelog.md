@@ -12,6 +12,38 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-28
 
+- **Tile deployments and pausing live reload** (D119, D127,
+  [tile-deployments.md](tile-deployments.md)). Tiles that never opt in change
+  in no way: saves still reload live and there is still no deploy step. For a
+  tile you opt in (the terminal window's live-reload chip and Deployments
+  panel, or `bx live-reload` / `bx deploy` / `bx deployment` /
+  `bx promote` / `bx rollback`): pause live reload and reload now; a deploy log with roll
+  back; named deployments with their own data and vault at
+  `/c/<tile>+<name>/`; deploy, promote (with the diff you reviewed) and
+  reassign the primary; protect the primary; per-edge `read`/`block` for a
+  deployment's calls to other tiles. Pinned and non-primary backends need
+  `xbind --isolate`. New for builders: `XBIN_DEPLOYMENT` (non-primary
+  backends and sessions only), `X-XBin-Deployment` on calls from non-primary
+  deployments, `xbin.Deployment()` and `CallerInfo.Deployment` in the SDK,
+  the `deployments` event type and `/api/xbin/deployments` (feature
+  detection: its `features`, or a 404/405 from an older xbind), and the new
+  `bx` commands. Existing event types describe only a tile's primary. A
+  non-primary deployment's cron jobs and bus subscriptions deliver to that
+  deployment, never the primary (another scope's bus through the edge
+  policy, like a read binding), unless a tile manager switches its
+  `deliveries` off; its interface instances and ingress hosts stay dormant,
+  and its notifications are never pushed. The switch is `--tile-deployments` /
+  `XBIN_TILE_DEPLOYMENTS` (on by default).
+  **`+` in tile names** is refused from now on: the BREAKING entry below.
+  **Admin consoles:** until you take the admin tile's update
+  (`bx builtin update`), its sandboxes tab labels `main`'s generation
+  "draining" while another deployment runs.
+  **Downgrade note:** an older xbind serves every tile's work tree with
+  `main`'s data. Before downgrading, reassign primaries to `main` and check
+  out each pinned primary's checkpoint
+  (`git checkout -b pre-downgrade deploy/<primary>`). After upgrading again,
+  run `bx doctor`. Restarting xbind without `--isolate` stops pinned and
+  non-primary backends: attach live reload to those tiles' primaries first.
 - **BREAKING — `+` is refused in new tile names**
   ([changes/2026-09-28-plus-in-tile-names.md](changes/2026-09-28-plus-in-tile-names.md)).
   `<tile>+<name>` is a tile deployment's URL, so creating a tile whose path
@@ -19,30 +51,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   included, on every creation path: `bx new`, create, clone, template
   instantiate, builtin and git import. New names only: an existing tile
   named with `+` keeps resolving and working (an exact match wins), can't
-  get deployments, and `bx doctor` flags it. The creation answers' one-release
-  `warnings` entry is gone. Alongside, a query string never carries a
+  get deployments, and `bx doctor` flags it. Alongside, a query string never carries a
   `tile+name` ref (a `+` there reads as a space): the deployments reads
   take `?tile=<tile>&deployment=<name>` (`GET /api/xbin/deployments` gains
   `deployment=`, echoed as `selected`), and they, `/frame-token`, `/logs`
   and `/tile-status` answer 400 for a tile parameter that names a deployment
   as `tile+name`. Paths (`/c/<tile>+<name>/`) and JSON bodies keep the ref
   ([protocol.md](protocol.md) §Tile deployments).
-- **Tile deployments: a non-primary deployment's cron jobs and bus
-  subscriptions fire for it.** They were dormant until a tile manager turned
-  its deliveries on; now they are active from the first registration and
-  deliver to the deployment that registered them — its backend, its data —
-  never to the primary. A subscription on another scope's bus reads that
-  scope's primary's, like a read binding: the edge policy's `read` allows it,
-  `block` refuses it, re-checked at every delivery; publishing is unchanged.
-  Interface instances and ingress hosts of a non-primary deployment stay
-  dormant, and its notifications are still held. `deliveries` becomes a tile
-  manager's off switch, on by default (`bx deployment set dev --deliveries
-  off`, or the panel's switch): off keeps the jobs and subscriptions
-  registered, answered and listed `dormant`. The state and routes keep their
-  shape. In the record, an absent `deliveries` is on and `false` is off; the
-  earlier build never stored `false`, so no record changes. The
-  per-deployment registration files stay separate, so an older xbind still
-  never loads them as `main`'s ([tile-deployments.md](/docs/tile-deployments.md)).
 - **Protection is managed in the admin tile and with the root `bx`
   commands** ([tile-deployments.md](tile-deployments.md) §Managing
   protection, [auth.md](auth.md) §Tile deployments). The admin console
@@ -60,9 +75,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   tokens (and any frame token they mint) are refused like any tile's.
   `bx deployment protect|primary|set …` on the host with the owner token
   passes, as the owner's credential; from a tile terminal it never does.
-  The Deployments panel can now reassign the primary of a static tile (its
-  deployments' `static` status counts as healthy, as the server already
-  did). New tile → shell message `xbin:open-deployments {tile}`
+  New tile → shell message `xbin:open-deployments {tile}`
   ([protocol.md](protocol.md) §Tile ↔ shell messaging). Nothing to change.
 - **coding-sandbox: the layout's user is a real account.** A sandbox's
   commands ran as uid 1000 with `USER=dev` and `HOME=/home/dev`, but the

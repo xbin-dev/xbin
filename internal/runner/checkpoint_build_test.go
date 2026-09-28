@@ -77,7 +77,7 @@ func (w *ckWorkspace) view(p, runtime string) *registry.Component {
 	return &registry.Component{Path: p, Dir: w.dir(p), CodeRoot: w.mat(p, w.pins[p]), Manifest: registry.Manifest{Runtime: runtime}}
 }
 
-// covers P9 P16 T18 PO-11 — a pinned or non-primary launch spec binds the
+// covers D119e D119g T18 PO-11 — a pinned or non-primary launch spec binds the
 // materialized checkpoint at c.Dir, read-only by the bind flag, and each
 // component nested in it after the code bind from its own primary's code; the
 // live reload target keeps {Src: c.Dir, Dst: c.Dir, RO: true} and binds
@@ -188,7 +188,7 @@ func TestLaunchSpecBinds(t *testing.T) {
 	})
 }
 
-// covers T17 P9 — the setup run of pinned code sees its checkpoint at the
+// covers T17 D119e — the setup run of pinned code sees its checkpoint at the
 // tile's canonical path, never the work tree, and runs the view's setup;
 // the live reload target's setup run keeps today's spec.
 func TestSetupLayerSeesCheckpointNotWorkTree(t *testing.T) {
@@ -275,7 +275,7 @@ func TestEnvLayerGCKeepsReferenced(t *testing.T) {
 	}
 }
 
-// covers P18 T12 — pinned backend code never builds or starts without a
+// covers D119h T12 — pinned backend code never builds or starts without a
 // sandbox: with isolation off buildCode refuses every backend runtime with
 // the contract's reason and writes nothing; with isolation on but no sandbox
 // configured, the checkpoint's Go build is refused by confine (a direct run
@@ -314,7 +314,7 @@ func TestCheckpointBuildNeedsIsolation(t *testing.T) {
 	}
 }
 
-// covers P9 NP-07-4 T11 — what a checkpoint build of apps/x sees beyond its
+// covers D119e NP-07-4 T11 — what a checkpoint build of apps/x sees beyond its
 // own tree: go.work's modules each with the code it builds against (a tile
 // whose primary is pinned is shown from its checkpoint, over its directory;
 // one on its work tree is the workspace's own); a nested component bound
@@ -395,7 +395,7 @@ func TestCheckpointBuildPlan(t *testing.T) {
 	}
 }
 
-// covers P9 T11 — a checkpoint's artifact is reused while its build.json
+// covers D119e T11 — a checkpoint's artifact is reused while its build.json
 // records the same tile, with no build; one recorded for another tile (a
 // colliding CompKey) or without its binary is not; and whatever a work-tree
 // build left at c/ (a symlink) is never followed.

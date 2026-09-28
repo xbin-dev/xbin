@@ -169,7 +169,7 @@ func (b *Broker) EncryptionHoldReason(comp string) string {
 // namespace dep reaches (its own scope's in dep's, any other in the scope
 // primary's), against that namespace's declared set. A volume beyond main is
 // mounted here, on the spawn path, when it isn't yet, so a start settles what
-// dep's own code declares before its backend runs (P22). main's volumes are
+// dep's own code declares before its backend runs (D127n). main's volumes are
 // MountEncrypted's, as today.
 func (b *Broker) DeploymentEncryptionHold(tile, dep string) bool {
 	return b.deploymentHoldReason(tile, dep) != ""
@@ -331,14 +331,14 @@ func (b *Broker) forEachFileRes(fn func(scope, name, rtype string)) {
 
 // DeploymentEnv is the runner's EnvFor hook (runner.DeploymentHooks): the env
 // of deployment dep's generation of c, its view, is EnvFor's, the same values
-// in every deployment for every resource both declare (P17). main's remap is
+// in every deployment for every resource both declare (D127j). main's remap is
 // nil: every resource path bound at itself, today's binds. Every other
 // deployment's maps each canonical resource directory it is handed to what
 // backs it in dep's namespace, mounted now if it isn't (its first use,
 // 08-data §3.6): a volume that can't mount has no entry, so the start fails
 // closed. A workspace-level filesystem or sqlite resource of a
 // workspace-scope tile is an edge: main's data at its own path for the
-// primary (P3), no bind at all for the others, whose env var stays (P23).
+// primary (D127a), no bind at all for the others, whose env var stays (D127o).
 func (b *Broker) DeploymentEnv(c *registry.Component, dep string) ([]string, map[string]runner.ResBind) {
 	dep = cmp.Or(dep, util.MainDeployment)
 	if b.viewDeployment(c) != dep {
@@ -385,7 +385,7 @@ func (b *Broker) DeploymentEnv(c *registry.Component, dep string) ([]string, map
 }
 
 // declaredIn is D(scope, dep), the resources scope's data namespace in
-// deployment dep has (08-data §6.7) (P22); declaredFrom reads it.
+// deployment dep has (08-data §6.7) (D127n); declaredFrom reads it.
 func (b *Broker) declaredIn(scope, dep string) (map[string]registry.Resource, error) {
 	if scope == "" {
 		return b.Reg.Workspace().Resources, nil // for every deployment: never split

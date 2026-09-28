@@ -350,7 +350,7 @@ export const sandboxesCss = css`
     .sbx-err { font-size: 11px; word-break: break-word; }
 `;
 
-// runtime → deployments (tabs/deployments.js; P21, extended 2026-09-28)
+// runtime → deployments (tabs/deployments.js; D127m, extended 2026-09-28)
 export const deploymentsCss = css`
     .dep-note { font-size: 11.5px; margin: 0 0 10px; max-width: 820px; }
     .dcard { border: 1px solid var(--bx-border, #363c45); border-radius: 7px; padding: 8px 10px; margin-bottom: 8px; }

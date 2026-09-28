@@ -12,7 +12,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers P8 P15 P5 — the plane half of TestRecordInvariantsRandomized:
+// covers D119d D119f D119c — the plane half of TestRecordInvariantsRandomized:
 // random sequences of the M1 operations (pause, resume, reload now, deploy
 // a fresh capture or a named checkpoint, roll back, restart, their dry
 // runs), mixed with edits of the work tree and runner failures, keep 05-model
@@ -119,7 +119,7 @@ func TestOperationsKeepRecordInvariants(t *testing.T) {
 // opsInvariants is 05-model §4 over a record the operations committed,
 // written out again without validate: the binding, seq, main and the
 // primary existing, the grammar, live reload driving "" or exactly its one
-// unpinned deployment, full checkpoint ids, states, P21.
+// unpinned deployment, full checkpoint ids, states, D127m.
 func opsInvariants(r *Record, tile, created string) error {
 	switch {
 	case r.Schema != 1 || r.Tile != tile || r.Owner != "" || r.Created != created:

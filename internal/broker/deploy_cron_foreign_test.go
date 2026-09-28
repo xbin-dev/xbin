@@ -6,7 +6,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/registry"
 )
 
-// covers P13 NP-09-18 SC-DORMANT — main beside a primary that isn't main
+// covers D127h NP-09-18 SC-DORMANT — main beside a primary that isn't main
 // registers a cron job on a foreign resource its tile holds writer on: the
 // edge policy's read clamp doesn't refuse it, since a job only ever
 // schedules the deployment's own handler (09-fabric §6); it is stored, and

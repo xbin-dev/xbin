@@ -83,7 +83,7 @@ export async function loadDeploy(f) {
   let s = null;
   try {
     // a deployment's frame (apps/crm+dev) keeps today's window, and its ref
-    // never goes into a query (P17)
+    // never goes into a query (D127j)
     if (!(await qualifiedSrc(f.src))) {
       const res = await fetch(`/api/xbin/deployments?tile=${encodeURIComponent(f.src)}`, { cache: 'no-store' });
       const j = res.ok ? await res.json() : null;

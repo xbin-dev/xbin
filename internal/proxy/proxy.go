@@ -6,11 +6,11 @@
 // caller identity (plans/auth.md §3).
 //
 // With tile deployments, /api/<tile>+<name>/… names a deployment of a tile
-// that has a deployment record (11-contract §2) (P17), and the broker's
+// that has a deployment record (11-contract §2) (D127j), and the broker's
 // routing function (Route) decides which deployment a call reaches: the
-// primary for a bare URL, the caller's own for a tile's self-call (P12).
+// primary for a bare URL, the caller's own for a tile's self-call (D127g).
 // A tile without a record resolves, routes and is identified exactly as
-// before (P5).
+// before (D119c).
 package proxy
 
 import (
@@ -51,7 +51,7 @@ const (
 	// can refuse to show it to someone else looking through the user's eyes.
 	HeaderViewedBy = "X-XBin-Viewed-By"
 	// HeaderDeployment names a tile deployment that is not its tile's
-	// primary (the role rule, 11-contract §4) (P17). On a request: the
+	// primary (the role rule, 11-contract §4) (D127j). On a request: the
 	// calling tile's deployment, when the caller is one of that tile's own
 	// principals bound to a non-primary deployment, on its self-calls and on
 	// its calls to other tiles. On a response: the deployment that answered,
@@ -82,7 +82,7 @@ func DefaultPolicy(p auth.Principal, target *registry.Component) (string, bool) 
 type Decision struct {
 	Deployment string   // the target's deployment: its primary, or the caller's own on a self-call
 	Role       string   // the effective role on the target; "" when refused
-	Clamped    bool     // the read clamp narrowed Role (P3)
+	Clamped    bool     // the read clamp narrowed Role (D127a)
 	Edges      []string // the caller's edges authorizing the call
 	// Deny is non-nil when the call is refused: util.ErrNoDeployment is a
 	// 404, anything else a 403 whose text is the answer's error.
@@ -172,7 +172,7 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
 	// /api/<tile>[+<deployment>]/<endpoint> (11-contract §2.2): a path with no
 	// qualifier, and every path of a tile without a deployment record,
-	// resolves exactly as Reg.Resolve does (P5). The qualifier is consumed:
+	// resolves exactly as Reg.Resolve does (D119c). The qualifier is consumed:
 	// the backend sees /<endpoint>, as for the bare URL.
 	comp, qdep, qualified, endpoint, rerr := px.Reg.ResolveRef(rest, px.lookup())
 	if comp == nil {
@@ -202,7 +202,7 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// comp is the tile's primary: the registry composes a pinned primary
 	// from its checkpoint, so the template (inbound surface) and runtime
 	// (deployment-level) gates below follow the code the primary runs, never
-	// a work-tree edit made while it is pinned (P9).
+	// a work-tree edit made while it is pinned (D119e).
 	if comp.IsTemplate() {
 		jsonErr(w, http.StatusNotFound,
 			fmt.Sprintf("%s is a template — instantiate it first (Tile Manager → New from template, or `bx template new`)", comp.Path), "")
@@ -425,7 +425,7 @@ func (px *Proxy) identify(r *http.Request, p auth.Principal, role, tile string) 
 	}
 	r.Header.Set(HeaderFrom, p.From())
 	r.Header.Set(HeaderRole, role)
-	// The role rule (11-contract §4) (P17): a tile's own principal bound to
+	// The role rule (11-contract §4) (D127j): a tile's own principal bound to
 	// a deployment that isn't its primary names that deployment, on its
 	// self-calls and on its calls to other tiles; X-XBin-From stays the
 	// tile path. A primary's calls carry exactly the headers they always

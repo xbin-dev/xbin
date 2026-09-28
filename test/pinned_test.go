@@ -14,11 +14,11 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// Pinned backends (P9, SC-PINNED) on the isolated daemon: pinning a backend
-// needs isolation (P18), so every test here starts its own isolated xbind
+// Pinned backends (D119e, SC-PINNED) on the isolated daemon: pinning a backend
+// needs isolation (D119h), so every test here starts its own isolated xbind
 // and skips, saying why, where the host can't run one.
 
-// covers P9 flow A — flow A on the probe: pausing live reload keeps m1
+// covers D119e flow A — flow A on the probe: pausing live reload keeps m1
 // (the pause's code-identical swap announces no reload), an edit to m2
 // reaches neither the code nor the bound tree while the work-tree count
 // sees it, reload now ships m2 with one reload and no build-* and stays
@@ -85,7 +85,7 @@ func TestLiveReloadPauseGo(t *testing.T) {
 	a.waitServed(t, tile, "go", "m3", 10*time.Second)
 }
 
-// covers P9 T11 SC-PINNED — every restart path runs pinned code
+// covers D119e T11 SC-PINNED — every restart path runs pinned code
 // (15-test-plan §5.4): the probe pinned at m1 while its work tree says m3
 // answers m1 from its code and its bound tree after a crash restart,
 // crash-loop recovery (a save doesn't restart it; a deploy onto its

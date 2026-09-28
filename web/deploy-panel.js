@@ -142,7 +142,7 @@ export function widens(s, id, v) {
 
 // registrationRows(state, name, opts) → registrations with their pill, and Run now for cron jobs. A
 // non-primary's cron jobs and bus subscriptions are active, for it, unless its deliveries are off;
-// its interface instances and ingress hosts are dormant: routes reach the primary only (P13).
+// its interface instances and ingress hosts are dormant: routes reach the primary only (D127h).
 export const registrationRows = (s, name, opts = {}) => (dep(s, name)?.registrations || []).map((r) => {
   const d = dep(s, name), routes = r.kind === 'iface-instance' || r.kind === 'ingress-host';
   return { kind: r.kind, name: r.name, pill: d.primary ? 'active' : routes ? 'dormant — routes reach the primary only' : r.dormant ? 'dormant — deliveries off' : 'active',

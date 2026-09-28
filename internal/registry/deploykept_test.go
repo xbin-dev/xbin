@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// covers P9 T16 — a tile whose primary is pinned stays registered while its
+// covers D119e T16 — a tile whose primary is pinned stays registered while its
 // directory exists, even when the work tree has neither xbin.json nor
 // index.html, or an xbin.json that doesn't parse: it is Kept, its tile-level
 // fields (uses, interfaces, deps, and whether it roots a scope) fall back to

@@ -16,9 +16,9 @@ package deployments
 // at request time, and its code is prepared in the background without
 // starting a process: it starts on its first request (07-runtime §8.6).
 // A non-primary deployment's checkpoint is materialized on a turn of the
-// runner's build limiter (P25). A dry run is judged exactly as for real and
+// runner's build limiter (D127q). A dry run is judged exactly as for real and
 // changes nothing; on a tile without a record it captures nothing and
-// creates no store (P5). The record event's reader form goes out only when
+// creates no store (D119c). The record event's reader form goes out only when
 // the reader view changed, so readers learn nothing of the non-primary
 // deployments (11-contract §1.3, §3.4).
 
@@ -259,9 +259,9 @@ func (p *Plane) discardAll(as []*attempt) {
 // fresh checkpoint), the primary's code or a named checkpoint; empty data in
 // its own (scope, y) namespace, which joins a sibling's when one claims it;
 // a vault of placeholders; deliveries on (their default: its cron jobs and
-// bus subscriptions fire for it, P13); alwaysOn and limit overrides off. Any
+// bus subscriptions fire for it, D127h); alwaysOn and limit overrides off. Any
 // file an earlier deployment of the name left is dropped before the record
-// commits (P29, P14). With attach, y follows the work tree and the former
+// commits (D119i, D127i). With attach, y follows the work tree and the former
 // live reload target is pinned where it stands. On a tile without a record
 // it is an opt-in: the store and the record are made by the commit.
 func runAdd(ctx context.Context, p *Plane, g Grant, r *AddRequest) (any, error) {
@@ -441,7 +441,7 @@ func (p *Plane) addCode(ctx context.Context, o *op, r *AddRequest, y string) (st
 }
 
 // estimate is a zero-state dry run's check of the work tree against the
-// capture caps: nothing captured, no store made (P5).
+// capture caps: nothing captured, no store made (D119c).
 func (p *Plane) estimate(ctx context.Context, o *op) error {
 	est, err := p.store().Estimate(ctx, p.source(o.c))
 	if err == nil {
@@ -466,7 +466,7 @@ func (p *Plane) created(o *op, r *Record, y string, tree *string) error {
 
 // dropStale drops what an earlier deployment called y left under the tile's
 // key (its vault, prefs, registration files and derived state: the broker's
-// DropDeploymentFiles), before the new one's record commits (P29, P14).
+// DropDeploymentFiles), before the new one's record commits (D119i, D127i).
 // The broker removes the registration files through RemoveDeploymentFile,
 // so this runs outside the records directory's lock.
 func (p *Plane) dropStale(tile, y string) error {
@@ -616,11 +616,11 @@ func (p *Plane) endDeploys(tile, dep string) {
 
 // ---- promote ----
 
-// runPromote gives to (B) from's (A) current code (P10): A's checkpoint, or
+// runPromote gives to (B) from's (A) current code (D127e): A's checkpoint, or
 // a fresh checkpoint of the work tree when A follows it. expect names the
 // code the caller reviewed (a diff's X-XBin-Checkpoint-To, a dry run's
 // impact.code.to): the promotion moves exactly that or answers 409. Onto a
-// protected primary expect and seq are required (P21). Only code moves:
+// protected primary expect and seq are required (D127m). Only code moves:
 // B's data, vault, registrations, switches and routing stay B's.
 func runPromote(ctx context.Context, p *Plane, g Grant, r *PromoteRequest) (any, error) {
 	o, err := p.begin(g, r.DryRun)
@@ -750,7 +750,7 @@ func (p *Plane) promoteCode(ctx context.Context, o *op, seq *int64, dry bool, fr
 // primary's code is read, and refused when it can't start; any other
 // deployment's is materialized on a turn of the runner's build limiter, so
 // the plane's work for non-primary code never crowds out the primary's
-// (07-runtime §10.3, P25).
+// (07-runtime §10.3, D127q).
 func (p *Plane) prepareFor(o *op, dep, tree string) error {
 	if dep == o.rec.Primary {
 		return p.prepareCode(o, dep, tree)

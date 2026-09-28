@@ -1,6 +1,6 @@
 package runner
 
-// covers P9 P18 T10 T12 SC-SAFE-DEPLOY SC-LIVE-RELOAD-PAUSE — the deploy
+// covers D119e D119h T10 T12 SC-SAFE-DEPLOY SC-LIVE-RELOAD-PAUSE — the deploy
 // worker (07-runtime §8, §11, §12) driven through the seam's fake engine
 // (fake_engine_test.go) and a fake deployments plane: seam rows 23–29 and 38
 // of 15-test-plan §2.5, the deploy queue at the runner, isolation, restart as
@@ -321,14 +321,14 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 
 // needsRestartPathsFromCodeFor skips a joint check of this worker and the
 // restart paths (Ensure's lazy start, the crash restart) until those build
-// from codeFor (P9, 07-runtime §7): probed on a pinned rig, never assumed.
+// from codeFor (D119e, 07-runtime §7): probed on a pinned rig, never assumed.
 func needsRestartPathsFromCodeFor(t *testing.T) {
 	t.Helper()
 	g := newDeployRig(t, goMan)
 	g.setCode(Code{Tree: tree("c1")})
 	g.ensure()
 	if !strings.Contains(strings.Join(g.f.takeLog(), " "), "main@c1") {
-		t.Skip("Ensure doesn't build from codeFor in this tree yet: the restart paths' half of P9 checks here once it does")
+		t.Skip("Ensure doesn't build from codeFor in this tree yet: the restart paths' half of D119e checks here once it does")
 	}
 }
 
@@ -344,7 +344,7 @@ var deployOK = []string{"build running", "start running", "swap running", "swap 
 
 var goMan = registry.Manifest{Runtime: "go"}
 
-// covers P9 P13 SC-LIVE-RELOAD-PAUSE SC-SAFE-DEPLOY — seam rows 23–27, 29
+// covers D119e D127h SC-LIVE-RELOAD-PAUSE SC-SAFE-DEPLOY — seam rows 23–27, 29
 // and 38 (15-test-plan §2.5): pausing live reload, reload now, resume and a
 // deploy onto the live reload target, through Deploy. A checkpoint deploy
 // reports only through progress (never build-*), announces one bare reload
@@ -609,7 +609,7 @@ func TestDeployQueueCoalesces(t *testing.T) {
 	}
 }
 
-// covers P9 T18 — a generation a deploy starts holds its materialized tree
+// covers D119e T18 — a generation a deploy starts holds its materialized tree
 // in RootsInUse (checkpoint GC's keep set) until it exits, as one Ensure
 // starts does: deployed c1 is held, c2's swap moves the hold, a stop drops it.
 func TestDeployHoldsRootsInUse(t *testing.T) {
@@ -636,7 +636,7 @@ func TestDeployHoldsRootsInUse(t *testing.T) {
 	waitFor(t, "the stop", func() bool { return len(g.r.RootsInUse()) == 0 })
 }
 
-// covers P9 NP-07-2 — restart is a deploy of the same checkpoint (07-runtime
+// covers D119e NP-07-2 — restart is a deploy of the same checkpoint (07-runtime
 // §8.7, 11-contract §1.6): a no-op while healthy; a new generation, clearing
 // the breaker, while crash-looping; Restart forces one either way, reported
 // by build-* like any restart of current code, with no reload. The crash
@@ -717,7 +717,7 @@ func TestDeployRestartIsSameCheckpoint(t *testing.T) {
 	})
 }
 
-// covers P9 — pausing live reload on a deployment with no process (never
+// covers D119e — pausing live reload on a deployment with no process (never
 // started, reaped) pins without starting one: the checkpoint is built now so
 // its errors surface, and the next request starts it (07-runtime §8.6).
 func TestDeployIdlePreparesWithoutStarting(t *testing.T) {
@@ -742,7 +742,7 @@ func TestDeployIdlePreparesWithoutStarting(t *testing.T) {
 	}
 }
 
-// covers P18 — a tile without a backend is served by the static plane: a
+// covers D119h — a tile without a backend is served by the static plane: a
 // deploy commits and starts nothing, needs no isolation, keeps no runner
 // state, and reloads only when the files change (07-runtime §8.6, §12).
 func TestDeployStaticTile(t *testing.T) {
@@ -764,7 +764,7 @@ func TestDeployStaticTile(t *testing.T) {
 	}
 }
 
-// covers P9 — a checkpoint whose code has no backend replaces a running one:
+// covers D119e — a checkpoint whose code has no backend replaces a running one:
 // the old generation drains and the deployment serves statically.
 func TestDeployToStaticCodeDrains(t *testing.T) {
 	g := newDeployRig(t, goMan)
@@ -781,7 +781,7 @@ func TestDeployToStaticCodeDrains(t *testing.T) {
 	}
 }
 
-// covers P18 T12 SC-FAIL-CLOSED — TestNonIsolatedRefusesBackendDeployments,
+// covers D119h T12 SC-FAIL-CLOSED — TestNonIsolatedRefusesBackendDeployments,
 // the runner half: without isolation, pausing live reload on, deploying to
 // or restarting a pinned go, node or python backend is refused, naming
 // --isolate, before anything is built or either callback called; a static
@@ -833,7 +833,7 @@ func TestNonIsolatedRefusesBackendDeployments(t *testing.T) {
 	})
 }
 
-// covers P18 T12 C7 — TestIsolationLossHoldsPinnedBackends: an xbind
+// covers D119h T12 C7 — TestIsolationLossHoldsPinnedBackends: an xbind
 // restarted without isolation over a record that pins the backend holds it,
 // with the reason, and never runs the work tree in its place, on every path
 // the deploy worker owns: codeFor (the code every restart path builds from),
@@ -890,7 +890,7 @@ func TestIsolationLossHoldsPinnedBackends(t *testing.T) {
 	}
 }
 
-// covers P9 P13 — alwaysOn is the deployment's own code's (07-runtime §11):
+// covers D119e D127h — alwaysOn is the deployment's own code's (07-runtime §11):
 // with live reload paused, the pinned checkpoint's manifest decides the
 // reaper's exemption and the wake-up, never the work tree's.
 func TestDeployAlwaysOnReadsView(t *testing.T) {
@@ -927,7 +927,7 @@ func TestDeployAlwaysOnReadsView(t *testing.T) {
 	})
 }
 
-// covers P9 — a VM backend's checks read the deployment view (07-runtime
+// covers D119e — a VM backend's checks read the deployment view (07-runtime
 // §8.1 step 2, §8.4): the new code's "vm" decides whether the old generation
 // stops first; after such a stop, a failed pinned → pinned deploy restarts
 // the previous checkpoint from its kept artifact, and a failed move off the
@@ -1011,7 +1011,7 @@ func TestDeployStopFirstReadsView(t *testing.T) {
 	})
 }
 
-// covers P9 P16 — an interpreted checkpoint's entry is looked for in its
+// covers D119e D119g — an interpreted checkpoint's entry is looked for in its
 // materialized tree, opened beneath it (07-runtime §8.1 step 1), never in the
 // work tree: missing there, or behind a symlink out of it, the build fails.
 func TestDeployEntryReadsCheckpoint(t *testing.T) {
@@ -1055,7 +1055,7 @@ func TestDeployEntryReadsCheckpoint(t *testing.T) {
 	g.expectLog([]string{c1b}, false) // c2 and c3 never reached the build
 }
 
-// covers P7 P9 — Deploy refuses before touching anything: another deployment
+// covers D127d D119e — Deploy refuses before touching anything: another deployment
 // than the primary, code no view describes, a disabled tile, a checkpoint
 // whose runtime can't run, and a Code that names nothing.
 func TestDeployRefusals(t *testing.T) {
@@ -1094,7 +1094,7 @@ func TestDeployRefusals(t *testing.T) {
 	}
 }
 
-// covers P9 — a commit that fails leaves the record's code serving: the new
+// covers D119e — a commit that fails leaves the record's code serving: the new
 // generation stops and the previous one keeps the deployment.
 func TestDeployCommitFailureKeepsPrevious(t *testing.T) {
 	g := newDeployRig(t, goMan)

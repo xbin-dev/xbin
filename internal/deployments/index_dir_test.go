@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// covers P5 SC-OPT-OUT — tiles opt in and out at once: every record write
+// covers D119c SC-OPT-OUT — tiles opt in and out at once: every record write
 // succeeds while other tiles' opt-outs remove the records directory once it
 // is empty (the per-tile locks alone let an opt-out remove the directory
 // between another tile's creating it and its write: ENOENT, seen as a 500

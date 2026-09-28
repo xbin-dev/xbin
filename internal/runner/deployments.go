@@ -21,7 +21,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// The admission caps on non-primary deployments (07-runtime §10.3) (P25):
+// The admission caps on non-primary deployments (07-runtime §10.3) (D127q):
 // v1 constants, not settings. The deployments plane refuses to add past the
 // first two; the runner refuses a start past any of them, so a record that
 // holds more than the plane allows still never runs more.
@@ -148,7 +148,7 @@ func (r *Runner) ensureOther(ctx context.Context, c *registry.Component, dep str
 	if !v.HasBackend() {
 		return "", fmt.Errorf("deployment %s of %s has no long-running backend", dep, c.Path)
 	}
-	if !r.Isolate { // nothing binds its own data at its paths (P18)
+	if !r.Isolate { // nothing binds its own data at its paths (D119h)
 		return "", fmt.Errorf("%s: deployment %s runs only in a sandbox (--isolate), and this xbind runs backends without one", c.Path, dep)
 	}
 	if !r.shouldRun(c.Path, dep) {
@@ -260,7 +260,7 @@ func (r *Runner) spawnSetup(c *registry.Component, dep string, gen int) (genSpaw
 
 // deploymentRegistrar is auth's per-deployment instance registration
 // (internal/auth/deployment.go): the token authenticates as the tile's
-// principal bound to that deployment (P12).
+// principal bound to that deployment (D127g).
 type deploymentRegistrar interface {
 	RegisterInstanceDeployment(token, component, deployment string)
 }
@@ -279,11 +279,11 @@ func (r *Runner) registerInstance(token, tile, dep string) {
 }
 
 // ErrAdmission refuses a start of a non-primary deployment past the
-// admission caps (P25); it is an sbx refusal.
+// admission caps (D127q); it is an sbx refusal.
 var ErrAdmission = errors.New("non-primary deployments at their cap")
 
 // admit is the admission check of a generation spawning from view c
-// (07-runtime §10.3) (P25). The primary's view always starts. A
+// (07-runtime §10.3) (D127q). The primary's view always starts. A
 // non-primary deployment's starts only while its tile has fewer than
 // MaxNonPrimaryPerTile other non-primary deployments running or building,
 // the workspace fewer than MaxNonPrimaryPerWorkspace, and fewer than

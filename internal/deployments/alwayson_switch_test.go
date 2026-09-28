@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// covers P5 PO-8 — AlwaysOnSwitched, the runner's alwaysOn switch hook
+// covers D119c PO-8 — AlwaysOnSwitched, the runner's alwaysOn switch hook
 // (07-runtime §11), names the deployments beyond the primary whose switch is
 // on, sorted; the primary's own switch never counts (its code alone keeps it
 // up), and a tile without a record, or a literal that never booted, names

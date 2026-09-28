@@ -1,7 +1,7 @@
 package broker
 
 // deployns.go — a (scope, name) data namespace's life (08-data §6.3, §6.4,
-// §8.2, §9) (P14) (P28): ns.json, from which the data state is derived; the
+// §8.2, §9) (D127i) (D127t): ns.json, from which the data state is derived; the
 // hold and the write gate; reset; deletion by the last claimant (claimants
 // are derived, never stored); the sweep of orphans. GC never deletes main's
 // data, every ns.json write happens under the namespace's hold, and a
@@ -377,7 +377,7 @@ func (b *Broker) JoinDeploymentData(tile, dep string, manager bool) (*deployment
 		id.scope, id.dep, verb, cmp.Or(m.By, "someone"), cmp.Or(m.At, "earlier")))
 }
 
-// judgeClaimant asks the plane's judgement on another claimant (P28): a 403
+// judgeClaimant asks the plane's judgement on another claimant (D127t): a 403
 // becomes §1.14's text naming the tile; other refusals pass as they are.
 func judgeClaimant(op, level string, id nsID, tile string, authorize func(string) error) error {
 	err := errors.New("no judgement")
@@ -395,7 +395,7 @@ func judgeClaimant(op, level string, id nsID, tile string, authorize func(string
 
 // ResetDeploymentData empties the namespace dep of tile claims (08-data
 // §9.1; 11-contract §1.8), for the plane's reset, which judged tile;
-// authorize judges every other claimant (P28), none of which may serve it
+// authorize judges every other claimant (D127t), none of which may serve it
 // as its primary. It holds the namespace, stops each claimant's dep, and
 // wipes it; ns.json becomes empty with reset. vault also removes the
 // deployment's vault file. A dry run changes nothing. It answers the
@@ -645,7 +645,7 @@ func mountPointsUnder(dir string) ([]string, error) {
 // ---- removal and GC ----
 
 // DropDeploymentData deletes the namespace dep of tile claims if tile is its
-// last claimant (08-data §9.2 step 3; P28), for the plane's removal once dep
+// last claimant (08-data §9.2 step 3; D127t), for the plane's removal once dep
 // is stopped; never main's. It answers whether it was (dryRun: would be)
 // deleted; the sweep finishes a removal cut short.
 func (b *Broker) DropDeploymentData(tile, dep string, dryRun bool) (bool, error) {

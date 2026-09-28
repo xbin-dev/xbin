@@ -10,7 +10,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/registry"
 )
 
-// covers P5 PO-12 — today's mapping of a change batch to components with
+// covers D119c PO-12 — today's mapping of a change batch to components with
 // nested tiles: a path belongs to its nearest enclosing component only, so an
 // edit in a nested tile reloads and restarts that tile and never its parent;
 // a batch spanning tiles maps to each; paths under xbind's stores and

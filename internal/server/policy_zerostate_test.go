@@ -12,7 +12,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers P5 PO-1 SC-ZERO — TestNoopPolicyZeroState (15-test-plan §2.7): the
+// covers D119c PO-1 SC-ZERO — TestNoopPolicyZeroState (15-test-plan §2.7): the
 // server's deployment questions, answered by NoopPolicy (the policy of a
 // server with none installed), reproduce today. Every tile serves its work
 // tree (c.Dir, unpinned) as its one deployment, main; no other name exists,

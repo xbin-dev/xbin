@@ -1,6 +1,6 @@
 # 07 — Runtime: runner, checkpoints, builds, serving
 
-> Status: live — the runner, checkpoint store, build, serving and shared-sandbox mechanics that implement tile deployments, for the implementation swarm (part of [plans/dev-lifecycle](README.md))
+> Status: implemented (D119, D127; M3 designed, not built) — the runner, checkpoint store, build, serving and shared-sandbox mechanics that implement tile deployments, for the implementation swarm (part of [plans/dev-lifecycle](README.md))
 
 This document turns the model ([05-model.md](05-model.md)) into mechanics. It
 owns runner state per `(tile, deployment)`, the checkpoint pipeline, the view

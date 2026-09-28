@@ -48,7 +48,7 @@ func allObjects(t *testing.T, s *Store, tilePath string) string {
 	return storeGit(t, s, tilePath, "rev-list", "--all", "--objects")
 }
 
-// covers T20 NP-06-16 P1 — a purge (06-security L7) removes a checkpoint the
+// covers T20 NP-06-16 D119a — a purge (06-security L7) removes a checkpoint the
 // retention still keeps, in one confined run under the store lock: every
 // deploy-log entry that deployed it is rewritten to name none (the empty
 // tree, no checkpoint or feed trailer; the attempt, who, when, its result,
@@ -245,7 +245,7 @@ func TestPurgeRemovesObjects(t *testing.T) {
 	}
 }
 
-// covers T20 T18 P9 — the store's own refusal: a purge of a checkpoint its
+// covers T20 T18 D119e — the store's own refusal: a purge of a checkpoint its
 // keep names, by full tree id or by the root a running generation binds,
 // changes nothing and runs nothing (ErrInUse); a root of another tile with
 // the same tree protects nothing, as with GC.

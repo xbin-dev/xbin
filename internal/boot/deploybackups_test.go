@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-// covers P6 P13 — GET /deployments/backups lists one deployment's archived
+// covers D127c D127h — GET /deployments/backups lists one deployment's archived
 // versions for admins: ?deployment=, else the ref's qualifier, else the
 // primary; a removed deployment's name still reads (its archives stay);
 // people who aren't admins get 403; a qualifier and a differing
@@ -36,7 +36,7 @@ func TestDeploymentBackupsRead(t *testing.T) {
 		target string
 		code   int
 	}{
-		{"/deployments/backups?tile=apps/crm%2Bdev", 400}, // P17: never tile+name in a query
+		{"/deployments/backups?tile=apps/crm%2Bdev", 400}, // D127j: never tile+name in a query
 		{"/deployments/backups?tile=apps/crm+dev&deployment=main", 400},
 		{"/deployments/backups?tile=apps/crm&deployment=Bad", 400},
 		{"/deployments/backups?tile=apps/nope", 404},

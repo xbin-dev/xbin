@@ -47,7 +47,7 @@ func newTripwire(t *testing.T) *tripwire {
 	return w
 }
 
-// covers P16 T2 — rule C5 for capture and the estimate, behaviourally: a
+// covers D119g T2 — rule C5 for capture and the estimate, behaviourally: a
 // work tree whose files, .git/HEAD, the ref HEAD names and manifest are
 // symlinks to a FIFO outside it, and one whose .git/HEAD is itself a FIFO,
 // are checkpointed without xbind (or the capture's own tools) opening any of

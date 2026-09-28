@@ -41,7 +41,7 @@ func cmdStatus(args []string) error {
 			comp = a
 		}
 	}
-	if !given && !all { // <tile>+<name>: that deployment, asked with deployment= (P17)
+	if !given && !all { // <tile>+<name>: that deployment, asked with deployment= (D127j)
 		if t, d := readRef(comp); d != "" {
 			comp, dep, given = t, d, true
 		}
@@ -341,7 +341,7 @@ func cmdLogs(args []string) error {
 			comp = a
 		}
 	}
-	if !given { // <tile>+<name>: that deployment, asked with deployment= (P17)
+	if !given { // <tile>+<name>: that deployment, asked with deployment= (D127j)
 		if t, d := readRef(comp); d != "" {
 			comp, dep, given = t, d, true
 		}

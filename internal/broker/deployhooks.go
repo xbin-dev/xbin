@@ -16,7 +16,7 @@ import (
 // DeploymentHooks are installed into the broker by the deployments plane at
 // boot (Broker embeds them).
 type DeploymentHooks struct {
-	// The tile's life (P29): a deployment record belongs to the tile it was
+	// The tile's life (D119i): a deployment record belongs to the tile it was
 	// made for — its path, owner ref and creation stamp — and never applies
 	// to a new tile at that path.
 
@@ -61,7 +61,7 @@ func (b *Broker) MayManageDeployments(p auth.Principal, tile string) bool {
 }
 
 // AdminFrameDriver is the person behind p when p may stand in for them at
-// the deployments plane's manager gate (P21, extended by the owner
+// the deployments plane's manager gate (D127m, extended by the owner
 // 2026-09-28: protection is managed from the admin tile too): a frame of a
 // tile holding the xbin admin capability, acting in its primary, whose token
 // was minted under that person's own login (auth.Principal.LoginFrame: a
@@ -76,7 +76,7 @@ func (b *Broker) AdminFrameDriver(p auth.Principal) (auth.Principal, bool) {
 		return auth.Principal{}, false
 	}
 	if role, ok := b.governanceRole(p, "xbin"); !ok || !roleSatisfies(role, "admin", nil) {
-		return auth.Principal{}, false // never a non-primary principal (P19)
+		return auth.Principal{}, false // never a non-primary principal (D127k)
 	}
 	if p.UserID == "" {
 		return auth.Principal{Owner: true, Via: p.Via, Gen: p.Gen}, true // the root token's login

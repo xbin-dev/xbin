@@ -22,7 +22,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// covers T11 P16 (ledger L13) — the broker half of a restore's store
+// covers T11 D119g (ledger L13) — the broker half of a restore's store
 // rebuild, confined: the archived store's objects are staged in xbind's own
 // directory and its refs checked (cat-file) and its objects fscked by git
 // inside a sandbox over the stage alone, which never sees the archive's

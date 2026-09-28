@@ -1,6 +1,6 @@
 package runner
 
-// covers P9 P13 T5 — the lifecycle half of the runner's deployment edges
+// covers D119e D127h T5 — the lifecycle half of the runner's deployment edges
 // (07-runtime §11, §12; 09-fabric §7): seam rows 35 and 36 of 15-test-plan
 // §2.5 (TestDeploymentEdgeSeamRows) and 09-fabric §10's
 // TestNonPrimaryAlwaysOn, over depFake (deployments_test.go).
@@ -63,7 +63,7 @@ func (f *depFake) rawLog() []string {
 	return out
 }
 
-// covers P13 T5 P9 — 15-test-plan §2.5 rows 35 and 36: alwaysOn in dev's
+// covers D127h T5 D119e — 15-test-plan §2.5 rows 35 and 36: alwaysOn in dev's
 // checkpoint with its switch off, then on, is not started, then started; the
 // reaper exemption covers the primary's and switched-on deployments'
 // alwaysOn only. A VM tile with file resources stops the old generation of
@@ -155,7 +155,7 @@ func TestDeploymentEdgeSeamRows(t *testing.T) {
 	})
 }
 
-// covers P13 T5 — 09-fabric §10's TestNonPrimaryAlwaysOn (§7): a non-primary
+// covers D127h T5 — 09-fabric §10's TestNonPrimaryAlwaysOn (§7): a non-primary
 // deployment is kept up only by its own code's alwaysOn and its switch
 // together — never by the switch alone, and never without isolation; it is
 // woken at the wake points, restarted after an exit on its own backoff,

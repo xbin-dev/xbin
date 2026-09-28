@@ -6,7 +6,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/deployments"
 )
 
-// covers P13 P21 P22 P24 P28 — boot installs wave 2.3's hooks into the
+// covers D127h D127m D127n D127p D127t — boot installs wave 2.3's hooks into the
 // plane: the broker's per-deployment backups, its edge check and restarts,
 // a reassignment's consumer and ingress fan-out, diskGiB's ceiling and the
 // seed (the governance and data ops answer 501 without them), the terminal
@@ -37,7 +37,7 @@ func TestDeploymentsWiringW23(t *testing.T) {
 	}
 }
 
-// covers P17 NP-11-18 — in origins mode each row of GET /deployments names
+// covers D127j NP-11-18 — in origins mode each row of GET /deployments names
 // its deployment's own origin (11-contract §2.6), which the frames' origin
 // check reads; outside it (no origin) the key is absent.
 func TestDeploymentRowsNameTheirOrigin(t *testing.T) {

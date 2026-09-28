@@ -255,7 +255,7 @@ func (f *wtFixture) drift() WorkTreeDrift {
 	return d
 }
 
-// covers NP-13-12 P8 — the watcher drops a batch when its consumer is slow
+// covers NP-13-12 D119d — the watcher drops a batch when its consumer is slow
 // (internal/watch/watch.go), so the files changed since the checkpoint are
 // recounted from the work tree, never summed from notices: of three saves,
 // the second's batch is dropped (no notice reaches the plane), and the count
@@ -305,7 +305,7 @@ func TestPendingCountAfterDroppedBatch(t *testing.T) {
 	}
 }
 
-// covers NP-13-12 P8 — the drift count is debounced per tile: ten notices
+// covers NP-13-12 D119d — the drift count is debounced per tile: ten notices
 // inside two seconds make one count at once and one when the two seconds
 // have passed, not ten; a notice that comes while a count runs, which may
 // have missed its change, gets one more count after it; a count that didn't
@@ -360,7 +360,7 @@ func TestWorkTreeCountDebounced(t *testing.T) {
 	}
 }
 
-// covers NP-13-12 P5 P8 C7 — only a paused tile is ever counted: a tile
+// covers NP-13-12 D119c D119d C7 — only a paused tile is ever counted: a tile
 // without a record, one whose record holds it (it answers LiveReload like a
 // paused one) and one whose live reload is attached get no count, no state
 // and no State.workTree. A count already scheduled when live reload resumes
@@ -419,7 +419,7 @@ func TestWorkTreeCountOnlyWhilePaused(t *testing.T) {
 	}
 }
 
-// covers NP-13-12 P8 — notices and state reads from many goroutines, with
+// covers NP-13-12 D119d — notices and state reads from many goroutines, with
 // counts running on goroutines of their own, as in xbind: the debounce
 // holds (one count starts at once, the rest wait for the timer) and nothing
 // races (go test -race).

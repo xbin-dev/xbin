@@ -16,7 +16,7 @@ import (
 // logAt is a fixed clock for log entries: whole seconds, UTC.
 var logAt = time.Date(2026, 9, 27, 10, 12, 3, 0, time.UTC)
 
-// covers P1 P10 — the deploy log: one commit per finished attempt, failed and
+// covers D119a D127e — the deploy log: one commit per finished attempt, failed and
 // cancelled ones included, chained per deployment at refs/xbin/log/<name>,
 // each entry's tree the attempted checkpoint's (the empty tree when none was
 // made) and its parent the deployment's previous entry; the trailers record
@@ -159,7 +159,7 @@ func TestDeployLog(t *testing.T) {
 	}
 }
 
-// covers T1 P16 — the deploy log's writes and reads are confined store runs
+// covers T1 D119g — the deploy log's writes and reads are confined store runs
 // (L17): every run goes through the Store's run hook as a store script, git
 // only through the hardened prefix with the store as its repository and the
 // pinned -c set first; appends bind the store read-write and reads read-only,

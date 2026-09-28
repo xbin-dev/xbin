@@ -49,7 +49,7 @@ func logPeople(t *testing.T) (term, writer, reader auth.Principal) {
 	return person("tom", users.LevelTerminal), person("wes", users.LevelWrite), person("rae", users.LevelRead)
 }
 
-// covers P13 T7 — /logs?deployment= reads that deployment's log: main's
+// covers D127h T7 — /logs?deployment= reads that deployment's log: main's
 // from today's file whether or not it is the primary, another's from
 // .xbin/deploy/<TileKey>/d/<name>/backend.log, followed too; the default is
 // the caller's bound deployment (a frame or instance principal's, a session's
@@ -112,7 +112,7 @@ func TestLogsPerDeployment(t *testing.T) {
 		{"a writer, dev", writer, "component=apps/calendar&deployment=dev", 403, "terminal-level"},
 		{"a gone deployment's backend", calGone, "component=apps/calendar", 404, `no deployment \"gone\"`},
 		{"dev with no log yet", ownerP, "component=apps/calendar&deployment=evil", 404, "no logs yet"},
-		// P17: a query never names a deployment as tile+name
+		// D127j: a query never names a deployment as tile+name
 		{"a qualified component", ownerP, "component=apps/calendar%2Bdev", 400, "a deployment is named with deployment=, not tile+name"},
 		{"an unescaped qualified component", ownerP, "component=apps/calendar+dev", 400, "a deployment is named with deployment=, not tile+name"},
 	} {
@@ -164,7 +164,7 @@ func TestLogsPerDeployment(t *testing.T) {
 	}
 }
 
-// covers P13 T7 — a non-primary log's audience (08-data §14): the primary's
+// covers D127h T7 — a non-primary log's audience (08-data §14): the primary's
 // frame principal, minted for the tile's readers, can't read dev's log, nor
 // can dev's frame read main's; another tile's principal and a person below
 // terminal level read neither. (The /tile-status half of 08-data's row is

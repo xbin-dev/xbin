@@ -40,7 +40,7 @@ import (
 // from main's own code (declaredFrom): the registry's scopes while main is
 // the primary, so a scope rooted by a tile whose primary is pinned
 // provisions what the checkpoint's scope.json declares, read beneath its
-// tree and checked before it gets here (P22). A save therefore reaches only
+// tree and checked before it gets here (D127n). A save therefore reaches only
 // the namespace of the deployment that follows the work tree: main's here,
 // and a deployment beyond main's through its declared set, which is read
 // from its code when asked. A namespace beyond main has nothing to
@@ -93,9 +93,9 @@ func (b *Broker) Provision() {
 //
 // c may be a deployment view: its env is the deployment's (viewDeployment),
 // whose own-scope uses resolve in its own declared set, so a resource only
-// some deployments declare yields its variable only in those (P22). Every
+// some deployments declare yields its variable only in those (D127n). Every
 // value is the same in every deployment that declares the resource: the
-// canonical path (main's mount) or the canonical id (P17); DeploymentEnv
+// canonical path (main's mount) or the canonical id (D127j); DeploymentEnv
 // adds the remap that binds a deployment's own volume at that path.
 func (b *Broker) EnvFor(c *registry.Component) []string {
 	dep := b.viewDeployment(c)
@@ -600,7 +600,7 @@ func (b *Broker) busFilter(p auth.Principal, e events.Event) bool {
 // --- tile deployments: which namespace, which declarations ---------------
 //
 // A deployment beyond main has a data namespace of its own in its tile's
-// scope (P6), holding what its own code declares (P22). A request by a
+// scope (D127c), holding what its own code declares (D127n). A request by a
 // tile's principal reaches its own scope's resources in the namespace of the
 // deployment its credential addresses, and every other scope's, the
 // workspace's included, in the scope primary's namespace, as an edge
@@ -609,7 +609,7 @@ func (b *Broker) busFilter(p auth.Principal, e events.Event) bool {
 
 // maxNSResources caps the resources a data namespace beyond main declares:
 // each file-backed one can mean a gocryptfs process (08-data §6.7). main
-// keeps no cap (P5).
+// keeps no cap (D119c).
 const maxNSResources = 64
 
 // reach is one resource as a request reaches it.
@@ -700,9 +700,9 @@ func (b *Broker) resScope(target string) (resTarget, bool) {
 // allowAt authorizes p on a resource it reaches at want. A resource the
 // primary's code declares is authorized by allowRes, the tile's authority,
 // exactly as today; one only the reached namespace's own code declares (its
-// own scope, P22) by the tile's same-scope use declaration (ownUse). Then
+// own scope, D127n) by the tile's same-scope use declaration (ownUse). Then
 // the read clamp: a deployment beyond its tile's primary never writes any
-// data but its own (08-data §7) (P3).
+// data but its own (08-data §7) (D127a).
 func (b *Broker) allowAt(p auth.Principal, ra reach, want string) error {
 	id := ra.rt.String()
 	switch _, res, ok := b.parseRes(id); {

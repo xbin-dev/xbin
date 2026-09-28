@@ -9,7 +9,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers P5 P21 P24 — a session's target (11-contract §7.4): without a
+// covers D119c D127m D127p — a session's target (11-contract §7.4): without a
 // record, or without the hook, every session follows the primary (main), a
 // request naming main follows it too, "no API" mints nothing, the dropdown
 // offers main alone and no XBIN_DEPLOYMENT is set: today's session. With a

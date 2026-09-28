@@ -1,12 +1,12 @@
 package deployments
 
 // index.go — the records in memory. Boot reads data/deployments once; after
-// that every question about a tile's record is a map lookup (P8: a save
+// that every question about a tile's record is a map lookup (D119d: a save
 // costs no file read), and every change is written through before the index
 // moves: validated, atomically (fsutil.WriteFileAtomic, D60), mode 0600,
 // with the fields this xbind doesn't know kept.
 //
-// A record is bound to its tile (P29): it lives at the tile's TileKey, names
+// A record is bound to its tile (D119i): it lives at the tile's TileKey, names
 // the tile's full path, and carries the owner ref the tile had when it was
 // made. A record that doesn't bind is ignored (inert: the tile answers the
 // zero state) until an admin clears it; the owner ref is compared with the
@@ -39,13 +39,13 @@ import (
 type RecordState int
 
 const (
-	// RecordNone: no record, the zero state (P5).
+	// RecordNone: no record, the zero state (D119c).
 	RecordNone RecordState = iota
 	// RecordActive: a valid record bound to the tile; it governs the tile.
 	RecordActive
 	// RecordHeld: the record can't be used; the tile fails closed.
 	RecordHeld
-	// RecordInert: a record that isn't the tile's (P29); ignored, so the
+	// RecordInert: a record that isn't the tile's (D119i); ignored, so the
 	// tile answers the zero state, and no change is committed over it.
 	RecordInert
 )
@@ -304,7 +304,7 @@ func (x *index) lookup(tile string) Found {
 
 // get is lookup without the synthesized zero state (Record is nil for
 // RecordNone and RecordInert): an in-memory lookup, allocating nothing for a
-// tile without a record, so the per-save path pays nothing (P8). The owner
+// tile without a record, so the per-save path pays nothing (D119d). The owner
 // ref is the owner store's, read now.
 func (x *index) get(tile string) Found {
 	x.mu.RLock()
@@ -480,7 +480,7 @@ func (x *index) remove(tile string, expect int64) error {
 }
 
 // rewriteOwner moves tile's record to owner ref owner in the same step as a
-// transfer (D39, P29). It must run before the owner store moves: the record
+// transfer (D39, D119i). It must run before the owner store moves: the record
 // then keeps answering to the former owner until the store reports the new
 // one, so no lookup in between finds it inert. Only a record bound to the
 // tile now follows it: none, one held without a trustworthy owner (it

@@ -167,7 +167,7 @@ func (c *Component) resolveNative() (entry, problem string) {
 
 // codeFile reports whether rel (clean, tile-relative) is a regular file of
 // the component's code. A code root is a materialized checkpoint: its files
-// are opened beneath it, never through a symlink that leaves it (P16). The
+// are opened beneath it, never through a symlink that leaves it (D119g). The
 // work tree is stat'ed as it always was.
 func (c *Component) codeFile(rel string) bool {
 	if c.CodeRoot != "" {

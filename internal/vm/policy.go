@@ -149,7 +149,7 @@ type Usage struct {
 // release gives it back when the VM ends. A refusal is marked
 // sbx.ErrRefused. opts refine admission (reserve.go): a non-primary
 // deployment's headroom, a primary's first claim on its tile's non-primary
-// guests (P25), a tile sandbox's VM booking against the tile sub-budget too.
+// guests (D127q), a tile sandbox's VM booking against the tile sub-budget too.
 // (A tile's own sandbox quotas are the sandboxes policy's, checked by its
 // runtime.)
 func (m *Manager) Reserve(owner string, memMiB int, opts ...ReserveOption) (release func(), err error) {

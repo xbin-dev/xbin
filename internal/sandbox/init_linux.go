@@ -489,7 +489,7 @@ func mountBind(newroot string, b Bind) error {
 // the enclosing bind's mounted root without following a symlink
 // (mountNested): a checkpoint's content can hold a symlink where a nested
 // component's mount point goes, and a mount that followed it would show that
-// code elsewhere in the sandbox, or make directories outside the tree (P16).
+// code elsewhere in the sandbox, or make directories outside the tree (D119g).
 // An enclosing bind's read-only remount waits until everything nested in it
 // is mounted: the mount point may be missing from the tree it shows (nested
 // components aren't in a checkpoint), and a read-only bind can't take the

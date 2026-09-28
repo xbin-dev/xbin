@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// covers P16 T2 — a checkpoint's xbin.json and scope.json are read through
+// covers D119g T2 — a checkpoint's xbin.json and scope.json are read through
 // fsutil.OpenBeneath on its materialized tree, never followed out of it. An
 // xbin.json or scope.json that is a symlink to .xbin/token (relative or
 // absolute), a FIFO, or an oversized file is refused, so the deploy that

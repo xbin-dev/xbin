@@ -490,7 +490,7 @@ type WorkTreeScan struct {
 // WorkTreeManifest is the manifest the tile's work tree declares: c.Manifest,
 // unless the primary is pinned and the work tree's scan sits in WorkTree. What
 // the tile's authors are writing (the roles the grants UI offers) reads it;
-// enforcement follows c.Manifest, the primary's code (P9).
+// enforcement follows c.Manifest, the primary's code (D119e).
 func (c *Component) WorkTreeManifest() Manifest {
 	if c.WorkTree != nil {
 		return c.WorkTree.Manifest
@@ -511,7 +511,7 @@ type PinnedCode struct {
 	NativeErr   string
 	// Scope is the checkpoint's scope.json, its resource names checked; nil
 	// when the checkpoint has none. Rescan composes it into the tile's scope
-	// while the tile roots one (P22).
+	// while the tile roots one (D127n).
 	Scope *ScopeManifest
 }
 
@@ -538,7 +538,7 @@ type Registry struct {
 	// PinnedPrimary, set by the deployments plane at boot, answers for a tile
 	// whose primary is pinned to a checkpoint: what that code declares, which
 	// Rescan composes into the tile's component, so the inbound surface and
-	// the deployment-level fields follow the primary's code (P9). An O(1)
+	// the deployment-level fields follow the primary's code (D119e). An O(1)
 	// lookup that answers false for every other path; nil means today's scan.
 	PinnedPrimary func(rel string) (*PinnedCode, bool)
 
@@ -624,7 +624,7 @@ func (r *Registry) Rescan() error {
 		}
 		if pc, ok := r.pinnedPrimary(rel); ok {
 			// The primary is pinned: the component is its code, kept while the
-			// work tree has no valid manifest (P9).
+			// work tree has no valid manifest (D119e).
 			comps[rel], pinned[rel] = composePinned(c, pc, parsed || !hasManifest && c.HasIndex), pc
 		}
 		return nil

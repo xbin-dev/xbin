@@ -16,7 +16,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers P1 T2 — what a checkpoint holds follows the glossary: every file
+// covers D119a T2 — what a checkpoint holds follows the glossary: every file
 // but .git directories (at any depth) and nested components, gitignored
 // files included; symlinks as symlinks, whatever they point at; the exec bit
 // kept; empty directories, other permission bits, xattrs and special files
@@ -113,7 +113,7 @@ func TestCheckpointContent(t *testing.T) {
 	}
 }
 
-// covers P1 — ids: "c:" and at least 7 hex digits of the tree, lengthened
+// covers D119a — ids: "c:" and at least 7 hex digits of the tree, lengthened
 // until unique; the full hash in refs; identical content is the same
 // checkpoint, and capturing it again is free and idempotent.
 func TestCheckpointIDs(t *testing.T) {
@@ -199,7 +199,7 @@ func TestCheckpointIDs(t *testing.T) {
 	}
 }
 
-// covers P8 — the persistent private index: re-capturing an unchanged
+// covers D119d — the persistent private index: re-capturing an unchanged
 // 5 000-file tree writes no object and takes one confined run.
 func TestCheckpointIncremental(t *testing.T) {
 	needGit(t)
@@ -355,7 +355,7 @@ func TestCheckpointRateLimit(t *testing.T) {
 	}
 }
 
-// covers P16 T20, flow H — the git view is the checkpoint minus what the
+// covers D119g T20, flow H — the git view is the checkpoint minus what the
 // tile's own ignore rules exclude, evaluated in the capture's own run and
 // kept in the store with it; its commit names the checkpoint and the
 // work-tree HEAD, and carries no Xbin-By.
@@ -435,7 +435,7 @@ func TestGitViewExcludesIgnored(t *testing.T) {
 	}
 }
 
-// covers P5 — the store is lazy: nothing but a committed opt-in (a Capture
+// covers D119c — the store is lazy: nothing but a committed opt-in (a Capture
 // with Create) creates it; estimates, reads and a capture without Create
 // leave no data/checkpoints behind.
 func TestCheckpointStoreLazy(t *testing.T) {

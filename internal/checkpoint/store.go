@@ -1,4 +1,4 @@
-// Package checkpoint is the checkpoint store (P1): the code a tile's
+// Package checkpoint is the checkpoint store (D119a): the code a tile's
 // deployments run, kept as git trees in a private, xbind-owned bare
 // repository, data/checkpoints/<TileKey>.git. A checkpoint is one tree —
 // every file of the work tree except .git directories and nested
@@ -8,14 +8,14 @@
 // same tree minus what the tile's own ignore rules exclude, which is what
 // the fetch remote serves (05-model §3). Neither is ever served from here.
 //
-// Only confined git reads or writes the store (D78, P16). Every tool run
+// Only confined git reads or writes the store (D78, D119g). Every tool run
 // goes through confine with the store bound read-write and the work tree
 // read-only; the tile's .git is never the repository, the store's config and
 // attributes are constants xbind writes, and no tile-controlled string
 // reaches argv: pathspecs and path lists travel in files. xbind reads what
 // the runs leave in a quarantine only through fsutil.OpenBeneath (C5).
 //
-// The store is lazy (P5): a zero-state tile never has one. Only a committed
+// The store is lazy (D119c): a zero-state tile never has one. Only a committed
 // opt-in creates it, a Capture with Create; a dry run (Estimate) and a diff
 // never do.
 //
@@ -117,7 +117,7 @@ const FeedWorkTree = "work-tree"
 
 var (
 	// ErrNoStore: the tile has no checkpoint store, and the call may not
-	// create one (only a committed opt-in does, P5).
+	// create one (only a committed opt-in does, D119c).
 	ErrNoStore = errors.New("the tile has no checkpoint store")
 	// ErrRefused: a capture broke a cap, a tree-hygiene rule, or met a file
 	// it can't read. The store is unchanged (*Refusal says why).
@@ -294,7 +294,7 @@ func (s *Store) create(ctx context.Context, dir string) error {
 }
 
 // uncreate removes a store a failed opt-in created, and data/checkpoints
-// with it when no other store is there: a failed opt-in is no opt-in (P5).
+// with it when no other store is there: a failed opt-in is no opt-in (D119c).
 func (s *Store) uncreate(dir string) {
 	s.parent.Lock()
 	defer s.parent.Unlock()

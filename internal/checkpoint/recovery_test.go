@@ -106,7 +106,7 @@ func TestCaptureSerializedPerTile(t *testing.T) {
 	capture(t, s, src, false)
 }
 
-// covers P9 — a file or directory the capture can't read fails the
+// covers D119e — a file or directory the capture can't read fails the
 // checkpoint, naming it: a pinned deployment silently missing files would be
 // a lie. The store is unchanged and the index dropped.
 func TestCaptureRefusesUnreadable(t *testing.T) {

@@ -57,7 +57,7 @@ func gitConfigEnv(env []string) []string {
 	return out
 }
 
-// covers P5 P16 T20 SC-WORKTREE — a session opened while its tile has a
+// covers D119c D119g T20 SC-WORKTREE — a session opened while its tile has a
 // deployment record gets the fetch-only `xbin-deploy` remote as two more
 // GIT_CONFIG_* pairs after today's two (GIT_CONFIG_COUNT=4, the fetch
 // refspec +refs/heads/deploy/*:refs/deploy/*, the URL on the gateway host
@@ -349,7 +349,7 @@ func fetchThroughInjectedRemote(t *testing.T, tile string) {
 	}
 }
 
-// covers P15 T11 — the deployment state (the record and the per-deployment
+// covers D119f T11 — the deployment state (the record and the per-deployment
 // registration files under data/deployments, the checkpoint store and the
 // view repository under data/checkpoints, the materialized trees under
 // .xbin/deploy) is out of every terminal's reach. A component terminal —

@@ -61,7 +61,7 @@ All under `/api/xbin`, gated by owner-or-`xbin:admin` unless
 
 Protect, unprotect, reassign the primary, deliveries and alwaysOn are tile
 managers' acts. The admin tile's frame does them **as the person who
-opened it**, not as the tile (P21, extended by the owner 2026-09-28;
+opened it**, not as the tile (D127m;
 docs/auth.md §Tile deployments): xbind judges that person — the tile's
 owner, its org's admins, or a workspace admin — so an admin manages every
 tile and anyone else only what they manage in their own session. The

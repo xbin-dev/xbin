@@ -18,7 +18,7 @@ package broker
 //     deployment starts from.
 //
 // Every answer gives a tile without a deployment record exactly what the
-// broker answered before tile deployments (F1) (P5): its one deployment is
+// broker answered before tile deployments (F1) (D119c): its one deployment is
 // main, the primary, and its principals all act in it.
 
 import (
@@ -59,7 +59,7 @@ type DeploymentAnswers struct {
 	// exists (404); any other error is a refusal (403) whose text says why.
 	AddressedDeployment func(p auth.Principal, tile string) (string, error)
 	// RegistrationsActive reports whether deployment dep of tile's
-	// registrations take effect (09-fabric §7) (P13): fires for its cron
+	// registrations take effect (09-fabric §7) (D127h): fires for its cron
 	// jobs and bus subscriptions (unless its deliveries are switched off,
 	// never the primary's), routes for its interface instances and ingress
 	// hosts (the primary only).
@@ -67,7 +67,7 @@ type DeploymentAnswers struct {
 	// DeploymentEdges is tile's stored edge policy for its non-primary
 	// deployments, edge id → value: the overrides only. An absent id takes
 	// its kind's default; a value this xbind doesn't know reads as block
-	// (09-fabric §5.2) (P27).
+	// (09-fabric §5.2) (D127s).
 	DeploymentEdges func(tile string) map[string]string
 	// ReadDeploymentFile, WriteDeploymentFile and RemoveDeploymentFile keep
 	// a non-main deployment's registration files beside its tile's record
@@ -186,7 +186,7 @@ func (p brokerPolicy) Addressed(pr auth.Principal, tile string) (string, error) 
 type Decision struct {
 	Deployment string   // the target's deployment: its primary, or the caller's own on a self-call
 	Role       string   // the effective role on the target; "" when refused
-	Clamped    bool     // the read clamp narrowed Role (P3)
+	Clamped    bool     // the read clamp narrowed Role (D127a)
 	Edges      []string // the caller's edges authorizing the call (09-fabric §5.1's ids)
 	// Deny is non-nil when the call is refused: util.ErrNoDeployment is a
 	// 404, anything else a 403 whose text names the rule or the edge.
@@ -204,7 +204,7 @@ func (e *NotGrantedError) Error() string {
 
 // edgeVerdict applies the calling tile's edge policy to one call its
 // non-primary deployment callerDep makes to target, where the tile holds
-// role (09-fabric §5.4–§5.9) (P3) (P23) (P27): read-clamped, or blocked naming
+// role (09-fabric §5.4–§5.9) (D127a) (D127o) (D127s): read-clamped, or blocked naming
 // the edge. edgepolicy.go installs it from an init function. Unset, a
 // non-primary deployment reaches no other tile (F6: fail closed).
 var edgeVerdict func(b *Broker, d Decision, caller, callerDep, target, role string) Decision
@@ -217,7 +217,7 @@ var edgeVerdict func(b *Broker, d Decision, caller, callerDep, target, role stri
 // (TestZeroStateRoute). The rules, in order:
 //  1. a cron or bus delivery reaches its registration's deployment, with
 //     the role bound at registration, and names none;
-//  2. the tile's own principal reaches its bound deployment as admin (P12):
+//  2. the tile's own principal reaches its bound deployment as admin (D127g):
 //     a qualifier naming another is refused, and a user-attributed frame of
 //     a non-primary deployment needs its user's current write;
 //  3. an admin reaches the qualifier's deployment, or the primary;
@@ -287,9 +287,9 @@ func (b *Broker) Route(p auth.Principal, target *registry.Component, qualifier s
 
 // resolveTarget is the single evaluation point of a call from deployment
 // callerDep of tile caller to target, a tile path or a res: id (09-fabric
-// §5.3; F5): the tile's authority, grantedRole, unchanged (P11); for the
+// §5.3; F5): the tile's authority, grantedRole, unchanged (D127f); for the
 // primary, every zero-state tile's included, exactly that role; for a
-// non-primary deployment, governance refused (P19) and every other edge
+// non-primary deployment, governance refused (D127k) and every other edge
 // through the edge policy. It is the only reader of the edge policy.
 func (b *Broker) resolveTarget(caller, callerDep, target string) Decision {
 	role, ok := b.grantedRole(caller, target)
@@ -316,7 +316,7 @@ func (b *Broker) resolveTarget(caller, callerDep, target string) Decision {
 // Every physical key of a resource is computed here and nowhere else in the
 // broker (TestNoAdHocResourceKeys): a scope's data key, its kv bucket and
 // labels, its encrypted volumes and mounts, its disk-quota key (08-data §2,
-// §3.2) (P6). main's keys are today's, byte for byte, whether or not main is
+// §3.2) (D127c). main's keys are today's, byte for byte, whether or not main is
 // the primary. Every other deployment's live under a ".deployments" level
 // inside today's roots, keyed by escS, an injective encoding of the scope
 // path, and the deployment name. No scope key starts with ".", so no path
@@ -400,7 +400,7 @@ func scopeKeys(scope, dep string) (nsKeys, error) {
 
 // resKeys is every physical key of one resource in one data namespace
 // (08-data §3.2). main's are today's; another deployment's are the
-// namespace's own, which no path produces today (P6).
+// namespace's own, which no path produces today (D127c).
 type resKeys struct {
 	NS      string // "" for main | ".deployments/<escS>/<d>" (also the disk-quota key)
 	DirKey  string // resenc's scopeKey argument: ScopeKey(S) | NS+"/fs"
@@ -580,7 +580,7 @@ func (s *kvStore) close() {
 // depFiles are the files of one deployment beyond main that belong to its
 // tile rather than to a (scope, name) namespace (08-data §2, §3.3): each
 // keyed by the tile's TileKey, never CompKey, whose 32 bits can be ground,
-// so a tile at a colliding path shares none of them (P29). Paths are
+// so a tile at a colliding path shares none of them (D119i). Paths are
 // slash-separated and relative to the workspace root. main has none here:
 // its files keep today's keys.
 type depFiles struct {
@@ -615,8 +615,8 @@ var registrationFileNames = []string{"cron.json", "bus-subscriptions.json", "ifa
 // every user's prefs for it, its registration files (through the plane,
 // under its records lock) and its derived-state directory (08-data §3.3,
 // §9.2). Adding a deployment calls it first, so nothing an earlier
-// deployment of the same name left applies (P29) and the new vault starts
-// with placeholders only (P14); removing one calls it once the deployment
+// deployment of the same name left applies (D119i) and the new vault starts
+// with placeholders only (D127i); removing one calls it once the deployment
 // is stopped. It never touches main, the tile's other deployments, or the
 // (scope, name) data namespace, which the scope's siblings may share
 // (§6.4). Files already gone are no error.

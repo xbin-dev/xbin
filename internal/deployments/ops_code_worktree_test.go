@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// covers SC-WORKTREE P16 — every code operation beyond main (adding a
+// covers SC-WORKTREE D119g — every code operation beyond main (adding a
 // deployment from the work tree, from the primary and from a named
 // checkpoint, with live reload attached or not; attaching live reload;
 // promoting onto the primary and onto a non-primary deployment; removing a

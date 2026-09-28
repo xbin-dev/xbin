@@ -19,7 +19,7 @@ import (
 
 var m2TileLimits = cgroup.Limits{MemMax: 2 << 30, PidsMax: 512, CPUWeight: 100}
 
-// covers P5 F1 PO-8 SC-ZERO — every answer the plane gives the hooks for
+// covers D119c F1 PO-8 SC-ZERO — every answer the plane gives the hooks for
 // deployments beyond main is today's for a tile without a record, from a
 // literal that never booted and from a plane booted on a workspace without
 // records: main is the one deployment and the primary; every principal of
@@ -119,7 +119,7 @@ func m2Record(tile string) map[string]any {
 	return doc
 }
 
-// covers P6 P7 P12 P13 P21 P22 P24 P27 — the answers read the record: the
+// covers D127c D127d D127g D127h D127m D127n D127p D127s — the answers read the record: the
 // deployments main first; each principal of the tile reaches its bound
 // deployment (a removed one is a 404, a session following a protected
 // primary or naming it is refused), anyone else the primary; cron and bus

@@ -19,10 +19,10 @@ import (
 
 // A static tile's deployments on an auth-on daemon (15-test-plan §5.1's
 // auth-on flavour: --insecure-vault, the root token, users through the API).
-// A static tile needs no isolation (P18), so this runs wherever the suite
+// A static tile needs no isolation (D119h), so this runs wherever the suite
 // does.
 
-// covers P6 P7 P14 P17 P20 — a static dev deployment, live reload attached
+// covers D127c D127d D127i D127j D127l — a static dev deployment, live reload attached
 // to it: /c/<tile>+dev/ answers a write user 200 with dev's code (the saves
 // since the add) and a read user 403, whether or not the name exists; the
 // bare URL serves the primary's pinned code to both; the read user's
@@ -58,7 +58,7 @@ func TestStaticDeploymentURLAndData(t *testing.T) {
 	writer, reader := loginAs(t, a, "wendy", "wendy-pw1"), loginAs(t, a, "rita", "rita-pw22")
 
 	// A deployment URL before dev exists: the tile has no record, so "+"
-	// means nothing (P5): the path answers as any other path no tile holds.
+	// means nothing (D119c): the path answers as any other path no tile holds.
 	for _, u := range []userClient{writer, reader} {
 		c, _ := u.get("/c/" + tile + "+dev/")
 		if other, _ := u.get("/c/" + tile + "-xdev/"); c != other || c == 200 {
@@ -149,7 +149,7 @@ func TestStaticDeploymentURLAndData(t *testing.T) {
 	if c, body := writer.get("/api/xbin/deployments?tile=" + url.QueryEscape(tile) + "&deployment=dev"); c != 200 || !strings.Contains(body, `"selected":"dev"`) {
 		t.Errorf("the write user's GET /deployments?tile=%s&deployment=dev: %d %.200s", tile, c, body)
 	}
-	// P17: a query never carries tile+name, escaped or not (a '+' there reads as a space)
+	// D127j: a query never carries tile+name, escaped or not (a '+' there reads as a space)
 	for _, q := range []string{url.QueryEscape(tile + "+dev"), tile + "+dev"} {
 		if c, body := writer.get("/api/xbin/deployments?tile=" + q); c != 400 || !strings.Contains(body, "a deployment is named with deployment=") {
 			t.Errorf("the write user's GET /deployments?tile=%s: %d %.200s, want 400", q, c, body)

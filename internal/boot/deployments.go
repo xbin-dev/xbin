@@ -12,7 +12,7 @@ package boot
 // (NP-14-4). The reads judge the caller with the plane's one authorize
 // function over the record its index holds; what they need beyond the
 // record comes through deployReads, and a read without its source answers
-// 501 too. Nothing here writes: reading a zero-state tile creates nothing (P5).
+// 501 too. Nothing here writes: reading a zero-state tile creates nothing (D119c).
 
 import (
 	"bytes"
@@ -209,8 +209,8 @@ type tileRef struct {
 
 // resolve maps a tile ref from a JSON body to its tile (11-contract §2.2): a
 // component at the whole ref wins, as does anything on disk there; only then
-// does "<tile>+<name>" name a deployment, of a tile with a record (P5). A
-// query string's tile= takes resolveQuery instead (P17).
+// does "<tile>+<name>" name a deployment, of a tile with a record (D119c). A
+// query string's tile= takes resolveQuery instead (D127j).
 func (a *deploymentsAPI) resolve(ref string) (tileRef, *dpe) {
 	ref = strings.Trim(ref, "/")
 	if ref == "" {
@@ -232,7 +232,7 @@ func (a *deploymentsAPI) resolve(ref string) (tileRef, *dpe) {
 	return tileRef{}, noTile(ref)
 }
 
-// resolveQuery maps a query's tile= to its tile (P17): the registered tile
+// resolveQuery maps a query's tile= to its tile (D127j): the registered tile
 // at that exact path, never a qualified ref. A '+' in a query string decodes
 // to a space, so a query names a deployment with its own parameter
 // (deployment=): a tile= that reads as a ref is a 400 (util.QueryTileQualified),
@@ -318,7 +318,7 @@ func bound(pr auth.Principal) string {
 // ---- GET /deployments ----
 
 // getState answers the state of ?tile=, selecting ?deployment= when named
-// (P17: a query names the deployment beside the tile, never as tile+name);
+// (D127j: a query names the deployment beside the tile, never as tile+name);
 // selected echoes it, judged as a qualified ref's was.
 func (a *deploymentsAPI) getState(w http.ResponseWriter, r *http.Request) {
 	pr, q := auth.PrincipalOf(r), r.URL.Query()
@@ -526,7 +526,7 @@ func (a *deploymentsAPI) caller(pr auth.Principal, t tileRef, s deployments.Subj
 var notBuilt = deployments.Can{Why: "not built in this xbind yet", Kind: deployments.KindPolicy}
 
 // can is the plane's answer for pr, then what the tile itself may do
-// (Policy: P18's isolation refusal among them, as the request would be
+// (Policy: D119h's isolation refusal among them, as the request would be
 // judged); an act it allows that this xbind doesn't build is notBuilt.
 // allowed is the tile's, whoever asks.
 func (a *deploymentsAPI) can(pr auth.Principal, o op, s deployments.Subject) deployments.Can {

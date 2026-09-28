@@ -5,17 +5,17 @@ package deployments
 // deploying (a restart included) and rolling back. Each registers with the
 // dispatcher (dispatch.go), which judges the caller before Run; Run takes
 // the tile's operation lock, refuses what it must before changing anything
-// (a held record, a stale seq, P18's isolation, a checkpoint that can't
+// (a held record, a stale seq, D119h's isolation, a checkpoint that can't
 // start), captures at request time, and commits through the index with the
 // grant rechecked against the record it changes (T9). A dry run is judged
 // exactly as for real and changes nothing: on a tile without a record it
-// captures nothing and creates no store (P5).
+// captures nothing and creates no store (D119c).
 //
 // Where the record's pointer moves (07-runtime §8.2): a move off the work
 // tree (pausing live reload, a deploy onto the live reload target) writes
 // it at request time, once the checkpoint exists and is materialized; a
 // pinned → pinned move writes it after the swap (commitSwap), so a failed
-// deploy leaves the previous code, which every restart keeps running (P9).
+// deploy leaves the previous code, which every restart keeps running (D119e).
 
 import (
 	"context"
@@ -244,7 +244,7 @@ func (o *op) newAttempt(how, dep, tree string) *attempt {
 	return a
 }
 
-// needsIsolation is P18: without isolation nothing can show a checkpoint at
+// needsIsolation is D119h: without isolation nothing can show a checkpoint at
 // a backend's canonical path, so no backend is pinned (static tiles are).
 func (p *Plane) needsIsolation(c *registry.Component) error {
 	if c.HasBackend() && !p.isIsolated() {
@@ -313,7 +313,7 @@ func (p *Plane) catchUp(o *op, dep string) {
 }
 
 // primaryCodeMoved reacts to a commit that moved the primary's code: the
-// registry recomposes the tile from it (P9), provisioning and the ingress
+// registry recomposes the tile from it (D119e), provisioning and the ingress
 // follow (07-runtime §5.1).
 func (p *Plane) primaryCodeMoved() {
 	if p.Reg != nil {
@@ -484,7 +484,7 @@ func runResume(ctx context.Context, p *Plane, g Grant, r *ResumeRequest) (any, e
 	var rec *Record
 	if cur := p.current(o.tile); cur != nil && optOut(cur, y) {
 		// Resuming onto main, with nothing else set, returns the tile to the
-		// zero state (P5, PO-15): the record goes, with its journal and view
+		// zero state (D119c, PO-15): the record goes, with its journal and view
 		// repository; the store and its deploy log stay, inert. Authority is
 		// judged against the record as it stands, which the removal
 		// compares-and-sets on.
@@ -635,7 +635,7 @@ func runDeploy(ctx context.Context, p *Plane, g Grant, r *DeployRequest) (any, e
 
 // restart starts a new generation of dep's current code (its checkpoint, or
 // the work tree's build while live reload drives it) and clears its crash
-// breaker: what a crash restart does, so it moves no code (P9). A runner
+// breaker: what a crash restart does, so it moves no code (D119e). A runner
 // with Restart does it blue/green on dep's lane (07-runtime §8.7); one
 // without marks dep changed, which rebuilds it from its record's code.
 func (p *Plane) restart(ctx context.Context, o *op, dry bool, dep string) (any, error) {

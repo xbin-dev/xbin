@@ -7,7 +7,7 @@ package runner
 // moves to a per-tile parent with a leaf per deployment (07-runtime §10.3),
 // so a generation keeps the leaf it started in (instance.leaf), the alerts
 // ask for the tile's hits rather than for one leaf, and each hit names the
-// deployment whose leaf it is (P25).
+// deployment whose leaf it is (D127q).
 
 import (
 	"github.com/xbin-dev/xbin/internal/cgroup"
@@ -45,7 +45,7 @@ func (r *Runner) cgroups() cgroupOps {
 // chooseLeaf is the leaf a generation of deployment dep of tile starts in,
 // chosen once, at its start (07-runtime §10.3). main keeps the flat leaf,
 // util.CompKey(tile), while it runs alone: a zero-state or main-only tile
-// never gets the per-tile parent, and a record alone changes nothing (P5).
+// never gets the per-tile parent, and a record alone changes nothing (D119c).
 // Any other deployment starts in its own leaf under the parent, which its
 // start creates; main moves in at its first generation after that, while
 // its old one drains in the flat leaf. No live process ever moves, and a
@@ -60,8 +60,8 @@ func (r *Runner) chooseLeaf(tile, dep string) string {
 
 // joinLeaf puts pid, of generation sock of deployment dep of tile, into leaf
 // with that deployment's caps: LimitsFor's, which default to the tile's and
-// never exceed its ceilings (P22), with the primary's node weighted first
-// (P25). A VM generation's leaf holds two guests (vmLeafBytes). Without
+// never exceed its ceilings (D127n), with the primary's node weighted first
+// (D127q). A VM generation's leaf holds two guests (vmLeafBytes). Without
 // LimitsFor a leaf takes the caps installed on the manager, today's calls.
 func (r *Runner) joinLeaf(tile, dep, leaf, sock string, pid int) {
 	cg := r.cgroups()
@@ -82,7 +82,7 @@ func (r *Runner) joinLeaf(tile, dep, leaf, sock string, pid int) {
 }
 
 // leafLimits are deployment dep of tile's caps, and its node's CPU weight:
-// the primary's above the others' (P25). A flat leaf has no such node.
+// the primary's above the others' (D127q). A flat leaf has no such node.
 func (r *Runner) leafLimits(tile, dep string) cgroup.Limits {
 	l := r.LimitsFor(tile, dep)
 	l.NodeWeight = cgroup.DeploymentWeight(dep == r.primary(tile))
@@ -103,7 +103,7 @@ func (r *Runner) leaveLeaf(leaf string) {
 // "max"), which the caller compares with the ones it saw last.
 type LimitHit struct {
 	// Deployment names the deployment whose leaf this is; "" for the flat
-	// leaf, which zero-state and main-only tiles keep (P5).
+	// leaf, which zero-state and main-only tiles keep (D119c).
 	Deployment string
 	// Leaf is the cgroup leaf's name, the key its counters are tracked by:
 	// util.CompKey(tile) for the flat leaf.
@@ -116,7 +116,7 @@ type LimitHit struct {
 // only the flat leaf answers it alone, exactly as
 // Cgroup.AtLimit(util.CompKey(tile)) does. A tile with the per-tile parent
 // answers each leaf beneath it too (and the flat one while main's old
-// generation drains there), each naming its deployment (P25).
+// generation drains there), each naming its deployment (D127q).
 func (r *Runner) AtLimitTile(tile string) []LimitHit {
 	cg := r.cgroups()
 	if cg == nil {

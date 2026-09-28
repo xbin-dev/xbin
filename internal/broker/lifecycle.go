@@ -15,7 +15,7 @@ import (
 // manifest; the proxy refuses to spawn a non-enabled backend. Disabling also
 // stops any running backend now, to free compute.
 //
-// Lifecycle is the tile's, never a deployment's (05-model §11) (P29): a
+// Lifecycle is the tile's, never a deployment's (05-model §11) (D119i): a
 // state set on a tile reaches every deployment it has. Disabling, hiding and
 // offloading stop each one (StopBackend is the runner's Stop, which stops
 // them all, and the spawn gate reads the tile's state for every deployment);
@@ -137,7 +137,7 @@ type lifecycleReload struct {
 // bare reload, which speaks of the primary, whatever its name; then op
 // reload naming each other deployment, since no event of today's types ever
 // names one (C2). A tile without a deployment record has main alone, so it
-// publishes exactly today's one event (P5).
+// publishes exactly today's one event (D119c).
 func (b *Broker) publishLifecycle(tile string) {
 	b.Hub.Publish(events.Event{Type: "reload", Component: tile})
 	primary, names := b.deploymentsOf(tile)

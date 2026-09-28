@@ -1,5 +1,5 @@
 /**
- * <bx-admin-deployments> — the runtime → deployments tab (P21, extended by
+ * <bx-admin-deployments> — the runtime → deployments tab (D127m, extended by
  * the owner 2026-09-28; docs/tile-deployments.md "Managing protection"):
  * every tile with a deployment record — its primary, whether the primary is
  * protected, where live reload is, its deployments and the last deploy —

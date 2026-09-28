@@ -191,7 +191,7 @@ var createdField = regexp.MustCompile(`"created": "[^"]*"`)
 
 // ---- tests ----
 
-// covers P5 P29 T11 SC-AUDIT — (M1: record, store) a tile's backup carries
+// covers D119c D119i T11 SC-AUDIT — (M1: record, store) a tile's backup carries
 // its deployment state: with a deployment record, the main archive gains
 // the record verbatim and the checkpoint store's git data (refs before
 // objects, every object, never its config, hooks, info or index) right
@@ -358,7 +358,7 @@ func names(ms []archiveMember) string {
 	return strings.Join(out, " ")
 }
 
-// covers T11 P29 — restore refuses an archive whose deployment state
+// covers T11 D119i — restore refuses an archive whose deployment state
 // belongs to another tile before it writes anything: a manifest naming
 // another tile, a record naming another tile, and two records each leave
 // the tile's files, the other tile's files, the staging area and the plane

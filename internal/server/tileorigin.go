@@ -53,7 +53,7 @@ import (
 // generation), and a view-as session's stay read-only without the cookie.
 // Chrome (root, shell, chrome:true tiles) stays on the workspace origin.
 //
-// Tile deployments (P17; 11-contract §2.6, §7.5): each deployment of a tile
+// Tile deployments (D127j; 11-contract §2.6, §7.5): each deployment of a tile
 // has an origin of its own, labelled by the tile and the deployment's name
 // (auth.TileHostIDDeployment), so each keeps its own storage whichever
 // deployment is primary. main's label is the tile's, and its tickets and
@@ -137,7 +137,7 @@ func (s *Server) tileHostOf(host string) (string, bool) {
 }
 
 // tileOriginURL is a tile's origin (scheme://t-<id>.<tiles-domain>[:port]),
-// or "" outside origins mode: its primary's (P7), which is the tile's own
+// or "" outside origins mode: its primary's (D127d), which is the tile's own
 // label while main is primary, as on every tile without a deployment record.
 // Scheme and port follow --external-url unless --tiles-domain carries its
 // own port.
@@ -549,7 +549,7 @@ func dropQueryKey(raw, key string) string {
 	return strings.Join(keep, "&")
 }
 
-// ---- deployment origins (11-contract §2.6) (P17) ----
+// ---- deployment origins (11-contract §2.6) (D127j) ----
 
 // DeploymentNamesPolicy is a Policy that names every deployment of a tile:
 // its primary and each name, main first (the deployments plane's
@@ -638,7 +638,7 @@ func (s *Server) originIsTile(id, tile string) bool {
 // originLevelHolds is a tile origin's level check on every request, beside
 // the read check: the origin of a deployment other than the primary needs
 // the user to write the tile, at their current level, as that deployment's
-// URL does on the workspace (11-contract §2.3) (P20). dep is the
+// URL does on the workspace (11-contract §2.3) (D127l). dep is the
 // credential's ("" is main).
 func (s *Server) originLevelHolds(uid, tile, dep string) bool {
 	return cmp.Or(dep, util.MainDeployment) == s.primaryOf(tile) || s.userWritesTile(uid, tile)

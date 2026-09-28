@@ -62,7 +62,7 @@ func main() {
 	return bin
 }
 
-// covers P6 P9 P14 — TestPinnedBackendSeesCheckpoint's data half (15-test-plan
+// covers D127c D119e D127i — TestPinnedBackendSeesCheckpoint's data half (15-test-plan
 // §4): a pinned non-primary deployment's backend reads its checkpoint at the
 // canonical path, read-only by the bind, and its resource at the XBIN_RES_*
 // path main's backend uses; the host directory behind that path is the
@@ -131,7 +131,7 @@ func TestPinnedBackendSeesCheckpointData(t *testing.T) {
 	}
 }
 
-// covers P21 T16 T17 NP-07-14 — TestProtectedBuildProductsSeparated, confined:
+// covers D127m T16 T17 NP-07-14 — TestProtectedBuildProductsSeparated, confined:
 // a manager's operation onto the protected primary builds the checkpoint in
 // its own namespace (the artifact at protected/build/<tree>/bin printing the
 // checkpoint's output, its Go caches under protected/cache) and writes none

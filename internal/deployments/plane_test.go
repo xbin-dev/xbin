@@ -15,7 +15,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers 05-model §5 P9 NP-02-11 NP-07-2 — every M1 operation onto main
+// covers 05-model §5 D119e NP-02-11 NP-07-2 — every M1 operation onto main
 // runs on a literal of the plane's inputs (a checkpoint store, a runner
 // facade, a hub), with no broker: flow A on a static tile (pause, reload
 // now, roll back, deploy a named checkpoint, restart, resume back to the
@@ -178,7 +178,7 @@ func TestDeployPlaneOperations(t *testing.T) {
 		if n, _ := f.run.counts(); n != 1 {
 			t.Errorf("the runner deployed %d times", n)
 		}
-		// A failed pinned → pinned deploy keeps the previous code (P9).
+		// A failed pinned → pinned deploy keeps the previous code (D119e).
 		f.write(opAPI+"/main.go", "package main // v2\n")
 		f.run.set(func(r *fakeRunner) { r.fail = errors.New("build failed: main.go:1: syntax") })
 		ans = f.must(ownerP, OpReloadNow, &ReloadNowRequest{Tile: opAPI})

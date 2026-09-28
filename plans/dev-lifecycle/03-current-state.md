@@ -1,6 +1,6 @@
 # 03 — How it works today (the baseline)
 
-> Status: live — the as-is baseline the dev lifecycle changes, every fact re-verified with file:line against master at `5012a92` (part of [plans/dev-lifecycle](README.md))
+> Status: historical (the input to D119 and D127) — the as-is baseline the dev lifecycle changes, every fact re-verified with file:line against master at `5012a92` (part of [plans/dev-lifecycle](README.md))
 
 This document describes what xbin does today in every area the tile dev
 lifecycle touches. It proposes nothing. The design is

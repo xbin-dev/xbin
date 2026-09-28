@@ -1,7 +1,7 @@
 package deployments
 
 // retention.go — the checkpoint store's retention, wired (07-runtime §2.8,
-// P9), and the restore put-back of a tile's deployment state (05-model §11,
+// D119e), and the restore put-back of a tile's deployment state (05-model §11,
 // 08-data §11.4). The pieces are the store's and the runner's; this file
 // decides when they run and what they keep:
 //
@@ -19,7 +19,7 @@ package deployments
 //     tile has none, the view repository refreshed.
 //
 // A tile no record governs, or without a store, is never touched, so the
-// zero state stays byte for byte (P5). The store and the runner answer
+// zero state stays byte for byte (D119c). The store and the runner answer
 // through optional interfaces, as the runner's DeploymentStatus does: a
 // test fake without them collects nothing.
 //
@@ -240,7 +240,7 @@ func (p *Plane) artifactKeep(ctx context.Context, tile string) ([]string, error)
 // sweepAtBoot removes the .tmp-* extractions killed runs left under
 // .xbin/deploy (07-runtime §2.6), from Boot once a record governs a tile and
 // before anything materializes. A workspace where no record governs a tile
-// reads nothing more at boot (P5); a store without a record has nothing
+// reads nothing more at boot (D119c); a store without a record has nothing
 // materializing, and its next GC sweeps its own. A failure is logged.
 func (p *Plane) sweepAtBoot() {
 	col, ok := p.store().(collector)
@@ -277,10 +277,10 @@ var restoredRef = regexp.MustCompile(`^refs/xbin/restored/(?:(?:checkpoints|view
 //     and only when the store holds every checkpoint it names, which a load
 //     requires (a record naming a missing one would hold the tile). One made
 //     for another owner is installed inert, as a load leaves it, until an
-//     admin adopts or clears it (P29);
+//     admin adopts or clears it (D119i);
 //  3. for a record that now governs the tile, the pinned primary's code is
 //     prepared, so the rescan after the restore composes the tile from it
-//     (P9), and the view repository is refreshed from the store.
+//     (D119e), and the view repository is refreshed from the store.
 //
 // While opting in is closed (--tile-deployments=off) nothing is put back, as
 // an xbind without the hook: a restore doesn't open what the switch closed,

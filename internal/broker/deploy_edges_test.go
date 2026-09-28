@@ -230,7 +230,7 @@ func edgeWantDeny(t *testing.T, what string, d Decision, parts ...string) {
 	}
 }
 
-// covers P3 P11 P23 T4 SC-CLAMP — the read clamp on every edge kind
+// covers D127a D127f D127o T4 SC-CLAMP — the read clamp on every edge kind
 // (TestReadClampOnEveryEdge): a non-primary caller holding writer or admin,
 // by grant row or http binding, reaches the provider's primary as reader,
 // with the edges it used and the clamp named for the response; a resource
@@ -332,7 +332,7 @@ func TestGrantedRoleReadClamp(t *testing.T) {
 	}
 }
 
-// covers P3 P23 T4 NP-09-6 NP-09-10 — block fails closed on every edge kind
+// covers D127a D127o T4 NP-09-6 NP-09-10 — block fails closed on every edge kind
 // (TestEdgeBlockFailsClosed): a slot, a grant row, a resource grant (its
 // WebSocket bus reads and a subscription's edge check included), the net
 // slot and a capability grant at block refuse a non-primary deployment,
@@ -404,7 +404,7 @@ func edgeDevView(t *testing.T, b *Broker, tile string) *registry.Component {
 	return &v
 }
 
-// covers P23 T4 E10 — edges that can't be read-clamped are blocked by
+// covers D127o T4 E10 — edges that can't be read-clamped are blocked by
 // default, and nothing stored unblocks them: a custom role with no path to
 // reader (channel; consumer on the sandbox managers), a stream slot, a
 // lan-ingress slot and a net provider splice list block alone with the
@@ -459,7 +459,7 @@ func TestUnclampableEdgeDefaults(t *testing.T) {
 	}
 }
 
-// covers P23 P27 T4 — P23 has no override: writing read or inherit to a
+// covers D127o D127s T4 — D127o has no override: writing read or inherit to a
 // stream, lan-ingress, splice or custom-role edge answers 400 in 11-contract
 // §1.14's form (<edge> takes <values>: <reason>); a hand-written read for one
 // in the record reads as block (TestUnclampableEdgeDefaults drives the
@@ -538,7 +538,7 @@ func TestUnclampableEdgesRefuseOverride(t *testing.T) {
 	}
 }
 
-// covers P3 P23 T4 K14 — the sandbox-managers interplay: apps/coder's multi
+// covers D127a D127o T4 K14 — the sandbox-managers interplay: apps/coder's multi
 // sandbox-manager slot, whose providers both grant the custom role consumer,
 // is blocked for every provider on every non-primary deployment (dev and a
 // third, qa), each refusal counted on the slot, while the primary's calls
@@ -587,7 +587,7 @@ func TestSandboxManagerEdgeBlocked(t *testing.T) {
 	}
 }
 
-// covers P3 P23 T4 T17 — the net edge: inherit by default, the tile's relay
+// covers D127a D127o T4 T17 — the net edge: inherit by default, the tile's relay
 // policy; block on a manager's word; a net that shares the host's (the host
 // builtin, a named set whose rules say host) is block whatever is stored,
 // with the reason, and a non-primary view never answers NetHostShare; a net
@@ -640,7 +640,7 @@ func TestNetEdgeDefault(t *testing.T) {
 	}
 }
 
-// covers P3 P5 Z3 — the edge policy never changes a primary call: with
+// covers D127a D119c Z3 — the edge policy never changes a primary call: with
 // every edge of every fixture tile stored as block (or a value no xbind
 // knows), each tile's primary principals (instance, frame, a terminal that
 // follows the primary) get Route, Policy, allowRes and resolveTarget exactly
@@ -711,7 +711,7 @@ func TestEdgePolicyNeverTouchesPrimary(t *testing.T) {
 	}
 }
 
-// covers P12 T3 — self-calls stay in their deployment
+// covers D127g T3 — self-calls stay in their deployment
 // (TestSelfCallStaysInDeployment): the tile's principal bound to dev (an
 // instance, a frame whose user can write, a terminal targeting dev) reaches
 // dev as admin by the bare URL, and a URL naming main is refused; main's
@@ -760,7 +760,7 @@ func TestSelfCallRouting(t *testing.T) {
 	}
 }
 
-// covers P19 T14 — approving an xbin or xbin:* grant for a tile that has
+// covers D127k T14 — approving an xbin or xbin:* grant for a tile that has
 // non-primary deployments is refused with 409 (11-contract §1.14's text);
 // a tile whose record holds main alone, and a tile without a record, may
 // be granted one; revoking is always allowed.
@@ -796,7 +796,7 @@ func TestXbinGrantRefusedWithNonPrimary(t *testing.T) {
 	}
 }
 
-// covers P19 T14 — a non-primary principal is never an admin element and
+// covers D127k T14 — a non-primary principal is never an admin element and
 // holds no governance role, whatever the grant table says: apps/console,
 // granted xbin and xbin:users at admin by a hand-edited workspace, has dev
 // beside main; its instance, frame and terminal principals bound to dev
@@ -829,7 +829,7 @@ func TestNonPrimaryPrincipalNeverAdmin(t *testing.T) {
 	}
 }
 
-// covers P27 NP-09-2 — block wins among several edges authorizing one
+// covers D127s NP-09-2 — block wins among several edges authorizing one
 // call: apps/chat reaches apps/llm-gw by its llm slot and a writer grant row; a
 // block on either refuses the call, naming that edge, though the other is
 // read; both at read clamp to reader. The same for code edges: grant:code
@@ -880,7 +880,7 @@ func TestEdgeBlockWins(t *testing.T) {
 	}
 }
 
-// covers P27 — a stored value this xbind doesn't know, or one the edge
+// covers D127s — a stored value this xbind doesn't know, or one the edge
 // doesn't take, reads as block: match (a later xbind's), an unknown word,
 // inherit on a read-clamp edge and read on a capability grant each refuse
 // the call, list effective block with the reason, and leave the primary as
@@ -904,7 +904,7 @@ func TestEdgeUnknownValueBlocks(t *testing.T) {
 	}
 }
 
-// covers P3 T4 NP-09-5 — capability grants shape the deployment's own
+// covers D127a T4 NP-09-5 — capability grants shape the deployment's own
 // sandbox: for a non-primary generation's view, gpu:0 is withheld by
 // default and granted at inherit; cap:net-admin, cap:containers and
 // cap:open-links pass at their default inherit and are withheld at block;

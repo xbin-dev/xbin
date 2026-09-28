@@ -97,7 +97,7 @@ func hostileTile(t *testing.T, s *Store, path, marker string) (Source, string) {
 	return src, head
 }
 
-// covers T1 P16 — a tile whose .git/config names fsmonitor, diff.external,
+// covers T1 D119g — a tile whose .git/config names fsmonitor, diff.external,
 // a filter driver, a hooks path with hooks, an ext:: remote, an ssh command,
 // a credential helper and an include; whose alternates point at a host path;
 // whose .gitattributes name the filter, eol conversion, ident and a
@@ -251,7 +251,7 @@ func TestCheckpointStorePrivate(t *testing.T) {
 	}
 }
 
-// covers P8 — BenchmarkCapture through the sandbox (07-runtime §2.10: about
+// covers D119d — BenchmarkCapture through the sandbox (07-runtime §2.10: about
 // 45 ms per confined run on fuse-overlayfs, 17 ms on kernel overlay).
 func BenchmarkCaptureConfined(b *testing.B) {
 	confined(b)

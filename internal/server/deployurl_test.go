@@ -237,7 +237,7 @@ func same(a, b *httptest.ResponseRecorder) bool {
 	return a.Code == b.Code && mask(a.Body.String()) == mask(b.Body.String()) && a.Header().Get("Location") == b.Header().Get("Location")
 }
 
-// covers P7 P17 P19 — /c/<tile>+<name>/ serves that deployment's code:
+// covers D127d D127j D127k — /c/<tile>+<name>/ serves that deployment's code:
 // pinned (a checkpoint, its deps/ links re-dispatched to the other tile's
 // primary) or following the work tree; /c/<tile>/ and the alias
 // /c/<tile>+<primary>/ serve the primary, which may be another deployment
@@ -426,7 +426,7 @@ func TestQualifiedURLRouting(t *testing.T) {
 	})
 }
 
-// covers P7 P20 T9 — who opens a non-primary deployment's URL: people with
+// covers D127d D127l T9 — who opens a non-primary deployment's URL: people with
 // at least write on the tile (terminal level and admins included), judged
 // by their current level on every request, so a writer demoted to read is
 // refused on the next request although his dev frame token still verifies;
@@ -549,7 +549,7 @@ func TestDeploymentURLGate(t *testing.T) {
 	})
 }
 
-// covers P12 P17 — the frame token injected into a non-primary document
+// covers D127g D127j — the frame token injected into a non-primary document
 // carries the deployment claim, main's none: a dev document (a page, a
 // sub-page, the native runtime document) mints dev's six-field token; the
 // bare URL and the alias mint main's five fields; with dev the primary, the
@@ -598,7 +598,7 @@ func TestFrameTokenClaimInjected(t *testing.T) {
 	}
 }
 
-// covers P12 T3 — mayMintFrameToken never crosses deployments, in both
+// covers D127g T3 — mayMintFrameToken never crosses deployments, in both
 // directions (TestMintRefusesCrossDeployment): a dev frame, a dev-targeted
 // terminal and a dev instance fetching the bare /c/<tile>/ get the primary's
 // files with content=""; a main frame or a terminal that follows the
@@ -701,7 +701,7 @@ func withServed(r *http.Request, sv *served) *http.Request {
 	return r.WithContext(context.WithValue(r.Context(), servedKey{}, sv))
 }
 
-// covers T14 P19 — a non-primary deployment's documents are always
+// covers T14 D127k — a non-primary deployment's documents are always
 // sandboxed, whatever its code declares: the shipped chrome tile's bare URL
 // runs unsandboxed, its dev's page, inject:false file and native runtime
 // document get the CSP sandbox (and the sandbox meta), never COOP.

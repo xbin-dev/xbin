@@ -29,7 +29,7 @@ import (
 // input carries no tag and whose shape — four '|' fields — they don't
 // have). Each binds (tile, user, binding/generation, expiry).
 //
-// Tile deployments (P17; 11-contract §2.6, §7.5): each deployment of a tile
+// Tile deployments (D127j; 11-contract §2.6, §7.5): each deployment of a tile
 // has an origin of its own, keyed by name (TileHostIDDeployment); main's is
 // the tile's, and its credentials keep today's x1 and c1 bytes. Any other
 // deployment's origin uses x2 and c2, under purposes of their own, which
@@ -81,7 +81,7 @@ type AssetGrant struct {
 
 	// Deployment is the deployment of Tile a tile-origin credential's origin
 	// serves, under the name rule: "" is main (x1, c1), any other name rides
-	// an x2 or c2 (P17). Asset tokens carry none: their path does.
+	// an x2 or c2 (D127j). Asset tokens carry none: their path does.
 	Deployment string
 }
 
@@ -232,7 +232,7 @@ func (a *Auth) VerifyAssetToken(tok string) (AssetGrant, bool) {
 // reach DNS, SNI or certificate logs — and a valid DNS label.
 func (a *Auth) TileHostID(tile string) string { return a.hostLabel(tile) }
 
-// TileHostIDDeployment is the origin label of deployment dep of tile (P17;
+// TileHostIDDeployment is the origin label of deployment dep of tile (D127j;
 // 11-contract §2.6): main's ("" or "main") is TileHostID(tile), unchanged;
 // any other deployment's is "t-" + 16 base32 chars of
 // HMAC(.xbin/secret, "xbin-tile-host-v1" ‖ 0 ‖ tile ‖ 0 ‖ dep) — the same
@@ -289,7 +289,7 @@ func (a *Auth) UserCanReadTile(uid, tile string) bool {
 // the tile. It carries the bound login's generation, so the frame tokens
 // minted for it (the document's, renewals) die with that login, and its
 // impersonator: an admin's view of the user acts read-only, token or not.
-// It is bound to the deployment whose origin the cookie is for (P12): ""
+// It is bound to the deployment whose origin the cookie is for (D127g): ""
 // (main) for a c1, the name a c2 carries, as a frame token's claim.
 func (a *Auth) TilePrincipal(g AssetGrant) (Principal, bool) {
 	uid := g.UserID

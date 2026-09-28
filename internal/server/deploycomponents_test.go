@@ -11,7 +11,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers P7 P9 P20 — /components rows keep their keys: runtime, hasIndex
+// covers D127d D119e D127l — /components rows keep their keys: runtime, hasIndex
 // and native describe the primary's code (its checkpoint while pinned),
 // chrome and template follow its inbound surface, and manifestError, roles,
 // uses and deps describe the work tree; a tile whose work tree has no valid

@@ -52,7 +52,7 @@ func (o *Plane) canReadLogs(p auth.Principal, comp string) bool {
 // Plain text; follow streams chunked until the client goes away.
 func (o *Plane) apiLogs(w http.ResponseWriter, r *http.Request) {
 	comp := strings.Trim(r.URL.Query().Get("component"), "/")
-	if util.QueryTileQualified(comp, o.HasComponent) { // component=apps/x+dev: the deployment rides deployment= (P17)
+	if util.QueryTileQualified(comp, o.HasComponent) { // component=apps/x+dev: the deployment rides deployment= (D127j)
 		server.WriteError(w, http.StatusBadRequest, util.QueryRefMsg, "/docs/protocol.md")
 		return
 	}

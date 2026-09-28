@@ -27,7 +27,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers P5 P15 SC-ZERO Z1 PO-7 — a zero-state Go tile's whole life on the
+// covers D119c D119f SC-ZERO Z1 PO-7 — a zero-state Go tile's whole life on the
 // shared daemon (created by copying the counter example, saved, hot-swapped,
 // crash-restarted) leaves no tile-deployment state behind: no
 // data/deployments, data/checkpoints or .xbin/deploy, no dot-level namespace
@@ -800,7 +800,7 @@ func dlPaths(ws, tile string) (record, dir, store, view, deploy string) {
 
 // ---- the M1 tests without isolation ----
 
-// covers P5 P8 P9 P18 SC-FAIL-CLOSED SC-LIVE-RELOAD-PAUSE (flow A) — the
+// covers D119c D119d D119e D119h SC-FAIL-CLOSED SC-LIVE-RELOAD-PAUSE (flow A) — the
 // static half without isolation (a daemon of the shared daemon's flavour,
 // on a workspace of its own): pausing live reload on a static tile works
 // (TestStaticTilePauseLiveReloadWithoutIsolation).
@@ -893,7 +893,7 @@ func TestLiveReloadPauseStatic(t *testing.T) {
 	a.waitServed(t, tile, "static", "v3", 10*time.Second)
 }
 
-// covers P18 T12 SC-FAIL-CLOSED — on the shared daemon (no isolation) a Go
+// covers D119h T12 SC-FAIL-CLOSED — on the shared daemon (no isolation) a Go
 // backend can't be pinned: pausing live reload on a copy of the counter
 // example is refused with the reason naming --isolate, as the state's Can
 // says beforehand, dry run or not, before any state exists (no record, no
@@ -972,7 +972,7 @@ func raceRuns() int {
 	return 10
 }
 
-// covers SC-LIVE-RELOAD-PAUSE P9 — saves run continuously across the
+// covers SC-LIVE-RELOAD-PAUSE D119e — saves run continuously across the
 // request that pauses live reload. The checkpoint holds every save that
 // completed before the request; from the response on, no save changes what
 // is served: a static tile's bytes (without isolation), and a go, node and
@@ -1296,7 +1296,7 @@ func raceFailedPause(t *testing.T, a dlAPI, ws, tile, rt string) string {
 	return "fp-fixed"
 }
 
-// covers P5 SC-OPT-OUT SC-ZERO Z12 PO-15 — pause live reload → reload now →
+// covers D119c SC-OPT-OUT SC-ZERO Z12 PO-15 — pause live reload → reload now →
 // resume on a main-only static tile (without isolation) removes the record,
 // its journal and the view repository. The only leftover is the checkpoint
 // store with its deploy log, inert: the remote answers 404, the log and the

@@ -1,7 +1,7 @@
 package server
 
 // deployclass.go — xbind's API is default-deny for non-primary principals
-// (P26; 09-fabric §6's enforcement). Every /api/xbin/* route pattern has a
+// (D127r; 09-fabric §6's enforcement). Every /api/xbin/* route pattern has a
 // class in one table:
 //
 //   - deployment-scoped: the handler acts on the caller's own deployment
@@ -30,7 +30,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// RouteClass is a /api/xbin/* route's class for non-primary principals (P26).
+// RouteClass is a /api/xbin/* route's class for non-primary principals (D127r).
 type RouteClass uint8
 
 const (
@@ -69,7 +69,7 @@ func RouteClasses() map[string]RouteClass {
 }
 
 // primaryOnlyFor names the neutral routes that are primary-only for one kind
-// of principal (Via): deciding a PR is, for instance principals (P26), so a
+// of principal (Via): deciding a PR is, for instance principals (D127r), so a
 // non-primary backend never merges into the work tree.
 var primaryOnlyFor = map[string]string{
 	"POST /code/pr/state": "instance",
@@ -78,13 +78,13 @@ var primaryOnlyFor = map[string]string{
 // routeClasses is the table (09-fabric §6). Governance (users, orgs, sets,
 // policy, grants, bindings, ownership, tile creation, lifecycle) and every
 // admin API are primary-only, reads included: a non-primary principal never
-// holds a governance capability (P19). A person's own account, devices and
+// holds a governance capability (D127k). A person's own account, devices and
 // sessions, the public sign-in routes and plain reads of workspace facts are
 // neutral.
 var routeClasses = map[string]RouteClass{
 	// ---- the tile's self-scoped stores (09-fabric §6's rows) ----
 	// dormant: stored under the deployment, in effect only while it is the
-	// primary, or, for cron and bus, while its deliveries are on (P13)
+	// primary, or, for cron and bus, while its deliveries are on (D127h)
 	"GET /cron/jobs":                   DeploymentScoped,
 	"PUT /cron/jobs":                   DeploymentScoped,
 	"DELETE /cron/jobs/{name}":         DeploymentScoped,
@@ -363,7 +363,7 @@ var routeClasses = map[string]RouteClass{
 	"DELETE /agent/history/{id}":                  Neutral,
 }
 
-// classGate applies P26 to one /api/xbin request, r2 as the API mux sees it.
+// classGate applies D127r to one /api/xbin request, r2 as the API mux sees it.
 // dep names the caller's bound deployment when that isn't main, for the
 // audit line, and "" otherwise; deny, when set, answers in the handler's
 // place. Only a tile principal (an instance, frame or terminal credential)

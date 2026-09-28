@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// covers P5 SC-OPT-OUT SC-LIVE-RELOAD-PAUSE — tiles pause and resume live
+// covers D119c SC-OPT-OUT SC-LIVE-RELOAD-PAUSE — tiles pause and resume live
 // reload at once through the plane: every operation succeeds, since no
 // record or deploy-journal write meets the records directory another tile's
 // resume removed (a 500 from a pause in TestLiveReloadPauseRace), and the

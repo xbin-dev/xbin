@@ -84,7 +84,7 @@ type netPlan struct {
 // netPlanFor is the wiring of generation of deployment dep spawning from
 // view c. The primary's is the hooks' answers, today's. A non-primary view
 // never registers a roster, splices to a provider or takes lan-ingress legs,
-// whatever a hook answers (P23; 09-fabric §5.7–§5.8): L3 roles are the
+// whatever a hook answers (D127o; 09-fabric §5.7–§5.8): L3 roles are the
 // primary's, a second splicer on a provider's link would split its packets,
 // and a roster entry would renumber the primary's links and restart the
 // provider and its clients. Its relay keeps only stream-slot forwards, each
@@ -114,7 +114,7 @@ const (
 )
 
 // spawnEgress is the egress policy of a generation spawning from view c,
-// with the net verdict applied at spawn (P23; 09-fabric §5.8): the Egress
+// with the net verdict applied at spawn (D127o; 09-fabric §5.8): the Egress
 // hook's answer, except that a non-primary view gets no egress at all while
 // the tile's net resolves to host sharing or is spliced through a provider
 // tile, whatever the hook answers. Neither the host network nor a splice

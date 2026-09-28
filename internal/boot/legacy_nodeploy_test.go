@@ -12,7 +12,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/confine"
 )
 
-// covers P5 P15 SC-ZERO PO-7 PO-8 — 12-compat §6.1 on the aged workspace, in
+// covers D119c D119f SC-ZERO PO-7 PO-8 — 12-compat §6.1 on the aged workspace, in
 // process: booting it twice creates no tile-deployment state (no
 // data/deployments, data/checkpoints or .xbin/deploy, no dot-level namespace
 // root), leaves the cron and bus-subscription stores byte-equal (data/ is in

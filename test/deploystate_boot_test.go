@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// covers P15 T11 PO-7 — the legacy fixture's variant with deployment state
+// covers D119f T11 PO-7 — the legacy fixture's variant with deployment state
 // (15-test-plan §6): on a fresh workspace, the feature itself pauses live
 // reload on a static tile and the work tree moves on; then two boots of the
 // real binary change nothing outside derived trees (materializations under

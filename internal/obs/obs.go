@@ -22,7 +22,7 @@ type Plane struct {
 	IsAdmin      func(auth.Principal) bool // who may report for any tile and read every status
 	HasComponent func(path string) bool    // whether a path is a registered component (logs)
 
-	// The deployment input (P13): Primary names a tile's primary deployment;
+	// The deployment input (D127h): Primary names a tile's primary deployment;
 	// Addressed answers which deployment of a tile a request by p reaches
 	// (11-contract §0.4 DR1: the tile's own principals their bound
 	// deployment, anyone else the primary), util.ErrNoDeployment for one

@@ -754,7 +754,7 @@ GET    /tile-status?component=<p>  self or admin. one tile's runtime metrics —
                                    a tile credential's — else the primary).
                                    400 a malformed name, and a component=
                                    that names a deployment as tile+name
-                                   (P17: "a deployment is named with
+                                   (D127j: "a deployment is named with
                                    deployment=, …"); 403 "a tile's own
                                    credentials act only on their own
                                    deployment (<bound>)" (a tile's frames and
@@ -813,7 +813,7 @@ GET    /logs?component=<p>         admin, the tile itself, or a user with
                                    terminal level and admins read any. 404
                                    unknown, 400 malformed, and 400 for a
                                    component= that names a deployment as
-                                   tile+name (P17). X-XBin-Deployment:
+                                   tile+name (D127j). X-XBin-Deployment:
                                    <name> on a non-primary answer and on every
                                    answer to a request that named a
                                    deployment (the echo of a text/plain
@@ -1798,7 +1798,7 @@ POST   /create                     owner/admin, a user creating a tile
                                    isn't allowed in tile names (it names
                                    a tile deployment in URLs,
                                    /c/<tile>+<name>/) — pick another
-                                   path" for a '+' in any segment (P17).
+                                   path" for a '+' in any segment (D127j).
                                    A directory already named with '+'
                                    keeps resolving (an exact match wins)
                                    but can't get deployments.
@@ -2315,7 +2315,7 @@ this xbind yet". Bodies are JSON, decoded strictly; each names `tile`, a
 tile ref (apps/crm, or apps/crm+dev for one deployment; a body's deployment
 and the ref's qualifier must agree). The GET rows take `tile` as a query
 parameter: a tile's path, never a ref — a deployment is named with
-`deployment=` (P17; §Tile deployments, *Tile refs in a query string*). Each
+`deployment=` (D127j; §Tile deployments, *Tile refs in a query string*). Each
 body takes seq (the record's sequence
 the caller acted on: 409 when it moved) and dryRun:true (judged as for
 real, refusals included, nothing changes → {state, impact}). confirm tokens
@@ -2333,7 +2333,7 @@ anything is captured, dry runs included; restart:true needs neither.
 "tile manager" below is a person's own session — the tile's owner, its
 org's admins, a workspace admin; the root token (bx on the host) is one —
 never a terminal, agent or tile credential, whatever grants its tile holds.
-One exception (P21, extended 2026-09-28): on primary, protect, deliveries
+One exception (D127m): on primary, protect, deliveries
 and always-on, a frame of a tile holding the `xbin` admin capability (the
 admin console, `tiles/admin`) whose token was minted under a person's own
 login — a session or the root token, not a view-as session, not a token a
@@ -2365,7 +2365,7 @@ GET    /deployments?tile=<tile>&deployment=<name>
                                    rest when it doesn't exist. tile= is a
                                    tile's path: a '+' in it that names no
                                    tile, escaped or read as a space, is
-                                   400 (P17)
+                                   400 (D127j)
 GET    /deployments/log?tile=<tile>&deployment=<name>&limit=<n>&before=<id>
                                    write on the tile, or its terminal/agent
                                    sessions. → {tile, entries:[DeployEntry],
@@ -2465,7 +2465,7 @@ POST   /deployments/add            terminal-level on the tile.
                                    names a tile deployment in URLs: it can't
                                    get deployments — clone it to a path
                                    without '+' (POST /api/xbin/clone) to give
-                                   it some" (P17), "<tile> has <n> non-primary
+                                   it some" (D127j), "<tile> has <n> non-primary
                                    deployments, the most allowed here", "the
                                    workspace has <n> non-primary deployments,
                                    the most allowed here", "<tile> can't
@@ -3199,7 +3199,7 @@ subscriptions, interface instances and ingress hosts, each with `dormant`)
 and `wouldNotify` (its last 20 held notifications).
 
 **Tile refs in a query string.** A query string never carries the
-qualifier: a `+` there decodes to a space (P17). A query parameter that
+qualifier: a `+` there decodes to a space (D127j). A query parameter that
 names a tile (`tile=`, `component=`) takes the tile's path, and the
 deployment rides its own parameter, `deployment=` —
 `/deployments?tile=apps/crm&deployment=dev`, never `?tile=apps/crm+dev`.

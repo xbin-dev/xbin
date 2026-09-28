@@ -1,7 +1,7 @@
 package registry
 
 // qualifier.go — the deployment URL qualifier (11-contract §2.1, §2.2, §2.4)
-// (P17). A tile ref "<tile>+<name>" names deployment <name> of <tile>; the
+// (D127j). A tile ref "<tile>+<name>" names deployment <name> of <tile>; the
 // qualifier sits inside the tile path's last segment, never in a segment of
 // its own. ResolveRef is the one resolver the /c/ and /api/ planes, the
 // asset-token plane and tile origins share. It answers every path exactly as
@@ -10,7 +10,7 @@ package registry
 // "<tile>+<name>": a component at least as deep, or anything on disk there,
 // wins. So a zero-state tile never splits, a directory whose name holds a
 // '+' keeps resolving, and "<tile>+main" on a zero-state tile is what it is
-// today (P5).
+// today (D119c).
 
 import (
 	"errors"
@@ -117,7 +117,7 @@ func (r *Registry) split(p string, base *Component, baseOK bool, d DeploymentLoo
 		tile := path.Join(path.Join(segs[:i]...), segs[i][:j])
 		tc, found := r.Component(tile)
 		if !found || !d.HasRecord(tile) {
-			continue // a zero-state tile: '+' means nothing (P5)
+			continue // a zero-state tile: '+' means nothing (D119c)
 		}
 		if baseOK && depth(base.Path) >= i+1 || r.onDisk(path.Join(segs[:i+1]...)) {
 			break // today's answer wins at the full candidate

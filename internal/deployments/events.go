@@ -80,7 +80,7 @@ type DeployEntry struct {
 }
 
 // Deploys answers dep's deploy facts. A tile a record doesn't govern has
-// none: nothing of an inert store is read (P5).
+// none: nothing of an inert store is read (D119c).
 func (p *Plane) Deploys(ctx context.Context, tile, dep string) DeployFacts {
 	var df DeployFacts
 	rec, _ := p.record(tile)
@@ -119,7 +119,7 @@ func (p *Plane) Deploys(ctx context.Context, tile, dep string) DeployFacts {
 }
 
 // Policy is what tile itself may do, whoever asks (the state's allowed
-// entries): Allowed, the ship-dark switch, and P18 — without isolation a
+// entries): Allowed, the ship-dark switch, and D119h — without isolation a
 // backend is never pinned, so pausing live reload, reloading now, deploying
 // and rolling back are refused with kind policy.
 func (p *Plane) Policy(op Op, s Subject) Can {
@@ -138,7 +138,7 @@ func (p *Plane) shortOf(ctx context.Context, tile, tree string) string {
 		return ""
 	}
 	if rec, _ := p.record(tile); rec == nil {
-		return shortTree(tree) // a tile without a record: its store is inert, never read (P5)
+		return shortTree(tree) // a tile without a record: its store is inert, never read (D119c)
 	}
 	if cp, err := p.store().Get(ctx, tile, tree); err == nil {
 		return cp.ID
@@ -332,7 +332,7 @@ type Impact struct {
 	Code             *CodeImpact `json:"code"`
 	Data             string      `json:"data"`
 	Joins            *Joins      `json:"joins,omitempty"`        // add: the existing namespace joined (m2types.go)
-	Placeholders     []string    `json:"placeholders,omitempty"` // a new primary's vault keys with no value (P14)
+	Placeholders     []string    `json:"placeholders,omitempty"` // a new primary's vault keys with no value (D127i)
 	PausesLiveReload bool        `json:"pausesLiveReload"`
 	Stops            []string    `json:"stops"`
 	Affects          string      `json:"affects"`
@@ -556,7 +556,7 @@ func (p *Plane) Log(ctx context.Context, tile, dep string, limit int, before int
 // record doesn't govern has none.
 func (p *Plane) attempts(ctx context.Context, tile, dep string) []*attempt {
 	if rec, _ := p.record(tile); rec == nil {
-		return nil // a tile without a record has no deploy log to read: its store is inert (P5)
+		return nil // a tile without a record has no deploy log to read: its store is inert (D119c)
 	}
 	seen := map[int64]bool{}
 	var out []*attempt

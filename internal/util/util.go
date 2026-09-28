@@ -188,7 +188,7 @@ func (e noDeployment) Error() string        { return e.tile + " has no deploymen
 func (e noDeployment) Is(target error) bool { return target == ErrNoDeployment }
 
 // PlusNameRefusal is the name rule every NEW tile meets, whoever creates it,
-// admins included, on every creation path (P17): no '+' in any segment of
+// admins included, on every creation path (D127j): no '+' in any segment of
 // its path, since "<tile>+<name>" is a tile deployment's URL. "" = allowed.
 // A directory whose name already holds '+' keeps resolving (an exact match
 // wins) but can't get deployments.
@@ -201,11 +201,11 @@ func PlusNameRefusal(path string) string {
 }
 
 // QueryRefMsg is the 400 of a query parameter that names a tile by a
-// qualified ref (P17).
+// qualified ref (D127j).
 const QueryRefMsg = "a deployment is named with deployment=, not tile+name (a '+' in a query string reads as a space)"
 
 // QueryTileQualified reports whether v, a query parameter that names a tile
-// (tile=, component=), is a qualified ref instead of a tile's path (P17): a
+// (tile=, component=), is a qualified ref instead of a tile's path (D127j): a
 // '+' in it that doesn't name a tile (isTile), or a space the client's
 // unescaped '+' decoded to, splitting it into a tile and a deployment name.
 // A query string never carries the qualifier: its callers answer 400

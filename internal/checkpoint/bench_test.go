@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// covers P8 — 07-runtime §2.10's capture costs, measured on §13.2's
+// covers D119d — 07-runtime §2.10's capture costs, measured on §13.2's
 // reference tile (2 000 files, 20 MB): the first capture (estimate, init,
 // run 1, run 2), an unchanged re-capture (run 1) and ten changed files (run
 // 1, run 2). Direct mode here; BenchmarkCaptureConfined (integration) runs

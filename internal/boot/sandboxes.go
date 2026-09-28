@@ -5,9 +5,9 @@ package boot
 // the admin console's runtime → sandboxes tab). And the at-limit alerts of
 // the sessions with a cgroup leaf of their own.
 //
-// Rows follow the registry's name rule (P17): main's backend rows are what
+// Rows follow the registry's name rule (D127j): main's backend rows are what
 // they were before tile deployments; another deployment's carry its name,
-// under the tile's path, with stats of its own leaf (P13).
+// under the tile's path, with stats of its own leaf (D127h).
 
 import (
 	"fmt"

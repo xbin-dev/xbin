@@ -44,7 +44,7 @@ func writable(cmd confine.Cmd) []string {
 	return out
 }
 
-// covers P21 T16 T17 NP-06-6 NP-07-14 — a protected primary's build
+// covers D127m T16 T17 NP-06-6 NP-07-14 — a protected primary's build
 // products live apart (07-runtime §3.4): its artifacts, Go caches and env
 // layers sit under .xbin/deploy/<TileKey>/protected/, disjoint from the
 // tile's shared ones; its Go build writes only there, and no other build
@@ -221,7 +221,7 @@ func TestProtectedBuildProductsSeparated(t *testing.T) {
 	})
 }
 
-// covers T17 P21 NP-06-6 — a protected primary never shares an env layer
+// covers T17 D127m NP-06-6 — a protected primary never shares an env layer
 // (07-runtime §3.3, §3.4): the same setup resolves to a layer of its own in
 // the protected namespace, while the live reload target and non-primary
 // deployments keep sharing theirs by hash; the shared layers' GC never
@@ -354,7 +354,7 @@ func TestEnvLayerGCKeepsRetained(t *testing.T) {
 	}
 }
 
-// covers P6 P17 — a setup run writes to its deployment's backend log (07-runtime
+// covers D127c D127j — a setup run writes to its deployment's backend log (07-runtime
 // §9): main's is today's .xbin/log/<CompKey>.log; another deployment's is
 // under the tile's deploy state, made for it; the primary's view names the
 // primary, whatever its name.
@@ -380,7 +380,7 @@ func TestEnvSetupLogPerDeployment(t *testing.T) {
 	}
 }
 
-// covers P25 T10 SC-PRIMARY-FIRST — one build limiter for every tile
+// covers D127q T10 SC-PRIMARY-FIRST — one build limiter for every tile
 // (07-runtime §10.3): at most its capacity of non-primary builds hold a
 // turn at once, a further one waits for a release, and a primary's build
 // never waits; a release is idempotent.
@@ -422,7 +422,7 @@ func TestNonPrimaryBuildLimiter(t *testing.T) {
 	}
 }
 
-// covers P9 P17 SC-ROLLBACK — the collection after a layer is built reads the
+// covers D119e D127j SC-ROLLBACK — the collection after a layer is built reads the
 // deployments plane's retained checkpoints (the Retained hook): a list it
 // can't read collects nothing; the layers of the listed checkpoints stay,
 // and so does every deployment's running generation's, not only main's.

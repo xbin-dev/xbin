@@ -1,6 +1,6 @@
 # 15 — Test plan
 
-> Status: live — how every property of pause live reload, tile deployments and promotion is verified: the M0 seam, unit tests per plane, sandboxed and end-to-end suites, UI harness passes, CI and traceability (part of [plans/dev-lifecycle](README.md))
+> Status: implemented (D119, D127; M3 designed, not built) — how every property of pause live reload, tile deployments and promotion is verified: the M0 seam, unit tests per plane, sandboxed and end-to-end suites, UI harness passes, CI and traceability (part of [plans/dev-lifecycle](README.md))
 
 This plan names every test the implementation swarm writes, the file it lives
 in, what it needs from the host, and what it discharges:

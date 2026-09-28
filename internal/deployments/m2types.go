@@ -6,7 +6,7 @@ package deployments
 // §1.4–§1.9), the wire shapes the other planes report for the state (§1.1),
 // and the plane's answers to the hooks boot installs into the broker, the obs
 // plane, the terminal manager and the runner. Each answer gives a tile
-// without a record exactly what xbind answered before tile deployments (P5):
+// without a record exactly what xbind answered before tile deployments (D119c):
 // main is its one deployment and its primary, following the work tree; a
 // tile whose record holds it answers the same, since nothing of a record
 // that can't be used governs it. The operations themselves register in
@@ -69,7 +69,7 @@ type RemoveRequest struct {
 }
 
 // PromoteRequest is POST /deployments/promote's body: to receives from's
-// current code (P10).
+// current code (D127e).
 type PromoteRequest struct {
 	Tile   string `json:"tile"`
 	From   string `json:"from"`
@@ -112,7 +112,7 @@ type EdgeRequest struct {
 
 // The edge-policy values a request may send (09-fabric §5.1). EdgeDefault
 // removes the override; any stored value this xbind doesn't know reads as
-// EdgeBlock (P27).
+// EdgeBlock (D127s).
 const (
 	EdgeRead    = "read"
 	EdgeBlock   = "block"
@@ -132,7 +132,7 @@ type SwitchRequest struct {
 }
 
 // LimitsRequest is POST /deployments/limits's body: a deployment's resource
-// limits (P22), each at most the tile's ceiling.
+// limits (D127n), each at most the tile's ceiling.
 type LimitsRequest struct {
 	Tile       string      `json:"tile"`
 	Deployment string      `json:"deployment,omitempty"`
@@ -293,7 +293,7 @@ const (
 	ConfirmDataStays = "data-stays" // primary
 )
 
-// The admission caps on non-primary deployments (07-runtime §10.3) (P25):
+// The admission caps on non-primary deployments (07-runtime §10.3) (D127q):
 // constants, not settings. The runner enforces them at start and declares
 // them; these are its values, so there is one declaration.
 const (
@@ -376,13 +376,13 @@ type DataState struct {
 }
 
 // VaultSummary is Deployment.vault: how many keys, and how many of them are
-// placeholders, names with no value yet (P14).
+// placeholders, names with no value yet (D127i).
 type VaultSummary struct {
 	Keys         int `json:"keys"`
 	Placeholders int `json:"placeholders"`
 }
 
-// LimitsView is Deployment.limits: the effective limits (P22), and the ones
+// LimitsView is Deployment.limits: the effective limits (D127n), and the ones
 // a manager lowered.
 type LimitsView struct {
 	MemMiB    int64    `json:"memMiB"`
@@ -418,7 +418,7 @@ const (
 )
 
 // WouldNotify is one notification a non-primary deployment sent and xbind
-// held (P13).
+// held (D127h).
 type WouldNotify struct {
 	At    string `json:"at"`
 	To    string `json:"to"`
@@ -476,7 +476,7 @@ func (p *Plane) DeploymentsOf(tile string) (primary string, names []string) {
 // tile-origin cookie, the generation of an instance token ("" is main,
 // the name rule), a terminal or agent session's named target. A session that
 // follows the primary (Via terminal, no name) reaches the current primary,
-// and nothing while the primary is protected (P24). Anyone else reaches the
+// and nothing while the primary is protected (D127p). Anyone else reaches the
 // primary. util.ErrNoDeployment for a bound deployment that no longer exists
 // (404); any other error is a refusal (403), its text the reason.
 func (p *Plane) Addressed(pr auth.Principal, tile string) (string, error) {
@@ -504,7 +504,7 @@ func (p *Plane) Addressed(pr auth.Principal, tile string) (string, error) {
 }
 
 // RegistrationsActive answers whether deployment dep of tile's registrations
-// take effect (09-fabric §7) (P13, revised 2026-09-28): its cron jobs and
+// take effect (09-fabric §7) (D127h, revised 2026-09-28): its cron jobs and
 // bus subscriptions fire for it, wherever it stands, unless a tile manager
 // switched its deliveries off (never the primary's); its interface
 // instances and ingress hosts route only while it is the primary. Without a
@@ -526,7 +526,7 @@ func (p *Plane) RegistrationsActive(tile, dep string) (fires, routes bool) {
 // EdgePolicies is tile's stored edge policy for its non-primary deployments,
 // edge id → value, a copy: only the overrides a tile manager set. An absent
 // id takes its kind's default, and a value this xbind doesn't know reads as
-// block (09-fabric §5.2) (P27). None without a record.
+// block (09-fabric §5.2) (D127s). None without a record.
 func (p *Plane) EdgePolicies(tile string) map[string]string {
 	rec, _ := p.record(tile)
 	if rec == nil {
@@ -535,7 +535,7 @@ func (p *Plane) EdgePolicies(tile string) map[string]string {
 	return cloneMap(rec.Edges)
 }
 
-// LimitsFor answers deployment dep of tile's cgroup caps (P22) (07-runtime
+// LimitsFor answers deployment dep of tile's cgroup caps (D127n) (07-runtime
 // §10.3): the tile's (TileLimits, today's per-component caps) unless a tile
 // manager lowered them for that deployment, never above them.
 func (p *Plane) LimitsFor(tile, dep string) cgroup.Limits {
@@ -576,7 +576,7 @@ func (p *Plane) AlwaysOnSwitched(tile string) []string {
 	return out
 }
 
-// TileDeployments is what a session's target choice (P24) needs to know of
+// TileDeployments is what a session's target choice (D127p) needs to know of
 // tile, for the terminal manager: without a record, main alone, unprotected
 // and followed by live reload, so every session follows the primary.
 func (p *Plane) TileDeployments(tile string) term.TileDeployments {

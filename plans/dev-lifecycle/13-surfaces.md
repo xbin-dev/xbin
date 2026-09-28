@@ -1,6 +1,6 @@
 # 13 — Surfaces: every package and file touched
 
-> Status: live — the file-by-file inventory the implementation swarm builds from: what changes where, in which milestone, with size headroom, prep splits and conflict owners (part of [plans/dev-lifecycle](README.md))
+> Status: implemented (D119, D127; M3 designed, not built) — the file-by-file inventory the implementation swarm builds from: what changes where, in which milestone, with size headroom, prep splits and conflict owners (part of [plans/dev-lifecycle](README.md))
 
 [05-model.md](05-model.md) says what tile deployments are. This document says
 where they land in the code. Every row names a file, or a named part of one,

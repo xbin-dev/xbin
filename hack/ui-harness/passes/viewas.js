@@ -7,7 +7,7 @@
 // viewer, and exit hands the browser back to the admin.
 const { URL, login, closeCtx, settle, waitSel, waitFor, sh, fr, gotoTab, shot, checker } = require('../lib');
 
-// covers P21 T9 (15-test-plan §7.4, 10-ux §4.4) — the tile deployments'
+// covers D127m T9 (15-test-plan §7.4, 10-ux §4.4) — the tile deployments'
 // writes are writes: refused from a view, and drawn disabled there.
 async function deploymentsReadOnly(check, skip, ctx, view) {
   const TILE = 'apps/reloady';

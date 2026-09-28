@@ -62,10 +62,10 @@ func matrixFx(t *testing.T, protected bool) *codeFx {
 	return f
 }
 
-// covers P4 P11 P21 P26 T9 C4 — the authority matrix of the code operations
+// covers D127b D127f D127m D127r T9 C4 — the authority matrix of the code operations
 // through the dispatcher and the operations themselves, one subtest per
 // cell: adding and removing a deployment, promoting onto a non-primary one
-// and onto an unprotected primary (parity, P4), and attaching live reload
+// and onto an unprotected primary (parity, D127b), and attaching live reload
 // pass managers, terminal-level people and the tile's terminal and agent
 // tokens, and refuse the rest with a 403 naming who may act — people below
 // terminal level, the tile's frame and instance tokens, every other tile's
@@ -137,7 +137,7 @@ func TestDeployAuthzMatrixCode(t *testing.T) {
 	}
 }
 
-// covers P14 P28 T9 — joining a (scope, name) namespace that holds data
+// covers D127i D127t T9 — joining a (scope, name) namespace that holds data
 // (seeded, restored, partly either) gives the joining tile's writers reach
 // into it: a tile manager's act in a person's own session (08-data §6.2),
 // refused to everyone else with 11-contract §1.14's text naming who filled

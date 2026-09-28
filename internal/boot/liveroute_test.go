@@ -137,7 +137,7 @@ func lrDepReloadEv(tile, dep string) string {
 	return `{"type":"deployments","component":"` + tile + `","data":{"op":"reload","deployment":"` + dep + `"}}`
 }
 
-// covers P5 P8 C2 PO-5 NP-13-12 — the live reload gate (07-runtime §6): one
+// covers D119c D119d C2 PO-5 NP-13-12 — the live reload gate (07-runtime §6): one
 // batch's changed components map to the events published, the deployments
 // rebuilt and the paused tiles noticed. A tile without a record gets exactly
 // today's bare reload and rebuild; a paused one no event and no rebuild,
@@ -251,7 +251,7 @@ func (s *lrStoreTrap) WorkTreeMoved(tile string) {
 	s.t.Errorf("a save in zero-state tile %s reached the checkpoint store", tile)
 }
 
-// covers P5 P8 PO-12 SC-LATENCY-DEFAULT — a save in zero-state tiles reads
+// covers D119c D119d PO-12 SC-LATENCY-DEFAULT — a save in zero-state tiles reads
 // only memory: through the real deployments plane, booted on a workspace
 // without records, a batch reaches exactly today's bare reloads and rebuilds,
 // never the work-tree notice behind which the checkpoint store sits, and

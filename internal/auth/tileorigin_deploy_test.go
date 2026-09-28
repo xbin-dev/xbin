@@ -14,7 +14,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/users"
 )
 
-// covers P17 T3 PO-6 — the credentials of a deployment's own origin
+// covers D127j T3 PO-6 — the credentials of a deployment's own origin
 // (11-contract §2.6, §7.5). main's origin label is TileHostID, and its x1
 // tickets and c1 cookies keep today's six parts under today's purposes, byte
 // for byte. Any other deployment's label is "t-" + base32 of

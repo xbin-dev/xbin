@@ -258,7 +258,7 @@ func (s *Server) apiComponent(w http.ResponseWriter, r *http.Request) {
 func (s *Server) apiFrameToken(w http.ResponseWriter, r *http.Request) {
 	comp := r.URL.Query().Get("component")
 	if util.QueryTileQualified(comp, func(c string) bool { _, ok := s.Reg.Component(c); return ok }) {
-		WriteError(w, http.StatusBadRequest, util.QueryRefMsg, "/docs/protocol.md") // the deployment rides deployment= (P17)
+		WriteError(w, http.StatusBadRequest, util.QueryRefMsg, "/docs/protocol.md") // the deployment rides deployment= (D127j)
 		return
 	}
 	p := auth.PrincipalOf(r)
@@ -288,17 +288,17 @@ const badDeploymentName = `deployment names are lowercase letters, digits and "-
 
 // frameTokenOf mints comp's frame token for p, whom apiFrameToken admitted
 // (11-contract §7.2), or answers the refusal's status and text.
-//   - The tile's own credential renews its bound deployment's token (P12): a
+//   - The tile's own credential renews its bound deployment's token (D127g): a
 //     frame keeps its claim, as it keeps its generation; a terminal or agent
 //     session that follows the primary gets the current primary's. It may
 //     name only that deployment, and one bound beyond the primary renews only
 //     while its user writes the tile.
 //   - A person gets the primary's token, or the named deployment's: read for
 //     the primary, write at their current level for any other, checked at
-//     every renewal (P7, P20).
+//     every renewal (D127d, D127l).
 //
 // A tile without a deployment record has main alone, the primary, whose
-// token is today's: no claim, minted exactly as before tile deployments (P5).
+// token is today's: no claim, minted exactly as before tile deployments (D119c).
 func (s *Server) frameTokenOf(p auth.Principal, comp, dep string) (tok string, code int, msg string) {
 	if dep != "" && !util.DeploymentNameOK(dep) {
 		return "", http.StatusBadRequest, badDeploymentName

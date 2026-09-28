@@ -88,7 +88,7 @@ func rtGet(t *testing.T, h http.HandlerFunc, pr auth.Principal, target string) (
 	return rec.Code, m
 }
 
-// covers T7 P7 P12 P20 PO-11 PO-14 — the runtime listings name
+// covers T7 D127d D127g D127l PO-11 PO-14 — the runtime listings name
 // deployments beyond the primary only to those who may learn of them
 // (admins and people with write in their own session, the tile's terminal
 // and agent sessions while their user writes it, and a deployment's own
@@ -188,7 +188,7 @@ func TestNonPrimaryRowsNeedWrite(t *testing.T) {
 		{"a zero-state tile, an admin", dplAdmin, "component=apps/node", 200, "-", 2, false, ""},
 		{"a zero-state tile, an admin", dplAdmin, "component=apps/node&deployment=main", 200, "main", 2, false, ""},
 		{"a zero-state tile, an admin", dplAdmin, "component=apps/node&deployment=dev", 404, "", 0, false, `apps/node has no deployment "dev"`},
-		// P17: the deployment rides deployment=, never component=tile+name
+		// D127j: the deployment rides deployment=, never component=tile+name
 		{"a qualified component, an admin", dplAdmin, "component=apps/crm%2Bdev", 400, "", 0, false, "a deployment is named with deployment=, not tile+name"},
 		{"an unescaped qualified component, an admin", dplAdmin, "component=apps/crm+dev", 400, "", 0, false, "a deployment is named with deployment=, not tile+name"},
 		{"a following terminal of a protected primary", tok("apps/prot", "terminal", dplTerm), "", 403, "", 0, false,

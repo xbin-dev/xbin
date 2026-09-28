@@ -2,7 +2,7 @@ package deployments
 
 // authz_manager.go — the manager gate (05-model §10; 06-security T9): who
 // manages a tile's deployments. A person in their own session who is a
-// workspace admin or manages the tile (the broker's MayManage), and — P21,
+// workspace admin or manages the tile (the broker's MayManage), and — D127m,
 // extended by the owner 2026-09-28 — the admin tile's frame standing in for
 // such a person, for the acts marked frame in the authority table (authz.go):
 // protect, unprotect, reassign the primary, deliveries and alwaysOn. No

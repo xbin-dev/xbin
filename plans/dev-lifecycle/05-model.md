@@ -1,6 +1,6 @@
 # 05 — The model: tile deployments over a checkpoint store
 
-> Status: live — the recommended model the rest of
+> Status: implemented (D119, D127; M3 designed, not built) — the recommended model the rest of
 > [plans/dev-lifecycle/](README.md) elaborates. Terms are defined in
 > [01-glossary.md](01-glossary.md) and used verbatim. Of the invariants
 > P1–P29 (§13), P1–P4 were ratified by the owner on 2026-09-27, and P7, P18,
@@ -765,35 +765,35 @@ When D113 is built, **tile-managed sandboxes belong to the deployment**:
 
 | # | Invariant | Status |
 |---|---|---|
-| P1 | Deployments are pointers over an xbind-owned checkpoint store. The work tree is the default feed; tracked branches and a deploy remote are later feeds on the same core. | ratified 2026-09-27 |
-| P2 | The term is *tile deployment*. "Identity" stays reserved for principals. | ratified 2026-09-27 |
-| P3 | Non-primary outbound: the provider's primary, read-clamped, with a per-edge `block`. `match` (the parallel fabric) later, on the same per-edge record. | ratified 2026-09-27 |
-| P4 | Parity: terminal-level users and their agents deploy to the primary as saving does today. Tile managers can protect the primary. | ratified 2026-09-27 |
-| P5 | The zero state is the absence of a deployment record, and it is byte-for-byte today (the flat cgroup leaf and today's registry rows included). Opting out removes the record; the checkpoint store may remain, inert. No manifest key. | proposed |
-| P6 | Storage follows the deployment. `main` owns today's keys forever. | proposed |
-| P7 | Primary is a role. Every inbound edge resolves through one resolver that returns the primary for every v1 edge-policy value. Reassignment moves routing, not data. | owner-confirmed 2026-09-27 |
-| P8 | Live reload attaches to at most one deployment, which runs the work tree directly. The default path adds no per-save cost. | proposed |
-| P9 | Pinned means pinned. Every restart path runs the record's checkpoint (after a failed move off the work tree, the attempted one). Built artifacts are kept per checkpoint. The inbound surface follows the primary's code. | proposed |
-| P10 | Promotion moves code only. Data, vault, config and routing are late-bound to the target. | proposed |
-| P11 | Authority stays per tile. A deployment is not a principal, and non-primary deployments are narrowed by edge policy. | proposed |
-| P12 | Self-calls stay inside the caller's deployment. Tile principals can't call another deployment of their own tile. | proposed |
-| P13 | A non-primary deployment's cron jobs and bus push subscriptions are active and deliver to it (other scopes' buses read under the edge policy, like read binds; publishing unchanged); `deliveries` is a tile manager's off switch, on by default. Its interface instances and ingress hosts are dormant. Notifications aren't pushed. Non-primary status and build activity travel only in the `deployments` event, delivered by access. | revised by the owner 2026-09-28 |
-| P14 | Non-primary data and vault start empty. Seeding is optional; seeding and vault copy are tile-manager acts. | proposed |
-| P15 | Deployment state is xbind-owned (`data/`), never in the root `xbin.json` or the work tree. | proposed |
-| P16 | Every git or tool run touching tile code happens in confine. The checkpoint store is confine-only. Materialized trees are served with containment and never followed out through symlinks. | proposed |
-| P17 | Deployment URL qualifier `+`, resolved only for tiles with a record and only after today's resolution fails; the bare URL is the primary. Two naming rules. Signals (`X-XBin-Deployment`, backend `XBIN_DEPLOYMENT`, meta, whoami) are absent for the primary, and a reassignment restarts both primaries so they stay true. Credentials and stored state (frame-token claim, origin labels, sandbox IDs, storage keys) are absent for `main`. The qualifier lives in paths and JSON bodies, never in a query string (queries name `deployment=` apart; `tile+name` there is a 400), and no new tile name holds `+`, for any creator on any path (existing ones keep resolving and get no deployments). | decided 2026-09-28 (the `+` hardening; `:` rejected, 16-open-questions) |
-| P18 | Pinned or non-primary backends need isolation: non-isolated mode is unsupported for them. Static tiles pause live reload everywhere. cgi no longer exists. | owner-confirmed 2026-09-27 |
-| P19 | Chrome tiles and xbin-capable tiles may pause live reload, but can't have non-primary deployments. Approving an `xbin`/`xbin:*` grant is refused while non-primary deployments exist, and a non-primary principal never satisfies governance checks. | owner-confirmed 2026-09-27 |
-| P20 | A non-primary deployment is an accident boundary, not a trust boundary. | proposed |
-| P21 | A protected primary cannot be the live reload target or a session's target (P24). Every change to its code, and so to the inbound surface it serves, is a tile-manager act in a human session naming the reviewed checkpoint. Its env layers, caches and artifacts come only from manager operations. It follows no tracked branch and takes no deploy-remote push. | proposed |
-| P22 | Resource declarations are deployment-level. Each deployment provisions what its own code declares, in its own namespace, with per-deployment limits defaulting to the tile's; limits are set by tile managers, never above the tile's ceilings. | owner-confirmed 2026-09-27 |
-| P23 | Edges that cannot be read-clamped (custom roles, stream interfaces, lan-ingress links, net-provider splices) are blocked for non-primary deployments in v1, with no override. Loosening later is easy; tightening after the fact is not. | owner-confirmed 2026-09-27 |
-| P24 | The terminal's API dropdown selects the session's target deployment, defaulting to the primary. A protected primary is not offered, and the default then falls to the live reload target. When neither exists, the dropdown falls to "API off". A session's target is fixed for its life. | owner-confirmed 2026-09-27 |
-| P25 | Primary first: a non-primary deployment never takes the VM budget, CPU weight, disk quota or per-tile caps the primary needs. | proposed |
-| P26 | xbind's API is default-deny for non-primary principals: every `/api/xbin/*` route is classified (deployment-scoped, primary-only or neutral), unclassified routes refuse them, and a guard test keeps the list complete. | proposed |
-| P27 | Edge-policy values fail closed: an unknown value, or one invalid for the edge's kind, reads as `block`, and any `block` among several authorizing edges refuses the call. | proposed |
-| P28 | A (scope, name) namespace is shared by the scope's same-named deployments. Seeding, resetting or restoring it needs the act's authority on every claimant and stops all of them. It is deleted with its last claimant. In v1 no reassignment splits a scope's primary data. | proposed |
-| P29 | Deployment state belongs to the tile it was created for: collision-free path keys, and a record that carries and verifies path, owner ref and creation stamp. A tile re-created at the path never inherits it. | proposed |
+| P1 | Deployments are pointers over an xbind-owned checkpoint store. The work tree is the default feed; tracked branches and a deploy remote are later feeds on the same core. | ratified 2026-09-27 · D119a |
+| P2 | The term is *tile deployment*. "Identity" stays reserved for principals. | ratified 2026-09-27 · D119b |
+| P3 | Non-primary outbound: the provider's primary, read-clamped, with a per-edge `block`. `match` (the parallel fabric) later, on the same per-edge record. | ratified 2026-09-27 · D127a |
+| P4 | Parity: terminal-level users and their agents deploy to the primary as saving does today. Tile managers can protect the primary. | ratified 2026-09-27 · D127b |
+| P5 | The zero state is the absence of a deployment record, and it is byte-for-byte today (the flat cgroup leaf and today's registry rows included). Opting out removes the record; the checkpoint store may remain, inert. No manifest key. | proposed · D119c |
+| P6 | Storage follows the deployment. `main` owns today's keys forever. | proposed · D127c |
+| P7 | Primary is a role. Every inbound edge resolves through one resolver that returns the primary for every v1 edge-policy value. Reassignment moves routing, not data. | owner-confirmed 2026-09-27 · D127d |
+| P8 | Live reload attaches to at most one deployment, which runs the work tree directly. The default path adds no per-save cost. | proposed · D119d |
+| P9 | Pinned means pinned. Every restart path runs the record's checkpoint (after a failed move off the work tree, the attempted one). Built artifacts are kept per checkpoint. The inbound surface follows the primary's code. | proposed · D119e |
+| P10 | Promotion moves code only. Data, vault, config and routing are late-bound to the target. | proposed · D127e |
+| P11 | Authority stays per tile. A deployment is not a principal, and non-primary deployments are narrowed by edge policy. | proposed · D127f |
+| P12 | Self-calls stay inside the caller's deployment. Tile principals can't call another deployment of their own tile. | proposed · D127g |
+| P13 | A non-primary deployment's cron jobs and bus push subscriptions are active and deliver to it (other scopes' buses read under the edge policy, like read binds; publishing unchanged); `deliveries` is a tile manager's off switch, on by default. Its interface instances and ingress hosts are dormant. Notifications aren't pushed. Non-primary status and build activity travel only in the `deployments` event, delivered by access. | revised by the owner 2026-09-28 · D127h |
+| P14 | Non-primary data and vault start empty. Seeding is optional; seeding and vault copy are tile-manager acts. | proposed · D127i |
+| P15 | Deployment state is xbind-owned (`data/`), never in the root `xbin.json` or the work tree. | proposed · D119f |
+| P16 | Every git or tool run touching tile code happens in confine. The checkpoint store is confine-only. Materialized trees are served with containment and never followed out through symlinks. | proposed · D119g |
+| P17 | Deployment URL qualifier `+`, resolved only for tiles with a record and only after today's resolution fails; the bare URL is the primary. Two naming rules. Signals (`X-XBin-Deployment`, backend `XBIN_DEPLOYMENT`, meta, whoami) are absent for the primary, and a reassignment restarts both primaries so they stay true. Credentials and stored state (frame-token claim, origin labels, sandbox IDs, storage keys) are absent for `main`. The qualifier lives in paths and JSON bodies, never in a query string (queries name `deployment=` apart; `tile+name` there is a 400), and no new tile name holds `+`, for any creator on any path (existing ones keep resolving and get no deployments). | decided 2026-09-28 (the `+` hardening; `:` rejected, 16-open-questions) · D127j |
+| P18 | Pinned or non-primary backends need isolation: non-isolated mode is unsupported for them. Static tiles pause live reload everywhere. cgi no longer exists. | owner-confirmed 2026-09-27 · D119h |
+| P19 | Chrome tiles and xbin-capable tiles may pause live reload, but can't have non-primary deployments. Approving an `xbin`/`xbin:*` grant is refused while non-primary deployments exist, and a non-primary principal never satisfies governance checks. | owner-confirmed 2026-09-27 · D127k |
+| P20 | A non-primary deployment is an accident boundary, not a trust boundary. | proposed · D127l |
+| P21 | A protected primary cannot be the live reload target or a session's target (P24). Every change to its code, and so to the inbound surface it serves, is a tile-manager act in a human session naming the reviewed checkpoint. Its env layers, caches and artifacts come only from manager operations. It follows no tracked branch and takes no deploy-remote push. | proposed · D127m |
+| P22 | Resource declarations are deployment-level. Each deployment provisions what its own code declares, in its own namespace, with per-deployment limits defaulting to the tile's; limits are set by tile managers, never above the tile's ceilings. | owner-confirmed 2026-09-27 · D127n |
+| P23 | Edges that cannot be read-clamped (custom roles, stream interfaces, lan-ingress links, net-provider splices) are blocked for non-primary deployments in v1, with no override. Loosening later is easy; tightening after the fact is not. | owner-confirmed 2026-09-27 · D127o |
+| P24 | The terminal's API dropdown selects the session's target deployment, defaulting to the primary. A protected primary is not offered, and the default then falls to the live reload target. When neither exists, the dropdown falls to "API off". A session's target is fixed for its life. | owner-confirmed 2026-09-27 · D127p |
+| P25 | Primary first: a non-primary deployment never takes the VM budget, CPU weight, disk quota or per-tile caps the primary needs. | proposed · D127q |
+| P26 | xbind's API is default-deny for non-primary principals: every `/api/xbin/*` route is classified (deployment-scoped, primary-only or neutral), unclassified routes refuse them, and a guard test keeps the list complete. | proposed · D127r |
+| P27 | Edge-policy values fail closed: an unknown value, or one invalid for the edge's kind, reads as `block`, and any `block` among several authorizing edges refuses the call. | proposed · D127s |
+| P28 | A (scope, name) namespace is shared by the scope's same-named deployments. Seeding, resetting or restoring it needs the act's authority on every claimant and stops all of them. It is deleted with its last claimant. In v1 no reassignment splits a scope's primary data. | proposed · D127t |
+| P29 | Deployment state belongs to the tile it was created for: collision-free path keys, and a record that carries and verifies path, owner ref and creation stamp. A tile re-created at the path never inherits it. | proposed · D119i |
 
 ## 14. Worked flows
 

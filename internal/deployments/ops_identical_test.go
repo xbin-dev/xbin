@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// covers P13 SC-SAFE-DEPLOY — the plane tells the runner when a deploy
+// covers D127h SC-SAFE-DEPLOY — the plane tells the runner when a deploy
 // serves the files the deployment already served (runner.Code.Identical,
 // 07-runtime §8.5): a pause ships a capture of the work tree it followed, so
 // its swap announces no reload; a reload now after an edit ships new files.

@@ -41,8 +41,8 @@ import (
 // Tile deployments (08-data §12; 07-runtime §2.5) add, once the plane's
 // records are installed (SetDeploymentQuota): every data namespace beyond
 // main as a quota bucket of its own, at the lowest limit its claimants set,
-// never above the scope's quota (P22); low disk write-blocking non-primary
-// namespaces first (P25); and a per-tile quota on each tile's deployment
+// never above the scope's quota (D127n); low disk write-blocking non-primary
+// namespaces first (D127q); and a per-tile quota on each tile's deployment
 // state. main's figures and blocks stay today's.
 
 const (
@@ -186,7 +186,7 @@ func (d *diskMon) scan() {
 	// Fair share for the pressure heuristic: an equal cut of the used space
 	// among primary namespaces that actually store anything — and tiles whose
 	// sandboxes do, which count here and nowhere else; non-primary usage
-	// never moves a primary's share (P25).
+	// never moves a primary's share (D127q).
 	var used int64
 	n := 0
 	for key, u := range usage {
@@ -408,7 +408,7 @@ const (
 // scope's primary.
 type nsBucket struct {
 	limit      int64  // bytes: the lowest limit its claimants set, 0 for none (the scope's quota)
-	nonPrimary bool   // its deployment isn't P(S): write-blocked first on low disk (P25)
+	nonPrimary bool   // its deployment isn't P(S): write-blocked first on low disk (D127q)
 	label      string // how messages name it
 	tile       string // the alert's tile: beyond main its quota key, which no component path equals; "" for a non-primary main
 	alertDep   string // the alert's deployment: set for every namespace but the primary's main
@@ -425,7 +425,7 @@ type deployFacts struct {
 }
 
 // SetDeploymentQuota installs the deployments plane's records (its Lookup)
-// as the source of per-deployment disk limits (P22), and with them turns on
+// as the source of per-deployment disk limits (D127n), and with them turns on
 // the monitor's tile-deployment rules, from the next scan: the namespaces
 // beyond main, non-primary namespaces blocked first on low disk, and the
 // per-tile quota (08-data §12; 07-runtime §2.5). Boot calls it once the
@@ -555,7 +555,7 @@ func (b *Broker) DeploymentDiskStatus(tile, dep string) (usage, quota int64, blo
 
 // DiskQuota is the per-scope disk quota in bytes (XBIN_LIMIT_DISK, or the
 // default): a tile's disk ceiling, which a deployment's diskGiB never
-// exceeds (P22), for the plane's limits op (GovHooks.DiskCeiling).
+// exceeds (D127n), for the plane's limits op (GovHooks.DiskCeiling).
 func (b *Broker) DiskQuota() int64 {
 	if b.disk == nil {
 		return defaultQuotaBytes
@@ -564,7 +564,7 @@ func (b *Broker) DiskQuota() int64 {
 }
 
 // DiskLimitCheck judges a tile manager's diskGiB for deployment dep of tile,
-// for POST /deployments/limits (11-contract §1.7, §1.14) (P22): a positive
+// for POST /deployments/limits (11-contract §1.7, §1.14) (D127n): a positive
 // number of GiB, at most the tile's ceiling (the scope quota,
 // XBIN_LIMIT_DISK), set on the tile that roots its scope, since the (scope,
 // name) namespace is the scope's.

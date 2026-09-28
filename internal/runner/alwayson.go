@@ -72,7 +72,7 @@ func (r *Runner) switched(tile string) []string {
 // 07-runtime §11), and a non-primary deployment's switch is on as well,
 // which is asked before any view is. A deployment that can't start — no
 // such name, a held record, a pinned backend without isolation (C7), a
-// non-primary one without isolation (P18) — isn't kept up either.
+// non-primary one without isolation (D119h) — isn't kept up either.
 func (r *Runner) alwaysOnView(c *registry.Component, dep string) *registry.Component {
 	primary := dep == r.primary(c.Path)
 	if !primary && (!r.Isolate || !slices.Contains(r.switched(c.Path), dep)) {
@@ -82,7 +82,7 @@ func (r *Runner) alwaysOnView(c *registry.Component, dep string) *registry.Compo
 	if err != nil {
 		return nil
 	}
-	v := c // the work tree's view is c itself: a zero-state tile asks no checkpoint question (P5)
+	v := c // the work tree's view is c itself: a zero-state tile asks no checkpoint question (D119c)
 	switch {
 	case !primary:
 		v, err = r.viewOf(c, dep, code, "")

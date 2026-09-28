@@ -1,4 +1,4 @@
-// hack/deploy-aware.test.mjs — covers P12 P17 NP-10-2 NP-12-2 — the
+// hack/deploy-aware.test.mjs — covers D127g D127j NP-10-2 NP-12-2 — the
 // binary-served components that learn about tile deployments, run by
 // `make js-test`: how web/frame-info.js resolves a frame src qualified with a
 // deployment (and mints its bootstrap token only on the server's echo), what
@@ -93,7 +93,7 @@ test('frameSource: a zero-state frame asks exactly what it asked before', async 
   assert.deepEqual([chrome.url, chrome.sandboxed, chrome.asked], ['/c/apps/crm+main/', false, []]);
 });
 
-test('qualifiedSrc: a deployment ref never goes into a query; a tile named with "+" does (P17)', async () => {
+test('qualifiedSrc: a deployment ref never goes into a query; a tile named with "+" does (D127j)', async () => {
   const fresh = await import('../web/frame-info.js?qualified');
   const real = globalThis.fetch;
   globalThis.fetch = async () => ({

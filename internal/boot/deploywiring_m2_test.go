@@ -9,7 +9,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers P5 P22 NP-14-2 NP-14-11 — boot installs the plane's answers for
+// covers D119c D127n NP-14-2 NP-14-11 — boot installs the plane's answers for
 // deployments beyond main: the broker's (primary, deployments, the
 // deployment a request reaches, active registrations, edge policy,
 // registration files), the server's primary and addressed-deployment

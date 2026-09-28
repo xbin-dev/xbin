@@ -12,7 +12,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers P11 P19 T9 — MayManageDeployments is the manager gate: a person in
+// covers D127f D127k T9 — MayManageDeployments is the manager gate: a person in
 // their own session who is a workspace admin or manages the tile (its
 // user-owner, an admin of its owning org). Tile credentials never pass —
 // terminal and agent tokens of managers, frame and instance tokens, and an
@@ -69,7 +69,7 @@ func TestMayManageDeployments(t *testing.T) {
 	}
 }
 
-// covers P21 T9 — AdminFrameDriver (P21 extended by the owner 2026-09-28):
+// covers D127m T9 — AdminFrameDriver (D127m extended by the owner 2026-09-28):
 // a frame of a tile holding xbin admin, minted under a person's own login,
 // stands in for that person at the manager gate, and the person is judged —
 // a workspace admin or the owning org's admin passes on their tiles, the
@@ -142,7 +142,7 @@ func TestAdminFrameDriver(t *testing.T) {
 	}
 }
 
-// covers P5 P29 SC-ZERO — with no hook installed the broker's deployment
+// covers D119c D119i SC-ZERO — with no hook installed the broker's deployment
 // seams answer today: nothing to rewrite or reset, no leftovers, and the
 // server's deployment questions answered exactly as server.NoopPolicy does.
 // Installed hooks are what those seams consult.

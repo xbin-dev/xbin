@@ -8,7 +8,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers P3 P23 T4 E10 — the spawn-time hooks apply the edge policy to a
+// covers D127a D127o T4 E10 — the spawn-time hooks apply the edge policy to a
 // non-primary deployment's view (09-fabric §5.8–§5.9): EgressFor gives it
 // the tile's relay policy while the net edge inherits, and no egress once
 // the edge is block (a manager's block, or a net that shares the host's);

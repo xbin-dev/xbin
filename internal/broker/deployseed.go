@@ -1,7 +1,7 @@
 package broker
 
 // deployseed.go — seeding a deployment's data (08-data §8; 06-security T8)
-// (P14) (P28): an optional, confirmed act of a tile manager of every
+// (D127i) (D127t): an optional, confirmed act of a tile manager of every
 // claimant tile, in a person's own session, that replaces the (scope, name)
 // namespace a deployment claims with a copy of the scope primary's,
 // re-keyed under the target's own labels. The primary's namespace is only
@@ -112,7 +112,7 @@ func failAt(step string, err error) error { return &seedStep{step, err} }
 // req.Tile claims from the scope primary's (08-data §8; 11-contract §1.8),
 // for the plane's seed op and an add with data:"seed". It judges the manager
 // gate again, on the tile and on every other claimant, where authorize adds
-// the plane's judgement (P28); stop stops one deployment of a tile. A dry
+// the plane's judgement (D127t); stop stops one deployment of a tile. A dry
 // run answers the facts and changes nothing. Otherwise the namespace is
 // held and marked busy before this returns, and the copy runs in the
 // background (SeedFacts.Done). Errors are *deployments.Error.
@@ -237,7 +237,7 @@ func (b *Broker) planSeed(p auth.Principal, req deployments.SeedRequest, authori
 var seedKinds = map[string]bool{"kv": true, "sqlite": true, "filesystem": true, "blob": true}
 
 // planResources lists what the seed copies: each resource the primary's
-// code and the target's declare with one type (P22); the rest start empty
+// code and the target's declare with one type (D127n); the rest start empty
 // or are skipped (08-data §6.7).
 func (b *Broker) planResources(pl *seedPlan) {
 	from, errF := b.declaredIn(pl.id.scope, pl.src.dep)

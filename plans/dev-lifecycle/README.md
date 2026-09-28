@@ -1,11 +1,12 @@
 # Tile dev lifecycle: pause live reload, tile deployments, promotion
 
-> Status: live — design proposal (2026-09-27), not yet implemented. This set
-> of documents is the input to the implementation workflow. P1–P4 are
-> ratified. P7, P18, P19 and P22–P24 are owner-confirmed (2026-09-27). The
-> rest are proposed (see [16-open-questions.md](16-open-questions.md)).
-> D-numbers are assigned only at ratification, because `make test`'s docscheck
-> refuses undefined IDs.
+> Status: implemented — M0–M2 merged into master 2026-09-28 and recorded as
+> [D119](../DECISIONS.md) (M1: pause live reload) and [D127](../DECISIONS.md)
+> (M2: tile deployments), with the owner's follow-ups of 2026-09-28 (P13
+> revised, P17 decided, P21 extended). The P-numbers map to lettered D-ids in
+> [16-open-questions.md](16-open-questions.md) §1.1 and §7. M3 (tracked
+> branches, the deploy remote, `match`) is designed, not built; owner
+> questions O1, O3 and O5 stay open with their defaults built.
 
 ## What this is
 

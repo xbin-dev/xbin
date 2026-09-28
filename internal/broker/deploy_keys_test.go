@@ -43,7 +43,7 @@ var keyScopes = []string{
 	"apps/a-very-long-tile-name/inner", "apps/a-very-long-tile-name/other", groundA, groundB,
 }
 
-// covers P6 P29 T11 PO-2 — every storage key of a resource: main's are
+// covers D127c D119i T11 PO-2 — every storage key of a resource: main's are
 // today's, byte for byte, for dep "" and "main" alike (the workspace scope,
 // apps/cal and apps~cal, names containing "/"); every other namespace's are
 // injective over adversarial scopes, names and deployment names, sit under
@@ -260,7 +260,7 @@ func TestDeploymentKeysDisjoint(t *testing.T) {
 	})
 }
 
-// covers P6 T2 NP-08-11 — the resource-name rule of the key function: main
+// covers D127c T2 NP-08-11 — the resource-name rule of the key function: main
 // refuses only a ".." segment or a NUL, so every name that works today keeps
 // working; every other namespace also refuses an empty name, a leading "/"
 // and a "." or empty segment. Beyond main the workspace scope is never split,
@@ -367,7 +367,7 @@ func TestResKeysNameRule(t *testing.T) {
 	}
 }
 
-// covers P6 P14 PO-7 — one bbolt file per namespace beyond main: a read of a
+// covers D127c D127i PO-7 — one bbolt file per namespace beyond main: a read of a
 // namespace nothing wrote to answers empty and creates nothing (08-data
 // §3.7), the first write creates data/resources-enc/.deployments/<escS>/<d>/
 // kv.db and never touches data/kv.db, a main value copied byte for byte
@@ -486,7 +486,7 @@ func TestNamespaceKVFiles(t *testing.T) {
 	}
 }
 
-// covers P14 P29 T11 NP-08-1 — adding deployment dev first drops the files an
+// covers D127i D119i T11 NP-08-1 — adding deployment dev first drops the files an
 // earlier dev of the tile left (08-data §3.3; the plane's add calls
 // DropDeploymentFiles before its record commits, removal calls it once dev
 // is stopped): the vault file, every user's prefs for (tile, dev), the
@@ -615,7 +615,7 @@ func adHocResourceKeys(src []byte) []string {
 	}
 }
 
-// covers P6 PO-2 NP-08-1 — no code in internal/broker but deploydata.go
+// covers D127c PO-2 NP-08-1 — no code in internal/broker but deploydata.go
 // builds a resource's physical key by hand (08-data §3.2): every
 // util.ScopeKey use and every "res:"… + concatenation goes through the key
 // function, so no store keyed off it by a later change can miss the

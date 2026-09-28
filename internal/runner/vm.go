@@ -139,7 +139,7 @@ func guestSize(p vm.Policy, o *registry.VMOpt) (mem, cpus int) {
 
 // vmReserve books a guest of mem for a generation spawning from view c,
 // always to its tile: a deployment is never a budget owner, so UsedBy stays
-// per tile (07-runtime §10.2). Primary first (P25): a non-primary view's
+// per tile (07-runtime §10.2). Primary first (D127q): a non-primary view's
 // reservation leaves room for the primary's next guest and never preempts
 // (vm.NonPrimary); the primary's may stop the tile's non-primary guests
 // when the budget can't admit it otherwise (vm.PrimaryFirst).

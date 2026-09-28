@@ -520,7 +520,7 @@ func (b *Broker) apiIngressHosts(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusNotFound, "no such component: "+comp)
 		return
 	}
-	// The deployment's own set (P13); only the primary's routes: another's is
+	// The deployment's own set (D127h); only the primary's routes: another's is
 	// zone-validated, then stored dormant, outside conflict checks, with no
 	// grants event and no reconcile (NP-09-13).
 	dep, dormant, ok := b.routeTarget(w, p, comp)

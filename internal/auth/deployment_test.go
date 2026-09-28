@@ -258,7 +258,7 @@ func dlFrame(tok string) func(*http.Request) {
 	return func(r *http.Request) { r.Header.Set(FrameTokenHeader, tok) }
 }
 
-// covers P11 P17 PO-6 — a principal's deployment defaults to main. The zero
+// covers D127f D127j PO-6 — a principal's deployment defaults to main. The zero
 // Principal names none, and every credential of a tile without a deployment
 // record (frame tokens of four and five fields, instance and terminal tokens
 // from today's calls, sessions, the owner token, --no-auth) resolves to
@@ -315,7 +315,7 @@ func TestPrincipalDeploymentZeroValue(t *testing.T) {
 	}
 
 	// From() never carries the deployment: grants, bindings and ownership
-	// key on the tile path (P11).
+	// key on the tile path (D127f).
 	for _, via := range []string{"frame", "instance", "terminal"} {
 		for _, dep := range []string{"", "main", "dev"} {
 			p := Principal{Component: "apps/x", Via: via, Deployment: dep}
@@ -326,7 +326,7 @@ func TestPrincipalDeploymentZeroValue(t *testing.T) {
 	}
 }
 
-// covers P12 T3 — the instance map resolves a token to (tile, deployment).
+// covers D127g T3 — the instance map resolves a token to (tile, deployment).
 // RegisterInstanceDeployment binds the generation's deployment into its
 // principal; main, named or not, and today's RegisterInstance mean main
 // (Deployment "", the name rule). Two generations of one deployment (the
@@ -385,7 +385,7 @@ func TestInstanceTokenCarriesDeployment(t *testing.T) {
 	}
 }
 
-// covers P12 P17 T3 PO-6 — TestFrameTokenBoundToDeployment: the frame-token
+// covers D127g D127j T3 PO-6 — TestFrameTokenBoundToDeployment: the frame-token
 // claim is signed. A deployment other than main gets a sixth field inside
 // the HMAC and resolves to a frame principal bound to it; main keeps today's
 // five fields, named or not, and a legacy four-field token means main
@@ -548,7 +548,7 @@ func TestFrameTokenDeploymentClaim(t *testing.T) {
 	}
 }
 
-// covers P21 P24 T16 T3 — TestTerminalTargetBinding and
+// covers D127m D127p T16 T3 — TestTerminalTargetBinding and
 // TestTerminalTokenCannotMintProtectedPrimaryToken, auth's half: a terminal
 // or agent token records the session's target server-side. Today's
 // MintTerminal follows the primary (""); a named target keeps its name, main
@@ -634,7 +634,7 @@ func TestTerminalTokenTarget(t *testing.T) {
 		}
 
 		// A session or frame bound to a deployment is an element principal:
-		// never admin, even when an admin opened it (the auth side of P19).
+		// never admin, even when an admin opened it (the auth side of D127k).
 		adminDev, _ := dlResolve(a, dlBearer(a.MintTerminalTarget("apps/x", "alice", "dev")))
 		adminFrame, _ := a.framePrincipal(a.MintFrameTokenForDeployment(adminDev, "apps/x", "dev", ttl))
 		for _, p := range []Principal{adminDev, adminFrame} {

@@ -60,7 +60,7 @@ type State struct {
 	held    *push.Holder     // non-primary notifications, kept as would-notify (push.go)
 	Started time.Time
 	// Deployments is the deployments plane: its methods are the registry's,
-	// runner's, broker's and terminal manager's deployment hooks (P5).
+	// runner's, broker's and terminal manager's deployment hooks (D119c).
 	Deployments *deployments.Plane
 
 	trusted          []netip.Prefix
@@ -359,7 +359,7 @@ func (st *State) stepTerminals() error {
 	st.Term = tm
 	tm.Sandboxes = st.Sbx
 	tm.HasDeploymentRecord = st.Deployments.HasRecord   // the checkpoint fetch remote in sessions
-	tm.TileDeployments = st.Deployments.TileDeployments // a session's target deployment (P24)
+	tm.TileDeployments = st.Deployments.TileDeployments // a session's target deployment (D127p)
 	wireDeploymentSessions(st.Deployments, tm)          // protect and reassignment move sessions (deploywire.go)
 	return nil
 }
@@ -403,7 +403,7 @@ func (st *State) stepBroker() error {
 		WriteDeploymentFile: dp.WriteDeploymentFile, RemoveDeploymentFile: dp.RemoveDeploymentFile,
 	}
 	dp.IsAdmin, dp.MayManage, dp.Provision = brk.IsAdmin, brk.MayManageDeployments, brk.Provision
-	dp.AdminFrameDriver = brk.AdminFrameDriver // the admin tile's manager acts (P21, extended)
+	dp.AdminFrameDriver = brk.AdminFrameDriver // the admin tile's manager acts (D127m, extended)
 	dp.RunNow, dp.DropRegistrations = brk.RunNow, brk.DropDeploymentRegistrations
 	dp.DropDeploymentFiles = brk.DropDeploymentFiles
 	dp.ResetData, dp.DropData = brk.ResetDeploymentData, brk.DropDeploymentData // (scope, name) namespaces
@@ -491,7 +491,7 @@ func (st *State) stepBroker() error {
 // installed). Sessions with a leaf of their own — a VM's, a restricted
 // user's — are watched too. Every leaf of a tile counts (runner.AtLimitTile):
 // the flat one, or one per deployment; a non-primary deployment's hit names
-// it and reaches admins only (P13).
+// it and reaches admins only (D127h).
 func (st *State) stepLimitAlerts() error {
 	run, reg, brk, dp := st.Run, st.Reg, st.Broker, st.Deployments
 	if run.Cgroup != nil && run.Cgroup.Enabled() {
@@ -659,7 +659,7 @@ func (st *State) stepCgroup() error {
 			CPUWeight: 100,                                   // fair share; burst when idle
 		}
 		cg.SetLimits(tile)
-		st.Deployments.TileLimits = tile // every deployment's ceiling (P22)
+		st.Deployments.TileLimits = tile // every deployment's ceiling (D127n)
 		st.Run.Cgroup = cg
 		st.Term.Cgroup = cg // restricted (non-admin) terminals get the same caps (D17d)
 		slog.Info("cgroup v2 limits enabled", "memMax", 2<<30, "pidsMax", max(512, goruntime.NumCPU()*8))

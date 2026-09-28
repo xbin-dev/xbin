@@ -76,7 +76,7 @@ func (b *Broker) apiWhoami(w http.ResponseWriter, r *http.Request) {
 
 // whoamiDeployment is whoami's deployment for one of a tile's own
 // credentials (11-contract §7.7): the deployment it is bound to, under the
-// role rule — present only when that isn't the tile's primary (P17), so a
+// role rule — present only when that isn't the tile's primary (D127j), so a
 // tile without a deployment record, and every credential of the primary
 // (a terminal or agent session that follows it included), answers as
 // before tile deployments. A credential still names a deployment that was
@@ -153,7 +153,7 @@ func (b *Broker) driverView(p auth.Principal) map[string]any {
 // management capability (target "xbin" at any role, or "xbin:users") —
 // grantedRole applies the policy ceiling, so an xbin-caps deny strips this
 // trust tier too, and a non-primary deployment's principal never holds one
-// (governanceRole, P19).
+// (governanceRole, D127k).
 func (b *Broker) elementXbinCapable(p auth.Principal) bool {
 	if p.Component == "" {
 		return false

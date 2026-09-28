@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// covers P5 PO-5 Z3 — Event.Deployment is absent from the wire unless set:
+// covers D119c PO-5 Z3 — Event.Deployment is absent from the wire unless set:
 // every event of today keeps its exact bytes, and a bus event of a non-main
 // namespace names its deployment between topic and data (11-contract §3.2).
 func TestEventDeploymentField(t *testing.T) {

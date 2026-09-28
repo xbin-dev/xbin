@@ -13,7 +13,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers P22 T2 — the primary's rows of 15-test-plan's P22 provisioning:
+// covers D127n T2 — the primary's rows of 15-test-plan's D127n provisioning:
 // a pinned primary provisions from its checkpoint's scope.json, read beneath
 // the checkpoint and checked, so a resource only the work tree declares
 // isn't provisioned or resolvable; a checkpoint scope.json naming a resource

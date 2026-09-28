@@ -121,7 +121,7 @@ func lifeAbsent(t *testing.T, what, p string) {
 	}
 }
 
-// covers P29 PO-7 — the M1 half of the transfer row: a transfer (D39) moves
+// covers D119i PO-7 — the M1 half of the transfer row: a transfer (D39) moves
 // the tile's deployment record with it, rewriting the record's owner ref in
 // the same step, before the restart the transfer makes: at that restart and
 // after it the primary is still pinned to its checkpoint, the owner store
@@ -273,7 +273,7 @@ func TestDeploymentsAcrossTileLife(t *testing.T) {
 	})
 }
 
-// covers P29 T11 PO-7 — the M1 half of the leftovers row: after a tile's
+// covers D119i T11 PO-7 — the M1 half of the leftovers row: after a tile's
 // removal its deployment record and checkpoint store are leftovers on
 // D82's refusal list (pathLeftovers, newTilePathOK), each on its own and
 // named, so a non-owner can't create a tile at the path; the path's owner

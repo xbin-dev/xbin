@@ -110,7 +110,7 @@ func (b *Broker) ceilingAllows(from, target string) bool {
 //
 // Ahead of all of it, for every creator, admins included: no '+' in a new
 // tile's name (util.PlusNameRefusal), since "<tile>+<name>" is a tile
-// deployment's URL (P17). Unlike ':' below, which binds non-admins only,
+// deployment's URL (D127j). Unlike ':' below, which binds non-admins only,
 // it holds on every creation path for everyone.
 func (b *Broker) canCreateAt(p auth.Principal, path, ownerRef string) (ok bool, msg string) {
 	if why := util.PlusNameRefusal(path); why != "" {
@@ -226,7 +226,7 @@ func (b *Broker) scopeOwnedBy(scope, ownerRef string) bool {
 // either side, interface bindings / instances / ingress hosts, its vault,
 // the identity store's entries (Store.PathLeftovers), its deployment state
 // (a record, a checkpoint store; beyond main, vaults, registrations and data
-// namespaces; P29), and the tile sandboxes a manager tile there defined
+// namespaces; D119i), and the tile sandboxes a manager tile there defined
 // (their state included; D85's forgetting doesn't reach them). Nothing
 // prunes these when a tile's directory disappears. A path whose owner entry is
 // already ownerRef is the owner re-creating their own tile — nothing to
@@ -277,7 +277,7 @@ func (b *Broker) pathLeftovers(path, ownerRef string) []string {
 }
 
 // deploymentDataLeftovers lists what deployments beyond main left at path
-// and under it (08-data §9.3) (P29): their vault files, their registration
+// and under it (08-data §9.3) (D119i): their vault files, their registration
 // directories, and every data namespace beyond main whose scope is at or
 // under path, orphaned or not. The record and the checkpoint store are the
 // plane's (deploymentLeftovers). A workspace without deployments has none

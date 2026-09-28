@@ -9,7 +9,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// covers P19 P27 T14 — the governance and code-read gates ask the edge
+// covers D127k D127s T14 — the governance and code-read gates ask the edge
 // policy's principal-aware helpers: apps/console holds xbin at admin, yet
 // its non-primary deployment's principal manages no users, creates no
 // component, passes no workspace-management gate and counts as no

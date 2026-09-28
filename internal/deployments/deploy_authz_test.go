@@ -159,7 +159,7 @@ const (
 	azGCred    = "cred"     // Backend, frames, Other, Xbin-el: tile credentials that never operate
 	azGViewAs  = "view-as"  // an admin viewing the workspace as the terminal-level user
 	azGAdminWS = "admin-ws" // managers who are workspace admins (the owner token, admin users)
-	// The admin tile's frame (P21, extended by the owner 2026-09-28): a
+	// The admin tile's frame (D127m, extended by the owner 2026-09-28): a
 	// frame of a tile granted xbin admin, minted under a login.
 	azGAdminFrame    = "admin-frame"     // under a manager's own login: stands in for them on the frame acts
 	azGAdminFrameLow = "admin-frame-low" // under a non-manager's login: the person fails the gate
@@ -294,10 +294,10 @@ func (c azCell) subject(tile string) deployments.Subject {
 	return deployments.Subject{Tile: tile, Deployment: c.dep, Primary: c.primary, Protected: c.protected, Record: true, Seq: 7}
 }
 
-// covers P4 P11 P21 P26 T9 — the authority matrix, one subtest per cell:
+// covers D127b D127f D127m D127r T9 — the authority matrix, one subtest per cell:
 // principal class × operation × protection. The M1 rows (pausing and
 // resuming live reload, reload now; deploy, promote and roll back onto an
-// unprotected primary, parity with saving, P4; restart) pass managers,
+// unprotected primary, parity with saving, D127b; restart) pass managers,
 // terminal-level users and the tile's terminal and agent tokens, and refuse
 // people below terminal level, noTerminal accounts and every other tile
 // credential. The manager column: governance acts pass only tile managers in
@@ -365,7 +365,7 @@ func TestDeployAuthzMatrix(t *testing.T) {
 				azGPerson: azTerminal, azGOwnLow: azTerminal, azGCred: azCredential, azGViewAs: azReadOnly}, azFrameReasons(azCredential)),
 		},
 		{
-			// P21, extended by the owner 2026-09-28: the admin tile's frame
+			// D127m, extended by the owner 2026-09-28: the admin tile's frame
 			// does these for a person who manages the tile, and only these.
 			name: "governance the admin tile does: tile managers, in their own session or through the admin tile",
 			cells: []azCell{
@@ -491,7 +491,7 @@ func TestDeployAuthzMatrix(t *testing.T) {
 		"an xbin-granted tile's instance token":   deployments.AudienceNone,
 		"an xbin-granted tile's frame token":      deployments.AudienceReader,
 		// The admin tile's frame is the write audience of what its person
-		// manages, through a login frame only (P21 extended).
+		// manages, through a login frame only (D127m extended).
 		"the admin tile's frame, a terminal-level non-manager's login":   deployments.AudienceReader,
 		"the admin tile's frame, a workspace admin's terminal minted it": deployments.AudienceReader,
 		"the admin tile's frame, an owner-driven terminal minted it":     deployments.AudienceReader,
@@ -510,7 +510,7 @@ func TestDeployAuthzMatrix(t *testing.T) {
 	}
 }
 
-// covers T9 P11 — noTerminal accounts (D88) are capped at write: holding
+// covers T9 D127f — noTerminal accounts (D88) are capped at write: holding
 // terminal level on the tile, neither their session nor a terminal token
 // they drive operates any deployment, protected or not, while a twin
 // account without the cap does; the cap applies at the next request, since
@@ -570,7 +570,7 @@ func TestNoTerminalCannotOperate(t *testing.T) {
 	}
 }
 
-// covers C4 T9 P11 P26 — the tile's own runtime principals never operate
+// covers C4 T9 D127f D127r — the tile's own runtime principals never operate
 // its deployments: its instance, frame and tile-origin principals, cron and
 // bus principals (today's synthetic ones, and ones bound to the tile and a
 // deployment), refused by every operation, protected or not, with a record

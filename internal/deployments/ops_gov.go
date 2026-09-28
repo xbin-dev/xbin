@@ -55,7 +55,7 @@ func (r *RunNowRequest) ref() (string, string)    { return r.Tile, r.Deployment 
 // broker beyond the plane's hooks, nil until boot installs them.
 type GovHooks struct {
 	// SessionsProtected and SessionsReassigned are term.Manager's
-	// PrimaryProtected and PrimaryReassigned (P24), called after the commit,
+	// PrimaryProtected and PrimaryReassigned (D127p), called after the commit,
 	// outside the plane's locks; without them a moved session's calls fail.
 	SessionsProtected  func(tile string) (restarted, ended int)
 	SessionsReassigned func(tile, from, to string) (restarted, ended int)
@@ -201,9 +201,9 @@ func (p *Plane) edit(ctx context.Context, o *op, seq *int64, dry bool, what stri
 
 // runPrimary reassigns the primary from x to y (05-model §5; 09-fabric §8;
 // 11-contract §1.7): routing only, confirmed "data-stays", onto a healthy y
-// of a tile no scope shares (P28). While the primary is protected the
+// of a tile no scope shares (D127t). While the primary is protected the
 // request names y's reviewed code and seq, and a y following the work tree
-// is pinned to exactly that capture in the same commit (how reassign, P21).
+// is pinned to exactly that capture in the same commit (how reassign, D127m).
 // Then the sessions naming either move, the tile's consumers and ingress
 // follow y's registrations, and the runner restarts y, then x.
 func runPrimary(ctx context.Context, p *Plane, g Grant, r *PrimaryRequest) (any, error) {
@@ -331,7 +331,7 @@ func runPrimary(ctx context.Context, p *Plane, g Grant, r *PrimaryRequest) (any,
 }
 
 // primeCode reads tree as the primary's code before the commit that makes it
-// so, refusing code that can't start, for PinnedPrimary (P9).
+// so, refusing code that can't start, for PinnedPrimary (D119e).
 func (p *Plane) primeCode(o *op, tree string) error {
 	pc, err := p.readCode(o.tile, tree)
 	switch {
@@ -400,7 +400,7 @@ type ProtectAnswer struct {
 // following the work tree is pinned in place to a fresh capture (expect's,
 // when given; how protect) and live reload detaches; a pinned x is rebuilt
 // into the protected namespace (07-runtime §3.4). Then the sessions that
-// targeted x move to P24's default. On a tile without a record: an opt-in.
+// targeted x move to D127p's default. On a tile without a record: an opt-in.
 // Unprotecting moves nothing.
 func runProtect(ctx context.Context, p *Plane, g Grant, r *ProtectRequest) (any, error) {
 	o, err := p.start(g, r.DryRun, true, r.Seq, false, false, "")
@@ -499,7 +499,7 @@ func runProtect(ctx context.Context, p *Plane, g Grant, r *ProtectRequest) (any,
 }
 
 // protectImpact is the dry run of pinning the primary: its capture, or on a
-// tile without a record the caps alone, nothing captured (P5).
+// tile without a record the caps alone, nothing captured (D119c).
 func (p *Plane) protectImpact(ctx context.Context, o *op, prefix, expect string) (any, error) {
 	im := Impact{Data: "none", PausesLiveReload: true, Affects: "nobody"}
 	if o.state == RecordNone {
@@ -535,7 +535,7 @@ func (p *Plane) rebuildProtected(ctx context.Context, o *op, rec *Record, x stri
 	return a
 }
 
-func (p *Plane) sessionsProtected(tile string) { // P24
+func (p *Plane) sessionsProtected(tile string) { // D127p
 	if h := p.gov().SessionsProtected; h != nil {
 		h(tile)
 	}
@@ -596,7 +596,7 @@ func runEdge(ctx context.Context, p *Plane, g Grant, r *EdgeRequest) (any, error
 
 // runSwitch sets a non-primary deployment's deliveries or alwaysOn switch
 // (09-fabric §7; 11-contract §1.7): the broker asks deliveries at each tick,
-// and on is their default, so on clears the stored off (P13, revised);
+// and on is their default, so on clears the stored off (D127h, revised);
 // alwaysOn needs y's own code to say it, and wakes it.
 func runSwitch(ctx context.Context, p *Plane, g Grant, r *SwitchRequest) (any, error) {
 	if r.On == nil {
@@ -641,7 +641,7 @@ func runSwitch(ctx context.Context, p *Plane, g Grant, r *SwitchRequest) (any, e
 }
 
 // declaresAlwaysOn refuses alwaysOn unless y's code says it: its checkpoint
-// (read on a non-primary build turn, P25) or the work tree it follows.
+// (read on a non-primary build turn, D127q) or the work tree it follows.
 func (p *Plane) declaresAlwaysOn(o *op, y string) error {
 	m := o.c.WorkTreeManifest()
 	if cp := o.rec.Deployments[y].Checkpoint; cp != nil {
@@ -659,7 +659,7 @@ func (p *Plane) declaresAlwaysOn(o *op, y string) error {
 	return nil
 }
 
-// runLimits sets y's limit overrides (P22; 11-contract §1.7), each below the
+// runLimits sets y's limit overrides (D127n; 11-contract §1.7), each below the
 // tile's ceiling: memMiB and pids from its next generation (LimitsFor),
 // diskGiB its namespace's quota; null removes one.
 func runLimits(ctx context.Context, p *Plane, g Grant, r *LimitsRequest) (any, error) {

@@ -363,7 +363,7 @@ func TestCredentialLive(t *testing.T) {
 	}
 }
 
-// covers P21 — LoginFrame: a frame token minted under a person's own login
+// covers D127m — LoginFrame: a frame token minted under a person's own login
 // (a session, the root token) is a login frame; one a tile's terminal or
 // agent session mints for its own tile is not — a user-driven one binds its
 // user's generation, an owner-driven one the terminal owner generation,

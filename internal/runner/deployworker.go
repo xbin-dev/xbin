@@ -60,7 +60,7 @@ const (
 // Refused before anything is touched, neither callback called: a name the
 // record doesn't hold (util.ErrNoDeployment), code no view describes, a
 // disabled tile, a backend pinned to a checkpoint on an xbind without
-// isolation (P18, ErrNeedsIsolation), and there, too, a backend of any
+// isolation (D119h, ErrNeedsIsolation), and there, too, a backend of any
 // deployment but main as the primary.
 func (r *Runner) Deploy(ctx context.Context, c *registry.Component, dep string, code Code, commit func() error, progress DeployProgress) error {
 	return r.deploy(ctx, c, dep, code, commit, progress, false)
@@ -125,7 +125,7 @@ func (r *Runner) planDeploy(c *registry.Component, dep string, code Code, restar
 	if !view.HasBackend() {
 		return p, nil // served by the static plane: needs no isolation, starts nothing
 	}
-	if !r.Isolate && p.code.WorkTree && (!primary || dep != util.MainDeployment) { // P18
+	if !r.Isolate && p.code.WorkTree && (!primary || dep != util.MainDeployment) { // D119h
 		return nil, fmt.Errorf("%s: deployment %s runs only in a sandbox (--isolate), and this xbind runs backends without one", c.Path, dep)
 	}
 	if !p.code.WorkTree {

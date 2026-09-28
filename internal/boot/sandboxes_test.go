@@ -20,7 +20,7 @@ type sbxAnswer struct {
 	Deployment *string          `json:"deployment"`
 }
 
-// covers P13 T7 T18 PO-11 — TestSandboxesDeploymentRows (15-test-plan):
+// covers D127h T7 T18 PO-11 — TestSandboxesDeploymentRows (15-test-plan):
 // GET /api/xbin/sandboxes?tile= lists every deployment's generations under
 // the tile. main's row keeps its ID and carries no deployment, with the
 // "tile" stats scope; each non-primary row has the ID

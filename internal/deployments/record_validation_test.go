@@ -40,13 +40,13 @@ func rawCase(name, why, body string) heldCase {
 
 func deps(d map[string]any) map[string]any { return d["deployments"].(map[string]any) }
 
-// covers T11 P9 P29 C7 NP-06-12 — a record that can't be used holds its
+// covers T11 D119e D119i C7 NP-06-12 — a record that can't be used holds its
 // tile and nothing else: unreadable (a FIFO, an unreadable file, a symlink
 // out of the directory, oversize), not a record, a schema not 1 (a newer one
 // with 11-contract §1.14's text), a field of the wrong type, and every
 // invariant of 05-model §4 (seq, the creation stamp, main and the primary
 // existing, the name grammar, live reload driving exactly its unpinned
-// deployment, full tree ids, the failed state, P21, limits) and a checkpoint
+// deployment, full tree ids, the failed state, D127m, limits) and a checkpoint
 // the store doesn't hold. A held tile fails closed: CodeFor refuses every
 // deployment (nothing starts, never the work tree), a save drives nothing,
 // the registry composes the zero manifest with the reason (no backend, no

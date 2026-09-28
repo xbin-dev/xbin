@@ -9,7 +9,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/users"
 )
 
-// covers P14 P28 NP-08-7 — add and remove reach the broker's data namespace
+// covers D127i D127t NP-08-7 — add and remove reach the broker's data namespace
 // plane through the plane's DataHooks (08-data §6.2, §9.2): an add asks
 // JoinData as a manager and gates the actor itself, so joining seeded data
 // is refused to a terminal-level user (403) and a tile manager's add, dry or

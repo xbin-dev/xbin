@@ -210,7 +210,7 @@ func (o *depRig) stored(key string) string {
 	return rec.Level + ":" + rec.Message
 }
 
-// covers P13 PO-5 SC-EVENTS — status is per deployment
+// covers D127h PO-5 SC-EVENTS — status is per deployment
 // (TestNonPrimaryStatusNamespaced): a non-primary deployment's report,
 // transient notice and clear answer as today and ride only the deployments
 // event (op status, with its deployment), never a status event, never GET
@@ -342,7 +342,7 @@ func TestStatusPerDeployment(t *testing.T) {
 	check("the refusals", w.settle("refusals"))
 }
 
-// covers P5 PO-5 — the zero state: a plane without the deployment input
+// covers D119c PO-5 — the zero state: a plane without the deployment input
 // answers as today (TestTileStatus); with the input, a tile it holds no
 // record for reports today's status event and nothing else.
 func TestStatusZeroStateUnchanged(t *testing.T) {

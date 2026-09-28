@@ -13,7 +13,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/runner"
 )
 
-// covers P29 T11 NP-06-11 NP-12-9 — a record belongs to the tile it was made
+// covers D119i T11 NP-06-11 NP-12-9 — a record belongs to the tile it was made
 // for. One under a tile's key that names another path is ignored (inert: the
 // tile answers the zero state), and the path it names never inherits it. One
 // whose owner ref isn't the tile's current one is ignored too, compared on

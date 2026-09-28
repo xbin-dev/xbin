@@ -9,7 +9,7 @@ import (
 // reserve.go — the options a Reserve call takes. Every VM reservation is
 // booked to its tile (the owner), whichever deployment or tile-managed
 // sandbox it runs for; the options only refine whether it is admitted: a
-// non-primary deployment's headroom and primary-first rule (P25), and the
+// non-primary deployment's headroom and primary-first rule (D127q), and the
 // tile-managed sandboxes' sub-budget (plans/tile-sandbox-runtime.md §6.1).
 // They are declared once, here, and every caller adds its options to this
 // one type. A reservation without options is admitted and booked exactly as
@@ -23,17 +23,17 @@ type ReserveOption func(*reserveOptions)
 type reserveOptions struct {
 	// nonPrimary: the VM runs for a non-primary deployment, which leaves
 	// room for the primary's next guest (primaryMiB and one VM) and never
-	// makes room for itself (P25).
+	// makes room for itself (D127q).
 	nonPrimary bool
 	primaryMiB int
 	// stop: the VM runs for the tile's primary, and stop may end the same
-	// tile's non-primary guests to admit it (P25).
+	// tile's non-primary guests to admit it (D127q).
 	stop func(short Usage) bool
 	// tile: TileSandbox — also books against the tile sub-budget.
 	tile bool
 }
 
-// NonPrimary marks the reservation as a non-primary deployment's (P25). It
+// NonPrimary marks the reservation as a non-primary deployment's (D127q). It
 // is admitted only if the policy still has room afterwards for the tile's
 // primary's next guest, for a blue/green swap or a restart: one more VM and
 // primaryMiB, that guest's memory. primaryMiB is 0 when the primary runs no
@@ -46,7 +46,7 @@ func NonPrimary(primaryMiB int) ReserveOption {
 	}
 }
 
-// PrimaryFirst marks the reservation as the tile's primary's (P25). When the
+// PrimaryFirst marks the reservation as the tile's primary's (D127q). When the
 // policy's count or budget can't admit it, Reserve calls stop, holding none
 // of its books, with what the limits fall short by. stop, which the runner
 // supplies, stops the same tile's non-primary guests if together they hold

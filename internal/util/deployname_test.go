@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// covers P6 — deployment names follow the glossary grammar
+// covers D127c — deployment names follow the glossary grammar
 // ^[a-z][a-z0-9-]{0,23}$, so a tile ref "<tile>+<name>" splits one way only,
 // and main is a name like any other.
 func TestDeploymentNameOK(t *testing.T) {
@@ -29,7 +29,7 @@ func TestDeploymentNameOK(t *testing.T) {
 	}
 }
 
-// covers P6 T11 — TileKey is 11-contract §10's key of the new stores:
+// covers D127c T11 — TileKey is 11-contract §10's key of the new stores:
 // lowercase-hex(SHA-256("xbin-tile-key-v1" ‖ 0x00 ‖ path)[:16]). The
 // expected values are hand-maintained, computed once with sha256sum (printf
 // 'xbin-tile-key-v1\0%s' "$path" | sha256sum), never by the code under test;
@@ -58,7 +58,7 @@ func TestTileKey(t *testing.T) {
 	}
 }
 
-// covers P5 — the "unknown deployment" error carries 11-contract §1.14's
+// covers D119c — the "unknown deployment" error carries 11-contract §1.14's
 // text and matches ErrNoDeployment, however it is wrapped.
 func TestNoDeployment(t *testing.T) {
 	err := NoDeployment("apps/crm", "dev")
@@ -73,7 +73,7 @@ func TestNoDeployment(t *testing.T) {
 	}
 }
 
-// covers P17 — no new tile name holds '+', in any segment; the refusal names
+// covers D127j — no new tile name holds '+', in any segment; the refusal names
 // the path.
 func TestPlusNameRefusal(t *testing.T) {
 	for _, p := range []string{"apps/x", "notes", "apps/c-d", "apps/x:y"} {
@@ -88,7 +88,7 @@ func TestPlusNameRefusal(t *testing.T) {
 	}
 }
 
-// covers P17 — a query parameter naming a tile is its path: a '+' that names
+// covers D127j — a query parameter naming a tile is its path: a '+' that names
 // no tile, or the space an unescaped '+' decoded to, reads as a qualified
 // ref; a tile whose own name holds '+' passes.
 func TestQueryTileQualified(t *testing.T) {

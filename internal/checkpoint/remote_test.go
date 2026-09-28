@@ -66,7 +66,7 @@ func objectsIn(t *testing.T, gitDir string) []string {
 	return objs
 }
 
-// covers P16 T15 T20 — the view repository holds exactly
+// covers D119g T15 T20 — the view repository holds exactly
 // refs/heads/deploy/<name> for each pinned deployment, pointing at its
 // checkpoint's git view, and HEAD naming refs/heads/deploy/<primary>,
 // dangling while the primary follows the work tree; no refs/xbin/* ref, and
@@ -288,7 +288,7 @@ func fetchReq(s *Store, method, tile, rel string) (*httptest.ResponseRecorder, e
 	return w, err
 }
 
-// covers P16 T15 — the remote serves the view repository, never the store,
+// covers D119g T15 — the remote serves the view repository, never the store,
 // from the allow-list only: HEAD, info/refs, objects/info/packs, packs and
 // their indexes, loose objects, byte for byte, with git's content types; GET
 // and HEAD only; everything else — config, hooks/, description, packed-refs,
@@ -403,7 +403,7 @@ func TestFetchRemoteServesOnlyGitFiles(t *testing.T) {
 	})
 }
 
-// covers P16 T15 NP-06-18 — every symlink in the view repository is refused,
+// covers D119g T15 NP-06-18 — every symlink in the view repository is refused,
 // whatever it points at and wherever it sits: info/refs to the config, HEAD
 // to a FIFO outside (never opened: the tripwire stays quiet and nothing
 // blocks), a loose object to /etc/passwd, objects/pack as a symlinked

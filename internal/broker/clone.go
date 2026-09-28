@@ -93,7 +93,7 @@ func (b *Broker) apiClone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A removed tile's deployment state at the path goes before the tree is
-	// written, so the first Rescan composes the new tile in the zero state (P29).
+	// written, so the first Rescan composes the new tile in the zero state (D119i).
 	if err := b.resetDeploymentState(to); err != nil {
 		slog.Error("a removed tile's deployment record couldn't be reset for the new tile", "tile", to, "err", err)
 	}

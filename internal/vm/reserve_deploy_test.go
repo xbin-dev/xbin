@@ -186,7 +186,7 @@ func TestReserveChargesTileForEveryDeployment(t *testing.T) {
 	}
 }
 
-// covers P25 SC-PRIMARY-FIRST T10 — a non-primary deployment never starves
+// covers D127q SC-PRIMARY-FIRST T10 — a non-primary deployment never starves
 // its primary: its VM reservation leaves the primary's guest (its memory and
 // one VM) free, so with the budget filled by the tile's non-primary guests up
 // to that headroom a primary crash still restarts and a swap still fits,

@@ -106,7 +106,7 @@ func ckBackend(t *testing.T, fs string) (ws string, r *Runner, dir string) {
 	return ws, r, run
 }
 
-// covers P6 P9 P14 — the code half (15-test-plan §4; the data half is
+// covers D127c D119e D127i — the code half (15-test-plan §4; the data half is
 // M2's): pinned, a backend sees its checkpoint at its canonical path and not
 // the work tree, and a write there fails by the bind's read-only flag; the
 // live reload target sees its work tree as ever. The VM variant runs the
@@ -187,7 +187,7 @@ func TestPinnedBackendSeesCheckpoint(t *testing.T) {
 	})
 }
 
-// covers T18 P16 — 06-security T18.3 as ruled: pinned apps/a with a nested
+// covers T18 D119g — 06-security T18.3 as ruled: pinned apps/a with a nested
 // component apps/a/b. The sandbox init makes the mount point apps/a/b inside
 // the checkpoint without following a symlink and binds b's own code after
 // the checkpoint bind, so the backend sees both: b's work tree, or b's own

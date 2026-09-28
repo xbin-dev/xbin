@@ -222,7 +222,7 @@ export class BxDeployments extends LitElement {
     const gen = ++this._gen;
     this._for = tile;
     // a deployment's frame (apps/crm+dev) has no panel state, and its ref never
-    // goes into a query (P17)
+    // goes into a query (D127j)
     const r = await qualifiedSrc(tile) ? { body: null } : await getJSON(`/api/xbin/deployments?tile=${encodeURIComponent(tile)}`);
     if (gen !== this._gen || tile !== this.component) return this._state;
     const s = r.body?.tile === tile ? r.body : null;
