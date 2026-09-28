@@ -8,6 +8,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -65,6 +66,79 @@ func TestMayManageDeployments(t *testing.T) {
 		if got := b.MayManageDeployments(tc.p, tc.tile); got != tc.want {
 			t.Errorf("%s on %s: %v, want %v", tc.name, tc.tile, got, tc.want)
 		}
+	}
+}
+
+// covers P21 T9 — AdminFrameDriver (P21 extended by the owner 2026-09-28):
+// a frame of a tile holding xbin admin, minted under a person's own login,
+// stands in for that person at the manager gate, and the person is judged —
+// a workspace admin or the owning org's admin passes on their tiles, the
+// root token's login everywhere, a non-manager nowhere. A frame minted by a
+// terminal or agent session, a view-as frame, a frame of a tile without
+// xbin admin, the admin tile's terminal, agent and instance tokens, and a
+// disabled account's frame have no driver.
+func TestAdminFrameDriver(t *testing.T) {
+	b, st := orgFixture(t) // apps/email is owned by org:sales, carol its admin
+	if err := st.SetOwner("apps/calendar", "user:dave"); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
+		ws.Grants = append(ws.Grants, registry.Grant{From: "apps/calendar", Target: "xbin", Role: "admin"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Upsert(users.User{ID: "gone", Role: users.RoleAdmin, Disabled: true}, "password"); err != nil {
+		t.Fatal(err)
+	}
+	const admin = "apps/calendar" // the tile granted xbin admin: the admin tile here
+	frame := func(uid, gen string) auth.Principal {
+		return auth.Principal{Component: admin, UserID: uid, Via: "frame", Gen: gen}
+	}
+	viewAs := frame("bob", "s.v")
+	viewAs.Impersonator = "root2"
+	for _, tc := range []struct {
+		name   string
+		p      auth.Principal
+		driver bool
+		// manages: the tiles the driver passes MayManageDeployments on
+		manages map[string]bool
+	}{
+		{"a workspace admin's login frame", frame("root2", "s.a"), true, map[string]bool{"apps/email": true, admin: true}},
+		{"the owning org's admin's login frame", frame("carol", "s.c"), true, map[string]bool{"apps/email": true, admin: false}},
+		{"the tile's user-owner's login frame", frame("dave", "s.d"), true, map[string]bool{"apps/email": false, admin: true}},
+		{"a non-manager's login frame", frame("bob", "s.b"), true, map[string]bool{"apps/email": false, admin: false}},
+		{"the root token's login frame", frame("", "o.x"), true, map[string]bool{"apps/email": true, admin: true}},
+		{"a frame a user's terminal minted", frame("root2", "u.e.0"), false, nil},
+		{"a frame an owner-driven terminal minted", frame("", "t.x"), false, nil},
+		{"a legacy frame (no generation)", frame("root2", ""), false, nil},
+		{"a view-as frame", viewAs, false, nil},
+		{"a disabled account's frame", frame("gone", "s.g"), false, nil},
+		{"a frame of a tile without xbin admin", auth.Principal{Component: "apps/email", UserID: "root2", Via: "frame", Gen: "s.a"}, false, nil},
+		{"the admin tile's terminal token", auth.Principal{Component: admin, UserID: "root2", Via: "terminal"}, false, nil},
+		{"the admin tile's agent token", auth.Principal{Component: admin, UserID: "root2", Via: "agent", Gen: "s.a"}, false, nil},
+		{"the admin tile's instance token", auth.Principal{Component: admin, Via: "instance"}, false, nil},
+		{"a person in their own session", principalFor(t, st, "root2"), false, nil},
+	} {
+		d, ok := b.AdminFrameDriver(tc.p)
+		if ok != tc.driver {
+			t.Errorf("%s: driver %v, want %v", tc.name, ok, tc.driver)
+			continue
+		}
+		if !ok {
+			continue
+		}
+		if d.Component != "" || d.ReadOnly() || (d.UserID != tc.p.UserID) {
+			t.Errorf("%s: driver %+v isn't the person", tc.name, d)
+		}
+		for tile, want := range tc.manages {
+			if got := b.MayManageDeployments(d, tile); got != want {
+				t.Errorf("%s: manages %s %v, want %v", tc.name, tile, got, want)
+			}
+		}
+	}
+	// The frame itself never passes the human-session gate.
+	if b.MayManageDeployments(frame("root2", "s.a"), "apps/email") {
+		t.Error("the admin tile's frame passed MayManageDeployments itself")
 	}
 }
 

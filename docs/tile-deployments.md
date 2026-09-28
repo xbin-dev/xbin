@@ -655,6 +655,27 @@ every change to the primary's code a tile manager's act:
 Without protection, terminal-level users and their agents deploy to the
 primary as they save to it today.
 
+### Managing protection
+
+Tile managers — the tile's owner, its org's admins, a workspace admin —
+manage protection in three places, all of them a person's credential:
+
+- **The Deployments panel**, in their own browser session.
+- **`bx` on the host with the root token** (`bx deployment protect apps/crm
+  on`, `bx deployment primary apps/crm --to dev`, `bx deployment set
+  apps/crm dev --deliveries on`): the owner token is the owner's, so it
+  passes for every tile. Never from a tile terminal: there bx is refused.
+- **The admin console's runtime → deployments tab** (`tiles/admin`, after
+  `bx builtin update` in an existing workspace): every tile with a
+  deployment record — its primary, 🛡 when protected, where live reload is,
+  its deployments, the last deploy — with Protect / Unprotect the primary,
+  Reassign the primary… (the same loud confirmation as the panel's), and
+  deliveries and alwaysOn per non-primary deployment. ⇈ Deployments panel
+  opens the tile's terminal window for everything else. The tab acts as the
+  person who opened the admin tile: a tile they don't manage shows the
+  primary only, its buttons disabled with the reason
+  ([auth.md](/docs/auth.md) §Tile deployments).
+
 ## Limits
 
 - **Per deployment** (a tile manager: `bx deployment set dev --mem 512

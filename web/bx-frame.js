@@ -541,6 +541,17 @@ export class BxFrame extends LitElement {
       this.dispatchEvent(new CustomEvent('bx-spawn-close', {
         bubbles: true, composed: true, detail: { id: d.id },
       }));
+    } else if (d.type === 'xbin:open-deployments') {
+      // A tile asks the shell to open ANOTHER tile's terminal window on its
+      // Deployments layout (the admin tile's deployments tab links there).
+      // Only a well-formed tile path goes up; the shell opens it only for a
+      // tile its viewer lists, and the panel then runs as the viewer, so the
+      // request grants nothing.
+      const tile = typeof d.tile === 'string' ? d.tile.replace(/^\/+|\/+$/g, '') : '';
+      if (!tile || tile.length > 512 || tile.split('/').some((s) => !s || s === '.' || s === '..')) return;
+      this.dispatchEvent(new CustomEvent('bx-open-deployments', {
+        bubbles: true, composed: true, detail: { from: this.src, tile },
+      }));
     }
   }
 

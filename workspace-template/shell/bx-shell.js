@@ -168,6 +168,8 @@ export class BxShell extends LitElement {
     // window; the detail carries the VERIFIED component + a reply closure.
     this._onSpawn = (e) => this._spawn(e.detail);
     this._onSpawnClose = (e) => this._closeSpawn(e.detail.id);
+    // xbin:open-deployments (the admin tile's link): a listed tile's Deployments panel, as the tile menu opens it.
+    this._onOpenDeployments = (e) => { const p = e.detail?.tile; if (this._components.some((c) => c.path === p)) this._frameOpen(p, 'deployments'); };
     this._who = null;
     this._myId = null;
     this._orgScreens = [];   // shared org screens (D37)
@@ -214,6 +216,7 @@ export class BxShell extends LitElement {
     this._probeAdmin();
     window.addEventListener('bx-spawn', this._onSpawn);
     window.addEventListener('bx-spawn-close', this._onSpawnClose);
+    window.addEventListener('bx-open-deployments', this._onOpenDeployments);
     this._loadSys();
     this._sysTimer = setInterval(() => this._loadSys(), 5000);
     this._loadAlerts();
@@ -271,6 +274,7 @@ export class BxShell extends LitElement {
     this._off?.();
     window.removeEventListener('bx-spawn', this._onSpawn);
     window.removeEventListener('bx-spawn-close', this._onSpawnClose);
+    window.removeEventListener('bx-open-deployments', this._onOpenDeployments);
     clearInterval(this._sysTimer);
     clearInterval(this._alertTimer);
     window.removeEventListener('blur', this._onBlur);

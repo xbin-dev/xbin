@@ -585,6 +585,7 @@ Authority is the tile's, and a deployment never widens it (P11). Who may
 | Add, remove, deploy to, promote to, or roll back a **non-primary** deployment; reset its data; set its target in a terminal; run now on its jobs | `terminal` level (and the tile's terminal/agent tokens) |
 | Deploy, promote or roll back onto the **primary** | `terminal` level and their agents: **parity** with saving today (P4). While the primary is protected: tile managers only, in a human session, naming the reviewed checkpoint (§5). Terminal and agent tokens cannot deploy, promote, roll back, reload now or resume onto it, and it is never a session's target (P24). |
 | Seed data, copy vault values, deliveries (an off switch, on by default) or alwaysOn for non-primary, set edge policies, reassign the primary, protect or unprotect it; reset `main`'s data while it isn't primary; set a deployment's resource limits (P22, defaulting to the tile's and never above the tile's own ceilings); purge a checkpoint | tile managers (user-owner, owning-org admins, workspace admins: the D24/D33 gate) |
+| Protect or unprotect the primary, reassign it, deliveries or alwaysOn for non-primary (P21, extended by the owner 2026-09-28) | also the admin tile's frame standing in for a tile manager: the frame of a tile holding `xbin` admin, its token minted under that person's own login (never a view-as session's, never one a terminal or agent session minted); the person is judged, not the tile |
 | Any of the above from a view-as session (D64) | refused (read-only) |
 
 **Operating is checked per request.**
@@ -598,7 +599,13 @@ Authority is the tile's, and a deployment never widens it (P11). Who may
   `internal/auth/auth.go:92`, `internal/broker/orgsapi.go:427`). Terminal and
   agent tokens are refused even for managers, because agents share them. No
   element principal passes the manager gate in the deployments plane,
-  whatever `xbin` or `xbin:users` grants its tile holds.
+  whatever `xbin` or `xbin:users` grants its tile holds — with one narrow
+  exception (P21, extended by the owner 2026-09-28): the admin tile's frame,
+  its token minted under a person's own login, stands in for that person on
+  protect, unprotect, reassign, deliveries and alwaysOn, and the person passes
+  or fails the gate as in their own session (11-contract §0.5). The admin
+  tile's terminal and agent tokens stay refused, and so does any frame token
+  they mint. The root token is a human credential: `bx` on the host passes.
 - Every mutating operation is a non-GET JSON request, never a WebSocket
   upgrade, so view-as sessions and form posts cannot forge it.
 - A non-primary principal never satisfies `IsAdmin` or any governance

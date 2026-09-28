@@ -96,7 +96,8 @@ func newAZFixture(t *testing.T) *azFixture {
 	if _, err := st.SetUserPersonal("nora", users.PersonalPatch{NoTerminal: &yes}); err != nil {
 		t.Fatal(err)
 	}
-	pl := &deployments.Plane{Reg: reg, OwnerRef: st.Owner, IsAdmin: brk.IsAdmin, MayManage: brk.MayManageDeployments}
+	pl := &deployments.Plane{Reg: reg, OwnerRef: st.Owner, IsAdmin: brk.IsAdmin, MayManage: brk.MayManageDeployments,
+		AdminFrameDriver: brk.AdminFrameDriver}
 	return &azFixture{brk: brk, st: st, pl: pl}
 }
 
@@ -127,6 +128,19 @@ func (f *azFixture) frame(t *testing.T, id, tile string) auth.Principal {
 	return auth.Principal{Component: tile, UserID: id, Access: a, Via: "frame"}
 }
 
+// loginFrame is tile's frame token minted under id's own login, gen: a
+// session's ("s.") or the root token's ("o.", id ""), or one a terminal
+// minted ("u.", "t.") — what auth.Principal.LoginFrame reads.
+func (f *azFixture) loginFrame(t *testing.T, id, tile, gen string) auth.Principal {
+	t.Helper()
+	p := auth.Principal{Component: tile, UserID: id, Via: "frame", Gen: gen}
+	if id != "" {
+		p = f.frame(t, id, tile)
+		p.Gen = gen
+	}
+	return p
+}
+
 // who is one principal of the matrix, and the tile it acts on.
 type azWho struct {
 	name  string
@@ -145,12 +159,35 @@ const (
 	azGCred    = "cred"     // Backend, frames, Other, Xbin-el: tile credentials that never operate
 	azGViewAs  = "view-as"  // an admin viewing the workspace as the terminal-level user
 	azGAdminWS = "admin-ws" // managers who are workspace admins (the owner token, admin users)
+	// The admin tile's frame (P21, extended by the owner 2026-09-28): a
+	// frame of a tile granted xbin admin, minted under a login.
+	azGAdminFrame    = "admin-frame"     // under a manager's own login: stands in for them on the frame acts
+	azGAdminFrameLow = "admin-frame-low" // under a non-manager's login: the person fails the gate
+	azGViewAsFrame   = "view-as-frame"   // under an admin's view of the terminal-level user
 )
+
+// azFrameReasons is a row's reasons for the admin tile's frames outside the
+// manager acts they may do: a tile credential's (a view-as one's, read-only).
+func azFrameReasons(reason string) map[string]string {
+	return map[string]string{azGAdminFrame: reason, azGAdminFrameLow: reason, azGViewAsFrame: azReadOnly}
+}
 
 func (f *azFixture) principals(t *testing.T) []azWho {
 	viewAs := f.person(t, "dev")
 	viewAs.Impersonator = "wsadmin"
+	viewAsFrame := f.loginFrame(t, "dev", azAdmin, "s.v")
+	viewAsFrame.Impersonator = "wsadmin"
 	return []azWho{
+		{"the admin tile's frame, a workspace admin's login", azGAdminFrame, f.loginFrame(t, "wsadmin", azAdmin, "s.w"), azCRM},
+		{"the admin tile's frame, the owning org's admin's login", azGAdminFrame, f.loginFrame(t, "carol", azAdmin, "s.c"), azCRM},
+		{"the admin tile's frame, the user-owner's login", azGAdminFrame, f.loginFrame(t, "ana", azAdmin, "s.a"), azSolo},
+		{"the admin tile's frame, the root token's login", azGAdminFrame, f.loginFrame(t, "", azAdmin, "o.r"), azCRM},
+		{"the admin tile's frame, a terminal-level non-manager's login", azGAdminFrameLow, f.loginFrame(t, "dev", azAdmin, "s.d"), azCRM},
+		{"the admin tile's frame, a workspace admin's terminal minted it", azGCred, f.loginFrame(t, "wsadmin", azAdmin, "u.e.0"), azCRM},
+		{"the admin tile's frame, an owner-driven terminal minted it", azGCred, f.loginFrame(t, "", azAdmin, "t.r"), azCRM},
+		{"the admin tile's terminal token, a workspace admin's", azGCred, f.token(t, "wsadmin", azAdmin), azCRM},
+		{"the admin tile's agent token, owner-driven", azGCred, auth.Principal{Component: azAdmin, Via: "terminal"}, azCRM},
+		{"the admin tile's frame, an admin's view-as", azGViewAsFrame, viewAsFrame, azCRM},
 		{"the owner token", azGAdminWS, auth.Principal{Owner: true, Via: "bearer"}, azCRM},
 		{"a workspace admin", azGAdminWS, f.person(t, "wsadmin"), azCRM},
 		{"the owning org's admin", azGManager, f.person(t, "carol"), azCRM},
@@ -280,8 +317,19 @@ func TestDeployAuthzMatrix(t *testing.T) {
 		// override names the principals whose reason differs from their group's
 		override map[string]string
 	}
-	unprotected := map[string]string{azGAdminWS: azOK, azGManager: azOK, azGTerm: azOK, azGToken: azOK,
-		azGPerson: azTerminal, azGOwnLow: azTerminal, azGCred: azCredential, azGViewAs: azReadOnly}
+	// plus is m with the admin tile's frames' reasons (azFrameReasons).
+	plus := func(m, frames map[string]string) map[string]string {
+		out := map[string]string{}
+		for k, v := range m {
+			out[k] = v
+		}
+		for k, v := range frames {
+			out[k] = v
+		}
+		return out
+	}
+	unprotected := plus(map[string]string{azGAdminWS: azOK, azGManager: azOK, azGTerm: azOK, azGToken: azOK,
+		azGPerson: azTerminal, azGOwnLow: azTerminal, azGCred: azCredential, azGViewAs: azReadOnly}, azFrameReasons(azCredential))
 	rows := []row{
 		{
 			name: "live reload and code moves (M1), and non-primary targets",
@@ -307,44 +355,56 @@ func TestDeployAuthzMatrix(t *testing.T) {
 				{op: deployments.OpRollback, dep: "main", protected: true},
 				{op: deployments.OpReloadNow, dep: "main", protected: true},
 			},
-			want: map[string]string{azGAdminWS: azOK, azGManager: azOK, azGTerm: azProtected, azGToken: azProtected,
-				azGPerson: azProtected, azGOwnLow: azProtected, azGCred: azCredential, azGViewAs: azReadOnly},
+			want: plus(map[string]string{azGAdminWS: azOK, azGManager: azOK, azGTerm: azProtected, azGToken: azProtected,
+				azGPerson: azProtected, azGOwnLow: azProtected, azGCred: azCredential, azGViewAs: azReadOnly}, azFrameReasons(azCredential)),
 		},
 		{
 			name:  "live reload onto a protected primary",
 			cells: []azCell{{op: deployments.OpResume, dep: "main", protected: true}, {op: deployments.OpAttach, dep: "main", protected: true}},
-			want: map[string]string{azGAdminWS: azProtected409, azGManager: azProtected409, azGTerm: azProtected409, azGToken: azProtected409,
-				azGPerson: azTerminal, azGOwnLow: azTerminal, azGCred: azCredential, azGViewAs: azReadOnly},
+			want: plus(map[string]string{azGAdminWS: azProtected409, azGManager: azProtected409, azGTerm: azProtected409, azGToken: azProtected409,
+				azGPerson: azTerminal, azGOwnLow: azTerminal, azGCred: azCredential, azGViewAs: azReadOnly}, azFrameReasons(azCredential)),
+		},
+		{
+			// P21, extended by the owner 2026-09-28: the admin tile's frame
+			// does these for a person who manages the tile, and only these.
+			name: "governance the admin tile does: tile managers, in their own session or through the admin tile",
+			cells: []azCell{
+				{op: deployments.OpPrimary, dep: "dev"}, {op: deployments.OpPrimary, dep: "dev", protected: true},
+				{op: deployments.OpProtect}, {op: deployments.OpUnprotect, protected: true},
+				{op: deployments.OpDeliveries, dep: "dev"}, {op: deployments.OpAlwaysOn, dep: "dev"},
+			},
+			want: map[string]string{azGAdminWS: azOK, azGManager: azOK, azGTerm: azManager, azGToken: azSession,
+				azGPerson: azManager, azGOwnLow: azSession, azGCred: azSession, azGViewAs: azReadOnly,
+				azGAdminFrame: azOK, azGAdminFrameLow: azManager, azGViewAsFrame: azReadOnly},
 		},
 		{
 			name: "governance: tile managers, in a person's own session",
 			cells: []azCell{
-				{op: deployments.OpPrimary, dep: "dev"}, {op: deployments.OpProtect}, {op: deployments.OpUnprotect, protected: true},
-				{op: deployments.OpEdge}, {op: deployments.OpDeliveries, dep: "dev"}, {op: deployments.OpAlwaysOn, dep: "dev"},
-				{op: deployments.OpLimits, dep: "dev"}, {op: deployments.OpSeed, dep: "dev"}, {op: deployments.OpVaultCopy, dep: "dev"},
-				{op: deployments.OpPurge}, {op: deployments.OpPurge, protected: true},
+				{op: deployments.OpEdge}, {op: deployments.OpLimits, dep: "dev"}, {op: deployments.OpSeed, dep: "dev"},
+				{op: deployments.OpVaultCopy, dep: "dev"}, {op: deployments.OpPurge}, {op: deployments.OpPurge, protected: true},
 			},
-			want: map[string]string{azGAdminWS: azOK, azGManager: azOK, azGTerm: azManager, azGToken: azSession,
-				azGPerson: azManager, azGOwnLow: azSession, azGCred: azSession, azGViewAs: azReadOnly},
+			want: plus(map[string]string{azGAdminWS: azOK, azGManager: azOK, azGTerm: azManager, azGToken: azSession,
+				azGPerson: azManager, azGOwnLow: azSession, azGCred: azSession, azGViewAs: azReadOnly}, azFrameReasons(azSession)),
 		},
 		{
 			name:  "resetting main's data while it isn't the primary",
 			cells: []azCell{{op: deployments.OpReset, dep: "main", primary: "dev"}},
-			want: map[string]string{azGAdminWS: azOK, azGManager: azOK, azGTerm: azManager, azGToken: azSession,
-				azGPerson: azTerminal, azGOwnLow: azTerminal, azGCred: azCredential, azGViewAs: azReadOnly},
+			want: plus(map[string]string{azGAdminWS: azOK, azGManager: azOK, azGTerm: azManager, azGToken: azSession,
+				azGPerson: azTerminal, azGOwnLow: azTerminal, azGCred: azCredential, azGViewAs: azReadOnly}, azFrameReasons(azCredential)),
 		},
 		{
 			name: "a workspace admin's acts, in a person's own session",
 			cells: []azCell{{op: deployments.OpBackup, dep: "dev"}, {op: deployments.OpRestore, dep: "dev"},
 				{op: deployments.OpBackupSchedule, dep: "dev"}},
-			want: map[string]string{azGAdminWS: azOK, azGManager: azAdminAct, azGTerm: azAdminAct, azGToken: azAdminAct,
-				azGPerson: azAdminAct, azGOwnLow: azAdminAct, azGCred: azAdminAct, azGViewAs: azReadOnly},
+			want: plus(map[string]string{azGAdminWS: azOK, azGManager: azAdminAct, azGTerm: azAdminAct, azGToken: azAdminAct,
+				azGPerson: azAdminAct, azGOwnLow: azAdminAct, azGCred: azAdminAct, azGViewAs: azReadOnly}, azFrameReasons(azAdminAct)),
 		},
 		{
 			name:  "reads: the state",
 			cells: []azCell{{op: deployments.OpState}},
 			want: map[string]string{azGAdminWS: azOK, azGManager: azOK, azGTerm: azOK, azGToken: azOK,
-				azGPerson: azOK, azGOwnLow: azOK, azGCred: azOK, azGViewAs: azOK},
+				azGPerson: azOK, azGOwnLow: azOK, azGCred: azOK, azGViewAs: azOK,
+				azGAdminFrame: azOK, azGAdminFrameLow: azOK, azGViewAsFrame: azOK},
 			override: map[string]string{"an outsider": azNeedRead,
 				"another tile's instance token": azNeedRead, "an xbin-granted tile's instance token": azNeedRead},
 		},
@@ -352,7 +412,8 @@ func TestDeployAuthzMatrix(t *testing.T) {
 			name:  "reads: the log, diffs between checkpoints, the checkpoint remote",
 			cells: []azCell{{op: deployments.OpLog}, {op: deployments.OpDiff}, {op: deployments.OpFetch}},
 			want: map[string]string{azGAdminWS: azOK, azGManager: azOK, azGTerm: azOK, azGToken: azOK,
-				azGPerson: azNeedWrite, azGOwnLow: azOK, azGCred: azNeedWrite, azGViewAs: azOK},
+				azGPerson: azNeedWrite, azGOwnLow: azOK, azGCred: azNeedWrite, azGViewAs: azOK,
+				azGAdminFrame: azOK, azGAdminFrameLow: azNeedWrite, azGViewAsFrame: azNeedWrite},
 			override: map[string]string{"a writer": azOK, "a noTerminal account holding terminal": azOK,
 				"a terminal token whose user lost access": azNeedWrite},
 		},
@@ -360,13 +421,15 @@ func TestDeployAuthzMatrix(t *testing.T) {
 			name:  "reads: a diff of the work tree, which captures",
 			cells: []azCell{{op: deployments.OpDiffWorkTree}},
 			want: map[string]string{azGAdminWS: azOK, azGManager: azOK, azGTerm: azOK, azGToken: azOK,
-				azGPerson: azTerminal, azGOwnLow: azTerminal, azGCred: azCredential, azGViewAs: azOK},
+				azGPerson: azTerminal, azGOwnLow: azTerminal, azGCred: azCredential, azGViewAs: azOK,
+				azGAdminFrame: azCredential, azGAdminFrameLow: azCredential, azGViewAsFrame: azCredential},
 		},
 		{
 			name:  "reads: a deployment's backups",
 			cells: []azCell{{op: deployments.OpBackups, dep: "dev"}},
 			want: map[string]string{azGAdminWS: azOK, azGManager: azAdminAct, azGTerm: azAdminAct, azGToken: azAdminAct,
-				azGPerson: azAdminAct, azGOwnLow: azAdminAct, azGCred: azAdminAct, azGViewAs: azAdminAct},
+				azGPerson: azAdminAct, azGOwnLow: azAdminAct, azGCred: azAdminAct, azGViewAs: azAdminAct,
+				azGAdminFrame: azAdminAct, azGAdminFrameLow: azAdminAct, azGViewAsFrame: azAdminAct},
 		},
 	}
 
@@ -377,7 +440,9 @@ func TestDeployAuthzMatrix(t *testing.T) {
 			for _, w := range principals {
 				reason, ok := r.override[w.name]
 				if !ok {
-					reason = r.want[w.group]
+					if reason, ok = r.want[w.group]; !ok {
+						t.Fatalf("row %q has no reason for the %s group", r.name, w.group)
+					}
 				}
 				name := r.name + "/" + string(c.op) + "@" + c.dep
 				if c.protected {
@@ -396,7 +461,7 @@ func TestDeployAuthzMatrix(t *testing.T) {
 					} else if bad := azCheckRefusal(err, reason, w.tile); bad != "" {
 						t.Fatalf("want the %s refusal: %s", reason, bad)
 					}
-					if w.group == azGViewAs && reason == azReadOnly {
+					if (w.group == azGViewAs || w.group == azGViewAsFrame) && reason == azReadOnly {
 						return // Can answers as the viewed user (TestViewAsRefusedEveryOp)
 					}
 					can := f.pl.Can(w.p, c.op, s)
@@ -425,6 +490,14 @@ func TestDeployAuthzMatrix(t *testing.T) {
 		"another tile's terminal token":           deployments.AudienceReader,
 		"an xbin-granted tile's instance token":   deployments.AudienceNone,
 		"an xbin-granted tile's frame token":      deployments.AudienceReader,
+		// The admin tile's frame is the write audience of what its person
+		// manages, through a login frame only (P21 extended).
+		"the admin tile's frame, a terminal-level non-manager's login":   deployments.AudienceReader,
+		"the admin tile's frame, a workspace admin's terminal minted it": deployments.AudienceReader,
+		"the admin tile's frame, an owner-driven terminal minted it":     deployments.AudienceReader,
+		"the admin tile's terminal token, a workspace admin's":           deployments.AudienceReader,
+		"the admin tile's agent token, owner-driven":                     deployments.AudienceReader,
+		"the admin tile's frame, an admin's view-as":                     deployments.AudienceReader,
 	}
 	for _, w := range principals {
 		want, ok := wantAudience[w.name]

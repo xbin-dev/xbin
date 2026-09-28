@@ -79,6 +79,10 @@ export function overview(s, name, opts = {}) {
   return { heading: name, lines, url: d.url || `/c/${s.tile}${d.primary ? '' : `+${name}`}/`, gitLine: git ? `git: deploy/${name} — git fetch xbin-deploy` : null, gitNote: git ? REASON.gitNote : null };
 }
 
+// reassignable(state) → the non-primary deployments the viewer may make the primary: allowed, and
+// healthy — a static tile's deployments, which run no backend, always are (the server's rule).
+export const reassignable = (s) => others(s).filter((y) => dep(s, y)?.can?.primary?.ok && ['healthy', 'static'].includes(dep(s, y)?.status?.state));
+
 // panelActions(state, name, opts) → [{id, label, enabled, why, title, on? (a switch), to?}] of a
 // deployment, or the tile-wide page (name ''); what the viewer may not use is disabled with its reason.
 export function panelActions(s, name, opts = {}) {
@@ -86,7 +90,7 @@ export function panelActions(s, name, opts = {}) {
   const add = (id, label, k, title, extra) => out.push({ id, label, enabled: k.enabled, why: k.why, title, ...extra });
   if (!s?.record || (name && !d)) return out;
   if (!name) {
-    const ys = others(s).map((y) => dep(s, y)), ok = ys.filter((y) => y.can?.primary?.ok && y.status?.state === 'healthy');
+    const ys = others(s).map((y) => dep(s, y)), ok = reassignable(s).map((y) => dep(s, y));
     const k = ys.length ? c('primary', (ok[0] || ys[0]).name) : null;
     if (k?.enabled && !ok.length) Object.assign(k, { enabled: false, why: REASON.unhealthy(ys[0].name) });
     if (k) add('reassign', 'Reassign the primary…', k, 'Send everything from outside to another deployment; data doesn\'t move.');

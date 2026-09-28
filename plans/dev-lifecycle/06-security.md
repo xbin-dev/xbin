@@ -44,7 +44,7 @@ today, and that this design must not inherit, were found while writing it
 | Other tiles as principals | their own instance, frame or terminal tokens | Reach only the tile's primary (P7). Refused by every deployments operation, whatever they are granted (T9). |
 | Anonymous ingress | no credential; `X-XBin-From: ingress` (`internal/proxy/ingress.go:31`) | Nothing new: it never reaches a non-primary deployment. |
 | Tile managers (user-owner, owning-org admins, workspace admins; D24/D33) | session; `mayManageTile` (`internal/broker/orgsapi.go:427-443`) | In a human session: seed, vault copy, deliveries, alwaysOn, edge policy, per-deployment limits, reassign the primary, protect it, purge checkpoints. |
-| Workspace admins (root token, admin users, tiles granted `xbin` admin) | `IsAdmin` (`internal/broker/broker.go:466-475`) | Admin users and the root token: everything a manager can, on every tile, in a human session; restore (`internal/broker/backup.go:552-555`). Tiles granted `xbin` admin never pass the deployments plane's manager gate (T9). |
+| Workspace admins (root token, admin users, tiles granted `xbin` admin) | `IsAdmin` (`internal/broker/broker.go:466-475`) | Admin users and the root token: everything a manager can, on every tile, in a human session; restore (`internal/broker/backup.go:552-555`). Tiles granted `xbin` admin never pass the deployments plane's manager gate themselves (T9); their frame, minted under a person's own login, stands in for that person on protect, reassign, deliveries and alwaysOn (P21, extended by the owner 2026-09-28; T9's note). |
 | Archiver tiles and their writers | their tile | The bytes a restore reads come from the archiver (`internal/broker/backup.go:424-441`); archives now also carry the record and the store. |
 
 ## 2. Trust assumptions
@@ -900,10 +900,40 @@ called by every operation handler (05-model.md §10):
    and no `--yes`, exits 4 and changes nothing (11-contract.md §9.1).
    Confirmation guards against mistakes; it is not an authority check.
 
+**Note: the admin-tile frame path (P21, extended by the owner 2026-09-28).**
+Protection is also managed from the admin tile (and, as before, with the
+root token on the host, a human credential). The one element principal
+that passes the manager gate is a **frame** (`Via: "frame"`) of a tile
+holding the `xbin` admin capability, acting in its primary, for the acts the
+admin tile's deployments tab does — protect, unprotect, reassign, deliveries,
+alwaysOn — and only as a stand-in: `Broker.AdminFrameDriver` returns the
+person behind it and that person must pass `MayManageDeployments`. The
+vectors it has to close:
+- *A tile's shell laundering into its frame.* A terminal or agent token can
+  mint its own tile's frame token (`/api/xbin/frame-token`, the D4
+  injection). The frame path needs `Principal.LoginFrame`: a token minted
+  under a session (`s.`) or the root token (`o.`). A user-driven terminal
+  mints `u.` tokens and an owner-driven one now mints `t.` tokens (the owner
+  token's generation, marked; they die with it), so neither passes, and the
+  admin tile's terminal and agent tokens stay refused whatever they mint.
+- *View-as.* A view-as session's frames are read-only (`Impersonator`) and
+  never a login frame.
+- *The tile's grant standing in for a person.* The driver is the frame's
+  attributed user (`p.UserID`, a disabled account none), judged as in their
+  own session; the tile's `xbin` grant only opens the door. A non-manager
+  who can open the admin tile is refused through it.
+- *Scope creep.* Every other manager act (edge, limits, seed, vault copy,
+  purge), every code move, and moves onto a protected primary without the
+  reviewed checkpoint stay refused to it.
+
 **Tests.** `TestDeployAuthzMatrix` (a table over principal class ×
 operation × protection, on `testBroker` with a users store, in the style of
 `orgFixture`/`principalFor`; rows include an `xbin`-admin tile and an
-`xbin:users` tile, refused as managers), `TestViewAsRefusedEveryOp`,
+`xbin:users` tile, refused as managers, and the admin tile's frames — a
+manager's login, a non-manager's, one a terminal minted, a view-as one —
+and its terminal and agent tokens), `TestAdminFrameDriver`, `TestLoginFrame`,
+`TestAdminTileManagesProtection` (end to end, the root token's protect and
+reassign included), `TestViewAsRefusedEveryOp`,
 `TestNoTerminalCannotOperate`, `TestOwnRuntimePrincipalsCannotOperate`,
 `TestAuthorizationRecheckedAtCommit`.
 

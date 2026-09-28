@@ -25,7 +25,13 @@ The router (`admin.js`, `GROUPS`) and one element per tab under `tabs/`
   brokered resources), *sandboxes* (every sandbox xbind runs — backend
   generations, terminals, agent sessions — with the host's isolation and VM
   health, the VM budget per tile, the VM policy editor, VM disks and what
-  the sandbox layer refused or failed at; D112), *backup*, *cron*.
+  the sandbox layer refused or failed at; D112), *deployments* (every tile
+  with a deployment record: its primary, 🛡 protection, live reload, its
+  deployments and the last deploy; protect / unprotect the primary,
+  reassign it behind the terminal window's loud confirmation, deliveries
+  and alwaysOn per non-primary deployment, and ⇈ to the tile's Deployments
+  panel for everything else — see *Tile managers' acts* below), *backup*,
+  *cron*.
 - **user management** — users, sign-in (SSO, tokens), browser sessions,
   organisations (and the workspace policy ceiling and defaults),
   permission sets, network sets, the access map.
@@ -47,6 +53,23 @@ All under `/api/xbin`, gated by owner-or-`xbin:admin` unless
 `/auth-rotate-token`, `/orgs`, `/policy`, `/defaults`,
 `/permission-sets`, `/net-sets`, `/vaults`, `/vault/<c>/<k>`,
 `/vault-status`, `/vault-seal`, `/vault-unseal`, `/vault-rekey`,
-`/grants`, `/bindings`, `/ingress`, `/branding`, `/native-runtime`.
+`/grants`, `/bindings`, `/ingress`, `/branding`, `/native-runtime`,
+`/deployments`, `/deployments/protect`, `/deployments/primary`,
+`/deployments/deliveries`, `/deployments/always-on`.
+
+## Tile managers' acts (the deployments tab)
+
+Protect, unprotect, reassign the primary, deliveries and alwaysOn are tile
+managers' acts. The admin tile's frame does them **as the person who
+opened it**, not as the tile (P21, extended by the owner 2026-09-28;
+docs/auth.md §Tile deployments): xbind judges that person — the tile's
+owner, its org's admins, or a workspace admin — so an admin manages every
+tile and anyone else only what they manage in their own session. The
+`xbin:admin` grant alone manages nothing, a view-as session is read-only,
+and the admin tile's terminal and agent sessions are refused like any
+tile's. Every other deployment act (code moves, edges, data, vault copy,
+limits) is in the tile's Deployments panel, which the tab's ⇈ opens
+(the `xbin:open-deployments` message, docs/protocol.md). New in an existing
+workspace after `bx builtin update`.
 
 Revoke the grant to disarm it. Nothing here works for an unprivileged tile.

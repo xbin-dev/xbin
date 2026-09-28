@@ -2325,8 +2325,17 @@ names the checkpoint its actor reviewed (checkpoint on deploy and rollback;
 expect on live-reload/now, promote and primary; plus seq), else 400 before
 anything is captured, dry runs included; restart:true needs neither.
 "tile manager" below is a person's own session — the tile's owner, its
-org's admins, a workspace admin — never a terminal, agent or tile
-credential, whatever grants its tile holds.
+org's admins, a workspace admin; the root token (bx on the host) is one —
+never a terminal, agent or tile credential, whatever grants its tile holds.
+One exception (P21, extended 2026-09-28): on primary, protect, deliveries
+and always-on, a frame of a tile holding the `xbin` admin capability (the
+admin console, `tiles/admin`) whose token was minted under a person's own
+login — a session or the root token, not a view-as session, not a token a
+terminal or agent session minted — stands in for that person, and the person
+is judged as a tile manager. That frame also reads GET /deployments in the
+full view for a tile its person manages. Every other manager route, and
+every code move, refuses it like any tile credential (docs/auth.md §Tile
+deployments).
 
 GET    /deployments?tile=<tile-ref>
                                    read on the tile, or the tile itself
@@ -4600,9 +4609,18 @@ tile → frame   xbin:resize   {component, height}     auto-height (informationa
 tile → frame   xbin:dialog   {id, spec}              request a shell modal
 tile → frame   xbin:window   {id, spec}              request a pop-out window
 tile → frame   xbin:window-close {id}                close a window it opened
+tile → frame   xbin:open-deployments {tile}          open another tile's Deployments panel
 tile → parent  xbin:scroll-focus {}                  the pointer entered this document (cosmetic)
 frame → tile   xbin:reply    {id, result}            dialog result / window closed
 ```
+
+`xbin:open-deployments` (the admin console's runtime → deployments tab
+links with it) asks the shell to open `tile`'s terminal window on its
+Deployments layout, as the tile menu's "Deployments…" does. `<bx-frame>`
+passes on only a well-formed tile path (no `.`/`..` segment), and
+`<bx-shell>` opens it only for a tile its viewer's `/components` lists; the
+panel then runs as the viewer, so the message grants nothing. Anything else
+ignores it (the xbin app has no terminal window).
 
 `xbin:scroll-focus` (D123) is sent by `/vendor/bx-scroll.js`'s tracker in a
 framed document when the pointer arrives, so the embedding document's tracker

@@ -60,6 +60,38 @@ func (b *Broker) MayManageDeployments(p auth.Principal, tile string) bool {
 	return p.Component == "" && (b.IsAdmin(p) || b.mayManageTile(p, tile))
 }
 
+// AdminFrameDriver is the person behind p when p may stand in for them at
+// the deployments plane's manager gate (P21, extended by the owner
+// 2026-09-28: protection is managed from the admin tile too): a frame of a
+// tile holding the xbin admin capability, acting in its primary, whose token
+// was minted under that person's own login (auth.Principal.LoginFrame: a
+// session or the root token, never a view-as one, never one a terminal or
+// agent session minted), and who is still an enabled account. The answer
+// is a human principal: the plane judges the person with
+// MayManageDeployments, never the tile, whose grant only opens the door.
+// Every other credential — terminal, agent, instance, cron, bus, any frame
+// of a tile without xbin admin — gets false, whatever its tile holds.
+func (b *Broker) AdminFrameDriver(p auth.Principal) (auth.Principal, bool) {
+	if !p.LoginFrame() {
+		return auth.Principal{}, false
+	}
+	if role, ok := b.governanceRole(p, "xbin"); !ok || !roleSatisfies(role, "admin", nil) {
+		return auth.Principal{}, false // never a non-primary principal (P19)
+	}
+	if p.UserID == "" {
+		return auth.Principal{Owner: true, Via: p.Via, Gen: p.Gen}, true // the root token's login
+	}
+	if b.Users == nil {
+		return auth.Principal{}, false
+	}
+	u, ok := b.Users.Get(p.UserID)
+	if !ok || u.Disabled {
+		return auth.Principal{}, false
+	}
+	acc, _ := b.Users.Access(p.UserID)
+	return auth.Principal{UserID: p.UserID, User: u, Access: acc, Via: p.Via, Gen: p.Gen}, true
+}
+
 // rewriteDeploymentOwner is the transfer's seam: RewriteDeploymentOwner, or
 // nothing.
 func (b *Broker) rewriteDeploymentOwner(tile, ownerRef string) error {

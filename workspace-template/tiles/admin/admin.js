@@ -36,6 +36,7 @@ import './tabs/signin.js';
 import './tabs/sessions.js';
 import './tabs/runtime.js';
 import './tabs/sandboxes.js';
+import './tabs/deployments.js';
 import './tabs/branding.js';
 import './tabs/nativeapp.js';
 import { targetOptions, serviceOptions, WithDrafts } from './shared.js';
@@ -98,7 +99,7 @@ export class BxAdmin extends WithDrafts(LitElement) {
     { id: 'runtime', label: 'runtime', tabs: [
       { id: 'components', label: 'components' },
       { id: 'resources', label: 'resources' },
-      { id: 'sandboxes', label: 'sandboxes' },
+      { id: 'sandboxes', label: 'sandboxes' }, { id: 'deployments', label: 'deployments' },
       { id: 'backup', label: 'backup' },
       { id: 'cron', label: 'cron' },
     ] },
@@ -264,7 +265,7 @@ export class BxAdmin extends WithDrafts(LitElement) {
           : tab === 'endpoints' || tab === 'expose' ? html`<bx-admin-ingress view=${tab}></bx-admin-ingress>`
           : tab === 'branding' ? html`<bx-admin-branding></bx-admin-branding>`
           : tab === 'nativeapp' ? html`<bx-admin-nativeapp></bx-admin-nativeapp>`
-          : tab === 'sandboxes' ? html`<bx-admin-sandboxes></bx-admin-sandboxes>`
+          : tab === 'sandboxes' ? html`<bx-admin-sandboxes></bx-admin-sandboxes>` : tab === 'deployments' ? html`<bx-admin-deployments></bx-admin-deployments>`
           : tab === 'backup' ? html`<bx-admin-backup .components=${this._ov?.components ?? []}></bx-admin-backup>`
           : html`<bx-admin-cron .cron=${this._cron}></bx-admin-cron>`}
       </div>`;

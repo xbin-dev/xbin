@@ -100,7 +100,8 @@ const (
 	// ruleReset: ruleTerminal; resetting main's data while main isn't the
 	// primary is a tile manager's act.
 	ruleReset
-	// ruleManager: a tile manager, in a person's own session.
+	// ruleManager: a tile manager, in a person's own session — or, for an
+	// act marked frame, the admin tile's frame standing in for one.
 	ruleManager
 	// ruleAdmin: a workspace admin, in a person's own session.
 	ruleAdmin
@@ -114,6 +115,11 @@ type act struct {
 	post  bool // a POST route of its own, which the op registry takes (NP-14-3)
 	grows bool // creates or extends deployment state: closed by the ship-dark switch (NP-14-5)
 	optIn bool // accepted on a tile without a record: the opt-ins
+	// frame: a ruleManager act the admin tile's frame may do for its person
+	// (P21, extended by the owner 2026-09-28: Plane.AdminFrameDriver) — the
+	// acts its deployments tab offers. Every other manager act stays a
+	// person's own session's.
+	frame bool
 }
 
 // acts is the authority table, one entry per Op.
@@ -136,12 +142,12 @@ var acts = map[Op]act{
 	OpPromote:   {what: "promoting", rule: ruleCode, post: true, grows: true},
 	OpRollback:  {what: "rolling back", rule: ruleCode, post: true, grows: true},
 
-	OpPrimary:    {what: "reassigning the primary", rule: ruleManager, post: true, grows: true},
-	OpProtect:    {what: "protecting the primary", rule: ruleManager, post: true, grows: true, optIn: true},
-	OpUnprotect:  {what: "unprotecting the primary", rule: ruleManager, optIn: true},
+	OpPrimary:    {what: "reassigning the primary", rule: ruleManager, post: true, grows: true, frame: true},
+	OpProtect:    {what: "protecting the primary", rule: ruleManager, post: true, grows: true, optIn: true, frame: true},
+	OpUnprotect:  {what: "unprotecting the primary", rule: ruleManager, optIn: true, frame: true},
 	OpEdge:       {what: "setting an edge policy", rule: ruleManager, post: true, grows: true},
-	OpDeliveries: {what: "switching deliveries", rule: ruleManager, post: true, grows: true},
-	OpAlwaysOn:   {what: "switching alwaysOn", rule: ruleManager, post: true, grows: true},
+	OpDeliveries: {what: "switching deliveries", rule: ruleManager, post: true, grows: true, frame: true},
+	OpAlwaysOn:   {what: "switching alwaysOn", rule: ruleManager, post: true, grows: true, frame: true},
 	OpLimits:     {what: "setting resource limits", rule: ruleManager, post: true, grows: true},
 
 	OpSeed:           {what: "seeding a deployment's data", rule: ruleManager, post: true, grows: true},
@@ -366,23 +372,9 @@ func (p *Plane) CapsOf(tile string) Caps {
 	return c
 }
 
-// Manager reports the manager gate: a person in their own
-// session who is a workspace admin or manages the tile, as
-// Broker.MayManageDeployments answers it. The human-session clause is
-// checked here as well, so no element principal ever passes, whatever its
-// tile is granted.
-func (p *Plane) Manager(pr auth.Principal, tile string) bool {
-	if pr.Component != "" {
-		return false
-	}
-	if p.MayManage != nil {
-		return p.MayManage(pr, tile)
-	}
-	return pr.IsAdmin()
-}
-
 // Audience answers who pr is to s.Tile. A view-as session answers as the
-// viewed user, since reads do.
+// viewed user, since reads do. The admin tile's frame is the write audience
+// of the tiles its person manages (P21 extended), and a reader of the rest.
 func (p *Plane) Audience(pr auth.Principal, s Subject) Audience {
 	tile := s.Tile
 	switch {
@@ -390,6 +382,8 @@ func (p *Plane) Audience(pr auth.Principal, s Subject) Audience {
 		if p.admin(pr) || pr.CanWriteTile(tile) {
 			return AudienceWrite
 		}
+	case pr.Via == "frame" && p.frameManager(pr, tile):
+		return AudienceWrite
 	case pr.Component == tile && pr.Via == "terminal":
 		if driverCanWrite(pr, tile) {
 			return AudienceWrite
@@ -451,7 +445,7 @@ func (p *Plane) authority(pr auth.Principal, a act, s Subject) *Error {
 		}
 		return nil
 	case ruleManager:
-		return p.managerAct(pr, a.what, tile)
+		return p.managerAct(pr, a, tile)
 	case ruleAdmin:
 		if elem || !p.admin(pr) {
 			return forbidden(a.what + " is a workspace admin's act, done in a person's own session")
@@ -466,7 +460,7 @@ func (p *Plane) authority(pr auth.Principal, a act, s Subject) *Error {
 		return forbidden(a.what + " needs terminal-level access on " + tile +
 			" — only people and the tile's own terminal and agent sessions operate its deployments")
 	}
-	if a.rule == ruleCode && s.onProtectedPrimary() && !p.Manager(pr, tile) {
+	if a.rule == ruleCode && s.onProtectedPrimary() && !p.personManages(pr, tile) {
 		return refuseProtected(s, http.StatusForbidden, "")
 	}
 	if !pr.CanTerminalTileVia(tile) {
@@ -476,20 +470,7 @@ func (p *Plane) authority(pr auth.Principal, a act, s Subject) *Error {
 	case a.rule == ruleLive && s.onProtectedPrimary():
 		return refuseProtected(s, http.StatusConflict, "live reload never attaches to a protected primary: unprotect it first")
 	case a.rule == ruleReset && s.Deployment == util.MainDeployment && s.primary() != util.MainDeployment:
-		return p.managerAct(pr, a.what, tile)
-	}
-	return nil
-}
-
-// managerAct refuses anyone but a tile manager in their own session: tile
-// credentials (terminal and agent tokens of managers included, since agents
-// share them) with the human-session text, other people with the manager's.
-func (p *Plane) managerAct(pr auth.Principal, what, tile string) *Error {
-	switch {
-	case pr.Component != "":
-		return forbidden(what + " is a tile manager's act, done in a person's own session: terminal, agent and tile credentials can't do it")
-	case !p.Manager(pr, tile):
-		return forbidden(what + " is a tile manager's act: the tile's owner, its org's admins, or a workspace admin")
+		return p.managerAct(pr, a, tile)
 	}
 	return nil
 }
@@ -625,7 +606,7 @@ func (p *Plane) joinGate(pr auth.Principal, tile, y string, j *Joins) error {
 		return nil
 	}
 	done := map[string]string{"seeded": "seeded", "restored": "restored", "partial": "partly seeded or restored"}[j.State]
-	if done != "" && !p.Manager(pr, tile) {
+	if done != "" && !p.personManages(pr, tile) {
 		when := strings.TrimSpace(j.By + " " + j.At)
 		return forbidden(fmt.Sprintf("%s's %q data was %s by %s: joining it is a tile manager's act", j.Scope, y, done, cmp.Or(when, "someone")))
 	}

@@ -32,7 +32,7 @@ const { tileAssets } = require('./passes/tileassets');
 const { tilePages } = require('./passes/tilepages');
 const { termRun } = require('./passes/termrun');
 const { tabStrip } = require('./passes/tabstrip'), { sandboxes } = require('./passes/sandboxes'), { agentSandbox } = require('./passes/agentsandbox'), { sandboxNet } = require('./passes/sandboxnet');
-const { sandboxTerminal } = require('./passes/sandboxterminal'), { codingSandbox } = require('./passes/codingsandbox'), { livereload } = require('./passes/livereload'), { deployments } = require('./passes/deployments');
+const { sandboxTerminal } = require('./passes/sandboxterminal'), { codingSandbox } = require('./passes/codingsandbox'), { livereload } = require('./passes/livereload'), { deployments } = require('./passes/deployments'), { adminDeployments } = require('./passes/admindeploy');
 const { layoutSync } = require('./passes/layoutsync');
 const { scrollbars } = require('./passes/scrollbars'), { agentLong } = require('./passes/agentlong');
 
@@ -848,7 +848,7 @@ async function adminTabs(browser) {
 const PASSES = {
   admin, adminTabs, adminMap, menus, mobile, screens,
   orgAdmin: async (b) => { await orgAdmin(b, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']); await orgAdmin(b, 'sales1', 'salespass123', ['apps/leads']); },
-  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle, devices, appHelp, tileAssets, tilePages, termRun, tabStrip, sandboxes, agentSandbox, sandboxNet, sandboxTerminal, codingSandbox, layoutSync, scrollbars, agentLong, livereload, deployments,
+  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle, devices, appHelp, tileAssets, tilePages, termRun, tabStrip, sandboxes, agentSandbox, sandboxNet, sandboxTerminal, codingSandbox, layoutSync, scrollbars, agentLong, livereload, deployments, adminDeployments,
 };
 
 (async () => {

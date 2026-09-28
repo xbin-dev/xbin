@@ -109,6 +109,12 @@ type Plane struct {
 	// MayManage is the manager gate: a person in their own session who is a
 	// workspace admin or manages the tile. No element principal passes.
 	MayManage func(p auth.Principal, tile string) bool
+	// AdminFrameDriver is the person behind the frame of a tile holding xbin
+	// admin (the admin tile), minted under their own login (P21, extended by
+	// the owner 2026-09-28): the broker's. That frame does the acts marked
+	// frame in the authority table when the person passes MayManage; nil,
+	// or false, and no frame does any manager act.
+	AdminFrameDriver func(p auth.Principal) (auth.Principal, bool)
 	// TileEnv is the resource and identity env the broker derives for a
 	// tile's backend: what the primary's generation gets, today's env.
 	TileEnv func(c *registry.Component) []string
