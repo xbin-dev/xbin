@@ -44,8 +44,8 @@ exactly what runs with `git fetch xbin-deploy`.
 | **dormant** | an interface instance or ingress host that a non-primary deployment registered (stored and answered with success, never routed), or a cron job or bus subscription of a deployment whose deliveries are off (stored, never fired) |
 | **deliveries** | a per-deployment off switch, on by default: while it is on, a non-primary deployment's cron jobs and bus subscriptions fire for it; a tile manager can turn it off |
 | **edge policy** | per edge of the tile (a call grant, an interface binding, the net, a capability), what its non-primary deployments may use: `read`, `inherit` or `block` |
-| **protected** (primary) | only tile managers change the primary's code, from their own browser session, naming the checkpoint they reviewed |
-| **tile managers** | the tile's owner, its org's admins and workspace admins — as for every other tile setting |
+| **protected** (primary) | only tile managers change the primary's code, in their own session, naming the checkpoint they reviewed |
+| **tile managers** | the tile's owner, its org's admins and workspace admins — as for every other tile setting. Their acts here are done in a person's **own session**: the browser, or `bx` with the root token on the host — never a terminal or agent session (§Managing protection) |
 
 Pausing live reload is not **disabling** the tile (`bx disable`, the tile
 menu's Disable): a disabled tile stops serving; a tile whose live reload is
@@ -91,9 +91,9 @@ reload pauses, resumes or moves, or code moves or fails to. The window's `⇈`
 layout is the **Deployments panel** (below).
 
 Programs can ask `GET /api/xbin/deployments?tile=<tile>` (`record: false` is
-the zero state; `&deployment=<name>` selects one) or read `deployments: {primary, pinned, protected}` on the
-tile's `/api/xbin/components` entry, present only for a tile that has left
-the zero state. A reader of the tile gets the primary's facts only: no other
+the zero state; `&deployment=<name>` selects one) or read `deployments:
+{primary, pinned, protected}` on the tile's `/api/xbin/components` entry,
+present only for a tile that has left the zero state. A reader of the tile gets the primary's facts only: no other
 deployment's name, and no count that reveals one
 ([protocol.md](/docs/protocol.md) §Tile deployments).
 
@@ -217,8 +217,8 @@ bx deployment add apps/crm+dev            # the same as the first, naming the ti
 - **What a new deployment gets.** Its code (default: a fresh checkpoint of
   the work tree), **empty data**, a vault holding only the primary's secret
   **names** (placeholders, no values), deliveries on (its cron jobs and bus
-  subscriptions fire for it), alwaysOn off, and the tile's resource limits. Its backend is built in the background and starts
-  on its first request. With `--attach` live reload follows the new
+  subscriptions fire for it), alwaysOn off, and the tile's resource limits.
+  Its backend is built in the background and starts on its first request. With `--attach` live reload follows the new
   deployment, and the deployment it leaves is pinned. `--seed` also copies
   the primary's data into it (a tile manager's act, below).
 - **Who may.** Anyone with terminal access to the tile, and the tile's own
@@ -415,8 +415,8 @@ curl -s -H "Authorization: Bearer $XBIN_TOKEN" "$XBIN_URL/api/xbin/deployments/l
 curl -s -H "Authorization: Bearer $XBIN_TOKEN" "$XBIN_URL/api/xbin/deployments/diff?tile=$T&stat=1"
 ```
 
-- The log lists every finished attempt newest first, failed ones included,
-  with who, when, how (`pause`, `reload-now`, `resume`, `attach`, `add`,
+- The log lists every attempt newest first — queued and running ones, and
+  failed ones, included — with who, when, how (`pause`, `reload-now`, `resume`, `attach`, `add`,
   `deploy`, `promote` with its `from`, `rollback`, `restart`, `reassign`,
   `protect`), from which session, and the checkpoint before and after.
   `?id=<id>&wait=<s>` waits (up to 25 s) for one attempt to finish.
@@ -491,8 +491,8 @@ the fix, so `dev` runs the fix first; deploy it to `main` once it works.
   replaces `dev`'s data with a copy of the primary's: every resource both
   deployments' code declares with the same type (resources only `dev`
   declares start empty; the rest are skipped and listed). It may carry
-  personal data, so it is a tile manager's act, from their own browser
-  session — a manager of every tile of the scope that has that deployment.
+  personal data, so it is a tile manager's act, in their own session — a
+  manager of every tile of the scope that has that deployment.
   It runs online by default
   (kv consistent at one moment, each SQLite database at one point in time,
   files one by one); `--stop` stops the primary for a point-in-time copy of
@@ -630,10 +630,10 @@ sends everything from outside to `dev`: the bare URLs, other tiles' calls,
 bindings, interface instances, ingress. **Data doesn't move** — `dev`
 serves its own data, and `main`'s stays behind; the confirmation says so.
 
-- A tile manager's act, in their own browser session, onto a healthy
-  deployment. In this release only a tile alone in its scope, or in the
-  workspace scope, can change its primary (a multi-tile scope's primary data
-  would split).
+- A tile manager's act, in their own session or from the admin console
+  (§Managing protection), onto a healthy deployment. In this release only a
+  tile alone in its scope, or in the workspace scope, can change its
+  primary (a multi-tile scope's primary data would split).
 - `dev` starts as the primary first; then the old primary restarts, its
   long-lived connections cut. Its interface instances and ingress hosts go
   dormant and `dev`'s activate; an ingress host of `dev`'s that conflicts
@@ -645,8 +645,9 @@ serves its own data, and `main`'s stays behind; the confirmation says so.
 every change to the primary's code a tile manager's act:
 
 - Deploy, promote, roll back and Reload now onto the primary need a tile
-  manager in their own browser session, naming the checkpoint they reviewed
-  (the panel and `bx` send it from the dry run). Terminal and agent sessions
+  manager in their own session — the Deployments panel, or `bx` with the
+  root token on the host — naming the checkpoint they reviewed (the panel
+  and `bx` send it from the dry run). Terminal and agent sessions
   get 403 `the primary of apps/crm (main) is protected: only tile managers
   change its code, and not from a terminal or agent session`. A restart stays
   terminal level.
@@ -673,11 +674,12 @@ manage protection in three places, all of them a person's credential:
   on`, `bx deployment primary apps/crm --to dev`, `bx deployment set
   apps/crm dev --deliveries on`): the owner token is the owner's, so it
   passes for every tile. Never from a tile terminal: there bx is refused.
-- **The admin console's runtime → deployments tab** (`tiles/admin`, after
-  `bx builtin update` in an existing workspace): every tile with a
-  deployment record — its primary, 🛡 when protected, where live reload is,
-  its deployments, the last deploy — with Protect / Unprotect the primary,
-  Reassign the primary… (the same loud confirmation as the panel's), and
+- **The admin console's runtime → deployments tab** (`tiles/admin`; in an
+  existing workspace after `bx builtin update scaffold:tiles/admin`): every
+  tile with a deployment record — its primary, 🛡 when protected, where
+  live reload is, its deployments, the last deploy — with Protect /
+  Unprotect the primary, Reassign the primary… (the same loud confirmation
+  as the panel's), and
   deliveries and alwaysOn per non-primary deployment. ⇈ Deployments panel
   opens the tile's terminal window for everything else. The tab acts as the
   person who opened the admin tile: a tile they don't manage shows the
@@ -733,13 +735,15 @@ Non-primary access table, with each edge's refused count. A control the
 viewer may not use is disabled with the reason, and every change confirms
 from a dry run of the exact request. Readers see the primary only.
 
-**In the shell**, after `bx builtin update`: a tile with deployments gets a
-`⇈ Deployments…` line in its tile menu (after Open full page), a `⇈` badge on
-its card head while the primary is pinned (`⇈!` after a failed deploy onto
-it) and a `⇈` on its sidebar row; the tile admin shows `pinned to c:…` and a
+**In the shell** (in an existing workspace after `bx builtin update
+scaffold:shell`, and `scaffold:tiles/admin` for the admin console): a tile
+with deployments gets a `⇈ Deployments…` line in its tile menu (after Open
+full page; not for its readers), a `⇈` badge on its card head while the
+primary is pinned (`⇈!` after a failed deploy onto it) and a `⇈` on its
+sidebar row; the tile admin shows `pinned to c:…` and a
 deployments section (its Non-primary access selects take narrowing changes;
-widening ones open the Deployments panel), and the admin console's runtime
-tab lists non-primary deployments under their tile.
+widening ones open the Deployments panel), and the admin console's runtime →
+components tab lists non-primary deployments under their tile.
 
 ## Committing never deploys
 
@@ -816,9 +820,9 @@ The rules for an agent working on a tile, beyond the workspace `AGENTS.md`:
   deleting `.xbin/deploy/` or `.xbin/build/` while xbind is stopped is safe.
 - **Purging a checkpoint** removes it at once — one that caught a secret, for
   example: `POST /api/xbin/deployments/purge {"tile": "<tile>",
-  "checkpoint": "c:<id>"}`, a tile manager's act in their own browser
-  session. The deploy log's entries naming it stay, naming no checkpoint;
-  its content, git view and extracted tree go (content other checkpoints
+  "checkpoint": "c:<id>"}`, a tile manager's act in their own session. The
+  deploy log's entries naming it stay, naming no checkpoint; its content,
+  git view and extracted tree go (content other checkpoints
   share stays). A checkpoint a deployment runs, or a deploy still uses, can't
   be purged (409). It works on a tile without deployments too, whose store
   outlives resuming onto `main`. Archives made earlier keep it.

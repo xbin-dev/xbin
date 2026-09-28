@@ -36,7 +36,8 @@ overview is the map that puts them in context.
   them, such as the agent template
 - [bx.md](/docs/bx.md) — the `bx` CLI
 - [tile-deployments.md](/docs/tile-deployments.md) — pausing a tile's live
-  reload, Reload now, the deploy log, rolling back, and
+  reload, Reload now, named deployments (`/c/<tile>+<name>/`), deploying and
+  promoting, the deploy log, rolling back, protecting the primary, and
   `git fetch xbin-deploy` (tiles that never opt in keep live reload and no
   deploy step)
 - [config.md](/docs/config.md) — every `xbind` flag and `XBIN_*` variable,

@@ -681,8 +681,8 @@ manifest key or file of yours is involved (the state lives in xbind's
   checkpoint of the work tree. Saves then change the files and nothing else:
   frames don't reload, the backend doesn't rebuild. **Reload now** ships the
   work tree once and stays paused; **resuming** follows every save again,
-  and on a tile whose only deployment is `main` returns it to the zero
-  state.
+  and on a tile whose only deployment is `main`, with nothing else set,
+  returns it to the zero state.
 - **Tile deployments** (`bx deployment add dev`) are named runtimes of one
   tile, each with its own code, data, secrets, backend, logs and URL
   (`/c/<tile>+dev/`, `/api/<tile>+dev/…`). Live reload follows at most one of

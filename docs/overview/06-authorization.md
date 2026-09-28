@@ -205,7 +205,10 @@ that has them is refused. The deployments plane's manager acts — seeding
 data, copying vault values, reassigning or protecting the primary, edge
 policies, limits, deliveries — need a tile manager in a person's own
 session; terminal and agent tokens are refused even when their driver
-manages the tile. A non-primary deployment is an accident boundary, not a
+manages the tile. The one stand-in is the admin tile's frame, minted under
+its person's own login: for protection, reassigning the primary, deliveries
+and alwaysOn it acts as that person, judged as a tile manager, never as the
+tile. A non-primary deployment is an accident boundary, not a
 trust boundary: everyone who can change its code can already change the
 tile's.
 
