@@ -188,6 +188,9 @@ func TestNonPrimaryRowsNeedWrite(t *testing.T) {
 		{"a zero-state tile, an admin", dplAdmin, "component=apps/node", 200, "-", 2, false, ""},
 		{"a zero-state tile, an admin", dplAdmin, "component=apps/node&deployment=main", 200, "main", 2, false, ""},
 		{"a zero-state tile, an admin", dplAdmin, "component=apps/node&deployment=dev", 404, "", 0, false, `apps/node has no deployment "dev"`},
+		// P17: the deployment rides deployment=, never component=tile+name
+		{"a qualified component, an admin", dplAdmin, "component=apps/crm%2Bdev", 400, "", 0, false, "a deployment is named with deployment=, not tile+name"},
+		{"an unescaped qualified component, an admin", dplAdmin, "component=apps/crm+dev", 400, "", 0, false, "a deployment is named with deployment=, not tile+name"},
 		{"a following terminal of a protected primary", tok("apps/prot", "terminal", dplTerm), "", 403, "", 0, false,
 			"the primary of apps/prot is protected: terminal and agent sessions can't target it"},
 	} {

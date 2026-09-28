@@ -552,12 +552,18 @@ func closed(what string) *Error {
 // ---- the add's refusals and the record event's audience (ops_code.go) ----
 
 // addable refuses a new deployment y on o's tile before anything is read or
-// captured: a name the tile has (main always), a component at <tile>+<y>
-// (P17), a tile that must keep one deployment and the caps (mayAdd), and a
-// backend tile without isolation (P18).
+// captured: a name the tile has (main always), a tile whose own name holds
+// '+' (P17: no new name may, and one that predates the rule keeps main
+// alone), a component at <tile>+<y> (P17), a tile that must keep one
+// deployment and the caps (mayAdd), and a backend tile without isolation
+// (P18).
 func (p *Plane) addable(o *op, y string) error {
 	if y == util.MainDeployment || o.rec.Deployments[y] != nil {
 		return &Error{Status: http.StatusConflict, Kind: KindState, Msg: fmt.Sprintf("%s already has a deployment %q", o.tile, y)}
+	}
+	if strings.Contains(o.tile, "+") {
+		return &Error{Status: http.StatusConflict, Kind: KindPolicy,
+			Msg: o.tile + "'s name holds '+', which names a tile deployment in URLs: it can't get deployments — clone it to a path without '+' (POST /api/xbin/clone) to give it some"}
 	}
 	if _, ok := p.component(o.tile + "+" + y); ok {
 		return &Error{Status: http.StatusConflict, Kind: KindState, Msg: "a tile exists at " + o.tile + "+" + y + "; pick another name"}

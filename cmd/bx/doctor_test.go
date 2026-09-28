@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
 
 func TestSingleUIDMap(t *testing.T) {
 	cases := []struct {
@@ -24,5 +28,22 @@ func TestSingleUIDMap(t *testing.T) {
 		if got := singleUIDMap(c.in); got != c.want {
 			t.Errorf("%s: singleUIDMap(%q) = %v, want %v", c.name, c.in, got, c.want)
 		}
+	}
+}
+
+// covers P17 — bx doctor flags a tile whose name holds '+' (no new name may
+// since 2026-09-28; one that predates the rule keeps working but can't get
+// deployments), and only that tile.
+func TestDoctorFlagsPlusNames(t *testing.T) {
+	f := newDLFake().on("GET /api/xbin/components", 200, `[{"path":"notes+ideas"},{"path":"apps/x"}]`)
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+	out, _, _ := dlExec(t, t.TempDir(), []string{"XBIN_URL=" + srv.URL, "XBIN_TOKEN=dl-token"}, "doctor")
+	if !strings.Contains(out, "✗ notes+ideas: its name holds '+', which names a tile deployment in URLs") ||
+		!strings.Contains(out, "can't get deployments") {
+		t.Errorf("bx doctor didn't flag notes+ideas:\n%s", out)
+	}
+	if strings.Contains(out, "apps/x: its name holds") {
+		t.Errorf("bx doctor flagged apps/x:\n%s", out)
 	}
 }

@@ -26,9 +26,8 @@ import (
 // the Create knob (or an org/workspace admin). Without it, a human creator
 // becomes the user-owner; admin/automation creations are workspace-owned.
 //
-// A path that is another tile's deployment URL is refused for everyone
-// (canCreateAt); any other name holding a '+' is created as before, and
-// for one release its answer carries a warnings entry (plusNameWarnings).
+// A path holding a '+' is refused for everyone, admins included
+// (canCreateAt): "<tile>+<name>" is a tile deployment's URL (P17).
 func (b *Broker) apiCreate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		scaffold.Options
@@ -76,9 +75,6 @@ func (b *Broker) apiCreate(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{"path": o.Path, "files": files}
 	if owner != "" {
 		out["owner"] = owner
-	}
-	if ws := plusNameWarnings(o.Path); ws != nil { // a '+' in the name, for one release (P17)
-		out["warnings"] = ws
 	}
 	server.WriteJSON(w, http.StatusOK, out)
 }

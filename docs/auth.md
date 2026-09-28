@@ -802,11 +802,12 @@ creation (clone, workspace-template instantiate) additionally requires
   path's owner is exempt). Whoever creates the tile, admins included, the
   path's deployment record is dropped first, so the new tile starts with
   plain live reload; a checkpoint store left there stays on disk, unread;
-- **a tile deployment's URL** — `<P>+<N>` while tile `P` has a deployment
-  `N`: refused for everyone, admins included (`can't create <P>+<N>: <P> has
-  a deployment "<N>", and that is its URL — pick another path`). Any other
-  name holding `+` is created as before, and for one release the answer
-  warns that `+` in tile names is reserved for deployment URLs.
+- **holding `+`** — in any segment: refused for everyone, admins included,
+  on every creation path (`can't create <path>: '+' isn't allowed in tile
+  names (it names a tile deployment in URLs, /c/<tile>+<name>/) — pick
+  another path`). A directory named so before 2026-09-28 keeps resolving,
+  but can't get deployments
+  ([changes/2026-09-28-plus-in-tile-names.md](/docs/changes/2026-09-28-plus-in-tile-names.md)).
 
 Nesting is refused for everyone (not inside an existing tile, not above
 one). Workspace admins bypass the rule — workspace-owned creation is an

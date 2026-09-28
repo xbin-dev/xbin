@@ -254,9 +254,9 @@ func TestDeploymentStateReadIsPure(t *testing.T) {
 		tok("apps/crm", "terminal", dplTerm), tok("apps/crm", "frame", dplReader), tok("apps/crm", "instance", dplOwner),
 		tok("apps/other", "terminal", dplTerm), func() auth.Principal { p := dplReader; p.Impersonator = "ada"; return p }()}
 	for _, pr := range callers {
-		for _, ref := range []string{"apps/zs", "apps/node", "apps/pin", "apps/pin+main", "apps/crm", "apps/crm+dev",
-			"apps/crm+nope", "apps/prot", "apps/held", "apps/zs+main", "notes+ideas", "nope"} {
-			f.do(t, pr, "GET", "/deployments?tile="+strings.ReplaceAll(ref, "+", "%2B"), "")
+		for _, q := range []string{"apps/zs", "apps/node", "apps/pin", "apps/pin&deployment=main", "apps/crm", "apps/crm&deployment=dev",
+			"apps/crm&deployment=nope", "apps/crm%2Bdev", "apps/prot", "apps/held", "apps/zs&deployment=main", "notes%2Bideas", "nope"} {
+			f.do(t, pr, "GET", "/deployments?tile="+q, "")
 		}
 	}
 	if after := dplSnapshot(t, f.ws); !slices.Equal(before, after) {
@@ -558,34 +558,43 @@ func TestDiffCaptureNeedsTerminalLevel(t *testing.T) {
 func TestDeploymentsStateHandler(t *testing.T) {
 	f := newDplFix(t)
 
-	// Resolution and refusals.
+	// Resolution and refusals. A query names a deployment with deployment=,
+	// never as tile+name (P17): an escaped '+' that names no tile, and an
+	// unescaped one read as a space, are both a 400.
+	const qualifiedInQuery = "a deployment is named with deployment=, not tile+name (a '+' in a query string reads as a space)"
 	for _, c := range []struct {
 		pr     auth.Principal
-		ref    string
+		query  string
 		status int
 		msg    string
 	}{
 		{dplOwner, "", 400, "need ?tile="},
 		{dplOwner, "nope", 404, "no such tile: nope"},
 		{dplOwner, "apps/../apps/zs", 404, "no such tile"},
-		{dplOwner, "apps/zs+main", 404, "no such tile: apps/zs+main"},
-		{dplOwner, "apps/held+main", 404, "no such tile"},
-		{dplOwner, "apps/crm+ghost", 404, "no such tile: apps/crm+ghost"},
-		{dplOwner, "apps/crm+Dev", 404, "no such tile"},
-		{dplWriter, "apps/crm+nope", 404, `apps/crm has no deployment "nope"`},
-		{dplReader, "apps/crm+dev", 403, "deployment URLs need write access on apps/crm"},
-		{dplReader, "apps/crm+nope", 403, "deployment URLs need write access on apps/crm"},
-		{tok("apps/crm", "frame", dplWriter), "apps/crm+dev", 403, "deployment URLs need write access"},
+		{dplOwner, "apps/zs%2Bmain", 400, qualifiedInQuery},
+		{dplOwner, "apps/held%2Bmain", 400, qualifiedInQuery},
+		{dplWriter, "apps/crm%2Bdev", 400, qualifiedInQuery},
+		{dplWriter, "apps/crm+dev", 400, qualifiedInQuery},
+		{dplOwner, "apps/crm%2Bghost", 400, qualifiedInQuery},
+		{dplOwner, "nope%2Bdev", 400, qualifiedInQuery},
+		{dplOwner, "apps/crm&deployment=Dev", 400, "deployment names are lowercase letters"},
+		{dplWriter, "apps/crm&deployment=nope", 404, `apps/crm has no deployment "nope"`},
+		{dplReader, "apps/crm&deployment=dev", 403, "deployment URLs need write access on apps/crm"},
+		{dplReader, "apps/crm&deployment=nope", 403, "deployment URLs need write access on apps/crm"},
+		{tok("apps/crm", "frame", dplWriter), "apps/crm&deployment=dev", 403, "deployment URLs need write access"},
 		{dplNobody, "apps/pin", 403, "deployments of apps/pin need read access"},
 		{tok("apps/other", "terminal", dplTerm), "apps/pin", 403, "deployments of apps/pin need read access"},
 		{dplNobody, "apps/held", 403, "deployments of apps/held need read access"},
 		{dplReader, "apps/held", 409, "apps/held's deployment record was written by a newer xbind (schema 99)"},
 	} {
-		code, _, body := f.do(t, c.pr, "GET", "/deployments?tile="+strings.ReplaceAll(c.ref, "+", "%2B"), "")
-		wantError(t, "GET "+c.ref, code, body, c.status, c.msg)
+		code, _, body := f.do(t, c.pr, "GET", "/deployments?tile="+c.query, "")
+		wantError(t, "GET "+c.query, code, body, c.status, c.msg)
 	}
 	if s := f.get(t, dplOwner, "/deployments?tile=notes%2Bideas", 200); s["tile"] != "notes+ideas" || s["selected"] != nil {
-		t.Errorf("a tile whose path holds +: %v", s)
+		t.Errorf("a tile whose path holds + (an exact match): %v", s)
+	}
+	if s := f.get(t, dplOwner, "/deployments?tile=apps/zs&deployment=main", 200); s["tile"] != "apps/zs" || s["selected"] != "main" {
+		t.Errorf("a zero-state tile's main, named: %v", s)
 	}
 
 	// The zero state.
@@ -656,10 +665,10 @@ func TestDeploymentsStateHandler(t *testing.T) {
 	dplCans(t, "apps/pin, a terminal-level person", pin, map[string]string{"caller.pause": "ok", "caller.resume": "policy",
 		"caller.reloadNow": "policy", "caller.protect": "authority", "main.deploy": "ok", "main.restart": "ok",
 		"main.rollback": "policy", "main.remove": "policy"})
-	if s := f.get(t, dplTerm, "/deployments?tile=apps/pin%2Bmain", 200); s["selected"] != "main" {
+	if s := f.get(t, dplTerm, "/deployments?tile=apps/pin&deployment=main", 200); s["selected"] != "main" {
 		t.Errorf("the primary alias: selected %v", s["selected"])
 	}
-	if s := f.get(t, dplReader, "/deployments?tile=apps/pin%2Bmain", 200); s["selected"] != "main" || s["view"] != "reader" {
+	if s := f.get(t, dplReader, "/deployments?tile=apps/pin&deployment=main", 200); s["selected"] != "main" || s["view"] != "reader" {
 		t.Errorf("the primary alias for a reader: %v", s)
 	}
 	f.api.reads = deployReads{} // no sources: the state leaves their facts out
@@ -672,7 +681,7 @@ func TestDeploymentsStateHandler(t *testing.T) {
 	f.boot(t)
 
 	// The full view with a non-primary deployment, the deployment view.
-	crm := f.get(t, dplWriter, "/deployments?tile=apps/crm%2Bdev", 200)
+	crm := f.get(t, dplWriter, "/deployments?tile=apps/crm&deployment=dev", 200)
 	var names []string
 	for _, r := range crm["deployments"].([]any) {
 		names = append(names, r.(map[string]any)["name"].(string))
@@ -692,7 +701,7 @@ func TestDeploymentsStateHandler(t *testing.T) {
 		dv["allowed"] != nil || dv["workTree"] != nil || dv["caller"].(map[string]any)["bound"] != "dev" {
 		t.Errorf("the deployment view: %s", dplJSON(dv))
 	}
-	if f.get(t, own, "/deployments?tile=apps/crm%2Bdev", 200)["selected"] != "dev" {
+	if f.get(t, own, "/deployments?tile=apps/crm&deployment=dev", 200)["selected"] != "dev" {
 		t.Error("dev's own token can't name dev")
 	}
 
@@ -818,14 +827,15 @@ func TestDeploymentsLogHandler(t *testing.T) {
 	}{
 		{"a writer", "apps/pin", dplWriter, 200, "", &ask{tile: "apps/pin", limit: 50}},
 		{"a writer, bounded", "apps/pin&limit=500&before=7&deployment=main", dplWriter, 200, "", &ask{tile: "apps/pin", dep: "main", limit: 200, before: 7}},
-		{"a qualified ref", "apps/crm%2Bdev", dplWriter, 200, "", &ask{tile: "apps/crm", dep: "dev", limit: 50}},
+		{"a named deployment", "apps/crm&deployment=dev", dplWriter, 200, "", &ask{tile: "apps/crm", dep: "dev", limit: 50}},
 		{"dev's own token", "apps/crm", own, 200, "", &ask{tile: "apps/crm", dep: "dev", limit: 50}},
 		{"one attempt, waiting", "apps/pin&id=2&wait=90", dplTerm, 200, "", &ask{tile: "apps/pin", id: 2, wait: 25 * time.Second}},
 		{"the tile's terminal token", "apps/pin", tok("apps/pin", "terminal", dplTerm), 200, "", &ask{tile: "apps/pin", limit: 50}},
 		{"dev's own token, main's entries", "apps/crm&deployment=main", own, 403, "a tile's own credentials act only on their own deployment (dev)", nil},
 		{"dev's own token, main's attempt", "apps/crm&id=2", own, 404, "apps/crm has no deploy 2", nil},
 		{"an unknown attempt", "apps/pin&id=5", dplWriter, 404, "apps/pin has no deploy 5", nil},
-		{"a qualified ref and another deployment", "apps/crm%2Bdev&deployment=main", dplWriter, 400, "the tile ref names dev, deployment names main", nil},
+		{"a qualified ref (P17)", "apps/crm%2Bdev", dplWriter, 400, "a deployment is named with deployment=, not tile+name", nil},
+		{"an unescaped qualified ref", "apps/crm+dev&deployment=main", dplWriter, 400, "a deployment is named with deployment=, not tile+name", nil},
 		{"an unknown deployment", "apps/pin&deployment=dev", dplWriter, 404, `apps/pin has no deployment "dev"`, nil},
 		{"a reader", "apps/pin", dplReader, 403, "deployments of apps/pin need write access", nil},
 		{"the primary's frame token", "apps/pin", tok("apps/pin", "frame", dplWriter), 403, "deployments of apps/pin need write access", nil},

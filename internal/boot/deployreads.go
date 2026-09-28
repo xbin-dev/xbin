@@ -329,14 +329,8 @@ func (a *deploymentsAPI) getLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pr, q := auth.PrincipalOf(r), r.URL.Query()
-	t, e := a.resolve(q.Get("tile"))
+	t, e := a.resolveQuery(q.Get("tile"))
 	dep := q.Get("deployment")
-	if e == nil && t.qualified {
-		if dep != "" && dep != t.dep {
-			e = &dpe{Status: http.StatusBadRequest, Msg: "the tile ref names " + t.dep + ", deployment names " + dep}
-		}
-		dep = t.dep
-	}
 	if e == nil {
 		e = a.readGate(pr, t, deployments.OpLog)
 	}
@@ -421,7 +415,7 @@ func (a *deploymentsAPI) getDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pr, q := auth.PrincipalOf(r), r.URL.Query()
-	t, e := a.resolve(q.Get("tile"))
+	t, e := a.resolveQuery(q.Get("tile"))
 	var from, to diffSide
 	if e == nil {
 		from, e = t.diffSide(q.Get("from"), "deployment:"+t.primary())

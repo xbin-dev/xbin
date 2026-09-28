@@ -112,6 +112,9 @@ func TestLogsPerDeployment(t *testing.T) {
 		{"a writer, dev", writer, "component=apps/calendar&deployment=dev", 403, "terminal-level"},
 		{"a gone deployment's backend", calGone, "component=apps/calendar", 404, `no deployment \"gone\"`},
 		{"dev with no log yet", ownerP, "component=apps/calendar&deployment=evil", 404, "no logs yet"},
+		// P17: a query never names a deployment as tile+name
+		{"a qualified component", ownerP, "component=apps/calendar%2Bdev", 400, "a deployment is named with deployment=, not tile+name"},
+		{"an unescaped qualified component", ownerP, "component=apps/calendar+dev", 400, "a deployment is named with deployment=, not tile+name"},
 	} {
 		w := getLogs(t, o.Plane, c.p, c.query)
 		if w.Code != c.code || !strings.Contains(w.Body.String(), c.text) || w.Header().Get("X-XBin-Deployment") != "" {

@@ -118,6 +118,14 @@ export async function infoFor(src) {
   return { ...i, chrome: alias && i.chrome, origin, path: r.path, deployment: r.deployment, bare: r.bare };
 }
 
+// qualifiedSrc(src) → whether a frame src names a deployment (apps/crm+dev)
+// rather than a tile (a tile whose own name holds "+" is one). Such a ref
+// never goes into a query string, where "+" reads as a space: a query names
+// the tile and the deployment apart (P17).
+export async function qualifiedSrc(src) {
+  return String(src).includes('+') && !!(await infoFor(src))?.deployment;
+}
+
 // A deployment's own origin (origins mode): GET /deployments names it to the
 // callers who see the deployment; '' when it doesn't. Cached per tile.
 const origins = new Map();

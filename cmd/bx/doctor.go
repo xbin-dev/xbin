@@ -47,6 +47,9 @@ func cmdDoctor() error {
 		} else if c.ManifestErr != "" {
 			warn("%s: xbin.json: %s", c.Path, c.ManifestErr)
 		}
+		if strings.Contains(c.Path, "+") { // P17: no new name may hold '+'; this one predates the rule
+			warn("%s: its name holds '+', which names a tile deployment in URLs (/c/<tile>+<name>/) — it keeps working, but can't get deployments; clone it to a path without '+' to give it some (/docs/changes/2026-09-28-plus-in-tile-names.md)", c.Path)
+		}
 		for _, d := range c.Deps {
 			if !byPath[d] {
 				warn("%s: dep %q does not exist", c.Path, d)

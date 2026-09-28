@@ -91,7 +91,7 @@ reload pauses, resumes or moves, or code moves or fails to. The window's `⇈`
 layout is the **Deployments panel** (below).
 
 Programs can ask `GET /api/xbin/deployments?tile=<tile>` (`record: false` is
-the zero state) or read `deployments: {primary, pinned, protected}` on the
+the zero state; `&deployment=<name>` selects one) or read `deployments: {primary, pinned, protected}` on the
 tile's `/api/xbin/components` entry, present only for a tile that has left
 the zero state. A reader of the tile gets the primary's facts only: no other
 deployment's name, and no count that reveals one
@@ -234,7 +234,9 @@ bx deployment add apps/crm+dev            # the same as the first, naming the ti
   `chrome`) and tiles holding an `xbin` or `xbin:*` grant can pause live
   reload but can't have other deployments (`apps/admin can't have
   non-primary deployments: …`): they act on the whole workspace. A name
-  already taken, and a tile existing at `<tile>+<name>`, are refused too.
+  already taken, a tile existing at `<tile>+<name>`, and a tile whose own name
+  holds `+` (one created before `+` was refused in tile names) are refused
+  too.
 
 ### Its URL
 
@@ -253,6 +255,12 @@ primary.
   unknown name answers 404 `apps/crm has no deployment "<name>"`. A qualified
   URL never reaches into a nested tile (`<path> is a tile of its own; its
   deployments are /c/<path>+<name>/`).
+- **Only in paths and JSON bodies.** A query string never carries
+  `<tile>+<name>`: a `+` there decodes to a space. A query names the tile
+  and the deployment apart — `?tile=apps/crm&deployment=dev` — and one that
+  sends `?tile=apps/crm+dev` (or `component=` so) is answered 400 `a
+  deployment is named with deployment=, not tile+name (a '+' in a query
+  string reads as a space)`. `bx` splits a ref you give it for you.
 - **Its documents** carry `<meta name="xbin-deployment" content="dev">`, and
   `xbin.deployment` is `"dev"` in them (absent at the primary); `xbin.self`
   stays the tile path. Their import map sends absolute `/c/<tile>/…` module
@@ -799,11 +807,14 @@ The rules for an agent working on a tile, beyond the workspace `AGENTS.md`:
   removed tile's non-`main` vaults, dormant registrations and data, stay as
   leftovers like a removed tile's grants: a non-admin can't create over them
   ([auth.md](/docs/auth.md), *Creating tiles*).
-- **`+` in tile names.** Nobody, admins included, can create a tile at
-  `<P>+<N>` while tile `P` has a deployment `N` (403 `can't create
-  apps/crm+dev: apps/crm has a deployment "dev", and that is its URL — pick
-  another path`). Any other new name containing `+` is created as before,
-  with a warning for one release: `+` is how deployment URLs are spelled.
+- **`+` in tile names.** Nobody, admins included, can create a tile whose
+  path holds `+` in any segment, by any route (`bx new`, create, clone,
+  template instantiate, builtin or git import): 403 `can't create
+  apps/crm+dev: '+' isn't allowed in tile names (it names a tile deployment
+  in URLs, /c/<tile>+<name>/) — pick another path`. A directory named so
+  before 2026-09-28 keeps resolving, as an exact match, but can't get
+  deployments; `bx doctor` flags it
+  ([changes/2026-09-28-plus-in-tile-names.md](/docs/changes/2026-09-28-plus-in-tile-names.md)).
 - **Backups** of a tile that has left the zero state carry its deployment
   record and checkpoint store, under `deployments/` in the archive; a tile in
   the zero state gets exactly today's archive. When the primary isn't

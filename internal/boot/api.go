@@ -272,6 +272,10 @@ func (rd runtimeReads) deploymentBackends(p auth.Principal, bs []runner.Backend)
 func (rd runtimeReads) tileStatus(w http.ResponseWriter, r *http.Request) {
 	p, q := auth.PrincipalOf(r), r.URL.Query()
 	comp := strings.Trim(q.Get("component"), "/")
+	if rd.dp != nil && util.QueryTileQualified(comp, func(c string) bool { _, ok := rd.dp.Reg.Component(c); return ok }) {
+		writeDeployError(w, &dpe{Status: http.StatusBadRequest, Msg: util.QueryRefMsg}) // the deployment rides deployment= (P17)
+		return
+	}
 	if comp == "" {
 		comp = p.Component // default: the caller's own tile (terminal / element principal)
 	}

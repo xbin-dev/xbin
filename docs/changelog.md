@@ -12,6 +12,21 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-28
 
+- **BREAKING — `+` is refused in new tile names**
+  ([changes/2026-09-28-plus-in-tile-names.md](changes/2026-09-28-plus-in-tile-names.md)).
+  `<tile>+<name>` is a tile deployment's URL, so creating a tile whose path
+  holds `+` in any segment is refused (403), for every creator, admins
+  included, on every creation path: `bx new`, create, clone, template
+  instantiate, builtin and git import. New names only: an existing tile
+  named with `+` keeps resolving and working (an exact match wins), can't
+  get deployments, and `bx doctor` flags it. The creation answers' one-release
+  `warnings` entry is gone. Alongside, a query string never carries a
+  `tile+name` ref (a `+` there reads as a space): the deployments reads
+  take `?tile=<tile>&deployment=<name>` (`GET /api/xbin/deployments` gains
+  `deployment=`, echoed as `selected`), and they, `/frame-token`, `/logs`
+  and `/tile-status` answer 400 for a tile parameter that names a deployment
+  as `tile+name`. Paths (`/c/<tile>+<name>/`) and JSON bodies keep the ref
+  ([protocol.md](protocol.md) §Tile deployments).
 - **coding-sandbox: the layout's user is a real account.** A sandbox's
   commands ran as uid 1000 with `USER=dev` and `HOME=/home/dev`, but the
   image names uid 1000 `ubuntu` (home `/home/ubuntu`): `id -un`, `whoami`

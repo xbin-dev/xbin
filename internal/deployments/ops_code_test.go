@@ -2,6 +2,7 @@ package deployments
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -517,7 +518,9 @@ func TestPromoteMovesCodeOnly(t *testing.T) {
 // (admins included): no deployment b on apps/site while a component exists
 // at apps/site+b (409, nothing written); other names are free, and main and
 // taken names are refused. A request naming apps/site+b acts on that tile,
-// today's resolution.
+// today's resolution, and that tile, its own name holding '+', gets no
+// deployments (P17, decided 2026-09-28), dry or not; it may still pause live
+// reload.
 func TestAddDeploymentNameCollision(t *testing.T) {
 	f := newCodeFx(t, false)
 	f.write(opSite+"+b/index.html", "<h1>b</h1>")
@@ -537,9 +540,17 @@ func TestAddDeploymentNameCollision(t *testing.T) {
 	if !f.p.HasDeployment(opSite, "c") || f.p.HasDeployment(opSite, "b") {
 		t.Error("the free name wasn't added")
 	}
-	_, err := f.do(ownerP, OpAdd, &AddRequest{Tile: opSite + "+b", Deployment: "d"})
-	if err != nil || !f.p.HasDeployment(opSite+"+b", "d") {
-		t.Errorf("apps/site+b is today's tile: %v", err)
+	const plusTile = "apps/site+b's name holds '+', which names a tile deployment in URLs: it can't get deployments"
+	for _, dry := range []bool{true, false} {
+		_, err := f.do(ownerP, OpAdd, &AddRequest{Tile: opSite + "+b", Deployment: "d", DryRun: dry})
+		wantErr(t, fmt.Sprintf("adding d to apps/site+b (dry %v)", dry), err, http.StatusConflict, plusTile)
+	}
+	if f.p.HasDeployment(opSite+"+b", "d") || f.rec(opSite+"+b") != nil {
+		t.Error("apps/site+b got a deployment")
+	}
+	f.must(ownerP, OpPause, &PauseRequest{Tile: opSite + "+b"})
+	if f.rec(opSite+"+b") == nil {
+		t.Error("apps/site+b, today's tile, can't pause live reload")
 	}
 }
 

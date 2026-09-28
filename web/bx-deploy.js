@@ -37,6 +37,7 @@ import { scrollCss } from '/vendor/scroll-css.js';
 import { unsafeHTML } from 'lit';
 import { diffHTML, diffStats } from '/vendor/bx-code.js';
 import { onEvent, onReconnect } from '/vendor/events-socket.js';
+import { qualifiedSrc } from '/vendor/frame-info.js';
 import * as dsState from '/vendor/deploy-state.js';
 import * as dsPanel from '/vendor/deploy-panel.js';
 
@@ -218,7 +219,9 @@ export class BxDeployments extends LitElement {
     if (!tile) return null;
     const gen = ++this._gen;
     this._for = tile;
-    const r = await getJSON(`/api/xbin/deployments?tile=${encodeURIComponent(tile)}`);
+    // a deployment's frame (apps/crm+dev) has no panel state, and its ref never
+    // goes into a query (P17)
+    const r = await qualifiedSrc(tile) ? { body: null } : await getJSON(`/api/xbin/deployments?tile=${encodeURIComponent(tile)}`);
     if (gen !== this._gen || tile !== this.component) return this._state;
     const s = r.body?.tile === tile ? r.body : null;
     this._state = s; this._loaded = true; this._loadError = s ? '' : r.error || '';

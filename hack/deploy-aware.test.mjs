@@ -93,6 +93,23 @@ test('frameSource: a zero-state frame asks exactly what it asked before', async 
   assert.deepEqual([chrome.url, chrome.sandboxed, chrome.asked], ['/c/apps/crm+main/', false, []]);
 });
 
+test('qualifiedSrc: a deployment ref never goes into a query; a tile named with "+" does (P17)', async () => {
+  const fresh = await import('../web/frame-info.js?qualified');
+  const real = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => [{ path: 'apps/crm', deployments: summary }, { path: 'notes+ideas' }, { path: 'apps/plain' }],
+  });
+  try {
+    assert.equal(await fresh.qualifiedSrc('apps/crm+dev'), true);
+    assert.equal(await fresh.qualifiedSrc('apps/crm+dev/compose'), true, 'a window of a deployment frame');
+    assert.equal(await fresh.qualifiedSrc('apps/crm'), false);
+    assert.equal(await fresh.qualifiedSrc('notes+ideas'), false, 'a tile whose own name holds "+": an exact match');
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
 test('the window pref never records the Deployments layout', async () => {
   assert.deepEqual(windowPref({ open: true, layout: 'deployments', active: 0 }), { open: true, layout: 'term', active: 0 });
   for (const layout of ['term', 'code', 'split', 'logs', 'prs', undefined]) {

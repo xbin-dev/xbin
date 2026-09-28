@@ -204,8 +204,12 @@ bx preview --native <tile> [--dark] [--size 390x844] [--large-text]
 the generated go.work), `node`, `python`, `static` (default). `cgi` was
 removed ([changes/2026-09-27-cgi-removed.md](/docs/changes/2026-09-27-cgi-removed.md))
 and is refused. `--expose` adds a roles block to the manifest and the
-standard `API.md` skeleton. Never overwrites existing files. After
-scaffolding, frame it somewhere:
+standard `API.md` skeleton. Never overwrites existing files. The path may
+not hold `+` in any segment (`<tile>+<name>` is a tile deployment's URL):
+refused for everyone, locally and through the API, like every other way a
+tile is created
+([changes/2026-09-28-plus-in-tile-names.md](/docs/changes/2026-09-28-plus-in-tile-names.md)).
+After scaffolding, frame it somewhere:
 `<bx-frame src="apps/thing"></bx-frame>`.
 
 **`bx grant`** — the role goes after the *last* colon, so resource targets
@@ -275,7 +279,8 @@ sanity (orphaned owner entries, admin-less or member-less orgs, allowance
 entries that can never match, dead defaultTiles/share patterns); network
 sets (unknown attachments, rules that can't parse, orgs granted HOST
 networking, inert net bindings); chrome requests no admin approved (those
-tiles run sandboxed) and approvals naming no component; go.work
+tiles run sandboxed) and approvals naming no component; tiles whose name
+holds `+` (which can't get deployments; no new name may hold one); go.work
 ownership; strict tile asset gating (tiles whose absolute `/c/` URLs, `inject:false` or escaping symlinks
 the strict modes refuse — from `GET /api/xbin/tile-assets`; under the
 default legacy mode these are what the coming enforcement will refuse);
@@ -436,7 +441,10 @@ That file is `main`'s log. Another tile deployment's log is xbind's own:
 deployment, `$XBIN_DEPLOYMENT` is the default) streams it from `GET
 /api/xbin/logs?deployment=`, and the output names it. `bx status` takes the
 same `+<name>` and `--deployment`, and prints a `deployments` line for a tile
-that has any.
+that has any. bx sends `<tile>+<name>` as the tile and `deployment=`, never
+as one query value (a `+` in a query string reads as a space); a tile whose
+own name holds `+` (created before `+` was refused in tile names) is read by
+that name when it sits in the workspace, or when no deployment answers.
 
 ## Tile deployments: live reload, deploy, promote
 
