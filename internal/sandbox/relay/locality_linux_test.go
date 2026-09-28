@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
@@ -124,6 +125,7 @@ func localityChecks(t *testing.T) {
 	addAddr("203.0.113.9/32")
 	refused("203.0.113.9")
 	addAddr("2001:db8::9/128")
+	waitLocal(t, "2001:db8::9") // IPv6 installs an address's local route from a work queue
 	refused("2001:db8::9")
 
 	// An AnyIP range: `ip route add local 198.51.100.0/24 dev lo`.
@@ -145,6 +147,21 @@ func localityChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	passes("203.0.113.9")
+}
+
+// waitLocal waits until the kernel routes ip as local: an IPv6 address's
+// local route comes a moment after the address, from addrconf's work queue
+// (even with IFA_F_NODAD), and until then nothing can call it the host's.
+func waitLocal(t *testing.T, ip string) {
+	t.Helper()
+	for end := time.Now().Add(3 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if rs, err := netlink.RouteGet(net.ParseIP(ip)); err == nil && len(rs) > 0 && rs[0].Type == unix.RTN_LOCAL {
+			return
+		}
+		if time.Now().After(end) {
+			t.Fatalf("%s: the kernel never routed it as local", ip)
+		}
+	}
 }
 
 func mustCIDR(t *testing.T, s string) *net.IPNet {
