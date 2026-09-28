@@ -26,7 +26,9 @@ final class XbinWidgetTests: XCTestCase {
         let card = e.card("apps/counter")
         XCTAssertTrue(card.waitForExistence(timeout: 20), "the counter's card")
         let count = card.staticTexts["\(before)"]
-        XCTAssertTrue(count.waitForExistence(timeout: 60), "the counter's widget shows \(before)")
+        let shown = count.waitForExistence(timeout: 60)
+        if !shown { e.shot("widgets-01-no-widget") }
+        XCTAssertTrue(shown, "the counter's widget shows \(before) (else: widgets-01-no-widget.png)")
         let plus = card.buttons["+1"]
         XCTAssertTrue(plus.waitForExistence(timeout: 10), "the widget's +1")
         e.shot("widgets-01-counter")
