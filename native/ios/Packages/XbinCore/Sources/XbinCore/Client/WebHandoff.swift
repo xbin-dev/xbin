@@ -2,10 +2,11 @@ import Foundation
 
 // Leaving the app for the browser, and bringing another device in:
 //
-// - **Signed-in Safari** (plans/native.md §6.3, the D64 pattern): the app
-//   asks its workspace for a one-shot ticket bound to its device session,
-//   `POST /api/xbin/web-ticket {next}` → `{url}`, and opens that URL in
-//   `SFSafariViewController`. xbind spends the ticket on the GET but never
+// - **Signed-in chrome tiles** (plans/native.md §6.3, the D64 pattern,
+//   D125): the app asks its workspace for a one-shot ticket bound to its
+//   device session, `POST /api/xbin/web-ticket {next}` → `{url}`, and opens
+//   that URL top level in the chrome tile's own web view (its own cookie
+//   store; Safari before D125). xbind spends the ticket on the GET but never
 //   signs a browser in on a GET (anyone can mint a link for their own
 //   account and hand it over): a browser already signed in as the same
 //   person lands on `next`; a signed-out one gets a "Continue as <name>"
@@ -42,7 +43,7 @@ public enum WebTicket {
         .json("POST", path, ["next": .string(cleanNext(next))])
     }
 
-    /// Where Safari goes: the ticket URL when the workspace issued one on its
+    /// Where the web view goes: the ticket URL when the workspace issued one on its
     /// own origin, else the plain page (`fellBack` true).
     public struct Destination: Sendable, Equatable {
         public var url: URL

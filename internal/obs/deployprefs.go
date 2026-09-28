@@ -20,11 +20,10 @@ import (
 // don't follow a reassignment of the primary. The shell's and every
 // person's own bucket (no tile) are unchanged.
 
-// prefsDeploymentFile is p's bucket, relative to its user's prefs directory,
-// when p acts in a tile deployment beyond main; "" for main's and for
-// people. An error is the deployment's: gone (util.ErrNoDeployment) or
-// refused (prefsRefusal).
-func (o *Plane) prefsDeploymentFile(p auth.Principal) (string, error) {
+// prefsDeployment is the tile deployment beyond main whose bucket p reads
+// and writes; "" for main's and for people. An error is the deployment's:
+// gone (util.ErrNoDeployment) or refused (prefsRefusal).
+func (o *Plane) prefsDeployment(p auth.Principal) (string, error) {
 	if p.Component == "" {
 		return "", nil
 	}
@@ -37,7 +36,13 @@ func (o *Plane) prefsDeploymentFile(p auth.Principal) (string, error) {
 	case dep == util.MainDeployment:
 		return "", nil
 	}
-	return ".deployments/" + util.TileKey(p.Component) + "/" + dep + ".json", nil
+	return dep, nil
+}
+
+// prefsDeploymentFile is deployment dep's bucket of tile, relative to its
+// user's prefs directory.
+func prefsDeploymentFile(tile, dep string) string {
+	return ".deployments/" + util.TileKey(tile) + "/" + dep + ".json"
 }
 
 // prefsRefusal is a refused deployment (a session following a protected

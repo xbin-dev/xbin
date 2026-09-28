@@ -67,6 +67,7 @@ import { overlaps, spotNear } from './grid-layout.js';
 import { canvasMenuItems, tileMenuItems, offloaded, hidden } from './menus.js';
 import { ago, newDraft, withDraft, withoutDraft, publish, conflictDialog } from './rev-draft.js';
 import { nextZ } from './zorder.js';
+import { follow as followLayout, editing as layoutEditing } from './layout-sync.js';
 
 // Convert a legacy column-based tile ({col, height}) to a fixed-grid tile
 // ({x,y,w,h}); tiles already in grid form pass through. Old columns become grid
@@ -182,6 +183,7 @@ export class BxShell extends LitElement {
     this._seeds = [];        // {path, height} from slotted <bx-frame> children
     this._layoutLoaded = false;
     this._saveTimer = null;
+    this._writer = uid();    // X-Prefs-Writer: tells this tab's own layout saves from other clients'
     this._onBlur = () => this._raiseFocusedFloat();
   }
 
@@ -198,6 +200,7 @@ export class BxShell extends LitElement {
       if (e.type === 'grants' || e.type === 'users') this._loadPendingCount(); // ⚑ badge
       if (e.type === 'status') this._onStatusEvent(e); // tile health / notifications
       if (e.type === 'pr') this._loadPRs();            // change-proposal badges (⇄)
+      if (e.type === 'prefs') followLayout(this, e, LAYOUT_PREF); // the app / another tab saved the layout
     });
     this._loadStatuses();
     this._loadPRs();
@@ -275,6 +278,7 @@ export class BxShell extends LitElement {
     window.removeEventListener('keydown', this._onZoomKey);
     window.removeEventListener('wheel', this._onZoomWheel);
     this._mq?.removeEventListener('change', this._onMq);
+    clearTimeout(this._staleTimer);
   }
 
   firstUpdated() {
@@ -524,7 +528,7 @@ export class BxShell extends LitElement {
       folders: dirty(this._folderDrafts, (d) => ({ folders: d.folders, baseRev: d.baseRev })),
     };
     return (window.xbin?.fetch(`/api/xbin/prefs/${LAYOUT_PREF}`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Prefs-Writer': this._writer },
       body: JSON.stringify({ screens: this._screens, active: this._active, side: this._side,
         tabOrder: this._tabOrder, hiddenOrg: this._hiddenOrg, recent: this._recent, drafts }),
     }) ?? Promise.resolve()).catch(() => { /* best-effort; retried on next change */ });
@@ -1706,6 +1710,8 @@ export class BxShell extends LitElement {
       openCanvasMenu: (at) => s._openCanvasMenu({ clientX: at?.x ?? 0, clientY: at?.y ?? 0, preventDefault() {} }),
       canvasMenuItems: () => s._canvasMenuItems(),
       get menuOpen() { return !!s._menu; },
+      closeMenu() { s._menu = null; },
+      get layoutBusy() { return layoutEditing(s); }, // a prefs event now would wait
       openSettings() { s._settingsOpen = true; },
       setDrawer(v) { s._drawer = !!v; },
       get toasts() { return s._toasts ?? []; },

@@ -70,6 +70,15 @@ enum AppInfo {
 enum AppSettings {
     private static var d: UserDefaults { .standard }
 
+    /// This install's id: it names the app's pref writes (`X-Prefs-Writer`),
+    /// so the app skips the `prefs` events its own writes cause.
+    static var installID: String {
+        if let s = d.string(forKey: "installID"), !s.isEmpty { return s }
+        let s = "app-" + UUID().uuidString.lowercased()
+        d.set(s, forKey: "installID")
+        return s
+    }
+
     /// "Require Face ID when opening the app" (plans/native.md §5), off by default.
     static var appLock: Bool {
         get { d.bool(forKey: "appLock") }

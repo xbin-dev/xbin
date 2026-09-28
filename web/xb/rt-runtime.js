@@ -15,6 +15,13 @@
  *   document       the document whose visibilityState xbn.visibility drives
  *   log            false: no console lines for diagnostics and errors (they
  *                  are messages either way)
+ *
+ * Two trees (targets): the main one — render(), the tile's screen — and,
+ * when the app's caps list the feature "widget", the widget — widget(), a
+ * card on the app's screens, drawn from a small vocabulary (VOCAB.widget).
+ * Each has its own shadow, handlers, keys and message counter `n`; widget
+ * messages carry target:"widget" (tree.md §13). Without the feature,
+ * widget() does nothing and nothing about the main tree changes.
  */
 import { VOCAB, fullCaps } from '/vendor/xb/vocab.js';
 import { buildTree } from '/vendor/xb/rt-build.js';
@@ -35,8 +42,10 @@ for (const [name, p] of Object.entries(VOCAB.prims)) {
 
 export function normalizeCaps(c) {
   if (!c || typeof c !== 'object' || !c.prims) return fullCaps();
-  return { v: Number(c.v) || VOCAB.v, renderer: String(c.renderer ?? ''), app: c.app ?? null,
+  const out = { v: Number(c.v) || VOCAB.v, renderer: String(c.renderer ?? ''), app: c.app ?? null,
     prims: { ...c.prims }, features: Array.isArray(c.features) ? [...c.features] : [] };
+  if (VOCAB.widget.sizes.includes(c.widgetSize)) out.widgetSize = c.widgetSize;
+  return out;
 }
 
 function defaultSchedule(fn) {
@@ -55,14 +64,26 @@ export function createRuntime(opts = {}) {
   let state = opts.state === undefined ? null : cloneJSON(opts.state);
 
   const md = new MarkdownCache();
-  let tree = null; // the shadow: what the app shows (reported controlled values included)
-  let nodes = new Map(); // k -> shadow node
-  let handlers = new Map(); // k -> {type: fn}
-  let pending = false;
+  // One per tree: the main one (render) and the widget (widget(), only when
+  // the app's caps list the "widget" feature).
+  const target = (name) => ({
+    name, // null (main) | 'widget'
+    tree: null, // the shadow: what the app shows (reported controlled values included)
+    nodes: new Map(), // k -> shadow node
+    handlers: new Map(), // k -> {type: fn}
+    pending: false,
+    value: undefined,
+    n: 0, // tree messages sent for this tree (mount/patch carry it)
+    sentAt: new Map(), // `${k}\0${prop}` -> n of the patch that last set a controlled prop
+  });
+  const main = target(null);
+  const wdg = target('widget');
+  const widgetOn = caps.features.includes(VOCAB.widget.feature);
+  const targetOf = (t) => (t === undefined || t === null || t === '' ? main : t === 'widget' && widgetOn ? wdg : null);
+  let widgetSize = caps.widgetSize ?? VOCAB.widget.sizes[0];
+  const sizeListeners = new Set();
+  let building = null; // the target a flush is building: its diag/error messages name it
   let scheduled = false;
-  let value;
-  let n = 0; // tree messages sent (mount/patch carry it)
-  const sentAt = new Map(); // `${k}\0${prop}` -> n of the patch that last set a controlled prop
   const seen = new Set();
   const diagnostics = [];
   const calls = new Map();
@@ -78,9 +99,10 @@ export function createRuntime(opts = {}) {
     seen.add(key);
     return true;
   };
+  const tagged = (m) => { if (building?.name) m.target = building.name; return m; };
   function diag(level, code, message, where = '') {
-    if (!once(`d\0${code}\0${message}\0${where}`)) return;
-    const d = { op: 'diag', level, code, message, where };
+    if (!once(`d\0${building?.name ?? ''}\0${code}\0${message}\0${where}`)) return;
+    const d = tagged({ op: 'diag', level, code, message, where });
     if (diagnostics.length < 1000) diagnostics.push(d);
     if (log) {
       const line = `[xb-native] ${message}${where ? ` (${where})` : ''}`;
@@ -89,79 +111,98 @@ export function createRuntime(opts = {}) {
     send(d);
   }
   function unsupported(message, where = '') {
-    if (!once(`u\0${message}\0${where}`)) return;
-    send({ op: 'error', kind: 'unsupported', message, where });
+    if (!once(`u\0${building?.name ?? ''}\0${message}\0${where}`)) return;
+    send(tagged({ op: 'error', kind: 'unsupported', message, where }));
   }
   function fail(kind, e, where = '') {
     const message = String(e?.message ?? e);
     if (log) console.error(`[xb-native] ${kind}: ${message}${where ? ` (${where})` : ''}`, e);
-    const m = { op: 'error', kind, message, where };
+    const m = tagged({ op: 'error', kind, message, where });
     if (e?.stack) m.stack = String(e.stack);
     send(m);
   }
   const env = { caps, diag, unsupported, md };
+  // the widget's own markdown cache: a build evicts what it did not touch
+  const widgetEnv = { ...env, md: new MarkdownCache(), allow: VOCAB.widget.prims };
 
-  function render(v) {
-    value = v;
-    pending = true;
+  function renderTo(T, v) {
+    T.value = v;
+    T.pending = true;
     if (!scheduled) { scheduled = true; schedule(flush); }
   }
+  const render = (v) => renderTo(main, v);
+  // widget(v): the widget tree — dropped (silently) unless the app shows widgets.
+  function widget(v) { if (widgetOn) renderTo(wdg, v); }
 
-  // flush(): render what is pending now; returns the tree message sent, or null.
+  // flush(): render what is pending now (the main tree, then the widget);
+  // returns the tree message sent (the main tree's first), or null.
   function flush() {
     scheduled = false;
-    if (!pending) return null;
-    pending = false;
-    const v = value;
-    value = undefined;
+    const a = flushTarget(main);
+    const b = widgetOn ? flushTarget(wdg) : null;
+    return a ?? b;
+  }
+  function flushTarget(T) {
+    if (!T.pending) return null;
+    T.pending = false;
+    const v = T.value;
+    T.value = undefined;
     let built;
-    md.begin();
-    try { built = buildTree(v, env); } catch (e) { fail('exception', e); return null; }
-    md.end();
-    handlers = built.handlers;
+    const e$ = T === wdg ? widgetEnv : env;
+    building = T;
+    try {
+      e$.md.begin();
+      try { built = buildTree(v, e$); } catch (e) { fail('exception', e); return null; }
+      e$.md.end();
+    } finally { building = null; }
+    T.handlers = built.handlers;
     const root = built.root;
+    const tgt = T.name ? { target: T.name } : {};
     let msg;
-    if (!tree || tree.k !== root.k || tree.t !== root.t) {
-      msg = { op: 'mount', v: TREE_V, n: ++n, root };
+    if (!T.tree || T.tree.k !== root.k || T.tree.t !== root.t) {
+      msg = { op: 'mount', ...tgt, v: TREE_V, n: ++T.n, root };
     } else {
-      const ops = diff(tree, root);
-      if (!ops.length) { adopt(root); return null; }
-      msg = { op: 'patch', n: ++n, ops };
+      const ops = diff(T.tree, root);
+      if (!ops.length) { adopt(T, root); return null; }
+      msg = { op: 'patch', ...tgt, n: ++T.n, ops };
       for (const op of ops) {
         if (op[0] !== 'set') continue;
-        const t = nodes.get(op[1])?.t; // a set targets a node kept from the old tree
-        for (const prop of Object.keys(op[2])) if (REPORTED[t]?.has(prop)) sentAt.set(`${op[1]}\0${prop}`, n);
+        const t = T.nodes.get(op[1])?.t; // a set targets a node kept from the old tree
+        for (const prop of Object.keys(op[2])) if (REPORTED[t]?.has(prop)) T.sentAt.set(`${op[1]}\0${prop}`, T.n);
       }
     }
-    adopt(root);
+    adopt(T, root);
     const out = cloneJSON(msg); // the shadow keeps changing; the message must not
     send(out);
     return out;
   }
-  function adopt(root) {
-    tree = root;
-    nodes = new Map();
-    const walk = (x) => { nodes.set(x.k, x); for (const c of x.c || []) walk(c); };
+  function adopt(T, root) {
+    T.tree = root;
+    T.nodes = new Map();
+    const walk = (x) => { T.nodes.set(x.k, x); for (const c of x.c || []) walk(c); };
     walk(root);
-    for (const key of sentAt.keys()) if (!nodes.has(key.slice(0, key.indexOf('\0')))) sentAt.delete(key);
+    for (const key of T.sentAt.keys()) if (!T.nodes.has(key.slice(0, key.indexOf('\0')))) T.sentAt.delete(key);
   }
 
-  // xbn.event(k, type, payload, n?) — the app reports a user action. A payload
+  // xbn.event(k, type, payload, n?, target?) — the app reports a user action
+  // on node k of the main tree, or (target "widget") of the widget. A payload
   // value for a controlled prop updates the shadow first (so an unchanged
   // re-render sends nothing back), unless the app says (n) it produced the
   // event before it applied the patch that last set that prop.
-  function event(k, type, payload, seenN) {
+  function event(k, type, payload, seenN, targetName) {
+    const T = targetOf(targetName);
+    if (!T) return false;
     const pl = payload && typeof payload === 'object' ? payload : {};
-    const node = nodes.get(k);
+    const node = T.nodes.get(k);
     if (node) {
       const rep = VOCAB.prims[node.t]?.events?.[type]?.reports;
       if (rep && own(node.p, rep.prop)) {
         const v = own(rep, 'value') ? rep.value : pl[rep.from || rep.prop];
-        const stale = typeof seenN === 'number' && (sentAt.get(`${k}\0${rep.prop}`) ?? 0) > seenN;
+        const stale = typeof seenN === 'number' && (T.sentAt.get(`${k}\0${rep.prop}`) ?? 0) > seenN;
         if (v !== undefined && !stale) node.p[rep.prop] = cloneJSON(v);
       }
     }
-    const h = handlers.get(k)?.[type];
+    const h = T.handlers.get(k)?.[type];
     if (typeof h !== 'function') return false;
     const ev = { type, value: pl.value, ...pl };
     try {
@@ -198,9 +239,31 @@ export function createRuntime(opts = {}) {
     });
   }
 
+  // xbn.widgetSize(size) — the app shows the widget at another size class.
+  function setWidgetSize(size) {
+    if (!widgetOn || !VOCAB.widget.sizes.includes(size) || size === widgetSize) return false;
+    widgetSize = size;
+    for (const fn of [...sizeListeners]) {
+      try {
+        const r = fn(size);
+        if (r && typeof r.then === 'function') r.then(null, (e) => fail('uncaught', e, 'widgetsize listener'));
+      } catch (e) { fail('uncaught', e, 'widgetsize listener'); }
+    }
+    return true;
+  }
+
   const native = {
     caps,
     get state() { return state; },
+    // the size class the app shows the widget at: "small" (one column) | "wide" (two)
+    get widgetSize() { return widgetSize; },
+    // on('widgetsize', fn(size)) → an unsubscribe function
+    on(type, fn) {
+      if (type !== 'widgetsize') throw new Error(`xbin.native.on: unknown event ${JSON.stringify(type)} (widgetsize)`);
+      if (typeof fn !== 'function') throw new Error('xbin.native.on: the listener must be a function');
+      sizeListeners.add(fn);
+      return () => { sizeListeners.delete(fn); };
+    },
     supports(name, rev = 1) {
       if (own(caps.prims, name)) return caps.prims[name] >= rev;
       return caps.features.includes(name);
@@ -229,12 +292,14 @@ export function createRuntime(opts = {}) {
     },
   };
 
-  // remount(): the app lost its copy (a recreated view, a patch it could not
-  // apply) — send the whole tree again as a mount.
-  function remount() {
+  // remount(target?): the app lost its copy of a tree (a recreated view, a
+  // patch it could not apply) — send it again as a mount.
+  function remount(targetName) {
+    const T = targetOf(targetName);
+    if (!T) return false;
     flush();
-    if (!tree) return false;
-    const out = cloneJSON({ op: 'mount', v: TREE_V, n: ++n, root: tree });
+    if (!T.tree) return false;
+    const out = cloneJSON({ op: 'mount', ...(T.name ? { target: T.name } : {}), v: TREE_V, n: ++T.n, root: T.tree });
     send(out);
     return true;
   }
@@ -245,12 +310,14 @@ export function createRuntime(opts = {}) {
     resolve,
     frame: () => flush() !== null,
     remount,
+    widgetSize: setWidgetSize,
   };
 
   return {
-    render, flush, xbn, native, diagnostics,
-    get tree() { return tree ? { v: TREE_V, root: cloneJSON(tree) } : null; },
-    get pending() { return pending; },
+    render, widget, flush, xbn, native, diagnostics,
+    get tree() { return main.tree ? { v: TREE_V, root: cloneJSON(main.tree) } : null; },
+    get widgetTree() { return wdg.tree ? { v: TREE_V, root: cloneJSON(wdg.tree) } : null; },
+    get pending() { return main.pending || wdg.pending; },
     get visibility() { return visibility; },
     get markdownStats() { return { ...md.stats }; },
     // uncaught(e, where): report an error thrown outside a render or handler.

@@ -14,6 +14,8 @@ async function termSessions(browser) {
     await openShell(page);
     await usePersonalScreen(page);
     await openTile(page, 'apps/crawler');
+    // the home screen's default tiles can push the card (and its window) below the fold
+    await page.locator('.card[data-path="apps/crawler"]').evaluate((el) => el.scrollIntoView({ block: 'start' }));
     await fr(page, 'apps/crawler', (f) => f.open('term'));
     await fr(page, 'apps/crawler', (f) => { if (!f.tabs.length) f.newTerm(); }); // first open shows the launcher, not a bash CLI
     await settle(page);

@@ -1,16 +1,23 @@
 // hack/xbn/worker.mjs — runs one tile native.js in a worker thread against a
 // scripted `xbin` stub, on a virtual clock, and posts back the rendered tree.
-// Started by node.mjs (runNative); workerData: {entry, data, steps, caps, state}.
+// Started by node.mjs (runNative); workerData: {entry, data, steps, caps, state, widget}.
 // See node.mjs for the data/steps formats.
 import { workerData, parentPort } from 'node:worker_threads';
 import { pathToFileURL } from 'node:url';
 import { installHooks } from './hooks.mjs';
 import { selectKey, findNode } from './select.mjs';
-import { VOCAB } from '../../web/xb/vocab.js';
+import { VOCAB, fullCaps } from '../../web/xb/vocab.js';
 
 installHooks();
 
-const { entry, data = {}, steps = [], caps, state } = workerData;
+const { entry, data = {}, steps = [], state, widget } = workerData;
+// widget: the run plays an app that shows widgets (caps list the feature;
+// widgetSize is the initial size class) — the widget tree comes back too.
+const caps = widget ? (() => {
+  const c = workerData.caps ?? fullCaps();
+  const features = [...new Set([...(c.features || []), VOCAB.widget.feature])];
+  return { ...c, features, widgetSize: VOCAB.widget.sizes.includes(widget) ? widget : c.widgetSize ?? 'small' };
+})() : workerData.caps;
 const own = (o, k) => o != null && Object.prototype.hasOwnProperty.call(o, k);
 const realImmediate = setImmediate;
 let activity = 0;
@@ -217,9 +224,10 @@ function findAll(root, m, out = [], inside = !m.in) {
   for (const c of root.c || []) findAll(c, m, out, deeper);
   return out;
 }
-function keyOf(x) {
+const treeOf = (tgt) => (tgt === 'widget' ? rt.widgetTree : rt.tree);
+function keyOf(x, tgt) {
   if (typeof x === 'string') return x;
-  const hits = findAll(rt.tree.root, x);
+  const hits = findAll(treeOf(tgt)?.root, x);
   const hit = hits[x.nth ?? 0];
   if (!hit) throw new Error(`no node matches ${JSON.stringify(x)}`);
   return hit.k;
@@ -230,8 +238,8 @@ function keyOf(x) {
 // exists and takes the event (listens to it, or the event reports one of its
 // controlled props).
 function target(e) {
-  const root = rt.tree?.root;
-  const k = e.select != null ? selectKey(root, e.select) : keyOf(e.k);
+  const root = treeOf(e.target)?.root;
+  const k = e.select != null ? selectKey(root, e.select) : keyOf(e.k, e.target);
   const node = findNode(root, k);
   if (!node) throw new Error(`event ${JSON.stringify(e.type)}: no node ${JSON.stringify(k)} in the tree`);
   const rep = VOCAB.prims[node.t]?.events?.[e.type]?.reports;
@@ -242,9 +250,10 @@ function target(e) {
 }
 
 async function step(s) {
-  const ev = (k, type, payload, n) => { activity++; rt.xbn.event(keyOf(k), type, payload ?? {}, n); };
+  // s.target "widget": the step acts on (or snapshots) the widget tree
+  const ev = (k, type, payload, n, tgt = s.target) => { activity++; rt.xbn.event(keyOf(k, tgt), type, payload ?? {}, n, tgt); };
   if (own(s, 'wait')) return advance(s.wait);
-  if (own(s, 'snapshot')) { snapshots[s.snapshot] = rt.tree; return undefined; }
+  if (own(s, 'snapshot')) { snapshots[s.snapshot] = treeOf(s.target); return undefined; }
   if (own(s, 'call')) {
     const [name, ...args] = s.call;
     if (typeof setupMod?.[name] !== 'function') throw new Error(`the setup module has no export ${name}`);
@@ -253,10 +262,11 @@ async function step(s) {
     return settle();
   }
   if (own(s, 'tap')) ev(s.tap, 'tap');
-  else if (own(s, 'event')) { const e = s.event; Array.isArray(e) ? ev(...e) : ev(target(e), e.type, e.payload, e.n); }
+  else if (own(s, 'event')) { const e = s.event; Array.isArray(e) ? ev(...e) : ev(target({ target: s.target, ...e }), e.type, e.payload, e.n, e.target ?? s.target); }
   else if (own(s, 'input')) ev(s.input[0], 'input', { value: s.input[1] });
   else if (own(s, 'bus')) { const [topic, payload] = s.bus; for (const h of [...eventHandlers]) h({ type: 'bus', topic, data: payload }); activity++; }
   else if (own(s, 'visibility')) rt.xbn.visibility(s.visibility);
+  else if (own(s, 'widgetSize')) { activity++; rt.xbn.widgetSize(s.widgetSize); }
   else if (own(s, 'resolve')) rt.xbn.resolve(...s.resolve);
   else throw new Error(`unknown step ${JSON.stringify(s)}`);
   return settle();
@@ -285,6 +295,7 @@ try { extra = (await setupMod?.result?.()) ?? null; } catch (e) { extra = { erro
 
 parentPort.postMessage({
   tree: rt.tree,
+  widget: rt.widgetTree,
   snapshots,
   extra,
   messages,

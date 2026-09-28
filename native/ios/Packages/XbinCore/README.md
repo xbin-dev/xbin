@@ -19,8 +19,8 @@ reference `applyOps` in web/xb/rt-diff.js) and native/spec/device-login.md.
 | `Node.swift` | `Node` — the wire node `{k, t, p?, e?, c?}`; `NodeKey` — the §9 key rules |
 | `Tree.swift` | `Tree` — the tree stored flat with a key index (`Tree.Entry`: type, props, events, child keys, parent) |
 | `Patch.swift` | `PatchOp` (set, unset, events, insert, remove, move-within-parent), `Tree.apply`/`Tree.mount`, `TreeDelta`, `PatchError` |
-| `Bridge.swift` | `BridgeMessage` (runtime → app: mount, patch, meta, error, diag, state, call), `RuntimeCall` (app → runtime JavaScript), `RuntimeScript.documentStart`, `NativeCaps` |
-| `TreeStore.swift` | `TreeStore` — applies messages, counts revisions, keeps the tree sequence `n`, the saved state and diagnostics, tells closure observers; `failure` means "fall back to the web tile" |
+| `Bridge.swift` | `BridgeMessage` (runtime → app: mount, patch, meta, error, diag, state, call; `.widget(…)` for a `target:"widget"` tree message), `TreeTarget`, `RuntimeCall` (app → runtime JavaScript: events with their target, `widgetSize`, `remount`), `RuntimeScript.documentStart`, `NativeCaps` (with the `widget` feature and size) |
+| `TreeStore.swift` | `TreeStore` — applies messages, counts revisions, keeps the tree sequence `n`, the saved state and diagnostics, tells closure observers; `failure` means "fall back to the web tile"; `widget` is the tile's widget tree, a store of its own whose failure is only the widget's |
 | `DeepLink.swift`, `ServerOrigin.swift` | `xbin://` links; the server origin as the web serializes it |
 | `WorkspaceRecord.swift` | `WorkspaceRecord`, `WorkspaceList` — the persisted workspace list (no secrets; the enrollment's `deviceOrigin` is what logins sign) |
 | `DeviceLogin.swift`, `Base64URL.swift` | the signed device-login message, SPKI/DER helpers, enrollment codes, PKCE, the sign-in routes (`AppAuthRoute`) and their wire types (`DeviceEnrollRequest`, `DeviceEnrollment`, `DeviceChallenge`, `DeviceLoginRequest`, `AppSession`, …) |
@@ -28,9 +28,13 @@ reference `applyOps` in web/xb/rt-diff.js) and native/spec/device-login.md.
 | `Client/API.swift` | `APIRequest`/`APIResponse`/`APITransport` (the app injects URLSession), `APIError` (`stepUp`, `reauth`) |
 | `Client/Auth.swift` | `WorkspaceAuth` — the session a workspace's Swift code uses; a 401 re-signs with the device key once, shared by every waiting request (one Face ID prompt); `Enrollment` — QR/typed code, password, SSO ticket, dev token; `SessionCredential`, `SessionStore`, `DeviceKeyStore`, `SignInError` |
 | `Client/Catalog.swift` | `Whoami`, `TileInfo`/`Catalog` (`/components`, search), `PersonalLayout` (the shell's `layout` pref), `SharedScreens` (`/screens`), `NavigatorModel` |
-| `Client/TileLoading.swift` | `TileSurface` (web / native / Safari), `TileScheme` (the `xbin-ws` scheme handler's URL, header and redirect rules), `FrameTokenCache` |
+| `Client/TileLoading.swift` | `TileSurface` (web / native; chrome tiles are web pages signed in by ticket), `TileScheme` (the `xbin-ws` scheme handler's URL, header and redirect rules), `FrameTokenCache` |
+| `Client/Home.swift` | `HomeModel`: Home's screens by section (Mine in its folders, each org, Workspace), where back goes from a tile (D125) |
+| `Client/MobileScreens.swift` | the `mobile-screens` pref and its merge rule; `LayoutPref`: the `layout` pref's bucket (`root`), a new personal screen, a created tile at the shell's free spot, the prefs writer header |
+| `Client/TileCreate.swift` | creating a tile (the web shell's owner choices, the slug, `POST /api/xbin/create`); `TileStatuses` (`/tile-report`, `status` events) |
 | `Client/TileBridge.swift` | `TileBridge` (the relay user script, `xbin:*` requests, `xbin:reply`), `DialogSpec` (bx-dialog's data), `WindowSpec`, `SpawnLimits` |
 | `Client/NativeTile.swift` | `NativeTileLifecycle` (5 s to mount, fallback reasons and banners), `NativeCallAction` (copy/share/open policy), `NativeStateBlob` |
+| `Client/WidgetStore.swift` | `WidgetStore` — each tile's last widget per card size and "draws no widget" (D125), bounded, in a JSON file; `RuntimePoolPolicy` — which native runtimes stay live (LRU, off screen first, never an open tile) |
 | `Client/Push.swift` | `PushEnvelope`, `PushPayload`, `PushOpener` (the extension's key choice), `PushStatus`/`PushState`/`PushMaintenance` (push.md §1.4), `PushAPI`, `PushRelayAPI` |
 
 Rules the code keeps:

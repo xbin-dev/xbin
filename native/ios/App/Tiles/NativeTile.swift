@@ -14,6 +14,11 @@ import XbinRenderer
 /// renderer draws the tree and sends events back with callAsyncJavaScript.
 /// No tree within 5 s, a crash, a bad patch or an unsupported primitive
 /// falls back to the web tile (§7.6).
+///
+/// The caps ask for the tile's widget too (D125): its `target:"widget"`
+/// trees land in `store.widget`, drawn by a phone screen's card through
+/// ``widgetModel`` and kept in the workspace's ``WidgetCache``. Runtimes
+/// come from ``NativeRuntimePool``, which starts, parks and stops them.
 @MainActor
 @Observable
 final class NativeTileRuntime: NSObject {
@@ -21,6 +26,10 @@ final class NativeTileRuntime: NSObject {
     let tile: TileInfo
     let store: TreeStore
     let webView: WKWebView
+    /// The widget tree as the renderer draws it (a card's view).
+    let widgetModel: XbinTreeModel
+    /// The card size the widget is drawn at (the runtime is told).
+    private(set) var widgetSize: CardSize
     var lifecycle = NativeTileLifecycle()
     var title: String?
     var shareItems: [Any]?
@@ -29,21 +38,34 @@ final class NativeTileRuntime: NSObject {
     let hatches: TileHatches
 
     @ObservationIgnored var onFallback: ((String) -> Void)?
-    /// Stopped (its page unregistered, its handlers gone): `resume` undoes it.
+    /// Stopped for good (its page unregistered, its handlers gone).
     @ObservationIgnored private(set) var stopped = false
-    private let caps: NativeCaps
+    @ObservationIgnored private var caps: NativeCaps
+    @ObservationIgnored private let widgets: WidgetCache
     @ObservationIgnored private var storeObservation: TreeStoreObservation?
+    @ObservationIgnored private var widgetObservation: TreeStoreObservation?
     @ObservationIgnored private var timeout: Task<Void, Never>?
+    @ObservationIgnored private var widgetProbe: Task<Void, Never>?
+    @ObservationIgnored private var widgetRemounts = 3
     @ObservationIgnored private var limits = SpawnLimits()
+    @ObservationIgnored private var visible: Bool?
 
-    init(workspace: WorkspaceModel, tile: TileInfo) {
+    /// How long after the tile's first mount a runtime that sent no widget
+    /// counts as one without (its cards then stay standard for a day).
+    static let widgetGrace: Duration = .seconds(3)
+
+    init(workspace: WorkspaceModel, tile: TileInfo, widgetSize: CardSize, widgets: WidgetCache) {
         self.workspace = workspace
         self.tile = tile
+        self.widgetSize = widgetSize
+        self.widgets = widgets
         let saved = NativeStateFile.load(workspace: workspace.id, tile: tile.path)
         store = TreeStore(savedState: saved)
+        // (Every TreeStore made with init(savedState:) has a widget store.)
+        widgetModel = XbinTreeModel(store: store.widget ?? TreeStore())
         hatches = TileHatches(workspace: workspace, tile: tile)
         let config = WebTileController.configuration(for: workspace, bridge: false)
-        let caps = XbinVocabulary.caps(app: AppInfo.version, renderer: "ios")
+        let caps = XbinVocabulary.caps(app: AppInfo.version, renderer: "ios").withWidget(size: widgetSize)
         self.caps = caps
         Self.install(RuntimeScript.startScripts(caps: caps, state: saved), in: config.userContentController)
         config.preferences.inactiveSchedulingPolicy = .none
@@ -58,10 +80,15 @@ final class NativeTileRuntime: NSObject {
         #if DEBUG
         webView.isInspectable = true
         #endif
+        webView.accessibilityElementsHidden = true
         workspace.schemeHandler.register(webView, tile: tile.path)
         storeObservation = store.observe { [weak self] event in
             MainActor.assumeIsolated { self?.handle(event) }
         }
+        widgetObservation = store.widget?.observe { [weak self] event in
+            MainActor.assumeIsolated { self?.handleWidget(event) }
+        }
+        widgetModel.send = { [weak self] call in self?.call(call) }
     }
 
     func start() {
@@ -88,10 +115,12 @@ final class NativeTileRuntime: NSObject {
         }
     }
 
+    /// The end (the pool evicted it, it failed, the workspace signed out).
     func stop() {
         guard !stopped else { return }
         stopped = true
         timeout?.cancel()
+        widgetProbe?.cancel()
         hatches.stopAll()
         workspace.schemeHandler.unregister(webView)
         let ucc = webView.configuration.userContentController
@@ -100,24 +129,15 @@ final class NativeTileRuntime: NSObject {
         webView.stopLoading()
     }
 
-    /// The screen is back after a `stop` that wasn't its end: the runtime
-    /// document is registered and wired again and starts afresh.
-    func resume() {
-        guard stopped else { return }
-        stopped = false
-        workspace.schemeHandler.register(webView, tile: tile.path)
-        let ucc = webView.configuration.userContentController
-        ucc.add(WeakScriptHandler(self), contentWorld: .page, name: "xbn")
-        ucc.add(WeakScriptHandler(self), contentWorld: .page, name: TileBridge.handlerName)
-        reload()
-    }
-
     /// Reloads the runtime (the Reload menu, live reload, a grant change),
     /// with the state the tile saved last — not the one this screen opened
     /// with, or the tile's next save would overwrite the newer one.
     func reload() {
         guard !stopped else { return }
         store.reset()
+        widgetProbe?.cancel()
+        widgetProbe = nil
+        widgetRemounts = 3
         lifecycle = NativeTileLifecycle()
         hatches.reloadPages()
         Self.install(RuntimeScript.startScripts(caps: caps, state: store.savedState), in: webView.configuration.userContentController)
@@ -138,8 +158,19 @@ final class NativeTileRuntime: NSObject {
     }
 
     func setVisible(_ on: Bool) {
+        guard visible != on, !stopped else { return }
+        visible = on
         webView.configuration.preferences.inactiveSchedulingPolicy = on ? .none : .throttle
         call(.visibility(on ? .visible : .hidden))
+    }
+
+    /// The card showing the widget is `size` now: the runtime draws for it
+    /// (and a reload starts with it).
+    func setWidgetSize(_ size: CardSize) {
+        guard size != widgetSize else { return }
+        widgetSize = size
+        caps.widgetSize = size
+        call(.widgetSize(size))
     }
 
     // MARK: Runtime → app
@@ -149,6 +180,7 @@ final class NativeTileRuntime: NSObject {
         case .tree:
             lifecycle.mounted()
             hatches.prune(store.tree)
+            probeWidget()
         case .meta:
             title = store.meta.title
             workspace.tileMeta.set(tile.path, store.meta)
@@ -161,6 +193,49 @@ final class NativeTileRuntime: NSObject {
         default:
             break
         }
+    }
+
+    /// The widget tree changed: keep it for the card when the runtime
+    /// isn't live; a patch that didn't apply asks for the whole tree again
+    /// (a few times — a runtime that keeps sending bad widget trees gets
+    /// the cached card).
+    private func handleWidget(_ event: TreeStoreEvent) {
+        guard let widget = store.widget else { return }
+        switch event {
+        case .tree:
+            if let root = widget.tree.root { widgets.record(tile.path, root: root, version: widget.version ?? 1, size: widgetSize) }
+        case .failed(let f):
+            print("xbin native \(tile.path) widget: \(f)")
+            guard widgetRemounts > 0 else { return }
+            widgetRemounts -= 1
+            call(.remount(.widget))
+        default:
+            break
+        }
+    }
+
+    /// After the tile's first mount: a runtime that sends no widget soon
+    /// after is one without (cards stop starting it for a while).
+    private func probeWidget() {
+        guard widgetProbe == nil, store.widget?.isMounted == false else { return }
+        widgetProbe = Task { [weak self] in
+            try? await Task.sleep(for: Self.widgetGrace)
+            guard let self, !Task.isCancelled, !self.stopped, self.store.widget?.isMounted == false else { return }
+            self.widgets.noteNoWidget(self.tile.path)
+        }
+    }
+
+    /// What a widget's controls may ask of the app: the clipboard and the
+    /// tile's images — no terminals, canvases or attachments on a card.
+    var widgetServices: XbinServices {
+        let imageData: @MainActor (String) async throws -> Data = { [weak self] src in
+            guard let self else { throw URLError(.cancelled) }
+            let r = try await self.tileFile(src)
+            guard r.isSuccess else { throw APIError(r) }
+            return r.body
+        }
+        let copy: @MainActor (String) -> Void = { UIPasteboard.general.string = $0 }
+        return XbinServices(copy: copy, imageData: imageData)
     }
 
     private func perform(_ c: BridgeCall) {
@@ -312,9 +387,10 @@ extension NativeTileRuntime: WKNavigationDelegate, WKScriptMessageHandler {
     }
 }
 
-/// The screen of a native tile: the renderer over the runtime's tree, the
-/// hidden runtime document kept in the view hierarchy (so WebKit keeps its
-/// timers running while the tile is on screen).
+/// The screen of a native tile: the renderer over the runtime's tree. The
+/// runtime comes from ``NativeRuntimePool`` — warm when the tile's widget
+/// ran it, kept warm after the screen goes — which parks its hidden
+/// document in the window (so WebKit keeps its timers running).
 struct NativeTileScreen: View {
     let workspace: WorkspaceModel
     let tile: TileInfo
@@ -322,14 +398,12 @@ struct NativeTileScreen: View {
 
     @Environment(WorkspaceNav.self) private var nav
     @State private var runtime: NativeTileRuntime?
+    /// This screen's claim on the runtime (the pool pins it while held).
+    @State private var claim: UUID?
 
     var body: some View {
         ZStack {
             if let rt = runtime {
-                WebViewHost(webView: rt.webView)
-                    .frame(width: 1, height: 1)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
                 if rt.lifecycle.phase == .live {
                     XbinTreeView(store: rt.store, send: { rt.call($0) }, services: rt.services)
                         .modifier(AttachPickers(picker: rt.hatches.attach.picker))
@@ -352,23 +426,28 @@ struct NativeTileScreen: View {
             }
         }
         .onAppear {
-            if runtime == nil {
-                let rt = NativeTileRuntime(workspace: workspace, tile: tile)
-                rt.onFallback = fallBack
-                rt.hatches.nav = nav // canvas islands push onto this window (Navigation.swift)
-                runtime = rt
-                rt.start()
-            } else {
-                runtime?.resume() // (after a stop that wasn't the end: start afresh)
+            let pool = NativeRuntimePool.shared
+            if let rt = runtime, !rt.stopped, claim != nil {
+                rt.setVisible(true) // back from under a window it pushed
+                return
             }
-            runtime?.setVisible(true)
+            if let id = claim { pool.close(workspace, tile.path, screen: id) }
+            let id = UUID()
+            let rt = pool.open(workspace, tile, screen: id, fallBack: fallBack)
+            rt.hatches.nav = nav // canvas islands push onto this window (Navigation.swift)
+            claim = id
+            runtime = rt
         }
         .onDisappear {
-            runtime?.setVisible(false)
             // Covered by a window this tile pushed (an island's
             // xbin.window): it shows again on the pop, islands and all —
-            // keep it. Gone: end it.
-            if !nav.stillStacked(window: nil) { runtime?.stop() }
+            // keep the claim. Gone: let the pool have it.
+            if nav.stillStacked(window: nil) {
+                runtime?.setVisible(false)
+            } else if let id = claim {
+                NativeRuntimePool.shared.close(workspace, tile.path, screen: id)
+                claim = nil
+            }
         }
         // Live reload (§7.7): the tile's source changed — remount.
         .task(id: tile.path) { await workspace.events.onReload(of: tile.path) { runtime?.reload() } }

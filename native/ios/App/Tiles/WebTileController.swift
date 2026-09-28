@@ -28,9 +28,16 @@ final class WebTileController: NSObject {
     let workspace: WorkspaceModel
     let tile: String
     let canOpenLinks: Bool
+    /// Trusted chrome (§6.3): the page on the workspace's own origin, as
+    /// the user — signed in by a web ticket redeemed in this view, with a
+    /// cookie store of its own — never under a frame token.
+    let chrome: Bool
     let webView: WKWebView
 
     var progress: Double = 0
+    /// The page has its own history to go back in (the bar's page-back:
+    /// the edge swipes are the panels').
+    var canGoBack = false
     var isLoading = true
     var loadError: String?
     var pageTitle: String = ""
@@ -59,20 +66,38 @@ final class WebTileController: NSObject {
                   url: TileScheme.pageURL(workspace: workspace.id, tile: tile, subpath: subpath, query: query, fragment: fragment))
     }
 
+    /// A chrome tile's page (§6.3): `/c/<tile>/[sub]` on the workspace's
+    /// origin, reached through a web ticket (WorkspaceModel.chromeURL).
+    convenience init(chromeTile tile: TileInfo, workspace: WorkspaceModel, subpath: String = "") {
+        let sub = WindowSpec.stripTraversal(subpath)
+        var path = "/c/\(URLComponent.encodePath(tile.path))/"
+        if !sub.isEmpty { path += URLComponent.encodePath(sub) + (subpath.hasSuffix("/") ? "/" : "") }
+        self.init(workspace: workspace, tile: tile.path, canOpenLinks: true, url: nil, chromePath: path)
+    }
+
+    @ObservationIgnored private var chromePath: String?
+
     /// A page of `tile` by its scheme URL. An `island` (a native tile's
     /// `canvas src`, TileHatches) sits inside a native screen: no pull to
-    /// refresh, no back/forward swipes.
-    init(workspace: WorkspaceModel, tile: String, canOpenLinks: Bool, url: URL?, island: Bool = false) {
+    /// refresh. No page swipes back and forward anywhere: the edges are the
+    /// window's panels' (PanelStack); a page with history gets a page-back
+    /// item in the bar instead.
+    init(workspace: WorkspaceModel, tile: String, canOpenLinks: Bool, url: URL?, island: Bool = false, chromePath: String? = nil) {
         self.workspace = workspace
         self.tile = tile
         self.canOpenLinks = canOpenLinks
+        chrome = chromePath != nil
+        self.chromePath = chromePath
         initialURL = url
-        webView = WKWebView(frame: .zero, configuration: Self.configuration(for: workspace, bridge: true))
+        webView = WKWebView(frame: .zero, configuration: Self.configuration(for: workspace, bridge: chromePath == nil,
+                                                                            chrome: chromePath != nil))
         super.init()
-        webView.configuration.userContentController.add(WeakScriptHandler(self), contentWorld: .page, name: TileBridge.handlerName)
+        if !chrome {
+            webView.configuration.userContentController.add(WeakScriptHandler(self), contentWorld: .page, name: TileBridge.handlerName)
+        }
         webView.navigationDelegate = self
         webView.uiDelegate = self
-        webView.allowsBackForwardNavigationGestures = !island
+        webView.allowsBackForwardNavigationGestures = false
         webView.customUserAgent = nil
         #if DEBUG
         webView.isInspectable = true
@@ -82,7 +107,7 @@ final class WebTileController: NSObject {
             refresh.addTarget(self, action: #selector(pulled(_:)), for: .valueChanged)
             webView.scrollView.refreshControl = refresh
         }
-        workspace.schemeHandler.register(webView, tile: tile)
+        if !chrome { workspace.schemeHandler.register(webView, tile: tile) }
         observations = [
             webView.observe(\.estimatedProgress) { [weak self] wv, _ in
                 MainActor.assumeIsolated { self?.progress = wv.estimatedProgress }
@@ -93,18 +118,30 @@ final class WebTileController: NSObject {
             webView.observe(\.underPageBackgroundColor) { [weak self] wv, _ in
                 MainActor.assumeIsolated { self?.pageBackground = wv.underPageBackgroundColor }
             },
+            webView.observe(\.canGoBack) { [weak self] _, _ in
+                MainActor.assumeIsolated { self?.updateCanGoBack() }
+            },
         ]
     }
+
+    /// Whether the page can go back — not onto the used sign-in link a
+    /// chrome page came through.
+    private func updateCanGoBack() {
+        let back = webView.backForwardList.backItem?.url
+        canGoBack = webView.canGoBack && !(chrome && (back?.path.hasPrefix("/login") ?? false))
+    }
+
+    func goBack() { webView.goBack() }
 
     /// A configuration for this workspace: its data store (§4), its scheme
     /// handler (§6.1), and — for tile pages — the bridge script (§6.2) and
     /// the viewport a desktop-first page lacks (§6.3, XbinCore's
     /// TileViewport: the device's width, or the page's own width fitted to
     /// the screen; a page with a viewport of its own is left alone).
-    static func configuration(for ws: WorkspaceModel, bridge: Bool) -> WKWebViewConfiguration {
+    static func configuration(for ws: WorkspaceModel, bridge: Bool, chrome: Bool = false) -> WKWebViewConfiguration {
         let c = WKWebViewConfiguration()
-        c.websiteDataStore = ws.dataStore
-        c.setURLSchemeHandler(ws.schemeHandler, forURLScheme: TileScheme.scheme)
+        c.websiteDataStore = chrome ? ws.chromeDataStore : ws.dataStore
+        if !chrome { c.setURLSchemeHandler(ws.schemeHandler, forURLScheme: TileScheme.scheme) }
         c.allowsInlineMediaPlayback = true
         c.preferences.javaScriptCanOpenWindowsAutomatically = false
         c.defaultWebpagePreferences.preferredContentMode = .mobile
@@ -112,6 +149,8 @@ final class WebTileController: NSObject {
         if bridge {
             ucc.addUserScript(WKUserScript(source: TileBridge.userScript, injectionTime: .atDocumentStart,
                                            forMainFrameOnly: true, in: .page))
+        }
+        if bridge || chrome {
             ucc.addUserScript(WKUserScript(source: TileViewport.userScript, injectionTime: .atDocumentStart,
                                            forMainFrameOnly: true, in: .world(name: TileViewport.contentWorld)))
         }
@@ -120,8 +159,15 @@ final class WebTileController: NSObject {
     }
 
     func load() {
-        guard let u = initialURL else { loadError = "Bad tile path"; return }
         loadError = nil
+        if let chromePath {
+            Task {
+                guard let u = await workspace.chromeURL(path: chromePath) else { loadError = "Bad tile path"; return }
+                webView.load(URLRequest(url: u))
+            }
+            return
+        }
+        guard let u = initialURL else { loadError = "Bad tile path"; return }
         webView.load(URLRequest(url: u))
     }
 
@@ -141,8 +187,10 @@ final class WebTileController: NSObject {
     func close() {
         guard !closed else { return }
         closed = true
-        workspace.schemeHandler.unregister(webView)
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: TileBridge.handlerName, contentWorld: .page)
+        if !chrome {
+            workspace.schemeHandler.unregister(webView)
+            webView.configuration.userContentController.removeScriptMessageHandler(forName: TileBridge.handlerName, contentWorld: .page)
+        }
         webView.stopLoading()
     }
 
@@ -151,8 +199,10 @@ final class WebTileController: NSObject {
     func reopen() {
         guard closed else { return }
         closed = false
-        workspace.schemeHandler.register(webView, tile: tile)
-        webView.configuration.userContentController.add(WeakScriptHandler(self), contentWorld: .page, name: TileBridge.handlerName)
+        if !chrome {
+            workspace.schemeHandler.register(webView, tile: tile)
+            webView.configuration.userContentController.add(WeakScriptHandler(self), contentWorld: .page, name: TileBridge.handlerName)
+        }
         load()
     }
 
@@ -164,9 +214,6 @@ final class WebTileController: NSObject {
         if let t = backgroundedAt, Date().timeIntervalSince(t) > 14 * 60 { reload() }
         backgroundedAt = nil
     }
-
-    /// The page on the server, for Safari.
-    var safariURL: URL? { workspace.origin.url(path: "/c/\(URLComponent.encodePath(tile))/") }
 
     // MARK: Bridge replies
 
@@ -227,6 +274,7 @@ extension WebTileController: WKNavigationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         isLoading = false
         loadError = nil
+        updateCanGoBack()
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
@@ -243,12 +291,14 @@ extension WebTileController: WKNavigationDelegate, WKUIDelegate {
         loadError = "The page stopped (its web process ended)."
     }
 
-    /// Navigation stays on this workspace's scheme; a link elsewhere opens
-    /// in Safari only with cap:open-links (ND11), as the browser sandbox allows.
+    /// Navigation stays on this workspace's scheme (a chrome page: on the
+    /// workspace's own origin); a link elsewhere opens in the browser only
+    /// with cap:open-links (ND11), as the browser sandbox allows.
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
         guard let url = navigationAction.request.url else { return .cancel }
+        if chrome, TileScheme.allowsRedirect(to: url, origin: workspace.origin) { return .allow }
         if url.scheme?.lowercased() == TileScheme.scheme {
-            return url.host?.lowercased() == workspace.id ? .allow : .cancel
+            return !chrome && url.host?.lowercased() == workspace.id ? .allow : .cancel
         }
         if url.scheme == "about" || url.scheme == "blob" || url.scheme == "data" { return .allow }
         if navigationAction.targetFrame?.isMainFrame == false { return .allow } // iframes load what they load
@@ -274,7 +324,7 @@ extension WebTileController: WKNavigationDelegate, WKUIDelegate {
         download.delegate = self
     }
 
-    /// `window.open` / `target=_blank`: Safari, only with cap:open-links.
+    /// `window.open` / `target=_blank`: the browser, only with cap:open-links.
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
         if canOpenLinks, let url = navigationAction.request.url, ["http", "https"].contains(url.scheme ?? "") {

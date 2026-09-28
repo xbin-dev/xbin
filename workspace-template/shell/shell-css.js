@@ -6,8 +6,9 @@
 // element (bx-side, bx-screens, bx-canvas, bx-toasts) its section moves
 // with it; until then everything lives here, synchronous — never a <link>.
 import { css } from 'lit';
+import { scrollCss } from '/vendor/scroll-css.js';
 
-export const shellCss = css`
+export const shellCss = [scrollCss, css`
     :host {
       display: flex; flex-direction: column; height: 100vh;
       background: var(--bx-bg, #1b1e24);
@@ -277,7 +278,7 @@ export const shellCss = css`
         resize: none; border-radius: 12px 12px 0 0; border: 0;
       }
     }
-`;
+`];
 
 // The ⇄ change-proposal badge: sidebar rows (the shell) and card heads (bx-canvas).
 export const prbCss = css`
@@ -293,7 +294,7 @@ export const prbCss = css`
 
 // bx-canvas: the snappable grid, its cards, the floating windows — and their
 // mobile shape (stacked cards, full-screen sheets).
-export const canvasCss = css`
+export const canvasCss = [scrollCss, css`
     :host { display: block; }
     /* view mode of a shared screen: no grab cursor, no resize handles */
     .canvas.ro .card .head { cursor: default; }
@@ -411,7 +412,7 @@ export const canvasCss = css`
         resize: none !important; border-radius: 0; border: 0;
       }
     }
-`;
+`];
 
 // Status levels: the colour token, the dot and its breathe — sidebar rows
 // (bx-side) and screen tabs (the shell) both carry them.
@@ -430,7 +431,7 @@ export const statusCss = css`
 `;
 
 // bx-side: the sidebar's tree, filter, folders, footers — and its mobile rows.
-export const sideCss = css`
+export const sideCss = [scrollCss, css`
     :host { display: flex; flex-direction: column; background: var(--bx-panel, #23272e); padding: 4px 0 0; overflow: hidden; }
     .root { display: flex; flex-direction: column; flex: 1; min-height: 0; }
     .side-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-bottom: 12px; }
@@ -584,4 +585,4 @@ export const sideCss = css`
       /* rows: tap-sized, long-press opens the tile menu (no callout/selection) */
       .item { padding: 7px 12px 7px 16px; -webkit-touch-callout: none; user-select: none; }
     }
-`;
+`];

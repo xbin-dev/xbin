@@ -880,7 +880,7 @@ are shells as you on this box, and `mac-remote.sh` says so. On the Mac,
 `XbinUITests` runs on `xbin-e2e` (`XBIN_SIM_ENSURE=<name>` for a simulator
 of your own), erased first. `XbinE2ETests`: sign in by Log in → Enter
 workspace address → the password (discovery, enrollment and device login
-on every run), open the web tile `apps/welcome` (its 13 px heading
+on every run), open the web tile `apps/welcome` from Home's search (its 13 px heading
 readable at 1:1), open the native counter and tap +1 (checked on the
 server and in the row), type into a terminal on `apps/welcome` (its
 output — an OSC title only the shell's arithmetic makes — must reach the
@@ -893,6 +893,22 @@ docked at the bottom with no software keyboard (test07). A headless
 simulator can't attach a hardware keyboard — XCUITest always brings the
 software one up — so test07 launches the app with `-XbinNoSoftKeyboard
 YES` (Debug builds: the terminal gets an empty input view).
+`XbinScreensTests` (D125) seed the account's `layout` pref as the web
+shell writes it (one screen, `E2E screen`, of three tiles) and clear its
+`mobile-screens`, then: Home → the screen's cards → a tile, a left-edge
+swipe back and a right-edge one forward (`E2E.edgeSwipe`: a press at the
+edge, dragged, held a moment), a short slow one only peeks; Edit reorders
+(the row's reorder handle dragged), makes a card wide and hides one, Done
+writes the pref and a relaunch shows it so; + Create tile → the build
+chooser → the fake agent answers its prompt in the new tile; a chrome tile
+(`tiles/organisations`) in the app's web view through the web ticket's
+"Continue as" page; the terminal's keyboard follows a drag down
+(`keyboardDismissMode`); the switcher's "Used recently"; and `test09Gallery`
+shoots Home, a screen, edit mode, the create sheet and the chooser, light
+and dark (`gallery-<light|dark>-NN-<screen>.png`). The tests find panels by
+the bar's identifiers (`panel-back`, `panel-home`), screens by
+`screen:<id>`, cards by `card:<path>`; a panel not in front is hidden from
+accessibility, its web view and terminal included.
 `XbinOnboardingTests` launch the app as a fresh install (Debug builds'
 `-XbinFreshStart YES`: no workspace, the saved list untouched): the
 Welcome's levels and the help, Run your own xbin, address → methods →

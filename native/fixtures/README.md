@@ -58,6 +58,7 @@ in some `expected.json` — or when this README's index misses a fixture.
 | `dialog` | what `xbin.dialog()` resolves to |
 | `caps` | the app's caps (default: the full vocabulary) — to test an older app |
 | `state` | the blob the app kept (`xbin.native.state`, default `null`) |
+| `widget` | `"small"` / `"wide"`: the fixture is the tile's **widget** tree (native/spec/tree.md §13), rendered by an app that shows widgets at that size class — `expected.json` holds the widget tree, which renderers draw as a card of that size |
 | `interactions` | the script, below |
 | `allowDiagnostics` | diagnostic codes this fixture expects (e.g. `["duplicate-key"]`) |
 
@@ -94,7 +95,12 @@ final tree is taken after the last.
     subscribers and `xbin.events.on` listeners, e.g.
     `["res:apps/mail/bus/inbox/new", {…}]`;
   - `visibility`: `"hidden"` / `"visible"` (`document.visibilityState`);
-  - `resolve`: `[callId, value]` answers an `xbin.native` call by hand.
+  - `resolve`: `[callId, value]` answers an `xbin.native` call by hand;
+  - `widgetSize`: `"small"` / `"wide"` — the app shows the widget at another
+    size class.
+
+  An event with `"target": "widget"` is on the widget tree (its `k`/`select`
+  name a widget node).
 
 **Selectors** name a node without its key, CSS-style:
 `tag[prop=value][prop*=part]`, `*` for any tag, `[k=r.0.1]` for a key,
@@ -177,6 +183,8 @@ the fixtures, `expected.json` and the renderers in one change
 | `tile-webhooks` | the shipped `builtin-tiles/webhooks/native.js` (§18.5): a `fragment` of a `nav` and the reveal-once secret `sheet`; a hook's detail screen rotates its secret |
 | `tile-devbox` | a frozen copy of the retired devbox tile's `native.js` (§18.6): `tabs` with a lazily materialized keys tab, the toolbar's Add sheet, swipe actions with confirm, pull to refresh |
 | `tile-prometheus-viewer` | the shipped `builtin-tiles/prometheus-viewer/native.js` (§18.7, with the page's `prom.js`): two sources after three scrapes — disclosures per metric, rates, sparklines, a failing source |
+| `widget-counter` | a **widget** (`"widget": "small"`): the shipped counter's card — the count and a `+1` tapped on the card itself |
+| `widget-wide` | a **widget** (`"widget": "wide"`): a deploy pipeline's card using every widget primitive — row, progress, icon, text, badge, a spark `chart` shown only when wide, a button — after Promote from the card |
 | `tile-chat` | the shipped `builtin-tiles/chat/native.js` (§18.8, with the page's `chat-core.js`): a question answered with an MCP tool call — the toolcard, timed thinking, streamed markdown |
 
 The `tile-*` fixtures import the shipped tile's `native.js` instead of holding

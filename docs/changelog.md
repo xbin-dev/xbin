@@ -64,6 +64,60 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `bx doctor` lists it. Approvals live in `data/users.json`, and a non-admin
   can't create a tile at an approved path.
 
+- **xbin app: screens you swipe between** (D125, [native.md](native.md)).
+  After sign-in the app opens on **Home**, your screens by Mine / each org /
+  Workspace inside their folders; a screen shows its tiles as cards in two
+  columns; a tile opens on the right. Swipe from the left edge to go back
+  (let go early to just peek), from the right edge to go forward again.
+  **Edit** on a screen reorders, resizes (small/wide) and hides cards for
+  this phone — kept per user in the `mobile-screens` pref, never in the web
+  layout — adds tiles, and **creates** one: name it, and it opens asking
+  what it should be (a prompt for an agent, or a terminal). The top bar
+  starts with the workspace switcher (⇄); the switcher's list reads "Used
+  recently". Dragging down into the terminal's keyboard hides it. "Open in
+  Safari" is gone: web tiles open in the app, and chrome tiles (the admin
+  console) open in an in-app web view, signed in.
+- **Native tiles: a widget for the app's screens** (D125,
+  [native.md](native.md) §Widgets, `native/spec/tree.md` §13). `import {
+  widget } from '/vendor/xb-native.js'` renders a second, small tree — the
+  tile's card, `small` or `wide` (`native.widgetSize`, `native.on
+  ('widgetsize', …)`), with stack, text, icon, badge, chart, progress,
+  button and row; taps on its buttons reach the tile, taps elsewhere open
+  it. Only an app that asks gets widget trees. A tile that sends none
+  within 3 s of its first render gets the standard card. `bx native tree
+  --widget`, `bx preview --native --widget` and `bx lint --native` cover
+  it; the counter example has one.
+- **Prefs: no lost writes, and clients hear each other** (D125,
+  [protocol.md](protocol.md)). Writes to one user's prefs bucket are
+  serialized (two keys written at once could lose one), and every write
+  publishes a `prefs` event `{component, key, writer}` to that user's own
+  clients (`X-Prefs-Writer` names the writer). The shell follows a layout
+  another client wrote — the app's new screen, say — without a reload
+  (existing workspaces: `bx builtin update scaffold:shell`).
+
+- **Thin themed scrollbars, and the one you're about to scroll is tinted**
+  (D123). On a mouse or trackpad every scrollbar in the shell, its pop-ups and
+  terminals, and any document that links `/vendor/theme.css` is a 6px bar with
+  a 3px thumb that fattens under the pointer. The scroller the next wheel or
+  key would move — the innermost one under the mouse, the outer one once the
+  inner has reached its end, the focused element's — gets an amber thumb, one
+  per screen, across the shell and tile documents. Touch devices keep their
+  native bars. For your own shadow roots: `import { scrollCss } from
+  '/vendor/scroll-css.js'` into `static styles` (or `scrollCssText` from
+  `/vendor/bx-scroll.js`); `<meta name="xbin-scroll-focus" content="off">`
+  keeps the tracker out of a document that links the theme
+  ([frontend-kit.md](frontend-kit.md)). A framed document's tracker tells its
+  embedder `xbin:scroll-focus` when the pointer arrives
+  ([protocol.md](protocol.md) §Tile ↔ shell messaging).
+
+- **Long agent conversations stay quick** (D124). The Agent tab no longer
+  re-renders the whole transcript on every update: it folds the event log as
+  it arrives, paints at most once a frame, keeps the recent part on the page
+  and loads earlier entries as you scroll up, without moving what you are
+  reading (an "earlier entries" row loads the rest at once). A long replay —
+  a reload, a resumed or past session — opens at the bottom right away.
+  Folded tool cards, file diffs and thoughts render when opened.
+
 - **xbin app: plain http works to any address** — a tailnet IP, a LAN
   address, an unqualified name. The app's Info.plist also allowed "local
   networking", and iOS then ignores its allow-any rule, so a phone got

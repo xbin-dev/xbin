@@ -39,6 +39,8 @@ struct ButtonNodeView: View {
     @Environment(\.xbin) private var cx
     @Environment(\.xbinPlacement) private var placement
     @Environment(\.xbinConfirm) private var confirm
+    @Environment(\.xbinCompact) private var compact
+    @Environment(\.xbinInHStack) private var inHStack
     @State private var copied = false
 
     var body: some View {
@@ -47,11 +49,14 @@ struct ButtonNodeView: View {
         let busy = p.bool("busy")
         let text = copied ? "Copied" : (p.string("label") ?? "")
         let symbol = copied ? XbinIcons.UI.checkmark : XbinIcons.symbol(p.string("icon"))
-        let fill = placement == .free || placement == .dock
+        // On a widget's card a button beside other things keeps its size
+        // (one line, not filling), and labels never wrap.
+        let hugs = compact != nil && inHStack
+        let fill = (placement == .free || placement == .dock) && !hugs
         let iconOnly = (placement == .toolbar || placement == .inlineActions) && symbol != nil
         // Bars and chip rows keep a label on one line; elsewhere it wraps
         // (a long label at a large text size), as the reference's does.
-        let oneLine = placement == .toolbar || placement == .chips || placement == .inlineActions
+        let oneLine = placement == .toolbar || placement == .chips || placement == .inlineActions || compact != nil
         let destructive = role == "destructive"
         let button = Button(role: destructive ? .destructive : nil) {
             ButtonPress.press(node, cx: cx, confirm: confirm) { flashCopied() }
@@ -66,11 +71,16 @@ struct ButtonNodeView: View {
         let danger = DangerTint(on: destructive)
         switch placement {
         case .free, .dock:
-            switch role ?? "" {
-            case "primary": button.buttonStyle(.borderedProminent).controlSize(.large).foregroundStyle(XbinColor.onTint)
-            case "plain": button.buttonStyle(.borderless)
-            default: button.buttonStyle(.bordered).controlSize(.large).modifier(danger)
+            // A widget's card is small: regular controls there.
+            let size: ControlSize = compact == nil ? .large : .regular
+            Group {
+                switch role ?? "" {
+                case "primary": button.buttonStyle(.borderedProminent).controlSize(size).foregroundStyle(XbinColor.onTint)
+                case "plain": button.buttonStyle(.borderless)
+                default: button.buttonStyle(.bordered).controlSize(size).modifier(danger)
+                }
             }
+            .fixedSize(horizontal: hugs, vertical: false)
         case .list:
             button
         case .chips:

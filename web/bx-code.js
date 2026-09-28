@@ -12,6 +12,7 @@
  * (admin or a code:<tile> grant), matching the admin console's code viewer.
  */
 import { LitElement, html, css, nothing } from 'lit';
+import { scrollCss } from '/vendor/scroll-css.js';
 import { unsafeHTML } from 'lit';
 import hljs from '/vendor/highlight.min.js';
 import { onEvent } from '/vendor/events-socket.js';
@@ -118,7 +119,7 @@ export class BxCode extends LitElement {
     _q: { state: true },       // file filter
   };
 
-  static styles = css`
+  static styles = [scrollCss, css`
     :host { display: flex; height: 100%; min-height: 0; font: 12px/1.5 var(--bx-mono, ui-monospace, monospace);
       color: var(--bx-text, #d4d9e0); background: var(--bx-panel, #23272e); }
     .side { width: 210px; flex: none; display: flex; flex-direction: column; border-right: 1px solid var(--bx-border, #363c45); min-height: 0; }
@@ -195,7 +196,7 @@ export class BxCode extends LitElement {
     .hljs-attr, .hljs-attribute, .hljs-symbol, .hljs-bullet, .hljs-meta { color: #56b6c2; }
     .hljs-built_in, .hljs-selector-class, .hljs-selector-id { color: #e5c07b; }
     .hljs-emphasis { font-style: italic; } .hljs-strong { font-weight: 700; }
-  `;
+  `];
 
   constructor() {
     super();

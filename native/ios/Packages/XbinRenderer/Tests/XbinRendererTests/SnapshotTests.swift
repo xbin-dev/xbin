@@ -1,6 +1,7 @@
 // Snapshots of every fixture (plans/native.md §17, native/AGENTS.md): each
 // native/fixtures/<name>/expected.json drawn by XbinTreeView at 390×844
-// points, scale 2, light and dark, at three Dynamic Type sizes — default
+// points (a widget fixture — data.json `widget` — as its card on a 390-point
+// strip of a phone screen, compact, D125), scale 2, light and dark, at three Dynamic Type sizes — default
 // (Large), large (xxxLarge, the size the reference renderer's "large"
 // screenshots use, so the two compare like for like) and ax2
 // (accessibility2, the overflow test) — written as
@@ -74,12 +75,23 @@ import XbinRendererModel
                 let services = XbinServices(attach: { _ in [] })
                 // en_US, as shots.mjs pins the reference's browser (the
                 // time zone is the process's, above).
-                let view = XbinTreeView(store: store, send: { _ in }, services: services,
-                                        options: XbinRenderOptions(inlineSheets: true))
+                // A widget fixture (data.json `widget`) is a card on a strip
+                // of a phone screen, where the grid puts it: one column of
+                // two, or both.
+                let widget = try XbinFixtures.widgetSize(name, in: set)
+                let view = Group {
+                    if let widget {
+                        WidgetStrip(store: store, size: widget)
+                    } else {
+                        XbinTreeView(store: store, send: { _ in }, services: services,
+                                     options: XbinRenderOptions(inlineSheets: true))
+                    }
+                }
                     .environment(\.locale, Locale(identifier: "en_US"))
                     .environment(\.colorScheme, scheme)
                     .environment(\.dynamicTypeSize, type)
-                let png = Snapshot.png(of: view, size: Self.size, scale: Self.scale, scheme: scheme, type: type)
+                let size = widget == nil ? Self.size : WidgetStrip.size
+                let png = Snapshot.png(of: view, size: size, scale: Self.scale, scheme: scheme, type: type)
                 #expect(png != nil, "\(name) \(schemeTag) \(typeTag) rendered nothing")
                 if let out, let png {
                     try png.write(to: out.appendingPathComponent("\(name)-\(schemeTag)-\(typeTag).png"))
@@ -100,6 +112,26 @@ import XbinRendererModel
             DiffView(diff: ChatDiff(files: [.init(path: "a.go", added: 2, removed: 1)], patch: "@@ -1 +1 @@\n-a\n+b\n"))
         }
         #expect(Snapshot.png(of: view, size: Self.size, scale: 1, scheme: .light, type: .large) != nil)
+    }
+}
+
+/// A widget fixture as a phone screen shows it: the card at its size in a
+/// 390-point-wide strip of the screen's background, with the screen's
+/// margins around it.
+@MainActor
+struct WidgetStrip: View {
+    static let size = CGSize(width: 390, height: XbinWidgetMetrics.cardHeight + 2 * XbinWidgetMetrics.margin)
+    let store: TreeStore
+    let size: CardSize
+
+    var body: some View {
+        let width = XbinWidgetMetrics.cardWidth(size, screenWidth: Self.size.width)
+        XbinTreeView(store: store, send: { _ in }, options: XbinRenderOptions(compact: size))
+            .xbinWidgetCard()
+            .frame(width: width)
+            .padding(XbinWidgetMetrics.margin)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(XbinColor.background)
     }
 }
 

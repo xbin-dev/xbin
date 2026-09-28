@@ -23,6 +23,8 @@
  * xterm's stylesheet linked so it works anywhere.
  */
 
+import { scrollCssText } from '/vendor/bx-scroll.js';
+
 // Same loader as bx-terminal: the tag is shared by id, so wait for ITS load
 // rather than resolving because it already exists (the terminal and this
 // view mount together when logs open first).
@@ -74,6 +76,7 @@ export class BxLogs extends HTMLElement {
       root.innerHTML =
         `<link rel="stylesheet" href="/vendor/xterm.css">` +
         `<style>
+          ${scrollCssText}
           :host{display:block; position:relative}
           .host{height:100%; background:var(--bx-term-bg, #262c36)}
           .badge{position:absolute; top:4px; right:10px; z-index:6;
@@ -104,6 +107,11 @@ export class BxLogs extends HTMLElement {
 
   async #start() {
     await loadXterm();
+    // xterm measures its scrollbar once, when it opens (the thin 6px bar,
+    // D123): let the shadow root's xterm.css apply first, or it reads 0 and
+    // assumes 15px (a link that already failed never fires again: capped)
+    const css = this.shadowRoot.querySelector('link[rel="stylesheet"]');
+    if (css && !css.sheet) await new Promise((r) => { css.addEventListener('load', r, { once: true }); css.addEventListener('error', r, { once: true }); setTimeout(r, 2000); });
     if (this.#closed) return;
     this.#term = new window.Terminal({
       fontSize: Math.max(7, Math.min(28, Math.round(savedFontSize()))),

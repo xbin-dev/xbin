@@ -34,6 +34,9 @@ type Plane struct {
 
 	statusMu sync.Mutex
 	statuses map[string]statusRec // component → last reported status
+
+	prefsMu    sync.Mutex
+	prefsLocks map[string]*sync.Mutex // bucket file → its read-modify-write lock
 }
 
 // Register mounts the plane's routes and starts the status watcher.

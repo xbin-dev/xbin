@@ -112,11 +112,12 @@ of `r.1`; `r.1.0:3.1` is slot 1 of the multi-root template item `3` renders;
 
 | Call | Meaning |
 |---|---|
-| `xbn.event(k, type, payload, n?)` | the user acted on node `k`. `type` is in the node's `e` (or reports a controlled prop, §6); `payload` is the event's object (§6), `{}` when it has none. `n` (optional, recommended): the `n` of the last `mount`/`patch` the app had applied when the user acted (§5). Returns `true` when a handler ran. |
+| `xbn.event(k, type, payload, n?, target?)` | the user acted on node `k`. `type` is in the node's `e` (or reports a controlled prop, §6); `payload` is the event's object (§6), `{}` when it has none. `n` (optional, recommended): the `n` of the last `mount`/`patch` the app had applied **to that tree** when the user acted (§5). `target`: `"widget"` for a node of the widget tree (§13); absent/`undefined` = the main tree. Returns `true` when a handler ran. |
 | `xbn.visibility(state)` | `"visible"` / `"hidden"`: the tile's surface is on or off screen. Drives `document.visibilityState` (tiles slow their polling) and fires `visibilitychange`. |
 | `xbn.resolve(id, value, error?)` | answers `{op:"call"}` `id`; a non-null `error` (a string) rejects the tile's promise instead. |
 | `xbn.frame()` | the renderer's frame clock: flush a pending render now (§7). Returns whether a tree message was sent. |
-| `xbn.remount()` | send the whole tree again as a fresh `mount` (the app lost its copy or failed to apply a patch). |
+| `xbn.remount(target?)` | send a whole tree again as a fresh `mount` (the app lost its copy or failed to apply a patch): the main tree, or with `"widget"` the widget tree (§13). |
+| `xbn.widgetSize(size)` | the app shows the widget at another size class, `"small"` or `"wide"` (§13); the tile hears it and re-renders. Returns whether the size changed. |
 
 The tile's handler receives `{type, value, ...payload}` (`value` is
 `payload.value`, possibly `undefined`).
@@ -132,13 +133,17 @@ The tile's handler receives `{type, value, ...payload}` (`value` is
 Replaces the whole tree. Sent for the first render, whenever the root's key or
 type changes, and on `xbn.remount()`. `v` is this format's major version (1).
 
+A `mount` or `patch` of the **widget** tree carries `"target": "widget"`
+(§13); main-tree messages have no `target`. Each tree has its own `n`.
+
 ### `patch`
 
 ```json
 {"op": "patch", "n": 2, "ops": [["remove", "r.0.3"], ["insert", "r.0", 2, {"k": "r.0.2", "t": "notice", "p": {"tone": "ok", "text": "saved"}}], ["set", "r.0.0", {"detail": "43"}], ["move", "r.1:a", "r.1", 0]]}
 ```
 
-`n` increases by one with every `mount`/`patch`. Ops apply **in order**, each
+`n` increases by one with every `mount`/`patch` of the same tree (the main
+tree and the widget count separately). Ops apply **in order**, each
 to the tree as the previous ops left it:
 
 | Op | Effect |
@@ -191,7 +196,7 @@ keeps the blob (≤ 64 KiB, per tile per workspace) and injects it as
 
 ### `error`
 
-`{"op": "error", "kind", "message", "where", "stack"?}`:
+`{"op": "error", "kind", "message", "where", "stack"?, "target"?}`:
 
 | `kind` | When | The app |
 |---|---|---|
@@ -200,15 +205,21 @@ keeps the blob (≤ 64 KiB, per tile per workspace) and injects it as
 | `module` | the tile's `native.js` failed to load (`boot()`) | falls back to the web tile |
 | `uncaught` | a tile event handler, timer or promise threw | logs it (the tile's report) |
 
+With `"target": "widget"` an `unsupported` or `exception` is about the widget
+tree (§13): the tile's screen does not fall back; the app shows the standard
+card instead of the widget.
+
 ### `diag`
 
-`{"op": "diag", "level": "info"|"warn"|"error", "code", "message", "where"}` —
+`{"op": "diag", "level": "info"|"warn"|"error", "code", "message", "where", "target"?}` —
 validation findings, once per distinct finding: the Xcode console, `bx lint
 --native`, the preview. `where` is `<file>:<line>:<col> <tag>` (the template's
 call site) when known. Codes: `unknown-tag`, `unknown-prop`, `unknown-event`,
 `runtime-prop`, `bad-type`, `bad-token`, `bad-value`, `bad-handler`,
 `bad-children`, `bad-child`, `child-rule`, `duplicate-key`, `lit-template`,
-`unvalidated`. A diagnostic never stops a render: an invalid prop is dropped,
+`unvalidated`, `widget-tag` (a primitive a widget may not use — dropped, §13).
+`target` is `"widget"` for findings about the widget tree. A diagnostic never
+stops a render: an invalid prop is dropped,
 an unknown icon is kept (the renderer draws a placeholder), a child-rule
 violation keeps the child.
 
@@ -268,7 +279,7 @@ calling it with nothing pending is cheap.
 ## 8. Caps
 
 ```json
-{"v": 1, "renderer": "ios", "app": "1.0 (42)", "prims": {"screen": 1, "row": 1, "…": 1}, "features": ["chart.area", "markdown.tables"]}
+{"v": 1, "renderer": "ios", "app": "1.0 (42)", "prims": {"screen": 1, "row": 1, "…": 1}, "features": ["chart.area", "markdown.tables", "widget"], "widgetSize": "small"}
 ```
 
 - `v`: the tree format / vocabulary major the app speaks.
@@ -281,8 +292,12 @@ calling it with nothing pending is cheap.
 - The runtime checks every rendered node: a primitive missing from `prims`, a
   prop newer than its revision, or a value needing a missing feature →
   `{op:"error", kind:"unsupported"}` (§5).
+- `widget` is a **wire** feature, not a vocabulary one (it is not in
+  `vocab.json` `features`): the app shows widget trees (§13). Without it the
+  runtime never sends one. `widgetSize` (optional, `"small"` | `"wide"`,
+  default `"small"`): the size class the widget is first shown at.
 - Tiles test with `xbin.native.supports(name[, rev])` (a primitive with at least
-  that revision, or a feature flag).
+  that revision, or a feature flag — `supports('widget')` included).
 
 ## 9. `xbin.native` (tile side)
 
@@ -293,6 +308,8 @@ calling it with nothing pending is cheap.
 | `meta({title, icon, badge})` | `{op:"meta"}` |
 | `copy(text)` / `share({text, url, file})` / `open(url)` | `{op:"call"}` → a promise settled by `xbn.resolve` |
 | `state` / `saveState(obj)` | the injected blob / `{op:"state"}` |
+| `widgetSize` | the widget's size class, `"small"` \| `"wide"` (§13) — `caps.widgetSize`, then `xbn.widgetSize` |
+| `on('widgetsize', fn)` | `fn(size)` after each `xbn.widgetSize` change; returns an unsubscribe function |
 
 ## 10. Props and values
 
@@ -360,3 +377,54 @@ render(html`<screen title="Counter" style="form"><section>
 1. runtime → `{"op":"mount","v":1,"n":1,"root":{"k":"r","t":"screen","p":{"title":"Counter","style":"form"},"c":[{"k":"r.0","t":"section","c":[{"k":"r.0.0","t":"row","p":{"title":"Count","detail":"42"}},{"k":"r.0.1","t":"button","p":{"role":"primary","label":"+1"},"e":["tap"]}]}]}}`
 2. user taps → app calls `xbn.event("r.0.1", "tap", {}, 1)`
 3. the tile's `inc` runs, re-renders → runtime → `{"op":"patch","n":2,"ops":[["set","r.0.0",{"detail":"43"}]]}`
+
+## 13. Widgets
+
+A tile may render a second, small tree — its **widget**: a card the app shows
+on its screens (the phone's grid of tiles), next to the full screen `render()`
+draws. The tile calls `widget(template)` (`import { widget } from
+'/vendor/xb-native.js'`), which works exactly like `render()` on a tree of
+its own.
+
+**Gated by caps.** The runtime sends widget trees only when the app's caps
+list the feature `widget` (§8). Otherwise `widget()` is dropped silently and
+the app sees exactly what it saw before widgets existed — no message, field
+or counter differs. An app without widget support draws a standard card.
+
+**Messages.** The widget tree is the ordinary `mount`/`patch` (§5) with
+`"target": "widget"`:
+
+```json
+{"op": "mount", "target": "widget", "v": 1, "n": 1, "root": {"k": "r", "t": "stack", "c": [{"k": "r.0", "t": "text", "p": {"text": "42", "style": "largeTitle"}}, {"k": "r.1", "t": "button", "p": {"label": "+1", "icon": "plus"}, "e": ["tap"]}]}}
+{"op": "patch", "target": "widget", "n": 2, "ops": [["set", "r.0", {"text": "43"}]]}
+```
+
+- Keys follow §3 with the widget's own root `r`: they are unique within a
+  tree, not across the two — the same key may name a node in each.
+- `n`, the shadow and the handlers are per tree: an event the app sends for
+  the widget passes `target: "widget"` (`xbn.event(k, type, payload, n,
+  "widget")`, `n` being the widget's last applied `n`) and runs only the
+  widget's handler — never a main-tree one; `xbn.remount("widget")` resends
+  it.
+- One flush sends the main tree's message first, then the widget's.
+- `error`/`diag` messages produced while rendering the widget carry
+  `"target": "widget"`: an `unsupported` or `exception` about the widget
+  never means the tile's screen falls back — the app shows the standard card.
+
+**Size classes.** `small` — one column of the screen's two-column grid (on a
+390 pt phone: 170 × 170 pt); `wide` — both columns (356 × 170 pt). The app
+tells the runtime the first size in `caps.widgetSize` and every change with
+`xbn.widgetSize(size)`; the tile reads `xbin.native.widgetSize` and hears
+changes with `xbin.native.on('widgetsize', fn)`, re-rendering its widget. The
+app draws the widget root at the card's fixed size — no scrolling, no screen
+chrome, clipped.
+
+**Vocabulary.** A widget may use `stack`, `text`, `icon`, `badge`, `chart`,
+`progress`, `button` and `row` (`vocab.json` `widget.prims`); a `fragment`
+root holds several. Any other primitive is dropped from the widget tree with
+an `error` diagnostic `widget-tag` (`bx lint --native` fails on it), so an app
+only ever receives these. A `button` or a `row` with `tap` is interactive in
+the card; **a tap anywhere else opens the tile**.
+
+The vocabulary list, the feature name and the size classes are `vocab.json`
+`widget` (`{feature, sizes, prims}`).

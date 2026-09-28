@@ -9,6 +9,8 @@ import UIKit
 import WebKit
 import XbinAgent
 import XbinCore
+import XbinRendererCheck
+import XbinRendererModel
 
 // Model/AppTransport.swift, Model/DeviceKeys.swift, Shared/Keychain.swift
 final class AppTransport: APITransport, @unchecked Sendable {
@@ -70,6 +72,26 @@ struct TerminalScreen: View {
 }
 struct TerminalKeyboardSettingsView: View {
     var body: some View { EmptyView() }
+}
+
+// Tiles/Widgets/RuntimePool.swift
+@MainActor final class NativeRuntimePool {
+    static let shared = NativeRuntimePool()
+    func forget(workspace id: String) {}
+    func runtime(_ workspace: WorkspaceModel, _ tile: String) -> NativeTileRuntime? { nil }
+    func widgets(_ workspace: WorkspaceModel) -> WidgetCache { WidgetCache() }
+    func show(_ workspace: WorkspaceModel, _ tile: TileInfo, size: CardSize) {}
+    func hide(_ workspace: WorkspaceModel, _ tile: String) {}
+    func resize(_ workspace: WorkspaceModel, _ tile: String, size: CardSize) {}
+}
+@MainActor final class WidgetCache {
+    func snapshot(_ tile: String, size: CardSize) -> WidgetStore.Snapshot? { nil }
+}
+
+// Tiles/NativeTile.swift (what TileCard reads of a live runtime)
+@MainActor final class NativeTileRuntime {
+    let widgetModel = XbinTreeModel(store: TreeStore())
+    var widgetServices: XbinServices { XbinServices() }
 }
 
 // Tiles/TileSchemeHandler.swift

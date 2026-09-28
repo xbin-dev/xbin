@@ -28,6 +28,13 @@ public enum XbinFixtures {
         return store
     }
 
+    /// The card size a widget fixture is drawn at (its data.json's
+    /// `widget`: its expected.json is the tile's widget tree), or nil for a
+    /// screen.
+    public static func widgetSize(_ name: String, in set: FixtureSet) throws -> CardSize? {
+        try set.data(name)?["widget"]?.stringValue.flatMap(CardSize.init(rawValue:))
+    }
+
     /// Every primitive type used in a tree.
     public static func types(_ root: Node) -> Set<String> {
         var out: Set<String> = [root.type]

@@ -617,6 +617,10 @@ func (s *Server) eventFilter(p auth.Principal) events.Filter {
 		if e.Type == "deployments" {
 			return s.deploymentsEventFor(p, tile, e)
 		}
+		if e.Type == "prefs" { // per-user, not even admins: the bucket owner's own clients
+			v, ok := e.Data.(interface{ VisibleTo(auth.Principal) bool })
+			return ok && v.VisibleTo(p)
+		}
 		if e.Type != "bus" {
 			return true
 		}

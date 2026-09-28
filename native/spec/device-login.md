@@ -212,14 +212,15 @@ POST /login/ticket
 - Sign out: `POST /logout` with the bearer → `204`. It signs the device
   out, not just that token: every session opened with the device's key
   ends — earlier ones the app replaced without a logout (a 401 heal, a
-  re-sign-in) and the Safari sessions any of them opened. The device stays
+  re-sign-in) and the web sessions any of them opened (a chrome tile's web
+  view). The device stays
   enrolled; removing it is `DELETE /api/xbin/devices/<deviceId>`.
 - The device list: `GET /api/xbin/devices` → `{"devices": [{"id", "name",
   "platform", "origin", "created", "lastUsed", "lastIP", "current"}]}`
   (`current`: the device this session signed in with).
 
-**Opening the workspace in Safari, signed in.** Only a device-key session
-(§3) may do this — not the §5 password/SSO session:
+**Opening a page of the workspace signed in (a chrome tile).** Only a
+device-key session (§3) may do this — not the §5 password/SSO session:
 
 ```
 POST /api/xbin/web-ticket                    Authorization: Bearer <device session>
@@ -232,11 +233,13 @@ POST /api/xbin/web-ticket                    Authorization: Bearer <device sessi
   429  more than 10 per minute from this device (Retry-After)
 ```
 
-Open `url` **at once, as is** in `SFSafariViewController` (not a web view
-of the app, not by redirecting through another page): it is single use and
-lives 60 seconds. What the browser then shows:
+Open `url` **at once, as is**, top level, in the web view that will show
+the page — the app's web view for chrome tiles, with a cookie store of its
+own that no tile page shares (not a tile's web view, not by redirecting
+through another page): it is single use and lives 60 seconds. What the
+browser then shows:
 
-- **Signed out** (the usual case — Safari's cookie jar is not the app's): a
+- **Signed out** (the usual case — that web view has no session yet): a
   page **"Continue as <name>"** naming the account, the login (and email)
   and the page it opens, with one button. Pressing it posts a one-shot
   nonce (2 minutes) back to `POST /login/web-ticket` from that page — the

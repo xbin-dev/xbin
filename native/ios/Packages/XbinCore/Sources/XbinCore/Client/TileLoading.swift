@@ -8,20 +8,19 @@ import Foundation
 
 /// How a tile opens.
 public enum TileSurface: Sendable, Equatable {
-    /// A WKWebView of its page (the default for every tile).
+    /// A WKWebView of its page (the default for every tile). Trusted chrome
+    /// acts as the human and can't run under a frame token: its web view
+    /// loads the page on the workspace's own origin instead, signed in by a
+    /// web ticket redeemed inside it (§6.3, WebTicket).
     case web
     /// Its native UI (§7): a hidden runtime document + the SwiftUI renderer.
     case native
-    /// Trusted chrome acts as the human and can't run under a frame token:
-    /// Safari, signed in by ticket (§6.3).
-    case safari
 
     /// `forceWeb`: the user chose "open as web page" for this tile, or the
     /// native view failed this session; `runtimeOff`: the remote kill switch
     /// or an xbind without runtime documents.
     public static func pick(_ tile: TileInfo, serverRuntime: Int?, forceWeb: Bool = false,
                             runtimeOff: Bool = false) -> TileSurface {
-        if tile.chrome { return .safari }
         guard tile.opensNatively, let v = serverRuntime, v >= 1, !forceWeb, !runtimeOff else { return .web }
         return .native
     }

@@ -411,6 +411,15 @@ if (assetBase) {
   } catch { /* no resource timing */ }
 }
 
+// --- focused-scroll tint (D123) ---
+// A document that links /vendor/theme.css gets its thin themed scrollbars from
+// the sheet; the tint on the scroller the next wheel or key would move needs
+// the tracker, loaded here for those documents only (linking the theme is the
+// opt-in; <meta name="xbin-scroll-focus" content="off"> opts out).
+if (document.querySelector('link[rel~="stylesheet"][href*="/vendor/theme.css"]') && meta('xbin-scroll-focus') !== 'off') {
+  import('/vendor/bx-scroll.js').catch(() => { /* cosmetic */ });
+}
+
 // xbin.native — the xbin app's small API for a tile's native UI, present only
 // in the app's runtime document (<meta name="xbin-native">): the app injects
 // {caps, state} as window.xbin.native before this script runs and

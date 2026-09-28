@@ -92,6 +92,7 @@ extension View {
     public func textSelection<S: TextSelectability>(_ selectability: S) -> some View { _V(self) }
     public func contentShape<S: Shape>(_ shape: S) -> some View { _V(self) }
     public func clipShape<S: Shape>(_ shape: S, style: FillStyle = FillStyle()) -> some View { _V(self) }
+    public func clipped(antialiased: Bool = false) -> some View { _V(self) }
     public func rotationEffect(_ angle: Angle, anchor: UnitPoint = .center) -> some View { _V(self) }
     public func symbolEffect<T: IndefiniteSymbolEffect & SymbolEffect>(_ effect: T, options: SymbolEffectOptions = .default, isActive: Bool = true) -> some View { _V(self) }
     public func ignoresSafeArea(_ regions: SafeAreaRegions = .all, edges: Edge.Set = .all) -> some View { _V(self) }
@@ -119,6 +120,7 @@ extension View {
     public func accessibilityElement(children: AccessibilityChildBehavior = .ignore) -> some View { _V(self) }
     public func accessibilityAddTraits(_ traits: AccessibilityTraits) -> some View { _V(self) }
     public func onAppear(perform action: (() -> Void)? = nil) -> some View { _V(self) }
+    public func onScrollVisibilityChange(threshold: Double = 0.5, _ action: @escaping (Bool) -> Void) -> some View { _V(self) }
     public func onTapGesture(count: Int = 1, perform action: @escaping () -> Void) -> some View { _V(self) }
     public func onChange<V: Equatable>(of value: V, initial: Bool = false, _ action: @escaping () -> Void) -> some View { _V(self) }
     public func onChange<V: Equatable>(of value: V, initial: Bool = false, _ action: @escaping (_ oldValue: V, _ newValue: V) -> Void) -> some View { _V(self) }

@@ -78,7 +78,15 @@ open class XCUIScreen {
 open class XCUICoordinate {
     open func tap() {}
     open func press(forDuration duration: TimeInterval) {}
+    open func press(forDuration duration: TimeInterval, thenDragTo other: XCUICoordinate) {}
+    open func press(forDuration duration: TimeInterval, thenDragTo other: XCUICoordinate, withVelocity velocity: XCUIGestureVelocity,
+                    thenHoldForDuration holdDuration: TimeInterval) {}
     open func withOffset(_ offsetVector: CGVector) -> XCUICoordinate { self }
+}
+
+public struct XCUIGestureVelocity: Sendable {
+    public init(_ rawValue: CGFloat) {}
+    public static let `default` = XCUIGestureVelocity(0), slow = XCUIGestureVelocity(0), fast = XCUIGestureVelocity(0)
 }
 
 @MainActor
@@ -148,6 +156,7 @@ open class XCUIElementQuery: XCUIElementTypeQueryProvider {
     open func matching(_ predicate: StubPredicate) -> XCUIElementQuery { self }
     open func matching(identifier: String) -> XCUIElementQuery { self }
     open func containing(_ predicate: StubPredicate) -> XCUIElementQuery { self }
+    open func containing(_ elementType: XCUIElement.ElementType, identifier: String?) -> XCUIElementQuery { self }
     open var firstMatch: XCUIElement { XCUIElement() }
     open var element: XCUIElement { XCUIElement() }
     open var count: Int { 0 }

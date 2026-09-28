@@ -156,6 +156,10 @@ class Builder {
     const env = this.env;
     const tag = s.tag;
     const where = T.where ? `${T.where} ${s.at}` : s.at;
+    if (env.allow && !env.allow.includes(tag)) { // a widget's small vocabulary (tree.md §13)
+      env.diag('error', 'widget-tag', `<${tag}> cannot be in a widget (${env.allow.join(', ')}) — dropped`, where);
+      return;
+    }
     const spec = own(PRIMS, tag) ? PRIMS[tag] : null;
     const capsRev = this.caps.prims ? this.caps.prims[tag] : undefined;
     if (!spec) {

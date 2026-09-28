@@ -11,6 +11,7 @@
  *   const view = document.createElement('xb-view');
  *   view.theme = 'dark';                      // '' follows prefers-color-scheme
  *   view.text = 'large';                      // iOS xxxLarge type scale
+ *   view.compact = true;                      // a widget's card: tight margins, clipped
  *   view.onevent = (k, type, payload, n) => xbn.event(k, type, payload, n);
  *   view.apply(msg);                          // {op:'mount'|'patch'} from the runtime
  *   view.setTree({v: 1, root});               // or a whole tree (fixtures)
@@ -104,6 +105,8 @@ const BASE_CSS = css`
   .root > * { flex: 1 1 auto; min-height: 0; }
   .loose { overflow: auto; padding: 16px var(--xb-margin) 32px; display: flex; flex-direction: column; gap: 12px; }
   .loose > * { flex-shrink: 0; }
+  /* compact: a widget's card (tree.md §13) — a fixed size, tight margins, no scrolling */
+  :host([compact]) .loose { overflow: hidden; padding: 12px; gap: 8px; }
   pre { tab-size: 4; }
   button { font: inherit; color: inherit; letter-spacing: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; }
   button:disabled { cursor: default; }
@@ -126,6 +129,7 @@ export class XbView extends LitElement {
   static properties = {
     theme: { reflect: true },
     text: { reflect: true },
+    compact: { type: Boolean, reflect: true }, // draw a widget's card: tight, clipped (tree.md §13)
   };
 
   static styles = [TOKENS, TYPE_CLASSES, BASE_CSS, STRUCTURE_CSS, CONTENT_CSS, CONTROLS_CSS, CHAT_CSS, OVERLAY_CSS];
