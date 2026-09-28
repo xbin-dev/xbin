@@ -72,6 +72,9 @@ func (p *Plane) WorkTreeMoved(tile string) {
 	if _, ok := p.pausedSince(tile); !ok {
 		return
 	}
+	if aware, _ := p.Branches(tile, ""); aware {
+		p.NoteBranch(tile) // a switch back offers to resume (D131)
+	}
 	p.workTrees().notice(tile)
 }
 

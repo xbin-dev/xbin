@@ -30,6 +30,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/xbin-dev/xbin/internal/checkpoint"
 	"github.com/xbin-dev/xbin/internal/runner"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -119,12 +120,16 @@ func runAttach(ctx context.Context, p *Plane, g Grant, r *AttachRequest) (any, e
 	case x == "":
 		return nil, &Error{Status: http.StatusConflict, Kind: KindState, Msg: "live reload is paused: resume it onto " + y + " instead"}
 	}
+	bc, err := p.feedCheck(o, y, r.Confirm, true)
+	if err != nil {
+		return nil, err
+	}
 	if err := p.needsIsolation(o.c); err != nil {
 		return nil, err
 	}
 	if r.DryRun {
 		im := Impact{Data: "none", Affects: affects(o.rec, y), Reloads: []string{y},
-			Code: &CodeImpact{Deployment: y, From: p.shortOf(ctx, o.tile, *d.Checkpoint), To: "work-tree"}}
+			Code: &CodeImpact{Deployment: y, From: p.shortOf(ctx, o.tile, *d.Checkpoint), To: "work-tree"}, Branch: bc.impact()}
 		p.measure(ctx, o.c, im.Code, o.by, *d.Checkpoint, "")
 		return p.answer(ctx, true, nil, im, false)
 	}
@@ -134,11 +139,15 @@ func runAttach(ctx context.Context, p *Plane, g Grant, r *AttachRequest) (any, e
 	release := p.pausing.on(o.tile)
 	defer release()
 	res, err := p.capture(ctx, o, false)
+	if err == nil {
+		err = bc.captured(res) // the second branch check (D131)
+	}
 	if err != nil {
 		p.catchUp(o, x)
 		return nil, opError(o.tile, err)
 	}
-	pin, err := p.pinAttempt(o, x, res.Hash)
+	o.follows(y, bc)
+	pin, err := p.pinAttempt(o, x, cmp.Or(p.offBranchPin(ctx, o, x), res.Hash))
 	if err != nil {
 		p.catchUp(o, x)
 		return nil, err
@@ -272,6 +281,12 @@ func runAdd(ctx context.Context, p *Plane, g Grant, r *AddRequest) (any, error) 
 		return nil, badRequest(`bad request body: data takes "empty" or "seed"`)
 	case r.Attach && r.From != "" && r.From != FromWorkTree:
 		return nil, badRequest("attach:true makes the new deployment follow the work tree: send no from with it")
+	case r.Branch != "" && r.NewBranch != "":
+		return nil, badRequest("send branch (assign an existing branch) or newBranch (create one), not both")
+	case r.Branch != "" && !checkpoint.BranchNameOK(r.Branch):
+		return nil, badRequest(badBranchMsg(r.Branch))
+	case r.NewBranch != "" && !checkpoint.BranchNameOK(r.NewBranch):
+		return nil, badRequest(badBranchMsg(r.NewBranch))
 	}
 	if _, err := parseFrom(r.From); err != nil {
 		return nil, err
@@ -292,7 +307,7 @@ func runAdd(ctx context.Context, p *Plane, g Grant, r *AddRequest) (any, error) 
 		if e := p.managerAct(g.P, acts[OpSeed], o.tile); e != nil {
 			return nil, e
 		}
-		if err := confirmed(r.Confirm, ConfirmCopyData, "seeding "+y+" copies "+o.rec.Primary+"'s data, which may be personal"); err != nil {
+		if err := confirmed(tokenOf(r.Confirm, ConfirmCopyData), ConfirmCopyData, "seeding "+y+" copies "+o.rec.Primary+"'s data, which may be personal"); err != nil {
 			return nil, err
 		}
 		if err := p.seedable(o, y); err != nil {
@@ -303,12 +318,16 @@ func runAdd(ctx context.Context, p *Plane, g Grant, r *AddRequest) (any, error) 
 	if err != nil {
 		return nil, err
 	}
-	if r.Attach {
-		return p.addAttached(ctx, o, r, y, joins)
+	b, bc, err := p.addBranch(ctx, o, r, y)
+	if err != nil {
+		return nil, err
 	}
-	tree, im, err := p.addCode(ctx, o, r, y)
+	if r.Attach {
+		return p.addAttached(ctx, o, r, y, joins, b, bc)
+	}
+	tree, im, err := p.addCode(ctx, o, r, y, bc)
 	if err != nil || r.DryRun {
-		im.Joins = joins
+		im.Joins, im.Branch = joins, addBranchImpact(o, y, b, bc)
 		return p.addAnswer(ctx, r.DryRun, nil, im, joins, err)
 	}
 	if err := p.prepareFor(o, y, tree); err != nil {
@@ -326,7 +345,7 @@ func runAdd(ctx context.Context, p *Plane, g Grant, r *AddRequest) (any, error) 
 		a.From = o.rec.Primary
 	}
 	rec, err := p.commitMoves(ctx, o, r.Seq, nil, []*attempt{a}, func(r *Record) error {
-		return p.created(o, r, y, &tree)
+		return p.created(o, r, y, &tree, b)
 	})
 	if err != nil {
 		return nil, err
@@ -341,10 +360,10 @@ func runAdd(ctx context.Context, p *Plane, g Grant, r *AddRequest) (any, error) 
 // the former target, if live reload was attached, is pinned to a fresh
 // checkpoint of the work tree, as an attach pins it. y's entry (how add)
 // names that capture; it is the answer's deploy.
-func (p *Plane) addAttached(ctx context.Context, o *op, r *AddRequest, y string, joins *Joins) (any, error) {
+func (p *Plane) addAttached(ctx context.Context, o *op, r *AddRequest, y string, joins *Joins, b string, bc branchCheck) (any, error) {
 	x := o.rec.LiveReload
 	if r.DryRun {
-		im := Impact{Data: "none", Affects: "nobody", Joins: joins}
+		im := Impact{Data: "none", Affects: "nobody", Joins: joins, Branch: addBranchImpact(o, y, b, bc)}
 		if x != "" && o.state != RecordNone {
 			res, err := p.capture(ctx, o, true)
 			if err != nil {
@@ -365,13 +384,17 @@ func (p *Plane) addAttached(ctx context.Context, o *op, r *AddRequest, y string,
 	release := p.pausing.on(o.tile)
 	defer release()
 	res, err := p.capture(ctx, o, false)
+	if err == nil {
+		err = bc.captured(res) // the second branch check (D131)
+	}
 	if err != nil {
 		p.catchUp(o, x)
 		return nil, opError(o.tile, err)
 	}
+	o.follows(y, bc)
 	var pins []*attempt
-	if x != "" {
-		pin, err := p.pinAttempt(o, x, res.Hash)
+	if x != "" { // a former target off its assigned branch keeps the code it ran (D131)
+		pin, err := p.pinAttempt(o, x, cmp.Or(p.offBranchPin(ctx, o, x), res.Hash))
 		if err != nil {
 			p.catchUp(o, x)
 			return nil, err
@@ -386,7 +409,7 @@ func (p *Plane) addAttached(ctx context.Context, o *op, r *AddRequest, y string,
 	add.FollowsWorkTree = true
 	since := &Stamp{At: p.stamp(), By: o.by}
 	rec, err := p.commitMoves(ctx, o, r.Seq, pins, []*attempt{add}, func(r *Record) error {
-		if err := p.created(o, r, y, nil); err != nil {
+		if err := p.created(o, r, y, nil, b); err != nil {
 			return err
 		}
 		r.LiveReload, r.LastLiveReload, r.LiveReloadSince = y, y, since
@@ -409,7 +432,7 @@ func (p *Plane) addAttached(ctx context.Context, o *op, r *AddRequest, y string,
 // primary's checkpoint (its work tree's capture while it follows it), or a
 // named checkpoint, which a tile without a record doesn't have (its store,
 // if any, is inert: never read).
-func (p *Plane) addCode(ctx context.Context, o *op, r *AddRequest, y string) (string, Impact, error) {
+func (p *Plane) addCode(ctx context.Context, o *op, r *AddRequest, y string, bc branchCheck) (string, Impact, error) {
 	im := Impact{Data: "none", Affects: "nobody"}
 	var tree, from string
 	switch primary := o.rec.Deployments[o.rec.Primary]; {
@@ -427,6 +450,9 @@ func (p *Plane) addCode(ctx context.Context, o *op, r *AddRequest, y string) (st
 		return "", im, p.estimate(ctx, o)
 	default:
 		res, err := p.capture(ctx, o, r.DryRun)
+		if err == nil {
+			err = bc.after(res, r.DryRun) // the second branch check (D131)
+		}
 		if err != nil {
 			return "", im, opError(o.tile, err)
 		}
@@ -451,8 +477,9 @@ func (p *Plane) estimate(ctx context.Context, o *op) error {
 }
 
 // created adds y's entry to r, pinned to tree or (nil) following the work
-// tree, stamped; a tile's first opt-in stamps main's entry too.
-func (p *Plane) created(o *op, r *Record, y string, tree *string) error {
+// tree, assigned branch ("" for none), stamped; a tile's first opt-in stamps
+// main's entry too.
+func (p *Plane) created(o *op, r *Record, y string, tree *string, branch string) error {
 	if r.Deployments[y] != nil {
 		return &Error{Status: http.StatusConflict, Kind: KindState, Msg: fmt.Sprintf("%s already has a deployment %q", o.tile, y)}
 	}
@@ -460,7 +487,7 @@ func (p *Plane) created(o *op, r *Record, y string, tree *string) error {
 	if m := r.Deployments[util.MainDeployment]; m.Created == "" {
 		m.Created, m.By = at, o.by
 	}
-	r.Deployments[y] = &DeploymentRecord{Checkpoint: tree, Created: at, By: o.by}
+	r.Deployments[y] = &DeploymentRecord{Checkpoint: tree, Created: at, By: o.by, Branch: branch}
 	return nil
 }
 

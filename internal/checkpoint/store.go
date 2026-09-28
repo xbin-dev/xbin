@@ -110,6 +110,10 @@ type Checkpoint struct {
 	// WorkTreeHead is the commit the tile's own repository had checked out
 	// at the first capture: best effort and untrusted, "" when unknown.
 	WorkTreeHead string `json:"-"`
+	// WorkTreeBranch is the branch it had checked out then (the
+	// Xbin-Work-Tree-Branch trailer, D131): "" when detached, unknown, or
+	// the capture predates the trailer.
+	WorkTreeBranch string `json:"-"`
 }
 
 // FeedWorkTree names checkpoints captured from the work tree.
@@ -160,15 +164,23 @@ type tileState struct {
 	lock   chan struct{}   // the store lock: one store operation per tile at a time
 	tokens float64         // captures left in the burst
 	filled time.Time       // when tokens was last topped up
+	bg     bucket          // the background captures' own (CaptureRequest.Background)
 	known  map[string]meta // the tile's checkpoints by full tree id; nil until read
+}
+
+// bucket is a second token bucket, at the same caps.
+type bucket struct {
+	tokens float64
+	filled time.Time
 }
 
 // meta is what a checkpoint's retention commit records.
 type meta struct {
-	at   time.Time
-	by   string
-	feed string
-	head string
+	at     time.Time
+	by     string
+	feed   string
+	head   string
+	branch string
 }
 
 func (s *Store) state(tile string) *tileState {
@@ -201,26 +213,30 @@ func (s *Store) acquire(ctx context.Context, tile string) (release func(), err e
 
 // take spends one capture of tile's rate: a burst of c.Burst, refilled at
 // one per c.Every. When none is left it reports how long until one is.
-func (s *Store) take(tile string, c Caps) (time.Duration, bool) {
+func (s *Store) take(tile string, c Caps, background bool) (time.Duration, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ts := s.stateLocked(tile)
+	tokens, filled := &ts.tokens, &ts.filled
+	if background {
+		tokens, filled = &ts.bg.tokens, &ts.bg.filled
+	}
 	now := s.now()
 	burst := float64(max(c.Burst, 1))
 	switch {
-	case ts.filled.IsZero():
-		ts.tokens = burst
+	case filled.IsZero():
+		*tokens = burst
 	case c.Every > 0:
-		ts.tokens = min(burst, ts.tokens+float64(now.Sub(ts.filled))/float64(c.Every))
+		*tokens = min(burst, *tokens+float64(now.Sub(*filled))/float64(c.Every))
 	default:
-		ts.tokens = burst
+		*tokens = burst
 	}
-	ts.filled = now
-	if ts.tokens >= 1 {
-		ts.tokens--
+	*filled = now
+	if *tokens >= 1 {
+		*tokens--
 		return 0, true
 	}
-	return time.Duration((1 - ts.tokens) * float64(c.Every)), false
+	return time.Duration((1 - *tokens) * float64(c.Every)), false
 }
 
 // ---- paths ----
@@ -450,7 +466,8 @@ func shortID(tree string, known map[string]meta) string {
 }
 
 func (m meta) checkpoint(tree string, known map[string]meta) Checkpoint {
-	return Checkpoint{ID: shortID(tree, known), Hash: tree, Feed: m.feed, At: m.at, By: m.by, WorkTreeHead: m.head}
+	return Checkpoint{ID: shortID(tree, known), Hash: tree, Feed: m.feed, At: m.at, By: m.by, WorkTreeHead: m.head,
+		WorkTreeBranch: m.branch}
 }
 
 // Resolve finds the checkpoint of tile an id names, only in tile's own
@@ -514,7 +531,7 @@ func (s *Store) List(ctx context.Context, tile string) ([]Checkpoint, error) {
 // knownFormat prints one line per checkpoint of a store: its tree, then its
 // retention commit's time and trailers, NUL-separated. Trailer values are
 // single-line: xbind writes them.
-const knownFormat = `%(refname:lstrip=3)%00%(committerdate:unix)%00%(trailers:key=Xbin-By,valueonly,separator=)%00%(trailers:key=Xbin-Feed,valueonly,separator=)%00%(trailers:key=Xbin-Work-Tree-Head,valueonly,separator=)`
+const knownFormat = `%(refname:lstrip=3)%00%(committerdate:unix)%00%(trailers:key=Xbin-By,valueonly,separator=)%00%(trailers:key=Xbin-Feed,valueonly,separator=)%00%(trailers:key=Xbin-Work-Tree-Head,valueonly,separator=)%00%(trailers:key=Xbin-Work-Tree-Branch,valueonly,separator=)`
 
 const knownScript = `hg --git-dir="$1" for-each-ref --format='` + knownFormat + `' refs/xbin/checkpoints/ || exit 1
 `
@@ -570,7 +587,7 @@ func parseKnown(out []byte) map[string]meta {
 	k := map[string]meta{}
 	for _, line := range strings.Split(string(out), "\n") {
 		f := strings.Split(line, "\x00")
-		if len(f) != 5 || !fullID(f[0]) {
+		if len(f) != 6 || !fullID(f[0]) {
 			continue
 		}
 		m := meta{by: f[2], feed: f[3]}
@@ -579,6 +596,9 @@ func parseKnown(out []byte) map[string]meta {
 		}
 		if fullID(f[4]) {
 			m.head = f[4]
+		}
+		if BranchNameOK(f[5]) {
+			m.branch = f[5]
 		}
 		k[f[0]] = m
 	}

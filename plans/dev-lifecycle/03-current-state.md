@@ -617,7 +617,8 @@ How a new tile's repository starts:
 
 Every git run goes through `internal/confine`. xbind never pushes, never runs
 `git am`, and never merges or checks out branches in a tile (the import ref
-aside).
+aside; since D131, add's `newBranch` creates a new branch and checks it out,
+never an existing one).
 
 | Subsystem | Commands | Mounts | Code |
 |---|---|---|---|

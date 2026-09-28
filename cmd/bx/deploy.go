@@ -25,7 +25,7 @@ func init() {
 	moreCmds["deploy"] = dcCommand(cmdDeploy)
 	moreCmds["rollback"] = dcCommand(cmdRollback)
 	moreCmds["promote"] = dcCommand(cmdPromote)
-	dcUsage["deploy"] = "bx deploy [<tile>] --to <name> [--checkpoint c:<id>] [--dry-run] [--yes] [--json] [--no-wait]"
+	dcUsage["deploy"] = "bx deploy [<tile>] --to <name> [--checkpoint c:<id>] [--other-branch] [--dry-run] [--yes] [--json] [--no-wait]"
 	dcUsage["rollback"] = "bx rollback [<tile>] --to <name> [--checkpoint c:<id>] [--dry-run] [--yes] [--json] [--no-wait]"
 	dcUsage["promote"] = "bx promote [<tile>] <from> <to> [--dry-run] [--yes] [--json] [--no-wait]"
 }
@@ -43,7 +43,11 @@ func cmdDeploy(args []string) error { return codeMove("deploy", args) }
 func cmdRollback(args []string) error { return codeMove("rollback", args) }
 
 func codeMove(how string, args []string) error {
-	a, err := parseDeploymentArgs(how, args, codeMoveFlags...)
+	flags := codeMoveFlags
+	if how == "deploy" { // a deploy of the work tree feeds its target (D131)
+		flags = append(append([]string(nil), codeMoveFlags...), "--other-branch")
+	}
+	a, err := parseDeploymentArgs(how, args, flags...)
 	if err != nil {
 		return err
 	}
@@ -60,6 +64,10 @@ func codeMove(how string, args []string) error {
 	}
 	if a.checkpoint != "" {
 		op.body["checkpoint"] = a.checkpoint
+	}
+	op.otherBranch = a.has("--other-branch")
+	if op.otherBranch && a.checkpoint != "" {
+		return usageError(how, "--other-branch is for a deploy of the work tree: send no --checkpoint with it")
 	}
 	op.target = func(st *deployState) string { return firstOf(a.to, st.Selected) }
 	return runDeployOp(op, a)
@@ -266,6 +274,7 @@ func buildReport(op deployOp, a dcArgs, st *deployState, x string, imp *deployIm
 	}
 	add("Code", codeLine(op.how, x, imp))
 	add("Data", dataLine(op.how, x, imp))
+	add("Branch", branchLine(op.how, imp))
 	var pauses []string
 	if op.how == "pause" && st.LiveReload != "" {
 		pauses = append(pauses, "live reload — saves stop reaching "+x+" until bx live-reload now or bx live-reload resume")

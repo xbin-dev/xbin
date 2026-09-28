@@ -35,6 +35,7 @@ import (
 type AttachRequest struct {
 	Tile       string `json:"tile"`
 	Deployment string `json:"deployment,omitempty"`
+	Confirm    string `json:"confirm,omitempty"` // ConfirmOtherBranch (D131)
 	Seq        *int64 `json:"seq,omitempty"`
 	DryRun     bool   `json:"dryRun,omitempty"`
 }
@@ -43,12 +44,19 @@ type AttachRequest struct {
 type AddRequest struct {
 	Tile       string `json:"tile"`
 	Deployment string `json:"deployment,omitempty"`
-	From       string `json:"from,omitempty"`    // FromWorkTree (the default), FromPrimary, or a checkpoint id
-	Data       string `json:"data,omitempty"`    // DataEmpty (the default) or DataSeed
-	Attach     bool   `json:"attach,omitempty"`  // attach live reload to the new deployment
-	Confirm    string `json:"confirm,omitempty"` // ConfirmCopyData, required with data:"seed"
-	Seq        *int64 `json:"seq,omitempty"`
-	DryRun     bool   `json:"dryRun,omitempty"`
+	From       string `json:"from,omitempty"`   // FromWorkTree (the default), FromPrimary, or a checkpoint id
+	Data       string `json:"data,omitempty"`   // DataEmpty (the default) or DataSeed
+	Attach     bool   `json:"attach,omitempty"` // attach live reload to the new deployment
+	// Confirm is ConfirmCopyData, required with data:"seed", and
+	// ConfirmOtherBranch for code from a work tree on another branch than
+	// Branch; both joined with a comma when both apply.
+	Confirm string `json:"confirm,omitempty"`
+	// Branch assigns the new deployment a branch; NewBranch creates one in
+	// the tile first, checks it out and assigns it (D131). One of them.
+	Branch    string `json:"branch,omitempty"`
+	NewBranch string `json:"newBranch,omitempty"`
+	Seq       *int64 `json:"seq,omitempty"`
+	DryRun    bool   `json:"dryRun,omitempty"`
 }
 
 // The values of AddRequest's from and data.

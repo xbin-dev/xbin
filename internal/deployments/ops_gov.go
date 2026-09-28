@@ -287,6 +287,7 @@ func runPrimary(ctx context.Context, p *Plane, g Grant, r *PrimaryRequest) (any,
 			rec.LastLiveReload, rec.LiveReloadSince = y, since
 		}
 		rec.Primary = y
+		dy.Branch, dy.BranchOverride = "", "" // the primary takes no assigned branch (D131)
 		return nil
 	})
 	if err != nil {

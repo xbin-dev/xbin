@@ -34,7 +34,9 @@ const deployUsage = `  bx live-reload [<tile>] [--json]      where saves go: liv
                                         keep the tile on the code it runs while you edit ·
                                         ship the work tree once · follow every save again
   bx live-reload attach [<tile>] --to <name>
-  bx deploy [<tile>] --to <name> [--checkpoint c:<id>]
+                                        resume, attach and now take --other-branch: feed a
+                                        deployment assigned a branch from another one this time
+  bx deploy [<tile>] --to <name> [--checkpoint c:<id>] [--other-branch]
                                         put a fresh checkpoint of the work tree (or c:<id>) on it
   bx rollback [<tile>] --to <name> [--checkpoint c:<id>]
                                         back to the previous checkpoint in its deploy log
@@ -159,7 +161,8 @@ type dcArgs struct {
 
 // dcValueFlags are the flags that take a value; the rest are booleans.
 var dcValueFlags = map[string]bool{"--to": true, "--checkpoint": true, "--from": true, "--keys": true,
-	"--deliveries": true, "--always-on": true, "--mem": true, "--pids": true, "--disk": true, "--limit": true, "--path": true}
+	"--deliveries": true, "--always-on": true, "--mem": true, "--pids": true, "--disk": true, "--limit": true, "--path": true,
+	"--branch": true, "--new-branch": true}
 
 var (
 	dcNameRe       = regexp.MustCompile(`^[a-z][a-z0-9-]{0,23}$`)
@@ -284,7 +287,9 @@ type deployState struct {
 	WorkTree *struct {
 		Changed int    `json:"changed"`
 		Since   string `json:"since"`
+		Branch  string `json:"branch"` // the work tree's branch (branches/1), "" for none
 	} `json:"workTree"`
+	Features         []string       `json:"features"`
 	ProtectedPrimary bool           `json:"protectedPrimary"`
 	Deployments      []deploymentSt `json:"deployments"`
 	Caller           *struct {
@@ -304,11 +309,13 @@ type deploymentSt struct {
 		Gen       int          `json:"gen"`
 		Deploying *deployEntry `json:"deploying"`
 	} `json:"status"`
-	API        string                     `json:"api"`
-	URL        string                     `json:"url"`
-	Data       *dataState                 `json:"data"`
-	LastDeploy *deployEntry               `json:"lastDeploy"`
-	Can        map[string]json.RawMessage `json:"can"`
+	API            string                     `json:"api"`
+	URL            string                     `json:"url"`
+	Data           *dataState                 `json:"data"`
+	LastDeploy     *deployEntry               `json:"lastDeploy"`
+	Can            map[string]json.RawMessage `json:"can"`
+	Branch         string                     `json:"branch"`         // its assigned branch (branches/1)
+	BranchOverride string                     `json:"branchOverride"` // the other branch it takes this time
 }
 
 // deployEntry is one deploy attempt (11-contract §1.1 DeployEntry).
@@ -338,13 +345,14 @@ type deployImpact struct {
 		Removed    int    `json:"removed"`
 		WorkTreeAt string `json:"workTreeAt"`
 	} `json:"code"`
-	Data             string   `json:"data"`
-	Joins            *joins   `json:"joins"`
-	Placeholders     []string `json:"placeholders"`
-	PausesLiveReload bool     `json:"pausesLiveReload"`
-	Stops            []string `json:"stops"`
-	Affects          string   `json:"affects"`
-	Reloads          []string `json:"reloads"`
+	Data             string        `json:"data"`
+	Joins            *joins        `json:"joins"`
+	Placeholders     []string      `json:"placeholders"`
+	Branch           *branchImpact `json:"branch"` // deploybranch.go
+	PausesLiveReload bool          `json:"pausesLiveReload"`
+	Stops            []string      `json:"stops"`
+	Affects          string        `json:"affects"`
+	Reloads          []string      `json:"reloads"`
 }
 
 // deployAnswer is what every POST of the family answers.
@@ -486,6 +494,9 @@ func httpRefusal(status int, b []byte) *dcError {
 		d.code = exitRefused
 		d.msg += refusalHint(d.msg)
 	}
+	if status == http.StatusConflict && strings.Contains(d.msg, `confirm:"other-branch"`) {
+		d.msg += " — with bx: --other-branch"
+	}
 	return d
 }
 
@@ -517,6 +528,12 @@ type deployOp struct {
 	result  func(b []byte, before, after *deployState, x string) string
 	jsonOut *[]byte
 	timeout time.Duration
+	// feature is what the body's new fields need the xbind to speak
+	// (featureBranches); otherBranch adds confirm "other-branch" (D131),
+	// sent only to an xbind that speaks branches/1 (an older one guards no
+	// branch, so there is nothing to confirm).
+	feature     string
+	otherBranch bool
 }
 
 // runDeployOp runs a changing command (11-contract §9.1): the state and the
@@ -531,6 +548,12 @@ func runDeployOp(op deployOp, a dcArgs) error {
 	target := op.target(st)
 	if target == "" {
 		return usageError(op.cmd, "which deployment? name it with --to (a code move never defaults its target)")
+	}
+	if op.feature != "" && !st.speaks(op.feature) {
+		return &dcError{code: exitFailed, msg: "this xbind doesn't know branch-assigned deployments (its state lists no " + op.feature + "): upgrade xbind"}
+	}
+	if op.otherBranch && st.speaks(featureBranches) {
+		op.confirm = strings.TrimPrefix(op.confirm+",other-branch", ",")
 	}
 	if op.how == "attach" && st.Record && st.View != "reader" && st.LiveReload == "" {
 		return &dcError{code: exitFailed, msg: fmt.Sprintf("live reload is paused: resume it onto %s instead — bx live-reload resume %s --to %s", target, st.Tile, target)}

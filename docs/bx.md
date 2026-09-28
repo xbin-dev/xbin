@@ -470,6 +470,11 @@ bx deployment ls [<tile>]           what each deployment runs, its status and da
                                     terminal"; no tile and no $XBIN_COMPONENT: every tile with
                                     deployments
 bx deployment add [<tile>] <name> [--from work-tree|primary|c:<id>] [--seed] [--attach]
+                  [--branch <b> | --new-branch <b>] [--other-branch]
+                                    --branch: <name> requires branch <b>; --new-branch: create <b>
+                                    in the tile at its HEAD, check it out, and require it
+bx deployment branch [<tile>] <name> <b> | --clear
+                                    the work tree's branch <name> requires, or none
 bx deployment rm [<tile>] <name>
 bx deployment primary [<tile>] --to <name>      (or: primary <tile> <name>)
 bx deployment protect [<tile>] on|off
@@ -526,6 +531,15 @@ bx agent run --deployment <name> …  an agent session whose calls reach that de
 - **`--json`** prints the route's answer verbatim — the operation's `{state,
   deploy}` as soon as it arrives — as the only thing on stdout; the report,
   the phases and the result go to stderr, and the outcome is the exit code.
+- **Assigned branches** (an xbind listing `branches/1`; bx refuses `--branch`,
+  `--new-branch` and `deployment branch` against an older one, exit 1).
+  `live-reload resume`, `attach` and `now`, `deploy` of the work tree and
+  `deployment add` from it refuse a work tree on another branch than the
+  deployment requires (the server's 409 names both); `--other-branch` takes
+  the work tree's branch this time — kept, for resume and attach, until live
+  reload moves or the branch changes again. `bx live-reload` and `bx
+  deployment ls` show each deployment's branch and the work tree's
+  ([tile-deployments.md](/docs/tile-deployments.md) §Assigned branches).
 - **Tile managers' acts** (`primary`, `protect`, `seed`, `vault-copy`,
   `set`, `edge`) run from the host with the root token, or in a human
   session; never from a tile terminal. The root token is a person's

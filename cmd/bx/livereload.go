@@ -16,18 +16,20 @@ func init() {
 	moreCmds["live-reload"] = dcCommand(cmdLiveReload)
 	dcUsage["live-reload"] = "bx live-reload [<tile>] [--json]"
 	dcUsage["live-reload pause"] = "bx live-reload pause [<tile>] [--dry-run] [--yes] [--json] [--no-wait]"
-	dcUsage["live-reload now"] = "bx live-reload now [<tile>] [--dry-run] [--yes] [--json] [--no-wait]"
-	dcUsage["live-reload resume"] = "bx live-reload resume [<tile>] [--to <name>] [--dry-run] [--yes] [--json] [--no-wait]"
-	dcUsage["live-reload attach"] = "bx live-reload attach [<tile>] --to <name> [--dry-run] [--yes] [--json] [--no-wait]"
+	dcUsage["live-reload now"] = "bx live-reload now [<tile>] [--other-branch] [--dry-run] [--yes] [--json] [--no-wait]"
+	dcUsage["live-reload resume"] = "bx live-reload resume [<tile>] [--to <name>] [--other-branch] [--dry-run] [--yes] [--json] [--no-wait]"
+	dcUsage["live-reload attach"] = "bx live-reload attach [<tile>] --to <name> [--other-branch] [--dry-run] [--yes] [--json] [--no-wait]"
 }
 
 // liveReloadFlags are the flags of each subcommand ("" = the state).
+// --other-branch feeds a deployment assigned a branch from a work tree on
+// another one this time (D131).
 var liveReloadFlags = map[string][]string{
 	"":       {"--json"},
 	"pause":  {"--yes", "--dry-run", "--json", "--wait"},
-	"now":    {"--yes", "--dry-run", "--json", "--wait"},
-	"resume": {"--to", "--yes", "--dry-run", "--json", "--wait"},
-	"attach": {"--to", "--yes", "--dry-run", "--json", "--wait"},
+	"now":    {"--other-branch", "--yes", "--dry-run", "--json", "--wait"},
+	"resume": {"--to", "--other-branch", "--yes", "--dry-run", "--json", "--wait"},
+	"attach": {"--to", "--other-branch", "--yes", "--dry-run", "--json", "--wait"},
 }
 
 func cmdLiveReload(args []string) error {
@@ -44,7 +46,7 @@ func cmdLiveReload(args []string) error {
 	if sub == "" {
 		return showLiveReload(a, ref)
 	}
-	op := deployOp{cmd: cmd, route: "live-reload/" + sub, body: map[string]any{"tile": ref}}
+	op := deployOp{cmd: cmd, route: "live-reload/" + sub, body: map[string]any{"tile": ref}, otherBranch: a.has("--other-branch")}
 	switch sub {
 	case "pause": // pins live reload's target where it stands (05-model §5)
 		op.how, op.can = "pause", "pause"
@@ -117,6 +119,9 @@ func showLiveReload(a dcArgs, ref string) error {
 	}
 	if st.View == "reader" {
 		return nil
+	}
+	if st.branchAware() {
+		fmt.Fprintf(dcOut, "  the work tree is on %s\n", firstOf(st.workTreeBranch(), "no branch"))
 	}
 	switch last := firstOf(st.LastLiveReload, st.primary()); {
 	case !st.Record:
@@ -200,6 +205,12 @@ func deploymentLine(st *deployState, d deploymentSt) string {
 		}
 	}
 	line := fmt.Sprintf("%-7s  %-20s  %s", role, code, status)
+	if d.Branch != "" { // D131
+		line += "   branch " + d.Branch
+		if d.BranchOverride != "" {
+			line += " (" + d.BranchOverride + " this time)"
+		}
+	}
 	if os.Getenv("XBIN_COMPONENT") == st.Tile {
 		if dep := os.Getenv("XBIN_DEPLOYMENT"); dep == d.Name || (dep == "" && d.Primary) {
 			line += "   ← this terminal"

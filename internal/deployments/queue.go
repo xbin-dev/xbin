@@ -712,3 +712,37 @@ func shortTree(tree string) string {
 	}
 	return "c:" + tree
 }
+
+// restart starts a new generation of dep's current code (its checkpoint, or
+// the work tree's build while live reload drives it) and clears its crash
+// breaker: what a crash restart does, so it moves no code (D119e). A runner
+// with Restart does it blue/green on dep's lane (07-runtime §8.7); one
+// without marks dep changed, which rebuilds it from its record's code.
+func (p *Plane) restart(ctx context.Context, o *op, dry bool, dep string) (any, error) {
+	if dry {
+		return p.answer(ctx, true, nil, Impact{Data: "none", Affects: affects(o.rec, dep)}, false)
+	}
+	d := o.rec.Deployments[dep]
+	tree := ""
+	if d.Checkpoint != nil {
+		tree = *d.Checkpoint
+	}
+	a := o.newAttempt("restart", dep, tree)
+	a.FollowsWorkTree, a.forced = d.Checkpoint == nil, true
+	_, blue := p.Run.(restarter)
+	if blue && o.c.HasBackend() && p.full(o.tile, dep) {
+		return nil, queueFull(dep)
+	}
+	if err := p.accept(ctx, o.tile, o.rec, a); err != nil {
+		return nil, opError(o.tile, err)
+	}
+	if blue && o.c.HasBackend() {
+		p.enqueue(a) // a new generation through the runner's blue/green, on dep's lane
+		return p.answer(ctx, false, a, Impact{}, false)
+	}
+	if p.Run != nil {
+		p.Run.ChangedDeployment(o.c, dep) // what a crash restart does
+	}
+	p.finish(a, resultOK, nil)
+	return p.answer(ctx, false, a, Impact{}, false)
+}

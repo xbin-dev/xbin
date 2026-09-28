@@ -104,6 +104,8 @@ func mountDeploymentsAPI(m apiMounter, a *deploymentsAPI) {
 	m.RegisterAPI("POST /deployments/run-now", a.post(deployments.OpRunNow))
 	// Purge a checkpoint no deployment runs (a tile manager's act).
 	m.RegisterAPI("POST /deployments/purge", a.post(deployments.OpPurge))
+	// A deployment's assigned branch (D131): set, or null to clear.
+	m.RegisterAPI("POST /deployments/branch", a.post(deployments.OpBranch))
 	// The checkpoint remote: read-only dumb HTTP git over the tile's view
 	// repository (<tile>.git/<git path>).
 	m.RegisterAPI("GET /checkpoints/{rest...}", a.getFetch)
@@ -368,8 +370,8 @@ func (a *deploymentsAPI) state(ctx context.Context, pr auth.Principal, t tileRef
 		rows = append(rows, a.row(ctx, pr, t, name))
 	}
 	out["deployments"] = rows
+	wt := map[string]any{}
 	if t.active() && rec.LiveReload == "" { // paused: how far the work tree moved since
-		wt := map[string]any{}
 		for _, row := range rows {
 			if cp, ok := row["checkpoint"].(map[string]any); ok && row["name"] == rec.LastLiveReload {
 				wt["since"] = cp["id"]
@@ -380,6 +382,10 @@ func (a *deploymentsAPI) state(ctx context.Context, pr auth.Principal, t tileRef
 				wt["changed"] = n
 			}
 		}
+		out["workTree"] = wt
+	}
+	if au == deployments.AudienceWrite && a.ops.registered(deployments.OpBranch) {
+		wt["branch"] = a.dp.WorkTreeBranch(tile) // the work tree's branch, "" for none (D131)
 		out["workTree"] = wt
 	}
 	if t.active() && (au == deployments.AudienceWrite || au == deployments.AudienceDeployment) {
@@ -464,6 +470,7 @@ func (a *deploymentsAPI) row(ctx context.Context, pr auth.Principal, t tileRef, 
 	if d.Created != "" {
 		row["created"], row["by"] = d.Created, d.By
 	}
+	branchFacts(row, rec, name)
 	can := map[string]deployments.Can{"open": {OK: true}}
 	if !a.reaches(pr, t, name) {
 		can["open"] = deployments.Can{Why: "deployment URLs need write access on " + tile, Kind: deployments.KindAuthority}
@@ -485,6 +492,7 @@ var deploymentCans = []struct {
 	{"reset", deployments.OpReset}, {"seed", deployments.OpSeed}, {"vaultCopy", deployments.OpVaultCopy},
 	{"deliveries", deployments.OpDeliveries}, {"alwaysOn", deployments.OpAlwaysOn}, {"limits", deployments.OpLimits},
 	{"backup", deployments.OpBackup}, {"runNow", deployments.OpRunNow}, {"primary", deployments.OpPrimary},
+	{"branch", deployments.OpBranch},
 }
 
 // caller is the Caller of 11-contract §1.1: pr's level and tile-level acts.
@@ -547,25 +555,13 @@ func (a *deploymentsAPI) orNotBuilt(o op, c deployments.Can) deployments.Can {
 		o = deployments.OpDeploy
 	case deployments.OpUnprotect:
 		o = deployments.OpProtect
+	case deployments.OpBranchClear:
+		o = deployments.OpBranch
 	}
 	if c.OK && !a.ops.registered(o) {
 		return notBuilt
 	}
 	return c
-}
-
-// features is what this xbind speaks (NP-14-4): live-reload/1 once pausing
-// is built, deployments/1 once adding is; none while the ship-dark switch
-// is off (NP-14-5).
-func (a *deploymentsAPI) features() []string {
-	out := []string{}
-	if !a.dp.OptInClosed && a.ops.registered(deployments.OpPause) {
-		out = append(out, "live-reload/1")
-	}
-	if !a.dp.OptInClosed && a.ops.registered(deployments.OpAdd) {
-		out = append(out, "deployments/1")
-	}
-	return out
 }
 
 // checkpointOf is the Checkpoint of tile's tree; without the store's

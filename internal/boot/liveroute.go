@@ -8,7 +8,9 @@ package boot
 // attached to another deployment reloads and rebuilds only that one, and no
 // event of today's types names it (rule C2). A tile whose live reload is
 // paused drives nothing: its pinned deployments never reload on a save, and
-// the plane only recounts how far its work tree moved (NP-13-12).
+// the plane only recounts how far its work tree moved (NP-13-12). A tile
+// whose live reload target has an assigned branch (D131) deploys a batch
+// only once the plane found its work tree on that branch.
 
 import (
 	"log/slog"
@@ -65,10 +67,18 @@ func (t liveTarget) event() events.Event {
 // liveGate is what the watcher loop asks the deployments plane
 // (*deployments.Plane): where a tile's live reload points, which deployment
 // is its primary, and the notice for a paused tile that a batch touched.
+// Branches, GuardBatch and NoteBranch are the assigned branches' (D131):
+// whether the tile's record assigns any (aware) and its target one
+// (guarded, an in-memory lookup, false for every tile without a record);
+// a guarded batch's deploy runs once the plane checked the work tree's
+// branch; an aware tile's batch notes the branch for the follow offers.
 type liveGate interface {
 	LiveReload(tile string) (dep string, attached bool)
 	Primary(tile string) string
 	WorkTreeMoved(tile string)
+	Branches(tile, dep string) (aware, guarded bool)
+	GuardBatch(c *registry.Component, dep string, restart bool, deploy func(restart bool))
+	NoteBranch(tile string)
 }
 
 // routeBatch drives what one batch's changed components reach: for each
@@ -79,17 +89,31 @@ type liveGate interface {
 func routeBatch(reload map[string]*registry.Component, restart map[string]bool, gate liveGate, hub *events.Hub, changed func(*registry.Component, string)) {
 	targets, paused := liveTargets(reload, restart, gate.LiveReload, gate.Primary)
 	for _, t := range targets {
-		if t.primary {
-			slog.Debug("changed", "component", t.c.Path) // today's line: the save path allocates as it did (D119d)
-		} else {
-			slog.Debug("changed", "component", t.c.Path, "deployment", t.dep)
+		aware, guarded := gate.Branches(t.c.Path, t.dep)
+		if guarded { // its deploy waits for the branch check, off the loop (D131)
+			gate.GuardBatch(t.c, t.dep, t.restart, func(restart bool) { t.drive(hub, changed, restart) })
+			continue
 		}
-		hub.Publish(t.event())
-		if t.restart {
-			changed(t.c, t.dep)
+		t.drive(hub, changed, t.restart)
+		if aware {
+			gate.NoteBranch(t.c.Path)
 		}
 	}
 	for _, tile := range paused {
 		gate.WorkTreeMoved(tile)
+	}
+}
+
+// drive is what a save reaching t does: its reload event, then a rebuild of
+// its deployment unless only the native entry changed.
+func (t liveTarget) drive(hub *events.Hub, changed func(*registry.Component, string), restart bool) {
+	if t.primary {
+		slog.Debug("changed", "component", t.c.Path) // today's line: the save path allocates as it did (D119d)
+	} else {
+		slog.Debug("changed", "component", t.c.Path, "deployment", t.dep)
+	}
+	hub.Publish(t.event())
+	if restart {
+		changed(t.c, t.dep)
 	}
 }

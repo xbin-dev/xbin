@@ -39,6 +39,7 @@ func TestOpenAPIDeploymentRows(t *testing.T) {
 		{"POST", "/deployments/rollback", capDeployTerminal},
 		{"POST", "/deployments/reset", capDeployTerminal},
 		{"POST", "/deployments/run-now", capDeployTerminal},
+		{"POST", "/deployments/branch", capDeployTerminal},
 		{"POST", "/deployments/purge", capDeployManager},
 		{"POST", "/deployments/primary", capDeployManager},
 		{"POST", "/deployments/protect", capDeployManager},

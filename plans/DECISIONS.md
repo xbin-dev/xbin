@@ -4692,3 +4692,78 @@ Deviations and refinements made while implementing; all deliberate:
     widths (a resized window would squeeze the terminal instead of both);
     the shield on press (it swallows the double-click); renaming the tile
     API select's `🔌 target:` entries (only the tag was ruled on).
+
+- **D131 — Branch-assigned deployments: a deployment may require the work
+  tree's branch; checkout-driven routing, as offers (2026-09-28).**
+  docs/tile-deployments.md §Assigned branches; docs/bx.md (`bx deployment
+  add --branch|--new-branch`, `bx deployment branch`, `--other-branch`);
+  docs/protocol.md (`POST /deployments/branch`, feature `branches/1`, op
+  `branch`); plans/dev-lifecycle/05-model.md flow H. The owner's rulings of
+  2026-09-28, built on D119 and D127.
+  - **(a) A requirement and a label, not a feed.** A deployment other than
+    `main` and the primary may name a branch of the tile's repository
+    (record: an optional per-deployment `branch`). It still follows the
+    work tree or runs a checkpoint; only a work tree on that branch may feed
+    it. The branch is read host-side beneath the tile (`.git/HEAD`, never a
+    git run, like the `Xbin-Work-Tree-Head` trailer); a detached, missing or
+    unreadable HEAD is no branch. Refused on `main` and on the primary;
+    reassigning the primary to a deployment clears its branch, and a stored
+    branch on either (an older binary that reassigned without knowing it)
+    reads as none rather than holding the tile. Older binaries keep
+    `branch` and `branchOverride` verbatim through the record's unknown
+    fields.
+  - **(b) Explicit ops are guarded.** Attach, resume, reload now and a
+    deploy from the work tree, and add from the work tree (with attach or
+    not: the first ruling covers it), answer 409 naming both branches.
+    `confirm: "other-branch"` takes the work tree's branch this time; attach
+    and resume keep it as the deployment's `branchOverride`, which lapses
+    when live reload moves or the work tree's branch changes again. A work
+    tree on no branch can't be followed even so. A capture-time trailer
+    check (`Xbin-Work-Tree-Branch`, HEAD read before and after the capture)
+    refuses the op when a checkout raced it. A deploy of a checkpoint,
+    promote and roll back are not fed by the work tree and are not asked.
+  - **(c) Saves are guarded too.** In `routeBatch`, a tile whose live reload
+    target has an assigned branch hands the batch to the plane's per-tile
+    guard worker, which reads HEAD once per debounced batch, takes a
+    background checkpoint (its own capture budget, so people's requests
+    never find it spent) whose trailer is the second check, and only then
+    deploys the batch. A mismatch without an override deploys nothing:
+    live reload pauses, the target pinned to the checkpoint it runs — the
+    last batch deployed on its branch, else its newest deploy-log
+    checkpoint taken on its branch — logged as a `pause` by `xbind`, and a
+    `deployments` event op `branch` `{deployment, assigned, workTree,
+    related, paused}` goes to the write audience. Pausing, or attaching live
+    reload elsewhere, while the work tree is off the target's branch pins it
+    the same way. Every tile without an assigned branch keeps the no-cost
+    save path of D119d (one more in-memory lookup).
+  - **(d) On a detected switch, offer to follow.** op `branch` names
+    `related`, the deployment assigned the work tree's new branch: clients
+    offer "Attach live reload to <it> (<branch>)" (resume, while paused)
+    through the normal confirmation; switching back offers "Resume live
+    reload on <dev>"; with no match, "Keep <dev> on <branch> this time" (the
+    override) or "Add a deployment for <branch>…". This is checkout-driven
+    routing — option B2 of 04-options, rejected when the design was made
+    because it turns routine git use into a routing change — now the
+    owner's call, kept to offers and a pause: a checkout never moves live
+    reload by itself.
+  - **(e) New branches only.** Add's `newBranch` creates the branch in the
+    tile with a confined git switch (`internal/confine`, never a host exec;
+    `git switch --create=<name> --end-of-options`: the name attached to its
+    option, since `-c --end-of-options <name>` would read the marker as the
+    name) that changes no file, so nothing reloads. It never switches to an
+    existing branch; a narrow exception to "xbind never checks out a branch
+    in a tile" (03-current-state §7.2).
+  - **(f) Wire.** Feature `branches/1`; `POST /deployments/branch {tile,
+    deployment, branch|null}` (terminal level, like add); `branch` and
+    `newBranch` on add; `confirm: "other-branch"` on the guarded ops (on
+    add, joined to `copy-data` with a comma when both apply); `workTree.branch`
+    in the write audience's state, `branch`/`branchOverride` per deployment,
+    `impact.branch` in dry runs, `branch` on deploy entries. Bodies are
+    decoded strictly (12-compat §10.2), so clients send the new fields only
+    when `features` lists `branches/1`; bx refuses the commands that need it
+    against an older xbind and drops `--other-branch` there.
+  - **Not chosen:** routing live reload by checkout outright (B2 as
+    designed: an agent's routine checkout would move a live URL); running
+    git on the tile's repository host-side to read the branch (D78);
+    pinning a paused target to a capture of the other branch's work tree;
+    letting xbind switch to existing branches.

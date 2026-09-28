@@ -27,6 +27,9 @@ import (
 const deploymentUsage = `  bx promote [<tile>] <from> <to>       give <to> exactly <from>'s code; its data stays
   bx deployment ls [<tile>]             a tile's deployments: code, status, data, this terminal's
   bx deployment add|rm [<tile>] <name>  add: [--from work-tree|primary|c:<id>] [--seed] [--attach]
+                                             [--branch <b>|--new-branch <b>] [--other-branch]
+  bx deployment branch [<tile>] <name> <branch>|--clear
+                                        the work tree's branch <name> requires (or none)
   bx deployment primary [<tile>] --to <name> | protect [<tile>] on|off
   bx deployment seed|reset [<tile>] <name> [--stop|--vault]
   bx deployment vault-copy [<tile>] <name> --keys k1,k2|--all
@@ -55,7 +58,8 @@ var deploymentSubs = map[string]struct {
 	run   func(cmd string, a dcArgs) error
 }{
 	"ls":         {[]string{"--json"}, depList},
-	"add":        {append([]string{"--from", "--seed", "--attach"}, changingFlags...), depAdd},
+	"add":        {append([]string{"--from", "--seed", "--attach", "--branch", "--new-branch", "--other-branch"}, changingFlags...), depAdd},
+	"branch":     {append([]string{"--clear"}, changingFlags...), depBranch},
 	"rm":         {changingFlags, depRemove},
 	"primary":    {append([]string{"--to"}, changingFlags...), depPrimary},
 	"protect":    {changingFlags, depProtect},
@@ -72,9 +76,10 @@ var deploymentSubs = map[string]struct {
 func init() {
 	moreCmds["deployment"] = dcCommand(cmdDeployment)
 	for sub, u := range map[string]string{
-		"":           "bx deployment ls|add|rm|primary|protect|seed|reset|vault-copy|set|edge|run-now|log|diff …",
+		"":           "bx deployment ls|add|rm|branch|primary|protect|seed|reset|vault-copy|set|edge|run-now|log|diff …",
 		"ls":         "bx deployment ls [<tile>] [--json]",
-		"add":        "bx deployment add [<tile>] <name> [--from work-tree|primary|c:<id>] [--seed] [--attach] [--dry-run] [--yes] [--json]",
+		"add":        "bx deployment add [<tile>] <name> [--from work-tree|primary|c:<id>] [--seed] [--attach] [--branch <b>|--new-branch <b>] [--other-branch] [--dry-run] [--yes] [--json]",
+		"branch":     "bx deployment branch [<tile>] <name> (<branch> | --clear) [--dry-run] [--yes] [--json]",
 		"rm":         "bx deployment rm [<tile>] <name> [--dry-run] [--yes] [--json]",
 		"primary":    "bx deployment primary [<tile>] --to <name> (or: primary <tile> <name>) [--dry-run] [--yes] [--json]",
 		"protect":    "bx deployment protect [<tile>] on|off [--dry-run] [--yes] [--json]",
@@ -154,6 +159,10 @@ func dcCheckFlag(flag, v string) error {
 	case "--path":
 		if strings.TrimSpace(v) == "" {
 			return errors.New("a file of the tile")
+		}
+	case "--branch", "--new-branch":
+		if !branchNameOK(v) {
+			return errors.New("a branch name: letters, digits and . _ + / -, not starting with - or .")
 		}
 	}
 	return nil
@@ -316,6 +325,15 @@ func depAdd(cmd string, a dcArgs) error {
 	if a.has("--attach") {
 		op.body["attach"] = true
 	}
+	switch b, nb := a.val("--branch"), a.val("--new-branch"); {
+	case b != "" && nb != "":
+		return usageError(cmd, "--branch assigns an existing branch and --new-branch creates one: give one")
+	case b != "":
+		op.body["branch"], op.feature = b, featureBranches
+	case nb != "":
+		op.body["newBranch"], op.feature = nb, featureBranches
+	}
+	op.otherBranch = a.has("--other-branch")
 	op.report = func(st *deployState, x string, imp *deployImpact) deployReport {
 		r := deployReport{question: "Add deployment " + x + " to " + st.Tile}
 		code := x + " runs a fresh checkpoint of the work tree"
@@ -345,6 +363,13 @@ func depAdd(cmd string, a dcArgs) error {
 			r.why = "this copies " + st.primary() + "'s data, which may be personal, into " + x
 		}
 		r.add("Code", code)
+		if nb := a.val("--new-branch"); nb != "" {
+			r.add("Branch", "branch "+nb+" is created from the work tree's HEAD and checked out (no file changes), and "+x+" requires it")
+		} else if l := branchLine("add", imp); l != "" {
+			r.add("Branch", l)
+		} else if b := a.val("--branch"); b != "" {
+			r.add("Branch", x+" requires branch "+b)
+		}
 		r.add("Data", data+"; secrets start as names only")
 		r.add("Edges", "it uses "+st.Tile+"'s grants and bindings, reading other tiles' primaries as reader")
 		r.add("Pauses", stopsLine(imp))

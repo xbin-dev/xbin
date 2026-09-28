@@ -535,7 +535,7 @@ func cmdBackupSchedule(args []string) error {
 		return fmt.Errorf("usage: bx backup-schedule <component> [--every 24h | --cron \"expr\"] [--keep N] | --rm")
 	}
 	if rm {
-		if err := apiJSON("DELETE", "/api/xbin/backup-schedule?component="+comp, nil, nil); err != nil {
+		if err := apiJSON("DELETE", "/api/xbin/backup-schedule?component="+queryPath(comp), nil, nil); err != nil {
 			return err
 		}
 		fmt.Printf("unscheduled %s\n", comp)
@@ -601,7 +601,7 @@ func cmdBackups(args []string) error {
 			Size    int64  `json:"size"`
 		} `json:"versions"`
 	}
-	if err := apiJSON("GET", "/api/xbin/backups?component="+args[0], nil, &out); err != nil {
+	if err := apiJSON("GET", "/api/xbin/backups?component="+queryPath(args[0]), nil, &out); err != nil {
 		return err
 	}
 	if len(out.Versions) == 0 {

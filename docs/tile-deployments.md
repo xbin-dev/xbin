@@ -43,6 +43,7 @@ exactly what runs with `git fetch xbin-deploy`.
 | **deployment data** | a deployment's own resources (kv, sqlite, blob, filesystem, bus) and vault. `main` has the tile's; every other deployment starts empty |
 | **dormant** | an interface instance or ingress host that a non-primary deployment registered (stored and answered with success, never routed), or a cron job or bus subscription of a deployment whose deliveries are off (stored, never fired) |
 | **deliveries** | a per-deployment off switch, on by default: while it is on, a non-primary deployment's cron jobs and bus subscriptions fire for it; a tile manager can turn it off |
+| **assigned branch** | a branch of the tile's repository that a non-primary deployment requires: the work tree feeds it only while it has that branch checked out (§Assigned branches) |
 | **edge policy** | per edge of the tile (a call grant, an interface binding, the net, a capability), what its non-primary deployments may use: `read`, `inherit` or `block` |
 | **protected** (primary) | only tile managers change the primary's code, in their own session, naming the checkpoint they reviewed |
 | **tile managers** | the tile's owner, its org's admins and workspace admins — as for every other tile setting. Their acts here are done in a person's **own session**: the browser, or `bx` with the root token on the host — never a terminal or agent session (§Managing protection) |
@@ -212,6 +213,7 @@ bx deployment add dev --attach            # dev: the work tree's code, empty dat
 bx deployment add dev --from primary      # dev: what the primary runs now
 bx deployment add dev --from c:1e9d0aa    # dev: a checkpoint from the deploy log
 bx deployment add apps/crm+dev            # the same as the first, naming the tile
+bx deployment add dev --attach --new-branch feature   # dev requires a new branch, feature (below)
 ```
 
 - **What a new deployment gets.** Its code (default: a fresh checkpoint of
@@ -429,16 +431,78 @@ curl -s -H "Authorization: Bearer $XBIN_TOKEN" "$XBIN_URL/api/xbin/deployments/d
 - Both need write access to the tile. A tile in the zero state has nothing
   to diff: 409, and nothing is captured.
 
-## Branching from what a deployment runs: `git fetch xbin-deploy`
+## Assigned branches
 
-To fix what the primary runs while the work tree holds unfinished work:
+A non-primary deployment can require a branch of the tile's repository: `dev`
+runs `feature`, `qa` runs `release`. It is a requirement and a label, not a
+feed — `dev` still follows the work tree or runs a checkpoint, but the work
+tree feeds it only while it has `feature` checked out.
 
 ```sh
+bx deployment add dev --attach --branch feature      # dev requires feature, which exists
+bx deployment add dev --attach --new-branch feature  # xbind creates feature at HEAD and checks it out
+bx deployment branch dev feature                     # later; --clear takes it off
+bx live-reload                                       # each deployment's branch, and the work tree's
+```
+
+- **What it guards.** Attach and resume onto `dev`, Reload now while live
+  reload last followed it, a deploy of the work tree to it, and adding it
+  from the work tree answer `dev is assigned branch feature, and the work
+  tree is on main: check out feature, or send confirm:"other-branch" to use
+  main this time` (409). `--other-branch` (the confirmation's "this time")
+  takes the work tree's branch once; after attach or resume it holds until
+  live reload moves or the work tree's branch changes again. A deploy of a
+  checkpoint, a promote and a roll back aren't fed by the work tree, and
+  aren't asked. A detached HEAD, or a tile without a repository, is on no
+  branch.
+- **Saves too.** While live reload follows `dev`, xbind reads the work
+  tree's branch on every batch of saves and checkpoints the work tree before
+  the save reaches `dev`, reading the branch again as it does. A save on
+  another branch — a `git checkout`, or a checkout racing the save — reaches
+  nothing: live reload pauses, and `dev` stays on the code it ran (its deploy
+  log says `pause` by `xbind`), and clients get a `deployments` event (op
+  `branch`) naming the deployment assigned the branch you switched to, if
+  one is. Pausing, or attaching live reload elsewhere, while the work tree
+  is on another branch keeps `dev` on the code it ran too. Deployments
+  without a branch — `main`, the primary — follow the work tree on any
+  branch, as before, and a tile none of whose deployments has a branch
+  saves exactly as it always did.
+- **Following a switch.** After `git checkout release` with `qa` assigned
+  `release`, resume live reload on `qa`; after `git checkout feature` again,
+  resume it on `dev`. With no deployment for the branch, resume `dev` with
+  `--other-branch` (this time), or add one with `--branch release`.
+- **Creating a branch.** `--new-branch` runs a confined `git switch
+  --create=<name>` in the tile: a new branch at HEAD, checked out, no file
+  changed, so nothing reloads. It never switches to an existing branch (409
+  `apps/crm already has a branch feature …`); xbind checks out nothing else.
+- `main` and the primary never have a branch: making a deployment the
+  primary clears its branch. Checkpoints taken from the work tree name the
+  branch in an `Xbin-Work-Tree-Branch` trailer, and the deploy log shows it.
+- An older xbind keeps the branch in the record untouched and ignores it.
+
+## Branching from what a deployment runs: `git fetch xbin-deploy`
+
+To fix what the primary runs while the work tree holds unfinished work — here
+`dev` requires `feature`, which holds it:
+
+```sh
+git commit -am wip                           # the unfinished work stays on feature
 git fetch xbin-deploy
 git checkout --no-track -b hotfix deploy/main
+bx deployment add hotfix --attach --branch hotfix   # optional: try the fix at /c/<tile>+hotfix/
 # fix, commit, then — once the user says ship:
-bx deploy --to main
+bx deploy --to main                          # or: bx promote hotfix main
+git checkout feature
+git rebase --onto hotfix <the Xbin-Work-Tree-Head commit> feature
+bx live-reload resume --to dev
+bx deployment rm hotfix
 ```
+
+The checkout of `hotfix` leaves `feature`, so live reload pauses and `dev`
+keeps running the unfinished work; the fix never reaches it. Checking out
+`feature` again and resuming brings `dev` the rebased work. Nothing in xbind
+merges anything: git combines work in the work tree, and deployments move
+checkpoints.
 
 - Terminal and agent sessions opened while the tile has a deployment record
   get a fetch-only git remote, `xbin-deploy`, set only in the session's
@@ -463,8 +527,10 @@ bx deploy --to main
 - Who can fetch: the tile's terminal and agent sessions while their user has
   write access, and people with write access.
 
-With live reload on `dev`, the work tree then holds the primary's code plus
-the fix, so `dev` runs the fix first; deploy it to `main` once it works.
+Without an assigned branch, a `dev` that follows the work tree runs the
+primary's code plus the fix as soon as you check out `hotfix` — the fix is
+tried there first; deploy it to `main` once it works, and check out your
+branch again.
 
 ## Data and secrets per deployment
 
@@ -792,6 +858,10 @@ The rules for an agent working on a tile, beyond the workspace `AGENTS.md`:
   prints what will change and stops (exit 4); `--yes` says the user asked.
 - **Don't `bx deploy --to` the live reload target**: saves already reach it,
   and a deploy onto it pauses live reload.
+- **Branches.** A deployment with an assigned branch (`bx live-reload`
+  shows them) takes saves only while the work tree is on it: a `git
+  checkout` of another branch pauses live reload there. Say so when you
+  switch branches, and don't pass `--other-branch` unless the user asked.
 - **A large change on a tile with no other deployment:** pause live reload,
   build and test in the terminal, and resume when done — resuming ships the
   work tree, so only when the user asked. Leave a pause someone else made
@@ -908,5 +978,6 @@ growing: no tile can pause live reload, add a deployment or move code, and
 refusal. It never unpins anything: existing records keep governing what runs.
 What leads back to the zero state or creates no state stays open — resuming
 live reload onto `main`, restarting, removing a deployment, resetting its
-data, unprotecting, run now and purging — so every tile can return to plain
+data, unprotecting, clearing a deployment's branch, run now and purging — so
+every tile can return to plain
 live reload without a downgrade ([config.md](/docs/config.md)).

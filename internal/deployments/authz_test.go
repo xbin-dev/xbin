@@ -189,7 +189,8 @@ func TestRecheckJudgesTheRecordAtCommit(t *testing.T) {
 func TestShipDarkClosesOnlyGrowth(t *testing.T) {
 	open, shut := azPlane(), azPlane()
 	shut.OptInClosed = true
-	stays := map[Op]bool{OpRemove: true, OpReset: true, OpUnprotect: true, OpRestart: true, OpRunNow: true, OpPurge: true}
+	stays := map[Op]bool{OpRemove: true, OpReset: true, OpUnprotect: true, OpRestart: true, OpRunNow: true, OpPurge: true,
+		OpBranchClear: true}
 
 	for _, op := range MutatingActs() {
 		s := Subject{Tile: "apps/crm", Deployment: "dev", Record: true, Seq: 1}

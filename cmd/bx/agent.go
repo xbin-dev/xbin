@@ -97,7 +97,7 @@ func cmdAgentHistory(args []string) error {
 		Turns                                         int
 		Loadable                                      bool
 	}
-	if err := apiJSON("GET", "/api/xbin/agent/history?cwd="+tile, nil, &rows); err != nil {
+	if err := apiJSON("GET", "/api/xbin/agent/history?cwd="+queryPath(tile), nil, &rows); err != nil {
 		return err
 	}
 	if len(rows) == 0 {
@@ -335,7 +335,7 @@ func cmdAgentLs(args []string) error {
 		ID, Cwd, Name, Provider, Mode, Status, Kind, LastActive string
 		Pending                                                 int
 	}
-	if err := apiJSON("GET", "/api/xbin/term/sessions?cwd="+tile, nil, &rows); err != nil {
+	if err := apiJSON("GET", "/api/xbin/term/sessions?cwd="+queryPath(tile), nil, &rows); err != nil {
 		return err
 	}
 	n := 0

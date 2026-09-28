@@ -27,6 +27,26 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   panel). A narrow panel shows its list and the selected row one at a time.
   `open(layout)` is unchanged (`'split'` is code beside the terminal), and a
   saved window restores as before. Nothing to change.
+- **Tile deployments: branch-assigned deployments** (D131, feature
+  `branches/1`; [tile-deployments.md](tile-deployments.md) §Assigned
+  branches). A deployment beyond `main` and the primary can require a branch
+  of the tile's repository — `bx deployment add dev --branch feature` (or
+  `--new-branch feature`, which creates and checks it out), `bx deployment
+  branch dev feature|--clear`, `POST /api/xbin/deployments/branch`. While
+  it has one, the work tree feeds it only on that branch: attach, resume,
+  reload now, a deploy of the work tree and an add from it answer 409
+  naming both branches unless `confirm: "other-branch"` (`--other-branch`)
+  takes the work tree's this time, and a save on another branch while live
+  reload follows it deploys nothing and pauses live reload, keeping the code
+  it runs — a `deployments` event op `branch` says so and names the
+  deployment assigned the work tree's branch. The state gains
+  `workTree.branch` and each deployment's `branch`/`branchOverride`,
+  checkpoints an `Xbin-Work-Tree-Branch` trailer, deploy entries `branch`.
+  Additive: nothing changes for a deployment without a branch, and clients
+  send the new body fields only to an xbind whose `features` list
+  `branches/1`. `bx agent ls|history --tile`, `bx owner`, `bx access`,
+  `bx backups` and `bx backup-schedule --rm` now escape a tile path holding
+  `+` in their queries (it read as a space).
 - **VM tile sandboxes and VM-only coding sandboxes by default.** A VM
   policy saved before tile sandboxes existed (no `tiles` field — the
   installer's policies until v0.3.60) now reads `tiles` as following

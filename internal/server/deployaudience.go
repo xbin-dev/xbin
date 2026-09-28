@@ -22,8 +22,9 @@ import (
 // tile (credentialTile):
 //   - a reader form (of op record, or of a deploy onto the primary) reaches
 //     the rest of T's readers, those the full form doesn't reach;
-//   - the full forms of ops record and deploy, op work-tree, and an event
-//     naming no deployment or one it can't read reach T's write audience; a
+//   - the full forms of ops record and deploy, ops work-tree and branch
+//     (the work tree's branch, D131), and an event naming no deployment or
+//     one it can't read reach T's write audience; a
 //     deploy onto the primary also reaches the own principals of the
 //     deployment it came from;
 //   - the primary's reload, build, data, status and notify reach T's readers;
@@ -46,7 +47,7 @@ func (s *Server) deploymentsEventFor(p auth.Principal, tile string, e events.Eve
 		return write || ownPrincipal(p, tile, t, f.from)
 	case f.dep == prim && slices.Contains([]string{"reload", "build", "data", "status", "notify"}, f.op):
 		return reader
-	case f.op == "record" || f.op == "work-tree" || f.dep == "" || f.dep == prim:
+	case f.op == "record" || f.op == "work-tree" || f.op == "branch" || f.dep == "" || f.dep == prim:
 		return write
 	}
 	return write || ownPrincipal(p, tile, t, f.dep)

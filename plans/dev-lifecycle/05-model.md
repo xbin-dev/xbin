@@ -871,25 +871,36 @@ concepts).
    and needs authority on both. Under `read`, `apps/shop-admin+dev` can read
    `apps/shop`'s primary data through its API; `block` on that edge stops it.
 
-**H — A hotfix while `dev` holds unfinished work.**
-1. `main` is pinned to `c:3f2a1c9`. Live reload is on `dev`, and the work tree
-   holds unpromoted work.
+**H — A hotfix while `dev` holds unfinished work** (rewritten for assigned
+branches, D131).
+1. `main` is pinned to `c:3f2a1c9`. Live reload is on `dev`, which is assigned
+   branch `feature`; the work tree is on `feature` and holds unpromoted work.
 2. A bug on the primary needs a fix now. In the tile's terminal:
+   - commit the unfinished work on `feature`;
    - `git fetch xbin-deploy` (the read-only checkpoint remote);
-   - commit or stash the unfinished work on a branch;
-   - `git checkout -b hotfix deploy/main` (the checkpoint's git view:
-     gitignored files such as `node_modules` and `.env` are not in it);
-   - fix and commit.
-3. The work tree now holds `main`'s code plus the fix. `dev`, which follows the
-   work tree, runs it too, so the fix is exercised there first.
-4. **Deploy to main** ships it.
-5. The developer checks out the unfinished branch again and moves it onto the
-   hotfix with `git rebase --onto hotfix <work-tree head> <branch>`. The head
-   is named in the checkpoint commit's message, and `bx` prints the exact
-   command. `dev` follows.
-6. Nothing in xbind merged anything. Git did the combining in the work tree,
+   - `git checkout --no-track -b hotfix deploy/main` (the checkpoint's git
+     view: gitignored files such as `node_modules` and `.env` are not in it).
+3. The checkout leaves `feature`. The save batch it causes deploys nothing:
+   live reload pauses with `dev` pinned to the code it ran (the unfinished
+   work, never `main`'s code), and op `branch` names `hotfix` as the work
+   tree's branch with no deployment assigned it. The chip offers "Keep dev on
+   hotfix this time" or "Add a deployment for hotfix…".
+4. The developer takes the second: `hotfix`, assigned `hotfix`, follows the
+   work tree (add with attach). Fix and commit; the fix runs at
+   `/c/<tile>+hotfix/` first.
+5. **Deploy to main** (or promote `hotfix` → `main`) ships it.
+6. The developer checks out `feature` again — op `branch` offers "Resume live
+   reload on dev" — and moves it onto the fix with `git rebase --onto hotfix
+   <work-tree head> feature`. The head is named in the checkpoint commit's
+   message, and `bx` prints the exact command. Resuming on `dev` ships the
+   rebased work to it; `hotfix` can be removed.
+7. Nothing in xbind merged anything. Git did the combining in the work tree,
    and deployments only moved checkpoints (the "promotion is not a merge"
    rule).
+
+Without an assigned branch the flow is the one M1 shipped: `dev`, following
+the work tree, runs `main`'s code plus the fix from the checkout on, so the
+fix is exercised there first, and nothing pauses.
 
 ## 15. Deliberately not in this model
 

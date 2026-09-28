@@ -164,6 +164,7 @@ type Plane struct {
 	pausing overlay      // tiles whose live reload an operation is detaching
 	prep    preparations // pinned primaries' prepared code (PinnedPrimary)
 	q       queue        // deploys, the journal, finished attempts (queue.go)
+	guard   branchGuard  // saves reaching a target with an assigned branch (branch.go)
 }
 
 // Boot runs once, from boot's registry step, after the registry hooks are

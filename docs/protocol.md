@@ -2417,7 +2417,7 @@ POST   /deployments/live-reload/pause
                                    tile without --isolate
 POST   /deployments/live-reload/resume
                                    terminal-level on the tile. {tile,
-                                   deployment?} → {state, deploy}:
+                                   deployment?, confirm?} → {state, deploy}:
                                    deployment (default: where live
                                    reload last was) follows the work tree
                                    again. Onto main, while it is the only
@@ -2428,7 +2428,7 @@ POST   /deployments/live-reload/resume
                                    and onto a protected primary
 POST   /deployments/live-reload/now
                                    terminal-level on the tile. {tile,
-                                   expect?} → {state, deploy?}: checkpoint
+                                   expect?, confirm?} → {state, deploy?}: checkpoint
                                    the work tree and deploy it
                                    once where live reload last was, which
                                    stays pinned (unchanged:true when nothing
@@ -2436,7 +2436,7 @@ POST   /deployments/live-reload/now
                                    manager, with expect and seq
 POST   /deployments/live-reload/attach
                                    terminal-level on the tile. {tile,
-                                   deployment} → {state, deploy}: the work
+                                   deployment, confirm?} → {state, deploy}: the work
                                    tree is checkpointed, the former target
                                    is pinned to that checkpoint (its deploy
                                    entry is how attach too), and deployment
@@ -2447,8 +2447,9 @@ POST   /deployments/live-reload/attach
 POST   /deployments/add            terminal-level on the tile.
                                    {tile, deployment, from?: work-tree|
                                    primary|c:<id>, data?: empty|seed,
-                                   attach?, confirm?} → {state, deploy,
-                                   joins?}: a new deployment with its code
+                                   attach?, confirm?, branch? | newBranch?}
+                                   → {state, deploy, joins?}: a new
+                                   deployment with its code
                                    (default a fresh checkpoint of the work
                                    tree), its own data (empty; seed —
                                    confirm:"copy-data" — and joining data
@@ -2484,7 +2485,17 @@ POST   /deployments/add            terminal-level on the tile.
                                    have non-primary deployments: <reason>"
                                    (workspace chrome, code that asks for
                                    chrome, an xbin or xbin:* grant), and for
-                                   a backend tile without --isolate
+                                   a backend tile without --isolate.
+                                   branches/1: branch assigns it a branch
+                                   (*Assigned branches* below); newBranch
+                                   creates that branch in the tile first
+                                   and checks it out (409 "<tile> already
+                                   has a branch <b>: newBranch only creates
+                                   one …"; a dry run creates nothing). Code
+                                   from a work tree on another branch than
+                                   the one assigned needs confirm
+                                   "other-branch" ("copy-data,other-branch"
+                                   with data:"seed")
 POST   /deployments/remove         terminal-level on the tile.
                                    {tile, deployment, confirm:"erase"} →
                                    {state}: stops it and ends its queued and
@@ -2499,7 +2510,7 @@ POST   /deployments/remove         terminal-level on the tile.
                                    "<name> is the primary of <tile>"
 POST   /deployments/deploy         terminal-level on the tile. {tile,
                                    deployment, checkpoint? | expect? |
-                                   restart?} → {state, deploy?}: puts the
+                                   restart?, confirm?} → {state, deploy?}: puts the
                                    checkpoint (default: a fresh one of the
                                    work tree, equal to expect when given) on
                                    deployment; live reload attached to it
@@ -2716,6 +2727,21 @@ POST   /deployments/purge          tile manager. {tile, checkpoint:"c:<id>"}
                                    it hasn't finished, a running generation
                                    binds it); 404 a checkpoint the tile
                                    doesn't have
+POST   /deployments/branch         terminal-level on the tile. branches/1.
+                                   {tile, deployment, branch: "<b>"|null}
+                                   → {state}: the work tree's branch the
+                                   deployment requires (*Assigned
+                                   branches* below); null clears it, and
+                                   either drops its override. branch is
+                                   required (400 "bad request body: branch
+                                   is required …"); a name xbind doesn't
+                                   take is 400. The dry run's impact.branch
+                                   names the work tree's branch, and
+                                   pausesLiveReload says live reload on it
+                                   pauses at the next save. 409 "main takes
+                                   no assigned branch …", "<name> is the
+                                   primary of <tile> — the primary takes no
+                                   assigned branch". Idempotent
 GET    /checkpoints/<tile>.git/<path>
                                    the tile's terminal/agent sessions, or
                                    write on the tile. Read-only dumb HTTP
@@ -3192,13 +3218,22 @@ many deployments exist. `view` is:
   `can`, and the deploy entries' `id`, `how`, `from` and `session` are left
   out too.
 
-A zero-state answer (`record: false`) is the same for every view, and reading
-it writes nothing. `features` lists what this xbind speaks (`live-reload/1`,
-`deployments/1`; none while `--tile-deployments=off`). Every `can` and
+A zero-state answer (`record: false`) is the same for every view but for
+`workTree.branch`, which only the write audience gets, and reading it writes
+nothing. `features` lists what this xbind speaks (`live-reload/1`,
+`deployments/1`, `branches/1`; none while `--tile-deployments=off`): a
+client sends a body field a feature added — `branches/1`'s `branch` and
+`newBranch` on add, `confirm: "other-branch"`, the branch route — only to
+an xbind that lists it, since bodies are decoded strictly. Every `can` and
 `allowed` entry is a `{ok, why?, kind?}` judged by the same policy that
 judges the request (kind `authority`, `policy` or `state`). While paused,
 `workTree` `{changed, since}` counts the files that differ from the
-checkpoint live reload was paused at. `caps` counts the tile's and the
+checkpoint live reload was paused at. For the write audience `workTree`
+also carries `branch`, on every read: the branch the tile's own repository
+has checked out, `""` for a detached HEAD or none (*Assigned branches*).
+A deployment with an assigned branch carries `branch`, and
+`branchOverride` while it takes another this time; `can.branch` judges the
+branch route. `caps` counts the tile's and the
 workspace's non-primary deployments against their caps (*Runtime* below);
 `edges` lists the tile's outbound edges and their policies (*The edge
 policy*). Each deployment carries `url` and `api` (the qualified forms below;
@@ -3572,6 +3607,47 @@ tile's non-primary deployments; the primary uses every edge as before.
   successful deploys and anything younger than 24 hours; `purge` removes one
   at once. Checkpoints capture gitignored files such as `.env`: purge one
   that caught a secret, and keep secrets in the vault.
+- **Assigned branches** (`branches/1`, D131). A deployment other than `main`
+  and the primary may require a branch of the tile's own repository: a
+  requirement and a label, not a feed. The work tree feeds it only while
+  it has that branch checked out, read from `.git/HEAD` beneath the tile
+  (no git runs); a detached HEAD, no repository or one xbind can't read is
+  no branch.
+  - **The ops that feed it from the work tree** — `live-reload/attach` and
+    `live-reload/resume` onto it, `live-reload/now` while it is where live
+    reload last was, a `deploy` of the work tree onto it, and `add` from the
+    work tree (with `attach` or not) — answer 409 `<name> is assigned branch
+    <b>, and the work tree is on <w>: check out <b>, or send
+    confirm:"other-branch" to use <w> this time`, dry runs included, whose
+    `impact.branch` is `{deployment, assigned, workTree, other?}`.
+    `confirm: "other-branch"` takes the work tree's branch this time; attach
+    and resume keep it as the deployment's `branchOverride` (which the other
+    ops on it take too), lapsing when live reload moves or the work tree's
+    branch changes again. A work
+    tree on no branch can't be followed even so (409 `… isn't on a branch
+    …`). Their capture reads the branch again: one taken while a checkout
+    moved HEAD answers 409 `the work tree's branch moved while xbind
+    captured it for <name> (<b>, now <w>): a checkout raced this request,
+    and nothing shipped; …`. A deploy of a checkpoint, promote and roll back
+    aren't fed by the work tree and aren't asked.
+  - **Saves.** While live reload follows it, a save reaches it only once
+    xbind found the work tree on its branch (or its override) and captured
+    it, with the branch read again at the capture. A save on another branch
+    — or one a checkout raced — deploys nothing: live reload pauses, the
+    deployment pinned to the code it runs (the last save deployed on its
+    branch; its deploy log entry is a `pause` by `xbind`), and op `branch`
+    tells the write audience (§`/ws/events`). A pause on another branch pins
+    it the same way, never to the other branch's work tree. Tiles without
+    an assigned branch save as before.
+  - Checkpoints taken from the work tree carry an `Xbin-Work-Tree-Branch`
+    trailer (in the git view too), and a deploy entry names it as `branch`.
+  - **newBranch** runs a confined `git switch --create=<b> --end-of-options`
+    in the tile: it creates and checks out a new branch at the work tree's
+    HEAD and changes no file, so nothing reloads. It never switches to an
+    existing branch; an add refused after it keeps the branch.
+  - Reassigning the primary to a deployment clears its branch. An older
+    xbind keeps `branch` and `branchOverride` in the record as it found
+    them, and ignores them.
 - **A protected primary.** Only tile managers change its code, each naming
   the checkpoint they reviewed; the server commits only while `seq` is
   unchanged and re-checks the actor's authority at commit. Terminal and
@@ -3620,6 +3696,8 @@ that also names `--isolate`), and it never runs the work tree instead.
 | 409 | `<tile> has no deployments: its work tree is what runs, so there is nothing to diff` |
 | 409 | `the deployments of <tile> changed (seq <n>); reload and retry` |
 | 409 | `live reload is attached to <name>; <act> works while it is paused` |
+| 409 | `<name> is assigned branch <b>, and the work tree is on <w>: check out <b>, or send confirm:"other-branch" to use <w> this time` (branches/1) |
+| 409 | `the work tree's branch moved while xbind captured it for <name> (<b>, now <w>): a checkout raced this request, and nothing shipped; check the branch and retry` |
 | 409 | `checkpoint id <id> is ambiguous in <tile>; use more digits` |
 | 409 | `pinning a backend to a checkpoint needs isolation (--isolate)` |
 | 409 | `<tile>'s deployment record was written by a newer xbind (schema <n>)` — the tile is held: its backends don't start, `/c/` and `/api/` answer 503 with this text, and every write here answers 409 |
@@ -4509,6 +4587,9 @@ required). JSON text frames:
          "result":"running","phase":"build","by":"user:ana","session":"<id>"}}
 {"type":"deployments","component":"apps/thing",      // while live reload is paused: files the work
  "data":{"op":"work-tree","changed":3}}               //   tree differs in from the checkpoint
+{"type":"deployments","component":"apps/thing",      // the work tree's branch left (or came back to)
+ "data":{"op":"branch","deployment":"dev","assigned":"feature", //   the one deployment requires (D131):
+         "workTree":"release","related":"qa","paused":true}} //   related is assigned workTree's
 {"type":"deployments","component":"apps/thing",      // a non-primary deployment's frames reload once
  "data":{"op":"reload","deployment":"dev"}}
 {"type":"deployments","component":"apps/thing",      // a non-primary build of the work tree or restart;
@@ -4550,7 +4631,16 @@ agent session that acted, so its own window can skip the line it would
 print. A tile's status also clears when a deploy swaps the code its primary
 runs (a deploy emits no `build-start`); a failed deploy leaves it. A
 non-primary deployment's tile-report and held notifications ride ops `status`
-and `notify`, never `status` or a push. Old clients ignore the unknown type.
+and `notify`, never `status` or a push. Op `branch` (`branches/1`): a tile
+with an assigned branch saw the work tree's branch change — `deployment` is
+the one live reload follows (or last followed), `assigned` its branch (`""`
+for none), `workTree` the work tree's now (`""` for none), `related` the
+deployment assigned `workTree` (`""` for none), and `paused` whether this
+save paused live reload on `deployment` (it deployed nothing). A client
+offers to follow: attach live reload to (or resume it on) `related`, resume
+it on `deployment` once `workTree` is its branch again, or else keep
+`deployment` on `workTree` this time (`confirm: "other-branch"`) or add a
+deployment for it. Old clients ignore the unknown type.
 
 `prefs` events are per-user and not even admins see another user's: the
 bucket's owner's human sessions (browsers, the app) get the events of all
@@ -4598,8 +4688,8 @@ write, the tile's own terminal and agent sessions while their user has
 write), and to a non-primary deployment's own frame and backend tokens when
 the deploy came `from` it; in a reader form everyone else (`record` with only
 the reader view's fields in `what`, sent only when one changed; `deploy`
-without `id`, `how`, `from` and `session`). Op `work-tree` reaches the write
-audience. Anything naming another deployment — ops `deploy`, `reload`,
+without `id`, `how`, `from` and `session`). Ops `work-tree` and `branch`
+reach the write audience. Anything naming another deployment — ops `deploy`, `reload`,
 `build`, `data`, `status` and `notify` about it — reaches only the write
 audience and that deployment's own frame and backend tokens: never the
 primary's frame token (minted for readers too), never another tile. `status`

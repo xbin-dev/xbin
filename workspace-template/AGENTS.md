@@ -219,6 +219,11 @@ bx deployment ls      # names, primary ("(protected)"), code, status; "← this 
   above); a commit changes nothing anyone runs.
 - **Don't `bx deploy --to` the live reload target**: saves already reach it,
   and a deploy onto it pauses live reload.
+- **Assigned branches.** A deployment `bx deployment ls` shows with a
+  `branch` takes saves only while the work tree is on that branch: a `git
+  checkout` of another pauses live reload there, and attaching, resuming or
+  reloading it from another branch is refused. Tell the user when you switch
+  branches; pass `--other-branch` only when they asked.
 - **Shipping to the primary is a deliberate act.** Run `bx deploy --to main`,
   `bx promote <tile> dev main`, `bx rollback --to main`, or `bx live-reload
   now` while live reload last followed the primary, only when the user asked

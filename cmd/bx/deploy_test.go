@@ -467,7 +467,7 @@ func TestBxTodayInvocationsUnchanged(t *testing.T) {
 			"exit 0",
 		}},
 		{"", []string{"agent", "ls", "--tile", "notes+ideas"}, []string{
-			"GET /api/xbin/term/sessions?cwd=notes+ideas",
+			"GET /api/xbin/term/sessions?cwd=notes%2Bideas", // a '+' of the tile's own name, escaped (it read as a space before)
 			"exit 0",
 		}},
 		{"", []string{"agent", "history", "--tile", "apps/x"}, []string{

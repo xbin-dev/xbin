@@ -44,6 +44,13 @@ func (g *lrGate) Primary(tile string) string {
 
 func (g *lrGate) WorkTreeMoved(tile string) { g.moved = append(g.moved, tile) }
 
+// No tile of an lrGate has an assigned branch: every batch deploys at once.
+func (g *lrGate) Branches(tile, dep string) (bool, bool) { return false, false }
+func (g *lrGate) GuardBatch(c *registry.Component, dep string, restart bool, deploy func(bool)) {
+	panic("an lrGate never guards a batch")
+}
+func (g *lrGate) NoteBranch(string) {}
+
 // lrOut is what one batch drove: the events' wire bytes, the rebuilds
 // ("tile@deployment") and the work-tree notices, each sorted.
 type lrOut struct {
@@ -234,6 +241,57 @@ func TestReloadPlan(t *testing.T) {
 			t.Errorf("a native-only edit on dev drove %+v, want %+v", got, want)
 		}
 	})
+}
+
+// lrBranchGate is lrGate with assigned branches (D131): guarded tiles hand
+// their batch to GuardBatch, which keeps its deploy for the test to run;
+// aware ones are noted after deploying at once.
+type lrBranchGate struct {
+	lrGate
+	guarded, aware map[string]bool
+	held           []func(bool)
+	heldRestart    []bool
+	noted          []string
+}
+
+func (g *lrBranchGate) Branches(tile, dep string) (bool, bool) {
+	return g.aware[tile] || g.guarded[tile], g.guarded[tile]
+}
+func (g *lrBranchGate) GuardBatch(c *registry.Component, dep string, restart bool, deploy func(bool)) {
+	g.held, g.heldRestart = append(g.held, deploy), append(g.heldRestart, restart)
+}
+func (g *lrBranchGate) NoteBranch(tile string) { g.noted = append(g.noted, tile) }
+
+// covers D131 D119d — the watcher loop with assigned branches: a batch
+// whose target has one publishes and rebuilds nothing until the plane runs
+// its deploy (after the branch check), which then drives exactly what the
+// batch would have; a tile whose record assigns a branch elsewhere deploys
+// at once and is noted; every other tile is driven as before.
+func TestReloadPlanBranches(t *testing.T) {
+	g := &lrBranchGate{lrGate: lrGate{lr: map[string]string{"apps/a": "dev", "apps/b": "main"}},
+		guarded: map[string]bool{"apps/a": true}, aware: map[string]bool{"apps/b": true}}
+	hub := events.NewHub()
+	ch, cancel := hub.Subscribe(nil)
+	defer cancel()
+	var changed []string
+	rebuild := func(c *registry.Component, dep string) { changed = append(changed, c.Path+"@"+dep) }
+	routeBatch(lrComps("apps/a", "apps/b", "apps/c"), lrSet("apps/a", "apps/b"), g, hub, rebuild)
+	if got := lrDrain(t, ch); !reflect.DeepEqual(got, []string{lrReloadEv("apps/b"), lrReloadEv("apps/c")}) {
+		t.Errorf("before the check: events %v", got)
+	}
+	if !reflect.DeepEqual(changed, []string{"apps/b@main"}) || !reflect.DeepEqual(g.noted, []string{"apps/b"}) {
+		t.Errorf("before the check: rebuilt %v, noted %v", changed, g.noted)
+	}
+	if len(g.held) != 1 || !g.heldRestart[0] {
+		t.Fatalf("GuardBatch took %d batches (restart %v)", len(g.held), g.heldRestart)
+	}
+	g.held[0](true)
+	if got := lrDrain(t, ch); !reflect.DeepEqual(got, []string{lrDepReloadEv("apps/a", "dev")}) {
+		t.Errorf("the checked deploy published %v", got)
+	}
+	if !reflect.DeepEqual(changed, []string{"apps/b@main", "apps/a@dev"}) {
+		t.Errorf("the checked deploy rebuilt %v", changed)
+	}
 }
 
 // lrStoreTrap is the deployments plane with its store behind a tripwire:

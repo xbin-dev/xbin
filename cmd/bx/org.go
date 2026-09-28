@@ -448,7 +448,7 @@ func cmdOwner(args []string) error {
 	var out struct {
 		Owner string `json:"owner"`
 	}
-	if err := apiJSON("GET", "/api/xbin/owner?tile="+tile, nil, &out); err != nil {
+	if err := apiJSON("GET", "/api/xbin/owner?tile="+queryPath(tile), nil, &out); err != nil {
 		return err
 	}
 	if out.Owner == "" {
@@ -545,7 +545,7 @@ func cmdAccess(args []string) error {
 			Owner   string `json:"owner"`
 			Entries []struct{ Kind, ID, Level, Source string }
 		}
-		if err := apiJSON("GET", "/api/xbin/access?tile="+tile, nil, &out); err != nil {
+		if err := apiJSON("GET", "/api/xbin/access?tile="+queryPath(tile), nil, &out); err != nil {
 			return err
 		}
 		if out.Owner == "" {

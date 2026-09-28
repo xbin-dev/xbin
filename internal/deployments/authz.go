@@ -74,6 +74,8 @@ const (
 	OpBackupSchedule Op = "backup-schedule"
 	OpRunNow         Op = "run-now"
 	OpPurge          Op = "purge" // a checkpoint no deployment runs (ops_purge.go)
+	OpBranch         Op = "branch"
+	OpBranchClear    Op = "branch/clear" // branch with branch:null
 )
 
 // rule is a row of the authority table: who may do an act.
@@ -158,6 +160,8 @@ var acts = map[Op]act{
 	OpBackupSchedule: {what: "scheduling a deployment's backups", rule: ruleAdmin, post: true, grows: true},
 	OpRunNow:         {what: "running a job now", rule: ruleTerminal, post: true},
 	OpPurge:          {what: "purging a checkpoint", rule: ruleManager, post: true, optIn: true},
+	OpBranch:         {what: "assigning a deployment's branch", rule: ruleTerminal, post: true, grows: true},
+	OpBranchClear:    {what: "clearing a deployment's branch", rule: ruleTerminal},
 }
 
 // refinements lists the Ops a route may be judged as instead of its own,
@@ -166,6 +170,7 @@ var acts = map[Op]act{
 var refinements = map[Op][]Op{
 	OpDeploy:  {OpRestart},
 	OpProtect: {OpUnprotect},
+	OpBranch:  {OpBranchClear},
 }
 
 // Subject is what an act is on, as the record says when it is judged. The
@@ -210,6 +215,12 @@ type Grant struct {
 	P       auth.Principal
 	Op      Op
 	Subject Subject
+
+	// system marks xbind's own act, which no request asked for and no
+	// principal authorizes: the pause of a live reload target whose work
+	// tree left its assigned branch (D131). Recheck passes it for its own
+	// subject; nothing outside this package can make one.
+	system bool
 }
 
 // Can is one permission, computed by the policy that will judge the
@@ -264,6 +275,9 @@ func (p *Plane) Recheck(g Grant, now Subject) error {
 	if _, ok := acts[g.Op]; !ok || now.Tile != g.Subject.Tile || now.Deployment != g.Subject.Deployment {
 		return &Error{Status: http.StatusInternalServerError,
 			Msg: "deployments: " + string(g.Op) + " on " + g.Subject.Tile + " rechecked against another subject"}
+	}
+	if g.system {
+		return nil
 	}
 	if e := p.judge(g.P, g.Op, now, true); e != nil {
 		return e

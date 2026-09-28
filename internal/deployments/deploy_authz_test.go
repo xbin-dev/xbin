@@ -344,6 +344,7 @@ func TestDeployAuthzMatrix(t *testing.T) {
 				{op: deployments.OpAttach, dep: "dev"}, {op: deployments.OpAttach, dep: "dev", protected: true},
 				{op: deployments.OpAdd, dep: "dev"}, {op: deployments.OpRemove, dep: "dev", protected: true},
 				{op: deployments.OpReset, dep: "dev"}, {op: deployments.OpRunNow, dep: "dev", protected: true},
+				{op: deployments.OpBranch, dep: "dev"}, {op: deployments.OpBranchClear, dep: "dev", protected: true},
 			},
 			want: unprotected,
 		},

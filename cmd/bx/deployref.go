@@ -50,6 +50,12 @@ func readDeployState(tile, dep string) (*deployState, []byte, error) {
 	return st, b, nil
 }
 
+// queryPath is a tile path as a query value: escaped, so a '+' in a tile's
+// own name (one made before the rule) stays a '+' instead of reading as a
+// space (D127j), with its slashes left as they are, as every existing
+// request spells them.
+func queryPath(p string) string { return strings.ReplaceAll(url.QueryEscape(p), "%2F", "/") }
+
 // splitRef splits a tile ref "<tile>+<name>" at its last segment's last '+'
 // when a deployment name follows; any other ref is a tile with no name.
 func splitRef(ref string) (tile, dep string) {

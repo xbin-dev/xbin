@@ -169,6 +169,10 @@ func TestDeploymentEventsFiltered(t *testing.T) {
 		{"deploy onto the primary, reader form", crm(m{"op": "deploy", "deployment": "main",
 			"checkpoint": "c:3f2a1c9", "result": "running", "phase": "build", "by": "user:ana"}), minus(R, W)},
 		{"work-tree", crm(m{"op": "work-tree", "changed": 3}), W},
+		{"branch, naming dev (D131): the write audience alone", crm(m{"op": "branch", "deployment": "dev", "assigned": "feature",
+			"workTree": "main", "related": "", "paused": true}), W},
+		{"branch, naming the primary", crm(m{"op": "branch", "deployment": "main", "assigned": "",
+			"workTree": "feature", "related": "dev", "paused": false}), W},
 		{"the primary's data op", crm(m{"op": "data", "deployment": "main", "busy": "restoring", "state": "original"}), R},
 		// non-primary rows, keyed on the principals' bound deployment
 		{"reload of dev", crm(m{"op": "reload", "deployment": "dev"}), union(W, devOwn)},

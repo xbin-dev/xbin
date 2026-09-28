@@ -77,6 +77,10 @@ type DeployEntry struct {
 	Result          string `json:"result"`
 	Phase           string `json:"phase,omitempty"`
 	Error           string `json:"error,omitempty"`
+	// Branch is the work tree's branch when its checkpoint was first
+	// captured (the Xbin-Work-Tree-Branch trailer, D131); absent when
+	// unknown, detached, or for a checkpoint older than the trailer.
+	Branch string `json:"branch,omitempty"`
 }
 
 // Deploys answers dep's deploy facts. A tile a record doesn't govern has
@@ -128,6 +132,10 @@ func (p *Plane) Policy(op Op, s Subject) Can {
 		if c, ok := p.component(s.Tile); ok && c.HasBackend() && !p.isIsolated() {
 			return Can{Why: isolationMsg, Kind: KindPolicy}
 		}
+	case OpBranch, OpBranchClear: // D131: as runBranch refuses them
+		if s.Deployment == util.MainDeployment || s.Deployment == s.primary() {
+			return Can{Why: s.Deployment + " takes no assigned branch: main and the primary never have one", Kind: KindState}
+		}
 	}
 	return p.Allowed(op, s)
 }
@@ -151,10 +159,27 @@ func (p *Plane) entryOf(ctx context.Context, a *attempt) DeployEntry {
 	p.q.mu.Lock()
 	c := *a
 	p.q.mu.Unlock()
+	id, branch := p.checkpointFacts(ctx, c.tile, c.Tree)
 	return DeployEntry{ID: c.ID, Deployment: c.Deployment, How: c.How, From: c.From,
-		Checkpoint: p.shortOf(ctx, c.tile, c.Tree), Previous: p.shortOf(ctx, c.tile, c.Previous),
+		Checkpoint: id, Previous: p.shortOf(ctx, c.tile, c.Previous),
 		FollowsWorkTree: c.FollowsWorkTree, Feed: c.Feed, By: c.By, Via: c.Via, Agent: c.Agent, Session: c.Session,
-		RequestedAt: c.RequestedAt, FinishedAt: c.FinishedAt, Result: c.Result, Phase: c.Phase, Error: c.Error}
+		RequestedAt: c.RequestedAt, FinishedAt: c.FinishedAt, Result: c.Result, Phase: c.Phase, Error: c.Error,
+		Branch: branch}
+}
+
+// checkpointFacts is tree's short id and the branch its first capture was
+// taken on, as shortOf reads them: nothing of an inert store.
+func (p *Plane) checkpointFacts(ctx context.Context, tile, tree string) (id, branch string) {
+	if tree == "" {
+		return "", ""
+	}
+	if rec, _ := p.record(tile); rec == nil {
+		return shortTree(tree), ""
+	}
+	if cp, err := p.store().Get(ctx, tile, tree); err == nil {
+		return cp.ID, cp.WorkTreeBranch
+	}
+	return shortTree(tree), ""
 }
 
 // ---- the deployments event ----
@@ -276,20 +301,24 @@ type PauseRequest struct {
 	DryRun bool   `json:"dryRun,omitempty"`
 }
 
-// ResumeRequest is POST /deployments/live-reload/resume's body.
+// ResumeRequest is POST /deployments/live-reload/resume's body. Confirm
+// takes ConfirmOtherBranch (branches/1, D131), as on the other ops that feed
+// a deployment from the work tree.
 type ResumeRequest struct {
 	Tile       string `json:"tile"`
 	Deployment string `json:"deployment,omitempty"`
+	Confirm    string `json:"confirm,omitempty"`
 	Seq        *int64 `json:"seq,omitempty"`
 	DryRun     bool   `json:"dryRun,omitempty"`
 }
 
 // ReloadNowRequest is POST /deployments/live-reload/now's body.
 type ReloadNowRequest struct {
-	Tile   string `json:"tile"`
-	Expect string `json:"expect,omitempty"`
-	Seq    *int64 `json:"seq,omitempty"`
-	DryRun bool   `json:"dryRun,omitempty"`
+	Tile    string `json:"tile"`
+	Expect  string `json:"expect,omitempty"`
+	Confirm string `json:"confirm,omitempty"` // ConfirmOtherBranch
+	Seq     *int64 `json:"seq,omitempty"`
+	DryRun  bool   `json:"dryRun,omitempty"`
 }
 
 // DeployRequest is POST /deployments/deploy's body.
@@ -299,6 +328,7 @@ type DeployRequest struct {
 	Checkpoint string `json:"checkpoint,omitempty"`
 	Expect     string `json:"expect,omitempty"`
 	Restart    bool   `json:"restart,omitempty"`
+	Confirm    string `json:"confirm,omitempty"` // ConfirmOtherBranch, for a deploy of the work tree
 	Seq        *int64 `json:"seq,omitempty"`
 	DryRun     bool   `json:"dryRun,omitempty"`
 }
@@ -329,14 +359,15 @@ type DryRunAnswer struct {
 // Impact is what an operation would do (11-contract §1.1), rendered by the
 // confirmation dialog and bx's prompt.
 type Impact struct {
-	Code             *CodeImpact `json:"code"`
-	Data             string      `json:"data"`
-	Joins            *Joins      `json:"joins,omitempty"`        // add: the existing namespace joined (m2types.go)
-	Placeholders     []string    `json:"placeholders,omitempty"` // a new primary's vault keys with no value (D127i)
-	PausesLiveReload bool        `json:"pausesLiveReload"`
-	Stops            []string    `json:"stops"`
-	Affects          string      `json:"affects"`
-	Reloads          []string    `json:"reloads"`
+	Code             *CodeImpact   `json:"code"`
+	Data             string        `json:"data"`
+	Joins            *Joins        `json:"joins,omitempty"`        // add: the existing namespace joined (m2types.go)
+	Placeholders     []string      `json:"placeholders,omitempty"` // a new primary's vault keys with no value (D127i)
+	Branch           *BranchImpact `json:"branch,omitempty"`       // the target's assigned branch and the work tree's (D131)
+	PausesLiveReload bool          `json:"pausesLiveReload"`
+	Stops            []string      `json:"stops"`
+	Affects          string        `json:"affects"`
+	Reloads          []string      `json:"reloads"`
 }
 
 // CodeImpact is the code an operation moves: null when no capture was taken

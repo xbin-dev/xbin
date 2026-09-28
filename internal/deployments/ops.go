@@ -189,6 +189,10 @@ type op struct {
 	rec   *Record // the record, or the zero state's for a tile without one
 	by    string
 	done  func()
+	// override is the branch the op took this time (confirm:"other-branch")
+	// for overrideDep, the deployment it makes the live reload target: its
+	// commit keeps it as that deployment's branchOverride (D131).
+	override, overrideDep string
 }
 
 // begin starts an operation the grant authorizes: a held record, or one
@@ -299,7 +303,12 @@ func (p *Plane) commit(o *op, seq *int64, change func(*Record) error) (*Record, 
 		if err := p.Recheck(o.g, subjectFrom(o.tile, o.g.Subject.Deployment, r)); err != nil {
 			return err
 		}
-		return change(r)
+		before := r.LiveReload
+		if err := change(r); err != nil {
+			return err
+		}
+		settleOverrides(r, before, o)
+		return nil
 	})
 }
 
@@ -352,8 +361,15 @@ func runPause(ctx context.Context, p *Plane, g Grant, r *PauseRequest) (any, err
 	if err := p.needsIsolation(o.c); err != nil {
 		return nil, err
 	}
+	// A target whose work tree left its branch keeps the code it runs: the
+	// work tree may not feed it (D131).
+	pin := p.offBranchPin(ctx, o, x)
 	if r.DryRun {
 		im := Impact{Data: "none", PausesLiveReload: true, Affects: "nobody"}
+		if pin != "" {
+			im.Code = &CodeImpact{Deployment: x, From: "work-tree", To: p.shortOf(ctx, o.tile, pin)}
+			return p.answer(ctx, true, nil, im, false)
+		}
 		if o.state == RecordNone {
 			est, err := p.store().Estimate(ctx, p.source(o.c))
 			if err != nil {
@@ -378,6 +394,9 @@ func runPause(ctx context.Context, p *Plane, g Grant, r *PauseRequest) (any, err
 	release := p.pausing.on(o.tile)
 	defer release()
 	a, err := p.leaveWorkTree(ctx, o, r.Seq, x, "pause", func(ctx context.Context) (string, error) {
+		if pin != "" {
+			return pin, nil
+		}
 		res, err := p.capture(ctx, o, false)
 		return res.Hash, err
 	})
@@ -461,20 +480,29 @@ func runResume(ctx context.Context, p *Plane, g Grant, r *ResumeRequest) (any, e
 	case o.rec.LiveReload != "":
 		return nil, notPaused(o.rec.LiveReload, "resuming live reload")
 	}
+	bc, err := p.feedCheck(o, y, r.Confirm, true)
+	if err != nil {
+		return nil, err
+	}
 	if r.DryRun {
 		im := Impact{Data: "none", Affects: affects(o.rec, y), Reloads: []string{y},
-			Code: &CodeImpact{Deployment: y, From: p.shortOf(ctx, o.tile, *d.Checkpoint), To: "work-tree"}}
+			Code: &CodeImpact{Deployment: y, From: p.shortOf(ctx, o.tile, *d.Checkpoint), To: "work-tree"}, Branch: bc.impact()}
 		p.measure(ctx, o.c, im.Code, o.by, *d.Checkpoint, "")
 		return p.answer(ctx, true, nil, im, false)
 	}
 	// The entry names the work tree as it is now (11-contract §1.1): a
 	// capture that can't be taken doesn't stop a return to the work tree.
+	// One that was taken is the second branch check (D131).
 	tree := ""
 	if res, err := p.capture(ctx, o, false); err == nil {
+		if err := bc.captured(res); err != nil {
+			return nil, err
+		}
 		tree = res.Hash
 	} else {
 		warn("resume: the work tree's capture for the deploy log", o.tile, err)
 	}
+	o.follows(y, bc)
 	a := o.newAttempt("resume", y, tree)
 	a.FollowsWorkTree = true
 	if err := p.accept(ctx, o.tile, o.rec, a); err != nil {
@@ -571,6 +599,10 @@ func runReloadNow(ctx context.Context, p *Plane, g Grant, r *ReloadNowRequest) (
 	if err != nil {
 		return nil, err
 	}
+	bc, err := p.feedCheck(o, x, r.Confirm, false)
+	if err != nil {
+		return nil, err
+	}
 	res, err := p.capture(ctx, o, r.DryRun)
 	if err != nil {
 		return nil, opError(o.tile, err)
@@ -578,7 +610,10 @@ func runReloadNow(ctx context.Context, p *Plane, g Grant, r *ReloadNowRequest) (
 	if prefix != "" && !strings.HasPrefix(res.Hash, prefix) {
 		return nil, expectMismatch(r.Expect, res.ID)
 	}
-	return p.moveCode(ctx, o, r.Seq, r.DryRun, x, res.Hash, "reload-now")
+	if err := bc.after(res, r.DryRun); err != nil {
+		return nil, err
+	}
+	return p.moveCode(ctx, o, r.Seq, r.DryRun, x, res.Hash, "reload-now", bc.impact())
 }
 
 // ---- deploy, restart ----
@@ -589,6 +624,8 @@ func runDeploy(ctx context.Context, p *Plane, g Grant, r *DeployRequest) (any, e
 		return nil, badRequest("send checkpoint or expect, not both: checkpoint names the code, expect checks a fresh capture")
 	case r.Restart && (r.Checkpoint != "" || r.Expect != ""):
 		return nil, badRequest(fmt.Sprintf("restart runs %s's current code: send no checkpoint or expect with it", g.Subject.Deployment))
+	case r.Confirm != "" && (r.Checkpoint != "" || r.Restart):
+		return nil, badRequest(fmt.Sprintf("confirm:%q is for a deploy of the work tree: send no checkpoint or restart with it", ConfirmOtherBranch))
 	}
 	o, err := p.begin(g, r.DryRun)
 	if err != nil {
@@ -610,6 +647,7 @@ func runDeploy(ctx context.Context, p *Plane, g Grant, r *DeployRequest) (any, e
 		return nil, err
 	}
 	var tree string
+	var bc branchCheck
 	if r.Checkpoint != "" {
 		cp, err := p.store().Resolve(ctx, o.tile, r.Checkpoint)
 		if err != nil {
@@ -621,6 +659,9 @@ func runDeploy(ctx context.Context, p *Plane, g Grant, r *DeployRequest) (any, e
 		if err != nil {
 			return nil, err
 		}
+		if bc, err = p.feedCheck(o, dep, r.Confirm, false); err != nil {
+			return nil, err
+		}
 		res, err := p.capture(ctx, o, r.DryRun)
 		if err != nil {
 			return nil, opError(o.tile, err)
@@ -628,43 +669,12 @@ func runDeploy(ctx context.Context, p *Plane, g Grant, r *DeployRequest) (any, e
 		if prefix != "" && !strings.HasPrefix(res.Hash, prefix) {
 			return nil, expectMismatch(r.Expect, res.ID)
 		}
+		if err := bc.after(res, r.DryRun); err != nil {
+			return nil, err
+		}
 		tree = res.Hash
 	}
-	return p.moveCode(ctx, o, r.Seq, r.DryRun, dep, tree, "deploy")
-}
-
-// restart starts a new generation of dep's current code (its checkpoint, or
-// the work tree's build while live reload drives it) and clears its crash
-// breaker: what a crash restart does, so it moves no code (D119e). A runner
-// with Restart does it blue/green on dep's lane (07-runtime §8.7); one
-// without marks dep changed, which rebuilds it from its record's code.
-func (p *Plane) restart(ctx context.Context, o *op, dry bool, dep string) (any, error) {
-	if dry {
-		return p.answer(ctx, true, nil, Impact{Data: "none", Affects: affects(o.rec, dep)}, false)
-	}
-	d := o.rec.Deployments[dep]
-	tree := ""
-	if d.Checkpoint != nil {
-		tree = *d.Checkpoint
-	}
-	a := o.newAttempt("restart", dep, tree)
-	a.FollowsWorkTree, a.forced = d.Checkpoint == nil, true
-	_, blue := p.Run.(restarter)
-	if blue && o.c.HasBackend() && p.full(o.tile, dep) {
-		return nil, queueFull(dep)
-	}
-	if err := p.accept(ctx, o.tile, o.rec, a); err != nil {
-		return nil, opError(o.tile, err)
-	}
-	if blue && o.c.HasBackend() {
-		p.enqueue(a) // a new generation through the runner's blue/green, on dep's lane
-		return p.answer(ctx, false, a, Impact{}, false)
-	}
-	if p.Run != nil {
-		p.Run.ChangedDeployment(o.c, dep) // what a crash restart does
-	}
-	p.finish(a, resultOK, nil)
-	return p.answer(ctx, false, a, Impact{}, false)
+	return p.moveCode(ctx, o, r.Seq, r.DryRun, dep, tree, "deploy", bc.impact())
 }
 
 // ---- roll back ----
@@ -696,7 +706,7 @@ func runRollback(ctx context.Context, p *Plane, g Grant, r *RollbackRequest) (an
 	} else if tree = p.rollbackTarget(ctx, o.tile, dep, d); tree == "" {
 		return nil, &Error{Status: http.StatusConflict, Kind: KindState, Msg: dep + " has no earlier checkpoint in its deploy log"}
 	}
-	return p.moveCode(ctx, o, r.Seq, r.DryRun, dep, tree, "rollback")
+	return p.moveCode(ctx, o, r.Seq, r.DryRun, dep, tree, "rollback", nil)
 }
 
 // ---- moving code onto a deployment ----
@@ -708,7 +718,7 @@ func runRollback(ctx context.Context, p *Plane, g Grant, r *RollbackRequest) (an
 // nothing queued, answers unchanged — unless its last move failed, or (a
 // deploy or roll back, not reload now: 11-contract §1.5, §1.6) its
 // generation is down, which a move of the same checkpoint restarts.
-func (p *Plane) moveCode(ctx context.Context, o *op, seq *int64, dry bool, dep, tree, how string) (any, error) {
+func (p *Plane) moveCode(ctx context.Context, o *op, seq *int64, dry bool, dep, tree, how string, branch *BranchImpact) (any, error) {
 	d := o.rec.Deployments[dep]
 	tail := p.tail(o.tile, dep)
 	unchanged := tail == nil && d.Checkpoint != nil && *d.Checkpoint == tree && d.State != "failed" &&
@@ -719,7 +729,7 @@ func (p *Plane) moveCode(ctx context.Context, o *op, seq *int64, dry bool, dep, 
 			from = p.shortOf(ctx, o.tile, *d.Checkpoint)
 		}
 		im := Impact{Data: "none", PausesLiveReload: d.Checkpoint == nil, Affects: affects(o.rec, dep),
-			Code: &CodeImpact{Deployment: dep, From: from, To: p.shortOf(ctx, o.tile, tree)}}
+			Code: &CodeImpact{Deployment: dep, From: from, To: p.shortOf(ctx, o.tile, tree)}, Branch: branch}
 		if d.Checkpoint != nil {
 			p.measure(ctx, o.c, im.Code, o.by, *d.Checkpoint, tree)
 		}

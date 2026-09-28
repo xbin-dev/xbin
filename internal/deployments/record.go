@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/checkpoint"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -75,6 +76,19 @@ type DeploymentRecord struct {
 	Limits     map[string]int64 `json:"limits,omitempty"`
 	Created    string           `json:"created,omitempty"`
 	By         string           `json:"by,omitempty"`
+	// Branch is the work tree's branch this deployment requires (D131): a
+	// requirement and a label, not a feed. While it is set, the work tree
+	// feeds the deployment — saves while live reload follows it, attach,
+	// resume, reload now, a deploy or an add from the work tree — only while
+	// it has that branch checked out. Never main's or the primary's: a
+	// stored one there (an older xbind reassigned the primary without
+	// knowing it) reads as none (AssignedBranch), and no load refuses it.
+	Branch string `json:"branch,omitempty"`
+	// BranchOverride is the one other branch the deployment takes this time
+	// (confirm:"other-branch", D131): set by the op that made it the live
+	// reload target, cleared when live reload moves or the work tree's
+	// branch changes again.
+	BranchOverride string `json:"branchOverride,omitempty"`
 
 	extra map[string]json.RawMessage
 }
@@ -86,6 +100,52 @@ func (d *DeploymentRecord) DeliveriesOn() bool { return d.Deliveries == nil || *
 
 // FollowsWorkTree reports whether the deployment runs the work tree.
 func (d *DeploymentRecord) FollowsWorkTree() bool { return d.Checkpoint == nil }
+
+// AssignedBranch is the branch deployment dep of r requires (D131): its
+// record's, unless dep is main or the primary, which take none, or the
+// stored name isn't one xbind takes; "" for none. A stored value this
+// xbind doesn't take never holds the tile: it reads as none.
+func (r *Record) AssignedBranch(dep string) string {
+	d := r.Deployments[dep]
+	if d == nil || dep == util.MainDeployment || dep == r.Primary || !checkpoint.BranchNameOK(d.Branch) {
+		return ""
+	}
+	return d.Branch
+}
+
+// BranchOverride is the other branch dep of r takes this time, while it has
+// an assigned branch; "" for none.
+func (r *Record) BranchOverride(dep string) string {
+	if d := r.Deployments[dep]; d != nil && r.AssignedBranch(dep) != "" && checkpoint.BranchNameOK(d.BranchOverride) {
+		return d.BranchOverride
+	}
+	return ""
+}
+
+// branchAware reports whether any deployment of r has an assigned branch:
+// the tiles whose saves read the work tree's branch (D131).
+func (r *Record) branchAware() bool {
+	for name := range r.Deployments {
+		if r.AssignedBranch(name) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// branchHolder names the deployment of r, other than but, assigned branch
+// b: the one the work tree's switch to b relates to (D131); "" for none.
+func (r *Record) branchHolder(b, but string) string {
+	if b == "" {
+		return ""
+	}
+	for _, name := range sortedKeys(r.Deployments) {
+		if name != but && r.AssignedBranch(name) == b {
+			return name
+		}
+	}
+	return ""
+}
 
 // ZeroRecord is the record a tile without one answers with: main, the
 // primary, with live reload attached to it (D119c). Schema and seq are 0, as
@@ -287,6 +347,8 @@ func (d *DeploymentRecord) fields() []field {
 		{"limits", &d.Limits, len(d.Limits) == 0},
 		{"created", &d.Created, d.Created == ""},
 		{"by", &d.By, d.By == ""},
+		{"branch", &d.Branch, d.Branch == ""},
+		{"branchOverride", &d.BranchOverride, d.BranchOverride == ""},
 	}
 }
 

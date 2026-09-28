@@ -36,7 +36,7 @@ func TestDeploymentRoutesReserved(t *testing.T) {
 		"POST /deployments/seed", "POST /deployments/reset", "POST /deployments/vault-copy",
 		"POST /deployments/backup", "GET /deployments/backups", "POST /deployments/restore",
 		"POST /deployments/backup-schedule", "POST /deployments/run-now", "POST /deployments/purge",
-		"GET /checkpoints/{rest...}",
+		"POST /deployments/branch", "GET /checkpoints/{rest...}",
 	}
 	srv := &server.Server{}
 	registerDeploymentsAPI(srv, &deployments.Plane{})

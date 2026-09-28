@@ -36,6 +36,7 @@ var wordingSources = []string{
 	"cmd/bx/deploy.go",
 	"cmd/bx/deployclient.go",
 	"cmd/bx/deployment.go",
+	"cmd/bx/deploybranch.go",
 }
 
 // wordingPage is the builder page, checked whole.

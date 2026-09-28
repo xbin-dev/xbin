@@ -74,6 +74,11 @@ type CaptureRequest struct {
 	// (pausing live reload, adding a deployment) sets it; nothing else may,
 	// so a tile without a store gets ErrNoStore (D119c).
 	Create bool
+	// Background marks a capture xbind takes on its own — a save reaching a
+	// live reload target with an assigned branch (D131) — which the tile's
+	// rate limits in a bucket of its own, so it never spends the captures
+	// people's requests use.
+	Background bool
 }
 
 // Result is a capture's checkpoint.
@@ -81,6 +86,13 @@ type Result struct {
 	Checkpoint
 	New      bool     // this capture recorded the tree; false: the store held it already
 	Warnings []string // what the work tree holds that no checkpoint can (FIFOs, sockets, devices)
+	// Branch is the branch the tile's own repository had checked out
+	// across this capture: HEAD read before the work tree was read and
+	// again after, the same both times; "" for a detached or unreadable
+	// HEAD, or one that moved while the capture ran (a checkout raced it).
+	// It is this capture's, where Checkpoint.WorkTreeBranch is the tree's
+	// first capture's (D131).
+	Branch string
 }
 
 // Capture checkpoints a work tree into its tile's store (07-runtime §2.2):
@@ -99,7 +111,7 @@ func (s *Store) Capture(ctx context.Context, req CaptureRequest) (Result, error)
 		return Result{}, fmt.Errorf("%s: %w", req.Tile, ErrNoStore)
 	}
 	c := s.Caps
-	if wait, ok := s.take(req.Tile, c); !ok {
+	if wait, ok := s.take(req.Tile, c, req.Background); !ok {
 		return Result{}, &RateLimited{Tile: req.Tile, RetryAfter: wait}
 	}
 	if c.Time > 0 {
@@ -177,7 +189,7 @@ func quarantine(dir string) (string, error) {
 }
 
 func (s *Store) capture(ctx context.Context, dir, q string, req CaptureRequest, c Caps) (Result, error) {
-	head := workTreeHead(req.WorkTree)
+	head, branch := workTreeHead(req.WorkTree), WorkTreeBranch(req.WorkTree)
 	p, err := s.settledPass(ctx, dir, q, req.Source, nil, nil)
 	if err != nil && indexBroken(err) {
 		// a corrupt index, or one naming objects a killed run never
@@ -209,7 +221,10 @@ func (s *Store) capture(ctx context.Context, dir, q string, req CaptureRequest, 
 	if r := p.failures(req.Tile); r != nil {
 		return Result{}, r
 	}
-	res := Result{Warnings: p.warnings()}
+	if WorkTreeBranch(req.WorkTree) != branch {
+		branch = "" // HEAD moved while the work tree was read: no one branch
+	}
+	res := Result{Warnings: p.warnings(), Branch: branch}
 	known := p.known
 	if m, ok := known[p.tree]; ok && p.view == "" { // unchanged: admitted when recorded, and run 2 is skipped
 		s.remember(req.Tile, known)
@@ -222,7 +237,7 @@ func (s *Store) capture(ctx context.Context, dir, q string, req CaptureRequest, 
 	if _, r := admit(req.Tile, p.listing, c); r != nil {
 		return Result{}, r
 	}
-	m := meta{at: s.now().UTC().Truncate(time.Second), by: req.By, feed: FeedWorkTree, head: head}
+	m := meta{at: s.now().UTC().Truncate(time.Second), by: req.By, feed: FeedWorkTree, head: head, branch: branch}
 	known[p.tree] = m
 	if err := s.record(ctx, dir, q, req.Tile, p.tree, p.view, m, shortID(p.tree, known)); err != nil {
 		return Result{}, fmt.Errorf("checkpoint of %s: %w", req.Tile, err)
@@ -614,6 +629,10 @@ func commitMessages(tile, tree, id string, m meta) (string, string) {
 		c.WriteString("Xbin-Work-Tree-Head: " + m.head + "\n")
 		v.WriteString("Xbin-Work-Tree-Head: " + m.head + "\n")
 	}
+	if m.branch != "" {
+		c.WriteString("Xbin-Work-Tree-Branch: " + m.branch + "\n")
+		v.WriteString("Xbin-Work-Tree-Branch: " + m.branch + "\n")
+	}
 	return c.String(), v.String()
 }
 
@@ -672,6 +691,57 @@ func workTreeHead(wt string) string {
 		}
 	}
 	return ""
+}
+
+// WorkTreeBranch is the branch the tile's own repository has checked out
+// in work tree wt: .git/HEAD's "ref: refs/heads/<name>", read beneath the
+// work tree like workTreeHead, with no git run (D131). "" for a detached
+// HEAD, no repository, a gitfile, a name BranchNameOK refuses, or anything
+// else unreadable: none of them is a branch. Best effort and untrusted, as
+// the trailer is; an assigned branch only ever compares against it.
+func WorkTreeBranch(wt string) string {
+	head, ok := readBeneath(wt, ".git/HEAD", 4<<10)
+	if !ok {
+		return ""
+	}
+	ref, ok := strings.CutPrefix(strings.TrimSpace(head), "ref: ")
+	if !ok || !refNameOK(ref) {
+		return ""
+	}
+	name, ok := strings.CutPrefix(ref, "refs/heads/")
+	if !ok || !BranchNameOK(name) {
+		return ""
+	}
+	return name
+}
+
+// BranchNameOK reports a branch name xbind stores, compares and creates:
+// what refNameOK takes beneath refs/heads/, never starting with "-" or "."
+// (so no tool reads it as an option), at most 200 bytes.
+func BranchNameOK(name string) bool {
+	return name != "" && len(name) <= 200 && name != "HEAD" && !strings.HasPrefix(name, "-") &&
+		!strings.HasPrefix(name, ".") && !strings.HasSuffix(name, ".") && refNameOK("refs/heads/"+name)
+}
+
+// BranchExists reports whether the tile's own repository in work tree wt
+// has branch name: a loose ref or a packed-refs line, read beneath the work
+// tree with no git run. Best effort: git switch -c is what refuses an
+// existing name (D131); this lets a dry run say so first.
+func BranchExists(wt, name string) bool {
+	if !BranchNameOK(name) {
+		return false
+	}
+	ref := "refs/heads/" + name
+	if _, ok := readBeneath(wt, ".git/"+ref, 4<<10); ok {
+		return true
+	}
+	packed, _ := readBeneath(wt, ".git/packed-refs", 16<<20)
+	for _, line := range strings.Split(packed, "\n") {
+		if _, n, ok := strings.Cut(strings.TrimSpace(line), " "); ok && n == ref {
+			return true
+		}
+	}
+	return false
 }
 
 var refName = regexp.MustCompile(`^refs/[A-Za-z0-9._+/-]+$`)

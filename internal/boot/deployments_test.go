@@ -1027,7 +1027,7 @@ func TestDeploymentRoutesDispatchTheirOps(t *testing.T) {
 		deployments.OpBackups: "GET /deployments/backups"}
 	for _, o := range dplActs(t, false) {
 		switch r, isRead := reads[o]; {
-		case o == deployments.OpRestart || o == deployments.OpUnprotect || o == deployments.OpDiffWorkTree:
+		case o == deployments.OpRestart || o == deployments.OpUnprotect || o == deployments.OpDiffWorkTree || o == deployments.OpBranchClear:
 			if slices.ContainsFunc(m.patterns, func(p string) bool { return strings.HasSuffix(p, "/"+string(o)) }) {
 				t.Errorf("the refinement %s is a route", o)
 			}

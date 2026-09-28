@@ -290,7 +290,10 @@ type fakeStore struct {
 	logs  map[string][]attempt                        // tile → entries, oldest first
 	views map[string]map[string]string                // tile → the pinned set
 	// hook runs inside every committed capture, after the tree is taken.
-	hook            func(tile string)
+	hook func(tile string)
+	// race runs inside every capture, between its two reads of the work
+	// tree's branch: a checkout racing it (D131).
+	race            func(tile string)
 	failCapture     error
 	failMaterialize error
 	noLog           bool
@@ -342,9 +345,19 @@ func (s *fakeStore) Capture(ctx context.Context, req checkpoint.CaptureRequest) 
 	if fail != nil {
 		return checkpoint.Result{}, fail
 	}
+	branch := checkpoint.WorkTreeBranch(req.WorkTree)
+	s.mu.Lock()
+	race := s.race
+	s.mu.Unlock()
+	if race != nil {
+		race(req.Tile)
+	}
 	files, err := workTreeFiles(req.Source)
 	if err != nil {
 		return checkpoint.Result{}, err
+	}
+	if checkpoint.WorkTreeBranch(req.WorkTree) != branch {
+		branch = ""
 	}
 	var res checkpoint.Result
 	if s.real != nil {
@@ -360,8 +373,9 @@ func (s *fakeStore) Capture(ctx context.Context, req checkpoint.CaptureRequest) 
 		}
 		tree := treeOf(files)
 		res.Checkpoint = checkpoint.Checkpoint{ID: "c:" + tree[:7], Hash: tree, Feed: checkpoint.FeedWorkTree,
-			At: time.Now().UTC().Truncate(time.Second), By: req.By}
+			At: time.Now().UTC().Truncate(time.Second), By: req.By, WorkTreeBranch: branch}
 	}
+	res.Branch = branch
 	s.mu.Lock()
 	s.captures++
 	if s.cps[req.Tile] == nil {
