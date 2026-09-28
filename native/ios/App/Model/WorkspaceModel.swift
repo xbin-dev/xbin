@@ -23,6 +23,8 @@ final class WorkspaceModel: Identifiable {
     var shared = SharedScreens()
     /// Home: the screens by section (HomeModel, D125).
     var home = HomeModel()
+    /// "All tiles": the web sidebar's tree (NavigatorModel, D128).
+    var navigator = NavigatorModel()
     /// How this user arranged screens on their phone (the `mobile-screens`
     /// pref, per user, next to `layout`).
     var mobile = MobileScreens()
@@ -30,7 +32,12 @@ final class WorkspaceModel: Identifiable {
     var statuses = TileStatuses()
     /// Home has loaded once (screens can say "gone" rather than "loading").
     var homeLoaded = false
-    var sessions: [TermDirectoryEntry] = []
+    var sessions: [TermDirectoryEntry] = [] {
+        didSet { if sessions != oldValue { tileSessions = TermDirectory.byTile(sessions) } }
+    }
+    /// What runs on each tile, counted (the rows' and cards' badges, D128):
+    /// follows `sessions`, which the `term` events keep live.
+    private(set) var tileSessions: [String: TileSessions] = [:]
     var loading = false
     var lastError: String?
     /// Signing in failed in a way the user must act on (re-enroll, SSO, …).
@@ -164,6 +171,7 @@ final class WorkspaceModel: Identifiable {
 
     func rebuildHome() {
         home = HomeModel(catalog: catalog, layout: layout, shared: shared, whoami: whoami)
+        navigator = NavigatorModel(catalog: catalog, layout: layout, shared: shared, whoami: whoami)
         homeLoaded = true
     }
 

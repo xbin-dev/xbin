@@ -3,8 +3,9 @@ import XbinCore
 import XbinRenderer
 
 /// One tile on a phone screen (D125): the tile's native widget when it has
-/// sent one, else the standard card. The screen grid (App/Shell/Screens)
-/// draws every tile through this.
+/// sent one, else the standard card, with the tile's sessions badged in
+/// its corner (D128). The screen grid (App/Shell/Screens) draws every tile
+/// through this.
 ///
 /// A native tile's card runs the tile's runtime while it is on screen
 /// (``NativeRuntimePool``: a few at most, least recently used first out)
@@ -42,6 +43,13 @@ struct TileCard: View {
                     .id(snap.at)
             } else {
                 StandardCard(tile: tile, size: size, workspace: workspace)
+            }
+        }
+        // What runs on the tile (D128), in the card's corner — over the
+        // widget, never inside its tree; it takes no taps (the card's do).
+        .overlay(alignment: .bottomTrailing) {
+            if let s = workspace.tileSessions[tile.path], !s.isEmpty {
+                SessionsBadge(sessions: s).padding(8).allowsHitTesting(false)
             }
         }
         .onAppear { setShown(native) }

@@ -3,7 +3,7 @@ import XbinCore
 import XbinRendererModel
 
 /// The workspace switcher (plans/native.md §4): every workspace with its
-/// branding, what needs you there, and when it was last used; what was used
+/// branding and what needs you there, one line each (D128); what was used
 /// recently, across workspaces, below (a tile's icon and badge when its native UI set them).
 /// An overlay that goes away once something is picked — in this window only
 /// (each window has its own workspace); "Open in New Window" where the
@@ -26,6 +26,7 @@ struct SwitcherOverlay: View {
                                 if w.id != scene.selectedID { Haptics.select() }
                                 withAnimation { scene.select(w.id) }
                             } label: { row(w, index: i) }
+                                .compactRow()
                                 .contextMenu {
                                     if multipleWindows {
                                         Button("Open in New Window", systemImage: "macwindow.badge.plus") {
@@ -49,6 +50,7 @@ struct SwitcherOverlay: View {
                     }
                 }
                 .listStyle(.insetGrouped)
+                .environment(\.defaultMinListRowHeight, 34)
                 .scrollContentBackground(.hidden)
                 .frame(maxHeight: 520)
             }
@@ -75,9 +77,10 @@ struct SwitcherOverlay: View {
                 Text(verbatim: r.title)
                 Spacer()
                 if let badge = meta?.badge { TileBadge(text: badge) }
-                Text(verbatim: w?.title ?? "").font(.caption).foregroundStyle(.secondary)
+                Text(verbatim: w?.title ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
         }
+        .compactRow()
         .contextMenu {
             if multipleWindows, w != nil {
                 Button("Open in New Window", systemImage: "macwindow.badge.plus") {
@@ -93,21 +96,20 @@ struct SwitcherOverlay: View {
         return w.tileMeta[path]
     }
 
+    /// One line (D128): the icon and title, then who and where, what needs
+    /// you, the ⌘ shortcut and the check.
     private func row(_ w: WorkspaceModel, index: Int) -> some View {
-        HStack(spacing: 12) {
-            BrandIcon(workspace: w, size: 34)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: w.title).font(.headline).foregroundStyle(.primary)
-                Text(verbatim: "\(w.userLabel) · \(w.origin.authority)").font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer()
+        HStack(spacing: 8) {
+            BrandIcon(workspace: w, size: 24)
+            Text(verbatim: w.title).font(.body.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
+                .layoutPriority(1)
+            Text(verbatim: "\(w.userLabel) · \(w.origin.authority)").font(.caption).foregroundStyle(.secondary)
+                .lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 4)
             let waiting = w.needsYou.count
             if waiting > 0 {
                 Text(verbatim: "\(waiting)").font(.caption.bold()).padding(.horizontal, 7).padding(.vertical, 2)
                     .background(Color.xbinAmber, in: Capsule()).foregroundStyle(.black)
-            }
-            if let t = w.lastActivity ?? w.record.lastUsedAt {
-                Text(t, style: .relative).font(.caption2).foregroundStyle(.secondary)
             }
             if index < 9 { Text(verbatim: "⌘\(index + 1)").font(.caption2.monospaced()).foregroundStyle(.tertiary) }
             if w.id == scene.selectedID { Image(systemName: "checkmark").foregroundStyle(.tint) }

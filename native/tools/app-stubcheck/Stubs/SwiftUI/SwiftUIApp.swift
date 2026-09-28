@@ -174,6 +174,15 @@ extension Image {
 public enum EditMode: Sendable, Hashable { case inactive, transient, active }
 extension EnvironmentValues {
     public var editMode: Binding<EditMode>? { get { nil } set {} }
+    public var defaultMinListRowHeight: CGFloat { get { 44 } set {} }
+}
+// Compact lists (Shell/Screens/HomeView.swift, D128): the sidebar style
+// and its foldable sections.
+extension ListStyle where Self == _ListStyle {
+    public static var sidebar: _ListStyle { .init() }
+}
+extension Section where Parent: View, Content: View, Footer == EmptyView {
+    public init(isExpanded: Binding<Bool>, @ViewBuilder content: () -> Content, @ViewBuilder header: () -> Parent) {}
 }
 extension MutableCollection where Self: RangeReplaceableCollection {
     public mutating func move(fromOffsets source: IndexSet, toOffset destination: Int) {}

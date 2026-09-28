@@ -263,23 +263,29 @@ private struct SignInProblemBar: View {
     }
 }
 
-/// The workspace's branding icon (D76), or its initial.
+/// The workspace's branding icon (D76) — its `data:` image (BrandImages),
+/// an emoji, or else its initial on amber.
 struct BrandIcon: View {
     let workspace: WorkspaceModel
     var size: CGFloat = 28
 
     var body: some View {
-        let title = workspace.title
+        let icon = workspace.record.branding?.icon
         ZStack {
-            RoundedRectangle(cornerRadius: size * 0.25).fill(Color.xbinAmber.opacity(0.9))
-            if let icon = workspace.record.branding?.icon, icon.count <= 4, !icon.isEmpty {
-                Text(verbatim: icon).font(.system(size: size * 0.6))
+            if let image = BrandImages.shared.image(icon) {
+                Image(uiImage: image).resizable().interpolation(.high).scaledToFit()
             } else {
-                Text(verbatim: String(title.prefix(1)).uppercased())
-                    .font(.system(size: size * 0.55, weight: .bold)).foregroundStyle(.black)
+                RoundedRectangle(cornerRadius: size * 0.25).fill(Color.xbinAmber.opacity(0.9))
+                if let icon, icon.count <= 4, !icon.isEmpty {
+                    Text(verbatim: icon).font(.system(size: size * 0.6))
+                } else {
+                    Text(verbatim: String(workspace.title.prefix(1)).uppercased())
+                        .font(.system(size: size * 0.55, weight: .bold)).foregroundStyle(.black)
+                }
             }
         }
         .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 }
 

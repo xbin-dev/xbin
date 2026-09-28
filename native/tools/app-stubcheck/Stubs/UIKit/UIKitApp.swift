@@ -31,6 +31,13 @@ extension UIApplication {
     public func open(_ url: URL, options: [String: Any] = [:], completionHandler: (@MainActor @Sendable (Bool) -> Void)? = nil) {}
     public var supportsMultipleScenes: Bool { true }
 }
+extension UIView {
+    public func insertSubview(_ view: UIView, at index: Int) {}
+}
+extension UIScrollView {
+    public enum ContentInsetAdjustmentBehavior: Sendable { case automatic, scrollableAxes, never, always }
+    public var contentInsetAdjustmentBehavior: ContentInsetAdjustmentBehavior { get { .automatic } set {} }
+}
 extension UIWindow {
     public var isKeyWindow: Bool { false }
     nonisolated public static let didBecomeKeyNotification = Notification.Name("UIWindowDidBecomeKeyNotification")

@@ -87,7 +87,7 @@ final class XbinE2ETests: XCTestCase {
         let e = try E2E(self)
         e.launch()
         e.ensureWorkspace()
-        e.tileAction("apps/welcome", "Terminal here")
+        e.newSession("apps/welcome", "Terminal", shot: "04-long-press")
         await e.eventually("a shell session on apps/welcome", timeout: 30) {
             try await e.server.sessions(cwd: "apps/welcome").contains { $0.kind != "agent" }
         }
@@ -115,6 +115,17 @@ final class XbinE2ETests: XCTestCase {
         e.app.typeText("\n")
         XCTAssertTrue(title.waitForExistence(timeout: 30), "↑ ↑ from the key row recalled the first printf")
         e.shot("04-terminal-keys")
+
+        // Home knows (D128): the tile's row counts the shell, and its long
+        // press lists it, to open again.
+        let row = e.findTile("apps/welcome")
+        XCTAssertTrue(e.until(10) { (row.value as? String ?? "").contains("1 terminal") }, "the row's sessions: \(row.value ?? "nil")")
+        row.press(forDuration: 1.2)
+        let listed = e.app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "shell")).firstMatch
+        XCTAssertTrue(listed.waitForExistence(timeout: 10), "the long press lists the tile's shell")
+        e.shot("04-long-press-sessions")
+        listed.tap()
+        XCTAssertTrue(title.waitForExistence(timeout: 30), "the listed shell opens again, its title on screen")
         for s in try await e.server.sessions(cwd: "apps/welcome") where s.kind != "agent" {
             await e.server.end(s.id)
         }
@@ -127,7 +138,7 @@ final class XbinE2ETests: XCTestCase {
         let e = try E2E(self)
         e.launch()
         e.ensureWorkspace()
-        e.tileAction("apps/welcome", "Agent here")
+        e.newSession("apps/welcome", "Agent")
         // Several providers → the launcher; exactly one would start at once.
         let fake = e.app.buttons["Fake agent (tests)"]
         if fake.waitForExistence(timeout: 20) { fake.tap() }
@@ -213,7 +224,7 @@ final class XbinE2ETests: XCTestCase {
         e.app.launchArguments += ["-XbinNoSoftKeyboard", "YES"]
         e.launch()
         e.ensureWorkspace()
-        e.tileAction("apps/welcome", "Terminal here")
+        e.newSession("apps/welcome", "Terminal")
         await e.eventually("a shell session on apps/welcome", timeout: 30) {
             try await e.server.sessions(cwd: "apps/welcome").contains { $0.kind != "agent" }
         }

@@ -4,12 +4,14 @@ import XbinCore
 import XbinRendererModel
 import XbinTerm
 
-/// Home, a workspace's first panel (plans/native.md §4, D125): its screens
+/// Home, a workspace's first panel (plans/native.md §4, D125, D128): the
+/// workspace's own icon and title on top, what needs you, then its screens
 /// only — Mine, each org, Workspace, inside their folders as the web
-/// sidebar files them (HomeModel) — with what needs you, the terminals and
-/// the agents on top, and search and "All tiles" at the bottom. A screen
-/// opens as the next panel; "New screen" adds a personal one to the layout
-/// the web shell uses too.
+/// sidebar files them (HomeModel) — and search and "All tiles" at the
+/// bottom, in compact single-line rows. A screen opens as the next panel;
+/// "New screen" adds a personal one to the layout the web shell uses too.
+/// Terminals and agents are reached through their tiles (a row's or card's
+/// long press) and the inbox.
 struct HomeView: View {
     let workspace: WorkspaceModel
 
@@ -25,10 +27,12 @@ struct HomeView: View {
         List {
             if !query.isEmpty {
                 Section {
-                    ForEach(workspace.catalog.search(query)) { TileRow(workspace: workspace, tile: $0, pick: open) }
+                    ForEach(workspace.catalog.search(query)) {
+                        TileRow(workspace: workspace, tile: $0, caption: $0.parent, pick: open)
+                    }
                 }
             } else {
-                Section { Shortcuts(workspace: workspace, pick: open) }
+                Section { NeedsYouRow(workspace: workspace) }
                 ForEach(workspace.home.sections) { s in
                     Section {
                         ForEach(s.folders) { f in folder(f, depth: 0) }
@@ -55,13 +59,19 @@ struct HomeView: View {
                     } label: {
                         Label("All tiles", systemImage: "square.stack.3d.up")
                     }
+                    .compactRow()
                     Button { scene.showSettings = true } label: { Label("Settings", systemImage: "gearshape") }
+                        .compactRow()
                 }
             }
         }
+        .compactList()
         .searchable(text: $query, prompt: "Search tiles")
         .refreshable { await workspace.refresh() }
         .navigationTitle(Text(verbatim: workspace.title))
+        .toolbar {
+            ToolbarItem(placement: .principal) { WorkspaceHeader(workspace: workspace) }
+        }
         .alert("New screen", isPresented: $naming) {
             TextField("Name", text: $newName)
             Button("Cancel", role: .cancel) {}
@@ -93,6 +103,7 @@ struct HomeView: View {
             } label: {
                 Label("New screen", systemImage: "plus")
             }
+            .compactRow()
         }
     }
 
@@ -106,18 +117,7 @@ struct HomeView: View {
     }
 
     private func screenRow(_ s: ScreenInfo) -> some View {
-        Button { nav.openScreen(s.id) } label: {
-            HStack {
-                Label { Text(verbatim: s.name) } icon: { Image(systemName: "square.grid.2x2").foregroundStyle(Color.xbinAmber) }
-                Spacer()
-                let n = workspace.cards(for: s).count
-                Text(verbatim: "\(n)").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
-                    .accessibilityLabel(Text("\(n) tiles"))
-                Image(systemName: "chevron.forward").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
-            }
-        }
-        .tint(.primary) // a place to go, not an action: the title in the text color
-        .accessibilityIdentifier("screen:\(s.id)")
+        ScreenRow(workspace: workspace, screen: s)
     }
 
     /// A folder and what it files, open unless the user folded it.
@@ -128,112 +128,263 @@ struct HomeView: View {
             ForEach(f.children) { c in folder(c, depth: depth + 1) }
             ForEach(f.screens) { screenRow($0) }
         } label: {
-            Label { Text(verbatim: f.name) } icon: { Image(systemName: "folder") }
-        })
+            Label { Text(verbatim: f.name).lineLimit(1) } icon: { Image(systemName: "folder") }
+        }
+        .compactRow())
     }
 }
 
-/// Needs you, the terminals and the agents — Home's top row.
-private struct Shortcuts: View {
+/// Home's header: the workspace's branding icon and title (D76) — its
+/// address only when it has no title.
+private struct WorkspaceHeader: View {
     let workspace: WorkspaceModel
-    let pick: (Surface) -> Void
+
+    var body: some View {
+        HStack(spacing: 7) {
+            BrandIcon(workspace: workspace, size: 22)
+            Text(verbatim: workspace.title).font(.headline).lineLimit(1).truncationMode(.middle)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityIdentifier("workspace-header")
+    }
+}
+
+/// A screen on Home or in All tiles: its name, its card count; opens it.
+struct ScreenRow: View {
+    let workspace: WorkspaceModel
+    let screen: ScreenInfo
+    @Environment(WorkspaceNav.self) private var nav
+
+    var body: some View {
+        Button { nav.openScreen(screen.id) } label: {
+            HStack(spacing: 8) {
+                Label { Text(verbatim: screen.name).lineLimit(1) } icon: {
+                    Image(systemName: "square.grid.2x2").foregroundStyle(Color.xbinAmber)
+                }
+                Spacer(minLength: 4)
+                let n = workspace.cards(for: screen).count
+                Text(verbatim: "\(n)").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                    .accessibilityLabel(Text("\(n) tiles"))
+                Image(systemName: "chevron.forward").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+            }
+        }
+        .tint(.primary) // a place to go, not an action: the title in the text color
+        .compactRow()
+        .accessibilityIdentifier("screen:\(screen.id)")
+    }
+}
+
+/// What needs you (the inbox), with its count — Home's first row.
+private struct NeedsYouRow: View {
+    let workspace: WorkspaceModel
     @Environment(SceneModel.self) private var scene
 
     var body: some View {
-        let shells = workspace.sessions.filter { $0.kind == .shell }
-        let agents = workspace.sessions.filter { $0.kind == .agent }
-        HStack(spacing: 10) {
-            Button { scene.showInbox = true } label: {
-                shortcut("Needs you", "tray", workspace.needsYou.count, highlight: !workspace.needsYou.isEmpty)
+        let n = workspace.needsYou.count
+        Button { scene.showInbox = true } label: {
+            HStack(spacing: 8) {
+                Label("Needs you", systemImage: n > 0 ? "tray.full" : "tray")
+                Spacer(minLength: 4)
+                Text(verbatim: "\(n)").font(.callout.monospacedDigit().weight(n > 0 ? .bold : .regular))
+                    .padding(.horizontal, n > 0 ? 7 : 0).padding(.vertical, 1)
+                    .background(n > 0 ? Color.xbinAmber : Color.clear, in: Capsule())
+                    .foregroundStyle(n > 0 ? Color.black : Color.secondary)
             }
-            Menu {
-                if shells.isEmpty { Text("No terminals open") }
-                ForEach(shells) { s in
-                    Button("\(s.title) · \(TileInfo.humanize(s.cwd))") { pick(.terminal(cwd: s.cwd, session: s.id)) }
-                }
-            } label: { shortcut("Terminals", "apple.terminal", shells.count) }
-            Menu {
-                if agents.isEmpty { Text("No agent sessions") }
-                ForEach(agents) { s in
-                    Button("\(s.title) · \(TileInfo.humanize(s.cwd))\(s.needsYou ? " · waiting" : "")") {
-                        pick(.agent(cwd: s.cwd, session: s.id))
-                    }
-                }
-            } label: { shortcut("Agents", "sparkles", agents.count) }
         }
-        .buttonStyle(.borderless)
-        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
-    }
-
-    private func shortcut(_ title: LocalizedStringKey, _ symbol: String, _ count: Int, highlight: Bool = false) -> some View {
-        VStack(spacing: 4) {
-            ZStack(alignment: .topTrailing) {
-                Image(systemName: symbol).font(.title3).frame(width: 34, height: 28)
-                if count > 0 {
-                    Text(verbatim: "\(count)").font(.caption2.bold()).padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(highlight ? Color.xbinAmber : Color.secondary.opacity(0.25), in: Capsule())
-                        .foregroundStyle(highlight ? Color.black : Color.primary)
-                        .offset(x: 10, y: -6)
-                }
-            }
-            Text(title).font(.caption).foregroundStyle(.primary).lineLimit(1)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 6)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
+        .tint(.primary)
+        .compactRow()
+        .accessibilityLabel(Text("Needs you"))
+        .accessibilityValue(Text(verbatim: "\(n)"))
     }
 }
 
-/// Every tile the user can see, by path.
+/// Every tile the user can see, as the web sidebar shows them (D128,
+/// NavigatorModel): personal folders first, then each owner's section —
+/// its shared folders, its tiles, an org's screens. Folders open as the
+/// user left them on the web; search lists tiles flat.
 struct AllTilesView: View {
     let workspace: WorkspaceModel
     let pick: (Surface) -> Void
 
+    @State private var query = ""
+    /// Folders the user opened or folded here (from the web's state).
+    @State private var flipped: Set<String> = []
+    @State private var folded: Set<String> = []
+
     var body: some View {
+        let tree = workspace.navigator
         List {
-            ForEach(workspace.catalog.listed) { TileRow(workspace: workspace, tile: $0, pick: pick) }
+            if !query.isEmpty {
+                Section {
+                    ForEach(workspace.catalog.search(query)) {
+                        TileRow(workspace: workspace, tile: $0, caption: $0.parent, pick: pick)
+                    }
+                }
+            } else {
+                if !tree.folders.isEmpty {
+                    Section {
+                        ForEach(tree.folders) { f in folder(f) }
+                    }
+                }
+                ForEach(tree.sections) { s in
+                    if tree.showsSectionHeaders {
+                        Section(isExpanded: Binding(get: { !folded.contains(s.id) }, set: { open in
+                            if open { folded.remove(s.id) } else { folded.insert(s.id) }
+                        })) {
+                            ForEach(s.items) { item($0) }
+                        } header: {
+                            HStack(spacing: 6) {
+                                if s.id == "mine" { Image(systemName: "person.fill") }
+                                else if s.id.hasPrefix("org:") { Image(systemName: "flag.fill") }
+                                Text(verbatim: s.title)
+                                Text(verbatim: "\(s.count)").foregroundStyle(.secondary).monospacedDigit()
+                            }
+                            .accessibilityElement(children: .combine)
+                        }
+                    } else {
+                        Section { ForEach(s.items) { item($0) } }
+                    }
+                }
+                if tree.isEmpty, workspace.homeLoaded {
+                    Text("No tiles yet.").foregroundStyle(.secondary)
+                }
+            }
         }
+        .compactList()
+        .searchable(text: $query, prompt: "Search tiles")
         .navigationTitle("All tiles")
         .navigationBarTitleDisplayMode(.inline)
     }
+
+    private func item(_ i: NavigatorModel.Item) -> AnyView {
+        switch i {
+        case .folder(let f): return folder(f)
+        case .tile(let t, let label): return AnyView(TileRow(workspace: workspace, tile: t, label: label, pick: pick))
+        case .screen(let s): return AnyView(ScreenRow(workspace: workspace, screen: s))
+        }
+    }
+
+    private func folder(_ f: NavigatorModel.Folder) -> AnyView {
+        let open = Binding(get: { f.open != flipped.contains(f.id) }, set: { now in
+            if now == f.open { flipped.remove(f.id) } else { flipped.insert(f.id) }
+        })
+        return AnyView(DisclosureGroup(isExpanded: open) {
+            ForEach(f.items) { item($0) }
+        } label: {
+            HStack(spacing: 8) {
+                Label {
+                    Text(verbatim: f.name).lineLimit(1)
+                } icon: {
+                    if let icon = f.icon, !icon.isEmpty {
+                        Text(verbatim: icon)
+                    } else {
+                        Image(systemName: "folder").foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 4)
+                Text(verbatim: "\(f.items.count)").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("folder:\(f.id)")
+        }
+        .compactRow())
+    }
 }
 
-/// A tile: its icon and name, its path, its badge and status, whether it
-/// opens natively. Its menu: a new window, a terminal or agent there, the
-/// web page instead of the native view.
+/// A tile in one line: its icon, name (the tree's label, else its title)
+/// and a trailing caption (search: where it lives); what runs there, its
+/// status, badge and whether it opens natively. Its path is in the
+/// accessibility label. The long press: TileMenu.
 struct TileRow: View {
     let workspace: WorkspaceModel
     let tile: TileInfo
+    var label: String? = nil
+    var caption: String? = nil
     let pick: (Surface) -> Void
 
     var body: some View {
         let meta = workspace.tileMeta[tile.path]
+        let sessions = workspace.tileSessions[tile.path]
+        let status = workspace.statuses[tile.path]
+        let native = workspace.surfaceKind(for: tile) == .native
         Button { pick(.tile(tile.path)) } label: {
-            HStack {
-                if let symbol = meta?.symbol {
-                    Image(systemName: symbol).foregroundStyle(.tint).frame(width: 24)
-                        .accessibilityHidden(true)
+            HStack(spacing: 8) {
+                Group {
+                    if let symbol = meta?.symbol {
+                        Image(systemName: symbol).foregroundStyle(Color.accentColor)
+                    } else {
+                        // The web sidebar's runtime dot (shell-kit.js RUNTIME_COLOR).
+                        Circle().fill(Self.runtimeColor(tile.runtime)).frame(width: 8, height: 8)
+                    }
                 }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: tile.title).foregroundStyle(.primary)
-                    Text(verbatim: tile.path).font(.caption.monospaced()).foregroundStyle(.secondary)
+                .frame(width: 22)
+                .accessibilityHidden(true)
+                Text(verbatim: label ?? tile.title).foregroundStyle(.primary).lineLimit(1).truncationMode(.middle)
+                if let caption, !caption.isEmpty {
+                    Text(verbatim: caption).font(.caption.monospaced()).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.head)
                 }
-                Spacer()
-                if let st = workspace.statuses[tile.path] { StatusDot(status: st) }
+                Spacer(minLength: 4)
+                if let sessions, !sessions.isEmpty { SessionsBadge(sessions: sessions) }
+                if let status { StatusDot(status: status) }
                 if let badge = meta?.badge { TileBadge(text: badge) }
-                if workspace.surfaceKind(for: tile) == .native {
+                if native {
                     Text("native").font(.caption2.bold()).padding(.horizontal, 6).padding(.vertical, 2)
                         .background(Color.xbinAmber.opacity(0.25), in: Capsule())
                 }
             }
         }
+        .compactRow()
+        .accessibilityLabel(Text(verbatim: "\(label ?? tile.title), \(tile.path)"))
+        .accessibilityValue(Text(verbatim: [sessions?.spoken ?? "", status.map { $0.message.isEmpty ? $0.level : "\($0.level): \($0.message)" } ?? "",
+                                            meta?.badge ?? "", native ? "native" : ""].filter { !$0.isEmpty }.joined(separator: ", ")))
         .onDrag { TileMenu.dragItem(workspace, tile) }
         .contextMenu { TileMenu(workspace: workspace, tile: tile, pick: pick) }
     }
+
+    static func runtimeColor(_ runtime: String) -> Color {
+        switch runtime {
+        case "go": return Color.xbinAmber
+        case "node": return Color(red: 0x4C / 255, green: 0xAF / 255, blue: 0x50 / 255)
+        case "python": return Color(red: 0xF2 / 255, green: 0xA7 / 255, blue: 0x1B / 255)
+        default: return Color(red: 0x86 / 255, green: 0x8F / 255, blue: 0x9A / 255)
+        }
+    }
 }
 
-/// A tile's long-press menu (rows and cards).
+/// What runs on a tile (D128): `>_ 2` for its terminals, ✦ 1 for its
+/// agents — amber when one waits for you. On rows, and in a corner of a
+/// screen's card (outside a widget's own tree).
+struct SessionsBadge: View {
+    let sessions: TileSessions
+
+    var body: some View {
+        let waiting = sessions.needsYou > 0
+        HStack(spacing: 4) {
+            if sessions.shells > 0 {
+                Text(verbatim: ">_ \(sessions.shells)").font(.caption2.monospaced().bold())
+            }
+            if sessions.agents > 0 {
+                HStack(spacing: 2) {
+                    Image(systemName: waiting ? "exclamationmark.bubble.fill" : "sparkles").font(.caption2.weight(.semibold))
+                    Text(verbatim: "\(sessions.agents)").font(.caption2.monospacedDigit().bold())
+                }
+            }
+        }
+        .padding(.horizontal, 6).padding(.vertical, 2)
+        .background(waiting ? Color.xbinAmber : Color.secondary.opacity(0.18), in: Capsule())
+        .foregroundStyle(waiting ? Color.black : Color.secondary)
+        .fixedSize()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: sessions.spoken))
+        .accessibilityIdentifier("sessions-badge")
+    }
+}
+
+/// A tile's long-press menu (rows and cards): the terminals and agents
+/// running there (tap one to open it), New session…, a new window, and
+/// the native/web toggle.
 struct TileMenu: View {
     let workspace: WorkspaceModel
     let tile: TileInfo
@@ -243,18 +394,39 @@ struct TileMenu: View {
     @Environment(\.supportsMultipleWindows) private var multipleWindows
 
     var body: some View {
-        if multipleWindows {
-            Button("Open in New Window", systemImage: "macwindow.badge.plus") {
-                openWindow(value: WindowTarget(workspace: workspace.id, surface: .tile(tile.path)))
+        let sessions = TermDirectory.forTile(workspace.sessions, cwd: tile.path)
+        if !sessions.isEmpty {
+            Section {
+                ForEach(sessions) { s in
+                    Button {
+                        pick(s.kind == .agent ? .agent(cwd: s.cwd, session: s.id) : .terminal(cwd: s.cwd, session: s.id))
+                    } label: {
+                        Text(verbatim: s.title)
+                        Text(verbatim: s.statusText)
+                        Image(systemName: s.kind == .shell ? "apple.terminal" : s.needsYou ? "exclamationmark.bubble" : "sparkles")
+                    }
+                }
             }
         }
-        Button("Terminal here", systemImage: "apple.terminal") { pick(.terminal(cwd: tile.path, session: nil)) }
-        Button("Agent here", systemImage: "sparkles") { pick(.agent(cwd: tile.path, session: nil)) }
-        if tile.opensNatively {
-            let forced = AppSettings.forcesWeb(workspace.id, tile.path)
-            Button(forced ? "Use the native view" : "Open as web page", systemImage: forced ? "rectangle.stack" : "globe") {
-                AppSettings.setForcesWeb(workspace.id, tile.path, !forced)
-                pick(.tile(tile.path))
+        Section {
+            // One way in; the tile's own session screen takes it over later.
+            Menu {
+                Button("Terminal", systemImage: "apple.terminal") { pick(.terminal(cwd: tile.path, session: nil)) }
+                Button("Agent", systemImage: "sparkles") { pick(.agent(cwd: tile.path, session: nil)) }
+            } label: {
+                Label("New session…", systemImage: "plus.rectangle.on.rectangle")
+            }
+            if multipleWindows {
+                Button("Open in New Window", systemImage: "macwindow.badge.plus") {
+                    openWindow(value: WindowTarget(workspace: workspace.id, surface: .tile(tile.path)))
+                }
+            }
+            if tile.opensNatively {
+                let forced = AppSettings.forcesWeb(workspace.id, tile.path)
+                Button(forced ? "Use the native view" : "Open as web page", systemImage: forced ? "rectangle.stack" : "globe") {
+                    AppSettings.setForcesWeb(workspace.id, tile.path, !forced)
+                    pick(.tile(tile.path))
+                }
             }
         }
     }
@@ -286,5 +458,16 @@ struct StatusDot: View {
         case "ok": return .green
         default: return .blue
         }
+    }
+}
+
+/// Compact lists (D128): single-line rows about 36 pt tall.
+extension View {
+    func compactList() -> some View {
+        listStyle(.sidebar).environment(\.defaultMinListRowHeight, 34)
+    }
+
+    func compactRow() -> some View {
+        listRowInsets(EdgeInsets(top: 3, leading: 16, bottom: 3, trailing: 16))
     }
 }

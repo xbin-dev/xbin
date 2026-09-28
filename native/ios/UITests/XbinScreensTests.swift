@@ -213,7 +213,7 @@ final class XbinScreensTests: XCTestCase {
         let e = try E2E(self)
         e.launch()
         e.ensureWorkspace()
-        e.tileAction("apps/welcome", "Terminal here")
+        e.newSession("apps/welcome", "Terminal")
         await e.eventually("a shell session on apps/welcome", timeout: 30) {
             try await e.server.sessions(cwd: "apps/welcome").contains { $0.kind != "agent" }
         }
@@ -251,13 +251,22 @@ final class XbinScreensTests: XCTestCase {
     func test09Gallery() async throws {
         for appearance in ["light", "dark"] {
             let e = try E2E(self)
-            try await e.server.seedScreens()
+            try await e.server.seedScreens(folder: true)
             e.app.launchArguments += ["-XbinAppearance", appearance]
             e.launch()
             e.ensureWorkspace()
             e.goHome()
             XCTAssertTrue(e.screenRow().waitForExistence(timeout: 30))
             e.shot("gallery-\(appearance)-01-home")
+            // All tiles: the web sidebar's tree (D128) — the seeded folder
+            // first, then the workspace's tiles.
+            e.app.buttons["All tiles"].tap()
+            XCTAssertTrue(e.app.descendants(matching: .any).matching(identifier: "folder:top/e2efold").firstMatch
+                .waitForExistence(timeout: 10), "All tiles' personal folder")
+            XCTAssertTrue(e.tileRow("apps/welcome").exists, "a workspace tile in All tiles")
+            e.shot("gallery-\(appearance)-06-all-tiles")
+            e.app.navigationBars.buttons.matching(NSPredicate(format: "label != %@", "Workspaces")).firstMatch.tap()
+            XCTAssertTrue(e.screenRow().waitForExistence(timeout: 10), "back on Home")
             e.screenRow().tap()
             XCTAssertTrue(e.card("apps/welcome").waitForExistence(timeout: 20))
             e.shot("gallery-\(appearance)-02-screen")

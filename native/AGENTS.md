@@ -882,10 +882,12 @@ of your own), erased first. `XbinE2ETests`: sign in by Log in → Enter
 workspace address → the password (discovery, enrollment and device login
 on every run), open the web tile `apps/welcome` from Home's search (its 13 px heading
 readable at 1:1), open the native counter and tap +1 (checked on the
-server and in the row), type into a terminal on `apps/welcome` (its
-output — an OSC title only the shell's arithmetic makes — must reach the
-navigation bar; the key row sits right on the software keyboard and its ↑
-recalls a command), an agent session with the fake agent (its `echo: …`
+server and in the row), type into a terminal on `apps/welcome`, opened
+from the tile's long press → New session… → Terminal (its output — an OSC
+title only the shell's arithmetic makes — must reach the navigation bar;
+the key row sits right on the software keyboard and its ↑ recalls a
+command; back on Home the tile's row counts the shell and its long press
+lists it, D128), an agent session with the fake agent (its `echo: …`
 answer in the transcript), the viewports (`apps/wide`, a desktop-first
 page from `scripts/testdata/e2e-tiles/`, laid out at its 1200 px and
 fitted, pinch zoom; `apps/phone` keeps its own viewport) and the key row
@@ -904,10 +906,13 @@ chooser → the fake agent answers its prompt in the new tile; a chrome tile
 (`tiles/organisations`) in the app's web view through the web ticket's
 "Continue as" page; the terminal's keyboard follows a drag down
 (`keyboardDismissMode`); the switcher's "Used recently"; and `test09Gallery`
-shoots Home, a screen, edit mode, the create sheet and the chooser, light
-and dark (`gallery-<light|dark>-NN-<screen>.png`). The tests find panels by
+shoots Home, All tiles (with a seeded personal folder), a screen, edit
+mode, the create sheet and the chooser, light and dark
+(`gallery-<light|dark>-NN-<screen>.png`). The tests find panels by
 the bar's identifiers (`panel-back`, `panel-home`), screens by
-`screen:<id>`, cards by `card:<path>`; a panel not in front is hidden from
+`screen:<id>`, cards by `card:<path>`, All tiles' folders by
+`folder:<context>/<id>`, a tile's row by its path (in the row's
+accessibility label: the row shows the name only); a panel not in front is hidden from
 accessibility, its web view and terminal included.
 `XbinOnboardingTests` launch the app as a fresh install (Debug builds'
 `-XbinFreshStart YES`: no workspace, the saved list untouched): the

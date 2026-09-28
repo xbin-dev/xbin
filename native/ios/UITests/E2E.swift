@@ -121,11 +121,15 @@ struct E2EServer: Sendable {
     static let screenID = "e2escr1"
     static let screenName = "E2E screen"
 
-    func seedScreens() async throws {
+    /// `folder`: also a personal sidebar folder, open, filing the counter
+    /// and the screen — All tiles' tree then has a folder (D128).
+    func seedScreens(folder: Bool = false) async throws {
         let tile = { (path: String, x: Int, y: Int) -> [String: Any] in ["path": path, "x": x, "y": y, "w": 576, "h": 384] }
+        let folders: [Any] = folder ? [["id": "e2efold", "name": "E2E folder", "items": ["apps/counter", "#screen:\(Self.screenID)"],
+                                        "open": true]] : []
         try await setPref("layout", ["screens": [["id": Self.screenID, "name": Self.screenName,
                                                   "tiles": [tile("apps/welcome", 0, 0), tile("apps/counter", 576, 0), tile("apps/wide", 0, 384)]]],
-                                     "active": Self.screenID, "side": ["folders": [] as [Any]]])
+                                     "active": Self.screenID, "side": ["folders": folders]])
         try await setPref("mobile-screens", nil)
     }
 
@@ -485,7 +489,8 @@ final class E2E {
 
     // MARK: Tiles
 
-    /// Search's row for a tile: a button whose label holds its path.
+    /// Search's row for a tile: a button whose label holds its path (a
+    /// row shows the name only; the path is in its accessibility label).
     func tileRow(_ path: String) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "label CONTAINS %@", path)).firstMatch
     }
@@ -511,15 +516,23 @@ final class E2E {
         findTile(path, file: file, line: line).tap()
     }
 
-    /// A tile's context-menu action in the navigator ("Terminal here",
-    /// "Agent here"); the tile screen's ⋯ menu when the long press shows none.
-    func tileAction(_ path: String, _ action: String, file: StaticString = #filePath, line: UInt = #line) {
+    /// A new session on a tile from its long press (D128): New session… →
+    /// `kind` ("Terminal" or "Agent"); `shot` names a screenshot of the
+    /// menu. The tile screen's ⋯ menu ("Terminal here", "Agent here") when
+    /// the long press shows none.
+    func newSession(_ path: String, _ kind: String, shot name: String? = nil,
+                    file: StaticString = #filePath, line: UInt = #line) {
         let row = findTile(path, file: file, line: line)
         row.press(forDuration: 1.2)
-        let item = app.buttons[action]
-        if item.waitForExistence(timeout: 5) {
-            item.tap()
-            return
+        let menu = app.buttons["New session…"]
+        if menu.waitForExistence(timeout: 5) {
+            if let name { shot(name) }
+            menu.tap()
+            let item = app.buttons[kind]
+            if item.waitForExistence(timeout: 5) {
+                item.tap()
+                return
+            }
         }
         // Fallback: close whatever the press opened (a tap by the status
         // bar), open the tile, then its ⋯ menu.
@@ -528,7 +541,8 @@ final class E2E {
         let more = element("More", in: app.buttons)
         XCTAssertTrue(more.waitForExistence(timeout: 20), "the tile's ⋯ menu", file: file, line: line)
         more.tap()
-        XCTAssertTrue(item.waitForExistence(timeout: 5), "\(action) in the tile's menu", file: file, line: line)
+        let item = app.buttons["\(kind) here"]
+        XCTAssertTrue(item.waitForExistence(timeout: 5), "\(kind) here in the tile's menu", file: file, line: line)
         item.tap()
     }
 

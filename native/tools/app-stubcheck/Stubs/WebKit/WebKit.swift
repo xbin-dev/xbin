@@ -36,3 +36,20 @@ public enum WKNavigationActionPolicy: Sendable { case cancel, allow, download }
     @discardableResult public func loadHTMLString(_ s: String, baseURL: URL?) -> Int { 0 }
     public func stopLoading() {}
 }
+// Shell/BrandImage.swift: an SVG drawn once by an offscreen web view.
+@MainActor public final class WKNavigation {}
+@MainActor public final class WKSnapshotConfiguration {
+    public init() {}
+    public var rect: CGRect = .zero
+    public var afterScreenUpdates = true
+}
+@MainActor public final class WKContentWorld {
+    public static var page: WKContentWorld { WKContentWorld() }
+    public static var defaultClient: WKContentWorld { WKContentWorld() }
+}
+extension WKWebView {
+    public func takeSnapshot(with configuration: WKSnapshotConfiguration?,
+                             completionHandler: @escaping @MainActor @Sendable (UIImage?, (any Error)?) -> Void) {}
+    public func callAsyncJavaScript(_ functionBody: String, arguments: [String: Any] = [:], in frame: WKFrameInfo? = nil,
+                                    contentWorld: WKContentWorld) async throws -> Any? { nil }
+}
