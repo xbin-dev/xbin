@@ -195,6 +195,18 @@ public struct AgentClient: Sendable {
         return p
     }
 
+    /// `GET …/events?limit=` (the tail page) or `?before=&limit=` (the page
+    /// before a seq; pass the previous page's `nextBefore`) — D130. An xbind
+    /// that does not page answers the whole replay (`EventsPage.isPage` false).
+    public func page(_ id: String, before: UInt64 = 0, limit: Int = AgentWindow.pageLimit) async throws -> EventsPage {
+        var q: [(String, String)] = []
+        if before > 0 { q.append(("before", String(before))) }
+        q.append(("limit", String(limit)))
+        let v = try await get(sessionPath(id) + "/events", query: q)
+        guard let p = EventsPage(json: v) else { throw AgentAPIError(status: 200, message: "unreadable events") }
+        return p
+    }
+
     /// `GET …/events?since=&follow=1` — the log from the cursor as it grows,
     /// until the session ends (the stream finishes) or the caller stops
     /// iterating. A `gap` event comes first when the cursor predates the ring.
@@ -236,6 +248,18 @@ public struct AgentClient: Sendable {
     /// `GET /agent/history/<id>/events` — a past session's transcript.
     public func historyTranscript(_ id: String) async throws -> HistoryTranscript {
         let v = try await get("/agent/history/" + seg(id) + "/events")
+        guard let t = HistoryTranscript(json: v) else { throw AgentAPIError(status: 200, message: "unreadable history") }
+        return t
+    }
+
+    /// `GET /agent/history/<id>/events?limit=|before=&limit=` — a page of a
+    /// past session's transcript (its `page`; an xbind that does not page
+    /// answers all of it).
+    public func historyPage(_ id: String, before: UInt64 = 0, limit: Int = AgentWindow.pageLimit) async throws -> HistoryTranscript {
+        var q: [(String, String)] = []
+        if before > 0 { q.append(("before", String(before))) }
+        q.append(("limit", String(limit)))
+        let v = try await get("/agent/history/" + seg(id) + "/events", query: q)
         guard let t = HistoryTranscript(json: v) else { throw AgentAPIError(status: 200, message: "unreadable history") }
         return t
     }

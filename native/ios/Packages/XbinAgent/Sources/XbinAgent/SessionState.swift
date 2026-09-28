@@ -65,6 +65,31 @@ public struct AgentSessionState: Sendable, Hashable {
         if ts != 0 { turnStartedAt = ts }
     }
 
+    /// A page's state header (D130): its status as a status event, the
+    /// last turn's usage and number.
+    mutating func seed(_ s: PageState) {
+        if let st = s.status { apply(StatusUpdate(json: st), ts: 0) }
+        if let u = Usage(json: s.usage) { usage = u }
+        if s.turn > 0 { lastTurn = s.turn }
+    }
+
+    /// What an event says about the session as a whole (the fold's part of
+    /// it: statuses, prompts, turn ends) — for a digest kept apart from any
+    /// one fold.
+    mutating func absorb(_ e: AgentEvent) {
+        switch e.type {
+        case AgentEventType.status.rawValue, AgentEventType.turnEnd.rawValue, AgentEventType.messageDelta.rawValue:
+            switch e.payload {
+            case .messageDelta(let d): if d.role == .user, d.parent.isEmpty { userPrompted(ts: e.ts) }
+            case .turnEnd(let t): apply(t)
+            case .status(let s): apply(s, ts: e.ts)
+            default: break
+            }
+        default:
+            break
+        }
+    }
+
     mutating func apply(_ t: TurnEnd) {
         turnStartedAt = nil
         lastTurn = t.turn

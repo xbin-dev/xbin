@@ -117,12 +117,12 @@ let allFixtures = ["basic", "permissions", "plan", "ask", "subagent", "shell", "
         guard case .tool(let task) = t.items[1] else { Issue.record("no task"); return }
         #expect(task.isSubagent && task.status == .completed)
         #expect(task.headline == "Explore the repo" && task.subagentType == "Explore" && task.subagentPrompt.contains("main"))
-        #expect(task.children.map(\.id) == ["th7", "tool0:read1", "m10"])
+        #expect(task.children.map(\.id) == ["th7", "tool8", "m10"]) // ids are the seqs that opened them (D130)
         #expect(task.subagentSteps == 1)
         guard case .thought(let th) = task.children[0], case .message(let m) = task.children[2] else { Issue.record("children"); return }
         #expect(th.done && th.parent == "task1")
         #expect(m.text == "main starts in main.go" && !m.open)
-        #expect(t.item(id: "tool0:read1") != nil)
+        #expect(t.item(id: "tool8") != nil)
         // the answer, after the Task card
         guard case .message(let answer) = t.items[2] else { Issue.record("answer"); return }
         #expect(answer.text == "the subagent found it")
@@ -233,7 +233,7 @@ let allFixtures = ["basic", "permissions", "plan", "ask", "subagent", "shell", "
             ev(8, "tool.update", j(#"{"id":"t","status":"completed"}"#)),
             ev(9, "future.thing", j(#"{"x":1}"#)),
         ])
-        #expect(t.items.map(\.id) == ["m1", "m3", "tool0:t", "turn5", "tool1:t"])
+        #expect(t.items.map(\.id) == ["m1", "m3", "tool4", "turn5", "tool6"])
         guard case .message(let m) = t.items[0], case .tool(let second) = t.items[4] else { Issue.record("shape"); return }
         #expect(m.text == "ab" && !m.open)
         #expect(second.title == "two" && second.status == .completed && second.files?.changes.count == 1)

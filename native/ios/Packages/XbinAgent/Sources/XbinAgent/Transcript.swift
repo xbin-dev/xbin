@@ -35,6 +35,9 @@ public struct AgentTranscript: Sendable, Hashable {
     private var gapsSeen: Set<UInt64> = []
     private var allowJump = false
     private var r = Reducer()
+    // what the fold starts from (a page's state header; D130)
+    private var seedState = AgentSessionState()
+    private var isSealed = false
 
     public init() {}
 
@@ -42,6 +45,65 @@ public struct AgentTranscript: Sendable, Hashable {
     public init(events: [AgentEvent], truncated: Bool = false) {
         apply(events: events, since: 0, truncated: truncated)
     }
+
+    /// A fold that starts mid-log, at a page the server cut (D130): the
+    /// page's state header first (its status as a status event, the last
+    /// turn's usage and number), then the page's events. Item ids derive
+    /// from seqs, so a page folded on its own gives the items (and ids) the
+    /// whole log gives there.
+    public init(seed: PageState?, events: [AgentEvent] = [], truncated: Bool = false, since: UInt64 = 0) {
+        if let seed {
+            var s = AgentSessionState()
+            s.seed(seed)
+            seedState = s
+            state = s
+        }
+        apply(events: events, since: since, truncated: truncated)
+    }
+
+    /// Two folds of this one's log: before `cut` (sealed, same seed) and
+    /// from it (seeded with `newerSeed`, the state header of the page the
+    /// server starts at `cut`). Ids are the same as here.
+    func split(at cut: UInt64, newerSeed: PageState?) -> (AgentTranscript, AgentTranscript) {
+        var a = AgentTranscript()
+        a.seedState = seedState
+        var b = AgentTranscript(seed: newerSeed)
+        for e in log {
+            let gap = e.type == AgentEventType.gap.rawValue
+            let older = gap ? (e.data["before"]?.uint64 ?? 0) < cut : e.seq < cut
+            if older { a.take(e) } else { b.take(e) }
+        }
+        a.isSealed = true
+        a.rebuild()
+        b.rebuild()
+        return (a, b)
+    }
+
+    /// Adds a logged event (or gap marker) as is — `rebuild()` folds it.
+    private mutating func take(_ e: AgentEvent) {
+        log.append(e)
+        if e.type == AgentEventType.gap.rawValue {
+            gapsSeen.insert(e.data["before"]?.uint64 ?? 0)
+        } else {
+            seen.insert(e.seq)
+            lastSeq = max(lastSeq, e.seq)
+        }
+    }
+
+    /// Nothing more will be appended (a page with a newer one after it): its
+    /// last message stops streaming — in the whole log the next page's
+    /// first event would have closed it. Kept through a refold.
+    public mutating func seal() {
+        isSealed = true
+        r.closeRuns(&items)
+    }
+
+    /// Every event applied, gap markers aside.
+    var eventCount: Int { seen.count }
+    /// The first seq applied (0: none).
+    var firstSeq: UInt64 { log.first { $0.seq > 0 }?.seq ?? 0 }
+    /// Whether a seq was applied.
+    func has(_ seq: UInt64) -> Bool { seen.contains(seq) }
 
     /// Earlier events were dropped somewhere (show "… earlier events dropped").
     public var truncated: Bool { !gapsSeen.isEmpty }
@@ -141,9 +203,10 @@ public struct AgentTranscript: Sendable, Hashable {
 
     private mutating func rebuild() {
         items = []
-        state = AgentSessionState()
+        state = seedState
         r = Reducer()
         for e in log { r.fold(e, into: &items, state: &state) }
+        if isSealed { r.closeRuns(&items) }
     }
 
     /// Events sort by seq; a gap sits right after the seq it follows.
@@ -181,8 +244,11 @@ public struct AgentTranscript: Sendable, Hashable {
 
     /// The line under a running turn: the in-flight tool ("Running npm test…"),
     /// else "Working…"; nil when idle or while a thought streams (it shows itself).
-    public func activity(ended: Bool = false) -> String? {
-        guard !ended, state.status == .running else { return nil }
+    public func activity(ended: Bool = false) -> String? { activity(ended: ended, status: state.status) }
+
+    /// `activity(ended:)` under a status known elsewhere (a window's digest).
+    func activity(ended: Bool, status: SessionStatus) -> String? {
+        guard !ended, status == .running else { return nil }
         if case .thought(let t)? = items.last, !t.done { return nil }
         for it in items.reversed() {
             if case .tool(let t) = it, t.status == .inProgress { return "Running \(t.headline)…" }
@@ -294,6 +360,16 @@ private struct Reducer: Sendable, Hashable {
             }
         }
         if let box { boxCur[Self.key(box)] = p } else { cur = p }
+    }
+
+    /// The open runs (top level and every subagent's) stop streaming.
+    mutating func closeRuns(_ items: inout [TranscriptItem]) {
+        for (k, _) in boxCur {
+            let kp = k.split(separator: ".").compactMap { Int($0) }
+            setCur(&items, box: kp, to: nil)
+        }
+        boxCur = [:]
+        setCur(&items, box: nil, to: nil)
     }
 
     /// A top-level insertion at `at` shifted everything after it.
@@ -453,7 +529,9 @@ private struct Reducer: Sendable, Hashable {
             setCur(&items, box: nil, to: nil)
         }
         if tp == nil {
-            var t = ToolCall(id: "tool\(epoch):\(u.id)", toolCallId: u.id)
+            // the id is the seq of the event that opened the card (D130): a
+            // page folded on its own, or again, keeps it
+            var t = ToolCall(id: e.seq > 0 ? "tool\(e.seq)" : "tool\(epoch):\(u.id)", toolCallId: u.id)
             t.startedAt = e.ts
             tp = Self.append(&items, .tool(t), box: bx)
             toolsByKey[tkey] = tp

@@ -28,17 +28,18 @@ final class Log: @unchecked Sendable {
         let t = served(log)
         let feed = AgentSessionFeed(client: AgentClient(transport: t), sessionID: "s")
         await feed.catchUp()
-        #expect(await feed.transcript.lastSeq == 10)
+        #expect(await feed.window.lastSeq == 10)
         // the next frame applies directly; a skipped one triggers ?since=
         log.add(Array(evs[10..<14]))
         await feed.receive(SessionHubEvent(json: ["type": "session", "topic": "session.s", "data": evs[10].json])!)
-        #expect(await feed.transcript.lastSeq == 11)
+        #expect(await feed.window.lastSeq == 11)
         await feed.receive(SessionHubEvent(json: ["type": "session", "topic": "session.s", "data": evs[13].json])!)
-        #expect(await feed.transcript.lastSeq == 14)
-        #expect(t.requests.map { $0.q("since") } == ["0", "11"])
+        #expect(await feed.window.lastSeq == 14)
+        // an xbind that does not page answers the tail read with everything
+        #expect(t.requests.map { $0.q("since") ?? "limit=" + ($0.q("limit") ?? "") } == ["limit=200", "11"])
         // another session's frame is not ours
         await feed.receive(SessionHubEvent(json: ["type": "session", "topic": "session.other", "data": evs[20].json])!)
-        #expect(await feed.transcript.lastSeq == 14)
+        #expect(await feed.window.lastSeq == 14)
         // updates() yields the current transcript first
         var it = await feed.updates().makeAsyncIterator()
         #expect(await it.next()?.lastSeq == 14)
@@ -60,10 +61,10 @@ final class Log: @unchecked Sendable {
         }
         let feed = AgentSessionFeed(client: AgentClient(transport: t), sessionID: "s", sleep: { _ in })
         await feed.run()
-        #expect(t.requests.map { "\($0.method) \($0.q("since") ?? "")\($0.q("follow") == "1" ? " follow" : "")" } ==
-            ["GET 0 follow", "GET 4", "GET 3 follow", "GET 20"])
+        #expect(t.requests.map { "\($0.method) \($0.q("since") ?? "limit=" + ($0.q("limit") ?? ""))\($0.q("follow") == "1" ? " follow" : "")" } ==
+            ["GET limit=200", "GET 3 follow", "GET 4", "GET 3 follow", "GET 20"])
         #expect(await feed.ended)
-        #expect(await feed.transcript.items == AgentTranscript(events: evs).items)
+        #expect(await feed.window.items == AgentTranscript(events: evs).items)
     }
 
     @Test func keepPlanningSendsTheFeedbackOnceTheTurnSettles() async throws {
@@ -74,7 +75,7 @@ final class Log: @unchecked Sendable {
         let t = served(log) { r in sent.add([AgentEvent(seq: 1, type: "prompt", data: r.json ?? .object(JSONObject()))]) }
         let feed = AgentSessionFeed(client: AgentClient(transport: t), sessionID: "s")
         await feed.catchUp()
-        let card = try #require(await feed.transcript.pendingPermissions.first)
+        let card = try #require(await feed.window.pendingPermissions.first)
         #expect(card.isPlanApproval)
         let reject = try #require(PermissionRules.planRejections(card.request).first)
         log.add(Array(evs[20..<23])) // resolved, running, tool failed — not settled yet
@@ -96,7 +97,7 @@ final class Log: @unchecked Sendable {
         log.add(Array(evs.prefix(20)))
         let feed = AgentSessionFeed(client: AgentClient(transport: served(log)), sessionID: "s")
         await feed.catchUp()
-        let card = try #require(await feed.transcript.pendingPermissions.first)
+        let card = try #require(await feed.window.pendingPermissions.first)
         try await feed.keepPlanning(card, choice: PermissionRules.planRejections(card.request)[0], feedback: "nope")
         log.gone = true
         await feed.catchUp()
@@ -112,7 +113,7 @@ final class Log: @unchecked Sendable {
         let t = served(log)
         let feed = AgentSessionFeed(client: AgentClient(transport: t), sessionID: "s")
         await feed.catchUp()
-        var card = try #require(await feed.transcript.pendingQuestions.first)
+        var card = try #require(await feed.window.pendingQuestions.first)
         card.fields[0].required = true
         await #expect(throws: FormError(missing: ["Database"])) { try await feed.answer(card, action: .accept, values: [:]) }
         try await feed.answer(card, action: .accept, values: ["question_0": "Postgres", "question_1": ["Metrics", "Tracing"]])

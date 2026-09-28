@@ -99,7 +99,8 @@ public enum AgentEventPayload: Sendable, Hashable {
 
 /// A `session` frame on `/ws/events`: an agent event of one of the user's
 /// sessions, `{type:"session", topic:"session.<id>", component, data:{seq,
-/// ts, type, data, user, id}}`.
+/// ts, type, data, user, id}}`. A resume's replay arrives as one
+/// `{seq:0, type:"replayed", data:{first, last}}` (D130): re-read the tail.
 public struct SessionHubEvent: Sendable, Hashable {
     public let sessionID: String
     public let user: String
@@ -107,8 +108,15 @@ public struct SessionHubEvent: Sendable, Hashable {
     public let component: String
     public let event: AgentEvent
 
+    /// The hub's type for a resume's replay (never logged; seq 0).
+    public static let replayed = "replayed"
+
+    /// A resume replayed the earlier turns into the log: re-read the tail.
+    public var isReplayed: Bool { event.type == Self.replayed }
+
     public init?(json: JSONValue) {
-        guard json["type"]?.string == "session", let d = json["data"], let ev = AgentEvent(json: d), ev.seq > 0 else { return nil }
+        guard json["type"]?.string == "session", let d = json["data"], let ev = AgentEvent(json: d),
+              ev.seq > 0 || ev.type == Self.replayed else { return nil }
         let topic = json["topic"]?.string ?? ""
         sessionID = d["id"]?.string ?? (topic.hasPrefix("session.") ? String(topic.dropFirst(8)) : "")
         guard !sessionID.isEmpty else { return nil }

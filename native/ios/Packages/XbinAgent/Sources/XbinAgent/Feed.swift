@@ -1,19 +1,31 @@
 import Foundation
 
 // AgentSessionFeed keeps one session's transcript current (plans/native.md
-// §13: "applies by seq, refetches on gaps, reconnect and foreground"): it
-// replays the log, follows it (`?follow=1`, reconnecting with backoff), takes
-// `/ws/events` `session` frames as they come, and re-reads `?since=` whenever
-// a seq is skipped, a stream drops, or the app returns to the foreground.
-// The screen observes `updates()`; the actions answer through the client and
-// then catch up at once (the web does the same), so the answer shows even
-// before the live stream carries it. `followStates()` says whether the live
-// stream is open, so a screen can say so when it isn't.
+// §13: "applies by seq, refetches on gaps, reconnect and foreground"). It
+// holds a WINDOW of the log (D130, AgentWindow): it opens on the tail page
+// (an xbind that does not page answers the whole replay instead), follows
+// the log from there (`?follow=1`, reconnecting with backoff), takes
+// `/ws/events` `session` frames as they come, and re-reads `?since=`
+// whenever a seq is skipped, a stream drops, or the app returns to the
+// foreground; a resume's `replayed` frame re-reads the tail. Older pages
+// load as the reader nears the top (`loadOlder`), whole pages far from what
+// the reader sees unload (`keep`), and those below come back (`loadNewer`)
+// or the tail is read again (`jumpToLatest`). The live tail grown past a
+// few pages is split where the server cuts its tail page, so its top can go.
+//
+// The screen observes `updates()` — published only when the window changed
+// (the follow stream and `/ws/events` deliver every event twice); the
+// actions answer through the client and then catch up at once (the web does
+// the same), so the answer shows even before the live stream carries it.
+// `followStates()` says whether the live stream is open.
 
 public actor AgentSessionFeed {
     public nonisolated let client: AgentClient
     public nonisolated let sessionID: String
-    public private(set) var transcript = AgentTranscript()
+    /// Events per page asked for.
+    public nonisolated let pageLimit: Int
+    /// What is loaded of the log, and the session's digest.
+    public private(set) var window = AgentWindow()
     /// The session is gone server-side (404) or reported exited/error: no
     /// more polling; the transcript stays readable.
     public private(set) var ended = false
@@ -46,31 +58,36 @@ public actor AgentSessionFeed {
     /// The live stream's state now.
     public private(set) var followState = FollowState.connecting
 
-    private var subscribers: [Int: AsyncStream<AgentTranscript>.Continuation] = [:]
+    private var subscribers: [Int: AsyncStream<AgentWindow>.Continuation] = [:]
     private var followSubscribers: [Int: AsyncStream<FollowState>.Continuation] = [:]
     private var nextSub = 0
     private var attempt = 0
+    private var loadingOlder = false
+    private var loadingNewer = false
+    private var splitting = false
+    private var reading: Task<Void, any Error>?
     private let sleep: @Sendable (Duration) async throws -> Void
     private let stallAfter: Duration
 
     /// `sleep` is injectable for tests (reconnect backoff); `stallAfter` is
     /// how long an attempt to open the stream may go unanswered before it
     /// counts as failing (it keeps waiting).
-    public init(client: AgentClient, sessionID: String, stallAfter: Duration = .seconds(10),
+    public init(client: AgentClient, sessionID: String, pageLimit: Int = AgentWindow.pageLimit, stallAfter: Duration = .seconds(10),
                 sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
         self.client = client
         self.sessionID = sessionID
+        self.pageLimit = pageLimit
         self.stallAfter = stallAfter
         self.sleep = sleep
     }
 
     /// The transcript now and after every change.
-    public func updates() -> AsyncStream<AgentTranscript> {
-        let (stream, cont) = AsyncStream<AgentTranscript>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    public func updates() -> AsyncStream<AgentWindow> {
+        let (stream, cont) = AsyncStream<AgentWindow>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let k = nextSub
         nextSub += 1
         subscribers[k] = cont
-        cont.yield(transcript)
+        cont.yield(window)
         cont.onTermination = { [weak self] _ in
             Task { await self?.unsubscribe(k) }
         }
@@ -107,20 +124,33 @@ public actor AgentSessionFeed {
     }
 
     private func publish() {
-        for c in subscribers.values { c.yield(transcript) }
+        for c in subscribers.values { c.yield(window) }
     }
 
     // MARK: sync
 
-    /// Re-reads the log after the cursor (on a skipped seq, a reconnect, a
-    /// return to the foreground). A 404 ends the feed.
-    public func catchUp() async {
+    /// Reads the tail page and starts over from it — the open, a resume's
+    /// replay, "jump to latest". Concurrent calls share one read.
+    private func readTail() async throws {
+        if let r = reading { return try await r.value }
+        let r = Task { try await self.readTailOnce() }
+        reading = r
+        defer { reading = nil }
+        try await r.value
+    }
+
+    private func readTailOnce() async throws {
+        let p = try await client.page(sessionID, limit: pageLimit)
+        window.open(tail: p)
+        lastError = nil
+        afterApply(changed: true)
+    }
+
+    /// Re-reads the tail page and starts over from it (a resume's replay,
+    /// the jump to latest). A 404 ends the feed.
+    public func openTail() async {
         do {
-            let since = transcript.lastSeq
-            let page = try await client.events(sessionID, since: since)
-            transcript.apply(page: page, since: since)
-            lastError = nil
-            afterApply()
+            try await readTail()
         } catch let e as AgentAPIError {
             if e.isNotFound { markEnded() } else { lastError = e }
             publish()
@@ -129,19 +159,44 @@ public actor AgentSessionFeed {
         }
     }
 
-    /// A `/ws/events` frame (ignored unless it is this session's).
+    /// Re-reads the log after the cursor (on a skipped seq, a reconnect, a
+    /// return to the foreground); before anything was read, the tail. A 404
+    /// ends the feed.
+    public func catchUp() async {
+        guard window.isOpen else { return await openTail() }
+        let v = window.version, hadError = lastError != nil
+        do {
+            let since = window.lastSeq
+            let page = try await client.events(sessionID, since: since)
+            window.apply(page: page, since: since)
+            lastError = nil
+            afterApply(changed: window.version != v || hadError)
+        } catch let e as AgentAPIError {
+            if e.isNotFound { markEnded() } else { lastError = e }
+            publish()
+        } catch {
+            publish()
+        }
+    }
+
+    /// A `/ws/events` frame (ignored unless it is this session's). One the
+    /// follow stream already delivered changes nothing and publishes nothing.
     public func receive(_ hub: SessionHubEvent) async {
         guard hub.sessionID == sessionID else { return }
-        if case .refetch = transcript.receiveLive(hub.event) {
+        if hub.isReplayed { return await openTail() }
+        guard window.isOpen else { return } // the first read brings it
+        let v = window.version
+        if case .refetch = window.receiveLive(hub.event) {
             await catchUp()
             return
         }
-        afterApply()
+        afterApply(changed: window.version != v)
     }
 
     /// Follows the log until the session ends or the task is cancelled:
-    /// replay from the cursor, stream, and on a drop re-read and reconnect
-    /// with backoff (0.5 s doubling to 15 s; reset once events flow).
+    /// the tail page first, then the stream from its cursor; on a drop
+    /// re-read and reconnect with backoff (0.5 s doubling to 15 s; reset
+    /// once events flow).
     ///
     /// It asks from one event before the cursor: the answer then starts with
     /// an event it already has (skipped by seq), so the stream opens at once
@@ -171,15 +226,16 @@ public actor AgentSessionFeed {
             do {
                 for try await e in stream {
                     backoff = .milliseconds(500)
-                    if case .refetch = transcript.receiveStream(e) {
+                    let v = window.version
+                    if case .refetch = window.receiveStream(e) {
                         await catchUp()
                     } else {
-                        afterApply()
+                        afterApply(changed: window.version != v)
                     }
                 }
                 // the server ends the stream when the session goes; a proxy may cut it too
                 await catchUp()
-                if transcript.state.isEnded { markEnded(); publish() }
+                if window.state.isEnded { markEnded(); publish() }
             } catch {
                 // A drop (an idle stream timing out included): reconnect
                 // quietly — the stream was open, and the next one replays
@@ -192,8 +248,9 @@ public actor AgentSessionFeed {
         }
     }
 
-    /// Opens the stream from one event before the cursor. An attempt with no
-    /// answer after `stallAfter` counts as failing while it keeps waiting.
+    /// Reads the tail when nothing is loaded yet, then opens the stream from
+    /// one event before the cursor. An attempt with no answer after
+    /// `stallAfter` counts as failing while it keeps waiting.
     private func open() async throws -> AsyncThrowingStream<AgentEvent, any Error> {
         attempt += 1
         let n = attempt, stallAfter = self.stallAfter
@@ -203,13 +260,88 @@ public actor AgentSessionFeed {
             await self?.stalled(n)
         }
         defer { watchdog.cancel() }
-        let last = transcript.lastSeq
+        if !window.isOpen { try await readTail() }
+        let last = window.lastSeq
         return try await client.follow(sessionID, since: last > 0 ? last - 1 : 0)
+    }
+
+    // MARK: the reader's window
+
+    /// Loads the page above the loaded ones (the reader nears the top).
+    /// False: nothing older, a load already running, or it failed.
+    @discardableResult
+    public func loadOlder() async -> Bool {
+        guard window.isOpen, window.paged, window.hasOlder, !loadingOlder else { return false }
+        loadingOlder = true
+        defer { loadingOlder = false }
+        let before = window.firstSeq
+        do {
+            let p = try await client.page(sessionID, before: before, limit: pageLimit)
+            let v = window.version
+            window.prepend(p, before: before)
+            if window.version != v { publish() }
+            return true
+        } catch let e as AgentAPIError {
+            if e.isNotFound { markEnded() } else { lastError = e }
+            publish()
+            return false
+        } catch {
+            return false
+        }
+    }
+
+    /// Fetches back the first dropped page below the loaded ones (the
+    /// reader scrolls down towards it); the old tail comes back live.
+    @discardableResult
+    public func loadNewer() async -> Bool {
+        guard let req = window.newerRequest, !loadingNewer else { return false }
+        loadingNewer = true
+        defer { loadingNewer = false }
+        do {
+            let evs: [AgentEvent]
+            switch req {
+            case .page(let before, let limit): evs = try await client.page(sessionID, before: before, limit: limit).events
+            case .since(let s): evs = try await client.events(sessionID, since: s).events
+            }
+            let v = window.version
+            window.appendNewer(evs, for: req)
+            afterApply(changed: window.version != v)
+            return true
+        } catch let e as AgentAPIError {
+            if e.isNotFound { markEnded() } else { lastError = e }
+            publish()
+            return false
+        } catch {
+            return false
+        }
+    }
+
+    /// "Jump to latest": the reader follows the bottom again; what is
+    /// below the loaded rows (the tail among it) is read again from the tail.
+    public func jumpToLatest() async {
+        window.setFollowing(true)
+        if window.hasNewer { await openTail() } else { publish() }
+    }
+
+    /// The reader is at the bottom (nothing is new any more), or left it.
+    public func setAtBottom(_ on: Bool) {
+        let v = window.version
+        window.setFollowing(on)
+        if window.version != v { publish() }
+    }
+
+    /// The rows the reader sees (by id): whole pages more than `margin`
+    /// items beyond them unload — the live tail too while the reader is not
+    /// at the bottom.
+    public func keep(visible first: String, _ last: String, margin: Int = AgentWindow.keepMargin) {
+        let v = window.version
+        window.keep(visible: first, last, margin: margin, canDetach: !window.following)
+        if window.version != v { publish() }
     }
 
     /// Loads a past session (read-only; nothing to follow).
     public func load(history: HistoryTranscript) {
-        transcript = AgentTranscript(events: history.events)
+        window = AgentWindow(events: history.events)
         ended = true
         setFollow(.ended)
         publish()
@@ -224,11 +356,13 @@ public actor AgentSessionFeed {
         }
     }
 
-    private func afterApply() {
-        if transcript.state.isEnded { markEnded() }
+    private func afterApply(changed: Bool) {
+        if window.state.isEnded, !ended { markEnded() }
+        guard changed else { return }
         publish()
+        splitIfLong()
         guard let f = followUp else { return }
-        switch transcript.lastStatus(after: f.after) {
+        switch window.lastStatus(after: f.after) {
         case .idle?:
             followUp = nil
             Task { await self.sendFollowUp(f.text) }
@@ -239,6 +373,23 @@ public actor AgentSessionFeed {
         default:
             break
         }
+    }
+
+    /// A live tail grown past three pages while the reader follows it is
+    /// split where the server's tail page starts (its older part can then
+    /// unload like any page).
+    private func splitIfLong() {
+        guard window.paged, window.following, !splitting, window.tailEvents > 3 * pageLimit else { return }
+        splitting = true
+        Task { await self.splitTail() }
+    }
+
+    private func splitTail() async {
+        defer { splitting = false }
+        guard let p = try? await client.page(sessionID, limit: pageLimit), p.hasOlder == true else { return }
+        let v = window.version
+        window.split(at: p.nextBefore, state: p.state)
+        if window.version != v { publish() }
     }
 
     private func sendFollowUp(_ text: String) async {
@@ -292,7 +443,7 @@ public actor AgentSessionFeed {
     /// text comes back as `returnedDraft`.
     public func keepPlanning(_ card: PermissionCard, choice: PermissionChoice, feedback: String) async throws {
         let text = trim(feedback)
-        if !text.isEmpty { followUp = FollowUp(text: text, after: transcript.lastSeq) }
+        if !text.isEmpty { followUp = FollowUp(text: text, after: window.lastSeq) }
         do {
             try await act { try await self.client.answerPermission(self.sessionID, pid: card.pid, choice.answer) }
         } catch {

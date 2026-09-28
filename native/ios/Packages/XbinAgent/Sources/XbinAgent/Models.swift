@@ -159,13 +159,27 @@ public struct SessionSnapshot: JSONBacked, Sendable, Hashable {
     }
 }
 
-/// `GET /term/sessions/<id>/events?since=` → {events, next, truncated}.
+/// `GET /term/sessions/<id>/events?since=` → {events, next, truncated}; with
+/// `?limit=`/`?before=` (D130) a page → {events, hasOlder, nextBefore,
+/// truncated, next, last, state}. An xbind that does not page ignores those
+/// parameters and answers the whole replay: `hasOlder` is then nil.
 public struct EventsPage: JSONBacked, Sendable, Hashable {
     public let json: JSONValue
     public let events: [AgentEvent]
+    /// The newest seq in the answer (the tail page's: the follow cursor).
     public let next: UInt64
-    /// The cursor predated the oldest kept event: earlier events were dropped.
+    /// The cursor predated the oldest kept event: earlier events were
+    /// dropped (a page: the oldest page, of a ring that dropped some).
     public let truncated: Bool
+    /// A page: the log holds events before it. nil: not a page (an xbind
+    /// that does not page, or a `?since=` read).
+    public let hasOlder: Bool?
+    /// A page: `before=` for the page before it (its first seq; 0 when none).
+    public let nextBefore: UInt64
+    /// A page: the log's newest seq.
+    public let last: UInt64
+    /// A page: what a fold holds before its first event.
+    public let state: PageState?
 
     public init?(json: JSONValue) {
         guard json.object != nil else { return nil }
@@ -173,6 +187,45 @@ public struct EventsPage: JSONBacked, Sendable, Hashable {
         events = json["events"]?.list(AgentEvent.self) ?? []
         next = json["next"]?.uint64 ?? events.last?.seq ?? 0
         truncated = json["truncated"]?.bool ?? false
+        hasOlder = json["hasOlder"]?.bool
+        nextBefore = json["nextBefore"]?.uint64 ?? 0
+        last = json["last"]?.uint64 ?? next
+        state = hasOlder == nil ? nil : PageState(json: json["state"])
+    }
+
+    /// The server paged (an older xbind answers everything instead).
+    public var isPage: Bool { hasOlder != nil }
+}
+
+/// A page's state header (docs/protocol.md → Pages): the status digest,
+/// the last turn's usage and number before the page's first event, and on
+/// a live session's tail page the requests waiting now.
+public struct PageState: Sendable, Hashable {
+    /// A status event's data: fold it first, as a status event.
+    public var status: JSONValue?
+    public var usage: JSONValue?
+    /// The last turn number ended before the page.
+    public var turn: Int
+    /// The permission requests (pids) and questions (eids) waiting now.
+    public var permissions: [String]
+    public var elicitations: [String]
+
+    public init(status: JSONValue? = nil, usage: JSONValue? = nil, turn: Int = 0, permissions: [String] = [], elicitations: [String] = []) {
+        self.status = status
+        self.usage = usage
+        self.turn = turn
+        self.permissions = permissions
+        self.elicitations = elicitations
+    }
+
+    public init(json: JSONValue?) {
+        let s = json?["status"]
+        status = (s?.object != nil) ? s : nil
+        let u = json?["usage"]
+        usage = (u?.object != nil) ? u : nil
+        turn = json?["turn"]?.int ?? 0
+        permissions = (json?["permissions"]?.array ?? []).compactMap { $0["pid"]?.string ?? $0["pid"]?.compactString }
+        elicitations = (json?["elicitations"]?.array ?? []).compactMap { $0["eid"]?.string ?? $0["eid"]?.compactString }
     }
 }
 
@@ -219,12 +272,15 @@ public struct HistoryTranscript: JSONBacked, Sendable, Hashable {
     public let json: JSONValue
     public let meta: HistoryEntry
     public let events: [AgentEvent]
+    /// The answer as a page (`{meta, …page}` with `?limit=`/`?before=`).
+    public let page: EventsPage
 
     public init?(json: JSONValue) {
-        guard let m = json["meta"].flatMap(HistoryEntry.init(json:)) else { return nil }
+        guard let m = json["meta"].flatMap(HistoryEntry.init(json:)), let p = EventsPage(json: json) else { return nil }
         self.json = json
         meta = m
-        events = json["events"]?.list(AgentEvent.self) ?? []
+        page = p
+        events = p.events
     }
 }
 

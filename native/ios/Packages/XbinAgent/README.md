@@ -26,7 +26,9 @@ cd native/ios/Packages/XbinAgent && swift build && swift test
 | `ANSI.swift` | shell output: `ANSIText.parse` (styled spans), `OutputView` (tail + full), `stripANSI` (the web's) |
 | `Diff.swift` | `LineDiff` (the web's LCS, hunks with context, unified text, stats), `GitPatch.parse` |
 | `Client.swift` | `AgentClient` over an injected `AgentTransport`; `NDJSONLines`; `AgentAPIError`; `PromptAttachment` (a prompt's files: xbind's limits, the byte-built body, image sniffing and `imagePlan` for photos) |
-| `Feed.swift` | `AgentSessionFeed` — one session kept current: replay, follow with reconnect, live frames, refetch on gaps, actions, plan-feedback follow-up |
+| `Window.swift` | `AgentWindow` — the part of the log the app holds (D130, the port of web/agent-pages.js): segments (pages, each folded from its state header), prepend older, unload far segments either way, fetch them back, the live tail detached with a "N new" count, a split of a long live tail; the session digest (`state`, pending requests) |
+| `Rows.swift` | `AgentRows` (main actor, `@Observable`) — a window diffed into one observable `AgentRow` per item (by id, by value), plus the session facts a few views read; open cards remembered by id |
+| `Feed.swift` | `AgentSessionFeed` — one session kept current: the tail page then follow with reconnect, live frames, refetch on gaps, `replayed` re-reads the tail, older/newer pages and unloading for the screen, actions, plan-feedback follow-up; publishes only on a change |
 
 ## How the screen uses it
 
@@ -34,11 +36,11 @@ cd native/ios/Packages/XbinAgent && swift build && swift test
 let client = AgentClient(transport: workspaceTransport)          // URLSession + device session, the app's
 let info = try await client.create(CreateAgentSession(cwd: tile, provider: "claude"))  // eager: pickers load
 let feed = AgentSessionFeed(client: client, sessionID: info.id)
-Task { await feed.run() }                                         // follow + reconnect until the session ends
-for await t in await feed.updates() {                             // AgentTranscript
-    // t.items (or t.turns), t.state.pickers(), t.state.commands, t.activity(),
-    // t.pendingPermissions / t.pendingQuestions, t.state.signIn(provider:lastError:)
-}
+Task { await feed.run() }                                         // tail page, follow + reconnect until the session ends
+let rows = AgentRows()                                            // @MainActor, observed per row
+for await w in await feed.updates() { rows.apply(w) }             // AgentWindow → rows.rows, rows.status, rows.state…
+// the list: at the top await feed.loadOlder(); at the bottom await feed.loadNewer();
+// what the reader sees: await feed.keep(visible: firstID, lastID); await feed.setAtBottom(b); the pill: await feed.jumpToLatest()
 // /ws/events frames: if let h = SessionHubEvent(json: frame) { await feed.receive(h) }
 // foreground / socket reconnect: await feed.catchUp()
 // actions: feed.send(text), feed.send(text, attachments: [PromptAttachment]), feed.cancel(), feed.answer(card, choice:), feed.keepPlanning(card, choice:, feedback:),
