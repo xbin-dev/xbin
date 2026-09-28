@@ -95,6 +95,7 @@ func (f *govFx) hooks(p *Plane) {
 			f.note("sessions-reassigned " + tile + " " + from + "→" + to)
 			return 0, 0
 		}
+		h.RoutesReassigned = func(tile, from, to string) { f.note("routes-reassigned " + tile + " " + from + "→" + to) }
 		h.ValidateEdge = func(tile, edge, policy string) error {
 			values, ok := govEdges[edge]
 			switch {

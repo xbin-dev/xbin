@@ -204,7 +204,8 @@ func (p *Plane) edit(ctx context.Context, o *op, seq *int64, dry bool, what stri
 // of a tile no scope shares (P28). While the primary is protected the
 // request names y's reviewed code and seq, and a y following the work tree
 // is pinned to exactly that capture in the same commit (how reassign, P21).
-// Then the sessions naming either move, and the runner restarts y, then x.
+// Then the sessions naming either move, the tile's consumers and ingress
+// follow y's registrations, and the runner restarts y, then x.
 func runPrimary(ctx context.Context, p *Plane, g Grant, r *PrimaryRequest) (any, error) {
 	o, err := p.start(g, r.DryRun, true, r.Seq, true, false, "")
 	if err != nil {
@@ -307,6 +308,9 @@ func runPrimary(ctx context.Context, p *Plane, g Grant, r *PrimaryRequest) (any,
 	unlock()
 	if h := p.gov().SessionsReassigned; h != nil {
 		h(o.tile, x, y)
+	}
+	if h := p.gov().RoutesReassigned; h != nil {
+		h(o.tile, x, y) // prov#inst consumers re-bound, the ingress reconciled
 	}
 	if a != nil {
 		p.q.mu.Lock()
