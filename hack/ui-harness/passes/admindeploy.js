@@ -6,12 +6,12 @@
 //   1. with live reload paused and `dev` added through the API, the tab
 //      lists apps/deployy: primary main, not protected, live reload paused,
 //      both deployments, the last deploy, the full view; dev's deliveries
-//      switch is enabled; the tab's own requests act through the admin
+//      switch is enabled and on (the default); the tab's own requests act through the admin
 //      tile's frame (no cookie), which the server lets stand in for admin;
 //   2. Protect the primary: the shell's dialog carries the terminal window's
 //      title and text; confirming protects it (the state, the card's 🛡);
-//   3. dev's deliveries: turning them on confirms, the switch then reads on
-//      and the state agrees; off again without a dialog;
+//   3. dev's deliveries: off without a dialog, then back on, which
+//      confirms; the switch then reads on and the state agrees;
 //   4. Unprotect the primary;
 //   5. Reassign the primary… — enabled for a static tile's dev, whose
 //      "static" status is healthy: the loud confirmation, "Make dev the
@@ -63,7 +63,7 @@ async function adminDeployments(browser) {
     check(await card.locator('[data-dep-row="main"]').count() === 1 && await card.locator('[data-dep-row="dev"]').count() === 1, 'both deployments listed');
     check(await card.locator('[data-dep-last]').count() === 1, `the last deploy: ${(await card.locator('[data-dep-last]').textContent().catch(() => '')).trim().replace(/\s+/g, ' ')}`);
     const sw = card.locator('[data-dep-switch="dev/deliveries"]');
-    check(await sw.isEnabled() && !(await sw.isChecked()), "dev's deliveries switch: enabled, off");
+    check(await sw.isEnabled() && await sw.isChecked(), "dev's deliveries switch: enabled, on (the default)");
     await shot(page, 'admin-deployments-shell');
 
     // the shell's dialog: its title, then OK (values: checkboxes to tick)
@@ -92,18 +92,20 @@ async function adminDeployments(browser) {
       check(true, 'protected: the state and the card');
     }
 
-    // 3. deliveries on (confirmed), then off (no dialog)
+    // 3. deliveries off (no dialog), then back on (confirmed)
+    const devDeliveries = (b) => (b.deployments || []).find((d) => d.name === 'dev')?.deliveries;
     await sw.click();
+    await until((b) => devDeliveries(b) === false, "dev's deliveries off, no dialog");
+    check(await dlg.count() === 0, 'turning deliveries off asks nothing');
+    await card.locator('[data-dep-switch="dev/deliveries"]:not(:checked)').waitFor({ timeout: 10000 });
+    await card.locator('[data-dep-switch="dev/deliveries"]').click();
     await dlg.waitFor({ timeout: 15000 });
-    check((await dlg.locator('h3').textContent()).trim() === 'Turn on deliveries for dev?', 'the deliveries confirmation');
+    check((await dlg.locator('h3').textContent()).trim() === "Turn dev's deliveries back on?", 'the deliveries confirmation');
     await answer('Turn on deliveries');
-    if (await until((b) => (b.deployments || []).find((d) => d.name === 'dev')?.deliveries === true, "dev's deliveries on")) {
+    if (await until((b) => devDeliveries(b) !== false, "dev's deliveries on again")) {
       await card.locator('[data-dep-switch="dev/deliveries"]:checked').waitFor({ timeout: 10000 });
       check(true, "dev's deliveries on: the state and the switch");
     }
-    await card.locator('[data-dep-switch="dev/deliveries"]').click();
-    await until((b) => (b.deployments || []).find((d) => d.name === 'dev')?.deliveries === false, "dev's deliveries off again, no dialog");
-    check(await dlg.count() === 0, 'turning deliveries off asks nothing');
 
     // 4. unprotect
     await card.locator('[data-dep-act="unprotect"]').click();
