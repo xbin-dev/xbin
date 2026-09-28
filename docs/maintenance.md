@@ -12,11 +12,30 @@ test or a Makefile target next to the thing that needs remembering.
 ## Definition of done
 
 ```
+hack/dev-setup.sh       # once per machine (and after an upgrade): what the checks need here, fixed
 make check              # fmt-check vet js-check js-test native-check theme-check shellcheck pins-offline large-files test
 make integration-deps   # once, and after a pull: the helpers (prebuilt), Firecracker, xbind/bx/xbin-vmagent, .rootfs if missing
 make integration        # when the runner / sandbox / broker path changed
 make hooks              # once per clone: the sub-second subset runs pre-commit
 ```
+
+**A machine that runs everything.** Much of `make integration` skips
+quietly where the machine lacks something (a delegated cgroup, KVM, sub-uid
+ranges, the previous release's xbind…), so a green local run can cover less
+than CI. `hack/dev-setup.sh` checks every item first (Linux: tools, Go and
+CI's gofmt, Node, a container engine, user namespaces, sub-uids, FUSE, tun,
+KVM, cgroup delegation, inotify, AppArmor, WSL, the module cache, the
+helpers, Firecracker, the rootfs, the downgrade binary, Playwright, Swift,
+the hooks; macOS: the tools, Go, Node, Playwright and `mac-setup.sh`), says
+what each gap costs, then fixes what you agree to — the system steps in one
+`sudo` (`--no-root` prints that command instead), the rest as you, into
+`${XDG_CACHE_HOME:-~/.cache}/xbin-dev` — and checks again. It writes
+`.dev.mk` (gitignored), which the Makefile includes: the paths the tests read
+(`XBIN_TEST_ROOTFS`, `XBIN_GOCRYPTFS`, `XBIN_DOWNGRADE_BIN`, the VM assets,
+`PLAYWRIGHT_DIR`), `GOFMT` (CI's Go's) and `PATH` for a toolchain it
+installed. `eval "$(hack/dev-setup.sh --env)"` gives your shell the same.
+`make integration` runs the cgroup tests under `$(DELEGATED)`, a
+`Delegate=yes` scope of your systemd user manager, where one can be made.
 
 CI (`.github/workflows/ci.yml`) runs exactly `make check` then
 `make integration`, and in a second job (`native`) the native client's

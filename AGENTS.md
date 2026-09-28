@@ -31,6 +31,9 @@ make dev            # xbind from source against ./devws — isolated, auth ON
                     # need a restart
 make dev-noauth     # frictionless: every request is admin (plaintext vault)
 make test           # unit tests — fast, no network
+hack/dev-setup.sh   # this machine vs what the checks need: reports each gap
+                    # and the tests it costs, then fixes them (one sudo for the
+                    # system steps) and writes .dev.mk for make (--check: report)
 make integration-deps  # what integration needs: the native helpers (prebuilt,
                     # verified — `make helpers`; from source when their inputs
                     # changed or with `make helpers-build`), Firecracker,

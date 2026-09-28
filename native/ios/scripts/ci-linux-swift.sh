@@ -13,6 +13,12 @@
 # 24.04) are installed with sudo apt-get when missing and running in CI;
 # elsewhere the script only names them. In Actions the toolchain's bin/
 # goes onto GITHUB_PATH and SWIFTLY_HOME_DIR into GITHUB_ENV.
+#
+#   ci-linux-swift.sh --missing-deps   print the missing packages (Debian and
+#                                      Ubuntu; nothing elsewhere) and exit —
+#                                      hack/dev-setup.sh installs them as root
+#   ci-linux-swift.sh --post-install   also run swiftly's post-install script,
+#                                      with sudo, outside CI (dev-setup.sh)
 set -euo pipefail
 
 SWIFTLY_VERSION=1.2.0
@@ -37,7 +43,10 @@ if command -v dpkg-query >/dev/null 2>&1 && grep -qiE '^ID(_LIKE)?=.*(ubuntu|deb
     dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q "install ok installed" || missing="$missing $p"
   done
   if [ -n "$missing" ]; then
-    if ci; then
+    if [ "${1:-}" = --missing-deps ]; then
+      echo "${missing# }"
+      exit 0
+    elif ci; then
       say "installing:$missing"
       sudo apt-get update -qq
       # shellcheck disable=SC2086 # a list of package names
@@ -47,6 +56,7 @@ if command -v dpkg-query >/dev/null 2>&1 && grep -qiE '^ID(_LIKE)?=.*(ubuntu|deb
     fi
   fi
 fi
+[ "${1:-}" = --missing-deps ] && exit 0
 
 # `swift --version` names a .0 release without its patch ("Swift version 6.4").
 short=$want
@@ -82,7 +92,7 @@ if ! have; then
   if [ -s "$tmp/post-install.sh" ]; then
     say "the toolchain asks for more (above list missed something):"
     cat "$tmp/post-install.sh"
-    if ci; then sudo bash "$tmp/post-install.sh"; fi
+    if ci || [ "${1:-}" = --post-install ]; then sudo bash "$tmp/post-install.sh"; fi
   fi
 fi
 

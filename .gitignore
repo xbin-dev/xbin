@@ -38,3 +38,6 @@ dotclaude-bak*/
 s3secret.env
 *.secret.env
 /backend
+
+# hack/dev-setup.sh: this machine's test environment
+.dev.mk

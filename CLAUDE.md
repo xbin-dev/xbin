@@ -13,6 +13,11 @@ practices in full: `AGENTS.md`.
 - `make test` / `make integration` — unit / end-to-end (integration compiles
   real Go backends; needs network for module downloads on first run)
 - `make fmt-check vet` — CI mirrors these
+- `hack/dev-setup.sh` — check this machine against what the checks need
+  (userns, sub-uids, FUSE, KVM, cgroup delegation, helpers, rootfs, the
+  previous release's xbind, Playwright, CI's gofmt, Swift…), then fix it
+  (one sudo) and write `.dev.mk`, which the Makefile includes; `--check`
+  only reports
 - `./hack/vendor.sh` — refresh pinned frontend deps (lit, xterm, marked)
 
 ## Hard rules

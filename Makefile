@@ -18,6 +18,20 @@ MKFS_EROFS ?= $(CURDIR)/bin/mkfs.erofs
 QEMU ?= $(CURDIR)/bin/qemu-system-x86_64
 VHOST_VSOCK ?= $(CURDIR)/bin/vhost-device-vsock
 
+# This machine's test environment, written by hack/dev-setup.sh (gitignored):
+# the helpers, the rootfs, the previous release's xbind, Playwright, CI's
+# gofmt and toolchains it installed, so the checks use them without exports
+# by hand. CI has none and sets its own.
+-include $(CURDIR)/.dev.mk
+GOFMT ?= gofmt
+
+# DELEGATED: go test's -exec, running each test binary alone in a
+# Delegate=yes scope of the user's systemd manager — what the cgroup tests
+# (internal/cgroup's leaves, the tile sandboxes' leaves and memory.max kills)
+# need to make their own leaves; empty where no user manager can make one
+# (CI, a sandboxed shell), and those tests skip there.
+DELEGATED = $(shell systemd-run --user --scope -p Delegate=yes --quiet -- true >/dev/null 2>&1 && echo "-exec 'systemd-run --user --scope -p Delegate=yes --quiet --'")
+
 # Build the dev/base rootfs (docker → unpacked dir). Rebuilds when the
 # Dockerfile or build script change; otherwise cached.
 $(ROOTFS)/etc/os-release: docker/rootfs.Dockerfile hack/build-rootfs.sh
@@ -141,18 +155,20 @@ integration:
 	# the confined tool runs (D78), the sandbox init and a tile sandbox's
 	# `bx __sbx-agent` (a minimal lower built in the test) in real sandboxes,
 	# the relay's per-flow host locality in a netns of its own, confined
-	# checkpoint builds and the broker's confined runs; the cgroup leaves on
-	# the real cgroupfs (only under a delegated cgroup: the file says how).
-	# Skip without .rootfs/userns (TestIntegrationPackagesListed keeps this
-	# list whole)
-	go test -tags=integration -count=1 -v ./internal/confine/ ./internal/runner/ ./internal/sandbox/ ./internal/sandbox/agentcore/ ./internal/sandbox/relay/ ./internal/checkpoint/ ./internal/broker/ ./internal/cgroup/
+	# checkpoint builds and the broker's confined runs. Skip without
+	# .rootfs/userns (TestIntegrationPackagesListed keeps this list whole)
+	go test -tags=integration -count=1 -v ./internal/confine/ ./internal/runner/ ./internal/sandbox/ ./internal/sandbox/agentcore/ ./internal/sandbox/relay/ ./internal/checkpoint/ ./internal/broker/
+	# the cgroup leaves on the real cgroupfs, in a delegated scope where the
+	# user's systemd manager makes one (DELEGATED; they skip elsewhere)
+	go test -tags=integration -count=1 -v $(DELEGATED) ./internal/cgroup/
 	# tile sandboxes (D120) started, driven and ended through the runtime's
 	# routes: over a minimal lower (kernel overlay, then fuse-overlayfs when
 	# bin/ has it) and over .rootfs when present; skip without userns. VM
 	# mode (TestLiveVM, and the exec and file suites' vm cases) needs
-	# .rootfs, the vm-assets and KVM, then runs again under QEMU's emulation
-	go test -tags=integration -count=1 -v ./internal/tilesbx/
-	XBIN_VM_ACCEL=emulate go test -tags=integration -count=1 -v -run '^TestLive(VM|Execs|Files)$$' \
+	# .rootfs, the vm-assets and KVM, then runs again under QEMU's emulation;
+	# their cgroup leaves and memory.max kills need DELEGATED (skip without)
+	go test -tags=integration -count=1 -v $(DELEGATED) ./internal/tilesbx/
+	XBIN_VM_ACCEL=emulate go test -tags=integration -count=1 -v $(DELEGATED) -run '^TestLive(VM|Execs|Files)$$' \
 		-skip '^(TestLiveExecs|TestLiveFiles)$$/^(minimal|rootfs|namespace)$$' ./internal/tilesbx/
 	# a live terminal's layer — a sub-uid's files in it, in range mode — goes
 	# whole on a reset and an offload-full (WP-9b), and its mount points are
@@ -186,7 +202,7 @@ vet:
 GOFMT_DIRS := $(wildcard *.go) ./cmd ./internal ./sdk ./relay ./test ./builtin-tiles ./builtin-templates ./examples
 
 fmt-check:
-	@out="$$(gofmt -l $(GOFMT_DIRS))"; test -z "$$out" || (echo "$$out"; echo 'gofmt needed (make fmt)'; exit 1)
+	@out="$$($(GOFMT) -l $(GOFMT_DIRS))"; test -z "$$out" || (echo "$$out"; echo 'gofmt needed (make fmt)'; exit 1)
 
 fmt:
 	gofmt -w $(GOFMT_DIRS)
