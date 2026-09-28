@@ -228,3 +228,45 @@ test('cached memoizes per version', () => {
   assert.equal(cached({}, 'x', fn), 4); // no version: computes
   assert.equal(cached({}, 'x', fn), 5);
 });
+
+// D130: the server coalesces a call's bare output chunks ({id, outputDelta,
+// parent?}) into one update; folding the merged run gives the same blocks
+test('coalesced output chunks fold like the chunks', () => {
+  for (const [name, events] of logs()) {
+    const merged = [];
+    const bare = (e) => e.type === 'tool.update' && Object.keys(e.data || {}).every((k) => ['id', 'outputDelta', 'parent'].includes(k)) && typeof e.data.outputDelta === 'string';
+    for (const e of events) {
+      const p = merged[merged.length - 1];
+      if (bare(e) && p && bare(p) && p.data.id === e.data.id && p.data.parent === e.data.parent) p.data = { ...p.data, outputDelta: p.data.outputDelta + e.data.outputDelta };
+      else merged.push(structuredClone(e));
+    }
+    const keyless = (bs) => JSON.parse(JSON.stringify(strip(bs), (k, v) => (k === 'key' ? undefined : v)));
+    assert.deepEqual(keyless(new Fold(merged).blocks), keyless(new Fold(events).blocks), name);
+  }
+  const chunks = [{ seq: 1, type: 'tool.call', data: { id: 'x', status: 'in_progress' } }, ...[2, 3, 4].map((s) => ({ seq: s, type: 'tool.update', data: { id: 'x', outputDelta: `l${s}\n` } }))];
+  assert.equal(new Fold(chunks).blocks[0].output, 'l2\nl3\nl4\n');
+  assert.equal(new Fold([chunks[0], { seq: 2, type: 'tool.update', data: { id: 'x', outputDelta: 'l2\nl3\nl4\n' } }]).blocks[0].output, 'l2\nl3\nl4\n');
+});
+
+// D130: block keys are seqs, so a fold that starts at a turn (a page the
+// server cut, after its state header) builds the same blocks, same keys, as
+// the whole-log fold does from there — over the captured sessions too
+test('a fold from a turn start and the state before it equals the whole fold', () => {
+  for (const [name, events] of logs()) {
+    const whole = new Fold(events);
+    for (let i = 1; i < events.length; i++) {
+      const e = events[i];
+      if (e.type !== 'message.delta' || e.data?.role !== 'user' || e.data?.parent) continue;
+      const pre = new Fold(events.slice(0, i));
+      const last = events.slice(0, i).reverse().find((x) => x.type === 'status');
+      const status = last ? { ...last.data } : null;
+      if (status) for (const k of ['status', 'detail', 'currentMode', 'options', 'modes', 'commands']) if (pre.st[k]) status[k] = pre.st[k];
+      const end = events.slice(0, i).reverse().find((x) => x.type === 'turn.end');
+      const tail = new Fold().seed({ status, usage: pre.st.usage, turn: end ? end.data.turn : 0 });
+      for (const x of events.slice(i)) tail.push(x);
+      assert.deepEqual(strip([...pre.blocks, ...tail.blocks]), strip(whole.blocks), `${name}: cut before ${i}`);
+      assert.deepEqual([...pre.blocks, ...tail.blocks].map((b) => b.key), whole.blocks.map((b) => b.key), `${name}: keys at a cut before ${i}`);
+      for (const k of ['status', 'detail', 'currentMode', 'options', 'modes', 'commands', 'usage']) assert.deepEqual(tail.st[k], whole.st[k], `${name}: st.${k} after a cut before ${i}`);
+    }
+  }
+});

@@ -1,6 +1,6 @@
 // native/tools/agent-parity.mjs — generates js-parity.json for the XbinAgent
 // Swift package: the web's own outputs (web/agent-tools.js,
-// web/agent-slash.js, bx-agent.js _blocks()) over a corpus, for the Swift
+// web/agent-slash.js, the Agent tab's fold) over a corpus, for the Swift
 // port's parity tests (Tests/XbinAgentTests/ParityTests.swift). Run after
 // the captured sessions change or the web modules do:
 //
@@ -13,16 +13,11 @@ const [repo, fixDir] = process.argv.slice(2);
 const tools = await import(pathToFileURL(path.join(repo, 'web/agent-tools.js')));
 const slash = await import(pathToFileURL(path.join(repo, 'web/agent-slash.js')));
 
-// _blocks() from bx-agent.js, evaluated with its helpers in scope
-const src = fs.readFileSync(path.join(repo, 'web/bx-agent.js'), 'utf8');
-const start = src.indexOf('  _blocks() {');
-let depth = 0, i = src.indexOf('{', start), end = -1;
-for (; i < src.length; i++) { if (src[i] === '{') depth++; else if (src[i] === '}') { depth--; if (depth === 0) { end = i; break; } } }
-const body = src.slice(src.indexOf('{', start) + 1, end);
-const blocksFn = new Function('newTool', 'foldTool', `return function() {${body}}`)(tools.newTool, tools.foldTool);
+// the Agent tab's blocks: its fold (web/agent-fold.js — bx-agent renders
+// Fold.blocks since D124; a page of the log folds the same, D130)
+const { Fold } = await import(pathToFileURL(path.join(repo, 'web/agent-fold.js')));
 function blocksOf(events) {
-  const self = { _events: [...events].sort((a, b) => a.seq - b.seq) };
-  return blocksFn.call(self);
+  return new Fold([...events].sort((a, b) => a.seq - b.seq)).blocks;
 }
 function summarize(b) {
   const o = { kind: b.kind };

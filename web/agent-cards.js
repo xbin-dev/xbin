@@ -13,11 +13,26 @@
  * output — is memoized on its block (cached(), per version), and a folded
  * card's body renders only once the reader opens it (a._isOpen/_toggled).
  */
-import { html, css, nothing } from 'lit';
-import { md } from '/vendor/bx-md.js';
+import { html, css, nothing, noChange, directive, Directive } from 'lit';
+import { md, mdInto } from '/vendor/bx-md.js';
 import { diffHTML, diffStats } from '/vendor/bx-code.js';
 import { headline, commandOf, isPlanApproval, planText, stripAnsi, rawText, unifiedDiff, filesStat, formFields, formContent } from '/vendor/agent-tools.js';
 import { cached } from '/vendor/agent-fold.js';
+
+// mdLive(text, block): markdown rendered into the element it sits on, a
+// top-level block at a time (bx-md.js mdInto) — for text that streams: only
+// the last paragraph re-parses and the rest keep their DOM (a selection
+// survives). The parsed blocks are memoized on the block (its $memo, which
+// the window drops far from the view).
+class MdLive extends Directive {
+  render() { return noChange; }
+  update(part, [text, b]) {
+    const memo = b ? ((b.$memo ||= Object.create(null)).mdparts ||= {}) : null;
+    mdInto(part.element, text, memo);
+    return noChange;
+  }
+}
+export const mdLive = directive(MdLive);
 
 export const KIND_ICON = { read: '📖', edit: '✏️', delete: '🗑️', move: '↪', search: '🔎', execute: '⚙', think: '💭', fetch: '🌐', switch_mode: '⇄', other: '•' };
 

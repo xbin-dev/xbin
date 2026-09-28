@@ -4801,9 +4801,34 @@ Deviations and refinements made while implementing; all deliberate:
     prompts from starting Live Activities. (4) `ListHistory` (and resume)
     read a history file's head — `meta` is written first — with a streaming
     decoder; files written with events first still read.
+  - **The web tab (E2).** web/agent-pages.js, web/scroll-window.js,
+    web/bx-agent.js. (5) The tab holds a run of **segments** — pages, each
+    folded on its own from its state header (`Fold.seed`); block keys are
+    the seqs of the events that open them, so a page dropped and fetched
+    again, or refolded for a late event, keeps its keys (lit identity, open
+    cards) — only the page a late event belongs to refolds, and the window
+    is kept by key, so nothing snaps. (6) It opens on the tail page (an old
+    xbind answers everything: one segment, nothing unloads), loads older
+    pages as the reader nears the top, and drops whole pages about 3 views
+    beyond the rendered rows in either direction; while the reader is far
+    up the live tail goes too — live events then move only the status
+    digest and a count, the "↓ N new — jump to latest" pill re-reads the
+    tail, and scrolling down fetches the dropped pages back (the old tail by
+    `?since=`). A live tail grown past three pages while followed is split
+    at the cut the server gives for its tail page, without refolding, so
+    its top can go. (7) D124's anchoring moved into `scroll-window.js`
+    (framework-free, `/vendor/`, for the agent template too), generalised
+    to trim and grow on both sides. (8) A streaming message re-parses only
+    its last top-level markdown block and swaps only that block's DOM
+    (`mdInto`; per-block HTML equals the whole parse — node-checked), so a
+    selection survives. (9) A hidden tab folds but skips rendering
+    (`shouldUpdate`), catching up when shown. "Load all" stays an explicit
+    mode (every page, nothing unloads) until the pill.
   - **Not chosen:** cuts only at turn boundaries (one long agentic turn is
     thousands of events — the tail would be the whole turn); client-computed
     cuts (the client cannot see the snapshots still to come); a
     `files.changed` late-attachment list per page (safe cuts make it
     unnecessary); a history sidecar file (a second file per entry to keep in
-    step, for what the head already gives).
+    step, for what the head already gives); one fold refolded on every
+    prepend (new block objects each time: memos and lit identity lost);
+    `content-visibility` for the rows (D124's reason stands).

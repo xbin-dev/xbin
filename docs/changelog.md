@@ -60,6 +60,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   it is over — re-read the tail (a page or `?since=`); a client that
   ignores it catches up on the next skipped seq. Listing past sessions
   reads only each file's head.
+- **Agent tab: long conversations stay quick** (D130;
+  [overview/09-terminals.md](overview/09-terminals.md)). It opens on the tail
+  page, loads older pages as you scroll up, lets go of what is far away in
+  either direction (the live tail too, while you read far up — a **↓ N new —
+  jump to latest** pill brings it back), refolds only the page a late event
+  belongs to, renders a streaming message a paragraph at a time, and renders
+  nothing while its tab is hidden. New for tiles:
+  [`/vendor/scroll-window.js`](frontend-kit.md) — the tab's no-jump window
+  over a long list (anchor the first visible row across renders, grow and
+  trim the rendered rows around the view), framework-free.
 - **VM tile sandboxes and VM-only coding sandboxes by default.** A VM
   policy saved before tile sandboxes existed (no `tiles` field — the
   installer's policies until v0.3.60) now reads `tiles` as following

@@ -475,14 +475,18 @@ own session (it replays the earlier turns, then continues — all four bundled
 agents advertise it, and Claude Code and OpenCode are verified end to end; an
 agent that cannot offers a fresh start instead).
 
-A long conversation stays quick (D124): the Agent tab folds the log as it
-arrives, renders at most once a frame, and keeps only the recent part of the
-transcript on the page — scrolling up loads earlier entries a page at a time
-(or all of them, from the "earlier entries" row at the top, e.g. before a
-browser find), without moving what you are reading. A folded tool card, file
-diff or thought renders its body when you open it. Following the bottom, the
-view keeps up with the agent; scrolled up, new turns land below without
-pulling you down.
+A long conversation stays quick (D124, D130): the Agent tab reads only the
+tail of the log when it opens, folds what arrives, renders at most once a
+frame (not at all while the tab is hidden), and keeps only the part of the
+transcript near what you are reading — scrolling up loads earlier entries a
+page at a time (or all of them, from the "earlier entries" row at the top,
+e.g. before a browser find), and what is far above or below is let go and
+fetched again when you come back to it, without moving what you are
+reading. A folded tool card, file diff or thought renders its body when you
+open it; a message being written re-renders only its last paragraph, so a
+selection in it survives. Following the bottom, the view keeps up with the
+agent; scrolled up, new turns land below without pulling you down, and a
+**↓ N new — jump to latest** pill takes you back to the bottom.
 
 What the agent gets:
 

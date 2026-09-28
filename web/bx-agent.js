@@ -5,22 +5,27 @@
  * docs/overview/09-terminals.md §Agent sessions); this element drives it
  * through the agent API and renders its typed event log.
  *
- * Source of truth is the session's event log: on mount the element replays
- * it (`GET …/events?since=0`), then applies live `session` events for its
- * topic. Because the events hub drops a slow subscriber and reconnects
- * silently, the element never trusts the live stream alone — it re-fetches
- * `?since=<last>` whenever a live seq skips, when the tab becomes visible,
- * and every 2 s while a turn runs. Any attached client (this tab, another
- * browser, `bx agent`) sees the same stream, and the first to answer a
- * permission request wins.
+ * Source of truth is the session's event log: on mount the element reads its
+ * tail page (`GET …/events?limit=`; the whole log from an xbind that does not
+ * page), then applies live `session` events for its topic. Because the events
+ * hub drops a slow subscriber and reconnects silently, the element never
+ * trusts the live stream alone — it re-fetches `?since=<last>` whenever a
+ * live seq skips, when the tab becomes visible, and every 2 s while a turn
+ * runs; a `replayed` event (a resume's replay is in the log) re-reads the
+ * tail. Any attached client (this tab, another browser, `bx agent`) sees the
+ * same stream, and the first to answer a permission request wins.
  *
- * A long transcript renders windowed (D124): the event log folds
- * incrementally (agent-fold.js — stable block keys, per-block versions and
- * memoized markdown/diffs), renders at most once per frame, and shows only its
- * recent blocks; scrolling up loads earlier pages. Nothing jumps: the scroller
- * opts out of native scroll anchoring and every update keeps the first visible
- * block where it was (or follows the bottom), measured before lit commits and
- * corrected in updated(), before the frame paints.
+ * A long transcript is windowed twice (D124, D130). The element holds only
+ * some pages of the log (agent-pages.js: segments folded on their own, block
+ * keys from seqs), loading older ones as the reader nears the top and
+ * dropping whole pages about three views beyond the rendered rows in either
+ * direction — the live tail too while the reader is far up, when a "↓ N new"
+ * pill brings the latest back. Of those it renders a window of rows, grown
+ * and trimmed around the view (scroll-window.js), at most once per frame,
+ * and not at all while the tab is hidden. Nothing jumps: every update keeps
+ * the first visible row where it was (or follows the bottom), measured before
+ * lit commits and corrected in updated(), before the frame paints. A
+ * streaming message re-parses only its last paragraph (mdLive).
  *
  * Events: 'bx-session' (detail {id, kind:'agent', provider, name, net,
  * scopes, label, gpu, api}) when it creates the
@@ -30,10 +35,11 @@ import { LitElement, html, css, nothing } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
 import { repeat, guard } from 'lit';
 import { onEvent } from '/vendor/events-socket.js';
-import { md } from '/vendor/bx-md.js';
-import { headline, isPlanApproval, rawText, formFields, missingRequired } from '/vendor/agent-tools.js';
-import { Fold, cached } from '/vendor/agent-fold.js';
-import { toolCard, permCard, changesCard, askCard, cardsCss } from '/vendor/agent-cards.js';
+import { headline, missingRequired } from '/vendor/agent-tools.js';
+import { Transcript, PAGE_LIMIT } from '/vendor/agent-pages.js';
+import { ScrollWindow } from '/vendor/scroll-window.js';
+import { toolCard, permCard, changesCard, askCard, cardsCss, mdLive } from '/vendor/agent-cards.js';
+import { agentTestApi } from '/vendor/agent-testapi.js';
 import { slashQuery, matchCommands, commandHint } from '/vendor/agent-slash.js';
 
 export class BxAgent extends LitElement {
@@ -52,7 +58,6 @@ export class BxAgent extends LitElement {
     _provider: { state: true },
     _mode: { state: true },
     _draft: { state: true },
-    _truncated: { state: true },
     _error: { state: true },
     _authErr: { state: true }, // the last create/turn failed auth (show the sign-in banner)
     _followUp: { state: true }, // {text, after}: plan feedback to send once the rejected turn settles
@@ -78,8 +83,9 @@ export class BxAgent extends LitElement {
     .user .files { display: flex; flex-wrap: wrap; gap: 4px; white-space: normal; }
     .user .files.below { margin-top: 4px; }
     .user .file { border: 1px solid var(--bx-border, #363c45); border-radius: 4px; padding: 0 6px; font-size: 12px; opacity: .85; }
-    .agent .bubble > :first-child { margin-top: 0; }
-    .agent .bubble > :last-child { margin-bottom: 0; }
+    .md-b { display: contents; }
+    .agent .bubble > :first-child, .agent .bubble > .md-b:first-child > :first-child { margin-top: 0; }
+    .agent .bubble > :last-child, .agent .bubble > .md-b:last-child > :last-child { margin-bottom: 0; }
     .bubble :is(pre, code) { font-family: var(--bx-mono, ui-monospace, monospace); }
     .bubble pre { background: var(--bx-bg, #1b1e24); padding: 8px 10px; border-radius: 6px; overflow-x: auto; }
     .bubble :not(pre) > code { background: var(--bx-bg, #1b1e24); padding: .1em .3em; border-radius: 3px; }
@@ -95,7 +101,7 @@ export class BxAgent extends LitElement {
     @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
     @media (prefers-reduced-motion: reduce) { .shimmer { animation: none; -webkit-text-fill-color: currentColor; background: none; } }
     .thought .md { font-style: italic; font-size: 12px; }
-    .thought .md > :first-child { margin-top: 4px; } .thought .md > :last-child { margin-bottom: 0; }
+    .thought .md > .md-b:first-child > :first-child { margin-top: 4px; } .thought .md > .md-b:last-child > :last-child { margin-bottom: 0; }
     .plan { border: 1px solid var(--bx-border, #363c45); border-radius: 6px; padding: 6px 10px; margin: 0 0 8px; }
     .plan .h { font: 10px var(--bx-mono, ui-monospace, monospace); text-transform: uppercase; color: var(--bx-muted, #868f9a); margin-bottom: 4px; }
     .plan li { list-style: none; margin: 1px 0; }
@@ -103,7 +109,10 @@ export class BxAgent extends LitElement {
     .gap { color: var(--bx-muted, #868f9a); font: 11px var(--bx-mono, ui-monospace, monospace); text-align: center; margin: 4px 0; }
     .turn { border-top: 1px dashed var(--bx-border, #363c45); margin: 10px 0; padding-top: 4px;
       font: 10px var(--bx-mono, ui-monospace, monospace); color: var(--bx-muted, #868f9a); text-align: center; }
-    .foot { flex: none; border-top: 1px solid var(--bx-border, #363c45); padding: 6px 8px; }
+    .foot { flex: none; border-top: 1px solid var(--bx-border, #363c45); padding: 6px 8px; position: relative; }
+    .pill { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); z-index: 1; white-space: nowrap;
+      border: 1px solid var(--bx-accent, #f5a623); border-radius: 12px; padding: 3px 12px; cursor: pointer;
+      background: var(--bx-panel-2, #2b3038); color: var(--bx-accent, #f5a623); font: 11px var(--bx-mono, ui-monospace, monospace); }
     .status { font: 10.5px var(--bx-mono, ui-monospace, monospace); color: var(--bx-muted, #868f9a);
       display: flex; align-items: center; gap: 8px; margin-bottom: 5px; min-height: 14px; }
     .status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--bx-muted, #868f9a); flex: none; }
@@ -144,17 +153,20 @@ export class BxAgent extends LitElement {
 
   constructor() {
     super();
-    this._events = []; // the log, in seq order (mutated in place; the fold is the view)
-    this._seen = new Set(); // seqs applied
-    this._fold = new Fold();
-    this._from = null; // the first rendered block (the window's top); null = the last PAGE
-    this._start = 0; // its index, as of the last render
+    this._tx = new Transcript((q) => this._get(q)); // the pages of the log held (agent-pages.js)
+    this._sw = new ScrollWindow({ onScroll: () => this._scrolled(), onResize: () => this._fill() });
+    this._fromKey = null; // the window's first rendered block; null = the last PAGE
+    this._toKey = null; // its last; null = to the end
+    this._start = 0; // their indices, as of the last render
+    this._end = 0;
+    this._all = false; // "load all": everything loaded and rendered (find)
+    this._busy = null; // a page load in flight
+    this._fetches = []; // the queries this element made (the harness counts them)
     this._opened = new Set(); // '<key>:<slot>' of lazy <details> bodies the user opened
     this._providers = null;
     this._provider = '';
     this._mode = '';
     this._draft = '';
-    this._truncated = false;
     this._error = '';
     this._authErr = false;
     this._followUp = null;
@@ -163,7 +175,6 @@ export class BxAgent extends LitElement {
     this._askVals = {}; // eid → the form's values while a question is open
     this._planFeedback = {}; // pid → the feedback typed beside "keep planning"
     this._started = false; // guard: create the eager session at most once
-    this._lastSeq = 0;
     this._off = null;
     this._poll = null;
     this._creating = false;
@@ -174,8 +185,11 @@ export class BxAgent extends LitElement {
     super.connectedCallback();
     this._off = onEvent((e) => this._live(e));
     document.addEventListener('visibilitychange', this._onVisible);
+    // a hidden tab folds but does not render (shouldUpdate); shown, it catches up
+    this._hostRO = new ResizeObserver(() => { if (this._stale && !this._hidden()) this.requestUpdate(); });
+    this._hostRO.observe(this);
     if (this.history) { this._loadHistory(); return; }
-    if (this.session) { this._load(0); return; }
+    if (this.session) { this._open(); return; }
     this._loadProviders(); // for the sign-in command and mode names, both paths
     this._maybeEager();
   }
@@ -185,7 +199,8 @@ export class BxAgent extends LitElement {
     this._off?.();
     document.removeEventListener('visibilitychange', this._onVisible);
     clearInterval(this._poll); this._poll = null;
-    this._ro?.disconnect(); this._ro = null;
+    this._sw.detach();
+    this._hostRO?.disconnect(); this._hostRO = null;
   }
 
   // at most one render per frame: a replay's burst of events (or a keystroke
@@ -196,45 +211,113 @@ export class BxAgent extends LitElement {
     super.scheduleUpdate();
   }
 
+  _hidden() { return !this.isConnected || this.getClientRects().length === 0; }
+
+  // a hidden tab (display:none — another tab is active) keeps folding what
+  // arrives, but renders nothing until it is shown (the host's resize)
+  shouldUpdate(ch) {
+    if (!this._hidden()) { this._stale = false; return true; }
+    this._react(ch);
+    this._stale = true;
+    return false;
+  }
+
+  // what the properties set in motion, rendered or not
+  _react(ch) {
+    if (ch.has('ended') && this.ended) this._maybePoll();
+    // a reattach (the frame set our session after a listing): read the tail
+    if (ch.has('session') && this.session && !this._tx.segs.length && !this.ended && !this.history) this._open();
+    if (ch.has('provider')) this._maybeEager();
+    if (this._followUp) this._maybeFollowUp();
+  }
+
   willUpdate() {
-    // the window: from the first rendered block to the end. Following the
-    // bottom with a long rendered tail drops what is far above the view (the
-    // removal is above the pinned view, so nothing visible moves); what stays
-    // above (2.5 views) clears _maybeOlder's 1.5 so the two never ping-pong.
-    const blocks = this._fold.blocks;
-    let i = this._from ? blocks.indexOf(this._from) : -1;
-    if (i < 0) i = Math.max(0, blocks.length - PAGE);
-    const pinned = this._atBottom !== false && !this._keepView;
-    if (pinned) i = this._trimFrom(blocks, i);
-    this._start = i;
-    this._from = blocks[i] || null;
-    // not following the bottom: the first visible block keeps its place
-    this._anchor = pinned ? null : this._firstVisible();
+    // the window [start, end) of the loaded blocks, by key: following the
+    // bottom it reaches the end; a long rendered part is trimmed on the side
+    // far from the view (scroll-window.js; KEEP > FILL: no ping-pong)
+    const blocks = this._blocks(), n = blocks.length, sw = this._sw;
+    const at = (k) => (k == null ? -1 : blocks.findIndex((b) => b.key === k));
+    const pinned = sw.atBottom && !sw.keepView;
+    let end = pinned || this._toKey == null ? n : at(this._toKey) + 1;
+    if (end <= 0) end = n;
+    let start = at(this._fromKey);
+    if (start < 0 || start >= end) start = Math.max(0, end - PAGE);
+    if (this._all) { start = 0; end = n; } else if (end - start > TRIM) {
+      const ka = sw.trimAbove(), a = ka == null ? -1 : at(Number(ka));
+      if (a > start && a < end) start = a;
+      const kb = pinned ? null : sw.trimBelow(), b = kb == null ? -1 : at(Number(kb));
+      if (b >= start && b + 1 < end) end = b + 1;
+    }
+    this._start = start;
+    this._end = end;
+    this._fromKey = blocks[start]?.key ?? null;
+    this._toKey = end < n ? blocks[end - 1].key : null;
+    this._pillAt = sw.atBottom;
+    this._drawn = this._tx.version; // what _start/_end index
+    sw.before();
   }
 
   updated(ch) {
-    if (ch.has('ended') && this.ended) this._maybePoll();
-    // a reattach (the frame set our session after a listing): start replaying
-    if (ch.has('session') && this.session && !this._lastSeq && !this._events.length && !this.ended) this._load(0);
-    if (ch.has('provider')) this._maybeEager();
-    if (this._followUp) this._maybeFollowUp();
+    this._react(ch);
     const sc = this._sc();
     if (!sc) return;
-    if (!this._ro) { this._ro = new ResizeObserver(() => this._resized()); this._ro.observe(sc); }
-    const a = this._anchor;
-    this._anchor = null;
-    if (this._atBottom !== false && !this._keepView) {
-      sc.scrollTop = sc.scrollHeight;
-      // willUpdate measured the view before this render's blocks landed: a
-      // burst folded into one frame (a slow or busy page) would stay rendered
-      // whole until the next event, so measure again with it in place
-      if (this._trimFrom(this._fold.blocks, this._start) > this._start) this.requestUpdate();
-    } else if (a && a.el.isConnected) {
-      const d = a.el.getBoundingClientRect().top - a.top;
-      if (Math.abs(d) >= 0.5) sc.scrollTop += d;
+    this._sw.attach(sc);
+    const pinned = this._sw.atBottom && !this._sw.keepView;
+    this._sw.after();
+    // willUpdate measured the view before this render's blocks landed: a
+    // burst folded into one frame would stay rendered whole until the next
+    // event, so measure again with it in place
+    if (pinned && this._end - this._start > TRIM && this._sw.trimAbove() != null) this.requestUpdate();
+    this._fill();
+  }
+
+  // the reader scrolled (a frame later; a touch scroll once settled)
+  _scrolled() {
+    const at = this._sw.atBottom;
+    this._tx.follow = at;
+    if (at) this._tx.seenAll();
+    if (at !== this._pillAt) this.requestUpdate(); // the pill
+    this._fill();
+  }
+
+  // grow the window where the reader is heading — rows already loaded, else
+  // a page (older above; below, one dropped earlier, or the tail back) —
+  // and let go of what is far away
+  _fill() {
+    if (this._all || this._stale || !this._sc() || this._tx.version !== this._drawn) return; // a render is due: it fills after
+    const sw = this._sw, tx = this._tx, blocks = this._blocks();
+    if (sw.wantsAbove()) {
+      if (this._start > 0) { this._fromKey = blocks[Math.max(0, this._start - PAGE)].key; this.requestUpdate(); } else if (tx.hasOlder) this._load(() => tx.loadOlder());
+    } else if (sw.wantsBelow()) {
+      const e = Math.min(blocks.length, this._end + PAGE);
+      if (this._end < blocks.length) { this._toKey = e < blocks.length ? blocks[e - 1].key : null; this.requestUpdate(); } else if (tx.hasNewer) this._load(() => tx.loadNewer());
     }
-    if (this._keepView) { this._keepView = false; this._atBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 40; }
-    this._maybeOlder(sc);
+    this._unload();
+  }
+
+  // pages about UNLOAD views beyond the rendered rows go (the live tail too,
+  // while the reader is away from the bottom), and the memos of loaded
+  // blocks that far out; a live tail grown past a few pages is split so its
+  // top can go too
+  _unload() {
+    const tx = this._tx;
+    if (!tx.paged || this._all) return;
+    const m = Math.ceil(this._sw.rowsPerView() * UNLOAD);
+    if (tx.keep(this._start - m, this._end + m, !this._sw.atBottom)) this.requestUpdate();
+    const key = `${this._fromKey}:${this._toKey}:${tx.version}`;
+    if (key !== this._memoKey) {
+      this._memoKey = key;
+      const blocks = this._blocks(), a = this._start - m, z = this._end + m;
+      for (let i = 0; i < blocks.length; i++) if ((i < a || i >= z) && blocks[i].$memo) delete blocks[i].$memo;
+    }
+    const tail = tx.segs[tx.segs.length - 1];
+    if (this._sw.atBottom && !tx.detached && tail && tail.events.length > 3 * PAGE_LIMIT) this._load(() => tx.splitTail());
+  }
+
+  // one page load at a time; its blocks render when it lands
+  _load(fn) {
+    if (this._busy) return;
+    this._busy = fn().then((changed) => { if (changed) this.requestUpdate(); }).catch(() => { }).finally(() => { this._busy = null; });
   }
 
   // ---- data ----
@@ -262,67 +345,102 @@ export class BxAgent extends LitElement {
   }
 
   // A PAST session (the history attribute): the persisted transcript, read-
-  // only — no process, no polling. The foot offers Resume where the agent can
-  // reopen it, else a fresh start on this tile.
+  // only — no process, no polling, paged like a live one. The foot offers
+  // Resume where the agent can reopen it, else a fresh start on this tile.
   async _loadHistory() {
     try {
-      const r = await fetch(`/api/xbin/agent/history/${encodeURIComponent(this.history)}/events`);
-      if (!r.ok) this._error = r.status === 404 ? 'this past session is gone' : `could not load it (${r.status})`;
-      else { const { meta, events } = await r.json(); this._historyMeta = meta || null; this._merge(events || [], false); }
-    } catch (e) { this._error = String(e.message || e); }
+      await this._tx.openTail();
+      this._historyMeta = this._tx.meta;
+      this.requestUpdate();
+    } catch (e) { this._error = e.status === 404 ? 'this past session is gone' : e.status ? `could not load it (${e.status})` : String(e.message || e); }
     this.ended = true;
   }
 
   _doResume() { if (this._historyMeta) this.dispatchEvent(new CustomEvent('bx-resume', { detail: this._historyMeta, bubbles: true })); }
   _doNewHere() { if (this._historyMeta) this.dispatchEvent(new CustomEvent('bx-new-agent', { detail: { provider: this._historyMeta.provider }, bubbles: true })); }
 
-  async _load(since) {
-    if (!this.session) return;
+  // the events route of this session (or past session), with a query
+  async _get(q) {
+    this._fetches.push(q);
+    const r = await fetch(this.history ? `/api/xbin/agent/history/${encodeURIComponent(this.history)}/events?${q}`
+      : `/api/xbin/term/sessions/${encodeURIComponent(this.session)}/events?${q}`);
+    if (!r.ok) throw Object.assign(new Error(`${r.status}`), { status: r.status });
+    return r.json();
+  }
+
+  // read the tail and follow the bottom from it (open, a replay, "jump to
+  // latest"); then catch up with whatever the live stream said meanwhile
+  _open() {
+    if (!this.session) return null;
+    return (this._opening ||= this._openTail().finally(() => { this._opening = null; }));
+  }
+
+  async _openTail() {
     try {
-      const r = await fetch(`/api/xbin/term/sessions/${encodeURIComponent(this.session)}/events?since=${since}`);
-      if (!r.ok) { if (r.status === 404) this._end(); return; }
-      const { events, next, truncated } = await r.json();
-      this._merge(events || [], !!truncated);
-      if (typeof next === 'number' && next > this._lastSeq) this._lastSeq = next;
+      await this._tx.openTail();
+      this._fromKey = this._toKey = null;
+      this._all = false;
+      this._sw.toBottom();
+      this.requestUpdate();
       this._maybePoll();
-    } catch { /* transient; the live stream or the next poll recovers */ }
+      this._refetch();
+    } catch (e) { if (e.status === 404) this._end(); /* else transient: the live stream or the next poll recovers */ }
   }
 
-  _refetch() { this._load(this._lastSeq); }
-
-  // merge new events by seq (dedup; ignore anything already applied): an
-  // event after the last folds in place; one that lands before it (rare — a
-  // re-fetch racing the stream) is inserted in order and the log refolds
-  _merge(events, truncated) {
-    if (truncated) this._truncated = true;
-    const evs = this._events;
-    let added = false, back = false;
-    for (const e of events) {
-      if (this._seen.has(e.seq)) continue;
-      this._seen.add(e.seq);
-      added = true;
-      if (e.seq > this._lastSeq) this._lastSeq = e.seq;
-      if (!evs.length || e.seq > evs[evs.length - 1].seq) { evs.push(e); if (!back) this._fold.push(e); continue; }
-      let i = evs.length;
-      while (i > 0 && evs[i - 1].seq > e.seq) i--;
-      evs.splice(i, 0, e);
-      back = true;
-    }
-    if (back) { this._fold.reset(evs); this._from = null; }
-    if (added) { this.requestUpdate(); this._maybePoll(); }
+  async _refetch() {
+    if (!this.session || this.history || !this._tx.segs.length) return;
+    try {
+      const r = await this._get(`since=${this._tx.lastSeq}`);
+      if (this._tx.apply(r.events || [], !!r.truncated)) this.requestUpdate();
+      this._maybePoll();
+    } catch (e) { if (e.status === 404) this._end(); }
   }
 
-  _reset() { this._lastSeq = 0; this._events = []; this._seen.clear(); this._fold.reset(); this._from = null; this._opened.clear(); }
+  _reset() { this._tx.reset(); this._fromKey = this._toKey = null; this._all = false; this._opened.clear(); }
 
   // a live event for our session; a skipped seq means the hub dropped one,
-  // so re-fetch from the last we have rather than trust the gap
+  // so re-fetch from the last we have rather than trust the gap. A resume's
+  // replay arrives as one `replayed` event: it is in the log, read the tail.
   _live(e) {
     if (e.type !== 'session' || !this.session || e.topic !== 'session.' + this.session) return;
     const ev = e.data;
-    if (!ev || typeof ev.seq !== 'number') return;
-    if (ev.seq <= this._lastSeq) return;
-    if (ev.seq === this._lastSeq + 1) this._merge([ev], false);
-    else this._refetch(); // a gap: catch up from the log
+    if (ev && ev.type === 'replayed') { this._open(); return; }
+    if (!ev || typeof ev.seq !== 'number' || !this._tx.segs.length) return;
+    if (ev.seq <= this._tx.lastSeq) return;
+    if (ev.seq === this._tx.lastSeq + 1) { if (this._tx.apply([ev])) this.requestUpdate(); this._maybePoll(); } else this._refetch(); // a gap: catch up from the log
+  }
+
+  // "↓ N new — jump to latest": the tail (fetched again when it was let go),
+  // followed
+  async _jumpLatest() {
+    this._all = false;
+    if (this._tx.hasNewer) {
+      try { await (this.history ? this._tx.openTail() : this._open()); } catch { /* the pill stays */ }
+    }
+    this._fromKey = this._toKey = null;
+    this._sw.toBottom();
+    this._tx.follow = true;
+    this._tx.seenAll();
+    this.requestUpdate();
+  }
+
+  // "load all" (find): every page, rendered — an explicit mode, left by the
+  // pill; nothing unloads meanwhile
+  async _loadAll() {
+    this._all = true;
+    this.requestUpdate();
+    const tx = this._tx;
+    try {
+      while (this._all && tx.hasOlder) await tx.loadOlder(2000);
+      while (this._all && tx.hasNewer) await tx.loadNewer(2000);
+    } catch { /* what loaded shows */ }
+    this.requestUpdate();
+  }
+
+  // "load earlier": a page of rows above the window, loaded first if need be
+  _older() {
+    const blocks = this._blocks();
+    if (this._start > 0) { this._fromKey = blocks[Math.max(0, this._start - PAGE)].key; this.requestUpdate(); } else if (this._tx.hasOlder) this._load(() => this._tx.loadOlder());
   }
 
   _maybePoll() {
@@ -376,7 +494,7 @@ export class BxAgent extends LitElement {
       this.dispatchEvent(new CustomEvent('bx-session', { detail: { id: info.id, kind: 'agent', provider: info.provider, name: info.name,
         net: info.net, scopes: info.scopes, label: info.label, gpu: info.gpu, api: info.api }, bubbles: true }));
       this._reset();
-      this._load(0);
+      this._open();
       return true;
     } catch (e) { this._error = String(e.message || e); return false; }
     finally { this._creating = false; }
@@ -400,14 +518,13 @@ export class BxAgent extends LitElement {
   _rejectPlan(pid, optionId) {
     const text = (this._planFeedback[pid] || '').trim();
     delete this._planFeedback[pid];
-    if (text) this._followUp = { text, after: this._lastSeq };
+    if (text) this._followUp = { text, after: this._tx.lastSeq };
     this._permit(pid, null, optionId);
   }
 
   _maybeFollowUp() {
     const f = this._followUp;
-    let st = '';
-    for (const e of this._events) if (e.seq > f.after && e.type === 'status' && e.data?.status) st = e.data.status;
+    const st = this._tx.statusAfter(f.after);
     if (st === 'idle') {
       this._followUp = null;
       this._prompt(f.text).then((ok) => { if (!ok && !this._draft) this._draft = f.text; });
@@ -439,7 +556,7 @@ export class BxAgent extends LitElement {
   // the agent's session settings (model, effort, …): the last status event's
   // options list, as the agent reported it
   // the agent's slash commands: the last status that carried them
-  _commands() { return this._fold.st.commands || []; }
+  _commands() { return this._tx.st.commands || []; }
 
   // the slash menu's items for the current draft ([] = closed)
   _slashItems() {
@@ -455,12 +572,12 @@ export class BxAgent extends LitElement {
     if (ta) { ta.value = this._draft; ta.focus(); }
   }
 
-  _options() { return this._fold.st.options || []; }
+  _options() { return this._tx.st.options || []; }
 
   // the agent's permission modes: from the last status that carried them, else
   // the provider's advertised list (a fallback before the first status lands)
   _modes() {
-    let ms = this._fold.st.modes || [];
+    let ms = this._tx.st.modes || [];
     if (!ms.length) { const p = (this._providers || []).find((x) => x.id === (this.provider || this._provider)); ms = (p && p.modes) || []; }
     return ms;
   }
@@ -471,7 +588,7 @@ export class BxAgent extends LitElement {
   // login:{needed,provider,command} when the agent says it is signed out (or a
   // turn hit -32000); a create/prompt error that reads like auth is a fallback
   _login() {
-    const last = this._fold.st.last;
+    const last = this._tx.st.last;
     if (last && last.login && last.login.needed) return last.login;
     if (this._authErr) {
       const p = (this._providers || []).find((x) => x.id === (this.provider || this._provider));
@@ -507,11 +624,11 @@ export class BxAgent extends LitElement {
   // ---- view model ----
 
   // the transcript's blocks: the log folded incrementally (agent-fold.js)
-  _blocks() { return this._fold.blocks; }
+  _blocks() { return this._tx.blocks(); }
 
-  _status() { return this._fold.st.status || (this.session ? 'starting' : 'new'); }
-  _statusDetail() { return this._fold.st.detail; }
-  _curMode() { return this._fold.st.currentMode || this._mode; }
+  _status() { return this._tx.st.status || (this.session ? 'starting' : 'new'); }
+  _statusDetail() { return this._tx.st.detail; }
+  _curMode() { return this._tx.st.currentMode || this._mode; }
 
   // ---- render ----
 
@@ -519,22 +636,23 @@ export class BxAgent extends LitElement {
     const status = this.ended ? 'exited' : this._status();
     const busy = !this.ended && (status === 'running' || status === 'waiting_permission' || status === 'cancelling');
     const lg = this._login();
-    const blocks = this._blocks();
+    const blocks = this._blocks(), tx = this._tx;
     const from = this._start; // willUpdate placed the window
-    const win = from ? blocks.slice(from) : blocks;
+    const win = from || this._end < blocks.length ? blocks.slice(from, this._end) : blocks;
     const running = !this.ended && status === 'running';
     return html`
-      <div class="scroll" @scroll=${this._onScroll} @touchstart=${this._touchL}>
-        ${this._truncated && !from ? html`<div class="gap">… earlier events dropped (log limit)</div>` : nothing}
-        ${from ? html`<div class="gap earlier">… ${from} earlier ${from === 1 ? 'entry' : 'entries'}
-          <button @click=${() => this._older()}>load earlier</button><button @click=${() => this._older(Infinity)}>load all</button></div>` : nothing}
+      <div class="scroll">
+        ${tx.truncated && !from ? html`<div class="gap">… earlier events dropped (log limit)</div>` : nothing}
+        ${from || tx.hasOlder ? html`<div class="gap earlier">… ${from ? `${from}${tx.hasOlder ? '+' : ''} ` : ''}earlier ${from === 1 && !tx.hasOlder ? 'entry' : 'entries'}
+          <button @click=${() => this._older()}>load earlier</button><button @click=${() => this._loadAll()}>load all</button></div>` : nothing}
         ${this.restarting ? html`<div class="hint">Restarting the agent in a new sandbox — the conversation resumes where the agent can reopen it…</div>` : nothing}
-        ${!this.session && !this.provider && !this.history && !this.restarting && !this._events.length ? html`<div class="hint">Start a coding agent in this tile's sandbox. Pick a provider, then send a message.</div>` : nothing}
+        ${!this.session && !this.provider && !this.history && !this.restarting && !blocks.length ? html`<div class="hint">Start a coding agent in this tile's sandbox. Pick a provider, then send a message.</div>` : nothing}
         ${!this.session && this.provider && !this.history && !lg ? html`<div class="hint">Starting ${this._provName()}…</div>` : nothing}
         ${repeat(win, (b) => b.key, (b) => this._row(b, running))}
-        ${this._activity(status, blocks)}
+        ${this._end >= blocks.length && !tx.hasNewer ? this._activity(status, blocks) : nothing}
       </div>
       <div class="foot">
+        ${this._pill(blocks)}
         ${this.ended ? html`<div class="status ended"><span class="dot exited"></span>
           <span>${this.history ? 'a past session — read-only' : 'this session has ended — the transcript stays until you close the tab'}</span>
           ${this.history && this._historyMeta?.loadable ? html`<button @click=${this._doResume} title="reopen this conversation: the agent replays these turns, then continues">Resume</button>` : nothing}
@@ -563,6 +681,14 @@ export class BxAgent extends LitElement {
             : html`<button @click=${this._submit} ?disabled=${this._creating || this.ended || this.restarting} title=${this.session ? 'send (Enter)' : 'start the agent — with a message it sends it too; without one you can pick the model first'}>${this.session ? 'Send' : 'Start'}</button>`}
         </div>
       </div>`;
+  }
+
+  // "↓ N new — jump to latest", while the reader is away from the bottom and
+  // something is below: new entries, or rows or pages not shown
+  _pill(blocks) {
+    const tx = this._tx;
+    if (this._sw.atBottom || this._all || !(tx.fresh || tx.hasNewer || this._end < blocks.length)) return nothing;
+    return html`<button class="pill" @click=${() => this._jumpLatest()}>↓ ${tx.fresh ? `${tx.fresh} new — ` : ''}jump to latest</button>`;
   }
 
   // what the running turn is doing right now, under the transcript: the
@@ -633,7 +759,7 @@ export class BxAgent extends LitElement {
   }
 
   _usage() {
-    const u = this._fold.st.usage;
+    const u = this._tx.st.usage;
     if (!u) return nothing;
     return html`<span>· ${fmtN(u.used)}/${fmtN(u.size)} tokens</span>`;
   }
@@ -653,7 +779,7 @@ export class BxAgent extends LitElement {
     if (!e.target.open || e.target.open === !!dflt || this._opened.has(k)) return; // closing, or lit applying the default
     this._opened.add(k);
     for (let x = b; x; x = x.up) x.ui = (x.ui || 0) + 1;
-    this._keepView = true; // the reader opened it: keep their view, don't chase the bottom
+    this._sw.keepView = true; // the reader opened it: keep their view, don't chase the bottom
     this.requestUpdate();
   }
 
@@ -663,7 +789,7 @@ export class BxAgent extends LitElement {
         return b.role === 'user'
           ? html`<div class="row user"><div class="who">you</div><div class="bubble">${b.text}${b.files?.length ? html`<div class="files ${b.text ? 'below' : ''}">${b.files.map((f) =>
               html`<span class="file" title=${`${f.mime || ''} · ${fmtN(f.size || 0)} bytes`}>${f.name}</span>`)}</div>` : nothing}</div></div>`
-          : html`<div class="row agent"><div class="who">agent</div><div class="bubble" .innerHTML=${cached(b, 'md', () => md(b.text))}></div></div>`;
+          : html`<div class="row agent"><div class="who">agent</div><div class="bubble" ${mdLive(b.text, b)}></div></div>`;
       case 'thought': {
         // open while it streams (the last block of a running turn), then
         // folded to its duration — the Zed/Claude Code pattern
@@ -671,7 +797,7 @@ export class BxAgent extends LitElement {
         const secs = Math.max(1, Math.round(((b.t1 || 0) - (b.t0 || 0)) / 1000));
         return html`<div class="row"><details class="thought" ?open=${live} @toggle=${(e) => this._toggled(e, b, 'body', live)}>
           <summary>${live ? html`<span class="shimmer">Thinking…</span>` : `Thought for ${secs}s`}</summary>
-          ${live || this._isOpen(b, 'body') ? html`<div class="md" .innerHTML=${cached(b, 'md', () => md(b.text))}></div>` : nothing}</details></div>`;
+          ${live || this._isOpen(b, 'body') ? html`<div class="md" ${mdLive(b.text, b)}></div>` : nothing}</details></div>`;
       }
       case 'tool':
         return toolCard(this, b);
@@ -696,140 +822,18 @@ export class BxAgent extends LitElement {
 
   _sc() { return this.renderRoot?.querySelector('.scroll'); }
 
-  _onScroll(e) {
-    const el = e.target;
-    this._atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-    if (this._touch) { // a touch scroll (and its momentum) is settled after 150 ms without a scroll event
-      clearTimeout(this._idle);
-      this._idle = setTimeout(() => { this._idle = 0; this._maybeOlder(el); }, 150);
-    }
-    if (!this._scrollRaf) this._scrollRaf = requestAnimationFrame(() => { this._scrollRaf = 0; this._maybeOlder(el); });
-  }
-
-  // passive: a touch listener must never hold up the scroll it starts
-  _touchL = { handleEvent: () => { this._touch = true; }, passive: true };
-
-  // the pane resized (a window drag, the composer growing, the tab shown):
-  // keep following the bottom, and fill a taller view
-  _resized() {
-    const sc = this._sc();
-    if (!sc) return;
-    if (this._atBottom !== false) sc.scrollTop = sc.scrollHeight;
-    this._maybeOlder(sc);
-  }
-
-  // load an earlier page when the reader nears the top of what is rendered,
-  // or the rendered part does not fill two views. A touch scroll waits until
-  // it settles unless the top is close: moving scrollTop under iOS momentum
-  // stops it dead.
-  _maybeOlder(sc) {
-    if (!this._start || !sc.clientHeight) return;
-    const short = sc.scrollHeight < sc.clientHeight * 2;
-    if (!short && sc.scrollTop > sc.clientHeight * 1.5) return;
-    if (this._touch && this._idle && !short && sc.scrollTop > sc.clientHeight * 0.5) return; // _onScroll's settle timer calls back
-    this._older();
-  }
-
-  // following the bottom with a long rendered tail (from block i): the first
-  // block to keep, 2.5 views above the view, once more than 6 views are above
-  // it; i when nothing goes
-  _trimFrom(blocks, i) {
-    const sc = blocks.length - i > TRIM ? this._sc() : null;
-    if (!sc || !sc.clientHeight || sc.scrollTop <= sc.clientHeight * 6) return i;
-    const row = this._rowAt(sc, sc.scrollTop - sc.clientHeight * 2.5);
-    const k = row ? blocks.findIndex((b) => b.key === Number(row.dataset.k)) : -1;
-    return k > i ? k : i;
-  }
-
-  _older(n = PAGE) {
-    const blocks = this._blocks();
-    const i = Math.max(0, this._start - n);
-    if (blocks[i] === this._from) return;
-    this._from = blocks[i] || null;
-    this.requestUpdate();
-  }
-
-  // the first rendered row whose bottom is below content offset y (a binary
-  // search over the rows)
-  _rowAt(sc, y) {
-    const top = sc.getBoundingClientRect().top - sc.scrollTop + y;
-    const rows = sc.querySelectorAll(':scope > .blk');
-    let lo = 0, hi = rows.length - 1, at = -1;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (rows[mid].getBoundingClientRect().bottom > top) { at = mid; hi = mid - 1; } else lo = mid + 1;
-    }
-    return at < 0 ? null : rows[at];
-  }
-
-  // the first visible block and where it is
-  _firstVisible() {
-    const sc = this._sc();
-    const el = sc && sc.clientHeight ? this._rowAt(sc, sc.scrollTop) : null;
-    return el ? { el, top: el.getBoundingClientRect().top } : null;
-  }
-
   _autosize(el) {
     el.style.height = 'auto';
     el.style.height = Math.min(el.scrollHeight, window.innerHeight * 0.4) + 'px';
   }
 
   // Test hook (the harness): the transcript as plain records, and the actions.
-  testApi() {
-    const a = this;
-    return {
-      get status() { return a._status(); },
-      get sessionId() { return a.session || null; },
-      get provider() { return a._provider; },
-      get blocks() {
-        return a._blocks().map((b) => ({ kind: b.kind, role: b.role, text: b.text, status: b.status, pid: b.pid, by: b.by, optionId: b.optionId, stopReason: b.stopReason,
-          ...(b.kind === 'tool' ? { id: b.id, name: b.name, tk: b.tk, headline: headline(b), output: b.output, exitCode: b.exitCode, files: b.files ? b.files.changes.map((c) => c.path) : null,
-            children: b.children ? b.children.map((c) => ({ kind: c.kind, text: c.text, id: c.id, done: c.done })) : null } : {}),
-          ...(b.kind === 'changes' ? { turn: b.turn, files: b.changes.map((c) => c.path) } : {}),
-          ...(b.kind === 'msg' && b.files ? { files: b.files } : {}),
-          ...(b.kind === 'ask' ? { eid: b.eid, action: b.action, fields: formFields(b.schema).map((f) => f.key), content: b.content } : {}),
-          ...(b.kind === 'perm' ? { plan: isPlanApproval(b.tool) } : {}),
-          ...(b.kind === 'thought' ? { done: b.done, ms: (b.t1 || 0) - (b.t0 || 0) } : {}) }));
-      },
-      get pending() {
-        return a._blocks().filter((b) => b.kind === 'perm' && !b.by).map((b) => ({ pid: b.pid, cmd: rawText(b.tool?.rawInput), options: (b.options || []).map((o) => o.optionId),
-          scoped: b.rule ? b.rule.scoped : true, plan: isPlanApproval(b.tool) }));
-      },
-      get followUp() { return a._followUp ? a._followUp.text : null; },
-      // the rendered window (D124): total blocks, the first rendered index, rows in the DOM, the scroller
-      get window() {
-        const sc = a._sc();
-        return { total: a._blocks().length, from: a._start, rendered: sc ? sc.querySelectorAll(':scope > .blk').length : 0, atBottom: a._atBottom !== false,
-          scrollTop: sc ? sc.scrollTop : 0, scrollHeight: sc ? sc.scrollHeight : 0, clientHeight: sc ? sc.clientHeight : 0 };
-      },
-      scrollTo(y) { const sc = a._sc(); if (sc) sc.scrollTop = y; },
-      firstVisible() { const f = a._firstVisible(); return f ? Number(f.el.dataset.k) : null; },
-      topOf(key) { const sc = a._sc(); const el = sc && sc.querySelector(`:scope > .blk[data-k="${key}"]`); return el ? el.getBoundingClientRect().top - sc.getBoundingClientRect().top : null; },
-      loadAll() { a._older(Infinity); },
-      get commands() { return a._commands().map((c) => c.name); },
-      get questions() { return a._blocks().filter((b) => b.kind === 'ask' && !b.action).map((b) => ({ eid: b.eid, message: b.message, fields: formFields(b.schema).map((f) => ({ key: f.key, kind: f.kind, other: f.other, options: f.options.map((o) => o.value) })) })); },
-      answer(eid, action, content) { a._answer(eid, action, content); },
-      get slashMenu() { return a._slashItems().map((c) => c.name); },
-      get draft() { return a._draft; },
-      setProvider(id) { a._provider = id; const p = (a._providers || []).find((x) => x.id === id); a._mode = p?.defaultMode || ''; },
-      get options() { return a._options().map((o) => ({ id: o.id, current: o.currentValue, values: (o.options || []).map((v) => v.value) })); },
-      get modes() { return a._modes().map((m) => ({ id: m.id, name: m.name })); },
-      get login() { return a._login(); },
-      get history() { return a._historyMeta || null; }, // the past session shown read-only (history mode)
-      resumeHistory() { a._doResume(); },
-      signIn() { const lg = a._login(); if (lg) a._doSignIn(lg); },
-      setOption(id, value) { a._setOption(id, value); },
-      start() { return a._create(); },
-      send(text) { a._draft = text; return a._submit(); },
-      permit(pid, decision, optionId) { a._permit(pid, decision, optionId); },
-      rejectPlan(pid, optionId, feedback) { if (feedback) a._planFeedback[pid] = feedback; a._rejectPlan(pid, optionId); },
-      cancel() { a._cancel(); },
-    };
-  }
+  testApi() { return agentTestApi(this); }
 }
 
-const PAGE = 30; // blocks per rendered page: the initial tail, and each earlier load
-const TRIM = 120; // following the bottom with more rendered than this (and 6 views above) drops the far top
+const PAGE = 30; // rows the window grows by: the initial tail, and each step up or down
+const TRIM = 120; // a window longer than this (and 6 views past the view) is trimmed on that side
+const UNLOAD = 3; // pages about this many views beyond the rendered rows are let go
 
 const fmtN = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 
