@@ -20,8 +20,9 @@
 //      manager reason, sales1 blocks it and both see block; a routed state
 //      renders an edge that can't be limited to reading as text, with its
 //      refusal count, and a host-sharing net slot blocked with its reason;
-//   6. a routed state renders the dormant registrations, "would notify" and
-//      Run now, which confirms (seeded data) and sends the documented
+//   6. a routed state renders dev's registrations (its cron job and bus
+//      subscription active for dev, its ingress host dormant), the
+//      registrations note, "would notify" and Run now, which confirms (seeded data) and sends the documented
 //      request; Reassign the primary… (sales1) confirms with its
 //      missing-secrets box, and cancelling sends nothing;
 //   7. sales1 protects main: dev1's deploy and promotion onto main are
@@ -213,10 +214,10 @@ function routedState(base, { seeded = false, manager = false } = {}) {
     name: DEV, primary: false, liveReload: true, checkpoint: null, url: `/c/${TILE}+${DEV}/`,
     status: { state: 'healthy', gen: 3, serving: 'work-tree' },
     data: seeded ? { state: 'seeded', from: 'main', at: now, by: 'user:sales1' } : { state: 'empty', at: now, by: 'user:dev1' },
-    vault: { keys: 2, placeholders: 1 }, deliveries: false, alwaysOn: false, alwaysOnDeclared: false,
+    vault: { keys: 2, placeholders: 1 }, deliveries: true, alwaysOn: false, alwaysOnDeclared: false,
     registrations: [
-      { kind: 'cron', name: 'nightly', schedule: '0 3 * * *', path: '/tick', dormant: true },
-      { kind: 'bus', name: 'trig-1', resource: 'res:apps/leads/events', prefix: 'orders/', path: '/trigger/bus/1', dormant: true },
+      { kind: 'cron', name: 'nightly', schedule: '0 3 * * *', path: '/tick', dormant: false },
+      { kind: 'bus', name: 'trig-1', resource: 'res:apps/leads/events', prefix: 'orders/', path: '/trigger/bus/1', dormant: false },
       { kind: 'ingress-host', name: 'deployy.example.com', dormant: true },
     ],
     wouldNotify: [{ at: now, to: 'user:sales1', title: 'Daily digest' }],
@@ -435,7 +436,7 @@ async function stepRouted(X) {
       `a host-sharing net slot renders blocked, with its reason (${JSON.stringify(net)})`);
     check(await P.locator(`${sel} bx-deployments .tbl select`).count() === 1, 'only the edge that can be limited has a control');
   } finally { await undo(); }
-  // 6: dormant registrations, "would notify", Run now (seeded data: it asks)
+  // 6: registrations (cron and bus active for dev, ingress dormant), "would notify", Run now (seeded data: it asks)
   let sent = null;
   const seededState = routedState(base, { seeded: true });
   undo = await routeState(P, seededState, {
@@ -451,8 +452,10 @@ async function stepRouted(X) {
     const regs = await pn(P, (p) => p.registrations);
     const wn = await pn(P, (p) => p.wouldNotify);
     const pill = (k) => regs.find((r) => r.kind === k)?.pill;
-    check(pill('cron') === 'dormant' && pill('bus') === 'dormant' && pill('ingress-host') === 'dormant — routes reach the primary only',
-      `the dormant registrations (${JSON.stringify(regs.map((r) => [r.kind, r.pill]))})`);
+    check(pill('cron') === 'active' && pill('bus') === 'active' && pill('ingress-host') === 'dormant — routes reach the primary only',
+      `dev's cron job and subscription active, its ingress host dormant (${JSON.stringify(regs.map((r) => [r.kind, r.pill]))})`);
+    const note = await pn(P, (p) => p.text());
+    check(/cron jobs and bus subscriptions fire for dev, with its own data\. Its interface instances and ingress hosts stay dormant/.test(note || ''), 'the registrations tab says what fires and what stays dormant');
     check(wn.length === 1 && /^would notify sales1 · "Daily digest"/.test(wn[0]), `"would notify" (${JSON.stringify(wn)})`);
     check(!!regs.find((r) => r.kind === 'cron')?.runNow?.enabled, 'Run now is offered on the cron job');
     await pn(P, (p) => { p.runNow('nightly'); return true; });

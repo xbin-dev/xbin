@@ -103,7 +103,8 @@ export function panelActions(s, name, opts = {}) {
     add('seed', `Seed from ${P}…`, c('seed'), `Copy ${P}'s data into ${name} (it may contain personal data).`);
     add('reset', 'Reset data…', c('reset'), `Delete everything ${name} stored.`);
     add('vaultCopy', 'Copy vault values…', c('vaultCopy'), `Copy chosen secrets from ${P} into ${name}.`);
-    add('deliveries', `Deliveries: ${d.deliveries ? 'on' : 'off'}`, c('deliveries'), `${name}'s cron jobs and bus deliveries fire for ${name}.`, { on: !!d.deliveries });
+    add('deliveries', `Deliveries: ${d.deliveries ? 'on' : 'off'}`, c('deliveries'), d.deliveries ? `${name}'s cron jobs and bus subscriptions fire for ${name}, with its own data. Switch off to silence them.`
+      : `${name}'s cron jobs and bus subscriptions are silenced. Switch on to let them fire for ${name} again.`, { on: !!d.deliveries });
     if (d.alwaysOnDeclared) add('alwaysOn', `alwaysOn: ${d.alwaysOn ? 'on' : 'off'}`, c('alwaysOn'), `Keep ${name} running, never idle-stopped.`, { on: !!d.alwaysOn });
   }
   add('limits', 'Set limits…', c('limits'), `${name}'s memory and disk share, never above ${s.tile}'s.`);
@@ -135,10 +136,12 @@ export function widens(s, id, v) {
   return !!e && (e.effective || e.policy) === 'block' && (v === 'default' ? e.default : v) !== 'block';
 }
 
-// registrationRows(state, name, opts) → registrations with their pill, and Run now for cron jobs.
+// registrationRows(state, name, opts) → registrations with their pill, and Run now for cron jobs. A
+// non-primary's cron jobs and bus subscriptions are active, for it, unless its deliveries are off;
+// its interface instances and ingress hosts are dormant: routes reach the primary only (P13).
 export const registrationRows = (s, name, opts = {}) => (dep(s, name)?.registrations || []).map((r) => {
   const d = dep(s, name), routes = r.kind === 'iface-instance' || r.kind === 'ingress-host';
-  return { kind: r.kind, name: r.name, pill: d.primary ? 'active' : routes ? 'dormant — routes reach the primary only' : r.dormant ? 'dormant' : 'active',
+  return { kind: r.kind, name: r.name, pill: d.primary ? 'active' : routes ? 'dormant — routes reach the primary only' : r.dormant ? 'dormant — deliveries off' : 'active',
     label: r.kind === 'cron' ? `${r.name} · ${r.schedule || ''}` : r.kind === 'bus' ? `${r.name} · ${r.resource || ''}${r.prefix ? ` ${r.prefix}` : ''}` : r.kind === 'iface-instance' ? `#${r.name}` : r.name,
     runNow: r.kind === 'cron' && !d.primary ? control(s, 'runNow', name, opts) : null };
 });
@@ -147,6 +150,15 @@ export const registrationRows = (s, name, opts = {}) => (dep(s, name)?.registrat
 export function asksToRun(s, name) {
   const net = (s?.edges || []).find((e) => e.id === 'slot:net');
   return !(dep(s, name)?.data?.state === 'empty' && net && (net.effective || net.policy) === 'block');
+}
+
+// registrationsNote(state, name) → the registrations tab's sentence for a non-primary deployment; '' for the primary.
+export function registrationsNote(s, name) {
+  const d = dep(s, name);
+  if (!d || d.primary) return '';
+  const fires = d.deliveries === false ? `${name}'s cron jobs and bus subscriptions are silenced: a tile manager switched its deliveries off.`
+    : `${name}'s cron jobs and bus subscriptions fire for ${name}, with its own data.`;
+  return `${fires} Its interface instances and ingress hosts stay dormant: routes reach the primary, ${s.primary || 'main'}, only.`;
 }
 
 export const wouldNotifyRows = (s, name, opts = {}) => (dep(s, name)?.wouldNotify || []).map((w) => `would notify ${who(w.to)} · "${w.title}" · ${ago(w.at, opts.now)}`);
