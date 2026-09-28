@@ -97,6 +97,7 @@ type agentState struct {
 	published statusKey   // the last summary handed to OnStatus (agentstatus.go)
 	prompting atomic.Bool // a prompt is being taken (ReservePrompt)
 	attachDir string      // the daemon's attachments dir (isolation off), removed with the session
+	replay    replayState // a resume's replay, logged but not published one by one (agentpage.go); under mu
 }
 
 func (st *agentState) logf(line string) {
@@ -146,7 +147,7 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	// have advertised loadSession, else 409 and the UI offers a fresh start
 	var resumeID string
 	if resume != "" {
-		meta, _, err := m.ReadHistory(HomeKey(p), resume)
+		meta, err := m.HistoryMeta(HomeKey(p), resume)
 		if err != nil {
 			return SessionInfo{}, 404, fmt.Errorf("no such past session %q", resume)
 		}
@@ -307,7 +308,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	}
 	st := &agentState{log: agent.NewLog(0, 0), perms: agent.NewPermissions(), provider: prov,
 		ready: make(chan struct{}), done: make(chan struct{}), gone: make(chan struct{}), mode: mode, status: agent.StatusStarting, resumed: resumed,
-		attachDir: attachDir}
+		attachDir: attachDir, replay: replayState{on: resumeID != ""}}
 	s := &Session{
 		ID: id, Cwd: rel, Net: o.net, cmd: cmd, kind: KindAgent, agent: st, pgid: postStart == nil, vm: o.vm,
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
@@ -376,7 +377,8 @@ func sortedKeys(m map[string]string) []string {
 	return out
 }
 
-// delta is a message/thought delta being coalesced.
+// delta is a message/thought delta being coalesced (a tool's output run:
+// agentpage.go's outRun).
 type delta struct {
 	Role        string          `json:"role,omitempty"`
 	Text        string          `json:"text"`
@@ -386,19 +388,26 @@ type delta struct {
 }
 
 // agentPump drains the driver's events into the log and the hub, merging
-// runs of message/thought deltas (flushed after deltaCoalesce or on any
-// other event) so a token burst is a few events, not hundreds — a slow
-// /ws/events subscriber would otherwise be evicted. It owns the session's
-// end: when the driver closes its channel the process is gone (or killed
-// here), and the session is torn down like a shell's.
+// runs of message/thought deltas and of a tool call's output chunks (flushed
+// after deltaCoalesce or on any other event) so a token burst or a chatty
+// command is a few events, not hundreds — a slow /ws/events subscriber
+// would otherwise be evicted, and the ring would hold minutes instead of
+// hours. It owns the session's end: when the driver closes its channel the
+// process is gone (or killed here), and the session is torn down like a
+// shell's.
 func (s *Session) agentPump(m *Manager, onExit func()) {
 	st := s.agent
 	var pend *agent.Event
 	var pd delta
+	var po outRun
 	var timer, stTimer <-chan time.Time // delta coalescing; status-change coalescing (agentstatus.go)
 	flush := func() {
 		if pend != nil {
-			pend.Data, _ = json.Marshal(pd)
+			if pend.Type == agent.EvToolUpdate {
+				pend.Data, _ = json.Marshal(po)
+			} else {
+				pend.Data, _ = json.Marshal(pd)
+			}
 			s.logEvent(m, *pend)
 			pend = nil
 		}
@@ -425,7 +434,19 @@ func (s *Session) agentPump(m *Manager, onExit func()) {
 				timer = time.After(deltaCoalesce)
 				continue
 			}
+			if o, ok := outputChunk(e); ok {
+				if pend != nil && pend.Type == agent.EvToolUpdate && po.ID == o.ID && po.Parent == o.Parent {
+					po.OutputDelta += o.OutputDelta
+					continue
+				}
+				flush()
+				e2 := e
+				pend, po = &e2, o
+				timer = time.After(deltaCoalesce)
+				continue
+			}
 			flush()
+			st.snap.expect(e) // before the event is visible: a page keeps its snapshot's call open (agentdiff.go)
 			s.logEvent(m, e)
 			st.snap.observe(e)
 			if stTimer == nil && movesStatus(e.Type) {
@@ -439,6 +460,7 @@ func (s *Session) agentPump(m *Manager, onExit func()) {
 		}
 	}
 ended:
+	s.endReplay(m)     // a replay the session never finished (agentpage.go)
 	s.publishStatus(m) // the last word before the directory's close
 	s.hub.End(termwire.Exit{})
 	s.kill() // the host and the agent go with the session, whatever ended first
@@ -505,7 +527,7 @@ func (s *Session) logEvent(m *Manager, e agent.Event) {
 		}
 	}
 	s.hub.Touch()
-	if m.OnEvent != nil {
+	if m.OnEvent != nil && !s.replayed(m, ev) {
 		m.OnEvent(s.Cwd, SessionEvent{Event: ev, User: s.homeKey, ID: s.ID})
 	}
 	if renamed {

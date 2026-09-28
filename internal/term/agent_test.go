@@ -554,15 +554,37 @@ func TestAgentHistoryAndResume(t *testing.T) {
 		t.Fatalf("resumed row: %+v", info2)
 	}
 	<-r.change // open
+	// the replay is logged, but the hub hears it as one `replayed` event
+	// (D130) — then the idle status; no replayed entry goes out on its own
+	var live []SessionEvent
 	e := r.until(t, func(e SessionEvent) bool {
-		return e.ID == info2.ID && e.Type == agent.EvMessageDelta && edata(e.Event)["role"] == "user"
+		live = append(live, e)
+		return e.ID == info2.ID && e.Type == agent.EvReplayed
 	})
-	if txt, _ := edata(e.Event)["text"].(string); !strings.Contains(txt, "resumed fake-1") {
-		t.Fatalf("the earlier turns replay into the new session: %q", txt)
+	for _, x := range live {
+		if x.ID == info2.ID && x.Type != agent.EvStatus && x.Type != agent.EvReplayed {
+			t.Fatalf("a replayed %s went out on the hub", x.Type)
+		}
+	}
+	rp := edata(e.Event)
+	first, _ := rp["first"].(float64)
+	last, _ := rp["last"].(float64)
+	if e.Seq != 0 || first < 1 || last < first {
+		t.Fatalf("replayed: seq %d, %v", e.Seq, rp)
 	}
 	r.until(t, func(e SessionEvent) bool {
 		return e.ID == info2.ID && e.Type == agent.EvStatus && edata(e.Event)["status"] == agent.StatusIdle
 	})
+	evs2, _, _, _ := m.AgentEvents(info2.ID, 0)
+	replayedPrompt := ""
+	for _, x := range evs2 {
+		if x.Type == agent.EvMessageDelta && edata(x)["role"] == "user" && x.Seq >= uint64(first) && x.Seq <= uint64(last) {
+			replayedPrompt, _ = edata(x)["text"].(string)
+		}
+	}
+	if !strings.Contains(replayedPrompt, "resumed fake-1") {
+		t.Fatalf("the earlier turns replay into the new session's log: %q", replayedPrompt)
+	}
 	// resuming on another tile, or an unknown entry, is refused
 	if _, code, _ := m.OpenAgent(owner, "apps/y", "", "", "", "", id, nil); code != 400 && code != 403 {
 		t.Fatalf("resume on another tile: %d", code)
@@ -698,9 +720,15 @@ func TestAgentRestart(t *testing.T) {
 	if err != nil || !resumed || again.ID == fresh.ID || !again.API {
 		t.Fatalf("resumed restart: %+v resumed=%v %v", again, resumed, err)
 	}
-	r.until(t, func(e SessionEvent) bool {
-		return e.ID == again.ID && e.Type == agent.EvMessageDelta && strings.Contains(fmt.Sprint(edata(e.Event)["text"]), "resumed")
-	})
+	r.until(t, func(e SessionEvent) bool { return e.ID == again.ID && e.Type == agent.EvReplayed }) // the replay: one hub event (D130)
+	replayedText := ""
+	evs, _, _, _ := m.AgentEvents(again.ID, 0)
+	for _, e := range evs {
+		replayedText += fmt.Sprint(edata(e)["text"])
+	}
+	if !strings.Contains(replayedText, "resumed") {
+		t.Fatalf("the replayed turn is not in the resumed session's log: %q", replayedText)
+	}
 	// restarted again before any new prompt: that session was never saved, but
 	// the one it reopened was — the conversation still carries on
 	third, resumed, _, err := m.RestartAgent(owner, again.ID, "internet", "", true, nil)

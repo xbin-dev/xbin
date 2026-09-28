@@ -1124,7 +1124,13 @@ GET    /term/sessions/<id>/events creator or admin. ?since=<seq> → {events,
                                    next, truncated}; ?follow=1 streams NDJSON
                                    from the cursor until the client or the
                                    session goes (§Agent session events); its
-                                   head is sent at once, before any event
+                                   head is sent at once, before any event.
+                                   ?before=<seq>&limit=<n> (either one) → a
+                                   page instead: {events, hasOlder,
+                                   nextBefore, truncated, next, last, state}
+                                   — the tail (no before) or the events
+                                   before a seq, cut where a fold may start
+                                   (§Agent session events → Pages)
 POST   /term/sessions/<id>/options
                                    creator or admin. {id, value}: change a
                                    setting the agent advertised (model,
@@ -1168,7 +1174,9 @@ GET    /agent/history             terminal-level. Your past agent sessions,
                                    deployment
 GET    /agent/history/<id>/events terminal-level (own). {meta, events} — the
                                    persisted transcript in the live /events
-                                   shape; 404 when not yours or gone
+                                   shape; 404 when not yours or gone.
+                                   ?before=&limit= → {meta, …a page} as on a
+                                   live session
 DELETE /agent/history/<id>        terminal-level (own) → 204 (forget it)
 GET    /prefs                     the caller's per-(user×tile) prefs object
 GET    /prefs/<key>               one pref value (arbitrary JSON) | 404
@@ -4707,13 +4715,46 @@ replay and applies live events by `seq`; on a skipped `seq`, a socket
 reconnect, or a tab becoming visible it re-fetches `?since=<last>` (the
 hub drops a slow subscriber rather than queue for it).
 
+A resumed session's replay (the agent's `session/load` streams the earlier
+turns back while the session is `starting`) is logged like any events but
+not published one by one: when it is over, the hub carries one `session`
+event `{seq:0, type:"replayed", data:{first, last}}` (the replayed seqs),
+then the status that ended it. Re-read the tail (a page, or `?since=`) on
+it. A client that ignores it still catches up: the status after it skips
+`seq`s (xbind before 2026-09-28 published each replayed entry).
+
+**Pages** (D130). A client need not replay the whole log (up to 5000
+events): `?limit=<n>` (default 200, at most 5000) is the tail page,
+`?before=<seq>&limit=<n>` the page before a seq — pass the previous page's
+`nextBefore`. Either parameter selects a page; without both the replay
+above is unchanged. A page is cut where a fold may start: never inside a
+message or thought run, a tool call and its updates (and a subagent's
+calls and text under it), a request and its answer, a turn's plan, or a
+turn's end and its `files.changed` — nor after anything that may still
+change (the running turn's unfinished calls and unanswered requests, the
+text being written, a snapshot not yet reported). So folding the pages
+one by one gives the blocks the whole log gives; a card longer than
+`limit` makes its page longer. `{events, hasOlder, nextBefore, truncated,
+next, last, state}`: `hasOlder` the ring holds events before the page,
+`nextBefore` its first seq (0 when none), `truncated` the oldest page of a
+ring that dropped earlier events, `next` its newest seq (the tail page's
+is the follow cursor), `last` the log's newest. `state` is what a fold
+holds before the page: `status` (a status event's data — the last status
+before the page, with `status`, `detail`, `currentMode`, `options`,
+`modes` and `commands` each from the latest status that carried it: fold
+it first, as a status event), `usage` and `turn` of the last `turn.end`
+before it, and on the tail page of a live session the `permissions` and
+`elicitations` waiting now (they are in its events too). An older xbind
+ignores both parameters and answers the whole replay — a client tells
+them apart by `hasOlder`.
+
 | type | data |
 |---|---|
 | `message.delta` | `{role:"user"\|"agent", text, messageId?, parent?, attachments?}` — a prompt is logged as one `user` delta, so every client sees it, with `attachments:[{name, mime, size, inline?}]` when it carried files (their bytes are not logged; `inline` true when the model got it with the prompt — an image block, an embedded text — else it is a file the agent was pointed at); agent text arrives in runs (a burst of tokens is coalesced into a few events); `parent` is the subagent tool call (`tool.call` with `subagent`) the text came from |
 | `thought.delta` | `{text, parent?}` — the agent's reasoning, when it shares it |
 | `plan` | `{entries:[{content, priority, status}]}` — the whole list, replacing the last |
 | `tool.call` | `{id, title, kind, status, content?, locations?, rawInput?, rawOutput?, name?, label?, parent?, subagent?, planReview?, output?, outputDelta?, exitCode?}` — kind: read \| edit \| delete \| move \| search \| execute \| think \| fetch \| switch_mode \| other; content items are `{type:"content", content:{type:"text", text}}` (often markdown — the adapters fence command output), `{type:"diff", path, oldText, newText}` or `{type:"terminal", terminalId}`. The rest is lifted from the adapter's `_meta` so a client needs no per-agent code: `name` the tool's own name (`Bash`, `ExitPlanMode`, …); `label` a human headline for the call when the harness wrote one (Claude's description of a shell command — the `title` is the command); `parent` the subagent call this one runs under; `subagent` true on a subagent (Task/Agent) call itself; `planReview` true on Codex's plan approval; `outputDelta` a chunk of a shell command's output (append), `output` its whole output (replace), `exitCode` its exit status |
-| `tool.update` | `{id, …}` — a partial update of that call (`status`: pending \| in_progress \| completed \| failed \| cancelled); `content`/`locations` replace, `outputDelta` appends to the output, `output` replaces it |
+| `tool.update` | `{id, …}` — a partial update of that call (`status`: pending \| in_progress \| completed \| failed \| cancelled); `content`/`locations` replace, `outputDelta` appends to the output, `output` replaces it; a command's output chunks arrive in runs (`{id, outputDelta, parent?}` updates of one call are coalesced like the agent's text) |
 | `permission.request` | `{pid, toolCall:{id, title, kind, rawInput?, content?}, options:[{optionId, name, kind}], rule:{kind, title, scoped}, meta?}` — kind: allow_once \| allow_always \| reject_once \| reject_always; answer on `POST …/permissions/<pid>`. `rule` is what "allow for the session" would remember (`scoped:false` = no session rule is possible and the clients hide that choice: the call has neither kind nor title, or it is a `switch_mode` — a plan approval, whose allow_always options are modes, never remembered); `meta` is the adapter's presentation hint when it sends one (`{title, description, defaultToNo}`) |
 | `files.changed` | `{toolCallId?, turn?, changes:[{path, oldPath?, status, add, del, binary?}], patch:{format:"git_patch", text, truncated}}` — what a finished tool call (`toolCallId`) or a whole turn (`turn`, after its `turn.end`) changed in the tile, from snapshots of the work tree (tiles that are git repos; the tile's own repo, index and HEAD are never touched). status: added \| modified \| deleted \| renamed \| typechange; `patch` is a git patch capped at 64 KiB per call, 192 KiB per turn (`truncated`) — `GET …/diff?toolCallId=|turn=` serves the whole of it (and one file of it) while the session lives. Not sent for edit/delete/move/read/search calls (an edit reports its own diff) nor when nothing changed |
 | `elicitation.request` | `{eid, toolCallId?, message, schema}` — the agent asks the user a question (ACP `elicitation/create`, form mode — Claude's AskUserQuestion, an MCP server's form); the session is `waiting_permission` until one client answers on `POST …/elicitations/<eid>`. `schema` is a flat JSON Schema object: a `oneOf`/`enum` string is a single choice (options `{const, title, description?}`), an array of `anyOf`/`enum` items is a multi-choice, plus plain string/number/integer/boolean fields; a string field whose `_meta._askUserQuestionCustomAnswer.questionId` names another field is that question's free-text "Other" answer. Cancelling the turn answers `cancel` |

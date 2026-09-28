@@ -4767,3 +4767,43 @@ Deviations and refinements made while implementing; all deliberate:
     git on the tile's repository host-side to read the branch (D78);
     pinning a paused target to a capture of the other branch's work tree;
     letting xbind switch to existing branches.
+
+- **D130 — Long agent conversations: the log pages, the client holds a
+  window of it (2026-09-28).** internal/agent/page.go, internal/term/
+  agentpage.go; docs/protocol.md §Agent session events → Pages. Amends
+  D124, which windowed only the DOM and held the whole log. E3/E4 (the app,
+  the agent template) build on this entry.
+  - **Why.** Every open replayed the whole ring (5000 events / 8 MiB), and
+    the web tab and the app folded and held all of it however little was on
+    screen; a resume published each replayed event on `/ws/events`, whose
+    64-event buffer then evicted every subscriber; a chatty command logged
+    one event per output chunk; listing past sessions parsed every
+    transcript whole.
+  - **Chosen.** (1) `…/events?before=&limit=` (and on a past session's
+    `/agent/history/{id}/events`) returns a page cut at a **safe cut**: the
+    server replays the fold's bookkeeping (`safeCuts`: which event opened
+    the card each later event lands on) and never starts a page inside a
+    card, nor after anything still open — the text being written, the
+    running turn's unfinished calls and unanswered requests and plan, and a
+    snapshot the daemon has not reported yet (the snapper marks it before
+    the event that asks for it is logged). So pages fold one by one to
+    exactly the whole-log blocks. Each page carries a state header — the
+    fold's status digest and the last turn's usage/number as of its first
+    event, and on a live tail the waiting requests — so a client can start
+    from the tail. Parameters are additive: `?since=` is byte-for-byte
+    unchanged, an old xbind ignores them (clients detect `hasOlder`).
+    (2) `tool.update` runs of bare `{id, outputDelta, parent?}` coalesce
+    over 32 ms like message deltas (appending twice is appending once).
+    (3) A resume's replay is logged but not published one by one: one
+    `replayed` hub event `{seq:0, first, last}`, then the status that ended
+    it. Old clients drop a seq-0 event and catch up on the next seq gap —
+    the web and the app already refetch on one. It also stops replayed
+    prompts from starting Live Activities. (4) `ListHistory` (and resume)
+    read a history file's head — `meta` is written first — with a streaming
+    decoder; files written with events first still read.
+  - **Not chosen:** cuts only at turn boundaries (one long agentic turn is
+    thousands of events — the tail would be the whole turn); client-computed
+    cuts (the client cannot see the snapshots still to come); a
+    `files.changed` late-attachment list per page (safe cuts make it
+    unnecessary); a history sidecar file (a second file per entry to keep in
+    step, for what the head already gives).

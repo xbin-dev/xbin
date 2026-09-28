@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -53,7 +54,7 @@ func TestAgentRoutesGates(t *testing.T) {
 		{"POST", "/term/sessions/nope/prompt", `{"text":"hi"}`}, {"POST", "/term/sessions/nope/cancel", ""},
 		{"POST", "/term/sessions/nope/permissions/p1", `{"decision":"allow_once"}`}, {"POST", "/term/sessions/nope/options", `{"id":"model","value":"x"}`},
 		{"POST", "/term/sessions/nope/elicitations/e1", `{"action":"accept","content":{}}`}, {"GET", "/term/sessions/nope/diff?turn=1", ""},
-		{"DELETE", "/term/sessions/nope", ""}} {
+		{"DELETE", "/term/sessions/nope", ""}, {"GET", "/term/sessions/nope/events?limit=10", ""}, {"GET", "/term/sessions/nope/events?before=5", ""}} {
 		if c, b := do(alice, r[0], r[1], r[2]); c != 404 {
 			t.Fatalf("%s %s: %d %s", r[0], r[1], c, b)
 		}
@@ -127,6 +128,39 @@ func TestAgentHistoryRoutes(t *testing.T) {
 	}
 	if c, _ := do(alice, "GET", "/agent/history/nope/events", ""); c != 404 {
 		t.Fatalf("unknown: %d", c)
+	}
+	// without before/limit: exactly the old shape; with them, a page (D130)
+	var whole map[string]json.RawMessage
+	if c, b := do(alice, "GET", "/agent/history/h1/events?since=0", ""); c != 200 || json.Unmarshal([]byte(b), &whole) != nil || len(whole) != 2 || whole["meta"] == nil || whole["events"] == nil {
+		t.Fatalf("the unpaged transcript: %d %s", c, b)
+	}
+	longID := "h3"
+	dir := filepath.Join(s.Term.Root, "data", "agent-history", "alice", util.CompKey("apps/x"))
+	evs := `{"seq":1,"ts":1,"type":"status","data":{"status":"idle","options":[{"id":"model"}]}}`
+	for i := 0; i < 5; i++ {
+		evs += fmt.Sprintf(`,{"seq":%d,"ts":1,"type":"message.delta","data":{"role":"user","text":"p%d"}},{"seq":%d,"ts":1,"type":"turn.end","data":{"turn":%d,"stopReason":"end_turn"}}`, 2*i+2, i, 2*i+3, i+1)
+	}
+	if err := os.WriteFile(filepath.Join(dir, longID+".json"), []byte(`{"meta":{"id":"h3","cwd":"apps/x","provider":"claude","created":"x","ended":"y","turns":5,"loadable":false},"events":[`+evs+`]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var page struct {
+		Meta       term.HistoryMeta `json:"meta"`
+		Events     []agent.Event    `json:"events"`
+		HasOlder   bool             `json:"hasOlder"`
+		NextBefore uint64           `json:"nextBefore"`
+		Next, Last uint64
+		State      agent.PageState `json:"state"`
+	}
+	if c, b := do(alice, "GET", "/agent/history/h3/events?limit=3", ""); c != 200 || json.Unmarshal([]byte(b), &page) != nil || page.Meta.ID != "h3" ||
+		len(page.Events) != 3 || page.Events[0].Seq != 9 || !page.HasOlder || page.NextBefore != 9 || page.Last != 11 || page.State.Turn != 3 ||
+		!strings.Contains(string(page.State.Status), `"options":[{"id":"model"}]`) {
+		t.Fatalf("the tail page: %d %s", c, b)
+	}
+	if c, b := do(alice, "GET", "/agent/history/h3/events?before=9&limit=100", ""); c != 200 || json.Unmarshal([]byte(b), &page) != nil || len(page.Events) != 8 || page.HasOlder {
+		t.Fatalf("the older page: %d %s", c, b)
+	}
+	if c, _ := do(bob, "GET", "/agent/history/h3/events?limit=3", ""); c != 403 {
+		t.Fatalf("a page is gated like the transcript: %d", c)
 	}
 	// resume: the provider comes from the entry; every gate passes and creation stops at the missing bx
 	if c, b := do(alice, "POST", "/term/sessions", `{"cwd":"apps/x","kind":"agent","resume":"h1"}`); c != 503 || !strings.Contains(b, "bx binary") {

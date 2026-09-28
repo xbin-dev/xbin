@@ -64,7 +64,8 @@ func New(typ string, data any) Event {
 // bytes, replayable by cursor. In memory — sessions die with the daemon.
 type Log struct {
 	mu       sync.Mutex
-	events   []Event // oldest first
+	events   []Event  // oldest first
+	metas    []evMeta // events[i]'s cut-finder view, parsed on the first Page (page.go)
 	bytes    int
 	next     uint64
 	maxCount int
@@ -96,6 +97,9 @@ func (l *Log) Append(e Event) Event {
 	for len(l.events) > 1 && (len(l.events) > l.maxCount || l.bytes > l.maxBytes) {
 		l.bytes -= len(l.events[0].Data) + 48
 		l.events = l.events[1:]
+		if len(l.metas) > 0 {
+			l.metas = l.metas[1:]
+		}
 	}
 	ws := l.waiters
 	l.waiters = nil

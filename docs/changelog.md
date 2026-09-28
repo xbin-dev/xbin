@@ -47,6 +47,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `branches/1`. `bx agent ls|history --tile`, `bx owner`, `bx access`,
   `bx backups` and `bx backup-schedule --rm` now escape a tile path holding
   `+` in their queries (it read as a space).
+- **Agent sessions: the log pages** (D130; [protocol.md](protocol.md)
+  §Agent session events → Pages). `GET /api/xbin/term/sessions/<id>/events`
+  and `GET /api/xbin/agent/history/<id>/events` take `?limit=<n>` (the tail
+  page) and `?before=<seq>&limit=<n>` (the page before a seq): `{events,
+  hasOlder, nextBefore, truncated, next, last, state}`, cut where a fold may
+  start, with the status digest a fold starts from. Without them nothing
+  changed. A command's streamed output (`tool.update` `outputDelta`) is now
+  coalesced into runs like the agent's text — fold it as before (append). A
+  resumed session's replay no longer rides `/ws/events` one `session` event
+  per entry: one `{seq:0, type:"replayed", data:{first, last}}` event says
+  it is over — re-read the tail (a page or `?since=`); a client that
+  ignores it catches up on the next skipped seq. Listing past sessions
+  reads only each file's head.
 - **VM tile sandboxes and VM-only coding sandboxes by default.** A VM
   policy saved before tile sandboxes existed (no `tiles` field — the
   installer's policies until v0.3.60) now reads `tiles` as following

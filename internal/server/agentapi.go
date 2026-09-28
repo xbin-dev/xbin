@@ -232,7 +232,8 @@ func (s *Server) apiAgentHistory(w http.ResponseWriter, r *http.Request) {
 }
 
 // apiAgentHistoryEvents is a past session's transcript, {meta, events} in
-// the live /events shape so the same client renders it.
+// the live /events shape so the same client renders it; ?before=&limit=
+// asks for a page of it, as on a live session (D130).
 func (s *Server) apiAgentHistoryEvents(w http.ResponseWriter, r *http.Request) {
 	homeKey, may, ok := s.historyScope(w, r)
 	if !ok {
@@ -243,6 +244,14 @@ func (s *Server) apiAgentHistoryEvents(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusNotFound, "no such past session")
 		return
 	}
+	q := r.URL.Query()
+	if before, limit, paged := agent.ParsePageQuery(q.Get("before"), q.Get("limit"), q.Has); paged {
+		WriteJSON(w, http.StatusOK, struct {
+			Meta term.HistoryMeta `json:"meta"`
+			agent.Page
+		}{meta, agent.PageOf(evs, nil, before, limit, agent.Open{})})
+		return
+	}
 	WriteJSON(w, http.StatusOK, map[string]any{"meta": meta, "events": evs})
 }
 
@@ -251,7 +260,7 @@ func (s *Server) apiAgentHistoryDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	meta, _, err := s.Term.ReadHistory(homeKey, r.PathValue("id"))
+	meta, err := s.Term.HistoryMeta(homeKey, r.PathValue("id"))
 	if err != nil || (may != nil && !may(meta.Cwd)) {
 		apiErr(w, http.StatusNotFound, "no such past session")
 		return
@@ -467,12 +476,25 @@ func (s *Server) apiAgentSetOption(w http.ResponseWriter, r *http.Request) {
 
 // apiAgentEvents replays the log after ?since= (0 = all), or with
 // ?follow=1 streams it as NDJSON until the client or the session goes.
+// ?before=&limit= (either) asks for a page instead (D130): the tail, or the
+// events before a seq, cut where the clients' folds allow, with the state a
+// fold starts from.
 func (s *Server) apiAgentEvents(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.drive(w, r)
 	if !ok {
 		return
 	}
-	since, _ := strconv.ParseUint(r.URL.Query().Get("since"), 10, 64)
+	q := r.URL.Query()
+	since, _ := strconv.ParseUint(q.Get("since"), 10, 64)
+	if before, limit, paged := agent.ParsePageQuery(q.Get("before"), q.Get("limit"), q.Has); paged && q.Get("follow") != "1" {
+		p, err := s.Term.AgentPage(id, before, limit)
+		if err != nil {
+			apiErr(w, agentStatus(err), err.Error())
+			return
+		}
+		WriteJSON(w, http.StatusOK, p)
+		return
+	}
 	if r.URL.Query().Get("follow") != "1" {
 		evs, next, truncated, err := s.Term.AgentEvents(id, since)
 		if err != nil {

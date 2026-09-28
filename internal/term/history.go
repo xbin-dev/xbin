@@ -15,6 +15,7 @@ package term
 
 import (
 	"encoding/json"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -129,18 +130,43 @@ func firstPrompt(evs []agent.Event) string {
 	return ""
 }
 
+// readHistoryMeta reads a past session's meta — the file's head: saveHistory
+// writes {"meta":…,"events":[…]} in that order, so listing a tile's twenty
+// sessions reads twenty metas, not twenty transcripts of up to 8 MiB each
+// (D130). A file with its events first still reads, the slow way.
 func readHistoryMeta(path string) (HistoryMeta, bool) {
-	bts, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return HistoryMeta{}, false
 	}
-	var f struct {
-		Meta HistoryMeta `json:"meta"`
-	}
-	if json.Unmarshal(bts, &f) != nil || f.Meta.ID == "" {
+	defer f.Close()
+	return historyMetaFrom(f)
+}
+
+func historyMetaFrom(r io.Reader) (HistoryMeta, bool) {
+	dec := json.NewDecoder(r)
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
 		return HistoryMeta{}, false
 	}
-	return f.Meta, true
+	for dec.More() {
+		k, err := dec.Token()
+		if err != nil {
+			return HistoryMeta{}, false
+		}
+		if k != "meta" {
+			var skip json.RawMessage
+			if dec.Decode(&skip) != nil {
+				return HistoryMeta{}, false
+			}
+			continue
+		}
+		var meta HistoryMeta
+		if dec.Decode(&meta) != nil || meta.ID == "" {
+			return HistoryMeta{}, false
+		}
+		return meta, true
+	}
+	return HistoryMeta{}, false
 }
 
 // ListHistory is a user's past sessions, newest first — all tiles, or one
@@ -186,6 +212,19 @@ func (m *Manager) historyPath(homeKey, id string) (string, error) {
 		return "", ErrNoSession
 	}
 	return matches[0], nil
+}
+
+// HistoryMeta is one past session's meta alone (the file's head).
+func (m *Manager) HistoryMeta(homeKey, id string) (HistoryMeta, error) {
+	path, err := m.historyPath(homeKey, id)
+	if err != nil {
+		return HistoryMeta{}, err
+	}
+	meta, ok := readHistoryMeta(path)
+	if !ok {
+		return HistoryMeta{}, ErrNoSession
+	}
+	return meta, nil
 }
 
 // ReadHistory is one past session: its meta and full transcript.

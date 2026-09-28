@@ -62,7 +62,7 @@ func (m *Manager) RestartAgentOnto(p auth.Principal, id, net, gpu string, api bo
 	// prompt (never saved), the past session it had itself reopened
 	resume := ""
 	for _, cand := range []string{id, reopened} {
-		if meta, _, err := m.ReadHistory(HomeKey(p), cand); cand != "" && err == nil && meta.Loadable && meta.ACPSessionID != "" {
+		if meta, err := m.HistoryMeta(HomeKey(p), cand); cand != "" && err == nil && meta.Loadable && meta.ACPSessionID != "" {
 			resume = cand
 			break
 		}

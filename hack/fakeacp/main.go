@@ -35,6 +35,9 @@
 //	write       fs/write_text_file <cwd>/fake-wrote.txt
 //	slow        ten chunks 200 ms apart (cancel lands mid-turn)
 //	burst       fifty one-character chunks back to back (the daemon coalesces them)
+//	chatty N    (a prefix) an execute call whose output streams as N
+//	            _meta.terminal_output_delta chunks back to back (the daemon
+//	            coalesces them), then completes
 //	long N      (a prefix) N units back to back, a long transcript for the
 //	            Agent tab's windowing (D124): a markdown message (heading,
 //	            list, code fence), an edit tool_call carrying a ~30-line diff,
@@ -276,6 +279,17 @@ func (f *fake) turn(text string, files []string, cancel chan struct{}) {
 	case strings.Contains(text, "crash"):
 		f.say("going down")
 		os.Exit(3)
+	case strings.HasPrefix(text, "chatty"):
+		n := 200
+		fmt.Sscanf(strings.TrimPrefix(text, "chatty"), "%d", &n)
+		f.update(map[string]any{"sessionUpdate": acp.UpToolCall, "toolCallId": "chatty", "title": "yes | head", "kind": "execute", "status": "in_progress"})
+		for i := 1; i <= n; i++ {
+			f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": "chatty",
+				"_meta": map[string]any{"terminal_output_delta": map[string]any{"terminal_id": "chatty", "data": fmt.Sprintf("line %d\n", i)}}})
+		}
+		f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": "chatty", "status": "completed",
+			"_meta": map[string]any{"terminal_exit": map[string]any{"terminal_id": "chatty", "exit_code": 0}}})
+		f.say(fmt.Sprintf("chatty: %d lines", n))
 	case strings.HasPrefix(text, "long"):
 		n := 100
 		fmt.Sscanf(strings.TrimPrefix(text, "long"), "%d", &n)

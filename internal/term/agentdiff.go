@@ -66,6 +66,17 @@ type diffJob struct {
 	done chan struct{} // sync: closed when the jobs before it ran
 }
 
+// key names a tool's or a turn's job in snapper.pending.
+func (j diffJob) key() string {
+	switch j.what {
+	case "tool":
+		return "tool:" + j.id
+	case "turn":
+		return "turn:" + strconv.FormatInt(j.turn, 10)
+	}
+	return ""
+}
+
 // snapper is one session's snapshotter: an ordered worker, so snapshots
 // happen in event order off the pump.
 type snapper struct {
@@ -77,6 +88,7 @@ type snapper struct {
 	closed  bool
 	off     bool                 // a snapshot failed: no more diffs this session
 	ranges  map[string]diffRange // "tool:<id>" | "turn:<n>" → its trees, for the full patch (agentdiff_full.go); under mu
+	pending map[string]int       // "tool:<id>" | "turn:<n>" → its snapshots not yet reported (a page never cuts across one); under mu
 	rorder  []string             // ranges' keys, oldest first (the bound)
 	kinds   map[string]string    // tool id → kind (pump goroutine only)
 	settled map[string]bool      // tool ids already snapshotted
@@ -97,7 +109,7 @@ func newSnapper(work string, emit func(agent.Event)) *snapper {
 		return nil
 	}
 	s := &snapper{work: work, gitDir: gd, emit: emit, jobs: make(chan diffJob, 128), kinds: map[string]string{}, settled: map[string]bool{},
-		ranges: map[string]diffRange{}, full: make(chan struct{}, 1), stopped: make(chan struct{})}
+		ranges: map[string]diffRange{}, pending: map[string]int{}, full: make(chan struct{}, 1), stopped: make(chan struct{})}
 	ctx, cancel := context.WithTimeout(context.Background(), diffTimeout)
 	defer cancel()
 	if _, err := s.git(ctx, "init", "-q", "--bare", gd); err != nil || os.WriteFile(filepath.Join(gd, "xbin-excludes"), []byte(defaultExcludes), 0o600) != nil {
@@ -134,8 +146,57 @@ func (s *snapper) enqueue(j diffJob) {
 	}
 	select {
 	case s.jobs <- j:
+		if k := j.key(); k != "" {
+			s.pending[k]++
+		}
 	default: // backed up: this job's changes fold into the next one's diff
 	}
+}
+
+// expect marks the snapshot an event is about to ask for (observe enqueues
+// it) BEFORE the event is logged: a page of the log (agent.Open) must not be
+// cut between a tool call's end and the files.changed its snapshot reports.
+// The pump goroutine, like observe. The mark is dropped by observe.
+func (s *snapper) expect(e agent.Event) {
+	if s == nil {
+		return
+	}
+	if k := s.jobFor(e).key(); k != "" {
+		s.mu.Lock()
+		s.pending[k]++
+		s.mu.Unlock()
+	}
+}
+
+// settle drops a pending mark (the job ran, was dropped, or never came).
+func (s *snapper) settle(k string) {
+	if k == "" {
+		return
+	}
+	s.mu.Lock()
+	if s.pending[k]--; s.pending[k] <= 0 {
+		delete(s.pending, k)
+	}
+	s.mu.Unlock()
+}
+
+// Open is what a page must keep open: the calls and turns whose snapshot
+// is still to be reported.
+func (s *snapper) Open() agent.Open {
+	o := agent.Open{Tools: map[string]bool{}, Turns: map[uint64]bool{}}
+	if s == nil {
+		return o
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k := range s.pending {
+		if id, ok := strings.CutPrefix(k, "tool:"); ok {
+			o.Tools[id] = true
+		} else if n, err := strconv.ParseUint(strings.TrimPrefix(k, "turn:"), 10, 64); err == nil {
+			o.Turns[n] = true
+		}
+	}
+	return o
 }
 
 // turnStart snapshots the base of a turn (the user may have edited between
@@ -156,32 +217,51 @@ func (s *snapper) observe(e agent.Event) {
 	if s == nil {
 		return
 	}
+	j := s.jobFor(e)
+	switch e.Type {
+	case agent.EvToolCall, agent.EvToolUpdate:
+		var d struct{ ID, Kind string }
+		if json.Unmarshal(e.Data, &d) == nil && d.ID != "" && d.Kind != "" {
+			s.kinds[d.ID] = d.Kind
+		}
+		if j.what == "" {
+			return
+		}
+		s.settled[j.id] = true
+		k := s.kinds[j.id]
+		// edit/delete/move calls carry their own diff; a read or a search
+		// changes nothing worth a card (still snapshotted: the tree advances)
+		j.emit = k != "edit" && k != "delete" && k != "move" && k != "read" && k != "search"
+	case agent.EvTurnEnd:
+		s.kinds, s.settled = map[string]string{}, map[string]bool{} // ids may be reused next turn
+	}
+	if j.what != "" {
+		s.enqueue(j)
+		s.settle(j.key()) // expect's mark: the queued job holds its own now
+	}
+}
+
+// jobFor is the snapshot an event asks for: a tool call's terminal status
+// (once per call), a turn's end; the zero job for anything else.
+func (s *snapper) jobFor(e agent.Event) diffJob {
 	switch e.Type {
 	case agent.EvToolCall, agent.EvToolUpdate:
 		var d struct{ ID, Kind, Status string }
 		if json.Unmarshal(e.Data, &d) != nil || d.ID == "" {
-			return
-		}
-		if d.Kind != "" {
-			s.kinds[d.ID] = d.Kind
+			return diffJob{}
 		}
 		switch d.Status {
 		case "completed", "failed", "cancelled":
-			if s.settled[d.ID] {
-				return
+			if !s.settled[d.ID] {
+				return diffJob{what: "tool", id: d.ID}
 			}
-			s.settled[d.ID] = true
-			k := s.kinds[d.ID]
-			// edit/delete/move calls carry their own diff; a read or a search
-			// changes nothing worth a card (still snapshotted: the tree advances)
-			s.enqueue(diffJob{what: "tool", id: d.ID, emit: k != "edit" && k != "delete" && k != "move" && k != "read" && k != "search"})
 		}
 	case agent.EvTurnEnd:
 		var d struct{ Turn int64 }
 		_ = json.Unmarshal(e.Data, &d)
-		s.kinds, s.settled = map[string]string{}, map[string]bool{} // ids may be reused next turn
-		s.enqueue(diffJob{what: "turn", turn: d.Turn})
+		return diffJob{what: "turn", turn: d.Turn}
 	}
+	return diffJob{}
 }
 
 // syncFor waits until the queued jobs ran, at most d.
@@ -232,6 +312,7 @@ func (s *snapper) run() {
 			continue
 		}
 		if off {
+			s.settle(j.key())
 			continue
 		}
 		tree, err := s.snapshot()
@@ -241,6 +322,7 @@ func (s *snapper) run() {
 			s.mu.Lock()
 			s.off = true
 			s.mu.Unlock()
+			s.settle(j.key())
 			continue
 		}
 		from := s.prev
@@ -264,6 +346,7 @@ func (s *snapper) run() {
 			}
 			s.base = tree
 		}
+		s.settle(j.key()) // reported (logged) or nothing to report
 	}
 }
 

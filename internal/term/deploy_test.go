@@ -558,9 +558,17 @@ func TestTargetProtectedPrimary(t *testing.T) {
 		t.Fatalf("protecting restarted %d and ended %d, want 1 and 1", re, end)
 	}
 	moved := waitRow(t, m, func(si SessionInfo) bool { return si.ID != named.ID && si.Kind == KindAgent && si.Deployment == "dev" })
-	r.until(t, func(e SessionEvent) bool {
-		return e.ID == moved.ID && e.Type == agent.EvMessageDelta && strings.Contains(stringOf(edata(e.Event)["text"]), "resumed")
-	})
+	r.until(t, func(e SessionEvent) bool { return e.ID == moved.ID && e.Type == agent.EvReplayed }) // the replay (D130)
+	if evs, _, _, _ := m.AgentEvents(moved.ID, 0); !func() bool {
+		for _, e := range evs {
+			if strings.Contains(stringOf(edata(e)["text"]), "resumed") {
+				return true
+			}
+		}
+		return false
+	}() {
+		t.Fatal("the moved session did not resume the conversation")
+	}
 	live := map[string]bool{}
 	for _, si := range m.ListFor("owner", "apps/x", nil) {
 		live[si.ID] = true
