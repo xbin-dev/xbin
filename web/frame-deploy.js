@@ -10,7 +10,10 @@
  * run of the exact request, through the frame's own dialog (f._ask), and
  * sends the state's seq with it, so what the dialog showed is what happens.
  * Grey lines in the tile's open terminals (bx-terminal note()) say when the
- * tile-wide state changes.
+ * tile-wide state changes. Assigned branches (D131): the chip's menu leads
+ * with the offers to follow a branch switch, op branch prints its own grey
+ * line (in place of the pause's), and a 409 because the work tree is on
+ * another branch asks to use it this time.
  *
  * Tile deployments (M2): the layout switcher's ⇈ opens the Deployments panel
  * (<bx-deployments>, web/bx-deploy.js); the tile API select lists one target
@@ -37,8 +40,9 @@ import * as events from '/vendor/events-socket.js';
 import { infoFor, qualifiedSrc } from '/vendor/frame-info.js';
 import {
   viewModel, chipItems, toMenu, confirmation, refusal, conflict, applyEvent, notice,
-  apiOptions, apiTitle, sessionTarget, targetChange, noTarget, deploymentFrame, keepTargets,
+  apiOptions, apiTitle, sessionTarget, targetChange, noTarget, deploymentFrame, keepTargets, shared,
 } from '/vendor/deploy-state.js';
+import * as branch from '/vendor/deploy-branch.js';
 
 export { keepTargets }; // bx-frame's listings keep each tab's target (deploy-state.js)
 
@@ -138,7 +142,7 @@ export function onDeployEvent(f, e) {
     if (a.state !== r.state) { r.state = a.state; f.requestUpdate(); }
     if (!a.refetch) return;
   } else if (d.op !== 'record' && d.op !== 'deploy' && d.op !== 'data') return;
-  if ((d.op === 'record' && (d.what || []).some((w) => NOTED.includes(w))) || (d.op === 'deploy' && (d.result === 'ok' || d.result === 'failed'))) r.queue.push(d);
+  if ((d.op === 'record' && (d.what || []).some((w) => NOTED.includes(w))) || (d.op === 'deploy' && (d.result === 'ok' || d.result === 'failed')) || d.op === 'branch') r.queue.push(d);
   clearTimeout(r.timer);
   r.timer = setTimeout(async () => {
     const evs = r.queue;
@@ -146,7 +150,9 @@ export function onDeployEvent(f, e) {
     const next = await loadDeploy(f);
     const prev = r.seen;
     r.seen = next;
-    for (const ev of evs) noteTerminals(f, prev, next, ev);
+    // a branch switch that paused live reload says so itself: its record change prints nothing more
+    const switched = evs.some((ev) => ev.op === 'branch' && ev.paused);
+    for (const ev of evs) if (!(switched && ev.op === 'record')) noteTerminals(f, prev, next, ev);
   }, 250);
 }
 
@@ -157,7 +163,7 @@ function noteTerminals(f, prev, next, ev) {
   for (const el of f.renderRoot?.querySelectorAll('bx-terminal') ?? []) {
     if (ev.session && el.getAttribute('session') === ev.session) continue;
     const target = el.getAttribute('api') === '0' ? 'off' : el.getAttribute('deployment') || 'primary';
-    const line = notice(prev, next, ev, { target, panel: true });
+    const line = ev.op === 'branch' ? branch.notice(ev, next, (n) => shared.cp(next, n)) : notice(prev, next, ev, { target, panel: true });
     if (line) el.note?.(line);
   }
 }
@@ -180,16 +186,22 @@ async function refused(f, op, error) {
   loadDeploy(f);
 }
 
-// act(f, op, deployment): pause | resume | reloadNow | attach, as the chip's
+// act(f, op, deployment, x): pause | resume | reloadNow | attach, as the chip's
 // menu, the offer and the launcher's button start it. A dry run of the exact
 // request renders the confirmation; the confirmed request carries the dry
 // run's seq (and, for Reload now, the checkpoint it showed as expect). A 409
 // because the record or the code moved loads the state and asks again with
-// the new facts; any other refusal shows the server's text verbatim.
-export async function act(f, op, deployment) {
+// the new facts; one because the work tree is on another branch than the
+// deployment requires asks to use it this time (x.other: confirm
+// "other-branch", D131); any other refusal shows the server's text
+// verbatim. op addFor (an offer: x.branch) opens the Deployments panel's add
+// form for that branch.
+export async function act(f, op, deployment, x = {}) {
   const r = rec(f);
+  if (op === 'addFor') return addFor(f, x.branch);
   if (r.busy || !OP_PATH[op]) return;
   r.busy = true;
+  let other = !!x.other;
   try {
     for (let attempt = 0; attempt < 3; attempt++) {
       const s = r.state;
@@ -197,9 +209,16 @@ export async function act(f, op, deployment) {
       const body = { tile: f.src };
       if (deployment && TAKES_DEPLOYMENT.has(op)) body.deployment = deployment;
       if (Number.isInteger(s.seq)) body.seq = s.seq;
+      if (other) body.confirm = 'other-branch';
       const dry = await post(OP_PATH[op], { ...body, dryRun: true });
       if (dry.error) {
         if (conflict(dry.status, dry.error) && attempt < 2) { await loadDeploy(f); continue; }
+        const m = !other && branch.mismatch(dry.error);
+        if (m && attempt < 2) {
+          if ((await f._ask(branch.mismatchDialog(m, dry.error)))?.button !== 'ok') return;
+          other = true;
+          continue;
+        }
         await refused(f, op, dry.error);
         return;
       }
@@ -224,6 +243,16 @@ export async function act(f, op, deployment) {
   }
 }
 
+// addFor(f, branch): "Add a deployment for <branch>…" — the Deployments
+// panel, its add form preset for that branch (D131).
+async function addFor(f, b) {
+  f._setLayout('deployments');
+  await f.updateComplete;
+  const el = f.renderRoot?.querySelector('bx-deployments');
+  await el?.updateComplete;
+  return el?.addFor?.(b);
+}
+
 // the chip's menu as <bx-menu> items: disabled items keep their reason as the
 // hint, and every item its tooltip (the sentence is cut to the row's width)
 function menuItems(f) {
@@ -234,7 +263,7 @@ function menuItems(f) {
     const t = it.title || (it.op || it.items ? '' : it.label);
     return { ...m, ...(t ? { title: t } : {}), ...(m.items ? { items: titled(it.items, m.items) } : {}) };
   });
-  return titled(items, toMenu(items, (op, dep) => act(f, op, dep)));
+  return titled(items, toMenu(items, (op, dep, it) => act(f, op, dep, it)));
 }
 function openMenu(f, e) {
   f._menu = { items: menuItems(f), anchor: e.currentTarget.getBoundingClientRect(), sheet: SHEET.matches };
@@ -402,7 +431,7 @@ export function deployTestApi(f) {
       let it = vmOf(f).items.find((x) => !x.kind && x.label === a);
       if (it && b !== undefined) it = (it.items || []).find((x) => x.label === b);
       if (!it?.enabled || !it.op) return false;
-      act(f, it.op, it.deployment);
+      act(f, it.op, it.deployment, it);
       return true;
     },
     // tab i's target from its session's echo: 'primary', a deployment's name or 'off'

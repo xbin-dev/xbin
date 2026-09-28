@@ -193,6 +193,9 @@ type op struct {
 	// for overrideDep, the deployment it makes the live reload target: its
 	// commit keeps it as that deployment's branchOverride (D131).
 	override, overrideDep string
+	// captured is each tree this op captured → the work tree's branch then,
+	// which its attempts' deploy-log entries name (D131).
+	captured map[string]string
 }
 
 // begin starts an operation the grant authorizes: a held record, or one
@@ -241,7 +244,7 @@ func actor(pr auth.Principal) string {
 // newAttempt is o's attempt of how on dep, putting tree there.
 func (o *op) newAttempt(how, dep, tree string) *attempt {
 	a := &attempt{Deployment: dep, How: how, Tree: tree, Feed: checkpoint.FeedWorkTree,
-		By: o.by, Via: o.g.P.Via, g: o.g}
+		By: o.by, Via: o.g.P.Via, g: o.g, Branch: o.captured[tree]}
 	if d := o.rec.Deployments[dep]; d != nil && d.Checkpoint != nil {
 		a.Previous = *d.Checkpoint
 	}
@@ -268,7 +271,14 @@ func (p *Plane) source(c *registry.Component) checkpoint.Source {
 // store (a tile's first opt-in, or one whose store went missing); a dry run
 // never does.
 func (p *Plane) capture(ctx context.Context, o *op, dry bool) (checkpoint.Result, error) {
-	return p.store().Capture(ctx, checkpoint.CaptureRequest{Source: p.source(o.c), By: o.by, Create: !dry})
+	res, err := p.store().Capture(ctx, checkpoint.CaptureRequest{Source: p.source(o.c), By: o.by, Create: !dry})
+	if err == nil && res.Branch != "" {
+		if o.captured == nil {
+			o.captured = map[string]string{}
+		}
+		o.captured[res.Hash] = res.Branch
+	}
+	return res, err
 }
 
 // prepareCode materializes tree for dep and, for the primary, reads what it

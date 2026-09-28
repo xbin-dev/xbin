@@ -37,12 +37,12 @@ func TestDeployLog(t *testing.T) {
 
 	long := strings.Repeat("é", 400) + "\nsecond line"
 	entries := []LogEntry{
-		{ID: 1, Deployment: "main", How: "pause", Checkpoint: c1.Hash, Feed: FeedWorkTree, By: "user:ana", Via: "session", Result: LogOK},
+		{ID: 1, Deployment: "main", How: "pause", Checkpoint: c1.Hash, Feed: FeedWorkTree, By: "user:ana", Via: "session", Result: LogOK, Branch: "main"},
 		{ID: 2, Deployment: "dev", How: "add", Checkpoint: c1.Hash, Feed: FeedWorkTree, FollowsWorkTree: true, By: "user:ana", Via: "session", Result: LogOK},
 		{ID: 3, Deployment: "main", How: "deploy", Checkpoint: c2.Hash, Previous: c1.Hash, Feed: FeedWorkTree, By: "user:ben", Via: "terminal",
 			Agent: true, Session: "s-42", Result: LogFailed, Error: "build: exit status 1\ncompiler output"},
-		{ID: 4, Deployment: "main", How: "promote", From: "dev", Checkpoint: c2.Hash, Previous: c1.Hash, Feed: FeedWorkTree, By: "user:ana", Result: LogOK},
-		{ID: 5, Deployment: "main", How: "reload-now", By: "user:ana", Result: LogFailed, Error: long}, // a refused capture: no checkpoint
+		{ID: 4, Deployment: "main", How: "promote", From: "dev", Checkpoint: c2.Hash, Previous: c1.Hash, Feed: FeedWorkTree, By: "user:ana", Result: LogOK, Branch: "feature/x"}, // D131
+		{ID: 5, Deployment: "main", How: "reload-now", By: "user:ana", Result: LogFailed, Error: long},                                                                           // a refused capture: no checkpoint
 		{ID: 6, Deployment: "dev", How: "deploy", Checkpoint: c2.Hash, Feed: FeedWorkTree, By: "user:ana", Result: LogCancelled},
 	}
 	for i := range entries {

@@ -61,7 +61,9 @@ grey lines in open terminals —
 [tile-deployments.md](/docs/tile-deployments.md)) with
 `/vendor/deploy-state.js` (its pure view model: which chip, menu items and
 tile API select entries a tile's state and a viewer's permissions yield, and
-every string they show, from `GET /api/xbin/deployments`; imports nothing),
+every string they show, from `GET /api/xbin/deployments`; imports only
+`/vendor/deploy-branch.js`, the pure words and offers of branch-assigned
+deployments),
 `/vendor/bx-deploy.js` (defines `<bx-deployments component="<tile>">`, the
 terminal window's Deployments panel: live reload, a tile's deployments,
 promotion with the diff first, the deploy log, data, vault, deliveries,

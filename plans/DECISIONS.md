@@ -4762,6 +4762,20 @@ Deviations and refinements made while implementing; all deliberate:
     decoded strictly (12-compat §10.2), so clients send the new fields only
     when `features` lists `branches/1`; bx refuses the commands that need it
     against an older xbind and drops `--other-branch` there.
+  - **(g) The terminal window** (phase 2): the offers of (d) lead the live
+    reload chip's menu and the Deployments panel's header, computed from the
+    state alone (the work tree's branch, each deployment's, the last pause's
+    actor) so a window opened later offers the same; op `branch` refetches
+    the state and prints the tile's terminals a grey line in place of the
+    pause's. No offer shows while the target takes the work tree's branch
+    this time (the user chose it). A 409 naming both branches asks "Use
+    <branch> this time" and retries with `confirm: "other-branch"`. The add
+    form's Branch control, the overview's Branch row (Set branch…, Clear
+    branch), and `⎇ <branch>` in the side list and the deploy log, whose
+    entries now name the branch their own capture was taken on (an
+    `Xbin-Branch` trailer in the deploy log; the checkpoint's first
+    capture's otherwise). The pure logic is `web/deploy-branch.js`, a leaf
+    beside deploy-state.js and deploy-panel.js.
   - **Not chosen:** routing live reload by checkout outright (B2 as
     designed: an agent's routine checkout would move a live URL); running
     git on the tile's repository host-side to read the branch (D78);

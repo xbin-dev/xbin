@@ -857,4 +857,4 @@ async function deployments(browser) {
   c.done();
 }
 
-module.exports = { deployments, resetDeploys, stateOf, post };
+module.exports = { deployments, resetDeploys, stateOf, post, openWindow, openPanel, pn, waitPanel, act, waitDialog, dialog, answer, newShell, endSessions, dropPref };

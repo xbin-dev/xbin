@@ -48,6 +48,10 @@ type LogEntry struct {
 	FinishedAt      time.Time // the entry's commit time
 	Result          string    // LogOK, LogFailed or LogCancelled
 	Error           string    // failed only: the first line, at most MaxLogError bytes
+	// Branch is the work tree's branch when this attempt captured its
+	// checkpoint (D131); "" when it captured none, or on no branch. An older
+	// xbind leaves the Xbin-Branch trailer unread.
+	Branch string
 }
 
 // The results a finished attempt has.
@@ -112,6 +116,9 @@ func (e *LogEntry) check() error {
 	case e.FinishedAt.IsZero():
 		return bad("no finish time")
 	}
+	if e.Branch != "" && !BranchNameOK(e.Branch) {
+		return bad(fmt.Sprintf("branch %q", e.Branch))
+	}
 	for name, v := range map[string]string{"feed": e.Feed, "by": e.By, "via": e.Via, "session": e.Session} {
 		if !trailerValueOK(v) {
 			return bad(fmt.Sprintf("%s %q is not a single-line value", name, v))
@@ -166,6 +173,7 @@ func logMessage(e LogEntry) string {
 	opt("Checkpoint", e.Checkpoint)
 	opt("Previous", e.Previous)
 	opt("Feed", e.Feed)
+	opt("Branch", e.Branch)
 	tr("Follows-Work-Tree", strconv.FormatBool(e.FollowsWorkTree))
 	tr("By", e.By)
 	opt("Via", e.Via)
@@ -361,6 +369,10 @@ func parseLog(out []byte) []LogEntry {
 				e.Previous = v
 			case "Feed":
 				e.Feed = v
+			case "Branch":
+				if BranchNameOK(v) {
+					e.Branch = v
+				}
 			case "Follows-Work-Tree":
 				e.FollowsWorkTree = v == "true"
 			case "By":

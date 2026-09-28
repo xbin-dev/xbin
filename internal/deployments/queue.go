@@ -71,6 +71,7 @@ type attempt struct {
 	Result          string `json:"result"`
 	Phase           string `json:"phase,omitempty"`
 	Error           string `json:"error,omitempty"`
+	Branch          string `json:"branch,omitempty"` // the work tree's branch at this attempt's capture (D131)
 	// Pointer is pointerRequest when the record's pointer was written at
 	// request time; Swapped, when the swap committed it.
 	Pointer string `json:"pointer,omitempty"`

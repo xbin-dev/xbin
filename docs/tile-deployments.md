@@ -477,8 +477,23 @@ bx live-reload                                       # each deployment's branch,
   `apps/crm already has a branch feature …`); xbind checks out nothing else.
 - `main` and the primary never have a branch: making a deployment the
   primary clears its branch. Checkpoints taken from the work tree name the
-  branch in an `Xbin-Work-Tree-Branch` trailer, and the deploy log shows it.
+  branch in an `Xbin-Work-Tree-Branch` trailer, and each deploy log entry
+  names the branch its capture was taken on.
 - An older xbind keeps the branch in the record untouched and ignores it.
+- **In the terminal window.** The Add deployment form has a **Branch**
+  control — none, the work tree's (`current (feature)`), or a new branch
+  with its name. A deployment's overview has a **Branch** row (with
+  `takes main this time` while an override holds) and **Set branch…** /
+  **Clear branch**; the side list and the deploy log show `⎇ feature`. After
+  a switch the live reload chip reads `📌 Live reload paused · ⎇ main`, and
+  its menu and the panel's header lead with the offers: **Resume live
+  reload on qa (release)** (**Attach live reload to …** while live reload
+  is still attached), **Resume live reload on dev** once you are back on its
+  branch, and with no deployment for the branch **Keep dev on main this
+  time** and **Add a deployment for main…** (the form preset: that branch,
+  live reload attached). The tile's open terminals print a grey line saying
+  the same. An operation refused because the work tree is on another branch
+  asks whether to use it this time instead of showing a bare refusal.
 
 ## Branching from what a deployment runs: `git fetch xbin-deploy`
 
@@ -791,11 +806,13 @@ protected; **`Dev API`** on the deployment the active tab's API calls and
 and **`● live reload`** on the one saves reach), **+ Add deployment…** —
 and a pane for the selected row:
 
-- **overview**: code, status, data, resources, limits, vault, deliveries,
-  alwaysOn, the URL, the `git fetch xbin-deploy` line of a pinned
-  deployment, and the actions: Deploy to, Promote, Remove, Seed, Reset, Copy
-  vault values, Set limits;
-- **deploy log**, with Roll back on its entries;
+- **overview**: code, status, the branch it requires (§Assigned branches),
+  data, resources, limits, vault, deliveries, alwaysOn, the URL, the `git
+  fetch xbin-deploy` line of a pinned deployment, and the actions: Deploy
+  to, Promote, Set branch… / Clear branch, Remove, Seed, Reset, Copy vault
+  values, Set limits;
+- **deploy log**, with Roll back on its entries and the branch each was
+  captured on;
 - **logs**; **registrations** (cron jobs and bus subscriptions active, or
   dormant while deliveries are off; interface instances and ingress hosts
   dormant off the primary; Run now; "would notify");

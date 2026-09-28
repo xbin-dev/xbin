@@ -49,7 +49,7 @@ func (a storeAdapter) Materialize(tile, tree string) (string, error) {
 func (a storeAdapter) AppendLog(ctx context.Context, tile string, e attempt) error {
 	le := checkpoint.LogEntry{ID: e.ID, Deployment: e.Deployment, How: e.How, From: e.From,
 		Checkpoint: e.Tree, Previous: e.Previous, Feed: e.Feed, FollowsWorkTree: e.FollowsWorkTree,
-		By: e.By, Via: e.Via, Agent: e.Agent, Session: e.Session, Result: e.Result, Error: e.Error}
+		By: e.By, Via: e.Via, Agent: e.Agent, Session: e.Session, Result: e.Result, Error: e.Error, Branch: e.Branch}
 	le.RequestedAt, _ = time.Parse(time.RFC3339, e.RequestedAt)
 	le.FinishedAt, _ = time.Parse(time.RFC3339, e.FinishedAt)
 	if le.Checkpoint == "" {
@@ -70,7 +70,7 @@ func (a storeAdapter) ReadLog(ctx context.Context, tile, dep string) ([]attempt,
 	for _, le := range les {
 		at := attempt{ID: le.ID, Deployment: le.Deployment, How: le.How, From: le.From,
 			Tree: le.Checkpoint, Previous: le.Previous, Feed: le.Feed, FollowsWorkTree: le.FollowsWorkTree,
-			By: le.By, Via: le.Via, Agent: le.Agent, Session: le.Session, Result: le.Result, Error: le.Error}
+			By: le.By, Via: le.Via, Agent: le.Agent, Session: le.Session, Result: le.Result, Error: le.Error, Branch: le.Branch}
 		if !le.RequestedAt.IsZero() {
 			at.RequestedAt = le.RequestedAt.UTC().Format(time.RFC3339)
 		}

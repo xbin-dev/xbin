@@ -77,9 +77,10 @@ type DeployEntry struct {
 	Result          string `json:"result"`
 	Phase           string `json:"phase,omitempty"`
 	Error           string `json:"error,omitempty"`
-	// Branch is the work tree's branch when its checkpoint was first
-	// captured (the Xbin-Work-Tree-Branch trailer, D131); absent when
-	// unknown, detached, or for a checkpoint older than the trailer.
+	// Branch is the work tree's branch when this attempt captured its
+	// checkpoint, else when the checkpoint was first captured (the
+	// Xbin-Work-Tree-Branch trailer, D131); absent when unknown, detached, or
+	// for a checkpoint older than the trailer.
 	Branch string `json:"branch,omitempty"`
 }
 
@@ -160,6 +161,9 @@ func (p *Plane) entryOf(ctx context.Context, a *attempt) DeployEntry {
 	c := *a
 	p.q.mu.Unlock()
 	id, branch := p.checkpointFacts(ctx, c.tile, c.Tree)
+	if c.Branch != "" {
+		branch = c.Branch // this attempt's own capture's; the checkpoint's first capture's otherwise
+	}
 	return DeployEntry{ID: c.ID, Deployment: c.Deployment, How: c.How, From: c.From,
 		Checkpoint: id, Previous: p.shortOf(ctx, c.tile, c.Previous),
 		FollowsWorkTree: c.FollowsWorkTree, Feed: c.Feed, By: c.By, Via: c.Via, Agent: c.Agent, Session: c.Session,

@@ -33,6 +33,13 @@
  * deliveries, alwaysOn, limits, open, reassign, protect, unprotect,
  * blockEdges), rollback/<checkpoint> and diff/<checkpoint> from the deploy
  * log, and confirm (the open review's Promote or Deploy).
+ *
+ * Assigned branches (D131, an xbind listing branches/1): the add form's
+ * Branch control, the overview's Branch row with Set branch… (branch) and
+ * Clear branch (clearBranch), the branch in the side list and the deploy
+ * log, and the header's offers to follow a branch switch — follow/<name>,
+ * keep/<name> (this time) and addFor/<branch>. A 409 because the work tree
+ * is on another branch asks to use it this time instead of a bare refusal.
  */
 import { LitElement, html, css, nothing } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
@@ -42,6 +49,7 @@ import { onEvent, onReconnect } from '/vendor/events-socket.js';
 import { qualifiedSrc } from '/vendor/frame-info.js';
 import * as dsState from '/vendor/deploy-state.js';
 import * as dsPanel from '/vendor/deploy-panel.js';
+import * as branch from '/vendor/deploy-branch.js';
 
 const ds = { ...dsState, ...dsPanel };
 
@@ -50,7 +58,7 @@ const ROUTE = {
   pause: 'live-reload/pause', resume: 'live-reload/resume', reloadNow: 'live-reload/now', attach: 'live-reload/attach',
   add: 'add', remove: 'remove', deploy: 'deploy', promote: 'promote', rollback: 'rollback', undo: 'rollback',
   primary: 'primary', protect: 'protect', unprotect: 'protect', edge: 'edge', deliveries: 'deliveries', alwaysOn: 'always-on',
-  limits: 'limits', seed: 'seed', reset: 'reset', vaultCopy: 'vault-copy', runNow: 'run-now',
+  limits: 'limits', seed: 'seed', reset: 'reset', vaultCopy: 'vault-copy', runNow: 'run-now', branch: 'branch',
 };
 const HEADER_OPS = new Set(['pause', 'resume', 'reloadNow', 'attach', 'undo']);
 const NO_DEPLOYMENT = new Set(['pause', 'reloadNow', 'promote', 'protect', 'unprotect', 'edge']);
@@ -58,9 +66,12 @@ const TABS = [['overview', 'overview'], ['log', 'deploy log'], ['logs', 'logs'],
 
 // dryConfirm(op, body): the confirm token of a data-guarded operation
 // (11-contract §1.2's table), which its dry run is judged with; {} otherwise.
+// x.other: the request takes the work tree's branch this time (D131); on add
+// beside copy-data, joined with a comma.
 const CONFIRM = { remove: 'erase', reset: 'erase-data', seed: 'copy-data', primary: 'data-stays' };
-const dryConfirm = (op, body) => {
-  const t = op === 'add' ? (body.data === 'seed' ? 'copy-data' : '') : CONFIRM[op];
+const withOther = (t, x) => (x?.other ? [t, 'other-branch'].filter(Boolean).join(',') : t);
+const dryConfirm = (op, body, x) => {
+  const t = withOther(op === 'add' ? (body.data === 'seed' ? 'copy-data' : '') : CONFIRM[op], x);
   return t ? { confirm: t } : {};
 };
 
@@ -146,6 +157,8 @@ export class BxDeployments extends LitElement {
     .pill.primary { color: var(--bx-accent, #f5a623); }
     .pill.target { color: var(--bx-green, #4caf50); }
     .pill.lr { color: var(--bx-text, #d4d9e0); }
+    .lbr { display: block; color: var(--bx-muted, #868f9a); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .offers .btn { border-color: var(--bx-accent, #f5a623); }
     .bad { color: var(--bx-red, #ef5350); }
     .st-healthy { color: var(--bx-green, #4caf50); } .st-building { color: var(--bx-accent, #f5a623); } .st-failed { color: var(--bx-red, #ef5350); }
     .main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; container: dmain / inline-size; }
@@ -299,7 +312,9 @@ export class BxDeployments extends LitElement {
     if (op === 'protect' || op === 'unprotect') b.on = op === 'protect';
     if (op === 'deliveries' || op === 'alwaysOn') b.on = !!x.on;
     if (op === 'edge') Object.assign(b, { edge: x.edge, policy: x.policy });
-    if (op === 'add') Object.assign(b, { from: x.add.from, data: x.add.data, attach: !!x.add.attach });
+    if (op === 'add') Object.assign(b, { from: x.add.from, data: x.add.data, attach: !!x.add.attach },
+      x.add.branch ? { branch: x.add.branch } : {}, x.add.newBranch ? { newBranch: x.add.newBranch } : {});
+    if (op === 'branch') b.branch = x.branch || null;
     if (op === 'rollback' || op === 'undo' || (op === 'deploy' && (x.checkpoint || x.reviewed))) b.checkpoint = x.checkpoint || x.reviewed;
     if (op === 'runNow') b.job = x.job;
     if (op === 'limits') b.limits = {};
@@ -327,7 +342,7 @@ export class BxDeployments extends LitElement {
         if (!x.quiet) {
           // judged as for real (11-contract §1.2): a guarded op's dry run
           // carries the confirm token its confirmed request will send
-          const dry = await post(ROUTE[op], { ...body, ...(op === 'vaultCopy' ? { all: true } : {}), ...dryConfirm(op, body), dryRun: true });
+          const dry = await post(ROUTE[op], { ...body, ...(op === 'vaultCopy' ? { all: true } : {}), ...dryConfirm(op, body, x), dryRun: true });
           if (dry.error) {
             if (ds.conflict(dry.status, dry.error) === 'seq' && attempt < 2) { await this._load(); continue; }
             return this._refused(op, dry.error, x, dry.status);
@@ -348,6 +363,7 @@ export class BxDeployments extends LitElement {
           seq(cur);
           Object.assign(body, extra);
         }
+        if (x.other) body.confirm = withOther(body.confirm, x);
         const res = await post(ROUTE[op], body);
         if (res.error) {
           if (ds.conflict(res.status, res.error) === 'seq' && attempt < 2) { await this._load(); continue; }
@@ -366,10 +382,16 @@ export class BxDeployments extends LitElement {
     }
   }
 
-  _refused(op, error, x, status) {
+  async _refused(op, error, x, status) {
     if (ds.conflict(status, error) === 'expect' && this._review) {
       this._openReview({ ...this._review, note: ds.REASON.reviewAgain });
       return null;
+    }
+    // the work tree is on another branch than the deployment requires: use it this time? (D131)
+    const m = !x.other && this.frame?._ask ? branch.mismatch(error) : null;
+    if (m) {
+      const a = await this._ask(branch.mismatchDialog(m, error));
+      return a?.button === 'ok' ? this._run(op, { ...x, other: true }) : null;
     }
     if (x.onRefuse) { x.onRefuse(error); return null; }
     this._error = error;
@@ -377,14 +399,46 @@ export class BxDeployments extends LitElement {
     return null;
   }
 
-  async _add(error) {
+  // _add(error, preset): the Add deployment form (preset: re-opened with what
+  // was typed, or "Add a deployment for <branch>…"), then its confirmation.
+  async _add(error, preset = {}) {
     const s = this._state;
     if (!s || !this.frame?._ask) return null;
     const recent = [...new Set((this._log || []).map((e) => e.checkpoint).filter(Boolean))].slice(0, 5);
-    const a = await this._ask(ds.addDialog(s, error, recent));
+    const a = await this._ask(ds.addDialog(s, error, recent, preset));
     if (a?.button !== 'ok') return null;
-    const v = a.values || {}, name = String(v.name || '').trim();
-    return this._run('add', { deployment: name, add: { from: v.from, data: v.data, attach: !!v.attach }, onRefuse: (err) => this._add(err) });
+    const v = a.values || {}, name = String(v.name || '').trim(), br = branch.readAdd(v, s);
+    const again = { name, attach: !!v.attach, pick: v.branch, newBranch: String(v.newBranch || '').trim() };
+    if (br.error) return this._add(br.error, again);
+    return this._run('add', { deployment: name, add: { from: v.from, data: v.data, attach: !!v.attach, ...br }, onRefuse: (err) => this._add(err, again) });
+  }
+
+  // _setBranch(name): the Set branch… form, then the branch route's confirmation (D131).
+  async _setBranch(name, error) {
+    const s = this._state;
+    if (!s || !this.frame?._ask) return null;
+    const a = await this._ask(branch.dialog(s, name, error));
+    if (a?.button !== 'ok') return null;
+    const b = String(a.values?.branch || '').trim();
+    if (!branch.nameOK(b)) return this._setBranch(name, branch.BAD_NAME);
+    return this._run('branch', { deployment: name, branch: b });
+  }
+
+  // _offer(id): an offer to follow a branch switch — follow/<name> attaches
+  // live reload to it (resumes on it while paused), keep/<name> resumes on it
+  // this time, addFor/<branch> opens the add form for that branch.
+  _offer(id) {
+    const s = this._state, it = ds.panelHeader(s, this._opts())?.offers.find((o) => o.id === id);
+    if (!it?.enabled) return false;
+    const [kind, arg] = id.split(/\/(.*)/s);
+    if (kind === 'addFor') return this._add(undefined, { branch: arg, attach: true, name: branch.suggestName(arg) });
+    return this._run(s.liveReload ? 'attach' : 'resume', { deployment: arg, ...(kind === 'keep' ? { other: true } : {}) });
+  }
+
+  // addFor(branch): "Add a deployment for <branch>…" from the chip (frame-deploy.js).
+  async addFor(b) {
+    if (!this._state) await this._load();
+    return this._add(undefined, { branch: b, attach: true, name: branch.suggestName(b) });
   }
 
   async _openReview(r) {
@@ -472,6 +526,7 @@ export class BxDeployments extends LitElement {
       return this._run(op, { deployment: it.id.split('/')[1] });
     }
     if (op === 'add') return ds.control(s, 'add', null, o).enabled ? this._add() : false;
+    if (op === 'follow' || op === 'keep' || op === 'addFor') return this._offer(id);
     if (op === 'confirm') return this._confirmReview();
     if (op === 'rollback' || op === 'diff') {
       const e = (this._log || []).find((x) => x.checkpoint === arg), row = ds.logRows(s, X, this._log, o).find((x) => x.checkpoint === arg);
@@ -490,6 +545,8 @@ export class BxDeployments extends LitElement {
       case 'protect': case 'unprotect': return this._run(op);
       case 'blockEdges': return this._blockEdges();
       case 'vaultCopy': return this._vaultCopy(X);
+      case 'branch': return this._setBranch(X);
+      case 'clearBranch': return this._run('branch', { deployment: X, branch: null });
       default: return this._run(op, { deployment: X }); // remove, seed, reset, limits
     }
   }
@@ -529,6 +586,7 @@ export class BxDeployments extends LitElement {
     return html`<div class="head">
       ${s.record ? html`<div class="sentence">${glyphed(h.text)}</div>` : nothing}
       ${!s.record || !h.actions.length ? nothing : html`<div class="btns">${h.actions.map((a) => this._button(a))}</div>${this._whys(h.actions)}`}
+      ${!h.offers?.length ? nothing : html`<div class="btns offers" aria-label="Follow the branch">${h.offers.map((a) => this._button(a))}</div>${this._whys(h.offers)}`}
       ${this._error ? html`<div class="err" role="alert">${this._error}</div>` : nothing}
       <div class="said" aria-live="polite">${this._said}</div>
     </div>`;
@@ -550,7 +608,7 @@ export class BxDeployments extends LitElement {
           ${r.target ? html`<span class="pill target" title=${ds.TAG.devApiTitle(s, r.name)}>${ds.TAG.devApi}</span>` : nothing}
           ${r.liveReload ? html`<span class="pill lr" title=${ds.TAG.liveReloadTitle(s, r.name)}>${ds.TAG.liveReload}</span>` : nothing}</span>
         <span class="m">${glyphed(r.code)} · <span class=${'st-' + r.status.split(' ')[0]}>${r.status}</span>${r.lastDeployFailed ? html` · <span class="bad">last deploy failed</span>` : nothing}</span>
-        ${r.data || r.deliveries ? html`<span class="m">${[r.data, r.deliveries].filter(Boolean).join(' · ')}</span>` : nothing}
+        ${r.data || r.deliveries || r.branch ? html`<span class="m">${[r.branch && `⎇ ${r.branch}`, r.data, r.deliveries].filter(Boolean).join(' · ')}</span>` : nothing}
       </button>`)}
       <button class="row add" ?disabled=${!add.enabled || this._busy} title=${add.why || nothing}
         @click=${() => this._act('add')}>+ Add deployment…</button>
@@ -595,7 +653,7 @@ export class BxDeployments extends LitElement {
     return html`<div class="tbl" style="--cols: 110px minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) 70px 270px">
       <div class="tr hd"><span>code</span><span>how</span><span>result</span><span>who</span><span>feed</span><span></span></div>
       ${ds.logRows(s, name, this._log, o).map((r) => html`<div class="tr">
-        <span>${glyphed(r.code)}</span><span>${r.how}</span><span class=${r.result.startsWith('failed') ? 'bad' : ''}>${r.result}</span><span>${r.who}</span><span>${r.feed}</span>
+        <span>${glyphed(r.code)}${r.branch ? html`<span class="lbr" title=${`taken on branch ${r.branch}`}>⎇ ${r.branch}</span>` : nothing}</span><span>${r.how}</span><span class=${r.result.startsWith('failed') ? 'bad' : ''}>${r.result}</span><span>${r.who}</span><span>${r.feed}</span>
         <span class="btns">${r.state ? html`<span class="pill target">${r.state}</span>` : nothing}${r.rollback ? html`
           ${this._button({ id: `rollback/${r.checkpoint}`, ...r.rollback })}${this._button({ id: `diff/${r.checkpoint}`, label: 'diff', enabled: true })}` : nothing}</span>
       </div>`)}
@@ -681,7 +739,7 @@ export class BxDeployments extends LitElement {
       select(name) { el._select(name); },
       get selected() { return el._sel ?? null; },
       tab(name) { el._tab = name; el._review = null; },
-      get header() { const h = s() && ds.panelHeader(s(), o()); return h ? { text: h.text, actions: h.actions.map((a) => a.id) } : null; },
+      get header() { const h = s() && ds.panelHeader(s(), o()); return h ? { text: h.text, actions: h.actions.map((a) => a.id), offers: (h.offers || []).map(plain) } : null; },
       actions() {
         if (el._review) return [plain({ id: 'confirm', label: el._review.op === 'promote' ? `Promote ${el._review.from} → ${el._review.to}…` : `Deploy to ${el._review.to}`, ...el._reviewOk() })];
         return ds.panelActions(s(), el._sel || '', o()).map(plain);
@@ -698,6 +756,7 @@ export class BxDeployments extends LitElement {
       runNow: (name) => el._runNow(name),
       get wouldNotify() { return ds.wouldNotifyRows(s(), el._sel, o()); },
       get gitLine() { return el._sel ? ds.overview(s(), el._sel, o())?.gitLine ?? null : null; },
+      get overview() { return el._sel ? ds.overview(s(), el._sel, o())?.lines ?? [] : []; },
       view() { return el.renderRoot?.querySelector('.view bx-frame')?.testApi?.() ?? null; },
       text() { return (el.renderRoot?.textContent || '').replace(/\s+/g, ' ').trim(); },
       get error() { return el._error || null; },

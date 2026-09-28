@@ -8,10 +8,12 @@
 // decides and this renders; a control the viewer may not use is disabled
 // with the server's reason, never hidden; a fact the state doesn't carry is
 // left out. The panel's confirmations and results stay in deploy-state.js,
-// beside the live reload view's. Imports only deploy-state.js and touches no
-// DOM, so hack/deploy-panel.test.mjs runs it under node (`make js-test`).
+// beside the live reload view's. Imports only deploy-state.js and
+// deploy-branch.js (a deployment's branch, D131) and touches no DOM, so
+// hack/deploy-panel.test.mjs runs it under node (`make js-test`).
 
-import { who, ago, LABEL, control, chipItems, REASON, shared } from './deploy-state.js';
+import { who, ago, LABEL, control, chipItems, branchOffers, REASON, shared } from './deploy-state.js';
+import * as branch from './deploy-branch.js';
 
 const { facts, zeroSentence, cp, pausedSentence, serving, dep, CODE_MOVES, howPhrase, files, MINUS, others, plural, dataText, edgeLabel } = shared;
 
@@ -46,12 +48,13 @@ export function panelRows(s, opts = {}) {
   return [...(s?.deployments || [])].sort((a, b) => (b.name === P) - (a.name === P) || a.name.localeCompare(b.name)).map((d) => ({
     name: d.name, primary: d.name === P, protected: d.name === P && !!s.protectedPrimary, code: pointer(d), status: statusText(d),
     data: dataText(d, opts), deliveries: deliveriesText(d), target: !!t && t === d.name, liveReload: !!s.record && !!s.liveReload && s.liveReload === d.name,
-    lastDeployFailed: d.lastDeploy?.result === 'failed',
+    lastDeployFailed: d.lastDeploy?.result === 'failed', branch: d.branch || '',
   }));
 }
 
-// panelHeader(state, opts) → {text, actions: [{id, label, enabled, why, items?}]}; opts.undo (the last
-// target's newest deploy-log entry) adds Undo after a code move onto it, back to its `previous`.
+// panelHeader(state, opts) → {text, actions: [{id, label, enabled, why, items?}], offers}; opts.undo (the last
+// target's newest deploy-log entry) adds Undo after a code move onto it, back to its `previous`. offers:
+// following a branch switch (D131) — ids follow/<name> (attach or resume), keep/<name> (this time), addFor/<branch>.
 export function panelHeader(s, opts = {}) {
   if (!s) return null;
   const f = facts(s), P = f.primary;
@@ -59,7 +62,7 @@ export function panelHeader(s, opts = {}) {
     : f.attached === P ? `Live reload: ${P} (primary) — every save reaches everyone using ${s.tile}.`
       : `Live reload: ${f.attached} — saves reach ${s.tile}+${f.attached}. The primary, ${P}, is pinned to ${cp(s, P)}.`;
   if (f.failed && !f.zero) text = `${text.replace(/\.$/, '')} — the last deploy to ${f.failed} failed; ${f.failed} keeps running ${serving(s, f.failed)}.`;
-  const actions = chipItems(s, { ...opts, panel: false }).filter((it) => !it.kind && (it.op || it.items)).map((it) => {
+  const actions = chipItems(s, { ...opts, panel: false }).filter((it) => !it.kind && !it.offer && (it.op || it.items)).map((it) => {
     const id = it.op || (it.label === LABEL.resume ? 'resume' : 'attach');
     const items = it.items?.map((x) => ({ id: `${id}/${x.deployment}`, label: x.label, enabled: x.enabled, why: x.hint || '', title: x.title }));
     return { id, label: it.label, enabled: it.enabled, why: it.hint || '', title: it.title, ...(items ? { items } : {}) };
@@ -69,7 +72,8 @@ export function panelHeader(s, opts = {}) {
     const c = control(s, 'rollback', f.last, opts);
     actions.push({ id: 'undo', label: `Undo: roll ${f.last} back to ${u.previous}`, enabled: c.enabled, why: c.why, title: `Put back the code ${f.last} ran before the last move.` });
   }
-  return { text, actions };
+  const offers = branchOffers(s, opts).map((it) => ({ id: branch.offerId(it), label: it.label, enabled: it.enabled, why: it.hint || '', title: it.title }));
+  return { text, actions, offers };
 }
 
 // overview(state, name, opts) → {heading, lines: [[label, text]], url, gitLine, gitNote}; opts.entry:
@@ -81,6 +85,8 @@ export function overview(s, name, opts = {}) {
   if (d.primary) lines.push(['primary', `primary — everything from outside reaches it${s.protectedPrimary ? ' · 🛡 protected' : ''}`]);
   lines.push(['code', `${pointer(d)}${how ? ` · ${how}${e.by ? ` by ${who(e.by)}` : ''}${at ? `, ${ago(at, opts.now)}` : ''}` : ''}`],
     ['status', `${statusText(d)}${d.status?.error ? ` — ${d.status.error}` : ''}`]);
+  const bl = branch.overviewLine(s, name);
+  if (bl !== null) lines.push(['branch', bl]);
   if (d.lastDeploy?.result === 'failed') lines.push(['last deploy', 'last deploy failed — the deploy log has its error']);
   const l = d.limits, ov = new Set(l?.overrides || []), v = d.vault;
   const lim = (k, word, unit) => `${word}: ${ov.has(k) ? `${l[k]} ${unit} (set by a tile manager)` : `the tile's default (${l[k]} ${unit})`}`;
@@ -116,6 +122,7 @@ export function panelActions(s, name, opts = {}) {
   const B = d.primary ? others(s).sort()[0] : P;
   add('deploy', `Deploy to ${name}`, c('deploy'), `Put a fresh checkpoint of the work tree on ${name}.`);
   if (B) add('promote', `Promote ${name} → ${B}…`, c('promoteTo', B), `${B} gets exactly ${name}'s code; its data stays.`, { to: B });
+  out.push(...branch.actions(s, name, c)); // Set branch…, Clear branch (D131)
   add('remove', 'Remove deployment…', c('remove'), `Delete ${name} and its data.`);
   if (!d.primary) {
     add('seed', `Seed from ${P}…`, c('seed'), `Copy ${P}'s data into ${name} (it may contain personal data).`);
@@ -190,7 +197,7 @@ export function logRows(s, name, entries, opts = {}) {
     found ||= running;
     return { id: e.id, checkpoint: e.checkpoint || '', code: e.followsWorkTree || !e.checkpoint ? '● work tree' : `📌 ${e.checkpoint}`, how: `${HOW[e.how] || e.how}${e.how === 'promote' && e.from ? ` (from ${e.from})` : ''}`,
       result: e.result === 'failed' ? `failed${e.error ? ` — ${e.error}` : ''}` : e.result === 'running' ? `running${e.phase ? ` · ${e.phase}` : ''}` : e.result,
-      who: `${who(e.by)}${e.agent ? ' (agent)' : ''} · ${ago(e.finishedAt || e.requestedAt, opts.now)}`, feed: !e.feed || e.feed === 'work-tree' ? 'work tree' : e.feed,
+      who: `${who(e.by)}${e.agent ? ' (agent)' : ''} · ${ago(e.finishedAt || e.requestedAt, opts.now)}`, feed: !e.feed || e.feed === 'work-tree' ? 'work tree' : e.feed, branch: e.branch || '',
       state: running ? 'running' : '', rollback: back ? { label: `Roll back to ${e.checkpoint}`, ...control(s, 'rollback', name, opts) } : null };
   });
 }
@@ -198,13 +205,16 @@ export function logRows(s, name, entries, opts = {}) {
 // diffLine(from, to, stats) → "c:3f2a1c9 → c:7b19e02 · 3 files, +40 −12".
 export const diffLine = (from, to, st) => `${from || '?'} → ${to || '?'} · ${files(st?.files | 0)}, +${st?.add | 0} ${MINUS}${st?.del | 0}`;
 
-// addDialog(state, error, recent) → the Add deployment form; recent: checkpoint ids to offer.
-export function addDialog(s, error, recent = []) {
+// addDialog(state, error, recent, preset) → the Add deployment form; recent: checkpoint ids to offer;
+// preset: {name, attach, branch, newBranch} (the form re-opened, or "Add a deployment for <branch>…").
+// With branches/1, a Branch control: none, the work tree's (current), or a new branch (D131).
+export function addDialog(s, error, recent = [], preset = {}) {
   const P = s.primary || 'main', pin = cp(s, P), man = !!s.caller?.manager, opt = (value, label) => ({ value, label });
   return { title: `Add deployment to ${s.tile}`, ...(error ? { error } : {}), message: man ? '' : 'Seeding needs a tile manager.',
-    fields: [{ name: 'name', label: 'Name', placeholder: 'dev' },
+    fields: [{ name: 'name', label: 'Name', placeholder: 'dev', value: preset.name || '' },
       { name: 'from', label: 'Code', type: 'select', value: 'work-tree', options: [opt('work-tree', 'the work tree now (a fresh checkpoint)'), opt('primary', `${P}'s code${pin ? ` (${pin})` : ''}`), ...recent.filter((id) => id !== pin).map((id) => opt(id, id))] },
       { name: 'data', label: 'Data', type: 'select', value: 'empty', options: [opt('empty', 'start empty'), ...(man ? [opt('seed', `seed from ${P} (copies its data, which may be personal)`)] : [])] },
-      { name: 'attach', type: 'checkbox', label: `Attach live reload to it — ${P} is pinned to its current code` }],
+      ...branch.addFields(s, preset),
+      { name: 'attach', type: 'checkbox', value: !!preset.attach, label: `Attach live reload to it — ${P} is pinned to its current code` }],
     buttons: [{ label: 'Cancel', value: null }, { label: 'Add deployment', value: 'ok', primary: true }] };
 }

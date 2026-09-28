@@ -95,6 +95,9 @@ func TestBranchExplicitOps(t *testing.T) {
 	if rec := f.rec(opSite); rec.LiveReload != "dev" || rec.BranchOverride("dev") != "main" {
 		t.Fatalf("resume with other-branch: live reload %q, override %q", rec.LiveReload, rec.BranchOverride("dev"))
 	}
+	if log := f.st.logged(opSite); len(log) == 0 || log[len(log)-1].How != "resume" || log[len(log)-1].Branch != "main" {
+		t.Errorf("the resume's deploy-log entry names the branch it captured on: %+v", log[len(log)-1])
+	}
 	// While dev takes main this time, the other ops on it do too.
 	if res, err := f.do(ownerP, OpDeploy, &DeployRequest{Tile: opSite, Deployment: "dev", DryRun: true}); err != nil {
 		t.Fatalf("a deploy on the override's branch: %v", err)

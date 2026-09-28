@@ -3648,7 +3648,10 @@ tile's non-primary deployments; the primary uses every edge as before.
     it the same way, never to the other branch's work tree. Tiles without
     an assigned branch save as before.
   - Checkpoints taken from the work tree carry an `Xbin-Work-Tree-Branch`
-    trailer (in the git view too), and a deploy entry names it as `branch`.
+    trailer (in the git view too). A deploy entry's `branch` is the branch
+    its own capture was taken on (kept in the deploy log as an
+    `Xbin-Branch` trailer, which an older xbind leaves unread), else the
+    branch its checkpoint was first captured on.
   - **newBranch** runs a confined `git switch --create=<b> --end-of-options`
     in the tile: it creates and checks out a new branch at the work tree's
     HEAD and changes no file, so nothing reloads. It never switches to an

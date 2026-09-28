@@ -20,9 +20,12 @@
 // state (`record: false`), which gets exactly one unobtrusive entry point
 // (`entry`) and today's two tile API options, byte for byte.
 //
-// Imports nothing and touches no DOM, so hack/deploy-state.test.mjs runs it
-// under node (`make js-test`); web/frame-deploy.js and web/bx-deploy.js do
-// the fetching, the events and the dialogs.
+// Imports only web/deploy-branch.js (a deployment's assigned branch, D131)
+// and touches no DOM, so hack/deploy-state.test.mjs runs it under node (`make
+// js-test`); web/frame-deploy.js and web/bx-deploy.js do the fetching, the
+// events and the dialogs.
+
+import * as branch from './deploy-branch.js';
 
 export const GLYPH = Object.freeze({ attached: '●', pinned: '📌', reloadNow: '⇡', layout: '⇈' });
 
@@ -104,10 +107,12 @@ function facts(s) {
     const bad = (s.deployments || []).filter((d) => d.lastDeploy?.result === 'failed').map((d) => d.name);
     failed = bad.includes(last) ? last : bad.includes(primary) ? primary : (bad[0] || '');
   }
-  // why live reload is paused: the last target's last deploy says
+  // why live reload is paused: the last target's last deploy says (xbind's own
+  // pause: the work tree left the target's assigned branch, D131)
   const how = paused ? dep(s, last)?.lastDeploy?.how || '' : '';
-  const cause = how === 'protect' ? 'protect' : ['deploy', 'promote', 'rollback'].includes(how) ? how : 'pause';
-  return { zero, reader, primary, attached, paused, last, changed, since, failed, cause };
+  const b = branch.facts(s, { zero, reader, attached, last });
+  const cause = how === 'protect' ? 'protect' : ['deploy', 'promote', 'rollback'].includes(how) ? how : paused && b.switched && b.need ? 'branch' : 'pause';
+  return { zero, reader, primary, attached, paused, last, changed, since, failed, cause, b };
 }
 
 // ---- permissions ----
@@ -150,6 +155,7 @@ function pausedSentence(s, f, opts) {
   if (f.cause === 'rollback') {
     return `Live reload paused — ${L} was rolled back to ${pin}. The work tree still holds the code you rolled back from: resuming ships it again.`;
   }
+  if (f.cause === 'branch') return branch.pausedSentence(f.b, L, pin);
   if (f.cause === 'promote' || f.cause === 'deploy') {
     const from = f.cause === 'promote' && entry?.from ? ` from ${entry.from}` : '';
     return `Live reload paused — ${L} received ${pin}${from}. Resuming ships the work tree to ${L}.`;
@@ -183,6 +189,10 @@ export function chip(s, opts = {}) {
     base = `📌 ${P} pinned to ${pin}`;
     baseCompact = `📌 ${cut(P)}`;
     title = `${P} is pinned to ${pin}: saves in the work tree don't reach it.`;
+  } else if (f.paused && f.cause === 'branch' && f.b.off) { // the work tree left the target's branch (D131)
+    base = `📌 Live reload paused · ⎇ ${f.b.wtb || 'no branch'}`;
+    baseCompact = '📌 ⎇';
+    title = pausedSentence(s, f, opts);
   } else if (f.paused) {
     count = f.cause === 'protect' ? null : f.changed;
     base = count > 0 ? `📌 Live reload paused · ${count}` : '📌 Live reload paused';
@@ -196,7 +206,7 @@ export function chip(s, opts = {}) {
     const A = f.attached;
     base = `● Live reload: ${A}`;
     baseCompact = `● ${cut(A)}`;
-    title = `Live reload: ${A} — saves reach ${s.tile}+${A}. The primary, ${P}, is pinned to ${cp(s, P)}.`;
+    title = `Live reload: ${A} — saves reach ${s.tile}+${A}. The primary, ${P}, is pinned to ${cp(s, P)}.${branch.offSentence(f.b, A)}`;
   }
   const failed = !!f.failed;
   return { text: failed ? `${base} · deploy failed` : base, compact: failed ? `${baseCompact}!` : baseCompact, base, baseCompact,
@@ -231,11 +241,15 @@ const zeroSentence = (s) => `Live reload: ${s.primary || 'main'} — every save 
 // carry the deployment they act on. The tooltip sentence is a disabled item
 // (no op). A reader gets the header and the sentence only. opts.panel: the
 // Deployments layout exists, so the menu ends with a line that opens it.
+// After the sentence: the offers to follow a branch switch (D131; their items
+// carry offer: true, op resume | attach | addFor, and other or branch).
 export function chipItems(s, opts = {}) {
   if (!s) return [];
   const f = facts(s);
   const items = [{ kind: 'header', label: LABEL.header }];
   items.push({ label: f.zero ? zeroSentence(s) : chip(s, opts).title, enabled: false, hint: '' });
+  const follow = branchOffers(s, opts);
+  if (follow.length) items.push(...follow, { kind: 'sep' });
   if (!f.reader) {
     if (f.paused) {
       const rc = reloadNowControl(s, f, opts);
@@ -261,6 +275,13 @@ export function chipItems(s, opts = {}) {
   return items;
 }
 
+// branchOffers(state, opts) → the offers to follow a branch switch (D131),
+// each judged as the operation it starts would be.
+export function branchOffers(s, opts = {}) {
+  const f = facts(s);
+  return branch.offers(s, f, f.b, (op, name) => control(s, op, name, opts));
+}
+
 // resume onto: the last target first, then every other deployment, never a
 // protected primary
 function resumeCandidates(s, f) {
@@ -279,7 +300,7 @@ export function toMenu(items, run) {
     const m = { label: it.label, disabled: !it.enabled };
     if (it.hint) m.hint = it.hint;
     if (it.items) m.items = toMenu(it.items, run);
-    else if (it.enabled && it.op) m.action = () => run(it.op, it.deployment);
+    else if (it.enabled && it.op) m.action = () => run(it.op, it.deployment, it);
     return m;
   });
 }
@@ -399,6 +420,7 @@ export function launcher(s, opts = {}) {
   if (f.paused) {
     let text;
     if (f.cause === 'protect') text = `Live reload is paused: ${f.last} is protected.`;
+    else if (f.cause === 'branch') text = branch.launcherText(f.b, f.last);
     else if (f.changed > 0) text = `Live reload is paused: ${files(f.changed)} changed since ${f.since}, the checkpoint ${f.last} runs.`;
     else text = `Live reload is paused: no changes since ${f.since}.`;
     banner = { text, tone: 'paused', reloadNow: reloadNowControl(s, f, opts).enabled };
@@ -467,7 +489,8 @@ function affects(s, im, name, tail) {
 // reloadNow | attach, or one of the panel's (PANEL_OPS).
 export function confirmation(op, { state: s, impact: im, deployment, ...x } = {}, opts = {}) {
   if (!Object.hasOwn(ROWS, op)) throw new Error(`deploy-state: no confirmation for ${op}`);
-  const r = ROWS[op](s, im, deployment, x, facts(s), opts), message = r.lines.filter(Boolean).join('\n');
+  const r = ROWS[op](s, im, deployment, x, facts(s), opts), bl = op === 'branch' || x.add?.newBranch ? '' : branch.branchLine(im?.branch, op);
+  const message = [r.lines[0], bl, ...r.lines.slice(1)].filter(Boolean).join('\n');
   const okButton = { label: r.ok, value: 'ok', ...(r.danger ? { danger: true } : { primary: true }) };
   const spec = { title: r.title, message, ...(r.fields ? { fields: r.fields } : {}), buttons: [{ label: 'Cancel', value: null }, okButton] };
   return { title: r.title, message, ok: r.ok, expect: r.expect, danger: !!r.danger, required: r.required || [], send: r.send || sendAs('expect', r.expect), spec };
@@ -600,7 +623,7 @@ export function applyEvent(s, d) {
     if (!s.record || s.liveReload !== '' || s.view === 'reader') return { state: s, refetch: false };
     return { state: { ...s, workTree: { ...(s.workTree || {}), changed: d.changed | 0 } }, refetch: false };
   }
-  return { state: s, refetch: d.op === 'record' || d.op === 'deploy' || d.op === 'data' };
+  return { state: s, refetch: d.op === 'record' || d.op === 'deploy' || d.op === 'data' || d.op === 'branch' };
 }
 
 // ---- everything the title bar needs, at once ----
@@ -616,7 +639,7 @@ export function viewModel(s, opts = {}) {
   return {
     feature: !!s, zero: f.zero, reader: f.reader, primary: f.primary, attached: f.attached, paused: f.paused, last: f.last, changed: f.changed,
     entry: entry(s), chip: c, offer: o, items: chipItems(s, opts), launcher: launcher(s, opts), api: apiOptions(s, opts.session),
-    barKey: [f.zero ? '' : f.attached, f.paused ? 1 : 0, f.changed ?? '', n, o ? 1 : 0, c?.failed ? 1 : 0].join('|'),
+    barKey: [f.zero ? '' : f.attached, f.paused ? 1 : 0, f.changed ?? '', n, o ? 1 : 0, c?.failed ? 1 : 0, ...(f.b.off ? [f.b.wtb] : [])].join('|'),
   };
 }
 
@@ -692,9 +715,10 @@ const ROWS = {
     const P = f.primary, c = im?.code, v = x.add || {}, j = im?.joins, seed = v.data === 'seed' ? ROWS.seed(s, im, X, x, f) : null;
     const code = v.from === 'primary' ? `${P}'s code${c?.to ? `, ${c.to}` : ''}` : v.from && v.from !== 'work-tree' ? v.from : `a fresh checkpoint of the work tree${c?.to ? `, ${c.to}` : ''}`;
     const lr = v.attach ? ` Live reload moves to ${X}; ${f.attached || P} is pinned to ${c?.to || 'a checkpoint of the work tree taken when you confirm'}.` : '';
+    const nb = v.newBranch ? `Branch: ${v.newBranch} is created at the work tree's HEAD and checked out (no file changes); ${X} requires it.` : '';
     const data = seed ? `seeded from ${P}: its data, which may be personal — see below` : j ? `joins ${j.scope}'s "${X}" data (${j.state}${j.by ? ` by ${who(j.by)}` : ''}${j.at ? ` ${ago(j.at, o.now)}` : ''})` : 'starts empty';
     return { title: `Add deployment ${X} to ${s.tile}?`, ok: 'Add deployment', fields: seed?.fields.filter((b) => b.name !== 'stop'), required: seed?.required, send: sendAs('confirm', seed && 'copy-data'),
-      lines: [`Code: ${X} runs ${code}.${lr}`, `Data: ${data}; secrets start as names only.`, `Edges: it uses ${s.tile}'s grants and bindings, reading other tiles' primaries as reader.`,
+      lines: [`Code: ${X} runs ${code}.${lr}`, nb, `Data: ${data}; secrets start as names only.`, `Edges: it uses ${s.tile}'s grants and bindings, reading other tiles' primaries as reader.`,
         `Affects: nobody now. It is reachable at /c/${s.tile}+${X}/ by people with write on ${s.tile} and by this tile's terminals. Its cron jobs and bus subscriptions fire for ${X}, with ${X}'s data: anything they send is real. Its interface instances and ingress hosts stay with the primary, and alwaysOn stays off.`, ...(seed?.lines || [])] };
   },
   deploy(s, im, X, x) {
@@ -792,6 +816,7 @@ const ROWS = {
     lines: [`Its shell and anything running in it end, and the scrollback is lost.${Y === 'off' ? '' : ` Its API calls and bx commands then reach ${Y === 'primary' ? 'the primary' : `${s.tile}+${Y}`}.`}`] }),
 };
 ROWS.undo = ROWS.rollback;
+ROWS.branch = (s, im, Y, x) => branch.row(s, im, Y, x); // a deployment's branch: set, or clear (D131)
 
 // The operations the panel confirms beyond M1's four (undo: a roll back to what the last move replaced).
 export const PANEL_OPS = Object.freeze(Object.keys(ROWS).filter((op) => !OP_NAME[op]));
@@ -805,6 +830,7 @@ const RESULT = {
   deliveries: (s, a, X) => `Deliveries ${dep(s, X)?.deliveries ? 'on' : 'off'} for ${X}.`, alwaysOn: (s, a, X) => `alwaysOn ${dep(s, X)?.alwaysOn ? 'on' : 'off'} for ${X}.`,
   limits: (s, a, X) => { const l = dep(s, X)?.limits; return l ? `${X}'s limits set: ${l.memMiB} MiB, ${l.diskGiB} GiB.` : `${X}'s limits set.`; },
   runNow: (s, a) => (a.delivery ? `delivered · ${a.delivery.status} · ${a.delivery.ms} ms` : null),
+  branch: (s, a, X) => branch.result(s, X),
 };
 
 // What web/deploy-panel.js, the Deployments panel's half of this view, reads

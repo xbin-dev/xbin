@@ -423,7 +423,13 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   The launcher shows a banner while live reload is paused (nothing is drawn
   over the page: in the shell the tile's window head carries `⇈`); open
   terminals print a grey line when live reload pauses or
-  resumes, or code moves or fails to. The layout switcher's `⇈` opens the
+  resumes, or code moves or fails to. With branch-assigned deployments
+  (`branches/1`) the chip names the work tree's branch after a switch
+  (`📌 Live reload paused · ⎇ main`) and its menu leads with the offers to
+  follow it — resume or attach live reload on the deployment assigned that
+  branch, keep the deployment on it this time, or add a deployment for it
+  ([tile-deployments.md](/docs/tile-deployments.md) §Assigned branches).
+  The layout switcher's `⇈` opens the
   **Deployments panel** (its rows tag the active tab's target `Dev API`
   and the live reload target `● live reload`), and once a tile has more than an unprotected
   `main` the tile API select picks the session's target deployment

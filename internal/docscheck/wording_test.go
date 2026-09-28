@@ -36,6 +36,7 @@ var wordingSources = []string{
 	"cmd/bx/deploy.go",
 	"cmd/bx/deployclient.go",
 	"cmd/bx/deployment.go",
+	"web/deploy-branch.js",
 	"cmd/bx/deploybranch.go",
 }
 

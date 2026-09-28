@@ -46,7 +46,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   send the new body fields only to an xbind whose `features` list
   `branches/1`. `bx agent ls|history --tile`, `bx owner`, `bx access`,
   `bx backups` and `bx backup-schedule --rm` now escape a tile path holding
-  `+` in their queries (it read as a space).
+  `+` in their queries (it read as a space). **The terminal window** (an
+  existing workspace needs nothing: `web/` ships with the binary): the Add
+  deployment form's Branch control (none / current / a new branch), the
+  overview's Branch row with Set branch… and Clear branch, `⎇ <branch>` in
+  the side list and the deploy log, the chip `📌 Live reload paused · ⎇
+  <branch>` after a switch, whose menu and the panel's header offer to
+  follow it (resume or attach live reload on the deployment assigned that
+  branch, "Keep dev on <branch> this time", "Add a deployment for
+  <branch>…"), a grey line in the tile's terminals, and a refusal because
+  the work tree is on another branch asking to use it this time. A deploy
+  entry's `branch` is now its own capture's (`Xbin-Branch` in the deploy
+  log).
 - **Agent sessions: the log pages** (D130; [protocol.md](protocol.md)
   §Agent session events → Pages). `GET /api/xbin/term/sessions/<id>/events`
   and `GET /api/xbin/agent/history/<id>/events` take `?limit=<n>` (the tail
