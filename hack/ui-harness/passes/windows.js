@@ -137,6 +137,11 @@ async function windows(browser) {
   const sw1 = await sh(page, (t) => ({ x: t.spawnWindows[0]?.x, y: t.spawnWindows[0]?.y }));
   check(Math.abs(sw1.x - sw0.x + 60) <= 2 && Math.abs(sw1.y - sw0.y - 30) <= 2, `spawned window drag moved it (${JSON.stringify(sw0)} → ${JSON.stringify(sw1)})`);
   const gridPos = (path) => sh(page, (t, p) => { const o = t.openTiles.find((x) => x.path === p && !x.float); return o && { x: o.x, y: o.y }; }, path);
+  // the seeded home's banners (pending requests, interfaces to bind) push the
+  // canvas far down: bring the card to the top so a 420 px drag stays inside
+  // the viewport
+  await page.locator('.card[data-path="apps/crawler"]').first().evaluate((e) => e.scrollIntoView({ block: 'start' }));
+  await settle(page);
   const g0 = await gridPos('apps/crawler');
   // downwards into empty grid rows (nothing to push)
   await drag('.card[data-path="apps/crawler"] .head', 0, 420);
