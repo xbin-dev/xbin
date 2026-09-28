@@ -552,7 +552,8 @@ panel's tile-wide **Non-primary access** table does both):
   deployments **no egress**, and the panel says why. A non-primary
   deployment never gets host networking, a provider splice, a stream
   interface slot's dial or ingress through a terminator; its backend log
-  says so.
+  says why it has no egress, and, when it has relay egress, logs each
+  refused stream dial (without egress the dial finds no route).
 - An unknown or invalid value reads as `block`, and when several edges
   authorize one call, any `block` among them refuses it.
 - Callees see `X-XBin-Deployment: <name>` on calls from a non-primary
