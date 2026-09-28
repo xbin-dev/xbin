@@ -962,6 +962,10 @@ func TestEdgePolicyCallers(t *testing.T) {
 			"EnvFor":          "the tile's resource env, which every deployment keeps (09-fabric §5.6); seam for the workspace fs block (WP-40)",
 			"OpenLinksFor":    "seam: the document's deployment (the server's SandboxExtras)",
 			"codeGrantAllows": "the code grants, for a principal that isn't a non-primary one (codeReadAllowed)",
+			"SandboxesFor":    "cap:sandboxes is the tile's (05-model §12); tilesbx refuses a non-main deployment's principal (keyOf) before it counts",
+			"capChanged":      "a cap: grant row changed: the tile's held state, for OnCapChange; no call",
+			"capSweep":        "the policy ceiling moved: the tile's held cap: rows, for OnCapChange; no call",
+			"ResourceMount":   "main's tile sandboxes mount the tile's own scope in main's namespace, as EnvFor's env; a deployment's own set would go through resolveTarget (tile-sandbox-runtime.md §14)",
 		},
 		"httpBindingRole": {
 			"grantedRole": "the tile's authority, merging bindings with grant rows",

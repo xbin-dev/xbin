@@ -108,14 +108,44 @@ test:
 	go test ./sdk/... ./relay/...
 
 integration:
-	go test -tags=integration -count=1 -v ./test/...
-	# the confined tool runs (D78) and the sandbox init in real sandboxes: skip
-	# without .rootfs/userns (TestIntegrationPackagesListed keeps this list whole)
-	go test -tags=integration -count=1 -v ./internal/confine/ ./internal/runner/ ./internal/sandbox/ ./internal/checkpoint/ ./internal/broker/
+	go test -tags=integration -count=1 -v ./test/
+	# the confined tool runs (D78), the sandbox init and a tile sandbox's
+	# `bx __sbx-agent` (a minimal lower built in the test) in real sandboxes,
+	# the relay's per-flow host locality in a netns of its own, confined
+	# checkpoint builds and the broker's confined runs; the cgroup leaves on
+	# the real cgroupfs (only under a delegated cgroup: the file says how).
+	# Skip without .rootfs/userns (TestIntegrationPackagesListed keeps this
+	# list whole)
+	go test -tags=integration -count=1 -v ./internal/confine/ ./internal/runner/ ./internal/sandbox/ ./internal/sandbox/agentcore/ ./internal/sandbox/relay/ ./internal/checkpoint/ ./internal/broker/ ./internal/cgroup/
+	# tile sandboxes (D120) started, driven and ended through the runtime's
+	# routes: over a minimal lower (kernel overlay, then fuse-overlayfs when
+	# bin/ has it) and over .rootfs when present; skip without userns. VM
+	# mode (TestLiveVM, and the exec and file suites' vm cases) needs
+	# .rootfs, the vm-assets and KVM, then runs again under QEMU's emulation
+	go test -tags=integration -count=1 -v ./internal/tilesbx/
+	XBIN_VM_ACCEL=emulate go test -tags=integration -count=1 -v -run '^TestLive(VM|Execs|Files)$$' \
+		-skip '^(TestLiveExecs|TestLiveFiles)$$/^(minimal|rootfs|namespace)$$' ./internal/tilesbx/
+	# a live terminal's layer — a sub-uid's files in it, in range mode — goes
+	# whole on a reset and an offload-full (WP-9b), and its mount points are
+	# never followed through it (WP-2b): only these tests of this unit-heavy
+	# package (the broker's run whole above); skip without .rootfs/userns
+	go test -tags=integration -count=1 -v -run '^(TestConfined|TestTermMountPoints)' ./internal/term/
 	# VM sandboxes (D89): skip without /dev/kvm or the vm-assets; then again
 	# under QEMU's emulation (skips without its assets)
 	go test -tags=integration -count=1 -v ./internal/vm/
 	XBIN_VM_ACCEL=emulate go test -tags=integration -count=1 -v ./internal/vm/
+	# tile sandboxes end to end (WP-21, test/isolated over test/xbindtest):
+	# examples/sandbox-go on an `xbind --isolate` built from this tree, driven
+	# through the proxy by two consumers — commands, Forward routes, relayed
+	# terminals, files, snapshots, crafted ids, an xbind restart, range mode
+	# where a sub-uid range is delegated, and the boot's base GC over a copy of
+	# the rootfs (XBIN_ITEST_DIR: a dir on the rootfs's filesystem, for
+	# reflinks) — then VM mode (KVM) and again emulated. Skips without
+	# .rootfs/userns (VM mode: without the vm-assets). The same package runs
+	# the coding-sandbox manager's walk, contract and consumers in both modes
+	# (8 min on this box: a slower host would hit go test's 10-minute default)
+	go test -tags=integration -count=1 -v -timeout 30m ./test/isolated/
+	XBIN_VM_ACCEL=emulate go test -tags=integration -count=1 -v -run '^TestVM$$' ./test/isolated/
 
 vet:
 	go vet ./...

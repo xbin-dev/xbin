@@ -1,7 +1,8 @@
 // fakesandbox is a sandbox manager for tests and the UI harness: the
 // sandbox-manager contract, protocol 1 (docs/sandbox-manager.md), with every
-// sandbox a directory on the host and every command a host process — TEST
-// ONLY, nothing is isolated. Its tests are the contract's conformance suite.
+// sandbox a directory on the host, every command a host process and every
+// terminal a host pseudo-terminal — TEST ONLY, nothing is isolated. Its
+// tests run the contract's conformance suite (sdk/sandboxcontract).
 //
 // As a tile (the harness's apps/fakesbx) it serves XBIN_SOCKET and keeps its
 // sandboxes in XBIN_RES_BOXES (or $XBIN_DATA/boxes); standalone:

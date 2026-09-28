@@ -142,12 +142,15 @@ func (st *State) serve(ctx context.Context) error {
 		st.Term.FlushAgents() // open agent conversations become history, not losses (term/history.go)
 	}
 	run.StopAll()
+	if st.TileSbx != nil {
+		st.TileSbx.StopAll("xbind shut down") // synced, 15 s in all; its exit would end them unsynced
+	}
 	_ = gwSrv.Close()
 	if iSrv != nil {
 		_ = iSrv.Close()
 	}
 	_ = st.watcher.Close()
-	brk.Close() // the KV database's file lock, the cron scheduler, the disk monitor
+	brk.Close() // the KV database's file lock, the cron scheduler, the disk monitor, the resources' decrypted views
 	// Open tiles keep their login binding across the restart (auth/framegens.go).
 	st.Auth.FlushGens()
 	if st.Push != nil {

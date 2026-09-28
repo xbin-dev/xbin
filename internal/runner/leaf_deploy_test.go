@@ -51,13 +51,15 @@ func (f *fakeCgroup) Enabled() bool { return true }
 
 func (f *fakeCgroup) Add(name string, pid int) { f.join("add", name, pid, f.caps, 0) }
 
-func (f *fakeCgroup) AddWith(name string, pid int, l cgroup.Limits) { f.join("add", name, pid, l, 0) }
+func (f *fakeCgroup) AddLimited(name string, pid int, l cgroup.Limits) {
+	f.join("add", name, pid, l, 0)
+}
 
 func (f *fakeCgroup) AddMem(name string, pid int, memMax int64) {
 	f.join("addmem", name, pid, f.caps, memMax)
 }
 
-func (f *fakeCgroup) AddMemWith(name string, pid int, l cgroup.Limits, memMax int64) {
+func (f *fakeCgroup) AddMemLimited(name string, pid int, l cgroup.Limits, memMax int64) {
 	f.join("addmem", name, pid, l, memMax)
 }
 

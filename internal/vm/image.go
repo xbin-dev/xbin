@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/confine"
+	"github.com/xbin-dev/xbin/internal/layers"
 	"github.com/xbin-dev/xbin/internal/sandbox"
 )
 
@@ -76,19 +77,29 @@ func (m *Manager) image(ctx context.Context, rootfs string) (string, error) {
 	return out, nil
 }
 
-// GC removes rootfs images built from anything but the current base, and
-// leftovers of interrupted builds. Run at boot, before any VM starts.
-func (m *Manager) GC() {
+// GC removes the rootfs images no layer can boot from any more, and leftovers
+// of interrupted builds. Run at boot, before any VM starts. keep is the set
+// of pinned base versions (internal/layers.Pinned): the image of the current
+// base stays, and so does the image of each pinned base that is still
+// installed — a VM terminal or tile sandbox pinned to an older base boots
+// from it without a rebuild. keep == nil means the pins are unknown: every
+// image stays, and only the leftovers go.
+func (m *Manager) GC(keep map[string]bool) {
 	if m.assets.Mkfs == "" || m.Rootfs == "" {
 		return
 	}
-	current := m.imageKey(m.Rootfs) + ".erofs"
+	images := map[string]bool{m.imageKey(m.Rootfs) + ".erofs": true}
+	for ver := range keep {
+		if base, ok := layers.ResolveBase(m.Rootfs, ver); ok {
+			images[m.imageKey(base)+".erofs"] = true
+		}
+	}
 	for _, sub := range []string{"images", "initrd"} {
 		dir := filepath.Join(m.Root, ".xbin", "vm", sub)
 		ents, _ := os.ReadDir(dir)
 		for _, e := range ents {
 			name := e.Name()
-			if strings.HasPrefix(name, ".") || (sub == "images" && name != current) {
+			if strings.HasPrefix(name, ".") || (sub == "images" && keep != nil && !images[name]) {
 				_ = os.Remove(filepath.Join(dir, name))
 			}
 		}

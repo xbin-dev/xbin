@@ -8,6 +8,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/registry"
@@ -26,6 +27,29 @@ import (
 // vmHealthTimeout covers a cold boot, a first rootfs image build and the
 // backend's own start.
 const vmHealthTimeout = 60 * time.Second
+
+// vmDumpWait bounds the shim's dump on a health timeout (it asks the guest
+// agent, which answers within seconds, or says it didn't).
+const vmDumpWait = 10 * time.Second
+
+// dumpVM asks a VM generation that never listened to write what the guest is
+// doing to the backend's log — its file requests in flight, every guest
+// process's kernel stack, the agent's goroutines, the console
+// (internal/sandbox/vm/host/dump_linux.go) — and to quit.
+func (r *Runner) dumpVM(inst *instance) {
+	if inst.cmd.Process == nil {
+		return
+	}
+	wait := vmDumpWait
+	if r.VM != nil && r.VM.Status().Emulated {
+		wait *= 3
+	}
+	_ = inst.cmd.Process.Signal(syscall.SIGQUIT)
+	select {
+	case <-inst.waitCh:
+	case <-time.After(wait):
+	}
+}
 
 // vmRes is what a VM generation holds until it exits.
 type vmRes struct {

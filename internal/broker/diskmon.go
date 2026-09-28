@@ -67,26 +67,35 @@ type Alert struct {
 type diskMon struct {
 	root       string
 	quota      int64
-	scopeUsage func() map[string]int64               // scopeKey → bytes (injected: uses resource dirs)
-	extra      func() []Alert                        // extra alerts (cgroup at-limit), optional
-	free       func(path string) (free, total int64) // the partition's space: diskFree
-	stop       chan struct{}                         // closed by close(): the scan loop ends
-	stopOnce   sync.Once
+	scopeUsage func() map[string]int64 // scopeKey → bytes (injected: uses resource dirs)
+	extra      func() []Alert          // extra alerts (cgroup at-limit), optional
+	// sbxUsage is each tile's tile-sandbox bytes (plans/tile-sandbox-runtime.md
+	// §9): they count for disk pressure — the fair share — only, never for a
+	// scope's quota or its write blocking (a manager's kv writes must not be
+	// blocked by its sandboxes). onLow is told every low-disk verdict: the
+	// runtime stops the running namespace sandboxes above the fair share.
+	sbxUsage func() map[string]int64
+	onLow    func()
+	free     func(path string) (free, total int64) // the partition's space: diskFree (tests stand in)
+	stop     chan struct{}                         // closed by close(): the scan loop ends
+	stopOnce sync.Once
 
 	// Tile deployments: SetDeploymentQuota's measure (nil: a scan is
 	// today's), and the content-addressed trees it measured, path → treeSize.
 	deploy func(d *diskMon, seen map[string]bool) deployFacts
 	trees  sync.Map
 
-	mu       sync.RWMutex
-	blocked  map[string]string   // scopeKey → reason (over quota / low-disk offender)
-	usage    map[string]int64    // scopeKey → bytes (last scan)
-	buckets  map[string]nsBucket // quota key → the rule of a namespace whose rule isn't today's (last scan)
-	stores   map[string]int64    // tile → its deployment state's bytes (last scan)
-	alerts   []Alert
-	freeB    int64
-	totalB   int64
-	lastScan time.Time
+	mu        sync.RWMutex
+	blocked   map[string]string   // scopeKey → reason (over quota / low-disk offender)
+	usage     map[string]int64    // scopeKey → bytes (last scan)
+	buckets   map[string]nsBucket // quota key → the rule of a namespace whose rule isn't today's (last scan)
+	stores    map[string]int64    // tile → its deployment state's bytes (last scan)
+	alerts    []Alert
+	freeB     int64
+	totalB    int64
+	low       bool  // the last scan's verdict: the partition is below its reserve
+	fairShare int64 // the last scan's fair share (tile sandboxes' bytes included)
+	lastScan  time.Time
 }
 
 // envQuota reads XBIN_LIMIT_DISK (bytes, optional K/M/G/T suffix) for the
@@ -143,6 +152,10 @@ func (d *diskMon) scan() {
 	if usage == nil {
 		usage = map[string]int64{}
 	}
+	var sbx map[string]int64
+	if d.sbxUsage != nil {
+		sbx = d.sbxUsage()
+	}
 	free, total := d.free(d.root)
 	d.mu.RLock()
 	deploy := d.deploy
@@ -168,15 +181,22 @@ func (d *diskMon) scan() {
 
 	blocked := map[string]string{}
 	var alerts, firsts []Alert
-	lowDisk := total > 0 && float64(free) < reserveFraction*float64(total)
+	lowDisk := lowAt(free, total)
 
 	// Fair share for the pressure heuristic: an equal cut of the used space
-	// among primary namespaces that actually store anything; non-primary
-	// usage never moves a primary's share (P25).
+	// among primary namespaces that actually store anything — and tiles whose
+	// sandboxes do, which count here and nowhere else; non-primary usage
+	// never moves a primary's share (P25).
 	var used int64
 	n := 0
 	for key, u := range usage {
 		if u > 0 && !bucket(key).nonPrimary {
+			used += u
+			n++
+		}
+	}
+	for _, u := range sbx {
+		if u > 0 {
 			used += u
 			n++
 		}
@@ -237,8 +257,27 @@ func (d *diskMon) scan() {
 	d.mu.Lock()
 	d.blocked, d.usage, d.alerts = blocked, usage, alerts
 	d.buckets, d.stores = fx.buckets, fx.stores
-	d.freeB, d.totalB, d.lastScan = free, total, time.Now()
+	d.freeB, d.totalB, d.low, d.fairShare, d.lastScan = free, total, lowDisk, fairShare, time.Now()
 	d.mu.Unlock()
+	if lowDisk && d.onLow != nil {
+		d.onLow()
+	}
+}
+
+// lowAt is the low-disk rule: the partition below reserveFraction free.
+func lowAt(free, total int64) bool {
+	return total > 0 && float64(free) < reserveFraction*float64(total)
+}
+
+// FairShare is the last scan's fair share (at least fairShareMin): under
+// low disk, a tile whose sandboxes hold more has them stopped.
+func (d *diskMon) FairShare() int64 {
+	if d == nil {
+		return fairShareMin
+	}
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return max(d.fairShare, fairShareMin)
 }
 
 // Blocked reports whether a scope's resource writes are currently refused.
@@ -263,6 +302,30 @@ func (d *diskMon) Status(scopeKey string) (usage, quota int64, blocked bool) {
 	_, blocked = d.blocked[scopeKey]
 	return d.usage[scopeKey], d.quota, blocked
 }
+
+// Low reports the last scan's verdict: the data partition is below its
+// reserve (reserveFraction free).
+func (d *diskMon) Low() bool {
+	if d == nil {
+		return false
+	}
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.low
+}
+
+// DiskLow is the disk monitor's last verdict on the workspace partition:
+// below its reserve. Tile sandboxes don't start meanwhile
+// (plans/tile-sandbox-runtime.md §6.3).
+func (b *Broker) DiskLow() bool { return b.disk.Low() }
+
+// DiskLowAt is the same verdict over a statfs taken now (free and total
+// bytes): the tile-sandbox runtime's own 5 s watch.
+func (b *Broker) DiskLowAt(free, total int64) bool { return lowAt(free, total) }
+
+// DiskFairShare is the last scan's fair share, tile sandboxes' bytes
+// included.
+func (b *Broker) DiskFairShare() int64 { return b.disk.FairShare() }
 
 // Alerts returns the active alerts (a copy).
 func (d *diskMon) Alerts() []Alert {

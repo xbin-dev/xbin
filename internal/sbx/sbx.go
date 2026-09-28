@@ -26,7 +26,7 @@ const (
 	Backend  Kind = "backend"  // a component backend's generation
 	Terminal Kind = "terminal" // a shell session
 	Agent    Kind = "agent"    // an agent session (D74)
-	Tile     Kind = "tile"     // a sandbox a tile manages itself (reserved: plans/tile-sandboxes.md)
+	Tile     Kind = "tile"     // a sandbox a manager tile drives (D120, internal/tilesbx)
 )
 
 // Mode is how a sandbox is isolated.
@@ -63,10 +63,16 @@ type Entry struct {
 	Parent string `json:"parent,omitempty"`
 	User   string `json:"user,omitempty"`  // terminals and agents: whose session
 	Label  string `json:"label,omitempty"` // agents: the provider
-	Mode   Mode   `json:"mode"`
-	Accel  Accel  `json:"accel,omitempty"`
-	MemMiB int    `json:"memMiB,omitempty"` // guest memory reserved (VMs)
-	VCPUs  int    `json:"vcpus,omitempty"`
+	// Name is a tile sandbox's name (its address under its tile); For and
+	// ForUser are its manager's claims — the consumer tile and the person it
+	// runs for — shown as claims, widening nothing (D120).
+	Name    string `json:"name,omitempty"`
+	For     string `json:"for,omitempty"`
+	ForUser string `json:"forUser,omitempty"`
+	Mode    Mode   `json:"mode"`
+	Accel   Accel  `json:"accel,omitempty"`
+	MemMiB  int    `json:"memMiB,omitempty"` // guest memory reserved (VMs)
+	VCPUs   int    `json:"vcpus,omitempty"`
 	// PID is the sandbox's first process on the host: for a VM, the shim
 	// whose child VMM holds the guest's memory.
 	PID     int       `json:"pid,omitempty"`

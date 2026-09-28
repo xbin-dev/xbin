@@ -103,6 +103,16 @@ func TestScopedBinds(t *testing.T) {
 	if !wsBind.RO {
 		t.Errorf("workspace root bind must be read-only")
 	}
+	// its own entries are the host's: an operator's homes/ symlink still
+	// places $HOME (WP-2b's regression); nothing else is Layout
+	if !wsBind.Layout {
+		t.Errorf("workspace root bind must be Layout")
+	}
+	for _, b := range sb {
+		if b.Layout && b.Src != root {
+			t.Errorf("%s -> %s is Layout: only the workspace root's entries are the host's", b.Src, b.Dst)
+		}
+	}
 }
 
 // D17a: hide masks cover unreadable tiles' dirs, sealed; anything overlapping

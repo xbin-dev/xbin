@@ -57,6 +57,12 @@ friendly one:
 - The grants panel skips offloaded components' `uses` (they make no live
   requests), and a component held by encryption (below) is treated like
   disabled at spawn.
+- **A manager tile's sandboxes stop too** (D120): disabling, hiding or
+  offloading a tile that runs tile sandboxes stops them, their state kept.
+  Removing the tile altogether stops them the same way at the next rescan
+  — and keeps their definitions and state as leftovers of its path, which a
+  non-admin can't create a tile over; a workspace admin deletes them in the
+  admin console (runtime → sandboxes).
 
 Transitions are **admin-only** (`POST /api/xbin/lifecycle {component,
 state}`, `bx enable|disable|offload|restore`). Enable⇄disable is a pure
@@ -104,6 +110,7 @@ recovery wants.
 | `term/…` — the terminal dev layer | hand-installed (`apt` in the shell), *not* reproducible, so it travels ([09-terminals.md](09-terminals.md)) |
 | cron jobs (in the manifest) | re-registered on restore |
 | `deployments/…` — the deployment record and checkpoint store, **only for a tile that left the zero state** | what the tile runs while its live reload is paused, and its deploy log ([/docs/tile-deployments.md](/docs/tile-deployments.md)) |
+| a manager tile's sandbox definitions (in the manifest) | merged back on restore, by the sandbox's uid (below); **not** their state — an upper or a VM disk is large, sandbox-written, and moves only through the sandbox's snapshots and clones |
 
 | deliberately excluded | why |
 |---|---|
@@ -135,6 +142,13 @@ schema 2, which older xbinds refuse. Restoring into a deployment beyond
 `main` (`POST /api/xbin/deployments/restore`) replaces its data: each
 archived resource is emptied first, and resources the target doesn't
 declare are skipped and listed.
+
+The trees a backup reads were written by sandboxes, so xbind reads them
+without following anything: symlinks, sockets and FIFOs are left out (as
+they always were), and a file or directory swapped for a symlink while the
+backup runs is left out too, never read through. A tile whose own directory
+has turned into a symlink (a nested tile its parent replaced) fails the
+backup instead of archiving wherever the link points.
 
 Two honesty notes. **Backups are plaintext tars**: xbind reads resources
 through the decrypted view and re-encrypts on restore, so backing up (and
@@ -198,12 +212,32 @@ immediately.
 fully **archive-driven**: the tar's manifest says where everything goes.
 
 - **Whole version** (version defaults to `latest`): stop the backend, unpack
-  — source and terminal layer into place, file resources through freshly
-  mounted encrypted views (re-encrypted under the *current* vault), kv
-  re-encoded key by key, cron jobs re-registered — then mark the component
-  enabled, rescan, and reprovision. Tar entry names are traversal-proofed
-  (a hostile `../../` clamps inside the target), and a restore overwrites
-  wholesale.
+  — source into place, file resources through freshly mounted encrypted
+  views (re-encrypted under the *current* vault), kv re-encoded key by key,
+  cron jobs re-registered — then mark the component enabled, rescan, and
+  reprovision. The **terminal layer** is rebuilt apart and swapped in whole:
+  the tile's terminal sessions are closed first, the layer becomes exactly
+  what the archive holds, and a VM terminal's disk (never in a backup) stays.
+  A restore overwrites wholesale. Each file gets back the permission bits it
+  was archived with — an executable stays executable — but never a setuid,
+  setgid or sticky bit.
+- **Tile sandboxes** (a manager tile's, D120) are stopped first, and their
+  definitions come back **by uid**, `stopped`: a definition of the same
+  sandbox replaces the live one, which keeps its state; one whose name a
+  *different* sandbox holds now is left out, and the restore's answer lists
+  it — the live sandbox is never displaced, and a backup never adopts
+  another sandbox's state; one that had state which is gone comes back in
+  `error` ("restored without state — reset it"), never as a blank sandbox
+  that would quietly start from nothing. A restore never touches their
+  state on disk.
+- **Nothing in the archive or on disk redirects a write.** The archive must
+  be the component's own (its manifest names the component being restored),
+  and resource data comes back only for the scope the component roots. Tar
+  entry names are traversal-proofed (a hostile `../../` clamps inside the
+  target). A symlink met on the way to a restored file — one a sandbox
+  planted in the source, the terminal layer or a resource — is replaced by
+  the real directory or file, never followed, and a tile directory reached
+  through a symlink refuses the restore.
 - **Single file** (`file` set): the archiver streams one member back and
   xbind hands you the bytes — a download for recovering a clobbered config
   or database *without* rolling the whole component back. It does not write
@@ -229,10 +263,15 @@ their data back too, and its answer names them (`"deployments":
 Offload composes what's above: **stop → back up → verify → remove**. Nothing
 is deleted until the archiver has confirmed the PUT (`archive before offload
 failed (nothing removed)` is a real error string, and the invariant it
-states is the design). `offloaded` removes the scope's resource data (files
+states is the design). A manager tile whose sandboxes hold state (an
+upper, a disk or a snapshot) can't be offloaded yet — **409**, nothing
+archived: a backup doesn't carry that state, and offload never drops it.
+Delete the sandboxes first (their manager, or the admin console). `offloaded` removes the scope's resource data (files
 and kv buckets — encrypted file resources are archived but their
-`data/resources-enc/` volumes stay on disk); `offloaded-full` also removes the terminal layer and the
-source subtree — keeping just `xbin.json`/`scope.json` so the tile stays
+`data/resources-enc/` volumes stay on disk); `offloaded-full` also removes the terminal layer — its
+live sessions are ended first, and one that won't end fails the offload
+after the archive, with nothing removed — and the source subtree — keeping
+just `xbin.json`/`scope.json` so the tile stays
 listed, renders its "offloaded — restore to use" placeholder, and remains
 restorable from the admin tile. Re-enabling an offloaded component *is* a
 restore of the latest version (LC-4: one archive path for everything).

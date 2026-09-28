@@ -547,7 +547,9 @@ panel's tile-wide **Non-primary access** table does both):
   LLM-using tile's non-primary deployments can list models but can't run a
   turn. The agent tile reaches its sandbox managers through a custom role,
   so its non-primary deployments can't reach them: test sandbox work from
-  the primary.
+  the primary. A sandbox manager tile's own sandboxes are `main`'s: its other
+  deployments get 501 from xbind's tile-sandbox routes
+  ([protocol.md](/docs/protocol.md) §Tile sandboxes).
 - A tile whose `net` shares the host's network gives its non-primary
   deployments **no egress**, and the panel says why. A non-primary
   deployment never gets host networking, a provider splice, a stream

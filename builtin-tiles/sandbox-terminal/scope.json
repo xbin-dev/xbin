@@ -1,0 +1,7 @@
+{
+  // apps/sandbox-terminal is a scope: its kv keeps the SSH public keys people
+  // registered (and the tile's settings).
+  "resources": {
+    "state": { "type": "kv" }
+  }
+}

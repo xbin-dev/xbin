@@ -169,3 +169,30 @@ func (r *Relay) pinAnswers(msg []byte) {
 		}
 	}
 }
+
+// refusal answers a DNS query with REFUSED: its ID, opcode, RD bit and
+// question, no records. nil for a response or a packet that isn't DNS.
+func refusal(query []byte) []byte {
+	var p dnsmessage.Parser
+	hdr, err := p.Start(query)
+	if err != nil || hdr.Response {
+		return nil
+	}
+	b := dnsmessage.NewBuilder(nil, dnsmessage.Header{
+		ID: hdr.ID, Response: true, OpCode: hdr.OpCode,
+		RecursionDesired: hdr.RecursionDesired, RCode: dnsmessage.RCodeRefused,
+	})
+	if err := b.StartQuestions(); err != nil {
+		return nil
+	}
+	if q, err := p.Question(); err == nil {
+		if err := b.Question(q); err != nil {
+			return nil
+		}
+	}
+	out, err := b.Finish()
+	if err != nil {
+		return nil
+	}
+	return out
+}

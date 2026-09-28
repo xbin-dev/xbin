@@ -71,13 +71,13 @@ func (b *Broker) apiLifecycleSet(w http.ResponseWriter, r *http.Request) {
 		}
 	case registry.StateOffloaded:
 		if err := b.offload(body.Component, false); err != nil {
-			server.WriteError(w, http.StatusBadGateway, err.Error())
+			server.WriteError(w, offloadStatus(err), err.Error())
 			return
 		}
 		filesChanged = true
 	case registry.StateOffloadedFull:
 		if err := b.offload(body.Component, true); err != nil {
-			server.WriteError(w, http.StatusBadGateway, err.Error())
+			server.WriteError(w, offloadStatus(err), err.Error())
 			return
 		}
 		filesChanged = true
@@ -105,11 +105,12 @@ func (b *Broker) apiLifecycleSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Disabling/offloading stops the backend now (free compute): every
-	// deployment's. Enabling lets the next request re-spawn it (Ensure is
-	// gated on the new state); a deployment beyond the primary, the next
-	// request that addresses it.
+	// deployment's, and the tile sandboxes it manages (state kept). Enabling
+	// lets the next request re-spawn it (Ensure is gated on the new state); a
+	// deployment beyond the primary, the next request that addresses it.
 	if body.State != registry.StateEnabled {
 		b.StopBackendSafe(body.Component)
+		b.stopTileSandboxes(body.Component, "its tile was "+body.State+": stopped, state kept")
 	} else {
 		b.wakeBackends() // an always-on primary starts now, as does a deployment whose alwaysOn switch is on; others on first request
 	}

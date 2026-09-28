@@ -4,11 +4,13 @@
 // bar's ▣ badge (#sbxbadge) with its popover (#sbxpop: the working
 // directory, switching among the attached sandboxes, Detach, Manage…), and
 // the Sandboxes dialog (#sbxdlg: every sandbox you may see, with the
-// lifecycle actions your rights allow, and the create form). What they say
-// is model/sandboxes.js, what they do model/sandbox-store.js (app.sbx); the
-// native view draws the same. "Open terminal" waits for phase 3 (a
-// bx-terminal src): not offered.
-import { html, render, nothing } from '/vendor/lit-all.min.js';
+// lifecycle actions your rights allow, the create form, and sharing one with
+// a terminal tile: #sbx-share), and a terminal pane (#sbxterm: <bx-terminal
+// src> on the sandbox's manager, opened from the popover or a dialog row
+// where the manager offers `tty`). What they say is model/sandboxes.js,
+// what they do model/sandbox-store.js (app.sbx); the native view draws the
+// same, the terminal aside (a D96 difference: model/features.js).
+import { html, render, nothing, keyed } from '/vendor/lit-all.min.js';
 import * as S from './model/sandboxes.js';
 
 const NEW = '+new';
@@ -22,8 +24,16 @@ const MANAGE = '+manage';
  */
 export function makeSandboxUI(app, { sel, dlg, repaint }) {
   const pop = { open: false, ref: '', cwd: '', err: '' }; // cwd: the field, for the sandbox ref
-  const dl = { form: null, err: '', msg: '', busy: '', bind: true, order: null }; // order: the rows as shown, kept while open
+  const dl = { form: null, share: null, err: '', msg: '', busy: '', bind: true, order: null }; // order: the rows as shown, kept while open; share: {ref, f}
   const draw = () => { if (dlg.open) render(dlgTpl(), dlg); };
+  // The terminals: the page dials the managers itself (its frame token — the
+  // manager sees the verified person), at the endpoints its `sandboxes` slot
+  // has (multi: {endpoints}).
+  const slot = globalThis.xbin && globalThis.xbin.iface ? globalThis.xbin.iface('sandboxes') : null;
+  app.sbx.tty = (slot && slot.endpoints) || [];
+  const termEl = document.getElementById('sbxterm') || document.body.appendChild(Object.assign(document.createElement('div'), { id: 'sbxterm' }));
+  let term = null; // the open terminal: {t: app.sbx.terminal(…), key, session, ended, max}
+  let termKey = 0;
   app.on('sandboxes', () => { repaint(); draw(); });
   app.on('class', () => paint()); // the class for new chats: the picker follows it at home
 
@@ -84,6 +94,7 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
   const setCwd = (b) => run(() => app.sbx.setCwd(pop.cwd).then(() => { pop.cwd = S.bindingOf(app.session.current())?.cwd || pop.cwd; }));
 
   function popTpl(b) {
+    const tt = app.sbx.terminal(b.ref, b.cwd);
     return html`<div class="mback" @click=${closePop}></div>
       <div class="sbxpop" id="sbxpop" role="dialog" aria-label="This conversation's sandbox">
         <div class="sbxhd"><b>${S.ICON} ${b.name}</b><span class="muted">${b.detail}</span></div>
@@ -98,9 +109,13 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
               @click=${() => { if (!a.on && b.canChange) run(() => app.sbx.choose(a.ref, a.cwd)); }}>
             ${a.on ? '●' : '○'} ${a.name}${a.cwd ? html` <span class="mono muted">${a.cwd}</span>` : nothing}${a.broken ? ' ⚠' : ''}</div>`)}</div>` : nothing}
         ${pop.err ? html`<div class="err" id="sbx-err">${pop.err}</div>` : nothing}
+        ${tt.shown && tt.why ? html`<div class="hint" id="sbx-term-why">No terminal: ${tt.why}.</div>` : nothing}
         <div class="sbxacts">
           <button class="btn rm btnsm" id="sbx-detach" ?disabled=${!b.canChange} title="Take it off this conversation (the sandbox stays)"
             @click=${() => run(() => app.sbx.detach(b.ref), true)}>Detach</button>
+          ${tt.shown ? html`<button class="btn btnsm" id="sbx-term" ?disabled=${!!tt.why}
+            title=${tt.why || `a shell in ${b.name} at ${b.cwd || 'its workdir'}, as you`}
+            @click=${() => { pop.open = false; repaint(); openTerm(tt); }}>Open terminal</button>` : nothing}
           <span style="flex:1"></span>
           <button class="btn ghost btnsm" id="sbx-manage" @click=${() => { pop.open = false; open(); }}>Manage…</button>
         </div>
@@ -113,6 +128,7 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
   // the list afresh from the managers.
   function open({ create = false } = {}) {
     dl.form = create ? {} : null;
+    dl.share = null;
     dl.err = ''; dl.msg = ''; dl.busy = ''; dl.bind = true;
     if (!dlg.open) { dl.order = null; dlg.showModal(); } // its rows sorted afresh when it opens, then kept
     draw();
@@ -121,6 +137,8 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
   }
 
   async function act(r, a) {
+    if (a.id === 'terminal') { dlg.close(); openTerm(app.sbx.terminal(r.ref, a.cwd)); return; }
+    if (a.id === 'shareTerm') { dl.share = { ref: r.ref, f: {} }; dl.form = null; dl.err = ''; dl.msg = ''; draw(); return; }
     if (a.confirm && !confirm(a.confirm)) return;
     dl.busy = r.ref; dl.err = ''; dl.msg = '';
     draw();
@@ -161,8 +179,8 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
         <div class="sbxlist" id="sbx-list">${rows.map((r) => rowTpl(r))}</div>
         ${L.loaded && !rows.length ? html`<div class="muted" id="sbx-empty">No sandboxes yet.</div>` : nothing}
         ${dl.msg ? html`<div class="muted" id="sbx-msg">${dl.msg}</div>` : nothing}
-        ${dl.err && !dl.form ? html`<div class="err" id="sbx-err">${dl.err}</div>` : nothing}
-        ${dl.form ? formTpl() : html`<div><button class="btn btnsm" id="sbx-new" ?disabled=${!!cant} title=${cant}
+        ${dl.err && !dl.form && !dl.share ? html`<div class="err" id="sbx-err">${dl.err}</div>` : nothing}
+        ${dl.share ? shareTpl() : dl.form ? formTpl() : html`<div><button class="btn btnsm" id="sbx-new" ?disabled=${!!cant} title=${cant}
           @click=${() => { dl.form = {}; dl.err = ''; dl.msg = ''; draw(); }}>＋ New sandbox</button>
           ${cant === S.VIEW_ONLY ? html`<span class="hint" id="sbx-new-why">${S.sentence(cant)}</span>` : nothing}</div>`}
       </div>`;
@@ -170,7 +188,8 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
 
   function rowTpl(r) {
     const facts = [r.manager, r.image, r.size, r.egressLabel, `owner: ${r.owner}`, r.lastLabel && `active ${r.lastLabel}`,
-      r.bound ? `in ${r.bound} conversation${r.bound === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
+      r.bound ? `in ${r.bound} conversation${r.bound === 1 ? '' : 's'}` : '', r.sharedWith.length ? `shared with ${r.sharedWith.join(', ')}` : '']
+      .filter(Boolean).join(' · ');
     // the name and its badges on the left; the actions one group on the
     // right, wrapping within itself (under it on a phone); the facts below
     return html`<div class="sbxrow ${r.active ? 'on' : ''}" data-ref=${r.ref}>
@@ -217,7 +236,88 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
     </div>`;
   }
 
-  return { paint, badgeTpl, closePop, open, get popOpen() { return pop.open; } };
+  // "Share with a terminal tile…": the tile's path, who it is for, the shares
+  // it has now (each can be stopped) — model/sandboxes.js shareForm.
+  function shareTpl() {
+    const { ref } = dl.share;
+    const row = app.sbx.list.sandboxes.find((x) => x.ref === ref);
+    const vm = app.sbx.shareForm(ref, dl.share.f);
+    const go = async () => {
+      dl.busy = 'share'; dl.err = ''; draw();
+      try { dl.msg = await app.sbx.shareTerminal(ref, dl.share.f); dl.share = null; } catch (e) { dl.err = e.message; }
+      dl.busy = ''; draw();
+    };
+    const stop = async (c) => {
+      if (!confirm(`Stop sharing “${(row && row.name) || ref}” with ${c.consumer}? Its terminals there can't be opened again.`)) return;
+      dl.busy = 'share'; dl.err = ''; draw();
+      try { await app.sbx.unshare(ref, c.consumer); } catch (e) { dl.err = e.message; }
+      dl.busy = ''; draw();
+    };
+    return html`<div class="sec sbxform" id="sbx-share" data-ref=${ref}><h4>Share “${(row && row.name) || S.splitRef(ref).id}” with a terminal tile</h4>
+      <div class="hint">A terminal tile — the builtin <span class="mono">sandbox-terminal</span> — gives people terminals onto it in the
+        browser and over SSH. It checks who may use the sandbox as well: a share never widens that.</div>
+      <div class="row2">
+        <div class="field"><label>The terminal tile's path</label><input id="sbxs-tile" class="mono" .value=${vm.tile}
+          placeholder=${S.TERMINAL_TILE} @input=${(e) => { dl.share.f = { tile: e.target.value }; draw(); }}></div>
+        <div class="field"><label>For</label><div class="muted" id="sbxs-who">${vm.usersLabel}</div></div>
+      </div>
+      ${vm.current.length ? html`<div class="field"><label>Shared with now</label>${vm.current.map((c) => html`<div class="sbxshr" data-consumer=${c.consumer}>
+        <span class="mono">${c.consumer}</span> <span class="muted">${c.usersLabel}</span>
+        <button class="btn ghost btnsm rm" data-unshare=${c.consumer} ?disabled=${!!dl.busy} @click=${() => stop(c)}>Stop sharing</button></div>`)}</div>` : nothing}
+      ${dl.err || (vm.error && vm.tile) ? html`<div class="err" id="sbxs-err">${dl.err || vm.error}</div>` : nothing}
+      <div><button class="btn" id="sbxs-share" ?disabled=${!vm.ok || !!dl.busy} @click=${go}>${dl.busy === 'share' ? 'Sharing…' : 'Share'}</button>
+        <button class="btn ghost" id="sbxs-cancel" @click=${() => { dl.share = null; dl.err = ''; draw(); }}>Cancel</button></div>
+    </div>`;
+  }
+
+  // --- the terminal pane -------------------------------------------------------------
+
+  // openTerm shows a terminal for t (app.sbx.terminal(): its src) — one at a
+  // time: another one's shell is ended first.
+  async function openTerm(t) {
+    if (!t || !t.src) return;
+    if (term) closeTerm();
+    await import('/vendor/bx-terminal.js');
+    term = { t, key: ++termKey, session: '', ended: '', max: false };
+    drawTerm();
+  }
+  // closeTerm takes the pane away and ends its shell at the manager (a
+  // terminal left by a page that closed runs on until the manager ends it).
+  function closeTerm() {
+    const cur = term;
+    term = null;
+    drawTerm();
+    if (cur && cur.session && !cur.ended) app.sbx.endTerminal(cur.t, cur.session).catch(() => {});
+  }
+  const drawTerm = () => render(termTpl(), termEl);
+
+  function termTpl() {
+    if (!term) return nothing;
+    const { t } = term;
+    const again = () => { const n = app.sbx.terminal(t.ref, t.cwd); if (n.src) { term = { ...term, t: n, key: ++termKey, session: '', ended: '' }; drawTerm(); } };
+    // docked just under the top bar (it wraps on a narrow window), clear of
+    // the composer. Escape belongs to the program in the terminal (vim,
+    // less): the page's own Escape handling (a popover, the preview) must
+    // not see it — so a fixed pane, not a modal <dialog> (which closes on it).
+    const top = Math.round((document.getElementById('top')?.getBoundingClientRect().bottom || 40) + 6);
+    return html`<div class="sbxterm ${term.max ? 'max' : ''}" id="sbxterm-pane" role="dialog" aria-label=${`Terminal in ${t.name}`}
+        style=${term.max ? '' : `top:${top}px`}
+        @keydown=${(e) => { if (e.key === 'Escape') e.stopPropagation(); }}>
+      <div class="sbxthd"><b>${S.ICON} ${t.name}</b><span class="mono muted" title="the working directory">${t.cwd || 'its workdir'}</span>
+        <span class="muted">${t.manager}</span>
+        ${term.ended ? html`<span class="badge" id="sbxterm-ended">${term.ended}</span>` : nothing}
+        <span style="flex:1"></span>
+        ${term.ended ? html`<button class="btn ghost btnsm" id="sbxterm-again" title="Start another shell here" @click=${again}>New shell</button>` : nothing}
+        <button class="btn ghost btnsm" id="sbxterm-max" title=${term.max ? 'Smaller' : 'Larger'}
+          @click=${() => { term.max = !term.max; drawTerm(); }}>${term.max ? '⤡' : '⤢'}</button>
+        <button class="btn ghost btnsm" id="sbxterm-close" title="Close — ends the shell" @click=${closeTerm}>✕</button></div>
+      <div class="sbxtbody">${keyed(term.key, html`<bx-terminal src=${t.src} style="flex:1 1 0; min-width:0; height:auto"
+        @bx-session=${(e) => { if (term) term.session = e.detail.id; }}
+        @bx-exit=${() => { if (term) { term.ended = 'ended'; drawTerm(); } }}></bx-terminal>`)}</div>
+    </div>`;
+  }
+
+  return { paint, badgeTpl, closePop, open, openTerm, closeTerm, get popOpen() { return pop.open; }, get termOpen() { return !!term; } };
 }
 
 // optionsTpl: the picker's <option>s — none, the groups, then the actions.

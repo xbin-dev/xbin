@@ -320,7 +320,8 @@ cattle, workspace is pet.
   vendor/                   # vendored frontend deps (lit, xterm, xbin-client)
   data/resources/...        # broker-provisioned state (sqlite, blobs, kv)
   .xbin/                   # derived state: build outputs, caches, logs, PTY scrollback
-                            #   — safe to delete, excluded from backup/git
+                            #   — safe to delete, excluded from backup/git; except token,
+                            #   secret, term/ and sbx/ (tile sandbox state: not derived)
 /opt/xbin/xbind           # the binary
 /opt/toolchains             # go, node, python, git, vim, etc. (baked in image)
 ```

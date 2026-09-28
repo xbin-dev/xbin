@@ -1,0 +1,87 @@
+<!doctype html>
+<!-- coding-sandbox: the manager's page. For its operators (write access to
+     this tile): every consumer's sandboxes — their metadata, never their
+     contents —, the images and their builds, the settings (mode, networks,
+     sizes, quotas). For them too: their own sandboxes, the page being a
+     consumer of its own — create, lifecycle, files, a terminal, sharing.
+     With read access: the sandboxes they may use, read-only. web.js draws it
+     from model/ (the native view, native.js, draws the same model); API.md
+     is the whole API. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>coding sandboxes</title>
+  <link rel="stylesheet" href="/vendor/theme.css">
+  <style>
+    body { margin: 0; font: 13px/1.45 system-ui, sans-serif; color: var(--bx-text); background: var(--bx-bg, #1b1e24); }
+    header.top { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid var(--bx-border); position: sticky; top: 0; background: var(--bx-bg, #1b1e24); z-index: 2; }
+    header.top h3 { margin: 0; font-size: 15px; }
+    main { max-width: 1100px; margin: 0 auto; padding: 10px 16px 28px; }
+    .pad { padding: 14px 16px; }
+    h4 { margin: 18px 0 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--bx-muted); }
+    .grow { flex: 1; }
+    .muted { color: var(--bx-muted); }
+    .small { font-size: 12px; }
+    .err { color: var(--bx-red); margin: 6px 0; white-space: pre-wrap; }
+    .note { margin: 6px 0; padding: 6px 10px; border-left: 3px solid var(--bx-accent); background: var(--bx-panel-2); }
+    code, .mono, pre { font-family: var(--bx-mono, monospace); font-size: 12px; }
+    pre { margin: 6px 0; padding: 8px 10px; background: var(--bx-panel-2); border: 1px solid var(--bx-border); border-radius: 5px; overflow: auto; max-height: 420px; white-space: pre-wrap; word-break: break-word; }
+    .tabs { display: flex; gap: 2px; flex-wrap: wrap; }
+    .tab { border: 1px solid transparent; background: none; border-radius: 5px; padding: 4px 10px; }
+    .tab.on { border-color: var(--bx-border); background: var(--bx-panel); font-weight: 600; }
+    .pill { display: inline-block; font-size: 11px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--bx-border); white-space: nowrap; }
+    .pill.ok { color: var(--bx-green); border-color: var(--bx-green); }
+    .pill.warn { color: var(--bx-amber, #f2a71b); border-color: var(--bx-amber, #f2a71b); }
+    .pill.danger { color: var(--bx-red); border-color: var(--bx-red); }
+    .pill.muted { color: var(--bx-muted); }
+    .card { border: 1px solid var(--bx-border); border-radius: 7px; padding: 8px 12px; background: var(--bx-panel); margin: 8px 0; }
+    .card.on { border-color: var(--bx-accent); }
+    .card .hd, .detail-pane .hd, .viewer .hd { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .detail-pane { border: 1px solid var(--bx-accent); border-radius: 7px; padding: 8px 12px; margin: 12px 0; background: var(--bx-panel); }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+    label { display: inline-flex; gap: 6px; align-items: center; }
+    label.block { display: block; margin: 6px 0; }
+    label.block textarea { display: block; margin-top: 4px; }
+    input, select, textarea { font: inherit; font-size: 12px; padding: 4px 8px; border: 1px solid var(--bx-border); border-radius: 5px; background: var(--bx-panel); color: var(--bx-text); }
+    input.wide { min-width: 260px; flex: 1; }
+    input.n { width: 76px; }
+    input.n2 { width: 90px; }
+    textarea { width: 100%; box-sizing: border-box; }
+    button, label.button { font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 5px; border: 1px solid var(--bx-border); background: var(--bx-panel); color: var(--bx-text); cursor: pointer; }
+    button.small, label.button.small { padding: 2px 8px; }
+    button.go { background: var(--bx-accent); border-color: transparent; color: #fff; }
+    button.rm { color: var(--bx-red); }
+    button.ghost { background: none; border-color: transparent; }
+    button.on { border-color: var(--bx-accent); }
+    button:disabled { opacity: .5; cursor: default; }
+    .link { cursor: pointer; }
+    .link:hover { text-decoration: underline; }
+    table.grid { border-collapse: collapse; width: 100%; font-size: 12px; }
+    table.grid th { text-align: left; font-weight: 600; color: var(--bx-muted); padding: 3px 8px 3px 0; }
+    table.grid td { padding: 4px 8px 4px 0; border-top: 1px solid var(--bx-border); vertical-align: top; }
+    td.num, th.num { text-align: right; white-space: nowrap; }
+    td.acts { white-space: nowrap; text-align: right; }
+    td.acts button { margin-left: 4px; }
+    tr.panel td { background: var(--bx-panel-2); padding: 8px 10px; }
+    td.over { color: var(--bx-red); font-weight: 600; }
+    td.fullc { color: var(--bx-amber, #f2a71b); }
+    .detail, .who { max-width: 360px; }
+    .substrate { margin: 4px 0 2px; }
+    ul.plain { list-style: none; padding: 0; margin: 4px 0; }
+    ul.plain li { margin: 3px 0; }
+    .crumbs .link { color: var(--bx-accent); }
+    .viewer { margin-top: 10px; border-top: 1px solid var(--bx-border); padding-top: 6px; }
+    .term bx-terminal { display: block; border: 1px solid var(--bx-border); border-radius: 5px; overflow: hidden; }
+    details summary { cursor: pointer; }
+    @media (max-width: 700px) { #ops-table th:nth-child(n+6), #ops-table td:nth-child(n+6):not(.acts) { display: none; } }
+  </style>
+</head>
+<body class="bx">
+<div id="app"></div>
+<script type="module">
+import { start } from './web.js';
+start(document.getElementById('app'));
+</script>
+</body>
+</html>

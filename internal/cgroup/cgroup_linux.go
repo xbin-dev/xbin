@@ -13,9 +13,12 @@
 //	tile-<CompKey>/          the tile's share of the box (TileWeight); no process
 //	  d-<deployment>/        primary first (DeploymentWeight, P25); no process
 //	    backend              that deployment's generations, with its own caps (P22)
-//	    sbx-<name>           the deployment's tile-managed sandboxes, later
 //
 // Zero-state and main-only tiles keep the flat leaf, byte for byte (P5).
+// Tile sandboxes, every deployment's, have their leaves in a sibling subtree
+// of their own, comp-tilesbx-<ws8> (Parent, leaf_linux.go;
+// plans/tile-sandbox-runtime.md §6.2): the sandboxes policy sizes it, and
+// no backend's caps or per-tile counters take them in.
 package cgroup
 
 import (
@@ -48,6 +51,18 @@ type Limits struct {
 	PidsMax   int64 // pids.max (0 = unlimited)
 	CPUWeight int64 // cpu.weight 1..10000 (0 = default 100). Fair share under
 	//                  contention, full burst when idle — no hard cpu.max.
+	// MemHigh is memory.high, bytes: 0 = ⅞ of MemMax, <0 = none (a VM holds
+	// its guest's memory by design; reclaim below that only stalls it).
+	MemHigh int64
+	// CPUMax is a hard CPU cap (cpu.max): µs of CPU time per 100 ms period,
+	// so 100000 = one CPU; 0 = none. Backends keep bursting on their weight;
+	// a tile sandbox is held to the vCPUs it was sized with
+	// (plans/tile-sandbox-runtime.md §6.2).
+	CPUMax int64
+	// NoSwap writes memory.swap.max 0: MemMax is then all the memory the
+	// leaf gets — a tile sandbox's memMiB is a cap, not a floor under the
+	// host's swap (plans/tile-sandbox-runtime.md §6.2).
+	NoSwap bool
 
 	// NodeWeight is the cpu.weight written on a nested leaf's parent, the
 	// deployment node d-<name>: DeploymentWeight(primary) (P25). 0 leaves
@@ -110,11 +125,16 @@ type Leaf struct {
 	Deployment string
 }
 
-// Manager owns xbind's delegated cgroup subtree and per-component leaves.
+// cpuPeriod is cpu.max's period, µs.
+const cpuPeriod = 100000
+
+// Manager owns xbind's delegated cgroup subtree and per-component leaves —
+// or, made by Parent, one cgroup inside it and the leaves under that.
 type Manager struct {
-	base    string // the delegated base cgroup dir
+	base    string // the delegated base cgroup dir (a Parent's: its own dir)
 	enabled bool
 	limits  Limits
+	parent  bool // made by Parent: SetLimits re-writes base's own limits
 
 	// mu orders making a leaf (mkdir … cgroup.procs) against removing one,
 	// so an exiting generation can never rmdir a leaf, or a parent, that a
@@ -127,10 +147,19 @@ type Manager struct {
 }
 
 // SetLimits installs the per-component caps applied to every leaf in Add.
-func (m *Manager) SetLimits(l Limits) {
-	if m != nil {
+// On a Parent's Manager it re-writes the parent's own memory.max and
+// pids.max instead (a policy change; see Parent), and says when that failed.
+func (m *Manager) SetLimits(l Limits) error {
+	switch {
+	case m == nil:
+	case m.parent:
+		if m.enabled {
+			return writeParentLimits(m.base, l)
+		}
+	default:
 		m.limits = l
 	}
+	return nil
 }
 
 // New sets up (if possible) a delegated subtree: xbind moves itself into a
@@ -172,6 +201,9 @@ func New() *Manager {
 
 // Enabled reports whether cgroup accounting is active.
 func (m *Manager) Enabled() bool { return m != nil && m.enabled }
+
+// leaf is a flat name's directory, comp-<name> (Parent and its leaves).
+func (m *Manager) leaf(name string) string { return filepath.Join(m.base, "comp-"+name) }
 
 // path maps a name to its cgroup directory. A name holding '/' is a path
 // under the base, used verbatim: the per-tile layout, whose first element
@@ -215,27 +247,29 @@ func osWrite(path, val string) error { return os.WriteFile(path, []byte(val), 0o
 // Add creates a per-component leaf, applies the caps, and moves pid into it.
 // Limits are written before the pid joins so they bind the process's whole
 // lifetime. Safe no-op when disabled.
-func (m *Manager) Add(name string, pid int) { m.AddWith(name, pid, m.limits) }
+func (m *Manager) Add(name string, pid int) { m.AddLimited(name, pid, m.limits) }
 
-// AddWith is Add with l as the leaf's caps instead of the installed ones: a
-// deployment's own limits, which default to the tile's (P22). A nested
-// name's parents are made first, each enabling the controllers for its
-// children before anything is made beneath it: the tile node at TileWeight,
-// the leaf's parent at l.NodeWeight. A node address (a trailing '/') is
-// refused: the tile node never holds a process.
-func (m *Manager) AddWith(name string, pid int, l Limits) { m.add(name, pid, l, false, 0) }
+// AddLimited is Add with l as the leaf's caps instead of the installed ones:
+// a deployment's own limits, which default to the tile's (P22). Like Add, it
+// joins a leaf that exists (a deployment's generations share theirs), where
+// AddWith, for a tile sandbox's leaf of its own, refuses a leftover one. A
+// nested name's parents are made first, each enabling the controllers for
+// its children before anything is made beneath it: the tile node at
+// TileWeight, the leaf's parent at l.NodeWeight. A node address (a trailing
+// '/') is refused: the tile node never holds a process.
+func (m *Manager) AddLimited(name string, pid int, l Limits) { m.add(name, pid, l, false, 0) }
 
 // AddMem is Add with the leaf's memory.max set to memMax instead of the
 // shared cap, and no soft ceiling: a VM sandbox (plans/vm-sandbox.md) holds
 // its guest's memory by design, so its leaf is sized to guest + VMM overhead
 // and reclaim throttling below that would only stall the guest.
 func (m *Manager) AddMem(name string, pid int, memMax int64) {
-	m.AddMemWith(name, pid, m.limits, memMax)
+	m.AddMemLimited(name, pid, m.limits, memMax)
 }
 
-// AddMemWith is AddMem with l's pids cap and weights (l.MemMax gives way to
-// memMax), as AddWith is to Add.
-func (m *Manager) AddMemWith(name string, pid int, l Limits, memMax int64) {
+// AddMemLimited is AddMem with l's pids cap and weights (l.MemMax gives way
+// to memMax), as AddLimited is to Add.
+func (m *Manager) AddMemLimited(name string, pid int, l Limits, memMax int64) {
 	m.add(name, pid, l, true, memMax)
 }
 
@@ -262,12 +296,10 @@ func (m *Manager) add(name string, pid int, l Limits, vm bool, memMax int64) {
 		return
 	}
 	if vm {
-		l.MemMax = 0
+		// Sized to guest + VMM overhead, and no soft ceiling (AddMem).
+		l.MemMax, l.MemHigh = max(memMax, 0), -1
 	}
 	writeLimitsTo(m.writeFile, leaf, l)
-	if vm && memMax > 0 {
-		_ = m.writeFile(filepath.Join(leaf, "memory.max"), strconv.FormatInt(memMax, 10))
-	}
 	_ = m.writeFile(filepath.Join(leaf, "cgroup.procs"), strconv.Itoa(pid))
 }
 
@@ -316,8 +348,13 @@ func writeLimitsTo(write func(path, val string) error, leaf string, l Limits) {
 	set := func(file, val string) { _ = write(filepath.Join(leaf, file), val) }
 	if l.MemMax > 0 {
 		set("memory.max", strconv.FormatInt(l.MemMax, 10))
-		// A soft ceiling a little under the hard one: reclaim pressure kicks in
-		// before the OOM kill, so a gradual leak is throttled first.
+	}
+	// A soft ceiling a little under the hard one: reclaim pressure kicks in
+	// before the OOM kill, so a gradual leak is throttled first.
+	switch {
+	case l.MemHigh > 0:
+		set("memory.high", strconv.FormatInt(l.MemHigh, 10))
+	case l.MemHigh == 0 && l.MemMax > 0:
 		set("memory.high", strconv.FormatInt(l.MemMax-l.MemMax/8, 10))
 	}
 	if l.PidsMax > 0 {
@@ -325,6 +362,12 @@ func writeLimitsTo(write func(path, val string) error, leaf string, l Limits) {
 	}
 	if l.CPUWeight > 0 {
 		set("cpu.weight", strconv.FormatInt(l.CPUWeight, 10)) // fair share; no cpu.max = burst when idle
+	}
+	if l.CPUMax > 0 {
+		set("cpu.max", strconv.FormatInt(l.CPUMax, 10)+" "+strconv.Itoa(cpuPeriod))
+	}
+	if l.NoSwap {
+		set("memory.swap.max", "0")
 	}
 }
 

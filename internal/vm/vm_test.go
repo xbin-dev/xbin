@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -58,6 +59,24 @@ func TestExportsFromBinds(t *testing.T) {
 		}
 	}
 
+	// a Sub beneath a resource root: its own type, never a symlink's
+	// (resolved as the Linux init binds it)
+	res := filepath.Join(dir, "res")
+	os.MkdirAll(filepath.Join(res, "d"), 0o755)
+	os.WriteFile(filepath.Join(res, "d", "f.txt"), []byte("x"), 0o644)
+	os.Symlink(file, filepath.Join(res, "link"))
+	if runtime.GOOS == "linux" {
+		got, err = exports([]sandbox.Bind{
+			{Src: res, Sub: "d/f.txt", Dst: "/mnt/f.txt", RO: true},
+			{Src: res, Sub: "d", Dst: "/mnt/d"},
+		}, nil)
+		if err != nil || len(got) != 2 || !got[0].File || got[1].File {
+			t.Fatalf("sub exports = %+v, %v: want the file as a file, the dir as a dir", got, err)
+		}
+		if _, err := exports([]sandbox.Bind{{Src: res, Sub: "link", Dst: "/mnt/l"}}, nil); err == nil {
+			t.Errorf("a symlink in Sub was followed")
+		}
+	}
 	if _, err := exports([]sandbox.Bind{{Src: "/dev/null", Dst: "/dev/null"}}, nil); err == nil {
 		t.Errorf("a device node was exported")
 	}

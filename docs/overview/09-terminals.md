@@ -12,7 +12,7 @@ mount picture and the guards that hold it up.
 (who can see which tile) · [12-egress.md](12-egress.md) · reference:
 [/docs/isolation.md](/docs/isolation.md), [/docs/protocol.md](/docs/protocol.md)
 (`/ws/term` wire protocol — including the per-frame echo acks and the
-ping/pong the browser's predictive echo runs on, `internal/term/attach.go`,
+ping/pong the browser's predictive echo runs on, `internal/termwire`,
 D70) · design records in the xbin repo: `terminal-tokens`, `runtime`,
 `component-env`; decisions D6/D16/D17/D17a/D18/D70.
 
@@ -309,7 +309,13 @@ terminal to try things; move anything the backend needs into `setup`.
 live session on the layer and wipes the upper back to a clean base — safe,
 because your code and `$HOME` are bind mounts, not part of the overlay. Reset
 needs `terminal` level on the tile; resetting the (disabled) root layer is
-admin-only.
+admin-only. It is also what clears a symlink the layer holds where a mount
+point goes (`/opt`, `/proc`, …): the terminal refuses to start over one,
+naming the path, instead of following it (D78; the base rootfs's own links,
+and the workspace root's — an operator's `homes/` → `.homes` — are
+followed, inside the sandbox, and one at a file mount point, like an
+apt-installed `nvidia-smi` under a GPU terminal, is covered by the mount —
+[isolation.md](/docs/isolation.md) §The dev layer).
 
 ## How tiles and terminals share the filesystem
 
@@ -372,22 +378,32 @@ backend shares exactly one of them (source, read-only).
 The sandbox lower is a base rootfs directory. Because a persistent upper records
 apt/dpkg state *relative to the base it was built on*, stacking it on a
 **different** base merges new-base packages under an old dpkg status and breaks
-apt. So each layer is **stamped and pinned** to its base
-(`internal/term/base.go`):
+apt. So each layer is **stamped and pinned** to its base (`internal/layers`,
+shared by terminal layers and tile sandboxes; `internal/term/base.go` wraps it
+for terminals):
 
-- **`ensureLayerBase`** stamps a layer with its base version on first use (a
-  brand-new layer → the current base; a pre-existing unstamped upper → the
-  legacy `v0`).
-- **`resolveBase`** pins the layer's upper to the exact base it was built on —
+- **Stamps.** A layer dir records its base version in `base` (and, for a tile
+  sandbox's namespace upper, the overlay flavour that wrote it in `overlay`).
+  xbind writes them, atomically; nothing reads what the sandbox wrote. A
+  terminal layer is stamped on first use (a brand-new layer → the current
+  base; a pre-existing unstamped upper → the legacy `v0`).
+- **`ResolveBase`** pins the layer's upper to the exact base it was built on —
   the current rootfs if it matches, else a preserved sibling `<rootfs>-<version>`.
 - **`CheckBaseImages`** is a startup safety gate: xbind **refuses to start** if
-  any existing layer is pinned to a base that isn't installed, rather than
-  corrupt its apt state. A base upgrade must therefore *preserve* old bases as
-  `<rootfs>-<version>` siblings (`deploy/install.sh` does this on upgrade); the
-  fix if you hit the gate is to restore the base or reset the affected
-  terminal(s).
-- **`GCBaseImages`** releases preserved bases that no layer pins anymore — the
-  cleanup side, so old bases don't accumulate once every terminal has upgraded.
+  any existing terminal layer is pinned to a base that isn't installed, rather
+  than corrupt its apt state. A base upgrade must therefore *preserve* old bases
+  as `<rootfs>-<version>` siblings (`deploy/install.sh` does this on upgrade);
+  the fix if you hit the gate is to restore the base or reset the affected
+  terminal(s). (A tile sandbox whose base is gone fails its own start instead.)
+- **GC at boot** releases preserved bases that nothing pins anymore — the
+  cleanup side, so old bases don't accumulate once every layer has upgraded.
+  The pins are the union of the terminal layers' stamps (`.xbin/term/*`), the
+  tile sandboxes' stamps (`.xbin/sbx/<CK>/<name>.<uid>/cur/`) and their
+  snapshots' (`…/snapshots/<sid>/`; what `.xbin/sbx/<CK>/.trash` holds pins
+  nothing), and the base of every tile-sandbox definition. The VM images
+  built from bases (`.xbin/vm/images`) follow the same pins. If any pin
+  can't be read (a stamp, or the definitions file), nothing is released that
+  boot.
 
 A terminal whose layer's base is older than the current rootfs reports
 `baseOutdated` on attach, so the UI can offer a reset-to-upgrade.

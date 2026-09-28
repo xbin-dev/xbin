@@ -160,11 +160,27 @@ func cmdDoctor() error {
 				}
 			}
 			var binds struct {
-				Inert map[string]map[string]string `json:"inert"`
+				Inert      map[string]map[string]string `json:"inert"`
+				Components []struct {
+					Component  string `json:"component"`
+					Interfaces map[string]struct {
+						Kind string `json:"kind"`
+					} `json:"interfaces"`
+				} `json:"components"`
 			}
 			if apiJSON("GET", "/api/xbin/bindings", nil, &binds) == nil {
+				kind := map[string]string{} // comp\x00slot → interface kind
+				for _, c := range binds.Components {
+					for slot, def := range c.Interfaces {
+						kind[c.Component+"\x00"+slot] = def.Kind
+					}
+				}
 				for comp, slots := range binds.Inert {
 					for slot, reason := range slots {
+						if kind[comp+"\x00"+slot] == "sandbox-net" { // a sandbox manager's network class
+							warn("%s %s: sandbox network class is inert — %s (its sandboxes get no network; rebind the class)", comp, slot, reason)
+							continue
+						}
 						warn("%s %s: net binding is inert — %s (widen the org's network set, or bind net=org)", comp, slot, reason)
 					}
 				}
@@ -394,6 +410,9 @@ func allowEntryProblem(e string) string {
 	}
 	if e == "xbin" || strings.HasPrefix(e, "xbin:") || strings.HasPrefix(e, "cap:xbin") {
 		return "the xbin capability family is never delegable"
+	}
+	if e == "cap:sandboxes" {
+		return "cap:sandboxes is never delegable — only a workspace admin approves a sandbox manager (D120)"
 	}
 	class, rest, okCut := strings.Cut(e, ":")
 	if !okCut || rest == "" {

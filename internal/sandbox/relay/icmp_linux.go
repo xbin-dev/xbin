@@ -3,9 +3,11 @@
 package relay
 
 import (
+	"context"
 	"net"
 	"net/netip"
 	"os"
+	"sync"
 	"time"
 
 	"golang.org/x/net/icmp"
@@ -38,6 +40,9 @@ type icmpTap struct {
 	disp stack.NetworkDispatcher
 	wfd  int // dup of the TUN fd, for writing echo replies toward the guest
 	sem  chan struct{}
+
+	wmu    sync.Mutex // orders reply writes against close
+	closed bool       // wfd is closed: a late reply must not write to its reused number
 }
 
 func newICMPTap(inner stack.LinkEndpoint, tunFD int, r *Relay) (*icmpTap, error) {
@@ -48,7 +53,23 @@ func newICMPTap(inner stack.LinkEndpoint, tunFD int, r *Relay) (*icmpTap, error)
 	return &icmpTap{LinkEndpoint: inner, r: r, wfd: wfd, sem: make(chan struct{}, icmpInFlight)}, nil
 }
 
-func (t *icmpTap) close() { unix.Close(t.wfd) }
+func (t *icmpTap) close() {
+	t.wmu.Lock()
+	defer t.wmu.Unlock()
+	if !t.closed {
+		t.closed = true
+		unix.Close(t.wfd)
+	}
+}
+
+// reply writes an echo reply toward the guest, unless the relay has closed.
+func (t *icmpTap) reply(pkt []byte) {
+	t.wmu.Lock()
+	defer t.wmu.Unlock()
+	if !t.closed {
+		_, _ = unix.Write(t.wfd, pkt)
+	}
+}
 
 // Attach interposes ourselves as the dispatcher so we see inbound packets.
 func (t *icmpTap) Attach(disp stack.NetworkDispatcher) {
@@ -95,7 +116,7 @@ func (t *icmpTap) forwardEcho(ip header.IPv4, ic header.ICMPv4) {
 	id, seq, ttl := ic.Ident(), ic.Sequence(), ip.TTL()
 	payload := append([]byte(nil), ic.Payload()...)
 
-	if !t.r.allow(dst, 0) {
+	if t.r.blocked(dst) || t.r.allow == nil || !t.r.allow(dst, 0) {
 		t.r.record("icmp", dst, 0, false)
 		return
 	}
@@ -104,12 +125,17 @@ func (t *icmpTap) forwardEcho(ip header.IPv4, ic header.ICMPv4) {
 	default:
 		return // saturated — drop; ping will retry the next sequence
 	}
+	if !t.r.budget.take() { // a host socket like any flow's: the shared cap holds
+		<-t.sem
+		t.r.record("icmp", dst, 0, false)
+		return
+	}
 	f := t.r.record("icmp", dst, 0, true)
 	go func() {
-		defer func() { <-t.sem }()
-		ok := hostPing(dst, payload, ttl)
+		defer func() { t.r.budget.give(); <-t.sem }()
+		ok := hostPing(t.r.ctx, dst, payload, ttl)
 		if ok {
-			_, _ = unix.Write(t.wfd, buildEchoReply(dst, src, id, seq, payload))
+			t.reply(buildEchoReply(dst, src, id, seq, payload))
 			t.r.finish(f, int64(len(payload)), int64(len(payload)))
 		} else {
 			t.r.finish(f, int64(len(payload)), 0)
@@ -118,13 +144,15 @@ func (t *icmpTap) forwardEcho(ip header.IPv4, ic header.ICMPv4) {
 }
 
 // hostPing sends one echo to dst from an unprivileged ICMP socket and waits for
-// a reply within icmpTimeout. ttl (from the guest packet) is propagated.
-func hostPing(dst netip.Addr, payload []byte, ttl uint8) bool {
+// a reply within icmpTimeout, or until ctx (the relay's) ends. ttl (from the
+// guest packet) is propagated.
+func hostPing(ctx context.Context, dst netip.Addr, payload []byte, ttl uint8) bool {
 	c, err := icmp.ListenPacket("udp4", "0.0.0.0")
 	if err != nil {
 		return false
 	}
 	defer c.Close()
+	defer context.AfterFunc(ctx, func() { _ = c.Close() })()
 	if ttl > 0 {
 		_ = c.IPv4PacketConn().SetTTL(int(ttl))
 	}

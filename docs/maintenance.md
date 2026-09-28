@@ -486,7 +486,8 @@ older workspace's monolith keeps working while a fresh one gets the split
   and any shared toggle it changes (`bx-admin-show-hidden`);
 - keeps the markup hooks the harness locates (`.mcell`, `.maprow`,
   `[data-set]`, `[data-netset]`, `[data-edit-allow]`, the sandboxes tab's
-  `[data-sbx-*]` / `[data-vm-*]` and the components tab's
+  `[data-sbx-*]` / `[data-vm-*]` / `[data-tsbx-*]` (its tile sandboxes
+  part, `tabs/tilesbx.js`) and the components tab's
   `[data-sbx-cell]`, …) and, if it holds
   drafts, is routed to from the router's `testApi()` by key namespace
   (`permset:`, `netset:`, `bindcustom:`, `orgallow:`/`ws:`, `user:`).

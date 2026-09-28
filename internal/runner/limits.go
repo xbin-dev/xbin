@@ -19,9 +19,9 @@ import (
 type cgroupOps interface {
 	Enabled() bool
 	Add(name string, pid int)
-	AddWith(name string, pid int, l cgroup.Limits)
+	AddLimited(name string, pid int, l cgroup.Limits)
 	AddMem(name string, pid int, memMax int64)
-	AddMemWith(name string, pid int, l cgroup.Limits, memMax int64)
+	AddMemLimited(name string, pid int, l cgroup.Limits, memMax int64)
 	Remove(name string)
 	Usage(name string) (cgroup.Usage, bool)
 	AtLimit(name string) (mem, pids int64, ok bool)
@@ -75,9 +75,9 @@ func (r *Runner) joinLeaf(tile, dep, leaf, sock string, pid int) {
 	case r.LimitsFor == nil:
 		cg.Add(leaf, pid)
 	case isVM:
-		cg.AddMemWith(leaf, pid, r.leafLimits(tile, dep), b)
+		cg.AddMemLimited(leaf, pid, r.leafLimits(tile, dep), b)
 	default:
-		cg.AddWith(leaf, pid, r.leafLimits(tile, dep))
+		cg.AddLimited(leaf, pid, r.leafLimits(tile, dep))
 	}
 }
 

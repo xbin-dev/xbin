@@ -107,6 +107,9 @@ type Runner struct {
 	// AlwaysOnSwitched names tile's non-primary deployments whose alwaysOn
 	// switch is on (alwayson.go, 07-runtime §11); nil = none.
 	AlwaysOnSwitched func(tile string) []string
+	// HoldReason says why ShouldRun refuses comp ("is disabled", "is held:
+	// …"), for Ensure's error; nil or "" = "is not enabled".
+	HoldReason func(comp string) string
 	// SpawnUser, when non-nil, returns uid/gid to run a component's backend
 	// as (auth tier 2, per-scope uids). nil = same-user (tier 1).
 	SpawnUser func(c *registry.Component) *syscall.Credential
@@ -161,9 +164,11 @@ type Runner struct {
 	// Cgroup, when set, attaches each backend to a per-component cgroup v2 leaf
 	// for memory/CPU/pids accounting (best-effort; nil-safe).
 	Cgroup *cgroup.Manager
-	cgOps  cgroupOps   // limits.go: a test's cgroup manager in Cgroup's place; nil = Cgroup
-	VM     *vm.Manager // "vm" backends (vm.go); nil = none
-	vms    vmState
+	cgOps  cgroupOps // limits.go: a test's cgroup manager in Cgroup's place; nil = Cgroup
+	// TileCgroup is the tile sandboxes' cgroup parent, kind-tile rows' Leaf (nil: none).
+	TileCgroup *cgroup.Manager
+	VM         *vm.Manager // "vm" backends (vm.go); nil = none
+	vms        vmState
 	// Sandboxes lists every running generation (sbx.go, D112; nil-safe).
 	Sandboxes       *sbx.Registry
 	DeploymentHooks       // installed by the deployments plane; nil-safe (deploy.go)
@@ -212,7 +217,13 @@ func (r *Runner) ensurePrimary(ctx context.Context, c *registry.Component, dep s
 	// spawns — enforced here so no path (proxy, watcher rebuild, grant change)
 	// can start it. The proxy still 409s earlier for a nicer message.
 	if r.ShouldRun != nil && !r.ShouldRun(c.Path) {
-		return "", fmt.Errorf("component %s is not enabled", c.Path)
+		why := "is not enabled"
+		if r.HoldReason != nil {
+			if w := r.HoldReason(c.Path); w != "" {
+				why = w
+			}
+		}
+		return "", fmt.Errorf("component %s %s", c.Path, why)
 	}
 	return r.ensureState(ctx, c, r.stateOf(c.Path, dep))
 }
@@ -361,7 +372,8 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error
 	inst.code, inst.root, inst.artifact = code, g.root, g.artifact
 	if err := r.awaitHealthy(v, inst); err != nil {
 		if !errors.Is(err, errExited) && r.wantsVM(v) {
-			r.sbxFail(v, sbx.Health, fmt.Errorf("the VM backend never listened: %w", err))
+			r.dumpVM(inst) // vm.go: what the guest was doing, into the log
+			r.sbxFail(v, sbx.Health, fmt.Errorf("the VM backend never listened: %w — what the VM was doing is in %s", err, deploymentLog(v.Path, r.viewDeployment(v))))
 		}
 		r.stopGen(inst, 2*time.Second)
 		g.release()
@@ -511,10 +523,11 @@ func (r *Runner) startDeployment(c *registry.Component, dep, bin string, gen int
 				inst.splicer = relay.Splice(fd, pfd)
 				inst.provider = np.provider
 			} else {
+				_ = syscall.Close(fd)
 				fmt.Fprintf(logf, "net provider %s link not ready — no egress\n", np.provider)
 			}
 		} else {
-			cfg := relay.Config{TunFD: fd, Allow: pol.Allow, Resolver: sandbox.HostResolver()}
+			cfg := relay.Config{TunFD: fd, CloseTUN: true, Allow: pol.Allow, Resolver: sandbox.HostResolver()}
 			if pol.HasHostRules() {
 				cfg.AllowHost = pol.AllowsHost // DNS-pinned hostname egress (D35)
 			}
@@ -560,6 +573,7 @@ func (r *Runner) startDeployment(c *registry.Component, dep, bin string, gen int
 			if pfd, ok := r.netmux.get(ll.Provider, c.Path+"#"+ll.Slot); ok {
 				inst.linkSplicers = append(inst.linkSplicers, relay.Splice(fd, pfd))
 			} else {
+				_ = syscall.Close(fd)
 				fmt.Fprintf(logf, "lan-ingress provider %s link not ready for %s\n", ll.Provider, ll.Slot)
 			}
 		}

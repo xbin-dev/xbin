@@ -420,6 +420,8 @@ func TestZeroStateListings(t *testing.T) {
 
 // zsListing is one listing golden: the request, who makes it, and today's
 // normalized answer (pick: keep the fixture's entries only, by that key).
+// "Today's" is master's: GET /sandboxes gained tileSandboxes (D120) there,
+// in every admin answer, zero state included.
 type zsListing struct {
 	path, as, pick string
 	backend        bool     // needs the running node backend
@@ -728,7 +730,8 @@ var zsListingGoldens = []zsListing{
       "tile": "apps/zsnode",
       "uptimeSec": "<masked>"
     }
-  ]
+  ],
+  "tileSandboxes": []
 }`},
 	{path: "/api/xbin/sandboxes?tile=apps/zsbroken", as: "the owner", mask: []string{"cgroup"},
 		want: `{
@@ -738,7 +741,8 @@ var zsListingGoldens = []zsListing{
   "failures": [],
   "health": "<masked>",
   "intervalSec": 2,
-  "sandboxes": []
+  "sandboxes": [],
+  "tileSandboxes": []
 }`},
 }
 

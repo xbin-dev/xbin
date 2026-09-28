@@ -20,7 +20,7 @@ import (
 
 // The launch-spec goldens pin what a zero-state tile's backend generation
 // launches with: binds, entry, argv, env, overlay lowers and the network and
-// capability wiring. They are hand-maintained; no switch regenerates them.
+// capability wiring — master's, NoFollow's walk included (WP-2b, D120). They are hand-maintained; no switch regenerates them.
 // Only values that differ between runs are masked: the temp workspace
 // ({{ROOT}}), the temp rootfs ({{ROOTFS}}), the host uid and gid, and the env
 // (the test's own input, which must pass through unchanged). {{RUN}} is a
@@ -123,6 +123,7 @@ const lsGoGolden = `{
 	"argv":["/run/backend"],
 	"env":{{ENV}},
 	"cwd":"{{ROOT}}/apps/counter",
+	"noFollow":true,"followBase":true,"rootHint":"the tile's environment layer holds it: its setup script made it",
 	"hostUid":{{UID}},"hostGid":{{GID}},
 	"unprivileged":true
 }`
@@ -137,6 +138,7 @@ func lsGoWith(fields string) string {
 	"argv":["/run/backend"],
 	"env":{{ENV}},
 	"cwd":"{{ROOT}}/apps/counter",
+	"noFollow":true,"followBase":true,"rootHint":"the tile's environment layer holds it: its setup script made it",
 	"hostUid":{{UID}},"hostGid":{{GID}},
 	"unprivileged":true,
 	` + fields + `
@@ -166,7 +168,8 @@ func TestZeroStateLaunchSpec(t *testing.T) {
 			"argv":["node","{{ROOT}}/apps/counter/backend/server.js"],
 			"env":{{ENV}},
 			"cwd":"{{ROOT}}/apps/counter",
-			"hostUid":{{UID}},"hostGid":{{GID}},
+			"noFollow":true,"followBase":true,"rootHint":"the tile's environment layer holds it: its setup script made it",
+	"hostUid":{{UID}},"hostGid":{{GID}},
 			"unprivileged":true
 		}`},
 		{name: "python", manifest: `{"runtime":"python"}`, golden: `{
@@ -176,7 +179,8 @@ func TestZeroStateLaunchSpec(t *testing.T) {
 			"argv":["python3","{{ROOT}}/apps/counter/backend/server.py"],
 			"env":{{ENV}},
 			"cwd":"{{ROOT}}/apps/counter",
-			"hostUid":{{UID}},"hostGid":{{GID}},
+			"noFollow":true,"followBase":true,"rootHint":"the tile's environment layer holds it: its setup script made it",
+	"hostUid":{{UID}},"hostGid":{{GID}},
 			"unprivileged":true
 		}`},
 		{name: "env layer", manifest: `{"runtime":"go","setup":"apk add jq"}`,
@@ -188,7 +192,8 @@ func TestZeroStateLaunchSpec(t *testing.T) {
 			"argv":["/run/backend"],
 			"env":{{ENV}},
 			"cwd":"{{ROOT}}/apps/counter",
-			"hostUid":{{UID}},"hostGid":{{GID}},
+			"noFollow":true,"followBase":true,"rootHint":"the tile's environment layer holds it: its setup script made it",
+	"hostUid":{{UID}},"hostGid":{{GID}},
 			"unprivileged":true
 		}`},
 		{name: "file resources", manifest: `{"runtime":"go"}`,
@@ -209,7 +214,8 @@ func TestZeroStateLaunchSpec(t *testing.T) {
 			"argv":["/run/backend"],
 			"env":{{ENV}},
 			"cwd":"{{ROOT}}/apps/counter",
-			"hostUid":{{UID}},"hostGid":{{GID}},
+			"noFollow":true,"followBase":true,"rootHint":"the tile's environment layer holds it: its setup script made it",
+	"hostUid":{{UID}},"hostGid":{{GID}},
 			"unprivileged":true
 		}`},
 		{name: "egress granted", manifest: `{"runtime":"go"}`, pol: []string{"net:internet:443"},

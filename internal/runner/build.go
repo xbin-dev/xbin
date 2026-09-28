@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"os/exec"
@@ -11,10 +12,12 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/confine"
 	"github.com/xbin-dev/xbin/internal/deps"
+	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/util"
@@ -89,6 +92,10 @@ type goBuild struct {
 	// (goCaches), shared by its deployments. A protected primary's build
 	// has its own (07-runtime §3.4).
 	gocache, modcache string
+	// gowork is the build's own go.work (tileGoWork), made by runGoBuild
+	// beside its caches and bound read-write with its go.work.sum; "" = the
+	// workspace's go.work as it is.
+	gowork string
 }
 
 // buildConfined compiles c's work tree in a throwaway sandbox (runGoBuild).
@@ -112,8 +119,9 @@ func (r *Runner) buildConfined(c *registry.Component, entry, out string) error {
 // host: the host's own Go toolchain (read-only, same version as before), the
 // workspace read-only with its secret dirs masked (.xbin, data, homes — so
 // go.work and every `use`d module resolve unchanged), the SDK. What it may
-// write is only the tile's own: its output dir, and its own build and module
-// caches (a shared cache would let one tile's build plant code in another's).
+// write is only the tile's own: its output dir, its own build and module
+// caches (a shared cache would let one tile's build plant code in another's)
+// and its own go.work.sum (tileGoWork).
 // Modules the shared cache already holds are served from it read-only as a
 // file:// GOPROXY — no network, no re-download; new ones come from the
 // network: public addresses only (XBIN_BUILD_NET=host shares the host's, for
@@ -122,6 +130,15 @@ func (r *Runner) buildConfined(c *registry.Component, entry, out string) error {
 // tree at the tile's path (g.dirFrom, confine's DirFrom), which only a
 // sandbox can: a direct run refuses it (confine.ErrNeedsIsolation).
 func (r *Runner) runGoBuild(c *registry.Component, entry string, g goBuild) error {
+	gocache := g.gocache
+	if gocache == "" {
+		gocache, _ = goCaches(r.Root, c.Path)
+	}
+	gowork, err := r.tileGoWork(filepath.Join(filepath.Dir(gocache), "work")) // beside the build's caches
+	if err != nil {
+		return err
+	}
+	g.gowork = gowork
 	cmd, dirs, err := r.goBuildCmd(c, entry, g)
 	if err != nil {
 		return err
@@ -169,6 +186,9 @@ func (r *Runner) goBuildCmd(c *registry.Component, entry string, g goBuild) (con
 		confine.RW(gocache),
 		confine.RW(modcache),
 	}
+	if g.gowork != "" {
+		binds = append(binds, confine.RW(filepath.Dir(g.gowork)))
+	}
 	proxy := tc.goproxy
 	if tc.download != "" {
 		binds = append(binds, confine.RO(tc.download))
@@ -182,6 +202,9 @@ func (r *Runner) goBuildCmd(c *registry.Component, entry string, g goBuild) (con
 		"PATH=" + filepath.Join(tc.goroot, "bin") + ":/usr/local/bin:/usr/bin:/bin",
 		"GOCACHE=" + gocache, "GOMODCACHE=" + modcache, "GOPATH=/tmp/go", "GOPROXY=" + proxy,
 		"CGO_ENABLED=0", "GOTELEMETRY=off",
+	}
+	if g.gowork != "" {
+		env = append(env, "GOWORK="+g.gowork)
 	}
 	for _, k := range passGoEnv { // the operator's module settings keep applying
 		if v, ok := os.LookupEnv(k); ok {
@@ -209,6 +232,61 @@ func goCaches(root, tile string) (gocache, modcache string) {
 }
 
 func goFlags() string { return strings.TrimSpace(os.Getenv("GOFLAGS") + " -modcacherw") }
+
+// tileGoWork gives a confined build a go.work of its own in dir when the
+// workspace's is xbind's (deps.GoWork): the same modules and SDK, beside a
+// go.work.sum only this tile's builds write. The workspace is read-only in
+// the build, so its go.work.sum can't take the checksums a workspace build
+// adds there — of modules a tile's go.mod names with no go.sum entry, or
+// that the workspace's modules together select (the agent template beside
+// sandbox-terminal) — and every Go build of such a workspace failed with
+// "go: updating go.sum: … read-only file system". The workspace's
+// go.work.sum, when there is one, seeds it. "" = the workspace's go.work as
+// it is (hand-managed: its paths aren't xbind's to rewrite).
+func (r *Runner) tileGoWork(dir string) (string, error) {
+	b, err := os.ReadFile(filepath.Join(r.Root, "go.work"))
+	if err != nil {
+		return "", nil
+	}
+	content, ok := deps.AbsGoWork(string(b), r.Root)
+	if !ok {
+		return "", nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	// dir is bound read-write into every build of the tile: what a build
+	// left there (a symlink named go.work) is replaced, never followed —
+	// xbind writes nothing through a sandbox-written path (D78)
+	gw := filepath.Join(dir, "go.work")
+	if err := fsutil.WriteFileAtomic(gw, []byte(content), 0o644); err != nil {
+		return "", err
+	}
+	if _, err := os.Lstat(gw + ".sum"); os.IsNotExist(err) {
+		if seed, ok := readRegular(filepath.Join(r.Root, "go.work.sum"), 16<<20); ok {
+			if err := fsutil.WriteFileAtomic(gw+".sum", seed, 0o644); err != nil {
+				return "", err
+			}
+		}
+	}
+	return gw, nil
+}
+
+// readRegular reads a regular file of at most max bytes, never through a
+// symlink (the workspace's root is people's to write).
+func readRegular(p string, max int64) ([]byte, bool) {
+	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, false
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() > max {
+		return nil, false
+	}
+	b, err := io.ReadAll(io.LimitReader(f, max))
+	return b, err == nil
+}
 
 func timeoutNote(err error) string {
 	if strings.Contains(err.Error(), "timed out") {

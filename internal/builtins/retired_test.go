@@ -23,6 +23,13 @@ func TestRetiredNotEmbedded(t *testing.T) {
 			t.Errorf("builtin-tiles/%s ships but %q is in retiredTiles — drop one of them", name, name)
 		}
 	}
+	// what replaces devbox for people ships, and the message says how to get it
+	if _, ok := set.Get("sandbox-terminal"); !ok {
+		t.Error("builtin-tiles/sandbox-terminal doesn't ship, but devbox's retirement points at it")
+	}
+	if msg, _ := Retired("devbox"); !strings.Contains(msg, "bx tile import sandbox-terminal") {
+		t.Errorf("devbox's retirement doesn't say how to import sandbox-terminal: %q", msg)
+	}
 }
 
 // Importing a retired tile fails with what replaces it and writes nothing;

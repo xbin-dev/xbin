@@ -63,8 +63,9 @@ func (pb personalBody) patch(seeded *users.User) users.PersonalPatch {
 // applyPersonal writes the personal-plane part of a users request after the
 // row exists, and — when it switches noTerminal on — ends the user's live
 // terminal and agent sessions (the level cap already refuses new ones and
-// reattach; this closes the ones already open). A changed personal network
-// restarts the user's net tiles (their default egress follows it).
+// reattach; this closes the ones already open), and the tile-sandbox TTY
+// execs a manager claimed for them (OnNoTerminal). A changed personal
+// network restarts the user's net tiles (their default egress follows it).
 func (b *Broker) applyPersonal(srv *server.Server, st *users.Store, u *users.User, pb personalBody, seeded bool) (*users.User, error) {
 	if !pb.present() {
 		return u, nil
@@ -82,6 +83,9 @@ func (b *Broker) applyPersonal(srv *server.Server, st *users.Store, u *users.Use
 		for _, s := range srv.Term.ListFor(term.HomeKey(auth.Principal{UserID: nu.ID}), "", nil) {
 			srv.Term.Kill(s.ID)
 		}
+	}
+	if nu.NoTerminal && !before.NoTerminal && b.OnNoTerminal != nil {
+		b.OnNoTerminal(nu.ID)
 	}
 	if pb.NetSets != nil {
 		b.netSetsChanged("", nil, users.OwnerKindUser+":"+nu.ID)

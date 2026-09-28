@@ -57,7 +57,7 @@ What that means when you build a **Go backend** (`--isolate` workspaces):
 |---|---|
 | toolchain | the host's Go, the same version as before, read-only |
 | sees | the workspace read-only (so `go.work` and every module it `use`s resolve as always) with `.xbin/`, `data/` and `homes/` masked; the xbin SDK |
-| writes | only your tile's own: its build output and its **own** build and module caches under `.xbin/cache/tile/` (a shared cache would let one tile's build plant code in another's). The first build after this change compiles the standard library once per tile |
+| writes | only your tile's own: its build output and its **own** build and module caches under `.xbin/cache/tile/` (a shared cache would let one tile's build plant code in another's). The first build after this change compiles the standard library once per tile. The checksums a build adds for the workspace (what `go` writes to `go.work.sum`: a module your `go.mod` names without a `go.sum` entry, or one the workspace's modules together select) go to a `go.work.sum` of your tile's own there, seeded from the workspace's, beside a copy of the generated `go.work` — a hand-managed `go.work` is used as it is |
 | modules | whatever the host's module cache already holds is served from it read-only, offline; new modules are downloaded — **public addresses only** (the operator sets `XBIN_BUILD_NET=host` for a GOPROXY or private modules on the LAN) |
 | not honoured | a `replace` to a path outside the workspace and the SDK (it isn't there); VCS stamping (`-buildvcs=false` — nothing your repo's config says runs, even inside the box) |
 
@@ -238,13 +238,18 @@ that:
   password hashes, and other agents' credentials are unreadable regardless of
   the mount. (seccomp can't do this — it can't see an `open`'s path argument;
   Landlock enforces on the resolved path.) Directory listing, execution, and
-  writes are untouched, so collateral is nil. The guard also explicitly grants
-  *reparenting* (`LANDLOCK_ACCESS_FS_REFER`) on every path it allows reading:
-  on an ABI-2+ kernel, enforcing any Landlock ruleset otherwise denies
-  cross-directory `rename`/`link` with `EXDEV` — which would break `apt`
-  (its `partial/ → parent` rename) and any tool that moves a file between
-  directories. Best-effort: a no-op on kernels without Landlock (the masks +
-  mount guard still apply).
+  writes are untouched. *Collateral:* outside the workspace the guard allows
+  reading what exists when the session starts, so a file created or moved
+  during the session directly into `/`, or into a directory above the
+  workspace, can't be read (`EACCES`) until the next session. The same goes
+  for anything in a new directory made there. `$HOME`, the tile's dir, `/tmp`
+  and the other existing directories are unaffected. The guard also
+  explicitly grants *reparenting* (`LANDLOCK_ACCESS_FS_REFER`) on every path
+  it allows reading: on an ABI-2+ kernel, enforcing any Landlock ruleset
+  otherwise denies cross-directory `rename`/`link` with `EXDEV` — which would
+  break `apt` (its `partial/ → parent` rename) and any tool that moves a file
+  between directories. Best-effort: a no-op on kernels without Landlock (the
+  masks + mount guard still apply).
 
 The admin console's **runtime** tab shows each guard's kernel support
 (*terminal guard: mount ✓ · read ✓ (ABI n)*).
@@ -331,7 +336,11 @@ don't touch the base rootfs (read-only) and aren't lost at exit. They're
 captured in a **persistent per-component layer** at `.xbin/term/<component>/`
 (the overlay's upper dir), which **survives across sessions and restarts**. Each
 component effectively gets its own long-lived dev sandbox; the ⟲ button in the
-terminal UI resets it back to a clean base.
+terminal UI resets it back to a clean base (ending the session on it first).
+xbind removes a layer — on a reset, an `offloaded-full`, or when a restore
+replaces it — in a confined run (§Confined tool runs, above) with only the
+file capabilities, so files an `apt install` left owned by other users
+inside the sandbox go too.
 
 Keep two "layers" straight — they are deliberately separate:
 
@@ -344,6 +353,24 @@ Keep two "layers" straight — they are deliberately separate:
 
 Rule of thumb: `apt install` in a terminal to try something; move anything the
 backend needs into `setup`.
+
+**Neither layer can move a mount.** xbind mounts things at fixed paths in a
+sandbox — `/proc`, `/tmp`, `/dev`, the SDK under `/opt/xbin`, your source,
+`$HOME`, the run dir, a backend's `/run/backend` — and finds each path from
+the sandbox's root without following a symlink. A symlink a terminal's layer
+or a `setup` script left where one goes (`/opt` or `/run` replaced by a link)
+fails the start with the path named, and nothing is made where it points: a
+terminal's reset clears it, and a backend's `setup` has to stop making it.
+The base rootfs's own links (`/lib → usr/lib`, `/var/run → /run`) are
+followed, inside the sandbox, and so are the workspace root's own (an
+operator's `homes/` → `.homes`, or → another disk in a namespace terminal
+only: no sandbox writes the workspace root; a link in a tile's directory is
+refused). A link the layer holds at a *file*
+mount point — an apt-installed `/usr/bin/nvidia-smi` (a Debian alternatives
+link) under a GPU terminal — is covered by the mount, not followed: the
+sandbox sees the host's file there, and the layer keeps its link. A symlink
+anywhere else — a tool under `/usr/local/bin`, a link in your source — is
+untouched.
 
 > Only one live session may hold a given component's persistent layer at a time
 > (concurrent overlay mounts of one upper dir would corrupt it). A second
@@ -406,6 +433,49 @@ authorization — a component can never self-bind). Providers include:
   egress, so binding one to another **chains** them
   (client → firewall → VPN → internet) purely from the binding graph, no code.
 
+**Networks for a manager's sandboxes (`sandbox-net`).** A tile that runs
+sandboxes for others (a sandbox manager, [sandbox-manager.md](/docs/sandbox-manager.md))
+shouldn't need the internet on its own backend just because its sandboxes
+do. So it declares one request-side slot per *class* of network its
+sandboxes may use — `"interfaces": {"internet": {"kind": "sandbox-net"}}` —
+and an approver binds each class like a `net` slot, with the same rights
+(workspace admin; an org admin within the org's allowance, D26; a personal
+tile's owner within theirs, D88), the same deny row (D20) and, on org-owned
+tiles, the same ceiling: every ref inside the org's network sets (D54).
+
+- A class takes `none`, `internet`, `internet:<host|ip|cidr>[:port][,…]`,
+  `lan:<cidr>`, `org`, `personal` or `set:<name>` (a workspace-admin act,
+  D65). Never `host`, a provider tile, or a set that says `host`: a sandbox
+  gets no host networking and has no route to the host or to xbind at all
+  (every address the host delivers locally is refused, whatever the
+  class). An address that reaches the host only through a NAT outside it
+  — a cloud VM's public IP, mapped onto its private one — isn't the
+  host's: a flow there leaves the host and comes back as any internet
+  client's would, so `internet` reaches what the host serves publicly
+  there, and nothing more.
+  When `org` or `personal` resolves to rules that include `host`, the class
+  keeps the other rules and says so.
+- **Unbound is `none`.** A class has no org or personal default: it never
+  quietly gets the org's network. The shell's bind prompt starts a class on
+  `none` too, so an approver who clicks through grants nothing.
+- **A class's `internet` is strict.** The sandbox-manager contract promises
+  that `internet` reaches no private or local network, so for a sandbox it
+  also excludes CGNAT (`100.64.0.0/10`, which Tailscale uses), benchmarking
+  (`198.18.0.0/15`), reserved (`240.0.0.0/4`) and NAT64 (`64:ff9b::/96`,
+  `64:ff9b:1::/48`) addresses — as a rule, as a hostname's DNS answer, and in
+  the class's reported `reach` (a class bound to `lan:100.64.0.0/10` reaches
+  that range and says `open`). A tile backend's own `net:internet` doesn't
+  change: it still reaches those ranges.
+- A sandbox selects `none` or `class:<slot>`; the class is resolved again
+  at each start, through the same relay as a backend's egress. A class
+  whose binding resolves to nothing (a set deleted or narrowed, a
+  transfer) is listed as inert in `GET /api/xbin/bindings`, like a `net`
+  slot.
+- A class is **not the tile's own egress**: its `net` slot stays separate,
+  and binding, unbinding or re-binding a class restarts nothing. A running
+  sandbox whose class narrows is stopped with its state kept; one whose
+  class widens gets the wider network at its next start.
+
 The full interface model (request / provide / bind, plus `http` service
 contracts and the `@archive` slot used by backups) lives in
 [protocol.md](/docs/protocol.md); the design rationale is in
@@ -438,15 +508,16 @@ VM. Everything around it stays the same:
 The namespace sandbox is still there, as the VM's jail (Firecracker runs
 inside it with a bare root and five file capabilities). A VM escape lands
 in a rootless sandbox that holds only the binds. xbind keeps VMs **off**
-until the workspace has a VM policy: an admin turns them on for terminals
-and/or backends in the admin console's **runtime → sandboxes** tab (or
-with `PUT /api/xbin/vm/policy`), which
+until the workspace has a VM policy: an admin turns them on for terminals,
+backends and/or tile sandboxes in the admin console's **runtime →
+sandboxes** tab (or with `PUT /api/xbin/vm/policy`), which
 also sets the size per VM (default 2 GiB, 2 vCPUs), the number of VMs and a
 memory budget. **The installer** (`deploy/install.sh`, fresh installs and
 upgrades) **writes an "on" policy for a workspace that has none** — terminals,
-plus backends where KVM is usable; where VMs would run emulated (below) only
-terminals, since a backend's `"vm"` shouldn't silently get a several-times
-slower VM — and never changes a policy an admin set, "off" included (D110).
+plus backends and tile sandboxes where KVM is usable; where VMs would run
+emulated (below) only terminals, since a backend's `"vm"` shouldn't silently
+get a several-times slower VM — and never changes a policy an admin set,
+"off" included (D110).
 `GET /api/xbin/vm` says whether this host can run them and why not.
 
 **Terminals.** The **⧉ VM** toggle in the terminal title bar restarts the
@@ -479,6 +550,11 @@ Differences to design around:
   non-primary deployment: M MiB stays free for the tile's primary …`, or the
   same about the VM count), and when the limits can't admit the primary's
   own start, xbind first stops that tile's non-primary VM backends.
+- A VM backend that never listens fails its health check after 60 s (180 s
+  emulated) like any other, and its log (`bx logs <tile>`) then ends with a
+  **VM dump**: what the guest was doing — file requests still
+  waiting on the host, every guest process with its kernel stack, the guest
+  agent's goroutines (or that it didn't answer) and the guest console.
 
 **Files** reach the guest as FUSE filesystems over vsock, and the guest
 caches them hard: repeated work (`git status`, `find`, a rebuild, re-reading
@@ -512,6 +588,22 @@ KVM. `XBIN_VM_ACCEL=kvm` never emulates. The bundle's
 it) and `vhost-device-vsock` are the extra pieces; x86_64 hosts only.
 Decision: D90.
 
+**Tile sandboxes.** A manager tile (one a workspace admin granted
+`cap:sandboxes`, [auth.md](/docs/auth.md)) may run its sandboxes in VMs
+when the policy's **`tiles`** switch is on. Their VMs count against the
+workspace's VM count and budget like any other, and also against
+**`tilesBudgetMiB`** (default: half the budget; at most the budget), so
+tile sandboxes can't starve people's VM terminals. Where VMs would run
+emulated, a tile's VM sandbox also needs **`tilesEmulated`**; without it VM
+mode is reported unavailable with the reason, and never replaced by a
+namespace sandbox. Turning `tiles` off, or `tilesEmulated` off while VMs
+are emulated, stops the running ones (their disks are kept). The installer's
+fresh policy turns `tiles` on where KVM is usable; a workspace whose policy
+was written earlier keeps tile VMs off until an admin turns them on.
+`PUT /api/xbin/vm/policy` merges its body onto the stored policy, so a
+script or an older admin console that leaves a field out never resets it.
+Decision: D120.
+
 **Seeing them.** xbind keeps one list of every sandbox it runs — each
 backend generation, terminal and agent session — with its tile, user, how
 it is isolated (VM, namespace sandbox, or none without `--isolate`), the
@@ -520,7 +612,10 @@ and its VM disk, and a short history of what the sandbox layer refused or
 failed at (a policy switch, the VM budget, missing pieces, a VM that died at
 boot). The admin console's **runtime → sandboxes** tab shows it with the
 host's health (isolation tier, guards, whether VMs can run and what is
-missing), the VM budget in use per tile and the VM policy editor;
+missing), the VM budget in use per tile (and the tile sandboxes' share of
+it) and the VM policy editor, and every tile sandbox definition under its
+manager tile — stopped ones and a removed tile's too — with stop, delete
+and the sandboxes policy editor;
 `GET /api/xbin/sandboxes` is the same for scripts (admin). A tile's rows
 are grouped by tile deployment: `main`'s backend rows keep their ids, and
 another deployment's are `backend+<name>:<key>:g<gen>`, naming it, with the
@@ -528,6 +623,63 @@ refusals of its starts (the VM rule above, the non-primary caps) in the
 failure list. A VM backend's
 pid, namespaces and RSS in the runtime views are its host-side jail's: read
 its cgroup line for what the VM uses. Decision: D112.
+
+## Tile sandboxes — a manager tile's own sandboxes (D120)
+
+A **manager tile** — one that serves coding sandboxes to other tiles
+([sandbox-manager.md](sandbox-manager.md)) — can have xbind run them:
+its backend holds **`cap:sandboxes`** (only a workspace admin approves it)
+and defines and drives them through `/api/xbin/sandboxes/…`
+([protocol.md](protocol.md) §Tile sandboxes). They need `--isolate`.
+
+- **Two modes, the manager's choice per sandbox.** `namespace` is the
+  terminals' restricted sandbox: `apt` works, nested containers don't.
+  `vm` is a microVM with its own kernel, where docker works, its state on
+  its own sparse disk (`diskGiB`). It runs while the VM policy's `tiles`
+  is on (and, where VMs are emulated, `tilesEmulated`; §VM sandboxes), and
+  its VM counts against the VM budget and `tilesBudgetMiB`. A VM that
+  can't start never falls back to a namespace; one whose VMM dies ends
+  with the tail of its console in `stateDetail`.
+- **No xbin identity inside.** A tile sandbox gets no token, no gateway
+  socket and no route to xbind; `XBIN_*` variables are refused in its
+  definition. Its network is `none` unless the manager gives it one of its
+  **sandbox-net** interface slots, which an approver binds — the manager's
+  own backend needn't hold that network.
+- **Mounts** are the manager's own `filesystem` resources, declared in its
+  `uses` (a reader's read-only), and its code, read-only. Paths in file calls resolve inside
+  the sandbox, never on the host.
+- **Commands** run as sessions of xbind's agent in the sandbox, each in
+  its own process group, with an environment xbind builds (`IN_SANDBOX`,
+  `SANDBOX_ID`, `SANDBOX_NAME`, `HOME`, the definition's `defaults.env`) —
+  never the agent's or xbind's own. A terminal on one reaches a person
+  only through the manager, and D88's `noTerminal` holds for the person
+  the manager names.
+- **Definitions are xbind's** (`data/sandboxes.json`), validated again at
+  every start; the policy (`.xbin/sandboxes/policy.json`, admins) caps what
+  each tile holds. Every start is booked against those caps and the
+  workspace's `total` (429 over one), none starts while the workspace disk
+  is low, an idle sandbox is stopped after its `idleStopMin`, and a policy
+  file that can't be read keeps every tile sandbox off until an admin
+  saves the policy again. The admin console lists every tile sandbox, and
+  an admin may stop or delete one — never exec into it.
+- **Contained like the rest.** A running namespace sandbox has its own
+  cgroup (its memory + 128 MiB, no swap; its pids; its vCPUs as a hard
+  cap) inside one cgroup for every tile sandbox, capped by the policy's
+  `total`; its relay caps its connections, and all the relays share one
+  budget, so no sandbox spends xbind's descriptors. A VM sandbox's cgroup
+  holds its guest memory plus the VMM's (192 MiB, 512 emulated), 512
+  processes and one CPU more than its `vcpus`. Its state is written only by
+  the sandbox and measured and removed only by a confined tool, never
+  walked by xbind. xbind's death ends every tile sandbox; each ends
+  `stopped`, with why in `stateDetail`.
+- **They follow the workspace.** A running tile sandbox is stopped, state
+  kept, when its manager tile is disabled, offloaded or removed, loses
+  `cap:sandboxes`, or no longer holds a mount as it was bound, and before
+  the vault's decrypted views go at a seal. Its disk is measured: a tile
+  past `perTile.diskGiB` has its largest running sandbox stopped, and while
+  the workspace disk is low starts are refused and the tiles holding most
+  are stopped first. Those bytes count for the disk pressure below, never
+  against a scope's quota. Backups carry the definitions only.
 
 ## Resource limits (blast-radius containment)
 
@@ -562,7 +714,10 @@ backend is capped so it degrades *itself*, not the box:
   **10 % free**, the biggest users are write-blocked too, to hold the reserve.
   Directly-mounted resources (sqlite/filesystem) can't be write-blocked at the
   API — they count toward the quota and raise an alert, but stopping them is the
-  admin's call. A tile deployment's data beyond `main` is its own quota
+  admin's call. Tile sandboxes' state counts toward the pressure (who holds more
+  than a fair share) but never toward a scope's quota; under low disk their
+  starts are refused and the biggest tiles' running namespace sandboxes are
+  stopped (see above). A tile deployment's data beyond `main` is its own quota
   bucket, at the scope quota or a lower per-deployment limit (the lowest among
   the tiles sharing it, set on the scope's root tile), and non-primary data is
   write-blocked first when the disk is low. A tile's checkpoints, fetch

@@ -217,6 +217,7 @@ func TestSetupLayerSeesCheckpointNotWorkTree(t *testing.T) {
 		Env:     []string{envSetupPATH, "HOME=/root", "LANG=C.UTF-8", "DEBIAN_FRONTEND=noninteractive", "XBIN_COMPONENT=apps/x"},
 		Cwd:     dir,
 		HostUID: os.Getuid(), HostGID: os.Getgid(), Net: "relay",
+		NoFollow: true, FollowBase: true, // master's setup spec (WP-2b)
 	}
 	if !reflect.DeepEqual(spec, want) {
 		t.Errorf("the work tree's setup spec changed:\n got %+v\nwant %+v", spec, want)

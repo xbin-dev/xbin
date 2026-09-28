@@ -1,22 +1,26 @@
 /**
  * <bx-admin-sandboxes> — the admin console's runtime → sandboxes tab (D112):
  * every sandbox xbind runs — each backend generation, terminal and agent
- * session; later the sandboxes a tile manages itself, nested under it —
- * grouped by tile, and within a tile by deployment (main's rows first, then
- * each other deployment's under its name), with
+ * session, and the sandboxes a manager tile runs (D120), nested under its
+ * backend — grouped by tile, and within a tile by deployment (main's rows
+ * first, then each other deployment's under its name), with
  * how it is isolated (⧉ VM, 🔒 namespace sandbox, or none on a host without
  * isolation), the host's health (isolation tier, guards, whether VMs can
- * start and what is missing), the VM budget in use per tile and the VM
- * policy editor, the VM disks on the host, and what the sandbox layer
- * refused or failed at. Polls GET /sandboxes every 2 s; the editor saves
- * through PUT /vm/policy what the admin set (zero = the default), never the
- * effective values. Reports through bx-admin-err / bx-admin-notice /
- * bx-admin-tab.
+ * start and what is missing), the VM budget in use per tile (and the tile
+ * sandboxes' sub-budget, D120) and the VM policy editor, the VM disks on the
+ * host, the tile sandboxes' definitions, health and policy
+ * (<bx-admin-tile-sandboxes>, tilesbx.js), and what the sandbox layer
+ * refused or failed at. Polls GET
+ * /sandboxes every 2 s; the editor saves through PUT /vm/policy what the
+ * admin set (zero = the default), never the effective values — the server
+ * merges it onto the stored policy. Reports through bx-admin-err /
+ * bx-admin-notice / bx-admin-tab.
  */
 import { LitElement, html, nothing } from 'lit';
 import { xbinApi as api, jbody } from '/vendor/bx-kit.js';
 import { base, runtimeCss, sandboxesCss } from '../admin-css.js';
 import { fmtBytes, fmtDur, WithFilter, WithRouter } from '../shared.js';
+import './tilesbx.js';
 
 const MODE = { vm: '⧉ VM', namespace: '🔒 ns', host: 'host' };
 const MODE_TITLE = {
@@ -38,7 +42,10 @@ const STAGE_TITLE = {
 const POLICY_FIELDS = [
   ['memMiB', 'memory per VM (MiB)'], ['vcpus', 'vCPUs per VM'], ['maxVMs', 'VMs at once'],
   ['budgetMiB', 'memory budget (MiB)'], ['diskGiB', 'VM terminal disk (GiB)'],
+  ['tilesBudgetMiB', "tile sandboxes' budget (MiB)"],
 ];
+// The policy's switches: terminals, backends, and the sandboxes manager tiles run (D120).
+const POLICY_SWITCHES = ['terminals', 'backends', 'tiles', 'tilesEmulated'];
 // The pieces a VM needs (GET /sandboxes health.vm.assets), by the VMM that needs them.
 const PIECES = [
   ['kernel', 'vmlinux', 'both'], ['agent', 'xbin-vmagent', 'both'], ['mkfsErofs', 'mkfs.erofs', 'both'], ['bx', 'bx', 'both'],
@@ -105,6 +112,8 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
       ${h.isolation?.isolate ? this._budget(h.vm) : nothing}
       ${this._policy(h)}
       ${this._list(d)}
+      ${h.isolation?.isolate || (d.tileSandboxes || []).length
+        ? html`<bx-admin-tile-sandboxes .data=${d} .reload=${() => this.load()}></bx-admin-tile-sandboxes>` : nothing}
       ${this._disks(d.disks)}
       ${this._failures(d)}`;
   }
@@ -144,8 +153,9 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
   // ---- the VM budget: what running VMs hold, per tile ----
   _budget(v) {
     if (!v || !v.policy) return nothing;
-    const p = v.policy, used = v.used || { vms: 0, memMiB: 0 };
+    const p = v.policy, used = v.used || { vms: 0, memMiB: 0 }, tiles = v.usedTiles || { vms: 0, memMiB: 0 };
     const over = used.memMiB > p.budgetMiB || used.vms > p.maxVMs;
+    const overTiles = tiles.memMiB > p.tilesBudgetMiB;
     const by = Object.entries(v.usedBy || {}).sort((a, b) => b[1].memMiB - a[1].memMiB);
     return html`<div class="sbx-budget" ?data-over=${over}>
       <div class="bar">${by.map(([t, u], i) => html`<span class="seg c${i % 6}"
@@ -153,6 +163,8 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
         title="${t}: ${u.vms} VM${u.vms === 1 ? '' : 's'}, ${mib(u.memMiB)}"></span>`)}</div>
       <div class="lbl">VM memory <b>${mib(used.memMiB)}</b> of ${mib(p.budgetMiB)} · <b>${used.vms}</b> of ${p.maxVMs} VMs
         ${over ? html`<span class="warn-line"> — over the budget: it was lowered while these ran; new VMs are refused until they end</span>` : nothing}</div>
+      ${p.tiles || tiles.vms ? html`<div class="lbl" data-vm-tiles-used>tile sandboxes <b>${mib(tiles.memMiB)}</b> of ${mib(p.tilesBudgetMiB)} · <b>${tiles.vms}</b> VM${tiles.vms === 1 ? '' : 's'}
+        ${overTiles ? html`<span class="warn-line"> — over their budget: new tile VMs are refused until these end</span>` : nothing}</div>` : nothing}
       ${by.length ? html`<div class="sbx-by">${by.map(([t, u], i) => html`<span class="pill"><span class="dot c${i % 6}"></span>${t} · ${mib(u.memMiB)}</span>`)}</div>` : nothing}
     </div>`;
   }
@@ -169,8 +181,9 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
     }
     if (!this._pol) {
       return html`<div class="sbx-policy" data-vm-policy="view">
-        policy: terminals ${onOff(p.terminals)} · backends ${onOff(p.backends)} · ${mib(p.memMiB)} · ${p.vcpus} vCPU per VM ·
-        ${p.maxVMs} VMs · budget ${mib(p.budgetMiB)} · disk ${p.diskGiB} GiB
+        policy: terminals ${onOff(p.terminals)} · backends ${onOff(p.backends)} ·
+        tile sandboxes ${onOff(p.tiles)}${p.tiles && v.emulated ? ` (emulated ${onOff(p.tilesEmulated)})` : ''} · ${mib(p.memMiB)} · ${p.vcpus} vCPU per VM ·
+        ${p.maxVMs} VMs · budget ${mib(p.budgetMiB)}${p.tiles ? ` (tiles ${mib(p.tilesBudgetMiB)})` : ''} · disk ${p.diskGiB} GiB
         <button class="act" data-edit-policy @click=${() => { this._pol = { ...(v.stored || {}) }; }}>edit</button>
       </div>`;
     }
@@ -183,11 +196,17 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
     if (d.backends && v.emulated) warn.push('VMs run emulated here: a backend in a VM is several times slower.');
     if (stored.backends && !d.backends) warn.push('Running VM backends keep going; their next start fails with the reason.');
     if (effBudget < (v.used?.memMiB || 0)) warn.push(`The budget is below what running VMs hold (${mib(v.used.memMiB)}); new VMs are refused until they end.`);
+    if (d.tilesBudgetMiB > effBudget) warn.push(`The tile sandboxes' budget can't exceed the VM budget (${mib(effBudget)}).`);
+    if (d.tiles && v.emulated && !d.tilesEmulated) warn.push("VMs run emulated here: tile sandboxes can't use VM mode until emulation is allowed for them too.");
+    if (d.tiles && v.emulated && d.tilesEmulated) warn.push('Emulated tile VMs are several times slower.');
+    if ((stored.tiles && !d.tiles) || (v.emulated && stored.tilesEmulated && !d.tilesEmulated)) warn.push("Running tile VM sandboxes are stopped (their disks are kept); their next start is refused with the reason.");
     return html`<form class="sbx-policy editor" data-vm-policy="edit" @submit=${(e) => { e.preventDefault(); this._savePolicy(); }}>
       <label><input type="checkbox" name="terminals" .checked=${!!d.terminals} @change=${(e) => set({ terminals: e.target.checked })}> VM terminals and agent sessions</label>
       <label><input type="checkbox" name="backends" .checked=${!!d.backends} @change=${(e) => set({ backends: e.target.checked })}> VM backends (tiles with <span class="mono">"vm"</span> in xbin.json)</label>
+      <label><input type="checkbox" name="tiles" .checked=${!!d.tiles} @change=${(e) => set({ tiles: e.target.checked })}> VM tile sandboxes (the sandboxes a manager tile with <span class="mono">cap:sandboxes</span> runs)</label>
+      <label><input type="checkbox" name="tilesEmulated" .checked=${!!d.tilesEmulated} ?disabled=${!d.tiles} @change=${(e) => set({ tilesEmulated: e.target.checked })}> … also where VMs run emulated (no KVM)</label>
       <div class="sbx-fields">${POLICY_FIELDS.map(([k, label]) => html`<label>${label} ${num(k)}</label>`)}</div>
-      <div class="muted" style="font-size:10.5px">empty = the default (shown); the budget defaults to VMs × memory</div>
+      <div class="muted" style="font-size:10.5px">empty = the default (shown); the budget defaults to VMs × memory, the tile sandboxes' to half of it</div>
       ${warn.map((w) => html`<div class="warn-line">⚠ ${w}</div>`)}
       <div>
         <button class="act go" type="submit" data-save-policy ?disabled=${this._busy}>save</button>
@@ -198,7 +217,8 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
 
   async _savePolicy() {
     const d = this._pol;
-    const body = { terminals: !!d.terminals, backends: !!d.backends };
+    const body = {};
+    for (const k of POLICY_SWITCHES) body[k] = !!d[k];
     for (const [k] of POLICY_FIELDS) body[k] = Number(d[k]) || 0;
     this._busy = true;
     try {
@@ -247,16 +267,23 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
     const gens = new Map();
     for (const e of es) if (e.kind === 'backend') gens.set(depOf(e), Math.max(gens.get(depOf(e)) || 0, e.gen || 0));
     const curGen = (e) => gens.get(depOf(e)) || 0;
-    // nest a sandbox under the entry it belongs to (parent); the rest at the
-    // top, main's first, then each other deployment's under its name
+    // nest a sandbox under the entry it belongs to (parent) — a manager
+    // tile's own sandboxes under its deployment's current backend
+    // generation (D120); the rest at the top, main's first, then each other
+    // deployment's under its name
     const ids = new Set(es.map((e) => e.id));
+    const cur = (dep) => es.find((e) => e.kind === 'backend' && depOf(e) === dep && e.gen === (gens.get(dep) || 0))?.id;
+    const parentOf = (e) => e.parent || (e.kind === 'tile' ? cur(depOf(e)) : undefined);
     const kids = new Map();
-    for (const e of es) if (e.parent && ids.has(e.parent)) (kids.get(e.parent) || kids.set(e.parent, []).get(e.parent)).push(e);
+    for (const e of es) {
+      const p = parentOf(e);
+      if (p && ids.has(p)) (kids.get(p) || kids.set(p, []).get(p)).push(e);
+    }
     const out = [];
     const split = es.some((e) => depOf(e));
     const at = { curGen, statsOn, split };
     const walk = (e, depth) => { out.push(this._row(e, depth, at)); for (const k of kids.get(e.id) || []) walk(k, depth + 1); };
-    for (const [dep, top] of byDeployment(es.filter((e) => !e.parent || !ids.has(e.parent)))) {
+    for (const [dep, top] of byDeployment(es.filter((e) => !parentOf(e) || !ids.has(parentOf(e))))) {
       if (dep) out.push(this._depHead(tile, dep, top));
       for (const e of top) walk(e, 0);
     }
@@ -284,6 +311,7 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
     const named = dep || (at.split ? 'main' : '');
     const kind = e.kind === 'backend' ? html`backend <span class="muted">${named ? `${named} · ` : ''}g${e.gen}${cur ? '' : ' · draining'}</span>`
       : e.kind === 'agent' ? html`agent <span class="muted">${e.label || ''}${e.name ? ' · ' + e.name : ''}${e.status ? ' · ' + e.status : ''}</span>`
+      : e.kind === 'tile' ? html`tile sandbox <span class="muted">${e.name || ''}${e.for ? ' · for ' + e.for : ''}${e.forUser ? ' · ' + e.forUser : ''}</span>`
       : html`${e.kind} <span class="muted">${e.name || ''}</span>`;
     return html`<tr data-sbx-id=${e.id} data-sbx-kind=${e.kind} data-sbx-mode=${e.mode} data-depth=${depth}
       data-sbx-deployment=${dep || nothing}>
@@ -306,7 +334,8 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
       <table class="sbx">
         <tr><th>tile</th><th>size</th><th>on disk</th><th>in use</th><th>path</th></tr>
         ${disks.map((d) => html`<tr data-sbx-disk=${d.key}>
-          <td class="mono">${d.tile || html`<span class="muted" title="no tile has this key now (deleted or renamed)">${d.key}</span>`}</td>
+          <td class="mono">${d.tile || html`<span class="muted" title="no tile has this key now (deleted or renamed)">${d.key}</span>`}${d.sandbox
+            ? html` <span class="muted" title=${"a tile sandbox's disk" + (d.sandboxUid ? ` (uid ${d.sandboxUid})` : '')} data-sbx-disk-sandbox=${d.sandbox}>· sandbox ${d.sandbox}</span>` : nothing}</td>
           <td class="num">${fmtBytes(d.apparentBytes)}</td>
           <td class="num" title="sparse: what it takes on the host">${fmtBytes(d.allocatedBytes)}</td>
           <td>${d.inUse ? '✓' : html`<span class="muted">—</span>`}</td>

@@ -52,8 +52,8 @@ func (s *Session) info() SessionInfo {
 		ID: s.ID, Cwd: s.Cwd, Net: s.Net, Label: s.Label, Scopes: scopes,
 		GPU: s.gpu, API: s.api, Name: s.name, Kind: KindShell, VM: s.vm,
 		Created:    s.born.UTC().Format(time.RFC3339),
-		LastActive: s.lastActive.UTC().Format(time.RFC3339),
-		Clients:    len(s.clients), EnvHeld: s.envKey != "",
+		LastActive: s.hub.LastActive().UTC().Format(time.RFC3339),
+		Clients:    s.hub.Clients(), EnvHeld: s.envKey != "",
 	}
 	if st := s.agent; st != nil {
 		st.mu.Lock()

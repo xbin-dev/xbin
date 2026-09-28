@@ -22,6 +22,10 @@ import (
 // hash of the script + base rootfs; a script change builds a *fresh* layer. The
 // running backend then stacks it as a read-only lower.
 
+// envRootHint ends the refusal of a backend's mount point that a symlink
+// or a file in the env layer is in the way of (sandbox.Spec's NoFollow).
+const envRootHint = "the tile's environment layer holds it: its setup script made it"
+
 // envSetupPATH mirrors the rootfs toolchain PATH used elsewhere, so `apt`,
 // language package managers, etc. resolve inside the setup sandbox.
 const envSetupPATH = "PATH=/usr/local/go/bin:/usr/local/node/bin:/usr/local/bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -156,7 +160,7 @@ func (r *Runner) buildEnvLayer(c *registry.Component, layers string, gc func(bui
 	if h.NeedsRelay() {
 		if fd, err := h.RecvTUN(); err == nil {
 			pol, _ := sandbox.Parse([]string{"net:internet"})
-			if rl, err := relay.Start(relay.Config{TunFD: fd, Allow: pol.Allow, Resolver: sandbox.HostResolver()}); err == nil {
+			if rl, err := relay.Start(relay.Config{TunFD: fd, CloseTUN: true, Allow: pol.Allow, Resolver: sandbox.HostResolver()}); err == nil {
 				defer rl.Close()
 			}
 		}
@@ -202,6 +206,9 @@ func (r *Runner) envSetupSpec(c *registry.Component, upper, work string) *sandbo
 		HostUID: os.Getuid(),
 		HostGID: os.Getgid(),
 		Net:     "relay", // net:internet for the build
+		// a fresh upper holds nothing yet; the image's own symlinks may
+		// still place a mount point (WP-2b)
+		NoFollow: true, FollowBase: true,
 	}
 }
 

@@ -156,8 +156,12 @@ func (b *Broker) fsResPath(scope, name string, sqlite bool) string {
 // encrypted mount isn't up (gocryptfs missing, vault sealed, or not yet mounted),
 // or a kv bucket behind a sealed vault. Composed into runner.ShouldRun. It is
 // the hold of the tile's primary: DeploymentEncryptionHold's.
-func (b *Broker) EncryptionHold(comp string) bool {
-	return b.DeploymentEncryptionHold(comp, b.primaryOf(comp))
+func (b *Broker) EncryptionHold(comp string) bool { return b.EncryptionHoldReason(comp) != "" }
+
+// EncryptionHoldReason is why EncryptionHold holds comp ("" when it doesn't):
+// what a refused call to its backend says, instead of a bare "not enabled".
+func (b *Broker) EncryptionHoldReason(comp string) string {
+	return b.deploymentHoldReason(comp, b.primaryOf(comp))
 }
 
 // DeploymentEncryptionHold is EncryptionHold for deployment dep of tile, per
@@ -168,13 +172,20 @@ func (b *Broker) EncryptionHold(comp string) bool {
 // dep's own code declares before its backend runs (P22). main's volumes are
 // MountEncrypted's, as today.
 func (b *Broker) DeploymentEncryptionHold(tile, dep string) bool {
+	return b.deploymentHoldReason(tile, dep) != ""
+}
+
+// deploymentHoldReason is why DeploymentEncryptionHold holds deployment dep
+// of tile ("" when it doesn't).
+func (b *Broker) deploymentHoldReason(tile, dep string) string {
 	c, ok := b.Reg.Component(tile)
 	if !ok {
-		return false
+		return ""
 	}
 	dep = cmp.Or(dep, util.MainDeployment)
 	if b.nsHeld(tile, c.Scope, dep) {
-		return true // a data act holds dep's own namespace, or left it partial: nothing mounts
+		// a data act holds dep's own namespace, or left it partial: nothing mounts
+		return "is held: a data operation on its deployment's data namespace is under way or didn't finish"
 	}
 	sealedVault := b.barrier != nil && b.barrier.Initialized() && b.barrier.Sealed()
 	for _, u := range c.Manifest.Uses {
@@ -188,19 +199,30 @@ func (b *Broker) DeploymentEncryptionHold(tile, dep string) bool {
 			if rt.Scope == "" || rt.Scope != c.Scope {
 				ns = b.scopePrimary(rt.Scope)
 			}
-			switch k, err := b.resKeys(rt, ns); {
-			case err != nil:
-				return true // a refused name is never mounted
-			case k.NS != "" && !b.ensureVolume(k, rt.Scope, res.Type), k.NS == "" && !b.fsReady(k):
-				return true
+			k, err := b.resKeys(rt, ns)
+			if err != nil {
+				return "is held: it uses the encrypted resource " + u.Target + ", whose name is refused" // never mounted
 			}
+			if k.NS != "" && b.ensureVolume(k, rt.Scope, res.Type) || k.NS == "" && b.fsReady(k) {
+				continue
+			}
+			why := "its decrypted view isn't mounted (xbind's log says why)"
+			switch {
+			case b.resenc == nil || !b.resenc.Available():
+				why = "gocryptfs isn't available (make build, or XBIN_GOCRYPTFS)"
+			case b.barrier == nil || !b.barrier.Initialized():
+				why = "the vault isn't set up"
+			case b.barrier.Sealed():
+				why = "the vault is sealed"
+			}
+			return "is held: it uses the encrypted resource " + u.Target + ", and " + why
 		case res.Type == "kv":
-			if sealedVault {
-				return true // can't decode kv values while sealed
+			if sealedVault { // can't decode kv values while sealed
+				return "is held: it uses the kv resource " + u.Target + ", and the vault is sealed"
 			}
 		}
 	}
-	return false
+	return ""
 }
 
 // MountEncrypted ensures every file-backed resource main's namespaces declare
@@ -257,11 +279,14 @@ func nsVolume(dirKey string) (scope, dep string, ok bool) {
 // every decrypted view, so a sealed vault leaves only ciphertext on disk. Called
 // from the seal API after the barrier is sealed. A tile stops when any of its
 // deployments addresses a file-backed volume; StopBackend stops every
-// deployment of it.
+// deployment of it. The tile sandboxes with a resource mounted are stopped
+// too, and waited for, before the views go: a sandbox's bind would keep one
+// alive (tilesbx_hooks.go).
 func (b *Broker) SealResources() {
 	if b.resenc == nil {
 		return
 	}
+	b.sealSandboxes()
 	if b.StopBackend != nil {
 		for _, c := range b.Reg.Components() {
 			_, deps := b.deploymentsOf(c.Path)

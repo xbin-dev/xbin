@@ -93,7 +93,11 @@ depending on a host package. It honors `redirect_dir`/`metacopy`, which the
 kernel forbids for *unprivileged* overlay mounts — so dpkg's directory renames
 (and thus `apt install`) work. Absent it, xbind falls back to kernel overlayfs
 (installs hit `EXDEV`). A private **devpts** is mounted too, so PTY allocation
-(dpkg/debconf, `tmux`, `script`, `sudo`) works.
+(dpkg/debconf, `tmux`, `script`, `sudo`) works. fuse-overlayfs is never rooted
+in the mount it serves. It resolves `/proc/self/fd/…` paths through its own
+root, so a root on its own mount deadlocked it on a file created in `/`. Its
+root is a read-only tmpfs holding only `/proc`, beneath the sandbox's
+(`internal/sandbox/fuseroot_linux.go`; plans/tile-sandbox-runtime.md §14).
 
 ## 2. Ingress — only the runtime can go in
 

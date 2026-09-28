@@ -3,10 +3,11 @@
 // first needs it, again when asked), the next new chat's pick, and what a
 // view does — pick or bind a sandbox, change the working directory, detach,
 // create one (for the open conversation: bound there), start, stop,
-// archive, thaw, share with the team, delete. The open conversation's
-// binding lives in its view's config: a `run` event that carries `sandbox`
-// updates it at once, and after a change of ours it is re-read. What the
-// controls show is model/sandboxes.js. No lit, no DOM, no dialogs: a view
+// archive, thaw, share with the team or a terminal tile, delete — and a
+// terminal onto one (its manager's `tty`, where a view sets tty: the web's).
+// The open conversation's binding lives in its view's config: a `run` event
+// that carries `sandbox` updates it at once, and after a change of ours it
+// is re-read. What the controls show is model/sandboxes.js. No lit, no DOM, no dialogs: a view
 // confirms a delete itself, then calls remove().
 //
 // Every change emits 'sandboxes' on the app. Calls throw as the backend
@@ -43,10 +44,34 @@ export function createSandboxStore(app) {
     sbx.load(true).catch(() => {});
   };
 
+  // patchShares PATCHes ref's whole shares list as bodyOf(sandbox) computes
+  // it from the sandbox as the list has it — with its version, so a change
+  // made since (someone else's share) isn't overwritten: on a 412 the
+  // sandbox is read again, the body computed afresh from it, and sent once
+  // more. The answer lands in the list.
+  const patchShares = async (ref, bodyOf) => {
+    let s = find(ref);
+    for (let tries = 0; ; tries++) {
+      try {
+        put(await actions.patchSandbox(ref, bodyOf(s)));
+        return;
+      } catch (e) {
+        if (e.status !== 412 || tries) throw e;
+      }
+      s = await actions.getSandbox(ref);
+      put(s);
+      s = find(ref);
+    }
+  };
+
   const sbx = {
     list: S.listOf(null), // GET /sandboxes (model/sandboxes.js listOf); loaded once read
     pick: null,           // the next new chat's sandbox: {ref, cwd, name} (sent while its class has the sandbox toolset)
     error: '',            // why the list could not be read
+    // the page's endpoints for its `sandboxes` slot (xbin.iface) — set by a
+    // view that opens terminals (the web's); null: none offered (the native
+    // view: its terminal dials only the tile's own routes — D96 difference)
+    tty: null,
 
     // cls: the class the picker works for — the open conversation's, else the next new chat's.
     cls() { const v = conv(); return v ? v.class || null : classes.find(app.classes, app.classId); },
@@ -67,7 +92,18 @@ export function createSandboxStore(app) {
     // order — the refs as the view shows them (kept while its list is open).
     picker() { return S.sandboxPicker(sbx.list, conv(), app.me, { cls: classes.find(app.classes, app.classId), pick: sbx.pick }); },
     badge(v = conv()) { recheck(v); return S.sandboxBadge(v, sbx.list); },
-    rows(order) { const v = conv(); return S.sandboxRows(sbx.list, app.me, { conv: v, cls: sbx.cls(), pick: sbx.pick, order }); },
+    rows(order) { const v = conv(); return S.sandboxRows(sbx.list, app.me, { conv: v, cls: sbx.cls(), pick: sbx.pick, order, tty: sbx.tty }); },
+    // terminal: "Open terminal" for ref at cwd (model/sandboxes.js terminal):
+    // {shown, why, src, …} — src is what <bx-terminal src> dials.
+    terminal(ref, cwd = '') { return S.terminal(sbx.list, ref, sbx.tty, cwd); },
+    // endTerminal ends the shell a terminal t (terminal()) started — its
+    // session frame named the exec eid; a view calls it when it closes the
+    // terminal. The sandbox's lastActive moved: the list is read again.
+    async endTerminal(t, eid) {
+      if (!t || !t.base || !eid) return;
+      await actions.endManagerExec(S.execSrc({ url: t.base }, t.id, eid));
+      sbx.refresh();
+    },
     // createWhy: why New sandbox can't be offered here ('' = it can).
     createWhy() { return S.createWhy(sbx.list, conv()); },
     // confirmBind: what a view confirms before choose(ref) ('' = nothing) —
@@ -154,6 +190,27 @@ export function createSandboxStore(app) {
     // share: 'team' | 'private' (its owner).
     async share(ref, visibility) {
       put(await actions.patchSandbox(ref, { visibility }));
+      emit();
+    },
+    // shareForm: "Share with a terminal tile…" for ref (model/sandboxes.js
+    // shareForm) — f: what was entered so far ({tile}).
+    shareForm(ref, f = {}) { return S.shareForm(find(ref), app.me, f, (globalThis.xbin && globalThis.xbin.self) || ''); },
+    // shareTerminal shares ref with the terminal tile f.tile (its owner; the
+    // contract's PATCH {shares}), and says so.
+    async shareTerminal(ref, f = {}) {
+      let vm = null;
+      await patchShares(ref, (s) => {
+        vm = S.shareForm(s, app.me, f, (globalThis.xbin && globalThis.xbin.self) || '');
+        if (!vm.ok) throw new Error(S.sentence(vm.error));
+        return vm.body;
+      });
+      emit();
+      const s = find(ref);
+      return `${(s && s.name) || S.splitRef(ref).id} is shared with ${vm.tile} — ${vm.users === '*' ? 'everyone who may use it' : 'you'} can open terminals onto it there ✓`;
+    },
+    // unshare takes consumer's share of ref away.
+    async unshare(ref, consumer) {
+      await patchShares(ref, (s) => S.unshareBody(s, consumer));
       emit();
     },
     // perform: a Sandboxes row's action (model/sandboxes.js sandboxRows'

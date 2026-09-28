@@ -230,3 +230,32 @@ func TestEnsureRefusesPathSteering(t *testing.T) {
 		t.Fatal("a refused Ensure ran gocryptfs or created a directory")
 	}
 }
+
+// Close — xbind shutting down — unmounts every view, one something still
+// holds open too (lazily): no decrypted view, no gocryptfs, outlives it.
+func TestCloseUnmountsAll(t *testing.T) {
+	m, _ := testManager(t)
+	t.Cleanup(m.UnmountAll)
+	free, err := m.Ensure("res:apps/thing/a", "apps_thing", "a", false)
+	if err != nil {
+		t.Skipf("gocryptfs mount failed (no userns/FUSE perms here?): %v", err)
+	}
+	busy, err := m.Ensure("res:apps/thing/b", "apps_thing", "b", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Create(filepath.Join(busy, "held"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	m.Close()
+	for _, mp := range []string{free, busy} {
+		if isMounted(mp) {
+			t.Errorf("%s is still mounted after Close", mp)
+		}
+	}
+	if m.Mounted("apps_thing", "a") || m.Mounted("apps_thing", "b") {
+		t.Error("the manager still counts a view mounted")
+	}
+}

@@ -360,7 +360,9 @@ func TestResKeysNameRule(t *testing.T) {
 		}
 		return nil
 	})
-	if _, err := b.restoreFileDest("", "wsfiles/x"); err == nil || !strings.Contains(err.Error(), "workspace scope") {
+	dst := &restoreDst{b: b, comp: "apps/x"}
+	defer dst.close()
+	if _, err := dst.resource("", "wsfiles"); err == nil || !strings.Contains(err.Error(), "workspace scope") {
 		t.Errorf("files under the workspace scope: %v", err)
 	}
 }

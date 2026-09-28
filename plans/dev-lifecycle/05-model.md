@@ -707,6 +707,12 @@ terminals and tile sandboxes all share:
     layout only for tiles that have it.
   - This is the nested per-tile cgroup D113 defers, built once in the shared
     layer by this programme; D113 reuses it.
+  - *As built* (D120, [tile-sandbox-runtime.md](../tile-sandbox-runtime.md)
+    §6.2): tile sandboxes' leaves stay in their own sibling subtree,
+    `comp-tilesbx-<ws8>/sbx-<CK>[+<d>]-<name>`, which the sandboxes policy
+    sizes (the workspace-wide ceiling for every manager's sandboxes), so no
+    backend's caps or per-tile counters take them in. The per-tile parent
+    holds deployments' backend leaves only.
 - **Backend launch-spec binds:**
   - the checkpoint is bound at the canonical path;
   - the deployment's data namespace is bound at the primary's resource paths,

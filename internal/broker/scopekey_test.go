@@ -47,7 +47,9 @@ func TestScopeKeyRefusedLeavesHolderData(t *testing.T) {
 	if _, err := os.Stat(marker); err != nil {
 		t.Fatalf("offloading the refused scope removed the holder's data: %v", err)
 	}
-	if _, err := b.restoreFileDest("apps~calendar", "db/db.sqlite"); err == nil || !strings.Contains(err.Error(), "resource data key") {
+	dst := &restoreDst{b: b, comp: "apps~calendar"}
+	defer dst.close()
+	if _, err := dst.resource("apps~calendar", "db"); err == nil || !strings.Contains(err.Error(), "resource data key") {
 		t.Fatalf("restore into a refused scope's key: %v", err)
 	}
 	if err := b.loadKV("apps~calendar", []byte(`{"events":{"k":"dg=="}}`)); err == nil || !strings.Contains(err.Error(), "resource data key") {
@@ -81,7 +83,9 @@ func TestResourceNamesNeverSteerPaths(t *testing.T) {
 			t.Fatalf("%s resolved to a declared resource", target)
 		}
 	}
-	if _, err := b.restoreFileDest("apps/calendar", "../x/y"); err == nil || !strings.Contains(err.Error(), "valid resource name") {
+	dst := &restoreDst{b: b, comp: "apps/calendar"}
+	defer dst.close()
+	if _, err := dst.resource("apps/calendar", ".."); err == nil || !strings.Contains(err.Error(), "valid resource name") {
 		t.Fatalf("restore with a traversal name: %v", err)
 	}
 	if err := b.loadKV("apps/calendar", []byte(`{"x/events":{"k":"dg=="}}`)); err == nil || !strings.Contains(err.Error(), "valid resource name") {

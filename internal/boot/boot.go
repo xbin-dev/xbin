@@ -24,6 +24,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/gpu"
 	ingressPkg "github.com/xbin-dev/xbin/internal/ingress"
+	"github.com/xbin-dev/xbin/internal/layers"
 	"github.com/xbin-dev/xbin/internal/proxy"
 	"github.com/xbin-dev/xbin/internal/push"
 	"github.com/xbin-dev/xbin/internal/registry"
@@ -32,6 +33,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/sbx"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/term"
+	"github.com/xbin-dev/xbin/internal/tilesbx"
 	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/vm"
 	"github.com/xbin-dev/xbin/internal/watch"
@@ -55,10 +57,11 @@ type State struct {
 	Broker  *broker.Broker
 	Proxy   *proxy.Proxy
 	Server  *server.Server
-	VM      *vm.Manager   // VM sandboxes (vm.go); nil without isolation
-	Sbx     *sbx.Registry // every live sandbox and what the sandbox layer failed at (D112)
-	Push    *push.Service // the push plane (push.go)
-	held    *push.Holder  // non-primary notifications, kept as would-notify (push.go)
+	VM      *vm.Manager      // VM sandboxes (vm.go); nil without isolation
+	Sbx     *sbx.Registry    // every live sandbox and what the sandbox layer failed at (D112)
+	TileSbx *tilesbx.Manager // the tile-sandbox runtime (tilesandboxes.go, D120)
+	Push    *push.Service    // the push plane (push.go)
+	held    *push.Holder     // non-primary notifications, kept as would-notify (push.go)
 	Started time.Time
 	// Deployments is the deployments plane: its methods are the registry's,
 	// runner's, broker's and terminal manager's deployment hooks (P5).
@@ -72,11 +75,19 @@ type State struct {
 	streams          *ingressPkg.Streams
 	forwards         *ingressPkg.Forwards
 	reconcileIngress func()
+	onVMPolicy       func(old, cur vm.Policy) // a VM policy change, for the tile-sandbox runtime (stepTileSandboxes)
 	watcher          *watch.Watcher
 	priv             Privileges
 	rootfs           string // --isolate's rootfs, absolute (stepConfine)
 	uidRange         bool   // sandboxes map a delegated sub-id range (stepIsolation)
 	uidRangeNote     string // why not
+	// sandboxBasePins is the base of every tile-sandbox definition, archived
+	// ones included (plans/tile-sandbox-runtime.md §9) — one of the pin
+	// sources the boot's base-image GC passes keep (pinnedBases). An error
+	// (the definitions file can't be read) makes the pins unknown, so
+	// nothing is released. stepWorkspace sets it (tilesbx.DefBases), so it
+	// answers by stepIsolation.
+	sandboxBasePins func() ([]string, error)
 }
 
 // Step is one named stage of a boot. Steps run in list order; the order is
@@ -97,6 +108,11 @@ type Step struct {
 //   - server last before watch/serve: every handler is registered by then.
 //   - confine first after privileges: the registry and broker steps run git
 //     on tiles (repo init, template repos), which must already be confined.
+//   - isolation and vm before tile-sandboxes: the runtime reads the uid
+//     mapping and the VM manager; tile-sandboxes before server, which
+//     mounts its routes.
+//   - workspace before isolation: the tile-sandbox definitions' base pins
+//     (sandboxBasePins) must answer before isolation's base-image GC.
 var Steps = []Step{
 	{"workspace", (*State).stepWorkspace},
 	{"privileges", (*State).stepPrivileges},
@@ -114,6 +130,7 @@ var Steps = []Step{
 	{"limit-alerts", (*State).stepLimitAlerts},
 	{"isolation", (*State).stepIsolation},
 	{"vm", (*State).stepVM},
+	{"tile-sandboxes", (*State).stepTileSandboxes},
 	{"server", (*State).stepServer},
 	{"watch", (*State).stepWatch},
 	{"always-on", (*State).stepAlwaysOn},
@@ -166,6 +183,10 @@ func (st *State) stepWorkspace() error {
 	if _, err := os.Lstat(filepath.Join(ws, "CLAUDE.md")); err != nil {
 		_ = os.Symlink("AGENTS.md", filepath.Join(ws, "CLAUDE.md"))
 	}
+	// Every tile-sandbox definition pins its base (§9): the GC passes of
+	// stepIsolation and stepVM keep them. It reads data/sandboxes.json
+	// itself, before the runtime exists; an unreadable file releases nothing.
+	st.sandboxBasePins = func() ([]string, error) { return tilesbx.DefBases(ws) }
 	return nil
 }
 
@@ -458,6 +479,7 @@ func (st *State) stepBroker() error {
 	// D54: a terminal's network on an org-owned tile is the org's network
 	// sets; the broker knows ownership + sets, the term manager asks.
 	st.Term.TermNet = brk.TermNetFor
+	brk.HoldTermEnv = st.Term.HoldEnv // a restore swaps the terminal layer in whole (WP-9)
 	brk.ExternalURL = st.externalURL
 	brk.SweepNamespaces()               // crashed data acts become partial, unclaimed namespaces orphaned (08-data §9.3)
 	brk.LoadDeploymentBackupSchedules() // each deployment's own backup schedule (08-data §11.3)
@@ -479,7 +501,7 @@ func (st *State) stepLimitAlerts() error {
 		lastMem, lastPids := map[string]int64{}, map[string]int64{}
 		sessMem, sessPids := map[string]int64{}, map[string]int64{}
 		brk.SetLimitAlerts(func() []broker.Alert {
-			out := sessionLimitAlerts(run.Cgroup, st.Sbx, sessMem, sessPids)
+			out := sessionLimitAlerts(run.LeafCgroup, st.Sbx, sessMem, sessPids)
 			for _, c := range reg.Components() {
 				for _, h := range run.AtLimitTile(c.Path) {
 					who, tile := c.Path, c.Path
@@ -574,9 +596,13 @@ func (st *State) stepProxy() error {
 	brk.WakeBackends = run.WakeAlwaysOn
 	// A component may spawn only if enabled AND its encrypted tile state is
 	// currently accessible (vault unsealed + mounts up) — see plans/vault-data.md.
-	run.ShouldRun = func(comp string) bool {
-		return reg.LifecycleState(comp) == registry.StateEnabled && !brk.EncryptionHold(comp)
+	run.HoldReason = func(comp string) string {
+		if s := reg.LifecycleState(comp); s != registry.StateEnabled {
+			return "is " + s
+		}
+		return brk.EncryptionHoldReason(comp)
 	}
+	run.ShouldRun = func(comp string) bool { return run.HoldReason(comp) == "" }
 	// ...per deployment: the hold of the namespaces that deployment reaches.
 	run.ShouldRunDeployment = func(tile, dep string) bool {
 		return reg.LifecycleState(tile) == registry.StateEnabled && !brk.DeploymentEncryptionHold(tile, dep)
@@ -671,6 +697,22 @@ func (st *State) stepConfine() error {
 	return nil
 }
 
+// pinnedBases is every base version a layer still pins (internal/layers:
+// the terminal layers, the tile sandboxes and their snapshots, and the
+// tile-sandbox definitions) — what both base-image GC passes keep: the
+// preserved `<rootfs>-<version>` dirs (stepIsolation) and the VM images
+// built from them (stepVM). nil when a pin couldn't be read (a stamp, a
+// tree, or the definitions): the set may be short, so neither pass releases
+// anything this boot.
+func (st *State) pinnedBases() map[string]bool {
+	pins, err := layers.Pinned(st.WS, st.sandboxBasePins)
+	if err != nil {
+		slog.Warn("base images: nothing released this boot — a layer's pin couldn't be read", "err", err)
+		return nil
+	}
+	return pins
+}
+
 func (st *State) stepIsolation() error {
 	cfg, run, tm, brk := st.Cfg, st.Run, st.Term, st.Broker
 	if !cfg.Isolate {
@@ -699,7 +741,7 @@ func (st *State) stepIsolation() error {
 	if err := tm.CheckBaseImages(); err != nil {
 		return err
 	}
-	tm.GCBaseImages() // release preserved bases no terminal pins anymore
+	layers.GC(abs, st.pinnedBases()) // release preserved bases no layer pins anymore
 	// Same locator as go.work generation (XBIN_SDK_PATH → /opt/xbin/sdk).
 	// Never fall back to "": filepath.Abs("") is the daemon's cwd (the
 	// install prefix in prod), and binding that read-only over the sandbox
@@ -764,6 +806,7 @@ func (st *State) stepServer() error {
 	st.registerVMAPI(srv)
 	st.registerSandboxAPI(srv)
 	registerDeploymentsAPI(srv, st.Deployments, st.Broker) // the broker answers the state's vault, registrations, edges, disk
+	st.registerTileSandboxAPI(srv)
 	if err := st.setupPush(srv); err != nil {
 		return err
 	}
@@ -778,7 +821,12 @@ func (st *State) stepWatch() error {
 		return err
 	}
 	st.watcher = w
-	go watchLoop(w, st.Reg, st.Hub, st.Run, st.Broker, st.Deployments, st.reconcileIngress)
+	go watchLoop(w, st.Reg, st.Hub, st.Run, st.Broker, st.Deployments, func() {
+		st.reconcileIngress()
+		if st.TileSbx != nil {
+			st.TileSbx.Reconcile() // a tile gone, its cap or a resource dropped by hand (§7)
+		}
+	})
 	return nil
 }
 

@@ -179,8 +179,10 @@ func (b *Broker) restoreData(tile string, r dataRestore) (string, []string, []st
 			r.stop(t, r.into) // every claimant's deployment of that name addresses the namespace
 		}
 	}
-	n := &nsRestorer{b: b, scope: c.Path, dep: r.into, replace: r.replace, declared: declared, dirs: map[string]string{}, skipped: map[string]bool{}}
+	n := &nsRestorer{b: b, scope: c.Path, dep: r.into, replace: r.replace, declared: declared,
+		dirs: map[string]string{}, trees: map[string]*destTree{}, skipped: map[string]bool{}}
 	step, err := n.run(br)
+	n.close()
 	now := nowStamp(time.Now())
 	if err != nil {
 		_ = b.updateNS(id, true, func(m *nsMeta) {
@@ -257,8 +259,16 @@ type nsRestorer struct {
 	scope, dep string
 	replace    bool
 	declared   map[string]registry.Resource
-	dirs       map[string]string // a volume's mount, once readied
+	dirs       map[string]string    // a volume's mount, once readied
+	trees      map[string]*destTree // … and the os.Root its files are written through
 	skipped    map[string]bool
+}
+
+// close releases the volumes' roots.
+func (n *nsRestorer) close() {
+	for _, t := range n.trees {
+		t.r.Close()
+	}
 }
 
 // run reads the archive's data members; others are never a namespace's.
@@ -274,11 +284,11 @@ func (n *nsRestorer) run(br *backup.Reader) (string, error) {
 		case name == backup.KVName:
 			err = n.kv(rd)
 		case strings.HasPrefix(name, backup.SQLitePrefix):
-			err = n.file("sqlite", strings.TrimPrefix(name, backup.SQLitePrefix), rd)
+			err = n.file("sqlite", strings.TrimPrefix(name, backup.SQLitePrefix), br.Perm(), rd)
 		case strings.HasPrefix(name, backup.FSPrefix):
-			err = n.file("filesystem", strings.TrimPrefix(name, backup.FSPrefix), rd)
+			err = n.file("filesystem", strings.TrimPrefix(name, backup.FSPrefix), br.Perm(), rd)
 		case strings.HasPrefix(name, backup.BlobPrefix):
-			err = n.file("blob", strings.TrimPrefix(name, backup.BlobPrefix), rd)
+			err = n.file("blob", strings.TrimPrefix(name, backup.BlobPrefix), br.Perm(), rd)
 		}
 		if err != nil {
 			return name, err
@@ -344,24 +354,35 @@ func (n *nsRestorer) kv(rd io.Reader) error {
 	})
 }
 
-func (n *nsRestorer) file(typ, rest string, rd io.Reader) error {
-	name, rel, _ := strings.Cut(rest, "/")
-	dir, ok := n.dirs[name]
+// file writes one archived file of a volume, with the bits it was archived
+// with, through an os.Root at the volume's top (restore.go's destTree): what
+// a sandbox left in the volume — a symlink where a directory or the file
+// goes — is replaced, never followed (WP-9). A fresh volume, or main merged
+// as POST /restore does.
+func (n *nsRestorer) file(typ, rest string, perm fs.FileMode, rd io.Reader) error {
+	name, sub, _ := strings.Cut(rest, "/")
+	t, ok := n.trees[name]
 	if !ok {
 		k, ok := n.key(name, typ)
 		if !ok {
 			return nil
 		}
-		var err error
-		if dir, err = n.b.readyVolume(k, n.scope, typ, n.replace); err != nil {
+		dir, err := n.b.readyVolume(k, n.scope, typ, n.replace)
+		if err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
-		n.dirs[name] = dir
+		r, err := os.OpenRoot(dir)
+		if err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		t = newDestTree(r)
+		n.dirs[name], n.trees[name] = dir, t
 	}
+	rel := cleanRel(sub)
 	if rel == "" {
 		return nil // a volume's root is never a file
 	}
-	return writeFileFrom(backup.SafeJoin(dir, rel), rd) // a fresh volume, or main merged as POST /restore does
+	return t.write(rel, perm, rd)
 }
 
 // emptyUnwritten empties, to replace, each volume the archive lists with no

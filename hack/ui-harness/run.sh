@@ -16,7 +16,12 @@
 #                       every pass, or just the named ones (node shots.js --list)
 #   ./run.sh --stop     stop xbind
 #   TILE_ASSETS=tokens|origins ./run.sh …   the same under strict tile asset gating
-#   HARNESS_ISOLATE=1 ./run.sh …   xbind with --isolate on $XBIN_TEST_ROOTFS
+#   HARNESS_ISOLATE=1 (or ISOLATE=1) [ROOTFS=dir] ./run.sh …   xbind --isolate
+#                       over ROOTFS (else $XBIN_TEST_ROOTFS, else the repo's
+#                       .rootfs): backends and tile sandboxes run live, and
+#                       the livereload, deployments and sandboxes passes drive
+#                       them; the other passes are written for the default,
+#                       unisolated harness
 set -euo pipefail
 H="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$H/../.." && pwd)"
@@ -37,21 +42,23 @@ else
   export URL="http://127.0.0.1:$PORT"
   asset_flags=(--tile-assets "$TILE_ASSETS")
 fi
-# HARNESS_ISOLATE=1: xbind runs backends in per-component sandboxes
-# (--isolate) on XBIN_TEST_ROOTFS, an unpacked rootfs (make rootfs; a worktree
-# borrows the main checkout's). Passes read it: without it a backend half
-# asserts the isolation refusal and prints SKIP needs HARNESS_ISOLATE. Needs
-# user namespaces; XBIN_FUSE_OVERLAYFS reaches xbind from the environment.
-# Run it for the passes that ask for it: the scripted fake agent
-# (XBIN_AGENT_FAKE, a host path) can't start inside a tile sandbox, so the
-# agent passes (agentTab…) fail under it.
-isolate_flags=()
-if [[ "${HARNESS_ISOLATE:-}" == 1 ]]; then
-  isolate_flags=(--isolate --rootfs "${XBIN_TEST_ROOTFS:-}")
-else
-  HARNESS_ISOLATE=""
-fi
+# HARNESS_ISOLATE=1 (ISOLATE=1 alike): xbind runs backends in per-component
+# sandboxes (--isolate) on a rootfs: ROOTFS, else XBIN_TEST_ROOTFS, else the
+# repo's .rootfs (make rootfs; a worktree borrows the main checkout's). Passes
+# read HARNESS_ISOLATE: without it a backend half asserts the isolation
+# refusal and prints SKIP; under it tile sandboxes run live and the sandboxes
+# pass drives one. Needs user namespaces; XBIN_FUSE_OVERLAYFS reaches xbind
+# from the environment. Run it for the passes that ask for it: the scripted
+# fake agent (XBIN_AGENT_FAKE, a host path) can't start inside a tile
+# sandbox, so the agent passes (agentTab…) fail under it.
+HARNESS_ISOLATE=${HARNESS_ISOLATE:-${ISOLATE:-}}
+if [[ "$HARNESS_ISOLATE" == 0 ]]; then HARNESS_ISOLATE=""; fi
 export HARNESS_ISOLATE
+iso_flags=()
+if [[ -n "$HARNESS_ISOLATE" ]]; then
+  ROOTFS=${ROOTFS:-${XBIN_TEST_ROOTFS:-$REPO/.rootfs}}
+  iso_flags=(--isolate --rootfs "$ROOTFS")
+fi
 export OUT="$HARNESS_DIR/out"
 export REPO
 # the scripted OpenAI-compatible upstream the agentTemplate pass talks to
@@ -59,13 +66,16 @@ export REPO
 export FAKEOPENAI_ADDR=${FAKEOPENAI_ADDR:-127.0.0.1:$((PORT + 10280))}
 # the ingress listener the channels pass's webhooks arrive on
 export INGRESS_ADDR=${INGRESS_ADDR:-127.0.0.1:$((PORT + 1))}
+# the host port the sandbox-terminal tile's SSH is published on (the
+# sandboxTerminal pass logs in there with OpenSSH)
+export SBXTERM_SSH_ADDR=${SBXTERM_SSH_ADDR:-127.0.0.1:$((PORT + 2))}
 mkdir -p "$OUT"
 mode="${1:-}"
 [[ $# -gt 0 ]] && shift
 passes=("$@")   # --shots [pass…]
 # a mode that starts xbind needs the rootfs before it builds or wipes anything
-if [[ -n "$HARNESS_ISOLATE" && "$mode" != --stop && "$mode" != --shots && ! -d "${XBIN_TEST_ROOTFS:-}" ]]; then
-  echo "HARNESS_ISOLATE=1 needs XBIN_TEST_ROOTFS, an unpacked rootfs directory (make rootfs)" >&2; exit 1
+if [[ -n "$HARNESS_ISOLATE" && "$mode" != --stop && "$mode" != --shots && ! -x "$ROOTFS/bin/sh" ]]; then
+  echo "HARNESS_ISOLATE=1: no rootfs at $ROOTFS (make rootfs, or ROOTFS=dir / XBIN_TEST_ROOTFS=dir)" >&2; exit 1
 fi
 
 # The [x] keeps pkill from matching this script's own command line. Also
@@ -92,7 +102,7 @@ start() {
   # against this checkout's sdk/.
   (cd "$REPO" && nohup bin/fakeopenai -addr "$FAKEOPENAI_ADDR" > "$HARNESS_DIR/fakeopenai.log" 2>&1 < /dev/null &)
   (cd "$REPO" && XBIN_AGENT_FAKE="$REPO/bin/fakeacp" XBIN_BIN="$REPO/bin" XBIN_SDK_PATH="$REPO/sdk" nohup bin/xbind --dev --dev-overlay "$REPO/workspace-template" --workspace "$WS" --listen "127.0.0.1:$PORT" \
-      --ingress-listen "$INGRESS_ADDR" --external-url "$URL" "${asset_flags[@]}" "${isolate_flags[@]}" > "$HARNESS_DIR/xbind.log" 2>&1 < /dev/null &)
+      --ingress-listen "$INGRESS_ADDR" --external-url "$URL" "${asset_flags[@]}" "${iso_flags[@]}" > "$HARNESS_DIR/xbind.log" 2>&1 < /dev/null &)
   for _ in $(seq 1 60); do curl -sf -o /dev/null "$URL/login" && return 0; sleep 0.25; done
   echo "xbind did not come up; see $H/xbind.log" >&2; exit 1
 }

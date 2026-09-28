@@ -9,6 +9,12 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
+// termRootHint ends the refusal of a mount point that a symlink or a file
+// the terminal's persistent layer holds is in the way of (sandbox.Spec's
+// NoFollow): only a reset clears it. ASCII only: the failure record and the
+// log keep printable ASCII.
+const termRootHint = "the tile's persistent terminal layer holds it: reset the tile's sandbox (its window's reset button) to clear it"
+
 // scopedBinds builds a terminal's workspace binds (plans/runtime.md).
 //
 //   - A ROOT terminal (rel == "") is the owner plane: the whole workspace
@@ -39,7 +45,10 @@ func scopedBinds(root, rel, homeDir string, extra []sandbox.Bind, hide []string)
 	// terminal's mountinfo. That's an accepted limitation (docs/isolation.md): a
 	// terminal user can already `ls` every tile, so the mount-table names disclose
 	// nothing new; truly hiding them needs resenc storage outside the workspace.
-	binds := []sandbox.Bind{{Src: root, Dst: root, RO: true}}
+	// Layout: the root's own entries are xbind's and the operator's (no sandbox
+	// writes there), so an operator's homes/ → another disk still places $HOME
+	// (sandbox.Bind; a symlink a tile made never places a mount).
+	binds := []sandbox.Bind{{Src: root, Dst: root, RO: true, Layout: true}}
 	// ...and the platform's secrets and other users' data are masked out entirely:
 	// .xbin (owner token + frame-token secret), data (vault, the encrypted
 	// resource state, and users.json password hashes), and every OTHER user's
@@ -80,7 +89,10 @@ func pathIsDir(p string) bool { fi, err := os.Stat(p); return err == nil && fi.I
 // present, an empty .xbin/ (bx locates the workspace by xbin.json + .xbin),
 // and a pre-created mountpoint dir for every nested bind — the view is bound
 // READ-ONLY at the workspace root, so mountpoints can't be created later.
-// Caller removes the dir when the session ends.
+// Caller removes the dir when the session ends — as xbind (os.RemoveAll), as
+// the boot's view-* sweep does: nothing in it is sandbox-written (WP-9b
+// checked). It is bound read-only, into restricted sessions only, which have
+// no CAP_SYS_ADMIN to remount it; a VM's export of it refuses writes.
 func (m *Manager) stageView(rel, homeKey string, readable []string, rootFiles map[string][]byte) (string, error) {
 	dir := filepath.Join(m.Root, ".xbin", "term", "view-"+util.RandomToken(8))
 	if err := os.MkdirAll(dir, 0o700); err != nil {

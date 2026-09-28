@@ -52,6 +52,7 @@ type Broker struct {
 	updater   *builtins.Updater     // builtin update tracking (nil = none)
 	Users     *users.Store          // human users (nil = single-user/root-only)
 	disk      *diskMon              // per-scope disk quota + low-disk write-blocking + alerts
+	tileSbx   tileSbxSlot           // the tile-sandbox runtime's hooks (tilesbx_hooks.go)
 
 	obs *obs.Plane // tile status, prefs, logs (internal/obs)
 
@@ -80,6 +81,25 @@ type Broker struct {
 	// new policy/env — those are captured at spawn, not per request.
 	OnGrantChange func(component string)
 
+	// OnCapChange, if set, is told a tile's hold on a reserved cap: target
+	// after it may have changed: an approve or a revoke of that grant
+	// (held = the effective state afterwards), and held=false again whenever
+	// a ceiling change strips one (capSweep, caps.go). Boot wires it to the
+	// tile-sandbox runtime, which stops a tile's sandboxes when it loses
+	// cap:sandboxes (D120). Called on the request goroutine and possibly
+	// repeated — return promptly and be idempotent.
+	OnCapChange func(tile, capTarget string, held bool)
+	// OnSandboxNetChange, if set, is called with a tile whose sandbox-net
+	// classes may resolve differently now — a bind or unbind of one, a
+	// network-set edit or attachment, a transfer (sandboxnet.go). The tile
+	// sandbox runtime re-resolves each running sandbox's class; the tile's
+	// own backend is never restarted for it.
+	OnSandboxNetChange func(tile string)
+	// OnNoTerminal, if set, is told a user whose noTerminal (D88) was just
+	// switched on: the tile-sandbox runtime kills the tty execs claimed for
+	// them. Called on the request goroutine; return promptly.
+	OnNoTerminal func(userID string)
+
 	// OnUserSignedOut, if set, is called after a user was signed out
 	// everywhere — by an admin, by disabling the account, or by deleting it
 	// (deleted) — so per-user state bound to their devices (push
@@ -99,6 +119,14 @@ type Broker struct {
 	// WakeBackends, if set, starts the always-on backends that can run now
 	// (after an unseal or an enable; runner.WakeAlwaysOn).
 	WakeBackends func()
+	// HoldTermEnv, if set, takes a component's persistent terminal layer out
+	// of use — its sessions killed, the layer held so none mounts it — until
+	// release; a restore swaps a rebuilt layer in meanwhile. Wired to
+	// term.Manager.HoldEnv by boot.
+	HoldTermEnv func(component string) (release func(), err error)
+	// rmTree stands in for the confined removal of a terminal layer
+	// (removeTree) in tests; nil = confine.RemoveAll.
+	rmTree func(dir string) error
 
 	// ProxyHandler is the element proxy, used to call an archiver tile's API
 	// internally (as the owner) for backup/restore (plans/lifecycle.md). Set by
@@ -130,9 +158,15 @@ type Broker struct {
 
 // Close releases what a boot holds open for the daemon's lifetime — the KV
 // database (its file lock would block the next open of the same
-// workspace), the cron scheduler and the disk monitor — so a process can
-// boot the same workspace again (the in-process boot tests do).
+// workspace), the cron scheduler, the disk monitor and the resources'
+// decrypted views (their gocryptfs mounts; called once the backends and
+// sandboxes using them are stopped) — so a process can boot the same
+// workspace again (the in-process boot tests do), and nothing decrypted
+// outlives the daemon.
 func (b *Broker) Close() {
+	if b.resenc != nil {
+		b.resenc.Close()
+	}
 	if b.cron != nil && b.cron.sched != nil {
 		b.cron.sched.Stop()
 	}
@@ -174,6 +208,7 @@ func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, erro
 	b.cron = newCronRunner(b)
 	b.bus = newBusSubs(b)
 	b.disk = newDiskMon(reg.Root, envQuota(), b.scopeDiskUsage)
+	b.disk.sbxUsage, b.disk.onLow = b.sandboxUsage, b.sandboxesLowDisk // disk pressure only (tilesbx_hooks.go)
 	go b.disk.run()
 	b.Provision()
 	return b, nil
@@ -645,14 +680,20 @@ func (b *Broker) apiGrantsRevoke(w http.ResponseWriter, r *http.Request) {
 // net-admin capability), so approving e.g. res:…, gpu:0, or cap:net-admin takes
 // effect without a manual restart. (Egress is no longer a grant — it's a `net`
 // interface binding, restarted via the bindings API; see apiBindingSet.)
+// Every cap: change is also reported to OnCapChange (caps.go).
 func (b *Broker) grantRestart(g registry.Grant) {
+	b.capChanged(g.From, g.Target)
+	b.sandboxGrantChanged(g) // a res: grant: the tile's running sandbox mounts are re-checked
 	if b.OnGrantChange == nil {
 		return
 	}
 	// cap:open-links (ND11) is deliberately absent: it is frontend-only, its
 	// effect is the tile's next document load, and the `grants` event the
 	// caller publishes already makes bx-frame re-create the iframe — a backend
-	// restart would be an outage for nothing.
+	// restart would be an outage for nothing. So is cap:sandboxes (D120): it
+	// gates xbind's runtime routes per call, never the backend's spawn — an
+	// approve restarts nothing and a revoke stops the tile's sandboxes
+	// (OnCapChange), not its backend.
 	if strings.HasPrefix(g.Target, "res:") || strings.HasPrefix(g.Target, "gpu:") ||
 		g.Target == NetAdminCap || g.Target == ContainersCap {
 		b.OnGrantChange(g.From)
@@ -661,6 +702,7 @@ func (b *Broker) grantRestart(g registry.Grant) {
 	// single-tenant mounts — remount now that the backend is stopped, so the
 	// mode change doesn't wait for the next unseal/provision (resenc_wire.go).
 	if g.Target == ContainersCap {
+		b.stopScopeMounts(g.From) // tile sandboxes' binds hold the old view (tilesbx_hooks.go)
 		b.MountEncrypted()
 	}
 }

@@ -16,16 +16,19 @@ import (
 )
 
 // The host's binds reach the guest as FUSE filesystems whose server runs in
-// the host shim (internal/sandbox/vm/fusefs): the agent mounts /dev/fuse and
-// pumps its messages over a vsock stream, each framed by its own length
-// field. The kernel caches entries, attributes, listings and pages; the host
-// invalidates them when something outside the guest changes a file.
+// the host shim (internal/sandbox/vm/fusefs): the agent mounts /dev/fuse, and
+// its relay process pumps the messages over a vsock stream, each framed by
+// its own length field. The kernel caches entries, attributes, listings and
+// pages; the host invalidates them when something outside the guest changes
+// a file.
 
 // fuseBuf holds any request the kernel may hand us (max_write + headers).
 const fuseBuf = 256 << 10
 
-// mountFiles mounts one export at its host path inside the new root.
-func mountFiles(m proto.Mount) error {
+// mountFiles mounts one export at its host path inside the new root and
+// hands its connection to the relay process (relay_linux.go), which serves
+// it from then on — before the next, nested, mount looks inside it.
+func mountFiles(m proto.Mount, r *relay) error {
 	p := path.Clean("/" + m.Path)
 	dst := filepath.Join(newRoot, p)
 	rootmode := "40000"
@@ -64,8 +67,9 @@ func mountFiles(m proto.Mount) error {
 		unix.Close(vs)
 		return err
 	}
-	go pumpRequests(dev, vs)
-	go pumpReplies(dev, vs)
+	if err := r.hand(dev, vs); err != nil {
+		return fmt.Errorf("hand to the FUSE relay: %w", err)
+	}
 	return nil
 }
 

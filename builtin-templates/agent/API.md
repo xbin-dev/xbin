@@ -1243,14 +1243,43 @@ the calls); the web draws it in `sandboxes.js`, the native view in
   you may neither use nor manage, anyone who may talk in it: through the
   conversation, `?conversation=`, as the one who bound it), Archive (who
   may manage it, where its manager archives), Share with the team / Make
-  private (its owner) and Delete (who may manage it, confirmed). The rows
+  private (its owner), **Share with a terminal tile…** and Delete (who may
+  manage it, confirmed). The rows
   keep their order while it is open (a Start doesn't move one under the
   cursor); new ones come after. **New sandbox**: the manager, a name, its
   image and size, the network (the class's `sandboxEgress` only), who may
   use it, a working directory — in a conversation it is made for it and
   bound there (`POST /sandboxes {conversation}`; not offered when you may
-  only read it), at home it becomes the new chat's. Opening a terminal onto
-  one comes with the `sandbox-terminal` tile.
+  only read it), at home it becomes the new chat's.
+- **Share with a terminal tile…** (D121) on a sandbox you own whose home
+  is this agent (not one another consumer shared with it: only a sandbox's
+  home changes its shares): the terminal tile's path — the builtin
+  `sandbox-terminal`'s `apps/sandbox-terminal` by default — and who the
+  share is for: you (joining whoever that tile's share already names), or
+  everyone who may use it when it is a team sandbox (`"*"`). Share sends
+  `PATCH /sandboxes/{ref} {shares, version}`: the sandbox's shares with
+  that tile's replaced, the others kept, at the `version` they were read
+  at — when someone changed the sandbox since (412 `precondition`), it is
+  read again (`GET /sandboxes/{ref}`) and the list sent once more from
+  what it holds now, so their change isn't overwritten. The form lists the
+  shares it has, each with **Stop sharing** (confirmed; sent the same way). The tile applies the person rules too, so
+  a share never widens who may use the sandbox; a row says who it is
+  shared with.
+- **A terminal** where the sandbox's manager offers one (`tty` in its
+  hello): **Open terminal** in the ▣ popover (the active sandbox, at the
+  conversation's working directory) and **Terminal** on a Sandboxes row (at
+  the working directory the open conversation has it at, else its
+  workdir). The pane (`#sbxterm`, over the chat — not a modal: Escape goes
+  to the shell) holds `<bx-terminal src>` on the manager's
+  `…/sbx/sandboxes/{id}/tty?cwd=`, which the page dials itself, through
+  xbind with its frame token (`xbin.iface('sandboxes')`: the endpoints of
+  the slot). So the manager sees the verified person and applies its own
+  rules to them: offered only for a sandbox you may use yourself (not one
+  a conversation holds for someone else), running or able to start (an
+  archived one says to thaw it). ⤢ makes it larger; when the shell exits it
+  says so and offers **New shell**; **✕** ends the shell (`DELETE
+  …/execs/{id}` at the manager, from the page). One terminal at a time;
+  one left by a page that closed runs on until its manager ends it.
 - **Keeping current.** After a change the conversation's binding is read
   again (`GET /runs/{id}/view?limit=1` → `config`); a `run` event that
   carries `sandbox` (and `attached`, a count) updates it at once, and a
@@ -1274,10 +1303,13 @@ the calls); the web draws it in `sandboxes.js`, the native view in
   transcript says why a binding no longer resolves, and ⋯ → Sandbox pushes
   the popover's screen (working directory, the attached ones, Detach,
   Manage sandboxes…). The Sandboxes screen puts each row's actions behind
-  its swipe and ⋯ (Archive and Delete confirmed), and New sandbox pushes
-  the create form. A ▣ tool card is a `terminal` icon; what the call came to
+  its swipe and ⋯ (Archive and Delete confirmed), New sandbox pushes
+  the create form, and Share with a terminal tile… pushes its form (Stop
+  sharing behind a share's swipe, confirmed). A ▣ tool card is a `terminal` icon; what the call came to
   is a chip (`exit 1 · 14s · job 3` in red), its command the card's first
-  line.
+  line. It opens no terminal: the app's `terminal` dials only the tile's own
+  routes, and a manager's `tty` is another tile's (a D96 difference,
+  `model/features.js`).
 
 **Subagents on another sandbox.** `subagent_spawn` also takes `{sandbox?,
 cwd?}` where a sandbox is bound: `sandbox` names one of the conversation's
@@ -1311,7 +1343,7 @@ the same model.
 | `home.js` | `HOME` — the home view's words — and what "Needs you" says |
 | `features.js` | `FEATURES`: every feature of the UI by key, and the intended differences between views |
 | `classes.js` | agent classes (D116): the composer's picker and your pick, the conversation's badge, the managers' editor (a class as a form, its checks, what a save sends), an automation's class (its forms' choices, what its card says, a channel's two classes) |
-| `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the ▣ badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form; `app.sbx` — the list, the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, the run events that carry a binding |
+| `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the ▣ badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form, a terminal onto one (its manager's `tty`: the route, whether it is offered and why not), sharing one with a terminal tile (`shareForm`); `app.sbx` — the list, the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, sharing (`shareTerminal`, `unshare`), the run events that carry a binding, ending a terminal's shell |
 
 `createApp({deltas, page})` are the native view's options: drafts arrive as
 deltas (`/stream?deltas=1`, "Deltas" above) and the open conversation is read

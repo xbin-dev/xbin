@@ -25,6 +25,15 @@ type Policy struct {
 	MaxVMs    int  `json:"maxVMs"`    // concurrent VMs (default 8)
 	BudgetMiB int  `json:"budgetMiB"` // guest memory across running VMs (0 = maxVMs × memMiB)
 	DiskGiB   int  `json:"diskGiB"`   // a VM terminal's persistent disk (sparse; default 20)
+
+	// The sandboxes manager tiles run (plans/tile-sandbox-runtime.md, D120).
+	// Off by default, like the switches above; the installer's fresh policy
+	// turns Tiles on where KVM is usable. Their VMs count against the
+	// workspace's count and budget and, as well, against TilesBudgetMiB, so
+	// tile sandboxes can't starve people's VM terminals.
+	Tiles          bool `json:"tiles"`          // a manager tile's sandboxes may run in VMs
+	TilesBudgetMiB int  `json:"tilesBudgetMiB"` // guest memory across tile-sandbox VMs (0 = budgetMiB/2; ≤ budgetMiB)
+	TilesEmulated  bool `json:"tilesEmulated"`  // they may also run where VMs are emulated (no usable KVM)
 }
 
 const (
@@ -49,6 +58,12 @@ func (p Policy) withDefaults() Policy {
 	if p.DiskGiB <= 0 {
 		p.DiskGiB = defaultDiskGiB
 	}
+	if p.TilesBudgetMiB <= 0 {
+		p.TilesBudgetMiB = p.BudgetMiB / 2
+	}
+	if p.TilesBudgetMiB > p.BudgetMiB { // a hand-edited file; Validate refuses it
+		p.TilesBudgetMiB = p.BudgetMiB
+	}
 	return p
 }
 
@@ -65,6 +80,10 @@ func (p Policy) Validate() error {
 		return fmt.Errorf("budgetMiB must not be negative")
 	case p.DiskGiB < 0 || p.DiskGiB > 4096:
 		return fmt.Errorf("diskGiB must be between 1 and 4096")
+	case p.TilesBudgetMiB < 0:
+		return fmt.Errorf("tilesBudgetMiB must not be negative")
+	case p.TilesBudgetMiB > p.withDefaults().BudgetMiB:
+		return fmt.Errorf("tilesBudgetMiB (%d) must not exceed the VM memory budget (%d MiB)", p.TilesBudgetMiB, p.withDefaults().BudgetMiB)
 	}
 	return nil
 }
@@ -126,11 +145,13 @@ type Usage struct {
 
 // Reserve admits one VM of memMiB under the policy's count and budget,
 // charged to owner (the tile it runs for: a backend's component, whatever
-// its deployment; a session's tile); the returned release gives it back when
-// the VM ends. A refusal is marked sbx.ErrRefused. opts refine admission
-// (reserve.go): a non-primary deployment's headroom, a primary's first claim
-// on its tile's non-primary guests (P25). (Per-tile quotas, for the
-// sandboxes tiles manage themselves, would be checked here against UsedBy.)
+// its deployment; a session's tile; a manager tile's sandbox); the returned
+// release gives it back when the VM ends. A refusal is marked
+// sbx.ErrRefused. opts refine admission (reserve.go): a non-primary
+// deployment's headroom, a primary's first claim on its tile's non-primary
+// guests (P25), a tile sandbox's VM booking against the tile sub-budget too.
+// (A tile's own sandbox quotas are the sandboxes policy's, checked by its
+// runtime.)
 func (m *Manager) Reserve(owner string, memMiB int, opts ...ReserveOption) (release func(), err error) {
 	o := reserveOpts(opts)
 	p := m.Policy()
@@ -149,6 +170,9 @@ func (m *Manager) admit(p Policy, owner string, memMiB int, o reserveOptions) (r
 	if short = shortfall(p, m.used, memMiB); short.VMs > 0 {
 		return nil, short, sbx.Refuse(fmt.Errorf("the workspace's VM limit (%d running) is reached — close a VM terminal or ask an admin to raise it", p.MaxVMs))
 	}
+	if o.tile && m.usedTiles.MemMiB+memMiB > p.TilesBudgetMiB {
+		return nil, Usage{}, sbx.Refuse(fmt.Errorf("the workspace's VM memory budget for tile sandboxes (%d MiB) is spent — stop a tile sandbox or ask an admin to raise it", p.TilesBudgetMiB))
+	}
 	if short.MemMiB > 0 {
 		return nil, short, sbx.Refuse(fmt.Errorf("the workspace's VM memory budget (%d MiB) is spent — close a VM terminal or ask an admin to raise it", p.BudgetMiB))
 	}
@@ -157,6 +181,10 @@ func (m *Manager) admit(p Policy, owner string, memMiB int, o reserveOptions) (r
 	}
 	m.used.VMs++
 	m.used.MemMiB += memMiB
+	if o.tile {
+		m.usedTiles.VMs++
+		m.usedTiles.MemMiB += memMiB
+	}
 	if m.byOwner == nil {
 		m.byOwner = map[string]Usage{}
 	}
@@ -170,6 +198,10 @@ func (m *Manager) admit(p Policy, owner string, memMiB int, o reserveOptions) (r
 			m.umu.Lock()
 			m.used.VMs--
 			m.used.MemMiB -= memMiB
+			if o.tile {
+				m.usedTiles.VMs--
+				m.usedTiles.MemMiB -= memMiB
+			}
 			u := m.byOwner[owner]
 			u.VMs--
 			u.MemMiB -= memMiB

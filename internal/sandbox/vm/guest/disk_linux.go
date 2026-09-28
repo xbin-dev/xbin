@@ -84,7 +84,7 @@ func blockdevSize(dev string) int64 {
 
 // runLower runs a tool from the rootfs image (the initramfs holds only the
 // agent), chrooted into /lower with /dev bound in. PID 1's reaper owns every
-// wait, so the child goes through spawn.
+// wait, so the child goes through its spawner.
 func (a *agent) runLower(argv ...string) error {
 	if err := unix.Mount("/dev", "/lower/dev", "", unix.MS_BIND, ""); err != nil {
 		return fmt.Errorf("bind /dev: %w", err)
@@ -100,7 +100,7 @@ func (a *agent) runLower(argv ...string) error {
 	if path == "" {
 		return fmt.Errorf("%s: not in the rootfs image", argv[0])
 	}
-	_, done, err := a.spawn(path, argv, &os.ProcAttr{
+	_, done, err := a.spawn.Start(path, argv, &os.ProcAttr{
 		Env:   []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin"},
 		Files: []*os.File{nil, os.Stderr, os.Stderr},
 		Sys:   &syscall.SysProcAttr{Chroot: "/lower"},

@@ -1,0 +1,44 @@
+{"v":1,"root":{"k":"r","t":"nav","e":["pop"],"c":[
+  {"k":"r.0","t":"screen","p":{"title":"Sandbox terminals","subtitle":"as alice","style":"list","refreshable":true},"e":["refresh"],"c":[
+    {"k":"r.0.1","t":"section","c":[
+      {"k":"r.0.1.0","t":"notice","p":{"tone":"ok","text":"Copied https://xbin.test/ — paste it into a browser, then open Sandbox terminals there."}}
+    ]},
+    {"k":"r.0.2","t":"section","c":[
+      {"k":"r.0.2.0.0","t":"notice","p":{"tone":"info","title":"Terminals open in the browser","text":"In a browser this tile opens them, and attaches to the ones running."}},
+      {"k":"r.0.2.0.1","t":"button","p":{"icon":"external","label":"Open in the browser"},"e":["tap"]},
+      {"k":"r.0.2.0.2","t":"code","p":{"copy":true,"text":"https://xbin.test/"}}
+    ]},
+    {"k":"r.0.3:apps/coding-sandbox","t":"section","p":{"title":"Coding sandboxes","footer":"apps/coding-sandbox"},"c":[
+      {"k":"r.0.3:apps/coding-sandbox.1:apps/coding-sandbox|sb-7f3a","t":"row","p":{"title":"API dev","subtitle":"private · owner: you · from apps/agent · Debian with git, Go and Node · no network","detail":"running","tone":"ok","icon":"box","nav":true,"badge":"1 running"},"e":["tap"]},
+      {"k":"r.0.3:apps/coding-sandbox.1:apps/coding-sandbox|sb-91c0","t":"row","p":{"title":"docs site","subtitle":"team · owner: bob · from apps/agent · Debian with git, Go and Node · internet","detail":"archived","tone":"muted","icon":"box","nav":true},"e":["tap"]}
+    ]},
+    {"k":"r.0.5","t":"section","p":{"title":"SSH"},"c":[
+      {"k":"r.0.5.0","t":"notice","p":{"tone":"ok","title":"SSH","text":"Log in with a key you registered here: ssh <sandbox>@sbx.example.com -p 2222"}},
+      {"k":"r.0.5.2","t":"row","p":{"title":"Your keys","icon":"key","nav":true,"detail":"1"},"e":["tap"]}
+    ]}
+  ]},
+  {"k":"r.1","t":"screen","p":{"title":"API dev","subtitle":"▣ running","style":"form"},"c":[
+    {"k":"r.1.1","t":"section","c":[
+      {"k":"r.1.1.0","t":"notice","p":{"tone":"ok","text":"Copied https://xbin.test/ — paste it into a browser, then open Sandbox terminals there."}}
+    ]},
+    {"k":"r.1.2","t":"section","c":[
+      {"k":"r.1.2.0","t":"row","p":{"title":"State","detail":"running","tone":"ok"}},
+      {"k":"r.1.2.1","t":"row","p":{"title":"Who","detail":"private · owner: you · from apps/agent · Debian with git, Go and Node · no network"}},
+      {"k":"r.1.2.2","t":"row","p":{"title":"Working directory","detail":"/work","mono":"detail"}},
+      {"k":"r.1.2.3","t":"row","p":{"title":"Manager","detail":"apps/coding-sandbox","mono":"detail"}}
+    ]},
+    {"k":"r.1.3","t":"section","p":{"title":"SSH","footer":"With a key you registered in this tile (Your keys)."},"c":[
+      {"k":"r.1.3.0","t":"code","p":{"copy":true,"text":"ssh api-dev@sbx.example.com -p 2222"}}
+    ]},
+    {"k":"r.1.4","t":"section","p":{"title":"Terminals"},"c":[
+      {"k":"r.1.4.0.0","t":"notice","p":{"tone":"info","title":"Terminals open in the browser","text":"The app's terminal reaches only this tile's own routes, and a sandbox's terminal is its manager's — relaying it through this tile's backend would make the person the manager checks an asserted one. Open terminals in a browser: this page there opens them, and attaches to the ones running."}},
+      {"k":"r.1.4.0.1","t":"button","p":{"icon":"external","label":"Open in the browser"},"e":["tap"]},
+      {"k":"r.1.4.0.2","t":"code","p":{"copy":true,"text":"https://xbin.test/"}},
+      {"k":"r.1.4.1:e12","t":"row","p":{"title":"terminal 1","subtitle":"started 10 min ago · /work","icon":"terminal"},"c":[
+        {"k":"r.1.4.1:e12.0","t":"actions","c":[
+          {"k":"r.1.4.1:e12.0.0","t":"button","p":{"role":"destructive","icon":"stop","disabled":false,"confirm":{"title":"End terminal 1 in API dev?","message":"What runs in it stops.","label":"End","destructive":true},"label":"End"},"e":["tap"]}
+        ]}
+      ]}
+    ]}
+  ]}
+]}}

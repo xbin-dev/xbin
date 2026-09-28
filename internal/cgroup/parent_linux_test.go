@@ -220,7 +220,7 @@ func TestNonPrimaryCgroupSubtree(t *testing.T) {
 		// The first non-main deployment starts in the nested layout.
 		dev := caps
 		dev.MemMax, dev.NodeWeight = 512<<20, DeploymentWeight(false)
-		m.AddWith(devLeaf, 201, dev)
+		m.AddLimited(devLeaf, 201, dev)
 		for _, step := range [][2]string{
 			{tile + "/cgroup.subtree_control", tile + "/d-dev/"},
 			{tile + "/d-dev/cgroup.subtree_control", tile + "/d-dev/backend/"},
@@ -258,7 +258,7 @@ func TestNonPrimaryCgroupSubtree(t *testing.T) {
 		// main moves in at its next generation; the old one drains flat.
 		main := caps
 		main.NodeWeight = DeploymentWeight(true)
-		m.AddWith(mainLeaf, 102, main)
+		m.AddLimited(mainLeaf, 102, main)
 		if got := f.file(DeploymentNode(key, "main"), "cpu.weight"); got != "100" {
 			t.Errorf("the primary's node weight = %q", got)
 		}
@@ -307,7 +307,7 @@ func TestNonPrimaryCgroupSubtree(t *testing.T) {
 		}
 
 		// Blue/green: a later generation joined, so the leaf stays.
-		m.AddWith(devLeaf, 202, dev)
+		m.AddLimited(devLeaf, 202, dev)
 		f.exit(t, devLeaf, 201)
 		m.Remove(devLeaf)
 		if got := pidsIn(f.dir(devLeaf)); !reflect.DeepEqual(got, []int{202}) {
@@ -350,7 +350,7 @@ func TestNonPrimaryCgroupSubtree(t *testing.T) {
 		m, f := newFakeCgroupfs(t, caps)
 		l := caps
 		l.PidsMax, l.NodeWeight = 64, DeploymentWeight(false)
-		m.AddMemWith(devLeaf, 301, l, 3<<30)
+		m.AddMemLimited(devLeaf, 301, l, 3<<30)
 		for file, v := range map[string]string{"memory.max": "3221225472", "memory.high": "", "pids.max": "64", "cgroup.procs": "301"} {
 			if got := f.file(devLeaf, file); got != v {
 				t.Errorf("VM leaf %s = %q; want %q", file, got, v)
@@ -378,7 +378,7 @@ func TestNonPrimaryCgroupSubtree(t *testing.T) {
 			}
 			return write(p, v)
 		}
-		m.AddWith(devLeaf, 501, caps)
+		m.AddLimited(devLeaf, 501, caps)
 		<-removed
 		if got := pidsIn(f.dir(devLeaf)); !reflect.DeepEqual(got, []int{501}) {
 			t.Errorf("a concurrent exit removed a starting generation's leaf: %v", got)
@@ -391,7 +391,7 @@ func TestNonPrimaryCgroupSubtree(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(f.base, "cgroup.subtree_control"), []byte("memory pids"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		m.AddWith(devLeaf, 401, caps)
+		m.AddLimited(devLeaf, 401, caps)
 		if got := f.file(TileNode(key), "cgroup.subtree_control"); got != "memory pids" {
 			t.Errorf("tile node controllers = %q", got)
 		}
@@ -405,10 +405,10 @@ func TestNonPrimaryCgroupSubtree(t *testing.T) {
 
 	t.Run("sweep", func(t *testing.T) {
 		m, f := newFakeCgroupfs(t, caps)
-		m.AddWith(DeploymentLeaf("a-11111111", "dev"), 1, caps) // a crashed run's, empty now
+		m.AddLimited(DeploymentLeaf("a-11111111", "dev"), 1, caps) // a crashed run's, empty now
 		f.exit(t, DeploymentLeaf("a-11111111", "dev"), 1)
-		m.AddWith(DeploymentLeaf("b-22222222", "main"), 7, caps) // still running
-		m.AddWith(DeploymentLeaf("b-22222222", "old"), 2, caps)  // exited
+		m.AddLimited(DeploymentLeaf("b-22222222", "main"), 7, caps) // still running
+		m.AddLimited(DeploymentLeaf("b-22222222", "old"), 2, caps)  // exited
 		f.exit(t, DeploymentLeaf("b-22222222", "old"), 2)
 		if err := os.Mkdir(filepath.Join(f.base, "tile-c-33333333"), 0o755); err != nil { // a bare node
 			t.Fatal(err)
@@ -439,14 +439,14 @@ func TestNonPrimaryCgroupSubtree(t *testing.T) {
 
 	t.Run("names", func(t *testing.T) {
 		m, f := newFakeCgroupfs(t, caps)
-		m.AddWith(mainLeaf, 5, caps)
+		m.AddLimited(mainLeaf, 5, caps)
 		before := f.topLevel(t)
 		for _, bad := range []string{
 			tile + "/../escape/backend", "/" + tile + "/d-x/backend", tile + "//backend", tile + "/./backend",
 			tile + "/d-x/..", "comp-" + key + "/x", "init/x", "tile-/x", "../x/y", tile + "/d-x//",
 		} {
-			m.AddWith(bad, 6, caps)
-			m.AddMemWith(bad, 6, caps, 1<<30)
+			m.AddLimited(bad, 6, caps)
+			m.AddMemLimited(bad, 6, caps, 1<<30)
 			m.Remove(bad)
 			if _, ok := m.Usage(bad); ok {
 				t.Errorf("Usage(%q) answered", bad)
@@ -468,7 +468,7 @@ func TestNonPrimaryCgroupSubtree(t *testing.T) {
 			t.Error("a name escaped the base")
 		}
 		// The tile node never takes a process.
-		m.AddWith(TileNode(key), 6, caps)
+		m.AddLimited(TileNode(key), 6, caps)
 		if got := f.file(TileNode(key), "cgroup.procs"); got != "" {
 			t.Errorf("the tile node took a process: %q", got)
 		}
@@ -511,7 +511,7 @@ func TestPrimaryLeafKeepsCaps(t *testing.T) {
 	m.AddMem("vm-77777777", 110, 3<<30)
 	vm := "comp-vm-77777777/"
 	if got, want := f.writesUnder("vm-77777777"), []string{
-		vm + "pids.max=512", vm + "cpu.weight=100", vm + "memory.max=3221225472", vm + "cgroup.procs=110",
+		vm + "memory.max=3221225472", vm + "pids.max=512", vm + "cpu.weight=100", vm + "cgroup.procs=110",
 	}; !reflect.DeepEqual(got, want) {
 		t.Errorf("flat AddMem wrote %v; want %v", got, want)
 	}
@@ -520,8 +520,8 @@ func TestPrimaryLeafKeepsCaps(t *testing.T) {
 	main := caps
 	main.NodeWeight = DeploymentWeight(true)
 	dev := Limits{MemMax: 256 << 20, PidsMax: 64, CPUWeight: 100, NodeWeight: DeploymentWeight(false)}
-	m.AddWith(mainLeaf, 101, main)
-	m.AddWith(devLeaf, 201, dev)
+	m.AddLimited(mainLeaf, 101, main)
+	m.AddLimited(devLeaf, 201, dev)
 	wantMain := map[string]string{"memory.max": "2147483648", "memory.high": "1879048192", "pids.max": "512", "cpu.weight": "100"}
 	checkMain := func(when string, want map[string]string) {
 		t.Helper()
@@ -558,8 +558,8 @@ func TestPrimaryLeafKeepsCaps(t *testing.T) {
 		t.Errorf("AtLimit(main) = %d %d %v: dev's hits leaked into main's leaf", mem, pids, ok)
 	}
 	// dev restarts, then main: main's caps are the tile's still.
-	m.AddWith(devLeaf, 202, dev)
-	m.AddWith(mainLeaf, 102, main)
+	m.AddLimited(devLeaf, 202, dev)
+	m.AddLimited(mainLeaf, 102, main)
 	checkMain("after dev ran out", wantMain)
 	if u, ok := m.Usage(mainLeaf); !ok || u.MemMax != caps.MemMax {
 		t.Errorf("Usage(main) = %+v %v", u, ok)
@@ -572,7 +572,7 @@ func TestPrimaryLeafKeepsCaps(t *testing.T) {
 	// dev's leaf keeps its own.
 	lowered := main
 	lowered.MemMax, lowered.PidsMax = 1<<30, 256
-	m.AddWith(mainLeaf, 103, lowered)
+	m.AddLimited(mainLeaf, 103, lowered)
 	checkMain("lowered by a manager", map[string]string{"memory.max": "1073741824", "memory.high": "939524096", "pids.max": "256"})
 	if got := f.file(devLeaf, "pids.max"); got != "64" {
 		t.Errorf("dev's pids cap = %q", got)
@@ -581,14 +581,14 @@ func TestPrimaryLeafKeepsCaps(t *testing.T) {
 	// dev becomes the primary: both nodes re-weighted at their next
 	// generations (a reassignment restarts both primaries).
 	dev.NodeWeight, main.NodeWeight = DeploymentWeight(true), DeploymentWeight(false)
-	m.AddWith(devLeaf, 203, dev)
-	m.AddWith(mainLeaf, 104, main)
+	m.AddLimited(devLeaf, 203, dev)
+	m.AddLimited(mainLeaf, 104, main)
 	if got, want := [2]string{f.file(DeploymentNode(key, "dev"), "cpu.weight"), f.file(DeploymentNode(key, "main"), "cpu.weight")}, [2]string{"100", "50"}; got != want {
 		t.Errorf("after reassignment: dev %s, main %s; want %v", got[0], got[1], want)
 	}
 	checkMain("as a non-primary", wantMain)
-	// A leaf without a node weight (a tile sandbox later) leaves its node's.
-	m.AddWith(DeploymentNode(key, "dev")+"/sbx-a", 301, Limits{MemMax: 128 << 20})
+	// A leaf without a node weight leaves its node's.
+	m.AddLimited(DeploymentNode(key, "dev")+"/sbx-a", 301, Limits{MemMax: 128 << 20})
 	if got := f.file(DeploymentNode(key, "dev"), "cpu.weight"); got != "100" {
 		t.Errorf("a leaf with no NodeWeight re-weighted its node: %s", got)
 	}

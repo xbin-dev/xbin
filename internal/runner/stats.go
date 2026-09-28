@@ -37,6 +37,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/cgroup"
 	"github.com/xbin-dev/xbin/internal/sbx"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -161,6 +162,7 @@ func (r *Runner) statsSample() {
 	// uid) when delegated; the backend's /proc descendant tree in dev.
 	targets := map[string][]int{}
 	leaves := map[string]string{} // target → its cgroup leaf, a tile's CompKey ("" = sum /proc)
+	tileLeaf := map[string]bool{} // … which lives in the tile sandboxes' parent
 	cgs := r.cgroups()
 	cg := cgs != nil && cgs.Enabled()
 	var children map[int][]int // one /proc scan per sample, when needed
@@ -194,9 +196,16 @@ func (r *Runner) statsSample() {
 			continue // counted by their tile above
 		}
 		k := sandboxKey(e.ID)
-		if cg && e.Leaf != "" {
-			if pids, ok := cgs.Procs(e.Leaf); ok && len(pids) > 0 {
-				targets[k], leaves[k] = pids, e.Leaf
+		if e.Leaf != "" {
+			var pids []int
+			var ok bool
+			if e.Kind == sbx.Tile { // in the tile sandboxes' parent (LeafCgroup)
+				pids, ok = r.LeafCgroup(e).Procs(e.Leaf)
+			} else if cg {
+				pids, ok = cgs.Procs(e.Leaf)
+			}
+			if ok && len(pids) > 0 {
+				targets[k], leaves[k], tileLeaf[k] = pids, e.Leaf, e.Kind == sbx.Tile
 				continue
 			}
 		}
@@ -227,11 +236,17 @@ func (r *Runner) statsSample() {
 		// uid-agnostic), else summed from the /proc tree.
 		var mem, pidsN int64
 		if leaf := leaves[comp]; leaf != "" {
-			usage := cgs.TileUsage // a tile: its leaves, flat or nested
-			if isSandboxKey(comp) {
-				usage = cgs.Usage
+			var u cgroup.Usage
+			var ok bool
+			switch {
+			case tileLeaf[comp]: // a tile sandbox: its leaf in their parent
+				u, ok = r.TileCgroup.Usage(leaf)
+			case isSandboxKey(comp):
+				u, ok = cgs.Usage(leaf)
+			default: // a tile: its leaves, flat or nested
+				u, ok = cgs.TileUsage(leaf)
 			}
-			if u, ok := usage(leaf); ok {
+			if ok {
 				raw.cpuUsec = u.CPUUsec
 				mem = u.MemCurrent
 				pidsN = u.PidsCurrent
@@ -389,4 +404,13 @@ func procDescendants(children map[int][]int, root int) []int {
 		out = append(out, children[out[i]]...)
 	}
 	return out
+}
+
+// LeafCgroup is where a registry row's leaf lives: a tile sandbox's in the
+// tile sandboxes' parent (TileCgroup), every other in Cgroup.
+func (r *Runner) LeafCgroup(e sbx.Entry) *cgroup.Manager {
+	if e.Kind == sbx.Tile {
+		return r.TileCgroup
+	}
+	return r.Cgroup
 }

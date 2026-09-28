@@ -1,0 +1,65 @@
+{
+  "about": "builtin-tiles/sandbox-terminal/native.js (with the page's sbxterm.js): sandboxes shared with the tile, grouped by manager; a sandbox's detail screen — its ssh command, a terminal running in it (End behind the swipe), and the way to a browser for terminals (the app opens none: the link is copied without cap:open-links)",
+  "self": "apps/sandbox-terminal",
+  "iface": {
+    "sandboxes": {
+      "endpoints": [
+        { "provider": "apps/coding-sandbox", "url": "/api/apps/coding-sandbox", "service": "sandbox-manager" }
+      ]
+    }
+  },
+  "calls": { "open": false, "copy": true },
+  "routes": {
+    "GET /api/apps/sandbox-terminal/me": {
+      "json": {
+        "user": "alice", "level": "read", "manager": false, "viewedBy": "", "self": "apps/sandbox-terminal",
+        "managers": ["apps/coding-sandbox"], "keys": 1,
+        "ssh": {
+          "port": 2222, "address": "sbx.example.com:2222", "listening": true,
+          "hostKey": { "type": "ssh-ed25519", "fingerprint": "SHA256:k3PqV7yXg0m2cJ9T1d8n5r4wLbH6sZaEoUiFtYx0Q2M",
+            "publicKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHk3PqV7yXg0m2cJ9T1d8n5r4wLbH6sZaEoUiFtYx0Q2" }
+        }
+      }
+    },
+    "GET /api/apps/sandbox-terminal/sandboxes": {
+      "json": {
+        "managers": [{ "provider": "apps/coding-sandbox", "title": "Coding sandboxes", "tty": true }],
+        "sandboxes": [
+          { "provider": "apps/coding-sandbox", "id": "sb-7f3a", "name": "API dev", "login": "api-dev", "state": "running",
+            "owner": "alice", "via": "apps/agent", "visibility": "private", "members": [], "shared": true, "egress": "none",
+            "isolation": "vm", "image": "Debian with git, Go and Node", "workdir": "/work", "tty": true, "created": 1789990000000 },
+          { "provider": "apps/coding-sandbox", "id": "sb-91c0", "name": "docs site", "login": "docs-site", "state": "archived",
+            "owner": "bob", "via": "apps/agent", "visibility": "team", "members": [], "shared": true, "egress": "internet",
+            "isolation": "vm", "image": "Debian with git, Go and Node", "workdir": "/work", "tty": true, "created": 1789980000000 }
+        ],
+        "ssh": { "port": 2222, "address": "sbx.example.com:2222", "listening": true }
+      }
+    },
+    "GET /api/apps/sandbox-terminal/keys": {
+      "json": {
+        "keys": [
+          { "id": "bW9ja2tleQ", "user": "alice", "name": "alice@laptop", "type": "ssh-ed25519",
+            "fingerprint": "SHA256:2VqfN8yW4c1mT0xK7bLh5pRgD3sZaEoUiFtYx0Q9J6E", "publicKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIM alice@laptop",
+            "added": 1789900000000, "lastUsed": 1789999000000 }
+        ]
+      }
+    },
+    "GET /api/apps/coding-sandbox/sbx/sandboxes/sb-7f3a/execs": [
+      {
+        "json": {
+          "execs": [
+            { "id": "e12", "label": "terminal", "cmd": "", "argv": ["/bin/bash", "-l"], "cwd": "/work", "tty": true, "state": "running",
+              "exitCode": null, "signal": "", "started": 1789999400000, "ended": 0, "total": 2048, "clientId": "" },
+            { "id": "e9", "label": "", "cmd": "make test", "argv": [], "cwd": "/work", "tty": false, "state": "exited",
+              "exitCode": 0, "signal": "", "started": 1789998000000, "ended": 1789998060000, "total": 512, "clientId": "" }
+          ]
+        }
+      }
+    ]
+  },
+  "interactions": [
+    { "select": "row[title=\"API dev\"]", "type": "tap", "note": "the sandbox's detail screen" },
+    { "after": 300, "select": "screen[title=\"API dev\"] button[label=\"Open in the browser\"]", "type": "tap",
+      "note": "no cap:open-links here: the app refuses, so the workspace link is copied instead" }
+  ]
+}

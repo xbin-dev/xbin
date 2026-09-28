@@ -1,0 +1,24 @@
+{
+  // The smallest SANDBOX MANAGER on xbind's own runtime (D120; API.md): its
+  // backend defines sandboxes xbind runs for it and drives them with
+  // xbin.SandboxAPI() — commands, files, snapshots and relayed terminals.
+  // Needs `xbind --isolate`. The builtin coding-sandbox template is the full
+  // one (the sandbox-manager contract, docs/sandbox-manager.md).
+  "runtime": "go",
+
+  // xbind's tile-sandbox runtime. It lands pending; only a workspace admin
+  // approves it (docs/auth.md): bx grant <this tile> cap:sandboxes writer
+  "uses": [ { "target": "cap:sandboxes", "role": "writer" } ],
+
+  // The network this tile's SANDBOXES may use — never its own backend's
+  // (docs/overview/11-interfaces.md §sandbox-net). Unbound it is none:
+  //   bx bind <this tile> internet=internet
+  "interfaces": { "internet": { "kind": "sandbox-net" } },
+
+  "expose": {
+    "roles": {
+      "reader": "See your sandboxes, their commands' output, files and snapshots",
+      "writer": "Create and use your sandboxes: commands, terminals, files, snapshots"
+    }
+  }
+}
