@@ -341,6 +341,7 @@ func failedDeploys(t *testing.T, d *isoDaemon, tape *dlTape, tile, rt string) {
 		t.Fatalf("the pause: %+v", e)
 	}
 	pinned := a.state(t, tile).pinned("main")
+	m := tape.mark()
 	if c, b := a.do("POST", "/api/xbin/tile-report", `{"component":"`+tile+`","level":"warn","message":"watching the deploys"}`); c != 200 {
 		t.Fatalf("POST /tile-report: %d %s", c, b)
 	}
@@ -348,7 +349,14 @@ func failedDeploys(t *testing.T, d *isoDaemon, tape *dlTape, tile, rt string) {
 	if !strings.Contains(status, "watching the deploys") {
 		t.Fatalf("the reported status didn't take: %s", status)
 	}
-	m := tape.mark()
+	// The report's own status event may reach the tape after the POST
+	// answered: wait for it, so the watch below starts after it.
+	if _, ok := tape.wait(m, func(ev dlEvent) bool {
+		return ev.Component == tile && ev.Type == "status" && strings.Contains(string(ev.Data), "watching the deploys")
+	}, 30*time.Second); !ok {
+		t.Fatalf("the reported status published no status event")
+	}
+	m = tape.mark()
 	stop := observe(a, tile, rt)
 
 	var ids []int64
