@@ -4992,7 +4992,14 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
   tests. Two failures predate phase 2 (reproduced on 783c50de): `predict`'s
   final `.gear` click ("outside of the viewport") and `termSessions`' "the
   tab and the window's ✕ are uncovered" (narrow). They stop `shots.js`
-  early, so run the passes one at a time.
+  early, so run the passes one at a time. In the final gate (2026-09-28)
+  both passed, and `--shots agentSandbox agentTemplate agentConvs
+  sandboxTerminal codingSandbox sandboxes sandboxNet adminTabs predict
+  termSessions scrollbars layoutSync agentLong` ran green in one run.
+  `agentLong` failed once there, beside the integration suites: a long
+  burst folded into one frame stayed rendered whole (D124's trim measured
+  the view before the burst landed); fixed in `web/bx-agent.js`, and the
+  pass now streams its first turn on a 20× throttled CPU.
 
 ## 14. Risks and open items
 
@@ -5044,7 +5051,11 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
   workaround in our code would be the guest agent writing its vsock
   streams in ≤ 32 KiB chunks. Until then the emulated contract run is out
   of the gate (emulation is local-only anyway); `TestVM` emulated (small
-  transfers) still passes.
+  transfers) still passes. Final gate (2026-09-28), emulated: the walk and
+  the consumers (`TestCodingSandboxVM`, `TestCodingSandboxConsumersVM`)
+  pass in 303 s; in the contract every check but `files/too-large` passes
+  (41), and that one hangs on its 32 MiB ranged read until xbind is
+  stopped.
 - **A host's public address behind a NAT (WP-21 part C).** The relay
   refuses every address the host delivers locally, decided per flow by a
   route lookup. A cloud VM's public IP that its provider maps 1:1 onto a
