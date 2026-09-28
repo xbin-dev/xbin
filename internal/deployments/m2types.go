@@ -250,6 +250,7 @@ type VaultCopyRequest struct {
 type BackupRequest struct {
 	Tile       string `json:"tile"`
 	Deployment string `json:"deployment,omitempty"`
+	Seq        *int64 `json:"seq,omitempty"`
 	DryRun     bool   `json:"dryRun,omitempty"`
 }
 
@@ -262,6 +263,7 @@ type RestoreRequest struct {
 	Into       string `json:"into,omitempty"`
 	Replace    *bool  `json:"replace,omitempty"` // meaningful only when the target is main (08-data §11.4)
 	Confirm    string `json:"confirm,omitempty"` // ConfirmEraseData, when the target has data
+	Seq        *int64 `json:"seq,omitempty"`
 	DryRun     bool   `json:"dryRun,omitempty"`
 }
 
@@ -282,6 +284,7 @@ type RunNowRequest struct {
 	Tile       string `json:"tile"`
 	Deployment string `json:"deployment,omitempty"`
 	Job        string `json:"job"`
+	Seq        *int64 `json:"seq,omitempty"`
 	DryRun     bool   `json:"dryRun,omitempty"`
 }
 

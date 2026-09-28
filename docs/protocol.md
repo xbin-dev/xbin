@@ -2327,9 +2327,7 @@ parameter: a tile's path, never a ref — a deployment is named with
 `deployment=` (D127j; §Tile deployments, *Tile refs in a query string*). Each
 body takes dryRun:true (judged as for real, refusals included, nothing
 changes → {state, impact}) and seq (the record's sequence the caller acted
-on: 409 when it moved) — but backup, restore and run-now take no seq (400
-if sent). confirm tokens
-guard data: remove "erase", reset and a restore into data "erase-data", seed
+on: 409 when it moved; optional everywhere). confirm tokens guard data: remove "erase", reset and a restore into data "erase-data", seed
 and add with data:"seed" "copy-data", primary "data-stays" — a missing one
 is 400 naming it. An operation answers {state, deploy?, …} (each row names
 its answer) once the record change is committed; deploys are asynchronous

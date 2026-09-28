@@ -404,6 +404,19 @@ func TestDeployPlaneOperationsGov(t *testing.T) {
 		if _, err := do(OpRunNow, &RunNowRequest{Tile: opSite, Deployment: "dev", Job: "nightly", DryRun: true}); err != nil {
 			t.Fatal(err)
 		}
+		// seq is optional on every body (bx sends it onto a protected
+		// primary): the record's passes, a stale one is 409.
+		cur, stale := f.rec(opSite).Seq, int64(1<<40)
+		if _, err := do(OpRunNow, &RunNowRequest{Tile: opSite, Deployment: "dev", Job: "nightly", Seq: &cur, DryRun: true}); err != nil {
+			t.Fatalf("run now with the record's seq: %v", err)
+		}
+		const staleMsg = "the deployments of apps/site changed (seq"
+		_, err = do(OpRunNow, &RunNowRequest{Tile: opSite, Deployment: "dev", Job: "nightly", Seq: &stale})
+		wantErr(t, "run now on a stale seq", err, http.StatusConflict, staleMsg)
+		_, err = do(OpBackup, &BackupRequest{Tile: opSite, Deployment: "dev", Seq: &stale, DryRun: true})
+		wantErr(t, "a backup on a stale seq", err, http.StatusConflict, staleMsg)
+		_, err = do(OpRestore, &RestoreRequest{Tile: opSite, Deployment: "dev", Seq: &stale, DryRun: true})
+		wantErr(t, "a restore on a stale seq", err, http.StatusConflict, staleMsg)
 		if calls := f.took(); !slices.Equal(calls, []string{"run-now apps/site/dev nightly"}) {
 			t.Errorf("calls = %q", calls)
 		}

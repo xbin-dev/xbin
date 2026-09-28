@@ -126,7 +126,7 @@ func runVaultCopy(ctx context.Context, p *Plane, g Grant, r *VaultCopyRequest) (
 // runRunNow delivers y's cron job once through the broker, whatever its
 // deliveries switch says (09-fabric §7; 11-contract §1.9); no tile lock.
 func runRunNow(ctx context.Context, p *Plane, g Grant, r *RunNowRequest) (any, error) {
-	o, err := p.start(g, r.DryRun, false, nil, true, true, ": its jobs fire on schedule")
+	o, err := p.start(g, r.DryRun, false, r.Seq, true, true, ": its jobs fire on schedule")
 	switch {
 	case err != nil:
 		return nil, err

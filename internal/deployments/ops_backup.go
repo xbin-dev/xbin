@@ -68,7 +68,7 @@ func restoreSubject(p *Plane, r *RestoreRequest) (Op, Subject, error) {
 // runBackup archives y's data now under its own key (main: the tile's main
 // archive, as POST /backup writes it).
 func runBackup(ctx context.Context, p *Plane, g Grant, r *BackupRequest) (any, error) {
-	o, err := p.start(g, r.DryRun, false, nil, true, false, "")
+	o, err := p.start(g, r.DryRun, false, r.Seq, true, false, "")
 	switch {
 	case err != nil:
 		return nil, err
@@ -86,7 +86,7 @@ func runBackup(ctx context.Context, p *Plane, g Grant, r *BackupRequest) (any, e
 // every other claimant of y's namespace is judged at the reset level (D127t),
 // and each claimant's deployment of the name stops and hears op data.
 func runRestore(ctx context.Context, p *Plane, g Grant, r *RestoreRequest) (any, error) {
-	o, err := p.start(g, r.DryRun, false, nil, true, false, "")
+	o, err := p.start(g, r.DryRun, false, r.Seq, true, false, "")
 	switch {
 	case err != nil:
 		return nil, err
