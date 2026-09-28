@@ -95,6 +95,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   (API.md §The frontend). New instances get it; an instance takes it with a
   template update. On an xbind without `/vendor/scroll-window.js` the web
   chat renders every block, as before.
+- **The app's screens are compact: a widget's card is 132 pt tall** (was
+  170; [native.md](native.md) §Widgets). On a 390 pt phone a `small` card
+  is about 177 × 132 pt and a `wide` one 366 × 132, the widget's own box
+  about 157 × 112 inside a 10 pt inset; the size classes, the vocabulary
+  and the clipping are unchanged, so a widget of a few lines needs nothing
+  — check a taller one with `bx preview --native <tile> --widget [--size
+  wide]`, which draws the new box. The app's Home also changes
+  (nothing to do for tiles): the workspace's branding icon and title on
+  top, All tiles in the web sidebar's tree (your folders, then mine / each
+  org / workspace with their shared folders), single-line rows, and a
+  tile's running terminals and agents on its row and card and in its long
+  press (D128).
 - **VM tile sandboxes and VM-only coding sandboxes by default.** A VM
   policy saved before tile sandboxes existed (no `tiles` field — the
   installer's policies until v0.3.60) now reads `tiles` as following

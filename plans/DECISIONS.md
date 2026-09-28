@@ -4877,3 +4877,51 @@ Deviations and refinements made while implementing; all deliberate:
     step, for what the head already gives); one fold refolded on every
     prepend (new block objects each time: memos and lit identity lost);
     `content-visibility` for the rows (D124's reason stands).
+
+- **D128 — The app's Home: the workspace's own name and icon, All tiles as
+  the web sidebar's tree, compact rows, sessions on tiles (2026-09-28).**
+  native/ios App/Shell (Screens/HomeView, StandardCard, ScreenView,
+  SwitcherOverlay, BrandImage, RootView's BrandIcon), App/Tiles/Widgets/
+  TileCard; XbinCore Client/{Navigator,DataURI,Catalog}.swift, XbinTerm
+  TermDirectory (`byTile`); XbinRendererModel Widget.swift; native/spec/
+  tree.md §13, docs/native.md §Widgets; web/xb/preview-host.js. The
+  owner's list after using TestFlight.
+  - **Home's header is the workspace's branding** (D76): its icon and title;
+    the address only when no title is set. The icon is a `data:` URI — the
+    app drew only emoji, so an admin's image never showed. XbinCore decodes
+    the URI once (a small cache); bitmaps go through ImageIO, an SVG is
+    drawn once by an offscreen web view with script off and no navigation,
+    then kept as a bitmap — the switcher, the inbox and Home share it.
+  - **All tiles is the web sidebar's tree** (bx-side.js, D24/D55), rebuilt
+    in XbinCore from what the app already reads (the `layout` pref's
+    `side.folders`/`sharedOpen`, `/screens`' `folders[scope]`; nothing new
+    fetched, nothing written): personal folders first (tiles, `#screen`,
+    `#orgscreen`), then owner sections (mine, whoami's orgs, workspace)
+    each with its shared folders, its unfiled tiles by label and an org's
+    screens; a personally filed tile leaves its section; labels are the
+    basename, or the path when two collide. Hidden, blueprint and archived
+    tiles are skipped everywhere in the app (the web's show-hidden toggle
+    has no counterpart). Folders open as the user left them on the web;
+    folding here is the phone's own. Search stays flat.
+  - **Compact.** Home, All tiles and the switcher are single-line rows of
+    about 36 pt; a tile row shows its name (the path moves to the
+    accessibility label, and to a trailing caption in search). The screen
+    grid's cards are 132 pt tall (170 before), with 12 pt margins, a
+    10 pt inset and a 28 pt icon: a widget's own box is about 157 × 112 on
+    a 390 pt phone. Existing widgets stay valid — the size classes, the
+    vocabulary and clipping are unchanged; only the box is smaller.
+  - **Terminals and Agents leave Home**: sessions are reached through their
+    tile and the inbox. "Needs you" stays, a row with its count.
+  - **Sessions on tiles**: a row, a standard card and a widget card show
+    `>_ n` for terminals and ✦ n for agents, amber when one waits for the
+    user, from the session directory the `term` events keep live — on a
+    widget, in the card's corner outside the widget's tree. The long press
+    lists the tile's sessions (tap opens, with where each is) and replaces
+    "Terminal here" / "Agent here" with one **New session…** (Terminal,
+    Agent for now; the tile's own session screen takes it over).
+  - **Not chosen:** keeping the sidebar's raw web labels out of the app
+    (humanized titles) — the tree is the web's, so are its labels; a
+    rasterized icon from the server (it stores the URI as given, and no
+    route serves a bitmap); a nested-folder count that includes folders
+    with nothing to show (bx-side.js counts them; the app leaves such a
+    shared folder out).
