@@ -151,8 +151,7 @@ type Runner struct {
 	// Cgroup, when set, attaches each backend to a per-component cgroup v2 leaf
 	// for memory/CPU/pids accounting (best-effort; nil-safe).
 	Cgroup *cgroup.Manager
-	// TileCgroup is the tile sandboxes' cgroup parent: a kind-tile
-	// registry row's Leaf lives in it, not in Cgroup (nil: none).
+	// TileCgroup is the tile sandboxes' cgroup parent, kind-tile rows' Leaf (nil: none).
 	TileCgroup *cgroup.Manager
 	VM         *vm.Manager // "vm" backends (vm.go); nil = none
 	vms        vmState
