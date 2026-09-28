@@ -143,6 +143,36 @@ export function orgNetLabel(org) {
 }
 
 /**
+ * bindPreselect(pending) → the option a bind prompt's picker starts on for a
+ * pending row of GET /bindings (its `options` in server order). A
+ * `sandbox-net` class starts on `none`: its first unblocked option is
+ * usually `internet`, and an approver who clicks through must not grant a
+ * manager's sandboxes the internet. Any other slot starts on its first
+ * unblocked option. '' when there is nothing to start on.
+ */
+export function bindPreselect(pending) {
+  const opts = pending?.options ?? [];
+  if (pending?.kind === 'sandbox-net') return opts.some((o) => o.id === 'none' && !o.blocked) ? 'none' : '';
+  return opts.find((o) => !o.blocked)?.id ?? '';
+}
+
+/**
+ * blockedTitle(option) → why a picker greys out a server-blocked option,
+ * read off its server label: a set that says host is never a sandbox
+ * class's network; binding a set is a workspace admin's act (D65); the
+ * personal owner's allowance (D88); otherwise the owning org's network sets
+ * (D54).
+ */
+export function blockedTitle(o) {
+  const l = o?.label ?? '';
+  if (/says host/.test(l)) return 'a sandbox class can\'t reach the host';
+  if (/workspace admins only/.test(l)) return 'binding a network set is a workspace admin\'s act';
+  if (/outside your network allowance/.test(l)) return 'outside your network allowance';
+  if (/not bindable/.test(l)) return 'a provider-only set can\'t be bound';
+  return 'refused by the owning org\'s network sets';
+}
+
+/**
  * netOptions({org, providers, pending, options}) → [{id, label, title,
  * disabled?}] for a net slot's picker. `org` is the owning org (with
  * netSets/resolvedNet) or null; `providers` are provider-tile paths;
@@ -154,8 +184,14 @@ export function orgNetLabel(org) {
  * choice the org's network sets refuse comes back `disabled` (and labelled
  * "not covered") so a picker cannot submit it — the server would answer
  * 400 and a <select> left on the refused value reads as a success.
+ *
+ * `sandbox: true` builds a sandbox-net slot's picker instead (a sandbox
+ * manager's network class, D120 — docs/isolation.md §Network egress;
+ * `options` = GET /bindings sandboxNetOptions[comp]): unbound means no network — there
+ * is no org or personal default — and host networking and provider tiles
+ * are never offered.
  */
-export function netOptions({ org, providers = [], pending, options } = {}) {
+export function netOptions({ org, providers = [], pending, options, sandbox = false } = {}) {
   const list = options ?? pending?.options ?? [];
   const byId = new Map(list.map((o) => [o.id, o]));
   const out = [];
@@ -183,9 +219,10 @@ export function netOptions({ org, providers = [], pending, options } = {}) {
   // Unbinding an org tile's net slot falls back to the org default (D54): the
   // server says so on a pending row; for a bound slot (no pending row) infer it
   // from the org's sets.
-  const defaultOrg = pending ? pending.default === 'org' : !!(org && ((org.resolvedNet ?? []).length || org.netHost));
-  const defaultPersonal = pending ? pending.default === 'personal' : personalSets;
-  const unbound = defaultOrg
+  const defaultOrg = !sandbox && (pending ? pending.default === 'org' : !!(org && ((org.resolvedNet ?? []).length || org.netHost)));
+  const defaultPersonal = !sandbox && (pending ? pending.default === 'personal' : personalSets);
+  const unbound = sandbox ? { id: '', label: '— unbound: no network —', title: 'these sandboxes get no network until the class is bound' }
+    : defaultOrg
     ? { id: '', label: `— default: ${orgNetLabel(org)} —`, title: (org?.resolvedNet ?? []).map(ruleLabel).join('\n') }
     : defaultPersonal ? { id: '', label: '— default: personal network —', title: personal?.label ?? '' }
       : { id: '', label: '— unbound (no egress) —', title: '' };
@@ -198,14 +235,20 @@ export function netOptions({ org, providers = [], pending, options } = {}) {
   for (const o of list) {
     if (!String(o.id).startsWith('set:')) continue;
     const l = o.label ?? '';
-    const why = /workspace admins only/.test(l) ? 'workspace admins only' : /not covered/.test(l) ? 'not covered' : /not bindable/.test(l) ? 'not bindable' : '';
+    const why = /workspace admins only/.test(l) ? 'workspace admins only' : /not covered/.test(l) ? 'not covered'
+      : /not bindable/.test(l) ? 'not bindable' : /says host/.test(l) ? 'says host' : '';
     out.push({ id: o.id, label: `${SET_ICON} ${scopeLabel(o.id)}${why ? ` — ${why}` : ''}`, title: l, disabled: !!o.blocked, set: true });
   }
   out.push({ id: 'internet', label: `${SCOPE_ICON.internet} internet`, title: serverLabel('internet', 'public internet through the relay') });
-  out.push({ id: 'host', label: `${SCOPE_ICON.host} host`, title: serverLabel('host', 'share the host network (powerful)') });
-  for (const p of providers) out.push({ id: p, label: `⇢ ${p}`, title: serverLabel(p, 'net provider tile') });
-  if (org || personalSets) out.push({ id: 'none', label: `${SCOPE_ICON.none} none — explicitly offline`, title: serverLabel('none', 'no egress') });
-  out.push({ id: '__custom', label: 'custom…', title: 'lan:<cidr>, internet:<host|cidr>[:port], or set:<name> (a network set — workspace admins)' });
+  if (!sandbox) {
+    out.push({ id: 'host', label: `${SCOPE_ICON.host} host`, title: serverLabel('host', 'share the host network (powerful)') });
+    for (const p of providers) out.push({ id: p, label: `⇢ ${p}`, title: serverLabel(p, 'net provider tile') });
+  }
+  if (sandbox) out.push({ id: 'none', label: `${SCOPE_ICON.none} none — no network, decided`, title: serverLabel('none', 'no network') });
+  else if (org || personalSets) out.push({ id: 'none', label: `${SCOPE_ICON.none} none — explicitly offline`, title: serverLabel('none', 'no egress') });
+  out.push({ id: '__custom', label: 'custom…', title: sandbox
+    ? 'lan:<cidr>, internet:<host|cidr>[:port], or set:<name> (a network set without host — workspace admins)'
+    : 'lan:<cidr>, internet:<host|cidr>[:port], or set:<name> (a network set — workspace admins)' });
   // Mark what the org's sets refuse (the server's label says so) and keep it
   // out of reach; the set rows already carry their own reason.
   for (const o of out) {

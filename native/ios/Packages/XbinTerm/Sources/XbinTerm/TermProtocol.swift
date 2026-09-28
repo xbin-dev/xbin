@@ -1,5 +1,5 @@
 // TermProtocol.swift — the /ws/term wire format (docs/protocol.md §/ws/term;
-// the server half is internal/term/attach.go).
+// the server half is internal/termwire).
 //
 // Binary frames, both directions: raw PTY bytes. Text frames: JSON control.
 //   server → client  {"op":"session",…}  first message: the session's id and scope

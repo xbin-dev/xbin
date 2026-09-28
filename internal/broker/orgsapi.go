@@ -44,6 +44,7 @@ func (b *Broker) registerOrgs(srv *server.Server) {
 	srv.RegisterAPI("POST /owner", b.apiOwnerTransfer)
 	srv.RegisterAPI("GET /access", b.apiAccessGet)
 	srv.RegisterAPI("PUT /access", b.apiAccessPut)
+	srv.RegisterAPI("GET /access/{user}", b.apiAccessOf) // a tile backend: a person's level on itself (accessof.go)
 	srv.RegisterAPI("GET /access-matrix", b.apiAccessMatrix)
 	srv.RegisterAPI("GET /users-directory", b.apiUsersDirectory)
 	srv.RegisterAPI("GET /policy", b.apiPolicyGet)
@@ -77,7 +78,14 @@ func humanID(p auth.Principal) string {
 	return p.User.ID
 }
 
-func (b *Broker) usersEvent() { b.Hub.Publish(events.Event{Type: "users"}) }
+// usersEvent refreshes open user/org/admin panels after a users-plane
+// mutation. Every such mutation that can move a policy ceiling (policy rows,
+// permission sets, org sets, personal sets, owner transfers) ends here, so it
+// also sweeps cap: grants the ceiling now strips (capSweep, caps.go).
+func (b *Broker) usersEvent() {
+	b.Hub.Publish(events.Event{Type: "users"})
+	b.capSweep()
+}
 
 // orgView is the management-facing org shape: the org plus its resolved
 // allowance (what its admins may self-approve, D26) and the tiles it owns.

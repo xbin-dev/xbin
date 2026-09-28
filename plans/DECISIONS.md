@@ -3751,6 +3751,540 @@ Deviations and refinements made while implementing; all deliberate:
       easier to reason about. Existing names with spaces or other
       characters need renaming (migration note).
 
+- **D120 — Phase 2 of coding sandboxes: xbind's tile-sandbox runtime.
+  Only manager tiles drive it (`cap:sandboxes`). Terminals reach people
+  only through the manager's relay. Its routes mirror the sandbox-manager
+  contract (2026-09-27, owner's kickoff).**
+  plans/tile-sandbox-runtime.md (the implementation plan, WP-1…WP-22).
+  Revises D113 as recorded there (§0).
+  - **The owner's decisions.**
+    1. **`cap:sandboxes`** is held only by manager tiles and approved only by
+       workspace admins, like `cap:containers`. It is never auto-granted. A
+       revoke stops the tile's sandboxes and keeps their state.
+    2. **Terminals: relay only.** The TTY WebSocket (the `/ws/term` wire)
+       answers only the manager's instance token; the manager relays it to
+       consumer pages. There are no xbind tickets in v1. Admins may list,
+       stop and delete any tile's sandboxes, but never exec into one or
+       attach.
+    3. **D88's `noTerminal`.** xbind refuses a tty exec whose `forUser`
+       claim names a user with `noTerminal`. Non-tty execs aren't restricted
+       by it, and the docs say so.
+    4. **Storage.** Definitions are xbind-owned: a tile never writes them,
+       and everything read back is re-validated against the tile's current
+       reach. Component backups carry definitions, not state; state moves by
+       snapshot or archive. Running execs die with xbind: they answer `lost`,
+       and sandboxes come back `stopped`.
+    5. **Modes.** Namespace mode is the `Restricted` terminal lockdown: apt
+       works, nested containers don't. Docker needs VM mode. Emulated VMs are
+       allowed where the VM policy allows emulation, and are reported as
+       such. A VM that can't start never falls back to namespace mode; the
+       manager picks the mode for each sandbox.
+    6. **No xbin identity inside.** A sandbox never gets an xbin token, the
+       gateway socket or a route to xbind. The manager proxies everything.
+    7. **Mounts in v1.** The manager's own `filesystem` resources, limited by
+       role, and `{source:true}` read-only. `sqlite` is refused. `code:`
+       mounts and scratch volumes come later.
+    8. **Egress.** `none` by default, or a network the manager binds for its
+       sandboxes through its own interface slots, so its own backend needn't
+       hold it. There is no private sandbox-to-sandbox network and no port
+       previews in v1.
+    9. **Base images.** Each sandbox pins its base. A changed base never
+       applies implicitly: restart and thaw keep the pin, and reset or rebase
+       is an explicit call. GC keeps every base a sandbox references,
+       archived ones included.
+    10. **Offload** of a manager tile stops its sandboxes and carries their
+        state into the archive. Until archive/thaw is built, offload refuses
+        while any of them has state. It never drops state silently.
+    11. **Defaults** are D113 §6's: 8 sandboxes per tile, 4 running, 8 GiB,
+        8 vCPUs and 100 GiB; per sandbox 2 GiB, 2 vCPUs and 20 GiB, capped
+        at 8 GiB, 8 and 200; idle stop after 30 min; auto-start on exec and
+        file operations. The VM policy gains `tiles` and `tilesBudgetMiB`
+        (default half the budget). xbind's own default for `tiles` is false.
+        The installer's fresh policy sets it true where KVM is usable, like
+        `backends`, and never touches an existing file.
+    12. **Deployments.** Sandboxes belong to the manager tile's deployment.
+        The key layout gives a non-main deployment its own set, leaving the
+        deployment plumbing a seam (dev-lifecycle's handed-over WP-S5).
+    13. **The VM-backend "never listens" fix** is a dependency, fixed on
+        another branch.
+    14. **Phase 3's needs.** A zero-dependency SDK surface that the
+        coding-sandbox manager's `xbin` Backend uses to serve the contract
+        almost one for one.
+  - **Chosen in the plan (the designer's calls).**
+    - **Transport: a `SOCK_SEQPACKET` connection factory.** It is passed as
+      an inherited fd. D113's listening socket is dropped: the factory
+      needs no path, leaves no stale socket and has no 108-byte limit. Its
+      EOF also kills the sandbox when xbind dies.
+    - **The runtime API mirrors the contract**: byte-offset output with a
+      long-poll, `run`'s head and tail, the files and tar routes, the error
+      enum and the TTY wire. So the manager forwards most calls unchanged
+      (`sdk` `Forward`). D113's NDJSON is dropped.
+    - **Egress uses a new request-side interface kind, `sandbox-net`.**
+      Selectors are `none | class:<slot>`. An unbound class is `none`, with
+      no org or personal auto-default. Binding reuses D20, D26, D54, D65 and
+      D88.
+      - The relay gets `Deny`, which covers the host's own addresses and
+        xbind's listen addresses, and answers DNS with REFUSED under `none`.
+      - A class change that narrows reach stops the running sandboxes of
+        that class. A change that widens it waits for the next start.
+      - There is no `inherit` and no rule-list subset (see below).
+    - **`cap:sandboxes` has a floor like `xbin`'s**: no allowance delegates
+      it, not even `cap:*`. Its ceiling class is `xbin-caps`.
+    - **The VM policy also gains `tilesEmulated`** (default false). A tile VM
+      runs under emulation only when an admin allows it. Otherwise VM mode is
+      reported unavailable, never replaced.
+    - **Removing a tile** stops its sandboxes and keeps their state. The
+      state is listed as a leftover, and an admin cleans it up. This revises
+      D113 §1's "deleting the tile deletes its sandboxes".
+    - **Definitions live in `<ws>/data/sandboxes.json`**, keyed by tile
+      (dev-lifecycle's layout). State lives in `.xbin/sbx/<CK>/<name>/`, and
+      a non-main deployment's in `.xbin/deploy/<TK>/d/<d>/sbx/`.
+    - **Ids and presentation.** Exec ids carry a per-boot prefix, so ids
+      from before a restart answer `lost`. The TTY session frame takes the
+      manager's ids (`sessionId`, `sandboxId`), so a byte relay satisfies the
+      contract.
+    - **Snapshots and clones are in phase 2**: the manager's images are
+      clones. Archive and thaw are a later work package.
+    - **Other v1 choices.**
+      - `rebase` is an explicit call that keeps the upper.
+      - Execs take a `uid`/`gid`; a single-uid namespace host reports
+        `users: root`.
+      - A missing pinned base puts that sandbox in `error`. It never gates
+        xbind's boot.
+      - A namespace upper records its overlay flavour.
+      - File streams are framed and commit only after their terminator.
+      - The data plane isn't audit-logged.
+      - `PUT /vm/policy` and `PUT /sandboxes/policy` merge onto the stored
+        policy, so an older admin console can't zero a new field.
+      - termwire sends `exit` only when the process ends, never to a client
+        dropped for being slow.
+    - **The existing backup restore follows planted symlinks as xbind.** It
+      is fixed first (WP-9), as phase 2 step 6 asked.
+  - **Not chosen:**
+    - xbind tickets for human attach: the owner's relay-only decision.
+    - `inherit` egress: it makes the manager's backend hold the network,
+      which is exactly what the `sandbox-net` kind avoids.
+    - D113's rule-list subsets: the relay ORs IP and host rules, so an
+      intersection needs a new predicate, and classes cover the need.
+    - A second `net`-kind slot for sandboxes: map-order resolution, D54/D88
+      auto-defaults, and every net surface is per component.
+    - Policy-level egress classes: a second reach grammar that skips the
+      binding approvals.
+    - A listening socket in `.xbin/run/sbx/`.
+    - NDJSON output with sequence numbers.
+    - Namespace uppers in component backups.
+    - A namespace fallback where VMs can't run.
+    - Sandboxes surviving an xbind restart: the relay lives in xbind; a relay
+      out of process is a later option.
+    - Definitions in the tile's own data: a backend could forge mounts,
+      egress or mode.
+    - A deployment segment under `.xbin/sbx/<key>/`: it would collide with
+      sandbox names.
+
+- **D121 — People's terminals onto sandboxes are the `sandbox-terminal`
+  builtin tile: a consumer of the sandbox-manager contract that creates
+  nothing, with browser terminals straight to the manager and SSH bridged by
+  its backend as an asserted person (2026-09-28).**
+  builtin-tiles/sandbox-terminal (API.md); docs/sandbox-manager.md §People's
+  terminals; plans/sandbox-managers.md phase 3 item 4.
+  - **Chosen.**
+    - **A consumer, not a manager.** `interfaces.sandboxes {kind: http,
+      service: sandbox-manager, multi: true}`. It creates no sandboxes: one
+      reaches it by being **shared** with it (a share naming its path, users
+      `"*"` or a list) or by being its own. The owner binds managers like
+      the agent's.
+    - **Browser terminals** are the page's own: `<bx-terminal src>` on the
+      manager's `tty` route with the frame token, so the manager sees the
+      **verified** person. The backend isn't in that path.
+    - **SSH** on a `stream` expose (`exposes.ssh {kind: stream, proto: tcp,
+      port: 2222}`; an admin binds a host port), served by
+      `golang.org/x/crypto/ssh` in the backend. **Keys are registered per
+      person** (routes the page calls with its frame token: the verified
+      `X-XBin-User` registers and removes their own; the tile's managers —
+      write or terminal access, or the owner — list and revoke anyone's). A
+      key belongs to one person. A revoke also closes that key's live
+      connections.
+    - **On login** the key names the person and the SSH user name names the
+      sandbox: its login (the name in lower case, runs of other characters
+      `-`), `<login>~<n>` when several of the person's sandboxes share one,
+      or its id. Unknown or ambiguous → a message listing the choices, exit
+      1. The session is authenticated first, so the message reaches the
+      person instead of a bare "Permission denied". The disambiguator is
+      `~` because a login never has one (the name's other characters become
+      `-`): with `.<n>`, a sandbox named `web.1` and the first of two `web`s
+      were both `web.1`. A login or id that matches exactly wins over the
+      loose match of a name (`web~1` spells `web-1` loosely, and a sandbox
+      named `web-1` beside two `web`s must not make it ambiguous).
+    - **Access at every login.** A key outlives the page call that
+      registered it, so the tile asks xbind what its person may do on it
+      now: `GET /api/xbin/access/<user>` (`xbin.AccessOf`), a route for a
+      tile's backend about itself only — `{user, level:
+      none|read|write|terminal, active}`, the level `X-XBin-User-Level`
+      would carry (the proxy's `users.Access.TileLevel`; xbind's own
+      levels, so an admin or the tile's owner is `terminal` — there is no
+      `owner` level), none for a disabled or unknown account, never a 404.
+      `active` says the id is an account that can sign in, which tells a
+      tile whether an id exists — accepted: ids are names people use, and
+      the tile learns nothing else about them. Asked at every login, every
+      session a connection opens, every key registration, every 30 s while
+      a connection lives, and for everyone's keys when a manager lists them;
+      kept 30 s (a failure 2 s). Without read access the person is let in
+      only to be told `access revoked` (exit 1), a live connection is cut
+      (its sessions told why), and their keys are **marked inactive, not
+      deleted** — access may come back, and the next check that finds it
+      clears the mark. No answer from xbind: logins **fail closed**; a live
+      connection isn't cut over a failed check, only over a "no". A page
+      request with no level (a frame token outliving its person's access)
+      is refused beyond `/me` and their own keys.
+    - **No new role for the SSH path** (the kickoff's open question: a
+      `gateway` role for asserted users). The backend lists and opens
+      sandboxes **as an asserted person** (`Sbx-User`), which the contract
+      already allows a consumer's backend, and **enforces the person rules
+      itself**: a shared sandbox only as far as its share names the person,
+      then its owner, a member, or team. These are the same rules the agent's
+      `sandbox_access.go` applies.
+    - **With a pty** the session is the manager's `tty` route, dialled with
+      `sdk/ws` (`Sbx-User` set): binary frames ↔ the channel, window-change
+      → `resize`, the `exit` frame → exit-status (or exit-signal).
+      **Without one** (`ssh host cmd`, `ssh -T`) it is a background exec
+      with `stdin`: output read by byte offset, input posted, exit from the
+      exec. A terminal there would echo input, turn `\n` into `\r\n` and wake
+      pagers, which breaks pipes; and `exec` is required of every manager
+      where `tty` isn't. stdout and stderr arrive together (the contract's
+      one stream). A pty request on a manager without `tty` runs this way,
+      and the tile says so.
+    - **A client that leaves** ends its command, as sshd would: HUP to the
+      group, then DELETE if it still runs 2 s later. A command that ended on
+      its own isn't DELETEd, so work it detached into its own group survives.
+    - **Rate limits.** Failed keys are a token bucket per source address
+      **and claimed user name** (20, then one every 2 s). Over the rate an
+      attempt is answered 2 s late: a tarpit, not a lockout, because
+      xbind's relay shows one source address for everyone and a good key
+      must never be locked out by a flood; keyed by the name too, a flood
+      against one name doesn't tarpit another person's old keys into their
+      login grace. The buckets are bounded (4096; the full ones swept, then
+      arbitrary ones dropped — a forgotten bucket only starts full). At most
+      32 handshakes are in flight; one more **drops a random older pending
+      handshake** (randomized early drop) instead of being refused, so
+      connections that never finish can't hold every slot. A 10 s login
+      grace, 6 tries and 10 sessions per connection.
+    - **The host key** is ed25519, made on first start and kept in the
+      tile's **vault** (it is a secret). Only a vault that answers "no such
+      key" gets a new one; any other error retries, so clients never see a
+      changed host. Keys and settings are in the tile's kv (`state`).
+    - **Nothing a manager says is stored** beyond a minute's hello cache.
+      No xbin identity reaches a sandbox.
+    - `x/crypto` is pinned at v0.48.0, the newest release whose `go`
+      directive (1.24.0) the rootfs toolchain meets (check-pins). The
+      tile's own go line stays `go 1.24`: xbind's generated go.work says
+      `go 1.24`, and a module it uses with a later line (`1.24.0` counts as
+      later) fails the build — now a test (`TestBuiltinTilesImport`). The
+      root module's newer x/crypto compiles the same code for `make vet`.
+  - **Not chosen:**
+    - A `gateway` role for asserted users: the contract already covers a
+      backend acting for a person.
+    - Terminals relayed through the backend for the browser: the person
+      would become asserted.
+    - Resolving the sandbox during authentication: a wrong name would read
+      as a bad key.
+    - The `tty` route for commands without a pty: see above.
+    - Per-source lockouts: behind the relay they would lock everyone out.
+    - Refusing new connections at the handshake cap (sshd's MaxStartups
+      "full"): a slow flood would then keep everyone out.
+    - Refusing a revoked person at the key (a bare "Permission denied"),
+      or deleting their keys: the first hides why, the second loses what a
+      re-granted person would need again.
+    - A frame/terminal token asking `/access/<user>`: the tile's frontend
+      acts for the person using it, and would list who else uses the tile.
+    - Port forwarding, agent forwarding, X11, sftp and client environment in
+      v1: each needs its own reach decision (a forward is egress from the
+      sandbox's network into the person's machine, or the reverse).
+  - **Known limits.**
+    - A session already running when a share is withdrawn runs on until it
+      ends (the person's access to the tile is re-checked; a share is the
+      manager's and isn't).
+    - A person's removal reaches a live connection within a minute (a
+      check every 30 s, of an answer kept up to 30 s), and a new login
+      within 30 s; a re-grant reaches a refused login within 30 s — at once
+      when they open the tile's page (its request's level is xbind's
+      answer, and replaces the cached one).
+  - **The page, the native view and the agent's share (part 2).**
+    - **Tabs of terminals the manager owns.** Each tab is `<bx-terminal
+      src>` on the manager's route; closing a tab leaves the shell running,
+      **End** is `DELETE …/execs/{id}` from the page. Reattaching after a
+      reload uses the contract's own execs list, read as the person (tty
+      execs labelled `terminal`, or unlabelled — the contract now asks a
+      manager to label its `tty` route's execs so): nothing is remembered
+      by the page (a sandboxed frame has no storage) or the backend. They
+      are everyone's who may use the sandbox — the manager already lets any
+      of them attach — and are shown as such.
+    - **"Published" is an address set by a tile manager.** The tile can't
+      see xbind's port binding, so the ssh command shows once the listener
+      is up and a manager set the address people type; until then the page
+      says what an admin runs.
+    - **The native view opens no terminal** (a D96 difference, like the
+      agent's): the app's `terminal` dials only the tile's own routes, and
+      relaying the manager's `tty` through the backend would make the
+      person asserted. It lists, ends and manages keys, and offers "Open in
+      the browser" — `xbin.native.open` when the tile holds
+      `cap:open-links`, else the link copied — rather than declaring the
+      grant, which every import would then have to approve. Parity for a
+      builtin tile is its `native.js` header and the `tile-*` fixture;
+      the page's logic is the shared `sbxterm.js`.
+    - **The agent shares, with the person rules unchanged.** "Share with a
+      terminal tile…" is offered on a sandbox the person owns whose home is
+      the agent (only the home consumer changes shares); the share is for
+      the person (joining a list that tile's share already has) or `"*"`
+      for a team sandbox. The tile's path is a field, default
+      `apps/sandbox-terminal`: the agent can't know where it was imported.
+      The agent's `PATCH /sandboxes/{ref}` already passed `shares` through.
+      Share and Stop sharing replace the whole list, so they send the
+      sandbox's `version` as it was read (the contract's lost-update
+      guard); a 412 reads the sandbox again (`GET /sandboxes/{ref}`),
+      computes the list afresh from it and sends it once more — a share
+      someone else added meanwhile is kept, not overwritten.
+    - **Not chosen:** a per-person directory of open terminals in the
+      backend (the manager's execs list is the truth, and the page reads it
+      as the verified person); auto-reopening running terminals as tabs on
+      load (on a team sandbox they may be someone else's); a picker of
+      terminal tiles in the agent (it has no view of the workspace's tiles).
+  - **Addendum (2026-09-27, after wave 1): an adversarial review of waves
+    2–3 and wave 1's handoffs.** plans/tile-sandbox-runtime.md (§1–§11
+    amended; the follow-up WPs WP-2b … WP-14b in §12).
+    - **The owner's decisions.**
+      - **Mounts are same-scope only in v1.** A manager mounts only
+        `filesystem` resources of its own scope that it holds (a `uses`
+        entry and the grant, as `EnvFor` requires). A cross-scope resource
+        is refused even when granted: handing another scope's path to a
+        sandbox is what `EnvFor` never does. Granted foreign resources come
+        later, with their own design. (WP-13 built it this way; §3.3's "or
+        one granted to it" is withdrawn.)
+      - **"Internet" is strict for tile sandboxes.** A sandbox class's
+        `internet` (its `Allow`, its reported `reach` and its DNS pins)
+        also excludes `100.64.0.0/10` (CGNAT, which Tailscale uses),
+        `198.18.0.0/15`, `240.0.0.0/4` and `64:ff9b::/96` (NAT64), plus
+        `64:ff9b:1::/48` (local-use NAT64, the same kind of range), because
+        the contract says `internet` reaches no private or local network.
+        Tile backends' `net:internet` is unchanged: narrowing it would
+        change existing tiles' egress.
+    - **Chosen in the plan (the designer's calls).**
+      - **A sandbox has an immutable `uid`**, and state is keyed by it
+        (`.xbin/sbx/<CK>/<name>.<uid>/`; the archive key; a backup's match).
+        A name is only an address: deleting and re-creating `img-base`
+        never meets the old state, its removal or its archive. Deletions
+        rename into `.trash` and a confined remover empties it later. The
+        state a restore swaps is one `cur/` dir (stamps, `upper/`, `work/`
+        or the disk) exchanged with `renameat2(RENAME_EXCHANGE)`, so a
+        crash leaves the old state or the new one, never neither. A
+        definition whose state is missing is `error`, never a blank start.
+      - **One key builder, and a guard for deployments.** `keyOf(p)` is the
+        only place a key comes from. Until non-main keys exist, a
+        principal of a non-main deployment gets 501 — read by reflection
+        so the guard works the moment dev-lifecycle adds the field — and a
+        reflect test over `auth.Principal`'s fields fails on any field
+        nobody reviewed. Otherwise a dev deployment of a manager would
+        compile unchanged and address main's sandboxes.
+      - **Running sandboxes follow what they were granted.** A vault seal
+        stops (synced) every sandbox with a resource mount before the views
+        unmount. A `res:` grant change, a deleted resource or a ceiling
+        change re-resolves running sandboxes' mounts; a lost mount, or a
+        read-write one downgraded to reader, stops the sandbox with its
+        state kept — the rule a narrowed egress class already had.
+      - **One teardown for every way a sandbox ends** (a stop, a crash, a
+        cgroup OOM, the VMM exiting, fuse-overlayfs dying). The agent exits
+        when fuse-overlayfs does, and sessions carry `oom_score_adj` 500 so
+        user work, not the agent, is what the OOM killer picks.
+      - **Admission books atomically**, per tile and workspace-wide, and
+        tile-sandbox cgroup leaves live under one per-workspace parent,
+        `comp-tilesbx-<ws8>`, capped by a new `policy.total`; the init is
+        started straight into its leaf (`UseCgroupFD`).
+      - **The relay can't spend xbind.** Flows are capped per sandbox
+        (1024 TCP, 256 UDP) and across all tile sandboxes; host locality is
+        decided per flow with `RTM_GETROUTE`, not from a periodic read.
+      - **Disk.** Sandbox bytes count against `perTile.diskGiB` only, never
+        a scope's resource-write quota (whose 50 GiB default is below the
+        100 GiB cap). Running uppers are re-measured by a confined `du`, one
+        at a time; low disk stops running namespace sandboxes, largest tile
+        first, and holds starts.
+      - **Snapshots pin their base; a restore brings the base back too**,
+        and a clone takes its snapshot's base. Only a mode (or, in namespace
+        mode, an overlay-flavour) mismatch is refused. Copies are staged,
+        honour `?wait`, show `creating` or a busy `stateDetail`, and are
+        reconciled at boot; `cp` names `--preserve=xattr` so a lost xattr is
+        an error.
+      - **A clone without `snapshot` copies only a stopped source**; a
+        running one answers 409 `state` (not an implicit snapshot, which
+        would stop the source's work from inside someone else's create).
+      - **Exec semantics follow the contract.** A stop leaves execs
+        `killed`; only another boot's ids are `lost`. `signal`'s `group`
+        defaults to true. Idle stop is held off by in-flight runs, file and
+        tar operations and attached TTY clients. An exec arriving while a
+        sandbox stops waits, then auto-starts. Reset and rebase restart a
+        sandbox that was running.
+      - **`Forward` takes typed routes** whose ids are checked against the
+        runtime's grammars, and the runtime refuses dot and encoded-slash
+        segments: a consumer's id can't retarget another sandbox of the
+        same manager.
+      - **An unreadable sandboxes policy file fails closed** (`enabled`
+        false, the error surfaced) instead of re-enabling a kill switch.
+    - **Not chosen:** a netlink address subscription for locality (its
+      events arrive after the address is usable); keying state dirs by uid
+      alone (unreadable for admins); stopping VM sandboxes on low disk (their
+      disks are bounded); an implicit snapshot for a clone of a running
+      sandbox.
+
+- **D122 — The builtin sandbox manager is the `coding-sandbox` template: a
+  contract layer over a pluggable Backend whose shapes are the SDK's
+  (2026-09-28).** builtin-templates/coding-sandbox/API.md;
+  plans/sandbox-managers.md phase 3 item 3.
+  - **Chosen.**
+    - **A template**, so each copy is a manager with its own config. It
+      provides `sandboxes` (`sandbox-manager`, role `consumer`, which reaches
+      `/sbx/*` only), requests `cap:sandboxes` and a sqlite `db`, and declares
+      two `sandbox-net` classes, `internet` and `open`. Contract egress `none`
+      is always offered; `internet` while its class is bound with reach
+      `internet`, `open` while its class is bound at all. A sandbox's `egress`
+      is its class's word, or its reach when that is wider.
+    - **The Backend seam sits at the runtime's level, in the SDK's shapes.**
+      `Fleet` (the offer; sandboxes by name: list, create — `from` clones —,
+      get, patch, delete, start, stop) is exactly `*xbin.Sandboxes`, and `Box`
+      (run, execs and output by offset, stdin, signals, resizes, the terminal
+      relay, files, tar, snapshots) exactly `*xbin.Sandbox`; a compile-time
+      check keeps it so, and the `xbin` backend needs no translation.
+      Backends register like the messaging bridge's platforms. Refusals are
+      `*xbin.SandboxError`; anything else answers `503 unavailable`.
+    - **The contract layer owns** partitions and shares, owners (verified
+      `X-XBin-User` over asserted `Sbx-User`), visibility and members,
+      labels, versions, an overlay state (`creating`, `deleting`, `error`),
+      and `clientId`s: creates per consumer and snapshots per consumer and
+      sandbox in its table, execs per consumer and sandbox in memory (they die
+      with the substrate), handed down prefixed with a hash of the consumer.
+      **Contract ids (`sb-…`) and runtime names are separate** random names
+      mapped in the table; a refusal that names the runtime sandbox is
+      rewritten to the id.
+    - **Storage:** the tile's sqlite resource (modernc, as the agent), one
+      JSON document per row and an in-memory mirror written through, so a new
+      field needs no migration. A restarted manager finishes the creations
+      and deletions it left.
+    - **Images** are the substrate's base plus an optional setup script. The
+      first use makes a template sandbox, makes its workdir and home, runs
+      the script as root, stops it and snapshots it; later sandboxes clone the
+      snapshot. A changed script or mode, or an outdated base, rebuilds at the
+      next use. Without the substrate's snapshots and clones only plain images
+      are offered, and hello's `notes` says so. A create is synchronous unless
+      an image builds: then it answers after `?wait`, `creating`, and a failed
+      build leaves the sandbox in `error` with the script's last lines.
+    - **Quotas** per consumer and per person (`owner.user`, across
+      consumers), with overrides that replace the default whole; count and
+      disk checked at creation, running, memory and vCPUs at a start. The
+      manager starts a stopped sandbox itself before a command, a file
+      operation or a terminal, so the contract's auto-start counts too.
+      `hello.limits` carry the effective values (and, additively, `running`,
+      `memMiB`, `vcpus`, `diskGiB`).
+    - **Operators** (the owner and people with write access) get `/ops/*`:
+      every sandbox's metadata, usage, lifecycle, sharing, the config and
+      image builds — and no route to a sandbox's contents.
+    - **Terminals** relay to the Box: session ids the contract's, `forUser`
+      the person. `archive` isn't offered yet.
+    - **The layout** (user, uid/gid, home, workdir, shell) is config; the
+      first start makes the workdir and home with a run as root (mkdir,
+      chown), so it holds on any substrate, and a backend may place the
+      layout (the answer's `defaults`), which the manager then takes. A
+      substrate that runs everything as root (`users: root`) gets root at
+      `/root`.
+  - **Not chosen:**
+    - The contract id as the runtime name (tile-sandbox-runtime.md §11):
+      nothing should depend on the two agreeing, and a consumer can never
+      address an image's template sandbox.
+    - A Backend at the contract's level: every substrate would redo
+      partitions, people and ids.
+    - Forwarding raw HTTP through the Backend: the fake would need a runtime
+      server of its own; typed calls cost one JSON re-encode.
+    - The fake backend as a shipped, configurable backend: it would run a
+      consumer's commands in the manager's own sandbox, next to its xbin
+      token. It lives in `_test.go` files only.
+    - A JSON file for the table: the ecosystem's templates use sqlite.
+  - **Part 2 (the same day): the `xbin` backend, the mode, the page.**
+    - **The `xbin` backend is the SDK itself** (`xbinBackend{*xbin.Sandboxes}`),
+      registered as the default; its test drives the manager against a
+      double of the runtime's routes, so the mapping is pinned while the
+      runtime's wave 2 is still being built (the live run is WP-21).
+    - **`config.mode` is `auto | vm | namespace`** (another backend may name
+      its own: `container`, `cloud-vm`). `auto` takes a VM where the runtime
+      offers one now, else a namespace; a chosen mode the runtime lacks makes
+      no sandbox (`503` with the runtime's reason, and `hello.notes` says so)
+      — never another mode. The record keeps the mode it was made in, so
+      `isolation` is right while it is `creating` too.
+    - **Mounts are a top-level `config.mounts`**, not `backendConfig`
+      (changing that one needs every sandbox gone), checked as the runtime
+      checks them; image builds get none.
+    - **Operators take snapshots of any sandbox** (`/ops/sandboxes/{id}/
+      snapshots…`): a backup and a restore are metadata-level acts, and
+      still no route reads a sandbox's contents.
+    - **Relayed terminals' refusals are rewritten** (the runtime's name for
+      the sandbox → the contract id) by holding a refused answer before the
+      upgrade; an upgrade passes untouched (`Unwrap` for the hijack).
+    - **The page is one model, two views** (D96's mechanism: a feature
+      registry, each view's declaration, a node test). Operators get every
+      consumer's metadata; anyone who may open the page gets their own
+      sandboxes — the page is a consumer of its own, with the verified
+      person, within the per-person quota.
+    - **The native view has a terminal**: the app's `terminal` dials only
+      the tile's own routes, and here the tty route *is* the tile's own. It
+      starts a login shell as a `tty` exec and attaches to
+      `execs/{eid}/tty`, so a reconnect is the same shell; leaving the
+      screen ends it. The one declared difference is uploads (the app
+      uploads only from a composer).
+    - **The UI harness runs a copy on the fake backend** (its test files
+      copied in, renamed, over a filesystem resource of its own), bound to
+      the agent beside `apps/fakesbx` for the pass and unbound after.
+  - **Not chosen (part 2):**
+    - The terminal as the native view's declared difference (the agent
+      template's reason — another tile's route — doesn't hold here).
+    - A silent `vm → namespace` fallback: a consumer's firewall and the
+      operators' intent both read `isolation`.
+    - The native terminal on `…/tty` directly: every reconnect would start
+      another shell and leave the old one running.
+  - **Addendum: follow-ups, the owner's decisions.**
+    - **A change from the manager's own page needs the person's write
+      access to the tile.** The page's frame calls run at the tile's own
+      role (admin of itself). docs/auth.md D29's rule for mutating
+      endpoints therefore applies to `/sbx/*` when `X-XBin-From` is the tile
+      itself and `X-XBin-User-Level` is below write. Every change is
+      `403 not-allowed` before it is routed: every method but GET and HEAD,
+      and both `tty` routes, which are GET upgrades. A read (`files`, `tar`)
+      never starts a stopped sandbox for such a person. `/me` says `level`
+      and `write`. The page gives them a read-only view of the sandboxes
+      they may use, and hides or disables every change with the reason.
+      Other consumers' calls are unchanged, whatever the person's level on
+      the manager: the contract trusts consumers.
+    - **Operators run lifecycle, not access.** They start, stop and delete
+      any sandbox, take its snapshots and set quotas. `visibility`,
+      `members` and `shares` change only through the home consumer: its
+      backend, or its verified owner there (`canAdmin`). `PATCH /ops/…`
+      refuses those fields (`403`). The operators' page shows who may use
+      each sandbox and has no control for it. A person's own sandboxes keep
+      their sharing on the page (Yours, `/sbx/`).
+    - **A failed rebuild keeps the previous good build.** A build carries
+      `previous` (the last good one) until it is ready. The old template
+      sandbox goes only then, never on a failure. While `previous` is
+      current for the script and the mode, new sandboxes clone it. That
+      covers an operator's rebuild that failed, and an outdated base whose
+      rebuild failed. A script changed back clones it at once.
+    - **A clone's creation error never names its source's runtime name.**
+      The plan keeps the source's contract id (`fromId`), and an error
+      says that id. An image's template sandbox, whether the build or the
+      one kept, is `image:<id>`.
+  - **Not chosen (addendum):**
+    - Gating by `operator` (role and level) on `/sbx/*`: every other
+      consumer's calls would then depend on the person's level on the
+      manager, which the contract leaves to consumers.
+    - A read-only person's reads starting a stopped sandbox: a start is
+      lifecycle, and it counts against the quotas.
+    - Letting a failed rebuild's image fall back to a build of another
+      script: the build would not match the script the operators set.
+      That build waits, and it serves only a script changed back.
+
 - **D123 — Thin themed scrollbars and the focused-scroll tint (2026-09-27).**
   web/bx-scroll.js; docs/frontend-kit.md; docs/protocol.md §Tile ↔ shell
   messaging.

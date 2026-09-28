@@ -277,6 +277,23 @@ func (m *Manager) UnmountAll() {
 	}
 }
 
+// Close unmounts every decrypted view as xbind shuts down, so nothing of a
+// resource stays readable — or a gocryptfs holding its key running — once
+// xbind is gone: the ciphertext stays, and the next boot mounts again. A
+// view something still holds (a terminal's bind, say) goes lazily:
+// detached now, its FUSE server gone with its last user.
+func (m *Manager) Close() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for k, mount := range m.mounts {
+		if isMounted(mount) && fusermountU(mount, false) != nil {
+			_ = fusermountU(mount, true)
+		}
+		delete(m.mounts, k)
+		delete(m.modes, k)
+	}
+}
+
 // RecoverStale lazy-unmounts any resenc mounts left over from a previous xbind
 // (e.g. after a crash) so Ensure starts from a clean slate. Call once at start.
 func (m *Manager) RecoverStale() {

@@ -103,3 +103,101 @@ func TestAllowsHostGlob(t *testing.T) {
 		}
 	}
 }
+
+// Reach speaks the contract's vocabulary and never claims less than Allow
+// admits.
+func TestReach(t *testing.T) {
+	for _, c := range []struct {
+		rules []string
+		want  string
+	}{
+		{nil, ReachNone},
+		{[]string{"apps/x:reader"}, ReachNone}, // not a net: grant
+		{[]string{"net:internet"}, ReachInternet},
+		{[]string{"net:internet:443", "net:api.example.com:443"}, ReachInternet},
+		{[]string{"net:*.github.com:443"}, ReachInternet},
+		{[]string{"net:8.8.8.0/24", "net:1.1.1.1:53"}, ReachInternet},
+		{[]string{"net:[2606:4700::]/32"}, ReachInternet},
+		{[]string{"net:[::ffff:8.8.8.8]"}, ReachInternet},
+		{[]string{"net:internet", "net:192.168.1.0/24"}, ReachOpen},
+		{[]string{"net:10.0.0.5:5432"}, ReachOpen},
+		{[]string{"net:0.0.0.0/0"}, ReachOpen},   // holds every private range
+		{[]string{"net:8.0.0.0/5"}, ReachOpen},   // 8.0.0.0–15.255.255.255 holds 10/8
+		{[]string{"net:172.0.0.0/8"}, ReachOpen}, // holds 172.16/12
+		{[]string{"net:127.0.0.1"}, ReachOpen},   // loopback
+		{[]string{"net:169.254.169.254"}, ReachOpen},
+		{[]string{"net:224.0.0.0/4"}, ReachOpen}, // multicast
+		{[]string{"net:0.0.0.0"}, ReachOpen},     // unspecified
+		{[]string{"net:[fd00::]/8"}, ReachOpen},  // ULA
+		{[]string{"net:[fe80::1]"}, ReachOpen},   // link-local
+		{[]string{"net:[::]/0"}, ReachOpen},
+		{[]string{"net:[::ffff:0:0]/96"}, ReachOpen},   // every IPv4-mapped address
+		{[]string{"net:[::ffff:10.0.0.1]"}, ReachOpen}, // mapped private
+		{[]string{"net:[::ffff:0.0.0.0]"}, ReachOpen},  // mapped unspecified
+	} {
+		pol, err := Parse(c.rules)
+		if err != nil {
+			t.Fatalf("%v: %v", c.rules, err)
+		}
+		if got := pol.Reach(); got != c.want {
+			t.Errorf("Reach(%v) = %q, want %q", c.rules, got, c.want)
+		}
+	}
+}
+
+// publicPrefix agrees with isPublic (and, strict, with isPublicStrict),
+// address by address: every /16 of IPv4 (the ranges either test refuses are
+// /16-aligned or wider, bar 0.0.0.0/32 at the start of 0.0.0.0/16), and the
+// same IPv4-mapped.
+func TestPublicPrefixMatchesIsPublic(t *testing.T) {
+	for _, strict := range []bool{false, true} {
+		pub := isPublic
+		if strict {
+			pub = isPublicStrict
+		}
+		for i := 0; i < 1<<16; i++ {
+			first := netip.AddrFrom4([4]byte{byte(i >> 8), byte(i), 0, 0})
+			last := netip.AddrFrom4([4]byte{byte(i >> 8), byte(i), 255, 255})
+			want := pub(first) && pub(last)
+			if got := publicPrefix(netip.PrefixFrom(first, 16), strict); got != want {
+				t.Fatalf("strict=%v: publicPrefix(%s/16) = %v, isPublic says %v", strict, first, got, want)
+			}
+			mapped := netip.AddrFrom16(first.As16())
+			if got := publicPrefix(netip.PrefixFrom(mapped, 112), strict); got != want {
+				t.Fatalf("strict=%v: publicPrefix(%s/112) = %v, isPublic says %v", strict, mapped, got, want)
+			}
+		}
+		for _, s := range []string{"::", "::1", "fc00::1", "fdff::1", "fe80::1", "febf::1", "ff00::1", "ff02::1"} {
+			a := netip.MustParseAddr(s)
+			if pub(a) || publicPrefix(netip.PrefixFrom(a, 128), strict) {
+				t.Errorf("strict=%v: %s: isPublic=%v publicPrefix=%v, want both false", strict, s, pub(a), publicPrefix(netip.PrefixFrom(a, 128), strict))
+			}
+		}
+		for _, s := range []string{"2001:db8::1", "2606:4700::1", "fbff::1", "fec0::1", "64:ff9b:2::1"} {
+			a := netip.MustParseAddr(s)
+			if !pub(a) || !publicPrefix(netip.PrefixFrom(a, 128), strict) {
+				t.Errorf("strict=%v: %s: isPublic=%v publicPrefix=%v, want both true", strict, s, pub(a), publicPrefix(netip.PrefixFrom(a, 128), strict))
+			}
+		}
+		for _, s := range []string{"64:ff9b::808:808", "64:ff9b:1::1"} { // NAT64: public unless strict
+			a := netip.MustParseAddr(s)
+			if pub(a) == strict || publicPrefix(netip.PrefixFrom(a, 128), strict) == strict {
+				t.Errorf("strict=%v: %s: isPublic=%v publicPrefix=%v", strict, s, pub(a), publicPrefix(netip.PrefixFrom(a, 128), strict))
+			}
+		}
+	}
+}
+
+// net:internet judges an IPv4-mapped address as the IPv4 address it names:
+// ::ffff:0.0.0.0 would dial the host.
+func TestInternetRefusesMappedSpecials(t *testing.T) {
+	pol, _ := Parse([]string{"net:internet"})
+	for _, s := range []string{"::ffff:0.0.0.0", "::ffff:127.0.0.1", "::ffff:10.0.0.1", "::ffff:169.254.169.254"} {
+		if pol.Allow(netip.MustParseAddr(s), 80) {
+			t.Errorf("net:internet admits %s", s)
+		}
+	}
+	if !pol.Allow(netip.MustParseAddr("::ffff:8.8.8.8"), 80) {
+		t.Error("net:internet refuses a mapped public address")
+	}
+}

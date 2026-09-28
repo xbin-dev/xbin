@@ -2,7 +2,8 @@
  * <bx-admin-binding view="grants|roles|providers|wiring"> — the admin
  * console's binding group: the grant table + approvals, the exposed-role
  * catalog, the interface providers, and the wiring of every requested slot
- * to a provider (net slots through bx-netrules, D54). One element for the
+ * to a provider (net slots and sandbox-net classes through bx-netrules,
+ * D54). One element for the
  * four sub-tabs because they share the interface model; it loads /bindings
  * itself and reports through bx-admin-err / bx-admin-refresh / bx-admin-tab.
  */
@@ -181,18 +182,23 @@ export class BxAdminBinding extends WithRouter(WithFilter(WithDrafts(LitElement)
   // decide what is offered and what is "not covered"), an unlisted bound ref
   // (lan:… / internet:… from `custom…`) shows as its own option, an inert
   // binding carries the server's reason, and `custom…` reveals a free-text
-  // input for the D35 filtered forms.
+  // input for the D35 filtered forms. A sandbox-net slot — a sandbox
+  // manager's network class — is the same row over sandboxNetOptions: no
+  // host, no provider tiles, unbound = no network.
   _netBindRow(r, d, bound, providers) {
     const pend = (d.pending ?? []).find((p) => p.component === r.comp && p.slot === r.slot);
     const org = this._orgOfTile(r.comp);
-    const opts = netOptions({ org, providers, pending: pend, options: d.netOptions?.[r.comp] });
+    const sandbox = r.def.kind === 'sandbox-net';
+    const opts = sandbox
+      ? netOptions({ org, pending: pend, options: d.sandboxNetOptions?.[r.comp], sandbox })
+      : netOptions({ org, providers, pending: pend, options: d.netOptions?.[r.comp] });
     const cur = bound[0] ?? '';
     const known = opts.some((o) => o.id === cur);
     const inert = d.inert?.[r.comp]?.[r.slot];
     const ck = `bindcustom:${r.comp}:${r.slot}`;
     const custom = this._draft(ck);
-    return html`<tr>
-      <td class="mono">${r.comp}</td><td>${r.slot}</td><td><span class="pill">net</span></td>
+    return html`<tr data-kind=${r.def.kind}>
+      <td class="mono">${r.comp}</td><td>${r.slot}</td><td><span class="pill" title=${sandbox ? 'a network class for this tile\'s sandboxes — not its own egress' : ''}>${r.def.kind}</span></td>
       <td>
         <select @change=${(e) => {
           const v = e.target.value, el = e.target;
@@ -260,7 +266,7 @@ export class BxAdminBinding extends WithRouter(WithFilter(WithDrafts(LitElement)
                 (r.def.kind !== 'http' || !r.def.service || e.service === r.def.service))
               .map((e) => e.ref)];
           const kind = html`<span class="pill">${r.def.kind}${r.def.service ? ':' + r.def.service : ''}${r.def.multi ? ' ×N' : ''}</span>`;
-          if (r.def.kind === 'net' && !r.def.multi) return this._netBindRow(r, d, bound, opts);
+          if ((r.def.kind === 'net' || r.def.kind === 'sandbox-net') && !r.def.multi) return this._netBindRow(r, d, bound, opts);
           if (r.def.multi) {
             return html`<tr>
               <td class="mono">${r.comp}</td><td>${r.slot}</td><td>${kind}</td>

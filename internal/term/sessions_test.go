@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/termwire"
 	"github.com/xbin-dev/xbin/internal/users"
 )
 
@@ -13,8 +14,8 @@ import (
 // PTY) exercise it; the reattach gate runs before any upgrade, so a stub is
 // enough there too.
 func stub(m *Manager, id, homeKey, cwd string, born time.Time) *Session {
-	s := &Session{ID: id, Cwd: cwd, homeKey: homeKey, born: born, lastActive: born,
-		clients: map[*client]struct{}{}, gpu: "none", api: true}
+	s := &Session{ID: id, Cwd: cwd, homeKey: homeKey, born: born,
+		hub: termwire.NewHub(maxScrollback), gpu: "none", api: true}
 	m.mu.Lock()
 	m.sessions[id] = s
 	m.mu.Unlock()

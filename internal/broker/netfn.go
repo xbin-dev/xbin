@@ -56,61 +56,59 @@ func (b *Broker) netBinding(comp string) string {
 	if !ok {
 		return ""
 	}
-	for slot, req := range c.Manifest.Interfaces {
-		if req.Kind != "net" {
-			continue
-		}
-		binding := b.Reg.Workspace().Bindings[comp][slot]
-		ref := binding.First()
-		hasSets := b.Users != nil && ceil.OwnerOrg() != "" && ceil.HasNetSets()
-		personal := false
-		if !hasSets && (ref == "" || ref == NetRefPersonal) {
-			uid, _, _ := b.personalNet(comp)
-			personal = uid != ""
-		}
-		switch {
-		case ref == "" && hasSets:
-			b.clearInertNet(comp)
-			return NetRefOrg
-		case ref == "" && personal:
-			b.clearInertNet(comp)
-			return NetRefPersonal
-		case ref == NetRefPersonal:
-			if !personal {
-				b.noteInertNet(comp, "bound to the personal network but its owner has none (no personal network sets) — no egress until a workspace admin attaches one")
-				return ""
-			}
-			b.clearInertNet(comp)
-			return NetRefPersonal
-		case ref == "", ref == NetRefNone:
-			b.clearInertNet(comp)
+	slot, ok := netIfaceSlot(c) // the name-sorted first: two net slots used to resolve in map order
+	if !ok {
+		return ""
+	}
+	binding := b.Reg.Workspace().Bindings[comp][slot]
+	ref := binding.First()
+	hasSets := b.Users != nil && ceil.OwnerOrg() != "" && ceil.HasNetSets()
+	personal := false
+	if !hasSets && (ref == "" || ref == NetRefPersonal) {
+		uid, _, _ := b.personalNet(comp)
+		personal = uid != ""
+	}
+	switch {
+	case ref == "" && hasSets:
+		b.clearInertNet(comp)
+		return NetRefOrg
+	case ref == "" && personal:
+		b.clearInertNet(comp)
+		return NetRefPersonal
+	case ref == NetRefPersonal:
+		if !personal {
+			b.noteInertNet(comp, "bound to the personal network but its owner has none (no personal network sets) — no egress until a workspace admin attaches one")
 			return ""
-		case ref == NetRefOrg:
-			if !hasSets {
-				b.noteInertNet(comp, "bound to org network but its owner has no network sets attached — no egress until a workspace admin attaches one")
-				return ""
-			}
-			b.clearInertNet(comp)
-			return NetRefOrg
-		case strings.HasPrefix(ref, NetRefSet): // a named set (D65): gone ⇒ inert; else the coverage rule below
-			if _, _, ok := b.netSetRuleTargets(ref); !ok {
-				b.noteInertNet(comp, "bound to network "+ref+", which no longer exists — rebind (GET /net-sets lists the sets)")
-				return ""
-			}
-			if reason := b.netUncovered(comp, slot, binding, ceil); hasSets && reason != "" {
-				b.noteInertNet(comp, reason)
-				return ""
-			}
-		case hasSets:
-			if reason := b.netUncovered(comp, slot, binding, ceil); reason != "" {
-				b.noteInertNet(comp, reason)
-				return ""
-			}
 		}
 		b.clearInertNet(comp)
-		return ref
+		return NetRefPersonal
+	case ref == "", ref == NetRefNone:
+		b.clearInertNet(comp)
+		return ""
+	case ref == NetRefOrg:
+		if !hasSets {
+			b.noteInertNet(comp, "bound to org network but its owner has no network sets attached — no egress until a workspace admin attaches one")
+			return ""
+		}
+		b.clearInertNet(comp)
+		return NetRefOrg
+	case strings.HasPrefix(ref, NetRefSet): // a named set (D65): gone ⇒ inert; else the coverage rule below
+		if _, _, ok := b.netSetRuleTargets(ref); !ok {
+			b.noteInertNet(comp, "bound to network "+ref+", which no longer exists — rebind (GET /net-sets lists the sets)")
+			return ""
+		}
+		if reason := b.netUncovered(comp, slot, binding, ceil); hasSets && reason != "" {
+			b.noteInertNet(comp, reason)
+			return ""
+		}
+	case hasSets:
+		if reason := b.netUncovered(comp, slot, binding, ceil); reason != "" {
+			b.noteInertNet(comp, reason)
+			return ""
+		}
 	}
-	return ""
+	b.clearInertNet(comp)
+	return ref
 }
 
 // netUncovered explains why a net binding falls outside the owning org's
@@ -484,7 +482,7 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 	}
 	for i := range pending {
 		pending[i].Approvable = !scoped || orgScope[pending[i].Component] || selfScope[pending[i].Component]
-		if selfScope[pending[i].Component] && pending[i].Kind == "net" {
+		if selfScope[pending[i].Component] && netKind(pending[i].Kind) {
 			pending[i].Options = b.markSelfBlocked(p.User.ID, pending[i].Options)
 		}
 	}
@@ -531,6 +529,10 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	sbxOpts := map[string][]bindOption{} // sandbox-net classes (sandboxnet.go): options, inert notes
+	for _, c := range comps {
+		b.addSandboxNetView(c.Component, !scoped, selfScope[c.Component], p, sbxOpts, inert)
+	}
 	// Every exposed endpoint in scope, bound or not, with all its routes and
 	// the sources it can take: the "add a hostname / port" data (D79) —
 	// pending lists a slot only while it has no route at all.
@@ -564,6 +566,8 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 		"inert":      inert,
 		"approvable": approvable,
 		"netOptions": netOpts,
+		// every visible component with sandbox-net slots → their option list
+		"sandboxNetOptions": sbxOpts,
 	})
 }
 
@@ -679,6 +683,8 @@ func (b *Broker) bindOptions(comp string, req registry.Iface, wsAdmin bool) []bi
 				tiles = append(tiles, o)
 			}
 		}
+	case registry.KindSandboxNet: // builtins only: no host, no provider tiles
+		builtins = b.sandboxNetBuiltinOptions(comp, wsAdmin)
 	case "http":
 		for _, p := range b.Reg.Components() {
 			if p.Path == comp {
@@ -721,7 +727,10 @@ func provideRole(def registry.Iface) string {
 // fields carry an exposed endpoint's config (plans/ingress.md ING-1/ING-2) —
 // binding IS the publish action, so they ride the same owner-gated call.
 // Restarts the component (its wiring changed) and, for a net provider, the
-// provider (its roster changed).
+// provider (its roster changed). An http slot's provider isn't restarted:
+// nothing of its spawn depends on who binds it (the binding's grant is
+// checked per call), and a restart would cut every other consumer's calls
+// in flight — a sandbox manager's relayed terminals and long polls.
 func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
 	var body struct {
@@ -822,10 +831,17 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.Hub.Publish(events.Event{Type: "grants", Component: body.Component})
+	if b.isSandboxNetSlot(body.Component, body.Slot) { // a sandbox class: no backend restarts
+		b.sandboxNetChanged(body.Component)
+		server.WriteOK(w)
+		return
+	}
 	if b.OnGrantChange != nil {
 		b.OnGrantChange(body.Component)
 		notify := []string{oldProvider}
-		if !del {
+		if b.isHTTPSlot(body.Component, body.Slot) {
+			notify = nil // neither its net provider's roster nor the http provider's spawn changed
+		} else if !del {
 			for _, e := range delta {
 				prov, _ := splitRef(e.Ref)
 				notify = append(notify, prov)
@@ -899,7 +915,7 @@ func (b *Broker) validateBinding(comp, slot string, binding registry.Binding) er
 	}
 	// Policy ceiling (D20): refuse binding net when a workspace/org row denies
 	// it (netBinding also enforces at resolution, so this is the friendly half).
-	if (def.Kind == "net" || def.Kind == "lan-ingress") && b.Users != nil {
+	if (netKind(def.Kind) || def.Kind == "lan-ingress") && b.Users != nil {
 		if row, ok := b.Users.Ceiling(comp).DenyRow(users.PolicyDenyNet); ok {
 			return fmt.Errorf("a policy row for tiles matching %q denies net for %s (workspace/org policy — see /docs/auth.md)", row.Tiles, comp)
 		}
@@ -910,52 +926,9 @@ func (b *Broker) validateBinding(comp, slot string, binding registry.Binding) er
 			return fmt.Errorf("a component can't be its own provider")
 		}
 		switch def.Kind {
-		case "net":
-			if inst != "" {
-				return fmt.Errorf("net bindings take no #instance")
-			}
-			if prov == NetRefNone {
-				continue
-			}
-			if prov == NetRefOrg { // the owning org's network sets (D54)
-				if b.Users == nil {
-					return fmt.Errorf("org egress needs the user store")
-				}
-				if _, isOrg := b.Users.OwnerOrg(comp); !isOrg {
-					return fmt.Errorf("org egress is for org-owned tiles; %s is %s — bind a concrete provider", comp, ownerLabel(b.Users.Owner(comp)))
-				}
-				continue
-			}
-			if prov == NetRefPersonal { // the owner's personal network sets (D88)
-				if b.Users == nil || !strings.HasPrefix(b.Users.Owner(comp), users.OwnerKindUser+":") {
-					return fmt.Errorf("personal egress is for personal (user-owned) tiles; %s is %s", comp, ownerLabel(b.Users.Owner(comp)))
-				}
-				continue
-			}
-			if name, isSet := netSetName(prov); isSet { // a named network set (D65; ws-admin only — apiBindingSet)
-				if b.Users == nil {
-					return fmt.Errorf("network-set bindings need the user store")
-				}
-				ns, ok := b.Users.NetSet(name)
-				if !ok {
-					return fmt.Errorf("no such network set %q (GET /net-sets lists them)", name)
-				}
-				if m, host := netSetMaterial(ns.Rules); !host && len(m) == 0 {
-					return fmt.Errorf("network set %q has no relay reach (provider rules only) — bind the provider tile, or none", name)
-				}
-				continue
-			}
-			if prov == "internet" || prov == "host" || strings.HasPrefix(prov, "lan:") {
-				continue
-			}
-			if strings.HasPrefix(prov, "internet:") { // filtered internet (D35)
-				if err := validateFilteredInternet(prov); err != nil {
-					return err
-				}
-				continue
-			}
-			if p, ok := b.Reg.Component(prov); !ok || !providesNet(p) {
-				return fmt.Errorf("%s does not provide net", prov)
+		case "net", registry.KindSandboxNet: // builtins, sets, provider tiles (sandboxnet.go)
+			if err := b.validateNetRef(comp, slot, def, ref); err != nil {
+				return err
 			}
 		case "lan-ingress":
 			// A service tile's leg into a router tile's subnet (ING-6).
@@ -1011,7 +984,7 @@ func (b *Broker) validateBinding(comp, slot string, binding registry.Binding) er
 	}
 	// Organisation network sets are the ceiling on an org-owned tile's net
 	// reach (D54) — for workspace admins too (they widen the set instead).
-	if def.Kind == "net" && b.Users != nil {
+	if netKind(def.Kind) && b.Users != nil {
 		if ceil := b.Users.Ceiling(comp); ceil.OwnerOrg() != "" && ceil.HasNetSets() {
 			if reason := b.netUncovered(comp, slot, binding, ceil); reason != "" {
 				return fmt.Errorf("%s — widen a network set (PUT /net-sets/<name>) or bind org/none", reason)

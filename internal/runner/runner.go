@@ -94,6 +94,9 @@ type Runner struct {
 	// the watcher/grant respawn paths (run.Changed) can't bring a disabled backend
 	// back. nil = always allowed. Wired to the registry lifecycle by main.
 	ShouldRun func(comp string) bool
+	// HoldReason says why ShouldRun refuses comp ("is disabled", "is held:
+	// …"), for Ensure's error; nil or "" = "is not enabled".
+	HoldReason func(comp string) string
 	// SpawnUser, when non-nil, returns uid/gid to run a component's backend
 	// as (auth tier 2, per-scope uids). nil = same-user (tier 1).
 	SpawnUser func(c *registry.Component) *syscall.Credential
@@ -148,8 +151,11 @@ type Runner struct {
 	// Cgroup, when set, attaches each backend to a per-component cgroup v2 leaf
 	// for memory/CPU/pids accounting (best-effort; nil-safe).
 	Cgroup *cgroup.Manager
-	VM     *vm.Manager // "vm" backends (vm.go); nil = none
-	vms    vmState
+	// TileCgroup is the tile sandboxes' cgroup parent: a kind-tile
+	// registry row's Leaf lives in it, not in Cgroup (nil: none).
+	TileCgroup *cgroup.Manager
+	VM         *vm.Manager // "vm" backends (vm.go); nil = none
+	vms        vmState
 	// Sandboxes lists every running generation (sbx.go, D112; nil-safe).
 	Sandboxes *sbx.Registry
 
@@ -197,7 +203,13 @@ func (r *Runner) Ensure(ctx context.Context, c *registry.Component) (string, err
 	// spawns — enforced here so no path (proxy, watcher rebuild, grant change)
 	// can start it. The proxy still 409s earlier for a nicer message.
 	if r.ShouldRun != nil && !r.ShouldRun(c.Path) {
-		return "", fmt.Errorf("component %s is not enabled", c.Path)
+		why := "is not enabled"
+		if r.HoldReason != nil {
+			if w := r.HoldReason(c.Path); w != "" {
+				why = w
+			}
+		}
+		return "", fmt.Errorf("component %s %s", c.Path, why)
 	}
 	s := r.state(c.Path)
 
@@ -316,7 +328,8 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state) error {
 	}
 	if err := waitHealthy(inst.sock, inst.waitCh, r.healthFor(c)); err != nil {
 		if !errors.Is(err, errExited) && r.wantsVM(c) {
-			r.sbxFail(c, sbx.Health, fmt.Errorf("the VM backend never listened: %w", err))
+			r.dumpVM(inst) // vm.go: what the guest was doing, into the log
+			r.sbxFail(c, sbx.Health, fmt.Errorf("the VM backend never listened: %w — what the VM was doing is in .xbin/log/%s.log", err, util.CompKey(c.Path)))
 		}
 		r.stop(inst, 2*time.Second)
 		err = fmt.Errorf("backend did not become healthy: %w", err)
@@ -522,10 +535,11 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 				inst.splicer = relay.Splice(fd, pfd)
 				inst.provider = provider
 			} else {
+				_ = syscall.Close(fd)
 				fmt.Fprintf(logf, "net provider %s link not ready — no egress\n", provider)
 			}
 		} else {
-			cfg := relay.Config{TunFD: fd, Allow: pol.Allow, Resolver: sandbox.HostResolver()}
+			cfg := relay.Config{TunFD: fd, CloseTUN: true, Allow: pol.Allow, Resolver: sandbox.HostResolver()}
 			if pol.HasHostRules() {
 				cfg.AllowHost = pol.AllowsHost // DNS-pinned hostname egress (D35)
 			}
@@ -577,6 +591,7 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 			if pfd, ok := r.netmux.get(ll.Provider, c.Path+"#"+ll.Slot); ok {
 				inst.linkSplicers = append(inst.linkSplicers, relay.Splice(fd, pfd))
 			} else {
+				_ = syscall.Close(fd)
 				fmt.Fprintf(logf, "lan-ingress provider %s link not ready for %s\n", ll.Provider, ll.Slot)
 			}
 		}
@@ -685,6 +700,9 @@ func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []
 		HostUID:      os.Getuid(),
 		HostGID:      os.Getgid(),
 		Unprivileged: true, // tile backends need no caps: drop them + seccomp block-list
+		// the env layer is the setup script's: its symlinks never place a
+		// mount point, the image's own may (WP-2b)
+		NoFollow: true, FollowBase: true, RootHint: envRootHint,
 	}
 	// Interface wiring (plans/interfaces.md): a net-provider tile gets one TUN per
 	// bound client; a component's `net` interface resolves to host-share, a splice

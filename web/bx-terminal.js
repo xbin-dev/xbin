@@ -1,7 +1,18 @@
 /**
- * <bx-terminal> — xterm.js wired to xbind's /ws/term PTY sessions.
+ * <bx-terminal> — xterm.js wired to xbind's /ws/term PTY sessions, or to any
+ * endpoint speaking the same terminal wire (`src`).
  *
  * Attributes/properties:
+ *   src      — a WebSocket endpoint on the terminal wire (docs/protocol.md §The
+ *              terminal wire) to connect to instead of xbind's /ws/term:
+ *              typically a sandbox manager's …/sbx/sandboxes/{id}/tty?cwd=
+ *              through the page's bound interface (docs/sandbox-manager.md).
+ *              A path on this host is dialled with the page's credential —
+ *              in a tile its frame token (xbin.ws), in chrome the session
+ *              cookie. cwd/net/gpu/api/vm don't apply. A drop reconnects
+ *              with backoff (a manager's route reattaches to the same
+ *              session); a clean close or an exit frame ends it (bx-exit).
+ *              Changing it starts over. Also a property. docs/elements.md.
  *   cwd      — component path to open the shell in (new session)
  *   net      — network scope for a new session: org | personal | internet | host | none;
  *              omit it for the tile's default (the org network on org-owned
@@ -30,6 +41,8 @@
  * auto (on when the RTT is over 100 ms), on, off. The 🔧 menu shows the RTT.
  */
 import { Predictor, srttUpdate, SRTT_SHOW } from '/vendor/term-predict.js';
+import { srcTarget, reattachSrc, canReattach, endedByClose, RETRIES, LIVED, backoff, exitWords } from '/vendor/term-src.js';
+import { sandboxed } from '/vendor/bx-kit.js';
 import { scrollCssText } from '/vendor/bx-scroll.js';
 
 // Load a classic script once per document. Several elements (the terminal,
@@ -50,8 +63,12 @@ const scriptOnce = (src) => {
   });
 };
 
+// A sandboxed tile frame (<bx-terminal src> in a tile) has no localStorage:
+// reading it throws there — the defaults then.
+const stored = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+
 function savedFontSize() {
-  const n = Number(localStorage.getItem('bx-term-fontsize'));
+  const n = Number(stored('bx-term-fontsize'));
   return n >= 7 && n <= 28 ? n : 12.5;
 }
 
@@ -78,7 +95,7 @@ const THEME_LABELS = {
 };
 
 function savedTheme() {
-  const t = localStorage.getItem('bx-term-theme');
+  const t = stored('bx-term-theme');
   return t && t in TERM_THEMES ? t : 'default';
 }
 
@@ -95,7 +112,8 @@ function loadXterm() {
 const enc = new TextEncoder();
 const PREDICT_MODES = ['auto', 'on', 'off'];
 function savedPredict() {
-  try { const v = localStorage.getItem('bx-term-predict'); return PREDICT_MODES.includes(v) ? v : 'auto'; } catch { return 'auto'; }
+  const v = stored('bx-term-predict');
+  return PREDICT_MODES.includes(v) ? v : 'auto';
 }
 
 export class BxTerminal extends HTMLElement {
@@ -107,6 +125,7 @@ export class BxTerminal extends HTMLElement {
   // decoration markers, the last rendered overlay, and the harness's ack hold
   #pred = new Predictor(); #seq = 0; #echoAck = false; #srtt = null; #layer = null; #overlay = []; #hold = null;
   #pingTimer = null; #nullCell = null;
+  #openedAt = 0; #failed = 0; // src mode: when this socket opened; handshakes in a row that never opened
   // #baseFont is the user's chosen terminal font size; #ambient is the workspace
   // zoom applied by an ancestor (bx-shell). xterm's actual fontSize is their
   // product, and the host counter-zooms by 1/#ambient — so the terminal looks
@@ -374,7 +393,7 @@ export class BxTerminal extends HTMLElement {
   #status() {
     const el = this.shadowRoot?.querySelector('.pstat');
     if (!el) return;
-    el.textContent = !this.#echoAck ? (this.#ws ? 'not supported by this xbind' : 'connecting…')
+    el.textContent = !this.#echoAck ? (this.#ws ? (this.getAttribute('src') ? 'not offered by this terminal' : 'not supported by this xbind') : 'connecting…')
       : `${this.#rttText()}${this.#pred.shown() ? ' · predicting' : ''}`;
   }
 
@@ -471,8 +490,15 @@ export class BxTerminal extends HTMLElement {
   // spawn), so a live change to `net` restarts the session: drop the current
   // session id and reconnect, which asks xbind for a fresh shell in the new
   // scope. (The caller is expected to have already ended the old session.)
-  static get observedAttributes() { return ['net', 'gpu', 'api', 'vm']; }
+  static get observedAttributes() { return ['net', 'gpu', 'api', 'vm', 'src']; }
   attributeChangedCallback(name, oldV, newV) {
+    // another src is another terminal: start over there (after an exit too)
+    if (name === 'src') {
+      if (oldV === newV || !this.#term || !this.isConnected) return;
+      this.#closed = false;
+      this.#restart(newV ? 'connecting…' : '');
+      return;
+    }
     if (!['net', 'gpu', 'api', 'vm'].includes(name) || oldV === null || oldV === newV || !this.#term) return;
     // The server reports the EFFECTIVE scope in its session frame (it may
     // clamp what was asked — D54); mirroring that into the attribute must not
@@ -485,13 +511,18 @@ export class BxTerminal extends HTMLElement {
     this.#restart(msg);
   }
 
+  // src: the terminal-wire endpoint this terminal dials instead of /ws/term
+  // (docs/elements.md); '' = xbind's /ws/term.
+  get src() { return this.getAttribute('src') || ''; }
+  set src(v) { if (v) this.setAttribute('src', String(v)); else this.removeAttribute('src'); }
+
   // restartFresh drops the current session and reconnects a brand-new one — used
   // after the persistent sandbox layer is reset out from under it.
   restartFresh() { if (this.#term) this.#restart('resetting sandbox…'); }
 
   #restart(msg) {
     this.removeAttribute('session');
-    this.#retries = 0;
+    this.#retries = 0; this.#failed = 0; // a fresh start: its own retries (another src after one gave up)
     if (msg) this.#term.write(`\r\n\x1b[90m[${msg}]\x1b[0m\r\n`);
     const old = this.#ws;
     this.#ws = null;
@@ -598,76 +629,27 @@ export class BxTerminal extends HTMLElement {
     this.#seq = 0; this.#echoAck = false; this.#pred.reset(); this.#pred.setLocalFrameSent(0); this.#pred.setLateAck(0);
     clearInterval(this.#pingTimer); this.#pingTimer = null;
     this.#status();
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const q = this.getAttribute('session')
-      ? `session=${encodeURIComponent(this.getAttribute('session'))}`
-      : `cwd=${encodeURIComponent(this.getAttribute('cwd') || '')}` +
-        // net is sent only when chosen; absent = the server's default for this
-        // tile (the org network on org-owned tiles, D54).
-        (this.getAttribute('net') ? `&net=${encodeURIComponent(this.getAttribute('net'))}` : '') +
-        `&gpu=${encodeURIComponent(this.getAttribute('gpu') || 'none')}` +
-        `&api=${this.getAttribute('api') === '0' ? '0' : '1'}` +
-        (this.getAttribute('vm') === '1' ? '&vm=1' : '');
-    const ws = new WebSocket(`${proto}//${location.host}/ws/term?${q}`);
+    const src = this.getAttribute('src');
+    const ws = src ? this.#dialSrc(src) : this.#dialTerm();
+    if (!ws) return;
     ws.binaryType = 'arraybuffer';
     this.#ws = ws;
 
     ws.onopen = () => {
       if (gen !== this.#gen) { ws.close(); return; } // superseded before it opened
-      this.#retries = 0;
+      if (!src) this.#retries = 0; // src: only once it stayed open (#closedSrc)
       this.#opened = true;
+      this.#openedAt = performance.now();
+      this.#failed = 0;
       this.#reattachFails = 0;
       const { cols, rows } = this.#term;
       ws.send(JSON.stringify({ op: 'resize', cols, rows }));
       this.#term.focus();
     };
-    ws.onmessage = (m) => {
-      if (gen !== this.#gen) { ws.close(); return; } // a stale socket must not drive the term
-      if (typeof m.data === 'string') {
-        let ctl; try { ctl = JSON.parse(m.data); } catch { return; }
-        if (ctl.op === 'session') {
-          this.setAttribute('session', ctl.id);
-          // a one-shot command to run on first connect (e.g. a sign-in), typed
-          // into the pty so its output (a clickable URL) is right there
-          if (!this.#ranInit) {
-            const run = this.getAttribute('run');
-            // binary, as typed input is: a text frame is control JSON, and
-            // anything else in one is dropped (internal/term/attach.go)
-            if (run) { this.#ranInit = true; try { this.#ws?.send(enc.encode(run + '\n')); } catch { } }
-          }
-          if (ctl.net) { this.#serverNet = ctl.net; this.setAttribute('net', ctl.net); }
-          // A clamp note ("host networking is admin-only — using the org
-          // network") is worth one gray line; the scope picker shows the rest.
-          if (ctl.netNote && ctl.id !== this.#notedSession) {
-            this.#notedSession = ctl.id;
-            this.#term.write(`\r\n\x1b[90m[${ctl.netNote}]\x1b[0m\r\n`);
-          }
-          this.dispatchEvent(new CustomEvent('bx-session', {
-            detail: { id: ctl.id, net: ctl.net, scopes: ctl.scopes, label: ctl.label, netNote: ctl.netNote, baseOutdated: !!ctl.baseOutdated, vm: !!ctl.vm },
-            bubbles: true }));
-          // this xbind acks input and answers pings: measure the link, keep measuring
-          this.#echoAck = !!ctl.echoAck;
-          this.#status();
-          if (this.#echoAck) {
-            this.#ping();
-            this.#pingTimer = setInterval(() => { if (document.visibilityState === 'visible') this.#ping(); }, 5000);
-          }
-        } else if (ctl.op === 'ack') {
-          if (typeof ctl.n === 'number') this.#onAck(ctl.n);
-        } else if (ctl.op === 'pong') {
-          this.#onPong(ctl.t);
-        } else if (ctl.op === 'exit') {
-          // Shell exited — the session is gone server-side. Let the host close
-          // this terminal (its tab/window), like a real terminal emulator.
-          this.#closed = true;
-          this.dispatchEvent(new CustomEvent('bx-exit', { bubbles: true }));
-        }
-        return;
-      }
-      this.#term.write(new Uint8Array(m.data));
-    };
-    ws.onclose = () => {
+    ws.onmessage = (m) => this.#onFrame(m, ws, gen, src);
+    ws.onclose = (ev) => {
       if (this.#closed || gen !== this.#gen) return; // stale socket (superseded) → don't reconnect
+      if (src) { this.#closedSrc(ev, gen); return; }
       const reattaching = !!this.getAttribute('session');
       // A reattach whose handshake never succeeded almost always means the
       // session is gone (xbind 404s an unknown id — e.g. a stale id restored
@@ -688,6 +670,122 @@ export class BxTerminal extends HTMLElement {
     };
   }
 
+  // #dialTerm opens xbind's /ws/term: a reattach by session id, or a new
+  // session with the scope attributes.
+  #dialTerm() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const q = this.getAttribute('session')
+      ? `session=${encodeURIComponent(this.getAttribute('session'))}`
+      : `cwd=${encodeURIComponent(this.getAttribute('cwd') || '')}` +
+        // net is sent only when chosen; absent = the server's default for this
+        // tile (the org network on org-owned tiles, D54).
+        (this.getAttribute('net') ? `&net=${encodeURIComponent(this.getAttribute('net'))}` : '') +
+        `&gpu=${encodeURIComponent(this.getAttribute('gpu') || 'none')}` +
+        `&api=${this.getAttribute('api') === '0' ? '0' : '1'}` +
+        (this.getAttribute('vm') === '1' ? '&vm=1' : '');
+    return new WebSocket(`${proto}//${location.host}/ws/term?${q}`);
+  }
+
+  // #dialSrc opens src (or, with a session to go back to, where it
+  // reattaches): a path on this host with the page's credential — the frame
+  // token in a sandboxed tile (xbin.ws), the session cookie in chrome — any
+  // other ws(s) URL as it is.
+  #dialSrc(src) {
+    const t = srcTarget(reattachSrc(src, this.getAttribute('session')), document.baseURI);
+    try {
+      if (!t) throw new Error(`not a terminal address: ${src}`);
+      if (t.url) return new WebSocket(t.url);
+      const x = globalThis.xbin;
+      if (sandboxed() && x && x.ws) return x.ws(t.path);
+      return new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}${t.path}`);
+    } catch (e) {
+      this.#term.write(`\r\n\x1b[31m[${e.message}]\x1b[0m\r\n`);
+      return null;
+    }
+  }
+
+  // #closedSrc: a src socket closed without an exit frame. A clean close ends
+  // the terminal; a drop reconnects with backoff — to the same session where
+  // src names its sessions — starting over only once a socket stayed open
+  // LIVED ms. A handshake that never opened (refused: the page can't see
+  // why, or unreachable) is retried once; a reattach that fails twice starts
+  // a fresh session instead.
+  #closedSrc(ev, gen) {
+    const src = this.getAttribute('src');
+    if (this.#opened && endedByClose(ev.code)) { this.#ended('connection closed'); return; }
+    if (this.#opened && performance.now() - this.#openedAt >= LIVED) this.#retries = 0;
+    const reattaching = !!this.getAttribute('session') && canReattach(src);
+    if (!this.#opened) {
+      if (reattaching && ++this.#reattachFails >= 2) { this.#restart('previous session gone — starting fresh…'); return; }
+      if (!reattaching && ++this.#failed >= 2) {
+        this.#term.write('\r\n\x1b[31m[could not open the terminal — refused, or out of reach]\x1b[0m\r\n');
+        return;
+      }
+    }
+    if (this.#retries >= RETRIES) { this.#term.write('\r\n\x1b[31m[disconnected]\x1b[0m\r\n'); return; }
+    const wait = backoff(this.#retries++);
+    if (this.#opened) this.#term.write(`\r\n\x1b[90m[reconnecting…]\x1b[0m\r\n`);
+    setTimeout(() => { if (!this.#closed && gen === this.#gen) this.#connect(); }, wait);
+  }
+
+  // #ended: the session is over (an exit frame, a clean close) — say so, and
+  // let the host decide (bx-exit).
+  #ended(words, detail = {}) {
+    this.#closed = true;
+    clearInterval(this.#pingTimer);
+    if (this.getAttribute('src')) this.#term.write(`\r\n\x1b[90m[${words}]\x1b[0m\r\n`);
+    this.dispatchEvent(new CustomEvent('bx-exit', { bubbles: true, detail }));
+  }
+
+  // #onFrame handles one message from the server (either wire flavour).
+  #onFrame(m, ws, gen, src) {
+    if (gen !== this.#gen) { ws.close(); return; } // a stale socket must not drive the term
+    if (typeof m.data === 'string') {
+      let ctl; try { ctl = JSON.parse(m.data); } catch { return; }
+      if (ctl.op === 'session') {
+        this.setAttribute('session', ctl.id);
+        // a one-shot command to run on first connect (e.g. a sign-in), typed
+        // into the pty so its output (a clickable URL) is right there
+        if (!this.#ranInit) {
+          const run = this.getAttribute('run');
+          // binary, as typed input is: a text frame is control JSON, and
+          // anything else in one is dropped (internal/termwire)
+          if (run) { this.#ranInit = true; try { this.#ws?.send(enc.encode(run + '\n')); } catch { } }
+        }
+        if (ctl.net) { this.#serverNet = ctl.net; this.setAttribute('net', ctl.net); }
+        // A clamp note ("host networking is admin-only — using the org
+        // network") is worth one gray line; the scope picker shows the rest.
+        if (ctl.netNote && ctl.id !== this.#notedSession) {
+          this.#notedSession = ctl.id;
+          this.#term.write(`\r\n\x1b[90m[${ctl.netNote}]\x1b[0m\r\n`);
+        }
+        this.dispatchEvent(new CustomEvent('bx-session', {
+          detail: { id: ctl.id, net: ctl.net, scopes: ctl.scopes, label: ctl.label, netNote: ctl.netNote, baseOutdated: !!ctl.baseOutdated, vm: !!ctl.vm },
+          bubbles: true }));
+        // this xbind acks input and answers pings: measure the link, keep measuring
+        this.#echoAck = !!ctl.echoAck;
+        this.#status();
+        if (this.#echoAck) {
+          this.#ping();
+          this.#pingTimer = setInterval(() => { if (document.visibilityState === 'visible') this.#ping(); }, 5000);
+        }
+      } else if (ctl.op === 'ack') {
+        if (typeof ctl.n === 'number') this.#onAck(ctl.n);
+      } else if (ctl.op === 'pong') {
+        this.#onPong(ctl.t);
+      } else if (ctl.op === 'exit') {
+        // Shell exited — the session is gone server-side. Let the host close
+        // this terminal (its tab/window), like a real terminal emulator; a
+        // src terminal says how it ended (its host may keep it open).
+        if (src) { this.#ended(exitWords(ctl), { code: ctl.code ?? null, signal: ctl.signal || '' }); return; }
+        this.#closed = true;
+        this.dispatchEvent(new CustomEvent('bx-exit', { bubbles: true }));
+      }
+      return;
+    }
+    this.#term.write(new Uint8Array(m.data));
+  }
+
   // testApi: stable names for the UI harness (hack/ui-harness), which may not
   // touch private state. Reads and writes existing state; nothing here is
   // used by the element itself.
@@ -705,6 +803,19 @@ export class BxTerminal extends HTMLElement {
       get anchor() { return t.#pred.anchor; },
       get cursor() { const b = t.#term?.buffer.active; return b ? { row: b.cursorY, col: b.cursorX } : null; },
       screenLine: (row) => { const b = t.#term?.buffer.active; return b?.getLine(b.baseY + row)?.translateToString(true) ?? ''; },
+      // the whole buffer (scrollback too) as text, a line per logical line
+      // (a row the terminal wrapped joins the one before); the grid; the socket's state
+      text: () => {
+        const b = t.#term?.buffer.active, out = [];
+        for (let i = 0; b && i < b.length; i++) {
+          const l = b.getLine(i);
+          if (l?.isWrapped && out.length) out[out.length - 1] += l.translateToString(true);
+          else out.push(l?.translateToString(true) ?? '');
+        }
+        return out.join('\n');
+      },
+      get size() { return t.#term ? { cols: t.#term.cols, rows: t.#term.rows } : null; },
+      get open() { return t.#ws?.readyState === WebSocket.OPEN; },
       // hold acks (the newest is applied on release): a local PTY echoes
       // within a millisecond, so this is how a pass sees a prediction pending
       holdAcks(on) {

@@ -65,7 +65,9 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   // Runtime call rights this component wants (docs/auth.md). Targets are
   // component paths, resources ("res:<scope>/<name>"), reserved capabilities
   // ("cap:open-links" — links in new tabs from the frontend; "cap:net-admin",
-  // "cap:containers" — admin-only), or — under isolation (xbind --isolate) —
+  // "cap:containers" — admin-only; "cap:sandboxes" — a sandbox manager's
+  // backend drives xbind's tile sandboxes, approved by a workspace admin
+  // only), or — under isolation (xbind --isolate) —
   // GPUs ("gpu:all", "gpu:<index>", or "gpu:<uuid>"). All are owner-approved
   // grants. (Network egress is NOT a use — it is a "net" interface the owner
   // binds, below.)
@@ -88,8 +90,15 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   // endpoint, "service": "<contract>"), stream (a raw TCP dependency — bind
   // to a sibling's exposed stream slot, "provider#slot"; injected as
   // XBIN_IFACE_<slot>_ADDR), lan-ingress (an inbound link into a router/VPN
-  // tile's subnet; injected as XBIN_IFACE_<slot>_IP), and — provide-side —
-  // ingress (an HTTP ingress terminator tile, docs/ingress.md).
+  // tile's subnet; injected as XBIN_IFACE_<slot>_IP), sandbox-net (request
+  // side only: a class of network for the sandboxes a sandbox-manager tile
+  // runs, not its own egress — bound like net to none/internet/
+  // internet:<spec>/lan:<cidr>/org/personal/set:<name>, never host or a
+  // provider tile; unbound = no network; (re)binding one restarts nothing;
+  // a sandbox selects it as "class:<slot>"; slot names are
+  // [a-z0-9][a-z0-9_-]{0,31}; see
+  // /docs/isolation.md §Network egress), and — provide-side — ingress (an
+  // HTTP ingress terminator tile, docs/ingress.md).
   //
   // Multiplicity (http only): a REQUEST slot with "multi": true explicitly
   // accepts a SET of bindings — the backend gets XBIN_IFACE_<slot> as a JSON
@@ -365,6 +374,63 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
 
 Frames nest. The root page is itself a component full of frames; you can
 frame the root inside the root if you enjoy that sort of thing.
+
+### `<bx-terminal>`
+
+The terminal of `<bx-frame>`'s pop-up: xterm.js with predictive echo (D70),
+the 🔧 menu (theme, font size, prediction) and Ctrl+scroll for the font
+size. It speaks the terminal wire ([protocol.md](protocol.md) §The terminal
+wire) to one of two places:
+
+- **xbind's `/ws/term`** — the `cwd`, `net`, `gpu`, `api`, `vm` and
+  `session` attributes: a shell on a tile, for people with the terminal
+  level. The shell uses this; its shape follows the shell.
+- **`src`** (attribute or property) — any endpoint on the terminal wire,
+  from a tile's own page. Typically a sandbox manager's terminal through
+  your bound interface ([sandbox-manager.md](sandbox-manager.md)
+  §Terminals):
+
+  ```js
+  import '/vendor/bx-terminal.js';
+  const m = xbin.iface('sandboxes').endpoints[0];   // {provider, instance?, url}
+  const t = document.createElement('bx-terminal');
+  t.src = `${m.url}/sbx/sandboxes/${id}/tty?cwd=${encodeURIComponent('/work')}`;
+  t.addEventListener('bx-session', (e) => { execId = e.detail.id; });
+  t.addEventListener('bx-exit', (e) => console.log('ended', e.detail.code));
+  box.append(t);   // give it a height: it fills its box
+  ```
+
+  A path on this host is dialled with your page's credential: in a tile
+  its frame token (`xbin.ws`), so the callee sees your tile as
+  `X-XBin-From` and the signed-in person as `X-XBin-User`; in chrome the
+  session cookie. A `ws:`/`wss:` URL on another host is dialled as it is,
+  with no credential. Every connect sends the terminal's size first; the
+  `session` frame's id lands in the `session` attribute; with `echoAck`
+  the terminal predicts as it does on `/ws/term`.
+  - **A drop** (1006, 1001, an error code) reconnects with backoff — 500 ms
+    doubling to 10 s, six tries, counted afresh once a socket stayed open
+    5 s — keeping the screen. A sandbox manager's route
+    (`…/sbx/sandboxes/{id}/tty`) reattaches to the same exec
+    (`…/execs/{session}/tty`: its ring replays); any other `src` is dialled
+    again, and whether that is the same shell is its server's call.
+  - **A refused handshake** can't be read by a page (the socket just
+    closes): after two in a row the terminal says it could not open and
+    stops — check what you can before connecting. A reattach refused twice
+    starts a fresh session at `src`.
+  - **The end**: an `exit` frame, or a clean close (1000, or none), prints
+    how it ended and fires `bx-exit` (`detail: {code, signal}`); the
+    element stays, for its host to close or reuse.
+  - **Another `src`** starts over there (after an exit too). Leaving the
+    page, or removing the element, closes the socket and leaves the command
+    running; ending it is the endpoint's route — a manager's `DELETE
+    …/sbx/sandboxes/{id}/execs/{session}`.
+
+Events: `bx-session` (`detail.id`; on `/ws/term` also the scope fields) and
+`bx-exit`. Theme, font size and prediction are kept in `localStorage` where
+the document has one; a sandboxed tile has none, and gets the defaults.
+Escape goes to the program in the terminal — don't put it in a modal
+`<dialog>`, which closes on Escape (the agent template's terminal pane is a
+fixed panel for that reason).
 
 ### Native app UI (`native.js`)
 

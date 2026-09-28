@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/sys/unix"
 )
@@ -53,6 +54,41 @@ func openIn(root, sub, rel string) (*os.File, error) {
 		return nil, &os.PathError{Op: "open", Path: full, Err: err}
 	}
 	return fileOf(fd, full)
+}
+
+// mkdirAllIn makes each step of sub with mkdirat on the directory fd the
+// previous step opened with RESOLVE_NO_SYMLINKS: mkdir never follows its
+// last component, and the open refuses a link, so nothing is made or
+// entered anywhere but beneath root, along sub, whatever races.
+func mkdirAllIn(root, sub string, perm os.FileMode) error {
+	fd, err := unix.Open(root, unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return &os.PathError{Op: "open", Path: root, Err: err}
+	}
+	name := root
+	for _, seg := range strings.Split(filepath.ToSlash(sub), "/") {
+		name = filepath.Join(name, seg)
+		if err := unix.Mkdirat(fd, seg, uint32(perm.Perm())); err != nil && !errors.Is(err, unix.EEXIST) {
+			unix.Close(fd)
+			return &os.PathError{Op: "mkdir", Path: name, Err: err}
+		}
+		next, err := unix.Openat2(fd, seg, &unix.OpenHow{
+			Flags:   unix.O_PATH | unix.O_DIRECTORY | unix.O_CLOEXEC,
+			Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
+		})
+		unix.Close(fd)
+		switch {
+		case errors.Is(err, unix.ENOSYS):
+			return mkdirAllInFallback(root, sub, perm) // pre-5.6 kernel
+		case errors.Is(err, unix.ELOOP), errors.Is(err, unix.EXDEV):
+			return &os.PathError{Op: "mkdir", Path: name, Err: ErrEscapes}
+		case err != nil:
+			return &os.PathError{Op: "mkdir", Path: name, Err: err}
+		}
+		fd = next
+	}
+	unix.Close(fd)
+	return nil
 }
 
 func openResolved(root, rel string, allow func(string) bool) (*os.File, string, error) {

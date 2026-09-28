@@ -107,8 +107,10 @@ func TestProbeCacheAndHealth(t *testing.T) {
 	}
 }
 
-// Disks are listed by stat alone: a sparse image's allocation is small, and
-// a symlink in its place is skipped.
+// Disks are listed by stat alone, from the terminal layers and the tile
+// sandboxes' cur/ (named by the state dir's `<name>.<uid>`): a sparse
+// image's allocation is small, a symlink in a disk's or a cur/'s place is
+// skipped, and so is a disk outside a `<name>.<uid>` dir.
 func TestListDisks(t *testing.T) {
 	root := t.TempDir()
 	m := &Manager{Root: root}
@@ -122,8 +124,28 @@ func TestListDisks(t *testing.T) {
 	evil := filepath.Join(root, ".xbin", "term", "apps~y", "vm")
 	os.MkdirAll(evil, 0o700)
 	os.Symlink(p, filepath.Join(evil, "disk.img"))
+	sbx := filepath.Join(root, ".xbin", "sbx", "apps~m-1")
+	sp, err := EnsureDiskAt(filepath.Join(sbx, "web.0123456789ab", "cur"), 2<<30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evil = filepath.Join(sbx, "evil.0123456789ab", "cur", "vm")
+	os.MkdirAll(evil, 0o700)
+	os.Symlink(sp, filepath.Join(evil, "disk.img"))
+	os.MkdirAll(filepath.Join(sbx, "link.0123456789ab"), 0o700)
+	os.Symlink(filepath.Join(sbx, "web.0123456789ab", "cur"), filepath.Join(sbx, "link.0123456789ab", "cur"))
+	for _, d := range []string{"web", ".trash"} { // no uid; not a sandbox's
+		if _, err := EnsureDiskAt(filepath.Join(sbx, d, "cur"), 1<<20); err != nil {
+			t.Fatal(err)
+		}
+	}
 	d := ListDisks(root)
-	if len(d) != 1 || d[0].Key != "apps~x" || d[0].Path != p || d[0].ApparentBytes != 1<<30 || d[0].AllocatedBytes >= 1<<20 {
+	if len(d) != 2 || d[0].Kind != DiskTerminal || d[0].Key != "apps~x" || d[0].Sandbox != "" || d[0].Path != p ||
+		d[0].ApparentBytes != 1<<30 || d[0].AllocatedBytes >= 1<<20 {
 		t.Fatalf("disks: %+v", d)
+	}
+	if d[1].Kind != DiskTile || d[1].Key != "apps~m-1" || d[1].Sandbox != "web" || d[1].SandboxUID != "0123456789ab" || d[1].Path != sp ||
+		d[1].ApparentBytes != 2<<30 || d[1].AllocatedBytes >= 1<<20 {
+		t.Fatalf("tile sandbox disk: %+v", d[1])
 	}
 }

@@ -16,6 +16,10 @@
 #                       every pass, or just the named ones (node shots.js --list)
 #   ./run.sh --stop     stop xbind
 #   TILE_ASSETS=tokens|origins ./run.sh …   the same under strict tile asset gating
+#   ISOLATE=1 [ROOTFS=dir] ./run.sh … sandboxes   xbind --isolate over ROOTFS (the
+#                       repo's .rootfs): tile sandboxes run live, and the
+#                       sandboxes pass drives one; the other passes are
+#                       written for the default, unisolated harness
 set -euo pipefail
 H="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$H/../.." && pwd)"
@@ -38,11 +42,21 @@ else
 fi
 export OUT="$HARNESS_DIR/out"
 export REPO
+export HARNESS_ISOLATE=${ISOLATE:-}
+iso_flags=()
+if [[ -n "$HARNESS_ISOLATE" ]]; then
+  ROOTFS=${ROOTFS:-$REPO/.rootfs}
+  [[ -x "$ROOTFS/bin/sh" ]] || { echo "ISOLATE=1: no rootfs at $ROOTFS (make rootfs, or ROOTFS=dir)" >&2; exit 1; }
+  iso_flags=(--isolate --rootfs "$ROOTFS")
+fi
 # the scripted OpenAI-compatible upstream the agentTemplate pass talks to
 # through llm-gw (hack/fakeopenai)
 export FAKEOPENAI_ADDR=${FAKEOPENAI_ADDR:-127.0.0.1:$((PORT + 10280))}
 # the ingress listener the channels pass's webhooks arrive on
 export INGRESS_ADDR=${INGRESS_ADDR:-127.0.0.1:$((PORT + 1))}
+# the host port the sandbox-terminal tile's SSH is published on (the
+# sandboxTerminal pass logs in there with OpenSSH)
+export SBXTERM_SSH_ADDR=${SBXTERM_SSH_ADDR:-127.0.0.1:$((PORT + 2))}
 mkdir -p "$OUT"
 mode="${1:-}"
 [[ $# -gt 0 ]] && shift
@@ -72,7 +86,7 @@ start() {
   # against this checkout's sdk/.
   (cd "$REPO" && nohup bin/fakeopenai -addr "$FAKEOPENAI_ADDR" > "$HARNESS_DIR/fakeopenai.log" 2>&1 < /dev/null &)
   (cd "$REPO" && XBIN_AGENT_FAKE="$REPO/bin/fakeacp" XBIN_BIN="$REPO/bin" XBIN_SDK_PATH="$REPO/sdk" nohup bin/xbind --dev --dev-overlay "$REPO/workspace-template" --workspace "$WS" --listen "127.0.0.1:$PORT" \
-      --ingress-listen "$INGRESS_ADDR" --external-url "$URL" "${asset_flags[@]}" > "$HARNESS_DIR/xbind.log" 2>&1 < /dev/null &)
+      --ingress-listen "$INGRESS_ADDR" --external-url "$URL" "${asset_flags[@]}" "${iso_flags[@]}" > "$HARNESS_DIR/xbind.log" 2>&1 < /dev/null &)
   for _ in $(seq 1 60); do curl -sf -o /dev/null "$URL/login" && return 0; sleep 0.25; done
   echo "xbind did not come up; see $H/xbind.log" >&2; exit 1
 }

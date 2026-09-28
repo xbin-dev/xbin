@@ -10,10 +10,11 @@ you could SSH into). It is gone from the Tile Manager's Import tab and from
 
 Coding sandboxes come from **sandbox managers** instead: tiles that provide
 the `sandbox-manager` service ([sandbox-manager.md](../sandbox-manager.md),
-protocol 1). The builtin ones are on their way: the **`coding-sandbox`**
-template (sandboxes on xbind's own VM runtime) and the **`sandbox-terminal`**
-tile (browser terminals and SSH into sandboxes, for people). The agent
-template will bind the same managers for its coding tools.
+protocol 1). The builtin manager, the **`coding-sandbox`** template
+(sandboxes on xbind's own VM runtime), is on its way; the
+**`sandbox-terminal`** tile (browser terminals and SSH into sandboxes, for
+people) ships since 2026-09-28. The agent template binds the same managers
+for its coding tools.
 
 `cap:containers` is unchanged: any tile may still run containers the way
 [2026-07-14-container-tiles.md](2026-07-14-container-tiles.md) describes.
@@ -39,9 +40,11 @@ template will bind the same managers for its coding tools.
   then revoke its `cap:containers` grant and remove its ingress mapping (the
   SSH port you published with `bx expose`), if you made them.
 - **For coding sandboxes**, use a sandbox manager: the `coding-sandbox`
-  template and the `sandbox-terminal` tile once they ship, or your own tile
-  implementing [sandbox-manager.md](../sandbox-manager.md) — for example one
-  that drives a cloud's API and ssh.
+  template once it ships, or your own tile implementing
+  [sandbox-manager.md](../sandbox-manager.md) — for example one that drives
+  a cloud's API and ssh. For SSH into them, import the `sandbox-terminal`
+  tile (`bx tile import sandbox-terminal`), bind it to the manager and
+  publish its `ssh` port — what devbox's SSH port was for.
 
 ## Why
 

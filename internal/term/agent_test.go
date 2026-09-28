@@ -323,10 +323,7 @@ func TestAgentSessionEndToEnd(t *testing.T) {
 	m.mu.Lock()
 	s := m.sessions[id]
 	m.mu.Unlock()
-	s.mu.Lock()
-	moved := s.lastActive.After(s.born)
-	s.mu.Unlock()
-	if !moved {
+	if !s.hub.LastActive().After(s.born) {
 		t.Fatal("lastActive did not move")
 	}
 

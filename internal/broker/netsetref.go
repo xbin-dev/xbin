@@ -1,9 +1,11 @@
 package broker
 
 import (
+	"slices"
 	"sort"
 	"strings"
 
+	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/users"
 )
 
@@ -55,25 +57,43 @@ func (b *Broker) netSetRuleTargets(ref string) (targets []string, host, ok bool)
 	return targets, host, true
 }
 
-// netSetBoundTiles lists the components whose net slot is STORED as
-// set:<name>, anywhere — personal and workspace tiles included: the delete
-// guard (409 while bound) and the restart fan-out after an edit.
+// netSetBoundTiles lists the components with a net or sandbox-net slot
+// STORED as set:<name>, anywhere — personal and workspace tiles included:
+// the delete guard (409 while bound) and GET /net-sets' boundBy.
 func (b *Broker) netSetBoundTiles(name string) []string {
-	var out []string
+	net, sbx := b.netSetBoundBy(name)
+	out := append(net, sbx...)
+	sort.Strings(out)
+	return slices.Compact(out)
+}
+
+// netSetBoundBy splits the tiles bound to set:<name> by what an edit does to
+// them: net lists those whose own net slot is bound (their backend
+// restarts), sbx those with a sandbox-net class bound (the runtime
+// re-resolves their sandboxes, sandboxnet.go). Both sorted.
+func (b *Broker) netSetBoundBy(name string) (net, sbx []string) {
 	for comp, slots := range b.Reg.Workspace().Bindings {
 		c, ok := b.Reg.Component(comp)
 		if !ok {
 			continue
 		}
+		var isNet, isSbx bool
 		for slot, req := range c.Manifest.Interfaces {
-			if req.Kind == "net" && slots[slot].First() == NetRefSet+name {
-				out = append(out, comp)
-				break
+			if slots[slot].First() == NetRefSet+name {
+				isNet = isNet || req.Kind == "net"
+				isSbx = isSbx || req.Kind == registry.KindSandboxNet
 			}
 		}
+		if isNet {
+			net = append(net, comp)
+		}
+		if isSbx {
+			sbx = append(sbx, comp)
+		}
 	}
-	sort.Strings(out)
-	return out
+	sort.Strings(net)
+	sort.Strings(sbx)
+	return net, sbx
 }
 
 // orgNetDefault reports whether an org-owned component's unbound net slot

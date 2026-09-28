@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -564,7 +565,17 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/api/")
 	if rest == "xbin" || strings.HasPrefix(rest, "xbin/") {
 		r2 := r.Clone(r.Context())
-		r2.URL.Path = "/" + strings.TrimPrefix(strings.TrimPrefix(rest, "xbin"), "/")
+		if !xbinInner(r.URL, r2.URL) {
+			http.NotFound(w, r)
+			return
+		}
+		if dotSegment(r2.URL.Path) {
+			// encoded (%2E): a plain one never gets here, the outer mux
+			// redirects it. Handlers never see "." or ".." as a segment.
+			WriteJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "the path has an encoded dot segment", "refusal": "invalid"})
+			return
+		}
 		if auditable(r.Method, r2.URL.Path) {
 			aw := &auditWriter{ResponseWriter: w, status: http.StatusOK}
 			s.apiMux.ServeHTTP(aw, r2)
@@ -587,6 +598,49 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.ComponentAPI.ServeHTTP(w, r)
+}
+
+// xbinInner sets in's Path and RawPath to what follows /api/xbin in u, both
+// cut from the escaped path, so they stay one path. The inner mux routes on
+// EscapedPath: a RawPath left as the outer one no longer encodes Path, so it
+// would be dropped and an encoded "/" (x%2Fstop) routed as a separator.
+// false when the escaped path's first two segments aren't api and xbin (a
+// "/" encoded inside the prefix): a 404, as http.StripPrefix answers.
+func xbinInner(u, in *url.URL) bool {
+	segs := strings.SplitN(u.EscapedPath(), "/", 4) // "", api, xbin, rest
+	if len(segs) < 3 || segs[0] != "" {
+		return false
+	}
+	for i, want := range []string{"api", "xbin"} {
+		if s, err := url.PathUnescape(segs[i+1]); err != nil || s != want {
+			return false
+		}
+	}
+	raw := "/"
+	if len(segs) == 4 {
+		raw += segs[3]
+	}
+	p, err := url.PathUnescape(raw)
+	if err != nil {
+		return false
+	}
+	in.Path, in.RawPath = p, ""
+	if raw != in.EscapedPath() { // only a non-default encoding is kept
+		in.RawPath = raw
+	}
+	return true
+}
+
+// dotSegment reports a "." or ".." segment in a decoded path. Before the
+// inner path kept its encoding, the inner mux cleaned such a path into a
+// redirect, so no /api/xbin handler has ever had to refuse one.
+func dotSegment(p string) bool {
+	for _, s := range strings.Split(p, "/") {
+		if s == "." || s == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) handleEventsWS(w http.ResponseWriter, r *http.Request) {
@@ -667,7 +721,31 @@ func auditable(method, path string) bool {
 	if strings.HasPrefix(path, "/term/sessions/") && (strings.HasSuffix(path, "/prompt") || strings.HasSuffix(path, "/cancel") || strings.HasSuffix(path, "/options") || strings.Contains(path, "/permissions/") || strings.Contains(path, "/elicitations/")) {
 		return false
 	}
-	return true
+	return !sandboxDataPlane(method, path)
+}
+
+// sandboxDataPlane: driving a tile sandbox (D120) — its commands, their
+// input, signals and resizes, file writes, tar uploads and copies — is the
+// same plane as an agent session's drive routes. Definitions, lifecycle,
+// snapshots and the policy stay audited.
+func sandboxDataPlane(method, path string) bool {
+	seg := strings.Split(strings.Trim(path, "/"), "/")
+	if len(seg) < 2 || seg[0] != "sandboxes" {
+		return false
+	}
+	switch {
+	case len(seg) == 2:
+		return method == http.MethodPost && seg[1] == "copy"
+	case len(seg) == 3:
+		return (method == http.MethodPost && (seg[2] == "run" || seg[2] == "execs")) ||
+			(method == http.MethodPut && seg[2] == "tar")
+	case len(seg) == 4 && seg[2] == "files":
+		return method == http.MethodPut && seg[3] == "content" ||
+			method == http.MethodPost && (seg[3] == "mkdir" || seg[3] == "remove" || seg[3] == "move")
+	case len(seg) == 5 && seg[2] == "execs":
+		return method == http.MethodPost && (seg[4] == "stdin" || seg[4] == "signal" || seg[4] == "resize")
+	}
+	return false
 }
 
 // auditWriter records the response status for an audit line (bytes/streaming

@@ -2,6 +2,8 @@
 
 package cgroup
 
+import "os"
+
 // Usage is a snapshot of one cgroup's resource accounting.
 type Usage struct {
 	MemCurrent  int64 `json:"memCurrent"`
@@ -15,6 +17,9 @@ type Limits struct {
 	MemMax    int64
 	PidsMax   int64
 	CPUWeight int64
+	MemHigh   int64
+	CPUMax    int64
+	NoSwap    bool
 }
 
 // Manager is a no-op off Linux.
@@ -22,10 +27,19 @@ type Manager struct{}
 
 func New() *Manager                                    { return &Manager{} }
 func (m *Manager) Enabled() bool                       { return false }
-func (m *Manager) SetLimits(Limits)                    {}
+func (m *Manager) SetLimits(Limits) error              { return nil }
 func (m *Manager) Add(string, int)                     {}
 func (m *Manager) AddMem(string, int, int64)           {}
 func (m *Manager) Usage(string) (Usage, bool)          { return Usage{}, false }
 func (m *Manager) AtLimit(string) (int64, int64, bool) { return 0, 0, false }
 func (m *Manager) Procs(string) ([]int, bool)          { return nil, false }
 func (m *Manager) Remove(string)                       {}
+
+func (m *Manager) AddWith(string, int, Limits) (string, error)      { return "", nil }
+func (m *Manager) Prepare(string, Limits) (*os.File, string, error) { return nil, "", nil }
+func (m *Manager) Parent(string, Limits) (*Manager, error)          { return &Manager{}, nil }
+func (m *Manager) Kill(string) error                                { return nil }
+func (m *Manager) Populated(string) bool                            { return false }
+func (m *Manager) OOMKills(string) int64                            { return 0 }
+func (m *Manager) Sweep(string) ([]string, error)                   { return nil, nil }
+func (m *Manager) Pids() (int64, bool)                              { return 0, false }

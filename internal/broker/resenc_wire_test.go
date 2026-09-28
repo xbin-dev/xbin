@@ -2,8 +2,12 @@ package broker
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/vault"
@@ -120,5 +124,43 @@ func TestKVCodecPlaintext(t *testing.T) {
 	legacy := []byte("legacy-raw-value")
 	if out, err := b.decodeKV("res:apps/thing/kv", legacy); err != nil || string(out) != "legacy-raw-value" {
 		t.Fatalf("legacy passthrough: %v %q", err, out)
+	}
+}
+
+// A component held for its encrypted state says why — the resource and the
+// cause — so a refused call to its backend doesn't read "not enabled".
+func TestEncryptionHoldReason(t *testing.T) {
+	root := t.TempDir()
+	for rel, content := range map[string]string{
+		"xbin.json":            `{"schema":1}`,
+		"apps/mgr/scope.json":  `{"resources":{"db":{"type":"sqlite"}}}`,
+		"apps/mgr/xbin.json":   `{"runtime":"go","uses":[{"target":"res:apps/mgr/db","role":"writer"}]}`,
+		"apps/plain/xbin.json": `{"runtime":"go"}`,
+	} {
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reg, err := registry.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := New(reg, events.NewHub(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(b.Close)
+	why := b.EncryptionHoldReason("apps/mgr") // its sqlite db: never mounted here
+	if !b.EncryptionHold("apps/mgr") || !strings.HasPrefix(why, "is held: ") || !strings.Contains(why, "res:apps/mgr/db") {
+		t.Fatalf("the hold: %q", why)
+	}
+	for _, c := range []string{"apps/plain", "apps/nothing"} {
+		if why := b.EncryptionHoldReason(c); why != "" || b.EncryptionHold(c) {
+			t.Fatalf("%s: no encrypted state, no hold: %q", c, why)
+		}
 	}
 }

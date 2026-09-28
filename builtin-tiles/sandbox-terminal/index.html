@@ -1,0 +1,345 @@
+<!doctype html>
+<!-- sandbox-terminal (D121): terminals onto coding sandboxes, for people.
+     Lists the sandboxes you may use on every bound manager (GET /sandboxes —
+     shared with this tile), opens terminals onto them as tabs — the page
+     dials the manager's tty route itself with its frame token (<bx-terminal
+     src>), so the manager checks the verified person — reattaches to the
+     ones running (the manager's execs: tty execs labelled "terminal") and
+     ends them (DELETE the exec). The SSH panel: your public keys, the ssh
+     command per sandbox once SSH is published, the host key. What it says is
+     ./sbxterm.js (shared with native.js); the routes are API.md. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Sandbox terminals</title>
+  <link rel="stylesheet" href="/vendor/theme.css">
+  <style>
+    html, body { margin: 0; }
+    body { font: 13px/1.45 system-ui, sans-serif; color: var(--bx-text); background: var(--bx-bg); }
+    main { max-width: 1100px; margin: 0 auto; padding: 12px 16px 28px; box-sizing: border-box; }
+    header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    header h3 { margin: 0; font-size: 15px; }
+    h4 { margin: 18px 0 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--bx-muted); }
+    h5 { margin: 12px 0 4px; font-size: 12px; font-weight: 600; }
+    .muted { color: var(--bx-muted); }
+    .small { font-size: 12px; }
+    .err { color: var(--bx-red); margin: 6px 0; }
+    .ok { color: var(--bx-green); }
+    .grow { flex: 1; }
+    code, .mono { font-family: var(--bx-mono); font-size: 12px; }
+    .cmd { display: inline-block; padding: 2px 8px; border: 1px solid var(--bx-border); border-radius: 5px; background: var(--bx-panel-2);
+           white-space: nowrap; overflow-x: auto; max-width: 100%; vertical-align: middle; box-sizing: border-box; }
+    button { font: inherit; font-size: 12px; padding: 3px 11px; border-radius: 5px; border: 1px solid var(--bx-border);
+             background: var(--bx-panel); color: var(--bx-text); cursor: pointer; white-space: nowrap; }
+    button:hover:not(:disabled) { background: var(--bx-panel-2); }
+    button:disabled { opacity: .5; cursor: default; }
+    button.go { background: var(--bx-accent); border-color: transparent; color: #1b1e24; font-weight: 600; }
+    button.rm { color: var(--bx-red); }
+    button.ghost { background: transparent; border-color: transparent; color: var(--bx-muted); padding: 2px 6px; }
+    button.ghost:hover:not(:disabled) { color: var(--bx-text); }
+    input, textarea { font: inherit; font-size: 12px; padding: 4px 8px; border: 1px solid var(--bx-border); border-radius: 5px;
+                      background: var(--bx-panel); color: var(--bx-text); box-sizing: border-box; }
+    textarea { width: 100%; min-height: 54px; font-family: var(--bx-mono); resize: vertical; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 4px 0; }
+    .card { border: 1px solid var(--bx-border); border-radius: 7px; padding: 8px 10px; background: var(--bx-panel); margin: 6px 0; }
+    .badge { display: inline-block; font-size: 10.5px; padding: 0 7px; border-radius: 9px; border: 1px solid var(--bx-border);
+             color: var(--bx-muted); white-space: nowrap; }
+    .badge.running { color: var(--bx-green); border-color: color-mix(in srgb, var(--bx-green) 45%, transparent); }
+    .badge.error { color: var(--bx-red); border-color: color-mix(in srgb, var(--bx-red) 45%, transparent); }
+    .note { border: 1px solid var(--bx-border); border-left: 3px solid var(--bx-accent); border-radius: 6px; padding: 7px 10px;
+            background: var(--bx-panel); margin: 6px 0; }
+    .note.danger { border-left-color: var(--bx-red); }
+    .note.ok { border-left-color: var(--bx-green); color: var(--bx-text); }
+
+    /* the terminals: a tab strip over a stack of <bx-terminal>s (all kept
+       connected; the hidden ones stay laid out at the same size) */
+    #terms { border: 1px solid var(--bx-border); border-radius: 7px; background: var(--bx-panel); margin: 10px 0 4px; overflow: hidden; }
+    .tabs { display: flex; gap: 2px; align-items: stretch; overflow-x: auto; border-bottom: 1px solid var(--bx-border); padding: 4px 4px 0; }
+    .tab { display: flex; align-items: center; gap: 4px; padding: 3px 4px 3px 10px; border: 1px solid transparent; border-bottom: 0;
+           border-radius: 6px 6px 0 0; cursor: pointer; white-space: nowrap; color: var(--bx-muted); }
+    .tab.on { background: var(--bx-term-bg); border-color: var(--bx-border); color: var(--bx-text); }
+    .tab .dot { font-size: 9px; color: var(--bx-green); }
+    .tab.ended .dot { color: var(--bx-muted); }
+    .thd { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 4px 8px; background: var(--bx-term-bg); }
+    .stack { position: relative; height: 55vh; min-height: 220px; resize: vertical; overflow: hidden; background: var(--bx-term-bg); }
+    .stack.max { height: calc(100vh - 110px); }
+    .stack bx-terminal { position: absolute; inset: 0; visibility: hidden; }
+    .stack bx-terminal.on { visibility: visible; }
+
+    .mgr { display: flex; gap: 8px; align-items: baseline; margin: 10px 0 2px; }
+    .sbx { border: 1px solid var(--bx-border); border-radius: 7px; padding: 7px 10px; background: var(--bx-panel); margin: 5px 0; }
+    .sbx .l1 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .sbx .nm { font-size: 13.5px; }
+    .sbx .facts { color: var(--bx-muted); font-size: 12px; }
+    .sbx .l2 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 4px; font-size: 12px; }
+    .run { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 4px; padding-left: 10px;
+           border-left: 2px solid var(--bx-border); font-size: 12px; }
+    .key { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 4px 0; border-top: 1px solid var(--bx-border); font-size: 12px; }
+    .key:first-child { border-top: 0; }
+    .empty { padding: 10px 12px; }
+    details summary { cursor: pointer; color: var(--bx-muted); font-size: 12px; margin-top: 10px; }
+  </style>
+</head>
+<body class="bx">
+<main id="app"></main>
+<script type="module">
+import { html, render, nothing, repeat } from '/vendor/lit-all.min.js';
+import { api, selfApi, jbody } from '/vendor/bx-kit.js';
+import * as T from './sbxterm.js';
+
+const x = window.xbin || {};
+const self = x.self || 'apps/sandbox-terminal';
+// the managers as this page reaches them (the multi `sandboxes` slot): the
+// page dials their routes itself, with its frame token
+const slot = x.iface ? x.iface('sandboxes') : null;
+const eps = (slot && slot.endpoints) || [];
+
+let me = null, list = null, keys = null, sessions = [], everyone = null; // everyone: all keys (a tile manager, when opened)
+let err = '', msg = '', busy = '';
+const execs = {};          // sandbox key → its execs, as its manager listed them
+let tabs = [], active = '', seq = 0, max = false;
+const draft = { key: '', name: '', keyErr: '', addr: null };
+let termLoaded = null;
+
+// --- reading ---------------------------------------------------------------------------
+
+async function load() {
+  try {
+    const [m, l, k, s] = await Promise.all([selfApi('/me'), selfApi('/sandboxes'), selfApi('/keys'),
+      selfApi('/sessions').catch(() => ({ sessions: [] }))]);
+    me = m; list = l; keys = k.keys || []; sessions = s.sessions || []; err = '';
+    if (draft.addr === null) draft.addr = (m.ssh && m.ssh.address) || '';
+  } catch (e) { err = e.message; }
+  paint();
+  await loadExecs();
+}
+
+// loadExecs reads the running sandboxes' execs from their managers (as you:
+// the manager lists them for who may use the sandbox) — only: one sandbox's
+// (whatever the list last said its state was: a terminal starts a stopped one).
+async function loadExecs(only = '') {
+  const boxes = ((list && list.sandboxes) || []).filter((s) => s.tty && (only ? T.keyOf(s) === only : s.state === 'running'));
+  await Promise.all(boxes.map(async (s) => {
+    const ep = T.endpointOf(eps, s.provider);
+    if (!ep) return;
+    try { execs[T.keyOf(s)] = ((await api(T.execsURL(ep, s.id))) || {}).execs || []; } catch { /* keep what was read */ }
+  }));
+  paint();
+}
+
+// reread: the list again (a terminal started a stopped sandbox), then one sandbox's execs.
+async function reread(key) {
+  try { list = await selfApi('/sandboxes'); } catch { /* keep the last */ }
+  await loadExecs(key);
+}
+
+async function act(fn) {
+  err = ''; msg = '';
+  try { await fn(); } catch (e) { err = e.message; }
+  paint();
+}
+
+// --- terminals -------------------------------------------------------------------------
+
+// openTab: a new terminal onto row's sandbox (its login shell at its
+// workdir), or eid — one already running — attached (shown, when a tab has it).
+async function openTab(row, eid = '') {
+  const have = eid && tabs.find((t) => t.key === row.key && t.session === eid && !t.ended);
+  if (have) { active = have.k; paint(); return; }
+  const ep = T.endpointOf(eps, row.provider);
+  if (!ep) return;
+  termLoaded ??= import('/vendor/bx-terminal.js');
+  await termLoaded;
+  const t = { k: `t${++seq}`, gen: 0, key: row.key, provider: row.provider, id: row.id, name: row.name, cwd: row.workdir,
+    base: ep.url, src: eid ? T.attachSrc(ep, row.id, eid) : T.terminalSrc(ep, row.id), session: eid, ended: '' };
+  tabs = [...tabs, t];
+  active = t.k;
+  paint();
+}
+
+// closeTab takes the tab away; its shell runs on (the list offers it to attach).
+function closeTab(t) {
+  const i = tabs.indexOf(t);
+  tabs = tabs.filter((x) => x !== t);
+  if (active === t.k) active = (tabs[i] || tabs[i - 1] || {}).k || '';
+  paint();
+  loadExecs(t.key);
+}
+
+// endExec ends a shell at its manager (DELETE the exec); gone already is fine.
+async function endExec(base, id, eid) {
+  try { await api(T.execURL({ url: base }, id, eid), { method: 'DELETE' }); } catch (e) { if (!/no such|error 40[49]/i.test(e.message)) throw e; }
+}
+async function endTab(t) {
+  if (!t.ended && t.session && !confirm(`End the shell in ${t.name}? What runs in it stops.`)) return;
+  await act(async () => { if (t.session && !t.ended) await endExec(t.base, t.id, t.session); });
+  closeTab(t);
+}
+async function endRunning(row, r) {
+  if (!confirm(`End terminal ${r.n} in ${row.name}? What runs in it stops.`)) return;
+  const ep = T.endpointOf(eps, row.provider);
+  await act(async () => { if (ep) await endExec(ep.url, row.id, r.id); });
+  for (const t of tabs.filter((x) => x.key === row.key && x.session === r.id)) closeTab(t);
+  await loadExecs(row.key);
+}
+// again: a new shell in an ended tab
+function again(t) {
+  const ep = T.endpointOf(eps, t.provider);
+  if (!ep) return;
+  Object.assign(t, { gen: t.gen + 1, src: T.terminalSrc(ep, t.id), session: '', ended: '' });
+  paint();
+}
+
+function termsTpl() {
+  if (!tabs.length) return nothing;
+  const cur = tabs.find((t) => t.k === active) || tabs[0];
+  return html`<section id="terms" aria-label="Terminals" @keydown=${(e) => { if (e.key === 'Escape') e.stopPropagation(); }}>
+    <div class="tabs" role="tablist">${repeat(tabs, (t) => t.k, (t) => html`<div class="tab ${t === cur ? 'on' : ''} ${t.ended ? 'ended' : ''}"
+        role="tab" data-tab=${t.k} data-key=${t.key} title=${`${t.name} · ${t.cwd || 'its workdir'}${t.ended ? ` · ${t.ended}` : ''}`}
+        @click=${() => { active = t.k; paint(); }}>
+      <span class="dot">●</span>${T.tabTitle(tabs, t)}
+      <button class="ghost" data-act="close" title="Close the tab — the shell keeps running (attach it again from its sandbox below)"
+        @click=${(e) => { e.stopPropagation(); closeTab(t); }}>✕</button></div>`)}</div>
+    <div class="thd"><b>${T.ICON} ${cur.name}</b><span class="mono muted" title=${cur.cwd}>${T.shortPath(cur.cwd) || 'its workdir'}</span>
+      <span class="muted small">${cur.provider}</span>
+      ${cur.ended ? html`<span class="badge" id="term-ended">${cur.ended}</span>` : nothing}
+      <span class="grow"></span>
+      ${cur.ended ? html`<button id="term-again" title="Start another shell in this tab" @click=${() => again(cur)}>New shell</button>` : nothing}
+      <button class="ghost" id="term-max" title=${max ? 'Smaller' : 'Larger'} @click=${() => { max = !max; paint(); }}>${max ? '⤡' : '⤢'}</button>
+      <button class="rm" id="term-end" ?disabled=${!!me?.viewedBy} title=${cur.ended ? 'Close the tab' : 'End the shell (at the manager) and close the tab'}
+        @click=${() => endTab(cur)}>${cur.ended ? 'Close' : 'End'}</button></div>
+    <div class="stack ${max ? 'max' : ''}">${repeat(tabs, (t) => `${t.k}.${t.gen}`, (t) => html`<bx-terminal class=${t === cur ? 'on' : ''}
+        data-tab=${t.k} src=${t.src}
+        @bx-session=${(e) => { t.session = e.detail.id; paint(); reread(t.key); }}
+        @bx-exit=${(e) => { t.ended = e.detail && e.detail.signal ? `ended on ${e.detail.signal}` : e.detail && e.detail.code ? `exited ${e.detail.code}` : 'ended'; paint(); loadExecs(t.key); }}></bx-terminal>`)}</div>
+  </section>`;
+}
+
+// --- the sandboxes ---------------------------------------------------------------------
+
+const copy = (text) => navigator.clipboard?.writeText(text).catch(() => {});
+
+function rowTpl(r) {
+  const ro = !!me?.viewedBy;
+  return html`<div class="sbx" data-key=${r.key} data-login=${r.login}>
+    <div class="l1"><b class="nm">${r.name}</b><span class="badge ${r.state}">${r.stateLabel}</span>
+      <span class="facts">${r.facts}</span><span class="grow"></span>
+      <button class="go" data-act="open" ?disabled=${!r.open.ok} title=${r.open.why || `A login shell in ${r.name}, as you`}
+        @click=${() => openTab(r)}>Open terminal</button></div>
+    ${r.open.why ? html`<div class="l2 muted" data-why>No terminal here: ${r.open.why}.</div>` : nothing}
+    <div class="l2">${r.ssh ? html`<code class="cmd" data-ssh>${r.ssh}</code><button class="ghost" title="Copy" @click=${() => copy(r.ssh)}>Copy</button>`
+      : html`<span class="muted">SSH login: <code>${r.login}</code></span>`}</div>
+    ${repeat(r.running, (x) => x.id, (x) => html`<div class="run" data-exec=${x.id}>
+      <span>⌨ terminal ${x.n}</span><span class="muted" title=${x.cwd}>${x.label}</span>${x.here ? html`<span class="badge">open here</span>` : nothing}
+      <span class="grow"></span>
+      <button data-act="attach" ?disabled=${ro || !T.endpointOf(eps, r.provider)} title="Show it in a tab — its screen replays, and it goes on"
+        @click=${() => openTab(r, x.id)}>${x.here ? 'Show' : 'Attach'}</button>
+      <button class="rm" data-act="end" ?disabled=${ro} title="End it at the manager" @click=${() => endRunning(r, x)}>End</button></div>`)}
+  </div>`;
+}
+
+function listTpl() {
+  if (!list) return html`<div class="muted">loading…</div>`;
+  const gs = T.withSSH(T.groups(list, { eps, me, execs, tabs }), me && me.ssh);
+  const why = T.emptyWhy(list, self);
+  return html`${repeat(gs, (g) => g.provider, (g) => html`<div class="mgr" data-provider=${g.provider}><b>${g.title}</b>
+      <span class="muted small">${g.provider}${g.tty ? '' : ' · no terminals'}</span></div>
+    ${g.error ? html`<div class="err small">${g.error}</div>` : nothing}
+    ${repeat(g.rows, (r) => r.key, rowTpl)}`)}
+    ${why ? html`<div class="note empty" id="empty"><b>${why.title}</b><div class="small">${why.text}</div>
+      ${why.cmd ? html`<div class="row"><code class="cmd">${why.cmd}</code></div>` : nothing}</div>` : nothing}`;
+}
+
+// --- SSH -------------------------------------------------------------------------------
+
+async function addKey() {
+  draft.keyErr = T.keyCheck(draft.key);
+  if (draft.keyErr) return paint();
+  busy = 'key';
+  paint();
+  try {
+    const k = await selfApi('/keys', jbody({ publicKey: draft.key.trim(), name: draft.name.trim() }, 'POST'));
+    draft.key = ''; draft.name = '';
+    msg = `added ${k.name || k.type} (${k.fingerprint})`;
+    keys = (await selfApi('/keys')).keys || [];
+  } catch (e) { draft.keyErr = e.message; }
+  busy = '';
+  paint();
+}
+const removeKey = (k, all = false) => confirm(`Remove the key “${k.name}”${all ? ` of ${k.user}` : ''}? Its SSH connections end now.`)
+  && act(async () => {
+    await selfApi(`/keys/${encodeURIComponent(k.id)}`, { method: 'DELETE' });
+    keys = (await selfApi('/keys')).keys || [];
+    if (everyone) everyone = (await selfApi('/keys?all=1')).keys || [];
+  });
+const saveAddr = () => act(async () => {
+  await selfApi('/settings', jbody({ sshAddress: (draft.addr || '').trim() }, 'PUT'));
+  me = await selfApi('/me');
+  msg = 'saved the address';
+});
+
+function sshTpl() {
+  if (!me) return nothing;
+  const st = T.sshState(me.ssh, { self, manager: me.manager });
+  const ro = !!me.viewedBy;
+  const kh = T.knownHosts(me.ssh);
+  const hk = me.ssh && me.ssh.hostKey;
+  return html`<div class="note ${st.ready ? 'ok' : st.tone}" id="ssh-state" data-ready=${st.ready ? '1' : '0'}>
+      <b>${st.title}</b> <span class="small">${st.text}</span>
+      ${!st.ready && me.ssh && me.ssh.listening ? html`<div class="row"><code class="cmd">${st.expose}</code>
+        <button class="ghost" @click=${() => copy(st.expose)}>Copy</button></div>` : nothing}
+    </div>
+    ${me.manager && !ro ? html`<div class="row"><label class="small muted" for="ssh-addr">Address people use (host or host:port)</label>
+      <input id="ssh-addr" class="mono" .value=${draft.addr ?? ''} placeholder="sbx.example.com:2222" @input=${(e) => { draft.addr = e.target.value; }}>
+      <button id="ssh-addr-save" @click=${saveAddr}>Save</button></div>` : nothing}
+    ${hk ? html`<div class="row small muted">Host key <code>${hk.fingerprint}</code>
+      ${kh ? html`<button class="ghost" title=${kh} @click=${() => copy(kh)}>Copy its known_hosts line</button>` : nothing}</div>` : nothing}
+
+    <h5>Your keys</h5>
+    <div class="card" id="keys">${keys && keys.length ? repeat(T.keyRows(keys), (k) => k.id, (k) => html`<div class="key" data-key-id=${k.id}>
+        <b>${k.name}</b><code>${k.fingerprint}</code><span class="muted">${k.type} · added ${k.added} · ${k.lastUsed === 'never used' ? k.lastUsed : `used ${k.lastUsed}`}</span>
+        ${k.inactive ? html`<span class="err small" data-inactive>${k.inactive}</span>` : nothing}
+        <span class="grow"></span><button class="rm" data-act="rm-key" ?disabled=${ro} @click=${() => removeKey(k)}>Remove</button></div>`)
+      : html`<div class="muted small" id="keys-empty">No keys yet — add your public key to log in over SSH.</div>`}</div>
+    ${ro ? nothing : html`<div class="card" id="key-form">
+      <textarea id="key-text" .value=${draft.key} placeholder="ssh-ed25519 AAAAC3Nza… you@laptop   (the contents of ~/.ssh/id_ed25519.pub)"
+        @input=${(e) => { draft.key = e.target.value; draft.keyErr = ''; }}></textarea>
+      <div class="row"><input id="key-name" .value=${draft.name} placeholder="a name (default: the key's comment)" @input=${(e) => { draft.name = e.target.value; }}>
+        <button class="go" id="key-add" ?disabled=${busy === 'key'} @click=${addKey}>${busy === 'key' ? 'Adding…' : 'Add key'}</button>
+        <span class="muted small">ed25519, ECDSA, security keys (sk-…) or RSA of 2048 bits or more. A key is one person's.</span></div>
+      ${draft.keyErr ? html`<div class="err small" id="key-err">${draft.keyErr}</div>` : nothing}</div>`}
+
+    ${sessions.length ? html`<h5>Your SSH sessions</h5><div class="card" id="sessions">${sessions.map((s) => html`<div class="key">
+      <b>${s.name || s.login}</b><span class="muted">${s.kind} · from ${s.remote} · since ${T.ago(s.started)}</span></div>`)}</div>` : nothing}
+
+    ${me.manager && !ro ? html`<details id="all-keys" @toggle=${(e) => { if (e.target.open && !everyone) act(async () => { everyone = (await selfApi('/keys?all=1')).keys || []; }); }}>
+      <summary>Everyone's keys — you manage this tile</summary>
+      <div class="card">${everyone === null ? html`<div class="muted small">loading…</div>` : everyone.length ? repeat(T.keyRows(everyone), (k) => k.id, (k) => html`<div class="key" data-key-id=${k.id}>
+        <b>${k.user}</b><span>${k.name}</span><code>${k.fingerprint}</code><span class="muted">added ${k.added} · ${k.lastUsed}</span>
+        ${k.inactive ? html`<span class="err small" data-inactive>${k.inactive}</span>` : nothing}
+        <span class="grow"></span><button class="rm" @click=${() => removeKey(k, true)}>Revoke</button></div>`)
+        : html`<div class="muted small">nobody has registered a key</div>`}</div></details>` : nothing}`;
+}
+
+// --- the page --------------------------------------------------------------------------
+
+function paint() {
+  const running = Object.values(execs).reduce((n, l) => n + T.runningTerminals(l).length, 0);
+  render(html`<header><h3>${T.ICON} Sandbox terminals</h3>
+      <span class="muted small">${me ? `as ${me.user}${me.viewedBy ? ` (viewed by ${me.viewedBy}: read only)` : ''}` : ''}</span>
+      ${running ? html`<span class="muted small" id="running-count">${running} terminal${running === 1 ? '' : 's'} running</span>` : nothing}
+      <span class="grow"></span>
+      <button class="ghost" id="refresh" title="Read the sandboxes again from their managers" @click=${() => load()}>↻</button></header>
+    ${err ? html`<div class="err" id="err">${err}</div>` : nothing}
+    ${msg ? html`<div class="muted small" id="msg">${msg}</div>` : nothing}
+    ${termsTpl()}
+    <h4>Sandboxes</h4>${listTpl()}
+    <h4>SSH</h4>${sshTpl()}`, document.getElementById('app'));
+}
+
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && me) load(); });
+paint();
+load();
+</script>
+</body>
+</html>

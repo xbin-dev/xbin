@@ -181,6 +181,7 @@ func TestAllowanceGrammarAndFloor(t *testing.T) {
 		{"xbin"}, {"xbin:users"}, {"xbin:*"},
 		{"whatever"}, {""}, {"res:"},
 		{"cap:xbin"}, {"cap:xbin-caps"}, // scary-but-inert spellings
+		{"cap:sandboxes"},                // D120: never delegable, like the xbin family
 		{"net:tailscale"},                // not a net form (internet:<spec> IS valid now, D35)
 		{"iface:api@"}, {"iface:api@x#"}, // dangling qualifiers
 		{"ingress:listen:99999"}, {"ingress:listen:30-20"},
@@ -250,6 +251,18 @@ func TestAllowanceGrammarAndFloor(t *testing.T) {
 		if got := s.AllowanceCovers("dev", c.target, c.role); got != c.want {
 			t.Errorf("AllowanceCovers(%q, %q) = %v, want %v", c.target, c.role, got, c.want)
 		}
+	}
+
+	// cap:sandboxes (D120): `cap:*` (or any glob that matches it) covers every
+	// other capability and never this one.
+	if err := s.SetOrgAllow("dev", []string{"cap:*", "cap:sand*"}); err != nil {
+		t.Fatalf("cap globs are valid entries: %v", err)
+	}
+	if !s.AllowanceCovers("dev", "cap:net-admin", "writer") || !s.AllowanceCovers("dev", "cap:containers", "writer") {
+		t.Error("cap:* must cover the delegable capabilities")
+	}
+	if s.AllowanceCovers("dev", "cap:sandboxes", "writer") || s.AllowanceCovers("dev", "cap:sandboxes", "") {
+		t.Error("no allowance may cover cap:sandboxes, not even cap:*")
 	}
 }
 

@@ -11,7 +11,7 @@
 // kept), a re-pick keeping its cwd, the popover's field following a switch,
 // the dialog's order held while open, a viewer offered no New, a private
 // sandbox into a team conversation confirmed, a class edit reaching the
-// open conversation.
+// open conversation. And sharing one with a terminal tile (D121).
 //
 //   node test/sandbox.mjs        (needs playwright + a chromium build)
 import { ORIGIN, STUB, serveTile, launch, checker } from './backend.mjs';
@@ -67,7 +67,7 @@ const seed = {
     6: { access: 'owner', class: coding, config: {}, acl: { owner: 'admin', visibility: 'team', teamRole: 'participant', members: [] },
       run: { id: 6, title: 'team build', status: 'idle', parentId: 0, rootId: 6, visibility: 'team' } },
   },
-  sandboxes: [sb('api', { boundTo: [1] }), sb('web', { state: 'stopped', lastActive: Date.now() - 3600e3 }),
+  sandboxes: [sb('api', { boundTo: [1] }), sb('web', { state: 'stopped', lastActive: Date.now() - 3600e3, version: 7 }),
     sb('team-box', { mine: false, owner: { user: 'carol' }, visibility: 'team', canManage: false, canEdit: false }),
     // an internal-reach conversation has worked in it; its network opens at the next start
     sb('vault', { labels: { 'xbin.agent/internal': '1' }, lastActive: Date.now() - 7200e3 }),
@@ -275,7 +275,7 @@ ok('…and the dialog never scrolls sideways', await page.$eval('#sbxdlg .dlg-bd
 if (process.env.SBX_SHOTS) await page.locator('#sbxdlg').screenshot({ path: `${process.env.SBX_SHOTS}/dialog-phone.png` });
 await page.setViewportSize(wide);
 const rowActs = (ref) => page.$$eval(`#sbxdlg .sbxrow[data-ref="${ref}"] [data-act]`, (els) => els.map((e) => e.dataset.act));
-ok('a stopped one of yours (active here: no "use"): start, archive, share, delete', (await rowActs(`${MGR}|web`)).join(',') === 'start,archive,team,delete',
+ok('a stopped one of yours (active here: no "use"): start, archive, share, share with a terminal tile, delete', (await rowActs(`${MGR}|web`)).join(',') === 'start,archive,team,shareTerm,delete',
   (await rowActs(`${MGR}|web`)).join(','));
 ok('the team one: use it, stop it — no delete', (await rowActs(`${MGR}|team-box`)).join(',') === 'use,stop', (await rowActs(`${MGR}|team-box`)).join(','));
 const order = () => page.$$eval('#sbxdlg .sbxrow', (els) => els.map((e) => e.dataset.ref.split('|').pop()).join(','));
@@ -289,6 +289,41 @@ ok('the rows keep their order while it is open', (await order()) === shown && sh
 await page.click(`#sbxdlg .sbxrow[data-ref="${MGR}|api"] [data-act="team"]`);
 await page.waitForFunction((r) => [...document.querySelectorAll(`#sbxdlg .sbxrow[data-ref="${r}"] [data-act]`)].some((b) => b.dataset.act === 'private'), `${MGR}|api`);
 ok('Share with the team: PATCH {visibility}', (await lastBody('PATCH', /\/sandboxes\//)).visibility === 'team');
+// Share with a terminal tile… (D121): the builtin's path, for you; the shares PATCHed; Stop sharing
+await page.click(`#sbxdlg .sbxrow[data-ref="${MGR}|web"] [data-act="shareTerm"]`);
+await page.waitForSelector('#sbx-share');
+ok('Share with a terminal tile…: the form, the builtin\'s path, for you',
+  (await page.$eval('#sbxs-tile', (e) => e.value)) === 'apps/sandbox-terminal' && (await page.textContent('#sbxs-who')).trim() === 'you',
+  `${await page.$eval('#sbxs-tile', (e) => e.value)} / ${await page.textContent('#sbxs-who')}`);
+await page.fill('#sbxs-tile', 'apps/agent');
+ok('…this agent itself is refused', /That is this agent/.test(await page.textContent('#sbxs-err')) && await page.$eval('#sbxs-share', (b) => b.disabled));
+await page.fill('#sbxs-tile', 'apps/sandbox-terminal');
+// meanwhile someone shares it with another tile: the list the form read is stale
+await page.evaluate(() => { const s = window.__sbx.sandboxes.find((x) => x.id === 'web'); s.shares = [{ consumer: 'apps/other', users: '*' }]; s.version++; });
+await page.click('#sbxs-share');
+await page.waitForSelector('#sbx-msg');
+const sharePatches = (await calls('PATCH', /\/sandboxes\/apps\/coding-sandbox%7Cweb$/)).map((c) => c.body);
+ok('Share: PATCH {shares, version} naming the tile, for you — refused at the stale version (412), read again, sent once more with the other share kept',
+  JSON.stringify(sharePatches) === JSON.stringify([
+    JSON.stringify({ shares: [{ consumer: 'apps/sandbox-terminal', users: ['admin'] }], version: 7 }),
+    JSON.stringify({ shares: [{ consumer: 'apps/other', users: '*' }, { consumer: 'apps/sandbox-terminal', users: ['admin'] }], version: 8 }),
+  ]) && (await calls('GET', /\/sandboxes\/apps\/coding-sandbox%7Cweb$/)).length === 1, JSON.stringify(sharePatches));
+ok('…said, and the row says it', /^web is shared with apps\/sandbox-terminal/.test(await page.textContent('#sbx-msg'))
+  && /shared with apps\/other, apps\/sandbox-terminal/.test(await page.textContent(`#sbxdlg .sbxrow[data-ref="${MGR}|web"] .l2`)),
+  await page.textContent(`#sbxdlg .sbxrow[data-ref="${MGR}|web"] .l2`));
+if (process.env.SBX_SHOTS) {
+  await page.click(`#sbxdlg .sbxrow[data-ref="${MGR}|web"] [data-act="shareTerm"]`);
+  await page.locator('#sbxdlg').screenshot({ path: `${process.env.SBX_SHOTS}/dialog-share.png` });
+  await page.click('#sbxs-cancel');
+}
+await page.click(`#sbxdlg .sbxrow[data-ref="${MGR}|web"] [data-act="shareTerm"]`);
+await page.click('#sbx-share [data-unshare="apps/sandbox-terminal"]');
+await page.waitForFunction(() => !document.querySelector('#sbx-share [data-unshare="apps/sandbox-terminal"]'));
+ok('Stop sharing (confirmed): PATCH {shares, version} without it, the other kept', /^Stop sharing “web” with apps\/sandbox-terminal\?/.test(dialogs.at(-1))
+  && JSON.stringify(await lastBody('PATCH', /\/sandboxes\//)) === JSON.stringify({ shares: [{ consumer: 'apps/other', users: '*' }], version: 9 }),
+  `${dialogs.at(-1)} ${JSON.stringify(await lastBody('PATCH', /\/sandboxes\//))}`);
+await page.click('#sbxs-cancel');
+ok('Cancel closes the form', !(await page.$('#sbx-share')));
 await page.click(`#sbxdlg .sbxrow[data-ref="${MGR}|api"] [data-act="delete"]`);
 await page.waitForFunction((r) => !document.querySelector(`#sbxdlg .sbxrow[data-ref="${r}"]`), `${MGR}|api`);
 ok('Delete (confirmed): DELETE, the row goes', (await calls('DELETE', /\/sandboxes\//)).length === 1);

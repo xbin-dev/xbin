@@ -1,0 +1,8 @@
+{
+  // apps/coding-sandbox is a scope. Its state:
+  //   db — sqlite: the manager's own table (API.md §Storage). The sandboxes'
+  //        contents are xbind's (the tile-sandbox runtime), never in here.
+  "resources": {
+    "db": { "type": "sqlite" }
+  }
+}

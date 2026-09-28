@@ -141,6 +141,7 @@
     .sbxcwd input { flex: 1; min-width: 0; }
     .sbxatt { padding: 3px 6px; border-radius: 5px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .sbxatt:hover, .sbxatt.on { background: var(--bx-panel-2); }
+    .sbxshr { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 2px 0; }
     .sbxacts { display: flex; gap: 6px; align-items: center; }
     .sbxdlg { width: min(640px, 94vw); }
     .sbxdhd { display: flex; align-items: center; gap: 6px; }
@@ -162,6 +163,15 @@
     .badge.sbxon { color: var(--bx-accent); border-color: var(--bx-accent); }
     .sbxform { border-top: 1px solid var(--bx-border); padding-top: 8px; }
     .sbxform .field { margin-bottom: 8px; }
+    /* the terminal pane (sandboxes.js): a shell in a sandbox, over the chat — not a modal, so Escape reaches the shell */
+    /* docked under the top bar, clear of the composer; ⤢ fills the window */
+    .sbxterm { position: fixed; top: 46px; right: 12px; z-index: 40; width: min(860px, calc(100vw - 24px)); height: min(460px, calc(100vh - 170px));
+               min-height: 180px; display: flex; flex-direction: column; background: var(--bx-panel); border: 1px solid var(--bx-border); border-radius: 8px;
+               box-shadow: 0 10px 34px rgba(0,0,0,.45); overflow: hidden; }
+    .sbxterm.max { top: 12px; left: 12px; bottom: 12px; width: auto; height: auto; }
+    .sbxthd { display: flex; align-items: center; gap: 8px; padding: 5px 8px 5px 12px; border-bottom: 1px solid var(--bx-border); min-width: 0; white-space: nowrap; }
+    .sbxthd > .mono, .sbxthd > .muted { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    .sbxtbody { flex: 1 1 0; min-height: 0; display: flex; padding: 4px 2px 2px 8px; background: var(--bx-term-bg, #262c36); }
     /* the top bar's sharing status (model/rules.js shareStatus) */
     .sharepill.on { color: var(--bx-accent); border-color: color-mix(in srgb, var(--bx-accent) 50%, var(--bx-border)); }
     .sharepill.in { color: var(--bx-text); }
@@ -591,8 +601,9 @@
     </form>
   </dialog>
 
-  <!-- the Sandboxes dialog (sandboxes.js draws it) -->
+  <!-- the Sandboxes dialog and the terminal pane (sandboxes.js draws them) -->
   <dialog id="sbxdlg" class="sbxdlg"></dialog>
+  <div id="sbxterm"></div>
 
   <script type="module" src="agent.js"></script>
 </body>

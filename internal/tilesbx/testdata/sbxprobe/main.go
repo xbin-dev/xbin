@@ -1,0 +1,249 @@
+// sbxprobe is the tile-sandbox integration tests' probe: a static binary
+// run inside a sandbox (bound in read-only through a {source:true} mount),
+// so the tests need no tools in the sandbox's root.
+package main
+
+import (
+	"bufio"
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"net"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+)
+
+func main() {
+	if len(os.Args) < 2 {
+		fail("usage: sbxprobe <op> [args]")
+	}
+	a := os.Args[2:]
+	switch os.Args[1] {
+	case "write": // path content
+		if err := os.WriteFile(a[0], []byte(a[1]), 0o644); err != nil {
+			fail(err.Error())
+		}
+		fmt.Println("ok")
+	case "fill": // path MiB: that many MiB of data (allocated, not sparse), in a dir only its owner reads (0700)
+		n, _ := strconv.Atoi(a[1])
+		if err := os.MkdirAll(filepath.Dir(a[0]), 0o700); err != nil {
+			fail(err.Error())
+		}
+		if err := os.WriteFile(a[0], make([]byte, n<<20), 0o600); err != nil {
+			fail(err.Error())
+		}
+		fmt.Println("ok")
+	case "mkdir":
+		if err := os.MkdirAll(a[0], 0o755); err != nil {
+			fail(err.Error())
+		}
+		fmt.Println("ok")
+	case "cat":
+		b, err := os.ReadFile(a[0])
+		if err != nil {
+			fail(err.Error())
+		}
+		os.Stdout.Write(b)
+	case "owner": // path: its uid:gid (a final symlink itself)
+		var st syscall.Stat_t
+		if err := syscall.Lstat(a[0], &st); err != nil {
+			fail(err.Error())
+		}
+		fmt.Printf("%d:%d\n", st.Uid, st.Gid)
+	case "ls": // dir: its entries' names, one line, sorted ("-" for none)
+		ents, err := os.ReadDir(a[0])
+		if err != nil {
+			fail(err.Error())
+		}
+		var names []string
+		for _, e := range ents {
+			names = append(names, e.Name())
+		}
+		if len(names) == 0 {
+			names = []string{"-"}
+		}
+		fmt.Println(strings.Join(names, " "))
+	case "rm": // path: removed, and everything under it
+		if err := os.RemoveAll(a[0]); err != nil {
+			fail(err.Error())
+		}
+		fmt.Println("ok")
+	case "exists": // path: yes | no
+		if _, err := os.Lstat(a[0]); err == nil {
+			fmt.Println("yes")
+		} else {
+			fmt.Println("no")
+		}
+	case "chown": // path uid gid
+		uid, _ := strconv.Atoi(a[1])
+		gid, _ := strconv.Atoi(a[2])
+		if err := os.Lchown(a[0], uid, gid); err != nil {
+			fail(err.Error())
+		}
+		fmt.Println("ok")
+	case "chown-r": // path: it and everything under it back to root
+		err := filepath.WalkDir(a[0], func(p string, _ fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			return os.Lchown(p, 0, 0)
+		})
+		if err != nil {
+			fail(err.Error())
+		}
+		fmt.Println("ok")
+	case "tcp": // addr: how a connect ends, and how fast
+		start := time.Now()
+		c, err := net.DialTimeout("tcp", a[0], 3*time.Second)
+		ms := time.Since(start).Milliseconds()
+		switch {
+		case err == nil:
+			c.Close()
+			fmt.Printf("connected %d\n", ms)
+		case errors.Is(err, syscall.ECONNREFUSED), errors.Is(err, syscall.ECONNRESET):
+			fmt.Printf("reset %d\n", ms)
+		default:
+			fmt.Printf("error %d %v\n", ms, err)
+		}
+	case "dns": // name server: the answer's rcode, and how fast
+		start := time.Now()
+		rcode, err := query(a[0], a[1])
+		ms := time.Since(start).Milliseconds()
+		if err != nil {
+			fmt.Printf("error %d %v\n", ms, err)
+			return
+		}
+		fmt.Printf("rcode %d %d\n", rcode, ms)
+	case "unshare":
+		if err := syscall.Unshare(syscall.CLONE_NEWUSER); err != nil {
+			fmt.Println("refused", err)
+			return
+		}
+		fmt.Println("allowed")
+	case "alloc": // MiB, touched
+		n, _ := strconv.Atoi(a[0])
+		b := make([]byte, n<<20)
+		for i := 0; i < len(b); i += 4096 {
+			b[i] = 1
+		}
+		fmt.Println("allocated", len(b)>>20)
+	case "sleep":
+		d, _ := time.ParseDuration(a[0])
+		time.Sleep(d)
+	case "echo": // words: printed, one line
+		fmt.Println(strings.Join(a, " "))
+	case "env":
+		for _, e := range os.Environ() {
+			fmt.Println(e)
+		}
+	case "groups": // its supplementary groups, one line ("-" for none)
+		gs, err := syscall.Getgroups()
+		if err != nil {
+			fail(err.Error())
+		}
+		out := []string{}
+		for _, g := range gs {
+			out = append(out, strconv.Itoa(g))
+		}
+		if len(out) == 0 {
+			out = append(out, "-")
+		}
+		fmt.Println(strings.Join(out, " "))
+	case "copy": // stdin to stdout
+		_, _ = io.Copy(os.Stdout, os.Stdin)
+	case "tree": // dur [pidfile]: a child in its process group, sleeping dur; its pid printed (and written)
+		child := exec.Command(os.Args[0], "sleep", a[0]) // exec-ok: the test probe, run inside a sandbox
+		if err := child.Start(); err != nil {
+			fail(err.Error())
+		}
+		fmt.Printf("child %d\n", child.Process.Pid)
+		if len(a) > 1 {
+			_ = os.WriteFile(a[1], []byte(strconv.Itoa(child.Process.Pid)), 0o644)
+		}
+		d, _ := time.ParseDuration(a[0])
+		time.Sleep(d)
+	case "orphan": // dur: a child in its process group that ignores TERM, sleeping dur; its pid printed; then sleeps dur itself
+		child := exec.Command(os.Args[0], "sleep-noterm", a[0]) // exec-ok: the test probe, run inside a sandbox
+		if err := child.Start(); err != nil {
+			fail(err.Error())
+		}
+		fmt.Printf("child %d\n", child.Process.Pid)
+		d, _ := time.ParseDuration(a[0])
+		time.Sleep(d)
+	case "sleep-noterm": // dur: sleeps, TERM ignored
+		signal.Ignore(syscall.SIGTERM)
+		d, _ := time.ParseDuration(a[0])
+		time.Sleep(d)
+	case "alive": // pid: alive, or gone (a zombie is gone)
+		b, err := os.ReadFile("/proc/" + a[0] + "/stat")
+		if i := strings.LastIndexByte(string(b), ')'); err != nil || i < 0 || strings.HasPrefix(strings.TrimSpace(string(b[i+1:])), "Z") {
+			fmt.Println("gone")
+			return
+		}
+		fmt.Println("alive")
+	case "readexit": // a line from stdin: "got <it>", then exit with it as the code
+		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		line = strings.TrimSpace(line)
+		fmt.Printf("got %s\n", line)
+		n, _ := strconv.Atoi(line)
+		os.Exit(n)
+	default:
+		fail("unknown op " + os.Args[1])
+	}
+}
+
+// query sends one A query for name to server (host:port) over UDP and
+// returns the answer's rcode.
+func query(name, server string) (int, error) {
+	msg := []byte{0x12, 0x34, 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0}
+	for _, label := range splitLabels(name) {
+		msg = append(msg, byte(len(label)))
+		msg = append(msg, label...)
+	}
+	msg = append(msg, 0, 0, 1, 0, 1)
+	c, err := net.Dial("udp", server)
+	if err != nil {
+		return 0, err
+	}
+	defer c.Close()
+	_ = c.SetDeadline(time.Now().Add(3 * time.Second))
+	if _, err := c.Write(msg); err != nil {
+		return 0, err
+	}
+	buf := make([]byte, 512)
+	n, err := c.Read(buf)
+	if err != nil {
+		return 0, err
+	}
+	if n < 4 || binary.BigEndian.Uint16(buf) != 0x1234 {
+		return 0, errors.New("a bad answer")
+	}
+	return int(buf[3] & 0x0f), nil
+}
+
+func splitLabels(name string) []string {
+	var out []string
+	start := 0
+	for i := 0; i <= len(name); i++ {
+		if i == len(name) || name[i] == '.' {
+			if i > start {
+				out = append(out, name[start:i])
+			}
+			start = i + 1
+		}
+	}
+	return out
+}
+
+func fail(msg string) {
+	fmt.Fprintln(os.Stderr, "sbxprobe:", msg)
+	os.Exit(1)
+}

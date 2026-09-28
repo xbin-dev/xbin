@@ -13,9 +13,10 @@ import (
 // a retired tile is never offered an update or reported as changed.
 var retiredTiles = map[string]string{
 	"devbox": "the devbox builtin tile was retired on 2026-09-27 — it never worked reliably. " +
-		"Coding sandboxes are coming as the coding-sandbox template, with terminals and SSH " +
-		"for people in the sandbox-terminal tile, both over the sandbox-manager contract " +
-		"(/docs/sandbox-manager.md). A workspace that imported devbox keeps its copy " +
+		"Coding sandboxes come from sandbox managers over the sandbox-manager contract " +
+		"(/docs/sandbox-manager.md): the coding-sandbox template is coming; terminals and SSH " +
+		"for people are the sandbox-terminal tile (bx tile import sandbox-terminal). " +
+		"A workspace that imported devbox keeps its copy " +
 		"(/docs/changes/2026-09-27-devbox-retired.md)",
 }
 

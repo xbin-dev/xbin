@@ -7,8 +7,9 @@
 // never the driving user's privilege. The root terminal (no cwd) is disabled.
 // A session outlives its WebSocket — reattach by id replays bounded
 // scrollback. Wire protocol in docs/protocol.md: binary frames are raw PTY
-// bytes; text frames are JSON control messages (the attach itself, the echo
-// acks and pings the predictive echo needs: attach.go).
+// bytes; text frames are JSON control messages (the session frame, the echo
+// acks and pings the predictive echo needs, the exit) — internal/termwire,
+// shared with the tile sandboxes' TTY execs; attach.go adapts a session to it.
 package term
 
 import (
@@ -27,13 +28,13 @@ import (
 	"time"
 
 	"github.com/creack/pty"
-	"github.com/gorilla/websocket"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/gpu"
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/sandbox/relay"
 	"github.com/xbin-dev/xbin/internal/sbx"
+	"github.com/xbin-dev/xbin/internal/termwire"
 	"github.com/xbin-dev/xbin/internal/util"
 	"github.com/xbin-dev/xbin/internal/vm"
 )
@@ -69,11 +70,11 @@ type Session struct {
 	pgid    bool // the process leads its own group (the non-isolated agent host): kill the group
 	vm      bool // a VM sandbox (vm.go)
 
-	mu         sync.Mutex
-	scrollback []byte
-	clients    map[*client]struct{}
-	lastActive time.Time
-	dead       bool
+	// hub is the session's side of the /ws/term wire: its scrollback, the
+	// attached sockets, the last activity (the reaper's clock) and the exit.
+	hub *termwire.Hub
+
+	mu sync.Mutex
 }
 
 type Manager struct {
@@ -84,7 +85,6 @@ type Manager struct {
 	Root     string          // workspace root
 	Listen   string          // xbind's listen addr (host:port) — for the relay host-forward
 	Env      func() []string // extra env for shells (token, HOME, …)
-	upgrader websocket.Upgrader
 
 	// Isolate + Rootfs run terminals in a rootfs sandbox (plans/runtime.md RT-4):
 	// the base rootfs userland (toolchains + agent CLIs), the workspace mounted
@@ -160,7 +160,8 @@ type Manager struct {
 
 	mu       sync.Mutex
 	sessions map[string]*Session
-	envHeld  map[string]bool // component key → a live session holds its persistent layer
+	envHeld  map[string]bool        // component key → a live session holds its persistent layer
+	rmTree   func(dir string) error // tests: stands in for removeLayer's confined removal
 }
 
 func NewManager(root string, env func() []string) *Manager {
@@ -168,11 +169,6 @@ func NewManager(root string, env func() []string) *Manager {
 		Root: root, Env: env,
 		sessions: map[string]*Session{},
 		envHeld:  map[string]bool{},
-		upgrader: websocket.Upgrader{
-			ReadBufferSize: 4096, WriteBufferSize: 4096,
-			// Same-origin app; auth middleware has already run.
-			CheckOrigin: func(*http.Request) bool { return true },
-		},
 	}
 	go m.reaper()
 	return m
@@ -239,9 +235,11 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	conn, err := m.upgrader.Upgrade(w, r, http.Header{
+	// Same-origin app; auth middleware has already run. No read limit: a
+	// paste is one frame, and this socket was never bounded.
+	conn, err := termwire.Upgrade(w, r, http.Header{
 		"X-XBin-Session": []string{s.ID},
-	})
+	}, 0)
 	if err != nil {
 		return
 	}
@@ -255,7 +253,7 @@ func (m *Manager) List() []map[string]any {
 	for _, s := range m.sorted() {
 		s.mu.Lock()
 		out = append(out, map[string]any{
-			"id": s.ID, "cwd": s.Cwd, "net": s.Net, "clients": len(s.clients),
+			"id": s.ID, "cwd": s.Cwd, "net": s.Net, "clients": s.hub.Clients(),
 			"user": s.homeKey, "kind": s.kind, "vm": s.vm,
 			"created": s.born.UTC().Format(time.RFC3339),
 			"label":   s.Label, "scopes": s.Scopes, "name": s.name,
@@ -385,7 +383,7 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
 		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api,
-		born: time.Now(), clients: map[*client]struct{}{}, lastActive: time.Now(),
+		born: time.Now(), hub: termwire.NewHub(maxScrollback),
 	}
 	m.mu.Lock()
 	m.sessions[s.ID] = s
@@ -395,10 +393,7 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 
 	go s.pump(func() {
 		unlist()
-		s.mu.Lock()
-		tail := scrollTail(s.scrollback, 2048)
-		s.mu.Unlock()
-		m.sbxExited(s, o.vm, tail)
+		m.sbxExited(s, o.vm, scrollTail(s.hub.Tail(2048), 2048))
 		m.remove(s.ID)
 		m.changed("close", s)
 		revokeTok() // the session's API credential dies with it
@@ -503,36 +498,6 @@ func (m *Manager) releaseEnv(key string) {
 	m.mu.Unlock()
 }
 
-// ResetEnv wipes a component's persistent terminal layer back to the base rootfs.
-// Any live session holding it is killed first (its overlay must be unmounted
-// before the upperdir can be removed).
-func (m *Manager) ResetEnv(rel string) error {
-	key := termKey(rel)
-	m.mu.Lock()
-	var victims []*Session
-	for _, s := range m.sessions {
-		if s.envKey == key {
-			victims = append(victims, s)
-		}
-	}
-	m.mu.Unlock()
-	for _, s := range victims {
-		s.kill()
-	}
-	// Wait for the killed session(s) to fully tear down (pump → cleanup unmounts
-	// the sandbox) so the upperdir is free before we remove it.
-	for i := 0; i < 50; i++ {
-		m.mu.Lock()
-		held := m.envHeld[key]
-		m.mu.Unlock()
-		if !held {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return os.RemoveAll(filepath.Join(m.Root, ".xbin", "term", key))
-}
-
 // sandboxShell runs the shell in a rootfs sandbox (RT-4): the base rootfs, the
 // workspace read-only except the session user's $HOME (homes/<user>) and this
 // component's own dir (see scopedBinds) — the editing plane scoped to this
@@ -585,6 +550,9 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 		MountGuard: rel != "",
 		// Non-admin user terminals additionally get the ns/cap lockdown (D18).
 		Restricted: o.restricted && rel != "",
+		// the persistent layer is the user's: its symlinks never place a
+		// mount point, the image's own may (WP-2b)
+		NoFollow: true, FollowBase: true, RootHint: termRootHint,
 	}
 	if o.kind == KindAgent {
 		spec.Entry, spec.Argv = agentHostPath, []string{"bx", "__agent-host"}
@@ -688,7 +656,7 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 			return nil
 		}
 		cfg := relay.Config{
-			TunFD: fd, Allow: pol.Allow, Resolver: sandbox.HostResolver(),
+			TunFD: fd, CloseTUN: true, Allow: pol.Allow, Resolver: sandbox.HostResolver(),
 			Gateway: netip.MustParseAddr(sandbox.GatewayIP), HostFwd: hostFwd,
 		}
 		if pol.HasHostRules() { // hostname rules need DNS pinning (D35)
@@ -827,10 +795,7 @@ func (m *Manager) reaper() {
 	for range time.Tick(time.Minute) {
 		m.mu.Lock()
 		for id, s := range m.sessions {
-			s.mu.Lock()
-			idle := len(s.clients) == 0 && time.Since(s.lastActive) > idleTimeout
-			s.mu.Unlock()
-			if idle {
+			if s.hub.Clients() == 0 && time.Since(s.hub.LastActive()) > idleTimeout {
 				slog.Info("reaping idle terminal session", "id", id)
 				s.kill() // pump's exit path removes it and tells the directory
 			}
@@ -839,37 +804,22 @@ func (m *Manager) reaper() {
 	}
 }
 
-// pump reads PTY output, appends scrollback, and fans out to clients. It owns
-// the session lifecycle: when the PTY closes (shell exit), the session dies.
+// pump reads PTY output into the hub (scrollback, fan-out). It owns the
+// session lifecycle: when the PTY closes (shell exit), the session dies and
+// its sockets get the exit frame — a bare one, sent before the reap so a
+// hung-up VM's grace period doesn't hold the pane open.
 func (s *Session) pump(onExit func()) {
 	buf := make([]byte, 8192)
 	for {
 		n, err := s.pty.Read(buf)
 		if n > 0 {
-			out := make([]byte, n)
-			copy(out, buf[:n])
-			s.mu.Lock()
-			s.scrollback = append(s.scrollback, out...)
-			if len(s.scrollback) > maxScrollback {
-				s.scrollback = s.scrollback[len(s.scrollback)-maxScrollback:]
-			}
-			s.lastActive = time.Now()
-			for c := range s.clients {
-				s.enqueueLocked(c, frame{b: out})
-			}
-			s.mu.Unlock()
+			s.hub.Output(buf[:n])
 		}
 		if err != nil {
 			break
 		}
 	}
-	s.mu.Lock()
-	s.dead = true
-	for c := range s.clients {
-		close(c.send)
-	}
-	s.clients = map[*client]struct{}{}
-	s.mu.Unlock()
+	s.hub.End(termwire.Exit{})
 	waitErr := s.cmd.Wait()
 	if s.relay != nil {
 		s.relay.Close()
@@ -886,9 +836,7 @@ func (s *Session) pump(onExit func()) {
 	// the PTY's last bytes (that's where "sandbox-init: <the actual error>"
 	// went) in the log, or the failure is undiagnosable server-side.
 	if time.Since(s.born) < 10*time.Second {
-		s.mu.Lock()
-		tail := scrollTail(s.scrollback, 2048) // room for the [sbx] debug trace + the error line
-		s.mu.Unlock()
+		tail := scrollTail(s.hub.Tail(2048), 2048) // room for the [sbx] debug trace + the error line
 		if tail != "" {
 			slog.Warn("terminal died at start; last output", "id", s.ID, "tail", tail)
 		}

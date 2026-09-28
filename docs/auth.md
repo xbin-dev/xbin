@@ -36,7 +36,12 @@ tile). Absent for automation, cron, and the bootstrap owner token. This is
 how a backend tells *who clicked*: a frame call from the tile's own UI runs
 at the tile's full self-role, so an app with mixed-trust viewers should gate
 mutating endpoints on the attributed level — the SDK's
-`xbin.Caller(r).UserCanWrite()` does exactly that.
+`xbin.Caller(r).UserCanWrite()` does exactly that. A credential the tile
+keeps past the call (an SSH key a person registered on its page) is checked
+again at each use: the tile's backend asks `GET /api/xbin/access/<user>`
+(`xbin.AccessOf`) for that person's level on **itself** now — none once
+they were removed or disabled. It answers about the calling tile only, and
+only its backend asks.
 
 **The `ingress` principal** is structural, not a credential: it enters only
 on the separate ingress listeners (never the authenticated routes), reaches
@@ -334,6 +339,19 @@ once; xbind enforces at every call.
   workspace's own pages sever the opener (COOP), so add `rel="noopener"` on
   your links too; `window.open()` returns `null` in a credentialless frame
   (the tab still opens). Top navigation is never allowed.
+- **`cap:sandboxes`** — a **sandbox-manager** tile (one that serves
+  coding sandboxes to other tiles, [sandbox-manager.md](sandbox-manager.md))
+  may drive xbind's own tile sandboxes: its backend, with its instance token,
+  creates, runs and deletes sandboxes on this host, within the workspace's
+  sandbox quotas and reaching only the resources and networks the tile
+  itself was given (D120). Only the backend: the tile's frames, terminals
+  and signed-in users get nothing from it. Request
+  `uses {target:"cap:sandboxes", role:"writer"}`; it lands pending and
+  **only a workspace admin approves it** — no org or personal allowance
+  delegates it, not even `cap:*` (an allowance that names it is refused at
+  write, like the `xbin` family). A policy `xbin-caps` deny strips it.
+  Approving restarts nothing; revoking it (or a ceiling change that strips
+  it) stops the tile's sandboxes and keeps their state.
 
 Enforcing in the callee is one middleware:
 
@@ -1147,8 +1165,10 @@ is expressible. Anything is delegable — a high-trust org can get
 `xbin`/`xbin:*`**: an
 element granted `xbin@admin` *is* a workspace admin, so delegating it would
 make org admins ws-admins transitively (rejected at write, ignored at
-evaluation). Grants wholly inside one org's owned tiles (intra-org wiring)
-need no allowance. Every approval still runs the ceiling check and is
+evaluation). **`cap:sandboxes`** has the same floor (D120): a workspace
+admin chooses the sandbox managers, so no entry covers it — `cap:*`
+included — and an entry naming it is refused. Grants wholly inside one
+org's owned tiles (intra-org wiring) need no allowance. Every approval still runs the ceiling check and is
 recorded with the actual approver (`approvedBy`/`approvedAt` on the grant
 row + the audit log); revokes/unbinds are always allowed for the owning
 org's admins. Element principals never approve — tiles request, humans

@@ -10,6 +10,561 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-28
+
+- **coding-sandbox: the layout's user is a real account.** A sandbox's
+  commands ran as uid 1000 with `USER=dev` and `HOME=/home/dev`, but the
+  image names uid 1000 `ubuntu` (home `/home/ubuntu`): `id -un`, `whoami`
+  and the prompt said `ubuntu`, and a tool taking the home from the account
+  database (OpenSSH's `~/.ssh`) used `/home/ubuntu`. A sandbox's first
+  start now makes the layout's user the image's account of its uid, as
+  `usermod -l` would — the entry renamed with the layout's home and shell
+  (else one added), its group and memberships following; the template's
+  API.md, "What it adds to the contract". A sandbox started before keeps
+  its image's account. Nothing to change.
+- **Docs: a sandbox's `internet` and a host behind a NAT**
+  ([isolation.md](isolation.md) §Network egress, "Networks for a manager's
+  sandboxes"). A tile sandbox never reaches an address the host delivers
+  locally; a cloud VM's public IP, which a NAT outside the host maps onto
+  its private one, isn't such an address — `internet` reaches what the
+  host serves publicly there, as any internet client does. Unchanged
+  behaviour, now said. Don't rely on the host's public address to keep a
+  service from its sandboxes; bind it to loopback or a private address.
+- **A tile held for its encrypted state says so.** A call to the backend
+  of a tile xbind holds because a resource it uses can't be decrypted — the
+  vault sealed, gocryptfs missing, or the resource's mount refused (on
+  Ubuntu, AppArmor's `fusermount3` profile outside the installer's
+  workspace) — answered `502` "component … is not enabled", though the
+  tile was enabled. It now names the resource and the cause
+  ([resources.md](resources.md) §Encryption at rest). Nothing to change.
+- **Sandbox-manager contract: a stop may apply a pending `egress`**
+  ([sandbox-manager.md](sandbox-manager.md) §The sandbox). A `PATCH` of a
+  running sandbox's `egress` stays `egressNext` until the next start; a
+  manager may now also apply it at the stop (`egress` becomes it, as a
+  `PATCH` of a stopped sandbox does), since a substrate need keep no
+  running egress past a stop — xbind's runtime doesn't. The next start
+  takes it either way. Nothing to change: a consumer enforcing a firewall
+  already checks the less restrictive of `egress` and `egressNext`.
+- **Binding a tile's `http` slot no longer restarts the provider**
+  ([overview/11-interfaces.md](overview/11-interfaces.md), "Rebinding
+  restarts"). Binding, rebinding or unbinding a consumer's `http` slot used
+  to restart the provider it named (and the consumer's `net` provider),
+  cutting every other consumer's calls in flight — a sandbox manager's
+  relayed terminals and output long polls broke whenever a new consumer was
+  bound to it. Nothing of a provider's spawn depends on who binds its
+  `http` service (the binding's grant is checked per call), so only the
+  consumer restarts now; a `net` or `lan-ingress` binding still restarts
+  its providers. Nothing to change.
+- **Fix: Go tiles build under `--isolate` when the workspace needs new
+  checksums** ([isolation.md](isolation.md) §Confined tool runs).
+  A confined build sees the workspace read-only, so the checksums `go`
+  adds to the workspace's `go.work.sum` — for a module a tile's `go.mod`
+  names without a `go.sum` entry (a client library just added), or for
+  one the workspace's modules select together (the agent template beside
+  the `sandbox-terminal` tile) — failed every Go build of that workspace
+  with "go: updating go.sum: … read-only file system". Each tile's build
+  now writes a `go.work.sum` of its own under `.xbin/cache/tile/`, seeded
+  from the workspace's, beside a copy of the generated `go.work`; a
+  hand-managed `go.work` (without xbind's first line) is used as it is.
+  Nothing to change.
+- **A file created directly in `/` no longer hangs a terminal or a
+  backend.** Where the sandbox's root is served by fuse-overlayfs (the
+  default wherever xbind ships it), creating a regular file directly in
+  `/` hung the command, as with `echo hi > /x` in a terminal or a backend
+  writing `/x`. From then on, anything else that touched the sandbox's
+  files hung too. fuse-overlayfs now runs with a root of its own instead
+  of the one it serves. Nothing to change. In a terminal, a file created
+  (or moved) directly into `/` during a session reads back as "Permission
+  denied" until the next session: the read guard only lets a session read
+  what already existed outside the workspace when it started
+  ([isolation](isolation.md)). Keep such files under `$HOME`, the tile's
+  dir or `/tmp`.
+- **Restores keep file permissions, and terminal layers are removed whole.**
+  A restore (re-enabling an offloaded tile, `bx restore`) gives each file
+  the permission bits it was archived with, so an executable — a script in
+  the tile's source, a tool an `apt install` put in its terminal layer —
+  stays executable; restored files used to lose their execute bits. A
+  setuid, setgid or sticky bit is never restored. Resetting a terminal
+  (⟲), offloading a tile `offloaded-full` and a restore replacing the
+  terminal layer remove the old layer in a confined run with the file
+  capabilities, so where the host delegates a sub-uid range the files an
+  `apt install` left owned by other users go too; they used to stay on
+  disk. `offloaded-full` ends the tile's terminal sessions first: if one
+  won't end, the offload fails after the archive with nothing removed, and
+  a reset whose session won't end fails with the layer untouched (it used
+  to remove the layer anyway). Nothing to change.
+- **New builtin template `coding-sandbox`: the builtin sandbox manager**
+  (D122, [sandbox-manager.md](sandbox-manager.md) §The builtin manager; the
+  template's `API.md` and `AGENTS.md`). An instance serves the
+  sandbox-manager contract, protocol 1, to the tiles bound to it
+  (`bx bind apps/agent sandboxes+=apps/coding-sandbox`) and runs their
+  sandboxes on xbind's own tile-sandbox runtime once a workspace admin
+  approves its `cap:sandboxes`: a VM where the workspace runs VMs for
+  tiles, else a namespace, or only the mode its operators choose
+  (`auto | vm | namespace`), never another; each sandbox's `isolation`
+  says which. It offers what the runtime serves and says in `hello.notes`
+  what it lacks.
+  Each consumer sees its own sandboxes and those shared with it, and people
+  are checked as the contract says. Images are the runtime's base plus a
+  setup script, built once and cloned; sizes, per-consumer and per-person
+  quotas, the idle stop and mounts of the tile's own filesystem resources
+  are the operators' to set, and hello's limits say the effective quotas. A
+  rebuild that fails keeps the previous good build (its template sandbox
+  goes only once a new build is ready), and while that build is current new
+  sandboxes clone it. No error a consumer sees names a runtime sandbox: not
+  its own, not a clone's source (said as its id), not an image's template
+  (`image:<id>`). Its sandboxes reach what its `internet` and `open`
+  `sandbox-net` classes are bound to, and `none` until then. Its page gives
+  operators (the owner and people with write access) every consumer's
+  sandboxes — metadata, lifecycle, snapshots, never contents —, usage,
+  images and settings, and their own sandboxes with a file browser and a
+  terminal; the app draws the same natively. Operators never change who may
+  use a sandbox (`visibility`, `members`, `shares`: only its home consumer
+  does, so `PATCH /ops/…` refuses them). A change made from the page needs
+  the person's write access to the tile: people with read access get a
+  read-only view of the sandboxes they may use, and every change they send
+  is `403 not-allowed`. Other consumers' calls are trusted as the contract
+  says. Another substrate (a cloud's API and ssh) is one Go file in a copy,
+  checked with the conformance suite, `sdk/sandboxcontract`, which the
+  template passes. On xbind's runtime, images with a setup script, the
+  contract's snapshots and clones are offered now that the runtime serves
+  them; a copy the runtime answers before it is done (a snapshot pending,
+  a clone creating, a restore busy) is waited out, so the contract answers
+  each one done. The runtime copies only a stopped sandbox, so a clone of
+  a running one without a `snapshot` is made of a snapshot the manager
+  takes for it and deletes once the clone is made.
+- **A sandbox's `/etc/resolv.conf` is written in place, never through a
+  symlink.** When a terminal or backend with egress starts, xbind writes the
+  relay's resolver into the sandbox's `/etc/resolv.conf`; a host-network
+  terminal gets copies of the host's `resolv.conf` and `hosts`. A symlink
+  left there (a terminal's persistent layer keeps one) used to be followed —
+  an absolute one outside the sandbox — and is now replaced by a regular file
+  with the same content the sandbox always got. Nothing to change.
+- **Security: a terminal's or backend's mount points never follow a symlink
+  its layer holds** ([isolation.md](isolation.md) §The dev layer; WP-2b of
+  D120). xbind mounts things at fixed paths in every sandbox — `/proc`,
+  `/tmp`, `/dev`, the SDK under `/opt/xbin`, the workspace, `$HOME`, a
+  backend's `/run/backend` and run dir — and made each path by name before
+  the sandbox's root was in place, so a symlink a terminal's persistent layer
+  or a tile's `setup` script had left there (`/opt → /home/…`) was followed
+  on the host: xbind made empty directories and files there as itself (it
+  never overwrote one), and a planted `/proc` could hang the start. Each path
+  is now found from the sandbox's root without following a symlink. One that
+  such a layer holds fails the start, naming the path and how to clear it (a
+  terminal's reset; a backend's `setup`), and nothing is made where it
+  points. The base rootfs's own links (`/lib → usr/lib`, `/var/run → /run`)
+  are still followed, now inside the sandbox (a mount point under `/var/run`
+  used to resolve to the host's `/run`), and a mask over the workspace's
+  `.xbin`, `data` or `homes` follows the workspace's own symlinks inside the
+  sandbox. Nothing to change unless a terminal's layer replaced `/opt`,
+  `/tmp` or another mount point with a symlink: reset that terminal. Also:
+  `/api/xbin` routes a path as it was sent, so an encoded `/` (`%2F`) stays
+  part of its segment's value instead of reaching another route, and a
+  segment that decodes to `.` or `..` is 400 `invalid`
+  ([protocol.md](protocol.md) §xbind API).
+- **Fix: terminals start again in a workspace whose `homes/` is a symlink,
+  and over a layer's apt-installed `nvidia-smi`** ([isolation.md](isolation.md)
+  §The dev layer). The mount-point change above refused two setups that
+  worked before: a workspace whose `homes/` is the operator's symlink into
+  the workspace (`homes → .homes`) failed tile terminals' start at
+  `…/homes`, and a GPU terminal (`?gpu=`) whose layer had `nvidia-smi`
+  installed with apt (`/usr/bin/nvidia-smi` is a Debian alternatives link)
+  failed at that path. A symlink directly in the workspace root, which only
+  xbind and the operator write, is now followed inside the sandbox, so
+  `$HOME` is the user's home on the host again; one in a tile's directory
+  is still refused. A `homes/` link to another disk, which failed a tile
+  terminal's start before too (the `homes/` mask followed it on the host
+  and hid the home), now works in a namespace terminal; a VM terminal
+  still fails to start over it. A symlink a terminal's layer or a
+  backend's `setup` left at a file mount point (`nvidia-smi`, a GPU
+  library, `/run/backend`) is covered by the mount instead: the sandbox
+  sees the host's file there, and the layer keeps its link. Nothing to
+  change.
+- **`cap:sandboxes`: the grant a sandbox manager needs for xbind's tile
+  sandboxes** (D120, [auth.md](auth.md)). A tile that serves
+  [sandbox-manager.md](sandbox-manager.md) on xbind's own sandboxes declares
+  `uses: [{target: "cap:sandboxes", role: "writer"}]`; it lands pending, and
+  only a workspace admin approves it. No org or personal allowance delegates
+  it, not even `cap:*`, and an allowance or permission set that names it is
+  refused. A policy `xbin-caps` deny strips it. Approving restarts nothing;
+  revoking it, or a policy change that strips it, stops the tile's sandboxes
+  and keeps their state. It gates the backend alone: the tile's frames,
+  terminals and signed-in users never gain anything from it.
+
+- **The VM policy gains `tiles`, `tilesBudgetMiB` and `tilesEmulated`,
+  and `PUT /api/xbin/vm/policy` merges** (D120,
+  [isolation.md](isolation.md) §VM sandboxes). `tiles` lets a manager tile's
+  sandboxes run in VMs. It is off unless an admin turns it on; the
+  installer's fresh policy turns it on where KVM is usable, and an existing
+  policy file is never touched. Their VMs count against the workspace's VM
+  budget and also against `tilesBudgetMiB` (0 = half the budget, at most
+  the budget), so they can't starve VM terminals. Where VMs run emulated
+  they also need `tilesEmulated`. `PUT /vm/policy` now merges its body onto
+  the stored policy: a field left out keeps its value instead of resetting
+  to off or the default, and a body with every field works as before. It
+  answers `stored` too. `GET /vm` and `GET /sandboxes` show admins
+  `usedTiles`, and the admin console's runtime → sandboxes tab edits the
+  three fields and shows the sub-budget.
+- **Base images stay while tile sandboxes pin them; VM disks list both
+  trees** (D120). The boot's base-image GC now keeps every base that a
+  terminal layer, a tile sandbox, one of its snapshots or a tile-sandbox
+  definition is pinned to, and the VM images built from those bases stay
+  too: a VM terminal on an older base boots without rebuilding its image. If
+  a pin can't be read, nothing is released that boot. `GET
+  /api/xbin/sandboxes` lists the tile sandboxes' VM disks next to the
+  terminal ones: each disk row gains `kind` (`terminal` | `tile`) and, for a
+  tile sandbox, `sandbox` (its name) and `sandboxUid` (its identity: a
+  sandbox deleted and re-created under the same name gets a new one).
+  Additive; nothing to change.
+  ([protocol.md](protocol.md), [09-terminals](/docs/overview/09-terminals.md)
+  §Base images.)
+- **Security: backups and restores never follow a planted symlink**
+  ([overview/14-lifecycle.md](overview/14-lifecycle.md), WP-9 of D120). A
+  restore (including re-enabling an offloaded tile, which its owner can do)
+  wrote through symlinks a sandbox had planted in the tile's source, its
+  terminal layer or a resource mount — as xbind, anywhere on the host. It
+  now writes every file through a root that nothing leads out of, replaces a
+  symlink met on the way instead of following it, refuses a tile directory
+  reached through one, and refuses an archive that isn't the component's
+  own. A backup no longer reads a file or directory swapped for a symlink
+  mid-walk. The terminal layer is now rebuilt apart and swapped in whole
+  after the tile's terminal sessions are closed (it used to be merged into
+  the live layer); a VM terminal's disk stays. Archives are unchanged, byte
+  for byte.
+- **Network classes for a sandbox manager's sandboxes: the `sandbox-net`
+  interface kind** ([isolation.md §Network egress](isolation.md), D120). A tile
+  declares `"interfaces": {"<class>": {"kind": "sandbox-net"}}`, one request-side
+  slot per class of network its sandboxes may use, and an approver binds each
+  like a `net` slot, under the same rights and ceilings (D20, D26, D54, D65,
+  D88), to `none`, `internet`, `internet:<spec>`, `lan:<cidr>`, `org`,
+  `personal` or `set:<name>`. `host`, provider tiles, sets that say `host` and
+  `#instance` are refused. An unbound class is `none`: there is no org or
+  personal default. A class's `internet` is strict: it also excludes CGNAT
+  (`100.64.0.0/10`, Tailscale's), benchmarking (`198.18.0.0/15`), reserved
+  (`240.0.0.0/4`) and NAT64 (`64:ff9b::/96`, `64:ff9b:1::/48`) addresses, in
+  its rules, its DNS answers and its reported reach (a tile backend's
+  `net:internet` is unchanged). Binding a class restarts nothing, and the
+  tile's own `net` slot is unaffected. `GET /bindings` adds
+  `sandboxNetOptions` (the option list per component) and lists inert
+  classes in `inert`. The admin console's binding tab, the tile popover and
+  `bx doctor` show the classes, and the shell's bind prompt starts a pending
+  class on `none`, so clicking through it grants no network (a set that says
+  `host` is greyed: "a sandbox class can't reach the host"). Also: a tile
+  that declares two `net` slots now resolves the name-sorted first every
+  time, instead of whichever map order gave.
+- **Terminals: a slow connection no longer reads as "shell ended"**
+  ([protocol.md](protocol.md) §`/ws/term`). A socket that fell too far
+  behind a terminal's output got `{"op":"exit"}` before it was closed, so
+  the pane closed as if the shell had ended while it ran on. Now it is closed
+  without one, and the terminal reattaches and replays the scrollback. The
+  exit frame comes only when the process ends and may carry `code` (or
+  `code: null` with `signal`); the session frame comes first on every
+  socket, also on a session that already ended, and may carry `sandbox`.
+  The same wire serves tile sandboxes' terminals, so a client of your own
+  should ignore fields it doesn't know.
+- **Tile sandboxes: the route surface** (D120,
+  [protocol.md](protocol.md) §Tile sandboxes). A manager tile's backend
+  holding `cap:sandboxes` can define sandboxes xbind runs for it under
+  `/api/xbin/sandboxes/…`: `GET /sandboxes/runtime` (the modes, egress
+  classes and limits it may use, including each sandbox's cap on
+  concurrent connections, `limits.flows`), and create, list, get, `PATCH`
+  and delete definitions (`clientId`-idempotent, sizes clamped to the new
+  sandboxes policy, mounts of its own `filesystem` resources that it
+  declares in `uses` (a grant alone mounts nothing), `none` egress or a
+  sandbox-net slot, no `XBIN_*` variables). Each sandbox has a `uid`, its
+  identity: a name deleted and created again gets another, so a manager
+  can tell the two apart. Start, stop, reset and rebase run sandboxes,
+  commands run in them, and files, tar and copy reach them (the next
+  bullets), and so do snapshots, restores and clones; `runtime.caps` lists
+  what is served. Errors use the
+  sandbox-manager contract's `{error, refusal}` shape. A path with a `.`
+  or `..` segment or an encoded `/`, `.` or `\`, or a name, exec id
+  (`[0-9a-f]{6}-<n>`) or snapshot id (`s-<n>`) that fails its grammar, is
+  400 `invalid` before anything is looked up. Admins get `GET`/`PUT
+  /sandboxes/policy` (with `total`, the cap on every tile sandbox
+  together, and `error` when the policy file can't be read), stop and
+  delete with `?tile=`, and a `tileSandboxes` list in `GET /sandboxes`.
+  Nothing changes for a workspace without a manager tile.
+- **Tile sandboxes run: start, stop and delete** (D120,
+  [protocol.md](protocol.md) §Tile sandboxes, [isolation.md](isolation.md)
+  §Tile sandboxes). A manager tile's `POST /sandboxes/<name>/start` now
+  runs a namespace-mode sandbox — the terminals' restricted lockdown, its
+  own hostname, a persistent upper pinned to the base image it first ran
+  on, its mounts, and its egress class through a relay with no route to
+  the host or to xbind (under `none` connections are reset and DNS answers
+  REFUSED at once), capped at `runtime.limits.flows` connections — and
+  answers it `running`. Where xbind's cgroup is delegated each running
+  sandbox gets its own cgroup (its memory + 128 MiB with no swap, its
+  pids, its vCPUs), so a command over the memory cap is killed and the
+  sandbox runs on. `POST …/stop` syncs and stops it, keeping its state;
+  `DELETE` stops it and puts its state aside for a confined removal.
+  However a sandbox ends — a stop, its agent exiting, its root filesystem
+  dying, the OOM killer, a narrowed `sandbox-net` class, xbind shutting
+  down — it is `stopped` with why in `stateDetail`; a failed start says
+  what failed, and a sandbox whose state or base image is gone is `error`
+  (409 `state` on start). The admin's `GET /sandboxes` lists running tile
+  sandboxes as `kind: "tile"` rows with `name`, `for` and `forUser`, and
+  `health.tileSandboxes` reports the relays' shared connection budget and
+  why the sandboxes run without cgroup limits, if they do. Nothing changes
+  for a workspace without a manager tile.
+- **Tile sandboxes: quotas, the idle stop, reset and rebase** (D120,
+  [protocol.md](protocol.md) §Tile sandboxes). A start is booked against
+  the sandboxes policy — the tile's `perTile.running`, `perTile.memMiB`,
+  `perTile.vcpus` and `perTile.diskGiB` (its sandboxes' bytes on disk,
+  which never count against its resource-write quota), and the workspace's
+  `total.memMiB` — and one over a cap is 429 `limit` naming it: ten starts
+  at once under `running: 4` run exactly four. While the workspace disk is
+  low no tile sandbox starts (503). A running sandbox that sees no
+  activity for its `idleStopMin` is stopped, state kept; a non-tty exec, a
+  `run`, a file operation or an attached terminal holds it up however long
+  it runs, and reading its `SandboxInfo` isn't activity. `POST …/reset`
+  and `…/rebase` work: each restarts a sandbox that was running and keeps
+  its snapshots; reset starts it from an empty upper on the current base
+  image (it repairs `error`), rebase keeps its state and pins it to the
+  current base image (`base.outdated` says when it isn't). Every lifecycle
+  call, and a create with `start: true`, takes `?wait=<seconds>`: absent it
+  waits up to `waitMaxSec`, `0` answers without waiting, and the answer is
+  the sandbox as it stands. Turning the policy's `enabled` off stops every
+  running tile sandbox. A policy file that can't be read now keeps tile
+  sandboxes off until an admin saves the policy again — it used to fall
+  back to the defaults, which are on — and `GET /sandboxes/policy`
+  (`error`) and the admin's `health.tileSandboxes` (`policyError`, and
+  `total`, the memory booked of the policy's total) say so. An exec id
+  from before an xbind restart answers 410 `lost`. Nothing changes for a
+  workspace without a manager tile.
+- **Tile sandboxes follow the workspace** (D120, [protocol.md](protocol.md)
+  §Tile sandboxes, "The workspace around them";
+  [overview/14-lifecycle.md](overview/14-lifecycle.md)). A running tile
+  sandbox is now stopped — synced, state kept, why in `stateDetail` — when
+  its manager tile is disabled, hidden, offloaded or removed; when the tile
+  loses `cap:sandboxes` (at once on a revoke, at the next rescan after a
+  hand edit of `xbin.json`); when it no longer holds a mount, or holds a
+  read-write one only as a reader; when the vault is sealed (before the
+  decrypted views go; its start answers 503 until the vault is unsealed);
+  and when disk runs short. A sandbox still starting when one of these
+  happens never comes up (its start answers 503, or 400 for a mount it no
+  longer holds). `diskBytes` is measured
+  at each stop and every
+  2 minutes while a sandbox runs; a tile past `perTile.diskGiB` has its
+  largest running sandbox stopped, and while the workspace disk is low the
+  running namespace sandboxes of the tiles above the fair share are
+  stopped, largest first. Sandbox bytes count for the workspace's disk
+  pressure, never against a scope's write quota. A manager tile's backup
+  carries its sandbox definitions, never their state; a restore merges them
+  back by `uid`, stopped, and answers what it left out in
+  `sandboxesSkipped`. Offloading a manager whose sandboxes hold state is
+  refused (409, nothing archived); a removed manager's sandboxes stay as
+  leftovers of its path, which a non-admin can't create a tile over. The
+  admin console's runtime → sandboxes tab lists every tile sandbox
+  definition under its manager — stopped ones and a removed tile's too —
+  with stop and delete, the sandboxes policy editor and the runtime's
+  health; `health.tileSandboxes` gains `lowDisk`, `trash` (state waiting
+  for its removal) and `total.pids`, and `tileSandboxes` rows gain `uid` and
+  `stateDetail`. A backup of a tile without sandboxes is byte for byte what
+  it was, and nothing changes for a workspace without a manager tile.
+- **Tile sandboxes run in VMs** (D120, [protocol.md](protocol.md) §Tile
+  sandboxes, [isolation.md](isolation.md) §VM sandboxes). A sandbox
+  created with `mode: "vm"` now starts: a microVM with its own kernel,
+  booted from the same base image, its state on its own sparse disk
+  (`diskGiB`; a `PATCH` that grows it applies at the next start), its
+  mounts served into the guest and its network through the same relay as
+  a namespace sandbox's. VM mode is offered while the VM policy's `tiles`
+  is on and, where VMs run emulated (`accel: "emulate"`), `tilesEmulated`
+  too; otherwise `runtime.unavailable` says why and a start answers 503
+  with the reason. Each VM counts against the workspace's VM count and
+  budget and against `tilesBudgetMiB` (429 `limit` past either). Where
+  cgroups are delegated it gets its memory plus the VMM's (192 MiB, 512
+  emulated), 512 processes and one CPU more than its `vcpus`. A stop
+  flushes the guest's disks before the VM goes. A VM whose VMM dies ends
+  `stopped` with "the VM exited: " and the last lines of its console in
+  `stateDetail`. `PUT /vm/policy` turning `tiles` off stops the running VM
+  sandboxes, and turning `tilesEmulated` off stops the emulated ones; their
+  state is kept. Commands, files, tar and copy work in a VM sandbox as in a
+  namespace one, a mount whose `path` names a file mounts that file, and
+  `diskBytes` is the VM's disks' allocated blocks. A mount `at` under
+  `/.xbin-vm` (a VM's plumbing) is `invalid` in either mode. Nothing
+  changes for a workspace without a manager tile.
+- **Tile sandboxes run commands: `run`, execs, their output, stdin,
+  signals and terminals** (D120, [protocol.md](protocol.md) §Tile
+  sandboxes). A manager tile's `POST /sandboxes/<name>/run` and `…/execs`
+  now run commands in its sandbox, starting a stopped one with `autoStart`
+  (a starting one is waited for, a stopping one waited out and started
+  again, within `waitMaxSec`), with the sandbox-manager contract's bodies
+  and answers, so the manager
+  forwards them unchanged: `run` answers `{exitCode, signal, timedOut, ms,
+  stdout, stderr}` (head and tail past `maxOutput`; TERM then KILL at
+  `timeoutMs`; a hang-up kills the group); an exec's output is one stream
+  read by byte offset with a long-poll (`…/output?since=&waitMs=`), and
+  `stdin` (with `?eof=1`), `signal` (`group` defaults to true), `resize`
+  and `DELETE` work. `…/execs/<id>/tty` and `…/tty` are WebSockets on the
+  `/ws/term` wire (the session frame first, with the manager's
+  `sessionId`/`sandboxId`; the ring replayed; echo acks; the exit with its
+  code or signal), for the manager's instance token only. A command gets
+  `IN_SANDBOX=1`, `SANDBOX_ID`, `SANDBOX_NAME` and `HOME` from xbind, then
+  `defaults.env` and its own `env`, and no supplementary groups (none of
+  xbind's user's — except in a namespace mapping a single uid, `users:
+  root`, which can't drop them); a `cwd` that doesn't exist is 400. A
+  stop, however it comes, ends the running execs `killed` (`signal:
+  "KILL"`) and keeps their output; only an exec id from before an xbind
+  restart is 410 `lost`. A sandbox runs at most 16 commands at once
+  (`runtime.limits.execsRunning`); a command the sandbox can't start
+  because it ran out of processes or memory is 429 `limit`. A terminal
+  claimed for a user with `noTerminal` (D88) is refused, and killed once
+  the flag takes effect (switched on, or an admin who had it set
+  demoted); a terminal is attached for at most 64 users.
+  `runtime.caps` now lists `exec` and `tty`. Nothing changes for a
+  workspace without a manager tile.
+- **Tile sandboxes: files, tar and copy** (D120,
+  [protocol.md](protocol.md) §Tile sandboxes). A manager tile's
+  `/sandboxes/<name>/files/…`, `tar` and `POST /sandboxes/copy` routes,
+  which answered 501 until now, work, and `runtime.caps` lists `files`
+  and `tar`. The sandbox's own agent resolves every path inside the
+  sandbox, so a symlink never leads to the host, and a read-only mount
+  refuses writes. You get stat, list, ranged reads whose `ETag` is the
+  stat's `etag` (quoted), atomic writes with `mode`, `mkdirs`, `ifMatch`
+  (412 with the current `etag`) and `ifNoneMatch=*`, mkdir, remove and
+  move, and tar streams both ways that keep symlinks and extract nothing
+  outside the target. A tar of `/` leaves out `/proc`, `/sys` and `/dev`.
+  Copies of a file or a tree between two of the manager's sandboxes stream
+  from agent to agent. Paths are absolute, clean and UTF-8, and
+  `limits.fileMax` and `limits.tarMax` answer 413. A call starts a stopped
+  sandbox that has `autoStart`, and the sandbox isn't idle while the call
+  runs. A stream that fails after its status went out is cut, never ended
+  as if it were whole. Nothing changes for a workspace without a manager
+  tile.
+- **Tile sandboxes: snapshots, restores and clones** (D120,
+  [protocol.md](protocol.md) §Tile sandboxes, "Snapshots and clones").
+  `POST /sandboxes/<name>/snapshots` stops the sandbox (its execs end
+  `killed`), copies its state — an upper exactly, whiteouts, opaque
+  directories, owners and `user.*` xattrs included, in a confined run; a
+  VM's disk sparse, shared with the original where the filesystem can —
+  and starts it again if it ran. A snapshot keeps the base image its
+  state was built on installed, whatever the sandbox does next, and ids
+  (`s-<n>`) are never handed out twice. `…/snapshots/<sid>/restore` puts
+  that state back, base included (`base.version` follows it; a rebase
+  moves it on again), and starts the sandbox again if it ran; it repairs
+  `error`. A clone is `POST /sandboxes` with `from: {sandbox, snapshot?}`
+  in the source's mode: of a snapshot whatever the source does, or of a
+  stopped source's state (a running one is 409 `state`: stop it, or clone
+  a snapshot). Another mode, another overlay flavour or a base image no
+  longer installed is 400 `invalid`; a copy that would take the tile past
+  `perTile.diskGiB` (copies still running counted) is 429 `limit`, and a
+  clone counts against
+  `perTile.max` at once. Copies are made whole or not at all, off the
+  request: `?wait=<seconds>` (absent: `waitMaxSec`) bounds the wait, and
+  one still copying answers as it stands — a snapshot 202 with `pending:
+  true`, a restore the sandbox with `stateDetail` "busy: restoring snapshot
+  s-2", a clone 201 `creating`. Meanwhile the sandbox is busy: its
+  lifecycle calls, another snapshot or restore, `DELETE` and a command or
+  file call without `autoStart` answer 409 `state` with `retryAfterMs`,
+  and one with `autoStart` waits the copy out; a `creating` clone answers
+  409 to everything but `GET`, the list and `DELETE`. A clone whose copy
+  fails, or which an xbind restart cut short, is `error` until deleted.
+  `runtime.caps` lists `snapshots` and `clone`, and `snapshots` in
+  `SandboxInfo` counts them. The Go SDK's `Snapshot` gains `Pending`.
+  Nothing changes for a workspace without a manager tile.
+- **Go SDK: tile sandboxes** ([sdk.md](sdk.md) §Tile sandboxes).
+  `xbin.SandboxAPI()` has a call for each of a manager tile's
+  `/api/xbin/sandboxes/…` routes: definitions and lifecycle, `Run`, execs
+  (`Output`, `Follow`, `Stdin`, `Signal`, `Resize`, `Kill`), files and tar
+  (streamed), `Copy` and snapshots. Refusals are `*xbin.SandboxError`, and
+  `errors.Is` works with `ErrSandboxNotFound`, `ErrSandboxLost` and
+  `ErrSandboxState`. `Forward`, `RelayTTY` and `RelayNewTTY` pass a
+  manager's own request through: both bodies stream, a terminal WebSocket
+  is tunnelled byte for byte, and the consumer's credentials and `X-XBin-*`
+  headers are dropped. So most contract routes take one line. `Forward`
+  takes a typed route — `xbin.ExecOutput(eid)`, `ExecRoute`, `ExecStdin`,
+  `ExecSignal`, `ExecResize`, `ExecTTY`, `FilesRoute(xbin.FilesContent)`,
+  `TarRoute()` — never a free-form path. Every call and route that takes an
+  exec or snapshot id checks it against the runtime's grammar
+  (`xbin.IsExecID`, `xbin.IsSnapshotID`) and refuses a bad one with `400
+  invalid` before anything is sent, so a consumer's id can never reach
+  another route or sandbox. `Runtime`'s limits carry `Flows` (each
+  sandbox's cap on concurrent network flows). Additive.
+- **New example: `examples/sandbox-go`, the smallest sandbox manager** (in
+  the xbin repository, with its `API.md`; [sdk.md](sdk.md) §Tile
+  sandboxes). A Go backend on
+  `xbin.SandboxAPI()` with `cap:sandboxes` and an `internet` `sandbox-net`
+  slot: create, lifecycle, `run`, execs with their output, stdin and
+  signals through `Forward`, files and tar, relayed terminals and
+  snapshots, each sandbox its creator's alone (a label, checked on every
+  route). It is the tile-sandbox runtime's end-to-end fixture
+  (`test/isolated`, in `make integration`), and a starting point: import
+  it, approve its grant, `bx bind <tile> internet=internet`.
+- **The `sandbox-terminal` builtin tile: terminals onto coding sandboxes,
+  for people — in the browser and over SSH** (`bx tile import
+  sandbox-terminal`; [sandbox-manager.md](sandbox-manager.md) §People's
+  terminals, and the tile's `API.md`). It is a consumer of the
+  sandbox-manager contract that creates no sandboxes. Bind it to one or more
+  managers (`bx bind apps/sandbox-terminal sandboxes=apps/<manager>`); a
+  sandbox shows up once it is shared with it (a share naming
+  `apps/sandbox-terminal`, for `"*"` or a list of people), and a person may
+  open it when they own it, are a member, or it is team.
+  - **Its page** lists the sandboxes you may use, grouped by manager, and
+    opens terminals onto them as tabs: the page dials the manager's `tty`
+    route itself (`<bx-terminal src>`, its frame token), so the manager
+    checks the verified person. Closing a tab leaves the shell running;
+    after a reload (or from another browser) the sandbox lists its running
+    terminals — the manager's tty execs labelled `terminal` — to attach
+    (the screen replays) or end (`DELETE` the exec). Its SSH panel: your
+    keys (add, remove, fingerprints), each sandbox's `ssh` command once SSH
+    is published, the host key; the tile's managers set the address people
+    type and see and revoke everyone's keys. Empty states say how a sandbox
+    gets there.
+  - **The native view** (the xbin app) lists the sandboxes, ends running
+    terminals and manages keys, but opens no terminal — the app's
+    `terminal` primitive dials only the tile's own routes — so it says so
+    and offers **Open in the browser** (the link is copied when the tile
+    holds no `cap:open-links`).
+  - **The agent template shares one**: its Sandboxes dialog (and the
+    app's Sandboxes screen) has **Share with a terminal tile…** on a
+    sandbox you own whose home is the agent — the tile's path
+    (`apps/sandbox-terminal` by default), for you, or for everyone who may
+    use it when it is a team sandbox (`PATCH /sandboxes/{ref} {shares}`);
+    the shares it has are listed there, each with Stop sharing.
+  - **SSH.** An admin publishes the port (`bx expose apps/sandbox-terminal
+    ssh=runtime --listen :2222`). People register their public keys with
+    the tile (`POST /keys` from its page; the tile's managers list and
+    revoke anyone's, and a revoke ends the key's live connections). Then
+    `ssh <sandbox>@host -p 2222`: the user name is the sandbox's name in
+    lower case (`<name>~<n>` when several share it, or its id), and an
+    unknown or ambiguous one lists the choices.
+  - **How a session runs.** With a terminal it is the manager's `tty`
+    route, with resize and the exit status. Without one (`ssh host cmd`) it
+    is an exec with stdin, where stdout and stderr arrive together. A
+    stopped sandbox starts; a client that leaves ends its command (`HUP`,
+    then a kill).
+  - **Not in v1:** port or agent forwarding, X11, sftp.
+  - Failed keys are rate-limited. The host key is kept in the tile's vault,
+    and `GET /me` shows its fingerprint.
+  - `bx tile import devbox`'s 410 now points at this tile.
+- **A tile's backend can ask what a person may do on it now: `GET
+  /api/xbin/access/<user>`, `xbin.AccessOf`** ([protocol.md](protocol.md),
+  [sdk.md](sdk.md) §Is a person still one of this tile's users?). For a
+  credential the tile keeps past a call — an SSH key or token a person
+  registered on its page — which would otherwise outlive their removal. It
+  answers `{user, level: none|read|write|terminal, active}` about the
+  calling tile only: the level `X-XBin-User-Level` would carry now, `none`
+  for a disabled or unknown account (`active: false`), never a 404. Only the
+  backend asks (its instance token); frame and terminal tokens get 403.
+  Additive.
+  - **The `sandbox-terminal` tile uses it**: every SSH login, every
+    session, every key registration, and every 30 s of a live connection
+    checks that the key's person still has access to the tile (cached
+    30 s; no answer from xbind is no login). Someone removed, disabled or
+    taken off the tile gets `access revoked`, a connection they have open
+    is cut, and their keys are kept, marked `inactive`, until access is
+    back.
+  - Its SSH login grace is 10 s; at 32 handshakes in flight a new
+    connection drops a random older one instead of being refused; failed
+    keys are tarpitted per source address and user name, so a flood
+    against one name doesn't slow anyone else. Several sandboxes sharing a
+    name log in as `<name>~1`, `<name>~2` (was `<name>.1`, which a sandbox
+    named `web.1` also was).
+  - The agent template's **Share with a terminal tile…** and **Stop
+    sharing** send the sandbox's `version`; a change someone made since is
+    read again and kept rather than overwritten.
+
 ## 2026-09-27
 
 - **BREAKING (rare) — security: resource names are checked** (D118,
@@ -57,6 +612,79 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   the script as it is, inside the sandbox. Migration:
   [changes/2026-09-27-cgi-removed.md](/docs/changes/2026-09-27-cgi-removed.md).
 
+- **Go backends in a VM start again, and a VM backend that never listens
+  leaves a dump** ([isolation.md](isolation.md) §VM sandboxes). A backend
+  whose program is served into the VM — a Go backend (`"vm": true` with
+  `"runtime": "go"`) above all — could hang before it ever ran, until the
+  60 s health timeout: always on a 1-vCPU VM (`"vcpus": 1`, or a policy of
+  1), rarely on more. The guest agent carried the VM's file traffic in the
+  same process that starts the backend; that traffic now has a process of
+  its own. node and python
+  backends and VM terminals weren't affected. When a VM backend does miss
+  its health check, its log (`bx logs <tile>`) now ends with a VM dump: file
+  requests the guest still waits on, every guest process's kernel stack,
+  the guest agent's goroutines, and the guest console.
+- **`<bx-terminal src>`: a terminal on any endpoint speaking the terminal
+  wire** ([elements.md](elements.md) §`<bx-terminal>`). A tile's page can
+  now embed `/vendor/bx-terminal.js` and point `src` at a sandbox
+  manager's `…/sbx/sandboxes/{id}/tty?cwd=` through its bound interface (or
+  its own pty route): a path on this host is dialled with the page's frame
+  token (`xbin.ws`), so the callee sees the verified person. Same features
+  as the shell's terminal — predictive echo where the server acks, resize,
+  themes. A drop reconnects with backoff (to the same exec on a manager's
+  route); an `exit` frame or a clean close prints how it ended and fires
+  `bx-exit` with `{code, signal}`; changing `src` starts over. The existing
+  `/ws/term` attributes are unchanged. In a sandboxed tile, where
+  `localStorage` throws, the terminal falls back to its default settings.
+- **The terminal wire, documented for reuse** ([protocol.md](protocol.md)
+  §The terminal wire). This is `/ws/term`'s framing, stated for any
+  endpoint:
+  - binary frames carry keystrokes and output;
+  - the first text frame is `session`, with an `id` to reattach to and an
+    optional `echoAck`;
+  - `pong` answers every `ping`;
+  - `exit` (with `code` or `signal`) comes before a clean close;
+  - the client sends `resize` first on every connect.
+
+  A sandbox manager's `tty`, the xbin app's `terminal` and
+  `<bx-terminal src>` all use it.
+- **Agent template: a terminal in a coding sandbox.** Where the sandbox's
+  manager offers `tty`, the ▣ popover has **Open terminal** (at the
+  conversation's working directory) and a Sandboxes row has **Terminal**.
+  It opens a pane with `<bx-terminal src>` on the manager's route, dialled
+  by the page itself, so the manager applies its own per-person rules to
+  you.
+  - It is offered only for a sandbox you may use yourself that runs or can
+    start; for an archived one it says to thaw it first.
+  - **⤢** makes the pane larger. When the shell exits, the pane offers
+    **New shell**.
+  - **✕** ends the shell (`DELETE …/execs/{id}` at the manager).
+  - Web only: the app's `terminal` dials only a tile's own routes. This is
+    a listed parity difference (D96).
+- **SDK: WebSocket on the standard library (`sdk/ws`,
+  [sdk.md](sdk.md)).** A client and server — `ws.Dial` and `ws.Upgrade` —
+  with text and binary messages, fragments reassembled, pings answered,
+  the close handshake, a message size limit (32 MiB by default), read and
+  write deadlines and writes safe from any goroutine; checked against
+  gorilla/websocket both ways. `ws.Dial` sends its handshake through an
+  `http.Client`, so `xbin.Client()` reaches another tile through the
+  gateway with the instance's credential. The SDK stays dependency-free.
+- **The sandbox-manager conformance suite is an SDK package
+  (`sdk/sandboxcontract`, [sandbox-manager.md](sandbox-manager.md)
+  §Building a manager).** `sandboxcontract.Run(t, Target{URL: …})` checks
+  any manager, section by section, now including terminals; `Target` says
+  how to call it as a consumer or a person, which capabilities hello must
+  offer, fields for its sandboxes, a fresh manager with small limits, and
+  the checks it is known to fail (reported as skipped). The reference
+  manager (`hack/fakesandbox`) runs it, and now has terminals: `tty` execs
+  on host pseudo-terminals, `…/resize`, and both terminal routes.
+- **Sandbox-manager terminals, spelled out** ([sandbox-manager.md](sandbox-manager.md)
+  §Terminals). A `ping` is always answered with a `pong`; the `exit` frame
+  comes once the output is out (`code` null and `signal` set when a signal
+  ended the command), then a close; a resize reaches the terminal before
+  the keystrokes after it; the session's `id` is a `tty` exec that
+  outlives its client and can be attached again; a request that isn't a
+  WebSocket is `invalid`, and refusals come before the upgrade, as JSON.
 - **xbin app: screens you swipe between** (D125, [native.md](native.md)).
   After sign-in the app opens on **Home**, your screens by Mine / each org /
   Workspace inside their folders; a screen shows its tiles as cards in two

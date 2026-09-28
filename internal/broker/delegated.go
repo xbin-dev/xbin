@@ -166,16 +166,17 @@ func (b *Broker) bindingTargetsPaired(comp, slot string, binding registry.Bindin
 	if !isIface {
 		return nil, false
 	}
+	isNet := netKind(iface.Kind) // a sandbox-net class is judged like a net slot (§4)
 	for _, ref := range binding {
 		v := ref.Ref
 		switch {
-		case iface.Kind == "net" && (v == NetRefOrg || v == NetRefPersonal || v == NetRefNone):
+		case isNet && (v == NetRefOrg || v == NetRefPersonal || v == NetRefNone):
 			// D54/D88 builtins: org/personal are the owner's own reach, none
 			// only narrows — no allowance needed (the gates skip them).
 			out = append(out, pairedTarget{"net:" + v, ""})
-		case iface.Kind == "net" && (v == "internet" || v == "host"):
+		case isNet && (v == "internet" || v == "host"):
 			out = append(out, pairedTarget{"net:" + v, ""})
-		case iface.Kind == "net" && strings.HasPrefix(v, "internet:"):
+		case isNet && strings.HasPrefix(v, "internet:"):
 			// Filtered internet (D35): every spec must be covered, so an
 			// allowance can carve "these hosts / this subnet only".
 			for _, spec := range strings.Split(strings.TrimPrefix(v, "internet:"), ",") {
@@ -183,9 +184,9 @@ func (b *Broker) bindingTargetsPaired(comp, slot string, binding registry.Bindin
 					out = append(out, pairedTarget{"net:internet:" + spec, ""})
 				}
 			}
-		case iface.Kind == "net" && strings.HasPrefix(v, "lan:"):
+		case isNet && strings.HasPrefix(v, "lan:"):
 			out = append(out, pairedTarget{"net:" + v, ""})
-		case iface.Kind == "net" && strings.HasPrefix(v, NetRefSet):
+		case isNet && strings.HasPrefix(v, NetRefSet):
 			// A named set (D65) is judged by the rules it materializes —
 			// relay targets and host; its provider rules confer nothing to
 			// a binding. A vanished set expands to nothing (netBinding
@@ -198,7 +199,7 @@ func (b *Broker) bindingTargetsPaired(comp, slot string, binding registry.Bindin
 					}
 				}
 			}
-		case iface.Kind == "net":
+		case isNet:
 			// A provider tile: same-org providers are intra-org wiring;
 			// otherwise the allowance must name net:provider:<tile>.
 			out = append(out, pairedTarget{"net:provider:" + providerPath(v), providerPath(v)})

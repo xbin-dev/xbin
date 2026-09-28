@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/backup"
+	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/util"
@@ -84,13 +86,21 @@ func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component) error {
 			m.BusSubs = append(m.BusSubs, raw)
 		}
 	}
+	// A manager tile's sandbox definitions — never their state (§9).
+	if h := b.tileSandboxes(); h != nil {
+		if m.Sandboxes = h.Defs(c.Path); len(m.Sandboxes) > 0 {
+			includes = append(includes, "sandboxes")
+		}
+	}
 	m.Includes = includes
 	if err := bw.Manifest(m); err != nil {
 		return err
 	}
 
-	// Source subtree — skip reproducible/history dirs (git owns history).
-	if err := bw.Tree(backup.SourcePrefix, c.Dir, skipSource); err != nil {
+	// Source subtree — skip reproducible/history dirs (git owns history). The
+	// tile's dir is reached from the workspace without symlinks: a nested
+	// tile lives in its parent's writable tree, which could swap it for a link.
+	if err := bw.TreeIn(backup.SourcePrefix, b.Reg.Root, c.Path, skipSource); err != nil {
 		return err
 	}
 	// Resource data (only when this component roots its scope).
@@ -212,180 +222,6 @@ func (b *Broker) cronJobsFor(comp string) []json.RawMessage {
 	return out
 }
 
-// --- restore ----------------------------------------------------------------
-
-// restore unpacks a backup tar, reconstructing the component at the path recorded
-// in the manifest. Placement is purely manifest-driven (self-describing).
-func (b *Broker) restore(r io.Reader) (backup.Manifest, error) {
-	br, err := backup.NewReader(r)
-	if err != nil {
-		return backup.Manifest{}, err
-	}
-	m := br.M
-	root := b.Reg.Root
-	srcRoot := filepath.Join(root, filepath.FromSlash(m.Component))
-	termRoot := b.termDir(m.Component)
-	// Restored resource data is re-encrypted under the current vault, so this
-	// needs the vault unsealed (plans/vault-data.md).
-	if b.vaultSealed() {
-		return m, fmt.Errorf("vault sealed — unseal before restoring encrypted resources")
-	}
-
-	for {
-		name, rd, err := br.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return m, err
-		}
-		switch {
-		case name == backup.KVName:
-			body, _ := io.ReadAll(rd)
-			if err := b.loadKV(m.Scope, body); err != nil {
-				return m, err
-			}
-		case strings.HasPrefix(name, backup.SQLitePrefix):
-			dst, err := b.restoreFileDest(m.Scope, strings.TrimPrefix(name, backup.SQLitePrefix))
-			if err != nil {
-				return m, err
-			}
-			if err := writeFileFrom(dst, rd); err != nil {
-				return m, err
-			}
-		case strings.HasPrefix(name, backup.FSPrefix):
-			dst, err := b.restoreFileDest(m.Scope, strings.TrimPrefix(name, backup.FSPrefix))
-			if err != nil {
-				return m, err
-			}
-			if err := writeFileFrom(dst, rd); err != nil {
-				return m, err
-			}
-		case strings.HasPrefix(name, backup.BlobPrefix):
-			dst, err := b.restoreFileDest(m.Scope, strings.TrimPrefix(name, backup.BlobPrefix))
-			if err != nil {
-				return m, err
-			}
-			if err := writeFileFrom(dst, rd); err != nil {
-				return m, err
-			}
-		case strings.HasPrefix(name, backup.SourcePrefix):
-			if err := writeFileFrom(backup.SafeJoin(srcRoot, strings.TrimPrefix(name, backup.SourcePrefix)), rd); err != nil {
-				return m, err
-			}
-		case strings.HasPrefix(name, backup.TermPrefix):
-			if err := writeFileFrom(backup.SafeJoin(termRoot, strings.TrimPrefix(name, backup.TermPrefix)), rd); err != nil {
-				return m, err
-			}
-		}
-	}
-	// Restore this component's cron jobs.
-	for _, raw := range m.CronJobs {
-		var j cronJob
-		if json.Unmarshal(raw, &j) == nil && b.cron != nil {
-			if b.cron.add(j) == nil {
-				b.cron.persist()
-			}
-		}
-	}
-	// And its bus subscriptions (a subscription of another component is
-	// never restored from this backup). Each delivery re-checks the grant.
-	restored := false
-	for _, raw := range m.BusSubs {
-		var s busSub
-		if json.Unmarshal(raw, &s) == nil && s.Component == m.Component && busSubNameRe.MatchString(s.Name) &&
-			strings.HasPrefix(s.Path, "/") && b.bus.put(s) == nil {
-			restored = true
-		}
-	}
-	if restored {
-		b.bus.persist()
-	}
-	return m, nil
-}
-
-// restoreFileDest maps a backup tar entry (its name minus the xbin prefix) to
-// the on-disk destination, mounting the resource first so restored data is
-// re-encrypted under the current vault. filesystem/sqlite/blob are all mount
-// dirs, so rest is always "<name>/<rel>".
-func (b *Broker) restoreFileDest(scope, rest string) (string, error) {
-	if !b.Reg.HoldsScopeKey(scope) {
-		// Another scope holds this data key (D118): its volume isn't ours to write.
-		return "", fmt.Errorf("scope %s doesn't hold its resource data key %q — its data isn't restored", scope, util.ScopeKey(scope))
-	}
-	scopeKey := util.ScopeKey(scope)
-	name, rel, _ := strings.Cut(rest, "/")
-	if !registry.ValidResourceName(name) { // the archive names it (D118)
-		return "", fmt.Errorf("backup entry names resource %q, which isn't a valid resource name", name)
-	}
-	mdir, err := b.resenc.Ensure(resLabel(scopeKey, name), scopeKey, name,
-		b.resSingleTenant(scope, b.resType(scope, name)))
-	if err != nil {
-		return "", err
-	}
-	return backup.SafeJoin(mdir, rel), nil
-}
-
-func (b *Broker) loadKV(scope string, body []byte) error {
-	if b.kv == nil {
-		return nil
-	}
-	if !b.Reg.HoldsScopeKey(scope) {
-		// A scope at "workspace" would write the workspace-level buckets (D118).
-		return fmt.Errorf("scope %s doesn't hold its resource data key %q — its data isn't restored", scope, util.ScopeKey(scope))
-	}
-	var dump map[string]map[string]string
-	if err := json.Unmarshal(body, &dump); err != nil {
-		return err
-	}
-	for name := range dump {
-		if !registry.ValidResourceName(name) { // "a/b" would land in another scope's bucket (D118)
-			return fmt.Errorf("backup names kv resource %q, which isn't a valid resource name", name)
-		}
-	}
-	return b.kv.db.Update(func(tx *bolt.Tx) error {
-		for name, kvs := range dump {
-			bucket := "res:" + scope + "/" + name
-			bk, err := tx.CreateBucketIfNotExists([]byte(bucket))
-			if err != nil {
-				return err
-			}
-			for k, v64 := range kvs {
-				v, err := base64.StdEncoding.DecodeString(v64)
-				if err != nil {
-					return err
-				}
-				// Re-encode under the current vault (the tar held plaintext).
-				stored, err := b.encodeKV(bucket, v)
-				if err != nil {
-					return err
-				}
-				if err := bk.Put([]byte(k), stored); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	})
-}
-
-func writeFileFrom(dst string, r io.Reader) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	// Replace even if the existing file is read-only — git objects (.git/objects)
-	// are mode 0444, and os.Create can't reopen those for writing. A restore
-	// overwrites wholesale, so removing first is correct.
-	_ = os.Remove(dst)
-	f, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = io.Copy(f, r)
-	return err
-}
-
 // --- archiver dispatch ------------------------------------------------------
 
 // archiveDo calls the archiver's API internally, as the owner (admin), routed
@@ -435,25 +271,52 @@ func (b *Broker) doBackup(comp string) (string, error) {
 	return out.Version, nil
 }
 
+// restored is what a restore brought back: the archive's manifest, and the
+// tile sandbox definitions it left out (by name and why).
+type restored struct {
+	backup.Manifest
+	SandboxesSkipped []string
+}
+
 // doRestore fetches a version's tar from the archiver and unpacks it. version ""
-// means the latest.
-func (b *Broker) doRestore(comp, version string) (backup.Manifest, error) {
+// means the latest. The tile's backend and its tile sandboxes are stopped
+// first (their state is kept: a restore never touches it).
+func (b *Broker) doRestore(comp, version string) (restored, error) {
 	provider := b.archiveProvider(comp)
 	if provider == "" {
-		return backup.Manifest{}, fmt.Errorf("no archiver bound for %q", comp)
+		return restored{}, fmt.Errorf("no archiver bound for %q", comp)
 	}
 	if version == "" {
 		version = "latest"
 	}
 	code, body, err := b.archiveDo("GET", provider, "/archive/"+backupKey(comp)+"/versions/"+version, nil)
 	if err != nil {
-		return backup.Manifest{}, err
+		return restored{}, err
 	}
 	if code >= 400 {
-		return backup.Manifest{}, fmt.Errorf("archiver %s: %s", provider, firstLine(string(body)))
+		return restored{}, fmt.Errorf("archiver %s: %s", provider, firstLine(string(body)))
 	}
 	b.StopBackendSafe(comp)
-	return b.restore(bytes.NewReader(body))
+	b.stopTileSandboxes(comp, "its tile was restored from a backup: stopped, state kept")
+	m, err := b.restore(bytes.NewReader(body), comp)
+	if err != nil {
+		return restored{Manifest: m}, err
+	}
+	return restored{Manifest: m, SandboxesSkipped: b.restoreSandboxes(m)}, nil
+}
+
+// restoreSandboxes merges a restored tile's sandbox definitions by uid
+// (§9); what it skipped is logged and answered.
+func (b *Broker) restoreSandboxes(m backup.Manifest) []string {
+	h := b.tileSandboxes()
+	if h == nil || len(m.Sandboxes) == 0 {
+		return nil
+	}
+	skipped := h.RestoreDefs(m.Component, m.Sandboxes)
+	for _, s := range skipped {
+		slog.Warn("restore: a tile sandbox definition was left out", "component", m.Component, "sandbox", s)
+	}
+	return skipped
 }
 
 func (b *Broker) StopBackendSafe(comp string) {
@@ -467,16 +330,34 @@ func (b *Broker) StopBackendSafe(comp string) {
 // offload archives a component, then removes its local data (and, when full,
 // its source + terminal env layer). It NEVER removes anything before the archive
 // PUT is confirmed. full=false keeps source + term-env (LC-1: two depths).
+//
+// full takes the terminal layer out of use first (HoldTermEnv: its sessions
+// killed, the layer held so none mounts it until the offload is done) — a
+// session that won't let go fails the offload there, after the archive, with
+// nothing removed — then removes it in a confined run (removeTree, WP-9b). A
+// layer that removal leaves behind is replaced whole by the restore.
 func (b *Broker) offload(comp string, full bool) error {
+	if err := b.sandboxOffloadCheck(comp); err != nil {
+		return err // nothing archived, nothing stopped (tilesbx_hooks.go)
+	}
 	b.StopBackendSafe(comp)
 	if _, err := b.doBackup(comp); err != nil {
 		return fmt.Errorf("archive before offload failed (nothing removed): %w", err)
+	}
+	if full && b.HoldTermEnv != nil {
+		release, err := b.HoldTermEnv(comp)
+		if err != nil {
+			return fmt.Errorf("archived, but its terminal layer is still in use (nothing removed): %w", err)
+		}
+		defer release()
 	}
 	if err := b.removeScopeData(comp); err != nil {
 		return err
 	}
 	if full {
-		_ = os.RemoveAll(b.termDir(comp))
+		if err := b.removeTree(b.termDir(comp)); err != nil {
+			slog.Warn("offload: removing the terminal layer", "component", comp, "err", err)
+		}
 		if err := b.removeSourceBulk(comp); err != nil {
 			return err
 		}
@@ -509,21 +390,33 @@ func (b *Broker) removeScopeData(comp string) error {
 
 // removeSourceBulk clears a component's source subtree but keeps a stub
 // (xbin.json + scope.json) so it stays listed and restorable (offloaded-full).
+// The tile's dir is reached without symlinks and cleared through an os.Root,
+// so a link planted in place of it (a nested tile's parent can) never turns
+// the clearing onto whatever the link points at.
 func (b *Broker) removeSourceBulk(comp string) error {
-	c, ok := b.Reg.Component(comp)
-	if !ok {
+	if _, ok := b.Reg.Component(comp); !ok {
 		return nil
 	}
-	keep := map[string]bool{"xbin.json": true, "scope.json": true}
-	entries, err := os.ReadDir(c.Dir)
+	r, err := fsutil.OpenRootIn(b.Reg.Root, comp)
 	if err != nil {
 		return err
 	}
-	for _, e := range entries {
-		if keep[e.Name()] {
+	defer r.Close()
+	d, err := r.Open(".")
+	if err != nil {
+		return err
+	}
+	names, err := d.Readdirnames(-1)
+	d.Close()
+	if err != nil {
+		return err
+	}
+	keep := map[string]bool{"xbin.json": true, "scope.json": true}
+	for _, name := range names {
+		if keep[name] {
 			continue
 		}
-		if err := os.RemoveAll(filepath.Join(c.Dir, e.Name())); err != nil {
+		if err := r.RemoveAll(name); err != nil {
 			return err
 		}
 	}
@@ -605,5 +498,9 @@ func (b *Broker) apiRestore(w http.ResponseWriter, r *http.Request) {
 	if b.OnStructureChange != nil {
 		b.OnStructureChange()
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "component": m.Component, "restored": m.Includes})
+	out := map[string]any{"ok": true, "component": m.Component, "restored": m.Includes}
+	if len(m.SandboxesSkipped) > 0 {
+		out["sandboxesSkipped"] = m.SandboxesSkipped
+	}
+	server.WriteJSON(w, http.StatusOK, out)
 }

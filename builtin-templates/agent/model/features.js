@@ -136,7 +136,9 @@ export const FEATURES = {
   'tools.render.maximize': 'maximize the preview',
   'tools.render.source': 'open the rendered file in Files',
   'tools.sandboxes': 'the Sandboxes screen (D115): every sandbox you may see — state, manager, image, egress, owner, private/team, last active, where it is bound — with start, stop, archive, thaw, share with the team / make private and delete (confirmed) as your rights allow, and "Use here"',
+  'tools.sandboxes.terminal': 'a terminal in a sandbox whose manager offers one (tty): Open terminal in the ▣ popover (the active sandbox, at its working directory) and Terminal on a Sandboxes row — the page dials the manager as you (its per-person rules apply); closing it ends the shell',
   'tools.sandboxes.create': 'create a sandbox: manager, name, image, size, network (what the class allows), private or team, a working directory; made in a conversation it is bound there (a team conversation\'s is a team one), at home the next new chat starts in it',
+  'tools.sandboxes.shareTerminal': 'share a sandbox of yours (this agent its home) with a terminal tile — the builtin sandbox-terminal (D121): its path (apps/sandbox-terminal by default), for you, or everyone who may use it when it is a team one; the shares it has now, each stopped (confirmed)',
 
   // Sharing
   'share.visibility': 'who can see it: only invited people, the team to read, the team to write',
@@ -208,6 +210,7 @@ export const DIFFERENCES = {
     'composer.keys': 'on a phone Return is a new line and Send is the button; the app\'s composer handles a hardware keyboard and IME composition itself',
     'composer.attach.paste': 'the app\'s composer owns the pasteboard: an image pasted there is uploaded like a picked one — nothing for the tile to draw',
     'composer.attach.drop': 'dropping files on the composer (iPad) is the app\'s: they upload like picked ones — nothing for the tile to draw',
+    'tools.sandboxes.terminal': 'the app\'s terminal primitive dials only the tile\'s own routes (TileTerminal refuses any other address), and a manager\'s tty is another tile\'s; relaying it through the agent\'s backend would make the person the manager checks an asserted one instead of the verified one. Until the app takes a bound interface\'s URL, terminals are on the web',
   },
 };
 
