@@ -31,13 +31,19 @@ make dev            # xbind from source against ./devws — isolated, auth ON
                     # need a restart
 make dev-noauth     # frictionless: every request is admin (plaintext vault)
 make test           # unit tests — fast, no network
+make integration-deps  # what integration needs: the native helpers (prebuilt,
+                    # verified — `make helpers`; from source when their inputs
+                    # changed or with `make helpers-build`), Firecracker,
+                    # bin/{xbind,bx,xbin-vmagent} from the tree, and .rootfs
+                    # when missing (docker, several GB, once)
 make integration    # end-to-end; compiles real Go backends (network on first
                     # run for module downloads). Includes the container-store
                     # fs suites (test/containerfs/): those need bin/gocryptfs
-                    # (`make gocryptfs`) + unprivileged userns, and skip with
+                    # (`make helpers`) + unprivileged userns, and skip with
                     # instructions when missing
 make check          # the definition of done: fmt-check vet js-check shellcheck
-                    # pins-offline test — CI runs exactly this, then integration
+                    # pins-offline large-files test — CI runs exactly this,
+                    # then integration
 make hooks          # once per clone: fmt-check + js-check run pre-commit
 make release TAG=vX.Y.Z   # the whole release (docs/maintenance.md → Releasing)
 ./hack/vendor.sh    # refresh pinned frontend deps (lit, xterm, marked) + hack/vendor.sha256

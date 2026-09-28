@@ -45,6 +45,10 @@ make website        # assembles website/dist/ (index.html, install.sh, og.png,
 `dist/` is the deployable artifact — any static host, GitHub Pages, or an
 object store. `https://xbin.dev/` serves `index.html`;
 `https://xbin.dev/install.sh` serves the bootstrap;
+`https://xbin.dev/static/helpers/…` serves the prebuilt native helpers
+(`make helpers`; docs/maintenance.md → "Prebuilt helpers") when
+`website/static-helpers/` (gitignored, filled by `hack/helpers-static.sh`)
+exists at build time — binaries, never tracked.
 `https://xbin.dev/app/ios.json` is the iOS app's remote kill switch
 (plans/native.md §23): `{"nativeRuntime": {"disabled": false,
 "disabledBuilds": []}}` — `disabled: true`, or a build number
