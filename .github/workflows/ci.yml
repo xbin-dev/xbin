@@ -27,32 +27,19 @@ jobs:
       # an AppArmor knob. It also needs xattr/fscap tooling.
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - run: sudo apt-get update && sudo apt-get install -y attr libcap2-bin fuse3 shellcheck
-      # Patched gocryptfs + fuse-overlayfs (docker builds) — cached on the
-      # build inputs. Fresh checkouts reset mtimes, so guard on existence
-      # instead of letting make's timestamp rules rebuild a cache hit.
-      - uses: actions/cache@v4
-        with:
-          path: bin
-          key: containerfs-bins-${{ hashFiles('hack/build-gocryptfs.sh', 'hack/gocryptfs-patches/*.patch', 'hack/gofuse-patches/*.patch', 'hack/build-fuse-overlayfs.sh') }}
-      - run: '[ -x bin/gocryptfs ] || make gocryptfs'
-      - run: '[ -x bin/fuse-overlayfs ] || make fuse-overlayfs'
-      # The definition of done (docs/maintenance.md): fmt-check, vet,
-      # js-check, shellcheck, pins-offline, test — then the end-to-end suite.
-      - run: make check
-      - run: make tile-check
-      - run: make integration
-      # VM sandboxes (D89): KVM for the runner user, the pinned Firecracker,
-      # guest kernel and static mkfs.erofs, and QEMU + vhost-device-vsock for
-      # emulated VMs (docker builds, cached on their pins), and a small Ubuntu
-      # rootfs for the guests (the tests use bash, curl, ip, mkfs.ext4 from
-      # it). The suite runs twice: on KVM, then emulated.
-      - run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
+      # The native helpers (docs/maintenance.md → "Prebuilt helpers"):
+      # `make helpers` downloads the prebuilt sets hack/helpers.sha256 pins
+      # for the current build-input keys and verifies every file; a PR that
+      # changed a group's inputs builds that group from source (docker) and
+      # gets a warning to publish. Cached on the manifest + those inputs, so
+      # a repeat run doesn't even download; the stamps (bin/.helpers-*)
+      # carry the key, so a fresh checkout's mtimes don't matter.
       - uses: actions/cache@v4
         with:
           path: |
+            bin/.helpers-*
+            bin/gocryptfs
+            bin/fuse-overlayfs
             bin/firecracker
             bin/vmlinux
             bin/mkfs.erofs
@@ -60,12 +47,25 @@ jobs:
             bin/qemu-bios-microvm.bin
             bin/qemu-pvh.bin
             bin/vhost-device-vsock
-          key: vm-assets-${{ hashFiles('hack/fetch-firecracker.sh', 'hack/build-vmkernel.sh', 'hack/vmkernel/xbin.config', 'hack/build-mkfs-erofs.sh', 'hack/build-qemu.sh', 'hack/build-vhost-vsock.sh') }}
+          key: helpers-${{ runner.arch }}-${{ hashFiles('hack/helpers.sha256', 'hack/helpers-lib.sh', 'hack/fetch-helpers.sh', 'hack/fetch-firecracker.sh', 'hack/build-gocryptfs.sh', 'hack/gocryptfs-patches/*.patch', 'hack/gofuse-patches/*.patch', 'hack/build-fuse-overlayfs.sh', 'hack/build-vmkernel.sh', 'hack/vmkernel/xbin.config', 'hack/build-mkfs-erofs.sh', 'hack/build-qemu.sh', 'hack/build-vhost-vsock.sh') }}
+      - run: make helpers HELPERS=containerfs
+      # The definition of done (docs/maintenance.md): fmt-check, vet,
+      # js-check, shellcheck, pins-offline, test — then the end-to-end suite.
+      - run: make check
+      - run: make tile-check
+      - run: make integration
+      # VM sandboxes (D89): KVM for the runner user, the pinned Firecracker,
+      # the vm helpers — guest kernel, static mkfs.erofs, and QEMU +
+      # vhost-device-vsock for emulated VMs (prebuilt, or built when their
+      # inputs changed; cached above) — and a small Ubuntu rootfs for the
+      # guests (the tests use bash, curl, ip, mkfs.ext4 from it). The suite
+      # runs twice: on KVM, then emulated.
+      - run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
       - run: '[ -x bin/firecracker ] || ./hack/fetch-firecracker.sh bin'
-      - run: '[ -f bin/vmlinux ] || ./hack/build-vmkernel.sh bin'
-      - run: '[ -x bin/mkfs.erofs ] || ./hack/build-mkfs-erofs.sh bin'
-      - run: '[ -x bin/qemu-system-x86_64 ] || ./hack/build-qemu.sh bin'
-      - run: '[ -x bin/vhost-device-vsock ] || ./hack/build-vhost-vsock.sh bin'
+      - run: make helpers HELPERS=vm
       - run: |
           printf 'FROM docker.io/library/ubuntu:26.04\nRUN apt-get update && apt-get install -y --no-install-recommends bash curl ca-certificates e2fsprogs iproute2 util-linux && rm -rf /var/lib/apt/lists/*\n' | docker build -t xbin-vmtest-rootfs -
           mkdir -p "$RUNNER_TEMP/vmrootfs"

@@ -12,6 +12,9 @@ go.work.sum
 # `git add -A` as well.
 dist/
 /bx
+# Packed helper sets (make helpers-publish stages them outside the tree;
+# they live in the helpers bucket, never in git — hack/check-large-files.sh).
+*.tar.zst
 website/dist/
 builtin-tiles/*/backend/backend
 builtin-templates/*/_backend/_backend

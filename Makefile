@@ -2,7 +2,7 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets build test integration vet fmt-check fmt vendor dev-reset website check js-check native-check swift-test swift-stubcheck theme-check tile-check shellcheck pins pins-offline hooks release
+.PHONY: dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets helpers helpers-build helpers-publish integration-deps large-files build test integration vet fmt-check fmt vendor dev-reset website check js-check native-check swift-test swift-stubcheck theme-check tile-check shellcheck pins pins-offline hooks release
 
 # Dev runs ISOLATED (per-component namespaces + overlay rootfs + egress relay):
 # the sandbox network/fs model is different enough from unsandboxed that dev must
@@ -64,6 +64,35 @@ $(VHOST_VSOCK): hack/build-vhost-vsock.sh
 	./hack/build-vhost-vsock.sh $(CURDIR)/bin
 vm-assets: $(FIRECRACKER) $(VMKERNEL) $(MKFS_EROFS) $(QEMU) $(VHOST_VSOCK)
 	CGO_ENABLED=0 go build -o bin/xbin-vmagent ./cmd/xbin-vmagent
+
+# Prebuilt helpers (docs/maintenance.md → "Prebuilt helpers"): the two
+# groups above — containerfs (gocryptfs, fuse-overlayfs) and vm (vmlinux,
+# mkfs.erofs, QEMU + its blobs, vhost-device-vsock) — keyed by a hash of
+# their build inputs. `make helpers` downloads the set hack/helpers.sha256
+# pins for the current key and verifies every file (a mismatch is fatal),
+# or builds from source with the same scripts when the key isn't published
+# (a PR that changed the inputs). `helpers-build` always builds from
+# source; `helpers-publish` (maintainers, never CI) builds, uploads to the
+# helpers bucket and rewrites the manifest. HELPERS=<group…> narrows them.
+HELPERS ?=
+helpers:
+	@./hack/fetch-helpers.sh --dest $(CURDIR)/bin $(HELPERS)
+helpers-build:
+	@./hack/fetch-helpers.sh --build --dest $(CURDIR)/bin $(HELPERS)
+helpers-publish:
+	@./hack/publish-helpers.sh $(HELPERS)
+
+# Everything `make integration` uses, ready: the helpers, the pinned
+# Firecracker, xbind/bx/xbin-vmagent from this tree, and .rootfs when it is
+# missing (never rebuilt here when present: `make rootfs` does that).
+integration-deps: helpers $(FIRECRACKER)
+	CGO_ENABLED=0 go build -ldflags "-X main.version=$(VERSION)" -o bin/xbind ./cmd/xbind
+	CGO_ENABLED=0 go build -o bin/bx ./cmd/bx
+	CGO_ENABLED=0 go build -o bin/xbin-vmagent ./cmd/xbin-vmagent
+	@if [ ! -e "$(ROOTFS)/etc/os-release" ]; then \
+	  echo ">> $(ROOTFS) missing — building the base rootfs (docker; several GB and a while, once)"; \
+	  $(MAKE) rootfs; \
+	fi
 
 # The core loop: xbind from source against ./devws, isolated.
 # Live-editable core assets + debug logs, with auth ON (multi-user works).
@@ -161,7 +190,7 @@ fmt:
 
 # The definition of done (docs/maintenance.md). CI runs this, then
 # `make integration`. Each guard is its own target so a failure names itself.
-check: fmt-check vet js-check js-test native-check theme-check shellcheck pins-offline test
+check: fmt-check vet js-check js-test native-check theme-check shellcheck pins-offline large-files test
 	@echo ">> make check: green"
 
 # Unit tests for pure frontend modules (node's built-in runner, no deps):
@@ -222,6 +251,11 @@ js-check:
 shellcheck:
 	@./hack/check-sh.sh
 
+# No big or native binaries in git (hack/large-files.allow for the
+# exceptions): helpers and bundles live in the bucket and on release tags.
+large-files:
+	@./hack/check-large-files.sh
+
 # Pinned inputs: vendor checksums, Go versions agreeing across files, alpine
 # pins (offline); `make pins` adds EOL + reachability checks (network).
 pins-offline:
@@ -232,7 +266,7 @@ pins:
 # Install the sub-second pre-commit hook (.githooks/pre-commit).
 hooks:
 	git config core.hooksPath .githooks
-	@echo ">> pre-commit hook active: make fmt-check js-check"
+	@echo ">> pre-commit hook active: make fmt-check js-check large-files"
 
 # The whole release: make release TAG=vX.Y.Z (hack/release.sh — checks, tag,
 # push, build+publish from a detached worktree, watch CI, prune dist/).

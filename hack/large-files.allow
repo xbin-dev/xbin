@@ -1,0 +1,5 @@
+# Files hack/check-large-files.sh lets into git although they are over
+# 1 MiB or a native (ELF / Mach-O / PE) binary: one glob per line, matched
+# against the repo-relative path, each with a "# why" on the same line.
+# Empty today — nothing tracked needs an exception. Prefer keeping the file
+# out of git (bin/, dist/, the helpers bucket) to adding a line here.

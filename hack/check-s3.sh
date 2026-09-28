@@ -23,47 +23,12 @@ pass() { printf '  ok    %s\n' "$*"; }
 fail() { printf '  FAIL  %s\n' "$*" >&2; }
 die() { fail "$*"; exit 1; }
 
-[ -f "$envfile" ] || die "no $envfile — copy s3secret.env.example to s3secret.env and fill it in"
-if git -C "$repo" ls-files --error-unmatch "$envfile" >/dev/null 2>&1; then
-  die "$envfile is tracked by git — it holds secrets: git rm --cached it (s3secret.env is gitignored)"
-fi
-mode=$(stat -c %a "$envfile" 2>/dev/null || stat -f %Lp "$envfile")
-case $mode in
-*[0-7][0-7][1-7] | *[0-7][1-7][0-7]) say "  warn  $envfile is mode $mode: chmod 600 it (it holds write credentials)" ;;
-esac
-
-# KEY=value lines only (comments, blanks skipped); read, never sourced.
-XBIN_HELPERS_S3_BUCKET="" XBIN_HELPERS_S3_ENDPOINT="" XBIN_HELPERS_S3_REGION="" XBIN_HELPERS_S3_PREFIX=""
-XBIN_HELPERS_URL="" AWS_ACCESS_KEY_ID="" AWS_SECRET_ACCESS_KEY=""
-while IFS= read -r line || [ -n "$line" ]; do
-  line=${line%%$'\r'}
-  case $line in '' | '#'*) continue ;; esac
-  key=${line%%=*}
-  val=${line#*=}
-  val=${val%%[[:space:]]#*} # a trailing " # comment"
-  val=${val%"${val##*[![:space:]]}"}
-  case $key in
-  XBIN_HELPERS_S3_BUCKET | XBIN_HELPERS_S3_ENDPOINT | XBIN_HELPERS_S3_REGION | XBIN_HELPERS_S3_PREFIX | \
-    XBIN_HELPERS_URL | AWS_ACCESS_KEY_ID | AWS_SECRET_ACCESS_KEY)
-    printf -v "$key" '%s' "$val" ;;
-  *) say "  warn  unknown setting $key (ignored)" ;;
-  esac
-done <"$envfile"
-
-bucket=$XBIN_HELPERS_S3_BUCKET
-endpoint=${XBIN_HELPERS_S3_ENDPOINT%/}
-region=${XBIN_HELPERS_S3_REGION:-us-east-1}
-prefix=$XBIN_HELPERS_S3_PREFIX
-public=${XBIN_HELPERS_URL%/}
-missing=""
-[ -n "$bucket" ] || missing="$missing XBIN_HELPERS_S3_BUCKET"
-[ -n "$public" ] || missing="$missing XBIN_HELPERS_URL"
-[ -n "$AWS_ACCESS_KEY_ID" ] || missing="$missing AWS_ACCESS_KEY_ID"
-[ -n "$AWS_SECRET_ACCESS_KEY" ] || missing="$missing AWS_SECRET_ACCESS_KEY"
-[ -z "$missing" ] || die "not set in $envfile:$missing"
-case $prefix in '' | */) ;; *) prefix="$prefix/" ;; esac
-
-curl --help all 2>/dev/null | grep -q -- '--aws-sigv4' || die "curl lacks --aws-sigv4 (needs curl ≥ 7.75)"
+# The settings: the file is parsed, never sourced (hack/s3-lib.sh).
+# shellcheck source=hack/s3-lib.sh
+. "$repo/hack/s3-lib.sh"
+s3_load "$envfile"
+s3_require "$envfile"
+bucket=$s3_bucket endpoint=$s3_endpoint region=$s3_region prefix=$s3_prefix public=$s3_public
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/check-s3.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
@@ -72,22 +37,15 @@ rand=$(head -c 6 /dev/urandom | od -An -tx1 | tr -d ' \n')
 key="${prefix}xbin-s3-check/$stamp-$rand.txt"
 printf 'xbin S3 check %s %s — a throwaway object; safe to delete\n' "$stamp" "$rand" >"$tmp/obj"
 
-# The S3 API address of the object: path style on a given endpoint (R2, B2,
-# MinIO …), virtual-hosted on AWS.
-if [ -n "$endpoint" ]; then
-  api="$endpoint/$bucket/$key"
-else
-  api="https://$bucket.s3.$region.amazonaws.com/$key"
-fi
+api=$(s3_api "$key")
 pub="$public/$key"
+s3_err="$tmp/curl.err"
 
-# signed <method> <out> [curl args…] — prints the HTTP status. The
-# credentials travel in a curl config on stdin.
+# signed <method> <out> [curl args…] — prints the HTTP status.
 signed() {
   local method=$1 out=$2
   shift 2
-  printf 'user = "%s:%s"\n' "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" |
-    curl -sS -K - -o "$out" -w '%{http_code}' --aws-sigv4 "aws:amz:$region:s3" -X "$method" "$@" "$api" 2>"$tmp/curl.err" || true
+  s3_signed "$method" "$out" "$api" "$@"
 }
 
 say "S3 check: bucket $bucket, region $region, ${endpoint:-AWS}, key $key"

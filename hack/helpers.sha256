@@ -1,0 +1,6 @@
+# Prebuilt native helpers (docs/maintenance.md → "Prebuilt helpers"):
+#   <group> <key> <arch> <file> <sha256>
+# <file> is <arch>.tar.zst (the bucket object <group>/<key>/<arch>.tar.zst)
+# or a file inside it. Written by `make helpers-publish` — don't edit by
+# hand; `make helpers` refuses anything that doesn't match. A group whose
+# current key (hack/helpers-lib.sh) has no entry is built from source.
