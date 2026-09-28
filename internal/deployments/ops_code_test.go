@@ -443,8 +443,18 @@ func TestDeployPlaneOperationsCode(t *testing.T) {
 		n := len(runnerCommitErrs(f.opsFx))
 		f.run.set(func(r *fakeRunner) { r.before = nil })
 		close(hold)
-		waitFor(t, "the held deploy's commit", func() bool { return len(runnerCommitErrs(f.opsFx)) > n })
-		if errs := runnerCommitErrs(f.opsFx); errs[n] == nil || f.rec(opAPI).Deployments["dev"] != nil {
+		// Another commit (an earlier op's, still settling) may land first:
+		// wait for the held deploy's, the one refused.
+		refused := func() bool {
+			for _, err := range runnerCommitErrs(f.opsFx)[n:] {
+				if err != nil {
+					return true
+				}
+			}
+			return false
+		}
+		waitFor(t, "the held deploy's commit", refused)
+		if errs := runnerCommitErrs(f.opsFx); !refused() || f.rec(opAPI).Deployments["dev"] != nil {
 			t.Errorf("the held deploy's commit after the removal: %v", errs)
 		}
 		if df := f.p.Deploys(t.Context(), opAPI, "dev"); !reflect.DeepEqual(df, DeployFacts{}) {

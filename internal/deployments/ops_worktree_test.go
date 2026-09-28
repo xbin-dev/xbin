@@ -72,7 +72,9 @@ func gitInit(t *testing.T, dir string) {
 		{"-c", "user.name=t", "-c", "user.email=t@t", "add", "-A"},
 		{"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "one"},
 	} {
-		cmd := exec.Command("git", args...)
+		// No auto-maintenance: a commit may detach one, whose
+		// objects/maintenance.lock comes and goes under treeHash's walk.
+		cmd := exec.Command("git", append([]string{"-c", "maintenance.auto=false", "-c", "gc.auto=0"}, args...)...)
 		cmd.Dir = dir
 		cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null")
 		if out, err := cmd.CombinedOutput(); err != nil {
