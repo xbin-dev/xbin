@@ -49,12 +49,37 @@ final class TerminalController: NSObject {
     /// The launch argument (Debug builds) that hides the software keyboard.
     static let noSoftKeyboardKey = "XbinNoSoftKeyboard"
 
+    /// The UI tests' launch argument (Debug builds, E2E.launch): the cursor
+    /// doesn't blink. SwiftTerm blinks it with a repeating UIView
+    /// animation, and XCUITest waits for the app to idle before every step
+    /// — with a terminal on screen it never did, and each step waited 60 s
+    /// ("App animations complete notification not received").
+    static var uiTesting: Bool {
+        #if DEBUG
+        return UserDefaults.standard.bool(forKey: "XbinUITesting")
+        #else
+        return false
+        #endif
+    }
+
+    /// A blinking style made steady under the UI tests (`uiTesting`).
+    static func caret(_ style: CursorStyle) -> CursorStyle {
+        guard uiTesting else { return style }
+        switch style {
+        case .blinkBlock: return .steadyBlock
+        case .blinkBar: return .steadyBar
+        case .blinkUnderline: return .steadyUnderline
+        default: return style
+        }
+    }
+
     init(workspace: WorkspaceModel, cwd: String, initialInput: String? = nil) {
         self.workspace = workspace
         self.cwd = cwd
         self.initialInput = initialInput.map { Array($0.utf8) }
         var options = TerminalOptions.default
         options.scrollback = 10_000
+        options.cursorStyle = Self.caret(options.cursorStyle)
         terminalView = XbinTerminalView(frame: CGRect(x: 0, y: 0, width: 400, height: 600),
                                         font: UIFont.monospacedSystemFont(ofSize: AppSettings.terminalFontSize, weight: .regular),
                                         options: options)
@@ -385,6 +410,11 @@ final class XbinTerminalView: TerminalView {
     override func hideCursor(source: Terminal) {
         super.hideCursor(source: source)
         controller?.cursorVisibility(hidden: true)
+    }
+
+    /// A program's DECSCUSR: blinking styles stay steady under the UI tests.
+    override func cursorStyleChanged(source: Terminal, newStyle: CursorStyle) {
+        super.cursorStyleChanged(source: source, newStyle: TerminalController.caret(newStyle))
     }
 
     override func bufferActivated(source: Terminal) {

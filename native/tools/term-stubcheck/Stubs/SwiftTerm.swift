@@ -11,8 +11,12 @@ public struct SearchOptions: Equatable {
         self.caseSensitive = caseSensitive; self.regex = regex; self.wholeWord = wholeWord
     }
 }
+public enum CursorStyle: CaseIterable {
+    case blinkBlock, steadyBlock, blinkUnderline, steadyUnderline, blinkBar, steadyBar
+}
 public struct TerminalOptions {
     public static let `default` = TerminalOptions()
+    public var cursorStyle: CursorStyle = .blinkBlock
     public var scrollback = 500
     public var cols = 80, rows = 25
 }
@@ -69,6 +73,7 @@ public protocol TerminalViewDelegate: AnyObject {
     public func feed(byteArray: ArraySlice<UInt8>) {}
     open func getOptimalFrameSize() -> CGRect { .zero }
     open func showCursor(source: Terminal) {}
+    open func cursorStyleChanged(source: Terminal, newStyle: CursorStyle) {}
     open func hideCursor(source: Terminal) {}
     open func bufferActivated(source: Terminal) {}
     open func insertText(_ text: String) {}

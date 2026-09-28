@@ -57,6 +57,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        #if DEBUG
+        // The UI tests (-XbinUITesting): UIKit's animations off, so the app
+        // is idle between steps — XCUITest waited 60 s for them after every
+        // long press and menu. Never in a release build.
+        if TerminalController.uiTesting { UIView.setAnimationsEnabled(false) }
+        #endif
         // The remote kill switch before anything else (§23): a build whose
         // native views crash learns it's off even if a window restores
         // straight into one.
