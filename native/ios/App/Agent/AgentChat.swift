@@ -138,16 +138,3 @@ enum AgentChat {
         return ChatStep(glyph: d.error != nil ? "⚠︎" : "—", text: d.error.map { "\(d.label): \($0)" } ?? d.label, tone: tone)
     }
 }
-
-/// Markdown blocks per message, re-lexed only when the text changed (a
-/// streaming message grows every few hundred milliseconds).
-final class MarkdownMemo {
-    private var cache: [String: (String, [MarkdownBlock])] = [:]
-
-    func blocks(id: String, text: String) -> [MarkdownBlock] {
-        if let c = cache[id], c.0 == text { return c.1 }
-        let b = Markdown.blocks(MarkdownLexer.tokens(text))
-        cache[id] = (text, b)
-        return b
-    }
-}

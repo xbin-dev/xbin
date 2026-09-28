@@ -21,6 +21,15 @@ public struct XCTSkip: Error {
     public init(_ message: String? = nil, file: StaticString = #filePath, line: UInt = #line) {}
 }
 
+/// One element of an XCUIElement's snapshot (a whole subtree in one query).
+public protocol XCUIElementSnapshot {
+    var identifier: String { get }
+    var frame: CGRect { get }
+    var label: String { get }
+    var elementType: XCUIElement.ElementType { get }
+    var children: [any XCUIElementSnapshot] { get }
+}
+
 public func XCTSkipIf(_ expression: @autoclosure () throws -> Bool, _ message: @autoclosure () -> String? = nil,
                       file: StaticString = #filePath, line: UInt = #line) throws {}
 public func XCTSkipUnless(_ expression: @autoclosure () throws -> Bool, _ message: @autoclosure () -> String? = nil,
@@ -122,6 +131,7 @@ open class XCUIElement: XCUIElementTypeQueryProvider {
     open var placeholderValue: String? { nil }
     open var elementType: ElementType { .any }
     open var frame: CGRect { .zero }
+    open func snapshot() throws -> any XCUIElementSnapshot { throw XCTSkip() }
     open func waitForExistence(timeout: TimeInterval) -> Bool { false }
     open func waitForNonExistence(timeout: TimeInterval) -> Bool { false }
     open func tap() {}

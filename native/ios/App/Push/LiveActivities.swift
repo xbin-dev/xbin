@@ -162,7 +162,7 @@ final class LiveActivities {
     }
 
     /// One transcript of a session (what `follow` does per update).
-    func observe(_ t: AgentTranscript, session: String, workspace: String, name: String = "") {
+    func observe(_ t: AgentWindow, session: String, workspace: String, name: String = "") {
         guard Self.enabled else { return }
         let k = Self.key(workspace, session)
         var c = cards[k] ?? Card(workspace: workspace, session: session, name: "", dismissedSince: Self.dismissal(k))

@@ -6,8 +6,9 @@ import XbinCore
 import XbinRenderer
 
 /// One ACP agent session (plans/native.md §13): XbinAgent keeps it current
-/// (replay, follow, catch-up, the D77 card rules); this model drives the
-/// screen's actions.
+/// (the tail page, follow, catch-up, older pages, the D77 card rules); this
+/// model drives the screen's actions. The transcript is `rows` — one
+/// observable object per row, so an event re-renders its own row (D130).
 @MainActor
 @Observable
 final class AgentScreenModel {
@@ -15,7 +16,8 @@ final class AgentScreenModel {
     var cwd: String?
     var sessionID: String?
     var providerID: String?
-    var transcript: AgentTranscript?
+    /// The loaded window of the transcript, row by row, and the session's facts.
+    let rows = AgentRows()
     var providers: [AgentProvider] = []
     var history: [HistoryEntry] = []
     var error: String?
@@ -24,8 +26,8 @@ final class AgentScreenModel {
     var streamProblem: String?
     var draft = ""
     var starting = false
-    var openTools: Set<String> = []
-    var openThoughts: Set<String> = []
+    /// Open cards nested in a subagent's (a row's own is `AgentRow.isOpen`).
+    var openNested: Set<String> = []
     var detail: ToolCall?
     var signInCommand: LoginNeeded?
     /// Files waiting to ride the next prompt (§13): photos, the camera, Files.
@@ -48,8 +50,8 @@ final class AgentScreenModel {
 
     var client: AgentClient { workspace.agents }
     var provider: AgentProvider? { providers.first { $0.id == providerID } }
-    var state: AgentSessionState? { transcript?.state }
-    var ended: Bool { state?.isEnded ?? false }
+    var state: AgentSessionState? { rows.loaded ? rows.state : nil }
+    var ended: Bool { rows.ended }
 
     func load() async {
         do {
@@ -83,15 +85,31 @@ final class AgentScreenModel {
             nav?.started(session: info.id, cwd: cwd)
         } catch let e as AgentAPIError {
             error = e.description
-            if e.looksLikeAuth { signInCommand = transcript?.state.signIn(provider: providers.first { $0.id == provider }, lastError: e.message) }
+            if e.looksLikeAuth { signInCommand = state?.signIn(provider: providers.first { $0.id == provider }, lastError: e.message) }
         } catch {
             self.error = workspace.describe(error)
         }
     }
 
+    /// Events per page and the rows kept beyond the visible ones: xbind's
+    /// default page and D130's margin. A Debug build takes
+    /// -XbinAgentPageLimit / -XbinAgentKeepMargin, so a UI test crosses
+    /// pages and unloads within a few screens.
+    static var pageLimit: Int { debugOverride("XbinAgentPageLimit") ?? AgentWindow.pageLimit }
+    static var keepMargin: Int { debugOverride("XbinAgentKeepMargin") ?? AgentWindow.keepMargin }
+
+    private static func debugOverride(_ key: String) -> Int? {
+        #if DEBUG
+        let n = UserDefaults.standard.integer(forKey: key)
+        return n > 0 ? n : nil
+        #else
+        return nil
+        #endif
+    }
+
     private func attach(_ id: String) {
         stop()
-        let f = AgentSessionFeed(client: client, sessionID: id)
+        let f = AgentSessionFeed(client: client, sessionID: id, pageLimit: Self.pageLimit)
         feed = f
         // A build chooser started this session with its first message: send
         // it now (the server waits for the agent's handshake); a failure
@@ -104,10 +122,11 @@ final class AgentScreenModel {
         tasks.append(workspace.events.deliver(to: f)) // /ws/events session frames, catch-up after a gap
         tasks.append(LiveActivities.shared.follow(f, in: workspace)) // the turn's Live Activity (push.md §7)
         tasks.append(Task { [weak self] in
-            for await t in await f.updates() {
+            for await w in await f.updates() {
                 guard let self else { return }
-                self.transcript = t
-                self.signInCommand = t.state.signIn(provider: self.provider, lastError: nil)
+                self.rows.apply(w) // touches only the rows (and facts) that changed
+                let login = w.state.signIn(provider: self.provider, lastError: nil)
+                if self.signInCommand != login { self.signInCommand = login }
             }
         })
         tasks.append(Task { [weak self] in
@@ -128,6 +147,45 @@ final class AgentScreenModel {
     }
 
     func catchUp() async { await feed?.catchUp() }
+
+    // MARK: the reader's window (D130)
+
+    /// The top of the loaded rows is on screen: the page above.
+    func loadOlder() {
+        guard let feed else { return }
+        Task { await feed.loadOlder() }
+    }
+
+    /// The bottom of the loaded rows is on screen while rows below were unloaded.
+    func loadNewer() {
+        guard let feed else { return }
+        Task { await feed.loadNewer() }
+    }
+
+    func atBottom(_ on: Bool) {
+        guard let feed else { return }
+        Task { await feed.setAtBottom(on) }
+    }
+
+    /// The rows on screen: pages far from them unload (only once there are
+    /// enough rows for that to matter).
+    func visible(_ ids: [String]) {
+        let margin = Self.keepMargin
+        guard let feed, rows.rows.count > margin * 2, let span = rows.span(ids) else { return }
+        Task { await feed.keep(visible: span.first, span.last, margin: margin) }
+    }
+
+    /// The pill: follow the bottom again (the tail is read again when it was unloaded).
+    func jumpToLatest() {
+        guard let feed else { return }
+        Task { await feed.jumpToLatest() }
+    }
+
+    /// A card nested in a subagent's, open or folded.
+    func nestedOpen(_ id: String) -> Binding<Bool> {
+        Binding(get: { self.openNested.contains(id) },
+                set: { if $0 { self.openNested.insert(id) } else { self.openNested.remove(id) } })
+    }
 
     func send() async {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -288,12 +346,7 @@ struct AgentScreen: View {
                 .padding(10)
                 .background(.orange.opacity(0.15))
             }
-            TranscriptView(follow: true) {
-                if let t = m.transcript {
-                    ForEach(t.items) { item in AgentItemView(model: m, item: item) }
-                    if let a = AgentChat.activity(t.activity(ended: m.ended)) { ActivityView(activity: a) }
-                }
-            }
+            AgentTranscriptList(model: m)
             if let p = m.streamProblem {
                 Label { Text(verbatim: p) } icon: { Image(systemName: "exclamationmark.triangle") }
                     .font(.footnote).foregroundStyle(.orange).padding(.horizontal)
@@ -385,28 +438,67 @@ struct AgentScreen: View {
     }
 }
 
-/// One transcript item as a renderer chat component.
+/// The transcript: the loaded rows (a list that holds the reader's place
+/// through loads and unloads, D130), the activity line, the jump-to-latest
+/// pill. Its own view, so a keystroke in the composer re-renders none of it
+/// and a structural change (a row added or unloaded) nothing else.
+struct AgentTranscriptList: View {
+    let model: AgentScreenModel
+
+    var body: some View {
+        let rows = model.rows
+        TranscriptView(follow: true, older: rows.hasOlder, newer: rows.hasNewer, fresh: rows.fresh, idType: String.self,
+                       onMore: { model.loadOlder() }, onNewer: { model.loadNewer() },
+                       onScrolled: { model.atBottom($0) }, onVisible: { model.visible($0) },
+                       onJump: { model.jumpToLatest() }) {
+            ForEach(rows.rows) { row in AgentRowView(model: model, row: row) }
+            AgentActivityLine(rows: rows)
+        }
+    }
+}
+
+/// One row: observes its own item (and open state) only.
+struct AgentRowView: View {
+    let model: AgentScreenModel
+    let row: AgentRow
+
+    var body: some View {
+        let r = row, rows = model.rows
+        AgentItemView(model: model, item: row.item, isOpen: Binding(get: { r.isOpen }, set: { rows.setOpen(r, $0) }))
+    }
+}
+
+/// The line under a running turn.
+struct AgentActivityLine: View {
+    let rows: AgentRows
+
+    var body: some View {
+        if let a = AgentChat.activity(rows.activity) { ActivityView(activity: a) }
+    }
+}
+
+/// One transcript item as a renderer chat component. It reads the session's
+/// status only where it matters (a run that may still stream, a thought
+/// not done), so a status change re-renders those rows and no others.
 struct AgentItemView: View {
     let model: AgentScreenModel
     let item: TranscriptItem
+    /// A thought's or tool card's open state.
+    let isOpen: Binding<Bool>
 
     var body: some View {
-        let status = model.state?.status ?? .idle
-        let ended = model.ended
+        let rows = model.rows
         switch item {
         case .message(let msg):
-            MessageView(message: AgentChat.message(msg, status: status, ended: ended,
-                                                   agentName: model.state?.agent?.name ?? model.provider?.name ?? "Agent",
+            MessageView(message: AgentChat.message(msg, status: msg.open ? rows.status : .idle, ended: msg.open && rows.ended,
+                                                   agentName: rows.agentName ?? model.provider?.name ?? "Agent",
                                                    blocks: { model.memo.blocks(id: msg.id, text: $0) }),
                         onLink: { url in UIApplication.shared.open(url) })
         case .thought(let t):
-            ThinkingView(thinking: AgentChat.thinking(t, status: status, ended: ended),
-                         isOpen: Binding(get: { model.openThoughts.contains(t.id) },
-                                         set: { if $0 { model.openThoughts.insert(t.id) } else { model.openThoughts.remove(t.id) } }))
+            ThinkingView(thinking: AgentChat.thinking(t, status: t.done ? .idle : rows.status, ended: !t.done && rows.ended),
+                         isOpen: isOpen)
         case .tool(let t):
-            ToolCardView(card: AgentChat.toolCard(t),
-                         isOpen: Binding(get: { model.openTools.contains(t.id) },
-                                         set: { if $0 { model.openTools.insert(t.id) } else { model.openTools.remove(t.id) } }),
+            ToolCardView(card: AgentChat.toolCard(t), isOpen: isOpen,
                          hasContent: AgentChat.hasContent(t), onOpen: { model.detail = t }) {
                 ToolContentView(tool: t, model: model)
             }
@@ -455,7 +547,7 @@ struct ToolContentView: View {
             }
             if !tool.children.isEmpty {
                 TranscriptView(follow: false, nested: true) {
-                    ForEach(tool.children) { c in AgentItemView(model: model, item: c) }
+                    ForEach(tool.children) { c in AgentItemView(model: model, item: c, isOpen: model.nestedOpen(c.id)) }
                 }
             }
         }
