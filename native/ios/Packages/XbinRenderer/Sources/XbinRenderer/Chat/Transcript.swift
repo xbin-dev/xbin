@@ -11,12 +11,13 @@ import XbinRendererModel
 /// sticks to) the bottom. It holds what the reader looks at in place (D130):
 /// the rows are scroll targets identified by `ID` (the content's ForEach
 /// ids) and the scroll position follows the row at the top, so rows loaded
-/// above (`older` + `onMore`, a "more" row that asks again every half
-/// second while it is on screen) or unloaded above or below never move it;
-/// only at the bottom does it stick to the bottom as content grows.
-/// `newer` + `onNewer` is the same below (rows the host unloaded).
-/// `onScrolled` reports whether the reader is at the bottom, `onVisible` the
-/// ids on screen (for the host to unload far rows). Away from the bottom,
+/// above (`older` + `onMore`, asked for at rest within a screen and a half
+/// of the top, again every half second while it stays so) or unloaded above
+/// or below never move it; only at the bottom does it stick to the bottom
+/// as content grows. `newer` + `onNewer` is the same below (rows the host
+/// unloaded). `onScrolled` reports whether the reader is at the bottom (on
+/// every change), `onVisible` the ids on screen once the list is at rest
+/// (for the host to unload far rows). Away from the bottom,
 /// `fresh` new rows (or rows unloaded below) show a "↓ N new — jump to
 /// latest" pill: it scrolls to the bottom and calls `onJump` (for the host
 /// to read the tail again when it had unloaded it). `nested` (a subagent
@@ -39,6 +40,17 @@ public struct TranscriptView<ID: Hashable & Sendable, Content: View>: View {
     /// The pill was tapped while rows below were unloaded: scroll to the
     /// bottom again once the host brought them back.
     @State private var jumping = false
+    /// The scroll view is at rest (no finger, no deceleration).
+    @State private var idle = true
+    /// The ids last on screen, reported when the scroll view comes to rest.
+    @State private var seen: [ID] = []
+    /// The reader is near the top or the bottom of what is loaded.
+    @State private var near = Near()
+
+    struct Near: Equatable {
+        var top = false
+        var bottom = false
+    }
 
     public init(follow: Bool = true, older: Bool = false, newer: Bool = false, nested: Bool = false, fresh: Int = 0,
                 idType: ID.Type,
@@ -57,7 +69,9 @@ public struct TranscriptView<ID: Hashable & Sendable, Content: View>: View {
         self.onVisible = onVisible
         self.onJump = onJump
         self.content = content()
-        _position = State(initialValue: ScrollPosition(idType: ID.self, edge: follow ? .bottom : .top))
+        // No edge: defaultScrollAnchor places it (an edge-based position
+        // re-anchored the first drag by a row's worth — seen on iOS 27).
+        _position = State(initialValue: ScrollPosition(idType: ID.self))
     }
 
     public var body: some View {
@@ -65,15 +79,21 @@ public struct TranscriptView<ID: Hashable & Sendable, Content: View>: View {
             VStack(alignment: .leading, spacing: 10) { content }
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
-            let scrolled = onScrolled, visible = onVisible
+            let scrolled = onScrolled, visible = onVisible, more = onMore, newerRows = onNewer
+            // Load at rest and early: within a screen and a half of either
+            // end, so a page lands out of sight and the rows the reader then
+            // scrolls into are laid out already (a page scrolled into during
+            // the same drag it landed in shifted it — seen on iOS 27).
+            let loadTop = older && more != nil && near.top && idle
+            let loadBottom = newer && newerRows != nil && near.bottom && idle
             ScrollView {
                 // The more rows are not scroll targets: the position always
                 // names a row of the content.
                 VStack(alignment: .leading, spacing: 14) {
-                    if older, let onMore { MoreRow(label: "Loading earlier messages", action: onMore) }
+                    if older, onMore != nil { MoreRow(label: "Loading earlier messages") }
                     LazyVStack(alignment: .leading, spacing: 14) { content }
                         .scrollTargetLayout()
-                    if newer, let onNewer { MoreRow(label: "Loading later messages", action: onNewer) }
+                    if newer, onNewer != nil { MoreRow(label: "Loading later messages") }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
@@ -87,8 +107,29 @@ public struct TranscriptView<ID: Hashable & Sendable, Content: View>: View {
                 atBottom = bottom
                 scrolled?(bottom)
             }
+            .onScrollGeometryChange(for: Near.self) { geo in
+                let reach = geo.containerSize.height * 1.5
+                return Near(top: geo.contentOffset.y < reach,
+                            bottom: geo.contentSize.height - geo.contentOffset.y - geo.containerSize.height < reach)
+            } action: { _, n in
+                near = n
+            }
+            // asks again every half second while it stays so (the host
+            // ignores a request while one runs; a short page asks for the next)
+            .task(id: Near(top: loadTop, bottom: loadBottom)) {
+                while !Task.isCancelled, loadTop || loadBottom {
+                    if loadTop { more?() }
+                    if loadBottom { newerRows?() }
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+            }
             .onScrollTargetVisibilityChange(idType: ID.self, threshold: 0.01) { ids in
-                visible?(ids)
+                seen = ids
+                if idle { visible?(ids) }
+            }
+            .onScrollPhaseChange { _, phase in
+                idle = phase == .idle
+                if idle { visible?(seen) } // unloading waits for rest too
             }
             .onChange(of: newer) { _, more in
                 if jumping, !more {
@@ -122,12 +163,12 @@ extension TranscriptView where ID == String {
     }
 }
 
-/// The row that loads more while it is on screen: it asks at once and again
-/// every half second until it goes (the host ignores a request while one
-/// runs; a page that didn't fill the screen asks for the next).
+/// Where more rows will be (the transcript asks for them near either end,
+/// at rest — never mid-gesture: rows landing under a moving finger or a
+/// deceleration are what makes a list jump; the web waits for scroll idle
+/// on touch too, D124).
 struct MoreRow: View {
     let label: String
-    let action: @MainActor () -> Void
 
     var body: some View {
         ProgressView()
@@ -135,12 +176,6 @@ struct MoreRow: View {
             .padding(.vertical, 4)
             .accessibilityLabel(label)
             .accessibilityIdentifier("transcript-more")
-            .task {
-                while !Task.isCancelled {
-                    action()
-                    try? await Task.sleep(for: .milliseconds(500))
-                }
-            }
     }
 }
 

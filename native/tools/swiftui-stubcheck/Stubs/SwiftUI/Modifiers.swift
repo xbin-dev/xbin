@@ -55,6 +55,10 @@ public struct ScrollGeometry: Sendable {
     public var contentSize: CGSize
 }
 public struct ScrollAnchorRole: Sendable { public static let initialOffset = ScrollAnchorRole(), sizeChanges = ScrollAnchorRole(), alignment = ScrollAnchorRole() }
+public enum ScrollPhase: Sendable, Equatable {
+    case idle, tracking, interacting, decelerating, animating
+    public var isScrolling: Bool { self != .idle }
+}
 public struct ScrollPosition: Sendable {
     public init<ID: Hashable>(idType: ID.Type, edge: Edge) {}
     public init<ID: Hashable>(idType: ID.Type) {}
@@ -164,6 +168,7 @@ extension View {
     public func onScrollGeometryChange<T: Equatable>(for type: T.Type, of transform: @escaping (ScrollGeometry) -> T, action: @escaping (_ oldValue: T, _ newValue: T) -> Void) -> some View { _V(self) }
     public func scrollPosition(_ position: Binding<ScrollPosition>, anchor: UnitPoint? = nil) -> some View { _V(self) }
     public func scrollTargetLayout(isEnabled: Bool = true) -> some View { _V(self) }
+    public func onScrollPhaseChange(_ action: @escaping (_ oldPhase: ScrollPhase, _ newPhase: ScrollPhase) -> Void) -> some View { _V(self) }
     public func onScrollTargetVisibilityChange<ID: Hashable>(idType: ID.Type, threshold: Double = 0.5, _ action: @escaping ([ID]) -> Void) -> some View { _V(self) }
     public func task(priority: TaskPriority = .userInitiated, @_inheritActorContext _ action: @escaping @Sendable () async -> Void) -> some View { _V(self) }
     public func gridColumnAlignment(_ guide: HorizontalAlignment) -> some View { _V(self) }

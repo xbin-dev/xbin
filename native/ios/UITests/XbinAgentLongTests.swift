@@ -46,20 +46,22 @@ final class XbinAgentLongTests: XCTestCase {
                 drags += 1
                 continue
             }
-            let el = e.unit(anchor.number)
             let before = anchor.minY
             e.drag(by: step)
             drags += 1
-            _ = e.until(2) { e.settled(el) }
-            let after = el.exists ? el.frame.minY : .infinity
+            let after = e.unitY(anchor.number) ?? .infinity
             if abs(after - before - step) > 40 { jumps.append("Unit \(anchor.number): moved \(after - before) for a \(step) pt drag") }
-            // a page that lands a moment later must not move it either
-            _ = e.until(0.8) { false }
-            if el.exists, abs(el.frame.minY - after) > 2 { jumps.append("Unit \(anchor.number): moved \(el.frame.minY - after) at rest") }
+            // pages land (and far ones unload) once the list is at rest: that
+            // must not move it either
+            _ = e.until(1.2) { false }
+            let rest = e.unitY(anchor.number) ?? .infinity
+            if abs(rest - after) > 2 { jumps.append("Unit \(anchor.number): moved \(rest - after) at rest") }
+            print("xbin-e2e: drag \(drags): Unit \(anchor.number) \(before) → \(after) → \(rest)")
             lowest = min(lowest, e.topUnit(in: window)?.number ?? lowest)
             if drags == 6 { e.shot("agent-long-mid-scroll") }
         }
         e.shot("agent-long-older")
+        print("xbin-e2e: window up there: \(e.windowState)")
         XCTAssertTrue(jumps.isEmpty, "the transcript jumped:\n" + jumps.joined(separator: "\n"))
         XCTAssertTrue(lowest <= 270, "older pages loaded as the reader scrolled up (\(drags) drags reached unit \(lowest))")
 
@@ -67,8 +69,10 @@ final class XbinAgentLongTests: XCTestCase {
         // brings the reader down to it.
         try await e.server.prompt(id, "hello pill")
         let pill = e.app.buttons["transcript-jump"]
-        XCTAssertTrue(e.until(30) { pill.exists && pill.label.contains("new") }, "the jump-to-latest pill counts the news (\(pill.exists ? pill.label : "none"))")
+        let counted = e.until(30) { pill.exists && pill.label.contains("new") }
+        print("xbin-e2e: window after the news: \(e.windowState)")
         e.shot("agent-long-pill")
+        XCTAssertTrue(counted, "the jump-to-latest pill counts the news (\(pill.exists ? pill.label : "none"); \(e.windowState))")
         pill.tap()
         let echo = e.containing("echo: hello pill")
         XCTAssertTrue(echo.waitForExistence(timeout: 30), "the newest rows after the jump")
@@ -112,8 +116,11 @@ extension E2EServer {
 }
 
 extension E2E {
-    /// A `long` unit's heading ("Unit N").
-    func unit(_ n: Int) -> XCUIElement { app.staticTexts["Unit \(n)"] }
+    /// The Agent screen's window as a Debug build describes it.
+    var windowState: String {
+        let el = app.descendants(matching: .any).matching(identifier: "agent-window").firstMatch
+        return el.exists ? el.label : "(no window readout)"
+    }
 
     /// The topmost unit heading in the upper part of `window` (below the
     /// bars): its number and where it is. One snapshot of the whole screen.
@@ -141,11 +148,15 @@ extension E2E {
         start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.3)
     }
 
-    /// Whether an element's frame holds still (two reads 0.2 s apart).
-    func settled(_ el: XCUIElement) -> Bool {
-        guard el.exists else { return true }
-        let a = el.frame
-        _ = app.otherElements["xbin-e2e-never"].waitForExistence(timeout: 0.2)
-        return el.exists && el.frame == a
+    /// Where unit `n`'s heading is now (one snapshot), or nil when it isn't there.
+    func unitY(_ n: Int) -> CGFloat? {
+        guard let snap = try? app.snapshot() else { return nil }
+        var y: CGFloat?
+        func walk(_ s: any XCUIElementSnapshot) {
+            if y == nil, s.elementType == .staticText, s.label == "Unit \(n)" { y = s.frame.minY }
+            for c in s.children where y == nil { walk(c) }
+        }
+        walk(snap)
+        return y
     }
 }

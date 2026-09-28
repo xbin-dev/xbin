@@ -111,6 +111,8 @@ final class AgentScreenModel {
         stop()
         let f = AgentSessionFeed(client: client, sessionID: id, pageLimit: Self.pageLimit)
         feed = f
+        bottomTask = nil
+        if !saidBottom { deliverBottom() }
         // A build chooser started this session with its first message: send
         // it now (the server waits for the agent's handshake); a failure
         // leaves it in the composer.
@@ -150,25 +152,47 @@ final class AgentScreenModel {
 
     // MARK: the reader's window (D130)
 
-    /// The top of the loaded rows is on screen: the page above.
+    /// The reader nears the top of the loaded rows (at rest): the page above.
     func loadOlder() {
         guard let feed else { return }
         Task { await feed.loadOlder() }
     }
 
-    /// The bottom of the loaded rows is on screen while rows below were unloaded.
+    /// The reader nears the bottom of the loaded rows while rows below were unloaded.
     func loadNewer() {
         guard let feed else { return }
         Task { await feed.loadNewer() }
     }
 
+    /// Whether the reader is at the bottom, as the list last said.
+    @ObservationIgnored private var saidBottom = true
+    @ObservationIgnored private var bottomTask: Task<Void, Never>?
+
+    /// The list says whether the reader is at the bottom. Delivered in
+    /// order, the last word winning: a flip and its correction around a
+    /// page landing must not reach the feed the other way round.
     func atBottom(_ on: Bool) {
-        guard let feed else { return }
-        Task { await feed.setAtBottom(on) }
+        saidBottom = on
+        deliverBottom()
     }
 
-    /// The rows on screen: pages far from them unload (only once there are
-    /// enough rows for that to matter).
+    /// Sends the list's last word to the feed (also on attach: the list
+    /// reports only changes, and one may come before the feed exists).
+    private func deliverBottom() {
+        guard let feed, bottomTask == nil else { return }
+        bottomTask = Task { [weak self] in
+            var sent: Bool?
+            while let self, sent != self.saidBottom {
+                let v = self.saidBottom
+                await feed.setAtBottom(v)
+                sent = v
+            }
+            self?.bottomTask = nil
+        }
+    }
+
+    /// The rows on screen (reported at rest): pages far from them unload
+    /// (once there are enough rows for that to matter).
     func visible(_ ids: [String]) {
         let margin = Self.keepMargin
         guard let feed, rows.rows.count > margin * 2, let span = rows.span(ids) else { return }
@@ -454,6 +478,16 @@ struct AgentTranscriptList: View {
             ForEach(rows.rows) { row in AgentRowView(model: model, row: row) }
             AgentActivityLine(rows: rows)
         }
+        #if DEBUG
+        // The window as the UI tests read it (nothing for a person).
+        .overlay(alignment: .topLeading) {
+            let w = rows.window
+            Color.clear.frame(width: 1, height: 1)
+                .accessibilityElement()
+                .accessibilityIdentifier("agent-window")
+                .accessibilityLabel("rows \(rows.rows.count) segments \(w.segmentCount) following \(w.following) detached \(w.detached) fresh \(rows.fresh) older \(rows.hasOlder) newer \(rows.hasNewer) last \(w.lastSeq)")
+        }
+        #endif
     }
 }
 
