@@ -3305,9 +3305,10 @@ tile's non-primary deployments; the primary uses every edge as before.
   waits.
 - Host networking and net-provider splices serve a tile's primary only: a
   non-primary deployment of such a tile starts with no egress, and its
-  backend log says why. It gets no stream interface dial (each is refused,
-  with a line in its backend log), no ingress, no lan-ingress legs and no
-  provider roster.
+  backend log says why. It gets no stream interface dial (each fails: with
+  relay egress its relay refuses the dial and writes a line to its backend
+  log; without egress its sandbox has no route to the interface's
+  address), no ingress, no lan-ingress legs and no provider roster.
 - Its VM guest is charged to the tile, admitted only while the primary's next
   guest still fits the workspace's VM room, and stopped to admit the
   primary's.
