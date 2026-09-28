@@ -38,6 +38,16 @@ enum WorkspaceListFile {
         return dir.appendingPathComponent(isFreshStart ? "workspaces-fresh.json" : "workspaces.json")
     }
 
+    /// A fresh start's leftovers: the workspaces the last fresh start
+    /// added (the UI tests' onboarding), read before `load()` empties the
+    /// list. AppModel forgets them for good — device revoked, key, session
+    /// and web data deleted — so a test that added workspaces leaves
+    /// nothing behind for the next one.
+    static func freshLeftovers() -> [WorkspaceRecord] {
+        guard isFreshStart, let d = try? Data(contentsOf: url), let old = try? WorkspaceList.decode(d) else { return [] }
+        return old.workspaces
+    }
+
     static func load() -> WorkspaceList {
         if isFreshStart {
             try? FileManager.default.removeItem(at: url)

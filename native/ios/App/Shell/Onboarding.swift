@@ -205,11 +205,18 @@ final class OnboardingFlow {
 /// No workspace yet: the Welcome, full screen.
 struct WelcomeView: View {
     @Environment(SceneModel.self) private var scene
+    @Environment(AppModel.self) private var app
     @State private var flow = OnboardingFlow(scene: nil)
 
     var body: some View {
         OnboardingStack(flow: flow) { WelcomeLevel(flow: flow) }
             .onAppear { flow.scene = scene }
+            .overlay(alignment: .topLeading) {
+                // (Debug fresh starts: the UI tests wait for this to go.)
+                if app.cleaningUp {
+                    Text(verbatim: " ").font(.caption2).accessibilityIdentifier("xbin-fresh-cleanup")
+                }
+            }
     }
 }
 

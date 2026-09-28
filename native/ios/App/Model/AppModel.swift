@@ -74,6 +74,7 @@ final class AppModel {
     private struct WeakScene { weak var scene: SceneModel? }
 
     private init() {
+        let leftovers = WorkspaceListFile.freshLeftovers()
         let list = WorkspaceListFile.load()
         unreadable = list.unreadable
         workspaces = list.workspaces.map { WorkspaceModel(record: $0) }
@@ -81,7 +82,25 @@ final class AppModel {
         if !WorkspaceListFile.isFreshStart, let d = UserDefaults.standard.data(forKey: "recents"),
            let r = try? JSONDecoder().decode([Recent].self, from: d) { recents = r }
         runtimeGate = RemoteConfig.gate()
+        forget(freshLeftovers: leftovers)
     }
+
+    /// Debug builds' fresh start (the UI tests' onboarding): the workspaces
+    /// the previous fresh start added are forgotten as Remove does it —
+    /// their devices revoked, keys, sessions and web data deleted — not just
+    /// dropped from the list, so the next test starts clean.
+    private func forget(freshLeftovers old: [WorkspaceRecord]) {
+        guard WorkspaceListFile.isFreshStart, !old.isEmpty else { return }
+        cleaningUp = true
+        Task {
+            for r in old { await WorkspaceModel(record: r).forget(removeDevice: true) }
+            cleaningUp = false
+        }
+    }
+
+    /// A fresh start is still forgetting the last one's workspaces (the
+    /// Welcome says so to the UI tests: `xbin-fresh-cleanup`).
+    private(set) var cleaningUp = false
 
     func workspace(_ id: String) -> WorkspaceModel? { workspaces.first { $0.id == id } }
 

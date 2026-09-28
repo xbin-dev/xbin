@@ -17,6 +17,14 @@ final class XbinOnboardingTests: XCTestCase {
 
     static let welcomeButtons = ["Log in", "Join with an invite", "Run your own xbin", "What is xbin?"]
 
+    /// The test added workspaces in a fresh start: tearDown forgets them.
+    private var forgetsFreshWorkspaces = false
+
+    override func tearDownWithError() throws {
+        guard forgetsFreshWorkspaces, E2EServer.fromEnvironment() != nil else { return }
+        MainActor.assumeIsolated { E2E.forgetFreshWorkspaces() }
+    }
+
     /// The Welcome's four ways in; What is xbin? pages through to Log in,
     /// where Scan QR code is shown but disabled (a simulator can't scan).
     @MainActor
@@ -202,16 +210,17 @@ final class XbinOnboardingTests: XCTestCase {
 
     /// The switcher's "Add a workspace": Log in in a sheet, over the
     /// workspace; signing in adds a second one (the same account may be
-    /// there twice) and shows it.
+    /// there twice) and shows it. Its two workspaces are forgotten after
+    /// (tearDown): left behind, the next test's native widget stalled.
     @MainActor
     func test09AddFromSwitcher() throws {
         let e = try E2E(self)
+        forgetsFreshWorkspaces = true
         e.launchFresh()
         XCTAssertTrue(e.app.buttons["Log in"].waitForExistence(timeout: 30))
         e.signIn()
-        e.app.buttons["Workspaces"].tap()
         let add = e.app.buttons["Add a workspace"]
-        XCTAssertTrue(add.waitForExistence(timeout: 10), "the switcher's Add a workspace")
+        XCTAssertTrue(e.openSwitcher(showing: add), "the switcher's Add a workspace")
         add.tap()
         XCTAssertTrue(e.app.buttons["Cancel"].waitForExistence(timeout: 10), "Log in, in a sheet")
         e.shot("onboarding-11-add-sheet")
@@ -224,9 +233,8 @@ final class XbinOnboardingTests: XCTestCase {
         password.typeText(e.server.password + "\n")
         XCTAssertTrue(e.app.buttons["Cancel"].waitForNonExistence(timeout: 60), "the sheet closes")
         e.dismissSavePassword()
-        e.app.buttons["Workspaces"].tap()
         let rows = e.app.buttons.matching(NSPredicate(format: "label CONTAINS %@", e.server.url.host ?? "127.0.0.1"))
-        XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(e.openSwitcher(showing: rows.firstMatch))
         e.shot("onboarding-11-two-workspaces")
         XCTAssertEqual(rows.count, 2, "a second workspace")
     }

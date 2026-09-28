@@ -204,8 +204,11 @@ final class E2E {
         self.app = XCUIApplication()
     }
 
+    /// Every test runs with -XbinUITesting (Debug builds): the terminal's
+    /// cursor doesn't blink, so the app idles and XCUITest's steps don't
+    /// each wait 60 s for animations to end.
     func launch() {
-        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-XbinUITesting", "YES"]
         app.launch()
     }
 
@@ -405,6 +408,47 @@ final class E2E {
             return
         }
         dismissSavePassword()
+    }
+
+    /// Opens the workspace switcher (the bar's Workspaces) until `shown`
+    /// appears. Right after signing in the button can be there but not
+    /// hittable — the Save Password sheet still sliding away, or a second
+    /// match off screen — and a tap then lands nowhere (XCUITest: "hit
+    /// point {-1, -1}"; test09 failed so in two full runs): tap a hittable
+    /// one, and again if the switcher didn't open.
+    @discardableResult
+    func openSwitcher(showing shown: XCUIElement, file: StaticString = #filePath, line: UInt = #line) -> Bool {
+        let buttons = app.buttons.matching(NSPredicate(format: "label == %@", "Workspaces"))
+        for attempt in 0..<4 {
+            var hittable: XCUIElement?
+            _ = until(10) {
+                for i in 0..<buttons.count {
+                    let b = buttons.element(boundBy: i)
+                    if b.exists, b.isHittable { hittable = b; return true }
+                }
+                return false
+            }
+            guard let b = hittable else { continue }
+            b.tap()
+            if shown.waitForExistence(timeout: 5) { return true }
+            print("xbin-e2e: the switcher didn't open (attempt \(attempt + 1)), tapping Workspaces again")
+        }
+        XCTFail("the switcher opens (showing \(shown))", file: file, line: line)
+        return false
+    }
+
+    /// Relaunches as a fresh start, which forgets the workspaces the last
+    /// fresh start added — device revoked, key, session and web data
+    /// deleted (Debug builds, AppModel.forget(freshLeftovers:)) — waits until
+    /// it has, and quits: a test that added workspaces leaves none behind.
+    static func forgetFreshWorkspaces() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-XbinUITesting", "YES", "-XbinFreshStart", "YES"]
+        app.launch()
+        _ = app.buttons["Log in"].waitForExistence(timeout: 30)
+        let cleaning = app.descendants(matching: .any).matching(identifier: "xbin-fresh-cleanup").firstMatch
+        if !cleaning.waitForNonExistence(timeout: 45) { print("xbin-e2e: the fresh start is still forgetting workspaces after 45 s") }
+        app.terminate()
     }
 
     /// iOS offers to keep a password just typed in its Passwords app ("Save
