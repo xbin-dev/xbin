@@ -458,7 +458,10 @@ policy, sets, defaults, requests, sessions), the global `.err` /
 `.notice` slots — about 300 lines. Every tab is its own element under
 `tabs/<name>.js` (`runtime` for components + the code drill-in + live
 stats + resources, `sandboxes` for every sandbox, the host's isolation and
-VM health and the VM policy, `map`, `netsets`, `permsets`, `vault`, `cron`,
+VM health and the VM policy, `deployments` for every tile's deployment
+record and a tile manager's protect / reassign / deliveries / alwaysOn — its
+words and confirmations imported from `/vendor/deploy-state.js` and
+`/vendor/deploy-panel.js`, never copied — `map`, `netsets`, `permsets`, `vault`, `cron`,
 `backup`, `binding` for grants/roles/providers/wiring, `ingress` for
 expose/endpoints, `orgs` for the org list, one org's page (`#orgs/<id>`
 — the router passes the hash's `sub` down), policy ceilings and the
@@ -500,7 +503,11 @@ Adding a tab: the element under `tabs/`, an entry in `GROUPS`, one arm in
 body (`hack/ui-harness/shots.js`). The `sandboxes` pass
 (`hack/ui-harness/passes/sandboxes.js`) checks the sandboxes tab live —
 the harness runs without `--isolate`, so it sees host-mode sandboxes and
-refused VMs — and against a routed VM-capable host.
+refused VMs — and against a routed VM-capable host. The `adminDeployments`
+pass (`hack/ui-harness/passes/admindeploy.js`) drives the deployments tab
+inside the shell on the deployments pass's fixture: protect, deliveries,
+unprotect and the reassign confirmation, each through the admin tile's
+frame, and the link to the tile's Deployments panel.
 
 ## The shell (`workspace-template/shell`)
 

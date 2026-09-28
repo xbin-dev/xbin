@@ -12,6 +12,27 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-28
 
+- **Protection is managed in the admin tile and with the root `bx`
+  commands** ([tile-deployments.md](tile-deployments.md) §Managing
+  protection, [auth.md](auth.md) §Tile deployments). The admin console
+  gains runtime → **deployments**: every tile with a deployment record —
+  its primary, 🛡 protection, live reload, its deployments, the last deploy
+  — with Protect / Unprotect the primary, Reassign the primary… (the
+  Deployments panel's own loud confirmation), deliveries and alwaysOn per
+  non-primary deployment, and ⇈ to the tile's Deployments panel for
+  everything else. The admin tile is scaffold: an existing workspace gets
+  the tab with `bx builtin update`. Its acts run as the person who opened
+  it: xbind lets a frame of a tile holding `xbin` admin, minted under that
+  person's own login, stand in for them on exactly those acts, and judges
+  the person as a tile manager — the tile's grant alone manages nothing, a
+  view-as session is refused, and the admin tile's terminal and agent
+  tokens (and any frame token they mint) are refused like any tile's.
+  `bx deployment protect|primary|set …` on the host with the owner token
+  passes, as the owner's credential; from a tile terminal it never does.
+  The Deployments panel can now reassign the primary of a static tile (its
+  deployments' `static` status counts as healthy, as the server already
+  did). New tile → shell message `xbin:open-deployments {tile}`
+  ([protocol.md](protocol.md) §Tile ↔ shell messaging). Nothing to change.
 - **coding-sandbox: the layout's user is a real account.** A sandbox's
   commands ran as uid 1000 with `USER=dev` and `HOME=/home/dev`, but the
   image names uid 1000 `ubuntu` (home `/home/ubuntu`): `id -un`, `whoami`

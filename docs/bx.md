@@ -519,9 +519,16 @@ bx agent run --deployment <name> …  an agent session whose calls reach that de
   deploy}` as soon as it arrives — as the only thing on stdout; the report,
   the phases and the result go to stderr, and the outcome is the exit code.
 - **Tile managers' acts** (`primary`, `protect`, `seed`, `vault-copy`,
-  `set`, `edge`) need a person's own session: from a tile's terminal bx is
-  refused (exit 3) and says to use the terminal window's Deployments panel as
-  a tile manager, or bx on the host.
+  `set`, `edge`) run from the host with the root token, or in a human
+  session; never from a tile terminal. The root token is a person's
+  credential, so `bx deployment protect apps/crm on` or `bx deployment
+  primary apps/crm --to dev` on the host (the owner token, `.xbin/token`)
+  passes the manager gate for every tile. From a tile's terminal — the admin
+  tile's included — bx is refused (exit 3) and says to use the terminal
+  window's Deployments panel as a tile manager, or bx on the host. Protection,
+  reassigning the primary, deliveries and alwaysOn are also in the admin
+  console's runtime → deployments tab ([auth.md](/docs/auth.md) §Tile
+  deployments).
 
 | Exit | Meaning | An agent reads it as |
 |---|---|---|

@@ -42,6 +42,17 @@ Two planes, different rules:
 - Element frontends get identity via a **frame token** injected at HTML-serve time
   (the D4 injection point): bound to (owner session × component path), short TTL,
   auto-refreshed by `xbin-client.js` `[ND2]`.
+- A frame acts as its element, never as the person driving it — with one narrow,
+  explicit exception (P21, extended by the owner 2026-09-28;
+  plans/dev-lifecycle/05-model.md §10): at the tile-deployments manager gate, a
+  frame of a tile holding the `xbin` admin capability (the admin console), its
+  token minted under a person's own login (a session or the root token; never a
+  view-as session, never a token a terminal or agent session minted), stands in
+  for that person on protect, unprotect, reassign, deliveries and alwaysOn, and
+  the **person** is judged as a tile manager. Nothing else changes: inbound
+  `X-XBin-*` is still stripped, element principals stay default-deny, the owner
+  is still admin, and terminal, agent, instance, cron and bus tokens pass no
+  manager gate whatever their tile holds.
 
 Enforcement strength is tiered (§9): at tier 1 (single uid) a hostile element can in
 principle steal a sibling's env token via `/proc`; tier 2 (per-scope uids) closes

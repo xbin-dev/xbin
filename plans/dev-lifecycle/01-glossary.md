@@ -340,11 +340,17 @@ org's admins, and workspace admins. They alone may:
 - set edge policies and per-deployment resource limits;
 - reset `main`'s data while it isn't primary, and purge checkpoints.
 
-Manager acts need a human session; terminal and agent tokens are refused for
-them. No element principal passes the manager gate for deployments, whatever
-`xbin` or `xbin:users` grants its tile holds.
+Manager acts need a human session (the root token, `bx` on the host, is
+one); terminal and agent tokens are refused for them. No element principal
+passes the manager gate for deployments, whatever `xbin` or `xbin:users`
+grants its tile holds — except the admin tile's frame, its token minted
+under a person's own login, which stands in for that person on protect,
+unprotect, reassign, deliveries and alwaysOn (P21, extended by the owner
+2026-09-28): the person is judged, never the tile.
 
-**Protected primary.** A per-tile switch, set by tile managers. While it is
+**Protected primary.** A per-tile switch, set by tile managers — in their own
+session, with the root token, or from the admin console's deployments tab.
+While it is
 on, only tile managers may deploy, promote, roll back or reload now onto the
 primary, in a human session, naming the checkpoint they reviewed. It is never
 the live reload target or a session's target (P24), follows no tracked

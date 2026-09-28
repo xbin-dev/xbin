@@ -142,6 +142,18 @@ checkpoint-id = "c:" 7*64 lowercase hex  ; a unique prefix of the checkpoint's t
   are refused even when their driver is a manager, because agents share them.
   Every manager route answers such a caller 403 with §1.14's human-session
   text.
+  **The admin tile's frame (P21, extended by the owner 2026-09-28)** is the
+  one exception, on `primary`, `protect` (on and off), `deliveries` and
+  `always-on`: a frame principal (`Via: "frame"`) of a tile holding `xbin`
+  admin, acting in its primary, whose token was minted under a person's own
+  login (`Principal.LoginFrame`: a session generation `s.` or the root
+  token's `o.`, never a view-as one; a token a terminal or agent session
+  mints for its tile carries `u.` or `t.`), stands in for that person
+  (`Broker.AdminFrameDriver`), and the **person** is judged by the gate
+  above. Every other manager route and every code move refuse it with the
+  human-session text; the admin tile's terminal and agent tokens are refused
+  like any tile's. For a tile its person manages the frame is the write
+  audience (the full view) and `caller.manager` is true.
 - **The tile's own principals**: element principals whose `Component` is the
   tile (frame tokens, instance tokens, terminal and agent tokens, the
   tile-origin cookie). Each is bound to one deployment (§7.1).
@@ -296,7 +308,8 @@ checkpoint-id = "c:" 7*64 lowercase hex  ; a unique prefix of the checkpoint's t
 {"level": "terminal", "manager": false, "humanSession": false, "readOnly": false, "bound": "dev",
  "can": {"pause": Can, "resume": Can, "reloadNow": Can, "add": Can, "edges": Can, "protect": Can}}
 //  level: read | write | terminal | admin | tile (a frame or instance token of the tile: no operation rights)
-//  manager: passes the tile-manager gate of §0.5 (so always false for element principals)
+//  manager: passes the tile-manager gate of §0.5 (false for element principals, but for the admin tile's frame
+//           standing in for a person who manages the tile: P21, extended 2026-09-28)
 //  bound: present for the tile's own principals (§7.1); "" for a session following the primary
 
 // DeployEntry: one deploy attempt, queued, in flight or in the deploy log
@@ -592,7 +605,9 @@ errors     400 onto a protected primary without checkpoint or seq · 403 · 404 
 ### 1.7 Governance
 
 Every route in this section is a tile manager's act (§0.5): a human session,
-never a terminal, agent, frame or instance token.
+never a terminal, agent, frame or instance token — but for the admin tile's
+frame standing in for its person on `primary`, `protect`, `deliveries` and
+`always-on` (§0.5; P21, extended by the owner 2026-09-28).
 
 ```
 POST /api/xbin/deployments/primary                          (M2)

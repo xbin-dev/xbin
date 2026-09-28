@@ -625,10 +625,30 @@ its own.
 the primary, edge policies, deliveries, alwaysOn, limits, seeding data,
 copying vault values and purging a checkpoint are a **tile manager's** acts:
 the tile's owner, its org's admins, or a workspace admin (D24/D33), and only
-in their own browser or app session. No terminal, agent, frame or backend
+in their own browser or app session — or with the root token, which is a
+person's credential: `bx deployment protect|primary|deliveries|…` on the
+host with the owner token passes. No terminal, agent, backend, cron or bus
 credential passes, whatever grants its tile holds (`xbin`, `xbin:users`
 included), and a terminal session is refused even when the person driving it
-is a manager, because agents share its token. Per-deployment backups and
+is a manager, because agents share its token.
+
+**Who manages protection, and the admin tile.** Protecting and unprotecting
+the primary, reassigning it, and switching deliveries and alwaysOn of a
+non-primary deployment can also be done from the admin console's
+runtime → deployments tab (`tiles/admin`). This is the one narrow exception
+to "no tile credential": a **frame** of a tile holding the `xbin` admin
+capability stands in for the person who opened it — its token must have been
+minted under that person's own login (a session or the root token; never a
+view-as session, never a token a terminal or agent session minted for the
+tile) — and the server then judges the **person** as a tile manager, never the
+tile. So an admin manages every tile's protection from the admin tile, an org
+admin who can open it manages their org's tiles, and anyone else is refused
+through it exactly as in their own session. Every other manager act (edge
+policies, limits, seeding, vault copy, purge) and every code move stay a
+person's own session's; the admin tile's terminal and agent tokens are
+refused like any other tile's, and so is a frame token they mint. Moves onto
+a protected primary still name the reviewed checkpoint (`expect`,
+`checkpoint`). Per-deployment backups and
 restores are a workspace admin's, in their own session. Adding, removing,
 deploying, promoting, resetting data and running a job now take terminal
 level on the tile. A tile that holds an `xbin` or `xbin:*` grant can't have
