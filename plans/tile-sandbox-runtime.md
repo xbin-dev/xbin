@@ -4831,6 +4831,20 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     interrupted run's consumer test expected an exec to outlive its
     `DELETE` (the contract forgets it), the agent's mark in the exec's
     label (it is the `clientId`) and `write` without its newline.
+  - **Verification (after part C).** The same runs again from a fresh QA
+    test workspace (VM walk, contract and consumers there; namespace walk,
+    contract and consumers here): all pass. Found: (1)'s account step
+    edited `/etc` itself, and the template's fake backend runs a
+    sandbox's commands on the host — every fake-backed unit test failed
+    (`make tile-check`, which CI runs and `make check` doesn't, was red),
+    and a user able to write `/etc` would have had the host's account
+    renamed. prepare now edits the `etc` under the directory the run starts
+    in (the sandbox's root, `Cwd "/"`); the fake's host directory has none
+    (`TestPrepareScriptAccounts`' root without `etc`). The consumer test
+    now also checks sandbox-terminal's partition over SSH (bob's own key,
+    logging in as alice's sandbox by name or id: `no sandbox`, exit 1) and
+    fails its public-listener check unless it saw the expose's loopback
+    listener.
   - Docs checked against the live runs: docs/sandbox-manager.md (the
     people's terminals — now saying `--listen 127.0.0.1:2222` keeps
     sandbox-terminal's SSH on loopback —, the builtin manager, "On xbin"),
