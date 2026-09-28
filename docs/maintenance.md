@@ -589,12 +589,25 @@ developers don't compile a kernel and QEMU on every cold cache.
   set: `<group> <key> <arch> <file> <sha256>`, where `<file>` is
   `<arch>.tar.zst` (the bucket object) or a file inside it. Only
   `make helpers-publish` writes it.
-- **Bucket.** An S3-compatible bucket, public read:
+- **Where they're served.** Any plain-HTTPS origin laid out as
   `<url>/<prefix><group>/<key>/<arch>.tar.zst`. `make helpers` reads only
-  the public URL and prefix — `HELPERS_URL_DEFAULT` /
-  `HELPERS_PREFIX_DEFAULT` in `hack/helpers-lib.sh`, overridden by
-  `XBIN_HELPERS_URL` / `XBIN_HELPERS_S3_PREFIX`; no credentials. Helper
-  binaries never go on GitHub: only release tags carry binaries there.
+  that URL and prefix — `HELPERS_URL_DEFAULT` / `HELPERS_PREFIX_DEFAULT` in
+  `hack/helpers-lib.sh`, overridden by `XBIN_HELPERS_URL` /
+  `XBIN_HELPERS_S3_PREFIX`; no credentials. **For now it's the website:**
+  `https://xbin.dev/static/helpers` (static files, deployed with the site);
+  an S3-compatible public bucket (`make helpers-publish`, `s3secret.env`)
+  can replace it later by changing those two defaults. Helper binaries
+  never go on GitHub (only release tags carry binaries there) and never
+  into git (`make large-files`).
+- **Publishing to the website** (maintainers): `hack/publish-helpers.sh
+  --stage-only DIR` (build + pack from a clean tree), then
+  `hack/helpers-static.sh DIR` (checks each staged tarball, copies it to
+  the gitignored `website/static-helpers/`, merges the entries into
+  `hack/helpers.sha256`), `make website` (→ `website/dist/static/helpers/`),
+  deploy the site by hand, then commit the manifest. Until the site serves a
+  set, `make helpers` falls back to building it from source; `make pins`
+  (online, and so a release) fails on a pinned set the URL doesn't serve —
+  deploy first.
 
 **Developers and users.** `make helpers` (or `make integration-deps`, which
 adds Firecracker, xbind/bx/xbin-vmagent from the tree, and `.rootfs` when

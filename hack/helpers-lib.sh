@@ -26,9 +26,12 @@ HELPERS_FORMAT=1
 # credentials) and the key prefix inside it (empty, or ending in /): the
 # XBIN_HELPERS_URL and XBIN_HELPERS_S3_PREFIX of s3secret.env.example.
 # Those env vars override them.
-# OWNER: fill both in once the bucket exists. While the URL is empty a
-# manifest entry cannot be fetched, and `make helpers` fails saying so.
-HELPERS_URL_DEFAULT=""
+# For now the helpers are static files on the website, not a bucket:
+# hack/helpers-static.sh puts a staged set into website/static-helpers/
+# (gitignored), `make website` copies it to website/dist/static/helpers/,
+# and the site's manual deploy serves it here. A bucket later only changes
+# these two lines (and publishing: make helpers-publish).
+HELPERS_URL_DEFAULT="https://xbin.dev/static/helpers"
 HELPERS_PREFIX_DEFAULT=""
 
 helpers_files() {

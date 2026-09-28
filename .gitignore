@@ -16,6 +16,8 @@ dist/
 # they live in the helpers bucket, never in git — hack/check-large-files.sh).
 *.tar.zst
 website/dist/
+# the prebuilt helpers served from the site (hack/helpers-static.sh) — binaries, never tracked
+website/static-helpers/
 builtin-tiles/*/backend/backend
 builtin-templates/*/_backend/_backend
 examples/*/backend/backend

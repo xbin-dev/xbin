@@ -89,6 +89,10 @@ const builds = {
 
 let n = 0;
 // fixture(): a fresh committed repo; returns its paths and a runner.
+// The repo's manifest header, without any published entry.
+const headerOnly = () => readFileSync(join(repo, 'hack/helpers.sha256'), 'utf8')
+  .split('\n').filter((l) => l.startsWith('#')).join('\n') + '\n';
+
 function fixture() {
   const dir = join(root, `t${n++}`);
   const hack = join(dir, 'hack');
@@ -98,6 +102,12 @@ function fixture() {
   for (const f of ['helpers-lib.sh', 's3-lib.sh', 'fetch-helpers.sh', 'publish-helpers.sh', 'helpers.sha256']) {
     copyFileSync(join(repo, 'hack', f), join(hack, f));
   }
+  // The fixture starts from nothing published and no default place,
+  // whatever the repo's own manifest and defaults say today.
+  writeFileSync(join(hack, 'helpers.sha256'), headerOnly());
+  writeFileSync(join(hack, 'helpers-lib.sh'), readFileSync(join(hack, 'helpers-lib.sh'), 'utf8')
+    .replace(/^HELPERS_URL_DEFAULT=".*"$/m, 'HELPERS_URL_DEFAULT=""')
+    .replace(/^HELPERS_PREFIX_DEFAULT=".*"$/m, 'HELPERS_PREFIX_DEFAULT=""'));
   for (const [s, outs] of Object.entries(builds)) {
     const body = outs.map((o) => `echo "${o} \${MARK:-one}" > "$1/${o}"`).join('\n');
     writeFileSync(join(hack, s), `#!/bin/sh\nset -eu\nmkdir -p "$1"\n${body}\necho ${s} >> "$BUILD_LOG"\n`);
@@ -369,7 +379,7 @@ test('publish: uploads, checks the public read, rewrites the manifest; never ove
 
   // manifest entries lost, objects still there: republishing builds a new
   // (different) set but uploads nothing — the bucket's objects win
-  writeFileSync(fx.manifest, readFileSync(join(repo, 'hack/helpers.sha256'), 'utf8'));
+  writeFileSync(fx.manifest, headerOnly());
   fx.git('commit', '-qam', 'drop');
   r = publish(fx, [], { MARK: 'second' });
   assert.match(r.out, /already in the bucket — not overwriting it/);

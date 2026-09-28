@@ -283,4 +283,5 @@ website:
 	@mkdir -p website/dist
 	@cp website/index.html website/privacy.html website/install.sh website/og.png website/dist/
 	@cp -r website/fonts website/shots website/js website/vendor website/app website/dist/
+	@if [ -d website/static-helpers ]; then mkdir -p website/dist/static/helpers && cp -r website/static-helpers/. website/dist/static/helpers/ && echo ">> website/dist/static/helpers: the prebuilt helpers (hack/helpers-static.sh)"; fi
 	@echo ">> website/dist ready: $$(ls website/dist | tr '\n' ' ')"
