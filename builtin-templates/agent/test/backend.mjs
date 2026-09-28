@@ -14,7 +14,7 @@
 // writes). Tests add or override routes with window.__route(method, regexp,
 // fn) from their own init script, and read what the tile sent from
 // window.__calls.
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { serveKit, tileHtml } from './kit.mjs';
@@ -28,7 +28,7 @@ export const ORIGIN = 'http://tile.test';
 export const THEME = '<style>:root{--bx-border:#ccc;--bx-panel:#fff;--bx-panel-2:#f4f4f4;--bx-text:#111;' +
   '--bx-muted:#777;--bx-accent:#b57e10;--bx-mono:monospace;--bx-red:#c33;--bx-green:#3a3}</style>';
 
-export async function serveTile(ctx, { realMarked = false } = {}) {
+export async function serveTile(ctx, { realMarked = false, noWindow = false } = {}) {
   const modules = new Set([...readdirSync(tileDir).filter((f) => f.endsWith('.js')),
     ...['model', 'native'].flatMap((d) => readdirSync(join(tileDir, d)).filter((f) => f.endsWith('.js')).map((f) => `${d}/${f}`))]);
   await ctx.route(`${ORIGIN}/**`, (route) => {
@@ -41,6 +41,10 @@ export async function serveTile(ctx, { realMarked = false } = {}) {
   await serveKit(ctx);
   await ctx.route('**/vendor/lit-all.min.js', (r) =>
     r.fulfill({ contentType: 'text/javascript', body: readFileSync(join(vendor, 'lit-all.min.js'), 'utf8') }));
+  // the chat's window (chat-window.js); without it the tile renders every block, as on an older xbind
+  const sw = join(vendor, '..', 'scroll-window.js');
+  await ctx.route('**/vendor/scroll-window.js', (r) => (noWindow || !existsSync(sw) ? r.fulfill({ status: 404, body: '' })
+    : r.fulfill({ contentType: 'text/javascript', body: readFileSync(sw, 'utf8') })));
   await ctx.route('**/vendor/marked.esm.js', (r) => r.fulfill({
     contentType: 'text/javascript',
     body: realMarked ? readFileSync(join(vendor, 'marked.esm.js'), 'utf8') : 'export const marked={parse:(s)=>s,use(){}};',

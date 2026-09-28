@@ -25,3 +25,31 @@ marked.use({
 });
 
 export const md = (s) => { try { return marked.parse(String(s ?? '')); } catch { return esc(s); } };
+
+// mdInto(el, s): markdown rendered into el a top-level block at a time, for
+// text that streams (D130). The text is lexed whole, but only the blocks
+// whose source changed are parsed and swapped — the paragraph being written
+// — so the ones before it keep their DOM and a selection in them survives
+// the next token. Each block sits in a `<div class="md-b">` (display:
+// contents); its HTML is what md() makes of it within the whole text.
+export function mdInto(el, s) {
+  const text = String(s ?? '');
+  if (el.$mdText === text) return;
+  el.$mdText = text;
+  let toks;
+  try { toks = marked.lexer(text); } catch { el.replaceChildren(document.createTextNode(text)); el.$mdRaw = null; return; }
+  const links = toks.links;
+  toks = toks.filter((t) => t.type !== 'space');
+  const raws = el.$mdRaw || (el.replaceChildren(), []);
+  const kids = el.children;
+  toks.forEach((t, i) => {
+    if (raws[i] === t.raw && kids[i]) return;
+    let h;
+    try { const one = [t]; one.links = links; h = marked.parser(one); } catch { h = esc(t.raw); }
+    const b = kids[i] || el.appendChild(document.createElement('div'));
+    b.className = 'md-b';
+    b.innerHTML = h;
+  });
+  while (kids.length > toks.length) el.lastElementChild.remove();
+  el.$mdRaw = toks.map((t) => t.raw);
+}

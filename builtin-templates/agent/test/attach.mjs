@@ -99,7 +99,7 @@ await page.addInitScript(() => {
           messages: [], steps: [], memory: {}, config: {}, files: [], draft: '', messageFiles: {} });
       }
       if (/^\/runs\/\d+\/files$/.test(path)) return res(200, (window.__detail && window.__detail.files) || []);
-      m = path.match(/^\/runs\/(\d+)\/view$/);
+      m = path.match(/^\/runs\/(\d+)\/view(?:\?.*)?$/); // a paged read gets it all
       if (m) {
         const id = +m[1];
         const d = window.__detail || { run: { id, title: 'run ' + id, status: 'idle' }, messages: [], files: [], messageFiles: {} };
@@ -124,7 +124,7 @@ await page.waitForFunction(() => document.querySelectorAll('#runs .run').length 
 const png = Buffer.from('\x89PNG\r\n\x1a\nxxxxxxxx', 'binary');
 const calls = () => page.evaluate(() => window.__calls.filter((c) => !c.path.startsWith('/runs?') && c.path !== '/runs' &&
   c.path !== '/halt' && !c.path.includes('prefs') && !c.path.startsWith('/stream') &&
-  !(c.method === 'GET' && /^\/runs\/\d+(\/files|\/view)?$/.test(c.path))));
+  !(c.method === 'GET' && /^\/runs\/\d+(\/files|\/view(\?.*)?)?$/.test(c.path))));
 const resetCalls = () => page.evaluate(() => { window.__calls = []; });
 const chips = () => page.$$eval('#attach .chip', (els) => els.map((e) => ({ cls: e.className, text: e.textContent.replace(/\s+/g, ' ').trim() })));
 const idle = () => page.waitForFunction(() => !document.getElementById('send').disabled, { timeout: 3000 });

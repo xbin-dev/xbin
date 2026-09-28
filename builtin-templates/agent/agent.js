@@ -19,6 +19,7 @@ const $ = (id) => document.getElementById(id);
 // model-controlled data — memory keys the agent writes, skill names it authors.
 import { selfApi as api, jbody, esc } from '/vendor/bx-kit.js';
 import { Session } from './chat-view.js';
+import { ChatWindow } from './chat-window.js';
 import { queueTpl } from './chat-cards.js';
 import { sidebarTpl, viewsTpl, makeSideUI } from './sidebar.js';
 import { homeTpl } from './home.js';
@@ -47,12 +48,23 @@ const errBox = (e) => `<div class="err">${esc(e && e.message ? e.message : e)}</
 // (app.classId), what needs you, the halt switch, the composer's attachments.
 // The home view's words are HOME (model/home.js) — an instance that
 // specializes the agent (a persona, a domain) changes those and nothing else.
+// A long conversation (D130): drafts stream as deltas, the open conversation
+// is read in pages of 50 messages, and the timeline renders a window of its
+// blocks (chat-window.js), letting go of what lies far from the reader.
 const app = createApp({
   Session, AutoPage,
   route: (h) => setHash(h),
   visible: () => document.visibilityState === 'visible',
+  deltas: true, page: 50,
 });
 const { session, convs, autos } = app;
+const win = new ChatWindow(session);
+globalThis.agentChat = { testApi: () => win.testApi() }; // the UI harness's view of the chat's window
+// opening or closing a card keeps the reader's view, even at the bottom
+{
+  const toggle = session.ui.toggle;
+  session.ui.toggle = (id, dflt) => { win.keepView(); toggle(id, dflt); };
+}
 
 // The class for NEW asks (D116; app.classId, fixed per run once started —
 // the exfiltration firewall is the class's): the composer's picker
@@ -88,7 +100,11 @@ app.on('halt', () => syncHalt());
 app.on('class', () => classPicker.paint(session.current()));
 app.on('model', () => paint());
 app.on('attach', () => renderAttach());
-app.on('sending', () => { $('send').disabled = app.sending; if (!app.sending) renderAttach(); });
+app.on('sending', () => {
+  $('send').disabled = app.sending;
+  if (!app.sending) renderAttach();
+  else if (app.sel != null && !win.atBottom) win.latest(); // what you send shows at the end: go there
+});
 app.on('error', (e) => alert(e.message));
 // Opening a conversation closes the workflow tree and a preview of another
 // run's file; once it is open the chat starts at its end.
@@ -96,11 +112,11 @@ app.on('select', (id) => {
   closeWorkflow();
   if (preview && preview.runId !== id) closePreview();
   prevSeen = null;
+  win.reset();
 });
 app.on('selected', () => {
+  win.toBottom();
   paintSide(); paint();
-  const tl = $('timeline');
-  tl.scrollTop = tl.scrollHeight;
 });
 app.on('home', () => {
   closePreview(); prevSeen = null; prevDismissed = 0;
@@ -178,17 +194,26 @@ function topTpl(v) {
 }
 
 // paint draws everything that depends on the session. lit patches only what
-// changed, so this is cheap enough to run on every streamed token.
+// changed, and the chat renders a window of its blocks (chat-window.js:
+// measured right before the render, corrected right after, so what the
+// reader looks at never moves) — cheap enough to run on every streamed token.
 let shownPage = '';
 function paint() {
   const v = session.current();
   render(topTpl(v), $('top'));
   const tl = $('timeline');
-  const atBottom = tl.scrollHeight - tl.scrollTop - tl.clientHeight < 40;
-  render(v ? session.template() : app.page === 'automations' ? autoPageTpl(autos) : homeView(), tl);
-  // a chat sticks to its end; a page opens at its top
+  if (v) {
+    win.attach(tl);
+    const s = session.shown();
+    render(session.template(win.place(s), s), tl);
+    win.after();
+  } else {
+    win.detach();
+    render(app.page === 'automations' ? autoPageTpl(autos) : homeView(), tl);
+  }
+  // a page opens at its top
   const shown = v ? '' : `${app.page}:${autos.open ? autos.open.kind + autos.open.id : ''}:${!!(autos.form || autos.custom)}`;
-  if (v ? atBottom : shown !== shownPage) tl.scrollTop = v ? tl.scrollHeight : 0;
+  if (!v && shown !== shownPage) tl.scrollTop = 0;
   shownPage = shown;
   render(queueTpl(v ? session.queued() : [], (iid) => session.removeQueued(iid).catch((e) => alert(e.message))), $('queue'));
   $('queue').hidden = !(v && session.queued().length);
@@ -454,11 +479,9 @@ async function openPreview(path, ver, live) {
   $('preview').hidden = false;
   $('prev-path').textContent = path;
   $('prev-path').title = path;
-  // The pane just took height from the timeline. The autoscroll check measures
-  // clientHeight at rebuild time, so without re-pinning here the next tick
-  // decides we are no longer at the bottom and silently stops following.
-  const tl = $('timeline');
-  tl.scrollTop = tl.scrollHeight;
+  // The pane just took height from the timeline: a chat that followed its
+  // end still does.
+  if (win.atBottom) win.toBottom();
   await paintPreview();
 }
 
@@ -522,10 +545,10 @@ function syncPreview(d) {
 
 const rawBlob = (run, path) => actions.rawFile(base, run, path);
 
-// refreshView re-reads the selected run's view after an edit the stream does
-// not carry (memory blocks, session files).
+// refreshView re-reads the selected run's state after an edit the stream does
+// not carry (memory blocks, session files); the transcript held stays.
 function refreshView() {
-  if (app.sel != null) session.fetchView(app.sel).then(paint).catch(() => {});
+  if (app.sel != null) session.refresh(app.sel).then(paint).catch(() => {});
 }
 
 async function control(action) {
@@ -630,8 +653,7 @@ $('halt').onclick = async () => {
 $('prev-close').onclick = () => { prevDismissed = prevSeen; closePreview(); };
 $('prev-max').onclick = () => {
   $('main').classList.toggle('prev-max');
-  const tl = $('timeline');
-  tl.scrollTop = tl.scrollHeight;
+  if (win.atBottom) win.toBottom();
 };
 $('prev-src').onclick = () => {
   if (!preview) return;

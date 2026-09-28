@@ -107,7 +107,7 @@ await ctx.addInitScript(() => {
         runs.unshift({ id: 9, title: b.text, kind: 'quick', status: 'running', updated: Date.now() / 1000 });
         return json(runs[0]);
       }
-      const m = url.match(/\/runs\/(\d+)\/view$/);
+      const m = url.match(/\/runs\/(\d+)\/view(?:\?.*)?$/); // a paged read gets it all
       if (m) {
         const id = +m[1];
         if (id === 3) await new Promise((r) => setTimeout(r, 700)); // a slow response

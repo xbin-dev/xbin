@@ -335,6 +335,16 @@
     .msg.user.other { margin-left: 0; margin-right: auto; background: var(--bx-panel-2); border-color: var(--bx-border); }
     .msg.user .who { font-size: 10.5px; color: var(--bx-muted); margin-bottom: 2px; }
     .md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }
+    /* a streamed answer is written a top-level block at a time (chat-md.js mdInto) */
+    .md-b { display: contents; }
+    .md > .md-b:first-child > :first-child { margin-top: 0; } .md > .md-b:last-child > :last-child { margin-bottom: 0; }
+    /* a long chat (chat-window.js): more above the window; the pill back to the latest */
+    .earlier { margin: 0 0 6px; }
+    .jumpw { position: sticky; bottom: 0; height: 0; display: flex; justify-content: center; align-items: flex-start; overflow: visible; z-index: 2; }
+    .jump { transform: translateY(calc(-100% - 8px)); white-space: nowrap; font: inherit; font-size: 12px; cursor: pointer;
+            padding: 4px 12px; border-radius: 999px; border: 1px solid var(--bx-accent); background: var(--bx-panel);
+            color: var(--bx-accent); box-shadow: 0 2px 8px rgba(0, 0, 0, .25); }
+    .jump:hover { background: var(--bx-accent); color: var(--bx-bg); }
     .md p, .md ul, .md ol, .md blockquote { margin: 5px 0; }
     .md ul, .md ol { padding-left: 22px; }
     .md h1, .md h2, .md h3, .md h4 { margin: 8px 0 3px; font-size: 14px; }
