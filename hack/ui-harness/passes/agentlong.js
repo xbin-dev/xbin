@@ -9,7 +9,8 @@
 // offers the latest; (c) scrolled up mid-transcript, a new turn streams
 // below: nothing moves, the pill counts it; a late event refolds its page
 // without a jump; the pill brings the latest back, followed; (d) a hidden
-// tab folds but does not render; at the bottom the view follows and the
+// tab folds but does not render; a selection in a streaming message
+// survives its next paragraphs; at the bottom the view follows and the
 // rendered tail is trimmed; (e) a reload reads only the tail page and lands
 // at the bottom; (f) the ended session's history view is paged too.
 // Soft: long tasks while a turn streams over the long log (logged).
@@ -135,6 +136,20 @@ async function agentLong(browser) {
   check(/done: 5 units/.test(await page.locator(`bx-frame[src="${TILE}"] bx-agent .scroll`).innerText()), 'shown again, it renders what it folded, at the bottom');
   await fr(page, TILE, (f) => { const i = f.tabs.findIndex((x) => x.kind !== 'agent'); if (i >= 0) f.closeTab(i); });
   await fr(page, TILE, (f) => f.setActiveTab(f.tabs.findIndex((x) => x.kind === 'agent')));
+  // a message being written re-renders only its last paragraph: a selection
+  // in an earlier one survives the next chunks
+  await ag((a) => a.send('paras 8'));
+  await until((g) => g.blocks.some((b) => /Paragraph 2 of/.test(b.text || '')), null, 'two paragraphs streamed', 10000);
+  await sleep(100);
+  await page.locator(`bx-frame[src="${TILE}"] bx-agent`).evaluate((el) => {
+    const p = [...el.shadowRoot.querySelectorAll('.agent .bubble p')].find((x) => /Paragraph 1 of/.test(x.textContent));
+    const r = document.createRange(); r.selectNodeContents(p); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  });
+  await until((g) => g.status === 'idle' && g.blocks.some((b) => /Paragraph 8 of/.test(b.text || '')), null, 'eight paragraphs streamed', 15000);
+  await sleep(200);
+  const sel = await page.evaluate(() => { const s = window.getSelection(); return { text: s.toString(), live: s.rangeCount > 0 && s.getRangeAt(0).startContainer.isConnected }; });
+  check(sel.live && /^Paragraph 1 of the answer, streamed\.?$/.test(sel.text.trim()), `a selection in a streaming message survives the next paragraphs ("${sel.text.trim()}", live ${sel.live})`);
+  await page.evaluate(() => window.getSelection().removeAllRanges());
   await ag((a) => a.send('long 20'));
   await until((g) => g.status === 'idle' && g.blocks.filter((b) => b.text === 'done: 20 units').length >= 1 && g.window.atBottom, null, 'the third turn finished');
   await sleep(300);

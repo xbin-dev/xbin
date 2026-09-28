@@ -35,6 +35,8 @@
 //	write       fs/write_text_file <cwd>/fake-wrote.txt
 //	slow        ten chunks 200 ms apart (cancel lands mid-turn)
 //	burst       fifty one-character chunks back to back (the daemon coalesces them)
+//	paras N     (a prefix) one agent message of N paragraphs, a chunk each,
+//	            250 ms apart (a selection in the first survives the rest)
 //	chatty N    (a prefix) an execute call whose output streams as N
 //	            _meta.terminal_output_delta chunks back to back (the daemon
 //	            coalesces them), then completes
@@ -279,6 +281,17 @@ func (f *fake) turn(text string, files []string, cancel chan struct{}) {
 	case strings.Contains(text, "crash"):
 		f.say("going down")
 		os.Exit(3)
+	case strings.HasPrefix(text, "paras"):
+		n := 8
+		fmt.Sscanf(strings.TrimPrefix(text, "paras"), "%d", &n)
+		for i := 1; i <= n; i++ {
+			if cancelled(cancel) {
+				return
+			}
+			f.update(map[string]any{"sessionUpdate": acp.UpAgentChunk, "messageId": "paras", "content": acp.ContentBlock{Type: "text",
+				Text: fmt.Sprintf("Paragraph %d of the answer, streamed.\n\n", i)}})
+			time.Sleep(250 * time.Millisecond)
+		}
 	case strings.HasPrefix(text, "chatty"):
 		n := 200
 		fmt.Sscanf(strings.TrimPrefix(text, "chatty"), "%d", &n)
