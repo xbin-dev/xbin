@@ -59,23 +59,25 @@ import Testing
         #expect(order == ["a", "b", "c", "f"])
 
         let side = PersonalLayout(json: ["screens": [], "side": ["folders": [
-            ["id": "f1", "name": "Work", "items": ["apps/welcome", "gone/tile"]],
+            ["id": "f1", "name": "Work", "items": ["apps/welcome", "gone/tile"], "open": true, "icon": "🛠"],
             ["id": "f2", "name": "Sub", "parent": "f1", "items": ["tiles/admin"]],
-        ]]])
+        ], "sharedOpen": ["w1": false, "bad": "yes"]]])
+        #expect(side.folders[0].icon == "🛠" && side.folders[0].open && !side.folders[1].open && side.folders[1].icon == nil)
+        #expect(side.sharedOpen == ["w1": false])
         let cat = Catalog(json: try Resources.json("server/components.json"))
         let nav = NavigatorModel(catalog: cat, layout: side, shared: SharedScreens(json: [
             "default": ["tiles": [["path": "tiles/manager"], ["path": "hidden/one"]]],
             "org": [["id": "o1", "org": "eng", "name": "Eng board", "tiles": [["path": "apps/welcome"]]]],
             "folders": ["ws": ["folders": [["id": "w1", "name": "Shared", "items": ["tiles/apidocs"]]]],
                         "org:eng": ["folders": []]],
-        ]), user: "admin")
-        #expect(nav.screens.map(\.name) == ["Home", "Eng board"])            // the ws default seeds an empty layout
-        #expect(nav.screens[0].tiles == ["tiles/manager"])                   // unseen tiles dropped
-        #expect(nav.sections.map(\.id) == ["mine", "folders:ws", "all"])
-        let mine = nav.sections[0]
-        #expect(mine.folders.map(\.name) == ["Work"] && mine.folders[0].tiles.map(\.path) == ["apps/welcome"])
-        #expect(mine.folders[0].children.map(\.name) == ["Sub"])
-        #expect(nav.sections[2].tiles.count == 5)
+        ]), whoami: Whoami(json: ["id": "admin", "orgs": [["id": "eng"]]]))
+        #expect(nav.folders.map(\.name) == ["Work"] && nav.folders[0].open && nav.folders[0].icon == "🛠")
+        #expect(nav.folders[0].items.map(\.id) == ["f:top/f2", "t:apps/welcome"])   // sub-folders first; unseen dropped
+        #expect(nav.sections.map(\.id) == ["org:eng", "workspace"])                  // no tile of mine: no Mine
+        #expect(nav.sections[0].items.map(\.id) == ["s:o1"])                         // an org's screens under it
+        let ws = nav.sections[1]
+        #expect(ws.items.map(\.id) == ["f:ws/w1", "t:tiles/manager", "t:tiles/organisations"])
+        if case .folder(let w1)? = ws.items.first { #expect(!w1.open && w1.items.map(\.id) == ["t:tiles/apidocs"]) }
     }
 
     @Test func whoami() throws {

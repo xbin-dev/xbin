@@ -71,6 +71,23 @@ public struct TermDirectoryEntry: Equatable, Sendable, Identifiable {
         return parts.isEmpty ? (needsYou ? "waiting for you" : "") : "waiting: " + parts.joined(separator: ", ")
     }
 
+    /// A few words on where the session is, for a list of a tile's
+    /// sessions (the long-press menu): an agent's turn state or what it
+    /// waits for; a shell's whether a screen shows it right now.
+    public var statusText: String {
+        guard kind == .agent else { return clients > 0 ? "open" : "running" }
+        if needsYou { return waitingFor }
+        switch status {
+        case "running": return "working"
+        case "starting": return "starting"
+        case "cancelling": return "stopping"
+        case "error": return "error"
+        case "exited": return "ended"
+        case "idle", "": return "idle"
+        default: return status
+        }
+    }
+
     /// This row with a `/ws/events` `term` `status` summary applied (the
     /// fields it carries; nil = unchanged). The session is an agent.
     public func applying(status: String?, pending: Int?, questions: Int?) -> TermDirectoryEntry {
@@ -80,6 +97,35 @@ public struct TermDirectoryEntry: Equatable, Sendable, Identifiable {
         if let pending { e.pending = max(0, pending) }
         if let questions { e.questions = max(0, questions) }
         return e
+    }
+}
+
+/// One tile's live sessions, counted (``TermDirectory/byTile(_:)``).
+public struct TileSessions: Equatable, Sendable {
+    public var shells = 0
+    public var agents = 0
+    /// Agent sessions waiting on the user.
+    public var needsYou = 0
+    /// Agent sessions mid-turn.
+    public var busy = 0
+
+    public init(shells: Int = 0, agents: Int = 0, needsYou: Int = 0, busy: Int = 0) {
+        self.shells = shells
+        self.agents = agents
+        self.needsYou = needsYou
+        self.busy = busy
+    }
+
+    public var total: Int { shells + agents }
+    public var isEmpty: Bool { total == 0 }
+
+    /// For VoiceOver: "2 terminals, 1 agent, waiting for you".
+    public var spoken: String {
+        var parts: [String] = []
+        if shells > 0 { parts.append(shells == 1 ? "1 terminal" : "\(shells) terminals") }
+        if agents > 0 { parts.append(agents == 1 ? "1 agent" : "\(agents) agents") }
+        if needsYou > 0 { parts.append("waiting for you") }
+        return parts.joined(separator: ", ")
     }
 }
 
@@ -182,6 +228,25 @@ public enum TermDirectory {
             if a.kind != b.kind { return a.kind == .shell }
             return (a.lastActive ?? .distantPast) > (b.lastActive ?? .distantPast)
         }
+    }
+
+    /// What runs on each tile (component path → its sessions, counted):
+    /// the badge Home's rows and a screen's cards show (D128), kept live
+    /// with the list (`term` events).
+    public static func byTile(_ entries: [TermDirectoryEntry]) -> [String: TileSessions] {
+        var out: [String: TileSessions] = [:]
+        for e in entries where !e.cwd.isEmpty {
+            var s = out[e.cwd] ?? TileSessions()
+            if e.kind == .agent {
+                s.agents += 1
+                if e.needsYou { s.needsYou += 1 }
+                if e.isAgentBusy { s.busy += 1 }
+            } else {
+                s.shells += 1
+            }
+            out[e.cwd] = s
+        }
+        return out
     }
 
     static func encodeComponent(_ s: String) -> String {

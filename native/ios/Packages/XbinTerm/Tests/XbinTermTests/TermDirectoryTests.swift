@@ -35,6 +35,22 @@ import Testing
         #expect(list[2].api && list[2].clients == 0)                    // wrong types read as defaults
         #expect(TermDirectory.forTile(list, cwd: "apps/x").map(\.id) == ["s2", "s1", "a2", "a1"])
         #expect(TermDirectory.decode(Data("{}".utf8)).isEmpty)
+
+        // Per tile, counted (Home's rows, a screen's cards; D128).
+        var more = list
+        more.append(TermDirectoryEntry(id: "a3", cwd: "apps/y", kind: .agent, status: "idle"))
+        more.append(TermDirectoryEntry(id: "s3", cwd: "", kind: .shell))                       // no tile: not counted
+        let by = TermDirectory.byTile(more)
+        #expect(by["apps/x"] == TileSessions(shells: 2, agents: 2, needsYou: 1, busy: 1))
+        #expect(by["apps/y"] == TileSessions(shells: 0, agents: 1) && by.count == 2)
+        #expect(by["apps/x"]?.spoken == "2 terminals, 2 agents, waiting for you" && by["apps/y"]?.spoken == "1 agent")
+        #expect(by["apps/x"]?.total == 4 && TileSessions().isEmpty)
+        // What the long-press list says of each.
+        #expect(list.map(\.statusText) == ["waiting: 2 permissions", "working", "running", "running"])
+        #expect(TermDirectoryEntry(id: "s", cwd: "a", clients: 1).statusText == "open")
+        #expect(["idle", "", "error", "exited", "cancelling", "starting", "future"].map {
+            TermDirectoryEntry(id: "a", cwd: "a", kind: .agent, status: $0).statusText
+        } == ["idle", "idle", "error", "ended", "stopping", "starting", "future"])
     }
 
     /// A session waiting only on a question (an elicitation) needs the user

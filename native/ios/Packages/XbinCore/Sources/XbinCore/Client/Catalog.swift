@@ -96,12 +96,15 @@ public struct TileInfo: Sendable, Hashable, Identifiable {
     /// `native.entry`: the tile ships a native UI (§7.1).
     public var nativeEntry: String?
     public var manifestError: String
+    /// A blueprint, not a live tile (`template`): instantiated through the
+    /// Tile Manager, never opened.
+    public var template: Bool
 
     public var id: String { path }
 
     public init(path: String, scope: String = "", runtime: String = "", hasIndex: Bool = true, state: String = "",
                 owner: String = "", chrome: Bool = false, sandbox: [String] = [], nativeEntry: String? = nil,
-                manifestError: String = "") {
+                manifestError: String = "", template: Bool = false) {
         self.path = path
         self.scope = scope
         self.runtime = runtime
@@ -112,6 +115,7 @@ public struct TileInfo: Sendable, Hashable, Identifiable {
         self.sandbox = sandbox
         self.nativeEntry = nativeEntry
         self.manifestError = manifestError
+        self.template = template
     }
 
     public init?(json: JSONValue) {
@@ -125,7 +129,7 @@ public struct TileInfo: Sendable, Hashable, Identifiable {
                   hasIndex: json["hasIndex"]?.boolValue ?? true, state: json["state"]?.stringValue ?? "",
                   owner: json["owner"]?.stringValue ?? "", chrome: json["chrome"]?.boolValue ?? false,
                   sandbox: (json["sandbox"]?.arrayValue ?? []).compactMap(\.stringValue), nativeEntry: entry,
-                  manifestError: json["manifestError"]?.stringValue ?? "")
+                  manifestError: json["manifestError"]?.stringValue ?? "", template: json["template"]?.boolValue ?? false)
     }
 
     /// The last path segment, made readable: `apps/egress-approver` →
@@ -143,8 +147,17 @@ public struct TileInfo: Sendable, Hashable, Identifiable {
     public var canOpenLinks: Bool { sandbox.contains("allow-popups") }
     /// The shell itself, the root page, and tiles nothing can open.
     public var isShellInternal: Bool { path == "root" || path == "shell" }
+    /// Archived (`offloaded`, `offloaded-full`): restored from the admin
+    /// console (the web shell's `offloaded`, menus.js).
+    public var isOffloaded: Bool { state == "offloaded" || state == "offloaded-full" }
+    /// Hidden by an admin (`state: hidden`, D42): the web sidebar shows it
+    /// only behind its show-hidden toggle; the app never lists it.
+    public var isHidden: Bool { state == "hidden" }
+    /// What the app lists and opens: not the shell, not a blueprint, not
+    /// hidden, archived or disabled, and with a page to open (the web
+    /// sidebar's rules, bx-side.js `_ownerSections`).
     public var isListed: Bool {
-        !isShellInternal && hasIndex && state != "offloaded" && state != "disabled"
+        !isShellInternal && hasIndex && !template && !isOffloaded && !isHidden && state != "disabled"
     }
 
     public func isPersonal(of user: String) -> Bool { !user.isEmpty && owner == "user:\(user)" }
@@ -239,42 +252,57 @@ public struct ScreenInfo: Sendable, Hashable, Identifiable {
     }
 }
 
-/// A sidebar folder (`{id, name, items, parent?, open?}`), personal or shared.
+/// A sidebar folder (`{id, name, items, parent?, open?, icon?}`), personal
+/// or shared. Items are tile paths, and in a personal folder `#screen:<id>`
+/// and `#orgscreen:<id>` too.
 public struct FolderInfo: Sendable, Hashable, Identifiable {
     public var id: String
     public var name: String
     public var items: [String]
     public var parent: String?
+    /// The folder's icon as the web sidebar shows it (an emoji; nil = 📁).
+    public var icon: String?
+    /// A personal folder the user left open on the web (`open`); shared
+    /// folders keep that per user in `side.sharedOpen` instead.
+    public var open: Bool
 
-    public init(id: String, name: String, items: [String], parent: String? = nil) {
+    public init(id: String, name: String, items: [String], parent: String? = nil, icon: String? = nil, open: Bool = false) {
         self.id = id
         self.name = name
         self.items = items
         self.parent = parent
+        self.icon = icon
+        self.open = open
     }
 
     static func list(_ v: JSONValue?) -> [FolderInfo] {
         (v?.arrayValue ?? []).compactMap { f in
             guard let id = f["id"]?.stringValue else { return nil }
             let parent = f["parent"]?.stringValue
+            let icon = f["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces)
             return FolderInfo(id: id, name: f["name"]?.stringValue ?? id,
                               items: (f["items"]?.arrayValue ?? []).compactMap(\.stringValue),
-                              parent: (parent?.isEmpty ?? true) ? nil : parent)
+                              parent: (parent?.isEmpty ?? true) ? nil : parent,
+                              icon: (icon?.isEmpty ?? true) ? nil : icon, open: f["open"]?.boolValue ?? false)
         }
     }
 }
 
 /// The user's own layout — the shell's `layout` pref:
-/// `{screens:[{id,name,tiles}], active, side:{folders}}`.
+/// `{screens:[{id,name,tiles}], active, side:{folders, sharedOpen}}`.
 public struct PersonalLayout: Sendable, Equatable {
     public var screens: [ScreenInfo]
     public var active: String?
     public var folders: [FolderInfo]
+    /// Shared folders the user folded or opened on the web
+    /// (`side.sharedOpen`: folder id → open; absent = open).
+    public var sharedOpen: [String: Bool]
 
-    public init(screens: [ScreenInfo] = [], active: String? = nil, folders: [FolderInfo] = []) {
+    public init(screens: [ScreenInfo] = [], active: String? = nil, folders: [FolderInfo] = [], sharedOpen: [String: Bool] = [:]) {
         self.screens = screens
         self.active = active
         self.folders = folders
+        self.sharedOpen = sharedOpen
     }
 
     public init(json: JSONValue?) {
@@ -285,6 +313,9 @@ public struct PersonalLayout: Sendable, Equatable {
         }
         active = json?["active"]?.stringValue
         folders = FolderInfo.list(json?["side"]?["folders"])
+        var open: [String: Bool] = [:]
+        for (id, v) in json?["side"]?["sharedOpen"]?.objectValue ?? [:] { if let b = v.boolValue { open[id] = b } }
+        sharedOpen = open
     }
 }
 
@@ -317,63 +348,5 @@ public struct SharedScreens: Sendable, Equatable {
         var f: [String: [FolderInfo]] = [:]
         for (scope, v) in json?["folders"]?.objectValue ?? [:] { f[scope] = FolderInfo.list(v["folders"]) }
         folders = f
-    }
-}
-
-/// What the navigator shows, built from the three sources above. Tiles the
-/// user can't see (absent from the catalog) are dropped everywhere.
-public struct NavigatorModel: Sendable, Equatable {
-    public struct Section: Sendable, Equatable, Identifiable {
-        public var id: String
-        public var title: String
-        public var tiles: [TileInfo]
-        public var folders: [FolderNode]
-    }
-
-    public struct FolderNode: Sendable, Equatable, Identifiable {
-        public var id: String
-        public var name: String
-        public var tiles: [TileInfo]
-        public var children: [FolderNode]
-    }
-
-    public var screens: [ScreenInfo]
-    public var sections: [Section]
-
-    public init(catalog: Catalog, layout: PersonalLayout, shared: SharedScreens, user: String) {
-        let visible = Dictionary(catalog.listed.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a })
-        func tiles(_ paths: [String]) -> [TileInfo] { paths.compactMap { visible[$0] } }
-
-        var screens = layout.screens
-        if screens.isEmpty, let d = shared.workspaceDefault {
-            screens = [ScreenInfo(id: "default", name: "Home", kind: .workspaceDefault, tiles: d)]
-        }
-        screens += shared.org
-        self.screens = screens.map { s in
-            var s = s
-            s.tiles = s.tiles.filter { visible[$0] != nil }
-            return s
-        }
-
-        func tree(_ folders: [FolderInfo], parent: String?) -> [FolderNode] {
-            folders.filter { $0.parent == parent }.map { f in
-                FolderNode(id: f.id, name: f.name, tiles: tiles(f.items), children: tree(folders, parent: f.id))
-            }
-        }
-
-        var sections: [Section] = []
-        let personal = catalog.listed.filter { $0.isPersonal(of: user) }
-        let mine = tree(layout.folders, parent: nil)
-        if !personal.isEmpty || !mine.isEmpty {
-            sections.append(Section(id: "mine", title: "Mine", tiles: personal, folders: mine))
-        }
-        for scope in shared.folders.keys.sorted(by: { a, b in a == "ws" ? true : b == "ws" ? false : a < b }) {
-            let nodes = tree(shared.folders[scope] ?? [], parent: nil)
-            guard !nodes.isEmpty else { continue }
-            let title = scope == "ws" ? "Workspace" : String(scope.dropFirst(scope.hasPrefix("org:") ? 4 : 0))
-            sections.append(Section(id: "folders:\(scope)", title: title, tiles: [], folders: nodes))
-        }
-        sections.append(Section(id: "all", title: "All tiles", tiles: catalog.listed, folders: []))
-        self.sections = sections
     }
 }
