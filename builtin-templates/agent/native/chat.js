@@ -41,6 +41,22 @@ export function blockTpl(b, depth = 0) {
   return nothing;
 }
 
+// rowTpl: a transcript row, built again only when its block (the fold hands
+// back the same object until it changes) or its open state changed. A
+// subagent's card (its own rows open and close inside it) and a user's
+// message (its files come and go) are built every time.
+const rowMemo = new WeakMap();
+function rowTpl(b) {
+  const stamp = b.k === 'think' ? isOpen(b.id, b.live) : b.k === 'tool' || b.k === 'notice' ? isOpen(b.id, false)
+    : b.k === 'assistant' || b.k === 'step' ? true : null;
+  if (stamp == null) return blockTpl(b);
+  const m = rowMemo.get(b);
+  if (m && m.stamp === stamp) return m.tpl;
+  const tpl = blockTpl(b);
+  rowMemo.set(b, { stamp, tpl });
+  return tpl;
+}
+
 function userTpl(b) {
   const s = ctx.app.session;
   const me = s.ui.me ? s.ui.me() : '';
@@ -78,16 +94,22 @@ function noticeTpl(b) {
   </toolcard>`;
 }
 
-// argRows: short arguments as one "key: value" block, long ones each their own.
-function argRows(raw) {
-  const a = argsShown(raw);
+// argRows: short arguments as one "key: value" block, long ones each their
+// own — parsed once per block object (the fold hands back the same block
+// until its call changes; a call being written is a new one each time).
+const argMemo = new WeakMap();
+function argRows(b) {
+  let t = argMemo.get(b);
+  if (t) return t;
   const short = [], long = [];
-  for (const [k, v] of Object.entries(a)) {
+  for (const [k, v] of Object.entries(argsShown(b.args))) {
     const s = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
     (s.length > 80 || s.includes('\n') ? long : short).push([k, s]);
   }
-  return html`${short.length ? html`<text mono selectable>${short.map(([k, s]) => `${k}: ${s}`).join('\n')}</text>` : nothing}
+  t = html`${short.length ? html`<text mono selectable>${short.map(([k, s]) => `${k}: ${s}`).join('\n')}</text>` : nothing}
     ${repeat(long, ([k]) => k, ([k, s]) => html`<text style="caption" tone="muted">${k}</text><code text=${clip(s, CUT * 4)}/>`)}`;
+  argMemo.set(b, t);
+  return t;
 }
 
 // A sandbox call's outcome (model/tool-heads.js outcome) as a chip's tone.
@@ -105,7 +127,7 @@ function toolTpl(b) {
       @open=${long ? () => push({ kind: 'call', run: ctx.app.sel, id: b.id }) : nothing}>
     <text style="caption" tone="muted" mono>${b.name}</text>
     ${b.sub ? html`<text mono selectable>${b.sub}</text>` : nothing}
-    ${argRows(b.args)}
+    ${argRows(b)}
     ${done ? html`<code text=${long ? b.result.slice(0, CUT) + '…' : b.result}/>` : nothing}
     ${done && long ? html`<text style="footnote" tone="muted">${`cut at ${CUT} of ${b.result.length} characters — ↗ shows all`}</text>` : nothing}
   </toolcard>`;
@@ -196,19 +218,98 @@ export function chatScreens() {
 
 const loadingScreen = () => html`<screen title="loading…" style="scroll"><progress label="loading…"/></screen>`;
 
-// A parent under a subagent: its transcript as last seen (back re-reads it).
+// A parent under a subagent: the end of its transcript as last seen (back
+// re-reads it) — drawn again only when its blocks changed.
+const parentMemo = new Map(); // run id → {blocks, title, tpl}
 function parentScreen(c) {
-  const s = ctx.app.session;
-  const blocks = s.blocks(c.id);
-  return html`<screen title=${c.title || '#' + c.id} style="scroll">
-    <transcript>${blocks ? repeat(blocks, (b) => b.id, (b) => blockTpl(b)) : html`<progress/>`}</transcript>
+  const blocks = ctx.app.session.blocks(c.id);
+  const title = c.title || '#' + c.id;
+  const m = parentMemo.get(c.id);
+  if (m && m.blocks === blocks && m.title === title && blocks) return m.tpl;
+  const rows = blocks && blocks.length > KEEP ? blocks.slice(-KEEP) : blocks;
+  const tpl = html`<screen title=${title} style="scroll">
+    <transcript>${rows ? repeat(rows, (b) => b.id, rowTpl) : html`<progress/>`}</transcript>
   </screen>`;
+  if (parentMemo.size > 8) parentMemo.clear(); // only the chain under the open conversation is drawn
+  parentMemo.set(c.id, { blocks, title, tpl });
+  return tpl;
+}
+
+// --- a window of the transcript (D130) ------------------------------------------------
+//
+// The chat renders a window of its blocks: the tail when it opens, growing a
+// page of rows at a time as the loader at its top fires `more` (a page is read
+// from the backend when no held rows are left above it). The app's transcript
+// keeps its bottom still while it follows it, so rows above go — the window
+// trimmed from the top, and the messages far above let go (Session.keep) —
+// only while the reader is at the bottom, as `scrolled` says; scrolled up,
+// the window only grows. Nothing below the window is let go here: without an
+// anchor the renderer keeps, that would move what the reader looks at.
+const PAGE = 40;  // rows the window opens on, and grows by
+const TRIM = 120; // a window longer than this is cut back to KEEP rows — at the bottom only
+const KEEP = 60;
+
+// winOf: the window of s.blocks for the open run, placed for this render.
+function winOf(s, run) {
+  let w = ui.win;
+  if (!w || w.run !== run) w = ui.win = { run, fromKey: null, atBottom: true, start: 0, n: 0 };
+  const blocks = s.blocks, n = blocks.length;
+  w.start = startOf(w, blocks);
+  w.n = n;
+  w.fromKey = n ? blocks[w.start].id : null;
+  return w;
+}
+
+// startOf: where window w starts in blocks — at its first row, else on the
+// tail; at the bottom, a window grown past TRIM rows is cut back to KEEP.
+function startOf(w, blocks) {
+  const n = blocks.length;
+  let start = w.fromKey == null ? -1 : blocks.findIndex((b) => b.id === w.fromKey);
+  if (start < 0) start = Math.max(0, n - PAGE);
+  if (w.atBottom && n - start > TRIM) start = n - KEEP;
+  return start;
+}
+
+// more: the loader at the transcript's top is on screen — a page of held
+// rows joins the window, else the next older page is read and joins it.
+const more = guard(async () => {
+  const w = ui.win, s = ctx.app.session;
+  if (!w || w.run !== ctx.app.sel) return;
+  const blocks = s.shown().blocks;
+  if (w.start > 0) { w.fromKey = blocks[Math.max(0, w.start - PAGE)].id; return; }
+  if (!s.shown().hasOlder) return;
+  await s.loadOlder();
+  const now = s.shown().blocks, i = now.findIndex((b) => b.id === w.fromKey);
+  if (i > 0) w.fromKey = now[Math.max(0, i - PAGE)].id;
+});
+
+// scrolled: the reader left the bottom, or came back to it (the window is
+// trimmed at the next render).
+function scrolled(e) {
+  const w = ui.win;
+  if (!w || !!e.atBottom === w.atBottom) return;
+  w.atBottom = !!e.atBottom;
+  ctx.app.session.follow(w.atBottom);
+  if (w.atBottom) ctx.paint();
+}
+
+// chatDrawn (native.js, after a render): at the bottom, what lies far above
+// the window is let go (a page or more at a time).
+export function chatDrawn() {
+  const w = ui.win, app = ctx.app;
+  if (!w || app.sel !== w.run || !w.atBottom) return;
+  const blocks = app.session.shown().blocks;
+  const i = startOf(w, blocks); // where the render this paint asked for places it
+  if (i <= KEEP) return;
+  w.fromKey = blocks[i].id;
+  app.session.keep(i - KEEP, blocks.length, false);
 }
 
 export function chatScreen(v) {
   const app = ctx.app;
   const { rules } = app;
   const s = app.session.shown();
+  const w = winOf(s, v.run.id);
   const r = v.run;
   const t = rules.topBar(v, app.convs.find(r.rootId || r.id), app.me);
   const ps = r.pendingState || {};
@@ -224,9 +325,9 @@ export function chatScreen(v) {
       ${sandboxPickerTpl()}
       <menu icon="ellipsis" label="More">${runMenu(v, t)}</menu>
     </toolbar>
-    <transcript follow ?older=${s.hasOlder} @more=${() => app.session.loadOlder().catch(fail)}>
-      ${s.olderHidden ? html`<notice tone="muted" text="earlier turns were compacted into the summary"/>` : nothing}
-      ${repeat(s.blocks, (b) => b.id, (b) => blockTpl(b))}
+    <transcript follow ?older=${w.start > 0 || s.hasOlder} @more=${more} @scrolled=${scrolled}>
+      ${s.olderHidden && !w.start && !s.hasOlder ? html`<notice tone="muted" text="earlier turns were compacted into the summary"/>` : nothing}
+      ${repeat(w.start ? s.blocks.slice(w.start) : s.blocks, (b) => b.id, rowTpl)}
       ${r.status === 'waiting_input' && ps.kind === 'approval' ? approvalTpl(ps.toolCalls, r.id, undefined, rules.grantAsk(r, app.me), ps.park) : nothing}
       ${r.status === 'waiting_input' && ps.kind !== 'approval' && r.result ? questionTpl(r) : nothing}
       ${s.activity ? html`<activity live text=${s.activity}/>` : nothing}

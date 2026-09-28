@@ -16,6 +16,7 @@ export const ui = {
   sbxAsk: null,     // the Sandbox picker's confirmation sheet: {ref, name, text} (native/sandboxes.js)
   stack: [],        // screens pushed over the conversation or home: {kind, …} (native/tools.js)
   opening: null,    // a subagent being opened full screen (its view is loading)
+  win: null,        // the open conversation's window of blocks (native/chat.js): {run, fromKey, atBottom, start, n}
   err: '',          // the last failure, said at the top of the screen on top
 };
 

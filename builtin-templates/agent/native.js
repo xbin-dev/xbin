@@ -22,7 +22,7 @@
 import { html, render, repeat, native } from '/vendor/xb-native.js';
 import { createApp } from './model/app.js';
 import { ui, ctx, fail, nextFrame } from './native/ui.js';
-import { chatScreens } from './native/chat.js';
+import { chatScreens, chatDrawn } from './native/chat.js';
 import { homeScreen } from './native/home.js';
 import { drawerSheet, newChatSheet, renameSheet } from './native/convs.js';
 import { shareSheet } from './native/share.js';
@@ -69,6 +69,7 @@ function draw() {
   const m = { title: v ? app.rules.topBar(v).title : app.HOME.title, badge: app.needs.length ? String(app.needs.length) : null };
   const key = JSON.stringify(m);
   if (key !== meta) { meta = key; try { native.meta(m); } catch { /* no app */ } }
+  chatDrawn();
 }
 
 // pop: the person went back to `depth` screens; the screens above leave

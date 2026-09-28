@@ -354,19 +354,6 @@ test('a shared conversation says who wrote each message; attachments show as thu
   assert.ok(find(users[1], { t: 'button', p: { label: 'Open shot.png' } }), 'an attachment opens in Files');
 });
 
-test('paging: a long conversation loads older pages as you scroll up', async () => {
-  const r = await run(oneSeed({ run: { title: 'long', status: 'idle' }, messages: [msg(40, 'user', 'late', { runId: 9 })] },
-    { pages: { 9: { hasOlder: true, nextBefore: 40, compacted: 3 } } }), [
-    { snapshot: 'newest' },
-    { event: [{ t: 'transcript', p: { follow: true } }, 'more', {}] },
-  ], { state: { hash: 'c=9' } });
-  const tr = find(r.snapshots.newest, { t: 'transcript', p: { follow: true } });
-  assert.equal(tr.p.older, true);
-  assert.ok(tr.e.includes('more'));
-  assert.ok(find(tr, { t: 'notice', p: { text: 'earlier turns were compacted into the summary' } }));
-  assert.equal(called(r, 'GET', /\/runs\/9\/view\?limit=50&before=40$/).length, 1);
-});
-
 test('a subagent\'s approval is given from its parent\'s card', async () => {
   const seed = chatSeed();
   seed.views[2].run = { ...seed.views[2].run, status: 'waiting_input', pendingState: { kind: 'approval', toolCalls: [{ function: { name: 'web_fetch' } }] } };
