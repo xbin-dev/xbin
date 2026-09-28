@@ -37,20 +37,26 @@ func TestSessionOOMScoreAdj(t *testing.T) {
 		o.SessionOOMScoreAdj = 500
 		o.Logf = func(f string, a ...any) { mu.Lock(); logged = append(logged, fmt.Sprintf(f, a...)); mu.Unlock() }
 	})
-	score := func(h *harness, session int) string {
+	score := func(h *harness, session int, raised bool) string {
 		t.Helper()
-		ss := h.exec(proto.Exec{Session: session, Argv: sh("cat /proc/self/oom_score_adj"), Merge: true, NoStdin: true})
+		// The write lands just after the start (adjustOOM: until then the
+		// session has the agent's score), so a raised session waits for it.
+		cmd := "cat /proc/self/oom_score_adj"
+		if raised {
+			cmd = "i=0; while [ \"$(cat /proc/self/oom_score_adj)\" != 500 ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done; " + cmd
+		}
+		ss := h.exec(proto.Exec{Session: session, Argv: sh(cmd), Merge: true, NoStdin: true})
 		out := readAll(t, ss["stdout"])
 		if m := h.wait(session, "exited", "error"); m.Op != "exited" || m.Code != 0 {
 			t.Fatalf("session %d: %+v %q", session, m, out)
 		}
 		return strings.TrimSpace(out)
 	}
-	if got := score(h, 1); got != strconv.Itoa(own) {
+	if got := score(h, 1, false); got != strconv.Itoa(own) {
 		t.Errorf("session 1's oom_score_adj %s, want the agent's %d", got, own)
 	}
 	for _, s := range []int{2, 3} {
-		if got := score(h, s); got != "500" {
+		if got := score(h, s, true); got != "500" {
 			t.Errorf("session %d's oom_score_adj %s, want 500", s, got)
 		}
 	}
@@ -81,7 +87,7 @@ func TestSessionOOMScoreAdj(t *testing.T) {
 
 	// without the option, every session keeps the agent's
 	h = newHarness(t, nil)
-	if got := score(h, 2); got != strconv.Itoa(own) {
+	if got := score(h, 2, false); got != strconv.Itoa(own) {
 		t.Errorf("session 2 with no SessionOOMScoreAdj: %s, want %d", got, own)
 	}
 }
