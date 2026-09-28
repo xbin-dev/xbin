@@ -31,6 +31,14 @@ const push = (ev) => {
 const view = (id, extra = {}) => ({ cursor: 'g.' + seq, run: { id, title: 'run ' + id, status: 'idle', rootId: id, pendingState: {} },
   messages: [], steps: [], links: [], queued: [], drafts: [], chain: [], files: [], memory: {}, config: {}, messageFiles: {}, ...extra });
 const state = { uploadFails: false, draftGone: false };
+// run 6: 40 messages — a user turn, then an answer with a call and its result, per three seqs — and a step at seq 16's time
+const long6 = { status: 'idle', messages: [], steps: [{ id: 1, kind: 'note', detail: '{"text":"a note"}', created: 1016 }] };
+for (let s = 1; s <= 40; s++) {
+  const k = s % 3;
+  long6.messages.push({ id: s, seq: s, created: 1000 + s, role: k === 1 ? 'user' : k === 2 ? 'assistant' : 'tool', content: 'm' + s,
+    ...(k === 2 ? { toolCalls: [{ id: 'c' + s, type: 'function', function: { name: 'note', arguments: '{"text":"x"}' } }] } : {}),
+    ...(k === 0 ? { toolCallId: 'c' + (s - 1), name: 'note' } : {}) });
+}
 const routes = [
   // no class picked yet: the lane picked before classes (D116) says which
   ['GET', /\/api\/xbin\/prefs\/toolset$/, () => json('web')],
@@ -59,6 +67,22 @@ const routes = [
     const hasOlder = older.length > 2;
     return json(view(5, { messages: page, hasOlder, ...(hasOlder ? { nextBefore: page[0].seq } : {}), compacted: 0, linkCount: 0,
       steps: before === 99 ? [{ id: 1, kind: 'note', detail: '{"text":"n"}', created: 106 }] : [] }));
+  }],
+  // run 6: a long conversation paged as the backend does (view_page.go): the
+  // newest `limit` messages below `before`, the steps of the page's span
+  ['GET', /\/runs\/6\/view\?limit=(\d+)(?:&before=(\d+))?$/, (m) => {
+    const limit = +m[1], before = m[2] ? +m[2] : Infinity;
+    const all = long6.messages.filter((x) => !x.compacted);
+    const older = all.filter((x) => x.seq < before);
+    let i = Math.max(0, older.length - limit);
+    while (i > 0 && older[i].role === 'tool') i--; // a page reaches back to the call a result answers
+    const page = older.slice(i);
+    const hasOlder = older.length > page.length;
+    const lo = hasOlder && page.length ? page[0].created : -Infinity;
+    const next = all.find((x) => x.seq >= before);
+    const hi = next ? next.created : Infinity;
+    return json(view(6, { messages: page, hasOlder, ...(hasOlder ? { nextBefore: page[0].seq } : {}), compacted: 0, linkCount: 0,
+      steps: long6.steps.filter((s) => s.created >= lo && s.created < hi), run: { id: 6, title: 'long', status: long6.status, rootId: 6, pendingState: {} } }));
   }],
   ['GET', /\/runs\/1\/view$/, () => json(view(1, { access: 'owner', queued: [{ id: 7, text: 'queued one' }] }))],
   ['GET', /\/runs\/2\/view$/, () => json(view(2, { run: { id: 2, title: 'q', status: 'waiting_input', rootId: 2, pendingState: { kind: 'question' }, result: 'which?' } }))],
@@ -305,6 +329,90 @@ test('the native view\'s options: drafts as deltas, the open conversation in pag
   await until(() => calls.filter((c) => c.url.includes('/stream?')).length >= asked + 1);
   assert.equal(app.session.shown().blocks.find((b) => b.callId === 'c1').args, '{"path":"a.txt"}', 'the misfit is not appended');
   assert.ok(!app.session.shown().blocks.some((b) => b.id === 'draft-tool-7'), 'nor is a delta for a call it never saw');
+  app.session.live.close();
+});
+
+test('a window of a long conversation: let go above and below, read back page by page, a reset keeps it', async () => {
+  const app = createApp({ deltas: true, page: 6 });
+  const before = streams.size;
+  app.start();
+  await until(() => streams.size === before + 1);
+  await app.select(6);
+  const s = app.session;
+  const seqs = () => s.views.get(6).messages.map((m) => m.seq);
+  const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+  assert.deepEqual(seqs(), range(35, 40), 'the newest page');
+  for (let i = 0; i < 3; i++) await s.loadOlder();
+  assert.deepEqual(seqs(), range(17, 40), 'three older pages joined, in order');
+
+  // nothing goes while less than a page lies outside the window
+  let blocks = s.shown().blocks;
+  assert.equal(s.keep(2, blocks.length, false), false);
+  // above: the cut falls at a message; its page is what before=<cut> reads again
+  const at28 = () => s.shown().blocks.findIndex((b) => b.id === 'm28');
+  assert.equal(s.keep(at28(), blocks.length, false), true);
+  let v = s.views.get(6);
+  assert.deepEqual(seqs(), range(28, 40));
+  assert.equal(v.hasOlder, true);
+  assert.equal(v.nextBefore, 28);
+  assert.equal(s.shown().blocks[0].id, 'm28', 'the window\'s first block is held still');
+  await s.loadOlder();
+  await s.loadOlder();
+  v = s.views.get(6);
+  assert.deepEqual(seqs(), range(16, 40), 'read back page by page');
+  assert.deepEqual(v.steps.map((x) => x.id), [1], 'a step comes back with its page');
+
+  // below, while the reader is far up: the live tail goes too
+  blocks = s.shown().blocks;
+  assert.equal(s.keep(0, at28(), false), false, 'not while following the bottom');
+  assert.equal(s.keep(0, at28(), true), true);
+  assert.deepEqual(seqs(), range(16, 27));
+  assert.equal(v.detached, true);
+  assert.deepEqual(v.below.map((p) => [p.from, p.n]), [[28, 6], [34, 6], [40, 1]], 'noted as pages, each starting at a message');
+  assert.equal(s.shown().hasNewer, true);
+  // live, meanwhile: counted, not held — and a draft is not drawn after what is held
+  const m41 = { id: 41, seq: 41, created: 1041, role: 'assistant', content: 'm41', runId: 6 };
+  long6.messages.push(m41);
+  push({ type: 'message', run: 6, root: 6, data: m41 });
+  push({ type: 'text', run: 6, root: 6, data: { text: 'writing' } });
+  await until(() => s.shown().fresh === 1 && s.drafts.has(6));
+  assert.ok(!seqs().includes(41));
+  assert.ok(!s.shown().blocks.some((b) => b.k === 'draft'));
+  assert.equal(s.shown().activity, '');
+  // read back a page at a time; the last one is the live tail again
+  assert.equal(await s.loadNewer(), true);
+  assert.deepEqual(seqs(), range(16, 33));
+  assert.ok(called('GET', '/runs/6/view').pop().url.endsWith('?limit=6&before=34'));
+  await s.loadNewer();
+  assert.equal(v.detached, true);
+  await s.loadNewer();
+  assert.deepEqual(seqs(), range(16, 41), 'contiguous again, the message that came meanwhile with it');
+  assert.equal(v.detached, false);
+  assert.equal(s.shown().fresh, 0);
+  assert.ok(s.shown().blocks.some((b) => b.k === 'draft'), 'the draft shows again');
+  assert.equal(await s.loadNewer(), false, 'nothing more below');
+
+  // a reset (the stream cannot replay): what is held is read again, the same range
+  const held = s.shown().blocks.map((b) => b.id);
+  s.reload();
+  await until(() => s.views.get(6) !== v);
+  assert.deepEqual(seqs(), range(16, 41));
+  assert.equal(s.views.get(6).hasOlder, true);
+  assert.equal(s.views.get(6).nextBefore, 16);
+  assert.deepEqual(s.shown().blocks.filter((b) => b.k !== 'draft').map((b) => b.id), held.filter((id) => !id.startsWith('draft')), 'the same blocks, by key');
+  // …and held while scrolled up: the pages below stay let go
+  v = s.views.get(6);
+  assert.ok(s.keep(0, s.shown().blocks.findIndex((b) => b.id === 'm34'), true));
+  s.reload();
+  await until(() => s.views.get(6) !== v);
+  assert.deepEqual(seqs(), range(16, 33));
+  assert.equal(s.views.get(6).detached, true);
+  assert.ok(called('GET', '/runs/6/view').slice(-3).some((c) => c.url.endsWith('before=34')), 'read from where the pages let go start');
+  // jump to latest: the newest page, followed
+  await s.latest();
+  assert.deepEqual(seqs(), range(35, 41));
+  assert.equal(s.views.get(6).detached, false);
+  long6.messages.pop();
   app.session.live.close();
 });
 

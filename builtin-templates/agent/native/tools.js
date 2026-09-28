@@ -31,11 +31,12 @@ const act = (s, fn) => async (...a) => {
   ctx.paint();
 };
 
-// refreshView re-reads the open run's view after an edit the stream does not
-// carry (memory blocks, session files) — the counts in the menu follow.
+// refreshView re-reads the open run's state after an edit the stream does not
+// carry (memory blocks, session files) — the counts in the menu follow; the
+// transcript held stays.
 function refreshView() {
   const app = ctx.app;
-  if (app.sel != null) app.session.fetchView(app.sel).then(() => ctx.paint()).catch(() => {});
+  if (app.sel != null) app.session.refresh(app.sel).then(() => ctx.paint()).catch(() => {});
 }
 const stale = (kind, run) => { for (const s of ui.stack) if (s.kind === kind && s.run === run) s.loaded = false; };
 
