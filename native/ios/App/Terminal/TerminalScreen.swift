@@ -29,6 +29,9 @@ struct TerminalScreen: View {
     @State private var fullScreen = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
+    /// The panel is in front (PanelStack): out of it, the terminal lets go
+    /// of the keyboard and VoiceOver.
+    @Environment(\.panelActive) private var panelActive
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -103,6 +106,10 @@ struct TerminalScreen: View {
             controller?.detach()
         }
         .onChange(of: scenePhase) { _, p in controller?.setVisible(p == .active) }
+        .onChange(of: panelActive) { _, active in
+            controller?.container.accessibilityElementsHidden = !active
+            if !active { _ = controller?.terminalView.resignFirstResponder() }
+        }
         .sheet(isPresented: $showSessions) {
             if let c = controller { TermSessionsSheet(controller: c) }
         }
@@ -115,7 +122,7 @@ struct TerminalScreen: View {
         }
         .alert("Open this link?", isPresented: Binding(get: { controller?.pendingLink != nil }, set: { if !$0 { controller?.pendingLink = nil } })) {
             Button("Cancel", role: .cancel) { controller?.pendingLink = nil }
-            Button("Open in Safari") {
+            Button("Open Link") {
                 if let u = controller?.pendingLink { openURL(u) }
                 controller?.pendingLink = nil
             }

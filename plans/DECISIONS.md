@@ -3750,3 +3750,144 @@ Deviations and refinements made while implementing; all deliberate:
       key label, a bucket suffix and an env name, and a small set is
       easier to reason about. Existing names with spaces or other
       characters need renaming (migration note).
+
+- **D123 — Thin themed scrollbars and the focused-scroll tint (2026-09-27).**
+  web/bx-scroll.js; docs/frontend-kit.md; docs/protocol.md §Tile ↔ shell
+  messaging.
+  - **Chosen.** On fine pointers (`@media (hover:hover) and (pointer:fine)`)
+    every scrollbar is a 6px bar whose thumb is drawn 3px at the outer edge
+    (a transparent border, `background-clip: padding-box`) and fattens to 6px
+    while hovered or dragged — ~3px to the eye, a grab zone a mouse can hit.
+    The box never changes width: xterm measures its scrollbar once, at open
+    (the terminals now wait for their shadow `xterm.css` before opening, or
+    xterm reads 0 and assumes 15px). The CSS is one text,
+    `scrollCssText`, carried by every shadow root that scrolls (`scrollCss`,
+    a shared lit CSSResult in `/vendor/scroll-css.js`) and, verbatim, by
+    `theme.css` for documents (`hack/scroll-css.test.mjs` keeps the two
+    equal). Chromium 121+ switches `::-webkit-scrollbar` off for an element
+    with a non-auto `scrollbar-color`/`scrollbar-width`, and
+    `scrollbar-color` inherits, so the standard properties (Firefox:
+    `thin`, themed colours) sit behind `@supports not
+    selector(::-webkit-scrollbar)` — Chromium never sees them, and a
+    Chromium that someday drops the prefixed selector falls through to
+    them. Touch keeps its native overlay bars.
+  - **The tint.** A tracker per document keeps `data-bx-scroll` (an
+    attribute, so lit class bindings never clobber it) on the scroller the
+    next scroll would move: the innermost scrollable under the mouse; on a
+    wheel, the first scroller on the composed path that can still move that
+    way (or contains its overscroll), latched for 300 ms as Chromium latches
+    a gesture; on a scroll key or focus, the focused element's. The thumb
+    turns hazard amber. One tint per screen across documents: the pointer
+    crossing into an (out-of-process) iframe gives the parent no reliable
+    pointerout, so a framed document's tracker posts `xbin:scroll-focus` to
+    its embedder, which drops its tint; leaving the iframe, the framed
+    document gets its own pointerout.
+  - **Reach.** The shell's and `/vendor` components' shadow roots include
+    the sheet (importing it installs the tracker, so old workspace shells
+    get it everywhere `/vendor` renders; their own canvas/sidebar keep native
+    bars until `bx builtin update`). A tile document that links `theme.css`
+    gets the rules from the sheet and the tracker from `xbin-client.js` —
+    linking the theme is the opt-in D59 asked for; `<meta
+    name="xbin-scroll-focus" content="off">` opts out. `theme.css` is still
+    never injected.
+  - **Not chosen:** a strict 3px box (unhittable with a mouse);
+    `scrollbar-width: thin` in Chromium (~11px); widening on hover
+    (re-layout, and xterm's width goes stale); the shell reading hover
+    across the iframe boundary (it cannot); a tint on the scroll that a
+    tile's wheel chains out to (the shell never sees that wheel — the
+    tile's own scroller keeps the tint).
+
+- **D124 — The Agent tab renders a window over an incremental fold
+  (2026-09-27).** web/agent-fold.js, web/bx-agent.js; docs/overview/
+  09-terminals.md §Agent sessions.
+  - **Why.** The tab re-folded the whole event log, and re-ran markdown,
+    diffs (an LCS per edit) and highlighting for every block, on every event
+    and every keystroke, and rendered every block — a long or replayed
+    conversation crawled, worst on resume, where the agent streams the old
+    turns one event at a time.
+  - **Chosen.** (1) `Fold` (pure, node-tested against the old fold over the
+    captured fixtures) applies one event at a time; every block has a stable
+    `key` and a version `v` bumped when it or a nested block changes, and
+    `st` digests the latest status fields (the per-render log scans are
+    gone). (2) At most one render per frame (`scheduleUpdate` awaits a
+    frame), so a burst folds as it arrives and paints once. (3) Rows are
+    `repeat`ed by key under `guard([v, ui, …])`; markdown, diffs and stripped
+    output are memoized on the block per version (`cached`), and a folded
+    card's body, a file patch or a thought renders only once opened. (4) Only
+    a window renders: the last 30 blocks (filled to two views), a page of 30
+    more whenever the reader is within 1.5 views of the top — on a touch
+    scroll only once it settles, since a `scrollTop` write stops iOS
+    momentum — or all of them from the "earlier entries" row (for find).
+    Following the bottom with over 120 rendered and 6 views above, what is
+    more than 2.5 views up is dropped (above the pinned view: invisible;
+    2.5 > 1.5, so dropping and loading never ping-pong).
+  - **No jumps.** `overflow-anchor: none` and one explicit anchor for every
+    update: `willUpdate` records the first visible row's top (binary search
+    over the rows), `updated` — inside the same frame, before paint —
+    moves `scrollTop` by however far it moved, or pins the bottom when the
+    reader was there. The same path covers a page prepended, a block above
+    growing, the per-turn changes block spliced in. A card the reader opens
+    keeps their view instead of chasing the bottom.
+  - **Not chosen:** native scroll anchoring (Safari has none; with a manual
+    fallback beside it, the two can double-correct); `flex-direction:
+    column-reverse` (free bottom-pinning, but the view then moves whenever a
+    new turn streams while the reader is scrolled up); server-side paging of
+    the log (the whole ring — 5000 events — folds in milliseconds; the cost
+    was rendering); `content-visibility: auto` (estimated heights shift as
+    rows paint in, which is the jump this avoids); windowing a subagent
+    card's children (rendered only while the card is open).
+
+- **D125 — The app's screens: panels you swipe between, the phone's own
+  arrangement, tile widgets, create-a-tile, and no Safari (2026-09-27).**
+  native/ios App/Shell (PanelStack, Screens/), App/Tiles/Widgets, XbinCore
+  Client/{Home,MobileScreens,TileCreate,WidgetStore}.swift; web/xb-native.js
+  + web/xb/rt-runtime.js; internal/obs/prefs.go; workspace-template/shell/
+  layout-sync.js; native/spec/tree.md §13, docs/native.md §Widgets,
+  docs/protocol.md (the `prefs` event). The owner's direction after using
+  TestFlight build 3 on a phone.
+  - **Panels, not a root swap.** A window is Home → a screen → a tile (or a
+    terminal/agent), side by side: a left-edge swipe goes back
+    (interactive — let go early and it snaps back, a peek), a right-edge
+    swipe right after goes forward to what you left; any new navigation
+    drops that. A native tile's own stack pops first; web views give the
+    edges up (their page back is a bar item). The panel you left stays
+    mounted, so forward is instant. Before, opening a tile replaced the
+    root: no back, and no way home.
+  - **Home lists screens** (owner's choice), by Mine / each org / Workspace
+    inside their folders, as the web sidebar files them; shortcuts on top,
+    search and All tiles at the bottom, + New screen. The workspace
+    default shows while the user has no screen of their own, as the shell
+    seeds.
+  - **A phone arrangement per user** (owner's choice): the `mobile-screens`
+    pref (same bucket as `layout`) holds each screen's order, small/wide
+    and hidden tiles; unset, the web layout's order. It never writes the
+    web layout — the shell rewrites that object whole on its saves — except
+    that a tile created on a personal screen also lands there at a free
+    spot. Edit mode is a list editor (reorder handles, small/wide, hide),
+    sturdier and accessible than dragging cards. The app read the layout
+    from the wrong prefs bucket (`shell`; the shell's is `root`) — fixed,
+    with a fallback read.
+  - **Widgets** (owner's choice: this round). A native tile may render a
+    second, small tree with `widget()` — its card, `small` or `wide`,
+    stack/text/icon/badge/chart/progress/button/row only. The runtime sends
+    it only to an app whose caps list the feature `widget` (old apps see
+    byte-identical traffic); widget errors carry `target: "widget"` and
+    fall back to the standard card, never the tile. The app keeps at most
+    6 live runtimes (LRU; the open tile never goes), shows a cached widget
+    tree when a tile isn't live, and treats a tile that sends no widget
+    within 3 s of its first render as having none. Every other tile gets
+    the standard card (icon, title, badge, status dot).
+  - **Create a tile on the phone**: name + owner (the shell's choices) →
+    `POST /api/xbin/create` → the tile opens on "What should this tile
+    be?": a prompt for an agent, or a terminal.
+  - **No Safari.** Chrome tiles (the admin console and the like), which
+    need the user's own session, open in an in-app web view with a cookie
+    store of its own, signed in by redeeming the web ticket (D100) inside
+    it. The web ticket stays; the Safari hand-offs go.
+  - **Prefs, shared by two editors now:** writes are serialized per bucket
+    (writes to different keys could lose each other), and every write
+    publishes a `prefs` event to the user's own clients with an optional
+    writer id; the shell reloads its layout on another client's write
+    unless an edit is in progress (existing workspaces: `bx builtin
+    update`).
+

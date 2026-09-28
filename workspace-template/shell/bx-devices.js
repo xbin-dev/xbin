@@ -22,6 +22,7 @@
  * ride the session cookie.
  */
 import { LitElement, html, css, nothing } from 'lit';
+import { scrollCss } from '/vendor/scroll-css.js';
 import { xbinApi as call } from '/vendor/bx-kit.js';
 
 // openDevices({add}): open the panel — with add, straight on the add flow.
@@ -87,7 +88,7 @@ export class BxDevices extends LitElement {
     _now: { state: true },
   };
 
-  static styles = css`
+  static styles = [scrollCss, css`
     :host { position: fixed; inset: 0; z-index: 4000; display: block; }
     .backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, .45); }
     .box {
@@ -139,7 +140,7 @@ export class BxDevices extends LitElement {
     .hint { font-size: 11px; color: var(--bx-muted, #868f9a); margin-top: 3px; }
     .hint.bad { color: var(--bx-red, #ef5350); }
     .or { margin-top: 8px; }
-  `;
+  `];
 
   #onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); this.close(); } };
 

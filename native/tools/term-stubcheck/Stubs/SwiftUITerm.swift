@@ -38,7 +38,6 @@ extension View {
     public func keyboardShortcut(_ key: KeyEquivalent, modifiers: EventModifiers = .command) -> some View { _V(self) }
     public func keyboardShortcut(_ shortcut: KeyboardShortcut) -> some View { _V(self) }
     public func minimumScaleFactor(_ factor: CGFloat) -> some View { _V(self) }
-    public func clipped(antialiased: Bool = false) -> some View { _V(self) }
     public func statusBarHidden(_ hidden: Bool = true) -> some View { _V(self) }
     public func persistentSystemOverlays(_ visibility: Visibility) -> some View { _V(self) }
     public func toolbar(_ visibility: Visibility, for bars: ToolbarPlacement...) -> some View { _V(self) }

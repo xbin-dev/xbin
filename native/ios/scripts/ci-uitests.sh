@@ -116,8 +116,12 @@ for t in ${XBIN_E2E_ONLY:-}; do only+=("-only-testing:$t"); done
 rm -rf "$XBIN_CI_OUT/uitests.xcresult"
 status=0
 # "${only[@]+…}": an empty array under set -u is an error in bash 3.2.
+# No sysdiagnose on a failure (XBIN_E2E_DIAGNOSE=1 to get one): it takes
+# the simulator up to 10 minutes and the log + screenshots say enough.
+diag=never
+[ "${XBIN_E2E_DIAGNOSE:-0}" = 1 ] && diag=on-failure
 ci_xcodebuild "$XBIN_CI_OUT/uitests.log" test-without-building "${common[@]}" \
-  -resultBundlePath "$XBIN_CI_OUT/uitests.xcresult" \
+  -resultBundlePath "$XBIN_CI_OUT/uitests.xcresult" -collect-test-diagnostics "$diag" \
   ${only[@]+"${only[@]}"} || status=$?
 
 pngs=$(find "$shots" -type f -name '*.png' | wc -l | tr -d ' ')

@@ -66,6 +66,12 @@ final class TerminalController: NSObject {
         // The black terminal takes the dark keyboard, under its dark key row (KeyRow).
         terminalView.keyboardAppearance = .dark
         terminalView.inputAccessoryView = AccessoryBar(controller: self)
+        // Dragging the text down into the keyboard takes the keyboard down
+        // with the finger (D125); scrolling through the output is unchanged.
+        // The view must bounce vertically for a drag to start when the
+        // output doesn't fill it yet.
+        terminalView.keyboardDismissMode = .interactive
+        terminalView.alwaysBounceVertical = true
         #if DEBUG
         // The UI tests' stand-in for a hardware keyboard, which a headless
         // simulator can't attach: no software keyboard, so the key row sits

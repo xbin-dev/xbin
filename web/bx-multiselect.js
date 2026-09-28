@@ -15,6 +15,7 @@
  * cell in the tile-admin window, a popover — never clips it.
  */
 import { LitElement, html, css, nothing } from 'lit';
+import { scrollCss } from '/vendor/scroll-css.js';
 
 export class BxMultiselect extends LitElement {
   static properties = {
@@ -25,7 +26,7 @@ export class BxMultiselect extends LitElement {
     _pos: { state: true },           // {left, top, minWidth} once measured
   };
 
-  static styles = css`
+  static styles = [scrollCss, css`
     :host { display: inline-block; position: relative; min-width: 150px; font: inherit; }
     .control {
       width: 100%; box-sizing: border-box; display: flex; align-items: center; gap: 6px;
@@ -54,7 +55,7 @@ export class BxMultiselect extends LitElement {
     .opt:hover { background: var(--bx-panel-2, #2b3038); }
     .opt input { margin: 0; flex: none; accent-color: var(--bx-accent, #f5a623); }
     .empty { padding: 6px 8px; color: var(--bx-muted, #868f9a); font-size: 11.5px; }
-  `;
+  `];
 
   constructor() {
     super();

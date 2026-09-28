@@ -8,14 +8,15 @@ covers, in Swift 6 mode:
 
 - the app's **Model** (`App/Model`: workspaces, windows, the events socket,
   the kill switch, Handoff, haptics) and **Shell** (`App/Shell`: the root
-  view, switcher, navigator, inbox, settings, add-a-device, Safari, the
-  onboarding stack) — every file but `Model/AppTransport.swift`,
+  view, the panels and their edge swipes, Home, the screens and their
+  editor, creating a tile, switcher, inbox, settings, add-a-device, the
+  onboarding stack; `Shell/Screens` included) — every file but `Model/AppTransport.swift`,
   `Model/DeviceKeys.swift` and `Shell/ScannerAndSSO.swift` (URLSession
   delegates, the Secure Enclave, VisionKit/AuthenticationServices);
 - `FILES` in `run.sh`: a native tile's escape hatches (`Tiles/TileAttach`,
   `TileTerminal`, `TileCanvas`, `TileHatches`; `Terminal/KeyRow`, the key
-  row's bar, shared with the shell's terminal) and the Agent tab
-  (`Agent/*`).
+  row's bar, shared with the shell's terminal), a screen's card
+  (`Tiles/Widgets/TileCard`) and the Agent tab (`Agent/*`).
 
 They are compiled together, so the seams between them (a window's
 `WorkspaceNav`, the events socket's hooks, the Agent screen's model) are
@@ -30,7 +31,7 @@ checked against the real declarations, against layered stubs:
    `userActivity`, `onDrag`, view-controller representables, …) and UIKit
    (`NSUserActivity` and `NSItemProvider`, which Linux's Foundation lacks,
    haptics, the image picker) the app adds, and `WebKit`,
-   `SafariServices`, `CoreImage`, `PhotosUI`, `UniformTypeIdentifiers`;
+   `CoreImage`, `PhotosUI`, `UniformTypeIdentifiers`;
 4. `Stubs/App/AppStubs.swift` — stand-ins for the app types of the files
    not compiled here (the rest of `Tiles/`, `Terminal/`, `Push/`,
    `Shared/`, the three files above);

@@ -21,7 +21,7 @@ final class Sent {
 
     var events: [(key: String, type: String, payload: JSONValue, n: Int?)] {
         calls.compactMap {
-            if case .event(let k, let t, let p, let n) = $0 { return (k, t, p, n) }
+            if case .event(let k, let t, let p, let n, _) = $0 { return (k, t, p, n) }
             return nil
         }
     }

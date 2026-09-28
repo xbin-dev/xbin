@@ -8,6 +8,7 @@ public final class UIColor: NSObject, @unchecked Sendable {
     public init(red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat) {}
     public init(dynamicProvider: @escaping @Sendable (UITraitCollection) -> UIColor) {}
     public static let systemGroupedBackground = UIColor(red: 0, green: 0, blue: 0, alpha: 1)
+    public static let systemBackground = UIColor(red: 0, green: 0, blue: 0, alpha: 1)
     public static let secondarySystemGroupedBackground = systemGroupedBackground
     public static let tertiarySystemGroupedBackground = systemGroupedBackground
     public static let separator = systemGroupedBackground

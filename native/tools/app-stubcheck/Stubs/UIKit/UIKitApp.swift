@@ -120,3 +120,33 @@ extension UIImage {
     // The help screenshots (App/Resources/Help).
     public convenience init?(named name: String) { self.init(data: Data()) }
 }
+
+// The panels' edge swipes (Shell/PanelStack.swift).
+@MainActor open class UIEvent: NSObject {}
+public struct UIRectEdge: OptionSet, Sendable {
+    public let rawValue: UInt
+    public init(rawValue: UInt) { self.rawValue = rawValue }
+    public static let top = UIRectEdge(rawValue: 1), left = UIRectEdge(rawValue: 2), bottom = UIRectEdge(rawValue: 4),
+                      right = UIRectEdge(rawValue: 8), all = UIRectEdge(rawValue: 15)
+}
+@MainActor open class UIScreenEdgePanGestureRecognizer: UIPanGestureRecognizer {
+    public var edges: UIRectEdge = []
+}
+extension UIGestureRecognizer {
+    public func addTarget(_ target: Any, action: Selector) {}
+}
+extension UIPanGestureRecognizer {
+    public func velocity(in view: UIView?) -> CGPoint { .zero }
+}
+extension UIResponder {
+    public var next: UIResponder? { nil }
+}
+extension UIView {
+    public func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
+}
+extension UINavigationController {
+    public var viewControllers: [UIViewController] { [] }
+}
+extension UIApplication {
+    @discardableResult public func sendAction(_ action: Selector, to target: Any?, from sender: Any?, for event: UIEvent?) -> Bool { true }
+}

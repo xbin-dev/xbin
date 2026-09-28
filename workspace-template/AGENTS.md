@@ -332,6 +332,10 @@ build errors overlay the frame with compiler output until the next good save.
 CSS tokens in `/vendor/theme.css` — link it and use `--bx-bg/-panel/
 -panel-2/-border/-text/-muted/-accent/-green/-amber/-red/-radius/-shadow/
 -font/-mono` (plus `body.bx` base and the `.bx-label` small-caps class).
+The sheet also gives your document the workspace's thin scrollbars, with the
+one the next scroll would move tinted amber; a lit component's own shadow
+root takes them with `import { scrollCss } from '/vendor/scroll-css.js'` in
+its `static styles`.
 Match it in your components; override tokens per document to retheme. The
 entire workspace layout (top bar, sidebar, card canvas) is the **`shell/`
 component in this workspace** — `<bx-shell>` in `shell/bx-shell.js`,
@@ -425,6 +429,12 @@ load();
   preview --native <tile> --out /tmp/shot.png` (**open the PNG and look at
   it**; `--dark`, `--large-text`), `bx native tree <tile>` (the JSON the app
   draws). In a browser: `/c/<tile>/?native=1&preview=1`.
+- **Widget** (optional): `widget(html\`…\`)` beside `render()` draws the
+  tile's card on the app's screens — a glance and one action, from `stack`,
+  `text`, `icon`, `badge`, `chart`, `progress`, `button`, `row` only; size
+  `xbin.native.widgetSize` (`small`/`wide`, hear changes with
+  `xbin.native.on('widgetsize', fn)`). Look at it: `bx preview --native
+  <tile> --widget [--size wide]` ([native.md §Widgets](/docs/native.md)).
 - **Fallback**: a load error, no tree in 5 s, a throwing first render or
   anything an older app lacks shows the web page instead — keep
   `index.html` working and check both.

@@ -1,6 +1,7 @@
 // The app types the terminal uses, as declared in App/Model (signatures only).
 import Foundation
 import Observation
+import SwiftUI
 import XbinCore
 import XbinTerm
 
@@ -25,4 +26,9 @@ final class WebSocketTransport: TermTransport {
     func start() {}
     func send(_ m: TermWireMessage) {}
     func close() {}
+}
+
+// Shell/PanelStack.swift: whether the terminal's panel is in front.
+extension EnvironmentValues {
+    var panelActive: Bool { get { true } set {} }
 }

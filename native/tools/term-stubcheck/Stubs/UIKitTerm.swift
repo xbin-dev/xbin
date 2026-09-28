@@ -91,3 +91,13 @@ extension NotificationCenter {
     // Objective-C-only on Linux Foundation.
     public func addObserver(_ observer: Any, selector aSelector: Selector, name aName: NSNotification.Name?, object anObject: Any?) {}
 }
+
+// Dragging the output down into the keyboard hides it (TerminalController).
+extension UIScrollView {
+    public enum KeyboardDismissMode: Int, Sendable { case none, onDrag, interactive, onDragWithAccessory, interactiveWithAccessory }
+    public var keyboardDismissMode: KeyboardDismissMode { get { .none } set {} }
+    public var alwaysBounceVertical: Bool { get { false } set {} }
+}
+extension UIView {
+    public var accessibilityElementsHidden: Bool { get { false } set {} }
+}

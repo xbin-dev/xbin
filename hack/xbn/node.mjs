@@ -6,13 +6,15 @@
 //   import { runNative } from './hack/xbn/node.mjs';
 //   const r = await runNative({ entry: 'examples/counter-go/native.js', data, steps });
 //   r.tree        // {v: 1, root} — the tree the app would show after the steps
+//   r.widget      // with {widget}: the widget tree {v: 1, root} (null: the tile renders none)
 //   r.messages    // every runtime → app message, in order (mount, patch, diag, error, call, meta, state)
 //   r.diagnostics // the {op:"diag"} ones; r.errors the {op:"error"} ones
 //   r.requests    // [{method, url, body, at}] the tile's xbin.fetch calls
 //   r.unmatched   // requests no route answered (they got a 404)
 //   r.snapshots   // {name: tree} taken by {snapshot} steps; r.extra: data.setup's result()
 //
-// CLI: node hack/xbn/node.mjs <native.js> [data.json] [steps.json] → the tree JSON on stdout.
+// CLI: node hack/xbn/node.mjs [--widget[=small|wide]] <native.js> [data.json] [steps.json]
+//      → the tree JSON on stdout (--widget: the widget tree).
 //
 // data (all optional):
 //   self     xbin.self (default "apps/tile")
@@ -39,11 +41,17 @@
 //   {event: {k | select, type, payload?, n?}} — checked: the node must exist and take the
 //            event; `select` is a CSS-like selector (hack/xbn/select.mjs) matching one node
 //   {bus: [topic, data]} · {visibility: "hidden"|"visible"} · {resolve: [id, value]}
+//   {widgetSize: "small"|"wide"} (the app resizes the widget)
+//   target: "widget" on a tap/input/event/snapshot step (or as an event's own
+//   field, or the array form's 5th item) acts on the widget tree
 //   {snapshot: name} (r.snapshots[name] = the tree now) · {call: [export, …args]} (data.setup's)
 //   A key in tap/input/event may be a matcher instead: {t?, p?: {prop: value},
 //   has?: substring of the props' JSON, in?: an ancestor's matcher, nth?} — the
 //   first (nth) node in tree order that matches.
 // caps / state: what the app would inject (default: the full vocabulary, null).
+// widget: true | "small" | "wide" — play an app that shows widgets: the caps
+// list the "widget" feature (widgetSize: the initial size, default small) and
+// r.widget is the widget tree (native/spec/tree.md §13).
 import { Worker } from 'node:worker_threads';
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -56,13 +64,13 @@ const posixLocale = (l) => `${String(l).replace(/-/g, '_')}.UTF-8`;
 const sameZone = (tz) => !tz || process.env.TZ === tz || here().timeZone === tz;
 const sameLocale = (l) => !l || here().locale === l;
 
-export function runNative({ entry, data = {}, steps = [], caps, state = null, timeout = 30000, quiet = true } = {}) {
+export function runNative({ entry, data = {}, steps = [], caps, state = null, widget = false, timeout = 30000, quiet = true } = {}) {
   if (!entry) return Promise.reject(new Error('runNative: entry (a native.js path) is required'));
   const file = String(entry).startsWith('file:') ? fileURLToPath(entry) : resolvePath(String(entry));
-  if (!sameZone(data.tz) || !sameLocale(data.locale)) return runInChild({ entry: file, data, steps, caps, state, timeout, quiet });
+  if (!sameZone(data.tz) || !sameLocale(data.locale)) return runInChild({ entry: file, data, steps, caps, state, widget, timeout, quiet });
   return new Promise((res, rej) => {
     const w = new Worker(new URL('./worker.mjs', import.meta.url), {
-      workerData: { entry: file, data, steps, caps, state },
+      workerData: { entry: file, data, steps, caps, state, widget },
       env: data.tz ? { ...process.env, TZ: data.tz } : process.env,
       stdout: quiet, stderr: quiet, // quiet: the tile's console stays in the worker (diagnostics come back as messages)
     });
@@ -116,13 +124,16 @@ if (process.argv[1] && resolvePath(process.argv[1]) === fileURLToPath(import.met
   } catch (e) { reply = { error: String(e?.message ?? e), result: e?.result }; }
   process.stdout.write(JSON.stringify(reply));
 } else if (process.argv[1] && resolvePath(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [entry, dataFile, stepsFile] = process.argv.slice(2);
-  if (!entry) { console.error('usage: node hack/xbn/node.mjs <native.js> [data.json] [steps.json]'); process.exit(2); }
+  const args = process.argv.slice(2);
+  const flag = args.find((a) => a === '--widget' || a.startsWith('--widget='));
+  const widget = flag ? flag.split('=')[1] || true : false;
+  const [entry, dataFile, stepsFile] = args.filter((a) => a !== flag);
+  if (!entry) { console.error('usage: node hack/xbn/node.mjs [--widget[=small|wide]] <native.js> [data.json] [steps.json]'); process.exit(2); }
   const read = (f) => (f ? JSON.parse(readFileSync(f, 'utf8')) : undefined);
   try {
-    const r = await runNative({ entry, data: read(dataFile) ?? {}, steps: read(stepsFile) ?? [] });
-    for (const m of r.messages) if (m.op === 'diag' || m.op === 'error') console.error(`${m.op === 'error' ? `error ${m.kind}` : m.level}: ${m.message}${m.where ? ` (${m.where})` : ''}`);
-    process.stdout.write(`${JSON.stringify(r.tree, null, 1)}\n`);
+    const r = await runNative({ entry, data: read(dataFile) ?? {}, steps: read(stepsFile) ?? [], widget });
+    for (const m of r.messages) if (m.op === 'diag' || m.op === 'error') console.error(`${m.target ? `${m.target} ` : ''}${m.op === 'error' ? `error ${m.kind}` : m.level}: ${m.message}${m.where ? ` (${m.where})` : ''}`);
+    process.stdout.write(`${JSON.stringify(widget ? r.widget : r.tree, null, 1)}\n`);
     process.exit(r.errors.length ? 1 : 0);
   } catch (e) { console.error(String(e?.stack ?? e)); process.exit(1); }
 }

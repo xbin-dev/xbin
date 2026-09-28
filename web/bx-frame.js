@@ -35,6 +35,7 @@
  * See /docs/elements.md.
  */
 import { LitElement, html, css, nothing } from 'lit';
+import { scrollCss } from '/vendor/scroll-css.js';
 import { repeat, keyed } from 'lit';
 import { onEvent, mountedFrames, isReloadTarget } from '/vendor/events-socket.js';
 import '/vendor/bx-terminal.js';
@@ -109,7 +110,7 @@ export class BxFrame extends LitElement {
     popBounds: { attribute: false },
   };
 
-  static styles = [titlebarCss, launcherCss, css`
+  static styles = [scrollCss, titlebarCss, launcherCss, css`
     :host { display: block; position: relative; }
     /* height:100% is what lets a fixed-height embedder (the shell grid tiles /
        floating windows pin the host with position:absolute; inset:0) flow a

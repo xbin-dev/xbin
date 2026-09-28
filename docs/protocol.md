@@ -111,7 +111,8 @@ GET  /login?impersonate=<tok>    redeems a view-as ticket (POST /api/xbin/
                                  cookie becomes a read-only session as the
                                  user → 302 / (D64)
 GET  /login?ticket=<t>&next=<path>
-                                 signed-in Safari: spends a one-shot
+                                 a signed-in web view (the app's
+                                 chrome tiles): spends a one-shot
                                  ticket the app's device session minted
                                  (POST /api/xbin/web-ticket; single use,
                                  60 s). A GET never signs a browser in: one
@@ -204,7 +205,7 @@ POST /logout                     revoke the session (cookie → 302 /login;
                                  204; a device-key session signs the device
                                  out: every session opened with its key
                                  ends — earlier ones the app replaced, and
-                                 the Safari sessions any of them opened —
+                                 the web sessions any of them opened —
                                  and the device loses its push
                                  registration; it stays enrolled)
 GET  /                           redirect /c/root/
@@ -847,7 +848,15 @@ GET    /prefs/<key>               one pref value (arbitrary JSON) | 404
 PUT    /prefs/<key>               set it (body = JSON value)
 DELETE /prefs/<key>               remove it
                                   (each principal reads/writes only its own
-                                   bucket; the shell stores layout here)
+                                   bucket; the shell stores layout here.
+                                   Writes to one bucket are serialised —
+                                   concurrent writes of different keys all
+                                   land. A successful PUT/DELETE publishes a
+                                   `prefs` event to the bucket owner's own
+                                   clients; an optional request header
+                                   `X-Prefs-Writer: <id>` (≤64 chars) is
+                                   echoed in it as data.writer, so a client
+                                   can skip its own writes)
 GET    /users                     admin or xbin:users. [{id,name,role,
                                    tiles:{path:level}, termApi, termNet,
                                    canCreate (deprecated, ignored — D82),
@@ -981,8 +990,9 @@ POST   /web-ticket                the app's device-key session (via
                                    terminal or the owner token (403).
                                    [{next}] → {url: "<device origin>/
                                    login?ticket=<t>&next=<path>", expires,
-                                   expiresIn: 60}: signed-in Safari — the
-                                   app opens url top-level; GET /login?
+                                   expiresIn: 60}: a signed-in web view —
+                                   the app opens url top-level (a chrome
+                                   tile's own web view); GET /login?
                                    ticket= (Core) shows a signed-out
                                    browser "Continue as <name>", and its
                                    button (POST /login/web-ticket) signs
@@ -2321,9 +2331,19 @@ required). JSON text frames:
          "pending":1,"questions":0,"turn":3}}        // its summary, inline — no re-list needed
 {"type":"session","topic":"session.<id>","component":"apps/thing", // an agent session event (D74):
  "data":{"seq":7,"ts":1789…,"type":"message.delta","data":{…},"user":"…","id":"<id>"}}
+{"type":"prefs","component":"root",                  // one of YOUR pref buckets changed:
+ "data":{"key":"layout","writer":"…"}}               // re-read GET /prefs/<key> if you care
 ```
 
-Non-bus events go to every subscriber, except `term` and `session` events
+`prefs` events are per-user and not even admins see another user's: the
+bucket's owner's human sessions (browsers, the app) get the events of all
+their buckets — `component` names the bucket (`root` = the shell's) — and a
+tile principal (frame token, terminal, backend) only its own bucket's, the
+reach `GET /prefs` gives it. `data.writer` is the `X-Prefs-Writer` header of
+the write when it had one (absent otherwise). The shell skips its own writes
+by that id and reloads its layout when another client (the app) wrote it.
+
+Non-bus events go to every subscriber, except `prefs` (above) and `term` and `session` events
 (D97), which reach the session's owner (`data.user`) — their signed-in browsers,
 and a shell's terminal token for the sessions on its own tile — and admins;
 never a tile (its frame token names the user it runs for, its backend's
@@ -2398,8 +2418,15 @@ tile → frame   xbin:resize   {component, height}     auto-height (informationa
 tile → frame   xbin:dialog   {id, spec}              request a shell modal
 tile → frame   xbin:window   {id, spec}              request a pop-out window
 tile → frame   xbin:window-close {id}                close a window it opened
+tile → parent  xbin:scroll-focus {}                  the pointer entered this document (cosmetic)
 frame → tile   xbin:reply    {id, result}            dialog result / window closed
 ```
+
+`xbin:scroll-focus` (D123) is sent by `/vendor/bx-scroll.js`'s tracker in a
+framed document when the pointer arrives, so the embedding document's tracker
+drops its own focused-scroll tint (browsers do not reliably tell the parent
+when the pointer crosses into an iframe). It carries nothing and asks for
+nothing; any window may clear a tint, so it is not source-checked.
 
 `<bx-frame>` re-dispatches dialog/window requests as a `bx-spawn` DOM event
 carrying the **verified** component (never a tile-supplied one) plus a `reply`

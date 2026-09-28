@@ -426,6 +426,15 @@ own session (it replays the earlier turns, then continues — all four bundled
 agents advertise it, and Claude Code and OpenCode are verified end to end; an
 agent that cannot offers a fresh start instead).
 
+A long conversation stays quick (D124): the Agent tab folds the log as it
+arrives, renders at most once a frame, and keeps only the recent part of the
+transcript on the page — scrolling up loads earlier entries a page at a time
+(or all of them, from the "earlier entries" row at the top, e.g. before a
+browser find), without moving what you are reading. A folded tool card, file
+diff or thought renders its body when you open it. Following the bottom, the
+view keeps up with the agent; scrolled up, new turns land below without
+pulling you down.
+
 What the agent gets:
 
 - **its home.** `HOME` is the same `homes/<you>` a shell gets, so

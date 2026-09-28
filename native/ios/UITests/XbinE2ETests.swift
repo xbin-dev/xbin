@@ -18,8 +18,8 @@ final class XbinE2ETests: XCTestCase {
                       "XBIN_E2E_URL / _USER / _PASSWORD unset: no xbind to test against (native/AGENTS.md → Mac mini)")
     }
 
-    /// Sign in by address and password (enrolling this device); the
-    /// navigator lists the workspace's tiles.
+    /// Sign in by address and password (enrolling this device); Home's
+    /// search finds the workspace's tiles.
     @MainActor
     func test01AddWorkspace() throws {
         let e = try E2E(self)
@@ -48,8 +48,8 @@ final class XbinE2ETests: XCTestCase {
         e.shot("02-web-tile")
         XCTAssertTrue(readable, "the 13 px heading at about 1:1 (\(heading.frame) in a \(width) pt window)")
         XCTAssertTrue(heading.frame.minX >= 0 && heading.frame.maxX <= width, "on screen: \(heading.frame)")
-        // The page starts right under the toolbar: no band between them (the
-        // navigator's large-title area, empty, once stood there, ~60 pt).
+        // The page starts right under the toolbar: no band between them (a
+        // large-title area, empty, once stood there, ~60 pt).
         let bar = e.app.buttons["Workspaces"].frame
         print("xbin-e2e: web view \(web.frame), toolbar button \(bar)")
         XCTAssertTrue(web.frame.minY - bar.maxY < 24, "the page right under the toolbar: \(web.frame), toolbar \(bar)")

@@ -148,3 +148,50 @@ public struct Path: Shape {
     public mutating func addEllipse(in rect: CGRect) {}
     public mutating func closeSubpath() {}
 }
+
+// The panels, Home and the screens (Shell/PanelStack.swift, Shell/Screens).
+extension TextField where Label == Text {
+    public init(_ titleKey: LocalizedStringKey, text: Binding<String>, prompt: Text?) {}
+}
+extension Text {
+    public enum Case: Sendable { case uppercase, lowercase }
+}
+extension View {
+    public func textCase(_ textCase: Text.Case?) -> some View { _V(self) }
+}
+extension View {
+    public func accessibilityIdentifier(_ identifier: String) -> some View { _V(self) }
+    public func accessibilityValue(_ value: Text) -> some View { _V(self) }
+    public func accessibilityAction(_ handler: @escaping () -> Void) -> some View { _V(self) }
+    public func symbolRenderingMode(_ mode: SymbolRenderingMode?) -> some View { _V(self) }
+}
+public struct SymbolRenderingMode: Sendable {
+    public static let monochrome = SymbolRenderingMode(), hierarchical = SymbolRenderingMode(), palette = SymbolRenderingMode()
+}
+extension Image {
+    public func symbolRenderingMode(_ mode: SymbolRenderingMode?) -> Image { self }
+}
+public enum EditMode: Sendable, Hashable { case inactive, transient, active }
+extension EnvironmentValues {
+    public var editMode: Binding<EditMode>? { get { nil } set {} }
+}
+extension MutableCollection where Self: RangeReplaceableCollection {
+    public mutating func move(fromOffsets source: IndexSet, toOffset destination: Int) {}
+}
+extension Animation {
+    public static func smooth(duration: TimeInterval = 0.5, extraBounce: Double = 0) -> Animation { Animation() }
+}
+public enum AnimationCompletionCriteria: Sendable { case logicallyComplete, removed }
+public func withAnimation<Result>(_ animation: Animation? = .default, completionCriteria: AnimationCompletionCriteria = .logicallyComplete,
+                                  _ body: () throws -> Result, completion: @escaping () -> Void) rethrows -> Result { try body() }
+public struct Transaction {
+    public init() {}
+    public init(animation: Animation?) {}
+    public var animation: Animation?
+    public var disablesAnimations = false
+}
+public func withTransaction<Result>(_ transaction: Transaction, _ body: () throws -> Result) rethrows -> Result { try body() }
+extension Animation {
+    public static func linear(duration: TimeInterval) -> Animation { Animation() }
+    public func delay(_ delay: TimeInterval) -> Animation { self }
+}

@@ -910,8 +910,9 @@ account — the bootstrap owner token has none.
   tile list, terminals, agent sessions, minting frame tokens. Tiles in the app
   run exactly as in a browser: sandboxed, with their own frame token, never
   your credential.
-- **Opening the workspace in a browser, signed in** (D100). The app can open the
-  workspace (or one tile) in Safari already signed in: it asks for a
+- **Opening a chrome tile, signed in** (D100). The app opens
+  a chrome tile — one that acts as you, so never under a frame token — in a
+  web view of its own, signed in (D125; Safari before): it asks for a
   one-shot link (`POST /api/xbin/web-ticket`, only from a device-key
   session), valid **60 seconds**, and opens it; the browser gets an
   ordinary session of the same account and lands on the page asked for —
@@ -947,7 +948,7 @@ account — the bootstrap owner token has none.
   sessions minted — and drops its push registration. The app signing out
   of the workspace does the same short of removing it: every session
   opened with that device's key ends (earlier ones the app replaced, and
-  the Safari sessions any of them opened) and its push registration goes
+  the web sessions any of them opened) and its push registration goes
   (a device registers push only under its own id, and a registration any
   other sign-in made ends with that sign-in).
   Changing your password can remove your other devices in the same

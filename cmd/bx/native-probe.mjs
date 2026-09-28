@@ -9,7 +9,7 @@
 // waits for the rendered tree to settle, optionally replays a fixture and
 // steps, and prints one JSON object on stdout:
 //
-//   {"results": [{tile, ok, status, loadError, tree, firstTreeMs, settled,
+//   {"results": [{tile, ok, status, loadError, tree, widgetTree, widgetStats, firstTreeMs, settled,
 //     stats: {nodes, depth, bytes, prims}, unknown, needs, features, errors,
 //     diagnostics, console, pageErrors, requests, unmatched, warnings, shot}]}
 //
@@ -20,13 +20,17 @@
 //   theme     "light" | "dark" (preview; default light)
 //   text      "" | "large"
 //   width, height, scale   the viewport (390 × 844 @2x)
+//   widget    "small" | "wide": play an app that shows widgets (tree.md §13) —
+//             the preview draws the widget card, the result has widgetTree;
+//             lint also resizes it to the other size class once settled, so
+//             both sizes are rendered and checked
 //   out, full  preview: the PNG path; full grows the view to its content
 //   data      a fixture (hack/xbn/node.mjs's data format): routes answer the
 //             tile's /api/ calls instead of the live backend, now pins the
 //             clock, tz/locale set the browser's
 //   steps     after the first settle: {wait} {tap} {input} {event}
-//             {visibility} {resolve} (node.mjs's step format; bus is not
-//             available here)
+//             {visibility} {resolve} {widgetSize} (node.mjs's step format,
+//             target "widget" included; bus is not available here)
 //   timeout   ms to wait for a tile to settle (default 30000)
 //   settle    ms of quiet that counts as settled (default 400)
 //
@@ -226,7 +230,7 @@ async function settle(page, inflight, cfg, deadline) {
   for (;;) {
     const sig = await page.evaluate(() => {
       const p = window.xbnPreview;
-      return p ? `${p.view?.n}|${p.messages.length}|${p.errors.length}|${p.diagnostics.length}` : '-';
+      return p ? `${p.view?.n}|${p.widgetView?.n}|${p.messages.length}|${p.errors.length}|${p.diagnostics.length}` : '-';
     }).catch(() => 'gone');
     const busy = inflight.size > 0;
     if (sig !== last || busy) { last = sig; since = Date.now(); }
@@ -244,21 +248,23 @@ async function runStep(page, s, res, clock) {
     return;
   }
   if (own(s, 'bus')) { res.warnings.push(`step ${JSON.stringify(s)}: bus events can't be injected in the browser run (xbin.bus is the live /ws/events) — skipped`); return; }
-  const known = ['tap', 'input', 'event', 'visibility', 'resolve'].some((k) => own(s, k));
+  const known = ['tap', 'input', 'event', 'visibility', 'resolve', 'widgetSize'].some((k) => own(s, k));
   if (!known) { res.warnings.push(`unknown step ${JSON.stringify(s)} — skipped`); return; }
   await page.evaluate((st) => {
     const X = window.xbn;
     const has = (k) => Object.prototype.hasOwnProperty.call(st, k);
-    if (has('tap')) X.event(st.tap, 'tap', {});
-    else if (has('input')) X.event(st.input[0], 'input', { value: st.input[1] });
-    else if (has('event')) { const e = st.event; if (Array.isArray(e)) X.event(e[0], e[1], e[2] ?? {}, e[3]); else X.event(e.k, e.type, e.payload ?? {}, e.n); }
+    const tg = st.target;
+    if (has('tap')) X.event(st.tap, 'tap', {}, undefined, tg);
+    else if (has('input')) X.event(st.input[0], 'input', { value: st.input[1] }, undefined, tg);
+    else if (has('event')) { const e = st.event; if (Array.isArray(e)) X.event(e[0], e[1], e[2] ?? {}, e[3], e[4] ?? tg); else X.event(e.k, e.type, e.payload ?? {}, e.n, e.target ?? tg); }
     else if (has('visibility')) X.visibility(st.visibility);
+    else if (has('widgetSize')) X.widgetSize(st.widgetSize);
     else if (has('resolve')) X.resolve(...st.resolve);
   }, s);
 }
 
 export async function probeTile(browser, cfg, tile) {
-  const res = { tile, ok: false, status: 0, loadError: '', tree: null, firstTreeMs: null, settled: false,
+  const res = { tile, ok: false, status: 0, loadError: '', tree: null, widgetTree: null, widgetStats: null, firstTreeMs: null, settled: false,
     stats: null, unknown: [], needs: {}, features: [], errors: [], diagnostics: [], console: [], pageErrors: [],
     requests: [], unmatched: [], warnings: [], shot: '' };
   const timeout = cfg.timeout ?? 30000;
@@ -295,6 +301,7 @@ export async function probeTile(browser, cfg, tile) {
     const q = new URLSearchParams({ native: '1', preview: '1' });
     if (cfg.theme === 'dark' || cfg.theme === 'light') q.set('theme', cfg.theme);
     if (cfg.text === 'large') q.set('text', 'large');
+    if (cfg.widget === 'small' || cfg.widget === 'wide') q.set('widget', cfg.widget);
     let resp;
     try {
       resp = await page.goto(`${cfg.base}/c/${tile}/?${q}`, { waitUntil: 'domcontentloaded', timeout });
@@ -319,7 +326,10 @@ export async function probeTile(browser, cfg, tile) {
       new Promise((r) => setTimeout(() => r({ ok: false, timeout: true }), ms))]), firstWait).catch((e) => ({ ok: false, error: { message: e.message } }))]);
     if (!ready?.ok && ready?.timeout) res.warnings.push(`no tree within ${firstWait} ms`);
     res.settled = await settle(page, inflight, cfg, deadline);
-    for (const s of Array.isArray(cfg.steps) ? cfg.steps : []) {
+    const steps = Array.isArray(cfg.steps) ? [...cfg.steps] : [];
+    // lint renders the widget at both size classes (the other one last)
+    if (cfg.mode === 'lint' && cfg.widget) steps.push({ widgetSize: cfg.widget === 'wide' ? 'small' : 'wide' });
+    for (const s of steps) {
       await runStep(page, s, res, !!data);
       res.settled = await settle(page, inflight, cfg, Math.max(deadline, Date.now() + 2000));
     }
@@ -329,16 +339,18 @@ export async function probeTile(browser, cfg, tile) {
       let vocab = null;
       try { vocab = (await import('/vendor/xb/vocab.js')).VOCAB; } catch { /* reported by the caller */ }
       const strip = (m) => { const o = { ...m }; delete o.op; return o; };
-      return { tree: p.tree(), errors: p.errors.map(strip), diagnostics: p.diagnostics.map(strip),
+      return { tree: p.tree(), widgetTree: p.widgetTree?.() ?? null, errors: p.errors.map(strip), diagnostics: p.diagnostics.map(strip),
         firstTreeMs: window.__xbnFirstTree ?? null, vocab: vocab && JSON.parse(JSON.stringify(vocab)) };
     });
     res.tree = got.tree?.root ? got.tree : null;
+    res.widgetTree = got.widgetTree?.root ? got.widgetTree : null;
     res.errors = got.errors;
     res.diagnostics = got.diagnostics;
     tidy(res, cfg.base);
     res.firstTreeMs = got.firstTreeMs == null ? null : Math.round(got.firstTreeMs);
     if (!got.vocab) res.warnings.push('could not load /vendor/xb/vocab.js — no revision report');
     Object.assign(res, treeReport(res.tree, got.vocab));
+    if (res.widgetTree) res.widgetStats = treeReport(res.widgetTree, got.vocab).stats;
     res.ok = !!res.tree && !res.errors.length && !res.diagnostics.some((d) => d.level === 'error') && !res.pageErrors.length;
     if (cfg.mode === 'preview' && cfg.out) {
       await page.evaluate(async () => { await document.fonts?.ready; await window.xbnPreview.view.updateComplete; });
@@ -354,7 +366,12 @@ export async function probeTile(browser, cfg, tile) {
         if (extra > 0) await page.setViewportSize({ width: cfg.width || 390, height: (cfg.height || 844) + extra });
       }
       await sleep(80);
-      await page.screenshot({ path: cfg.out, animations: 'disabled' });
+      // a widget: the card, with a margin of the page around it
+      const card = cfg.widget ? await page.evaluate(() => {
+        const r = document.querySelector('.xbn-widget')?.getBoundingClientRect();
+        return r ? { x: Math.max(0, r.x - 16), y: Math.max(0, r.y - 16), width: r.width + 32, height: r.height + 32 } : null;
+      }) : null;
+      await page.screenshot({ path: cfg.out, animations: 'disabled', ...(card ? { clip: card } : {}) });
       res.shot = cfg.out;
     }
     return res;

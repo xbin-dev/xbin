@@ -3,8 +3,8 @@ import XbinCore
 import XbinRendererModel
 
 /// The workspace switcher (plans/native.md §4): every workspace with its
-/// branding, what needs you there, and when it was last used; recents across
-/// workspaces below (a tile's icon and badge when its native UI set them).
+/// branding, what needs you there, and when it was last used; what was used
+/// recently, across workspaces, below (a tile's icon and badge when its native UI set them).
 /// An overlay that goes away once something is picked — in this window only
 /// (each window has its own workspace); "Open in New Window" where the
 /// device has windows.
@@ -43,7 +43,7 @@ struct SwitcherOverlay: View {
                     }
                     let recents = app.recents.prefix(8)
                     if !recents.isEmpty {
-                        Section("Recent") {
+                        Section("Used recently") {
                             ForEach(Array(recents)) { r in recentRow(r) }
                         }
                     }

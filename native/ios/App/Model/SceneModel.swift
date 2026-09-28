@@ -46,7 +46,7 @@ final class SceneModel: Identifiable {
     /// What this window shows now (the scene's storage and Handoff).
     var current: WindowTarget? {
         guard let id = selectedID else { return nil }
-        return WindowTarget(workspace: id, surface: navs[id]?.surface)
+        return WindowTarget(workspace: id, screen: navs[id]?.screenID, surface: navs[id]?.surface)
     }
 
     func select(_ id: String) {
@@ -67,7 +67,13 @@ final class SceneModel: Identifiable {
     func show(_ target: WindowTarget) {
         guard let w = app.workspace(target.workspace) else { return }
         select(w.id)
-        if let s = target.surface { w.open(s, in: nav(for: w)) }
+        // A place with its screen restores as it was; a tile alone (a
+        // dragged one, Handoff) opens over the screen it sits on.
+        if target.screen != nil || target.surface == nil {
+            w.restore(target, in: nav(for: w))
+        } else if let s = target.surface {
+            w.open(s, in: nav(for: w))
+        }
     }
 
     /// `xbin://…` in this window.

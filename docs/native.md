@@ -47,7 +47,7 @@ folded actions, input methods).
 (`examples/counter-go/native.js`):
 
 ```js
-import { html, render, nothing } from '/vendor/xb-native.js';
+import { html, render, widget, native, nothing } from '/vendor/xb-native.js';
 import { selfApi } from '/vendor/bx-kit.js';
 
 let count = null, busy = false, err = '';
@@ -61,14 +61,25 @@ async function inc() {
   try { await selfApi('/count', { method: 'POST' }); await load(); } catch (e) { err = String(e.message ?? e); }
   finally { busy = false; paint(); }
 }
-const paint = () => render(html`
-  <screen title="Counter" style="form">
-    <section>
-      <row title="Count" detail=${count ?? '…'} mono="detail"/>
+const paint = () => {
+  render(html`
+    <screen title="Counter" style="form">
+      <section>
+        <row title="Count" detail=${count ?? '…'} mono="detail"/>
+        <button role="primary" icon="plus" ?busy=${busy} @tap=${inc}>+1</button>
+        ${err ? html`<notice tone="danger" text=${err}/>` : nothing}
+      </section>
+    </screen>`);
+  // The card on the app's screens (docs/native.md "Widgets"): the count and a
+  // +1 — side by side when the card is wide. An app without widgets ignores it.
+  widget(html`
+    <stack axis=${native.widgetSize === 'wide' ? 'h' : 'v'} gap="s" align="center">
+      <text style="caption" tone="muted">Counter</text>
+      <text style="largeTitle">${count ?? '…'}</text>
       <button role="primary" icon="plus" ?busy=${busy} @tap=${inc}>+1</button>
-      ${err ? html`<notice tone="danger" text=${err}/>` : nothing}
-    </section>
-  </screen>`);
+    </stack>`);
+};
+native.on('widgetsize', paint);
 paint();   // at once: the app wants a tree before the backend answers
 load();
 ```
@@ -77,7 +88,9 @@ That is the whole contract: import `html` and `render` from
 `/vendor/xb-native.js`, call `render()` with a template whenever your state
 changes, and talk to your backend with the same calls your page makes
 (the kit's `selfApi` calls your own API through `xbin.fetch` and returns
-the JSON). What the app draws is a tree of vocabulary nodes:
+the JSON). The `widget()` part is optional: the card the app shows for the
+tile on its screens (§Widgets). What the app draws is a tree of vocabulary
+nodes:
 
 ```json
 {"v":1,"root":{"k":"r","t":"screen","p":{"title":"Counter","style":"form"},"c":[
@@ -281,9 +294,69 @@ API — each member is app UI acting on data your tile hands it.
 | `xbin.native.open(url)` | opens an `https:` URL outside the app — anything else rejects at once, and the app refuses unless the tile holds `cap:open-links` (ND11) |
 | `xbin.native.state` | the JSON blob you last saved (`null` at first) |
 | `xbin.native.saveState(obj)` | keep a small JSON blob (at most 64 KiB — larger throws) that the app hands back as `state` when it recreates the runtime: the open screen, the selected tab. Never secrets |
+| `xbin.native.widgetSize` | the size class the app shows your widget at: `"small"` or `"wide"` (§Widgets; `"small"` where the app shows none) |
+| `xbin.native.on('widgetsize', fn)` | `fn(size)` runs when the app shows your widget at another size class — re-render it there; returns a function that stops listening |
 
 `xbin.native` exists only in the runtime document (the app, and the
 previews `bx` draws); your web page does not have it.
+
+## Widgets
+
+The app's screens show each tile as a card in a two-column grid. A tile
+with a native UI can draw its own card — a **widget** — with `widget()`,
+the twin of `render()`: same templates, events and keys, its own tree. It is
+a glance and a quick action (a count and a +1, a deploy's progress and a
+Promote), not a second app: a tap on the card anywhere but a button or a
+tappable row opens the tile.
+
+```js
+import { html, render, widget, native } from '/vendor/xb-native.js';
+
+let open = 3, failing = 1;
+const fix = () => { failing = 0; paint(); };
+
+function paint() {
+  render(html`<screen title="Checks"><section>
+    <row title="Open" detail=${open}/><row title="Failing" detail=${failing} tone=${failing ? 'danger' : 'ok'}/>
+  </section></screen>`);
+  const wide = native.widgetSize === 'wide';
+  widget(html`
+    <stack axis=${wide ? 'h' : 'v'} gap="s">
+      <row title="Checks" icon="shield" badge=${failing ? `${failing} failing` : 'green'} tone=${failing ? 'danger' : 'ok'}/>
+      <progress value=${(open - failing) / open} label=${`${open - failing} of ${open} passing`}/>
+      ${failing ? html`<button role="primary" icon="refresh" @tap=${fix}>Re-run</button>` : ''}
+    </stack>`);
+}
+native.on('widgetsize', paint);   // the user made the card wide or small
+paint();
+```
+
+- **Sizes.** `small` is one column of the grid (about 170 × 170 pt), `wide`
+  both (about 356 × 170 pt). `xbin.native.widgetSize` is the current one;
+  `xbin.native.on('widgetsize', fn)` tells you when it changes. The card is
+  drawn at that fixed size, clipped — no scrolling, no screen chrome — so
+  keep it to a few lines.
+- **Vocabulary.** A widget may use `stack`, `text`, `icon`, `badge`,
+  `chart`, `progress`, `button` and `row`. Anything else is dropped from the
+  widget with a `widget-tag` error (`bx lint --native` fails on it).
+- **Events** work as on the screen — `@tap` on a `button` or a `row` runs
+  your handler — and belong to the tree they were rendered in: a widget's
+  button never runs a screen handler, nor the reverse.
+- **Older apps.** An app that doesn't show widgets never receives the tree:
+  `widget()` does nothing there and the card is the standard one (icon,
+  title, badge, status). `xbin.native.supports('widget')` says which you
+  have — you need not branch on it.
+- **Keep it cheap.** The app may run your runtime just for the card while
+  the tile is closed, and stop it when the card scrolls away; it shows the
+  last widget it received meanwhile. Render the widget from state you
+  already have, at once: a tile that has sent no widget a few seconds
+  after its first render is taken to have none — its card is the standard
+  one, and the app doesn't start the tile just for its card again for a
+  day (opening the tile looks again).
+
+Check it without a phone: `bx native tree <tile> --widget [--size wide]`,
+`bx preview --native <tile> --widget [--size wide]` (a picture of the card),
+and `bx lint --native`, which renders the widget at both sizes.
 
 ## The vocabulary
 
@@ -721,16 +794,21 @@ bx preview --native apps/x --out /tmp/x.png       # the reference renderer's pic
 bx preview --native apps/x --dark --large-text --out /tmp/x-dark.png
 bx native tree apps/x                             # the tree JSON, cheapest to diff
 bx preview --native apps/x --data fixture.json --out /tmp/x.png   # scripted data instead of the backend
+bx native tree apps/x --widget --size wide        # the widget's tree (§Widgets)
+bx preview --native apps/x --widget --out /tmp/x-card.png         # the widget's card
 ```
 
 `bx lint --native` reports the runtime's diagnostics — `unknown-tag`,
 `unknown-prop`, `unknown-event`, `bad-type`, `bad-token`, `bad-value`,
-`bad-children`, `child-rule`, `duplicate-key`, `lit-template`, … each with
-the template's file, line and tag — plus uncaught errors, how long the first
-tree took, the tree's size and which app revision each primitive needs.
+`bad-children`, `child-rule`, `duplicate-key`, `lit-template`,
+`widget-tag`, … each with the template's file, line and tag (a finding about
+the widget starts with `widget`) — plus uncaught errors, how long the first
+tree took, the tree's and the widget's sizes and which app revision each
+primitive needs. It renders the widget at both sizes.
 
 In a browser, open `/c/<tile>/?native=1&preview=1` (add `&theme=dark`,
-`&text=large`): the reference renderer draws the tile's native UI there, and
+`&text=large`, or `&widget=small`/`&widget=wide` for the widget's card): the
+reference renderer draws the tile's native UI there, and
 it takes taps and typing. It is a preview of what the app draws, not a
 pixel-exact one.
 
@@ -742,6 +820,9 @@ pixel-exact one.
   app answers with events, visibility changes, frame ticks and call results.
   The exact contract, the vocabulary as JSON and the renderer fixtures live
   in the xbin repository under `native/`.
+- A widget is the same kind of tree with `"target": "widget"` on its
+  messages, sent only to an app whose `caps` list the `widget` feature; the
+  app's events for it name that target.
 - `/vendor/xb-native.js` also exports `createRuntime` (an independent runtime
   for tests), `attach` and `applyOps` (preview hosts), `boot` and `VOCAB`.
   The reference renderer is `/vendor/xb/render.js` (`<xb-view>`); it follows

@@ -104,6 +104,23 @@ public struct ServerOrigin: Sendable, Hashable, Codable, CustomStringConvertible
 
     public var isSecure: Bool { scheme == "https" }
 
+    /// Whether what the app sends here is encrypted on the way even over
+    /// plain http: https itself, loopback (it never leaves the device), or
+    /// a Tailscale address — 100.64.0.0/10, fd7a:115c:a1e0::/48 or a
+    /// `*.ts.net` name — whose WireGuard tunnel encrypts it. Anything else
+    /// over http (a LAN address, an unqualified name) may travel in the
+    /// clear, and the sign-in page says so.
+    public var isEncryptedInTransit: Bool {
+        if isSecure { return true }
+        let h = host.lowercased()
+        if h == "localhost" || h == "::1" || h.hasPrefix("127.") { return true }
+        if h.hasSuffix(".ts.net") { return true }
+        if h.hasPrefix("fd7a:115c:a1e0:") { return true }
+        let parts = h.split(separator: ".").compactMap { Int($0) }
+        if parts.count == 4, h.split(separator: ".").count == 4, parts[0] == 100, (64...127).contains(parts[1]) { return true }
+        return false
+    }
+
     public var description: String { origin }
 
     public init(from decoder: Decoder) throws {

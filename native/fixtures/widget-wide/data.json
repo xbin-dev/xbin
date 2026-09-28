@@ -1,0 +1,15 @@
+{
+  "about": "a deploy pipeline's widget at the wide size: every widget primitive — row (icon, subtitle, badge, tone), progress, icon, caption text, badge, a spark chart shown only when wide, a primary button — after Promote from the card",
+  "self": "apps/deploys",
+  "widget": "wide",
+  "routes": {
+    "GET /api/apps/deploys/pipeline": [
+      {"json": {"service": "checkout-api", "version": "v2.14.0", "env": "prod", "state": "rolling", "progress": 0.4, "minutes": 6, "errors": 0.012, "errorSeries": [[0, 0.011], [1, 0.013], [2, 0.012], [3, 0.014], [4, 0.012]]}},
+      {"json": {"service": "checkout-api", "version": "v2.14.0", "env": "prod", "state": "rolling", "progress": 0.7, "minutes": 7, "errors": 0.012, "errorSeries": [[0, 0.011], [1, 0.013], [2, 0.012], [3, 0.014], [4, 0.012], [5, 0.012]]}}
+    ],
+    "POST /api/apps/deploys/promote": {"json": {"ok": true}}
+  },
+  "interactions": [
+    {"select": "button[label=Promote]", "type": "tap", "target": "widget", "note": "promote from the card: the next poll shows 70%"}
+  ]
+}

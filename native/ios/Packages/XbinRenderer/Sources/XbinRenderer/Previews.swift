@@ -7,7 +7,8 @@ import XbinRendererModel
 /// drawn by ``XbinTreeView`` — for `#Preview`s and a debug gallery. The
 /// fixture is found from `filePath` (the caller's `#filePath`: previews run
 /// on the Mac that has the checkout) or `FIXTURES_DIR`. Open sheets draw
-/// inline by default so a preview shows them.
+/// inline by default so a preview shows them. A widget fixture (data.json
+/// `widget`) is drawn as its card, compact, as a phone screen shows it.
 public struct XbinFixturePreview: View {
     let name: String
     let filePath: String
@@ -21,7 +22,18 @@ public struct XbinFixturePreview: View {
 
     public var body: some View {
         if let set = XbinFixtures.locate(from: filePath), let store = try? XbinFixtures.store(name, in: set) {
-            XbinTreeView(store: store, send: { call in print("xbn:", call.javaScript) }, options: options)
+            if let size = try? XbinFixtures.widgetSize(name, in: set) {
+                GeometryReader { g in
+                    XbinTreeView(store: store, send: { call in print("xbn:", call.javaScript) },
+                                 options: XbinRenderOptions(compact: size))
+                        .xbinWidgetCard()
+                        .frame(width: XbinWidgetMetrics.cardWidth(size, screenWidth: g.size.width))
+                        .padding(XbinWidgetMetrics.margin)
+                }
+                .background(XbinColor.background)
+            } else {
+                XbinTreeView(store: store, send: { call in print("xbn:", call.javaScript) }, options: options)
+            }
         } else {
             ContentUnavailableView("Fixture \(name) not found", systemImage: "questionmark.folder",
                                    description: Text(verbatim: "native/fixtures above \(filePath)"))
@@ -61,6 +73,8 @@ public struct XbinFixturePreview: View {
 #Preview("tile-prometheus-viewer") { XbinFixturePreview("tile-prometheus-viewer") }
 #Preview("tile-s3-archiver") { XbinFixturePreview("tile-s3-archiver") }
 #Preview("tile-webhooks") { XbinFixturePreview("tile-webhooks") }
+#Preview("widget-counter") { XbinFixturePreview("widget-counter") }
+#Preview("widget-wide") { XbinFixturePreview("widget-wide") }
 
 #Preview("chat components") {
     ScrollView {

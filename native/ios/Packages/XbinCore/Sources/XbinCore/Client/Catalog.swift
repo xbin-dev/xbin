@@ -3,9 +3,9 @@ import Foundation
 // The tile navigator's data (plans/native.md §4 "Navigating a workspace"):
 // `GET /api/xbin/components` (RBAC-filtered), `GET /api/xbin/screens` (the
 // workspace default, org screens, shared folders) and the user's own layout
-// (the shell's `layout` pref — read with a frame token for `shell`, the
-// bucket the web shell writes). Parsing is lenient: an unknown or missing
-// field never drops a tile.
+// (the shell's `layout` pref, in the `root` bucket the web shell writes —
+// LayoutPref). Parsing is lenient: an unknown or missing field never drops
+// a tile.
 
 /// `GET /api/xbin/whoami`, the parts the app uses.
 public struct Whoami: Sendable, Equatable {
@@ -19,7 +19,14 @@ public struct Whoami: Sendable, Equatable {
     public var terminal: Bool
     public var termNet: Bool
     public var termApi: Bool
+    /// May own tiles personally (`personalTiles`; an xbind that predates
+    /// it: unless the workspace's `tileCreation` is `org-only`, D52/D88).
     public var personalTiles: Bool
+    /// The workspace's tile-creation policy (`any` | `org-only`).
+    public var tileCreation: String
+    /// The caller's orgs (`orgs`, users only): names for Home's sections,
+    /// and where they may create tiles.
+    public var orgs: [Org]
     /// `native.runtime` (this xbind serves runtime documents); nil on an
     /// xbind that predates them — every tile is then a web tile.
     public var nativeRuntime: Int?
@@ -36,12 +43,38 @@ public struct Whoami: Sendable, Equatable {
         terminal = json["terminal"]?.boolValue ?? false
         termNet = json["termNet"]?.boolValue ?? false
         termApi = json["termApi"]?.boolValue ?? false
-        personalTiles = json["personalTiles"]?.boolValue ?? false
+        tileCreation = json["tileCreation"]?.stringValue ?? ""
+        personalTiles = json["personalTiles"]?.boolValue ?? (tileCreation != "org-only")
+        orgs = (json["orgs"]?.arrayValue ?? []).compactMap(Org.init(json:))
         nativeRuntime = json["native"]?["runtime"]?.intValue.map { Int($0) }
         readOnly = json["readOnly"]?.boolValue ?? false
     }
 
     public var displayName: String { name.isEmpty ? userID : name }
+
+    /// One of `whoami.orgs`: `{id, name, level, create, admin, suspended?}`.
+    public struct Org: Sendable, Equatable, Identifiable {
+        public var id: String
+        public var name: String
+        /// May create tiles owned by the org.
+        public var create: Bool
+        public var admin: Bool
+
+        public init(id: String, name: String = "", create: Bool = false, admin: Bool = false) {
+            self.id = id
+            self.name = name
+            self.create = create
+            self.admin = admin
+        }
+
+        public init?(json: JSONValue) {
+            guard let id = json["id"]?.stringValue, !id.isEmpty else { return nil }
+            self.init(id: id, name: json["name"]?.stringValue ?? "", create: json["create"]?.boolValue ?? false,
+                      admin: json["admin"]?.boolValue ?? false)
+        }
+
+        public var displayName: String { name.isEmpty ? id : name }
+    }
 }
 
 /// One row of `GET /api/xbin/components`.
@@ -54,7 +87,9 @@ public struct TileInfo: Sendable, Hashable, Identifiable {
     public var state: String
     /// `user:<id>` | `org:<id>` | "".
     public var owner: String
-    /// Trusted chrome: acts as the human, so the app opens it in Safari.
+    /// Trusted chrome: acts as the human, so the app opens it signed in as
+    /// the user (a web view of its own session, WebTicket), never under a
+    /// frame token.
     public var chrome: Bool
     /// Extra sandbox tokens its grants unlock (`allow-popups` = cap:open-links).
     public var sandbox: [String]
@@ -104,7 +139,7 @@ public struct TileInfo: Sendable, Hashable, Identifiable {
 
     /// Opens as a native view (it has a native entry and isn't chrome).
     public var opensNatively: Bool { nativeEntry != nil && !chrome }
-    /// May open links in Safari (`cap:open-links`, ND11).
+    /// May open links in the browser (`cap:open-links`, ND11).
     public var canOpenLinks: Bool { sandbox.contains("allow-popups") }
     /// The shell itself, the root page, and tiles nothing can open.
     public var isShellInternal: Bool { path == "root" || path == "shell" }
@@ -256,6 +291,9 @@ public struct PersonalLayout: Sendable, Equatable {
 /// `GET /api/xbin/screens`.
 public struct SharedScreens: Sendable, Equatable {
     public var workspaceDefault: [String]?
+    /// The default screen's tiles as stored (`{path,x,y,w,h}`): what a
+    /// first personal screen is seeded with (LayoutPref.addingScreen).
+    public var workspaceDefaultTiles: JSONValue?
     public var org: [ScreenInfo]
     /// Scope (`ws`, `org:<id>`) → its curated folders.
     public var folders: [String: [FolderInfo]]
@@ -267,7 +305,10 @@ public struct SharedScreens: Sendable, Equatable {
     }
 
     public init(json: JSONValue?) {
-        if let d = json?["default"], !d.isNull { workspaceDefault = ScreenInfo.tilePaths(d["tiles"]) }
+        if let d = json?["default"], !d.isNull {
+            workspaceDefault = ScreenInfo.tilePaths(d["tiles"])
+            workspaceDefaultTiles = d["tiles"]
+        }
         org = (json?["org"]?.arrayValue ?? []).compactMap { s in
             guard let id = s["id"]?.stringValue else { return nil }
             return ScreenInfo(id: id, name: s["name"]?.stringValue ?? "Screen", kind: .org, org: s["org"]?.stringValue,

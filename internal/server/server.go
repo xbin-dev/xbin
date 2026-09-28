@@ -600,6 +600,10 @@ func (s *Server) handleEventsWS(w http.ResponseWriter, r *http.Request) {
 		if e.Type == "term" || e.Type == "session" { // per-user: the owner's browsers, and admins (D73/D74)
 			return termEventFor(p, e)
 		}
+		if e.Type == "prefs" { // per-user, not even admins: the bucket owner's own clients
+			v, ok := e.Data.(interface{ VisibleTo(auth.Principal) bool })
+			return ok && v.VisibleTo(p)
+		}
 		if e.Type != "bus" {
 			return true
 		}

@@ -15,7 +15,7 @@ import (
 
 // Native UIs for agents (plans/native.md §16, docs/bx.md "Native UIs"):
 //
-//	bx native tree <tile>                 the rendered tree JSON (cheapest, diffable)
+//	bx native tree <tile> [--widget]      the rendered tree JSON (cheapest, diffable)
 //	bx lint --native [tile…]              static checks + a headless run; coverage
 //	bx preview --native <tile> --out f.png  the reference renderer's picture
 //
@@ -32,12 +32,17 @@ var moreCmds = map[string]func([]string) error{
 }
 
 const nativeUsage = `  bx native tree <tile> [--data d.json] the tile's rendered native tree (JSON)
+             [--widget [--size small|wide]]
+                                        --widget: its widget's tree instead
   bx lint --native [tile…] [--static] [--json]
-                                        check native UIs; no tile = the whole
+                                        check native UIs (screen and widget, at
+                                        both sizes); no tile = the whole
                                         workspace, with its native coverage
   bx preview --native <tile> [--dark] [--size 390x844] [--large-text]
              [--data d.json] [--full] [--out shot.png]
-                                        screenshot a native UI (reference renderer)
+             [--widget [--size small|wide]]
+                                        screenshot a native UI (reference renderer);
+                                        --widget: its widget's card
 `
 
 type nativeArgs struct {
@@ -55,13 +60,14 @@ type nativeArgs struct {
 	json      bool
 	static    bool
 	timeout   time.Duration
+	widget    string // --widget: the widget's size class ("small" | "wide"); "" = the screen
 }
 
 // flag sets per command: which flags each takes, and whether they take a value
 var nativeFlags = map[string]map[string]bool{
-	"tree":    {"--native": false, "--data": true, "--steps": true, "--timeout": true},
+	"tree":    {"--native": false, "--data": true, "--steps": true, "--timeout": true, "--widget": false, "--size": true},
 	"lint":    {"--native": false, "--json": false, "--static": false, "--timeout": true},
-	"preview": {"--native": false, "--data": true, "--steps": true, "--timeout": true, "--dark": false, "--light": false, "--size": true, "--large-text": false, "--out": true, "-o": true, "--full": false},
+	"preview": {"--native": false, "--data": true, "--steps": true, "--timeout": true, "--dark": false, "--light": false, "--size": true, "--large-text": false, "--out": true, "-o": true, "--full": false, "--widget": false},
 }
 
 func parseNativeArgs(cmd string, args []string) (nativeArgs, error) {
@@ -94,6 +100,10 @@ func parseNativeArgs(cmd string, args []string) (nativeArgs, error) {
 		switch name {
 		case "--native":
 			a.native = true
+		case "--widget":
+			if a.widget == "" {
+				a.widget = "small"
+			}
 		case "--json":
 			a.json = true
 		case "--static":
@@ -113,6 +123,13 @@ func parseNativeArgs(cmd string, args []string) (nativeArgs, error) {
 		case "--out", "-o":
 			a.out = val
 		case "--size":
+			if val == "small" || val == "wide" { // the widget's size class
+				a.widget = val
+				continue
+			}
+			if cmd == "tree" {
+				return a, fmt.Errorf("--size wants a widget size class, small or wide (with --widget), got %q", val)
+			}
 			w, h, err := parseSize(val)
 			if err != nil {
 				return a, err
@@ -256,7 +273,10 @@ func (a nativeArgs) probeConfig(mode string, tiles []string) (probeConfig, error
 		return probeConfig{}, err
 	}
 	cfg := probeConfig{Mode: mode, Tiles: tiles, Width: a.width, Height: a.height, Scale: 2,
-		Data: d, Steps: s, Timeout: a.timeout.Milliseconds(), Settle: 400, Full: a.full}
+		Data: d, Steps: s, Timeout: a.timeout.Milliseconds(), Settle: 400, Full: a.full, Widget: a.widget}
+	if mode == "lint" {
+		cfg.Widget = "small" // lint renders the widget too, at both sizes (the probe resizes it)
+	}
 	if a.dark {
 		cfg.Theme = "dark"
 	} else if mode == "preview" {
@@ -293,7 +313,7 @@ func runtimeFailed(r *probeResult) bool {
 // cmdNative: bx native tree <tile> [--data d.json] [--steps s.json] [--timeout 30s]
 func cmdNative(args []string) error {
 	if len(args) == 0 || args[0] != "tree" {
-		return errors.New("usage: bx native tree <tile> [--data fixture.json] [--steps steps.json] (docs/bx.md)")
+		return errors.New("usage: bx native tree <tile> [--data fixture.json] [--steps steps.json] [--widget [--size small|wide]] (docs/bx.md)")
 	}
 	a, err := parseNativeArgs("tree", args[1:])
 	if err != nil {
@@ -316,8 +336,15 @@ func cmdNative(args []string) error {
 	if r.LoadError != "" || len(r.Tree) == 0 {
 		return fmt.Errorf("%s: no tree", r.Tile)
 	}
+	tree := r.Tree
+	if a.widget != "" {
+		if len(r.WidgetTree) == 0 || string(r.WidgetTree) == "null" {
+			return fmt.Errorf("%s: renders no widget (widget() from /vendor/xb-native.js, docs/native.md \"Widgets\" — or this xbind's runtime predates widgets)", r.Tile)
+		}
+		tree = r.WidgetTree
+	}
 	var buf bytes.Buffer
-	if err := json.Indent(&buf, r.Tree, "", " "); err != nil {
+	if err := json.Indent(&buf, tree, "", " "); err != nil {
 		return err
 	}
 	buf.WriteByte('\n')
@@ -379,7 +406,14 @@ func cmdPreview(args []string) error {
 	if r.FirstTreeMs != nil {
 		ms = fmt.Sprintf(", first tree in %.0f ms", *r.FirstTreeMs)
 	}
-	fmt.Printf("wrote %s (%dx%d @2x, %s%s; %d nodes%s)\n", out, a.width, a.height, scheme, text, r.Stats.Nodes, ms)
+	if a.widget != "" {
+		if r.WidgetStats == nil {
+			return fmt.Errorf("%s: renders no widget (widget() from /vendor/xb-native.js, docs/native.md \"Widgets\" — or this xbind's runtime predates widgets)", tile)
+		}
+		fmt.Printf("wrote %s (the %s widget @2x, %s%s; %d nodes)\n", out, a.widget, scheme, text, r.WidgetStats.Nodes)
+	} else {
+		fmt.Printf("wrote %s (%dx%d @2x, %s%s; %d nodes%s)\n", out, a.width, a.height, scheme, text, r.Stats.Nodes, ms)
+	}
 	if runtimeFailed(r) {
 		return fmt.Errorf("%s: the runtime reported errors (above; the picture shows them in a red strip)", tile)
 	}
@@ -478,7 +512,7 @@ func cmdLint(args []string) error {
 				r := res[i]
 				rep := &reports[idx[r.Tile]]
 				rep.Findings = append(rep.Findings, runtimeFindings(&r)...)
-				r.Tree = nil // bx native tree prints trees; lint reports on them
+				r.Tree, r.WidgetTree = nil, nil // bx native tree prints trees; lint reports on them
 				rep.Runtime = &r
 			}
 		}
