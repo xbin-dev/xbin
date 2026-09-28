@@ -847,6 +847,14 @@ deployments section (its Non-primary access selects take narrowing changes;
 widening ones open the Deployments panel), and the admin console's runtime →
 components tab lists non-primary deployments under their tile.
 
+**In the xbin app** (D132) a tile's sessions screen has the same view
+under its tools menu, **Live reload & deployments**: the header with its
+actions and the branch offers, the deployments with `Dev API` (the last
+tab's session) and `● live reload`, a deployment's overview with its
+Branch row and a link to open its URL, and its deploy log with Roll back,
+each change confirmed from a dry run in the same words. Adding, promoting,
+reassigning, protecting and the edges stay in the web's panel.
+
 ## Committing never deploys
 
 Commit as often as ever. A commit changes nothing anyone runs: only a save

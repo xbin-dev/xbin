@@ -4687,8 +4687,11 @@ Deviations and refinements made while implementing; all deliberate:
     a 390 pt phone. Existing widgets stay valid — the size classes, the
     vocabulary and clipping are unchanged; only the box is smaller: the
     counter's fits at the default text size, the dense `widget-wide`
-    fixture (five rows) now clips its last row, and at xxxLarge text the
-    counter's +1 is cut (the renderer snapshots show both).
+    fixture (five rows) now clips its last row. Above the default text
+    size the cards grow with Dynamic Type as body text does (XbinCardHeight:
+    about 179 pt at xxxLarge), so large text makes a taller card instead of
+    cutting the counter's +1, as the first compact build did (the renderer
+    snapshots draw each text size at its own height).
   - **Terminals and Agents leave Home**: sessions are reached through their
     tile and the inbox. "Needs you" stays, a row with its count.
   - **Sessions on tiles**: a row, a standard card and a widget card show
@@ -4978,3 +4981,90 @@ Deviations and refinements made while implementing; all deliberate:
     git on the tile's repository host-side to read the branch (D78);
     pinning a paused target to a capture of the other branch's work tree;
     letting xbind switch to existing branches.
+
+- **D132 — The app's tile sessions screen: the web terminal window's
+  counterpart, native, in phases — B1 the screen, its launcher and tabs;
+  B2 live reload and deployments (2026-09-28).** native/ios App/Shell/
+  Screens/{TileWorkspace,Deployments}.swift, App/Terminal/SessionTab.swift
+  (TerminalScreen and AgentScreen hosted as tabs), App/Model/Navigation.swift
+  (`Surface.sessions`), WorkspaceEvents (per-tile `deployments`); XbinTerm
+  TileWorkspace.swift (SessionTabs, TileLauncher), TermDirectory
+  (`deployment`); XbinCore Client/{Deployments,DeployView,DeployBranch}.swift
+  (a port of web/deploy-state.js, deploy-branch.js, deploy-panel.js),
+  Events.swift (`AppEvent.deployments`). The owner: "new terminal/agent
+  should be one 'new terminal' that opens a tile (management)-terminal that
+  matches the webui shell terminal more closely — full feature parity,
+  first on new selecting harness with few boxes, tabs to switch between
+  agent/terminal instances, code view/logs/PRs, live reload and deployment
+  management"; ruling: native, in phases (B1…B4), each releasable.
+  - **One way in.** A tile's long press has one **New session…**, which
+    opens the tile's sessions screen on its launcher; its list of running
+    sessions opens the screen on that session's tab; a tile screen's ⋯ has
+    **Sessions & tools** and **New session…** (Terminal here / Agent here
+    are gone). The screen is a panel at level 2 like a tile (D125), a new
+    surface `sessions(tile:show:)` — the standalone terminal and agent
+    screens stay for deep links, the inbox, Handoff and the build chooser.
+  - **The launcher** is frame-launcher.js's `launcher`, its lines ported to
+    XbinTerm (TileLauncher): a box for Bash and one per agent provider
+    (`GET /agent/providers`), the VM switch where VMs can run — the same
+    per-user, per-tile pref as the web's (`termvm:<tile>`, `wantVM`) — and
+    the tile's recent agent sessions with Resume (`GET
+    /agent/history?cwd=`, a `+` escaped), plus sessions running on the tile
+    without a tab here. An agent is created before its tab (eager, as the
+    web's launcher, so its pickers load before the first prompt); Bash opens
+    a tab whose terminal makes the session. It shows first when the tile
+    has no session, and on `+`.
+  - **Tabs** are the session directory's (D73) sessions on the tile, shells
+    and agents together, oldest first (SessionTabs keeps them in step: a
+    rename elsewhere reaches the tab, a session that ends leaves its tab
+    greyed until closed, a new shell's tab waits for its id and absorbs the
+    row a listing made meanwhile). Hidden tabs stay mounted, like the web's
+    hidden panes — the socket, scrollback and transcript survive a switch;
+    the tab in front gets `panelActive` (the keyboard, VoiceOver) and puts
+    its items in the bar, and its own title (a shell's OSC title) is the
+    bar's. Tap a tab, or swipe the strip; a tab's long press renames, ends
+    or closes it — close keeps the session running (the launcher lists it).
+    A terminal hosted as a tab (`\.sessionTab`) is one session: its sheet
+    keeps the network, VM and keyboard settings, and full screen is the
+    standalone screen's.
+  - **Tools** (a menu in the bar; in the app "tools" means these panels,
+    never an agent's tools): **Live reload & deployments** (B2); Code, Logs
+    and PRs are listed as coming (B3, B4).
+  - **B2, live reload and deployments** — the rungs c–e of the tile
+    deployments scope. The state (`GET /deployments?tile=`) and the deploy
+    log render in the web's words: the live reload sentence with Pause,
+    Reload now, Resume ▸ and Attach ▸ (and Undo after a code move), the
+    deployments with **Dev API** on what the last tab's session calls
+    (D129) and `● live reload` on where saves go, a deployment's overview
+    with a link to open `/c/<tile>+<name>/` and its **Branch** row (D131:
+    Set branch…, Clear branch → `POST /deployments/branch`), and its deploy
+    log with each entry's branch and Roll back. Every operation is a dry
+    run first, confirmed with the server's `impact` sentences; a 409 because
+    the record or the code moved re-reads and asks again; a branch mismatch
+    asks "Use <branch> this time" and retries with `confirm:
+    "other-branch"`. The offers to follow a branch switch come from the
+    state alone (attach or resume onto `related`, "Resume live reload on
+    <dev>", "Keep <dev> on <branch> this time"); "Add a deployment for
+    <branch>…" points to the web. `deployments` events (op `work-tree`
+    moves the count in place, the rest re-read) keep it live; they used to
+    parse to `.other`. The launcher shows live reload's banner and what a
+    new session calls. Add, promote, reassign, protect and the edges stay on
+    the web ("Manage on the web" opens the web shell).
+  - **A deployment's page opens signed in.** The app's tile web view mints
+    frame tokens by path, and `/frame-token?component=` refuses a
+    `tile+name` (D127j), so `/c/<tile>+<name>/` (people with write, checked
+    per request) opens as chrome tiles do (D125): the in-app web view with
+    the user's cookie session — as does the web shell.
+  - **Compatibility.** Everything is feature-detected: no deployments route
+    (404/405) says so and shows nothing else; without `branches/1` no offer,
+    Branch row or new body field (bodies are decoded strictly); an older
+    xbind's session rows have no `deployment` (the tag then reads the
+    primary). Nothing changes on the wire.
+  - **Not chosen:** the shell's window in a web view (the owner: native); a
+    paged TabView for the tabs (horizontal drags belong to the terminal's
+    selection and the panels' edges — the strip takes the swipe);
+    unmounting hidden tabs (an agent's transcript would replay, a shell
+    reattach, on every switch); add, promote and reassign in the app (the
+    owner's scope for B2); a separate target picker in the app (the Dev API
+    tag shows the session's; switching it stays a terminal restart on the
+    web).

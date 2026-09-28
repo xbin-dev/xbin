@@ -12,6 +12,23 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-28
 
+- **xbin app: a tile's sessions screen** (D132). A tile's long press (and
+  its ⋯) has one **New session…**, which opens the tile's sessions screen:
+  the web terminal window's counterpart, native. A launcher with a box for
+  Bash and each coding agent, the VM switch (the same per-tile choice as
+  the web's) and the tile's recent agent sessions with Resume; tabs for
+  the tile's shells and agents together, which stay live while hidden
+  (tap or swipe to switch; a tab's long press renames, ends or closes it);
+  and, from its tools menu, **Live reload & deployments**: live reload's
+  state with Pause, Reload now, Resume and Attach, the deployments with
+  their `Dev API` and `● live reload` tags, a deployment's page and deploy
+  log with Roll back, its assigned branch (set, clear) and the offers to
+  follow a branch switch — each confirmed from a dry run, in the web's
+  words. Adding, promoting, reassigning and protecting stay on the web;
+  code, logs and PRs come next. Works with older xbinds (no deployments:
+  the tool says so; no `branches/1`: no branch controls). Also: the app's
+  screen cards grow with larger text sizes instead of clipping a widget
+  ([native.md](native.md) §Widgets). Nothing to change.
 - **The terminal window's panels: full width, or beside the terminal at a
   width you drag** (D129, [elements.md](elements.md) `<bx-frame>`). The
   Deployments panel opens full width — a window without sessions no longer

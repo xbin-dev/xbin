@@ -883,7 +883,7 @@ workspace address → the password (discovery, enrollment and device login
 on every run), open the web tile `apps/welcome` from Home's search (its 13 px heading
 readable at 1:1), open the native counter and tap +1 (checked on the
 server and in the row), type into a terminal on `apps/welcome`, opened
-from the tile's long press → New session… → Terminal (its output — an OSC
+from the tile's long press → New session… → the launcher's Bash (its output — an OSC
 title only the shell's arithmetic makes — must reach the navigation bar;
 the key row sits right on the software keyboard and its ↑ recalls a
 command; back on Home the tile's row counts the shell and its long press
@@ -914,6 +914,13 @@ the bar's identifiers (`panel-back`, `panel-home`), screens by
 `folder:<context>/<id>`, a tile's row by its path (in the row's
 accessibility label: the row shows the name only); a panel not in front is hidden from
 accessibility, its web view and terminal included.
+`XbinSessionsTests` (D132): a tile's sessions screen — the launcher from
+the long press, a Bash tab, `+`, an agent tab beside it, switching and a
+tab's End session; then Tools → Live reload & deployments on `apps/wide`
+(a static tile: the e2e xbind has no `--isolate`) with a `dev` deployment
+the test adds, and — dev assigned a branch the work tree isn't on, live
+reload paused — the "Keep dev on <branch> this time" offer confirmed from
+its dry run; the test puts the tile back in the zero state.
 `XbinOnboardingTests` launch the app as a fresh install (Debug builds'
 `-XbinFreshStart YES`: no workspace, the saved list untouched): the
 Welcome's levels and the help, Run your own xbin, address → methods →
