@@ -37,6 +37,12 @@
 //	restart me   the FIRST request of that turn hangs 30 s (the harness restarts
 //	             the agent's backend under it), a re-issue answers at once:
 //	             a note "Survive a restart" → "Noted it."
+//	long N       (starts the message) N units, streamed without pauses: each a
+//	             markdown line "**Unit k** of the long turn…" with a note call
+//	             "Note unit k", then "done: N units" — a long transcript fast
+//	             (N ≤ the agent's maxTurnSteps − 1)
+//	paras N      (starts the message) an answer of N paragraphs "Paragraph k of
+//	             the answer, streamed.", word by word
 //	(else)       "ok: <text>"
 //
 // The agent naming a conversation (its title prompt) gets "Titled <the first
@@ -141,6 +147,7 @@ type plan struct {
 	Thinking []string
 	Text     string
 	Calls    []call
+	Fast     bool // stream without the per-word and per-call pauses
 }
 
 // turn is one message of the conversation, wire-independent.
@@ -185,6 +192,29 @@ func script(conv []turn, system string) plan {
 			return plan{Delay: 6 * time.Second, Text: "slow job done"}
 		}
 		return plan{Text: "subagent: " + task}
+	}
+	// long N: N units, each a markdown answer with a note call, then "done: N units"
+	// (a long transcript fast); paras N: an answer of N paragraphs, streamed slowly
+	if n, ok := countAfter(lastUser, "long "); ok {
+		done := 0
+		for i := len(conv) - 1; i >= 0 && conv[i].Role != "user"; i-- {
+			if conv[i].Role == "tool" {
+				done++
+			}
+		}
+		if done >= n {
+			return plan{Fast: true, Text: fmt.Sprintf("done: %d units", n)}
+		}
+		k := done + 1
+		return plan{Fast: true, Text: fmt.Sprintf("**Unit %d** of the long turn: a paragraph with `code %d`, a [link](https://example.com/%d) and *emphasis*.", k, k, k),
+			Calls: []call{{"note", map[string]any{"text": fmt.Sprintf("unit %d", k), "summary": fmt.Sprintf("Note unit %d", k)}}}}
+	}
+	if n, ok := countAfter(lastUser, "paras "); ok && last.Role == "user" {
+		ps := make([]string, n)
+		for i := range ps {
+			ps[i] = fmt.Sprintf("Paragraph %d of the answer, streamed.", i+1)
+		}
+		return plan{Text: strings.Join(ps, "\n\n")}
 	}
 	if last.Role == "tool" {
 		switch last.Tool {
@@ -349,11 +379,11 @@ func chatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, t := range p.Thinking {
 		chunk(map[string]any{"reasoning_content": t}, nil)
-		time.Sleep(150 * time.Millisecond)
+		p.pause(150 * time.Millisecond)
 	}
-	for _, word := range words(p.Text) {
+	for _, word := range p.chunks() {
 		chunk(map[string]any{"content": word}, nil)
-		time.Sleep(40 * time.Millisecond)
+		p.pause(40 * time.Millisecond)
 	}
 	for i, c := range p.Calls {
 		b, _ := json.Marshal(c.Args)
@@ -362,7 +392,7 @@ func chatCompletions(w http.ResponseWriter, r *http.Request) {
 		half := len(args) / 2
 		chunk(map[string]any{"tool_calls": []any{map[string]any{"index": i, "id": id, "type": "function",
 			"function": map[string]any{"name": c.Name, "arguments": args[:half]}}}}, nil)
-		time.Sleep(60 * time.Millisecond)
+		p.pause(60 * time.Millisecond)
 		chunk(map[string]any{"tool_calls": []any{map[string]any{"index": i, "function": map[string]any{"arguments": args[half:]}}}}, nil)
 	}
 	chunk(map[string]any{}, finish(p))
@@ -445,7 +475,7 @@ func responses(w http.ResponseWriter, r *http.Request) {
 		sse(map[string]any{"type": "response.output_item.added", "output_index": idx, "item": map[string]any{"type": "reasoning", "id": "rs_1", "summary": []any{}}})
 		for _, t := range p.Thinking {
 			sse(map[string]any{"type": "response.reasoning_summary_text.delta", "output_index": idx, "summary_index": 0, "item_id": "rs_1", "delta": t})
-			time.Sleep(150 * time.Millisecond)
+			p.pause(150 * time.Millisecond)
 		}
 		item := map[string]any{"type": "reasoning", "id": "rs_1", "encrypted_content": "enc",
 			"summary": []any{map[string]any{"type": "summary_text", "text": strings.Join(p.Thinking, "")}}}
@@ -455,9 +485,9 @@ func responses(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.Text != "" {
 		sse(map[string]any{"type": "response.output_item.added", "output_index": idx, "item": map[string]any{"type": "message", "id": "msg_1", "role": "assistant", "content": []any{}}})
-		for _, word := range words(p.Text) {
+		for _, word := range p.chunks() {
 			sse(map[string]any{"type": "response.output_text.delta", "output_index": idx, "content_index": 0, "item_id": "msg_1", "delta": word})
-			time.Sleep(40 * time.Millisecond)
+			p.pause(40 * time.Millisecond)
 		}
 		item := map[string]any{"type": "message", "id": "msg_1", "role": "assistant", "content": []any{map[string]any{"type": "output_text", "text": p.Text}}}
 		sse(map[string]any{"type": "response.output_item.done", "output_index": idx, "item": item})
@@ -472,7 +502,7 @@ func responses(w http.ResponseWriter, r *http.Request) {
 			"item": map[string]any{"type": "function_call", "id": "fc_" + cid, "call_id": cid, "name": c.Name, "arguments": ""}})
 		half := len(args) / 2
 		sse(map[string]any{"type": "response.function_call_arguments.delta", "output_index": idx, "item_id": "fc_" + cid, "delta": args[:half]})
-		time.Sleep(60 * time.Millisecond)
+		p.pause(60 * time.Millisecond)
 		sse(map[string]any{"type": "response.function_call_arguments.delta", "output_index": idx, "item_id": "fc_" + cid, "delta": args[half:]})
 		item := map[string]any{"type": "function_call", "id": "fc_" + cid, "call_id": cid, "name": c.Name, "arguments": args}
 		sse(map[string]any{"type": "response.output_item.done", "output_index": idx, "item": item})
@@ -483,6 +513,37 @@ func responses(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- helpers ------------------------------------------------------------------------
+
+// countAfter reads "<prefix><n>" at the start of s (n in 1…2000).
+func countAfter(s, prefix string) (int, bool) {
+	rest, ok := strings.CutPrefix(strings.TrimSpace(s), prefix)
+	if !ok {
+		return 0, false
+	}
+	n, err := strconv.Atoi(strings.Fields(rest + " x")[0])
+	if err != nil || n < 1 || n > 2000 {
+		return 0, false
+	}
+	return n, true
+}
+
+// pause sleeps d unless the plan streams fast.
+func (p plan) pause(d time.Duration) {
+	if !p.Fast {
+		time.Sleep(d)
+	}
+}
+
+// chunks is the text as it streams: word by word, or whole when fast.
+func (p plan) chunks() []string {
+	if p.Fast {
+		if p.Text == "" {
+			return nil
+		}
+		return []string{p.Text}
+	}
+	return words(p.Text)
+}
 
 func finish(p plan) string {
 	if len(p.Calls) > 0 {
