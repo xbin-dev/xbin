@@ -4654,6 +4654,57 @@ Deviations and refinements made while implementing; all deliberate:
     (`--tile-deployments`, `XBIN_TILE_DEPLOYMENTS`) defaults on (O4's
     recommended answer).
 
+- **D128 — The app's Home: the workspace's own name and icon, All tiles as
+  the web sidebar's tree, compact rows, sessions on tiles (2026-09-28).**
+  native/ios App/Shell (Screens/HomeView, StandardCard, ScreenView,
+  SwitcherOverlay, BrandImage, RootView's BrandIcon), App/Tiles/Widgets/
+  TileCard; XbinCore Client/{Navigator,DataURI,Catalog}.swift, XbinTerm
+  TermDirectory (`byTile`); XbinRendererModel Widget.swift; native/spec/
+  tree.md §13, docs/native.md §Widgets; web/xb/preview-host.js. The
+  owner's list after using TestFlight.
+  - **Home's header is the workspace's branding** (D76): its icon and title;
+    the address only when no title is set. The icon is a `data:` URI — the
+    app drew only emoji, so an admin's image never showed. XbinCore decodes
+    the URI once (a small cache); bitmaps go through ImageIO, an SVG is
+    drawn once by an offscreen web view with script off and no navigation,
+    then kept as a bitmap — the switcher, the inbox and Home share it.
+  - **All tiles is the web sidebar's tree** (bx-side.js, D24/D55), rebuilt
+    in XbinCore from what the app already reads (the `layout` pref's
+    `side.folders`/`sharedOpen`, `/screens`' `folders[scope]`; nothing new
+    fetched, nothing written): personal folders first (tiles, `#screen`,
+    `#orgscreen`), then owner sections (mine, whoami's orgs, workspace)
+    each with its shared folders, its unfiled tiles by label and an org's
+    screens; a personally filed tile leaves its section; labels are the
+    basename, or the path when two collide. Hidden, blueprint and archived
+    tiles are skipped everywhere in the app (the web's show-hidden toggle
+    has no counterpart). Folders open as the user left them on the web;
+    folding here is the phone's own. Search stays flat.
+  - **Compact.** Home, All tiles and the switcher are single-line rows of
+    about 36 pt; a tile row shows its name (the path moves to the
+    accessibility label, and to a trailing caption in search). The screen
+    grid's cards are 132 pt tall (170 before), with 12 pt margins, a
+    10 pt inset and a 28 pt icon: a widget's own box is about 157 × 112 on
+    a 390 pt phone. Existing widgets stay valid — the size classes, the
+    vocabulary and clipping are unchanged; only the box is smaller: the
+    counter's fits at the default text size, the dense `widget-wide`
+    fixture (five rows) now clips its last row, and at xxxLarge text the
+    counter's +1 is cut (the renderer snapshots show both).
+  - **Terminals and Agents leave Home**: sessions are reached through their
+    tile and the inbox. "Needs you" stays, a row with its count.
+  - **Sessions on tiles**: a row, a standard card and a widget card show
+    `>_ n` for terminals and ✦ n for agents, amber when one waits for the
+    user, from the session directory the `term` events keep live — on a
+    widget, in the card's corner outside the widget's tree. The long press
+    lists the tile's sessions (tap opens, with where each is) and replaces
+    "Terminal here" / "Agent here" with one **New session…** (Terminal,
+    Agent for now; the tile's own session screen takes it over).
+  - **Not chosen:** keeping the sidebar's raw web labels out of the app
+    (humanized titles) — the tree is the web's, so are its labels; a
+    rasterized icon from the server (it stores the URI as given, and no
+    route serves a bitmap); a nested-folder count that includes folders
+    with nothing to show (bx-side.js counts them; the app leaves such a
+    shared folder out).
+
 - **D129 — The terminal window's panels: full width, or beside the
   terminal at a width you drag; the tag is "Dev API" (2026-09-28).**
   web/frame-panels.js, web/bx-deploy.js; docs/elements.md;
@@ -4692,95 +4743,6 @@ Deviations and refinements made while implementing; all deliberate:
     widths (a resized window would squeeze the terminal instead of both);
     the shield on press (it swallows the double-click); renaming the tile
     API select's `🔌 target:` entries (only the tag was ruled on).
-
-- **D131 — Branch-assigned deployments: a deployment may require the work
-  tree's branch; checkout-driven routing, as offers (2026-09-28).**
-  docs/tile-deployments.md §Assigned branches; docs/bx.md (`bx deployment
-  add --branch|--new-branch`, `bx deployment branch`, `--other-branch`);
-  docs/protocol.md (`POST /deployments/branch`, feature `branches/1`, op
-  `branch`); plans/dev-lifecycle/05-model.md flow H. The owner's rulings of
-  2026-09-28, built on D119 and D127.
-  - **(a) A requirement and a label, not a feed.** A deployment other than
-    `main` and the primary may name a branch of the tile's repository
-    (record: an optional per-deployment `branch`). It still follows the
-    work tree or runs a checkpoint; only a work tree on that branch may feed
-    it. The branch is read host-side beneath the tile (`.git/HEAD`, never a
-    git run, like the `Xbin-Work-Tree-Head` trailer); a detached, missing or
-    unreadable HEAD is no branch. Refused on `main` and on the primary;
-    reassigning the primary to a deployment clears its branch, and a stored
-    branch on either (an older binary that reassigned without knowing it)
-    reads as none rather than holding the tile. Older binaries keep
-    `branch` and `branchOverride` verbatim through the record's unknown
-    fields.
-  - **(b) Explicit ops are guarded.** Attach, resume, reload now and a
-    deploy from the work tree, and add from the work tree (with attach or
-    not: the first ruling covers it), answer 409 naming both branches.
-    `confirm: "other-branch"` takes the work tree's branch this time; attach
-    and resume keep it as the deployment's `branchOverride`, which lapses
-    when live reload moves or the work tree's branch changes again. A work
-    tree on no branch can't be followed even so. A capture-time trailer
-    check (`Xbin-Work-Tree-Branch`, HEAD read before and after the capture)
-    refuses the op when a checkout raced it. A deploy of a checkpoint,
-    promote and roll back are not fed by the work tree and are not asked.
-  - **(c) Saves are guarded too.** In `routeBatch`, a tile whose live reload
-    target has an assigned branch hands the batch to the plane's per-tile
-    guard worker, which reads HEAD once per debounced batch, takes a
-    background checkpoint (its own capture budget, so people's requests
-    never find it spent) whose trailer is the second check, and only then
-    deploys the batch. A mismatch without an override deploys nothing:
-    live reload pauses, the target pinned to the checkpoint it runs — the
-    last batch deployed on its branch, else its newest deploy-log
-    checkpoint taken on its branch — logged as a `pause` by `xbind`, and a
-    `deployments` event op `branch` `{deployment, assigned, workTree,
-    related, paused}` goes to the write audience. Pausing, or attaching live
-    reload elsewhere, while the work tree is off the target's branch pins it
-    the same way. Every tile without an assigned branch keeps the no-cost
-    save path of D119d (one more in-memory lookup).
-  - **(d) On a detected switch, offer to follow.** op `branch` names
-    `related`, the deployment assigned the work tree's new branch: clients
-    offer "Attach live reload to <it> (<branch>)" (resume, while paused)
-    through the normal confirmation; switching back offers "Resume live
-    reload on <dev>"; with no match, "Keep <dev> on <branch> this time" (the
-    override) or "Add a deployment for <branch>…". This is checkout-driven
-    routing — option B2 of 04-options, rejected when the design was made
-    because it turns routine git use into a routing change — now the
-    owner's call, kept to offers and a pause: a checkout never moves live
-    reload by itself.
-  - **(e) New branches only.** Add's `newBranch` creates the branch in the
-    tile with a confined git switch (`internal/confine`, never a host exec;
-    `git switch --create=<name> --end-of-options`: the name attached to its
-    option, since `-c --end-of-options <name>` would read the marker as the
-    name) that changes no file, so nothing reloads. It never switches to an
-    existing branch; a narrow exception to "xbind never checks out a branch
-    in a tile" (03-current-state §7.2).
-  - **(f) Wire.** Feature `branches/1`; `POST /deployments/branch {tile,
-    deployment, branch|null}` (terminal level, like add); `branch` and
-    `newBranch` on add; `confirm: "other-branch"` on the guarded ops (on
-    add, joined to `copy-data` with a comma when both apply); `workTree.branch`
-    in the write audience's state, `branch`/`branchOverride` per deployment,
-    `impact.branch` in dry runs, `branch` on deploy entries. Bodies are
-    decoded strictly (12-compat §10.2), so clients send the new fields only
-    when `features` lists `branches/1`; bx refuses the commands that need it
-    against an older xbind and drops `--other-branch` there.
-  - **(g) The terminal window** (phase 2): the offers of (d) lead the live
-    reload chip's menu and the Deployments panel's header, computed from the
-    state alone (the work tree's branch, each deployment's, the last pause's
-    actor) so a window opened later offers the same; op `branch` refetches
-    the state and prints the tile's terminals a grey line in place of the
-    pause's. No offer shows while the target takes the work tree's branch
-    this time (the user chose it). A 409 naming both branches asks "Use
-    <branch> this time" and retries with `confirm: "other-branch"`. The add
-    form's Branch control, the overview's Branch row (Set branch…, Clear
-    branch), and `⎇ <branch>` in the side list and the deploy log, whose
-    entries now name the branch their own capture was taken on (an
-    `Xbin-Branch` trailer in the deploy log; the checkpoint's first
-    capture's otherwise). The pure logic is `web/deploy-branch.js`, a leaf
-    beside deploy-state.js and deploy-panel.js.
-  - **Not chosen:** routing live reload by checkout outright (B2 as
-    designed: an agent's routine checkout would move a live URL); running
-    git on the tile's repository host-side to read the branch (D78);
-    pinning a paused target to a capture of the other branch's work tree;
-    letting xbind switch to existing branches.
 
 - **D130 — Long agent conversations: the log pages, the client holds a
   window of it (2026-09-28).** internal/agent/page.go, internal/term/
@@ -4878,53 +4840,91 @@ Deviations and refinements made while implementing; all deliberate:
     prepend (new block objects each time: memos and lit identity lost);
     `content-visibility` for the rows (D124's reason stands).
 
-- **D128 — The app's Home: the workspace's own name and icon, All tiles as
-  the web sidebar's tree, compact rows, sessions on tiles (2026-09-28).**
-  native/ios App/Shell (Screens/HomeView, StandardCard, ScreenView,
-  SwitcherOverlay, BrandImage, RootView's BrandIcon), App/Tiles/Widgets/
-  TileCard; XbinCore Client/{Navigator,DataURI,Catalog}.swift, XbinTerm
-  TermDirectory (`byTile`); XbinRendererModel Widget.swift; native/spec/
-  tree.md §13, docs/native.md §Widgets; web/xb/preview-host.js. The
-  owner's list after using TestFlight.
-  - **Home's header is the workspace's branding** (D76): its icon and title;
-    the address only when no title is set. The icon is a `data:` URI — the
-    app drew only emoji, so an admin's image never showed. XbinCore decodes
-    the URI once (a small cache); bitmaps go through ImageIO, an SVG is
-    drawn once by an offscreen web view with script off and no navigation,
-    then kept as a bitmap — the switcher, the inbox and Home share it.
-  - **All tiles is the web sidebar's tree** (bx-side.js, D24/D55), rebuilt
-    in XbinCore from what the app already reads (the `layout` pref's
-    `side.folders`/`sharedOpen`, `/screens`' `folders[scope]`; nothing new
-    fetched, nothing written): personal folders first (tiles, `#screen`,
-    `#orgscreen`), then owner sections (mine, whoami's orgs, workspace)
-    each with its shared folders, its unfiled tiles by label and an org's
-    screens; a personally filed tile leaves its section; labels are the
-    basename, or the path when two collide. Hidden, blueprint and archived
-    tiles are skipped everywhere in the app (the web's show-hidden toggle
-    has no counterpart). Folders open as the user left them on the web;
-    folding here is the phone's own. Search stays flat.
-  - **Compact.** Home, All tiles and the switcher are single-line rows of
-    about 36 pt; a tile row shows its name (the path moves to the
-    accessibility label, and to a trailing caption in search). The screen
-    grid's cards are 132 pt tall (170 before), with 12 pt margins, a
-    10 pt inset and a 28 pt icon: a widget's own box is about 157 × 112 on
-    a 390 pt phone. Existing widgets stay valid — the size classes, the
-    vocabulary and clipping are unchanged; only the box is smaller: the
-    counter's fits at the default text size, the dense `widget-wide`
-    fixture (five rows) now clips its last row, and at xxxLarge text the
-    counter's +1 is cut (the renderer snapshots show both).
-  - **Terminals and Agents leave Home**: sessions are reached through their
-    tile and the inbox. "Needs you" stays, a row with its count.
-  - **Sessions on tiles**: a row, a standard card and a widget card show
-    `>_ n` for terminals and ✦ n for agents, amber when one waits for the
-    user, from the session directory the `term` events keep live — on a
-    widget, in the card's corner outside the widget's tree. The long press
-    lists the tile's sessions (tap opens, with where each is) and replaces
-    "Terminal here" / "Agent here" with one **New session…** (Terminal,
-    Agent for now; the tile's own session screen takes it over).
-  - **Not chosen:** keeping the sidebar's raw web labels out of the app
-    (humanized titles) — the tree is the web's, so are its labels; a
-    rasterized icon from the server (it stores the URI as given, and no
-    route serves a bitmap); a nested-folder count that includes folders
-    with nothing to show (bx-side.js counts them; the app leaves such a
-    shared folder out).
+- **D131 — Branch-assigned deployments: a deployment may require the work
+  tree's branch; checkout-driven routing, as offers (2026-09-28).**
+  docs/tile-deployments.md §Assigned branches; docs/bx.md (`bx deployment
+  add --branch|--new-branch`, `bx deployment branch`, `--other-branch`);
+  docs/protocol.md (`POST /deployments/branch`, feature `branches/1`, op
+  `branch`); plans/dev-lifecycle/05-model.md flow H. The owner's rulings of
+  2026-09-28, built on D119 and D127.
+  - **(a) A requirement and a label, not a feed.** A deployment other than
+    `main` and the primary may name a branch of the tile's repository
+    (record: an optional per-deployment `branch`). It still follows the
+    work tree or runs a checkpoint; only a work tree on that branch may feed
+    it. The branch is read host-side beneath the tile (`.git/HEAD`, never a
+    git run, like the `Xbin-Work-Tree-Head` trailer); a detached, missing or
+    unreadable HEAD is no branch. Refused on `main` and on the primary;
+    reassigning the primary to a deployment clears its branch, and a stored
+    branch on either (an older binary that reassigned without knowing it)
+    reads as none rather than holding the tile. Older binaries keep
+    `branch` and `branchOverride` verbatim through the record's unknown
+    fields.
+  - **(b) Explicit ops are guarded.** Attach, resume, reload now and a
+    deploy from the work tree, and add from the work tree (with attach or
+    not: the first ruling covers it), answer 409 naming both branches.
+    `confirm: "other-branch"` takes the work tree's branch this time; attach
+    and resume keep it as the deployment's `branchOverride`, which lapses
+    when live reload moves or the work tree's branch changes again. A work
+    tree on no branch can't be followed even so. A capture-time trailer
+    check (`Xbin-Work-Tree-Branch`, HEAD read before and after the capture)
+    refuses the op when a checkout raced it. A deploy of a checkpoint,
+    promote and roll back are not fed by the work tree and are not asked.
+  - **(c) Saves are guarded too.** In `routeBatch`, a tile whose live reload
+    target has an assigned branch hands the batch to the plane's per-tile
+    guard worker, which reads HEAD once per debounced batch, takes a
+    background checkpoint (its own capture budget, so people's requests
+    never find it spent) whose trailer is the second check, and only then
+    deploys the batch. A mismatch without an override deploys nothing:
+    live reload pauses, the target pinned to the checkpoint it runs — the
+    last batch deployed on its branch, else its newest deploy-log
+    checkpoint taken on its branch — logged as a `pause` by `xbind`, and a
+    `deployments` event op `branch` `{deployment, assigned, workTree,
+    related, paused}` goes to the write audience. Pausing, or attaching live
+    reload elsewhere, while the work tree is off the target's branch pins it
+    the same way. Every tile without an assigned branch keeps the no-cost
+    save path of D119d (one more in-memory lookup).
+  - **(d) On a detected switch, offer to follow.** op `branch` names
+    `related`, the deployment assigned the work tree's new branch: clients
+    offer "Attach live reload to <it> (<branch>)" (resume, while paused)
+    through the normal confirmation; switching back offers "Resume live
+    reload on <dev>"; with no match, "Keep <dev> on <branch> this time" (the
+    override) or "Add a deployment for <branch>…". This is checkout-driven
+    routing — option B2 of 04-options, rejected when the design was made
+    because it turns routine git use into a routing change — now the
+    owner's call, kept to offers and a pause: a checkout never moves live
+    reload by itself.
+  - **(e) New branches only.** Add's `newBranch` creates the branch in the
+    tile with a confined git switch (`internal/confine`, never a host exec;
+    `git switch --create=<name> --end-of-options`: the name attached to its
+    option, since `-c --end-of-options <name>` would read the marker as the
+    name) that changes no file, so nothing reloads. It never switches to an
+    existing branch; a narrow exception to "xbind never checks out a branch
+    in a tile" (03-current-state §7.2).
+  - **(f) Wire.** Feature `branches/1`; `POST /deployments/branch {tile,
+    deployment, branch|null}` (terminal level, like add); `branch` and
+    `newBranch` on add; `confirm: "other-branch"` on the guarded ops (on
+    add, joined to `copy-data` with a comma when both apply); `workTree.branch`
+    in the write audience's state, `branch`/`branchOverride` per deployment,
+    `impact.branch` in dry runs, `branch` on deploy entries. Bodies are
+    decoded strictly (12-compat §10.2), so clients send the new fields only
+    when `features` lists `branches/1`; bx refuses the commands that need it
+    against an older xbind and drops `--other-branch` there.
+  - **(g) The terminal window** (phase 2): the offers of (d) lead the live
+    reload chip's menu and the Deployments panel's header, computed from the
+    state alone (the work tree's branch, each deployment's, the last pause's
+    actor) so a window opened later offers the same; op `branch` refetches
+    the state and prints the tile's terminals a grey line in place of the
+    pause's. No offer shows while the target takes the work tree's branch
+    this time (the user chose it). A 409 naming both branches asks "Use
+    <branch> this time" and retries with `confirm: "other-branch"`. The add
+    form's Branch control, the overview's Branch row (Set branch…, Clear
+    branch), and `⎇ <branch>` in the side list and the deploy log, whose
+    entries now name the branch their own capture was taken on (an
+    `Xbin-Branch` trailer in the deploy log; the checkpoint's first
+    capture's otherwise). The pure logic is `web/deploy-branch.js`, a leaf
+    beside deploy-state.js and deploy-panel.js.
+  - **Not chosen:** routing live reload by checkout outright (B2 as
+    designed: an agent's routine checkout would move a live URL); running
+    git on the tile's repository host-side to read the branch (D78);
+    pinning a paused target to a capture of the other branch's work tree;
+    letting xbind switch to existing branches.
