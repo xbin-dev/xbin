@@ -600,7 +600,9 @@ tile's code. It is not a trust boundary.
   the shell's sidebar, toasts or title, which speak of the primary.
 - **Logs** are per deployment: `bx logs apps/crm+dev`, the panel's logs tab,
   `GET /api/xbin/logs?component=<tile>&deployment=<name>`.
-- **Prefs** are per deployment beyond `main`.
+- **Prefs** are per deployment beyond `main`, and so is the `prefs` event a
+  write sends: only that deployment's own frames, sessions and backend hear
+  it, never the user's browser ([protocol.md](/docs/protocol.md)).
 
 ## The primary: reassigning and protecting it
 
