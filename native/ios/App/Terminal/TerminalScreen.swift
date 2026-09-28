@@ -14,7 +14,9 @@ struct TerminalHost: UIViewRepresentable {
 /// more columns and rows, never a second pane (on a Duo in tabletop, the
 /// terminal above the fold and keys below: TerminalArea). Sessions, the
 /// network scope and the VM toggle live in a sheet over it; scrollback search
-/// (⌘F) and the precise selection mode in a bar under it.
+/// (⌘F) and the precise selection mode in a bar under it. Hosted as a tab
+/// of a tile's sessions screen (`\.sessionTab`, D132) it is one session:
+/// the screen's tabs switch sessions, and the sheet keeps its settings.
 struct TerminalScreen: View {
     let workspace: WorkspaceModel
     let cwd: String
@@ -22,6 +24,8 @@ struct TerminalScreen: View {
     /// Typed into a fresh session once (an agent's sign-in command).
     var initialInput: String?
     var onExit: (() -> Void)?
+    /// How a new session starts (the sessions screen's VM choice).
+    var newSession: TermNewSession?
 
     @State private var controller: TerminalController?
     @State private var showSessions = false
@@ -32,6 +36,8 @@ struct TerminalScreen: View {
     /// The panel is in front (PanelStack): out of it, the terminal lets go
     /// of the keyboard and VoiceOver.
     @Environment(\.panelActive) private var panelActive
+    /// Hosted as a tab (D132): nil for a screen of its own.
+    @Environment(\.sessionTab) private var tab
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -51,30 +57,38 @@ struct TerminalScreen: View {
                 }
             }
         }
-        .navigationTitle(Text(verbatim: controller?.title.isEmpty == false ? controller!.title : "Terminal · \(TileInfo.humanize(cwd))"))
+        .modifier(SessionTitle(title: controller?.title.isEmpty == false ? controller!.title : "Terminal · \(TileInfo.humanize(cwd))"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(fullScreen ? .hidden : .visible, for: .navigationBar)
         .statusBarHidden(fullScreen)
         .persistentSystemOverlays(fullScreen ? .hidden : .automatic)
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                if let c = controller, c.lagging, let rtt = c.rtt {
-                    Text(verbatim: "\(Int(rtt)) ms").font(.caption.monospacedDigit()).foregroundStyle(.orange)
+            // A tab puts its items in the bar only while it is in front.
+            if tab == nil || panelActive {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    if let c = controller, c.lagging, let rtt = c.rtt {
+                        Text(verbatim: "\(Int(rtt)) ms").font(.caption.monospacedDigit()).foregroundStyle(.orange)
+                    }
+                    Menu {
+                        Button("Find", systemImage: "magnifyingglass") { controller?.openFind() }
+                        Button("Select Text", systemImage: "selection.pin.in.out") { controller?.enterSelectionMode() }
+                        Button("Keyboard", systemImage: "keyboard") { showKeyboardSettings = true }
+                        if tab != nil {
+                            Button("Network and VM…", systemImage: "network") { showSessions = true }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .accessibilityLabel("More")
+                    if tab == nil {
+                        Button { showSessions = true } label: { Image(systemName: "rectangle.stack") }
+                            .accessibilityLabel("Sessions")
+                        Button { withAnimation { fullScreen.toggle() } } label: {
+                            Image(systemName: fullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                        }
+                        .accessibilityLabel("Full screen")
+                    }
                 }
-                Button { showSessions = true } label: { Image(systemName: "rectangle.stack") }
-                    .accessibilityLabel("Sessions")
-                Menu {
-                    Button("Find", systemImage: "magnifyingglass") { controller?.openFind() }
-                    Button("Select Text", systemImage: "selection.pin.in.out") { controller?.enterSelectionMode() }
-                    Button("Keyboard", systemImage: "keyboard") { showKeyboardSettings = true }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .accessibilityLabel("More")
-                Button { withAnimation { fullScreen.toggle() } } label: {
-                    Image(systemName: fullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                }
-                .accessibilityLabel("Full screen")
             }
         }
         .overlay(alignment: .topTrailing) {
@@ -89,14 +103,18 @@ struct TerminalScreen: View {
             if controller == nil {
                 let c = TerminalController(workspace: workspace, cwd: cwd, initialInput: initialInput)
                 controller = c
-                Task { await c.start(session: sessionID) }
+                Task { await c.start(session: sessionID, options: newSession) }
             }
             controller?.reopen() // back after a disappear: reattach
             controller?.setVisible(true)
-            if controller?.selecting != true, controller?.find.visible != true {
+            // (a tab mounted behind the one in front leaves the keyboard be)
+            if panelActive, controller?.selecting != true, controller?.find.visible != true {
                 _ = controller?.terminalView.becomeFirstResponder()
             }
         }
+        // A tab tells its screen which session it shows (a new shell's id
+        // arrives with its session frame).
+        .onChange(of: controller?.info?.id) { _, id in if let id { tab?.shows(session: id) } }
         // Gone from the screen: this client lets go of the session (it lives
         // on server-side; the screen reattaches if it comes back). Before,
         // the socket outlived the screen — the controller and its session
@@ -109,9 +127,13 @@ struct TerminalScreen: View {
         .onChange(of: panelActive) { _, active in
             controller?.container.accessibilityElementsHidden = !active
             if !active { _ = controller?.terminalView.resignFirstResponder() }
+            // A tab switched to takes the keyboard, as the web focuses it.
+            if active, tab != nil, controller?.selecting != true, controller?.find.visible != true {
+                _ = controller?.terminalView.becomeFirstResponder()
+            }
         }
         .sheet(isPresented: $showSessions) {
-            if let c = controller { TermSessionsSheet(controller: c) }
+            if let c = controller { TermSessionsSheet(controller: c, embedded: tab != nil) }
         }
         .sheet(isPresented: $showKeyboardSettings) {
             NavigationStack {
@@ -186,6 +208,9 @@ struct Banner: View {
 /// (D89/D90). A change of either restarts the session, so it asks first.
 struct TermSessionsSheet: View {
     let controller: TerminalController
+    /// The terminal is a tab of the tile's sessions screen (D132): its
+    /// tabs are the sessions; the sheet keeps the settings.
+    var embedded = false
     @Environment(\.dismiss) private var dismiss
     @State private var renaming: TermDirectoryEntry?
     @State private var newName = ""
@@ -198,6 +223,7 @@ struct TermSessionsSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                if !embedded {
                 Section("Sessions on \(TileInfo.humanize(controller.cwd))") {
                     ForEach(TermDirectory.forTile(workspace.sessions, cwd: controller.cwd).filter { $0.kind == .shell }) { s in
                         Button {
@@ -228,6 +254,7 @@ struct TermSessionsSheet: View {
                         Task { await controller.newSession() }
                         dismiss()
                     }
+                }
                 }
                 Section {
                     NavigationLink {

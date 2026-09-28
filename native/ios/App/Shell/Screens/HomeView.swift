@@ -383,8 +383,9 @@ struct SessionsBadge: View {
 }
 
 /// A tile's long-press menu (rows and cards): the terminals and agents
-/// running there (tap one to open it), New session…, a new window, and
-/// the native/web toggle.
+/// running there (tap one: the tile's sessions screen on its tab), New
+/// session… (that screen's launcher, D132), a new window, and the
+/// native/web toggle.
 struct TileMenu: View {
     let workspace: WorkspaceModel
     let tile: TileInfo
@@ -399,7 +400,7 @@ struct TileMenu: View {
             Section {
                 ForEach(sessions) { s in
                     Button {
-                        pick(s.kind == .agent ? .agent(cwd: s.cwd, session: s.id) : .terminal(cwd: s.cwd, session: s.id))
+                        pick(.sessions(tile: tile.path, show: .session(s.id)))
                     } label: {
                         Text(verbatim: s.title)
                         Text(verbatim: s.statusText)
@@ -409,12 +410,9 @@ struct TileMenu: View {
             }
         }
         Section {
-            // One way in; the tile's own session screen takes it over later.
-            Menu {
-                Button("Terminal", systemImage: "apple.terminal") { pick(.terminal(cwd: tile.path, session: nil)) }
-                Button("Agent", systemImage: "sparkles") { pick(.agent(cwd: tile.path, session: nil)) }
-            } label: {
-                Label("New session…", systemImage: "plus.rectangle.on.rectangle")
+            // One way in: the tile's sessions screen, on its launcher.
+            Button("New session…", systemImage: "plus.rectangle.on.rectangle") {
+                pick(.sessions(tile: tile.path, show: .launcher))
             }
             if multipleWindows {
                 Button("Open in New Window", systemImage: "macwindow.badge.plus") {

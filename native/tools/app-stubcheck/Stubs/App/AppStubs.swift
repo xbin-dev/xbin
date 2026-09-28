@@ -11,6 +11,7 @@ import XbinAgent
 import XbinCore
 import XbinRendererCheck
 import XbinRendererModel
+import XbinTerm
 
 // Model/AppTransport.swift, Model/DeviceKeys.swift, Shared/Keychain.swift
 final class AppTransport: APITransport, @unchecked Sendable {
@@ -68,6 +69,7 @@ struct TerminalScreen: View {
     var sessionID: String?
     var initialInput: String?
     var onExit: (() -> Void)?
+    var newSession: TermNewSession?
     var body: some View { EmptyView() }
 }
 struct TerminalKeyboardSettingsView: View {

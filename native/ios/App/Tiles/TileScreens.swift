@@ -104,11 +104,12 @@ struct WebTileScreen: View {
                             workspace.open(.tile(tile.path), in: nav)
                         }
                     }
-                    Button("Terminal here", systemImage: "apple.terminal") {
-                        workspace.open(.terminal(cwd: tile.path, session: nil), in: nav)
+                    // The tile's sessions screen (D132): its tabs and tools.
+                    Button("Sessions & tools", systemImage: "rectangle.stack") {
+                        workspace.open(.sessions(tile: tile.path, show: .first), in: nav)
                     }
-                    Button("Agent here", systemImage: "sparkles") {
-                        workspace.open(.agent(cwd: tile.path, session: nil), in: nav)
+                    Button("New session…", systemImage: "plus.rectangle.on.rectangle") {
+                        workspace.open(.sessions(tile: tile.path, show: .launcher), in: nav)
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")

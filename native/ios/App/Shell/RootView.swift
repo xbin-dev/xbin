@@ -174,6 +174,9 @@ struct WorkspaceView: View {
         case .build(let tile):
             BuildChooser(workspace: workspace, tile: tile)
                 .id("build|" + tile)
+        case .sessions(let tile, let show):
+            TileWorkspaceScreen(workspace: workspace, tile: tile, focus: show)
+                .id("sessions|" + tile)
         }
     }
 }

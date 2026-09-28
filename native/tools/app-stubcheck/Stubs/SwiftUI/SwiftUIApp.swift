@@ -200,3 +200,18 @@ extension Animation {
     public static func linear(duration: TimeInterval) -> Animation { Animation() }
     public func delay(_ delay: TimeInterval) -> Animation { self }
 }
+
+// A tile's sessions screen (D132): the tab strip scrolls to the tab in
+// front and takes a swipe beside its own scrolling.
+public struct ScrollViewProxy {
+    public func scrollTo<ID: Hashable>(_ id: ID, anchor: UnitPoint? = nil) {}
+}
+public struct ScrollViewReader<Content: View>: _Leaf {
+    public init(@ViewBuilder content: @escaping (ScrollViewProxy) -> Content) {}
+}
+extension View {
+    public func simultaneousGesture<T: Gesture>(_ gesture: T) -> some View { _V(self) }
+}
+extension ContentUnavailableView where Label == SwiftUI.Label<Text, Image>, Description == Text?, Actions == EmptyView {
+    @_disfavoredOverload public init<S: StringProtocol>(_ title: S, systemImage name: String, description: Text? = nil) {}
+}

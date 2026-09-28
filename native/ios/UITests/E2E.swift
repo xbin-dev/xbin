@@ -516,23 +516,35 @@ final class E2E {
         findTile(path, file: file, line: line).tap()
     }
 
-    /// A new session on a tile from its long press (D128): New session… →
-    /// `kind` ("Terminal" or "Agent"); `shot` names a screenshot of the
-    /// menu. The tile screen's ⋯ menu ("Terminal here", "Agent here") when
-    /// the long press shows none.
+    /// A new session on a tile from its long press: New session… opens
+    /// the tile's sessions screen on its launcher (D132), whose box for
+    /// `kind` starts it — "Terminal" (Bash) or "Agent" (the fake agent,
+    /// the provider the e2e xbind scripts). `shot` names a screenshot of
+    /// the menu. The tile screen's ⋯ menu (its New session…) when the long
+    /// press shows none.
     func newSession(_ path: String, _ kind: String, shot name: String? = nil,
                     file: StaticString = #filePath, line: UInt = #line) {
+        openLauncher(path, shot: name, file: file, line: line)
+        let box = launcherBox(kind)
+        XCTAssertTrue(box.waitForExistence(timeout: 30), "the launcher's \(kind) box", file: file, line: line)
+        box.tap()
+    }
+
+    /// The launcher's box for "Terminal" (Bash) or "Agent" (the fake agent).
+    func launcherBox(_ kind: String) -> XCUIElement {
+        app.buttons.matching(identifier: kind == "Agent" ? "launch:agent:fake" : "launch:shell").firstMatch
+    }
+
+    /// The tile's sessions screen on its launcher: long press → New
+    /// session…, else the tile's ⋯ menu → New session….
+    func openLauncher(_ path: String, shot name: String? = nil, file: StaticString = #filePath, line: UInt = #line) {
         let row = findTile(path, file: file, line: line)
         row.press(forDuration: 1.2)
         let menu = app.buttons["New session…"]
         if menu.waitForExistence(timeout: 5) {
             if let name { shot(name) }
             menu.tap()
-            let item = app.buttons[kind]
-            if item.waitForExistence(timeout: 5) {
-                item.tap()
-                return
-            }
+            return
         }
         // Fallback: close whatever the press opened (a tap by the status
         // bar), open the tile, then its ⋯ menu.
@@ -541,10 +553,13 @@ final class E2E {
         let more = element("More", in: app.buttons)
         XCTAssertTrue(more.waitForExistence(timeout: 20), "the tile's ⋯ menu", file: file, line: line)
         more.tap()
-        let item = app.buttons["\(kind) here"]
-        XCTAssertTrue(item.waitForExistence(timeout: 5), "\(kind) here in the tile's menu", file: file, line: line)
+        let item = app.buttons["New session…"]
+        XCTAssertTrue(item.waitForExistence(timeout: 5), "New session… in the tile's menu", file: file, line: line)
         item.tap()
     }
+
+    /// The sessions screen's tabs (their labels: "Bash, terminal", …).
+    var sessionTabs: XCUIElementQuery { app.buttons.matching(identifier: "session-tab") }
 
     // MARK: Waiting on the server
 

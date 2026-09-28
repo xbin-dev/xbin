@@ -36,15 +36,20 @@ public struct TermDirectoryEntry: Equatable, Sendable, Identifiable {
     public var status: String
     public var pending: Int
     public var questions: Int
+    /// The deployment the session's API calls reach (D127p): a
+    /// non-primary deployment's name, "" for the primary (and on an xbind
+    /// without tile deployments).
+    public var deployment: String
 
     public init(id: String, cwd: String, net: String = "", label: String = "", scopes: [TermScope] = [], gpu: String = "none",
                 api: Bool = true, name: String = "", created: Date? = nil, lastActive: Date? = nil, clients: Int = 0,
                 envHeld: Bool = false, kind: Kind = .shell, vm: Bool = false, provider: String = "", mode: String = "",
-                model: String = "", status: String = "", pending: Int = 0, questions: Int = 0) {
+                model: String = "", status: String = "", pending: Int = 0, questions: Int = 0, deployment: String = "") {
         self.id = id; self.cwd = cwd; self.net = net; self.label = label; self.scopes = scopes; self.gpu = gpu
         self.api = api; self.name = name; self.created = created; self.lastActive = lastActive; self.clients = clients
         self.envHeld = envHeld; self.kind = kind; self.vm = vm; self.provider = provider; self.mode = mode
         self.model = model; self.status = status; self.pending = pending; self.questions = questions
+        self.deployment = deployment
     }
 
     /// What the sheet shows: the user's name, else "shell"/the provider,
@@ -164,7 +169,7 @@ public enum TermDirectory {
 
         enum K: String, CodingKey {
             case id, cwd, net, label, scopes, gpu, api, name, created, lastActive, clients, envHeld, kind, vm
-            case provider, mode, model, status, pending, questions
+            case provider, mode, model, status, pending, questions, deployment
         }
 
         init(from decoder: any Decoder) throws {
@@ -182,7 +187,7 @@ public enum TermDirectory {
                 clients: i(.clients), envHeld: b(.envHeld) ?? false,
                 kind: TermDirectoryEntry.Kind(rawValue: s(.kind)) ?? .shell, vm: b(.vm) ?? false,
                 provider: s(.provider), mode: s(.mode), model: s(.model), status: s(.status), pending: i(.pending),
-                questions: i(.questions))
+                questions: i(.questions), deployment: s(.deployment))
         }
     }
 

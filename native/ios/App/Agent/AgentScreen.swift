@@ -335,6 +335,10 @@ struct AgentScreen: View {
     @State private var signingIn = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
+    /// Hosted as a tab of a tile's sessions screen (D132): nil for a screen
+    /// of its own. A tab puts its items in the bar only while in front.
+    @Environment(\.sessionTab) private var tab
+    @Environment(\.panelActive) private var panelActive
 
     var body: some View {
         Group {
@@ -344,7 +348,7 @@ struct AgentScreen: View {
                 ProgressView()
             }
         }
-        .navigationTitle(Text(verbatim: model?.state?.title ?? "Agent" + (cwd.map { " · \(TileInfo.humanize($0))" } ?? "")))
+        .modifier(SessionTitle(title: model?.state?.title ?? "Agent" + (cwd.map { " · \(TileInfo.humanize($0))" } ?? "")))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(fullScreen ? .hidden : .visible, for: .navigationBar)
         .task {
@@ -382,6 +386,7 @@ struct AgentScreen: View {
         }
         .modifier(AttachPickers(picker: m.picker))
         .toolbar {
+            if tab == nil || panelActive {
             ToolbarItemGroup(placement: .primaryAction) {
                 if let pickers = m.state?.pickers(provider: m.provider), !pickers.isEmpty {
                     Menu {
@@ -393,12 +398,15 @@ struct AgentScreen: View {
                     } label: { Image(systemName: "slider.horizontal.3") }
                 }
                 Menu {
-                    Button("Full screen", systemImage: "arrow.up.left.and.arrow.down.right") { fullScreen.toggle() }
-                    Button("Terminal on this tile", systemImage: "apple.terminal") {
-                        if let c = m.cwd { workspace.open(.terminal(cwd: c, session: nil), in: nav) }
+                    if tab == nil {
+                        Button("Full screen", systemImage: "arrow.up.left.and.arrow.down.right") { fullScreen.toggle() }
+                        Button("Terminal on this tile", systemImage: "apple.terminal") {
+                            if let c = m.cwd { workspace.open(.terminal(cwd: c, session: nil), in: nav) }
+                        }
                     }
                     Button("End session", systemImage: "stop.circle", role: .destructive) { Task { await m.end() } }
                 } label: { Image(systemName: "ellipsis.circle") }
+            }
             }
         }
         .overlay(alignment: .topTrailing) {

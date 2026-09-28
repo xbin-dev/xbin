@@ -157,3 +157,6 @@ extension UINavigationController {
 extension UIApplication {
     @discardableResult public func sendAction(_ action: Selector, to target: Any?, from sender: Any?, for event: UIEvent?) -> Bool { true }
 }
+extension UIColor {
+    public static let secondarySystemBackground = UIColor(red: 0, green: 0, blue: 0, alpha: 1)
+}

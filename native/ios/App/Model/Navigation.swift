@@ -28,23 +28,40 @@ enum Surface: Hashable, Codable {
     /// A tile just created on the phone: "What should this tile be?" —
     /// an agent to build it, or a terminal (BuildChooser).
     case build(tile: String)
+    /// A tile's sessions and tools (D132): its terminals and agents as
+    /// tabs, the launcher, live reload and deployments — the web terminal
+    /// window's counterpart (TileWorkspaceScreen).
+    case sessions(tile: String, show: SessionsFocus)
 
     var title: String {
         switch self {
         case .tile(let t, _, _), .build(let t): return TileInfo.humanize(t)
         case .terminal(let cwd, _): return "Terminal · \(TileInfo.humanize(cwd))"
         case .agent(let cwd, _): return "Agent" + (cwd.map { " · \(TileInfo.humanize($0))" } ?? "")
+        case .sessions(let t, _): return "Sessions · \(TileInfo.humanize(t))"
         }
     }
 
     /// The tile it is about (a terminal's or agent's directory), if any.
     var tilePath: String? {
         switch self {
-        case .tile(let t, _, _), .build(let t): return t
+        case .tile(let t, _, _), .build(let t), .sessions(let t, _): return t
         case .terminal(let cwd, _): return cwd
         case .agent(let cwd, _): return cwd
         }
     }
+}
+
+/// What a tile's sessions screen shows first (D132).
+enum SessionsFocus: Hashable, Codable {
+    /// The tile's first session, or the launcher when it has none.
+    case first
+    /// The launcher (New session…, the `+`).
+    case launcher
+    /// A session's tab (the long press's list).
+    case session(String)
+    /// A tool: live reload and deployments.
+    case deployments
 }
 
 /// One panel of a window's stack.
@@ -245,7 +262,7 @@ final class WorkspaceNav {
         let found = s.tilePath.flatMap { containing($0, current) }
         switch s {
         case .tile, .build: return found
-        case .terminal, .agent: return found ?? current
+        case .terminal, .agent, .sessions: return found ?? current
         }
     }
 

@@ -72,6 +72,11 @@ import XbinCore
         let build = try #require(WindowTarget(encoded: WindowTarget(workspace: "w1", surface: .build(tile: "apps/n")).encoded))
         #expect(build.surface == .build(tile: "apps/n") && Surface.build(tile: "apps/new-thing").title == "New thing")
         #expect(WindowTarget(encoded: "") == nil && WindowTarget(encoded: "junk") == nil)
+        for show in [SessionsFocus.first, .launcher, .session("s9"), .deployments] {
+            let t = WindowTarget(workspace: "w1", screen: "s1", surface: .sessions(tile: "apps/crm", show: show))
+            #expect(WindowTarget(encoded: t.encoded) == t)
+        }
+        #expect(Surface.sessions(tile: "apps/crm", show: .first).tilePath == "apps/crm")
         #expect(Surface.agent(cwd: "apps/my-tile", session: nil).title.hasPrefix("Agent · "))
     }
 
@@ -153,6 +158,9 @@ import XbinCore
         #expect(WorkspaceNav.screen(for: .build(tile: "apps/b"), current: nil, containing: containing) == "s2")
         #expect(WorkspaceNav.screen(for: .terminal(cwd: "apps/z", session: nil), current: "s1", containing: containing) == "s1")
         #expect(WorkspaceNav.screen(for: .agent(cwd: nil, session: "x"), current: nil, containing: containing) == nil)
+        // A tile's sessions screen (D132) goes back as a terminal does.
+        #expect(WorkspaceNav.screen(for: .sessions(tile: "apps/b", show: .launcher), current: "s1", containing: containing) == "s2")
+        #expect(WorkspaceNav.screen(for: .sessions(tile: "apps/z", show: .first), current: "s1", containing: containing) == "s1")
         let nav = WorkspaceNav(workspaceID: "w1")
         nav.open(.tile("apps/z"), on: nil)                      // from Home's search: back is Home
         #expect(nav.entries.map(\.panel) == [.home, .surface(.tile("apps/z"))] && nav.below == .home)

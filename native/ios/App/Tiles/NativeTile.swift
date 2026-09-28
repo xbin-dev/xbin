@@ -422,6 +422,13 @@ struct NativeTileScreen: View {
                         AppSettings.setForcesWeb(workspace.id, tile.path, true)
                         fallBack("Showing the web page — the native view is off for this tile.")
                     }
+                    // The tile's sessions screen (D132): its tabs and tools.
+                    Button("Sessions & tools", systemImage: "rectangle.stack") {
+                        workspace.open(.sessions(tile: tile.path, show: .first), in: nav)
+                    }
+                    Button("New session…", systemImage: "plus.rectangle.on.rectangle") {
+                        workspace.open(.sessions(tile: tile.path, show: .launcher), in: nav)
+                    }
                 } label: { Image(systemName: "ellipsis.circle") }
             }
         }
