@@ -709,6 +709,40 @@ func testSandboxTerminal(t *testing.T, e *csEnv, box, team agSandbox, slow time.
 		s.Close()
 	})
 
+	// the partition over SSH: bob's own key, logging in as alice's sandbox
+	// (its name or its id), runs nothing there
+	t.Run("ssh partition", func(t *testing.T) {
+		bpub, bpriv, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bsigner, err := ssh.NewSignerFromKey(bpriv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bspub, _ := ssh.NewPublicKey(bpub)
+		e.st(t, "bob", "POST", "/keys", map[string]string{"publicKey": strings.TrimSpace(string(ssh.MarshalAuthorizedKey(bspub))) + " bob@consumers-test"}, 201, nil)
+		for _, login := range []string{"box-a", box.ID} {
+			c, err := ssh.Dial("tcp", sshDial, &ssh.ClientConfig{
+				User: login, Auth: []ssh.AuthMethod{ssh.PublicKeys(bsigner)},
+				HostKeyCallback: ssh.FixedHostKey(hostKey), Timeout: 20 * time.Second,
+			})
+			if err != nil {
+				t.Logf("bob's ssh %s: refused at the login (%v)", login, err)
+				continue
+			}
+			if s, err := c.NewSession(); err == nil {
+				b, err := s.CombinedOutput("echo should-not-run")
+				var ee *ssh.ExitError
+				if strings.Contains(string(b), "should-not-run") || !strings.Contains(string(b), "no sandbox") || !errors.As(err, &ee) || ee.ExitStatus() != 1 {
+					t.Errorf("bob's ssh %s: %q %v (want no sandbox for him, exit 1)", login, b, err)
+				}
+				s.Close()
+			}
+			c.Close()
+		}
+	})
+
 	// access removal: a live connection is cut, the next login refused, the key kept
 	t.Run("access removed", func(t *testing.T) {
 		live, err := cli.NewSession()
@@ -747,8 +781,12 @@ func testSandboxTerminal(t *testing.T, e *csEnv, box, team agSandbox, slow time.
 			}
 		}
 		d.Must(t, "GET", "/api/"+stTile+"/keys?all=1", nil, 200).Decode(t, &keys)
-		if len(keys.Keys) != 1 || keys.Keys[0].User != "alice" || keys.Keys[0].Inactive == 0 {
-			t.Errorf("everyone's keys: %+v (want alice's kept, inactive)", keys.Keys)
+		inactive := map[string]bool{}
+		for _, k := range keys.Keys {
+			inactive[k.User] = k.Inactive != 0
+		}
+		if len(keys.Keys) != 2 || !inactive["alice"] || inactive["bob"] {
+			t.Errorf("everyone's keys: %+v (want alice's kept, inactive; bob's active)", keys.Keys)
 		}
 	})
 }
@@ -788,15 +826,19 @@ func hostLoopback(t *testing.T, d *xbindtest.Daemon) string {
 // publicListeners is every listening TCP socket on port (decimal) of
 // xbind's host whose address isn't loopback, from its /proc/net/tcp{,6}:
 // xbind's port relay for a stream expose bound on 127.0.0.1 must add none.
+// It fails the test unless it read them and saw the loopback listener
+// itself (else it looked in the wrong place, and would find nothing).
 func publicListeners(t *testing.T, d *xbindtest.Daemon, port string) []string {
 	t.Helper()
 	p, _ := strconv.Atoi(port)
 	var out []string
+	read, loopback := 0, false
 	for _, f := range []string{"/proc/net/tcp", "/proc/net/tcp6"} {
 		b, err := d.HostSh("cat " + f + "\n")
 		if err != nil {
 			continue
 		}
+		read++
 		for _, line := range strings.Split(b, "\n")[1:] {
 			fs := strings.Fields(line)
 			if len(fs) < 4 || fs[3] != "0A" { // LISTEN
@@ -808,8 +850,13 @@ func publicListeners(t *testing.T, d *xbindtest.Daemon, port string) []string {
 			}
 			if ip := procIP(host); ip == nil || !ip.IsLoopback() {
 				out = append(out, f+" "+fs[1])
+			} else {
+				loopback = true
 			}
 		}
+	}
+	if read == 0 || !loopback {
+		t.Fatalf("xbind's host's /proc/net/tcp{,6} (%d read) show no loopback listener on port %d: the public-listener check can't see the expose", read, p)
 	}
 	return out
 }
