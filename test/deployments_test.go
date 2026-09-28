@@ -2262,10 +2262,10 @@ func TestNonPrimaryActivityReachesWriteAudienceOnly(t *testing.T) {
 		t.Fatalf("main's pin at the add never finished: %+v", a.log(t, tile))
 	}
 	if n := owner.count(0, isEvent("reload", tile)); n > 0 {
-		// 11-contract §3.5 wants none (the pin doesn't change main's code);
-		// WP-53a's open follow-ups name it: an attach's pin isn't marked
-		// identical. Logged, not judged here: this test is about dev.
-		t.Logf("known: main's code-identical pin at the add published %d bare reload(s)", n)
+		// 11-contract §3.5: a swap reloads the primary only when its code
+		// changed, and main's pin at the add is a capture of the work tree
+		// it served.
+		t.Errorf("main's code-identical pin at the add published %d bare reload(s)", n)
 	}
 
 	ws := "ws" + strings.TrimPrefix(a.url, "http") + "/ws/events"
