@@ -310,8 +310,13 @@ export class BxAgent extends LitElement {
       const blocks = this._blocks(), a = this._start - m, z = this._end + m;
       for (let i = 0; i < blocks.length; i++) if ((i < a || i >= z) && blocks[i].$memo) delete blocks[i].$memo;
     }
-    const tail = tx.segs[tx.segs.length - 1];
-    if (this._sw.atBottom && !tx.detached && tail && tail.events.length > 3 * PAGE_LIMIT) this._load(() => tx.splitTail());
+    // (tried again only after another page: a turn that cannot be cut yet — an
+    // open plan spans it — must not ask on every frame)
+    const tail = tx.segs[tx.segs.length - 1], n = tail ? tail.events.length : 0;
+    if (!this._busy && this._sw.atBottom && !tx.detached && n > Math.max(3 * PAGE_LIMIT, (this._splitTried || 0) + PAGE_LIMIT)) {
+      this._splitTried = n;
+      this._load(() => tx.splitTail().then((ok) => { if (ok) this._splitTried = 0; return ok; }));
+    }
   }
 
   // one page load at a time; its blocks render when it lands
