@@ -360,6 +360,16 @@ stay byte for byte what it was.
   `XBIN_TEST_ROOTFS` — a rootfs whose image has git — user namespaces and a
   shell whose own sandbox allows re-executing `/proc/self/exe`; without them
   they skip with the reason.
+- **The downgrade and latency knobs.** `TestDowngradeStatic` and
+  `TestDowngradeDormantRegistrations` run the previous release's xbind,
+  named by `XBIN_DOWNGRADE_BIN`, on a workspace this tree left deployment
+  state in; without it they skip, and they skip against a binary that
+  already speaks tile deployments. CI extracts `bin/xbind` from the release
+  bundle of the last release before tile deployments; locally, build it
+  from the tag (`git archive <tag> | tar -x -C <dir>`, then
+  `go build ./cmd/xbind` there). `XBIN_TEST_FULL=1` takes 30 samples of
+  every latency row, and with `XBIN_BASELINE_BIN` (the same previous
+  release) the save budgets are compared back to back with it.
 - **Shipping dark.** `--tile-deployments=off` (`XBIN_TILE_DEPLOYMENTS`)
   closes opting in, enforced in the plane's one authorize function: a
   release that must ship before the feature is ready carries it off, and
