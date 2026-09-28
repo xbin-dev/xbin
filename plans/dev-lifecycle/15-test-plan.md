@@ -471,8 +471,8 @@ with the `call` helper (`internal/broker/orgsapi_test.go:56`).
 | The sandbox-managers interplay: the consumer's multi slot on `sandbox-manager` providers at `consumer` is blocked for every provider on every non-primary deployment, with the refusal counted, while the primary's calls are unchanged. The same for llm-gw's shape: a `writer` binding reaches the provider as `reader`, so the `writer`-guarded route refuses a non-primary caller while its reader route (llm-gw's `GET /v1/models`) answers | `TestSandboxManagerEdgeBlocked` | unit | M2 | P3 P23 T4 |
 | The edge policy never changes a primary call (role, target, headers) | `TestEdgePolicyNeverTouchesPrimary` | unit | M2 | P3 P5 |
 | Own-scope bus publishes land in the deployment's namespace; publishes to other scopes need `writer`, which the clamp removes | `TestBusPublishStaysInNamespace` | unit | M2 | P13 T4 |
-| Dormant registrations: a non-primary cron job, bus subscription, interface instance or ingress host registers with 200 into `data/deployments/<TileKey>/<name>/`; `data/cron-jobs.json`, `data/bus-subscriptions.json` and the root `xbin.json` maps stay byte-identical; it never fires or routes | `TestDormantRegistrations` (`deploy_dormant_test.go`) | unit | M2 | P13 T6 |
-| Deliveries on: that deployment's cron and bus deliveries reach it; ingress and interface instances stay inactive; run now delivers exactly once | `TestDeliveriesSwitch`, `TestRunNow` | unit | M2 | P13 T6 |
+| Non-primary registrations: a non-primary cron job, bus subscription, interface instance or ingress host registers with 200 into `data/deployments/<TileKey>/<name>/`; `data/cron-jobs.json`, `data/bus-subscriptions.json` and the root `xbin.json` maps stay byte-identical; cron and bus fire only for that deployment (never the primary), interface instances and ingress hosts never route | `TestDormantRegistrations` (`deploy_dormant_test.go`) | unit | M2 | P13 T6 |
+| Deliveries (an off switch, on by default): off stops that deployment's cron and bus deliveries, on restores them, to it; ingress and interface instances stay inactive either way; run now delivers exactly once, whatever the switch | `TestDeliveriesSwitch`, `TestRunNow` | unit | M2 | P13 T6 |
 | Reassigning the primary (M2): a manager act in a human session with the loud confirmation; refused with 409 unless the tile is in the workspace scope or alone in the scope it roots; the target must be healthy; routing moves and data doesn't; the new primary starts first, then the old one restarts; the old primary's registrations go dormant and the new one's activate; a conflicting dormant ingress host stays inactive and is reported; the root `xbin.json` is never written | `TestReassignPrimaryAtomic` | unit | M2 | P7 P28 |
 | Notifications from a non-primary deployment are recorded as "would notify", with no push and none of the tile's budget spent | `TestNotifyNotPushed` | unit | M2 | P13 T6 |
 | Self-calls: the tile's principal carrying deployment X (an instance, frame or terminal token) calling `/api/<self>/` routes to X with self-admin there; calling another deployment of its own tile is refused | `TestSelfCallRouting` | unit | M2 | P12 T3 |
@@ -713,12 +713,13 @@ inline Go backend whose `go.mod` requires the sdk, in the
 | | `TestPromoteAndRollBack` | isolated | Flows B and D: promote `dev` → main moves code (`/v`), while main's kv and vault are unchanged and the tile directory's hash is unchanged; the deploy log has both entries; roll back → the previous code, data untouched | M2 | P10, SC-WORKTREE, SC-AUDIT |
 | | `TestRollBackBound` | isolated | On R-go and R-static (02-goals §5), roll back to each of the previous three deploy-log entries, with the daemon restarted without `go` on its `PATH` and the work tree replaced by a broken one. Bounds: 2 s p95 and 10 s worst for backends, 1 s p95 for static; the data hash is unchanged; live reload pauses if the deployment was its target | M1 (`main`)/M2 | SC-ROLLBACK, P9 |
 | | `TestFailedDeployInvisible` | isolated | Fault injection per runtime (a broken build, a crash at start, a health timeout) for deploy, promote, roll back and reload now, with an events subscriber throughout: the previous code serves every request; no bare `build-start`, `build-error` or `reload` for the tile; the status is unchanged; the failure reaches the actor and the `deployments` event. The recorded tape is replayed through the app's parser in the Swift rows of §3.12 | M1 | SC-SAFE-DEPLOY |
-| | `TestRegistrationsAtStartStayDormant` | isolated | A probe that registers a cron job and a bus subscription at start runs on main and on `dev`: `dev` gets no deliveries while its deliveries are off; main's registration stores are byte-identical after `dev` starts; no notification is pushed | M2 | SC-DORMANT, P13 |
+| | `TestRegistrationsAtStartActiveOnDeployment` | isolated | A probe that registers a cron job and a bus subscription at start runs on main and on `dev`: `dev`'s are answered and listed active, its tick and its own namespace's publish reach `dev`, never main, and main's publish never reaches `dev`; `dev` gets no deliveries while a manager has its deliveries off, and ticks again once they are back on; main's registration stores are byte-identical after `dev` starts; no notification is pushed | M2 | SC-DORMANT, P13 |
+| | `TestRouteRegistrationsAtStartStayDormant` | isolated | A probe that registers an interface instance at start runs on main and on `dev`: `dev`'s is answered and listed dormant whatever its deliveries switch says; the root `xbin.json` keeps main's table alone (ingress hosts: `TestDormantRegistrationsRouting`) | M2 | SC-DORMANT, P13, P7 |
 | | `TestSelfCallsStayInDeployment` | isolated | A `dev` probe's `/self` returns 200 for its own `/api/<self>/` (served by `dev`) and 403 for `+main` | M2 | P12 T3 |
 | | `TestMultiTileScope` | isolated | Flow G end to end | M2 | P3 P6 P28 |
 | `test/edges_test.go` | `TestInboundEdgesReachOnlyPrimary` | isolated + ingress | §5.5 | M2 | P7 P13 T6, SC-INBOUND |
 | | `TestOutboundEdgePolicy` | isolated | A `dev` consumer attempts a write over each clampable edge kind (interface binding, grant call, cross-scope `res:`, bus subscription): no write succeeds, and the provider's primary sees `reader` and `X-XBin-Deployment: dev`. Stream, lan-ingress, custom-role and splice edges are blocked with the policy named. A `writer`-guarded route (llm-gw's shape) refuses `dev` and its reader route answers. With `net` bound to `host`, `dev` has no egress. The primary's calls carry `writer` and no header | M2 | P3 P11 P23 T4, SC-CLAMP |
-| | `TestReassignPrimaryFlowF` | isolated | Flow F: every inbound edge moves to `dev` and `dev`'s data; main stays pinned with dormant registrations; reassigning back restores it | M2 | P7 |
+| | `TestReassignPrimaryFlowF` | isolated | Flow F: every inbound edge moves to `dev` and `dev`'s data; main stays pinned, its routes dormant and its cron and bus still firing for main; reassigning back restores it | M2 | P7 |
 | `test/flowc_test.go` | `TestAgentFlowCWithBxOnly` | isolated, auth-on | SC-AGENT-BX's seven steps with the real `bx`, run **inside an isolated terminal session** over `/ws/term` whose target is `dev` (the tile-API select's `dev` entry), so `.xbin` is masked as in any real session (`internal/term/binds.go:50`) and `bx logs` must go through `GET /logs` rather than the file (`cmd/bx/main.go:511`): read the state; see `dev`'s build and logs; call `dev`'s API with curl; run now; see the diff against main's checkpoint; promote `dev → main` and roll back; then, with the primary protected by a manager, get a refusal with a stable error code, exit 3 and nothing changed | M2 | P4 P21 P24, SC-AGENT-BX, SC-PROTECT |
 | | `TestAgentBxLiveReload` | isolated | The M1 variant of SC-AGENT-BX in the same session: pause live reload, reload now, `bx status`, `bx logs`, roll back, resume | M1 | SC-AGENT-BX |
 | | `TestPrimaryFirstUnderPressure` | isolated | A `dev` backend exhausts its leaf's memory while main keeps serving within its caps; with VMs available, a primary crash while the tile's `dev` guests fill the budget restarts main and refuses `dev`. It skips without delegated cgroups or VM support | M2 | P25, SC-PRIMARY-FIRST |
@@ -755,8 +756,8 @@ names its unit test and, where it is feasible, the
 | Edge | Unit test | Integration step |
 |---|---|---|
 | Bare `/c/`, `/api/` (E1, E15) | `TestQualifiedURLRouting`, seam row 33 | the bare URL answers main's marker |
-| Cron (E2) | `TestDormantRegistrations` | main's job ticks main; `dev`'s job never fires; run now fires it once to `dev` |
-| Bus push and triggers (E4, E5) | `TestDormantRegistrations`, `TestDeliveriesSwitch` | a publish delivers to main only; with deliveries on, `dev`'s own subscription delivers to `dev` |
+| Cron (E2) | `TestDormantRegistrations` | main's job ticks main; `dev`'s job ticks `dev`, never main, and not at all while its deliveries are off; run now fires it once to `dev` |
+| Bus push and triggers (E4, E5) | `TestDormantRegistrations`, `TestDeliveriesSwitch` | a publish in main's namespace delivers to main only; `dev`'s own subscription delivers `dev`'s namespace's events to `dev`, and nothing while its deliveries are off |
 | alwaysOn (E6) | seam row 35 | an alwaysOn manifest in `dev`'s checkpoint doesn't start `dev` at boot |
 | Ingress HTTP and terminators (E7) | `TestIngressForwardPrimaryOnly` | a Host-routed request on `--ingress-listen` answers main's marker |
 | L4 streams, hairpin, stream interfaces (E8, E9) | seam row 33 (`DialInto` → primary) | — |
@@ -777,8 +778,8 @@ the tag. Without it, the test skips.
    - static tile A: live reload paused, main pinned to c1, work tree at
      `m2`;
    - (`TestDowngradeDormantRegistrations`, isolated) probe tile B: a `dev`
-     deployment whose cron job `/dev-tick` is dormant, plus a main job
-     `/tick`.
+     deployment with its own cron job `/dev-tick` (its per-deployment file),
+     plus a main job `/tick`.
 2. Stop, then start the old binary on the same workspace.
 3. Assert what [12-compat.md](12-compat.md) promises:
    - it boots;
@@ -787,7 +788,7 @@ the tag. Without it, the test skips.
    - the root `xbin.json` and `data/cron-jobs.json` are byte-identical;
    - `data/deployments/` and `data/checkpoints/` are untouched.
 4. Stop, then start the new binary: A serves c1 again, and B's `dev` job is
-   still dormant.
+   still `dev`'s: listed for `dev`, never delivered to main.
 
 ## 6. The legacy fixture
 
@@ -922,8 +923,9 @@ the tag. Without it, the test skips.
    edge control disabled with the manager reason. sales1 sets it to
    `block`, and the row shows `block` for both. A routed state renders a
    custom-role edge fixed at `block` (P23) with its refusal count.
-6. **Dormant list.** A routed state renders the dormant registrations
-   (cron, bus, ingress), "would notify" entries, and run now. Clicking run
+6. **Registrations.** A routed state renders the registrations (cron and
+   bus active, or dormant with deliveries off; ingress dormant), "would
+   notify" entries, and run now. Clicking run
    now sends the documented request.
 7. **Protected primary.** sales1 protects the primary. dev1's tile-API
    select no longer offers main and defaults to `dev`, the live reload
@@ -1012,7 +1014,7 @@ table lists those names, plus this plan's other tests for the threat.
 | T3 cross-deployment privilege | `TestMintRefusesCrossDeployment`, `TestFrameTokenBoundToDeployment`, `TestSelfCallStaysInDeployment`, `TestTerminalTargetBinding`, `TestTerminalTokenCannotMintProtectedPrimaryToken`, `TestDeploymentURLRefusesOtherTiles`, `TestIngressNeverReachesNonPrimary`, `TestOriginLabelPerDeployment`, `TestPlusReservedInNewTilePaths` · `TestInstanceTokenCarriesDeployment`, `TestSelfCallsStayInDeployment` (isolated), `TestAddDeploymentNameCollision` | — |
 | T4 mutation or exfiltration through outbound edges | `TestReadClampOnEveryEdge`, `TestEdgeBlockFailsClosed`, `TestDeploymentHeaderOnlyFromXbind`, `TestNonPrimaryBusPublishIsolated`, `TestNonPrimaryNeverJoinsProviderRoster`, `TestNetEdgeDefault`, `TestNonPrimaryNeverSharesHostNetwork` (isolated), `TestUnclampableEdgeDefaults` · `TestUnclampableEdgesRefuseOverride`, `TestSandboxManagerEdgeBlocked`, `TestEdgeUnknownValueBlocks`, `TestEdgeBlockWins`, `TestOutboundEdgePolicy` (isolated) | Residual: `read` edges and the inherited net edge let non-primary code read what the tile reads (P20, an accident boundary) |
 | T5 secrets | `TestVaultPerDeployment`, `TestVaultCopyManagerOnly`, `TestAlwaysOnNonPrimaryManagerOnly`, `TestProtectedPrimaryVaultWritesManagerOnly` · seam row 35 | Manual: the warning copy when a manager copies an exclusive connection's token and turns alwaysOn on |
-| T6 side effects | `TestNonPrimaryCronDormant`, `TestNonPrimaryBusSubDormant`, `TestNonPrimaryIfaceInstancesNeverRouted`, `TestNonPrimaryIngressHostsNeverRouted`, `TestNonPrimaryNotifyNeverPushed`, `TestNonPrimaryStatusNamespaced`, `TestDeliveriesSwitchManagerOnly`, `TestReassignMovesActiveRegistrations` · `TestRunNow`, `TestInboundEdgesReachOnlyPrimary` (isolated), `TestRegistrationsAtStartStayDormant` (isolated) | — |
+| T6 side effects | `TestNonPrimaryCronDormant`, `TestNonPrimaryBusSubDormant`, `TestNonPrimaryIfaceInstancesNeverRouted`, `TestNonPrimaryIngressHostsNeverRouted`, `TestNonPrimaryNotifyNeverPushed`, `TestNonPrimaryStatusNamespaced`, `TestDeliveriesSwitchManagerOnly`, `TestReassignMovesActiveRegistrations` · `TestRunNow`, `TestInboundEdgesReachOnlyPrimary` (isolated), `TestRegistrationsAtStartActiveOnDeployment` (isolated), `TestRouteRegistrationsAtStartStayDormant` (isolated) | — |
 | T7 information disclosure through events and listings | `TestNonPrimaryUsesNewEventTypes`, `TestDeploymentEventsFiltered`, `TestPrimaryFrameTokenGetsNoNonPrimaryFacts`, `TestReaderSeesPrimaryOnly`, `TestNonPrimaryRowsNeedWrite`, `TestLogsPerDeployment` · `TestNonPrimaryBuildErrorNotBroadcast`, `TestSandboxesDeploymentRows` | Pre-existing: every other non-bus event reaches every subscriber (`internal/server/server.go:603-605`; side finding 2). That is out of scope here, and its fix carries its own test |
 | T8 seeding and PII | `TestSeedManagerOnly`, `TestSeedNeverWritesPrimary`, `TestSeedCopyConfinedNoFollow`, `TestSharedScopeSeedNeedsEveryTile`, `TestJoinSeededNamespaceManagerOnly` · `TestDataSeparation` (isolated) | Manual: the PII warning text |
 | T9 authority enforcement | `TestDeployAuthzMatrix`, `TestViewAsRefusedEveryOp`, `TestNoTerminalCannotOperate`, `TestOwnRuntimePrincipalsCannotOperate`, `TestAuthorizationRecheckedAtCommit` · `TestTargetGates`, `TestDeploymentURLGate`, `TestDeploymentRouteClasses`; harness `deployments` step 7, `viewAs` | — |
@@ -1175,7 +1177,7 @@ terminal-level non-manager, a reader and a manager). Stop it by PID.
 | P10 promotion moves code only | `TestPromoteMovesCodeOnly`, `TestPromoteAndRollBack` |
 | P11 authority stays per tile | `TestPrincipalDeploymentZeroValue`, `TestDeployAuthzMatrix`, `TestGrantedRoleReadClamp` |
 | P12 self-calls stay inside the deployment | `TestSelfCallRouting`, `TestMayMintFrameTokenNeverCrossesDeployments`, `TestInstanceTokenCarriesDeployment`, `TestSelfCallsStayInDeployment` |
-| P13 dormant registrations, no pushes, status and build activity only in `deployments` | `TestDormantRegistrations`, `TestNotifyNotPushed`, `TestStatusPerDeployment`, `TestNonPrimaryUsesNewEventTypes`, `TestDeploymentEventsFiltered`, `hack/events-socket.test.mjs` |
+| P13 per-deployment registrations (cron and bus fire for their deployment, routes dormant off the primary), no pushes, status and build activity only in `deployments` | `TestDormantRegistrations`, `TestNotifyNotPushed`, `TestStatusPerDeployment`, `TestNonPrimaryUsesNewEventTypes`, `TestDeploymentEventsFiltered`, `hack/events-socket.test.mjs` |
 | P14 empty start; seeding and vault copy by managers | `TestKVNamespacePerDeployment`, `TestVaultPerDeployment`, `TestVaultCopyManagerOnly`, `TestSeedManagerOnly`, `TestSeedNeverWritesPrimary` |
 | P15 xbind-owned state | `TestRecordLocation`, `TestTerminalMasksDeploymentState`, `TestZeroStateCreatesNoDeploymentFiles`, `TestDeploymentStateBootsTwice` |
 | P16 confine-only git; contained serving | `TestCaptureIgnoresTileGitConfig`, `TestStoreUsesConfineOnly`, `TestPinnedServingUsesOpenBeneath`, `TestMaterializeSymlinkEscape`, `TestRebindDirInSandbox`, `TestViewRepoHoldsOnlyPinnedViews`, `TestNoFollowingHostWalks`, `TestNestedComponentBoundAfterCheckpoint` |
@@ -1208,7 +1210,7 @@ terminal-level non-manager, a reader and a manager). Stop it by PID.
 | SC-INBOUND | `TestInboundEdgesReachOnlyPrimary`, `TestEnsureCallSitesPassPrimary`, seam row 33, the §5.5 unit rows | M2 |
 | SC-DATA | `TestDataSeparation`, `TestKVNamespacePerDeployment`, `TestNonPrimaryResourceBindsNeverPrimary`, `TestPinnedBackendSeesCheckpoint`, `TestSeedNeverWritesPrimary` | M2 |
 | SC-CLAMP | `TestOutboundEdgePolicy`, `TestGrantedRoleReadClamp`, `TestEdgePolicyBlock`, `TestUnclampableEdgeDefaults`, `TestIdentifyDeploymentHeader` | M2 |
-| SC-DORMANT | `TestDormantRegistrations`, `TestRegistrationsAtStartStayDormant`, `TestNotifyNotPushed`, `TestDowngradeDormantRegistrations` | M2 |
+| SC-DORMANT | `TestDormantRegistrations`, `TestRegistrationsActiveByDefault`, `TestRegistrationsAtStartActiveOnDeployment`, `TestRouteRegistrationsAtStartStayDormant`, `TestNotifyNotPushed`, `TestDowngradeDormantRegistrations` | M2 |
 | SC-EVENTS | `TestNonPrimaryUsesNewEventTypes`, `TestDeploymentEventsFiltered`, `TestReaderSeesPrimaryOnly`, `TestStatusPerDeployment`, `hack/events-socket.test.mjs`, the Swift rows | M2 |
 | SC-PROTECT | `TestProtectedPrimary`, `TestProtectedPromoteNeedsReviewedCheckpoint`, `TestDeployAuthzMatrix` (protected row, stable error code), `TestTargetProtectedPrimary`, `TestAgentFlowCWithBxOnly` step 7, harness `deployments` step 7 | M2 |
 | SC-AGENT-BX | `TestAgentFlowCWithBxOnly`, `TestAgentBxLiveReload`, `TestBxSaysWhereSavesGo`, `TestBxExitCodes` | M1 variant, M2 |

@@ -51,7 +51,7 @@ Owned elsewhere, and only referenced here:
 | F4 | **Tile principals address only their own deployment.** A self-call lands on `dep(p)`. Naming another deployment of the same tile is refused, on every route (P12, §4). |
 | F5 | **One function decides a non-primary deployment's outbound calls.** It is `resolveTarget` (§5.3). No other code reads the edge policy. |
 | F6 | **Fail closed.** Each of these is refused with an error that names the rule or the edge: an unknown deployment, an unknown edge-policy value, an unclassified self-scoped API, a role the read clamp can't narrow. |
-| F7 | **Registrations are dormant, not refused.** Registering from a non-primary deployment succeeds and is stored under it. It has no effect unless that deployment is primary, or, for cron and bus only, has deliveries on (P13, §6, §7). |
+| F7 | **Registrations are stored, not refused.** Registering from a non-primary deployment succeeds and is stored under it. Its cron jobs and bus push subscriptions fire for it unless a tile manager switched its deliveries off; its interface instances and ingress hosts have no effect unless it is primary (P13, revised 2026-09-28; §6, §7). |
 | F8 | **The inbound surface follows the primary's code.** `template`, `exposes`, `expose.roles` (with `implies`), `provides` and `chrome` are read from `primary(T)`'s code: the work tree while the primary is the live reload target, its checkpoint while pinned ([05-model.md](05-model.md) §6). Every inbound decision below (a binding's role, the read clamp's `implies`, what is exposed, whether a document is chrome) reads that view. A non-primary deployment's documents are never chrome. Tile-level fields (`uses`, `interfaces`, `deps`) stay the work tree's. |
 
 ## 1. Inbound edges: every one reaches the primary
@@ -78,7 +78,7 @@ Rows marked (iso) need `--isolate` and run under `make integration`.
 | Native runtime document `/c/<tile>/?native=1`, and the native app | `static.go:119-121` → `serveNativeRoute` `internal/server/native.go:54`. The app maps `/c/…` to a tile by longest prefix and forwards its frame token: `native/ios/Packages/XbinCore/Sources/XbinCore/Client/TileLoading.swift:74-93`. | Server side only: served from the primary's code. The app is unchanged. It never builds a deployment URL, and it never sees non-primary activity, which rides only the `deployments` event ([05-model.md](05-model.md) §8). | `TestNativeDocumentFollowsPrimary` |
 | Consumer interface bindings: backend env and frontend meta | URLs from `HTTPSlots` `internal/broker/netfn.go:341-381`; instance prefixes from `ws.IfaceInstances[prov]` :366. Env: `EnvFor` `internal/broker/resources.go:103-123`. Meta: `static.go:444-448`. All of it becomes the `/api` edge above. | URLs are unchanged. The role a binding grants comes from the provider primary's `provides` and `expose` (F8). `prov#inst` resolves against the **provider primary's active** interface instance table (§8), which is today's root map while `main` is primary. | `TestEnvForPerDeployment`; new `TestIfaceInstanceFollowsPrimary` for `prov#inst` |
 | Grant-based calls: `uses` rows and same-scope auto-grants | `grantedRole` `internal/broker/broker.go:418-452`, then the `/api` edge. | None: the primary by default. | `TestEdgePolicyNeverTouchesPrimary` |
-| Cron ticks (D85) | `fire` `internal/broker/cron.go:166-186` builds `xbin/cron` at :180. `DispatchViaProxy` :200-208 posts to `/api/<comp><path>`. | A job carries its owning deployment (`main`'s jobs stay in today's store). It fires only while its owner is primary or has deliveries on, and it dispatches to its owner (§7). | `TestDormantRegistrations`, `TestDeliveriesSwitch`: `main`'s job reaches `A`; `dev`'s stays dormant until deliveries are on, then reaches `B`. |
+| Cron ticks (D85) | `fire` `internal/broker/cron.go:166-186` builds `xbin/cron` at :180. `DispatchViaProxy` :200-208 posts to `/api/<comp><path>`. | A job carries its owning deployment (`main`'s jobs stay in today's store). It fires unless its owner is a non-primary deployment with deliveries off, and it dispatches to its owner, never the primary (§7). A deployment's own tick is not an inbound edge from others. | `TestDormantRegistrations`, `TestDeliveriesSwitch`: `main`'s job reaches `A`; `dev`'s reaches `B`, and stays dormant while its deliveries are off. |
 | Bus push deliveries (D85) | `publish` `internal/broker/bussubs.go:271-299` → `deliver` :337-362 (`xbin/bus` built at :354) → `DispatchBodyViaProxy` :127-135. | As cron. In addition, a delivery queues only when the event's data namespace equals the subscription's resolution (§5.10). | `TestDormantRegistrations`, `TestDeliveriesSwitch`; new `TestBusNamespaceMatch` |
 | Event triggers (D87) | Bus triggers are `trig-<id>` subscriptions (`builtin-templates/agent/_backend/triggers.go:441-470`), i.e. the bus-push row. Push triggers are a bound tile's `/adapter/event` call, i.e. the binding row. | None beyond those two rows. | Covered by those rows. |
 | Webhooks | Public `/hook/*` arrives through ingress (next row) at the webhooks tile's primary. Its pushes leave through the multi `agents` slot, `builtin-tiles/webhooks/xbin.json:17`. | Inbound: none. Outbound from a non-primary webhooks deployment: blocked, with no override, because role `channel` can't be read-clamped (P23, §5.5). | `TestUnclampableEdgeDefaults` |
@@ -114,8 +114,10 @@ Exactly three paths reach a non-primary deployment ([05-model.md](05-model.md)
 - the tile's terminal and agent sessions that target it;
 - its own self-calls.
 
-A tile manager can turn on its deliveries and alwaysOn, and a terminal-level
-user can run one of its dormant jobs now (§7). Nothing else reaches it.
+Its own cron jobs and bus subscriptions deliver to it unless a tile manager
+switched its deliveries off; a tile manager can turn on its alwaysOn, and a
+terminal-level user can run one of its jobs now (§7). Nothing else reaches
+it.
 
 ### 2.1 The deployment URL
 
@@ -232,9 +234,9 @@ This also resolves two research hazards
   deployment;
 - its `resume` cron job (`owner.go:225`) and its `sched-*` jobs
   (`builtin-templates/agent/_backend/schedule.go:166`), registered from a
-  non-primary deployment, are that deployment's dormant registrations. They
-  never fire into the primary. They fire only while a tile manager has that
-  deployment's deliveries on, and then they reach it (§7).
+  non-primary deployment, are that deployment's registrations. They never
+  fire into the primary: they reach that deployment, unless a tile manager
+  switched its deliveries off (§7).
 
 **Sandbox-to-tile forwards.** D113's phase-3 forward from a tile-managed
 sandbox to its tile's backend ([../tile-sandboxes.md](../tile-sandboxes.md) §5)
@@ -250,8 +252,10 @@ A non-primary deployment never receives any of these:
 - another deployment's cron ticks or bus deliveries;
 - alwaysOn wakes, unless its own switch is on.
 
-Its interface instances and ingress hosts never become active while it is
-non-primary, deliveries on or not (§6, §7).
+Its own cron ticks and bus deliveries reach it (unless its deliveries are
+off): they are its registrations, not inbound edges. Its interface instances
+and ingress hosts never become active while it is non-primary, deliveries on
+or not (§6, §7).
 
 ## 3. Principal changes
 
@@ -996,14 +1000,14 @@ slot, and a separate `sandbox-terminal` tile.
 - **What a non-primary deployment of the agent tile can do in v1:** serve its
   UI at its deployment URL; keep its own data (its conversations and memory
   live in its own namespace of the tile's `db` resource); call its own-scope
-  APIs; list models; call MCP providers whose role clamps to `reader`.
+  APIs; list models; call MCP providers whose role clamps to `reader`; fire
+  its own scheduled and resume jobs, for itself, unless a tile manager
+  switched its deliveries off (§2.4, §7).
 - **What it can't do in v1:**
   - run LLM turns (§5.12);
   - reach any sandbox manager (above), so it has no coding sandboxes;
   - receive channel messages: adapters bind the primary's `inbox`, and
-    inbound edges reach only the primary (P7);
-  - run scheduled or resume jobs, unless a tile manager turns its deliveries
-    on (§2.4, §7).
+    inbound edges reach only the primary (P7).
 
   Agent changes that need turns or sandboxes are therefore exercised on the
   primary: under parity by a terminal-level user (P4), or by a manager's
@@ -1032,7 +1036,7 @@ Every `/api/xbin/*` route has one of P26's three classes
 - **Deployment-scoped** routes act on `dep(p)`, in one of three ways:
   - **dormant**: the call succeeds with today's response, and the result is
     stored under the deployment. It has no effect until that deployment is
-    primary, or, for cron and bus only, has deliveries on;
+    primary;
   - **namespaced**: it reads and writes the deployment's own `(scope, name)`
     data namespace ([08-data.md](08-data.md));
   - **per-deployment**: it acts on a tile-keyed store that gains the
@@ -1049,8 +1053,8 @@ defines. Tile principals may pass such a selector only when it names
 
 | API | Code | Today keyed by | Non-primary class | Behaviour |
 |---|---|---|---|---|
-| Cron jobs: `GET`/`PUT /cron/jobs`, `DELETE /cron/jobs/{name}` | `cron.go:212-270`; routes `broker.go:283-285` | `(component, name)`, `data/cron-jobs.json` (`cron.go:108`) | dormant | stored in the deployment's own file ([05-model.md](05-model.md) §3); fires only while active (§7); the list shows its own jobs with `dormant: true`. The `writer` check on a foreign cron resource (`cron.go:245`) applies the edge's `block` but not its clamp: a job only ever schedules the deployment's own handler. Under `read` it is stored dormant; under `block` it is refused (08-data §7; NP-09-18). |
-| Bus subscriptions: `GET`/`PUT /bus/subscriptions`, `DELETE …/{name}` | `bussubs.go:371-449`; routes `broker.go:273-275` | `(component, name)`, 64 per component (`bussubs.go:50`, `:194-202`) | dormant | as cron; the cap is 64 per `(tile, deployment)`, so `main`'s is unchanged (NP-09-16). A subscription on a foreign bus is stored dormant under `read` and refused under `block` (08-data §7). Once active, it is re-checked against the edge at every delivery (§7). |
+| Cron jobs: `GET`/`PUT /cron/jobs`, `DELETE /cron/jobs/{name}` | `cron.go:212-270`; routes `broker.go:283-285` | `(component, name)`, `data/cron-jobs.json` (`cron.go:108`) | per-deployment | stored in the deployment's own file ([05-model.md](05-model.md) §3); fires for it unless its deliveries are off (§7), when the list shows its jobs with `dormant: true`. The `writer` check on a foreign cron resource (`cron.go:245`) applies the edge's `block` but not its clamp: a job only ever schedules the deployment's own handler. Under `read` it is stored; under `block` it is refused (08-data §7; NP-09-18). |
+| Bus subscriptions: `GET`/`PUT /bus/subscriptions`, `DELETE …/{name}` | `bussubs.go:371-449`; routes `broker.go:273-275` | `(component, name)`, 64 per component (`bussubs.go:50`, `:194-202`) | per-deployment | as cron; the cap is 64 per `(tile, deployment)`, so `main`'s is unchanged (NP-09-16). A subscription on a foreign bus reads the scope's primary's events, like a read binding: stored under `read`, refused under `block` (08-data §7), and re-checked against the edge at every delivery (§7). |
 | Interface instances: `PUT /iface-instances` | `netfn.go:1037-1131`; route `broker.go:254` | root `xbin.json` `ifaceInstances[comp]`, replaced whole | dormant | stored per deployment; no `grants` event and no consumer restarts (`netfn.go:1115-1129` skipped); active only while the deployment is primary; deliveries never activate it |
 | Ingress hosts: `PUT /ingress-hosts` | `ingressfn.go:491-583`; route `broker.go:255` | root `xbin.json` `ingressHosts[comp]` | dormant | zone-validated as today (`ingressfn.go:523-563`); takes no part in conflict checks (`ingressfn.go:587-607`) and triggers no reconcile; active only while primary (NP-09-13) |
 | Ingress routes: `GET /ingress-routes` | `ingressfn.go:613-639` | `Source == p.Component` | dormant | an empty list. A non-primary traefik then renders no ACME for the primary's hostnames ([research/inbound-edges.md](research/inbound-edges.md) §3 F.23; NP-09-12). |
@@ -1140,34 +1144,43 @@ limited to `dep(p)` (§4.2). Tests: `TestDeploymentEventsFiltered`,
 
 ## 7. Deliveries, run now and alwaysOn for non-primary deployments
 
-**The deliveries switch.** Per non-primary deployment, set by tile managers
-in a human session, off by default ([05-model.md](05-model.md) §5, §10). It
-is D85's term for cron and bus POSTs.
+**The deliveries switch.** Per non-primary deployment, an off switch set by
+tile managers in a human session, **on by default** (P13, revised by the
+owner 2026-09-28: "allowing cron for non-primary deployments is fine; bus is
+trickier but subscribe-only would be ok — like read binds") ([05-model.md](05-model.md)
+§5, §10). It is D85's term for cron and bus POSTs. In the record an absent
+`deliveries` is on and `false` is off; turning it on clears the key. The M2
+build stored only `true` (it omitted its default off), which reads as on, so
+no record migrates.
 - **Owner.** Every cron job and bus push subscription records its owning
   deployment. `main`'s stay in today's stores without the field; the others
   live in per-deployment files ([05-model.md](05-model.md) §3).
-- **The active set** is the primary's registrations plus those of each
-  non-primary deployment whose deliveries are on. This is evaluated when
-  registrations change and at each fire or publish.
+- **The active set** is every deployment's cron jobs and bus subscriptions,
+  less those of each non-primary deployment whose deliveries are off. This
+  is evaluated when registrations change and at each fire or publish.
 - **Cron.** `fire` (`cron.go:166-186`) returns early for an inactive owner,
   beside today's lifecycle gate (`cron.go:171-173`). The dispatch principal
-  carries `Deployment = owner`, and routing rule 1 (§4.1) sends it there. A
-  deployment whose deliveries are on starts lazily on a tick; no alwaysOn is
-  needed.
+  carries `Deployment = owner`, and routing rule 1 (§4.1) sends it there,
+  never to the primary. A non-primary deployment starts lazily on a tick; no
+  alwaysOn is needed.
 - **Bus.** `publish` (`bussubs.go:271-299`) queues nothing for inactive
   owners and counts them as dormant, not dropped. `deliver` (`:337-362`)
   re-checks that the owner is active and that the owner deployment can read
-  (§5.3), then dispatches to the owner. Namespaces match per §5.10. With
-  deliveries on, an other-scope subscription therefore receives the target
-  scope's primary events: a read, which the read clamp allows.
+  (§5.3), then dispatches to the owner. Namespaces match per §5.10: an
+  own-scope subscription hears its owner's (scope, name) namespace, and an
+  other-scope subscription receives the target scope's primary events — a
+  read, which the edge's `read` allows and `block` refuses, like a read
+  binding. Publishing is unchanged (§5.10): a non-primary deployment
+  publishes only into its own namespace.
 - **Activation re-checks** ([08-data.md](08-data.md) §7 leaves them to this
   document). A bus subscription meets its edge at every delivery, as the
   reader check does today (`bussubs.go:345`), so a later `block` stops it.
   A cron job meets no edge when it fires, because it dispatches only to its
   own deployment (NP-09-18).
-- **Toggling applies at once.** Cron is re-scheduled or un-scheduled; bus
-  queues are gated. Interface instances and ingress hosts are never
-  activated by deliveries ([05-model.md](05-model.md) §7).
+- **Toggling applies at once.** A job of a deployment switched off stays
+  scheduled and its tick returns early; bus queues are gated. Interface
+  instances and ingress hosts are never activated by deliveries
+  ([05-model.md](05-model.md) §7).
 
 **Run now.** One delivery of one cron job of a non-primary deployment Y.
 - It is dispatched as `xbin/cron` with the job's registered role, to Y,
@@ -1227,15 +1240,16 @@ a manager copies one.
    decision in §1, §4 and §5 resolves Y. Requests already dispatched finish
    on X. Long-lived streams to X last until step 5 cuts them.
 3. **Registrations.**
-   - X's registrations become dormant and Y's become active.
-   - Cron is re-scheduled, and bus gating follows §7.
+   - X's interface instances and ingress hosts become dormant and Y's
+     become active. Each deployment's cron jobs and bus subscriptions keep
+     firing for it, X's included, unless its deliveries are off (§7).
    - `HTTPSlots` (`netfn.go:366`) reads Y's interface instance table. The
      consumers bound to T restart with re-injected URLs, as
      `netfn.go:1115-1129` does today.
    - `IngressLookup` (`ingressfn.go:133`) reads Y's host set, and
      `OnIngressChange` reconciles (`ingressfn.go:578-581`).
    - Nothing is written to the root `xbin.json`. `main`'s rows stay where
-     they are, dormant because of the record. An older xbind, which ignores
+     they are; its routes are dormant because of the record. An older xbind, which ignores
      the record, sees `main` as primary again ([12-compat.md](12-compat.md)).
 4. **Events.**
    - The `deployments` event, to §6.1's audience; readers see only that the

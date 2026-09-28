@@ -204,7 +204,7 @@ Every mitigation below relies on these. Each is testable on its own.
 | T3 | Cross-deployment privilege | High | Deployment-bound credentials; P12; P24 targets | `internal/auth`, `mayMintFrameToken`, `Broker.Policy`, the proxy |
 | T4 | Mutation or exfiltration via outbound edges | High | One resolver; read clamp; unclampable edges and host networking blocked (P23) | the broker's edge resolver |
 | T5 | Secrets | High | A vault per deployment; vault copy is a manager act | `internal/broker/vault.go` |
-| T6 | Side effects from non-primary code | High | Dormant registrations; deliveries are a manager switch | cron, bus subscriptions, push, ingress, iface instances |
+| T6 | Side effects from non-primary code | High | Registrations kept per deployment and delivered only to it; its routes dormant; deliveries a manager's off switch | cron, bus subscriptions, push, ingress, iface instances |
 | T7 | Disclosure through events and reads | Medium | Non-primary activity only in `deployments`; audience filter; reader view | `handleEventsWS`, the deployments plane |
 | T8 | Seeding and PII | High | Manager act; confined, direction-checked seeding | the data plane ([08-data.md](08-data.md)) |
 | T9 | Holes in the authority matrix | High | One authorize function; the human-session manager gate; a matrix test | `internal/deployments` |
@@ -711,15 +711,20 @@ a terminator tile (traefik) requesting certificates for the primary's hosts
 (A1, A7).
 
 **Mitigation.**
-1. Non-primary registrations are dormant (P13). They are stored in
-   per-deployment files beside the record (05-model.md §3), never as rows in
-   today's stores or in the root `xbin.json`. `main`'s rows stay byte-for-byte
-   where they are.
-2. Only the primary's registrations are active, plus those of a non-primary
-   deployment whose deliveries switch a manager has turned on. The dispatcher
-   passes the deployment in the request context (T3a).
+1. Non-primary registrations are stored in per-deployment files beside the
+   record (05-model.md §3), never as rows in today's stores or in the root
+   `xbin.json`. `main`'s rows stay byte-for-byte where they are (P13).
+2. A non-primary deployment's cron jobs and bus subscriptions fire only for
+   it: the dispatcher passes the deployment in the request context (T3a), so
+   a tick or delivery reaches its backend and its data, never the primary.
+   A subscription on another scope's bus reads under the edge policy, re-
+   checked at every delivery (T4). What its jobs send is real (it has the
+   tile's network, read-clamped edges): the accident boundary (P20) keeps it
+   off the primary's data, and a manager silences a noisy deployment with
+   its deliveries switch (off; on by default since P13's revision of
+   2026-09-28).
 3. Interface instances and ingress hosts registered by a non-primary
-   deployment are never active in routing, even with deliveries on. A
+   deployment are dormant: never active in routing, deliveries on or off. A
    non-primary terminator reading `/ingress-routes` gets an empty list, so it
    never requests certificates for the primary's hosts.
 4. Notify from a non-primary deployment is never pushed and never charges the
@@ -731,8 +736,8 @@ a terminator tile (traefik) requesting certificates for the primary's hosts
    cannot clear or paint the primary's status.
 6. `forget(path)` (`internal/broker/cron.go:148`, `bussubs.go:220`) and
    deployment removal also delete the per-deployment files.
-7. **Run now** on a non-primary deployment's dormant job is a terminal-level
-   act (05-model.md §10) and delivers once.
+7. **Run now** on a non-primary deployment's job is a terminal-level act
+   (05-model.md §10) and delivers once, whatever its deliveries switch says.
 
 **Tests.** `TestNonPrimaryCronDormant`, `TestNonPrimaryBusSubDormant`,
 `TestDeliveriesSwitchManagerOnly`, `TestNonPrimaryIfaceInstancesNeverRouted`,

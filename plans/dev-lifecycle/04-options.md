@@ -523,6 +523,14 @@ What the model does with each kind:
 **Recommendation: dormant**, with the deliveries switch reserved to tile
 managers in a human session (A12), and run now. → **P13.**
 
+> **Revised by the owner 2026-09-28 (P13):** "allowing cron for non-primary
+> deployments is fine; bus is trickier but subscribe-only would be ok — like
+> read binds." Cron jobs and bus push subscriptions take the **active** row,
+> for their own deployment only (a foreign bus read under the edge policy,
+> publishing unchanged); deliveries becomes a tile manager's off switch, on
+> by default. Interface instances and ingress hosts stay dormant
+> ([05-model.md](05-model.md) §7).
+
 **Status:** proposed.
 
 ## A7 — The vault

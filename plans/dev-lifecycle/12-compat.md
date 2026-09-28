@@ -8,8 +8,9 @@ used verbatim. The object model is [05-model.md](05-model.md). These
 invariants carry most of the weight here:
 - P5, the zero state;
 - P6, storage follows the deployment;
-- P13, dormant registrations, with non-primary activity only in the
-  `deployments` event;
+- P13, per-deployment registrations (cron and bus fire for their own
+  deployment; interface instances and ingress hosts dormant off the primary),
+  with non-primary activity only in the `deployments` event;
 - P15, state in `data/`;
 - P17, the qualifier and the additive markers;
 - P29, state belongs to the tile it was created for.
@@ -237,7 +238,8 @@ only; unknown keys are ignored.
   - a tile whose `net` resolves to host sharing gives its non-primary
     deployments no egress (P23);
   - notifications are held (P13);
-  - registrations are dormant.
+  - interface instances and ingress hosts are dormant, and cron jobs and bus
+    subscriptions fire only for the deployment (P13).
 
   Rule 8 compares the same call in the same context across upgrades. The
   non-primary context is new and opt-in, so these are not regressions, but
@@ -476,7 +478,7 @@ An old bx meets a new server in two ways.
 | `bx logs <tile>+<name>` | the key `CompKey("<tile>+<name>")` | "no logs yet": no deployment's log is ever stored under a `CompKey` name (PO-2) |
 | `curl $XBIN_URL/api/$XBIN_COMPONENT/…`, `bx api` | the proxy, with the terminal token | The session's target (C1; model flow C) |
 | `bx agent run …` | `POST /term/sessions` with today's body | P24's default target (C1). The echo it doesn't check names the target, and the session's env carries `XBIN_DEPLOYMENT` when it isn't the primary |
-| `bx cron …`, `bx vault …` | self-scoped routes, with the terminal token | The target's cron set (dormant when non-primary) and vault (model §7, §9) |
+| `bx cron …`, `bx vault …` | self-scoped routes, with the terminal token | The target's cron set (firing for it unless its deliveries are off) and vault (model §7, §9) |
 | `bx enable\|disable\|hide\|unhide\|offload\|backup\|restore` | lifecycle and backup routes | Unchanged: these belong to the tile (model §11) |
 | `bx code pr …`, `bx builtin …`, `bx template …` | work-tree operations | Unchanged. The result reaches only the live reload target (model §11) |
 | Creating a tile whose name contains `+` | creation routes | §7. Refused only for the narrow collision, which needs a deployment record. Otherwise it succeeds as today, with a `warnings` entry that old bx ignores |
@@ -520,7 +522,7 @@ everything but the code it runs). Running as a non-primary deployment:
 | Vault URLs built from `Self()` | `sdk/xbin.go:264-317` | The server picks the deployment's vault from the instance token (C1) |
 | Canonical `res:<scope>/<name>` ids, from env or built by hand | docs/resources.md | The ids stay identical; the broker maps them into the deployment's namespace by credential (model §9) |
 | `XBIN_RES_*` paths for fs and sqlite | `internal/broker/resources.go:81-99` | Computed by today's formula from the deployment's own declarations (P22). The launch spec binds the deployment's namespace at the primary's paths, so a resource that both declare has an identical value. A resource only a non-primary deployment declares gets the value `main` would get, bound to that deployment's namespace (model §6, §12) |
-| `xbin.Subscribe` at every start; `PUT /iface-instances`; `PUT /ingress-hosts` | docs/sdk.md, docs/protocol.md | They succeed and are stored dormant (model §7), with today's response shapes |
+| `xbin.Subscribe` at every start; `PUT /iface-instances`; `PUT /ingress-hosts` | docs/sdk.md, docs/protocol.md | They succeed with today's response shapes; the subscription fires for the deployment (unless its deliveries are off), interface instances and ingress hosts are stored dormant (model §7) |
 | `xbin.Status`, `xbin.Notify`, `NotifyUser` | docs/sdk.md | They succeed. Status rides the `deployments` event; notifications are held as "would notify" (P13) |
 | `/api/${xbin.self}/…` through `xbin.fetch` or `selfApi` | `web/bx-kit.js:41` | The frame token's claim routes to the document's deployment (P12) |
 | A raw `fetch('/api/<you>/x')` in origins mode | `docs/elements.md:280-282` | The deployment has its own origin, so the tile cookie is its own (model §7) |
@@ -783,7 +785,7 @@ Per-deployment files must therefore sit where none of these walks lists them
 - **It uses `main`'s data, vault, logs and registrations for every tile**
   (today's keys, P6). That includes tiles whose primary had been reassigned.
 - **It fires only `main`'s registrations** (§5.3). Non-`main` registrations
-  stop, including those with deliveries on.
+  stop, although their deliveries are on.
 - **It resolves deployment URLs by today's longest-prefix walk**
   (`internal/registry/registry.go:517-536`). `/c/<tile>+<name>/` and
   `/api/<tile>+<name>/…` answer 404, or reach an ancestor tile's sub-path if
@@ -949,7 +951,7 @@ boot migration.
 `TestDeploymentStateBootsTwice` (`test/deploystate_boot_test.go`) and
 `TestDeploymentStateBootsTwiceInProcess` (`internal/boot/deploystate_test.go`).
 Their setup creates the state with the feature itself: a static tile with
-live reload paused, a static `dev` deployment, an edge policy, and a dormant job registered with
+live reload paused, a static `dev` deployment, an edge policy, and a job registered with
 a `dev` credential. This document requires the following of them.
 
 **Assertions.**
@@ -961,7 +963,8 @@ a `dev` credential. This document requires the following of them.
 - Derived trees (`.xbin/deploy/`, `.xbin/build/`) may be rebuilt. They are
   filtered from the comparison, as the file map already skips `.xbin/build`.
 - Every tile repository's refs, `HEAD` and `config` are compared explicitly.
-- After boot 1, `main`'s cron job is scheduled and `dev`'s is dormant.
+- After boot 1, `main`'s cron job is scheduled and `dev`'s is scheduled for
+  `dev`, dormant exactly when its deliveries are off.
 - The integration twin should also cover a Go tile with alwaysOn. Boot then
   builds and materializes a pinned checkpoint, the one boot path that writes
   derived deployment state.
