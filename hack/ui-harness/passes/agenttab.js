@@ -250,11 +250,25 @@ async function agentTab(browser) {
   await bar.locator('.lyt button[title="code browser + review"]').click();
   await waitSel(A.page, `bx-frame[src="${TILE}"] bx-code`, { timeout: 10000 });
   check(await fr(A.page, TILE, (f) => f.layout) === 'code' && await host.evaluate((el) => el.style.display) === 'none', 'the code layout shows the code panel instead of the agent');
-  await bar.locator('.lyt button[title="code + agent side by side"]').click();
+  // ⇋ (D129): the toggle that puts the agent beside the panel shown
+  const beside = bar.locator('.lyt button.beside');
+  check(await beside.getAttribute('title') === 'Code beside the agent' && await beside.getAttribute('aria-pressed') === 'false',
+    `⇋ names the panel it puts beside the agent (${await beside.getAttribute('title')})`);
+  await beside.click();
   await A.page.waitForTimeout(200);
-  check(await host.evaluate((el) => el.style.display) === 'flex' && await A.page.locator(`bx-frame[src="${TILE}"] bx-code`).count() === 1, 'split: code and agent side by side');
+  const vsplit = A.page.locator(`bx-frame[src="${TILE}"] .vsplit`);
+  check(await host.evaluate((el) => el.style.display) === 'flex' && await A.page.locator(`bx-frame[src="${TILE}"] bx-code`).count() === 1
+    && await fr(A.page, TILE, (f) => f.layout === 'code' && f.beside) && await beside.getAttribute('aria-pressed') === 'true', 'split: code and agent side by side');
+  const sides = await A.page.locator(`bx-frame[src="${TILE}"] .panels`).evaluate((el) => [...el.children].filter((c) => getComputedStyle(c).display !== 'none')
+    .map((c) => { const r = c.getBoundingClientRect(); return [c.localName + (c.className ? '.' + String(c.className).split(' ')[0] : ''), Math.round(r.left), Math.round(r.right)]; }));
+  check(sides.length === 3 && sides[0][0] === 'bx-code.pane' && sides[1][0] === 'div.vsplit' && sides[2][0] === 'div.term-host' && sides[0][2] <= sides[1][1] + 1 && sides[1][2] <= sides[2][1] + 1,
+    `the code panel, the divider and the agent sit side by side (${JSON.stringify(sides)})`);
+  check(await vsplit.getAttribute('role') === 'separator' && await vsplit.getAttribute('tabindex') === '0', 'the divider is a focusable separator');
   await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-split');
   await bar.locator('.lyt button[title="agent only"]').click();
+  await A.page.waitForTimeout(200);
+  check(await vsplit.count() === 0 && await host.evaluate((el) => el.style.display) === 'flex' && !(await fr(A.page, TILE, (f) => f.beside)),
+    'agent only: no panel, no divider');
 
   // ---- a reload replays the whole transcript from the cursor ----
   const before = (await blocks(A.page)).length;

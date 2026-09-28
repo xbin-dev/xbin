@@ -72,7 +72,7 @@ const provName = (f, id) => (f._providers || []).find((p) => p.id === id)?.name 
 // openHistory shows a past session read-only: a <bx-agent> in history mode
 // (no process, no id — never absorbed into a live row, term-sessions.js).
 export function openHistory(f, row) {
-  f._layout = 'term';
+  f._revealTerm(); // the terminal host shows (a panel beside it stays)
   f._sessions = [...f._sessions, { key: uid(), id: null, kind: 'agent', history: row.id, name: row.name || '', ended: true }];
   f._setActive(f._sessions.length - 1);
 }
@@ -82,7 +82,7 @@ export function openHistory(f, row) {
 // read-only tab it was being viewed in for the live one, in place.
 export function resumeHistory(f, row, replaceKey) {
   const tab = { key: uid(), id: null, kind: 'agent', provider: row.provider, resume: row.id, name: row.name || '', vm: wantVM(f) };
-  f._layout = 'term';
+  f._revealTerm(); // the terminal host shows (a panel beside it stays)
   const i = replaceKey ? f._sessions.findIndex((t) => t.key === replaceKey) : -1;
   f._sessions = i >= 0 ? f._sessions.map((t, j) => (j === i ? tab : t)) : [...f._sessions, tab];
   f._setActive(i >= 0 ? i : f._sessions.length - 1);

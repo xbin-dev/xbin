@@ -4,7 +4,7 @@
 // tab list, and how the legacy browser record is adopted once.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeStore, tabsFrom, clampActive, activeIndex, legacyKey, prefKey, vmPrefKey } from '../web/term-sessions.js';
+import { makeStore, tabsFrom, clampActive, activeIndex, legacyKey, prefKey, vmPrefKey, layoutFromPref, layoutToPref, windowPref } from '../web/term-sessions.js';
 
 // a fetch that records calls and answers from a table
 function fakeFetch(answers = {}) {
@@ -166,4 +166,30 @@ test('tabsFrom: a past-session (history) tab is kept and never absorbs a server 
     'the server row gets its own tab; the history tab stays, id-less, after it');
   assert.equal(tabs[1].ended, true, 'a history tab stays ended (read-only)');
   assert.deepEqual(tabsFrom([], local).map((t) => t.history), ['old-1'], 'nothing on the server: the history tab remains');
+});
+
+// covers D129 — the window pref's layout: any panel full width or beside the
+// terminal, one width. Older prefs restore as they did ('split' is code
+// beside the terminal, `codeW` its width); what is saved restores the same
+// window in an older frame wherever it can ('split'), and the panel alone
+// otherwise; the Deployments layout is never saved or restored (NP-10-2).
+test('the window pref: layouts, beside the terminal, the width', () => {
+  assert.deepEqual(layoutFromPref({ open: true, layout: 'split', codeW: 40 }), { layout: 'code', beside: true, paneW: 40 }, "an older frame's split");
+  assert.deepEqual(layoutFromPref({ layout: 'code', codeW: 70 }), { layout: 'code', beside: false, paneW: 70 });
+  assert.deepEqual(layoutFromPref({ layout: 'logs', beside: true, paneW: 33.5, codeW: 60 }), { layout: 'logs', beside: true, paneW: 33.5 }, 'paneW wins over codeW');
+  assert.deepEqual(layoutFromPref({ layout: 'term', beside: true }), { layout: 'term', beside: false });
+  assert.deepEqual(layoutFromPref({ layout: 'deployments', beside: true, paneW: 50 }), { paneW: 50 }, 'never restored onto Deployments');
+  assert.deepEqual(layoutFromPref({ layout: 'future-panel', paneW: 0 }), {}, "a newer frame's layout: the terminal stays");
+  assert.deepEqual([layoutFromPref({ paneW: 99 }).paneW, layoutFromPref({ codeW: 3 }).paneW, layoutFromPref({ paneW: 'x' }).paneW], [90, 10, undefined]);
+  assert.deepEqual(layoutFromPref(null), {});
+
+  assert.deepEqual(layoutToPref({ layout: 'code', beside: true, paneW: 40 }), { layout: 'split', paneW: 40 }, 'what an older frame restores as its split');
+  assert.deepEqual(layoutToPref({ layout: 'code', beside: false, paneW: 55 }), { layout: 'code', paneW: 55 });
+  assert.deepEqual(layoutToPref({ layout: 'prs', beside: true, paneW: 60 }), { layout: 'prs', beside: true, paneW: 60 });
+  assert.deepEqual(layoutToPref({ layout: 'deployments', beside: true, paneW: 60 }), { layout: 'term', paneW: 60 });
+  assert.deepEqual(layoutToPref({ layout: 'term', beside: true, paneW: 55 }), { layout: 'term', paneW: 55 });
+  for (const w of [{ layout: 'code', beside: true, paneW: 40 }, { layout: 'logs', beside: true, paneW: 25 }, { layout: 'prs', beside: false, paneW: 55 }, { layout: 'term', beside: false, paneW: 55 }]) {
+    assert.deepEqual(layoutFromPref(layoutToPref(w)), w, `${w.layout}${w.beside ? ' beside' : ''} round-trips`);
+  }
+  assert.deepEqual(windowPref({ open: true, layout: 'deployments', beside: true, paneW: 50 }), { open: true, layout: 'term', paneW: 50 }, 'the pref never records Deployments, alone or beside');
 });

@@ -4,7 +4,8 @@
  * budget). `f` is the BxFrame; this reads its state and calls its handlers.
  *
  * Both tab kinds — a shell (kind:"shell") and an agent (kind:"agent", D74)
- * — share one bar: the layout switcher (code, logs, PRs beside either), the
+ * — share one bar: the layout switcher (code, logs, PRs, deployments, each
+ * full width or beside either: ⇋), the
  * net/API/GPU pickers, the tile layer's base update / reset. The pickers
  * are fixed when a sandbox starts: a change restarts a shell, and restarts
  * an agent resuming its conversation (frame-launcher.js restartAgent). An
@@ -22,7 +23,7 @@
  * buttons: the chip and the Reload now offer on the full bar, the zero
  * state's one entry point wherever the settings are; on the degraded bar the
  * compact chip stays in the title row, so the state never hides behind ⋯.
- * The layout switcher's sixth button, ⇈, opens the Deployments panel; once
+ * The layout switcher's ⇈ (before ⇋) opens the Deployments panel; once
  * a tile has deployments to choose from, the tile API select lists them as
  * the session's target ("🔌 target: dev"), and shows today's two entries
  * otherwise.
@@ -31,6 +32,7 @@ import { html, css, nothing, live } from 'lit';
 import { scopeIcon } from '/vendor/bx-netrules.js';
 import { rememberVM } from '/vendor/frame-launcher.js';
 import { barDeploy, titleChip, deployKey, layoutButton, targetSelect } from '/vendor/frame-deploy.js';
+import { split, toggleBeside, besideTitle } from '/vendor/frame-panels.js';
 
 export function titlebar(f) {
   return html`
@@ -127,21 +129,25 @@ function tabTitle(s) {
   return s.ended ? `ended · ${t}` : t;
 }
 
+// The layout switcher: the terminal alone, then one button per panel (a
+// panel keeps its place beside the terminal when it has one), then ⇋, the
+// toggle that puts the terminal beside the panel (frame-panels.js, D129).
 function layoutGroup(f) {
+  const beside = split(f);
   return html`
     <span class="lyt">
       <button class=${f._layout === 'term' ? 'on' : ''} title=${f._isAgent ? 'agent only' : 'terminal only'}
               @click=${() => f._setLayout('term')}>&gt;_</button>
       <button class=${f._layout === 'code' ? 'on' : ''} title="code browser + review"
               @click=${() => f._setLayout('code')}>{ }</button>
-      <button class=${f._layout === 'split' ? 'on' : ''} title=${f._isAgent ? 'code + agent side by side' : 'code + terminal side by side'}
-              @click=${() => f._setLayout('split')}>⇋</button>
       <button class=${f._layout === 'logs' ? 'on' : ''} title="backend logs (read-only)"
               @click=${() => f._setLayout('logs')}>▤</button>
       <button class=${f._layout === 'prs' ? 'on' : ''}
               title="change proposals — patches other tiles' agents suggested for this one"
               @click=${() => f._setLayout('prs')}>⇄${f._prCount ? ` ${f._prCount}` : ''}</button>
       ${layoutButton(f)}
+      <button class=${'beside' + (beside ? ' on' : '')} aria-pressed=${String(beside)} title=${besideTitle(f)}
+              @click=${() => toggleBeside(f)}>⇋</button>
     </span>`;
 }
 
@@ -322,4 +328,7 @@ export const titlebarCss = css`
   .lyt { display: inline-flex; margin-left: 2px; flex: none; }
   .lyt button { padding: 1px 6px; }
   .lyt button.on { background: var(--bx-panel, #23272e); border-color: var(--bx-border, #363c45); color: var(--bx-text, #d4d9e0); }
+  /* ⇋ is a toggle beside the panel buttons, not one of them */
+  .lyt button.beside { margin-left: 3px; }
+  .lyt button.beside.on { color: var(--bx-accent, #f5a623); }
 `;

@@ -125,7 +125,9 @@ and embedded panel:
 - **The edit button** (the 7×7 corner dot; the shell renders its own header
   button instead) opens the floating per-tile work window: tabbed terminal
   sessions plus layout modes — terminal (`>_`), code browser/review (`{ }`),
-  split (`⇋`), and a read-only backend-logs view (`▤`). Which sessions are
+  a read-only backend-logs view (`▤`), change proposals (`⇄`) and
+  deployments (`⇈`), each full width or, with `⇋`, beside the terminal at a
+  width you drag (D129). Which sessions are
   yours on a tile is the server's knowledge — the **session directory**
   (`GET /api/xbin/term/sessions`, D73): every browser you sign into shows
   the same tabs, names included, and attaches to the same still-running

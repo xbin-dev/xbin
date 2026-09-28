@@ -8,17 +8,21 @@
  */
 import { launcherItems, openHistory, resumeHistory } from '/vendor/frame-launcher.js';
 import { deployTestApi, hasLayout } from '/vendor/frame-deploy.js';
+import { split } from '/vendor/frame-panels.js';
 
 // The layouts the window's layout switcher offers, in bar order: the values
 // open(layout) takes, one `.lyt` button each (frame-titlebar.js layoutGroup).
 // A pass compares the bar against this instead of a magic number; the change
 // that adds a layout button adds its name here. 'deployments' (⇈) is there
-// once the tile's deployments state has loaded (frame-deploy.js hasLayout).
-const LAYOUTS = ['term', 'code', 'split', 'logs', 'prs'];
+// once the tile's deployments state has loaded (frame-deploy.js hasLayout);
+// 'split' is the last button, ⇋, the beside-the-terminal toggle (D129).
+const LAYOUTS = ['term', 'code', 'logs', 'prs'];
 
 export function testApi(f) {
   return {
-    get layouts() { return hasLayout(f) ? [...LAYOUTS, 'deployments'] : [...LAYOUTS]; },
+    get layouts() { return [...LAYOUTS, ...(hasLayout(f) ? ['deployments'] : []), 'split']; },
+    get beside() { return split(f); }, // the terminal sits beside the panel (frame-panels.js)
+    get paneW() { return f._paneW; }, // the panel's share beside the terminal, percent
     get iframe() { return f._iframe; },
     get hovered() { return f.hovered; },
     setHover(v) { f._hover = !!v; },

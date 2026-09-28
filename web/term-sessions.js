@@ -22,13 +22,51 @@ export const uid = () => Math.random().toString(36).slice(2, 9);
 const JSON_HDR = { 'Content-Type': 'application/json' };
 
 // Layouts the window pref never records: the Deployments layout
-// (<bx-deployments>) is saved as the terminal layout in its place, so a
-// window never reopens onto it by itself, and an xbind without tile
-// deployments, which has no such layout, never restores one into an empty
-// window body.
+// (<bx-deployments>) is saved as the terminal layout in its place — alone,
+// even when the terminal sat beside it (D129) — so a window never reopens
+// onto it by itself, and an xbind without tile deployments, which has no
+// such layout, never restores one into an empty window body.
 const UNSAVED_LAYOUTS = { deployments: 'term' };
+// The window's panels, in the layout switcher's order (web/frame-panels.js).
+export const PANELS = ['code', 'logs', 'prs', 'deployments'];
+
+// layoutToPref({layout, beside, paneW}) → the layout part of the window pref
+// (D129): code beside the terminal as `layout: 'split'` (what older frames
+// restore), another panel beside it as `beside: true` (older frames show
+// that panel alone), the panel's width (percent) as `paneW`; the
+// Deployments layout as the terminal alone.
+export function layoutToPref({ layout, beside, paneW }) {
+  const p = { layout: layout === 'deployments' || !PANELS.includes(layout) ? 'term' : layout, paneW };
+  if (p.layout !== 'term' && beside) {
+    if (p.layout === 'code') p.layout = 'split';
+    else p.beside = true;
+  }
+  return p;
+}
+
+// layoutFromPref(w) → what a saved window restores: {layout, beside} (absent
+// when the pref names a layout this frame doesn't restore — a newer one's,
+// or the Deployments layout, NP-10-2), and paneW (absent unless a usable
+// percent; an older pref's `codeW`, its code panel's width, when there is
+// no paneW), clamped to 10–90.
+export function layoutFromPref(w) {
+  const out = {};
+  const l = w?.layout === 'split' ? 'code' : w?.layout;
+  if (l === 'term' || (PANELS.includes(l) && l !== 'deployments')) {
+    out.layout = l;
+    out.beside = l !== 'term' && (w.layout === 'split' || w.beside === true);
+  }
+  const pw = Number(w?.paneW ?? w?.codeW);
+  if (pw > 0 && pw < 100) out.paneW = Math.max(10, Math.min(90, pw));
+  return out;
+}
+
 // windowPref(w) → the window state as the pref stores it.
-export const windowPref = (w) => (w && Object.hasOwn(UNSAVED_LAYOUTS, w.layout) ? { ...w, layout: UNSAVED_LAYOUTS[w.layout] } : w);
+export function windowPref(w) {
+  if (!w || !Object.hasOwn(UNSAVED_LAYOUTS, w.layout)) return w;
+  const { beside, ...rest } = w;
+  return { ...rest, layout: UNSAVED_LAYOUTS[w.layout] };
+}
 
 // makeStore({fetch, storage}) → the calls <bx-frame> makes.
 export function makeStore({ fetch: f = globalThis.fetch, storage = globalThis.localStorage } = {}) {

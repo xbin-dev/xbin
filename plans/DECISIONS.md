@@ -4653,3 +4653,42 @@ Deviations and refinements made while implementing; all deliberate:
     volumes), O3, O5 (protection covers code, not the vault). The opt-in switch
     (`--tile-deployments`, `XBIN_TILE_DEPLOYMENTS`) defaults on (O4's
     recommended answer).
+
+- **D129 — The terminal window's panels: full width, or beside the
+  terminal at a width you drag; the tag is "Dev API" (2026-09-28).**
+  web/frame-panels.js, web/bx-deploy.js; docs/elements.md;
+  docs/tile-deployments.md §The Deployments panel; plans/dev-lifecycle/10-ux
+  §3.1, §3.3.
+  - **Why.** The owner, after using tile deployments: Deployments opened as
+    a 50/50 split with the launcher (a window without sessions always showed
+    the terminal host), only code could sit beside the terminal, its divider
+    was a mouse-only 20–80 % range, and the row tag "target of this
+    terminal" wrapped in the side list and meant little. The owner's ruling
+    names it "Dev API".
+  - **Chosen.** The layout is a panel (code, logs, PRs, deployments) or the
+    terminal alone, plus a per-window `beside` flag: `⇋`, now the last
+    switcher button and a toggle, puts the terminal beside whatever panel
+    shows (from `>_`, code — the old split); panel buttons keep the flag,
+    `>_` clears it, and `open(layout)` (the shell's menus) shows a panel full
+    width, so Deployments opens full width. The launcher shows only where
+    the terminal does. One width, `paneW` (percent), for every panel: the
+    divider drags (the shield goes up only once the pointer moves, so a
+    double-click — the reset — reaches it), takes ←/→/Home/End, has
+    `touch-action: none`, and neither side goes below its floor (230 px, the
+    Deployments side list; 200 px of terminal). Saved in `term:<tile>`: code
+    beside as `layout: 'split'` (an older frame restores the same window),
+    another panel beside as `beside: true` (an older frame shows the panel
+    alone), `paneW` read from the older `codeW` when absent; `'deployments'`
+    still restores as `'term'` (NP-10-2). The Deployments panel's narrow
+    drill-down and one-column tables follow its own width (`@container`),
+    so it works in a pane; touch-sized controls stay a phone (`@media`)
+    rule. The tag is `Dev API` — same meaning: the deployment the active
+    tab's API calls and `bx` reach (`XBIN_DEPLOYMENT` when non-primary) —
+    a one-line pill with that sentence as its tooltip, fed by the frame as
+    the panel's `target` property so it follows tab switches (it read a
+    stale frame before); a `● live reload` pill marks where saves go.
+  - **Not chosen:** a split per panel remembered separately (a second
+    width, and a toggle that meant different things per panel); pixel
+    widths (a resized window would squeeze the terminal instead of both);
+    the shield on press (it swallows the double-click); renaming the tile
+    API select's `🔌 target:` entries (only the tag was ruled on).
