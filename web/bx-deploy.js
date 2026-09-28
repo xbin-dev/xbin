@@ -33,6 +33,7 @@
  * log, and confirm (the open review's Promote or Deploy).
  */
 import { LitElement, html, css, nothing } from 'lit';
+import { scrollCss } from '/vendor/scroll-css.js';
 import { unsafeHTML } from 'lit';
 import { diffHTML, diffStats } from '/vendor/bx-code.js';
 import { onEvent, onReconnect } from '/vendor/events-socket.js';
@@ -104,7 +105,7 @@ export class BxDeployments extends LitElement {
     _drill: { state: true },  // phones: the main pane is shown instead of the side list
   };
 
-  static styles = css`
+  static styles = [scrollCss, css`
     :host { display: flex; flex-direction: column; height: 100%; min-height: 0; font: 12px/1.5 var(--bx-mono, ui-monospace, monospace);
       color: var(--bx-text, #d4d9e0); background: var(--bx-panel, #23272e); }
     button { font: inherit; color: inherit; cursor: pointer; }
@@ -175,7 +176,7 @@ export class BxDeployments extends LitElement {
       .tr .lb { display: block; }
     }
     @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
-  `;
+  `];
 
   constructor() {
     super();
