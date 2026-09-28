@@ -505,7 +505,11 @@ func (c Caller) Sh(id, cmd string) string {
 	c.t.Helper()
 	r := c.Run(id, map[string]any{"cmd": cmd})
 	if r.ExitCode == nil || *r.ExitCode != 0 || r.Stdout == nil {
-		c.t.Fatalf("run %q: exit %v (signal %q), stderr %+v", cmd, r.ExitCode, r.Signal, r.Stderr)
+		exit := "none"
+		if r.ExitCode != nil {
+			exit = fmt.Sprint(*r.ExitCode)
+		}
+		c.t.Fatalf("run %q: exit %s (signal %q), stderr %+v", cmd, exit, r.Signal, r.Stderr)
 	}
 	return r.Stdout.Head + r.Stdout.Tail
 }

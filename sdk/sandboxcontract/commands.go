@@ -232,7 +232,7 @@ var execChecks = []check{
 		id, wd := sb.ID, sb.Workdir
 		// the group (default): the leader and its child
 		x := a.Exec(id, map[string]any{"cmd": "sleep 30 & echo $! > " + wd + "/child; wait"})
-		eventually(t, 3*time.Second, "the child's pid", func() bool { return strings.TrimSpace(a.Sh(id, "cat child 2>/dev/null")) != "" })
+		eventually(t, 3*time.Second, "the child's pid", func() bool { return strings.TrimSpace(a.Sh(id, "cat child 2>/dev/null || true")) != "" })
 		a.Call("POST", "/sandboxes/"+id+"/execs/"+x.ID+"/signal", map[string]any{"signal": "TERM"}, http.StatusNoContent, nil)
 		if _, c := a.Drain(id, x.ID); c.State != "killed" || c.Signal != "TERM" || c.ExitCode != nil {
 			t.Fatalf("after TERM: %+v", c)
@@ -248,7 +248,7 @@ var execChecks = []check{
 		a.Refused("POST", "/sandboxes/"+id+"/execs/"+y.ID+"/signal", map[string]any{"signal": "STOP"}, 400, "invalid")
 		// DELETE kills the group and forgets the exec
 		z := a.Exec(id, map[string]any{"cmd": "echo $$ > " + wd + "/z; exec sleep 30"})
-		eventually(t, 3*time.Second, "its pid", func() bool { return strings.TrimSpace(a.Sh(id, "cat z 2>/dev/null")) != "" })
+		eventually(t, 3*time.Second, "its pid", func() bool { return strings.TrimSpace(a.Sh(id, "cat z 2>/dev/null || true")) != "" })
 		a.Call("DELETE", "/sandboxes/"+id+"/execs/"+z.ID, nil, http.StatusNoContent, nil)
 		a.Refused("GET", "/sandboxes/"+id+"/execs/"+z.ID, nil, 404, "not-found")
 		a.Refused("DELETE", "/sandboxes/"+id+"/execs/"+z.ID, nil, 404, "not-found")
