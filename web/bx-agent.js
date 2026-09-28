@@ -205,12 +205,7 @@ export class BxAgent extends LitElement {
     let i = this._from ? blocks.indexOf(this._from) : -1;
     if (i < 0) i = Math.max(0, blocks.length - PAGE);
     const pinned = this._atBottom !== false && !this._keepView;
-    const sc = pinned && blocks.length - i > TRIM ? this._sc() : null;
-    if (sc && sc.clientHeight && sc.scrollTop > sc.clientHeight * 6) {
-      const row = this._rowAt(sc, sc.scrollTop - sc.clientHeight * 2.5);
-      const k = row ? blocks.findIndex((b) => b.key === Number(row.dataset.k)) : -1;
-      if (k > i) i = k;
-    }
+    if (pinned) i = this._trimFrom(blocks, i);
     this._start = i;
     this._from = blocks[i] || null;
     // not following the bottom: the first visible block keeps its place
@@ -228,8 +223,13 @@ export class BxAgent extends LitElement {
     if (!this._ro) { this._ro = new ResizeObserver(() => this._resized()); this._ro.observe(sc); }
     const a = this._anchor;
     this._anchor = null;
-    if (this._atBottom !== false && !this._keepView) sc.scrollTop = sc.scrollHeight;
-    else if (a && a.el.isConnected) {
+    if (this._atBottom !== false && !this._keepView) {
+      sc.scrollTop = sc.scrollHeight;
+      // willUpdate measured the view before this render's blocks landed: a
+      // burst folded into one frame (a slow or busy page) would stay rendered
+      // whole until the next event, so measure again with it in place
+      if (this._trimFrom(this._fold.blocks, this._start) > this._start) this.requestUpdate();
+    } else if (a && a.el.isConnected) {
       const d = a.el.getBoundingClientRect().top - a.top;
       if (Math.abs(d) >= 0.5) sc.scrollTop += d;
     }
@@ -728,6 +728,17 @@ export class BxAgent extends LitElement {
     if (!short && sc.scrollTop > sc.clientHeight * 1.5) return;
     if (this._touch && this._idle && !short && sc.scrollTop > sc.clientHeight * 0.5) return; // _onScroll's settle timer calls back
     this._older();
+  }
+
+  // following the bottom with a long rendered tail (from block i): the first
+  // block to keep, 2.5 views above the view, once more than 6 views are above
+  // it; i when nothing goes
+  _trimFrom(blocks, i) {
+    const sc = blocks.length - i > TRIM ? this._sc() : null;
+    if (!sc || !sc.clientHeight || sc.scrollTop <= sc.clientHeight * 6) return i;
+    const row = this._rowAt(sc, sc.scrollTop - sc.clientHeight * 2.5);
+    const k = row ? blocks.findIndex((b) => b.key === Number(row.dataset.k)) : -1;
+    return k > i ? k : i;
   }
 
   _older(n = PAGE) {

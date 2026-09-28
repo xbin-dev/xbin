@@ -1,7 +1,8 @@
 // hack/ui-harness/passes/agentlong.js — the Agent tab on a long transcript
 // (D124). The fake agent's `long N` script streams N units (a markdown
 // message, an edit call with a diff, a thought every tenth). Checks: (a) only
-// a window of the blocks is in the DOM and the view follows the bottom;
+// a window of the blocks is in the DOM and the view follows the bottom (the
+// turn streams on a throttled CPU, so bursts land in one frame);
 // (b) scrolling near the top loads earlier pages and the block the reader was
 // looking at does not move by a pixel, page after page, down to the first
 // block; (c) scrolled up mid-transcript, a new turn streaming below moves
@@ -45,10 +46,16 @@ async function agentLong(browser) {
   await fr(page, TILE, (f) => f.setActiveTab(f.tabs.length - 1));
 
   // ---- (a) a long turn: a window in the DOM, following the bottom ----
+  // on a throttled CPU, as on a busy machine: slow frames fold bursts of
+  // events into one render, and the rendered tail must be trimmed even when
+  // the last burst lands in one frame (it once stayed rendered whole)
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 20 });
   const t0 = Date.now();
   await ag((a, n) => a.send(`long ${n}`), N);
-  await until((g, n) => g.status === 'idle' && g.blocks.some((b) => b.text === `done: ${n} units`), N, 'the long turn finished', 60000);
-  log(`agent-long: ${N} units streamed and rendered in ${Date.now() - t0} ms`);
+  await until((g, n) => g.status === 'idle' && g.blocks.some((b) => b.text === `done: ${n} units`), N, 'the long turn finished', 120000);
+  log(`agent-long: ${N} units streamed and rendered in ${Date.now() - t0} ms (CPU throttled 20×)`);
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
   await sleep(300);
   let w = await win();
   check(w.total >= 2 * N, `the transcript folded ${w.total} blocks`);
