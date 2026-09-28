@@ -183,10 +183,13 @@ c_tools() {
   local b miss='' opt='' req='git make curl tar'
   [ "$OS" = Linux ] && req="$req zstd unshare fusermount3 newuidmap newgidmap"
   for b in $req; do have "$b" || miss="$miss $b"; done
-  for b in shellcheck python3 $([ "$OS" = Linux ] && echo getfattr setcap); do have "$b" || opt="$opt $b"; done
+  # no shellcheck binary is fine where a container engine works: make check runs a pinned image of it (hack/check-sh.sh)
+  local sc=shellcheck; { { have docker && docker info >/dev/null 2>&1; } || { have podman && podman info >/dev/null 2>&1; }; } && sc=''
+  for b in $sc python3 $([ "$OS" = Linux ] && echo getfattr setcap); do have "$b" || opt="$opt $b"; done
   if have python3 && ! python3 -c 'import yaml' 2>/dev/null; then opt="$opt pyyaml"; fi
   local lx=''; [ "$OS" = Linux ] && lx=', zstd, unshare, fusermount3, newuidmap, attr, libcap'
-  if [ -z "$miss$opt" ]; then S=ok M="git, make, curl, tar$lx, shellcheck, python3 + yaml"; return; fi
+  local scw='shellcheck'; have shellcheck || scw='shellcheck (its container)'
+  if [ -z "$miss$opt" ]; then S=ok M="git, make, curl, tar$lx, $scw, python3 + yaml"; return; fi
   local p; BREW=''
   for b in $miss $opt; do p=$(pkg_of "$b"); if [ "$PKG" = brew ]; then BREW="$BREW $p"; else want_pkg "$p"; fi; done
   if [ -n "$miss" ]; then S=miss M="missing:$miss${opt:+ (and optional:$opt)}"; L="the build, the sandboxes and make check need them"
@@ -491,9 +494,12 @@ f_firecracker() { "$repo/hack/fetch-firecracker.sh" "$repo/bin"; }
 
 c_rootfs() {
   REQ=0 K='' F='' L='make dev, the isolated tests and harness (they skip or build it), agents in sandboxes'
-  local os="$repo/.rootfs/etc/os-release"
-  if [ -e "$os" ] && [ ! "$repo/docker/rootfs.Dockerfile" -nt "$os" ] && [ ! "$repo/hack/build-rootfs.sh" -nt "$os" ]; then S=ok M=".rootfs is current"; return; fi
-  S=$([ -e "$os" ] && echo warn || echo miss) M=$([ -e "$os" ] && echo ".rootfs is older than its Dockerfile" || echo "no .rootfs")
+  local os="$repo/.rootfs/etc/os-release" want have_v
+  # the build records the hash of what built it (hack/build-rootfs.sh)
+  want=$(cat "$repo/docker/rootfs.Dockerfile" "$repo/hack/build-rootfs.sh" | { if have sha256sum; then sha256sum; else shasum -a 256; fi; } | cut -c1-12)
+  have_v=$(cat "$repo/.rootfs/etc/xbin-base-version" 2>/dev/null)
+  if [ -e "$os" ] && [ "$have_v" = "$want" ]; then S=ok M=".rootfs is current (base $want)"; return; fi
+  if [ -e "$os" ]; then S=warn M=".rootfs was built from another Dockerfile (base ${have_v:-unknown}, now $want)"; else S=miss M="no .rootfs"; fi
   K=user F="make rootfs (docker or podman; several GB, a while — once)"
 }
 f_rootfs() {
@@ -672,7 +678,13 @@ root_phase() {
   if [ -n "${XBIN_DEV_PKGS:-}" ] && [ -n "$PKG" ] && [ "$PKG" != brew ]; then
     say "  packages:$XBIN_DEV_PKGS"
     # shellcheck disable=SC2086 # a list of package names
-    pkg_install $XBIN_DEV_PKGS || say "  ${RED}the package install failed${R}"
+    if ! pkg_install $XBIN_DEV_PKGS; then
+      say "  ${RED}the package install failed${R}"
+      case "$PKG" in
+        pacman) say "  (a stale package database 404s: sudo pacman -Syu — a full upgrade — then run this again)" ;;
+        apt) say "  (apt-get update ran; see the error above)" ;;
+      esac
+    fi
   fi
   for id in $ROOTPHASE; do
     [ "$id" = tools ] && continue

@@ -36,8 +36,12 @@ DELEGATED = $(shell systemd-run --user --scope -p Delegate=yes --quiet -- true >
 # Dockerfile or build script change; otherwise cached.
 $(ROOTFS)/etc/os-release: docker/rootfs.Dockerfile hack/build-rootfs.sh
 	@echo ">> building base rootfs into $(ROOTFS) (needs docker; cached after)"
+	@# the image's Go module cache is read-only (Go makes it so): writable first, or rm stops half-way
+	@if [ -d $(ROOTFS) ]; then chmod -R u+w $(ROOTFS); fi
 	rm -rf $(ROOTFS)
 	./hack/build-rootfs.sh $(ROOTFS)
+	@# the image's own mtime is older than the Dockerfile: mark the build's time, or every make rebuilds
+	touch $@
 rootfs: $(ROOTFS)/etc/os-release
 
 # Our own static fuse-overlayfs (built from source, cached). xbind mounts each
