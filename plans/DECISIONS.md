@@ -4426,10 +4426,12 @@ Deviations and refinements made while implementing; all deliberate:
     update`).
 
 
-- **D126 — Native helpers come prebuilt from an S3 bucket, pinned by a
-  committed manifest, and stay rebuildable from source (2026-09-28).**
+- **D126 — Native helpers come prebuilt from static hosting
+  (xbin.dev/static/helpers), pinned by a committed manifest, and stay
+  rebuildable from source (2026-09-28).**
   hack/helpers-lib.sh, hack/fetch-helpers.sh, hack/publish-helpers.sh,
-  hack/s3-lib.sh, hack/helpers.sha256, hack/check-large-files.sh; Makefile
+  hack/helpers-static.sh, hack/s3-lib.sh, hack/helpers.sha256,
+  hack/check-large-files.sh; Makefile
   `helpers`, `helpers-build`, `helpers-publish`, `integration-deps`,
   `large-files`; .github/workflows/ci.yml; docs/maintenance.md → "Prebuilt
   helpers". The owner: CI should use binaries, users must be able to
@@ -4449,10 +4451,16 @@ Deviations and refinements made while implementing; all deliberate:
     inputs), a failed download or a version override builds from source
     with the same scripts. CI warns (annotation, pins-offline) rather than
     fails, so such a PR still lands; a maintainer publishes after.
-  - **S3, public read, curl only**: fetching needs no credentials; the
-    publisher's live in the gitignored s3secret.env, parsed never sourced,
-    and reach curl (`--aws-sigv4`) on stdin. No aws CLI dependency. Never
-    from CI.
+  - **Static hosting, curl only**: the objects are served from
+    `https://xbin.dev/static/helpers/<group>/<key>/amd64.tar.zst`
+    (`XBIN_HELPERS_URL` overrides), so fetching needs no credentials. The
+    owner's S3 can't serve public buckets, so a maintainer builds the tree
+    with `hack/helpers-static.sh` (into the gitignored
+    `website/static-helpers/`, copied to `dist/static/helpers` by `make
+    website`) and deploys it with the website. `make helpers-publish` still
+    uploads to an S3-compatible bucket for a mirror; its credentials live in
+    the gitignored s3secret.env, parsed never sourced, and reach curl
+    (`--aws-sigv4`) on stdin. No aws CLI dependency. Never from CI.
   - **Releases keep building from source** (deploy/publish-release.sh
     unchanged): a bundle never depends on the bucket, and an unpublished
     key only warns.
