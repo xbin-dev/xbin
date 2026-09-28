@@ -31,7 +31,9 @@ stay that good** as the tile evolves. This plan is how.
 Everything the web UI does today (`index.html`, `agent.js`, `sidebar.js`,
 `chat-*.js`, `conv-*.js`, `automations.js`, `auto-*.js`, `share.js`,
 `home.js`), each with its native form. Nothing on the left may be missing on
-the right at parity sign-off (§7).
+the right at parity sign-off (§7). This table is the overview; the enforced,
+finer-grained list is `model/features.js` with its `DIFFERENCES` (§5), and
+areas added after this plan (classes, sandboxes) are tracked there first.
 
 | Area | Web today | Native |
 |---|---|---|
@@ -45,6 +47,8 @@ the right at parity sign-off (§7).
 | **Sharing** | dialog: visibility (only invited / team can view / team can reply), members with roles, invite links shown once with revoke, Leave | a sheet with the same controls; links go to the share sheet; `#join=` links open the app |
 | **Automations** | page with Schedules, Watchers, Channels, Triggers; cards with unread/attention; detail with paged runs; schedule form with cadence presets; channel claim/pairing/people/sessions/undelivered/rules; trigger form, test fire, unmatched pushes | a pushed Automations screen: sections per kind, the same cards (badges), detail screens, native forms; destructive actions confirmed natively |
 | **Managers** | ⚙ Settings (Config model per tier, Features, Memory, Files, Skills, MCP), ⏻ halt all (while runs are active) | Settings screen for managers; halt as a destructive toolbar action with confirmation |
+| **Classes** (D116) | Class picker for new chats (icon, name, description; only classes you may use), the class fixed in a conversation's top bar with a warning when it can move internal data out, a class on every schedule, watcher and trigger (the trigger form refuses a class/data-class clash), channel classes, and managers' Classes settings (add, edit, delete, reset a built-in, the default) | the Class picker in the home toolbar and the new-chat sheet, the chat subtitle with ⚠, the class in the Automations forms, cards and details, channel classes, and a Classes screen under Settings (`native/classes.js`) |
+| **Sandboxes** (D115, D121) | Sandbox picker beside the model (grouped, disallowed ones disabled with the reason, ＋ New, Manage…), ▣ in the top bar (working directory, why a binding broke, Detach), the Sandboxes screen (start, stop, archive, thaw, share, delete, Use here), create, share with a sandbox-terminal tile, and Open terminal (the page dials the manager's tty as you) | the same picker, top-bar item, Sandboxes screen, create and share flows (`native/sandboxes.js`); disallowed picks carry the reason in the label and are refused. **Terminal: web only**, an intended difference until the app's `terminal` can dial a bound interface |
 | **States** | halted (423 for non-managers), view-only, reconnecting, retry on error/canceled | the same states, same wording |
 | **Deep links** | `#c=<id>`, `#auto[=kind:id]`, `#join=<token>` | `xbin://<ws>/c/<agent>#c=…` etc. route into the same model router |
 

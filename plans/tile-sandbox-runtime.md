@@ -5150,6 +5150,10 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
   kill long jobs. A relay out of process is the later fix, if it is ever
   wanted.
 - **Native.** A consumer's native view can't point the `terminal` primitive
-  at a manager: it allows only its own `/api/<self>/…`. The agent tile
-  relays a second hop with `Forward`. Widening the vocabulary is an app
-  release, left to phase 3.
+  at a manager: it allows only its own `/api/<self>/…`. Nothing relays a
+  second hop: the agent lists `tools.sandboxes.terminal` as an intended
+  native difference (a relay would make the person the manager checks an
+  asserted one), and the builtin sandbox-terminal offers "Open in the
+  browser". Only coding-sandbox, its own manager, has a native terminal.
+  Letting the app dial a bound interface's URL is an app release, left to
+  phase 3.
