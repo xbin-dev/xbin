@@ -3452,7 +3452,9 @@ Deviations and refinements made while implementing; all deliberate:
     registry as kind `tile` under their owner. Three gates: an admin-approved
     `cap:sandboxes` (revoke stops the tile's sandboxes), a workspace
     sandboxes policy (sizes, per-tile caps, a kill switch) and, for VM mode,
-    `vm.Policy.tiles` with a tile sub-budget. One exec protocol for both
+    `vm.Policy.tiles` with a tile sub-budget (the owner, 2026-09-28: on by
+    default — a stored policy from before it follows `backends`, the
+    installer's KVM rule, instead of staying off). One exec protocol for both
     modes (`proto`): a resident `bx __sbx-agent` as PID 1 in namespace mode,
     the shim as a resident router in VM mode, reached through a listener fd
     xbind owns. File I/O happens only inside sandboxes (xbind pipes opaque
@@ -4275,7 +4277,10 @@ Deviations and refinements made while implementing; all deliberate:
       offers one now, else a namespace; a chosen mode the runtime lacks makes
       no sandbox (`503` with the runtime's reason, and `hello.notes` says so)
       — never another mode. The record keeps the mode it was made in, so
-      `isolation` is right while it is `creating` too.
+      `isolation` is right while it is `creating` too. **A new manager's
+      mode is `vm`** (the owner, 2026-09-28: a coding sandbox is a VM unless
+      an operator chooses otherwise); a manager made before keeps `auto`
+      (a saved config without a mode, or sandboxes and no saved config).
     - **Mounts are a top-level `config.mounts`**, not `backendConfig`
       (changing that one needs every sandbox gone), checked as the runtime
       checks them; image builds get none.

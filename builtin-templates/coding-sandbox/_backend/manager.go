@@ -86,6 +86,14 @@ func newManager(st *store, be Backend) (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("images: %w", err)
 	}
+	// A manager that made sandboxes before "vm" became the default, and never
+	// saved a config, keeps the automatic mode it ran with.
+	if saved, _ := st.setting("config"); saved == "" && (len(recs) > 0 || len(imgs) > 0) {
+		cfg.Mode = "auto"
+		if err := st.putConfig(cfg); err != nil {
+			return nil, fmt.Errorf("config: %w", err)
+		}
+	}
 	m := &Manager{st: st, cfg: cfg, recs: map[string]*record{}, imgs: map[string]*builtImage{},
 		execIdem: map[string]execIdem{}, live: map[string]time.Time{}, starting: map[string]bool{},
 		locks: map[string]*opLock{}, creates: map[string]*createJob{}, builds: map[string]*buildJob{}, self: xbin.Self()}

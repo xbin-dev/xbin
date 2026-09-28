@@ -27,8 +27,9 @@ type Policy struct {
 	DiskGiB   int  `json:"diskGiB"`   // a VM terminal's persistent disk (sparse; default 20)
 
 	// The sandboxes manager tiles run (plans/tile-sandbox-runtime.md, D120).
-	// Off by default, like the switches above; the installer's fresh policy
-	// turns Tiles on where KVM is usable. Their VMs count against the
+	// Off without a policy, like the switches above; the installer's fresh
+	// policy turns Tiles on where KVM is usable, and a stored policy from
+	// before them follows Backends (decodePolicy). Their VMs count against the
 	// workspace's count and budget and, as well, against TilesBudgetMiB, so
 	// tile sandboxes can't starve people's VM terminals.
 	Tiles          bool `json:"tiles"`          // a manager tile's sandboxes may run in VMs
@@ -105,11 +106,27 @@ func (m *Manager) StoredPolicy() Policy {
 	defer m.pmu.Unlock()
 	if !m.ploaded {
 		if b, err := os.ReadFile(m.policyPath()); err == nil {
-			_ = json.Unmarshal(b, &m.policy)
+			m.policy = decodePolicy(b)
 		}
 		m.ploaded = true
 	}
 	return m.policy
+}
+
+// decodePolicy reads a stored policy. A file from before tile sandboxes
+// (D120) has no "tiles": they follow "backends", as the installer decides
+// both for a fresh policy (on exactly where KVM is usable), so an install
+// whose policy predates them gets them where it runs VM backends.
+func decodePolicy(b []byte) Policy {
+	var p Policy
+	_ = json.Unmarshal(b, &p)
+	var keys map[string]json.RawMessage
+	if json.Unmarshal(b, &keys) == nil {
+		if _, ok := keys["tiles"]; !ok {
+			p.Tiles = p.Backends
+		}
+	}
+	return p
 }
 
 // SetPolicy stores p (the zero sizes mean "default").

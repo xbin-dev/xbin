@@ -598,8 +598,9 @@ emulated, a tile's VM sandbox also needs **`tilesEmulated`**; without it VM
 mode is reported unavailable with the reason, and never replaced by a
 namespace sandbox. Turning `tiles` off, or `tilesEmulated` off while VMs
 are emulated, stops the running ones (their disks are kept). The installer's
-fresh policy turns `tiles` on where KVM is usable; a workspace whose policy
-was written earlier keeps tile VMs off until an admin turns them on.
+fresh policy turns `tiles` on where KVM is usable; a policy written before
+tile sandboxes existed (no `tiles` field) has them follow `backends` — on
+wherever VM backends are — until an admin sets `tiles` itself.
 `PUT /api/xbin/vm/policy` merges its body onto the stored policy, so a
 script or an older admin console that leaves a field out never resets it.
 Decision: D120.

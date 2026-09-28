@@ -1058,9 +1058,9 @@ install_files() {
 # sandboxes (the VMs a manager tile runs, D120) on only when KVM is usable —
 # an emulated VM is several times slower, too slow to be what a manifest's
 # "vm" or a manager's VM sandbox silently gets. An existing file is an
-# admin's choice ("off" included) and is never touched, so a workspace
-# configured before tile sandboxes keeps them off until an admin turns them
-# on. Sizes stay unset (= xbind's defaults). xbind reads the file on first
+# admin's choice ("off" included) and is never touched; one written before
+# tile sandboxes has no "tiles", which xbind reads as following "backends"
+# (the same KVM rule). Sizes stay unset (= xbind's defaults). xbind reads the file on first
 # use, and every run that writes it has stopped xbind (install_files) and
 # starts it again (start_service).
 vm_policy_file() { printf '%s/.xbin/vm/policy.json' "$WORKSPACE"; }

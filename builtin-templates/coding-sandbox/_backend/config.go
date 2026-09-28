@@ -22,6 +22,8 @@ type Config struct {
 	// Mode is how a new sandbox is isolated: "auto" (or ""): a VM where the
 	// substrate offers VMs now, else a namespace; "vm" or "namespace": that
 	// one, or no new sandbox while the substrate lacks it — never another.
+	// A new manager's is "vm"; one made before that default keeps "auto"
+	// (store.config, newManager).
 	Mode        string  `json:"mode,omitempty"`
 	Images      []Image `json:"images"`
 	Sizes       []Size  `json:"sizes"`
@@ -113,9 +115,10 @@ func (q Quotas) forPerson(u string) Quota {
 	return q.Person
 }
 
-// defaultConfig is a new manager's.
+// defaultConfig is a new manager's: VM sandboxes only.
 func defaultConfig() Config {
 	return Config{
+		Mode: "vm",
 		Images: []Image{{ID: "base", Title: "Ubuntu with git, Go, Node and Python", Default: true,
 			Tools: []string{"git", "go", "node", "python3", "rg", "make", "gcc"}}},
 		Sizes: []Size{

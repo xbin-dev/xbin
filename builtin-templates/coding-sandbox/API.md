@@ -162,7 +162,7 @@ it carries (each whole) and answers the state:
 |---|---|---|
 | `backend` | `"xbin"` | a registered backend; changing it needs no sandboxes or built images left |
 | `backendConfig` | `{}` | the backend's own settings |
-| `mode` | `auto` | `auto` (or `""`): a VM where the substrate offers VMs now, else a namespace (else another backend's first mode); `vm` or `namespace`: only that — while the substrate lacks it no sandbox is made (`503`, its reason; hello's `notes` say so), never another mode. A sandbox's `isolation` says the mode it got. Another backend may name its own (`container`, `cloud-vm`) |
+| `mode` | `vm` (a manager made before 2026-09-28: `auto`) | `auto` (or `""`): a VM where the substrate offers VMs now, else a namespace (else another backend's first mode); `vm` or `namespace`: only that — while the substrate lacks it no sandbox is made (`503`, its reason; hello's `notes` say so), never another mode. A sandbox's `isolation` says the mode it got. Another backend may name its own (`container`, `cloud-vm`) |
 | `images` | `base` (the substrate's base, no script) | above; one is the default |
 | `sizes` | `small` 2 GiB/2/20 GiB, `medium`, `large` | `{id, title, memMiB, vcpus, diskGiB, default}`; sizes over the substrate's per-sandbox caps aren't offered |
 | `quotas` | none | above |

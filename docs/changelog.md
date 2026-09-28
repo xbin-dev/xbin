@@ -12,6 +12,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-28
 
+- **VM tile sandboxes and VM-only coding sandboxes by default.** A VM
+  policy saved before tile sandboxes existed (no `tiles` field — the
+  installer's policies until v0.3.60) now reads `tiles` as following
+  `backends`, the installer's rule for a fresh policy: where VM backends are
+  on, a manager tile's sandboxes may run in VMs too (admin console →
+  runtime → sandboxes; an explicit `"tiles": false` stays off;
+  [isolation.md](isolation.md)). A **new** coding-sandbox manager's mode is
+  `vm` — VM sandboxes only, and on a host without VMs a clear `503` with the
+  reason until an operator picks another mode in its Settings; a manager
+  made before keeps `auto` (the builtin's API.md). Nothing to change.
 - **Shell: a tile's window shows the deployment you pick**
   ([tile-deployments.md](tile-deployments.md) §The Deployments panel, *In the
   shell*). A window's head carries `⇈` while the tile has a deployment you

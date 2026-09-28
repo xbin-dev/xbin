@@ -131,15 +131,30 @@ func TestTilesBudgetDefaults(t *testing.T) {
 	}
 }
 
-// A policy file from before tile sandboxes loads as it did: tiles off, the
-// other switches and sizes kept.
+// A policy file from before tile sandboxes has no "tiles": they follow
+// "backends" (the installer's rule for a fresh policy: both on exactly where
+// KVM is usable), the other switches and sizes kept; an admin's explicit
+// "tiles": false stays off.
 func TestPolicyFileWithoutTiles(t *testing.T) {
-	root := t.TempDir()
-	os.MkdirAll(filepath.Join(root, ".xbin", "vm"), 0o755)
-	os.WriteFile(filepath.Join(root, ".xbin", "vm", "policy.json"), []byte("{\n  \"terminals\": true,\n  \"backends\": true\n}\n"), 0o644)
-	m := &Manager{Root: root}
-	if got := m.StoredPolicy(); got != (Policy{Terminals: true, Backends: true}) {
-		t.Fatalf("stored: %+v", got)
+	for _, c := range []struct {
+		file string
+		want Policy
+	}{
+		{`{"terminals": true, "backends": true}`, Policy{Terminals: true, Backends: true, Tiles: true}},
+		{`{"terminals": true, "backends": false, "memMiB": 4096}`, Policy{Terminals: true, MemMiB: 4096}},
+		{`{"terminals": true, "backends": true, "tiles": false}`, Policy{Terminals: true, Backends: true}},
+		{`{"tiles": true}`, Policy{Tiles: true}},
+	} {
+		root := t.TempDir()
+		os.MkdirAll(filepath.Join(root, ".xbin", "vm"), 0o755)
+		os.WriteFile(filepath.Join(root, ".xbin", "vm", "policy.json"), []byte(c.file), 0o644)
+		m := &Manager{Root: root}
+		if got := m.StoredPolicy(); got != c.want {
+			t.Errorf("%s: stored %+v, want %+v", c.file, got, c.want)
+		}
+	}
+	if got := (&Manager{Root: t.TempDir()}).StoredPolicy(); got != (Policy{}) {
+		t.Errorf("no file: %+v, want everything off", got)
 	}
 }
 

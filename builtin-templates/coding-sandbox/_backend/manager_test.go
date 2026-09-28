@@ -747,3 +747,46 @@ func TestConfigMerge(t *testing.T) {
 		}
 	}
 }
+
+// A new manager makes VM sandboxes only; one made before that default keeps
+// the automatic mode it ran with — a config saved without a mode, or none
+// saved at all by a manager that already has sandboxes.
+func TestModeDefault(t *testing.T) {
+	t.Parallel()
+	open := func(t *testing.T) *store {
+		st, err := openStore(filepath.Join(t.TempDir(), "db.sqlite"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { st.close() })
+		return st
+	}
+	modeOf := func(t *testing.T, st *store) string {
+		m, err := newManager(st, &fakeBackend{Root: t.TempDir()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(m.Close)
+		return m.config().Mode
+	}
+	if got := modeOf(t, open(t)); got != "vm" {
+		t.Errorf("a new manager's mode %q, want vm", got)
+	}
+	st := open(t)
+	if err := st.putSetting("config", `{"images": [{"id": "base", "title": "B", "default": true}], "sizes": [{"id": "s", "title": "S", "memMiB": 1024, "vcpus": 1, "diskGiB": 10, "default": true}], "layout": {"workdir": "/work", "home": "/home/dev", "user": "dev", "uid": 1000, "gid": 1000, "shell": "/bin/bash"}}`); err != nil {
+		t.Fatal(err)
+	}
+	if got := modeOf(t, st); got != "auto" {
+		t.Errorf("a config saved without a mode: %q, want auto", got)
+	}
+	st = open(t)
+	if err := st.putRecord(&record{ID: "sb-old", Runtime: "old", Name: "old"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := modeOf(t, st); got != "auto" {
+		t.Errorf("sandboxes and no config: %q, want auto", got)
+	}
+	if saved, _ := st.setting("config"); !strings.Contains(saved, `"mode":"auto"`) {
+		t.Errorf("the kept mode isn't saved: %s", saved)
+	}
+}

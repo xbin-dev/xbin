@@ -125,7 +125,9 @@ func setupCS(t *testing.T, vm bool) (*csEnv, string) {
 	})
 	sizes := []map[string]any{{"id": "tiny", "title": "Tiny", "memMiB": 512, "vcpus": 1, "diskGiB": 2, "default": true},
 		{"id": "small", "title": "Small", "memMiB": 1024, "vcpus": 1, "diskGiB": 4}}
-	d.Must(t, "PUT", "/api/"+csTile+"/ops/config", map[string]any{"sizes": sizes}, 200)
+	// auto (a new manager's default is vm): these runs check that it picks a
+	// VM where the runtime offers VMs, and a namespace where it doesn't
+	d.Must(t, "PUT", "/api/"+csTile+"/ops/config", map[string]any{"sizes": sizes, "mode": "auto"}, 200)
 	return e, accel
 }
 

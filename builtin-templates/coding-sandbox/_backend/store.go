@@ -308,6 +308,14 @@ func (s *store) config() (Config, error) {
 	if err := json.Unmarshal([]byte(v), &c); err != nil {
 		return defaultConfig(), err
 	}
+	// A config saved without a mode was saved while "" meant auto (the
+	// default before "vm"): it keeps meaning that.
+	var keys map[string]json.RawMessage
+	if json.Unmarshal([]byte(v), &keys) == nil {
+		if _, ok := keys["mode"]; !ok {
+			c.Mode = "auto"
+		}
+	}
 	if err := c.validate(); err != nil {
 		return defaultConfig(), err
 	}
