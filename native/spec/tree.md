@@ -418,7 +418,9 @@ tells the runtime the first size in `caps.widgetSize` and every change with
 `xbn.widgetSize(size)`; the tile reads `xbin.native.widgetSize` and hears
 changes with `xbin.native.on('widgetsize', fn)`, re-rendering its widget. The
 app draws the widget root at the card's fixed size — no scrolling, no screen
-chrome, clipped.
+chrome, clipped. Above the default text size the cards grow with the
+reader's Dynamic Type as body text does (xxxLarge: about 179 pt tall), so
+larger text makes a taller box rather than clipping the widget.
 
 **Vocabulary.** A widget may use `stack`, `text`, `icon`, `badge`, `chart`,
 `progress`, `button` and `row` (`vocab.json` `widget.prims`); a `fragment`

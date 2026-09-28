@@ -205,6 +205,15 @@ import XbinCore
         #expect(c.width == 157 && c.height == 112)
         #expect(XbinWidgetMetrics.cardWidth(.small, screenWidth: 10) == 0)
     }
+
+    @Test func largeTextGrowsTheCard() {
+        // 132 at the default text size and below; xxxLarge body text is
+        // 23 pt for 17: the card grows as much, and so does the widget's box.
+        #expect(XbinWidgetMetrics.cardHeight(textScale: 1) == 132)
+        #expect(XbinWidgetMetrics.cardHeight(textScale: 14.0 / 17) == 132)
+        #expect(XbinWidgetMetrics.cardHeight(textScale: 23.0 / 17) == 179)
+        #expect(XbinWidgetMetrics.contentSize(.small, screenWidth: 390, textScale: 23.0 / 17).height == 159)
+    }
 }
 
 @MainActor

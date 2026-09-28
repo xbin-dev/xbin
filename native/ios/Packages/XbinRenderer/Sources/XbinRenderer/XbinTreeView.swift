@@ -59,9 +59,33 @@ extension View {
     /// one: its inset, the card's height and background, clipped to the
     /// card's rounded shape. The width is the grid's (one column, or both).
     public func xbinWidgetCard() -> some View {
+        modifier(WidgetCard())
+    }
+}
+
+/// A card’s height at the reader’s text size (D128): 132 pt at the default
+/// size and below, growing with Dynamic Type above it
+/// (``XbinWidgetMetrics/cardHeight(textScale:)``), so large text grows the
+/// card instead of clipping the widget. The screen grid and
+/// ``View/xbinWidgetCard()`` use it.
+@propertyWrapper
+public struct XbinCardHeight: DynamicProperty {
+    @ScaledMetric(relativeTo: .body) private var scaled: CGFloat = CGFloat(XbinWidgetMetrics.cardHeight)
+
+    public init() {}
+
+    public var wrappedValue: CGFloat {
+        CGFloat(XbinWidgetMetrics.cardHeight(textScale: Double(scaled) / XbinWidgetMetrics.cardHeight))
+    }
+}
+
+private struct WidgetCard: ViewModifier {
+    @XbinCardHeight private var height
+
+    func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: XbinWidgetMetrics.cornerRadius, style: .continuous)
-        return xbinWidgetInset()
-            .frame(height: XbinWidgetMetrics.cardHeight)
+        content.xbinWidgetInset()
+            .frame(height: height)
             .background(XbinColor.surface, in: shape)
             .clipShape(shape)
             .contentShape(shape)

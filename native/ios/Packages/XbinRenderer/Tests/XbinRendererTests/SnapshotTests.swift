@@ -90,7 +90,7 @@ import XbinRendererModel
                     .environment(\.locale, Locale(identifier: "en_US"))
                     .environment(\.colorScheme, scheme)
                     .environment(\.dynamicTypeSize, type)
-                let size = widget == nil ? Self.size : WidgetStrip.size
+                let size = widget == nil ? Self.size : WidgetStrip.size(type)
                 let png = Snapshot.png(of: view, size: size, scale: Self.scale, scheme: scheme, type: type)
                 #expect(png != nil, "\(name) \(schemeTag) \(typeTag) rendered nothing")
                 if let out, let png {
@@ -117,15 +117,20 @@ import XbinRendererModel
 
 /// A widget fixture as a phone screen shows it: the card at its size in a
 /// 390-point-wide strip of the screen's background, with the screen's
-/// margins around it.
+/// margins around it — taller at a larger text size, as the card grows
+/// with it (D128).
 @MainActor
 struct WidgetStrip: View {
-    static let size = CGSize(width: 390, height: XbinWidgetMetrics.cardHeight + 2 * XbinWidgetMetrics.margin)
+    static func size(_ type: DynamicTypeSize) -> CGSize {
+        let scale = UIFontMetrics(forTextStyle: .body).scaledValue(
+            for: 100, compatibleWith: UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(type))) / 100
+        return CGSize(width: 390, height: XbinWidgetMetrics.cardHeight(textScale: scale) + 2 * XbinWidgetMetrics.margin)
+    }
     let store: TreeStore
     let size: CardSize
 
     var body: some View {
-        let width = XbinWidgetMetrics.cardWidth(size, screenWidth: Self.size.width)
+        let width = XbinWidgetMetrics.cardWidth(size, screenWidth: 390)
         XbinTreeView(store: store, send: { _ in }, options: XbinRenderOptions(compact: size))
             .xbinWidgetCard()
             .frame(width: width)

@@ -15,11 +15,13 @@ struct ScreenView: View {
 
     @Environment(WorkspaceNav.self) private var nav
     @Environment(\.panelActive) private var active
+    /// Taller with larger text (D128).
+    @XbinCardHeight private var cardHeight
     @State private var editor: ScreenEditor?
     @State private var problem: String?
 
-    /// A card's height; a wide one is as tall, twice as wide (D128: compact).
-    static let cardHeight: CGFloat = XbinWidgetMetrics.cardHeight
+    // A card's height (`cardHeight`): a wide one is as tall, twice as wide
+    // (D128: compact; and it grows with large text).
     static let spacing: CGFloat = XbinWidgetMetrics.spacing
     static let corner: CGFloat = XbinWidgetMetrics.cornerRadius
 
@@ -95,7 +97,7 @@ struct ScreenView: View {
                         ForEach(row.cards) { c in card(c) }
                         if row.cards.count == 1, row.cards[0].size == .small { Color.clear.frame(maxWidth: .infinity) }
                     }
-                    .frame(height: Self.cardHeight)
+                    .frame(height: cardHeight)
                 }
             }
             .padding(XbinWidgetMetrics.margin)

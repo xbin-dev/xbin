@@ -8,9 +8,20 @@ import XbinCore
 /// grid (App/Shell/Screens/ScreenView) lays cards out with these numbers —
 /// on a 390-point phone a small card is 177 × 132, a wide one 366 × 132
 /// (native/spec/tree.md §13; D128 made the grid compact, from 173 × 170).
+/// Larger text grows the cards (D128): the height scales as body text does
+/// above the default size, so a widget's controls stay inside its card.
 public enum XbinWidgetMetrics {
-    /// A card's height (points), whatever its size — rows of cards line up.
+    /// A card's height (points) at the default text size and below,
+    /// whatever its size — rows of cards line up.
     public static let cardHeight: Double = 132
+
+    /// A card's height when body text is `scale` times its default size
+    /// (Dynamic Type; UIFontMetrics' factor): 132 pt up to the default,
+    /// then growing with the text — large text grows the card instead of
+    /// clipping the widget in it.
+    public static func cardHeight(textScale scale: Double) -> Double {
+        (cardHeight * max(1, scale)).rounded()
+    }
     /// The card's margin around the widget.
     public static let inset: Double = 10
     public static let cornerRadius: Double = 18
@@ -28,8 +39,9 @@ public enum XbinWidgetMetrics {
         }
     }
 
-    /// The widget's own box: the card less its inset.
-    public static func contentSize(_ size: CardSize, screenWidth width: Double) -> (width: Double, height: Double) {
-        (max(0, cardWidth(size, screenWidth: width) - 2 * inset), max(0, cardHeight - 2 * inset))
+    /// The widget's own box: the card less its inset (`textScale`: see
+    /// ``cardHeight(textScale:)``).
+    public static func contentSize(_ size: CardSize, screenWidth width: Double, textScale: Double = 1) -> (width: Double, height: Double) {
+        (max(0, cardWidth(size, screenWidth: width) - 2 * inset), max(0, cardHeight(textScale: textScale) - 2 * inset))
     }
 }

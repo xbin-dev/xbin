@@ -169,6 +169,11 @@ public final class UIFont: NSObject, @unchecked Sendable {
 extension UITraitCollection {
     public convenience init(preferredContentSizeCategory: UIContentSizeCategory) { self.init() }
 }
+public final class UIFontMetrics: Sendable {
+    public init(forTextStyle textStyle: UIFont.TextStyle) {}
+    public static let `default` = UIFontMetrics(forTextStyle: .body)
+    public func scaledValue(for value: CGFloat, compatibleWith traitCollection: UITraitCollection? = nil) -> CGFloat { value }
+}
 open class UITextRange: NSObject {}
 public typealias UIActionHandler = @MainActor (UIAction) -> Void
 @MainActor public final class UIAction {

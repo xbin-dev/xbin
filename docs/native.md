@@ -336,7 +336,9 @@ paint();
   `xbin.native.widgetSize` is the current one;
   `xbin.native.on('widgetsize', fn)` tells you when it changes. The card is
   drawn at that fixed size, clipped — no scrolling, no screen chrome — so
-  keep it to a few lines.
+  keep it to a few lines. A reader's larger text size grows the card with
+  the text (about 179 pt tall at the largest non-accessibility size), so
+  the same lines still fit.
 - **Vocabulary.** A widget may use `stack`, `text`, `icon`, `badge`,
   `chart`, `progress`, `button` and `row`. Anything else is dropped from the
   widget with a `widget-tag` error (`bx lint --native` fails on it).
