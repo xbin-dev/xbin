@@ -321,7 +321,11 @@ func TestDeploymentStateBootsTwiceInProcess(t *testing.T) {
 		bootOnce(t, ws)
 		now := snapshot(t, ws)
 		for _, rel := range changed(prev, now) {
-			if !strings.HasPrefix(rel, ".xbin/deploy/") {
+			// a drift count's scratch directory (checkpoint/drift.go) is
+			// derived too: a run the shutdown cut short leaves it, the next
+			// run replaces it
+			scratch := strings.HasPrefix(rel, "data/checkpoints/"+k+".git/drift/")
+			if !strings.HasPrefix(rel, ".xbin/deploy/") && !scratch {
 				t.Errorf("boot %d changed %s, outside derived trees", boot, rel)
 			}
 		}

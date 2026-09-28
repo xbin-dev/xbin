@@ -12,6 +12,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-28
 
+- **Fix: a clone lets go of its snapshot when its copy is done.** A tile
+  sandbox cloned from a snapshot was listed `stopped` (or started) a moment
+  before the snapshot stopped refusing a delete (409 "is being cloned",
+  with `retryAfterMs`); with `start` the window lasted the start. The
+  hold now ends in the same step that lists the clone. Nothing to change.
 - **Tile deployments and pausing live reload** (D119, D127,
   [tile-deployments.md](tile-deployments.md)). Tiles that never opt in change
   in no way: saves still reload live and there is still no deploy step. For a

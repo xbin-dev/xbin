@@ -291,7 +291,7 @@ func TestGroupSignalAfterExit(t *testing.T) {
 	h := newHarness(t, nil)
 	orphan := func(session int) int {
 		t.Helper()
-		ss := h.exec(proto.Exec{Session: session, Argv: sh("(trap '' TERM; exec sleep 60) >/dev/null 2>&1 & echo $!"), Merge: true, NoStdin: true})
+		ss := h.exec(proto.Exec{Session: session, Argv: sh("trap '' TERM; sleep 60 >/dev/null 2>&1 & echo $!"), Merge: true, NoStdin: true})
 		line, err := bufio.NewReader(ss["stdout"]).ReadString('\n')
 		if err != nil {
 			t.Fatal(err)

@@ -138,13 +138,21 @@ func (m *Manager) beginClone(k Key, d *Def, src *cloneSource, start bool) {
 // start it, with start) — or error.
 func (m *Manager) cloneCopy(ctx context.Context, k Key, d *Def, b *box, src *cloneSource, job *copyJob, start bool) {
 	var err error
-	defer func() {
-		m.mu.Lock()
-		if src.sid != "" {
+	// release lets go of the snapshot being read (with m.mu held), once:
+	// as soon as the copy is done, so the clone is never listed stopped (or
+	// started) while its snapshot still refuses a delete.
+	released := false
+	release := func() {
+		if src.sid != "" && !released {
+			released = true
 			if src.b.readers[src.sid]--; src.b.readers[src.sid] <= 0 {
 				delete(src.b.readers, src.sid)
 			}
 		}
+	}
+	defer func() {
+		m.mu.Lock()
+		release()
 		if b.clone == job {
 			b.clone, b.cloneCancel = nil, nil
 		}
@@ -173,6 +181,7 @@ func (m *Manager) cloneCopy(ctx context.Context, k Key, d *Def, b *box, src *clo
 		err = m.cloneState(ctx, k, d, src)
 	}
 	m.mu.Lock()
+	release()
 	cd, ok := m.defs.get(k, d.Name)
 	if !ok || m.live[k][d.Name] != b || cd.UID != d.UID {
 		m.mu.Unlock()
