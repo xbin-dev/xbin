@@ -75,6 +75,9 @@ export const FEATURES = {
   'chat.activity': 'the one line saying what the run is doing',
   'chat.reconnecting': 'live updates lost — reconnecting',
   'chat.follow': 'the chat sticks to its end while it grows',
+  'chat.older': 'a long conversation opens on its newest page; older ones load as you scroll up (API.md "Paging the view")',
+  'chat.window': 'a long conversation stays quick: a window of it is drawn and what lies far from it let go, and what you read never moves',
+  'chat.jumpLatest': 'reading far up, the live end is let go too and "↓ N new — jump to latest" brings it back',
   'chat.queue': 'messages sent while the agent works, queued above the composer',
   'chat.queue.takeBack': 'take a queued message back',
 
@@ -210,7 +213,8 @@ export const DIFFERENCES = {
     'composer.keys': 'on a phone Return is a new line and Send is the button; the app\'s composer handles a hardware keyboard and IME composition itself',
     'composer.attach.paste': 'the app\'s composer owns the pasteboard: an image pasted there is uploaded like a picked one — nothing for the tile to draw',
     'composer.attach.drop': 'dropping files on the composer (iPad) is the app\'s: they upload like picked ones — nothing for the tile to draw',
-    'tools.sandboxes.terminal': 'the app\'s terminal primitive dials only the tile\'s own routes (TileTerminal refuses any other address), and a manager\'s tty is another tile\'s; relaying it through the agent\'s backend would make the person the manager checks an asserted one instead of the verified one. Until the app takes a bound interface\'s URL, terminals are on the web',
+    'chat.jumpLatest': 'the native view never lets the live end go: the app\'s transcript keeps a row still only at its bottom, so letting go below the reader would move what they read — until the renderer anchors a row across a trim (D130 E3/E4), and the app scrolls to the end itself',
+    'tools.sandboxes.terminal':'the app\'s terminal primitive dials only the tile\'s own routes (TileTerminal refuses any other address), and a manager\'s tty is another tile\'s; relaying it through the agent\'s backend would make the person the manager checks an asserted one instead of the verified one. Until the app takes a bound interface\'s URL, terminals are on the web',
   },
 };
 

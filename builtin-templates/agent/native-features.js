@@ -56,6 +56,8 @@ export const IMPLEMENTS = {
   'chat.activity': 'native/chat.js — activity',
   'chat.reconnecting': 'native/chat.js — chatScreen notice',
   'chat.follow': 'native/chat.js — transcript follow',
+  'chat.older': 'native/chat.js — transcript older/@more (more rows, then Session.loadOlder)',
+  'chat.window': 'native/chat.js — winOf: the tail, grown on @more, trimmed at the bottom (@scrolled); chatDrawn lets the far top go',
   'chat.queue': 'native/chat.js — composerTpl chips',
   'chat.queue.takeBack': 'native/chat.js — composerTpl chips',
 

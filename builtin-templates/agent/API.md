@@ -1332,7 +1332,7 @@ the same model.
 | `model/` | What it holds |
 |---|---|
 | `app.js` | `createApp()`: the model in one object — where you are (`sel`, `page`), who you are (`me`), the class for new asks (`classes`, `classId`, `pickClass`; `toolset` is its lane), what needs you, the halt switch, the composer's attachments and sending — wired to the one live stream; views subscribe with `app.on(event, fn)` |
-| `session.js` | the open conversation: its views, the model calls in flight, `shown()` (what the chat draws), `blocks(id)` (a held run folded through its cache) |
+| `session.js` | the open conversation: its views, the model calls in flight, `shown()` (what the chat draws), `blocks(id)` (a held run folded through its cache); a long one held as a run of pages — `loadOlder()`, `keep(lo, hi, canDetach)` (let go of what lies far from the blocks drawn), `loadNewer()`, `latest()`, `follow(atBottom)` |
 | `fold.js`, `tool-heads.js` | a run's view → chat blocks (with a `FoldCache`, only the blocks whose message, result, step, link or subagent changed are rebuilt; the rest come back as the same objects); a tool call's headline, family and state |
 | `conv-list.js`, `conv-groups.js` | the conversation list: paging, search, pins, read state, live updates; date groups |
 | `stream.js` | the live connection (`GET /stream`, resumable) |
@@ -1345,10 +1345,25 @@ the same model.
 | `classes.js` | agent classes (D116): the composer's picker and your pick, the conversation's badge, the managers' editor (a class as a form, its checks, what a save sends), an automation's class (its forms' choices, what its card says, a channel's two classes) |
 | `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the ▣ badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form, a terminal onto one (its manager's `tty`: the route, whether it is offered and why not), sharing one with a terminal tile (`shareForm`); `app.sbx` — the list, the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, sharing (`shareTerminal`, `unshare`), the run events that carry a binding, ending a terminal's shell |
 
-`createApp({deltas, page})` are the native view's options: drafts arrive as
-deltas (`/stream?deltas=1`, "Deltas" above) and the open conversation is read
-in pages (`?limit=`, `Session.loadOlder()`, "Paging the view"); the web
-passes neither and reads whole views. An app that uploads picked files itself
+`createApp({deltas, page})`: drafts arrive as deltas (`/stream?deltas=1`,
+"Deltas" above) and the open conversation is read in pages (`?limit=`,
+"Paging the view"); both views pass them (without them a view reads whole
+views and full drafts, as an instance's own view may). A long conversation
+is held as a run of consecutive pages: the newest when it opens,
+`Session.loadOlder()` the page before them, and `keep(lo, hi, canDetach)` —
+given the block indices a view draws — lets go of the messages about a page
+or more beyond them, older ones always, newer ones (the live tail with them:
+`shown().detached`, and what arrives meanwhile is counted, `shown().fresh`)
+only while the reader is away from the bottom; `loadNewer()` reads them back
+a page at a time, `latest()` starts over from the newest. Cuts fall at a
+message, so what goes is what a page read brings back, and blocks keep their
+ids: a view that anchors by id keeps the reader's place. A reset or resync
+reads the pages held again (the rows stay). The web draws a window of the
+blocks (`chat-window.js`, over xbind's `/vendor/scroll-window.js`: nothing
+the reader looks at moves; the "↓ N new — jump to latest" pill); the native
+view draws the tail and grows it on `more`, trimming it — and letting go
+above — only while `scrolled` says the reader is at the bottom (the app's
+transcript keeps its bottom still). An app that uploads picked files itself
 asks `app.uploadTarget()` where (the open run, or at home the new ask's draft
 `app.draft`) and hands the answer to `app.attach.uploaded({…, at: app.place})`:
 such a chip stays where it was picked (`app.attach.here(place)`), and Send at

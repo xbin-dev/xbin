@@ -54,7 +54,10 @@ export const IMPLEMENTS = {
   'chat.breadcrumbs': 'chat-cards.js — .crumbs',
   'chat.activity': 'chat-cards.js — .activity',
   'chat.reconnecting': 'chat-cards.js — .activity.warn',
-  'chat.follow': 'agent.js — paint() keeps the timeline at its end',
+  'chat.follow': 'chat-window.js — place()/after() keep the timeline at its end',
+  'chat.older': 'chat-window.js — fill() reads older pages near the top; the "earlier messages" line (chat-cards.js)',
+  'chat.window': 'chat-window.js — a window of the blocks (xbind\'s scroll window); model/session.js keep() lets far pages go',
+  'chat.jumpLatest': 'chat-window.js — the pill (chat-cards.js .jump)',
   'chat.queue': 'chat-cards.js — queueTpl',
   'chat.queue.takeBack': 'chat-cards.js — queueTpl ✕',
 

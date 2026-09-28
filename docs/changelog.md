@@ -81,6 +81,20 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   [`/vendor/scroll-window.js`](frontend-kit.md) — the tab's no-jump window
   over a long list (anchor the first visible row across renders, grow and
   trim the rendered rows around the view), framework-free.
+- **agent template: long conversations stay quick, on the web and in the
+  app** (D130). The chat opens on the conversation's newest page (50
+  messages) and reads older ones as you scroll up; the web renders a window
+  of it that never moves what you are reading and lets go of what is far
+  away in either direction (a **↓ N new — jump to latest** pill while you
+  read far up), parses each message's markdown once, and writes a streamed
+  answer a paragraph at a time, so a selection in it survives; the native
+  view draws the tail and grows it as you scroll up. A reset of the live
+  stream keeps your place. For an instance's own views: `createApp({page,
+  deltas})` now serves both of the template's views, and `Session` gains
+  `keep()`, `loadNewer()`, `latest()`, `refresh()`, `follow()`
+  (API.md §The frontend). New instances get it; an instance takes it with a
+  template update. On an xbind without `/vendor/scroll-window.js` the web
+  chat renders every block, as before.
 - **VM tile sandboxes and VM-only coding sandboxes by default.** A VM
   policy saved before tile sandboxes existed (no `tiles` field — the
   installer's policies until v0.3.60) now reads `tiles` as following

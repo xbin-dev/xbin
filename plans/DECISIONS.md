@@ -4838,6 +4838,37 @@ Deviations and refinements made while implementing; all deliberate:
     selection survives. (9) A hidden tab folds but skips rendering
     (`shouldUpdate`), catching up when shown. "Load all" stays an explicit
     mode (every page, nothing unloads) until the pill.
+  - **The agent template (E4).** builtin-templates/agent: model/session.js,
+    chat-window.js, chat-cards.js, native/chat.js; API.md §The frontend.
+    Its backend already paged the view (`view?before=&limit=`, pages cut
+    at messages, a call never split from its results). (10) Both views
+    turn on `page: 50` and `deltas`. The model holds a run of consecutive
+    pages and lets go of messages a page or more beyond the blocks a view
+    draws (`keep`), newer ones — the live tail with them, live messages
+    then counted, not held — only while the reader is away from the
+    bottom; `loadNewer` reads them back a page at a time. Cuts fall at a
+    message, so a page read brings back exactly what went, and block ids
+    (the fold's `m<id>`/`c<call>`) are stable without seq keys. A reset
+    or resync re-reads the pages held instead of the newest one, so the
+    rows on screen stay. (11) The web renders a window over
+    `/vendor/scroll-window.js` (rows are the timeline's `[data-k]`
+    children), with the pill; a message's markdown is memoized on its
+    block object and the streamed answer written per top-level block (the
+    template keeps its own `mdInto`: its markdown policy is its own). An
+    xbind from before D130 serves no scroll-window.js — the template is
+    an instance's files, which a downgraded xbind still serves — so it is
+    imported dynamically and, missing, every block renders as before.
+    (12) The native view renders the tail and grows it on `more`; it trims
+    — and lets go above — only while `scrolled` says the reader is at the
+    bottom, where the app's transcript keeps the bottom still, and never
+    lets go below: until the renderer anchors a row across a prepend or a
+    trim (E3's `scrollPosition(id:)`), that would move what the reader
+    sees. Rows are rebuilt only when their block or open state changed,
+    argument rows parsed once per block, parent screens rebuilt only when
+    their blocks change. The vocabulary and wire are unchanged. Harness
+    `agentTemplateLong`; on a 482-message conversation at CPU 4×, 30 more
+    units at the bottom went from 8 long tasks (max 488 ms) to none, a
+    reload from 470 to 279 ms (482 → 91 rows in the DOM).
   - **Not chosen:** cuts only at turn boundaries (one long agentic turn is
     thousands of events — the tail would be the whole turn); client-computed
     cuts (the client cannot see the snapshots still to come); a
