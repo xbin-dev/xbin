@@ -138,8 +138,10 @@ integration:
 	# where a sub-uid range is delegated, and the boot's base GC over a copy of
 	# the rootfs (XBIN_ITEST_DIR: a dir on the rootfs's filesystem, for
 	# reflinks) — then VM mode (KVM) and again emulated. Skips without
-	# .rootfs/userns (VM mode: without the vm-assets)
-	go test -tags=integration -count=1 -v ./test/isolated/
+	# .rootfs/userns (VM mode: without the vm-assets). The same package runs
+	# the coding-sandbox manager's walk, contract and consumers in both modes
+	# (8 min on this box: a slower host would hit go test's 10-minute default)
+	go test -tags=integration -count=1 -v -timeout 30m ./test/isolated/
 	XBIN_VM_ACCEL=emulate go test -tags=integration -count=1 -v -run '^TestVM$$' ./test/isolated/
 
 vet:
