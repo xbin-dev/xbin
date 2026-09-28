@@ -80,22 +80,23 @@ func (j diffJob) key() string {
 // snapper is one session's snapshotter: an ordered worker, so snapshots
 // happen in event order off the pump.
 type snapper struct {
-	work    string // the tile (the work tree)
-	gitDir  string // private
-	emit    func(agent.Event)
-	jobs    chan diffJob
-	mu      sync.Mutex
-	closed  bool
-	off     bool                 // a snapshot failed: no more diffs this session
-	ranges  map[string]diffRange // "tool:<id>" | "turn:<n>" → its trees, for the full patch (agentdiff_full.go); under mu
-	pending map[string]int       // "tool:<id>" | "turn:<n>" → its snapshots not yet reported (a page never cuts across one); under mu
-	rorder  []string             // ranges' keys, oldest first (the bound)
-	kinds   map[string]string    // tool id → kind (pump goroutine only)
-	settled map[string]bool      // tool ids already snapshotted
-	prev    string               // the last tree
-	base    string               // the turn's starting tree
-	full    chan struct{}        // one full diff at a time (agentdiff_full.go)
-	stopped chan struct{}        // closed once the worker is done and the private dir removed
+	work      string // the tile (the work tree)
+	gitDir    string // private
+	emit      func(agent.Event)
+	jobs      chan diffJob
+	mu        sync.Mutex
+	closed    bool
+	off       bool                 // a snapshot failed: no more diffs this session
+	ranges    map[string]diffRange // "tool:<id>" | "turn:<n>" → its trees, for the full patch (agentdiff_full.go); under mu
+	pending   map[string]int       // "tool:<id>" | "turn:<n>" → its snapshots not yet reported (a page never cuts across one); under mu
+	expecting string               // expect's mark for the event being logged (pump goroutine only)
+	rorder    []string             // ranges' keys, oldest first (the bound)
+	kinds     map[string]string    // tool id → kind (pump goroutine only)
+	settled   map[string]bool      // tool ids already snapshotted
+	prev      string               // the last tree
+	base      string               // the turn's starting tree
+	full      chan struct{}        // one full diff at a time (agentdiff_full.go)
+	stopped   chan struct{}        // closed once the worker is done and the private dir removed
 }
 
 // newSnapper starts a snapshotter for a tile that is a git repo (each tile
@@ -156,7 +157,8 @@ func (s *snapper) enqueue(j diffJob) {
 // expect marks the snapshot an event is about to ask for (observe enqueues
 // it) BEFORE the event is logged: a page of the log (agent.Open) must not be
 // cut between a tool call's end and the files.changed its snapshot reports.
-// The pump goroutine, like observe. The mark is dropped by observe.
+// The pump goroutine, like observe, which drops the mark once the job holds
+// its own.
 func (s *snapper) expect(e agent.Event) {
 	if s == nil {
 		return
@@ -165,6 +167,7 @@ func (s *snapper) expect(e agent.Event) {
 		s.mu.Lock()
 		s.pending[k]++
 		s.mu.Unlock()
+		s.expecting = k
 	}
 }
 
@@ -237,7 +240,10 @@ func (s *snapper) observe(e agent.Event) {
 	}
 	if j.what != "" {
 		s.enqueue(j)
-		s.settle(j.key()) // expect's mark: the queued job holds its own now
+	}
+	if s.expecting != "" { // expect's mark: the queued job (if any) holds its own now
+		s.settle(s.expecting)
+		s.expecting = ""
 	}
 }
 

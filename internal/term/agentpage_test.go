@@ -122,3 +122,38 @@ func (c *countingReader) Read(p []byte) (int, error) {
 	c.n += n
 	return n, err
 }
+
+// The snapshots still to come are open to a page cut: marked before the
+// event that asks for them is logged, held while queued, dropped when done.
+func TestSnapperPendingMarks(t *testing.T) {
+	s := &snapper{pending: map[string]int{}, kinds: map[string]string{}, settled: map[string]bool{}, jobs: make(chan diffJob, 4)}
+	done := agent.New(agent.EvToolUpdate, map[string]any{"id": "t1", "kind": "execute", "status": "completed"})
+	s.expect(done)
+	if o := s.Open(); !o.Tools["t1"] {
+		t.Fatalf("expected before logging: %+v", o)
+	}
+	s.observe(done)
+	if o := s.Open(); !o.Tools["t1"] || s.pending["tool:t1"] != 1 {
+		t.Fatalf("queued: %+v %v", o, s.pending)
+	}
+	s.expect(done) // settled: no second job
+	s.observe(done)
+	if s.pending["tool:t1"] != 1 {
+		t.Fatalf("a settled call asks nothing more: %v", s.pending)
+	}
+	j := <-s.jobs
+	s.settle(j.key()) // the worker ran it
+	end := agent.New(agent.EvTurnEnd, map[string]any{"turn": 3})
+	s.observe(end) // observe alone (the tests' path) holds only the job's own mark
+	if o := s.Open(); len(o.Tools) != 0 || !o.Turns[3] || len(s.pending) != 1 {
+		t.Fatalf("after the call's job ran, the turn's is pending: %+v %v", o, s.pending)
+	}
+	s.settle((<-s.jobs).key())
+	if len(s.pending) != 0 {
+		t.Fatalf("nothing pending: %v", s.pending)
+	}
+	var nilSnap *snapper
+	if o := nilSnap.Open(); o.Tools == nil || len(o.Tools) != 0 {
+		t.Fatal("no snapper: nothing open")
+	}
+}
