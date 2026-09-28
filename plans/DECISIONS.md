@@ -4984,8 +4984,8 @@ Deviations and refinements made while implementing; all deliberate:
 
 - **D132 — The app's tile sessions screen: the web terminal window's
   counterpart, native, in phases — B1 the screen, its launcher and tabs;
-  B2 live reload and deployments (2026-09-28).** native/ios App/Shell/
-  Screens/{TileWorkspace,Deployments}.swift, App/Terminal/SessionTab.swift
+  B2 live reload and deployments; B3 code and logs; B4 PRs (2026-09-28).**
+  native/ios App/Shell/Screens/{TileWorkspace,Deployments,TileTools}.swift, App/Terminal/SessionTab.swift
   (TerminalScreen and AgentScreen hosted as tabs), App/Model/Navigation.swift
   (`Surface.sessions`), WorkspaceEvents (per-tile `deployments`); XbinTerm
   TileWorkspace.swift (SessionTabs, TileLauncher), TermDirectory
@@ -5027,9 +5027,12 @@ Deviations and refinements made while implementing; all deliberate:
     A terminal hosted as a tab (`\.sessionTab`) is one session: its sheet
     keeps the network, VM and keyboard settings, and full screen is the
     standalone screen's.
-  - **Tools** (a menu in the bar; in the app "tools" means these panels,
-    never an agent's tools): **Live reload & deployments** (B2); Code, Logs
-    and PRs are listed as coming (B3, B4).
+  - **Tools** (a menu beside the tabs, as the web window's layout switcher
+    sits in its title bar; in the app "tools" means these panels, never an
+    agent's tools): **Live reload & deployments** (B2), **Code** and
+    **Logs** (B3), **PRs** (B4). A tool's state lives as long as the
+    screen; a file, a diff or a proposal opens as a sheet, so the tabs
+    underneath keep their sockets (a pushed screen would take them down).
   - **B2, live reload and deployments** — the rungs c–e of the tile
     deployments scope. The state (`GET /deployments?tile=`) and the deploy
     log render in the web's words: the live reload sentence with Pause,
@@ -5050,13 +5053,35 @@ Deviations and refinements made while implementing; all deliberate:
     parse to `.other`. The launcher shows live reload's banner and what a
     new session calls. Add, promote, reassign, protect and the edges stay on
     the web ("Manage on the web" opens the web shell).
+  - **B3, code and logs** (web/bx-code.js, bx-logs.js; XbinCore
+    CodeTools.swift). Code: the tile's files as a folder tree (`GET
+    /code/tree`), a file numbered and monospaced (`/code/file`), the
+    history with a 30-day activity strip (`/git/log`, `/git/activity`) and
+    a commit's or the uncommitted diff (`/git/diff`) — read only; a `+`
+    in the tile's path is escaped (D127j). Logs: `GET /logs?follow=1`
+    streamed over the agent feed's transport (the first streaming reader
+    of plain text), whole lines only (a line or a character split across
+    chunks waits), terminal escapes dropped, the last 3000 kept, following
+    the bottom; a drop reconnects (the tail again), a refusal — logs need
+    terminal access — says so and stops. A deployment's page in the
+    Deployments tool has a **Logs** link (`&deployment=`).
+  - **B4, PRs** (web/bx-prs.js; XbinCore Proposals.swift). The proposals
+    to the tile, open or all, newest first; one opens with who filed it,
+    its base and stats, the command that applies it in the tile's own
+    terminal (applying is never a button, D48), the series as a diff, the
+    review thread, and the target's acts the web offers: a comment, and
+    Mark merged / Reject — each asking for the note for the author first,
+    as the web's prompt does (closing is final). `pr` events are
+    `AppEvent.pr` now (they parsed to `.other`), routed per tile; the tools
+    button and the PRs chip count the open ones, as the web's ⇄ does.
   - **A deployment's page opens signed in.** The app's tile web view mints
     frame tokens by path, and `/frame-token?component=` refuses a
     `tile+name` (D127j), so `/c/<tile>+<name>/` (people with write, checked
     per request) opens as chrome tiles do (D125): the in-app web view with
     the user's cookie session — as does the web shell.
   - **Compatibility.** Everything is feature-detected: no deployments route
-    (404/405) says so and shows nothing else; without `branches/1` no offer,
+    (404/405) says so and shows nothing else (so does the PRs tool);
+    without `branches/1` no offer,
     Branch row or new body field (bodies are decoded strictly); an older
     xbind's session rows have no `deployment` (the tag then reads the
     primary). Nothing changes on the wire.

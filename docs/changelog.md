@@ -24,8 +24,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   their `Dev API` and `● live reload` tags, a deployment's page and deploy
   log with Roll back, its assigned branch (set, clear) and the offers to
   follow a branch switch — each confirmed from a dry run, in the web's
-  words. Adding, promoting, reassigning and protecting stay on the web;
-  code, logs and PRs come next. Works with older xbinds (no deployments:
+  words. Adding, promoting, reassigning and protecting stay on the web.
+  **Code** browses the tile's files, history and diffs (read only),
+  **Logs** streams its backend's log (per deployment from the
+  Deployments tool), and **PRs** lists the change proposals to the tile —
+  review the series and the thread, comment, mark merged or reject with a
+  note; the tools button counts the open ones. Works with older xbinds (no deployments:
   the tool says so; no `branches/1`: no branch controls). Also: the app's
   screen cards grow with larger text sizes instead of clipping a widget
   ([native.md](native.md) §Widgets). Nothing to change.

@@ -920,7 +920,18 @@ tab's End session; then Tools → Live reload & deployments on `apps/wide`
 (a static tile: the e2e xbind has no `--isolate`) with a `dev` deployment
 the test adds, and — dev assigned a branch the work tree isn't on, live
 reload paused — the "Keep dev on <branch> this time" offer confirmed from
-its dry run; the test puts the tile back in the zero state.
+its dry run; the test puts the tile back in the zero state; then on
+`apps/counter` Tools → Code opens `xbin.json`, Logs shows the backend's
+log, and PRs opens a proposal the test files through the API and rejects
+it through its confirmation. Every test launches with `-XbinUITesting
+YES` (Debug builds): UIKit animations are off and the terminal's cursor
+doesn't blink, so the app idles between steps — XCUITest otherwise waited
+60 s for "animations complete" after each step with a terminal on screen
+(test04 took 1129 s; 157 s now) and after each long press or menu. A test that signs
+in on a fresh start can forget what it added: `E2E.forgetFreshWorkspaces`
+(a Debug fresh start forgets the previous one's workspaces as Remove does
+— test09's two same-server workspaces, left behind, stalled the next
+test's native widget).
 `XbinOnboardingTests` launch the app as a fresh install (Debug builds'
 `-XbinFreshStart YES`: no workspace, the saved list untouched): the
 Welcome's levels and the help, Run your own xbin, address → methods →
