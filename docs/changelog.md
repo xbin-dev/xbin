@@ -95,6 +95,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   (API.md §The frontend). New instances get it; an instance takes it with a
   template update. On an xbind without `/vendor/scroll-window.js` the web
   chat renders every block, as before.
+- **The app's Agent screen: long conversations stay quick too** (D130). It
+  opens on the tail page (an older xbind still sends the whole log), loads
+  older pages as you scroll up, lets go of far pages, and never moves what
+  you are reading; a **↓ N new — jump to latest** pill counts what arrived
+  while you read further up. A streaming reply re-parses only its last
+  paragraph. For native tiles, the iOS `transcript` holds its first visible
+  row while children are added or removed above or below it. It sticks to
+  the bottom only while the reader is there. It sends `more` when the
+  reader is at rest within a screen and a half of the top, and again every
+  half second while they stay there. `scrolled {atBottom}` is sent on every
+  change, as before. Nothing to change.
 - **The app's screens are compact: a widget's card is 132 pt tall** (was
   170; [native.md](native.md) §Widgets). On a 390 pt phone a `small` card
   is about 177 × 132 pt and a `wide` one 366 × 132, the widget's own box

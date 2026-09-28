@@ -4831,6 +4831,51 @@ Deviations and refinements made while implementing; all deliberate:
     `agentTemplateLong`; on a 482-message conversation at CPU 4×, 30 more
     units at the bottom went from 8 long tasks (max 488 ms) to none, a
     reload from 470 to 279 ms (482 → 91 rows in the DOM).
+  - **The app (E3).** XbinAgent Window.swift/Rows.swift/Feed.swift,
+    XbinCore MarkdownLexer.Incremental, XbinRendererModel MarkdownMemo,
+    XbinRenderer Chat/Transcript.swift, App/Agent/AgentScreen.swift.
+    (13) `AgentWindow` ports agent-pages.js. It holds segments, each an
+    `AgentTranscript` seeded from its state header. It prepends older pages
+    and drops whole segments beyond a margin of items (100) around the
+    visible rows, in either direction; the live tail goes only while the
+    reader is away from the bottom. Detached, live events move a digest
+    (status, pending requests, the Live Activity) and the `fresh` count. The
+    tail is split at the server's cut once it passes three pages. Item ids
+    are the seqs that open them (a tool card's was a per-fold turn counter).
+    An older page is sealed: its last message stops "writing", as the next
+    page's first event would have made it. (14) `AgentSessionFeed` opens
+    on the tail page (an xbind that does not page answers the whole replay:
+    one segment, nothing unloads), follows from its cursor, re-reads the
+    tail on `replayed` (`SessionHubEvent` now lets that seq-0 frame
+    through), and publishes only when the window changed — follow and
+    `/ws/events` deliver every event twice. (15) `AgentRows` (main actor,
+    `@Observable`) diffs each published window into one observable row per
+    item, by id and by value, so a delta re-renders its own row. A row
+    reads the session's status only while it may stream. Open cards are
+    remembered by id across an unload. The list is its own view: a
+    keystroke re-renders none of it. (16) `TranscriptView` (also the native
+    tiles' `transcript`) binds `scrollPosition` to the rows' ids
+    (`scrollTargetLayout`). Measured on the iOS 27 simulator with slow
+    drags, this keeps the top row still through a prepend or an unload —
+    but only when the change lands at rest. A page landing mid-gesture, or
+    scrolled into during the drag it landed in, shifted the view. So it
+    asks for more only at rest, within 1.5 screens of either end, repeating
+    every 0.5 s while it stays there, and reports visible ids for unloading
+    only at rest. It sticks to the bottom only while at the bottom. The
+    pill scrolls down and re-reads the tail when rows below were unloaded.
+    The app delivers its at-bottom reports to the feed in order, including
+    one that came before the feed existed. (17) Markdown:
+    `MarkdownLexer.Incremental` re-lexes a growing text from the last
+    top-level block starting on a line that was already whole. Streaming
+    the corpus and random junk a few characters at a time always equals
+    the whole lex. The memo is an LRU per message id. Tests: XbinAgent
+    WindowTests (pages fold to the whole log, unload/reload keeps ids,
+    detach counts, split, late and duplicate events, old xbind, the state
+    header, the feed's tail/older/replayed/jump, the rows' identity);
+    XbinAgentLongTests (a 300-unit fake session: no drag moves the text
+    under the finger by more than the drag across page loads and unloads;
+    the counted pill). Debug builds take `-XbinAgentPageLimit` and
+    `-XbinAgentKeepMargin`.
   - **Not chosen:** cuts only at turn boundaries (one long agentic turn is
     thousands of events — the tail would be the whole turn); client-computed
     cuts (the client cannot see the snapshots still to come); a
@@ -4838,7 +4883,12 @@ Deviations and refinements made while implementing; all deliberate:
     unnecessary); a history sidecar file (a second file per entry to keep in
     step, for what the head already gives); one fold refolded on every
     prepend (new block objects each time: memos and lit identity lost);
-    `content-visibility` for the rows (D124's reason stands).
+    `content-visibility` for the rows (D124's reason stands). In the app: a
+    UIKit collection view with manual anchoring (SwiftUI's id-bound scroll
+    position holds once changes land at rest); a flipped list (breaks
+    context menus, selection, and VoiceOver order); a copy-on-write
+    transcript republished whole to one observed property (every event
+    re-rendered every visible row).
 
 - **D131 — Branch-assigned deployments: a deployment may require the work
   tree's branch; checkout-driven routing, as offers (2026-09-28).**
