@@ -9,7 +9,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { canvasMenuItems, openTileItems, tileMenuItems, offloaded, hidden,
-  useDeployLookup, deploySummary, deployHint, deployCheckpoint, deployFailed } from '../workspace-template/shell/menus.js';
+  useDeployLookup, deploySummary, deployHint, deployCheckpoint, deployFailed,
+  deployNames, shownDeployment, deployMenu } from '../workspace-template/shell/menus.js';
 
 const comps = [
   { path: 'root' },
@@ -280,4 +281,67 @@ test('deployments summary helpers', () => {
   assert.equal(deployFailed(depState({ failed: true })), true);
   assert.equal(deployFailed(depState()), false);
   assert.equal(deployHint({ primary: 'dev', pinned: true }, undefined), 'dev pinned');
+});
+
+// ---- the deployment a tile's window shows (the head's ⇈ menu, +name tag) ----
+const withDev = (over = {}) => {
+  const s = depState(over);
+  return { ...s, liveReload: 'dev', deployments: [...s.deployments, { name: 'dev', liveReload: true, checkpoint: null }] };
+};
+
+// covers D127j — what a window may show: the primary first, then every
+// deployment the viewer's state lists; nothing to switch to while unknown,
+// without a record, or for a reader (whose state names the primary only).
+test('window deployments: the names a window may show', () => {
+  assert.deepEqual(deployNames(withDev()), ['main', 'dev']);
+  assert.deepEqual(deployNames({ ...withDev(), primary: 'dev' }), ['dev', 'main']);
+  assert.deepEqual(deployNames(depState()), ['main']);
+  assert.deepEqual(deployNames(undefined), []);
+  assert.deepEqual(deployNames(null), []);
+  assert.deepEqual(deployNames(depState({ record: false })), []);
+});
+
+// covers D127j — the layout's pick shows only while it is a non-primary
+// deployment the state lists; the primary's own name (its alias) and a
+// removed one show the primary; the layout wins while the state is unknown.
+test('window deployments: which one a window shows', () => {
+  assert.equal(shownDeployment('dev', withDev()), 'dev');
+  assert.equal(shownDeployment('main', withDev()), '');
+  assert.equal(shownDeployment('dev', { ...withDev(), primary: 'dev' }), '');
+  assert.equal(shownDeployment('gone', withDev()), '');
+  assert.equal(shownDeployment('dev', depState()), '');
+  assert.equal(shownDeployment('dev', undefined), 'dev');
+  assert.equal(shownDeployment('', withDev()), '');
+  assert.equal(shownDeployment('dev', null), '');
+});
+
+// covers D127j — the ⇈ menu: a pick per deployment (the one shown checked;
+// picking the primary clears the pick), the full page of what's shown, and
+// the Deployments panel for anyone who may operate.
+test('window deployments: the head menu', () => {
+  const { a, calls } = spy();
+  let items = deployMenu('apps/a', { deployments: pinnedSum }, withDev(), '', a);
+  assert.deepEqual(labels(items), ['<header>', 'main', 'dev', '<sep>', 'Deployments…']);
+  assert.equal(byLabel(items, 'main').checked, true);
+  assert.equal(byLabel(items, 'dev').checked, false);
+  assert.equal(byLabel(items, 'main').hint, 'primary · 📌 c:3f2a1c9');
+  assert.equal(byLabel(items, 'dev').hint, '● live reload');
+  byLabel(items, 'dev').action();
+  byLabel(items, 'Deployments…').action();
+  assert.deepEqual(calls, [['show', 'dev'], ['openPanel']]);
+
+  calls.length = 0;
+  items = deployMenu('apps/a', { deployments: pinnedSum }, withDev(), 'dev', a);
+  assert.deepEqual(labels(items), ['<header>', 'main', 'dev', 'Open apps/a+dev full page', '<sep>', 'Deployments…']);
+  assert.equal(byLabel(items, 'dev').checked, true);
+  byLabel(items, 'main').action();
+  byLabel(items, 'Open apps/a+dev full page').action();
+  assert.deepEqual(calls, [['show', ''], ['openPage', 'apps/a+dev']]);
+
+  // a pinned primary alone: the status line, and the panel
+  items = deployMenu('apps/a', { deployments: pinnedSum }, depState(), '', a);
+  assert.deepEqual(labels(items), ['<header>', 'main', '<sep>', 'Deployments…']);
+  // a reader: the primary only, no panel
+  items = deployMenu('apps/a', { deployments: pinnedSum }, depState({ view: 'reader', level: 'read' }), '', a);
+  assert.deepEqual(labels(items), ['<header>', 'main']);
 });

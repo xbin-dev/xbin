@@ -11,6 +11,10 @@
 //      infra1 (read) gets 403 there, and its view of the tile — the state,
 //      the panel, the chip, the select — names no non-primary deployment (a
 //      filtered view, not a 403);
+//   2b. the tile window's head: ⇈ (a non-primary deployment, main pinned;
+//      no 📌 chip inside the window) picks what the window shows — dev:
+//      its page and a +dev tag, kept in the layout across a reload; main
+//      again: no tag;
 //   3. Promote dev → main: the diff names the file; the bare URL then serves
 //      it and the tile's frame reloads once; dev has no git line, main's
 //      names deploy/main;
@@ -42,7 +46,7 @@
 // (501), a frame without the Deployments layout — prints SKIP with what it
 // got, never a timeout and never a silent pass.
 const path = require('path');
-const { URL, fs, sleep, login, closeCtx, settle, fr, waitFor, openShell, usePersonalScreen, openTile, tileFrame, shot, checker, showPickers } = require('../lib');
+const { URL, fs, sleep, login, closeCtx, settle, sh, fr, waitFor, openShell, usePersonalScreen, openTile, tileFrame, shot, checker, showPickers } = require('../lib');
 
 const TILE = 'apps/deployy';
 const DEV = 'dev';
@@ -344,6 +348,43 @@ async function stepURL(X) {
   await shot(R.page, 'deployments-reader', { fullPage: false });
 }
 
+// 2b. the window head: ⇈ picks the deployment the tile's window shows
+async function stepWindow(X) {
+  const { check, A } = X, P = A.page;
+  const head = P.locator(`bx-canvas .card[data-path="${TILE}"] .head`);
+  const frame = P.locator(`bx-canvas .card[data-path="${TILE}"] .cbody > bx-frame`); // not the Deployments panel's view tab
+  const menu = P.locator('bx-canvas bx-menu[open]');
+  const pick = async (name) => {
+    await head.locator('button.dpb').click();
+    await menu.waitFor({ timeout: 10000 });
+    await menu.locator('button.it').filter({ has: P.locator('.lb', { hasText: new RegExp(`^${name}$`) }) }).click();
+    await menu.waitFor({ state: 'detached', timeout: 10000 });
+  };
+  const icon = head.locator('button.dpb');
+  check(await icon.count() === 1, `the window head carries ⇈ (${await icon.getAttribute('title').catch(() => 'none')})`);
+  check(await P.locator(`bx-canvas .card[data-path="${TILE}"] .frame-wrap .dchip`).count() === 0, 'no 📌 chip inside the tile window');
+  await icon.click();
+  await menu.waitFor({ timeout: 10000 });
+  const labels = await menu.locator('button.it .lb').allTextContents();
+  check(labels.includes('main') && labels.includes(DEV) && labels.includes('Deployments…'), `the ⇈ menu: main, ${DEV}, Deployments… (${JSON.stringify(labels)})`);
+  await shot(P, 'deployments-window-menu', { fullPage: false });
+  await P.keyboard.press('Escape');
+  await menu.waitFor({ state: 'detached', timeout: 10000 });
+  await pick(DEV);
+  await head.locator('.dtag').waitFor({ timeout: 10000 });
+  check((await head.locator('.dtag').textContent()).trim() === `+${DEV}` && await frame.getAttribute('deployment') === DEV, 'picked dev: the head says +dev, the frame shows dev');
+  check((await docText(P, `/c/${TILE}+${DEV}/`, X.v1)).includes(X.v1), "the tile's window shows dev's page (the work tree's save)");
+  await shot(P, 'deployments-window-dev', { fullPage: false });
+  await sh(P, (t) => t?.flushSave?.());
+  await openShell(P);
+  await head.locator('.dtag').waitFor({ timeout: 15000 }).catch(() => {});
+  check(await head.locator('.dtag').count() === 1 && await frame.getAttribute('deployment') === DEV, 'kept in the layout: after a reload the window shows dev again');
+  await pick('main');
+  await sleep(300);
+  check(await head.locator('.dtag').count() === 0 && await frame.getAttribute('deployment') === null, 'picked main: no tag, the frame shows the primary');
+  await sh(P, (t) => t?.flushSave?.());
+}
+
 // 3. promote dev → main
 async function stepPromote(X) {
   const { check, A } = X, P = A.page;
@@ -626,7 +667,7 @@ async function run(X) {
 
   const steps = [];
   if (canAdd) {
-    steps.push(['1 (add dev)', stepAdd], ['2 (a save reaches dev; readers)', stepURL], ['3 (promote)', stepPromote], ['4 (roll back)', stepRollback]);
+    steps.push(['1 (add dev)', stepAdd], ['2 (a save reaches dev; readers)', stepURL], ['2b (the window shows dev)', stepWindow], ['3 (promote)', stepPromote], ['4 (roll back)', stepRollback]);
     const edgeProbe = await post(S.ctx, 'edge', { tile: TILE, edge: EDGE.id, policy: 'default', dryRun: true });
     if (edgeProbe.status === 501) skip(`POST /deployments/edge answers 501 here (${edgeProbe.error}): step 5's edge policy for real can't run`);
     else steps.push(['5 (edge policy)', stepEdges]);

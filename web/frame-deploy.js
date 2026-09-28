@@ -5,8 +5,8 @@
  * `deployments` events, and draws what web/deploy-state.js decides — the
  * title bar's live-reload chip and Reload now offer (the degraded bar's
  * compact chip in the title row), the zero state's one entry point, the
- * chip's menu, the launcher's banner, and the "📌 pinned" chip over the tile
- * for people whose saves it concerns. Every operation confirms from a dry
+ * chip's menu and the launcher's banner (the tile window's head says what is
+ * pinned: the shell's ⇈, never a chip over the page). Every operation confirms from a dry
  * run of the exact request, through the frame's own dialog (f._ask), and
  * sends the state's seq with it, so what the dialog showed is what happens.
  * Grey lines in the tile's open terminals (bx-terminal note()) say when the
@@ -17,8 +17,9 @@
  * per deployment the viewer may reach once the tile has more than an
  * unprotected main (today's two entries otherwise, byte for byte), shows the
  * session's echoed target, and restarts the session onto another; a frame
- * of a deployment (<bx-frame src="<tile>+<name>">) reloads and paints its
- * build overlay from the tile's `deployments` events.
+ * of a deployment (<bx-frame src="<tile>+<name>">, or a tile's window whose
+ * `deployment` picks one) reloads and paints its build overlay from the
+ * tile's `deployments` events.
  *
  * `f` is the BxFrame. Nothing here decides who may do what: the state's
  * `can`/`why` and the dry run's `impact` do, rendered by deploy-state.js.
@@ -26,16 +27,17 @@
  * route not built yet (501), any failure — draws nothing, exactly today's
  * window; the zero state draws only the entry point. The state is loaded when
  * the window opens, on every relist, after the events socket reconnects (it
- * may be another binary now), and on this tile's `deployments` events; the
- * chip over the tile starts from the /components summary, so a tile in the
- * zero state costs no request while its window is closed.
+ * may be another binary now), and on this tile's `deployments` events; a
+ * pinned primary (the /components summary) loads it while the window is
+ * closed, so the window opens current; a tile in the zero state costs no
+ * request while its window is closed.
  */
 import { html, css, nothing, live } from 'lit';
 import * as events from '/vendor/events-socket.js';
 import { infoFor, qualifiedSrc } from '/vendor/frame-info.js';
 import {
   viewModel, chipItems, toMenu, confirmation, refusal, conflict, applyEvent, notice,
-  frameChip as chipOverTile, apiOptions, apiTitle, sessionTarget, targetChange, noTarget, deploymentFrame, keepTargets,
+  apiOptions, apiTitle, sessionTarget, targetChange, noTarget, deploymentFrame, keepTargets,
 } from '/vendor/deploy-state.js';
 
 export { keepTargets }; // bx-frame's listings keep each tab's target (deploy-state.js)
@@ -127,8 +129,8 @@ export function deployMount(f) {
 // reload and sets or clears its build overlay on op build (deploymentFrame).
 export function onDeployEvent(f, e) {
   const d = e?.data;
-  const q = deploymentFrame(f.src, e);
-  if (q) { if (q.reload) f._reload(); else f._buildError = q.error; return; }
+  const q = deploymentFrame(f._page ?? f.src, e); // the page's deployment (a window's pick, or a <tile>+<name> src)
+  if (q) { if (q.reload) f._reload(); else f._buildError = q.error; }
   if (e.component !== f.src || !d) return;
   const r = rec(f);
   if (r.state) {
@@ -375,25 +377,6 @@ export function launchBanner(f) {
 // cards ("· target: main", 10-ux §2.7), or '' (the zero state, a reader).
 export const launchTarget = (f) => vmOf(f).launcher?.subtitle || '';
 
-// ---- the chip over the tile ----
-
-// the /components summary, from the state when it is loaded (it is fresher
-// than the page's cache)
-const summaryOf = (s) => (s?.record
-  ? { primary: s.primary, pinned: (s.deployments || []).some((d) => d.primary && d.liveReload === false), protected: !!s.protectedPrimary }
-  : null);
-const overTile = (f) => { const s = per.get(f)?.state; return s ? chipOverTile(summaryOf(s), s) : null; };
-
-// frameChip(f): "📌 pinned" at the tile's top right, for viewers with
-// terminal level while the primary is pinned; hover or focus says to what
-// and why; a click opens the tile's terminal window.
-export function frameChip(f) {
-  const c = overTile(f);
-  if (!c) return nothing;
-  return html`<button class="dchip" title=${c.title} aria-label=${c.title} @click=${() => f.open('term')}>
-    <span class="rest"><span aria-hidden="true">📌</span> pinned</span><span class="full">${c.title}</span></button>`;
-}
-
 // ---- the frame's test names (frame-testapi.js `deploy`) ----
 
 function plain(items) {
@@ -422,7 +405,6 @@ export function deployTestApi(f) {
       act(f, it.op, it.deployment);
       return true;
     },
-    get frameChip() { const c = overTile(f); return c ? { ...c } : null; },
     // tab i's target from its session's echo: 'primary', a deployment's name or 'off'
     target(i = f._active) { return sessionTarget(f._sessions?.[i]); },
     apiOptions(i = f._active) { return apiOptions(r()?.state ?? null, echo(f, i)).options; },
@@ -444,21 +426,6 @@ export const deployCss = css`
     border-color: var(--bx-accent, #f5a623); color: var(--bx-accent, #f5a623); font-weight: 600;
   }
   .titlebar button.offer:hover, .toolsrow button.offer:hover { background: var(--bx-accent, #f5a623); color: #1b1e24; }
-  .dchip {
-    position: absolute; top: 2px; right: 14px; z-index: 10; max-width: calc(100% - 28px);
-    padding: 0 6px; height: 16px; border: 1px solid var(--bx-border, #363c45); border-radius: 8px;
-    background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0);
-    font: 10.5px/14px var(--bx-mono, ui-monospace, monospace); white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis; opacity: 0.55; cursor: pointer;
-  }
-  .dchip .full { display: none; }
-  .dchip:hover, .dchip:focus-visible { opacity: 1; }
-  .dchip:hover .rest, .dchip:focus-visible .rest { display: none; }
-  .dchip:hover .full, .dchip:focus-visible .full { display: inline; }
-  @media (max-width: 820px), (pointer: coarse) {
-    .dchip { overflow: visible; }
-    .dchip::before { content: ''; position: absolute; inset: -14px -6px; }
-  }
   .launcher .ldep { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; max-width: 460px;
     padding: 8px 10px; border: 1px solid var(--bx-border, #363c45); border-radius: 6px; background: var(--bx-panel-2, #2b3038);
     color: var(--bx-text, #d4d9e0); font-size: 12px; }

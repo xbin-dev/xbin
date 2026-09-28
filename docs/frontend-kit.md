@@ -21,7 +21,7 @@ import '/vendor/bx-frame.js';
 | Module | What it is |
 |---|---|
 | `/vendor/bx-kit.js` | the helper kit: `api(url, opts)` (JSON out, throws the server's `error`; in a sandboxed tile the request carries the frame token — your tile's identity — in chrome the session cookie, i.e. the signed-in human), `xbinApi('/grants')`, `selfApi('/runs')` (your own backend), `jbody(value, method?)`, `esc(text)` (HTML-escapes `&<>"'`: safe in text and in attribute position), `deepActive()`, `pathHas(event, selector)`, `clampBox(box, {minW, minH, margin})`, `anchorBox(rect, {dx, dy, w, h}, bounds?)` / `anchorOffsets(rect, box)` (a window anchored to an element, as a viewport box and back; `bounds` fences its top-left), `followBox(target, box, alive)` (the animation-frame loop that keeps such a window on its anchor), `dragPointer({cursor, onMove, onUp})` (a window-level pointer drag with the iframe shield), `dragWindow(ev, el, {bounds, onMove, onUp})` (a title-bar drag of a fixed window, fenced by `bounds`), `dragShield(cursor)`, `sandboxed()` |
-| `/vendor/bx-frame.js` | `<bx-frame src="apps/x">` — embed another tile (with its terminal pop-up); exports `clampBox` for compatibility. `src` may name a tile deployment, `apps/x+dev`: the frame loads `/c/apps/x+dev/` with a frame token for that deployment, never as chrome, and reloads and paints its build overlay from the tile's `deployments` events ([tile-deployments.md](/docs/tile-deployments.md)). `open(layout)` also takes `'deployments'`, the window's Deployments panel (a layout never restored after a reload: the window comes back on the terminal) |
+| `/vendor/bx-frame.js` | `<bx-frame src="apps/x">` — embed another tile (with its terminal pop-up); exports `clampBox` for compatibility. `src` may name a tile deployment, `apps/x+dev`: the frame loads `/c/apps/x+dev/` with a frame token for that deployment, never as chrome, and reloads and paints its build overlay from the tile's `deployments` events ([tile-deployments.md](/docs/tile-deployments.md)). Or keep `src` the tile and set `deployment="dev"`: only the page follows it — its terminal pop-up, code, logs and proposals stay the tile's (the shell's windows do this). `open(layout)` also takes `'deployments'`, the window's Deployments panel (a layout never restored after a reload: the window comes back on the terminal) |
 | `/vendor/bx-terminal.js` | `<bx-terminal src="…">` — a terminal on any endpoint speaking the terminal wire, dialled with your frame token: a sandbox manager's `tty` through your bound interface, your own pty route ([elements.md](/docs/elements.md) §`<bx-terminal>`). Its `/ws/term` attributes (`cwd`, `net`, …) are the shell's |
 | `/vendor/bx-dialog.js` | `<bx-dialog>` — a modal; `xbin.dialog()` falls back to it outside the shell |
 | `/vendor/bx-grants.js`, `/vendor/bx-bindings.js` | the owner's grant-approval and interface-binding panels |
@@ -52,7 +52,7 @@ tab, D74) with `/vendor/bx-md.js` (its hardened markdown renderer) and
 frame's view of the terminal session directory, D73),
 `/vendor/frame-deploy.js` (the terminal window's live reload controls: the
 `⇈` entry, the chip and its menu, Reload now, the launcher's banner, the
-`📌 pinned` chip over a tile, the grey lines in open terminals —
+grey lines in open terminals —
 [tile-deployments.md](/docs/tile-deployments.md)) with
 `/vendor/deploy-state.js` (its pure view model: which chip, menu items and
 tile API select entries a tile's state and a viewer's permissions yield, and

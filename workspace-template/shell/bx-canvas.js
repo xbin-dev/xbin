@@ -3,7 +3,8 @@
  * and the floating (unpinned) windows over it. Owns the pointer gestures on
  * them (grid drag/resize, float drag/raise/resize-commit, pin/unpin, the
  * touch long-press and the right-click that open menus) and the per-card
- * chrome (head buttons, the >_ terminal toggle, the ⇄ and ⇈ badges).
+ * chrome (head buttons, the >_ terminal toggle, the ⇄ and ⇈ badges, and
+ * the deployment a window shows: ⇈ picks it, a +name tag says so).
  *
  * The tiles array is a property; every geometry change comes back as one
  * `bx-tiles` event carrying the new array — the shell persists it (a shared
@@ -15,9 +16,11 @@
  */
 import { LitElement, html, nothing, repeat } from 'lit';
 import '/vendor/bx-frame.js';
+import '/vendor/bx-menu.js';
 import { clampBox, dragPointer, pathHas } from '/vendor/bx-kit.js';
 import { GRID, GAP, MIN_W, MIN_H, snap, RUNTIME_COLOR, LongPress, selectedText, prBadge,
-  followDeployments, onDeployChange, wantDeployState, deployState, deployChip, deployBadge } from './shell-kit.js';
+  followDeployments, onDeployChange, wantDeployState, deployState, deployIcon, deployBadge } from './shell-kit.js';
+import { shownDeployment, deployMenu } from './menus.js';
 import { pushLayout } from './grid-layout.js';
 import { nextZ, raiseTo } from './zorder.js';
 import { canvasCss, prbCss } from './shell-css.js';
@@ -28,22 +31,25 @@ export class BxCanvas extends LitElement {
     components: { attribute: false },   // /components — the runtime colour dot, the deployments summary
     prs: { attribute: false },          // {path: open change proposals}
     canMutate: { attribute: false },    // layout changes allowed (personal screen, or an org draft)
+    personal: { attribute: false },     // the screen is the viewer's own (a window's deployment pick is kept in it)
     mobile: { attribute: false },       // narrow layout: stacked cards, sheets, long-press menus
     menuOpen: { attribute: false },     // the shell's menu is open (Android's post-long-press contextmenu is swallowed)
     canAdminTile: { attribute: false }, // (path) → boolean: whether the ⚙ button shows
     emptyText: { attribute: false },    // what an empty screen says
     scale: { attribute: false },        // px per logical px of the grid — the per-browser grid scale (D68); 1 = 48px cells
     _drag: { state: true },             // a grid drag/resize in flight: {path, rect, moves, dirs, orig, positive}
+    _dmenu: { state: true },            // a window head's ⇈ menu: {items, anchor, title}
   };
   static styles = [canvasCss, prbCss];
 
   constructor() {
     super();
     this.tiles = []; this.components = []; this.prs = {};
-    this.canMutate = true; this.mobile = false; this.menuOpen = false; this.emptyText = ''; this.scale = 1;
+    this.canMutate = true; this.personal = true; this.mobile = false; this.menuOpen = false; this.emptyText = ''; this.scale = 1;
     this._press = new LongPress();
     this._pending = new Map(); // path → layout to open once its card exists
-    this._drag = null;
+    this._drag = null; this._dmenu = null;
+    this._shown = new Map(); // path → the deployment its window shows, where the layout doesn't keep it (a shared screen)
     // The rect a card's terminal pop-up must stay inside (D66): the canvas's
     // tile extent, in viewport coordinates — never left of / above the scroll
     // origin, never off past the tiles. Floats are viewport windows; theirs is null.
@@ -57,18 +63,47 @@ export class BxCanvas extends LitElement {
     this.addEventListener('bx-pop', () => this.requestUpdate());
   }
 
-  // Tile deployments (optional): a card whose tile's primary is pinned, or
-  // whose last deploy onto it failed, carries ⇈ in its head (shell-kit.js).
+  // Tile deployments (optional): a window whose tile has another deployment
+  // the viewer may show, whose primary is pinned, or whose last deploy onto
+  // it failed carries ⇈ in its head (shell-kit.js deployIcon): its menu
+  // picks the deployment the window shows — kept in the personal screen's
+  // tile entry (`deployment`, an additive field older shells and the app
+  // ignore), for this page only on a shared (org) screen, whose layout
+  // reaches everyone — and a +name tag says so while it isn't the primary.
   connectedCallback() {
     super.connectedCallback();
     followDeployments();
     this._offDeploy = onDeployChange(() => this.requestUpdate());
   }
   disconnectedCallback() { super.disconnectedCallback(); this._offDeploy?.(); }
-  _deployChip(path) {
-    const c = (this.components ?? []).find((x) => x.path === path);
-    wantDeployState(path, c);
-    return deployChip(c, deployState(path));
+  _deployIcon(o, shown) {
+    const c = (this.components ?? []).find((x) => x.path === o.path);
+    wantDeployState(o.path, c);
+    return deployIcon(c, deployState(o.path), shown);
+  }
+  get _keepsPick() { return this.personal && this.canMutate; }
+  _shownDep(o) { return shownDeployment((this._keepsPick ? o.deployment : this._shown.get(o.path)) || '', deployState(o.path)); }
+  _showDeployment(path, dep) {
+    if (!this._keepsPick) {
+      if (dep) this._shown.set(path, dep); else this._shown.delete(path);
+      this.requestUpdate();
+      return;
+    }
+    this._mutate((tiles) => tiles.map((o) => {
+      if (o.path !== path) return o;
+      const n = { ...o };
+      if (dep) n.deployment = dep; else delete n.deployment;
+      return n;
+    }));
+  }
+  _deployMenu(e, o) {
+    const c = (this.components ?? []).find((x) => x.path === o.path);
+    this._dmenu = { anchor: e.currentTarget.getBoundingClientRect(), title: o.path,
+      items: deployMenu(o.path, c, deployState(o.path), this._shownDep(o), {
+        show: (d) => this._showDeployment(o.path, d),
+        openPanel: () => this.frameOpen(o.path, 'deployments'),
+        openPage: (ref) => window.open(`/c/${ref}/`, '_blank'),
+      }) };
   }
 
   _emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true })); }
@@ -287,8 +322,8 @@ export class BxCanvas extends LitElement {
   // kind: 'grid' (on the snappable grid) | 'float' (a free-floating window).
   // Both are fixed-size: the frame fills a fixed body and scrolls inside.
   _cardTemplate(o, kind = 'grid') {
-    const floating = kind === 'float';
-    const frame = html`<bx-frame src=${o.path} no-edit height="100%" .popBounds=${floating ? null : this._popBounds}></bx-frame>`;
+    const floating = kind === 'float', shown = this._shownDep(o);
+    const frame = html`<bx-frame src=${o.path} deployment=${shown || nothing} no-edit height="100%" .popBounds=${floating ? null : this._popBounds}></bx-frame>`;
     return html`
       <div class="card" data-path=${o.path}
            @bx-contextmenu=${(e) => { e.stopPropagation(); this._tileMenu({ clientX: e.detail.x, clientY: e.detail.y }, o.path, null, e.detail.selection || ''); }}>
@@ -298,8 +333,9 @@ export class BxCanvas extends LitElement {
              @pointerup=${() => this._press.cancel()} @pointercancel=${() => this._press.cancel()} @pointerleave=${() => this._press.cancel()}>
           <span class="c" style="background:${RUNTIME_COLOR[this._runtimeOf(o.path)] ?? RUNTIME_COLOR['']}"></span>
           <span class="t">${o.path}</span>
+          ${shown ? html`<span class="dtag" title=${`this window shows ${o.path}'s deployment ${shown} (/c/${o.path}+${shown}/), not the primary`}>+${shown}</span>` : nothing}
           ${prBadge(this.prs?.[o.path], () => this.frameOpen(o.path, 'prs'))}
-          ${this.mobile ? nothing : deployBadge(this._deployChip(o.path), () => this.frameOpen(o.path, 'deployments'))}
+          ${deployBadge(this._deployIcon(o, shown), (e) => this._deployMenu(e, o))}
           <span class="spacer"></span>
           <button class="term" title="terminal on ${o.path}"
                   @pointerdown=${(e) => e.stopPropagation()}
@@ -437,7 +473,9 @@ export class BxCanvas extends LitElement {
           style="left:${m.x * this._k}px; top:${m.y * this._k}px; width:${(m.w - GAP) * this._k}px; height:${(m.h - GAP) * this._k}px;"></div>`)}
       </div>
       ${grid.length === 0 && floats.length === 0 ? html`<div class="empty">${this.emptyText}</div>` : nothing}
-      ${repeat(floats, (o) => o.path, (o) => this._floatTemplate(o))}`;
+      ${repeat(floats, (o) => o.path, (o) => this._floatTemplate(o))}
+      ${this._dmenu ? html`<bx-menu open .items=${this._dmenu.items} .anchor=${this._dmenu.anchor} ?sheet=${this.mobile}
+          title=${this._dmenu.title} @bx-menu-close=${() => { this._dmenu = null; }}></bx-menu>` : nothing}`;
   }
 }
 

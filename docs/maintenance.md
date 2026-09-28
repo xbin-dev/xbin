@@ -623,7 +623,7 @@ Rules that keep it cheap to maintain:
   `layouts` is what its layout switcher offers — a pass compares against
   it, never a count — `reloads` the reloads it completed, and `deploy` its
   live reload controls: `state`, `chip`, `offer`, `entry`, `banner`,
-  `chipItems()`, `chipAction(label)`, `frameChip`, the tile API select's
+  `chipItems()`, `chipAction(label)`, the tile API select's
   `target()`, `apiOptions()` and `setTarget()`, `panel()` — the Deployments
   panel's own `testApi()` — and `refresh()`). A pass
   never touches a `_member` or walks `shadowRoot` by hand; `make js-check`

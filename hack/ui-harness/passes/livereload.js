@@ -74,7 +74,7 @@ async function openWindow(page, tile) {
 }
 const dep = (page, tile) => fr(page, tile, (f) => {
   const d = f.deploy;
-  return { state: d.state, changed: d.changed, chip: d.chip, offer: d.offer, entry: d.entry, frameChip: d.frameChip, banner: d.banner, items: d.chipItems(), reloads: f.reloads, narrow: f.narrow };
+  return { state: d.state, changed: d.changed, chip: d.chip, offer: d.offer, entry: d.entry, banner: d.banner, items: d.chipItems(), reloads: f.reloads, narrow: f.narrow };
 });
 const waitDep = (page, tile, fn, label, timeout = 15000) => waitFor(page, (t, a) => {
   const d = t.frameFor(a.tile)?.testApi().deploy;
@@ -157,8 +157,10 @@ async function flow(check, A, R, tile) {
   check(/^c:[0-9a-f]+$/.test(pin), `${tile}: main is pinned to a checkpoint (${pin})`);
   check(!!d.chip && d.chip.text.startsWith('📌 Live reload paused'), `${tile}: the chip reads live reload paused (${JSON.stringify(d.chip)})`);
   check(await P.locator(`${sel(tile)} button.lr`).count() >= 1 && await P.locator(`${sel(tile)} button.dentry`).count() === 0, `${tile}: the chip replaced the entry point`);
-  check(d.frameChip?.text === '📌 pinned' && d.frameChip.title.startsWith(`main pinned to ${pin}`) && await P.locator(`${sel(tile)} .frame-wrap .dchip`).count() === 1,
-    `${tile}: the chip over the tile reads 📌 pinned (${JSON.stringify(d.frameChip)})`);
+  const headIcon = P.locator(`bx-canvas .card[data-path="${tile}"] .head button.dpb`);
+  const iconShown = await headIcon.waitFor({ timeout: 10000 }).then(() => true, () => false);
+  check(await P.locator(`${sel(tile)} .frame-wrap .dchip`).count() === 0 && iconShown && ((await headIcon.getAttribute('title')) || '').includes(pin),
+    `${tile}: no 📌 chip inside the tile window; its head's ⇈ names ${pin} (${JSON.stringify({ chips: await P.locator(`${sel(tile)} .frame-wrap .dchip`).count(), iconShown, title: await headIcon.getAttribute('title').catch(() => null), heads: await P.locator(`bx-canvas .card[data-path="${tile}"] .head`).count() })})`);
   check(await waitTerm(P, tile, /\[live reload paused by dev1 — main is pinned to c:[0-9a-f]+; saves no longer reach it( — new terminals get the xbin-deploy remote)?\]/), `${tile}: the open terminal got the grey line`);
   await shot(P, `livereload-paused-${path.basename(tile)}`, { fullPage: false });
   if (R) {
@@ -167,8 +169,8 @@ async function flow(check, A, R, tile) {
       `infra1 (read) gets the reader view: main pinned, nothing else (${rs.status} ${JSON.stringify(rs.body).slice(0, 160)})`);
     await openWindow(R.page, tile);
     const r = await dep(R.page, tile);
-    check(r.chip?.text === `📌 main pinned to ${pin}` && !r.frameChip && r.items.every((it) => it.kind || !it.enabled),
-      `infra1's window shows main pinned, no frame chip, no usable control (${JSON.stringify({ chip: r.chip, frameChip: r.frameChip })})`);
+    check(r.chip?.text === `📌 main pinned to ${pin}` && r.items.every((it) => it.kind || !it.enabled),
+      `infra1's window shows main pinned, no usable control (${JSON.stringify({ chip: r.chip })})`);
   }
 
   // ---- 2. a save while paused ----
@@ -222,7 +224,7 @@ async function flow(check, A, R, tile) {
   const zs = await stateOf(A.ctx, tile);
   check(zs.status === 200 && zs.body.record === false, `${tile}: the state endpoint reports the zero state (${JSON.stringify(zs.body).slice(0, 80)})`);
   d = await dep(P, tile);
-  check(!d.chip && !d.frameChip && !!d.entry && await P.locator(`${sel(tile)} button.lr, ${sel(tile)} .dchip`).count() === 0, `${tile}: the chips are gone, the entry point is back`);
+  check(!d.chip && !!d.entry && await P.locator(`${sel(tile)} button.lr, ${sel(tile)} .dchip`).count() === 0, `${tile}: the chips are gone, the entry point is back`);
   check(await waitTerm(P, tile, /\[live reload resumed on main by dev1 — saves reach main again\]/), `${tile}: the terminal got the resume line`);
   const n = d.reloads;
   const v2 = `saved after resuming ${Date.now()}`;
@@ -248,7 +250,7 @@ async function run(browser, { check, skip }, M, A, ctxs) {
   check(opts.some((o) => JSON.stringify(o) === JSON.stringify(TODAY)), `the tile API select offers exactly today's two options (${JSON.stringify(opts)})`);
   check(JSON.stringify(await fr(A.page, TILE, (f) => f.deploy.apiOptions(0).map((o) => [o.value, o.label]))) === JSON.stringify(TODAY), 'and so do the test names');
   check(!d.chip && !d.offer && !d.banner && await A.page.locator(`${sel(TILE)} button.lr, ${sel(TILE)} button.offer, ${sel(TILE)} .ldep`).count() === 0, 'no chip, no offer, no banner');
-  check(!d.frameChip && await A.page.locator(`${sel(TILE)} .dchip`).count() === 0, 'no chip over the tile');
+  check(await A.page.locator(`${sel(TILE)} .dchip`).count() === 0, 'no chip over the tile');
   const entries = await A.page.locator(`${sel(TILE)} ${PICKERS} button.dentry`).count();
   if (!served) {
     check(d.state === null && !d.entry && entries === 0, `no deployments state here, so no entry point: today's window (${st.status})`);

@@ -290,6 +290,11 @@ export const prbCss = css`
       background: color-mix(in srgb, var(--bx-amber, #f2a71b) 10%, transparent); }
     button.prb { cursor: pointer; font-family: inherit; }
     button.prb:hover { background: color-mix(in srgb, var(--bx-amber, #f2a71b) 22%, transparent); }
+    /* +dev: the window shows a deployment that isn't the primary (card heads) */
+    .dtag { flex: none; margin-left: 5px; padding: 0 5px; border-radius: 8px; max-width: 14ch;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font: 600 10px/15px var(--bx-mono, ui-monospace, monospace);
+      color: #1b1e24; background: var(--bx-accent, #f5a623); }
 `;
 
 // bx-canvas: the snappable grid, its cards, the floating windows — and their

@@ -57,7 +57,7 @@ import '/vendor/bx-dialog.js';
 import '/vendor/bx-menu.js';
 import { infoFor, refreshFrameInfo, sandboxAttr, frameSource } from '/vendor/frame-info.js';
 import { testApi } from '/vendor/frame-testapi.js';
-import { deployCss, deployMount, onDeployEvent, frameChip, keepTargets, setTarget, sessionEcho } from '/vendor/frame-deploy.js';
+import { deployCss, deployMount, onDeployEvent, keepTargets, setTarget, sessionEcho } from '/vendor/frame-deploy.js';
 
 // Shared z-order for all terminal windows on the page.
 let zTop = 2000;
@@ -94,6 +94,12 @@ function gpuInventory() {
 export class BxFrame extends LitElement {
   static properties = {
     src: { type: String },
+    // deployment: the tile deployment the page shows ('' — the primary): the
+    // shell's window picks it (docs/tile-deployments.md). Only the page
+    // follows it — /c/<src>+<deployment>/, its reloads and build overlay
+    // from the tile's `deployments` events; terminals, code, logs and
+    // proposals stay the tile's.
+    deployment: { type: String },
     height: { type: String },
     _termOpen: { state: true },
     _sessions: { state: true },
@@ -209,9 +215,12 @@ export class BxFrame extends LitElement {
 
   // Resolve how this frame must load (sandboxed? credentialless? its own
   // tile origin?) before the iframe exists — frame-info.js.
+  get _page() { return this.deployment ? `${this.src}+${this.deployment}` : this.src; }
   async _prepareFrame() {
-    const info = await infoFor(this.src);
-    const next = await frameSource(this.src, info);
+    const page = this._page;
+    const info = await infoFor(page);
+    const next = await frameSource(page, info);
+    if (page !== this._page) return; // the window switched deployments meanwhile
     // A changed token set (a cap:open-links grant approved or revoked) must
     // reach a FRESH element: the attribute applies only to the next
     // navigation, so re-keying the iframe keeps the flags unambiguous.
@@ -225,8 +234,8 @@ export class BxFrame extends LitElement {
   // 403'ing retries against its new permissions.
   async _regrant() {
     const before = this._frame?.sandbox;
-    await refreshFrameInfo(this.src);
-    if (sandboxAttr(await infoFor(this.src)) !== before) {
+    await refreshFrameInfo(this._page);
+    if (sandboxAttr(await infoFor(this._page)) !== before) {
       this._buildError = null;
       this._beginReload();
       await this._prepareFrame();
@@ -239,6 +248,9 @@ export class BxFrame extends LitElement {
   // whenever it changes (pop geometry is imperative → saved in the drag/resize
   // handlers); the sessions themselves are the server's to remember.
   updated(changed) {
+    if (changed.has('deployment') && changed.get('deployment') !== undefined) { // another deployment's page
+      this._buildError = null; this._frameKey++; this._prepareFrame();
+    }
     if (changed.has('_active') || changed.has('_termOpen') || changed.has('_layout') || changed.has('_codeW')) this._saveTerm();
     if (changed.has('_termOpen')) {
       if (this._termOpen) { this._follow(); this._observePop(); this._loadWindowState(); } else { this._ro?.disconnect(); this._ro = null; }
@@ -381,14 +393,14 @@ export class BxFrame extends LitElement {
     const mine = e.component === this.src || e.component.startsWith(this.src + '/');
     if (!mine) return;
     switch (e.type) {
-      case 'reload':
-        if (isReloadTarget(this, e.component)) this._reload();
+      case 'reload': // (the primary's: a window on another deployment hears its own in `deployments`)
+        if (!this.deployment && isReloadTarget(this, e.component)) this._reload();
         break;
       case 'build-error':
-        if (e.component === this.src) this._buildError = e.text || 'build failed';
+        if (e.component === this.src && !this.deployment) this._buildError = e.text || 'build failed';
         break;
       case 'build-ok':
-        if (e.component === this.src) this._buildError = null;
+        if (e.component === this.src && !this.deployment) this._buildError = null;
         break;
       case 'grants':
         // A grant affecting this component changed — reload so a frontend
@@ -555,7 +567,7 @@ export class BxFrame extends LitElement {
     }
   }
 
-  _url() { return `/c/${this.src}/`; }
+  _url() { return `/c/${this._page}/`; }
 
   // ---- terminal window ----
 
@@ -816,15 +828,14 @@ export class BxFrame extends LitElement {
       <div class="frame-wrap" style=${style ?? nothing}
            @pointerenter=${() => { this._hover = true; }} @pointerleave=${() => { this._hover = false; }}>
         ${this._frame ? keyed(this._frameKey ?? 0, html`
-          <iframe src=${this._frame.url} title=${this.src}
+          <iframe src=${this._frame.url} title=${this._page}
                   sandbox=${this._frame.sandboxed ? this._frame.sandbox : nothing}
                   credentialless=${this._frame.credentialless ? '' : nothing}
                   @load=${() => this._onFrameLoad()}></iframe>`) : nothing}
         ${this._buildError !== null ? html`
-          <pre class="overlay"><b>build failed — ${this.src}</b>\n\n${this._buildError}</pre>` : nothing}
+          <pre class="overlay"><b>build failed — ${this._page}</b>\n\n${this._buildError}</pre>` : nothing}
         ${this.hasAttribute('no-edit') ? nothing : html`
           <button class="edit" title="edit ${this.src}" @click=${this._toggleTerm}></button>`}
-        ${frameChip(this)}
       </div>
       ${this._termOpen ? (({ x, y, w, h }) => html`
         <div class="pop ${this._narrow ? 'narrow' : ''}"

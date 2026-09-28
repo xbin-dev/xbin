@@ -12,6 +12,20 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-28
 
+- **Shell: a tile's window shows the deployment you pick**
+  ([tile-deployments.md](tile-deployments.md) §The Deployments panel, *In the
+  shell*). A window's head carries `⇈` while the tile has a deployment you
+  may show besides the primary, its primary is pinned, or its last deploy
+  failed (`⇈!`); its menu picks what the window shows — the primary, or
+  `dev` (`/c/<tile>+dev/`, with a `+dev` tag in the head) — and opens the
+  shown deployment's full page and the Deployments panel. The window's
+  terminal, code and logs stay the tile's. On a personal screen the pick is
+  kept in the layout: the tile's entry gains an additive `"deployment"`,
+  which older shells and the app ignore (they show the primary). The
+  `📌 pinned` chip no longer draws over the page. `<bx-frame>` gains
+  `deployment="<name>"` ([elements.md](elements.md)). In an existing
+  workspace: `bx builtin update scaffold:shell` (the chip's removal and the
+  attribute come with the binary).
 - **Fix: a clone lets go of its snapshot when its copy is done.** A tile
   sandbox cloned from a snapshot was listed `stopped` (or started) a moment
   before the snapshot stopped refusing a delete (409 "is being cloned",

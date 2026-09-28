@@ -5,7 +5,7 @@
 // badges. Imported relatively by bx-shell.js and its child elements;
 // nothing here touches element state.
 import { html, nothing } from 'lit';
-import { useDeployLookup, deploySummary, deployHint, deployFailed } from './menus.js';
+import { useDeployLookup, deploySummary, deployHint, deployFailed, deployNames } from './menus.js';
 
 // The grid module lives in grid-layout.js (lit-free, so its layout math is
 // node-testable); re-exported here for the shell's existing imports.
@@ -164,14 +164,26 @@ export function deployChip(c, st) {
   try { title = (st?.record && dwords?.chip?.(st)?.title) || ''; } catch { /* the words changed: plain text */ }
   return { text: failed ? '⇈!' : '⇈', title: title || deployHint(sum, st), failed };
 }
-// deployBadge(chip, onOpen): the ⇄N badge's manners; with onOpen a button.
+// deployIcon(c, state, shown) → null, or a tile window head's ⇈ {text,
+// title, failed}: while the tile has a deployment the viewer may show besides
+// the primary, the primary is pinned, or its last deploy failed — and while
+// the window shows another deployment (shown). Its click picks what the
+// window shows (menus.js deployMenu).
+export function deployIcon(c, st, shown) {
+  const chip = deployChip(c, st), others = deployNames(st).length > 1;
+  if (!chip && !others && !shown) return null;
+  const title = [chip?.title, others ? 'pick the deployment this window shows' : ''].filter(Boolean).join(' · ');
+  return { text: chip?.text || '⇈', title, failed: !!chip?.failed };
+}
+// deployBadge(chip, onOpen): the ⇄N badge's manners; with onOpen a button
+// (onOpen(event): a menu anchors at event.currentTarget).
 export function deployBadge(d, onOpen = null) {
   if (!d) return nothing;
   const style = d.failed ? 'color: var(--bx-red, #ef5350)' : '';
   return onOpen
     ? html`<button class="prb dpb" style=${style} title=${d.title} aria-label=${d.title}
                    @pointerdown=${(e) => e.stopPropagation()}
-                   @click=${(e) => { e.stopPropagation(); onOpen(); }}>${d.text}</button>`
+                   @click=${(e) => { e.stopPropagation(); onOpen(e); }}>${d.text}</button>`
     : html`<span class="prb dpb" style=${style} title=${d.title}>${d.text}</span>`;
 }
 // deployMark(c, state): the sidebar's plain ⇈ while the primary is pinned

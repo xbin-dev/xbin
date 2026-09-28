@@ -67,6 +67,42 @@ export function deployHint(sum, st) {
 // nothing to operate; while the state isn't known the window decides.
 const mayOperate = (st) => !st || (st.view !== 'reader' && st.caller?.level !== 'read');
 
+// ---- the deployment a tile's window shows (docs/tile-deployments.md) ----
+// deployNames(state) → what a window may show, the primary first: every
+// deployment the viewer's state lists ([] while unknown; a reader's state
+// names the primary only, so it offers nothing to switch to).
+export function deployNames(st) {
+  if (!st?.record) return [];
+  const P = st.primary || 'main', ds = (st.deployments || []).map((d) => d.name).filter(Boolean);
+  return [P, ...ds.filter((n) => n !== P)];
+}
+// shownDeployment(want, state) → the non-primary deployment a window shows,
+// or '' (the primary): a name the state no longer lists, or the primary's own
+// (its alias), shows the primary; while the state is unknown the layout wins.
+export function shownDeployment(want, st) {
+  if (!want || st === undefined) return want || '';
+  const P = st?.primary || 'main';
+  return want !== P && deployNames(st).includes(want) ? want : '';
+}
+// deployMenu(path, c, state, shown, a) → the window head's ⇈ menu: which
+// deployment the window shows (a pick; the primary follows the role, so a
+// reassignment moves it), dev's full page, and the Deployments panel.
+// a: {show(name|''), openPanel(), openPage(ref)}.
+export function deployMenu(path, c, st, shown, a) {
+  const sum = deploySummary(c, st), P = sum?.primary || 'main', names = deployNames(st);
+  const byName = new Map((st?.deployments || []).map((d) => [d.name, d]));
+  const items = [{ kind: 'header', label: 'this window shows' }];
+  for (const n of names.length ? names : [P]) {
+    const d = byName.get(n), cp = d?.checkpoint?.id || '';
+    const hint = n === P ? `primary${sum?.pinned ? ` · 📌 ${cp || 'pinned'}` : ''}`
+      : st?.liveReload === n ? '● live reload' : cp ? `📌 ${cp}` : '';
+    items.push({ label: n, mono: true, hint, checked: (shown || P) === n, action: () => a.show(n === P ? '' : n) });
+  }
+  if (shown) items.push({ icon: '⤢', label: `Open ${path}+${shown} full page`, action: () => a.openPage(`${path}+${shown}`) });
+  if (sum && mayOperate(st)) items.push({ kind: 'sep' }, { icon: '⇈', label: 'Deployments…', hint: deployHint(sum, st), action: a.openPanel });
+  return items;
+}
+
 const tidy = (l) => l.replace(/^— | —$/g, '');
 const base = (p) => p.slice(p.lastIndexOf('/') + 1);
 const dir = (p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');

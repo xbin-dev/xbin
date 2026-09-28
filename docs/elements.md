@@ -344,7 +344,14 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
 <bx-frame src="apps/thing"></bx-frame>            <!-- auto-height -->
 <bx-frame src="apps/thing" height="420px"></bx-frame>
 <bx-frame src="apps/thing" no-edit></bx-frame>
+<bx-frame src="apps/thing" deployment="dev"></bx-frame> <!-- the page of apps/thing+dev -->
 ```
+
+- **`deployment`** (optional): the tile deployment the page shows — the
+  frame loads `/c/<src>+<deployment>/` and reloads and paints its build
+  overlay from the tile's `deployments` events, while its terminal window,
+  code, logs and proposals stay `src`'s. Empty or absent: the primary. The
+  shell's window `⇈` sets it ([tile-deployments.md](/docs/tile-deployments.md)).
 
 - **Auto-height**: the framed document reports its size via xbin-client
   (with hysteresis, so no resize loops). Set `height` for a fixed frame.
@@ -403,9 +410,9 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   paused · 3`, the files changed since; `📌 3` on the narrow bar) and a
   `⇡ Reload now` offer, the chip's menu holding Reload now and Resume live
   reload on ▸. Every operation confirms from a dry run of the exact request.
-  The launcher shows a banner while live reload is paused; people with
-  terminal access see a `📌 pinned` chip over the tile (a click opens its
-  window); open terminals print a grey line when live reload pauses or
+  The launcher shows a banner while live reload is paused (nothing is drawn
+  over the page: in the shell the tile's window head carries `⇈`); open
+  terminals print a grey line when live reload pauses or
   resumes, or code moves or fails to. The layout switcher's `⇈` opens the
   **Deployments panel**, and once a tile has more than an unprotected
   `main` the tile API select picks the session's target deployment

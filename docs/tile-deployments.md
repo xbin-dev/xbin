@@ -84,9 +84,9 @@ has one quiet entry, `⇈`, whose menu offers **Pause live reload**. While live
 reload is paused the entry becomes a chip, `📌 Live reload paused · 3`,
 counting the files changed since the checkpoint, next to **⇡ Reload now**;
 the chip's menu has Reload now and **Resume live reload on ▸**. The terminal
-window's launcher shows a banner while live reload is paused, people with
-terminal access see a `📌 pinned` chip over the tile itself (a click opens
-the window), and every open terminal of the tile prints a grey line when live
+window's launcher shows a banner while live reload is paused, the tile's
+window head in the shell carries `⇈` (below; nothing is drawn over the page
+itself), and every open terminal of the tile prints a grey line when live
 reload pauses, resumes or moves, or code moves or fails to. The window's `⇈`
 layout is the **Deployments panel** (below).
 
@@ -738,9 +738,23 @@ from a dry run of the exact request. Readers see the primary only.
 **In the shell** (in an existing workspace after `bx builtin update
 scaffold:shell`, and `scaffold:tiles/admin` for the admin console): a tile
 with deployments gets a `⇈ Deployments…` line in its tile menu (after Open
-full page; not for its readers), a `⇈` badge on its card head while the
-primary is pinned (`⇈!` after a failed deploy onto it) and a `⇈` on its
-sidebar row; the tile admin shows `pinned to c:…` and a
+full page; not for its readers) and a `⇈` on its sidebar row while the
+primary is pinned. Its window's head (a grid card or a floating window)
+carries `⇈` while the tile has a deployment you may show besides the
+primary, the primary is pinned, or its last deploy onto it failed (`⇈!`);
+hovering says what the primary is pinned to. `⇈` opens a menu that picks
+**what this window shows**: the primary (it follows the role: after a
+reassignment the window shows the new primary) or a non-primary deployment
+— the frame then loads `/c/<tile>+<name>/` and reloads from that
+deployment's events, and the head carries a `+<name>` tag, while the
+window's terminal, code, logs and proposals stay the tile's. The menu also
+opens the shown deployment's full page and the Deployments panel. On a
+personal screen the pick is kept in your layout (the tile's entry gains
+`"deployment": "<name>"`; an older shell and the app ignore it and show the
+primary); on an org screen, whose layout reaches everyone, it lasts for this
+page only. A deployment that is removed, that you may no longer see, or
+that becomes the primary shows the primary again. The tile admin shows
+`pinned to c:…` and a
 deployments section (its Non-primary access selects take narrowing changes;
 widening ones open the Deployments panel), and the admin console's runtime →
 components tab lists non-primary deployments under their tile.
