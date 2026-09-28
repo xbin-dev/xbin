@@ -38,6 +38,15 @@ type HostSpec struct {
 	Gateway string `json:"gateway,omitempty"`
 	Guest   Exec   `json:"guest"` // session 1
 
+	// Resident makes the VM a tile sandbox's (plans/tile-sandbox-runtime.md
+	// §2.5): the shim runs no session 1 and ignores Guest. Once the guest is
+	// configured it routes the connections xbind makes through its
+	// connection factory, AgentFD (the fd number the shim inherits it on,
+	// written by the sandbox init), to the guest's agent, and the VM lives
+	// until xbind hangs up.
+	Resident bool `json:"resident,omitempty"`
+	AgentFD  int  `json:"agentFd,omitempty"`
+
 	Debug bool `json:"debug,omitempty"`
 }
 

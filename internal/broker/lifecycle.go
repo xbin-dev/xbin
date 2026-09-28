@@ -63,13 +63,13 @@ func (b *Broker) apiLifecycleSet(w http.ResponseWriter, r *http.Request) {
 		}
 	case registry.StateOffloaded:
 		if err := b.offload(body.Component, false); err != nil {
-			server.WriteError(w, http.StatusBadGateway, err.Error())
+			server.WriteError(w, offloadStatus(err), err.Error())
 			return
 		}
 		filesChanged = true
 	case registry.StateOffloadedFull:
 		if err := b.offload(body.Component, true); err != nil {
-			server.WriteError(w, http.StatusBadGateway, err.Error())
+			server.WriteError(w, offloadStatus(err), err.Error())
 			return
 		}
 		filesChanged = true
@@ -96,10 +96,12 @@ func (b *Broker) apiLifecycleSet(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// Disabling/offloading stops the backend now (free compute); enabling lets
-	// the next request re-spawn it (Ensure is gated on the new state).
+	// Disabling/offloading stops the backend now (free compute), and the
+	// tile sandboxes it manages (state kept); enabling lets the next request
+	// re-spawn it (Ensure is gated on the new state).
 	if body.State != registry.StateEnabled {
 		b.StopBackendSafe(body.Component)
+		b.stopTileSandboxes(body.Component, "its tile was "+body.State+": stopped, state kept")
 	} else {
 		b.wakeBackends() // an always-on tile starts now; others on first request
 	}

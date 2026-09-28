@@ -107,14 +107,15 @@ say "a scripted sandbox manager: apps/fakesbx (the agentSandbox pass)"
 # hack/fakesandbox as a Go tile — the sandbox-manager contract (D115,
 # docs/sandbox-manager.md "Wiring") with every sandbox a directory under its
 # own `boxes` filesystem resource and every command a HOST process (a test
-# fixture: nothing is isolated). Its source is copied (stdlib only: the tile
-# builds without the SDK). Bound to the agent's `sandboxes` slot below, once
-# the agent exists.
+# fixture: nothing is isolated), terminals host PTYs. Its source is copied;
+# it needs the SDK's sdk/ws (the workspace go.work resolves the sdk to this
+# checkout: run.sh's XBIN_SDK_PATH). Bound to the agent's `sandboxes` slot
+# below, once the agent exists.
 api POST /create '{"path":"apps/fakesbx","runtime":"go","title":"fake sandboxes"}' | head -c 200; echo
 FSB="$WS/apps/fakesbx"
 mkdir -p "$FSB/backend"
 cp "$REPO/hack/fakesandbox/fsb.go" "$REPO/hack/fakesandbox/main.go" "$FSB/backend/"
-printf 'module fakesbx\n\ngo 1.24\n' > "$FSB/go.mod"
+printf 'module fakesbx\n\ngo 1.24\n\nrequire github.com/xbin-dev/xbin/sdk v0.0.0\n' > "$FSB/go.mod"
 printf '{\n  "resources": { "boxes": { "type": "filesystem" } }\n}\n' > "$FSB/scope.json"
 cat > "$FSB/xbin.json" <<'EOF'
 {
@@ -163,6 +164,26 @@ print(json.dumps(c))' > "$WS/.agent-config.json"
 gw PUT agent/config "$(cat "$WS/.agent-config.json")" | head -c 200; echo
 rm -f "$WS/.agent-config.json"
 
+say "the builtin sandbox manager on its test backend: apps/coding-sandbox (the codingSandbox pass)"
+# a copy of the coding-sandbox template (D122) whose backend also carries the
+# template's `fake` backend — its fake_*_test.go files, renamed: every
+# sandbox a host directory under a `boxes` resource of its own, every
+# command a host process (a test fixture: nothing is isolated). The pass
+# switches its config to it and binds it to the agent beside apps/fakesbx.
+api POST /templates/new '{"source":"coding-sandbox","path":"apps/coding-sandbox"}' | head -c 300; echo
+CS="$WS/apps/coding-sandbox"
+for f in backend exec files tty; do cp "$REPO/builtin-templates/coding-sandbox/_backend/fake_${f}_test.go" "$CS/_backend/fake_${f}.go"; done
+sed -i 's|"db": { "type": "sqlite" }|"db": { "type": "sqlite" }, "boxes": { "type": "filesystem" }|' "$CS/scope.json"
+# (a copy's xbin.json is plain JSON: the template block and comments go)
+python3 - "$CS/xbin.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+m["uses"].append({"target": "res:apps/coding-sandbox/boxes", "role": "writer"})
+json.dump(m, open(sys.argv[1], "w"), indent=2)
+PY
+# dev1 may open its page with read access: a read-only view (D122 addendum)
+api PUT /access '{"tile":"apps/coding-sandbox","kind":"user","id":"dev1","level":"read"}'
+
 say "messaging bridge + webhooks → the agent (the channels pass)"
 # a copy of the agent-messaging-bridge template (alwaysOn; no platform added,
 # so its console plays one) and the webhooks tile (/hook/* on the ingress
@@ -174,6 +195,21 @@ api POST /bindings '{"component":"apps/bridge","slot":"agent","provider":"apps/a
 api POST /bindings '{"component":"apps/webhooks","slot":"agents","provider":"apps/agent"}'
 api POST /bindings '{"component":"apps/webhooks","slot":"hooks","provider":"runtime","host":"hooks.test"}'
 api PUT /access '{"tile":"apps/bridge","kind":"user","id":"dev1","level":"read"}'
+
+SSHA=${SBXTERM_SSH_ADDR:-127.0.0.1:8699}
+say "sandbox-terminal → apps/fakesbx, SSH on $SSHA (the sandboxTerminal pass)"
+# the builtin people's-terminals tile (D121): bound to the fake manager (the
+# binding grants it the manager's consumer role), its SSH expose published on
+# a host port, and the address people type set by its owner (the tile can't
+# see xbind's port binding). Without --isolate its backend listens on the
+# host's :2222 (the manifest's port) behind the relay.
+api POST /builtins/import '{"name":"sandbox-terminal"}' | head -c 300; echo
+api POST /bindings '{"component":"apps/sandbox-terminal","slot":"sandboxes","providers":["apps/fakesbx"]}'
+api POST /bindings "{\"component\":\"apps/sandbox-terminal\",\"slot\":\"ssh\",\"provider\":\"runtime\",\"listen\":\"$SSHA\"}"
+for _ in $(seq 1 180); do gw GET sandbox-terminal/me | grep '"listening":true' >/dev/null && break; sleep 1; done
+gw PUT sandbox-terminal/settings "{\"sshAddress\":\"$SSHA\"}"
+# dev1 may open it (read): nothing is shared with dev1 — the empty state
+api PUT /access '{"tile":"apps/sandbox-terminal","kind":"user","id":"dev1","level":"read"}'
 
 say "state"
 api GET /orgs | python3 -c 'import json,sys

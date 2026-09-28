@@ -1,0 +1,49 @@
+{"v":1,"root":{"k":"r","t":"nav","e":["pop"],"c":[
+  {"k":"r.0","t":"screen","p":{"title":"Sandbox terminals","subtitle":"as alice","style":"list","refreshable":true},"e":["refresh"],"c":[
+    {"k":"r.0.2","t":"section","c":[
+      {"k":"r.0.2.0.0","t":"notice","p":{"tone":"info","title":"Terminals open in the browser","text":"In a browser this tile opens them, and attaches to the ones running."}},
+      {"k":"r.0.2.0.1","t":"button","p":{"icon":"external","label":"Open in the browser"},"e":["tap"]},
+      {"k":"r.0.2.0.2","t":"code","p":{"copy":true,"text":"https://xbin.test/"}}
+    ]},
+    {"k":"r.0.3:apps/coding-sandbox","t":"section","p":{"title":"Coding sandboxes","footer":"apps/coding-sandbox"},"c":[
+      {"k":"r.0.3:apps/coding-sandbox.1:apps/coding-sandbox|sb-7f3a","t":"row","p":{"title":"API dev","subtitle":"private · owner: you · from apps/agent · Debian with git, Go and Node · no network","detail":"running","tone":"ok","icon":"box","nav":true,"badge":"1 running"},"e":["tap"]},
+      {"k":"r.0.3:apps/coding-sandbox.1:apps/coding-sandbox|sb-91c0","t":"row","p":{"title":"docs site","subtitle":"team · owner: bob · from apps/agent · Debian with git, Go and Node · internet","detail":"archived","tone":"muted","icon":"box","nav":true},"e":["tap"]}
+    ]},
+    {"k":"r.0.5","t":"section","p":{"title":"SSH"},"c":[
+      {"k":"r.0.5.0","t":"notice","p":{"tone":"ok","title":"SSH","text":"Log in with a key you registered here: ssh <sandbox>@sbx.example.com -p 2222"}},
+      {"k":"r.0.5.2","t":"row","p":{"title":"Your keys","icon":"key","nav":true,"detail":"1"},"e":["tap"]}
+    ]}
+  ]},
+  {"k":"r.1","t":"screen","p":{"title":"Your SSH keys","style":"form"},"c":[
+    {"k":"r.1.2","t":"section","p":{"footer":"Swipe a key to remove it; its SSH connections end at once."},"c":[
+      {"k":"r.1.2.0:bW9ja2tleQ","t":"row","p":{"title":"alice@laptop","subtitle":"SHA256:2VqfN8yW4c1mT0xK7bLh5pRgD3sZaEoUiFtYx0Q9J6E","mono":"subtitle","detail":"ssh-ed25519","icon":"key"},"c":[
+        {"k":"r.1.2.0:bW9ja2tleQ.0","t":"actions","c":[
+          {"k":"r.1.2.0:bW9ja2tleQ.0.0","t":"button","p":{"role":"destructive","icon":"trash","disabled":false,"confirm":{"title":"Remove the key “alice@laptop”?","message":"Its SSH connections end now.","label":"Remove","destructive":true},"label":"Remove"},"e":["tap"]}
+        ]}
+      ]}
+    ]},
+    {"k":"r.1.3","t":"section","p":{"title":"Add a key","footer":"ed25519, ECDSA, security keys (sk-…) or RSA of 2048 bits or more. A key is one person's."},"c":[
+      {"k":"r.1.3.0","t":"field","p":{"label":"Public key","kind":"multiline","placeholder":"ssh-ed25519 AAAAC3Nza… you@laptop","value":""},"e":["input"]},
+      {"k":"r.1.3.1","t":"field","p":{"label":"Name","placeholder":"default: the key's comment","value":""},"e":["input"]},
+      {"k":"r.1.3.2","t":"button","p":{"role":"primary","icon":"plus","busy":false,"disabled":true,"label":"Add key"},"e":["tap"]}
+    ]},
+    {"k":"r.1.4","t":"section","p":{"title":"Host key","footer":"What ssh shows the first time you connect."},"c":[
+      {"k":"r.1.4.0","t":"row","p":{"title":"ssh-ed25519","detail":"SHA256:k3PqV7yXg0m2cJ9T1d8n5r4wLbH6sZaEoUiFtYx0Q2M","mono":"detail"}},
+      {"k":"r.1.4.1","t":"code","p":{"copy":true,"text":"[sbx.example.com]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHk3PqV7yXg0m2cJ9T1d8n5r4wLbH6sZaEoUiFtYx0Q2"}}
+    ]},
+    {"k":"r.1.5","t":"section","p":{"title":"Your SSH sessions"},"c":[
+      {"k":"r.1.5.0.0","t":"row","p":{"title":"API dev","subtitle":"terminal · from 10.0.0.7:52144 · since 16 min ago","icon":"terminal"}}
+    ]},
+    {"k":"r.1.6","t":"section","p":{"title":"Address people use","footer":"host or host:port — where the SSH port is published; the ssh commands show it."},"c":[
+      {"k":"r.1.6.0","t":"field","p":{"label":"Address","placeholder":"sbx.example.com:2222","value":"sbx.example.com:2222"},"e":["input"]},
+      {"k":"r.1.6.1","t":"button","p":{"label":"Save"},"e":["tap"]}
+    ]},
+    {"k":"r.1.7","t":"section","p":{"title":"Everyone's keys","footer":"You manage this tile: revoking a key ends its SSH connections at once."},"c":[
+      {"k":"r.1.7.0:bW9ja2tleQ","t":"row","p":{"title":"alice","subtitle":"alice@laptop · SHA256:2VqfN8yW4c1mT0xK7bLh5pRgD3sZaEoUiFtYx0Q9J6E","detail":"16 min ago","icon":"person"},"c":[
+        {"k":"r.1.7.0:bW9ja2tleQ.0","t":"actions","c":[
+          {"k":"r.1.7.0:bW9ja2tleQ.0.0","t":"button","p":{"role":"destructive","icon":"trash","confirm":{"title":"Revoke alice's key “alice@laptop”?","message":"Its SSH connections end now.","label":"Revoke","destructive":true},"label":"Revoke"},"e":["tap"]}
+        ]}
+      ]}
+    ]}
+  ]}
+]}}

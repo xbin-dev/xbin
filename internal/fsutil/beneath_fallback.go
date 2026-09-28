@@ -38,6 +38,29 @@ func openInFallback(root, sub, rel string) (*os.File, error) {
 	return openChecked(full)
 }
 
+func mkdirAllInFallback(root, sub string, perm os.FileMode) error {
+	dir, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return err
+	}
+	for _, seg := range strings.Split(filepath.ToSlash(sub), "/") {
+		dir = filepath.Join(dir, seg)
+		if err := os.Mkdir(dir, perm); err != nil && !os.IsExist(err) {
+			return err
+		}
+		fi, err := os.Lstat(dir)
+		switch {
+		case err != nil:
+			return err
+		case fi.Mode()&os.ModeSymlink != 0:
+			return &os.PathError{Op: "mkdir", Path: dir, Err: ErrEscapes}
+		case !fi.IsDir():
+			return &os.PathError{Op: "mkdir", Path: dir, Err: syscall.ENOTDIR}
+		}
+	}
+	return nil
+}
+
 // resolveIn resolves root and root/rel and checks the result: inside root,
 // and allow(root-relative path). Returns the resolved root, the resolved
 // path, and the path relative to the resolved root (slash-separated).

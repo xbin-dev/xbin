@@ -38,6 +38,8 @@ func cmdExtra(cmd string, args []string) error {
 		return cmdAgentHost()
 	case "__vm-host":
 		return cmdVMHost(args)
+	case "__sbx-agent":
+		return cmdSbxAgent(args) // sbxagent.go
 	case "fix":
 		return cmdFix(args) // fixassets.go
 	}

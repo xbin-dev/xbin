@@ -70,6 +70,12 @@ func runInit(specPath string) error {
 	os.Remove(specPath) // consume the spec (final stage, or single-uid mode)
 	dbg(s.Debug, "init pid=%d uid=%d net=%q hostnet=%v restricted=%v unpriv=%v",
 		os.Getpid(), os.Getuid(), s.Net, s.HostNet, s.Restricted, s.Unprivileged)
+	// fd hygiene before anything is started (agentfd_linux.go), the hostname
+	if err := initFDs(&s); err != nil {
+		return err
+	}
+	dbg(s.Debug, "fds: agent=%d lock=%d ctrl=%d hostname=%q nofollow=%v followBase=%v",
+		s.AgentFD, s.LockFD, s.CtrlFD, s.Hostname, s.NoFollow, s.FollowBase)
 
 	// Detach mount propagation so nothing we do leaks to the host.
 	if err := unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
@@ -94,11 +100,13 @@ func runInit(specPath string) error {
 	// Overlay: base rootfs + granted deps (lower, ro) with a per-component
 	// writable upper. If the caller gave no Upper, use dirs on our private tmpfs.
 	// A VM sandbox has no rootfs of its own: a bare tmpfs (init_vm_linux.go).
+	// fusePID is a watched fuse-overlayfs's (FuseWatch), for the agent.
+	var fusePID int
 	if s.VM != nil {
 		if err := vmRoot(newroot); err != nil {
 			return err
 		}
-	} else if err := mountRoot(&s, base, newroot); err != nil {
+	} else if fusePID, err = mountRoot(&s, base, newroot); err != nil {
 		return err
 	}
 	dbg(s.Debug, "root mounted at %s (vm=%v)", newroot, s.VM != nil)
@@ -107,7 +115,17 @@ func runInit(specPath string) error {
 	// BEFORE the binds so that binds whose paths fall under /tmp (the run dir /
 	// gateway socket use a /tmp fallback for the 108-byte unix-socket limit, and
 	// the workspace itself may live under /tmp) land on top rather than being
-	// shadowed.
+	// shadowed. A NoFollow root (a sandbox-written upper) never has a mount
+	// point followed through a symlink (mountpoint_linux.go).
+	mountAt := mountAt
+	var nf *walk
+	if s.NoFollow {
+		if nf, err = openWalk(&s, newroot); err != nil {
+			return err
+		}
+		defer nf.close()
+		mountAt = nf.mountAt
+	}
 	if err := mountAt(newroot, "proc", "proc", "proc", unix.MS_NOSUID|unix.MS_NODEV|unix.MS_NOEXEC, ""); err != nil {
 		return err
 	}
@@ -166,10 +184,16 @@ func runInit(specPath string) error {
 	// Extra binds: component dir (ro), resource files (rw), gateway socket, …
 	// Mounted ancestors-first (sortBinds) so overlapping binds nest instead of
 	// a later broad mount shadowing an earlier deeper one.
-	for _, b := range sortBinds(s.Binds) {
-		dbg(s.Debug, "bind %q -> %q (ro=%v mask=%v)", b.Src, b.Dst, b.RO, b.Mask)
-		if err := mountBind(newroot, b); err != nil {
+	if s.NoFollow {
+		if err := mountBindsNoFollow(nf, s.Binds, s.Debug); err != nil {
 			return err
+		}
+	} else {
+		for _, b := range sortBinds(s.Binds) {
+			dbg(s.Debug, "bind %q -> %q (ro=%v mask=%v)", b.Src, b.Dst, b.RO, b.Mask)
+			if err := mountBind(newroot, b); err != nil {
+				return err
+			}
 		}
 	}
 	dbg(s.Debug, "binds done (%d)", len(s.Binds))
@@ -204,8 +228,19 @@ func runInit(specPath string) error {
 
 	// pivot_root into the assembled tree.
 	oldroot := filepath.Join(newroot, ".oldroot")
-	if err := os.MkdirAll(oldroot, 0o700); err != nil {
+	if s.NoFollow {
+		if err := nf.oldroot(); err != nil {
+			return err
+		}
+	} else if err := os.MkdirAll(oldroot, 0o700); err != nil {
 		return must(err, "mkdir .oldroot")
+	}
+	// fuse-overlayfs serving the root gets a root of its own first, so it
+	// never resolves a path through the mount it serves (fuseroot_linux.go).
+	if s.FuseOverlay != "" {
+		if err := fuseServerRoot(base); err != nil {
+			return err
+		}
 	}
 	if err := unix.PivotRoot(newroot, oldroot); err != nil {
 		return must(err, "pivot_root")
@@ -273,7 +308,14 @@ func runInit(specPath string) error {
 	// network-admin caps it needs to build its dataplane — everything else is
 	// still dropped and the same seccomp block-list still applies.
 	if s.Unprivileged {
-		if s.Containers {
+		if s.FileCaps {
+			// xbind's confined file tools on sandbox-written trees
+			// (filecaps_linux.go): the file caps, nothing else.
+			if err := fileCapsLockdown(); err != nil {
+				return must(err, "file-caps lockdown")
+			}
+			dbg(s.Debug, "file-caps profile (file caps kept, backend seccomp minus mknodat)")
+		} else if s.Containers {
 			// Container-host tile (cap:containers): keep the userns caps rootless
 			// podman needs for nested namespaces + mounts, and install only the
 			// minimal seccomp floor (host-damaging syscalls). The mount family,
@@ -327,11 +369,11 @@ func runInit(specPath string) error {
 		// Non-fatal: fall back to / so a bad Cwd doesn't wedge the backend.
 		_ = unix.Chdir("/")
 	}
-	argv := s.Argv
-	if len(argv) == 0 {
-		argv = []string{s.Entry}
-	}
+	argv := entryArgv(&s, fusePID)
 	dbg(s.Debug, "guards on, exec %s (cwd=%s)", s.Entry, cwd)
+	if err := handAgentFD(&s); err != nil {
+		return err
+	}
 	if err := unix.Exec(s.Entry, argv, s.Env); err != nil {
 		return must(err, "exec "+s.Entry)
 	}
@@ -339,24 +381,28 @@ func runInit(specPath string) error {
 }
 
 // mountRoot mounts the overlay root: base rootfs + granted deps (lower, ro)
-// with a per-component writable upper, or dirs on the private tmpfs.
-func mountRoot(s *Spec, base, newroot string) error {
+// with a per-component writable upper, or dirs on the private tmpfs. The pid
+// is a watched fuse-overlayfs's (FuseWatch, fusewatch_linux.go), else 0.
+func mountRoot(s *Spec, base, newroot string) (int, error) {
 	upper, work := s.Upper, s.Work
 	if upper == "" {
 		upper = filepath.Join(base, "up")
 		work = filepath.Join(base, "work")
 		if err := os.Mkdir(upper, 0o755); err != nil {
-			return must(err, "mkdir upper")
+			return 0, must(err, "mkdir upper")
 		}
 		if err := os.Mkdir(work, 0o755); err != nil {
-			return must(err, "mkdir work")
+			return 0, must(err, "mkdir work")
 		}
 	}
 	if len(s.Lower) == 0 {
-		return fmt.Errorf("spec has no rootfs lowerdir")
+		return 0, fmt.Errorf("spec has no rootfs lowerdir")
 	}
 	opt := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", strings.Join(s.Lower, ":"), upper, work)
-	dbg(s.Debug, "overlay: %s (fuse=%q)", opt, s.FuseOverlay)
+	dbg(s.Debug, "overlay: %s (fuse=%q watch=%v)", opt, s.FuseOverlay, s.FuseWatch)
+	if s.FuseOverlay != "" && s.FuseWatch {
+		return mountFuseWatched(s, opt, newroot)
+	}
 	if s.FuseOverlay != "" {
 		// fuse-overlayfs honors redirect_dir/metacopy (which unprivileged kernel
 		// overlayfs forbids), so directory renames work → `apt install` etc. It
@@ -365,12 +411,12 @@ func mountRoot(s *Spec, base, newroot string) error {
 		// don't print into every terminal; surface output only on failure.
 		fo := exec.Command(s.FuseOverlay, "-o", opt, newroot)
 		if out, err := fo.CombinedOutput(); err != nil {
-			return must(fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out))), "fuse-overlayfs mount")
+			return 0, must(fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out))), "fuse-overlayfs mount")
 		}
 	} else if err := unix.Mount("overlay", newroot, "overlay", 0, opt); err != nil {
-		return must(err, "mount overlay ("+opt+")")
+		return 0, must(err, "mount overlay ("+opt+")")
 	}
-	return nil
+	return 0, nil
 }
 
 // awaitMaps blocks until the parent writes our uid/gid maps and signals via the
@@ -393,11 +439,12 @@ func mountBind(newroot string, b Bind) error {
 	if b.Mask {
 		return mountMask(dst, b.RO)
 	}
-	fi, err := os.Lstat(b.Src)
+	src, isDir, release, err := bindSource(b) // Sub: resolved without symlinks
 	if err != nil {
-		return must(err, "bind src "+b.Src)
+		return err
 	}
-	if fi.IsDir() {
+	defer release()
+	if isDir {
 		if err := os.MkdirAll(dst, 0o755); err != nil {
 			return must(err, "mkdir "+dst)
 		}
@@ -411,7 +458,7 @@ func mountBind(newroot string, b Bind) error {
 	}
 	// Always recursive: a non-recursive bind of a subtree with locked children
 	// (resenc, in a rootless userns) is rejected with EINVAL — see Bind's doc.
-	if err := unix.Mount(b.Src, dst, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
+	if err := unix.Mount(src, dst, "", unix.MS_BIND|unix.MS_REC, ""); err != nil {
 		return must(err, "bind "+b.Src+" -> "+b.Dst)
 	}
 	if b.RO {
@@ -511,15 +558,14 @@ func mountAt(newroot, rel, source, fstype string, flags uintptr, data string) er
 
 // copyHostFile copies a host config file (following symlinks, e.g. a
 // systemd-resolved stub) into newroot at the same path — used to seed DNS for
-// host-network sandboxes.
+// host-network sandboxes. The write never follows a symlink in newroot
+// (writeInRoot): the root may be a persistent upper the sandbox wrote.
 func copyHostFile(newroot, p string) {
 	data, err := os.ReadFile(p) // reads through symlinks; we're pre-pivot on host root
 	if err != nil {
 		return
 	}
-	dst := filepath.Join(newroot, p)
-	_ = os.MkdirAll(filepath.Dir(dst), 0o755)
-	_ = os.WriteFile(dst, data, 0o644)
+	_ = writeInRoot(newroot, p, data)
 }
 
 // upLoopback sets lo UP via an ioctl on an AF_INET socket (no external tools).

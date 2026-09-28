@@ -3,8 +3,10 @@
 // chat's — only where the class has the sandbox toolset), the ▣ badge (the
 // active sandbox and its working directory, and why a binding no longer
 // resolves), the Sandboxes dialog's rows (state, manager, egress, owner, the
-// actions your rights allow) and the create form (a manager's images, sizes
-// and egress, as the class allows them). Pure functions of GET /sandboxes, a
+// actions your rights allow), a terminal onto one (its manager's `tty`, the
+// web view only) and the create form (a manager's images, sizes and egress,
+// as the class allows them), and sharing one with a terminal tile (the
+// builtin sandbox-terminal, D121). Pure functions of GET /sandboxes, a
 // class (GET /classes, or a run view's `class`) and a run's view: no lit, no
 // DOM, no calls — model/sandbox-store.js keeps the state and makes the calls
 // (API.md "Coding sandboxes").
@@ -309,18 +311,73 @@ export function viaConv(s, conv) {
   return s && !(s.canUse || s.canManage) && talks(conv) && heldHere(conv, s) ? rootOf(conv) : undefined;
 }
 
+// --- terminals: a manager's `tty` (docs/sandbox-manager.md) --------------------------
+
+// endpointOf: the page's endpoint for a manager (provider: <tile>[#inst]),
+// from its `sandboxes` slot (xbin.iface('sandboxes').endpoints: {provider,
+// instance?, url}), or null.
+export function endpointOf(eps, provider) {
+  return (eps || []).find((e) => e && e.url && (e.instance ? `${e.provider}#${e.instance}` : e.provider) === provider) || null;
+}
+
+// A terminal opens in a sandbox that runs or can start (a stopped one starts
+// on it; an archived one is thawed first).
+const TTY_STATES = new Set(['running', 'stopped', 'starting']);
+
+// terminalSrc: the manager route that starts a terminal (the login shell) in
+// sandbox id at cwd ('' = its workdir) — what <bx-terminal src> dials.
+export function terminalSrc(ep, id, cwd = '') {
+  const c = String(cwd || '').trim();
+  return `${String(ep.url).replace(/\/+$/, '')}/sbx/sandboxes/${encodeURIComponent(id)}/tty${c ? '?cwd=' + encodeURIComponent(c) : ''}`;
+}
+// execSrc: that manager's route for one exec of the sandbox (DELETE ends it).
+export const execSrc = (ep, id, eid) => `${String(ep.url).replace(/\/+$/, '')}/sbx/sandboxes/${encodeURIComponent(id)}/execs/${encodeURIComponent(eid)}`;
+
+// terminal: "Open terminal" for the sandbox ref at cwd — {shown, why, src,
+// base (the manager's url), id, name, cwd, manager, label}. eps: the page's
+// endpoints for its `sandboxes` slot; a view that draws no terminal passes
+// none (null: not shown). Shown where its manager's hello offers `tty` (and
+// the sandbox does not leave it out); offered ('' why) when the page is
+// bound to that manager, you may use the sandbox yourself — the page dials
+// the manager as you, so the manager applies its per-person rules, and
+// acting through a conversation doesn't reach it — and it runs or can start.
+export function terminal(list, ref, eps, cwd = '') {
+  const L = list || listOf(null);
+  const { provider, id } = splitRef(ref);
+  const s = find(L, ref);
+  const m = L.managers.find((x) => x.provider === ((s && s.provider) || provider));
+  const tty = !!m && (m.caps || []).includes('tty') && !(s && Array.isArray(s.caps) && !s.caps.includes('tty'));
+  const name = nameOf(s) || id;
+  const out = { shown: !!eps && tty, why: '', src: '', base: '', ref, id: (s && s.id) || id, name, cwd: String(cwd || '').trim(),
+    manager: (s && s.manager) || (m && m.title) || provider, label: 'Open terminal' };
+  if (!out.shown) return { ...out, why: !eps ? 'this view opens no terminals' : `its manager (${out.manager}) offers no terminals` };
+  const ep = endpointOf(eps, (s && s.provider) || provider);
+  const why = !s ? 'gone — its manager no longer has it'
+    : m.ok === false ? `its manager (${out.manager}) is unavailable`
+    : !ep ? 'this page is not bound to its manager — reload it'
+    : !s.canUse ? 'you may not use it yourself'
+    : !TTY_STATES.has(s.state || '') ? `it is ${STATES[s.state] || s.state || 'not ready'}${s.state === 'archived' ? ' — thaw it first' : ''}`
+    : '';
+  if (why) return { ...out, why };
+  return { ...out, src: terminalSrc(ep, out.id, out.cwd), base: ep.url };
+}
+
 // sandboxRows: the Sandboxes dialog — every sandbox you may see, yours
 // first, then by when it was last active; each with the actions your rights
 // allow: start/stop/thaw (who may use or manage it — or, for one the open
 // conversation holds, anyone who may talk in it: through the conversation),
 // archive (who may manage it, where its manager archives), share with the
-// team or make private (its owner), delete (who may manage it — confirmed).
+// team or make private (its owner), share with a terminal tile (its owner,
+// when this agent is its home: shareForm), delete (who may manage it —
+// confirmed).
 // opts.conv: the open conversation — "Use here" binds one (confirmed when a
 // private one goes into a conversation other people are in); opts.cls at
 // home: "Use for a new chat". opts.order: the refs in the order a view shows
 // them — kept while it is open (a row never moves under the cursor), the
-// ones it hasn't shown yet after them. "Open terminal" waits for phase 3 (a
-// bx-terminal src): not offered.
+// ones it hasn't shown yet after them. opts.tty: the page's endpoints for
+// its `sandboxes` slot — "Terminal" where terminal() offers one (at the
+// working directory the open conversation has it at; else its workdir); a
+// view without terminals passes none.
 export function sandboxRows(list, me, opts = {}) {
   const conv = opts.conv || null;
   const cls = conv ? conv.class : opts.cls;
@@ -350,7 +407,13 @@ export function sandboxRows(list, me, opts = {}) {
     if (s.canManage && (st === 'running' || st === 'stopped') && capsOf(s, L).includes('archive')) {
       acts.push({ id: 'archive', label: 'Archive', confirm: `Archive the sandbox “${name}”? It stops, and thawing it takes a while.` });
     }
+    if (opts.tty) {
+      const cwd = (conv && attachedOf(conv).find((a) => a.ref === s.ref) || {}).cwd || '';
+      const t = terminal(L, s.ref, opts.tty, cwd);
+      if (t.shown && !t.why) acts.push({ id: 'terminal', label: 'Terminal', cwd: t.cwd });
+    }
     if (s.canEdit) acts.push(s.visibility === 'team' ? { id: 'private', label: 'Make private' } : { id: 'team', label: 'Share with the team' });
+    if (canShareOut(s)) acts.push({ id: 'shareTerm', label: 'Share with a terminal tile…' });
     if (s.canManage) {
       acts.push({ id: 'delete', label: 'Delete', danger: true, confirm: `Delete the sandbox “${name}”? Everything in it is gone for good${bound
         ? ` — ${bound === 1 ? 'a conversation' : bound + ' conversations'} you see ${bound === 1 ? 'loses' : 'lose'} it` : ''}.` });
@@ -364,6 +427,8 @@ export function sandboxRows(list, me, opts = {}) {
       owner: s.mine || (owner && owner === user) ? 'you' : owner || 'the agent', mine: !!s.mine,
       visibility: s.visibility === 'team' ? 'team' : 'private', visLabel: s.visibility === 'team' ? 'team' : 'private',
       lastActive: s.lastActive || 0, lastLabel: ago(s.lastActive, opts.now),
+      // the other consumers it is shared with (a terminal tile), by path
+      sharedWith: sharesOf(s).map((x) => x.consumer),
       bound, here: root != null && (s.boundTo || []).includes(root), active: on,
       // where it is used, in words: the open conversation's active or attached
       // one — at home, the pick is the next new chat's
@@ -372,6 +437,67 @@ export function sandboxRows(list, me, opts = {}) {
     };
   });
 }
+
+// --- sharing with a terminal tile (D121) ---------------------------------------------
+
+// TERMINAL_TILE: where the builtin sandbox-terminal tile is imported by default.
+export const TERMINAL_TILE = 'apps/sandbox-terminal';
+const TILE_PATH = /^[A-Za-z0-9][A-Za-z0-9._-]*(\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/;
+
+// sharesOf: the consumers a sandbox is shared with, as its manager keeps
+// them ([{consumer, users: "*" | [user…]}]).
+export const sharesOf = (s) => (s && Array.isArray(s.shares) ? s.shares.filter((x) => x && x.consumer) : []);
+
+// canShareOut: s is yours and this agent is its home — the contract lets
+// only the home consumer change a sandbox's shares, so one another consumer
+// shared with this agent is not this agent's to pass on.
+export const canShareOut = (s) => !!(s && s.mine && s.canEdit && !s.shared);
+
+const usersWords = (u, me) => (u === '*' ? 'everyone who may use it'
+  : Array.isArray(u) ? u.map((x) => (x === me ? 'you' : x)).join(', ') || 'nobody' : '');
+
+// shareForm: "Share with a terminal tile…" for sandbox s — the tile's path
+// (f.tile; the builtin's default path), who the share is for (a team
+// sandbox: "*", everyone who may use it; a private one: you, with whoever
+// that tile's share already named), the shares it has now, what is wrong
+// (error; '' = it can be shared), and the PATCH /sandboxes/{ref} body: its
+// shares with that tile's replaced, and the version they were read at
+// (withVersion). The terminal tile applies the person rules too (owner,
+// members, team), so a share never widens who may use the sandbox. self:
+// this agent's path (a share with itself is refused).
+export function shareForm(s, me, f = {}, self = '') {
+  const user = (me && me.user) || '';
+  const tile = String(f.tile ?? TERMINAL_TILE).trim().replace(/^\/+|\/+$/g, '');
+  const team = !!s && s.visibility === 'team';
+  const current = sharesOf(s);
+  const prior = current.find((x) => x.consumer === tile);
+  const users = team || (prior && prior.users === '*') ? '*'
+    : [...new Set([...(prior && Array.isArray(prior.users) ? prior.users : []), user])].filter(Boolean);
+  let error = '';
+  if (!s) error = 'gone — its manager no longer has it';
+  else if (!canShareOut(s)) error = s.shared ? 'it was shared with this agent: only its home can share it on' : 'only its owner shares it';
+  else if (!tile) error = 'Name the terminal tile: its path, like apps/sandbox-terminal.';
+  else if (!TILE_PATH.test(tile) || tile.split('/').some((x) => x === '..' || x === '.')) error = 'A tile\'s path is like apps/sandbox-terminal.';
+  else if (self && tile === self) error = 'That is this agent — name the terminal tile.';
+  else if (!team && !user) error = 'Who you are isn\'t known yet — try again in a moment.';
+  return {
+    tile, users,
+    usersLabel: team ? 'everyone who may use it (a team sandbox)' : usersWords(users, user),
+    current: current.map((x) => ({ consumer: x.consumer, users: x.users, usersLabel: usersWords(x.users, user) })),
+    error, ok: !error,
+    body: withVersion(s, { shares: [...current.filter((x) => x.consumer !== tile), { consumer: tile, users }] }),
+  };
+}
+
+// unshareBody: the PATCH /sandboxes/{ref} body that takes consumer's share
+// away (with the version it was read at).
+export const unshareBody = (s, consumer) => withVersion(s, { shares: sharesOf(s).filter((x) => x.consumer !== consumer) });
+
+// withVersion: a PATCH body that replaces a whole list (the shares) goes
+// with the sandbox's version as it was read, so a change made since — a
+// share someone else added — is refused (412) rather than lost; the store
+// reads it again and computes the body afresh (sandbox-store.js).
+const withVersion = (s, body) => (s && Number.isInteger(s.version) ? { ...body, version: s.version } : body);
 
 // --- the create form ---------------------------------------------------------------
 

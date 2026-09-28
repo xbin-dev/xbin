@@ -38,6 +38,8 @@ c.UserCanWrite()             // gate mutating endpoints on the DRIVING user's
                              // at full role even for read-level viewers
 c.ViewedBy                   // an admin viewing as User (D64): hide User's
                              // private data from them
+xbin.AccessOf(ctx, user)     // that person's level on this tile NOW — for a
+                             // credential kept past the call (below)
 xbin.Role("writer", h)       // middleware: 403 below writer
 xbin.RoleFunc("writer", hf)  // same, for HandlerFuncs
 xbin.RoleSatisfies(have, want) // admin ⊃ writer ⊃ reader; custom = exact;
@@ -64,7 +66,8 @@ missing grant — declare it in `uses`, get it approved.
 **Long-running calls stream.** The client has no overall timeout: SSE /
 chunked responses from another element run until either side closes (bound
 individual calls with a request context). For **WebSocket** to another
-element, dial any WS library through the gateway:
+element, use `sdk/ws` (below) with `xbin.Client()`, or dial any WS library
+through the gateway:
 
 ```go
 d := websocket.Dialer{NetDialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -77,6 +80,69 @@ conn, _, err := d.DialContext(ctx, "ws://xbin/api/apps/other/stream", h)
 Remember the lifecycle: streams to a backend die at its blue/green drain
 (30 s after a save there) — reconnect loops are mandatory. Backends serving
 active streams are not idle-reaped.
+
+### WebSocket — `github.com/xbin-dev/xbin/sdk/ws`
+
+A WebSocket (RFC 6455) client and server in the SDK, on the standard
+library alone. Dial another tile (or xbind) through the gateway — the
+handshake goes through `xbin.Client()`, with this instance's credential:
+
+```go
+import "github.com/xbin-dev/xbin/sdk/ws"
+
+c, _, err := ws.Dial(ctx, "ws://xbin/api/apps/other/stream", nil, &ws.DialOptions{Client: xbin.Client()})
+if err != nil { … }
+defer c.Close()
+go func() { // keep one goroutine reading: it answers the peer's pings
+	for {
+		typ, msg, err := c.ReadMessage() // ws.TextMessage or ws.BinaryMessage, whole
+		if err != nil {
+			return // a *ws.CloseError when the peer closed
+		}
+		…
+	}
+}()
+err = c.WriteMessage(ws.TextMessage, []byte(`{"op":"hello"}`)) // from any goroutine
+```
+
+Serve one from a handler:
+
+```go
+mux.HandleFunc("GET /stream", func(w http.ResponseWriter, r *http.Request) {
+	c, err := ws.Upgrade(w, r, nil) // a request that isn't a handshake is answered for you
+	if err != nil {
+		return
+	}
+	defer c.Close()
+	…
+})
+```
+
+- `DialOptions{Client, Subprotocols, MaxMessageSize}`: `Client` sends the
+  handshake (nil: `http.DefaultClient`, for any `ws://` or `wss://` URL); the
+  context bounds the handshake only. A refused handshake is
+  `ws.ErrBadHandshake`, with the response (its status and up to 4 KiB of its
+  body) returned alongside.
+- `UpgradeOptions{Subprotocols, CheckOrigin, MaxMessageSize, Header,
+  Error}`: every Origin is accepted unless `CheckOrigin` says otherwise —
+  xbind authenticated the call before it reached your backend (a sandboxed
+  page's Origin is `null`); a server of its own that trusts cookies checks
+  it. `Error` answers a refused upgrade in your API's error shape.
+- A received message is at most `MaxMessageSize` (default 32 MiB; over it
+  the connection closes with 1009 and the read returns
+  `ws.ErrMessageTooBig`); fragmented messages arrive whole. `Ping` sends a
+  ping; `SetPongHandler` / `SetPingHandler` observe them. `SetReadDeadline`
+  / `SetWriteDeadline` bound reads and writes (past one, the connection is
+  spent). `Close` / `CloseWith(code, reason)` do the close handshake,
+  waiting up to 2 s for the peer's answer.
+
+### Testing a sandbox manager — `sdk/sandboxcontract`
+
+A tile that runs sandboxes for other tiles ([sandbox-manager.md](sandbox-manager.md))
+checks itself with the contract's conformance suite:
+`sandboxcontract.Run(t, sandboxcontract.Target{URL: srv.URL})` runs every
+section of the contract against it as subtests. How to aim it, and its
+knobs: [sandbox-manager.md](sandbox-manager.md) §Building a manager.
 
 ### Resources, vault, bus
 
@@ -152,6 +218,118 @@ if errors.Is(err, xbin.ErrNotifyRateLimited) { /* back off */ }
   are cut. The content is sealed end to end to the device; the push relay
   never sees it.
 - `xbin.Notify(level, message)` is different: a toast in the web shell.
+
+### Is a person still one of this tile's users? — `xbin.AccessOf`
+
+`xbin.Caller(r).UserLevel` says what the person **calling now** may do. A
+credential your tile keeps past that call — an SSH key, an API token or a
+webhook secret a person registered on your page — outlives it: they may be
+removed from the workspace or from the tile later, and the credential would
+still name them. Check it at each use:
+
+```go
+a, err := xbin.AccessOf(ctx, key.User) // GET /api/xbin/access/<user>
+if err != nil || !a.CanRead() {        // fail closed: no answer is no
+	// refuse, and mark the credential inactive rather than delete it —
+	// access may come back
+}
+```
+
+- `a.Level` is `none | read | write | terminal` on **this tile** — what
+  `UserLevel` would say if they called now; `a.Active` is false for a
+  disabled or deleted account (its level is then `none`). `CanRead()` /
+  `CanWrite()` fold both.
+- Only the backend asks (its instance token), and only about its own tile;
+  an unknown id is level `none`, never an error. An error means xbind
+  didn't answer — don't let the credential in. Cache answers briefly (the
+  sandbox-terminal tile keeps them 30 s) rather than asking on every
+  packet.
+
+### Tile sandboxes, for manager tiles — `xbin.SandboxAPI()`
+
+A **manager tile** serves the sandbox-manager contract
+([sandbox-manager.md](sandbox-manager.md)) to other tiles and can have
+xbind run its sandboxes (D120). Its backend needs **`cap:sandboxes`**, a
+grant only a workspace admin approves, and an xbind running with
+`--isolate`. The routes are in [protocol.md](protocol.md) §Tile sandboxes;
+the SDK has one call per route. The xbin repository's
+`examples/sandbox-go` is the smallest manager built on it — each of its
+routes a few lines (its `API.md`):
+
+```go
+sbx := xbin.SandboxAPI()
+rt, err := sbx.Runtime(ctx) // modes, egress classes, limits (rt.Limits.Flows too), and rt.Caps: what this xbind serves
+info, err := sbx.Create(ctx, xbin.SandboxSpec{Name: "sb-7f3a", Mode: "vm",
+	Net: &xbin.SandboxNet{Egress: "class:internet"}, ClientID: reqID})
+info, err = sbx.Start(ctx, "sb-7f3a", 30*time.Second) // Stop, Reset, Rebase alike; List, Get, Patch, Delete, Copy
+
+sb := sbx.Sandbox("sb-7f3a")
+res, err := sb.Run(ctx, xbin.RunRequest{Cmd: "go test ./...", Cwd: "/work"})
+ex, err := sb.Exec(ctx, xbin.ExecRequest{Cmd: "make", Stdin: true}) // Execs, GetExec, Stdin, Signal, Resize, Kill
+for c, err := range sb.Follow(ctx, ex.ID, 0) { // to the exec's end; c.Bytes() are exact
+	…
+}
+st, err := sb.WriteFile(ctx, "/work/a.go", r, xbin.WriteOptions{Mkdirs: true}) // ReadFile, Stat, List, Mkdir, Remove, Move
+tr, err := sb.GetTar(ctx, "/work", []string{"node_modules"})               // PutTar; both stream
+snaps, err := sb.Snapshots(ctx)                                             // Snapshot, RestoreSnapshot, DeleteSnapshot
+```
+
+- **Errors.** Every refusal is a `*xbin.SandboxError`: `Status`, the
+  contract's `Refusal`, `Message`, `State`, `ETag`, `RetryAfter`.
+  `errors.Is` matches `xbin.ErrSandboxNotFound`, `ErrSandboxLost` and
+  `ErrSandboxState`. `xbin.WriteSandboxError(w, err)` answers one to your
+  consumer unchanged. A route this xbind doesn't serve yet answers
+  `unsupported`. A name that would change the route (empty, `.`, `..`, one
+  with a `/`, or a reserved name: `runtime`, `policy`, `copy`) is refused
+  (`invalid`) before anything is sent, and so is an exec or snapshot id
+  that fails the runtime's grammar: exec ids are `^[0-9a-f]{6}-[0-9]{1,12}$`
+  (`ab12cd-7`), snapshot ids `^s-[0-9]{1,12}$` (`s-3`). If your contract
+  ids are the runtime's, answer one that fails it `not-found` yourself
+  (`xbin.IsExecID(eid)`, `xbin.IsSnapshotID(sid)`): it names nothing, and
+  the contract says so.
+- **Copies.** A snapshot, a restore and a clone (`SandboxSpec.From`) copy
+  the sandbox's state off the request; the runtime waits up to
+  `limits.waitMaxSec` for the copy, then answers as it stands: a
+  `Snapshot` with `Pending` set, a restore's `SandboxInfo` with
+  `StateDetail` `busy: …`, a clone's with `State` `creating`. Poll
+  `Snapshots` or `Get` until it is done. Meanwhile the sandbox is busy:
+  its calls answer `ErrSandboxState` with a `RetryAfter`.
+- **Forwarding.** The runtime's routes mirror the contract's, so most of a
+  manager's routes pass its own request through to a typed route:
+  `sb.Forward(w, r, xbin.ExecOutput(eid), q)`. The routes are
+  `xbin.ExecRoute(eid)` (GET, DELETE), `ExecOutput`, `ExecStdin`,
+  `ExecSignal`, `ExecResize`, `ExecTTY`, `FilesRoute(xbin.FilesStat |
+  FilesContent | FilesList | FilesMkdir | FilesRemove | FilesMove)` and
+  `TarRoute()`; there is no free-form one. Each builder checks its id
+  against the grammar and escapes it itself, so a consumer's id (one with a
+  `/`, `..`, `%2F`, `?` or `#`) can only fail — Forward answers `400
+  invalid` and sends nothing — and never reaches another route or
+  sandbox. (A consumer's `%2F` never gets that far through xbind: its
+  proxy hands your backend the path decoded, so your router sees the route
+  a crafted path names and your own checks apply to that — the builders
+  guard an id from a body, a query or a router that keeps encodings.)
+  Forward streams both bodies and copies the status and headers
+  (but not `Set-Cookie`). It sends only the query `q` you chose, never the
+  consumer's raw query. It drops the inbound `Cookie`, `Authorization`,
+  `Sbx-User`, `X-XBin-*` and `Sec-WebSocket-Extensions`: the call carries
+  your tile's credential. Do your own checks first (the verified person,
+  the consumer's sandboxes).
+- **Terminals.** `sb.RelayTTY(w, r, eid, xbin.TTYOptions{SessionID,
+  SandboxID, ForUser})` relays a consumer's terminal WebSocket to a tty
+  exec, and `sb.RelayNewTTY(w, r, xbin.TTYStart{Cwd, Cmd, …})` starts one
+  (the login shell unless `Cmd`). The upgrade is tunnelled byte for byte,
+  so your backend needs no WebSocket code and the consumer speaks the
+  `/ws/term` wire end to end. `SessionID` and `SandboxID` put your own ids
+  in the session frame; `ForUser` is the verified person, refused by xbind
+  when they have no terminal access. A manager that drives a terminal
+  itself (an SSH bridge) dials it with `sb.DialTTY(ctx, eid,
+  xbin.TTYOptions{…})`, which returns an `sdk/ws` connection speaking the
+  same wire.
+- **Compatibility.** Request structs omit empty fields and answers decode
+  leniently, so a newer SDK works against an older xbind.
+- **Never hand your token to a sandbox.** A sandbox has no xbin identity:
+  `XBIN_*` variables are refused in its environment, and it has no route to
+  xbind.
 
 ## node backend (no SDK needed)
 
@@ -291,7 +469,7 @@ automatic.
 ```html
 <script type="module">
   import '/vendor/bx-frame.js';     // <bx-frame src="…">
-  import '/vendor/bx-terminal.js';  // <bx-terminal cwd="…"> (bx-frame uses it)
+  import '/vendor/bx-terminal.js';  // <bx-terminal src="…"> (a terminal-wire endpoint; bx-frame uses its cwd="…" mode)
   import '/vendor/bx-grants.js';    // <bx-grants> owner approval panel
   import '/vendor/bx-dialog.js';    // <bx-dialog> modal (xbin.dialog fallback)
   import { xbinApi, jbody } from '/vendor/bx-kit.js'; // the helper kit

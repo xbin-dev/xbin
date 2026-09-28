@@ -108,7 +108,9 @@ runtimes: `node`, `python`, `cgi`. Never overwrites existing files.
 (e.g. `llm-gw` an OpenAI-compatible gateway, `chat` a streaming chat UI,
 `webhooks` feeding agents made from the agent template — docs/agent-inbox.md;
 coding sandboxes for agents and people come from tiles implementing
-docs/sandbox-manager.md;
+docs/sandbox-manager.md — the `coding-sandbox` template is one (`bx template
+new coding-sandbox as apps/coding-sandbox`), and the `sandbox-terminal` tile
+gives people browser terminals and SSH onto their sandboxes;
 for a chat platform, instantiate the `agent-messaging-bridge` template and
 have a coding agent add the platform);
 `bx tile import <name> [as <path>]` copies one in (or use the Tile Manager's
@@ -744,6 +746,16 @@ you can't self-bind, same rule as grants) — unbound means no capability.
   docs/changes/2026-07-14-container-tiles.md (its worked example, the
   `devbox` builtin, was retired on 2026-09-27; coding sandboxes for agents
   and people come through docs/sandbox-manager.md).
+
+  **If you BUILD a sandbox manager on xbind's own sandboxes** (a tile serving
+  docs/sandbox-manager.md), declare `"uses": [{ "target": "cap:sandboxes",
+  "role": "writer" }]`. Only a workspace admin approves it — no org or
+  personal allowance can, not even `cap:*` — and it lets only your backend,
+  with its instance token, drive xbind's tile sandboxes (never your frames
+  or terminals). Revoking it stops your sandboxes and keeps their state.
+  Never pass your token into a sandbox, under any name: a sandbox gets no
+  xbin identity, and your backend proxies everything it needs. Drive them
+  with the Go SDK's `xbin.SandboxAPI()` (docs/sdk.md §Tile sandboxes).
 
   **If your frontend opens links in new tabs** (`<a target="_blank">`,
   `window.open`), declare `"uses": [{ "target": "cap:open-links", "role":

@@ -564,7 +564,7 @@ The app draws these with the same components as its own agent screen.
 - **`terminal`**: `src` is a WebSocket path of your own backend's pty
   endpoint speaking the `/ws/term` framing (binary data both ways,
   `{"op":"resize","cols","rows"}` from the app — first on every connect —
-  [protocol.md](/docs/protocol.md)). When the pty ends, send
+  [protocol.md](/docs/protocol.md) §The terminal wire). When the pty ends, send
   `{"op":"exit"}` or close the socket cleanly (a close frame with code
   1000, or none): the terminal shows it ended and the user may reconnect.
   A relative `src` is under `/api/<self>/`; like an upload target it must

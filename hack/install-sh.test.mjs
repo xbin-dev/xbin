@@ -8,7 +8,8 @@
 //     never duplicated, removed when the stock profile covers the workspace,
 //     other lines kept, a hand-broken file left alone, paths escaped;
 //   - the VM policy it writes for a never-configured workspace (D110):
-//     xbind's JSON field names, never an existing file, backends only on KVM.
+//     xbind's JSON field names, never an existing file, backends and tile
+//     sandboxes only on KVM.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -206,11 +207,11 @@ aa_fuse_plan; aa_fuse_warn`);
   assert.equal(readFileSync(local, 'utf8'), block('/srv/ws/.xbin/resenc'));
 });
 
-test('the VM policy: xbind\'s field names, terminals on, backends only on KVM', () => {
+test('the VM policy: xbind\'s field names, terminals on, backends and tiles only on KVM', () => {
   const policyGo = readFileSync(join(repo, 'internal/vm/policy.go'), 'utf8');
   for (const b of ['true', 'false']) {
-    const j = JSON.parse(sh(`vm_policy_json ${b}`).out);
-    assert.deepEqual(j, { terminals: true, backends: b === 'true' });
+    const j = JSON.parse(sh(`vm_policy_json ${b} ${b}`).out);
+    assert.deepEqual(j, { terminals: true, backends: b === 'true', tiles: b === 'true' });
     for (const k of Object.keys(j)) assert.match(policyGo, new RegExp(`json:"${k}"`), `policy.go has no field ${k}`);
   }
 });
@@ -233,9 +234,10 @@ const common = ['xbin-vmagent', 'vmlinux', 'mkfs.erofs'];
 const emu = ['qemu-system-x86_64', 'qemu-bios-microvm.bin', 'qemu-pvh.bin', 'vhost-device-vsock'];
 
 test('VM policy: written when never configured', () => {
-  assert.deepEqual(JSON.parse(vm({ assets: [...common, 'firecracker'], kvm: true }).policy), { terminals: true, backends: true });
-  // no usable KVM: emulated VMs — terminals only
-  assert.deepEqual(JSON.parse(vm({ assets: [...common, ...emu] }).policy), { terminals: true, backends: false });
+  assert.deepEqual(JSON.parse(vm({ assets: [...common, 'firecracker'], kvm: true }).policy), { terminals: true, backends: true, tiles: true });
+  // no usable KVM: emulated VMs — terminals only (tile sandboxes too stay
+  // off: tilesEmulated is the admin's call, never the installer's)
+  assert.deepEqual(JSON.parse(vm({ assets: [...common, ...emu] }).policy), { terminals: true, backends: false, tiles: false });
 });
 
 test('VM policy: an existing file is never touched, "off" included', () => {

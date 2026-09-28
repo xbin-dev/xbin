@@ -110,3 +110,31 @@ func TestGoWorkFor(t *testing.T) {
 		t.Error("nothing readable and no sdk → empty")
 	}
 }
+
+// A generated go.work, copied elsewhere for GOWORK, keeps naming the
+// workspace's modules and SDK; a hand-managed one isn't rewritten.
+func TestAbsGoWork(t *testing.T) {
+	gen := renderGoWork([]string{"./apps/a", "./apps/b/backend"}, "sdk")
+	got, ok := AbsGoWork(gen, "/ws")
+	if !ok {
+		t.Fatal("a generated go.work wasn't recognised")
+	}
+	for _, want := range []string{"\t/ws/apps/a\n", "\t/ws/apps/b/backend\n", "replace github.com/xbin-dev/xbin/sdk => /ws/sdk\n", workMarker} {
+		if !strings.Contains(got, want) {
+			t.Errorf("no %q in\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "./") {
+		t.Errorf("a relative path is left:\n%s", got)
+	}
+	abs := renderGoWork([]string{"./apps/a"}, "/opt/xbin/sdk")
+	if got, _ := AbsGoWork(abs, "/ws"); !strings.Contains(got, "=> /opt/xbin/sdk\n") {
+		t.Errorf("an absolute sdk path changed:\n%s", got)
+	}
+	if _, ok := AbsGoWork("go 1.24\n\nuse ./apps/a\n", "/ws"); ok {
+		t.Error("a hand-managed go.work was rewritten")
+	}
+	if _, ok := AbsGoWork("go 1.24\n"+workMarker+"\n", "/ws"); ok {
+		t.Error("a marker that isn't the first line claims the file")
+	}
+}

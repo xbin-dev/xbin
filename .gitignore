@@ -28,3 +28,4 @@ dotclaude-bak*/
 *.key
 .credentials.json
 *.credentials.json
+/backend

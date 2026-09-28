@@ -74,6 +74,8 @@ func (b *Broker) ceilingBlockWith(c users.Ceiling, from, target string) string {
 		return deny(users.PolicyDenyXbinCaps)
 	case target == OpenLinksCap: // frontend popup capability (ND11) — xbin-caps deny covers it
 		return deny(users.PolicyDenyXbinCaps)
+	case target == SandboxesCap: // the tile-sandbox runtime (D120) — mandatory: unlisted, a mayCall row would strip it
+		return deny(users.PolicyDenyXbinCaps)
 	case strings.HasPrefix(target, "net:"): // legacy net grants (pre-bindings)
 		return deny(users.PolicyDenyNet)
 	default: // component paths and res:… targets
@@ -211,7 +213,9 @@ func (b *Broker) scopeOwnedBy(scope, ownerRef string) bool {
 // pathLeftovers names the state still keyed by path (or a path under it)
 // that a new tile there would inherit: workspace grant rows naming it on
 // either side, interface bindings / instances / ingress hosts, its vault,
-// and the identity store's entries (Store.PathLeftovers). Nothing prunes
+// the identity store's entries (Store.PathLeftovers) and the tile
+// sandboxes a manager tile there defined (their state included; D85's
+// forgetting doesn't reach them). Nothing prunes
 // these when a tile's directory disappears. A path whose owner entry is
 // already ownerRef is the owner re-creating their own tile — nothing to
 // take over.
@@ -253,6 +257,7 @@ func (b *Broker) pathLeftovers(path, ownerRef string) []string {
 	if b.Users != nil {
 		out = append(out, b.Users.PathLeftovers(path, ownerRef)...)
 	}
+	out = append(out, b.sandboxLeftovers(path)...) // kept for an admin to delete (tilesbx_hooks.go)
 	sort.Strings(out)
 	return out
 }

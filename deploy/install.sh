@@ -1054,12 +1054,15 @@ install_files() {
 # xbind keeps VM sandboxes off until an admin writes the workspace's policy
 # (internal/vm/policy.go). An installed workspace whose policy was never
 # written gets one here, on fresh installs and upgrades alike: terminals on
-# (each terminal still opts in with its VM toggle), backends on only when KVM
-# is usable — an emulated VM is several times slower, too slow to be what a
-# manifest's "vm" silently gets. An existing file is an admin's choice
-# ("off" included) and is never touched. Sizes stay unset (= xbind's
-# defaults). xbind reads the file on first use, and every run that writes
-# it has stopped xbind (install_files) and starts it again (start_service).
+# (each terminal still opts in with its VM toggle), backends and tile
+# sandboxes (the VMs a manager tile runs, D120) on only when KVM is usable —
+# an emulated VM is several times slower, too slow to be what a manifest's
+# "vm" or a manager's VM sandbox silently gets. An existing file is an
+# admin's choice ("off" included) and is never touched, so a workspace
+# configured before tile sandboxes keeps them off until an admin turns them
+# on. Sizes stay unset (= xbind's defaults). xbind reads the file on first
+# use, and every run that writes it has stopped xbind (install_files) and
+# starts it again (start_service).
 vm_policy_file() { printf '%s/.xbin/vm/policy.json' "$WORKSPACE"; }
 vm_have() { local f; for f in "$@"; do [ -f "$PREFIX/bin/$f" ] || return 1; done; }
 # vm_kvm_ok: Firecracker would run here — /dev/kvm opens read-write for
@@ -1072,8 +1075,8 @@ vm_kvm_ok() {
   else { : <>/dev/kvm; } 2>/dev/null; fi
 }
 vm_emulation_ok() { vm_have qemu-system-x86_64 qemu-bios-microvm.bin qemu-pvh.bin vhost-device-vsock; }
-# vm_policy_json BACKENDS — the policy the installer writes.
-vm_policy_json() { printf '{\n  "terminals": true,\n  "backends": %s\n}\n' "$1"; }
+# vm_policy_json BACKENDS TILES — the policy the installer writes.
+vm_policy_json() { printf '{\n  "terminals": true,\n  "backends": %s,\n  "tiles": %s\n}\n' "$1" "$2"; }
 
 setup_vm_policy() { # fresh installs and upgrades alike
   local f; f=$(vm_policy_file)
@@ -1082,20 +1085,20 @@ setup_vm_policy() { # fresh installs and upgrades alike
     warn "this install has no VM sandbox pieces — VM sandboxes stay off (no policy written; a later upgrade that ships them turns them on)"
     return 0
   fi
-  local backends=false d
-  vm_kvm_ok && backends=true
+  local kvm=false d
+  vm_kvm_ok && kvm=true
   for d in "$WORKSPACE/.xbin" "$WORKSPACE/.xbin/vm"; do
     [ -d "$d" ] && continue
     if [ "$MODE" = system ]; then install -d -m 0755 -o "$XBIN_USER" -g "$XBIN_USER" "$d"; else install -d -m 0755 "$d"; fi
   done
-  vm_policy_json "$backends" >"$f.tmp"
+  vm_policy_json "$kvm" "$kvm" >"$f.tmp" # backends and tile sandboxes: KVM only
   chmod 0644 "$f.tmp"
   if [ "$MODE" = system ]; then chown "$XBIN_USER:$XBIN_USER" "$f.tmp"; fi
   mv "$f.tmp" "$f"
-  if [ "$backends" = true ]; then
-    ok "VM sandboxes on for terminals and backends (KVM) — $f; an admin changes it in the admin console or PUT /api/xbin/vm/policy"
+  if [ "$kvm" = true ]; then
+    ok "VM sandboxes on for terminals, backends and tile sandboxes (KVM) — $f; an admin changes it in the admin console or PUT /api/xbin/vm/policy"
   else
-    ok "VM sandboxes on for terminals only: no usable KVM, so they'd run emulated (several times slower); backends stay off until an admin turns them on — $f"
+    ok "VM sandboxes on for terminals only: no usable KVM, so they'd run emulated (several times slower); backends and tile sandboxes stay off until an admin turns them on — $f"
   fi
 }
 
@@ -1361,7 +1364,7 @@ build_plan() {
   if [ -e "$(vm_policy_file)" ]; then
     inplace "VM sandbox policy already set ($(vm_policy_file)) — never rewritten; admins change it in the admin console"
   else
-    plan setup_vm_policy "turn VM sandboxes on in $(vm_policy_file) (never configured): terminals + backends with a usable KVM, terminals only where they'd run emulated; nothing without the VM pieces"
+    plan setup_vm_policy "turn VM sandboxes on in $(vm_policy_file) (never configured): terminals + backends + tile sandboxes with a usable KVM, terminals only where they'd run emulated; nothing without the VM pieces"
   fi
   if [ "$UPGRADE" = 0 ]; then
     plan configure_vault "choose vault unseal mode (auto → passphrase stored in $ENV_FILE mode 600, or manual unseal each boot)"

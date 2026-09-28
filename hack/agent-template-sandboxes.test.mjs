@@ -5,9 +5,10 @@
 // their actions, the create form, the sandbox tool cards
 // (model/tool-heads.js: the box family, its sublines and outcomes), and the
 // app's store (model/sandbox-store.js: picking, binding, detaching,
-// creating, lifecycle, the run events that carry a binding). Both views draw
-// from these; the browser test (test/sandbox.mjs) checks the drawing. Run by
-// `make js-test`.
+// creating, lifecycle, the run events that carry a binding) and terminals
+// (a manager's `tty`: whether one is offered, its route, ending its shell).
+// Both views draw from these; the browser tests (test/sandbox.mjs,
+// test/terminal.mjs) check the drawing. Run by `make js-test`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
@@ -196,9 +197,9 @@ test('the dialog\'s rows: state, owner, the actions your rights allow', () => {
   const by = Object.fromEntries(rows.map((r) => [r.name, r]));
   const acts = (n) => by[n].actions.map((a) => a.id);
   assert.deepEqual(rows.map((r) => r.name).slice(-1), ['theirs'], 'yours first');
-  assert.deepEqual(acts('run'), ['stop', 'archive', 'team', 'delete'], 'the active one: no "use"');
-  assert.deepEqual(acts('stop'), ['use', 'start', 'archive', 'team', 'delete']);
-  assert.deepEqual(acts('arch'), ['use', 'thaw', 'team', 'delete']);
+  assert.deepEqual(acts('run'), ['stop', 'archive', 'team', 'shareTerm', 'delete'], 'the active one: no "use"');
+  assert.deepEqual(acts('stop'), ['use', 'start', 'archive', 'team', 'shareTerm', 'delete']);
+  assert.deepEqual(acts('arch'), ['use', 'thaw', 'team', 'shareTerm', 'delete']);
   assert.deepEqual(acts('theirs'), ['use', 'stop'], 'a team one: use it, start/stop it — not delete or share');
   assert.ok(!acts('noarch').includes('archive'), 'no archive capability: no archive');
   assert.equal(by.run.active, true);
@@ -505,4 +506,222 @@ test('the store: pick at home, bind, cwd, detach, create, lifecycle, run events'
   assert.equal(ask.sandbox, undefined, 'the next ask names none');
   assert.equal(cleared, 1, 'sent: the composer empties');
   await new Promise((r) => setTimeout(r, 20));
+});
+
+test('terminals: offered where the manager has tty and the page is bound to it; the route; the rows', () => {
+  const tty = () => managers().map((m) => ({ ...m, caps: [...m.caps, 'tty'] }));
+  const EPS = [{ provider: MGR, url: '/api/apps/coding-sandbox' }, { provider: 'apps/other', instance: 'eu', url: '/api/apps/other/eu/' }];
+  assert.equal(S.endpointOf(EPS, MGR).url, '/api/apps/coding-sandbox');
+  assert.equal(S.endpointOf(EPS, 'apps/other#eu').url, '/api/apps/other/eu/', 'an instance: <tile>#<inst>');
+  assert.equal(S.endpointOf(EPS, 'apps/other'), null);
+  assert.equal(S.endpointOf(null, MGR), null);
+  assert.equal(S.terminalSrc({ url: '/api/apps/other/eu/' }, 'b 1', '/work/my dir'), '/api/apps/other/eu/sbx/sandboxes/b%201/tty?cwd=%2Fwork%2Fmy%20dir');
+  assert.equal(S.terminalSrc({ url: '/api/m' }, 'b1', ' '), '/api/m/sbx/sandboxes/b1/tty', 'no cwd: its workdir');
+  assert.equal(S.execSrc({ url: '/api/m/' }, 'b1', 'e3'), '/api/m/sbx/sandboxes/b1/execs/e3');
+
+  const L = list([sb('run', { caps: undefined }), sb('stop', { state: 'stopped', caps: undefined }), sb('arch', { state: 'archived', caps: undefined }),
+    sb('bobs', { mine: false, canUse: false, canManage: true, caps: undefined }), sb('notty', { caps: ['exec', 'files'] }),
+    sb('busy', { state: 'deleting', caps: undefined })], tty());
+  const t = S.terminal(L, `${MGR}|run`, EPS, '/work/api');
+  assert.deepEqual([t.shown, t.why, t.src, t.base, t.name, t.cwd], [true, '', '/api/apps/coding-sandbox/sbx/sandboxes/run/tty?cwd=%2Fwork%2Fapi',
+    '/api/apps/coding-sandbox', 'run', '/work/api']);
+  assert.equal(S.terminal(L, `${MGR}|stop`, EPS).why, '', 'a stopped one starts on it');
+  assert.match(S.terminal(L, `${MGR}|arch`, EPS).why, /^it is archived — thaw it first$/);
+  assert.match(S.terminal(L, `${MGR}|busy`, EPS).why, /^it is deleting…$/);
+  assert.equal(S.terminal(L, `${MGR}|bobs`, EPS).why, 'you may not use it yourself', 'managing it is not using it: the manager checks you');
+  assert.deepEqual([S.terminal(L, `${MGR}|notty`, EPS).shown], [false], 'the sandbox leaves tty out');
+  assert.equal(S.terminal(L, `${MGR}|run`, []).why, 'this page is not bound to its manager — reload it');
+  assert.equal(S.terminal(L, `${MGR}|gone`, EPS).why, 'gone — its manager no longer has it');
+  assert.equal(S.terminal(L, `${MGR}|run`, null).shown, false, 'a view without terminals (the native one): not shown');
+  assert.equal(S.terminal(list([sb('run', { caps: undefined })]), `${MGR}|run`, EPS).shown, false, 'no tty in hello: not shown');
+  assert.equal(S.terminal(null, `${MGR}|run`, EPS).shown, false, 'not read yet: not shown');
+
+  // the dialog's rows: "Terminal" where it is offered, at the cwd the open conversation has it at
+  const v = conv({ sandbox: bind('run', { cwd: '/work/api' }), attached: [bind('run', { cwd: '/work/api' })] });
+  const rows = Object.fromEntries(S.sandboxRows(L, { user: 'alice' }, { conv: v, tty: EPS }).map((r) => [r.name, r.actions.find((a) => a.id === 'terminal')]));
+  assert.deepEqual(rows.run, { id: 'terminal', label: 'Terminal', cwd: '/work/api' });
+  assert.deepEqual(rows.stop, { id: 'terminal', label: 'Terminal', cwd: '' }, 'not in this conversation: its workdir');
+  assert.deepEqual([rows.arch, rows.bobs, rows.notty, rows.busy], [undefined, undefined, undefined, undefined]);
+  assert.ok(!S.sandboxRows(L, {}, { conv: v }).some((r) => r.actions.some((a) => a.id === 'terminal')), 'no tty endpoints (the native view): never');
+});
+
+test('the store: terminals only where a view set tty; ending one DELETEs its exec at the manager', async () => {
+  const calls = [];
+  const json = (v, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json' } });
+  const mgrs = managers().map((m) => ({ ...m, caps: [...m.caps, 'tty'] }));
+  const fake = async (url, opt = {}) => {
+    const u = String(url);
+    calls.push({ method: opt.method || 'GET', url: u });
+    if (/\/sandboxes(\?fresh=1)?$/.test(u)) return json({ sandboxes: [sb('api', { caps: undefined })], managers: mgrs });
+    if (u.includes('/sbx/sandboxes/api/execs/gone')) return json({ error: 'no such exec', refusal: 'not-found' }, 404);
+    if (u.includes('/sbx/sandboxes/api/execs/deny')) return json({ error: 'not yours', refusal: 'not-allowed' }, 403);
+    if (u.endsWith('/classes')) return json({ default: 'coding', classes: [coding] });
+    if (u.includes('/stream')) return new Response(new ReadableStream({ start() {} }), { headers: { 'Content-Type': 'text/event-stream' } });
+    return json({});
+  };
+  globalThis.window = globalThis;
+  globalThis.xbin = { self: 'apps/agent', fetch: fake };
+  globalThis.fetch = fake;
+  const { createApp } = await import(new URL('model/app.js', TPL).href);
+  const app = createApp({ frame: (fn) => setTimeout(fn, 0) });
+  await app.sbx.load();
+  assert.equal(app.sbx.tty, null, 'no view asked for terminals');
+  assert.equal(app.sbx.terminal(`${MGR}|api`).shown, false);
+  assert.ok(!app.sbx.rows().some((r) => r.actions.some((a) => a.id === 'terminal')));
+  app.sbx.tty = [{ provider: MGR, url: '/api/apps/coding-sandbox' }];
+  const t = app.sbx.terminal(`${MGR}|api`, '/work');
+  assert.equal(t.src, '/api/apps/coding-sandbox/sbx/sandboxes/api/tty?cwd=%2Fwork');
+  assert.ok(app.sbx.rows().find((r) => r.name === 'api').actions.some((a) => a.id === 'terminal'));
+  await app.sbx.endTerminal(t, 'e4');
+  assert.deepEqual(calls.filter((c) => c.method === 'DELETE').map((c) => c.url), ['/api/apps/coding-sandbox/sbx/sandboxes/api/execs/e4'],
+    'straight to the manager, as the page (not through the agent\'s backend)');
+  await app.sbx.endTerminal(t, 'gone');
+  await assert.rejects(app.sbx.endTerminal(t, 'deny'), /error 403/);
+  await app.sbx.endTerminal(t, '');
+  await app.sbx.endTerminal({ ...t, base: '' }, 'e5');
+  assert.equal(calls.filter((c) => c.method === 'DELETE').length, 3, 'nothing to end without an exec or a manager');
+});
+
+test('sharing with a terminal tile (D121): who may, for whom, the body; stop sharing', () => {
+  const mine = sb('mine', { shares: [{ consumer: 'apps/other', users: '*' }] });
+  const team = sb('team', { visibility: 'team', shares: [] });
+  const theirs = sb('theirs', { mine: false, owner: { user: 'bob' }, canEdit: false });
+  const passed = sb('passed', { shared: true }); // another consumer shared it with this agent
+  assert.deepEqual([mine, team, theirs, passed].map(S.canShareOut), [true, true, false, false]);
+  const acts = (s) => S.sandboxRows(list([s]), { user: 'alice' }, {})[0].actions.map((a) => a.id);
+  assert.ok(acts(mine).includes('shareTerm') && !acts(theirs).includes('shareTerm') && !acts(passed).includes('shareTerm'),
+    'offered only where you own it and this agent is its home');
+  assert.deepEqual(S.sandboxRows(list([mine]), { user: 'alice' }, {})[0].sharedWith, ['apps/other']);
+
+  // a private one: for you; the default tile path; the other shares kept
+  let vm = S.shareForm(mine, { user: 'alice' }, {}, 'apps/agent');
+  assert.deepEqual([vm.tile, vm.users, vm.usersLabel, vm.ok], [S.TERMINAL_TILE, ['alice'], 'you', true]);
+  assert.deepEqual(vm.body, { shares: [{ consumer: 'apps/other', users: '*' }, { consumer: 'apps/sandbox-terminal', users: ['alice'] }] });
+  assert.deepEqual(vm.current, [{ consumer: 'apps/other', users: '*', usersLabel: 'everyone who may use it' }]);
+  // one already shared with that tile for others: you join them; "*" stays "*"
+  const had = sb('had', { shares: [{ consumer: 'apps/sandbox-terminal', users: ['bob'] }] });
+  assert.deepEqual(S.shareForm(had, { user: 'alice' }).body.shares, [{ consumer: 'apps/sandbox-terminal', users: ['bob', 'alice'] }]);
+  assert.equal(S.shareForm(had, { user: 'alice' }).current[0].usersLabel, 'bob');
+  assert.equal(S.shareForm(sb('star', { shares: [{ consumer: 'apps/term', users: '*' }] }), { user: 'alice' }, { tile: 'apps/term' }).users, '*');
+  // a team one: everyone who may use it
+  vm = S.shareForm(team, { user: 'alice' }, { tile: ' apps/term/ ' });
+  assert.deepEqual([vm.tile, vm.users, vm.usersLabel], ['apps/term', '*', 'everyone who may use it (a team sandbox)']);
+  assert.deepEqual(vm.body, { shares: [{ consumer: 'apps/term', users: '*' }] });
+  // what is wrong
+  assert.match(S.shareForm(mine, { user: 'alice' }, { tile: '' }).error, /Name the terminal tile/);
+  assert.match(S.shareForm(mine, { user: 'alice' }, { tile: 'apps/../x' }).error, /path is like apps\/sandbox-terminal/);
+  assert.match(S.shareForm(mine, { user: 'alice' }, { tile: 'apps/x y' }).error, /path is like/);
+  assert.match(S.shareForm(mine, { user: 'alice' }, { tile: 'apps/agent' }, 'apps/agent').error, /That is this agent/);
+  assert.match(S.shareForm(theirs, { user: 'alice' }).error, /only its owner/);
+  assert.match(S.shareForm(passed, { user: 'alice' }).error, /only its home can share it on/);
+  assert.match(S.shareForm(null, { user: 'alice' }).error, /^gone/);
+  assert.match(S.shareForm(mine, {}).error, /Who you are/);
+  assert.deepEqual(S.unshareBody(mine, 'apps/other'), { shares: [] });
+  assert.deepEqual(S.unshareBody(sb('none'), 'apps/other'), { shares: [] });
+});
+
+test('the store: sharing with a terminal tile PATCHes the sandbox\'s shares (its owner)', async () => {
+  const calls = [];
+  const json = (v, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json' } });
+  let box = sb('api', { shares: [] });
+  const fake = async (url, opt = {}) => {
+    const u = String(url);
+    const method = opt.method || 'GET';
+    calls.push({ method, url: u, body: opt.body });
+    if (/\/sandboxes(\?fresh=1)?$/.test(u)) return json({ sandboxes: [box], managers: managers() });
+    if (method === 'PATCH' && u.includes('/sandboxes/')) { box = { ...box, ...JSON.parse(opt.body) }; return json(box); }
+    if (u.endsWith('/me')) return json({ kind: 'user', user: 'alice', manager: false });
+    if (u.endsWith('/classes')) return json({ default: 'coding', classes: [coding] });
+    if (u.includes('/stream')) return new Response(new ReadableStream({ start() {} }), { headers: { 'Content-Type': 'text/event-stream' } });
+    return json({});
+  };
+  globalThis.window = globalThis;
+  globalThis.xbin = { self: 'apps/agent', fetch: fake };
+  globalThis.fetch = fake;
+  const { createApp } = await import(new URL('model/app.js', TPL).href + '?share');
+  const app = createApp({ frame: (fn) => setTimeout(fn, 0) });
+  app.me = { user: 'alice' };
+  await app.sbx.load();
+  const ref = `${MGR}|api`;
+  assert.match(app.sbx.shareForm(ref, { tile: 'apps/agent' }).error, /That is this agent/, 'the agent knows its own path');
+  const said = await app.sbx.shareTerminal(ref, {});
+  assert.match(said, /^api is shared with apps\/sandbox-terminal — you can open terminals onto it there/);
+  const patch = calls.filter((c) => c.method === 'PATCH');
+  assert.deepEqual(patch.map((c) => [c.url, JSON.parse(c.body)]),
+    [[`/api/apps/agent/sandboxes/apps/coding-sandbox%7Capi`, { shares: [{ consumer: 'apps/sandbox-terminal', users: ['alice'] }] }]]);
+  assert.deepEqual(app.sbx.rows()[0].sharedWith, ['apps/sandbox-terminal'], 'the answer lands in the list');
+  await assert.rejects(app.sbx.shareTerminal(ref, { tile: '' }), /^Error: Name the terminal tile/);
+  await app.sbx.unshare(ref, 'apps/sandbox-terminal');
+  assert.deepEqual(JSON.parse(calls.filter((c) => c.method === 'PATCH').pop().body), { shares: [] });
+  assert.deepEqual(app.sbx.rows()[0].sharedWith, []);
+});
+
+test('the store: a share goes with the version it was read at; a 412 is read again and retried once', async () => {
+  const calls = [];
+  const json = (v, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json' } });
+  let box = sb('api', { shares: [], version: 3 });
+  let stale = 0; // PATCHes still to refuse whatever they carry (a manager that keeps moving)
+  const fake = async (url, opt = {}) => {
+    const u = String(url);
+    const method = opt.method || 'GET';
+    calls.push({ method, url: u, body: opt.body });
+    if (/\/sandboxes(\?fresh=1)?$/.test(u)) return json({ sandboxes: [box], managers: managers() });
+    if (u.endsWith('/sandboxes/apps/coding-sandbox%7Capi')) {
+      if (method === 'GET') return json(box);
+      if (method === 'PATCH') {
+        const b = JSON.parse(opt.body);
+        if (stale > 0 || b.version !== box.version) {
+          stale--;
+          return json({ error: `apps/coding-sandbox: version ${b.version} is not ${box.version}`, refusal: 'precondition' }, 412);
+        }
+        box = { ...box, shares: b.shares, version: box.version + 1 };
+        return json(box);
+      }
+    }
+    if (u.endsWith('/me')) return json({ kind: 'user', user: 'alice', manager: false });
+    if (u.endsWith('/classes')) return json({ default: 'coding', classes: [coding] });
+    if (u.includes('/stream')) return new Response(new ReadableStream({ start() {} }), { headers: { 'Content-Type': 'text/event-stream' } });
+    return json({});
+  };
+  globalThis.window = globalThis;
+  globalThis.xbin = { self: 'apps/agent', fetch: fake };
+  globalThis.fetch = fake;
+  const { createApp } = await import(new URL('model/app.js', TPL).href + '?share-version');
+  const app = createApp({ frame: (fn) => setTimeout(fn, 0) });
+  app.me = { user: 'alice' };
+  await app.sbx.load();
+  const ref = `${MGR}|api`;
+  const sent = () => calls.filter((c) => c.method === 'PATCH').map((c) => JSON.parse(c.body));
+
+  // the pure bodies carry it
+  assert.deepEqual(S.shareForm(box, { user: 'alice' }).body, { shares: [{ consumer: 'apps/sandbox-terminal', users: ['alice'] }], version: 3 });
+  assert.deepEqual(S.unshareBody(box, 'x'), { shares: [], version: 3 });
+
+  // someone shares it with another tile after the list was read
+  box = { ...box, shares: [{ consumer: 'apps/other', users: '*' }], version: 4 };
+  await app.sbx.shareTerminal(ref, {});
+  assert.deepEqual(sent(), [
+    { shares: [{ consumer: 'apps/sandbox-terminal', users: ['alice'] }], version: 3 },
+    { shares: [{ consumer: 'apps/other', users: '*' }, { consumer: 'apps/sandbox-terminal', users: ['alice'] }], version: 4 },
+  ], 'refused at the version read, then computed afresh from the sandbox read again — the other share kept');
+  assert.ok(calls.some((c) => c.method === 'GET' && c.url.endsWith('/sandboxes/apps/coding-sandbox%7Capi')), 'read again');
+  assert.deepEqual(box.shares.map((x) => x.consumer), ['apps/other', 'apps/sandbox-terminal']);
+  assert.deepEqual(app.sbx.rows()[0].sharedWith, ['apps/other', 'apps/sandbox-terminal'], 'the answer lands in the list');
+
+  // Stop sharing: the version it has now
+  await app.sbx.unshare(ref, 'apps/sandbox-terminal');
+  assert.deepEqual(sent().pop(), { shares: [{ consumer: 'apps/other', users: '*' }], version: 5 });
+
+  // only once: a second 412 is the caller's
+  stale = 2;
+  const before = sent().length;
+  await assert.rejects(app.sbx.unshare(ref, 'apps/other'), (e) => e.status === 412 && /version/.test(e.message));
+  assert.equal(sent().length - before, 2, 'one retry');
+  // other refusals aren't retried
+  stale = 0;
+  const f = globalThis.fetch;
+  let n = 0;
+  globalThis.xbin.fetch = globalThis.fetch = async (url, opt = {}) => (opt.method === 'PATCH' ? (n++, json({ error: 'only its owner shares it', refusal: 'not-allowed' }, 403)) : f(url, opt));
+  await assert.rejects(app.sbx.shareTerminal(ref, {}), /only its owner/);
+  assert.equal(n, 1);
 });

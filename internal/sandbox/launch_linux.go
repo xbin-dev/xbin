@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -50,6 +51,10 @@ func (h *Handle) RecvTUN() (int, error) {
 // Stdout/Stderr/Start/Wait wiring; after Start, call h.RecvTUN if h.NeedsRelay.
 func Launch(s *Spec) (*exec.Cmd, *Handle, error) {
 	h := &Handle{}
+	if s.FuseWatch && s.Agent == nil {
+		// the agent is what watches it: any other entry would never hear
+		return nil, nil, errors.New("sandbox: FuseWatch needs an Agent")
+	}
 
 	// Choose the uid model and overlay backend up front — the init reads the
 	// resulting fd numbers / fuse path out of the spec, so they must be decided
@@ -64,11 +69,13 @@ func Launch(s *Spec) (*exec.Cmd, *Handle, error) {
 		s.VM.Debug = true // the shim echoes the guest console and its timings
 	}
 
-	// ExtraFiles land at fd 3, 4, … in the init, in append order.
+	// ExtraFiles land at fd 3, 4, … in the init, in append order: ctrl,
+	// sync, agent, lock. Launch closes only what it made itself (h.own) on
+	// failure; the caller's Agent and Lock stay the caller's.
 	var extra []*os.File
 	nextFD := 3
 	fail := func(err error) (*exec.Cmd, *Handle, error) {
-		for _, f := range extra {
+		for _, f := range h.own {
 			f.Close()
 		}
 		if h.ctrl != nil {
@@ -83,6 +90,7 @@ func Launch(s *Spec) (*exec.Cmd, *Handle, error) {
 			return fail(err)
 		}
 		extra = append(extra, child)
+		h.own = append(h.own, child)
 		s.CtrlFD = nextFD
 		nextFD++
 		h.ctrl = parent
@@ -97,9 +105,24 @@ func Launch(s *Spec) (*exec.Cmd, *Handle, error) {
 			return fail(err)
 		}
 		extra = append(extra, r)
+		h.own = append(h.own, r)
 		s.SyncFD = nextFD
 		nextFD++
 		syncW = w
+	}
+
+	// The agent's connection factory and the state lock (tile sandboxes).
+	s.AgentFD, s.LockFD = 0, 0
+	for _, g := range []struct {
+		f  *os.File
+		fd *int
+	}{{s.Agent, &s.AgentFD}, {s.Lock, &s.LockFD}} {
+		if g.f != nil {
+			extra = append(extra, g.f)
+			h.given = append(h.given, g.f)
+			*g.fd = nextFD
+			nextFD++
+		}
 	}
 
 	f, err := os.CreateTemp("", "bx-spec-*.json")
@@ -137,31 +160,45 @@ func Launch(s *Spec) (*exec.Cmd, *Handle, error) {
 	}
 	// Range mode leaves the maps unset here; SetupUserns writes them post-Start.
 
-	h.cleanup = func() {
-		os.Remove(f.Name())
-		if syncW != nil {
-			syncW.Close()
-		}
-	}
+	var apply func() error
 	if ids != nil {
-		h.setup = func() error {
-			defer func() {
-				if syncW != nil {
-					syncW.Close()
-					syncW = nil
-				}
-			}()
+		apply = func() error {
 			if cmd.Process == nil {
 				return errors.New("SetupUserns: sandbox not started")
 			}
-			if err := ids.apply(cmd.Process.Pid); err != nil {
-				return err // syncW closed by defer → init reads EOF and aborts
-			}
-			_, err := syncW.Write([]byte{1}) // release the init
-			return err
+			return ids.apply(cmd.Process.Pid)
 		}
 	}
+	h.arm(f.Name(), syncW, apply)
 	return cmd, h, nil
+}
+
+// arm sets h's cleanup (the spec file, the sync pipe's write end) and, in
+// range mode (apply writes the uid maps), its setup, which releases the init
+// with a byte on that pipe. Both close syncW, and they may run at once: a
+// teardown on a watcher's goroutine overtakes a SetupUserns still running on
+// the start's when the init exits early. So the pipe closes exactly once
+// (sync.OnceFunc) and neither closure writes anything the other reads.
+func (h *Handle) arm(spec string, syncW *os.File, apply func() error) {
+	closeSync := func() {}
+	if syncW != nil {
+		closeSync = sync.OnceFunc(func() { syncW.Close() })
+	}
+	h.cleanup = func() {
+		os.Remove(spec)
+		closeSync()
+	}
+	if apply == nil {
+		return
+	}
+	h.setup = func() error {
+		defer closeSync() // without the byte, the init reads EOF and aborts
+		if err := apply(); err != nil {
+			return err
+		}
+		_, err := syncW.Write([]byte{1}) // release the init
+		return err
+	}
 }
 
 // idRanges is a container→host uid/gid mapping using a delegated sub-id range:
@@ -283,6 +320,11 @@ func runHelper(name string, args ...string) error {
 	}
 	return nil
 }
+
+// FuseOverlayfs is the fuse-overlayfs binary Launch mounts a sandbox's root
+// with, or "" when it mounts a kernel overlay: what a persistent upper's
+// overlay-flavour stamp names (internal/layers; tile sandboxes).
+func FuseOverlayfs() string { return fuseOverlayfsPath() }
 
 // fuseOverlayfsPath finds a fuse-overlayfs binary to mount the sandbox root
 // with: $XBIN_FUSE_OVERLAYFS, a copy bundled next to the xbind executable

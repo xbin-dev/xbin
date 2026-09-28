@@ -6,6 +6,7 @@ package boot
 // the sessions with a cgroup leaf of their own.
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -18,20 +19,25 @@ import (
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/sbx"
 	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/tilesbx"
 	"github.com/xbin-dev/xbin/internal/util"
 	"github.com/xbin-dev/xbin/internal/vm"
 )
 
 // sandboxScope is what a caller of GET /sandboxes may see.
 type sandboxScope struct {
-	all  bool   // the host's health too
-	tile string // one tile's ("" = every tile)
+	all     bool   // the host's health too
+	tile    string // one tile's ("" = every tile)
+	manager bool   // a manager tile: its own tile sandboxes, nothing of the host's
 }
 
-// sandboxScopeOf: an admin sees everything (?tile= narrows); anyone else,
-// nothing yet — a tile listing its own sandboxes (plans/tile-sandboxes.md)
-// is one more case here, without the host's health.
+// sandboxScopeOf: a manager tile's backend (cap:sandboxes) sees its own
+// tile sandboxes (D120); an admin sees everything (?tile= narrows); anyone
+// else, nothing.
 func (st *State) sandboxScopeOf(p auth.Principal, q url.Values) (sandboxScope, bool) {
+	if st.TileSbx != nil && st.TileSbx.Manages(p) {
+		return sandboxScope{manager: true}, true
+	}
 	if st.Broker.IsAdmin(p) {
 		return sandboxScope{all: true, tile: strings.Trim(q.Get("tile"), "/")}, true
 	}
@@ -41,11 +47,14 @@ func (st *State) sandboxScopeOf(p auth.Principal, q url.Values) (sandboxScope, b
 func (st *State) registerSandboxAPI(srv *server.Server) {
 	srv.RegisterAPI("GET /sandboxes", func(w http.ResponseWriter, r *http.Request) {
 		sc, ok := st.sandboxScopeOf(auth.PrincipalOf(r), r.URL.Query())
-		if !ok {
+		switch {
+		case !ok:
 			http.Error(w, "admin only", http.StatusForbidden)
-			return
+		case sc.manager:
+			st.TileSbx.ServeList(w, r)
+		default:
+			server.WriteJSON(w, http.StatusOK, st.sandboxesView(sc))
 		}
-		server.WriteJSON(w, http.StatusOK, st.sandboxesView(sc))
 	})
 }
 
@@ -69,23 +78,29 @@ type sandboxStats struct {
 }
 
 // vmView is the VM half of the health: what the probe found, the policy as
-// effective and as stored (zero = default), and what running VMs hold.
+// effective and as stored (zero = default), and what running VMs hold — in
+// all, the part tile sandboxes hold (their sub-budget), and per tile.
 type vmView struct {
 	vm.Health
-	Policy vm.Policy           `json:"policy"`
-	Stored vm.Policy           `json:"stored"`
-	Used   vm.Usage            `json:"used"`
-	UsedBy map[string]vm.Usage `json:"usedBy"`
+	Policy    vm.Policy           `json:"policy"`
+	Stored    vm.Policy           `json:"stored"`
+	Used      vm.Usage            `json:"used"`
+	UsedTiles vm.Usage            `json:"usedTiles"`
+	UsedBy    map[string]vm.Usage `json:"usedBy"`
 }
 
-// sandboxDisk is a VM terminal disk on the host.
+// sandboxDisk is a VM disk on the host: a tile's terminal layer's (kind
+// terminal) or a tile sandbox's (kind tile, with its sandbox's name and uid,
+// from its state dir's `<name>.<uid>`). Both carry the tile's key, so both
+// map to their tile the same way.
 type sandboxDisk struct {
 	vm.Disk
 	Tile  string `json:"tile,omitempty"` // "" = no tile has that key now
 	InUse bool   `json:"inUse"`
 }
 
-// disks are listed at most every 15 s (a glob and a stat per tile).
+// disks are listed at most every 15 s (a glob and a stat per disk, over the
+// terminal layers and the tile sandboxes).
 var sandboxDisks struct {
 	sync.Mutex
 	at   time.Time
@@ -114,6 +129,11 @@ func (st *State) sandboxesView(sc sandboxScope) map[string]any {
 			disksInUse[e.Disk] = true
 		}
 		switch e.Kind {
+		case sbx.Tile: // a tile sandbox (D120): its name, its own leaf's sample
+			row.Name = e.Name
+			if p, ok := bySandbox[e.ID]; ok {
+				row.Stats = &sandboxStats{CPU: p.CPU, Mem: p.Mem, Pids: p.Pids, Scope: "sandbox"}
+			}
 		case sbx.Backend:
 			row.Net = st.Broker.NetLabel(e.Tile).Effective
 			if p, ok := byTile[e.Tile]; ok {
@@ -144,12 +164,17 @@ func (st *State) sandboxesView(sc sandboxScope) map[string]any {
 	out := map[string]any{
 		"sandboxes": rows, "disks": disks, "failures": st.Sbx.Failures(f),
 		"failureCounts": st.Sbx.FailureCounts(), "cgroup": cg, "intervalSec": 2,
+		"tileSandboxes": []tilesbx.AdminRow{},
+	}
+	if st.TileSbx != nil { // every tile sandbox definition: stopped ones, and those of removed tiles
+		out["tileSandboxes"] = st.TileSbx.AdminList(sc.tile)
 	}
 	if sc.all {
 		out["health"] = map[string]any{
-			"isolation": st.isolationHealth(),
+			"isolation":     st.isolationHealth(),
+			"tileSandboxes": st.tileSandboxHealth(),
 			"vm": vmView{Health: st.VM.Health(), Policy: st.VM.Policy(), Stored: st.VM.StoredPolicy(),
-				Used: st.VM.Used(), UsedBy: st.VM.UsedBy()},
+				Used: st.VM.Used(), UsedTiles: st.VM.UsedTiles(), UsedBy: st.VM.UsedBy()},
 		}
 	}
 	return out
@@ -187,7 +212,7 @@ func (st *State) isolationInfo() map[string]any {
 // sessionLimitAlerts is the at-limit alerts of the sessions with a cgroup
 // leaf of their own (a VM's, a restricted user's; D112) — delta-tracked per
 // leaf like the tiles', and forgotten once the session is gone.
-func sessionLimitAlerts(cg *cgroup.Manager, reg *sbx.Registry, lastMem, lastPids map[string]int64) []broker.Alert {
+func sessionLimitAlerts(cgFor func(sbx.Entry) *cgroup.Manager, reg *sbx.Registry, lastMem, lastPids map[string]int64) []broker.Alert {
 	var out []broker.Alert
 	seen := map[string]bool{}
 	for _, e := range reg.List(sbx.Filter{}) {
@@ -195,7 +220,7 @@ func sessionLimitAlerts(cg *cgroup.Manager, reg *sbx.Registry, lastMem, lastPids
 			continue // a backend is its tile's (the caller's loop)
 		}
 		seen[e.Leaf] = true
-		mem, pids, ok := cg.AtLimit(e.Leaf)
+		mem, pids, ok := cgFor(e).AtLimit(e.Leaf) // a tile sandbox's leaf is in its parent
 		if !ok {
 			continue
 		}
@@ -218,8 +243,19 @@ func sessionLimitAlerts(cg *cgroup.Manager, reg *sbx.Registry, lastMem, lastPids
 	return out
 }
 
-// sessionWhat names a session for an alert: "a VM terminal of alice on apps/x".
+// sessionWhat names a session for an alert: "a VM terminal of alice on apps/x",
+// or a tile's own sandbox: `the tile sandbox "build" of apps/x`.
 func sessionWhat(e sbx.Entry) string {
+	if e.Kind == sbx.Tile {
+		s := "the tile sandbox"
+		if e.Mode == sbx.VM {
+			s = "the VM tile sandbox"
+		}
+		if e.Name != "" {
+			s += fmt.Sprintf(" %q", e.Name)
+		}
+		return s + " of " + e.Tile
+	}
 	kind := "terminal"
 	if e.Kind == sbx.Agent {
 		kind = "agent session"
@@ -228,8 +264,34 @@ func sessionWhat(e sbx.Entry) string {
 		kind = "VM " + kind
 	}
 	s := "a " + kind
+	if strings.HasPrefix(kind, "agent") {
+		s = "an " + kind
+	}
 	if e.User != "" {
 		s += " of " + e.User
 	}
 	return s + " on " + e.Tile
+}
+
+// tileSandboxHealth is the tile sandboxes' part of the health (§3.10): why
+// they run without cgroup limits (cgroup: "" = they have them, or nothing
+// does), the relays' shared flow budget, the total book (the memory every
+// running tile sandbox may take, and the processes they hold, of the
+// policy's total; pids used -1 = unknown), why the policy file can't be
+// read (policyError: tile sandboxes are off meanwhile), whether starts are
+// held for a low disk, and what waits for the confined remover (trash).
+func (st *State) tileSandboxHealth() map[string]any {
+	if st.TileSbx == nil {
+		return nil
+	}
+	m := st.TileSbx
+	used, cap := m.FlowBudget()
+	memUsed, memCap := m.TotalBook()
+	pidsUsed, pidsCap := m.TotalPids()
+	trashN, trashBytes := m.TrashBacklog()
+	return map[string]any{"cgroup": m.CgroupNote(), "flows": map[string]int{"used": used, "cap": cap},
+		"total": map[string]any{"memMiB": map[string]int{"used": memUsed, "cap": memCap},
+			"pids": map[string]int64{"used": pidsUsed, "cap": pidsCap}},
+		"policyError": m.PolicyError(), "lowDisk": m.Isolated() && m.DiskLow(),
+		"trash": map[string]int64{"entries": int64(trashN), "bytes": trashBytes}}
 }

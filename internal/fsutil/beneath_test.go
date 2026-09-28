@@ -173,3 +173,68 @@ func TestOpenResolved(t *testing.T) {
 		}
 	}
 }
+
+// MkdirAllIn and OpenRootIn (WP-9): a restore makes and writes a tile's
+// directory, which may sit in another tile's writable tree. A link planted on
+// the way is never followed — neither out of root nor to somewhere else
+// inside it (.xbin).
+func TestMkdirAllInAndOpenRootInRefuseSymlinks(t *testing.T) {
+	root := t.TempDir()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(os.MkdirAll(filepath.Join(root, "apps", "a"), 0o755))
+	must(os.MkdirAll(filepath.Join(root, ".xbin"), 0o755))
+	must(os.Symlink("../../.xbin", filepath.Join(root, "apps", "a", "sub"))) // a nested tile swapped for a link
+	must(os.WriteFile(filepath.Join(root, "apps", "file"), nil, 0o644))
+
+	for name, mk := range map[string]func(root, sub string, perm os.FileMode) error{
+		"openat2": MkdirAllIn, "fallback": mkdirAllInFallback,
+	} {
+		if err := mk(root, "apps/b/c", 0o755); err != nil {
+			t.Fatalf("%s: fresh dirs: %v", name, err)
+		}
+		if fi, err := os.Lstat(filepath.Join(root, "apps", "b", "c")); err != nil || !fi.IsDir() {
+			t.Fatalf("%s: apps/b/c not made: %v", name, err)
+		}
+		if err := mk(root, "apps/a/sub/deeper", 0o755); !errors.Is(err, ErrEscapes) {
+			t.Errorf("%s: through a link: %v", name, err)
+		}
+		if err := mk(root, "apps/file/x", 0o755); err == nil {
+			t.Errorf("%s: through a file: no error", name)
+		}
+	}
+	if err := MkdirAllIn(root, "../out", 0o755); !errors.Is(err, ErrEscapes) {
+		t.Errorf("a non-local sub: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".xbin", "deeper")); err == nil {
+		t.Fatal("a directory was made through the planted link")
+	}
+
+	r, err := OpenRootIn(root, "apps/b")
+	if err != nil {
+		t.Fatalf("OpenRootIn: %v", err)
+	}
+	must(r.WriteFile("c/ok", []byte("ok"), 0o644))
+	r.Close()
+	if b, _ := os.ReadFile(filepath.Join(root, "apps", "b", "c", "ok")); string(b) != "ok" {
+		t.Fatalf("write through the root: %q", b)
+	}
+	for _, sub := range []string{"apps/a/sub", "apps/missing", "apps/file"} {
+		if r, err := OpenRootIn(root, sub); err == nil {
+			r.Close()
+			t.Errorf("OpenRootIn %s: opened", sub)
+		}
+	}
+	// The trust root itself may be a symlink.
+	link := filepath.Join(t.TempDir(), "ws")
+	must(os.Symlink(root, link))
+	if r, err := OpenRootIn(link, "apps/b"); err != nil {
+		t.Fatalf("symlinked root: %v", err)
+	} else {
+		r.Close()
+	}
+}

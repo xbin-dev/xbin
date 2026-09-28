@@ -3,18 +3,19 @@
 A **sandbox manager** is a tile that creates and runs sandboxes — boxes with
 a shell, a filesystem and the tools of a job — for other tiles. A
 **consumer** is a tile that uses them: the agent template (an agent
-conversation works in a sandbox), a terminal tile (people open shells in
-them), anything else. The split (D115):
+conversation works in a sandbox), the `sandbox-terminal` tile (people open
+shells in them, in the browser and over SSH; see below), anything else.
+The split (D115):
 
 - **The manager knows the substrate:** VMs, containers, a cloud's API and
   ssh, disks, images, quotas, what a sandbox may reach.
 - **The consumer knows who and why:** the people it acts for, its own
   conversations, which of its users may use which sandbox.
 
-The builtin manager will be the `coding-sandbox` template (VM sandboxes
-on xbind's own runtime; it is on its way — until then the reference
-manager below is the one to test against). Any tile that implements the
-routes below is a manager — one that runs sandboxes on a cloud over its API and ssh, for
+The builtin manager is the **`coding-sandbox` template** (§The builtin
+manager). The conformance suite, `sdk/sandboxcontract`, checks a manager
+against this page (below). Any tile that implements the routes below is a
+manager — one that runs sandboxes on a cloud over its API and ssh, for
 example. This page is the contract, **protocol 1**.
 
 ## Wiring
@@ -165,7 +166,9 @@ answers `unsupported`. `limits.sandboxes` 0 means no fixed limit.
 - `egressNext` — the egress a `PATCH` set that applies at the sandbox's next
   start; present only while it differs from `egress`. A `PATCH` of a
   running sandbox's egress sets it (`restartNeeded`); of a stopped or
-  archived one, it applies at once. In a state between (`starting`,
+  archived one, it applies at once. A stop may keep a pending one pending
+  or apply it (`egress` becomes it) — the next start takes it either way.
+  In a state between (`starting`,
   `stopping`, `thawing`) the manager picks either, as long as `egress`
   never claims less than the sandbox can reach. A consumer that enforces a
   firewall on egress checks the **less restrictive** of `egress` and
@@ -264,19 +267,35 @@ across its own restarts, too.
 `GET /sbx/sandboxes/{id}/execs/{eid}/tty` attaches to a `tty` exec, and
 `GET /sbx/sandboxes/{id}/tty?cwd=&cmd=&rows=&cols=` starts one (the login
 shell unless `cmd`) and attaches — both are WebSocket upgrades speaking
-exactly the terminal framing of `/ws/term` (docs/protocol.md §`/ws/term`),
-so `<bx-terminal>` and the xbin app's `terminal` work against it:
+exactly the terminal wire of `/ws/term` (docs/protocol.md §The terminal
+wire), so `<bx-terminal src>` (docs/elements.md) works against it:
 
 - **Binary frames** both ways: raw terminal bytes. The ring's tail replays
   first.
 - **Server → client** JSON: `{"op":"session","id":"<exec id>","sandbox":"<id>","echoAck":false}`
-  first; `{"op":"exit","code":0}` when the command ends; with `echoAck`,
-  `{"op":"ack","n":N}` and `{"op":"pong","t":…}` as `/ws/term` sends them.
+  first; `{"op":"pong","t":…}` answering each ping (`t` echoed verbatim);
+  `{"op":"exit","code":0}` once the command has ended and its output is
+  out (`code` null when a signal ended it, with `"signal":"KILL"`), then a
+  close; with `echoAck`, `{"op":"ack","n":N}` as `/ws/term` sends it.
 - **Client → server** JSON: `{"op":"resize","cols":120,"rows":32}`,
-  `{"op":"ping","t":…}`. Unknown ops are ignored on both ends.
+  `{"op":"ping","t":…}`. Unknown ops are ignored on both ends. A resize
+  reaches the terminal before the keystrokes sent after it.
 
-A page connects with its frame token (`xbin.ws(url)`), so the manager sees
-the verified person.
+The session's `id` is a `tty` exec's: it is listed under `execs`, its
+output (`…/output`) is the terminal's stream, `…/resize` resizes it and
+`…/execs/{id}/tty` attaches to it again. Label that exec `terminal`: a
+consumer that offers running terminals to attach (the `sandbox-terminal`
+tile) looks for tty execs labelled `terminal`, or not labelled. A client
+that leaves doesn't end the command; attaching to one that has ended
+replays its ring, then says `exit`. A request that isn't a WebSocket upgrade is `invalid`, and refusals
+come before the upgrade, as JSON like any other route's.
+
+A page connects with its frame token (`xbin.ws(url)`, or `<bx-terminal
+src="<url>/sbx/sandboxes/{id}/tty?cwd=…">`, which does it for you and
+reattaches to the same exec after a drop), so the manager sees the verified
+person. A Go backend dials with the SDK's `sdk/ws` (docs/sdk.md) through
+`xbin.Client()`. The xbin app's `terminal` primitive dials only a tile's own
+routes, so it can't reach a manager's.
 
 ## Files (`files`) and trees (`tar`)
 
@@ -329,6 +348,118 @@ it still does, and `thaw` brings it back (stopped, or running with
 - **No xbin identity, ever**: no token, no gateway, no route to xbind or the
   workspace's tiles. What a sandbox reaches is its `egress`, nothing more.
 
+## People's terminals: the `sandbox-terminal` tile
+
+The builtin **`sandbox-terminal`** tile (`bx tile import sandbox-terminal`,
+D121) is a consumer that gives people terminals onto sandboxes and creates
+none. Bind it to managers (`bx bind apps/sandbox-terminal
+sandboxes=apps/<manager>`, `--add` for more); a sandbox shows up there once
+it is **shared** with it — `{"shares": [{"consumer": "apps/sandbox-terminal",
+"users": "*"}]}` by its home consumer (the agent template's **Share with a
+terminal tile…** on a sandbox's row: for its owner, or `"*"` for a team
+sandbox), or the manager's operators. The person rules above decide who
+opens which:
+
+- **In the browser** its page dials your `tty` route with its frame token,
+  so you see the **verified** person. It lists a sandbox's execs (`GET
+  …/execs`, as that person) to offer the running terminals — tty execs
+  labelled `terminal` or not labelled (§Terminals) — for attaching again
+  (`…/execs/{id}/tty`) and ending (`DELETE …/execs/{id}`).
+- **Over SSH** (`ssh <sandbox>@host -p 2222`, after an admin runs `bx expose
+  apps/sandbox-terminal ssh=runtime --listen :2222` — or `--listen
+  127.0.0.1:2222` to keep it on the host's loopback, for people who come
+  through an SSH tunnel or a VPN) a key registered on its
+  page names the person — only while xbind says they may still use the
+  tile, asked at every login — and its backend calls you as an
+  **asserted** one (`Sbx-User`): `GET /sbx/sandboxes` to find the sandbox,
+  then your `tty` route for a session with a terminal, or a background exec
+  with `stdin` for one without (`ssh host cmd`: stdout and stderr arrive
+  together). A client that leaves gets its command a `HUP`, then a
+  `DELETE` if it still runs.
+  The SSH user name is the sandbox's name in lower case (runs of other
+  characters `-`), `<name>~<n>` when several share it, or its id.
+  No port or agent forwarding, no X11, no sftp in v1.
+
+What it offers people and its page, route by route, is its `API.md`
+(`apps/sandbox-terminal/API.md` once imported).
+## The builtin manager
+
+`bx template new coding-sandbox as apps/coding-sandbox`, a workspace admin
+approves its `cap:sandboxes`, and consumers bind it
+(`bx bind apps/agent sandboxes+=apps/coding-sandbox`). Each copy is a
+manager of its own (its `API.md` has everything):
+
+- **Sandboxes on xbind's own runtime** (docs/protocol.md §Tile sandboxes):
+  a VM where the workspace runs VMs for tiles, else a namespace — or only
+  the one mode its operators choose, never falling back (`isolation` always
+  says which). `caps` are what the runtime serves (`exec`, `files`, `tar`,
+  `tty`, `snapshots`, `clone`; not `archive`), `hello.notes` say what it
+  lacks.
+- **Images** are the runtime's base plus a setup script, built once as root
+  and cloned (a rebuild that fails keeps the previous good build);
+  **sizes**, per-consumer and per-person **quotas** (`hello.limits` carry
+  the effective ones), the layout (a `dev` user in `/work`), the idle stop
+  and mounts of the tile's own filesystem resources are its operators'.
+- **Networks**: `none`, then `internet` and `open` while the copy's
+  `sandbox-net` classes of those names are bound.
+- **Its page**: for its operators (write access to the tile) every
+  consumer's sandboxes — metadata, never contents — with their lifecycle and
+  snapshots, usage against the quotas, the images and the settings, and
+  their own sandboxes with a file browser and a terminal. Operators never
+  change who may use another consumer's sandbox; only its home consumer
+  does. People with read access get a read-only view of the sandboxes they
+  may use: a change from the page needs write access to the tile. The app
+  draws the same natively.
+- **Other substrates**: a copy adds a backend (a cloud's API and ssh) in one
+  Go file; its `AGENTS.md` says how, and how to run the conformance suite
+  against it.
+
+## On xbin
+
+A manager that runs its sandboxes on xbind's own runtime
+(docs/protocol.md §Tile sandboxes; the Go SDK's `xbin.SandboxAPI()`,
+docs/sdk.md; the xbin repository's `examples/sandbox-go` is the smallest
+one) hands them to the workspace too, which may stop one under it —
+synced, state kept, the reason in its `stateDetail`. Show that reason to
+the consumer, and start the sandbox again (or let `autoStart` do it) once
+the cause is gone:
+
+- **xbind itself.** Running work dies with xbind: after a restart every
+  sandbox is `stopped`, state kept, and an exec id from before it answers
+  `lost` (410) — the contract's `lost`, which a manager whose exec ids are
+  the runtime's passes on as it is. Its execs' output goes with them.
+- **Idle.** A sandbox with no activity for its `idleStopMin` (the
+  runtime's policy, 30 minutes by default) is stopped; a command or file
+  call starts it again with `autoStart`. Reading its `SandboxInfo` isn't
+  activity; a running non-terminal command, a file or tar call and an
+  attached terminal hold it off however long they take.
+- **Its tile.** Disabling, hiding, offloading or removing the manager tile
+  stops its sandboxes, and so does losing `cap:sandboxes`. A removed
+  manager's sandboxes stay, definitions and state, until a workspace admin
+  deletes them.
+- **Its grants.** A mount the tile no longer holds, or a read-write one it
+  now holds only as a reader, stops the sandbox; so does sealing the vault,
+  for every sandbox with a resource mounted (its start answers 503 until
+  the vault is unsealed). A narrowed `sandbox-net` class does the same.
+- **Disk.** Each sandbox's bytes are measured (`diskBytes`, after each
+  stop and every few minutes while it runs). Past the tile's
+  `perTile.diskGiB`, its largest running namespace sandbox is stopped and
+  starts answer 429; while the workspace disk is low, starts answer 503 and
+  the namespace sandboxes of the tiles holding most are stopped first (a
+  VM's disk is bounded: it runs on).
+- **Backups.** A backup of the manager tile carries its sandbox
+  definitions, never their state; a restore brings them back by `uid`,
+  stopped. State moves only through snapshots and clones — so offloading a
+  manager whose sandboxes hold state is refused.
+- **Snapshots and clones.** xbind copies a sandbox's state off the request
+  — an upper exactly, a VM disk sparse — and a snapshot keeps the base
+  image it was built on installed. A copy still running after
+  `waitMaxSec` answers as it stands (a snapshot `pending`, a restore
+  `busy: …`, a clone `creating`), and meanwhile the sandbox answers
+  `state`: wait it out before you answer your consumer, as the builtin
+  manager does. A clone of a running sandbox needs a snapshot (the
+  builtin manager takes one for it, and deletes it once the clone is made).
+
 ## Building a manager
 
 **On a cloud.** Every operation maps onto an instance API and ssh:
@@ -345,10 +476,51 @@ it still does, and `thaw` brings it back (stopped, or running with
 | `egress: none` | a security group denying all egress (ssh from the manager only) |
 | partitions, people | the manager's own table |
 
+**Check it against the contract.** The conformance suite is a Go package,
+`github.com/xbin-dev/xbin/sdk/sandboxcontract` (the standard library and
+`sdk/ws`). Serve your manager's handler in a test — or aim at one running —
+and run it:
+
+```go
+func TestContract(t *testing.T) {
+	srv := httptest.NewServer(newManager(t.TempDir()))
+	defer srv.Close()
+	sandboxcontract.Run(t, sandboxcontract.Target{
+		URL:   srv.URL,                                  // its routes are URL + "/sbx/…"
+		Caps:  []string{"exec", "files", "tar", "tty"}, // what hello must offer
+		Grace: 5 * time.Second,                          // its TERM → KILL grace
+	})
+}
+```
+
+Every section of this page is a group of parallel subtests (`go test -run
+'TestContract/tty'` picks one). The checks act as consumers of their own
+(`apps/ct-<section>-<check>-a`, …), setting `X-XBin-From`, `X-XBin-User`
+and `Sbx-User` as xbind and a consumer would, and delete the sandboxes they
+make. A section whose optional capability hello leaves out is skipped; its
+routes must answer `unsupported`. The rest of `Target`:
+
+- `Client` — the HTTP client for every call and terminal (TLS, a proxy).
+- `Consumer`, `Verified`, `Asserted` — how to call as a consumer, a verified
+  person and an asserted one, when the headers aren't how your manager
+  hears it.
+- `Create` — fields for every sandbox the suite creates (a small image or
+  size); `Setup` — run first in every check.
+- `Fresh` — a manager of its own for a check that wants `Knobs`: a small
+  output ring, a small `fileMax`, fewer capabilities (so the refusals of a
+  missing one are checked). Without it those checks use your manager with
+  the limits its hello states.
+- `Skip` — checks you know it fails (`"execs/stdin"`, or a whole section),
+  each with why: they show as skipped, never silently.
+
+`Target.As(t, consumer)` is the suite's client (calls, refusals, runs,
+execs, files, terminals) for your own tests of what the contract leaves to
+you.
+
 **The reference manager** is `hack/fakesandbox` in the xbin repository: the
-whole contract in one standard-library Go file (each sandbox a directory on
-the host — for tests only), whose tests are the conformance suite a manager
-can be checked against.
+whole contract in one Go file — the standard library and `sdk/ws`; each
+sandbox a directory on the host, each terminal a host pseudo-terminal, for
+tests only. Its tests run the suite (`hack/fakesandbox/fsb_test.go`).
 
 **Versions.** Protocol 1 grows only by addition: new optional fields,
 routes and capabilities. Consumers ignore fields they don't know; managers

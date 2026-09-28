@@ -33,6 +33,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/agent/acp"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/sandbox/relay"
+	"github.com/xbin-dev/xbin/internal/termwire"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -304,7 +305,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
 		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api,
-		born: time.Now(), clients: map[*client]struct{}{}, lastActive: time.Now(),
+		born: time.Now(), hub: termwire.NewHub(0), // no terminal socket: the hub keeps its activity clock
 	}
 	st.snap = newSnapper(dir, func(e agent.Event) { s.logEvent(m, e) })
 	drv := acp.New()
@@ -431,9 +432,7 @@ func (s *Session) agentPump(m *Manager, onExit func()) {
 	}
 ended:
 	s.publishStatus(m) // the last word before the directory's close
-	s.mu.Lock()
-	s.dead = true
-	s.mu.Unlock()
+	s.hub.End(termwire.Exit{})
 	s.kill() // the host and the agent go with the session, whatever ended first
 	waitErr := s.cmd.Wait()
 	if s.relay != nil {
@@ -497,9 +496,7 @@ func (s *Session) logEvent(m *Manager, e agent.Event) {
 			s.mu.Unlock()
 		}
 	}
-	s.mu.Lock()
-	s.lastActive = time.Now()
-	s.mu.Unlock()
+	s.hub.Touch()
 	if m.OnEvent != nil {
 		m.OnEvent(s.Cwd, SessionEvent{Event: ev, User: s.homeKey, ID: s.ID})
 	}
@@ -582,9 +579,7 @@ func (m *Manager) AgentPromptWith(ctx context.Context, id string, p agent.Prompt
 	st.turn++
 	turn := st.turn
 	st.mu.Unlock()
-	s.mu.Lock()
-	s.lastActive = time.Now()
-	s.mu.Unlock()
+	s.hub.Touch()
 	return turn, nil
 }
 

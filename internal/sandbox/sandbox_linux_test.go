@@ -91,7 +91,20 @@ func TestSandboxIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer h.Cleanup()
-	out, err := cmd.CombinedOutput()
+	// Started by hand, not CombinedOutput: on a host with a delegated sub-uid
+	// range the init waits for SetupUserns to write its maps.
+	var buf bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &buf, &buf
+	err = cmd.Start()
+	if err == nil {
+		if err = h.SetupUserns(); err != nil {
+			_ = cmd.Process.Kill()
+		}
+		if werr := cmd.Wait(); err == nil {
+			err = werr
+		}
+	}
+	out := buf.Bytes()
 	if err != nil {
 		if strings.Contains(err.Error(), "operation not permitted") {
 			t.Skipf("sandbox creation denied by environment: %v\n%s", err, out)
@@ -174,6 +187,9 @@ func TestSandboxServesUnixSocket(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	if err := h.SetupUserns(); err != nil {
+		t.Fatalf("userns: %v", err)
+	}
 
 	hostSock := filepath.Join(run, "g.sock")
 	client := &http.Client{Transport: &http.Transport{

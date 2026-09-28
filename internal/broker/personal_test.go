@@ -286,6 +286,19 @@ func TestPersonalPlaneAPI(t *testing.T) {
 	if code, _ := patch(`{"sets":["nope"]}`); code != 400 {
 		t.Fatalf("patch with an unknown set: %d", code)
 	}
+	// switching noTerminal on — only on — tells the tile-sandbox runtime,
+	// which kills the tty execs a manager claimed for her
+	var told []string
+	b.OnNoTerminal = func(id string) { told = append(told, id) }
+	for _, body := range []string{`{"noTerminal":true}`, `{"noTerminal":true}`, `{"noTerminal":false}`} {
+		if code, out := patch(body); code != 200 {
+			t.Fatalf("patch %s: %d %v", body, code, out)
+		}
+	}
+	b.OnNoTerminal = nil
+	if strings.Join(told, ",") != "ann" {
+		t.Fatalf("OnNoTerminal told %v", told)
+	}
 	// the users list carries the resolved plane
 	code, out = adminJSON(t, b.apiUsersList, "GET", "/users", "")
 	var ann map[string]any

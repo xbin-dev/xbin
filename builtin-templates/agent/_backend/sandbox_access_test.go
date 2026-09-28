@@ -493,6 +493,59 @@ func TestSandboxRelabelRacesTheMark(t *testing.T) {
 	}
 }
 
+// A share PATCH goes with the version the page read (D121 follow-up): the
+// agent passes it to the manager, a stale one comes back 412 precondition —
+// what the page's store re-reads on and retries once — and GET
+// /sandboxes/{ref} gives the version to retry with.
+func TestSandboxSharesWithVersion(t *testing.T) {
+	_, mux := accessFixture(t)
+	bindSbx(t, "apps/cs")
+	box := mkSandbox(t, "apps/cs", "alice", sbxCreate{Name: "s"})
+	ref := sandboxRef("apps/cs", box.ID)
+	path := "/sandboxes/" + url.PathEscape(ref)
+	read := func() (int, []any) {
+		t.Helper()
+		w := callAs(t, mux, asAlice, "GET", path, nil)
+		var v struct {
+			Version int   `json:"version"`
+			Shares  []any `json:"shares"`
+		}
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &v) != nil || v.Version == 0 {
+			t.Fatalf("GET %s: %d %s", path, w.Code, w.Body)
+		}
+		return v.Version, v.Shares
+	}
+	v0, _ := read()
+	share := func(consumer string) map[string]any {
+		return map[string]any{"consumer": consumer, "users": []string{"alice"}}
+	}
+	w := callAs(t, mux, asAlice, "PATCH", path, map[string]any{"shares": []any{share("apps/term")}, "version": v0})
+	if w.Code != 200 {
+		t.Fatalf("a share at the version read: %d %s", w.Code, w.Body)
+	}
+	v1, shares := read()
+	if v1 <= v0 || len(shares) != 1 {
+		t.Fatalf("after the share: version %d → %d, shares %v", v0, v1, shares)
+	}
+	// the list read at v0 is stale now: refused, nothing lost
+	w = callAs(t, mux, asAlice, "PATCH", path, map[string]any{"shares": []any{share("apps/other")}, "version": v0})
+	var refusal struct{ Refusal string }
+	if w.Code != 412 || json.Unmarshal(w.Body.Bytes(), &refusal) != nil || refusal.Refusal != "precondition" {
+		t.Fatalf("a stale share list: %d %s", w.Code, w.Body)
+	}
+	if v, shares := read(); v != v1 || len(shares) != 1 {
+		t.Fatalf("a refused PATCH changed it: version %d, shares %v", v, shares)
+	}
+	// re-read, retried at the new version: both shares
+	w = callAs(t, mux, asAlice, "PATCH", path, map[string]any{"shares": []any{share("apps/term"), share("apps/other")}, "version": v1})
+	if w.Code != 200 {
+		t.Fatalf("the retry: %d %s", w.Code, w.Body)
+	}
+	if _, shares := read(); len(shares) != 2 {
+		t.Fatalf("shares after the retry: %v", shares)
+	}
+}
+
 // Picking a sandbox the conversation has attached again, with no cwd, keeps
 // the cwd it is attached at.
 func TestSandboxRepickKeepsCwd(t *testing.T) {
