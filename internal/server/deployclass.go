@@ -121,6 +121,47 @@ var routeClasses = map[string]RouteClass{
 	"POST /term/sessions":              DeploymentScoped,
 	"POST /term/sessions/{id}/restart": DeploymentScoped,
 
+	// ---- the tile-sandbox runtime (D120): a manager's routes are keyed by
+	// the caller's deployment (tilesbx keyOf): main's sandboxes, and 501 for
+	// any other deployment until its own set exists (plans/
+	// tile-sandbox-runtime.md §14). The policy is the admin's. ----
+	"DELETE /sandboxes/{name}":                       DeploymentScoped,
+	"DELETE /sandboxes/{name}/execs/{id}":            DeploymentScoped,
+	"DELETE /sandboxes/{name}/snapshots/{sid}":       DeploymentScoped,
+	"GET /sandboxes/{name}":                          DeploymentScoped,
+	"GET /sandboxes/{name}/execs":                    DeploymentScoped,
+	"GET /sandboxes/{name}/execs/{id}":               DeploymentScoped,
+	"GET /sandboxes/{name}/execs/{id}/output":        DeploymentScoped,
+	"GET /sandboxes/{name}/execs/{id}/tty":           DeploymentScoped,
+	"GET /sandboxes/{name}/files/content":            DeploymentScoped,
+	"GET /sandboxes/{name}/files/list":               DeploymentScoped,
+	"GET /sandboxes/{name}/files/stat":               DeploymentScoped,
+	"GET /sandboxes/{name}/snapshots":                DeploymentScoped,
+	"GET /sandboxes/{name}/tar":                      DeploymentScoped,
+	"GET /sandboxes/{name}/tty":                      DeploymentScoped,
+	"GET /sandboxes/policy":                          PrimaryOnly,
+	"GET /sandboxes/runtime":                         DeploymentScoped,
+	"PATCH /sandboxes/{name}":                        DeploymentScoped,
+	"POST /sandboxes":                                DeploymentScoped,
+	"POST /sandboxes/copy":                           DeploymentScoped,
+	"POST /sandboxes/{name}/execs":                   DeploymentScoped,
+	"POST /sandboxes/{name}/execs/{id}/resize":       DeploymentScoped,
+	"POST /sandboxes/{name}/execs/{id}/signal":       DeploymentScoped,
+	"POST /sandboxes/{name}/execs/{id}/stdin":        DeploymentScoped,
+	"POST /sandboxes/{name}/files/mkdir":             DeploymentScoped,
+	"POST /sandboxes/{name}/files/move":              DeploymentScoped,
+	"POST /sandboxes/{name}/files/remove":            DeploymentScoped,
+	"POST /sandboxes/{name}/rebase":                  DeploymentScoped,
+	"POST /sandboxes/{name}/reset":                   DeploymentScoped,
+	"POST /sandboxes/{name}/run":                     DeploymentScoped,
+	"POST /sandboxes/{name}/snapshots":               DeploymentScoped,
+	"POST /sandboxes/{name}/snapshots/{sid}/restore": DeploymentScoped,
+	"POST /sandboxes/{name}/start":                   DeploymentScoped,
+	"POST /sandboxes/{name}/stop":                    DeploymentScoped,
+	"PUT /sandboxes/{name}/files/content":            DeploymentScoped,
+	"PUT /sandboxes/{name}/tar":                      DeploymentScoped,
+	"PUT /sandboxes/policy":                          PrimaryOnly,
+
 	// ---- the deployments API (11-contract §1): its handlers apply §0.5's
 	// gates, refusing instance and frame principals of every deployment ----
 	"GET /deployments":                     DeploymentScoped,
@@ -193,6 +234,7 @@ var routeClasses = map[string]RouteClass{
 	"GET /owner/preview":            PrimaryOnly,
 	"POST /owner":                   PrimaryOnly,
 	"GET /access":                   PrimaryOnly,
+	"GET /access/{user}":            Neutral, // a person's level on the calling tile: the tile's, as X-XBin-User-Level
 	"PUT /access":                   PrimaryOnly,
 	"GET /access-matrix":            PrimaryOnly,
 	"GET /access-requests":          Neutral,
