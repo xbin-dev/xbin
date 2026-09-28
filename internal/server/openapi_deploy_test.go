@@ -114,6 +114,8 @@ func TestOpenAPIDeploymentRows(t *testing.T) {
 		{"GET", "/vault/{component}"}: true, {"GET", "/vault/{component}/{key}"}: true, {"GET", "/logs"}: true,
 		{"GET", "/tile-status"}: true, {"GET", "/frame-token"}: true,
 		{"PUT", "/vault/{component}/{key}"}: true, {"DELETE", "/vault/{component}/{key}"}: true,
+		{"GET", "/cron/jobs"}: true, {"PUT", "/cron/jobs"}: true, {"DELETE", "/cron/jobs/{name}"}: true,
+		{"GET", "/bus/subscriptions"}: true, {"PUT", "/bus/subscriptions"}: true, {"DELETE", "/bus/subscriptions/{name}"}: true,
 	}
 	for r := range builtParam {
 		withParam = append(withParam, r)
@@ -146,16 +148,11 @@ func TestOpenAPIDeploymentRows(t *testing.T) {
 
 	// The fields existing answers gain are noted, marked reserved (on
 	// /tile-status, /logs and /frame-token the parameter carries the note)
-	// until this xbind sets them; then the note is plain prose.
+	// until this xbind sets them; then the note is plain prose. Every one is
+	// built since wave 2.3 (the cron and bus rows by WP-49).
 	note := strings.TrimSpace(reservedField)
-	for _, r := range [][2]string{
-		{"GET", "/cron/jobs"}, {"PUT", "/cron/jobs"}, {"GET", "/bus/subscriptions"}, {"PUT", "/bus/subscriptions"},
-	} {
-		if o := op(r[0], r[1]); o != nil && !strings.Contains(o["description"].(string), note) {
-			t.Errorf("%s %s: no reserved field note", r[0], r[1])
-		}
-	}
 	for _, r := range [][2]string{{"GET", "/term/sessions"}, {"GET", "/status"}, {"GET", "/agent/history"}, {"POST", "/grants"}, {"GET", "/sandboxes"},
+		{"GET", "/cron/jobs"}, {"PUT", "/cron/jobs"}, {"GET", "/bus/subscriptions"}, {"PUT", "/bus/subscriptions"},
 		{"POST", "/tile-report"}, {"POST", "/notify"}, {"PUT", "/iface-instances"}, {"PUT", "/ingress-hosts"},
 		{"GET", "/backends"}, {"GET", "/runtime"}, {"GET", "/whoami"}} {
 		if o := op(r[0], r[1]); o != nil && (strings.Contains(o["description"].(string), note) || !strings.Contains(o["description"].(string), "deployment")) {
