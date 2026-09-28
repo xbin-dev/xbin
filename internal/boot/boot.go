@@ -403,6 +403,7 @@ func (st *State) stepBroker() error {
 		WriteDeploymentFile: dp.WriteDeploymentFile, RemoveDeploymentFile: dp.RemoveDeploymentFile,
 	}
 	dp.IsAdmin, dp.MayManage, dp.Provision = brk.IsAdmin, brk.MayManageDeployments, brk.Provision
+	dp.AdminFrameDriver = brk.AdminFrameDriver // the admin tile's manager acts (P21, extended)
 	dp.RunNow, dp.DropRegistrations = brk.RunNow, brk.DropDeploymentRegistrations
 	dp.DropDeploymentFiles = brk.DropDeploymentFiles
 	dp.ResetData, dp.DropData = brk.ResetDeploymentData, brk.DropDeploymentData // (scope, name) namespaces

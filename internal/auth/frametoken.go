@@ -152,6 +152,8 @@ func (a *Auth) genLive(gen, userID string) (impersonator string, ok bool) {
 		return "", userID != "" && gen == a.userGenLocked(userID)
 	case "o":
 		return "", userID == "" && gen == a.ownerGenLocked()
+	case "t": // the owner token's, minted by a terminal (terminalOwnerGen)
+		return "", userID == "" && "o."+rest == a.ownerGenLocked()
 	}
 	return "", false
 }
@@ -177,7 +179,7 @@ func (a *Auth) sessionGenLive(handle, userID string) (impersonator string, ok bo
 }
 
 // CredentialLive reports whether credential generation gen (a principal's
-// Gen: s.<handle>, u.<epoch>.<n>, o.<hash>) still lives for userID ("" =
+// Gen: s.<handle>, u.<epoch>.<n>, o.<hash>, t.<hash>) still lives for userID ("" =
 // the owner) — without counting as the login's activity, unlike a frame
 // token's use (genLive). What outlives a request but must end with the
 // login that made it (a push registration) checks it.
@@ -229,11 +231,26 @@ func (a *Auth) MintFrameTokenFor(p Principal, component string, ttl time.Duratio
 }
 
 // frameGenFor is the generation a token minted on behalf of p binds to.
+// Hardening (P21 extended): a frame token that an owner-driven terminal or
+// agent session mints for its own tile gets terminalOwnerGen instead of the
+// root token's login generation, so that frame can never pass LoginFrame —
+// a tile's shell must not launder its token into a login frame. (A
+// user-driven one already binds "u.", never a login's "s.".)
 func (a *Auth) frameGenFor(p Principal) string {
 	if validGen(p.Gen) {
 		return p.Gen
 	}
+	if p.Component != "" && p.Via != "frame" && p.UserID == "" {
+		return a.terminalOwnerGen()
+	}
 	return a.defaultGen(p.UserID)
+}
+
+// terminalOwnerGen marks a frame token minted by an owner-driven terminal
+// or agent session: "t." + the owner generation's hash. It is valid exactly
+// as long as the owner token ("o.") is (genLive), but it is not a login's.
+func (a *Auth) terminalOwnerGen() string {
+	return "t." + strings.TrimPrefix(a.ownerGen(), "o.")
 }
 
 // mintFrame signs a token; claim is the deployment claim, already under the

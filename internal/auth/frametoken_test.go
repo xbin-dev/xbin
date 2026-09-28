@@ -362,3 +362,79 @@ func TestCredentialLive(t *testing.T) {
 		t.Fatal("the user's generation after sign-out-everywhere")
 	}
 }
+
+// covers P21 — LoginFrame: a frame token minted under a person's own login
+// (a session, the root token) is a login frame; one a tile's terminal or
+// agent session mints for its own tile is not — a user-driven one binds its
+// user's generation, an owner-driven one the terminal owner generation,
+// which dies with the owner token as the root token's frames do. A view-as
+// session's frames never are.
+func TestLoginFrame(t *testing.T) {
+	a := bindingAuth(t)
+	frameOf := func(tok string) Principal {
+		t.Helper()
+		r := httptest.NewRequest("GET", "/x", nil)
+		r.Header.Set(FrameTokenHeader, tok)
+		p, ok := a.FromRequest(r)
+		if !ok {
+			t.Fatal("frame refused")
+		}
+		return p
+	}
+	session := principalOf(t, a, a.NewSession("bob", ""), "")
+	owner := principalOf(t, a, "", a.OwnerTokenValue())
+	userTerm := principalOf(t, a, "", a.MintTerminal("apps/admin", "bob"))
+	ownerTerm := principalOf(t, a, "", a.MintTerminal("apps/admin", ""))
+	if userTerm.Via != "terminal" || ownerTerm.Via != "terminal" {
+		t.Fatalf("fixture: terminal principals %+v %+v", userTerm, ownerTerm)
+	}
+	for _, tc := range []struct {
+		name string
+		p    Principal
+		want bool
+	}{
+		{"a session's frame", session, true},
+		{"the root token's frame", owner, true},
+		{"a user-driven terminal's frame", userTerm, false},
+		{"an owner-driven terminal's frame", ownerTerm, false},
+	} {
+		fp := frameOf(a.MintFrameTokenFor(tc.p, "apps/admin", time.Minute))
+		if got := fp.LoginFrame(); got != tc.want {
+			t.Errorf("%s (gen %q): LoginFrame %v, want %v", tc.name, fp.Gen, got, tc.want)
+		}
+		// A renewal keeps what the token was minted under.
+		if got := frameOf(a.MintFrameTokenFor(fp, "apps/admin", time.Minute)).LoginFrame(); got != tc.want {
+			t.Errorf("%s renewed: LoginFrame %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	if (Principal{Component: "apps/admin", Via: "terminal", Gen: "s.x"}).LoginFrame() {
+		t.Error("a terminal principal is no frame")
+	}
+
+	// An admin's view of bob: its frames are read-only, never a login frame.
+	adminSid := a.NewSession("alice", "")
+	admin := principalOf(t, a, adminSid, "")
+	tk, err := a.NewImpersonationTicket(admin, "bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid, err := a.RedeemImpersonation(tk, admin, adminSid, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fp := frameOf(a.MintFrameTokenFor(principalOf(t, a, sid, ""), "apps/admin", time.Minute)); fp.LoginFrame() {
+		t.Errorf("a view-as frame (gen %q) is a login frame", fp.Gen)
+	}
+
+	// The owner-driven terminal's frames end with the owner token.
+	tok := a.MintFrameTokenFor(ownerTerm, "apps/admin", time.Minute)
+	if !frameOK(a, tok) {
+		t.Fatal("an owner-driven terminal's frame refused")
+	}
+	if _, err := a.RotateOwnerToken(); err != nil {
+		t.Fatal(err)
+	}
+	if frameOK(a, tok) {
+		t.Fatal("an owner-driven terminal's frame survived the owner token's rotation")
+	}
+}

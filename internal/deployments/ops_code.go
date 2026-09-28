@@ -288,7 +288,7 @@ func runAdd(ctx context.Context, p *Plane, g Grant, r *AddRequest) (any, error) 
 		return nil, err
 	}
 	if r.Data == DataSeed { // a tile manager's act, and a copy of personal data (08-data §8.1)
-		if e := p.managerAct(g.P, "seeding a deployment's data", o.tile); e != nil {
+		if e := p.managerAct(g.P, acts[OpSeed], o.tile); e != nil {
 			return nil, e
 		}
 		if err := confirmed(r.Confirm, ConfirmCopyData, "seeding "+y+" copies "+o.rec.Primary+"'s data, which may be personal"); err != nil {

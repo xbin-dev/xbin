@@ -95,6 +95,19 @@ type Principal struct {
 // user's eyes. Reads pass as the user; the authed middleware refuses writes.
 func (p Principal) ReadOnly() bool { return p.Impersonator != "" }
 
+// LoginFrame reports a tile frame whose token was minted under a person's
+// own login: a browser or app session ("s.") or the root token ("o."), and
+// not a view-as one. A token a tile's terminal or agent session mints for
+// its own tile carries its user's generation ("u.") or the terminal owner
+// generation ("t.", frameGenFor), so a tile's shell never passes for its
+// frame here. The one gate that reads it is the admin tile's manager acts
+// on tile deployments (P21, extended by the owner 2026-09-28), where the
+// frame stands in for its person, never for its tile's own grants.
+func (p Principal) LoginFrame() bool {
+	return p.Via == "frame" && p.Component != "" && !p.ReadOnly() &&
+		(strings.HasPrefix(p.Gen, "s.") || strings.HasPrefix(p.Gen, "o."))
+}
+
 // IsAdmin reports admin privilege: the root token, or a user whose role is
 // admin. This unifies the old "owner only" gate with admin users.
 func (p Principal) IsAdmin() bool {
