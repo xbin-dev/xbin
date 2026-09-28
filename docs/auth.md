@@ -28,6 +28,13 @@ Callees never verify any of this themselves: xbind strips inbound
 `X-XBin-*` headers and injects the verified `X-XBin-From` and
 `X-XBin-Role`. If those headers are present, they're true.
 
+A tile's backend, frontend and terminal/agent credentials each act in one
+**deployment** of the tile (§Tile deployments below): the backend
+generation's, the document's, the session's target (or the primary, for a
+session that follows it). What other tiles and grants see stays the tile
+path; a call from a deployment that isn't the tile's primary also carries
+`X-XBin-Deployment: <name>`, stripped inbound like every `X-XBin-*`.
+
 **The driving human is attributed too (D29).** When a signed-in user is
 behind a call — directly, or riding the tile's own frontend (frame token) or
 terminal — xbind additionally injects `X-XBin-User: <id>` and
@@ -75,7 +82,11 @@ xbind remembers which logins were live (never their credentials,
 read-only with it. Tokens minted by an older xbind verify until they expire
 and renew into bound ones, so pages left open across the upgrade keep
 working. Frontends never parse the token; a renewal that 401s means the
-login ended — reload the page (it signs in again). Server-side, a **Fetch-Metadata
+login ended — reload the page (it signs in again). A frame token also names
+the tile deployment its document belongs to: a person gets one only for a
+deployment they may open (read for the primary, write for any other), a
+tile's own credential only for the deployment it is bound to, and the
+one-tree navigation rule below holds only between primaries. Server-side, a **Fetch-Metadata
 gate** drops the session cookie from any request showing the opaque-origin
 fingerprint (`Sec-Fetch-Site: cross-site` on a non-navigation, or a non-GET
 navigation to `/api/*`/`/ws/*`), so a tile that omits its token and
@@ -191,6 +202,16 @@ on the origin's `/api` may set cookies. Sibling tile origins are
 origin itself (a sibling may navigate to the tile's pages, never fetch, post
 to or open a socket on its API), and the tile's pages carry `frame-ancestors
 'self' <workspace>`: only the shell (and the tile itself) may frame them.
+
+Each **tile deployment** has an origin of its own: `main`'s is the tile's
+`t-<id>`, any other deployment's another `t-<id>` derived from the tile and
+the deployment's name, so its localStorage and IndexedDB are its own
+whichever deployment is primary. The bare `/c/<tile>/` goes to the primary's
+origin, `/c/<tile>+<name>/` to that deployment's; on a deployment's origin
+both `/c/<tile>/…` and `/c/<tile>+<name>/…` serve it and `/api/<tile>/…`
+acts as that deployment's tile principal. A non-primary deployment's origin
+needs write access on the tile, checked on every request; its ticket and
+cookie are the `x2`/`c2` forms, which an older xbind refuses.
 
 Who starts a navigation to a tile page on the workspace decides how it
 continues: the shell, a chrome page or the user (typed, a bookmark) get the
@@ -400,6 +421,22 @@ Rules, all deliberate:
   credential-bearing tile doesn't leak its keys. (The human with host access
   can still read `data/vault/` on disk with the passphrase — this locks down
   the *API*, the exfiltration surface.)
+- **Each tile deployment has its own vault.** A tile's own credentials reach
+  their bound deployment's vault (a backend its deployment's, a terminal or
+  agent session its target's), and naming another deployment is 403; admins
+  and tile managers, in their own session, name any deployment with
+  `?deployment=<name>`, except that a tile manager who isn't an admin
+  reaches only non-primary deployments' vaults (the primary's stays
+  admins-only, as before); other tiles' admin credentials reach only the
+  primary's. Values stay readable only by the backend of the deployment
+  whose vault it is. A new deployment's vault starts empty: the primary's key
+  names show as **placeholders**, and reading one answers 404 (`vault key
+  "<k>" has no value in deployment <d>; a tile manager can copy it from the
+  primary`). **Vault copy** (`bx deployment vault-copy`) is a tile manager's
+  act that copies the primary's values in, never the other way; the audit
+  names keys, never values. While the primary is protected its vault is
+  written only by its own backend and by tile managers in their own session:
+  terminal and agent sessions never reach it.
 
 ### Encryption at rest (the barrier)
 
@@ -506,6 +543,116 @@ Revoke it (`bx grant --revoke tiles/admin xbin:admin`) and the admin tile
 goes dark. Unprivileged elements gain nothing: every management endpoint
 still denies principals without the grant.
 
+## Tile deployments: principals, edges and managers
+
+A tile can run several deployments of its code
+([tile-deployments.md](/docs/tile-deployments.md)): its **primary**, which
+the bare URLs, grants, bindings, cron, bus deliveries and ingress reach, and
+others (`dev`, …) its developers open at `/c/<tile>+<name>/`. Nothing below
+changes a tile that has only its primary. The wire is
+[protocol.md](/docs/protocol.md) §Tile deployments.
+
+**Every tile credential acts in one deployment.** A backend's
+instance token acts in the deployment its generation runs, a frame token (or
+tile-origin cookie) in its document's, a terminal or agent session's token
+in the session's target — a named deployment, or the current primary for a
+session that follows it. The principal other tiles and grants see stays the
+tile path. A call to the tile's own API (`/api/<self>/…`) reaches the
+caller's own deployment, at `admin`, and so do the self-scoped routes (vault,
+kv, blob, bus, cron, bus subscriptions, interface instances, ingress hosts,
+status, notify, prefs). A tile credential that names another deployment of
+its own tile is refused:
+
+```
+apps/crm's deployment "dev" can only call itself: this credential belongs to "dev", not "main". A tile's code never reaches another deployment of its own tile; a person switches deployments by URL, a terminal by changing its target.
+```
+
+**Who reaches a non-primary deployment.** People with write on the tile
+(checked on every request, terminal level and admins included), and the
+tile's own credentials bound to it. Readers get 403 `deployment URLs need
+write access on <tile>` whether or not the name exists, and other tiles never
+reach one: they use the bare URL, which is always the primary, even for the
+primary's own qualified name. A non-primary deployment receives no other
+tile's calls, no ingress and no deliveries but its own.
+
+**Default-deny on xbind's API.** Beside element default-deny, a credential
+bound to a deployment that isn't the primary is refused on every
+`/api/xbin/*` route that isn't classed for it. Each route is
+deployment-scoped (it acts on the caller's own deployment), primary-only or
+neutral (no deployment in it). Governance and administration are
+primary-only, reads included: tile creation, lifecycle, grant and binding
+writes, ownership, access, users, orgs, sets, policy, defaults, screens and
+every admin API. So a non-primary deployment's code can't create a tile,
+grant, bind or read the workspace's admin state with the tile's credentials,
+whatever the tile holds; a non-primary backend can't decide a code PR either.
+The audit line of a tile credential acting in a deployment other than `main`
+carries `deployment=<name>`.
+
+**The edge policy.** The primary uses the tile's grants and bindings exactly
+as before. Each non-primary deployment uses each outbound edge — an interface
+binding, the net slot, a call, resource, code or capability grant — by the
+tile's policy for it, set by a tile manager:
+- **`read`**, the default wherever the role can be read-clamped: the call
+  reaches the provider's primary with `X-XBin-Role` clamped to `reader`, so
+  a non-primary deployment never writes into another tile. Providers must
+  treat `reader` as read-only; `X-XBin-Deployment` tells them the call is test
+  traffic. A write to another scope's resource, or the workspace's, is
+  refused (`<tile>+<name> may not write <res>: non-primary deployments reach
+  other scopes read-only (edge policy "read")`).
+- **`inherit`**, for the net slot and capability grants: the tile's own
+  authority. The net slot inherits the tile's relay policy, never host
+  networking or a provider splice: a tile whose network shares the host's
+  gives its non-primary deployments no egress. `gpu:*` grants are withheld
+  by default; other capabilities are inherited.
+- **`block`**: the call is refused, and the refusal names the deployment,
+  the edge, its target and the policy.
+- **Edges that can't be clamped are blocked, with no override:** a custom
+  role whose `implies` don't reach `reader`, stream and lan-ingress
+  bindings, a net slot bound to a provider tile, and a workspace-level
+  filesystem or sqlite resource on a workspace-scope tile. A provider makes a
+  custom role clampable by declaring `implies: {"<role>": ["reader"]}`.
+- An unknown stored value reads as `block`, and when several edges authorize
+  one call, any `block` among them wins.
+
+**What the read clamp costs.** llm-gw guards its completions with `writer`,
+so an LLM-using tile's non-primary deployments can list models but can't run
+a turn. The agent template reaches its sandbox managers through the custom
+role `consumer`, which implies no `reader`, so its non-primary deployments
+can't use them at all. Test such work from the primary, or from a tile of
+its own.
+
+**Tile managers act in a person's own session.** Reassigning or protecting
+the primary, edge policies, deliveries, alwaysOn, limits, seeding data,
+copying vault values and purging a checkpoint are a **tile manager's** acts:
+the tile's owner, its org's admins, or a workspace admin (D24/D33), and only
+in their own browser or app session. No terminal, agent, frame or backend
+credential passes, whatever grants its tile holds (`xbin`, `xbin:users`
+included), and a terminal session is refused even when the person driving it
+is a manager, because agents share its token. Per-deployment backups and
+restores are a workspace admin's, in their own session. Adding, removing,
+deploying, promoting, resetting data and running a job now take terminal
+level on the tile. A tile that holds an `xbin` or `xbin:*` grant can't have
+non-primary deployments, and granting one to a tile that has them answers
+409: governance never has a deployment in it.
+
+**A protected primary is a boundary.** Once a tile manager protects it,
+only tile managers change its code, each naming the checkpoint they
+reviewed, and no terminal or agent session ever targets it: the terminal's
+API select doesn't offer it, the server refuses a request for it, and
+sessions that followed it restart onto another target. So a prompt-injected
+agent can't reach a protected primary's API, data, vault, registrations or
+frame token.
+
+**A non-primary deployment is an accident boundary, not a trust boundary.**
+It keeps a developer's test data, notifications, cron jobs and writes away
+from what everyone else uses. Its backend and frontend code can't reach the
+primary with the tile's credentials — for them the refusal above is a real
+wall. But terminal and agent sessions change their target by restarting,
+which anyone with terminal level on the tile may do, so between deployments
+that aren't a protected primary the refusal catches mistakes (a stale URL, a
+wrong target), not a hostile writer. Code in any deployment is code its
+tile's writers wrote; protect the primary when that matters.
+
 ## Honesty: enforcement tiers
 
 The *model* above is always enforced by xbind. How hard it is to cheat
@@ -541,6 +688,8 @@ Every state-changing call to the core API (`POST`/`PUT`/`PATCH`/`DELETE` on
 `/api/xbin/…`) is logged at `INFO` as an `audit` line — actor (`X-XBin-From`:
 `owner`, `user:<id>`, or a component), method, path, and resulting status — so
 there's a who-changed-what trail for user/grant/lifecycle/vault/token changes.
+A tile credential acting in a tile deployment other than `main` adds
+`deployment=<name>`.
 High-frequency data-plane writes (`prefs`, `kv`, `blob`, `bus`) are excluded as noise. This is
 a log stream, not a queryable store; ship xbind's stderr somewhere durable if
 you need retention.
@@ -644,9 +793,20 @@ creation (clone, workspace-template instantiate) additionally requires
   nothing prunes these when a tile's directory disappears: workspace grant
   rows naming the path on either side, interface bindings / instances /
   ingress hosts, its vault, another owner's entry, other users' exact
-  per-tile entries, org shares, or an exact `defaultTiles` entry. The
-  refusal lists them; pick another path or have an admin clear them.
-  Re-creating a path you already own is fine.
+  per-tile entries, org shares, an exact `defaultTiles` entry, or its
+  deployment state (a deployment record, a checkpoint store:
+  [tile-deployments.md](tile-deployments.md)) — and, at the path and under
+  it, what its deployments beyond `main` left: their vaults, dormant
+  registrations and data. The refusal lists them; pick another path or have
+  an admin clear them. Re-creating a path you already own is fine (the
+  path's owner is exempt). Whoever creates the tile, admins included, the
+  path's deployment record is dropped first, so the new tile starts with
+  plain live reload; a checkpoint store left there stays on disk, unread;
+- **a tile deployment's URL** — `<P>+<N>` while tile `P` has a deployment
+  `N`: refused for everyone, admins included (`can't create <P>+<N>: <P> has
+  a deployment "<N>", and that is its URL — pick another path`). Any other
+  name holding `+` is created as before, and for one release the answer
+  warns that `+` in tile names is reserved for deployment URLs.
 
 Nesting is refused for everyone (not inside an existing tile, not above
 one). Workspace admins bypass the rule — workspace-owned creation is an

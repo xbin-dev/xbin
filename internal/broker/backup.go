@@ -47,7 +47,14 @@ func (b *Broker) archiveProvider(comp string) string {
 func backupKey(comp string) string { return util.CompKey(comp) }
 
 func (b *Broker) resourcesRoot(scope string) string {
-	return filepath.Join(b.Reg.Root, "data", "resources", util.ScopeKey(scope))
+	k, _ := scopeKeys(scope, util.MainDeployment) // main's keys: never an error
+	return filepath.Join(b.Reg.Root, filepath.FromSlash(k.Plain))
+}
+
+// scopeDataKey is scope's data key in main, as the D118 refusals name it.
+func scopeDataKey(scope string) string {
+	k, _ := scopeKeys(scope, util.MainDeployment)
+	return k.DirKey
 }
 
 func (b *Broker) termDir(comp string) string {
@@ -59,7 +66,10 @@ func (b *Broker) termDir(comp string) string {
 // writeBackup streams a component's backup tar into bw. Scope (owner decision,
 // LC-2): source + the scope's resource data (when the component roots its scope)
 // + the terminal env layer. Excludes the env layer (rebuilt), logs, and vault.
-func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component) error {
+// Its data is main's namespace, as main's code declares it, whichever
+// deployment is the primary; archives lists the deployment archives written
+// before it, which a tile with a record names in its manifest.
+func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component, archives map[string]string) error {
 	scope, isRoot := b.Reg.Scopes()[c.Path]
 	includes := []string{"source"}
 	m := backup.Manifest{
@@ -67,6 +77,7 @@ func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component) error {
 		XBinVersion: b.Version, Created: time.Now().UTC().Format(time.RFC3339),
 	}
 	if isRoot {
+		scope = b.mainDeclared(c.Path, scope)
 		m.Resources = map[string]string{}
 		for name, res := range scope.Resources {
 			m.Resources[name] = res.Type
@@ -93,7 +104,12 @@ func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component) error {
 		}
 	}
 	m.Includes = includes
+	dep := b.deploymentBackupFor(c.Path) // nil in the zero state (backup_deploy.go)
+	dep.section(&m, archives)
 	if err := bw.Manifest(m); err != nil {
+		return err
+	}
+	if err := dep.write(bw); err != nil {
 		return err
 	}
 
@@ -136,24 +152,28 @@ func (b *Broker) writeScopeData(bw *backup.Writer, scopePath string, scope *regi
 	}
 	kv := map[string]map[string]string{} // resource -> {key: base64(value)}
 	for name, res := range scope.Resources {
+		k, err := b.resKeys(resTarget{Scope: scopePath, Name: name}, util.MainDeployment)
+		if err != nil {
+			return err
+		}
 		switch res.Type {
 		case "sqlite":
 			// sqlite is a gocryptfs mount dir like filesystem (it holds the db,
 			// but a tile may keep other files there too — e.g. use it as $HOME),
 			// so back up the whole decrypted dir, not just <name>.sqlite*.
-			if err := bw.Tree(backup.SQLitePrefix+name+"/", b.fsResPath(scopePath, name, false), nil); err != nil {
+			if err := bw.Tree(backup.SQLitePrefix+name+"/", b.resMount(k, false), nil); err != nil {
 				return err
 			}
 		case "filesystem":
-			if err := bw.Tree(backup.FSPrefix+name+"/", b.fsResPath(scopePath, name, false), nil); err != nil {
+			if err := bw.Tree(backup.FSPrefix+name+"/", b.resMount(k, false), nil); err != nil {
 				return err
 			}
 		case "blob":
-			if err := bw.Tree(backup.BlobPrefix+name+"/", b.fsResPath(scopePath, name, false), nil); err != nil {
+			if err := bw.Tree(backup.BlobPrefix+name+"/", b.resMount(k, false), nil); err != nil {
 				return err
 			}
 		case "kv":
-			kv[name] = b.dumpKV("res:" + scopePath + "/" + name)
+			kv[name] = b.dumpKV(k)
 		}
 	}
 	if len(kv) > 0 {
@@ -180,21 +200,23 @@ func addFile(bw *backup.Writer, tarName, osPath string) error {
 	return bw.Stream(tarName, 0o644, fi.Size(), f)
 }
 
-// dumpKV reads every key of one kv bucket into {key: base64(value)}.
-func (b *Broker) dumpKV(bucket string) map[string]string {
+// dumpKV reads every key of one kv resource's bucket into {key:
+// base64(value)}.
+func (b *Broker) dumpKV(rk resKeys) map[string]string {
 	out := map[string]string{}
-	if b.kv == nil {
+	db, err := b.kvDB(rk, false)
+	if err != nil || db == nil {
 		return out
 	}
-	_ = b.kv.db.View(func(tx *bolt.Tx) error {
-		bk := tx.Bucket([]byte(bucket))
+	_ = db.View(func(tx *bolt.Tx) error {
+		bk := tx.Bucket([]byte(rk.Bucket))
 		if bk == nil {
 			return nil
 		}
 		return bk.ForEach(func(k, v []byte) error {
 			// Store decrypted values so the tar is plaintext (constraint: the
 			// archiver, not the tar, is responsible for encryption).
-			pv, err := b.decodeKV(bucket, append([]byte(nil), v...))
+			pv, err := b.decodeKV(rk.KVLabel, append([]byte(nil), v...))
 			if err != nil {
 				return err // sealed / undecodable — abort the backup
 			}
@@ -242,24 +264,45 @@ func (b *Broker) archiveDo(method, provider, apiPath string, body io.Reader) (in
 // doBackup builds a component's tar and PUTs it to its archiver, returning the
 // version the archiver assigned.
 func (b *Broker) doBackup(comp string) (string, error) {
+	v, _, err := b.backupTile(comp, false)
+	return v, err
+}
+
+// backupTile archives comp (08-data §11.1): first the deployment archives —
+// the primary's when it isn't main, and with every (an offload) each other
+// deployment's whose namespace holds data — then the main archive, which
+// lists them. It answers the main archive's version and theirs; a failed PUT
+// fails it before anything later is written.
+func (b *Broker) backupTile(comp string, every bool) (string, map[string]string, error) {
 	c, ok := b.Reg.Component(comp)
 	if !ok {
-		return "", fmt.Errorf("no such component %q", comp)
+		return "", nil, fmt.Errorf("no such component %q", comp)
 	}
 	provider := b.archiveProvider(comp)
 	if provider == "" {
-		return "", fmt.Errorf("no archiver bound — set one: bx bind %q %s=<archiver> (or bind '*' for a default)", comp, archiveSlot)
+		return "", nil, fmt.Errorf("no archiver bound — set one: bx bind %q %s=<archiver> (or bind '*' for a default)", comp, archiveSlot)
 	}
+	archives, err := b.putDeploymentArchives(c, provider, every)
+	if err != nil {
+		return "", nil, err
+	}
+	v, err := b.putArchive(provider, backupKey(comp), func(bw *backup.Writer) error { return b.writeBackup(bw, c, archives) })
+	return v, archives, err
+}
+
+// putArchive streams the tar write builds to provider under key, answering
+// the version the archiver assigned.
+func (b *Broker) putArchive(provider, key string, write func(*backup.Writer) error) (string, error) {
 	pr, pw := io.Pipe()
 	go func() {
 		bw := backup.NewWriter(pw)
-		err := b.writeBackup(bw, c)
+		err := write(bw)
 		if err == nil {
 			err = bw.Close()
 		}
 		pw.CloseWithError(err)
 	}()
-	code, resp, err := b.archiveDo("PUT", provider, "/archive/"+backupKey(comp), pr)
+	code, resp, err := b.archiveDo("PUT", provider, "/archive/"+key, pr)
 	if err != nil {
 		return "", err
 	}
@@ -282,27 +325,38 @@ type restored struct {
 // means the latest. The tile's backend and its tile sandboxes are stopped
 // first (their state is kept: a restore never touches it).
 func (b *Broker) doRestore(comp, version string) (restored, error) {
+	r, _, err := b.restoreTile(comp, version)
+	return r, err
+}
+
+// restoreTile is doRestore, then the deployment archives the main archive
+// lists, each into its deployment when that exists (listedRestore).
+func (b *Broker) restoreTile(comp, version string) (restored, *listedRestore, error) {
 	provider := b.archiveProvider(comp)
 	if provider == "" {
-		return restored{}, fmt.Errorf("no archiver bound for %q", comp)
+		return restored{}, nil, fmt.Errorf("no archiver bound for %q", comp)
 	}
 	if version == "" {
 		version = "latest"
 	}
 	code, body, err := b.archiveDo("GET", provider, "/archive/"+backupKey(comp)+"/versions/"+version, nil)
 	if err != nil {
-		return restored{}, err
+		return restored{}, nil, err
 	}
 	if code >= 400 {
-		return restored{}, fmt.Errorf("archiver %s: %s", provider, firstLine(string(body)))
+		return restored{}, nil, fmt.Errorf("archiver %s: %s", provider, firstLine(string(body)))
 	}
 	b.StopBackendSafe(comp)
 	b.stopTileSandboxes(comp, "its tile was restored from a backup: stopped, state kept")
-	m, err := b.restore(bytes.NewReader(body), comp)
+	m, err := b.restore(comp, bytes.NewReader(body), b.deploymentStateRestorer())
 	if err != nil {
-		return restored{Manifest: m}, err
+		return restored{Manifest: m}, nil, err
 	}
-	return restored{Manifest: m, SandboxesSkipped: b.restoreSandboxes(m)}, nil
+	r := restored{Manifest: m, SandboxesSkipped: b.restoreSandboxes(m)}
+	if m.Deployments == nil || len(m.Deployments.Archives) == 0 {
+		return r, nil, nil
+	}
+	return r, b.restoreListed(comp, m.Deployments.Archives), nil
 }
 
 // restoreSandboxes merges a restored tile's sandbox definitions by uid
@@ -330,6 +384,10 @@ func (b *Broker) StopBackendSafe(comp string) {
 // offload archives a component, then removes its local data (and, when full,
 // its source + terminal env layer). It NEVER removes anything before the archive
 // PUT is confirmed. full=false keeps source + term-env (LC-1: two depths).
+// Every deployment stops, and every data namespace of comp's deployments is
+// archived, under its write gate, before anything is removed (08-data
+// §11.5); beyond main only the kv files go, which a deployment archive holds
+// whole.
 //
 // full takes the terminal layer out of use first (HoldTermEnv: its sessions
 // killed, the layer held so none mounts it until the offload is done) — a
@@ -341,7 +399,9 @@ func (b *Broker) offload(comp string, full bool) error {
 		return err // nothing archived, nothing stopped (tilesbx_hooks.go)
 	}
 	b.StopBackendSafe(comp)
-	if _, err := b.doBackup(comp); err != nil {
+	defer b.gateNamespaces(comp)()
+	_, archived, err := b.backupTile(comp, true)
+	if err != nil {
 		return fmt.Errorf("archive before offload failed (nothing removed): %w", err)
 	}
 	if full && b.HoldTermEnv != nil {
@@ -352,6 +412,9 @@ func (b *Broker) offload(comp string, full bool) error {
 		defer release()
 	}
 	if err := b.removeScopeData(comp); err != nil {
+		return err
+	}
+	if err := b.dropNamespaceKV(comp, archived); err != nil {
 		return err
 	}
 	if full {
@@ -372,11 +435,12 @@ func (b *Broker) removeScopeData(comp string) error {
 	if !isRoot {
 		return nil
 	}
-	if b.kv != nil {
-		_ = b.kv.db.Update(func(tx *bolt.Tx) error {
+	scope = b.mainDeclared(comp, scope)
+	if db, _ := b.scopeKV(comp, util.MainDeployment, false); db != nil { // main's: data/kv.db
+		_ = db.Update(func(tx *bolt.Tx) error {
 			for name, res := range scope.Resources {
-				if res.Type == "kv" {
-					_ = tx.DeleteBucket([]byte("res:" + comp + "/" + name))
+				if k, err := b.resKeys(resTarget{Scope: comp, Name: name}, util.MainDeployment); err == nil && res.Type == "kv" {
+					_ = tx.DeleteBucket([]byte(k.Bucket))
 				}
 			}
 			return nil
@@ -486,7 +550,7 @@ func (b *Broker) apiRestore(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(data)
 		return
 	}
-	m, err := b.doRestore(body.Component, body.Version)
+	m, listed, err := b.restoreTile(body.Component, body.Version)
 	if err != nil {
 		server.WriteError(w, http.StatusBadGateway, err.Error())
 		return
@@ -499,6 +563,9 @@ func (b *Broker) apiRestore(w http.ResponseWriter, r *http.Request) {
 		b.OnStructureChange()
 	}
 	out := map[string]any{"ok": true, "component": m.Component, "restored": m.Includes}
+	if listed != nil { // the deployment archives the main archive lists: restored, or why not
+		out["deployments"] = listed
+	}
 	if len(m.SandboxesSkipped) > 0 {
 		out["sandboxesSkipped"] = m.SandboxesSkipped
 	}

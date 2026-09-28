@@ -25,6 +25,7 @@ type SessionInfo struct {
 	Scopes     []Scope `json:"scopes"`
 	GPU        string  `json:"gpu"`
 	API        bool    `json:"api"`
+	Deployment string  `json:"deployment,omitempty"` // the session's target, echoed (Manager.echoOf); absent: it follows the primary, or has no API
 	Name       string  `json:"name"`
 	Created    string  `json:"created"`
 	LastActive string  `json:"lastActive"`
@@ -94,7 +95,7 @@ func (m *Manager) ListFor(homeKey, cwd string, may func(rel string) bool) []Sess
 		if may != nil && !may(s.Cwd) {
 			continue
 		}
-		out = append(out, s.info())
+		out = append(out, m.row(s))
 	}
 	return out
 }

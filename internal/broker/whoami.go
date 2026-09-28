@@ -1,11 +1,13 @@
 package broker
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // GET /whoami — who the caller is and what they may do (docs/protocol.md).
@@ -65,8 +67,43 @@ func (b *Broker) apiWhoami(w http.ResponseWriter, r *http.Request) {
 		if du := b.driverView(p); du != nil {
 			out["user"] = du
 		}
+		if dep := b.whoamiDeployment(p); dep != "" {
+			out["deployment"] = dep
+		}
 	}
 	server.WriteJSON(w, http.StatusOK, out)
+}
+
+// whoamiDeployment is whoami's deployment for one of a tile's own
+// credentials (11-contract §7.7): the deployment it is bound to, under the
+// role rule — present only when that isn't the tile's primary (P17), so a
+// tile without a deployment record, and every credential of the primary
+// (a terminal or agent session that follows it included), answers as
+// before tile deployments. A credential still names a deployment that was
+// removed; a session that follows a protected primary is bound to none.
+// Cron and bus principals are xbind's, never a tile's, and get none.
+func (b *Broker) whoamiDeployment(p auth.Principal) string {
+	if p.Via != "frame" && p.Via != "instance" && p.Via != "terminal" {
+		return ""
+	}
+	tile := p.Component
+	if b.Reg != nil {
+		if c, _, ok := b.Reg.Resolve(tile); ok { // an xbin.window sub-path binds as its tile's own
+			tile = c.Path
+		}
+	}
+	p.Component = tile
+	dep, err := b.addressed(p, tile)
+	switch {
+	case errors.Is(err, util.ErrNoDeployment) && p.Deployment != "":
+		dep = p.Deployment
+	case err != nil:
+		return ""
+	}
+	if dep == b.primaryOf(tile) {
+		return ""
+	}
+	return dep
 }
 
 // driverView is whoami's `user` object on element principals — the human
@@ -92,7 +129,7 @@ func (b *Broker) driverView(p auth.Principal) map[string]any {
 	}
 	du := map[string]any{"id": u.ID, "name": u.Name, "personalTiles": b.personalRefusal(u.ID) == ""}
 	switch {
-	case b.elementXbinCapable(p.Component):
+	case b.elementXbinCapable(p):
 		du["admin"] = u.IsAdmin()
 		if orgs := b.userOrgsView(u); len(orgs) > 0 {
 			du["orgs"] = orgs
@@ -115,15 +152,16 @@ func (b *Broker) driverView(p auth.Principal) map[string]any {
 // elementXbinCapable reports whether an element holds any workspace-
 // management capability (target "xbin" at any role, or "xbin:users") —
 // grantedRole applies the policy ceiling, so an xbin-caps deny strips this
-// trust tier too.
-func (b *Broker) elementXbinCapable(comp string) bool {
-	if comp == "" {
+// trust tier too, and a non-primary deployment's principal never holds one
+// (governanceRole, P19).
+func (b *Broker) elementXbinCapable(p auth.Principal) bool {
+	if p.Component == "" {
 		return false
 	}
-	if _, ok := b.grantedRole(comp, "xbin"); ok {
+	if _, ok := b.governanceRole(p, "xbin"); ok {
 		return true
 	}
-	_, ok := b.grantedRole(comp, "xbin:users")
+	_, ok := b.governanceRole(p, "xbin:users")
 	return ok
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -91,6 +92,11 @@ func (b *Broker) apiClone(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// A removed tile's deployment state at the path goes before the tree is
+	// written, so the first Rescan composes the new tile in the zero state (P29).
+	if err := b.resetDeploymentState(to); err != nil {
+		slog.Error("a removed tile's deployment record couldn't be reset for the new tile", "tile", to, "err", err)
+	}
 
 	fail := func(code int, payload map[string]any) {
 		_ = os.RemoveAll(target)
@@ -149,9 +155,11 @@ func (b *Broker) apiClone(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	b.assignOwner(to, owner) // D24: creator-owned (workspace-owned for admins) unless requested
-	server.WriteJSON(w, http.StatusOK, map[string]any{
-		"path": to, "from": from, "rewritten": rewritten, "pendingGrants": pending,
-	})
+	out := map[string]any{"path": to, "from": from, "rewritten": rewritten, "pendingGrants": pending}
+	if ws := plusNameWarnings(to); ws != nil { // a '+' in the name, for one release (P17)
+		out["warnings"] = ws
+	}
+	server.WriteJSON(w, http.StatusOK, out)
 }
 
 // copyTree copies src into dst (which must not exist): dirs, regular files

@@ -59,6 +59,8 @@ func (s *Server) apiAgentProviders(w http.ResponseWriter, r *http.Request) {
 
 // apiAgentCreate opens an agent session: {cwd, kind:"agent", provider,
 // mode?, net?, api?, gpu?, vm?, name?, resume?} → SessionInfo (status starting).
+// ?deployment= is the session's target (P24) — the body never gains a field:
+// a deployment of the tile, echoed in the SessionInfo; absent, the default.
 // net/api/gpu/vm are the sandbox pickers a shell's socket takes (api false = a
 // code-only sandbox, no terminal token; vm true = a VM sandbox). resume names a past session of the
 // caller's on this tile (GET /agent/history) to reopen (session/load); 409
@@ -96,9 +98,10 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	info, code, err := s.Term.OpenAgentWith(auth.PrincipalOf(r), term.AgentOpen{Cwd: body.Cwd, Net: body.Net, GPU: body.GPU,
-		NoAPI: body.API != nil && !*body.API, VM: body.VM, Provider: body.Provider, Mode: body.Mode, Name: body.Name, Resume: body.Resume, Options: body.Options})
+		NoAPI: body.API != nil && !*body.API, VM: body.VM, Provider: body.Provider, Mode: body.Mode, Name: body.Name, Resume: body.Resume, Options: body.Options,
+		Deployment: r.URL.Query().Get("deployment")})
 	if err != nil {
-		apiErr(w, code, err.Error())
+		agentOpenErr(w, code, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, info)
@@ -108,8 +111,9 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 // {net?, api?, gpu?, vm?} (fixed when a sandbox starts; vm absent = keep): the session ends and a
 // new one opens on the same tile with the same provider, mode, settings and
 // name — resuming the conversation where the agent can reopen its own
-// session. Creator only (the new session is the caller's). → {session,
-// resumed}.
+// session. Creator only (the new session is the caller's). ?deployment=
+// names the new session's target (P24), echoed in SessionInfo; a refused
+// one leaves the session running. → {session, resumed}.
 func (s *Server) apiAgentRestart(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.driveOther(w, r)
 	if !ok {
@@ -123,12 +127,24 @@ func (s *Server) apiAgentRestart(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusBadRequest, "need {net?, api?, gpu?, vm?}")
 		return
 	}
-	info, resumed, code, err := s.Term.RestartAgent(auth.PrincipalOf(r), id, body.Net, body.GPU, body.API == nil || *body.API, body.VM)
+	info, resumed, code, err := s.Term.RestartAgentOnto(auth.PrincipalOf(r), id, body.Net, body.GPU, body.API == nil || *body.API, body.VM,
+		r.URL.Query().Get("deployment")) // the new target (P24); "" the default
 	if err != nil {
-		apiErr(w, code, err.Error())
+		agentOpenErr(w, code, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, map[string]any{"session": info, "resumed": resumed})
+}
+
+// agentOpenErr writes a refused session open: a protected primary's refusal
+// points at the auth docs, as every 403 of the deployments catalogue does
+// (it names the protection); the rest at the protocol, as before.
+func agentOpenErr(w http.ResponseWriter, code int, err error) {
+	if errors.Is(err, term.ErrTargetProtected) {
+		WriteError(w, code, err.Error(), "/docs/auth.md")
+		return
+	}
+	apiErr(w, code, err.Error())
 }
 
 // drive gates the per-session routes: the session's creator (still

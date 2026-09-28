@@ -100,7 +100,7 @@ func (b *Broker) canReadPRs(p auth.Principal, target string) bool {
 	if p.CanReadTile(target) {
 		return true
 	}
-	return p.Component != "" && b.codeGrantAllows(p.Component, target)
+	return b.codeReadAllowed(p, target) // a non-primary principal's code edges through its edge policy
 }
 
 // canDecidePR gates merged/rejected: the target side — its own element

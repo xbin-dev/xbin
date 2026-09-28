@@ -16,10 +16,12 @@
 #                       every pass, or just the named ones (node shots.js --list)
 #   ./run.sh --stop     stop xbind
 #   TILE_ASSETS=tokens|origins ./run.sh …   the same under strict tile asset gating
-#   ISOLATE=1 [ROOTFS=dir] ./run.sh … sandboxes   xbind --isolate over ROOTFS (the
-#                       repo's .rootfs): tile sandboxes run live, and the
-#                       sandboxes pass drives one; the other passes are
-#                       written for the default, unisolated harness
+#   HARNESS_ISOLATE=1 (or ISOLATE=1) [ROOTFS=dir] ./run.sh …   xbind --isolate
+#                       over ROOTFS (else $XBIN_TEST_ROOTFS, else the repo's
+#                       .rootfs): backends and tile sandboxes run live, and
+#                       the livereload, deployments and sandboxes passes drive
+#                       them; the other passes are written for the default,
+#                       unisolated harness
 set -euo pipefail
 H="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$H/../.." && pwd)"
@@ -40,15 +42,25 @@ else
   export URL="http://127.0.0.1:$PORT"
   asset_flags=(--tile-assets "$TILE_ASSETS")
 fi
-export OUT="$HARNESS_DIR/out"
-export REPO
-export HARNESS_ISOLATE=${ISOLATE:-}
+# HARNESS_ISOLATE=1 (ISOLATE=1 alike): xbind runs backends in per-component
+# sandboxes (--isolate) on a rootfs: ROOTFS, else XBIN_TEST_ROOTFS, else the
+# repo's .rootfs (make rootfs; a worktree borrows the main checkout's). Passes
+# read HARNESS_ISOLATE: without it a backend half asserts the isolation
+# refusal and prints SKIP; under it tile sandboxes run live and the sandboxes
+# pass drives one. Needs user namespaces; XBIN_FUSE_OVERLAYFS reaches xbind
+# from the environment. Run it for the passes that ask for it: the scripted
+# fake agent (XBIN_AGENT_FAKE, a host path) can't start inside a tile
+# sandbox, so the agent passes (agentTab…) fail under it.
+HARNESS_ISOLATE=${HARNESS_ISOLATE:-${ISOLATE:-}}
+if [[ "$HARNESS_ISOLATE" == 0 ]]; then HARNESS_ISOLATE=""; fi
+export HARNESS_ISOLATE
 iso_flags=()
 if [[ -n "$HARNESS_ISOLATE" ]]; then
-  ROOTFS=${ROOTFS:-$REPO/.rootfs}
-  [[ -x "$ROOTFS/bin/sh" ]] || { echo "ISOLATE=1: no rootfs at $ROOTFS (make rootfs, or ROOTFS=dir)" >&2; exit 1; }
+  ROOTFS=${ROOTFS:-${XBIN_TEST_ROOTFS:-$REPO/.rootfs}}
   iso_flags=(--isolate --rootfs "$ROOTFS")
 fi
+export OUT="$HARNESS_DIR/out"
+export REPO
 # the scripted OpenAI-compatible upstream the agentTemplate pass talks to
 # through llm-gw (hack/fakeopenai)
 export FAKEOPENAI_ADDR=${FAKEOPENAI_ADDR:-127.0.0.1:$((PORT + 10280))}
@@ -61,6 +73,10 @@ mkdir -p "$OUT"
 mode="${1:-}"
 [[ $# -gt 0 ]] && shift
 passes=("$@")   # --shots [pass…]
+# a mode that starts xbind needs the rootfs before it builds or wipes anything
+if [[ -n "$HARNESS_ISOLATE" && "$mode" != --stop && "$mode" != --shots && ! -x "$ROOTFS/bin/sh" ]]; then
+  echo "HARNESS_ISOLATE=1: no rootfs at $ROOTFS (make rootfs, or ROOTFS=dir / XBIN_TEST_ROOTFS=dir)" >&2; exit 1
+fi
 
 # The [x] keeps pkill from matching this script's own command line. Also
 # stop a harness instance from another HARNESS_DIR still holding the port.

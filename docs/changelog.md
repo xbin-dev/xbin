@@ -567,6 +567,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-27
 
+- **BREAKING (security) — runtime `"cgi"` is removed** (D117). xbind ran a
+  cgi tile's `backend/handler` itself, per request, on the host as the
+  daemon's user — even under `--isolate` — so anyone who could write the
+  tile (its terminals, a coding agent in its sandbox) ran code as xbind. A
+  tile still declaring `"runtime": "cgi"` keeps serving its files, but its
+  backend never runs: the removal is its manifest error (`bx ls`, `bx
+  doctor`, `manifestError` in `/api/xbin/components`), and `/api/<tile>/…`
+  answers **410** with the same text. `bx new --runtime cgi` and `POST
+  /api/xbin/create {"runtime": "cgi"}` are refused. Port the handler to a
+  go/node/python backend — a short Go wrapper around `xbin.Serve` keeps
+  the script as it is, inside the sandbox. Migration:
+  [changes/2026-09-27-cgi-removed.md](/docs/changes/2026-09-27-cgi-removed.md).
 - **BREAKING (rare) — security: resource names are checked** (D118,
   [migration](changes/2026-09-27-scope-json-checks.md)). A resource name in
   scope.json (or the workspace xbin.json) must be letters, digits, `.`, `_`
@@ -587,6 +599,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   naming the holder. Creating a tile at a colliding path is refused. No data
   moves, and workspaces without such pairs see no change.
 
+- **Security: a restore never writes workspace-level resource data.** A
+  tile's restore now fails, naming the reason, when the archive files
+  resource data under the workspace scope. xbind never writes such an
+  archive (a tile's backup holds only the scope that tile roots), so no
+  backup it made is affected. Before this change a crafted archive could
+  write the workspace-level encrypted volumes and kv buckets, which D118's
+  scope checks exist to protect.
+
 - **BREAKING — security: `chrome: true` needs a workspace admin's
   approval** (D118, [migration](changes/2026-09-27-chrome-needs-approval.md)).
   A tile's own xbin.json is writable from its terminals and coding agents,
@@ -598,19 +618,6 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `/components` reports it as `chrome: false, chromeRequested: true`, and
   `bx doctor` lists it. Approvals live in `data/users.json`, and a non-admin
   can't create a tile at an approved path.
-
-- **BREAKING (security) — runtime `"cgi"` is removed** (D117). xbind ran a
-  cgi tile's `backend/handler` itself, per request, on the host as the
-  daemon's user — even under `--isolate` — so anyone who could write the
-  tile (its terminals, a coding agent in its sandbox) ran code as xbind. A
-  tile still declaring `"runtime": "cgi"` keeps serving its files, but its
-  backend never runs: the removal is its manifest error (`bx ls`, `bx
-  doctor`, `manifestError` in `/api/xbin/components`), and `/api/<tile>/…`
-  answers **410** with the same text. `bx new --runtime cgi` and `POST
-  /api/xbin/create {"runtime": "cgi"}` are refused. Port the handler to a
-  go/node/python backend — a short Go wrapper around `xbin.Serve` keeps
-  the script as it is, inside the sandbox. Migration:
-  [changes/2026-09-27-cgi-removed.md](/docs/changes/2026-09-27-cgi-removed.md).
 
 - **Go backends in a VM start again, and a VM backend that never listens
   leaves a dump** ([isolation.md](isolation.md) §VM sandboxes). A backend

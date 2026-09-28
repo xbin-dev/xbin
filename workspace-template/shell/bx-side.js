@@ -16,7 +16,8 @@
  */
 import { LitElement, html, nothing } from 'lit';
 import { pathHas } from '/vendor/bx-kit.js';
-import { RUNTIME_COLOR, LongPress, prBadge, isScreenItem, isOrgScreenItem, screenIdOf, scopeOf, ownerKeyOf, worstStatus } from './shell-kit.js';
+import { RUNTIME_COLOR, LongPress, prBadge, isScreenItem, isOrgScreenItem, screenIdOf, scopeOf, ownerKeyOf, worstStatus,
+  followDeployments, onDeployChange, wantDeployState, deployState, deployMark } from './shell-kit.js';
 import { offloaded, hidden } from './menus.js';
 import { ago } from './rev-draft.js';
 import { sideCss, statusCss, prbCss } from './shell-css.js';
@@ -37,6 +38,15 @@ export class BxSide extends LitElement {
     this._q = ''; this._dropBefore = null; this._dropFolder = null;
     this._press = new LongPress();
   }
+  // Tile deployments (optional): a row whose tile's primary is pinned shows
+  // ⇈; its state (the checkpoint in the title, what the tile menu offers)
+  // loads when the pointer reaches the row, before a menu opens from it.
+  connectedCallback() {
+    super.connectedCallback();
+    followDeployments();
+    this._offDeploy = onDeployChange(() => this.requestUpdate());
+  }
+  disconnectedCallback() { super.disconnectedCallback(); this._offDeploy?.(); }
   get _s() { return this.state ?? {}; }
   get _a() { return this.actions ?? {}; }
 
@@ -278,7 +288,8 @@ export class BxSide extends LitElement {
            draggable=${this._s.mobile ? 'false' : 'true'}
            style=${depth ? `padding-left:${12 + depth * 12}px` : nothing}
            title=${title}
-           @pointerdown=${(e) => this._press.start(e, () => this._a.tileMenu?.(null, c.path), this._s.mobile)}
+           @pointerenter=${() => wantDeployState(c.path, c)}
+           @pointerdown=${(e) => { wantDeployState(c.path, c); this._press.start(e, () => this._a.tileMenu?.(null, c.path), this._s.mobile); }}
            @pointermove=${(e) => this._press.move(e)}
            @pointerup=${() => this._press.cancel()} @pointercancel=${() => this._press.cancel()} @pointerleave=${() => this._press.cancel()}
            @dragstart=${(e) => { e.dataTransfer.setData('application/bx-comp', c.path);
@@ -294,6 +305,7 @@ export class BxSide extends LitElement {
         ${st ? html`<span class="stdot"></span>` : nothing}
         ${c.manifestError ? html`<span class="err">⚠</span>` : nothing}
         ${hidden(c) ? html`<span class="hidb">hidden</span>` : nothing}
+        ${deployMark(c, deployState(c.path))}
         <span class="rt">${c.runtime || ''}</span>
         <button class="more" title="tile menu" @pointerdown=${(e) => e.stopPropagation()}
                 @click=${(e) => { e.stopPropagation(); this._a.tileMenu?.(e, c.path, e.currentTarget.getBoundingClientRect()); }}>⋯</button>

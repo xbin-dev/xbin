@@ -3,7 +3,7 @@
  * and the floating (unpinned) windows over it. Owns the pointer gestures on
  * them (grid drag/resize, float drag/raise/resize-commit, pin/unpin, the
  * touch long-press and the right-click that open menus) and the per-card
- * chrome (head buttons, the >_ terminal toggle, the ⇄ badge).
+ * chrome (head buttons, the >_ terminal toggle, the ⇄ and ⇈ badges).
  *
  * The tiles array is a property; every geometry change comes back as one
  * `bx-tiles` event carrying the new array — the shell persists it (a shared
@@ -16,7 +16,8 @@
 import { LitElement, html, nothing, repeat } from 'lit';
 import '/vendor/bx-frame.js';
 import { clampBox, dragPointer, pathHas } from '/vendor/bx-kit.js';
-import { GRID, GAP, MIN_W, MIN_H, snap, RUNTIME_COLOR, LongPress, selectedText, prBadge } from './shell-kit.js';
+import { GRID, GAP, MIN_W, MIN_H, snap, RUNTIME_COLOR, LongPress, selectedText, prBadge,
+  followDeployments, onDeployChange, wantDeployState, deployState, deployChip, deployBadge } from './shell-kit.js';
 import { pushLayout } from './grid-layout.js';
 import { nextZ, raiseTo } from './zorder.js';
 import { canvasCss, prbCss } from './shell-css.js';
@@ -24,7 +25,7 @@ import { canvasCss, prbCss } from './shell-css.js';
 export class BxCanvas extends LitElement {
   static properties = {
     tiles: { attribute: false },        // the active screen's tiles [{path, x, y, w, h, float?}]
-    components: { attribute: false },   // /components — the runtime colour dot
+    components: { attribute: false },   // /components — the runtime colour dot, the deployments summary
     prs: { attribute: false },          // {path: open change proposals}
     canMutate: { attribute: false },    // layout changes allowed (personal screen, or an org draft)
     mobile: { attribute: false },       // narrow layout: stacked cards, sheets, long-press menus
@@ -54,6 +55,20 @@ export class BxCanvas extends LitElement {
     };
     // A pop-up opened, moved, resized or closed: the scroll area follows.
     this.addEventListener('bx-pop', () => this.requestUpdate());
+  }
+
+  // Tile deployments (optional): a card whose tile's primary is pinned, or
+  // whose last deploy onto it failed, carries ⇈ in its head (shell-kit.js).
+  connectedCallback() {
+    super.connectedCallback();
+    followDeployments();
+    this._offDeploy = onDeployChange(() => this.requestUpdate());
+  }
+  disconnectedCallback() { super.disconnectedCallback(); this._offDeploy?.(); }
+  _deployChip(path) {
+    const c = (this.components ?? []).find((x) => x.path === path);
+    wantDeployState(path, c);
+    return deployChip(c, deployState(path));
   }
 
   _emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true })); }
@@ -284,6 +299,7 @@ export class BxCanvas extends LitElement {
           <span class="c" style="background:${RUNTIME_COLOR[this._runtimeOf(o.path)] ?? RUNTIME_COLOR['']}"></span>
           <span class="t">${o.path}</span>
           ${prBadge(this.prs?.[o.path], () => this.frameOpen(o.path, 'prs'))}
+          ${this.mobile ? nothing : deployBadge(this._deployChip(o.path), () => this.frameOpen(o.path, 'deployments'))}
           <span class="spacer"></span>
           <button class="term" title="terminal on ${o.path}"
                   @pointerdown=${(e) => e.stopPropagation()}

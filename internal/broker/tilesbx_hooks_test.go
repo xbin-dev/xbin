@@ -93,7 +93,7 @@ func backupOf(t *testing.T, b *Broker, comp string) []byte {
 	c, _ := b.Reg.Component(comp)
 	var buf bytes.Buffer
 	bw := backup.NewWriter(&buf)
-	if err := b.writeBackup(bw, c); err != nil {
+	if err := b.writeBackup(bw, c, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := bw.Close(); err != nil {

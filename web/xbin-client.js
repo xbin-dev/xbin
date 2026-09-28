@@ -2,7 +2,11 @@
  * xbin-client.js — injected into every component document served via /c/
  * (decision D4). Provides the in-frame side of the xbin contract:
  *
- *   xbin.self              — this component's path
+ *   xbin.self              — this component's path (the tile's, in every
+ *                             one of its deployments)
+ *   xbin.deployment        — only in a document of a tile deployment other
+ *                             than the tile's primary (/c/<tile>+<name>/):
+ *                             its name. Absent means the primary
  *   xbin.iface(slot)       — a bound http interface: { url, service } — or, for a
  *                             multi:true slot, { service, multi, endpoints: [...] }.
  *                             Call a typed, swappable dependency instead of a
@@ -49,6 +53,10 @@ const PARENT = WORKSPACE || '*';
 
 const self = meta('xbin-component');
 let frameToken = meta('xbin-frame-token');
+// The tile deployment this document belongs to, when it isn't the primary:
+// the server adds <meta name="xbin-deployment"> to those documents only.
+// Token renewal needs nothing of it — the server copies the claim.
+const deployment = meta('xbin-deployment');
 
 // Resolved http interface slots this component is bound to (docs/overview/11-interfaces.md):
 // { <slot>: { url, service } }. xbin.iface(slot) returns the bound provider so a
@@ -418,4 +426,4 @@ if (document.querySelector('link[rel~="stylesheet"][href*="/vendor/theme.css"]')
 // /vendor/xb-native.js adds the methods (docs/frontend-kit.md).
 const nativeApi = (window.xbin && typeof window.xbin.native === 'object' && window.xbin.native) || (meta('xbin-native') ? {} : null);
 
-window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, url: burl, download, bus, events, dialog, window: openWindow, status, clearStatus, notify, ...(nativeApi ? { native: nativeApi } : {}) });
+window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, url: burl, download, bus, events, dialog, window: openWindow, status, clearStatus, notify, ...(deployment ? { deployment } : {}), ...(nativeApi ? { native: nativeApi } : {}) });

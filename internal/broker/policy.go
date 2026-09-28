@@ -1,14 +1,18 @@
 package broker
 
 import (
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	pathpkg "path"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Policy ceiling (plans/orgs.md, D20). The rows and their evaluation live in
@@ -104,14 +108,26 @@ func (b *Broker) ceilingAllows(from, target string) bool {
 // clamp: a manager-style tile can never be driven to create where its
 // driver couldn't create themselves. Unattributed automation (instance
 // tokens, the bootstrap owner) keeps plain capability semantics.
-func (b *Broker) canCreateAt(p auth.Principal, path, ownerRef string) (bool, string) {
+//
+// Ahead of all of it, for every creator, admins included: no tile at a
+// deployment URL (deploymentURLRefusal) (P17). A creation it allows whose
+// name holds a '+' is logged with its creator (logPlusName).
+func (b *Broker) canCreateAt(p auth.Principal, path, ownerRef string) (ok bool, msg string) {
+	if why := b.deploymentURLRefusal(strings.Trim(path, "/")); why != "" {
+		return false, why
+	}
+	defer func() {
+		if ok {
+			logPlusName(p, path)
+		}
+	}()
 	if b.IsAdmin(p) {
 		return true, ""
 	}
 	if p.Component != "" {
 		// Element callers (frame/terminal/instance) need the
 		// workspace-management capability regardless of owner.
-		if role, ok := b.grantedRole(p.Component, "xbin"); !ok || !roleSatisfies(role, "writer", nil) {
+		if role, ok := b.governanceRole(p, "xbin"); !ok || !roleSatisfies(role, "writer", nil) {
 			return false, "creating components from a tile needs the workspace-management grant — declare {\"target\":\"xbin\",\"role\":\"writer\"} in \"uses\" and have the owner approve it"
 		}
 		if p.UserID == "" {
@@ -213,10 +229,11 @@ func (b *Broker) scopeOwnedBy(scope, ownerRef string) bool {
 // pathLeftovers names the state still keyed by path (or a path under it)
 // that a new tile there would inherit: workspace grant rows naming it on
 // either side, interface bindings / instances / ingress hosts, its vault,
-// the identity store's entries (Store.PathLeftovers) and the tile
-// sandboxes a manager tile there defined (their state included; D85's
-// forgetting doesn't reach them). Nothing prunes
-// these when a tile's directory disappears. A path whose owner entry is
+// the identity store's entries (Store.PathLeftovers), its deployment state
+// (a record, a checkpoint store; beyond main, vaults, registrations and data
+// namespaces; P29), and the tile sandboxes a manager tile there defined
+// (their state included; D85's forgetting doesn't reach them). Nothing
+// prunes these when a tile's directory disappears. A path whose owner entry is
 // already ownerRef is the owner re-creating their own tile — nothing to
 // take over.
 func (b *Broker) pathLeftovers(path, ownerRef string) []string {
@@ -257,9 +274,123 @@ func (b *Broker) pathLeftovers(path, ownerRef string) []string {
 	if b.Users != nil {
 		out = append(out, b.Users.PathLeftovers(path, ownerRef)...)
 	}
+	out = append(out, b.deploymentLeftovers(path)...)
+	out = append(out, b.deploymentDataLeftovers(path, under)...)
 	out = append(out, b.sandboxLeftovers(path)...) // kept for an admin to delete (tilesbx_hooks.go)
 	sort.Strings(out)
 	return out
+}
+
+// deploymentDataLeftovers lists what deployments beyond main left at path
+// and under it (08-data §9.3) (P29): their vault files, their registration
+// directories, and every data namespace beyond main whose scope is at or
+// under path, orphaned or not. The record and the checkpoint store are the
+// plane's (deploymentLeftovers). A workspace without deployments has none
+// of these directories, so nothing is listed there.
+//
+// The vaults and registrations are keyed by TileKey, a hash: a tile under
+// path is known by a file that names it (its record, or one of its vaults),
+// and a key the file's tile doesn't hash to is skipped. Everything read
+// here is under data/, which is xbind's own.
+func (b *Broker) deploymentDataLeftovers(path string, under func(string) bool) []string {
+	regs := filepath.Join(b.Reg.Root, "data", "deployments")
+	vaults := filepath.Join(b.Reg.Root, "data", "vault", deploymentsLevel)
+	tiles := map[string]string{util.TileKey(path): path} // TileKey → tile
+	name := func(tk, file string) {
+		var doc struct {
+			Tile string `json:"tile"`
+		}
+		data, err := os.ReadFile(file) // walk-ok: data/ is xbind's own; no sandbox sees it
+		if err == nil && json.Unmarshal(data, &doc) == nil && under(doc.Tile) && util.TileKey(doc.Tile) == tk {
+			tiles[tk] = doc.Tile
+		}
+	}
+	for _, e := range dataDir(regs) {
+		if tk, ok := strings.CutSuffix(e.Name(), ".json"); ok && e.Type().IsRegular() && tiles[tk] == "" {
+			name(tk, filepath.Join(regs, e.Name())) // a record
+		}
+	}
+	vaultsOf := map[string][]string{} // TileKey → deployments with a vault file
+	for _, d := range dataDir(vaults) {
+		if !d.IsDir() {
+			continue
+		}
+		for _, f := range dataDir(filepath.Join(vaults, d.Name())) {
+			dep, ok := strings.CutSuffix(f.Name(), ".json")
+			if !ok || !f.Type().IsRegular() || !util.DeploymentNameOK(dep) || dep == util.MainDeployment {
+				continue
+			}
+			vaultsOf[d.Name()] = append(vaultsOf[d.Name()], dep)
+			if tiles[d.Name()] == "" {
+				name(d.Name(), filepath.Join(vaults, d.Name(), f.Name()))
+			}
+		}
+	}
+	var out []string
+	for tk, tile := range tiles {
+		for _, dep := range vaultsOf[tk] {
+			out = append(out, "vault secrets of "+tile+"+"+dep)
+		}
+		for _, d := range dataDir(filepath.Join(regs, tk)) {
+			if d.IsDir() && util.DeploymentNameOK(d.Name()) && d.Name() != util.MainDeployment &&
+				len(dataDir(filepath.Join(regs, tk, d.Name()))) > 0 {
+				out = append(out, "registrations of "+tile+"+"+d.Name())
+			}
+		}
+	}
+	b.eachNamespace(func(id nsID) {
+		if !id.main() && under(id.scope) {
+			out = append(out, fmt.Sprintf("%s's %q data", id.scope, id.dep))
+		}
+	})
+	return out
+}
+
+// dataDir lists a directory under data/ (xbind's own; no sandbox sees it):
+// none when it is missing or unreadable.
+func dataDir(dir string) []os.DirEntry {
+	entries, _ := os.ReadDir(dir) // walk-ok: data/ is xbind's own; no sandbox sees it
+	return entries
+}
+
+// deploymentURLRefusal is the narrow refusal of P17 (11-contract §2.1): no
+// tile at <P>+<N> while P has deployment N, whoever creates it, since that
+// URL is P's deployment N for P's writers and an exact match would take it.
+// Only a tile with a deployment record can meet it, so nothing a workspace
+// without deployments does is refused (12-compat §7.1(a)). "" = no refusal.
+func (b *Broker) deploymentURLRefusal(path string) string {
+	dir, last := pathpkg.Split(path)
+	j := strings.LastIndexByte(last, '+')
+	if j < 1 {
+		return ""
+	}
+	tile, name := dir+last[:j], last[j+1:]
+	if !util.DeploymentNameOK(name) || !b.hasDeploymentRecord(tile) || !b.hasDeployment(tile, name) {
+		return ""
+	}
+	return fmt.Sprintf("can't create %s: %s has a deployment %q, and that is its URL — pick another path", path, tile, name)
+}
+
+// plusNameWarnings is the answer's warnings entry, for one release, of a new
+// tile whose name holds a '+' that deploymentURLRefusal didn't refuse
+// (11-contract §2.1; 12-compat §7.1(b)): such a name is created as today and
+// never refused. None for any other name, whose answer is today's.
+func plusNameWarnings(path string) []string {
+	path = strings.Trim(path, "/")
+	if !strings.Contains(path, "+") {
+		return nil
+	}
+	return []string{`"+" in tile names is reserved for deployment URLs (/c/<tile>+<name>/); a tile named ` + path +
+		` may be hard to tell from one`}
+}
+
+// logPlusName logs the creator of a tile whose name holds a '+' (12-compat
+// §7.1(b)), once canCreateAt has allowed it.
+func logPlusName(p auth.Principal, path string) {
+	if path = strings.Trim(path, "/"); strings.Contains(path, "+") {
+		slog.Warn("a new tile's name holds '+', which selects a tile deployment in URLs (<tile>+<name>); the path keeps working",
+			"tile", path, "creator", p.From(), "user", p.UserID)
+	}
 }
 
 // attributedCanRead is the matching source-side clamp for copy-shaped

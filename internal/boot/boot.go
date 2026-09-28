@@ -18,23 +18,19 @@ import (
 	"github.com/xbin-dev/xbin/internal/broker"
 	"github.com/xbin-dev/xbin/internal/builtins"
 	"github.com/xbin-dev/xbin/internal/cgroup"
-	"github.com/xbin-dev/xbin/internal/confine"
+	"github.com/xbin-dev/xbin/internal/deployments"
 	"github.com/xbin-dev/xbin/internal/deps"
 	"github.com/xbin-dev/xbin/internal/events"
-	"github.com/xbin-dev/xbin/internal/gpu"
 	ingressPkg "github.com/xbin-dev/xbin/internal/ingress"
-	"github.com/xbin-dev/xbin/internal/layers"
 	"github.com/xbin-dev/xbin/internal/proxy"
 	"github.com/xbin-dev/xbin/internal/push"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/runner"
-	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/sbx"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/term"
 	"github.com/xbin-dev/xbin/internal/tilesbx"
 	"github.com/xbin-dev/xbin/internal/users"
-	"github.com/xbin-dev/xbin/internal/util"
 	"github.com/xbin-dev/xbin/internal/vm"
 	"github.com/xbin-dev/xbin/internal/watch"
 )
@@ -61,7 +57,11 @@ type State struct {
 	Sbx     *sbx.Registry    // every live sandbox and what the sandbox layer failed at (D112)
 	TileSbx *tilesbx.Manager // the tile-sandbox runtime (tilesandboxes.go, D120)
 	Push    *push.Service    // the push plane (push.go)
+	held    *push.Holder     // non-primary notifications, kept as would-notify (push.go)
 	Started time.Time
+	// Deployments is the deployments plane: its methods are the registry's,
+	// runner's, broker's and terminal manager's deployment hooks (P5).
+	Deployments *deployments.Plane
 
 	trusted          []netip.Prefix
 	externalURL      string
@@ -265,6 +265,15 @@ func (st *State) stepRegistry() error {
 	st.Run = runner.New(st.WS, st.Auth, st.Hub, reg)
 	st.Sbx = sbx.New()
 	st.Run.Sandboxes = st.Sbx
+	// The deployments plane loads its records before the first Provision
+	// (broker.New), so a pinned primary's code is what the registry composes.
+	dp := &deployments.Plane{Root: st.WS, Reg: reg, Hub: st.Hub, Run: st.Run,
+		OwnerRef: st.Users.Owner, OptInClosed: st.Cfg.tileDeploysClosed()}
+	reg.PinnedPrimary = dp.PinnedPrimary
+	if err := dp.Boot(); err != nil {
+		return fmt.Errorf("deployments: %w", err)
+	}
+	st.Deployments = dp
 	// Materialize deps/ symlinks and the generated go.work (phase 3).
 	for _, p := range deps.Reconcile(reg) {
 		slog.Warn("deps", "problem", p)
@@ -349,6 +358,9 @@ func (st *State) stepTerminals() error {
 	}
 	st.Term = tm
 	tm.Sandboxes = st.Sbx
+	tm.HasDeploymentRecord = st.Deployments.HasRecord   // the checkpoint fetch remote in sessions
+	tm.TileDeployments = st.Deployments.TileDeployments // a session's target deployment (P24)
+	wireDeploymentSessions(st.Deployments, tm)          // protect and reassignment move sessions (deploywire.go)
 	return nil
 }
 
@@ -376,6 +388,28 @@ func (st *State) stepBroker() error {
 	if err != nil {
 		return err
 	}
+	// Tile deployments: the tile-life hooks (transfer, creation, leftovers)
+	// and the server's deployment questions answer from the plane.
+	dp := st.Deployments
+	brk.DeploymentHooks = broker.DeploymentHooks{
+		RewriteDeploymentOwner: dp.RewriteDeploymentOwner, ResetDeploymentState: dp.ResetDeploymentState,
+		DeploymentLeftovers: dp.DeploymentLeftovers, DeploymentCodeRoot: dp.CodeRoot,
+		DeploymentExists: dp.HasDeployment, AddressableDeployments: dp.Addressable,
+		DeploymentSummary: dp.PrimarySummary, RestoreDeploymentState: dp.RestoreDeploymentState,
+	}
+	brk.DeploymentAnswers = broker.DeploymentAnswers{PrimaryOf: dp.Primary, DeploymentsOf: dp.DeploymentsOf,
+		AddressedDeployment: dp.Addressed, RegistrationsActive: dp.RegistrationsActive,
+		DeploymentEdges: dp.EdgePolicies, ReadDeploymentFile: dp.ReadDeploymentFile,
+		WriteDeploymentFile: dp.WriteDeploymentFile, RemoveDeploymentFile: dp.RemoveDeploymentFile,
+	}
+	dp.IsAdmin, dp.MayManage, dp.Provision = brk.IsAdmin, brk.MayManageDeployments, brk.Provision
+	dp.RunNow, dp.DropRegistrations = brk.RunNow, brk.DropDeploymentRegistrations
+	dp.DropDeploymentFiles = brk.DropDeploymentFiles
+	dp.ResetData, dp.DropData = brk.ResetDeploymentData, brk.DropDeploymentData // (scope, name) namespaces
+	dp.DataOf, dp.JoinData = brk.DeploymentData, brk.JoinDeploymentData
+	dp.VaultCopy, dp.VaultPlaceholders = brk.VaultCopy, brk.VaultPlaceholders // a vault per deployment
+	// The data acts beyond main: seed, backup, quota (deploywire.go).
+	wireDeploymentData(dp, brk)
 	// Embedded optional tile catalog (plans/tile-sharing.md).
 	if set, err := builtins.Load(xbin.BuiltinTilesFS()); err != nil {
 		slog.Warn("builtin tiles", "err", err)
@@ -443,6 +477,8 @@ func (st *State) stepBroker() error {
 	st.Term.TermNet = brk.TermNetFor
 	brk.HoldTermEnv = st.Term.HoldEnv // a restore swaps the terminal layer in whole (WP-9)
 	brk.ExternalURL = st.externalURL
+	brk.SweepNamespaces()               // crashed data acts become partial, unclaimed namespaces orphaned (08-data §9.3)
+	brk.LoadDeploymentBackupSchedules() // each deployment's own backup schedule (08-data §11.3)
 	st.Broker = brk
 	return nil
 }
@@ -452,29 +488,32 @@ func (st *State) stepBroker() error {
 // Delta-tracked so a one-off blip clears once the tile settles. It runs after
 // the cgroup step (before, run.Cgroup was always nil and nothing was ever
 // installed). Sessions with a leaf of their own — a VM's, a restricted
-// user's — are watched too.
+// user's — are watched too. Every leaf of a tile counts (runner.AtLimitTile):
+// the flat one, or one per deployment; a non-primary deployment's hit names
+// it and reaches admins only (P13).
 func (st *State) stepLimitAlerts() error {
-	run, reg, brk := st.Run, st.Reg, st.Broker
+	run, reg, brk, dp := st.Run, st.Reg, st.Broker, st.Deployments
 	if run.Cgroup != nil && run.Cgroup.Enabled() {
 		lastMem, lastPids := map[string]int64{}, map[string]int64{}
 		sessMem, sessPids := map[string]int64{}, map[string]int64{}
 		brk.SetLimitAlerts(func() []broker.Alert {
 			out := sessionLimitAlerts(run.LeafCgroup, st.Sbx, sessMem, sessPids)
 			for _, c := range reg.Components() {
-				key := util.CompKey(c.Path)
-				mem, pids, ok := run.Cgroup.AtLimit(key)
-				if !ok {
-					continue
+				for _, h := range run.AtLimitTile(c.Path) {
+					who, tile := c.Path, c.Path
+					if h.Deployment != "" && h.Deployment != dp.Primary(c.Path) {
+						who, tile = c.Path+"'s deployment "+h.Deployment, ""
+					}
+					if h.Mem > lastMem[h.Leaf] {
+						out = append(out, broker.Alert{Level: "warn", Kind: "oom", Tile: tile,
+							Message: who + " hit its memory limit (was OOM-killed) — it may be leaking or under-provisioned"})
+					}
+					if h.Pids > lastPids[h.Leaf] {
+						out = append(out, broker.Alert{Level: "warn", Kind: "pids", Tile: tile,
+							Message: who + " hit its process (pids) limit — a runaway fork/spawn?"})
+					}
+					lastMem[h.Leaf], lastPids[h.Leaf] = h.Mem, h.Pids
 				}
-				if mem > lastMem[key] {
-					out = append(out, broker.Alert{Level: "warn", Kind: "oom", Tile: c.Path,
-						Message: c.Path + " hit its memory limit (was OOM-killed) — it may be leaking or under-provisioned"})
-				}
-				if pids > lastPids[key] {
-					out = append(out, broker.Alert{Level: "warn", Kind: "pids", Tile: c.Path,
-						Message: c.Path + " hit its process (pids) limit — a runaway fork/spawn?"})
-				}
-				lastMem[key], lastPids[key] = mem, pids
 			}
 			return out
 		})
@@ -514,6 +553,12 @@ func (st *State) stepVault() error {
 func (st *State) stepProxy() error {
 	reg, run, hub, brk, userStore := st.Reg, st.Run, st.Hub, st.Broker, st.Users
 	px := &proxy.Proxy{Reg: reg, Runner: run, Hub: hub, Policy: brk.Policy}
+	// Which deployment a call reaches, and in what role (09-fabric §4): the
+	// broker's Route, over qualified refs the plane's records resolve.
+	px.Route = func(p auth.Principal, c *registry.Component, q string) proxy.Decision {
+		return proxy.Decision(brk.Route(p, c, q))
+	}
+	px.Deployments = st.Deployments
 	// D29: backends get the driving user attributed (X-XBin-User[-Level]).
 	px.UserLevel = func(uid, tile string) string {
 		acc, ok := userStore.Access(uid)
@@ -525,11 +570,22 @@ func (st *State) stepProxy() error {
 	brk.SetDispatch(broker.DispatchViaProxy(px))
 	brk.SetBusDispatch(broker.DispatchBodyViaProxy(px))
 	run.EnvForComponent = brk.EnvFor
+	// What each tile deployment runs and spawns with (runner/deploy.go); the
+	// primary of a tile without a record keeps its work tree and today's env.
+	// The env is the broker's per deployment: the same values everywhere, and
+	// beyond main the remap onto the deployment's own volumes (08-data §3.6).
+	dp := st.Deployments
+	dp.TileEnv = brk.EnvFor
+	run.DeploymentHooks = runner.DeploymentHooks{CodeFor: dp.CodeFor, Primary: dp.Primary,
+		View: dp.View, Materialize: dp.Materialize, EnvFor: brk.DeploymentEnv, LimitsFor: dp.LimitsFor,
+		Retained: dp.RetainedTrees}
+	run.AlwaysOnSwitched = dp.AlwaysOnSwitched // a non-primary deployment's alwaysOn switch (07-runtime §11)
 	// Approving a net:*/res:*/gpu:* grant restarts the caller so the new egress
-	// policy / resource env / GPU devices (all captured at spawn) take effect now.
+	// policy / resource env / GPU devices (all captured at spawn) take effect now:
+	// every deployment of the tile with a generation, since authority is per tile.
 	brk.OnGrantChange = func(comp string) {
 		if c, ok := reg.Component(comp); ok {
-			run.Changed(c)
+			run.ChangedTile(c)
 		}
 	}
 	brk.StopBackend = run.Stop // lifecycle: disabling stops the backend now
@@ -543,6 +599,10 @@ func (st *State) stepProxy() error {
 		return brk.EncryptionHoldReason(comp)
 	}
 	run.ShouldRun = func(comp string) bool { return run.HoldReason(comp) == "" }
+	// ...per deployment: the hold of the namespaces that deployment reaches.
+	run.ShouldRunDeployment = func(tile, dep string) bool {
+		return reg.LifecycleState(tile) == registry.StateEnabled && !brk.DeploymentEncryptionHold(tile, dep)
+	}
 	brk.Version = st.Cfg.Version
 	brk.ProxyHandler = px // internal archiver calls for backup/restore
 	st.Proxy = px
@@ -573,6 +633,7 @@ func (st *State) stepIngress() error {
 		fwds.Reconcile(brk.IngressSources())
 	}
 	brk.OnIngressChange = st.reconcileIngress
+	st.Deployments.ReconcileIngress = st.reconcileIngress
 	run.IngressNet = brk.IngressNetFor
 	run.IngressFwd = brk.IngressFwdFor
 	run.NetLinks = brk.NetLinksFor
@@ -591,113 +652,16 @@ func (st *State) stepIngress() error {
 func (st *State) stepCgroup() error {
 	if cg := cgroup.New(); cg.Enabled() {
 		memMax := parseBytes("XBIN_LIMIT_MEM", st.Cfg.LimitMem, 2<<30) // 2 GiB
-		cg.SetLimits(cgroup.Limits{
+		tile := cgroup.Limits{
 			MemMax:    memMax,
 			PidsMax:   int64(max(512, goruntime.NumCPU()*8)), // fork-bomb ceiling
 			CPUWeight: 100,                                   // fair share; burst when idle
-		})
+		}
+		cg.SetLimits(tile)
+		st.Deployments.TileLimits = tile // every deployment's ceiling (P22)
 		st.Run.Cgroup = cg
 		st.Term.Cgroup = cg // restricted (non-admin) terminals get the same caps (D17d)
 		slog.Info("cgroup v2 limits enabled", "memMax", 2<<30, "pidsMax", max(512, goruntime.NumCPU()*8))
-	}
-	return nil
-}
-
-// Isolation is orthogonal to --dev/--no-auth (which only change asset serving
-// and logging): the sandbox network/fs model is different enough that dev
-// should run against it too (`make dev`).
-// stepConfine validates --isolate's rootfs and turns on confined tool runs:
-// every tool xbind runs on tile data (git, go build) runs in a sandbox over
-// that rootfs from here on — never as xbind (D78, internal/confine). Early,
-// so the boot's own repo work on tiles is confined too.
-func (st *State) stepConfine() error {
-	cfg := st.Cfg
-	if !cfg.Isolate {
-		return nil
-	}
-	if cfg.Rootfs == "" {
-		return fmt.Errorf("--isolate needs --rootfs <dir> (an unpacked base OCI rootfs; `make rootfs`)")
-	}
-	if !sandbox.Available() {
-		return fmt.Errorf("--isolate: unprivileged user namespaces unavailable on this host")
-	}
-	abs, err := filepath.Abs(cfg.Rootfs)
-	if err != nil || !dirExists(abs) {
-		return fmt.Errorf("--isolate: rootfs %q not found", cfg.Rootfs)
-	}
-	st.rootfs = abs
-	confine.Configure(abs)
-	return nil
-}
-
-// pinnedBases is every base version a layer still pins (internal/layers:
-// the terminal layers, the tile sandboxes and their snapshots, and the
-// tile-sandbox definitions) — what both base-image GC passes keep: the
-// preserved `<rootfs>-<version>` dirs (stepIsolation) and the VM images
-// built from them (stepVM). nil when a pin couldn't be read (a stamp, a
-// tree, or the definitions): the set may be short, so neither pass releases
-// anything this boot.
-func (st *State) pinnedBases() map[string]bool {
-	pins, err := layers.Pinned(st.WS, st.sandboxBasePins)
-	if err != nil {
-		slog.Warn("base images: nothing released this boot — a layer's pin couldn't be read", "err", err)
-		return nil
-	}
-	return pins
-}
-
-func (st *State) stepIsolation() error {
-	cfg, run, tm, brk := st.Cfg, st.Run, st.Term, st.Broker
-	if !cfg.Isolate {
-		return nil
-	}
-	abs := st.rootfs // validated by stepConfine
-	run.Rootfs = abs
-	run.Isolate = true
-	run.Egress = brk.EgressFor
-	run.GPU = brk.GPUFor
-	run.NetRoster = brk.NetProviderRoster
-	run.NetTarget = brk.NetClientTarget
-	run.NetHost = brk.NetHostShare
-	run.NetCaps = brk.NetAdminFor         // cap:net-admin → keep net-admin caps
-	run.ContainerCaps = brk.ContainersFor // cap:containers → keep userns caps for rootless podman
-	if inv := gpu.Inventory(); len(inv) > 0 {
-		slog.Info("NVIDIA GPUs available for gpu:* grants", "count", len(inv))
-	}
-	// Terminals share the base rootfs too (RT-4): the workspace is bound rw
-	// (editing plane), plus the SDK source ro so `go build` resolves.
-	tm.Isolate = true
-	tm.Rootfs = abs
-	// Safety gate: never stack an existing terminal upper on a base image
-	// different from the one it was built on (corrupts apt/dpkg state). Abort
-	// if a pinned base is missing — the base upgrade must preserve old bases.
-	if err := tm.CheckBaseImages(); err != nil {
-		return err
-	}
-	layers.GC(abs, st.pinnedBases()) // release preserved bases no layer pins anymore
-	// Same locator as go.work generation (XBIN_SDK_PATH → /opt/xbin/sdk).
-	// Never fall back to "": filepath.Abs("") is the daemon's cwd (the
-	// install prefix in prod), and binding that read-only over the sandbox
-	// shadowed the rw $HOME/component mounts beneath it.
-	if p := deps.SDKPath(); p != "" {
-		if sdk, err := filepath.Abs(p); err == nil && dirExists(sdk) {
-			tm.ExtraBinds = append(tm.ExtraBinds, sandbox.Bind{Src: sdk, Dst: sdk, RO: true})
-		}
-	}
-	slog.Info("per-component isolation enabled (tier 3)", "rootfs", abs)
-	// Sandboxes need a delegated sub-uid/gid RANGE for apt/dpkg to chown
-	// files to the system users their post-install scripts create. Without
-	// it the sandbox falls back to single-uid mode (only container-root
-	// mapped), where those chowns fail with EINVAL and heavier package
-	// installs break midway (systemd, dbus, …) while simple ones still work.
-	// Warn loudly — the failure is otherwise a cryptic dpkg error.
-	rangeOK, reason := sandbox.IDMapStatus(os.Getuid(), os.Getgid())
-	st.uidRange, st.uidRangeNote = rangeOK, reason
-	if rangeOK {
-		slog.Info("sandbox uid mapping: full sub-id range (apt/dpkg system-user installs work)")
-	} else {
-		slog.Warn("sandbox uid mapping: SINGLE-UID fallback — apt/dpkg installs that create system users (systemd, dbus, …) will fail with chown \"Invalid argument\"; delegate a sub-id range to this user and install the uidmap package (deploy/install.sh does both), then restart xbind",
-			"reason", reason)
 	}
 	return nil
 }
@@ -738,6 +702,7 @@ func (st *State) stepServer() error {
 	st.registerRuntimeAPI(srv)
 	st.registerVMAPI(srv)
 	st.registerSandboxAPI(srv)
+	registerDeploymentsAPI(srv, st.Deployments, st.Broker) // the broker answers the state's vault, registrations, edges, disk
 	st.registerTileSandboxAPI(srv)
 	if err := st.setupPush(srv); err != nil {
 		return err
@@ -753,7 +718,7 @@ func (st *State) stepWatch() error {
 		return err
 	}
 	st.watcher = w
-	go watchLoop(w, st.Reg, st.Hub, st.Run, st.Broker, func() {
+	go watchLoop(w, st.Reg, st.Hub, st.Run, st.Broker, st.Deployments, func() {
 		st.reconcileIngress()
 		if st.TileSbx != nil {
 			st.TileSbx.Reconcile() // a tile gone, its cap or a resource dropped by hand (§7)

@@ -26,7 +26,7 @@ jobs:
       # unprivileged user namespaces; Ubuntu 24.04 runners gate those behind
       # an AppArmor knob. It also needs xattr/fscap tooling.
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-      - run: sudo apt-get update && sudo apt-get install -y attr libcap2-bin fuse3 shellcheck
+      - run: sudo apt-get update && sudo apt-get install -y attr libcap2-bin fuse3 shellcheck zstd
       # The native helpers (docs/maintenance.md → "Prebuilt helpers"):
       # `make helpers` downloads the prebuilt sets hack/helpers.sha256 pins
       # for the current build-input keys and verifies every file; a PR that
@@ -53,6 +53,20 @@ jobs:
       # js-check, shellcheck, pins-offline, test — then the end-to-end suite.
       - run: make check
       - run: make tile-check
+      # The downgrade tests (test/downgrade_test.go) run the previous
+      # release's xbind on a workspace this tree left tile-deployment state
+      # in. Pinned to the last release before tile deployments, the older
+      # xbind 12-compat §5's promises are about: one that speaks them makes
+      # the tests skip. The bundle is ~2 GB; bin/ comes first and tar stops
+      # at bin/xbind, so only its head is downloaded (curl then exits on the
+      # closed pipe, hence the check of the file instead).
+      - run: |
+          prev=v0.3.61
+          mkdir -p "$RUNNER_TEMP/prev"
+          curl -fsSL "https://github.com/xbin-dev/xbin/releases/download/$prev/xbin-$prev-linux-amd64.tar.zst" \
+            | zstd -dc | tar -x --occurrence=1 -C "$RUNNER_TEMP/prev" bin/xbind || true
+          test -x "$RUNNER_TEMP/prev/bin/xbind"
+          echo "XBIN_DOWNGRADE_BIN=$RUNNER_TEMP/prev/bin/xbind" >> "$GITHUB_ENV"
       - run: make integration
       # VM sandboxes (D89): KVM for the runner user, the pinned Firecracker,
       # the vm helpers — guest kernel, static mkfs.erofs, and QEMU +

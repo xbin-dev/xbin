@@ -49,11 +49,12 @@ type Config struct {
 	ExternalURL   string `flag:"external-url" env:"XBIN_EXTERNAL_URL" doc:"the console's public base URL, e.g. https://xbin.corp.example — the stable address SSO redirect URIs are registered under (required for SSO login); also used for printed login/invite links. Empty on tunnel-only setups"`
 	TileAssets    string `flag:"tile-assets" env:"XBIN_TILE_ASSETS" def:"legacy" doc:"how tile frontends' files are authorized (docs/auth.md §Tile asset gating): legacy = today's credential-less subresource rule (Fetch-Metadata + a recently signed-in IP; removed in the next release); tokens = strict, relative URLs carry a path-scoped asset token; origins = strict, each tile on its own origin under --tiles-domain (needs --external-url, wildcard DNS + TLS)"`
 	TilesDomain   string `flag:"tiles-domain" env:"XBIN_TILES_DOMAIN" doc:"parent domain of the per-tile origins for --tile-assets=origins, e.g. tiles.xbin.corp.example (tiles at t-<id>.tiles.xbin.corp.example); must be same-site with --external-url; optional :port. Dev: shell at http://xbin.localhost:PORT, --tiles-domain xbin.localhost"`
+	TileDeploys   string `flag:"tile-deployments" env:"XBIN_TILE_DEPLOYMENTS" def:"on" doc:"whether tiles may opt in to tile deployments — pausing live reload, deployments, promotion (docs/protocol.md, Tile deployments): on = they may; off = nothing creates or extends deployment state, while resuming live reload, removing a deployment, resetting its data and unprotecting stay allowed, so every tile can return to today's behaviour. Either way, existing deployment records keep governing what runs, and a tile that never opted in is untouched"`
 
 	// env-only, consumed by boot
 	VaultPassphrase string `env:"XBIN_VAULT_PASSPHRASE" secret:"true" doc:"vault passphrase: auto-init/unseal the encryption barrier at boot (docs/auth.md §vault). Unset in production means the daemon starts SEALED (or LOCKED before first setup) until an admin unseals"`
 	LimitMem        string `env:"XBIN_LIMIT_MEM" def:"2G" doc:"per-component cgroup v2 memory cap — plain bytes or a K/M/G/T suffix; active only when xbind's cgroup is delegated (systemd Delegate=yes / a container)"`
-	Bin             string `env:"XBIN_BIN" doc:"directory holding the bx CLI, put on terminals' PATH; default: next to the xbind binary, the repo's bin/ under --dev, then whatever is already on xbind's PATH"`
+	Bin             string `env:"XBIN_BIN" doc:"directory holding the bx CLI, put on terminals' PATH (without --isolate: an isolated terminal's PATH is the rootfs's, whose bx it runs); default: next to the xbind binary, the repo's bin/ under --dev, then whatever is already on xbind's PATH"`
 	PushRelay       string `env:"XBIN_PUSH_RELAY" doc:"the push relay for the xbin app's notifications (relay/README.md), e.g. https://relay.example. With XBIN_PUSH_RELAY_KEY: push is on and configured here (the admin route is read-only); alone: the relay an admin's opt-in (PUT /api/xbin/push/config) uses when it names none. Unset: an admin opts in from the API"`
 	PushRelayKey    string `env:"XBIN_PUSH_RELAY_KEY" secret:"true" doc:"this workspace's key at XBIN_PUSH_RELAY (what the relay's POST /v1/workspaces answered). A different key is a different relay workspace: the apps' handles that delivered under the old one read needsNewHandle until the apps renew them. The relay deletes a key never used within 30 days and one unused for 180; xbind checks the key at start and daily (a use), and GET /api/xbin/push/config reports keyError when the relay forgot it — then mint a new key and set it here"`
 
@@ -172,6 +173,9 @@ func (c *Config) Validate() (derived, error) {
 	if err := c.validateTileAssets(d.externalURL); err != nil {
 		return d, err
 	}
+	if c.TileDeploys != "" && c.TileDeploys != "on" && c.TileDeploys != "off" {
+		return d, fmt.Errorf("bad --tile-deployments %q: want on or off", c.TileDeploys)
+	}
 	if d.ws, err = filepath.Abs(c.Workspace); err != nil {
 		return d, err
 	}
@@ -262,6 +266,10 @@ func (c *Config) validateTileAssets(external string) error {
 	}
 	return nil
 }
+
+// tileDeploysClosed reports --tile-deployments=off: opting in to tile
+// deployments is closed ("" is the default, on).
+func (c *Config) tileDeploysClosed() bool { return c.TileDeploys == "off" }
 
 // tilesDomain is --tiles-domain normalized (lowercase, trimmed).
 func (c *Config) tilesDomain() string { return strings.ToLower(strings.TrimSpace(c.TilesDomain)) }

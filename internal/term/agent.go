@@ -118,12 +118,17 @@ func (m *Manager) OpenAgent(p auth.Principal, cwd, netMode, providerID, mode, na
 
 // AgentOpen is everything an agent session opens with: where, the
 // sandbox's pickers (the same as a shell's: network scope, tile-API access,
-// GPU), the provider and its mode/settings, a name, a past session to resume.
+// GPU), the target deployment, the provider and its mode/settings, a name, a
+// past session to resume.
 type AgentOpen struct {
 	Cwd, Net, GPU, Provider, Mode, Name, Resume string
 	NoAPI                                       bool // a code-only sandbox: no terminal token (api=0 on a shell)
 	VM                                          bool // a VM sandbox (vm.go)
 	Options                                     map[string]string
+	// Deployment is the requested target (P24), from ?deployment=: a deployment
+	// of the tile, "" for the default (target.go). A resumed session doesn't
+	// take its history entry's: the client names it again.
+	Deployment string
 }
 
 // OpenAgentWith is OpenAgent with the sandbox pickers.
@@ -171,6 +176,9 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	}
 	o := m.openOptsFor(p, rel, cwd, normalizeNet(netMode), a.GPU, !a.NoAPI)
 	o.kind, o.vm = KindAgent, a.VM
+	if code, err := m.pickTarget(p, &o, rel, a.Deployment); err != nil {
+		return SessionInfo{}, code, err
+	}
 	s, err := m.createAgent(o, prov, mode, options, resumeID, resume)
 	if err != nil {
 		if errors.Is(err, errLimit) {
@@ -181,7 +189,7 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	if name != "" {
 		m.Rename(s.ID, name)
 	}
-	return s.info(), 200, nil
+	return m.row(s), 200, nil
 }
 
 // Info is one session's directory row.
@@ -192,7 +200,7 @@ func (m *Manager) Info(id string) (SessionInfo, bool) {
 	if s == nil {
 		return SessionInfo{}, false
 	}
-	return s.info(), true
+	return m.row(s), true
 }
 
 // MayDrive is the gate on the per-session API routes: the creator (while
@@ -304,7 +312,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		ID: id, Cwd: rel, Net: o.net, cmd: cmd, kind: KindAgent, agent: st, pgid: postStart == nil, vm: o.vm,
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
-		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api,
+		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api, target: o.target,
 		born: time.Now(), hub: termwire.NewHub(0), // no terminal socket: the hub keeps its activity clock
 	}
 	st.snap = newSnapper(dir, func(e agent.Event) { s.logEvent(m, e) })

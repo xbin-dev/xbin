@@ -8,8 +8,10 @@
  */
 
 const handlers = new Set();
+const reconnects = new Set();
 let ws = null;
 let backoff = 500;
+let opened = false;
 
 function connect() {
   if (ws) return;
@@ -19,7 +21,12 @@ function connect() {
     let e; try { e = JSON.parse(m.data); } catch { return; }
     for (const h of handlers) { try { h(e); } catch (err) { console.error('bx event handler', err); } }
   };
-  ws.onopen = () => { backoff = 500; };
+  ws.onopen = () => {
+    backoff = 500;
+    // A reconnect may have missed events: whoever keeps state from them reloads it.
+    if (opened) for (const cb of reconnects) { try { cb(); } catch (err) { console.error('bx reconnect handler', err); } }
+    opened = true;
+  };
   ws.onclose = () => { ws = null; setTimeout(connect, (backoff = Math.min(backoff * 2, 15000))); };
 }
 
@@ -27,6 +34,13 @@ export function onEvent(cb) {
   handlers.add(cb);
   connect();
   return () => handlers.delete(cb);
+}
+
+/** cb runs after every reconnect of the socket (not the first open): events
+ *  sent while it was down are lost, so state kept from them is reloaded. */
+export function onReconnect(cb) {
+  reconnects.add(cb);
+  return () => reconnects.delete(cb);
 }
 
 /** Mounted frames, for reload targeting. Values: elements with a .src string. */

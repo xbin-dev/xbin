@@ -31,6 +31,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -69,14 +70,17 @@ const (
 )
 
 // Cmd is one confined run. Paths are host paths; every bind lands at the
-// same path inside, so tools print paths the caller understands.
+// same path inside, so tools print paths the caller understands — except
+// where the run asks for another path to be shown there (DirFrom, At), which
+// only a sandbox can do: a direct run refuses those (ErrNeedsIsolation).
 type Cmd struct {
-	Argv  []string       // Argv[0] is looked up in PATH (the sandbox's, or the host's when direct)
-	Dir   string         // working directory; bound read-write unless ReadOnlyDir
-	Binds []sandbox.Bind // more mounts (read-only, masks, …); Dir's bind is added for you
-	Env   []string       // on top of a minimal PATH/HOME/LANG (direct: on top of xbind's env minus GIT_*)
-	Net   Net
-	Stdin io.Reader
+	Argv    []string       // Argv[0] is looked up in PATH (the sandbox's, or the host's when direct)
+	Dir     string         // working directory; bound read-write unless ReadOnlyDir
+	DirFrom string         // host path mounted at Dir (default Dir itself); needs isolation
+	Binds   []sandbox.Bind // more mounts (read-only, masks, At, …); Dir's bind is added for you
+	Env     []string       // on top of a minimal PATH/HOME/LANG (direct: on top of xbind's env minus GIT_*)
+	Net     Net
+	Stdin   io.Reader
 
 	ReadOnlyDir bool          // bind Dir read-only
 	Timeout     time.Duration // 0 = 2 minutes
@@ -120,12 +124,22 @@ func ExitCode(err error) (int, bool) {
 // ErrUnavailable: isolation is on but the sandbox could not be set up.
 var ErrUnavailable = errors.New("confined run: the sandbox could not start")
 
+// ErrNeedsIsolation: a direct run (isolation off) was asked to show a host
+// path at another destination — DirFrom other than Dir, or a bind made by At.
+// Without a mount namespace the tool would run on what lies at the
+// destination on the host (the work tree, not the checkpoint), so the run is
+// refused before anything starts: D78 never degrades to the host (P18).
+var ErrNeedsIsolation = errors.New("confined run: this job shows another path at its destination and needs --isolate")
+
 const sandboxPATH = "/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 // Run executes c: in a sandbox when isolation is on, else directly.
 func Run(ctx context.Context, c Cmd) (Result, error) {
 	if len(c.Argv) == 0 {
 		return Result{}, errors.New("confine: empty argv")
+	}
+	if c.DirFrom != "" && c.Dir == "" {
+		return Result{}, errors.New("confine: DirFrom without a Dir to show it at")
 	}
 	timeout := c.Timeout
 	if timeout <= 0 {
@@ -142,6 +156,11 @@ func Run(ctx context.Context, c Cmd) (Result, error) {
 	mu.RLock()
 	fs := rootfs
 	mu.RUnlock()
+	if fs == "" {
+		if err := c.directOK(); err != nil {
+			return Result{}, err
+		}
+	}
 	var cmd *exec.Cmd
 	var h *sandbox.Handle
 	if fs == "" {
@@ -223,12 +242,42 @@ func Run(ctx context.Context, c Cmd) (Result, error) {
 	return res, err
 }
 
+// binds is the sandbox's bind list: Dir first — showing DirFrom when set,
+// the working directory stays Dir — then the caller's binds in order, those
+// made by At unmarked.
 func (c Cmd) binds() []sandbox.Bind {
 	var bs []sandbox.Bind
 	if c.Dir != "" {
-		bs = append(bs, sandbox.Bind{Src: c.Dir, Dst: c.Dir, RO: c.ReadOnlyDir})
+		src := c.Dir
+		if c.DirFrom != "" {
+			src = c.DirFrom
+		}
+		bs = append(bs, sandbox.Bind{Src: src, Dst: c.Dir, RO: c.ReadOnlyDir})
 	}
-	return append(bs, c.Binds...)
+	for _, b := range c.Binds {
+		if src, ok := strings.CutPrefix(b.Src, atMark); ok {
+			b.Src = src
+		}
+		bs = append(bs, b)
+	}
+	return bs
+}
+
+// directOK refuses a direct run that asks for another path at a destination
+// (P18): DirFrom naming anything but Dir, or a bind made by At. A bind the
+// caller builds by hand keeps today's direct behaviour whatever its Src and
+// Dst (the git import's ~/.ssh at /root/.ssh): the direct run already sees
+// the host's own files where the sandbox would show them.
+func (c Cmd) directOK() error {
+	if c.DirFrom != "" && filepath.Clean(c.DirFrom) != filepath.Clean(c.Dir) {
+		return fmt.Errorf("%w (%s shown at %s)", ErrNeedsIsolation, c.DirFrom, c.Dir)
+	}
+	for _, b := range c.Binds {
+		if src, ok := strings.CutPrefix(b.Src, atMark); ok {
+			return fmt.Errorf("%w (%s shown at %s)", ErrNeedsIsolation, src, b.Dst)
+		}
+	}
+	return nil
 }
 
 // hostEnv is xbind's environment for a direct run, minus the GIT_* variables
@@ -249,6 +298,20 @@ func RO(path string) sandbox.Bind { return sandbox.Bind{Src: path, Dst: path, RO
 
 // RW is a read-write bind of a host path at the same path.
 func RW(path string) sandbox.Bind { return sandbox.Bind{Src: path, Dst: path} }
+
+// At binds a host path at another destination (a checkpoint's nested
+// component, a per-build go.work over the workspace's); needs isolation.
+// Pass it in a Cmd's Binds only: the bind carries a mark that tells Run it
+// was made here — a direct run refuses it (ErrNeedsIsolation) even when src
+// and dst are one path — and that no other consumer strips, so handed to
+// anything but confine it fails to mount rather than binding silently.
+func At(src, dst string, ro bool) sandbox.Bind {
+	return sandbox.Bind{Src: atMark + src, Dst: dst, RO: ro}
+}
+
+// atMark prefixes the Src of a bind made by At. A path never holds a NUL, so
+// no hand-built bind carries it.
+const atMark = "\x00confine.At\x00"
 
 // Mask hides a path under an empty, sealed tmpfs; MaskOpen lets deeper binds
 // nest on top of the cover.

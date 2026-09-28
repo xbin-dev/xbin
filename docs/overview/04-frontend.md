@@ -65,6 +65,7 @@ against the module):
 | member | what it does |
 |--------|--------------|
 | `xbin.self` | this component's path (from the injected meta) |
+| `xbin.deployment` | only in a document of a tile deployment other than the primary (`/c/<tile>+<name>/`): its name; absent means the primary ([tile-deployments.md](../tile-deployments.md)) |
 | `xbin.fetch(url, opts)` | `fetch` with the frame token attached — **required for calling any other element's API**; streams (SSE/chunked) work |
 | `xbin.ws(path)` | attributed WebSocket — browsers can't set WS headers, so the token rides a `?frame=` query param that xbind *consumes* (never forwarded to the callee) |
 | `xbin.iface(slot)` | a bound http interface: `{url, service}` (or `{service, multi, endpoints}` for a `multi:true` slot) — call a typed, swappable dependency instead of a hard-coded path ([11-interfaces.md](11-interfaces.md)) |
@@ -112,7 +113,9 @@ and embedded panel:
 - **Live reload, precisely targeted.** On a `reload` event the *most
   specific* mounted frame wins — a change in `apps/cal/widgets/x` reloads
   the widget's frame, not the whole calendar (longest-`src`-prefix over the
-  registry of mounted frames).
+  registry of mounted frames). A tile whose live reload is paused sends no
+  `reload` on saves, only one after a deploy that changed its code
+  ([/docs/tile-deployments.md](/docs/tile-deployments.md)).
 - **Build errors as an overlay** — compiler output rendered over the tile on
   `build-error`, cleared on `build-ok` ([03-components.md](03-components.md)).
 - **Grant changes reload the frame**, so a frontend that was 403ing retries

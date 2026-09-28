@@ -21,11 +21,14 @@ func (s *Server) registerTermAPI() {
 	s.registerAgentAPI() // agent sessions (agentapi.go, D74)
 }
 
-// termChange is a `term` event's data: which session changed, whose.
+// termChange is a `term` event's data: which session changed, whose, and
+// the session's target deployment when it states one (term.Manager.
+// DeploymentOf: an "open" or "rename"; a closed session is gone).
 type termChange struct {
-	Op   string `json:"op"`
-	ID   string `json:"id"`
-	User string `json:"user"`
+	Op         string `json:"op"`
+	ID         string `json:"id"`
+	User       string `json:"user"`
+	Deployment string `json:"deployment,omitempty"`
 }
 
 func (c termChange) Owner() string { return c.User }
@@ -59,7 +62,11 @@ func (s *Server) TermChanged(op, homeKey, id, cwd string) {
 	if s.Hub == nil {
 		return
 	}
-	s.Hub.Publish(events.Event{Type: "term", Component: cwd, Data: termChange{Op: op, ID: id, User: homeKey}})
+	c := termChange{Op: op, ID: id, User: homeKey}
+	if s.Term != nil {
+		c.Deployment = s.Term.DeploymentOf(id)
+	}
+	s.Hub.Publish(events.Event{Type: "term", Component: cwd, Data: c})
 }
 
 // termEventFor reports whether a per-user event (`term`, `session`) is p's

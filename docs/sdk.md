@@ -21,7 +21,12 @@ func main() {
 ```
 
 Your handler sees paths with the `/api/<component>` prefix already stripped.
-`xbin.Self()` returns your component path.
+`xbin.Self()` returns your component path. `xbin.Deployment()` returns your
+tile deployment's name when this backend runs a deployment that is not the
+tile's primary, and `""` for the primary (and on an xbind without tile
+deployments) — `$XBIN_DEPLOYMENT`. `Self()` stays the tile path in every
+deployment, so vault URLs and `res:${self}` ids keep working; xbind picks the
+deployment's data and vault from your token (§Tile deployments below).
 
 ```go
 xbin.WriteJSON(w, http.StatusOK, out)         // Content-Type + status + body
@@ -32,7 +37,7 @@ xbin.WriteError(w, http.StatusForbidden, "…") // {"error": "…"} — the shap
 ### Callers and roles
 
 ```go
-c := xbin.Caller(r)          // CallerInfo{From, Role, Owner, User, UserLevel, ViewedBy}
+c := xbin.Caller(r)          // CallerInfo{From, Role, Owner, User, UserLevel, ViewedBy, Deployment}
 c.UserCanWrite()             // gate mutating endpoints on the DRIVING user's
                              // level (D29) — frame calls from your own UI run
                              // at full role even for read-level viewers
@@ -48,6 +53,10 @@ xbin.RoleSatisfies(have, want) // admin ⊃ writer ⊃ reader; custom = exact;
 c.Ingress()                  // anonymous PUBLIC traffic via a published
                              // endpoint (docs/ingress.md) — no role; the
                              // public hostname is in X-XBin-Ingress-Host
+c.Deployment                 // the calling tile's deployment when the call
+                             // comes from one of its non-primary deployments
+                             // (X-XBin-Deployment); "" otherwise. c.From
+                             // stays the bare tile path
 ```
 
 Headers are trustworthy: xbind strips inbound `X-XBin-*` and injects
@@ -178,6 +187,37 @@ mux.HandleFunc("POST /on-deploy", func(w http.ResponseWriter, r *http.Request) {
 
 `xbin.Unsubscribe(name)` removes it; `GET /api/xbin/bus/subscriptions`
 lists yours with delivered/dropped/failed counters.
+
+### Your code in a tile deployment
+
+A tile can run more than one deployment of its code
+([tile-deployments.md](/docs/tile-deployments.md)): the primary, which
+everyone and everything else reaches, and others (`dev`, …) its developers
+open at `/c/<tile>+<name>/`. Your backend runs unchanged in each; the SDK
+needs nothing new, and nothing in it changes for a tile that has only its
+primary.
+
+- **Same names, own state.** `Self()`, `Resource(name)` and the vault keys are
+  the same in every deployment, and xbind resolves each call by your token: a
+  non-primary deployment gets its own data, its own vault (where the
+  primary's keys start as placeholders with no value — `Secret` answers an
+  error until a tile manager copies them over) and its own log.
+- **Calls stay in your deployment.** `xbin.Client()` calls to `/api/<self>/…`
+  reach your own deployment, never another one of the tile. Calls to other
+  tiles reach their primary under the tile's edge policy: by default read
+  only, so a write to another tile is answered as a `reader` call (llm-gw's
+  completions refuse it), some edges are blocked outright, and a write to
+  another scope's resource is refused.
+- **Side effects are held.** `NotifyUser` answers success but nothing is sent
+  (the developers see "would notify" in the Deployments panel); `Status` and
+  `Notify` show only in that panel.
+- **Registrations are dormant.** `Subscribe` and a cron registration succeed
+  (the answer says `dormant`), so start-up code doesn't crash, but nothing
+  arrives until a tile manager turns the deployment's deliveries on, or it
+  becomes the primary.
+- **Callers can tell.** A call from another tile's non-primary deployment
+  carries `Caller(r).Deployment`; a provider that must refuse test traffic
+  checks it.
 
 ### Notifying a person on their phone
 
@@ -348,6 +388,10 @@ srv.listen(process.env.XBIN_SOCKET);
 process.on('SIGTERM', () => srv.close(() => process.exit(0)));
 ```
 
+`process.env.XBIN_DEPLOYMENT` is the tile deployment's name in a non-primary
+deployment (absent for the primary), and the `x-xbin-deployment` header names
+a calling tile's non-primary deployment, as in Go.
+
 Calling out through the gateway:
 
 ```js
@@ -379,6 +423,12 @@ manifest sets `inject: false`). No imports needed.
 
 ```js
 xbin.self                       // "apps/thing" — this component's path
+xbin.deployment                 // "dev" — only in a document of a tile deployment
+                                // other than the tile's primary
+                                // (/c/<tile>+<name>/); absent means the primary.
+                                // xbin.self stays the tile path, and
+                                // xbin.fetch(`/api/${xbin.self}/…`) reaches this
+                                // document's own deployment
 
 // a bound http interface (docs/overview/11-interfaces.md): { url, service } or null. Call a
 // typed, swappable dependency instead of hard-coding a path — the owner binds
@@ -421,7 +471,10 @@ xbin.download('report.csv', csvText, 'text/csv');
 const off = xbin.bus.on('res:apps/thing/bus/events/', (topic, data) => {…});
 await xbin.bus.publish('res:apps/thing/bus', 'events/created', ev); // writer
 
-// raw event stream: reload / build-start / build-error / build-ok / bus / grants
+// raw event stream: reload / build-start / build-error / build-ok / bus / grants /
+// deployments (docs/protocol.md §/ws/events). reload and build-* speak only of a
+// tile's primary; a document of another deployment gets its reloads and builds as
+// {type: "deployments", data: {op: "reload"|"build", deployment}}
 const off2 = xbin.events.on((e) => {…});
 
 // ---- dialogs & pop-out windows (a tile is an iframe → the SHELL spawns these

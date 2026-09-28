@@ -49,13 +49,18 @@ func (b *Broker) ResourceMount(tile, res string) (SandboxMount, error) {
 	if !granted {
 		return SandboxMount{}, fmt.Errorf("the tile doesn't hold %s: it is declared in uses but not granted (or the workspace policy refuses it)", rt.String())
 	}
-	sk := util.ScopeKey(rt.Scope)
+	// main's data namespace: a non-main deployment's sandboxes aren't built
+	// yet (tilesbx refuses their key), and its own namespace is theirs
+	k, err := b.resKeys(rt, util.MainDeployment)
+	if err != nil {
+		return SandboxMount{}, err
+	}
 	return SandboxMount{
-		Src:       b.fsResPath(rt.Scope, rt.Name, false),
+		Src:       b.resMount(k, false),
 		Role:      role,
 		Kind:      r.Type,
 		Encrypted: true,
-		Ready:     b.fsReady(sk, rt.Name),
+		Ready:     b.fsReady(k),
 	}, nil
 }
 

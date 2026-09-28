@@ -13,8 +13,9 @@
 //
 // The runner injects everything via env: XBIN_SOCKET (where to listen),
 // XBIN_COMPONENT (own path), XBIN_GATEWAY + XBIN_TOKEN (how to call other
-// elements and xbin APIs), XBIN_RES_* (granted resources). Full builder
-// docs: /docs/sdk.md in any xbin workspace.
+// elements and xbin APIs), XBIN_RES_* (granted resources), and
+// XBIN_DEPLOYMENT (the tile deployment, only when it is not the tile's
+// primary). Full builder docs: /docs/sdk.md in any xbin workspace.
 package xbin
 
 import (
@@ -81,6 +82,12 @@ func newServer(h http.Handler) *http.Server {
 // Self returns this component's path (its identity).
 func Self() string { return os.Getenv("XBIN_COMPONENT") }
 
+// Deployment returns this backend's tile deployment when it is not the tile's
+// primary, "" otherwise. Self() stays the tile path. xbind sets the value at
+// spawn and restarts the backend when the primary changes, so it holds for
+// the process's life.
+func Deployment() string { return os.Getenv("XBIN_DEPLOYMENT") }
+
 // CallerInfo is the verified identity xbind attached to an inbound request.
 type CallerInfo struct {
 	From  string // "owner", a component path, "xbin/cron" or "xbin/bus"
@@ -100,6 +107,10 @@ type CallerInfo struct {
 	// the admin's id ("owner" for the root token). The call reads as User;
 	// don't show it data that is private to User.
 	ViewedBy string
+	// Deployment is the calling tile's deployment when the call comes from one
+	// of its non-primary deployments (X-XBin-Deployment); "" otherwise. From
+	// stays the bare tile path.
+	Deployment string
 }
 
 // Caller returns the verified caller of an inbound request. Trustworthy
@@ -109,7 +120,7 @@ func Caller(r *http.Request) CallerInfo {
 	return CallerInfo{
 		From: from, Role: r.Header.Get("X-XBin-Role"), Owner: from == "owner",
 		User: r.Header.Get("X-XBin-User"), UserLevel: r.Header.Get("X-XBin-User-Level"),
-		ViewedBy: r.Header.Get("X-XBin-Viewed-By"),
+		ViewedBy: r.Header.Get("X-XBin-Viewed-By"), Deployment: r.Header.Get("X-XBin-Deployment"),
 	}
 }
 

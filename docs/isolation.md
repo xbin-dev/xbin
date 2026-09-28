@@ -19,8 +19,8 @@ A running backend sees a minimal, purpose-built filesystem:
 |-------|--------|------------|
 | base rootfs | read-only | Go / node / python toolchains + core tools |
 | env layer | read-only | your `setup` deps, prebuilt into an overlay lower |
-| your component dir | **read-only** | your source (editing is the terminal's job) |
-| granted resource dirs | **read-write** | `filesystem`/`sqlite` resources you were granted |
+| your component dir | **read-only** | your source (editing is the terminal's job) — for a pinned tile deployment, its checkpoint instead, at the same path (§Pinned backends and tile deployments) |
+| granted resource dirs | **read-write** | `filesystem`/`sqlite` resources you were granted — for a tile deployment other than `main`, its own data, at the same paths |
 
 It does **not** see other components' source, other elements' vaults, the
 workspace `home/`, `data/`, `.xbin/`, or the host — they simply aren't
@@ -71,6 +71,79 @@ Workspaces without isolation have no sandbox to use: their backends and
 terminals already run as the xbind user, and these tools run directly, with
 system/global git config and repo hooks switched off.
 
+**Checkpoints** of a tile ([tile-deployments.md](/docs/tile-deployments.md))
+are confined too: git runs over a private bare repository,
+`data/checkpoints/<key>.git`, with the tile bound read-only. The tile's own
+`.git` and git config are never read, and no in-tree `.gitattributes` driver
+runs. A directory holding its own repository is captured as plain files only
+under isolation; without it the checkpoint is refused, naming the directory.
+The store is xbind's: masked from every terminal, and only confined tools
+open it. Extracting a checkpoint, the deploy log, the diff and the fetch
+remote's view repository run the same way.
+
+**A run that shows another path at its working directory** — a pinned
+tile's build sees its checkpoint at the tile's own path — needs
+`--isolate`: without it the run is refused (`this job shows another path at
+its destination and needs --isolate`) and never falls back to the work
+tree. In every sandbox, a bind that lands inside another bind's tree gets
+its mount point without following symlinks: a symlink or a file in the way
+fails the start and names the path.
+
+## Pinned backends and tile deployments
+
+While a tile's live reload is paused, or when it has named deployments
+([tile-deployments.md](/docs/tile-deployments.md)), a backend may run a
+**checkpoint** instead of the work tree, and a tile may run one backend per
+deployment:
+
+- **They need `--isolate`.** Pinning a `go`, `node` or `python` backend, and
+  running a non-primary deployment's backend, are refused without it
+  (`pinning a backend to a checkpoint needs isolation (--isolate)`); static
+  tiles pause everywhere. An xbind restarted without `--isolate` over a
+  pinned backend holds it — its `/api/` answers that text, its pages keep
+  serving the checkpoint — and never runs the work tree in its place. (A
+  restart that goes through a build fails it with a longer text that also
+  names `--isolate`.) Resume live reload onto the primary on such tiles, and
+  remove the non-primary deployments of backend tiles, before restarting
+  without isolation.
+- **What the sandbox sees.** The checkpoint, extracted read-only under
+  `.xbin/deploy/<key>/<tree>/`, is bound read-only at the tile's own path,
+  so the backend, its `setup` and its build find their files where they
+  always were. Components nested in the tile are bound back from their own
+  code. A deployment other than `main` sees its **own data** at exactly the
+  paths `main`'s code sees, so every `XBIN_RES_*` value is the same in every
+  deployment; a start whose data isn't there fails with `no data namespace
+  for <deployment>'s resource XBIN_RES_<NAME>`. Env layers are shared by
+  `setup` hash and kept while any deployment references one. A non-`main`
+  deployment's `setup` output and logs go to its own backend log,
+  `.xbin/deploy/<key>/d/<name>/backend.log` (`bx logs <tile>+<name>`).
+- **The Go build** runs confined like any other, with the checkpoint at the
+  tile's path and every `go.work` module of another tile built against that
+  tile's primary (its pinned checkpoint, or its work tree while it follows
+  it). The artifact is kept per checkpoint under
+  `.xbin/build/<key>/c/<tree>/` with a `build.json` recording its inputs
+  (toolchain, Go settings, each module's code, `go.sum`'s pins), reused on
+  every restart and rebuilt only after `.xbin/` is lost. Rebuilding is
+  reproducible up to what the artifact also embedded: other tiles' code as
+  their primaries stood, `go.sum`'s modules and the host toolchain. At most
+  max(1, CPUs/4) builds for non-primary deployments run at once across the
+  workspace; a primary's build never waits for them.
+- **A protected primary's builds are its own.** Its artifacts, Go caches and
+  env layers live under `.xbin/deploy/<key>/protected/`, and only tile
+  managers' operations build them. After `.xbin/` is lost, a restart
+  rebuilds the Go artifact only when every recorded input matches; otherwise
+  the primary is held with `the protected primary's build products were
+  lost; a tile manager must redeploy c:<id>`.
+- **The network is the primary's.** Host networking, net-provider splices,
+  lan-ingress links, stream interface slots and a provider's client roster
+  serve a tile's primary only: a non-primary deployment of a tile whose net
+  shares the host's starts with no egress, each stream dial it makes is
+  refused, and its backend log says why. Its relay egress and capability
+  grants follow the tile's edge policy. It never receives ingress through a
+  terminator.
+- **The checkpoint store** is confine-only (above), and the sandbox never
+  sees it.
+
 ## Terminal isolation (owner/editing plane)
 
 Terminals are the editing plane — a real shell, scoped to its tile, in a
@@ -78,6 +151,9 @@ component's directory. (The **root terminal** — a shell on the workspace root 
 is **disabled**; workspace-wide work happens in the browser UI or a host shell.)
 A terminal (or agent session) whose sandbox cannot be set up does not open —
 the error says why; it never falls back to a shell on the host (D78).
+An isolated terminal's `PATH` is the rootfs's own, so the `bx` it runs is the
+rootfs's build (`/usr/local/bin/bx`), not the one in xbind's `XBIN_BIN`
+directory: keep the rootfs as new as the daemon for `bx` to know its routes.
 
 How a component terminal sees the workspace depends on who opened it (D40):
 
@@ -466,6 +542,14 @@ Differences to design around:
 - Host networking, provider links and GPUs are refused.
 - Without the admin's switch, or where VMs can't run at all, the backend
   fails with the reason — it never falls back to the namespace sandbox.
+- **Tile deployments** each run their own guest, and every guest is charged
+  to the tile, so VM usage stays per tile. The primary comes first: a
+  non-primary deployment's VM start is refused while it would leave less
+  than one VM and the primary's guest memory free in the workspace's VM
+  limits (`the workspace's VM memory budget (N MiB) has no room left for a
+  non-primary deployment: M MiB stays free for the tile's primary …`, or the
+  same about the VM count), and when the limits can't admit the primary's
+  own start, xbind first stops that tile's non-primary VM backends.
 - A VM backend that never listens fails its health check after 60 s (180 s
   emulated) like any other, and its log (`bx logs <tile>`) then ends with a
   **VM dump**: what the guest was doing — file requests still
@@ -532,7 +616,11 @@ missing), the VM budget in use per tile (and the tile sandboxes' share of
 it) and the VM policy editor, and every tile sandbox definition under its
 manager tile — stopped ones and a removed tile's too — with stop, delete
 and the sandboxes policy editor;
-`GET /api/xbin/sandboxes` is the same for scripts (admin). A VM backend's
+`GET /api/xbin/sandboxes` is the same for scripts (admin). A tile's rows
+are grouped by tile deployment: `main`'s backend rows keep their ids, and
+another deployment's are `backend+<name>:<key>:g<gen>`, naming it, with the
+refusals of its starts (the VM rule above, the non-primary caps) in the
+failure list. A VM backend's
 pid, namespaces and RSS in the runtime views are its host-side jail's: read
 its cgroup line for what the VM uses. Decision: D112.
 
@@ -610,6 +698,17 @@ backend is capped so it degrades *itself*, not the box:
   don't touch them by default.)
 - **CPU** — `cpu.weight` (fair share): under contention every tile gets an equal
   slice, but an idle box lets any tile burst to all cores (no hard `cpu.max`).
+- **Tile deployments** — a tile keeps one cgroup leaf, `comp-<key>`, while it
+  runs only `main`. When it first runs another deployment, its generations
+  move under a per-tile parent, `tile-<key>/d-<deployment>/backend`: the
+  tile node has one flat leaf's CPU weight, so deployments never enlarge a
+  tile's share of the machine; inside it the primary's node weighs 100 and
+  every other deployment's 50; each deployment's backend leaf carries its own
+  memory and pids caps (the tile's, unless a tile manager lowered them) and
+  no cap is shared above the leaves. `main` moves at its next generation; its
+  old one drains in the flat leaf. Empty per-tile subtrees a crashed xbind
+  left are removed at boot. The resources tab's tile totals include every
+  deployment, and a limit alert names the deployment whose leaf hit its cap.
 - **Disk** — each scope's resource storage is capped at **50 GiB**; over it, its
   API resource writes (kv/blob) get `507`. When the data partition drops below
   **10 % free**, the biggest users are write-blocked too, to hold the reserve.
@@ -618,7 +717,13 @@ backend is capped so it degrades *itself*, not the box:
   admin's call. Tile sandboxes' state counts toward the pressure (who holds more
   than a fair share) but never toward a scope's quota; under low disk their
   starts are refused and the biggest tiles' running namespace sandboxes are
-  stopped (see above).
+  stopped (see above). A tile deployment's data beyond `main` is its own quota
+  bucket, at the scope quota or a lower per-deployment limit (the lowest among
+  the tiles sharing it, set on the scope's root tile), and non-primary data is
+  write-blocked first when the disk is low. A tile's checkpoints, fetch
+  remote, extracted trees and build artifacts count against a **10 GiB**
+  per-tile quota: an alert at 90 %; when it is full, new checkpoints and
+  extractions are refused (`507`) and running deployments keep serving.
 - **Terminals** — 32 per user (64 global), so one person can't exhaust the pool.
 
 Limits are tunable via `XBIN_LIMIT_MEM` / `XBIN_LIMIT_DISK`.

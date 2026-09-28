@@ -130,7 +130,7 @@ func (b *Broker) IngressLookup(source, host string) (ingress.Route, bool) {
 				(haveZone && len(er.Zone) <= len(zoneHit.Zone)) {
 				continue
 			}
-			for _, reg := range ws.IngressHosts[c.Path] {
+			for _, reg := range b.activeHosts(ws.IngressHosts, c.Path) {
 				if reg == host {
 					rt.Zone = er.Zone
 					zoneHit, haveZone = rt, true
@@ -198,7 +198,7 @@ func (b *Broker) IngressRoutes() []ingress.Route {
 					if er.Zone == "" {
 						continue
 					}
-					for _, reg := range ws.IngressHosts[c.Path] {
+					for _, reg := range b.activeHosts(ws.IngressHosts, c.Path) {
 						if ingress.HostInZone(reg, er.Zone) && b.zoneFor(c, reg) == er.Zone {
 							r2 := rt
 							r2.Host, r2.Zone = reg, er.Zone
@@ -520,6 +520,13 @@ func (b *Broker) apiIngressHosts(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusNotFound, "no such component: "+comp)
 		return
 	}
+	// The deployment's own set (P13); only the primary's routes: another's is
+	// zone-validated, then stored dormant, outside conflict checks, with no
+	// grants event and no reconcile (NP-09-13).
+	dep, dormant, ok := b.routeTarget(w, p, comp)
+	if !ok {
+		return
+	}
 	// The authority boundary: every host must fall inside a zone the OWNER
 	// delegated to this tile.
 	var zones []string
@@ -556,23 +563,17 @@ func (b *Broker) apiIngressHosts(w http.ResponseWriter, r *http.Request) {
 			server.WriteError(w, http.StatusForbidden, h+" is outside this tile's delegated zone(s) — registrations are bounded to the authority the owner drew (plans/ingress.md ING-2)")
 			return
 		}
-		if err := b.ingressHostConflict(comp, h); err != nil {
+		if err := b.ingressHostConflict(comp, h); err != nil && !dormant {
 			server.WriteError(w, http.StatusConflict, err.Error())
 			return
 		}
 	}
-	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
-		if len(body.Hosts) == 0 {
-			delete(ws.IngressHosts, comp)
-			return
-		}
-		if ws.IngressHosts == nil {
-			ws.IngressHosts = map[string][]string{}
-		}
-		sort.Strings(body.Hosts)
-		ws.IngressHosts[comp] = body.Hosts
-	}); err != nil {
-		server.WriteError(w, http.StatusInternalServerError, err.Error())
+	if err := b.storeIngressHosts(comp, dep, body.Hosts); err != nil {
+		writeRegErr(w, err)
+		return
+	}
+	if dormant {
+		writeRouteOK(w, map[string]any{"component": comp, "hosts": len(body.Hosts)}, true)
 		return
 	}
 	b.Hub.Publish(events.Event{Type: "grants", Component: comp})
@@ -593,7 +594,7 @@ func (b *Broker) ingressHostConflict(comp, host string) error {
 			}
 		}
 	}
-	for other, hosts := range ws.IngressHosts {
+	for other, hosts := range b.activeHostMap(ws.IngressHosts) {
 		if other == comp {
 			continue
 		}
@@ -619,6 +620,10 @@ func (b *Broker) apiIngressRoutes(w http.ResponseWriter, r *http.Request) {
 		c, ok := b.Reg.Component(p.Component)
 		if !ok || !providesIngress(c) {
 			server.WriteError(w, http.StatusForbidden, "only ingress terminator tiles read routes")
+			return
+		}
+		if hidden, err := b.routesHidden(p); err != nil || hidden { // not the primary: none (NP-09-12)
+			writeRoutesHidden(w, err)
 			return
 		}
 		scoped := routes[:0]
@@ -693,7 +698,7 @@ func (b *Broker) IngressOverview() map[string]any {
 	return map[string]any{
 		"exposes":      slots,
 		"routes":       b.IngressRoutes(),
-		"ingressHosts": b.Reg.Workspace().IngressHosts,
+		"ingressHosts": b.activeHostMap(b.Reg.Workspace().IngressHosts),
 		"terminators":  b.IngressSources(),
 	}
 }

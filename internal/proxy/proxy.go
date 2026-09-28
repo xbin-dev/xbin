@@ -4,9 +4,17 @@
 // removed (D117). It enforces the gateway side of the RBAC model: strips
 // inbound X-XBin-* headers, consults the policy, and injects the verified
 // caller identity (plans/auth.md §3).
+//
+// With tile deployments, /api/<tile>+<name>/… names a deployment of a tile
+// that has a deployment record (11-contract §2) (P17), and the broker's
+// routing function (Route) decides which deployment a call reaches: the
+// primary for a bare URL, the caller's own for a tile's self-call (P12).
+// A tile without a record resolves, routes and is identified exactly as
+// before (P5).
 package proxy
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -23,6 +31,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/runner"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 const (
@@ -41,6 +50,14 @@ const (
 	// request reads as that user; a backend that keeps per-user private data
 	// can refuse to show it to someone else looking through the user's eyes.
 	HeaderViewedBy = "X-XBin-Viewed-By"
+	// HeaderDeployment names a tile deployment that is not its tile's
+	// primary (the role rule, 11-contract §4) (P17). On a request: the
+	// calling tile's deployment, when the caller is one of that tile's own
+	// principals bound to a non-primary deployment, on its self-calls and on
+	// its calls to other tiles. On a response: the deployment that answered,
+	// when it isn't the target's primary (NP-11-12), set over any value the
+	// backend set. Absent everywhere for the primary.
+	HeaderDeployment = "X-XBin-Deployment"
 )
 
 // Policy decides whether principal p may call target, and at which role.
@@ -58,11 +75,37 @@ func DefaultPolicy(p auth.Principal, target *registry.Component) (string, bool) 
 	return "", false
 }
 
+// Decision is the routing function's answer for one call (09-fabric §4.1,
+// §5.3): which deployment of the target it reaches and at which role, or why
+// it is refused. The fields are broker.Decision's, which the proxy can't
+// import, so boot converts one into the other.
+type Decision struct {
+	Deployment string   // the target's deployment: its primary, or the caller's own on a self-call
+	Role       string   // the effective role on the target; "" when refused
+	Clamped    bool     // the read clamp narrowed Role (P3)
+	Edges      []string // the caller's edges authorizing the call
+	// Deny is non-nil when the call is refused: util.ErrNoDeployment is a
+	// 404, anything else a 403 whose text is the answer's error.
+	Deny error
+}
+
 type Proxy struct {
 	Reg    *registry.Registry
 	Runner *runner.Runner
 	Hub    *events.Hub
+	// Policy decides the role of a call when no Route is installed: the
+	// broker-less proxy of tests, where every call reaches the primary and
+	// no URL names a deployment. nil = DefaultPolicy.
 	Policy Policy
+	// Route is the broker's routing function (09-fabric §4.1), installed at
+	// boot in Policy's place: the deployment of target a call by p reaches,
+	// at which role, or why it is refused. qualifier is the deployment the
+	// URL names, "" for the bare URL.
+	Route func(p auth.Principal, target *registry.Component, qualifier string) Decision
+	// Deployments answers what a qualified URL and the role rule ask about a
+	// tile's deployments (a record, its deployments, its primary): the
+	// deployments plane. nil = no tile has a record.
+	Deployments registry.DeploymentLookup
 
 	// UserLevel resolves the attributed user's access level on a tile for
 	// the X-XBin-User-Level header (D29). Installed by main from the user
@@ -126,29 +169,65 @@ func (px *Proxy) sweepTransports() {
 
 func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/api/")
-	comp, endpoint, ok := px.Reg.Resolve(rest)
-	if !ok {
+	p := auth.PrincipalOf(r)
+	// /api/<tile>[+<deployment>]/<endpoint> (11-contract §2.2): a path with no
+	// qualifier, and every path of a tile without a deployment record,
+	// resolves exactly as Reg.Resolve does (P5). The qualifier is consumed:
+	// the backend sees /<endpoint>, as for the bare URL.
+	comp, qdep, qualified, endpoint, rerr := px.Reg.ResolveRef(rest, px.lookup())
+	if comp == nil {
 		jsonErr(w, http.StatusNotFound, "no such component", "")
 		return
 	}
+	qualifier := ""
+	if qualified {
+		qualifier = qdep
+	}
+	// The decision is taken here and acted on in the order the gates have
+	// always run: the tile-level gates answer first, the refusal after them.
+	d := px.decide(p, comp, qualifier)
+	if rerr != nil {
+		// An unknown deployment, or a nested tile under a qualifier: a caller
+		// who may not know the tile's deployments gets the gate's refusal,
+		// whether or not the name exists (11-contract §2.2, §2.4).
+		if d.Deny != nil && !errors.Is(d.Deny, util.ErrNoDeployment) {
+			jsonErr(w, http.StatusForbidden, d.Deny.Error(), "")
+		} else {
+			jsonErr(w, http.StatusNotFound, rerr.Error(), "")
+		}
+		return
+	}
+	primary := px.primary(comp.Path)
+	target := cmp.Or(d.Deployment, util.MainDeployment)
+	// comp is the tile's primary: the registry composes a pinned primary
+	// from its checkpoint, so the template (inbound surface) and runtime
+	// (deployment-level) gates below follow the code the primary runs, never
+	// a work-tree edit made while it is pinned (P9).
 	if comp.IsTemplate() {
 		jsonErr(w, http.StatusNotFound,
 			fmt.Sprintf("%s is a template — instantiate it first (Tile Manager → New from template, or `bx template new`)", comp.Path), "")
 		return
 	}
-	if err := registry.ValidateRuntime(comp.Manifest); err != nil {
-		// runtime "cgi" (D117): its code never runs; say why, not "no backend".
-		jsonErr(w, http.StatusGone, comp.Path+": "+err.Error(), "")
-		return
-	}
-	if !comp.HasBackend() {
-		jsonErr(w, http.StatusNotFound,
-			fmt.Sprintf("component %s has no backend (runtime %q)", comp.Path, comp.Manifest.Runtime), "")
-		return
+	// The runtime and backend gates read the primary's code, so they judge
+	// a call that reaches the primary (or is refused anyway). A call routed
+	// to another deployment runs that deployment's own code, whose runtime
+	// and backend EnsureDeployment checks (07-runtime §4.2).
+	if d.Deny != nil || target == primary {
+		if err := registry.ValidateRuntime(comp.Manifest); err != nil {
+			// runtime "cgi" (D117): its code never runs; say why, not "no backend".
+			jsonErr(w, http.StatusGone, comp.Path+": "+err.Error(), "")
+			return
+		}
+		if !comp.HasBackend() {
+			jsonErr(w, http.StatusNotFound,
+				fmt.Sprintf("component %s has no backend (runtime %q)", comp.Path, comp.Manifest.Runtime), "")
+			return
+		}
 	}
 	// Lifecycle gate (plans/lifecycle.md): a disabled/offloaded component's
 	// backend must not spawn. 409 with the state so callers/the frame can show a
 	// placeholder; offloaded also means its data isn't local until restored.
+	// Lifecycle is the tile's: it answers qualified URLs the same way.
 	if state := px.Reg.LifecycleState(comp.Path); state != registry.StateEnabled {
 		w.Header().Set("X-XBin-Lifecycle", state)
 		msg := fmt.Sprintf("component %s is %s", comp.Path, state)
@@ -161,40 +240,56 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p := auth.PrincipalOf(r)
-	pol := px.Policy
-	if pol == nil {
-		pol = DefaultPolicy
-	}
-	role, allowed := pol(p, comp)
-	if !allowed {
-		jsonErr(w, http.StatusForbidden, fmt.Sprintf(
-			"%s is not granted access to %s — declare it in \"uses\" and approve the grant (bx grant, or the grants panel)",
-			p.From(), comp.Path), "")
+	if d.Deny != nil {
+		code := http.StatusForbidden
+		if errors.Is(d.Deny, util.ErrNoDeployment) {
+			code = http.StatusNotFound // a bound deployment that no longer exists (09-fabric §3.1)
+		}
+		jsonErr(w, code, d.Deny.Error(), "")
 		return
 	}
 
-	px.identify(r, p, role, comp.Path)
+	px.identify(r, p, d.Role, comp.Path)
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
 	defer cancel()
-	sock, err := px.Runner.Ensure(ctx, comp)
+	// Route's answer, and never another (09-fabric §4.1): the primary for a
+	// bare URL from anyone but the tile itself, the caller's own on a
+	// self-call, the named one on a qualified URL.
+	// deployment: the target Route returned.
+	sock, err := px.Runner.EnsureDeployment(ctx, comp, target)
 	if err != nil {
 		var be *runner.BuildError
-		if errors.As(err, &be) {
+		switch {
+		case errors.As(err, &be):
 			jsonErr(w, http.StatusBadGateway, "backend build failed", be.Output)
-			return
+		case errors.Is(err, util.ErrNoDeployment):
+			jsonErr(w, http.StatusNotFound, err.Error(), "") // removed since Route answered
+		default:
+			jsonErr(w, http.StatusBadGateway, err.Error(), "")
 		}
-		jsonErr(w, http.StatusBadGateway, err.Error(), "")
 		return
 	}
 
 	// Hold the backend for the whole connection: SSE and WebSocket streams
-	// block in rp.ServeHTTP below, and the idle reaper must not stop a
-	// backend that is mid-stream.
-	release := px.Runner.Track(comp.Path)
+	// block in forward below, and the idle reaper must not stop a backend
+	// that is mid-stream.
+	release := px.Runner.TrackDeployment(comp.Path, target)
 	defer release()
 
+	answering := ""
+	if target != primary {
+		answering = target
+	}
+	px.forward(w, r, sock, endpoint, answering)
+}
+
+// forward proxies r to the backend listening on sock, at /<endpoint>.
+// answering names the deployment that answers when it isn't the target's
+// primary: the response then carries X-XBin-Deployment, set over any value
+// the backend set (NP-11-12). A primary's responses pass as they always
+// have.
+func (px *Proxy) forward(w http.ResponseWriter, r *http.Request, sock, endpoint, answering string) {
 	// The ?frame= auth credential (browser WS attribution) is consumed
 	// here; never forward it — the callee could replay it as the caller.
 	outQuery := r.URL.Query()
@@ -222,6 +317,9 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if auth.NoSetCookie(res.Request.Context()) {
 				res.Header.Del("Set-Cookie")
 			}
+			if answering != "" {
+				res.Header.Set(HeaderDeployment, answering)
+			}
 			return nil
 		},
 		Transport:     px.transportFor(sock),
@@ -231,6 +329,76 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	rp.ServeHTTP(w, r)
+}
+
+// decide is the routing decision for a call by p to comp, the URL naming
+// deployment qualifier ("" for the bare URL): Route's answer when the
+// broker installed one. Without it, Policy's role, on the primary, which is
+// where every call went before tile deployments; a principal bound to a
+// deployment that isn't the primary is refused there (F6: fail closed), as
+// only Route knows where its calls may go.
+func (px *Proxy) decide(p auth.Principal, comp *registry.Component, qualifier string) Decision {
+	if px.Route != nil {
+		return px.Route(p, comp, qualifier)
+	}
+	pol := px.Policy
+	if pol == nil {
+		pol = DefaultPolicy
+	}
+	role, allowed := pol(p, comp)
+	if !allowed {
+		return Decision{Deny: fmt.Errorf(
+			"%s is not granted access to %s — declare it in \"uses\" and approve the grant (bx grant, or the grants panel)",
+			p.From(), comp.Path)}
+	}
+	if dep := px.nonPrimaryDeployment(p); dep != "" {
+		return Decision{Deny: fmt.Errorf("%s's deployment %q can't call through this proxy: it has no deployment routing, so only a primary's credentials reach a tile",
+			p.Component, dep)}
+	}
+	return Decision{Deployment: px.primary(comp.Path), Role: role}
+}
+
+// lookup is what ResolveRef asks about deployment records: none without a
+// routing function, since only Route may send a call to a deployment the
+// URL names.
+func (px *Proxy) lookup() registry.DeploymentLookup {
+	if px.Route == nil {
+		return nil
+	}
+	return px.Deployments
+}
+
+// primary names tile's primary deployment: main without a record, and
+// without the deployments plane. Read on every request, since a tile
+// manager may reassign it at any time (09-fabric §3.6).
+func (px *Proxy) primary(tile string) string {
+	if d := px.Deployments; d != nil {
+		return d.Primary(tile)
+	}
+	return util.MainDeployment
+}
+
+// nonPrimaryDeployment is the deployment p acts in when p is one of a
+// tile's own principals (an instance, frame or terminal credential) bound
+// to a deployment that isn't that tile's primary; "" for everyone else:
+// humans, the owner, cron and bus deliveries, and every principal of a
+// primary. A frame or instance credential with no deployment is main's (the
+// name rule); a terminal or agent session with none follows the primary.
+func (px *Proxy) nonPrimaryDeployment(p auth.Principal) string {
+	if p.Component == "" || (p.Via != "instance" && p.Via != "frame" && p.Via != "terminal") {
+		return ""
+	}
+	dep := p.Deployment
+	if dep == "" {
+		if p.Via == "terminal" {
+			return ""
+		}
+		dep = util.MainDeployment
+	}
+	if dep == px.primary(p.Component) {
+		return ""
+	}
+	return dep
 }
 
 // identify scrubs any spoofed identity from r and injects the verified one.
@@ -257,6 +425,15 @@ func (px *Proxy) identify(r *http.Request, p auth.Principal, role, tile string) 
 	}
 	r.Header.Set(HeaderFrom, p.From())
 	r.Header.Set(HeaderRole, role)
+	// The role rule (11-contract §4) (P17): a tile's own principal bound to
+	// a deployment that isn't its primary names that deployment, on its
+	// self-calls and on its calls to other tiles; X-XBin-From stays the
+	// tile path. A primary's calls carry exactly the headers they always
+	// have, and an inbound X-XBin-Deployment was stripped above, so a
+	// backend that receives one knows xbind set it.
+	if dep := px.nonPrimaryDeployment(p); dep != "" {
+		r.Header.Set(HeaderDeployment, dep)
+	}
 	// Attribute the driving human (D29): frame/terminal principals carry the
 	// user id; session principals are the user. Backends can then tell WHO
 	// clicked — the tile's own UI at `read` is not a blank check anymore.

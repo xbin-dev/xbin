@@ -64,11 +64,21 @@ type instance struct {
 	egress       []string         // granted net:* rules (for visibility)
 	started      time.Time        // for uptime
 	waitCh       chan struct{}    // closed when the process exits
+	// Per deployment (deploy.go); zero values mean today's generation: the
+	// work tree bound at c.Dir, the tile's one bin, its flat CompKey leaf.
+	dep      string // its deployment's name
+	code     Code   // what it runs
+	root     string // the host directory bound at c.Dir
+	artifact string // its built artifact
+	leaf     string // its cgroup leaf
+	envHash  string // its env layer's hash
 }
 
 type state struct {
 	mu        sync.Mutex
-	comp      string
+	comp      string // the tile's path
+	dep       string // the deployment's name (deployments.go)
+	gone      bool   // the deployment was removed: nothing installs here again
 	gen       int
 	cur       *instance
 	building  bool
@@ -94,6 +104,9 @@ type Runner struct {
 	// the watcher/grant respawn paths (run.Changed) can't bring a disabled backend
 	// back. nil = always allowed. Wired to the registry lifecycle by main.
 	ShouldRun func(comp string) bool
+	// AlwaysOnSwitched names tile's non-primary deployments whose alwaysOn
+	// switch is on (alwayson.go, 07-runtime §11); nil = none.
+	AlwaysOnSwitched func(tile string) []string
 	// HoldReason says why ShouldRun refuses comp ("is disabled", "is held:
 	// …"), for Ensure's error; nil or "" = "is not enabled".
 	HoldReason func(comp string) string
@@ -151,15 +164,19 @@ type Runner struct {
 	// Cgroup, when set, attaches each backend to a per-component cgroup v2 leaf
 	// for memory/CPU/pids accounting (best-effort; nil-safe).
 	Cgroup *cgroup.Manager
+	cgOps  cgroupOps // limits.go: a test's cgroup manager in Cgroup's place; nil = Cgroup
 	// TileCgroup is the tile sandboxes' cgroup parent, kind-tile rows' Leaf (nil: none).
 	TileCgroup *cgroup.Manager
 	VM         *vm.Manager // "vm" backends (vm.go); nil = none
 	vms        vmState
 	// Sandboxes lists every running generation (sbx.go, D112; nil-safe).
-	Sandboxes *sbx.Registry
+	Sandboxes       *sbx.Registry
+	DeploymentHooks       // installed by the deployments plane; nil-safe (deploy.go)
+	inUse           inUse // inspect.go: the trees and artifacts generations use
 
 	mu     sync.Mutex
 	states map[string]*state
+	engine *engine  // engine.go: nil = today's build, start, health, stop and clock
 	ao     alwaysOn // alwayson.go
 	netmux *netMux
 	stats  statsState // live per-tile resource stats (stats.go)
@@ -177,21 +194,19 @@ func New(root string, a *auth.Auth, hub *events.Hub, reg *registry.Registry) *Ru
 	return r
 }
 
-func (r *Runner) state(comp string) *state {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	s, ok := r.states[comp]
-	if !ok {
-		s = &state{comp: comp, dirty: true}
-		r.states[comp] = s
-	}
-	return s
+// state is comp's primary's runner state, created dirty when missing.
+func (r *Runner) state(comp string) *state { return r.stateOf(comp, r.primary(comp)) }
+
+// Ensure returns the unix socket of a healthy backend for c's primary,
+// (re)building first if needed. Blocks concurrent callers during builds
+// (single-flight) so a save under load never surfaces connection-refused.
+func (r *Runner) Ensure(ctx context.Context, c *registry.Component) (string, error) {
+	return r.ensurePrimary(ctx, c, r.primary(c.Path))
 }
 
-// Ensure returns the unix socket of a healthy backend for c, (re)building
-// first if needed. Blocks concurrent callers during builds (single-flight)
-// so a save under load never surfaces connection-refused.
-func (r *Runner) Ensure(ctx context.Context, c *registry.Component) (string, error) {
+// ensurePrimary is Ensure for deployment dep, c's primary, whose code the
+// registry's component describes (07-runtime §5.1).
+func (r *Runner) ensurePrimary(ctx context.Context, c *registry.Component, dep string) (string, error) {
 	if err := registry.ValidateRuntime(c.Manifest); err != nil {
 		return "", fmt.Errorf("component %s: %w", c.Path, err) // runtime "cgi" (D117): never runs
 	}
@@ -210,11 +225,16 @@ func (r *Runner) Ensure(ctx context.Context, c *registry.Component) (string, err
 		}
 		return "", fmt.Errorf("component %s %s", c.Path, why)
 	}
-	s := r.state(c.Path)
+	return r.ensureState(ctx, c, r.stateOf(c.Path, dep))
+}
 
+// ensureState is the single flight on one deployment's state s: its healthy
+// generation, its sticky error until a change, or the build this caller
+// takes (runCurrent), re-checked after every build.
+func (r *Runner) ensureState(ctx context.Context, c *registry.Component, s *state) (string, error) {
 	for {
 		s.mu.Lock()
-		s.lastReq = time.Now()
+		s.lastReq = r.now()
 		if !s.dirty && s.cur != nil {
 			sock := s.cur.sock
 			s.mu.Unlock()
@@ -241,7 +261,7 @@ func (r *Runner) Ensure(ctx context.Context, c *registry.Component) (string, err
 		s.buildDone = make(chan struct{})
 		s.mu.Unlock()
 
-		err := r.buildAndStart(c, s)
+		err := r.runCurrent(c, s)
 
 		s.mu.Lock()
 		s.building = false
@@ -256,18 +276,20 @@ func (r *Runner) Ensure(ctx context.Context, c *registry.Component) (string, err
 // returned release must be called when it ends. Long-lived streams (SSE,
 // WebSocket) hold this for their whole lifetime, which keeps the idle
 // reaper away from backends that are quietly serving them.
-func (r *Runner) Track(comp string) func() {
-	s := r.state(comp)
+func (r *Runner) Track(comp string) func() { return r.track(r.state(comp)) }
+
+// track marks one in-flight connection to s's deployment until the release.
+func (r *Runner) track(s *state) func() {
 	s.mu.Lock()
 	s.active++
-	s.lastReq = time.Now()
+	s.lastReq = r.now()
 	s.mu.Unlock()
 	var once sync.Once
 	return func() {
 		once.Do(func() {
 			s.mu.Lock()
 			s.active--
-			s.lastReq = time.Now()
+			s.lastReq = r.now()
 			s.mu.Unlock()
 		})
 	}
@@ -296,162 +318,132 @@ func (r *Runner) Changed(c *registry.Component) {
 	}
 }
 
-// buildAndStart runs one generation transition. Called single-flight per state.
-func (r *Runner) buildAndStart(c *registry.Component, s *state) error {
-	r.Hub.Publish(events.Event{Type: "build-start", Component: c.Path})
-
-	bin, err := r.build(c)
+// runCurrent runs one generation transition of s's deployment of c onto the
+// code its record names now (P9): every restart path — a lazy start, a
+// crash, a reap, a grant, alwaysOn, an xbind restart — reaches a build
+// through here, so a pinned deployment never runs its work tree. A record
+// that can't answer fails the start (06-security C7). Without a plane there
+// is no record, and the primary follows the work tree.
+func (r *Runner) runCurrent(c *registry.Component, s *state) error {
+	code, err := r.recordCode(c.Path, s.dep)
 	if err != nil {
-		r.Hub.Publish(events.Event{Type: "build-error", Component: c.Path, Text: err.Error()})
+		r.emit(c.Path, s.dep, "build-start", "")
+		r.emit(c.Path, s.dep, "build-error", err.Error())
 		return err
 	}
+	return r.buildAndStart(c, s, code)
+}
+
+// buildAndStart runs one generation transition of s's deployment onto code.
+// Called single-flight per state. The generation spawns from code's view (c
+// itself for the primary's work tree) and its artifact, kept per checkpoint
+// (resolveGenFor, inspect.go).
+func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error {
+	dep := s.dep
+	r.emit(c.Path, dep, "build-start", "")
+
+	g, err := r.resolveGenFor(c, dep, code)
+	if err != nil {
+		r.emit(c.Path, dep, "build-error", err.Error())
+		return err
+	}
+	v, bin := g.view, g.bin
 
 	s.mu.Lock()
 	s.gen++
 	gen := s.gen
 	old := s.cur
-	first := old != nil && r.stopFirst(c) // vm.go: no two guests on one sqlite
+	first := old != nil && r.stopFirst(v) // vm.go: no two guests on one sqlite
 	if first {
 		s.cur = nil
 	}
 	s.mu.Unlock()
 	if first {
-		r.stop(old, drainDeadline)
+		r.stopGen(old, drainDeadline)
 		old = nil
 	}
 
-	inst, err := r.start(c, bin, gen)
+	inst, err := r.startFor(v, dep, bin, gen)
 	if err != nil {
-		r.Hub.Publish(events.Event{Type: "build-error", Component: c.Path, Text: err.Error()})
+		g.release()
+		r.emit(c.Path, dep, "build-error", err.Error())
 		return err
 	}
-	if err := waitHealthy(inst.sock, inst.waitCh, r.healthFor(c)); err != nil {
-		if !errors.Is(err, errExited) && r.wantsVM(c) {
+	inst.code, inst.root, inst.artifact = code, g.root, g.artifact
+	if err := r.awaitHealthy(v, inst); err != nil {
+		if !errors.Is(err, errExited) && r.wantsVM(v) {
 			r.dumpVM(inst) // vm.go: what the guest was doing, into the log
-			r.sbxFail(c, sbx.Health, fmt.Errorf("the VM backend never listened: %w — what the VM was doing is in .xbin/log/%s.log", err, util.CompKey(c.Path)))
+			r.sbxFail(v, sbx.Health, fmt.Errorf("the VM backend never listened: %w — what the VM was doing is in %s", err, deploymentLog(v.Path, r.viewDeployment(v))))
 		}
-		r.stop(inst, 2*time.Second)
+		r.stopGen(inst, 2*time.Second)
+		g.release()
 		err = fmt.Errorf("backend did not become healthy: %w", err)
-		r.Hub.Publish(events.Event{Type: "build-error", Component: c.Path, Text: err.Error()})
+		r.emit(c.Path, dep, "build-error", err.Error())
 		return err
 	}
 
-	s.mu.Lock()
-	s.cur = inst
-	s.mu.Unlock()
+	if !r.install(s, inst, false) {
+		g.release()
+		return util.NoDeployment(c.Path, dep) // removed while it built
+	}
 	if old != nil {
-		go r.stop(old, drainDeadline)
+		go r.stopGen(old, drainDeadline)
 	}
 
 	// Crash watch: if the healthy process dies without being replaced, mark
 	// the state so the next request rebuilds (and break crash loops).
 	go func() {
 		<-inst.waitCh
+		g.release() // it binds its tree and runs its artifact no more
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if s.cur != inst {
 			return // replaced normally
 		}
 		s.cur = nil
-		s.crashes = append(s.crashes, time.Now())
+		s.crashes = append(s.crashes, r.now())
 		recent := 0
 		for _, t := range s.crashes {
-			if time.Since(t) < crashWindow*time.Duration(crashLimit) {
+			if r.now().Sub(t) < crashWindow*time.Duration(crashLimit) {
 				recent++
 			}
 		}
-		if recent >= crashLimit {
-			s.lastErr = fmt.Errorf("backend crash-looping (%d exits); fix the code and save to retry — see .xbin/log/%s.log", recent, util.CompKey(c.Path))
-			r.Hub.Publish(events.Event{Type: "build-error", Component: c.Path, Text: s.lastErr.Error()})
+		if recent >= crashLimit { // a save never reaches pinned code (07-runtime §7)
+			s.lastErr = crashLoopError(c.Path, dep, code, recent)
+			r.emit(c.Path, dep, "build-error", s.lastErr.Error())
 		} else {
-			s.dirty = true // transparent restart on next request
-			go r.afterExit(c)
+			s.dirty = true           // transparent restart on next request
+			go r.afterExitOf(c, dep) // alwaysOn: each deployment's own (alwayson.go)
 		}
 	}()
 
-	r.Hub.Publish(events.Event{Type: "build-ok", Component: c.Path})
+	r.emit(c.Path, dep, "build-ok", "")
 	slog.Info("backend up", "component", c.Path, "gen", gen)
 	return nil
 }
 
-// build produces a runnable entry. For go it compiles; for node/python it
-// just validates the entry file exists (the interpreter is the "binary").
-func (r *Runner) build(c *registry.Component) (string, error) {
-	switch c.Manifest.Runtime {
-	case "go":
-		entry := c.Manifest.Entry
-		if entry == "" {
-			entry = "./backend"
-		}
-		out := filepath.Join(r.Root, ".xbin", "build", util.CompKey(c.Path), "bin")
-		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
-			return "", err
-		}
-		if r.Isolate {
-			// in a sandbox, never as xbind (D78, build.go); fully static
-			// (CGO_ENABLED=0) so the backend runs on any sandbox rootfs,
-			// independent of the base image's glibc (plans/isolation-impl.md)
-			if err := r.buildConfined(c, entry, out); err != nil {
-				return "", err
-			}
-			return out, nil
-		}
-		cmd := exec.Command("go", "build", "-o", out, entry) // exec-ok: isolation off — no sandbox exists; backends run as xbind too
-		cmd.Dir = c.Dir
-		cmd.Env = append(os.Environ(),
-			"GOCACHE="+filepath.Join(r.Root, ".xbin", "cache", "go-build"),
-		)
-		if outp, err := cmd.CombinedOutput(); err != nil {
-			return "", &BuildError{Output: string(outp)}
-		}
-		return out, nil
-	case "node", "python":
-		entry := c.Manifest.Entry
-		if entry == "" {
-			if c.Manifest.Runtime == "node" {
-				entry = "backend/server.js"
-			} else {
-				entry = "backend/server.py"
-			}
-		}
-		p := filepath.Join(c.Dir, filepath.FromSlash(entry))
-		if _, err := os.Stat(p); err != nil {
-			return "", &BuildError{Output: fmt.Sprintf("entry %s not found (set \"entry\" in xbin.json)", entry)}
-		}
-		return p, nil
-	default:
-		return "", fmt.Errorf("unknown runtime %q", c.Manifest.Runtime)
-	}
+// start starts generation gen of the deployment view c names (the engine's
+// startGen falls back to it).
+func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, error) {
+	return r.startDeployment(c, r.viewDeployment(c), bin, gen)
 }
 
-func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, error) {
-	dir := filepath.Join(r.RunDir, util.CompKey(c.Path))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+// startDeployment starts generation gen of deployment dep from bin, its view
+// c: with its own run dir, log, env and instance token (spawnSetup).
+func (r *Runner) startDeployment(c *registry.Component, dep, bin string, gen int) (*instance, error) {
+	sp, err := r.spawnSetup(c, dep, gen)
+	if err != nil {
 		return nil, err
 	}
-	sock := filepath.Join(dir, fmt.Sprintf("g%d.sock", gen))
-	_ = os.Remove(sock)
-
-	token := util.RandomToken(24)
-
-	env := append(backendEnv(r.Isolate && sandboxable(c.Manifest.Runtime)),
-		"XBIN_SOCKET="+sock,
-		"XBIN_COMPONENT="+c.Path,
-		"XBIN_GATEWAY="+filepath.Join(r.RunDir, "gateway.sock"),
-		"XBIN_TOKEN="+token,
-	)
-	if r.EnvForComponent != nil {
-		env = append(env, r.EnvForComponent(c)...)
-	}
+	dir, sock, token, env := sp.dir, sp.sock, sp.token, sp.env
 
 	var cmd *exec.Cmd
 	var sb *sandbox.Handle
 	var pol sandbox.EgressPolicy
+	var netWhy string // why the net verdict withheld egress (netmux.go)
 	cleanup := func() {}
 	if r.Isolate && sandboxable(c.Manifest.Runtime) {
-		if r.Egress != nil {
-			pol = r.Egress(c)
-		}
+		pol, netWhy = r.spawnEgress(c)
 		// Build the component's env layer (setup deps) if declared, then stack it.
 		envLower, err := r.ensureEnvLayer(c)
 		if err != nil {
@@ -465,6 +457,12 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 		}
 		cleanup = sb.Cleanup
 	} else {
+		if c.CodeRoot != "" { // no mount namespace shows a checkpoint at c.Dir (P18)
+			return nil, fmt.Errorf("%s: a checkpoint runs only in a sandbox (--isolate)", c.Path)
+		}
+		if dep != util.MainDeployment || c.Deployment != "" { // nor binds its own data at its paths (P18)
+			return nil, fmt.Errorf("%s: deployment %s runs only in a sandbox (--isolate)", c.Path, dep)
+		}
 		switch c.Manifest.Runtime { // exec-ok (all three): isolation off — the workspace has no sandbox; SpawnUser may drop to a scope uid
 		case "go":
 			cmd = exec.Command(bin) // exec-ok: see above
@@ -482,13 +480,12 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 		}
 	}
 
-	logf, err := os.OpenFile(
-		filepath.Join(r.Root, ".xbin", "log", util.CompKey(c.Path)+".log"),
-		os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	logf, err := os.OpenFile(sp.log, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return nil, err
 	}
 	fmt.Fprintf(logf, "--- gen %d start %s ---\n", gen, time.Now().Format(time.RFC3339))
+	logVerdict(logf, netWhy)
 	cmd.Stdout, cmd.Stderr = logf, logf
 
 	if err := cmd.Start(); err != nil {
@@ -498,44 +495,36 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 		r.sbxFail(c, sbx.Start, err)
 		return nil, fmt.Errorf("start backend: %w", err)
 	}
-	mode, unlist := r.modeOf(c, sock), r.sbxAdd(c, gen, sock, cmd.Process.Pid)
-	r.Auth.RegisterInstance(token, c.Path)
-	if b, ok := r.vmLeafBytes(sock); ok && r.Cgroup != nil {
-		r.Cgroup.AddMem(util.CompKey(c.Path), cmd.Process.Pid, b)
-	} else if r.Cgroup != nil {
-		r.Cgroup.Add(util.CompKey(c.Path), cmd.Process.Pid)
-	}
+	// limits.go: flat while main runs alone; the registry lists the leaf the
+	// generation is placed in
+	leaf := r.chooseLeaf(c.Path, dep)
+	mode, unlist := r.modeOf(c, sock), r.sbxAddLeaf(c, gen, sock, cmd.Process.Pid, r.listedLeaf(leaf))
+	r.registerInstance(token, c.Path, dep)
+	r.joinLeaf(c.Path, dep, leaf, sock, cmd.Process.Pid)
 	// Range-uid sandbox: map the child's uids and release its init (which is
 	// blocked waiting) before anything reads back from it (e.g. the TUN fd).
 	if err := sb.SetupUserns(); err != nil {
 		fmt.Fprintf(logf, "userns setup: %v\n", err)
 	}
 
-	inst := &instance{gen: gen, sock: sock, token: token, cmd: cmd, started: time.Now(), egress: pol.Strings(), waitCh: make(chan struct{})}
+	inst := &instance{gen: gen, sock: sock, token: token, cmd: cmd, started: time.Now(), egress: pol.Strings(), waitCh: make(chan struct{}), leaf: leaf}
 
 	// Network setup: the init handed back its TUN fd(s) — egress first, then one
 	// per provider client-link, then this component's own lan-ingress legs. The
 	// egress is either spliced to a provider tile (this component is a client of
 	// it) or run through the userspace relay.
 	if sb.NeedsRelay() {
-		var netClients []sandbox.NetClient
-		if r.NetRoster != nil {
-			netClients = r.NetRoster(c)
-		}
-		provider, _, _, spliced := "", "", "", false
-		if r.NetTarget != nil {
-			provider, _, _, spliced = r.NetTarget(c)
-		}
+		np := r.netPlanFor(c, dep, logf) // netmux.go: a non-primary view gets no primary-only wiring (P23)
 		if fd, err := sb.RecvTUN(); err != nil {
 			fmt.Fprintf(logf, "egress tun: %v (egress disabled)\n", err)
-		} else if spliced {
-			r.ensureProvider(provider) // provider must be up so its links are registered
-			if pfd, ok := r.netmux.get(provider, c.Path); ok {
+		} else if np.spliced {
+			r.ensureProvider(np.provider) // provider must be up so its links are registered
+			if pfd, ok := r.netmux.get(np.provider, c.Path); ok {
 				inst.splicer = relay.Splice(fd, pfd)
-				inst.provider = provider
+				inst.provider = np.provider
 			} else {
 				_ = syscall.Close(fd)
-				fmt.Fprintf(logf, "net provider %s link not ready — no egress\n", provider)
+				fmt.Fprintf(logf, "net provider %s link not ready — no egress\n", np.provider)
 			}
 		} else {
 			cfg := relay.Config{TunFD: fd, CloseTUN: true, Allow: pol.Allow, Resolver: sandbox.HostResolver()}
@@ -553,12 +542,10 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 				cfg.Published = r.Published
 				cfg.HairpinDial = r.HairpinDial
 			}
-			if r.IngressFwd != nil {
-				if m := r.IngressFwd(c); len(m) > 0 {
-					cfg.Gateway = netip.MustParseAddr(sandbox.GatewayIP)
-					cfg.HostFwd = m
-					cfg.HostDial = r.hostDial
-				}
+			if len(np.fwd) > 0 {
+				cfg.Gateway = netip.MustParseAddr(sandbox.GatewayIP)
+				cfg.HostFwd = np.fwd
+				cfg.HostDial = np.dial // ingress.go: checked at each dial, as the generation's deployment
 			}
 			if rl, err := relay.Start(cfg); err != nil {
 				fmt.Fprintf(logf, "egress relay: %v (egress disabled)\n", err)
@@ -567,7 +554,7 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 			}
 		}
 		// Provider tile: receive one TUN per client link and register it.
-		for _, cl := range netClients {
+		for _, cl := range np.clients {
 			if fd, err := sb.RecvTUN(); err != nil {
 				fmt.Fprintf(logf, "client link %s: %v\n", cl.Name, err)
 			} else {
@@ -576,11 +563,7 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 		}
 		// Lan-ingress legs: splice each to the provider's matching client link
 		// (registered under "<client>#<slot>" in its roster).
-		var netLinks []sandbox.NetLink
-		if r.NetLinks != nil {
-			netLinks = r.NetLinks(c)
-		}
-		for _, ll := range netLinks {
+		for _, ll := range np.links {
 			fd, err := sb.RecvTUN()
 			if err != nil {
 				fmt.Fprintf(logf, "lan-ingress link %s: %v\n", ll.Slot, err)
@@ -594,7 +577,7 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 				fmt.Fprintf(logf, "lan-ingress provider %s link not ready for %s\n", ll.Provider, ll.Slot)
 			}
 		}
-		if len(netClients) > 0 {
+		if len(np.clients) > 0 {
 			// This provider (re)started with fresh link fds; any client already
 			// running is spliced to a now-stale fd, so nudge each to re-splice.
 			// Lan-ingress roster entries are keyed "<client>#<slot>" — strip to
@@ -606,10 +589,10 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 						name = name[:i]
 					}
 					if cc, ok := r.Reg.Component(name); ok {
-						r.Changed(cc)
+						r.ChangedTile(cc)
 					}
 				}
-			}(netClients)
+			}(np.clients)
 		}
 	}
 
@@ -626,225 +609,12 @@ func (r *Runner) start(c *registry.Component, bin string, gen int) (*instance, e
 		for _, s := range inst.linkSplicers {
 			s.Close()
 		}
-		if r.Cgroup != nil {
-			r.Cgroup.Remove(util.CompKey(c.Path))
-		}
-		cleanup() // remove the sandbox spec temp file (init self-removes; this is a backstop)
+		r.leaveLeaf(leaf) // its own deployment's leaf alone (limits.go)
+		cleanup()         // remove the sandbox spec temp file (init self-removes; this is a backstop)
 		r.vmRelease(sock)
 		logf.Close()
 		r.Auth.RevokeInstance(token)
 		close(inst.waitCh)
 	}()
 	return inst, nil
-}
-
-func sandboxable(runtime string) bool {
-	switch runtime {
-	case "go", "node", "python":
-		return true
-	}
-	return false
-}
-
-// sandboxCmd builds the isolated backend command (plans/isolation.md): a
-// per-component namespace set over an overlay of r.Rootfs. The component's
-// source is read-only, its run dir and same-scope resource files are read-write,
-// the gateway socket is the one door out, and the netns is empty (default-deny
-// egress; the egress relay is a follow-on).
-func (r *Runner) sandboxCmd(c *registry.Component, bin, dir, sock string, env []string, pol sandbox.EgressPolicy, envLower string) (*exec.Cmd, *sandbox.Handle, error) {
-	gw := filepath.Join(r.RunDir, "gateway.sock")
-	binds := []sandbox.Bind{
-		{Src: c.Dir, Dst: c.Dir, RO: true}, // component source, read-only
-		{Src: dir, Dst: dir},               // run dir — the listen socket lands here
-		{Src: gw, Dst: gw},                 // the gateway socket (component↔component + RBAC)
-	}
-	// File-backed resources (sqlite) are handed to the backend as absolute
-	// XBIN_RES_* env paths; bind their dirs read-write so they persist.
-	binds = append(binds, resourceBinds(env, r.Root)...)
-
-	var entry string
-	var argv []string
-	switch c.Manifest.Runtime {
-	case "go":
-		entry = "/run/backend" // the built static binary, bound in
-		argv = []string{entry}
-		binds = append(binds, sandbox.Bind{Src: bin, Dst: entry, RO: true})
-	case "node":
-		entry, argv = rootfsBin(r.Rootfs, "node"), []string{"node", bin} // bin is a script under c.Dir (bound)
-	case "python":
-		entry, argv = rootfsBin(r.Rootfs, "python3"), []string{"python3", bin}
-	}
-
-	// Granted GPUs (gpu:*): bind the device nodes + driver libs and add env.
-	if r.GPU != nil {
-		if gb, genv := gpu.Binds(r.GPU(c)); len(gb) > 0 {
-			binds = append(binds, gb...)
-			env = append(env, genv...)
-		}
-	}
-
-	// Overlay lowers: the component env layer (setup deps) on top of the base
-	// rootfs, so the layer's files win.
-	lower := []string{r.Rootfs}
-	if envLower != "" {
-		lower = []string{envLower, r.Rootfs}
-	}
-	spec := &sandbox.Spec{
-		Lower:        lower,
-		Binds:        binds,
-		Entry:        entry,
-		Argv:         argv,
-		Env:          env,
-		Cwd:          c.Dir,
-		HostUID:      os.Getuid(),
-		HostGID:      os.Getgid(),
-		Unprivileged: true, // tile backends need no caps: drop them + seccomp block-list
-		// the env layer is the setup script's: its symlinks never place a
-		// mount point, the image's own may (WP-2b)
-		NoFollow: true, FollowBase: true, RootHint: envRootHint,
-	}
-	// Interface wiring (plans/interfaces.md): a net-provider tile gets one TUN per
-	// bound client; a component's `net` interface resolves to host-share, a splice
-	// through a provider tile, or the relay under a builtin (internet/lan) policy.
-	if r.NetRoster != nil {
-		spec.NetClients = r.NetRoster(c)
-	}
-	if r.NetLinks != nil {
-		spec.NetLinks = r.NetLinks(c) // lan-ingress legs (plans/ingress.md)
-	}
-	if r.NetCaps != nil && r.NetCaps(c) {
-		spec.NetAdmin = true // net-provider tile (cap:net-admin) keeps net-admin caps
-	}
-	if r.ContainerCaps != nil && r.ContainerCaps(c) {
-		spec.Containers = true // container-host tile (cap:containers): keep caps, minimal seccomp
-	}
-	if r.NetHost != nil && r.NetHost(c) {
-		spec.HostNet = true // net → host builtin (share the host network)
-	} else if r.NetTarget != nil {
-		if _, addr, gw, ok := r.NetTarget(c); ok {
-			spec.Net, spec.NetAddr, spec.NetGw = "splice", addr, gw
-		}
-	}
-	if spec.Net == "" && !spec.HostNet && !pol.Empty() {
-		spec.Net = "relay" // granted / bound builtin egress → TUN + userspace relay
-	}
-	if spec.Net == "" && !spec.HostNet {
-		// Ingress plumbing without egress (plans/ingress.md): a bound stream
-		// expose / stream interface / lan-ingress leg needs the TUN so xbind
-		// can reach in — the relay runs with a deny-all outbound policy.
-		if (r.IngressNet != nil && r.IngressNet(c)) || len(spec.NetLinks) > 0 {
-			spec.Net = "relay"
-		}
-	}
-	if r.wantsVM(c) {
-		if err := r.vmApply(c, spec, dir, sock, gw); err != nil {
-			return nil, nil, err
-		}
-	}
-	return sandbox.Launch(spec)
-}
-
-func (r *Runner) stop(inst *instance, deadline time.Duration) {
-	if inst.cmd.Process == nil {
-		return
-	}
-	_ = inst.cmd.Process.Signal(syscall.SIGTERM)
-	select {
-	case <-inst.waitCh:
-	case <-time.After(deadline):
-		_ = inst.cmd.Process.Kill()
-		<-inst.waitCh
-	}
-	_ = os.Remove(inst.sock)
-}
-
-// Stop terminates a single component's running backend, if any (e.g. when the
-// owner disables/offloads it). A subsequent request re-spawns it (unless the
-// caller has since gated it). No-op if it isn't running.
-func (r *Runner) Stop(comp string) {
-	r.mu.Lock()
-	s := r.states[comp]
-	r.mu.Unlock()
-	if s == nil {
-		return
-	}
-	s.mu.Lock()
-	inst := s.cur
-	s.cur = nil
-	s.mu.Unlock()
-	if inst != nil {
-		r.stop(inst, 5*time.Second)
-	}
-}
-
-// StopAll terminates all backends (xbind shutdown).
-func (r *Runner) StopAll() {
-	r.mu.Lock()
-	states := make([]*state, 0, len(r.states))
-	for _, s := range r.states {
-		states = append(states, s)
-	}
-	r.mu.Unlock()
-	var wg sync.WaitGroup
-	for _, s := range states {
-		s.mu.Lock()
-		inst := s.cur
-		s.cur = nil
-		s.mu.Unlock()
-		if inst != nil {
-			wg.Add(1)
-			go func() { defer wg.Done(); r.stop(inst, 5*time.Second) }()
-		}
-	}
-	wg.Wait()
-}
-
-// Status reports per-component backend state for /api/xbin/status.
-func (r *Runner) Status() map[string]any {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	out := map[string]any{}
-	for path, s := range r.states {
-		s.mu.Lock()
-		st := "idle"
-		switch {
-		case s.building:
-			st = "building"
-		case s.cur != nil:
-			st = "healthy"
-		case s.lastErr != nil:
-			st = "failed"
-		}
-		e := map[string]any{"state": st, "gen": s.gen}
-		if s.lastErr != nil {
-			e["error"] = s.lastErr.Error()
-		}
-		out[path] = e
-		s.mu.Unlock()
-	}
-	return out
-}
-
-func (r *Runner) reaper() {
-	for range time.Tick(time.Minute) {
-		r.mu.Lock()
-		states := make([]*state, 0, len(r.states))
-		for _, s := range r.states {
-			states = append(states, s)
-		}
-		r.mu.Unlock()
-		for _, s := range states {
-			s.mu.Lock()
-			if s.cur != nil && s.active == 0 && time.Since(s.lastReq) > idleReap && !r.isAlwaysOn(s.comp) {
-				inst := s.cur
-				s.cur = nil
-				s.dirty = true // next request restarts lazily
-				s.mu.Unlock()
-				slog.Info("reaping idle backend", "component", s.comp)
-				go r.stop(inst, 5*time.Second)
-				continue
-			}
-			s.mu.Unlock()
-		}
-	}
 }

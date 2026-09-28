@@ -10,8 +10,6 @@ package tilesbx
 import (
 	"fmt"
 	"path/filepath"
-	"reflect"
-	"sync"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/util"
@@ -27,66 +25,27 @@ type Key struct {
 // deployment. Every gate and ServeRuntime call it; nothing else reads
 // p.Component to name sandboxes.
 //
-// Only main keys are built on this branch. A principal of a non-main
-// deployment answers errDeployment (501) — never main's key, which would
-// hand a dev deployment of the manager main's sandboxes, files and quota.
-// The deployment is read by reflection (deploymentOf), so the guard works
-// the moment auth.Principal gains a Deployment field, before anyone edits
-// this function. Whoever adds that field replaces the reflection with
-// p.Deployment and reviews keys_test.go's field list (§14).
+// Only main keys are built so far. A principal of a non-main deployment
+// (auth.Principal.Deployment, "" or "main" being main) answers
+// errDeployment (501) — never main's key, which would hand a dev deployment
+// of the manager main's sandboxes, files and quota. Its own set (its
+// definitions and state under its TileKey, its code and data namespace,
+// books summed into the tile's) is the follow-up in
+// plans/tile-sandbox-runtime.md §14.
 func keyOf(p auth.Principal) (Key, error) {
-	if d := principalDeployment(p); d != "" {
+	k := keyFor(p.Component, p.Deployment)
+	if !k.Main() {
 		return Key{}, errDeployment()
 	}
-	return Key{Tile: p.Component}, nil
+	return k, nil
 }
 
-// principalDeployment is the deployment a principal acts in: its
-// Deployment field once auth.Principal has one, "" (main) until then. A
-// variable so keys_test.go can stand a principal type with the field in.
-var principalDeployment = func(p auth.Principal) string { return deploymentOf(p) }
-
-// deploymentFields caches, per struct type, the index of its Deployment
-// field (nil: it has none).
-var deploymentFields sync.Map // reflect.Type → []int
-
-// deploymentOf reads the Deployment field of a principal-shaped struct:
-// "" when the type has none. A field that isn't a string reads as
-// non-main whenever it is set, so a differently-typed field fails closed.
-func deploymentOf(p any) string {
-	v := reflect.ValueOf(p)
-	if v.Kind() == reflect.Pointer {
-		if v.IsNil() {
-			return ""
-		}
-		v = v.Elem()
+// keyFor is tile's key in deployment dep, "" and "main" both naming main.
+func keyFor(tile, dep string) Key {
+	if dep == util.MainDeployment {
+		dep = ""
 	}
-	if v.Kind() != reflect.Struct {
-		return ""
-	}
-	idx, ok := deploymentFields.Load(v.Type())
-	if !ok {
-		var index []int
-		if f, found := v.Type().FieldByName("Deployment"); found {
-			index = f.Index
-		}
-		idx, _ = deploymentFields.LoadOrStore(v.Type(), index)
-	}
-	index := idx.([]int)
-	if index == nil {
-		return ""
-	}
-	f, err := v.FieldByIndexErr(index)
-	if err != nil { // behind a nil embedded pointer: unset
-		return ""
-	}
-	if f.Kind() == reflect.String {
-		return f.String()
-	}
-	if f.IsZero() {
-		return ""
-	}
-	return fmt.Sprint(f.Interface())
+	return Key{Tile: tile, Deployment: dep}
 }
 
 // Main reports the main deployment's key.

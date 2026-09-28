@@ -25,6 +25,10 @@ import (
 // (plans/ownership.md D24/D25): the attributed human must be a member with
 // the Create knob (or an org/workspace admin). Without it, a human creator
 // becomes the user-owner; admin/automation creations are workspace-owned.
+//
+// A path that is another tile's deployment URL is refused for everyone
+// (canCreateAt); any other name holding a '+' is created as before, and
+// for one release its answer carries a warnings entry (plusNameWarnings).
 func (b *Broker) apiCreate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		scaffold.Options
@@ -72,6 +76,9 @@ func (b *Broker) apiCreate(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{"path": o.Path, "files": files}
 	if owner != "" {
 		out["owner"] = owner
+	}
+	if ws := plusNameWarnings(o.Path); ws != nil { // a '+' in the name, for one release (P17)
+		out["warnings"] = ws
 	}
 	server.WriteJSON(w, http.StatusOK, out)
 }
@@ -184,10 +191,19 @@ func (b *Broker) defaultOrgOwner(userID, why string) (ref, msg string) {
 // It first drops the path's leftover cron jobs and bus subscriptions: a
 // removed tile's delivery registrations, not access decisions (grants and
 // bindings still refuse the path, D82), so the new tile starts with none and
-// registers its own (D85).
+// registers its own (D85). Those of its deployments beyond main go too,
+// files and all (dormant.go).
+//
+// Then it resets the path's deployment state (P29), whoever creates the
+// tile: a deployment record and view repository a removed tile left there
+// never apply to the new one, which starts in the zero state. The
+// checkpoint store stays, a leftover (pathLeftovers).
 func (b *Broker) assignOwner(path, ref string) {
-	if n := b.cron.forget(path) + b.bus.forget(path); n > 0 {
+	if n := b.cron.forget(path) + b.bus.forget(path) + b.dropDormantAt(path); n > 0 {
 		slog.Info("dropped a removed tile's cron jobs and bus subscriptions", "tile", path, "count", n)
+	}
+	if err := b.resetDeploymentState(path); err != nil {
+		slog.Error("a removed tile's deployment record couldn't be reset for the new tile", "tile", path, "err", err)
 	}
 	if b.Users == nil || ref == "" {
 		return

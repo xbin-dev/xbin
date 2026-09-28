@@ -106,7 +106,7 @@ func TestRestoreNeverFollowsPlantedSymlinks(t *testing.T) {
 		outside := t.TempDir()
 		src := filepath.Join(b.Reg.Root, comp)
 		mustSymlink(t, outside, filepath.Join(src, "evil"))
-		_, err := b.restore(safetyArchive(t, man, archiveEntry{"source/evil/pwned", "x"}), comp)
+		_, err := b.restore(comp, safetyArchive(t, man, archiveEntry{"source/evil/pwned", "x"}), nil)
 		outsideUntouched(t, outside, nil)
 		if err != nil {
 			t.Fatalf("restore: %v", err)
@@ -126,7 +126,7 @@ func TestRestoreNeverFollowsPlantedSymlinks(t *testing.T) {
 		src := filepath.Join(b.Reg.Root, comp)
 		_ = os.Remove(filepath.Join(src, "index.html"))
 		mustSymlink(t, target, filepath.Join(src, "index.html"))
-		if _, err := b.restore(safetyArchive(t, man, archiveEntry{"source/index.html", "restored"}), comp); err != nil {
+		if _, err := b.restore(comp, safetyArchive(t, man, archiveEntry{"source/index.html", "restored"}), nil); err != nil {
 			t.Fatalf("restore: %v", err)
 		}
 		outsideUntouched(t, outside, map[string]string{"target.txt": "original"})
@@ -140,7 +140,7 @@ func TestRestoreNeverFollowsPlantedSymlinks(t *testing.T) {
 		outside := t.TempDir()
 		layer := b.termDir(comp)
 		mustSymlink(t, outside, filepath.Join(layer, "upper", "etc"))
-		_, err := b.restore(safetyArchive(t, man, archiveEntry{"term/upper/etc/pwned", "x"}), comp)
+		_, err := b.restore(comp, safetyArchive(t, man, archiveEntry{"term/upper/etc/pwned", "x"}), nil)
 		outsideUntouched(t, outside, nil)
 		if err != nil {
 			t.Fatalf("restore: %v", err)
@@ -156,7 +156,7 @@ func TestRestoreNeverFollowsPlantedSymlinks(t *testing.T) {
 		outside := t.TempDir()
 		mdir := b.resenc.MountDir(util.ScopeKey(comp), "db")
 		mustSymlink(t, outside, filepath.Join(mdir, "sub"))
-		_, err := b.restore(safetyArchive(t, man, archiveEntry{"data/sqlite/db/sub/pwned", "x"}), comp)
+		_, err := b.restore(comp, safetyArchive(t, man, archiveEntry{"data/sqlite/db/sub/pwned", "x"}), nil)
 		outsideUntouched(t, outside, nil)
 		if err != nil {
 			t.Fatalf("restore: %v", err)
@@ -178,7 +178,7 @@ func TestRestoreRefusesASymlinkedTileDir(t *testing.T) {
 	mustSymlink(t, "../../.xbin/victim", filepath.Join(b.Reg.Root, "apps", "calendar", "nested"))
 	const comp = "apps/calendar/nested"
 	man := backup.Manifest{Component: comp, Scope: "apps/calendar", Includes: []string{"source"}}
-	if _, err := b.restore(safetyArchive(t, man, archiveEntry{"source/xbin.json", "{}"}), comp); err == nil {
+	if _, err := b.restore(comp, safetyArchive(t, man, archiveEntry{"source/xbin.json", "{}"}), nil); err == nil {
 		t.Fatal("restored through a symlinked tile dir")
 	}
 	outsideUntouched(t, victim, nil)
@@ -189,16 +189,16 @@ func TestRestoreRefusesASymlinkedTileDir(t *testing.T) {
 func TestRestoreRefusesAnotherComponentsArchive(t *testing.T) {
 	b := testBroker(t)
 	other := backup.Manifest{Component: "apps/email", Scope: "apps/email", Includes: []string{"source"}}
-	if _, err := b.restore(safetyArchive(t, other, archiveEntry{"source/x", "x"}), "apps/calendar"); err == nil {
+	if _, err := b.restore("apps/calendar", safetyArchive(t, other, archiveEntry{"source/x", "x"}), nil); err == nil {
 		t.Fatal("restored apps/email's archive as apps/calendar")
 	}
 	escape := backup.Manifest{Component: "../../outside", Includes: []string{"source"}}
-	if _, err := b.restore(safetyArchive(t, escape, archiveEntry{"source/x", "x"}), "apps/calendar"); err == nil {
+	if _, err := b.restore("apps/calendar", safetyArchive(t, escape, archiveEntry{"source/x", "x"}), nil); err == nil {
 		t.Fatal("restored an archive naming a path outside the workspace")
 	}
 	// Resource data of a scope the component doesn't root.
 	foreign := backup.Manifest{Component: "apps/email", Scope: "apps/calendar", Includes: []string{"source", "data"}}
-	if _, err := b.restore(safetyArchive(t, foreign, archiveEntry{backup.KVName, `{"events":{"k":"dg=="}}`}), "apps/email"); err == nil {
+	if _, err := b.restore("apps/email", safetyArchive(t, foreign, archiveEntry{backup.KVName, `{"events":{"k":"dg=="}}`}), nil); err == nil {
 		t.Fatal("restored another scope's resource data")
 	}
 	if _, err := os.Stat(filepath.Join(b.Reg.Root, "apps", "email", "x")); err == nil {
@@ -251,7 +251,7 @@ func TestRestoreSwapsTheTermLayer(t *testing.T) {
 				released++
 			}, nil
 		}
-		if _, err := b.restore(archive(t), comp); err != nil {
+		if _, err := b.restore(comp, archive(t), nil); err != nil {
 			t.Fatalf("restore: %v", err)
 		}
 		if held != 1 || released != 1 {
@@ -280,7 +280,7 @@ func TestRestoreSwapsTheTermLayer(t *testing.T) {
 	t.Run("a hold that fails leaves the layer alone", func(t *testing.T) {
 		b, layer := setup(t)
 		b.HoldTermEnv = func(string) (func(), error) { return nil, os.ErrDeadlineExceeded }
-		if _, err := b.restore(archive(t), comp); err == nil {
+		if _, err := b.restore(comp, archive(t), nil); err == nil {
 			t.Fatal("restore went on without the layer")
 		}
 		if got := readRegular(t, filepath.Join(layer, "upper", "stale")); got != "old" {
@@ -351,7 +351,7 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 	c, _ := b.Reg.Component(comp)
 	var buf bytes.Buffer
 	bw := backup.NewWriter(&buf)
-	if err := b.writeBackup(bw, c); err != nil {
+	if err := b.writeBackup(bw, c, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := bw.Close(); err != nil {
@@ -360,7 +360,7 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 	arch := buf.Bytes()
 
 	// Over the live tree (the 0444 object is replaced).
-	if _, err := b.restore(bytes.NewReader(arch), comp); err != nil {
+	if _, err := b.restore(comp, bytes.NewReader(arch), nil); err != nil {
 		t.Fatalf("restore over the tree: %v", err)
 	}
 	if got := readRegular(t, obj); got != "blob" {
@@ -370,7 +370,7 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 	if err := os.RemoveAll(dir); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.restore(bytes.NewReader(arch), comp); err != nil {
+	if _, err := b.restore(comp, bytes.NewReader(arch), nil); err != nil {
 		t.Fatalf("restore into a missing dir: %v", err)
 	}
 	if got := readRegular(t, filepath.Join(dir, "index.html")); got != "<html></html>" {
@@ -489,7 +489,7 @@ func TestRestoreSweepsOnlyStaleLeftovers(t *testing.T) {
 		}
 	}
 	man := backup.Manifest{Component: comp, Scope: comp, ScopeRoot: true, Includes: []string{"term-env"}}
-	if _, err := b.restore(safetyArchive(t, man, archiveEntry{"term/upper/new", "n"}), comp); err != nil {
+	if _, err := b.restore(comp, safetyArchive(t, man, archiveEntry{"term/upper/new", "n"}), nil); err != nil {
 		t.Fatalf("restore: %v", err)
 	}
 	if got := readRegular(t, filepath.Join(layer, "upper", "new")); got != "n" {

@@ -3,8 +3,10 @@
 xbin is a self-modifying workspace: every piece of UI is backed by a
 directory you can open a shell into and edit live — including this
 workspace's own root page. Components have real backends (Go, node, python,
-shell) that hot-reload on save, declare roles other components can be
-granted, and share brokered resources (kv, blobs, bus, cron, sqlite).
+shell) that live reload on save (unless a tile's developers paused live
+reload: [tile-deployments.md](/docs/tile-deployments.md)), declare roles
+other components can be granted, and share brokered resources (kv, blobs,
+bus, cron, sqlite).
 
 **New here? Take the guided tour.** [overview/](/docs/overview/00-index.md)
 is a top-down walk through the whole system — how the subsystems compose and
@@ -33,6 +35,10 @@ overview is the map that puts them in context.
   sandbox managers (tiles that run coding sandboxes) and the tiles that use
   them, such as the agent template
 - [bx.md](/docs/bx.md) — the `bx` CLI
+- [tile-deployments.md](/docs/tile-deployments.md) — pausing a tile's live
+  reload, Reload now, the deploy log, rolling back, and
+  `git fetch xbin-deploy` (tiles that never opt in keep live reload and no
+  deploy step)
 - [config.md](/docs/config.md) — every `xbind` flag and `XBIN_*` variable,
   generated from the daemon's configuration
 - [changelog.md](/docs/changelog.md) — builder-visible changes per xbind
@@ -67,7 +73,8 @@ Component  = any directory with index.html and/or xbin.json = "an element"
 
 - `<bx-frame src="apps/thing">` renders a component. The 7×7 px button in
   its corner opens a real shell in that component's directory. Save a file →
-  the frame reloads; save backend code → it recompiles and swaps live.
+  the frame reloads; save backend code → it recompiles and swaps live (while
+  the tile's live reload isn't paused).
 - Components call each other through xbind only, with verified identity:
   callees declare **roles**, callers request them in `uses`, the owner
   approves once. The same grammar covers shared **resources**.

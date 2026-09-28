@@ -134,7 +134,7 @@ func (m *Manager) managerOrAdmin(w http.ResponseWriter, r *http.Request) (Key, b
 		writeErr(w, refuse(RefInvalid, "?tile= names the tile whose sandbox this is"))
 		return Key{}, false
 	}
-	k := Key{Tile: tile, Deployment: q.Get("deployment")}
+	k := keyFor(tile, q.Get("deployment"))
 	if !k.Main() {
 		writeErr(w, errDeployment())
 		return Key{}, false

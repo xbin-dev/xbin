@@ -6,9 +6,15 @@ package runner
 //
 //   - cgroup v2 leaves (comp-<key>) when delegation is on (systemd
 //     Delegate=yes — the installed service): accurate whole-tree memory/CPU/
-//     pids, regardless of sandbox sub-uids;
-//   - a /proc scan fallback (make dev, no delegation): the backend pid's
-//     descendant tree, summed.
+//     pids, regardless of sandbox sub-uids. A tile that runs deployments
+//     beyond main has the per-tile parent tile-<key>/ with a leaf per
+//     deployment (07-runtime §10.3): its pids are the whole tree's
+//     (TileProcs, cgroup.procs isn't recursive) and its totals the parent's
+//     hierarchical counters (TileUsage), with the flat leaf's while main's
+//     old generation drains there. A non-main deployment's backend row in
+//     the sandbox registry is also sampled by its own leaf;
+//   - a /proc scan fallback (make dev, no delegation): the descendant trees
+//     of the tile's backends (every deployment's current generation), summed.
 //
 // I/O rates always come from /proc/<pid>/io (rchar/wchar/syscr/syscw deltas —
 // syscall-level I/O, which is what actually reflects a tile's file activity
@@ -155,9 +161,10 @@ func (r *Runner) statsSample() {
 	// Which pids belong to which tile? cgroup membership (whole tree, any
 	// uid) when delegated; the backend's /proc descendant tree in dev.
 	targets := map[string][]int{}
-	leaves := map[string]string{} // target → its cgroup leaf ("" = sum /proc)
+	leaves := map[string]string{} // target → its cgroup leaf, a tile's CompKey ("" = sum /proc)
 	tileLeaf := map[string]bool{} // … which lives in the tile sandboxes' parent
-	cg := r.Cgroup != nil && r.Cgroup.Enabled()
+	cgs := r.cgroups()
+	cg := cgs != nil && cgs.Enabled()
 	var children map[int][]int // one /proc scan per sample, when needed
 	tree := func(root int) []int {
 		if children == nil {
@@ -167,25 +174,37 @@ func (r *Runner) statsSample() {
 	}
 	if cg {
 		for _, c := range r.Reg.Components() {
-			if pids, ok := r.Cgroup.Procs(util.CompKey(c.Path)); ok && len(pids) > 0 {
-				targets[c.Path], leaves[c.Path] = pids, util.CompKey(c.Path)
+			key := util.CompKey(c.Path)
+			if pids, ok := cgs.TileProcs(key); ok && len(pids) > 0 {
+				targets[c.Path], leaves[c.Path] = pids, key
 			}
 		}
 	} else {
-		// Dev fallback: each backend's descendant tree.
-		for comp, root := range r.backendPids() {
-			targets[comp] = tree(root)
+		// Dev fallback: the tile's backends' descendant trees.
+		for comp, roots := range r.backendPids() {
+			for _, root := range roots {
+				targets[comp] = append(targets[comp], tree(root)...)
+			}
 		}
 	}
-	// Terminals and agents (the registry's other sandboxes): their own leaf
-	// (a VM's, a restricted user's), else their process tree.
+	// Terminals and agents (the registry's other sandboxes), and a non-main
+	// deployment's backend generations: their own leaf (a VM's, a restricted
+	// user's, the deployment's), else their process tree. main's backend
+	// rows are counted by their tile above, as ever.
 	for _, e := range r.Sandboxes.List(sbx.Filter{}) {
-		if e.Kind == sbx.Backend {
+		if e.Kind == sbx.Backend && e.Deployment == "" {
 			continue // counted by their tile above
 		}
 		k := sandboxKey(e.ID)
-		if cgm := r.LeafCgroup(e); cgm.Enabled() && e.Leaf != "" {
-			if pids, ok := cgm.Procs(e.Leaf); ok && len(pids) > 0 {
+		if e.Leaf != "" {
+			var pids []int
+			var ok bool
+			if e.Kind == sbx.Tile { // in the tile sandboxes' parent (LeafCgroup)
+				pids, ok = r.LeafCgroup(e).Procs(e.Leaf)
+			} else if cg {
+				pids, ok = cgs.Procs(e.Leaf)
+			}
+			if ok && len(pids) > 0 {
 				targets[k], leaves[k], tileLeaf[k] = pids, e.Leaf, e.Kind == sbx.Tile
 				continue
 			}
@@ -217,11 +236,17 @@ func (r *Runner) statsSample() {
 		// uid-agnostic), else summed from the /proc tree.
 		var mem, pidsN int64
 		if leaf := leaves[comp]; leaf != "" {
-			cgm := r.Cgroup
-			if tileLeaf[comp] {
-				cgm = r.TileCgroup
+			var u cgroup.Usage
+			var ok bool
+			switch {
+			case tileLeaf[comp]: // a tile sandbox: its leaf in their parent
+				u, ok = r.TileCgroup.Usage(leaf)
+			case isSandboxKey(comp):
+				u, ok = cgs.Usage(leaf)
+			default: // a tile: its leaves, flat or nested
+				u, ok = cgs.TileUsage(leaf)
 			}
-			if u, ok := cgm.Usage(leaf); ok {
+			if ok {
 				raw.cpuUsec = u.CPUUsec
 				mem = u.MemCurrent
 				pidsN = u.PidsCurrent
@@ -272,19 +297,20 @@ func (r *Runner) statsSample() {
 	}
 }
 
-// backendPids maps each running component to its backend's root pid.
-func (r *Runner) backendPids() map[string]int {
-	r.mu.Lock()
-	states := make([]*state, 0, len(r.states))
-	for _, s := range r.states {
-		states = append(states, s)
-	}
-	r.mu.Unlock()
-	out := map[string]int{}
-	for _, s := range states {
+// backendPids maps each running tile to its backends' root pids: every
+// deployment's current generation, the primary's first.
+func (r *Runner) backendPids() map[string][]int {
+	out := map[string][]int{}
+	for _, s := range r.allStates("") {
+		primary := s.dep == r.primary(s.comp) // asked outside the state's lock
 		s.mu.Lock()
 		if s.cur != nil && s.cur.cmd != nil && s.cur.cmd.Process != nil {
-			out[s.comp] = s.cur.cmd.Process.Pid
+			pid := s.cur.cmd.Process.Pid
+			if primary {
+				out[s.comp] = append([]int{pid}, out[s.comp]...)
+			} else {
+				out[s.comp] = append(out[s.comp], pid)
+			}
 		}
 		s.mu.Unlock()
 	}

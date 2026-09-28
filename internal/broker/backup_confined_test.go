@@ -63,7 +63,7 @@ func TestRestoreRemovesOldLayersConfined(t *testing.T) {
 		return func() { log = append(log, "release") }, nil
 	}
 	man := backup.Manifest{Component: comp, Scope: comp, ScopeRoot: true, Includes: []string{"term-env"}}
-	if _, err := b.restore(safetyArchive(t, man, archiveEntry{"term/upper/new", "n"}), comp); err != nil {
+	if _, err := b.restore(comp, safetyArchive(t, man, archiveEntry{"term/upper/new", "n"}), nil); err != nil {
 		t.Fatalf("restore: %v", err)
 	}
 	if len(log) != 4 || log[0] != "remove "+stale || log[1] != "hold" || log[2] != "release" ||
@@ -192,7 +192,7 @@ func TestRestoreKeepsPermissionBits(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.restore(&buf, comp); err != nil {
+	if _, err := b.restore(comp, &buf, nil); err != nil {
 		t.Fatalf("restore: %v", err)
 	}
 	src, layer := filepath.Join(b.Reg.Root, comp), b.termDir(comp)
@@ -220,7 +220,7 @@ func TestRestoreKeepsPermissionBits(t *testing.T) {
 	c, _ := b.Reg.Component(comp)
 	buf.Reset()
 	bw := backup.NewWriter(&buf)
-	if err := b.writeBackup(bw, c); err != nil {
+	if err := b.writeBackup(bw, c, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := bw.Close(); err != nil {
@@ -229,7 +229,7 @@ func TestRestoreKeepsPermissionBits(t *testing.T) {
 	if err := os.RemoveAll(src); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.restore(&buf, comp); err != nil {
+	if _, err := b.restore(comp, &buf, nil); err != nil {
 		t.Fatalf("restore: %v", err)
 	}
 	if fi, err := os.Lstat(filepath.Join(src, "bin", "run.sh")); err != nil || fi.Mode() != 0o750 {

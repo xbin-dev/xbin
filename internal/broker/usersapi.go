@@ -42,10 +42,10 @@ func (b *Broker) canManageUsers(p auth.Principal) bool {
 	if p.Component == "" {
 		return false
 	}
-	if role, ok := b.grantedRole(p.Component, "xbin"); ok && roleSatisfies(role, "admin", nil) {
+	if role, ok := b.governanceRole(p, "xbin"); ok && roleSatisfies(role, "admin", nil) {
 		return true
 	}
-	role, ok := b.grantedRole(p.Component, "xbin:users")
+	role, ok := b.governanceRole(p, "xbin:users")
 	return ok && roleSatisfies(role, "writer", nil)
 }
 

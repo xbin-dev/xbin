@@ -167,6 +167,47 @@ backend automatically, so policy changes take effect *now*, not at the
 next incidental restart. Interface bindings restart their component through
 the same mechanism when rewired.
 
+## Tile deployments: edges and the edge policy
+
+A tile's grants, bindings and capabilities are its **edges** — the sense a
+cross-scope grant already has on this page. A tile deployment
+([/docs/tile-deployments.md](/docs/tile-deployments.md)) has no authority
+of its own: every deployment acts with its tile's edges, and the primary
+uses them exactly as today. For the tile's **non-primary** deployments each
+edge has a policy, set per edge by tile managers:
+
+- **`read`** (the default where the role can be narrowed): the call goes to
+  the provider's **primary**, and the evaluator's role is clamped to
+  `reader` — xbind never lets a non-primary deployment write into another
+  tile through what it brokers (resources, buses), and for tile-to-tile HTTP
+  it passes the clamped role, which the provider's role guard enforces;
+- **`inherit`** (role-less edges: the net slot and capability grants, the
+  default for all but `gpu:*`): the tile's own authority, never host
+  networking or a provider splice;
+- **`block`** (the default for `gpu:*`): nothing.
+
+An edge that can't be narrowed to `reader` — a custom role whose `implies`
+doesn't reach it, a stream or lan-ingress interface slot, a net bound to a
+provider — takes `block` only. An unknown value reads as `block`, and when
+several edges authorize one call, any `block` refuses it. Inbound, nothing
+changes: other tiles' calls, grants, bindings, cron and bus deliveries reach
+only the primary, and a non-primary deployment is reachable only by people
+with write on the tile and by the tile's own sessions.
+
+xbind's own API is default-deny for a non-primary deployment's credentials:
+every `/api/xbin/*` route is classified deployment-scoped, primary-only or
+neutral, and a route without a class refuses them, reads included. A
+non-primary principal never satisfies `IsAdmin` or any governance
+capability; workspace chrome and tiles holding an `xbin` or `xbin:*` grant
+can't have non-primary deployments, and approving such a grant for a tile
+that has them is refused. The deployments plane's manager acts — seeding
+data, copying vault values, reassigning or protecting the primary, edge
+policies, limits, deliveries — need a tile manager in a person's own
+session; terminal and agent tokens are refused even when their driver
+manages the tile. A non-primary deployment is an accident boundary, not a
+trust boundary: everyone who can change its code can already change the
+tile's.
+
 ## Deputy-proofing: attributed humans clamp capable tiles
 
 The capability-leak principle ([05-identity.md](05-identity.md)) says a
@@ -204,7 +245,9 @@ on `/api/xbin/…`) is logged as an `audit` line — actor (the verified
 `From`: `owner`, `user:<id>`, or a component path), method, path, and
 resulting status — so grant approvals, user changes, lifecycle flips,
 vault management, and token operations leave a who-did-what trail with
-outcomes (a 403 in the audit log is an attempt, not a change). The
+outcomes (a 403 in the audit log is an attempt, not a change). A tile's
+credential acting in a tile deployment other than `main` adds
+`deployment=<name>`. The
 high-frequency data plane (`prefs`, `kv`, `blob`, `bus`) is excluded as
 noise. It is a log stream, not a queryable store: ship xbind's stderr
 somewhere durable if you need retention.

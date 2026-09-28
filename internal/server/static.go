@@ -102,21 +102,34 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 	// no credential-less path at all, re-checks the DRIVING USER's live
 	// access for a tile's own frame principal too, and serves through
 	// serveStrictStatic (no symlink leaves the tile).
+	//
+	// A deployment URL, /c/<tile>+<name>/…, has a gate and a tail of its own
+	// (serveQualified, deployserve.go); it resolves only for a tile with a
+	// deployment record, after today's resolution fails.
+	if s.serveQualified(w, r, cleaned) {
+		return
+	}
+	r = withoutServed(r)
 	owner := s.owningComponent(cleaned)
-	if !isChrome(owner) {
-		if p := auth.PrincipalOf(r); (!p.CanReadTile(owner) && !s.codeGranted(p, owner) && !s.tileSubresourceAuthed(r)) || !s.strictLiveRead(p, owner) {
-			if p.User != nil && p.Component == "" && strings.Contains(r.Header.Get("Accept"), "text/html") {
-				s.serveRequestAccessPage(w, owner)
-				return
-			}
-			http.Error(w, "not permitted to use this tile", http.StatusForbidden)
-			return
-		}
+	if s.tileReadRefused(w, r, auth.PrincipalOf(r), owner) {
+		return
+	}
+	// The bare URL serves the owner's primary: its work tree below, as
+	// always, or its pinned checkpoint (deployserve.go); nothing when that
+	// code can't be served.
+	root, pinned, ok := s.primaryRoot(owner)
+	if !ok {
+		http.NotFound(w, r)
+		return
 	}
 	// A native runtime document (?native=1 on a tile's directory URL) is
 	// generated, not a file — authorized above exactly like index.html, in
 	// every asset mode.
 	if nativeRuntimeRequest(r) && s.serveNativeRoute(w, r, cleaned) {
+		return
+	}
+	if pinned {
+		s.servePinnedStatic(w, r, cleaned, owner, root)
 		return
 	}
 	if s.strictAssets() {
@@ -177,6 +190,26 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 		s.inertNonDocument(w, r, owner, comp)
 	}
 	http.ServeContent(w, r, path.Base(name), fi.ModTime(), f)
+}
+
+// tileReadRefused is the /c/ plane's read gate for owner's files, which
+// answers its refusal: chrome passes; anyone else needs read on the tile, a
+// code grant on it, or legacy's credential-less subresource rule, and in the
+// strict modes a tile's frame its driving user's live read. A signed-in
+// person gets the request-access page instead of a bare 403.
+func (s *Server) tileReadRefused(w http.ResponseWriter, r *http.Request, p auth.Principal, owner string) bool {
+	if isChrome(owner) {
+		return false
+	}
+	if (!p.CanReadTile(owner) && !s.codeGranted(p, owner) && !s.tileSubresourceAuthed(r)) || !s.strictLiveRead(p, owner) {
+		if p.User != nil && p.Component == "" && strings.Contains(r.Header.Get("Accept"), "text/html") {
+			s.serveRequestAccessPage(w, owner)
+			return true
+		}
+		http.Error(w, "not permitted to use this tile", http.StatusForbidden)
+		return true
+	}
+	return false
 }
 
 // openLegacy opens a file for the legacy /c/ plane — the dev overlay's copy
@@ -326,8 +359,13 @@ var shippedChrome = map[string]bool{"tiles/organisations": true}
 // chrome (root, shell — they ARE the workspace UI), and a component whose
 // manifest asks for `chrome: true` when it is shipped chrome or a workspace
 // admin approved it (D118). Never the manifest alone: a tile's xbin.json is
-// writable from its own terminals and coding agents (D40).
+// writable from its own terminals and coding agents (D40). Never a
+// non-primary deployment's view either: its documents are always sandboxed,
+// whatever its code declares (05-model §6).
 func (s *Server) trustedChrome(compPath string, comp *registry.Component) bool {
+	if comp != nil && comp.Deployment != "" {
+		return false
+	}
 	if isChrome(compPath) {
 		return true
 	}
@@ -451,13 +489,16 @@ func (s *Server) documentHeaders(w http.ResponseWriter, r *http.Request, compPat
 // a human or the tile itself that may read it — mayMintFrameToken — bound
 // to the login that opened it), bound interfaces, the sandbox token list,
 // the WebSocket origin for app WebViews (appWSOriginMeta), and the
-// xbin-client module.
+// xbin-client module. A non-primary deployment's document also carries its
+// deployment and keeps its self-imports in it (deploymentHead); the token's
+// claim names the served deployment (documentToken).
 func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPath string, body []byte) string {
 	imports := s.Reg.ImportMapFor(comp)
+	depMeta := s.deploymentHead(r, compPath, imports)
 
 	frameTok, assetHead := "", ""
 	if p := auth.PrincipalOf(r); s.mayMintFrameToken(r, p, compPath) {
-		frameTok = s.Auth.MintFrameTokenFor(p, compPath, frameTokenTTL) // bound to p's login (frametoken.go)
+		frameTok = s.documentToken(r, p, compPath)
 		// Strict asset gating: tokens mode's <base> + import-map remap
 		// (which rewrites imports in place), origins mode's mode meta;
 		// "" in legacy, so the injection below is byte-for-byte unchanged.
@@ -483,10 +524,10 @@ func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPa
 	return fmt.Sprintf(
 		"\n%s<script type=\"importmap\">%s</script>\n"+
 			"<meta name=\"xbin-component\" content=\"%s\">\n"+
-			"<meta name=\"xbin-frame-token\" content=\"%s\">\n"+
+			"%s<meta name=\"xbin-frame-token\" content=\"%s\">\n"+
 			"%s%s%s"+
 			"<script type=\"module\" src=\"/vendor/xbin-client.js\"></script>\n",
-		assetHead, im, htmlEscape(compPath), frameTok, ifaceMeta, sandboxMeta, appWSOriginMeta(r))
+		assetHead, im, htmlEscape(compPath), depMeta, frameTok, ifaceMeta, sandboxMeta, appWSOriginMeta(r))
 }
 
 // mayMintFrameToken: the injection mints compPath's frame token only for a
@@ -515,15 +556,24 @@ func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPa
 // then the target's token is nothing its writers couldn't take anyway. A
 // writer of a nested component only (per-path RBAC) never gets its
 // parent's or a sibling's token. Across trees it stays refused.
+//
+// The token never crosses deployments (11-contract §7.2) (P12), for every
+// document, bare or at a deployment URL: a person mints only for a
+// deployment they may open (read for the primary, write for any other), the
+// tile's own principal only for the deployment it is bound to
+// (mayOpenServed), and the navigation exception holds only for a frame bound
+// to its tile's primary, toward another tile's primary document
+// (boundToPrimary). A dev frame fetching /c/<tile>/ gets no primary token,
+// and a primary frame no dev token.
 func (s *Server) mayMintFrameToken(r *http.Request, p auth.Principal, compPath string) bool {
 	if backendPrincipal(p) || !p.CanReadTile(compPath) {
 		return false
 	}
-	if p.Component == "" || p.Component == compPath {
-		return true
+	if may, decided := s.mayOpenServed(r, p, compPath); decided {
+		return may
 	}
 	own := s.owningComponent(p.Component)
-	return own == compPath || (isNavigation(r) && s.sameTileTree(own, compPath) && s.writersCover(own, compPath))
+	return isNavigation(r) && s.sameTileTree(own, compPath) && s.writersCover(own, compPath) && s.boundToPrimary(r, p, own, compPath)
 }
 
 // writersCover reports whether everyone who can change from's code can

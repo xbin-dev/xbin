@@ -140,9 +140,12 @@ integration:
 	go test -tags=integration -count=1 -v ./test/
 	# the confined tool runs (D78), the sandbox init and a tile sandbox's
 	# `bx __sbx-agent` (a minimal lower built in the test) in real sandboxes,
-	# and the relay's per-flow host locality in a netns of its own: skip
-	# without .rootfs/userns
-	go test -tags=integration -count=1 -v ./internal/confine/ ./internal/runner/ ./internal/sandbox/ ./internal/sandbox/agentcore/ ./internal/sandbox/relay/
+	# the relay's per-flow host locality in a netns of its own, confined
+	# checkpoint builds and the broker's confined runs; the cgroup leaves on
+	# the real cgroupfs (only under a delegated cgroup: the file says how).
+	# Skip without .rootfs/userns (TestIntegrationPackagesListed keeps this
+	# list whole)
+	go test -tags=integration -count=1 -v ./internal/confine/ ./internal/runner/ ./internal/sandbox/ ./internal/sandbox/agentcore/ ./internal/sandbox/relay/ ./internal/checkpoint/ ./internal/broker/ ./internal/cgroup/
 	# tile sandboxes (D120) started, driven and ended through the runtime's
 	# routes: over a minimal lower (kernel overlay, then fuse-overlayfs when
 	# bin/ has it) and over .rootfs when present; skip without userns. VM
@@ -153,9 +156,9 @@ integration:
 		-skip '^(TestLiveExecs|TestLiveFiles)$$/^(minimal|rootfs|namespace)$$' ./internal/tilesbx/
 	# a live terminal's layer — a sub-uid's files in it, in range mode — goes
 	# whole on a reset and an offload-full (WP-9b), and its mount points are
-	# never followed through it (WP-2b): only these tests of these
-	# unit-heavy packages; skip without .rootfs/userns
-	go test -tags=integration -count=1 -v -run '^(TestConfined|TestTermMountPoints)' ./internal/term/ ./internal/broker/
+	# never followed through it (WP-2b): only these tests of this unit-heavy
+	# package (the broker's run whole above); skip without .rootfs/userns
+	go test -tags=integration -count=1 -v -run '^(TestConfined|TestTermMountPoints)' ./internal/term/
 	# VM sandboxes (D89): skip without /dev/kvm or the vm-assets; then again
 	# under QEMU's emulation (skips without its assets)
 	go test -tags=integration -count=1 -v ./internal/vm/

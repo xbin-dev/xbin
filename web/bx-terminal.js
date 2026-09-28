@@ -23,10 +23,19 @@
  *   vm       — "1": open the session in a VM sandbox (a Firecracker microVM,
  *              root in its own kernel; D89). Changing it
  *              restarts the session, like net/gpu/api.
+ *   deployment — the tile deployment a new session calls (its target);
+ *              omit it for the server's default (the primary, P24).
+ *              Changing it restarts the session; the server's echo is
+ *              mirrored back without a restart, as net's is.
  *
  * Events: 'bx-session' (detail: {id, net, scopes:[{id,label,desc}], label,
- * netNote, vm}) once the server assigns a session — `scopes` is exactly what this
- * user may pick on this tile, `netNote` explains a clamp.
+ * netNote, vm, deployment, asked, api}) once the server assigns a session —
+ * `scopes` is exactly what this user may pick on this tile, `netNote`
+ * explains a clamp, `deployment` is the target the server echoed ('' for a
+ * session that follows the primary) and `asked` the one this connection
+ * requested, `api` whether it has the tile API (when the server says).
+ * Methods: note(text) writes a grey notice line (held while a full-screen
+ * program owns the screen); end(text) ends the session with a red line.
  * Wire protocol: docs/protocol.md §/ws/term.
  *
  * xterm.js ships as UMD, loaded lazily into the main document; bx-terminal
@@ -118,13 +127,15 @@ function savedPredict() {
 
 export class BxTerminal extends HTMLElement {
   #term; #fit; #ws; #ro; #closed = false; #retries = 0; #opened = false; #reattachFails = 0; #host; #ranInit = false;
-  #serverNet = null; #notedSession = null; // effective scope per the server; the session we printed a net note for
+  #serverNet = null; #notedSession = null; // effective scope per the server; the session we printed its notes for
+  #serverDep = ''; #serverApi = null; #asked = ''; #restartMsg = null; // the echoed target and API, the target this connection asked for, a pending restart
   #onPref; #onStorage; #onAmbient; #gen = 0; // connection epoch: only the latest socket drives the term
   // predictive echo (D70): the engine, our count of input frames sent on this
   // socket, whether this xbind acks them, the smoothed RTT, the live
   // decoration markers, the last rendered overlay, and the harness's ack hold
   #pred = new Predictor(); #seq = 0; #echoAck = false; #srtt = null; #layer = null; #overlay = []; #hold = null;
   #pingTimer = null; #nullCell = null;
+  #note = null; // a notice held while a full-screen program owns the alternate buffer (note())
   #openedAt = 0; #failed = 0; // src mode: when this socket opened; handshakes in a row that never opened
   // #baseFont is the user's chosen terminal font size; #ambient is the workspace
   // zoom applied by an ancestor (bx-shell). xterm's actual fontSize is their
@@ -490,7 +501,7 @@ export class BxTerminal extends HTMLElement {
   // spawn), so a live change to `net` restarts the session: drop the current
   // session id and reconnect, which asks xbind for a fresh shell in the new
   // scope. (The caller is expected to have already ended the old session.)
-  static get observedAttributes() { return ['net', 'gpu', 'api', 'vm', 'src']; }
+  static get observedAttributes() { return ['net', 'gpu', 'api', 'vm', 'deployment', 'src']; }
   attributeChangedCallback(name, oldV, newV) {
     // another src is another terminal: start over there (after an exit too)
     if (name === 'src') {
@@ -499,16 +510,25 @@ export class BxTerminal extends HTMLElement {
       this.#restart(newV ? 'connecting…' : '');
       return;
     }
-    if (!['net', 'gpu', 'api', 'vm'].includes(name) || oldV === null || oldV === newV || !this.#term) return;
-    // The server reports the EFFECTIVE scope in its session frame (it may
-    // clamp what was asked — D54); mirroring that into the attribute must not
-    // respawn the shell we just got.
+    if (!this.#term) return;
+    // An absent target is the primary: its appearing or going is a change.
+    if (name === 'deployment' ? (oldV || '') === (newV || '') : oldV === null || oldV === newV) return;
+    // The server reports the EFFECTIVE scope, target and API in its session
+    // frame (it may clamp what was asked — D54 — or fall back — P24);
+    // mirroring that into the attribute must not respawn the shell we just got.
     if (name === 'net' && newV === this.#serverNet) return;
+    if (name === 'deployment' && (newV || '') === this.#serverDep) return;
+    if (name === 'api' && newV === this.#serverApi) return;
     const msg = name === 'gpu' ? `switching GPU → ${newV}…`
       : name === 'vm' ? (newV === '1' ? 'starting a VM…' : 'leaving the VM…')
       : name === 'api' ? `${newV === '0' ? 'disabling' : 'enabling'} tile API…`
+      : name === 'deployment' ? `switching the target → ${newV || 'the primary'}…`
         : `switching network → ${newV === 'org' || newV === 'personal' ? newV + ' network' : newV}…`;
-    this.#restart(msg);
+    // One render may change several (the target and the API, the VM and the
+    // network): one restart, named by the last.
+    const pending = this.#restartMsg !== null;
+    this.#restartMsg = msg;
+    if (!pending) queueMicrotask(() => { const m = this.#restartMsg; this.#restartMsg = null; if (!this.#closed) this.#restart(m); });
   }
 
   // src: the terminal-wire endpoint this terminal dials instead of /ws/term
@@ -606,7 +626,7 @@ export class BxTerminal extends HTMLElement {
     });
     this.#term.onWriteParsed(() => this.#redraw()); // the screen changed: judge and redraw the overlay
     this.#term.onScroll(() => this.#redraw());      // scrolled back: the overlay hides
-    this.#term.buffer.onBufferChange(() => { this.#pred.reset(); this.#redraw(); });
+    this.#term.buffer.onBufferChange(() => { this.#pred.reset(); this.#redraw(); this.#flushNote(); });
     // A program hiding the cursor (DECTCEM off) switches the engine to anchor
     // mode; showing it, or a full reset, switches back. Only the flag flips
     // here — the onWriteParsed redraw follows the same parse.
@@ -615,6 +635,34 @@ export class BxTerminal extends HTMLElement {
     this.#term.parser.registerCsiHandler({ prefix: '?', final: 'h' }, dectcem(false));
     this.#term.parser.registerEscHandler({ final: 'c' }, () => { this.#pred.setCursorHidden(false); return false; });
     this.#connect();
+    this.#flushNote();
+  }
+
+  // note(text): a grey line from the terminal window, framed like the net
+  // note — the tile's live reload state changed (frame-deploy.js). Written at
+  // once on the normal buffer; while a full-screen program (vim, less, a TUI)
+  // holds the alternate buffer only the latest note is kept, and written when
+  // it exits, so no screen is ever corrupted. Control characters are dropped.
+  note(text) {
+    this.#note = `\r\n\x1b[90m[${String(text).replace(/[\x00-\x1f\x7f]/g, '')}]\x1b[0m\r\n`;
+    this.#flushNote();
+  }
+  #flushNote() {
+    if (!this.#note || !this.#term || this.#term.buffer.active.type !== 'normal') return;
+    this.#term.write(this.#note);
+    this.#note = null;
+  }
+
+  // end(text): the terminal window ends this session — the target it asked
+  // for came back without the server's echo (frame-deploy.js): a red line,
+  // the socket closed, the session ended server-side, no reconnect.
+  end(text) {
+    this.#closed = true;
+    this.#term?.write(`\r\n\x1b[31m[${String(text).replace(/[\x00-\x1f\x7f]/g, '')}]\x1b[0m\r\n`);
+    const id = this.getAttribute('session'), ws = this.#ws;
+    this.#ws = null;
+    if (ws) { ws.onclose = null; ws.close(); }
+    if (id) fetch(`/ws/term?session=${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => { });
   }
 
   #connect() {
@@ -630,6 +678,7 @@ export class BxTerminal extends HTMLElement {
     clearInterval(this.#pingTimer); this.#pingTimer = null;
     this.#status();
     const src = this.getAttribute('src');
+    this.#asked = ''; // a src terminal names no target; #dialTerm sets it
     const ws = src ? this.#dialSrc(src) : this.#dialTerm();
     if (!ws) return;
     ws.binaryType = 'arraybuffer';
@@ -674,6 +723,7 @@ export class BxTerminal extends HTMLElement {
   // session with the scope attributes.
   #dialTerm() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    this.#asked = this.getAttribute('session') ? '' : this.getAttribute('deployment') || ''; // a reattach asks for nothing
     const q = this.getAttribute('session')
       ? `session=${encodeURIComponent(this.getAttribute('session'))}`
       : `cwd=${encodeURIComponent(this.getAttribute('cwd') || '')}` +
@@ -681,6 +731,8 @@ export class BxTerminal extends HTMLElement {
         // tile (the org network on org-owned tiles, D54).
         (this.getAttribute('net') ? `&net=${encodeURIComponent(this.getAttribute('net'))}` : '') +
         `&gpu=${encodeURIComponent(this.getAttribute('gpu') || 'none')}` +
+        // the target is sent only when chosen; absent = the server's default (P24)
+        (this.#asked ? `&deployment=${encodeURIComponent(this.#asked)}` : '') +
         `&api=${this.getAttribute('api') === '0' ? '0' : '1'}` +
         (this.getAttribute('vm') === '1' ? '&vm=1' : '');
     return new WebSocket(`${proto}//${location.host}/ws/term?${q}`);
@@ -753,14 +805,19 @@ export class BxTerminal extends HTMLElement {
           if (run) { this.#ranInit = true; try { this.#ws?.send(enc.encode(run + '\n')); } catch { } }
         }
         if (ctl.net) { this.#serverNet = ctl.net; this.setAttribute('net', ctl.net); }
+        this.#serverDep = ctl.deployment || '';
+        this.#serverApi = typeof ctl.api === 'boolean' ? (ctl.api ? '1' : '0') : null;
         // A clamp note ("host networking is admin-only — using the org
-        // network") is worth one gray line; the scope picker shows the rest.
-        if (ctl.netNote && ctl.id !== this.#notedSession) {
+        // network") and the session's own target note ("this terminal
+        // calls apps/crm+dev") are worth one gray line each, once per
+        // session; the pickers show the rest.
+        if ((ctl.netNote || ctl.targetNote) && ctl.id !== this.#notedSession) {
           this.#notedSession = ctl.id;
-          this.#term.write(`\r\n\x1b[90m[${ctl.netNote}]\x1b[0m\r\n`);
+          for (const n of [ctl.netNote, ctl.targetNote]) if (n) this.#term.write(`\r\n\x1b[90m[${n}]\x1b[0m\r\n`);
         }
         this.dispatchEvent(new CustomEvent('bx-session', {
-          detail: { id: ctl.id, net: ctl.net, scopes: ctl.scopes, label: ctl.label, netNote: ctl.netNote, baseOutdated: !!ctl.baseOutdated, vm: !!ctl.vm },
+          detail: { id: ctl.id, net: ctl.net, scopes: ctl.scopes, label: ctl.label, netNote: ctl.netNote, baseOutdated: !!ctl.baseOutdated, vm: !!ctl.vm,
+            deployment: this.#serverDep, asked: this.#asked, ...(this.#serverApi ? { api: ctl.api } : {}) },
           bubbles: true }));
         // this xbind acks input and answers pings: measure the link, keep measuring
         this.#echoAck = !!ctl.echoAck;

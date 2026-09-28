@@ -1,8 +1,11 @@
 package broker
 
 import (
+	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
@@ -233,9 +236,58 @@ func (b *Broker) apiOwnerPreview(w http.ResponseWriter, r *http.Request) {
 	server.WriteJSON(w, http.StatusOK, b.transferPreview(p, st, tile, to))
 }
 
+// ownerMoves makes each transfer's move one step: its deployment record
+// rewrite and its owner store write never interleave with another's.
+var ownerMoves sync.Mutex
+
+// moveOwner is the transfer's move: tile's owner becomes to, and its
+// deployment record's owner ref follows in the same step (P29), so a pinned
+// primary stays pinned across the restart executeTransferEffects makes.
+// The record is rewritten before st.SetOwner: the deployments index compares
+// a record's owner ref with the owner store on every lookup and accepts the
+// former owner only until the store moves, so a record rewritten after it
+// would already read as inert, and the tile would restart onto its work
+// tree. A record that can't be rewritten stops the transfer before anything
+// moves; when SetOwner fails, the record follows whatever the store then
+// says. A tile without a record: SetOwner alone, as before tile deployments.
+// On an error, the status is the one to answer with.
+func (b *Broker) moveOwner(st *users.Store, tile, to string) (int, error) {
+	kind, id, err := users.ParseOwner(to)
+	if err != nil {
+		return http.StatusBadRequest, err
+	}
+	ref := "" // the owner ref as SetOwner stores it, its id normalized
+	if kind != "" {
+		ref = kind + ":" + id
+	}
+	ownerMoves.Lock()
+	defer ownerMoves.Unlock()
+	if err := b.rewriteDeploymentOwner(tile, ref); err != nil {
+		return http.StatusInternalServerError, fmt.Errorf("the tile's deployment record can't follow the transfer, so nothing moved: %w", err)
+	}
+	if err := st.SetOwner(tile, to); err != nil {
+		if now := st.Owner(tile); now != ref {
+			if rerr := b.rewriteDeploymentOwner(tile, now); rerr != nil {
+				slog.Error("owner transfer failed, and the deployment record couldn't follow the owner back",
+					"tile", tile, "owner", now, "err", rerr)
+			}
+		}
+		return http.StatusBadRequest, err
+	}
+	return 0, nil
+}
+
 // executeTransferEffects runs the §3 side effects after a successful
 // SetOwner: unbind hard-dead slots, restart what re-materializes at spawn,
 // publish events. Returns the unbound slot names.
+//
+// The tile's deployments moved with it (05-model §11) (P29): moveOwner
+// rewrote its record's owner ref before the owner store moved, so each keeps
+// its code, its settings and its edge policy, and the restart below — the
+// runner's ChangedTile behind OnGrantChange — reaches every deployment with
+// a running, building or failed generation, each onto the code its record
+// names, under the new owner's ceilings. A deployment without one starts on
+// its next request, under them too.
 func (b *Broker) executeTransferEffects(tile string, rep transferReport) []string {
 	unbound := []string{}
 	if len(rep.DeadBind) > 0 {
@@ -271,8 +323,10 @@ func (b *Broker) executeTransferEffects(tile string, rep transferReport) []strin
 		}
 	}
 	// The tile's spawn-materialized access (egress, res env, GPU) follows the
-	// new owner's ceiling — restart it regardless of unbinds — and so do its
-	// sandboxes' network classes (re-resolved by the runtime).
+	// new owner's ceiling — restart it regardless of unbinds: every running
+	// deployment, the primary and the rest alike, since authority is the
+	// tile's — and so do its sandboxes' network classes (re-resolved by the
+	// runtime).
 	if b.OnGrantChange != nil {
 		b.OnGrantChange(tile)
 	}

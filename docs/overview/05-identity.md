@@ -25,6 +25,7 @@ same handler), which resolves the caller, strips any identity the caller
 X-XBin-From: owner | user:<id> | <component-path> | xbin/cron | xbin/bus | ingress
 X-XBin-Role: <role granted on the callee>
 X-XBin-Ingress-Host: <public hostname>     (ingress traffic only)
+X-XBin-Deployment: <name>                  (a call from a tile's non-primary deployment only)
 ```
 
 If a backend sees these headers, they are true (docs/auth.md §Roles and grants). The SDK's
@@ -50,6 +51,20 @@ surfaces of the same identity — the component path — with the same rights.
 A grant covers a component's backend, its frontend, and its terminal
 equally; *where* a call originates never matters, *which element* is calling
 does.
+
+**Tile deployments** ([/docs/tile-deployments.md](/docs/tile-deployments.md))
+add no principal kind: a tile's deployments share its path and its
+principal, and act with its grants. Each element credential is bound to one
+deployment of its tile — an instance token to its generation's deployment, a
+frame token to the deployment of the document it was minted for (a sixth,
+signed field names any deployment other than `main`), a terminal or agent
+session to its target — so a self-call stays inside that deployment, and a
+tile's credential can't call another deployment of its own tile. Callees
+still see the tile path in `X-XBin-From`, plus `X-XBin-Deployment: <name>`
+when the caller is a non-primary deployment; the primary's calls carry
+nothing new. The deployments plane's manager acts (seeding data, reassigning
+or protecting the primary, edge policies) need a person's own session: no
+element principal passes, whatever grants its tile holds.
 
 ## Owner: the root token
 
@@ -203,7 +218,8 @@ backend, and the public hostname rides in `X-XBin-Ingress-Host`. The SDK's
 The mechanics that make the header contract trustworthy:
 
 - **Strip, then inject.** The element proxy deletes the identity headers
-  (`X-XBin-From`, `X-XBin-Role`, the frame-token header) from every inbound
+  (`X-XBin-From`, `X-XBin-Role`, `X-XBin-Deployment`, the frame-token
+  header) from every inbound
   request before injecting verified values; the ingress path strips the
   entire `X-XBin-*` namespace. A caller — or a compromised terminator tile —
   cannot smuggle an identity through.

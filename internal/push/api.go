@@ -302,8 +302,13 @@ func notifier(p auth.Principal) (tile, self string, ok bool) {
 // APINotify is POST /notify {user, title, body?, link?, kind?, collapseId?}
 // for tile backends: a notification to a person who can read the calling
 // tile. A tile's frontend may notify only the person using it.
-func (s *Service) APINotify(w http.ResponseWriter, r *http.Request) {
-	tile, self, ok := notifier(auth.PrincipalOf(r))
+func (s *Service) APINotify(w http.ResponseWriter, r *http.Request) { s.notify(w, r, nil) }
+
+// notify is POST /notify; h holds the notifications of a deployment that
+// isn't its tile's primary (held.go), nil holds none.
+func (s *Service) notify(w http.ResponseWriter, r *http.Request, h *Holder) {
+	p := auth.PrincipalOf(r)
+	tile, self, ok := notifier(p)
 	if !ok {
 		fail(w, http.StatusForbidden, "notify is called by a tile's backend: the notification names the tile it comes from")
 		return
@@ -341,6 +346,15 @@ func (s *Service) APINotify(w http.ResponseWriter, r *http.Request) {
 		return
 	case self != "" && user != self:
 		fail(w, http.StatusForbidden, "a tile's frontend can notify only the person using it; notify others from the tile's backend")
+		return
+	}
+	// a deployment that isn't the tile's primary never pushes (P13)
+	if dep, err := h.held(p, tile); err != nil {
+		writeHeldErr(w, err)
+		return
+	} else if dep != "" {
+		h.hold(tile, dep, user, title)
+		server.WriteJSON(w, http.StatusAccepted, map[string]any{"ok": true, "suppressed": true})
 		return
 	}
 	accepted := func() { server.WriteJSON(w, http.StatusAccepted, map[string]any{"ok": true}) }

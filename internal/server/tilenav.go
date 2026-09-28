@@ -59,14 +59,15 @@ func (s *Server) withoutTileInitiatedCookies(r *http.Request) *http.Request {
 // mint the ticket; all it can answer is a redirect to that tile's origin
 // with a ticket for this browser's own session, bound to a state only this
 // browser's tile origin cookie holds — nothing another page can read or
-// plant.
+// plant. A deployment URL's document is its deployment's (P17): always
+// sandboxed unless it is the alias of the primary, which is the tile's.
 func (s *Server) exchangeReturn(r *http.Request) bool {
 	if !strings.HasPrefix(r.URL.Path, "/c/") || !hasQueryKey(r.URL.RawQuery, stateParam) {
 		return false
 	}
-	owner := s.owningComponent(path.Clean("/" + strings.TrimPrefix(r.URL.Path, "/c/"))[1:])
-	c, ok := s.Reg.Component(owner)
-	return ok && s.sandboxedFrame(owner, c)
+	ref := s.docTargetOf(path.Clean("/" + strings.TrimPrefix(r.URL.Path, "/c/"))[1:])
+	c, ok := s.Reg.Component(ref.tile)
+	return ok && (ref.dep != "" && ref.dep != s.primaryOf(ref.tile) || s.sandboxedFrame(ref.tile, c))
 }
 
 // onTilesDomain: an Origin or Referer value naming a host under the tiles
@@ -135,12 +136,18 @@ func (s *Server) setDocCSP(w http.ResponseWriter, r *http.Request, policy string
 //
 // Anything else is refused: no tile document runs on the workspace origin
 // in origins mode.
+//
+// The origin is the served deployment's (P17; 11-contract §2.6): the
+// primary's for the bare URL, the named deployment's for a deployment URL,
+// whose gate has already run; its ticket names that deployment (x2), main's
+// keeps today's x1.
 func (s *Server) tileDocOnWorkspace(w http.ResponseWriter, r *http.Request, owner string) bool {
 	if !isNavigation(r) || r.Header.Get(auth.FrameTokenHeader) != "" || r.Header.Get("Authorization") != "" {
 		return false
 	}
 	p := auth.PrincipalOf(r)
-	origin := s.tileOriginURL(owner)
+	dep := s.servedDeployment(r, owner).dep
+	origin := s.deploymentOriginURL(owner, dep)
 	binding, bound := s.Auth.TileBinding(r, p.UserID)
 	if origin == "" || !p.CanReadTile(owner) || (p.Component != "" && s.owningComponent(p.Component) != owner) || !bound {
 		w.Header().Set("Cache-Control", "no-store")
@@ -159,7 +166,7 @@ func (s *Server) tileDocOnWorkspace(w http.ResponseWriter, r *http.Request, owne
 		// the return leg: a ticket for this session and the tile origin's
 		// state (a state from anywhere else only yields a ticket its tile
 		// origin refuses)
-		http.Redirect(w, r, origin+r.URL.EscapedPath()+"?"+q+ticketParam+"="+url.QueryEscape(s.Auth.MintTileTicket(owner, p.UserID, binding, st)), http.StatusFound)
+		http.Redirect(w, r, origin+r.URL.EscapedPath()+"?"+q+ticketParam+"="+url.QueryEscape(s.Auth.MintTileTicketDeployment(owner, dep, p.UserID, binding, st)), http.StatusFound)
 		return true
 	}
 	target := origin + r.URL.EscapedPath() + "?" + q + beginParam + "=" + url.QueryEscape(s.Auth.TileBindingHint(binding))
@@ -200,6 +207,8 @@ func (s *Server) trustedInitiator(r *http.Request) bool {
 // component of its own, which lives on that component's origin and arrives
 // here through the tile origin's hand-off (toWorkspace). The browser sets
 // Referer; another tile can suppress its own but never claim this one's.
+// The Referer may be any deployment's origin of the tile (originOf), and
+// the target a deployment URL.
 func (s *Server) navWithinTree(r *http.Request) bool {
 	if !strings.HasPrefix(r.URL.Path, "/c/") {
 		return false
@@ -212,13 +221,11 @@ func (s *Server) navWithinTree(r *http.Request) bool {
 	if !ok || label == "" {
 		return false
 	}
-	target := s.owningComponent(path.Clean("/" + strings.TrimPrefix(r.URL.Path, "/c/"))[1:])
-	for _, c := range s.Reg.Components() {
-		if s.Auth.TileHostID(c.Path) == label {
-			return s.sameTileTree(c.Path, target)
-		}
+	from, _, ok := s.originOf(label)
+	if !ok {
+		return false
 	}
-	return false
+	return s.sameTileTree(from, s.docTargetOf(path.Clean("/" + strings.TrimPrefix(r.URL.Path, "/c/"))[1:]).tile)
 }
 
 // withoutTileCookie strips the tile cookie from a request proxied to a

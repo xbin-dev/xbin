@@ -193,6 +193,18 @@ func (h *Hub) Tail(n int) []byte {
 	return append([]byte(nil), b...)
 }
 
+// SessionFrame is the session frame Attach sends first: hello's fields with
+// "op":"session" and "echoAck":true (this hub acks input and answers pings).
+func SessionFrame(hello map[string]any) []byte {
+	hl := make(map[string]any, len(hello)+2)
+	for k, v := range hello {
+		hl[k] = v
+	}
+	hl["op"], hl["echoAck"] = "session", true
+	b, _ := json.Marshal(hl)
+	return b
+}
+
 // Attach serves one upgraded socket (Upgrade) until it or the terminal goes;
 // it returns at once. The socket gets the session frame first — hello, with
 // "op":"session" and "echoAck":true set here (this hub acks input and
@@ -201,12 +213,7 @@ func (h *Hub) Tail(n int) []byte {
 // and ping, anything else ignored. On an ended terminal the socket gets the
 // session frame, the tail and the exit frame, then closes.
 func (h *Hub) Attach(conn *websocket.Conn, hello map[string]any, t Terminal) {
-	hl := make(map[string]any, len(hello)+2)
-	for k, v := range hello {
-		hl[k] = v
-	}
-	hl["op"], hl["echoAck"] = "session", true
-	helloB, _ := json.Marshal(hl)
+	helloB := SessionFrame(hello)
 
 	c := &client{conn: conn, send: make(chan frame, queueLen)}
 	c.echo = newEchoTracker(func(n uint64) {

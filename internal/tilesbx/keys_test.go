@@ -74,14 +74,13 @@ func TestKeys(t *testing.T) {
 }
 
 // reviewedPrincipalFields are the auth.Principal fields reviewed for the
-// sandbox key: none of them names a deployment, so keyOf builds main's
-// key from Component alone. A field added to auth.Principal fails this
-// test until someone decides what it means for the key — above all
-// dev-lifecycle's Deployment (plans/tile-sandbox-runtime.md §1.4, §14):
-// replace deploymentOf's reflection with p.Deployment, build non-main
-// keys, and add the field here.
+// sandbox key: keyOf builds it from Component and Deployment (a non-main
+// deployment's is refused until its own set exists), and none of the others
+// names a set of sandboxes. A field added to auth.Principal fails this test
+// until someone decides what it means for the key
+// (plans/tile-sandbox-runtime.md §1.4, §14).
 var reviewedPrincipalFields = []string{
-	"Access", "Component", "DeviceID", "Gen", "Impersonator", "Owner", "Role", "User", "UserID", "Via",
+	"Access", "Component", "Deployment", "DeviceID", "Gen", "Impersonator", "Owner", "Role", "User", "UserID", "Via",
 }
 
 func TestPrincipalFieldsReviewed(t *testing.T) {
@@ -98,64 +97,24 @@ func TestPrincipalFieldsReviewed(t *testing.T) {
 	}
 }
 
-// deployedPrincipal stands in for a principal type with a Deployment field
-// while auth.Principal has none.
-type deployedPrincipal struct {
-	auth.Principal
-	Deployment string
+// withDeployment makes every principal the gates see act in deployment d.
+func withDeployment(d string) func(auth.Principal) auth.Principal {
+	return func(p auth.Principal) auth.Principal { p.Deployment = d; return p }
 }
 
-// withDeployment makes every principal the gates see act in deployment d:
-// through auth.Principal's own Deployment field once it has one, through
-// the stand-in type until then.
-func withDeployment(t *testing.T, d string) func(auth.Principal) auth.Principal {
-	t.Helper()
-	if _, ok := reflect.TypeOf(auth.Principal{}).FieldByName("Deployment"); ok {
-		return func(p auth.Principal) auth.Principal {
-			reflect.ValueOf(&p).Elem().FieldByName("Deployment").SetString(d)
-			return p
+// keyOf: main is "" or "main"; any other deployment is refused, never
+// main's key.
+func TestKeyOfDeployment(t *testing.T) {
+	for _, d := range []string{"", "main"} {
+		if k, err := keyOf(auth.Principal{Component: "apps/mgr", Deployment: d}); err != nil || k != (Key{Tile: "apps/mgr"}) {
+			t.Fatalf("keyOf(deployment %q) = %+v, %v; want main's", d, k, err)
 		}
 	}
-	old := principalDeployment
-	principalDeployment = func(p auth.Principal) string {
-		return deploymentOf(deployedPrincipal{Principal: p, Deployment: d})
+	if k, err := keyOf(auth.Principal{Component: "apps/mgr", Deployment: "blue"}); err == nil || k != (Key{}) {
+		t.Fatalf("keyOf(deployment blue) = %+v, %v; want errDeployment", k, err)
 	}
-	t.Cleanup(func() { principalDeployment = old })
-	return func(p auth.Principal) auth.Principal { return p }
-}
-
-func TestDeploymentOf(t *testing.T) {
-	if got := deploymentOf(deployedPrincipal{Deployment: "blue"}); got != "blue" {
-		t.Fatalf("stand-in: %q", got)
-	}
-	if got := deploymentOf(&deployedPrincipal{Deployment: "blue"}); got != "blue" {
-		t.Fatalf("stand-in pointer: %q", got)
-	}
-	if got := deploymentOf(deployedPrincipal{}); got != "" {
-		t.Fatalf("stand-in, main: %q", got)
-	}
-	if _, ok := reflect.TypeOf(auth.Principal{}).FieldByName("Deployment"); !ok {
-		if got := deploymentOf(mgr); got != "" {
-			t.Fatalf("auth.Principal without the field: %q", got)
-		}
-	}
-	// A field of another type fails closed: set, it is never main.
-	type named string
-	type odd struct{ Deployment struct{ N int } }
-	if got := deploymentOf(odd{}); got != "" {
-		t.Fatalf("an unset odd field: %q", got)
-	}
-	if got := deploymentOf(odd{Deployment: struct{ N int }{1}}); got == "" {
-		t.Fatal("a set odd field reads as main")
-	}
-	if got := deploymentOf(struct{ Deployment named }{"green"}); got != "green" {
-		t.Fatalf("a named string field: %q", got)
-	}
-	if got := deploymentOf(nil); got != "" {
-		t.Fatalf("nil: %q", got)
-	}
-	if got := deploymentOf((*deployedPrincipal)(nil)); got != "" {
-		t.Fatalf("a nil pointer: %q", got)
+	if k := keyFor("apps/mgr", "main"); !k.Main() {
+		t.Fatalf("keyFor(main) = %+v", k)
 	}
 }
 
@@ -165,7 +124,7 @@ func TestDeploymentOf(t *testing.T) {
 func TestNonMainDeploymentUnsupported(t *testing.T) {
 	e := newEnv(t)
 	e.create(ns("sb-1"))
-	as := withDeployment(t, "blue")
+	as := withDeployment("blue")
 	dmgr := as(mgr)
 	for pat := range routeTable(e.m) {
 		method, path, _ := strings.Cut(pat, " ")

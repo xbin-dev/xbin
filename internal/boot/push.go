@@ -3,6 +3,7 @@ package boot
 import (
 	"path/filepath"
 
+	"github.com/xbin-dev/xbin/internal/deployments"
 	"github.com/xbin-dev/xbin/internal/push"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/term"
@@ -152,6 +153,21 @@ func (st *State) setupPush(srv *server.Server) error {
 	srv.RegisterAPI("GET /push/devices", ps.APIAdminDevices)
 	srv.RegisterAPI("DELETE /push/devices/{user}", ps.APIAdminForget)
 	srv.RegisterAPI("DELETE /push/devices/{user}/{deviceId}", ps.APIAdminForget)
-	srv.RegisterAPI("POST /notify", ps.APINotify)
+	// A non-primary deployment's notifications are held as would-notify,
+	// never pushed (09-fabric §6; 11-contract §3.3): the holder asks the
+	// plane which deployment a notifier's credential is, and a removed
+	// deployment's list goes with its registrations.
+	st.held = &push.Holder{Primary: st.Deployments.Primary, Addressed: st.Deployments.Addressed, Hub: st.Hub}
+	if drop := st.Deployments.DropRegistrations; drop != nil {
+		st.Deployments.DropRegistrations = func(t, d string) error { st.held.Drop(t, d); return drop(t, d) }
+	}
+	st.Deployments.WouldNotify = func(t, d string) []deployments.WouldNotify { // Deployment.wouldNotify
+		var out []deployments.WouldNotify
+		for _, n := range st.held.WouldNotify(t, d) {
+			out = append(out, deployments.WouldNotify(n))
+		}
+		return out
+	}
+	srv.RegisterAPI("POST /notify", ps.NotifyHandler(st.held))
 	return nil
 }

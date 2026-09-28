@@ -75,7 +75,9 @@ Everything in xbin belongs to one of two planes (docs/auth.md):
   plus whatever it was explicitly granted.
 
 The planes meet only at the filesystem: editing changes files; xbind watches,
-rebuilds, and hot-swaps the runtime ([03-components.md](03-components.md)).
+rebuilds, and hot-swaps the runtime ([03-components.md](03-components.md)) —
+unless a tile's developers paused its live reload, which keeps the runtime on
+a checkpoint until they ship ([/docs/tile-deployments.md](/docs/tile-deployments.md)).
 Editing is deliberately *not* mediated by xbin — any editor, any tool, any
 agent CLI works, and xbind only reacts to the resulting file changes.
 

@@ -56,6 +56,9 @@ type Broker struct {
 
 	obs *obs.Plane // tile status, prefs, logs (internal/obs)
 
+	// edgeTallies: (tile, deployment, edge) → *edgeTally, refused and clamped calls (edgepolicy.go).
+	edgeTallies sync.Map
+
 	// prsMu serializes cross-tile PR store mutations (numbering + meta
 	// rewrites, prs.go).
 	prsMu sync.Mutex
@@ -149,6 +152,8 @@ type Broker struct {
 	// false, vault writes without a barrier are refused rather than written
 	// in the clear.
 	AllowInsecureVault bool
+	DeploymentHooks    // installed by the deployments plane; nil-safe (deployhooks.go)
+	DeploymentAnswers  // the same, for deployments beyond main (deploydata.go)
 }
 
 // Close releases what a boot holds open for the daemon's lifetime — the KV
@@ -168,8 +173,8 @@ func (b *Broker) Close() {
 	if b.disk != nil {
 		b.disk.close()
 	}
-	if b.kv != nil && b.kv.db != nil {
-		_ = b.kv.db.Close()
+	if b.kv != nil {
+		b.kv.close() // kv.db and every namespace's file (deploydata.go)
 	}
 }
 
@@ -220,10 +225,10 @@ func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, erro
 func (b *Broker) scopeDiskUsage() map[string]int64 {
 	out := map[string]int64{}
 	measure := func(scope string) {
-		key := util.ScopeKey(scope)
-		plain, _ := dirUsage(filepath.Join(b.Reg.Root, "data", "resources", key))
-		enc, _ := dirUsage(filepath.Join(b.Reg.Root, "data", "resources-enc", key))
-		out[key] = plain + enc
+		k, _ := scopeKeys(scope, util.MainDeployment) // main's keys: never an error
+		plain, _ := dirUsage(filepath.Join(b.Reg.Root, filepath.FromSlash(k.Plain)))
+		enc, _ := dirUsage(filepath.Join(b.Reg.Root, filepath.FromSlash(k.Enc)))
+		out[k.Quota] = plain + enc
 	}
 	measure("")
 	for scope := range b.Reg.Scopes() {
@@ -324,7 +329,8 @@ func (b *Broker) Register(srv *server.Server) {
 	b.registerUsers(srv)
 	b.registerScreens(srv)
 	b.obs = &obs.Plane{Root: b.Reg.Root, Hub: b.Hub, IsAdmin: b.IsAdmin,
-		HasComponent: func(p string) bool { _, ok := b.Reg.Component(p); return ok }}
+		HasComponent: func(p string) bool { _, ok := b.Reg.Component(p); return ok },
+		Primary:      b.primaryOf, Addressed: b.addressed}
 	b.obs.Register(srv)
 	srv.InstallPolicy(brokerPolicy{b})
 }
@@ -355,18 +361,11 @@ func (p brokerPolicy) CodeReadGrant(from, target string) bool {
 
 // --- resource identity -------------------------------------------------
 
-// resTarget is a parsed "res:<scope>/<name>" grant target.
+// resTarget is a parsed "res:<scope>/<name>" grant target; its String and
+// every physical key are in deploydata.go.
 type resTarget struct {
 	Scope string // scope path; "" = workspace
 	Name  string
-}
-
-func (rt resTarget) String() string {
-	s := rt.Scope
-	if s == "" {
-		s = "workspace"
-	}
-	return "res:" + s + "/" + rt.Name
 }
 
 // parseRes resolves "res:apps/calendar/db" against declared scopes: the
@@ -505,7 +504,7 @@ func (b *Broker) IsAdmin(p auth.Principal) bool {
 	if p.Component == "" {
 		return false
 	}
-	role, ok := b.grantedRole(p.Component, "xbin")
+	role, ok := b.governanceRole(p, "xbin") // never a non-primary principal (P19)
 	return ok && roleSatisfies(role, "admin", nil)
 }
 
@@ -515,13 +514,14 @@ func (b *Broker) Policy(p auth.Principal, target *registry.Component) (string, b
 		return "admin", true
 	}
 	if p.Component == target.Path {
-		return "admin", true // element is admin of itself
+		return "admin", b.actsInPrimary(p) // element is admin of itself, in its own deployment (P12)
 	}
 	if p.Component == CronPrincipal || p.Component == BusPrincipal {
-		return p.Role, true // role bound at registration, always self-targeted (cron.go, bussubs.go)
+		// role bound at registration, always self-targeted (cron.go, bussubs.go);
+		// Policy reaches the primary, so another deployment's delivery is Route's
+		return p.Role, b.isPrimary(target.Path, p.Deployment)
 	}
-	role, ok := b.grantedRole(p.Component, target.Path)
-	return role, ok
+	return b.policyRole(p, target.Path) // a non-primary caller through the edge policy (P3)
 }
 
 // allowRes authorizes principal p on a resource target at want role.
@@ -540,7 +540,7 @@ func (b *Broker) allowRes(p auth.Principal, target string, want string) error {
 	if !ok || !roleSatisfies(role, want, nil) {
 		return fmt.Errorf("%s needs role %q on %s — declare it in \"uses\" and approve with bx grant", p.Component, want, rt)
 	}
-	return nil
+	return b.resEdge(p, rt.String(), want) // a non-primary principal: the read clamp (P3)
 }
 
 // PendingGrant is one unsatisfied `uses` declaration. Blocked, when set,
@@ -738,6 +738,10 @@ func (b *Broker) grantMutation(w http.ResponseWriter, r *http.Request, apply fun
 			server.WriteError(w, http.StatusBadRequest, msg)
 			return registry.Grant{}, false
 		}
+		if err := b.xbinGrantRefusal(g); err != nil { // P19
+			server.WriteError(w, http.StatusConflict, err.Error())
+			return registry.Grant{}, false
+		}
 	}
 	// Audit provenance (D33): stamp who approved, and log the full triple so
 	// the audit trail answers "who approved what", not just "who POSTed".
@@ -769,7 +773,8 @@ func (b *Broker) TileDiskStatus(component string) (usage, quota int64, blocked b
 	if c, ok := b.Reg.Component(component); ok {
 		scope = c.Scope
 	}
-	return b.disk.Status(util.ScopeKey(scope))
+	k, _ := scopeKeys(scope, util.MainDeployment)
+	return b.disk.Status(k.Quota)
 }
 
 // TileAlerts returns the alerts relevant to one component (its own tile-scoped

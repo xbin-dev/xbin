@@ -3,7 +3,8 @@
  * card's title bar (admins, the tile's USER-OWNER, and the owning org's
  * admins). One tile's slice of the admin console: access (users/orgs, D24/
  * D31), lifecycle, runtime info, vault keys, roles/grants, interface
- * bindings, backups, and cron registrations — each a fold-out section,
+ * bindings, backups, cron registrations and, for a tile with deployments,
+ * its deployments — each a fold-out section,
  * loaded lazily and degrading independently (an owner/org admin gets the
  * access + lifecycle sections; workspace-admin-only sections say so).
  *
@@ -24,11 +25,13 @@ import { netOptions } from '/vendor/bx-netrules.js';
 import { capInfo } from '/vendor/bx-allow.js';
 
 import { xbinApi as api, jbody } from '/vendor/bx-kit.js';
+import { followDeployments, onDeployChange, deployState, loadDeployState, deployChip, openDeployments } from './shell-kit.js';
+import { deploySummary, deployCheckpoint } from './menus.js';
 
 export class BxTileAdmin extends LitElement {
   static properties = {
     path: { type: String },
-    section: { type: String },  // a section to open + scroll to (lifecycle|access|runtime|vault|grants|interfaces|backup|cron)
+    section: { type: String },  // a section to open + scroll to (lifecycle|access|runtime|deployments|vault|grants|interfaces|backup|cron)
     noTitle: { type: Boolean, attribute: 'no-title' }, // the host's window chrome already names the tile
     _ov: { state: true },       // this tile's /auth-overview slice (state, roles, uses)
     _grants: { state: true },   // {grants, pending} filtered to this tile
@@ -105,8 +108,11 @@ export class BxTileAdmin extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
+    followDeployments();
+    this._offDeploy = onDeployChange(() => this.requestUpdate());
     this._loadCore();
   }
+  disconnectedCallback() { super.disconnectedCallback(); this._offDeploy?.(); }
 
   // The light aggregate everything except /runtime needs (that one walks
   // every backend's /proc + cgroup, so it loads only when its section opens).
@@ -129,6 +135,8 @@ export class BxTileAdmin extends LitElement {
       ]);
       // Picker for the access section (best-effort; owners/org admins may fetch).
       api('/users-directory').then((d) => { this._dir = d.users ?? []; }).catch(() => {});
+      // the deployments state, only where the shell's store knows the tile has one
+      if (deployState(this.path) !== undefined) loadDeployState(this.path);
       this._ov = ov.forbidden ? { forbidden: true }
         : ((ov.components ?? []).find((c) => c.path === this.path) ?? {});
       const mine = (g) => g.from === this.path || g.target === this.path ||
@@ -498,6 +506,49 @@ export class BxTileAdmin extends LitElement {
       </table></div>`;
   }
 
+  // ---- tile deployments (optional; docs/tile-deployments.md) ----
+  // For a tile with a deployment record, from the store the shell's ⇈
+  // badges share (shell-kit.js). The terminal window's Deployments layout is
+  // canonical: this mirrors its facts and its non-primary access table in
+  // the binary's own words, /vendor/deploy-panel.js by dynamic import (an
+  // older binary doesn't serve it, docs/compat.md rule 3; without it the
+  // section keeps one line and the button). A tile manager's narrowing
+  // choice applies here, as there; a widening one, which confirms, opens the
+  // terminal window instead.
+  willUpdate() {
+    if (this._dpAsked || !deployState(this.path)?.record) return;
+    this._dpAsked = true;
+    Promise.all([import('/vendor/deploy-panel.js'), import('/vendor/deploy-state.js')])
+      .then(([m, w]) => { this._dp = m; this._dw = w; this.requestUpdate(); }, () => { });
+  }
+  _deploySec(st) {
+    const dp = this._dp, rows = dp ? dp.panelRows(st) : [], edges = dp && st.view !== 'reader' ? dp.edgeRows(st) : [];
+    return html`<div class="sec">
+      ${this._secErr('deployments')}
+      <div>${dp?.panelHeader(st)?.text ?? deployChip(null, st)?.title ?? ''}</div>
+      <table class="fx" style="margin-top:4px">${rows.map((r) => html`<tr data-deployment=${r.name}>
+        <td class="mono ref" title=${r.name}>${r.name}${r.primary ? html` <span class="pill">primary${r.protected ? ' · protected' : ''}</span>` : nothing}</td>
+        <td class="mono">${r.code}</td><td class="muted">${r.status}</td></tr>`)}</table>
+      ${edges.length ? html`<div class="muted" style="margin:6px 0 2px" title=${this._dw?.REASON?.edgeRule?.(st.tile) ?? ''}>non-primary access</div>
+        <table class="fx">${edges.map((e) => html`<tr data-edge=${e.id}>
+          <td class="mono ref" title=${e.label}>${e.label}</td>
+          <td class="ctl" style="width:58%">${e.values.length
+            ? html`<select title=${e.why} ?disabled=${!e.enabled || this._busy}
+                @change=${(ev) => { const v = ev.target.value; ev.target.value = e.value; this._setEdge(e, v); }}>
+                ${e.values.map((v) => html`<option value=${v.value} ?selected=${v.value === e.value}>${v.label}</option>`)}</select>`
+            : html`<span class="muted">${e.text}</span>`}
+            <div class="muted" style="font-size:10px">${e.refused}</div></td></tr>`)}</table>` : nothing}
+      <div class="row"><button class="act" @click=${() => openDeployments(this.getRootNode(), this.path)}>⇈ Deployments…</button>
+        <span class="muted" style="font-size:10.5px">the tile's terminal window</span></div>
+    </div>`;
+  }
+  _setEdge(e, v) {
+    const st = deployState(this.path);
+    if (!st || !this._dp || v === e.value) return;
+    if (this._dp.widens(st, e.id, v)) { openDeployments(this.getRootNode(), this.path); return; }
+    this._do(() => api('/deployments/edge', { method: 'POST', ...jbody({ tile: this.path, edge: e.id, policy: v, seq: st.seq }) }), 'deployments');
+  }
+
   // show(section) opens one section and scrolls to it — the tile menu's
   // "Access…", "Interfaces…" lines land here (D56).
   show(section) {
@@ -517,17 +568,20 @@ export class BxTileAdmin extends LitElement {
 
   render() {
     const st = this._ov?.state ?? 'enabled';
+    const ds = deployState(this.path), pinned = deploySummary(null, ds)?.pinned;
     return html`
       <div class="hd">
         ${this.noTitle ? nothing : html`<span class="t">${this.path}</span>`}
         ${this._ov?.forbidden ? nothing
           : html`<span class="st pill ${st === 'enabled' ? 'on' : 'off'}">${st}</span>`}
+        ${pinned ? html`<span class="pill" data-pinned title=${deployChip(null, ds)?.title ?? ''}>${deployCheckpoint(ds) ? `pinned to ${deployCheckpoint(ds)}` : 'pinned'}</span>` : nothing}
         <button class="act" title="reload" @click=${() => { this._rt = null; this._loadCore(); }}>⟳</button>
       </div>
       ${this._err && !this._errSec ? html`<div class="err" role="alert">${this._err}</div>` : nothing}
       <details open data-sec="lifecycle"><summary>lifecycle</summary>${this._lifecycle()}</details>
       <details data-sec="access"><summary>access</summary>${this._accessSec()}</details>
       <details data-sec="runtime" @toggle=${(e) => e.target.open && this._loadRuntime()}><summary>runtime</summary>${this._runtime()}</details>
+      ${ds?.record ? html`<details data-sec="deployments"><summary>deployments</summary>${this._deploySec(ds)}</details>` : nothing}
       <details data-sec="vault"><summary>vault</summary>${this._vaultSec()}</details>
       <details data-sec="grants"><summary>roles & grants</summary>${this._grantsSec()}</details>
       <details data-sec="interfaces"><summary>interfaces</summary>${this._bindsSec()}</details>

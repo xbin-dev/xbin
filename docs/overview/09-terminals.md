@@ -225,13 +225,46 @@ An admin opening a terminal on a low-trust tile does not lend it their power;
 the tile acts as itself. The token is minted per session and revoked the moment
 the session dies. `bx`/`curl`/`git` inside the terminal use it: xbind rewrites
 `http://xbin/…` to the reachable `XBIN_URL` and attaches the bearer pinned to
-that URL, so a template instance's `template` git remote can fetch.
+that URL, so a template instance's `template` git remote can fetch. Those are
+two `GIT_CONFIG_*` pairs in the session's env, never the tile's `.git/config`.
+While a tile has a deployment record (its live reload is paused, or it has
+tile deployments), a session opened on it gets two more, `GIT_CONFIG_COUNT`
+becoming 4: a fetch-only `xbin-deploy` remote. `git fetch xbin-deploy`
+brings `deploy/<name>` for every pinned deployment — the git view of the
+checkpoint it runs, ignored files left out — so `git checkout --no-track -b
+hotfix deploy/main` branches from exactly what `main` runs
+([/docs/tile-deployments.md](/docs/tile-deployments.md)).
+A session opened before the record existed doesn't have it (a session's env
+is fixed at spawn): open a new one, or fetch by URL
+(`git fetch http://xbin/api/xbin/checkpoints/<tile>.git '+refs/heads/deploy/*:refs/deploy/*'`).
+
+**A session's target.** On a tile with tile deployments, a terminal or agent
+session's API calls and `bx` reads reach one deployment, fixed for the
+session's life: its target. The title bar's tile-API select picks it — `🔌
+target: main (primary)`, `🔌 target: dev`, …, `⛔ no API` — once the tile has
+more than an unprotected `main`; a tile without deployments keeps the two
+entries below. The default is the primary; a protected primary is never
+offered, and the default then falls to the live reload target or, when live
+reload is paused too, to no API. Switching restarts the session (an agent
+resumes its conversation), and the select shows what the server echoed in
+the session frame, never a guess. A session whose target isn't the primary
+gets `XBIN_DEPLOYMENT=<name>` (absent otherwise, so a tile without
+deployments sees today's env) and prints a grey line — `this terminal calls
+apps/crm+dev`, or why the tile API is off. Protecting the primary restarts
+the sessions that targeted it onto the default. The target rides
+`?deployment=` on `/ws/term` and on `POST /api/xbin/term/sessions` (`bx
+agent run --deployment <name>`), is echoed in session listings and `term`
+events, and is recorded on agent history entries; agent history itself stays
+per tile. A session's own calls can't reach another deployment of its tile
+— switching is a restart, a terminal-level act
+([/docs/tile-deployments.md](/docs/tile-deployments.md)).
 
 Two user flags gate what the token can do (D17 b/c; clamped, never rejected, so
 an ungranted user still gets a working shell):
 
 - **`termApi`** — without it, or with the titlebar **tile-API/no-API** switch
-  off (`?api=0`), the session is minted with **no token at all**: the shell
+  off (`?api=0`; on a tile with deployments, the same select's `⛔ no API`),
+  the session is minted with **no token at all**: the shell
   reads and edits source but every call to the tile's (or xbin's) API is
   unauthorized. Use it for untrusted code that should see code but not act.
 - **`termNet`** — without it, internet egress on a personal/workspace tile is
@@ -569,4 +602,7 @@ The terminal window also carries a read-only **logs** tab (the `▤` button):
 it streams the tile backend's captured stdout/stderr live in an xterm view (no
 input), backed by `GET /api/xbin/logs`. It is gated exactly like the tile's
 terminal — admin, the tile itself, or a `terminal`-level user — so it appears
-only where a shell would, since backend output can carry secrets.
+only where a shell would, since backend output can carry secrets. It shows
+the primary's log; a non-primary tile deployment's own log is the
+Deployments panel's logs tab (the `⇈` layout), `bx logs <tile>+<name>`, or
+`GET /api/xbin/logs?deployment=<name>`, whose answer names the deployment.

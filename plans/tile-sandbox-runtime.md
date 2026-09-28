@@ -192,6 +192,11 @@ everything from a key:
     reflection with `p.Deployment` and extends the list (§14).
 - For a non-main key the non-main paths answer `unsupported` until their
   `TileKey` helper exists.
+- **As merged with dev-lifecycle** (its integration branch, 2026-09-28):
+  `keyOf` reads `p.Deployment` (`""` and `"main"` are main; `keyFor` also
+  folds an admin's `?deployment=main`), the reflection and its stand-in are
+  gone, and `keys_test.go` lists `Deployment`. A non-main deployment still
+  gets 501 on every manager route: its own set is the follow-up in §14.
 - **Two more hooks** default to today's behaviour and belong to the
   deployment work: `CodeRoot(key)`, which is `{source:true}`'s source (the
   tile dir today), and `ResourceMount(key, res)`, which resolves a resource
@@ -5008,6 +5013,24 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
   `init_linux.go`, `broker/backup.go`, `term.go`'s budget line,
   `openapi.go`, `protocol.md` and the admin `sandboxes.js`. Whichever lands
   second rebases. Each of those WPs names its collision. Specifically:
+  - **Done at the dev-lifecycle merge (2026-09-28):** `keyOf` reads
+    `p.Deployment`; non-main deployments keep the 501. **Follow-up — a
+    non-main deployment's own sandbox set** (05-model §12, sandbox-managers
+    phase 2): `util.TileKey` exists now, but building non-main keys is more
+    than the key: per-deployment definitions
+    (`data/deployments/<TK>/<d>/sandboxes.json`, loaded and saved beside
+    main's) and state under `.xbin/deploy/<TK>/d/<d>/sbx/`; `CodeRoot` from
+    the deployments plane (the deployment's pinned code, or the work tree for
+    the live reload target); `ResourceMount` in the deployment's data
+    namespace (`envTarget`/`resKeys`, the volume mounted on first use);
+    registry rows with `Entry.Deployment`; the admin routes' `?deployment=`;
+    every workspace hook that builds `Key{Tile: tile}` today (usage, sweep,
+    info, backups, offload, removal, leftovers, reconcile) walking the
+    tile's deployments; and removing a deployment stopping its sandboxes and
+    putting their state aside. Caps, the policy, quotas and VM reservations
+    stay the tile's (the books are per tile already). Its own work package,
+    with tests (`TestTileSandboxesPerDeployment`,
+    `TestTileSandboxMountsDeploymentNamespace`).
   - **The sandbox key (must not be skipped).** When dev-lifecycle's
     `auth.Principal.Deployment` arrives, `keyOf` compiles unchanged and its
     reflection guard answers 501 to every non-main deployment; the

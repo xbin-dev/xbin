@@ -48,9 +48,16 @@ const (
 
 // Entry is one live sandbox.
 type Entry struct {
-	ID   string `json:"id"` // "backend:<key>:g<gen>" for backends; a session's id
+	// ID is "backend:<key>:g<gen>" for a backend of main, the tile's only
+	// deployment until it has others; "backend+<name>:<key>:g<gen>" for
+	// another deployment's (a name holds no ':'); a session's id.
+	ID   string `json:"id"`
 	Kind Kind   `json:"kind"`
 	Tile string `json:"tile"` // the component it belongs to (workspace-relative)
+	// Deployment is the tile deployment it runs for, set only when that isn't
+	// main, so main's entries stay as they were before deployments (P5).
+	// Tile is the tile's path whatever the deployment.
+	Deployment string `json:"deployment,omitempty"`
 	// Parent is the entry a sub-sandbox belongs to (reserved for tile-managed
 	// sandboxes, which nest under their owner).
 	Parent string `json:"parent,omitempty"`
@@ -83,10 +90,20 @@ type Entry struct {
 type Filter struct {
 	Tile, User string
 	Kind       Kind
+	// Deployment narrows to one deployment's entries: "main" matches those
+	// without a Deployment; "" matches every deployment's.
+	Deployment string
 }
 
-func (f Filter) match(tile, user string, kind Kind) bool {
-	return (f.Tile == "" || f.Tile == tile) && (f.User == "" || f.User == user) && (f.Kind == "" || f.Kind == kind)
+// mainDeployment is the name an entry without a Deployment runs for.
+const mainDeployment = "main"
+
+func (f Filter) match(tile, dep, user string, kind Kind) bool {
+	if dep == "" {
+		dep = mainDeployment
+	}
+	return (f.Tile == "" || f.Tile == tile) && (f.Deployment == "" || f.Deployment == dep) &&
+		(f.User == "" || f.User == user) && (f.Kind == "" || f.Kind == kind)
 }
 
 // Stage is where a sandbox failed.
@@ -101,14 +118,15 @@ const (
 
 // Failure is one thing the sandbox layer refused or failed at.
 type Failure struct {
-	Time  time.Time `json:"time"`
-	Kind  Kind      `json:"kind"`
-	Tile  string    `json:"tile"`
-	User  string    `json:"user,omitempty"`
-	Mode  Mode      `json:"mode"`
-	Stage Stage     `json:"stage"`
-	Error string    `json:"error"`
-	Count int       `json:"count"` // the same failure, coalesced
+	Time       time.Time `json:"time"`
+	Kind       Kind      `json:"kind"`
+	Tile       string    `json:"tile"`
+	Deployment string    `json:"deployment,omitempty"` // as on the entry: never set for main
+	User       string    `json:"user,omitempty"`
+	Mode       Mode      `json:"mode"`
+	Stage      Stage     `json:"stage"`
+	Error      string    `json:"error"`
+	Count      int       `json:"count"` // the same failure, coalesced
 }
 
 const (
@@ -190,7 +208,7 @@ func (r *Registry) List(f Filter) []Entry {
 	r.mu.Lock()
 	out := make([]Entry, 0, len(r.entries))
 	for _, e := range r.entries {
-		if f.match(e.Tile, e.User, e.Kind) {
+		if f.match(e.Tile, e.Deployment, e.User, e.Kind) {
 			out = append(out, *e)
 		}
 	}
@@ -208,9 +226,10 @@ func (r *Registry) List(f Filter) []Entry {
 	return out
 }
 
-// Fail records a failure. The same failure (kind, tile, user, mode, stage
-// and message) within ten minutes of the last is counted, not repeated — a
-// crash loop is one row — and the ring keeps the newest 64.
+// Fail records a failure. The same failure (kind, tile, deployment, user,
+// mode, stage and message) within ten minutes of the last is counted, not
+// repeated — a crash loop is one row, and one deployment's never merges into
+// another's — and the ring keeps the newest 64.
 func (r *Registry) Fail(f Failure) {
 	if r == nil {
 		return
@@ -226,8 +245,8 @@ func (r *Registry) Fail(f Failure) {
 	defer r.mu.Unlock()
 	r.counts[f.Stage]++
 	for i, x := range r.ring {
-		if x.Kind == f.Kind && x.Tile == f.Tile && x.User == f.User && x.Mode == f.Mode && x.Stage == f.Stage &&
-			x.Error == f.Error && f.Time.Sub(x.Time) < coalesce {
+		if x.Kind == f.Kind && x.Tile == f.Tile && x.Deployment == f.Deployment && x.User == f.User && x.Mode == f.Mode &&
+			x.Stage == f.Stage && x.Error == f.Error && f.Time.Sub(x.Time) < coalesce {
 			f.Count = x.Count + 1
 			r.ring = append(r.ring[:i], r.ring[i+1:]...)
 			break
@@ -248,7 +267,7 @@ func (r *Registry) Failures(f Filter) []Failure {
 	defer r.mu.Unlock()
 	out := []Failure{}
 	for _, x := range r.ring {
-		if f.match(x.Tile, x.User, x.Kind) {
+		if f.match(x.Tile, x.Deployment, x.User, x.Kind) {
 			out = append(out, x)
 		}
 	}

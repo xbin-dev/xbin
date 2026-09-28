@@ -144,10 +144,83 @@ between them only grows:
   tests; its internals and its pictures change freely (its URLs stay served,
   rule 3).
 
+## Tile deployments and paused live reload
+
+Pausing a tile's live reload and giving it tile deployments
+([tile-deployments.md](/docs/tile-deployments.md)) are opt-in per tile, so
+the rules above hold for every tile that never opts in, byte for byte: saves
+reload live, there is no deploy step, and no existing route's answer, event,
+header, env variable, token, backup archive or file differs.
+
+- **No manifest key and no boot migration.** A tile's deployment state lives
+  in new files under `data/` and `.xbin/` that only the new routes write,
+  starting at the first opt-in; nothing is written for a tile before that
+  (rules 1, 7, 9).
+- **Additive wire.** New routes (`/api/xbin/deployments…`,
+  `/api/xbin/checkpoints/…`), a new event type (`deployments`), new optional
+  query parameters (`?deployment=` on the logs, tile-status, frame-token,
+  vault, sandboxes and terminal routes) and new fields that are absent for a
+  tile without deployments; no existing request body gains a field (rule 2).
+  Where an older xbind would silently ignore a new parameter, the answer
+  echoes it, and new clients check the echo. Existing event types keep their
+  shapes and speak only of the tile's primary, with the bare component: a
+  non-primary deployment's builds, status and reloads ride `deployments`
+  alone, a deploy of a checkpoint reports on `deployments`, never `build-*`,
+  and one `reload` follows a swap that changed the code the primary serves.
+  Lists keyed by tile keep one entry per tile.
+- **A new URL form; the old ones stay (rule 3).** `/c/<tile>+<name>/` and
+  `/api/<tile>+<name>/…` resolve only for a tile with deployments, and only
+  when nothing answers the path today: an existing directory whose name holds
+  `+` keeps resolving.
+- **`+` in new tile names warns first (rule 11).** Creating `<P>+<N>` while
+  tile `P` has a deployment `N` is refused, for admins too — that path is the
+  deployment's URL. Any other new name containing `+` is created as before,
+  with a `warnings` entry in the creation answer for one release.
+- **The SDK changes only permissively (rule 8).** `xbin.Deployment()`,
+  `CallerInfo.Deployment`, `xbin.deployment`, `XBIN_DEPLOYMENT`,
+  `X-XBin-Deployment` and `<meta name="xbin-deployment">` are absent for the
+  primary, so every call that succeeds for a tile today succeeds for its
+  primary. A non-primary deployment is a new context someone opted into, and
+  there some calls behave differently by design: writes to other tiles are
+  read-clamped, edges that can't be clamped are blocked, a tile whose net
+  shares the host's gives it no egress, notifications are held, and
+  registrations are stored dormant — they still answer success, so start-up
+  code keeps working. `xbin.self`, `Self()` and resource ids stay the tile
+  path in every deployment.
+- **Old clients.** An old shell, admin tile, `bx` or app sees a tile with
+  deployments as its primary: one row, one card, one status, and a tile with
+  live reload paused as a tile that serves and doesn't reload; nothing new is
+  required of it. The web shell's reload targeting and the shipped iOS app's
+  are replayed against the new event stream as fixtures
+  (`hack/events-socket.test.mjs`, the app's `ClientEventsTests.swift`), so a
+  browser tab or an app that predates tile deployments is checked, not
+  assumed. New clients detect the feature from `GET /api/xbin/deployments`: a
+  plain 404 or 405 means an older xbind, and the new `bx` commands exit 6
+  against one.
+- **Tokens.** A frame token of a deployment other than `main` has a sixth
+  field, which an older xbind refuses; `main`'s tokens, and every token of a
+  tile without deployments, keep today's shape. The native app contract
+  (rule 10) is unchanged: `/c/<tile>/?native=1` and `native: {entry}` in
+  `/api/xbin/components` describe the primary's code.
+- **Downgrading** loses no state: an older xbind ignores every deployment
+  record, checkpoint store, non-`main` data, vault and registration file —
+  none of it ever activates there — and serves every tile's work tree with
+  live reload again. Reassign every primary back to `main` and align each
+  pinned tile's work tree with what it runs first
+  ([tile-deployments.md](/docs/tile-deployments.md), *A tile's life,
+  backups and downgrades*).
+
 ## What this does *not* promise
 
 - Undocumented internals: `.xbin/` contents, the on-disk shape of
   `data/`, and the names of temporary files may change between releases.
+  That includes the tile-deployments state — `data/deployments/` (with
+  each deployment's registration files), `data/checkpoints/`, the data,
+  vault and prefs of deployments other than `main` (the `.deployments/`
+  directories under `data/resources-enc/`, `data/vault/` and `data/prefs/`),
+  `.xbin/deploy/` and the per-checkpoint builds under `.xbin/build/` —
+  whose layout is not a builder contract; an older xbind started on the
+  workspace never reads it.
 - Behaviour that `docs/changelog.md` marks **BREAKING** with a linked
   migration note under `/docs/changes/` — that note is the one place a
   workspace has to act after an upgrade.

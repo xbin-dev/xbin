@@ -28,14 +28,23 @@ import (
 // input, so none can be replayed as another or as a frame token (whose MAC
 // input carries no tag and whose shape — four '|' fields — they don't
 // have). Each binds (tile, user, binding/generation, expiry).
+//
+// Tile deployments (P17; 11-contract §2.6, §7.5): each deployment of a tile
+// has an origin of its own, keyed by name (TileHostIDDeployment); main's is
+// the tile's, and its credentials keep today's x1 and c1 bytes. Any other
+// deployment's origin uses x2 and c2, under purposes of their own, which
+// carry the deployment as one more MAC-covered field; a pre-deployment
+// verifier wants exactly six parts and its own prefix, so it refuses them.
 const (
-	assetTokenPurpose = "xbin-asset-token-v1"
-	tileCookiePurpose = "xbin-tile-origin-v1"
-	tileHostPurpose   = "xbin-tile-host-v1"
-	ownerGenPurpose   = "xbin-owner-gen-v1"
+	assetTokenPurpose   = "xbin-asset-token-v1"
+	tileCookiePurpose   = "xbin-tile-origin-v1"
+	tileCookiePurposeV2 = "xbin-tile-origin-v2"
+	tileHostPurpose     = "xbin-tile-host-v1"
+	ownerGenPurpose     = "xbin-owner-gen-v1"
 
-	assetTokenPrefix = "a1"
-	tileCookiePrefix = "c1"
+	assetTokenPrefix   = "a1"
+	tileCookiePrefix   = "c1"
+	tileCookiePrefixV2 = "c2"
 
 	// TileCookieName is the tile-origin cookie on an insecure origin
 	// (HostTileCookieName on a secure one): host-only on the tile's own
@@ -69,6 +78,11 @@ type AssetGrant struct {
 	Impersonator string
 	SessionEnd   time.Time
 	FrameGen     string
+
+	// Deployment is the deployment of Tile a tile-origin credential's origin
+	// serves, under the name rule: "" is main (x1, c1), any other name rides
+	// an x2 or c2 (P17). Asset tokens carry none: their path does.
+	Deployment string
 }
 
 // Credential binding: an asset token carries the CREDENTIAL GENERATION of
@@ -100,20 +114,48 @@ func (a *Auth) mac(purpose, msg string) string {
 // field URL-path safe (base64url has no '.' or '/'), so an asset token can
 // sit in a path segment.
 func (a *Auth) mintGrant(prefix, purpose, tile, uid, gen string, ttl time.Duration) string {
-	enc := base64.RawURLEncoding.EncodeToString
-	payload := strings.Join([]string{prefix, enc([]byte(tile)), enc([]byte(uid)),
-		strconv.FormatInt(time.Now().Add(ttl).Unix(), 10), enc([]byte(gen))}, ".")
+	payload := grantPayload(prefix, tile, uid, gen, ttl)
 	return payload + "." + a.mac(purpose, payload)
+}
+
+// mintGrantDeployment is mintGrant for a deployment origin's credential:
+// prefix.b64(tile).b64(user).exp.b64(gen).b64(deployment).mac, the
+// deployment one more MAC-covered field (11-contract §7.5). dep is a claim
+// (claimName): never main, which keeps mintGrant's form.
+func (a *Auth) mintGrantDeployment(prefix, purpose, tile, uid, gen, dep string, ttl time.Duration) string {
+	payload := grantPayload(prefix, tile, uid, gen, ttl) + "." + base64.RawURLEncoding.EncodeToString([]byte(dep))
+	return payload + "." + a.mac(purpose, payload)
+}
+
+func grantPayload(prefix, tile, uid, gen string, ttl time.Duration) string {
+	enc := base64.RawURLEncoding.EncodeToString
+	return strings.Join([]string{prefix, enc([]byte(tile)), enc([]byte(uid)),
+		strconv.FormatInt(time.Now().Add(ttl).Unix(), 10), enc([]byte(gen))}, ".")
 }
 
 // verifyGrant checks shape, MAC and expiry — NOT liveness (grantLive).
 func (a *Auth) verifyGrant(prefix, purpose, tok string) (AssetGrant, bool) {
+	return a.verifyGrantFields(prefix, purpose, tok, false)
+}
+
+// verifyGrantDeployment is verifyGrant for mintGrantDeployment's form: seven
+// parts, the sixth a deployment name other than main (one spelling per
+// meaning).
+func (a *Auth) verifyGrantDeployment(prefix, purpose, tok string) (AssetGrant, bool) {
+	return a.verifyGrantFields(prefix, purpose, tok, true)
+}
+
+func (a *Auth) verifyGrantFields(prefix, purpose, tok string, withDep bool) (AssetGrant, bool) {
+	n := 6
+	if withDep {
+		n = 7
+	}
 	parts := strings.Split(tok, ".")
-	if len(parts) != 6 || parts[0] != prefix {
+	if len(parts) != n || parts[0] != prefix {
 		return AssetGrant{}, false
 	}
-	payload := strings.Join(parts[:5], ".")
-	if !hmac.Equal([]byte(a.mac(purpose, payload)), []byte(parts[5])) {
+	payload := strings.Join(parts[:n-1], ".")
+	if !hmac.Equal([]byte(a.mac(purpose, payload)), []byte(parts[n-1])) {
 		return AssetGrant{}, false
 	}
 	exp, err := strconv.ParseInt(parts[3], 10, 64)
@@ -127,7 +169,16 @@ func (a *Auth) verifyGrant(prefix, purpose, tok string) (AssetGrant, bool) {
 	if err1 != nil || err2 != nil || err3 != nil || len(tile) == 0 {
 		return AssetGrant{}, false
 	}
-	return AssetGrant{Tile: string(tile), UserID: string(uid), Gen: string(gen), Exp: time.Unix(exp, 0)}, true
+	g := AssetGrant{Tile: string(tile), UserID: string(uid), Gen: string(gen), Exp: time.Unix(exp, 0)}
+	if withDep {
+		d, err := dec(parts[5])
+		claim, ok := claimName(string(d))
+		if err != nil || !ok || claim == "" {
+			return AssetGrant{}, false
+		}
+		g.Deployment = claim
+	}
+	return g, true
 }
 
 // grantLive: the credential's user still authenticates (exists, enabled) and
@@ -179,11 +230,37 @@ func (a *Auth) VerifyAssetToken(tok string) (AssetGrant, bool) {
 // "t-" + 16 base32 chars of a keyed hash of the tile path. Stable for the
 // workspace (the key is .xbin/secret), non-reversible — tile names never
 // reach DNS, SNI or certificate logs — and a valid DNS label.
-func (a *Auth) TileHostID(tile string) string {
+func (a *Auth) TileHostID(tile string) string { return a.hostLabel(tile) }
+
+// TileHostIDDeployment is the origin label of deployment dep of tile (P17;
+// 11-contract §2.6): main's ("" or "main") is TileHostID(tile), unchanged;
+// any other deployment's is "t-" + 16 base32 chars of
+// HMAC(.xbin/secret, "xbin-tile-host-v1" ‖ 0 ‖ tile ‖ 0 ‖ dep) — the same
+// form, so tileHostOf accepts it, and no two (tile, deployment) pairs
+// collide, a tile path never holding a NUL. Keyed by name, so a
+// deployment's storage (localStorage, IndexedDB) stays its own whichever
+// deployment is primary. "" for a string that isn't a deployment name: no
+// origin.
+func (a *Auth) TileHostIDDeployment(tile, dep string) string {
+	claim, ok := claimName(dep)
+	switch {
+	case !ok:
+		return ""
+	case claim == "":
+		return a.hostLabel(tile)
+	}
+	return a.hostLabel(tile, claim)
+}
+
+// hostLabel is "t-" + lowercase base32 (no padding) of the first 10 bytes
+// of HMAC(secret, tileHostPurpose ‖ 0 ‖ parts[0] ‖ 0 ‖ parts[1] …).
+func (a *Auth) hostLabel(parts ...string) string {
 	m := hmac.New(sha256.New, a.secret)
 	m.Write([]byte(tileHostPurpose))
-	m.Write([]byte{0})
-	m.Write([]byte(tile))
+	for _, p := range parts {
+		m.Write([]byte{0})
+		m.Write([]byte(p))
+	}
 	return "t-" + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(m.Sum(nil)[:10]))
 }
 
@@ -212,9 +289,12 @@ func (a *Auth) UserCanReadTile(uid, tile string) bool {
 // the tile. It carries the bound login's generation, so the frame tokens
 // minted for it (the document's, renewals) die with that login, and its
 // impersonator: an admin's view of the user acts read-only, token or not.
+// It is bound to the deployment whose origin the cookie is for (P12): ""
+// (main) for a c1, the name a c2 carries, as a frame token's claim.
 func (a *Auth) TilePrincipal(g AssetGrant) (Principal, bool) {
 	uid := g.UserID
-	p := Principal{Component: g.Tile, UserID: uid, Via: "frame", Impersonator: g.Impersonator, Gen: g.FrameGen}
+	p := Principal{Component: g.Tile, UserID: uid, Via: "frame", Impersonator: g.Impersonator, Gen: g.FrameGen,
+		Deployment: g.Deployment}
 	if uid != "" {
 		if _, found := a.userSnapshot(uid); !found {
 			return Principal{}, false

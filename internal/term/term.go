@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/netip"
 	"os"
@@ -67,8 +66,9 @@ type Session struct {
 	name    string // the tab's name, per session (sessions.go); guarded by mu
 	kind    string // KindShell (a PTY) or KindAgent (agent.go: no PTY, an ACP driver over pipes)
 	agent   *agentState
-	pgid    bool // the process leads its own group (the non-isolated agent host): kill the group
-	vm      bool // a VM sandbox (vm.go)
+	pgid    bool          // the process leads its own group (the non-isolated agent host): kill the group
+	vm      bool          // a VM sandbox (vm.go)
+	target  sessionTarget // the target deployment, fixed at start (target.go)
 
 	// hub is the session's side of the /ws/term wire: its scrollback, the
 	// attached sockets, the last activity (the reaper's clock) and the exit.
@@ -104,7 +104,8 @@ type Manager struct {
 
 	// Tokens mints/revokes the per-session terminal tokens that scope a
 	// shell's XBIN_TOKEN to its tile (wired to *auth.Auth by main). nil ⇒
-	// sessions get no XBIN_TOKEN at all — never the owner token.
+	// sessions get no XBIN_TOKEN at all — never the owner token. A named
+	// target needs auth's MintTerminalTarget too (targetMinter, target.go).
 	Tokens interface {
 		MintTerminal(component, userID string) string
 		RevokeTerminal(token string)
@@ -157,6 +158,13 @@ type Manager struct {
 	VM *vm.Manager
 	// Sandboxes lists every live session (sbx.go, D112; nil-safe).
 	Sandboxes *sbx.Registry
+	// HasDeploymentRecord reports whether a tile has a deployment record
+	// (wired to the deployments plane by main); nil ⇒ no tile has one, and
+	// sessions get today's env.
+	HasDeploymentRecord func(tile string) bool
+	// TileDeployments answers what a session's target choice needs to know
+	// of a tile (P24, target.go); nil: the zero state for every tile.
+	TileDeployments TileDeploymentsFunc
 
 	mu       sync.Mutex
 	sessions map[string]*Session
@@ -228,6 +236,10 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 		}
 		o := m.openOptsFor(p, rel, cwd, netMode, gpuMode, apiAccess)
 		o.vm = wantVM
+		if code, err := m.pickTarget(p, &o, rel, r.URL.Query().Get("deployment")); err != nil {
+			http.Error(w, err.Error(), code)
+			return
+		}
 		s, err = m.create(o)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -243,7 +255,7 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	s.attach(conn)
+	s.attach(conn, m.echoOf(s))
 }
 
 // List returns session metadata for the status API, ordered by creation time
@@ -252,13 +264,17 @@ func (m *Manager) List() []map[string]any {
 	out := []map[string]any{}
 	for _, s := range m.sorted() {
 		s.mu.Lock()
-		out = append(out, map[string]any{
+		row := map[string]any{
 			"id": s.ID, "cwd": s.Cwd, "net": s.Net, "clients": s.hub.Clients(),
 			"user": s.homeKey, "kind": s.kind, "vm": s.vm,
 			"created": s.born.UTC().Format(time.RFC3339),
 			"label":   s.Label, "scopes": s.Scopes, "name": s.name,
-		})
+		}
 		s.mu.Unlock()
+		if d := m.echoOf(s); d != "" { // the session's target (target.go)
+			row["deployment"] = d
+		}
+		out = append(out, row)
 	}
 	return out
 }
@@ -284,6 +300,7 @@ type openOpts struct {
 	kind       string            // KindShell (default) or KindAgent: the sandbox entry (agent.go)
 	vm         bool              // a VM sandbox (vm.go)
 	launch     *sbxLaunch        // what the setup learnt (sbx.go; set by create/createAgent)
+	target     sessionTarget     // the target deployment (pickTarget, target.go)
 }
 
 // prepare is the part of opening a session that both kinds share: the cwd,
@@ -333,7 +350,7 @@ func (m *Manager) prepare(o openOpts) (dir, rel, homeDir, token string, revokeTo
 	// tile's element principal (plans/terminal-tokens.md), not the owner.
 	// Withheld entirely for a code-only terminal (api=0) — no token, no API.
 	if m.Tokens != nil && o.api {
-		token = m.Tokens.MintTerminal(rel, o.userID)
+		token = m.mintTerminal(rel, o) // bound to the session's target (target.go)
 	}
 	revokeTok = func() {
 		if token != "" {
@@ -382,7 +399,7 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 		ID: id, Cwd: rel, Net: o.net, cmd: cmd, pty: f, kind: KindShell, vm: o.vm,
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
-		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api,
+		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api, target: o.target,
 		born: time.Now(), hub: termwire.NewHub(maxScrollback),
 	}
 	m.mu.Lock()
@@ -453,6 +470,7 @@ func (m *Manager) shellCmd(dir, rel, homeDir, token string, o openOpts) (*exec.C
 		cmd.Env = append(cmd.Env, e)
 	}
 	cmd.Env = append(cmd.Env, "TERM=xterm-256color", "COLORTERM=truecolor", "XBIN_COMPONENT="+rel)
+	cmd.Env = append(cmd.Env, o.deploymentEnv()...) // XBIN_DEPLOYMENT, next to it (target.go)
 	if os.Getenv("LANG") == "" {
 		cmd.Env = append(cmd.Env, "LANG=C.UTF-8")
 	}
@@ -526,7 +544,7 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 			_ = os.RemoveAll(viewDir)
 		}
 	}
-	env := m.sandboxEnv(rel, !o.netHost && o.net != NetNone, homeDir, token)
+	env := m.sessionEnv(rel, !o.netHost && o.net != NetNone, homeDir, token, o)
 	// Owner-plane GPU access for the dev sandbox (?gpu=all|<index>).
 	if o.gpu != "" && o.gpu != "none" {
 		if gb, genv := gpu.Binds(gpu.Resolve([]string{"gpu:" + o.gpu})); len(gb) > 0 {
@@ -678,88 +696,6 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 		releaseVM()
 	}
 	return cmd, cleanup, post, envKey, env, nil
-}
-
-// hostForward maps the xbind listen port on the relay gateway IP to xbind on
-// host loopback, so an internet-scope terminal (in its own netns) can still
-// reach the workspace controller via XBIN_URL (bx/curl) without any host
-// interface being exposed. Nil if the listen addr can't be parsed.
-func (m *Manager) hostForward() map[int]string {
-	_, portStr, err := net.SplitHostPort(m.Listen)
-	if err != nil {
-		return nil
-	}
-	port, err := net.LookupPort("tcp", portStr)
-	if err != nil {
-		return nil
-	}
-	return map[int]string{port: "127.0.0.1:" + portStr}
-}
-
-// sandboxEnv is the terminal env inside the rootfs: PATH points at the rootfs
-// toolchains (not the host's), the session user's $HOME (homes/<user>), the
-// session's tile-scoped XBIN_TOKEN (plans/terminal-tokens.md), plus
-// XBIN_URL/WORKSPACE from m.Env(). In internet scope the netns can't reach
-// xbind's 127.0.0.1 listener, so XBIN_URL is rewritten to the relay gateway
-// host-forward.
-func (m *Manager) sandboxEnv(rel string, relayNet bool, homeDir, termTok string) []string {
-	env := []string{
-		"TERM=xterm-256color", "COLORTERM=truecolor",
-		"XBIN_COMPONENT=" + rel,
-		"HOME=" + homeDir,
-		"IN_SANDBOX=1", // scripts/agents can tell they're in the terminal sandbox
-		"IS_SANDBOX=1", // the spelling agent CLIs (Claude Code) actually check
-		"LANG=C.UTF-8",
-		"PATH=/usr/local/go/bin:/usr/local/node/bin:/usr/local/bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-	}
-	var xbinURL string
-	if relayNet {
-		if _, port, err := net.SplitHostPort(m.Listen); err == nil {
-			xbinURL = "http://" + net.JoinHostPort(sandbox.GatewayIP, port)
-		}
-	}
-	token := termTok // the session's tile-scoped credential, for env + git
-	var effURL string
-	if m.Env != nil {
-		for _, e := range m.Env() {
-			if strings.HasPrefix(e, "PATH=") {
-				continue // the rootfs PATH above wins
-			}
-			if strings.HasPrefix(e, "HOME=") {
-				continue // the per-user HOME above wins (getenv is first-match)
-			}
-			if strings.HasPrefix(e, "XBIN_TOKEN=") {
-				continue // only the per-session terminal token goes in
-			}
-			if v, ok := strings.CutPrefix(e, "XBIN_URL="); ok {
-				if xbinURL != "" {
-					continue // rewritten below to the relay gateway
-				}
-				effURL = v
-			}
-			env = append(env, e)
-		}
-	}
-	if token != "" {
-		env = append(env, "XBIN_TOKEN="+token)
-	}
-	if xbinURL != "" {
-		env = append(env, "XBIN_URL="+xbinURL)
-		effURL = xbinURL
-	}
-	// Make the SDK's gateway host `http://xbin/…` work for raw git/curl in the
-	// terminal too: git's env-config rewrites it to the reachable XBIN_URL and
-	// attaches the session's tile-scoped bearer, pinned to that URL so the
-	// token never goes anywhere else. This is what lets a template instance's
-	// `template` remote fetch (plans/agent-v2.md); `curl http://xbin/…` works too.
-	if effURL != "" && token != "" {
-		env = append(env,
-			"GIT_CONFIG_COUNT=2",
-			"GIT_CONFIG_KEY_0=url."+effURL+"/.insteadOf", "GIT_CONFIG_VALUE_0=http://xbin/",
-			"GIT_CONFIG_KEY_1=http."+effURL+"/.extraHeader", "GIT_CONFIG_VALUE_1=Authorization: Bearer "+token,
-		)
-	}
-	return env
 }
 
 // CanTouch reports whether p may operate on session id (kill/…): the session's

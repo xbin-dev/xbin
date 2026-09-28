@@ -118,6 +118,12 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A removed tile's deployment state at the path goes before the tree is
+	// written, so the first Rescan composes the new tile in the zero state (P29).
+	if err := b.resetDeploymentState(target); err != nil {
+		slog.Error("a removed tile's deployment record couldn't be reset for the new tile", "tile", target, "err", err)
+	}
+
 	var (
 		installed   string
 		files       []string
@@ -169,9 +175,11 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	b.assignOwner(installed, owner) // D24: creator-owned (workspace-owned for admins) unless requested
-	server.WriteJSON(w, http.StatusOK, map[string]any{
-		"path": installed, "files": files, "pendingGrants": pending,
-	})
+	out := map[string]any{"path": installed, "files": files, "pendingGrants": pending}
+	if ws := plusNameWarnings(installed); ws != nil { // a '+' in the name, for one release (P17)
+		out["warnings"] = ws
+	}
+	server.WriteJSON(w, http.StatusOK, out)
 }
 
 func templateExists(s *builtins.TemplateSet, name string) bool {

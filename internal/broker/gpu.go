@@ -10,14 +10,16 @@ import (
 // GPUFor returns the GPUs a component is *granted* (plans/gpu.md): the gpu:*
 // targets in its manifest uses that the owner has approved, resolved against the
 // host inventory. An element can never self-grant a GPU — an unapproved gpu:*
-// use yields nothing, so the sandbox sees no device.
+// use yields nothing, so the sandbox sees no device. A non-primary
+// deployment's view holds a grant only through its edge policy (viewGrant):
+// gpu:* is withheld by default (09-fabric §5.9).
 func (b *Broker) GPUFor(c *registry.Component) []gpu.Device {
 	var targets []string
 	for _, u := range c.Manifest.Uses {
 		if !strings.HasPrefix(u.Target, "gpu:") {
 			continue
 		}
-		if _, ok := b.grantedRole(c.Path, u.Target); ok {
+		if _, ok := b.viewGrant(c, u.Target); ok {
 			targets = append(targets, u.Target)
 		}
 	}
@@ -34,9 +36,10 @@ const NetAdminCap = "cap:net-admin"
 
 // NetAdminFor reports whether a component holds the cap:net-admin grant — the
 // runner's NetCaps hook (wired in main.go). grantedRole applies the policy
-// ceiling, so an org/workspace `net` deny strips this too.
+// ceiling, so an org/workspace `net` deny strips this too; a non-primary
+// deployment's view holds it through its edge policy (viewGrant).
 func (b *Broker) NetAdminFor(c *registry.Component) bool {
-	_, ok := b.grantedRole(c.Path, NetAdminCap)
+	_, ok := b.viewGrant(c, NetAdminCap)
 	return ok
 }
 
@@ -53,9 +56,10 @@ const ContainersCap = "cap:containers"
 
 // ContainersFor reports whether a component holds the cap:containers grant —
 // the runner's ContainerCaps hook (wired in main.go). grantedRole applies the
-// policy ceiling.
+// policy ceiling; a non-primary deployment's view holds it through its edge
+// policy (viewGrant).
 func (b *Broker) ContainersFor(c *registry.Component) bool {
-	_, ok := b.grantedRole(c.Path, ContainersCap)
+	_, ok := b.viewGrant(c, ContainersCap)
 	return ok
 }
 

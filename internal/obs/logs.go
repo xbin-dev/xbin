@@ -4,15 +4,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/server"
-	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Backend log serving — the HTTP twin of `bx logs [-f]`, and what the
@@ -25,6 +22,10 @@ import (
 // /tile-status); or a human with TERMINAL-level access on the tile — logs are
 // the stdout/stderr of code that user could root-shell into anyway, while
 // read/write-level users don't get them (output can carry secrets).
+//
+// Each deployment of a tile has its own log (deploylogs.go): ?deployment=
+// names one, the default is the caller's bound deployment or the primary,
+// and a tile's frames and backend read only their own.
 
 const (
 	logTailDefault = int64(64 << 10)
@@ -46,7 +47,7 @@ func (o *Plane) canReadLogs(p auth.Principal, comp string) bool {
 	return p.Component == comp || p.CanTerminalTile(comp)
 }
 
-// apiLogs serves GET /logs?component=<path>[&tail=<bytes>][&follow=1].
+// apiLogs serves GET /logs?component=<path>[&deployment=<name>][&tail=<bytes>][&follow=1].
 // Plain text; follow streams chunked until the client goes away.
 func (o *Plane) apiLogs(w http.ResponseWriter, r *http.Request) {
 	comp := strings.Trim(r.URL.Query().Get("component"), "/")
@@ -54,10 +55,17 @@ func (o *Plane) apiLogs(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusNotFound, "no such component: "+comp)
 		return
 	}
-	if !o.canReadLogs(auth.PrincipalOf(r), comp) {
+	p := auth.PrincipalOf(r)
+	if !o.canReadLogs(p, comp) {
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{
 			"error": "backend logs need admin, the tile itself, or terminal-level access on it", "docs": "/docs/auth.md",
 		})
+		return
+	}
+	named := r.URL.Query().Get("deployment")
+	dep, code, err := o.logsDeployment(p, comp, named)
+	if err != nil {
+		server.WriteError(w, code, err.Error(), docsFor(code))
 		return
 	}
 	follow := r.URL.Query().Get("follow") == "1"
@@ -66,8 +74,8 @@ func (o *Plane) apiLogs(w http.ResponseWriter, r *http.Request) {
 		tail = min(t, logTailMax)
 	}
 
-	path := filepath.Join(o.Root, ".xbin", "log", util.CompKey(comp)+".log")
-	f, err := os.Open(path)
+	open := o.logOpener(comp, dep)
+	f, err := open()
 	if err != nil && !follow {
 		server.WriteError(w, http.StatusNotFound, "no logs yet — the backend hasn't started")
 		return
@@ -80,6 +88,9 @@ func (o *Plane) apiLogs(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
+	if named != "" || dep != o.primary(comp) { // the echo; absent means the primary's
+		w.Header().Set(deploymentHeader, dep)
+	}
 	fl, _ := w.(http.Flusher)
 	flush := func() {
 		if fl != nil {
@@ -123,7 +134,7 @@ func (o *Plane) apiLogs(w http.ResponseWriter, r *http.Request) {
 		case <-tick.C:
 		}
 		if f == nil {
-			nf, err := os.Open(path)
+			nf, err := open()
 			if err != nil {
 				continue // still no backend
 			}
