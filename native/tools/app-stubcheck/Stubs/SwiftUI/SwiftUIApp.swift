@@ -46,9 +46,6 @@ public protocol UIViewControllerRepresentable: View where Body == Never {
 extension UIViewControllerRepresentable where Coordinator == Void { public func makeCoordinator() {} }
 extension UIViewControllerRepresentable { public var body: Never { fatalError() } }
 
-extension AnyTransition {
-    public func combined(with other: AnyTransition) -> AnyTransition { self }
-}
 
 extension View {
     public func sheet<Item: Identifiable, Content: View>(item: Binding<Item?>, onDismiss: (() -> Void)? = nil,
@@ -160,7 +157,6 @@ extension View {
     public func textCase(_ textCase: Text.Case?) -> some View { _V(self) }
 }
 extension View {
-    public func accessibilityIdentifier(_ identifier: String) -> some View { _V(self) }
     public func accessibilityValue(_ value: Text) -> some View { _V(self) }
     public func accessibilityAction(_ handler: @escaping () -> Void) -> some View { _V(self) }
     public func symbolRenderingMode(_ mode: SymbolRenderingMode?) -> some View { _V(self) }

@@ -56,7 +56,7 @@ extension Color { static let xbinAmber = Color(uiColor: .systemOrange) }
     static var pushToStart: Bool { get { true } set {} }
     func start() {}
     func follow(_ feed: AgentSessionFeed, in w: WorkspaceModel, name: String = "") -> Task<Void, Never> { Task {} }
-    func observe(_ t: AgentTranscript, session: String, workspace: String, name: String = "") {}
+    func observe(_ t: AgentWindow, session: String, workspace: String, name: String = "") {}
     func endAll() {}
     func workspaceRemoved(_ id: String) {}
 }

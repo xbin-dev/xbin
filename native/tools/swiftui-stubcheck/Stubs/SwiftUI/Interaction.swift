@@ -41,6 +41,7 @@ extension Gesture {
 public struct AnyTransition: Sendable {
     public static let opacity = AnyTransition()
     public static func move(edge: Edge) -> AnyTransition { AnyTransition() }
+    public func combined(with other: AnyTransition) -> AnyTransition { self }
 }
 extension Animation {
     public static func snappy(duration: TimeInterval = 0.5, extraBounce: Double = 0) -> Animation { Animation() }

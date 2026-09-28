@@ -14,18 +14,73 @@ import Foundation
 public enum MarkdownLexer {
     /// The block tokens of `source`.
     public static func tokens(_ source: String) -> JSONValue {
-        let norm = source.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        .array(blocks(lines(source)[...]))
+    }
+
+    /// The source's lines as the lexer reads them (CR LF and CR normalized, no trailing empty line).
+    static func lines(_ source: String) -> [String] {
+        let norm = source.contains("\r") ? source.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n") : source
         var lines = norm.components(separatedBy: "\n")
         if lines.last == "" { lines.removeLast() }
-        return .array(blocks(lines[...]))
+        return lines
+    }
+
+    /// A text that grows at its end (an agent's reply as it streams):
+    /// re-lexes only from the last top-level block that starts on a line the
+    /// previous text had whole — every block before it ended on a line that
+    /// is unchanged, so it lexes the same. `update` equals `tokens` of the
+    /// whole text, always (MarkdownLexerTests streams the corpus through it).
+    public struct Incremental: Sendable {
+        /// The text last lexed.
+        public private(set) var text = ""
+        /// Its top-level tokens.
+        public private(set) var tokens: [JSONValue] = []
+        /// How many leading tokens the last update kept (a renderer's
+        /// per-token work before them still holds).
+        public private(set) var kept = 0
+        private var starts: [Int] = [] // the line each token starts on
+        private var complete = 0 // lines of `text` that are whole (ended by a newline)
+
+        public init() {}
+
+        /// The tokens of `new` (re-lexing only its tail when it extends the text).
+        public mutating func update(_ new: String) -> [JSONValue] {
+            if new == text {
+                kept = tokens.count
+                return tokens
+            }
+            let lines = MarkdownLexer.lines(new)
+            var from = 0 // the first token to lex again
+            if !text.isEmpty, new.hasPrefix(text), !new.contains("\r") {
+                from = starts.lastIndex { $0 < complete } ?? 0
+            }
+            let line = from < starts.count ? starts[from] : 0
+            var st = Array(starts.prefix(from))
+            var out = Array(tokens.prefix(from))
+            out += MarkdownLexer.blocks(lines[min(line, lines.count)...], starts: &st)
+            kept = from
+            tokens = out
+            starts = st
+            text = new
+            complete = new.hasSuffix("\n") ? lines.count : max(0, lines.count - 1)
+            return out
+        }
     }
 
     // MARK: Blocks
 
     static func blocks(_ lines: ArraySlice<String>) -> [JSONValue] {
+        var starts: [Int] = []
+        return blocks(lines, starts: &starts)
+    }
+
+    /// The blocks of `lines`; `starts` gets the line each one starts on.
+    static func blocks(_ lines: ArraySlice<String>, starts: inout [Int]) -> [JSONValue] {
         var out: [JSONValue] = []
         var i = lines.startIndex
         while i < lines.endIndex {
+            let start = i, before = out.count
+            defer { for _ in before..<out.count { starts.append(start) } }
             let line = lines[i]
             if isBlank(line) { i += 1; continue }
             if let fence = fenceOpen(line) {

@@ -55,6 +55,16 @@ public struct ScrollGeometry: Sendable {
     public var contentSize: CGSize
 }
 public struct ScrollAnchorRole: Sendable { public static let initialOffset = ScrollAnchorRole(), sizeChanges = ScrollAnchorRole(), alignment = ScrollAnchorRole() }
+public struct ScrollPosition: Sendable {
+    public init<ID: Hashable>(idType: ID.Type, edge: Edge) {}
+    public init<ID: Hashable>(idType: ID.Type) {}
+    public init(edge: Edge) {}
+    public mutating func scrollTo(edge: Edge) {}
+    public mutating func scrollTo(id: some Hashable & Sendable, anchor: UnitPoint? = nil) {}
+    public var viewID: (any Hashable & Sendable)? { nil }
+    public func viewID<T: Hashable>(type: T.Type) -> T? { nil }
+    public var isPositionedByUser: Bool { false }
+}
 
 // MARK: Modifiers (only the ones XbinRenderer uses)
 
@@ -117,6 +127,7 @@ extension View {
     public func accessibilityValue(_ value: LocalizedStringKey) -> some View { _V(self) }
     @_disfavoredOverload public func accessibilityValue<S: StringProtocol>(_ value: S) -> some View { _V(self) }
     public func accessibilityHidden(_ hidden: Bool) -> some View { _V(self) }
+    public func accessibilityIdentifier(_ identifier: String) -> some View { _V(self) }
     public func accessibilityElement(children: AccessibilityChildBehavior = .ignore) -> some View { _V(self) }
     public func accessibilityAddTraits(_ traits: AccessibilityTraits) -> some View { _V(self) }
     public func onAppear(perform action: (() -> Void)? = nil) -> some View { _V(self) }
@@ -151,6 +162,10 @@ extension View {
     public func defaultScrollAnchor(_ anchor: UnitPoint?) -> some View { _V(self) }
     public func defaultScrollAnchor(_ anchor: UnitPoint?, for role: ScrollAnchorRole) -> some View { _V(self) }
     public func onScrollGeometryChange<T: Equatable>(for type: T.Type, of transform: @escaping (ScrollGeometry) -> T, action: @escaping (_ oldValue: T, _ newValue: T) -> Void) -> some View { _V(self) }
+    public func scrollPosition(_ position: Binding<ScrollPosition>, anchor: UnitPoint? = nil) -> some View { _V(self) }
+    public func scrollTargetLayout(isEnabled: Bool = true) -> some View { _V(self) }
+    public func onScrollTargetVisibilityChange<ID: Hashable>(idType: ID.Type, threshold: Double = 0.5, _ action: @escaping ([ID]) -> Void) -> some View { _V(self) }
+    public func task(priority: TaskPriority = .userInitiated, @_inheritActorContext _ action: @escaping @Sendable () async -> Void) -> some View { _V(self) }
     public func gridColumnAlignment(_ guide: HorizontalAlignment) -> some View { _V(self) }
 }
 

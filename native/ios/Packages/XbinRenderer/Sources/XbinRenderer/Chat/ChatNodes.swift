@@ -7,8 +7,10 @@ import XbinRendererModel
 // XbinRendererModel → the public components, with events back to the tile.
 
 /// `transcript`: sticks to the bottom with `follow`; `more` when `older`
-/// scrolls into view; `scrolled {atBottom}`. Inside a tool card (a
-/// subagent) it is a plain column.
+/// scrolls into view (and again while it stays there); `scrolled
+/// {atBottom}`. The row at the top stays put while the tile adds or drops
+/// children above or below it (they are anchored by node identity, D130).
+/// Inside a tool card (a subagent) it is a plain column.
 struct TranscriptNodeView: View {
     let node: XbinNode
     @Environment(\.xbin) private var cx
@@ -17,6 +19,7 @@ struct TranscriptNodeView: View {
     var body: some View {
         let p = node.props
         TranscriptView(follow: p.bool("follow"), older: p.bool("older"), nested: placement == .toolcard,
+                       idType: ObjectIdentifier.self,
                        onMore: cx?.action(node, "more"),
                        onScrolled: cx?.action(node, "scrolled") { (atBottom: Bool) in ["atBottom": .bool(atBottom)] }) {
             ForEach(node.children) { NodeView(node: $0) }

@@ -8,26 +8,56 @@ import XbinRendererModel
 // app's own ACP agent screen (§13).
 
 /// A chat transcript: a lazy column that starts at (and, with `follow`,
-/// sticks to) the bottom. `older` + `onMore` loads earlier items when the
-/// top scrolls into view; `onScrolled` reports whether the reader is at the
-/// bottom. `nested` (a subagent inside a tool card) doesn't scroll itself.
-public struct TranscriptView<Content: View>: View {
+/// sticks to) the bottom. It holds what the reader looks at in place (D130):
+/// the rows are scroll targets identified by `ID` (the content's ForEach
+/// ids) and the scroll position follows the row at the top, so rows loaded
+/// above (`older` + `onMore`, a "more" row that asks again every half
+/// second while it is on screen) or unloaded above or below never move it;
+/// only at the bottom does it stick to the bottom as content grows.
+/// `newer` + `onNewer` is the same below (rows the host unloaded).
+/// `onScrolled` reports whether the reader is at the bottom, `onVisible` the
+/// ids on screen (for the host to unload far rows). Away from the bottom,
+/// `fresh` new rows (or rows unloaded below) show a "↓ N new — jump to
+/// latest" pill: it scrolls to the bottom and calls `onJump` (for the host
+/// to read the tail again when it had unloaded it). `nested` (a subagent
+/// inside a tool card) doesn't scroll itself.
+public struct TranscriptView<ID: Hashable & Sendable, Content: View>: View {
     public var follow: Bool
     public var older: Bool
+    public var newer: Bool
     public var nested: Bool
+    public var fresh: Int
     public var onMore: (@MainActor () -> Void)?
+    public var onNewer: (@MainActor () -> Void)?
     public var onScrolled: (@MainActor (Bool) -> Void)?
+    public var onVisible: (@MainActor ([ID]) -> Void)?
+    public var onJump: (@MainActor () -> Void)?
     let content: Content
 
-    public init(follow: Bool = true, older: Bool = false, nested: Bool = false,
-                onMore: (@MainActor () -> Void)? = nil, onScrolled: (@MainActor (Bool) -> Void)? = nil,
+    @State private var position: ScrollPosition
+    @State private var atBottom = true
+    /// The pill was tapped while rows below were unloaded: scroll to the
+    /// bottom again once the host brought them back.
+    @State private var jumping = false
+
+    public init(follow: Bool = true, older: Bool = false, newer: Bool = false, nested: Bool = false, fresh: Int = 0,
+                idType: ID.Type,
+                onMore: (@MainActor () -> Void)? = nil, onNewer: (@MainActor () -> Void)? = nil,
+                onScrolled: (@MainActor (Bool) -> Void)? = nil, onVisible: (@MainActor ([ID]) -> Void)? = nil,
+                onJump: (@MainActor () -> Void)? = nil,
                 @ViewBuilder content: () -> Content) {
         self.follow = follow
         self.older = older
+        self.newer = newer
         self.nested = nested
+        self.fresh = fresh
         self.onMore = onMore
+        self.onNewer = onNewer
         self.onScrolled = onScrolled
+        self.onVisible = onVisible
+        self.onJump = onJump
         self.content = content()
+        _position = State(initialValue: ScrollPosition(idType: ID.self, edge: follow ? .bottom : .top))
     }
 
     public var body: some View {
@@ -35,27 +65,101 @@ public struct TranscriptView<Content: View>: View {
             VStack(alignment: .leading, spacing: 10) { content }
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
-            let scrolled = onScrolled
+            let scrolled = onScrolled, visible = onVisible
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 14) {
-                    if older, let onMore {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
-                            .onAppear { onMore() }
-                    }
-                    content
+                // The more rows are not scroll targets: the position always
+                // names a row of the content.
+                VStack(alignment: .leading, spacing: 14) {
+                    if older, let onMore { MoreRow(label: "Loading earlier messages", action: onMore) }
+                    LazyVStack(alignment: .leading, spacing: 14) { content }
+                        .scrollTargetLayout()
+                    if newer, let onNewer { MoreRow(label: "Loading later messages", action: onNewer) }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
             }
+            .scrollPosition($position, anchor: .top)
             .defaultScrollAnchor(follow ? .bottom : .top)
-            .defaultScrollAnchor(follow ? .bottom : nil, for: .sizeChanges)
+            .defaultScrollAnchor(follow && atBottom ? .bottom : nil, for: .sizeChanges)
             .onScrollGeometryChange(for: Bool.self) { geo in
                 geo.contentOffset.y + geo.containerSize.height >= geo.contentSize.height - 32
-            } action: { _, atBottom in
-                scrolled?(atBottom)
+            } action: { _, bottom in
+                atBottom = bottom
+                scrolled?(bottom)
             }
+            .onScrollTargetVisibilityChange(idType: ID.self, threshold: 0.01) { ids in
+                visible?(ids)
+            }
+            .onChange(of: newer) { _, more in
+                if jumping, !more {
+                    jumping = false
+                    position.scrollTo(edge: .bottom)
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if follow, !atBottom, fresh > 0 || newer {
+                    JumpPill(fresh: fresh) {
+                        jumping = newer
+                        position.scrollTo(edge: .bottom)
+                        onJump?()
+                    }
+                    .padding(.bottom, 10)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.snappy, value: follow && !atBottom && (fresh > 0 || newer))
         }
+    }
+}
+
+extension TranscriptView where ID == String {
+    /// A transcript whose rows are identified by strings (or that has none to anchor on).
+    public init(follow: Bool = true, older: Bool = false, nested: Bool = false,
+                onMore: (@MainActor () -> Void)? = nil, onScrolled: (@MainActor (Bool) -> Void)? = nil,
+                @ViewBuilder content: () -> Content) {
+        self.init(follow: follow, older: older, nested: nested, idType: String.self, onMore: onMore, onScrolled: onScrolled,
+                  content: content)
+    }
+}
+
+/// The row that loads more while it is on screen: it asks at once and again
+/// every half second until it goes (the host ignores a request while one
+/// runs; a page that didn't fill the screen asks for the next).
+struct MoreRow: View {
+    let label: String
+    let action: @MainActor () -> Void
+
+    var body: some View {
+        ProgressView()
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 4)
+            .accessibilityLabel(label)
+            .accessibilityIdentifier("transcript-more")
+            .task {
+                while !Task.isCancelled {
+                    action()
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+            }
+    }
+}
+
+/// "↓ N new — jump to latest".
+struct JumpPill: View {
+    let fresh: Int
+    let action: @MainActor () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(fresh > 0 ? "\(fresh) new — jump to latest" : "Jump to latest", systemImage: "arrow.down")
+                .font(.footnote.weight(.semibold))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(.bar, in: Capsule())
+                .overlay(Capsule().strokeBorder(XbinColor.border))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("transcript-jump")
     }
 }
 
