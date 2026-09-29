@@ -16,13 +16,16 @@ package registry
 // workspace that never used partitions.
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -109,6 +112,12 @@ type PartitionAsk struct {
 	Requested *PartitionSpec
 	// Invalid says why Q is invalid; "" when it is valid or absent.
 	Invalid string
+	// Unread says why the primary's code manifest can't be read — an
+	// xbin.json that doesn't parse, a pinned checkpoint that isn't or can't
+	// be prepared: Q is unknown, not absent. The store holds a tile it has a
+	// record of (Invalid, nothing written) rather than read "no request": a
+	// typo or a store fault is never a switch request. "" when it was read.
+	Unread string
 }
 
 // PartitionMode is the mode store's answer for one tile.
@@ -116,12 +125,21 @@ type PartitionMode struct {
 	State    PartitionState
 	Recorded PartitionSpec     // R
 	Request  *PartitionRequest // Q when it differs from R (pending or declined); nil otherwise
+	// Err says why the store holds the tile Invalid when its request isn't
+	// the reason: its code can't be read (PartitionAsk.Unread), or its mode
+	// record can't be.
+	Err string
+	// Unknown: the mode record can't be read, so R is unknown — Recorded is
+	// the zero spec and means nothing (the state is Invalid).
+	Unknown bool
 }
 
 // partitionInfo is the settled partition state a component carries.
 type partitionInfo struct {
-	mode  PartitionMode
-	asked *PartitionSpec // Q as asked (nil: absent or invalid)
+	mode   PartitionMode
+	asked  *PartitionSpec // Q as asked (nil: absent or invalid)
+	unread string         // why the code's manifest can't be read (Rescan, composePinned)
+	detail string         // an invalid request's specifics, for managers (PartitionErrDetail)
 }
 
 // PartitionState answers c's settled state, its recorded mode R and the
@@ -141,6 +159,11 @@ func (c *Component) Partitioned() (PartitionSpec, bool) {
 	return c.partition.mode.Recorded, true
 }
 
+// PartitionRecordUnknown reports whether c's recorded mode can't be read
+// (its record is unreadable; c is Invalid): R is unknown, so every refusal
+// that R's user partitions would give applies — fail closed.
+func (c *Component) PartitionRecordUnknown() bool { return c.partition.mode.Unknown }
+
 // PartitionRequested is Q, what the primary's code asks: nil when it
 // doesn't, or asks for something invalid (PartitionErr says what).
 func (c *Component) PartitionRequested() *PartitionSpec { return c.partition.asked }
@@ -153,9 +176,25 @@ func (c *Component) PartitionShown() bool {
 	return m.State != PartitionUnpartitioned || m.Request != nil || c.PartitionErr != "" || c.partition.asked != nil
 }
 
-// PartitionedScope answers the recorded mode of scope's root tile when it
-// is Partitioned: the broker's namespace choice (01 §5). The workspace scope
-// and a scope no tile roots are never partitioned.
+// PartitionErrDetail is why c's request is invalid with the specifics
+// PartitionErr leaves out — the sibling tile that asks differently, the
+// grant it holds — for managers and admins (bx doctor, the Partitions
+// section); PartitionErr otherwise.
+func (c *Component) PartitionErrDetail() string {
+	if c.partition.detail != "" {
+		return "partition: " + c.partition.detail
+	}
+	return c.PartitionErr
+}
+
+// PartitionedScope answers the recorded mode R of scope's root tile when R
+// has user partitions: the broker's namespace choice (01 §5). The data
+// layout follows R, not the running state, so a root that is paused
+// (pending or invalid) still answers its R — a caller that must refuse
+// during a pause checks the root's PartitionState().Held() as well; a root
+// whose record can't be read is Invalid with R unknown and answers false
+// here. The workspace scope and a scope no tile roots are never
+// partitioned.
 func (r *Registry) PartitionedScope(scope string) (PartitionSpec, bool) {
 	if scope == "" {
 		return PartitionSpec{}, false
@@ -164,7 +203,10 @@ func (r *Registry) PartitionedScope(scope string) (PartitionSpec, bool) {
 	if !ok {
 		return PartitionSpec{}, false
 	}
-	return c.Partitioned()
+	if rec := c.partition.mode.Recorded; rec.User {
+		return rec, true
+	}
+	return PartitionSpec{}, false
 }
 
 // PartitionAsked reports whether any component asks for a partition mode,
@@ -252,14 +294,16 @@ func ParsePartition(p PartitionList) (*PartitionSpec, error) {
 
 // ValidatePartition checks m's partition request and the keys that ride on
 // it: the spec (nil when m asks for nothing), or why the request is
-// invalid. partitionMail and partitionNote are judged only beside a
-// request, so a manifest without "partition" is never an error here.
+// invalid. partitionNote is judged beside a request, partitionMail beside a
+// request with "global" only (the doorbell rings the global instance; 01
+// §1: without it the key is ignored), so a manifest without "partition" is
+// never an error here.
 func ValidatePartition(m Manifest) (*PartitionSpec, error) {
 	q, err := ParsePartition(m.Partition)
 	if err != nil || q == nil {
 		return nil, err
 	}
-	if mail := m.PartitionMail; mail != "" {
+	if mail := m.PartitionMail; mail != "" && q.Global {
 		u, perr := url.Parse(mail)
 		if perr != nil || !strings.HasPrefix(mail, "/") || strings.HasPrefix(mail, "//") ||
 			u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(mail, "?#") {
@@ -285,6 +329,14 @@ func PartitionRefusedTarget(target string) bool {
 	return false
 }
 
+// partitionRefusal is a structural refusal (01 §3) whose specifics name
+// more than the tile's own manifest and scope: Error is what every reader
+// of the tile sees (the components row, the 409); detail names the sibling
+// tile or the grant, for managers only (PartitionErrDetail, the log).
+type partitionRefusal struct{ msg, detail string }
+
+func (e *partitionRefusal) Error() string { return e.msg }
+
 // partitionStructure applies 01 §3's structural rules to c, which asks for
 // q: nil, or why the request is invalid. asked is every component's valid
 // request (absent ones missing), grants the workspace grant table.
@@ -303,7 +355,9 @@ func partitionStructure(c *Component, q PartitionSpec, asked map[string]*Partiti
 			continue
 		}
 		if PartitionRefusedTarget(g.Target) {
-			return fmt.Errorf("a partitioned tile can't hold %s (revoke the grant first)", g.Target)
+			return &partitionRefusal{
+				msg:    "the tile holds a grant a partitioned tile can't hold (xbin, xbin:*, cap:sandboxes, cap:net-admin or cap:containers): revoke it first",
+				detail: fmt.Sprintf("a partitioned tile can't hold %s (revoke the grant first)", g.Target)}
 		}
 		usesScope = usesScope || c.Scope != "" && strings.HasPrefix(g.Target, resPrefix)
 	}
@@ -324,8 +378,10 @@ func partitionStructure(c *Component, q PartitionSpec, asked map[string]*Partiti
 			continue
 		}
 		if oq := asked[rel]; oq == nil || *oq != q {
-			return fmt.Errorf("%s, in the same scope %s, asks for %s: every tile of a partitioned scope asks alike",
-				rel, c.Scope, SpecOf(oq))
+			return &partitionRefusal{
+				msg: fmt.Sprintf("another tile in the same scope %s asks for a different partition mode: every tile of a partitioned scope asks alike", c.Scope),
+				detail: fmt.Sprintf("%s, in the same scope %s, asks for %s: every tile of a partitioned scope asks alike",
+					rel, c.Scope, SpecOf(oq))}
 		}
 	}
 	if sm := scopes[c.Scope]; sm != nil {
@@ -345,14 +401,17 @@ func partitionStructure(c *Component, q PartitionSpec, asked map[string]*Partiti
 // settlePartitions judges every component's partition request — the value,
 // then the structural rules against the scan's other components, scopes and
 // grants — and settles each through the mode store (PartitionModes). An
-// invalid request is c's PartitionErr and part of its ManifestErr. Called by
-// Rescan before it publishes the scan, with no lock held (the hook may read
-// the registry).
+// invalid request, or a tile the store holds invalid (its code or its
+// record can't be read), is c's PartitionErr and part of its ManifestErr. A
+// component whose code manifest can't be read asks nothing it can be held
+// to: its request is unknown (PartitionAsk.Unread), never absent. Called by
+// Rescan before it publishes the scan, with no registry lock held (the hook
+// may read the registry) and under the scan's serialization.
 func (r *Registry) settlePartitions(comps map[string]*Component, scopes map[string]*ScopeManifest, ws WorkspaceManifest) {
 	asked := map[string]*PartitionSpec{}
 	errs := map[string]error{}
 	for rel, c := range comps {
-		if c.IsTemplate() {
+		if c.IsTemplate() || c.partition.unread != "" {
 			continue // a template's request waits for its instances (01 §3 rule 7)
 		}
 		q, err := ValidatePartition(c.Manifest)
@@ -363,30 +422,45 @@ func (r *Registry) settlePartitions(comps map[string]*Component, scopes map[stri
 			asked[rel] = q
 		}
 	}
+	invalid := map[string]string{}
 	for _, rel := range slices.Sorted(maps.Keys(comps)) {
 		c := comps[rel]
-		ask := PartitionAsk{Tile: rel, Scope: c.Scope, RootsScope: c.Scope != "" && c.Scope == rel}
+		ask := PartitionAsk{Tile: rel, Scope: c.Scope, RootsScope: c.Scope != "" && c.Scope == rel, Unread: c.partition.unread}
 		err := errs[rel]
 		if q := asked[rel]; q != nil && err == nil {
 			err = partitionStructure(c, *q, asked, comps, scopes, ws.Grants)
 		}
+		detail := ""
 		if err != nil {
 			ask.Invalid = err.Error()
-			c.PartitionErr = "partition: " + ask.Invalid
+			if pr := (*partitionRefusal)(nil); errors.As(err, &pr) {
+				detail = pr.detail
+			}
+		} else {
+			ask.Requested = asked[rel]
+		}
+		mode := r.partitionMode(ask)
+		why := ask.Invalid
+		if why == "" && mode.State == PartitionInvalid {
+			why = mode.Err
+		}
+		if why != "" {
+			c.PartitionErr = "partition: " + why
 			if c.ManifestErr != "" {
 				c.ManifestErr += "; "
 			}
 			c.ManifestErr += c.PartitionErr
-		} else {
-			ask.Requested = asked[rel]
+			invalid[rel] = cmp.Or(detail, why)
 		}
-		c.partition = partitionInfo{mode: r.partitionMode(ask), asked: ask.Requested}
+		c.partition = partitionInfo{mode: mode, asked: ask.Requested, unread: ask.Unread, detail: detail}
 	}
+	r.partScan.logInvalid(invalid)
 }
 
 // partitionMode asks the mode store about one tile. Without one (a registry
 // no broker wired) nothing is recorded, so a tile that asks for a mode waits
-// (pending) and one that asks for nothing is unpartitioned: fail closed.
+// (pending) and one that asks for nothing, or whose request can't be read,
+// is unpartitioned: fail closed.
 func (r *Registry) partitionMode(ask PartitionAsk) PartitionMode {
 	if r.PartitionModes != nil {
 		return r.PartitionModes(ask)
@@ -398,6 +472,35 @@ func (r *Registry) partitionMode(ask PartitionAsk) PartitionMode {
 		return PartitionMode{State: PartitionPending, Request: &PartitionRequest{Spec: ask.Requested}}
 	}
 	return PartitionMode{}
+}
+
+// partitionScan serializes Rescan: every scan settles partition modes and
+// the store records what it settles (history, an auto R := Q), so a slower,
+// older scan must never record — or publish — after a newer one. It also
+// remembers the invalid requests it logged.
+type partitionScan struct {
+	mu     sync.Mutex
+	logged map[string]string // tile → why its request is invalid, as last logged
+}
+
+// serialize takes the scan lock and answers its release.
+func (s *partitionScan) serialize() func() {
+	s.mu.Lock()
+	return s.mu.Unlock
+}
+
+// logInvalid warns once per tile whose partition request became invalid,
+// or whose reason changed — the operator learns why its backend stopped,
+// a pre-existing custom "partition" key of another shape included (docs/
+// compat.md rule 7) — with the specifics readers don't see. Called under
+// the scan lock.
+func (s *partitionScan) logInvalid(now map[string]string) {
+	for _, tile := range slices.Sorted(maps.Keys(now)) {
+		if why := now[tile]; s.logged[tile] != why {
+			slog.Warn("partitions: the tile's partition request is invalid; its backend doesn't run", "tile", tile, "why", why)
+		}
+	}
+	s.logged = now
 }
 
 // SharedMode is a scope.json resource's "shared" (PD-05, PD-45): in a

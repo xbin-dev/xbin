@@ -236,6 +236,10 @@ func composePinned(wt *Component, pc *PinnedCode, valid bool) *Component {
 		c.ManifestErr += keptNotice
 	}
 	c.Manifest = composeManifest(tile, pc.Manifest, pc.Manifest)
+	// The checkpoint's manifest unread (it doesn't parse, or the checkpoint
+	// isn't or can't be prepared): the code's partition request is unknown,
+	// not absent (partition.go).
+	c.partition.unread = pc.ManifestErr
 	return c
 }
 

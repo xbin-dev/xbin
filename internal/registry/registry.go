@@ -567,9 +567,10 @@ type Registry struct {
 	components map[string]*Component
 	scopes     map[string]*ScopeManifest // scope path → manifest
 	workspace  WorkspaceManifest
-	keys       scopeKeys // who holds each scope data key (scopekeys.go)
-	wsBadRes   string    // invalid workspace resource names last warned about (resnames.go)
-	views      viewCache // deployment views and the checkpoints they read (deployview.go)
+	keys       scopeKeys     // who holds each scope data key (scopekeys.go)
+	wsBadRes   string        // invalid workspace resource names last warned about (resnames.go)
+	views      viewCache     // deployment views and the checkpoints they read (deployview.go)
+	partScan   partitionScan // serializes Rescan; what it logged (partition.go)
 }
 
 func Open(root string) (*Registry, error) {
@@ -583,6 +584,7 @@ func Open(root string) (*Registry, error) {
 // Rescan walks the workspace and rebuilds the component/scope tables. It is
 // cheap (directory metadata only) and called on debounced file changes.
 func (r *Registry) Rescan() error {
+	defer r.partScan.serialize()() // one scan at a time: each settles partition modes (partition.go)
 	comps := map[string]*Component{}
 	scopes := map[string]*ScopeManifest{}
 	pinned := map[string]*PinnedCode{} // tiles whose primary is pinned (deployview.go)
@@ -624,7 +626,7 @@ func (r *Registry) Rescan() error {
 			perr := jsonc.Unmarshal(b, &c.Manifest)
 			parsed = perr == nil
 			if perr != nil {
-				c.ManifestErr = perr.Error()
+				c.ManifestErr, c.partition.unread = perr.Error(), "its xbin.json doesn't parse"
 			} else if err := ValidateRuntime(c.Manifest); err != nil {
 				// A removed runtime: files still serve, the backend never runs.
 				c.ManifestErr = err.Error()

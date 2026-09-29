@@ -33,10 +33,12 @@ func TestValidatePartition(t *testing.T) {
 		{`{"partition": true}`, nil, "must be a list"},
 		{`{"partition": {"user": true}}`, nil, "must be a list"},
 		{`{"partition": [1]}`, nil, "must be a list"},
-		{`{"partition": ["user"], "partitionMail": "/mailbox"}`, user, ""},
-		{`{"partition": ["user"], "partitionMail": "mailbox"}`, nil, "absolute path"},
-		{`{"partition": ["user"], "partitionMail": "/mailbox?x=1"}`, nil, "without a query"},
-		{`{"partition": ["user"], "partitionMail": "//host/x"}`, nil, "absolute path"},
+		{`{"partition": ["user", "global"], "partitionMail": "/mailbox"}`, both, ""},
+		{`{"partition": ["user", "global"], "partitionMail": "mailbox"}`, nil, "absolute path"},
+		{`{"partition": ["user", "global"], "partitionMail": "/mailbox?x=1"}`, nil, "without a query"},
+		{`{"partition": ["user", "global"], "partitionMail": "//host/x"}`, nil, "absolute path"},
+		// the doorbell rings the global instance: without it the key is ignored (01 §1)
+		{`{"partition": ["user"], "partitionMail": "mailbox?x=1"}`, user, ""},
 		{`{"partitionMail": "not-judged-without-a-request"}`, nil, ""},
 		{`{"partition": ["user"], "partitionNote": "` + strings.Repeat("é", 280) + `"}`, user, ""},
 		{`{"partition": ["user"], "partitionNote": "` + strings.Repeat("x", 281) + `"}`, nil, "over 280"},
@@ -147,14 +149,24 @@ func TestPartitionScopeSiblings(t *testing.T) {
 		"apps/d/nested/scope.json": `{}`,
 		"apps/d/nested/xbin.json":  `{"runtime":"go"}`,
 	})
+	// Every reader of the tile sees that another tile of its scope asks
+	// differently; which one, only managers (PartitionErrDetail).
 	for rel, want := range map[string]string{
 		"apps/a": "apps/a/sub, in the same scope apps/a, asks for unpartitioned",
 		"apps/b": "", "apps/b/sub": "",
 		"apps/c": "apps/c/sub, in the same scope apps/c, asks for user", "apps/c/sub": "apps/c, in the same scope apps/c, asks for user + global",
 		"apps/d": "", // a nested scope is its own
 	} {
-		if e := partErr(t, r, rel); want == "" && e != "" || want != "" && !strings.Contains(e, want) {
-			t.Errorf("%s: %q, want %q", rel, e, want)
+		c, _ := r.Component(rel)
+		e, detail := c.PartitionErr, c.PartitionErrDetail()
+		switch {
+		case want == "" && (e != "" || detail != ""):
+			t.Errorf("%s: %q, want a valid request", rel, e)
+		case want == "":
+		case !strings.Contains(detail, want):
+			t.Errorf("%s: detail %q, want %q", rel, detail, want)
+		case !strings.Contains(e, "another tile in the same scope") || strings.Contains(e, rel+"/sub,") || strings.Contains(c.ManifestErr, "/sub,"):
+			t.Errorf("%s: the reader's text names the sibling: %q / %q", rel, e, c.ManifestErr)
 		}
 	}
 }
@@ -183,7 +195,7 @@ func TestPartitionStructuralRefusals(t *testing.T) {
 	for rel, want := range map[string]string{
 		"apps/chrome": "chrome", "apps/vm": "vm backend", "apps/novm": "",
 		"apps/gov": "can't use xbin:users", "apps/sbx": "can't use cap:sandboxes", "apps/ctr": "can't use cap:containers",
-		"apps/held": "can't hold cap:net-admin", "apps/sq": "sqlite resource can't be shared read-only",
+		"apps/held": "holds a grant a partitioned tile can't hold", "apps/sq": "sqlite resource can't be shared read-only",
 		"apps/odd": `shared must be true or "read"`, "apps/ok": "",
 		"apps/plain": "", // shared in a scope nobody partitions: ignored, even an unknown value
 	} {
@@ -194,6 +206,11 @@ func TestPartitionStructuralRefusals(t *testing.T) {
 	plain, _ := r.Component("apps/plain")
 	if plain.ManifestErr != "" || plain.PartitionShown() {
 		t.Errorf("an unpartitioned tile carries partition state: %q", plain.ManifestErr)
+	}
+	// The grant a tile holds is named to managers only.
+	held, _ := r.Component("apps/held")
+	if strings.Contains(held.PartitionErr, "can't hold cap:net-admin") || !strings.Contains(held.PartitionErrDetail(), "can't hold cap:net-admin") {
+		t.Errorf("apps/held: %q / detail %q", held.PartitionErr, held.PartitionErrDetail())
 	}
 }
 
@@ -255,5 +272,66 @@ func TestPartitionZeroState(t *testing.T) {
 	}
 	if plain.PartitionAsked() {
 		t.Error("PartitionAsked on a zero-state workspace")
+	}
+}
+
+// PD-44 — a component whose code manifest can't be read (an xbin.json that
+// doesn't parse, even one that half-parses with a "partition"; a pinned
+// checkpoint that isn't prepared) asks the store with Unread and no request:
+// its request is unknown, never absent. The store's Invalid answer is the
+// tile's PartitionErr; without a store it is the zero state.
+func TestPartitionUnreadCode(t *testing.T) {
+	root := t.TempDir()
+	writeTree(t, root, map[string]string{
+		"apps/syn/xbin.json":  `{"runtime":"go","partition":["user"]`,
+		"apps/half/xbin.json": `{"runtime":5,"partition":["user"]}`,
+		"apps/pin/xbin.json":  `{"runtime":"go","partition":["user"]}`,
+		"apps/ok/xbin.json":   `{"runtime":"go","partition":["user"]}`,
+	})
+	asks := map[string]PartitionAsk{}
+	r := &Registry{Root: root,
+		PinnedPrimary: func(rel string) (*PinnedCode, bool) {
+			if rel != "apps/pin" {
+				return nil, false
+			}
+			return &PinnedCode{ManifestErr: "apps/pin: the primary (main) is pinned to checkpoint 0123, which isn't prepared"}, true
+		},
+		PartitionModes: func(a PartitionAsk) PartitionMode {
+			asks[a.Tile] = a
+			if a.Unread != "" {
+				return PartitionMode{State: PartitionInvalid, Recorded: PartitionSpec{User: true}, Err: "the code's partition request can't be read"}
+			}
+			return PartitionMode{State: PartitionPartitioned, Recorded: PartitionSpec{User: true}}
+		}}
+	if err := r.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	for rel, want := range map[string]string{"apps/syn": "doesn't parse", "apps/half": "doesn't parse", "apps/pin": "isn't prepared", "apps/ok": ""} {
+		a := asks[rel]
+		if a.Requested != nil && want != "" || !strings.Contains(a.Unread, want) || want == "" && a.Unread != "" {
+			t.Errorf("%s asked %+v, want unread %q and no request", rel, a, want)
+		}
+		c, _ := r.Component(rel)
+		st, _, _ := c.PartitionState()
+		if want != "" && (st != PartitionInvalid || !strings.Contains(c.PartitionErr, "can't be read") || !strings.Contains(c.ManifestErr, c.PartitionErr)) {
+			t.Errorf("%s: %v %q / %q, want invalid", rel, st, c.PartitionErr, c.ManifestErr)
+		}
+	}
+	// A pending (or invalid) root with R = user is still a partitioned
+	// scope: the data layout follows R.
+	r.PartitionModes = func(a PartitionAsk) PartitionMode {
+		return PartitionMode{State: PartitionPending, Recorded: PartitionSpec{User: true}, Request: &PartitionRequest{}}
+	}
+	writeTree(t, root, map[string]string{"apps/ok/scope.json": `{}`})
+	if err := r.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	if spec, ok := r.PartitionedScope("apps/ok"); !ok || spec != (PartitionSpec{User: true}) {
+		t.Errorf("a pending root with R = user: %v %v, want a partitioned scope", spec, ok)
+	}
+	// No store: an unread manifest is the zero state.
+	plain := partitionReg(t, map[string]string{"apps/syn/xbin.json": `{"runtime":"go","partition":["user"]`})
+	if c, _ := plain.Component("apps/syn"); c.PartitionShown() {
+		t.Errorf("without a store an unread manifest carries partition state: %q", c.PartitionErr)
 	}
 }
