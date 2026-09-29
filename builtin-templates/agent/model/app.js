@@ -39,6 +39,8 @@ import { HOME } from './home.js';
 import * as classes from './classes.js';
 import { createSandboxStore } from './sandbox-store.js';
 import { createHarnessStore } from './harness-store.js';
+import { resolveClass } from './harness.js';
+import { wireStart } from './harness-start.js';
 
 /**
  * createApp builds the model.
@@ -92,6 +94,10 @@ export function createApp(opts = {}) {
     // toolset: the lane of your class for new asks ('private' | 'web') — what
     // the tool mode was before classes, and what older code reads.
     get toolset() { return classes.laneOf(classes.find(app.classes, app.classId)); },
+    // newClassId: the class a new ask starts in — yours, or while a coding
+    // agent answers new chats (app.harness), the class it resolves to: yours
+    // if it allows it, else the first you may use that does (D-harness §4.2.3).
+    newClassId() { const h = app.harness.picked(); return (h && resolveClass(h, app.classId)) || app.classId; },
 
     // uploadTarget is where an app that uploads a picked file itself puts it
     // ({method, path}, {name} its name): into the open run, or at home into
@@ -367,7 +373,7 @@ export function createApp(opts = {}) {
   // default) — and its sandbox, while the ask's class has the sandbox toolset
   // (D115; app.sbx.pick). No class read yet: no sandbox. A coding agent
   // picked to answer (app.harness) goes with it, and the model is its option.
-  const picked = (cls = app.classId) => {
+  const picked = (cls = app.newClassId()) => {
     const h = app.harness.askPart();
     return { ...(app.model && !h.harness ? { model: app.model } : {}), ...(cls ? app.sbx.askPart(cls) : {}), ...h };
   };
@@ -379,7 +385,7 @@ export function createApp(opts = {}) {
   // classOf: a new ask's class (yours, unless the form named one) and, beside
   // it, its lane as the legacy toolset; nothing before the classes are read
   // (the backend then gives the caller's default).
-  const classOf = (id = app.classId) => {
+  const classOf = (id = app.newClassId()) => {
     const c = classes.find(app.classes, id);
     return c ? { class: c.id, toolset: classes.laneOf(c) } : {};
   };
@@ -397,6 +403,7 @@ export function createApp(opts = {}) {
   app.sbx = createSandboxStore(app);
   // coding harnesses (D-harness): the catalog, your picks and settings, a harness run's calls
   app.harness = createHarnessStore(app);
+  wireStart(app); // …and the sandbox a new chat with one starts in (model/harness-start.js)
   app.session.ui.act.select = (id) => app.select(id);
   app.session.ui.me = () => app.me.user;
   app.session.ui.who = () => app.me;

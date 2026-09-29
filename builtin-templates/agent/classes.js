@@ -30,12 +30,14 @@ export function makeClassPicker(app, host) {
   function paint(view) {
     v = view;
     const p = C.classPicker(v, app.classes, app.classId);
-    if (!p.shown) open = false;
-    host.hidden = !p.shown;
+    // a coding agent answering new chats resolves the class itself (D-harness; model/app.js newClassId)
+    const shown = p.shown && !app.harness.picked();
+    if (!shown) open = false;
+    host.hidden = !shown;
     // the menu opens above the button, kept inside the window
     const w = Math.min(340, innerWidth - 16);
     const left = open ? Math.min(0, innerWidth - 8 - w - host.getBoundingClientRect().left) : 0;
-    render(p.shown ? pickerTpl(p, open, act, `width:${w}px;left:${left}px`) : nothing, host);
+    render(shown ? pickerTpl(p, open, act, `width:${w}px;left:${left}px`) : nothing, host);
   }
   return { paint, get open() { return open; }, close: () => { if (open) act.close(); } };
 }

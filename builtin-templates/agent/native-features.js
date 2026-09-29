@@ -13,7 +13,7 @@ export const IMPLEMENTS = {
 
   // Conversations
   'conv.new': 'native/convs.js — the drawer\'s New chat row',
-  'conv.newOptions': 'native/convs.js — newChatSheet (the class: native/classes.js classSectionTpl)',
+  'conv.newOptions': 'native/convs.js — newChatSheet (the class: native/classes.js classSectionTpl; who answers and its sandbox: native/harness-start.js newChat)',
   'conv.search': 'native/convs.js — the drawer screen\'s search → ConvList.search',
   'conv.search.snippets': 'native/convs.js — rowTpl subtitle (r.match.snippet)',
   'conv.search.join': 'native/convs.js — search → app.join',
@@ -22,6 +22,7 @@ export const IMPLEMENTS = {
   'conv.unread': 'native/convs.js — the accent dot; model/app.js reads the one you look at',
   'conv.shared': 'native/convs.js — the chips in the subtitle (rowShared)',
   'conv.status': 'native/convs.js — the row badge (rowGlyph)',
+  'conv.kind': 'native/convs.js — the row\'s subtitle starts with its name (model/harness-start.js kindOf)',
   'conv.more': 'native/convs.js — the list\'s more',
   'conv.live': 'model/conv-list.js — apply(ev)',
   'conv.rename': 'native/convs.js — renameSheet (row action; the chat menu\'s Rename…)',
@@ -74,6 +75,7 @@ export const IMPLEMENTS = {
   'composer.disabled': 'native/chat.js — composerTpl (model/rules.js composer)',
   'composer.class': 'native/classes.js classPickerTpl — the Class picker in the home toolbar (the app\'s composer holds buttons only)',
   'composer.sandbox': 'native/sandboxes.js sandboxPickerTpl — the Sandbox picker in the chat and home toolbars, beside the model (a row you may not use is marked, and picking it says why; ＋ New and Manage… push the Sandboxes screens)',
+  'composer.agent': 'native/harness-start.js — the Who answers picker in the home toolbar (an unavailable one is marked; picking it says why); native/classes.js and native/home.js hide the Class and Model pickers',
   'composer.model': 'native/chat.js modelPickerTpl — the Model picker in the chat and home toolbars (the app\'s composer holds buttons only)',
   'composer.attach': 'native/chat.js — composer upload (the app picks and uploads)',
   'composer.heldAsk': 'native/chat.js — at home the composer uploads into the new ask\'s draft (app.uploadTarget: PUT /ask/upload?draft=); model/app.js — send sends the draft (POST /ask {draft, files})',
@@ -92,6 +94,7 @@ export const IMPLEMENTS = {
   'top.model': 'native/chat.js — ✦ in the subtitle',
   'top.task': 'native/chat.js — runMenu Task (rules.topBar task) → native/tools.js taskTpl: every request, read-only (actions.asks)',
   'top.sandbox': 'native/chat.js — ▣ in the subtitle (badgeWords), a notice when the binding no longer resolves (brokenTpl), runMenu → native/sandboxes.js boxTpl: the working directory, the attached ones, Detach, Manage…',
+  'top.harness': 'native/harness-start.js — a badge in the toolbar (model/harness-start.js topChip)',
   'top.status': 'native/chat.js — the subtitle',
   'top.viewOnly': 'native/chat.js — the subtitle',
   'top.retry': 'native/chat.js — runMenu and the composer\'s Retry chip',
@@ -182,4 +185,7 @@ export const IMPLEMENTS = {
 
   // Needs you, beyond the tile
   'needs.push': '_backend/needs_push.go — a question, an approval or a failed automation run is pushed to who may act on it (POST /api/xbin/notify, link #c=<run>); native.js — the app opens the link: app.follow',
+
+  // Coding agents (D-harness)
+  'harness.start': 'native/harness-start.js — homeSetupTpl in native/home.js (model/harness-start.js startOf, setupOf; keepSandbox, wired by model/app.js)',
 };

@@ -12,7 +12,7 @@ export const IMPLEMENTS = {
 
   // Conversations
   'conv.new': 'agent.js — #new',
-  'conv.newOptions': 'agent.js — #newdlg (the class: classes.js classOptionsTpl)',
+  'conv.newOptions': 'agent.js — #newdlg (the class: classes.js classOptionsTpl; who answers and its sandbox: harness-start.js #n-agent, #n-sandbox)',
   'conv.search': 'agent.js — #csearch → ConvList.search',
   'conv.search.snippets': 'sidebar.js — .snip',
   'conv.search.join': 'agent.js — #csearch → app.join',
@@ -21,6 +21,7 @@ export const IMPLEMENTS = {
   'conv.unread': 'sidebar.js — .unread; model/app.js reads the one you look at',
   'conv.shared': 'sidebar.js — .chips (rowShared)',
   'conv.status': 'sidebar.js — rowGlyph',
+  'conv.kind': 'sidebar.js — .kind (model/harness-start.js kindOf)',
   'conv.more': 'sidebar.js — .more',
   'conv.live': 'model/conv-list.js — apply(ev)',
   'conv.rename': 'sidebar.js — inline rename',
@@ -76,6 +77,7 @@ export const IMPLEMENTS = {
   'composer.class': 'classes.js — makeClassPicker: #tset opens .clsmenu (model/classes.js classPicker → app.pickClass)',
   'composer.model': 'agent.js — #msel (rules.modelPicker → app.pickModel)',
   'composer.sandbox': 'sandboxes.js — makeSandboxUI: #ssel (model/sandboxes.js sandboxPicker → app.sbx.choose; ＋ New / Manage… open #sbxdlg)',
+  'composer.agent': 'harness-start.js — #apick: #abtn opens its menu (model/harness-start.js agentPicker → chooseAgent); classes.js hides #cpick',
   'composer.attach': 'agent.js — #clip',
   'composer.attach.paste': 'agent.js — paste',
   'composer.attach.drop': 'agent.js — drop on #main',
@@ -93,6 +95,7 @@ export const IMPLEMENTS = {
   'top.model': 'agent.js — topTpl ✦ badge',
   'top.task': 'agent.js — taskTpl: .taskpin under the controls, the latest request (rules.pinnedTask), unfolding to the ledger (actions.asks)',
   'top.sandbox': 'sandboxes.js — badgeTpl #sbxbadge and its popover #sbxpop: #sbx-cwd, .sbxatt, #sbx-detach, #sbx-manage (model/sandboxes.js sandboxBadge)',
+  'top.harness': 'harness-start.js — #hchip (model/harness-start.js topChip)',
   'top.status': 'agent.js — topTpl',
   'top.viewOnly': 'agent.js — topTpl',
   'top.retry': 'agent.js — topTpl',
@@ -182,4 +185,7 @@ export const IMPLEMENTS = {
   'link.conv': 'agent.js — followHash (model/router.js)',
   'link.auto': 'agent.js — followHash (model/router.js)',
   'link.join': 'agent.js — followHash (model/router.js)',
+
+  // Coding agents (D-harness)
+  'harness.start': 'harness-start.js — the setup card #hsetup (model/harness-start.js startOf, setupOf; keepSandbox, wired by model/app.js)',
 };

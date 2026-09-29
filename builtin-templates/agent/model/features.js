@@ -21,6 +21,7 @@ export const AREAS = {
   state: 'States the whole tile can be in',
   link: 'Deep links',
   needs: 'Needs you — beyond the tile',
+  harness: 'Coding agents — a conversation with Claude Code, Codex, Gemini or opencode in a coding sandbox',
 };
 
 export const FEATURES = {
@@ -32,7 +33,7 @@ export const FEATURES = {
 
   // Conversations
   'conv.new': 'New chat (home, the composer focused)',
-  'conv.newOptions': 'new chat with options: first message, class, title, instructions',
+  'conv.newOptions': 'new chat with options: first message, who answers (the built-in agent or a coding agent, and the sandbox it starts in — its class resolves, instructions are the built-in agent\'s), class, title, instructions',
   'conv.search': 'search conversations (?q=)',
   'conv.search.snippets': 'search results show the matching line',
   'conv.search.join': 'pasting a #join= link into search joins that conversation',
@@ -41,6 +42,7 @@ export const FEATURES = {
   'conv.unread': 'unread conversations stand out; looking at one marks it read',
   'conv.shared': 'a shared row says how, as chips: from whom (someone else\'s), the team (to read or to write), how many people',
   'conv.status': 'status glyphs: ? waiting for you, ! failed, a spinner while it works',
+  'conv.kind': 'a conversation a coding agent answers says which (D-harness): its monogram (CC, CX, GM, OC) — its name on the app',
   'conv.more': 'paging: "more" at the end of the list',
   'conv.live': 'the list stays current from the stream: new rows, status, pins, revocations, deletions',
   'conv.rename': 'rename (owner)',
@@ -96,6 +98,7 @@ export const FEATURES = {
   'composer.class': 'the class for new chats (D116): icon and name, each one\'s description in its menu, only the classes you may use (GET /classes); your last pick is your default',
   'composer.model': 'the model: any bound provider\'s, grouped by provider — the open conversation\'s from its next turn, or the next new chat\'s; your last pick is your default',
   'composer.sandbox': 'the coding sandbox (D115), beside the model — only where the class (the conversation\'s, or the new chat\'s) has the sandbox toolset: grouped This conversation · Yours · Shared · Team, ones you may not use or the class does not allow disabled with the reason, ＋ New and Manage…; a pick binds it from the next turn (at home: the new chat starts in it)',
+  'composer.agent': 'who answers new chats (D-harness): the built-in agent or a coding agent (GET /harnesses) with its monogram — one not available there, disabled with the reason; picking a coding agent hides the class (it resolves to one you may use that allows it) and the built-in model, and keeps the sandbox picker to sandboxes whose image has it with internet; your last pick is your default (prefs/agent)',
   'composer.attach': 'attach files (a picker)',
   'composer.attach.paste': 'paste an image to attach it',
   'composer.attach.drop': 'drop files on the chat to attach them',
@@ -115,6 +118,7 @@ export const FEATURES = {
   'top.model': 'the model it was switched to, when one was picked',
   'top.task': 'its task, pinned (D133): the current request — the latest it was given — verbatim, and how many others there are — opening to every request it was given (GET /runs/{id}/asks), read-only',
   'top.sandbox': '▣ its sandbox and working directory, and why a binding no longer resolves (gone, its manager unbound or down, its class no longer allows it); opens the working directory, switching among the attached ones, Detach, Manage…',
+  'top.harness': 'a coding agent\'s conversation: which one, its state, and — its sandbox being shared — that the people who may use it can read what it does',
   'top.status': 'its status',
   'top.viewOnly': 'view only, when shared with you to read',
   'top.retry': 'Retry, when the run failed or was cancelled',
@@ -207,6 +211,9 @@ export const FEATURES = {
 
   // Needs you, beyond the tile
   'needs.push': 'a question, an approval or a failed automation reaches your phone (the backend pushes it; tapping it opens the conversation)',
+
+  // Coding agents (D-harness)
+  'harness.start': 'starting one: the sandbox it starts in — the one you last used with it (prefs/harness-sandbox), else one it fits — and a setup card when none fits (Create, filled in for it) or it isn\'t signed in there; a running sandbox it wasn\'t looked for in is checked; the ask carries harness {provider, options} and the sandbox — the mode is the person\'s setting',
 };
 
 // DIFFERENCES: keys a view does not implement ON PURPOSE, with the reason.

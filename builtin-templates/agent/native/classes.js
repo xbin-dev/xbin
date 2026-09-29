@@ -14,14 +14,17 @@ import { ctx, push, ui } from './ui.js';
 export function classPickerTpl() {
   const app = ctx.app;
   const p = C.classPicker(null, app.classes, app.classId);
-  if (!p.shown) return nothing;
+  if (!p.shown || app.harness.picked()) return nothing; // a coding agent resolves its class (D-harness; model/app.js newClassId)
   return html`<picker label="Class" style="menu" value=${p.value}
     options=${p.rows.map((r) => ({ value: r.value, label: r.mixed ? `${r.name} ⚠` : r.name, icon: r.nativeIcon }))}
     @change=${(e) => app.pickClass(e.value)}/>`;
 }
 
-// classSectionTpl: the new-chat sheet's class (f.class), with what it is for.
+// classSectionTpl: the new-chat sheet's class (f.class), with what it is for
+// — none while a coding agent answers it (f.agent, native/harness-start.js):
+// its class resolves.
 export function classSectionTpl(f) {
+  if (f.agent && f.agent !== 'agent' && ctx.app.harness.find(f.agent)?.available) return nothing;
   const rows = C.pickerRows(ctx.app.classes, f.class);
   const cur = rows.find((r) => r.on);
   const footer = [cur && cur.description, cur && cur.mixed ? `⚠ It ${C.MIXED}.` : '', 'Fixed for the conversation once it starts.'].filter(Boolean).join(' ');

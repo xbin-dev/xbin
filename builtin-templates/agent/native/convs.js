@@ -11,6 +11,7 @@ import { rowGlyph, rowShared, rowMenu } from '../model/rules.js';
 import { summaryCount } from '../model/auto.js';
 import { mainMenu } from './home.js';
 import { classSectionTpl } from './classes.js';
+import { kindOf } from '../model/harness-start.js';
 
 const GLYPH = { ask: ['waiting for you', 'accent'], error: ['failed', 'danger'], spin: ['working', 'muted'] };
 const SCOPES = [{ value: 'mine', label: 'Mine' }, { value: 'shared', label: 'Shared' }, { value: 'archived', label: 'Archived' }];
@@ -83,7 +84,8 @@ function rowTpl(r, withMatch) {
   const app = ctx.app;
   const g = GLYPH[rowGlyph(r)];
   const shared = rowShared(r);
-  const sub = withMatch && r.match ? r.match.snippet : shared ? `👥 ${shared.chips.map((c) => c.label).join(' · ')}` : '';
+  const kind = kindOf(r); // a coding agent answers it (D-harness): its name first
+  const sub = [kind ? kind.name : '', withMatch && r.match ? r.match.snippet : shared ? `👥 ${shared.chips.map((c) => c.label).join(' · ')}` : ''].filter(Boolean).join(' · ');
   const sel = app.root === r.id;
   return html`<row title=${r.title || 'run ' + r.id} subtitle=${sub || nothing}
       badge=${g ? g[0] : nothing} tone=${g ? g[1] : r.unread ? 'accent' : nothing} ?selected=${sel}

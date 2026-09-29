@@ -8,6 +8,7 @@
 // without touching each other's lines).
 
 // U2 start a conversation
+import './harness-start.js';
 
 // U3 the transcript
 

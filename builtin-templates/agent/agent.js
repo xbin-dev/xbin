@@ -85,6 +85,7 @@ const classPicker = makeClassPicker(app, $('cpick'));
 // The coding sandbox (D115): #ssel beside the model, the top bar's ▣, the Sandboxes dialog.
 const ports = makePorts(app, { openLive: (det) => openLive(det), repaint: () => paint() }); // the popover's Ports section
 const sbxUI = makeSandboxUI(app, { sel: $('ssel'), dlg: $('sbxdlg'), repaint: () => paint(), popExtra: ports.tpl });
+extCtx.sbxUI = sbxUI; // the seams' modules open its dialog (harness-start.js: Create, prefilled)
 let models = [];         // model references from GET /models ({data:[{ref, id, provider}]})
 let cfgCache = null;     // last GET /config
 let settingsOpen = false;
